@@ -20,13 +20,13 @@ use ultragraphdb_core_tok::get_tokenizer;
 use ultragraphdb_store_apply::{Applied, ChangesetApplier, ChangesetErrorEnum};
 use ultragraphdb_store_posting::{Lists, ListsConfig, PostingError};
 use ultragraphdb_store_sim::{Fault, LogCapture, Seed, SimListCache, SteppedExecutor, Stream};
-use ultragraphdb_traits_store::{PersistMode, Store};
+use ultragraphdb_traits_store::PersistMode;
 
 use crate::Steps;
 use crate::changeset_steps::{cs, is_held, last};
 use crate::utils::changesets::{
-    NS, TestChangesets, apply, changesets_over, declare, declared, ex, exact_token, finish_builds,
-    indexed, insert, stored_keys, term_token, uid, write,
+    NS, TestChangesets, apply, declare, declared, ex, exact_token, finish_builds,
+    holds_catalog_key, indexed, insert, stored_keys, term_token, uid, write,
 };
 use crate::utils::probe::Probe;
 use ultragraphdb_tool_bdd::{Context, TestResult};
@@ -62,11 +62,11 @@ fn listed(
     indexed(a, predicate, &token)
 }
 
-/// The catalog of `namespace` as the store holds it at the newest timestamp.
+/// The catalog of `namespace` the partition holds in memory, the store holding no catalog key: the catalog lives in the
+/// metadata group.
 fn stored_catalog(a: &TestChangesets, namespace: u64) -> TestResult<Catalog> {
-    let latest = a.quads().lists().applied_ts();
-    let snapshot = a.quads().store().snapshot(latest).context("a snapshot")?;
-    Catalog::load(&snapshot, namespace).context("the catalog loads")
+    assert!(!holds_catalog_key(a), "no partition holds a catalog key");
+    Ok((*a.catalog(namespace).context("the catalog")?).clone())
 }
 
 /// The keys the store holds of `namespace`, by keyspace: its catalog's, and every quad keyspace's.
@@ -477,7 +477,7 @@ fn data_gone_catalog_kept(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[when("everything in namespace 3 is dropped and the store is reopened")]
+#[when("everything in namespace 3 is dropped and the roles are restarted")]
 fn namespace_three_dropped(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
     write(&a, &["<a> <name> \"Ann\""])?;
@@ -493,14 +493,40 @@ fn namespace_three_dropped(w: &mut Steps) -> TestResult {
         )))
         .context("namespace 3 declares")?;
     let _dropped_at: u64 = a.drop_namespace(3).context("the namespace drops")?;
-    let store = a.quads().store().clone();
-    store.crash();
-    store.recover();
-    w.changesets = Some(Arc::new(changesets_over(store)?));
+    // The group's half: the frontend commits namespace 3's initial catalog as its next version.
+    initial_version(w, 3, 2)?;
+    let b = crate::schema_storage_steps::restarted(&w.source, &a, &[NS, 3])?;
+    w.changesets = Some(Arc::new(b));
     Ok(())
 }
 
-#[then("namespace 3 holds only its initial catalog")]
+/// Commits `namespace`'s initial catalog, a version declaring nothing above it, as version `version` to the group.
+fn initial_version(w: &mut Steps, namespace: u64, version: u64) -> TestResult {
+    let bytes =
+        ultragraphdb_core_catalog::CatalogContents::new(namespace, version, Vec::new()).encode()?;
+    w.source
+        .commit(ultragraphdb_traits_catalog::HeldVersion::new(
+            namespace, version, version, bytes,
+        ));
+    Ok(())
+}
+
+/// Whether the group holds `namespace`'s initial catalog as the version in effect.
+fn group_holds_initial(w: &Steps, namespace: u64) -> TestResult<bool> {
+    use ultragraphdb_traits_catalog::CatalogSource;
+    let held = w
+        .source
+        .version_at(namespace, u64::MAX)?
+        .context("a version")?;
+    let contents = ultragraphdb_core_catalog::CatalogContents::decode(
+        namespace,
+        held.version(),
+        held.contents(),
+    )?;
+    Ok(contents.declarations().is_empty())
+}
+
+#[then("namespace 3 holds no quad key, and the metadata group holds its initial catalog")]
 fn namespace_three_initial(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
     let rdf_type = a
@@ -510,14 +536,9 @@ fn namespace_three_initial(w: &mut Steps) -> TestResult {
         .context("rdf:type has a UID in namespace 3")?;
     let (catalog, quads) = namespace_keys(&a, 3);
     assert!(quads.is_empty(), "{} quad keys remain", quads.len());
-    let initial = Catalog::initial(3, rdf_type);
-    let mut expected: Vec<Vec<u8>> = initial
-        .entries(1)
-        .iter()
-        .map(|e| e.key().to_vec())
-        .collect();
-    expected.sort();
-    assert_eq!(catalog, expected);
+    assert!(catalog.is_empty(), "no catalog key");
+    assert!(group_holds_initial(w, 3)?);
+    let initial = Catalog::initial(3, rdf_type).with_version(2);
     assert_eq!(*a.catalog(3).context("the catalog")?, initial);
     assert!(
         is_held(&a, "<a> <name> \"Ann\"")?,
@@ -535,11 +556,13 @@ fn everything_dropped(w: &mut Steps) -> TestResult {
         .apply(&Changeset::new(3).with(insert("<a> <name> \"Three\"")?))
         .context("namespace 3 is written")?;
     let _dropped_at: u64 = a.drop_all().context("everything drops")?;
+    // The group's half: the frontend commits the root namespace's initial catalog.
+    initial_version(w, NS, 2)?;
     Ok(())
 }
 
 #[then(
-    "the store holds no quad key but the root namespace's initial catalog, written at timestamp 1"
+    "no partition holds a quad key, and the metadata group holds the root namespace's initial catalog alone"
 )]
 fn initial_catalog_only(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
@@ -549,19 +572,17 @@ fn initial_catalog_only(w: &mut Steps) -> TestResult {
         .context("the dictionary reads")?
         .context("the dictionary keeps rdf:type")?;
     let contents = a.quads().store().contents();
-    let mut expected: Vec<Vec<u8>> = Catalog::initial(NS, rdf_type)
-        .entries(1)
-        .iter()
-        .map(|e| e.key().to_vec())
-        .collect();
-    expected.sort();
-    let keys: Vec<Vec<u8>> = contents.keys().keys().cloned().collect();
-    assert_eq!(keys, expected);
+    assert!(contents.keys().is_empty(), "no quad key and no catalog key");
+    assert_eq!(*a.catalog(NS)?, Catalog::initial(NS, rdf_type));
     assert!(
-        contents
-            .keys()
-            .values()
-            .all(|v| v.len() == 1 && v[0].version() == 1)
+        a.catalog(3)?.predicates().next().is_none(),
+        "namespace 3 holds nothing"
+    );
+    assert!(group_holds_initial(w, NS)?);
+    use ultragraphdb_traits_catalog::CatalogSource;
+    assert!(
+        w.source.version_at(3, u64::MAX)?.is_none(),
+        "the root namespace's alone"
     );
     Ok(())
 }
@@ -610,19 +631,19 @@ fn split_data_dropped(w: &mut Steps) -> TestResult {
         .read(&key, u64::MAX)
         .context("the list reads")?;
     assert!(!list.plist().splits().is_empty(), "the list is split");
-    w.keys = namespace_keys(&a, NS).0;
+    w.schemas = vec![format!("{:?}", stored_catalog(&a, NS)?)];
     let _dropped_at: u64 = a.drop_data(NS).context("the data drops")?;
     Ok(())
 }
 
 #[then(
-    "no key of any quad keyspace of the namespace remains, split or not, and its catalog keys are unchanged"
+    "no key of any quad keyspace of the namespace remains, split or not, and its catalog is unchanged"
 )]
 fn split_data_gone(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
-    let (catalog, quads) = namespace_keys(&a, NS);
+    let (_, quads) = namespace_keys(&a, NS);
     assert!(quads.is_empty(), "{} quad keys remain", quads.len());
-    assert_eq!(catalog, w.keys);
+    assert_eq!(vec![format!("{:?}", stored_catalog(&a, NS)?)], w.schemas);
     Ok(())
 }
 
@@ -641,11 +662,19 @@ fn failed_build(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[then("the schema declares `term` and every term key is present")]
+#[then(
+    "once the restoring version takes effect the schema declares `term`, and every term key is present"
+)]
 fn old_index_kept(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
     assert!(!a.rebuilding());
     let p = uid(&a, "name")?;
+    // The partition reports the failure; the group commits a version restoring the previous declaration.
+    let restoring = vec![ultragraphdb_core_mapping::Declaration::Predicate(
+        crate::utils::changesets::declaration("name", "with `term`")?,
+    )];
+    let refusals = crate::schema_storage_steps::take_effect(&w.source, &a, NS, 3, restoring)?;
+    assert!(refusals.is_empty(), "{refusals:?}");
     for catalog in [
         (*a.catalog(NS).context("the catalog")?).clone(),
         stored_catalog(&a, NS)?,
@@ -775,4 +804,40 @@ fn build_failure_logged(w: &mut Steps) {
         "{:?}",
         failed[0]
     );
+}
+
+#[when(
+    "`nick` is declared single-valued while `a` holds one object of it, and a commit adding a second object of `nick` to `a` lands in the epoch before the version takes effect"
+)]
+fn contradiction_before_effect(w: &mut Steps) -> TestResult {
+    let a = cs(w)?;
+    write(&a, &["<a> <nick> \"x\""])?;
+    // The version is pending while the second object commits; it takes effect at the next epoch, as its round.
+    write(&a, &["<a> <nick> \"y\""])?;
+    let single = vec![ultragraphdb_core_mapping::Declaration::Predicate(
+        crate::utils::changesets::declaration("nick", "single-valued")?,
+    )];
+    w.refusals = crate::schema_storage_steps::take_effect(&w.source, &a, NS, 2, single)?;
+    Ok(())
+}
+
+#[then(
+    "the check at the effective epoch fails naming `nick` and `a`, the change's reply is that error, and `nick` stays multi-valued"
+)]
+fn contradiction_refused(w: &mut Steps) -> TestResult {
+    let a = cs(w)?;
+    assert_eq!(w.refusals.len(), 1, "{:?}", w.refusals);
+    let reply = w.refusals.first().context("the change's reply")?;
+    assert!(
+        reply.contains("http://ex.org/nick") && reply.contains("http://ex.org/a"),
+        "{reply}"
+    );
+    let catalog = a.catalog(NS)?;
+    assert_eq!(catalog.version(), 2, "the version took effect");
+    let nick = catalog.predicate(uid(&a, "nick")?);
+    assert!(
+        nick.is_none_or(|d| d.cardinality() == Cardinality::Multi),
+        "{nick:?}"
+    );
+    Ok(())
 }

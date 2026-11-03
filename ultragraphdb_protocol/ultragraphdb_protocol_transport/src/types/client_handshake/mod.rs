@@ -87,7 +87,26 @@ impl ClientHandshake {
             | Command::Cancel
             | Command::Round
             | Command::Authenticate
-            | Command::Drop) => Err(TransportError::unexpected_command(
+            | Command::Drop
+            | Command::Join
+            | Command::Members
+            | Command::Subscribe
+            | Command::EpochClose
+            | Command::Lease
+            | Command::Placement
+            | Command::Catalog
+            | Command::Challenge
+            | Command::Verify
+            | Command::Bind
+            | Command::Recall
+            | Command::ComputeRead
+            | Command::Scan
+            | Command::Entries
+            | Command::Reference
+            | Command::CloseRequest
+            | Command::Closed
+            | Command::DefaultEntry
+            | Command::Report) => Err(TransportError::unexpected_command(
                 Command::Welcome.number(),
                 other.number(),
             )),

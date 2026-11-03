@@ -23,30 +23,32 @@ use ultragraphdb_protocol_transport::{
     BufferPool, FrameStep, Framer, NetworkFaults, SimNetwork, TransportError,
 };
 use ultragraphdb_protocol_wire::{
-    Begin, BodyBuilder, BodyView, ColumnType, Command, DescribeView, DropCommand, ErrorCode,
-    ExecuteView, FrameView, Header, MAX_FRAME_SIZE, OperationResult, OperationView, PatternSlot,
-    PrepareView, QuadPattern, Read, ReadView, RequestTerm, ResultView, TermTable, WriteView,
+    Begin, BeginView, BodyBuilder, BodyView, Command, CommitView, DescribeView, DropCommand,
+    DropCommandView, ErrorReplyView, ExecuteView, FrameView, Header, MAX_FRAME_SIZE, OperationView,
+    PatternSlot, PrepareView, QuadPattern, Read, ReadView, RegisterView, ResultView, TermTable,
+    WriteView,
 };
 
 use crate::utils::golden::{Golden, Step, golden, not_last, numbered, restream, serve_golden_sim};
 use crate::utils::serve::{CLUSTER, SimConnect};
 use ultragraphdb_tool_bdd::{Context as _, TestError, TestResult};
 
-/// The golden frames' release (`generate_bodies.py`'s `RELEASE`).
-const RELEASE: u32 = 0x0005_0000;
-
 fn runtime() -> TestResult<compio::runtime::Runtime> {
     compio::runtime::Runtime::new().context("a runtime")
 }
 
-/// The client of the golden frames: their cluster, release and client name (`generate_bodies.py`'s Hello), credit
-/// granted two frames at a time (the golden Credit's).
-fn config() -> ClientConfig {
-    ClientConfig::new(CLUSTER, "ultragraph-test")
-        .with_release(RELEASE)
+/// The client of the golden frames: their cluster, the release the golden Hello's header carries, and the client
+/// name, credit granted two frames at a time (the golden Credit's).
+fn config() -> TestResult<ClientConfig> {
+    let hello = golden("hello")?;
+    let release = FrameView::validate(&hello, CLUSTER, MAX_FRAME_SIZE)?
+        .header()
+        .release();
+    Ok(ClientConfig::new(CLUSTER, "ultragraph-test")
+        .with_release(release)
         .with_timeout(Duration::from_secs(2))
         .with_retry_delay(Duration::from_millis(5))
-        .with_credit(2)
+        .with_credit(2))
 }
 
 /// The networks the golden frames cross: plain, then split and delayed under three seeds.
@@ -71,7 +73,7 @@ fn served<F: Future<Output = TestResult>, L: Login>(
     let accepted = Rc::clone(&connector.accepted);
     rt.block_on(async {
         let _server = compio::runtime::spawn(serve_golden_sim(Rc::clone(golden), accepted));
-        test(Client::new(connector, config(), login, 8)).await
+        test(Client::new(connector, config()?, login, 8)).await
     })
 }
 
@@ -85,30 +87,46 @@ fn decoded<T>(
     read(&frame).context("a golden body")
 }
 
-/// The Begin of a transaction for writing: not a golden frame, the reply the commits and the abort need.
+/// The Begin of a transaction for writing: not a golden frame, the reply the commits and the abort need, its read
+/// version 0 as a read-write Begin's reply has it (`PROTOCOL.md` §6.2).
 fn writable() -> TestResult<Vec<u8>> {
-    Begin::new(0, 5, false)
+    Begin::new(0, 0, false)
         .frame(Header::new(CLUSTER, Command::Begin))
         .context("a Begin")
 }
 
-/// The golden Result's values: two columns of three rows, column 0 terms 0, 0, 3, column 1 terms 1, 2 and unbound;
-/// resume key "rk" (`generate_bodies.py`'s Result).
-fn result_values(v: &ResultView<'_>) -> (u32, u32, Vec<Option<u32>>, Vec<u8>) {
-    let cells = (0..2)
-        .flat_map(|col| (0..3).map(move |row| (col, row)))
+/// A Result's values: its columns, rows, every cell column by column, and its resume key.
+type ResultValues = (u32, u32, Vec<Option<u32>>, Vec<u8>);
+
+/// The values of the Result `v` reads.
+fn result_values(v: &ResultView<'_>) -> ResultValues {
+    let (columns, rows) = (v.columns(), v.rows());
+    let cells = (0..columns)
+        .flat_map(|col| (0..rows).map(move |row| (col, row)))
         .map(|(col, row)| v.cell(col, row))
         .collect();
-    (v.columns(), v.rows(), cells, v.resume().to_vec())
+    (columns, rows, cells, v.resume().to_vec())
 }
 
-fn golden_result() -> (u32, u32, Vec<Option<u32>>, Vec<u8>) {
-    (
-        2,
-        3,
-        vec![Some(0), Some(0), Some(3), Some(1), Some(2), Some(u32::MAX)],
-        b"rk".to_vec(),
-    )
+/// The golden Result's values, read from the frame by the wire crate's view.
+fn golden_result() -> TestResult<ResultValues> {
+    decoded("result", |f| {
+        ResultView::from_frame(f).map(|v| result_values(&v))
+    })
+}
+
+/// The session the golden Register assigns.
+fn golden_session() -> TestResult<u128> {
+    decoded("register", |f| {
+        RegisterView::from_frame(f).map(|v| u128::from_be_bytes(v.session()))
+    })
+}
+
+/// The namespace, read version and mode the golden Begin answers.
+fn golden_begin() -> TestResult<(u64, u64, bool)> {
+    decoded("begin", |f| {
+        BeginView::from_frame(f).map(|v| (v.namespace(), v.read_version(), v.read_only()))
+    })
 }
 
 /// The script of the conversation, in the order the client sends its frames.
@@ -152,8 +170,8 @@ async fn conversation(mut client: Client<SimConnect, Anonymous>) -> TestResult {
     client.connect().await.context("connected")?;
     golden_catalog(&mut client).await?;
     let writer = golden_reads(&mut client).await?;
-    let nine = golden_commit(&mut client, writer).await?;
-    golden_refusals_and_drop(&mut client, nine).await?;
+    let committed_through = golden_commit(&mut client, writer).await?;
+    golden_refusals_and_drop(&mut client, committed_through).await?;
     client.close().await;
     Ok(())
 }
@@ -172,27 +190,25 @@ async fn golden_catalog(client: &mut Client<SimConnect, Anonymous>) -> TestResul
         ),
         (1, 1 << 19, 64, 4, "ultragraph 0.1")
     );
-    // Register: the session 0x1122_3344_5566_7788.
+    // Register: the session the golden Register assigns.
     let session = client.register().await.context("registered")?;
-    assert_eq!(session.number(), 0x1122_3344_5566_7788);
-    // Prepare's reply: statement 1, schema 0x5C4E_3A2B_1D0F_7E6A, one Term column.
+    assert_eq!(session.number(), golden_session()?);
+    // Prepare's reply: the statement, schema and result types the golden reply names.
     let statement = client
         .prepare(&decoded("prepare", |f| {
             PrepareView::from_frame(f)?.to_body()
         })?)
         .await?;
+    let answer = decoded("prepare_reply", |f| PrepareView::from_frame(f)?.to_body())?;
     assert_eq!(
         (statement.id(), statement.schema(), statement.result_types()),
-        (1, 0x5C4E_3A2B_1D0F_7E6A, &[ColumnType::Term][..])
+        (answer.statement(), answer.schema(), answer.result_types())
     );
-    // Describe's reply: read version 42, the description the wire reads from the golden bytes.
+    // Describe's reply: the description the wire reads from the golden bytes.
     let described = client.describe(0).await?;
     assert_eq!(
-        (described.read_version(), &described),
-        (
-            42,
-            &decoded("describe_reply", |f| DescribeView::from_frame(f)?.to_body())?
-        )
+        described,
+        decoded("describe_reply", |f| DescribeView::from_frame(f)?.to_body())?
     );
     Ok(())
 }
@@ -200,16 +216,19 @@ async fn golden_catalog(client: &mut Client<SimConnect, Anonymous>) -> TestResul
 /// A writer begun, then a reader on stream 5, whose reads and execution stream the golden Results; the writer.
 async fn golden_reads(client: &mut Client<SimConnect, Anonymous>) -> TestResult<Transaction> {
     let writer = client.begin(0, false).await?;
-    // Begin: namespace 3, read version 0xAB_CDEF_0002, read-only, on stream 5, which the golden Read and Execute name.
+    // Begin: the namespace, read version and mode the golden Begin answers, on the stream the golden Read names.
     let reader = client.begin(0, true).await?;
+    let read_stream = decoded("read", |f| ReadView::from_frame(f).map(|v| v.transaction()))?;
     assert_eq!(
         (
-            reader.namespace(),
-            reader.read_version(),
-            reader.read_only(),
+            (
+                reader.namespace(),
+                reader.read_version(),
+                reader.read_only()
+            ),
             reader.stream()
         ),
-        (3, 0xAB_CDEF_0002, true, 5)
+        (golden_begin()?, read_stream)
     );
     // Four Results spend the Welcome's credit of four; the client grants two more (the golden Credit), and the last
     // Result is flagged last.
@@ -221,7 +240,7 @@ async fn golden_reads(client: &mut Client<SimConnect, Anonymous>) -> TestResult<
         .await?;
     for _ in 0..5 {
         let batch = client.next_batch(&stream, result_values).await?;
-        assert_eq!(batch, Some(golden_result()));
+        assert_eq!(batch, Some(golden_result()?));
     }
     assert_eq!(client.next_batch(&stream, result_values).await?, None);
     let cancelled = client
@@ -239,7 +258,7 @@ async fn golden_reads(client: &mut Client<SimConnect, Anonymous>) -> TestResult<
         .await?;
     assert_eq!(
         client.next_batch(&executed, result_values).await?,
-        Some(golden_result())
+        Some(golden_result()?)
     );
     assert_eq!(client.next_batch(&executed, result_values).await?, None);
     Ok(writer)
@@ -264,28 +283,30 @@ async fn golden_commit(
             )
             .await?;
     }
-    // Commit: through session 9's request 7, version 1,000, results a counter add at -5 and a compare-and-set.
-    let nine = client.resume_session(9, 7);
-    let committed = client.commit(writer, nine).await?;
-    assert_eq!((committed.version(), committed.request()), (1_000, 7));
+    // Commit: through the session and request the golden Commit answers, its version and results read from it.
+    let reply = decoded("commit", |f| CommitView::from_frame(f)?.to_body())?;
+    let resumed = client.resume_session(u128::from_be_bytes(reply.session()), reply.request());
+    let committed = client.commit(writer, resumed).await?;
     assert_eq!(
-        committed.results(),
-        &[
-            OperationResult::counter(-5),
-            OperationResult::compare_and_set()
-        ]
+        (committed.version(), committed.request()),
+        (reply.commit_version(), reply.request())
     );
+    assert_eq!(committed.results(), reply.results());
     let aborted = client.begin(0, false).await?;
     client.abort(aborted).await?;
-    Ok(nine)
+    Ok(resumed)
 }
 
-/// The two golden refusals of a commit, and a drop through session 9, `nine`.
+/// The two golden refusals of a commit, and a drop through `session`, the session the golden Commit answered.
 async fn golden_refusals_and_drop(
     client: &mut Client<SimConnect, Anonymous>,
-    nine: Session,
+    session_of_commit: Session,
 ) -> TestResult {
-    // Error: a conflict on a scanned range, detail 3; and a failed compare-and-set, the value found "done".
+    // Error: the golden conflict and failed compare-and-set, their codes, details and value read from the frames.
+    let conflict_reply = decoded("error", |f| ErrorReplyView::from_frame(f)?.to_body())?;
+    let failed_reply = decoded("error_operation", |f| {
+        ErrorReplyView::from_frame(f)?.to_body()
+    })?;
     let tx = client.begin(0, false).await?;
     let session = client.resume_session(104, 1);
     let conflict = client.commit(tx, session).await.err().context("an error")?;
@@ -293,11 +314,11 @@ async fn golden_refusals_and_drop(
         matches!(
             &conflict.0,
             ClientErrorEnum::Refused {
-                code: ErrorCode::Conflict,
-                detail: 3,
+                code,
+                detail,
                 value: None,
                 ..
-            }
+            } if *code == conflict_reply.code() && *detail == conflict_reply.detail()
         ),
         "{conflict:?}"
     );
@@ -310,19 +331,29 @@ async fn golden_refusals_and_drop(
         .err()
         .context("an error")?;
 
-    let done = RequestTerm::Literal {
-        lexical: "done".into(),
-        datatype: None,
-    };
     assert!(
-        matches!(&failed.0, ClientErrorEnum::Refused { code: ErrorCode::OperationFailed, detail: 0, value: Some(v), .. } if *v == done),
+        matches!(&failed.0, ClientErrorEnum::Refused { code, detail, value: Some(v), .. }
+            if *code == failed_reply.code() && *detail == failed_reply.detail() && Some(v) == failed_reply.value()),
         "{failed:?}"
     );
-    // Drop: graph <http://ex.org/g> of namespace 3 through session 9's request 8; its commit version 2002.
+    // Drop: the graph and namespace the golden Drop names, through the commit's session; its reply's version and
+    // request read from the golden reply.
+    let request = decoded("drop", |f| DropCommandView::from_frame(f)?.to_body())?;
+    let reply = decoded("drop_reply", |f| DropCommandView::from_frame(f)?.to_body())?;
+    let graph = request
+        .target()
+        .context("the golden Drop names a graph")?
+        .to_string();
     let dropped = client
-        .drop_command(DropCommand::graph(3, "http://ex.org/g"), nine)
+        .drop_command(
+            DropCommand::graph(request.namespace(), graph),
+            session_of_commit,
+        )
         .await?;
-    assert_eq!((dropped.version(), dropped.request()), (2_002, 8));
+    assert_eq!(
+        (dropped.version(), dropped.request()),
+        (reply.commit_version(), reply.request())
+    );
     Ok(())
 }
 
@@ -421,7 +452,7 @@ fn test_a_repeated_or_lost_golden_reply_through_the_shell() -> TestResult {
     let network = SimNetwork::new(1, NetworkFaults::none());
     served(network, &server, Anonymous, |mut client| async move {
         let session = client.register().await.context("the first copy")?;
-        assert_eq!(session.number(), 0x1122_3344_5566_7788);
+        assert_eq!(session.number(), golden_session()?);
         // The copy is the Register's again, sequence 2 where 3 was due: the rule that gave the connection up.
         assert_eq!(
             client.begin(0, true).await.err().context("an error")?,
@@ -429,12 +460,15 @@ fn test_a_repeated_or_lost_golden_reply_through_the_shell() -> TestResult {
                 ProtocolError::sequence_order(3, 2)
             )))
         );
-        assert_eq!(client.begin(0, true).await?.read_version(), 0xAB_CDEF_0002);
+        assert_eq!(
+            client.begin(0, true).await?.read_version(),
+            golden_begin()?.1
+        );
         assert_eq!(
             client.register().await.err().context("an error")?,
             ClientError::timed_out()
         );
-        assert_eq!(client.register().await?.number(), 0x1122_3344_5566_7788);
+        assert_eq!(client.register().await?.number(), golden_session()?);
         client.close().await;
         Ok::<(), TestError>(())
     })?;
@@ -561,7 +595,7 @@ async fn ask(
         }
         "drop_reply" => {
             server.borrow_mut().push(last);
-            let session = client.resume_session(session, 1);
+            let session = client.resume_session(u128::from(session), 1);
             let command = DropCommand::graph(3, "http://ex.org/g");
             (ok(client.drop_command(command, session).await), None)
         }
@@ -596,7 +630,7 @@ async fn ask(
                 Ok(tx) => tx,
                 Err(error) => return Ok((Err(error), None)),
             };
-            let session = client.resume_session(session, 1);
+            let session = client.resume_session(u128::from(session), 1);
             (ok(client.commit(tx, session).await), None)
         }
     })
@@ -643,7 +677,7 @@ fn test_every_damaged_golden_reply_through_the_shell_is_refused_with_the_connect
     let faults = NetworkFaults::none()
         .with_split(500_000)
         .with_delay(300_000, 3);
-    let config = config().with_commit_attempts(1);
+    let config = config()?.with_commit_attempts(1);
     let rt = runtime()?;
     let connector = SimConnect::new(SimNetwork::new(7, faults));
     let accepted = Rc::clone(&connector.accepted);
@@ -683,7 +717,7 @@ fn test_every_damaged_golden_reply_through_the_shell_is_refused_with_the_connect
                         passing += 1;
                         continue;
                     }
-                    (_, Kind::Retried) => ClientError::retries_exhausted(session, 1, 1),
+                    (_, Kind::Retried) => ClientError::retries_exhausted(u128::from(session), 1, 1),
                     (Damage::Framer(refusal), _) => lost(refusal),
                     (Damage::Rule(rule), Kind::Plain) => {
                         ClientError::connection_lost(Some(ClientError::protocol(rule)))
@@ -699,8 +733,12 @@ fn test_every_damaged_golden_reply_through_the_shell_is_refused_with_the_connect
     let server = server.borrow();
     assert_eq!(server.mismatches(), &[] as &[String]);
     assert_eq!(server.steps_left(), 0);
-    // Twice the golden replies' lengths: 256 + 256 + 385 + 508 + 296 + 312 + 348 + 311 + 648 = 3,320 bytes.
-    assert_eq!(cases, 6_640);
+    // One flip and one truncation per byte of every golden reply walked: twice their lengths, summed from the frames.
+    let expected = REPLIES
+        .iter()
+        .map(|(name, _)| golden(name).map(|bytes| 2 * bytes.len()))
+        .sum::<TestResult<usize>>()?;
+    assert_eq!(usize::try_from(cases)?, expected);
     assert_eq!(
         passing, 0,
         "every damaged frame is refused by the framer or a rule"
@@ -751,7 +789,7 @@ async fn cut_by_the_framer(
     let refusal = damage(&bad)?.framer().context("refused by the framer")?;
     assert_eq!(
         client.next_batch(&stream, result_values).await?,
-        Some(golden_result())
+        Some(golden_result()?)
     );
     assert_eq!(
         client
@@ -782,7 +820,7 @@ async fn cut_by_a_rule(
     let rule = damage(&bad)?.rule().context("a rule refuses the body")?;
     assert_eq!(
         client.next_batch(&stream, result_values).await?,
-        Some(golden_result())
+        Some(golden_result()?)
     );
     assert_eq!(
         client
@@ -815,7 +853,7 @@ fn test_a_read_cut_short_through_the_shell_fails_as_lost_with_its_cause() -> Tes
         for _ in 0..2 {
             assert_eq!(
                 client.next_batch(&stream, result_values).await?,
-                Some(golden_result())
+                Some(golden_result()?)
             );
         }
         assert_eq!(

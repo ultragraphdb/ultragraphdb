@@ -6,7 +6,8 @@
 mod tls_error_display;
 mod tls_error_error;
 
-/// Why a trust store could not be built or a verified connection could not be opened.
+/// Why a trust store or a server's identity could not be built, or a verified connection could not be opened or
+/// carried on.
 ///
 /// The classification is the public field `.0`; branch on it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -35,6 +36,24 @@ pub enum TlsErrorEnum {
     },
     /// rustls or rcgen refused to build a configuration, a key or a certificate: the reason.
     ConfigurationRefused(String),
+    /// A server's certificate chain or key file could not be read: its path and the reason.
+    CertificateUnreadable {
+        /// The file's path.
+        path: String,
+        /// Why it could not be read.
+        reason: String,
+    },
+    /// A server's certificate chain file holds no certificate, or its key file no private key: the file.
+    CertificateEmpty(String),
+    /// The private key does not match the chain's first certificate: the key's source.
+    KeyMismatch(String),
+    /// A record after the handshake did not decrypt or decode, or the peer's alert ended the session.
+    RecordRefused {
+        /// The peer the session is with: the host a client opened it for, empty on the accepting side.
+        host: String,
+        /// rustls's reason.
+        reason: String,
+    },
 }
 
 impl TlsError {
@@ -56,5 +75,25 @@ impl TlsError {
     /// [`TlsErrorEnum::HandshakeFailed`] with `host` for `reason`.
     pub fn handshake_failed(host: String, reason: String) -> Self {
         Self(TlsErrorEnum::HandshakeFailed { host, reason })
+    }
+
+    /// [`TlsErrorEnum::CertificateUnreadable`] of `path` for `reason`.
+    pub fn certificate_unreadable(path: String, reason: String) -> Self {
+        Self(TlsErrorEnum::CertificateUnreadable { path, reason })
+    }
+
+    /// [`TlsErrorEnum::CertificateEmpty`] of `path`.
+    pub fn certificate_empty(path: String) -> Self {
+        Self(TlsErrorEnum::CertificateEmpty(path))
+    }
+
+    /// [`TlsErrorEnum::KeyMismatch`] of the key from `source`.
+    pub fn key_mismatch(source: String) -> Self {
+        Self(TlsErrorEnum::KeyMismatch(source))
+    }
+
+    /// [`TlsErrorEnum::RecordRefused`] with `host` for `reason`.
+    pub fn record_refused(host: String, reason: String) -> Self {
+        Self(TlsErrorEnum::RecordRefused { host, reason })
     }
 }

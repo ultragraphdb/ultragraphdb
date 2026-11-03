@@ -63,15 +63,15 @@ pub enum ClientErrorEnum {
         /// The reply's field that differs.
         field: &'static str,
         /// The request's value.
-        expected: u64,
+        expected: u128,
         /// The reply's value.
-        found: u64,
+        found: u128,
     },
     /// The commit of request `request` of session `session` was retried `attempts` times without an answer: whether
     /// it was applied is unknown until the session is resolved.
     RetriesExhausted {
         /// The session the commit was sent through.
-        session: u64,
+        session: u128,
         /// The commit's request number in the session.
         request: u64,
         /// How many times the commit was sent.
@@ -81,31 +81,31 @@ pub enum ClientErrorEnum {
     /// applied is unknown, and it is not retried. The session is gone from the client as from the server.
     OutcomeUnknown {
         /// The evicted session.
-        session: u64,
+        session: u128,
         /// The request number of the retried commit.
         request: u64,
     },
     /// Session `session` has the commit of `request` in doubt; it is resolved before it commits again.
     InDoubt {
         /// The session with the commit in doubt.
-        session: u64,
+        session: u128,
         /// The request number of the commit in doubt.
         request: u64,
     },
     /// Session `session` has no commit in doubt to resolve.
     NotInDoubt {
         /// The session asked to resolve.
-        session: u64,
+        session: u128,
     },
     /// Session `session` already has a commit in flight: one at a time per session.
     SessionBusy {
         /// The busy session.
-        session: u64,
+        session: u128,
     },
     /// The client holds no session `session`.
     UnknownSession {
         /// The session asked for.
-        session: u64,
+        session: u128,
     },
     /// The transaction of stream `stream` is read-only and was asked to write or commit.
     ReadOnly {
@@ -197,16 +197,20 @@ impl ClientError {
     }
 
     /// A [`ClientErrorEnum::ReplyMismatch`] between a reply and its request.
-    pub fn reply_mismatch(field: &'static str, expected: u64, found: u64) -> Self {
+    pub fn reply_mismatch(
+        field: &'static str,
+        expected: impl Into<u128>,
+        found: impl Into<u128>,
+    ) -> Self {
         Self(ClientErrorEnum::ReplyMismatch {
             field,
-            expected,
-            found,
+            expected: expected.into(),
+            found: found.into(),
         })
     }
 
     /// A commit whose retries ran out: [`ClientErrorEnum::RetriesExhausted`].
-    pub fn retries_exhausted(session: u64, request: u64, attempts: u32) -> Self {
+    pub fn retries_exhausted(session: u128, request: u64, attempts: u32) -> Self {
         Self(ClientErrorEnum::RetriesExhausted {
             session,
             request,
@@ -215,27 +219,27 @@ impl ClientError {
     }
 
     /// A retried commit refused as evicted: [`ClientErrorEnum::OutcomeUnknown`].
-    pub fn outcome_unknown(session: u64, request: u64) -> Self {
+    pub fn outcome_unknown(session: u128, request: u64) -> Self {
         Self(ClientErrorEnum::OutcomeUnknown { session, request })
     }
 
     /// A commit refused while another is [`ClientErrorEnum::InDoubt`].
-    pub fn in_doubt(session: u64, request: u64) -> Self {
+    pub fn in_doubt(session: u128, request: u64) -> Self {
         Self(ClientErrorEnum::InDoubt { session, request })
     }
 
     /// A resolve refused as [`ClientErrorEnum::NotInDoubt`].
-    pub fn not_in_doubt(session: u64) -> Self {
+    pub fn not_in_doubt(session: u128) -> Self {
         Self(ClientErrorEnum::NotInDoubt { session })
     }
 
     /// A commit refused as [`ClientErrorEnum::SessionBusy`].
-    pub fn session_busy(session: u64) -> Self {
+    pub fn session_busy(session: u128) -> Self {
         Self(ClientErrorEnum::SessionBusy { session })
     }
 
     /// A request through an [`ClientErrorEnum::UnknownSession`].
-    pub fn unknown_session(session: u64) -> Self {
+    pub fn unknown_session(session: u128) -> Self {
         Self(ClientErrorEnum::UnknownSession { session })
     }
 

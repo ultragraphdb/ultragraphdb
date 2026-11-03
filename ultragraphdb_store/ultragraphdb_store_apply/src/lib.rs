@@ -60,6 +60,7 @@ mod utils;
 pub use crate::errors::changeset_error::{ChangesetError, ChangesetErrorEnum};
 pub use crate::types::applied::Applied;
 pub use crate::types::build_end::BuildEnd;
+pub use crate::types::catalog_execution::CatalogExecution;
 pub use crate::types::changeset_applier::ChangesetApplier;
 pub use crate::types::drop_request::DropRequest;
 pub use crate::types::drop_target::DropTarget;

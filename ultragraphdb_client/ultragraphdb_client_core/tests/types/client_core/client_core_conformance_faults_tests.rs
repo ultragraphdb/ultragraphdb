@@ -24,9 +24,9 @@ use ultragraphdb_protocol_transport::{
     SimStream, TransportError,
 };
 use ultragraphdb_protocol_wire::{
-    Begin, BodyBuilder, ColumnType, Command, DescribeView, DropCommand, ErrorCode, FrameView,
-    Header, MAX_FRAME_SIZE, OperationResult, PatternSlot, PrepareView, QuadPattern, Read,
-    RequestTerm, TermTable,
+    Begin, BeginView, BodyBuilder, BodyView, Command, CommitView, DescribeView, DropCommand,
+    DropCommandView, ErrorReplyView, FrameView, Header, MAX_FRAME_SIZE, PatternSlot, PrepareView,
+    QuadPattern, Read, RegisterView, ResultView, TermTable,
 };
 
 use crate::types::client_core::client_core_conformance_tests::{
@@ -234,7 +234,7 @@ impl<L: Login> Peer<L> {
     fn begin(&mut self, read_only: bool) -> TestResult<ultragraphdb_client_core::Transaction> {
         let p = self.core.begin(0, read_only, self.now)?;
         let stream = self.request_stream()?;
-        let frame = Begin::new(0, 5, read_only)
+        let frame = Begin::new(0, if read_only { 5 } else { 0 }, read_only)
             .frame(Header::new(CLUSTER, Command::Begin).with_stream(stream))?;
         self.direct(&frame)?;
         begun(self.core.take_reply(p).context("an answer")?)
@@ -378,24 +378,42 @@ fn waiting(pending: Pending, retried: bool, stream: u64) -> (Wait, u64) {
     (Wait::Reply { pending, retried }, stream)
 }
 
-/// A commit through session 9, whose next request is 7, of a transaction begun for writing.
+/// The golden frame `name` read by `read`, the wire crate's view: what a reply must deliver, read from the frame.
+fn golden_read<T>(
+    name: &str,
+    read: impl FnOnce(&FrameView<'_>) -> Result<T, ProtocolError>,
+) -> TestResult<T> {
+    let bytes = golden(name)?;
+    let frame = FrameView::validate(&bytes, CLUSTER, MAX_FRAME_SIZE)?;
+    Ok(read(&frame)?)
+}
+
+/// A commit through the session and request the golden Commit answers, of a transaction begun for writing.
 fn commit(peer: &mut Peer<Anonymous>) -> TestResult<(Wait, u64)> {
-    let session = peer.core.resume_session(9, 7);
+    let reply = golden_read("commit", |f| CommitView::from_frame(f)?.to_body())?;
+    let session = peer
+        .core
+        .resume_session(u128::from_be_bytes(reply.session()), reply.request());
     let tx = peer.begin(false)?;
     let p = peer.core.commit(tx, session, peer.now)?;
     let stream = peer.request_stream()?;
     Ok(waiting(p, true, stream))
 }
 
-/// Every golden reply, its values from `generate_bodies.py`'s comments and constants.
+/// Every golden reply, its values read from the golden frames themselves.
 fn cases() -> Vec<Case> {
-    [session_cases(), commit_cases(), drop_and_result_cases()]
-        .into_iter()
-        .flatten()
-        .collect()
+    [
+        session_cases(),
+        statement_cases(),
+        commit_cases(),
+        drop_and_result_cases(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
-/// The golden replies of a session, a transaction, a statement and a description.
+/// The golden replies of a session and a transaction.
 fn session_cases() -> Vec<Case> {
     vec![
         Case {
@@ -405,10 +423,16 @@ fn session_cases() -> Vec<Case> {
                 let stream = peer.request_stream()?;
                 Ok(waiting(p, false, stream))
             },
-            // Register: the session assigned, 0x1122_3344_5566_7788.
+            // Register: the session the golden Register assigns, read from the frame.
             check: |peer, wait| {
                 let session = registered(reply(peer, wait)?)?;
-                assert_eq!(session.number(), 0x1122_3344_5566_7788);
+                let bytes = golden("register")?;
+                let register = RegisterView::from_frame(&FrameView::validate(
+                    &bytes,
+                    CLUSTER,
+                    MAX_FRAME_SIZE,
+                )?)?;
+                assert_eq!(session.number(), u128::from_be_bytes(register.session()));
                 Ok(())
             },
         },
@@ -419,16 +443,25 @@ fn session_cases() -> Vec<Case> {
                 let stream = peer.request_stream()?;
                 Ok(waiting(p, false, stream))
             },
-            // Begin: namespace 3, read version 0xAB_CDEF_0002, read-only.
+            // Begin: the namespace, read version and mode the golden Begin answers, read from the frame.
             check: |peer, wait| {
                 let tx = begun(reply(peer, wait)?)?;
+                let bytes = golden("begin")?;
+                let begin =
+                    BeginView::from_frame(&FrameView::validate(&bytes, CLUSTER, MAX_FRAME_SIZE)?)?;
                 assert_eq!(
                     (tx.namespace(), tx.read_version(), tx.read_only()),
-                    (3, 0xAB_CDEF_0002, true)
+                    (begin.namespace(), begin.read_version(), begin.read_only())
                 );
                 Ok(())
             },
         },
+    ]
+}
+
+/// The golden replies of a statement and a description.
+fn statement_cases() -> Vec<Case> {
+    vec![
         Case {
             name: "prepare_reply",
             setup: |peer| {
@@ -438,12 +471,15 @@ fn session_cases() -> Vec<Case> {
                 let stream = peer.request_stream()?;
                 Ok(waiting(p, false, stream))
             },
-            // Prepare's reply: statement 1, its schema version 0x5C4E_3A2B_1D0F_7E6A, one Term column.
+            // Prepare's reply: the statement, schema and result types the golden reply names, read from the frame.
             check: |peer, wait| {
                 let statement = prepared(reply(peer, wait)?)?;
+                let bytes = golden("prepare_reply")?;
+                let answer =
+                    view::<PrepareView>(&FrameView::validate(&bytes, CLUSTER, MAX_FRAME_SIZE)?)?;
                 assert_eq!(
                     (statement.id(), statement.schema(), statement.result_types()),
-                    (1, 0x5C4E_3A2B_1D0F_7E6A, &[ColumnType::Term][..])
+                    (answer.statement(), answer.schema(), answer.result_types())
                 );
                 Ok(())
             },
@@ -455,13 +491,13 @@ fn session_cases() -> Vec<Case> {
                 let stream = peer.request_stream()?;
                 Ok(waiting(p, false, stream))
             },
-            // Describe's reply: read version 42, the description the wire's own view reads from the golden bytes.
+            // Describe's reply: the description the wire's own view reads from the golden bytes.
             check: |peer, wait| {
                 let describe = described(reply(peer, wait)?)?;
                 let g = golden("describe_reply")?;
                 let expected =
                     view::<DescribeView>(&FrameView::validate(&g, CLUSTER, MAX_FRAME_SIZE)?)?;
-                assert_eq!((describe.read_version(), &describe), (42, &expected));
+                assert_eq!(describe, expected);
                 Ok(())
             },
         },
@@ -474,35 +510,36 @@ fn commit_cases() -> Vec<Case> {
         Case {
             name: "commit",
             setup: commit,
-            // Commit: version 1,000, request 7, results a counter add at -5 and a compare-and-set.
+            // Commit: the version, request and results the golden Commit answers.
             check: |peer, wait| {
                 let committed = committed(reply(peer, wait)?)?;
-                assert_eq!((committed.version(), committed.request()), (1_000, 7));
+                let golden_commit =
+                    golden_read("commit", |f| CommitView::from_frame(f)?.to_body())?;
                 assert_eq!(
-                    committed.results(),
-                    &[
-                        OperationResult::counter(-5),
-                        OperationResult::compare_and_set()
-                    ]
+                    (committed.version(), committed.request()),
+                    (golden_commit.commit_version(), golden_commit.request())
                 );
+                assert_eq!(committed.results(), golden_commit.results());
                 Ok(())
             },
         },
         Case {
             name: "error",
             setup: commit,
-            // Error: a conflict on a scanned range, detail 3, retryable.
+            // Error: the code and detail the golden conflict names, no value.
             check: |peer, wait| {
                 let error = refusal(peer, wait)?;
+                let golden_error =
+                    golden_read("error", |f| ErrorReplyView::from_frame(f)?.to_body())?;
                 assert!(
                     matches!(
                         &error,
                         ClientErrorEnum::Refused {
-                            code: ErrorCode::Conflict,
-                            detail: 3,
+                            code,
+                            detail,
                             value: None,
                             ..
-                        }
+                        } if *code == golden_error.code() && *detail == golden_error.detail()
                     ),
                     "{error:?}"
                 );
@@ -512,15 +549,16 @@ fn commit_cases() -> Vec<Case> {
         Case {
             name: "error_operation",
             setup: commit,
-            // Error: a failed compare-and-set, detail 0, the value found the literal "done".
+            // Error: the code, detail and value found the golden failed compare-and-set names.
             check: |peer, wait| {
                 let error = refusal(peer, wait)?;
-                let done = RequestTerm::Literal {
-                    lexical: "done".into(),
-                    datatype: None,
-                };
+                let golden_error = golden_read("error_operation", |f| {
+                    ErrorReplyView::from_frame(f)?.to_body()
+                })?;
                 assert!(
-                    matches!(&error, ClientErrorEnum::Refused { code: ErrorCode::OperationFailed, detail: 0, value: Some(v), .. } if *v == done),
+                    matches!(&error, ClientErrorEnum::Refused { code, detail, value: Some(v), .. }
+                        if *code == golden_error.code() && *detail == golden_error.detail()
+                            && Some(v) == golden_error.value()),
                     "{error:?}"
                 );
                 Ok(())
@@ -535,19 +573,31 @@ fn drop_and_result_cases() -> Vec<Case> {
         Case {
             name: "drop_reply",
             setup: |peer| {
-                let session = peer.core.resume_session(9, 8);
+                let request = golden_read("drop", |f| DropCommandView::from_frame(f)?.to_body())?;
+                let graph = request
+                    .target()
+                    .context("the golden Drop names a graph")?
+                    .to_string();
+                let session = peer
+                    .core
+                    .resume_session(u128::from_be_bytes(request.session()), request.request());
                 let p = peer.core.drop_command(
-                    DropCommand::graph(3, "http://ex.org/g"),
+                    DropCommand::graph(request.namespace(), graph),
                     session,
                     peer.now,
                 )?;
                 let stream = peer.request_stream()?;
                 Ok(waiting(p, true, stream))
             },
-            // Drop's reply: session 9's request 8, the drop's commit version 2002.
+            // Drop's reply: the request and commit version the golden reply names.
             check: |peer, wait| {
                 let dropped = dropped(reply(peer, wait)?)?;
-                assert_eq!((dropped.version(), dropped.request()), (2_002, 8));
+                let golden_reply =
+                    golden_read("drop_reply", |f| DropCommandView::from_frame(f)?.to_body())?;
+                assert_eq!(
+                    (dropped.version(), dropped.request()),
+                    (golden_reply.commit_version(), golden_reply.request())
+                );
                 Ok(())
             },
         },
@@ -579,8 +629,16 @@ fn drop_and_result_cases() -> Vec<Case> {
     ]
 }
 
-/// The golden Result read as its values: two columns of three rows, column 0 terms 0, 0, 3, column 1 terms 1, 2 and
-/// unbound; resume key "rk"; flagged last.
+/// Every cell of a batch of `columns` and `rows`, column by column, as `cell` gives it.
+fn cells_of(columns: u32, rows: u32, cell: impl Fn(u32, u32) -> Option<u32>) -> Vec<Option<u32>> {
+    (0..columns)
+        .flat_map(|col| (0..rows).map(move |row| (col, row)))
+        .map(|(col, row)| cell(col, row))
+        .collect()
+}
+
+/// The golden Result read as the values its frame holds, every cell column by column and its resume key; flagged
+/// last.
 fn result_values(peer: &mut Peer<Anonymous>, wait: &Wait) -> TestResult {
     let stream = if let Wait::Batch(stream) = wait {
         Some(stream)
@@ -588,22 +646,21 @@ fn result_values(peer: &mut Peer<Anonymous>, wait: &Wait) -> TestResult {
         None
     }
     .context("a batch")?;
+    let expected = golden_read("result", |f| {
+        ResultView::from_frame(f).map(|v| {
+            let cells = cells_of(v.columns(), v.rows(), |c, r| v.cell(c, r));
+            (v.columns(), v.rows(), cells, v.resume().to_vec())
+        })
+    })?;
     let polled = peer.core.next_batch(stream, peer.now, |v| {
-        let cells: Vec<Option<u32>> = (0..2)
-            .flat_map(|col| (0..3).map(move |row| (col, row)))
-            .map(|(col, row)| v.cell(col, row))
-            .collect();
+        let cells = cells_of(v.columns(), v.rows(), |c, r| v.cell(c, r));
         (v.columns(), v.rows(), cells, v.resume().to_vec())
     });
     assert!(matches!(polled, Ok(BatchPoll::Batch(_))), "a batch");
     let Ok(BatchPoll::Batch((columns, rows, cells, resume))) = polled else {
         return Ok(());
     };
-    assert_eq!((columns, rows, resume), (2, 3, b"rk".to_vec()));
-    assert_eq!(
-        cells,
-        vec![Some(0), Some(0), Some(3), Some(1), Some(2), Some(u32::MAX)]
-    );
+    assert_eq!((columns, rows, cells, resume), expected);
     assert!(matches!(
         peer.core.next_batch(stream, peer.now, |_| ()),
         Ok(BatchPoll::Done)
@@ -767,10 +824,24 @@ fn test_the_golden_authenticate_exchange_under_every_fault() -> TestResult {
 fn test_the_drop_the_client_sends_is_its_golden_frame() -> TestResult {
     let mut peer = Peer::welcomed()?;
 
-    let session = peer.core.resume_session(9, 8);
-    let _pending: Pending =
-        peer.core
-            .drop_command(DropCommand::graph(3, "http://ex.org/g"), session, peer.now)?;
+    // The session, request, namespace and graph the golden Drop names, read from the frame, so the client sends
+    // exactly that Drop.
+    let bytes = golden("drop")?;
+    let golden_drop =
+        DropCommandView::from_frame(&FrameView::validate(&bytes, CLUSTER, MAX_FRAME_SIZE)?)?;
+    let graph = golden_drop
+        .target()
+        .context("the golden Drop names a graph")?
+        .to_string();
+    let session = peer.core.resume_session(
+        u128::from_be_bytes(golden_drop.session()),
+        golden_drop.request(),
+    );
+    let _pending: Pending = peer.core.drop_command(
+        DropCommand::graph(golden_drop.namespace(), graph),
+        session,
+        peer.now,
+    )?;
     let frame = peer.core.transmit().context("the Drop")?;
     // The client's second frame, after the Hello, on its first stream.
     assert_eq!(frame, numbered(&restream(&golden("drop")?, 1), 2));

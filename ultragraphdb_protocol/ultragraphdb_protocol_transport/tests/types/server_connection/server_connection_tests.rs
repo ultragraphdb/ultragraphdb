@@ -14,7 +14,7 @@ use ultragraphdb_protocol_wire::{
     FLAG_LAST, FrameView, Header, HeaderView, Hello, MAX_FRAME_SIZE, Operation, PatternSlot,
     Prepare, QuadPattern, Read, Register, ResultBatch, TermTable, Welcome, WelcomeView, Write,
 };
-use ultragraphdb_tool_bdd::{Context, TestResult};
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::utils::mechanism::{EXPIRES, TEST, TestAuthenticator, User};
 use crate::utils::peer::{CLUSTER, Peer, start};
@@ -335,7 +335,7 @@ fn test_a_server_without_authentication_serves_at_once() -> TestResult {
     assert!(!WelcomeView::from_frame(&view)?.authenticates());
     assert_eq!(connection.principal(), Some(0), "the anonymous principal");
     assert_eq!(
-        connection.receive(&peer.send(1, &Register::new(0))?, now),
+        connection.receive(&peer.send(1, &Register::new(0u128.to_be_bytes()))?, now),
         Inbound::Request {
             stream: 1,
             command: Command::Register
@@ -451,7 +451,13 @@ fn test_an_idle_connection_closes_without_a_frame() -> TestResult {
     let mut connection = serving(&mut peer, now)?;
     // A frame resets the idle limit.
     let later = now + Duration::from_secs(300);
-    request(&mut connection, &mut peer, 1, &Register::new(0), later)?;
+    request(
+        &mut connection,
+        &mut peer,
+        1,
+        &Register::new(0u128.to_be_bytes()),
+        later,
+    )?;
     assert_eq!(connection.handle_timeout(now + IDLE_LIMIT), None);
     assert_eq!(
         connection.handle_timeout(later + IDLE_LIMIT),
@@ -485,7 +491,10 @@ fn test_a_request_on_stream_zero_or_on_an_open_stream_closes_the_connection() ->
         now,
     )?;
     assert_eq!(
-        reopening.receive(&reopening_peer.send(1, &Register::new(0))?, now),
+        reopening.receive(
+            &reopening_peer.send(1, &Register::new(0u128.to_be_bytes()))?,
+            now
+        ),
         Inbound::Closing {
             code: Some(ErrorCode::Protocol)
         }
@@ -508,7 +517,7 @@ fn test_a_stream_past_the_limit_is_refused_on_it_and_the_connection_stays() -> T
         )?;
     }
     assert_eq!(
-        connection.receive(&peer.send(5, &Register::new(0))?, now),
+        connection.receive(&peer.send(5, &Register::new(0u128.to_be_bytes()))?, now),
         Inbound::Refused {
             stream: 5,
             code: ErrorCode::StreamLimit
@@ -639,7 +648,7 @@ fn test_a_commit_retried_on_a_new_stream_is_a_request_of_its_own() -> TestResult
     let mut peer = Peer::default();
     let mut connection = serving(&mut peer, now)?;
     assert_eq!(
-        connection.receive(&peer.send(6, &Commit::new(3, 2, 0, Vec::new()))?, now),
+        connection.receive(&peer.send(6, &Commit::new(3u128.to_be_bytes(), 2, 0))?, now),
         Inbound::Request {
             stream: 6,
             command: Command::Commit
@@ -678,7 +687,7 @@ fn test_a_frame_out_of_sequence_closes_the_connection() -> TestResult {
     let mut connection = serving(&mut peer, now)?;
     peer.skip();
     assert_eq!(
-        connection.receive(&peer.send(1, &Register::new(0))?, now),
+        connection.receive(&peer.send(1, &Register::new(0u128.to_be_bytes()))?, now),
         Inbound::Closing {
             code: Some(ErrorCode::Protocol)
         }
@@ -687,7 +696,7 @@ fn test_a_frame_out_of_sequence_closes_the_connection() -> TestResult {
     assert_eq!((out[0].0, error(&out[0].3)?.0), (0, ErrorCode::Protocol));
     // Nothing more is taken once closing.
     assert_eq!(
-        connection.receive(&peer.send(2, &Register::new(0))?, now),
+        connection.receive(&peer.send(2, &Register::new(0u128.to_be_bytes()))?, now),
         Inbound::Closing { code: None }
     );
     assert!(sent(&mut connection)?.is_empty());
@@ -725,7 +734,13 @@ fn test_a_new_request_on_an_open_stream_closes_before_its_body_is_read() -> Test
     let mut peer = Peer::default();
     let mut connection = serving(&mut peer, now)?;
     request(&mut connection, &mut peer, 1, &Begin::new(0, 0, false), now)?;
-    request(&mut connection, &mut peer, 3, &Register::new(0), now)?;
+    request(
+        &mut connection,
+        &mut peer,
+        3,
+        &Register::new(0u128.to_be_bytes()),
+        now,
+    )?;
     let mut bad = read(1).frame(Header::new(CLUSTER, Command::Read).with_stream(3))?;
     // flags bit 1: a Read's body rule, refused on its stream were the stream new.
     bad[128 + 12] = 2;
@@ -802,7 +817,7 @@ fn test_a_closing_connection_sends_nothing_after_its_error() -> TestResult {
     request(&mut connection, &mut peer, 1, &Begin::new(0, 0, false), now)?;
     connection.outbound().push(
         1,
-        Commit::new(1, 1, 2, Vec::new()).frame(
+        Commit::new(1u128.to_be_bytes(), 1, 2).frame(
             Header::new(CLUSTER, Command::Commit)
                 .with_stream(1)
                 .with_flags(FLAG_LAST),
@@ -843,7 +858,7 @@ fn test_a_hello_above_the_servers_protocols_closes_with_code_16() -> TestResult 
     assert_eq!(out[0].0, 0);
     assert_eq!(error(&out[0].3)?, (ErrorCode::ProtocolVersion, 1));
     assert_eq!(
-        connection.receive(&peer.send(1, &Register::new(0))?, now),
+        connection.receive(&peer.send(1, &Register::new(0u128.to_be_bytes()))?, now),
         Inbound::Closing { code: None },
         "a closing connection reads nothing"
     );
@@ -968,7 +983,7 @@ fn test_the_deadline_is_the_earlier_of_the_idle_limit_and_the_expiry() -> TestRe
         &mut connection,
         &mut peer,
         1,
-        &Register::new(0),
+        &Register::new(0u128.to_be_bytes()),
         now + Duration::from_secs(20),
     )?;
     assert_eq!(
@@ -979,7 +994,7 @@ fn test_the_deadline_is_the_earlier_of_the_idle_limit_and_the_expiry() -> TestRe
         &mut connection,
         &mut peer,
         3,
-        &Register::new(0),
+        &Register::new(0u128.to_be_bytes()),
         now + Duration::from_secs(40),
     )?;
     assert_eq!(
@@ -1277,7 +1292,7 @@ fn test_a_transactions_stream_takes_its_operations_and_its_commit() -> TestResul
         }
     );
     assert_eq!(
-        connection.receive(&peer.send(1, &Commit::new(9, 1, 0, Vec::new()))?, now),
+        connection.receive(&peer.send(1, &Commit::new(9u128.to_be_bytes(), 1, 0))?, now),
         Inbound::Request {
             stream: 1,
             command: Command::Commit
@@ -1288,9 +1303,15 @@ fn test_a_transactions_stream_takes_its_operations_and_its_commit() -> TestResul
         "the stream stays its transaction's until the reply leaves"
     );
     // A Commit on an open stream holding no transaction is a new request on an open stream: a connection error.
-    request(&mut connection, &mut peer, 5, &Register::new(0), now)?;
+    request(
+        &mut connection,
+        &mut peer,
+        5,
+        &Register::new(0u128.to_be_bytes()),
+        now,
+    )?;
     assert_eq!(
-        connection.receive(&peer.send(5, &Commit::new(9, 2, 0, Vec::new()))?, now),
+        connection.receive(&peer.send(5, &Commit::new(9u128.to_be_bytes(), 2, 0))?, now),
         Inbound::Closing {
             code: Some(ErrorCode::Protocol)
         }
@@ -1360,5 +1381,77 @@ fn test_renewing_with_a_credential_that_never_expires_clears_the_expiry() -> Tes
         None,
         "the old expiry no longer applies"
     );
+    Ok(())
+}
+
+#[test]
+fn test_every_role_command_is_refused_as_not_served_and_closes_the_connection() -> TestResult {
+    let now = start();
+    let roles: Vec<Command> = Command::ALL
+        .into_iter()
+        .filter(|command| (512..=767).contains(&command.number()))
+        .collect();
+    assert_eq!(roles.len(), 19, "Join (512) to Report (530)");
+    for role in roles {
+        let mut peer = Peer::default();
+        let mut connection = serving(&mut peer, now)?;
+        assert_eq!(
+            connection.receive(&peer.command(1, role)?, now),
+            Inbound::Closing {
+                code: Some(ErrorCode::Protocol)
+            },
+            "{role:?}"
+        );
+        assert!(connection.is_closing(), "{role:?}");
+        let frames = sent(&mut connection)?;
+        let [(stream, command, flags, frame)] = frames.as_slice() else {
+            return Err(TestError::new(format!(
+                "{role:?}: one closing Error, not {}",
+                frames.len()
+            )));
+        };
+        assert_eq!(
+            (*stream, *command, *flags),
+            (0, Command::Error.number(), FLAG_LAST)
+        );
+        let view = FrameView::validate(frame, CLUSTER, MAX_FRAME_SIZE)?;
+        let refusal = ErrorReplyView::from_frame(&view)?;
+        assert_eq!(refusal.code(), ErrorCode::Protocol, "{role:?}");
+        assert_eq!(
+            refusal.message(),
+            ultragraphdb_error_protocol::ProtocolError::command_not_served(role.number())
+                .to_string(),
+            "{role:?}"
+        );
+        assert_eq!(
+            connection.receive(&peer.send(3, &Credit::new(1))?, now),
+            Inbound::Closing { code: None }
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn test_limits_past_what_an_instant_holds_set_no_deadline() -> TestResult {
+    let now = start();
+    let mut peer = Peer::default();
+    let mut connection = connection(&[TEST], now).with_limits(Duration::MAX, Duration::MAX);
+    assert_eq!(connection.next_deadline(), None, "authenticating");
+    assert_eq!(
+        connection.handle_timeout(now + AUTHENTICATION_TIMEOUT),
+        None
+    );
+    assert_eq!(
+        connection.receive(&peer.send(0, &hello())?, now),
+        Inbound::Welcomed { protocol: 1 }
+    );
+    drain(&mut connection)?;
+    assert_eq!(
+        exchange(&mut connection, &mut peer, "alice", "pw", now)?,
+        Inbound::Authenticated { principal: 7 }
+    );
+    assert_eq!(connection.next_deadline(), None, "serving, with no expiry");
+    assert_eq!(connection.handle_timeout(now + IDLE_LIMIT), None);
+    assert!(!connection.is_closing());
     Ok(())
 }

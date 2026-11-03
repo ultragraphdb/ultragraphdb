@@ -15,8 +15,8 @@ use crate::types::reply::Reply;
 pub(crate) enum Expect {
     Register,
     Begin,
-    Commit { session: u64, request: u64 },
-    Drop { session: u64, request: u64 },
+    Commit { session: u128, request: u64 },
+    Drop { session: u128, request: u64 },
     Prepare,
     Describe,
 }
@@ -52,7 +52,7 @@ impl PendingState {
     }
 
     /// The session and request of a commit or a drop, each retried through its session.
-    pub(crate) fn commit(&self) -> Option<(u64, u64)> {
+    pub(crate) fn commit(&self) -> Option<(u128, u64)> {
         match self.expect {
             Expect::Commit { session, request } | Expect::Drop { session, request } => {
                 Some((session, request))

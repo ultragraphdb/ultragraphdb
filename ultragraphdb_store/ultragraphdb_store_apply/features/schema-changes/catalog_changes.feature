@@ -6,7 +6,9 @@
 Feature: Catalog changes, rebuilds and drops
   A declaration that adds an index to a predicate holding data builds it from the data in the background, writes
   maintaining the previous declaration's indexes and the new one's meanwhile, and swaps it in with one batch; a
-  declaration the data contradicts is refused; drops remove what they drop physically, in every keyspace and graph.
+  declaration the data contradicts is refused; drops remove what they drop physically, in every keyspace and graph. No
+  partition holds a catalog key: the catalog lives in the metadata group, and a partition holds the version in effect
+  in memory. The scenarios of two partitions and of epochs run in ultragraphdb_transactions_commit's features.
 
   Scenario: A new index covers existing data
     When a predicate holds 1,000 literals and an `exact` index is declared on it
@@ -44,6 +46,10 @@ Feature: Catalog changes, rebuilds and drops
     When `friend` gained `<a> <friend> <b>` at 3 and lost it at 4, and is declared a property at 5
     Then the change is applied
 
+  Scenario: A contradiction written before the change takes effect refuses it
+    When `nick` is declared single-valued while `a` holds one object of it, and a commit adding a second object of `nick` to `a` lands in the epoch before the version takes effect
+    Then the check at the effective epoch fails naming `nick` and `a`, the change's reply is that error, and `nick` stays multi-valued
+
   Scenario: Dropping a predicate removes it from the predicate lists
     When `knows` is held for `a` and `b` and is dropped
     Then no key of `knows` remains, and neither the subject predicates of `a` nor of `b` holds `knows`
@@ -61,13 +67,13 @@ Feature: Catalog changes, rebuilds and drops
     Then its predicates hold no data and its catalog is unchanged
 
   Scenario: Dropping a namespace's everything survives a restart
-    When everything in namespace 3 is dropped and the store is reopened
-    Then namespace 3 holds only its initial catalog
+    When everything in namespace 3 is dropped and the roles are restarted
+    Then namespace 3 holds no quad key, and the metadata group holds its initial catalog
 
   Scenario: Dropping everything leaves the initial catalog
     When everything is dropped
-    Then the store holds no quad key but the root namespace's initial catalog, written at timestamp 1
+    Then no partition holds a quad key, and the metadata group holds the root namespace's initial catalog alone
 
   Scenario: Dropping a namespace's data leaves no split part
     When a namespace whose lists are split has its data dropped
-    Then no key of any quad keyspace of the namespace remains, split or not, and its catalog keys are unchanged
+    Then no key of any quad keyspace of the namespace remains, split or not, and its catalog is unchanged

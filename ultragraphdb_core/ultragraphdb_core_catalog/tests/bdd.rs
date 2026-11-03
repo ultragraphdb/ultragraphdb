@@ -3,20 +3,15 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The catalog's scenarios: declarations refused, the type hierarchy's preorder numbers, the catalog surviving a
-//! restart, and a catalog entry that does not read back refusing the load.
+//! The catalog's scenarios: declarations refused, the type hierarchy's preorder numbers, and a catalog version that does
+//! not decode refusing the load.
 
 use cucumber::{World, then, when};
-use ultragraphdb_core_catalog::{Catalog, CatalogError, CatalogErrorEnum, PREDICATE};
+use ultragraphdb_core_catalog::{Catalog, CatalogContents, CatalogError, CatalogErrorEnum};
 use ultragraphdb_core_ids::{Bucket, Sequence, SystemId, TypePrefix};
-use ultragraphdb_core_mapping::{
-    Cardinality, PredicateDeclaration, PredicateKind, RelationDeclaration, TypeDeclaration,
-};
-use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
-use ultragraphdb_store_kv::{Durability, FjallStore};
-use ultragraphdb_store_sim::{FaultConfig, Seed, SimClock, SimStore};
+use ultragraphdb_core_mapping::{Declaration, PredicateDeclaration, TypeDeclaration};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
-use ultragraphdb_traits_store::{Entry, PersistMode, Store, WriteBatch};
+use ultragraphdb_traits_catalog::{CatalogSource, HeldVersion, TestCatalogSource};
 
 /// The ID of sequence `n` in bucket 0, of the built-in `Resource` type.
 fn id(n: u64) -> TestResult<SystemId> {
@@ -31,12 +26,8 @@ fn id(n: u64) -> TestResult<SystemId> {
 struct Steps {
     catalog: Catalog,
     refusals: Vec<CatalogError>,
-    catalogs: Option<(Catalog, Catalog)>,
-    loaded: Option<Result<Catalog, CatalogError>>,
+    loaded: Option<Result<CatalogContents, CatalogError>>,
 }
-
-/// A key under namespace 0's catalog prefix that ends before its UID: no catalog key parses from it.
-const UNPARSEABLE_KEY: [u8; 10] = [0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0x01];
 
 fn xsd(local: &str) -> oxrdf::NamedNode {
     oxrdf::NamedNode::new_unchecked(format!("http://www.w3.org/2001/XMLSchema#{local}"))
@@ -133,120 +124,29 @@ fn preorder_placed(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-/// A fjall store in a fresh directory of its own.
-fn fjall_dir() -> std::path::PathBuf {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static N: AtomicU64 = AtomicU64::new(0);
-    let dir = std::env::temp_dir().join(format!(
-        "catalog-bdd-{}-{}",
-        std::process::id(),
-        N.fetch_add(1, Ordering::Relaxed)
-    ));
-    // A directory left by an earlier run of this process id is cleared; there is none on a first run.
-    if let Err(e) = std::fs::remove_dir_all(&dir) {
-        assert_eq!(
-            e.kind(),
-            std::io::ErrorKind::NotFound,
-            "{}: {e}",
-            dir.display()
-        );
-    }
-    dir
-}
-
-fn write_catalog(store: &FjallStore, entries: Vec<Entry>) -> TestResult {
-    let mut batch = WriteBatch::new();
-    entries.into_iter().for_each(|e| batch.push(e));
-    store.apply(batch, PersistMode::Sync)?;
+#[when(
+    "a namespace's catalog is loaded from a metadata group holding a version that does not decode"
+)]
+fn load_corrupted_version(w: &mut Steps) -> TestResult {
+    let group = TestCatalogSource::new();
+    let mut bytes = CatalogContents::new(
+        3,
+        2,
+        vec![Declaration::Predicate(PredicateDeclaration::new(ex(
+            "name",
+        )))],
+    )
+    .encode()?;
+    // The version's last byte lost: its declaration ends early.
+    let _last: Option<u8> = bytes.pop();
+    group.commit(HeldVersion::new(3, 2, 40, bytes));
+    // Every role loads a namespace's catalog as the version in effect, decoded.
+    let held = group.version_at(3, 40)?.context("a version is in effect")?;
+    w.loaded = Some(CatalogContents::decode(3, held.version(), held.contents()));
     Ok(())
 }
 
-#[when("declarations are made and the store is closed and reopened")]
-fn catalog_restart(w: &mut Steps) -> TestResult {
-    let dir = fjall_dir();
-    let mut catalog = Catalog::initial(3, id(1)?);
-    catalog.declare_predicate(
-        id(7)?,
-        PredicateDeclaration::new(ex("name"))
-            .with_kind(PredicateKind::Property)
-            .with_cardinality(Cardinality::Single)
-            .with_tokenizers(vec!["exact".into(), "term".into()])
-            .with_unique(true),
-    )?;
-    catalog.declare_type(
-        id(8)?,
-        TypeDeclaration::new(ex("Person"), None, false),
-        None,
-    )?;
-    catalog.declare_relation(
-        id(9)?,
-        RelationDeclaration::new(ex("Employment"), vec![ex("employer")]),
-    );
-    let store = FjallStore::open(&dir, Durability::Filesystem)?;
-    write_catalog(&store, catalog.entries(2))?;
-    drop(store);
-    let reopened = FjallStore::open(&dir, Durability::Filesystem)?;
-    let loaded = Catalog::load(&reopened.snapshot(u64::MAX)?, 3)?;
-    w.catalogs = Some((catalog, loaded));
-    drop(reopened);
-    std::fs::remove_dir_all(&dir).context("the store's directory is removed")?;
-    Ok(())
-}
-
-#[then("the loaded catalog equals the catalog before closing")]
-fn catalog_equal(w: &mut Steps) -> TestResult {
-    let (before, after) = w.catalogs.take().context("the catalogs before and after")?;
-    assert_eq!(after, before);
-    Ok(())
-}
-
-#[when("a predicate's declaration is removed and the store is reopened")]
-fn removal_restart(w: &mut Steps) -> TestResult {
-    let dir = fjall_dir();
-    let mut catalog = Catalog::initial(0, id(1)?);
-    catalog.declare_predicate(id(7)?, PredicateDeclaration::new(ex("nick")))?;
-    let store = FjallStore::open(&dir, Durability::Filesystem)?;
-    write_catalog(&store, catalog.entries(2))?;
-    assert!(catalog.remove_predicate(id(7)?), "nick was declared");
-    write_catalog(&store, vec![Catalog::removal(0, PREDICATE, id(7)?, 3)])?;
-    drop(store);
-    let reopened = FjallStore::open(&dir, Durability::Filesystem)?;
-    let loaded = Catalog::load(&reopened.snapshot(u64::MAX)?, 0)?;
-    w.catalogs = Some((catalog, loaded));
-    drop(reopened);
-    std::fs::remove_dir_all(&dir).context("the store's directory is removed")?;
-    Ok(())
-}
-
-#[then("the loaded catalog does not declare the predicate")]
-fn removal_kept(w: &mut Steps) -> TestResult {
-    let (before, after) = w.catalogs.take().context("the catalogs before and after")?;
-    assert!(after.predicate(id(7)?).is_none());
-    assert!(after.predicate(id(1)?).is_some(), "rdf:type stays declared");
-    assert_eq!(after, before);
-    Ok(())
-}
-
-#[when("a namespace's catalog is loaded from a store holding a catalog key that does not parse")]
-fn load_unparseable_key(w: &mut Steps) -> TestResult {
-    let store = SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new());
-    let mut batch = WriteBatch::new();
-    Catalog::initial(0, id(1)?)
-        .entries(2)
-        .into_iter()
-        .for_each(|e| batch.push(e));
-    batch.push(Entry::put(UNPARSEABLE_KEY.to_vec(), 3, 0x01, vec![1]).with_discard());
-    store
-        .apply(batch, PersistMode::Buffer)
-        .context("the batch is written")?;
-    w.loaded = Some(Catalog::load(
-        &store.snapshot(u64::MAX).context("a snapshot")?,
-        0,
-    ));
-    Ok(())
-}
-
-#[then("the load fails with a corruption error naming the key, and nothing panics")]
+#[then("the load fails with a corruption error naming the version, and nothing panics")]
 fn load_refused(w: &mut Steps) -> TestResult {
     let Err(error) = w.loaded.take().context("loaded")? else {
         return Err(TestError::new("the load is refused"));
@@ -254,11 +154,15 @@ fn load_refused(w: &mut Steps) -> TestResult {
     assert!(
         matches!(
             &error.0,
-            CatalogErrorEnum::Store(StoreError(StoreErrorEnum::Corrupted { key, .. }))
-                if key.as_slice() == UNPARSEABLE_KEY
+            CatalogErrorEnum::CorruptedVersion {
+                namespace: 3,
+                version: 2,
+                ..
+            }
         ),
         "{error:?}"
     );
+    assert!(error.to_string().contains("version 2"), "{error}");
     Ok(())
 }
 

@@ -12,7 +12,8 @@
 //! versions it announces ([`CatalogVersion`], taking effect one epoch later) and the session evictions it carries.
 //! A multi-partition transaction is placed in the open epoch as a [`SequencedTransaction`]. Every close and every
 //! transaction is a [`SequencerRecord`] appended to the log, and acknowledged and delivered only once durable, so the
-//! state is a function of the log, rebuilt by [`Sequencer::recover`].
+//! state is a function of the log, rebuilt by [`Sequencer::recover`], or by [`Sequencer::recover_from`] from a
+//! [`SequencerSnapshot`] and the rounds after it once [`Sequencer::trim`] has trimmed the log through the snapshot.
 
 mod types;
 
@@ -23,3 +24,4 @@ pub use crate::types::sequenced_transaction::SequencedTransaction;
 pub use crate::types::sequencer::Sequencer;
 pub use crate::types::sequencer_config::SequencerConfig;
 pub use crate::types::sequencer_record::SequencerRecord;
+pub use crate::types::sequencer_snapshot::SequencerSnapshot;

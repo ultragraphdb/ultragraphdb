@@ -96,15 +96,20 @@ fn test_every_bit_flip_in_the_header_fails_its_checksum() -> TestResult {
 
 #[test]
 fn test_an_unknown_command_is_refused_by_number() -> TestResult {
-    for number in [0u16, 20, 255, 256, 511, 512, u16::MAX] {
+    for number in [0u16, 20, 255, 256, 511, 531, 767, u16::MAX] {
         let bytes = resealed(|b| put(b, 54, number.into(), 2))?;
         assert_eq!(
             verify(&bytes)?,
             Err(ProtocolErrorEnum::UnknownCommand { command: number })
         );
     }
-    // The highest numbers of section 3, Authenticate and Drop, are known.
-    for (number, command) in [(18u16, Command::Authenticate), (19, Command::Drop)] {
+    // The highest client numbers of section 3, Authenticate and Drop, and the first and last role commands are known.
+    for (number, command) in [
+        (18u16, Command::Authenticate),
+        (19, Command::Drop),
+        (512, Command::Join),
+        (530, Command::Report),
+    ] {
         let bytes = resealed(|b| put(b, 54, number.into(), 2))?;
         assert_eq!(
             verify(&bytes)?.map(|h| h.command()),

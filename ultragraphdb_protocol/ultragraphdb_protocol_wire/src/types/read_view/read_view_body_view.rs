@@ -13,7 +13,7 @@ use crate::types::read::Read;
 use crate::types::read_view::ReadView;
 use crate::types::term_table_view::TermTableView;
 use crate::utils::sections::Sections;
-use crate::utils::sections::{expect_command, statement_ids_flag};
+use crate::utils::sections::expect_command;
 
 impl<'a> BodyView<'a> for ReadView<'a> {
     const COMMAND: Command = Command::Read;
@@ -23,8 +23,7 @@ impl<'a> BodyView<'a> for ReadView<'a> {
     fn from_frame(frame: &FrameView<'a>) -> Result<Self, ProtocolError> {
         let command = Self::COMMAND.number();
         let header = expect_command(frame, Self::COMMAND)?;
-        header.unused_zero(&[(0, 16)])?;
-        let statement_ids = statement_ids_flag(command, header.u32_at(12))?;
+        header.unused_zero(&[(0, 12)])?;
         let sections = Sections::<4>::read(command, frame.body(), 0)?;
         let terms = TermTableView::read(
             command,
@@ -37,7 +36,6 @@ impl<'a> BodyView<'a> for ReadView<'a> {
         Ok(Self {
             transaction: header.u64_at(0),
             limit: header.u32_at(8),
-            statement_ids,
             terms,
             pattern,
             resume: sections.get(3),
@@ -52,10 +50,6 @@ impl<'a> BodyView<'a> for ReadView<'a> {
             self.pattern,
             self.resume.to_vec(),
         );
-        Ok(if self.statement_ids {
-            read.with_statement_ids()
-        } else {
-            read
-        })
+        Ok(read)
     }
 }

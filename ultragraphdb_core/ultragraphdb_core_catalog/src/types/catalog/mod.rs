@@ -19,6 +19,7 @@ use ultragraphdb_core_mapping::{
 use ultragraphdb_core_tok::{get_index_factory, get_tokenizer};
 
 use crate::errors::catalog_error::CatalogError;
+use crate::utils::catalog_codec::check_lengths;
 use crate::utils::tokenizer_datatypes::tokenizer_takes;
 
 /// The declarations of one namespace, by the ID of the predicate, entity type or relation each declares: what both
@@ -28,6 +29,7 @@ use crate::utils::tokenizer_datatypes::tokenizer_takes;
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Catalog {
     namespace: u64,
+    version: u64,
     predicates: BTreeMap<SystemId, PredicateDeclaration>,
     types: BTreeMap<SystemId, TypeDeclaration>,
     relations: BTreeMap<SystemId, RelationDeclaration>,
@@ -55,6 +57,17 @@ impl Catalog {
     /// The namespace the catalog is of.
     pub fn namespace(&self) -> u64 {
         self.namespace
+    }
+
+    /// The number of the catalog version the catalog holds, 0 for one no version installed.
+    pub fn version(&self) -> u64 {
+        self.version
+    }
+
+    /// The catalog holding version `version`, its declarations unchanged.
+    #[must_use]
+    pub fn with_version(self, version: u64) -> Self {
+        Self { version, ..self }
     }
 
     /// The declaration of predicate `uid`, if the catalog holds one.
@@ -108,6 +121,7 @@ impl Catalog {
     ) -> Result<(), CatalogError> {
         Self::check_predicate(&declaration)?;
         let _replaced: Option<PredicateDeclaration> = self.predicates.insert(uid, declaration);
+        debug_assert!(self.predicates.contains_key(&uid));
         Ok(())
     }
 
@@ -115,6 +129,7 @@ impl Catalog {
     /// constraint is not among the datatypes one of its tokenizers takes.
     pub fn check_predicate(declaration: &PredicateDeclaration) -> Result<(), CatalogError> {
         let iri = declaration.predicate().as_str();
+        check_lengths(&Declaration::Predicate(declaration.clone()))?;
         for tokenizer in declaration.tokenizers() {
             if get_tokenizer(tokenizer).is_none() {
                 return Err(CatalogError::unknown_tokenizer(iri, tokenizer));
@@ -140,6 +155,16 @@ impl Catalog {
     /// Removes predicate `uid`'s declaration: it behaves as the default again. Whether it had one.
     pub fn remove_predicate(&mut self, uid: SystemId) -> bool {
         self.predicates.remove(&uid).is_some()
+    }
+
+    /// Removes entity type `uid`'s declaration: a type naming it as its parent becomes a root. Whether it had one.
+    pub fn remove_entity_type(&mut self, uid: SystemId) -> bool {
+        self.types.remove(&uid).is_some()
+    }
+
+    /// Removes relation `uid`'s declaration. Whether it had one.
+    pub fn remove_relation(&mut self, uid: SystemId) -> bool {
+        self.relations.remove(&uid).is_some()
     }
 
     /// Declares relation `uid`, replacing its declaration.

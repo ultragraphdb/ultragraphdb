@@ -78,7 +78,7 @@ pub fn record1() -> TestResult<WriteSetRecord> {
 
 /// Record 2: the start of the build of catalog version 12 in namespace 4.
 pub fn record2() -> WriteSetRecord {
-    let mut record = WriteSetRecord::build(4, RecordOperation::StartBuild(12));
+    let mut record = WriteSetRecord::build(4, RecordOperation::CatalogTakesEffect(12));
     record.set_catalog(12);
     record
 }
@@ -207,7 +207,10 @@ fn test_the_other_kinds_leave_their_fields_zero() -> TestResult {
     let build = record2();
     assert_eq!(build.kind(), RecordKind::Build);
     assert_eq!((build.namespace(), build.catalog()), (4, 12));
-    assert_eq!(build.operations(), &[RecordOperation::StartBuild(12)]);
+    assert_eq!(
+        build.operations(),
+        &[RecordOperation::CatalogTakesEffect(12)]
+    );
     assert!(build.registrations().is_empty());
     let drop = record3()?;
     assert_eq!(drop.kind(), RecordKind::Transaction);
@@ -296,7 +299,13 @@ fn test_a_later_setting_replaces_the_earlier() -> TestResult {
 fn test_a_builds_catalog_and_its_operations_version_are_apart() -> TestResult {
     // The golden build names catalog 12 in both places; here the in-effect catalog, 13, differs from the version the
     // build completes, 12, so neither can stand in for the other.
-    let mut record = WriteSetRecord::build(4, RecordOperation::CompleteBuild(12));
+    let mut record = WriteSetRecord::build(
+        4,
+        RecordOperation::CompleteBuild {
+            version: 12,
+            outcome: ultragraphdb_protocol_wire::BuildOutcome::Undo,
+        },
+    );
     record.set_catalog(13);
     let bytes = record.encode();
     assert_eq!(bytes[16..24], 13u64.to_le_bytes());
@@ -306,6 +315,12 @@ fn test_a_builds_catalog_and_its_operations_version_are_apart() -> TestResult {
     assert_eq!(bytes[operations + 8..operations + 16], 12u64.to_le_bytes());
     let view = WriteSetRecordView::new(&bytes)?;
     assert_eq!(view.catalog(), 13);
-    assert_eq!(view.operation(0), Some(RecordOperation::CompleteBuild(12)));
+    assert_eq!(
+        view.operation(0),
+        Some(RecordOperation::CompleteBuild {
+            version: 12,
+            outcome: ultragraphdb_protocol_wire::BuildOutcome::Undo
+        })
+    );
     Ok(())
 }

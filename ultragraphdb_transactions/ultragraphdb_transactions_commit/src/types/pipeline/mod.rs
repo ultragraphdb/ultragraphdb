@@ -4,9 +4,10 @@
  */
 
 use ultragraphdb_cluster_sequencer::{CatalogVersion, Close};
+use ultragraphdb_core_catalog::CatalogContents;
 use ultragraphdb_core_ids::Epoch;
 use ultragraphdb_store_apply::LogicalQuad;
-use ultragraphdb_store_apply::{ChangesetApplier, Executed};
+use ultragraphdb_store_apply::{ChangesetApplier, ChangesetError, Executed};
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_log::{DurabilityTicket, OrderedLog};
@@ -267,6 +268,37 @@ where
             )?;
         }
         Ok(())
+    }
+
+    /// Makes catalog version `contents` take effect in the partition, under `ticket`, at `now_us`: the round installing
+    /// it ([`Prepared::catalog`]) is proposed to the commit step, which decides it as a build's start, and its reply
+    /// comes with the commits' under `ticket`; a conflict, a commit having changed what its checks read, is answered so,
+    /// and the host proposes the version again. The declarations the partition's data refuses are returned, for the
+    /// host to report to the metadata group, which restores them by a new version. The host calls it once the close
+    /// announcing the version is delivered, before the commits of its epoch.
+    ///
+    /// # Errors
+    ///
+    /// [`PipelineError::catalog_version`] when a build runs, the version waiting for its end, leaving the pipeline as it
+    /// was; or when the store fails executing the version, which stops the pipeline; the pipeline's errors stepping.
+    pub fn install(
+        &mut self,
+        ticket: u64,
+        contents: &CatalogContents,
+        now_us: u64,
+    ) -> Result<Vec<ChangesetError>, PipelineError> {
+        let buffers = self.buffers.pop().unwrap_or_default();
+        let (prepared, refusals) = match Prepared::catalog(self.applier, contents, buffers) {
+            Ok(prepared) => prepared,
+            Err(cause) => {
+                if !self.applier.rebuilding() {
+                    self.stop(now_us);
+                }
+                return Err(PipelineError::catalog_version(contents.version(), cause));
+            }
+        };
+        self.run(Input::Commit(CommitRequest::new(ticket, prepared)), now_us)?;
+        Ok(refusals)
     }
 
     /// The oldest read version an open read-write transaction holds, which prunes the conflict history.

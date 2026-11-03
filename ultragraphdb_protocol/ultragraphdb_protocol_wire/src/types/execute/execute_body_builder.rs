@@ -19,7 +19,6 @@ impl BodyBuilder for Execute {
             (0, &self.statement().to_le_bytes()),
             (8, &self.transaction().to_le_bytes()),
             (16, &self.limit().to_le_bytes()),
-            (20, &u32::from(self.statement_ids()).to_le_bytes()),
         ])
     }
 

@@ -17,7 +17,8 @@
 //! deadlines, and the stream rules, handing requests to the server's session as [`Inbound`];
 //! [`ClientAuthentication`] is a client's side of the exchange through a [`ClientMechanism`], which a client's
 //! [`Login`] gives afresh for each exchange. The [`SimNetwork`] carries messages between [`SimStream`]s, dropping,
-//! delaying, duplicating and splitting them from a seed, so a conversation replays.
+//! delaying, duplicating and splitting them from a seed, so a conversation replays. An [`Address`] names where a role
+//! listens or is dialled, its carrier, TCP or a Unix-domain socket, chosen by its [`Scheme`].
 
 mod errors;
 mod traits;
@@ -29,6 +30,7 @@ pub use crate::traits::authenticator::Authenticator;
 pub use crate::traits::client_mechanism::ClientMechanism;
 pub use crate::traits::login::Login;
 pub use crate::traits::server_mechanism::ServerMechanism;
+pub use crate::types::address::{ADDRESS_LEN_MAX, Address};
 pub use crate::types::anonymous::Anonymous;
 pub use crate::types::buffer_pool::BufferPool;
 pub use crate::types::client_authentication::{AuthenticationStep, ClientAuthentication};
@@ -44,6 +46,7 @@ pub use crate::types::network_stats::NetworkStats;
 pub use crate::types::outbound::Outbound;
 pub use crate::types::pooled_buffer::PooledBuffer;
 pub use crate::types::received_frame::ReceivedFrame;
+pub use crate::types::scheme::Scheme;
 pub use crate::types::server_connection::{AUTHENTICATION_TIMEOUT, IDLE_LIMIT, ServerConnection};
 pub use crate::types::server_handshake::ServerHandshake;
 pub use crate::types::sim_network::SimNetwork;

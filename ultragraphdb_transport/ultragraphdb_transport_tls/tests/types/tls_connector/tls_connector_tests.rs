@@ -25,12 +25,12 @@ fn test_a_trusted_certificate_verifies_by_name_and_by_address() -> TestResult {
             .connect(pki.peer(TestEcho::default())?, host)
             .context("the handshake verifies")?;
         assert!(
-            !tls.conn.is_handshaking(),
+            !tls.session().is_handshaking(),
             "{host}: complete before the first write"
         );
         // The client offers TLS 1.3 and 1.2 and the server takes both, so they agree on 1.3.
         assert_eq!(
-            tls.conn.protocol_version(),
+            tls.session().protocol_version(),
             Some(ProtocolVersion::TLSv1_3),
             "{host}"
         );
@@ -38,7 +38,7 @@ fn test_a_trusted_certificate_verifies_by_name_and_by_address() -> TestResult {
         let mut echoed = [0u8; 5];
         tls.read_exact(&mut echoed).context("the echo")?;
         assert_eq!(&echoed, b"ping\n", "{host}");
-        assert!(!tls.sock.failed(), "{host}");
+        assert!(!tls.get_ref().failed(), "{host}");
     }
     Ok(())
 }
@@ -49,7 +49,10 @@ fn test_a_server_speaking_tls_1_2_alone_is_verified_over_tls_1_2() -> TestResult
     let mut tls = connector(&pki)?
         .connect(pki.peer_tls12(TestEcho::default())?, "localhost")
         .context("the handshake verifies over TLS 1.2")?;
-    assert_eq!(tls.conn.protocol_version(), Some(ProtocolVersion::TLSv1_2));
+    assert_eq!(
+        tls.session().protocol_version(),
+        Some(ProtocolVersion::TLSv1_2)
+    );
     tls.write_all(b"ping\n").context("a write")?;
     let mut echoed = [0u8; 5];
     tls.read_exact(&mut echoed).context("the echo")?;
@@ -135,5 +138,22 @@ fn test_the_connector_keeps_its_trust() -> TestResult {
     let pki = TestPki::new()?;
     let kept = connector(&pki)?;
     assert_eq!((kept.trust().source(), kept.trust().len()), ("test CA", 1));
+    Ok(())
+}
+
+#[test]
+fn test_a_session_verifies_for_its_host_and_refuses_a_host_no_certificate_names() -> TestResult {
+    let pki = TestPki::new()?;
+    let session = connector(&pki)?.session("localhost")?;
+    assert_eq!(session.host(), "localhost");
+    assert!(session.is_handshaking());
+    assert!(session.wants_write(), "the client hello waits");
+    let Err(error) = connector(&pki)?.session("not a host") else {
+        return Err(TestError::new("\"not a host\" was taken as a server name"));
+    };
+    assert_eq!(
+        error.0,
+        TlsErrorEnum::InvalidServerName("not a host".to_string())
+    );
     Ok(())
 }

@@ -62,12 +62,14 @@ impl<'a> BodyView<'a> for PrepareView<'a> {
             .iter()
             .filter(|slot| matches!(slot, PatternSlot::Unbound))
             .count();
-        if !result_types.is_empty() && result_types.len() != unbound {
+        // The unbound slots, then the reifier column.
+        let columns = unbound + 1;
+        if !result_types.is_empty() && result_types.len() != columns {
             return Err(ProtocolError::count_mismatch(
                 command,
                 "result types",
                 result_types.len() as u64,
-                unbound as u64,
+                columns as u64,
             ));
         }
         Ok(Self {

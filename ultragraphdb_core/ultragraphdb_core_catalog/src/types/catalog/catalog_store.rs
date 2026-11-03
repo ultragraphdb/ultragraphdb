@@ -82,8 +82,7 @@ impl Catalog {
         let scan = Scan::prefix(key_prefix(Keyspace::Catalog, false, namespace, None, None));
         for item in snapshot.scan(&scan) {
             let item = item?;
-            let Ok((QuadKey::Catalog { kind, id: uid, .. }, None)) = QuadKey::parse(item.key())
-            else {
+            let Ok((QuadKey::Catalog { kind, id: uid, .. }, None)) = QuadKey::parse(item.key()) else {
                 return Err(CatalogError::corrupted(item.key(), "not a catalog key"));
             };
             match (kind, decode(item.key(), item.value())?) {

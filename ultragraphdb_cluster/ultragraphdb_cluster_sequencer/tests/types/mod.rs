@@ -10,3 +10,4 @@ mod sequenced_transaction;
 mod sequencer;
 mod sequencer_config;
 mod sequencer_record;
+mod sequencer_snapshot;

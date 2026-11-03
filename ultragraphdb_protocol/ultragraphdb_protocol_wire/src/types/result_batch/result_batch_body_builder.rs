@@ -20,6 +20,8 @@ impl BodyBuilder for ResultBatch {
         command_header(&[
             (0, &self.columns().to_le_bytes()),
             (4, &self.rows().to_le_bytes()),
+            (8, &self.epoch().to_le_bytes()),
+            (16, &self.partition().to_le_bytes()),
         ])
     }
 
@@ -50,12 +52,6 @@ impl BodyBuilder for ResultBatch {
                 &ends,
                 &text,
                 self.resume(),
-                &self
-                    .statement_ids()
-                    .unwrap_or_default()
-                    .iter()
-                    .flat_map(|id| id.to_le_bytes())
-                    .collect::<Vec<u8>>(),
             ],
         )
     }

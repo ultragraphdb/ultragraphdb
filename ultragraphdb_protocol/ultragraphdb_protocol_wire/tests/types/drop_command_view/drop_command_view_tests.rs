@@ -7,7 +7,8 @@ use ultragraphdb_error_protocol::ProtocolErrorEnum;
 use ultragraphdb_protocol_wire::{BodyBuilder, BodyView, DropCommand, DropCommandView, DropKind};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
-use crate::types::drop_command::drop_command_tests::golden_drop;
+use crate::types::commit::commit_tests::session;
+use crate::types::drop_command::drop_command_tests::{golden_drop, golden_drop_reply};
 use crate::utils::golden_bodies::{frame_of, golden, put, with_command_header};
 
 #[test]
@@ -19,12 +20,27 @@ fn test_the_golden_drop_reads_its_values() -> TestResult {
     assert_eq!(view.target(), Some("http://ex.org/g"));
     assert_eq!(
         (view.session(), view.request(), view.commit_version()),
-        (9, 8, 0)
+        (session(), 8, 0)
     );
+    assert_eq!(view.token(), None);
     assert_eq!(view.to_body()?, golden_drop());
     let reply = golden("drop_reply")?.bytes()?;
     let reply_view = DropCommandView::from_frame(&frame_of(&reply)?)?;
-    assert_eq!(reply_view.commit_version(), 2002);
+    assert_eq!(reply_view.commit_version(), (31 << 22) | 2);
+    assert_eq!(reply_view.to_body()?, golden_drop_reply()?);
+    // A reply's token names its commit version's epoch.
+    let wrong = with_command_header(&reply, |h| put(h, 64, 30, 8));
+    assert_eq!(
+        DropCommandView::from_frame(&frame_of(&wrong)?)
+            .err()
+            .context("a refusal")?
+            .0,
+        ProtocolErrorEnum::FieldValue {
+            command: 19,
+            field: "token",
+            value: 30
+        }
+    );
     Ok(())
 }
 
@@ -38,7 +54,7 @@ fn refused(change: impl FnOnce(&mut [u8])) -> TestResult<ProtocolErrorEnum> {
 
 #[test]
 fn test_unused_bytes_kind_and_namespace_are_checked_in_order() -> TestResult {
-    for at in [1usize, 7, 40, 127] {
+    for at in [1usize, 7, 72, 127] {
         assert_eq!(
             refused(|h| {
                 h[at] = 1;
@@ -133,10 +149,10 @@ fn test_a_predicate_and_a_graph_name_one_iri_and_the_others_none() -> TestResult
     );
     // Each kind round-trips through its view.
     for command in [
-        DropCommand::predicate(1, "http://ex.org/p").with_session(2, 3),
+        DropCommand::predicate(1, "http://ex.org/p").with_session([2; 16], 3),
         DropCommand::namespace_data(4),
         DropCommand::whole_namespace(5),
-        DropCommand::all().with_commit_version(6),
+        golden_drop_reply()?,
     ] {
         let bytes = command.frame(golden("drop")?.header())?;
         assert_eq!(

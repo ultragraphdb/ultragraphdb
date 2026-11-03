@@ -29,10 +29,10 @@ fn test_the_golden_write_reads_its_changes_and_terms() -> TestResult {
     let view = WriteView::from_frame(&frame_of(&bytes)?)?;
     assert_eq!(view.len(), 14);
     assert!(!view.is_empty());
-    assert_eq!(view.terms().len(), 17);
+    assert_eq!(view.terms().len(), 19);
     assert_eq!(view.terms().get(4), Some(RequestTermView::BlankNode("b1")));
     assert_eq!(
-        view.terms().get(13),
+        view.terms().get(15),
         Some(RequestTermView::Triple {
             subject: 0,
             predicate: 1,
@@ -45,8 +45,8 @@ fn test_the_golden_write_reads_its_changes_and_terms() -> TestResult {
         Some(WriteChange::Insert {
             graph: None,
             subject: 0,
-            predicate: 12,
-            object: 13
+            predicate: 14,
+            object: 15
         })
     );
     assert_eq!(view.change(14), None);
@@ -114,19 +114,19 @@ fn test_args_follow_each_other_and_are_consumed_exactly() -> TestResult {
             expected: 4
         }
     );
-    // 65 args: 4, 4, 3, 3, 6, 5, 6, 4, 4, 4 for the changes, 7, 10, 2, 3 for the declarations.
+    // 63 args: 4, 4, 3, 2, 6, 4, 6, 4, 4, 4 for the changes, 7, 10, 2, 3 for the declarations.
     assert_eq!(
         refused(1, |a| a.extend_from_slice(&0u32.to_le_bytes()))?,
         ProtocolErrorEnum::CountMismatch {
             command: 8,
             field: "args",
-            count: 66,
-            expected: 65
+            count: 64,
+            expected: 63
         }
     );
-    // The first declaration's tokenizer count, arg 43 + 2, past its args.
+    // The first declaration's tokenizer count, arg 41 + 2, past its args.
     assert_eq!(
-        refused(1, |a| put(a, 4 * 45, 40, 4))?,
+        refused(1, |a| put(a, 4 * 43, 40, 4))?,
         ProtocolErrorEnum::CountMismatch {
             command: 8,
             field: "change args",
@@ -139,15 +139,15 @@ fn test_args_follow_each_other_and_are_consumed_exactly() -> TestResult {
 
 #[test]
 fn test_term_and_name_references_are_in_range() -> TestResult {
-    // The Insert's subject, arg 1, past the 17 terms; absent where it may not be.
+    // The Insert's subject, arg 1, past the 19 terms; absent where it may not be.
     assert_eq!(
-        refused(1, |a| put(a, 4, 17, 4))?,
+        refused(1, |a| put(a, 4, 19, 4))?,
         ProtocolErrorEnum::IndexOutOfRange {
             command: 8,
             section: 1,
             at: 1,
-            index: 17,
-            limit: 17
+            index: 19,
+            limit: 19
         }
     );
     assert_eq!(
@@ -157,16 +157,16 @@ fn test_term_and_name_references_are_in_range() -> TestResult {
             section: 1,
             at: 1,
             index: u32::MAX,
-            limit: 17
+            limit: 19
         }
     );
-    // The first declaration's predicate, arg 43, past the 15 names.
+    // The first declaration's predicate, arg 41, past the 15 names.
     assert_eq!(
-        refused(1, |a| put(a, 4 * 43, 15, 4))?,
+        refused(1, |a| put(a, 4 * 41, 15, 4))?,
         ProtocolErrorEnum::IndexOutOfRange {
             command: 8,
             section: 1,
-            at: 43,
+            at: 41,
             index: 15,
             limit: 15
         }
@@ -255,16 +255,16 @@ fn test_each_change_kind_takes_its_arg_count() -> TestResult {
         (0, 3, 4),
         (0, 5, 4),
         (1, 3, 4),
-        // DeletePattern and DeleteStatement take 3.
+        // DeletePattern takes 3, DeleteStatement 2: the graph and the reifier.
         (2, 2, 3),
-        (3, 2, 3),
-        (3, 4, 3),
+        (3, 1, 2),
+        (3, 3, 2),
         // InsertEdge takes 4 and an even number more: 5 args miss the pair's value, 3 args the object.
         (4, 5, 6),
         (4, 3, 4),
-        // SetProperty by its ID (flag bit 0 clear) takes 3 + 2; DeleteProperty by its triple (bit 0 set) 4 + 2.
-        (5, 4, 5),
-        (5, 6, 5),
+        // SetProperty by its reifier (flag bit 0 clear) takes 2 + 2; DeleteProperty by its quad (bit 0 set) 4 + 2.
+        (5, 3, 4),
+        (5, 5, 4),
         (6, 5, 6),
         (6, 7, 6),
         // The first predicate, [name, datatype, 2, term, exact, 1, Person]: six args cut its one domain.
@@ -288,14 +288,14 @@ fn test_each_change_kind_takes_its_arg_count() -> TestResult {
             "record {record} with {len} args"
         );
     }
-    // A relation of two names is whole: the one arg it leaves is the args section's, 65 held and 64 consumed.
+    // A relation of two names is whole: the one arg it leaves is the args section's, 63 held and 62 consumed.
     assert_eq!(
         refused(0, |r| put(r, 16 * 13 + 8, 2, 4))?,
         ProtocolErrorEnum::CountMismatch {
             command: 8,
             field: "args",
-            count: 65,
-            expected: 64
+            count: 63,
+            expected: 62
         }
     );
     Ok(())
@@ -303,19 +303,19 @@ fn test_each_change_kind_takes_its_arg_count() -> TestResult {
 
 #[test]
 fn test_each_change_kind_checks_its_term_and_name_args() -> TestResult {
-    // PROTOCOL.md section 4.6 step 9 over the golden Write's 65 args (17 terms, 15 names). Record i's args start at
-    // the sum of the counts before it, 4, 4, 3, 3, 6, 5, 6, 4, 4, 4, 7, 10, 2, 3: record 5 at 20, 6 at 25, 10 at 43,
-    // 13 at 62. (arg, value, limit) for one arg set out of range, refused naming the arg's index in the args section.
+    // PROTOCOL.md section 4.6 step 9 over the golden Write's 63 args (19 terms, 15 names). Record i's args start at
+    // the sum of the counts before it, 4, 4, 3, 2, 6, 4, 6, 4, 4, 4, 7, 10, 2, 3: record 5 at 19, 6 at 23, 10 at 41,
+    // 13 at 60. (arg, value, limit) for one arg set out of range, refused naming the arg's index in the args section.
     let cases: [(usize, u32, u32); 5] = [
-        // DeleteProperty by its triple: the statement's subject is a term.
-        (26, 17, 17),
+        // DeleteProperty by its quad: the statement's subject is a term.
+        (24, 19, 19),
         // SetProperty: its value is a term, never ABSENT (DeleteProperty's may be).
-        (24, u32::MAX, 17),
+        (22, u32::MAX, 19),
         // A predicate's datatype, which may be ABSENT, is otherwise a name; so is each tokenizer.
+        (42, 15, 15),
         (44, 15, 15),
-        (46, 15, 15),
         // A predicate's domain, its last arg.
-        (49, 15, 15),
+        (47, 15, 15),
     ];
     for (at, value, limit) in cases {
         assert_eq!(
@@ -340,27 +340,23 @@ fn test_each_change_kind_checks_its_term_and_name_args() -> TestResult {
             expected: 7
         }
     );
-    // The last record, the relation of 3 args at 62, claiming 4: 66 args asked of the 65 held.
+    // The last record, the relation of 3 args at 60, claiming 4: 64 args asked of the 63 held.
     assert_eq!(
         refused(0, |r| put(r, 16 * 13 + 8, 4, 4))?,
         ProtocolErrorEnum::CountMismatch {
             command: 8,
             field: "args",
-            count: 65,
-            expected: 66
+            count: 63,
+            expected: 64
         }
     );
-    // The ID halves of DeleteStatement (record 3, args 11 to 13) take any value: low 0xFFFF_FFFF, high 0x8000_0000
-    // are the ID 0x8000_0000_FFFF_FFFF.
-    let bytes = with_section(&golden("write")?.bytes()?, 6, 1, |a| {
-        put(a, 4 * 12, 0xFFFF_FFFF, 4);
-        put(a, 4 * 13, 0x8000_0000, 4);
-    });
+    // DeleteStatement (record 3, args 11 and 12) names its statement by its reifier, a term: term 0 read back.
+    let bytes = with_section(&golden("write")?.bytes()?, 6, 1, |a| put(a, 4 * 12, 0, 4));
     assert_eq!(
         WriteView::from_frame(&frame_of(&bytes)?)?.change(3),
         Some(WriteChange::DeleteStatement {
             graph: None,
-            id: 0x8000_0000_FFFF_FFFF
+            reifier: 0
         })
     );
     Ok(())

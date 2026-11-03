@@ -4,6 +4,12 @@
  */
 
 #[cfg(test)]
+mod carrier;
+#[cfg(test)]
 mod compio_sim_stream;
 #[cfg(test)]
+mod compio_tls_stream;
+#[cfg(test)]
 mod connection;
+#[cfg(test)]
+mod listener;

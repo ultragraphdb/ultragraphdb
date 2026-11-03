@@ -319,7 +319,6 @@ fn test_dropping_a_predicate_rewrites_a_split_predicate_list_whole() -> TestResu
 /// (7.7).
 #[test]
 fn test_a_drop_prepared_for_a_round_writes_its_ranges_and_drops_at_its_version() -> TestResult {
-    use ultragraphdb_core_catalog::Catalog;
     let a = changesets()?;
     crate::utils::changesets::write(&a, &["<a> <p> <b>", "<a> <q> <b>"])?;
     let unknown = a.prepare_drop(
@@ -335,13 +334,14 @@ fn test_a_drop_prepared_for_a_round_writes_its_ranges_and_drops_at_its_version()
     )?;
     assert!(drop.is_drop());
     assert!(!drop.starts_build());
-    let catalog = Catalog::predicate_key(NS, p);
+    let catalog = ultragraphdb_core_keys::Keyspace::Catalog.byte();
     assert!(
         drop.drop_ranges()
             .iter()
-            .any(|(start, end)| start == &catalog && end.as_slice() > catalog.as_slice()),
-        "the catalog entry's range"
+            .all(|(start, _)| start.first() != Some(&catalog)),
+        "no range of the catalog keyspace, which no partition writes"
     );
+    assert!(!drop.drop_ranges().is_empty(), "the ranges of {p:?}'s keys");
     assert!(drop.drop_ranges().iter().all(|(s, e)| s < e));
     assert!(drop.writes().deltas().is_empty());
     let version = a.quads().lists().applied_ts() + 2;
@@ -516,20 +516,23 @@ fn test_a_drop_prepared_for_a_round_names_its_target_and_its_ranges() -> TestRes
     );
     let namespace = a.prepare_drop(NS, DropRequest::Namespace)?;
     assert_eq!(namespace.dropped(), Some(DropTarget::Namespace));
+    // No partition holds a catalog key, so no drop ranges over the catalog keyspace: a namespace's drop covers its
+    // quad keyspaces, as its data's does.
     assert!(
-        namespace
+        !namespace
             .drop_ranges()
             .iter()
             .any(|(start, _)| start == &catalog)
     );
-    assert!(namespace.drop_ranges().len() > data.drop_ranges().len());
+    assert_eq!(namespace.drop_ranges(), data.drop_ranges());
     let all = a.prepare_drop(NS, DropRequest::All)?;
     assert_eq!(all.dropped(), Some(DropTarget::All));
     assert!(
-        all.drop_ranges()
+        !all.drop_ranges()
             .iter()
-            .any(|(start, _)| start == &[Keyspace::Catalog.byte()])
+            .any(|(start, _)| start.first() == Some(&Keyspace::Catalog.byte()))
     );
+    assert!(!all.drop_ranges().is_empty());
     for drop in [&graph, &data, &namespace, &all] {
         assert!(drop.writes().deltas().is_empty());
     }

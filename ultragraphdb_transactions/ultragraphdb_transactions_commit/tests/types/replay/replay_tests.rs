@@ -460,3 +460,76 @@ fn test_an_applied_position_that_does_not_read_refuses_recovery() -> TestResult 
     );
     Ok(())
 }
+
+/// A catalog version removing a predicate, an entity type and a relation round-trips: replayed into an empty store from
+/// the versions the metadata group holds, the store holds every key and value the first apply left, byte for byte, and
+/// the catalog the same declarations.
+#[test]
+fn test_a_versions_removals_replay_as_the_first_apply_made_them() -> TestResult {
+    use ultragraphdb_core_catalog::CatalogContents;
+    use ultragraphdb_core_mapping::{
+        Declaration, PredicateDeclaration, RelationDeclaration, TypeDeclaration,
+    };
+    use ultragraphdb_traits_catalog::{HeldVersion, TestCatalogSource};
+    let ex = crate::utils::fixture::ex;
+    let original = applier()?;
+    let (_storage, log) = wal()?;
+    let mut pipe: Pipe<'_> = Pipeline::new(&original, log, unbounded())?;
+    let _r1 = commit(
+        &mut pipe,
+        &original,
+        1,
+        vec![insert_literal("a", "name", "big apple")],
+    )?;
+    let group = TestCatalogSource::new();
+    let two = CatalogContents::new(
+        NS,
+        2,
+        vec![
+            Declaration::Predicate(
+                PredicateDeclaration::new(ex("name")).with_tokenizers(vec!["exact".into()]),
+            ),
+            Declaration::EntityType(TypeDeclaration::new(ex("Person"), None, false)),
+            Declaration::Relation(RelationDeclaration::new(ex("Marriage"), vec![ex("spouse")])),
+        ],
+    );
+    let three = CatalogContents::new(NS, 3, Vec::new());
+    for (ticket, contents) in [(2, &two), (3, &three)] {
+        group.commit(HeldVersion::new(
+            NS,
+            contents.version(),
+            1,
+            contents.encode()?,
+        ));
+        let refusals = pipe.install(ticket, contents, 0)?;
+        assert!(refusals.is_empty(), "{refusals:?}");
+        block_on(pipe.sync(0))?;
+        original.executor().run_until_idle();
+        pipe.poll_builds(0)?;
+        block_on(pipe.sync(0))?;
+    }
+    assert!(!original.rebuilding());
+    let catalog = original.catalog(NS)?;
+    assert_eq!(
+        catalog.entity_types().count() + catalog.relations().count(),
+        0
+    );
+    let mut written = pipe.into_log();
+    let replica = applier_over(sim_store())?;
+    replica.sequence_builds();
+    let _replayed = block_on(Replay::run_with_catalog(
+        0,
+        &replica,
+        &mut written,
+        Sessions::DEFAULT_CAPACITY,
+        &group,
+    ))?;
+    replica.executor().run_until_idle();
+    assert_eq!(
+        original.quads().store().contents(),
+        replica.quads().store().contents(),
+        "the replayed store holds every key and value the first apply left"
+    );
+    assert_eq!(*replica.catalog(NS)?, *original.catalog(NS)?);
+    Ok(())
+}

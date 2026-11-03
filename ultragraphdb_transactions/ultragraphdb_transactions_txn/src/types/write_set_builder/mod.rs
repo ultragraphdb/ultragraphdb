@@ -9,7 +9,7 @@ use ultragraphdb_core_codec::PostingList;
 use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::{Graph, Keyspace};
 use ultragraphdb_error_invariant::InvariantError;
-use ultragraphdb_protocol_wire::{RecordKind, RecordOperation, WriteSetRecord};
+use ultragraphdb_protocol_wire::{BuildOutcome, RecordKind, RecordOperation, WriteSetRecord};
 use ultragraphdb_store_apply::{BuildEnd, DropTarget, Executed, LogicalQuad};
 use ultragraphdb_store_quads::posting_object;
 
@@ -94,11 +94,30 @@ impl<'e> WriteSetBuilder<'e> {
     pub fn build(&self) -> Result<WriteSetRecord, TxnError> {
         let executed = self.executed;
         let namespace = executed.namespace();
-        let mut record = match executed.build_end() {
-            Some(BuildEnd::Swap(build) | BuildEnd::Undo(build)) => {
-                WriteSetRecord::build(namespace, RecordOperation::CompleteBuild(build))
+        let mut record = match (executed.build_end(), executed.catalog_version()) {
+            // A build's completion names the catalog version that started it, the one in effect while it ran (a later
+            // version waits for the build), and how it ended, so replay ends it the same way (`PROTOCOL.md` §12.2).
+            (Some(end), _) => {
+                let outcome = match end {
+                    BuildEnd::Swap(_) => BuildOutcome::Swap,
+                    BuildEnd::Undo(_) => BuildOutcome::Undo,
+                };
+                WriteSetRecord::build(
+                    namespace,
+                    RecordOperation::CompleteBuild {
+                        version: self.catalog,
+                        outcome,
+                    },
+                )
             }
-            None => self.transaction_record()?,
+            // A catalog version taking effect names the version, its builds derived from it on replay.
+            (None, Some(version)) => {
+                let mut start =
+                    WriteSetRecord::build(namespace, RecordOperation::CatalogTakesEffect(version));
+                start.set_catalog(version);
+                return Ok(start);
+            }
+            (None, None) => self.transaction_record()?,
         };
         if record.kind() == RecordKind::Build {
             record.set_catalog(self.catalog);

@@ -410,3 +410,34 @@ pub fn plain(replies: &[Reply]) -> Vec<Reply> {
         })
         .collect()
 }
+
+/// Version `version` of `namespace`'s catalog declaring `predicate` with a `term` index.
+pub fn term_version(
+    namespace: u64,
+    version: u64,
+    predicate: &str,
+) -> ultragraphdb_core_catalog::CatalogContents {
+    use ultragraphdb_core_mapping::{Declaration, PredicateDeclaration};
+    let declared =
+        PredicateDeclaration::new(ex(predicate)).with_tokenizers(vec!["term".to_string()]);
+    ultragraphdb_core_catalog::CatalogContents::new(
+        namespace,
+        version,
+        vec![Declaration::Predicate(declared)],
+    )
+}
+
+/// Catalog version `contents` taking effect on `applier` as a proposal of the commit step, executed at the watermark;
+/// none of its declarations refused.
+pub fn catalog_proposal(
+    applier: &Applier,
+    contents: &ultragraphdb_core_catalog::CatalogContents,
+) -> TestResult<Prepared> {
+    let (prepared, refusals) = Prepared::catalog(applier, contents, TxnBuffers::new())?;
+    if !refusals.is_empty() {
+        return Err(ultragraphdb_tool_bdd::TestError::new(format!(
+            "refused: {refusals:?}"
+        )));
+    }
+    Ok(prepared)
+}

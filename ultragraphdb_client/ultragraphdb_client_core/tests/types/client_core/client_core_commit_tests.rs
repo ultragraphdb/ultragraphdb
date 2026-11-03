@@ -26,7 +26,7 @@ fn begin(h: &mut Harness) -> TestResult<Transaction> {
 }
 
 /// Every Commit frame the server received: its session and request.
-fn commits(h: &Harness) -> Vec<(u64, u64)> {
+fn commits(h: &Harness) -> Vec<(u128, u64)> {
     h.server
         .received()
         .iter()
@@ -36,7 +36,7 @@ fn commits(h: &Harness) -> Vec<(u64, u64)> {
                 .and_then(|v| {
                     CommitView::from_frame(&v)
                         .ok()
-                        .map(|c| (c.session(), c.request()))
+                        .map(|c| (u128::from_be_bytes(c.session()), c.request()))
                 })
         })
         .collect()
@@ -53,10 +53,15 @@ fn test_a_commit_answers_its_version_and_results_and_advances_the_session() -> T
     let p = h.core.commit(tx, s, h.now)?;
     assert_eq!(
         h.core.commit(second, s, h.now).err().context("an error")?.0,
-        ClientErrorEnum::SessionBusy { session: 9 }
+        ClientErrorEnum::SessionBusy {
+            session: s.number()
+        }
     );
     let c = committed(h.settle(p)?)?;
-    assert_eq!((c.version(), c.request(), c.results().len()), (1_000, 1, 2));
+    assert_eq!(
+        (c.version(), c.request(), c.results().len()),
+        (h.server.version(), 1, 2)
+    );
     assert_eq!(c.results()[1].node(), Some(1));
     assert_eq!(h.core.next_request(s), Some(2));
     let committing = {
@@ -64,7 +69,10 @@ fn test_a_commit_answers_its_version_and_results_and_advances_the_session() -> T
         h.core.commit(t, s, h.now)
     }?;
     let next_commit = committed(h.settle(committing)?)?;
-    assert_eq!((next_commit.version(), next_commit.request()), (1_002, 2));
+    assert_eq!(
+        (next_commit.version(), next_commit.request()),
+        (h.server.version(), 2)
+    );
     assert_eq!(h.server.applied(), 2);
     assert_eq!(commits(&h), vec![(9, 1), (9, 2)]);
     Ok(())
@@ -86,7 +94,7 @@ fn test_a_lost_reply_is_retried_through_the_session_and_applied_once() -> TestRe
         vec![(9, 1), (9, 1)],
         "the retry carries the same session and request"
     );
-    assert_eq!((c.version(), c.request()), (1_000, 1));
+    assert_eq!((c.version(), c.request()), (h.server.version(), 1));
     assert_eq!(h.core.next_request(s), Some(2));
     assert_eq!(
         h.core
@@ -336,7 +344,10 @@ fn test_a_drop_through_a_session_is_answered_with_its_commit_version() -> TestRe
         .core
         .drop_command(DropCommand::graph(0, "http://ex.org/g"), s, h.now)?;
     let dropped = dropped(h.settle(p)?)?;
-    assert_eq!((dropped.version(), dropped.request()), (1_000, 1));
+    assert_eq!(
+        (dropped.version(), dropped.request()),
+        (h.server.version(), 1)
+    );
     assert!(dropped.results().is_empty());
     assert_eq!(h.core.next_request(s), Some(2));
     assert_eq!(h.server.applied(), 1);
@@ -360,14 +371,18 @@ fn test_a_lost_drop_reply_is_retried_through_the_session_and_applied_once() -> T
     assert_eq!(dropped.request(), 1);
     assert_eq!(h.server.applied(), 1, "applied once");
     assert_eq!(h.connections, 2);
-    let drops: Vec<(u64, u64, u64)> = h
+    let drops: Vec<(u64, u128, u64)> = h
         .server
         .received()
         .iter()
         .filter_map(|f| {
             let view = FrameView::validate_client(f, CLUSTER, MAX_FRAME_SIZE).ok()?;
             let drop = DropCommandView::from_frame(&view).ok()?;
-            Some((drop.namespace(), drop.session(), drop.request()))
+            Some((
+                drop.namespace(),
+                u128::from_be_bytes(drop.session()),
+                drop.request(),
+            ))
         })
         .collect();
     assert_eq!(drops, vec![(3, 9, 1), (3, 9, 1)], "the same Drop, retried");
@@ -409,9 +424,11 @@ fn test_a_drop_reply_of_another_request_is_a_mismatch() -> TestResult {
     while h.core.transmit().is_some() {}
     // The session's registration took stream 1; the drop takes stream 2.
     let stream = 2;
+    let version = h.server.version();
     let reply = DropCommand::all()
-        .with_session(9, 2)
-        .with_commit_version(77)
+        .with_session(s.number().to_be_bytes(), 2)
+        .with_commit_version(version)
+        .with_token(ultragraphdb_client_core::TestServer::token(version))
         .frame(
             Header::new(CLUSTER, Command::Drop)
                 .with_stream(stream)
@@ -438,35 +455,43 @@ fn test_a_drop_reply_of_another_request_is_a_mismatch() -> TestResult {
 /// A commit reply naming another session, or a reply of another command, is no answer of the commit.
 #[test]
 fn test_a_commit_reply_of_another_session_or_command_is_a_mismatch() -> TestResult {
+    use ultragraphdb_client_core::TestServer;
     use ultragraphdb_protocol_wire::{BodyBuilder, Command, Commit, FLAG_LAST, Header, Register};
-    for (reply, expected) in [
-        (
-            Commit::new(10, 1, 5, Vec::new())
-                .frame(Header::new(CLUSTER, Command::Commit).with_flags(FLAG_LAST))?,
-            ClientErrorEnum::ReplyMismatch {
-                field: "session",
-                expected: 9,
-                found: 10,
-            },
-        ),
-        (
-            Register::new(9)
-                .frame(Header::new(CLUSTER, Command::Register).with_flags(FLAG_LAST))?,
-            // Commit is command 5, Register 3 (PROTOCOL.md section 3).
-            ClientErrorEnum::ReplyMismatch {
-                field: "command",
-                expected: 5,
-                found: 3,
-            },
-        ),
-    ] {
+    for other_command in [false, true] {
         let mut h = Harness::ready(server())?;
         let s = session(&mut h)?;
         let tx = begin(&mut h)?;
         let p = h.core.commit(tx, s, h.now)?;
         while h.core.transmit().is_some() {}
-        let mut reply = reply;
-        reply[56..64].copy_from_slice(&tx.stream().to_le_bytes());
+        // A session the client does not hold: the one after its own.
+        let other = s.number() + 1;
+        let header = |command| {
+            Header::new(CLUSTER, command)
+                .with_stream(tx.stream())
+                .with_flags(FLAG_LAST)
+        };
+        let (reply, expected) = if other_command {
+            (
+                Register::new(other.to_be_bytes()).frame(header(Command::Register))?,
+                ClientErrorEnum::ReplyMismatch {
+                    field: "command",
+                    expected: Command::Commit.number().into(),
+                    found: Command::Register.number().into(),
+                },
+            )
+        } else {
+            let version = h.server.version();
+            (
+                Commit::new(other.to_be_bytes(), 1, version)
+                    .with_token(TestServer::token(version))
+                    .frame(header(Command::Commit))?,
+                ClientErrorEnum::ReplyMismatch {
+                    field: "session",
+                    expected: s.number(),
+                    found: other,
+                },
+            )
+        };
         let reply = h.numbered(&reply)?;
         h.deliver(&reply)??;
         assert_eq!(
@@ -531,7 +556,7 @@ fn test_busy_answers_past_the_attempts_leave_the_commit_in_doubt() -> TestResult
     );
     let resolving = h.core.resolve(s, h.now)?;
     let c = committed(h.settle(resolving)?)?;
-    assert_eq!((c.version(), c.request()), (1_000, 1));
+    assert_eq!((c.version(), c.request()), (h.server.version(), 1));
     assert_eq!(h.core.next_request(s), Some(2));
     Ok(())
 }
@@ -631,7 +656,7 @@ fn test_a_commit_unanswered_at_close_is_in_doubt_until_resolved() -> TestResult 
     let resolving = h.core.resolve(s, h.now)?;
     assert!(h.core.needs_connection());
     let c = committed(h.settle(resolving)?)?;
-    assert_eq!((c.version(), c.request()), (1_000, 1));
+    assert_eq!((c.version(), c.request()), (h.server.version(), 1));
     assert_eq!(h.server.applied(), 1);
     assert_eq!(h.core.next_request(s), Some(2));
     Ok(())

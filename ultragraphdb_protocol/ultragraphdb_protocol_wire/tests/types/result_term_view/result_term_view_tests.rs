@@ -33,7 +33,7 @@ fn test_a_term_reads_through_core_terms_view() -> TestResult {
 fn test_a_blank_node_reads_as_its_skolem_iris_hash_with_its_own_tag() -> TestResult {
     let bytes = golden("result")?.bytes()?;
     let view = ResultView::from_frame(&frame_of(&bytes)?)?;
-    let blank = view.term(3).context("term 3 of the batch")?;
+    let blank = view.term(4).context("term 4 of the batch")?;
     assert!(blank.is_blank_node());
     let hash = Hash128::of(SKOLEM_6.as_bytes());
     assert_eq!(blank.encoding().first(), Some(&0x02));

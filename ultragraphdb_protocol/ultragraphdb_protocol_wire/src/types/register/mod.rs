@@ -5,26 +5,27 @@
 
 mod register_body_builder;
 
-/// A session is registered (D9): sent with `session` zero, answered with the session's number.
+/// A session is registered for the connection's principal (`PROTOCOL.md` §6.1): sent with `session` all zero, answered
+/// with the session's identity, 128 random bits, never all zero.
 ///
 /// | Command header | Field | Type |
 /// |---|---|---|
-/// | 0 | `session` | u64 |
+/// | 0 | `session` | 16 bytes |
 ///
 /// No sections.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Register {
-    session: u64,
+    session: [u8; 16],
 }
 
 impl Register {
-    /// A registration of `session`.
-    pub fn new(session: u64) -> Self {
+    /// A registration of `session`: all zero in a request.
+    pub fn new(session: [u8; 16]) -> Self {
         Self { session }
     }
 
-    /// The client's session.
-    pub fn session(&self) -> u64 {
+    /// The session; all zero in a request.
+    pub fn session(&self) -> [u8; 16] {
         self.session
     }
 }

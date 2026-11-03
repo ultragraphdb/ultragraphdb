@@ -19,6 +19,8 @@ pub mod utils {
     pub mod golden;
     #[path = "golden_bodies.rs"]
     pub mod golden_bodies;
+    #[path = "golden_roles.rs"]
+    pub mod golden_roles;
 }
 
 mod bodies_steps;
@@ -277,7 +279,7 @@ fn retired_number(w: &mut Steps) -> TestResult {
     let numbers: Vec<u16> = RETIRED_COMMANDS
         .iter()
         .copied()
-        .chain((0..=u16::MAX).filter(|n| !(1..=19).contains(n)))
+        .chain((0..=u16::MAX).filter(|n| !(1..=19).contains(n) && !(512..=530).contains(n)))
         .collect();
     let golden = CREDIT.bytes()?;
     w.refusals = numbers
@@ -297,7 +299,7 @@ fn retired_number(w: &mut Steps) -> TestResult {
 
 #[then("it is refused as an unknown command")]
 fn refused_unknown(w: &mut Steps) {
-    assert_eq!(w.refusals.len(), 65_536 - 19);
+    assert_eq!(w.refusals.len(), 65_536 - 38);
     for (refusal, (number, _)) in w.refusals.iter().zip(&w.checksums) {
         assert_eq!(
             refusal.0,

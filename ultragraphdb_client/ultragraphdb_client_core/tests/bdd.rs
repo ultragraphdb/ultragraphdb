@@ -113,7 +113,7 @@ fn lost_reply(w: &mut Steps) -> TestResult {
     let p = h.core.commit(tx, session, h.now)?;
     let c = committed(h.settle(p)?)?;
     w.outcome = vec![c.request(), h.server.applied(), u64::from(h.connections)];
-    let retried: Vec<(u64, u64)> = h
+    let retried: Vec<(u128, u64)> = h
         .server
         .received()
         .iter()
@@ -123,7 +123,7 @@ fn lost_reply(w: &mut Steps) -> TestResult {
                 .and_then(|v| {
                     CommitView::from_frame(&v)
                         .ok()
-                        .map(|commit| (commit.session(), commit.request()))
+                        .map(|commit| (u128::from_be_bytes(commit.session()), commit.request()))
                 })
         })
         .collect();
@@ -299,9 +299,10 @@ fn repeated(w: &mut Steps) -> TestResult {
     let stream = h.core.read(&tx, &read(&tx), h.now)?;
     while h.core.transmit().is_some() {}
     let iri = ResultTerm::iri("http://ex.org/same");
-    let mut batch = ResultBatch::new(1);
+    // One unbound slot and the reifier column, unbound: no row's statement holds a statement ID.
+    let mut batch = ResultBatch::new(2);
     for _ in 0..1_000 {
-        batch.push_row(&[Some(&iri)])?;
+        batch.push_row(&[Some(&iri), None])?;
     }
     let frame = batch.frame(
         Header::new(CLUSTER, Command::Result)
@@ -334,7 +335,7 @@ fn once(w: &mut Steps) -> TestResult {
 }
 
 /// Every Commit frame the server received: its session and request.
-fn commits(h: &Harness) -> Vec<(u64, u64)> {
+fn commits(h: &Harness) -> Vec<(u128, u64)> {
     h.server
         .received()
         .iter()
@@ -342,7 +343,7 @@ fn commits(h: &Harness) -> Vec<(u64, u64)> {
             let view = FrameView::validate(f, CLUSTER, MAX_FRAME_SIZE).ok()?;
             CommitView::from_frame(&view)
                 .ok()
-                .map(|c| (c.session(), c.request()))
+                .map(|c| (u128::from_be_bytes(c.session()), c.request()))
         })
         .collect()
 }

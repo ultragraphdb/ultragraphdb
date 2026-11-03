@@ -76,6 +76,13 @@ pub enum TransportErrorEnum {
         /// Why the mechanism refused it.
         reason: String,
     },
+    /// `address` names no carrier: `reason` is the rule it breaks.
+    Address {
+        /// The address as given.
+        address: String,
+        /// The rule it breaks.
+        reason: &'static str,
+    },
 }
 
 /// Why a connection or a stream operation failed; `.0` classifies it.
@@ -142,6 +149,14 @@ impl TransportError {
     /// A [`TransportErrorEnum::UnexpectedCommand`]: `found` where `expected` was due.
     pub fn unexpected_command(expected: u16, found: u16) -> Self {
         Self(TransportErrorEnum::UnexpectedCommand { expected, found })
+    }
+
+    /// A [`TransportErrorEnum::Address`] of `address`, breaking the rule `reason`.
+    pub fn address(address: &str, reason: &'static str) -> Self {
+        Self(TransportErrorEnum::Address {
+            address: address.to_string(),
+            reason,
+        })
     }
 
     /// A [`TransportErrorEnum::Authentication`] saying `reason`.

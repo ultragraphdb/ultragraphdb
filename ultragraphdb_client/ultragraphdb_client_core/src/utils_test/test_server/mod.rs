@@ -50,7 +50,7 @@ pub struct TestServer {
     lose_commit: bool,
     busy_retries: u32,
     lost_retries: u32,
-    sessions: BTreeMap<u64, SessionRecord>,
+    sessions: BTreeMap<u128, SessionRecord>,
     transactions: BTreeMap<u64, u32>,
     statements: BTreeMap<u64, u64>,
     received: Vec<Vec<u8>>,
@@ -83,7 +83,8 @@ impl TestServer {
             statements: BTreeMap::new(),
             received: Vec::new(),
             applied: 0,
-            version: 998,
+            // Epoch 1's version 998: a reply's token names the epoch of its commit version (`PROTOCOL.md` §6.3).
+            version: (1 << 22) | 998,
             dropped: false,
         }
     }
@@ -144,7 +145,7 @@ impl TestServer {
     }
 
     /// `session` is evicted from the table, so its next commit is refused with code 12 (SessionEvicted).
-    pub fn evict(&mut self, session: u64) {
+    pub fn evict(&mut self, session: u128) {
         let _evicted: Option<SessionRecord> = self.sessions.remove(&session);
     }
 
@@ -166,6 +167,18 @@ impl TestServer {
     /// The principal the connection acts for, once it authenticated.
     pub fn principal(&self) -> Option<u64> {
         self.connection.as_ref().and_then(|c| c.principal())
+    }
+
+    /// The token the server sends with a commit or a drop answered at `version`, as its replies carry it: what a
+    /// test building a reply by hand gives it.
+    pub fn token(version: u64) -> ultragraphdb_core_ids::SessionToken {
+        test_server_commit::token(version)
+    }
+
+    /// The version of the last commit applied, or before any the version the server's snapshots read at: what a
+    /// Commit, a Drop or a read-only Begin answers, so a test reads it here rather than assuming a number.
+    pub fn version(&self) -> u64 {
+        self.version
     }
 
     /// The commits applied, each once.
@@ -287,6 +300,7 @@ fn rule(error: ultragraphdb_protocol_transport::TransportError) -> ProtocolError
         | TransportErrorEnum::UnknownStream { .. }
         | TransportErrorEnum::Refused { .. }
         | TransportErrorEnum::UnexpectedCommand { .. }
-        | TransportErrorEnum::Authentication { .. } => ProtocolError::short_header(0),
+        | TransportErrorEnum::Authentication { .. }
+        | TransportErrorEnum::Address { .. } => ProtocolError::short_header(0),
     }
 }

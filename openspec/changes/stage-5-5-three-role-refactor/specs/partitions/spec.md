@@ -53,7 +53,8 @@ at an epoch sees the members added at or below it. A member SHALL be added when 
 (term-dictionary, "A reference to another partition's entity registers at its home"), admitted into the home's commit
 step with a commit version of its own, and, for a group the home itself holds, in the home's own commit that first
 references `o` from that group, at generation 1. A registration naming the member's current generation, or naming any
-generation for a group not in `R(o)`, SHALL add or renew the member at one generation above the generation named; a
+generation for a group not in `R(o)`, SHALL add or renew the member at one generation above the larger of the
+generation named and the highest generation the group ever held in `R(o)`; a
 registration naming a generation below the member's current one SHALL change nothing and SHALL be answered with the
 current generation. A bucket group SHALL resolve to the partitions holding its buckets through the placement map in
 effect at a read's epoch, so a move or split of bucket ranges rewrites no member. In this stage `R(o)` SHALL only grow;
@@ -83,6 +84,17 @@ builds.
   group 7
 - **THEN** a reverse read of `o` at epoch 20 asks partition 2 for group 7 and one at epoch 21 asks partition 3, and
   `R(o)` is unchanged by the move
+
+### Requirement: A commit under a registration reply reads its mark
+A write committed under a registration's reply SHALL read the mark key of its `(o, g)` in the marks keyspace, recorded
+in its read set, so a renewal or a reclamation report of that member committed after the reply and before the write
+conflicts with it and the write aborts, retryable, rather than marking `(o, g)` at a generation the home no longer
+holds.
+
+#### Scenario: A renewal between the reply and the commit conflicts
+- **WHEN** transaction T in partition 1 receives a reply naming generation 4 for `(o, 7)`, and another transaction of
+  partition 1 renews `(o, 7)` to generation 5 and commits before T
+- **THEN** T aborts with a conflict naming the mark key, writes nothing, and its retry marks `(o, 7)` at generation 5
 
 ### Requirement: A registration's epoch is at most the epoch of every write referencing it
 On every write path, the epoch at which the home adds or renews a member of `R(o)` SHALL be at most the commit epoch of

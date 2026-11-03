@@ -18,9 +18,9 @@ use ultragraphdb_protocol_transport::{
     Anonymous, BufferPool, Framer, ReceivedFrame, TransportError, TransportErrorEnum,
 };
 use ultragraphdb_protocol_wire::{
-    BodyView, ColumnType, DescribeView, ErrorCode, ExecuteView, FrameView, MAX_FRAME_SIZE,
-    OperationResult, OperationView, PatternSlot, PrepareView, QuadPattern, Read, ReadView,
-    TermTable, WriteView,
+    BeginView, BodyView, CommitView, DescribeView, ErrorReplyView, ExecuteView, FrameView,
+    MAX_FRAME_SIZE, OperationView, PatternSlot, PrepareView, QuadPattern, Read, ReadView,
+    RegisterView, ResultView, TermTable, WriteView,
 };
 
 use crate::utils::harness::{
@@ -87,6 +87,9 @@ pub fn view<'a, V: BodyView<'a>>(frame: &'a FrameView<'a>) -> TestResult<V::Body
         .and_then(|v| v.to_body())
         .context("a golden body")
 }
+
+/// The version a read-only test transaction's snapshot reads at.
+const SNAPSHOT: u64 = 5;
 
 #[test]
 fn test_every_request_the_client_sends_is_its_golden_frame() -> TestResult {
@@ -273,12 +276,20 @@ fn test_every_golden_reply_is_read_as_its_values() -> TestResult {
     };
     let p = d.core.register(now)?;
     let session = registered(answer(&mut d, p, "register", 1)?)?;
-    assert_eq!(session.number(), 0x1122_3344_5566_7788);
+    let register_bytes = golden("register")?;
+    let register = view::<RegisterView>(&FrameView::validate(
+        &register_bytes,
+        CLUSTER,
+        MAX_FRAME_SIZE,
+    )?)?;
+    assert_eq!(session.number(), u128::from_be_bytes(register.session()));
     let beginning = d.core.begin(0, true, now)?;
     let tx = begun(answer(&mut d, beginning, "begin", 2)?)?;
+    let begin_bytes = golden("begin")?;
+    let begin = view::<BeginView>(&FrameView::validate(&begin_bytes, CLUSTER, MAX_FRAME_SIZE)?)?;
     assert_eq!(
         (tx.namespace(), tx.read_version(), tx.read_only()),
-        (3, 0xAB_CDEF_0002, true)
+        (begin.namespace(), begin.read_version(), begin.read_only())
     );
     let preparing = d.core.prepare(
         &view::<PrepareView>(&FrameView::validate(
@@ -289,19 +300,23 @@ fn test_every_golden_reply_is_read_as_its_values() -> TestResult {
         now,
     )?;
     let statement = prepared(answer(&mut d, preparing, "prepare_reply", 3)?)?;
+    let reply_bytes = golden("prepare_reply")?;
+    let reply = view::<PrepareView>(&FrameView::validate(&reply_bytes, CLUSTER, MAX_FRAME_SIZE)?)?;
     assert_eq!(
         (statement.id(), statement.schema(), statement.result_types()),
-        (1, 0x5C4E_3A2B_1D0F_7E6A, &[ColumnType::Term][..])
+        (reply.statement(), reply.schema(), reply.result_types())
     );
     let describing = d.core.describe(0, now)?;
     let describe = described(answer(&mut d, describing, "describe_reply", 4)?)?;
-    let reply = golden("describe_reply")?;
-    let expected = view::<DescribeView>(&FrameView::validate(&reply, CLUSTER, MAX_FRAME_SIZE)?)?;
-    assert_eq!((describe.read_version(), &describe), (42, &expected));
+    let description = golden("describe_reply")?;
+    let expected =
+        view::<DescribeView>(&FrameView::validate(&description, CLUSTER, MAX_FRAME_SIZE)?)?;
+    assert_eq!(describe, expected);
     Ok(())
 }
 
-/// A transaction begun on `stream` of `d`, its golden Begin reply of namespace 0 and read version 5 delivered.
+/// A transaction begun on `stream` of `d`, a Begin reply of namespace 0 delivered: a read-only one at its snapshot's
+/// version `SNAPSHOT`, a read-write one at 0, as `PROTOCOL.md` §6.2 answers them.
 fn begin_direct(
     d: &mut Direct,
     pool: &BufferPool,
@@ -311,7 +326,7 @@ fn begin_direct(
 ) -> TestResult<Transaction> {
     let p = d.core.begin(0, read_only, now)?;
     let frame = ultragraphdb_protocol_wire::BodyBuilder::frame(
-        &ultragraphdb_protocol_wire::Begin::new(0, 5, read_only),
+        &ultragraphdb_protocol_wire::Begin::new(0, if read_only { SNAPSHOT } else { 0 }, read_only),
         ultragraphdb_protocol_wire::Header::new(
             CLUSTER,
             ultragraphdb_protocol_wire::Command::Begin,
@@ -327,26 +342,36 @@ fn test_golden_commits_results_and_errors_are_read_as_their_values() -> TestResu
     let pool = BufferPool::new(8, 1 << 20);
     let now = start();
     let mut d = Direct::new(&pool)?;
-    let session = d.core.resume_session(9, 7);
+    // The session and request the golden Commit answers, resumed so the client sends exactly that commit.
+    let reply_bytes = golden("commit")?;
+    let reply = view::<CommitView>(&FrameView::validate(&reply_bytes, CLUSTER, MAX_FRAME_SIZE)?)?;
+    let session = d
+        .core
+        .resume_session(u128::from_be_bytes(reply.session()), reply.request());
     let tx = begin_direct(&mut d, &pool, now, 1, false)?;
     let p = d.core.commit(tx, session, now)?;
     d.deliver(&pool, &restream(&golden("commit")?, 1))??;
     let committed = committed(d.core.take_reply(p).context("an answer")?)?;
-    assert_eq!((committed.version(), committed.request()), (1_000, 7));
     assert_eq!(
-        committed.results(),
-        &[
-            OperationResult::counter(-5),
-            OperationResult::compare_and_set()
-        ]
+        (committed.version(), committed.request()),
+        (reply.commit_version(), reply.request())
     );
-    assert_eq!(d.core.next_request(session), Some(8));
+    assert_eq!(committed.results(), reply.results());
+    assert_eq!(d.core.next_request(session), Some(reply.request() + 1));
     golden_result_is_read(&mut d, &pool, now)?;
     golden_errors_are_read(&mut d, &pool, now)?;
     Ok(())
 }
 
 /// The golden Result, on the third stream of `d`, read as its values.
+/// Every cell of a batch of `columns` and `rows`, column by column, as `cell` gives it.
+fn every_cell(columns: u32, rows: u32, cell: impl Fn(u32, u32) -> Option<u32>) -> Vec<Option<u32>> {
+    (0..columns)
+        .flat_map(|col| (0..rows).map(move |row| (col, row)))
+        .map(|(col, row)| cell(col, row))
+        .collect()
+}
+
 fn golden_result_is_read(d: &mut Direct, pool: &BufferPool, now: Instant) -> TestResult {
     let reader = begin_direct(d, pool, now, 2, true)?;
     let mut terms = TermTable::new();
@@ -366,22 +391,27 @@ fn golden_result_is_read(d: &mut Direct, pool: &BufferPool, now: Instant) -> Tes
     let stream = d.core.read(&reader, &read, now)?;
     assert_eq!(stream.stream(), 3, "a stream of its own");
     d.deliver(pool, &restream(&golden("result")?, 3))??;
+    // What the batch must deliver, read from the golden Result itself by the wire crate's view.
+    let golden_bytes = golden("result")?;
+    let golden_frame = FrameView::validate(&golden_bytes, CLUSTER, MAX_FRAME_SIZE)?;
+    let golden_view = ResultView::from_frame(&golden_frame)?;
+    let expected = (
+        golden_view.columns(),
+        golden_view.rows(),
+        every_cell(golden_view.columns(), golden_view.rows(), |c, r| {
+            golden_view.cell(c, r)
+        }),
+        golden_view.resume().to_vec(),
+    );
     let polled = d.core.next_batch(&stream, now, |v| {
-        let cells: Vec<Option<u32>> = (0..2)
-            .flat_map(|col| (0..3).map(move |row| (col, row)))
-            .map(|(col, row)| v.cell(col, row))
-            .collect();
+        let cells = every_cell(v.columns(), v.rows(), |c, r| v.cell(c, r));
         (v.columns(), v.rows(), cells, v.resume().to_vec())
     });
     assert!(matches!(polled, Ok(BatchPoll::Batch(_))), "a batch");
     let Ok(BatchPoll::Batch((columns, rows, cells, resume))) = polled else {
         return Ok(());
     };
-    assert_eq!((columns, rows, resume), (2, 3, b"rk".to_vec()));
-    assert_eq!(
-        cells,
-        vec![Some(0), Some(0), Some(3), Some(1), Some(2), Some(u32::MAX)]
-    );
+    assert_eq!((columns, rows, cells, resume), expected);
     assert!(
         matches!(d.core.next_batch(&stream, now, |_| ()), Ok(BatchPoll::Done)),
         "the golden Result is flagged last"
@@ -391,21 +421,13 @@ fn golden_result_is_read(d: &mut Direct, pool: &BufferPool, now: Instant) -> Tes
 
 /// The golden Errors, on the fourth and fifth streams of `d`, read as their refusals.
 fn golden_errors_are_read(d: &mut Direct, pool: &BufferPool, now: Instant) -> TestResult {
-    for (name, stream, code, detail, value) in [
-        ("error", 4, ErrorCode::Conflict, 3, None),
-        (
-            "error_operation",
-            5,
-            ErrorCode::OperationFailed,
-            0,
-            Some(ultragraphdb_protocol_wire::RequestTerm::Literal {
-                lexical: "done".into(),
-                datatype: None,
-            }),
-        ),
-    ] {
+    for (name, stream) in [("error", 4), ("error_operation", 5)] {
+        // The code, detail and value the golden Error names, read from the frame.
+        let bytes = golden(name)?;
+        let reply = view::<ErrorReplyView>(&FrameView::validate(&bytes, CLUSTER, MAX_FRAME_SIZE)?)?;
+        let (code, detail, value) = (reply.code(), reply.detail(), reply.value().cloned());
         let tx = begin_direct(d, pool, now, stream, false)?;
-        let session = d.core.resume_session(100 + stream, 1);
+        let session = d.core.resume_session(u128::from(100 + stream), 1);
         let p = d.core.commit(tx, session, now)?;
         d.deliver(pool, &restream(&golden(name)?, stream))??;
         let error = d

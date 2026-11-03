@@ -31,3 +31,12 @@ path = "fuzz_targets/record_decode.rs"
 test = false
 doc = false
 bench = false
+
+# Any bytes as a stored snapshot of the sequencer: decoded or refused with a typed error, never a panic; an accepted
+# snapshot encodes back to its bytes.
+[[bin]]
+name = "snapshot_decode"
+path = "fuzz_targets/snapshot_decode.rs"
+test = false
+doc = false
+bench = false

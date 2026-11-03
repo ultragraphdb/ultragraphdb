@@ -13,10 +13,10 @@
 //! | 1 | Insert | — | terms: graph or [`crate::ABSENT`], subject, predicate, object |
 //! | 2 | InsertEdge | — | graph, subject, predicate, object, then a property and its value per pair |
 //! | 3 | Delete | — | graph, subject, predicate, object |
-//! | 4 | DeleteStatement | — | graph, the statement ID's low and high u32 |
+//! | 4 | DeleteStatement | — | graph, the reifier's skolem IRI |
 //! | 5 | DeletePattern | — | graph, subject, predicate |
-//! | 6 | SetProperty | bit 0: by triple | the statement (graph, ID low, ID high; or graph, subject, predicate, object), predicate, value |
-//! | 7 | DeleteProperty | bit 0: by triple | the statement, predicate, value or [`crate::ABSENT`] |
+//! | 6 | SetProperty | bit 0: by quad | the statement (graph, reifier; or graph, subject, predicate, object), predicate, value |
+//! | 7 | DeleteProperty | bit 0: by quad | the statement, predicate, value or [`crate::ABSENT`] |
 //! | 8 | Declare a predicate | bits 0–1: kind (0 edge, 1 property, 2 either); bit 2: single; bit 3: unique; bit 4: count index; bit 5: vector index | names: predicate, datatype or [`crate::ABSENT`]; the tokenizer count, then names; the domain count, then names; with a vector index its factory, the option count and each option's name and value |
 //! | 9 | Declare an entity type | bit 0: abstract | names: IRI, parent or [`crate::ABSENT`] |
 //! | 10 | Declare a relation | — | names: IRI, then its roles |
@@ -74,7 +74,7 @@ fn graph(g: Option<u32>) -> u32 {
 /// The args naming `statement`, and the flag of a statement named by its triple.
 fn statement(statement: &StatementTarget) -> (Vec<u32>, u8) {
     match *statement {
-        StatementTarget::Id { graph: g, id } => (vec![graph(g), id as u32, (id >> 32) as u32], 0),
+        StatementTarget::Reifier { graph: g, reifier } => (vec![graph(g), reifier], 0),
         StatementTarget::Triple {
             graph: g,
             subject,
@@ -121,13 +121,8 @@ impl ChangeWriter {
                 properties.iter().for_each(|(p, v)| args.extend([*p, *v]));
                 self.record(INSERT_EDGE, 0, args, 0);
             }
-            WriteChange::DeleteStatement { graph: g, id } => {
-                self.record(
-                    DELETE_STATEMENT,
-                    0,
-                    vec![graph(*g), *id as u32, (*id >> 32) as u32],
-                    0,
-                );
+            WriteChange::DeleteStatement { graph: g, reifier } => {
+                self.record(DELETE_STATEMENT, 0, vec![graph(*g), *reifier], 0);
             }
             WriteChange::DeletePattern {
                 graph: g,
@@ -359,8 +354,9 @@ impl Run<'_> {
                 self.terms(1..len)
             }
             DELETE_STATEMENT => {
-                self.count(3)?;
-                self.optional_term(0)
+                self.count(2)?;
+                self.optional_term(0)?;
+                self.term(1)
             }
             DELETE_PATTERN => {
                 self.count(3)?;
@@ -369,12 +365,10 @@ impl Run<'_> {
             }
             SET_PROPERTY | DELETE_PROPERTY => {
                 let by_triple = flags & BY_TRIPLE != 0;
-                let at = if by_triple { 4 } else { 3 };
+                let at = if by_triple { 4 } else { 2 };
                 self.count(at + 2)?;
                 self.optional_term(0)?;
-                if by_triple {
-                    self.terms(1..4)?;
-                }
+                self.terms(1..at)?;
                 self.term(at)?;
                 if kind == SET_PROPERTY {
                     self.term(at + 1)
@@ -540,7 +534,6 @@ pub(crate) fn decode_change(
     let (r, a) = run(records, index, args)?;
     let arg = |i: usize| a.get(i).copied();
     let graph = || arg(0).map(|g| (g != ABSENT).then_some(g));
-    let id = |i: usize| Some(u64::from(arg(i)?) | (u64::from(arg(i + 1)?) << 32));
     Some(match r.kind {
         INSERT => WriteChange::Insert {
             graph: graph()?,
@@ -569,7 +562,7 @@ pub(crate) fn decode_change(
         },
         DELETE_STATEMENT => WriteChange::DeleteStatement {
             graph: graph()?,
-            id: id(1)?,
+            reifier: arg(1)?,
         },
         DELETE_PATTERN => WriteChange::DeletePattern {
             graph: graph()?,
@@ -585,7 +578,6 @@ pub(crate) fn decode_change(
 fn decode_property(r: Record, a: &[u32]) -> Option<WriteChange> {
     let arg = |i: usize| a.get(i).copied();
     let graph = || arg(0).map(|g| (g != ABSENT).then_some(g));
-    let id = |i: usize| Some(u64::from(arg(i)?) | (u64::from(arg(i + 1)?) << 32));
     let by_triple = r.flags & BY_TRIPLE != 0;
     let target = if by_triple {
         StatementTarget::Triple {
@@ -595,12 +587,12 @@ fn decode_property(r: Record, a: &[u32]) -> Option<WriteChange> {
             object: arg(3)?,
         }
     } else {
-        StatementTarget::Id {
+        StatementTarget::Reifier {
             graph: graph()?,
-            id: id(1)?,
+            reifier: arg(1)?,
         }
     };
-    let at = if by_triple { 4 } else { 3 };
+    let at = if by_triple { 4 } else { 2 };
     Some(if r.kind == SET_PROPERTY {
         WriteChange::SetProperty {
             statement: target,

@@ -105,18 +105,6 @@ use_repo(crate, "crates")
 # The image rules are //bazel/container:img.bzl, and the release binary rule is //bazel:binary.bzl, both taken from
 # scrith.
 ###############################################################################
-pull = use_repo_rule("@rules_img//img:pull.bzl", "pull")
-
-# A scratch image carrying CA certificates and a user/group ID, the base of every image.
-# Pinned by the INDEX digest for both amd64 and arm64.
-pull(
-    name = "rust_scratch",
-    digest = "sha256:a006607f2246341176e87342067902aa8d5b8eb88578fe02b5acae80d502d7e3",
-    registry = "registry.carverauto.dev",
-    repository = "mirror/scratch",
-    tag = "scratch-1.99.0",
-)
-
 http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
 
 # Mozilla's CA bundle as curl publishes it, the trust store of //bazel/oci_images/scrach_base. Dated and pinned by its

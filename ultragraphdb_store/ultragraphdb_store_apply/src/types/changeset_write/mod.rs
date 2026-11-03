@@ -17,23 +17,24 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use oxrdf::vocab::rdf;
 use oxrdf::{GraphNameRef, Literal, NamedNode, NamedNodeRef, NamedOrBlankNodeRef, Term, TermRef};
-use ultragraphdb_core_catalog::Catalog;
+use ultragraphdb_core_catalog::{Catalog, PREDICATE};
 use ultragraphdb_core_codec::Posting;
 use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::{CountDirection, Graph};
-use ultragraphdb_core_mapping::{Change, Changeset, Declaration, PredicateDeclaration};
+use ultragraphdb_core_mapping::{Change, Changeset, PredicateDeclaration};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_store_quads::{
     QuadError, QuadErrorEnum, QuadWrite, StatementRecord, WriteTerms, skolem_blank_node,
 };
 use ultragraphdb_traits_blocks::BlockSource;
-use ultragraphdb_traits_store::{Entry, ListCache, Store};
+use ultragraphdb_traits_store::{ListCache, Store};
 
 use crate::errors::changeset_error::ChangesetError;
 use crate::types::predicate_prefix::PredicatePrefix;
 use crate::types::rebuild::Rebuild;
 use crate::types::write_outcome::WriteOutcome;
+use crate::utils::catalog_keys::catalog_key;
 
 /// The count moves a write records, by count list and member, each the member's identity: from the count before the
 /// write's first move, to the count of its last, with the member's posting.
@@ -53,8 +54,6 @@ type CountMoves = BTreeMap<(Graph, SystemId, CountDirection, Vec<u8>), (u32, u32
 pub(crate) struct ChangesetWrite<'a, S, C, B> {
     write: QuadWrite<'a, S, C, B>,
     catalog: Catalog,
-    /// The catalog entries the write adds, by key.
-    entries: BTreeMap<Vec<u8>, Entry>,
     /// The keys of `entries` that are a predicate's implicit default entry and no declaration's, with the predicate.
     defaults: BTreeMap<Vec<u8>, SystemId>,
     /// Whether the write changes the catalog: a declaration, or the namespace's initial catalog.
@@ -89,7 +88,6 @@ where
         Self {
             write,
             catalog,
-            entries: BTreeMap::new(),
             defaults: BTreeMap::new(),
             catalog_changed: false,
             records: BTreeMap::new(),
@@ -129,11 +127,9 @@ where
     pub(crate) fn initial(&mut self) -> Result<(), ChangesetError> {
         if self.catalog.predicates().next().is_none() {
             let rdf_type = self.iri(rdf::TYPE)?;
-            self.catalog = Catalog::initial(self.namespace(), rdf_type);
-            self.catalog
-                .entries(0)
-                .into_iter()
-                .for_each(|e| self.add_entry(e));
+            let version = self.catalog.version();
+            self.catalog = Catalog::initial(self.namespace(), rdf_type).with_version(version);
+            self.add_entry(&catalog_key(self.namespace(), PREDICATE, rdf_type));
         }
         Ok(())
     }
@@ -240,8 +236,9 @@ where
         }
     }
 
-    /// What the write leaves to commit as it is: its count moves written, and the statement records and catalog
-    /// entries added to its request.
+    /// What the write leaves to commit as it is: its count moves written, and the statement records added to its
+    /// request. Its catalog entries reach no store: a partition holds no catalog key, and the catalog the write leaves
+    /// is installed in memory once its round is written (schema-storage, "The schema persists in the metadata group").
     pub fn outcome(mut self) -> WriteOutcome<'a, S, C> {
         self.write_counts();
         for ((graph, id), record) in std::mem::take(&mut self.records) {
@@ -250,10 +247,7 @@ where
                 None => self.write.delete_statement(graph, id),
             }
         }
-        let (mut request, terms) = self.write.finish();
-        self.entries
-            .into_values()
-            .for_each(|e| request.add_entry(e));
+        let (request, terms) = self.write.finish();
         WriteOutcome {
             request,
             terms,
@@ -276,17 +270,15 @@ where
         self.write.terms().0
     }
 
-    /// Adds a catalog change's entry: a declaration's, or the namespace's initial catalog's.
-    fn add_entry(&mut self, entry: Entry) {
+    /// Records a catalog change under its key: a declaration's, or the namespace's initial catalog's.
+    fn add_entry(&mut self, key: &[u8]) {
         self.catalog_changed = true;
-        let _removed: Option<SystemId> = self.defaults.remove(entry.key());
-        let _previous: Option<Entry> = self.entries.insert(entry.key().to_vec(), entry);
+        let _removed: Option<SystemId> = self.defaults.remove(key);
     }
 
-    /// Adds predicate `id`'s implicit default entry, an insert-if-absent on its key rather than a catalog change.
-    fn add_default(&mut self, id: SystemId, entry: Entry) {
-        let _previous_default: Option<SystemId> = self.defaults.insert(entry.key().to_vec(), id);
-        let _previous_entry: Option<Entry> = self.entries.insert(entry.key().to_vec(), entry);
+    /// Records predicate `id`'s implicit default entry under its key, no catalog change.
+    fn add_default(&mut self, id: SystemId, key: Vec<u8>) {
+        let _previous_default: Option<SystemId> = self.defaults.insert(key, id);
     }
 
     fn iri(&mut self, iri: NamedNodeRef<'_>) -> Result<SystemId, QuadError> {
@@ -371,13 +363,7 @@ where
             return Ok(default);
         }
         self.catalog.declare_predicate(uid, default.clone())?;
-        let entry = Catalog::entry(
-            self.namespace(),
-            uid,
-            &Declaration::Predicate(default.clone()),
-            0,
-        );
-        self.add_default(uid, entry);
+        self.add_default(uid, catalog_key(self.namespace(), PREDICATE, uid));
         Ok(default)
     }
 

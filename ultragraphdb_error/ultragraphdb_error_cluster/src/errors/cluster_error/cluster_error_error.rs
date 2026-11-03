@@ -32,7 +32,22 @@ impl Error for ClusterError {
             | ClusterErrorEnum::TooMany { .. }
             | ClusterErrorEnum::Full { .. }
             | ClusterErrorEnum::Malformed { .. }
-            | ClusterErrorEnum::ReplayDiverged { .. } => None,
+            | ClusterErrorEnum::ReplayDiverged { .. }
+            | ClusterErrorEnum::StaleCatalog { .. }
+            | ClusterErrorEnum::NotPending { .. }
+            | ClusterErrorEnum::CatalogReleased { .. }
+            | ClusterErrorEnum::BlockSize { .. }
+            | ClusterErrorEnum::SequencesSpent { .. }
+            | ClusterErrorEnum::NoPlacement
+            | ClusterErrorEnum::Contradicts { .. }
+            | ClusterErrorEnum::PrincipalName { .. }
+            | ClusterErrorEnum::PrincipalExists { .. }
+            | ClusterErrorEnum::UnknownPrincipal { .. }
+            | ClusterErrorEnum::LastAdministrator { .. }
+            | ClusterErrorEnum::Bootstrap { .. }
+            | ClusterErrorEnum::SessionExists { .. }
+            | ClusterErrorEnum::SessionEvicted { .. }
+            | ClusterErrorEnum::SnapshotBehind { .. } => None,
         }
     }
 }

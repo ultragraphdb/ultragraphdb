@@ -75,6 +75,18 @@ pub enum RecoveryErrorEnum {
         /// The derivation version it names.
         derivation: u32,
     },
+    /// The round at `position` starts version `version` of `namespace`'s catalog, which the metadata group could not
+    /// give or which does not decode, as `reason` says: nothing of the round is applied.
+    Catalog {
+        /// The log position of the round.
+        position: u64,
+        /// The namespace whose catalog version it names.
+        namespace: u64,
+        /// The catalog version it names.
+        version: u64,
+        /// Why the version could not be read.
+        reason: String,
+    },
 }
 
 impl RecoveryError {
@@ -121,6 +133,16 @@ impl RecoveryError {
         Self(RecoveryErrorEnum::Derivation {
             position,
             derivation,
+        })
+    }
+
+    /// The [`RecoveryErrorEnum::Catalog`] reason.
+    pub fn catalog(position: u64, namespace: u64, version: u64, reason: impl Into<String>) -> Self {
+        Self(RecoveryErrorEnum::Catalog {
+            position,
+            namespace,
+            version,
+            reason: reason.into(),
         })
     }
 

@@ -42,21 +42,21 @@ impl NetworkState {
     /// Sends `message` on `link` at the current step, as the faults draw: dropped, or delivered once or twice, after
     /// one step or delayed. A link delivers from its front only, so a message never overtakes one sent before it.
     pub(crate) fn send(&mut self, link: usize, message: Vec<u8>) {
-        self.stats.sent += 1;
+        self.stats.sent = self.stats.sent.saturating_add(1);
         if self.rng.chance(self.faults.drop_rate()) {
-            self.stats.dropped += 1;
+            self.stats.dropped = self.stats.dropped.saturating_add(1);
             return;
         }
         let copies = if self.rng.chance(self.faults.duplicate_rate()) {
-            self.stats.duplicated += 1;
+            self.stats.duplicated = self.stats.duplicated.saturating_add(1);
             2
         } else {
             1
         };
-        let mut due = self.now + 1;
+        let mut due = self.now.saturating_add(1);
         if self.rng.chance(self.faults.delay_rate()) {
-            self.stats.delayed += 1;
-            due += self.rng.below(self.faults.max_delay());
+            self.stats.delayed = self.stats.delayed.saturating_add(1);
+            due = due.saturating_add(self.rng.below(self.faults.max_delay()));
         }
         let Some(state) = self.links.get_mut(link) else {
             return;
@@ -72,9 +72,11 @@ impl NetworkState {
 
     /// Advances the clock one step: every message due arrives, split into chunks as the faults draw.
     pub(crate) fn step(&mut self) {
-        self.now += 1;
+        self.now = self.now.saturating_add(1);
         for link in 0..self.links.len() {
-            loop {
+            // Each turn takes one message off the link, and no message is sent during a step.
+            let in_flight = self.links.get(link).map_or(0, |l| l.in_flight.len());
+            for _ in 0..in_flight {
                 let due = matches!(
                     self.links.get(link).and_then(|l| l.in_flight.front()),
                     Some((due, _)) if *due <= self.now
@@ -90,20 +92,8 @@ impl NetworkState {
                     break;
                 };
                 let chunks = if message.len() > 1 && self.rng.chance(self.faults.split_rate()) {
-                    self.stats.split += 1;
-                    let pieces = 2 + self.rng.below(3) as usize;
-                    let mut cuts: Vec<usize> = (1..pieces)
-                        .map(|_| 1 + self.rng.below(message.len() as u64 - 1) as usize)
-                        .collect();
-                    cuts.sort_unstable();
-                    cuts.dedup();
-                    let mut chunks = Vec::with_capacity(cuts.len() + 1);
-                    let mut start = 0;
-                    for cut in cuts.into_iter().chain([message.len()]) {
-                        chunks.push(message[start..cut].to_vec());
-                        start = cut;
-                    }
-                    chunks
+                    self.stats.split = self.stats.split.saturating_add(1);
+                    self.split(&message)
                 } else {
                     vec![message]
                 };
@@ -115,6 +105,31 @@ impl NetworkState {
                 }
             }
         }
+    }
+}
+
+impl NetworkState {
+    /// `message`, of at least two bytes, cut at one to three distinct points drawn in `1..len`, so no chunk is empty.
+    fn split(&mut self, message: &[u8]) -> Vec<Vec<u8>> {
+        debug_assert!(message.len() > 1);
+        let len = message.len() as u64; // lossless: a `usize` is at most 64 bits
+        // `below(3)` is under 3 and `below(len - 1)` under `len - 1`, so both casts are lossless.
+        let pieces = 2 + self.rng.below(3) as usize;
+        let mut cuts: Vec<usize> = (1..pieces)
+            .map(|_| 1 + self.rng.below(len.saturating_sub(1)) as usize)
+            .collect();
+        cuts.sort_unstable();
+        cuts.dedup();
+        let mut chunks = Vec::with_capacity(pieces);
+        let mut start = 0;
+        for cut in cuts.into_iter().chain([message.len()]) {
+            if let Some(chunk) = message.get(start..cut) {
+                chunks.push(chunk.to_vec());
+            }
+            start = cut;
+        }
+        debug_assert_eq!(chunks.iter().map(Vec::len).sum::<usize>(), message.len());
+        chunks
     }
 }
 
@@ -159,11 +174,17 @@ impl SimNetwork {
         self.state.borrow_mut().step();
     }
 
-    /// Steps until no message is in flight.
+    /// Steps until no message is in flight: at most one step past the longest delay, since every message is due within
+    /// `max_delay` steps of the step it was sent at, and none is sent during a step.
     pub fn run_until_idle(&self) {
-        while self.state.borrow().in_flight() {
+        let steps_max = self.state.borrow().faults.max_delay().saturating_add(1);
+        for _ in 0..steps_max {
+            if !self.state.borrow().in_flight() {
+                return;
+            }
             self.step();
         }
+        debug_assert!(!self.state.borrow().in_flight());
     }
 
     /// The steps taken.

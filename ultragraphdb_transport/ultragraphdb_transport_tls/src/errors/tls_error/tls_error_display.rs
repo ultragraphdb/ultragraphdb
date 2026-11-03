@@ -25,6 +25,22 @@ impl fmt::Display for TlsError {
             TlsErrorEnum::ConfigurationRefused(reason) => {
                 write!(f, "TLS configuration refused: {reason}")
             }
+            TlsErrorEnum::CertificateUnreadable { path, reason } => {
+                write!(
+                    f,
+                    "cannot read the server certificate file {path:?}: {reason}"
+                )
+            }
+            TlsErrorEnum::CertificateEmpty(path) => {
+                write!(f, "no certificate or private key in {path}")
+            }
+            TlsErrorEnum::KeyMismatch(source) => write!(
+                f,
+                "the private key in {source} does not match the chain's first certificate"
+            ),
+            TlsErrorEnum::RecordRefused { host, reason } => {
+                write!(f, "TLS session with {host:?} failed: {reason}")
+            }
         }
     }
 }

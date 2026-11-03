@@ -16,7 +16,7 @@ use crate::types::client::{Client, now};
 
 /// A reply of another kind than its request's: the core answers each request with its own kind.
 fn mismatch() -> ClientError {
-    ClientError::reply_mismatch("reply", 0, 0)
+    ClientError::reply_mismatch("reply", 0u64, 0u64)
 }
 
 impl<C: Connect, L: Login> Client<C, L> {
@@ -35,7 +35,7 @@ impl<C: Connect, L: Login> Client<C, L> {
     }
 
     /// A session kept from an earlier client, its next commit numbered `next_request`.
-    pub fn resume_session(&mut self, number: u64, next_request: u64) -> Session {
+    pub fn resume_session(&mut self, number: u128, next_request: u64) -> Session {
         self.core.resume_session(number, next_request)
     }
 

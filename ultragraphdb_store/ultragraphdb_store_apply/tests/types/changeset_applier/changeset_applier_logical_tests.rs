@@ -214,16 +214,25 @@ fn test_a_write_taking_a_refused_creators_id_commits_its_entries_and_replays() -
     Ok(())
 }
 
-/// Whether the catalog of `store`, as installed and as loaded back from the store, declares the predicate `name`.
-fn declares(store: &TestChangesets, name: &str) -> TestResult<[bool; 2]> {
-    let id = store
-        .quads()
-        .id_of(0, ex(name).as_str())?
-        .context("the predicate's IRI has an ID")?;
-    let installed = store.catalog(0)?.predicate(id).is_some();
-    store.forget_catalogs();
-    let loaded = store.catalog(0)?.predicate(id).is_some();
-    Ok([installed, loaded])
+/// Whether the catalog `store` installed declares each predicate of `names`, and whether its rounds asked the metadata
+/// group for the predicate's default entry.
+fn declares(store: &TestChangesets, names: &[&str]) -> TestResult<Vec<[bool; 2]>> {
+    let asked: Vec<String> = store
+        .take_default_entries()
+        .iter()
+        .map(|e| e.predicate().to_string())
+        .collect();
+    names
+        .iter()
+        .map(|name| {
+            let id = store
+                .quads()
+                .id_of(0, ex(name).as_str())?
+                .context("the predicate's IRI has an ID")?;
+            let installed = store.catalog(0)?.predicate(id).is_some();
+            Ok([installed, asked.contains(&ex(name).as_str().to_string())])
+        })
+        .collect()
 }
 
 /// A changeset inserting a statement on an undeclared predicate and deleting it leaves no statement on it: neither the
@@ -238,7 +247,11 @@ fn test_a_predicate_the_net_effect_does_not_keep_gets_no_default_entry() -> Test
         vec![insert("<s> <new> \"x\"")?, delete("<s> <new> \"x\"")?],
     )?;
     for store in [&first, &replica] {
-        assert_eq!(declares(store, "new")?, [false, false], "no default entry");
+        assert_eq!(
+            declares(store, &["new"])?,
+            vec![[false, false]],
+            "no default entry"
+        );
     }
     let (a, b) = (
         first.quads().store().contents(),
@@ -265,8 +278,11 @@ fn test_a_predicate_the_net_effect_keeps_gets_its_default_entry_on_both() -> Tes
         ],
     )?;
     for store in [&first, &replica] {
-        assert_eq!(declares(store, "kept")?, [true, true], "its default entry");
-        assert_eq!(declares(store, "gone")?, [false, false], "no default entry");
+        assert_eq!(
+            declares(store, &["kept", "gone"])?,
+            vec![[true, true], [false, false]],
+            "the kept predicate's default entry alone"
+        );
     }
     let (a, b) = (
         first.quads().store().contents(),

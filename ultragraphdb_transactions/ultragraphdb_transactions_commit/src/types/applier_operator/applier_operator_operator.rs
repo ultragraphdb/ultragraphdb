@@ -99,7 +99,8 @@ fn refusal(error: TxnError) -> CommitError {
         | TxnErrorEnum::ReadOnly
         | TxnErrorEnum::Namespace { .. }
         | TxnErrorEnum::Ended
-        | TxnErrorEnum::Changeset(_) => CommitError::refused(error.to_string()),
+        | TxnErrorEnum::Changeset(_)
+        | TxnErrorEnum::Declaration => CommitError::refused(error.to_string()),
         TxnErrorEnum::CrossPartition { partition, other } => {
             CommitError::cross_partition(partition, other)
         }

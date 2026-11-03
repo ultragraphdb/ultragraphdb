@@ -11,12 +11,12 @@ use std::marker::PhantomData;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RegisterView<'a> {
     frame: PhantomData<&'a [u8]>,
-    session: u64,
+    session: [u8; 16],
 }
 
 impl<'a> RegisterView<'a> {
-    /// The client's session.
-    pub fn session(&self) -> u64 {
+    /// The session; all zero in a request.
+    pub fn session(&self) -> [u8; 16] {
         self.session
     }
 }

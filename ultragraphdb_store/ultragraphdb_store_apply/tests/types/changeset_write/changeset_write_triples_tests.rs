@@ -369,11 +369,7 @@ fn test_a_write_in_another_namespace_keeps_its_keys_and_catalog_there() -> TestR
             .all(|n| *n == 3),
         "every key is namespace 3's"
     );
-    for keyspace in [
-        Keyspace::ValueIndex,
-        Keyspace::CountIndex,
-        Keyspace::Catalog,
-    ] {
+    for keyspace in [Keyspace::ValueIndex, Keyspace::CountIndex] {
         assert!(
             keys.iter()
                 .any(|k| matches!(Keyspace::from_byte(k[0]), Some((ks, _)) if ks == keyspace)),
@@ -384,7 +380,6 @@ fn test_a_write_in_another_namespace_keeps_its_keys_and_catalog_there() -> TestR
         .quads()
         .id_of(3, ex("name").as_str())?
         .context("<name> has a UID in namespace 3")?;
-    a.forget_catalogs();
     assert_eq!(
         a.catalog(3)?.predicate(name),
         Some(&crate::utils::changesets::declaration(

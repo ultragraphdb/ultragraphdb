@@ -138,7 +138,10 @@ fn test_the_golden_registration_build_and_drop_read_their_values() -> TestResult
     let build = WriteSetRecordView::new(&records[2])?;
     assert_eq!(build.kind(), RecordKind::Build);
     assert_eq!((build.namespace(), build.catalog()), (4, 12));
-    assert_eq!(build.operation(0), Some(RecordOperation::StartBuild(12)));
+    assert_eq!(
+        build.operation(0),
+        Some(RecordOperation::CatalogTakesEffect(12))
+    );
     assert_eq!(build.to_record(), record2());
     let drop = WriteSetRecordView::new(&records[3])?;
     assert_eq!(drop.kind(), RecordKind::Transaction);

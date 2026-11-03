@@ -1679,7 +1679,7 @@ sections 9 to 11, so the log holds exactly what was applied and what was answere
 
 | Fixed part | Width | Field | Type |
 |---|---|---|---|
-| 0 | 1 | `kind` | u8: 1 a transaction or a Drop, 2 a registration the partition accepted as an entity's home, 3 an index build's start or completion |
+| 0 | 1 | `kind` | u8: 1 a transaction or a Drop, 2 a registration the partition accepted as an entity's home, 3 a catalog version taking effect or an index build's completion |
 | 1 | 7 | zero | 0 |
 | 8 | 8 | `namespace` | u64 |
 | 16 | 8 | `catalog` | u64: kinds 1 and 3, the catalog version of `namespace` in effect at the round's epoch, which the entry was validated against; 0 for kind 2 |
@@ -1717,9 +1717,9 @@ derived on apply and on replay and never logged.
 
 | Operation offset | Width | Field | Type |
 |---|---|---|---|
-| 0 | 2 | `operation` | u16: 1 drop a predicate, 2 drop a graph, 3 drop a namespace's data, 4 drop everything in a namespace, 5 drop everything, 6 start a build, 7 complete a build |
+| 0 | 2 | `operation` | u16: 1 drop a predicate, 2 drop a graph, 3 drop a namespace's data, 4 drop everything in a namespace, 5 drop everything, 6 a catalog version takes effect, 7 complete a build |
 | 2 | 6 | zero | 0 |
-| 8 | 16 | `argument` | bytes: for 1 and 2, the dropped predicate's or graph's system ID; for 6 and 7, the catalog version starting the build, a u64 in bytes 8–15, and bytes 16–23 zero; for 3 to 5, zero |
+| 8 | 16 | `argument` | bytes: for 1 and 2, the dropped predicate's or graph's system ID; for 6, the catalog version taking effect, a u64 in bytes 8–15, and bytes 16–23 zero; for 7, the catalog version that started the build, a u64 in bytes 8–15, byte 16 its outcome, 1 a swap and 2 an undo, and bytes 17–23 zero; for 3 to 5, zero |
 
 | Registration offset | Width | Field | Type |
 |---|---|---|---|
@@ -1732,13 +1732,19 @@ derived on apply and on replay and never logged.
   partition, which derives the key removals on apply and on replay. Its record holds the dropped key ranges in section
   8, so a transaction reading or writing into them below the drop's version conflicts; it is the last record of its
   round.
-- **A build** begins, operation 6, at the first version of the effective epoch of the catalog version it names, from
-  the data at that version, and the commit step records the nodes later writes change during it; its completion,
-  operation 7, swaps its indexes in: for every key under a rebuilt prefix the built list, or a deletion where the build
-  produced none, at the build's version, and for every key under a removed prefix a deletion above every write that
-  maintained it. A round holds at most one build record and closes after a drop and before the first transaction of an
-  epoch at which a version starting a build takes effect; builds that versions taking effect at one epoch start begin
-  in the order of their versions, each in a round of its own.
+- **A catalog version takes effect**, operation 6, in a round of its own at the first version of its effective epoch:
+  the partition declares the version's declarations, checked against its data, and removes the predicates, entity
+  types and relations the version no longer names, and on replay does the same from the version the metadata group
+  holds, so every later record is derived under the catalog its first apply had. A version adding an index to a
+  predicate holding data starts that index's build there, from the data at that version, and the commit step records
+  the nodes later writes change during it. A build's completion, operation 7, names the version that started it and
+  its outcome. A swap puts its indexes in: for every key under a rebuilt prefix the built list, or a deletion where
+  the build produced none, at the build's version, and for every key under a removed prefix a deletion above every
+  write that maintained it. An undo, after a failed build, restores the previous declaration and removes every index
+  key of the predicate it does not name; replay undoes the build again, whatever its backfill does then. A round
+  holds at most one record of kind 3 and closes after a drop and before the first transaction of an epoch at which a
+  version takes effect; versions taking effect at one epoch take effect in the order of their versions, each in a
+  round of its own, and one waits while a build another started runs.
 - **A registration a home accepts** (kind 2) adds or renews its member in the entity's referrer set at the entry's
   commit version, a new member with the round's epoch as the epoch it was added at. The entity's dictionary entries
   it created are in the round's section 3.
@@ -1809,8 +1815,9 @@ address already registered replaces that registration.
 | 1 | the partitions it hosts, u32s, ascending; empty for compute |
 
 Order: unused bytes 1–127 zero; `kind`; sections; section 0 UTF-8, beginning `tcp://` or `unix://` (`FieldValue`
-`"address"`); section 1 a whole number of u32s (`SectionLength`); its partitions at least 1 and ascending without repeat
-(`FieldValue` `"partition"`); empty for kind 2 and not empty for kind 3 (`CountMismatch` `"partitions"`).
+`"address"`, the address's length in bytes); section 1 a whole number of u32s (`SectionLength`); its partitions at least
+1 and ascending without repeat (`FieldValue` `"partition"`, the first partition breaking the rule); empty for kind 2 and
+not empty for kind 3 (`CountMismatch` `"partitions"`, the partitions sent against 0 for kind 2 and 1 for kind 3).
 
 ### 13.2 Members (513)
 
@@ -1835,12 +1842,14 @@ The command header is all zero.
 Members come compute first, ordered by their addresses' UTF-8 bytes, then storage by partition, one member per storage
 partition; addresses are interned in member order, so compute members' `address` indices ascend.
 
-Order: command header bytes 0–127 zero; sections; in a request, every section empty (`CountMismatch` `"members"`); the
-string list (1, 2); section 0 a whole number of 12-byte members (`SectionLength`); each member in order: `kind` 2 or 3
-(`FieldValue` `"kind"`), bytes 1–3 zero (`PaddingNotZero`), `partition` 0 for kind 2 and at least 1 for kind 3
-(`FieldValue` `"partition"`), `address` below the string count (`IndexOutOfRange`, section 0), and the member after the
-one before in the order above, compute members' addresses and storage members' partitions ascending without repeat
-(`FieldValue` `"member order"`).
+Order: command header bytes 0–127 zero; sections; the string list (1, 2); section 0 a whole number of 12-byte members
+(`SectionLength`); each member in order: `kind` 2 or 3 (`FieldValue` `"kind"`), bytes 1–3 zero (`PaddingNotZero`),
+`partition` 0 for kind 2 and at least 1 for kind 3 (`FieldValue` `"partition"`, the partition), `address` below the
+string count (`IndexOutOfRange`, section 0, the member), and the member after the one before in the order above:
+compute before storage, compute members' addresses ascending without repeat by their UTF-8 bytes, storage members'
+partitions ascending without repeat (`FieldValue` `"member order"`, the member's index). A request and a reply share the
+layout, and a body without members reads as either: the frontend, receiving a request, refuses one holding a member,
+or any string, with `CountMismatch` (`"members"`, the members, 0).
 
 ### 13.3 Subscribe (514)
 
@@ -1852,8 +1861,8 @@ closes. EpochClose frames spend no credit.
 |---|---|---|---|---|
 | 0 | 8 | `from` | epoch (section 1) | the last epoch whose close the subscriber holds; 0 for none |
 
-No sections. Order: unused bytes 8–127 zero; `from`; sections. A `from` above the latest epoch the sequencer closed is
-refused with Error 1 (Protocol), the message naming both epochs.
+No sections. Order: unused bytes 8–127 zero; `from` at most 2⁴² − 1 (`FieldValue` `"from"`); sections. A `from` above
+the latest epoch the sequencer closed is refused with Error 1 (Protocol), the message naming both epochs.
 
 ### 13.4 EpochClose (515)
 
@@ -1882,8 +1891,9 @@ frames of the same epoch and time, each but the last with `more` 1, whose lists 
 
 Order: unused bytes 17–127 zero; `epoch`; `more`; sections; sections 0 and 1 each a whole number of 16 bytes
 (`SectionLength`); each announcement: `version` at least 1, and after the one before by namespace, then by version
-(`FieldValue` `"announcement"`); each eviction not all zero and above the one before, compared byte by byte
-(`FieldValue` `"eviction"`); both orders run on across the frames of one close. The subscriber refuses, as connection
+(`FieldValue` `"announcement"`, the announcement's index in the frame); each eviction not all zero and above the one
+before, compared byte by byte (`FieldValue` `"eviction"`, the eviction's index in the frame); both orders run on across
+the frames of one close, which the subscriber checks across frames, as it checks the epochs below. The subscriber refuses, as connection
 errors, a close whose `epoch` is not one above the previous close's, a continuing frame whose `epoch` or `time` is not
 its predecessor's (`FieldValue` `"epoch"`), and a `time` below the previous close's (`FieldValue` `"time"`).
 
@@ -1901,8 +1911,9 @@ A partition leases a block of sequences of one type from the metadata group: the
 | 16 | 8 | `start` | u64 | the block's first sequence, at least 1 |
 | 24 | 8 | `end` | u64 | one past the block's last sequence, `start + size` |
 
-No sections. Order: unused bytes 2–3 and 32–127 zero; `type`; `partition`; `size`; in a request, `start` and `end` 0,
-and in a reply `start ≥ 1` and `end = start + size` within a u64 (`FieldValue` `"block"`); sections. A `size` above the
+No sections. Order: unused bytes 2–3 and 32–127 zero; `type`; `partition`; `size`; a body with `start` and `end` both 0
+is a request; any other is a reply, with `start ≥ 1` and `end = start + size` within a u64 (`FieldValue` `"block"`,
+`start`); sections. A `size` above the
 metadata group's `block_size_max` is refused with code 7 (Refused), `detail` the maximum, the message naming the size
 and the maximum.
 
@@ -1949,14 +1960,20 @@ The ranges cover every bucket once, in order: the first starts at 0, each starts
 ends at 2²⁴ (16,777,216), and two neighbours name different partitions. Runs come by namespace, leaders by partition,
 one leader per partition the ranges name.
 
-Order: unused bytes 32–127 zero; in a request, `position`, `from` and `until` 0 and every section empty
-(`CountMismatch` `"placement"`); in a reply, `from` at least 1 and at most a nonzero `epoch`, and `until` 0 or above
-both `from` and `epoch` (`FieldValue` `"placement epoch"`); sections; each section a whole number of its records
-(`SectionLength`); each range in order: zero bytes (`PaddingNotZero`), `start` where the one before ended and `end`
-above `start`, `partition` at least 1 and not its neighbour's (`FieldValue` `"range"`); the last range ending at 2²⁴
-(`FieldValue` `"range"`); each run: zero bytes (`PaddingNotZero`), its namespace above the one before (`FieldValue`
-`"run"`); each leader: `partition` above the one before and `replica` at least 1 (`FieldValue` `"leader"`); the
-leaders' partitions exactly the ranges' (`CountMismatch` `"leaders"`).
+A body with `from` 0 is a request; a reply's `from` is at least 1.
+
+Order: unused bytes 32–127 zero; `epoch`, `from` and `until` each at most 2⁴² − 1 (`FieldValue` naming the field); in a
+request, `position` and `until` 0 (`FieldValue` `"placement"`, the first nonzero value) and every section empty, the
+check run after the sections are read (`CountMismatch` `"placement"`, the sections' bytes, 0); in a reply, `from` at most
+a nonzero `epoch`, and `until` 0 or above both `from` and `epoch` (`FieldValue` `"placement epoch"`, `from` or `until`);
+sections; each section a whole number of its records (`SectionLength`); each range in order: zero bytes
+(`PaddingNotZero`), `start` where the one before ended and `end` above `start`, `partition` at least 1 and not its
+neighbour's (`FieldValue` `"range"`, the range's index); the last range ending at 2²⁴, with no range ending at 0
+(`FieldValue` `"range"`, the ranges' count); each run: zero bytes (`PaddingNotZero`), its namespace above the one before
+(`FieldValue` `"run"`, the run's index); each leader: `partition` above the one before and `replica` at least 1
+(`FieldValue` `"leader"`, the leader's index); the leaders' partitions exactly the distinct partitions the ranges name
+(`CountMismatch` `"leaders"`, the leaders, the ranges' distinct partitions; refused too when the counts agree and the
+partitions differ).
 
 ### 13.7 Catalog (518)
 
@@ -1971,15 +1988,18 @@ replay (section 11.12).
 | 0 | 8 | `namespace` | u64 | |
 | 8 | 8 | `version` | u64 | the catalog version; at least 1 in a reply (`FieldValue` `"version"`) |
 | 16 | 8 | `epoch` | epoch (section 1) | in a reply, the epoch from which the version applies; 0 while the version is pending |
-| 24 | 8 | `position` | u64 | in a reply, the metadata group's log position the version was read at |
+| 24 | 8 | `position` | u64 | in a reply, the metadata group's log position the version was read at, from 1; 0 in a request |
 
 | Section | Contents |
 |---|---|
 | 0 | the version's bytes; empty in a request |
 
-Order: unused bytes 32–127 zero; in a request, `epoch` and `position` 0 (`FieldValue` `"catalog"`); `version`;
-`epoch`; sections; in a request, section 0 empty (`CountMismatch` `"catalog"`). A version the namespace never held is
-refused with code 7 (Refused), `detail` the version.
+A body with `position` 0 is a request.
+
+Order: unused bytes 32–127 zero; in a request, `epoch` 0 (`FieldValue` `"catalog"`, the epoch); in a reply, `version` at
+least 1 (`FieldValue` `"version"`) and `epoch` at most 2⁴² − 1 (`FieldValue` `"epoch"`); sections; in a request, section
+0 empty (`CountMismatch` `"catalog"`, its bytes, 0). A version the namespace never held is refused with code 7
+(Refused), `detail` the version.
 
 ### 13.8 Challenge (519)
 
@@ -1999,7 +2019,8 @@ itself without a frame; stage 8's frontends send the command over a role connect
 | 1 | the salt; empty in a request, not empty in a reply |
 
 Order: unused bytes 4–127 zero; `iterations`; sections; section 0 UTF-8; section 1 empty in a request and not empty in
-a reply (`CountMismatch` `"salt"`).
+a reply (`CountMismatch` `"salt"`: its length against 0 in a request, 0 against 1 in a reply). A request is the body
+with `iterations` 0.
 
 ### 13.9 Verify (520)
 
@@ -2023,7 +2044,7 @@ the stored key and the server key stay in the metadata group. An unknown name an
 
 Order: unused bytes 1–7 and 16–127 zero; `verified`; `principal`; sections; sections 0 and 1 UTF-8; section 2 of 32
 bytes (`CountMismatch` `"proof"`); section 3 of 32 bytes in a verified reply, else empty (`CountMismatch`
-`"signature"`).
+`"signature"`). A request and the reply of a proof that does not hold are the same body, `verified` 0.
 
 ### 13.10 Bind (521)
 
@@ -2098,8 +2119,8 @@ for a named read version a partition does not hold; Error 1 (Protocol) for a res
 | 3 | the client's resume key (section 11.8) |
 
 Order: unused bytes 7 and 64–127 zero; `mode`; `level`; `named` 0 or 1, and 1 only with `mode` 1 and `level` 0
-(`FieldValue` `"named"`); `epoch`; `partition` and `transaction` both not zero for `mode` 0, and `transaction` zero
-for `mode` 1 (`FieldValue` `"transaction"`); sections; the term table; the pattern.
+(`FieldValue` `"named"`, the byte); `epoch`; `partition` and `transaction` both not zero for `mode` 0, and
+`transaction` zero for `mode` 1 (`FieldValue` `"transaction"`, the mode); sections; the term table; the pattern.
 
 Compute reads by Scans (section 13.13): a read-write transaction's at `at` 1, `read_version` the Bind's version and
 `epoch` 0, naming the transaction; at level 0, `at` 1 with the snapshot's version bound and epoch; at level 1, `at` 2
@@ -2147,12 +2168,15 @@ range of the dictionary keyspace records no range, and each term it finds absent
 (conflict kind AbsentTerm). A range ending at its limit continues with a new Scan whose first key is the last entry's
 key followed by a zero byte.
 
-Order: unused bytes 1–7 and 52–127 zero; `at`; `read_version`; `epoch`; sections; section 0 not empty and a whole
-number of 24-byte ranges (`SectionLength`, `CountMismatch` `"ranges"`); each range in order: bytes 4–7 zero
-(`PaddingNotZero`), `partition` at least 1, the same in every range when `transaction` is not zero (`FieldValue`
-`"partition"`), `first` and `past` where the keys before end, `first_len` at least 1, and the past key, when not
-empty, above the first, compared byte by byte (`FieldValue` `"range"`); section 1 ending with the last key
-(`CountMismatch` `"range keys"`). A range of a partition the process does not host, or a `transaction` the partition
+Order: unused bytes 1–7 and 52–127 zero; `at`; `read_version` 0 for `at` 2 and 3; `epoch` an epoch, and 0 for `at` 4
+(`FieldValue` `"epoch"`); sections; section 0 a whole number of 24-byte ranges (`SectionLength`) and not empty
+(`CountMismatch` `"ranges"`, 0 against 1); each range in order: bytes 4–7 zero (`PaddingNotZero` at the body offset),
+`partition` at least 1, the same in every range when `transaction` is not zero (`FieldValue` `"partition"`, the
+partition), `first` and `past` where the keys before end and `first_len` at least 1 (`FieldValue` `"range"`, the
+range's index), both keys within section 1 (`IndexOutOfRange`, section 0, the range's index, the past key's end,
+section 1's length), and the past key, when not empty, above the first, compared byte by byte (`FieldValue`
+`"range"`); section 1 ending with the last key (`CountMismatch` `"range keys"`, section 1's length against the last
+key's end). A range of a partition the process does not host, or a `transaction` the partition
 does not hold, is refused with Error 1 (Protocol), the message naming it.
 
 ### 13.14 Entries (525)
@@ -2167,16 +2191,17 @@ Entries frames spend credit as Result frames do (section 11.3).
 | 0 | 4 | `entries` | u32 | the batch's entry count |
 | 4 | 4 | `range` | u32 | the range's index in the Scan, from 0 |
 | 8 | 1 | `end` | u8 | 0 more of the range follows; 1 the range ended; 2 the range stopped at the Scan's `limit` (`FieldValue` `"end"`) |
-| 16 | 8 | `epoch` | epoch (section 1) | the epoch of the version the range was read at, which `at` 3 and `at` 2 choose |
+| 16 | 8 | `epoch` | epoch (section 1) | the epoch of the version the range was read at, which `at` 3 and `at` 2 choose; 0 when the partition has closed no epoch and read at the version bound of none (`FieldValue` `"epoch"`) |
 
 | Section | Contents |
 |---|---|
 | 0 | the entries, in the key-value layout of section 12.2, every value present |
 
-Order: unused bytes 9–15 and 24–127 zero; `end`; sections; each entry inside the section (`EntryOutOfBounds`) with
-zero padding (`PaddingNotZero`); every value present (`FieldValue` `"entry"`); each key above the one before, compared
-byte by byte, within the batch and after the range's previous batch (`FieldValue` `"entry order"`); the count equals
-`entries` (`CountMismatch` `"entries"`). The receiver refuses a `range` that is not the previous frame's, or one above
+Order: unused bytes 9–15 and 24–127 zero; `end`; `epoch` at most 2⁴² − 1; sections; each entry inside the section
+(`EntryOutOfBounds`) with zero padding (`PaddingNotZero`); every value present (`FieldValue` `"entry"`, the entry's
+index); each key above the one before, compared byte by byte, within the batch (`FieldValue` `"entry order"`, the
+entry's index); the count equals `entries` (`CountMismatch` `"entries"`). The receiver also refuses a batch's first
+key at or below the last key of the range's previous batch (`FieldValue` `"entry order"`, 0). The receiver refuses a `range` that is not the previous frame's, or one above
 it after a frame with `end` not 0, or one not below its Scan's range count (`FieldValue` `"range"`), as a stream error.
 
 ### 13.15 Reference (526)
@@ -2188,7 +2213,9 @@ the bucket group in the entity's referrer set when the registration names one, m
 partition's log, and only then answers with every field as sent and each registration's reply fields filled. A repeat
 returns the same ID and changes nothing; concurrent registrants receive one ID.
 
-The command header is all zero.
+| Command header | Width | Field | Type | Rule |
+|---|---|---|---|---|
+| 0 | 1 | `reply` | u8 | boolean: 0 the request, 1 the home's reply (`FieldValue` `"reply"`). A reply's fields can be 0, a close of none among them, so the flag tells the two apart |
 
 | Section | Contents |
 |---|---|
@@ -2205,22 +2232,23 @@ The command header is all zero.
 | 14 | 2 | zero | 0 |
 | 16 | 8 | `generation` | u64: in a request, the generation the registrant last saw for the entity and `group`, 0 for none; in an accepted reply, the member's generation; 0 when `group` is `ABSENT` |
 | 24 | 8 | `close` | epoch (section 1): 0 in a request; in an accepted reply, the latest close delivered to the home, `c`, below the epoch the home stamped the registration at |
-| 32 | 16 | `entity` | system ID (section 1): in a request, the entity's ID, all zero when `iri` names it; in an accepted reply, the entity's ID |
+| 32 | 16 | `entity` | system ID (section 1): in a request, the entity's ID, all zero when `iri` names it; in an accepted reply, the entity's ID; in a refused reply, as sent |
 
 A registration naming the member's current generation, or any generation for a group not in the referrer set, adds or
 renews the member at one generation above the one named; one naming an older generation changes nothing and is
 answered with the current generation. The registrant commits a transaction referencing the entity only once close `c`
 has been delivered to it.
 
-Order: command header bytes 0–127 zero; sections; the term table, every entry of kind 1 (`FieldValue`
-`"reference term"`); section 0 not empty and a whole number of 48-byte registrations (`SectionLength`,
-`CountMismatch` `"registrations"`); each registration in order: bytes 14–15 zero (`PaddingNotZero`), `partition` at
-least 1, `group` below 2¹⁸ or `ABSENT`, `iri` `ABSENT` or below the term table's length, `entity` all zero exactly when
-`iri` is not `ABSENT` and otherwise a valid system ID (`FieldValue` `"registration"`); in a request, `outcome`,
-`close` and, with `group` `ABSENT`, `generation` 0 (`FieldValue` `"registration"`); in a reply, `outcome` 0 or an error
-code, and an accepted registration's `entity` a valid system ID and, with a `group`, its `generation` at least 1
-(`FieldValue` `"registration"`). A registration naming a partition the process does not host is answered with outcome
-26.
+Order: unused bytes 1–127 zero; `reply`; sections; the term table, every entry of kind 1 (`FieldValue`
+`"reference term"`, the entry's kind); section 0 not empty and a whole number of 48-byte registrations
+(`SectionLength`, `CountMismatch` `"registrations"`); each registration in order: bytes 14–15 zero
+(`PaddingNotZero`, the body offset), then its fields, each refused as `FieldValue` `"registration"` naming the
+registration's index: `partition` at least 1, `group` below 2¹⁸ or `ABSENT`, `iri` `ABSENT` or below the term table's
+length, `entity` all zero or a valid system ID, `close` at most 2⁴² − 1, and `generation` 0 when `group` is `ABSENT`;
+in a request, `outcome` and `close` 0, and `entity` all zero exactly when `iri` is not `ABSENT`; in a reply, `outcome`
+0, 7 or 26; an accepted registration's `entity` a valid system ID and, with a `group`, its `generation` at least 1; a
+refused one's `generation` and `close` 0 and `entity` all zero exactly when `iri` is not `ABSENT`. A registration
+naming a partition the process does not host is answered with outcome 26.
 
 ### 13.16 CloseRequest (527)
 
@@ -2257,8 +2285,10 @@ The command header is all zero.
 
 Order: command header bytes 0–127 zero; sections; section 0 not empty and a whole number of 16 bytes
 (`SectionLength`, `CountMismatch` `"partitions"`); each partition in order: bytes 4–7 zero (`PaddingNotZero`),
-`partition` above the one before (`FieldValue` `"partition"`), `epoch` 0 in a request (`FieldValue` `"epoch"`). A
-partition the process does not host is refused with Error 1 (Protocol), the message naming it.
+`partition` above the one before, the first at least 1 (`FieldValue` `"partition"`), `epoch` at most 2⁴² − 1
+(`FieldValue` `"epoch"`). A reply whose every epoch is 0 holds the bytes of its request; the storage process, which
+receives the request, also refuses a request whose `epoch` is not 0 (`FieldValue` `"epoch"`). A partition the process
+does not host is refused with Error 1 (Protocol), the message naming it.
 
 ### 13.18 DefaultEntry (529)
 
@@ -2277,8 +2307,10 @@ existed. Recording one creates no catalog version, stales no prepared statement 
 | 0 | the term table's records (section 4.4): one IRI, the predicate's |
 | 1 | the term table's text |
 
-Order: unused bytes 9–127 zero; `found`; sections; the term table; one entry, of kind 1 (`CountMismatch`
-`"default entry"`, `FieldValue` `"default entry"`).
+Order: unused bytes 9–127 zero; `found` 0 or 1; sections; the term table; one entry (`CountMismatch`
+`"default entry"`), of kind 1 (`FieldValue` `"default entry"`, the entry's kind). A reply of `found` 0 holds the bytes of
+its request; the frontend, which receives the request, also refuses a request whose `found` is not 0 (`FieldValue`
+`"found"`).
 
 ### 13.19 Report (530)
 
@@ -2296,9 +2328,10 @@ again a report left unanswered when its connection closed, and a repeated report
 
 | Section | Contents |
 |---|---|
-| 0 | the term table's records (section 4.4): for kind 2, the predicate and the subject or object at fault; for kind 3, the predicate whose build failed; none for kind 1 |
+| 0 | the term table's records (section 4.4): for kind 2, the predicate, then the subject or object at fault, an IRI, a blank node or a literal, the one entry naming both when the term at fault is the predicate's IRI; for kind 3, the predicate whose build failed; none for kind 1 |
 | 1 | the term table's text |
 
-Order: unused bytes 5–7 and 24–127 zero; `partition`; `kind`; `version`; sections; the term table; two entries for
-kind 2, the first of kind 1, one of kind 1 for kind 3, none for kind 1 (`CountMismatch` `"report terms"`, `FieldValue`
-`"report term"`).
+Order: unused bytes 5–7 and 24–127 zero; `partition`; `kind`; `version`; sections; the term table; one or two entries
+for kind 2, one for kind 3, none for kind 1 (`CountMismatch` `"report terms"`, `expected` the most the kind takes); the
+first entry of kind 1, and a second of kind 1 to 4 (`FieldValue` `"report term"`, the entry's kind). The report's reply
+holds the bytes of its request.

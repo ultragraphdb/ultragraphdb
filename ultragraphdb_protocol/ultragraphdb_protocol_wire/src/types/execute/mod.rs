@@ -9,14 +9,13 @@ use crate::types::term_table::TermTable;
 
 /// A prepared statement executed on a stream of its own, in the transaction it names, as a Read is: its parameters
 /// bound by position, at most `limit` rows (0 for no limit), from the resume key a previous result of the same request
-/// ended with, and whether each row's statement ID is returned.
+/// ended with.
 ///
 /// | Command header | Field | Type |
 /// |---|---|---|
 /// | 0 | `statement` | u64 |
 /// | 8 | `transaction` | u64: the stream number of the transaction's Begin |
 /// | 16 | `limit` | u32 |
-/// | 20 | `flags` | u32: bit 0, return each row's statement ID; bits 1 to 31 zero |
 ///
 /// | Section | Contents |
 /// |---|---|
@@ -32,7 +31,6 @@ pub struct Execute {
     statement: u64,
     transaction: u64,
     limit: u32,
-    statement_ids: bool,
     terms: TermTable,
     parameters: Vec<u32>,
     resume: Vec<u8>,
@@ -52,27 +50,15 @@ impl Execute {
             statement,
             transaction,
             limit,
-            statement_ids: false,
             terms,
             parameters,
             resume,
         }
     }
 
-    /// The execution asking for each row's statement ID.
-    pub fn with_statement_ids(mut self) -> Self {
-        self.statement_ids = true;
-        self
-    }
-
     /// The stream number of the Begin of the transaction the execution runs in.
     pub fn transaction(&self) -> u64 {
         self.transaction
-    }
-
-    /// Whether each row's statement ID is returned.
-    pub fn statement_ids(&self) -> bool {
-        self.statement_ids
     }
 
     /// The prepared statement's id.

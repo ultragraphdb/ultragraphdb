@@ -4,5 +4,7 @@
  */
 
 pub mod test_echo;
+pub mod test_link;
 pub mod test_peer;
+pub mod test_pipe;
 pub mod test_pki;

@@ -47,7 +47,7 @@ pub struct GoldenBody {
 /// The golden frames, one per row: the header fields `generate_bodies.py` built each with, and the size and
 /// checksums it printed.
 #[rustfmt::skip]
-pub const BODIES: [GoldenBody; 29] = [
+pub const BODIES: [GoldenBody; 31] = [
     GoldenBody { name: "hello", command: 1, stream: 0, flags: 0, sequence: 1, size: 279, checksum: 0x13cb_a202_760d_70b3, checksum_body: 0x3354_a6ce_4aa5_d7a6 },
     GoldenBody { name: "welcome", command: 2, stream: 0, flags: 0, sequence: 1, size: 317, checksum: 0x4561_84ae_8da6_048f, checksum_body: 0x7bc2_2fd5_5be2_26d0 },
     GoldenBody { name: "welcome_no_auth", command: 2, stream: 0, flags: 0, sequence: 1, size: 296, checksum: 0xb417_f160_aa24_f995, checksum_body: 0xf789_a351_5d20_daef },
@@ -55,27 +55,29 @@ pub const BODIES: [GoldenBody; 29] = [
     GoldenBody { name: "authenticate_server_first", command: 18, stream: 0, flags: 0, sequence: 2, size: 358, checksum: 0x5959_a508_58a8_c174, checksum_body: 0x64c6_adf9_e815_8a07 },
     GoldenBody { name: "authenticate_client_final", command: 18, stream: 0, flags: 0, sequence: 3, size: 378, checksum: 0x001e_a553_4a66_ad71, checksum_body: 0xa712_172f_ecff_5b46 },
     GoldenBody { name: "authenticate_server_final", command: 18, stream: 0, flags: 0, sequence: 3, size: 318, checksum: 0x3773_4e3a_a087_2a3c, checksum_body: 0x28b7_b669_06df_e983 },
-    GoldenBody { name: "register", command: 3, stream: 0, flags: 0, sequence: 1, size: 256, checksum: 0x9df1_4939_26e5_6dd6, checksum_body: 0x2d06_8005_38d3_94c2 },
-    GoldenBody { name: "begin", command: 4, stream: 5, flags: 0, sequence: 1, size: 256, checksum: 0xfd25_1229_2899_0449, checksum_body: 0x2d06_8005_38d3_94c2 },
-    GoldenBody { name: "commit", command: 5, stream: 5, flags: 0, sequence: 1, size: 296, checksum: 0xa273_55ad_e16c_06e6, checksum_body: 0xff71_5c73_e704_ed19 },
+    GoldenBody { name: "register", command: 3, stream: 0, flags: 0, sequence: 1, size: 256, checksum: 0xdd50_10f5_d3da_b450, checksum_body: 0x2d06_8005_38d3_94c2 },
+    GoldenBody { name: "begin", command: 4, stream: 5, flags: 0, sequence: 1, size: 256, checksum: 0xbfd3_ae49_7686_0a5e, checksum_body: 0x2d06_8005_38d3_94c2 },
+    GoldenBody { name: "begin_named", command: 4, stream: 7, flags: 0, sequence: 1, size: 256, checksum: 0x5751_9e9f_08bb_ec6f, checksum_body: 0x2d06_8005_38d3_94c2 },
+    GoldenBody { name: "commit", command: 5, stream: 5, flags: 0, sequence: 1, size: 367, checksum: 0x18da_849b_6662_6363, checksum_body: 0x6761_d58f_29eb_5632 },
+    GoldenBody { name: "commit_request", command: 5, stream: 5, flags: 0, sequence: 1, size: 280, checksum: 0xe069_1a6e_b20a_1850, checksum_body: 0xde4e_5dae_0947_2e69 },
     GoldenBody { name: "abort", command: 6, stream: 5, flags: 0, sequence: 1, size: 256, checksum: 0xbb90_ba9a_6b33_92ef, checksum_body: 0x2d06_8005_38d3_94c2 },
-    GoldenBody { name: "read", command: 7, stream: 11, flags: 0, sequence: 1, size: 411, checksum: 0xd530_96eb_a6c9_9b26, checksum_body: 0xd495_36ce_eedd_927f },
-    GoldenBody { name: "write", command: 8, stream: 5, flags: 0, sequence: 1, size: 1_769, checksum: 0x10ea_04f3_2c09_f6ce, checksum_body: 0x1a97_c571_66f1_f5e1 },
+    GoldenBody { name: "read", command: 7, stream: 11, flags: 0, sequence: 1, size: 411, checksum: 0xbea8_e9c1_09d5_b27f, checksum_body: 0xd495_36ce_eedd_927f },
+    GoldenBody { name: "write", command: 8, stream: 5, flags: 0, sequence: 1, size: 2_001, checksum: 0x054e_37ea_8457_a5b9, checksum_body: 0x81a8_77cb_f3c0_f90d },
     GoldenBody { name: "operation", command: 9, stream: 5, flags: 0, sequence: 1, size: 541, checksum: 0x819c_9678_0d07_b06d, checksum_body: 0xc763_0be0_93aa_4f02 },
     GoldenBody { name: "operation_counter", command: 9, stream: 7, flags: 0, sequence: 1, size: 387, checksum: 0x853a_2deb_e648_b96d, checksum_body: 0x95e0_a48a_8ed2_701c },
     GoldenBody { name: "operation_deep", command: 9, stream: 9, flags: 0, sequence: 1, size: 1_142, checksum: 0x08b8_0462_4235_b2ce, checksum_body: 0xb338_de68_2070_1115 },
     GoldenBody { name: "prepare", command: 10, stream: 13, flags: 0, sequence: 1, size: 384, checksum: 0xc36e_3c3e_21de_e50a, checksum_body: 0xb7d8_3d8f_c6ef_0110 },
-    GoldenBody { name: "prepare_reply", command: 10, stream: 13, flags: 0, sequence: 1, size: 385, checksum: 0x08fb_03f7_3f5f_a1cf, checksum_body: 0x7237_dbcf_ca74_635e },
+    GoldenBody { name: "prepare_reply", command: 10, stream: 13, flags: 0, sequence: 1, size: 386, checksum: 0x55fa_22ec_8cdd_c14b, checksum_body: 0x16cc_7597_cb55_aaf0 },
     GoldenBody { name: "execute", command: 11, stream: 15, flags: 0, sequence: 1, size: 336, checksum: 0xf929_6433_8595_88a7, checksum_body: 0xb518_2367_cd44_9c6f },
     GoldenBody { name: "describe", command: 12, stream: 17, flags: 0, sequence: 1, size: 312, checksum: 0xe91a_4ff9_f41a_ff36, checksum_body: 0x2464_7a33_d027_0e23 },
     GoldenBody { name: "describe_reply", command: 12, stream: 17, flags: 0, sequence: 1, size: 508, checksum: 0x62ff_8ac6_af26_c4dc, checksum_body: 0x739b_5e15_2585_486c },
-    GoldenBody { name: "result", command: 13, stream: 11, flags: 1, sequence: 1, size: 648, checksum: 0x87f7_d5e3_4b9a_e087, checksum_body: 0xaeea_d453_d05a_0ed8 },
+    GoldenBody { name: "result", command: 13, stream: 11, flags: 1, sequence: 1, size: 754, checksum: 0x39fc_93ab_c754_9563, checksum_body: 0x4daf_4c54_cee6_4c08 },
     GoldenBody { name: "credit", command: 14, stream: 11, flags: 0, sequence: 1, size: 256, checksum: 0x2f73_37ee_fe0c_7c44, checksum_body: 0x2d06_8005_38d3_94c2 },
     GoldenBody { name: "cancel", command: 15, stream: 11, flags: 0, sequence: 1, size: 256, checksum: 0x5032_665c_3cbb_1b5f, checksum_body: 0x2d06_8005_38d3_94c2 },
     GoldenBody { name: "error", command: 16, stream: 5, flags: 1, sequence: 1, size: 312, checksum: 0xd3ee_ce7e_9292_95f8, checksum_body: 0x5167_54f7_3689_214d },
     GoldenBody { name: "error_operation", command: 16, stream: 7, flags: 1, sequence: 1, size: 348, checksum: 0x2e88_d89f_9888_6cf3, checksum_body: 0x2897_5799_bf0a_e6df },
-    GoldenBody { name: "drop", command: 19, stream: 19, flags: 0, sequence: 1, size: 311, checksum: 0x6d0b_29f7_340a_0d3b, checksum_body: 0xabf6_85b8_5add_94f2 },
-    GoldenBody { name: "drop_reply", command: 19, stream: 19, flags: 1, sequence: 1, size: 311, checksum: 0xeade_41ee_16c1_aee0, checksum_body: 0xabf6_85b8_5add_94f2 },
+    GoldenBody { name: "drop", command: 19, stream: 19, flags: 0, sequence: 1, size: 311, checksum: 0x1639_a7c2_9032_656a, checksum_body: 0xabf6_85b8_5add_94f2 },
+    GoldenBody { name: "drop_reply", command: 19, stream: 19, flags: 1, sequence: 1, size: 311, checksum: 0x5eca_8303_eb50_2956, checksum_body: 0xabf6_85b8_5add_94f2 },
     GoldenBody { name: "round", command: 17, stream: 0, flags: 0, sequence: 3, size: 5_520, checksum: 0x9516_930d_4ee7_72f5, checksum_body: 0xf685_3c79_e1db_4579 },
 ];
 
@@ -239,21 +241,27 @@ pub fn view_any(bytes: &[u8]) -> TestResult<Result<(), ProtocolError>> {
     Ok(Ok(()))
 }
 
+/// The frame of `frame`'s body read through the view `V` and rebuilt from the owned body under the frame's own header.
+///
+/// # Errors
+///
+/// The view's refusal, or the builder's.
+pub fn through<'a, V: BodyView<'a>>(frame: &FrameView<'a>) -> Result<Vec<u8>, ProtocolError> {
+    let body = V::from_frame(frame)?.to_body()?;
+    let h = frame.header();
+    let header = Header::new(h.cluster(), Command::Abort)
+        .with_sequence(h.sequence())
+        .with_view(h.view())
+        .with_release(h.release())
+        .with_protocol(h.protocol())
+        .with_stream(h.stream())
+        .with_replica(h.replica())
+        .with_flags(h.flags());
+    body.frame(header)
+}
+
 /// The frame `bytes` rebuilt from its view's owned body.
 fn rebuild(bytes: &[u8]) -> Result<(Command, Vec<u8>), ProtocolError> {
-    fn through<'a, V: BodyView<'a>>(frame: &FrameView<'a>) -> Result<Vec<u8>, ProtocolError> {
-        let body = V::from_frame(frame)?.to_body()?;
-        let h = frame.header();
-        let header = Header::new(h.cluster(), Command::Abort)
-            .with_sequence(h.sequence())
-            .with_view(h.view())
-            .with_release(h.release())
-            .with_protocol(h.protocol())
-            .with_stream(h.stream())
-            .with_replica(h.replica())
-            .with_flags(h.flags());
-        body.frame(header)
-    }
     let frame = FrameView::validate(bytes, CLUSTER, MAX_FRAME_SIZE)?;
     let rebuilt = match frame.command() {
         Command::Hello => through::<HelloView>(&frame),
@@ -275,6 +283,25 @@ fn rebuild(bytes: &[u8]) -> Result<(Command, Vec<u8>), ProtocolError> {
         Command::Round => through::<RoundView>(&frame),
         Command::Authenticate => through::<AuthenticateView>(&frame),
         Command::Drop => through::<DropCommandView>(&frame),
+        Command::Join
+        | Command::Members
+        | Command::Subscribe
+        | Command::EpochClose
+        | Command::Lease
+        | Command::Placement
+        | Command::Catalog
+        | Command::Challenge
+        | Command::Verify
+        | Command::Bind
+        | Command::Recall
+        | Command::ComputeRead
+        | Command::Scan
+        | Command::Entries
+        | Command::Reference
+        | Command::CloseRequest
+        | Command::Closed
+        | Command::DefaultEntry
+        | Command::Report => crate::utils::golden_roles::rebuild_role(&frame),
     }?;
     Ok((frame.command(), rebuilt))
 }

@@ -131,7 +131,11 @@ fn path_of(result: Result<TlsTrust, TlsError>) -> TestResult<String> {
                 TlsErrorEnum::TrustStoreEmpty(source) => Some(source.clone()),
                 TlsErrorEnum::InvalidServerName(_)
                 | TlsErrorEnum::HandshakeFailed { .. }
-                | TlsErrorEnum::ConfigurationRefused(_) => None,
+                | TlsErrorEnum::ConfigurationRefused(_)
+                | TlsErrorEnum::CertificateUnreadable { .. }
+                | TlsErrorEnum::CertificateEmpty(_)
+                | TlsErrorEnum::KeyMismatch(_)
+                | TlsErrorEnum::RecordRefused { .. } => None,
             };
             path.context(&format!(
                 "a trust store's failure names its source: {error:?}"

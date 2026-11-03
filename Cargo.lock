@@ -2791,6 +2791,7 @@ dependencies = [
  "cucumber",
  "futures",
  "ultragraphdb_client_core",
+ "ultragraphdb_core_ids",
  "ultragraphdb_error_protocol",
  "ultragraphdb_protocol_scram",
  "ultragraphdb_protocol_transport",
@@ -2810,6 +2811,26 @@ dependencies = [
  "ultragraphdb_protocol_transport",
  "ultragraphdb_protocol_wire",
  "ultragraphdb_tool_bdd",
+ "xxhash-rust",
+]
+
+[[package]]
+name = "ultragraphdb_cluster_metadata"
+version = "0.1.0"
+dependencies = [
+ "cucumber",
+ "futures",
+ "ultragraphdb_cluster_placement",
+ "ultragraphdb_cluster_sequencer",
+ "ultragraphdb_core_ids",
+ "ultragraphdb_error_cluster",
+ "ultragraphdb_error_log",
+ "ultragraphdb_protocol_scram",
+ "ultragraphdb_tool_bdd",
+ "ultragraphdb_traits_blocks",
+ "ultragraphdb_traits_catalog",
+ "ultragraphdb_traits_log",
+ "ultragraphdb_transactions_log",
  "xxhash-rust",
 ]
 
@@ -2901,6 +2922,7 @@ dependencies = [
  "ultragraphdb_store_kv",
  "ultragraphdb_store_sim",
  "ultragraphdb_tool_bdd",
+ "ultragraphdb_traits_catalog",
  "ultragraphdb_traits_store",
 ]
 
@@ -3083,11 +3105,13 @@ dependencies = [
  "compio",
  "cucumber",
  "futures",
+ "rustls",
  "ultragraphdb_error_protocol",
  "ultragraphdb_protocol_scram",
  "ultragraphdb_protocol_transport",
  "ultragraphdb_protocol_wire",
  "ultragraphdb_tool_bdd",
+ "ultragraphdb_transport_tls",
 ]
 
 [[package]]
@@ -3137,6 +3161,7 @@ dependencies = [
  "ultragraphdb_tool_bdd",
  "ultragraphdb_tool_test",
  "ultragraphdb_traits_blocks",
+ "ultragraphdb_traits_catalog",
  "ultragraphdb_traits_index",
  "ultragraphdb_traits_store",
 ]
@@ -3150,7 +3175,6 @@ dependencies = [
  "oxrdf",
  "serde",
  "tracing",
- "ultragraphdb_common_utils",
  "ultragraphdb_core_codec",
  "ultragraphdb_core_ids",
  "ultragraphdb_core_keys",
@@ -3317,6 +3341,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ultragraphdb_traits_catalog"
+version = "0.1.0"
+dependencies = [
+ "ultragraphdb_tool_bdd",
+]
+
+[[package]]
 name = "ultragraphdb_traits_collator"
 version = "0.1.0"
 dependencies = [
@@ -3373,6 +3404,7 @@ dependencies = [
  "ultragraphdb_store_sim",
  "ultragraphdb_tool_bdd",
  "ultragraphdb_traits_blocks",
+ "ultragraphdb_traits_catalog",
  "ultragraphdb_traits_log",
  "ultragraphdb_traits_store",
  "ultragraphdb_transactions_log",
@@ -3406,6 +3438,7 @@ dependencies = [
  "futures",
  "oxrdf",
  "ultragraphdb_cluster_placement",
+ "ultragraphdb_core_catalog",
  "ultragraphdb_core_codec",
  "ultragraphdb_core_ids",
  "ultragraphdb_core_keys",

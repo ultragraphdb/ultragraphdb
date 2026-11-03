@@ -4,11 +4,12 @@
  */
 
 use ultragraphdb_error_protocol::{ProtocolError, ProtocolErrorEnum};
-use ultragraphdb_protocol_wire::{Command, REPLICA_COMMANDS};
+use ultragraphdb_protocol_wire::{Command, REPLICA_COMMANDS, ROLE_COMMANDS};
 
 /// The registry as assigned on 2026-10-27, in the order of the design note's body table, with Authenticate and Drop
-/// added on 2026-10-30. These numbers are never reused; a change here is a protocol break.
-const REGISTRY: [(Command, u16); 19] = [
+/// added on 2026-10-30, and the role commands 512 to 530 of `PROTOCOL.md` §3 on 2026-11-03. These numbers are never
+/// reused; a change here is a protocol break.
+const REGISTRY: [(Command, u16); 38] = [
     (Command::Hello, 1),
     (Command::Welcome, 2),
     (Command::Register, 3),
@@ -28,6 +29,25 @@ const REGISTRY: [(Command, u16); 19] = [
     (Command::Round, 17),
     (Command::Authenticate, 18),
     (Command::Drop, 19),
+    (Command::Join, 512),
+    (Command::Members, 513),
+    (Command::Subscribe, 514),
+    (Command::EpochClose, 515),
+    (Command::Lease, 516),
+    (Command::Placement, 517),
+    (Command::Catalog, 518),
+    (Command::Challenge, 519),
+    (Command::Verify, 520),
+    (Command::Bind, 521),
+    (Command::Recall, 522),
+    (Command::ComputeRead, 523),
+    (Command::Scan, 524),
+    (Command::Entries, 525),
+    (Command::Reference, 526),
+    (Command::CloseRequest, 527),
+    (Command::Closed, 528),
+    (Command::DefaultEntry, 529),
+    (Command::Report, 530),
 ];
 
 #[test]
@@ -51,8 +71,9 @@ fn test_exactly_the_registry_is_known() {
     let known: Vec<u16> = (0..=u16::MAX)
         .filter(|n| Command::from_number(*n).is_ok())
         .collect();
-    assert_eq!(known, (1..=19).collect::<Vec<u16>>());
-    for number in (0..=u16::MAX).filter(|n| !(1..=19).contains(n)) {
+    let assigned: Vec<u16> = (1..=19).chain(512..=530).collect();
+    assert_eq!(known, assigned);
+    for number in (0..=u16::MAX).filter(|n| !assigned.contains(n)) {
         assert_eq!(
             Command::from_number(number).map_err(|e| e.0),
             Err(ProtocolErrorEnum::UnknownCommand { command: number })
@@ -62,7 +83,7 @@ fn test_exactly_the_registry_is_known() {
 
 #[test]
 fn test_unassigned_numbers_are_unknown_commands() {
-    for number in [0, 20, 255, 512, 1_000, u16::MAX] {
+    for number in [0, 20, 255, 531, 767, 1_000, u16::MAX] {
         assert_eq!(
             Command::from_number(number),
             Err(ProtocolError(ProtocolErrorEnum::UnknownCommand {
@@ -80,4 +101,38 @@ fn test_replica_numbers_are_unknown_until_stage_10() {
             Err(ProtocolErrorEnum::UnknownCommand { command: number })
         );
     }
+}
+
+#[test]
+fn test_exactly_the_commands_numbered_512_to_767_are_role_commands() {
+    for (command, number) in REGISTRY {
+        assert_eq!(
+            command.is_role(),
+            (512..=767).contains(&number),
+            "{command:?}"
+        );
+    }
+    assert_eq!(ROLE_COMMANDS, 512..=767);
+    assert!(!Command::Drop.is_role());
+    assert!(Command::Join.is_role());
+    assert!(Command::Report.is_role());
+}
+
+#[test]
+fn test_a_client_connection_refuses_every_role_command_by_number() {
+    for (command, number) in REGISTRY {
+        let taken = command.on_client_connection();
+        if (512..=767).contains(&number) {
+            assert_eq!(
+                taken.map_err(|e| e.0),
+                Err(ProtocolErrorEnum::CommandNotServed { command: number })
+            );
+        } else {
+            assert_eq!(taken, Ok(command));
+        }
+    }
+    assert_eq!(
+        Command::Lease.on_client_connection(),
+        Err(ProtocolError::command_not_served(516))
+    );
 }

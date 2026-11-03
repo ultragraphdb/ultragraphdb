@@ -6,4 +6,6 @@
 #[cfg(test)]
 mod test_peer_tests;
 #[cfg(test)]
+mod test_pipe_tests;
+#[cfg(test)]
 mod test_pki_tests;

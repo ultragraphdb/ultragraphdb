@@ -77,7 +77,7 @@ impl<L: Login> ClientCore<L> {
 
     /// Registers a session (D9), answered [`crate::Reply::Registered`].
     pub fn register(&mut self, now: Instant) -> Result<Pending, ClientError> {
-        self.request(&Register::new(0), Expect::Register, now)
+        self.request(&Register::new([0; 16]), Expect::Register, now)
     }
 
     /// Begins a transaction in `namespace` on a new stream, answered [`crate::Reply::Begun`] with its snapshot.
@@ -215,7 +215,7 @@ impl<L: Login> ClientCore<L> {
         self.transaction_stream(&transaction, true)?;
         let request = state.next_request;
         let frame = self.frame(
-            &Commit::new(session.number(), request, 0, Vec::new()),
+            &Commit::new(session.number().to_be_bytes(), request, 0),
             transaction.stream(),
         )?;
         if let Some(session_state) = self.sessions.get_mut(&session.number()) {
@@ -256,7 +256,7 @@ impl<L: Login> ClientCore<L> {
             return Err(ClientError::not_connected());
         }
         let request = state.next_request;
-        let command = command.with_session(session.number(), request);
+        let command = command.with_session(session.number().to_be_bytes(), request);
         let stream = self.open_stream()?;
         let frame = match self.frame(&command, stream) {
             Ok(frame) => frame,

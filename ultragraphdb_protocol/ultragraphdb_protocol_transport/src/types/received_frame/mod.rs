@@ -106,7 +106,11 @@ impl ReceivedFrame {
 
     /// The `N` header bytes at `at`; present in every frame read whole.
     fn field<const N: usize>(&self, at: usize) -> Option<[u8; N]> {
-        self.buffer.as_slice().get(at..at + N)?.try_into().ok()
+        self.buffer
+            .as_slice()
+            .get(at..at.checked_add(N)?)?
+            .try_into()
+            .ok()
     }
 
     /// The header's `flags`.

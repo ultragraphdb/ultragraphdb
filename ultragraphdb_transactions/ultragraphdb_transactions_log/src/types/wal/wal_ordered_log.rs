@@ -55,6 +55,7 @@ impl<S: DurableStorage> Wal<S> {
                 ProtocolErrorEnum::ShortHeader { .. }
                 | ProtocolErrorEnum::HeaderChecksum { .. }
                 | ProtocolErrorEnum::UnknownCommand { .. }
+                | ProtocolErrorEnum::CommandNotServed { .. }
                 | ProtocolErrorEnum::ReservedNotZero { .. }
                 | ProtocolErrorEnum::WrongCluster { .. }
                 | ProtocolErrorEnum::SizeBelowHeader { .. }

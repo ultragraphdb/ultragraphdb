@@ -15,31 +15,39 @@ pub const LONG: &str = "a long lexical form beyond fifteen";
 /// (PROTOCOL.md §10.2).
 pub const SKOLEM_6: &str = "https://w3id.org/ultragraphdb/ns/namespace/0/.well-known/genid/00002a-0123456789abcdef0123456789";
 
-pub fn golden_terms() -> TestResult<[ResultTerm; 4]> {
+/// The golden batch's reifier: the skolem IRI of a statement of bucket 0x00002a (PROTOCOL.md §10.2).
+pub const REIFIER: &str = "https://w3id.org/ultragraphdb/ns/namespace/0/.well-known/genid/00002a-fedcba9876543210fedcba9876";
+
+pub fn golden_terms() -> TestResult<[ResultTerm; 5]> {
     let mut big = vec![0x21];
     big.extend_from_slice(Hash128::of(LONG.as_bytes()).as_bytes());
     Ok([
         ResultTerm::iri("http://ex.org/a"),
         ResultTerm::new(EncodedTerm::from_bytes(&[0x20, 2, b'A', b'l'])?),
+        ResultTerm::blank_node(REIFIER),
         ResultTerm::new(EncodedTerm::from_bytes(&big)?).with_text(LONG),
         ResultTerm::blank_node(SKOLEM_6),
     ])
 }
 
+/// The golden batch: two unbound slots and the reifier column, read at epoch 30 in partition 2.
 pub fn golden_batch() -> TestResult<ResultBatch> {
-    let [a, al, long, b] = golden_terms()?;
-    let mut batch = ResultBatch::with_statement_ids(2).with_resume(b"rk".to_vec());
-    batch.push_row_with_id(&[Some(&a), Some(&al)], 0x1001)?;
-    batch.push_row_with_id(&[Some(&a), Some(&long)], 0x1002)?;
-    batch.push_row_with_id(&[Some(&b), None], 0x1003)?;
+    let [a, al, reifier, long, b] = golden_terms()?;
+    let mut batch = ResultBatch::new(3)
+        .with_resume(b"rk".to_vec())
+        .with_read_at(30, 2);
+    batch.push_row(&[Some(&a), Some(&al), Some(&reifier)])?;
+    batch.push_row(&[Some(&a), Some(&long), None])?;
+    batch.push_row(&[Some(&b), None, None])?;
     Ok(batch)
 }
 
 #[test]
 fn test_the_golden_batch_builds_the_golden_frame() -> TestResult {
     let batch = golden_batch()?;
-    assert_eq!(batch.columns(), 2);
+    assert_eq!(batch.columns(), 3);
     assert_eq!(batch.rows(), 3);
+    assert_eq!((batch.epoch(), batch.partition()), (30, 2));
     assert_eq!(batch.terms(), &golden_terms()?);
     assert_eq!(batch.resume(), b"rk");
     assert_eq!(
@@ -47,8 +55,7 @@ fn test_the_golden_batch_builds_the_golden_frame() -> TestResult {
         golden("result")?.bytes()?
     );
     assert_eq!(batch.encoded_len(), batch.body().len());
-    assert_eq!(batch.encoded_len(), 648 - 256);
-    assert_eq!(batch.statement_ids(), Some(&[0x1001, 0x1002, 0x1003][..]));
+    assert_eq!(batch.encoded_len(), 754 - 256);
     Ok(())
 }
 
@@ -57,11 +64,13 @@ fn test_cells_index_the_term_table_in_order_of_first_use() -> TestResult {
     let batch = golden_batch()?;
     assert_eq!(batch.cell(0, 0), Some(0));
     assert_eq!(batch.cell(0, 1), Some(0));
-    assert_eq!(batch.cell(0, 2), Some(3));
+    assert_eq!(batch.cell(0, 2), Some(4));
     assert_eq!(batch.cell(1, 0), Some(1));
-    assert_eq!(batch.cell(1, 1), Some(2));
+    assert_eq!(batch.cell(1, 1), Some(3));
     assert_eq!(batch.cell(1, 2), Some(ABSENT));
-    assert_eq!(batch.cell(2, 0), None);
+    assert_eq!(batch.cell(2, 0), Some(2));
+    assert_eq!(batch.cell(2, 1), Some(ABSENT));
+    assert_eq!(batch.cell(3, 0), None);
     assert_eq!(batch.cell(0, 3), None);
     Ok(())
 }
@@ -89,60 +98,53 @@ fn test_a_row_of_the_wrong_width_is_refused() -> TestResult {
 }
 
 #[test]
-fn test_a_batch_carries_statement_ids_for_every_row_or_none() -> TestResult {
-    let [a, ..] = golden_terms()?;
-    let mut plain = ResultBatch::new(1);
-    assert_eq!(plain.statement_ids(), None);
+fn test_a_reifier_is_a_blank_node_or_absent() -> TestResult {
+    let [a, al, reifier, ..] = golden_terms()?;
+    let mut batch = ResultBatch::new(2);
+    // An IRI in the reifier column, the last.
     assert_eq!(
-        plain
-            .push_row_with_id(&[Some(&a)], 1)
+        batch
+            .push_row(&[Some(&reifier), Some(&a)])
             .err()
             .context("a refusal")?
             .0,
-        ProtocolErrorEnum::CountMismatch {
+        ProtocolErrorEnum::FieldValue {
             command: 13,
-            field: "statement ids",
-            count: 1,
-            expected: 0
+            field: "reifier",
+            value: 1
         }
     );
-    assert_eq!(plain.rows(), 0, "a refused row is not added");
-    let mut ids = ResultBatch::with_statement_ids(1);
+    // A literal there too.
     assert_eq!(
-        ids.push_row(&[Some(&a)]).err().context("a refusal")?.0,
-        ProtocolErrorEnum::CountMismatch {
-            command: 13,
-            field: "statement ids",
-            count: 0,
-            expected: 1
-        }
-    );
-    assert_eq!(ids.statement_ids(), Some(&[][..]));
-    // A row of the wrong width with an ID adds neither.
-    assert_eq!(
-        ids.push_row_with_id(&[None, None], 9)
+        batch
+            .push_row(&[None, Some(&al)])
             .err()
             .context("a refusal")?
             .0,
-        ProtocolErrorEnum::CountMismatch {
+        ProtocolErrorEnum::FieldValue {
             command: 13,
-            field: "row",
-            count: 2,
-            expected: 1
+            field: "reifier",
+            value: 1
         }
     );
-    assert_eq!((ids.rows(), ids.statement_ids()), (0, Some(&[][..])));
-    // Section 7 holds the IDs, u64s little-endian, one per row.
-    ids.push_row_with_id(&[None], 0x0102_0304_0506_0708)?;
-    let body = ids.body();
-    let (offset, len) = crate::utils::golden_bodies::section(&body, 0, 7);
-    assert_eq!(len, 8);
+    assert_eq!(batch.rows(), 0, "a refused row is not added");
+    // A blank node elsewhere is any term; in the reifier column it names the statement.
+    batch.push_row(&[Some(&reifier), Some(&reifier)])?;
+    batch.push_row(&[Some(&a), None])?;
     assert_eq!(
-        &body[offset..offset + 8],
-        &0x0102_0304_0506_0708u64.to_le_bytes()
+        (batch.rows(), batch.cell(1, 0), batch.cell(1, 1)),
+        (2, Some(0), Some(ABSENT))
     );
-    let (_, plain_len) = crate::utils::golden_bodies::section(&ResultBatch::new(1).body(), 0, 7);
-    assert_eq!(plain_len, 0);
+    // The command header: epoch at 8, partition at 16, nothing after.
+    let header = batch.with_read_at(7, 9).command_header();
+    assert_eq!(&header[8..16], &7u64.to_le_bytes());
+    assert_eq!(&header[16..20], &9u32.to_le_bytes());
+    assert!(header[20..].iter().all(|b| *b == 0));
+    // A batch holds seven sections, the resume key the last: no statement IDs.
+    let body = ResultBatch::new(1).with_resume(b"k".to_vec()).body();
+    let (offset, len) = crate::utils::golden_bodies::section(&body, 0, 6);
+    assert_eq!((len, &body[offset..offset + len]), (1, &b"k"[..]));
+    assert_eq!(crate::utils::golden_bodies::u32_at(&body, 0), 56);
     Ok(())
 }
 

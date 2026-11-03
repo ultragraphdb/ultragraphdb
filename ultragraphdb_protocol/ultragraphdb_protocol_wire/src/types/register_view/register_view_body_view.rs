@@ -10,6 +10,7 @@ use crate::types::command::Command;
 use crate::types::frame_view::FrameView;
 use crate::types::register::Register;
 use crate::types::register_view::RegisterView;
+use crate::utils::fields::identity;
 use crate::utils::sections::Sections;
 use crate::utils::sections::expect_command;
 use std::marker::PhantomData;
@@ -22,11 +23,11 @@ impl<'a> BodyView<'a> for RegisterView<'a> {
     fn from_frame(frame: &FrameView<'a>) -> Result<Self, ProtocolError> {
         let command = Self::COMMAND.number();
         let header = expect_command(frame, Self::COMMAND)?;
-        header.unused_zero(&[(0, 8)])?;
+        header.unused_zero(&[(0, 16)])?;
         let _sections: Sections<'_, 0> = Sections::read(command, frame.body(), 0)?;
         Ok(Self {
             frame: PhantomData,
-            session: header.u64_at(0),
+            session: identity(header.0, 0),
         })
     }
 

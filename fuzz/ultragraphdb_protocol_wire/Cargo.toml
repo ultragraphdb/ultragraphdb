@@ -21,6 +21,7 @@ workspace = true
 [dependencies]
 arbitrary = { workspace = true }
 libfuzzer-sys = { workspace = true }
+ultragraphdb_core_ids = { workspace = true }
 ultragraphdb_core_terms = { workspace = true }
 ultragraphdb_error_protocol = { workspace = true }
 ultragraphdb_protocol_wire = { workspace = true }

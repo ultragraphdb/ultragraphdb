@@ -318,10 +318,11 @@ fn name_listed(w: &mut Steps) -> TestResult {
 #[when("a batch of 1,000 rows names the same IRI in every row")]
 fn thousand_rows(w: &mut Steps) -> TestResult {
     let iri = ResultTerm::iri("http://ex.org/same");
-    let mut batch = ResultBatch::new(2);
+    // Two unbound slots and the reifier column, unbound: no row's statement holds a statement ID.
+    let mut batch = ResultBatch::new(3);
     for row in 0..1_000u64 {
         let other = ResultTerm::iri(format!("http://ex.org/n{row}"));
-        batch.push_row(&[Some(&iri), Some(&other)])?;
+        batch.push_row(&[Some(&iri), Some(&other), None])?;
     }
     w.bytes = batch.frame(Header::new(CLUSTER, Command::Result).with_stream(1))?;
     Ok(())
@@ -737,8 +738,8 @@ fn decimal_past_its_payload(w: &mut Steps) -> TestResult {
         Some(text) => term.with_text(text.clone()),
         None => term,
     };
-    let mut batch = ResultBatch::new(1);
-    batch.push_row(&[Some(&term)])?;
+    let mut batch = ResultBatch::new(2);
+    batch.push_row(&[Some(&term), None])?;
     let bytes = batch.frame(Header::new(CLUSTER, Command::Result).with_stream(3))?;
     let view = ResultView::from_frame(&FrameView::validate(&bytes, CLUSTER, MAX_FRAME_SIZE)?)?;
     let read = view.term(0).context("term 0 of the batch")?;

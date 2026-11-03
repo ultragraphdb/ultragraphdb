@@ -18,7 +18,6 @@ fn test_the_golden_execute_reads_its_values() -> TestResult {
         (view.statement(), view.transaction(), view.limit()),
         (1, 5, 0)
     );
-    assert!(!view.statement_ids());
     assert_eq!(view.parameters(), &[0]);
     assert_eq!(
         view.terms().get(0),
@@ -62,31 +61,20 @@ fn test_a_parameter_names_a_term_of_the_table() -> TestResult {
 }
 
 #[test]
-fn test_flags_take_statement_ids_alone() -> TestResult {
+fn test_bytes_after_the_limit_are_unused() -> TestResult {
     let bytes = golden("execute")?.bytes()?;
-    let asked = with_command_header(&bytes, |h| put(h, 20, 1, 4));
-    assert!(ExecuteView::from_frame(&frame_of(&asked)?)?.statement_ids());
-    for flags in [2u64, 0x8000_0000] {
-        let frame = with_command_header(&bytes, |h| put(h, 20, flags, 4));
+    // Bytes 20 to 127 are unused: the former flags among them.
+    for at in [20usize, 23, 24, 127] {
+        let frame = with_command_header(&bytes, |h| h[at] = 1);
         assert_eq!(
             ExecuteView::from_frame(&frame_of(&frame)?)
                 .err()
                 .context("a refusal")?
                 .0,
-            ProtocolErrorEnum::FieldValue {
-                command: 11,
-                field: "flags",
-                value: flags
-            }
+            ProtocolErrorEnum::ReservedNotZero { offset: 128 + at }
         );
     }
-    let unused = with_command_header(&bytes, |h| h[24] = 1);
-    assert_eq!(
-        ExecuteView::from_frame(&frame_of(&unused)?)
-            .err()
-            .context("a refusal")?
-            .0,
-        ProtocolErrorEnum::ReservedNotZero { offset: 152 }
-    );
+    let limit = with_command_header(&bytes, |h| put(h, 16, 9, 4));
+    assert_eq!(ExecuteView::from_frame(&frame_of(&limit)?)?.limit(), 9);
     Ok(())
 }

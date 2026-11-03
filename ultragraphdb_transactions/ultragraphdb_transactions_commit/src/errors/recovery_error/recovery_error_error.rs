@@ -16,7 +16,8 @@ impl std::error::Error for RecoveryError {
             RecoveryErrorEnum::StoreNotInLog { .. }
             | RecoveryErrorEnum::Gap { .. }
             | RecoveryErrorEnum::BehindCheckpoint { .. }
-            | RecoveryErrorEnum::Derivation { .. } => None,
+            | RecoveryErrorEnum::Derivation { .. }
+            | RecoveryErrorEnum::Catalog { .. } => None,
         }
     }
 }

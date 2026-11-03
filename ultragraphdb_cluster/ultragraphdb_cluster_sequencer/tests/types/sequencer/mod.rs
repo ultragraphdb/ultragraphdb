@@ -8,5 +8,6 @@ mod sequencer_close_tests;
 mod sequencer_crash_tests;
 mod sequencer_deliver_tests;
 mod sequencer_recover_tests;
+mod sequencer_snapshot_tests;
 mod sequencer_submit_tests;
 mod sequencer_tests;

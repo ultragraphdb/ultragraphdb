@@ -42,6 +42,17 @@ impl Peer {
         self.raw(&body.frame(header)?)
     }
 
+    /// A frame of `command` with an empty body on `stream`, the client's next frame, as the server reads it: a
+    /// command no builder of the client's makes, such as a role command.
+    pub fn command(&mut self, stream: u64, command: Command) -> TestResult<ReceivedFrame> {
+        self.sequence += 1;
+        let frame = Header::new(CLUSTER, command)
+            .with_sequence(self.sequence)
+            .with_stream(stream)
+            .encode_frame(&[])?;
+        self.raw(&frame)
+    }
+
     /// `frame`, as built, as the server reads it.
     pub fn raw(&mut self, frame: &[u8]) -> TestResult<ReceivedFrame> {
         Ok(feed(&mut self.framer, &self.pool, frame, &mut 0, 1 << 20)?)

@@ -37,10 +37,17 @@ pub enum PipelineErrorEnum {
         /// The store's error reading the session table.
         cause: StoreError,
     },
-    /// A build's end could not be proposed: the store failed reading the build's catalog. The pipeline stops, and the
-    /// build is finished when the store opens again.
+    /// A build's end could not be proposed. The pipeline stops, and the build is finished when the store opens again.
     BuildEnd {
-        /// The error reading the build's catalog.
+        /// Why the end could not be proposed.
+        cause: TxnError,
+    },
+    /// Catalog version `version` could not take effect in the partition: the store failed while its declarations were
+    /// checked against the data. The pipeline stops, and replay executes the version again when the store opens.
+    CatalogVersion {
+        /// The version's number.
+        version: u64,
+        /// The store's failure.
         cause: TxnError,
     },
 }
@@ -64,5 +71,10 @@ impl PipelineError {
     /// The [`PipelineErrorEnum::BuildEnd`] reason.
     pub fn build_end(cause: TxnError) -> Self {
         Self(PipelineErrorEnum::BuildEnd { cause })
+    }
+
+    /// The [`PipelineErrorEnum::CatalogVersion`] reason.
+    pub fn catalog_version(version: u64, cause: TxnError) -> Self {
+        Self(PipelineErrorEnum::CatalogVersion { version, cause })
     }
 }

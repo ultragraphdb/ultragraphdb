@@ -53,3 +53,29 @@ fn test_a_protocol_error_is_answered_with_its_text() {
     assert_eq!(reply.detail(), 0);
     assert_eq!(reply.value(), None);
 }
+
+#[test]
+fn test_a_detail_its_code_refuses_builds_no_frame() -> TestResult {
+    use ultragraphdb_error_protocol::ProtocolErrorEnum;
+    use ultragraphdb_protocol_wire::{
+        BodyView, Command, ErrorReplyView, FrameView, Header, MAX_FRAME_SIZE,
+    };
+    // PROTOCOL.md section 9.4: WrongPartition's bucket takes bits 0 to 23 and its partition bits 32 to 63.
+    let header = || Header::new(1, Command::Error);
+    let refused = ErrorReply::new(ErrorCode::WrongPartition, "moved").with_detail(1 << 24);
+    assert_eq!(
+        refused.frame(header()).err().map(|e| e.0),
+        Some(ProtocolErrorEnum::FieldValue {
+            command: Command::Error.number(),
+            field: "detail",
+            value: 1 << 24
+        })
+    );
+    // A bucket and a partition in their bits build, and the view reads the frame back.
+    let held =
+        ErrorReply::new(ErrorCode::WrongPartition, "moved").with_detail((7 << 32) | 0x00FF_FFFF);
+    let bytes = held.frame(header())?;
+    let view = ErrorReplyView::from_frame(&FrameView::validate(&bytes, 1, MAX_FRAME_SIZE)?)?;
+    assert_eq!(view.detail(), (7 << 32) | 0x00FF_FFFF);
+    Ok(())
+}

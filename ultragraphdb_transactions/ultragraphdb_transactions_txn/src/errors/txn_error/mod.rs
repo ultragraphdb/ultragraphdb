@@ -6,6 +6,7 @@
 mod txn_error_display;
 mod txn_error_error;
 
+use ultragraphdb_protocol_wire::ErrorCode;
 use ultragraphdb_store_apply::ChangesetError;
 
 /// Why a transaction's request was refused on its worker.
@@ -14,8 +15,8 @@ use ultragraphdb_store_apply::ChangesetError;
 ///   new transaction may succeed.
 /// - **Refused, not retryable:** [`ReadAboveWatermark`](Self::ReadAboveWatermark), [`WriteSetTooLarge`](Self::WriteSetTooLarge),
 ///   [`ReadSetTooLarge`](Self::ReadSetTooLarge), [`ReadOnly`](Self::ReadOnly), [`Namespace`](Self::Namespace),
-///   [`Ended`](Self::Ended), [`Changeset`](Self::Changeset), [`CrossPartition`](Self::CrossPartition). Retrying the
-///   same request meets the same refusal.
+///   [`Ended`](Self::Ended), [`Changeset`](Self::Changeset), [`CrossPartition`](Self::CrossPartition),
+///   [`Declaration`](Self::Declaration). Retrying the same request meets the same refusal.
 ///
 /// [`TxnError::is_retryable`] gives the classification; the variant is the public field `.0`.
 #[derive(Debug, Clone, PartialEq)]
@@ -69,6 +70,10 @@ pub enum TxnErrorEnum {
         /// The partition owning the subject's bucket.
         other: u32,
     },
+    /// A changeset holding a declaration: a catalog change is a command of the metadata group, taking effect at the
+    /// epoch its version is assigned, never a write of a data transaction, whose first apply would index under a
+    /// declaration replay cannot reproduce. Refused writing nothing, the transaction left as it was.
+    Declaration,
 }
 
 /// A transaction's refusal on its worker; see [`TxnErrorEnum`].
@@ -122,6 +127,30 @@ impl TxnError {
     /// A write reaching `other`'s state in a transaction bound to `partition`.
     pub fn cross_partition(partition: u32, other: u32) -> Self {
         Self(TxnErrorEnum::CrossPartition { partition, other })
+    }
+
+    /// A changeset holding a declaration, refused in a data transaction.
+    pub fn declaration() -> Self {
+        Self(TxnErrorEnum::Declaration)
+    }
+
+    /// The wire's error code the refusal is answered with: [`ErrorCode::PastLimit`] past the limit,
+    /// [`ErrorCode::TooLarge`] for a read or write set past its limit, [`ErrorCode::CrossPartition`] for a write another
+    /// partition owns, and [`ErrorCode::Refused`] for every other refusal, a declaration's among them.
+    pub fn code(&self) -> ErrorCode {
+        match &self.0 {
+            TxnErrorEnum::PastLimit { .. } => ErrorCode::PastLimit,
+            TxnErrorEnum::WriteSetTooLarge { .. } | TxnErrorEnum::ReadSetTooLarge { .. } => {
+                ErrorCode::TooLarge
+            }
+            TxnErrorEnum::CrossPartition { .. } => ErrorCode::CrossPartition,
+            TxnErrorEnum::ReadAboveWatermark { .. }
+            | TxnErrorEnum::ReadOnly
+            | TxnErrorEnum::Namespace { .. }
+            | TxnErrorEnum::Ended
+            | TxnErrorEnum::Changeset(_)
+            | TxnErrorEnum::Declaration => ErrorCode::Refused,
+        }
     }
 
     /// Whether the client may retry the transaction: only past its limit.

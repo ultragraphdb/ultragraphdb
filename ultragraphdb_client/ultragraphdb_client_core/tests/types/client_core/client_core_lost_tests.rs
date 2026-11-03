@@ -92,7 +92,7 @@ impl Conn {
     fn begin(&mut self, read_only: bool) -> TestResult<Transaction> {
         let p = self.core.begin(0, read_only, start())?;
         let stream = self.stream()?;
-        let frame = Begin::new(0, 5, read_only)
+        let frame = Begin::new(0, if read_only { 5 } else { 0 }, read_only)
             .frame(Header::new(CLUSTER, Command::Begin).with_stream(stream))?;
         self.deliver(&frame)??;
         begun(self.core.take_reply(p).context("an answer")?)

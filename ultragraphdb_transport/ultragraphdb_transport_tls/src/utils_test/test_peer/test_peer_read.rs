@@ -9,6 +9,6 @@ use super::TestPeer;
 
 impl<A: Read + Write> Read for TestPeer<A> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.send(buf)
+        Ok(self.send(buf))
     }
 }

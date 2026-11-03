@@ -5,11 +5,14 @@
 
 //! The rebuild record: written and synced before a round whose declarations build or remove indexes, naming those
 //! indexes, in every graph, as prefixes without their graph; removed once the removed indexes are dropped and no build
-//! keeps it, or by the batch that swaps a build in or undoes it. A store opened with a record drops, in every graph,
-//! each of its indexes the loaded catalog does not declare, so a crash leaves every catalog's indexes, complete, and
-//! nothing else.
+//! keeps it, or by the batch that swaps a build in or undoes it. A partition that loaded its catalogs finishes each
+//! record a crash left: it drops, in every graph, each of its indexes the loaded catalog does not declare, and builds
+//! again those it declares, so a crash leaves every catalog's indexes, complete, and nothing else.
 
 use std::collections::BTreeSet;
+
+use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_mapping::PredicateDeclaration;
 
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_traits_blocks::BlockSource;
@@ -19,6 +22,7 @@ use crate::errors::changeset_error::ChangesetError;
 use crate::types::changeset_core::ChangesetCore;
 use crate::types::executed::Executed;
 use crate::types::predicate_prefix::PredicatePrefix;
+use crate::types::rebuild::Rebuild;
 use crate::utils::quad_prefixes::declared_prefixes;
 
 impl<S, C, B> ChangesetCore<S, C, B>
@@ -83,22 +87,32 @@ where
         Ok(())
     }
 
-    /// Finishes every record the store keeps, as a crash or a power loss left it: drops each of its indexes the loaded
-    /// catalog does not declare, then removes it. What the applier does when it opens, before it serves.
-    pub fn finish_records(&self) -> Result<(), ChangesetError> {
+    /// Finishes every record the store keeps, as a crash or a power loss left it, against the catalogs loaded from the
+    /// metadata group's versions ([`ChangesetCore::load_catalog`]): drops each of its indexes the loaded catalog does
+    /// not declare; and, since an index it names that the catalog declares may be incomplete, runs the build of that
+    /// predicate's declared indexes again from the data at the watermark, the catalog holding the interim declaration
+    /// until it ends, under the record's number. A record whose indexes the catalog declares none of is removed. What a
+    /// partition does once it has loaded its catalogs, before it serves: the number of the record of the build started
+    /// again, at most one, since one build runs at a time; a later record is finished by dropping alone.
+    pub fn finish_records(&self) -> Result<Option<u64>, ChangesetError> {
         let records = self.quads.store().rebuild_records()?;
+        let mut started = None;
         for record in records {
             let mut undeclared: BTreeSet<PredicatePrefix> = BTreeSet::new();
+            let mut rebuilt = None;
             for bytes in record.prefixes() {
                 let Some(prefix) = PredicatePrefix::from_bytes(bytes) else {
                     continue;
                 };
-                let catalog = self.catalog(prefix.namespace())?;
+                let (namespace, predicate) = (prefix.namespace(), prefix.predicate());
+                let catalog = self.catalog(namespace)?;
                 let declared = catalog
-                    .predicate(prefix.predicate())
-                    .map(|d| declared_prefixes(prefix.namespace(), prefix.predicate(), d))
+                    .predicate(predicate)
+                    .map(|d| declared_prefixes(namespace, predicate, d))
                     .unwrap_or_default();
-                if !declared.contains(&prefix) {
+                if declared.contains(&prefix) {
+                    rebuilt = rebuilt.or(Some((namespace, predicate)));
+                } else {
                     let _inserted: bool = undeclared.insert(prefix);
                 }
             }
@@ -108,8 +122,45 @@ where
                 "finishing a rebuild record a crash or power loss left"
             );
             self.drop_removed(&undeclared.into_iter().collect::<Vec<_>>())?;
-            self.remove_record(record.id())?;
+            match rebuilt.filter(|_| started.is_none()) {
+                Some((namespace, predicate)) => {
+                    started = self.build_again(namespace, predicate, record.id())?;
+                }
+                None => self.remove_record(record.id())?,
+            }
         }
-        Ok(())
+        Ok(started)
+    }
+
+    /// Runs the build of predicate `predicate`'s declared indexes in `namespace` again, under record `record`, from the
+    /// data at the watermark: the catalog holds the declaration without its indexes until the build swaps them in.
+    fn build_again(
+        &self,
+        namespace: u64,
+        predicate: SystemId,
+        record: u64,
+    ) -> Result<Option<u64>, ChangesetError> {
+        let Some(declared) = self.catalog(namespace)?.predicate(predicate).cloned() else {
+            self.remove_record(record)?;
+            return Ok(None);
+        };
+        let mut bare = PredicateDeclaration::new(declared.predicate().clone())
+            .with_kind(declared.kind())
+            .with_cardinality(declared.cardinality())
+            .with_unique(declared.unique())
+            .with_domains(declared.domains().to_vec());
+        if let Some(datatype) = declared.datatype() {
+            bare = bare.with_datatype(datatype.clone());
+        }
+        let mut rebuild = Rebuild::pending(namespace, predicate, bare, declared);
+        rebuild.record = record;
+        rebuild.start_ts = self.quads.lists().applied_ts();
+        let interim = rebuild.interim();
+        self.set_catalog(namespace, |catalog| {
+            catalog.declare_predicate(predicate, interim)?;
+            Ok(())
+        })?;
+        debug_assert!(!self.rebuilding());
+        Ok(Some(self.begin(rebuild)))
     }
 }

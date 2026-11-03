@@ -134,7 +134,10 @@ async fn conversation<C: Connect>(
         .await?;
     assert!(client.next_batch(&executed, |v| v.rows()).await?.is_some());
     client.cancel(executed).await;
-    assert_eq!(client.describe(0).await?.read_version(), 1_000);
+    assert_eq!(
+        client.describe(0).await?.read_version(),
+        scripted.borrow().version()
+    );
     let aborted = client.begin(0, false).await?;
     client.abort(aborted).await?;
     assert_eq!(scripted.borrow().applied(), 1);

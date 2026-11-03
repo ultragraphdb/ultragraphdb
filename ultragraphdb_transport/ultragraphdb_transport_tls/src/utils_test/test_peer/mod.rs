@@ -8,74 +8,81 @@ mod test_peer_write;
 
 use std::io::{self, Read, Write};
 
-use rustls::ServerConnection;
+use crate::types::plaintext::Plaintext;
+use crate::types::tls_session::TlsSession;
 
-/// The server side of a test connection, in memory: a rustls server presenting [`TestPki`](crate::TestPki)'s
-/// certificate, driven by the client's own reads and writes, in front of `application`, which receives the
-/// decrypted bytes and answers. A client writes its TLS records into the peer and reads the server's from it, so a
-/// handshake and an exchange run on the test's own thread, with no socket.
+/// The plaintext the peer moves to its application at once.
+const PLAINTEXT_CHUNK: usize = 4096;
+
+/// The other side of a test connection, in memory: a [`TlsSession`], a server presenting [`TestPki`](crate::TestPki)'s
+/// certificate or a client trusting its authority, driven by the tested side's own reads and writes, in front of
+/// `application`, which receives the decrypted bytes and answers. The tested side writes its TLS records into the
+/// peer and reads the peer's from it, so a handshake and an exchange run on the test's own thread, with no socket.
 #[derive(Debug)]
 pub struct TestPeer<A> {
-    server: ServerConnection,
+    session: TlsSession,
     application: A,
     failed: bool,
 }
 
 impl<A: Read + Write> TestPeer<A> {
-    pub(crate) fn new(server: ServerConnection, application: A) -> Self {
+    /// `session` in front of `application`.
+    pub fn new(session: TlsSession, application: A) -> Self {
         Self {
-            server,
+            session,
             application,
             failed: false,
         }
     }
 
-    /// The application behind the server, for what it received.
+    /// The application behind the peer, for what it received.
     pub fn application(&self) -> &A {
         &self.application
     }
 
-    /// Whether the server refused the connection: a record it could not take, or the client's alert.
+    /// The peer's session, for its version and state.
+    pub fn session(&self) -> &TlsSession {
+        &self.session
+    }
+
+    /// Whether the peer refused the connection: a record it could not take, or the other side's alert.
     pub fn failed(&self) -> bool {
         self.failed
     }
 
-    /// Takes the client's TLS records in `records`, then lets the application answer what they carried.
-    fn receive(&mut self, mut records: &[u8]) -> io::Result<()> {
-        while !self.failed && !records.is_empty() {
-            if self.server.read_tls(&mut records)? == 0 {
-                break;
-            }
-            // A refused record leaves an alert queued for the client, which `send` passes on.
-            self.failed = self.server.process_new_packets().is_err();
+    /// Takes the other side's TLS records in `records`, then lets the application answer what they carried.
+    fn receive(&mut self, records: &[u8]) -> io::Result<()> {
+        if self.failed || records.is_empty() {
+            return Ok(());
         }
+        // A refused record leaves an alert queued for the other side, which `send` passes on.
+        self.failed = self.session.receive(records).is_err();
         self.answer()
     }
 
-    /// Moves the decrypted bytes to the application and the application's answer to the server.
+    /// Moves the decrypted bytes to the application and the application's answer to the session.
     fn answer(&mut self) -> io::Result<()> {
         if self.failed {
             return Ok(());
         }
-        let mut plaintext = Vec::new();
-        match self.server.reader().read_to_end(&mut plaintext) {
-            Ok(_) => {}
-            // rustls has no more plaintext for now; what it had is in `plaintext`.
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {}
-            Err(e) => return Err(e),
+        let mut chunk = [0u8; PLAINTEXT_CHUNK];
+        // Ends: each turn moves at least one byte the session decrypted, and the session holds what `records` carried.
+        while let Plaintext::Read(n) = self.session.read(&mut chunk) {
+            self.application
+                .write_all(chunk.get(..n).unwrap_or_default())?;
         }
-        self.application.write_all(&plaintext)?;
         let mut answer = Vec::new();
         let _answered: usize = self.application.read_to_end(&mut answer)?;
-        self.server.writer().write_all(&answer)
+        if answer.is_empty() {
+            return Ok(());
+        }
+        self.session
+            .send(&answer)
+            .map_err(|e| io::Error::other(e.to_string()))
     }
 
-    /// The server's TLS records waiting for the client, as many as fit `buf`; 0 once it has none.
-    fn send(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        if !self.server.wants_write() {
-            return Ok(0);
-        }
-        let mut out: &mut [u8] = buf;
-        self.server.write_tls(&mut out)
+    /// The peer's TLS records waiting for the other side, as many as fit `buf`; 0 once it has none.
+    fn send(&mut self, buf: &mut [u8]) -> usize {
+        self.session.transmit(buf)
     }
 }

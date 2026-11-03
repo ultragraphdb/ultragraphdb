@@ -5,7 +5,8 @@
 
 use std::collections::BTreeSet;
 
-use oxrdf::{GraphNameRef, NamedNodeRef, NamedOrBlankNodeRef, Term};
+use oxrdf::{GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNodeRef, Term};
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::Region;
 use ultragraphdb_core_mapping::Changeset;
 use ultragraphdb_store_posting::CachedList;
@@ -89,6 +90,26 @@ where
         out: &mut Vec<Term>,
     ) -> Result<(), ChangesetError> {
         self.write.objects_into(graph, subject, predicate, out)
+    }
+
+    /// Removes predicate `uid`'s declaration, named `iri`, with the indexes it declares: it behaves as the default
+    /// again, as a catalog version that no longer declares it asks.
+    ///
+    /// # Errors
+    ///
+    /// The store's error reading the predicate's data.
+    pub(crate) fn undeclare(
+        &mut self,
+        uid: SystemId,
+        iri: &NamedNode,
+    ) -> Result<(), ChangesetError> {
+        self.write.undeclare(uid, iri)
+    }
+
+    /// Removes entity type or relation `uid`'s declaration, of entry kind `kind`, as a catalog version that no longer
+    /// names it asks.
+    pub(crate) fn undeclare_named(&mut self, kind: u8, uid: SystemId) {
+        self.write.undeclare_named(kind, uid);
     }
 
     /// The terms the execution resolved so far.

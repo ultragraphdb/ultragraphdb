@@ -5,3 +5,5 @@
 
 #[cfg(test)]
 mod catalog;
+#[cfg(test)]
+mod catalog_contents;

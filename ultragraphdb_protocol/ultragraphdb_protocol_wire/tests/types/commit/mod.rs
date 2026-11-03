@@ -4,4 +4,4 @@
  */
 
 #[cfg(test)]
-mod commit_tests;
+pub mod commit_tests;

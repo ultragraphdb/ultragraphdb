@@ -32,7 +32,10 @@ rust_test(
     name = "ultragraphdb_transactions_commit_tests",
     srcs = glob(
         ["tests/**/*.rs"],
-        exclude = ["tests/bdd.rs"],
+        exclude = [
+            "tests/bdd.rs",
+            "tests/catalog_steps.rs",
+        ],
     ),
     crate_root = "tests/mod.rs",
     data = glob(["testdata/fuzz_seeds/**"]),
@@ -50,6 +53,7 @@ rust_test(
     name = "bdd",
     srcs = [
         "tests/bdd.rs",
+        "tests/catalog_steps.rs",
         "tests/utils/fixture.rs",
         "tests/utils/proposal_double.rs",
     ],

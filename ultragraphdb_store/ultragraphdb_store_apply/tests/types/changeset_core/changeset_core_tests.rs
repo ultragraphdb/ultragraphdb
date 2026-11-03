@@ -17,8 +17,8 @@ use ultragraphdb_store_sim::OpRecord;
 use ultragraphdb_traits_store::Store;
 
 use crate::utils::changesets::{
-    NS, TestChangesets, changeset, changesets, declaration, ex, finish_builds, insert,
-    is_held_in_default, objects, term, uid, write,
+    NS, TestChangesets, changeset, changesets, declaration, ex, finish_builds, holds_catalog_key,
+    insert, is_held_in_default, objects, term, uid, write,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -26,6 +26,16 @@ use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 /// unique, no index (the catalog specification's defaults), stated through the declaration's own constructor.
 fn default_of(predicate: &str) -> PredicateDeclaration {
     PredicateDeclaration::new(ex(predicate))
+}
+
+/// The key a write records predicate `uid`'s catalog change under, in the root namespace.
+fn predicate_key(uid: SystemId) -> Vec<u8> {
+    ultragraphdb_core_keys::QuadKey::Catalog {
+        namespace: NS,
+        kind: ultragraphdb_core_catalog::PREDICATE,
+        id: uid,
+    }
+    .to_bytes()
 }
 
 fn execute(a: &TestChangesets, text: &str) -> TestResult<Executed> {
@@ -243,9 +253,10 @@ fn test_a_round_installs_the_catalogs_its_executions_leave() -> TestResult {
         None,
         "an execution never applied writes nothing"
     );
-    let snapshot = a.quads().store().snapshot(a.quads().lists().applied_ts())?;
-    let stored = ultragraphdb_core_catalog::Catalog::load(&snapshot, NS)?;
-    assert_eq!(*a.catalog(NS)?, stored);
+    assert!(
+        !holds_catalog_key(&a),
+        "the catalog is held in memory alone"
+    );
     Ok(())
 }
 
@@ -407,8 +418,8 @@ fn test_an_execution_names_the_default_entries_it_writes() -> TestResult {
         insert("<a> <knows> <b>")?,
     ]))?;
     let mut expected = vec![
-        ultragraphdb_core_catalog::Catalog::predicate_key(NS, uid(&a, "score")?),
-        ultragraphdb_core_catalog::Catalog::predicate_key(NS, uid(&a, "age")?),
+        predicate_key(uid(&a, "score")?),
+        predicate_key(uid(&a, "age")?),
     ];
     expected.sort();
     assert_eq!(first.defaults(), expected.as_slice());
@@ -423,8 +434,8 @@ fn test_an_execution_names_the_default_entries_it_writes() -> TestResult {
 }
 
 /// Two executions from one watermark first write one predicate, the first another besides: once their round is
-/// written, the catalog holds both predicates' default entries, as the store does, so the second execution's catalog
-/// does not hide the first one's entry.
+/// written, the catalog holds both predicates' default entries, so the second execution's catalog does not hide the
+/// first one's entry.
 #[test]
 fn test_a_round_keeps_the_default_entries_of_the_executions_before_it() -> TestResult {
     let a = changesets()?;
@@ -446,9 +457,10 @@ fn test_a_round_keeps_the_default_entries_of_the_executions_before_it() -> TestR
         catalog.predicate(uid(&a, "score")?),
         Some(&default_of("score"))
     );
-    let snapshot = a.quads().store().snapshot(a.quads().lists().applied_ts())?;
-    let stored = ultragraphdb_core_catalog::Catalog::load(&snapshot, NS)?;
-    assert_eq!(*catalog, stored);
+    assert!(
+        !holds_catalog_key(&a),
+        "the catalog is held in memory alone"
+    );
     Ok(())
 }
 
@@ -471,10 +483,9 @@ fn test_a_catalog_change_keeps_the_default_entries_written_since_it_read() -> Te
         catalog.predicate(uid(&a, "tag")?),
         Some(&declaration("tag", "a property")?)
     );
-    let snapshot = a.quads().store().snapshot(a.quads().lists().applied_ts())?;
-    assert_eq!(
-        *catalog,
-        ultragraphdb_core_catalog::Catalog::load(&snapshot, NS)?
+    assert!(
+        !holds_catalog_key(&a),
+        "the catalog is held in memory alone"
     );
     Ok(())
 }
@@ -490,20 +501,17 @@ fn test_an_execution_writing_no_catalog_entry_leaves_the_catalog() -> TestResult
     let _applied: Vec<Applied> = a.apply_round(vec![(next, first), (next + 2, plain)])?;
     let catalog = a.catalog(NS)?;
     assert_eq!(catalog.predicate(uid(&a, "age")?), Some(&default_of("age")));
-    let snapshot = a.quads().store().snapshot(a.quads().lists().applied_ts())?;
-    assert_eq!(
-        *catalog,
-        ultragraphdb_core_catalog::Catalog::load(&snapshot, NS)?
+    assert!(
+        !holds_catalog_key(&a),
+        "the catalog is held in memory alone"
     );
     Ok(())
 }
 
-/// The catalog installed is the one the store holds whatever the round's order: a default entry written after a
-/// declaration of its predicate in one round, which the resolver never admits together since the declaration is a
-/// catalog change, lands in both as the store's batch writes it, the later write.
+/// A default entry written after a declaration of its predicate in one round, which the commit step never admits
+/// together since the declaration is a catalog change, leaves the declaration: a default entry never replaces one.
 #[test]
-fn test_the_installed_catalog_is_the_stored_one_after_a_default_follows_a_declaration() -> TestResult
-{
+fn test_a_default_entry_after_a_declaration_leaves_the_declaration() -> TestResult {
     let a = changesets()?;
     write(&a, &["<a> <knows> <z>", "<z> <seen> <score>"])?;
     let declared = a.execute(&changeset(vec![Change::Declare(Declaration::Predicate(
@@ -512,10 +520,13 @@ fn test_the_installed_catalog_is_the_stored_one_after_a_default_follows_a_declar
     let default = a.execute(&changeset(vec![insert("<a> <score> \"y\"")?]))?;
     let next = a.quads().lists().next_version();
     let _applied: Vec<Applied> = a.apply_round(vec![(next, declared), (next + 2, default)])?;
-    let snapshot = a.quads().store().snapshot(a.quads().lists().applied_ts())?;
     assert_eq!(
-        *a.catalog(NS)?,
-        ultragraphdb_core_catalog::Catalog::load(&snapshot, NS)?
+        a.catalog(NS)?.predicate(uid(&a, "score")?),
+        Some(&declaration("score", "a property")?)
+    );
+    assert!(
+        !holds_catalog_key(&a),
+        "the catalog is held in memory alone"
     );
     Ok(())
 }

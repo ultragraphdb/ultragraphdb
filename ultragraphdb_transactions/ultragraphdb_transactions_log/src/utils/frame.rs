@@ -42,6 +42,7 @@ pub fn encode_round(
             ProtocolErrorEnum::ShortHeader { .. }
             | ProtocolErrorEnum::HeaderChecksum { .. }
             | ProtocolErrorEnum::UnknownCommand { .. }
+            | ProtocolErrorEnum::CommandNotServed { .. }
             | ProtocolErrorEnum::ReservedNotZero { .. }
             | ProtocolErrorEnum::WrongCluster { .. }
             | ProtocolErrorEnum::SizeBelowHeader { .. }

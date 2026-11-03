@@ -4,10 +4,21 @@
  */
 
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
-use ultragraphdb_protocol_wire::{BodyView, Commit, CommitView, OperationResult};
+use ultragraphdb_protocol_wire::{BodyView, CommitView, OperationResult};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
-use crate::utils::golden_bodies::{frame_of, golden, put, reframe};
+use crate::types::commit::commit_tests::{golden_commit, session};
+use crate::utils::golden_bodies::{frame_of, golden, put, reframe, with_command_header};
+
+/// The golden reply's body: the table (24 bytes), the results at 24 (48 bytes), the term record at 72, the text at 96.
+const RESULTS: usize = 24;
+
+fn refusal(bytes: &[u8]) -> TestResult<ProtocolErrorEnum> {
+    Ok(CommitView::from_frame(&frame_of(bytes)?)
+        .err()
+        .context("a refusal")?
+        .0)
+}
 
 #[test]
 fn test_the_golden_commit_reads_its_values() -> TestResult {
@@ -15,23 +26,140 @@ fn test_the_golden_commit_reads_its_values() -> TestResult {
     let view = CommitView::from_frame(&frame_of(&bytes)?)?;
     assert_eq!(
         (view.session(), view.request(), view.commit_version()),
-        (9, 7, 1000)
+        (session(), 7, (30 << 22) | 100)
     );
-    assert_eq!(view.result_count(), 2);
-    assert_eq!(view.result(0), Some(OperationResult::counter(-5)));
-    assert_eq!(view.result(1), Some(OperationResult::compare_and_set()));
-    assert_eq!(view.result(2), None);
+    let token = view.token().context("a token")?;
     assert_eq!(
-        view.to_body()?,
-        Commit::new(
-            9,
-            7,
-            1000,
-            vec![
-                OperationResult::counter(-5),
-                OperationResult::compare_and_set()
-            ]
-        )
+        (token.partition(), token.position(), token.epoch().get()),
+        (2, 41, 30)
+    );
+    assert_eq!(view.result_count(), 3);
+    assert_eq!(view.result(0), Some(OperationResult::for_node(0, false)));
+    assert_eq!(view.result(1), Some(OperationResult::counter(-5)));
+    assert_eq!(view.result(2), Some(OperationResult::compare_and_set()));
+    assert_eq!(view.result(3), None);
+    assert_eq!(view.node(0), Some("http://ex.org/x"));
+    assert_eq!(view.node(1), None);
+    assert_eq!(view.nodes().len(), 1);
+    assert_eq!(view.to_body()?, golden_commit()?);
+    Ok(())
+}
+
+#[test]
+fn test_the_golden_request_reads_empty() -> TestResult {
+    let bytes = golden("commit_request")?.bytes()?;
+    let view = CommitView::from_frame(&frame_of(&bytes)?)?;
+    assert_eq!((view.commit_version(), view.token()), (0, None));
+    assert_eq!((view.result_count(), view.nodes().len()), (0, 0));
+    Ok(())
+}
+
+#[test]
+fn test_the_token_follows_the_commit_version() -> TestResult {
+    let reply = golden("commit")?.bytes()?;
+    // A reply's token names the commit version's epoch: 31 is not (30 << 22) | 100's.
+    let wrong = with_command_header(&reply, |h| put(h, 48, 31, 8));
+    assert_eq!(
+        refusal(&wrong)?,
+        ProtocolErrorEnum::FieldValue {
+            command: 5,
+            field: "token",
+            value: 31
+        }
+    );
+    // A reply without a token.
+    let none = with_command_header(&reply, |h| h[32..56].fill(0));
+    assert_eq!(
+        refusal(&none)?,
+        ProtocolErrorEnum::FieldValue {
+            command: 5,
+            field: "token",
+            value: 0
+        }
+    );
+    // A request (commit version 0) with a token.
+    let request = golden("commit_request")?.bytes()?;
+    let token = with_command_header(&request, |h| {
+        put(h, 32, 2, 4);
+        put(h, 40, 41, 8);
+        put(h, 48, 30, 8);
+    });
+    assert_eq!(
+        refusal(&token)?,
+        ProtocolErrorEnum::FieldValue {
+            command: 5,
+            field: "token",
+            value: 30
+        }
+    );
+    Ok(())
+}
+
+#[test]
+fn test_a_token_is_checked_byte_by_byte() -> TestResult {
+    let reply = golden("commit")?.bytes()?;
+    // Token bytes 4 to 7, header bytes 36 to 39, are zero.
+    for at in [36usize, 39] {
+        let frame = with_command_header(&reply, |h| h[at] = 1);
+        assert_eq!(
+            refusal(&frame)?,
+            ProtocolErrorEnum::ReservedNotZero { offset: 128 + at }
+        );
+    }
+    // Partition 0, position 0, an epoch past 2^42 - 1: each with the other fields set.
+    for (at, width, value, named) in [(32, 4, 0, 0), (40, 8, 0, 0), (48, 8, 1 << 42, 1 << 42)] {
+        let frame = with_command_header(&reply, |h| put(h, at, value, width));
+        assert_eq!(
+            refusal(&frame)?,
+            ProtocolErrorEnum::FieldValue {
+                command: 5,
+                field: "token",
+                value: named
+            }
+        );
+    }
+    // Bytes 56 to 127 are unused, checked before the token.
+    let unused = with_command_header(&reply, |h| {
+        h[56] = 1;
+        h[36] = 1;
+    });
+    assert_eq!(
+        refusal(&unused)?,
+        ProtocolErrorEnum::ReservedNotZero { offset: 184 }
+    );
+    Ok(())
+}
+
+#[test]
+fn test_a_request_carries_no_results_and_no_nodes() -> TestResult {
+    // The golden reply with commit version 0 and no token: a request holding three results and one node.
+    let reply = golden("commit")?.bytes()?;
+    let request = with_command_header(&reply, |h| h[24..56].fill(0));
+    assert_eq!(
+        refusal(&request)?,
+        ProtocolErrorEnum::CountMismatch {
+            command: 5,
+            field: "results",
+            count: 4,
+            expected: 0
+        }
+    );
+    Ok(())
+}
+
+#[test]
+fn test_every_node_term_is_an_iri() -> TestResult {
+    let bytes = golden("commit")?.bytes()?;
+    let mut data = golden("commit")?.data()?;
+    // The record's kind byte, at 72: a blank node (2) keeps the table well formed.
+    data[72] = 2;
+    assert_eq!(
+        refusal(&reframe(&bytes, &data))?,
+        ProtocolErrorEnum::FieldValue {
+            command: 5,
+            field: "node term",
+            value: 2
+        }
     );
     Ok(())
 }
@@ -40,29 +168,11 @@ fn test_the_golden_commit_reads_its_values() -> TestResult {
 fn test_results_are_whole_records_with_a_flag_and_zeros() -> TestResult {
     let bytes = golden("commit")?.bytes()?;
     let data = golden("commit")?.data()?;
-    // The results section starts at 8 and holds 32 bytes.
-    let mut short = data[..data.len() - 1].to_vec();
-    short[4] = 31;
-    assert_eq!(
-        CommitView::from_frame(&frame_of(&reframe(&bytes, &short))?)
-            .err()
-            .context("a refusal")?
-            .0,
-        ProtocolErrorEnum::SectionLength {
-            command: 5,
-            section: 0,
-            len: 31,
-            unit: 16
-        }
-    );
     // Result 0's `created`, its byte 12: 2 is no boolean.
     let mut flag = data.clone();
-    flag[8 + 12] = 2;
+    flag[RESULTS + 12] = 2;
     assert_eq!(
-        CommitView::from_frame(&frame_of(&reframe(&bytes, &flag))?)
-            .err()
-            .context("a refusal")?
-            .0,
+        refusal(&reframe(&bytes, &flag))?,
         ProtocolErrorEnum::FieldValue {
             command: 5,
             field: "created",
@@ -71,55 +181,13 @@ fn test_results_are_whole_records_with_a_flag_and_zeros() -> TestResult {
     );
     // Result 1's last zero byte, its byte 15.
     let mut zeros = data.clone();
-    zeros[8 + 16 + 15] = 1;
+    zeros[RESULTS + 16 + 15] = 1;
     assert_eq!(
-        CommitView::from_frame(&frame_of(&reframe(&bytes, &zeros))?)
-            .err()
-            .context("a refusal")?
-            .0,
+        refusal(&reframe(&bytes, &zeros))?,
         ProtocolErrorEnum::PaddingNotZero {
             command: 5,
-            offset: 8 + 16 + 15
+            offset: RESULTS + 16 + 15
         }
-    );
-    Ok(())
-}
-
-#[test]
-fn test_a_commit_request_carries_no_results() -> TestResult {
-    // The golden Commit is a reply, with two results: as a request it is refused.
-    let reply = golden("commit")?.bytes()?;
-    let view = CommitView::from_frame(&frame_of(&reply)?)?;
-    assert_eq!(
-        view.check_request().err().context("a refusal")?.0,
-        ProtocolErrorEnum::CountMismatch {
-            command: 5,
-            field: "results",
-            count: 2,
-            expected: 0
-        }
-    );
-    use ultragraphdb_protocol_wire::BodyBuilder;
-    // One result is one too many as well.
-    let one = Commit::new(9, 7, 0, vec![OperationResult::counter(1)])
-        .frame(golden("commit")?.header())?;
-    assert_eq!(
-        CommitView::from_frame(&frame_of(&one)?)?
-            .check_request()
-            .err()
-            .context("a refusal")?
-            .0,
-        ProtocolErrorEnum::CountMismatch {
-            command: 5,
-            field: "results",
-            count: 1,
-            expected: 0
-        }
-    );
-    let request = Commit::new(9, 7, 0, Vec::new()).frame(golden("commit")?.header())?;
-    assert_eq!(
-        CommitView::from_frame(&frame_of(&request)?)?.check_request(),
-        Ok(())
     );
     Ok(())
 }
@@ -128,44 +196,41 @@ fn test_a_commit_request_carries_no_results() -> TestResult {
 fn test_a_commit_result_names_a_node_or_a_value() -> TestResult {
     let bytes = golden("commit")?.bytes()?;
     let data = golden("commit")?.data()?;
-    let refusal = |changed: &[u8]| -> TestResult<ProtocolErrorEnum> {
-        Ok(
-            CommitView::from_frame(&frame_of(&reframe(&bytes, changed))?)
-                .err()
-                .context("a refusal")?
-                .0,
-        )
-    };
-    // Result 1, a compare-and-set, given node 0 beside a value of 4 (PROTOCOL.md §6.3).
+    // Result 2, a compare-and-set, given node 0 beside a value of 4 (PROTOCOL.md §6.3).
     let mut both = data.clone();
-    put(&mut both, 8 + 16 + 8, 0, 4);
-    put(&mut both, 8 + 16, 4, 8);
+    put(&mut both, RESULTS + 32 + 8, 0, 4);
+    put(&mut both, RESULTS + 32, 4, 8);
     assert_eq!(
-        refusal(&both)?,
+        refusal(&reframe(&bytes, &both))?,
         ProtocolErrorEnum::FieldValue {
             command: 5,
             field: "result",
             value: 4
         }
     );
-    // Result 1 created a node it does not name.
+    // Result 2 created a node it does not name.
     let mut created = data.clone();
-    created[8 + 16 + 12] = 1;
+    created[RESULTS + 32 + 12] = 1;
     assert_eq!(
-        refusal(&created)?,
+        refusal(&reframe(&bytes, &created))?,
         ProtocolErrorEnum::FieldValue {
             command: 5,
             field: "result",
             value: 1
         }
     );
-    // Result 0 naming node 3, created: read back as such.
-    let mut node = data.clone();
-    put(&mut node, 8, 0, 8);
-    put(&mut node, 8 + 8, 3, 4);
-    node[8 + 12] = 1;
-    let reframed = reframe(&bytes, &node);
-    let view = CommitView::from_frame(&frame_of(&reframed)?)?;
-    assert_eq!(view.result(0), Some(OperationResult::for_node(3, true)));
+    // Result 0 naming node 1, past the one-entry table.
+    let mut past = data.clone();
+    put(&mut past, RESULTS + 8, 1, 4);
+    assert_eq!(
+        refusal(&reframe(&bytes, &past))?,
+        ProtocolErrorEnum::IndexOutOfRange {
+            command: 5,
+            section: 0,
+            at: 0,
+            index: 1,
+            limit: 1
+        }
+    );
     Ok(())
 }

@@ -9,7 +9,7 @@ Feature: Failed builds and rollups across drops
 
   Scenario: A failed rebuild keeps the old index usable
     When `term` is replaced by `exact` and the `exact` build fails
-    Then the schema declares `term` and every term key is present
+    Then once the restoring version takes effect the schema declares `term`, and every term key is present
 
   Scenario: A rollup read before a drop writes nothing after it
     When a rollup of a `name` list reads at 7, `name` is dropped at 8, and the rollup then writes

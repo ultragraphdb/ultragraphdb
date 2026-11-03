@@ -13,8 +13,9 @@ use std::num::NonZeroU32;
 
 use arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
+use ultragraphdb_core_ids::{Epoch, SessionToken};
 use ultragraphdb_protocol_wire::{
-    ABSENT, Authenticate, AuthenticateView, BodyBuilder, BodyView, ColumnType, Command, Commit,
+    Authenticate, AuthenticateView, BodyBuilder, BodyView, ColumnType, Command, Commit,
     CommitOperation, CommitView, Credit, CreditView, Direction, DropCommand, DropCommandView,
     ErrorCode, ErrorReply, ErrorReplyView, Execute, ExecuteView, FrameView, Header, Hello,
     HelloView, Link, MAX_FRAME_FLOOR, MAX_FRAME_SIZE, Operation, OperationResult, OperationView,
@@ -71,12 +72,12 @@ enum Body {
         kind: u8,
         namespace: u64,
         target: String,
-        session: u64,
+        session: [u8; 16],
         request: u64,
         version: u64,
     },
     Commit {
-        session: u64,
+        session: [u8; 16],
         request: u64,
         version: u64,
         results: Vec<(u64, bool)>,
@@ -95,7 +96,6 @@ enum Body {
         limit: u32,
         slots: [Slot; 4],
         resume: Vec<u8>,
-        statement_ids: bool,
     },
     Prepare {
         slots: [Slot; 4],
@@ -106,7 +106,6 @@ enum Body {
         transaction: u64,
         parameters: Vec<u16>,
         resume: Vec<u8>,
-        statement_ids: bool,
     },
     Write {
         changes: Vec<(u8, u16, u16, u16)>,
@@ -117,11 +116,11 @@ enum Body {
         delta: i64,
         links: Vec<(u16, bool)>,
     },
-    /// A cell's odd value names a blank node, an even one an IRI; with statement IDs, each row's is its index.
+    /// A cell's odd value names a blank node, an even one an IRI; the last column, the reifier column, holds blank
+    /// nodes alone.
     Result {
         columns: u8,
         rows: Vec<Vec<Option<u16>>>,
-        statement_ids: bool,
     },
     Round {
         decisions: Vec<Option<(u8, u64)>>,
@@ -257,17 +256,19 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
             version,
             results,
         } => {
-            let results = results
-                .iter()
-                .map(|(u, c)| {
+            // A request names commit version 0, no token and no results; a reply a version of an epoch 1 to
+            // 2^42 - 1, that epoch's token and its results, each node by its IRI in the term table (PROTOCOL.md 6.3).
+            let mut commit = Commit::new(*session, *request, *version);
+            if *version != 0 {
+                commit = commit.with_token(token_of(*version, *request)?);
+                for (u, c) in results {
                     if *c {
-                        OperationResult::for_node((*u as u32).min(ABSENT - 1), true)
+                        commit.push_node_result(&format!("http://ex.org/n{u}"), true);
                     } else {
-                        OperationResult::counter(*u as i64)
+                        commit.push_result(OperationResult::counter(*u as i64));
                     }
-                })
-                .collect();
-            let commit = Commit::new(*session, *request, *version, results);
+                }
+            }
             let frame = commit.frame(header).ok()?;
             (
                 frame,
@@ -319,23 +320,19 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
             limit,
             slots,
             resume,
-            statement_ids,
         } => {
             let mut parameters = 0;
             let s: Vec<_> = slots.iter().map(|s| slot(s, &mut parameters, n)).collect();
             if parameters > 0 {
                 return None;
             }
-            let mut read = Read::new(
+            let read = Read::new(
                 *transaction,
                 *limit,
                 terms,
                 QuadPattern::new(s[0], s[1], s[2], s[3]),
                 resume.clone(),
             );
-            if *statement_ids {
-                read = read.with_statement_ids();
-            }
             let frame = read.frame(header).ok()?;
             (
                 frame,
@@ -380,10 +377,9 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
             transaction,
             parameters,
             resume,
-            statement_ids,
         } => {
             let parameters = parameters.iter().map(|p| t(*p)).collect();
-            let mut execute = Execute::new(
+            let execute = Execute::new(
                 *statement,
                 *transaction,
                 0,
@@ -391,9 +387,6 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
                 parameters,
                 resume.clone(),
             );
-            if *statement_ids {
-                execute = execute.with_statement_ids();
-            }
             let frame = execute.frame(header).ok()?;
             (
                 frame,
@@ -492,22 +485,16 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
                 }),
             )
         }
-        Body::Result {
-            columns,
-            rows,
-            statement_ids,
-        } => {
-            let columns = u32::from(columns % 8);
-            let mut batch = if *statement_ids {
-                ResultBatch::with_statement_ids(columns)
-            } else {
-                ResultBatch::new(columns)
-            };
-            for (i, row) in rows.iter().enumerate() {
+        Body::Result { columns, rows } => {
+            // The unbound slots and the reifier column: 1 to 5 columns (PROTOCOL.md 9.1).
+            let columns = 1 + u32::from(columns % 5);
+            let mut batch = ResultBatch::new(columns);
+            let reifier = columns as usize - 1;
+            for row in rows {
                 let cells: Vec<Option<ResultTerm>> = (0..columns as usize)
                     .map(|c| {
                         row.get(c).copied().flatten().map(|n| {
-                            if n % 2 == 1 {
+                            if n % 2 == 1 || c == reifier {
                                 ResultTerm::blank_node(format!(
                                     "http://ex.org/.well-known/genid/{n:06x}-0123456789abcdef0123456789"
                                 ))
@@ -518,20 +505,10 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
                     })
                     .collect();
                 let refs: Vec<Option<&ResultTerm>> = cells.iter().map(Option::as_ref).collect();
-                if *statement_ids {
-                    batch.push_row_with_id(&refs, i as u64).ok()?;
-                } else {
-                    batch.push_row(&refs).ok()?;
-                }
+                batch.push_row(&refs).ok()?;
             }
             let frame = batch.frame(header).ok()?;
-            // The statement IDs are empty or 8 bytes per row (PROTOCOL.md section 9.1): a batch of no rows carries
-            // none on the wire, asked for or not, so it reads back as the batch without them.
-            let read_back = if batch.rows() == 0 {
-                ResultBatch::new(columns)
-            } else {
-                batch
-            };
+            let read_back = batch;
             (
                 frame,
                 Box::new(move |f| {
@@ -593,6 +570,12 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
             }
             .with_session(*session, *request)
             .with_commit_version(*version);
+            // A reply names its commit version and that epoch's token (PROTOCOL.md 6.5).
+            let command = if *version == 0 {
+                command
+            } else {
+                command.with_token(token_of(*version, *request)?)
+            };
             let frame = command.frame(header).ok()?;
             (
                 frame,
@@ -719,3 +702,10 @@ fuzz_target!(|input: Input| {
         _ => Ok(()),
     };
 });
+
+/// The token a reply at commit `version` carries: its epoch `version >> 22`, which a token holds from 1 to 2^42 - 1,
+/// at position `request`, at least 1; `None` for a version of no such epoch.
+fn token_of(version: u64, request: u64) -> Option<SessionToken> {
+    let epoch = Epoch::new(version >> 22).ok().filter(|e| e.get() != 0)?;
+    Some(SessionToken::new(1, request.max(1), epoch))
+}

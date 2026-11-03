@@ -157,12 +157,108 @@ fn other_cases() -> [(ClusterError, ClusterErrorEnum); 6] {
     ]
 }
 
+/// The metadata group's constructors of catalog, block and placement refusals and the snapshot's, each with the
+/// variant it builds.
+fn metadata_cases() -> [(ClusterError, ClusterErrorEnum); 8] {
+    [
+        (
+            ClusterError::stale_catalog(7, 2, 3),
+            ClusterErrorEnum::StaleCatalog {
+                namespace: 7,
+                predecessor: 2,
+                current: 3,
+            },
+        ),
+        (
+            ClusterError::not_pending(7, 4),
+            ClusterErrorEnum::NotPending {
+                namespace: 7,
+                version: 4,
+            },
+        ),
+        (
+            ClusterError::catalog_released(7, 15),
+            ClusterErrorEnum::CatalogReleased {
+                namespace: 7,
+                epoch: 15,
+            },
+        ),
+        (
+            ClusterError::block_size(1_001, 1_000),
+            ClusterErrorEnum::BlockSize {
+                size: 1_001,
+                max: 1_000,
+            },
+        ),
+        (
+            ClusterError::sequences_spent(1),
+            ClusterErrorEnum::SequencesSpent { prefix: 1 },
+        ),
+        (ClusterError::no_placement(), ClusterErrorEnum::NoPlacement),
+        (
+            ClusterError::contradicts("a block starts at its type's high-water mark"),
+            ClusterErrorEnum::Contradicts {
+                what: "a block starts at its type's high-water mark",
+            },
+        ),
+        (
+            ClusterError::snapshot_behind(3, 4),
+            ClusterErrorEnum::SnapshotBehind {
+                snapshot: 3,
+                checkpoint: 4,
+            },
+        ),
+    ]
+}
+
+/// The metadata group's constructors of principal and session refusals, each with the variant it builds.
+fn access_cases() -> [(ClusterError, ClusterErrorEnum); 7] {
+    [
+        (
+            ClusterError::principal_name(256),
+            ClusterErrorEnum::PrincipalName { length: 256 },
+        ),
+        (
+            ClusterError::principal_exists("ann"),
+            ClusterErrorEnum::PrincipalExists {
+                name: "ann".to_string(),
+            },
+        ),
+        (
+            ClusterError::unknown_principal("bob"),
+            ClusterErrorEnum::UnknownPrincipal {
+                name: "bob".to_string(),
+            },
+        ),
+        (
+            ClusterError::last_administrator("root"),
+            ClusterErrorEnum::LastAdministrator {
+                name: "root".to_string(),
+            },
+        ),
+        (
+            ClusterError::bootstrap("a password"),
+            ClusterErrorEnum::Bootstrap { what: "a password" },
+        ),
+        (
+            ClusterError::session_exists(10),
+            ClusterErrorEnum::SessionExists { session: 10 },
+        ),
+        (
+            ClusterError::session_evicted(11),
+            ClusterErrorEnum::SessionEvicted { session: 11 },
+        ),
+    ]
+}
+
 #[test]
 fn test_each_constructor_builds_its_variant() {
     for (error, variant) in placement_cases()
         .into_iter()
         .chain(sequencer_cases())
         .chain(other_cases())
+        .chain(metadata_cases())
+        .chain(access_cases())
     {
         assert_eq!(error.0, variant);
     }

@@ -16,7 +16,8 @@ impl std::error::Error for TxnError {
             | TxnErrorEnum::ReadOnly
             | TxnErrorEnum::Namespace { .. }
             | TxnErrorEnum::Ended
-            | TxnErrorEnum::CrossPartition { .. } => None,
+            | TxnErrorEnum::CrossPartition { .. }
+            | TxnErrorEnum::Declaration => None,
         }
     }
 }

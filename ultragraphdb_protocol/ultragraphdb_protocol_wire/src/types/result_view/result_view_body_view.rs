@@ -14,9 +14,10 @@ use crate::types::result_term_view::{named_hash, result_encoding_whole};
 use crate::types::result_view::ResultView;
 use crate::types::string_list::StringList;
 use crate::utils::constants::ABSENT;
+use crate::utils::fields;
 use crate::utils::sections::Sections;
 use crate::utils::sections::expect_command;
-use crate::utils::sections::{as_u32, records, u32s};
+use crate::utils::sections::{as_u32, records, u32_at, u32s};
 
 impl<'a> BodyView<'a> for ResultView<'a> {
     const COMMAND: Command = Command::Result;
@@ -26,9 +27,17 @@ impl<'a> BodyView<'a> for ResultView<'a> {
     fn from_frame(frame: &FrameView<'a>) -> Result<Self, ProtocolError> {
         let command = Self::COMMAND.number();
         let header = expect_command(frame, Self::COMMAND)?;
-        header.unused_zero(&[(0, 8)])?;
+        header.unused_zero(&[(0, 20)])?;
         let (columns, rows) = (header.u32_at(0), header.u32_at(4));
-        let sections = Sections::<8>::read(command, frame.body(), 0)?;
+        if !(1..=5).contains(&columns) {
+            return Err(ProtocolError::field_value(
+                command,
+                "columns",
+                columns.into(),
+            ));
+        }
+        let epoch = fields::epoch(command, "epoch", header.u64_at(8), true)?;
+        let sections = Sections::<7>::read(command, frame.body(), 0)?;
         let offsets = u32s(command, 1, sections.get(1))?;
         let terms = offsets.len();
         let texts = sections.get(3);
@@ -51,16 +60,7 @@ impl<'a> BodyView<'a> for ResultView<'a> {
         let encodings = sections.get(2);
         check_encodings(command, &offsets, encodings)?;
         check_texts(command, texts, as_u32(strings.len()))?;
-        let statement_ids = sections.get(7);
-        let per_rows = 8 * u64::from(rows);
-        if !statement_ids.is_empty() && statement_ids.len() as u64 != per_rows {
-            return Err(ProtocolError::count_mismatch(
-                command,
-                "statement ids",
-                statement_ids.len() as u64,
-                per_rows,
-            ));
-        }
+        check_reifiers(command, sections.get(0), &offsets, encodings, columns, rows)?;
         Ok(Self {
             columns,
             rows,
@@ -70,7 +70,8 @@ impl<'a> BodyView<'a> for ResultView<'a> {
             texts,
             strings,
             resume: sections.get(6),
-            statement_ids,
+            epoch,
+            partition: header.u32_at(16),
         })
     }
 
@@ -97,23 +98,47 @@ impl<'a> BodyView<'a> for ResultView<'a> {
                 Ok(owned)
             })
             .collect::<Result<Vec<_>, ProtocolError>>()?;
-        let batch = if self.has_statement_ids() {
-            ResultBatch::with_statement_ids(self.columns)
-        } else {
-            ResultBatch::new(self.columns)
-        };
-        let mut batch = batch.with_resume(self.resume.to_vec());
+        let mut batch = ResultBatch::new(self.columns)
+            .with_resume(self.resume.to_vec())
+            .with_read_at(self.epoch, self.partition);
         for row in 0..self.rows {
             let cells: Vec<Option<&ResultTerm>> = (0..self.columns)
                 .map(|column| self.cell(column, row).and_then(|i| terms.get(i as usize)))
                 .collect();
-            match self.statement_id(row) {
-                Some(id) => batch.push_row_with_id(&cells, id)?,
-                None => batch.push_row(&cells)?,
-            }
+            batch.push_row(&cells)?;
         }
         Ok(batch)
     }
+}
+
+/// Refused as [`ProtocolError::field_value`] (`"reifier"`, the row) unless each cell of the last column, the reifier
+/// column, is [`ABSENT`] or a term of tag `0x02`, a blank node's: the cells, offsets and encodings already checked.
+fn check_reifiers(
+    command: u16,
+    cells: &[u8],
+    offsets: &[u32],
+    encodings: &[u8],
+    columns: u32,
+    rows: u32,
+) -> Result<(), ProtocolError> {
+    let first = u64::from(columns.saturating_sub(1)) * u64::from(rows);
+    for row in 0..rows {
+        let cell = usize::try_from(first + u64::from(row))
+            .ok()
+            .and_then(|at| u32_at(cells, at))
+            .unwrap_or(ABSENT);
+        if cell == ABSENT {
+            continue;
+        }
+        let tag = offsets
+            .get(cell as usize)
+            .and_then(|start| encodings.get(*start as usize))
+            .copied();
+        if tag != Some(0x02) {
+            return Err(ProtocolError::field_value(command, "reifier", row.into()));
+        }
+    }
+    Ok(())
 }
 
 /// Refused unless the cells number `expected` and each is absent or below `limit`, the term count.

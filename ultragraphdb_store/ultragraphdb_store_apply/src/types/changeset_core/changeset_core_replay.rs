@@ -5,23 +5,18 @@
 
 //! Replay (7.9): what recovery hands the applier for each logged round above the store's applied version. A logged
 //! record's writes become an execution writing exactly them, each entry with the metadata its keyspace gives every
-//! entry of it; a logged drop drops its predicate at its version; a logged build's end has its build restored from the
-//! declaration its record names, so the round's apply builds it again and swaps it in, or undoes it.
+//! entry of it; a logged drop drops its predicate at its version.
 
-use ultragraphdb_core_catalog::{Catalog, decode_declaration};
 use ultragraphdb_core_codec::PostingList;
-use ultragraphdb_core_keys::{Keyspace, QuadKey};
-use ultragraphdb_core_mapping::Declaration;
+use ultragraphdb_core_keys::Keyspace;
 use ultragraphdb_store_posting::{BIT_DELTA_POSTING, CachedList, Writes};
 use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{Entry, ListCache, Store, VersionlessEntry};
 
 use crate::errors::changeset_error::ChangesetError;
-use crate::types::build_end::BuildEnd;
 use crate::types::changeset_core::ChangesetCore;
 use crate::types::drop_target::DropTarget;
 use crate::types::executed::Executed;
-use crate::types::rebuild::Rebuild;
 use crate::types::record_writes::RecordWrites;
 
 /// The keyspace of `key`, `None` for a key of none.
@@ -73,13 +68,6 @@ where
                 .iter()
                 .map(|(k, v)| entry(k, *v, |key, value| Entry::put(key, 0, 0, value))),
         );
-        let advance_epoch = !record.catalog.is_empty();
-        entries.extend(
-            record
-                .catalog
-                .iter()
-                .map(|(k, v)| entry(k, *v, |key, value| Catalog::stored_entry(key, value, 0))),
-        );
         let versionless = record
             .dictionary
             .iter()
@@ -89,7 +77,9 @@ where
                 None => VersionlessEntry::removal(key.to_vec()),
             })
             .collect();
-        let writes = Writes::replayed(deltas, entries, versionless, advance_epoch);
+        // A record carries no catalog change: the catalog lives in the metadata group, so nothing advances the lists'
+        // epoch.
+        let writes = Writes::replayed(deltas, entries, versionless, false);
         let catalog = (*self.catalog(namespace)?).clone();
         Ok(Executed {
             writes,
@@ -112,33 +102,5 @@ where
             Some(target),
             Vec::new(),
         ))
-    }
-
-    /// Restores the build `end` ends from the catalog entry `key` and `value` its record names, as
-    /// [`crate::ChangesetApplier::restore_build`] does: whether it was restored.
-    pub fn restore_build(
-        &self,
-        namespace: u64,
-        end: BuildEnd,
-        key: &[u8],
-        value: &[u8],
-    ) -> Result<bool, ChangesetError> {
-        let (Ok((QuadKey::Catalog { id: uid, .. }, _)), Declaration::Predicate(recorded)) =
-            (QuadKey::parse(key), decode_declaration(key, value)?)
-        else {
-            return Ok(false);
-        };
-        let Some(current) = self.catalog(namespace)?.predicate(uid).cloned() else {
-            return Ok(false);
-        };
-        let (record, old, new) = match end {
-            BuildEnd::Swap(record) => (record, current, recorded),
-            BuildEnd::Undo(record) => (record, recorded, current),
-        };
-        let mut rebuild = Rebuild::pending(namespace, uid, old, new);
-        rebuild.record = record;
-        rebuild.start_ts = self.quads.lists().applied_ts();
-        let _record: u64 = self.begin(rebuild);
-        Ok(true)
     }
 }

@@ -3,12 +3,14 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+mod request_kind;
+
 use std::time::{Duration, Instant};
 
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_wire::{
     Authenticate, AuthenticateView, BodyBuilder, BodyView, Command, CreditView, ErrorCode,
-    ErrorReply, ExecuteView, FLAG_LAST, FrameView, Header, ReadView, Welcome,
+    ErrorReply, ExecuteView, FLAG_LAST, FrameView, Header, ROLE_COMMANDS, ReadView, Welcome,
 };
 
 use crate::errors::transport_error::{TransportError, TransportErrorEnum};
@@ -19,6 +21,7 @@ use crate::types::mechanism_step::MechanismStep;
 use crate::types::outbound::Outbound;
 use crate::types::received_frame::ReceivedFrame;
 use crate::types::server_handshake::ServerHandshake;
+use request_kind::RequestKind;
 
 /// The refusal of every failed authentication, the same bytes whatever failed (`SECURITY.md`).
 const AUTHENTICATION_FAILED: &str = "authentication failed";
@@ -182,10 +185,16 @@ impl<A: Authenticator> ServerConnection<A> {
     pub fn next_deadline(&self) -> Option<Instant> {
         match self.phase {
             Phase::Closing => None,
-            Phase::Hello | Phase::Authenticating => Some(self.opened + self.authentication_timeout),
+            // A limit past what an `Instant` holds never passes, so it sets no deadline.
+            Phase::Hello | Phase::Authenticating => {
+                self.opened.checked_add(self.authentication_timeout)
+            }
             Phase::Serving => {
-                let idle = self.last_frame + self.idle_limit;
-                Some(self.expires.map_or(idle, |expires| expires.min(idle)))
+                let idle = self.last_frame.checked_add(self.idle_limit);
+                match (self.expires, idle) {
+                    (Some(expires), Some(idle)) => Some(expires.min(idle)),
+                    (expires, idle) => expires.or(idle),
+                }
             }
         }
     }
@@ -196,7 +205,8 @@ impl<A: Authenticator> ServerConnection<A> {
         match self.phase {
             Phase::Closing => None,
             Phase::Hello | Phase::Authenticating => {
-                (now >= self.opened + self.authentication_timeout).then(|| {
+                let due = self.opened.checked_add(self.authentication_timeout);
+                due.is_some_and(|due| now >= due).then(|| {
                     self.close(
                         ErrorCode::Unauthenticated,
                         "the authentication did not complete in time",
@@ -209,7 +219,8 @@ impl<A: Authenticator> ServerConnection<A> {
                         self.close(ErrorCode::CredentialExpired, "the credential expired"),
                     );
                 }
-                (now >= self.last_frame + self.idle_limit).then(|| {
+                let idle = self.last_frame.checked_add(self.idle_limit);
+                idle.is_some_and(|idle| now >= idle).then(|| {
                     self.phase = Phase::Closing;
                     Inbound::Closing { code: None }
                 })
@@ -254,7 +265,8 @@ impl<A: Authenticator> ServerConnection<A> {
                     | TransportErrorEnum::StreamLimit { .. }
                     | TransportErrorEnum::UnknownStream { .. }
                     | TransportErrorEnum::UnexpectedCommand { .. }
-                    | TransportErrorEnum::Authentication { .. } => ErrorCode::Protocol,
+                    | TransportErrorEnum::Authentication { .. }
+                    | TransportErrorEnum::Address { .. } => ErrorCode::Protocol,
                 };
                 Inbound::Closing { code: Some(code) }
             }
@@ -300,7 +312,10 @@ impl<A: Authenticator> ServerConnection<A> {
                         .with_final(principal, credential.expires()),
                 );
                 self.principal = Some(principal);
-                self.expires = credential.valid_for().map(|valid_for| now + valid_for);
+                // A validity past what an `Instant` holds never expires.
+                self.expires = credential
+                    .valid_for()
+                    .and_then(|valid_for| now.checked_add(valid_for));
                 self.phase = Phase::Serving;
                 Inbound::Authenticated { principal }
             }
@@ -329,9 +344,9 @@ impl<A: Authenticator> ServerConnection<A> {
         let open = self.outbound.is_open(stream);
         let transaction = self.outbound.is_transaction(stream);
         let request = Inbound::Request { stream, command };
-        match command {
-            Command::Credit => self.credit(stream, view),
-            Command::Cancel => {
+        match RequestKind::of(command) {
+            RequestKind::Credit => self.credit(stream, view),
+            RequestKind::Cancel => {
                 if !open {
                     return Inbound::Handled;
                 }
@@ -341,60 +356,53 @@ impl<A: Authenticator> ServerConnection<A> {
                     transaction,
                 }
             }
-            Command::Begin
-            | Command::Register
-            | Command::Prepare
-            | Command::Describe
-            | Command::Drop
-            | Command::Read
-            | Command::Execute
-                if open =>
-            {
-                self.close(
-                    ErrorCode::Protocol,
-                    &TransportError::stream_open(stream).to_string(),
-                )
-            }
-            Command::Begin => {
+            RequestKind::Begin | RequestKind::Open | RequestKind::Read if open => self.close(
+                ErrorCode::Protocol,
+                &TransportError::stream_open(stream).to_string(),
+            ),
+            RequestKind::Begin => {
                 let opened = self.outbound.open_transaction(stream);
                 self.open(stream, opened, request)
             }
-            Command::Register | Command::Prepare | Command::Describe | Command::Drop => {
+            RequestKind::Open => {
                 let opened = self.outbound.open(stream);
                 self.open(stream, opened, request)
             }
-            Command::Read | Command::Execute => self.read(stream, view, request),
-            Command::Write | Command::Operation | Command::Abort if transaction => {
+            RequestKind::Read => self.read(stream, view, request),
+            RequestKind::InTransaction if transaction => {
                 if command == Command::Abort {
                     self.cancel_open(stream);
                 }
                 request
             }
-            Command::Write | Command::Operation | Command::Abort => self.refuse_with(
+            RequestKind::InTransaction => self.refuse_with(
                 stream,
                 ErrorCode::Protocol,
                 "the stream holds no transaction",
             ),
-            Command::Commit if transaction => request,
-            Command::Commit if open => self.close(
+            RequestKind::Commit if transaction => request,
+            RequestKind::Commit if open => self.close(
                 ErrorCode::Protocol,
                 &TransportError::stream_open(stream).to_string(),
             ),
-            Command::Commit => {
+            RequestKind::Commit => {
                 let opened = self.outbound.open(stream);
                 self.open(stream, opened, request)
             }
-            other @ (Command::Hello
-            | Command::Welcome
-            | Command::Result
-            | Command::Error
-            | Command::Round
-            | Command::Authenticate) => self.close(
+            RequestKind::Role => self.not_served(command),
+            RequestKind::Unexpected => self.close(
                 ErrorCode::Protocol,
-                &TransportError::unexpected_command(Command::Begin.number(), other.number())
+                &TransportError::unexpected_command(Command::Begin.number(), command.number())
                     .to_string(),
             ),
         }
+    }
+
+    /// A role command, which the client endpoint serves none of (`PROTOCOL.md` §3): refused as `CommandNotServed`,
+    /// naming the command, and the connection closes.
+    fn not_served(&mut self, command: Command) -> Inbound {
+        debug_assert!(ROLE_COMMANDS.contains(&command.number()));
+        self.refuse_connection(&ProtocolError::command_not_served(command.number()))
     }
 
     /// A Credit on `stream`: its frames granted, or the frame refused on the stream by a body's rule.
@@ -459,7 +467,8 @@ impl<A: Authenticator> ServerConnection<A> {
                 | TransportErrorEnum::StreamOpen { .. }
                 | TransportErrorEnum::Refused { .. }
                 | TransportErrorEnum::UnexpectedCommand { .. }
-                | TransportErrorEnum::Authentication { .. } => {
+                | TransportErrorEnum::Authentication { .. }
+                | TransportErrorEnum::Address { .. } => {
                     self.close(ErrorCode::Protocol, &error.to_string())
                 }
             },

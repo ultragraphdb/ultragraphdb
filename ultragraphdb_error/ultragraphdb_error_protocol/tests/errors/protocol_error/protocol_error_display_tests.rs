@@ -59,6 +59,10 @@ fn test_command_and_reserved_rules_name_the_number_and_offset() {
         "unknown command 65535"
     );
     assert_eq!(
+        ProtocolError::command_not_served(516).to_string(),
+        "command 516 is not served on this connection"
+    );
+    assert_eq!(
         ProtocolError::reserved_not_zero(127).to_string(),
         "reserved header byte 127 is not zero"
     );

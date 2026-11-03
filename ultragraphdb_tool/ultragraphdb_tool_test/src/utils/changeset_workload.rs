@@ -36,6 +36,7 @@ use oxrdf::vocab::xsd;
 use std::num::NonZeroU64;
 
 use oxrdf::{GraphName, Literal, NamedNode, NamedOrBlankNode, Term};
+use ultragraphdb_core_catalog::CatalogContents;
 use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::{CountDirection, DEFAULT_GRAPH, Graph, Keyspace, QuadKey, key_prefix};
 use ultragraphdb_core_mapping::{
@@ -87,9 +88,16 @@ fn ex(name: &str) -> NamedNode {
     NamedNode::new_unchecked(format!("http://ex.org/{name}"))
 }
 
+/// The workload's declarations as one changeset.
+fn declarations() -> Changeset {
+    declared()
+        .into_iter()
+        .fold(Changeset::new(NS), |c, d| c.with(Change::Declare(d)))
+}
+
 /// The workload's declarations: `name` a single-valued property with a `term` index, `tags` a property with `term`
 /// and `exact` indexes, `friend` an edge with a count index; `knows` is left to its default.
-fn declarations() -> Changeset {
+fn declared() -> Vec<Declaration> {
     let name = PredicateDeclaration::new(ex("name"))
         .with_kind(PredicateKind::Property)
         .with_cardinality(Cardinality::Single)
@@ -102,9 +110,8 @@ fn declarations() -> Changeset {
         .with_count_index(true);
     [name, tags, friend]
         .into_iter()
-        .fold(Changeset::new(NS), |c, d| {
-            c.with(Change::Declare(Declaration::Predicate(d)))
-        })
+        .map(Declaration::Predicate)
+        .collect()
 }
 
 fn cardinality(predicate: &NamedNode) -> Cardinality {
@@ -539,7 +546,8 @@ fn new_blocks() -> TestBlockSource {
 }
 
 /// An applier over `store` leasing from `blocks`, its random source seeded afresh for its `start`, as a partition
-/// seeds it at start, the workload's declarations applied unless `store` holds them.
+/// seeds it at start: the workload's declarations applied to a store that never applied them, and loaded as the
+/// metadata group's catalog version into one that did, since no partition holds catalog keys.
 fn open(
     seed: Seed,
     store: SimStore,
@@ -561,11 +569,11 @@ fn open(
         executor,
         seed.value(),
     )?);
-    let declared = match a.quads().id_of(NS, ex("friend").as_str())? {
-        Some(friend) => a.catalog(NS)?.predicate(friend).is_some(),
-        None => false,
-    };
-    if !declared {
+    // The declarations' round gives `friend` its ID, so a store holding it applied them.
+    if a.quads().id_of(NS, ex("friend").as_str())?.is_some() {
+        a.load_catalog(&CatalogContents::new(NS, 1, declared()))?;
+        a.recover_builds()?;
+    } else {
         let _declared: Applied = a.apply(&declarations())?;
     }
     Ok(a)

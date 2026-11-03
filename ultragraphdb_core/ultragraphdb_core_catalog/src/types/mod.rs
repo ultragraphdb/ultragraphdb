@@ -4,3 +4,4 @@
  */
 
 pub(crate) mod catalog;
+pub(crate) mod catalog_contents;

@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 
 use ultragraphdb_core_ids::Epoch;
 use ultragraphdb_error_cluster::ClusterError;
@@ -13,6 +13,7 @@ use crate::types::clock_reading::ClockReading;
 use crate::types::sequencer::{Sequencer, epoch_of};
 use crate::types::sequencer_config::SequencerConfig;
 use crate::types::sequencer_record::SequencerRecord;
+use crate::types::sequencer_snapshot::SequencerSnapshot;
 
 /// The bytes of rounds one read of the log returns at most, 1 MiB: a round's frame at its largest.
 const READ_BYTES: u32 = 1 << 20;
@@ -28,8 +29,10 @@ impl<L: OrderedLog> Sequencer<L> {
     ///
     /// # Errors
     ///
-    /// [`ClusterError::log`] when the log cannot be read; [`ClusterError::malformed`] when a round's body is no
-    /// record; [`ClusterError::replay_diverged`] when a round contradicts the ones before it (a close not one after the
+    /// [`ClusterError::snapshot_behind`] when the log is trimmed, its checkpoint past position 0, which only
+    /// [`recover_from`](Self::recover_from) with a snapshot recovers; [`ClusterError::log`] when the log cannot be
+    /// read; [`ClusterError::malformed`] when a round's body is no record; [`ClusterError::replay_diverged`] when a
+    /// round contradicts the ones before it (a close not one after the
     /// last, a close time below the last, a transaction not in the epoch after the last close, a round's version not
     /// its record's epoch); [`ClusterError::full`] when the log holds more transactions than the settings retain.
     pub async fn recover(
@@ -37,12 +40,44 @@ impl<L: OrderedLog> Sequencer<L> {
         config: SequencerConfig,
         now: ClockReading,
     ) -> Result<Self, ClusterError> {
+        Self::recover_from(log, config, now, None).await
+    }
+
+    /// The sequencer over `log`, its state rebuilt from `snapshot`, the last the host stored, by replaying every
+    /// durable round after the snapshot's position in order; with no snapshot, every durable round. The next close is
+    /// due `epoch_ms_max` after `now`.
+    ///
+    /// # Errors
+    ///
+    /// [`ClusterError::snapshot_behind`] when the snapshot, or position 0 without one, lies below the log's checkpoint;
+    /// [`ClusterError::replay_diverged`] when the snapshot lies past the log's committed position; the refusals of
+    /// [`recover`](Self::recover) for the rounds after it.
+    pub async fn recover_from(
+        log: L,
+        config: SequencerConfig,
+        now: ClockReading,
+        snapshot: Option<SequencerSnapshot>,
+    ) -> Result<Self, ClusterError> {
+        let (base, closes, transactions) = snapshot.map_or_else(
+            || (Position::ZERO, Vec::new(), Vec::new()),
+            SequencerSnapshot::into_parts,
+        );
+        let checkpoint = log.checkpoint();
+        if base < checkpoint {
+            return Err(ClusterError::snapshot_behind(base.get(), checkpoint.get()));
+        }
+        if base > log.committed() {
+            return Err(ClusterError::replay_diverged(
+                base.get(),
+                "a snapshot at or below the log's committed position",
+            ));
+        }
         let mut sequencer = Self {
             log,
             config,
-            closes: VecDeque::new(),
-            transactions: VecDeque::new(),
-            durable: Position::ZERO,
+            closes: closes.into(),
+            transactions: transactions.into(),
+            durable: base,
             closed: Epoch::ZERO,
             last_close_us: now.monotonic_us(),
             close_requested: false,
@@ -53,12 +88,13 @@ impl<L: OrderedLog> Sequencer<L> {
         Ok(sequencer)
     }
 
-    /// Replays every durable round in order, then counts every record held as durable.
+    /// Replays every durable round after the durable position, the snapshot's, in order, then counts every record held
+    /// as durable.
     async fn replay(&mut self) -> Result<(), ClusterError> {
         let committed = self.log.committed();
-        let mut next = Position::new(1);
+        let mut next = Position::new(self.durable.get() + 1);
         // Each read returns at least one round while any is left, so the rounds bound the reads.
-        for _ in 0..committed.get() {
+        for _ in 0..committed.get().saturating_sub(self.durable.get()) {
             if next > committed {
                 break;
             }

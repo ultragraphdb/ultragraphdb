@@ -32,4 +32,6 @@ fn test_a_carried_invariant_error_is_the_source() -> TestResult {
 fn test_a_refusal_of_its_own_has_no_source() {
     assert!(ClusterError::unassigned(100).source().is_none());
     assert!(ClusterError::no_partitions().source().is_none());
+    assert!(ClusterError::stale_catalog(1, 2, 3).source().is_none());
+    assert!(ClusterError::snapshot_behind(3, 4).source().is_none());
 }

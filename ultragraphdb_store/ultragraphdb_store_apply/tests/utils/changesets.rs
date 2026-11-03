@@ -664,3 +664,10 @@ pub fn holds_nothing(a: &TestChangesets, name: &str) -> TestResult<bool> {
     .to_bytes();
     Ok(uids(a, &key)?.is_empty())
 }
+
+/// Whether the store holds a key of the catalog keyspace, which no partition writes: the catalog lives in the
+/// metadata group, and a partition holds it in memory.
+pub fn holds_catalog_key(a: &TestChangesets) -> bool {
+    let catalog = ultragraphdb_core_keys::Keyspace::Catalog.byte();
+    stored_keys(a).iter().any(|k| k.first() == Some(&catalog))
+}

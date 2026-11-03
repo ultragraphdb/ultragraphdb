@@ -31,6 +31,11 @@ impl<'a> BodyView<'a> for ErrorReplyView<'a> {
             "code",
             number.into(),
         ))?;
+        let detail = header.u64_at(8);
+        // WrongPartition's bucket takes bits 0 to 23 and its partition bits 32 to 63.
+        if code == ErrorCode::WrongPartition && detail & 0xFF00_0000 != 0 {
+            return Err(ProtocolError::field_value(command, "detail", detail));
+        }
         let sections = Sections::<3>::read(command, frame.body(), 0)?;
         let terms = TermTableView::read(
             command,
@@ -49,7 +54,7 @@ impl<'a> BodyView<'a> for ErrorReplyView<'a> {
         }
         Ok(Self {
             code,
-            detail: header.u64_at(8),
+            detail,
             message: text(command, 0, sections.get(0))?,
             value: terms.get(0),
         })

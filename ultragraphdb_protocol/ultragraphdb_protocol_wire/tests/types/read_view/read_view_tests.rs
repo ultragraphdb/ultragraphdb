@@ -15,7 +15,6 @@ fn test_the_golden_read_reads_its_values() -> TestResult {
     let bytes = golden("read")?.bytes()?;
     let view = ReadView::from_frame(&frame_of(&bytes)?)?;
     assert_eq!((view.transaction(), view.limit()), (5, 100));
-    assert!(view.statement_ids());
     assert_eq!(view.resume(), &[1, 2, 3]);
     assert_eq!(view.pattern().subject(), PatternSlot::Bound(0));
     assert_eq!(view.pattern().predicate(), PatternSlot::Bound(1));
@@ -32,35 +31,20 @@ fn test_the_golden_read_reads_its_values() -> TestResult {
 }
 
 #[test]
-fn test_a_flag_other_than_statement_ids_is_refused() -> TestResult {
+fn test_bytes_after_the_limit_are_unused() -> TestResult {
     let bytes = golden("read")?.bytes()?;
-    for flags in [2u64, 4, 0x8000_0000, 3] {
-        let frame = with_command_header(&bytes, |h| put(h, 12, flags, 4));
+    // Bytes 12 to 127 are unused: the former flags among them.
+    for at in [12usize, 15, 16, 127] {
+        let frame = with_command_header(&bytes, |h| h[at] = 1);
         assert_eq!(
             ReadView::from_frame(&frame_of(&frame)?)
                 .err()
                 .context("a refusal")?
                 .0,
-            ProtocolErrorEnum::FieldValue {
-                command: 7,
-                field: "flags",
-                value: flags
-            }
+            ProtocolErrorEnum::ReservedNotZero { offset: 128 + at }
         );
     }
-    let none = with_command_header(&bytes, |h| put(h, 12, 0, 4));
-    assert!(!ReadView::from_frame(&frame_of(&none)?)?.statement_ids());
-    // Bytes 16 to 127 are unused, checked before the flags.
-    let frame = with_command_header(&bytes, |h| {
-        h[16] = 1;
-        put(h, 12, 2, 4);
-    });
-    assert_eq!(
-        ReadView::from_frame(&frame_of(&frame)?)
-            .err()
-            .context("a refusal")?
-            .0,
-        ProtocolErrorEnum::ReservedNotZero { offset: 144 }
-    );
+    let limit = with_command_header(&bytes, |h| put(h, 8, u32::MAX.into(), 4));
+    assert_eq!(ReadView::from_frame(&frame_of(&limit)?)?.limit(), u32::MAX);
     Ok(())
 }

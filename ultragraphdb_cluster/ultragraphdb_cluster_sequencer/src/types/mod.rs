@@ -11,3 +11,4 @@ pub mod sequenced_transaction;
 pub mod sequencer;
 pub mod sequencer_config;
 pub mod sequencer_record;
+pub mod sequencer_snapshot;

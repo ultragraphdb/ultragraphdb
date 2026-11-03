@@ -6,7 +6,7 @@
 use ultragraphdb_error_protocol::{ProtocolError, ProtocolErrorEnum};
 
 /// The constructors of the frame's header, size and checksums, each with the variant it builds.
-fn header_cases() -> [(ProtocolError, ProtocolErrorEnum); 10] {
+fn header_cases() -> [(ProtocolError, ProtocolErrorEnum); 11] {
     [
         (
             ProtocolError::short_header(255),
@@ -22,6 +22,10 @@ fn header_cases() -> [(ProtocolError, ProtocolErrorEnum); 10] {
         (
             ProtocolError::unknown_command(18),
             ProtocolErrorEnum::UnknownCommand { command: 18 },
+        ),
+        (
+            ProtocolError::command_not_served(512),
+            ProtocolErrorEnum::CommandNotServed { command: 512 },
         ),
         (
             ProtocolError::reserved_not_zero(66),

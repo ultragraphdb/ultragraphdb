@@ -29,6 +29,11 @@
 /// | 20 | Unauthenticated | no | — |
 /// | 21 | PermissionDenied | no | the [`crate::Action`] asked for |
 /// | 22 | CredentialExpired | no | — |
+/// | 23 | CrossPartition | no | the transaction's partition, bits 0–31; the lowest other partition reached, bits 32–63 |
+/// | 24 | TimedOut | yes | the partition waited on |
+/// | 25 | LevelRefused | no | as CrossPartition's |
+/// | 26 | WrongPartition | yes, after refreshing the placement map | the bucket, bits 0–23; the owning partition, bits 32–63 |
+/// | 27 | AheadOfWatermark | no | the watermark |
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ErrorCode {
     /// The frame broke a validation rule: a connection error, after which the connection closes, or a stream error,
@@ -81,11 +86,21 @@ pub enum ErrorCode {
     /// Cross-partition work, refused in this stage: a read-write transaction reaching a second partition, or a Drop
     /// reaching several (`PROTOCOL.md` §9.4, code 23).
     CrossPartition,
+    /// A read waited past its transaction's deadline for a partition to close the epoch it reads at; it returns no
+    /// row (code 24).
+    TimedOut,
+    /// A read-only transaction at level latest whose read reaches another partition than its first read's, or more
+    /// than one (code 25).
+    LevelRefused,
+    /// A key outside the receiving partition's bucket ranges, from a sender whose placement map is stale (code 26).
+    WrongPartition,
+    /// A read version the client named is above the visibility watermark of the partition answering (code 27).
+    AheadOfWatermark,
 }
 
 impl ErrorCode {
     /// Every code, in the order of its number.
-    pub const ALL: [ErrorCode; 23] = [
+    pub const ALL: [ErrorCode; 27] = [
         ErrorCode::Protocol,
         ErrorCode::Conflict,
         ErrorCode::TooOld,
@@ -109,6 +124,10 @@ impl ErrorCode {
         ErrorCode::PermissionDenied,
         ErrorCode::CredentialExpired,
         ErrorCode::CrossPartition,
+        ErrorCode::TimedOut,
+        ErrorCode::LevelRefused,
+        ErrorCode::WrongPartition,
+        ErrorCode::AheadOfWatermark,
     ];
 
     /// The code's number on the wire.
@@ -128,7 +147,8 @@ impl ErrorCode {
     }
 
     /// Whether a client retries the request: conflict, too old, past the limit and busy; a busy session after a delay;
-    /// a request not committed by running its transaction again.
+    /// a request not committed by running its transaction again; a read timed out; a wrong partition after the
+    /// placement map is refreshed.
     pub fn retryable(self) -> bool {
         matches!(
             self,
@@ -138,6 +158,8 @@ impl ErrorCode {
                 | ErrorCode::Busy
                 | ErrorCode::SessionBusy
                 | ErrorCode::NotCommitted
+                | ErrorCode::TimedOut
+                | ErrorCode::WrongPartition
         )
     }
 }

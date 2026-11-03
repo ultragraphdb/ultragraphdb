@@ -11,3 +11,7 @@ mod constants_tests;
 pub mod golden;
 #[cfg(test)]
 pub mod golden_bodies;
+#[cfg(test)]
+pub mod golden_roles;
+#[cfg(test)]
+pub mod term_records;

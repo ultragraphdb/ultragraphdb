@@ -40,6 +40,9 @@ impl fmt::Display for TransportError {
             TransportErrorEnum::Authentication { reason } => {
                 write!(f, "the server's authentication was refused: {reason}")
             }
+            TransportErrorEnum::Address { address, reason } => {
+                write!(f, "the address {address:?} is refused: {reason}")
+            }
         }
     }
 }

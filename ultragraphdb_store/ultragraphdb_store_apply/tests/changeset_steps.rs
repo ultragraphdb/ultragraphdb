@@ -919,8 +919,7 @@ fn same_bytes(w: &mut Steps) {
 fn catalog_default(w: &mut Steps, args: &[String]) -> TestResult {
     let predicate = &args[0];
     let a = cs(w)?;
-    a.forget_catalogs();
-    let catalog = a.catalog(NS).context("the catalog loads")?;
+    let catalog = a.catalog(NS).context("the catalog is held")?;
     assert_eq!(
         catalog.predicate(uid(&a, predicate)?),
         Some(&PredicateDeclaration::new(ex(predicate)))
@@ -932,8 +931,15 @@ fn catalog_default(w: &mut Steps, args: &[String]) -> TestResult {
 fn catalog_lacks(w: &mut Steps, args: &[String]) -> TestResult {
     let predicate = &args[0];
     let a = cs(w)?;
-    a.forget_catalogs();
-    let catalog = a.catalog(NS).context("the catalog loads")?;
+    crate::schema_storage_steps::send_defaults(w, &a)?;
+    let recorded = w.source.defaults(NS);
+    assert!(
+        recorded
+            .iter()
+            .all(|e| e.predicate() != ex(predicate).as_str()),
+        "{recorded:?}"
+    );
+    let catalog = a.catalog(NS).context("the catalog is held")?;
     let declared = a
         .quads()
         .id_of(NS, ex(predicate).as_str())

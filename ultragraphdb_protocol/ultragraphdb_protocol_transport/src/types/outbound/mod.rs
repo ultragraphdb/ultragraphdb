@@ -211,7 +211,9 @@ impl Outbound {
         let state = self.streams.get_mut(&stream)?;
         let frame = state.queue.pop_front()?;
         if is_result(&frame) {
-            state.credit -= 1;
+            // `sendable` took a Result only while the stream held credit.
+            debug_assert!(state.credit > 0);
+            state.credit = state.credit.saturating_sub(1);
         }
         if is_last(&frame) {
             self.close(stream);

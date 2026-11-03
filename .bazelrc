@@ -12,6 +12,15 @@ common --color=yes
 common --ui_event_filters=-INFO
 common --enable_platform_specific_config
 
+# macOS holds a Unix socket's path in 104 bytes with its NUL (`sockaddr_un`), so a path is at most 103 bytes, and the
+# tests bind their sockets inside TEST_TMPDIR. By default that is <output_base>/execroot/_main/_tmp/<32 hex>, 129
+# bytes under ~/Library/Caches/bazel. A shorter --output_user_root does not fit either: Bazel resolves /tmp/u to
+# /private/tmp/u and adds a 32-hex output base, 14 + 1 + 32 + 21 + 32 = 100 bytes, leaving 2 for a socket's name.
+# TEST_TMPDIR's own root is short instead: /private/tmp/ut/_tmp/<32 hex> is 15 + 6 + 32 = 53 bytes, leaving
+# 103 - 53 - 1 = 49 for a socket's name (the compio tests' longest is 20). The cache stays where it is. Linux's
+# 108-byte limit holds under its default root.
+test:macos --test_tmpdir=/tmp/ut
+
 build --keep_going
 build --jobs=auto
 build --show_timestamps

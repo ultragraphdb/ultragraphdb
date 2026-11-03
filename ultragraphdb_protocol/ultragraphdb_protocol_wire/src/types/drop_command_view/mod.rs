@@ -5,17 +5,20 @@
 
 mod drop_command_view_body_view;
 
+use ultragraphdb_core_ids::SessionToken;
+
 use crate::types::drop_kind::DropKind;
 
 /// The body of a received Drop frame, read in place; see [`crate::DropCommand`] for its layout.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DropCommandView<'a> {
     kind: DropKind,
     namespace: u64,
     target: Option<&'a str>,
-    session: u64,
+    session: [u8; 16],
     request: u64,
     commit_version: u64,
+    token: Option<SessionToken>,
 }
 
 impl<'a> DropCommandView<'a> {
@@ -34,8 +37,13 @@ impl<'a> DropCommandView<'a> {
         self.target
     }
 
-    /// The client's session.
-    pub fn session(&self) -> u64 {
+    /// The drop's session token; `None` in a request.
+    pub fn token(&self) -> Option<&SessionToken> {
+        self.token.as_ref()
+    }
+
+    /// The client's session; all zero for none.
+    pub fn session(&self) -> [u8; 16] {
         self.session
     }
 

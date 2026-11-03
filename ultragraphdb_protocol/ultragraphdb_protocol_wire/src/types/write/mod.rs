@@ -16,7 +16,7 @@ use crate::types::write_change::WriteChange;
 /// | Section | Contents |
 /// |---|---|
 /// | 0 | one change record of 16 bytes per change, in order: `kind` u8, `flags` u8, 2 zero bytes, `args_start` u32, `args_len` u32, 4 zero bytes |
-/// | 1 | args, u32s: term indices, name indices, [`crate::ABSENT`], counts and halves of statement IDs, as each kind defines |
+/// | 1 | args, u32s: term indices, name indices, [`crate::ABSENT`], and counts, as each kind defines |
 /// | 2 | the term table's records |
 /// | 3 | the term table's text |
 /// | 4 | names: ends |

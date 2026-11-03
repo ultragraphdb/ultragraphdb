@@ -47,6 +47,9 @@ pub struct Executed {
     /// The end of a build sequenced through the commit step this execution is: it writes nothing itself, and its
     /// round writes it at its version.
     pub(crate) build_end: Option<BuildEnd>,
+    /// The number of the catalog version this execution installs, a version's taking effect in the partition
+    /// ([`crate::ChangesetApplier::execute_catalog`]); `None` for every other execution.
+    pub(crate) catalog_version: Option<u64>,
 }
 
 impl Executed {
@@ -70,6 +73,7 @@ impl Executed {
             dropped: None,
             drop_ranges: Vec::new(),
             build_end: None,
+            catalog_version: None,
         }
     }
 
@@ -202,6 +206,18 @@ impl Executed {
     /// Its read set.
     pub fn reads(&self) -> &Reads {
         &self.reads
+    }
+
+    /// The number of the catalog version it installs, a version taking effect in the partition, `None` for any other
+    /// execution: its record is the build start naming that version.
+    pub fn catalog_version(&self) -> Option<u64> {
+        self.catalog_version
+    }
+
+    /// The catalog version of the build this execution ends, `None` for any other execution: the version its namespace's
+    /// catalog holds, the one that started the build, since a later version waits for the build's end.
+    pub fn build_version(&self) -> Option<u64> {
+        self.build_end.map(|_| self.catalog.version())
     }
 
     /// The catalog keys it writes as a predicate's implicit default entry, the first write of an undeclared

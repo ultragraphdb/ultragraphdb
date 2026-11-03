@@ -11,6 +11,7 @@ pub mod conflict_history;
 pub mod epoch_stamp;
 pub mod input;
 pub mod no_operations;
+pub(crate) mod no_versions;
 pub mod pipeline;
 pub mod replay;
 pub mod reply;

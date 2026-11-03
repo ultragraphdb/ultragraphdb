@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 #
-# Writes the seeds of the fuzz target `record_decode` into fuzz_seeds/record_decode/, encoded from the format's text in
+# Writes the seeds of the fuzz targets `record_decode` and `snapshot_decode` into fuzz_seeds/<target>/, encoded from the format's text in
 # SequencerRecord::encode's documentation alone, not by the crate: valid records, whose names say what they hold, and
 # malformed ones, named `malformed_*`. The unit tests decode every seed: a valid one re-encodes to its bytes, a
 # malformed one is refused. Run with `python3 -I seeds.py` from this directory.
@@ -48,4 +48,32 @@ SEEDS = {
 os.makedirs(OUT, exist_ok=True)
 for name, data in SEEDS.items():
     with open(os.path.join(OUT, name), "wb") as seed:
+        seed.write(data)
+
+# The seeds of the fuzz target `snapshot_decode`, from SequencerSnapshot::encode's documentation: the empty snapshot and
+# the suite's sample (the closes of 3 and 4 and one transaction at position 5, the snapshot at 6), each record framed
+# by its length, and a malformed one.
+SNAPSHOT_OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fuzz_seeds", "snapshot_decode")
+
+
+def snapshot(position, closes, transactions):
+    out = bytes([1]) + struct.pack(">QI", position, len(closes))
+    for record in closes:
+        out += struct.pack(">I", len(record)) + record
+    out += struct.pack(">I", len(transactions))
+    for at, record in transactions:
+        out += struct.pack(">QI", at, len(record)) + record
+    return out
+
+
+SAMPLE = snapshot(6, [close(3, 100, [(1, 2)], []), close(4, 200, [], [7])], [(5, transaction(5, 4, [2], b"\xab"))])
+SNAPSHOT_SEEDS = {
+    "empty": snapshot(0, [], []),
+    "closes_3_4_transaction_at_5": SAMPLE,
+    "malformed_trailing_byte": SAMPLE + b"\x00",
+}
+
+os.makedirs(SNAPSHOT_OUT, exist_ok=True)
+for name, data in SNAPSHOT_SEEDS.items():
+    with open(os.path.join(SNAPSHOT_OUT, name), "wb") as seed:
         seed.write(data)

@@ -35,6 +35,7 @@ mod utils;
 pub use crate::errors::catalog_error::{CatalogError, CatalogErrorEnum};
 pub use crate::types::catalog::Catalog;
 pub use crate::types::catalog::catalog_checks::datatype_of;
+pub use crate::types::catalog_contents::CatalogContents;
 pub use crate::utils::catalog_codec::{
     ENTITY_TYPE, PREDICATE, RELATION, decode as decode_declaration, encode as encode_declaration,
 };

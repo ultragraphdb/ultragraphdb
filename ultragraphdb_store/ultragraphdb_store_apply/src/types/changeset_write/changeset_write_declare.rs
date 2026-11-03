@@ -3,7 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_core_catalog::Catalog;
+use oxrdf::NamedNode;
+use ultragraphdb_core_catalog::{Catalog, ENTITY_TYPE, PREDICATE};
 use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::DEFAULT_GRAPH;
 use ultragraphdb_core_mapping::{Declaration, PredicateDeclaration};
@@ -16,6 +17,7 @@ use crate::errors::changeset_error::ChangesetError;
 use crate::types::changeset_write::ChangesetWrite;
 use crate::types::index_plan::IndexPlan;
 use crate::types::rebuild::Rebuild;
+use crate::utils::catalog_keys::{catalog_key, declaration_key};
 use crate::utils::quad_prefixes::{count_prefixes, tokenizer_prefixes, vector_prefixes};
 use crate::utils::vector_index::hnsw;
 
@@ -39,8 +41,7 @@ where
             Declaration::Relation(r) => (self.iri(r.iri().as_ref())?, None),
         };
         self.catalog.declare(uid, declaration.clone(), parent)?;
-        let entry = Catalog::entry(self.namespace(), uid, declaration, 0);
-        self.add_entry(entry);
+        self.add_entry(&declaration_key(self.namespace(), uid, declaration));
         Ok(())
     }
 
@@ -88,15 +89,35 @@ where
             self.remove_indexes(uid, &plan);
             new.clone()
         };
-        let entry = Catalog::entry(
-            self.namespace(),
-            uid,
-            &Declaration::Predicate(declared.clone()),
-            0,
-        );
         self.catalog.declare_predicate(uid, declared)?;
-        self.add_entry(entry);
+        self.add_entry(&catalog_key(self.namespace(), PREDICATE, uid));
         Ok(())
+    }
+
+    /// Removes predicate `uid`'s declaration, named `iri`: declared the default first, which checks nothing against the
+    /// data and removes every index the declaration names, then left out of the catalog.
+    pub(crate) fn undeclare(
+        &mut self,
+        uid: SystemId,
+        iri: &NamedNode,
+    ) -> Result<(), ChangesetError> {
+        self.declare_predicate(uid, &PredicateDeclaration::new(iri.clone()))?;
+        let _declared: bool = self.catalog.remove_predicate(uid);
+        debug_assert!(self.catalog.predicate(uid).is_none());
+        Ok(())
+    }
+
+    /// Removes entity type or relation `uid`'s declaration, of entry kind `kind`, as a version no longer naming it asks.
+    pub(crate) fn undeclare_named(&mut self, kind: u8, uid: SystemId) {
+        let removed = if kind == ENTITY_TYPE {
+            self.catalog.remove_entity_type(uid)
+        } else {
+            self.catalog.remove_relation(uid)
+        };
+        if removed {
+            self.add_entry(&catalog_key(self.namespace(), kind, uid));
+        }
+        debug_assert!(self.catalog.entity_type(uid).is_none() || kind != ENTITY_TYPE);
     }
 
     /// Records the keys of the indexes `plan` removes from predicate `uid`, which a request after the write deletes.

@@ -14,8 +14,10 @@ use crate::types::frame_view::FrameView;
 use crate::types::request_term_view::RequestTermView;
 use crate::types::term_table::kind;
 use crate::types::term_table_view::TermTableView;
+use crate::utils::fields::identity;
 use crate::utils::sections::Sections;
 use crate::utils::sections::expect_command;
+use crate::utils::token;
 
 impl<'a> BodyView<'a> for DropCommandView<'a> {
     const COMMAND: Command = Command::Drop;
@@ -25,7 +27,7 @@ impl<'a> BodyView<'a> for DropCommandView<'a> {
     fn from_frame(frame: &FrameView<'a>) -> Result<Self, ProtocolError> {
         let command = Self::COMMAND.number();
         let header = expect_command(frame, Self::COMMAND)?;
-        header.unused_zero(&[(0, 1), (8, 40)])?;
+        header.unused_zero(&[(0, 1), (8, 72)])?;
         let number = header.u8_at(0);
         let drop_kind = DropKind::from_number(number).ok_or(ProtocolError::field_value(
             command,
@@ -36,6 +38,8 @@ impl<'a> BodyView<'a> for DropCommandView<'a> {
         if drop_kind == DropKind::All && namespace != 0 {
             return Err(ProtocolError::field_value(command, "namespace", namespace));
         }
+        let commit_version = header.u64_at(40);
+        let token = token::commit_token(command, header, 48, commit_version)?;
         let sections = Sections::<2>::read(command, frame.body(), 0)?;
         let terms = TermTableView::read(
             command,
@@ -75,9 +79,10 @@ impl<'a> BodyView<'a> for DropCommandView<'a> {
             kind: drop_kind,
             namespace,
             target,
-            session: header.u64_at(16),
-            request: header.u64_at(24),
-            commit_version: header.u64_at(32),
+            session: identity(header.0, 16),
+            request: header.u64_at(32),
+            commit_version,
+            token,
         })
     }
 
@@ -98,8 +103,12 @@ impl<'a> BodyView<'a> for DropCommandView<'a> {
                 ));
             }
         };
-        Ok(drop
+        let drop = drop
             .with_session(self.session, self.request)
-            .with_commit_version(self.commit_version))
+            .with_commit_version(self.commit_version);
+        Ok(match &self.token {
+            Some(token) => drop.with_token(token.clone()),
+            None => drop,
+        })
     }
 }

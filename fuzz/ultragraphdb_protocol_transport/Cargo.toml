@@ -41,3 +41,12 @@ path = "fuzz_targets/server_connection.rs"
 test = false
 doc = false
 bench = false
+
+# Any bytes as an address from configuration: refused as an address, or taken as one that prints and parses back to
+# itself, never a panic.
+[[bin]]
+name = "address"
+path = "fuzz_targets/address.rs"
+test = false
+doc = false
+bench = false

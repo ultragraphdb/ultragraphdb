@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_protocol_wire::RecordOperation;
+use ultragraphdb_protocol_wire::{BuildOutcome, RecordOperation};
 use ultragraphdb_tool_bdd::TestResult;
 
 use crate::types::write_set_record::write_set_record_tests::sid;
@@ -18,6 +18,13 @@ fn catalog(version: u64) -> [u8; 16] {
     out
 }
 
+/// A build's completion argument (`PROTOCOL.md` §12.2, operation 7): the version, then the outcome's byte.
+fn completion(version: u64, outcome: u8) -> [u8; 16] {
+    let mut out = catalog(version);
+    out[8] = outcome;
+    out
+}
+
 #[test]
 fn test_each_operation_has_its_code_and_argument() -> TestResult {
     let id = sid(1, 4, 0x2A)?;
@@ -27,11 +34,28 @@ fn test_each_operation_has_its_code_and_argument() -> TestResult {
         (RecordOperation::DropNamespaceData, 3, [0; 16], true),
         (RecordOperation::DropNamespace, 4, [0; 16], true),
         (RecordOperation::DropAll, 5, [0; 16], true),
-        (RecordOperation::StartBuild(12), 6, catalog(12), false),
         (
-            RecordOperation::CompleteBuild(u64::MAX),
+            RecordOperation::CatalogTakesEffect(12),
+            6,
+            catalog(12),
+            false,
+        ),
+        (
+            RecordOperation::CompleteBuild {
+                version: 12,
+                outcome: BuildOutcome::Swap,
+            },
             7,
-            catalog(u64::MAX),
+            completion(12, 1),
+            false,
+        ),
+        (
+            RecordOperation::CompleteBuild {
+                version: u64::MAX,
+                outcome: BuildOutcome::Undo,
+            },
+            7,
+            completion(u64::MAX, 2),
             false,
         ),
     ];
@@ -45,11 +69,22 @@ fn test_each_operation_has_its_code_and_argument() -> TestResult {
         expected.extend_from_slice(&argument);
         assert_eq!(operation.encode().to_vec(), expected);
     }
-    // A build of catalog version 0 takes the zero argument.
+    // Catalog version 0 taking effect takes the zero argument.
     assert_eq!(
         RecordOperation::from_parts(6, [0; 16]),
-        Some(RecordOperation::StartBuild(0))
+        Some(RecordOperation::CatalogTakesEffect(0))
     );
+    // A completion's outcome is 1 or 2, followed by zero bytes; a version taking effect has no outcome byte.
+    for outcome in [0u8, 3, u8::MAX] {
+        assert_eq!(
+            RecordOperation::from_parts(7, completion(12, outcome)),
+            None
+        );
+    }
+    let mut trailing = completion(12, 1);
+    trailing[15] = 1;
+    assert_eq!(RecordOperation::from_parts(7, trailing), None);
+    assert_eq!(RecordOperation::from_parts(6, completion(12, 1)), None);
     Ok(())
 }
 
@@ -83,12 +118,13 @@ fn test_an_argument_the_code_does_not_take_is_none() {
         last[15] = 1;
         assert_eq!(RecordOperation::from_parts(code, last), None);
     }
-    // A build's catalog version leaves bytes 8 to 15 zero.
-    for code in [6u16, 7] {
-        let mut set = catalog(12);
-        set[8] = 1;
-        assert_eq!(RecordOperation::from_parts(code, set), None);
-        let mut last = catalog(12);
+    // A catalog version taking effect leaves bytes 8 to 15 zero; a build's completion holds its outcome at byte 8 and
+    // leaves bytes 9 to 15 zero (PROTOCOL.md section 12.2).
+    let mut set = catalog(12);
+    set[8] = 1;
+    assert_eq!(RecordOperation::from_parts(6, set), None);
+    for (code, outcome) in [(6u16, 0u8), (7, 1)] {
+        let mut last = completion(12, outcome);
         last[15] = 1;
         assert_eq!(RecordOperation::from_parts(code, last), None);
     }

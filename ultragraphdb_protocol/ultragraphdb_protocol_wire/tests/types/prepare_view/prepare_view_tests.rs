@@ -21,7 +21,7 @@ fn test_the_golden_prepares_read_their_values() -> TestResult {
     assert_eq!(view.pattern().subject(), PatternSlot::Parameter(0));
     assert_eq!(view.terms().len(), 1);
     assert_eq!(view.parameter_types(), &[ColumnType::Node]);
-    assert_eq!(view.result_types(), &[ColumnType::Term]);
+    assert_eq!(view.result_types(), &[ColumnType::Term, ColumnType::Node]);
     let (terms, p) = pattern();
     assert_eq!(
         view.to_body()?,
@@ -32,7 +32,7 @@ fn test_the_golden_prepares_read_their_values() -> TestResult {
             terms,
             p,
             vec![ColumnType::Node],
-            vec![ColumnType::Term]
+            vec![ColumnType::Term, ColumnType::Node]
         )
     );
     let request_bytes = golden("prepare")?.bytes()?;
@@ -96,15 +96,16 @@ fn test_types_are_known_and_counted() -> TestResult {
         ProtocolErrorEnum::CountMismatch {
             command: 10,
             field: "result types",
-            count: 2,
-            expected: 1
+            count: 3,
+            expected: 2
         }
     );
     Ok(())
 }
 
 #[test]
-fn test_a_request_carries_no_result_types_and_an_answer_one_per_unbound_slot() -> TestResult {
+fn test_a_request_carries_no_result_types_and_an_answer_one_per_unbound_slot_and_the_reifier()
+-> TestResult {
     let request = golden("prepare")?.bytes()?;
     let reply = golden("prepare_reply")?.bytes()?;
     let request_view = PrepareView::from_frame(&frame_of(&request)?)?;
@@ -116,18 +117,18 @@ fn test_a_request_carries_no_result_types_and_an_answer_one_per_unbound_slot() -
         ProtocolErrorEnum::CountMismatch {
             command: 10,
             field: "result types",
-            count: 1,
+            count: 2,
             expected: 0
         }
     );
-    // The request read as an answer: no result type for its one unbound slot.
+    // The request read as an answer: no result type for its one unbound slot and the reifier column.
     assert_eq!(
         request_view.check_reply().err().context("a refusal")?.0,
         ProtocolErrorEnum::CountMismatch {
             command: 10,
             field: "result types",
             count: 0,
-            expected: 1
+            expected: 2
         }
     );
     Ok(())

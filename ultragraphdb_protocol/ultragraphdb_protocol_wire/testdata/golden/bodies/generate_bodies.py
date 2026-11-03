@@ -225,23 +225,42 @@ golden("authenticate_client_final", 18, command_header([(0, le(2, 4))]), section
 golden("authenticate_server_final", 18, command_header([(0, le(3, 4)), (4, bytes([1])), (8, le(7, 8)),
                                                        (16, le(1_798_761_600_000_000, 8))]),
        sections([b"", SERVER_FINAL]), sequence=3)
-# 3 Register: the session assigned.
-golden("register", 3, command_header([(0, le(0x1122_3344_5566_7788, 8))]), sections([]))
-# 4 Begin: namespace 3, read version, read-only, on stream 5.
-golden("begin", 4, command_header([(0, le(3, 8)), (8, le(0xAB_CDEF_0002, 8)), (16, bytes([1]))]), sections([]),
-       stream=5)
-# 5 Commit: session 9, request 7, commit version 1000; two results of section 6.3's layout (value i64, node u32,
-# created u8, 3 zero bytes): a counter add's new value -5 and a compare-and-set, neither naming a node.
-results = le(-5, 8, signed=True) + le(ABSENT, 4) + bytes(4) + le(0, 8) + le(ABSENT, 4) + bytes(4)
-golden("commit", 5, command_header([(0, le(9, 8)), (8, le(7, 8)), (16, le(1000, 8))]), sections([results]),
-       stream=5)
+# 3 Register: the session assigned, 16 bytes (section 6.1).
+SESSION = bytes(range(0x11, 0x21))
+golden("register", 3, command_header([(0, SESSION)]), sections([]))
+
+
+def token(partition, position, epoch):
+    """A session token (section 4.8): partition u32, 4 zero bytes, position u64, epoch u64."""
+    return le(partition, 4) + bytes(4) + le(position, 8) + le(epoch, 8)
+
+
+# 4 Begin (section 6.2): namespace 3, read version 0, read-only, level 2 (monotonic-fast), deadline 50 ms, the token
+# of partition 2's commit at position 41 in epoch 30; on stream 5.
+golden("begin", 4, command_header([(0, le(3, 8)), (16, bytes([1, 2])), (20, le(50, 4)), (24, token(2, 41, 30))]),
+       sections([]), stream=5)
+# A read-only Begin at level 0 naming its read version, no token, the Welcome's deadline.
+golden("begin_named", 4, command_header([(0, le(4, 8)), (8, le((29 << 22) | 0x3FFFFF, 8)), (16, bytes([1, 0]))]),
+       sections([]), stream=7)
+# 5 Commit (section 6.3): session, request 7, commit version (30 << 22) | 100, the token of partition 2's round at
+# position 41 in epoch 30; three results (value i64, node u32, created u8, 3 zero bytes): an insert-if-absent that
+# found <x>, a counter add's new value -5 and a compare-and-set; the term table holding <x>, the result's node.
+COMMIT_VERSION = (30 << 22) | 100
+results = (le(0, 8) + le(0, 4) + bytes(4) + le(-5, 8, signed=True) + le(ABSENT, 4) + bytes(4)
+           + le(0, 8) + le(ABSENT, 4) + bytes(4))
+terms = Terms()
+terms.add(iri(f"{EX}x"))
+golden("commit", 5, command_header([(0, SESSION), (16, le(7, 8)), (24, le(COMMIT_VERSION, 8)),
+                                    (32, token(2, 41, 30))]), sections([results] + terms.sections()), stream=5)
+# The request: the session and request 7 alone, three empty sections.
+golden("commit_request", 5, command_header([(0, SESSION), (16, le(7, 8))]), sections([b"", b"", b""]), stream=5)
 # 6 Abort.
 golden("abort", 6, command_header([]), sections([]), stream=5)
-# 7 Read: in the transaction of stream 5, limit 100, statement IDs asked (flags bit 0), the pattern
-# (?, <a>, <name>, ?), a resume key; on a stream of its own.
+# 7 Read: in the transaction of stream 5, limit 100, the pattern (?, <a>, <name>, ?), a resume key; on a stream of
+# its own.
 terms = Terms()
 slots = pattern(["unbound", iri(f"{EX}a"), iri(f"{EX}name"), "unbound"], terms)
-golden("read", 7, command_header([(0, le(5, 8)), (8, le(100, 4)), (12, le(1, 4))]),
+golden("read", 7, command_header([(0, le(5, 8)), (8, le(100, 4))]),
        sections([slots] + terms.sections() + [b"\x01\x02\x03"]), stream=11)
 
 # 8 Write: the command header all zero; change records of 16 bytes (kind, flags, 0, 0, args_start, args_len, 0), args, the term
@@ -267,9 +286,11 @@ A, KNOWS, B = iri(f"{EX}a"), iri(f"{EX}knows"), iri(f"{EX}b")
 change(1, 0, [ABSENT, A, KNOWS, B])
 change(3, 0, [iri(f"{EX}g"), blank("b1"), iri(f"{EX}nick"), lang("x", "en")])
 change(5, 0, [ABSENT, A, iri(f"{EX}nick")])
-change(4, 0, [ABSENT, 7, 5])
+REIFIER = f"{SKOLEM}00002a-00000000000000000000000007"
+change(4, 0, [ABSENT, iri(REIFIER)])
 change(2, 0, [ABSENT, A, KNOWS, iri(f"{EX}c"), iri(f"{EX}since"), lit("2020", f"{XSD}gYear")])
-change(6, 0, [ABSENT, 9, 0, iri(f"{EX}weight"), lit("0.5", f"{XSD}decimal")])
+change(6, 0, [ABSENT, iri(f"{SKOLEM}00002a-00000000000000000000000009"), iri(f"{EX}weight"),
+              lit("0.5", f"{XSD}decimal")])
 change(7, 1, [ABSENT, A, KNOWS, B, iri(f"{EX}since"), ABSENT])
 # A statement about a statement: <a> <says> <<( <a> <knows> <b> )>>; a plain string and a right-to-left string.
 change(1, 0, [ABSENT, A, iri(f"{EX}says"), triple(A, KNOWS, B)])
@@ -308,14 +329,14 @@ golden("operation_deep", 9, command_header([(0, bytes([1]))]), sections([u32s(op
        stream=9)
 
 # 10 Prepare: (default graph, $0, <name>, ?), the parameter a node (1); the reply with statement 1, a schema id and
-# the result column a term (2).
+# the result columns: the object a term (2), then the reifier column a node (1).
 for name, statement, schema, result_types in [("prepare", 0, 0, b""), ("prepare_reply", 1, 0x5C4E_3A2B_1D0F_7E6A,
-                                                                       bytes([2]))]:
+                                                                       bytes([2, 1]))]:
     terms = Terms()
     slots = pattern(["default", 0, iri(f"{EX}name"), "unbound"], terms)
     golden(name, 10, command_header([(0, le(0, 8)), (8, le(statement, 8)), (16, le(schema, 8))]),
            sections([slots] + terms.sections() + [bytes([1]), result_types]), stream=13)
-# 11 Execute: statement 1, in the transaction of stream 5, no limit, no statement IDs, one parameter, no resume key.
+# 11 Execute: statement 1, in the transaction of stream 5, no limit, one parameter, no resume key.
 terms = Terms()
 params = [terms.add(iri(f"{EX}a"))]
 golden("execute", 11, command_header([(0, le(1, 8)), (8, le(5, 8))]),
@@ -339,28 +360,31 @@ ch, body = describe([f"{EX}Person"], [f"{EX}knows"], [f"{EX}name"], 42)
 golden("describe_reply", 12, ch, body, stream=17)
 SCHEMA_ID = xxhash.xxh3_64_intdigest(describe([], [], [], 42)[1])
 
-# 13 Result: two columns, three rows; terms in order of first use, row by row; cells column by column; the first
-# term an IRI, tag 0x01 and its text's hash, the last a blank node, tag 0x02 and its skolem IRI's hash, each text in
-# the string list (section 10.1); each row's statement ID, as a Read with flags bit 0 asks.
+# 13 Result (section 9.1): two unbound slots and the reifier column, three rows, read at epoch 30 in partition 2;
+# terms in order of first use, row by row; cells column by column; the first term an IRI, tag 0x01 and its text's
+# hash, a blank node, tag 0x02 and its skolem IRI's hash, and the first row's reifier, tag 0x02 and its skolem IRI's
+# hash, each text in the string list (section 10.1); no statement ID.
 def sha16(text):
     return hashlib.sha256(text.encode()).digest()[:16]
 
 
 LONG = "a long lexical form beyond fifteen"
 BLANK = f"{SKOLEM}00002a-0123456789abcdef0123456789"
-encodings = [bytes([0x01]) + sha16(f"{EX}a"), bytes([0x20, 2]) + b"Al", bytes([0x21]) + sha16(LONG),
-             bytes([0x02]) + sha16(BLANK)]
+READ_REIFIER = f"{SKOLEM}00002a-fedcba9876543210fedcba9876"
+encodings = [bytes([0x01]) + sha16(f"{EX}a"), bytes([0x20, 2]) + b"Al", bytes([0x02]) + sha16(READ_REIFIER),
+             bytes([0x21]) + sha16(LONG), bytes([0x02]) + sha16(BLANK)]
 strings = Strings()
-texts = [(strings.intern(f"{EX}a"), ABSENT), (ABSENT, ABSENT), (strings.intern(LONG), ABSENT),
-         (strings.intern(BLANK), ABSENT)]
+texts = [(strings.intern(f"{EX}a"), ABSENT), (ABSENT, ABSENT), (strings.intern(READ_REIFIER), ABSENT),
+         (strings.intern(LONG), ABSENT), (strings.intern(BLANK), ABSENT)]
 offsets, pos = [], 0
 for e in encodings:
     offsets.append(pos)
     pos += len(e)
-cells = u32s([0, 0, 3] + [1, 2, ABSENT])
-golden("result", 13, command_header([(0, le(2, 4)), (4, le(3, 4))]),
+# Row 0: <a>, "Al", reifier; row 1: <a>, the long literal, unbound; row 2: the blank node, unbound, unbound.
+cells = u32s([0, 0, 4] + [1, 3, ABSENT] + [2, ABSENT, ABSENT])
+golden("result", 13, command_header([(0, le(3, 4)), (4, le(3, 4)), (8, le(30, 8)), (16, le(2, 4))]),
        sections([cells, u32s(offsets), b"".join(encodings), u32s([v for t in texts for v in t])]
-                + strings.sections() + [b"rk", b"".join(le(i, 8) for i in (0x1001, 0x1002, 0x1003))]),
+                + strings.sections() + [b"rk"]),
        stream=11, flags=1)
 # 14 Credit: two frames on stream 11.  15 Cancel.
 golden("credit", 14, command_header([(0, le(2, 4))]), sections([]), stream=11)
@@ -374,14 +398,14 @@ terms.add(lit("done"))
 golden("error_operation", 16, command_header([(0, le(8, 2))]),
        sections([b"compare-and-set found another value"] + terms.sections()), stream=7, flags=1)
 
-# 19 Drop: graph <g> of namespace 3, through session 9's request 8, on a stream of its own; the reply with the
-# drop's commit version 2002.
-for name, commit_version in [("drop", 0), ("drop_reply", 2002)]:
+# 19 Drop: graph <g> of namespace 3, through the session's request 8, on a stream of its own; the reply with the
+# drop's commit version (31 << 22) | 2 and its token.
+for name, commit_version, tok in [("drop", 0, bytes(24)), ("drop_reply", (31 << 22) | 2, token(2, 42, 31))]:
     terms = Terms()
     terms.add(iri(f"{EX}g"))
-    golden(name, 19, command_header([(0, bytes([2])), (8, le(3, 8)), (16, le(9, 8)), (24, le(8, 8)),
-                                     (32, le(commit_version, 8))]), sections(terms.sections()), stream=19,
-           flags=1 if commit_version else 0)
+    golden(name, 19, command_header([(0, bytes([2])), (8, le(3, 8)), (16, SESSION), (32, le(8, 8)),
+                                     (40, le(commit_version, 8)), (48, tok)]), sections(terms.sections()),
+           stream=19, flags=1 if commit_version else 0)
 
 
 # 17 Round (section 12.1): position 3, its header's sequence, its parent, incarnation 1, first version (7 << 22) | 100,

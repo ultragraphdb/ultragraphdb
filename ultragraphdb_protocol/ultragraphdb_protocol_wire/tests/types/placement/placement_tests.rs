@@ -1,0 +1,49 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+ */
+
+use ultragraphdb_protocol_wire::{
+    BodyBuilder, BucketRange, NamespaceRun, Placement, PreferredLeader,
+};
+use ultragraphdb_tool_bdd::TestResult;
+
+use crate::utils::golden_roles::{golden_role, role_bytes};
+
+/// The golden Placement request.
+pub fn golden_placement() -> Placement {
+    Placement::request(42)
+}
+
+#[test]
+fn test_the_builder_lays_out_the_golden_placement() -> TestResult {
+    let golden = golden_role("placement")?;
+    assert_eq!(
+        golden_placement().frame(golden.header())?,
+        role_bytes(&golden)?
+    );
+    Ok(())
+}
+
+/// The golden Placement reply.
+pub fn golden_placement_reply() -> Placement {
+    let mut map = Placement::reply(1_234, 42, 40, 45);
+    map.push_range(BucketRange::new(0, 0x40_0000, 1));
+    map.push_range(BucketRange::new(0x40_0000, 0x80_0000, 2));
+    map.push_range(BucketRange::new(0x80_0000, 1 << 24, 1));
+    map.push_run(NamespaceRun::new(3, 0x40));
+    map.push_run(NamespaceRun::new(7, 0x81));
+    map.push_leader(PreferredLeader::new(1, 3));
+    map.push_leader(PreferredLeader::new(2, 4));
+    map
+}
+
+#[test]
+fn test_the_builder_lays_out_the_golden_placement_reply() -> TestResult {
+    let golden = golden_role("placement_reply")?;
+    assert_eq!(
+        golden_placement_reply().frame(golden.header())?,
+        role_bytes(&golden)?
+    );
+    Ok(())
+}

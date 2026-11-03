@@ -73,12 +73,6 @@ fn test_each_contradicted_narrowing_is_refused_with_its_reason() -> TestResult {
             before,
             "{predicate} unchanged"
         );
-        a.forget_catalogs();
-        assert_eq!(
-            declared_now(&a, predicate)?,
-            before,
-            "{predicate} unchanged in the store"
-        );
     }
     Ok(())
 }

@@ -139,3 +139,72 @@ fn test_bound_damage_and_carried_texts() {
         assert_eq!(error.to_string(), text);
     }
 }
+
+#[test]
+fn test_metadata_texts_name_the_values() {
+    let cases = [
+        (
+            ClusterError::stale_catalog(7, 2, 3),
+            "a catalog version of namespace 7 built on version 2, while version 3 is its latest",
+        ),
+        (
+            ClusterError::not_pending(7, 4),
+            "a close announces version 4 of namespace 7's catalog, which is not pending",
+        ),
+        (
+            ClusterError::catalog_released(7, 15),
+            "the catalog version of namespace 7 in effect at epoch 15 is no longer retained",
+        ),
+        (
+            ClusterError::block_size(1_001, 1_000),
+            "a block of 1001 sequences; a lease takes from 1 to 1000, block_size_max",
+        ),
+        (
+            ClusterError::sequences_spent(1),
+            "the sequences of type prefix 1 are spent: no block of the size asked for lies below 2^64",
+        ),
+        (
+            ClusterError::no_placement(),
+            "the metadata group holds no placement map: it is initialised at the cluster's first start",
+        ),
+        (
+            ClusterError::contradicts("a principal takes the next identity"),
+            "the command contradicts the state it is applied to: a principal takes the next identity",
+        ),
+        (
+            ClusterError::principal_name(256),
+            "a principal's name of 256 bytes; a name holds from 1 to 255",
+        ),
+        (
+            ClusterError::principal_exists("ann"),
+            "a principal named ann exists",
+        ),
+        (
+            ClusterError::unknown_principal("bob"),
+            "no principal is named bob",
+        ),
+        (
+            ClusterError::last_administrator("root"),
+            "root is the last principal holding the administrator role, which the cluster keeps",
+        ),
+        (
+            ClusterError::bootstrap("a password in the secret file"),
+            "the bootstrap principal is not created: it needs a password in the secret file",
+        ),
+        (
+            ClusterError::session_exists(10),
+            "session 0000000000000000000000000000000a is registered already",
+        ),
+        (
+            ClusterError::session_evicted(11),
+            "session 0000000000000000000000000000000b is not in the registry: it was evicted, or never registered",
+        ),
+        (
+            ClusterError::snapshot_behind(3, 4),
+            "the snapshot at log position 3 lies below the log's checkpoint 4: the rounds between are trimmed",
+        ),
+    ];
+    for (error, text) in cases {
+        assert_eq!(error.to_string(), text);
+    }
+}

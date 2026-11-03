@@ -25,7 +25,6 @@ use ultragraphdb_core_catalog::Catalog;
 use ultragraphdb_core_codec::Posting;
 use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::{CountDirection, Graph, Keyspace, QuadKey};
-use ultragraphdb_core_mapping::Declaration;
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_store_hnsw::{VectorKeys, add_dead_node, bytes_as_float_array, index_posting};
 use ultragraphdb_store_posting::{
@@ -421,8 +420,8 @@ where
         if plan.build_vector {
             self.swap_vectors(&rebuild, vectors, &snapshot, &mut request, latest)?;
         }
-        let declaration = Declaration::Predicate(rebuild.new.clone());
-        request.add_entry(Catalog::entry(ns, predicate, &declaration, 0));
+        // The swap writes index keys only: the declaration it swaps in is installed in memory, since no partition holds
+        // catalog keys.
         request.advance_epoch_on_commit();
         let ts = commit_at(lists, request, at)?;
         let mut catalog = (*self.catalog(ns)?).clone();
@@ -486,8 +485,6 @@ where
         let built = undeclared_prefixes(ns, predicate, &rebuild.old);
         let lists = self.quads.lists();
         let mut request = lists.request(lists.applied_ts());
-        let declaration = Declaration::Predicate(rebuild.old.clone());
-        request.add_entry(Catalog::entry(ns, predicate, &declaration, 0));
         request.advance_epoch_on_commit();
         let _committed_at: u64 = commit_at(lists, request, at)?;
         let mut catalog = (*self.catalog(ns)?).clone();

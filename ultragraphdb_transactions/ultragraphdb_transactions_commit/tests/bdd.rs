@@ -14,7 +14,6 @@
 use cucumber::{World, then, when};
 use oxrdf::{GraphName, Literal, NamedNode, Term};
 use ultragraphdb_cluster_placement::{NodeId, PartitionId, PlacementMap};
-use ultragraphdb_core_catalog::Catalog;
 use ultragraphdb_core_ids::{
     Bucket, CanonicalKey, Epoch, Namespace, SessionToken, SystemId, TypePrefix,
 };
@@ -36,6 +35,9 @@ use ultragraphdb_transactions_commit::{
 };
 use ultragraphdb_transactions_log::{FaultMode, SimStorage};
 use ultragraphdb_transactions_txn::{MAX_WRITE_SET, Prepared, TxnBuffers, TxnError, TxnErrorEnum};
+
+/// The catalog-version scenarios' steps.
+mod catalog_steps;
 
 /// The unit tests' fixture and doubles, shared by path.
 pub mod utils {
@@ -87,6 +89,8 @@ struct Steps {
     sessions: Vec<Option<(u64, u64)>>,
     /// IRIs a reply named.
     names: Vec<String>,
+    /// The metadata group a partition reads catalog versions from and sends default entries to.
+    source: ultragraphdb_traits_catalog::TestCatalogSource,
 }
 
 /// 2^22 − 2, the last sequence of an epoch, by hand: 4,194,304 − 2.
@@ -684,14 +688,12 @@ fn first_writes(w: &mut Steps) -> TestResult {
     driver.sync()?;
     driver.sync()?;
     w.replies = driver.replies.clone();
-    let catalog = applier.catalog(NS)?;
-    let snapshot = applier
-        .quads()
-        .store()
-        .snapshot(applier.quads().lists().applied_ts())?;
-    let stored = Catalog::load(&snapshot, NS)?;
-    assert_eq!(*catalog, stored, "the catalog installed is the one stored");
-    w.entries = stored
+    // The host sends each default entry the applied rounds ask for to the metadata group, a command no write waits for.
+    for entry in applier.take_default_entries() {
+        let _created: bool = w.source.record_default(&entry)?;
+    }
+    w.entries = applier
+        .catalog(NS)?
         .predicates()
         .filter(|(id, _)| *id == score)
         .map(|(_, d)| d.clone())
@@ -699,7 +701,7 @@ fn first_writes(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[then("both commit, and the catalog of `ns` holds `score` with the default entry once")]
+#[then("both commit, and the metadata group holds `score`'s default entry once")]
 fn both_first_writes_commit(w: &mut Steps) -> TestResult {
     // Neither aborts: the first alone at (1, 0), the second in the next round at (1, 2).
     assert_eq!(
@@ -707,14 +709,15 @@ fn both_first_writes_commit(w: &mut Steps) -> TestResult {
         vec![(1, Ok(version(1, 0))), (2, Ok(version(1, 2)))]
     );
     assert_eq!(w.entries, vec![PredicateDeclaration::new(ex("score"))]);
+    let recorded: Vec<String> = w
+        .source
+        .defaults(NS)
+        .iter()
+        .map(|e| e.predicate().to_string())
+        .filter(|p| p == ex("score").as_str())
+        .collect();
+    assert_eq!(recorded.len(), 1, "the group holds it once");
     Ok(())
-}
-
-/// The declaration of `<p>` with the `term` tokenizer, which starts a build when `<p>` holds data.
-fn term_index(p: &str) -> Change {
-    Change::Declare(Declaration::Predicate(
-        PredicateDeclaration::new(ex(p)).with_tokenizers(vec!["term".to_string()]),
-    ))
 }
 
 /// The subjects the `term` index of `<predicate>` lists under `word`, at the watermark.
@@ -746,37 +749,52 @@ fn reply_to(replies: &[Reply], ticket: u64) -> TestResult<&Reply> {
 }
 
 #[when(
-    "a round admits a declaration of `ns` that starts an index build of `p`, and a later transaction of the same round, executed against the catalog before the declaration, writes `p` in `ns`"
+    "a version of `ns` starting an index build of `p` takes effect at epoch 40, and a transaction executed against the version before it writes `p` in `ns` and commits at epoch 40"
 )]
 fn build_then_write(w: &mut Steps) -> TestResult {
-    // The catalog is read through its version (commit-rounds, stage 5.5): the declaration commits as version 2 of
-    // `ns`, which the next close announces, so the round after it is decided against version 2. The later transaction
-    // executed against version 1, the catalog before the declaration.
     let applier = applier()?;
     let _version: u64 = setup(&applier, vec![insert_literal("a", "p", "apple")])?;
     let mut driver = Driver::new(&applier, unbounded());
     driver.step = CommitStep::new(unbounded(), applier.quads().lists().applied_ts())
+        .with_delivered(epoch(38)?)
         .with_catalog(&[catalog_of_ns(1)]);
-    let mut declaration = begin(&applier)?.with_catalog(1);
-    write(&mut declaration, vec![term_index("p")])?;
+    // The transaction executes against version 1, before the close of 39 announces version 2.
     let mut later = begin(&applier)?.with_catalog(1);
     write(&mut later, vec![insert_literal("c", "p", "pear")])?;
-    driver.submit(1, prepare(declaration)?)?;
-    driver.sync()?;
-    assert!(applier.rebuilding(), "the declaration started the build");
-    driver.close_with(1, vec![catalog_of_ns(2)], Vec::new())?;
+    driver.close_with(39, vec![catalog_of_ns(2)], Vec::new())?;
+    let starting = crate::utils::fixture::term_version(NS, 2, "p");
+    driver.submit(
+        1,
+        crate::utils::fixture::catalog_proposal(&applier, &starting)?,
+    )?;
     driver.submit(2, prepare(later)?)?;
     driver.sync()?;
-    let mut retry = begin(&applier)?.with_catalog(2);
+    driver.sync()?;
+    assert!(applier.rebuilding(), "the version started the build");
+    let mut retry = begin(&applier)?;
+    assert_eq!(
+        retry.catalog(),
+        2,
+        "the retry executes against the version in effect"
+    );
     write(&mut retry, vec![insert_literal("c", "p", "pear")])?;
     driver.submit(3, prepare(retry)?)?;
     driver.sync()?;
     applier.executor().run_until_idle();
     assert!(!applier.rebuilding());
     w.replies = driver.replies.clone();
+    w.versions = committed_versions(&w.replies);
     w.ids = indexed_term(&applier, "p", "pear")?;
     w.expected_ids = vec![id_of(&applier, "c")?];
     Ok(())
+}
+
+/// The versions of the commits among `replies`, in order.
+fn committed_versions(replies: &[Reply]) -> Vec<u64> {
+    replies
+        .iter()
+        .filter_map(|r| r.outcome().clone().ok())
+        .collect()
 }
 
 /// Version `version` of the catalog of `ns`, namespace 0.
@@ -787,8 +805,17 @@ fn catalog_of_ns(version: u64) -> ultragraphdb_cluster_sequencer::CatalogVersion
     )
 }
 
-#[then("the later transaction aborts with a conflict, and its retry is indexed by the build")]
+#[then(
+    "the transaction aborts with a conflict naming the catalog, and its retry is indexed by the build"
+)]
 fn later_aborts(w: &mut Steps) -> TestResult {
+    assert!(
+        w.versions
+            .iter()
+            .all(|v| ultragraphdb_core_ids::Version::from_u64(*v).epoch().get() == 40),
+        "every commit at epoch 40: {:?}",
+        w.versions
+    );
     assert!(
         reply_to(&w.replies, 1)?.outcome().is_ok(),
         "{:?}",
@@ -808,42 +835,46 @@ fn later_aborts(w: &mut Steps) -> TestResult {
 }
 
 #[when(
-    "a transaction executes against the catalog of `ns`, and a declaration of `ns` commits before it"
+    "a transaction executes against catalog version 2 of `ns`, and commits at an epoch from which version 3 is in effect"
 )]
 fn old_catalog(w: &mut Steps) -> TestResult {
-    // The declaration commits as version 2 of `ns`, which a close announces before the stale transaction, executed
-    // against version 1, is decided.
     let applier = applier()?;
     let _version: u64 = setup(&applier, vec![insert("z", "seen", "age")])?;
     let mut driver = Driver::new(&applier, unbounded());
     driver.step = CommitStep::new(unbounded(), applier.quads().lists().applied_ts())
-        .with_catalog(&[catalog_of_ns(1)]);
-    let mut stale = begin(&applier)?.with_catalog(1);
+        .with_delivered(epoch(38)?)
+        .with_catalog(&[catalog_of_ns(2)]);
+    let mut stale = begin(&applier)?.with_catalog(2);
     write(&mut stale, vec![insert_literal("c", "age", "old")])?;
-    let mut declaration = begin(&applier)?.with_catalog(1);
     let integer = PredicateDeclaration::new(ex("age")).with_datatype(NamedNode::new_unchecked(
         "http://www.w3.org/2001/XMLSchema#integer",
     ));
-    write(
-        &mut declaration,
-        vec![Change::Declare(Declaration::Predicate(integer))],
+    let three = ultragraphdb_core_catalog::CatalogContents::new(
+        NS,
+        3,
+        vec![Declaration::Predicate(integer)],
+    );
+    driver.close_with(39, vec![catalog_of_ns(3)], Vec::new())?;
+    driver.submit(
+        1,
+        crate::utils::fixture::catalog_proposal(&applier, &three)?,
     )?;
-    driver.submit(1, prepare(declaration)?)?;
     driver.sync()?;
-    driver.close_with(1, vec![catalog_of_ns(2)], Vec::new())?;
     driver.submit(2, prepare(stale)?)?;
     driver.sync()?;
     w.replies = driver.replies.clone();
     let mut retry = begin(&applier)?;
+    w.checks = vec![retry.catalog() == 3];
     let changes = changeset(vec![insert_literal("c", "age", "old")]);
     w.retry_refused = retry.write(&changes, 0).is_err();
     Ok(())
 }
 
 #[then(
-    "the transaction aborts with a conflict, and its retry is checked against the new declaration"
+    "the transaction aborts with a conflict naming the catalog, and its retry is checked against version 3"
 )]
 fn stale_aborts(w: &mut Steps) -> TestResult {
+    assert_eq!(w.checks, vec![true], "the retry executes against version 3");
     assert!(
         reply_to(&w.replies, 1)?.outcome().is_ok(),
         "{:?}",
@@ -899,9 +930,13 @@ fn during_build(w: &mut Steps) -> TestResult {
     let applier = applier()?;
     let _version: u64 = setup(&applier, vec![insert_literal("a", "name", "apple")])?;
     let mut driver = Driver::new(&applier, unbounded());
-    let mut declaration = begin(&applier)?;
-    write(&mut declaration, vec![term_index("name")])?;
-    driver.submit(1, prepare(declaration)?)?;
+    // The close of epoch 1 announces version 2, which takes effect at epoch 2 as the round installing it.
+    driver.close_with(1, vec![catalog_of_ns(2)], Vec::new())?;
+    let indexing = crate::utils::fixture::term_version(NS, 2, "name");
+    driver.submit(
+        1,
+        crate::utils::fixture::catalog_proposal(&applier, &indexing)?,
+    )?;
     driver.sync()?;
     assert!(applier.rebuilding(), "the build runs");
     let mut txn = begin(&applier)?;

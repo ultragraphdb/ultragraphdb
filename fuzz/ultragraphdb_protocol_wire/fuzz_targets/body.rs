@@ -3,20 +3,23 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! Any bytes as a frame, read through its command's body view: validation never panics; a body its view accepts reads
+//! Any bytes as a frame, read through its command's body view, the role commands' (512–767) among them: validation never panics; a body its view accepts reads
 //! back to an owned body that builds the same frame, byte for byte, or, for the bodies whose strings and terms a
-//! builder lays out canonically (Write, Describe, Result), a frame that builds itself again. A Commit's and a
-//! Prepare's request and reply rules, which a view of a body sent both ways cannot hold alone, never panic.
+//! builder lays out canonically (Write, Describe, Result), a frame that builds itself again. A Prepare's
+//! request and reply rules, which a view of a body sent both ways cannot hold alone, never panic.
 
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_wire::{
-    AbortView, AuthenticateView, BeginView, BodyBuilder, BodyView, CancelView, Command, CommitView,
-    CreditView, DescribeView, DropCommandView, ErrorReplyView, ExecuteView, FrameView, Header,
-    HelloView, MAX_FRAME_SIZE, OperationView, PrepareView, ReadView, RegisterView, ResultView,
-    RoundView, WelcomeView, WriteView,
+    AbortView, AuthenticateView, BeginView, BindView, BodyBuilder, BodyView, CancelView,
+    CatalogView, ChallengeView, CloseRequestView, ClosedView, Command, CommitView, ComputeReadView,
+    CreditView, DefaultEntryView, DescribeView, DropCommandView, EntriesView, EpochCloseView,
+    ErrorReplyView, ExecuteView, FrameView, Header, HelloView, JoinView, LeaseView, MAX_FRAME_SIZE,
+    MembersView, OperationView, PlacementView, PrepareView, ReadView, RecallView, ReferenceView,
+    RegisterView, ReportView, ResultView, RoundView, ScanView, SubscribeView, VerifyView,
+    WelcomeView, WriteView,
 };
 
 /// The golden frames' cluster, so seeds from `testdata/fuzz_seeds/body/` pass the cluster rule.
@@ -58,11 +61,27 @@ fn rebuild(bytes: &[u8]) -> Result<(Command, Vec<u8>), ProtocolError> {
         Command::Round => through::<RoundView>(&frame),
         Command::Authenticate => through::<AuthenticateView>(&frame),
         Command::Drop => through::<DropCommandView>(&frame),
+        Command::Join => through::<JoinView>(&frame),
+        Command::Members => through::<MembersView>(&frame),
+        Command::Subscribe => through::<SubscribeView>(&frame),
+        Command::EpochClose => through::<EpochCloseView>(&frame),
+        Command::Lease => through::<LeaseView>(&frame),
+        Command::Placement => through::<PlacementView>(&frame),
+        Command::Catalog => through::<CatalogView>(&frame),
+        Command::Challenge => through::<ChallengeView>(&frame),
+        Command::Verify => through::<VerifyView>(&frame),
+        Command::Bind => through::<BindView>(&frame),
+        Command::Recall => through::<RecallView>(&frame),
+        Command::ComputeRead => through::<ComputeReadView>(&frame),
+        Command::Scan => through::<ScanView>(&frame),
+        Command::Entries => through::<EntriesView>(&frame),
+        Command::Reference => through::<ReferenceView>(&frame),
+        Command::CloseRequest => through::<CloseRequestView>(&frame),
+        Command::Closed => through::<ClosedView>(&frame),
+        Command::DefaultEntry => through::<DefaultEntryView>(&frame),
+        Command::Report => through::<ReportView>(&frame),
     }?;
     match frame.command() {
-        Command::Commit => {
-            let _ = CommitView::from_frame(&frame).map(|v| v.check_request());
-        }
         Command::Prepare => {
             let _ = PrepareView::from_frame(&frame).map(|v| (v.check_request(), v.check_reply()));
         }

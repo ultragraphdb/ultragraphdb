@@ -10,6 +10,7 @@ use crate::types::term_table::TermTable;
 use crate::utils::command_header::command_header;
 use crate::utils::constants::COMMAND_HEADER_SIZE;
 use crate::utils::sections::write_sections;
+use crate::utils::token;
 
 impl BodyBuilder for DropCommand {
     const COMMAND: Command = Command::Drop;
@@ -18,9 +19,10 @@ impl BodyBuilder for DropCommand {
         command_header(&[
             (0, &[self.kind().number()]),
             (8, &self.namespace().to_le_bytes()),
-            (16, &self.session().to_le_bytes()),
-            (24, &self.request().to_le_bytes()),
-            (32, &self.commit_version().to_le_bytes()),
+            (16, &self.session()),
+            (32, &self.request().to_le_bytes()),
+            (40, &self.commit_version().to_le_bytes()),
+            (48, &token::encode(self.token())),
         ])
     }
 

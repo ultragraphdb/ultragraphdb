@@ -6,12 +6,15 @@
 //! The transport-tls scenarios, bound to `features/transport_tls/`.
 
 use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 
 use cucumber::{World, then, when};
+use rustls::ProtocolVersion;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transport_tls::{
-    TestEcho, TestPki, TlsConnector, TlsError, TlsErrorEnum, TlsTrust,
+    CertificateChainFile, PrivateKeyFile, TestEcho, TestLink, TestPeer, TestPipe, TestPki,
+    TlsAcceptor, TlsConnector, TlsError, TlsErrorEnum, TlsTrust,
 };
 
 /// A block in certificate armour whose content is no certificate: the base64 of `not a certificate`.
@@ -24,6 +27,11 @@ struct Steps {
     trust: Option<Result<TlsTrust, TlsError>>,
     echoed: Option<[u8; 5]>,
     refused: Option<TlsError>,
+    version: Option<ProtocolVersion>,
+    accepted: Option<Result<(), TlsError>>,
+    client_failed: bool,
+    built: Option<Result<TlsAcceptor, TlsError>>,
+    exchanges: Vec<Vec<u8>>,
 }
 
 /// A file of `contents` named for `name` in the scenario's temporary directory.
@@ -148,6 +156,115 @@ fn refused_not_valid_for_name(w: &mut Steps) -> TestResult {
         matches!(&error.0, TlsErrorEnum::HandshakeFailed { reason, .. } if reason.contains("certificate not valid for name")),
         "{error:?}"
     );
+    Ok(())
+}
+
+#[when(
+    "a client trusting the test CA connects to an acceptor holding the certificate the CA issued for `localhost`"
+)]
+fn client_connects_to_an_acceptor(w: &mut Steps) -> TestResult {
+    let pki = TestPki::new()?;
+    let server = TestPeer::new(pki.acceptor()?.session()?, TestEcho::default());
+    let mut tls = pki.connector()?.connect(server, "localhost")?;
+    w.version = tls.session().protocol_version();
+    tls.write_all(b"ping\n").context("a write")?;
+    let mut echoed = [0u8; 5];
+    tls.read_exact(&mut echoed).context("the echo")?;
+    w.echoed = Some(echoed);
+    Ok(())
+}
+
+#[then("the handshake completes with TLS 1.3 and a line sent comes back from the server")]
+fn tls_1_3_and_the_line_comes_back(w: &mut Steps) -> TestResult {
+    assert_eq!(w.version, Some(ProtocolVersion::TLSv1_3));
+    assert_eq!(w.echoed, Some(*b"ping\n"));
+    Ok(())
+}
+
+#[when("a client offering TLS 1.2 alone connects to the acceptor")]
+fn tls_1_2_client_connects(w: &mut Steps) -> TestResult {
+    let pki = TestPki::new()?;
+    let mut client = TestPeer::new(pki.client_tls12("localhost")?, TestEcho::default());
+    w.accepted = Some(pki.acceptor()?.accept(&mut client).map(|_| ()));
+    w.client_failed = client.failed();
+    Ok(())
+}
+
+#[then("the handshake fails as a protocol-version refusal, and the caller reads no byte")]
+fn protocol_version_refusal(w: &mut Steps) -> TestResult {
+    let Err(error) = w.accepted.take().context("an accept")? else {
+        return Err(TestError::new(
+            "the acceptor gave its caller a stream to read",
+        ));
+    };
+    // rustls's text for a client hello offering no version the server enables, which it answers with the
+    // protocol_version alert (RFC 8446 §4.2.1, §6.2).
+    assert!(
+        matches!(&error.0, TlsErrorEnum::HandshakeFailed { host, reason }
+            if host.is_empty() && reason.contains("Tls12NotOfferedOrEnabled")),
+        "{error:?}"
+    );
+    assert!(w.client_failed, "the client received the alert");
+    Ok(())
+}
+
+#[when("an acceptor is built from the test CA's server certificate and another key")]
+fn acceptor_with_another_key(w: &mut Steps) -> TestResult {
+    let pki = TestPki::new()?;
+    let chain = temp_file("chain", pki.server_chain_pem().as_bytes())?;
+    w.path = temp_file("other-key", pki.other_key_pem().as_bytes())?;
+    w.built = Some(TlsAcceptor::from_pem_files(
+        &CertificateChainFile::new(chain),
+        &PrivateKeyFile::new(w.path.as_str()),
+    ));
+    Ok(())
+}
+
+#[then("construction fails with `KeyMismatch`")]
+fn fails_with_key_mismatch(w: &mut Steps) -> TestResult {
+    let Err(error) = w.built.take().context("a construction")? else {
+        return Err(TestError::new(
+            "an acceptor was built from a key of another certificate",
+        ));
+    };
+    assert_eq!(error.0, TlsErrorEnum::KeyMismatch(w.path.clone()));
+    Ok(())
+}
+
+#[when(
+    "a client and a server complete a handshake and exchange one line through the session over an in-memory pipe, and again over a TCP socket"
+)]
+fn exchange_over_two_carriers(w: &mut Steps) -> TestResult {
+    let pki = TestPki::new()?;
+    let (near, far) = TestPipe::pair();
+    let mut client = TestLink::new(pki.connector()?.session("localhost")?, near);
+    let mut server = TestLink::new(pki.acceptor()?.session()?, far);
+    w.exchanges.push(TestLink::exchange_line(
+        &mut client,
+        &mut server,
+        b"line\n",
+    )?);
+
+    let listener = TcpListener::bind("127.0.0.1:0").context("a loopback port")?;
+    let near_tcp = TcpStream::connect(listener.local_addr().context("its address")?)
+        .context("the backlog takes the connection")?;
+    let (far_tcp, _) = listener.accept().context("the connection")?;
+    near_tcp.set_nonblocking(true).context("non-blocking")?;
+    far_tcp.set_nonblocking(true).context("non-blocking")?;
+    let mut client_tcp = TestLink::new(pki.connector()?.session("localhost")?, near_tcp);
+    let mut server_tcp = TestLink::new(pki.acceptor()?.session()?, far_tcp);
+    w.exchanges.push(TestLink::exchange_line(
+        &mut client_tcp,
+        &mut server_tcp,
+        b"line\n",
+    )?);
+    Ok(())
+}
+
+#[then("both exchanges succeed, and the session's code is the same in both")]
+fn both_exchanges_succeed(w: &mut Steps) -> TestResult {
+    // One `TestLink::exchange_line` over `TlsSession` ran both: only the carrier's type differed.
+    assert_eq!(w.exchanges, vec![b"line\n".to_vec(), b"line\n".to_vec()]);
     Ok(())
 }
 

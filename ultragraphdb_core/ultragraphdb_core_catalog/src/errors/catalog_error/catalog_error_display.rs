@@ -69,6 +69,37 @@ impl fmt::Display for CatalogError {
                 "Type <{entity_type}> cannot take the parent <{parent}>, which descends from it"
             ),
             CatalogErrorEnum::Store(error) => write!(f, "{error}"),
+            CatalogErrorEnum::CorruptedVersion { .. } | CatalogErrorEnum::TooLarge { .. } => {
+                encoding(f, &self.0)
+            }
         }
+    }
+}
+
+/// The text of a refusal of the catalog's encoding: a version that does not decode, a declaration too long to encode.
+fn encoding(f: &mut fmt::Formatter<'_>, error: &CatalogErrorEnum) -> fmt::Result {
+    if let CatalogErrorEnum::CorruptedVersion {
+        namespace,
+        version,
+        reason,
+    } = error
+    {
+        write!(
+            f,
+            "Catalog version {version} of namespace {namespace} does not decode: {reason}"
+        )
+    } else if let CatalogErrorEnum::TooLarge {
+        iri,
+        what,
+        len,
+        max,
+    } = error
+    {
+        write!(
+            f,
+            "The declaration of <{iri}> holds {len} {what}, at most {max}"
+        )
+    } else {
+        write!(f, "{error:?}")
     }
 }

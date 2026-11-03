@@ -9,6 +9,7 @@
 
 use std::collections::BTreeSet;
 use std::ops::ControlFlow;
+use std::sync::Arc;
 
 use oxrdf::vocab::rdf;
 use oxrdf::{GraphNameRef, NamedNodeRef};
@@ -17,7 +18,6 @@ use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::{
     DEFAULT_GRAPH, Graph, Keyspace, QuadKey, ROOT_NAMESPACE, SPLIT_FLAG, key_prefix,
 };
-use ultragraphdb_core_mapping::Declaration;
 use ultragraphdb_store_posting::{CachedList, List, PostingError};
 use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{Entry, ListCache, Scan, Store, StoreSnapshot};
@@ -130,7 +130,6 @@ where
                 self.rewrite_without(&list, uid, latest, &mut prefixes, &mut entries)?;
             }
         }
-        let _inserted: bool = prefixes.insert(Catalog::predicate_key(namespace, uid));
         let prefixes: Vec<Vec<u8>> = prefixes.into_iter().collect();
         let ts = match at {
             Some(ts) => {
@@ -139,7 +138,12 @@ where
             }
             None => lists.drop_prefixes_now(&prefixes, entries)?,
         };
-        self.forget_catalogs();
+        // The predicate's declaration leaves the catalog held in memory, so no index of it is maintained until the
+        // metadata group's version removing it takes effect.
+        self.set_catalog(namespace, |catalog| {
+            let _declared: bool = catalog.remove_predicate(uid);
+            Ok(())
+        })?;
         Ok(ts)
     }
 
@@ -167,7 +171,6 @@ where
                         for p in predicate_prefixes(namespace, uid) {
                             prefixes.extend(p.expand(&snapshot)?);
                         }
-                        prefixes.push(Catalog::predicate_key(namespace, uid));
                         (Some(DropTarget::Predicate(uid)), prefixes)
                     }
                     None => (None, Vec::new()),
@@ -177,11 +180,8 @@ where
                 Some(uid) => (Some(DropTarget::Graph(uid)), graph_prefixes(namespace, uid)),
                 None => (None, Vec::new()),
             },
-            DropRequest::Data => (Some(DropTarget::Data), namespace_prefixes(namespace, false)),
-            DropRequest::Namespace => (
-                Some(DropTarget::Namespace),
-                namespace_prefixes(namespace, true),
-            ),
+            DropRequest::Data => (Some(DropTarget::Data), namespace_prefixes(namespace)),
+            DropRequest::Namespace => (Some(DropTarget::Namespace), namespace_prefixes(namespace)),
             DropRequest::All => (Some(DropTarget::All), every_prefix()),
         };
         let ranges = prefixes
@@ -323,23 +323,20 @@ where
     /// Drops the data of `namespace` as [`ChangesetCore::drop_data`] does, under the apply lock the caller holds, at
     /// `at` or the next version.
     fn drop_data_of(&self, namespace: u64, at: Option<u64>) -> Result<u64, ChangesetError> {
-        let entries = match self.cancel(|r| r.namespace == namespace) {
-            Some(r) => vec![Catalog::entry(
-                namespace,
-                r.predicate,
-                &Declaration::Predicate(r.new),
-                self.quads.lists().applied_ts(),
-            )],
-            None => Vec::new(),
-        };
-        let ts = self.drop_prefixes(&namespace_prefixes(namespace, false), entries, at)?;
-        self.forget_catalogs();
+        let cancelled = self.cancel(|r| r.namespace == namespace);
+        let ts = self.drop_prefixes(&namespace_prefixes(namespace), Vec::new(), at)?;
+        if let Some(r) = cancelled {
+            self.set_catalog(namespace, |catalog| {
+                catalog.declare_predicate(r.predicate, r.new)?;
+                Ok(())
+            })?;
+        }
         Ok(ts)
     }
 
-    /// Drops everything `namespace` holds, its catalog included, and writes its initial catalog at timestamp 1 when
-    /// its `rdf:type` has a UID; a namespace whose has none was never written, and its first write writes the
-    /// catalog. The drop's timestamp.
+    /// Drops everything `namespace` holds and holds its initial catalog in memory: `rdf:type` declared an edge when it
+    /// has a UID; a namespace whose has none was never written, and its first write gives it the initial catalog. The
+    /// metadata group commits the namespace's initial catalog as a version of its own. The drop's timestamp.
     pub fn drop_namespace(&self, namespace: u64) -> Result<u64, ChangesetError> {
         let _apply = lock(&self.apply);
         self.drop_namespace_of(namespace, None)
@@ -349,14 +346,15 @@ where
     /// the next version.
     fn drop_namespace_of(&self, namespace: u64, at: Option<u64>) -> Result<u64, ChangesetError> {
         let _cancelled: Option<Rebuild> = self.cancel(|r| r.namespace == namespace);
-        let entries = self.initial_entries(namespace)?;
-        let ts = self.drop_prefixes(&namespace_prefixes(namespace, true), entries, at)?;
-        self.forget_catalogs();
+        let initial = self.initial_catalog(namespace)?;
+        let ts = self.drop_prefixes(&namespace_prefixes(namespace), Vec::new(), at)?;
+        let _dropped: Option<Arc<Catalog>> =
+            lock(&self.catalogs).insert(namespace, Arc::new(initial));
         Ok(ts)
     }
 
-    /// Drops every quad key of every namespace, the catalogs included, and writes the root namespace's initial catalog
-    /// at timestamp 1. The dictionary is kept. The drop's timestamp.
+    /// Drops every quad key of every namespace and holds the root namespace's initial catalog alone in memory. The
+    /// dictionary is kept. The drop's timestamp.
     pub fn drop_all(&self) -> Result<u64, ChangesetError> {
         let _apply = lock(&self.apply);
         self.drop_every(None)
@@ -366,17 +364,20 @@ where
     /// next version.
     fn drop_every(&self, at: Option<u64>) -> Result<u64, ChangesetError> {
         let _cancelled: Option<Rebuild> = self.cancel(|_| true);
-        let entries = self.initial_entries(ROOT_NAMESPACE)?;
-        let ts = self.drop_prefixes(&every_prefix(), entries, at)?;
-        self.forget_catalogs();
+        let initial = self.initial_catalog(ROOT_NAMESPACE)?;
+        let ts = self.drop_prefixes(&every_prefix(), Vec::new(), at)?;
+        let mut catalogs = lock(&self.catalogs);
+        catalogs.clear();
+        let _root: Option<Arc<Catalog>> = catalogs.insert(ROOT_NAMESPACE, Arc::new(initial));
         Ok(ts)
     }
 
-    /// The entries of `namespace`'s initial catalog at timestamp 1, none when its `rdf:type` has no UID.
-    fn initial_entries(&self, namespace: u64) -> Result<Vec<Entry>, ChangesetError> {
+    /// The initial catalog of `namespace`, held in memory after a drop of everything in it: `rdf:type` declared an edge
+    /// when it has a UID, else empty, so the namespace's first write gives it the initial catalog.
+    fn initial_catalog(&self, namespace: u64) -> Result<Catalog, ChangesetError> {
         Ok(match self.quads.id_of(namespace, rdf::TYPE.as_str())? {
-            Some(rdf_type) => Catalog::initial(namespace, rdf_type).entries(1),
-            None => Vec::new(),
+            Some(rdf_type) => Catalog::initial(namespace, rdf_type),
+            None => Catalog::new(namespace),
         })
     }
 }
@@ -402,10 +403,10 @@ fn graph_prefixes(namespace: u64, graph: Graph) -> Vec<Vec<u8>> {
         .collect()
 }
 
-/// Every keyspace's prefix, the catalog's and every quad keyspace's, of every namespace.
+/// Every quad keyspace's prefix, of every namespace: no partition holds a catalog key.
 fn every_prefix() -> Vec<Vec<u8>> {
-    std::iter::once(Keyspace::Catalog)
-        .chain(QUAD_KEYSPACES)
+    QUAD_KEYSPACES
+        .into_iter()
         .flat_map(|k| {
             parts(k, |split| {
                 vec![k.byte() | if split { SPLIT_FLAG } else { 0 }]
@@ -414,14 +415,11 @@ fn every_prefix() -> Vec<Vec<u8>> {
         .collect()
 }
 
-/// Every quad keyspace's prefix of `namespace`, and its catalog's when `catalog` holds.
-fn namespace_prefixes(namespace: u64, catalog: bool) -> Vec<Vec<u8>> {
-    let keyspaces = QUAD_KEYSPACES
+/// Every quad keyspace's prefix of `namespace`: no partition holds a catalog key.
+fn namespace_prefixes(namespace: u64) -> Vec<Vec<u8>> {
+    QUAD_KEYSPACES
         .iter()
-        .copied()
-        .chain(catalog.then_some(Keyspace::Catalog));
-    keyspaces
-        .flat_map(|k| parts(k, |split| key_prefix(k, split, namespace, None, None)))
+        .flat_map(|k| parts(*k, |split| key_prefix(*k, split, namespace, None, None)))
         .collect()
 }
 

@@ -84,6 +84,25 @@ fn test_each_constructor_builds_its_variant() {
 }
 
 #[test]
+fn test_an_address_refusal_holds_the_address_and_the_rule() {
+    assert_eq!(
+        TransportError::address("http://h:1", "an unknown scheme").0,
+        TransportErrorEnum::Address {
+            address: "http://h:1".to_string(),
+            reason: "an unknown scheme"
+        }
+    );
+}
+
+#[test]
+fn test_an_address_refusal_names_the_address_and_the_rule() {
+    assert_eq!(
+        TransportError::address("http://h:1", "an unknown scheme").to_string(),
+        "the address \"http://h:1\" is refused: an unknown scheme"
+    );
+}
+
+#[test]
 fn test_each_names_its_values() {
     assert_eq!(
         TransportError::protocol(ProtocolError::unknown_command(18)).to_string(),

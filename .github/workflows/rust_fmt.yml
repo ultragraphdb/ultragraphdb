@@ -7,7 +7,7 @@
 
 name: Fmt
 
-on: [ pull_request ]
+on: [ pull_request, push ]
 
 permissions:
   contents: read

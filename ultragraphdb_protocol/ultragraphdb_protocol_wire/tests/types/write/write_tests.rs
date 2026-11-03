@@ -20,6 +20,9 @@ fn ex(name: &str) -> String {
 
 const XSD: &str = "http://www.w3.org/2001/XMLSchema#";
 
+/// Namespace 0's skolem base: a reifier's IRI names a statement holding a statement ID (PROTOCOL.md §10.2).
+const SKOLEM: &str = "https://w3id.org/ultragraphdb/ns/namespace/0/.well-known/genid/";
+
 fn literal(lexical: &str, datatype: Option<&str>) -> RequestTerm {
     RequestTerm::Literal {
         lexical: lexical.to_string(),
@@ -44,9 +47,11 @@ struct GoldenTerms {
     b1: u32,
     nick: u32,
     x_en: u32,
+    reifier_7: u32,
     c: u32,
     since: u32,
     year: u32,
+    reifier_9: u32,
     weight: u32,
     half: u32,
     says: u32,
@@ -75,9 +80,15 @@ fn golden_terms() -> TestResult<(TermTable, GoldenTerms)> {
     let b1 = add(RequestTerm::BlankNode("b1".to_string()))?;
     let nick = add(RequestTerm::Iri(ex("nick")))?;
     let x_en = add(tagged("x", "en", None))?;
+    let reifier_7 = add(RequestTerm::Iri(format!(
+        "{SKOLEM}00002a-00000000000000000000000007"
+    )))?;
     let c = add(RequestTerm::Iri(ex("c")))?;
     let since = add(RequestTerm::Iri(ex("since")))?;
     let year = add(literal("2020", Some(&format!("{XSD}gYear"))))?;
+    let reifier_9 = add(RequestTerm::Iri(format!(
+        "{SKOLEM}00002a-00000000000000000000000009"
+    )))?;
     let weight = add(RequestTerm::Iri(ex("weight")))?;
     let half = add(literal("0.5", Some(&format!("{XSD}decimal"))))?;
     let says = add(RequestTerm::Iri(ex("says")))?;
@@ -99,9 +110,11 @@ fn golden_terms() -> TestResult<(TermTable, GoldenTerms)> {
             b1,
             nick,
             x_en,
+            reifier_7,
             c,
             since,
             year,
+            reifier_9,
             weight,
             half,
             says,
@@ -135,7 +148,7 @@ fn golden_statements(t: &GoldenTerms) -> Vec<WriteChange> {
         },
         WriteChange::DeleteStatement {
             graph: None,
-            id: 0x0000_0005_0000_0007,
+            reifier: t.reifier_7,
         },
         WriteChange::InsertEdge {
             graph: None,
@@ -145,7 +158,10 @@ fn golden_statements(t: &GoldenTerms) -> Vec<WriteChange> {
             properties: vec![(t.since, t.year)],
         },
         WriteChange::SetProperty {
-            statement: StatementTarget::Id { graph: None, id: 9 },
+            statement: StatementTarget::Reifier {
+                graph: None,
+                reifier: t.reifier_9,
+            },
             predicate: t.weight,
             value: t.half,
         },
@@ -223,7 +239,7 @@ fn test_write_builds_the_golden_frame() -> TestResult {
         write.command_header().iter().all(|b| *b == 0),
         "a Write's command header is all zero"
     );
-    assert_eq!(write.terms().len(), 17);
+    assert_eq!(write.terms().len(), 19);
     assert_eq!(write.changes().len(), 14);
     assert_eq!(
         write.frame(golden("write")?.header())?,

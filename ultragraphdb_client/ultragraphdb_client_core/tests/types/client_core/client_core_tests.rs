@@ -127,7 +127,7 @@ fn test_register_and_begin_answer_a_session_and_a_snapshot() -> TestResult {
     let tx = begun(h.settle(beginning)?)?;
     assert_eq!(
         (tx.namespace(), tx.read_version(), tx.read_only()),
-        (3, 998, true)
+        (3, h.server.version(), true)
     );
     assert_eq!(
         h.core.take_reply(beginning),
@@ -202,7 +202,7 @@ fn test_prepare_describe_and_a_stale_statement() -> TestResult {
     assert!(statement.is_current(1) && !statement.is_current(2));
     let describing = h.core.describe(0, h.now)?;
     let describe = described(h.settle(describing)?)?;
-    assert_eq!(describe.read_version(), 998);
+    assert_eq!(describe.read_version(), h.server.version());
     Ok(())
 }
 
@@ -345,7 +345,7 @@ fn test_a_repeated_reply_is_refused_after_its_first_is_taken() -> TestResult {
     let mut h = Harness::ready(server())?;
     let p = h.core.register(h.now)?;
     while h.core.transmit().is_some() {}
-    let frame = ultragraphdb_protocol_wire::Register::new(77)
+    let frame = ultragraphdb_protocol_wire::Register::new(77u128.to_be_bytes())
         .frame(Header::new(CLUSTER, Command::Register).with_stream(1))?;
     let frame = h.numbered(&frame)?;
     h.deliver(&frame)??;
@@ -377,7 +377,14 @@ fn test_a_commit_reply_of_another_request_is_a_mismatch() -> TestResult {
     {
         let (field, reply) = (
             "request",
-            ultragraphdb_protocol_wire::Commit::new(9, 2, 5, Vec::new()),
+            ultragraphdb_protocol_wire::Commit::new(
+                session.number().to_be_bytes(),
+                2,
+                h.server.version(),
+            )
+            .with_token(ultragraphdb_client_core::TestServer::token(
+                h.server.version(),
+            )),
         );
         let frame = reply.frame(Header::new(CLUSTER, Command::Commit).with_stream(tx.stream()))?;
         let frame = h.numbered(&frame)?;

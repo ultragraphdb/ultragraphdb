@@ -7,46 +7,49 @@ use ultragraphdb_error_protocol::ProtocolErrorEnum;
 use ultragraphdb_protocol_wire::{ABSENT, BodyView, ResultBatch, ResultView};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
-use crate::types::result_batch::result_batch_tests::{LONG, SKOLEM_6, golden_batch};
+use crate::types::result_batch::result_batch_tests::{LONG, REIFIER, SKOLEM_6, golden_batch};
 use crate::utils::golden_bodies::{frame_of, golden, put, with_command_header, with_section};
 
 #[test]
 fn test_the_golden_batch_reads_its_cells_and_terms() -> TestResult {
     let bytes = golden("result")?.bytes()?;
     let view = ResultView::from_frame(&frame_of(&bytes)?)?;
-    assert_eq!((view.columns(), view.rows(), view.term_count()), (2, 3, 4));
-    let cells: Vec<Option<u32>> = (0..2)
+    assert_eq!((view.columns(), view.rows(), view.term_count()), (3, 3, 5));
+    assert_eq!((view.epoch(), view.partition()), (30, 2));
+    let cells: Vec<Option<u32>> = (0..3)
         .flat_map(|c| (0..3).map(move |r| (c, r)))
         .map(|(c, r)| view.cell(c, r))
         .collect();
     assert_eq!(
         cells,
-        vec![Some(0), Some(0), Some(3), Some(1), Some(2), Some(ABSENT)]
+        vec![
+            Some(0),
+            Some(0),
+            Some(4),
+            Some(1),
+            Some(3),
+            Some(ABSENT),
+            Some(2),
+            Some(ABSENT),
+            Some(ABSENT)
+        ]
     );
-    assert_eq!(view.cell(2, 0), None);
-    assert_eq!(
-        view.term(2).context("term 2 of the batch")?.text(),
-        Some(LONG)
-    );
-    assert_eq!(
-        view.term(3).context("term 3 of the batch")?.text(),
-        Some(SKOLEM_6)
-    );
-    assert!(view.term(3).context("term 3 of the batch")?.is_blank_node());
-    assert!(!view.term(0).context("term 0 of the batch")?.is_blank_node());
-    assert!(view.has_statement_ids());
-    assert_eq!(
-        (0..4).map(|r| view.statement_id(r)).collect::<Vec<_>>(),
-        vec![Some(0x1001), Some(0x1002), Some(0x1003), None]
-    );
-    assert_eq!(view.term(4), None);
+    assert_eq!(view.cell(3, 0), None);
+    let term = |i: u32| view.term(i).context("a term of the batch");
+    assert_eq!(term(2)?.text(), Some(REIFIER));
+    assert!(term(2)?.is_blank_node());
+    assert_eq!(term(3)?.text(), Some(LONG));
+    assert_eq!(term(4)?.text(), Some(SKOLEM_6));
+    assert!(term(4)?.is_blank_node());
+    assert!(!term(0)?.is_blank_node());
+    assert_eq!(view.term(5), None);
     assert_eq!(view.resume(), b"rk");
     assert_eq!(view.to_body()?, golden_batch()?);
     Ok(())
 }
 
 fn refused(index: usize, change: impl FnOnce(&mut Vec<u8>)) -> TestResult<ProtocolErrorEnum> {
-    let bytes = with_section(&golden("result")?.bytes()?, 8, index, change);
+    let bytes = with_section(&golden("result")?.bytes()?, 7, index, change);
     Ok(ResultView::from_frame(&frame_of(&bytes)?)
         .err()
         .context("a refusal")?
@@ -56,30 +59,30 @@ fn refused(index: usize, change: impl FnOnce(&mut Vec<u8>)) -> TestResult<Protoc
 #[test]
 fn test_cells_are_counted_and_index_the_table() -> TestResult {
     assert_eq!(
-        refused(0, |cells| cells.truncate(20))?,
+        refused(0, |cells| cells.truncate(32))?,
         ProtocolErrorEnum::CountMismatch {
             command: 13,
             field: "cells",
-            count: 5,
-            expected: 6
+            count: 8,
+            expected: 9
         }
     );
     assert_eq!(
-        refused(0, |cells| put(cells, 8, 4, 4))?,
+        refused(0, |cells| put(cells, 8, 5, 4))?,
         ProtocolErrorEnum::IndexOutOfRange {
             command: 13,
             section: 0,
             at: 2,
-            index: 4,
-            limit: 4
+            index: 5,
+            limit: 5
         }
     );
     // Rows and columns past what a body could hold do not overflow.
     let huge = with_command_header(&golden("result")?.bytes()?, |h| {
-        put(h, 0, u32::MAX.into(), 4);
+        put(h, 0, 5, 4);
         put(h, 4, u32::MAX.into(), 4);
     });
-    // (2^32 - 1)^2 = 2^64 - 2^33 + 1 = 18,446,744,065,119,617,025 cells expected; the golden six held.
+    // 5 × (2^32 − 1) cells expected, past a u32; the golden nine held.
     assert_eq!(
         ResultView::from_frame(&frame_of(&huge)?)
             .err()
@@ -88,8 +91,8 @@ fn test_cells_are_counted_and_index_the_table() -> TestResult {
         ProtocolErrorEnum::CountMismatch {
             command: 13,
             field: "cells",
-            count: 6,
-            expected: 18_446_744_065_119_617_025
+            count: 9,
+            expected: 5 * 4_294_967_295
         }
     );
     Ok(())
@@ -127,7 +130,7 @@ fn test_terms_are_encodings_laid_end_to_end() -> TestResult {
         ProtocolErrorEnum::BadTerm {
             command: 13,
             section: 2,
-            at: 3
+            at: 4
         }
     );
     assert_eq!(
@@ -155,7 +158,7 @@ fn test_the_first_term_starts_its_section() -> TestResult {
     // A junk byte before the first encoding, every offset moved past it: each term would still parse.
     use crate::utils::golden_bodies::{body_data, join_sections, reframe, split_sections};
     let bytes = golden("result")?.bytes()?;
-    let mut secs = split_sections(body_data(&bytes), 0, 8);
+    let mut secs = split_sections(body_data(&bytes), 0, 7);
     secs[1] = secs[1]
         .chunks(4)
         .map(|c| c.try_into().map(|o| u32::from_le_bytes(o) + 1))
@@ -187,17 +190,17 @@ fn test_texts_are_counted_and_in_range() -> TestResult {
             command: 13,
             field: "term texts",
             count: 3,
-            expected: 4
+            expected: 5
         }
     );
     assert_eq!(
-        refused(3, |texts| put(texts, 4, 3, 4))?,
+        refused(3, |texts| put(texts, 4, 4, 4))?,
         ProtocolErrorEnum::IndexOutOfRange {
             command: 13,
             section: 3,
             at: 1,
-            index: 3,
-            limit: 3
+            index: 4,
+            limit: 4
         }
     );
     Ok(())
@@ -218,10 +221,10 @@ fn test_a_batch_of_vectors_and_long_terms_round_trips() -> TestResult {
     typed.extend_from_slice(&[1, b'x']);
     let typed =
         ResultTerm::new(EncodedTerm::from_bytes(&typed)?).with_annotation("http://ex.org/type");
-    let mut batch = ResultBatch::new(1);
-    batch.push_row(&[Some(&v)])?;
-    batch.push_row(&[Some(&typed)])?;
-    batch.push_row(&[Some(&v)])?;
+    let mut batch = ResultBatch::new(2);
+    batch.push_row(&[Some(&v), None])?;
+    batch.push_row(&[Some(&typed), None])?;
+    batch.push_row(&[Some(&v), None])?;
     let bytes = batch.frame(golden("result")?.header())?;
     let view = ResultView::from_frame(&frame_of(&bytes)?)?;
     assert_eq!(view.term_count(), 2);
@@ -234,41 +237,77 @@ fn test_a_batch_of_vectors_and_long_terms_round_trips() -> TestResult {
 }
 
 #[test]
-fn test_statement_ids_are_none_or_one_per_row() -> TestResult {
+fn test_header_fields_and_the_reifier_column_are_checked() -> TestResult {
+    let bytes = golden("result")?.bytes()?;
+    let refusal = |frame: &[u8]| -> TestResult<ProtocolErrorEnum> {
+        Ok(ResultView::from_frame(&frame_of(frame)?)
+            .err()
+            .context("a refusal")?
+            .0)
+    };
+    // Columns 0 and 6: the unbound slots and the reifier column are 1 to 5.
+    for columns in [0u64, 6] {
+        let frame = with_command_header(&bytes, |h| put(h, 0, columns, 4));
+        assert_eq!(
+            refusal(&frame)?,
+            ProtocolErrorEnum::FieldValue {
+                command: 13,
+                field: "columns",
+                value: columns
+            }
+        );
+    }
+    // An epoch past 2^42 - 1; bytes 20 to 127 unused.
+    let epoch = with_command_header(&bytes, |h| put(h, 8, 1 << 42, 8));
     assert_eq!(
-        refused(7, |ids| ids.truncate(16))?,
-        ProtocolErrorEnum::CountMismatch {
+        refusal(&epoch)?,
+        ProtocolErrorEnum::FieldValue {
             command: 13,
-            field: "statement ids",
-            count: 16,
-            expected: 24
+            field: "epoch",
+            value: 1 << 42
         }
     );
+    let unused = with_command_header(&bytes, |h| h[20] = 1);
     assert_eq!(
-        refused(7, |ids| ids.push(0))?,
-        ProtocolErrorEnum::CountMismatch {
+        refusal(&unused)?,
+        ProtocolErrorEnum::ReservedNotZero { offset: 148 }
+    );
+    // Row 0's reifier cell, cell 6, naming term 0, an IRI; row 2's naming term 3, a literal.
+    let iri = with_section(&bytes, 7, 0, |cells| put(cells, 24, 0, 4));
+    assert_eq!(
+        refusal(&iri)?,
+        ProtocolErrorEnum::FieldValue {
             command: 13,
-            field: "statement ids",
-            count: 25,
-            expected: 24
+            field: "reifier",
+            value: 0
         }
     );
-    let none = with_section(&golden("result")?.bytes()?, 8, 7, |ids| ids.clear());
-    let view = ResultView::from_frame(&frame_of(&none)?)?;
-    assert!(!view.has_statement_ids());
-    assert_eq!(view.statement_id(0), None);
+    let literal = with_section(&bytes, 7, 0, |cells| put(cells, 32, 3, 4));
+    assert_eq!(
+        refusal(&literal)?,
+        ProtocolErrorEnum::FieldValue {
+            command: 13,
+            field: "reifier",
+            value: 2
+        }
+    );
+    // A blank node there, the other one, reads.
+    let blank = with_section(&bytes, 7, 0, |cells| put(cells, 32, 4, 4));
+    assert_eq!(
+        ResultView::from_frame(&frame_of(&blank)?)?.cell(2, 2),
+        Some(4)
+    );
     Ok(())
 }
 
 #[test]
 fn test_cells_count_rows_times_columns_in_sixty_four_bits() -> TestResult {
-    // 65,536 × 65,536 is 2^32: a 32-bit product would wrap to 0 and match a batch of no cells.
+    // 4 × 2^30 is 2^32: a 32-bit product would wrap to 0 and match a batch of no cells.
     let wrapped = with_command_header(&golden("result")?.bytes()?, |h| {
-        put(h, 0, 65_536, 4);
-        put(h, 4, 65_536, 4);
+        put(h, 0, 4, 4);
+        put(h, 4, 1 << 30, 4);
     });
-    let empty = with_section(&wrapped, 8, 0, |cells| cells.clear());
-    let empty = with_section(&empty, 8, 7, |ids| ids.clear());
+    let empty = with_section(&wrapped, 7, 0, |cells| cells.clear());
     assert_eq!(
         ResultView::from_frame(&frame_of(&empty)?)
             .err()
@@ -290,8 +329,8 @@ fn one_term(encoding: &[u8]) -> TestResult<Result<(), ProtocolErrorEnum>> {
     use ultragraphdb_core_terms::EncodedTerm;
     use ultragraphdb_protocol_wire::{BodyBuilder, ResultTerm};
     let term = ResultTerm::new(EncodedTerm::from_bytes(encoding).context("the length rules hold")?);
-    let mut batch = ResultBatch::new(1);
-    batch.push_row(&[Some(&term)])?;
+    let mut batch = ResultBatch::new(2);
+    batch.push_row(&[Some(&term), None])?;
     let bytes = batch.frame(golden("result")?.header())?;
     Ok(ResultView::from_frame(&frame_of(&bytes)?)
         .map(|_| ())
@@ -319,11 +358,11 @@ fn test_each_term_is_one_whole_encoding() -> TestResult {
     let blank = golden("result")?.bytes()?;
     assert_eq!(
         ResultView::from_frame(&frame_of(&blank)?)
-            .map(|view| view.term(3).map(|term| term.is_blank_node()))
+            .map(|view| view.term(4).map(|term| term.is_blank_node()))
             .map_err(|e| e.0),
         Ok(Some(true))
     );
-    let short = with_section(&blank, 8, 2, |e| {
+    let short = with_section(&blank, 7, 2, |e| {
         assert!(e.pop().is_some(), "the section holds a byte to cut");
     });
     assert_eq!(
@@ -334,11 +373,11 @@ fn test_each_term_is_one_whole_encoding() -> TestResult {
         ProtocolErrorEnum::BadTerm {
             command: 13,
             section: 2,
-            at: 3
+            at: 4
         }
     );
     // A tag the store never writes, 0x03, is no encoding: term 3 starts after 17 + 4 + 17 bytes.
-    let unknown = with_section(&blank, 8, 2, |e| e[38] = 0x03);
+    let unknown = with_section(&blank, 7, 2, |e| e[38] = 0x03);
     assert_eq!(
         ResultView::from_frame(&frame_of(&unknown)?)
             .err()
@@ -355,7 +394,7 @@ fn test_each_term_is_one_whole_encoding() -> TestResult {
 
 #[test]
 fn test_a_read_matching_nothing_is_one_batch_of_no_rows() -> TestResult {
-    // Point 9: one batch flagged LAST, `rows` 0, `columns` the unbound slots, no term and no statement ID.
+    // One batch flagged LAST, `rows` 0, `columns` the unbound slots and the reifier column, no term.
     use ultragraphdb_protocol_wire::{BodyBuilder, FLAG_LAST, HeaderView};
     let batch = ResultBatch::new(3);
     let header = golden("result")?.header().with_flags(FLAG_LAST);
@@ -365,7 +404,6 @@ fn test_a_read_matching_nothing_is_one_batch_of_no_rows() -> TestResult {
     let view = ResultView::from_frame(&frame)?;
     assert_eq!((view.columns(), view.rows(), view.term_count()), (3, 0, 0));
     assert_eq!(view.cell(0, 0), None);
-    assert!(!view.has_statement_ids());
     assert!(view.resume().is_empty());
     assert_eq!(view.to_body()?, batch);
     Ok(())
@@ -379,13 +417,13 @@ fn test_a_batch_of_no_terms_holds_no_encodings() -> TestResult {
     let encodings = crate::utils::golden_bodies::split_sections(
         crate::utils::golden_bodies::body_data(&bytes),
         0,
-        8,
+        7,
     )[2]
     .len();
     assert!(encodings > 0);
-    let none = with_section(&bytes, 8, 1, |offsets| offsets.clear());
-    let none = with_section(&none, 8, 3, |texts| texts.clear());
-    let none = with_section(&none, 8, 0, |cells| cells.fill(0xFF));
+    let none = with_section(&bytes, 7, 1, |offsets| offsets.clear());
+    let none = with_section(&none, 7, 3, |texts| texts.clear());
+    let none = with_section(&none, 7, 0, |cells| cells.fill(0xFF));
     assert_eq!(
         ResultView::from_frame(&frame_of(&none)?)
             .err()
@@ -398,27 +436,10 @@ fn test_a_batch_of_no_terms_holds_no_encodings() -> TestResult {
             expected: 0
         }
     );
-    // With the encodings emptied as well, the batch reads: its six cells unbound.
-    let empty = with_section(&none, 8, 2, |e| e.clear());
+    // With the encodings emptied as well, the batch reads: its nine cells unbound.
+    let empty = with_section(&none, 7, 2, |e| e.clear());
     let view = ResultView::from_frame(&frame_of(&empty)?)?;
     assert_eq!(view.term_count(), 0);
     assert_eq!(view.cell(1, 2), Some(ABSENT));
-    Ok(())
-}
-
-#[test]
-fn test_a_batch_of_no_rows_asked_for_statement_ids_reads_back_without_them() -> TestResult {
-    // The statement IDs (section 7) are empty or 8 bytes per row (PROTOCOL.md section 9.1): a batch of no rows carries
-    // none on the wire whether its request asked for them or not, so both build one frame and read back without them.
-    // The fuzz target `body_fields` found a seed (a Result of six columns and no rows) asserting otherwise.
-    use ultragraphdb_protocol_wire::BodyBuilder;
-    let header = golden("result")?.header();
-    let asked = ResultBatch::with_statement_ids(6).frame(header.clone())?;
-    let plain = ResultBatch::new(6).frame(header)?;
-    assert_eq!(asked, plain);
-    let view = ResultView::from_frame(&frame_of(&asked)?)?;
-    assert!(!view.has_statement_ids());
-    assert_eq!(view.to_body()?, ResultBatch::new(6));
-    assert_eq!(view.to_body()?.statement_ids(), None);
     Ok(())
 }

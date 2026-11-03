@@ -28,7 +28,7 @@ fn every() -> Vec<ClientError> {
         )))),
         ClientError::not_connected(),
         ClientError::request(ProtocolError::frame_too_large(9, 8)),
-        ClientError::reply_mismatch("session", 1, 2),
+        ClientError::reply_mismatch("session", 1u64, 2u64),
         ClientError::retries_exhausted(9, 7, 8),
         ClientError::outcome_unknown(9, 7),
         ClientError::in_doubt(9, 7),
@@ -90,7 +90,7 @@ fn test_each_constructor_builds_its_variant() -> TestResult {
         }
     );
     assert_eq!(
-        ClientError::reply_mismatch("request", 1, 2).0,
+        ClientError::reply_mismatch("request", 1u64, 2u64).0,
         ClientErrorEnum::ReplyMismatch {
             field: "request",
             expected: 1,

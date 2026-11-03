@@ -5,7 +5,7 @@
 
 use ultragraphdb_protocol_wire::WriteSetRecordView;
 use ultragraphdb_tool_bdd::{Context, TestResult};
-use ultragraphdb_transactions_txn::{Mode, Prepared};
+use ultragraphdb_transactions_txn::{Mode, Prepared, TxnBuffers};
 
 use crate::utils::fixture::{NS, applier, begin, changeset, insert, prepared};
 
@@ -156,7 +156,14 @@ fn test_a_builds_end_is_a_proposal_naming_its_operation() -> TestResult {
     );
     let record = WriteSetRecordView::new(prepared.record())?;
     assert_eq!(record.kind(), ultragraphdb_protocol_wire::RecordKind::Build);
-    assert_eq!(record.operation(0), Some(RecordOperation::CompleteBuild(8)));
+    // The completion names the catalog version the record carries, the one in effect while the build ran, and a swap.
+    assert_eq!(
+        record.operation(0),
+        Some(RecordOperation::CompleteBuild {
+            version: record.catalog(),
+            outcome: ultragraphdb_protocol_wire::BuildOutcome::Swap
+        })
+    );
     assert_eq!((record.session(), record.request()), ([0; 16], 0));
     Ok(())
 }
@@ -222,29 +229,85 @@ fn test_a_record_written_again_keeps_its_principal() -> TestResult {
     Ok(())
 }
 
-/// An index declared on a predicate that holds data starts a build (an index on one without data needs none, as
-/// `ultragraphdb_store_apply`'s declaration tests have it); an insert starts none.
+/// A catalog version declaring an index on a predicate that holds data starts a build (an index on one without data
+/// needs none, as `ultragraphdb_store_apply`'s declaration tests have it), its record the build's start naming the
+/// version; an insert starts none.
 #[test]
 fn test_a_declaration_indexing_a_predicate_with_data_starts_a_build() -> TestResult {
-    use ultragraphdb_core_mapping::{Change, Declaration, PredicateDeclaration};
+    use ultragraphdb_core_catalog::CatalogContents;
+    use ultragraphdb_core_mapping::{Declaration, PredicateDeclaration};
+    use ultragraphdb_protocol_wire::{RecordKind, RecordOperation};
     let applier = applier()?;
     crate::utils::fixture::store(
         &applier,
         vec![crate::utils::fixture::insert_literal("a", "name", "Ann")],
     )?;
-    let declare = Change::Declare(Declaration::Predicate(
-        PredicateDeclaration::new(crate::utils::fixture::ex("name"))
-            .with_tokenizers(vec!["term".to_string()]),
-    ));
-    let prepare = |changes| -> TestResult<Prepared> {
-        let mut txn = begin(&applier, Mode::ReadWrite)?;
-        txn.write(&changeset(changes), 0)?;
-        prepared(txn.commit(1, 1, &[], 0))
-    };
-    let declared = prepare(vec![declare])?;
+    let version = CatalogContents::new(
+        NS,
+        2,
+        vec![Declaration::Predicate(
+            PredicateDeclaration::new(crate::utils::fixture::ex("name"))
+                .with_tokenizers(vec!["term".to_string()]),
+        )],
+    );
+    let (declared, refusals) = Prepared::catalog(&applier, &version, TxnBuffers::default())?;
+    assert!(refusals.is_empty(), "{refusals:?}");
     assert!(declared.starts_build());
     assert!(!declared.is_drop());
-    assert!(!prepare(vec![insert("b", "knows", "c")])?.starts_build());
+    let view = WriteSetRecordView::new(declared.record())?;
+    assert_eq!(view.kind(), RecordKind::Build);
+    assert_eq!(view.catalog(), 2);
+    assert_eq!(
+        view.operation(0),
+        Some(RecordOperation::CatalogTakesEffect(2))
+    );
+    let mut txn = begin(&applier, Mode::ReadWrite)?;
+    txn.write(&changeset(vec![insert("b", "knows", "c")]), 0)?;
+    assert!(!prepared(txn.commit(1, 1, &[], 0))?.starts_build());
+    Ok(())
+}
+
+/// A declaration in a data transaction is refused, writing nothing and leaving the transaction as it was: the catalog
+/// is committed through the metadata group.
+#[test]
+fn test_a_declaration_in_a_data_transaction_is_refused() -> TestResult {
+    use ultragraphdb_core_mapping::{Change, Declaration, PredicateDeclaration};
+    use ultragraphdb_protocol_wire::ErrorCode;
+    let applier = applier()?;
+    let declare = Change::Declare(Declaration::Predicate(PredicateDeclaration::new(
+        crate::utils::fixture::ex("name"),
+    )));
+    let mut txn = begin(&applier, Mode::ReadWrite)?;
+    txn.write(&changeset(vec![insert("a", "knows", "b")]), 0)?;
+    let refused = txn
+        .write(&changeset(vec![insert("c", "knows", "d"), declare]), 0)
+        .err()
+        .context("a declaration is refused")?;
+    assert_eq!(
+        refused,
+        ultragraphdb_transactions_txn::TxnError::declaration()
+    );
+    assert_eq!(refused.code(), ErrorCode::Refused);
+    assert!(!refused.is_retryable());
+    assert_eq!(
+        refused.to_string(),
+        "declarations are committed through the metadata group's catalog"
+    );
+    assert!(!txn.is_ended(), "the transaction goes on");
+    let prepared = prepared(txn.commit(1, 1, &[], 0))?;
+    let view = WriteSetRecordView::new(prepared.record())?;
+    assert_eq!(
+        view.inserted().len(),
+        1,
+        "only the write before the refusal"
+    );
+    assert_eq!(
+        applier
+            .quads()
+            .id_of(NS, crate::utils::fixture::ex("c").as_str())?,
+        None,
+        "nothing of the refused changeset was resolved"
+    );
     Ok(())
 }
 

@@ -25,7 +25,7 @@ use crate::types::term_table::TermTable;
 /// | 1 | the term table's records |
 /// | 2 | the term table's text |
 /// | 3 | parameter types, one [`crate::ColumnType`] byte per parameter |
-/// | 4 | result column types, one byte per unbound slot, or none in a request |
+/// | 4 | result column types, one byte per result column: each unbound slot, then the reifier column; none in a request |
 ///
 /// The request's terms are a [`crate::TermTable`] in two sections, its records and its text; every term the body
 /// names is an index into it.
@@ -92,7 +92,7 @@ impl Prepare {
         &self.parameter_types
     }
 
-    /// The result columns' types, one per unbound slot; none in a request.
+    /// The result columns' types, one per unbound slot and the reifier column's last; none in a request.
     pub fn result_types(&self) -> &[ColumnType] {
         &self.result_types
     }

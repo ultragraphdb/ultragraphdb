@@ -108,6 +108,8 @@ where
             v => v,
         };
         debug_assert!(read_version <= watermark);
+        // The catalog version the execution checks against: the one the partition holds installed now.
+        let catalog = applier.catalog(namespace)?.version();
         let execution = applier.begin(namespace, read_version)?;
         Ok(Self {
             applier,
@@ -120,14 +122,14 @@ where
             buffers,
             operations: Vec::new(),
             principal: 0,
-            catalog: 0,
+            catalog,
             token: None,
             binding: None,
         })
     }
 
-    /// The transaction executing against `catalog`, its namespace's catalog version, which its record names; 0 by
-    /// default.
+    /// The transaction executing against `catalog`, its namespace's catalog version, which its record names; by default
+    /// the version the partition held installed when the transaction began.
     pub fn with_catalog(mut self, catalog: u64) -> Self {
         self.catalog = catalog;
         self
@@ -193,15 +195,24 @@ where
     ///
     /// # Errors
     ///
-    /// [`TxnError::ended`]; [`TxnError::past_limit`], ending it; [`TxnError::read_only`] and [`TxnError::namespace`],
-    /// which leave it as it was; [`TxnError::cross_partition`] for a subject another partition owns, and
-    /// [`TxnError::changeset`] for a changeset refused or a store that failed, each ending it.
+    /// [`TxnError::ended`]; [`TxnError::past_limit`], ending it; [`TxnError::read_only`], [`TxnError::namespace`] and
+    /// [`TxnError::declaration`] for a changeset holding a declaration, which leave it as it was;
+    /// [`TxnError::cross_partition`] for a subject another partition owns, and [`TxnError::changeset`] for a changeset
+    /// refused or a store that failed, each ending it.
     pub fn write(&mut self, changeset: &Changeset, now_us: u64) -> Result<(), TxnError> {
         if self.mode == Mode::ReadOnly {
             return Err(TxnError::read_only());
         }
         if changeset.namespace() != self.namespace {
             return Err(TxnError::namespace(self.namespace, changeset.namespace()));
+        }
+        // Refused before the execution sees the changeset: nothing of it is written, and the transaction goes on.
+        if changeset
+            .changes()
+            .iter()
+            .any(|c| matches!(c, Change::Declare(_)))
+        {
+            return Err(TxnError::declaration());
         }
         let foreign = self.foreign_subject(changeset);
         let execution = self.live(now_us)?;

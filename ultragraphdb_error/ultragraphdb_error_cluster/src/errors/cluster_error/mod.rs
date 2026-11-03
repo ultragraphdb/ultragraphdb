@@ -25,10 +25,20 @@ use ultragraphdb_error_log::LogError;
 ///   [`DuplicatePartition`](ClusterErrorEnum::DuplicatePartition),
 ///   [`NotSubscribed`](ClusterErrorEnum::NotSubscribed), [`CatchUpTrimmed`](ClusterErrorEnum::CatchUpTrimmed). A
 ///   request the sequencer refuses; nothing is appended.
+/// - **Metadata group:** [`StaleCatalog`](ClusterErrorEnum::StaleCatalog),
+///   [`NotPending`](ClusterErrorEnum::NotPending), [`CatalogReleased`](ClusterErrorEnum::CatalogReleased),
+///   [`BlockSize`](ClusterErrorEnum::BlockSize), [`SequencesSpent`](ClusterErrorEnum::SequencesSpent),
+///   [`NoPlacement`](ClusterErrorEnum::NoPlacement), [`Contradicts`](ClusterErrorEnum::Contradicts),
+///   [`PrincipalName`](ClusterErrorEnum::PrincipalName), [`PrincipalExists`](ClusterErrorEnum::PrincipalExists),
+///   [`UnknownPrincipal`](ClusterErrorEnum::UnknownPrincipal),
+///   [`LastAdministrator`](ClusterErrorEnum::LastAdministrator), [`Bootstrap`](ClusterErrorEnum::Bootstrap),
+///   [`SessionExists`](ClusterErrorEnum::SessionExists), [`SessionEvicted`](ClusterErrorEnum::SessionEvicted). A
+///   command or a read the metadata group refuses; nothing is appended.
 /// - **Bounds:** [`TooMany`](ClusterErrorEnum::TooMany), [`Full`](ClusterErrorEnum::Full). A value past a limit, or
 ///   a table at its capacity; nothing changes.
 /// - **Damage:** [`Malformed`](ClusterErrorEnum::Malformed), [`ReplayDiverged`](ClusterErrorEnum::ReplayDiverged).
-///   Bytes or a log that do not hold what was written; the state machine does not start from them.
+///   Bytes or a log that do not hold what was written, and [`SnapshotBehind`](ClusterErrorEnum::SnapshotBehind), a
+///   snapshot older than the log's checkpoint; the state machine does not start from them.
 /// - **Carried:** [`Log`](ClusterErrorEnum::Log), the ordered log's own refusal; [`Invariant`](ClusterErrorEnum::Invariant),
 ///   a bug, on which the component stops.
 ///
@@ -135,6 +145,85 @@ pub enum ClusterErrorEnum {
         /// The oldest epoch whose close is still held.
         oldest: u64,
     },
+    /// A catalog version of `namespace` built on version `predecessor`, while version `current` is the namespace's
+    /// latest.
+    StaleCatalog {
+        /// The namespace whose catalog it is.
+        namespace: u64,
+        /// The version the offer is built on.
+        predecessor: u64,
+        /// The namespace's latest version.
+        current: u64,
+    },
+    /// A close announces version `version` of `namespace`, which the metadata group holds no pending version of.
+    NotPending {
+        /// The namespace whose catalog it is.
+        namespace: u64,
+        /// The version announced.
+        version: u64,
+    },
+    /// The catalog version of `namespace` in effect at `epoch` is no longer retained: no partition's untrimmed log
+    /// names it.
+    CatalogReleased {
+        /// The namespace whose catalog it is.
+        namespace: u64,
+        /// The epoch asked for.
+        epoch: u64,
+    },
+    /// A block of `size` sequences was asked for; a lease takes from 1 to `max`, the setting `block_size_max`.
+    BlockSize {
+        /// The sequences asked for.
+        size: u64,
+        /// The most sequences a block holds.
+        max: u64,
+    },
+    /// The sequences of the type with prefix `prefix` are spent: no block of the size asked for lies below 2^64.
+    SequencesSpent {
+        /// The type's prefix.
+        prefix: u16,
+    },
+    /// The metadata group holds no placement map: it is initialised at the cluster's first start.
+    NoPlacement,
+    /// A command's recorded decision contradicts the state it is applied to: `what` does not hold.
+    Contradicts {
+        /// The rule the decision breaks.
+        what: &'static str,
+    },
+    /// A principal's name of `length` bytes; a name holds from 1 to 255.
+    PrincipalName {
+        /// The name's length in bytes.
+        length: usize,
+    },
+    /// A principal named `name` exists.
+    PrincipalExists {
+        /// The name.
+        name: String,
+    },
+    /// No principal is named `name`.
+    UnknownPrincipal {
+        /// The name.
+        name: String,
+    },
+    /// `name` is the last principal holding the administrator role, which a cluster keeps.
+    LastAdministrator {
+        /// The principal's name.
+        name: String,
+    },
+    /// The bootstrap principal is not created: it needs `what`.
+    Bootstrap {
+        /// What the bootstrap needs and did not have.
+        what: &'static str,
+    },
+    /// The session `session` is registered already.
+    SessionExists {
+        /// The session's 128-bit identity.
+        session: u128,
+    },
+    /// The session `session` is not in the registry: it was evicted, or never registered.
+    SessionEvicted {
+        /// The session's 128-bit identity.
+        session: u128,
+    },
     /// `what` holds `count`, more than its limit `max`.
     TooMany {
         /// What was counted.
@@ -164,6 +253,14 @@ pub enum ClusterErrorEnum {
         position: u64,
         /// The rule it breaks.
         what: &'static str,
+    },
+    /// A snapshot taken at log position `snapshot` lies below the log's checkpoint `checkpoint`: the rounds between
+    /// are trimmed.
+    SnapshotBehind {
+        /// The position the snapshot was taken at.
+        snapshot: u64,
+        /// The log's checkpoint.
+        checkpoint: u64,
     },
     /// The ordered log refused the operation.
     Log(LogError),
@@ -264,6 +361,94 @@ impl ClusterError {
     /// The closes after `after` are no longer held; the oldest is `oldest`.
     pub fn catch_up_trimmed(after: u64, oldest: u64) -> Self {
         Self(ClusterErrorEnum::CatchUpTrimmed { after, oldest })
+    }
+
+    /// A version of `namespace` built on `predecessor` while `current` is the latest.
+    pub fn stale_catalog(namespace: u64, predecessor: u64, current: u64) -> Self {
+        Self(ClusterErrorEnum::StaleCatalog {
+            namespace,
+            predecessor,
+            current,
+        })
+    }
+
+    /// A close announces version `version` of `namespace`, which is not pending.
+    pub fn not_pending(namespace: u64, version: u64) -> Self {
+        Self(ClusterErrorEnum::NotPending { namespace, version })
+    }
+
+    /// The version of `namespace` in effect at `epoch` is no longer retained.
+    pub fn catalog_released(namespace: u64, epoch: u64) -> Self {
+        Self(ClusterErrorEnum::CatalogReleased { namespace, epoch })
+    }
+
+    /// A block of `size` sequences, outside 1 to `max`.
+    pub fn block_size(size: u64, max: u64) -> Self {
+        Self(ClusterErrorEnum::BlockSize { size, max })
+    }
+
+    /// The sequences of the type `prefix` are spent.
+    pub fn sequences_spent(prefix: u16) -> Self {
+        Self(ClusterErrorEnum::SequencesSpent { prefix })
+    }
+
+    /// The metadata group holds no placement map.
+    pub fn no_placement() -> Self {
+        Self(ClusterErrorEnum::NoPlacement)
+    }
+
+    /// A command's decision contradicts the state: `what` does not hold.
+    pub fn contradicts(what: &'static str) -> Self {
+        Self(ClusterErrorEnum::Contradicts { what })
+    }
+
+    /// A principal's name of `length` bytes, outside 1 to 255.
+    pub fn principal_name(length: usize) -> Self {
+        Self(ClusterErrorEnum::PrincipalName { length })
+    }
+
+    /// A principal named `name` exists.
+    pub fn principal_exists(name: &str) -> Self {
+        Self(ClusterErrorEnum::PrincipalExists {
+            name: name.to_string(),
+        })
+    }
+
+    /// No principal is named `name`.
+    pub fn unknown_principal(name: &str) -> Self {
+        Self(ClusterErrorEnum::UnknownPrincipal {
+            name: name.to_string(),
+        })
+    }
+
+    /// `name` is the last administrator.
+    pub fn last_administrator(name: &str) -> Self {
+        Self(ClusterErrorEnum::LastAdministrator {
+            name: name.to_string(),
+        })
+    }
+
+    /// The bootstrap principal needs `what`.
+    pub fn bootstrap(what: &'static str) -> Self {
+        Self(ClusterErrorEnum::Bootstrap { what })
+    }
+
+    /// The session `session` is registered already.
+    pub fn session_exists(session: u128) -> Self {
+        Self(ClusterErrorEnum::SessionExists { session })
+    }
+
+    /// The session `session` is not in the registry.
+    pub fn session_evicted(session: u128) -> Self {
+        Self(ClusterErrorEnum::SessionEvicted { session })
+    }
+
+    /// A snapshot at `snapshot` lies below the log's checkpoint `checkpoint`.
+    pub fn snapshot_behind(snapshot: u64, checkpoint: u64) -> Self {
+        Self(ClusterErrorEnum::SnapshotBehind {
+            snapshot,
+            checkpoint,
+        })
     }
 
     /// `what` holds `count`, more than `max`.

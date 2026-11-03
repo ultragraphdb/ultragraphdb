@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+mod changeset_core_catalog;
 mod changeset_core_drop;
 mod changeset_core_logical;
 mod changeset_core_operate;
@@ -15,14 +16,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use ultragraphdb_core_catalog::Catalog;
+use ultragraphdb_core_catalog::{Catalog, encode_declaration};
 use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::{Graph, QuadKey, Region};
-use ultragraphdb_core_mapping::Changeset;
+use ultragraphdb_core_mapping::{Changeset, Declaration, PredicateDeclaration};
 use ultragraphdb_error_invariant::InvariantError;
 use ultragraphdb_store_posting::{CachedList, PostingError, Writes};
 use ultragraphdb_store_quads::{QuadStore, QuadWrite, WriteTerms};
 use ultragraphdb_traits_blocks::BlockSource;
+use ultragraphdb_traits_catalog::DefaultEntry;
 use ultragraphdb_traits_store::{ListCache, Store, Temporary, VersionlessEntry};
 
 use crate::errors::changeset_error::ChangesetError;
@@ -66,6 +68,8 @@ pub(crate) struct ChangesetCore<S, C, B> {
     sequenced: AtomicBool,
     ended: Mutex<Vec<BuildEnd>>,
     built: Mutex<BTreeMap<u64, Built>>,
+    /// The default-entry records the rounds applied since the host last took them ask the metadata group for.
+    defaults: Mutex<Vec<DefaultEntry>>,
 }
 
 /// What a round's application gives: each execution's commit, and the record of the build it started.
@@ -92,7 +96,13 @@ where
             sequenced: AtomicBool::new(false),
             ended: Mutex::new(Vec::new()),
             built: Mutex::new(BTreeMap::new()),
+            defaults: Mutex::new(Vec::new()),
         }
+    }
+
+    /// The default-entry records to send, as [`crate::ChangesetApplier::take_default_entries`] takes them.
+    pub fn take_default_entries(&self) -> Vec<DefaultEntry> {
+        std::mem::take(&mut *lock(&self.defaults))
     }
 
     /// Sequences builds through the commit step from now on, as [`crate::ChangesetApplier::sequence_builds`] does.
@@ -123,62 +133,63 @@ where
     }
 
     /// The proposal of `end`, as [`crate::ChangesetApplier::prepare_build_end`] makes it: at the watermark, in the
-    /// build's namespace while it is held, else namespace 0, writing the catalog entry of the declaration the end
-    /// writes, none when the build is no longer held.
+    /// build's namespace while it is held, else namespace 0, under the catalog that namespace holds, whose version
+    /// started the build.
     pub fn prepare_build_end(&self, end: BuildEnd) -> Result<Executed, ChangesetError> {
         let record = match end {
             BuildEnd::Swap(r) | BuildEnd::Undo(r) => r,
         };
         let held = lock(&self.rebuild).clone().filter(|r| r.record == record);
         let namespace = held.as_ref().map_or(0, |r| r.namespace);
-        let lists = self.quads.lists();
-        let read_ts = lists.applied_ts();
+        let read_ts = self.quads.lists().applied_ts();
         let catalog = (*self.catalog(namespace)?).clone();
-        // The record names the declaration the end writes, so a replay can restore the build from it (7.9).
-        let mut request = lists.request(read_ts);
-        if let Some(r) = &held {
-            let written = match end {
-                BuildEnd::Swap(_) => r.new.clone(),
-                BuildEnd::Undo(_) => r.old.clone(),
-            };
-            request.add_entry(Catalog::entry(
-                r.namespace,
-                r.predicate,
-                &ultragraphdb_core_mapping::Declaration::Predicate(written),
-                0,
-            ));
-        }
-        let mut ending = Executed::ending(namespace, read_ts, catalog, end);
-        ending.writes = request.into_writes();
-        Ok(ending)
+        // The end writes nothing of its own: its round swaps or undoes the build at its version, and replay derives
+        // the build again from the catalog version its start record names.
+        Ok(Executed::ending(namespace, read_ts, catalog, end))
     }
 
     pub fn quads(&self) -> &QuadStore<S, C, B> {
         &self.quads
     }
 
-    /// The catalog of `namespace` as the last commit left it.
+    /// The catalog of `namespace` as the last commit left it, held in memory: loaded from the metadata group's version
+    /// at start ([`ChangesetCore::load_catalog`]), changed by the rounds since; an empty catalog for a namespace none
+    /// was installed for, which its first write gives its initial catalog.
     pub fn catalog(&self, namespace: u64) -> Result<Arc<Catalog>, ChangesetError> {
-        if let Some(catalog) = lock(&self.catalogs).get(&namespace) {
-            return Ok(catalog.clone());
-        }
-        let snapshot = self
-            .quads
-            .store()
-            .snapshot(self.quads.lists().applied_ts())?;
-        let catalog = Arc::new(Catalog::load(&snapshot, namespace)?);
-        let _previous: Option<Arc<Catalog>> =
-            lock(&self.catalogs).insert(namespace, catalog.clone());
-        Ok(catalog)
+        let mut catalogs = lock(&self.catalogs);
+        let catalog = catalogs
+            .entry(namespace)
+            .or_insert_with(|| Arc::new(Catalog::new(namespace)));
+        debug_assert_eq!(catalog.namespace(), namespace);
+        Ok(catalog.clone())
     }
 
     pub fn forget_catalogs(&self) {
         lock(&self.catalogs).clear();
     }
 
+    /// Changes the catalog of `namespace` held in memory with `change`, as a drop or a build's end changes it outside
+    /// an execution's commit.
+    pub(crate) fn set_catalog(
+        &self,
+        namespace: u64,
+        change: impl FnOnce(&mut Catalog) -> Result<(), ChangesetError>,
+    ) -> Result<(), ChangesetError> {
+        let mut catalog = (*self.catalog(namespace)?).clone();
+        change(&mut catalog)?;
+        let _previous: Option<Arc<Catalog>> =
+            lock(&self.catalogs).insert(namespace, Arc::new(catalog));
+        Ok(())
+    }
+
     /// Whether an index is being built.
     pub fn rebuilding(&self) -> bool {
         lock(&self.rebuild).is_some()
+    }
+
+    /// The record of the build running, as [`crate::ChangesetApplier::build_record`] gives it.
+    pub fn build_record(&self) -> Option<u64> {
+        lock(&self.rebuild).as_ref().map(|r| r.record)
     }
 
     /// Executes `changeset` at the watermark, as [`crate::ChangesetApplier::execute`] does: under no lock the commits
@@ -346,11 +357,11 @@ where
                 .chain(executed.writes.entry_keys())
                 .filter_map(|k| Region::of(k).ok())
                 .collect();
-            self.install(
-                executed.catalog,
-                &executed.default_ids,
-                executed.catalog_changed,
-            )?;
+            let catalog = match executed.catalog_version {
+                Some(number) => executed.catalog.with_version(number),
+                None => executed.catalog,
+            };
+            self.install(catalog, &executed.default_ids, executed.catalog_changed)?;
             removals.extend(executed.removals);
             if let Some(mut rebuild) = executed.pending {
                 rebuild.start_ts = version;
@@ -369,6 +380,28 @@ where
 }
 
 impl<S, C, B> ChangesetCore<S, C, B> {
+    /// Asks the metadata group for the default entry of each predicate of `defaults` that `catalog`, an execution's,
+    /// holds with its default entry and `installed` does not hold: a first write of the predicate since the partition
+    /// started, which the group finds recorded when another partition, or this one before a restart, asked first.
+    fn ask_defaults(&self, installed: Option<&Catalog>, catalog: &Catalog, defaults: &[SystemId]) {
+        let asked = defaults.iter().filter_map(|uid| {
+            let default = catalog.predicate(*uid)?;
+            let held = installed.and_then(|c| c.predicate(*uid)).is_some();
+            (!held).then(|| {
+                let entry = encode_declaration(&Declaration::Predicate(default.clone()));
+                DefaultEntry::new(
+                    catalog.namespace(),
+                    default.predicate().as_str().to_string(),
+                    entry,
+                )
+            })
+        });
+        let asked: Vec<DefaultEntry> = asked.collect();
+        if !asked.is_empty() {
+            lock(&self.defaults).extend(asked);
+        }
+    }
+
     /// Queues for the indexer each vector `executed`, committed at `version`, wrote or removed: every forward list it
     /// wrote of a predicate its catalog declares with a vector index, a transaction's, an operation's or a replayed
     /// record's alike.
@@ -417,11 +450,15 @@ impl<S, C, B> ChangesetCore<S, C, B> {
         let mut catalogs = lock(&self.catalogs);
         let namespace = catalog.namespace();
         let installed = catalogs.get(&namespace);
+        self.ask_defaults(installed.map(|c| &**c), &catalog, defaults);
         let merged = match installed {
             None => catalog,
             Some(installed) if changed => {
+                // Only implicit default entries: a declaration the execution's catalog left out was removed by it.
                 for (uid, declaration) in installed.predicates() {
-                    if catalog.predicate(uid).is_none() {
+                    let implicit =
+                        *declaration == PredicateDeclaration::new(declaration.predicate().clone());
+                    if implicit && catalog.predicate(uid).is_none() {
                         catalog.declare_predicate(uid, declaration.clone())?;
                     }
                 }
@@ -430,10 +467,11 @@ impl<S, C, B> ChangesetCore<S, C, B> {
             Some(_) if defaults.is_empty() => return Ok(()),
             Some(installed) => {
                 let mut merged = (**installed).clone();
-                // Written as the store's batch writes them, the later write of a key last. A default entry over a
-                // declaration of its round is never admitted together with it: the declaration is a catalog change.
+                // A default entry never replaces a declaration: one installed since the execution read is kept.
                 for &uid in defaults {
-                    if let Some(default) = catalog.predicate(uid) {
+                    if let Some(default) = catalog.predicate(uid)
+                        && merged.predicate(uid).is_none()
+                    {
                         merged.declare_predicate(uid, default.clone())?;
                     }
                 }

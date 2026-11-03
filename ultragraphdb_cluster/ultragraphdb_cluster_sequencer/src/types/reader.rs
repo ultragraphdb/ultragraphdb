@@ -75,13 +75,15 @@ impl<'a> Reader<'a> {
 
     /// Refuses bytes after the last value read.
     pub(crate) fn finish(&self) -> Result<(), ClusterError> {
+        self.finish_as("the end of the record")
+    }
+
+    /// Refuses bytes after the last value read, naming `end`, what should have ended there.
+    pub(crate) fn finish_as(&self, end: &'static str) -> Result<(), ClusterError> {
         if self.offset == self.bytes.len() {
             Ok(())
         } else {
-            Err(ClusterError::malformed(
-                "the end of the record",
-                self.offset,
-            ))
+            Err(ClusterError::malformed(end, self.offset))
         }
     }
 }

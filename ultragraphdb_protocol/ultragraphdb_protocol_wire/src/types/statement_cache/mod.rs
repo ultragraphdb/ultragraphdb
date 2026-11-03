@@ -76,12 +76,14 @@ impl StatementCache {
                 ));
             }
         }
+        // The unbound slots in slot order, then the reifier column, a node (`PROTOCOL.md` section 7.1).
         let result_types = pattern
             .slots()
             .into_iter()
             .zip(types)
             .filter(|(slot, _)| matches!(slot, PatternSlot::Unbound))
             .map(|(_, slot_type)| slot_type)
+            .chain(std::iter::once(ColumnType::Node))
             .collect();
         let statement = self.next;
         self.next = self.next.saturating_add(1);

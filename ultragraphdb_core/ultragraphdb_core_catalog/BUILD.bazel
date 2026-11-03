@@ -33,7 +33,8 @@ rust_doc_test(
     visibility = ["//visibility:public"],
 )
 
-# One rust_test, not a suite: tests/ mirrors src/, so the test files are modules reached through tests/mod.rs.
+# One rust_test, not a suite: tests/ mirrors src/, so the test files are modules reached through tests/mod.rs. The
+# fuzz seeds are runfiles: a test decodes each.
 rust_test(
     name = "ultragraphdb_core_catalog_tests",
     srcs = glob(
@@ -41,6 +42,7 @@ rust_test(
         exclude = ["tests/bdd.rs"],
     ),
     crate_root = "tests/mod.rs",
+    data = glob(["testdata/**"]),
     tags = ["unit-test"],
     visibility = ["//visibility:public"],
     deps = [":ultragraphdb_core_catalog"] + all_crate_deps(

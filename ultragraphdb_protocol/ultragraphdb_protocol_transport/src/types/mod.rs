@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+pub mod address;
 pub mod anonymous;
 pub mod buffer_pool;
 pub mod client_authentication;
@@ -18,6 +19,7 @@ pub mod network_stats;
 pub mod outbound;
 pub mod pooled_buffer;
 pub mod received_frame;
+pub mod scheme;
 pub mod server_connection;
 pub mod server_handshake;
 pub mod sim_network;

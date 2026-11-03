@@ -5,6 +5,8 @@
 
 mod drop_command_body_builder;
 
+use ultragraphdb_core_ids::SessionToken;
+
 use crate::types::drop_kind::DropKind;
 
 /// The Drop command's body: a predicate, a graph, a namespace's data, a namespace or every namespace dropped, on a
@@ -15,9 +17,10 @@ use crate::types::drop_kind::DropKind;
 /// |---|---|---|
 /// | 0 | `kind` | u8, a [`DropKind`] |
 /// | 8 | `namespace` | u64: the namespace of kinds 1 to 4; 0 for kind 5 |
-/// | 16 | `session` | u64 |
-/// | 24 | `request` | u64 |
-/// | 32 | `commit_version` | u64, 0 in a request |
+/// | 16 | `session` | 16 bytes; all zero for none |
+/// | 32 | `request` | u64 |
+/// | 40 | `commit_version` | u64, 0 in a request |
+/// | 48 | `token` | session token, 24 bytes; zero in a request |
 ///
 /// | Section | Contents |
 /// |---|---|
@@ -28,9 +31,10 @@ pub struct DropCommand {
     kind: DropKind,
     namespace: u64,
     target: Option<String>,
-    session: u64,
+    session: [u8; 16],
     request: u64,
     commit_version: u64,
+    token: Option<SessionToken>,
 }
 
 impl DropCommand {
@@ -39,9 +43,10 @@ impl DropCommand {
             kind,
             namespace,
             target,
-            session: 0,
+            session: [0; 16],
             request: 0,
             commit_version: 0,
+            token: None,
         }
     }
 
@@ -70,8 +75,9 @@ impl DropCommand {
         Self::new(DropKind::All, 0, None)
     }
 
-    /// The drop through `session` with the session's next `request` number; session 0 commits without exactly-once.
-    pub fn with_session(mut self, session: u64, request: u64) -> Self {
+    /// The drop through `session` with the next `request` number of the session's counter; a session all zero
+    /// commits without exactly-once.
+    pub fn with_session(mut self, session: [u8; 16], request: u64) -> Self {
         self.session = session;
         self.request = request;
         self
@@ -98,8 +104,19 @@ impl DropCommand {
         self.target.as_deref()
     }
 
-    /// The client's session.
-    pub fn session(&self) -> u64 {
+    /// The reply's session token.
+    pub fn with_token(mut self, token: SessionToken) -> Self {
+        self.token = Some(token);
+        self
+    }
+
+    /// The drop's session token; `None` in a request.
+    pub fn token(&self) -> Option<&SessionToken> {
+        self.token.as_ref()
+    }
+
+    /// The client's session; all zero for none.
+    pub fn session(&self) -> [u8; 16] {
         self.session
     }
 

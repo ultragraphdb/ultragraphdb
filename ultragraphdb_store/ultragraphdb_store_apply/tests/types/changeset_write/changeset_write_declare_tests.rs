@@ -22,7 +22,7 @@ use ultragraphdb_traits_store::Store;
 
 use crate::utils::changesets::{
     NS, apply, changeset, changesets, counts_of, declaration, declare, declared, ex, finish_builds,
-    keys_of, reverse, run_indexer, uid, write, write_changes,
+    holds_catalog_key, keys_of, reverse, run_indexer, uid, write, write_changes,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -187,9 +187,8 @@ fn test_a_vector_index_s_dimension_is_held_in_the_catalog() -> TestResult {
             .and_then(|v| v.dimension()),
         NonZeroU16::new(768)
     );
-    // The catalog loaded again from the store holds it too.
-    a.forget_catalogs();
-    assert_eq!(a.catalog(NS)?.predicate(uid(&a, "emb")?).cloned(), declared);
+    // The catalog is held in memory alone: no partition writes a catalog key.
+    assert!(!holds_catalog_key(&a));
     Ok(())
 }
 
@@ -271,7 +270,10 @@ fn test_entity_types_and_relations_are_declared_with_their_entries() -> TestResu
             ))),
         ],
     )?;
-    a.forget_catalogs();
+    assert!(
+        !holds_catalog_key(&a),
+        "the catalog is held in memory alone"
+    );
     let catalog = a.catalog(NS)?;
     let person = catalog
         .entity_type(uid(&a, "Person")?)

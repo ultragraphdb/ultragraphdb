@@ -19,3 +19,9 @@ package ultragraphdb where
 @[default_target]
 lean_lib RoundModel where
   roots := #[`RoundModel]
+
+-- The stage-5.5 placement protocol (P24): partitions over bucket groups, the sequencer's closes, catalog announcements,
+-- registrations, referrer sets, reverse reads, tombstones and reclamation, with rules 4, 5, 6, 9 and 11 proved.
+@[default_target]
+lean_lib PlacementModel where
+  roots := #[`PlacementModel]

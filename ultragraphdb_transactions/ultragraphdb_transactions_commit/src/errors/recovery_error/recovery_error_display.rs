@@ -54,6 +54,16 @@ impl fmt::Display for RecoveryError {
                 "the round at position {position} names derivation {derivation}, which this store does not know: \
                  nothing of it is applied"
             ),
+            RecoveryErrorEnum::Catalog {
+                position,
+                namespace,
+                version,
+                reason,
+            } => write!(
+                f,
+                "the round at position {position} starts catalog version {version} of namespace {namespace}, which \
+                 could not be read: {reason}"
+            ),
         }
     }
 }

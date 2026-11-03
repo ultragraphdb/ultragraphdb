@@ -33,16 +33,26 @@ impl Catalog {
             ));
         }
         if let Some(parent_uid) = parent {
+            // The walk up the hierarchy visits each declared type at most once, so it ends within as many steps as
+            // there are types, plus the parent itself; a chain longer than that holds a cycle, which a catalog
+            // assembled from stored entries could, and is refused as one.
+            let parent_name = declaration.parent().map_or("", |p| p.as_str());
             let mut at = Some(parent_uid);
-            while let Some(ancestor) = at {
+            for _ in 0..=self.types.len() {
+                let Some(ancestor) = at else {
+                    break;
+                };
                 if ancestor == uid {
-                    let parent_name = declaration.parent().map_or("", |p| p.as_str());
                     return Err(CatalogError::parent_cycle(name, parent_name));
                 }
                 at = self.parent_uid(ancestor);
             }
+            if at.is_some() {
+                return Err(CatalogError::parent_cycle(name, parent_name));
+            }
         }
         let _replaced: Option<TypeDeclaration> = self.types.insert(uid, declaration);
+        debug_assert!(self.types.contains_key(&uid));
         Ok(())
     }
 
@@ -71,8 +81,12 @@ impl Catalog {
             .get(&None)
             .map(|roots| roots.iter().rev().copied().collect())
             .unwrap_or_default();
+        // Each type is pushed once, from its one parent's children or as a root, so the walk takes at most as many
+        // turns as there are types; a type on a cycle is reached from no root and is left unnumbered.
         while let Some(uid) = stack.pop() {
-            let _numbered: Option<u32> = numbers.insert(uid, numbers.len() as u32 + 1);
+            debug_assert!(!numbers.contains_key(&uid));
+            let next = u32::try_from(numbers.len()).map_or(u32::MAX, |n| n.saturating_add(1));
+            let _numbered: Option<u32> = numbers.insert(uid, next);
             if let Some(kids) = children.get(&Some(uid)) {
                 stack.extend(kids.iter().rev().copied());
             }

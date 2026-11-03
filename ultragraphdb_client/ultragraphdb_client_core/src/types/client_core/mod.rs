@@ -62,7 +62,7 @@ pub struct ClientCore<L: Login> {
     kept_reads: BTreeMap<(u64, u64), VecDeque<ReceivedFrame>>,
     pending: BTreeMap<u64, PendingState>,
     next_pending: u64,
-    sessions: BTreeMap<u64, SessionState>,
+    sessions: BTreeMap<u128, SessionState>,
     outbox: VecDeque<Vec<u8>>,
     last_progress: Option<Instant>,
 }
@@ -328,8 +328,8 @@ impl<L: Login> ClientCore<L> {
         }
     }
 
-    /// A session the application kept from an earlier client, numbered `number`, its next commit `next_request`.
-    pub fn resume_session(&mut self, number: u64, next_request: u64) -> Session {
+    /// A session the application kept from an earlier client, identified by `number`, its next commit `next_request`.
+    pub fn resume_session(&mut self, number: u128, next_request: u64) -> Session {
         let _replaced: Option<SessionState> = self.sessions.insert(
             number,
             SessionState {
@@ -476,7 +476,7 @@ impl<L: Login> ClientCore<L> {
         let sent = self.open_stream().and_then(|stream| {
             match &drop {
                 Some(command) => self.frame(command, stream),
-                None => self.frame(&Commit::new(session, request, 0, Vec::new()), stream),
+                None => self.frame(&Commit::new(session.to_be_bytes(), request, 0), stream),
             }
             .map(|frame| (stream, frame))
         });

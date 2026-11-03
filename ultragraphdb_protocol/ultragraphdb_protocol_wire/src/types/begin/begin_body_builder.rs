@@ -9,6 +9,7 @@ use crate::types::command::Command;
 use crate::utils::command_header::command_header;
 use crate::utils::constants::COMMAND_HEADER_SIZE;
 use crate::utils::sections::write_sections;
+use crate::utils::token;
 
 impl BodyBuilder for Begin {
     const COMMAND: Command = Command::Begin;
@@ -17,7 +18,9 @@ impl BodyBuilder for Begin {
         command_header(&[
             (0, &self.namespace.to_le_bytes()),
             (8, &self.read_version.to_le_bytes()),
-            (16, &[u8::from(self.read_only)]),
+            (16, &[u8::from(self.read_only), self.level.number()]),
+            (20, &self.deadline_ms.to_le_bytes()),
+            (24, &token::encode(self.token.as_ref())),
         ])
     }
 

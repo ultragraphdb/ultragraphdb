@@ -4,6 +4,8 @@
  */
 
 #[cfg(test)]
+mod address;
+#[cfg(test)]
 mod anonymous;
 #[cfg(test)]
 mod buffer_pool;

@@ -167,6 +167,28 @@ impl<L: Login> ClientCore<L> {
             | Command::Cancel
             | Command::Round
             | Command::Drop => Ok(()),
+            // A role command is no frame a server sends a client (`PROTOCOL.md` §2.5): the connection is closed.
+            role @ (Command::Join
+            | Command::Members
+            | Command::Subscribe
+            | Command::EpochClose
+            | Command::Lease
+            | Command::Placement
+            | Command::Catalog
+            | Command::Challenge
+            | Command::Verify
+            | Command::Bind
+            | Command::Recall
+            | Command::ComputeRead
+            | Command::Scan
+            | Command::Entries
+            | Command::Reference
+            | Command::CloseRequest
+            | Command::Closed
+            | Command::DefaultEntry
+            | Command::Report) => self.fatal(ClientError::protocol(
+                ProtocolError::command_not_served(role.number()),
+            )),
         }
     }
 
@@ -273,7 +295,7 @@ impl<L: Login> ClientCore<L> {
     fn settle_commit(
         &mut self,
         id: u64,
-        session: u64,
+        session: u128,
         request: u64,
         outcome: Result<Reply, ClientError>,
         now: Instant,
@@ -342,8 +364,8 @@ impl<L: Login> ClientCore<L> {
         if command != wanted {
             return Ok(Err(ClientError::reply_mismatch(
                 "command",
-                wanted.number().into(),
-                command.number().into(),
+                wanted.number(),
+                command.number(),
             )));
         }
         Ok(match expect {
@@ -351,6 +373,7 @@ impl<L: Login> ClientCore<L> {
                 let number = RegisterView::from_frame(view)
                     .map_err(ClientError::protocol)?
                     .session();
+                let number = u128::from_be_bytes(number);
                 let _registered: &mut SessionState =
                     self.sessions.entry(number).or_insert(SessionState {
                         next_request: 1,
@@ -398,15 +421,15 @@ impl<L: Login> ClientCore<L> {
 /// [`ClientError::reply_mismatch`], and one breaking a rule the caller's error.
 fn committed(
     view: &FrameView<'_>,
-    session: u64,
+    session: u128,
     request: u64,
 ) -> Result<Result<Reply, ClientError>, ClientError> {
     let commit = CommitView::from_frame(view).map_err(ClientError::protocol)?;
-    Ok(if commit.session() != session {
+    Ok(if u128::from_be_bytes(commit.session()) != session {
         Err(ClientError::reply_mismatch(
             "session",
             session,
-            commit.session(),
+            u128::from_be_bytes(commit.session()),
         ))
     } else if commit.request() != request {
         Err(ClientError::reply_mismatch(
@@ -430,15 +453,15 @@ fn committed(
 /// and one breaking a rule the caller's error.
 fn dropped(
     view: &FrameView<'_>,
-    session: u64,
+    session: u128,
     request: u64,
 ) -> Result<Result<Reply, ClientError>, ClientError> {
     let drop = DropCommandView::from_frame(view).map_err(ClientError::protocol)?;
-    Ok(if drop.session() != session {
+    Ok(if u128::from_be_bytes(drop.session()) != session {
         Err(ClientError::reply_mismatch(
             "session",
             session,
-            drop.session(),
+            u128::from_be_bytes(drop.session()),
         ))
     } else if drop.request() != request {
         Err(ClientError::reply_mismatch(

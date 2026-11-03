@@ -91,3 +91,28 @@ fn test_a_declaration_with_unknown_indexes_is_refused_and_a_valid_one_replaces()
     );
     Ok(())
 }
+
+#[test]
+fn test_a_declaration_with_more_tokenizers_than_the_encoding_holds_is_refused() -> TestResult {
+    let many: Vec<String> = std::iter::repeat_n("exact".to_string(), 65_536).collect();
+    let declaration =
+        PredicateDeclaration::new(oxrdf::NamedNode::new_unchecked("http://ex.org/many"))
+            .with_tokenizers(many);
+    let refused = Catalog::check_predicate(&declaration).map_err(|e| e.0);
+    assert!(
+        matches!(
+            &refused,
+            Err(CatalogErrorEnum::TooLarge {
+                what: "tokenizers",
+                len: 65_536,
+                ..
+            })
+        ),
+        "{refused:?}"
+    );
+    let fits: Vec<String> = std::iter::repeat_n("exact".to_string(), 65_535).collect();
+    let fitting = PredicateDeclaration::new(oxrdf::NamedNode::new_unchecked("http://ex.org/many"))
+        .with_tokenizers(fits);
+    assert!(Catalog::check_predicate(&fitting).is_ok());
+    Ok(())
+}

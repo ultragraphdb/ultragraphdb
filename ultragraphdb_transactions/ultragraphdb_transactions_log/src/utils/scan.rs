@@ -96,6 +96,7 @@ fn check_body(bytes: &[u8], round: &ScannedRound, checksum_body: u64) -> Result<
             ProtocolErrorEnum::ShortHeader { .. }
             | ProtocolErrorEnum::HeaderChecksum { .. }
             | ProtocolErrorEnum::UnknownCommand { .. }
+            | ProtocolErrorEnum::CommandNotServed { .. }
             | ProtocolErrorEnum::ReservedNotZero { .. }
             | ProtocolErrorEnum::WrongCluster { .. }
             | ProtocolErrorEnum::SizeBelowHeader { .. }

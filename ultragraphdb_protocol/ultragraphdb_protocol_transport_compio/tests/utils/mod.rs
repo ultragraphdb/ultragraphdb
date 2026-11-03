@@ -4,8 +4,12 @@
  */
 
 #[cfg(test)]
+pub mod bytes;
+#[cfg(test)]
 pub mod ready;
 #[cfg(test)]
 mod ready_tests;
 #[cfg(test)]
 pub mod sim;
+#[cfg(test)]
+pub mod socket;

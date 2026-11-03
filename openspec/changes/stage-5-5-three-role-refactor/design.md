@@ -170,7 +170,8 @@ toward the reader. The rules are P24's; this section states how the code holds t
   bucket group, the epoch it was added at and its generation. A registration adds members for other partitions' groups;
   the home adds its own groups in the commit that first references `o` from them, so a move of a group rewrites
   nothing. A registration naming the member's current generation, or any generation for a group not yet a member, adds
-  or renews it at one generation above the one named; one naming an older generation is a repeat and is answered with
+  or renews it at one generation above the larger of the one named and the highest the group ever held in `R(o)`;
+  one naming an older generation is a repeat and is answered with
   the current generation. In this stage `R(o)` only grows.
 - **Reads.** Compute routes a bound subject to its bucket's partition. A bound IRI or blank-node object reads `R(o)` at
   the read's epoch `e` at the home once the home has closed `e`, resolves the groups to partitions through the placement
@@ -187,6 +188,14 @@ toward the reader. The rules are P24's; this section states how the code holds t
 - **Reclamation and restore** (P24 rules 9 and 10) are stage 8's: a member leaves `R(o)` only on a report naming its
   unchanged generation, a cluster restores at one closed epoch, a restored partition abandons its open sequence blocks,
   and namespace numbers are never reused.
+  The placement model found three runs in which P24's reclamation as first written loses an inbound edge, so stage 8
+  builds it with the repairs proved in `lean/PlacementModel` (decided 2026-11-03, traces in `notes/group-6b.md`): a home
+  applies a report only once its own open epoch has reached the report's epoch; only a partition holding every bucket
+  of a group at every retained epoch reports it, so a group split across partitions or moved is never reclaimed; and a
+  registration for a group not in `R(o)` takes one generation above the larger of the generation it names and the
+  highest the group ever held there, so the home keeps a removed member's highest generation for as long as duplicate
+  messages can arrive. A commit made under a registration reply reads its `(o, g)` mark key, so a report or renewal
+  concurrent with it conflicts; group 7 builds that check now, and stage 8's sequenced path keeps it.
 - **The placement model.** `lean/PlacementModel`, a Lake library beside `RoundModel`, models registration, stamping,
   catalog announcements, referrer sets, reverse reads, tombstones and reclamation, and proves P24 rules 4, 5, 6, 9 and
   11 (transaction-verification) before group 7 writes the partition code: every write is stamped at or above the

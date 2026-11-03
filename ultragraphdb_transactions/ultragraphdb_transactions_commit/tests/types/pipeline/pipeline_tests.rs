@@ -357,24 +357,26 @@ fn test_the_session_table_survives_a_restart_with_the_store() -> TestResult {
     Ok(())
 }
 
-/// Every write takes its version from the commit step (decided 2026-10-28): a build the pipeline's applier runs ends
+/// Every write takes its version from the commit step (decided 2026-10-28): a build a catalog version starts ends
 /// with a swap the pipeline proposes once the build is done, decided in a round of its own, and a write after it
 /// commits at the step's next version; the swap's reply goes to nobody.
 #[test]
 fn test_a_builds_swap_takes_its_version_from_the_step_and_a_later_write_commits() -> TestResult {
-    use ultragraphdb_core_mapping::{Change, Declaration, PredicateDeclaration};
     let applier = applier()?;
     let _base = setup(&applier, vec![insert_literal("a", "name", "apple")])?;
     let (_s, mut pipe) = pipeline(&applier)?;
-    let mut declaration = begin(&applier)?;
-    write(
-        &mut declaration,
-        vec![Change::Declare(Declaration::Predicate(
-            PredicateDeclaration::new(crate::utils::fixture::ex("name"))
-                .with_tokenizers(vec!["term".to_string()]),
-        ))],
+    // The close of epoch 1 announces version 2, which takes effect at epoch 2 as the round installing it.
+    let announced = ultragraphdb_cluster_sequencer::CatalogVersion::new(
+        ultragraphdb_core_ids::Namespace::new(NS),
+        2,
+    );
+    pipe.close(
+        crate::utils::fixture::close(1, vec![announced], Vec::new())?,
+        0,
     )?;
-    pipe.commit(1, prepare(declaration)?, 0)?;
+    let version_two = crate::utils::fixture::term_version(NS, 2, "name");
+    let refusals = pipe.install(1, &version_two, 0)?;
+    assert!(refusals.is_empty(), "{refusals:?}");
     block_on(pipe.sync(0))?;
     assert!(applier.rebuilding());
     assert!(pipe.step().is_building());
@@ -390,8 +392,8 @@ fn test_a_builds_swap_takes_its_version_from_the_step_and_a_later_write_commits(
         pipe.step().previous_version(),
         "at the step's version"
     );
-    // The declaration took version(1, 0) and the swap, a round of its own, the step's next version.
-    assert_eq!(swapped, version(1, 2));
+    // The version took version(2, 0) and the swap, a round of its own, the step's next version.
+    assert_eq!(swapped, version(2, 2));
     let mut txn = begin(&applier)?;
     write(&mut txn, vec![insert("b", "knows", "c")])?;
     pipe.commit(2, prepare(txn)?, 0)?;
@@ -399,12 +401,12 @@ fn test_a_builds_swap_takes_its_version_from_the_step_and_a_later_write_commits(
     assert_eq!(
         drained(&mut pipe),
         vec![
-            Reply::new(1, Ok(version(1, 0))),
-            Reply::new(2, Ok(version(1, 4)))
+            Reply::new(1, Ok(version(2, 0))),
+            Reply::new(2, Ok(version(2, 4)))
         ],
         "the swap's reply goes to nobody"
     );
-    assert_eq!(pipe.watermark(), version(1, 4));
+    assert_eq!(pipe.watermark(), version(2, 4));
     assert_eq!(held(&applier, "b", "knows")?.len(), 1);
     Ok(())
 }
@@ -464,35 +466,33 @@ fn test_a_session_table_that_does_not_read_refuses_the_pipeline() -> TestResult 
     Ok(())
 }
 
-/// A build's end that cannot be proposed, its catalog unreadable, stops the pipeline: nothing later commits.
+/// A build's proposal that cannot be made stops the pipeline: nothing later commits. A build's end reads nothing of
+/// the store, its catalog held in memory; its start, the catalog version taking effect, reads the data its
+/// declarations are checked against, and that read fails.
 #[test]
 fn test_a_builds_end_that_cannot_be_proposed_stops_the_pipeline() -> TestResult {
-    use ultragraphdb_core_mapping::{Change, Declaration, PredicateDeclaration};
     let applier = applier()?;
     let _version: u64 = setup(&applier, vec![insert_literal("a", "name", "apple")])?;
     let (_s, mut pipe) = pipeline(&applier)?;
-    let mut declaration = begin(&applier)?;
-    write(
-        &mut declaration,
-        vec![Change::Declare(Declaration::Predicate(
-            PredicateDeclaration::new(crate::utils::fixture::ex("name"))
-                .with_tokenizers(vec!["term".to_string()]),
-        ))],
-    )?;
-    pipe.commit(1, prepare(declaration)?, 0)?;
-    block_on(pipe.sync(0))?;
-    applier.executor().run_until_idle();
-    // The catalog is read from the store again, and that read fails.
-    applier.forget_catalogs();
+    let narrowing = ultragraphdb_core_catalog::CatalogContents::new(
+        NS,
+        2,
+        vec![ultragraphdb_core_mapping::Declaration::Predicate(
+            ultragraphdb_core_mapping::PredicateDeclaration::new(crate::utils::fixture::ex("name"))
+                .with_cardinality(ultragraphdb_core_mapping::Cardinality::Single),
+        )],
+    );
     applier
         .quads()
         .store()
         .inject(ultragraphdb_store_sim::Fault::FailNextScanAfter(0));
-    let error = pipe.poll_builds(0).refused("the end is not proposed")?;
+    let error = pipe
+        .install(1, &narrowing, 0)
+        .refused("the version cannot take effect")?;
     assert!(
         matches!(
             &error.0,
-            PipelineErrorEnum::BuildEnd { cause }
+            PipelineErrorEnum::CatalogVersion { version: 2, cause }
                 if matches!(cause.0, ultragraphdb_transactions_txn::TxnErrorEnum::Changeset(_))
         ),
         "{error:?}"
@@ -502,10 +502,7 @@ fn test_a_builds_end_that_cannot_be_proposed_stops_the_pipeline() -> TestResult 
     commit_insert(&mut pipe, &applier, 2, "q")?;
     assert_eq!(
         drained(&mut pipe),
-        vec![
-            Reply::new(1, Ok(version(1, 0))),
-            Reply::new(2, Err(CommitError::unavailable()))
-        ]
+        vec![Reply::new(2, Err(CommitError::unavailable()))]
     );
     Ok(())
 }

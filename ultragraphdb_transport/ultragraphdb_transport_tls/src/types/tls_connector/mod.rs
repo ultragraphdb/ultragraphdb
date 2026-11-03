@@ -4,18 +4,15 @@
  */
 
 use std::io::{Read, Write};
-use std::net::TcpStream;
 use std::sync::Arc;
 
-use rustls::{ClientConfig, ClientConnection, StreamOwned};
+use rustls::{ClientConfig, ClientConnection, Connection};
 use rustls_pki_types::ServerName;
 
 use crate::errors::tls_error::{TlsError, TlsErrorEnum};
+use crate::types::tls_session::TlsSession;
+use crate::types::tls_stream::TlsStream;
 use crate::types::tls_trust::TlsTrust;
-
-/// A verified connection over `S`, a socket unless named otherwise, read and written as any other stream; the
-/// stream beneath is `.sock`.
-pub type TlsStream<S = TcpStream> = StreamOwned<ClientConnection, S>;
 
 /// Opens verified connections against one [`TlsTrust`]: TLS 1.3 and 1.2, ring as the crypto provider, no client
 /// certificate. It wraps a stream the caller opened, a socket or any other, for the name the caller asked for, which
@@ -56,6 +53,24 @@ impl TlsConnector {
         &self.trust
     }
 
+    /// A client session verifying the server for `host`, a DNS name or an IP address, for a carrier that drives it.
+    ///
+    /// # Errors
+    ///
+    /// [`TlsErrorEnum::InvalidServerName`](crate::TlsErrorEnum::InvalidServerName) for a host no certificate can
+    /// be checked against, and [`HandshakeFailed`](crate::TlsErrorEnum::HandshakeFailed) if rustls cannot open the
+    /// connection.
+    pub fn session(&self, host: &str) -> Result<TlsSession, TlsError> {
+        let name = ServerName::try_from(host.to_string())
+            .map_err(|_| TlsError::invalid_server_name(host.to_string()))?;
+        let client = ClientConnection::new(Arc::clone(&self.config), name)
+            .map_err(|e| TlsError::handshake_failed(host.to_string(), e.to_string()))?;
+        Ok(TlsSession::new(
+            Connection::Client(client),
+            host.to_string(),
+        ))
+    }
+
     /// Wraps `stream` in a connection verified for `host`, a DNS name or an IP address, with the handshake
     /// completed here: a certificate that does not verify fails this call, before anything is sent. A socket's read
     /// and write timeouts bound the handshake.
@@ -70,21 +85,6 @@ impl TlsConnector {
         stream: S,
         host: &str,
     ) -> Result<TlsStream<S>, TlsError> {
-        let name = ServerName::try_from(host.to_string())
-            .map_err(|_| TlsError::invalid_server_name(host.to_string()))?;
-        let failed = |reason: String| TlsError::handshake_failed(host.to_string(), reason);
-        let connection = ClientConnection::new(Arc::clone(&self.config), name)
-            .map_err(|e| failed(e.to_string()))?;
-        let mut tls = StreamOwned::new(connection, stream);
-        debug_assert!(tls.conn.is_handshaking());
-        // rustls defers the handshake to the first read or write, where a refused certificate would surface as an
-        // I/O error mid-request. Called while handshaking, `complete_io` writes and reads until the handshake
-        // completes or fails, so one call settles it.
-        let (_read_bytes, _written_bytes) = tls
-            .conn
-            .complete_io(&mut tls.sock)
-            .map_err(|e| failed(e.to_string()))?;
-        debug_assert!(!tls.conn.is_handshaking());
-        Ok(tls)
+        TlsStream::handshake(self.session(host)?, stream)
     }
 }

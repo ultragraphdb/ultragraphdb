@@ -5,9 +5,9 @@
 
 use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{
-    Begin, BeginView, BodyBuilder, BodyView, Command, CommitView, Describe, DropCommandView,
-    ErrorCode, ErrorReply, ExecuteView, FLAG_LAST, FrameView, Header, PatternSlot, Prepare,
-    PrepareView, QuadPattern, Register, ResultBatch, ResultTerm, Welcome,
+    Begin, BeginView, BodyBuilder, BodyView, ColumnType, Command, CommitView, Describe,
+    DropCommandView, ErrorCode, ErrorReply, ExecuteView, FLAG_LAST, FrameView, Header, PatternSlot,
+    Prepare, PrepareView, QuadPattern, ReadLevel, Register, ResultBatch, ResultTerm, Welcome,
 };
 
 use crate::utils_test::session_record::SessionRecord;
@@ -53,19 +53,8 @@ impl TestServer {
             return;
         };
         match command {
-            Command::Register => {
-                let session = self.sessions.len() as u64 + 9;
-                let _fresh: Option<SessionRecord> =
-                    self.sessions.insert(session, SessionRecord::default());
-                self.reply(stream, &Register::new(session), FLAG_LAST);
-            }
-            Command::Begin => {
-                if let Ok(begin) = BeginView::from_frame(&view) {
-                    let _replaced: Option<u32> = self.transactions.insert(stream, 0);
-                    let body = Begin::new(begin.namespace(), self.version, begin.read_only());
-                    self.reply(stream, &body, 0);
-                }
-            }
+            Command::Register => self.register(stream),
+            Command::Begin => self.begin(stream, &view),
             Command::Operation => {
                 if let Some(operations) = self.transactions.get_mut(&stream) {
                     *operations += 1;
@@ -84,7 +73,11 @@ impl TestServer {
             }
             Command::Commit => {
                 if let Ok(commit) = CommitView::from_frame(&view) {
-                    self.commit(stream, commit.session(), commit.request());
+                    self.commit(
+                        stream,
+                        u128::from_be_bytes(commit.session()),
+                        commit.request(),
+                    );
                 }
             }
             Command::Drop => {
@@ -104,6 +97,26 @@ impl TestServer {
             | Command::Error
             | Command::Round
             | Command::Authenticate => {}
+            // The client endpoint's connection refuses a role command before it reaches the server.
+            Command::Join
+            | Command::Members
+            | Command::Subscribe
+            | Command::EpochClose
+            | Command::Lease
+            | Command::Placement
+            | Command::Catalog
+            | Command::Challenge
+            | Command::Verify
+            | Command::Bind
+            | Command::Recall
+            | Command::ComputeRead
+            | Command::Scan
+            | Command::Entries
+            | Command::Reference
+            | Command::CloseRequest
+            | Command::Closed
+            | Command::DefaultEntry
+            | Command::Report => {}
         }
     }
 
@@ -120,6 +133,8 @@ impl TestServer {
                 .zip(QuadPattern::slot_types())
                 .filter(|(slot, _)| **slot == PatternSlot::Unbound)
                 .map(|(_, kind)| kind)
+                // The unbound slots, then the reifier column, a node (`PROTOCOL.md` section 7.1).
+                .chain(std::iter::once(ColumnType::Node))
                 .collect();
             let reply = Prepare::new(
                 body.namespace(),
@@ -149,22 +164,51 @@ impl TestServer {
         }
     }
 
-    /// The server's Result frames on `stream`: one column, two rows naming the same IRI, the last frame flagged; with
-    /// no frames configured, one flagged batch of no rows, a read that matches nothing.
+    /// A Register on `stream`, answered with a session of the server's numbering, from 9 up.
+    fn register(&mut self, stream: u64) {
+        let session = self.sessions.len() as u128 + 9;
+        let _fresh: Option<SessionRecord> = self.sessions.insert(session, SessionRecord::default());
+        self.reply(stream, &Register::new(session.to_be_bytes()), FLAG_LAST);
+    }
+
+    /// A Begin `view` on `stream`, answered with every field as sent and the read version a read-only snapshot's
+    /// bound, else 0 (`PROTOCOL.md` §6.2); its transaction opened.
+    fn begin(&mut self, stream: u64, view: &FrameView<'_>) {
+        let Ok(begin) = BeginView::from_frame(view) else {
+            return;
+        };
+        let _replaced: Option<u32> = self.transactions.insert(stream, 0);
+        let snapshot = begin.read_only() && begin.level() == ReadLevel::Snapshot;
+        let read_version = if snapshot { self.version } else { 0 };
+        let body = Begin::new(begin.namespace(), read_version, begin.read_only())
+            .with_level(begin.level())
+            .with_deadline_ms(begin.deadline_ms());
+        let body = match begin.token() {
+            Some(token) => body.with_token(token.clone()),
+            None => body,
+        };
+        self.reply(stream, &body, 0);
+    }
+
+    /// The server's Result frames on `stream`: one column and the reifier column, two rows naming the same IRI and no
+    /// reifier, the last frame flagged; with no frames configured, one flagged batch of no rows, a read that matches
+    /// nothing.
     fn results(&mut self, stream: u64) {
         let term = ResultTerm::iri("http://ex.org/same");
         let results = self.results;
         if results == 0 {
-            return self.reply(stream, &ResultBatch::new(1), FLAG_LAST);
+            return self.reply(stream, &ResultBatch::new(2), FLAG_LAST);
         }
         for i in 0..results {
-            let mut batch = ResultBatch::new(1).with_resume(vec![i as u8]);
+            let mut batch = ResultBatch::new(2).with_resume(vec![i as u8]);
             let rows = batch
-                .push_row(&[Some(&term)])
-                .and_then(|()| batch.push_row(&[Some(&term)]));
+                .push_row(&[Some(&term), None])
+                .and_then(|()| batch.push_row(&[Some(&term), None]));
             if let Err(error) = rows {
-                // A row of one cell fits a batch of one column, so the stream is refused only if that breaks.
-                let message = format!("a row of one cell fits a batch of one column: {error}");
+                // A row of a term and no reifier fits a batch of two columns, so the stream is refused only if that
+                // breaks.
+                let message =
+                    format!("a row of a term and no reifier fits a batch of two columns: {error}");
                 return self.error(stream, ErrorCode::OperationFailed, 0, &message);
             }
 

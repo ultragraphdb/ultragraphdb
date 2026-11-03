@@ -15,6 +15,7 @@ impl fmt::Display for ProtocolError {
             e @ E::ShortHeader { .. } => short_header(e, f),
             e @ E::HeaderChecksum { .. } => header_checksum(e, f),
             e @ E::UnknownCommand { .. } => unknown_command(e, f),
+            e @ E::CommandNotServed { .. } => command_not_served(e, f),
             e @ E::ReservedNotZero { .. } => reserved_not_zero(e, f),
             e @ E::WrongCluster { .. } => wrong_cluster(e, f),
             e @ E::SizeBelowHeader { .. } => size_below_header(e, f),
@@ -75,6 +76,15 @@ fn unknown_command(e: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         return Err(fmt::Error);
     };
     write!(f, "unknown command {command}")
+}
+
+/// The text of [`ProtocolErrorEnum::CommandNotServed`].
+fn command_not_served(e: &E, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    // Called only from the arm that matched this variant, so the `else` is never taken.
+    let E::CommandNotServed { command } = e else {
+        return Err(fmt::Error);
+    };
+    write!(f, "command {command} is not served on this connection")
 }
 
 /// The text of [`ProtocolErrorEnum::ReservedNotZero`].

@@ -29,4 +29,26 @@ fn test_constructors_build_their_variant() {
             reason: "bad".into()
         }
     );
+    assert_eq!(
+        TlsError::certificate_unreadable("/c".into(), "gone".into()).0,
+        TlsErrorEnum::CertificateUnreadable {
+            path: "/c".into(),
+            reason: "gone".into()
+        }
+    );
+    assert_eq!(
+        TlsError::certificate_empty("/c".into()).0,
+        TlsErrorEnum::CertificateEmpty("/c".into())
+    );
+    assert_eq!(
+        TlsError::key_mismatch("/k".into()).0,
+        TlsErrorEnum::KeyMismatch("/k".into())
+    );
+    assert_eq!(
+        TlsError::record_refused("h".into(), "bad".into()).0,
+        TlsErrorEnum::RecordRefused {
+            host: "h".into(),
+            reason: "bad".into()
+        }
+    );
 }

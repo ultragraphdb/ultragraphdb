@@ -6,17 +6,19 @@
 use std::sync::Arc;
 
 use oxrdf::{GraphNameRef, NamedNodeRef};
-use ultragraphdb_core_catalog::Catalog;
+use ultragraphdb_core_catalog::{Catalog, CatalogContents};
 use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_mapping::{Changeset, RandomSource};
 use ultragraphdb_store_posting::{Batch, CachedList, Lists};
 use ultragraphdb_store_quads::QuadStore;
 use ultragraphdb_traits_blocks::BlockSource;
+use ultragraphdb_traits_catalog::DefaultEntry;
 use ultragraphdb_traits_store::{Executor, ListCache, Store, VersionlessEntry};
 
 use crate::errors::changeset_error::ChangesetError;
 use crate::types::applied::Applied;
 use crate::types::build_end::BuildEnd;
+use crate::types::catalog_execution::CatalogExecution;
 use crate::types::changeset_core::ChangesetCore;
 use crate::types::drop_request::DropRequest;
 use crate::types::drop_target::DropTarget;
@@ -52,7 +54,8 @@ where
 {
     /// The applier of `lists`' store, its sequences leased from `blocks` and its names drawn from `random`, its builds
     /// on `executor`, its vector index's level draws seeded by `seed`. Refused when the store was written under another
-    /// mapping contract. A rebuild record a crash left is finished first.
+    /// mapping contract. A rebuild record a crash left is finished by [`ChangesetApplier::recover_builds`], once the
+    /// catalogs are loaded.
     pub fn new(
         lists: Lists<S, C>,
         blocks: B,
@@ -66,7 +69,6 @@ where
     /// The applier of `quads`, as [`ChangesetApplier::new`] makes it.
     pub fn over(quads: QuadStore<S, C, B>, executor: E, seed: u64) -> Result<Self, ChangesetError> {
         let core = ChangesetCore::new(quads, seed);
-        core.finish_records()?;
         Ok(Self {
             core: Arc::new(core),
             executor,
@@ -89,14 +91,100 @@ where
         self.core.catalog(namespace)
     }
 
-    /// Forgets every loaded catalog, as a reopening of the store needs.
+    /// Forgets every catalog held in memory: each namespace then holds an empty catalog until a version is loaded or
+    /// its next write gives it the initial one.
     pub fn forget_catalogs(&self) {
         self.core.forget_catalogs();
+    }
+
+    /// Installs `contents`, a catalog version the metadata group holds, as its namespace's catalog, as a partition
+    /// loads the version in effect at its store's applied epoch before it replays: the store already reflects the
+    /// version, so nothing is checked against the data, built or written. The namespace's initial catalog is kept
+    /// beneath it, `rdf:type` an edge when it has an ID; each declaration's IRI is looked up in the dictionary.
+    ///
+    /// # Errors
+    ///
+    /// The store's corruption error naming a declared IRI the dictionary does not hold, since the round that installed
+    /// the version gave each its ID; a declaration the catalog refuses; the store's error.
+    pub fn load_catalog(&self, contents: &CatalogContents) -> Result<(), ChangesetError> {
+        self.core.load_catalog(contents)
+    }
+
+    /// The round of a catalog version taking effect in the partition at its epoch, for the commit step to apply alone in
+    /// a round before any transaction executed against it: an execution at the watermark declaring every declaration of
+    /// `contents` and removing every predicate, entity type and relation the version no longer declares, each checked
+    /// against the data as a declaration is. A declaration the data contradicts is refused and its predicate keeps its
+    /// declaration; a
+    /// declaration adding an index to a predicate holding data starts its build. Applied, it installs the catalog as
+    /// version `contents.version()`. Writes nothing to the catalog keyspace.
+    ///
+    /// # Errors
+    ///
+    /// [`ChangesetError::rebuilding`] when a build runs, the version waiting for its end; the store's error.
+    pub fn execute_catalog(
+        &self,
+        contents: &CatalogContents,
+    ) -> Result<CatalogExecution, ChangesetError> {
+        self.core.execute_catalog(contents, &[])
+    }
+
+    /// The round of `contents` taking effect again on replay, as [`ChangesetApplier::execute_catalog`] executes it, reading
+    /// `dictionary`, its logged round's dictionary entries, as its own, so the IRIs it names take the IDs its first
+    /// apply gave them.
+    ///
+    /// # Errors
+    ///
+    /// As [`ChangesetApplier::execute_catalog`].
+    pub fn replay_catalog(
+        &self,
+        contents: &CatalogContents,
+        dictionary: &[&VersionlessEntry],
+    ) -> Result<CatalogExecution, ChangesetError> {
+        self.core.execute_catalog(contents, dictionary)
+    }
+
+    /// Finishes the rebuild records a crash left, once the catalogs are loaded ([`ChangesetApplier::load_catalog`]) and
+    /// before the partition serves or replays: each index a record names that the loaded catalog does not declare is
+    /// dropped, and the build of the indexes it names that the catalog declares runs again from the data at the
+    /// watermark, as a partition runs an interrupted build's backfill again.
+    ///
+    /// # Errors
+    ///
+    /// The store's error.
+    pub fn recover_builds(&self) -> Result<(), ChangesetError> {
+        let started = self.core.finish_records()?;
+        self.spawn(started);
+        Ok(())
+    }
+
+    /// The default-entry records of `namespace` a partition sends when it starts, once its catalog is loaded and its log
+    /// replayed: one for every predicate the store holds statements of that the catalog version in effect does not
+    /// declare. The metadata group finds a record that exists, so sending every one again is harmless, and a record
+    /// whose command a crash left unsent, at any point, is sent.
+    ///
+    /// # Errors
+    ///
+    /// The store's error, and a predicate's ID without its dictionary entry.
+    pub fn reconcile_defaults(&self, namespace: u64) -> Result<Vec<DefaultEntry>, ChangesetError> {
+        self.core.reconcile_defaults(namespace)
+    }
+
+    /// The default-entry records the rounds applied since the last call ask the metadata group for: one per predicate
+    /// a round first wrote undeclared since the partition started, replayed rounds' included, so recovery sends each
+    /// again. The host sends each as a command no write waits for; a refused write asks for none.
+    pub fn take_default_entries(&self) -> Vec<DefaultEntry> {
+        self.core.take_default_entries()
     }
 
     /// Whether an index is being built.
     pub fn rebuilding(&self) -> bool {
         self.core.rebuilding()
+    }
+
+    /// The number of the record of the build running, `None` when none runs: the build a replayed build's completion
+    /// record ends.
+    pub fn build_record(&self) -> Option<u64> {
+        self.core.build_record()
     }
 
     /// Sequences every later build through the commit step (decided 2026-10-28): a build ends with a proposal
@@ -158,24 +246,6 @@ where
         target: DropTarget,
     ) -> Result<Executed, ChangesetError> {
         self.core.prepare_replayed_drop(namespace, target)
-    }
-
-    /// Restores the build `end` ends, for recovery (7.9): from the catalog entry `key` and `value` the end's record
-    /// names, the declaration it writes, and the predicate's declaration the store holds, its interim one, so the
-    /// round of `end`'s proposal ([`ChangesetApplier::prepare_build_end`]) builds it again and swaps it in, or undoes
-    /// it. Not restored, `false`, when the store no longer declares the predicate: a drop cancelled the build.
-    ///
-    /// # Errors
-    ///
-    /// The store's error, and an entry that is no declaration.
-    pub fn restore_build(
-        &self,
-        namespace: u64,
-        end: BuildEnd,
-        key: &[u8],
-        value: &[u8],
-    ) -> Result<bool, ChangesetError> {
-        self.core.restore_build(namespace, end, key, value)
     }
 
     /// The proposal of `end` for the commit step: an execution at the watermark that writes nothing itself, whose

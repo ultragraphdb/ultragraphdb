@@ -23,7 +23,7 @@ fn result(stream: u64, tag: u32, last: bool) -> TestResult<Vec<u8>> {
 }
 
 fn reply(stream: u64, last: bool) -> TestResult<Vec<u8>> {
-    Ok(Commit::new(1, 1, 2, Vec::new()).frame(
+    Ok(Commit::new(1u128.to_be_bytes(), 1, 2).frame(
         Header::new(CLUSTER, Command::Commit)
             .with_stream(stream)
             .with_flags(if last { FLAG_LAST } else { 0 }),

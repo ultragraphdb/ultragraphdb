@@ -1,0 +1,42 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+# The cargo-fuzz package of ultragraphdb_cluster_metadata, run by scripts/fuzz.sh; a member of the fuzz workspace in
+# fuzz/. Its targets call the crate's public decoders only.
+
+[package]
+name = "ultragraphdb_cluster_metadata_fuzz"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[package.metadata]
+cargo-fuzz = true
+
+[lints]
+workspace = true
+
+[dependencies]
+libfuzzer-sys = { workspace = true }
+ultragraphdb_cluster_metadata = { workspace = true }
+ultragraphdb_error_cluster = { workspace = true }
+
+# Any bytes as a round of the metadata group's log: decoded as a command or refused with a typed error, never a panic;
+# an accepted command encodes back to its bytes.
+[[bin]]
+name = "command_decode"
+path = "fuzz_targets/command_decode.rs"
+test = false
+doc = false
+bench = false
+
+# Any bytes as a stored snapshot of the metadata group: decoded or refused with a typed error, never a panic; an
+# accepted snapshot encodes back to its bytes.
+[[bin]]
+name = "snapshot_decode"
+path = "fuzz_targets/snapshot_decode.rs"
+test = false
+doc = false
+bench = false

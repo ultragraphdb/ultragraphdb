@@ -43,9 +43,17 @@ pub const LEAF_SIZE: usize = 8;
 /// The frame format's version, the header's `protocol` field.
 pub const PROTOCOL_VERSION: u16 = 1;
 
-/// The command numbers reserved for stage 10's replica commands. No command of this protocol takes one, so a frame
+/// The command numbers reserved for stage 8's replica commands. No command of this protocol takes one, so a frame
 /// naming one is refused as an unknown command until those commands exist.
 pub const REPLICA_COMMANDS: RangeInclusive<u16> = 256..=511;
+
+/// The command numbers of the role commands (`PROTOCOL.md` §3, §13): roles exchange them on role connections, and a
+/// client endpoint refuses every one as a command it does not serve. 512 to 530 are assigned; the rest are reserved
+/// and refused as unknown commands.
+pub const ROLE_COMMANDS: RangeInclusive<u16> = 512..=767;
+
+/// The largest epoch number, 2⁴² − 1: an epoch field holds 1 to this, or 0 where the field allows none.
+pub const MAX_EPOCH: u64 = (1 << 42) - 1;
 
 /// The numbers of retired commands. A retired command's number is never given to another command, and a frame
 /// carrying one is refused as an unknown command. No command has been retired.
@@ -79,3 +87,7 @@ pub const RECORD_REGISTRATION_SIZE: usize = 32;
 /// The size of a commit-time operation's result (`PROTOCOL.md` §6.3): `value` i64, `node` u32, `created` u8, 3 zero
 /// bytes; a Commit reply's section 0 and a write-set record's section 9.
 pub const OPERATION_RESULT_SIZE: usize = 16;
+
+/// The size of a Scan's range record (`PROTOCOL.md` §13.13): `partition` u32, 4 zero bytes, `first`, `first_len`,
+/// `past` and `past_len`, u32s.
+pub const SCAN_RANGE_SIZE: usize = 24;

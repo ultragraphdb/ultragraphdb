@@ -11,6 +11,9 @@ use ultragraphdb_protocol_transport::{
 };
 use ultragraphdb_protocol_wire::{Hello, Welcome};
 
+/// The fills a frame takes: its header, then the rest of the frame (`Framer::want`).
+const FILLS_PER_FRAME: usize = 2;
+
 /// How filling a buffer to a length ended.
 enum Fill {
     Done,
@@ -22,8 +25,10 @@ enum Fill {
 /// Reads into `bytes` until it holds `target` bytes; the bytes are returned whatever the outcome.
 async fn fill<S: AsyncRead>(stream: &mut S, mut bytes: Vec<u8>, target: usize) -> (Fill, Vec<u8>) {
     if bytes.capacity() < target {
-        bytes.reserve_exact(target - bytes.len());
+        bytes.reserve_exact(target.saturating_sub(bytes.len()));
     }
+    // Event loop: it ends once the buffer holds `target` bytes, the peer closes, or the stream fails; each turn is one
+    // read the stream completes.
     while bytes.len() < target {
         let start = bytes.len();
         let BufResult(read, slice) = stream.read(bytes.slice(start..target)).await;
@@ -84,7 +89,7 @@ impl<S: AsyncRead + AsyncWrite> Connection<S> {
     pub async fn read_frame(&mut self, pool: &BufferPool) -> Result<ReceivedFrame, TransportError> {
         let mut buffer = pool.acquire()?;
         self.framer.reset();
-        loop {
+        for _ in 0..FILLS_PER_FRAME {
             let mut bytes = buffer.take();
             let (filled, rest) = fill(&mut self.stream, bytes, self.framer.want()).await;
             bytes = rest;
@@ -107,6 +112,10 @@ impl<S: AsyncRead + AsyncWrite> Connection<S> {
                 }
             }
         }
+        // Not reached: after its header, the framer asks for the frame's size once, and the buffer filled to it holds
+        // the frame whole.
+        let received = buffer.len();
+        Err(TransportError::truncated(received, self.framer.want()))
     }
 
     /// Writes `frame` whole and flushes it; [`TransportError::io`] when the stream fails. The frame is handed

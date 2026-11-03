@@ -1,0 +1,34 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+ */
+
+mod recall_view_body_view;
+
+use std::marker::PhantomData;
+
+/// The body of a received Recall frame, read in place; see [`crate::Recall`] for its layout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RecallView<'a> {
+    frame: PhantomData<&'a [u8]>,
+    partition: u32,
+    session: [u8; 16],
+    request: u64,
+}
+
+impl RecallView<'_> {
+    /// The partition asked.
+    pub fn partition(&self) -> u32 {
+        self.partition
+    }
+
+    /// The session.
+    pub fn session(&self) -> [u8; 16] {
+        self.session
+    }
+
+    /// The request number whose reply is recalled.
+    pub fn request(&self) -> u64 {
+        self.request
+    }
+}

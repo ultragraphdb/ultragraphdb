@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+pub(crate) mod catalog_keys;
 pub(crate) mod literal_tokens;
 pub(crate) mod lock;
 pub(crate) mod quad_prefixes;

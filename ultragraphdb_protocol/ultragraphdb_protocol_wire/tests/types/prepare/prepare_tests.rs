@@ -48,7 +48,7 @@ fn test_prepare_and_its_reply_build_the_golden_frames() -> TestResult {
         terms.clone(),
         p,
         vec![ColumnType::Node],
-        vec![ColumnType::Term],
+        vec![ColumnType::Term, ColumnType::Node],
     );
     assert_eq!(
         reply.frame(golden("prepare_reply")?.header())?,
@@ -61,6 +61,6 @@ fn test_prepare_and_its_reply_build_the_golden_frames() -> TestResult {
     assert_eq!(reply.terms(), &terms);
     assert_eq!(reply.pattern(), &p);
     assert_eq!(reply.parameter_types(), &[ColumnType::Node]);
-    assert_eq!(reply.result_types(), &[ColumnType::Term]);
+    assert_eq!(reply.result_types(), &[ColumnType::Term, ColumnType::Node]);
     Ok(())
 }

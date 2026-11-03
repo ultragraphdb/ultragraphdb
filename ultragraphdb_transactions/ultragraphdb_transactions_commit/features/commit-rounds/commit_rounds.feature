@@ -71,15 +71,23 @@ Feature: Commit rounds
 
   Scenario: Concurrent first writes of a predicate both commit
     When two transactions of `ns` read before either commits, the first writes `<a> <score> 12` and the second `<b> <score> "high"`, and `score` was not declared
-    Then both commit, and the catalog of `ns` holds `score` with the default entry once
+    Then both commit, and the metadata group holds `score`'s default entry once
 
   Scenario: A write after a build's start in the same round aborts
-    When a round admits a declaration of `ns` that starts an index build of `p`, and a later transaction of the same round, executed against the catalog before the declaration, writes `p` in `ns`
-    Then the later transaction aborts with a conflict, and its retry is indexed by the build
+    When a version of `ns` starting an index build of `p` takes effect at epoch 40, and a transaction executed against the version before it writes `p` in `ns` and commits at epoch 40
+    Then the transaction aborts with a conflict naming the catalog, and its retry is indexed by the build
 
   Scenario: A write executed against an old catalog aborts
-    When a transaction executes against the catalog of `ns`, and a declaration of `ns` commits before it
-    Then the transaction aborts with a conflict, and its retry is checked against the new declaration
+    When a transaction executes against catalog version 2 of `ns`, and commits at an epoch from which version 3 is in effect
+    Then the transaction aborts with a conflict naming the catalog, and its retry is checked against version 3
+
+  Scenario: Two builds taking effect at one epoch take two rounds
+    When versions 3 and 4 of `ns` both take effect at epoch 40, each starting an index build
+    Then the build of version 3 begins in one round and that of version 4 in a later round, and no transaction aborts for either
+
+  Scenario: A crash during a build runs the backfill again
+    When a build of a term index on `name` has started, its backfill is half written, and the process is killed before the build's completion record is durable
+    Then recovery runs the backfill again from the build's start version, and once its completion record is durable the index lists every subject the data holds
 
   Scenario: A write into a dropped predicate aborts
     When a transaction inserts `<a> <p> <b>` and a drop of `p` commits after its read version
@@ -88,6 +96,10 @@ Feature: Commit rounds
   Scenario: A write during an index build is in the built index
     When a term index on `name` is being built and a transaction inserting `<c> <name> "pear"` commits during the build
     Then once the build is swapped in, the term index of `name` lists `c` under `pear`
+
+  Scenario: No catalog key is written to a partition
+    When a predicate is declared and another is first written
+    Then no partition's store holds a catalog key for either, and the metadata group holds both entries
 
   # Requirement: Rollups take no version from the commit step
 

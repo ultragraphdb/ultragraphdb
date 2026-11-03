@@ -32,6 +32,13 @@ pub enum ProtocolErrorEnum {
         /// The command number the header names.
         command: u16,
     },
+    /// The command is one of this protocol's, but not one the receiving endpoint serves on this connection: a role
+    /// command (512 to 767) on a client connection, or a command a role endpoint does not serve (`PROTOCOL.md` §2.5,
+    /// §11.12).
+    CommandNotServed {
+        /// The command number the header names.
+        command: u16,
+    },
     /// A reserved header byte is not zero: `offset` is the first such byte, in the reserved bytes (66 to 128) or among
     /// the command header's unused bytes (128 to 256).
     ReservedNotZero {
@@ -280,6 +287,11 @@ impl ProtocolError {
     /// The `command` number names no command of this protocol.
     pub fn unknown_command(command: u16) -> Self {
         Self(ProtocolErrorEnum::UnknownCommand { command })
+    }
+
+    /// The `command` is not one the receiving endpoint serves on this connection.
+    pub fn command_not_served(command: u16) -> Self {
+        Self(ProtocolErrorEnum::CommandNotServed { command })
     }
 
     /// The reserved header byte at `offset` is not zero.

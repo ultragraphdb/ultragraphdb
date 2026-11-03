@@ -17,7 +17,6 @@ impl BodyBuilder for Read {
         command_header(&[
             (0, &self.transaction().to_le_bytes()),
             (8, &self.limit().to_le_bytes()),
-            (12, &u32::from(self.statement_ids()).to_le_bytes()),
         ])
     }
 

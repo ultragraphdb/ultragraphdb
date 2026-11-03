@@ -389,7 +389,7 @@ fn read(transaction: u64) -> Read {
 }
 
 fn commit_reply(stream: u64) -> TestResult<Vec<u8>> {
-    Ok(Commit::new(0, 0, 9, Vec::new()).frame(
+    Ok(Commit::new(0u128.to_be_bytes(), 0, 9).frame(
         Header::new(CLUSTER, Command::Commit)
             .with_stream(stream)
             .with_flags(FLAG_LAST),
@@ -536,12 +536,12 @@ fn welcomed_at_two(w: &mut Steps) -> TestResult {
 async fn two_streams(w: &mut Steps) -> TestResult {
     let mut c =
         Conversation::new(NetworkFaults::none().with_split(500_000), welcome(1), None).await?;
-    c.send(1, &Register::new(0)).await?;
-    c.send(2, &Register::new(0)).await?;
+    c.send(1, &Register::new(0u128.to_be_bytes())).await?;
+    c.send(2, &Register::new(0u128.to_be_bytes())).await?;
     c.server_takes().await?;
     c.server_takes().await?;
     let reply = |stream| {
-        Commit::new(1, stream, 10 + stream, Vec::new()).frame(
+        Commit::new(1u128.to_be_bytes(), stream, 10 + stream).frame(
             Header::new(CLUSTER, Command::Commit)
                 .with_stream(stream)
                 .with_flags(FLAG_LAST),
@@ -759,7 +759,7 @@ async fn two_reads(w: &mut Steps) -> TestResult {
     c.server_takes().await?;
     c.server_sends(usize::MAX).await?;
     w.later = c.client_reads().await?;
-    c.send(1, &Commit::new(0, 0, 0, Vec::new())).await?;
+    c.send(1, &Commit::new(0u128.to_be_bytes(), 0, 0)).await?;
     w.inbound.push(c.server_reads().await?);
     c.connection.outbound().push(1, commit_reply(1)?)?;
     c.server_sends(usize::MAX).await?;
@@ -822,7 +822,7 @@ async fn cancel_a_read(w: &mut Steps) -> TestResult {
     w.seen = c.client_reads().await?;
     c.send(3, &Cancel).await?;
     w.inbound.push(c.server_reads().await?);
-    c.send(1, &Commit::new(0, 0, 0, Vec::new())).await?;
+    c.send(1, &Commit::new(0u128.to_be_bytes(), 0, 0)).await?;
     w.inbound.push(c.server_reads().await?);
     c.connection.outbound().push(1, commit_reply(1)?)?;
     c.server_sends(usize::MAX).await?;
@@ -861,7 +861,7 @@ async fn commit_ends_reads(w: &mut Steps) -> TestResult {
     c.server_sends(usize::MAX).await?;
     w.seen = c.client_reads().await?;
     c.send(3, &Credit::new(10)).await?;
-    c.send(1, &Commit::new(0, 0, 0, Vec::new())).await?;
+    c.send(1, &Commit::new(0u128.to_be_bytes(), 0, 0)).await?;
     c.server_takes().await?;
     c.server_takes().await?;
     // The commit's reply leaves before the read's next turn; the read ends with its transaction.
@@ -889,7 +889,7 @@ fn reads_ended(w: &mut Steps) -> TestResult {
 async fn scram_success(w: &mut Steps) -> TestResult {
     let mut c = Conversation::new(NetworkFaults::none(), authenticating(4), None).await?;
     w.principal = c.authenticate("alice", "pw").await?.ok();
-    c.send(1, &Register::new(0)).await?;
+    c.send(1, &Register::new(0u128.to_be_bytes())).await?;
     w.inbound.push(c.server_reads().await?);
     Ok(())
 }
@@ -996,7 +996,7 @@ async fn renewed(w: &mut Steps) -> TestResult {
     w.inbound.extend(c.connection.handle_timeout(c.now));
     c.send(3, &Credit::new(2)).await?;
     c.server_takes().await?;
-    c.send(7, &Register::new(0)).await?;
+    c.send(7, &Register::new(0u128.to_be_bytes())).await?;
     w.inbound.push(c.server_reads().await?);
     c.server_sends(usize::MAX).await?;
     w.later = c.client_reads().await?;
@@ -1050,7 +1050,7 @@ fn other_principal_refused(w: &mut Steps) -> TestResult {
 async fn open_server(w: &mut Steps) -> TestResult {
     let mut c = Conversation::new(NetworkFaults::none(), welcome(4), None).await?;
     w.welcome = c.connection.welcome().cloned();
-    c.send(1, &Register::new(0)).await?;
+    c.send(1, &Register::new(0u128.to_be_bytes())).await?;
     w.inbound.push(c.server_reads().await?);
     w.principal = c.connection.principal();
     Ok(())

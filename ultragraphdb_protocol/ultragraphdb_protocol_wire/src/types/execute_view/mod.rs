@@ -13,7 +13,6 @@ pub struct ExecuteView<'a> {
     statement: u64,
     transaction: u64,
     limit: u32,
-    statement_ids: bool,
     terms: TermTableView<'a>,
     parameters: Vec<u32>,
     resume: &'a [u8],
@@ -28,11 +27,6 @@ impl<'a> ExecuteView<'a> {
     /// The stream number of the transaction's Begin.
     pub fn transaction(&self) -> u64 {
         self.transaction
-    }
-
-    /// Whether each row's statement ID is returned.
-    pub fn statement_ids(&self) -> bool {
-        self.statement_ids
     }
 
     /// The most rows returned; 0 for no limit.

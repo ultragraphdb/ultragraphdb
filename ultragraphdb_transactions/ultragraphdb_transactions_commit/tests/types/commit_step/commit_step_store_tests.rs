@@ -187,39 +187,17 @@ fn test_an_aborted_transaction_gives_its_buffers_back() -> TestResult {
     Ok(())
 }
 
-/// A declaration starting an index build of `predicate` in `namespace`, executed at the watermark.
+/// Catalog version 2 of `namespace` starting an index build of `predicate`, executed at the watermark.
 fn build_in(
     applier: &crate::utils::fixture::Applier,
     namespace: u64,
     predicate: &str,
 ) -> TestResult<ultragraphdb_transactions_txn::Prepared> {
-    use ultragraphdb_core_mapping::{Change, Changeset, Declaration, PredicateDeclaration};
-    use ultragraphdb_transactions_txn::{Commit, Mode, Transaction, TxnLimits};
-    let mut txn = Transaction::begin(
-        applier,
-        namespace,
-        Mode::ReadWrite,
-        0,
-        0,
-        TxnLimits::default(),
-        TxnBuffers::new(),
-    )
-    .context("it begins")?;
-    let declared = PredicateDeclaration::new(crate::utils::fixture::ex(predicate))
-        .with_tokenizers(vec!["term".to_string()]);
-    txn.write(
-        &Changeset::new(namespace).with(Change::Declare(Declaration::Predicate(declared))),
-        0,
-    )
-    .context("declared")?;
-    let prepared = match txn.commit(0, 0, &[], 0) {
-        Ok(Commit::ReadWrite(prepared)) => Some(prepared),
-        Ok(Commit::ReadOnly(_)) | Err(_) => None,
-    };
-    prepared.context("a read-write commit")
+    let version = crate::utils::fixture::term_version(namespace, 2, predicate);
+    crate::utils::fixture::catalog_proposal(applier, &version)
 }
 
-/// Two declarations starting index builds in different namespaces conflict on no key, and one build runs at a time:
+/// Two catalog versions starting index builds in different namespaces conflict on no key, and one build runs at a time:
 /// the second waits in the step, set aside, until the first's end is admitted, in a round of its own, then is decided,
 /// and every one commits (decided 2026-10-28).
 #[test]

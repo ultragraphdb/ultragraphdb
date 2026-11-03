@@ -3,21 +3,25 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_catalog::CatalogContents;
 use ultragraphdb_core_ids::{SessionToken, SystemId, Version};
 use ultragraphdb_core_keys::Graph;
 use ultragraphdb_error_store::StoreError;
 use ultragraphdb_protocol_wire::{
-    RecordKind, RecordOperation, RoundHeader, RoundView, WriteSetRecordView,
+    BuildOutcome, RecordKind, RecordOperation, RoundHeader, RoundView, WriteSetRecordView,
 };
 use ultragraphdb_store_apply::{
-    Applied, ChangesetApplier, ChangesetError, DropTarget, Executed, LogicalQuad, LogicalWrites,
+    Applied, BuildEnd, ChangesetApplier, ChangesetError, DropTarget, Executed, LogicalQuad,
+    LogicalWrites,
 };
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_traits_blocks::BlockSource;
+use ultragraphdb_traits_catalog::CatalogSource;
 use ultragraphdb_traits_log::{OrderedLog, Position, Round};
 use ultragraphdb_traits_store::{Executor, ListCache, Store, VersionlessEntry};
 
 use crate::errors::recovery_error::RecoveryError;
+use crate::types::no_versions::NoVersions;
 use crate::types::sessions::Sessions;
 use crate::types::stored_reply::StoredReply;
 
@@ -83,6 +87,36 @@ impl Replay {
         B: BlockSource + Send + Sync + 'static,
         E: Executor,
     {
+        Self::run_with_catalog(partition, applier, log, capacity, &NoVersions).await
+    }
+
+    /// Replays `log` as [`Replay::run_in`] does, reading from `catalog`, the metadata group, each catalog version a
+    /// replayed build's start record names: the version takes effect again as the round of its record, its
+    /// declarations checked against the data the earlier rounds left and its index build started again from the
+    /// record's version, so a crash that interrupted the build runs its backfill again; a build's completion record
+    /// ends the build running, built again when nothing of it is kept. A partition loads the catalog versions in effect
+    /// at its store's applied epoch first ([`ChangesetApplier::load_catalog`]), and finishes the rebuild records a
+    /// crash left after ([`ChangesetApplier::recover_builds`]). The default-entry records the replayed rounds ask for
+    /// are the applier's to take ([`ChangesetApplier::take_default_entries`]), sent again to the group.
+    ///
+    /// # Errors
+    ///
+    /// As [`Replay::run`]; [`RecoveryError::catalog`] for a version the source does not give or that does not decode.
+    pub async fn run_with_catalog<L, S, C, E, B, K>(
+        partition: u32,
+        applier: &ChangesetApplier<S, C, E, B>,
+        log: &mut L,
+        capacity: usize,
+        catalog: &K,
+    ) -> Result<Self, RecoveryError>
+    where
+        L: OrderedLog,
+        S: Store + Send + Sync + 'static,
+        C: ListCache<Value = CachedList> + Send + Sync + 'static,
+        B: BlockSource + Send + Sync + 'static,
+        E: Executor,
+        K: CatalogSource,
+    {
         let store = applier.quads().store();
         let applied = Self::applied_position(store)?.get();
         let checkpoint = log.checkpoint().get();
@@ -123,7 +157,12 @@ impl Replay {
                     ));
                 }
                 let view = round_view(round)?;
-                replay.round(partition, applier, &mut sessions, &view, position)?;
+                let at = Replaying {
+                    partition,
+                    position,
+                    catalog,
+                };
+                replay.round(&at, applier, &mut sessions, &view)?;
                 next = position.saturating_add(1);
             }
         }
@@ -131,22 +170,23 @@ impl Replay {
         Ok(replay)
     }
 
-    /// Replays one round at `position` into the store, its dictionary entries, the session table's entries it changes
-    /// and its applied position in its batch.
-    fn round<S, C, E, B>(
+    /// Replays one round at `at`'s position into the store, its dictionary entries, the session table's entries it
+    /// changes and its applied position in its batch.
+    fn round<S, C, E, B, K>(
         &mut self,
-        partition: u32,
+        at: &Replaying<'_, K>,
         applier: &ChangesetApplier<S, C, E, B>,
         sessions: &mut Sessions,
         view: &RoundView<'_>,
-        position: u64,
     ) -> Result<(), RecoveryError>
     where
         S: Store + Send + Sync + 'static,
         C: ListCache<Value = CachedList> + Send + Sync + 'static,
         B: BlockSource + Send + Sync + 'static,
         E: Executor,
+        K: CatalogSource,
     {
+        let (partition, position) = (at.partition, at.position);
         let apply = |cause| RecoveryError::apply(position, cause);
         let mut system: Vec<VersionlessEntry> = view
             .dictionary()
@@ -162,7 +202,13 @@ impl Replay {
                 continue;
             };
             through = version;
-            if let Some(executed) = prepare(applier, record, &inherited).map_err(apply)? {
+            let prepared = match record.kind() {
+                RecordKind::Build => prepare_build(applier, record, at, &inherited)?,
+                RecordKind::Transaction | RecordKind::Registration => {
+                    prepare(applier, record, &inherited).map_err(apply)?
+                }
+            };
+            if let Some(executed) = prepared {
                 executions.push((version, executed));
             }
             let session = u128::from_be_bytes(record.session());
@@ -185,7 +231,6 @@ impl Replay {
         let _applied: Vec<Applied> = applier
             .apply_round_with(executions, &system, through)
             .map_err(apply)?;
-        applier.forget_catalogs();
         self.rounds += 1;
         Ok(())
     }
@@ -242,8 +287,80 @@ fn round_view(round: &Round) -> Result<RoundView<'_>, RecoveryError> {
         .map_err(|cause| RecoveryError::round(round.position().get(), cause))
 }
 
+/// Where a replay is: the partition replayed, the position of the round, and the metadata group the catalog versions a
+/// build's start record names are read from.
+struct Replaying<'k, K> {
+    partition: u32,
+    position: u64,
+    catalog: &'k K,
+}
+
+/// The execution of a build's record at `at`: for a start, the catalog version it names taking effect again, executed
+/// against the data the earlier rounds left with `dictionary`, its round's entries, as its own, its build started
+/// again; for a completion, the end of the build running,
+/// `None` when none runs, a drop having cancelled it.
+fn prepare_build<S, C, E, B, K>(
+    applier: &ChangesetApplier<S, C, E, B>,
+    record: &WriteSetRecordView<'_>,
+    at: &Replaying<'_, K>,
+    dictionary: &[&VersionlessEntry],
+) -> Result<Option<Executed>, RecoveryError>
+where
+    S: Store + Send + Sync + 'static,
+    C: ListCache<Value = CachedList> + Send + Sync + 'static,
+    B: BlockSource + Send + Sync + 'static,
+    E: Executor,
+    K: CatalogSource,
+{
+    let namespace = record.namespace();
+    let apply = |cause| RecoveryError::apply(at.position, cause);
+    match record.operation(0) {
+        Some(RecordOperation::CatalogTakesEffect(version)) => {
+            let refused =
+                |reason: String| RecoveryError::catalog(at.position, namespace, version, reason);
+            let held = at
+                .catalog
+                .version(namespace, version)
+                .map_err(|e| refused(e.to_string()))?
+                .ok_or_else(|| refused("the metadata group does not hold it".to_string()))?;
+            let contents = CatalogContents::decode(namespace, version, held.contents())
+                .map_err(|e| refused(e.to_string()))?;
+            let execution = applier
+                .replay_catalog(&contents, dictionary)
+                .map_err(apply)?;
+            Ok(Some(execution.into_executed()))
+        }
+        // The build ends as its record says: a swap again a swap, an undo again an undo.
+        Some(RecordOperation::CompleteBuild { outcome, .. }) => match applier.build_record() {
+            Some(build) => applier
+                .prepare_build_end(match outcome {
+                    BuildOutcome::Swap => BuildEnd::Swap(build),
+                    BuildOutcome::Undo => BuildEnd::Undo(build),
+                })
+                .map(Some)
+                .map_err(apply),
+            None => Ok(None),
+        },
+        Some(
+            RecordOperation::DropPredicate(_)
+            | RecordOperation::DropGraph(_)
+            | RecordOperation::DropNamespaceData
+            | RecordOperation::DropNamespace
+            | RecordOperation::DropAll,
+        )
+        | None => Err(RecoveryError::round(
+            at.position,
+            ultragraphdb_error_protocol::ProtocolError::field_value(
+                0,
+                "a build record's operation",
+                record.operation(0).map_or(0, |o| u64::from(o.code())),
+            ),
+        )),
+    }
+}
+
 /// The execution deriving `record`'s writes, `None` for a record whose keys this stage does not derive on replay: a
-/// registration a home accepted, whose referrer set is the partitions' (group 7), and a build's record (group 6).
+/// registration a home accepted, whose referrer set is the partitions' (group 7).
 fn prepare<S, C, E, B>(
     applier: &ChangesetApplier<S, C, E, B>,
     record: &WriteSetRecordView<'_>,
@@ -309,6 +426,6 @@ fn drop_target(operation: RecordOperation) -> Option<DropTarget> {
         RecordOperation::DropNamespaceData => Some(DropTarget::Data),
         RecordOperation::DropNamespace => Some(DropTarget::Namespace),
         RecordOperation::DropAll => Some(DropTarget::All),
-        RecordOperation::StartBuild(_) | RecordOperation::CompleteBuild(_) => None,
+        RecordOperation::CatalogTakesEffect(_) | RecordOperation::CompleteBuild { .. } => None,
     }
 }

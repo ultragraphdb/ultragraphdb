@@ -56,6 +56,7 @@ rust_test(
         "tests/bodies_steps.rs",
         "tests/utils/golden.rs",
         "tests/utils/golden_bodies.rs",
+        "tests/utils/golden_roles.rs",
     ],
     crate_root = "tests/bdd.rs",
     data = glob([

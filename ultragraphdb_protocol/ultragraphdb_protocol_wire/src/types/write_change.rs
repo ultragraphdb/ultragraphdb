@@ -45,12 +45,12 @@ pub enum WriteChange {
         /// The object's term index.
         object: u32,
     },
-    /// Deletes the statement of this ID.
+    /// Deletes the statement holding a statement ID that this reifier names.
     DeleteStatement {
         /// The graph's term index, `None` for the default graph.
         graph: Option<u32>,
-        /// The statement's ID.
-        id: u64,
+        /// The term index of the statement's reifier's skolem IRI.
+        reifier: u32,
     },
     /// Deletes every quad of the subject and predicate.
     DeletePattern {

@@ -68,32 +68,7 @@ impl<M: ClientMechanism> ClientAuthentication<M> {
                 let error = ErrorReplyView::from_frame(frame).map_err(TransportError::protocol)?;
                 Err(TransportError::refused(error.code(), error.message()))
             }
-            Command::Authenticate => {
-                let message =
-                    AuthenticateView::from_frame(frame).map_err(TransportError::protocol)?;
-                if self.due != Some(message.step()) {
-                    return Err(TransportError::protocol(ProtocolError::field_value(
-                        Command::Authenticate.number(),
-                        "step",
-                        message.step().into(),
-                    )));
-                }
-                let refused = |e: M::Error| TransportError::authentication(e.to_string());
-                if message.is_final() {
-                    self.due = None;
-                    self.mechanism.finish(message.message()).map_err(refused)?;
-                    return Ok(AuthenticationStep::Done {
-                        principal: message.principal(),
-                        expires: message.expires(),
-                    });
-                }
-                let answer = self.mechanism.answer(message.message()).map_err(refused)?;
-                let step = message.step().saturating_add(1);
-                self.due = Some(step.saturating_add(1));
-                Ok(AuthenticationStep::Send(Authenticate::new(
-                    step, "", answer,
-                )))
-            }
+            Command::Authenticate => self.authenticate(frame),
             other @ (Command::Hello
             | Command::Welcome
             | Command::Register
@@ -110,11 +85,60 @@ impl<M: ClientMechanism> ClientAuthentication<M> {
             | Command::Credit
             | Command::Cancel
             | Command::Round
-            | Command::Drop) => Err(TransportError::unexpected_command(
+            | Command::Drop
+            | Command::Join
+            | Command::Members
+            | Command::Subscribe
+            | Command::EpochClose
+            | Command::Lease
+            | Command::Placement
+            | Command::Catalog
+            | Command::Challenge
+            | Command::Verify
+            | Command::Bind
+            | Command::Recall
+            | Command::ComputeRead
+            | Command::Scan
+            | Command::Entries
+            | Command::Reference
+            | Command::CloseRequest
+            | Command::Closed
+            | Command::DefaultEntry
+            | Command::Report) => Err(TransportError::unexpected_command(
                 Command::Authenticate.number(),
                 other.number(),
             )),
         }
+    }
+
+    /// The server's Authenticate: its next message answered, or its final one checked.
+    fn authenticate(
+        &mut self,
+        frame: &FrameView<'_>,
+    ) -> Result<AuthenticationStep, TransportError> {
+        let message = AuthenticateView::from_frame(frame).map_err(TransportError::protocol)?;
+        if self.due != Some(message.step()) {
+            return Err(TransportError::protocol(ProtocolError::field_value(
+                Command::Authenticate.number(),
+                "step",
+                message.step().into(),
+            )));
+        }
+        let refused = |e: M::Error| TransportError::authentication(e.to_string());
+        if message.is_final() {
+            self.due = None;
+            self.mechanism.finish(message.message()).map_err(refused)?;
+            return Ok(AuthenticationStep::Done {
+                principal: message.principal(),
+                expires: message.expires(),
+            });
+        }
+        let answer = self.mechanism.answer(message.message()).map_err(refused)?;
+        let step = message.step().saturating_add(1);
+        self.due = Some(step.saturating_add(1));
+        Ok(AuthenticationStep::Send(Authenticate::new(
+            step, "", answer,
+        )))
     }
 
     /// The mechanism the exchange runs.

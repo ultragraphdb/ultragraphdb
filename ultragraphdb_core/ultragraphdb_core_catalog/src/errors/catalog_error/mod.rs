@@ -76,6 +76,27 @@ pub enum CatalogErrorEnum {
     },
     /// The store failed, or holds a catalog entry that does not parse or decode: its `Corrupted`, naming the key.
     Store(StoreError),
+    /// A catalog version the metadata group holds that does not decode: the load of its namespace's catalog is refused
+    /// whole, naming the version.
+    CorruptedVersion {
+        /// The namespace whose catalog the version is.
+        namespace: u64,
+        /// The version's number.
+        version: u64,
+        /// Why it does not decode.
+        reason: String,
+    },
+    /// A string or list of a declaration longer than the catalog's encoding holds.
+    TooLarge {
+        /// The declaration's IRI.
+        iri: String,
+        /// What is too long.
+        what: &'static str,
+        /// Its length.
+        len: usize,
+        /// The longest the encoding holds.
+        max: usize,
+    },
 }
 
 /// See [`CatalogErrorEnum`].
@@ -147,6 +168,26 @@ impl CatalogError {
         Self(CatalogErrorEnum::ParentCycle {
             entity_type: entity_type.to_string(),
             parent: parent.to_string(),
+        })
+    }
+
+    /// A [`CatalogErrorEnum::CorruptedVersion`]: version `version` of `namespace`'s catalog does not decode, as
+    /// `reason` says.
+    pub fn corrupted_version(namespace: u64, version: u64, reason: impl Into<String>) -> Self {
+        Self(CatalogErrorEnum::CorruptedVersion {
+            namespace,
+            version,
+            reason: reason.into(),
+        })
+    }
+
+    /// A [`CatalogErrorEnum::TooLarge`]: `what` of the declaration of `iri` holds `len`, past `max`.
+    pub fn too_large(iri: &str, what: &'static str, len: usize, max: usize) -> Self {
+        Self(CatalogErrorEnum::TooLarge {
+            iri: iri.to_string(),
+            what,
+            len,
+            max,
         })
     }
 

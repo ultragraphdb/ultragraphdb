@@ -5,11 +5,12 @@
 
 use ultragraphdb_core_ids::SystemId;
 
+use crate::types::build_outcome::BuildOutcome;
 use crate::utils::constants::RECORD_OPERATION_SIZE;
 
 /// An operation in a write-set record's section 3 (`PROTOCOL.md` §12.2), 24 bytes: `operation` u16, 6 zero bytes, a
-/// 16-byte `argument`. A drop names its target and replay derives its key removals; a build names the catalog version
-/// starting it.
+/// 16-byte `argument`. A drop names its target and replay derives its key removals; a catalog version taking effect
+/// names the version, and a build's completion the version that started it and how it ended.
 ///
 /// | Code | Operation | Argument |
 /// |---|---|---|
@@ -18,8 +19,8 @@ use crate::utils::constants::RECORD_OPERATION_SIZE;
 /// | 3 | drop a namespace's data, keeping its catalog | zero |
 /// | 4 | drop everything in a namespace | zero |
 /// | 5 | drop everything | zero |
-/// | 6 | start an index build | the catalog version starting it, a little-endian u64, then 8 zero bytes |
-/// | 7 | complete an index build | as 6 |
+/// | 6 | a catalog version takes effect | the version, a little-endian u64, then 8 zero bytes |
+/// | 7 | complete an index build | the catalog version that started it, a little-endian u64; its outcome's byte; 7 zero bytes |
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RecordOperation {
     /// 1: drops the predicate of this system ID in the record's namespace, in every graph.
@@ -32,10 +33,15 @@ pub enum RecordOperation {
     DropNamespace,
     /// 5: drops every quad key.
     DropAll,
-    /// 6: starts the index build of this catalog version.
-    StartBuild(u64),
-    /// 7: completes the index build of this catalog version.
-    CompleteBuild(u64),
+    /// 6: this catalog version takes effect, starting the builds it asks for.
+    CatalogTakesEffect(u64),
+    /// 7: completes the index build the catalog version `version` started, as `outcome` says.
+    CompleteBuild {
+        /// The catalog version that started the build.
+        version: u64,
+        /// How the build ended.
+        outcome: BuildOutcome,
+    },
 }
 
 impl RecordOperation {
@@ -47,19 +53,40 @@ impl RecordOperation {
             RecordOperation::DropNamespaceData => 3,
             RecordOperation::DropNamespace => 4,
             RecordOperation::DropAll => 5,
-            RecordOperation::StartBuild(_) => 6,
-            RecordOperation::CompleteBuild(_) => 7,
+            RecordOperation::CatalogTakesEffect(_) => 6,
+            RecordOperation::CompleteBuild { .. } => 7,
         }
     }
 
-    /// The operation's 16-byte argument: a system ID, big-endian; a catalog version, a little-endian u64 then 8 zero
-    /// bytes; or zero.
+    /// The operation's 16-byte argument: a system ID, big-endian; a catalog version, a little-endian u64, then for a
+    /// build's completion its outcome's byte, and zero bytes; or zero.
     pub fn argument(&self) -> [u8; 16] {
         match self {
             RecordOperation::DropPredicate(id) | RecordOperation::DropGraph(id) => id.to_be_bytes(),
-            RecordOperation::StartBuild(catalog) | RecordOperation::CompleteBuild(catalog) => {
+            RecordOperation::CatalogTakesEffect(catalog) => {
                 let [c0, c1, c2, c3, c4, c5, c6, c7] = catalog.to_le_bytes();
                 [c0, c1, c2, c3, c4, c5, c6, c7, 0, 0, 0, 0, 0, 0, 0, 0]
+            }
+            RecordOperation::CompleteBuild { version, outcome } => {
+                let [c0, c1, c2, c3, c4, c5, c6, c7] = version.to_le_bytes();
+                [
+                    c0,
+                    c1,
+                    c2,
+                    c3,
+                    c4,
+                    c5,
+                    c6,
+                    c7,
+                    outcome.byte(),
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                ]
             }
             RecordOperation::DropNamespaceData
             | RecordOperation::DropNamespace
@@ -68,11 +95,12 @@ impl RecordOperation {
     }
 
     /// The operation of `code` with `argument`; `None` for a code naming none, or an argument other than the code takes:
-    /// an invalid system ID, a catalog version with nonzero bytes after it, a nonzero argument where none is taken.
+    /// an invalid system ID, a catalog version with nonzero bytes after it, a build's completion whose outcome byte
+    /// names none or is followed by nonzero bytes, a nonzero argument where none is taken.
     pub fn from_parts(code: u16, argument: [u8; 16]) -> Option<Self> {
-        let [c0, c1, c2, c3, c4, c5, c6, c7, rest @ ..] = argument;
-        let catalog =
-            (rest == [0; 8]).then_some(u64::from_le_bytes([c0, c1, c2, c3, c4, c5, c6, c7]));
+        let [c0, c1, c2, c3, c4, c5, c6, c7, outcome, rest @ ..] = argument;
+        let version = u64::from_le_bytes([c0, c1, c2, c3, c4, c5, c6, c7]);
+        let catalog = (outcome == 0 && rest == [0; 7]).then_some(version);
         let none = argument == [0; 16];
         match code {
             1 => SystemId::decode(&argument)
@@ -84,8 +112,11 @@ impl RecordOperation {
             3 => none.then_some(RecordOperation::DropNamespaceData),
             4 => none.then_some(RecordOperation::DropNamespace),
             5 => none.then_some(RecordOperation::DropAll),
-            6 => catalog.map(RecordOperation::StartBuild),
-            7 => catalog.map(RecordOperation::CompleteBuild),
+            6 => catalog.map(RecordOperation::CatalogTakesEffect),
+            7 => (rest == [0; 7])
+                .then(|| BuildOutcome::from_byte(outcome))
+                .flatten()
+                .map(|outcome| RecordOperation::CompleteBuild { version, outcome }),
             _ => None,
         }
     }
@@ -94,7 +125,7 @@ impl RecordOperation {
     pub fn is_drop(&self) -> bool {
         !matches!(
             self,
-            RecordOperation::StartBuild(_) | RecordOperation::CompleteBuild(_)
+            RecordOperation::CatalogTakesEffect(_) | RecordOperation::CompleteBuild { .. }
         )
     }
 

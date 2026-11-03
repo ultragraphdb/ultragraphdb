@@ -20,7 +20,8 @@ pub struct ResultView<'a> {
     texts: &'a [u8],
     strings: StringList<'a>,
     resume: &'a [u8],
-    statement_ids: &'a [u8],
+    epoch: u64,
+    partition: u32,
 }
 
 impl<'a> ResultView<'a> {
@@ -67,18 +68,14 @@ impl<'a> ResultView<'a> {
         ))
     }
 
-    /// Whether the batch carries each row's statement ID.
-    pub fn has_statement_ids(&self) -> bool {
-        !self.statement_ids.is_empty()
+    /// The epoch the rows were read at; 0 where none applies.
+    pub fn epoch(&self) -> u64 {
+        self.epoch
     }
 
-    /// The ID of the statement row `row` read; `None` past the last row or for a batch that carries none.
-    pub fn statement_id(&self, row: u32) -> Option<u64> {
-        let at = 8 * row as usize;
-        self.statement_ids
-            .get(at..at + 8)
-            .and_then(|bytes| bytes.try_into().ok())
-            .map(u64::from_le_bytes)
+    /// The partition the read reached alone; 0 for several.
+    pub fn partition(&self) -> u32 {
+        self.partition
     }
 
     /// The resume key a limited read continues from; empty for none.

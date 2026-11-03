@@ -3,11 +3,12 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_catalog::CatalogContents;
 use ultragraphdb_core_ids::{SessionToken, SystemId};
 use ultragraphdb_core_keys::Keyspace;
 use ultragraphdb_protocol_wire::OperationResult;
 use ultragraphdb_store_apply::{
-    BuildEnd, ChangesetApplier, DropRequest, Executed, Operation, OperationOutcome,
+    BuildEnd, ChangesetApplier, ChangesetError, DropRequest, Executed, Operation, OperationOutcome,
 };
 use ultragraphdb_store_posting::{Batch, CachedList};
 use ultragraphdb_traits_blocks::BlockSource;
@@ -151,6 +152,48 @@ impl Prepared {
             Vec::new(),
             Rewrite::default(),
         ))
+    }
+
+    /// The catalog version `contents` taking effect in the partition of `applier` as a proposal of the commit step, on
+    /// `buffers`, with the declarations the partition's data refuses: the round installing the version, its
+    /// declarations checked against the data and its index builds started ([`ChangesetApplier::execute_catalog`]), its
+    /// record the build start naming the version (`RecordOperation::CatalogTakesEffect`), from which replay derives it again.
+    /// Its read set holds what its checks read, so a commit landing between its execution and its round aborts it, and
+    /// it is executed again against the data that commit left.
+    ///
+    /// # Errors
+    ///
+    /// [`TxnError::changeset`] for a build running, which the version waits for, or the store's error; the record's
+    /// refusal, which releases what the execution holds.
+    pub fn catalog<S, C, E, B>(
+        applier: &ChangesetApplier<S, C, E, B>,
+        contents: &CatalogContents,
+        buffers: TxnBuffers,
+    ) -> Result<(Self, Vec<ChangesetError>), TxnError>
+    where
+        S: Store + Send + Sync + 'static,
+        C: ListCache<Value = CachedList> + Send + Sync + 'static,
+        B: BlockSource + Send + Sync + 'static,
+        E: Executor,
+    {
+        let execution = applier.execute_catalog(contents)?;
+        let refusals = execution.refusals().to_vec();
+        let executed = execution.into_executed();
+        debug_assert_eq!(executed.catalog_version(), Some(contents.version()));
+        let (mut read_set, mut record) = buffers.into_parts();
+        read_set.reset(executed.namespace(), executed.read_ts(), usize::MAX);
+        let built = read_set.gather(executed.reads()).and_then(|()| {
+            read_set.seal();
+            WriteSetBuilder::new(&executed, 0, 0, &[])
+                .with_catalog(contents.version())
+                .write_into(&mut record, usize::MAX)
+        });
+        if let Err(refused) = built {
+            applier.release(&executed);
+            return Err(refused);
+        }
+        let proposal = Self::new(executed, read_set, record, Vec::new(), Rewrite::default());
+        Ok((proposal, refusals))
     }
 
     /// The end of a build the proposal is, `None` for any other: its round holds nothing else.

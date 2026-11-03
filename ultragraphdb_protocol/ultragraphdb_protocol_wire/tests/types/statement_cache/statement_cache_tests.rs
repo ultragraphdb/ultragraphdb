@@ -63,7 +63,7 @@ fn test_a_prepare_is_answered_with_its_id_schema_and_types() -> TestResult {
             terms,
             p,
             vec![ColumnType::Node],
-            vec![ColumnType::Term]
+            vec![ColumnType::Term, ColumnType::Node]
         )
     );
     assert_eq!(prepare(&mut cache, SCHEMA)??.statement(), 2);
@@ -97,7 +97,8 @@ fn test_result_types_follow_the_unbound_slots() -> TestResult {
             ColumnType::Node,
             ColumnType::Node,
             ColumnType::Node,
-            ColumnType::Term
+            ColumnType::Term,
+            ColumnType::Node
         ]
     );
     Ok(())

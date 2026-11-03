@@ -3,11 +3,13 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The rebuild record across a crash: a store reopened with a record keeps the declaration its catalog holds, the
-//! interim one or the new one, with that declaration's indexes complete, and drops every other index the record
-//! names, wherever the build was interrupted.
+//! The rebuild record across a crash: a partition reopened with a record loads its catalog from the metadata group's
+//! version, drops every index the record names that the version does not declare, and builds again those it declares,
+//! so the version's indexes are complete and nothing else remains, wherever the build was interrupted.
 
+use ultragraphdb_core_catalog::CatalogContents;
 use ultragraphdb_core_keys::{Keyspace, QuadKey};
+use ultragraphdb_core_mapping::Declaration;
 use ultragraphdb_error_store::StoreError;
 use ultragraphdb_store_apply::{Applied, ChangesetError, ChangesetErrorEnum};
 use ultragraphdb_store_sim::{Fault, RebuildStage};
@@ -21,14 +23,19 @@ use crate::utils::changesets::{
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
-/// The applier of `a`'s store after a crash and a restart.
-fn restarted(a: TestChangesets) -> TestResult<TestChangesets> {
+/// The applier of `a`'s store after a crash and a restart, which loads `name` declared as `phrase` in `namespace`, the
+/// metadata group's version in effect, and recovers its builds, run to their end.
+fn restarted(a: TestChangesets, namespace: u64, phrase: &str) -> TestResult<TestChangesets> {
     let store = a.quads().store().clone();
     store.crash();
     store.recover();
     let restarted = changesets_over(store)?;
     // The applier the crash ended goes once the restarted one is open, as it always did.
     drop(a);
+    let name = Declaration::Predicate(declaration("name", phrase)?);
+    restarted.load_catalog(&CatalogContents::new(namespace, 1, vec![name]))?;
+    restarted.recover_builds()?;
+    finish_builds(&restarted);
     Ok(restarted)
 }
 
@@ -58,7 +65,13 @@ fn interrupted(
         }
         Err(e) => Some(e),
     };
-    Ok((restarted(a)?, refusal))
+    // The version in effect is the store's: the new declaration once its round committed, the old one otherwise.
+    let loaded = if refusal.is_none() {
+        "with `term` and `exact`"
+    } else {
+        "with `term`"
+    };
+    Ok((restarted(a, NS, loaded)?, refusal))
 }
 
 /// The catalog declares `term`, and `exact` with it or not; every index it declares holds each literal held, and no
@@ -126,21 +139,21 @@ fn assert_complete(a: &TestChangesets, case: &str) -> TestResult {
 }
 
 #[test]
-fn test_a_build_never_run_is_finished_at_open_with_the_interim_declaration() -> TestResult {
+fn test_a_build_never_run_is_built_again_at_open() -> TestResult {
     let (a, refusal) = interrupted(None)?;
     assert_eq!(refusal, None);
     assert!(is_held_in_default(&a, "b", "name")?);
-    // The interim declaration, the new one without `exact`, which was being built.
+    // The version's declaration, its indexes built again from the data.
     assert_eq!(
         a.catalog(NS)?.predicate(uid(&a, "name")?),
-        Some(&declaration("name", "with `term`")?)
+        Some(&declaration("name", "with `term` and `exact`")?)
     );
     assert_complete(&a, "never run")?;
     Ok(())
 }
 
 #[test]
-fn test_a_build_interrupted_at_any_stage_is_finished_at_open() -> TestResult {
+fn test_a_build_interrupted_at_any_stage_is_built_again_at_open() -> TestResult {
     for stage in RebuildStage::ALL {
         let (a, refusal) = interrupted(Some(stage))?;
         // The record is written by the declaring round, before its batch: a crash at the record's first three stages
@@ -167,10 +180,10 @@ fn test_a_build_interrupted_at_any_stage_is_finished_at_open() -> TestResult {
             !refused_round,
             "{stage:?}: `b` written after the declaration"
         );
-        let expected = if stage == RebuildStage::RecordRemoved {
-            declaration("name", "with `term` and `exact`")?
-        } else {
+        let expected = if refused_round {
             declaration("name", "with `term`")?
+        } else {
+            declaration("name", "with `term` and `exact`")?
         };
         assert_eq!(
             a.catalog(NS)?.predicate(uid(&a, "name")?),
@@ -207,7 +220,7 @@ fn test_an_index_removal_leaves_no_record() -> TestResult {
 
 #[test]
 fn test_a_record_of_another_namespace_is_finished_against_that_namespace_s_catalog() -> TestResult {
-    use ultragraphdb_core_mapping::{Change, Changeset, Declaration};
+    use ultragraphdb_core_mapping::{Change, Changeset};
     let a = changesets()?;
     let three = |changes: Vec<Change>| changes.into_iter().fold(Changeset::new(3), Changeset::with);
     let declare_three = |phrase: &str| -> TestResult<Change> {
@@ -221,16 +234,16 @@ fn test_a_record_of_another_namespace_is_finished_against_that_namespace_s_catal
     )?]))?;
     let _redeclared: Applied = a.apply(&three(vec![declare_three("with `term` and `exact`")?]))?;
     assert!(a.rebuilding());
-    let a = restarted(a)?;
+    let a = restarted(a, 3, "with `term` and `exact`")?;
     let name = a
         .quads()
         .id_of(3, "http://ex.org/name")?
         .context("<name> has a UID in namespace 3")?;
     assert_eq!(
         a.catalog(3)?.predicate(name),
-        Some(&declaration("name", "with `term`")?)
+        Some(&declaration("name", "with `term` and `exact`")?)
     );
-    // The interim declaration's `term` keys are kept: "big" and "apple", nothing else.
+    // The version's indexes, built again: the `term` keys "big" and "apple" and the `exact` key "big apple".
     let tokenizers: Vec<u8> = crate::utils::changesets::stored_keys(&a)
         .iter()
         .filter_map(|k| match QuadKey::parse(k) {
@@ -245,7 +258,7 @@ fn test_a_record_of_another_namespace_is_finished_against_that_namespace_s_catal
             _ => None,
         })
         .collect();
-    assert_eq!(tokenizers, vec![0x01, 0x01]);
+    assert_eq!(tokenizers, vec![0x01, 0x01, 0x02]);
     assert!(a.quads().store().rebuild_records()?.is_empty());
     Ok(())
 }

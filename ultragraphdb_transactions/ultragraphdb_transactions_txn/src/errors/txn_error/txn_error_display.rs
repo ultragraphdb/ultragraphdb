@@ -43,6 +43,12 @@ impl fmt::Display for TxnError {
                 "the transaction, bound to partition {partition}, reached partition {other}: cross-partition work is \
                  refused in this stage"
             ),
+            TxnErrorEnum::Declaration => {
+                write!(
+                    f,
+                    "declarations are committed through the metadata group's catalog"
+                )
+            }
         }
     }
 }

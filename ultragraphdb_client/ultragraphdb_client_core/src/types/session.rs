@@ -3,20 +3,20 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-/// A session of the client (D9): its number, given by the server's Register, through which every commit is sent and
-/// retried, one at a time. A handle: the client keeps the request numbers.
+/// A session of the client (D9): its 128-bit identity, given by the server's Register, through which every commit is
+/// sent and retried, one at a time. A handle: the client keeps the request numbers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Session {
-    number: u64,
+    number: u128,
 }
 
 impl Session {
-    pub(crate) fn new(number: u64) -> Self {
+    pub(crate) fn new(number: u128) -> Self {
         Self { number }
     }
 
-    /// The session's number, as the server's Register gave it.
-    pub fn number(&self) -> u64 {
+    /// The session's identity, as the server's Register gave it.
+    pub fn number(&self) -> u128 {
         self.number
     }
 }

@@ -7,9 +7,11 @@
 //! entry; a drop and a build's end replayed at their versions do what they did, a build restored from the declaration
 //! its end's record names built again, and an end whose build is gone writes nothing.
 
+use ultragraphdb_core_catalog::CatalogContents;
 use ultragraphdb_core_keys::Keyspace;
+use ultragraphdb_core_mapping::Declaration;
 use ultragraphdb_error_store::StoreError;
-use ultragraphdb_store_apply::{Applied, BuildEnd, ChangesetErrorEnum, Executed, RecordWrites};
+use ultragraphdb_store_apply::{Applied, ChangesetErrorEnum, Executed, RecordWrites};
 use ultragraphdb_traits_store::{Store, VersionlessEntry};
 
 use crate::utils::changesets::{
@@ -18,12 +20,11 @@ use crate::utils::changesets::{
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
-/// A write-set record's sections 0 to 4, owned: what the transaction builder writes for `executed`.
+/// A write-set record's sections, owned: what the transaction builder writes for `executed`.
 struct Sections {
     lists: Vec<(Vec<u8>, Vec<u8>)>,
     dictionary: Vec<(Vec<u8>, Option<Vec<u8>>)>,
     statements: Vec<(Vec<u8>, Option<Vec<u8>>)>,
-    catalog: Vec<(Vec<u8>, Option<Vec<u8>>)>,
     versionless: Vec<(Vec<u8>, Option<Vec<u8>>)>,
 }
 
@@ -54,12 +55,7 @@ fn sections(executed: &Executed) -> Sections {
         writes
             .entries()
             .iter()
-            .filter(|e| {
-                !matches!(
-                    keyspace(e.key()),
-                    Some(Keyspace::Catalog | Keyspace::Statements)
-                )
-            })
+            .filter(|e| !matches!(keyspace(e.key()), Some(Keyspace::Statements)))
             .map(|e| (e.key().to_vec(), e.value().unwrap_or_default().to_vec())),
     );
     let tagged = |dictionary: bool| {
@@ -74,7 +70,6 @@ fn sections(executed: &Executed) -> Sections {
         lists,
         dictionary: tagged(true),
         statements: of(Keyspace::Statements),
-        catalog: of(Keyspace::Catalog),
         versionless: tagged(false),
     }
 }
@@ -93,7 +88,6 @@ fn record_writes(s: &Sections) -> RecordWrites<'_> {
             .collect(),
         pairs(&s.dictionary),
         pairs(&s.statements),
-        pairs(&s.catalog),
         pairs(&s.versionless),
     )
 }
@@ -185,48 +179,33 @@ fn test_a_replayed_drop_drops_its_predicate_at_its_version() -> TestResult {
     Ok(())
 }
 
-/// A build in flight when the node stopped: the reopened store holds the interim declaration, and the swap's record
-/// names the new one; restored from it, the build is made again and swapped in at the swap's version.
+/// The version `version` of the root namespace's catalog declaring `name` as `phrase`, or nothing for `None`.
+fn name_version(phrase: Option<&str>) -> TestResult<CatalogContents> {
+    let declarations = match phrase {
+        Some(p) => vec![Declaration::Predicate(declaration("name", p)?)],
+        None => Vec::new(),
+    };
+    Ok(CatalogContents::new(NS, 2, declarations))
+}
+
+/// A build in flight when the node stopped, its swap never applied: the reopened partition loads the version declaring
+/// the index and builds it again from the data, the catalog holding the version's declaration once it is swapped in.
 #[test]
-fn test_a_swap_replayed_after_a_restart_builds_again_from_its_declaration() -> TestResult {
+fn test_a_build_in_flight_at_a_restart_is_built_again_from_its_version() -> TestResult {
     let a = changesets()?;
     a.sequence_builds();
     write(&a, &["<a> <name> \"big apple\""])?;
     declare(&a, "name", "with `term`")?;
     finish_builds(&a);
-    let end = a.take_build_end().context("a build ended")?;
-    let ending = a.prepare_build_end(end)?;
-    let entry = ending.writes().entries()[0].clone();
-    assert_eq!(
-        ultragraphdb_core_catalog::decode_declaration(
-            entry.key(),
-            entry.value().context("the entry has a value")?
-        )?,
-        ultragraphdb_core_mapping::Declaration::Predicate(declaration("name", "with `term`")?),
-        "the swap's record names the declaration it swaps in"
-    );
+    let _end = a.take_build_end().context("a build ended")?;
     let store = a.quads().store().clone();
-    drop(ending);
     drop(a);
     let b = changesets_over(store)?;
     assert!(!b.rebuilding());
-    assert!(
-        b.catalog(NS)?
-            .predicate(uid(&b, "name")?)
-            .context("the predicate is declared")?
-            .tokenizers()
-            .is_empty()
-    );
-    assert!(b.restore_build(
-        NS,
-        end,
-        entry.key(),
-        entry.value().context("the entry has a value")?
-    )?);
-    assert!(b.rebuilding());
-    let swap = b.prepare_build_end(end)?;
-    let version = next_version(&b);
-    let _applied: Vec<Applied> = b.apply_round(vec![(version, swap)])?;
+    b.load_catalog(&name_version(Some("with `term`"))?)?;
+    b.recover_builds()?;
+    assert!(b.rebuilding(), "the build runs again");
+    finish_builds(&b);
     assert!(!b.rebuilding());
     assert_eq!(
         indexed(&b, "name", &term_token("apple"))?,
@@ -239,80 +218,49 @@ fn test_a_swap_replayed_after_a_restart_builds_again_from_its_declaration() -> T
             .tokenizers(),
         ["term"]
     );
-    assert_eq!(b.quads().lists().applied_ts(), version);
     Ok(())
 }
 
-/// An undo replayed writes the old declaration back and removes every index key of the predicate the declaration
-/// does not name: those of a write during the build, replayed before it.
+/// A build that failed, its predicate restored by the metadata group's next version: the reopened partition loads the
+/// restoring version and drops every index key of the predicate it does not declare, a write's during the build too.
 #[test]
-fn test_an_undo_replayed_restores_the_old_declaration_and_removes_the_rest() -> TestResult {
+fn test_a_restoring_version_loaded_after_a_restart_removes_the_built_index() -> TestResult {
     let a = changesets()?;
     a.sequence_builds();
     write(&a, &["<a> <name> \"big apple\""])?;
     declare(&a, "name", "with `term`")?;
     let during = a.execute(&changeset(vec![insert("<c> <name> \"pear\"")?]))?;
-    let during_sections = sections(&during);
-    let undo = a.prepare_build_end(BuildEnd::Undo(record_of(&a)?))?;
-    let entry = undo.writes().entries()[0].clone();
-    let end = BuildEnd::Undo(record_of(&a)?);
-    let store = a.quads().store().clone();
-    drop(undo);
-    drop(during);
-    drop(a);
-    let b = changesets_over(store)?;
-    let version = next_version(&b);
-    let replayed = b.prepare_replay(NS, record_writes(&during_sections))?;
-    let _applied: Vec<Applied> = b.apply_round(vec![(version, replayed)])?;
-    b.forget_catalogs();
+    let version = next_version(&a);
+    let _applied: Vec<Applied> = a.apply_round(vec![(version, during)])?;
     assert_eq!(
-        indexed(&b, "name", &term_token("pear"))?,
-        vec![uid(&b, "c")?],
+        indexed(&a, "name", &term_token("pear"))?,
+        vec![uid(&a, "c")?],
         "the write maintained the index"
     );
-    assert!(b.restore_build(
-        NS,
-        end,
-        entry.key(),
-        entry.value().context("the entry has a value")?
-    )?);
-    let replayed_undo = b.prepare_build_end(end)?;
-    let _undone: Vec<Applied> = b.apply_round(vec![(version + 2, replayed_undo)])?;
+    let store = a.quads().store().clone();
+    drop(a);
+    let b = changesets_over(store)?;
+    b.load_catalog(&name_version(None)?)?;
+    b.recover_builds()?;
     assert!(!b.rebuilding());
     assert!(
         indexed(&b, "name", &term_token("pear"))?.is_empty(),
         "removed"
     );
-    assert!(
-        b.catalog(NS)?
-            .predicate(uid(&b, "name")?)
-            .context("the predicate is declared")?
-            .tokenizers()
-            .is_empty()
-    );
+    assert!(b.catalog(NS)?.predicate(uid(&b, "name")?).is_none());
+    assert!(b.quads().store().rebuild_records()?.is_empty());
     Ok(())
 }
 
-/// The record number of the build `a` runs.
-fn record_of(a: &TestChangesets) -> TestResult<u64> {
-    a.quads()
-        .store()
-        .rebuild_records()?
-        .first()
-        .map(|r| r.id())
-        .context("a build runs")
-}
-
-/// An end whose predicate the store no longer declares is not restored: its build was cancelled.
+/// A build a drop of its predicate cancelled leaves nothing to build again after a restart.
 #[test]
-fn test_an_end_whose_predicate_is_gone_is_not_restored() -> TestResult {
+fn test_a_build_whose_predicate_was_dropped_is_not_built_again() -> TestResult {
     let a = changesets()?;
     a.sequence_builds();
     write(&a, &["<a> <name> \"big apple\""])?;
     declare(&a, "name", "with `term`")?;
     finish_builds(&a);
-    let end = a.take_build_end().context("a build ended")?;
-    let entry = a.prepare_build_end(end)?.writes().entries()[0].clone();
+    let _end = a.take_build_end().context("a build ended")?;
     let version = next_version(&a);
     let dropping = a.prepare_drop(
         NS,
@@ -322,12 +270,8 @@ fn test_an_end_whose_predicate_is_gone_is_not_restored() -> TestResult {
     let store = a.quads().store().clone();
     drop(a);
     let b = changesets_over(store)?;
-    assert!(!b.restore_build(
-        NS,
-        end,
-        entry.key(),
-        entry.value().context("the entry has a value")?
-    )?);
+    b.load_catalog(&name_version(None)?)?;
+    b.recover_builds()?;
     assert!(!b.rebuilding());
     Ok(())
 }
@@ -351,7 +295,6 @@ fn test_a_replayed_list_delta_that_is_no_posting_list_is_refused_naming_its_key(
         Vec::new(),
         Vec::new(),
         Vec::new(),
-        Vec::new(),
     );
     let refused = a
         .prepare_replay(NS, record)
@@ -364,28 +307,5 @@ fn test_a_replayed_list_delta_that_is_no_posting_list_is_refused_naming_its_key(
             "unknown posting format version 255".to_string()
         ))
     );
-    Ok(())
-}
-
-/// A build end whose catalog entry is no declaration is refused with the catalog's corruption naming the key, and no
-/// build is restored: the catalog codec's format byte is 2 (`ultragraphdb_core_catalog`), so a value starting 0xFF is
-/// of an unknown format.
-#[test]
-fn test_a_build_end_whose_entry_is_no_declaration_is_refused_naming_its_key() -> TestResult {
-    let a = changesets()?;
-    write(&a, &["<a> <name> \"big apple\""])?;
-    let key = ultragraphdb_core_catalog::Catalog::predicate_key(NS, uid(&a, "name")?);
-    let refused = a
-        .restore_build(NS, BuildEnd::Swap(1), &key, &[0xFF])
-        .err()
-        .context("the error of a.restore_build(..)")?;
-    assert_eq!(
-        refused.0,
-        ChangesetErrorEnum::Catalog(ultragraphdb_core_catalog::CatalogError::corrupted(
-            &key,
-            "unknown format 255".to_string()
-        ))
-    );
-    assert!(!a.rebuilding());
     Ok(())
 }

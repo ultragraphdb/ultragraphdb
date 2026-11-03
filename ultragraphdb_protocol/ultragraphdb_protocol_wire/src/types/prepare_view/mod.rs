@@ -56,7 +56,7 @@ impl<'a> PrepareView<'a> {
         &self.parameter_types
     }
 
-    /// The result columns' types, one per unbound slot; none in a request.
+    /// The result columns' types, one per unbound slot and then the reifier column's; none in a request.
     pub fn result_types(&self) -> &[ColumnType] {
         &self.result_types
     }
@@ -67,8 +67,8 @@ impl<'a> PrepareView<'a> {
         self.result_types_count(0)
     }
 
-    /// The rule a client holds a received Prepare to, an answer: one result type per unbound slot, refused as
-    /// [`ProtocolError::count_mismatch`] (`"result types"`).
+    /// The rule a client holds a received Prepare to, an answer: one result type per unbound slot and one for the
+    /// reifier column (`PROTOCOL.md` section 7.1), refused as [`ProtocolError::count_mismatch`] (`"result types"`).
     pub fn check_reply(&self) -> Result<(), ProtocolError> {
         let unbound = self
             .pattern
@@ -76,7 +76,7 @@ impl<'a> PrepareView<'a> {
             .iter()
             .filter(|slot| matches!(slot, PatternSlot::Unbound))
             .count();
-        self.result_types_count(unbound)
+        self.result_types_count(unbound + 1)
     }
 
     fn result_types_count(&self, expected: usize) -> Result<(), ProtocolError> {

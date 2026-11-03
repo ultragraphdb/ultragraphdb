@@ -7,6 +7,7 @@ mod sequencer_as_of;
 mod sequencer_close;
 mod sequencer_deliver;
 mod sequencer_recover;
+mod sequencer_snapshot;
 mod sequencer_submit;
 
 use std::collections::{BTreeMap, VecDeque};

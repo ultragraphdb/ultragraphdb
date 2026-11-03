@@ -22,6 +22,12 @@ impl fmt::Display for PipelineError {
             PipelineErrorEnum::BuildEnd { cause } => {
                 write!(f, "a build's end could not be proposed: {cause}")
             }
+            PipelineErrorEnum::CatalogVersion { version, cause } => {
+                write!(
+                    f,
+                    "catalog version {version} could not take effect: {cause}"
+                )
+            }
         }
     }
 }

@@ -19,12 +19,16 @@ use crate::utils::sections::as_u32;
 /// [`crate::ABSENT`] for unbound; the term table holding each distinct term of the batch once, in
 /// `ultragraphdb_core_terms`' encoding, with a text section for what an encoding names but does not hold. The
 /// header's flag [`crate::FLAG_LAST`] marks a stream's last batch, whose resume key, when not empty, continues a
-/// limited read.
+/// limited read (`PROTOCOL.md` §9.1). The columns are the pattern's unbound slots, in slot order, then the reifier
+/// column: a row names its statement by its quad and, when the statement holds a statement ID, by its reifier's
+/// skolem IRI, a blank-node term; no row carries a statement ID.
 ///
 /// | Command header | Field | Type |
 /// |---|---|---|
-/// | 0 | `columns` | u32 |
+/// | 0 | `columns` | u32: the unbound slots and the reifier column, 1 to 5 |
 /// | 4 | `rows` | u32 |
+/// | 8 | `epoch` | u64: the epoch the rows were read at; 0 where none applies |
+/// | 16 | `partition` | u32: the partition the read reached alone; 0 for several |
 ///
 /// | Section | Contents |
 /// |---|---|
@@ -35,7 +39,6 @@ use crate::utils::sections::as_u32;
 /// | 4 | strings: ends |
 /// | 5 | strings: text |
 /// | 6 | the resume key |
-/// | 7 | the statement IDs, u64s, one per row; empty unless the request asked for them |
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResultBatch {
     columns: u32,
@@ -44,11 +47,12 @@ pub struct ResultBatch {
     terms: Vec<ResultTerm>,
     index: HashMap<Vec<u8>, u32>,
     resume: Vec<u8>,
-    statement_ids: Option<Vec<u64>>,
+    epoch: u64,
+    partition: u32,
 }
 
 impl ResultBatch {
-    /// An empty batch of `columns` columns.
+    /// An empty batch of `columns` columns, the last the reifier column.
     pub fn new(columns: u32) -> Self {
         Self {
             columns,
@@ -57,48 +61,45 @@ impl ResultBatch {
             terms: Vec::new(),
             index: HashMap::new(),
             resume: Vec::new(),
-            statement_ids: None,
+            epoch: 0,
+            partition: 0,
         }
     }
 
-    /// An empty batch of `columns` columns carrying each row's statement ID, for a request that asked for them.
-    pub fn with_statement_ids(columns: u32) -> Self {
-        Self {
-            statement_ids: Some(Vec::new()),
-            ..Self::new(columns)
-        }
-    }
-
-    /// Appends a row, a term or `None` (unbound) per column; a term already in the table is not added again. Refused
-    /// as [`ProtocolError::count_mismatch`] when the row's length is not the batch's column count, or when the batch
-    /// carries statement IDs ([`ResultBatch::push_row_with_id`]).
+    /// Appends a row, a term or `None` (unbound) per column, the last its statement's reifier; a term already in the
+    /// table is not added again. Refused as [`ProtocolError::count_mismatch`] (`"row"`) when the row's length is not
+    /// the batch's column count, and as [`ProtocolError::field_value`] (`"reifier"`) when its reifier is not a blank
+    /// node.
     pub fn push_row(&mut self, row: &[Option<&ResultTerm>]) -> Result<(), ProtocolError> {
-        if self.statement_ids.is_some() {
-            return Err(Self::ids_mismatch(0, 1));
+        // A row of the wrong width is refused by its width first, as `push_cells` checks it.
+        if row.len() == self.columns as usize
+            && let Some(Some(reifier)) = row.last()
+            && !reifier.is_blank_node()
+        {
+            return Err(ProtocolError::field_value(
+                Command::Result.number(),
+                "reifier",
+                row.len() as u64 - 1,
+            ));
         }
         self.push_cells(row)
     }
 
-    /// Appends a row as [`ResultBatch::push_row`] does, with the ID of the statement it read. Refused as
-    /// [`ProtocolError::count_mismatch`] when the batch carries no statement IDs.
-    pub fn push_row_with_id(
-        &mut self,
-        row: &[Option<&ResultTerm>],
-        statement_id: u64,
-    ) -> Result<(), ProtocolError> {
-        if self.statement_ids.is_none() {
-            return Err(Self::ids_mismatch(1, 0));
-        }
-        self.push_cells(row)?;
-        if let Some(ids) = self.statement_ids.as_mut() {
-            ids.push(statement_id);
-        }
-        Ok(())
+    /// The batch read at `epoch` in `partition`, 0 for none and for several.
+    pub fn with_read_at(mut self, epoch: u64, partition: u32) -> Self {
+        self.epoch = epoch;
+        self.partition = partition;
+        self
     }
 
-    /// A row pushed with `found` statement IDs to a batch taking `expected` per row.
-    fn ids_mismatch(found: u64, expected: u64) -> ProtocolError {
-        ProtocolError::count_mismatch(Command::Result.number(), "statement ids", found, expected)
+    /// The epoch the rows were read at; 0 where none applies.
+    pub fn epoch(&self) -> u64 {
+        self.epoch
+    }
+
+    /// The partition the read reached alone; 0 for several.
+    pub fn partition(&self) -> u32 {
+        self.partition
     }
 
     fn push_cells(&mut self, row: &[Option<&ResultTerm>]) -> Result<(), ProtocolError> {
@@ -167,11 +168,6 @@ impl ResultBatch {
     /// The resume key a limited read continues from; empty for none.
     pub fn resume(&self) -> &[u8] {
         &self.resume
-    }
-
-    /// Each row's statement ID, in row order; `None` for a batch that carries none.
-    pub fn statement_ids(&self) -> Option<&[u64]> {
-        self.statement_ids.as_deref()
     }
 
     /// The bytes the batch's body takes, before its chunk table, so a sender cuts batches below the maximum frame.
