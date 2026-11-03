@@ -131,6 +131,15 @@ impl SimStore {
         lock(&self.shared).faults.force(fault);
     }
 
+    /// Runs `reads` with no read or scan failing, as a check reads what the store holds; a read fault forced on the
+    /// store waits for the first read after.
+    pub fn unfaulted_reads<T>(&self, reads: impl FnOnce() -> T) -> T {
+        lock(&self.shared).faults.hold_reads(true);
+        let value = reads();
+        lock(&self.shared).faults.hold_reads(false);
+        value
+    }
+
     /// Corrupts the stored bytes of `key` at `version`, as every later read finds them.
     pub fn corrupt(&self, key: &[u8], version: u64, corruption: Corruption) {
         let mut inner = lock(&self.shared);

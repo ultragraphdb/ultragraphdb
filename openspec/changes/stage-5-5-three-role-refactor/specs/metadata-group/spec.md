@@ -108,7 +108,9 @@ The metadata group SHALL hold the cluster's principals: each a name and its SCRA
 count, stored key and server key), never the password. The first principal SHALL be created at the cluster's first start
 from a credential the operator supplies through a secret file, and a cluster with no principal SHALL refuse every
 connection. Creating a principal whose name exists SHALL be refused, naming it; removing the last principal with the
-administrator role SHALL be refused.
+administrator role SHALL be refused. Removing a principal SHALL evict every session registered for it in the same
+command, oldest first, carried to the partitions as every eviction is, so no session outlives its principal; a removal
+whose evictions would pass the pending evictions' bound SHALL be refused, the principal and its sessions kept.
 
 #### Scenario: The bootstrap principal authenticates
 - **WHEN** a cluster starts for the first time with a bootstrap credential file and a client authenticates with it
@@ -122,11 +124,15 @@ administrator role SHALL be refused.
 - **WHEN** the only principal with the administrator role is removed
 - **THEN** the removal is refused with an error naming it
 
+#### Scenario: A removed principal's sessions are evicted
+- **WHEN** `dave` has two sessions and `carol` one, and `dave` is removed
+- **THEN** both of `dave`'s sessions are evicted in the removal and a commit through either is refused as evicted, and `carol`'s session stays
+
 ### Requirement: The metadata group registers sessions
 The metadata group SHALL record each session the frontend registers, its 128-bit identity and its principal, as one
 command, and SHALL answer a session's principal to the frontend's owner check. A registration SHALL be durable before it
-is answered. The registry SHALL hold at most `sessions_max` sessions, evicting the least recently registered, and SHALL
-be the only place a session is evicted; the sequencer SHALL carry each eviction to every partition with its next close,
+is answered. The registry SHALL hold at most `sessions_max` sessions, evicting the least recently registered, SHALL evict a
+removed principal's sessions with its removal, and SHALL be the only place a session is evicted; the sequencer SHALL carry each eviction to every partition with its next close,
 recorded in its durable close record, so each partition purges the session's entry from its table. A session already
 registered SHALL be refused, naming it.
 

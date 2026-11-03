@@ -171,7 +171,8 @@ impl<C: Connect, L: Login> Client<C, L> {
     }
 
     /// Runs the connection until `done` holds for the core: writes, reads, timeouts, and the reconnects a commit's
-    /// retry asks for, `retry_delay` apart, each failed one counted against the commit's attempts. Refused when `done`
+    /// retry asks for, `retry_delay` apart after a connection not made or lost in its handshake, each connection not
+    /// made counted against the commit's attempts. Refused when `done`
     /// cannot come: nothing is awaited and no commit waits for a connection.
     async fn drive(
         &mut self,
@@ -183,6 +184,11 @@ impl<C: Connect, L: Login> Client<C, L> {
                 return Ok(());
             }
             if self.core.needs_connection() {
+                if self.core.handshake_lost() {
+                    // The last connection was lost in its handshake: the next waits the retry delay, as after a
+                    // connection not made.
+                    tokio::time::sleep(self.core.config().retry_delay()).await;
+                }
                 if let Err(error) = self.open().await {
                     // The failed attempt counts against the waiting commits' attempts; the next waits the retry delay
                     // on the runtime's timer, so the loop yields and an outer timeout can cancel it.

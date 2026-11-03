@@ -26,6 +26,8 @@ pub struct FaultInjector {
     pub rng: SimRng,
     config: FaultConfig,
     forced: VecDeque<Fault>,
+    /// Whether reads are held from failing, as [`crate::SimStore::unfaulted_reads`] holds them.
+    reads_held: bool,
 }
 
 impl FaultInjector {
@@ -34,7 +36,12 @@ impl FaultInjector {
             rng,
             config,
             forced: VecDeque::new(),
+            reads_held: false,
         }
+    }
+
+    pub fn hold_reads(&mut self, held: bool) {
+        self.reads_held = held;
     }
 
     pub fn force(&mut self, fault: Fault) {
@@ -104,12 +111,16 @@ impl FaultInjector {
     }
 
     pub fn read_fails(&mut self) -> bool {
-        self.take_forced(|f| *f == Fault::FailNextRead).is_some()
-            || self.rng.chance(self.config.read_failure())
+        !self.reads_held
+            && (self.take_forced(|f| *f == Fault::FailNextRead).is_some()
+                || self.rng.chance(self.config.read_failure()))
     }
 
     /// After how many of `len` items the scan fails, if it does.
     pub fn scan_fails_after(&mut self, len: usize) -> Option<usize> {
+        if self.reads_held {
+            return None;
+        }
         match self.take_forced(|f| matches!(f, Fault::FailNextScanAfter(_))) {
             Some(Fault::FailNextScanAfter(n)) => Some(n.min(len)),
             _ if self.rng.chance(self.config.scan_failure()) => Some(self.rng.index(len + 1)),

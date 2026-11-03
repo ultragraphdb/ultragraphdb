@@ -21,24 +21,19 @@ fn test_seeds_with_faults_keep_every_index() -> TestResult {
             "seed {seed}: {} checked, {} skipped, {} unrecovered, {} writes",
             w.checked, w.skipped, w.unrecovered, w.writes
         );
-        // A check whose reads an injected fault fails on every retry is skipped, as is a step left needing
-        // recovery. Observed over seeds 100..=111 at 300 steps: 118 to 193 steps checked per seed, and checked at
-        // least 38% of the steps whose check ran or was skipped. A run skipping most checks fails here.
+        // The check reads with no read failing, so only a step left needing recovery goes unchecked, and a check
+        // is skipped only when the applier's reopening before it fails. Observed over seeds 100..=111 at 300 steps:
+        // 301 to 307 steps checked per seed, none skipped. A run skipping checks fails here.
+        assert_eq!(w.skipped, 0, "seed {seed}: {} checks skipped", w.skipped);
         assert!(
-            w.checked >= 100,
+            w.checked >= 300,
             "seed {seed}: only {} steps checked",
             w.checked
-        );
-        assert!(
-            w.checked * 3 >= w.checked + w.skipped,
-            "seed {seed}: {} checked, {} skipped: under a third checked",
-            w.checked,
-            w.skipped
         );
         checked += w.checked;
         writes += w.writes;
     }
-    assert!(checked > 1000, "only {checked} checks");
+    assert!(checked >= 3600, "only {checked} checks");
     assert!(writes > 1000, "only {writes} writes");
     Ok(())
 }

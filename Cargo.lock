@@ -2919,7 +2919,6 @@ dependencies = [
  "ultragraphdb_core_mapping",
  "ultragraphdb_core_tok",
  "ultragraphdb_error_store",
- "ultragraphdb_store_kv",
  "ultragraphdb_store_sim",
  "ultragraphdb_tool_bdd",
  "ultragraphdb_traits_catalog",

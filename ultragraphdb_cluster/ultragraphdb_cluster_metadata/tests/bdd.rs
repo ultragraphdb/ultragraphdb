@@ -758,6 +758,56 @@ fn refused_naming_root(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
+#[when("`dave` has two sessions and `carol` one, and `dave` is removed")]
+fn removes_dave(w: &mut Steps) -> TestResult {
+    w.start()?;
+    let group = w.group()?;
+    let _root = group.bootstrap("root", PASSWORD.as_bytes(), &[3; 16], MIN_ITERATIONS)?;
+    let _dave = group.create_principal("dave", verifier("dave's own password", 7)?, false)?;
+    let _carol = group.create_principal("carol", verifier("carol's own password", 6)?, false)?;
+    let registered = [(51, "dave"), (52, "carol"), (53, "dave")];
+    for (session, principal) in registered {
+        let (evicted, _) = group.register_session(session, principal)?;
+        assert!(evicted.is_empty());
+    }
+    sync(group)?;
+    let (evicted, _) = group.remove_principal("dave")?;
+    sync(group)?;
+    w.sessions = registered.map(|(session, _)| session).to_vec();
+    w.evicted = evicted;
+    Ok(())
+}
+
+#[then(
+    "both of `dave`'s sessions are evicted in the removal and a commit through either is refused as evicted, and `carol`'s session stays"
+)]
+fn daves_sessions_evicted(w: &mut Steps) -> TestResult {
+    let [first, carols, second] = w.sessions[..] else {
+        return Err(TestError::new("three sessions"));
+    };
+    let evicted = w.evicted.clone();
+    assert_eq!(
+        evicted,
+        vec![first, second],
+        "dave's sessions, oldest first"
+    );
+    let state = w.group()?.state();
+    assert!(state.principal("dave").is_none(), "dave is removed");
+    assert_eq!(state.pending_evictions(), evicted);
+    for session in [first, second] {
+        // The frontend's owner check refuses the commit before it is routed.
+        let refusal = state
+            .session_principal(session)
+            .err()
+            .context("a refusal")?;
+        assert_eq!(refusal.0, ClusterErrorEnum::SessionEvicted { session });
+    }
+    let carol = state.principal("carol").context("carol")?.id();
+    assert_eq!(state.session_principal(carols)?, carol);
+    assert_eq!(state.sessions(), 1);
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // The metadata group registers sessions
 // ---------------------------------------------------------------------------------------------------------------------

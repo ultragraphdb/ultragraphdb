@@ -261,3 +261,67 @@ fn test_an_outer_timeout_cancels_a_commit_whose_server_is_unreachable() -> TestR
     })?;
     Ok(())
 }
+
+/// Connections over the simulated network: the first served, every later one hung up by the server before its
+/// handshake ends; `made` counts every connection asked for.
+struct Hangup {
+    inner: SimConnect,
+    made: Rc<std::cell::Cell<u32>>,
+}
+
+impl Connect for Hangup {
+    type Stream = ultragraphdb_protocol_transport_compio::CompioSimStream;
+
+    async fn connect(
+        &mut self,
+    ) -> io::Result<ultragraphdb_protocol_transport_compio::CompioSimStream> {
+        self.made.set(self.made.get() + 1);
+        if self.made.get() == 1 {
+            return self.inner.connect().await;
+        }
+        let (client, server) = self.inner.network.connect();
+        server.shutdown();
+        Ok(ultragraphdb_protocol_transport_compio::CompioSimStream::new(client))
+    }
+}
+
+/// A server that accepts connections and hangs up every handshake: the shell waits the retry delay before each
+/// reconnect, so the retries yield and an outer timeout ends them, and a connection lost in its handshake uses none of
+/// the commit's attempts, two of which would otherwise be spent at once.
+#[test]
+fn test_reconnects_after_handshakes_hung_up_wait_the_retry_delay() -> TestResult {
+    let rt = compio::runtime::Runtime::new().context("a runtime")?;
+    let scripted = server();
+    let inner = SimConnect::new(SimNetwork::new(3, NetworkFaults::none()));
+    let accepted = Rc::clone(&inner.accepted);
+    let connector = Hangup {
+        inner,
+        made: Rc::new(std::cell::Cell::new(0)),
+    };
+    let made = Rc::clone(&connector.made);
+    rt.block_on(async {
+        let _server = compio::runtime::spawn(serve_sim(Rc::clone(&scripted), accepted));
+        let config = config()
+            .with_commit_attempts(2)
+            .with_retry_delay(Duration::from_millis(5));
+        let mut client = Client::new(connector, config, Anonymous, 8);
+        let session = client.register().await?;
+        let tx = client.begin(0, false).await?;
+        scripted.borrow_mut().drop_after_next_commit();
+        let cancelled =
+            compio::time::timeout(Duration::from_millis(100), client.commit(tx, session)).await;
+        assert!(
+            cancelled.is_err(),
+            "the commit is still retrying when the outer timeout ends it"
+        );
+        // At 5 ms apart, about 20 connections fit in 100 ms; without the delay the loop never yields.
+        let connections = made.get();
+        assert!(
+            (3..=40).contains(&connections),
+            "{connections} connections asked for"
+        );
+        assert_eq!(scripted.borrow().applied(), 1, "the first send was applied");
+        Ok::<(), TestError>(())
+    })?;
+    Ok(())
+}

@@ -150,7 +150,7 @@ pub struct ChangesetWorkload {
     pub refusals: usize,
     /// How many steps were checked.
     pub checked: usize,
-    /// How many steps' checks were skipped because an injected fault failed the check's reads on every retry.
+    /// How many steps' checks were skipped because an injected fault failed the applier's reopening before them.
     pub skipped: usize,
     /// How many steps were left unchecked because they left the store needing recovery: the recovery's own check
     /// follows.
@@ -261,15 +261,10 @@ impl ChangesetWorkload {
             self.unrecovered += 1;
             return Ok(());
         }
-        // The check only reads, so a read an injected fault failed is retried.
-        let mut result = self.check(ctx);
-        for _ in 0..8 {
-            match &result {
-                Err(e) if injected(e) && !ctx.store().needs_recovery() => result = self.check(ctx),
-                _ => break,
-            }
-        }
-        match result {
+        // The check is the oracle: it reads what the store holds with no read failing. The applier's own reads meet
+        // their faults in the writes and the administration.
+        let store = ctx.store().clone();
+        match store.unfaulted_reads(|| self.check(ctx)) {
             Ok(None) => {
                 self.checked += 1;
                 Ok(())

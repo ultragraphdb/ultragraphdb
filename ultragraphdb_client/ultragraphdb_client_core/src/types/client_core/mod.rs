@@ -65,6 +65,8 @@ pub struct ClientCore<L: Login> {
     sessions: BTreeMap<u128, SessionState>,
     outbox: VecDeque<Vec<u8>>,
     last_progress: Option<Instant>,
+    /// Whether the last connection was lost before its handshake ended.
+    handshake_lost: bool,
 }
 
 impl<L: Login> ClientCore<L> {
@@ -91,6 +93,7 @@ impl<L: Login> ClientCore<L> {
             sessions: BTreeMap::new(),
             outbox: VecDeque::new(),
             last_progress: None,
+            handshake_lost: false,
         }
     }
 
@@ -109,6 +112,7 @@ impl<L: Login> ClientCore<L> {
         }
         let handshake = ClientHandshake::new(self.config.cluster(), self.config.hello());
         let hello = handshake.hello_frame().map_err(ClientError::transport)?;
+        self.handshake_lost = false;
         self.generation += 1;
         self.next_stream = 1;
         self.sent = 0;
@@ -149,6 +153,13 @@ impl<L: Login> ClientCore<L> {
     /// Whether a connection is open or being opened.
     pub fn is_connected(&self) -> bool {
         !matches!(self.link, Link::Down)
+    }
+
+    /// Whether the last connection was lost before its handshake ended: a server that accepts connections and fails
+    /// their handshakes. The shell waits [`ClientConfig::retry_delay`] before connecting again, as after a connection
+    /// it could not make, so the retries of a commit waiting yield and an outer timeout can end them.
+    pub fn handshake_lost(&self) -> bool {
+        self.handshake_lost
     }
 
     /// Whether the shell connects now: a commit waits to be sent again on a new connection.
@@ -386,6 +397,7 @@ impl<L: Login> ClientCore<L> {
     /// other read is cut short and answers `reason`, its transaction aborted with its connection (`PROTOCOL.md`
     /// §11.4), so nothing of it is retried.
     fn lose(&mut self, reason: &ClientError) {
+        self.handshake_lost = matches!(self.link, Link::Handshake(_) | Link::Authenticating(..));
         self.link = Link::Down;
         self.renewal = None;
         self.principal = None;

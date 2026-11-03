@@ -85,6 +85,10 @@ Feature: The metadata group
       When the only principal with the administrator role is removed
       Then the removal is refused with an error naming it
 
+    Scenario: A removed principal's sessions are evicted
+      When `dave` has two sessions and `carol` one, and `dave` is removed
+      Then both of `dave`'s sessions are evicted in the removal and a commit through either is refused as evicted, and `carol`'s session stays
+
   Rule: The metadata group registers sessions
 
     Scenario: A registered session survives a restart

@@ -28,7 +28,6 @@ ultragraphdb_traits_store = { workspace = true }
 oxrdf = { workspace = true }
 
 [dev-dependencies]
-ultragraphdb_store_kv = { workspace = true }
 ultragraphdb_store_sim = { workspace = true }
 ultragraphdb_tool_bdd = { workspace = true }
 ultragraphdb_traits_catalog = { workspace = true }

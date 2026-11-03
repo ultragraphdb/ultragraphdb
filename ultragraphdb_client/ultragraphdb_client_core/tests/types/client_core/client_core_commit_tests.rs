@@ -791,7 +791,9 @@ fn test_a_loss_in_the_retrys_handshake_consumes_no_attempt() -> TestResult {
         h.core.needs_connection(),
         "the retry waits for the next connection"
     );
+    assert!(h.core.handshake_lost(), "the shell waits the retry delay");
     let c = committed(h.settle(p)?)?;
+    assert!(!h.core.handshake_lost(), "a new connection clears it");
     assert_eq!(c.request(), 1);
     assert_eq!(commits(&h), vec![(9, 1); 2]);
     assert_eq!(h.server.applied(), 1);
@@ -1069,6 +1071,10 @@ fn test_a_failed_connect_counts_as_one_of_the_commits_attempts() -> TestResult {
     h.server.drop_after_next_commit();
     let p = h.core.commit(tx, s, h.now)?;
     h.until(|h| h.core.needs_connection())?;
+    assert!(
+        !h.core.handshake_lost(),
+        "the connection was lost after its handshake"
+    );
     // Attempt 1 was sent and lost with its connection; attempt 2 is a connection that could not be made.
     h.core.connect_failed();
     assert!(h.core.needs_connection(), "one attempt left");

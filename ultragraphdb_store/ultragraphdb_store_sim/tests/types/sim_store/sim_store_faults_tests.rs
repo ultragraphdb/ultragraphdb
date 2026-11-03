@@ -12,7 +12,7 @@ use ultragraphdb_store_sim::{
     Corruption, DropStage, Fault, FaultConfig, OpRecord, Seed, SimClock, SimStore,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
-use ultragraphdb_traits_store::{Entry, PersistMode, Scan, Store, StoreSnapshot, WriteBatch};
+use ultragraphdb_traits_store::{Entry, Item, PersistMode, Scan, Store, StoreSnapshot, WriteBatch};
 
 fn store(seed: u64, faults: FaultConfig) -> SimStore {
     SimStore::new(Seed::new(seed), faults, SimClock::new())
@@ -281,6 +281,68 @@ fn test_a_read_fails_when_forced() -> TestResult {
         ))
     );
     assert!(snapshot.get(b"k")?.is_some(), "only the next read fails");
+    Ok(())
+}
+
+#[test]
+fn test_unfaulted_reads_fail_no_drawn_read() -> TestResult {
+    let s = store(1, FaultConfig::none().with_read_failure(1000));
+    s.apply(batch(b"k", 1), PersistMode::Buffer)?;
+    let snapshot = s.snapshot(1)?;
+    let held = s.unfaulted_reads(|| -> TestResult<_> {
+        Ok((
+            snapshot.get(b"k")?.map(Item::into_value),
+            s.get_versionless(b"k")?,
+        ))
+    })?;
+    assert_eq!(held, (Some(b"value".to_vec()), None));
+    assert!(
+        matches!(
+            snapshot.get(b"k"),
+            Err(StoreError(StoreErrorEnum::ReadFailed { .. }))
+        ),
+        "reads fail again after"
+    );
+    Ok(())
+}
+
+#[test]
+fn test_unfaulted_reads_keep_a_forced_read_fault_for_the_read_after() -> TestResult {
+    let s = store(1, FaultConfig::none());
+    s.apply(batch(b"k", 1), PersistMode::Buffer)?;
+    s.inject(Fault::FailNextRead);
+    let snapshot = s.snapshot(1)?;
+    let held = s.unfaulted_reads(|| snapshot.get(b"k"))?;
+    assert_eq!(held.map(Item::into_value), Some(b"value".to_vec()));
+    assert_eq!(
+        snapshot.get(b"k"),
+        Err(StoreError::read_failed(
+            b"k".to_vec(),
+            "simulated read failure".into()
+        ))
+    );
+    assert!(snapshot.get(b"k")?.is_some(), "only the forced read fails");
+    Ok(())
+}
+
+#[test]
+fn test_unfaulted_reads_fail_no_scan() -> TestResult {
+    let s = store(1, FaultConfig::none().with_scan_failure(1000));
+    for i in 1..=3u8 {
+        s.apply(batch(&[b'p', i], 1), PersistMode::Buffer)?;
+    }
+    s.inject(Fault::FailNextScanAfter(1));
+    let scan = Scan::prefix(b"p".to_vec());
+    let held: Vec<_> =
+        s.unfaulted_reads(|| -> TestResult<_> { Ok(s.snapshot(1)?.scan(&scan).collect()) })?;
+    assert_eq!(held.len(), 3);
+    assert!(held.iter().all(Result::is_ok), "{held:?}");
+    let after: Vec<_> = s.snapshot(1)?.scan(&scan).collect();
+    assert_eq!(
+        after.len(),
+        2,
+        "the forced scan fault waits for the first scan after"
+    );
     Ok(())
 }
 
