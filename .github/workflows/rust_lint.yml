@@ -1,0 +1,30 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+# Runs clippy as `make check` does. The workspace's lint table denies Ultra Style's lint set, so any of those fails the
+# job; `unimplemented` stays a warning, as the table sets it. `-D clippy::disallowed_methods` denies the clock, thread
+# and randomness calls clippy.toml lists. The toolchain is the one MODULE.bazel pins, so clippy sees what Bazel builds.
+
+name: Lint
+
+on: [ pull_request ]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  clippy:
+    name: cargo clippy
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.1
+          components: clippy
+      - run: cargo clippy --workspace --all-targets -- -D clippy::disallowed_methods

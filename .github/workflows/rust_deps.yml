@@ -1,0 +1,27 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+# Scans every manifest under the repository, the fuzz workspace's included, for unused dependencies.
+#
+# cargo-machete, not the cargo-machete-nk `make check` runs: machete-nk 0.9.2 cannot load a root workspace, skips every
+# crate that inherits from one, and reports success having checked nothing.
+
+name: Unused Deps
+
+on: [ pull_request ]
+
+permissions:
+  contents: read
+
+jobs:
+  unused_dependencies:
+    name: cargo machete
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-machete
+      - run: cargo machete

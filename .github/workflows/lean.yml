@@ -1,0 +1,34 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+# Answers: does every Lean model in lean/ build, with no proof left open?
+#
+# `scripts/lean.sh` runs `lake build` and fails on a proof that uses `sorry`, in the build log or in the sources. elan
+# installs the toolchain `lean/lean-toolchain` pins. The project depends on no Lake package, so there is no cache to
+# fetch.
+
+name: Lean
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  lean:
+    name: lake build, no sorry
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install elan
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh \
+            | sh -s -- -y --default-toolchain "$(cat lean/lean-toolchain)"
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+      - run: bash scripts/lean.sh

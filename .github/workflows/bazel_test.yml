@@ -1,0 +1,55 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+# Answers: does the workspace build, and do the doc, unit and BDD tests pass?
+#
+# Bazel is the build of record, so this runs `scripts/test.sh`, the same steps as `make test`. Bazelisk, preinstalled on
+# the runner, takes the version `.bazelversion` pins, and rules_rs and the LLVM toolchain from MODULE.bazel, so the
+# runner contributes no compiler of its own.
+#
+# The disk and repository caches are written to `.bazelrc.local`, which `.bazelrc` try-imports and git ignores, and
+# are kept between runs by actions/cache. A run saves its cache under its own commit and restores the newest one
+# whose lock files match.
+
+name: Bazel test
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: bazel build and test
+    runs-on: ubuntu-26.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Cache Bazel
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/bazel-disk
+            ~/.cache/bazel-repo
+          key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', 'MODULE.bazel.lock', 'Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', 'MODULE.bazel.lock', 'Cargo.lock') }}-
+            ${{ runner.os }}-bazel-
+
+      - name: Point Bazel at the caches
+        run: |
+          {
+            echo "common --disk_cache=$HOME/.cache/bazel-disk"
+            echo "common --repository_cache=$HOME/.cache/bazel-repo"
+          } > .bazelrc.local
+
+      - name: Build, then run the doc, unit and BDD tests
+        run: bash scripts/test.sh
