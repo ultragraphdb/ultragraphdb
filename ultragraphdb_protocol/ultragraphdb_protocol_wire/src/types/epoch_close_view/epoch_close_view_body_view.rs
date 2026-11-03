@@ -23,7 +23,7 @@ impl<'a> BodyView<'a> for EpochCloseView<'a> {
     fn from_frame(frame: &FrameView<'a>) -> Result<Self, ProtocolError> {
         let command = Self::COMMAND.number();
         let header = expect_command(frame, Self::COMMAND)?;
-        header.unused_zero(&[(0, 17)])?;
+        header.unused_zero(&[(0, 17), (24, 32)])?;
         let closed = epoch(command, "epoch", header.u64_at(0), false)?;
         let more = boolean(command, "more", header.u8_at(16))?;
         let sections = Sections::<2>::read(command, frame.body(), 0)?;
@@ -54,13 +54,14 @@ impl<'a> BodyView<'a> for EpochCloseView<'a> {
             epoch: closed,
             time: header.u64_at(8),
             more,
+            placement: header.u64_at(24),
             announcements: sections.get(0),
             evictions: sections.get(1),
         })
     }
 
     fn to_body(&self) -> Result<EpochClose, ProtocolError> {
-        let mut close = EpochClose::new(self.epoch, self.time);
+        let mut close = EpochClose::new(self.epoch, self.time).with_placement(self.placement);
         if self.more {
             close = close.with_more();
         }

@@ -20,6 +20,7 @@ fn three_versions() -> TestResult<MetadataState> {
     };
     let close = |epoch: u64, versions: Vec<(Namespace, u64)>| -> TestResult<MetadataCommand> {
         Ok(MetadataCommand::LearnClose {
+            placement: 0,
             epoch: Epoch::new(epoch)?,
             versions,
             evictions: Vec::new(),
@@ -92,7 +93,13 @@ fn test_a_fresh_state_answers_epochs_0_and_1() -> TestResult {
     let state = MetadataState::new();
     assert_eq!(state.catalog_at(Namespace::new(1), Epoch::ZERO)?, None);
     assert_eq!(state.catalog_at(Namespace::new(1), Epoch::new(1)?)?, None);
-    assert!(state.catalog_at(Namespace::new(1), Epoch::new(2)?).is_err());
+    assert_eq!(
+        state
+            .catalog_at(Namespace::new(1), Epoch::new(2)?)
+            .err()
+            .context("a refusal")?,
+        ClusterError::epoch_ahead(2, 1)
+    );
     Ok(())
 }
 

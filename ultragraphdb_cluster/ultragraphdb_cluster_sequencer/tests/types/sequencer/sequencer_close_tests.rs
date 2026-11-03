@@ -16,13 +16,19 @@ use crate::utils::harness::{
 #[test]
 fn test_no_close_before_the_deadline() -> TestResult {
     let (_, mut sequencer) = fresh(config(2, 10)?)?;
-    assert_eq!(sequencer.tick(at(0), &[], &[])?, None);
-    assert_eq!(sequencer.tick(at(9), &[], &[])?, None);
-    assert_eq!(sequencer.tick(at(10), &[], &[])?.map(Epoch::get), Some(1));
+    assert_eq!(sequencer.tick(at(0), &[], 0, &[])?, None);
+    assert_eq!(sequencer.tick(at(9), &[], 0, &[])?, None);
+    assert_eq!(
+        sequencer.tick(at(10), &[], 0, &[])?.map(Epoch::get),
+        Some(1)
+    );
     // The next is due 10 ms after the close, at 20.
     assert_eq!(sequencer.deadline(), 20_000);
-    assert_eq!(sequencer.tick(at(19), &[], &[])?, None);
-    assert_eq!(sequencer.tick(at(20), &[], &[])?.map(Epoch::get), Some(2));
+    assert_eq!(sequencer.tick(at(19), &[], 0, &[])?, None);
+    assert_eq!(
+        sequencer.tick(at(20), &[], 0, &[])?.map(Epoch::get),
+        Some(2)
+    );
     Ok(())
 }
 
@@ -30,8 +36,11 @@ fn test_no_close_before_the_deadline() -> TestResult {
 fn test_a_late_tick_closes_once_and_counts_from_itself() -> TestResult {
     let (_, mut sequencer) = fresh(config(2, 10)?)?;
     // Called at 35 ms, long after the deadline at 10: one close, the next due at 45.
-    assert_eq!(sequencer.tick(at(35), &[], &[])?.map(Epoch::get), Some(1));
-    assert_eq!(sequencer.tick(at(35), &[], &[])?, None);
+    assert_eq!(
+        sequencer.tick(at(35), &[], 0, &[])?.map(Epoch::get),
+        Some(1)
+    );
+    assert_eq!(sequencer.tick(at(35), &[], 0, &[])?, None);
     assert_eq!(sequencer.deadline(), 45_000);
     Ok(())
 }
@@ -39,12 +48,15 @@ fn test_a_late_tick_closes_once_and_counts_from_itself() -> TestResult {
 #[test]
 fn test_a_request_closes_once_epoch_ms_min_has_passed() -> TestResult {
     let (_, mut sequencer) = fresh(config(2, 10)?)?;
-    let _first = sequencer.tick(at(10), &[], &[])?;
+    let _first = sequencer.tick(at(10), &[], 0, &[])?;
     // Epoch 2 is open; asked at 11 ms, it closes at 12, epoch_ms_min after the close of 1.
     sequencer.request_close(epoch(2)?)?;
     assert_eq!(sequencer.deadline(), 12_000);
-    assert_eq!(sequencer.tick(at(11), &[], &[])?, None);
-    assert_eq!(sequencer.tick(at(12), &[], &[])?.map(Epoch::get), Some(2));
+    assert_eq!(sequencer.tick(at(11), &[], 0, &[])?, None);
+    assert_eq!(
+        sequencer.tick(at(12), &[], 0, &[])?.map(Epoch::get),
+        Some(2)
+    );
     // The request is spent: epoch 3 waits for epoch_ms_max.
     assert_eq!(sequencer.deadline(), 22_000);
     Ok(())
@@ -53,16 +65,19 @@ fn test_a_request_closes_once_epoch_ms_min_has_passed() -> TestResult {
 #[test]
 fn test_a_request_after_epoch_ms_min_closes_at_once() -> TestResult {
     let (_, mut sequencer) = fresh(config(2, 10)?)?;
-    let _first = sequencer.tick(at(10), &[], &[])?;
+    let _first = sequencer.tick(at(10), &[], 0, &[])?;
     sequencer.request_close(epoch(2)?)?;
-    assert_eq!(sequencer.tick(at(15), &[], &[])?.map(Epoch::get), Some(2));
+    assert_eq!(
+        sequencer.tick(at(15), &[], 0, &[])?.map(Epoch::get),
+        Some(2)
+    );
     Ok(())
 }
 
 #[test]
 fn test_a_request_for_a_closed_epoch_changes_nothing() -> TestResult {
     let (_, mut sequencer) = fresh(config(2, 10)?)?;
-    let _first = sequencer.tick(at(10), &[], &[])?;
+    let _first = sequencer.tick(at(10), &[], 0, &[])?;
     // Epoch 1 is closed, though not yet durable.
     sequencer.request_close(epoch(1)?)?;
     sequencer.request_close(epoch(0)?)?;
@@ -92,8 +107,8 @@ fn test_a_request_past_the_open_epoch_is_refused() -> TestResult {
 fn test_a_close_records_the_wall_clock_time() -> TestResult {
     let (_, mut sequencer) = fresh(config(2, 10)?)?;
     sequencer.subscribe(pid(1)?, epoch(0)?)?;
-    let _first = sequencer.tick(ClockReading::new(10_000, 5_000_123), &[], &[])?;
-    let _second = sequencer.tick(ClockReading::new(20_000, 5_010_456), &[], &[])?;
+    let _first = sequencer.tick(ClockReading::new(10_000, 5_000_123), &[], 0, &[])?;
+    let _second = sequencer.tick(ClockReading::new(20_000, 5_010_456), &[], 0, &[])?;
     let _durable = block_on(sequencer.sync())??;
     let times: Vec<u64> = drain(&mut sequencer, pid(1)?)?
         .iter()
@@ -107,11 +122,11 @@ fn test_a_close_records_the_wall_clock_time() -> TestResult {
 fn test_a_clock_stepping_back_records_the_last_closes_time() -> TestResult {
     let (_, mut sequencer) = fresh(config(2, 10)?)?;
     sequencer.subscribe(pid(1)?, epoch(0)?)?;
-    let _first = sequencer.tick(ClockReading::new(10_000, 3_000_000), &[], &[])?;
+    let _first = sequencer.tick(ClockReading::new(10_000, 3_000_000), &[], 0, &[])?;
     // One second back, then half a second back, then forward past the first.
-    let _second = sequencer.tick(ClockReading::new(20_000, 2_000_000), &[], &[])?;
-    let _third = sequencer.tick(ClockReading::new(30_000, 2_500_000), &[], &[])?;
-    let _fourth = sequencer.tick(ClockReading::new(40_000, 3_000_001), &[], &[])?;
+    let _second = sequencer.tick(ClockReading::new(20_000, 2_000_000), &[], 0, &[])?;
+    let _third = sequencer.tick(ClockReading::new(30_000, 2_500_000), &[], 0, &[])?;
+    let _fourth = sequencer.tick(ClockReading::new(40_000, 3_000_001), &[], 0, &[])?;
     let _durable = block_on(sequencer.sync())??;
     let times: Vec<u64> = drain(&mut sequencer, pid(1)?)?
         .iter()
@@ -129,8 +144,8 @@ fn test_a_close_carries_the_pending_versions_and_evictions() -> TestResult {
         CatalogVersion::new(Namespace::new(4), 3),
         CatalogVersion::new(Namespace::new(5), 1),
     ];
-    let _first = sequencer.tick(at(10), &pending, &[0xA1, 0xB2])?;
-    let _second = sequencer.tick(at(20), &[], &[])?;
+    let _first = sequencer.tick(at(10), &pending, 0, &[0xA1, 0xB2])?;
+    let _second = sequencer.tick(at(20), &[], 0, &[])?;
     let _durable = block_on(sequencer.sync())??;
     let closes = drain(&mut sequencer, pid(1)?)?;
     let first = closes.first().context("the close of 1")?;
@@ -150,7 +165,7 @@ fn test_too_many_versions_or_evictions_refuse_the_close() -> TestResult {
         .map(|v| CatalogVersion::new(Namespace::new(1), v))
         .collect();
     let refusal = sequencer
-        .tick(at(10), &versions, &[])
+        .tick(at(10), &versions, 0, &[])
         .err()
         .context("a refusal")?;
     assert_eq!(
@@ -163,7 +178,7 @@ fn test_too_many_versions_or_evictions_refuse_the_close() -> TestResult {
     );
     let evictions: Vec<u128> = (0..4_097).collect();
     let too_many_evictions = sequencer
-        .tick(at(10), &[], &evictions)
+        .tick(at(10), &[], 0, &evictions)
         .err()
         .context("a refusal")?;
     assert_eq!(
@@ -175,7 +190,10 @@ fn test_too_many_versions_or_evictions_refuse_the_close() -> TestResult {
         }
     );
     // Nothing was appended: the next close is still epoch 1, still due.
-    assert_eq!(sequencer.tick(at(10), &[], &[])?.map(Epoch::get), Some(1));
+    assert_eq!(
+        sequencer.tick(at(10), &[], 0, &[])?.map(Epoch::get),
+        Some(1)
+    );
     Ok(())
 }
 
@@ -187,7 +205,7 @@ fn test_the_last_epoch_refuses_the_next_close() -> TestResult {
     let mut sequencer = recover(&storage, config(2, 10)?, at(0))?;
     assert_eq!(sequencer.last_closed(), Epoch::MAX);
     let refusal = sequencer
-        .tick(at(10), &[], &[])
+        .tick(at(10), &[], 0, &[])
         .err()
         .context("a refusal")?;
     assert_eq!(
@@ -209,5 +227,23 @@ fn test_closes_are_numbered_from_one_without_gaps() -> TestResult {
         .map(|c| c.epoch().get())
         .collect();
     assert_eq!(epochs, (1..=25).collect::<Vec<u64>>());
+    Ok(())
+}
+
+#[test]
+fn test_a_close_records_the_placement_version_it_was_handed() -> TestResult {
+    let (_, mut sequencer) = fresh(config(2, 10)?)?;
+    sequencer.subscribe(pid(1)?, epoch(0)?)?;
+    // No pending placement version is 0; a tick not due records nothing, whatever it is handed.
+    assert_eq!(sequencer.tick(at(0), &[], 7, &[])?, None);
+    let _first = sequencer.tick(at(10), &[], 0, &[])?;
+    let _second = sequencer.tick(at(20), &[], 3, &[])?;
+    let _third = sequencer.tick(at(30), &[], u64::MAX, &[])?;
+    let _durable = block_on(sequencer.sync())??;
+    let placed: Vec<(u64, u64)> = drain(&mut sequencer, pid(1)?)?
+        .iter()
+        .map(|close| (close.epoch().get(), close.placement()))
+        .collect();
+    assert_eq!(placed, [(1, 0), (2, 3), (3, u64::MAX)]);
     Ok(())
 }

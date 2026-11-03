@@ -499,3 +499,53 @@ fn test_a_literal_object_keeps_its_reverse_entry() -> TestResult {
     assert_eq!(subjects(&a)?, Vec::<ultragraphdb_core_ids::SystemId>::new());
     Ok(())
 }
+
+/// A delete in a graph a blank node names finds the graph its own changeset's insert named by that blank node, and
+/// none a changeset before it named: a blank node's label names nothing beyond its changeset.
+#[test]
+fn test_a_delete_in_a_blank_node_graph_finds_only_the_graph_its_changeset_named() -> TestResult {
+    let a = changesets()?;
+    let in_blank = |delete: bool| -> TestResult<Change> {
+        let (graph, subject, predicate, object) = (
+            GraphName::from(oxrdf::BlankNode::new_unchecked("g")),
+            NamedOrBlankNode::from(ex("a")),
+            ex("knows"),
+            term("<b>")?,
+        );
+        Ok(if delete {
+            Change::Delete {
+                graph,
+                subject,
+                predicate,
+                object,
+            }
+        } else {
+            Change::Insert {
+                graph,
+                subject,
+                predicate,
+                object,
+            }
+        })
+    };
+    // Inserted and deleted in one changeset: the delete finds the graph, and nothing is listed.
+    let both = a.execute(&crate::utils::changesets::changeset(vec![
+        in_blank(false)?,
+        in_blank(true)?,
+    ]))?;
+    assert!(
+        both.writes().deltas().is_empty(),
+        "{:?}",
+        both.writes().deltas()
+    );
+    a.release(&both);
+    // Inserted by one changeset, the delete of the next names another graph and removes nothing.
+    write_changes(&a, vec![in_blank(false)?])?;
+    let later = a.execute(&crate::utils::changesets::changeset(vec![in_blank(true)?]))?;
+    assert!(
+        later.writes().deltas().is_empty(),
+        "{:?}",
+        later.writes().deltas()
+    );
+    Ok(())
+}

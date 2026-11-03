@@ -4,7 +4,7 @@
  */
 
 use ultragraphdb_cluster_placement::{BucketRange, NodeId, PartitionId};
-use ultragraphdb_core_ids::{Epoch, TypePrefix};
+use ultragraphdb_core_ids::TypePrefix;
 use ultragraphdb_error_cluster::ClusterError;
 use ultragraphdb_traits_blocks::SequenceBlock;
 use ultragraphdb_traits_log::{OrderedLog, Position};
@@ -60,21 +60,22 @@ impl<L: OrderedLog> MetadataGroup<L> {
         self.append(MetadataCommand::InitPlacement { partitions, leader })
     }
 
-    /// Changes the placement map from `from` to the layout `assignments`; returns the position it was appended at.
+    /// Commits the layout `assignments` as the next pending placement version, which takes effect at the epoch after
+    /// the sequencer's close announcing it ([`MetadataState::pending_placement`](crate::MetadataState::pending_placement)
+    /// names the oldest, which the host hands the next close); returns the position it was appended at.
     ///
     /// # Errors
     ///
     /// [`ClusterError::no_placement`] before the map is initialised; [`ClusterError::too_many`] past
-    /// [`MetadataCommand::ASSIGNMENTS_MAX`](crate::MetadataCommand::ASSIGNMENTS_MAX) ranges; the refusals of
-    /// `PlacementMap::change`, naming the first bucket left unassigned or assigned twice; [`ClusterError::log`]. The map
-    /// is unchanged on a refusal.
+    /// [`MetadataCommand::ASSIGNMENTS_MAX`](crate::MetadataCommand::ASSIGNMENTS_MAX) ranges; [`ClusterError::full`] at
+    /// [`MetadataState::PLACEMENT_PENDING_MAX`](crate::MetadataState::PLACEMENT_PENDING_MAX) pending versions or with
+    /// no room in the map for one more layout; the refusals of `PlacementMap::check_layout`, naming the first bucket
+    /// left unassigned or assigned twice; [`ClusterError::log`]. Nothing changes on a refusal.
     pub fn change_placement(
         &mut self,
-        from: Epoch,
         assignments: &[(BucketRange, PartitionId)],
     ) -> Result<Position, ClusterError> {
         self.append(MetadataCommand::ChangePlacement {
-            from,
             assignments: assignments.to_vec(),
         })
     }

@@ -228,10 +228,10 @@ impl Conversation {
                 let error = protocol
                     .ok_or_else(|| format!("{refusal:?}"))
                     .context("the framer refuses by a protocol rule")?;
-                return Ok(self.connection.refuse_connection(error));
+                return Ok(self.connection.refuse_connection(error)?);
             }
         };
-        let inbound = self.connection.receive(&received, self.now);
+        let inbound = self.connection.receive(&received, self.now)?;
         if let Inbound::Welcomed { protocol } = inbound {
             self.server.framer_mut().set_protocol(protocol);
         }
@@ -242,7 +242,8 @@ impl Conversation {
         {
             let view = received.view()?;
             if let Err(rule) = WriteView::from_frame(&view) {
-                self.connection.refuse(stream, &ErrorReply::protocol(&rule));
+                self.connection
+                    .refuse(stream, &ErrorReply::protocol(&rule))?;
             }
         }
         Ok(inbound)
@@ -970,7 +971,7 @@ async fn auth_timeout(w: &mut Steps) -> TestResult {
         .next_deadline()
         .context("the authentication's deadline")?;
     assert_eq!(deadline, c.now + AUTHENTICATION_TIMEOUT);
-    w.inbound.extend(c.connection.handle_timeout(deadline));
+    w.inbound.extend(c.connection.handle_timeout(deadline)?);
     c.server_sends(usize::MAX).await?;
     w.errors = errors(&c.client_frames().await?)?;
     Ok(())
@@ -993,7 +994,7 @@ async fn renewed(w: &mut Steps) -> TestResult {
     c.now = first + Duration::from_secs(50);
     w.principal = c.authenticate("alice", "pw").await?.ok();
     c.now = first + lifetime + Duration::from_secs(1);
-    w.inbound.extend(c.connection.handle_timeout(c.now));
+    w.inbound.extend(c.connection.handle_timeout(c.now)?);
     c.send(3, &Credit::new(2)).await?;
     c.server_takes().await?;
     c.send(7, &Register::new(0u128.to_be_bytes())).await?;

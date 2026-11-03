@@ -555,3 +555,30 @@ fn test_the_capacity_counts_the_arena_and_24_per_entry_of_each_buffers_capacity(
     assert!(history.capacity() > history.bytes());
     Ok(())
 }
+
+/// Runs at or below the floor merged hold nothing and are given back: the history is empty, and a read above them
+/// meets no conflict.
+#[test]
+fn test_runs_merged_at_or_below_the_floor_leave_the_history_empty() -> TestResult {
+    let mut history = ConflictHistory::new(10);
+    insert(&mut history, 9, &Writes::point(b"a"));
+    assert_eq!((history.runs(), history.len()), (1, 1));
+    insert(&mut history, 10, &Writes::point(b"b"));
+    assert_eq!((history.runs(), history.len()), (0, 0));
+    assert!(history.is_empty());
+    assert_eq!(history.bytes(), 0);
+    assert_eq!(
+        history.conflict(&read_set(0, 10, &Reads::list(b"a"))?),
+        None
+    );
+    // One run above the floor merged with one at it keeps the one above alone.
+    insert(&mut history, 10, &Writes::point(b"c"));
+    insert(&mut history, 11, &Writes::point(b"d"));
+    assert_eq!((history.runs(), history.len()), (1, 1));
+    assert_eq!(
+        history.conflict(&read_set(0, 10, &Reads::list(b"d"))?),
+        Some(ConflictKind::List)
+    );
+    assert_eq!(history.conflict(&read_set(0, 9, &Reads::list(b"c"))?), None);
+    Ok(())
+}

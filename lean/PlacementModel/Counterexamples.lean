@@ -30,7 +30,7 @@ Partition 0 is the home of entity 5; partition 1 holds every subject, and subjec
 issued; partition 1 receives five of them, the home none. -/
 
 /-- Every subject is its own group, held by partition 1; every entity's home is partition 0. -/
-def W : World := { grp := fun s => s, place := fun _ _ => 1, home := fun _ => 0 }
+def W : World := { grp := fun s => s, place := fun _ _ => 1, layout := fun _ _ => 1, home := fun _ => 0 }
 
 /-- Every repair but the removal waiting for the report's epoch. -/
 def P : Protocol := ⟨false, true, true⟩
@@ -117,7 +117,9 @@ Partition 0 is the home of entity 5. Every subject is in bucket group 0; partiti
 every other subject, as a range boundary inside a group gives. Every partition's open epoch stays 1. -/
 
 /-- One group, split between partitions 1 and 2; every entity's home is partition 0. -/
-def W : World := { grp := fun _ => 0, place := fun _ s => if s = 0 then 1 else 2, home := fun _ => 0 }
+def W : World :=
+  { grp := fun _ => 0, place := fun _ s => if s = 0 then 1 else 2, layout := fun _ s => if s = 0 then 1 else 2,
+    home := fun _ => 0 }
 
 /-- Every repair but the whole-group requirement on reports. -/
 def P : Protocol := ⟨true, false, true⟩
@@ -187,7 +189,7 @@ raises the member to generation 3 through three registrations, deletes its edge 
 re-registers before the report arrives; the home raises the member to 4, partition 1 commits a new edge, and the stale
 report arrives. A later report of generation 4 does remove the member. -/
 
-def W : World := { grp := fun s => s, place := fun _ _ => 1, home := fun _ => 0 }
+def W : World := { grp := fun s => s, place := fun _ _ => 1, layout := fun _ _ => 1, home := fun _ => 0 }
 
 /-- Before its first commit, every partition's open epoch is 1, so the hand-over is vacuous. -/
 theorem handover_at_one {σ : State} {p s : Nat} (hd : σ.delivered p = 0) : Handover W σ.delivered s (σ.openEpoch p) :=

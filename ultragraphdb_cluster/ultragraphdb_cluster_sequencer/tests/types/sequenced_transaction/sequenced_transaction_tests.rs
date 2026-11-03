@@ -7,7 +7,7 @@ use ultragraphdb_cluster_placement::PartitionId;
 use ultragraphdb_cluster_sequencer::SequencedTransaction;
 use ultragraphdb_core_ids::Epoch;
 use ultragraphdb_error_cluster::ClusterErrorEnum;
-use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 fn pids(partitions: &[u32]) -> TestResult<Vec<PartitionId>> {
     partitions
@@ -124,9 +124,32 @@ fn test_the_checks_run_in_order() -> TestResult {
     assert_eq!(refusal(14, vec![], vec![])?, ClusterErrorEnum::NoPartitions);
     let mut many: Vec<u32> = (1..=1_025).collect();
     many.push(1);
-    let ClusterErrorEnum::TooMany { .. } = refusal(12, pids(&many)?, vec![])? else {
-        return Err(TestError::new("too many before a duplicate"));
-    };
+    assert_eq!(
+        refusal(12, pids(&many)?, vec![])?,
+        ClusterErrorEnum::TooMany {
+            what: "partitions of a transaction",
+            count: 1_026,
+            max: 1_024
+        }
+    );
+    // Too many partitions before too large a body; too large a body before a duplicate.
+    let partitions: Vec<u32> = (1..=1_025).collect();
+    assert_eq!(
+        refusal(12, pids(&partitions)?, vec![0; 65_537])?,
+        ClusterErrorEnum::TooMany {
+            what: "partitions of a transaction",
+            count: 1_025,
+            max: 1_024
+        }
+    );
+    assert_eq!(
+        refusal(14, pids(&[2, 2])?, vec![0; 65_537])?,
+        ClusterErrorEnum::TooMany {
+            what: "bytes of a transaction's body",
+            count: 65_537,
+            max: 65_536
+        }
+    );
     assert_eq!(
         refusal(14, pids(&[1, 1])?, vec![])?,
         ClusterErrorEnum::DuplicatePartition { partition: 1 }

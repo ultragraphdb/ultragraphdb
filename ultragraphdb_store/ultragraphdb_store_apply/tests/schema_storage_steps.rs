@@ -139,7 +139,13 @@ fn alias_refused(w: &mut Steps) -> TestResult {
         insert(r#"<a> <alias> "Al""#)?,
         insert(r#"<a> <knows> "Bob""#)?,
     ]));
-    assert!(refused.is_err(), "a literal on the edge `knows` is refused");
+    assert_eq!(
+        refused
+            .err()
+            .context("a literal on the edge `knows` is refused")?
+            .to_string(),
+        "Predicate <http://ex.org/knows> is declared an edge and cannot hold the literal \"Bob\""
+    );
     send_defaults(w, &a)
 }
 

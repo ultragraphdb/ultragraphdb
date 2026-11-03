@@ -65,8 +65,8 @@ impl<L: OrderedLog> MetadataGroup<L> {
         Ok(Some(position))
     }
 
-    /// Learns the sequencer's durable close of `epoch`, which announced `versions`, each taking effect at the epoch
-    /// after it, and carried `evictions`, which leave the evictions pending; returns the position it was appended at,
+    /// Learns the sequencer's durable close of `epoch`, which announced `versions` and `placement` (0 for none), each
+    /// taking effect at the epoch after it, and carried `evictions`, which leave the evictions pending; returns the position it was appended at,
     /// or `None` for a close at or before the last learned, which changes nothing, so the host may hand over every
     /// close the sequencer holds after a restart.
     ///
@@ -80,6 +80,7 @@ impl<L: OrderedLog> MetadataGroup<L> {
         &mut self,
         epoch: Epoch,
         versions: &[(Namespace, u64)],
+        placement: u64,
         evictions: &[u128],
     ) -> Result<Option<Position>, ClusterError> {
         if epoch <= self.head.last_learned() {
@@ -88,6 +89,7 @@ impl<L: OrderedLog> MetadataGroup<L> {
         let position = self.append(MetadataCommand::LearnClose {
             epoch,
             versions: versions.to_vec(),
+            placement,
             evictions: evictions.to_vec(),
         })?;
         Ok(Some(position))

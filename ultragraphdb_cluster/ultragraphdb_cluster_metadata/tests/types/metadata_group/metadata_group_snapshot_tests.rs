@@ -5,7 +5,8 @@
 
 use ultragraphdb_cluster_metadata::MetadataConfig;
 use ultragraphdb_core_ids::TypePrefix;
-use ultragraphdb_error_cluster::ClusterErrorEnum;
+use ultragraphdb_error_cluster::ClusterError;
+use ultragraphdb_error_log::LogError;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_blocks::SequenceBlock;
 use ultragraphdb_traits_log::{OrderedLog, Position};
@@ -102,6 +103,10 @@ fn test_a_trim_past_the_committed_position_is_the_logs_refusal() -> TestResult {
     let refusal = block_on(group.trim(&other.snapshot()))?
         .err()
         .context("a refusal")?;
-    assert!(matches!(refusal.0, ClusterErrorEnum::Log(_)), "{refusal:?}");
+    // The log has committed position 1; the snapshot names position 3.
+    assert_eq!(
+        refusal,
+        ClusterError::log(LogError::position_mismatch(1, 3))
+    );
     Ok(())
 }

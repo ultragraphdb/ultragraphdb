@@ -86,6 +86,7 @@ where
         let Some(record) = self.record(graph, id)? else {
             return Ok(());
         };
+        self.reified.push(record.subject());
         let (subject, predicate, object) = (
             record.subject(),
             record.predicate(),
@@ -183,6 +184,7 @@ where
                 let named = self.find_graph(graph.as_ref())?.ok_or_else(missing)?;
                 let id = self.statement_of(reifier.as_ref())?.ok_or_else(missing)?;
                 let record = self.record(named, id)?.ok_or_else(missing)?;
+                self.reified.push(record.subject());
                 Ok((named, Some(id), record))
             }
             StatementRef::Triple {

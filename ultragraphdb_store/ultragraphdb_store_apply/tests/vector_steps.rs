@@ -156,11 +156,16 @@ fn other_dimension(w: &mut Steps) -> TestResult {
     "the write fails with an error naming `embedding`, 768 and 512, and nothing of its changeset is held"
 )]
 fn other_dimension_refused(w: &mut Steps) -> TestResult {
-    let error = last(w)?
-        .as_ref()
-        .err()
-        .context("the write fails")?
-        .to_string();
+    let refused = last(w)?.as_ref().err().context("the write fails")?;
+    assert_eq!(
+        refused.0,
+        ultragraphdb_store_apply::ChangesetErrorEnum::Dimension {
+            predicate: ex("embedding").as_str().to_string(),
+            declared: 768,
+            written: 512,
+        }
+    );
+    let error = refused.to_string();
     for shown in [
         format!("<{}>", ex("embedding").as_str()),
         "768".into(),
@@ -497,11 +502,14 @@ fn no_dimension(w: &mut Steps) -> TestResult {
     "the declaration fails with an error naming `emb` and the missing dimension, and the catalog does not hold `emb`"
 )]
 fn no_dimension_refused(w: &mut Steps) -> TestResult {
-    let error = last(w)?
-        .as_ref()
-        .err()
-        .context("the declaration fails")?
-        .to_string();
+    let refused = last(w)?.as_ref().err().context("the declaration fails")?;
+    assert_eq!(
+        refused.0,
+        ultragraphdb_store_apply::ChangesetErrorEnum::NoDimension {
+            predicate: ex("emb").as_str().to_string(),
+        }
+    );
+    let error = refused.to_string();
     assert!(
         error.contains(&format!("<{}>", ex("emb").as_str())),
         "{error}"

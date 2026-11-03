@@ -179,6 +179,39 @@ impl<L: Login> ClientCore<L> {
         self.lose(&ClientError::connection_lost(cause));
     }
 
+    /// The shell's attempt to open a connection failed while a commit waits to be sent again: the attempt counts as
+    /// one of the commit's [`ClientConfig::commit_attempts`], as a send lost with its connection does, so an
+    /// unreachable server ends the retries. A commit whose attempts are spent answers
+    /// [`ClientError::retries_exhausted`] and its session is in doubt until [`ClientCore::resolve`]. The shell waits
+    /// [`ClientConfig::retry_delay`] before its next attempt.
+    pub fn connect_failed(&mut self) {
+        if !matches!(self.link, Link::Down) {
+            return;
+        }
+        let attempts = self.config.commit_attempts();
+        for pending in self
+            .pending
+            .values_mut()
+            .filter(|p| p.outcome.is_none() && p.stream.is_none() && p.resend_at.is_none())
+        {
+            let Some((session, request)) = pending.commit() else {
+                continue;
+            };
+            pending.tries += 1;
+            if pending.tries >= attempts {
+                pending.outcome = Some(Err(ClientError::retries_exhausted(
+                    session,
+                    request,
+                    pending.tries,
+                )));
+                if let Some(state) = self.sessions.get_mut(&session) {
+                    state.in_flight = false;
+                    state.in_doubt = Some(request);
+                }
+            }
+        }
+    }
+
     /// Whether the core waits for the server: a handshake, an Authenticate exchange, a request's reply, or a result's
     /// next frame.
     fn awaiting(&self) -> bool {
@@ -240,7 +273,7 @@ impl<L: Login> ClientCore<L> {
     }
 
     /// The credential renewed by a new exchange on stream 0 while the other streams go on; a login that cannot start
-    /// one gives the connection up.
+    /// one gives the connection up, its requests lost with the login's refusal as the cause.
     fn renew(&mut self, now: Instant) {
         let Link::Up(welcome) = &self.link else {
             return;
@@ -251,7 +284,7 @@ impl<L: Login> ClientCore<L> {
                 self.renewal = Some(exchange);
                 self.last_progress = Some(now);
             }
-            Err(error) => self.lose(&error),
+            Err(error) => self.lose(&ClientError::connection_lost(Some(error))),
         }
     }
 
@@ -496,10 +529,13 @@ impl<L: Login> ClientCore<L> {
                 self.outbox.push_back(frame);
                 self.last_progress = Some(now);
             }
-            Err(error) => {
-                pending.outcome = Some(Err(error));
+            Err(_) => {
+                // A retry or a resolve: the commit was sent before and may have been applied, so it is in doubt, the
+                // caller resolves it, and the session's next commit does not reuse its request number.
+                pending.outcome = Some(Err(ClientError::in_doubt(session, request)));
                 if let Some(state) = self.sessions.get_mut(&session) {
                     state.in_flight = false;
+                    state.in_doubt = Some(request);
                 }
             }
         }

@@ -21,13 +21,19 @@ use crate::types::plaintext::Plaintext;
 pub struct TlsSession {
     connection: Connection,
     host: String,
+    // Whether the session has ended: its close_notify queued, the peer's received, or a record refused.
+    ended: bool,
 }
 
 impl TlsSession {
     /// The session of `connection`, with `host` its peer: the name a client verifies, empty on the accepting side.
     pub(crate) fn new(connection: Connection, host: String) -> Self {
         debug_assert!(connection.is_handshaking());
-        Self { connection, host }
+        Self {
+            connection,
+            host,
+            ended: false,
+        }
     }
 
     /// Takes `records`, bytes the carrier read, and processes every whole record among them; an empty `records` says
@@ -38,7 +44,7 @@ impl TlsSession {
     /// [`TlsErrorEnum::HandshakeFailed`](crate::TlsErrorEnum::HandshakeFailed) for a record refused during the
     /// handshake, such as an untrusted certificate or a protocol version the other side does not speak, and
     /// [`RecordRefused`](crate::TlsErrorEnum::RecordRefused) for one refused after it. Either way the session queues
-    /// its alert for the peer, which [`TlsSession::transmit`] still gives.
+    /// its alert for the peer, which [`TlsSession::transmit`] still gives, and has ended: it sends nothing more.
     pub fn receive(&mut self, mut records: &[u8]) -> Result<(), TlsError> {
         if records.is_empty() {
             // A read of nothing is how rustls learns that its carrier closed.
@@ -49,20 +55,29 @@ impl TlsSession {
         // Ends: reading from a slice that is not empty takes at least one byte of it, and rustls refuses rather than
         // takes none, since `process` empties what it buffered on every turn.
         while !records.is_empty() {
-            let _taken: usize = self
-                .connection
-                .read_tls(&mut records)
-                .map_err(|e| self.refused(e.to_string()))?;
+            if let Err(e) = self.connection.read_tls(&mut records) {
+                self.ended = true;
+                return Err(self.refused(e.to_string()));
+            }
             self.process()?;
         }
         Ok(())
     }
 
-    /// Processes the records taken: a refusal names the handshake or the record it broke.
+    /// Processes the records taken: a refusal names the handshake or the record it broke, and ends the session, as
+    /// the peer's close_notify does.
     fn process(&mut self) -> Result<(), TlsError> {
         match self.connection.process_new_packets() {
-            Ok(_state) => Ok(()),
-            Err(error) => Err(self.refused(error.to_string())),
+            Ok(state) => {
+                if state.peer_has_closed() {
+                    self.ended = true;
+                }
+                Ok(())
+            }
+            Err(error) => {
+                self.ended = true;
+                Err(self.refused(error.to_string()))
+            }
         }
     }
 
@@ -89,8 +104,16 @@ impl TlsSession {
     ///
     /// # Errors
     ///
-    /// [`TlsErrorEnum::RecordRefused`](crate::TlsErrorEnum::RecordRefused) once the session has ended.
+    /// [`TlsErrorEnum::RecordRefused`](crate::TlsErrorEnum::RecordRefused) once the session has ended: its own
+    /// close_notify queued ([`TlsSession::close`]), the peer's received, or a record refused by
+    /// [`TlsSession::receive`].
     pub fn send(&mut self, plaintext: &[u8]) -> Result<(), TlsError> {
+        if self.ended {
+            return Err(TlsError::record_refused(
+                self.host.clone(),
+                "the session has ended".to_string(),
+            ));
+        }
         self.connection
             .writer()
             .write_all(plaintext)
@@ -111,8 +134,9 @@ impl TlsSession {
         }
     }
 
-    /// Queues the `close_notify` alert, which ends the session for the peer.
+    /// Queues the `close_notify` alert, which ends the session for the peer and for [`TlsSession::send`].
     pub fn close(&mut self) {
+        self.ended = true;
         self.connection.send_close_notify();
     }
 

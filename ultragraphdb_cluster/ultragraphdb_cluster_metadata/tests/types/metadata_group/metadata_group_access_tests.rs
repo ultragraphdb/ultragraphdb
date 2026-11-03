@@ -144,8 +144,8 @@ fn test_removing_principals() -> TestResult {
         group.create_principal("ann", verifier("ann's password!", 2)?, false)?;
     let last = group.remove_principal("root").err().context("refused")?;
     assert_eq!(last.0, ClusterError::last_administrator("root").0);
-    let position = group.remove_principal("ann")?;
-    assert_eq!(position.get(), 3);
+    let (evicted, position) = group.remove_principal("ann")?;
+    assert_eq!((evicted, position.get()), (Vec::new(), 3));
     sync(&mut group)?;
     assert!(group.state().principal("ann").is_none());
     assert_eq!(group.state().principals(), 1);
@@ -216,5 +216,38 @@ fn test_the_bootstrap_checks_the_name_before_the_file() -> TestResult {
         MIN_ITERATIONS,
     )?;
     assert_eq!(id, 1);
+    Ok(())
+}
+
+#[test]
+fn test_removing_a_principal_evicts_its_sessions_and_replays() -> TestResult {
+    let (storage, mut group) = fresh()?;
+    let _: (u64, Position) =
+        group.create_principal("root", verifier("root's password!", 1)?, true)?;
+    let _: (u64, Position) =
+        group.create_principal("ann", verifier("ann's password!", 2)?, false)?;
+    for (session, principal) in [(10, "ann"), (20, "root"), (30, "ann")] {
+        let (evicted, _) = group.register_session(session, principal)?;
+        assert!(evicted.is_empty());
+    }
+    // The last administrator stays, and so do its sessions.
+    let last = group.remove_principal("root").err().context("refused")?;
+    assert_eq!(last, ClusterError::last_administrator("root"));
+    let (evicted, position) = group.remove_principal("ann")?;
+    assert_eq!((evicted, position.get()), (vec![10, 30], 6));
+    sync(&mut group)?;
+    let state = group.state();
+    assert_eq!(state.pending_evictions(), vec![10, 30]);
+    assert_eq!(
+        state.session_principal(10).err().context("evicted")?,
+        ClusterError::session_evicted(10)
+    );
+    assert_eq!(state.session_principal(20)?, 1);
+    let recovered =
+        crate::utils::harness::crash_and_recover(&storage, MetadataConfig::new(), None)?;
+    assert_eq!(recovered.state(), group.state());
+    // The next close carries the evictions to the partitions.
+    learn_through(&mut group, 1)?;
+    assert_eq!(group.state().pending_evictions(), Vec::<u128>::new());
     Ok(())
 }

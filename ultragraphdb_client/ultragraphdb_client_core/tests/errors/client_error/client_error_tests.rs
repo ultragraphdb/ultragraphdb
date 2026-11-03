@@ -9,7 +9,7 @@ use ultragraphdb_client_core::{ClientError, ClientErrorEnum};
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::TransportError;
 use ultragraphdb_protocol_wire::{ErrorCode, RequestTerm};
-use ultragraphdb_tool_bdd::TestResult;
+use ultragraphdb_tool_bdd::{Context as _, TestResult};
 
 fn every() -> Vec<ClientError> {
     vec![
@@ -176,7 +176,16 @@ fn test_each_names_its_values() -> TestResult {
             "a request names the transaction of stream 3, asked of stream 5's",
         ]
     );
-    assert!(every()[0].source().is_none());
+    // Only a lost connection with a cause has a source: every other variant has none.
+    let sources: Vec<bool> = every().iter().map(|e| e.source().is_some()).collect();
+    let lost = every()
+        .iter()
+        .position(|e| matches!(e.0, ClientErrorEnum::ConnectionLost { .. }))
+        .context("a lost connection")?;
+    assert_eq!(
+        sources,
+        (0..every().len()).map(|i| i == lost).collect::<Vec<_>>()
+    );
     Ok(())
 }
 

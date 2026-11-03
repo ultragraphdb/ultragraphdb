@@ -5,3 +5,5 @@
 
 #[cfg(test)]
 mod client;
+#[cfg(test)]
+mod tcp_connector_tests;

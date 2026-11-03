@@ -216,9 +216,12 @@ impl TestServer {
     /// The time is `now`: a deadline passed closes the connection.
     pub fn handle_timeout(&mut self, now: Instant) {
         self.tick(now);
-        let closed = self.connection.as_mut().and_then(|c| c.handle_timeout(now));
-        if let Some(Inbound::Closing { .. }) = closed {
-            self.transactions.clear();
+        let closed = self.connection.as_mut().map(|c| c.handle_timeout(now));
+        match closed {
+            Some(Ok(Some(Inbound::Closing { .. }))) => self.transactions.clear(),
+            // The closing Error could not be built: the connection closes without it.
+            Some(Err(_)) => self.close_unsent(),
+            Some(Ok(_)) | None => {}
         }
     }
 
@@ -237,11 +240,17 @@ impl TestServer {
         let received = match read {
             Ok(received) => received,
             Err(refusal) => {
-                let _closing: Inbound = connection.refuse_connection(&refusal);
+                if connection.refuse_connection(&refusal).is_err() {
+                    self.close_unsent();
+                }
                 return;
             }
         };
-        match connection.receive(&received, now) {
+        let inbound = match connection.receive(&received, now) {
+            Ok(inbound) => inbound,
+            Err(_) => return self.close_unsent(),
+        };
+        match inbound {
             Inbound::Welcomed { protocol } => self.framer.set_protocol(protocol),
             Inbound::Request { stream, command } => self.request(stream, command, &received),
             Inbound::Cancelled {
@@ -254,6 +263,13 @@ impl TestServer {
             Inbound::Closing { .. } => self.transactions.clear(),
             Inbound::Handled | Inbound::Authenticated { .. } | Inbound::Cancelled { .. } => {}
         }
+    }
+
+    /// A frame the connection answers with could not be built, so it closes without a last frame: dropped, as the
+    /// transport asks of its caller, its transactions with it.
+    fn close_unsent(&mut self) {
+        self.dropped = true;
+        self.transactions.clear();
     }
 
     /// The server's wall clock at `now`, from the connection's origin.
@@ -301,6 +317,7 @@ fn rule(error: ultragraphdb_protocol_transport::TransportError) -> ProtocolError
         | TransportErrorEnum::Refused { .. }
         | TransportErrorEnum::UnexpectedCommand { .. }
         | TransportErrorEnum::Authentication { .. }
+        | TransportErrorEnum::FrameNotBuilt { .. }
         | TransportErrorEnum::Address { .. } => ProtocolError::short_header(0),
     }
 }

@@ -31,14 +31,18 @@ impl MetadataState {
     /// - [`MetadataCommand::InitPlacement`]: [`ClusterError::full`] when the map is initialised already; the refusals
     ///   of `PlacementMap::even`.
     /// - [`MetadataCommand::ChangePlacement`] and [`MetadataCommand::SetLeader`]: [`ClusterError::no_placement`] when
-    ///   no map is initialised; [`ClusterError::too_many`] past [`MetadataCommand::ASSIGNMENTS_MAX`] ranges; the
-    ///   refusals of `PlacementMap::change` and `PlacementMap::set_preferred_leader`.
+    ///   no map is initialised; [`ClusterError::too_many`] past [`MetadataCommand::ASSIGNMENTS_MAX`] ranges;
+    ///   [`ClusterError::full`] at [`MetadataState::PLACEMENT_PENDING_MAX`] pending placement versions or when the map
+    ///   has no room for one more layout; the refusals of `PlacementMap::check_layout` and
+    ///   `PlacementMap::set_preferred_leader`.
     /// - [`MetadataCommand::CreatePrincipal`]: [`ClusterError::principal_name`] for a name of 0 or more than 255 bytes;
     ///   [`ClusterError::too_many`] for a salt past [`MetadataCommand::SALT_BYTES_MAX`];
     ///   [`ClusterError::principal_exists`]; [`ClusterError::full`] at [`MetadataState::PRINCIPALS_MAX`];
     ///   [`ClusterError::contradicts`] when the identity is not the next.
     /// - [`MetadataCommand::RemovePrincipal`]: [`ClusterError::unknown_principal`]; [`ClusterError::last_administrator`]
-    ///   for the only principal holding the administrator role.
+    ///   for the only principal holding the administrator role; [`ClusterError::full`] when its sessions' evictions
+    ///   would pass [`MetadataState::EVICTIONS_PENDING_MAX`]; [`ClusterError::contradicts`] when the evictions named are
+    ///   not the principal's sessions in registration order.
     /// - [`MetadataCommand::RegisterSession`]: [`ClusterError::session_exists`]; [`ClusterError::unknown_principal`]
     ///   naming the identity after `#`; [`ClusterError::too_many`] for more than
     ///   [`MetadataCommand::EVICTIONS_MAX`] evictions; [`ClusterError::full`] when the evictions would pass
@@ -48,7 +52,9 @@ impl MetadataState {
     ///   learned (the first learned may close any epoch from 1); [`ClusterError::epoch_limit`] for the close of the last
     ///   epoch; [`ClusterError::too_many`] past [`MetadataCommand::VERSIONS_MAX`] versions or
     ///   [`MetadataCommand::EVICTIONS_MAX`] evictions; [`ClusterError::not_pending`] for a version announced that is
-    ///   not pending. An eviction carried that is not pending changes nothing.
+    ///   not pending; [`ClusterError::contradicts`] for a version announced while an earlier version of its namespace
+    ///   stays pending, or a placement version announced other than the oldest pending. An eviction carried that is not
+    ///   pending changes nothing.
     /// - [`MetadataCommand::ReportUntrimmed`]: none; an epoch below the partition's last report changes nothing.
     /// - [`MetadataCommand::Chunk`] and [`MetadataCommand::Commit`]: [`ClusterError::contradicts`]; they frame a large
     ///   command in the log, and the group applies the command they hold.
@@ -70,9 +76,7 @@ impl MetadataState {
             MetadataCommand::InitPlacement { partitions, leader } => {
                 self.init_placement(*partitions, *leader)
             }
-            MetadataCommand::ChangePlacement { from, assignments } => {
-                self.change_placement(*from, assignments)
-            }
+            MetadataCommand::ChangePlacement { assignments } => self.change_placement(assignments),
             MetadataCommand::SetLeader { partition, node } => self.set_leader(*partition, *node),
             MetadataCommand::CreatePrincipal {
                 id,
@@ -80,7 +84,9 @@ impl MetadataState {
                 verifier,
                 administrator,
             } => self.create_principal(*id, name, verifier, *administrator),
-            MetadataCommand::RemovePrincipal { name } => self.remove_principal(name),
+            MetadataCommand::RemovePrincipal { name, evicts } => {
+                self.remove_principal(name, evicts)
+            }
             MetadataCommand::RegisterSession {
                 session,
                 principal,
@@ -89,8 +95,9 @@ impl MetadataState {
             MetadataCommand::LearnClose {
                 epoch,
                 versions,
+                placement,
                 evictions,
-            } => self.learn_close(*epoch, versions, evictions),
+            } => self.learn_close(*epoch, versions, *placement, evictions),
             MetadataCommand::ReportUntrimmed { partition, epoch } => {
                 self.report_untrimmed(*partition, *epoch);
                 Ok(())
@@ -210,22 +217,39 @@ impl MetadataState {
         Ok(())
     }
 
-    /// Changes the placement map from `from` to `assignments`.
+    /// Commits the layout `assignments` as the next pending placement version.
     fn change_placement(
         &mut self,
-        from: Epoch,
         assignments: &[(BucketRange, PartitionId)],
     ) -> Result<(), ClusterError> {
         let map = self
             .placement
-            .as_mut()
+            .as_ref()
             .ok_or_else(ClusterError::no_placement)?;
         within(
             "ranges of a placement change",
             assignments.len(),
             MetadataCommand::ASSIGNMENTS_MAX,
         )?;
-        map.change(from, assignments)
+        if self.placement_pending.len() >= Self::PLACEMENT_PENDING_MAX {
+            return Err(ClusterError::full(
+                "pending placement versions",
+                Self::PLACEMENT_PENDING_MAX,
+            ));
+        }
+        // Every pending version becomes a layout once announced, so the map keeps room for all of them.
+        if self.placement_pending.len() >= map.layouts_free() {
+            return Err(ClusterError::full(
+                "placement layouts",
+                PlacementMap::LAYOUTS_MAX as usize,
+            ));
+        }
+        PlacementMap::check_layout(assignments)?;
+        // At most 255 layouts follow the first, so the number never nears u64::MAX.
+        self.placement_version = self.placement_version.saturating_add(1);
+        self.placement_pending
+            .push_back((self.placement_version, assignments.to_vec()));
+        Ok(())
     }
 
     /// Makes `node` the preferred leader of `partition`.
@@ -269,8 +293,8 @@ impl MetadataState {
         Ok(())
     }
 
-    /// Removes the principal `name`, unless it is the last administrator.
-    fn remove_principal(&mut self, name: &str) -> Result<(), ClusterError> {
+    /// Removes the principal `name`, unless it is the last administrator, evicting `evicts`, its sessions.
+    fn remove_principal(&mut self, name: &str, evicts: &[u128]) -> Result<(), ClusterError> {
         let principal = self
             .principals
             .get(name)
@@ -283,6 +307,27 @@ impl MetadataState {
         if principal.administrator() && administrators == 1 {
             return Err(ClusterError::last_administrator(name));
         }
+        if self.evictions.len() + evicts.len() > Self::EVICTIONS_PENDING_MAX {
+            return Err(ClusterError::full(
+                "session evictions awaiting a close",
+                Self::EVICTIONS_PENDING_MAX,
+            ));
+        }
+        let id = principal.id();
+        let held = self
+            .sessions
+            .iter()
+            .filter(|(_, owner)| *owner == id)
+            .map(|(session, _)| session);
+        holds(
+            held.eq(evicts.iter()),
+            "a removal evicts the principal's sessions",
+        )?;
+        self.sessions.retain(|(_, owner)| *owner != id);
+        for session in evicts {
+            let _owner: Option<u64> = self.owners.remove(session);
+        }
+        self.evictions.extend(evicts.iter().copied());
         let _removed: Option<Principal> = self.principals.remove(name);
         Ok(())
     }
@@ -329,11 +374,13 @@ impl MetadataState {
         Ok(())
     }
 
-    /// Learns the close of `epoch`, assigning `versions` the epoch after it and carrying `evictions` away.
+    /// Learns the close of `epoch`, assigning `versions` and `placement` the epoch after it and carrying `evictions`
+    /// away.
     fn learn_close(
         &mut self,
         epoch: Epoch,
         versions: &[(Namespace, u64)],
+        placement: u64,
         evictions: &[u128],
     ) -> Result<(), ClusterError> {
         within(
@@ -370,6 +417,23 @@ impl MetadataState {
                 return Err(ClusterError::not_pending(namespace.get(), *version));
             }
         }
+        // A version takes effect no earlier than the one it is built on: every version below one announced is in
+        // effect already or announced with it, so the effective epochs rise with the versions.
+        let in_order = versions.iter().all(|(namespace, version)| {
+            self.catalogs.get(namespace).is_none_or(|catalog| {
+                catalog
+                    .versions
+                    .iter()
+                    .filter(|v| v.version() < *version && v.effective().is_none())
+                    .all(|v| versions.contains(&(*namespace, v.version())))
+            })
+        });
+        holds(
+            in_order,
+            "a close announces a namespace's versions in order",
+        )?;
+        // The last check, and the first change: nothing has changed when it refuses.
+        self.announce_placement(placement, effective)?;
         for (namespace, version) in versions {
             let record = self.catalogs.get_mut(namespace).and_then(|catalog| {
                 catalog
@@ -384,6 +448,32 @@ impl MetadataState {
         self.evictions
             .retain(|session| !evictions.contains(session));
         self.learned = epoch;
+        Ok(())
+    }
+
+    /// Takes the layout of placement version `placement`, which a close announced, into the map from `effective`; 0
+    /// announces none. Refused, with the map unchanged, unless it is the oldest pending.
+    fn announce_placement(&mut self, placement: u64, effective: Epoch) -> Result<(), ClusterError> {
+        // A close announces at most one placement version, the oldest pending, so their epochs rise with their numbers
+        // and no layout is ever placed at an epoch a partition may have opened.
+        holds(
+            placement == 0 || placement == self.pending_placement(),
+            "a close announces the oldest pending placement version",
+        )?;
+        if placement == 0 {
+            return Ok(());
+        }
+        let layout = self
+            .placement_pending
+            .front()
+            .map(|(_, layout)| layout.as_slice())
+            .unwrap_or_default();
+        // The epoch after this close is after every layout's, each announced by an earlier close.
+        self.placement
+            .as_mut()
+            .ok_or_else(ClusterError::no_placement)?
+            .change(effective, layout)?;
+        let _announced = self.placement_pending.pop_front();
         Ok(())
     }
 

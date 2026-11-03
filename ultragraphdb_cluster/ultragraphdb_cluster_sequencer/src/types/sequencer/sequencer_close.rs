@@ -34,8 +34,8 @@ impl<L: OrderedLog> Sequencer<L> {
     }
 
     /// Closes the open epoch when it is due at `now` ([`deadline`](Self::deadline)), announcing `catalog`, the
-    /// versions the metadata group holds pending, and carrying `evictions`, the sessions its registry evicted since
-    /// the last close; returns the epoch closed, `None` when no close is due. The close is recorded at `now`'s
+    /// versions the metadata group holds pending, and `placement`, the oldest placement version it holds pending (0 for
+    /// none), and carrying `evictions`, the sessions its registry evicted since the last close; returns the epoch closed, `None` when no close is due. The close is recorded at `now`'s
     /// wall-clock time, or at the last close's when the clock stepped back, and appended to the log; it is delivered
     /// once [`sync`](Self::sync) makes it durable.
     ///
@@ -48,6 +48,7 @@ impl<L: OrderedLog> Sequencer<L> {
         &mut self,
         now: ClockReading,
         catalog: &[CatalogVersion],
+        placement: u64,
         evictions: &[u128],
     ) -> Result<Option<Epoch>, ClusterError> {
         if now.monotonic_us() < self.deadline() {
@@ -56,7 +57,8 @@ impl<L: OrderedLog> Sequencer<L> {
         let last = self.last_appended();
         let epoch = Epoch::new(last + 1).map_err(|_| ClusterError::epoch_limit(last))?;
         let time_us = now.wall_us().max(self.last_time_us());
-        let close = Close::new(epoch, time_us, catalog.to_vec(), evictions.to_vec())?;
+        let close = Close::new(epoch, time_us, catalog.to_vec(), evictions.to_vec())?
+            .with_placement(placement);
         let _position = self.append(SequencerRecord::Close(close))?;
         self.last_close_us = now.monotonic_us();
         self.close_requested = false;

@@ -81,16 +81,32 @@ impl<L: OrderedLog> MetadataGroup<L> {
         self.create_principal(name, verifier, true)
     }
 
-    /// Removes the principal `name`; returns the position it was appended at.
+    /// Removes the principal `name` and evicts every session registered for it, so none outlives it; returns the
+    /// sessions evicted, oldest first, which the sequencer's next closes carry, and the position it was appended at.
     ///
     /// # Errors
     ///
     /// [`ClusterError::unknown_principal`] naming `name`; [`ClusterError::last_administrator`] naming it when it is the
-    /// only principal holding the administrator role; [`ClusterError::log`].
-    pub fn remove_principal(&mut self, name: &str) -> Result<Position, ClusterError> {
-        self.append(MetadataCommand::RemovePrincipal {
+    /// only principal holding the administrator role; [`ClusterError::full`] when its sessions' evictions would pass
+    /// [`MetadataState::EVICTIONS_PENDING_MAX`](crate::MetadataState::EVICTIONS_PENDING_MAX); [`ClusterError::log`].
+    pub fn remove_principal(&mut self, name: &str) -> Result<(Vec<u128>, Position), ClusterError> {
+        let id = self
+            .head
+            .principal(name)
+            .map(|held| held.id())
+            .ok_or_else(|| ClusterError::unknown_principal(name))?;
+        let evicts: Vec<u128> = self
+            .head
+            .sessions
+            .iter()
+            .filter(|(_, owner)| *owner == id)
+            .map(|(session, _)| *session)
+            .collect();
+        let position = self.append(MetadataCommand::RemovePrincipal {
             name: name.to_string(),
-        })
+            evicts: evicts.clone(),
+        })?;
+        Ok((evicts, position))
     }
 
     /// Registers `session` for the principal `principal`, evicting the least recently registered sessions when the

@@ -31,6 +31,7 @@ pub use crate::traits::client_mechanism::ClientMechanism;
 pub use crate::traits::login::Login;
 pub use crate::traits::server_mechanism::ServerMechanism;
 pub use crate::types::address::{ADDRESS_LEN_MAX, Address};
+pub use crate::types::address_rule::AddressRule;
 pub use crate::types::anonymous::Anonymous;
 pub use crate::types::buffer_pool::BufferPool;
 pub use crate::types::client_authentication::{AuthenticationStep, ClientAuthentication};

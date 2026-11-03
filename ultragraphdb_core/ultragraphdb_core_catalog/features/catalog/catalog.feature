@@ -15,6 +15,10 @@ Feature: The catalog's declarations
     When Employee is declared a subtype of Person and then of Agent
     Then the second declaration fails with an error naming Employee, Person and Agent
 
+  Scenario: A parent is not dropped by a redeclaration
+    When Employee is declared a subtype of Person and then declared again with no parent
+    Then the second declaration fails with an error naming Employee and Person, and Employee keeps Person
+
   Scenario: Preorder numbers follow the hierarchy
     When Agent has the subtypes Person and Org, and Person the subtype Employee
     Then the preorder numbers place Employee between Person and Org

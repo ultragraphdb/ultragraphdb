@@ -137,13 +137,15 @@ fn run<A: Authenticator>(
             break;
         };
         sequence += 1;
-        let inbound = match read(&mut framer, &pool, &frame) {
+        let taken = match read(&mut framer, &pool, &frame) {
             Ok(received) => connection.receive(&received, now),
             Err(()) => {
                 let refusal = ultragraphdb_error_protocol::ProtocolError::short_header(frame.len());
                 connection.refuse_connection(&refusal)
             }
         };
+        // Every frame the connection answers a client with is bounded, so each one builds.
+        let inbound = taken.expect("every answer to a client's frame is built");
         match inbound {
             Inbound::Welcomed { protocol } => {
                 framer.set_protocol(protocol);
@@ -177,7 +179,9 @@ fn run<A: Authenticator>(
                     | Command::Describe
                     | Command::Drop
                     | Command::Commit => {
-                        connection.refuse(stream, &ErrorReply::new(ErrorCode::Refused, "fuzz"));
+                        connection
+                            .refuse(stream, &ErrorReply::new(ErrorCode::Refused, "fuzz"))
+                            .expect("a short refusal is built");
                     }
                     _ => {}
                 }
@@ -192,7 +196,9 @@ fn run<A: Authenticator>(
             connection.next_deadline().is_some(),
             "an open connection has a deadline"
         );
-        connection.handle_timeout(now + Duration::from_secs(86_400));
+        connection
+            .handle_timeout(now + Duration::from_secs(86_400))
+            .expect("a closing Error is built");
         assert!(
             connection.is_closing(),
             "a connection past its deadlines closes"

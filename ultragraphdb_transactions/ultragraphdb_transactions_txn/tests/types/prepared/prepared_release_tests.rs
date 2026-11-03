@@ -53,3 +53,58 @@ fn test_a_released_entry_is_never_used_again_and_one_taken_stays_the_takers() ->
     let _later_buffers = later.release(&applier);
     Ok(())
 }
+
+/// An operated transaction the commit step does not take is released: the ID its operation created for a new subject is
+/// held until then, and never used again after.
+#[test]
+fn test_an_operated_transaction_released_lets_go_of_what_its_operations_created() -> TestResult {
+    use crate::utils::fixture::{ex, store};
+    let applier = applier()?;
+    store(&applier, vec![insert_literal("a", "p", "x")])?;
+    let mut txn = begin(&applier, Mode::ReadWrite)?;
+    txn.operate(
+        ultragraphdb_store_apply::Operation::CounterAdd {
+            graph: oxrdf::GraphName::DefaultGraph,
+            subject: ex("new").into(),
+            predicate: ex("p"),
+            delta: 1,
+        },
+        0,
+    )?;
+    let proposal = prepared(txn.commit(1, 1, &[], 0))?;
+    let overlay = applier.quads().lists().batch();
+    let mut results = Vec::new();
+    let operated = proposal.operated(&applier, &overlay, &[], &mut results)?;
+    let new = ex("new");
+    let created = operated
+        .executed()
+        .terms()
+        .written()
+        .find(|(term, _)| *term == new.as_str())
+        .map(|(_, id)| id)
+        .context("the operation creates `<new>`")?;
+    let writer = |request| -> TestResult<ultragraphdb_core_ids::SystemId> {
+        let mut writer = begin(&applier, Mode::ReadWrite)?;
+        writer
+            .write(&changeset(vec![insert_literal("new", "p", "y")]), 0)
+            .context("the writer writes `<new>`")?;
+        let writer = prepared(writer.commit(2, request, &[], 0))?;
+        let id = id_in(&writer, "new")?;
+        let _buffers = writer.release(&applier);
+        Ok(id)
+    };
+    assert_eq!(
+        writer(1)?,
+        created,
+        "the operated transaction holds `<new>`"
+    );
+    drop(overlay);
+    proposal.release_operated(&applier, operated);
+    let _buffers = proposal.release(&applier);
+    assert_ne!(
+        writer(2)?,
+        created,
+        "released, `<new>`'s ID is never used again"
+    );
+    Ok(())
+}

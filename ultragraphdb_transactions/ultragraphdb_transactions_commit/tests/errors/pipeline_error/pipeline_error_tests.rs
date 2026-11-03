@@ -51,6 +51,15 @@ fn test_each_reason_carries_and_displays_its_cause() -> TestResult {
             format!("a build's end could not be proposed: {build}"),
             build.to_string(),
         ),
+        (
+            PipelineError::catalog_version(4, build.clone()),
+            PipelineErrorEnum::CatalogVersion {
+                version: 4,
+                cause: build.clone(),
+            },
+            format!("catalog version 4 could not take effect: {build}"),
+            build.to_string(),
+        ),
     ];
     for (error, variant, text, source) in cases {
         assert_eq!(error.0, variant);

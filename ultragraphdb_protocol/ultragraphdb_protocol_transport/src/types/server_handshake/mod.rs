@@ -41,7 +41,8 @@ impl ServerHandshake {
     /// The answer to the client's first frame, the bytes of a whole frame: a Hello within the server's protocols is
     /// answered with its Welcome; one outside them with its Error frame and refused as [`TransportError::refused`];
     /// another command as [`TransportError::unexpected_command`] and a frame breaking a rule, or not the client's
-    /// sequence 1, as [`TransportError::protocol`], both answered with a protocol Error frame.
+    /// sequence 1, as [`TransportError::protocol`], both answered with a protocol Error frame; a Welcome that cannot
+    /// be framed, such as one past the largest frame, as [`TransportError::frame_not_built`], answered with nothing.
     pub fn receive(&self, frame: &[u8]) -> HandshakeAnswer {
         let refuse = |refusal: ProtocolError, error: TransportError| {
             HandshakeAnswer::new(
@@ -73,7 +74,14 @@ impl ServerHandshake {
         match self.server.answer(&hello) {
             Ok(welcome) => match welcome.frame(self.header()) {
                 Ok(welcome_frame) => HandshakeAnswer::new(Some(welcome_frame), Ok(welcome)),
-                Err(refusal) => HandshakeAnswer::new(None, Err(TransportError::protocol(refusal))),
+                // The server's own Welcome cannot be framed: nothing is sent, and the outcome names the command.
+                Err(refusal) => HandshakeAnswer::new(
+                    None,
+                    Err(TransportError::frame_not_built(
+                        Command::Welcome.number(),
+                        refusal,
+                    )),
+                ),
             },
             Err(error) => HandshakeAnswer::new(
                 self.refusal_frame(&error),

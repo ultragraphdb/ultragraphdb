@@ -183,3 +183,26 @@ fn test_the_predicate_is_an_iri_and_the_fault_no_triple() -> TestResult {
     }
     Ok(())
 }
+
+#[test]
+fn test_a_broken_term_table_is_refused_by_its_rule() -> TestResult {
+    // The term table's records are 24-byte records (PROTOCOL.md section 4.4): a byte cut from them is refused as
+    // `SectionLength` on the records' section, 0, before any kind's count is checked.
+    let bytes = golden("report_refused")?;
+    let mut records_len = 0;
+    let cut = crate::utils::golden_bodies::with_section(&bytes, 2, 0, |records| {
+        let _cut: Option<u8> = records.pop();
+        records_len = records.len();
+    });
+    assert_eq!(records_len % 24, 23);
+    assert_eq!(
+        refusal::<ReportView>(&cut)?,
+        ProtocolErrorEnum::SectionLength {
+            command: 530,
+            section: 0,
+            len: records_len,
+            unit: 24
+        }
+    );
+    Ok(())
+}

@@ -553,10 +553,20 @@ fn test_a_read_the_store_fails_ends_the_transaction() -> TestResult {
     store(&applier, vec![insert("a", "knows", "b")])?;
     let mut txn = begin(&applier, Mode::ReadWrite)?;
     applier.quads().lists().store().inject(Fault::FailNextRead);
-    assert!(matches!(
-        objects(&mut txn, "a", "unread", 0),
-        Err(TxnError(TxnErrorEnum::Changeset(_)))
-    ));
+    let refused = objects(&mut txn, "a", "unread", 0);
+    assert!(
+        matches!(
+            refused,
+            Err(TxnError(TxnErrorEnum::Changeset(
+                ultragraphdb_store_apply::ChangesetError(
+                    ultragraphdb_store_apply::ChangesetErrorEnum::Quad(_)
+                )
+            )))
+        ) && refused
+            .as_ref()
+            .is_err_and(|e| e.to_string().contains("simulated read failure")),
+        "the store's failure: {refused:?}"
+    );
     assert!(txn.is_ended());
     assert!(matches!(
         objects(&mut txn, "a", "knows", 0),
@@ -812,5 +822,258 @@ fn test_a_transaction_carries_no_token_and_catalog_0_by_default() -> TestResult 
     let prepared = prepared(txn.commit(1, 1, &[], 0))?;
     assert_eq!(prepared.token(), None);
     assert_eq!(WriteSetRecordView::new(prepared.record())?.catalog(), 0);
+    Ok(())
+}
+
+/// A delete of a statement, or of every object of a predicate, whose subject another partition owns aborts a bound
+/// transaction cross-partition, as an insert does: each writes the subject's lists.
+#[test]
+fn test_a_delete_of_another_partitions_subject_aborts_cross_partition() -> TestResult {
+    let applier = applier()?;
+    let placement = two_partitions()?;
+    let other = owned_by(&placement, 2)?;
+    store(&applier, vec![insert(&other, "knows", "b")])?;
+    let deletes = [
+        Change::Delete {
+            graph: oxrdf::GraphName::DefaultGraph,
+            subject: ex(&other).into(),
+            predicate: ex("knows"),
+            object: ex("b").into(),
+        },
+        Change::DeletePattern {
+            graph: oxrdf::GraphName::DefaultGraph,
+            subject: ex(&other).into(),
+            predicate: ex("knows"),
+        },
+    ];
+    for delete in deletes {
+        let mut txn = begin(&applier, Mode::ReadWrite)?.bind(partition(1)?, &placement);
+        let error = txn
+            .write(&changeset(vec![delete.clone()]), 0)
+            .err()
+            .context("the delete is refused")?;
+        assert_eq!(error, TxnError::cross_partition(1, 2), "{delete:?}");
+        assert!(txn.is_ended(), "{delete:?}");
+    }
+    assert_eq!(
+        held(&applier, &other, "knows")?,
+        vec![Term::from(ex("b"))],
+        "nothing is deleted"
+    );
+    Ok(())
+}
+
+/// A property set on, or removed from, a statement named by its triple whose subject another partition owns aborts a
+/// bound transaction cross-partition: the statement is the subject's, and setting a property gives it a statement ID in
+/// the subject's forward list.
+#[test]
+fn test_a_property_of_another_partitions_statement_aborts_cross_partition() -> TestResult {
+    use ultragraphdb_core_mapping::StatementRef;
+    let applier = applier()?;
+    let placement = two_partitions()?;
+    let other = owned_by(&placement, 2)?;
+    store(&applier, vec![insert(&other, "knows", "b")])?;
+    let statement = || StatementRef::Triple {
+        graph: oxrdf::GraphName::DefaultGraph,
+        subject: ex(&other).into(),
+        predicate: ex("knows"),
+        object: ex("b").into(),
+    };
+    let changes = [
+        Change::SetProperty {
+            statement: statement(),
+            predicate: ex("since"),
+            value: Literal::from(2020i64).into(),
+        },
+        Change::DeleteProperty {
+            statement: statement(),
+            predicate: ex("since"),
+            value: None,
+        },
+    ];
+    for change in changes {
+        let mut txn = begin(&applier, Mode::ReadWrite)?.bind(partition(1)?, &placement);
+        let error = txn
+            .write(&changeset(vec![change.clone()]), 0)
+            .err()
+            .context("the write is refused")?;
+        assert_eq!(error, TxnError::cross_partition(1, 2), "{change:?}");
+        assert!(txn.is_ended(), "{change:?}");
+    }
+    Ok(())
+}
+
+/// `<subject> <knows> <b>` held as an edge with the property `<since> 2020`: its statement ID and the reifier naming it.
+fn edge(
+    applier: &crate::utils::fixture::Applier,
+    subject: &str,
+) -> TestResult<(ultragraphdb_core_ids::SystemId, oxrdf::NamedNode)> {
+    use ultragraphdb_core_keys::{DEFAULT_GRAPH, QuadKey};
+    store(
+        applier,
+        vec![Change::InsertEdge {
+            graph: oxrdf::GraphName::DefaultGraph,
+            subject: ex(subject).into(),
+            predicate: ex("knows"),
+            object: ex("b").into(),
+            properties: vec![(ex("since"), Literal::from(2020i64).into())],
+        }],
+    )?;
+    let quads = applier.quads();
+    let id = |name: &str| -> TestResult<ultragraphdb_core_ids::SystemId> {
+        quads
+            .id_of(crate::utils::fixture::NS, ex(name).as_str())?
+            .context("the IRI is held")
+    };
+    let key = QuadKey::Forward {
+        namespace: crate::utils::fixture::NS,
+        graph: DEFAULT_GRAPH,
+        predicate: id("knows")?,
+        subject: id(subject)?,
+    }
+    .to_bytes();
+    let statement = quads
+        .objects(&key, quads.lists().applied_ts())?
+        .first()
+        .and_then(|(_, ids)| ids.first().copied())
+        .context("the edge's statement ID")?;
+    let reifier = oxrdf::NamedNode::new(quads.iri_of(crate::utils::fixture::NS, statement)?.0)?;
+    Ok((statement, reifier))
+}
+
+/// The properties statement `id` holds now.
+fn properties_of(
+    applier: &crate::utils::fixture::Applier,
+    id: ultragraphdb_core_ids::SystemId,
+) -> TestResult<usize> {
+    let record = applier.quads().statement(
+        crate::utils::fixture::NS,
+        ultragraphdb_core_keys::DEFAULT_GRAPH,
+        id,
+        applier.quads().lists().applied_ts(),
+    )?;
+    Ok(record.context("the statement's record")?.properties().len())
+}
+
+/// The three writes naming a statement by `reifier`: a property set, a property removed, and the statement deleted.
+fn by_reifier(reifier: &oxrdf::NamedNode) -> [Change; 3] {
+    use ultragraphdb_core_mapping::StatementRef;
+    let statement = || StatementRef::Reifier {
+        graph: oxrdf::GraphName::DefaultGraph,
+        reifier: reifier.clone(),
+    };
+    [
+        Change::SetProperty {
+            statement: statement(),
+            predicate: ex("weight"),
+            value: Literal::from(1i64).into(),
+        },
+        Change::DeleteProperty {
+            statement: statement(),
+            predicate: ex("since"),
+            value: None,
+        },
+        Change::DeleteStatement {
+            graph: oxrdf::GraphName::DefaultGraph,
+            reifier: reifier.clone(),
+        },
+    ]
+}
+
+/// A statement named by its reifier whose subject the bound partition owns is written: each write is taken, the
+/// transaction goes on, and its record names the statement's record.
+#[test]
+fn test_a_statement_named_by_its_reifier_in_the_bound_partition_is_written() -> TestResult {
+    let applier = applier()?;
+    let placement = two_partitions()?;
+    let own = owned_by(&placement, 1)?;
+    let (_, reifier) = edge(&applier, &own)?;
+    for change in by_reifier(&reifier) {
+        let mut txn = begin(&applier, Mode::ReadWrite)?.bind(partition(1)?, &placement);
+        txn.write(&changeset(vec![change.clone()]), 0)?;
+        assert!(!txn.is_ended(), "{change:?}");
+        let proposal = prepared(txn.commit(1, 1, &[], 0))?;
+        assert_eq!(
+            WriteSetRecordView::new(proposal.record())?
+                .statement_records()
+                .iter()
+                .count(),
+            1,
+            "{change:?}"
+        );
+        let _buffers = proposal.release(&applier);
+    }
+    Ok(())
+}
+
+/// A statement named by its reifier whose subject another partition owns aborts the bound transaction cross-partition
+/// once the reifier resolves, naming both partitions, and writes nothing: the statement keeps its edge and property,
+/// and the ended transaction commits nothing.
+#[test]
+fn test_a_statement_named_by_its_reifier_in_another_partition_aborts_cross_partition() -> TestResult
+{
+    let applier = applier()?;
+    let placement = two_partitions()?;
+    let other = owned_by(&placement, 2)?;
+    let (id, reifier) = edge(&applier, &other)?;
+    let watermark = applier.quads().lists().applied_ts();
+    for change in by_reifier(&reifier) {
+        let mut txn = begin(&applier, Mode::ReadWrite)?.bind(partition(1)?, &placement);
+        let error = txn
+            .write(&changeset(vec![change.clone()]), 0)
+            .err()
+            .context("the write is refused")?;
+        assert_eq!(error, TxnError::cross_partition(1, 2), "{change:?}");
+        assert!(!error.is_retryable());
+        assert!(txn.is_ended(), "{change:?}");
+        assert_eq!(txn.commit(1, 1, &[], 0).err(), Some(TxnError::ended()));
+    }
+    assert_eq!(applier.quads().lists().applied_ts(), watermark);
+    assert_eq!(held(&applier, &other, "knows")?, vec![Term::from(ex("b"))]);
+    assert_eq!(properties_of(&applier, id)?, 1, "`<since>` alone");
+    Ok(())
+}
+
+/// A reifier naming no statement resolves to no subject: a delete of it is taken and writes nothing, and a property
+/// set through it is refused as naming no statement, ending the transaction.
+#[test]
+fn test_a_reifier_naming_no_statement_is_no_cross_partition_write() -> TestResult {
+    let applier = applier()?;
+    let placement = two_partitions()?;
+    store(&applier, vec![insert("a", "knows", "b")])?;
+    let [set, _, delete] = by_reifier(&ex("nothing"));
+    let mut txn = begin(&applier, Mode::ReadWrite)?.bind(partition(1)?, &placement);
+    txn.write(&changeset(vec![delete]), 0)?;
+    assert!(!txn.is_ended());
+    let proposal = prepared(txn.commit(1, 1, &[], 0))?;
+    let view = WriteSetRecordView::new(proposal.record())?;
+    assert_eq!(
+        (
+            view.inserted().iter().count(),
+            view.removed().iter().count(),
+            view.statement_records().iter().count()
+        ),
+        (0, 0, 0)
+    );
+    let _buffers = proposal.release(&applier);
+    let mut setter = begin(&applier, Mode::ReadWrite)?.bind(partition(1)?, &placement);
+    let refused = setter
+        .write(&changeset(vec![set]), 0)
+        .err()
+        .context("the property is refused")?;
+    assert!(
+        matches!(
+            &refused,
+            TxnError(TxnErrorEnum::Changeset(ChangesetError(
+                ChangesetErrorEnum::Mapping(_)
+            )))
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(
+        refused.to_string(),
+        "No statement <http://ex.org/nothing> in DEFAULT is held"
+    );
+    assert!(setter.is_ended());
     Ok(())
 }

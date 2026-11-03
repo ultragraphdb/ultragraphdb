@@ -8,7 +8,7 @@
 
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use ultragraphdb_tool_bdd::{Context, TestResult};
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use ultragraphdb_transactions_log::{
     AlignedBuf, DurableFile, DurableStorage, FaultMode, OpenMode, SimFile, SimStorage,
@@ -35,6 +35,24 @@ fn create(storage: &SimStorage, name: &str) -> TestResult<SimFile> {
 
 fn write(file: &mut SimFile, offset: u64, bytes: &[u8]) -> std::io::Result<()> {
     block_on(file.write_at(offset, AlignedBuf::from_slice(bytes)))
+}
+
+/// Asserts `result` is the simulated storage's injected fault, reported `when` ("before" or "after") the operation
+/// took effect, or either when `when` is empty.
+fn assert_injected<T: std::fmt::Debug>(result: std::io::Result<T>, when: &str) -> TestResult {
+    match result {
+        Err(error) => {
+            assert_eq!(error.kind(), ErrorKind::Other, "{error}");
+            let message = error.to_string();
+            assert!(
+                message.starts_with(&format!("injected fault {when}"))
+                    && message.ends_with(" the operation"),
+                "{message}"
+            );
+            Ok(())
+        }
+        Ok(value) => Err(TestError::new(format!("not faulted: {value:?}"))),
+    }
 }
 
 #[test]
@@ -180,10 +198,10 @@ fn test_a_fault_after_takes_effect_then_fails() -> TestResult {
     let mut file = create(&storage, "f")?;
     block_on(storage.sync_directory(Path::new("/d"))).context("synced")?;
     storage.fail_at(storage.trace().len(), FaultMode::After);
-    assert!(write(&mut file, 0, b"data").is_err(), "faulted");
+    assert_injected(write(&mut file, 0, b"data"), "after")?;
     assert_eq!(storage.contents(&path("f")), Some(b"data".to_vec()));
     storage.fail_at(storage.trace().len(), FaultMode::After);
-    assert!(block_on(file.sync()).is_err(), "faulted");
+    assert_injected(block_on(file.sync()), "after")?;
     assert_eq!(storage.stable_contents(&path("f")), Some(b"data".to_vec()));
     Ok(())
 }
@@ -195,7 +213,7 @@ fn test_a_fault_before_a_sync_leaves_the_contents_unstable() -> TestResult {
     block_on(storage.sync_directory(Path::new("/d"))).context("synced")?;
     write(&mut file, 0, b"data").context("written")?;
     storage.fail_at(storage.trace().len(), FaultMode::Before);
-    assert!(block_on(file.sync()).is_err(), "faulted");
+    assert_injected(block_on(file.sync()), "before")?;
     assert_eq!(storage.stable_contents(&path("f")), Some(Vec::new()));
     Ok(())
 }
@@ -381,19 +399,15 @@ fn test_torn_modes_on_other_operations() -> TestResult {
     block_on(storage.sync_directory(Path::new("/d"))).context("synced")?;
     write(&mut file, 0, b"data").context("written")?;
     storage.fail_at(storage.trace().len(), FaultMode::TornWrite);
-    assert!(
-        block_on(file.sync()).is_err(),
-        "a torn mode fails another operation after its effect"
-    );
+    // A torn mode fails another operation after its effect.
+    assert_injected(block_on(file.sync()), "after")?;
     assert_eq!(storage.stable_contents(&path("f")), Some(b"data".to_vec()));
     storage.fail_at(storage.trace().len(), FaultMode::SilentTornWrite);
     block_on(file.truncate(2)).context("a silent tear does not fault another operation")?;
     assert_eq!(storage.contents(&path("f")), Some(b"da".to_vec()));
     storage.fail_at(storage.trace().len(), FaultMode::ShortTornWrite);
-    assert!(
-        block_on(file.truncate(1)).is_err(),
-        "a short tear fails another operation after its effect"
-    );
+    // A short tear fails another operation after its effect.
+    assert_injected(block_on(file.truncate(1)), "after")?;
     assert_eq!(storage.contents(&path("f")), Some(b"d".to_vec()));
     Ok(())
 }
@@ -449,10 +463,8 @@ fn test_random_faults_stop_at_zero() -> TestResult {
     let storage = storage(11)?;
     let mut file = create(&storage, "f")?;
     storage.fail_randomly(1);
-    assert!(
-        write(&mut file, 0, b"x").is_err(),
-        "every operation faults at one in one"
-    );
+    // Every operation faults at one in one, in a mode drawn from the seed.
+    assert_injected(write(&mut file, 0, b"x"), "")?;
     storage.fail_randomly(0);
     for i in 0..50 {
         write(&mut file, i, b"x").context("no fault")?;
@@ -549,7 +561,7 @@ fn test_injected_lists_every_fault_that_fired() -> TestResult {
     write(&mut file, 0, &[1u8; 4_096]).context("silently torn")?;
     let second = storage.trace().len();
     storage.fail_at(second, FaultMode::After);
-    assert!(block_on(file.sync()).is_err(), "faulted");
+    assert_injected(block_on(file.sync()), "after")?;
     // A fault set for an index already past does not fire.
     storage.fail_at(first, FaultMode::Before);
     write(&mut file, 0, b"x").context("no fault")?;

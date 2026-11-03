@@ -17,6 +17,9 @@ type Version<'a> = (u64, Option<u64>, &'a [u8]);
 /// One catalog: its namespace, latest and released versions, retained versions.
 type Catalog<'a> = (u64, u64, u64, Vec<Version<'a>>);
 
+/// One pending placement version: its number and its ranges (first bucket, end, partition).
+type Pending = (u64, Vec<(u32, u32, u32)>);
+
 /// The parts of a snapshot written by hand.
 #[derive(Default)]
 struct Raw<'a> {
@@ -28,6 +31,10 @@ struct Raw<'a> {
     next: u64,
     principals: Vec<(u64, &'a str)>,
     sessions: Vec<(u128, u64)>,
+    /// The last placement version's number.
+    placement_version: u64,
+    /// The pending placement versions: each its number and ranges (first bucket, end, partition).
+    placement_pending: Vec<Pending>,
 }
 
 impl Raw<'_> {
@@ -101,7 +108,23 @@ impl Raw<'_> {
             out.extend_from_slice(&principal.to_be_bytes());
         }
         put_count(&mut out, 0);
+        self.placement_tail(&mut out);
         out
+    }
+
+    /// The last placement version's number and the pending placement versions.
+    fn placement_tail(&self, out: &mut Vec<u8>) {
+        out.extend_from_slice(&self.placement_version.to_be_bytes());
+        put_count(out, self.placement_pending.len());
+        for (version, ranges) in &self.placement_pending {
+            out.extend_from_slice(&version.to_be_bytes());
+            put_count(out, ranges.len());
+            for (start, end, partition) in ranges {
+                for value in [start, end, partition] {
+                    out.extend_from_slice(&value.to_be_bytes());
+                }
+            }
+        }
     }
 }
 
@@ -114,10 +137,9 @@ fn refused(raw: &Raw<'_>) -> Option<ClusterErrorEnum> {
     MetadataSnapshot::decode(&raw.bytes()).err().map(|e| e.0)
 }
 
-/// Whether decoding `raw` is refused as malformed naming `what`.
-fn refuses(raw: &Raw<'_>, what: &str) -> bool {
-    let refusal = refused(raw);
-    matches!(refusal, Some(ClusterErrorEnum::Malformed { what: named, .. }) if named == what)
+/// Whether decoding `raw` is refused as malformed naming `what` at byte `offset`.
+fn refuses(raw: &Raw<'_>, what: &'static str, offset: usize) -> bool {
+    refused(raw) == Some(ClusterError::malformed(what, offset).0)
 }
 
 #[test]
@@ -134,7 +156,7 @@ fn test_namespaces_rise() {
         next: 1,
         ..Raw::default()
     };
-    assert!(refuses(&twice, "a namespace after the one before it"));
+    assert!(refuses(&twice, "a namespace after the one before it", 70));
 }
 
 #[test]
@@ -147,7 +169,8 @@ fn test_the_first_retained_version_lies_above_the_released() {
     assert_eq!(refused(&released(1, 2)), None);
     assert!(refuses(
         &released(2, 2),
-        "a version after the one before it"
+        "a version after the one before it",
+        49
     ));
 }
 
@@ -165,21 +188,24 @@ fn test_versions_rise_and_their_epochs_never_fall() {
     );
     assert_eq!(refused(&ok), None);
     let twice = versions(vec![(1, Some(3), b""), (1, Some(3), b"")], 1);
-    assert!(refuses(&twice, "a version after the one before it"));
+    assert!(refuses(&twice, "a version after the one before it", 70));
     let falling = versions(vec![(1, Some(3), b""), (2, Some(2), b"")], 2);
     assert!(refuses(
         &falling,
-        "an effective epoch at or after the one before it"
+        "an effective epoch at or after the one before it",
+        79
     ));
     let after_pending = versions(vec![(1, None, b""), (2, Some(2), b"")], 2);
     assert!(refuses(
         &after_pending,
-        "an effective epoch at or after the one before it"
+        "an effective epoch at or after the one before it",
+        71
     ));
     let latest = versions(vec![(1, Some(3), b"")], 2);
     assert!(refuses(
         &latest,
-        "a namespace's latest version, its last retained"
+        "a namespace's latest version, its last retained",
+        29
     ));
 }
 
@@ -192,7 +218,7 @@ fn test_default_entries_marks_and_reports_rise() {
     };
     assert_eq!(refused(&defaults(vec![(1, "a"), (1, "b")])), None);
     let what = "a default entry after the one before it";
-    assert!(refuses(&defaults(vec![(1, "a"), (1, "a")]), what));
+    assert!(refuses(&defaults(vec![(1, "a"), (1, "a")]), what, 40));
     let marks = |marks| Raw {
         marks,
         next: 1,
@@ -201,7 +227,8 @@ fn test_default_entries_marks_and_reports_rise() {
     assert_eq!(refused(&marks(vec![(1, 5), (2, 5)])), None);
     assert!(refuses(
         &marks(vec![(2, 5), (2, 6)]),
-        "a type prefix after the one before it"
+        "a type prefix after the one before it",
+        39
     ));
     let reports = |reports| Raw {
         reports,
@@ -211,7 +238,8 @@ fn test_default_entries_marks_and_reports_rise() {
     assert_eq!(refused(&reports(vec![(1, 5), (2, 5)])), None);
     assert!(refuses(
         &reports(vec![(2, 5), (2, 6)]),
-        "a partition after the one before it"
+        "a partition after the one before it",
+        46
     ));
 }
 
@@ -224,10 +252,22 @@ fn test_principals_rise_by_name_below_the_next_identity() {
     };
     assert_eq!(refused(&principals(vec![(2, "amy"), (1, "zed")], 3)), None);
     let what = "a principal after the one before it, below the next";
-    assert!(refuses(&principals(vec![(1, "amy"), (2, "amy")], 3), what));
-    assert!(refuses(&principals(vec![(1, "amy"), (3, "zed")], 3), what));
-    assert!(refuses(&principals(vec![(1, "amy"), (1, "zed")], 3), what));
-    assert!(refuses(&principals(vec![(1, "")], 3), what));
+    assert!(refuses(
+        &principals(vec![(1, "amy"), (2, "amy")], 3),
+        what,
+        129
+    ));
+    assert!(refuses(
+        &principals(vec![(1, "amy"), (3, "zed")], 3),
+        what,
+        129
+    ));
+    assert!(refuses(
+        &principals(vec![(1, "amy"), (1, "zed")], 3),
+        what,
+        129
+    ));
+    assert!(refuses(&principals(vec![(1, "")], 3), what, 46));
 }
 
 #[test]
@@ -240,7 +280,8 @@ fn test_sessions_are_registered_once() {
     assert_eq!(refused(&sessions(vec![(5, 1), (4, 1)])), None);
     assert!(refuses(
         &sessions(vec![(5, 1), (5, 2)]),
-        "a session registered once"
+        "a session registered once",
+        74
     ));
 }
 
@@ -275,5 +316,98 @@ fn test_a_placement_maps_refusal_is_named_at_its_offset_in_the_snapshot() -> Tes
         refused(&raw),
         Some(ClusterError::malformed(what, at + offset).0)
     );
+    Ok(())
+}
+
+/// The whole bucket space to partition 1.
+const WHOLE: (u32, u32, u32) = (0, 1 << 24, 1);
+
+/// A snapshot holding the last placement version `version` and `pending`, beside the map `map` when one is given.
+fn placed(version: u64, pending: Vec<Pending>, map: Option<&[u8]>) -> Raw<'static> {
+    Raw {
+        placement: map.map(<[u8]>::to_vec),
+        next: 1,
+        placement_version: version,
+        placement_pending: pending,
+        ..Raw::default()
+    }
+}
+
+/// The offset of the pending placement versions' count: after the head, the tables with a map of `map` bytes (or no
+/// map), the access tables and the last placement version.
+fn pending_count_at(map: Option<usize>) -> usize {
+    1 + 8 + 8 + 4 + 4 + 4 + 1 + map.map_or(0, |len| 4 + len) + 4 + 8 + 4 + 4 + 4 + 8
+}
+
+/// The even map of one partition, encoded.
+fn one_partition_map() -> TestResult<Vec<u8>> {
+    let mut map = Vec::new();
+    PlacementMap::even(1, NodeId::new(1))?.encode(&mut map);
+    Ok(map)
+}
+
+#[test]
+fn test_pending_placement_versions_are_held_beside_a_map() -> TestResult {
+    let map = one_partition_map()?;
+    assert_eq!(refused(&placed(0, vec![], Some(&map))), None);
+    assert_eq!(refused(&placed(7, vec![], Some(&map))), None);
+    let two = vec![(6, vec![WHOLE]), (7, vec![WHOLE])];
+    assert_eq!(refused(&placed(7, two, Some(&map))), None);
+    let split = vec![(1, vec![(0, 100, 1), (100, 1 << 24, 2)])];
+    assert_eq!(refused(&placed(1, split, Some(&map))), None);
+    // Without a map, no version is pending; the last version's number alone is held.
+    assert_eq!(refused(&placed(3, vec![], None)), None);
+    assert!(refuses(
+        &placed(1, vec![(1, vec![WHOLE])], None),
+        "no pending placement version without a placement map",
+        pending_count_at(None)
+    ));
+    Ok(())
+}
+
+#[test]
+fn test_pending_placement_versions_follow_one_another() -> TestResult {
+    let map = one_partition_map()?;
+    let first_at = pending_count_at(Some(map.len())) + 4;
+    let second_at = first_at + 8 + 4 + 12;
+    let order = "a placement version one above the one before, the last the last committed";
+    // A gap, a repeat, a last other than the last committed, and a version 0.
+    let cases = [
+        (7, vec![(5, vec![WHOLE]), (7, vec![WHOLE])], first_at),
+        (7, vec![(6, vec![WHOLE]), (6, vec![WHOLE])], second_at),
+        (8, vec![(6, vec![WHOLE]), (7, vec![WHOLE])], first_at),
+        (0, vec![(0, vec![WHOLE])], first_at),
+    ];
+    for (version, pending, at) in cases {
+        assert!(refuses(&placed(version, pending, Some(&map)), order, at));
+    }
+    Ok(())
+}
+
+#[test]
+fn test_pending_placement_versions_are_bounded_and_their_ranges_checked() -> TestResult {
+    let map = one_partition_map()?;
+    let ranges_at = pending_count_at(Some(map.len())) + 4 + 8 + 4;
+    let seventeen: Vec<_> = (1..=17).map(|v| (v, vec![WHOLE])).collect();
+    assert_eq!(
+        refused(&placed(17, seventeen, Some(&map))),
+        Some(ClusterErrorEnum::TooMany {
+            what: "pending placement versions",
+            count: 17,
+            max: 16
+        })
+    );
+    let past = vec![(1, vec![(0, (1 << 24) + 1, 1)])];
+    assert!(refuses(
+        &placed(1, past, Some(&map)),
+        "a bucket range within 2^24",
+        ranges_at
+    ));
+    let zero = vec![(1, vec![(0, 1 << 24, 0)])];
+    assert!(refuses(
+        &placed(1, zero, Some(&map)),
+        "a partition from 1",
+        ranges_at + 8
+    ));
     Ok(())
 }

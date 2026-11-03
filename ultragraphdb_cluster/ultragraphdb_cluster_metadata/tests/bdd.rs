@@ -180,7 +180,7 @@ fn applies_and_restarts(w: &mut Steps) -> TestResult {
     let _first_lease = group.lease_block(TypePrefix::RESOURCE, pid(1)?, 1_000)?;
     let _second_lease = group.lease_block(TypePrefix::RESOURCE, pid(2)?, 500)?;
     let layout = layout_moving(group, range(0, 64)?, Some(pid(3)?))?;
-    let _changed = group.change_placement(epoch(5)?, &layout)?;
+    let _changed = group.change_placement(&layout)?;
     let _created = group.create_principal("ann", verifier("ann's own password", 1)?, true)?;
     sync(group)?;
     w.remember()?;
@@ -197,9 +197,14 @@ fn state_equal_after_recovery(w: &mut Steps) -> TestResult {
     // The commands are all there, not merely two empty states alike.
     assert_eq!(group.state().current_version(ns()), 1);
     assert_eq!(group.state().next_sequence(TypePrefix::RESOURCE), 1_501);
-    assert!(group.state().principal("ann").is_some());
+    assert_eq!(
+        group.state().principal("ann").map(|p| p.name()),
+        Some("ann")
+    );
+    // The change is pending as placement version 1, which no close has announced yet.
+    assert_eq!(group.state().pending_placement(), 1);
     let map = group.state().placement().context("the map")?;
-    assert_eq!(map.latest_change().get(), 5);
+    assert_eq!(map.latest_change().get(), 0);
     Ok(())
 }
 
@@ -314,7 +319,8 @@ fn default_then_version_4(w: &mut Steps) -> TestResult {
     let before = group.state().current_version(ns());
     let entry = DefaultEntry::new(ns().get(), "score".to_string(), b"default score".to_vec());
     let recorded = group.record_default_entry(&entry)?;
-    assert!(recorded.is_some());
+    // The record is the round after the three versions and the close.
+    assert_eq!(recorded.map(|p| p.get()), Some(5));
     sync(group)?;
     // A prepared statement remembers the version current when it was prepared.
     let after = group.state().current_version(ns());
@@ -522,7 +528,7 @@ fn moves_to_nowhere(w: &mut Steps) -> TestResult {
     w.remember()?;
     let refusal = w
         .group()?
-        .change_placement(epoch(5)?, &layout)
+        .change_placement(&layout)
         .err()
         .context("a refusal")?;
     w.refusals.push(refusal);
@@ -569,15 +575,22 @@ fn answers_2(w: &mut Steps) -> TestResult {
 }
 
 #[when(
-    "a change moving buckets 21,888..21,952 from partition 2 to partition 3 applies from epoch 21, and the bucket group holding those 64 buckets is resolved at epochs 20 and 21"
+    "a change moving buckets 21,888..21,952 from partition 2 to partition 3 is committed while epoch 19 is the latest close, and the sequencer closes epoch 20"
 )]
 fn moves_group_at_21(w: &mut Steps) -> TestResult {
     three_partitions(w)?;
     let group = w.group()?;
+    let _closed_19 = group.learn_close(epoch(19)?, &[], 0, &[])?;
     let layout = layout_moving(group, range(21_888, 21_952)?, Some(pid(3)?))?;
-    let _changed = group.change_placement(epoch(21)?, &layout)?;
+    let _changed = group.change_placement(&layout)?;
+    sync(group)?;
+    // The host hands the close of 20 the oldest pending placement version, and the group learns the close.
+    let announced = group.state().pending_placement();
+    assert_eq!(announced, 1);
+    let _closed_20 = group.learn_close(epoch(20)?, &[], announced, &[])?;
     sync(group)?;
     let map = group.state().placement().context("the map")?;
+    assert_eq!(map.latest_change(), epoch(21)?);
     // 21,888 / 64 = 342, the group of exactly those 64 buckets.
     let held = BucketGroup::new(342)?;
     let mut resolved = Vec::new();
@@ -590,9 +603,51 @@ fn moves_group_at_21(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[then("it resolves to partition 2 at epoch 20 and to partition 3 at epoch 21")]
+#[then(
+    "the close of epoch 20 assigns it effective epoch 21, and the bucket group holding those 64 buckets resolves to partition 2 at epoch 20 and to partition 3 at epoch 21"
+)]
 fn resolves_2_then_3(w: &mut Steps) -> TestResult {
     assert_eq!(w.resolved, vec![vec![pid(2)?], vec![pid(3)?]]);
+    Ok(())
+}
+
+#[when("placement versions 1 and 2 are pending and a close announces version 2")]
+fn close_skips_placement_1(w: &mut Steps) -> TestResult {
+    three_partitions(w)?;
+    let group = w.group()?;
+    for to in [pid(1)?, pid(2)?] {
+        let layout = layout_moving(group, range(0, 64)?, Some(to))?;
+        let _changed = group.change_placement(&layout)?;
+    }
+    sync(group)?;
+    w.remember()?;
+    let refusal = w
+        .group()?
+        .learn_close(epoch(1)?, &[], 2, &[])
+        .err()
+        .context("a refusal")?;
+    w.refusals.push(refusal);
+    Ok(())
+}
+
+#[then("the group refuses the close, and both versions stay pending")]
+fn both_placement_versions_pending(w: &mut Steps) -> TestResult {
+    let refusal = w.refusals.first().context("the refusal")?.clone();
+    assert_eq!(
+        refusal,
+        ClusterError::contradicts("a close announces the oldest pending placement version")
+    );
+    let (state, position) = w.before.clone().context("the state before")?;
+    let group = w.group()?;
+    assert_eq!(group.applied(), position);
+    assert_eq!(group.state(), &state);
+    assert_eq!(group.state().pending_placement(), 1);
+    assert_eq!(group.state().last_learned(), Epoch::ZERO);
+    // Version 1 is announced first, then version 2.
+    let _first = group.learn_close(epoch(1)?, &[], 1, &[])?;
+    let _second = group.learn_close(epoch(2)?, &[], 2, &[])?;
+    sync(group)?;
+    assert_eq!(group.state().pending_placement(), 0);
     Ok(())
 }
 
@@ -696,7 +751,10 @@ fn refused_naming_root(w: &mut Steps) -> TestResult {
     assert!(refusal.to_string().contains("root"));
     let group = w.group()?;
     sync(group)?;
-    assert!(group.state().principal("root").is_some());
+    assert_eq!(
+        group.state().principal("root").map(|p| p.administrator()),
+        Some(true)
+    );
     Ok(())
 }
 
@@ -757,8 +815,9 @@ fn oldest_evicted(w: &mut Steps) -> TestResult {
     // The frontend's owner check refuses the commit before it is routed.
     let refusal = state.session_principal(11).err().context("a refusal")?;
     assert_eq!(refusal.0, ClusterErrorEnum::SessionEvicted { session: 11 });
+    let carol = state.principal("carol").context("carol")?.id();
     for session in [22, 33, 44] {
-        assert!(state.session_principal(session).is_ok());
+        assert_eq!(state.session_principal(session)?, carol);
     }
     Ok(())
 }

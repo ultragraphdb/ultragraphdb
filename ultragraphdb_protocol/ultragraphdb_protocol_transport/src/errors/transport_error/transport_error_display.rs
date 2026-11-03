@@ -40,8 +40,14 @@ impl fmt::Display for TransportError {
             TransportErrorEnum::Authentication { reason } => {
                 write!(f, "the server's authentication was refused: {reason}")
             }
-            TransportErrorEnum::Address { address, reason } => {
-                write!(f, "the address {address:?} is refused: {reason}")
+            TransportErrorEnum::FrameNotBuilt { command, error } => {
+                write!(
+                    f,
+                    "the frame of command {command} could not be built: {error}"
+                )
+            }
+            TransportErrorEnum::Address { address, rule } => {
+                write!(f, "the address {address:?} is refused: {rule}")
             }
         }
     }

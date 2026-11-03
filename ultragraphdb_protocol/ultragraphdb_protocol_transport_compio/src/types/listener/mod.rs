@@ -4,7 +4,7 @@
  */
 
 use compio::net::{TcpListener, UnixListener};
-use ultragraphdb_protocol_transport::{Address, Scheme, TransportError};
+use ultragraphdb_protocol_transport::{Address, AddressRule, Scheme, TransportError};
 
 use crate::types::carrier::Carrier;
 
@@ -69,10 +69,7 @@ impl Listener {
                 let bound = listener.local_addr().map_err(io)?;
                 let path = bound.as_pathname().and_then(|path| path.to_str());
                 let Some(path) = path else {
-                    return Err(TransportError::address(
-                        "unix://",
-                        "a Unix socket bound to no path",
-                    ));
+                    return Err(TransportError::address("unix://", AddressRule::UnixUnbound));
                 };
                 Address::parse(&format!("unix://{path}"))
             }

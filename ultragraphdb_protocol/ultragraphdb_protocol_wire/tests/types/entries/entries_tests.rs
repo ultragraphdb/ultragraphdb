@@ -41,3 +41,26 @@ fn test_the_command_header_holds_count_range_end_and_epoch() {
     assert_eq!(&header[16..24], &0x0000_0302_0100_0F0Eu64.to_le_bytes());
     assert!(header[24..].iter().all(|b| *b == 0));
 }
+
+#[test]
+fn test_the_getters_give_back_what_the_constructor_and_pushes_took() {
+    let mut entries = Entries::new(0x0102_0304, EntriesEnd::Limit, u64::MAX);
+    assert!(entries.entries().is_empty());
+    entries.push(b"k1", b"");
+    entries.push(b"k2", b"v2");
+    assert_eq!(
+        (entries.range(), entries.end(), entries.epoch()),
+        (0x0102_0304, EntriesEnd::Limit, u64::MAX)
+    );
+    assert_eq!(
+        entries.entries(),
+        [
+            (b"k1".to_vec(), Vec::new()),
+            (b"k2".to_vec(), b"v2".to_vec())
+        ]
+        .as_slice()
+    );
+    for end in [EntriesEnd::More, EntriesEnd::Ended, EntriesEnd::Limit] {
+        assert_eq!(Entries::new(0, end, 0).end(), end);
+    }
+}

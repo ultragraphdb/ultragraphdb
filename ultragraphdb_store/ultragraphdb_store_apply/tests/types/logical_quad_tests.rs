@@ -6,7 +6,7 @@
 use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::Graph;
 use ultragraphdb_core_terms::EncodedTerm;
-use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
+use ultragraphdb_error_store::StoreError;
 use ultragraphdb_store_apply::{ChangesetError, ChangesetErrorEnum, LogicalQuad};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -71,13 +71,19 @@ fn test_a_statement_reads_back_from_its_key_and_value() -> TestResult {
     Ok(())
 }
 
-/// Whether `refused` is the store's corruption error naming `key`.
-fn corrupted_naming(refused: Result<LogicalQuad, ChangesetError>, key: &[u8]) -> bool {
-    matches!(
-        refused,
-        Err(ChangesetError(ChangesetErrorEnum::Store(StoreError(StoreErrorEnum::Corrupted { key: k, .. }))))
-            if k == key
-    )
+const SHORT: &str = "a logged statement's key shorter than its IDs and object";
+const NO_ID: &str = "a logged statement names no system ID";
+const NO_TERM: &str = "a logged statement's object is no term encoding";
+
+/// Asserts that decoding `key` and `value` is refused as the store's corruption of `key`, for `reason`.
+fn assert_corrupted(key: &[u8], value: &[u8], reason: &str) {
+    assert_eq!(
+        LogicalQuad::decode(key, value).map(|q| q.key()),
+        Err(ChangesetError(ChangesetErrorEnum::Store(
+            StoreError::corrupted(key.to_vec(), reason.to_string())
+        ))),
+        "{key:?} {value:?}"
+    );
 }
 
 #[test]
@@ -90,36 +96,23 @@ fn test_a_malformed_statement_is_refused_as_corruption_naming_its_key() -> TestR
         None,
     )
     .key();
-    let short = good.get(..47).context("47 bytes")?.to_vec();
-    assert!(corrupted_naming(LogicalQuad::decode(&short, &[]), &short));
-    let mut zero_subject = good.clone();
-    if let Some(subject) = zero_subject.get_mut(16..32) {
-        subject.fill(0);
+    // Every length up to the IDs' 48 bytes, the object's absence included, is too short.
+    for len in [0, 1, 15, 16, 17, 31, 32, 33, 47, 48] {
+        assert_corrupted(good.get(..len).context("a prefix")?, &[], SHORT);
     }
-    assert!(corrupted_naming(
-        LogicalQuad::decode(&zero_subject, &[]),
-        &zero_subject
-    ));
-    let mut bad_graph = good.clone();
-    if let Some(graph) = bad_graph.get_mut(..16) {
-        graph.fill(0xFF);
+    for (range, fill) in [(16..32, 0), (32..48, 0), (0..16, 0xFF)] {
+        let mut bad = good.clone();
+        if let Some(bytes) = bad.get_mut(range) {
+            bytes.fill(fill);
+        }
+        assert_corrupted(&bad, &[], NO_ID);
     }
-    assert!(corrupted_naming(
-        LogicalQuad::decode(&bad_graph, &[]),
-        &bad_graph
-    ));
-    let no_object = good.get(..48).context("48 bytes")?.to_vec();
-    assert!(corrupted_naming(
-        LogicalQuad::decode(&no_object, &[]),
-        &no_object
-    ));
-    assert!(corrupted_naming(
-        LogicalQuad::decode(&good, &[1, 2, 3]),
-        &good
-    ));
-    assert!(corrupted_naming(
-        LogicalQuad::decode(&good, &[0; 16]),
-        &good
-    ));
+    // One byte past the IDs that is no term encoding.
+    let mut bad_object = good.get(..48).context("48 bytes")?.to_vec();
+    bad_object.push(0xFF);
+    assert_corrupted(&bad_object, &[], NO_TERM);
+    for value in [&[1, 2, 3][..], &[0; 16], &[0xFF; 17]] {
+        assert_corrupted(&good, value, NO_ID);
+    }
     Ok(())
 }

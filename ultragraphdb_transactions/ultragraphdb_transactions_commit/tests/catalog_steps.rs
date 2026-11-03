@@ -132,7 +132,13 @@ fn two_builds(w: &mut Steps) -> TestResult {
     driver.sync()?;
     assert!(applier.rebuilding(), "version 3's build runs");
     // Version 4 waits for the build's end.
-    assert!(Prepared::catalog(&applier, &four, TxnBuffers::new()).is_err());
+    assert_eq!(
+        Prepared::catalog(&applier, &four, TxnBuffers::new()).err(),
+        Some(ultragraphdb_transactions_txn::TxnError::changeset(
+            ultragraphdb_store_apply::ChangesetError::rebuilding("http://ex.org/p")
+        )),
+        "version 4 waits for the build's end"
+    );
     applier.executor().run_until_idle();
     let end = applier
         .take_build_end()

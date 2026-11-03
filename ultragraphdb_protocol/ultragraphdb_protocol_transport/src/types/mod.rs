@@ -4,6 +4,7 @@
  */
 
 pub mod address;
+pub mod address_rule;
 pub mod anonymous;
 pub mod buffer_pool;
 pub mod client_authentication;

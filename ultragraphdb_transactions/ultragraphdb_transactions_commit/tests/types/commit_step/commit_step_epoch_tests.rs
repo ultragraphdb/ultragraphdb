@@ -325,7 +325,10 @@ fn test_a_commits_reply_carries_its_session_token() -> TestResult {
     );
     out = run(&mut refusing, Input::Synced, 0);
     let refused = out.replies().first().context("a reply")?;
-    assert!(refused.outcome().is_err());
+    assert_eq!(
+        refused.outcome(),
+        &Err(CommitError::conflict(ConflictKind::List))
+    );
     assert_eq!(refused.token(), None);
     Ok(())
 }
@@ -571,5 +574,93 @@ fn test_a_retry_while_its_session_has_a_commit_in_the_step_is_busy() -> TestResu
         step.retry(session, 1),
         Err(CommitError::session_busy(session))
     );
+    Ok(())
+}
+
+/// A registration whose record reads as a transaction's or a build's is refused malformed, naming the record kind it
+/// holds: a home admits registrations alone.
+#[test]
+fn test_a_registration_whose_record_is_no_registrations_is_refused_naming_its_kind() -> TestResult {
+    use ultragraphdb_error_protocol::ProtocolError;
+    use ultragraphdb_protocol_wire::{RecordOperation, WriteSetRecord};
+    let cases = [
+        (
+            WriteSetRecord::transaction(0).encode(),
+            RecordKind::Transaction,
+        ),
+        (
+            WriteSetRecord::build(0, RecordOperation::CatalogTakesEffect(2)).encode(),
+            RecordKind::Build,
+        ),
+    ];
+    for (record, kind) in cases {
+        let mut step = step(0, 9)?;
+        let out = run(&mut step, Input::Registration { ticket: 5, record }, 0);
+        let synced = run(&mut step, Input::Synced, 0);
+        let mut replies = outcomes(&out);
+        replies.extend(outcomes(&synced));
+        let cause = ProtocolError::field_value(17, "record kind", u64::from(kind.code()));
+        assert_eq!(
+            replies,
+            vec![(5, Err(CommitError::malformed(cause)))],
+            "{kind:?}"
+        );
+        assert_eq!(step.previous_version(), 0, "{kind:?}: no version is taken");
+    }
+    Ok(())
+}
+
+/// A registration finding its epoch full waits for the close, as a commit does, making no session busy, and takes the
+/// next epoch's first version.
+#[test]
+fn test_a_registration_in_a_full_epoch_waits_for_the_close() -> TestResult {
+    let fresh = step(0, 9)?;
+    let mut step = step(version(10, LAST), 9)?;
+    let record = registration(7, 3, 1)?;
+    let waited = run(&mut step, Input::Registration { ticket: 5, record }, 0);
+    assert_eq!(waited.append(), None);
+    assert!(waited.replies().is_empty());
+    assert_eq!(step.waiting(), 1);
+    assert_eq!(step.retry(1, 1), fresh.retry(1, 1), "no session is busy");
+    let closed = deliver(&mut step, 10)?;
+    assert_eq!(
+        closed
+            .append()
+            .map(|(r, _)| (r.first_version(), r.transactions())),
+        Some((version(11, 0), 1))
+    );
+    let synced = run(&mut step, Input::Synced, 0);
+    assert_eq!(outcomes(&synced), vec![(5, Ok(version(11, 0)))]);
+    Ok(())
+}
+
+/// A failed sync stops the step: the round in flight and a registration waiting for the close are both answered
+/// unavailable under their tickets, and a close delivered afterwards opens nothing.
+#[test]
+fn test_a_failed_sync_answers_a_waiting_registration_unavailable_and_ignores_later_closes()
+-> TestResult {
+    let mut step = step(version(10, LAST - 2), 9)?;
+    let first = commit(&mut step, 1, writer(1)?, 0);
+    assert_eq!(
+        first.append().map(|(r, _)| r.first_version()),
+        Some(version(10, LAST))
+    );
+    let record = registration(7, 3, 1)?;
+    let waited = run(&mut step, Input::Registration { ticket: 5, record }, 0);
+    assert!(waited.replies().is_empty());
+    let failed = run(&mut step, Input::SyncFailed, 0);
+    let mut answered = outcomes(&failed);
+    answered.sort_by_key(|(ticket, _)| *ticket);
+    assert_eq!(
+        answered,
+        vec![
+            (1, Err(CommitError::unavailable())),
+            (5, Err(CommitError::unavailable()))
+        ]
+    );
+    let delivered = step.delivered();
+    let late = deliver(&mut step, 10)?;
+    assert!(late.replies().is_empty() && late.append().is_none());
+    assert_eq!(step.delivered(), delivered, "a stopped step takes no close");
     Ok(())
 }

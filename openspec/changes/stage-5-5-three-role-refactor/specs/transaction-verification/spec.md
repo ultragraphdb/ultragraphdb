@@ -10,7 +10,9 @@ and 11, for every number of partitions, entities, registrations and steps: that 
 epoch of every registration it references, on every write path (the epoch inequality); that a reverse read at a closed
 epoch, reading the entity's referrer set at that epoch and the reverse entries of the partitions it names, returns every
 edge to the entity committed at or below that epoch; that a partition never stamps a catalog version's effective epoch
-before it holds the version; and that reclamation removes a referrer-set member only on a report naming its unchanged
+before it holds the version, nor routes at a placement version's effective epoch before it holds that version, placement
+versions being assigned one per close at the epoch after it, so the placement in effect at an announced epoch never
+changes; and that reclamation removes a referrer-set member only on a report naming its unchanged
 generation, so it never removes a member whose bucket group holds an edge to the entity at an epoch the history retains.
 Reclamation is the rule stage 8 builds: a partition reports "no edges to the entity as of epoch `e`" with its generation
 in the commit that clears its mark, the home removes the member as an MVCC write only when the generation is unchanged,

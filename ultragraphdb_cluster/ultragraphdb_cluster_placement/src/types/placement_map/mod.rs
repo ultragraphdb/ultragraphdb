@@ -112,6 +112,23 @@ impl PlacementMap {
         Ok(())
     }
 
+    /// Checks the layout `assignments` as [`PlacementMap::change`] checks it, without an epoch and without applying it.
+    ///
+    /// # Errors
+    ///
+    /// [`ClusterError::unassigned`] or [`ClusterError::assigned_twice`] naming the first bucket the layout leaves
+    /// unassigned or assigns twice; [`ClusterError::too_many`] past [`PlacementMap::PARTITIONS_MAX`] partitions or
+    /// [`PlacementMap::RANGES_MAX`] ranges once normalised.
+    pub fn check_layout(assignments: &[(BucketRange, PartitionId)]) -> Result<(), ClusterError> {
+        Layout::from_assignments(Epoch::ZERO, assignments).map(|_| ())
+    }
+
+    /// How many more layouts [`PlacementMap::change`] takes before the map holds [`PlacementMap::LAYOUTS_MAX`].
+    #[must_use]
+    pub fn layouts_free(&self) -> usize {
+        (Self::LAYOUTS_MAX as usize).saturating_sub(1 + self.later.len())
+    }
+
     /// The layout in effect: the latest one.
     fn latest(&self) -> &Layout {
         self.later.last().unwrap_or(&self.first)

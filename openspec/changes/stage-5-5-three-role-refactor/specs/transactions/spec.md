@@ -168,7 +168,9 @@ refused when the transaction is decided and taking no commit version (amended 20
 refuses a write or a term breaks the server's rules; operation failed, when a compare-and-set did not hold, with the
 value found; permission denied, when its principal may not do what a request asks; cross-partition, when the
 transaction reaches a second partition, naming both (partitions, "A read-write transaction stays within one partition
-in this stage"). Busy SHALL also answer a commit when its partition's epoch is full and the sequencer is unreachable
+in this stage"). A statement named by its reifier, deleted or with a property set or removed, SHALL be checked against
+the subject its reifier resolves to, once the write's execution resolves it, and SHALL reach the partition owning that
+subject's bucket (amended 2026-11-03). Busy SHALL also answer a commit when its partition's epoch is full and the sequencer is unreachable
 (commit-rounds, "Commit versions are built from the epoch"). Conflict, too old, past its limit and busy SHALL be marked
 retryable; too large, refused, operation failed, permission denied and cross-partition SHALL not.
 
@@ -183,6 +185,12 @@ retryable; too large, refused, operation failed, permission denied and cross-par
 
 #### Scenario: A transaction reaching a second partition is not retryable
 - **WHEN** a transaction bound to partition 1 writes a statement whose subject's bucket partition 2 owns
+- **THEN** it aborts with a cross-partition error naming partitions 1 and 2, not marked retryable, and nothing it wrote
+  is held
+
+#### Scenario: A statement named by its reifier is checked at its subject
+- **WHEN** a transaction bound to partition 1 sets a property of a statement named by its reifier, the statement's
+  subject's bucket owned by partition 2
 - **THEN** it aborts with a cross-partition error naming partitions 1 and 2, not marked retryable, and nothing it wrote
   is held
 

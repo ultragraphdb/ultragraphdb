@@ -29,16 +29,16 @@ COMMANDS = {
     "record_default_score": bytes([2]) + struct.pack(">Q", 4) + text("score", ">H") + struct.pack(">I", 2) + b"\x09\x08",
     "lease_block_1001_2001": bytes([3]) + struct.pack(">HIQQ", 2, 5, 1001, 2001),
     "init_placement_3": bytes([4]) + struct.pack(">II", 3, 6),
-    "change_placement_at_21": bytes([5]) + struct.pack(">QI", 21, 2) + struct.pack(">III", 0, 100, 1)
+    "change_placement_2_ranges": bytes([5]) + struct.pack(">I", 2) + struct.pack(">III", 0, 100, 1)
     + struct.pack(">III", 100, 1 << 24, 2),
     "set_leader_7_8": bytes([6]) + struct.pack(">II", 7, 8),
     "create_principal_ann": bytes([7]) + struct.pack(">Q", 9) + text("ann", ">B")
     + verifier(b"\x01\x02\x03", 4096, bytes([10] * 32), bytes([11] * 32)) + b"\x01",
-    "remove_principal_bob": bytes([8]) + text("bob", ">B"),
+    "remove_principal_bob": bytes([8]) + text("bob", ">B") + struct.pack(">I", 1) + (16).to_bytes(16, "big"),
     "register_session_12": bytes([9]) + (12).to_bytes(16, "big") + struct.pack(">QI", 13, 2)
     + (14).to_bytes(16, "big") + (15).to_bytes(16, "big"),
     "learn_close_39": bytes([10]) + struct.pack(">QI", 39, 1) + struct.pack(">QQ", 3, 3) + struct.pack(">I", 1)
-    + (14).to_bytes(16, "big"),
+    + (14).to_bytes(16, "big") + struct.pack(">Q", 2),
     "report_untrimmed_2_at_30": bytes([11]) + struct.pack(">IQ", 2, 30),
 }
 COMMANDS["chunk_at_16"] = bytes([12]) + struct.pack(">QI", 16, 3) + b"\x05\x06\x07"
@@ -61,6 +61,8 @@ def snapshot_bytes(position, learned, catalogs, high_water):
     for prefix, sequence in high_water:
         out += struct.pack(">HQ", prefix, sequence)
     out += b"\x00" + struct.pack(">I", 0) + struct.pack(">QI", 1, 0) + struct.pack(">II", 0, 0)
+    # The last placement version's number and no placement version pending, as no map is held.
+    out += struct.pack(">QI", 0, 0)
     return out
 
 

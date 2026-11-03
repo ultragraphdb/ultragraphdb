@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_mapping::{Change, Declaration, PredicateDeclaration};
+use ultragraphdb_store_apply::{ChangesetError, ChangesetErrorEnum};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_transactions_txn::{Mode, TxnError, TxnErrorEnum, TxnLimits};
 
@@ -80,7 +81,12 @@ fn test_a_transaction_ended_by_a_refused_changeset_releases_what_it_created() ->
     let created = creating(&applier, &mut txn)?;
     let refused = txn.write(&changeset(vec![insert_literal("a", "age", "old")]), 0);
     assert!(
-        matches!(&refused, Err(TxnError(TxnErrorEnum::Changeset(_)))),
+        matches!(
+            &refused,
+            Err(TxnError(TxnErrorEnum::Changeset(ChangesetError(
+                ChangesetErrorEnum::Catalog(_)
+            ))))
+        ),
         "the catalog refuses it: {refused:?}"
     );
     assert!(txn.is_ended());
@@ -133,8 +139,8 @@ fn test_a_commit_refused_past_the_write_set_limit_releases() -> TestResult {
     let created = creating(&applier, &mut txn)?;
     let refused = txn.commit(1, 1, &[], 0).err().context("the commit fails")?;
     assert!(
-        matches!(refused.0, TxnErrorEnum::WriteSetTooLarge { .. }),
-        "{refused:?}"
+        matches!(refused.0, TxnErrorEnum::WriteSetTooLarge { size, limit: 1 } if size > 1),
+        "too large, naming the limit of 1 byte: {refused:?}"
     );
     assert_ne!(
         id_now(&applier, 3)?,
@@ -163,7 +169,10 @@ fn test_a_commit_whose_finish_the_store_fails_releases_once() -> TestResult {
         .inject(ultragraphdb_store_sim::Fault::FailNextRead);
     let refused = txn.commit(1, 1, &[], 0).err().context("the commit fails")?;
     assert!(
-        matches!(refused.0, TxnErrorEnum::Changeset(_)),
+        matches!(
+            refused.0,
+            TxnErrorEnum::Changeset(ChangesetError(ChangesetErrorEnum::Quad(_)))
+        ) && refused.to_string().contains("simulated read failure"),
         "the store's failure: {refused:?}"
     );
     assert_eq!(

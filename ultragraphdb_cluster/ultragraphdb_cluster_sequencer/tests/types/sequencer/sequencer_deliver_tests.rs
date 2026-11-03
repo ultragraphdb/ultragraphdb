@@ -148,3 +148,22 @@ fn test_a_subscriber_behind_the_held_closes_is_refused() -> TestResult {
     assert_eq!(epochs(&drain(&mut sequencer, pid(1)?)?), vec![3, 4, 5]);
     Ok(())
 }
+
+#[test]
+fn test_a_fresh_sequencer_takes_only_a_subscription_after_epoch_0() -> TestResult {
+    let (_, mut sequencer) = fresh(config(1, 2)?)?;
+    let refusal = sequencer
+        .subscribe(pid(1)?, epoch(1)?)
+        .err()
+        .context("a refusal")?;
+    assert_eq!(
+        refusal.0,
+        ClusterErrorEnum::EpochAhead {
+            epoch: 1,
+            latest: 0
+        }
+    );
+    sequencer.subscribe(pid(1)?, epoch(0)?)?;
+    assert_eq!(sequencer.take_delivery(pid(1)?)?, None);
+    Ok(())
+}

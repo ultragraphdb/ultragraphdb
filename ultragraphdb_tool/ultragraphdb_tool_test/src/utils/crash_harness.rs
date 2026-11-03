@@ -124,23 +124,26 @@ pub fn kill_at(dir: &Path, mode: &str, stage: &str) -> TestResult<Vec<String>> {
     Ok(seen)
 }
 
-/// How many keys of batch `i` the store holds at version `i`, and its applied timestamp.
+/// How many keys of batch `i` the store holds at version `i`.
 ///
 /// # Errors
 ///
-/// A [`TestError`] when the snapshot does not open.
+/// A [`TestError`] when the snapshot does not open or a read of a batch's keys fails: a failed read is not a key the
+/// store lacks.
 pub fn batch_counts(store: &FjallStore, batches: u64) -> TestResult<Vec<usize>> {
     let snapshot = store.snapshot(u64::MAX).context("readable")?;
-    Ok((1..=batches)
+    (1..=batches)
         .map(|i| {
             let mut prefix = b"\x00b".to_vec();
             prefix.extend_from_slice(&i.to_be_bytes());
             snapshot
                 .scan(&Scan::prefix(prefix))
-                .filter(|item| item.as_ref().is_ok_and(|item| item.version() == i))
-                .count()
+                .try_fold(0, |n, item| {
+                    item.map(|item| n + usize::from(item.version() == i))
+                })
+                .context("a batch's keys read")
         })
-        .collect())
+        .collect()
 }
 
 /// For each of the first `batches` batches of the `mixed` mode, how many of its keys without a version the store
@@ -213,23 +216,28 @@ pub fn drop_outcome(store: &FjallStore) -> TestResult<(usize, bool, bool)> {
     let snapshot = store.snapshot(10).context("readable")?;
     let mut initial = DROP_PREFIX.to_vec();
     initial.extend_from_slice(b"-initial");
+    // A failed read is not a key the drop removed.
     let under = snapshot
         .scan(&Scan::prefix(DROP_PREFIX.to_vec()))
-        .filter(|i| i.is_ok())
-        .count();
+        .try_fold(0, |n, item| item.map(|_| n + 1))
+        .context("the keys under the prefix read")?;
     let entry = snapshot.get(&initial).context("readable")?.is_some();
     let kept = snapshot.get(b"\x00keep").context("readable")?.is_some();
     Ok((under, entry, kept))
 }
 
 /// The rounds the writer's `log` mode acknowledged: the whole lines of its log beside the store, `<dir>.rounds`, each
-/// synced before its round's batch was written; 0 when it wrote none.
+/// synced before its round's batch was written; 0 when it wrote none, so that the log does not exist.
 ///
 /// # Errors
 ///
-/// A [`TestError`] when the log holds a line that is not the next round's number.
+/// A [`TestError`] when the log exists but does not read, or holds a line that is not the next round's number.
 pub fn acknowledged_rounds(dir: &Path) -> TestResult<u64> {
-    let text = std::fs::read_to_string(dir.with_extension("rounds")).unwrap_or_default();
+    let text = match std::fs::read_to_string(dir.with_extension("rounds")) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(e).context("the round log reads"),
+    };
     // A line cut by the kill has no newline after it, and was never acknowledged.
     let whole = text.rsplit_once('\n').map_or("", |(lines, _)| lines);
     let mut rounds = 0u64;

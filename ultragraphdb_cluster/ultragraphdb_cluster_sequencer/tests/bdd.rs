@@ -83,7 +83,7 @@ fn runs_100_ms(w: &mut Steps) -> TestResult {
     let sequencer = w.sequencer()?;
     sequencer.subscribe(pid(1)?, epoch(0)?)?;
     for ms in 0..=100 {
-        let _closed: Option<Epoch> = sequencer.tick(at(ms), &[], &[])?;
+        let _closed: Option<Epoch> = sequencer.tick(at(ms), &[], 0, &[])?;
         let _durable = block_on(sequencer.sync())??;
     }
     w.closes = drain(w.sequencer()?, pid(1)?)?;
@@ -165,14 +165,14 @@ fn refused_naming_bounds(w: &mut Steps) -> TestResult {
 fn epoch_6_closed_1_ms_ago(w: &mut Steps) -> TestResult<u64> {
     w.start(config(2, 10)?)?;
     let closed_ms = close_through(w.sequencer()?, 6)?;
-    assert_eq!(w.sequencer()?.tick(at(closed_ms + 1), &[], &[])?, None);
+    assert_eq!(w.sequencer()?.tick(at(closed_ms + 1), &[], 0, &[])?, None);
     Ok(closed_ms)
 }
 
 /// Ticks every millisecond from 1 ms after `since_ms` until epoch 7 closes; records its time and `since_ms`.
 fn tick_until_7_closes(w: &mut Steps, since_ms: u64) -> TestResult {
     for ms in since_ms + 1..=since_ms + 10 {
-        if w.sequencer()?.tick(at(ms), &[], &[])? == Some(epoch(7)?) {
+        if w.sequencer()?.tick(at(ms), &[], 0, &[])? == Some(epoch(7)?) {
             w.close_ms = Some((ms, since_ms));
             return Ok(());
         }
@@ -226,8 +226,8 @@ fn clock_steps_back(w: &mut Steps) -> TestResult {
     let sequencer = w.sequencer()?;
     sequencer.subscribe(pid(1)?, epoch(0)?)?;
     let wall = 1_700_000_000_000_000;
-    let _first = sequencer.tick(ClockReading::new(10_000, wall), &[], &[])?;
-    let _second = sequencer.tick(ClockReading::new(20_000, wall - 1_000_000), &[], &[])?;
+    let _first = sequencer.tick(ClockReading::new(10_000, wall), &[], 0, &[])?;
+    let _second = sequencer.tick(ClockReading::new(20_000, wall - 1_000_000), &[], 0, &[])?;
     let _durable = block_on(sequencer.sync())??;
     w.closes = drain(w.sequencer()?, pid(1)?)?;
     Ok(())
@@ -256,7 +256,7 @@ fn last_epoch_asked(w: &mut Steps) -> TestResult {
     assert_eq!(sequencer.last_closed().get(), (1 << 42) - 1);
     sequencer.request_close(Epoch::MAX)?;
     let refusal = sequencer
-        .tick(at(10), &[], &[])
+        .tick(at(10), &[], 0, &[])
         .err()
         .context("a refusal")?;
     w.refusals.push(refusal);
@@ -281,7 +281,7 @@ fn close_at_walls(w: &mut Steps, walls: &[u64]) -> TestResult {
     w.start(config(1, 1)?)?;
     let sequencer = w.sequencer()?;
     for (ms, wall) in (1..).zip(walls) {
-        let _closed = sequencer.tick(ClockReading::new(ms * 1_000, *wall), &[], &[])?;
+        let _closed = sequencer.tick(ClockReading::new(ms * 1_000, *wall), &[], 0, &[])?;
     }
     let _durable = block_on(sequencer.sync())??;
     Ok(())
@@ -355,7 +355,7 @@ fn close_next(w: &mut Steps, catalog: &[CatalogVersion]) -> TestResult<Epoch> {
     let sequencer = w.sequencer()?;
     let now = sequencer.deadline();
     let closed = sequencer
-        .tick(ClockReading::new(now, now), catalog, &[])?
+        .tick(ClockReading::new(now, now), catalog, 0, &[])?
         .context("a close")?;
     let _durable = block_on(sequencer.sync())??;
     Ok(closed)
@@ -492,6 +492,48 @@ fn assigned_40_everywhere(w: &mut Steps) -> TestResult {
 }
 
 #[when(
+    "placement versions 1 and 2 are pending while epoch 38 is the latest close, and the sequencer closes epochs 39 and 40"
+)]
+fn placement_pending_then_39_40(w: &mut Steps) -> TestResult {
+    w.start(config(1, 1)?)?;
+    let _ms = close_through(w.sequencer()?, 38)?;
+    // The host hands each close the oldest placement version pending: 1, and once the close of 39 is learned, 2.
+    for (version, closed) in [(1, 39), (2, 40)] {
+        let sequencer = w.sequencer()?;
+        let now = sequencer.deadline();
+        let epoch = sequencer
+            .tick(ClockReading::new(now, now), &[], version, &[])?
+            .context("a close")?;
+        let _durable = block_on(sequencer.sync())??;
+        assert_eq!(epoch.get(), closed);
+    }
+    Ok(())
+}
+
+#[then(
+    "the close of 39 assigns version 1 effective epoch 40, and the close of 40 assigns version 2 effective epoch 41"
+)]
+fn placement_assigned_40_41(w: &mut Steps) -> TestResult {
+    // The durable records: the closes as a restarted sequencer reads them back from the log.
+    let storage = w.storage()?.clone();
+    let mut restarted = crash_and_recover(&storage, config(1, 1)?, at(1_000))?;
+    restarted.subscribe(pid(9)?, epoch(38)?)?;
+    let closes = drain(&mut restarted, pid(9)?)?;
+    let assigned: Vec<(u64, u64, Option<u64>)> = closes
+        .iter()
+        .map(|c| {
+            (
+                c.epoch().get(),
+                c.placement(),
+                c.effective_epoch().map(Epoch::get),
+            )
+        })
+        .collect();
+    assert_eq!(assigned, [(39, 1, Some(40)), (40, 2, Some(41))]);
+    Ok(())
+}
+
+#[when(
     "a catalog version is committed as pending while epoch 38 is the latest close, and the frontend is killed before it closes epoch 39"
 )]
 fn killed_before_39(w: &mut Steps) -> TestResult {
@@ -503,7 +545,7 @@ fn killed_before_39(w: &mut Steps) -> TestResult {
     let pending = w.pending.clone();
     let sequencer = w.sequencer()?;
     let now = sequencer.deadline();
-    let appended = sequencer.tick(ClockReading::new(now, now), &pending, &[])?;
+    let appended = sequencer.tick(ClockReading::new(now, now), &pending, 0, &[])?;
     assert_eq!(appended.map(Epoch::get), Some(39));
     let storage = w.storage()?.clone();
     w.sequencer = Some(crash_and_recover(&storage, config(1, 1)?, at(1_000))?);
@@ -659,7 +701,7 @@ fn killed_before_durable(w: &mut Steps) -> TestResult {
     delivered_through(w, 3)?;
     let sequencer = w.sequencer()?;
     let now = sequencer.deadline();
-    let appended = sequencer.tick(ClockReading::new(now, now), &[], &[])?;
+    let appended = sequencer.tick(ClockReading::new(now, now), &[], 0, &[])?;
     assert_eq!(appended.map(Epoch::get), Some(4));
     // Before the crash, nothing of the close of 4 reaches the partition.
     w.closes = drain(sequencer, pid(1)?)?;

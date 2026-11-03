@@ -7,7 +7,7 @@ use std::error::Error;
 use std::io;
 
 use ultragraphdb_error_protocol::ProtocolError;
-use ultragraphdb_protocol_transport::{TransportError, TransportErrorEnum};
+use ultragraphdb_protocol_transport::{AddressRule, TransportError, TransportErrorEnum};
 use ultragraphdb_protocol_wire::ErrorCode;
 
 #[test]
@@ -84,12 +84,31 @@ fn test_each_constructor_builds_its_variant() {
 }
 
 #[test]
+fn test_a_frame_not_built_names_its_command_and_why() {
+    let too_large = ProtocolError::frame_too_large(1_048_600, 1_048_576);
+    let error = TransportError::frame_not_built(18, too_large.clone());
+    assert_eq!(
+        error.0,
+        TransportErrorEnum::FrameNotBuilt {
+            command: 18,
+            error: too_large.clone()
+        }
+    );
+    // The protocol error's text names the size against the bound.
+    assert_eq!(
+        error.to_string(),
+        format!("the frame of command 18 could not be built: {too_large}")
+    );
+    assert!(too_large.to_string().contains("1048600"), "{too_large}");
+}
+
+#[test]
 fn test_an_address_refusal_holds_the_address_and_the_rule() {
     assert_eq!(
-        TransportError::address("http://h:1", "an unknown scheme").0,
+        TransportError::address("http://h:1", AddressRule::UnknownScheme).0,
         TransportErrorEnum::Address {
             address: "http://h:1".to_string(),
-            reason: "an unknown scheme"
+            rule: AddressRule::UnknownScheme
         }
     );
 }
@@ -97,8 +116,8 @@ fn test_an_address_refusal_holds_the_address_and_the_rule() {
 #[test]
 fn test_an_address_refusal_names_the_address_and_the_rule() {
     assert_eq!(
-        TransportError::address("http://h:1", "an unknown scheme").to_string(),
-        "the address \"http://h:1\" is refused: an unknown scheme"
+        TransportError::address("http://h:1", AddressRule::UnknownScheme).to_string(),
+        "the address \"http://h:1\" is refused: a scheme other than tcp:// and unix://"
     );
 }
 

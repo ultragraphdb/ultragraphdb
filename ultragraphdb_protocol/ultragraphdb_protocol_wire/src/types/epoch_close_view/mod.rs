@@ -14,6 +14,7 @@ pub struct EpochCloseView<'a> {
     epoch: u64,
     time: u64,
     more: bool,
+    placement: u64,
     announcements: &'a [u8],
     evictions: &'a [u8],
 }
@@ -32,6 +33,11 @@ impl<'a> EpochCloseView<'a> {
     /// Whether another frame of this close follows.
     pub fn more(&self) -> bool {
         self.more
+    }
+
+    /// The placement version the close announces, 0 for none.
+    pub fn placement(&self) -> u64 {
+        self.placement
     }
 
     /// The number of catalog announcements.

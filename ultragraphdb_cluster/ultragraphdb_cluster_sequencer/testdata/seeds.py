@@ -15,14 +15,14 @@ OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fuzz_seeds", "re
 LAST_EPOCH = (1 << 42) - 1
 
 
-def close(epoch, time_us, catalog, evictions):
+def close(epoch, time_us, catalog, evictions, placement=0):
     out = bytes([1]) + struct.pack(">QQH", epoch, time_us, len(catalog))
     for namespace, version in catalog:
         out += struct.pack(">QQ", namespace, version)
     out += struct.pack(">H", len(evictions))
     for session in evictions:
         out += session.to_bytes(16, "big")
-    return out
+    return out + struct.pack(">Q", placement)
 
 
 def transaction(epoch, reply_epoch, partitions, body):
@@ -35,6 +35,7 @@ def transaction(epoch, reply_epoch, partitions, body):
 SEEDS = {
     "close_1_at_1000_us": close(1, 1000, [(3, 7)], [0x0102030405060708090A0B0C0D0E0F10]),
     "close_empty": close(1, 0, [], []),
+    "close_announcing_placement_2": close(9, 5000, [], [], 2),
     "close_last_epoch": close(LAST_EPOCH, (1 << 64) - 1, [(1, 2), (1, 3)], [0, (1 << 128) - 1]),
     "transaction_13_reply_12": transaction(13, 12, [3, 1], b"\xaa\xbb"),
     "transaction_empty_body": transaction(6, 6, [1], b""),
@@ -66,7 +67,7 @@ def snapshot(position, closes, transactions):
     return out
 
 
-SAMPLE = snapshot(6, [close(3, 100, [(1, 2)], []), close(4, 200, [], [7])], [(5, transaction(5, 4, [2], b"\xab"))])
+SAMPLE = snapshot(6, [close(3, 100, [(1, 2)], []), close(4, 200, [], [7], 1)], [(5, transaction(5, 4, [2], b"\xab"))])
 SNAPSHOT_SEEDS = {
     "empty": snapshot(0, [], []),
     "closes_3_4_transaction_at_5": SAMPLE,

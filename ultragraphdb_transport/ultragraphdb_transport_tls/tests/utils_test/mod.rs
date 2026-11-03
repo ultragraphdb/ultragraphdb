@@ -4,6 +4,10 @@
  */
 
 #[cfg(test)]
+mod test_echo_tests;
+#[cfg(test)]
+mod test_link_tests;
+#[cfg(test)]
 mod test_peer_tests;
 #[cfg(test)]
 mod test_pipe_tests;

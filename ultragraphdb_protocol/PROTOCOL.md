@@ -1516,7 +1516,10 @@ the frontend refreshes its placement map, then binds to the owner and resends on
 code 26 too, the frontend answers the client code 26 on the transaction's stream. A later request reaching another
 partition aborts the transaction with code 23, at the frontend when its map shows it and at the partition otherwise; so
 does a unique value claimed in another partition, a delete by pattern reaching another partition's state, and a
-reverse or fan-out read over a namespace spread over several partitions. When compute answers a read of a read-write
+reverse or fan-out read over a namespace spread over several partitions. A write naming a statement by its reifier (a
+delete of the statement, or a property set or removed through it) is checked at the partition against the subject the
+reifier resolves to, once the write executes: when another partition owns that subject's bucket, code 23 aborts the
+transaction, `detail` the transaction's partition and the subject's owner, and nothing it wrote is held. When compute answers a read of a read-write
 transaction with code 23, the frontend cancels the transaction's Bind stream, which aborts it at the partition, relays
 code 23 on the read's stream, and answers the transaction's next request on its stream with code 23.
 
@@ -1868,7 +1871,8 @@ the latest epoch the sequencer closed is refused with Error 1 (Protocol), the me
 
 One of the sequencer's closes, on a Subscribe's stream, as its durable close record holds it: the epoch; the wall-clock
 time the sequencer recorded for its close; the catalog versions it assigned, each taking effect at the epoch one above
-it; and the sessions the metadata group's registry evicted since the previous close (section 11.12, *Epochs*). The
+it; the placement version it assigned, at most one, taking effect at that epoch too (the subscriber reads its map with a
+Placement request, section 13.6); and the sessions the metadata group's registry evicted since the previous close (section 11.12, *Epochs*). The
 first close on a stream names the epoch one above the Subscribe's `from`, and each later one the epoch one above the one
 before. A close whose lists do not fit one frame within the subscriber's `max_frame` continues in further EpochClose
 frames of the same epoch and time, each but the last with `more` 1, whose lists the subscriber reads as one.
@@ -1878,6 +1882,7 @@ frames of the same epoch and time, each but the last with `more` 1, whose lists 
 | 0 | 8 | `epoch` | epoch (section 1) | 1 to 2⁴² − 1 (`FieldValue` `"epoch"`) |
 | 8 | 8 | `time` | u64 | the close's time, in microseconds of Unix time |
 | 16 | 1 | `more` | u8 | boolean: another frame of this close follows (`FieldValue` `"more"`) |
+| 24 | 8 | `placement` | u64 | the placement version taking effect at `epoch + 1`; 0 for none |
 
 | Section | Contents |
 |---|---|
@@ -1889,13 +1894,14 @@ frames of the same epoch and time, each but the last with `more` 1, whose lists 
 | 0 | 8 | `namespace` | u64 |
 | 8 | 8 | `version` | u64: the catalog version taking effect at `epoch + 1`, at least 1 |
 
-Order: unused bytes 17–127 zero; `epoch`; `more`; sections; sections 0 and 1 each a whole number of 16 bytes
+Order: unused bytes 17–23 and 32–127 zero; `epoch`; `more`; sections; sections 0 and 1 each a whole number of 16 bytes
 (`SectionLength`); each announcement: `version` at least 1, and after the one before by namespace, then by version
 (`FieldValue` `"announcement"`, the announcement's index in the frame); each eviction not all zero and above the one
 before, compared byte by byte (`FieldValue` `"eviction"`, the eviction's index in the frame); both orders run on across
 the frames of one close, which the subscriber checks across frames, as it checks the epochs below. The subscriber refuses, as connection
 errors, a close whose `epoch` is not one above the previous close's, a continuing frame whose `epoch` or `time` is not
-its predecessor's (`FieldValue` `"epoch"`), and a `time` below the previous close's (`FieldValue` `"time"`).
+its predecessor's (`FieldValue` `"epoch"`), a continuing frame whose `placement` is not its predecessor's (`FieldValue`
+`"placement"`), and a `time` below the previous close's (`FieldValue` `"time"`).
 
 ### 13.5 Lease (516)
 

@@ -64,17 +64,16 @@ fn test_a_hello_is_welcomed_at_the_highest_protocol_both_speak() -> TestResult {
 #[test]
 fn test_a_hello_above_the_server_is_answered_with_its_error_and_refused() -> TestResult {
     let (frame, outcome) = server().receive(&hello(3, 4)?).into_parts();
+    let frame = frame.context("the answer frame")?;
+    assert_eq!(code(&frame)?, ErrorCode::ProtocolVersion);
+    // The refusal returned is the one sent: its code and its message.
+    let view = FrameView::validate(&frame, CLUSTER, MAX_FRAME_SIZE)?;
+    let sent = ErrorReplyView::from_frame(&view)?;
+    assert!(!sent.message().is_empty());
     assert_eq!(
-        code(&frame.context("the answer frame")?)?,
-        ErrorCode::ProtocolVersion
+        outcome.err().context("the refusal")?,
+        TransportError::refused(ErrorCode::ProtocolVersion, sent.message())
     );
-    assert!(matches!(
-        outcome.err().context("the refusal")?.0,
-        TransportErrorEnum::Refused {
-            code: ErrorCode::ProtocolVersion,
-            ..
-        }
-    ));
     Ok(())
 }
 
@@ -200,5 +199,27 @@ fn test_a_first_frame_not_numbered_one_or_naming_a_view_or_replica_is_refused() 
             TransportError::protocol(refusal)
         );
     }
+    Ok(())
+}
+
+#[test]
+fn test_a_welcome_too_large_to_frame_is_not_built_and_nothing_is_sent() -> TestResult {
+    // A server named at 1 MiB: its Welcome cannot be framed, so the client is answered with nothing.
+    let oversized = ServerHandshake::new(CLUSTER, Welcome::new(1, 0, "s".repeat(MAX_FRAME_SIZE)));
+    let (frame, outcome) = oversized.receive(&hello(1, 1)?).into_parts();
+    assert_eq!(frame, None);
+    assert!(
+        matches!(
+            outcome.err().context("the refusal")?.0,
+            TransportErrorEnum::FrameNotBuilt {
+                command: 2,
+                error: ProtocolError(ProtocolErrorEnum::FrameTooLarge {
+                    limit: MAX_FRAME_SIZE,
+                    size,
+                }),
+            } if size > MAX_FRAME_SIZE
+        ),
+        "the Welcome's frame is past the largest"
+    );
     Ok(())
 }

@@ -40,3 +40,14 @@ fn test_a_read_write_begin_reads_back_as_not_read_only() {
     // Constructed read-write, the getter gives back what was given.
     assert!(!Begin::new(3, 0, false).read_only());
 }
+
+#[test]
+fn test_the_token_getter_gives_back_the_token_taken() -> TestResult {
+    let token = SessionToken::new(2, 41, Epoch::new(30)?);
+    assert_eq!(
+        Begin::new(3, 0, true).with_token(token.clone()).token(),
+        Some(&token)
+    );
+    assert_eq!(Begin::new(3, 0, true).token(), None);
+    Ok(())
+}

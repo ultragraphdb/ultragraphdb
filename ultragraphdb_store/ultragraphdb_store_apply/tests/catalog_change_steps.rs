@@ -828,9 +828,9 @@ fn contradiction_refused(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
     assert_eq!(w.refusals.len(), 1, "{:?}", w.refusals);
     let reply = w.refusals.first().context("the change's reply")?;
-    assert!(
-        reply.contains("http://ex.org/nick") && reply.contains("http://ex.org/a"),
-        "{reply}"
+    assert_eq!(
+        reply,
+        "The declaration of <http://ex.org/nick> is refused by its data: <http://ex.org/a> holds more than one object"
     );
     let catalog = a.catalog(NS)?;
     assert_eq!(catalog.version(), 2, "the version took effect");

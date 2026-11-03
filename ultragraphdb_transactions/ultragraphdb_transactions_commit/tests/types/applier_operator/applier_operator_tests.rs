@@ -120,3 +120,139 @@ fn test_an_operation_on_an_iri_an_unapplied_proposal_created_reuses_its_id() -> 
     );
     Ok(())
 }
+
+/// What an operator bound to `partition` of two answers `operation` with in a transaction of its own: `Ok` when it
+/// operates, the staged result discarded and the proposal released; the refusal otherwise.
+fn bound_answer(
+    applier: &crate::utils::fixture::Applier,
+    partition: u32,
+    operation: Operation,
+) -> TestResult<Result<(), ultragraphdb_transactions_commit::CommitError>> {
+    use ultragraphdb_cluster_placement::{NodeId, PartitionId, PlacementMap};
+    let placement = PlacementMap::even(2, NodeId::new(1)).context("the placement")?;
+    let partition = PartitionId::new(partition).context("the partition")?;
+    let mut operator = ApplierOperator::new(applier).bound(partition, &placement);
+    operator.begin_round();
+    let mut txn = begin(applier)?;
+    txn.operate(operation, 0)?;
+    let proposal = prepare(txn)?;
+    let mut results = Vec::new();
+    let answer = match operator.operate(&proposal, std::iter::empty(), &mut results) {
+        Ok(staged) => {
+            operator.discard(&proposal, staged);
+            Ok(())
+        }
+        Err(refused) => Err(refused),
+    };
+    let _buffers = proposal.release(applier);
+    Ok(answer)
+}
+
+fn insert_if_absent(value: oxrdf::Term) -> Operation {
+    Operation::InsertIfAbsent {
+        graph: GraphName::DefaultGraph,
+        predicate: ex("key"),
+        value,
+        properties: Vec::new(),
+    }
+}
+
+fn unique_key(applier: &crate::utils::fixture::Applier) -> TestResult {
+    use ultragraphdb_core_mapping::{Change, Declaration, PredicateDeclaration};
+    let declared = PredicateDeclaration::new(ex("key")).with_unique(true);
+    let _version: u64 = setup(
+        applier,
+        vec![Change::Declare(Declaration::Predicate(declared))],
+    )?;
+    Ok(())
+}
+
+/// A claim of a literal or of a held IRI is taken by exactly one of two partitions, the one owning its bucket: the
+/// other refuses it cross-partition naming itself and the owner (transactions, "A claim owned by another partition is
+/// cross-partition"). Both partitions are seen to own some.
+#[test]
+fn test_a_claim_is_taken_by_the_partition_owning_its_bucket_alone() -> TestResult {
+    use ultragraphdb_transactions_commit::CommitError;
+    let applier = applier()?;
+    unique_key(&applier)?;
+    let objects: Vec<_> = (0..16)
+        .map(|i| insert("held", "links", &format!("o{i}")))
+        .collect();
+    let _version: u64 = setup(&applier, objects)?;
+    let values = (0..16)
+        .map(|i| oxrdf::Term::from(oxrdf::Literal::new_simple_literal(format!("v{i}"))))
+        .chain((0..16).map(|i| oxrdf::Term::from(ex(&format!("o{i}")))));
+    let mut owners = [0u32; 2];
+    for value in values {
+        let one = bound_answer(&applier, 1, insert_if_absent(value.clone()))?;
+        let two = bound_answer(&applier, 2, insert_if_absent(value.clone()))?;
+        match (one, two) {
+            (Ok(()), Err(refused)) => {
+                assert_eq!(refused, CommitError::cross_partition(2, 1), "{value}");
+                owners[0] += 1;
+            }
+            (Err(refused), Ok(())) => {
+                assert_eq!(refused, CommitError::cross_partition(1, 2), "{value}");
+                owners[1] += 1;
+            }
+            other => {
+                return Err(ultragraphdb_tool_bdd::TestError::new(format!(
+                    "{value} not owned by exactly one partition: {other:?}"
+                )));
+            }
+        }
+    }
+    assert!(owners.iter().all(|n| *n > 0), "{owners:?}");
+    Ok(())
+}
+
+/// An operation claiming nothing is taken by either partition: a counter add; an insert-if-absent of an IRI the
+/// dictionary does not hold, of a blank node, or of a literal whose datatype the dictionary does not hold, none of which
+/// any value the store holds names.
+#[test]
+fn test_an_operation_claiming_nothing_is_taken_by_either_partition() -> TestResult {
+    let applier = applier()?;
+    unique_key(&applier)?;
+    let unheld_type = oxrdf::NamedNode::new_unchecked("http://ex.org/type/never");
+    let operations = [
+        counter("n", 1),
+        insert_if_absent(ex("never").into()),
+        insert_if_absent(oxrdf::BlankNode::new_unchecked("b0").into()),
+        insert_if_absent(oxrdf::Literal::new_typed_literal("1", unheld_type).into()),
+    ];
+    for operation in operations {
+        for partition in [1, 2] {
+            assert_eq!(
+                bound_answer(&applier, partition, operation.clone())?,
+                Ok(()),
+                "{partition}: {operation:?}"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// An insert-if-absent on a predicate the dictionary does not hold claims nothing, and the store's refusal of it is
+/// the commit step's refused, carrying the store's text.
+#[test]
+fn test_an_operation_the_store_refuses_is_refused_with_its_text() -> TestResult {
+    use ultragraphdb_protocol_wire::ErrorCode;
+    let applier = applier()?;
+    let operation = Operation::InsertIfAbsent {
+        graph: GraphName::DefaultGraph,
+        predicate: ex("undeclared"),
+        value: oxrdf::Literal::new_simple_literal("x").into(),
+        properties: Vec::new(),
+    };
+    let refused = bound_answer(&applier, 1, operation)?.refused("the store refuses it")?;
+    assert_eq!(
+        refused.0,
+        CommitErrorEnum::Refused {
+            reason: "Predicate <http://ex.org/undeclared> is not declared unique, so no node is found by its value"
+                .to_string()
+        }
+    );
+    assert_eq!(refused.code(), ErrorCode::Refused);
+    assert!(!refused.is_retryable());
+    Ok(())
+}

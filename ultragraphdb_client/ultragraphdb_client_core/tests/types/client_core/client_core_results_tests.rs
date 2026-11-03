@@ -676,3 +676,174 @@ fn test_a_grant_of_no_frames_is_refused_before_it_is_sent() -> TestResult {
     assert_eq!(drain(&mut h, &stream)?.len(), 3, "the read goes on");
     Ok(())
 }
+
+/// A frame on a read's stream that is no Result, an Error whose body breaks its layout, or a Result whose chunk does
+/// not verify gives the connection up with the rule it broke, and the read with it.
+#[test]
+fn test_a_broken_frame_on_a_read_gives_the_connection_up() -> TestResult {
+    use ultragraphdb_protocol_wire::{Begin, BodyBuilder, FLAG_LAST};
+    for case in 0..3 {
+        let mut h = Harness::ready(server())?;
+        let tx = begin(&mut h)?;
+        let stream = h.core.read(&tx, &read(&tx), h.now)?;
+        while h.core.transmit().is_some() {}
+        let header = Header::new(CLUSTER, Command::Result)
+            .with_stream(stream.stream())
+            .with_flags(FLAG_LAST);
+        let frame = match case {
+            0 => Begin::new(0, 5, true).frame(header.with_command(Command::Begin))?,
+            1 => header
+                .with_command(Command::Error)
+                .encode_frame(&[0xFF; 3])?,
+            _ => {
+                let mut frame = forged(&mut h, stream.stream(), 1, FLAG_LAST)?;
+                let last = frame.len() - 1;
+                frame[last] ^= 4;
+                frame
+            }
+        };
+        let frame = if case == 2 {
+            frame
+        } else {
+            h.numbered(&frame)?
+        };
+        h.deliver(&frame)??;
+        let refused = h
+            .core
+            .next_batch(&stream, h.now, |_| ())
+            .err()
+            .context("an error")?;
+        let rule = match case {
+            2 => {
+                matches!(&refused.0, ClientErrorEnum::Protocol { error } if matches!(error.0, ProtocolErrorEnum::Chunk { index: 0, .. }))
+            }
+            _ => {
+                matches!(&refused.0, ClientErrorEnum::Protocol { error } if !matches!(error.0, ProtocolErrorEnum::Chunk { .. }))
+            }
+        };
+        assert!(rule, "case {case}: {refused:?}");
+        assert!(!h.core.is_connected(), "case {case}: given up");
+        assert_eq!(
+            h.core
+                .next_batch(&stream, h.now, |_| ())
+                .err()
+                .context("an error")?
+                .0,
+            ClientErrorEnum::StreamFinished {
+                stream: stream.stream()
+            },
+            "case {case}"
+        );
+    }
+    Ok(())
+}
+
+/// The core of the tests, welcomed by a server allowing one stream and frames up to 524,288 bytes, the least it may.
+fn narrow() -> TestResult<Harness> {
+    let mut h = Harness::with(
+        config(),
+        TestServer::new(
+            CLUSTER,
+            Welcome::new(1, RELEASE, "s")
+                .with_max_frame(524_288)
+                .with_max_streams(1)
+                .with_initial_credit(4),
+        ),
+        NetworkFaults::none(),
+        1,
+        Anonymous,
+    );
+    h.connect()?;
+    h.until(|h| h.core.is_ready())?;
+    Ok(h)
+}
+
+/// Whether `error` refuses a request past the Welcome's 524,288 bytes.
+fn too_large(error: &ultragraphdb_client_core::ClientError) -> bool {
+    matches!(&error.0, ClientErrorEnum::Request { error } if matches!(error.0, ProtocolErrorEnum::FrameTooLarge { limit: 524_288, .. }))
+}
+
+/// A request on a stream of its own past the Welcome's largest frame is refused before it is sent, and the stream it
+/// took is free again: Prepare, Drop and a read alike.
+#[test]
+fn test_a_request_too_large_frees_its_stream() -> TestResult {
+    let mut h = narrow()?;
+    let long = format!("http://ex.org/{}", "x".repeat(530_000));
+    let mut terms = TermTable::new();
+    let name = terms.iri(&long);
+    let pattern = QuadPattern::new(
+        PatternSlot::DefaultGraph,
+        PatternSlot::Unbound,
+        PatternSlot::Bound(name),
+        PatternSlot::Unbound,
+    );
+    let prepare = Prepare::new(0, 0, 0, terms.clone(), pattern, Vec::new(), Vec::new());
+    let refused = h.core.prepare(&prepare, h.now).err().context("an error")?;
+    assert!(too_large(&refused), "{refused:?}");
+    assert!(h.core.transmit().is_none(), "nothing sent");
+    let registering = h.core.register(h.now)?;
+    let session = registered(h.settle(registering)?)?;
+    let dropping = ultragraphdb_protocol_wire::DropCommand::predicate(0, long.clone());
+    let drop_refused = h
+        .core
+        .drop_command(dropping, session, h.now)
+        .err()
+        .context("an error")?;
+    assert!(too_large(&drop_refused), "{drop_refused:?}");
+    assert_eq!(h.core.next_request(session), Some(1), "no drop in flight");
+    let tx = begin(&mut h)?;
+    // The transaction holds the one stream: a read needs another, so it is refused at the limit before its frame.
+    assert_eq!(
+        h.core
+            .read(&tx, &read(&tx), h.now)
+            .err()
+            .context("an error")?
+            .0,
+        ClientErrorEnum::StreamLimit { limit: 1 }
+    );
+    Ok(())
+}
+
+/// A read past the Welcome's largest frame is refused before it is sent, and its stream is free again.
+#[test]
+fn test_a_read_too_large_frees_its_stream() -> TestResult {
+    let mut h = Harness::with(
+        config(),
+        TestServer::new(
+            CLUSTER,
+            Welcome::new(1, RELEASE, "s")
+                .with_max_frame(524_288)
+                .with_max_streams(2)
+                .with_initial_credit(4),
+        ),
+        NetworkFaults::none(),
+        1,
+        Anonymous,
+    );
+    h.connect()?;
+    h.until(|h| h.core.is_ready())?;
+    let tx = begin(&mut h)?;
+    let mut terms = TermTable::new();
+    let a = terms.iri(&format!("http://ex.org/{}", "x".repeat(530_000)));
+    let large = Read::new(
+        tx.stream(),
+        0,
+        terms,
+        QuadPattern::new(
+            PatternSlot::Unbound,
+            PatternSlot::Bound(a),
+            PatternSlot::Unbound,
+            PatternSlot::Unbound,
+        ),
+        Vec::new(),
+    );
+    let refused = h.core.read(&tx, &large, h.now).err().context("an error")?;
+    assert!(too_large(&refused), "{refused:?}");
+    let stream = h.core.read(&tx, &read(&tx), h.now)?;
+    assert_eq!(
+        stream.stream(),
+        tx.stream() + 2,
+        "the refused read's stream number is not reused"
+    );
+    Ok(())
+}

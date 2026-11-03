@@ -6,7 +6,7 @@
 use std::num::NonZeroU16;
 
 use oxrdf::NamedNode;
-use ultragraphdb_core_catalog::{decode_declaration, encode_declaration};
+use ultragraphdb_core_catalog::{CatalogError, decode_declaration, encode_declaration};
 use ultragraphdb_core_mapping::{
     Cardinality, Declaration, PredicateDeclaration, PredicateKind, RelationDeclaration,
     TypeDeclaration, VectorIndexSpec,
@@ -48,14 +48,18 @@ fn test_every_declaration_round_trips_and_every_truncation_is_refused() -> TestR
         let bytes = encode_declaration(&declaration);
         assert_eq!(decode_declaration(b"k", &bytes), Ok(declaration.clone()));
         for end in 0..bytes.len() {
-            assert!(
-                decode_declaration(b"k", &bytes[..end]).is_err(),
+            assert_eq!(
+                decode_declaration(b"k", &bytes[..end]),
+                Err(corrupted("the entry ends early")),
                 "{declaration:?} cut at {end}"
             );
         }
         let mut longer = bytes.clone();
         longer.push(0);
-        assert!(decode_declaration(b"k", &longer).is_err());
+        assert_eq!(
+            decode_declaration(b"k", &longer),
+            Err(corrupted("bytes follow the declaration"))
+        );
     }
     Ok(())
 }
@@ -64,11 +68,20 @@ fn test_every_declaration_round_trips_and_every_truncation_is_refused() -> TestR
 fn test_unknown_codes_are_refused() {
     let bytes = encode_declaration(&Declaration::Predicate(PredicateDeclaration::new(ex("p"))));
     let kind_at = 2 + 4 + "http://ex.org/p".len();
-    for (at, value) in [(1, 9u8), (kind_at, 9), (kind_at + 1, 9)] {
+    // After the kind and cardinality bytes: the datatype's presence flag, then the unique flag.
+    for (at, value, reason) in [
+        (1, 9u8, "unknown entry kind 9"),
+        (1, 0, "unknown entry kind 0"),
+        (kind_at, 3, "unknown predicate kind 3"),
+        (kind_at + 1, 2, "unknown cardinality 2"),
+        (kind_at + 2, 2, "flag byte 2"),
+        (kind_at + 3, 0xFF, "flag byte 255"),
+    ] {
         let mut bad = bytes.clone();
         bad[at] = value;
-        assert!(
-            decode_declaration(b"k", &bad).is_err(),
+        assert_eq!(
+            decode_declaration(b"k", &bad),
+            Err(corrupted(reason)),
             "byte {at} = {value}"
         );
     }
@@ -111,5 +124,37 @@ fn test_an_entry_of_the_format_before_the_dimension_is_refused() {
         "the format carrying a vector index's dimension"
     );
     bytes[0] = 1;
-    assert!(decode_declaration(b"k", &bytes).is_err());
+    assert_eq!(
+        decode_declaration(b"k", &bytes),
+        Err(corrupted("unknown format 1"))
+    );
+}
+
+/// The corruption of the entry under the key `k`, as `reason` says.
+fn corrupted(reason: &str) -> CatalogError {
+    CatalogError::corrupted(b"k", reason)
+}
+
+#[test]
+fn test_a_string_that_is_not_utf8_or_an_iri_that_does_not_parse_is_refused() {
+    let bytes = encode_declaration(&Declaration::Relation(RelationDeclaration::new(
+        ex("R"),
+        Vec::new(),
+    )));
+    // The IRI's bytes begin after the format, the kind and the 4-byte length.
+    let mut not_utf8 = bytes.clone();
+    not_utf8[6] = 0xFF;
+    assert_eq!(
+        decode_declaration(b"k", &not_utf8),
+        Err(corrupted("a string is not UTF-8"))
+    );
+    let mut not_an_iri = bytes.clone();
+    not_an_iri[6] = b' ';
+    let refused = decode_declaration(b"k", &not_an_iri);
+    let reason = oxrdf::NamedNode::new(" ttp://ex.org/R")
+        .err()
+        .map(|e| e.to_string())
+        .unwrap_or_default();
+    assert!(!reason.is_empty());
+    assert_eq!(refused, Err(corrupted(&reason)));
 }

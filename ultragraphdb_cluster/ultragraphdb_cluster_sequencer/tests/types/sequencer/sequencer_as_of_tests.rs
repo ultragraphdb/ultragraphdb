@@ -16,7 +16,7 @@ use crate::utils::harness::{Log, block_on, config, fresh};
 fn closed() -> TestResult<ultragraphdb_cluster_sequencer::Sequencer<Log>> {
     let (_, mut sequencer) = fresh(config(1, 1)?)?;
     for (ms, wall) in [(1, 100), (2, 1_000), (3, 1_000), (4, 2_000), (5, 3_000)] {
-        let _closed = sequencer.tick(ClockReading::new(ms * 1_000, wall), &[], &[])?;
+        let _closed = sequencer.tick(ClockReading::new(ms * 1_000, wall), &[], 0, &[])?;
     }
     let _durable = block_on(sequencer.sync())??;
     Ok(sequencer)
@@ -71,7 +71,7 @@ fn test_no_time_maps_before_any_close() -> TestResult {
         }
     );
     // A close not yet durable maps nothing either.
-    let _closed = sequencer.tick(ClockReading::new(1_000, 1), &[], &[])?;
+    let _closed = sequencer.tick(ClockReading::new(1_000, 1), &[], 0, &[])?;
     let unsynced = sequencer.as_of(5).err().context("a refusal")?;
     assert_eq!(
         unsynced.0,
@@ -86,7 +86,7 @@ fn test_no_time_maps_before_any_close() -> TestResult {
 #[test]
 fn test_a_close_not_yet_durable_is_not_mapped() -> TestResult {
     let mut sequencer = closed()?;
-    let _closed = sequencer.tick(ClockReading::new(6_000, 4_000), &[], &[])?;
+    let _closed = sequencer.tick(ClockReading::new(6_000, 4_000), &[], 0, &[])?;
     assert_eq!(as_of(&sequencer, 4_000)?, 5);
     let _durable = block_on(sequencer.sync())??;
     assert_eq!(as_of(&sequencer, 4_000)?, 6);
@@ -98,7 +98,7 @@ fn test_the_oldest_close_held_bounds_the_mapping() -> TestResult {
     let two = NonZeroU32::new(2).context("2")?;
     let (_, mut sequencer) = fresh(config(1, 1)?.with_closes_retained(two))?;
     for (ms, wall) in [(1, 100), (2, 200), (3, 300)] {
-        let _closed = sequencer.tick(ClockReading::new(ms * 1_000, wall), &[], &[])?;
+        let _closed = sequencer.tick(ClockReading::new(ms * 1_000, wall), &[], 0, &[])?;
         let _durable = block_on(sequencer.sync())??;
     }
     assert_eq!(sequencer.as_of(250)?, Epoch::new(2)?);

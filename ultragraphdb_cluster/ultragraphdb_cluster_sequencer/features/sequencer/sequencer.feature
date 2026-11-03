@@ -62,11 +62,15 @@ Feature: The sequencer
       When a partition loses its connection after epoch 3 and reconnects after epoch 9 closed
       Then it receives epochs 4 to 9 in order before any later close
 
-  Rule: Closes announce the catalog versions taking effect after them
+  Rule: Closes announce the versions taking effect after them
 
     Scenario: A version reaches every partition before its epoch
       When a catalog version is pending while epoch 38 is the latest close, and the sequencer closes epoch 39
       Then the close of epoch 39 assigns it effective epoch 40, its durable record holds the assignment, and every partition holds the version before it stamps a commit at epoch 40
+
+    Scenario: A close assigns one placement version
+      When placement versions 1 and 2 are pending while epoch 38 is the latest close, and the sequencer closes epochs 39 and 40
+      Then the close of 39 assigns version 1 effective epoch 40, and the close of 40 assigns version 2 effective epoch 41
 
     Scenario: A crash before the close leaves the version pending
       When a catalog version is committed as pending while epoch 38 is the latest close, and the frontend is killed before it closes epoch 39

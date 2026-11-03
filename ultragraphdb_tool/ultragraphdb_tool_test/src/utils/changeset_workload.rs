@@ -150,6 +150,11 @@ pub struct ChangesetWorkload {
     pub refusals: usize,
     /// How many steps were checked.
     pub checked: usize,
+    /// How many steps' checks were skipped because an injected fault failed the check's reads on every retry.
+    pub skipped: usize,
+    /// How many steps were left unchecked because they left the store needing recovery: the recovery's own check
+    /// follows.
+    pub unrecovered: usize,
     /// How many checks compared the store with the model.
     pub compared: usize,
 }
@@ -253,6 +258,7 @@ impl ChangesetWorkload {
         }
         if ctx.store().needs_recovery() {
             self.model = None;
+            self.unrecovered += 1;
             return Ok(());
         }
         // The check only reads, so a read an injected fault failed is retried.
@@ -269,11 +275,16 @@ impl ChangesetWorkload {
                 Ok(())
             }
             Ok(Some((rule, detail))) => Err(ctx.violation(rule, detail)),
-            Err(e) => self.tolerate(ctx, Err(e)),
+            Err(e) => {
+                self.tolerate(ctx, Err(e))?;
+                self.skipped += 1;
+                Ok(())
+            }
         }
     }
 
-    /// An error is the workload's own when no fault explains it.
+    /// An error is the workload's own when no fault explains it: only the shapes an injected fault takes are
+    /// tolerated ([`injected`]), whether or not the step left the store needing recovery.
     fn tolerate(
         &mut self,
         ctx: &mut SimContext,
@@ -282,7 +293,7 @@ impl ChangesetWorkload {
         let Err(error) = result else {
             return Ok(());
         };
-        if injected(&error) || ctx.store().needs_recovery() {
+        if injected(&error) {
             Ok(())
         } else {
             Err(ctx.violation(NO_UNEXPECTED_ERROR, error.to_string()))
@@ -691,15 +702,19 @@ fn statistics_disagree(
         }
     }
     for key in live_keys(a, Keyspace::Statistics)? {
-        if let Ok((
+        // A key of the statistics keyspace that parses as no statistics key is an index the data does not explain.
+        let Ok((
             QuadKey::Statistics {
                 graph, predicate, ..
             },
             _,
         )) = QuadKey::parse(&key)
-        {
-            let _statements: &mut i64 = held.entry((graph, predicate)).or_default();
-        }
+        else {
+            return Ok(Some(format!(
+                "the statistics keyspace holds {key:?}, which is no statistics key"
+            )));
+        };
+        let _statements: &mut i64 = held.entry((graph, predicate)).or_default();
     }
     for ((graph, predicate), statements) in held {
         let counted = a.quads().statistics(NS, graph, predicate, ts)?.statements();

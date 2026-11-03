@@ -11,6 +11,8 @@ use std::io;
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_wire::ErrorCode;
 
+use crate::types::address_rule::AddressRule;
+
 /// Why a connection or a stream operation failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TransportErrorEnum {
@@ -76,12 +78,20 @@ pub enum TransportErrorEnum {
         /// Why the mechanism refused it.
         reason: String,
     },
-    /// `address` names no carrier: `reason` is the rule it breaks.
+    /// The frame of command `command` the server answers with could not be built: `error` says why, the frame's size
+    /// against the largest frame for a frame too large. Nothing of it was sent.
+    FrameNotBuilt {
+        /// The command of the frame.
+        command: u16,
+        /// Why it could not be built.
+        error: ProtocolError,
+    },
+    /// `address` names no carrier: `rule` is the rule it breaks.
     Address {
         /// The address as given.
         address: String,
         /// The rule it breaks.
-        reason: &'static str,
+        rule: AddressRule,
     },
 }
 
@@ -151,11 +161,16 @@ impl TransportError {
         Self(TransportErrorEnum::UnexpectedCommand { expected, found })
     }
 
-    /// A [`TransportErrorEnum::Address`] of `address`, breaking the rule `reason`.
-    pub fn address(address: &str, reason: &'static str) -> Self {
+    /// A [`TransportErrorEnum::FrameNotBuilt`]: the frame of `command` could not be built, as `error` says.
+    pub fn frame_not_built(command: u16, error: ProtocolError) -> Self {
+        Self(TransportErrorEnum::FrameNotBuilt { command, error })
+    }
+
+    /// A [`TransportErrorEnum::Address`] of `address`, breaking `rule`.
+    pub fn address(address: &str, rule: AddressRule) -> Self {
         Self(TransportErrorEnum::Address {
             address: address.to_string(),
-            reason,
+            rule,
         })
     }
 

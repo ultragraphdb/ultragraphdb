@@ -77,3 +77,24 @@ fn test_one_iri_named_twice_is_interned_once() -> TestResult {
     assert_eq!(Reference::request().command_header(), [0; 128]);
     Ok(())
 }
+
+#[test]
+fn test_iri_is_none_for_a_registration_whose_term_is_not_an_iri() -> TestResult {
+    use ultragraphdb_protocol_wire::{ReferenceRegistration, RequestTerm, TermTable};
+    let mut terms = TermTable::new();
+    assert_eq!(terms.intern(RequestTerm::BlankNode("b".into()))?, 0);
+    assert_eq!(terms.iri(O), 1);
+    let registrations = vec![
+        ReferenceRegistration::request(1, None, Some(0), None, 0),
+        ReferenceRegistration::request(1, None, Some(1), None, 0),
+        ReferenceRegistration::request(1, None, Some(2), None, 0),
+        ReferenceRegistration::request(1, None, None, None, 0),
+    ];
+    let reference = Reference::new(false, registrations, terms);
+    // A blank node, an IRI, an index past the table, no index, and past the last registration.
+    assert_eq!(
+        (0..5).map(|i| reference.iri(i)).collect::<Vec<_>>(),
+        [None, Some(O), None, None, None]
+    );
+    Ok(())
+}

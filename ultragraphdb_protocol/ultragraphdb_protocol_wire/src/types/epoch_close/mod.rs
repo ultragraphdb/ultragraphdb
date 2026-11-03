@@ -8,7 +8,8 @@ mod epoch_close_body_builder;
 use crate::types::catalog_announcement::CatalogAnnouncement;
 
 /// One of the sequencer's closes (`PROTOCOL.md` §13.4), on a Subscribe's stream: the epoch, the close's time, the
-/// catalog versions it assigned and the sessions evicted since the previous close. A close too large for one frame
+/// catalog versions it assigned, the placement version it assigned (0 for none) and the sessions evicted since the
+/// previous close. A close too large for one frame
 /// continues in frames of the same epoch and time, each but the last with `more` set.
 ///
 /// | Command header | Field | Type |
@@ -16,6 +17,7 @@ use crate::types::catalog_announcement::CatalogAnnouncement;
 /// | 0 | `epoch` | epoch, 1 to 2⁴² − 1 |
 /// | 8 | `time` | u64: microseconds of Unix time |
 /// | 16 | `more` | u8 boolean: another frame of this close follows |
+/// | 24 | `placement` | u64: the placement version taking effect at `epoch + 1`, 0 for none |
 ///
 /// | Section | Contents |
 /// |---|---|
@@ -26,6 +28,7 @@ pub struct EpochClose {
     epoch: u64,
     time: u64,
     more: bool,
+    placement: u64,
     announcements: Vec<CatalogAnnouncement>,
     evictions: Vec<[u8; 16]>,
 }
@@ -37,6 +40,7 @@ impl EpochClose {
             epoch,
             time,
             more: false,
+            placement: 0,
             announcements: Vec::new(),
             evictions: Vec::new(),
         }
@@ -45,6 +49,12 @@ impl EpochClose {
     /// The close with another frame of it following.
     pub fn with_more(mut self) -> Self {
         self.more = true;
+        self
+    }
+
+    /// The close announcing placement version `version`, 0 for none.
+    pub fn with_placement(mut self, version: u64) -> Self {
+        self.placement = version;
         self
     }
 
@@ -71,6 +81,11 @@ impl EpochClose {
     /// Whether another frame of this close follows.
     pub fn more(&self) -> bool {
         self.more
+    }
+
+    /// The placement version the close announces, 0 for none.
+    pub fn placement(&self) -> u64 {
+        self.placement
     }
 
     /// The catalog announcements.

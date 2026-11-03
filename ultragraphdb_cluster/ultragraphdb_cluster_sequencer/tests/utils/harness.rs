@@ -111,7 +111,7 @@ pub fn close_through(sequencer: &mut Sequencer<Log>, through: u64) -> TestResult
             return Ok(now_ms);
         }
         now_ms = sequencer.deadline() / 1_000;
-        let _closed: Option<Epoch> = sequencer.tick(at(now_ms), &[], &[])?;
+        let _closed: Option<Epoch> = sequencer.tick(at(now_ms), &[], 0, &[])?;
         let _durable = block_on(sequencer.sync())??;
     }
     Err(TestError::new(format!("epoch {through} did not close")))

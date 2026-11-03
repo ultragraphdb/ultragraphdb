@@ -106,8 +106,16 @@ fn test_a_proposal_refused_on_arrival_is_released() -> TestResult {
     pipe.commit(1, proposal, 0)?;
     let replies = drained(&mut pipe);
     assert!(
-        matches!(replies.as_slice(), [reply] if reply.outcome().is_err()),
-        "refused too large: {replies:?}"
+        matches!(
+            replies.as_slice(),
+            [reply] if matches!(
+                reply.outcome(),
+                Err(ultragraphdb_transactions_commit::CommitError(
+                    ultragraphdb_transactions_commit::CommitErrorEnum::TooLarge { limit: 0, .. }
+                ))
+            )
+        ),
+        "refused too large, a round of 64 bytes holding no record: {replies:?}"
     );
     assert_ne!(
         id_now(&applier)?,

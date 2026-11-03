@@ -533,3 +533,178 @@ fn test_a_versions_removals_replay_as_the_first_apply_made_them() -> TestResult 
     assert_eq!(*replica.catalog(NS)?, *original.catalog(NS)?);
     Ok(())
 }
+
+/// `one_round_log` with a second round committing `record` alone at (1, 2): the log and the position of that round, 2.
+fn log_with(record: Vec<u8>) -> TestResult<(ultragraphdb_transactions_log::SimStorage, Log)> {
+    log_of(|body| body.commit(record), 1)
+}
+
+/// `one_round_log` with a second round at (1, 2) of `transactions` decisions, which `fill` adds to its body.
+fn log_of(
+    fill: impl FnOnce(&mut ultragraphdb_protocol_wire::RoundBody),
+    transactions: u32,
+) -> TestResult<(ultragraphdb_transactions_log::SimStorage, Log)> {
+    use ultragraphdb_protocol_wire::{BodyBuilder, RoundBody};
+    let (storage, mut log) = one_round_log()?;
+    let (_, parent) = log.tail();
+    let derivation = std::num::NonZeroU32::MIN;
+    let mut body = RoundBody::new(2, parent, 0, version(1, 2), derivation);
+    fill(&mut body);
+    let body = body.body().to_vec();
+    let _ticket = log
+        .append(RoundRef::new(
+            Position::new(2),
+            parent,
+            version(1, 2),
+            transactions,
+            derivation,
+            &body,
+        ))
+        .context("the log takes it")?;
+    let _synced: Position = block_on(log.sync()).context("synced")?;
+    Ok((storage, log))
+}
+
+/// A build record whose operation is a drop's names nothing a build does: the round does not read, and recovery is
+/// refused naming the round and the record's operation, round 1 replayed before it.
+#[test]
+fn test_a_build_record_naming_a_drop_refuses_recovery_naming_its_operation() -> TestResult {
+    use ultragraphdb_error_protocol::ProtocolError;
+    use ultragraphdb_protocol_wire::{RecordOperation, WriteSetRecord};
+    for drop in [RecordOperation::DropNamespaceData, RecordOperation::DropAll] {
+        let (_storage, mut log) = log_with(WriteSetRecord::build(NS, drop).encode())?;
+        let replica = applier_over(sim_store())?;
+        let refused = replay(&replica, &mut log).refused("refused")?;
+        let cause = ProtocolError::record(
+            0,
+            ProtocolError::field_value(17, "operation", u64::from(drop.code())),
+        );
+        assert_eq!(
+            refused.0,
+            RecoveryErrorEnum::Round { position: 2, cause },
+            "{drop:?}"
+        );
+        assert_eq!(position(&replica)?, 1, "round 1 replayed, round 2 not");
+    }
+    Ok(())
+}
+
+/// A round starting a catalog version the replay's catalog source does not give refuses recovery naming the round, the
+/// namespace and the version: a replay given no source holds none.
+#[test]
+fn test_a_catalog_version_the_source_does_not_give_refuses_recovery() -> TestResult {
+    use ultragraphdb_protocol_wire::{RecordOperation, WriteSetRecord};
+    let mut record = WriteSetRecord::build(NS, RecordOperation::CatalogTakesEffect(5));
+    record.set_catalog(5);
+    let (_storage, mut log) = log_with(record.encode())?;
+    let replica = applier_over(sim_store())?;
+    let refused = replay(&replica, &mut log).refused("refused")?;
+    assert_eq!(
+        refused.0,
+        RecoveryErrorEnum::Catalog {
+            position: 2,
+            namespace: NS,
+            version: 5,
+            reason: "the metadata group does not hold it".to_string()
+        }
+    );
+    assert_eq!(position(&replica)?, 1);
+    Ok(())
+}
+
+/// A transaction record whose statement record's key is no graph and ID refuses recovery naming the round, the store's
+/// corruption naming the key, for each way the key fails: too short, a graph that is no ID, an ID that is none.
+#[test]
+fn test_a_statement_record_whose_key_is_no_graph_and_id_refuses_recovery() -> TestResult {
+    use ultragraphdb_error_store::StoreError;
+    use ultragraphdb_protocol_wire::WriteSetRecord;
+    use ultragraphdb_store_apply::ChangesetError;
+    let id = crate::utils::proposal_double::id(9)?.to_be_bytes().to_vec();
+    let keys = [
+        vec![0u8; 15],
+        [vec![0xFFu8; 16], id.clone()].concat(),
+        [vec![0u8; 16], vec![0xFF; 16]].concat(),
+    ];
+    for key in keys {
+        let mut record = WriteSetRecord::transaction(NS);
+        record.push_statement_record(key.clone(), None);
+        let (_storage, mut log) = log_with(record.encode())?;
+        let replica = applier_over(sim_store())?;
+        let refused = replay(&replica, &mut log).refused("refused")?;
+        let cause: ChangesetError = StoreError::corrupted(
+            key.clone(),
+            "a logged statement record's key is no graph and ID".to_string(),
+        )
+        .into();
+        assert_eq!(
+            refused.0,
+            RecoveryErrorEnum::Apply { position: 2, cause },
+            "{key:?}"
+        );
+    }
+    Ok(())
+}
+
+/// A build's completion replayed with no build running, a drop having cancelled it, derives nothing: the round is
+/// replayed and the store's position passes it, holding what round 1 left.
+#[test]
+fn test_a_builds_completion_with_no_build_running_replays_as_nothing() -> TestResult {
+    use ultragraphdb_protocol_wire::{BuildOutcome, RecordOperation, WriteSetRecord};
+    for outcome in [BuildOutcome::Swap, BuildOutcome::Undo] {
+        let mut record = WriteSetRecord::build(
+            NS,
+            RecordOperation::CompleteBuild {
+                version: 2,
+                outcome,
+            },
+        );
+        record.set_catalog(2);
+        let (_storage, mut log) = log_with(record.encode())?;
+        let replica = applier_over(sim_store())?;
+        let _replayed: Replay = replay(&replica, &mut log)?;
+        assert_eq!(position(&replica)?, 2, "{outcome:?}");
+        assert_eq!(held(&replica, "a", "knows")?.len(), 1, "{outcome:?}");
+    }
+    Ok(())
+}
+
+/// A round holding an aborted decision before a committed one replays the committed one alone, at its own version; a
+/// registration a home accepted derives no keys on replay; a statement record of a named graph's statement replays; and
+/// each drop a transaction record names replays as the drop of its target.
+#[test]
+fn test_aborted_decisions_registrations_named_graph_records_and_every_drop_replay() -> TestResult {
+    use ultragraphdb_protocol_wire::{ErrorCode, RecordOperation, WriteSetRecord};
+    let id = crate::utils::proposal_double::id(9)?;
+    let dropping = |operation| {
+        let mut record = WriteSetRecord::transaction(NS);
+        record.push_operation(operation);
+        record.encode()
+    };
+    let mut named = WriteSetRecord::transaction(NS);
+    named.set_read_version(version(1, 0));
+    named.push_statement_record([id.to_be_bytes(), id.to_be_bytes()].concat(), None);
+    // Each case: the round's second entry, and how many of round 1's statements are held after it.
+    let cases = [
+        (crate::utils::proposal_double::registration(7, 3, 1)?, 1),
+        (named.encode(), 1),
+        (dropping(RecordOperation::DropPredicate(id)), 1),
+        (dropping(RecordOperation::DropGraph(id)), 1),
+        (dropping(RecordOperation::DropNamespaceData), 0),
+        (dropping(RecordOperation::DropNamespace), 0),
+        (dropping(RecordOperation::DropAll), 0),
+    ];
+    for (record, statements) in cases {
+        let (_storage, mut log) = log_of(
+            |body| {
+                body.abort(ErrorCode::Conflict, 1);
+                body.commit(record);
+            },
+            2,
+        )?;
+        let replica = applier_over(sim_store())?;
+        let _replayed: Replay = replay(&replica, &mut log)?;
+        assert_eq!(position(&replica)?, 2);
+        assert_eq!(held(&replica, "a", "knows")?.len(), statements);
+    }
+    Ok(())
+}

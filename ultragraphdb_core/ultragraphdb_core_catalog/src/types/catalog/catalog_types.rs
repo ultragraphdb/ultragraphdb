@@ -13,7 +13,8 @@ use crate::types::catalog::Catalog;
 
 impl Catalog {
     /// Declares entity type `uid` with the parent `parent` names, `parent` being that parent's ID. Refused, changing
-    /// nothing, when the type already has another parent, or the parent descends from the type.
+    /// nothing, when the type already has another parent or has a parent and is declared with none, or the parent
+    /// descends from the type.
     pub fn declare_type(
         &mut self,
         uid: SystemId,
@@ -32,6 +33,12 @@ impl Catalog {
                 new.as_str(),
             ));
         }
+        if let (Some(held), None) = (
+            self.types.get(&uid).and_then(TypeDeclaration::parent),
+            declaration.parent(),
+        ) {
+            return Err(CatalogError::parent_dropped(name, held.as_str()));
+        }
         if let Some(parent_uid) = parent {
             // The walk up the hierarchy visits each declared type at most once, so it ends within as many steps as
             // there are types, plus the parent itself; a chain longer than that holds a cycle, which a catalog
@@ -45,7 +52,11 @@ impl Catalog {
                 if ancestor == uid {
                     return Err(CatalogError::parent_cycle(name, parent_name));
                 }
-                at = self.parent_uid(ancestor);
+                // An ancestor naming the type declared as its parent reaches it, though the type is not held yet.
+                at = match self.types.get(&ancestor).and_then(TypeDeclaration::parent) {
+                    Some(named) if named == declaration.iri() => Some(uid),
+                    _ => self.parent_uid(ancestor),
+                };
             }
             if at.is_some() {
                 return Err(CatalogError::parent_cycle(name, parent_name));

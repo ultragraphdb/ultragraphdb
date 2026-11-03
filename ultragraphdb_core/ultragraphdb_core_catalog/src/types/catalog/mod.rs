@@ -167,26 +167,39 @@ impl Catalog {
         self.relations.remove(&uid).is_some()
     }
 
-    /// Declares relation `uid`, replacing its declaration.
-    pub fn declare_relation(&mut self, uid: SystemId, declaration: RelationDeclaration) {
-        let _replaced: Option<RelationDeclaration> = self.relations.insert(uid, declaration);
+    /// Declares relation `uid`, replacing its declaration. Refused, changing nothing, with
+    /// [`CatalogError::too_large`] when its IRI or roles are longer than the catalog's encoding holds.
+    pub fn declare_relation(
+        &mut self,
+        uid: SystemId,
+        declaration: RelationDeclaration,
+    ) -> Result<(), CatalogError> {
+        let declaration = Declaration::Relation(declaration);
+        check_lengths(&declaration)?;
+        if let Declaration::Relation(relation) = declaration {
+            let _replaced: Option<RelationDeclaration> = self.relations.insert(uid, relation);
+        }
+        Ok(())
     }
 
     /// Applies `declaration` of the predicate, type or relation `uid` names; a type's parent, when it has one, is
-    /// `parent`'s ID.
+    /// `parent`'s ID. Refused, changing nothing, as [`Catalog::declare_predicate`] and [`Catalog::declare_type`]
+    /// refuse, and with [`CatalogError::too_large`] when a string or list is longer than the catalog's encoding holds.
     pub fn declare(
         &mut self,
         uid: SystemId,
         declaration: Declaration,
         parent: Option<SystemId>,
     ) -> Result<(), CatalogError> {
+        // A predicate's lengths are checked by `check_predicate` and a relation's by `declare_relation`; a type's
+        // here, so that every declaration taken encodes without loss.
+        if matches!(declaration, Declaration::EntityType(_)) {
+            check_lengths(&declaration)?;
+        }
         match declaration {
             Declaration::Predicate(p) => self.declare_predicate(uid, p),
             Declaration::EntityType(t) => self.declare_type(uid, t, parent),
-            Declaration::Relation(r) => {
-                self.declare_relation(uid, r);
-                Ok(())
-            }
+            Declaration::Relation(r) => self.declare_relation(uid, r),
         }
     }
 }

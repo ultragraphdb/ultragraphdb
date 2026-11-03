@@ -76,6 +76,8 @@ pub(crate) struct ChangesetWrite<'a, S, C, B> {
     deriving: bool,
     /// The count moves a derivation records, written once at its end.
     counts: CountMoves,
+    /// The subjects of the statements the write named by their reifier and resolved, in the order resolved.
+    reified: Vec<SystemId>,
 }
 
 impl<'a, S, C, B> ChangesetWrite<'a, S, C, B>
@@ -99,6 +101,7 @@ where
             removals: Vec::new(),
             deriving: false,
             counts: BTreeMap::new(),
+            reified: Vec::new(),
         }
     }
 
@@ -263,6 +266,12 @@ where
 
     fn namespace(&self) -> u64 {
         self.write.namespace()
+    }
+
+    /// The subjects of the statements the write named by their reifier and resolved so far, in the order resolved:
+    /// what a partition's routing checks once the write has executed.
+    pub(crate) fn reified_subjects(&self) -> &[SystemId] {
+        &self.reified
     }
 
     /// The terms the write resolved so far.

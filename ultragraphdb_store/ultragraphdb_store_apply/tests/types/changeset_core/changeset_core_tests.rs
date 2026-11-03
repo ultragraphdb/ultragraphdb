@@ -80,7 +80,15 @@ fn test_a_refused_changeset_leaves_no_dictionary_entry() -> TestResult {
         insert("<gone> <p> <q>")?,
         insert(r#"<gone> <embedding> "[0.50,-1.0]"^^ugdb:float32vector"#)?,
     ]));
-    assert!(refused.is_err(), "the vector is refused");
+    let refused = refused.err().context("the vector is refused")?;
+    assert!(
+        matches!(&refused.0, ChangesetErrorEnum::Literal { predicate, .. } if predicate == ex("embedding").as_str()),
+        "{refused:?}"
+    );
+    assert_eq!(
+        refused.to_string(),
+        "Predicate <http://ex.org/embedding> cannot hold the literal: Invalid vector literal \"[0.50,-1.0]\": an element is no 32-bit float"
+    );
     assert_eq!(a.quads().store().contents(), before, "nothing is written");
     for name in ["gone", "p", "q"] {
         assert_eq!(a.quads().id_of(NS, ex(name).as_str())?, None, "<{name}>");
@@ -323,20 +331,23 @@ fn test_a_round_starting_a_second_build_is_refused_whole() -> TestResult {
     let _applied: Applied = a.apply(&declare_change("name")?)?;
     assert!(a.rebuilding());
     let building_next = a.quads().lists().next_version();
-    assert!(matches!(
+    let rebuilding_tag = ChangesetErrorEnum::Rebuilding {
+        predicate: ex("tag").as_str().to_string(),
+    };
+    assert_eq!(
         a.apply_round(vec![(building_next, building_tag)])
             .err()
             .context("the error of a.apply_round(..)")?
             .0,
-        ChangesetErrorEnum::Rebuilding { .. }
-    ));
-    assert!(matches!(
+        rebuilding_tag
+    );
+    assert_eq!(
         a.execute(&declare_change("tag")?)
             .err()
             .context("the error of a.execute(&declare_change(\"tag\")?)")?
             .0,
-        ChangesetErrorEnum::Rebuilding { .. }
-    ));
+        rebuilding_tag
+    );
     finish_builds(&a);
     let _tag_applied: Applied = a.apply(&declare_change("tag")?)?;
     finish_builds(&a);

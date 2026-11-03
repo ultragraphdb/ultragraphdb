@@ -8,7 +8,7 @@ use std::net::{TcpListener, TcpStream};
 use rustls::ProtocolVersion;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transport_tls::{
-    Plaintext, TestLink, TestPipe, TestPki, TlsErrorEnum, TlsSession,
+    Plaintext, TestLink, TestPipe, TestPki, TlsError, TlsErrorEnum, TlsSession,
 };
 
 /// A client session trusting `pki` for `localhost`, and its acceptor's server session.
@@ -226,5 +226,87 @@ fn test_the_same_exchange_runs_over_a_pipe_and_over_a_tcp_socket() -> TestResult
         client_link.session().protocol_version(),
         Some(ProtocolVersion::TLSv1_3)
     );
+    Ok(())
+}
+
+/// The refusal of a send on a session that has ended, the host its own.
+fn ended(host: &str) -> TlsError {
+    TlsError::record_refused(host.to_string(), "the session has ended".to_string())
+}
+
+#[test]
+fn test_a_send_after_the_sessions_own_close_notify_is_refused() -> TestResult {
+    let pki = TestPki::new()?;
+    let (mut client, mut server) = sessions(&pki)?;
+    shuttle(&mut client, &mut server, 3)?;
+    client.send(b"before")?;
+    client.close();
+    assert_eq!(client.send(b"after"), Err(ended("localhost")));
+    // An empty send is refused as well: the session takes no more plaintext.
+    assert_eq!(client.send(b""), Err(ended("localhost")));
+    // What was sent before the close still arrives, then the close.
+    shuttle(&mut client, &mut server, 1)?;
+    assert_eq!(drain(&mut server), b"before");
+    Ok(())
+}
+
+#[test]
+fn test_a_send_after_the_peers_close_notify_is_refused() -> TestResult {
+    let pki = TestPki::new()?;
+    let (mut client, mut server) = sessions(&pki)?;
+    shuttle(&mut client, &mut server, 3)?;
+    server.send(b"open")?;
+    client.close();
+    shuttle(&mut client, &mut server, 1)?;
+    assert_eq!(server.send(b"after"), Err(ended("")));
+    // And from the other side: the server's close_notify ends the client's session.
+    let (mut other_client, mut other_server) = sessions(&pki)?;
+    shuttle(&mut other_client, &mut other_server, 3)?;
+    other_server.close();
+    shuttle(&mut other_client, &mut other_server, 1)?;
+    assert_eq!(other_client.send(b"after"), Err(ended("localhost")));
+    Ok(())
+}
+
+#[test]
+fn test_a_send_after_a_fatal_refusal_is_refused() -> TestResult {
+    let pki = TestPki::new()?;
+    // After the handshake: a damaged record.
+    let (mut client, mut server) = sessions(&pki)?;
+    shuttle(&mut client, &mut server, 3)?;
+    client.send(b"secret")?;
+    let mut buf = vec![0u8; 1 << 12];
+    let n = client.transmit(&mut buf);
+    let last = n.checked_sub(1).context("a record")?;
+    let byte = buf.get_mut(last).context("its last byte")?;
+    *byte ^= 0xFF;
+    let refused = server.receive(buf.get(..n).context("the record")?);
+    assert!(
+        matches!(&refused, Err(TlsError(TlsErrorEnum::RecordRefused { host, .. })) if host.is_empty()),
+        "{refused:?}"
+    );
+    assert_eq!(server.send(b"after"), Err(ended("")));
+    // During the handshake: bytes that are no TLS.
+    let (mut fresh_client, _) = sessions(&pki)?;
+    let _hello = fresh_client.transmit(&mut buf);
+    let garbage = fresh_client.receive(b"GET / HTTP/1.1\r\n\r\n");
+    assert!(
+        matches!(&garbage, Err(TlsError(TlsErrorEnum::HandshakeFailed { host, .. })) if host == "localhost"),
+        "{garbage:?}"
+    );
+    assert_eq!(fresh_client.send(b"after"), Err(ended("localhost")));
+    Ok(())
+}
+
+#[test]
+fn test_a_send_on_a_live_session_is_taken_before_and_after_the_handshake() -> TestResult {
+    let pki = TestPki::new()?;
+    let (mut client, mut server) = sessions(&pki)?;
+    // Before the handshake completes, plaintext is queued for it.
+    client.send(b"early")?;
+    shuttle(&mut client, &mut server, 3)?;
+    client.send(b" late")?;
+    shuttle(&mut client, &mut server, 1)?;
+    assert_eq!(drain(&mut server), b"early late");
     Ok(())
 }

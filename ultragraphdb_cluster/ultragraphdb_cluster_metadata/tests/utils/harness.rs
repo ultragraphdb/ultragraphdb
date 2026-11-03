@@ -132,7 +132,7 @@ pub fn learn_through(group: &mut Group, through: u64) -> TestResult {
     for close in from..=through {
         let versions = group.state().pending_versions();
         let evictions = group.state().pending_evictions();
-        let _learned = group.learn_close(epoch(close)?, &versions, &evictions)?;
+        let _learned = group.learn_close(epoch(close)?, &versions, 0, &evictions)?;
         sync(group)?;
     }
     Ok(())

@@ -208,6 +208,21 @@ fn test_other_names_in_the_directory_are_not_segments() -> TestResult {
     Ok(())
 }
 
+/// A failed listing of the log's directory, the open's third operation after creating the directory and syncing its
+/// parent, is an I/O error of the listing, and nothing is written: the next open creates a fresh log.
+#[test]
+fn test_a_failed_listing_is_an_io_error() -> TestResult {
+    let storage = SimStorage::new(1);
+    storage.fail_at(2, FaultMode::Before);
+    let refusal = open(&storage).err().context("refused")?;
+    assert_io(&refusal, "list");
+    assert_eq!(storage.trace()[2].0, StorageOperation::List);
+    assert_eq!(writes_in(&storage, 0), 0, "nothing written");
+    let (_wal, recovery) = open(&storage).context("the next open succeeds")?;
+    assert_eq!(recovery.committed(), Position::ZERO);
+    Ok(())
+}
+
 #[test]
 fn test_a_failed_directory_creation_is_an_io_error() -> TestResult {
     let storage = SimStorage::new(1);

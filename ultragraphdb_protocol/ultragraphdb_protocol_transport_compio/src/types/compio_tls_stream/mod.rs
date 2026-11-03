@@ -80,6 +80,9 @@ impl<S: AsyncRead + AsyncWrite> CompioTlsStream<S> {
             match tls.read_stream().await {
                 Ok(0) => return Err(tls.failed("the stream closed during the handshake".into())),
                 Ok(_) => {}
+                // A read a signal interrupted is retried, as the blocking stream's handshake retries it; the turn
+                // counts, and nothing was read for the session to take.
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
                 Err(e) => return Err(tls.failed(e.to_string())),
             }
             if let Err(refusal) = tls.session.receive(&tls.incoming) {

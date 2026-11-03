@@ -98,6 +98,46 @@ fn second_parent_refused(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
+#[when("Employee is declared a subtype of Person and then declared again with no parent")]
+fn parent_dropped(w: &mut Steps) -> TestResult {
+    let (employee, person) = (id(1)?, id(2)?);
+    w.catalog.declare_type(
+        person,
+        TypeDeclaration::new(ex("Person"), None, false),
+        None,
+    )?;
+    w.catalog.declare_type(
+        employee,
+        TypeDeclaration::new(ex("Employee"), Some(ex("Person")), false),
+        Some(person),
+    )?;
+    w.refusals.extend(
+        w.catalog
+            .declare_type(
+                employee,
+                TypeDeclaration::new(ex("Employee"), None, false),
+                None,
+            )
+            .err(),
+    );
+    Ok(())
+}
+
+#[then(
+    "the second declaration fails with an error naming Employee and Person, and Employee keeps Person"
+)]
+fn parent_dropped_refused(w: &mut Steps) -> TestResult {
+    let error = w.refusals.first().context("refused")?.to_string();
+    for name in ["Employee", "Person"] {
+        assert!(error.contains(name), "{error}");
+    }
+    assert_eq!(
+        w.catalog.entity_type(id(1)?).and_then(|t| t.parent()),
+        Some(&ex("Person"))
+    );
+    Ok(())
+}
+
 #[when("Agent has the subtypes Person and Org, and Person the subtype Employee")]
 fn hierarchy(w: &mut Steps) -> TestResult {
     let declare = |steps: &mut Steps, uid: u64, name: &str, parent: Option<(&str, u64)>| {

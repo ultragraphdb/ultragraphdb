@@ -43,7 +43,9 @@ impl TestServer {
     pub(super) fn error(&mut self, stream: u64, code: ErrorCode, detail: u64, message: &str) {
         let error = ErrorReply::new(code, message).with_detail(detail);
         if let Some(connection) = self.connection.as_mut() {
-            connection.refuse(stream, &error);
+            // A refusal of the test server's own short messages is always built; one that is not leaves the stream
+            // as it was.
+            drop(connection.refuse(stream, &error));
         }
     }
 

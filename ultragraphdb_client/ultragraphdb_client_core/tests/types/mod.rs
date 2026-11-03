@@ -4,4 +4,6 @@
  */
 
 #[cfg(test)]
+mod client_config_tests;
+#[cfg(test)]
 mod client_core;

@@ -4,4 +4,6 @@
  */
 
 #[cfg(test)]
+mod address_fuzz_tests;
+#[cfg(test)]
 mod address_tests;

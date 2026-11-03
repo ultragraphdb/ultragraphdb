@@ -51,6 +51,36 @@ fn test_each_constructor_builds_its_variant() {
         TxnError::from(changeset_error()),
         TxnError::changeset(changeset_error())
     );
+    assert_eq!(
+        TxnError::cross_partition(1, 2).0,
+        TxnErrorEnum::CrossPartition {
+            partition: 1,
+            other: 2
+        }
+    );
+    assert_eq!(TxnError::declaration().0, TxnErrorEnum::Declaration);
+}
+
+/// Each refusal answers the wire's code its doc names: past its limit, too large for either set, cross-partition, and
+/// refused for every other.
+#[test]
+fn test_each_refusal_answers_its_wire_code() {
+    use ultragraphdb_protocol_wire::ErrorCode;
+    let cases = [
+        (TxnError::past_limit(10_000), ErrorCode::PastLimit),
+        (TxnError::write_set_too_large(5, 4), ErrorCode::TooLarge),
+        (TxnError::read_set_too_large(7, 6), ErrorCode::TooLarge),
+        (TxnError::cross_partition(1, 2), ErrorCode::CrossPartition),
+        (TxnError::read_above_watermark(12, 10), ErrorCode::Refused),
+        (TxnError::read_only(), ErrorCode::Refused),
+        (TxnError::namespace(0, 3), ErrorCode::Refused),
+        (TxnError::ended(), ErrorCode::Refused),
+        (TxnError::changeset(changeset_error()), ErrorCode::Refused),
+        (TxnError::declaration(), ErrorCode::Refused),
+    ];
+    for (error, code) in cases {
+        assert_eq!(error.code(), code, "{error:?}");
+    }
 }
 
 #[test]
@@ -64,6 +94,8 @@ fn test_only_past_its_limit_is_retryable() {
         TxnError::namespace(0, 3),
         TxnError::ended(),
         TxnError::changeset(changeset_error()),
+        TxnError::cross_partition(1, 2),
+        TxnError::declaration(),
     ] {
         assert!(!refused.is_retryable(), "{refused:?}");
     }
@@ -129,6 +161,7 @@ fn test_a_changesets_error_is_the_source() -> TestResult {
         TxnError::read_only(),
         TxnError::namespace(0, 3),
         TxnError::ended(),
+        TxnError::declaration(),
     ] {
         assert!(refused.source().is_none(), "{refused:?}");
     }

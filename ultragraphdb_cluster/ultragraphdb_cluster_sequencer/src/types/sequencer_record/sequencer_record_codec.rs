@@ -22,7 +22,7 @@ const TRANSACTION: u8 = 2;
 impl SequencerRecord {
     /// Appends the record's encoding to `out`, big-endian throughout. A close: the kind byte 1, the epoch and the time
     /// as 8 bytes each, the catalog versions' count as 2 and each version's namespace and number as 8 each, the
-    /// evictions' count as 2 and each session as 16. A transaction: the kind byte 2, the epoch and the reply epoch as 8
+    /// evictions' count as 2 and each session as 16, the placement version as 8, 0 for none. A transaction: the kind byte 2, the epoch and the reply epoch as 8
     /// bytes each, the partitions' count as 2 and each partition as 4, the body's length as 4 and its bytes. A record
     /// has one encoding.
     pub fn encode(&self, out: &mut Vec<u8>) {
@@ -40,6 +40,7 @@ impl SequencerRecord {
                 for session in close.evictions() {
                     out.extend_from_slice(&session.to_be_bytes());
                 }
+                out.extend_from_slice(&close.placement().to_be_bytes());
             }
             Self::Transaction(transaction) => {
                 out.push(TRANSACTION);
@@ -121,7 +122,8 @@ fn read_close(reader: &mut Reader<'_>) -> Result<Close, ClusterError> {
     for _ in 0..sessions {
         evictions.push(reader.u128("an evicted session")?);
     }
-    Close::new(epoch, time_us, catalog, evictions)
+    let placement = reader.u64("a close's placement version")?;
+    Ok(Close::new(epoch, time_us, catalog, evictions)?.with_placement(placement))
 }
 
 /// A transaction's fields after its kind byte.

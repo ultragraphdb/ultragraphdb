@@ -600,7 +600,14 @@ async fn sync_fails(w: &mut Steps) -> TestResult {
             .context("appended or waiting")?;
     }
     storage.fail_at(storage.trace().len(), FaultMode::Before);
-    assert!(pipe.sync(0).await.is_err());
+    let failed = pipe.sync(0).await.err().context("the sync fails")?;
+    assert!(
+        matches!(
+            &failed.0,
+            ultragraphdb_transactions_commit::PipelineErrorEnum::Log { .. }
+        ),
+        "the log's failure: {failed:?}"
+    );
     let mut later = begin(&applier)?;
     write(&mut later, vec![insert("r", "knows", "b")])?;
     pipe.commit(3, prepare(later)?, 0).context("answered")?;
@@ -866,7 +873,16 @@ fn old_catalog(w: &mut Steps) -> TestResult {
     let mut retry = begin(&applier)?;
     w.checks = vec![retry.catalog() == 3];
     let changes = changeset(vec![insert_literal("c", "age", "old")]);
-    w.retry_refused = retry.write(&changes, 0).is_err();
+    w.retry_refused = matches!(
+        retry.write(&changes, 0),
+        Err(ultragraphdb_transactions_txn::TxnError(
+            ultragraphdb_transactions_txn::TxnErrorEnum::Changeset(
+                ultragraphdb_store_apply::ChangesetError(
+                    ultragraphdb_store_apply::ChangesetErrorEnum::Catalog(_)
+                )
+            )
+        ))
+    );
     Ok(())
 }
 
@@ -1720,6 +1736,57 @@ fn second_partitions_subject(w: &mut Steps) -> TestResult {
         .write(&changeset(vec![insert(&other, "knows", "b")]), 0)
         .err();
     w.held = held(&applier, &other, "knows")?;
+    Ok(())
+}
+
+#[when(
+    "a transaction bound to partition 1 sets a property of a statement named by its reifier, the statement's subject's bucket owned by partition 2"
+)]
+fn second_partitions_reified_statement(w: &mut Steps) -> TestResult {
+    use ultragraphdb_core_mapping::StatementRef;
+    let applier = applier()?;
+    let placement = two_partitions()?;
+    let other = owned_by(&placement, 2)?;
+    let _version: u64 = setup(
+        &applier,
+        vec![Change::InsertEdge {
+            graph: GraphName::DefaultGraph,
+            subject: ex(&other).into(),
+            predicate: ex("knows"),
+            object: ex("b").into(),
+            properties: vec![(ex("since"), Literal::from(2020i64).into())],
+        }],
+    )?;
+    let key = QuadKey::Forward {
+        namespace: NS,
+        graph: DEFAULT_GRAPH,
+        predicate: id_of(&applier, "knows")?,
+        subject: id_of(&applier, &other)?,
+    }
+    .to_bytes();
+    let statement = applier
+        .quads()
+        .objects(&key, applier.quads().lists().applied_ts())?
+        .first()
+        .and_then(|(_, ids)| ids.first().copied())
+        .context("the edge's statement ID")?;
+    let reifier = NamedNode::new(applier.quads().iri_of(NS, statement)?.0)?;
+    let mut txn = begin(&applier)?.bind(partition(1)?, &placement);
+    w.refusal = txn
+        .write(
+            &changeset(vec![Change::SetProperty {
+                statement: StatementRef::Reifier {
+                    graph: GraphName::DefaultGraph,
+                    reifier,
+                },
+                predicate: ex("weight"),
+                value: Literal::from(1i64).into(),
+            }]),
+            0,
+        )
+        .err();
+    // No quad of `<weight>` is held for the subject; the statement's record is checked by the txn unit tests.
+    w.held = held(&applier, &other, "weight")?;
     Ok(())
 }
 

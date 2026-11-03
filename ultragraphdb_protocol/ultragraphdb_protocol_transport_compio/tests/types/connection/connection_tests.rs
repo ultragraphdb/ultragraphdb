@@ -94,10 +94,13 @@ fn test_frames_split_in_flight_are_read_whole() -> TestResult {
     for frame in &frames {
         assert_eq!(ready(client.write_frame(frame.clone()))?, *frame);
     }
-    for frame in &frames {
+    for (frame, command) in frames
+        .iter()
+        .zip([Command::Credit, Command::Error, Command::Hello])
+    {
         let received = ready(server.read_frame(&pool))?;
         assert_eq!(received.bytes(), &frame[..]);
-        assert!(received.view().is_ok());
+        assert_eq!(received.view()?.command(), command);
     }
     Ok(())
 }
@@ -109,7 +112,7 @@ fn test_a_close_between_frames_is_closed_and_inside_one_is_truncated() -> TestRe
         let (_n, mut client, mut server) = pair(NetworkFaults::none());
         assert_eq!(ready(client.write_frame(credit(1)?))?, credit(1)?);
         ready(client.stream_mut().shutdown())?;
-        assert!(ready(server.read_frame(&pool)).is_ok());
+        assert_eq!(ready(server.read_frame(&pool))?.stream(), 1);
         assert_eq!(
             failure(ready(server.read_frame(&pool)), "a read after the close")?,
             TransportError::closed()
@@ -159,12 +162,17 @@ fn test_a_header_breaking_a_rule_is_refused_before_its_body_is_read() -> TestRes
     {
         let (_n, mut client, mut server) = pair(NetworkFaults::none());
         let mut broken = credit(1)?;
+        // Bytes 0 to 7 are the header's checksum (PROTOCOL.md section 2.5, step 2), which the framer checks first:
+        // the stored one is off by its lowest bit, the computed one is the frame's own.
+        let mut checksum = [0u8; 8];
+        checksum.copy_from_slice(&broken[..8]);
+        let computed = u64::from_le_bytes(checksum);
         broken[0] ^= 1;
         assert_eq!(ready(client.write_frame(broken.clone()))?, broken);
-        assert!(matches!(
-            failure(ready(server.read_frame(&pool)), "a read of a broken header")?.0,
-            ultragraphdb_protocol_transport::TransportErrorEnum::Protocol { .. }
-        ));
+        assert_eq!(
+            failure(ready(server.read_frame(&pool)), "a read of a broken header")?,
+            TransportError::protocol(ProtocolError::header_checksum(computed ^ 1, computed))
+        );
     }
     Ok(())
 }
@@ -182,7 +190,13 @@ fn test_the_body_of_a_refused_header_stays_unread() -> TestResult {
     let body = other.len() - 256;
     assert_eq!(ready(client.write_frame(other.clone()))?, other);
     network.run_until_idle();
-    assert!(ready(server.read_frame(&pool)).is_err());
+    assert_eq!(
+        failure(
+            ready(server.read_frame(&pool)),
+            "a read of another cluster's frame"
+        )?,
+        TransportError::protocol(ProtocolError::wrong_cluster(CLUSTER, 7))
+    );
     assert_eq!(probe.sim().pending(), body);
     Ok(())
 }
@@ -272,20 +286,19 @@ fn test_a_hello_above_the_server_is_refused_on_both_sides() -> TestResult {
             .with_max_streams(16)
             .with_initial_credit(4),
     );
+    let (client, server) = (
+        failure(client, "the client's handshake")?,
+        failure(server, "the server's handshake")?,
+    );
     assert!(matches!(
-        failure(client, "the client's handshake")?.0,
+        &client.0,
         ultragraphdb_protocol_transport::TransportErrorEnum::Refused {
             code: ErrorCode::ProtocolVersion,
-            ..
-        }
+            message,
+        } if !message.is_empty()
     ));
-    assert!(matches!(
-        failure(server, "the server's handshake")?.0,
-        ultragraphdb_protocol_transport::TransportErrorEnum::Refused {
-            code: ErrorCode::ProtocolVersion,
-            ..
-        }
-    ));
+    // The client reads the very refusal the server returned: its code and its message.
+    assert_eq!(client, server);
     Ok(())
 }
 

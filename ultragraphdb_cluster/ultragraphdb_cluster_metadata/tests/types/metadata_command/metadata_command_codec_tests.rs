@@ -51,7 +51,6 @@ fn every_kind() -> TestResult<Vec<MetadataCommand>> {
             leader: NodeId::new(6),
         },
         MetadataCommand::ChangePlacement {
-            from: Epoch::new(21)?,
             assignments: vec![
                 (BucketRange::new(0, 100)?, PartitionId::new(1)?),
                 (BucketRange::new(100, 16_777_216)?, PartitionId::new(2)?),
@@ -69,6 +68,7 @@ fn every_kind() -> TestResult<Vec<MetadataCommand>> {
         },
         MetadataCommand::RemovePrincipal {
             name: "bob".to_string(),
+            evicts: vec![16],
         },
         MetadataCommand::RegisterSession {
             session: 12,
@@ -78,6 +78,7 @@ fn every_kind() -> TestResult<Vec<MetadataCommand>> {
         MetadataCommand::LearnClose {
             epoch: Epoch::new(39)?,
             versions: vec![(Namespace::new(3), 3)],
+            placement: 2,
             evictions: vec![14],
         },
         MetadataCommand::ReportUntrimmed {
@@ -132,10 +133,9 @@ fn test_commands_encode_as_written_by_hand() -> TestResult {
     ];
     // InitPlacement: kind 4, 3 partitions, leader node 6.
     let init = vec![4, 0, 0, 0, 3, 0, 0, 0, 6];
-    // ChangePlacement: kind 5, epoch 21, 2 ranges: 0..100 to 1, 100..2^24 to 2.
+    // ChangePlacement: kind 5, 2 ranges: 0..100 to 1, 100..2^24 to 2.
     let change = vec![
-        5, 0, 0, 0, 0, 0, 0, 0, 21, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 100, 0, 0, 0, 1, 0, 0, 0, 100,
-        1, 0, 0, 0, 0, 0, 0, 2,
+        5, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 100, 0, 0, 0, 1, 0, 0, 0, 100, 1, 0, 0, 0, 0, 0, 0, 2,
     ];
     // SetLeader: kind 6, partition 7, node 8.
     let leader = vec![6, 0, 0, 0, 7, 0, 0, 0, 8];
@@ -147,19 +147,22 @@ fn test_commands_encode_as_written_by_hand() -> TestResult {
     create.extend_from_slice(&[10; 32]);
     create.extend_from_slice(&[11; 32]);
     create.push(1);
-    // RemovePrincipal: kind 8, "bob" after its length 3.
+    // RemovePrincipal: kind 8, "bob" after its length 3, 1 eviction, 16 as 16 bytes.
     let mut remove = vec![8, 3];
     remove.extend_from_slice(b"bob");
+    remove.extend_from_slice(&[0, 0, 0, 1]);
+    remove.extend_from_slice(&16_u128.to_be_bytes());
     // RegisterSession: kind 9, session 12 as 16 bytes, principal 13 as 8, 2 evictions, 14 and 15 as 16 bytes each.
     let mut register = vec![9];
     register.extend_from_slice(&12_u128.to_be_bytes());
     register.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 13, 0, 0, 0, 2]);
     register.extend_from_slice(&14_u128.to_be_bytes());
     register.extend_from_slice(&15_u128.to_be_bytes());
-    // LearnClose: kind 10, epoch 39, 1 version (namespace 3, version 3), 1 eviction, 14.
+    // LearnClose: kind 10, epoch 39, 1 version (namespace 3, version 3), 1 eviction, 14, placement version 2.
     let mut learn = vec![10, 0, 0, 0, 0, 0, 0, 0, 39, 0, 0, 0, 1];
     learn.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 1]);
     learn.extend_from_slice(&14_u128.to_be_bytes());
+    learn.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 2]);
     // ReportUntrimmed: kind 11, partition 2, epoch 30.
     let report = vec![11, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 30];
     // Chunk: kind 12, offset 16, length 3, 5 6 7. Commit: kind 13, length 19, checksum 0x0102030405060708.
@@ -181,9 +184,10 @@ fn test_encoding_appends_to_the_buffer() -> TestResult {
     let mut out = vec![0xAA];
     MetadataCommand::RemovePrincipal {
         name: "b".to_string(),
+        evicts: Vec::new(),
     }
     .encode(&mut out);
-    assert_eq!(out, vec![0xAA, 8, 1, b'b']);
+    assert_eq!(out, vec![0xAA, 8, 1, b'b', 0, 0, 0, 0]);
     Ok(())
 }
 
@@ -235,12 +239,25 @@ fn test_values_out_of_range_are_refused_naming_them() -> TestResult {
     let partition = vec![6, 0, 0, 0, 0, 0, 0, 0, 1];
     assert_eq!(refusal(&partition)?, malformed("a partition from 1", 1));
     // An empty bucket range 5..5 in a change.
-    let mut empty = vec![5, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1];
+    let mut empty = vec![5, 0, 0, 0, 1];
     empty.extend_from_slice(&[0, 0, 0, 5, 0, 0, 0, 5, 0, 0, 0, 1]);
-    assert_eq!(
-        refusal(&empty)?,
-        malformed("a bucket range within 2^24", 13)
-    );
+    assert_eq!(refusal(&empty)?, malformed("a bucket range within 2^24", 5));
+    // A bucket range 0..2^24 + 1 in a change, past the last bucket.
+    let mut past = vec![5, 0, 0, 0, 1];
+    past.extend_from_slice(&[0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1]);
+    assert_eq!(refusal(&past)?, malformed("a bucket range within 2^24", 5));
+    // Partition 0 assigned a range in a change.
+    let mut unassigned = vec![5, 0, 0, 0, 1];
+    unassigned.extend_from_slice(&[0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]);
+    assert_eq!(refusal(&unassigned)?, malformed("a partition from 1", 13));
+    // A change names no epoch; a report of epoch 2^42 is refused.
+    let report = vec![11, 0, 0, 0, 1, 0, 0, 4, 0, 0, 0, 0, 0];
+    assert_eq!(refusal(&report)?, malformed("an epoch of 42 bits", 5));
+    // Partition 0 in a lease and in a report.
+    let lease = vec![3, 0, 1, 0, 0, 0, 0];
+    assert_eq!(refusal(&lease)?, malformed("a partition from 1", 3));
+    let zero = vec![11, 0, 0, 0, 0];
+    assert_eq!(refusal(&zero)?, malformed("a partition from 1", 1));
     // An administrator flag of 2.
     let mut flag = encoded(every_kind()?.get(6).context("CreatePrincipal")?);
     let last = flag.len() - 1;
@@ -269,7 +286,7 @@ fn test_lengths_and_counts_past_their_limits_are_refused_before_their_values() -
         }
     );
     // A change of 2^18 + 1 ranges.
-    let mut change = vec![5, 0, 0, 0, 0, 0, 0, 0, 1];
+    let mut change = vec![5];
     change.extend_from_slice(&262_145_u32.to_be_bytes());
     assert_eq!(
         refusal(&change)?,
@@ -346,6 +363,7 @@ fn test_records_at_their_limits_round_trip() -> TestResult {
             administrator: false,
         },
         MetadataCommand::LearnClose {
+            placement: u64::MAX,
             epoch: Epoch::MAX,
             versions: vec![(Namespace::new(1), 1); 256],
             evictions: vec![u128::MAX; 4_096],
@@ -417,5 +435,51 @@ fn test_a_chunk_past_its_limit_is_refused_before_its_bytes() -> TestResult {
             max: 131_072
         }
     );
+    Ok(())
+}
+
+#[test]
+fn test_a_removal_past_the_evictions_awaiting_a_close_is_refused_before_its_sessions() -> TestResult
+{
+    // A removal evicting 65,537 sessions, past the evictions awaiting a close.
+    let mut removal = vec![8, 1, b'b'];
+    removal.extend_from_slice(&65_537_u32.to_be_bytes());
+    assert_eq!(
+        refusal(&removal)?,
+        ClusterErrorEnum::TooMany {
+            what: "session evictions of a removal",
+            count: 65_537,
+            max: 65_536
+        }
+    );
+    Ok(())
+}
+
+#[test]
+fn test_a_closes_placement_version_is_its_last_8_bytes() -> TestResult {
+    // The LearnClose of every_kind: its 49 bytes, then placement version 2.
+    let learn = encoded(every_kind()?.get(9).context("LearnClose")?);
+    assert_eq!(learn.len(), 57);
+    assert_eq!(learn.get(49..), Some([0, 0, 0, 0, 0, 0, 0, 2].as_slice()));
+    for cut in 49..57 {
+        assert_eq!(
+            refusal(learn.get(..cut).context("a prefix")?)?,
+            malformed("a placement version", 49),
+            "cut at {cut}"
+        );
+    }
+    // Every number decodes as itself; 0 announces none.
+    for placement in [0, 1, u64::MAX] {
+        let mut bytes = learn.clone();
+        bytes.truncate(49);
+        bytes.extend_from_slice(&placement.to_be_bytes());
+        let MetadataCommand::LearnClose {
+            placement: read, ..
+        } = MetadataCommand::decode(&bytes)?
+        else {
+            return Err(ultragraphdb_tool_bdd::TestError::new("a LearnClose"));
+        };
+        assert_eq!(read, placement);
+    }
     Ok(())
 }

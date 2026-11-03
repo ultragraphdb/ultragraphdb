@@ -65,6 +65,13 @@ where
         self.read_ts
     }
 
+    /// The subjects of the statements the execution's changesets named by their reifier (a delete of the statement, a
+    /// property set or removed through it) and resolved, in the order resolved: the reifier names no subject before
+    /// execution, so a partition checks its routing against these afterwards. A reifier naming no statement adds none.
+    pub fn reified_subjects(&self) -> &[SystemId] {
+        self.write.reified_subjects()
+    }
+
     /// Applies every change of `changeset`, in order, on top of what the execution wrote before; the first refusal
     /// ends it, and the execution should then be dropped, since the changes before the refusal stay applied to it.
     ///

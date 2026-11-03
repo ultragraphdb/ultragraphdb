@@ -1,0 +1,1 @@
+tcp://trusted.example:80@evil.example:80

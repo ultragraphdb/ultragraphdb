@@ -6,7 +6,7 @@
 use oxrdf::{GraphNameRef, NamedNodeRef, NamedOrBlankNode, NamedOrBlankNodeRef, Term};
 use ultragraphdb_cluster_placement::{PartitionId, PlacementMap};
 use ultragraphdb_core_ids::{Bucket, CanonicalKey, Namespace, SessionToken, TypePrefix, Version};
-use ultragraphdb_core_mapping::{Change, Changeset};
+use ultragraphdb_core_mapping::{Change, Changeset, StatementRef};
 use ultragraphdb_store_apply::{ChangesetApplier, Executed, Execution, Operation};
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_traits_blocks::BlockSource;
@@ -197,8 +197,9 @@ where
     ///
     /// [`TxnError::ended`]; [`TxnError::past_limit`], ending it; [`TxnError::read_only`], [`TxnError::namespace`] and
     /// [`TxnError::declaration`] for a changeset holding a declaration, which leave it as it was;
-    /// [`TxnError::cross_partition`] for a subject another partition owns, and [`TxnError::changeset`] for a changeset
-    /// refused or a store that failed, each ending it.
+    /// [`TxnError::cross_partition`] for a subject another partition owns, a statement named by its reifier checked
+    /// against the subject it resolves to once executed, and [`TxnError::changeset`] for a changeset refused or a store
+    /// that failed, each ending it.
     pub fn write(&mut self, changeset: &Changeset, now_us: u64) -> Result<(), TxnError> {
         if self.mode == Mode::ReadOnly {
             return Err(TxnError::read_only());
@@ -223,6 +224,11 @@ where
         if let Err(e) = execution.apply(changeset) {
             self.end();
             return Err(e.into());
+        }
+        // A statement named by its reifier is known by its subject only once executed.
+        if let Some((partition, other)) = self.foreign_reified() {
+            self.end();
+            return Err(TxnError::cross_partition(partition, other));
         }
         Ok(())
     }
@@ -384,6 +390,21 @@ where
         self.execution.as_mut().ok_or_else(TxnError::ended)
     }
 
+    /// The bound partition and the owner of the first subject another partition owns among those the execution's
+    /// reifiers resolved to, at the transaction's read epoch, by the bucket each subject's ID carries; `None` when
+    /// unbound, ended or every such subject is the partition's own.
+    fn foreign_reified(&self) -> Option<(u32, u32)> {
+        let (partition, placement) = self.binding?;
+        let epoch = Version::from_u64(self.read_version).epoch();
+        self.execution
+            .as_ref()?
+            .reified_subjects()
+            .iter()
+            .map(|subject| placement.partition_of(subject.bucket(), epoch))
+            .find(|owner| *owner != partition)
+            .map(|owner| (partition.get(), owner.get()))
+    }
+
     /// The bound partition and the owner of the first subject of `changeset` another partition owns, at the
     /// transaction's read epoch; `None` when unbound or every subject is the partition's own. A blank node's subject is
     /// new or the partition's own: a new one is drawn among the partition's buckets.
@@ -397,6 +418,15 @@ where
                 | Change::InsertEdge { subject, .. }
                 | Change::Delete { subject, .. }
                 | Change::DeletePattern { subject, .. } => subject,
+                // A statement named by its triple is its subject's, as an insert of it is.
+                Change::SetProperty {
+                    statement: StatementRef::Triple { subject, .. },
+                    ..
+                }
+                | Change::DeleteProperty {
+                    statement: StatementRef::Triple { subject, .. },
+                    ..
+                } => subject,
                 Change::DeleteStatement { .. }
                 | Change::SetProperty { .. }
                 | Change::DeleteProperty { .. }

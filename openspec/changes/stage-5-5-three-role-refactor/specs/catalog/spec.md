@@ -29,3 +29,22 @@ within one partition in this stage"), with one partition it is local.
   `<b> <id> "x"`, and a transaction bound to partition 1 insert-if-absents a node with `id` `"x"`
 - **THEN** the write in partition 2 aborts with `CrossPartition` naming partitions 2 and 1, the insert-if-absent
   commits, and one node holds `id` `"x"`
+
+### Requirement: Entity types
+The catalog SHALL hold entity types, each with at most one parent type and an abstract flag, and relations, each with
+named roles. Declaring a second parent for a type or a parent cycle SHALL be refused. Declaring a type that has a parent
+again without that parent SHALL be refused, and the type SHALL keep its parent; a parent is dropped by removing the
+type and declaring it again. Each entity type SHALL be given a number in a preorder walk of the type hierarchy, recorded
+for the UID type bits the quad layout reserves.
+
+#### Scenario: A second parent is refused
+- **WHEN** `Employee` is declared a subtype of `Person` and then of `Agent`
+- **THEN** the second declaration fails with an error naming `Employee`, `Person` and `Agent`
+
+#### Scenario: A parent is not dropped by a redeclaration
+- **WHEN** `Employee` is declared a subtype of `Person` and then declared again with no parent
+- **THEN** the second declaration fails with an error naming `Employee` and `Person`, and `Employee` keeps `Person`
+
+#### Scenario: Preorder numbers follow the hierarchy
+- **WHEN** `Agent` has the subtypes `Person` and `Org`, and `Person` the subtype `Employee`
+- **THEN** the preorder numbers place `Employee` between `Person` and `Org`

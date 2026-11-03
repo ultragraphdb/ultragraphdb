@@ -10,6 +10,8 @@
 
 use std::collections::BTreeMap;
 
+use oxrdf::Literal;
+use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_core_tok::{VEC_DEAD, VEC_ENTRY, VEC_KEYWORD};
 use ultragraphdb_store_hnsw::{HnswError, ViTxn, bytes_to_id, decode_id_matrix, index_posting};
 use ultragraphdb_store_kv::{Durability, FjallStore};
@@ -25,7 +27,7 @@ use crate::utils::helpers::{
     delete, draws, hex_id, id, ids, index_value, insert, key, lists_over, new_lists, new_store,
     opts, pred, set_vector, vector_encoding, vkeys,
 };
-use ultragraphdb_tool_bdd::{Context, TestResult};
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 /// The bytes of `v`'s elements, little-endian.
 fn elements(v: &[f32]) -> Vec<u8> {
@@ -309,5 +311,27 @@ fn test_a_golden_run_on_fjall_equals_gos() -> TestResult {
     replay(c, &lists_over(store))?;
     // A directory left behind is litter in the temporary directory, not a failure of the test.
     drop(std::fs::remove_dir_all(&dir));
+    Ok(())
+}
+
+/// A forward list whose value is another term than a vector, or bytes that are no term, holds no vector: its read is
+/// no value, as a list holding none.
+#[test]
+fn test_a_forward_list_holding_no_vector_is_no_value() -> TestResult {
+    let lists = new_lists();
+    let p = pred("emb");
+    let integer = EncodedTerm::literal::<TestError>(Literal::from(5i64).as_ref(), |_| {
+        Err(TestError::new("an integer's datatype needs no UID"))
+    })
+    .context("an integer literal")?
+    .into_term()
+    .as_bytes()
+    .to_vec();
+    let mut request = lists.request(lists.applied_ts());
+    set_vector(&mut request, &vkeys(&p)?, id(7)?, integer)?;
+    set_vector(&mut request, &vkeys(&p)?, id(8)?, vec![0xFF, 0xFF, 0xFF])?;
+    let txn = ViTxn::new(&mut request);
+    assert_eq!(Txn::get(&txn, &key(&p, 7)?), Err(HnswError::no_value()));
+    assert_eq!(Txn::get(&txn, &key(&p, 8)?), Err(HnswError::no_value()));
     Ok(())
 }

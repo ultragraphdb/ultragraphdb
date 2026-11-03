@@ -93,9 +93,29 @@ impl<A: Authenticator> ServerConnection<A> {
     }
 
     /// The client's next frame, read whole, at `now`: validated in place, then taken by the connection's rules.
-    pub fn receive(&mut self, frame: &ReceivedFrame, now: Instant) -> Inbound {
+    ///
+    /// # Errors
+    ///
+    /// [`TransportError::frame_not_built`] when a frame the connection answers with, its Welcome, an Authenticate, a
+    /// refusal or its closing Error, cannot be built, naming its command and why (a frame past
+    /// [`ultragraphdb_protocol_wire::MAX_FRAME_SIZE`] names its size): nothing of it is queued, the connection is
+    /// closing and has authenticated no one it had not before, and its caller closes it without a last frame.
+    pub fn receive(
+        &mut self,
+        frame: &ReceivedFrame,
+        now: Instant,
+    ) -> Result<Inbound, TransportError> {
+        let taken = self.take(frame, now);
+        if taken.is_err() {
+            self.phase = Phase::Closing;
+            self.exchange = None;
+        }
+        taken
+    }
+
+    fn take(&mut self, frame: &ReceivedFrame, now: Instant) -> Result<Inbound, TransportError> {
         if self.phase == Phase::Closing {
-            return Inbound::Closing { code: None };
+            return Ok(Inbound::Closing { code: None });
         }
         self.last_frame = now;
         let view = match frame.view() {
@@ -126,19 +146,31 @@ impl<A: Authenticator> ServerConnection<A> {
 
     /// A frame the shell's framer refused, by a rule of its header: answered with an Error of code 1 on stream 0, its
     /// message the rule's text, and the connection closes.
-    pub fn refuse_connection(&mut self, refusal: &ProtocolError) -> Inbound {
+    ///
+    /// # Errors
+    ///
+    /// [`TransportError::frame_not_built`] when the Error cannot be built: the connection closes without it.
+    pub fn refuse_connection(
+        &mut self,
+        refusal: &ProtocolError,
+    ) -> Result<Inbound, TransportError> {
         self.close(ErrorCode::Protocol, &refusal.to_string())
     }
 
     /// The session's refusal of a request on `stream` by a body's rule or its own: `error` on the stream, flagged
     /// last, which ends it, and with a transaction's stream the transaction and its reads.
-    pub fn refuse(&mut self, stream: u64, error: &ErrorReply) {
+    ///
+    /// # Errors
+    ///
+    /// [`TransportError::frame_not_built`] naming the Error command when `error` cannot be framed, such as a message
+    /// past the largest frame: nothing is queued and the stream stays as it was, for the session to refuse otherwise.
+    pub fn refuse(&mut self, stream: u64, error: &ErrorReply) -> Result<(), TransportError> {
         let header = Header::new(self.cluster, Command::Error)
             .with_stream(stream)
             .with_flags(FLAG_LAST);
-        let Ok(frame) = error.frame(header) else {
-            return;
-        };
+        let frame = error
+            .frame(header)
+            .map_err(|e| TransportError::frame_not_built(Command::Error.number(), e))?;
         let queued = if self.outbound.is_open(stream) {
             self.outbound.push(stream, frame)
         } else {
@@ -148,6 +180,7 @@ impl<A: Authenticator> ServerConnection<A> {
             queued.is_ok(),
             "a built frame holds a header and its stream is open: {queued:?}"
         );
+        Ok(())
     }
 
     /// The frames the connection sends, every one stamped with its sequence as it leaves; the session queues its
@@ -201,36 +234,42 @@ impl<A: Authenticator> ServerConnection<A> {
 
     /// The deadlines passed at `now`: an authentication not complete in time closes the connection with code 20, an
     /// expired credential with code 22, an idle connection with no frame; `None` while none has passed.
-    pub fn handle_timeout(&mut self, now: Instant) -> Option<Inbound> {
+    ///
+    /// # Errors
+    ///
+    /// [`TransportError::frame_not_built`] when the closing Error cannot be built: the connection closes without it.
+    pub fn handle_timeout(&mut self, now: Instant) -> Result<Option<Inbound>, TransportError> {
         match self.phase {
-            Phase::Closing => None,
+            Phase::Closing => Ok(None),
             Phase::Hello | Phase::Authenticating => {
                 let due = self.opened.checked_add(self.authentication_timeout);
-                due.is_some_and(|due| now >= due).then(|| {
-                    self.close(
-                        ErrorCode::Unauthenticated,
-                        "the authentication did not complete in time",
-                    )
-                })
+                if !due.is_some_and(|due| now >= due) {
+                    return Ok(None);
+                }
+                self.close(
+                    ErrorCode::Unauthenticated,
+                    "the authentication did not complete in time",
+                )
+                .map(Some)
             }
             Phase::Serving => {
                 if self.expires.is_some_and(|expires| now >= expires) {
-                    return Some(
-                        self.close(ErrorCode::CredentialExpired, "the credential expired"),
-                    );
+                    return self
+                        .close(ErrorCode::CredentialExpired, "the credential expired")
+                        .map(Some);
                 }
                 let idle = self.last_frame.checked_add(self.idle_limit);
-                idle.is_some_and(|idle| now >= idle).then(|| {
+                Ok(idle.is_some_and(|idle| now >= idle).then(|| {
                     self.phase = Phase::Closing;
                     Inbound::Closing { code: None }
-                })
+                }))
             }
         }
     }
 
     /// The Hello answered at `now` as [`ServerHandshake`] decides: its Welcome, from which the authentication timeout
     /// runs (`PROTOCOL.md` §11.9), or its refusal and the close.
-    fn hello(&mut self, frame: &[u8], now: Instant) -> Inbound {
+    fn hello(&mut self, frame: &[u8], now: Instant) -> Result<Inbound, TransportError> {
         let (answer, outcome) = ServerHandshake::new(self.cluster, self.server.clone())
             .receive(frame)
             .into_parts();
@@ -249,12 +288,13 @@ impl<A: Authenticator> ServerConnection<A> {
                     self.principal = Some(0);
                 }
                 self.welcomed = Some(welcome);
-                Inbound::Welcomed { protocol }
+                Ok(Inbound::Welcomed { protocol })
             }
             Err(error) => {
                 self.phase = Phase::Closing;
                 let code = match error.0 {
                     TransportErrorEnum::Refused { code, .. } => code,
+                    TransportErrorEnum::FrameNotBuilt { .. } => return Err(error),
                     TransportErrorEnum::Protocol { .. }
                     | TransportErrorEnum::Io { .. }
                     | TransportErrorEnum::Closed
@@ -268,13 +308,17 @@ impl<A: Authenticator> ServerConnection<A> {
                     | TransportErrorEnum::Authentication { .. }
                     | TransportErrorEnum::Address { .. } => ErrorCode::Protocol,
                 };
-                Inbound::Closing { code: Some(code) }
+                Ok(Inbound::Closing { code: Some(code) })
             }
         }
     }
 
     /// One client message of an Authenticate exchange on stream 0.
-    fn authenticate(&mut self, view: &FrameView<'_>, now: Instant) -> Inbound {
+    fn authenticate(
+        &mut self,
+        view: &FrameView<'_>,
+        now: Instant,
+    ) -> Result<Inbound, TransportError> {
         let message = match AuthenticateView::from_frame(view) {
             Ok(message) => message,
             Err(refusal) => return self.refuse_connection(&refusal),
@@ -298,35 +342,39 @@ impl<A: Authenticator> ServerConnection<A> {
         match mechanism.step(message.message()) {
             Err(_) => self.close(ErrorCode::AuthenticationFailed, AUTHENTICATION_FAILED),
             Ok(MechanismStep::Continue(reply)) => {
-                self.send_authenticate(&Authenticate::new(reply_step, "", reply));
+                self.send_authenticate(&Authenticate::new(reply_step, "", reply))?;
                 self.exchange = Some((mechanism, reply_step.saturating_add(1)));
-                Inbound::Handled
+                Ok(Inbound::Handled)
             }
             Ok(MechanismStep::Done(reply, credential)) => {
                 let principal = credential.principal();
                 if self.principal.is_some_and(|held| held != principal) {
                     return self.close(ErrorCode::AuthenticationFailed, AUTHENTICATION_FAILED);
                 }
+                // Sent before anything is recorded: a final message that cannot be built authenticates no one.
                 self.send_authenticate(
                     &Authenticate::new(reply_step, "", reply)
                         .with_final(principal, credential.expires()),
-                );
+                )?;
                 self.principal = Some(principal);
                 // A validity past what an `Instant` holds never expires.
                 self.expires = credential
                     .valid_for()
                     .and_then(|valid_for| now.checked_add(valid_for));
                 self.phase = Phase::Serving;
-                Inbound::Authenticated { principal }
+                Ok(Inbound::Authenticated { principal })
             }
         }
     }
 
-    fn send_authenticate(&mut self, message: &Authenticate) {
-        if let Ok(frame) = message.frame(Header::new(self.cluster, Command::Authenticate)) {
-            let queued = self.outbound.push_connection(frame);
-            debug_assert!(queued.is_ok(), "a built frame holds a header: {queued:?}");
-        }
+    /// Queues `message` on stream 0; [`TransportError::frame_not_built`] naming Authenticate when it cannot be framed.
+    fn send_authenticate(&mut self, message: &Authenticate) -> Result<(), TransportError> {
+        let frame = message
+            .frame(Header::new(self.cluster, Command::Authenticate))
+            .map_err(|e| TransportError::frame_not_built(Command::Authenticate.number(), e))?;
+        let queued = self.outbound.push_connection(frame);
+        debug_assert!(queued.is_ok(), "a built frame holds a header: {queued:?}");
+        Ok(())
     }
 
     /// Cancels `stream`, which the caller found open.
@@ -339,7 +387,7 @@ impl<A: Authenticator> ServerConnection<A> {
     }
 
     /// A request on `stream`, by the stream rules of `PROTOCOL.md` §11.2.
-    fn request(&mut self, stream: u64, view: &FrameView<'_>) -> Inbound {
+    fn request(&mut self, stream: u64, view: &FrameView<'_>) -> Result<Inbound, TransportError> {
         let command = view.command();
         let open = self.outbound.is_open(stream);
         let transaction = self.outbound.is_transaction(stream);
@@ -348,13 +396,13 @@ impl<A: Authenticator> ServerConnection<A> {
             RequestKind::Credit => self.credit(stream, view),
             RequestKind::Cancel => {
                 if !open {
-                    return Inbound::Handled;
+                    return Ok(Inbound::Handled);
                 }
                 self.cancel_open(stream);
-                Inbound::Cancelled {
+                Ok(Inbound::Cancelled {
                     stream,
                     transaction,
-                }
+                })
             }
             RequestKind::Begin | RequestKind::Open | RequestKind::Read if open => self.close(
                 ErrorCode::Protocol,
@@ -373,14 +421,14 @@ impl<A: Authenticator> ServerConnection<A> {
                 if command == Command::Abort {
                     self.cancel_open(stream);
                 }
-                request
+                Ok(request)
             }
             RequestKind::InTransaction => self.refuse_with(
                 stream,
                 ErrorCode::Protocol,
                 "the stream holds no transaction",
             ),
-            RequestKind::Commit if transaction => request,
+            RequestKind::Commit if transaction => Ok(request),
             RequestKind::Commit if open => self.close(
                 ErrorCode::Protocol,
                 &TransportError::stream_open(stream).to_string(),
@@ -400,23 +448,28 @@ impl<A: Authenticator> ServerConnection<A> {
 
     /// A role command, which the client endpoint serves none of (`PROTOCOL.md` §3): refused as `CommandNotServed`,
     /// naming the command, and the connection closes.
-    fn not_served(&mut self, command: Command) -> Inbound {
+    fn not_served(&mut self, command: Command) -> Result<Inbound, TransportError> {
         debug_assert!(ROLE_COMMANDS.contains(&command.number()));
         self.refuse_connection(&ProtocolError::command_not_served(command.number()))
     }
 
     /// A Credit on `stream`: its frames granted, or the frame refused on the stream by a body's rule.
-    fn credit(&mut self, stream: u64, view: &FrameView<'_>) -> Inbound {
+    fn credit(&mut self, stream: u64, view: &FrameView<'_>) -> Result<Inbound, TransportError> {
         match CreditView::from_frame(view) {
             Ok(credit) => self.outbound.grant(stream, credit.frames()),
             Err(rule) => return self.refuse_rule(stream, &rule),
         }
-        Inbound::Handled
+        Ok(Inbound::Handled)
     }
 
     /// `request`, a Read or an Execute on `stream`, once its stream opened for the transaction it names; refused on
     /// the stream by a body's rule.
-    fn read(&mut self, stream: u64, view: &FrameView<'_>, request: Inbound) -> Inbound {
+    fn read(
+        &mut self,
+        stream: u64,
+        view: &FrameView<'_>,
+        request: Inbound,
+    ) -> Result<Inbound, TransportError> {
         let named = if view.command() == Command::Read {
             ReadView::from_frame(view).map(|read| read.transaction())
         } else {
@@ -438,18 +491,18 @@ impl<A: Authenticator> ServerConnection<A> {
         stream: u64,
         opened: Result<(), TransportError>,
         request: Inbound,
-    ) -> Inbound {
+    ) -> Result<Inbound, TransportError> {
         match opened {
-            Ok(()) => request,
+            Ok(()) => Ok(request),
             Err(error) => match error.0 {
                 TransportErrorEnum::StreamLimit { limit } => {
                     let refusal = ErrorReply::new(ErrorCode::StreamLimit, error.to_string())
                         .with_detail(limit.into());
-                    self.refuse(stream, &refusal);
-                    Inbound::Refused {
+                    self.refuse(stream, &refusal)?;
+                    Ok(Inbound::Refused {
                         stream,
                         code: ErrorCode::StreamLimit,
-                    }
+                    })
                 }
                 TransportErrorEnum::UnknownStream {
                     stream: transaction,
@@ -468,6 +521,7 @@ impl<A: Authenticator> ServerConnection<A> {
                 | TransportErrorEnum::Refused { .. }
                 | TransportErrorEnum::UnexpectedCommand { .. }
                 | TransportErrorEnum::Authentication { .. }
+                | TransportErrorEnum::FrameNotBuilt { .. }
                 | TransportErrorEnum::Address { .. } => {
                     self.close(ErrorCode::Protocol, &error.to_string())
                 }
@@ -475,28 +529,39 @@ impl<A: Authenticator> ServerConnection<A> {
         }
     }
 
-    fn refuse_rule(&mut self, stream: u64, rule: &ProtocolError) -> Inbound {
-        self.refuse(stream, &ErrorReply::protocol(rule));
-        Inbound::Refused {
+    fn refuse_rule(
+        &mut self,
+        stream: u64,
+        rule: &ProtocolError,
+    ) -> Result<Inbound, TransportError> {
+        self.refuse(stream, &ErrorReply::protocol(rule))?;
+        Ok(Inbound::Refused {
             stream,
             code: ErrorCode::Protocol,
-        }
+        })
     }
 
-    fn refuse_with(&mut self, stream: u64, code: ErrorCode, message: &str) -> Inbound {
-        self.refuse(stream, &ErrorReply::new(code, message));
-        Inbound::Refused { stream, code }
+    fn refuse_with(
+        &mut self,
+        stream: u64,
+        code: ErrorCode,
+        message: &str,
+    ) -> Result<Inbound, TransportError> {
+        self.refuse(stream, &ErrorReply::new(code, message))?;
+        Ok(Inbound::Refused { stream, code })
     }
 
-    /// The connection's last frame, an Error of `code` on stream 0, queued; the connection closes.
-    fn close(&mut self, code: ErrorCode, message: &str) -> Inbound {
-        let header = Header::new(self.cluster, Command::Error).with_flags(FLAG_LAST);
-        if let Ok(frame) = ErrorReply::new(code, message).frame(header) {
-            let queued = self.outbound.push_connection(frame);
-            debug_assert!(queued.is_ok(), "a built frame holds a header: {queued:?}");
-        }
+    /// The connection's last frame, an Error of `code` on stream 0, queued; the connection closes, with no last frame
+    /// and [`TransportError::frame_not_built`] naming the Error command when it cannot be built.
+    fn close(&mut self, code: ErrorCode, message: &str) -> Result<Inbound, TransportError> {
         self.phase = Phase::Closing;
         self.exchange = None;
-        Inbound::Closing { code: Some(code) }
+        let header = Header::new(self.cluster, Command::Error).with_flags(FLAG_LAST);
+        let frame = ErrorReply::new(code, message)
+            .frame(header)
+            .map_err(|e| TransportError::frame_not_built(Command::Error.number(), e))?;
+        let queued = self.outbound.push_connection(frame);
+        debug_assert!(queued.is_ok(), "a built frame holds a header: {queued:?}");
+        Ok(Inbound::Closing { code: Some(code) })
     }
 }

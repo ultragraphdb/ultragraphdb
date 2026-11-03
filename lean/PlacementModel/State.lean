@@ -8,24 +8,28 @@ import PlacementModel.Basic
 # The cluster: partitions, the sequencer, registrations, reclamation and their steps
 
 The `World` fixes what the metadata group decides: each subject's bucket group, the placement map, which gives every
-subject's partition at every epoch and so changes by epoch, and each entity's home. The `State` holds everything the
-cluster stores durably: the sequencer's closes with the catalog versions they announce, each partition's latest
-delivered close and the versions it holds, every edge event and every member event, each partition's marks, last seen
-generations and mark versions, every message ever sent, a record of every commit, and the tombstones.
+subject's partition at every epoch and so changes by epoch, each placement version's layout, and each entity's home.
+The `State` holds everything the cluster stores durably: the sequencer's closes with the catalog and placement versions
+they announce, each partition's latest delivered close and the catalog and placement versions it holds, every edge
+event and every member event, each partition's marks, last seen generations and mark versions, every message ever sent,
+a record of every commit, and the tombstones.
 
 A `Step` is one atomic, durable action of one participant:
 
 * `propose` — the metadata group commits a catalog version as pending.
-* `close` — the sequencer closes epoch `c + 1` and assigns every pending version the effective epoch `E = c + 2` in
-  that close's record, which announces it (P24 rule 11).
-* `deliver` — a partition receives the next close, in order, with the versions it announces.
+* `proposePlacement` — the metadata group commits a placement version as pending; no epoch is named. The initial even
+  map is placement version 0, in effect from epoch 0.
+* `close` — the sequencer closes epoch `c + 1` and assigns every pending catalog version, and the oldest pending
+  placement version if any, the effective epoch `E = c + 2` in that close's record, which announces it (P24 rule 11).
+  Two placement versions never share an effective epoch, so the rest wait for later closes.
+* `deliver` — a partition receives the next close, in order, with the catalog and placement versions it announces.
 * `register` — a partition sends an entity's home a registration for a bucket group, naming the generation it last saw
   and the version of its mark key at the time.
 * `accept` — the home answers a registration: "deleted" after a tombstone; for a repeat, the current generation;
   otherwise it adds or renews the member one generation above, at its open epoch, and replies with its latest delivered
   close `c`. The member event and the reply are one durable step: the reply leaves only once the event is durable.
 * `insertHome`, `insertMark`, `insertReply` — a partition commits an edge from one of its subjects, stamped at its open
-  epoch, the latest delivered close plus one. An edge to an entity it homes adds its own group to `R(o)` in the same
+  epoch, the latest delivered close plus one, recording the catalog and placement versions it holds. An edge to an entity it homes adds its own group to `R(o)` in the same
   commit if it is not a member; an edge to another partition's entity needs its mark, or a reply whose close has been
   delivered to it and whose mark key is unchanged since the registration read it, and writes the mark.
 * `delete` — a partition commits the deletion of an edge from one of its subjects.
@@ -45,6 +49,13 @@ whose transaction died with the crash is a message nothing acts on again. `crash
 earlier holder of the bucket has closed the epochs it held it (`Handover`): the hand-over a move completes before the
 new holder writes or answers for the bucket. The data of a bucket follows it, so the partition the map names at an
 epoch answers for the bucket's whole history.
+
+**Placement versions.** The map `World.place` stays an oracle by epoch, and the steps keep reading it. `Placed` ties it
+to the versioned placement: at every epoch the sequencer has announced, at or below `seq + 1`, it is the layout of the
+placement version in effect there (`State.versionAt`). `PlacementModel.Theorems` proves the version in effect at such an
+epoch never changes later, that a run agreeing with `Placed` at its end agreed at every earlier state, and that a
+partition routes at its open epoch through a version it holds. `Handover` stays a premise of the write steps: proving it
+needs the hand-over protocol, which the model does not contain.
 
 **The protocol flags.** `Protocol.design` is P24 as written. `Protocol.repaired` adds the three rules the proofs need,
 each refuted without it in `PlacementModel.Counterexamples` or argued in the notes: the home removes a member only at an
@@ -66,6 +77,8 @@ structure World where
   grp : Nat → Nat
   /-- The partition holding a subject's bucket at an epoch. -/
   place : Nat → Nat → Nat
+  /-- The partition holding a subject's bucket under a placement version: version 0 is the initial even map. -/
+  layout : Nat → Nat → Nat
   /-- An entity's home partition. -/
   home : Nat → Nat
 
@@ -117,12 +130,13 @@ structure Ref where
   epoch : Nat
   deriving DecidableEq, Repr
 
-/-- A commit at a partition: its stamp, the catalog versions the partition held, and the registrations it
+/-- A commit at a partition: its stamp, the catalog and placement versions the partition held, and the registrations it
 references. -/
 structure CommitRec where
   part : Nat
   stamp : Nat
   held : List Nat
+  pheld : List Nat
   refs : List Ref
   deriving DecidableEq, Repr
 
@@ -138,6 +152,12 @@ structure State where
   delivered : Nat → Nat
   /-- The catalog versions each partition holds. -/
   held : Nat → List Nat
+  /-- Placement versions committed and not yet assigned an epoch, oldest first. -/
+  ppending : List Nat
+  /-- Every placement version assigned, with its effective epoch, in the close records; version 0 from epoch 0. -/
+  passigned : List (Nat × Nat)
+  /-- The placement versions each partition holds. -/
+  pheld : Nat → List Nat
   /-- Every edge event, in commit order. -/
   edges : List EdgeEv
   /-- Every member event of every referrer set, in commit order. -/
@@ -155,11 +175,12 @@ structure State where
   /-- Tombstones: the entity and the epoch of its deletion. -/
   tombs : List (Nat × Nat)
 
-/-- The cluster before any step: close 0 counts as delivered everywhere, so every partition's open epoch is 1. -/
+/-- The cluster before any step: close 0 counts as delivered everywhere, so every partition's open epoch is 1; the
+initial even map, placement version 0, is in effect from epoch 0 and held everywhere. -/
 def State.init : State :=
-  { seq := 0, pending := [], assigned := [], delivered := fun _ => 0, held := fun _ => [], edges := [], mems := [],
-    marks := fun _ _ _ => none, seen := fun _ _ _ => 0, mver := fun _ _ _ => 0, msgs := [], commits := [],
-    tombs := [] }
+  { seq := 0, pending := [], assigned := [], delivered := fun _ => 0, held := fun _ => [], ppending := [],
+    passigned := [(0, 0)], pheld := fun _ => [0], edges := [], mems := [], marks := fun _ _ _ => none,
+    seen := fun _ _ _ => 0, mver := fun _ _ _ => 0, msgs := [], commits := [], tombs := [] }
 
 /-- `f` with `p` set to `v`. -/
 def upd1 {β : Type} (f : Nat → β) (p : Nat) (v : β) : Nat → β := fun p' => if p' = p then v else f p'
@@ -175,8 +196,15 @@ variable (σ : State)
 /-- A partition's open epoch: one above its latest delivered close. It stamps every commit with it. -/
 def openEpoch (p : Nat) : Nat := σ.delivered p + 1
 
-/-- A commit record at `p`'s open epoch with the versions `p` holds. -/
-def record (p : Nat) (refs : List Ref) : List CommitRec := σ.commits ++ [⟨p, σ.openEpoch p, σ.held p, refs⟩]
+/-- A commit record at `p`'s open epoch with the catalog and placement versions `p` holds. -/
+def record (p : Nat) (refs : List Ref) : List CommitRec :=
+  σ.commits ++ [⟨p, σ.openEpoch p, σ.held p, σ.pheld p, refs⟩]
+
+/-- The placement version in effect at epoch `t`: the one assigned last at or below `t`, the initial map if none. -/
+def versionAt (t : Nat) : Nat :=
+  match lastWhere σ.passigned (fun x => decide (x.2 ≤ t)) with
+  | some x => x.1
+  | none => 0
 
 /-- The entity has a tombstone. -/
 def tombstoned (o : Nat) : Bool := σ.tombs.any (fun x => decide (x.1 = o))
@@ -212,15 +240,24 @@ def nextGen (P : Protocol) (o g n : Nat) : Nat :=
 /-- The metadata group commits a catalog version as pending. -/
 def propose (v : Nat) : State := { σ with pending := σ.pending ++ [v] }
 
-/-- The sequencer closes epoch `seq + 1`, assigning every pending version the effective epoch `seq + 2`. -/
-def close : State :=
-  { σ with seq := σ.seq + 1, assigned := σ.assigned ++ σ.pending.map (fun v => (v, σ.seq + 2)), pending := [] }
+/-- The metadata group commits a placement version as pending. -/
+def proposePlacement (v : Nat) : State := { σ with ppending := σ.ppending ++ [v] }
 
-/-- `p` receives close `delivered p + 1` and the versions it announces, those taking effect at `delivered p + 2`. -/
+/-- The sequencer closes epoch `seq + 1`, assigning every pending catalog version, and the oldest pending placement
+version if any, the effective epoch `seq + 2`. -/
+def close : State :=
+  { σ with seq := σ.seq + 1, assigned := σ.assigned ++ σ.pending.map (fun v => (v, σ.seq + 2)), pending := [],
+           passigned := σ.passigned ++ (σ.ppending.take 1).map (fun v => (v, σ.seq + 2)),
+           ppending := σ.ppending.drop 1 }
+
+/-- `p` receives close `delivered p + 1` and the catalog and placement versions it announces, those taking effect at
+`delivered p + 2`. -/
 def deliver (p : Nat) : State :=
   { σ with
     delivered := upd1 σ.delivered p (σ.delivered p + 1)
-    held := upd1 σ.held p (σ.held p ++ (σ.assigned.filter (fun x => decide (x.2 = σ.delivered p + 2))).map Prod.fst) }
+    held := upd1 σ.held p (σ.held p ++ (σ.assigned.filter (fun x => decide (x.2 = σ.delivered p + 2))).map Prod.fst)
+    pheld := upd1 σ.pheld p
+      (σ.pheld p ++ (σ.passigned.filter (fun x => decide (x.2 = σ.delivered p + 2))).map Prod.fst) }
 
 /-- `p` sends `o`'s home a registration for group `g`. -/
 def register (p o g : Nat) : State := { σ with msgs := σ.msgs ++ [.reg p o g (σ.seen p o g) (σ.mver p o g)] }
@@ -291,9 +328,14 @@ def tombstone (W : World) (o : Nat) : State :=
 
 end State
 
+/-- The world's placement map is the versioned one at every epoch the sequencer has fixed: at each epoch at or below
+`seq + 1`, every subject's partition is the one the placement version in effect there gives it. -/
+def Placed (W : World) (σ : State) : Prop := ∀ t, t ≤ σ.seq + 1 → ∀ s, W.place t s = W.layout (σ.versionAt t) s
+
 /-- One atomic, durable step of one participant. -/
 inductive Step (W : World) (P : Protocol) : State → State → Prop where
   | propose (σ : State) (v : Nat) : Step W P σ (σ.propose v)
+  | proposePlacement (σ : State) (v : Nat) : Step W P σ (σ.proposePlacement v)
   | close (σ : State) : Step W P σ σ.close
   | deliver (σ : State) (p : Nat) (h : σ.delivered p < σ.seq) : Step W P σ (σ.deliver p)
   | register (σ : State) (p o g : Nat) (h : p ≠ W.home o) : Step W P σ (σ.register p o g)

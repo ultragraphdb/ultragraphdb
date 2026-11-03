@@ -11,10 +11,10 @@ use ultragraphdb_core_ids::{Epoch, Namespace};
 use ultragraphdb_error_cluster::ClusterErrorEnum;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
-/// The close of epoch 1 at 1,000 µs announcing version 7 of namespace 3 and evicting session 0x0102…10, by hand.
-/// Offsets: the kind 0, the epoch 1, the time 9, the catalog count 17, the version 19 and 27, the eviction count 35,
-/// the session 37.
-const CLOSE: [u8; 53] = [
+/// The close of epoch 1 at 1,000 µs announcing version 7 of namespace 3 and placement version 5, and evicting session
+/// 0x0102…10, by hand. Offsets: the kind 0, the epoch 1, the time 9, the catalog count 17, the version 19 and 27, the
+/// eviction count 35, the session 37, the placement version 53.
+const CLOSE: [u8; 61] = [
     0x01, // a close
     0, 0, 0, 0, 0, 0, 0, 1, // epoch 1
     0, 0, 0, 0, 0, 0, 0x03, 0xE8, // 1,000 µs
@@ -22,6 +22,7 @@ const CLOSE: [u8; 53] = [
     0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 7, // namespace 3, version 7
     0, 1, // one eviction
     0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
+    0, 0, 0, 0, 0, 0, 0, 5, // placement version 5
 ];
 
 /// The transaction placed in epoch 13 with reply epoch 12, naming partitions 3 and 1, its body `AA BB`, by hand.
@@ -38,12 +39,15 @@ const TRANSACTION: [u8; 33] = [
 ];
 
 fn close() -> TestResult<SequencerRecord> {
-    Ok(SequencerRecord::Close(Close::new(
-        Epoch::new(1)?,
-        1_000,
-        vec![CatalogVersion::new(Namespace::new(3), 7)],
-        vec![0x0102_0304_0506_0708_090A_0B0C_0D0E_0F10],
-    )?))
+    Ok(SequencerRecord::Close(
+        Close::new(
+            Epoch::new(1)?,
+            1_000,
+            vec![CatalogVersion::new(Namespace::new(3), 7)],
+            vec![0x0102_0304_0506_0708_090A_0B0C_0D0E_0F10],
+        )?
+        .with_placement(5),
+    ))
 }
 
 fn transaction() -> TestResult<SequencerRecord> {
@@ -98,12 +102,9 @@ fn test_records_at_their_limits_round_trip() -> TestResult {
     let catalog: Vec<_> = (0..256)
         .map(|v| CatalogVersion::new(Namespace::new(v), v))
         .collect();
-    let largest = SequencerRecord::Close(Close::new(
-        Epoch::MAX,
-        u64::MAX,
-        catalog,
-        (0..4_096).collect(),
-    )?);
+    let largest = SequencerRecord::Close(
+        Close::new(Epoch::MAX, u64::MAX, catalog, (0..4_096).collect())?.with_placement(u64::MAX),
+    );
     let partitions = (1..=1_024)
         .map(PartitionId::new)
         .collect::<Result<Vec<_>, _>>()?;
@@ -227,6 +228,22 @@ fn test_a_decoded_transaction_is_checked_as_a_built_one() -> TestResult {
 }
 
 #[test]
+fn test_a_close_announces_any_placement_version() -> TestResult {
+    // 0 announces none; any other number is the version announced, the metadata group checking it is its oldest pending.
+    for version in [0, 1, 0x0102_0304_0506_0708, u64::MAX] {
+        let bytes = patched(&CLOSE, 53, &version.to_be_bytes());
+        let SequencerRecord::Close(close) = SequencerRecord::decode(&bytes)? else {
+            return Err(TestError::new("a close"));
+        };
+        assert_eq!(close.placement(), version);
+        assert_eq!(encoded(&SequencerRecord::Close(close)), bytes);
+    }
+    let plain = Close::new(Epoch::new(1)?, 0, vec![], vec![])?;
+    assert_eq!(plain.placement(), 0);
+    Ok(())
+}
+
+#[test]
 fn test_bytes_after_the_end_are_refused() -> TestResult {
     for record in [&CLOSE[..], &TRANSACTION[..]] {
         let mut bytes = record.to_vec();
@@ -273,7 +290,7 @@ fn test_every_fuzz_seed_decodes_as_its_name_says() -> TestResult {
         .join("fuzz_seeds")
         .join("record_decode");
     let seeds = ultragraphdb_tool_bdd::fuzz_regressions_in(&dir)?;
-    assert_eq!(seeds.len(), 10);
+    assert_eq!(seeds.len(), 11);
     for (name, bytes) in seeds {
         match SequencerRecord::decode(&bytes) {
             Ok(record) => {
@@ -288,6 +305,44 @@ fn test_every_fuzz_seed_decodes_as_its_name_says() -> TestResult {
                 );
             }
         }
+    }
+    Ok(())
+}
+
+#[test]
+fn test_every_truncated_field_is_named_at_its_offset() -> TestResult {
+    let close_fields = [
+        (1, "a close's epoch", 1),
+        (17, "catalog versions in a close", 17),
+        (19, "a catalog version's namespace", 19),
+        (27, "a catalog version's number", 27),
+        (35, "session evictions in a close", 35),
+        (37, "an evicted session", 37),
+        (53, "a close's placement version", 53),
+        (60, "a close's placement version", 53),
+    ];
+    for (cut, what, offset) in close_fields {
+        assert_eq!(
+            refusal(CLOSE.get(..cut).context("a prefix")?)?,
+            malformed(what, offset),
+            "the close cut at {cut}"
+        );
+    }
+    let transaction_fields = [
+        (1, "a transaction's epoch", 1),
+        (9, "a transaction's reply epoch", 9),
+        (17, "partitions of a transaction", 17),
+        (19, "a partition from 1", 19),
+        (23, "a partition from 1", 23),
+        (27, "a transaction's body length", 27),
+        (31, "a transaction's body", 31),
+    ];
+    for (cut, what, offset) in transaction_fields {
+        assert_eq!(
+            refusal(TRANSACTION.get(..cut).context("a prefix")?)?,
+            malformed(what, offset),
+            "the transaction cut at {cut}"
+        );
     }
     Ok(())
 }

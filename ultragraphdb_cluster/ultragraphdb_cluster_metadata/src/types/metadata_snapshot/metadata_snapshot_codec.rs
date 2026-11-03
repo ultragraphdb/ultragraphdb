@@ -5,7 +5,7 @@
 
 use std::collections::BTreeSet;
 
-use ultragraphdb_cluster_placement::PlacementMap;
+use ultragraphdb_cluster_placement::{BucketRange, PlacementMap};
 use ultragraphdb_core_ids::Namespace;
 use ultragraphdb_error_cluster::{ClusterError, ClusterErrorEnum};
 use ultragraphdb_traits_log::Position;
@@ -46,7 +46,9 @@ impl MetadataSnapshot {
     /// and, when set, the placement map's length as 4 bytes and its own encoding; the reports' count and each partition
     /// and epoch; the next principal's identity, the principals' count and each identity, name, verifier and
     /// administrator flag; the sessions' count and each session and principal in registration order; the pending
-    /// evictions' count and each session. Every table is written in its order, so a state has one encoding.
+    /// evictions' count and each session; the last placement version's number as 8 bytes, the pending placement
+    /// versions' count and each version's number, its ranges' count and each range's first bucket, end and partition.
+    /// Every table is written in its order, so a state has one encoding.
     pub fn encode(&self, out: &mut Vec<u8>) {
         let state = self.state();
         out.push(FORMAT);
@@ -55,6 +57,7 @@ impl MetadataSnapshot {
         encode_catalogs(state, out);
         encode_tables(state, out);
         encode_access(state, out);
+        encode_placement_pending(state, out);
     }
 
     /// The snapshot `bytes` encode, exactly as [`MetadataSnapshot::encode`] writes it.
@@ -76,6 +79,7 @@ impl MetadataSnapshot {
         decode_catalogs(&mut reader, &mut state)?;
         decode_tables(&mut reader, &mut state)?;
         decode_access(&mut reader, &mut state)?;
+        decode_placement_pending(&mut reader, &mut state)?;
         reader.finish("the end of the snapshot")?;
         Ok(Self::new(position, state))
     }
@@ -158,6 +162,70 @@ fn encode_access(state: &MetadataState, out: &mut Vec<u8>) {
     for session in &state.evictions {
         out.extend_from_slice(&session.to_be_bytes());
     }
+}
+
+/// The last placement version's number and the pending placement versions, oldest first.
+fn encode_placement_pending(state: &MetadataState, out: &mut Vec<u8>) {
+    put_u64(out, state.placement_version);
+    put_count(out, state.placement_pending.len());
+    for (version, layout) in &state.placement_pending {
+        put_u64(out, *version);
+        put_count(out, layout.len());
+        for (range, partition) in layout {
+            put_u32(out, range.start());
+            put_u32(out, range.end());
+            put_u32(out, partition.get());
+        }
+    }
+}
+
+/// The pending placement versions, held only beside a map, each numbered one above the one before, the last numbered
+/// as the last placement version.
+fn decode_placement_pending(
+    reader: &mut Reader<'_>,
+    state: &mut MetadataState,
+) -> Result<(), ClusterError> {
+    state.placement_version = reader.u64("the last placement version")?;
+    let count_at = reader.offset();
+    let pending = count(
+        reader,
+        "pending placement versions",
+        MetadataState::PLACEMENT_PENDING_MAX,
+    )?;
+    check(
+        pending == 0 || state.placement.is_some(),
+        "no pending placement version without a placement map",
+        count_at,
+    )?;
+    let first = state
+        .placement_version
+        .checked_sub(pending as u64)
+        .map(|before| before + 1);
+    for index in 0..pending {
+        let version_at = reader.offset();
+        let version = reader.u64("a placement version")?;
+        check(
+            first.map(|first| first + index as u64) == Some(version),
+            "a placement version one above the one before, the last the last committed",
+            version_at,
+        )?;
+        let ranges = count(
+            reader,
+            "ranges of a placement change",
+            MetadataCommand::ASSIGNMENTS_MAX,
+        )?;
+        let mut layout = Vec::with_capacity(ranges);
+        for _ in 0..ranges {
+            let range_at = reader.offset();
+            let start = reader.u32("a range's first bucket")?;
+            let end = reader.u32("a range's end")?;
+            let range = BucketRange::new(start, end)
+                .map_err(|_| ClusterError::malformed("a bucket range within 2^24", range_at))?;
+            layout.push((range, read_partition(reader)?));
+        }
+        state.placement_pending.push_back((version, layout));
+    }
+    Ok(())
 }
 
 /// A count at the reader, refused past `max` as `what`.

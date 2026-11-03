@@ -967,7 +967,8 @@ fn test_a_ticket_fails_when_its_sync_fails() -> TestResult {
     let _synced: Position = block_on(wal.sync()).context("synced")?;
     let lost = append_ticket(&mut wal, 2, ONE_BLOCK)?;
     storage.fail_at(storage.trace().len(), FaultMode::Before);
-    assert!(block_on(wal.sync()).is_err(), "the write fails");
+    let refused = block_on(wal.sync()).err().context("the write fails")?;
+    assert_io(&refused, "write");
     assert_eq!(
         wal.poll_ticket(lost),
         std::task::Poll::Ready(Err(LogError::poisoned()))

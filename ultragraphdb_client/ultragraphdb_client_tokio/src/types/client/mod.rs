@@ -150,7 +150,7 @@ impl<C: Connect, L: Login> Client<C, L> {
         }
     }
 
-    /// Writes every frame the core queued; a failure is the connection's.
+    /// Writes every frame the core queued; a failure is the connection's, and the shell's answer when nothing else is.
     async fn flush(&mut self) {
         while let Some(frame) = self.core.transmit() {
             let Some(stream) = self.stream.as_mut() else {
@@ -161,7 +161,9 @@ impl<C: Connect, L: Login> Client<C, L> {
                 Err(error) => Err(error),
             };
             if let Err(error) = written {
-                self.core.disconnected(TransportError::io(&error), now());
+                let error = TransportError::io(&error);
+                self.core.disconnected(error.clone(), now());
+                self.failure = Some(ClientError::transport(error));
                 self.stream = None;
                 return;
             }
@@ -169,7 +171,8 @@ impl<C: Connect, L: Login> Client<C, L> {
     }
 
     /// Runs the connection until `done` holds for the core: writes, reads, timeouts, and the reconnects a commit's
-    /// retry asks for. Refused when `done` cannot come: nothing is awaited and no commit waits for a connection.
+    /// retry asks for, `retry_delay` apart, each failed one counted against the commit's attempts. Refused when `done`
+    /// cannot come: nothing is awaited and no commit waits for a connection.
     async fn drive(
         &mut self,
         mut done: impl FnMut(&mut ClientCore<L>) -> bool,
@@ -181,8 +184,13 @@ impl<C: Connect, L: Login> Client<C, L> {
             }
             if self.core.needs_connection() {
                 if let Err(error) = self.open().await {
-                    self.core.disconnected(TransportError::closed(), now());
+                    // The failed attempt counts against the waiting commits' attempts; the next waits the retry delay
+                    // on the runtime's timer, so the loop yields and an outer timeout can cancel it.
+                    self.core.connect_failed();
                     self.failure = Some(error);
+                    if self.core.needs_connection() {
+                        tokio::time::sleep(self.core.config().retry_delay()).await;
+                    }
                 }
                 continue;
             }

@@ -28,7 +28,8 @@ fn refusal(bytes: &[u8]) -> TestResult<ClusterErrorEnum> {
 }
 
 /// The snapshot at position 6 of the closes of 3 (at 100 µs, announcing version 2 of namespace 1) and 4 (at 200 µs,
-/// carrying the eviction of session 7) and the transaction at position 5, placed in epoch 5.
+/// announcing placement version 1 and carrying the eviction of session 7) and the transaction at position 5, placed in
+/// epoch 5.
 fn sample() -> TestResult<SequencerSnapshot> {
     let closes = vec![
         Close::new(
@@ -37,7 +38,7 @@ fn sample() -> TestResult<SequencerSnapshot> {
             vec![CatalogVersion::new(Namespace::new(1), 2)],
             Vec::new(),
         )?,
-        Close::new(Epoch::new(4)?, 200, Vec::new(), vec![7])?,
+        Close::new(Epoch::new(4)?, 200, Vec::new(), vec![7])?.with_placement(1),
     ];
     let transaction = SequencedTransaction::new(
         Epoch::new(5)?,
@@ -54,14 +55,16 @@ fn sample() -> TestResult<SequencerSnapshot> {
 
 /// The record encodings of the sample, written by hand from `SequencerRecord::encode`'s documentation.
 fn sample_bytes() -> Vec<u8> {
-    // The close of 3: kind 1, epoch 3, time 100, one version (namespace 1, version 2), no eviction.
+    // The close of 3: kind 1, epoch 3, time 100, one version (namespace 1, version 2), no eviction, no placement.
     let mut close3 = vec![1, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 100, 0, 1];
     close3.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0]);
-    // The close of 4: kind 1, epoch 4, time 200, no version, one eviction, session 7.
+    close3.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0]);
+    // The close of 4: kind 1, epoch 4, time 200, no version, one eviction, session 7, placement version 1.
     let mut close4 = vec![
         1, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 200, 0, 0, 0, 1,
     ];
     close4.extend_from_slice(&7_u128.to_be_bytes());
+    close4.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 1]);
     // The transaction: kind 2, epoch 5, reply epoch 4, one partition, 2, body length 1, 0xAB.
     let transaction = vec![
         2, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 4, 0, 1, 0, 0, 0, 2, 0, 0, 0, 1, 0xAB,
@@ -158,15 +161,15 @@ fn test_malformed_snapshots_are_refused_naming_the_value() -> TestResult {
     kind.extend_from_slice(&u32::try_from(transaction.len())?.to_be_bytes());
     kind.extend_from_slice(&transaction);
     assert_eq!(refusal(&kind)?, ClusterError::malformed("a close", 17).0);
-    // Closes out of order: the second close's epoch (offset 21 + 4 + 8) made 5.
+    // Closes out of order: the second close's epoch (its record after the first's 45 bytes) made 5.
     let mut order = sample_bytes();
-    let second_epoch = 13 + 4 + 37 + 4 + 8;
+    let second_epoch = 13 + 4 + 45 + 4 + 8;
     if let Some(byte) = order.get_mut(second_epoch) {
         *byte = 5;
     }
     assert_eq!(
         refusal(&order)?,
-        ClusterError::malformed("a close one after the one before it", 54).0
+        ClusterError::malformed("a close one after the one before it", 62).0
     );
     // A record whose own bytes are refused, as the record decoder names them, from the snapshot's offset.
     let mut inner = sample_bytes();
@@ -193,7 +196,13 @@ fn test_every_fuzz_seed_decodes_as_its_name_says() -> TestResult {
                 assert!(!name.starts_with("malformed"), "{name} accepted");
                 assert_eq!(encoded(&snapshot), bytes, "{name}");
             }
-            Err(error) => assert!(name.starts_with("malformed"), "{name}: {error}"),
+            Err(error) => {
+                assert!(name.starts_with("malformed"), "{name}: {error}");
+                assert!(
+                    matches!(error.0, ClusterErrorEnum::Malformed { .. }),
+                    "{name}: {error}"
+                );
+            }
         }
     }
     Ok(())
@@ -234,5 +243,112 @@ fn test_a_records_refusal_is_named_at_its_offset_in_the_snapshot() -> TestResult
         refusal(&epoch)?,
         ClusterError::malformed("an epoch of 42 bits", 18).0
     );
+    Ok(())
+}
+
+/// The offset of the sample's transactions' count: the 13-byte head and the two closes, each 45 bytes after its
+/// 4-byte length.
+const TRANSACTIONS_AT: usize = 13 + 2 * (4 + 45);
+
+#[test]
+fn test_a_close_in_a_transactions_place_is_refused() -> TestResult {
+    let mut bytes = sample_bytes();
+    // The transaction's frame begins after its count and its 8-byte position.
+    bytes.truncate(TRANSACTIONS_AT + 4 + 8);
+    let mut close = Vec::new();
+    SequencerRecord::Close(Close::new(Epoch::new(5)?, 300, Vec::new(), Vec::new())?)
+        .encode(&mut close);
+    bytes.extend_from_slice(&u32::try_from(close.len())?.to_be_bytes());
+    bytes.extend_from_slice(&close);
+    assert_eq!(
+        refusal(&bytes)?,
+        ClusterError::malformed("a transaction", TRANSACTIONS_AT + 4 + 8 + 4).0
+    );
+    Ok(())
+}
+
+#[test]
+fn test_transactions_out_of_order_are_refused_at_their_entry() -> TestResult {
+    let sample = sample_bytes();
+    let entry = sample
+        .get(TRANSACTIONS_AT + 4..)
+        .context("the entry")?
+        .to_vec();
+    // The same entry twice: the second, at position 5 again, is not after the first.
+    let mut repeated = sample.clone();
+    repeated
+        .get_mut(TRANSACTIONS_AT..TRANSACTIONS_AT + 4)
+        .context("the count")?
+        .copy_from_slice(&2_u32.to_be_bytes());
+    repeated.extend_from_slice(&entry);
+    assert_eq!(
+        refusal(&repeated)?,
+        ClusterError::malformed(
+            "a transaction after the one before it",
+            TRANSACTIONS_AT + 4 + entry.len()
+        )
+        .0
+    );
+    // The transaction at position 7, past the snapshot's 6.
+    let mut past = sample;
+    past.get_mut(TRANSACTIONS_AT + 4..TRANSACTIONS_AT + 12)
+        .context("the position")?
+        .copy_from_slice(&7_u64.to_be_bytes());
+    assert_eq!(
+        refusal(&past)?,
+        ClusterError::malformed(
+            "a transaction at or before the snapshot's position",
+            TRANSACTIONS_AT + 4
+        )
+        .0
+    );
+    Ok(())
+}
+
+#[test]
+fn test_a_records_refusal_other_than_malformed_is_carried_unchanged() -> TestResult {
+    // The first close's catalog count (the record's bytes 17 and 18, the snapshot's 34 and 35) made 257.
+    let mut bytes = sample_bytes();
+    bytes
+        .get_mut(34..36)
+        .context("the count")?
+        .copy_from_slice(&257_u16.to_be_bytes());
+    assert_eq!(
+        refusal(&bytes)?,
+        ClusterErrorEnum::TooMany {
+            what: "catalog versions in a close",
+            count: 257,
+            max: 256
+        }
+    );
+    Ok(())
+}
+
+#[test]
+fn test_a_truncated_count_or_length_names_its_field() -> TestResult {
+    let bytes = sample_bytes();
+    for (cut, what, offset) in [
+        (0, "the format byte 1", 0),
+        (5, "a snapshot's position", 1),
+        (11, "the closes' count", 9),
+        (15, "a record's length", 13),
+        (20, "a record", 17),
+        (
+            TRANSACTIONS_AT + 2,
+            "the transactions' count",
+            TRANSACTIONS_AT,
+        ),
+        (
+            TRANSACTIONS_AT + 7,
+            "a transaction's position",
+            TRANSACTIONS_AT + 4,
+        ),
+    ] {
+        assert_eq!(
+            refusal(bytes.get(..cut).context("a prefix")?)?,
+            ClusterError::malformed(what, offset).0,
+            "cut at {cut}"
+        );
+    }
     Ok(())
 }

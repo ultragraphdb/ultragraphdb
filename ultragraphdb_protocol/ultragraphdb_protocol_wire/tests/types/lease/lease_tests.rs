@@ -34,3 +34,37 @@ fn test_the_builder_lays_out_the_golden_lease_reply() -> TestResult {
     );
     Ok(())
 }
+
+#[test]
+fn test_the_getters_give_back_what_the_constructors_took() {
+    let request = golden_lease();
+    assert_eq!(
+        (
+            request.type_prefix(),
+            request.partition(),
+            request.size(),
+            request.start(),
+            request.end()
+        ),
+        (2, 5, 4096, 0, 0)
+    );
+    let reply = golden_lease_reply();
+    assert_eq!(
+        (
+            reply.type_prefix(),
+            reply.partition(),
+            reply.size(),
+            reply.start(),
+            reply.end()
+        ),
+        (2, 5, 4096, 81_921, 81_921 + 4096)
+    );
+}
+
+#[test]
+fn test_a_block_ending_past_u64_saturates() {
+    let at_max = Lease::request(1, 1, 10).with_block(u64::MAX - 10);
+    assert_eq!((at_max.start(), at_max.end()), (u64::MAX - 10, u64::MAX));
+    let past = Lease::request(1, 1, 10).with_block(u64::MAX - 9);
+    assert_eq!((past.start(), past.end()), (u64::MAX - 9, u64::MAX));
+}

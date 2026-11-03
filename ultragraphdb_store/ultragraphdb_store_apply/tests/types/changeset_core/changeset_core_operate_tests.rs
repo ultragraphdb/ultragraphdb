@@ -374,6 +374,45 @@ fn test_a_compare_and_set_replaces_the_value_it_expects_and_refuses_another() ->
     Ok(())
 }
 
+/// A counter add on a subject holding an IRI, no literal, is refused naming the IRI.
+#[test]
+fn test_a_counter_add_on_an_iri_is_refused_naming_it() -> TestResult {
+    let a = changesets()?;
+    write(&a, &["<c> <n> <x>"])?;
+    let txn = executed(&a, vec![insert("<other> <kind> \"k\"")?])?;
+    let refused = operate(&a, &txn, &[], &[add("c", "n", 1)])
+        .err()
+        .context("the error of operate(..)")?;
+    assert_eq!(
+        refused,
+        ChangesetError::operation_failed(Some("<http://ex.org/x>".to_string()))
+    );
+    Ok(())
+}
+
+/// A counter add on a subject holding several values is refused naming one of them; nothing is replaced.
+#[test]
+fn test_a_counter_add_on_a_subject_holding_several_values_is_refused() -> TestResult {
+    let a = changesets()?;
+    write(&a, &["<c> <n> 1", "<c> <n> 2"])?;
+    let txn = executed(&a, vec![insert("<other> <kind> \"k\"")?])?;
+    let refused = operate(&a, &txn, &[], &[add("c", "n", 1)])
+        .err()
+        .context("the error of operate(..)")?;
+    let integer = |v: &str| format!("\"{v}\"^^<http://www.w3.org/2001/XMLSchema#integer>");
+    assert!(
+        matches!(
+            &refused.0,
+            ChangesetErrorEnum::OperationFailed { found: Some(f) } if *f == integer("1") || *f == integer("2")
+        ),
+        "{refused:?}"
+    );
+    let mut held: Vec<String> = objects(&a, "c", "n")?.iter().map(Term::to_string).collect();
+    held.sort();
+    assert_eq!(held, vec![integer("1"), integer("2")]);
+    Ok(())
+}
+
 #[test]
 fn test_a_counter_add_adds_to_the_value_held_or_to_zero() -> TestResult {
     let a = changesets()?;

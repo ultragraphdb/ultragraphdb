@@ -58,6 +58,7 @@ fn test_the_golden_close_reads_its_values() -> TestResult {
         Some(std::array::from_fn(|i| 0x31 + i as u8))
     );
     assert_eq!(view.eviction(2), None);
+    assert_eq!(view.placement(), 0);
     assert_eq!(view.to_body()?, golden_epoch_close());
     assert_eq!(view_any(&golden)?, Ok(()));
     Ok(())
@@ -101,6 +102,24 @@ fn test_unused_bytes_epoch_and_more_are_checked_in_order() -> TestResult {
             ProtocolError::field_value(515, "more", more)
         );
     }
+    // Bytes 24 to 31 are `placement`, read as any u64; byte 32 is unused again.
+    for version in [1, 0x0102_0304_0506_0708, u64::MAX] {
+        let placed = with_command_header(&bytes("epoch_close")?, |h| put(h, 24, version, 8));
+        let view = EpochCloseView::from_frame(&frame_of(&placed)?)?;
+        assert_eq!(view.placement(), version);
+        assert_eq!(
+            view.to_body()?,
+            golden_epoch_close().with_placement(version)
+        );
+    }
+    assert_eq!(
+        header_refusal("epoch_close", |h| put(h, 32, 1, 1))?,
+        ProtocolError::reserved_not_zero(160)
+    );
+    assert_eq!(
+        header_refusal("epoch_close", |h| put(h, 23, 1, 1))?,
+        ProtocolError::reserved_not_zero(151)
+    );
     // Any time is a time.
     let time = with_command_header(&bytes("epoch_close")?, |h| put(h, 8, u64::MAX, 8));
     assert_eq!(

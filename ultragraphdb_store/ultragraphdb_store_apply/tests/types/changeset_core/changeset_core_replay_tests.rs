@@ -309,3 +309,43 @@ fn test_a_replayed_list_delta_that_is_no_posting_list_is_refused_naming_its_key(
     );
     Ok(())
 }
+
+/// A replayed record carrying statement records writes them at its version, and one removing a statement's record
+/// removes it: the replica holds what the original holds after each.
+#[test]
+fn test_a_replayed_record_writes_and_removes_statement_records() -> TestResult {
+    let original = changesets()?;
+    let replica = changesets()?;
+    let inserted = original.execute(&changeset(vec![crate::utils::changesets::insert_edge(
+        "<a> <knows> <b>",
+        &[("since", "2020")],
+    )?]))?;
+    let first = sections(&inserted);
+    assert!(
+        !first.statements.is_empty() && first.statements.iter().all(|(_, v)| v.is_some()),
+        "the insert writes its statement's record: {:?}",
+        first.statements
+    );
+    let version = next_version(&original);
+    let _applied: Vec<Applied> = original.apply_round(vec![(version, inserted)])?;
+    let replayed = replica.prepare_replay(NS, record_writes(&first))?;
+    let _replayed: Vec<Applied> = replica.apply_round(vec![(version, replayed)])?;
+    assert_eq!(stored(&replica), stored(&original), "after the insert");
+
+    let deleted = original.execute(&changeset(vec![crate::utils::changesets::delete(
+        "<a> <knows> <b>",
+    )?]))?;
+    let second = sections(&deleted);
+    assert!(
+        !second.statements.is_empty() && second.statements.iter().all(|(_, v)| v.is_none()),
+        "the delete removes the statement's record: {:?}",
+        second.statements
+    );
+    let delete_version = next_version(&original);
+    let _deleted: Vec<Applied> = original.apply_round(vec![(delete_version, deleted)])?;
+    let replayed_delete = replica.prepare_replay(NS, record_writes(&second))?;
+    let _replayed_delete: Vec<Applied> =
+        replica.apply_round(vec![(delete_version, replayed_delete)])?;
+    assert_eq!(stored(&replica), stored(&original), "after the delete");
+    Ok(())
+}

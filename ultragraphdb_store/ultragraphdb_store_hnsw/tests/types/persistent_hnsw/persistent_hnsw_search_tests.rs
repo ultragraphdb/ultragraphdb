@@ -1029,3 +1029,80 @@ fn test_a_query_equal_to_the_start_keeps_the_start_under_dot_product() -> TestRe
     );
     Ok(())
 }
+
+/// What the uid searches refuse, each naming its key: a query vector that does not fill its float width, and the
+/// query node's neighbour lists that do not decode.
+#[test]
+fn test_the_uid_searches_refuse_what_does_not_decode() -> TestResult {
+    let corrupted_at = |e: &HnswError, at: &[u8]| {
+        matches!(
+            &e.0,
+            HnswErrorEnum::Posting(PostingError(PostingErrorEnum::Store(StoreError(
+                StoreErrorEnum::Corrupted { key, .. }
+            )))) if key.as_slice() == at
+        )
+    };
+    let ph = index("euclidean", "1")?;
+    let txn = MapTxn::default();
+    let vector = key("0-a", 7)?;
+    txn.put(vector.clone(), vec![0u8; 12]);
+    let lists = key(&format!("0-a{VEC_KEYWORD}"), 6)?;
+    txn.put(key("0-a", 6)?, float64_array_as_bytes(&[1.0, 1.0]));
+    txn.put(lists.clone(), vec![1u8, 2, 3]);
+    let qc = QueryCache::new(&txn, 1);
+    for (uid, at) in [(7, &vector), (6, &lists)] {
+        for e in [
+            ph.search_with_uid(&qc, id(uid)?, 3, accept_all::<f64>)
+                .err()
+                .context("the error of ph.search_with_uid(..)")?,
+            ph.search_with_uid_and_options(&qc, id(uid)?, 3, &VectorIndexOptions::default())
+                .err()
+                .context("the error of ph.search_with_uid_and_options(..)")?,
+        ] {
+            assert!(corrupted_at(&e, at), "{uid}: {e}");
+        }
+    }
+    Ok(())
+}
+
+/// The options' search refuses a neighbour met on an upper level whose vector does not fill its float width, naming
+/// its key, as the plain search does.
+#[test]
+fn test_the_options_search_refuses_a_short_vector_on_an_upper_level() -> TestResult {
+    let mut cache = synthetic(
+        "0-a",
+        &[(1, vec![0.0, 0.0])],
+        &[(1, vec![vec![2], vec![2]]), (2, vec![vec![1], vec![1]])],
+    )?;
+    let _absent: Option<Vec<u8>> = cache.data.insert(key("0-a", 2)?, vec![0u8; 12]);
+    let e = index("euclidean", "2")?
+        .search_with_options(&cache, &[1.0, 0.0], 1, &options(1, None))
+        .err()
+        .context("the error of search_with_options(..)")?;
+    assert_eq!(
+        e,
+        HnswError::corrupted(&key("0-a", 2)?, "a vector of 12 bytes")
+    );
+    Ok(())
+}
+
+/// A layer search stops at a candidate worse than every neighbour kept. With a breadth of 1, the entry point 1 (10
+/// away) yields 2 (5 away) and 3 (3 away), and 3 is kept; 3 holds no lists, so the search moves on to 2, which cannot
+/// improve on 3, and stops there: 3 is the one neighbour.
+#[test]
+fn test_a_layer_search_stops_at_a_candidate_that_cannot_improve() -> TestResult {
+    let cache = synthetic(
+        "0-a",
+        &[
+            (1, vec![10.0, 0.0]),
+            (2, vec![5.0, 0.0]),
+            (3, vec![3.0, 0.0]),
+        ],
+        &[(1, vec![vec![2, 3]]), (2, vec![vec![4]])],
+    )?;
+    assert_eq!(
+        index("euclidean", "1")?.search_with_options(&cache, &[0.0, 0.0], 1, &options(1, None)),
+        Ok(ids(&[3])?)
+    );
+    Ok(())
+}

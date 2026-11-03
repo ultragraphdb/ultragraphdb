@@ -47,3 +47,42 @@ fn test_the_builder_lays_out_the_golden_placement_reply() -> TestResult {
     );
     Ok(())
 }
+
+#[test]
+fn test_the_getters_give_back_what_the_constructors_and_pushes_took() {
+    let request = golden_placement();
+    assert_eq!(
+        (
+            request.position(),
+            request.epoch(),
+            request.from(),
+            request.until()
+        ),
+        (0, 42, 0, 0)
+    );
+    assert!(
+        request.ranges().is_empty() && request.runs().is_empty() && request.leaders().is_empty()
+    );
+    let reply = golden_placement_reply();
+    assert_eq!(
+        (reply.position(), reply.epoch(), reply.from(), reply.until()),
+        (1_234, 42, 40, 45)
+    );
+    assert_eq!(
+        reply.ranges(),
+        [
+            BucketRange::new(0, 0x40_0000, 1),
+            BucketRange::new(0x40_0000, 0x80_0000, 2),
+            BucketRange::new(0x80_0000, 1 << 24, 1)
+        ]
+        .as_slice()
+    );
+    assert_eq!(
+        reply.runs(),
+        [NamespaceRun::new(3, 0x40), NamespaceRun::new(7, 0x81)].as_slice()
+    );
+    assert_eq!(
+        reply.leaders(),
+        [PreferredLeader::new(1, 3), PreferredLeader::new(2, 4)].as_slice()
+    );
+}

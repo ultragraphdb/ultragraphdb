@@ -19,6 +19,8 @@ fn test_replay_derives_every_key_the_workloads_first_apply_wrote() -> TestResult
             .map_err(|v| v.to_string())
             .context("replay agrees with the first apply")?;
         assert_eq!(w.replayed, w.writes, "seed {seed}: every write replayed");
+        // Without faults no check is skipped for an injected failure: every step is compared.
+        assert_eq!(w.checked, 200, "seed {seed}: every step compared");
         println!(
             "seed {seed}: {} rounds replayed, {} refused, {} steps compared",
             w.replayed, w.refusals, w.checked

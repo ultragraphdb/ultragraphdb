@@ -225,6 +225,39 @@ fn test_an_overlap_is_refused_naming_its_first_bucket() -> TestResult {
 }
 
 #[test]
+fn test_a_layout_is_checked_as_a_change_checks_it() -> TestResult {
+    let map = PlacementMap::even(2, NodeId::new(1))?;
+    PlacementMap::check_layout(&map.ranges_at(at(0)?))?;
+    PlacementMap::check_layout(&[assign(0, END, 3)?])?;
+    let cases = [
+        (vec![], ClusterErrorEnum::Unassigned { bucket: 0 }),
+        (
+            vec![assign(1, END, 1)?],
+            ClusterErrorEnum::Unassigned { bucket: 0 },
+        ),
+        (
+            vec![assign(0, END - 1, 1)?],
+            ClusterErrorEnum::Unassigned { bucket: END - 1 },
+        ),
+        (
+            vec![assign(0, 150, 1)?, assign(100, END, 2)?],
+            ClusterErrorEnum::AssignedTwice { bucket: 100 },
+        ),
+    ];
+    for (layout, refused) in cases {
+        let checked = PlacementMap::check_layout(&layout)
+            .err()
+            .context("a refusal")?;
+        assert_eq!(checked.0, refused);
+        // The same refusal a change gives, which checks the epoch first.
+        let mut changed = map.clone();
+        let refusal = changed.change(at(1)?, &layout).err().context("a refusal")?;
+        assert_eq!(refusal.0, refused);
+    }
+    Ok(())
+}
+
+#[test]
 fn test_a_gap_before_an_overlap_is_named_first() -> TestResult {
     let mut map = PlacementMap::even(1, NodeId::new(1))?;
     let layout = [
@@ -354,9 +387,11 @@ fn test_a_change_past_the_most_ranges_is_refused() -> TestResult {
 fn test_the_map_keeps_at_most_256_layouts() -> TestResult {
     let mut map = PlacementMap::even(2, NodeId::new(1))?;
     let layout = map.ranges_at(at(0)?);
+    assert_eq!(map.layouts_free(), 255);
     // The first layout and 255 changes.
     for epoch in 1..=255 {
         map.change(at(epoch)?, &layout)?;
+        assert_eq!(map.layouts_free(), 255 - epoch as usize);
     }
     let refusal = map.change(at(256)?, &layout).err().context("a refusal")?;
     assert_eq!(

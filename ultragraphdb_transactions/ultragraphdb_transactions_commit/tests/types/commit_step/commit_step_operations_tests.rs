@@ -648,3 +648,56 @@ fn run_with_padding(
     }
     Ok((replies, rounds, staged(&script).len()))
 }
+
+/// A step without an operator, `NoOperations`, refuses a transaction asking commit-time operations, writing nothing,
+/// and takes one asking none.
+#[test]
+fn test_a_step_running_no_operations_refuses_a_transaction_asking_them() -> TestResult {
+    use crate::utils::fixture::{applier, begin, ex, insert, prepare, write};
+    use ultragraphdb_transactions_commit::{
+        CommitError, CommitRequest, CommitStep, Input, StepOutput,
+    };
+    let applier = applier()?;
+    let mut step = CommitStep::new(
+        RoundBounds::new(u32::MAX, u32::MAX),
+        applier.quads().lists().applied_ts(),
+    );
+    let mut asking = begin(&applier)?;
+    asking.operate(
+        ultragraphdb_store_apply::Operation::CounterAdd {
+            graph: oxrdf::GraphName::DefaultGraph,
+            subject: ex("c").into(),
+            predicate: ex("n"),
+            delta: 1,
+        },
+        0,
+    )?;
+    let mut plain = begin(&applier)?;
+    write(&mut plain, vec![insert("a", "knows", "b")])?;
+    let mut answered = Vec::new();
+    let mut out = StepOutput::new();
+    for input in [
+        Input::Commit(CommitRequest::new(1, prepare(asking)?)),
+        Input::Commit(CommitRequest::new(2, prepare(plain)?)),
+        Input::Synced,
+        Input::Synced,
+    ] {
+        step.step(input, 0, &mut out);
+        answered.extend(
+            out.replies()
+                .iter()
+                .map(|r| (r.ticket(), r.outcome().is_ok())),
+        );
+        if let Some(refusal) = out.replies().iter().find(|r| r.ticket() == 1) {
+            assert_eq!(
+                refusal.outcome(),
+                &Err(CommitError::refused(
+                    "the commit step runs no commit-time operations".to_string()
+                ))
+            );
+        }
+    }
+    answered.sort_unstable();
+    assert_eq!(answered, vec![(1, false), (2, true)]);
+    Ok(())
+}

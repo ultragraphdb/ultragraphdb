@@ -97,6 +97,7 @@ fn expected(state: &MetadataState, step: usize) -> TestResult<MetadataCommand> {
         4 => MetadataCommand::LearnClose {
             epoch: Epoch::new(state.last_learned().get() + 1)?,
             versions: state.pending_versions(),
+            placement: state.pending_placement(),
             evictions: state.pending_evictions(),
         },
         _ if step == 5 => MetadataCommand::InitPlacement {
@@ -144,8 +145,11 @@ fn perform(group: &mut Group, command: &MetadataCommand) -> Result<(), ClusterEr
         MetadataCommand::LearnClose {
             epoch,
             versions,
+            placement,
             evictions,
-        } => group.learn_close(*epoch, versions, evictions).map(drop),
+        } => group
+            .learn_close(*epoch, versions, *placement, evictions)
+            .map(drop),
         MetadataCommand::InitPlacement { partitions, leader } => {
             group.init_placement(*partitions, *leader).map(drop)
         }

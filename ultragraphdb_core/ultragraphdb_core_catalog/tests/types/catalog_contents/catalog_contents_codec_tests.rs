@@ -65,6 +65,7 @@ fn corruption(
             | CatalogErrorEnum::TokenizerDatatype { .. }
             | CatalogErrorEnum::UnknownVectorIndex { .. }
             | CatalogErrorEnum::SecondParent { .. }
+            | CatalogErrorEnum::ParentDropped { .. }
             | CatalogErrorEnum::ParentCycle { .. }
             | CatalogErrorEnum::Store(_)
             | CatalogErrorEnum::TooLarge { .. } => {
@@ -116,8 +117,10 @@ fn test_every_truncation_is_refused_naming_the_version() -> TestResult {
     let bytes = CatalogContents::new(2, 3, every_kind()?).encode()?;
     for len in 0..bytes.len() {
         let prefix = bytes.get(..len).context("a prefix")?;
-        let (namespace, version, _) = corruption(CatalogContents::decode(2, 3, prefix))?;
+        let (namespace, version, reason) = corruption(CatalogContents::decode(2, 3, prefix))?;
         assert_eq!((namespace, version), (2, 3), "truncated to {len}");
+        // A cut inside a declaration leaves its length past the bytes, so every cut ends the contents early.
+        assert_eq!(reason, "the contents end early", "truncated to {len}");
     }
     Ok(())
 }
@@ -127,7 +130,7 @@ fn test_a_byte_after_the_last_declaration_is_refused() -> TestResult {
     let mut bytes = CatalogContents::new(0, 1, every_kind()?).encode()?;
     bytes.push(0);
     let (_, _, reason) = corruption(CatalogContents::decode(0, 1, &bytes))?;
-    assert!(reason.contains("follow"), "{reason}");
+    assert_eq!(reason, "bytes follow the last declaration");
     Ok(())
 }
 
@@ -139,7 +142,7 @@ fn test_an_unknown_format_is_refused() -> TestResult {
             *first = format;
         }
         let (_, _, reason) = corruption(CatalogContents::decode(0, 1, &bytes))?;
-        assert!(reason.contains(&format!("format {format}")), "{reason}");
+        assert_eq!(reason, format!("unknown format {format}"));
     }
     Ok(())
 }
@@ -149,9 +152,10 @@ fn test_contents_naming_another_namespace_or_version_are_refused() -> TestResult
     let bytes = CatalogContents::new(4, 6, Vec::new()).encode()?;
     let (namespace, version, reason) = corruption(CatalogContents::decode(5, 6, &bytes))?;
     assert_eq!((namespace, version), (5, 6));
-    assert!(reason.contains("namespace 4"), "{reason}");
-    let (_, _, other) = corruption(CatalogContents::decode(4, 7, &bytes))?;
-    assert!(other.contains("version 6"), "{other}");
+    assert_eq!(reason, "the contents name namespace 4");
+    let (namespace_7, version_7, other) = corruption(CatalogContents::decode(4, 7, &bytes))?;
+    assert_eq!((namespace_7, version_7), (4, 7));
+    assert_eq!(other, "the contents name version 6");
     Ok(())
 }
 
@@ -167,7 +171,8 @@ fn test_a_declaration_that_does_not_decode_is_refused() -> TestResult {
     let format = bytes.get_mut(25).context("the declaration's first byte")?;
     *format = 9;
     let (_, _, reason) = corruption(CatalogContents::decode(0, 1, &bytes))?;
-    assert!(reason.contains("unknown format 9"), "{reason}");
+    // The entry decoder's reason, without the empty key it names.
+    assert_eq!(reason, "unknown format 9");
     Ok(())
 }
 
@@ -179,7 +184,7 @@ fn test_a_declaration_of_no_bytes_is_refused() -> TestResult {
     bytes.extend_from_slice(&1u32.to_be_bytes());
     bytes.extend_from_slice(&0u32.to_be_bytes());
     let (_, _, reason) = corruption(CatalogContents::decode(0, 1, &bytes))?;
-    assert!(reason.contains("early"), "{reason}");
+    assert_eq!(reason, "the entry ends early");
     Ok(())
 }
 
@@ -190,7 +195,7 @@ fn test_a_count_past_the_bytes_is_refused_at_once() -> TestResult {
     bytes.extend_from_slice(&1u64.to_be_bytes());
     bytes.extend_from_slice(&u32::MAX.to_be_bytes());
     let (_, _, reason) = corruption(CatalogContents::decode(0, 1, &bytes))?;
-    assert!(reason.contains("early"), "{reason}");
+    assert_eq!(reason, "the contents end early");
     Ok(())
 }
 
@@ -205,7 +210,7 @@ fn test_a_declaration_length_past_the_end_is_refused() -> TestResult {
     let length = bytes.get_mut(21..25).context("the declaration's length")?;
     length.copy_from_slice(&u32::MAX.to_be_bytes());
     let (_, _, reason) = corruption(CatalogContents::decode(0, 1, &bytes))?;
-    assert!(reason.contains("early"), "{reason}");
+    assert_eq!(reason, "the contents end early");
     Ok(())
 }
 

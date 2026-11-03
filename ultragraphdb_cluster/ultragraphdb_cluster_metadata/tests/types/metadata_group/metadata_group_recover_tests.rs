@@ -10,12 +10,15 @@ use ultragraphdb_cluster_metadata::{
 };
 use ultragraphdb_core_ids::TypePrefix;
 use ultragraphdb_error_cluster::{ClusterError, ClusterErrorEnum};
+use ultragraphdb_error_log::LogError;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_blocks::SequenceBlock;
-use ultragraphdb_traits_log::{OrderedLog, Position, RoundRef};
+use ultragraphdb_traits_log::{DurabilityTicket, LogEvent, OrderedLog, Position, Round, RoundRef};
 use ultragraphdb_transactions_log::SimStorage;
 
-use crate::utils::harness::{block_on, crash_and_recover, fresh, ns, open, pid, recover, sync};
+use crate::utils::harness::{
+    Log, block_on, crash_and_recover, fresh, ns, open, pid, recover, sync,
+};
 
 /// Writes `bodies` as the rounds of a fresh log in `storage`, synced.
 fn write_log(storage: &SimStorage, bodies: &[Vec<u8>]) -> TestResult {
@@ -203,6 +206,42 @@ fn test_a_command_the_state_does_not_take_diverges_at_its_position() -> TestResu
     assert_eq!(
         refusal.0,
         ClusterError::replay_diverged(2, "a command the state before it takes").0
+    );
+    Ok(())
+}
+
+#[test]
+fn test_a_close_announcing_a_placement_version_not_pending_diverges_at_its_position() -> TestResult
+{
+    let storage = SimStorage::new(16);
+    let init = encoded(&MetadataCommand::InitPlacement {
+        partitions: 2,
+        leader: ultragraphdb_cluster_placement::NodeId::new(1),
+    });
+    let change = encoded(&MetadataCommand::ChangePlacement {
+        assignments: vec![(
+            ultragraphdb_cluster_placement::BucketRange::new(0, 16_777_216)?,
+            pid(1)?,
+        )],
+    });
+    // Placement version 1 is pending; a close announcing version 2 is no close the group wrote.
+    let close = encoded(&MetadataCommand::LearnClose {
+        epoch: ultragraphdb_core_ids::Epoch::new(5)?,
+        versions: Vec::new(),
+        placement: 2,
+        evictions: Vec::new(),
+    });
+    write_log(&storage, &[init, change, close])?;
+    let refusal = block_on(ultragraphdb_cluster_metadata::MetadataGroup::recover(
+        open(&storage)?,
+        MetadataConfig::new(),
+        None,
+    ))?
+    .err()
+    .context("a refusal")?;
+    assert_eq!(
+        refusal,
+        ClusterError::replay_diverged(3, "a close announces the oldest pending placement version")
     );
     Ok(())
 }
@@ -412,23 +451,23 @@ fn test_chunks_out_of_order_or_a_commit_not_naming_them_diverge() -> TestResult 
     Ok(())
 }
 
-#[test]
-fn test_chunks_of_the_most_bytes_of_a_command_are_taken() -> TestResult {
-    // 256 chunks of 128 KiB, 32 MiB, the most a command holds, with no commit: taken, then discarded at the log's end.
-    // Segments of 4 MiB hold them.
-    let storage = SimStorage::new(14);
+/// A log of segments of 4 MiB, 16 of them, in `storage`: room for the chunks of the largest command.
+fn large_log(storage: &SimStorage) -> TestResult<Log> {
     let config = crate::utils::harness::wal_config()
         .with_segment_blocks(NonZeroU32::MIN.saturating_add(1_023))
         .with_capacity(NonZeroU32::MIN.saturating_add(15));
-    let dir = crate::utils::harness::DIR;
-    let (mut log, _) = block_on(ultragraphdb_transactions_log::Wal::open(
+    let (log, _) = block_on(ultragraphdb_transactions_log::Wal::open(
         storage.clone(),
-        dir,
+        crate::utils::harness::DIR,
         config,
     ))??;
-    let piece = vec![6; MetadataCommand::CHUNK_BYTES];
-    for index in 0..256_u64 {
-        let body = chunk(index * MetadataCommand::CHUNK_BYTES as u64, &piece);
+    Ok(log)
+}
+
+/// Appends `bodies` to the large log of `storage` as its next rounds, synced.
+fn append_large(storage: &SimStorage, bodies: impl Iterator<Item = Vec<u8>>) -> TestResult {
+    let mut log = large_log(storage)?;
+    for body in bodies {
         let (tail, parent) = log.tail();
         let position = tail.next().context("a next position")?;
         let _ticket = log.append(RoundRef::new(
@@ -441,15 +480,116 @@ fn test_chunks_of_the_most_bytes_of_a_command_are_taken() -> TestResult {
         ))?;
     }
     let _durable = block_on(log.sync())??;
-    drop(log);
-    let (reopened, _) = block_on(ultragraphdb_transactions_log::Wal::open(
-        storage, dir, config,
-    ))??;
-    let group = block_on(ultragraphdb_cluster_metadata::MetadataGroup::recover(
-        reopened,
+    Ok(())
+}
+
+/// The group recovered from the large log of `storage`, with no snapshot.
+fn recover_large(
+    storage: &SimStorage,
+) -> TestResult<Result<crate::utils::harness::Group, ClusterError>> {
+    let log = large_log(storage)?;
+    block_on(ultragraphdb_cluster_metadata::MetadataGroup::recover(
+        log,
         MetadataConfig::new(),
         None,
-    ))??;
+    ))
+}
+
+#[test]
+fn test_chunks_of_the_most_bytes_of_a_command_are_taken() -> TestResult {
+    // 256 chunks of 128 KiB, 32 MiB, the most a command holds, with no commit: taken, then discarded at the log's end.
+    let storage = SimStorage::new(14);
+    let piece = vec![6; MetadataCommand::CHUNK_BYTES];
+    let chunks =
+        (0..256_u64).map(|index| chunk(index * MetadataCommand::CHUNK_BYTES as u64, &piece));
+    append_large(&storage, chunks)?;
+    let group = recover_large(&storage)??;
     assert_eq!((group.applied().get(), group.replayed()), (0, 0));
+    drop(group);
+    // One chunk more passes the most bytes of a command: the run diverges at that chunk.
+    let one_more = chunk(256 * MetadataCommand::CHUNK_BYTES as u64, &[6]);
+    append_large(&storage, std::iter::once(one_more))?;
+    let refusal = recover_large(&storage)?.err().context("a refusal")?;
+    assert_eq!(
+        refusal,
+        ClusterError::replay_diverged(257, "chunks within the most bytes of a command")
+    );
+    Ok(())
+}
+
+/// A log reading its rounds back one position further than they were written: a log breaking its own order.
+struct ShiftedLog(Log);
+
+impl OrderedLog for ShiftedLog {
+    fn append(&mut self, round: RoundRef<'_>) -> Result<DurabilityTicket, LogError> {
+        self.0.append(round)
+    }
+
+    fn poll_ticket(&self, ticket: DurabilityTicket) -> std::task::Poll<Result<(), LogError>> {
+        self.0.poll_ticket(ticket)
+    }
+
+    fn sync(&mut self) -> impl Future<Output = Result<Position, LogError>> {
+        self.0.sync()
+    }
+
+    fn committed(&self) -> Position {
+        self.0.committed()
+    }
+
+    fn tail(&self) -> (Position, u64) {
+        self.0.tail()
+    }
+
+    async fn read(&mut self, from: Position, max_bytes: u32) -> Result<Vec<Round>, LogError> {
+        let rounds = self.0.read(from, max_bytes).await?;
+        Ok(rounds
+            .into_iter()
+            .map(|r| {
+                Round::new(
+                    Position::new(r.position().get() + 1),
+                    r.parent(),
+                    r.checksum(),
+                    r.first_version(),
+                    r.transactions(),
+                    r.derivation(),
+                    r.body().to_vec(),
+                )
+            })
+            .collect())
+    }
+
+    fn trim_through(&mut self, position: Position) -> impl Future<Output = Result<(), LogError>> {
+        self.0.trim_through(position)
+    }
+
+    fn checkpoint(&self) -> Position {
+        self.0.checkpoint()
+    }
+
+    fn seal(&mut self) -> Result<Position, LogError> {
+        self.0.seal()
+    }
+
+    fn next_event(&mut self) -> Option<LogEvent> {
+        self.0.next_event()
+    }
+}
+
+#[test]
+fn test_a_round_read_out_of_its_position_diverges() -> TestResult {
+    let storage = SimStorage::new(15);
+    write_log(&storage, &[offer_1(b"v1")])?;
+    let refusal = block_on(ultragraphdb_cluster_metadata::MetadataGroup::recover(
+        ShiftedLog(open(&storage)?),
+        MetadataConfig::new(),
+        None,
+    ))?
+    .err()
+    .context("a refusal")?;
+    assert_eq!(
+        refusal,
+        ClusterError::replay_diverged(2, "a round at the position after the one before it")
+    );
     Ok(())
 }

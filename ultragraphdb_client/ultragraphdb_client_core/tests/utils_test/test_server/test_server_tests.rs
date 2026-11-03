@@ -77,3 +77,30 @@ fn test_a_frame_of_another_cluster_closes_the_connection_at_its_header() -> Test
     assert_eq!(server.principal(), None);
     Ok(())
 }
+
+/// A client that sends its Hello and never authenticates is given up at the connection's authentication deadline:
+/// the server closes with an Error on stream 0.
+#[test]
+fn test_a_connection_not_authenticated_in_time_is_closed() -> TestResult {
+    let now = start();
+    let mut server =
+        ultragraphdb_client_core::TestServer::new(CLUSTER, crate::utils::harness::scram_welcome());
+    server.connection(now, UNIX);
+    server.receive(&hello(CLUSTER)?, now);
+    let welcome = server.transmit().context("the Welcome")?;
+    assert_eq!(
+        HeaderView::new(&welcome)?.command(),
+        Command::Welcome.number()
+    );
+    assert!(!server.is_closing());
+    let deadline = server
+        .next_deadline()
+        .context("an authentication deadline")?;
+    server.handle_timeout(deadline);
+    assert!(server.is_closing());
+    let error = server.transmit().context("the closing Error")?;
+    let (stream, _, _) = refusal(&error)?;
+    assert_eq!(stream, 0);
+    assert_eq!(server.transmit(), None, "the Error is the last frame");
+    Ok(())
+}

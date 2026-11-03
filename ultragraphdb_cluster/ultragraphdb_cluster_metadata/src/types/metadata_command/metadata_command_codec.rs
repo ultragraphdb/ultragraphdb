@@ -9,6 +9,7 @@ use ultragraphdb_error_cluster::ClusterError;
 use ultragraphdb_protocol_scram::ScramVerifier;
 
 use crate::types::metadata_command::MetadataCommand;
+use crate::types::metadata_state::MetadataState;
 use crate::types::reader::Reader;
 
 /// What a command's kind byte must be.
@@ -60,8 +61,7 @@ impl MetadataCommand {
                 put_u32(out, *partitions);
                 put_u32(out, leader.get());
             }
-            Self::ChangePlacement { from, assignments } => {
-                put_u64(out, from.get());
+            Self::ChangePlacement { assignments } => {
                 put_count(out, assignments.len());
                 for (range, partition) in assignments {
                     put_u32(out, range.start());
@@ -100,7 +100,10 @@ impl MetadataCommand {
                 out.extend_from_slice(verifier.server_key());
                 out.push(u8::from(*administrator));
             }
-            Self::RemovePrincipal { name } => put_len_u8(out, name.as_bytes()),
+            Self::RemovePrincipal { name, evicts } => {
+                put_len_u8(out, name.as_bytes());
+                put_sessions(out, evicts);
+            }
             Self::RegisterSession {
                 session,
                 principal,
@@ -113,6 +116,7 @@ impl MetadataCommand {
             Self::LearnClose {
                 epoch,
                 versions,
+                placement,
                 evictions,
             } => {
                 put_u64(out, epoch.get());
@@ -122,6 +126,7 @@ impl MetadataCommand {
                     put_u64(out, *version);
                 }
                 put_sessions(out, evictions);
+                put_u64(out, *placement);
             }
             Self::ReportUntrimmed { partition, epoch } => {
                 put_u32(out, partition.get());
@@ -203,11 +208,16 @@ impl MetadataCommand {
             7 => read_create(&mut reader)?,
             8 => Self::RemovePrincipal {
                 name: read_name(&mut reader)?,
+                evicts: read_sessions(
+                    &mut reader,
+                    "session evictions of a removal",
+                    MetadataState::EVICTIONS_PENDING_MAX,
+                )?,
             },
             9 => Self::RegisterSession {
                 session: reader.u128("a session")?,
                 principal: reader.u64("a principal")?,
-                evicts: read_sessions(&mut reader, "session evictions")?,
+                evicts: read_sessions(&mut reader, "session evictions", Self::EVICTIONS_MAX)?,
             },
             10 => read_close(&mut reader)?,
             11 => Self::ReportUntrimmed {
@@ -315,13 +325,13 @@ pub(crate) fn read_verifier(reader: &mut Reader<'_>) -> Result<ScramVerifier, Cl
     Ok(ScramVerifier::new(salt, iterations, stored_key, server_key))
 }
 
-/// Sessions after their count as 4 bytes, refused past a close's limit as `what`.
-fn read_sessions(reader: &mut Reader<'_>, what: &'static str) -> Result<Vec<u128>, ClusterError> {
-    let count = Reader::bounded(
-        reader.u32(what)? as usize,
-        what,
-        MetadataCommand::EVICTIONS_MAX,
-    )?;
+/// Sessions after their count as 4 bytes, refused past `max` as `what`.
+fn read_sessions(
+    reader: &mut Reader<'_>,
+    what: &'static str,
+    max: usize,
+) -> Result<Vec<u128>, ClusterError> {
+    let count = Reader::bounded(reader.u32(what)? as usize, what, max)?;
     (0..count).map(|_| reader.u128("a session")).collect()
 }
 
@@ -349,7 +359,6 @@ fn read_default(reader: &mut Reader<'_>) -> Result<MetadataCommand, ClusterError
 
 /// A ChangePlacement's fields.
 fn read_change(reader: &mut Reader<'_>) -> Result<MetadataCommand, ClusterError> {
-    let from = read_epoch(reader)?;
     let what = "ranges of a placement change";
     let count = Reader::bounded(
         reader.u32(what)? as usize,
@@ -365,7 +374,7 @@ fn read_change(reader: &mut Reader<'_>) -> Result<MetadataCommand, ClusterError>
             .map_err(|_| ClusterError::malformed("a bucket range within 2^24", at))?;
         assignments.push((range, read_partition(reader)?));
     }
-    Ok(MetadataCommand::ChangePlacement { from, assignments })
+    Ok(MetadataCommand::ChangePlacement { assignments })
 }
 
 /// A CreatePrincipal's fields.
@@ -392,10 +401,16 @@ fn read_close(reader: &mut Reader<'_>) -> Result<MetadataCommand, ClusterError> 
         let namespace = Namespace::new(reader.u64("a namespace")?);
         versions.push((namespace, reader.u64("a version")?));
     }
-    let evictions = read_sessions(reader, "session evictions in a close")?;
+    let evictions = read_sessions(
+        reader,
+        "session evictions in a close",
+        MetadataCommand::EVICTIONS_MAX,
+    )?;
+    let placement = reader.u64("a placement version")?;
     Ok(MetadataCommand::LearnClose {
         epoch,
         versions,
+        placement,
         evictions,
     })
 }

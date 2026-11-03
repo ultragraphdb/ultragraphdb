@@ -5,7 +5,7 @@
 
 use ultragraphdb_cluster_metadata::{MetadataCommand, MetadataConfig, MetadataState};
 use ultragraphdb_core_ids::TypePrefix;
-use ultragraphdb_error_cluster::ClusterErrorEnum;
+use ultragraphdb_error_cluster::{ClusterError, ClusterErrorEnum};
 use ultragraphdb_error_log::LogErrorEnum;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_traits_log::{OrderedLog, Position};
@@ -123,8 +123,20 @@ fn test_a_round_the_log_refuses_changes_nothing() -> TestResult {
 #[test]
 fn test_a_refused_command_appends_nothing() -> TestResult {
     let (_storage, mut group) = fresh_with(MetadataConfig::new().with_block_size_max(5)?)?;
-    assert!(group.lease_block(TypePrefix::RESOURCE, pid(1)?, 6).is_err());
-    assert!(group.offer_catalog(ns(), 3, b"v").is_err());
+    assert_eq!(
+        group
+            .lease_block(TypePrefix::RESOURCE, pid(1)?, 6)
+            .err()
+            .context("a refusal")?,
+        ClusterError::block_size(6, 5)
+    );
+    assert_eq!(
+        group
+            .offer_catalog(ns(), 3, b"v")
+            .err()
+            .context("a refusal")?,
+        ClusterError::stale_catalog(ns().get(), 3, 0)
+    );
     let (_, position) = group.lease_block(TypePrefix::RESOURCE, pid(1)?, 5)?;
     assert_eq!(position.get(), 1);
     Ok(())

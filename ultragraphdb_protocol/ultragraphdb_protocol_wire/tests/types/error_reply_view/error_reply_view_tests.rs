@@ -132,3 +132,45 @@ fn test_an_unknown_code_is_refused() -> TestResult {
     }
     Ok(())
 }
+
+#[test]
+fn test_a_wrong_partition_detail_with_bits_24_to_31_set_is_refused() -> TestResult {
+    // PROTOCOL.md section 9.4: WrongPartition's bucket takes bits 0 to 23, bits 24 to 31 are zero, and the partition
+    // takes bits 32 to 63; any of bits 24 to 31 set is refused as `FieldValue` `"detail"`.
+    let bytes = golden("error")?.bytes()?;
+    let moved = |detail: u64| {
+        with_command_header(&bytes, |h| {
+            put(h, 0, ErrorCode::WrongPartition.number().into(), 2);
+            put(h, 8, detail, 8);
+        })
+    };
+    for bit in 24..32 {
+        let detail = (7u64 << 32) | (1 << bit) | 0x00FF_FFFF;
+        assert_eq!(
+            ErrorReplyView::from_frame(&frame_of(&moved(detail))?)
+                .err()
+                .context("a refusal")?
+                .0,
+            ProtocolErrorEnum::FieldValue {
+                command: 16,
+                field: "detail",
+                value: detail
+            }
+        );
+    }
+    // The widest bucket and partition, bits 24 to 31 zero, are taken.
+    let widest = !0xFF00_0000u64;
+    let view_bytes = moved(widest);
+    let view = ErrorReplyView::from_frame(&frame_of(&view_bytes)?)?;
+    assert_eq!(
+        (view.code(), view.detail()),
+        (ErrorCode::WrongPartition, widest)
+    );
+    // Another code's detail is any value.
+    let conflict = with_command_header(&bytes, |h| put(h, 8, u64::MAX, 8));
+    assert_eq!(
+        ErrorReplyView::from_frame(&frame_of(&conflict)?)?.detail(),
+        u64::MAX
+    );
+    Ok(())
+}

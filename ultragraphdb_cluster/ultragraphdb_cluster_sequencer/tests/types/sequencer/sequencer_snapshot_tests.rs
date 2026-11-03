@@ -10,6 +10,7 @@ use std::num::NonZeroU32;
 
 use ultragraphdb_cluster_sequencer::{ClockReading, Sequencer, SequencerSnapshot};
 use ultragraphdb_error_cluster::{ClusterError, ClusterErrorEnum};
+use ultragraphdb_error_log::LogError;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_log::Position;
 use ultragraphdb_transactions_log::SimStorage;
@@ -39,7 +40,7 @@ fn test_a_snapshot_holds_the_durable_closes_and_transactions() -> TestResult {
     let _durable = block_on(sequencer.sync())??;
     // A close appended and not yet durable is not in the snapshot.
     let now = sequencer.deadline();
-    let _closed = sequencer.tick(ClockReading::new(now, now), &[], &[])?;
+    let _closed = sequencer.tick(ClockReading::new(now, now), &[], 0, &[])?;
     let snapshot = sequencer.snapshot();
     assert_eq!(snapshot.position().get(), 4);
     let epochs: Vec<u64> = snapshot.closes().iter().map(|c| c.epoch().get()).collect();
@@ -101,7 +102,7 @@ fn test_recovery_from_a_snapshot_replays_the_rounds_after_it_and_equals_a_full_r
     let now = recovered.deadline();
     assert_eq!(
         recovered
-            .tick(ClockReading::new(now, now), &[], &[])?
+            .tick(ClockReading::new(now, now), &[], 0, &[])?
             .map(|e| e.get()),
         Some(7)
     );
@@ -163,6 +164,10 @@ fn test_a_trim_past_the_committed_position_is_the_logs_refusal() -> TestResult {
     let refusal = block_on(sequencer.trim(&ahead))?
         .err()
         .context("a refusal")?;
-    assert!(matches!(refusal.0, ClusterErrorEnum::Log(_)), "{refusal:?}");
+    // The log's committed position is 1, the close of epoch 1.
+    assert_eq!(
+        refusal.0,
+        ClusterErrorEnum::Log(LogError::position_mismatch(1, 9))
+    );
     Ok(())
 }

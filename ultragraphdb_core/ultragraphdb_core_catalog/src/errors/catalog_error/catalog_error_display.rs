@@ -61,6 +61,10 @@ impl fmt::Display for CatalogError {
                 f,
                 "Type <{entity_type}> has the parent <{parent}> and cannot take a second, <{other}>"
             ),
+            CatalogErrorEnum::ParentDropped {
+                entity_type: t,
+                parent: p,
+            } => parent_dropped(f, t, p),
             CatalogErrorEnum::ParentCycle {
                 entity_type,
                 parent,
@@ -74,6 +78,14 @@ impl fmt::Display for CatalogError {
             }
         }
     }
+}
+
+/// The text of a refusal of a declaration without the parent its type has.
+fn parent_dropped(f: &mut fmt::Formatter<'_>, entity_type: &str, parent: &str) -> fmt::Result {
+    write!(
+        f,
+        "Type <{entity_type}> has the parent <{parent}> and cannot be declared without it"
+    )
 }
 
 /// The text of a refusal of the catalog's encoding: a version that does not decode, a declaration too long to encode.

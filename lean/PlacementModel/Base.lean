@@ -14,6 +14,10 @@ every event is stamped at most one above its writer's latest delivered close; ev
 its list; and marks, replies, registrations and reports agree with the home's referrer set.
 
 Rules 4 and 11 follow from it in `PlacementModel.Theorems`, as does the stability a reverse read rests on.
+
+`PlaceInv` holds beside it, of every reachable state of every `Protocol`: placement versions take effect at strictly
+rising epochs, at most one above an issued close, a partition holds every placement version taking effect at or below
+its open epoch, and every commit held every placement version taking effect at or below its stamp.
 -/
 
 namespace PlacementModel
@@ -174,6 +178,12 @@ theorem BaseInv.init (W : World) : BaseInv W State.init := by
     | (simp [State.init, CommitsOk])
 
 theorem BaseInv.propose {W : World} {σ : State} (h : BaseInv W σ) (v : Nat) : BaseInv W (σ.propose v) :=
+  { delivLe := h.delivLe, assignedLe := h.assignedLe, heldAll := h.heldAll, commitsOk := h.commitsOk,
+    memEpoch := h.memEpoch, edgeOk := h.edgeOk, edgeSorted := h.edgeSorted, memSorted := h.memSorted,
+    markOk := h.markOk, replyOk := h.replyOk, regOk := h.regOk, reportOk := h.reportOk }
+
+theorem BaseInv.proposePlacement {W : World} {σ : State} (h : BaseInv W σ) (v : Nat) :
+    BaseInv W (σ.proposePlacement v) :=
   { delivLe := h.delivLe, assignedLe := h.assignedLe, heldAll := h.heldAll, commitsOk := h.commitsOk,
     memEpoch := h.memEpoch, edgeOk := h.edgeOk, edgeSorted := h.edgeSorted, memSorted := h.memSorted,
     markOk := h.markOk, replyOk := h.replyOk, regOk := h.regOk, reportOk := h.reportOk }
@@ -526,6 +536,7 @@ theorem BaseInv.step {W : World} {P : Protocol} {σ σ' : State} (h : BaseInv W 
     BaseInv W σ' := by
   cases hs with
   | propose v => exact h.propose v
+  | proposePlacement v => exact h.proposePlacement v
   | close => exact h.close
   | deliver p hlt => exact h.deliver hlt
   | register p o g _ => exact h.register p o g
@@ -548,5 +559,150 @@ theorem BaseInv.steps {W : World} {P : Protocol} {σ₁ σ₂ : State} (h : Base
 /-- Every reachable state of every protocol variant satisfies `BaseInv`. -/
 theorem Reachable.base {W : World} {P : Protocol} {σ : State} (h : Reachable W P σ) : BaseInv W σ :=
   (BaseInv.init W).steps h
+
+/-! ## Placement versions
+
+`PlaceInv` holds of every reachable state beside `BaseInv`, whose bounds on delivered closes and commit stamps its
+preservation uses: the initial map is assigned at epoch 0, every assigned effective epoch is at most one above an issued
+close, effective epochs strictly rise along the close records, a partition holds every placement version taking effect
+at or below its open epoch, and every commit was made holding every placement version taking effect at or below its
+stamp. -/
+
+/-- What every reachable state satisfies about placement versions. -/
+structure PlaceInv (σ : State) : Prop where
+  /-- The initial even map is version 0, in effect from epoch 0. -/
+  initial : (0, 0) ∈ σ.passigned
+  /-- Every assigned effective epoch is one above an issued close. -/
+  passignedLe : ∀ x ∈ σ.passigned, x.2 ≤ σ.seq + 1
+  /-- Effective epochs strictly rise in assignment order. -/
+  rise : σ.passigned.Pairwise (fun a b => a.2 < b.2)
+  /-- A partition holds every placement version taking effect at or below its open epoch. -/
+  pheldAll : ∀ p, ∀ x ∈ σ.passigned, x.2 ≤ σ.delivered p + 1 → x.1 ∈ σ.pheld p
+  /-- Every commit held every placement version taking effect at or below its stamp. -/
+  pcommitsOk : ∀ rec ∈ σ.commits, ∀ x ∈ σ.passigned, x.2 ≤ rec.stamp → x.1 ∈ rec.pheld
+
+theorem State.mem_record {σ : State} {p : Nat} {refs : List Ref} {rec : CommitRec} (h : rec ∈ σ.record p refs) :
+    rec ∈ σ.commits ∨ (rec.stamp = σ.openEpoch p ∧ rec.pheld = σ.pheld p) := by
+  rcases List.mem_append.mp h with hold | hnew
+  · exact Or.inl hold
+  · rw [List.mem_singleton] at hnew; subst hnew; exact Or.inr ⟨rfl, rfl⟩
+
+/-- A step that leaves the sequencer, the placement versions and the delivered closes alone, and at most records a
+commit at some partition's open epoch with the placement versions it holds, keeps `PlaceInv`. -/
+theorem PlaceInv.frame {σ σ' : State} (h : PlaceInv σ) (hseq : σ'.seq = σ.seq) (ha : σ'.passigned = σ.passigned)
+    (hh : σ'.pheld = σ.pheld) (hd : σ'.delivered = σ.delivered)
+    (hc : ∀ rec ∈ σ'.commits, rec ∈ σ.commits ∨ ∃ p, rec.stamp = σ.openEpoch p ∧ rec.pheld = σ.pheld p) :
+    PlaceInv σ' := by
+  refine ⟨?_, ?_, ?_, ?_, ?_⟩
+  · rw [ha]; exact h.initial
+  · rw [ha, hseq]; exact h.passignedLe
+  · rw [ha]; exact h.rise
+  · rw [ha, hh, hd]; exact h.pheldAll
+  · intro rec hrec x hx hle
+    rw [ha] at hx
+    rcases hc rec hrec with hold | ⟨p, hs, hp⟩
+    · exact h.pcommitsOk rec hold x hx hle
+    · rw [hp]; rw [hs] at hle; exact h.pheldAll p x hx hle
+
+/-- A step recording one commit at `p` through `State.record`. -/
+theorem PlaceInv.record {σ σ' : State} (h : PlaceInv σ) {p : Nat} {refs : List Ref} (hseq : σ'.seq = σ.seq)
+    (ha : σ'.passigned = σ.passigned) (hh : σ'.pheld = σ.pheld) (hd : σ'.delivered = σ.delivered)
+    (hc : σ'.commits = σ.record p refs) : PlaceInv σ' :=
+  h.frame hseq ha hh hd (fun rec hrec => by
+    rw [hc] at hrec
+    rcases State.mem_record hrec with hold | ⟨hs, hp⟩
+    · exact Or.inl hold
+    · exact Or.inr ⟨p, hs, hp⟩)
+
+/-- A step changing none of the commits. -/
+theorem PlaceInv.none {σ σ' : State} (h : PlaceInv σ) (hseq : σ'.seq = σ.seq) (ha : σ'.passigned = σ.passigned)
+    (hh : σ'.pheld = σ.pheld) (hd : σ'.delivered = σ.delivered) (hc : σ'.commits = σ.commits) : PlaceInv σ' :=
+  h.frame hseq ha hh hd (fun rec hrec => by rw [hc] at hrec; exact Or.inl hrec)
+
+theorem PlaceInv.init : PlaceInv State.init := by
+  refine ⟨List.mem_singleton_self _, ?_, List.pairwise_singleton _ _, ?_, ?_⟩
+  · intro x hx; change x ∈ [(0, 0)] at hx; rw [List.mem_singleton] at hx; subst hx; exact Nat.zero_le _
+  · intro p x hx _; change x ∈ [(0, 0)] at hx; rw [List.mem_singleton] at hx; subst hx; exact List.mem_singleton_self _
+  · intro rec hrec; cases hrec
+
+theorem PlaceInv.close {W : World} {σ : State} (hb : BaseInv W σ) (h : PlaceInv σ) : PlaceInv σ.close := by
+  have hnew : ∀ x ∈ (σ.ppending.take 1).map (fun v => (v, σ.seq + 2)), x.2 = σ.seq + 2 := by
+    intro x hx; simp only [List.mem_map] at hx; obtain ⟨v, _, rfl⟩ := hx; rfl
+  refine ⟨List.mem_append_left _ h.initial, ?_, ?_, ?_, ?_⟩
+  · intro x hx
+    rcases List.mem_append.mp hx with hold | hn
+    · show x.2 ≤ σ.seq + 1 + 1; have := h.passignedLe x hold; omega
+    · show x.2 ≤ σ.seq + 1 + 1; rw [hnew x hn]; omega
+  · refine List.pairwise_append.mpr ⟨h.rise, ?_, fun a ha b hb => ?_⟩
+    · cases hp : σ.ppending with
+      | nil => exact List.Pairwise.nil
+      | cons v l => simp
+    · have := h.passignedLe a ha; rw [hnew b hb]; omega
+  · intro p x hx hle
+    rcases List.mem_append.mp hx with hold | hn
+    · exact h.pheldAll p x hold hle
+    · have := hb.delivLe p; rw [hnew x hn] at hle; exact absurd hle (by show ¬ _ ≤ σ.delivered p + 1; omega)
+  · intro rec hrec x hx hle
+    rcases List.mem_append.mp hx with hold | hn
+    · exact h.pcommitsOk rec hrec x hold hle
+    · have := (hb.commitsOk rec hrec).1; rw [hnew x hn] at hle; omega
+
+theorem PlaceInv.deliver {σ : State} (h : PlaceInv σ) {p : Nat} (hlt : σ.delivered p < σ.seq) :
+    PlaceInv (σ.deliver p) := by
+  refine ⟨h.initial, h.passignedLe, h.rise, ?_, h.pcommitsOk⟩
+  intro q x hx hle
+  show x.1 ∈ upd1 σ.pheld p _ q
+  by_cases hq : q = p
+  · subst hq
+    rw [upd1_self]
+    change x.2 ≤ upd1 σ.delivered q (σ.delivered q + 1) q + 1 at hle
+    rw [upd1_self] at hle
+    by_cases hx2 : x.2 ≤ σ.delivered q + 1
+    · exact List.mem_append_left _ (h.pheldAll q x hx hx2)
+    · apply List.mem_append_right
+      simp only [List.mem_map, List.mem_filter]
+      exact ⟨x, ⟨hx, by simp; omega⟩, rfl⟩
+  · rw [upd1_other _ _ hq]
+    change x.2 ≤ upd1 σ.delivered p (σ.delivered p + 1) q + 1 at hle
+    rw [upd1_other _ _ hq] at hle
+    exact h.pheldAll q x hx hle
+
+theorem PlaceInv.step {W : World} {P : Protocol} {σ σ' : State} (hb : BaseInv W σ) (h : PlaceInv σ)
+    (hs : Step W P σ σ') : PlaceInv σ' := by
+  cases hs with
+  | propose v => exact h.none rfl rfl rfl rfl rfl
+  | proposePlacement v => exact h.none rfl rfl rfl rfl rfl
+  | close => exact h.close hb
+  | deliver p hlt => exact h.deliver hlt
+  | register p o g _ => exact h.none rfl rfl rfl rfl rfl
+  | accept src o g n mv _ =>
+    unfold State.accept
+    split
+    · exact h.none rfl rfl rfl rfl rfl
+    · split
+      · exact h.none rfl rfl rfl rfl rfl
+      · exact h.record rfl rfl rfl rfl rfl
+  | insertHome p s o _ _ _ => exact h.record rfl rfl rfl rfl rfl
+  | insertMark p s o mk _ _ _ _ => exact h.record rfl rfl rfl rfl rfl
+  | insertReply p s o gen c mv _ _ _ _ _ _ => exact h.record rfl rfl rfl rfl rfl
+  | delete p s o _ _ => exact h.record rfl rfl rfl rfl rfl
+  | report p o g mk _ _ _ => exact h.record rfl rfl rfl rfl rfl
+  | reclaim src o g k r _ =>
+    unfold State.onReport
+    split
+    · exact h.record rfl rfl rfl rfl rfl
+    · exact h
+  | tombstone o => exact h.record rfl rfl rfl rfl rfl
+  | crash => exact h
+
+theorem PlaceInv.steps {W : World} {P : Protocol} {σ₁ σ₂ : State} (hb : BaseInv W σ₁) (h : PlaceInv σ₁)
+    (hs : Steps W P σ₁ σ₂) : PlaceInv σ₂ := by
+  induction hs with
+  | refl => exact h
+  | tail hs' hstep ih => exact ih.step (hb.steps hs') hstep
+
+/-- Every reachable state of every protocol variant satisfies `PlaceInv`. -/
+theorem Reachable.place {W : World} {P : Protocol} {σ : State} (h : Reachable W P σ) : PlaceInv σ :=
+  PlaceInv.init.steps (BaseInv.init W) h
 
 end PlacementModel

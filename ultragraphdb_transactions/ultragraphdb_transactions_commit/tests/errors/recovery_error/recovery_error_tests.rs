@@ -108,7 +108,22 @@ fn test_each_reason_about_positions_names_them_without_a_source() -> TestResult 
         derivation.to_string(),
         "the round at position 7 names derivation 3, which this store does not know: nothing of it is applied"
     );
-    for error in [not_in_log, gap, behind, derivation] {
+    let catalog = RecoveryError::catalog(9, 2, 5, "the metadata group holds no version 5");
+    assert_eq!(
+        catalog.0,
+        RecoveryErrorEnum::Catalog {
+            position: 9,
+            namespace: 2,
+            version: 5,
+            reason: "the metadata group holds no version 5".to_string()
+        }
+    );
+    assert_eq!(
+        catalog.to_string(),
+        "the round at position 9 starts catalog version 5 of namespace 2, which could not be read: the metadata group \
+         holds no version 5"
+    );
+    for error in [not_in_log, gap, behind, derivation, catalog] {
         assert!(error.source().is_none(), "{error:?}");
     }
     Ok(())

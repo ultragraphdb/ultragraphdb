@@ -61,13 +61,15 @@ impl ClientConfig {
         self
     }
 
-    /// The most times a commit is sent, the first included, at least 1.
+    /// The most times a commit is sent, the first included, at least 1; a failed attempt to reconnect while it waits
+    /// to be sent again counts as one.
     pub fn with_commit_attempts(mut self, attempts: u32) -> Self {
         self.commit_attempts = attempts.max(1);
         self
     }
 
-    /// How long a commit waits before it is sent again after its session answered busy.
+    /// How long a commit waits before it is sent again after its session answered busy, and how long the shell waits
+    /// between attempts to reconnect for a commit waiting to be sent again.
     pub fn with_retry_delay(mut self, delay: Duration) -> Self {
         self.retry_delay = delay;
         self

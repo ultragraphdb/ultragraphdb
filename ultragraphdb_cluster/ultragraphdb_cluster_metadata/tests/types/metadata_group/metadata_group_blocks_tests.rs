@@ -80,7 +80,7 @@ fn test_a_block_past_the_last_sequence_is_refused() -> TestResult {
 fn test_the_placement_map_through_the_group() -> TestResult {
     let (_storage, mut group) = fresh()?;
     let none = group
-        .change_placement(epoch(1)?, &[(range(0, 16_777_216)?, pid(1)?)])
+        .change_placement(&[(range(0, 16_777_216)?, pid(1)?)])
         .err()
         .context("refused")?;
     assert_eq!(none.0, ClusterError::no_placement().0);
@@ -98,18 +98,49 @@ fn test_the_placement_map_through_the_group() -> TestResult {
         .err()
         .context("refused")?;
     assert_eq!(unknown.0, ClusterError::unknown_partition(3).0);
-    let _: Position = group.change_placement(epoch(4)?, &[(range(0, 16_777_216)?, pid(2)?)])?;
-    let stale = group
-        .change_placement(epoch(4)?, &[(range(0, 16_777_216)?, pid(1)?)])
+    let _: Position = group.change_placement(&[(range(0, 16_777_216)?, pid(2)?)])?;
+    let gap = group
+        .change_placement(&[(range(1, 16_777_216)?, pid(1)?)])
         .err()
         .context("refused")?;
-    assert_eq!(stale.0, ClusterError::change_epoch(4, 4).0);
+    assert_eq!(gap.0, ClusterError::unassigned(0).0);
     sync(&mut group)?;
+    // Pending until the close of 3 announces it, so it applies from 4.
+    assert_eq!(group.state().pending_placement(), 1);
+    let _: Option<Position> = group.learn_close(epoch(3)?, &[], 1, &[])?;
+    sync(&mut group)?;
+    assert_eq!(group.state().pending_placement(), 0);
     let map = group.state().placement().context("the map")?;
     assert_eq!(map.latest_change(), epoch(4)?);
     assert_eq!(map.preferred_leader(pid(2)?), Some(NodeId::new(7)));
     // Partition 1 holds no bucket from epoch 4, so its leader is dropped.
     assert_eq!(map.preferred_leader(pid(1)?), None);
+    Ok(())
+}
+
+#[test]
+fn test_the_group_refuses_a_close_skipping_a_placement_version_appending_nothing() -> TestResult {
+    let (_storage, mut group) = fresh()?;
+    let _: Position = group.init_placement(2, node())?;
+    let _: Position = group.change_placement(&[(range(0, 16_777_216)?, pid(2)?)])?;
+    let _: Position = group.change_placement(&[(range(0, 16_777_216)?, pid(1)?)])?;
+    let refusal = group
+        .learn_close(epoch(5)?, &[], 2, &[])
+        .err()
+        .context("refused")?;
+    assert_eq!(
+        refusal,
+        ClusterError::contradicts("a close announces the oldest pending placement version")
+    );
+    // Nothing was appended: the next command takes position 4, and the close of 5 is learned then.
+    let position = group
+        .learn_close(epoch(5)?, &[], 1, &[])?
+        .context("the close appended")?;
+    assert_eq!(position.get(), 4);
+    sync(&mut group)?;
+    let map = group.state().placement().context("the map")?;
+    assert_eq!(map.latest_change(), epoch(6)?);
+    assert_eq!(group.state().pending_placement(), 2);
     Ok(())
 }
 
@@ -127,10 +158,7 @@ fn test_an_even_map_over_no_partition_is_refused() -> TestResult {
         .map(|i| Ok((range(i, i + 1)?, pid(1)?)))
         .collect::<ultragraphdb_tool_bdd::TestResult<_>>()?;
     let _: Position = group.init_placement(1, node())?;
-    let refusal_3 = group
-        .change_placement(epoch(1)?, &too_many)
-        .err()
-        .context("refused")?;
+    let refusal_3 = group.change_placement(&too_many).err().context("refused")?;
     assert_eq!(
         refusal_3.0,
         ClusterError::too_many("ranges of a placement change", 262_145, 262_144).0
@@ -147,8 +175,11 @@ fn test_a_placement_change_of_more_than_16384_ranges_commits_across_rounds() -> 
         .map(|i| Ok((range(i * 64, (i + 1) * 64)?, pid(1 + i % 2)?)))
         .collect::<TestResult<_>>()?;
     assignments.push((range(20_000 * 64, 16_777_216)?, pid(1)?));
-    let position = group.change_placement(epoch(3)?, &assignments)?;
+    let position = group.change_placement(&assignments)?;
     assert_eq!(position.get(), 4);
+    sync(&mut group)?;
+    // The close of 2 announces it, so it applies from epoch 3.
+    let _: Option<Position> = group.learn_close(epoch(2)?, &[], 1, &[])?;
     sync(&mut group)?;
     let map = group.state().placement().context("the map")?;
     assert_eq!(map.ranges_at(epoch(3)?).len(), 20_001);

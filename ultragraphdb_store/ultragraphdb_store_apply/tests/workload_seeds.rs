@@ -17,6 +17,8 @@ fn test_seeds_without_faults_agree_with_the_model() -> TestResult {
         let (_, w) = ChangesetWorkload::run(Seed::new(seed), FaultConfig::none(), 300)
             .map_err(|v| v.to_string())
             .context("the workload breaks no invariant")?;
+        // Without faults no check is skipped for an injected failure: every step is checked.
+        assert_eq!(w.checked, 300, "seed {seed}: every step checked");
         writes += w.writes;
         refusals += w.refusals;
         compared += w.compared;

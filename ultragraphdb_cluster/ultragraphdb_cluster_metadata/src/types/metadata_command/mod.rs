@@ -11,7 +11,7 @@ use ultragraphdb_protocol_scram::ScramVerifier;
 
 /// One command of the metadata group's log, the body of one round. Each records its decision whole, so replaying it
 /// needs nothing but the state before it: a lease names its block, a principal its identity, a registration the
-/// sessions it evicts. Its encoding is [`MetadataCommand::encode`]'s.
+/// sessions it evicts, a removal the principal's sessions. Its encoding is [`MetadataCommand::encode`]'s.
 ///
 /// A command whose encoding passes [`MetadataCommand::CHUNK_BYTES`] is written as a run of
 /// [`MetadataCommand::Chunk`]s, each one round holding the next piece of its encoding, and a
@@ -58,10 +58,9 @@ pub enum MetadataCommand {
         /// The preferred leader of every partition.
         leader: NodeId,
     },
-    /// A layout of the placement map applying from `from`: every bucket range assigned to its partition.
+    /// A layout of the placement map, every bucket range assigned to its partition, committed as the next pending
+    /// placement version; the close announcing it gives the epoch it applies from.
     ChangePlacement {
-        /// The epoch the layout applies from.
-        from: Epoch,
         /// The ranges and their partitions, in any order.
         assignments: Vec<(BucketRange, PartitionId)>,
     },
@@ -84,10 +83,13 @@ pub enum MetadataCommand {
         /// Whether it holds the administrator role.
         administrator: bool,
     },
-    /// The principal named `name` removed.
+    /// The principal named `name` removed, evicting `evicts`, every session registered for it, in registration
+    /// order: a session does not outlive its principal.
     RemovePrincipal {
         /// The principal's name.
         name: String,
+        /// The principal's sessions, oldest first.
+        evicts: Vec<u128>,
     },
     /// The session `session` registered for the principal `principal`, evicting `evicts`, the least recently
     /// registered sessions, when the registry holds `sessions_max`.
@@ -99,13 +101,15 @@ pub enum MetadataCommand {
         /// The sessions it evicts, oldest first.
         evicts: Vec<u128>,
     },
-    /// The sequencer's durable close of `epoch`, announcing `versions`, which take effect at the epoch after it, and
-    /// carrying `evictions`.
+    /// The sequencer's durable close of `epoch`, announcing `versions` and `placement`, which take effect at the epoch
+    /// after it, and carrying `evictions`.
     LearnClose {
         /// The epoch closed.
         epoch: Epoch,
         /// The catalog versions the close announces.
         versions: Vec<(Namespace, u64)>,
+        /// The placement version the close announces, the oldest pending; 0 for none.
+        placement: u64,
         /// The session evictions the close carries.
         evictions: Vec<u128>,
     },

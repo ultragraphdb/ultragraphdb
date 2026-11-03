@@ -38,3 +38,30 @@ fn test_the_builder_lays_out_the_golden_catalog_reply() -> TestResult {
     );
     Ok(())
 }
+
+#[test]
+fn test_the_getters_give_back_what_the_constructors_took() {
+    let request = golden_catalog();
+    assert_eq!(
+        (
+            request.namespace(),
+            request.version(),
+            request.epoch(),
+            request.position()
+        ),
+        (3, 0, 0, 0)
+    );
+    assert!(request.bytes().is_empty());
+    let reply = golden_catalog_reply();
+    assert_eq!(
+        (
+            reply.namespace(),
+            reply.version(),
+            reply.epoch(),
+            reply.position()
+        ),
+        (3, 12, 44, 1_240)
+    );
+    let bytes: Vec<u8> = (0u32..37).map(|i| ((i * 37 + 5) % 256) as u8).collect();
+    assert_eq!(reply.bytes(), bytes.as_slice());
+}

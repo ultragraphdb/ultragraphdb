@@ -10,12 +10,14 @@ use crate::types::catalog_version::CatalogVersion;
 
 /// The close of an epoch, as the sequencer records it durably and delivers it: the epoch, the sequencer's wall-clock
 /// time in microseconds, never below the close before it, the catalog versions it announces, each taking effect at the
-/// next epoch, and the sessions the registry evicted since the close before, by their 128-bit identities.
+/// next epoch, the placement version it announces, at most one, taking effect then too, and the sessions the registry
+/// evicted since the close before, by their 128-bit identities.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Close {
     epoch: Epoch,
     time_us: u64,
     catalog: Vec<CatalogVersion>,
+    placement: u64,
     evictions: Vec<u128>,
 }
 
@@ -56,8 +58,16 @@ impl Close {
             epoch,
             time_us,
             catalog,
+            placement: 0,
             evictions,
         })
+    }
+
+    /// The close announcing placement version `version`, the metadata group's oldest pending one; 0 announces none.
+    #[must_use]
+    pub fn with_placement(mut self, version: u64) -> Self {
+        self.placement = version;
+        self
     }
 
     /// The epoch closed.
@@ -78,13 +88,19 @@ impl Close {
         &self.catalog
     }
 
+    /// The placement version the close announces, 0 for none.
+    #[must_use]
+    pub fn placement(&self) -> u64 {
+        self.placement
+    }
+
     /// The sessions evicted since the close before, by their 128-bit identities.
     #[must_use]
     pub fn evictions(&self) -> &[u128] {
         &self.evictions
     }
 
-    /// The epoch the announced catalog versions take effect at, one after the closed epoch; `None` for the close of the
+    /// The epoch the announced catalog and placement versions take effect at, one after the closed epoch; `None` for the close of the
     /// last epoch, 2^42 − 1, which no epoch follows.
     #[must_use]
     pub fn effective_epoch(&self) -> Option<Epoch> {

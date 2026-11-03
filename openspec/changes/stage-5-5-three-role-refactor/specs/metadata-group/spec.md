@@ -65,10 +65,15 @@ before it is answered, so no block is leased twice across a crash.
 The metadata group SHALL hold the placement map: every bucket assigned to exactly one partition as half-open ranges of
 bucket numbers, each namespace's run of 65,536 buckets (the buckets whose top 8 bits are its hash) and its 2^10 bucket
 groups of 64 buckets, and each partition's preferred leader. A change to the map SHALL keep every bucket assigned
-exactly once and SHALL be refused otherwise, naming the first bucket left unassigned or assigned twice. Each change
-SHALL name the epoch from which it applies, so a bucket, and a bucket group, resolves to the partitions the map gives
-it at any epoch a read names. In this stage the map starts with all buckets of the namespaces that exist split evenly
-over the configured partitions.
+exactly once and SHALL be refused otherwise, naming the first bucket left unassigned or assigned twice. A change SHALL
+name no epoch: the group SHALL commit it as a pending placement version, numbered one above the last (the initial map is
+version 0, in effect from epoch 0); at its next close `c + 1` the sequencer SHALL assign the oldest pending placement
+version, and at most that one, the effective epoch `c + 2` in the close's durable record and announce it with that close
+(sequencer, "Closes announce the versions taking effect after them"), and the group SHALL learn the epoch from that
+close, refusing a close that announces any placement version but the oldest pending. A bucket, and a bucket group,
+SHALL resolve to the partitions the version in effect at an epoch gives it, at any epoch a read names; no change
+rewrites the placement of an epoch a partition may have opened. In this stage the map starts with all buckets of the
+namespaces that exist split evenly over the configured partitions.
 
 #### Scenario: The initial map covers every bucket once
 - **WHEN** the map is initialised for one namespace and three partitions
@@ -87,6 +92,16 @@ over the configured partitions.
 - **WHEN** a change moving buckets 21,888..21,952 from partition 2 to partition 3 applies from epoch 21, and the bucket
   group holding those 64 buckets is resolved at epochs 20 and 21
 - **THEN** it resolves to partition 2 at epoch 20 and to partition 3 at epoch 21
+
+#### Scenario: A placement change takes effect two epochs after the latest close
+- **WHEN** a change moving buckets 21,888..21,952 from partition 2 to partition 3 is committed while epoch 19 is the
+  latest close, and the sequencer closes epoch 20
+- **THEN** the close of epoch 20 assigns it effective epoch 21, and the bucket group holding those 64 buckets resolves to
+  partition 2 at epoch 20 and to partition 3 at epoch 21
+
+#### Scenario: A close announcing a placement version out of order is refused
+- **WHEN** placement versions 1 and 2 are pending and a close announces version 2
+- **THEN** the group refuses the close, and both versions stay pending
 
 ### Requirement: Principals live in the metadata group
 The metadata group SHALL hold the cluster's principals: each a name and its SCRAM-SHA-256 credential (salt, iteration

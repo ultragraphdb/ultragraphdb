@@ -11,7 +11,7 @@ mod metadata_state_credentials;
 
 use std::collections::{BTreeMap, VecDeque};
 
-use ultragraphdb_cluster_placement::{PartitionId, PlacementMap};
+use ultragraphdb_cluster_placement::{BucketRange, PartitionId, PlacementMap};
 use ultragraphdb_core_ids::{Epoch, Namespace};
 
 use crate::types::catalog_record::CatalogRecord;
@@ -26,7 +26,9 @@ use crate::types::principal::Principal;
 ///   superseded before every partition's untrimmed log begins are released. Beside them, the default-entry records by
 ///   (namespace, predicate).
 /// - **Sequence blocks.** The next sequence of every type that has leased a block; a type absent starts at 1.
-/// - **Placement.** The placement map, once initialised, and the epoch each partition's untrimmed log begins at.
+/// - **Placement.** The placement map, once initialised, its layouts each applying from the epoch the close announcing
+///   it gave; the placement versions pending, in order, each numbered one above the last (the initial map is version
+///   0), which the sequencer's closes announce one at a time; and the epoch each partition's untrimmed log begins at.
 /// - **Principals.** By name, each with its identity, and the identity the next one takes.
 /// - **Sessions.** In registration order with their principals, indexed by identity, and the evictions no learned close
 ///   has carried yet.
@@ -36,6 +38,10 @@ pub struct MetadataState {
     pub(crate) defaults: BTreeMap<(Namespace, String), Vec<u8>>,
     pub(crate) high_water: BTreeMap<u16, u64>,
     pub(crate) placement: Option<PlacementMap>,
+    /// The placement versions no learned close has announced, oldest first, each its number and its layout.
+    pub(crate) placement_pending: VecDeque<(u64, Vec<(BucketRange, PartitionId)>)>,
+    /// The number of the last placement version committed, 0 for the initial map.
+    pub(crate) placement_version: u64,
     pub(crate) untrimmed: BTreeMap<PartitionId, Epoch>,
     pub(crate) principals: BTreeMap<String, Principal>,
     pub(crate) next_principal: u64,
@@ -62,6 +68,9 @@ impl MetadataState {
     /// The most catalog versions one namespace retains, 1,024.
     pub const RETAINED_MAX: usize = 1_024;
 
+    /// The most placement versions pending at once, 16: a close announces one, so they wait at most 16 closes.
+    pub const PLACEMENT_PENDING_MAX: usize = 16;
+
     /// The most default-entry records held, 1,048,576.
     pub const DEFAULTS_MAX: usize = 1 << 20;
 
@@ -79,6 +88,8 @@ impl MetadataState {
             defaults: BTreeMap::new(),
             high_water: BTreeMap::new(),
             placement: None,
+            placement_pending: VecDeque::new(),
+            placement_version: 0,
             untrimmed: BTreeMap::new(),
             principals: BTreeMap::new(),
             next_principal: 1,
@@ -87,6 +98,14 @@ impl MetadataState {
             evictions: VecDeque::new(),
             learned: Epoch::ZERO,
         }
+    }
+
+    /// The oldest placement version pending, which the sequencer's next close announces; 0 when none is.
+    #[must_use]
+    pub fn pending_placement(&self) -> u64 {
+        self.placement_pending
+            .front()
+            .map_or(0, |(version, _)| *version)
     }
 
     /// The last close the state has learned, epoch 0 before the first.

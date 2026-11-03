@@ -73,6 +73,7 @@ fn test_recovery_rebuilds_the_closes_and_transactions() -> TestResult {
     let _closed = sequencer.tick(
         ClockReading::new(sequencer.deadline(), 77_000),
         &pending,
+        0,
         &[0xE1],
     )?;
     let _b = sequencer.submit(epoch(5)?, &[pid(3)?], b"b")?;
@@ -111,8 +112,11 @@ fn test_a_recovered_sequencer_continues_the_epochs() -> TestResult {
     let mut recovered = crash_and_recover(&storage, config, at(500))?;
     // The next close is due epoch_ms_max after the restart, and is epoch 4.
     assert_eq!(recovered.deadline(), 510_000);
-    assert_eq!(recovered.tick(at(509), &[], &[])?, None);
-    assert_eq!(recovered.tick(at(510), &[], &[])?.map(Epoch::get), Some(4));
+    assert_eq!(recovered.tick(at(509), &[], 0, &[])?, None);
+    assert_eq!(
+        recovered.tick(at(510), &[], 0, &[])?.map(Epoch::get),
+        Some(4)
+    );
     Ok(())
 }
 
@@ -120,10 +124,10 @@ fn test_a_recovered_sequencer_continues_the_epochs() -> TestResult {
 fn test_a_close_time_never_falls_below_the_recovered_last() -> TestResult {
     let config = config(2, 10)?;
     let (storage, mut sequencer) = fresh(config)?;
-    let _closed = sequencer.tick(ClockReading::new(10_000, 9_000_000), &[], &[])?;
+    let _closed = sequencer.tick(ClockReading::new(10_000, 9_000_000), &[], 0, &[])?;
     let _durable = block_on(sequencer.sync())??;
     let mut recovered = crash_and_recover(&storage, config, ClockReading::new(0, 1_000))?;
-    let _closed_2 = recovered.tick(ClockReading::new(10_000, 2_000), &[], &[])?;
+    let _closed_2 = recovered.tick(ClockReading::new(10_000, 2_000), &[], 0, &[])?;
     let _durable_2 = block_on(recovered.sync())??;
     recovered.subscribe(pid(1)?, epoch(1)?)?;
     let second = recovered

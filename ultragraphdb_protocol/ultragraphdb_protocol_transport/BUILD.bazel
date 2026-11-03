@@ -31,6 +31,8 @@ rust_test(
     name = "ultragraphdb_protocol_transport_tests",
     srcs = glob(["tests/**/*.rs"]),
     crate_root = "tests/mod.rs",
+    # The address_parse fuzz target's seeds, which a unit test parses one by one.
+    data = glob(["testdata/fuzz_seeds/address_parse/*"]),
     tags = ["unit-test"],
     visibility = ["//visibility:public"],
     deps = [":ultragraphdb_protocol_transport"] + all_crate_deps(

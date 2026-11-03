@@ -201,3 +201,40 @@ fn test_a_retry_is_answered_before_its_reads_are_validated() -> TestResult {
     assert_eq!(outcomes(&out), vec![(3, Ok(version(1, 0)))]);
     Ok(())
 }
+
+/// A step with a session table of one session takes its first session's commits, its next requests included, and
+/// refuses a second session's busy, naming the capacity; session 0, no session, is always taken. Its bounds are the
+/// ones it was made with.
+#[test]
+fn test_a_full_session_table_refuses_a_new_session_busy() -> TestResult {
+    let bounds = RoundBounds::new(4_096, 3);
+    let mut step = Step::new(bounds, 0).with_sessions(1);
+    assert_eq!(step.bounds(), bounds);
+    let mut out = Out::new();
+    let mut answered = Vec::new();
+    commit(&mut step, &mut out, 1, blind(S, 1, b"a")?);
+    answered.extend(outcomes(&out));
+    sync(&mut step, &mut out);
+    answered.extend(outcomes(&out));
+    for (ticket, session, request, key) in [(2, S + 1, 1, b"b"), (3, S, 2, b"c"), (4, 0, 0, b"d")] {
+        commit(&mut step, &mut out, ticket, blind(session, request, key)?);
+        answered.extend(outcomes(&out));
+    }
+    // 3's round, in flight when 4 arrives, then 4's.
+    for _ in 0..2 {
+        sync(&mut step, &mut out);
+        answered.extend(outcomes(&out));
+    }
+    answered.sort_by_key(|(ticket, _)| *ticket);
+    assert_eq!(
+        answered,
+        vec![
+            (1, Ok(version(1, 0))),
+            (2, Err(CommitError::busy(1))),
+            (3, Ok(version(1, 2))),
+            (4, Ok(version(1, 4))),
+        ]
+    );
+    assert_eq!(step.sessions().len(), 1);
+    Ok(())
+}

@@ -3,15 +3,13 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_error_protocol::{ProtocolError, ProtocolErrorEnum};
-use ultragraphdb_protocol_transport::{
-    AuthenticationStep, ClientAuthentication, TransportError, TransportErrorEnum,
-};
+use ultragraphdb_error_protocol::ProtocolError;
+use ultragraphdb_protocol_transport::{AuthenticationStep, ClientAuthentication, TransportError};
 use ultragraphdb_protocol_wire::{
     Authenticate, BodyBuilder, Command, Credit, ErrorCode, ErrorReply, FrameView, Header,
     MAX_FRAME_SIZE,
 };
-use ultragraphdb_tool_bdd::{Context, TestResult};
+use ultragraphdb_tool_bdd::TestResult;
 
 use crate::utils::mechanism::{TEST, TestClient};
 
@@ -108,15 +106,12 @@ fn test_a_message_out_of_step_or_another_command_is_a_protocol_error() -> TestRe
     // Before the exchange starts, any message is out of step.
     let mut fresh = ClientAuthentication::new(TestClient::new("alice", "pw"));
     let challenge = frame(&Authenticate::new(1, "", b"challenge".to_vec()))?;
-    assert!(matches!(
-        receive(&mut fresh, &challenge)?
-            .err()
-            .context("the refusal")?
-            .0,
-        TransportErrorEnum::Protocol {
-            error: ProtocolError(ProtocolErrorEnum::FieldValue { field: "step", .. })
-        }
-    ));
+    assert_eq!(
+        receive(&mut fresh, &challenge)?,
+        Err(TransportError::protocol(ProtocolError::field_value(
+            18, "step", 1
+        )))
+    );
     // Another command on stream 0.
     let mut credit_auth = started()?;
     let credit = frame(&Credit::new(1))?;

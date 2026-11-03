@@ -63,9 +63,13 @@ Feature: The metadata group
       When partition 2 holds the range 21,846..43,691 and bucket 30,000 is looked up
       Then the lookup answers partition 2
 
-    Scenario: A bucket group resolves at an epoch
-      When a change moving buckets 21,888..21,952 from partition 2 to partition 3 applies from epoch 21, and the bucket group holding those 64 buckets is resolved at epochs 20 and 21
-      Then it resolves to partition 2 at epoch 20 and to partition 3 at epoch 21
+    Scenario: A placement change takes effect two epochs after the latest close
+      When a change moving buckets 21,888..21,952 from partition 2 to partition 3 is committed while epoch 19 is the latest close, and the sequencer closes epoch 20
+      Then the close of epoch 20 assigns it effective epoch 21, and the bucket group holding those 64 buckets resolves to partition 2 at epoch 20 and to partition 3 at epoch 21
+
+    Scenario: A close announcing a placement version out of order is refused
+      When placement versions 1 and 2 are pending and a close announces version 2
+      Then the group refuses the close, and both versions stay pending
 
   Rule: Principals live in the metadata group
 

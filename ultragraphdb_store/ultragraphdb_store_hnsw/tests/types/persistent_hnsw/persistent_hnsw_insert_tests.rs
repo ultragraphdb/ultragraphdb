@@ -690,6 +690,33 @@ fn test_a_node_without_its_vector_appends_dedupes_and_truncates() -> TestResult 
     Ok(())
 }
 
+/// A node without its vector whose stored list is empty gains the one neighbour the search found, alone.
+#[test]
+fn test_a_node_without_its_vector_gains_a_single_neighbour() -> TestResult {
+    let txn = MapTxn::default();
+    txn.put(key(PRED, 3)?, float64_array_as_bytes(&[0.0, 0.0]));
+    let _inserted: Vec<KeyValue> =
+        flat_one_level()?.insert(&TxnCache::new(&txn, 1), id(3)?, &[0.0, 0.0], &mut || 0.5)?;
+    txn.put(key(&format!("{PRED}{VEC_KEYWORD}"), 9)?, encoded(&[&[]])?);
+    let edges =
+        flat_one_level()?.insert(&TxnCache::new(&txn, 1), id(9)?, &[2.0, 0.0], &mut || 0.5)?;
+    assert_eq!(
+        lists(&edges)?,
+        BTreeMap::from([(3, vec![vec![9]]), (9, vec![vec![3]])])
+    );
+    Ok(())
+}
+
+/// One level, an `efConstruction` of 3 and an `efSearch` of 3, euclidean, float64.
+fn flat_one_level() -> TestResult<PersistentHnsw<f64>> {
+    let o = opts(&[
+        ("maxLevels", "1"),
+        ("efConstruction", "3"),
+        ("efSearch", "3"),
+    ])?;
+    Ok(PersistentHnsw::new(vkeys(PRED)?, &o, 64)?)
+}
+
 /// Above its own level an insert only looks for a better start, with the narrow `efSearch`, as Dgraph's
 /// `insertHelper` does; `efConstruction` is the breadth of the levels it joins. By hand, on the third axis, with
 /// `efSearch` 1 and `efConstruction` 4: the entry point 1 is at 10, 200 at 3, 201 at 3.2 and 100 at 0.1; level 0 holds
@@ -735,6 +762,135 @@ fn test_an_insert_searches_above_its_level_with_ef_search() -> TestResult {
             (200, vec![vec![1], vec![300]]),
             (300, vec![vec![], vec![200]])
         ])
+    );
+    Ok(())
+}
+
+/// A transaction whose locked read of one key fails, as a store's failed read: every other read and every write is
+/// the golden transaction's.
+struct FailingLockedRead {
+    txn: MapTxn,
+    failing: Vec<u8>,
+}
+
+impl FailingLockedRead {
+    fn failure(&self) -> HnswError {
+        PostingError::store(StoreError::read_failed(
+            self.failing.clone(),
+            "injected".into(),
+        ))
+        .into()
+    }
+}
+
+impl Txn for FailingLockedRead {
+    type Error = HnswError;
+
+    fn start_ts(&self) -> u64 {
+        Txn::start_ts(&self.txn)
+    }
+
+    fn get(&self, key: &[u8]) -> Result<Vec<u8>, HnswError> {
+        Txn::get(&self.txn, key)
+    }
+
+    fn get_with_lock_held(&self, key: &[u8]) -> Result<Vec<u8>, HnswError> {
+        if key == self.failing.as_slice() {
+            return Err(self.failure());
+        }
+        Txn::get_with_lock_held(&self.txn, key)
+    }
+
+    fn find(
+        &self,
+        prefix: &[u8],
+        filter: impl Fn(&[u8]) -> bool,
+    ) -> Result<Option<SystemId>, HnswError> {
+        Txn::find(&self.txn, prefix, filter)
+    }
+
+    fn add_mutation(&self, key: &[u8], t: &KeyValue) -> Result<(), HnswError> {
+        self.txn.add_mutation(key, t)
+    }
+
+    fn add_mutation_with_lock_held(&self, key: &[u8], t: &KeyValue) -> Result<(), HnswError> {
+        self.txn.add_mutation_with_lock_held(key, t)
+    }
+
+    fn lock_key(&self, key: &[u8]) {
+        self.txn.lock_key(key);
+    }
+
+    fn unlock_key(&self, key: &[u8]) {
+        self.txn.unlock_key(key);
+    }
+}
+
+/// A failed read of the entry point, or of the inserted node's own neighbour lists, is the read's failure, never an
+/// absence: the insert neither starts a fresh index over the entry point nor writes the node's lists.
+#[test]
+fn test_an_insert_returns_a_failed_read_and_writes_nothing() -> TestResult {
+    let entry = key(&format!("{PRED}{VEC_ENTRY}"), 1)?;
+    let own_lists = key(&format!("{PRED}{VEC_KEYWORD}"), 6)?;
+    for (failing, first_inserted) in [(entry.clone(), false), (own_lists.clone(), true)] {
+        let txn = FailingLockedRead {
+            txn: MapTxn::default(),
+            failing: failing.clone(),
+        };
+        txn.txn
+            .put(key(PRED, 3)?, float64_array_as_bytes(&[0.0, 1.0]));
+        if first_inserted {
+            let _inserted: Vec<KeyValue> =
+                flat_ph()?.insert(&TxnCache::new(&txn, 1), id(3)?, &[0.0, 1.0], &mut || 0.5)?;
+        }
+        txn.txn
+            .put(key(PRED, 6)?, float64_array_as_bytes(&[1.0, 1.0]));
+        let before = txn.txn.db.borrow().clone();
+        let e = flat_ph()?
+            .insert(&TxnCache::new(&txn, 1), id(6)?, &[1.0, 1.0], &mut || 0.5)
+            .err()
+            .context("the insert fails")?;
+        assert_eq!(e, txn.failure(), "{e}");
+        assert!(!e.is_absence());
+        assert_eq!(*txn.txn.db.borrow(), before, "nothing written");
+    }
+    Ok(())
+}
+
+/// An entry point and a node's own neighbour lists that read as no bytes, without an error, are absent: the first
+/// insert starts the index from its node, and the second writes its node's lists from the search's alone, as the same
+/// inserts do where the keys hold nothing.
+#[test]
+fn test_keys_holding_no_bytes_read_as_absent() -> TestResult {
+    let run = |empty_held: bool| -> TestResult<Vec<Vec<KeyValue>>> {
+        let dbs = TsDbs::default();
+        if empty_held {
+            dbs.set_all(&key(&format!("{PRED}{VEC_ENTRY}"), 1)?, &[]);
+            dbs.set_all(&key(&format!("{PRED}{VEC_KEYWORD}"), 6)?, &[]);
+        }
+        [(3u64, [0.0, 1.0]), (6, [1.0, 1.0])]
+            .iter()
+            .zip([(1u64, 2u64), (3, 4)])
+            .map(|((uid, v), (start, commit))| {
+                dbs.set_all(&key(PRED, *uid)?, &float64_array_as_bytes(v));
+                let txn = InMemTxn::new(&dbs, start, commit);
+                Ok(flat_ph()?.insert(&TxnCache::new(&txn, start), id(*uid)?, v, &mut || 0.5)?)
+            })
+            .collect()
+    };
+    let held = run(true)?;
+    assert_eq!(held, run(false)?);
+    assert_eq!(
+        held.iter()
+            .map(|edges| lists(edges))
+            .collect::<TestResult<Vec<_>>>()?,
+        vec![
+            BTreeMap::from([(3, vec![vec![]; 5])]),
+            BTreeMap::from([
+                (3, vec![vec![], vec![], vec![], vec![], vec![6]]),
+                (6, vec![vec![], vec![], vec![], vec![], vec![3]])
+            ]),
+        ]
     );
     Ok(())
 }

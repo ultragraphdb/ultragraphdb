@@ -934,3 +934,197 @@ fn test_a_loss_after_a_commit_is_sent_consumes_an_attempt() -> TestResult {
     assert_eq!(harness.connections, 1, "nothing is retried");
     Ok(())
 }
+
+/// The core, its commits tried at most `attempts` times, welcomed by a test server of one stream: a retry or a resolve cannot open a stream of its own while a transaction holds it.
+fn one_stream(attempts: u32) -> TestResult<Harness> {
+    let welcome = ultragraphdb_protocol_wire::Welcome::new(1, crate::utils::harness::RELEASE, "s")
+        .with_max_frame(1 << 20)
+        .with_max_streams(1)
+        .with_initial_credit(4);
+    let mut h = Harness::with(
+        config().with_commit_attempts(attempts),
+        ultragraphdb_client_core::TestServer::new(CLUSTER, welcome),
+        Default::default(),
+        1,
+        Anonymous,
+    );
+    h.connect()?;
+    h.until(|h| h.core.is_ready())?;
+    Ok(h)
+}
+
+/// A retry due after a busy answer, refused because a transaction holds the connection's one stream, answers in doubt
+/// and leaves the commit so: its first send was applied, so the session's next commit must not reuse its request number, which the
+/// server would answer with the first commit's stored reply.
+#[test]
+fn test_a_retry_refused_at_the_stream_limit_leaves_the_commit_in_doubt() -> TestResult {
+    let mut h = one_stream(8)?;
+    let s = session(&mut h)?;
+    let tx = begin(&mut h)?;
+    h.server.drop_after_next_commit();
+    h.server.answer_busy_retries(1);
+    let p = h.core.commit(tx, s, h.now)?;
+    h.until(|h| commits(h).len() >= 2)?;
+    while h.step()? {}
+    let beginning = h.core.begin(0, false, h.now)?;
+    while h.step()? {}
+    let next_tx = begun(h.core.take_reply(beginning).context("the Begin's answer")?)?;
+    // The earlier send may have been applied: the caller resolves the commit.
+    assert_eq!(
+        h.settle(p)?,
+        Err(ultragraphdb_client_core::ClientError::in_doubt(9, 1))
+    );
+    assert_eq!(h.server.applied(), 1, "the first send was applied");
+    assert_eq!(
+        h.core
+            .commit(next_tx, s, h.now)
+            .err()
+            .context("an error")?
+            .0,
+        ClientErrorEnum::InDoubt {
+            session: 9,
+            request: 1
+        }
+    );
+    h.core.abort(next_tx)?;
+    let resolving = h.core.resolve(s, h.now)?;
+    let c = committed(h.settle(resolving)?)?;
+    assert_eq!((c.version(), c.request()), (h.server.version(), 1));
+    assert_eq!(h.core.next_request(s), Some(2));
+    Ok(())
+}
+
+/// A resolve refused because a transaction holds the connection's one stream answers in doubt and keeps the commit so;
+/// once the stream is free, a resolve settles it.
+#[test]
+fn test_a_resolve_refused_at_the_stream_limit_keeps_the_commit_in_doubt() -> TestResult {
+    let mut h = one_stream(2)?;
+    let s = session(&mut h)?;
+    let tx = begin(&mut h)?;
+    h.server.drop_after_next_commit();
+    h.server.lose_next_retries(1);
+    let p = h.core.commit(tx, s, h.now)?;
+    assert_eq!(
+        h.settle(p)?.err().context("an error")?.0,
+        ClientErrorEnum::RetriesExhausted {
+            session: 9,
+            request: 1,
+            attempts: 2
+        }
+    );
+    // The last retry was lost with its connection: a new one.
+    h.connect()?;
+    h.until(|h| h.core.is_ready())?;
+    let next_tx = begin(&mut h)?;
+    let resolving = h.core.resolve(s, h.now)?;
+    assert_eq!(
+        h.core
+            .take_reply(resolving)
+            .context("answered at once")?
+            .err()
+            .context("an error")?
+            .0,
+        ClientErrorEnum::InDoubt {
+            session: 9,
+            request: 1
+        }
+    );
+    assert_eq!(
+        h.core
+            .commit(next_tx, s, h.now)
+            .err()
+            .context("an error")?
+            .0,
+        ClientErrorEnum::InDoubt {
+            session: 9,
+            request: 1
+        }
+    );
+    // Once the stream is free, a resolve settles it from the server's record.
+    h.core.abort(next_tx)?;
+    let settling = h.core.resolve(s, h.now)?;
+    let c = committed(h.settle(settling)?)?;
+    assert_eq!((c.version(), c.request()), (h.server.version(), 1));
+    assert_eq!(h.core.next_request(s), Some(2));
+    assert_eq!(h.server.applied(), 1, "applied once");
+    Ok(())
+}
+
+/// A connection that cannot be made while a commit waits to be sent again counts as one of its attempts: with the
+/// server unreachable the retries end, the commit in doubt, and a resolve once it is reachable settles it, applied
+/// once. A failed attempt with nothing waiting changes nothing.
+#[test]
+fn test_a_failed_connect_counts_as_one_of_the_commits_attempts() -> TestResult {
+    let mut h = Harness::with(
+        config().with_commit_attempts(3),
+        server(),
+        Default::default(),
+        1,
+        Anonymous,
+    );
+    h.connect()?;
+    h.until(|h| h.core.is_ready())?;
+    let s = session(&mut h)?;
+    let tx = begin(&mut h)?;
+    h.server.drop_after_next_commit();
+    let p = h.core.commit(tx, s, h.now)?;
+    h.until(|h| h.core.needs_connection())?;
+    // Attempt 1 was sent and lost with its connection; attempt 2 is a connection that could not be made.
+    h.core.connect_failed();
+    assert!(h.core.needs_connection(), "one attempt left");
+    assert_eq!(h.core.take_reply(p), None);
+    h.core.connect_failed();
+    assert!(!h.core.needs_connection(), "the attempts are spent");
+    assert_eq!(
+        h.core.take_reply(p),
+        Some(Err(
+            ultragraphdb_client_core::ClientError::retries_exhausted(9, 1, 3)
+        ))
+    );
+    h.core.connect_failed();
+    assert_eq!(h.core.next_request(s), Some(1));
+    h.connect()?;
+    h.until(|h| h.core.is_ready())?;
+    let next_tx = begin(&mut h)?;
+    assert_eq!(
+        h.core
+            .commit(next_tx, s, h.now)
+            .err()
+            .context("an error")?
+            .0,
+        ClientErrorEnum::InDoubt {
+            session: 9,
+            request: 1
+        }
+    );
+    let resolving = h.core.resolve(s, h.now)?;
+    let c = committed(h.settle(resolving)?)?;
+    assert_eq!((c.version(), c.request()), (h.server.version(), 1));
+    assert_eq!(h.server.applied(), 1, "applied once");
+    assert_eq!(h.core.next_request(s), Some(2));
+    Ok(())
+}
+
+/// A failed connection attempt while the core is connected, or with no commit waiting, uses no attempt.
+#[test]
+fn test_a_failed_connect_with_no_commit_waiting_uses_no_attempt() -> TestResult {
+    let mut h = Harness::with(
+        config().with_commit_attempts(2),
+        server(),
+        Default::default(),
+        1,
+        Anonymous,
+    );
+    h.connect()?;
+    h.until(|h| h.core.is_ready())?;
+    let s = session(&mut h)?;
+    let tx = begin(&mut h)?;
+    let p = h.core.commit(tx, s, h.now)?;
+    // Connected, the commit in flight: not a commit waiting for a connection.
+    h.core.connect_failed();
+    h.core.connect_failed();
+    let c = committed(h.settle(p)?)?;
+    assert_eq!(c.request(), 1);
+    assert_eq!(h.core.next_request(s), Some(2));
+    Ok(())
+}

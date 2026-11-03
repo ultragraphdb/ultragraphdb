@@ -6,7 +6,8 @@
 use std::time::Duration;
 
 use ultragraphdb_client_core::{
-    BatchPoll, ClientCore, ClientErrorEnum, Reply, TEST_NAME, TEST_PRINCIPAL, TestServer,
+    BatchPoll, ClientCore, ClientErrorEnum, Reply, TEST_NAME, TEST_PASSWORD, TEST_PRINCIPAL,
+    TestServer,
 };
 use ultragraphdb_protocol_scram::{ScramError, ScramLogin};
 use ultragraphdb_protocol_transport::{Anonymous, BufferPool, NetworkFaults, TransportError};
@@ -408,6 +409,88 @@ fn test_each_renewal_is_scheduled_from_the_wall_clock_at_its_end() -> TestResult
     assert_eq!(
         h.core.next_deadline(),
         Some(first + Duration::from_secs(540))
+    );
+    Ok(())
+}
+
+#[test]
+fn test_an_unknown_principal_closes_the_connection() -> TestResult {
+    let unknown = ScramLogin::new(
+        "bob",
+        TEST_PASSWORD,
+        nonce as fn() -> Result<String, ScramError>,
+    )?;
+    let mut h = Harness::with(config(), scram_server(), NetworkFaults::none(), 1, unknown);
+    h.connect()?;
+    h.until(|h| !h.core.is_connected())?;
+    assert_eq!(h.core.principal(), None);
+    assert_eq!(h.server.principal(), None);
+    assert!(h.server.is_closing());
+    Ok(())
+}
+
+/// A login starting a mechanism the Welcome did not list is refused by the server, which closes the connection.
+#[test]
+fn test_a_mechanism_the_server_does_not_speak_closes_the_connection() -> TestResult {
+    let mut h = Harness::with(config(), scram_server(), NetworkFaults::none(), 1, Plain);
+    h.connect()?;
+    h.until(|h| !h.core.is_connected())?;
+    assert_eq!(h.core.principal(), None);
+    assert_eq!(h.server.principal(), None);
+    assert!(h.server.is_closing());
+    Ok(())
+}
+
+/// A login offering [`Plain`] once: asked again, for a renewal, it speaks none of the server's mechanisms.
+#[derive(Debug, Default)]
+struct Once {
+    used: bool,
+}
+
+impl ultragraphdb_protocol_transport::Login for Once {
+    type Mechanism = Plain;
+
+    fn mechanism(
+        &mut self,
+        _offered: &[String],
+    ) -> Result<Option<Plain>, ultragraphdb_protocol_transport::TransportError> {
+        Ok((!std::mem::replace(&mut self.used, true)).then_some(Plain))
+    }
+}
+
+/// A renewal the login cannot start gives the connection up, as a first exchange it cannot start does.
+#[test]
+fn test_a_renewal_the_login_cannot_start_gives_the_connection_up() -> TestResult {
+    let pool = BufferPool::new(4, 1 << 20);
+    let mut framer = ultragraphdb_protocol_transport::Framer::new(CLUSTER, MAX_FRAME_SIZE);
+    let mut core = ClientCore::new(config(), Once::default());
+    let now = start();
+    core.connect(now, UNIX)?;
+    let welcome = crate::utils::harness::welcome()
+        .with_mechanisms(["TEST"])
+        .frame(Header::new(CLUSTER, Command::Welcome))?;
+    let expires = UNIX + 600_000_000;
+    let last = Played::last(7, expires)?;
+    for (sequence, frame) in [(1u128, welcome), (2, last)] {
+        let mut stamped = frame;
+        Header::stamp_sequence(&mut stamped, sequence)?;
+        let received = crate::utils::harness::frame_through(&mut framer, &pool, &stamped)?;
+        core.receive(received, now)?;
+    }
+    assert!(core.is_ready());
+    let renew = core.next_deadline().context("the renewal")?;
+    // A request waiting when the renewal is due, well within its timeout.
+    let p = core.register(renew)?;
+    core.handle_timeout(renew);
+    assert!(!core.is_connected(), "given up");
+    // The request's connection was lost, the login's refusal its cause, as for every other loss.
+    assert_eq!(
+        core.take_reply(p).context("an answer")?,
+        Err(ultragraphdb_client_core::ClientError::connection_lost(
+            Some(ultragraphdb_client_core::ClientError::transport(
+                TransportError::authentication("the login speaks none of the server's mechanisms")
+            ))
+        ))
     );
     Ok(())
 }

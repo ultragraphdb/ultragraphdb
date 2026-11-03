@@ -67,6 +67,13 @@ pub enum CatalogErrorEnum {
         /// The parent it has.
         other: String,
     },
+    /// An entity type that has a parent declared again with none.
+    ParentDropped {
+        /// The entity type.
+        entity_type: String,
+        /// The parent it has.
+        parent: String,
+    },
     /// A parent that would make the type its own ancestor.
     ParentCycle {
         /// The entity type.
@@ -160,6 +167,14 @@ impl CatalogError {
             entity_type: entity_type.to_string(),
             parent: parent.to_string(),
             other: other.to_string(),
+        })
+    }
+
+    /// A [`CatalogErrorEnum::ParentDropped`] naming the type and the parent it has.
+    pub fn parent_dropped(entity_type: &str, parent: &str) -> Self {
+        Self(CatalogErrorEnum::ParentDropped {
+            entity_type: entity_type.to_string(),
+            parent: parent.to_string(),
         })
     }
 

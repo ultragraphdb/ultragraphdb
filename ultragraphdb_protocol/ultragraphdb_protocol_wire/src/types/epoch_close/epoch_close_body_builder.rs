@@ -18,6 +18,7 @@ impl BodyBuilder for EpochClose {
             (0, &self.epoch.to_le_bytes()),
             (8, &self.time.to_le_bytes()),
             (16, &[u8::from(self.more)]),
+            (24, &self.placement.to_le_bytes()),
         ])
     }
 

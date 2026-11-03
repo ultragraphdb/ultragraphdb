@@ -22,3 +22,10 @@ fn test_the_builder_lays_out_the_golden_subscribe() -> TestResult {
     );
     Ok(())
 }
+
+#[test]
+fn test_the_getter_gives_back_the_position_taken() {
+    assert_eq!(golden_subscribe().from(), 41);
+    assert_eq!(Subscribe::new(0).from(), 0);
+    assert_eq!(Subscribe::new(u64::MAX).from(), u64::MAX);
+}

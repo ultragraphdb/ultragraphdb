@@ -7,8 +7,39 @@ use std::io::{self, ErrorKind, Read, Write};
 
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transport_tls::{
-    HANDSHAKE_TURNS_MAX, READ_TURNS_MAX, RECORD_SIZE_MAX, TestEcho, TestPeer, TestPki, TlsErrorEnum,
+    HANDSHAKE_TURNS_MAX, READ_TURNS_MAX, RECORD_SIZE_MAX, TestEcho, TestPeer, TestPki,
+    TlsErrorEnum, TlsSession,
 };
+
+/// A server that sends its `close_notify` once its handshake completes: the peer of a client reading the end.
+#[derive(Debug)]
+struct Closing {
+    session: TlsSession,
+    closed: bool,
+}
+
+impl Read for Closing {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        Ok(self.session.transmit(buf))
+    }
+}
+
+impl Write for Closing {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.session
+            .receive(buf)
+            .map_err(|e| io::Error::other(e.to_string()))?;
+        if !self.session.is_handshaking() && !self.closed {
+            self.session.close();
+            self.closed = true;
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
 
 /// A stream whose every read is interrupted and every write taken: a peer that never answers, read without a timeout.
 #[derive(Debug, Default)]
@@ -100,6 +131,15 @@ fn test_a_peers_close_notify_reads_as_the_end() -> TestResult {
     let mut bye = [0u8; 3];
     accepted.read_exact(&mut bye).context("the echo")?;
     assert_eq!(&bye, b"bye");
+    // A server that sends its close_notify: the client's read of no room takes nothing, its next read is the end.
+    let closing = Closing {
+        session: pki.acceptor()?.session()?,
+        closed: false,
+    };
+    let mut ended = pki.connector()?.connect(closing, "localhost")?;
+    assert_eq!(ended.read(&mut []).context("a read of no room")?, 0);
+    assert!(ended.get_ref().closed, "the server sent its close_notify");
+    assert_eq!(ended.read(&mut [0u8; 4]).context("a read of the end")?, 0);
     Ok(())
 }
 

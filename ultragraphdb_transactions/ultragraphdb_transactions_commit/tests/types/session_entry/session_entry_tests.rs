@@ -143,27 +143,81 @@ fn with(at: usize, bytes: &[u8]) -> Vec<u8> {
 
 #[test]
 fn test_every_malformed_entry_is_refused_as_corrupted() -> TestResult {
+    const SHORT: &str = "a session entry shorter than its fixed part";
+    const FILL: &str = "a session entry whose results and nodes do not fill it";
+    const RESULT_PADDING: &str = "a session entry's result has padding or a created above 1";
+    const NODE_AND_VALUE: &str = "a session entry's result names a node and a value";
+    const NODE_PAST: &str = "a session entry's result names a node the table does not hold";
     let good = golden();
-    assert!(refusal(&good[..47])?.contains("shorter"));
-    assert!(refusal(&good[..good.len() - 1])?.contains("fill"));
+    assert_eq!(refusal(&good[..47])?, SHORT);
+    assert_eq!(refusal(&[])?, SHORT);
+    assert_eq!(refusal(&good[..good.len() - 1])?, FILL);
     let mut longer = good.clone();
     longer.push(0);
-    assert!(refusal(&longer)?.contains("fill"));
-    assert!(refusal(&with(40, &u32::MAX.to_le_bytes()))?.contains("fill"));
-    assert!(refusal(&with(44, &9u32.to_le_bytes()))?.contains("fill"));
-    assert!(refusal(&with(20, &[1]))?.contains("padding"));
-    // A result's padding, and a created above 1.
-    assert!(refusal(&with(61, &[1]))?.contains("result"));
-    assert!(refusal(&with(60, &[2]))?.contains("result"));
-    // A result naming a node and a value, or a node past the table.
-    assert!(refusal(&with(48, &[1]))?.contains("result"));
-    assert!(refusal(&with(56, &[1]))?.contains("node"));
-    // Request 0, a version 0 or odd, an epoch past 42 bits.
-    assert!(refusal(&with(0, &[0]))?.contains("request"));
-    assert!(refusal(&with(8, &0u64.to_le_bytes()))?.contains("version"));
-    assert!(refusal(&with(8, &[3]))?.contains("version"));
-    assert!(refusal(&with(32, &(1u64 << 42).to_le_bytes()))?.contains("epoch"));
+    assert_eq!(refusal(&longer)?, FILL);
+    assert_eq!(refusal(&with(40, &u32::MAX.to_le_bytes()))?, FILL);
+    assert_eq!(refusal(&with(44, &9u32.to_le_bytes()))?, FILL);
+    // A node's length past the bytes left.
+    assert_eq!(refusal(&with(80, &11u32.to_le_bytes()))?, FILL);
+    assert_eq!(
+        refusal(&with(20, &[1]))?,
+        "a session entry's padding is not zero"
+    );
+    // A result's padding, each of its 3 bytes, and a created above 1.
+    for at in [61, 62, 63] {
+        assert_eq!(refusal(&with(at, &[1]))?, RESULT_PADDING, "{at}");
+    }
+    assert_eq!(refusal(&with(60, &[2]))?, RESULT_PADDING);
+    // A result naming a node and a value, a node past the table, with a value or without, and a created naming none.
+    assert_eq!(refusal(&with(48, &[1]))?, NODE_AND_VALUE);
+    assert_eq!(refusal(&with(56, &[1]))?, NODE_PAST);
+    assert_eq!(refusal(&with(48, &[1, 0, 0, 0, 0, 0, 0, 0, 1]))?, NODE_PAST);
+    assert_eq!(
+        refusal(&with(64 + 12, &[1]))?,
+        "a session entry's result creates no node"
+    );
+    // Request 0, a version 0 or odd, an epoch past 42 bits; 2^42 − 1 is the last epoch taken.
+    assert_eq!(refusal(&with(0, &[0]))?, "a session entry of request 0");
+    let no_version = "a session entry whose version is no commit version";
+    assert_eq!(refusal(&with(8, &0u64.to_le_bytes()))?, no_version);
+    assert_eq!(refusal(&with(8, &[3]))?, no_version);
+    assert_eq!(
+        refusal(&with(32, &(1u64 << 42).to_le_bytes()))?,
+        "a session entry whose epoch is past 2^42 − 1"
+    );
+    let last = SessionEntry::decode(
+        &SessionEntry::key(5),
+        &with(32, &((1u64 << 42) - 1).to_le_bytes()),
+    )?;
+    assert_eq!(last.reply().token().epoch().get(), (1 << 42) - 1);
     // A node's text not UTF-8.
-    assert!(refusal(&with(84, &[0xFF]))?.contains("UTF-8"));
+    assert_eq!(
+        refusal(&with(84, &[0xFF]))?,
+        "a session entry's node is not UTF-8"
+    );
+    Ok(())
+}
+
+/// A compare-and-set's result and a counter's at either end of i64 read back as they were stored.
+#[test]
+fn test_a_compare_and_set_and_counters_at_the_ends_of_i64_read_back() -> TestResult {
+    let results = vec![
+        OperationResult::compare_and_set(),
+        OperationResult::counter(i64::MIN),
+        OperationResult::counter(i64::MAX),
+    ];
+    let reply = StoredReply::new(
+        u64::MAX - 1,
+        SessionToken::new(u32::MAX, u64::MAX, Epoch::ZERO),
+        results.clone(),
+        TermTable::new(),
+    );
+    let entry = SessionEntry::new(u64::MAX, reply);
+    let bytes = entry.encode();
+    assert_eq!(bytes.len(), 48 + 3 * 16);
+    let decoded = SessionEntry::decode(b"k", &bytes)?;
+    assert_eq!(decoded, entry);
+    assert_eq!(decoded.reply().results(), &results[..]);
+    assert_eq!(decoded.request(), u64::MAX);
     Ok(())
 }

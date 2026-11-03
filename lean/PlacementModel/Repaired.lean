@@ -504,6 +504,7 @@ theorem RepInv.step {W : World} {σ σ' : State} (hb : BaseInv W σ) (h : RepInv
     (hs : Step W Protocol.repaired σ σ') : RepInv W σ' := by
   cases hs with
   | propose v => exact h.frame rfl rfl rfl rfl rfl (fun _ _ _ _ _ _ hr => hr) (fun _ _ _ _ _ hr => hr)
+  | proposePlacement v => exact h.frame rfl rfl rfl rfl rfl (fun _ _ _ _ _ _ hr => hr) (fun _ _ _ _ _ hr => hr)
   | close => exact h.frame rfl rfl rfl rfl rfl (fun _ _ _ _ _ _ hr => hr) (fun _ _ _ _ _ hr => hr)
   | deliver p _ => exact h.frame rfl rfl rfl rfl rfl (fun _ _ _ _ _ _ hr => hr) (fun _ _ _ _ _ hr => hr)
   | register p o g _ =>

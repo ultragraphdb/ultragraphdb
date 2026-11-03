@@ -14,6 +14,12 @@ use ultragraphdb_protocol_transport::{
 
 pub const TEST: &str = "TEST";
 
+/// A user whose challenge is past the largest frame: the server's mechanism answers it at 1 MiB.
+pub const GIANT_CHALLENGE: &str = "giant-challenge";
+
+/// A user whose final message is past the largest frame: the server's mechanism welcomes it at 1 MiB.
+pub const GIANT_WELCOME: &str = "giant-welcome";
+
 /// When an expiring credential expires, microseconds of Unix time, as the authenticator states it on the wire.
 pub const EXPIRES: u64 = 1_798_761_600_000_000;
 
@@ -110,6 +116,9 @@ impl ServerMechanism for TestExchange {
         match (&self.user, text.split_once('=')) {
             (None, Some(("user", name))) => {
                 self.user = Some(name.to_string());
+                if name == GIANT_CHALLENGE {
+                    return Ok(MechanismStep::Continue(vec![b'c'; 1 << 20]));
+                }
                 Ok(MechanismStep::Continue(b"challenge".to_vec()))
             }
             (Some(name), Some(("pass", password))) => {
@@ -122,6 +131,9 @@ impl ServerMechanism for TestExchange {
                     Some(valid_for) => Credential::expiring(user.principal, EXPIRES, valid_for),
                     None => Credential::new(user.principal),
                 };
+                if user.name == GIANT_WELCOME {
+                    return Ok(MechanismStep::Done(vec![b'w'; 1 << 20], credential));
+                }
                 Ok(MechanismStep::Done(b"welcome".to_vec(), credential))
             }
             _ => Err("out of step".to_string()),

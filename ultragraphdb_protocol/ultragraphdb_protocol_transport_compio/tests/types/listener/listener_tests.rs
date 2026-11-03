@@ -19,7 +19,13 @@ fn test_a_unix_path_already_bound_is_refused() -> TestResult {
             return Err(TestError::new("one socket path was bound twice"));
         };
         assert!(
-            matches!(error.0, TransportErrorEnum::Io { .. }),
+            matches!(
+                error.0,
+                TransportErrorEnum::Io {
+                    kind: std::io::ErrorKind::AddrInUse,
+                    ..
+                }
+            ),
             "{error:?}"
         );
         Ok(())
@@ -29,7 +35,7 @@ fn test_a_unix_path_already_bound_is_refused() -> TestResult {
 #[test]
 fn test_a_tcp_listener_names_the_port_it_holds() -> TestResult {
     compio::runtime::Runtime::new()?.block_on(async {
-        let listener = Listener::bind(&Address::parse("tcp://127.0.0.1:0")?).await?;
+        let listener = Listener::bind(&Address::any_port("127.0.0.1")?).await?;
         let bound = listener.local_address()?;
         let port = bound
             .host_port()
@@ -38,7 +44,7 @@ fn test_a_tcp_listener_names_the_port_it_holds() -> TestResult {
         assert_ne!(port, "0");
         // The address it names binds again once the listener is gone.
         drop(listener);
-        assert!(Listener::bind(&bound).await.is_ok());
+        assert_eq!(Listener::bind(&bound).await?.local_address()?, bound);
         Ok(())
     })
 }
@@ -53,7 +59,13 @@ fn test_an_address_that_cannot_be_bound_fails_as_io() -> TestResult {
             ));
         };
         assert!(
-            matches!(error.0, TransportErrorEnum::Io { .. }),
+            matches!(
+                error.0,
+                TransportErrorEnum::Io {
+                    kind: std::io::ErrorKind::NotFound,
+                    ..
+                }
+            ),
             "{error:?}"
         );
         Ok(())

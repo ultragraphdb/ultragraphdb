@@ -19,6 +19,7 @@ fn one_effective() -> TestResult<MetadataState> {
         bytes: b"one".to_vec(),
     })?;
     state.apply(&MetadataCommand::LearnClose {
+        placement: 0,
         epoch: Epoch::new(1)?,
         versions: vec![(ns, 1)],
         evictions: Vec::new(),

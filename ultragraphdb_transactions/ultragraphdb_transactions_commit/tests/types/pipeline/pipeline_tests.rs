@@ -587,3 +587,40 @@ fn test_a_registration_through_the_pipeline_is_answered_with_its_version() -> Te
     );
     Ok(())
 }
+
+/// A pipeline whose session table holds one session refuses a second session's commit busy, naming the capacity, and
+/// writes nothing of it; the first session goes on committing.
+#[test]
+fn test_a_pipeline_with_a_full_session_table_refuses_a_new_session_busy() -> TestResult {
+    let applier = applier()?;
+    let (_storage, log) = wal()?;
+    let mut pipe: Pipe<'_> = Pipeline::new(&applier, log, unbounded())?.with_sessions(1);
+    let mut answered = Vec::new();
+    for (ticket, session, request, subject) in [(1, 7, 1, "p"), (2, 8, 1, "q"), (3, 7, 2, "r")] {
+        let mut txn = begin(&applier)?;
+        write(&mut txn, vec![insert(subject, "knows", "b")])?;
+        pipe.commit(ticket, prepare_in(txn, session, request)?, 0)?;
+        if pipe.needs_sync() {
+            block_on(pipe.sync(0))?;
+        }
+        answered.extend(
+            drained(&mut pipe)
+                .iter()
+                .map(|r| (r.ticket(), r.outcome().clone())),
+        );
+    }
+    assert_eq!(
+        answered
+            .iter()
+            .map(|(t, o)| (*t, o.is_ok()))
+            .collect::<Vec<_>>(),
+        vec![(1, true), (2, false), (3, true)]
+    );
+    assert_eq!(
+        answered.get(1).map(|(_, o)| o.clone()),
+        Some(Err(CommitError::busy(1)))
+    );
+    assert_eq!(held(&applier, "q", "knows")?, Vec::<Term>::new());
+    assert_eq!(held(&applier, "r", "knows")?.len(), 1);
+    Ok(())
+}

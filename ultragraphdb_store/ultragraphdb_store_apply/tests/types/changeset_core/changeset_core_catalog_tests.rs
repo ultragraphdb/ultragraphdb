@@ -69,6 +69,50 @@ fn test_a_version_taking_effect_installs_its_declarations_and_number() -> TestRe
     Ok(())
 }
 
+/// A version replayed from its logged round reads the round's dictionary entries as its own: the IRI it names takes
+/// the ID the first apply gave it, and nothing else differs from the version taking effect.
+#[test]
+fn test_a_replayed_version_takes_the_ids_its_logged_round_gave() -> TestResult {
+    let original = changesets()?;
+    let replica = changesets()?;
+    for a in [&original, &replica] {
+        write(a, &["<a> <knows> <b>"])?;
+    }
+    // The original creates terms it then releases, so its next ID is one the replica would not give `name`.
+    let released = original.execute(&crate::utils::changesets::changeset(vec![
+        crate::utils::changesets::insert("<gone> <p> <q>")?,
+    ]))?;
+    original.release(&released);
+    let contents = version(2, &[("name", "a property with `exact`")])?;
+    let first = original.execute_catalog(&contents)?.into_executed();
+    let dictionary: Vec<ultragraphdb_traits_store::VersionlessEntry> = first
+        .writes()
+        .versionless()
+        .iter()
+        .filter(|e| e.key().first() == Some(&Keyspace::Dictionary.byte()))
+        .cloned()
+        .collect();
+    assert!(!dictionary.is_empty(), "the version names a new IRI");
+    let version = original.quads().lists().next_version();
+    let _applied = original.apply_round(vec![(version, first)])?;
+    let borrowed: Vec<&ultragraphdb_traits_store::VersionlessEntry> = dictionary.iter().collect();
+    let replayed = replica.replay_catalog(&contents, &borrowed)?;
+    assert!(replayed.refusals().is_empty(), "{:?}", replayed.refusals());
+    // Recovery writes the logged round's dictionary entries beside the replayed execution.
+    let _replayed = replica.apply_round_with(
+        vec![(version, replayed.into_executed())],
+        &dictionary,
+        version,
+    )?;
+    assert_eq!(uid(&replica, "name")?, uid(&original, "name")?);
+    assert_eq!(replica.catalog(NS)?.version(), 2);
+    assert_eq!(
+        replica.catalog(NS)?.predicate(uid(&replica, "name")?),
+        original.catalog(NS)?.predicate(uid(&original, "name")?)
+    );
+    Ok(())
+}
+
 #[test]
 fn test_a_version_is_installed_by_its_round_not_its_execution() -> TestResult {
     let a = changesets()?;
@@ -116,11 +160,12 @@ fn test_a_declaration_the_data_contradicts_is_refused_and_the_rest_installed() -
         &a,
         &version(2, &[("nick", "single-valued"), ("age", "a property")])?,
     )?;
-    assert_eq!(refusals.len(), 1, "{refusals:?}");
-    let refusal = refusals.first().context("one refusal")?;
-    assert!(
-        refusal.contains("nick") && refusal.contains("http://ex.org/a"),
-        "{refusal}"
+    assert_eq!(
+        refusals,
+        vec![
+            "The declaration of <http://ex.org/nick> is refused by its data: <http://ex.org/a> holds more than one object"
+                .to_string()
+        ]
     );
     let catalog = a.catalog(NS)?;
     assert_eq!(catalog.version(), 2, "the version takes effect");
@@ -182,12 +227,12 @@ fn test_a_version_waits_while_a_build_runs() -> TestResult {
             ("tag", "a property with `exact`"),
         ],
     )?);
-    assert!(
-        matches!(
-            refused.map_err(|e| e.0),
-            Err(ChangesetErrorEnum::Rebuilding { .. })
-        ),
-        "the next version waits for the build's end"
+    assert_eq!(
+        refused.err().map(|e| e.0),
+        Some(ChangesetErrorEnum::Rebuilding {
+            predicate: ex("name").as_str().to_string()
+        }),
+        "the next version waits for the build's end, naming the build that runs"
     );
     Ok(())
 }

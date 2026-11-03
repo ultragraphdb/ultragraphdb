@@ -634,3 +634,76 @@ fn test_a_swap_after_a_drop_cancelled_its_build_is_discarded() -> TestResult {
     );
     Ok(())
 }
+
+/// The swap of a build a catalog version started names that version; an execution ending no build names none.
+#[test]
+fn test_a_build_end_names_the_catalog_version_that_started_its_build() -> TestResult {
+    use ultragraphdb_core_mapping::Declaration;
+    let a = changesets()?;
+    a.sequence_builds();
+    write(&a, &["<a> <name> \"big apple\""])?;
+    let contents = ultragraphdb_core_catalog::CatalogContents::new(
+        NS,
+        2,
+        vec![Declaration::Predicate(declaration(
+            "name",
+            "a property with `term`",
+        )?)],
+    );
+    let started = a.execute_catalog(&contents)?.into_executed();
+    assert_eq!(
+        started.build_version(),
+        None,
+        "it starts the build, ends none"
+    );
+    let version = next_version(&a);
+    let _applied: Vec<Applied> = a.apply_round(vec![(version, started)])?;
+    finish_builds(&a);
+    let swap = a.prepare_build_end(a.take_build_end().context("the job ended")?)?;
+    assert_eq!(swap.build_version(), Some(2));
+    let plain = a.execute(&crate::utils::changesets::changeset(vec![insert(
+        "<b> <knows> <c>",
+    )?]))?;
+    assert_eq!(plain.build_version(), None, "a write ends no build");
+    a.release(&plain);
+    Ok(())
+}
+
+/// The build's entry point, the first node it inserted, has its vector deleted during the build, and another node's
+/// vector is written meanwhile: the swap inserting it finds the entry point empty and makes the first node holding a
+/// vector the entry point, so every live vector is found and the deleted one is not.
+#[test]
+fn test_a_swap_replaces_an_entry_point_whose_vector_the_build_saw_deleted() -> TestResult {
+    let a = changesets()?;
+    declare(&a, "emb", "single-valued")?;
+    write(
+        &a,
+        &[
+            "<a> <emb> \"[1, 0, 0]\"^^ugdb:float32vector",
+            "<b> <emb> \"[0, 1, 0]\"^^ugdb:float32vector",
+        ],
+    )?;
+    declare(
+        &a,
+        "emb",
+        "single-valued with a vector index of dimension 3",
+    )?;
+    assert!(a.rebuilding());
+    write_changes(
+        &a,
+        vec![
+            delete("<a> <emb> \"[1, 0, 0]\"^^ugdb:float32vector")?,
+            insert("<c> <emb> \"[0, 0, 1]\"^^ugdb:float32vector")?,
+        ],
+    )?;
+    finish_builds(&a);
+    assert!(!a.rebuilding());
+    assert_eq!(nearest(&a, &[0.0, 1.0, 0.0], 1)?, vec![uid(&a, "b")?]);
+    assert_eq!(nearest(&a, &[0.0, 0.0, 1.0], 1)?, vec![uid(&a, "c")?]);
+    let mut all = nearest(&a, &[1.0, 0.0, 0.0], 3)?;
+    all.sort();
+    let mut live = vec![uid(&a, "b")?, uid(&a, "c")?];
+    live.sort();
+    assert_eq!(all, live, "the deleted vector is not found");
+    Ok(())
+}

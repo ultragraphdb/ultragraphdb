@@ -125,7 +125,12 @@ fn test_der_values_build_an_acceptor_and_an_empty_chain_is_refused() -> TestResu
         CertificateDer::pem_slice_iter(pki.server_chain_pem().as_bytes())
             .collect::<Result<_, _>>()
             .context("the chain")?;
-    assert!(TlsAcceptor::from_der(chain, key().context("the key")?, "the key").is_ok());
+    let built = TlsAcceptor::from_der(chain, key().context("the key")?, "the key")?;
+    // The acceptor serves the chain: a client trusting the authority completes a handshake with it.
+    let mut client = TestPeer::new(pki.connector()?.session("localhost")?, TestEcho::default());
+    let version = built.accept(&mut client)?.session().protocol_version();
+    assert_eq!(version, Some(ProtocolVersion::TLSv1_3));
+    assert!(!client.failed());
     let Err(error) = TlsAcceptor::from_der(Vec::new(), key().context("the key")?, "the key") else {
         return Err(TestError::new("an empty chain built an acceptor"));
     };

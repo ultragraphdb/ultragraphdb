@@ -82,19 +82,27 @@ SHALL receive the closes it missed, from its last delivered epoch.
 - **WHEN** a partition loses its connection after epoch 3 and reconnects after epoch 9 closed
 - **THEN** it receives epochs 4 to 9 in order before any later close
 
-### Requirement: Closes announce the catalog versions taking effect after them
+### Requirement: Closes announce the versions taking effect after them
 At each close `c + 1` the sequencer SHALL assign the effective epoch `c + 2` to every catalog version the metadata
-group holds pending (metadata-group, "Catalog versions take effect at an epoch boundary"), record the assignments in
-the close's durable record, and deliver them with the close, which announces them; the metadata group SHALL learn each
-version's effective epoch from that close. A version still pending when the frontend crashes before a close SHALL be
+group holds pending (metadata-group, "Catalog versions take effect at an epoch boundary") and to the oldest placement
+version it holds pending, at most one per close (metadata-group, "The placement map assigns bucket ranges to
+partitions"), record the assignments in the close's durable record, and deliver them with the close, which announces
+them; the metadata group SHALL learn each version's effective epoch from that close. A version still pending when the frontend crashes before a close SHALL be
 assigned at the next close after recovery. The close record SHALL likewise carry the session evictions the registry
 made since the previous close (metadata-group, "The metadata group registers sessions"). A partition SHALL take a
-version into effect from its assigned epoch, and therefore holds it before it can stamp that epoch.
+catalog or placement version into effect from its assigned epoch, and therefore holds it before it can stamp that
+epoch.
 
 #### Scenario: A version reaches every partition before its epoch
 - **WHEN** a catalog version is pending while epoch 38 is the latest close, and the sequencer closes epoch 39
 - **THEN** the close of epoch 39 assigns it effective epoch 40, its durable record holds the assignment, and every
   partition holds the version before it stamps a commit at epoch 40
+
+#### Scenario: A close assigns one placement version
+- **WHEN** placement versions 1 and 2 are pending while epoch 38 is the latest close, and the sequencer closes epochs
+  39 and 40
+- **THEN** the close of 39 assigns version 1 effective epoch 40, and the close of 40 assigns version 2 effective epoch
+  41
 
 #### Scenario: A crash before the close leaves the version pending
 - **WHEN** a catalog version is committed as pending while epoch 38 is the latest close, and the frontend is killed

@@ -213,7 +213,12 @@ fn test_a_literal_object_names_no_term_key() -> TestResult {
         .first()
         .and_then(|k| k.get(48..))
         .context("the object")?;
-    assert!(EncodedTerm::from_bytes(literal).is_ok());
+    let term = EncodedTerm::from_bytes(literal).context("the object decodes")?;
+    assert_eq!(
+        term.as_bytes(),
+        literal,
+        "the rest of the key is the one literal's encoding"
+    );
     Ok(())
 }
 
@@ -369,7 +374,25 @@ fn test_a_drop_records_its_operation_and_its_ranges() -> TestResult {
 #[test]
 fn test_each_drop_names_its_operation() -> TestResult {
     let applier = known()?;
+    store(
+        &applier,
+        vec![Change::Insert {
+            graph: GraphName::NamedNode(ex("g")),
+            subject: ex("a").into(),
+            predicate: ex("knows"),
+            object: ex("c").into(),
+        }],
+    )?;
+    let (knows, g) = (ex("knows"), ex("g"));
     let cases = [
+        (
+            DropRequest::Predicate(knows.as_ref()),
+            RecordOperation::DropPredicate(id(&applier, "knows")?),
+        ),
+        (
+            DropRequest::Graph(g.as_ref().into()),
+            RecordOperation::DropGraph(id(&applier, "g")?),
+        ),
         (DropRequest::Data, RecordOperation::DropNamespaceData),
         (DropRequest::Namespace, RecordOperation::DropNamespace),
         (DropRequest::All, RecordOperation::DropAll),
@@ -434,5 +457,55 @@ fn test_a_reused_buffer_is_cleared() -> TestResult {
     assert!(small_len < big_len);
     assert_eq!(out.len(), small_len);
     assert_eq!(out, written(&WriteSetBuilder::new(&small, 1, 1, &[]))?);
+    Ok(())
+}
+
+/// A record encoded past its limit is refused naming its size and the limit, the buffer left empty; at the limit it is
+/// written.
+#[test]
+fn test_an_encoding_past_its_limit_is_refused_leaving_the_buffer_empty() -> TestResult {
+    let applier = known()?;
+    let executed = executed(&applier, vec![insert("a", "knows", "b")])?;
+    let record = WriteSetBuilder::new(&executed, 1, 1, &[]).build()?;
+    let len = record.encode().len();
+    let mut out = vec![0xAA; 3];
+    assert_eq!(
+        WriteSetBuilder::encode_into(&record, &mut out, len - 1),
+        Err(TxnError::write_set_too_large(len, len - 1))
+    );
+    assert!(out.is_empty());
+    assert_eq!(
+        WriteSetBuilder::encode_into(&record, &mut out, len),
+        Ok(len)
+    );
+    assert_eq!(out, record.encode());
+    Ok(())
+}
+
+/// A statement written in a named graph names the graph's term too, by its term key; the default graph names none.
+#[test]
+fn test_a_statement_in_a_named_graph_names_its_graphs_term_key() -> TestResult {
+    let applier = known()?;
+    let in_g = |subject: &str| Change::Insert {
+        graph: GraphName::NamedNode(ex("g")),
+        subject: ex(subject).into(),
+        predicate: ex("knows"),
+        object: ex("c").into(),
+    };
+    store(&applier, vec![in_g("b")])?;
+    let executed = executed(&applier, vec![in_g("a")])?;
+    let bytes = written(&WriteSetBuilder::new(&executed, 1, 1, &[]))?;
+    let points = keys(WriteSetRecordView::new(&bytes)?.conflict_points());
+    let mut term_keys: Vec<Vec<u8>> = points
+        .into_iter()
+        .filter(|k| k.first() == Some(&ReadSet::TERM_TAG))
+        .collect();
+    term_keys.sort();
+    let mut expected = ["a", "knows", "c", "g"]
+        .iter()
+        .map(|n| id(&applier, n).map(|id| ReadSet::term_key(id).to_vec()))
+        .collect::<TestResult<Vec<_>>>()?;
+    expected.sort();
+    assert_eq!(term_keys, expected, "subject, predicate, object and graph");
     Ok(())
 }

@@ -336,3 +336,109 @@ fn test_the_cause_is_the_losss_source() -> TestResult {
     );
     Ok(())
 }
+
+/// A read whose last frame, a refusal, had arrived when its connection was lost reads its batches, then the refusal,
+/// once, and is finished.
+#[test]
+fn test_a_kept_read_ending_in_a_refusal_answers_it_after_the_loss() -> TestResult {
+    let mut c = Conn::new()?;
+    let tx = c.begin(true)?;
+    let stream = c.read(&tx)?;
+    c.result(&stream, false)?;
+    let refusal = ErrorReply::new(ErrorCode::OperationFailed, "the read failed")
+        .with_detail(4)
+        .frame(
+            Header::new(CLUSTER, Command::Error)
+                .with_stream(stream.stream())
+                .with_flags(ultragraphdb_protocol_wire::FLAG_LAST),
+        )?;
+    c.deliver(&refusal)??;
+    c.core.disconnected(TransportError::closed(), start());
+    assert_eq!(c.batch(&stream), Ok(BatchPoll::Batch(3)));
+    assert_eq!(
+        c.batch(&stream),
+        Err(ClientError::refused(
+            ErrorCode::OperationFailed,
+            4,
+            "the read failed",
+            None
+        ))
+    );
+    assert_eq!(
+        c.batch(&stream),
+        Err(ClientError::stream_finished(stream.stream()))
+    );
+    Ok(())
+}
+
+/// A read whose last frame, kept after the loss, breaks its command's layout answers the rule it broke, once.
+#[test]
+fn test_a_kept_read_ending_in_a_broken_frame_answers_its_rule_after_the_loss() -> TestResult {
+    let mut c = Conn::new()?;
+    let tx = c.begin(true)?;
+    let stream = c.read(&tx)?;
+    // A Begin's body on the read's stream, flagged last: no Result.
+    let broken = Begin::new(0, 5, true).frame(
+        Header::new(CLUSTER, Command::Begin)
+            .with_stream(stream.stream())
+            .with_flags(ultragraphdb_protocol_wire::FLAG_LAST),
+    )?;
+    c.deliver(&broken)??;
+    c.core.disconnected(TransportError::closed(), start());
+    let refused = c.batch(&stream).err().context("an error")?;
+    assert!(
+        matches!(
+            &refused.0,
+            ultragraphdb_client_core::ClientErrorEnum::Protocol { .. }
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(
+        c.batch(&stream),
+        Err(ClientError::stream_finished(stream.stream()))
+    );
+    Ok(())
+}
+
+/// A read kept, or cut short, by a lost connection and then cancelled is forgotten: nothing is sent for it, and it is
+/// finished.
+#[test]
+fn test_a_kept_or_lost_read_cancelled_is_forgotten() -> TestResult {
+    for kept in [false, true] {
+        let mut c = Conn::new()?;
+        let tx = c.begin(true)?;
+        let stream = c.read(&tx)?;
+        c.result(&stream, kept)?;
+        c.core.disconnected(TransportError::closed(), start());
+        c.connect()?;
+        c.core.cancel(stream);
+        assert_eq!(c.core.transmit(), None, "kept {kept}: no Cancel");
+        assert_eq!(
+            c.batch(&stream),
+            Err(ClientError::stream_finished(stream.stream())),
+            "kept {kept}"
+        );
+    }
+    Ok(())
+}
+
+/// A read of an earlier connection, neither kept nor lost, cancelled on the next: nothing is sent, and the stream of
+/// that number on the new connection is left alone.
+#[test]
+fn test_a_read_of_an_earlier_connection_cancelled_sends_nothing() -> TestResult {
+    let mut c = Conn::new()?;
+    let tx = c.begin(true)?;
+    let stream = c.read(&tx)?;
+    c.core.cancel(stream);
+    let _cancel: u64 = c.stream()?;
+    c.core.disconnected(TransportError::closed(), start());
+    c.connect()?;
+    let again = c.begin(true)?;
+    let renewed = c.read(&again)?;
+    assert_eq!(renewed.stream(), stream.stream(), "the same number again");
+    c.core.cancel(stream);
+    assert_eq!(c.core.transmit(), None, "no Cancel for the earlier read");
+    c.result(&renewed, true)?;
+    assert_eq!(c.batch(&renewed), Ok(BatchPoll::Batch(3)));
+    Ok(())
+}

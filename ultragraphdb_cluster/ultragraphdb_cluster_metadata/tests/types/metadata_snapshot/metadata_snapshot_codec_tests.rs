@@ -36,6 +36,7 @@ fn small() -> TestResult<MetadataSnapshot> {
         bytes: b"ab".to_vec(),
     })?;
     state.apply(&MetadataCommand::LearnClose {
+        placement: 0,
         epoch: Epoch::new(5)?,
         versions: vec![(Namespace::new(2), 1)],
         evictions: Vec::new(),
@@ -74,6 +75,8 @@ fn small_bytes() -> Vec<u8> {
     out.extend_from_slice(&0_u32.to_be_bytes()); // no principal
     out.extend_from_slice(&0_u32.to_be_bytes()); // no session
     out.extend_from_slice(&0_u32.to_be_bytes()); // no eviction pending
+    out.extend_from_slice(&0_u64.to_be_bytes()); // the initial map's placement version
+    out.extend_from_slice(&0_u32.to_be_bytes()); // no placement version pending
     out
 }
 
@@ -88,6 +91,7 @@ fn full_catalogs() -> TestResult<Vec<MetadataCommand>> {
     };
     let close = |epoch, versions: Vec<(Namespace, u64)>| -> TestResult<MetadataCommand> {
         Ok(MetadataCommand::LearnClose {
+            placement: 0,
             epoch: Epoch::new(epoch)?,
             versions,
             evictions: Vec::new(),
@@ -135,7 +139,6 @@ fn full_rest() -> TestResult<Vec<MetadataCommand>> {
         });
     }
     commands.push(MetadataCommand::ChangePlacement {
-        from: Epoch::new(7)?,
         assignments: vec![(BucketRange::new(0, 16_777_216)?, PartitionId::new(2)?)],
     });
     for (id, name, administrator) in [(1_u8, "zed", true), (2, "amy", false)] {
@@ -178,8 +181,9 @@ fn test_a_small_state_encodes_as_written_by_hand() -> TestResult {
 fn test_an_empty_state_round_trips() -> TestResult {
     let snapshot = MetadataSnapshot::new(Position::ZERO, MetadataState::new());
     let bytes = encoded(&snapshot);
-    // Format, position, learned, 4 empty tables, no map, no report, next principal, 3 empty tables.
-    assert_eq!(bytes.len(), 1 + 8 + 8 + 4 * 3 + 1 + 4 + 8 + 4 * 3);
+    // Format, position, learned, 4 empty tables, no map, no report, next principal, 3 empty tables, the last placement
+    // version and none pending.
+    assert_eq!(bytes.len(), 1 + 8 + 8 + 4 * 3 + 1 + 4 + 8 + 4 * 3 + 8 + 4);
     assert_eq!(MetadataSnapshot::decode(&bytes)?, snapshot);
     Ok(())
 }
@@ -304,6 +308,135 @@ fn test_counts_past_their_limits_are_refused_before_their_values() -> TestResult
     assert_eq!(
         refusal(&versions)?,
         ClusterError::too_many("retained catalog versions of a namespace", 1_025, 1_024).0
+    );
+    Ok(())
+}
+
+/// A snapshot's bytes up to its first table: the format byte, position 9, the learned close 4, then `rest`.
+fn snapshot_with(rest: &[&[u8]]) -> Vec<u8> {
+    let mut out = vec![1];
+    out.extend_from_slice(&9_u64.to_be_bytes());
+    out.extend_from_slice(&4_u64.to_be_bytes());
+    for part in rest {
+        out.extend_from_slice(part);
+    }
+    out
+}
+
+#[test]
+fn test_every_tables_count_past_its_limit_is_refused_before_its_values() -> TestResult {
+    let zero = 0_u32.to_be_bytes();
+    let one = 1_u32.to_be_bytes();
+    let ns = 1_u64.to_be_bytes();
+    let cases: [(Vec<u8>, ClusterError); 7] = [
+        (
+            snapshot_with(&[&1_048_577_u32.to_be_bytes()]),
+            ClusterError::too_many("catalogs", 1_048_577, 1_048_576),
+        ),
+        // One catalog of one pending version, version 1 above the released 0, of 16 MiB and one byte.
+        (
+            snapshot_with(&[
+                &one,
+                &ns,
+                &1_u64.to_be_bytes(),
+                &0_u64.to_be_bytes(),
+                &one,
+                &1_u64.to_be_bytes(),
+                &[0],
+                &16_777_217_u32.to_be_bytes(),
+            ]),
+            ClusterError::too_many("bytes of a catalog version", 16_777_217, 16_777_216),
+        ),
+        (
+            snapshot_with(&[&zero, &1_048_577_u32.to_be_bytes()]),
+            ClusterError::too_many("default-entry records", 1_048_577, 1_048_576),
+        ),
+        (
+            snapshot_with(&[&zero, &one, &ns, &4_097_u16.to_be_bytes()]),
+            ClusterError::too_many("bytes of a predicate's name", 4_097, 4_096),
+        ),
+        (
+            snapshot_with(&[
+                &zero,
+                &one,
+                &ns,
+                &1_u16.to_be_bytes(),
+                b"p",
+                &65_537_u32.to_be_bytes(),
+            ]),
+            ClusterError::too_many("bytes of a default entry", 65_537, 65_536),
+        ),
+        (
+            snapshot_with(&[&zero, &zero, &65_537_u32.to_be_bytes()]),
+            ClusterError::too_many("high-water marks", 65_537, 65_536),
+        ),
+        (
+            snapshot_with(&[&zero, &zero, &zero, &[1], &2_147_483_649_u32.to_be_bytes()]),
+            ClusterError::too_many("bytes of a placement map", 2_147_483_649, 2_147_483_648),
+        ),
+    ];
+    for (bytes, expected) in cases {
+        assert_eq!(refusal(&bytes)?, expected.0);
+    }
+    Ok(())
+}
+
+#[test]
+fn test_the_access_tables_counts_past_their_limits_are_refused_before_their_values() -> TestResult {
+    let zero = 0_u32.to_be_bytes();
+    let cases: [(Vec<u8>, ClusterError); 4] = [
+        (
+            snapshot_with(&[&zero, &zero, &zero, &[0], &1_025_u32.to_be_bytes()]),
+            ClusterError::too_many("partitions reporting", 1_025, 1_024),
+        ),
+        (
+            snapshot_with(&[
+                &zero,
+                &zero,
+                &zero,
+                &[0],
+                &zero,
+                &1_u64.to_be_bytes(),
+                &65_537_u32.to_be_bytes(),
+            ]),
+            ClusterError::too_many("principals", 65_537, 65_536),
+        ),
+        (
+            snapshot_with(&[
+                &zero,
+                &zero,
+                &zero,
+                &[0],
+                &zero,
+                &1_u64.to_be_bytes(),
+                &zero,
+                &1_048_577_u32.to_be_bytes(),
+            ]),
+            ClusterError::too_many("sessions", 1_048_577, 1_048_576),
+        ),
+        (
+            snapshot_with(&[
+                &zero,
+                &zero,
+                &zero,
+                &[0],
+                &zero,
+                &1_u64.to_be_bytes(),
+                &zero,
+                &zero,
+                &65_537_u32.to_be_bytes(),
+            ]),
+            ClusterError::too_many("session evictions awaiting a close", 65_537, 65_536),
+        ),
+    ];
+    for (bytes, expected) in cases {
+        assert_eq!(refusal(&bytes)?, expected.0);
+    }
+    // At the limit, the count is taken and the values it counts are then read: here they are missing.
+    let at_limit = snapshot_with(&[&zero, &zero, &zero, &[0], &1_024_u32.to_be_bytes()]);
+    assert_eq!(
+        refusal(&at_limit)?,
+        ClusterError::malformed("a partition from 1", 34).0
     );
     Ok(())
 }

@@ -37,7 +37,7 @@ async fn round_trip(mut near: Carrier, mut far: Carrier) -> TestResult {
 #[test]
 fn test_a_tcp_address_carries_bytes_both_ways() -> TestResult {
     compio::runtime::Runtime::new()?.block_on(async {
-        let (listener, accepted, dialled) = pair(&Address::parse("tcp://127.0.0.1:0")?).await?;
+        let (listener, accepted, dialled) = pair(&Address::any_port("127.0.0.1")?).await?;
         let bound = listener.local_address()?;
         assert_eq!(bound.scheme(), Scheme::Tcp);
         assert_ne!(
@@ -98,8 +98,15 @@ fn test_dialling_where_nothing_listens_fails_as_io() -> TestResult {
                 "a socket path nothing listens at was dialled",
             ));
         };
+        // No socket file at the path: the system says it is not found.
         assert!(
-            matches!(error.0, TransportErrorEnum::Io { .. }),
+            matches!(
+                error.0,
+                TransportErrorEnum::Io {
+                    kind: std::io::ErrorKind::NotFound,
+                    ..
+                }
+            ),
             "{error:?}"
         );
         Ok(())

@@ -55,7 +55,7 @@ fn test_a_learned_close_assigns_its_versions_the_epoch_after_it() -> TestResult 
     let (_storage, mut group) = fresh()?;
     let _: (u64, Position) = group.offer_catalog(ns(), 0, b"a")?;
     sync(&mut group)?;
-    let position = group.learn_close(epoch(39)?, &[(ns(), 1)], &[])?;
+    let position = group.learn_close(epoch(39)?, &[(ns(), 1)], 0, &[])?;
     assert_eq!(position.map(|p| p.get()), Some(2));
     sync(&mut group)?;
     let record = group
@@ -72,13 +72,13 @@ fn test_a_close_learned_already_changes_nothing() -> TestResult {
     let (_storage, mut group) = fresh()?;
     learn_through(&mut group, 3)?;
     let applied = group.applied();
-    assert_eq!(group.learn_close(epoch(3)?, &[], &[])?, None);
-    assert_eq!(group.learn_close(epoch(1)?, &[], &[])?, None);
-    assert_eq!(group.learn_close(Epoch::ZERO, &[], &[])?, None);
+    assert_eq!(group.learn_close(epoch(3)?, &[], 0, &[])?, None);
+    assert_eq!(group.learn_close(epoch(1)?, &[], 0, &[])?, None);
+    assert_eq!(group.learn_close(Epoch::ZERO, &[], 0, &[])?, None);
     assert_eq!(group.applied(), applied);
     // A close learned but not yet durable is learned already too.
-    let _: Option<Position> = group.learn_close(epoch(4)?, &[], &[])?;
-    assert_eq!(group.learn_close(epoch(4)?, &[], &[])?, None);
+    let _: Option<Position> = group.learn_close(epoch(4)?, &[], 0, &[])?;
+    assert_eq!(group.learn_close(epoch(4)?, &[], 0, &[])?, None);
     Ok(())
 }
 
@@ -87,7 +87,7 @@ fn test_a_close_skipping_an_epoch_is_refused() -> TestResult {
     let (_storage, mut group) = fresh()?;
     learn_through(&mut group, 3)?;
     let refusal = group
-        .learn_close(epoch(5)?, &[], &[])
+        .learn_close(epoch(5)?, &[], 0, &[])
         .err()
         .context("a refusal")?;
     assert_eq!(refusal.0, ClusterError::epoch_ahead(5, 4).0);
@@ -99,7 +99,7 @@ fn test_a_close_past_the_sequencers_limits_is_refused() -> TestResult {
     let (_storage, mut group) = fresh()?;
     let versions = vec![(ns(), 1); 257];
     let refusal = group
-        .learn_close(epoch(1)?, &versions, &[])
+        .learn_close(epoch(1)?, &versions, 0, &[])
         .err()
         .context("a refusal")?;
     assert_eq!(
@@ -108,7 +108,7 @@ fn test_a_close_past_the_sequencers_limits_is_refused() -> TestResult {
     );
     let evictions = vec![1; 4_097];
     let refusal_2 = group
-        .learn_close(epoch(1)?, &[], &evictions)
+        .learn_close(epoch(1)?, &[], 0, &evictions)
         .err()
         .context("a refusal_2")?;
     assert_eq!(

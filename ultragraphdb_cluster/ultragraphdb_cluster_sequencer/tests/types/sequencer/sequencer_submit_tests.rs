@@ -32,7 +32,7 @@ fn test_a_transaction_is_placed_in_the_open_epoch() -> TestResult {
     let (_, mut sequencer) = fresh(config(2, 10)?)?;
     let (placed, position) = sequencer.submit(epoch(1)?, &[pid(1)?, pid(2)?], b"a")?;
     assert_eq!((placed.get(), position.get()), (1, 1));
-    let _close = sequencer.tick(at(10), &[], &[])?;
+    let _close = sequencer.tick(at(10), &[], 0, &[])?;
     // A transaction after a close not yet durable is in the epoch after it.
     let (later, later_position) = sequencer.submit(epoch(1)?, &[pid(2)?], b"b")?;
     assert_eq!((later.get(), later_position.get()), (2, 3));
@@ -66,7 +66,7 @@ fn test_reading_from_an_epoch_skips_the_earlier_ones() -> TestResult {
     let (_, mut sequencer) = fresh(config(1, 1)?)?;
     for ms in 1..=4 {
         let _placed = sequencer.submit(epoch(1)?, &[pid(1)?], &[u8::try_from(ms)?])?;
-        let _close = sequencer.tick(at(ms), &[], &[])?;
+        let _close = sequencer.tick(at(ms), &[], 0, &[])?;
     }
     let _durable = block_on(sequencer.sync())??;
     // Transactions in epochs 1 to 4, one each.

@@ -276,7 +276,7 @@ fn test_the_indexer_and_the_search_refuse_a_predicate_without_a_vector_index() -
             .err()
             .context("the error of a.search_vectors(..)")?;
         assert!(
-            matches!(&search_refused.0, ChangesetErrorEnum::NoVectorIndex { .. }),
+            matches!(&search_refused.0, ChangesetErrorEnum::NoVectorIndex { predicate: p } if p == predicate.as_str()),
             "{search_refused:?}"
         );
     }

@@ -52,9 +52,15 @@ impl Cluster {
             .map(|(namespace, version)| CatalogVersion::new(namespace, version))
             .collect();
         let evictions = self.group.state().pending_evictions();
+        let placement = self.group.state().pending_placement();
         let _closed = self
             .sequencer
-            .tick(ClockReading::new(now, now), &versions, &evictions)?
+            .tick(
+                ClockReading::new(now, now),
+                &versions,
+                placement,
+                &evictions,
+            )?
             .context("a close due at its deadline")?;
         let _durable = block_on(self.sequencer.sync())??;
         let close = self
@@ -66,9 +72,12 @@ impl Cluster {
             .iter()
             .map(|version| (version.namespace(), version.version()))
             .collect();
-        let _learned = self
-            .group
-            .learn_close(close.epoch(), &announced, close.evictions())?;
+        let _learned = self.group.learn_close(
+            close.epoch(),
+            &announced,
+            close.placement(),
+            close.evictions(),
+        )?;
         sync(&mut self.group)?;
         Ok(close)
     }

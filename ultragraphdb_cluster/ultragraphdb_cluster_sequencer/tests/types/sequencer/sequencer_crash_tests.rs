@@ -63,7 +63,12 @@ fn step(
         .into_iter()
         .collect();
     let now = sequencer.deadline();
-    let closed = match sequencer.tick(ClockReading::new(now, now), &catalog, &[u128::from(index)]) {
+    let closed = match sequencer.tick(
+        ClockReading::new(now, now),
+        &catalog,
+        0,
+        &[u128::from(index)],
+    ) {
         Ok(closed) => closed.context("a close at its deadline")?,
         Err(refusal) => return Ok(Err(refusal)),
     };
@@ -156,7 +161,7 @@ fn check(storage: &SimStorage, model: &Model, case: &str) -> TestResult {
     let last = sequencer.last_closed().get();
     assert_eq!(last, closes.last().map_or(0, |c| c.epoch().get()), "{case}");
     let now = sequencer.deadline();
-    let next = sequencer.tick(ClockReading::new(now, now), &[], &[])?;
+    let next = sequencer.tick(ClockReading::new(now, now), &[], 0, &[])?;
     assert_eq!(next.map(Epoch::get), Some(last + 1), "{case}");
     let _durable = block_on(sequencer.sync())??;
     Ok(())

@@ -5,7 +5,7 @@
 import PlacementModel.Repaired
 
 /-!
-# P24's rules 4, 5, 6, 9 and 11
+# P24's rules 4, 5, 6, 9 and 11, and placement activation
 
 Each theorem holds of every reachable state, so for every number of partitions, entities, bucket groups,
 registrations and steps, under every interleaving, delay, duplication or loss of messages and every crash. Rules 4 and
@@ -21,7 +21,14 @@ logs, referrer sets, marks and delivered closes.
 | 5 and 6, reverse reads | `reverse_read_complete` |
 | 9, reclamation | `reclamation_keeps_every_member_with_an_edge`, `a_stale_reclamation_report_removes_nothing` |
 | 11, catalog activation | `no_stamp_before_its_catalog_version` |
+| 11 for placement, placement activation | `no_route_before_its_placement_version`, `placement_epochs_rise` |
+| placement fixed once announced | `placement_in_effect_is_fixed`, `routes_through_a_held_version` |
 | the read's ordering | `stamps_never_fall_along_a_key` |
+
+Placement activation and its fixity hold for every protocol variant. `Placed` — the world's placement map agreeing with
+the versioned placement at every announced epoch — is a premise of the theorems connecting the two
+(`routes_through_a_held_version`, `handover_reads_fixed_versions`, `readReady_reads_fixed_versions`); `Handover` stays a
+premise of the write steps.
 -/
 
 namespace PlacementModel
@@ -80,6 +87,7 @@ theorem Extends.none {W : World} {σ σ' : State} (hd : ∀ p, σ.delivered p �
 theorem Step.extends {W : World} {P : Protocol} {σ σ' : State} (hs : Step W P σ σ') : Extends W σ σ' := by
   cases hs with
   | propose v => exact Extends.none (fun _ => Nat.le_refl _) rfl rfl
+  | proposePlacement v => exact Extends.none (fun _ => Nat.le_refl _) rfl rfl
   | close => exact Extends.none (fun _ => Nat.le_refl _) rfl rfl
   | deliver p _ =>
     refine Extends.none (fun q => ?_) rfl rfl
@@ -264,6 +272,194 @@ theorem close_assigns_one_above (σ : State) {x : Nat × Nat} (hx : x ∈ σ.clo
   · simp only [List.mem_map] at h
     obtain ⟨v, hv, rfl⟩ := h
     exact ⟨hv, rfl⟩
+
+/-! ## Placement activation: the rule-11 analogue for placement versions -/
+
+/-- **No partition routes at a placement version's effective epoch before it holds the version.** A placement version
+committed as pending is assigned `E = c + 2` by the close `c + 1` that announces it; every commit stamped at or above
+`E`, at any partition and on any write path, was made while its partition held the version. It holds for P24 as
+written.
+
+**Simulator invariant:** for every commit in every partition log stamped `t`, and every placement version whose
+effective epoch in the sequencer's close records is at or below `t`, the partition had loaded that version when it
+committed. -/
+theorem no_route_before_its_placement_version {W : World} {P : Protocol} {σ : State} (h : Reachable W P σ)
+    {rec : CommitRec} (hrec : rec ∈ σ.commits) {x : Nat × Nat} (hx : x ∈ σ.passigned) (hle : x.2 ≤ rec.stamp) :
+    x.1 ∈ rec.pheld :=
+  h.place.pcommitsOk rec hrec x hx hle
+
+/-- Every partition holds every placement version taking effect at or below its open epoch. -/
+theorem partition_holds_placement_versions_of_its_open_epoch {W : World} {P : Protocol} {σ : State}
+    (h : Reachable W P σ) (p : Nat) {x : Nat × Nat} (hx : x ∈ σ.passigned) (hle : x.2 ≤ σ.openEpoch p) :
+    x.1 ∈ σ.pheld p :=
+  h.place.pheldAll p x hx hle
+
+/-- A close announces at most one placement version, the oldest pending one, at one above its own number, and drops it
+from the pending ones. -/
+theorem close_assigns_one_placement_above (σ : State) :
+    ∃ X, σ.close.passigned = σ.passigned ++ X ∧ X.length ≤ 1 ∧
+      (∀ x ∈ X, σ.ppending.head? = some x.1 ∧ x.2 = (σ.seq + 1) + 1) ∧ σ.close.ppending = σ.ppending.tail := by
+  refine ⟨_, rfl, ?_, ?_, ?_⟩
+  · simp only [List.length_map, List.length_take]; omega
+  · intro x hx
+    change x ∈ (σ.ppending.take 1).map (fun v => (v, σ.seq + 2)) at hx
+    cases hp : σ.ppending with
+    | nil => rw [hp] at hx; cases hx
+    | cons v l =>
+      rw [hp] at hx
+      simp only [List.take_succ_cons, List.take_zero, List.map_cons, List.map_nil, List.mem_singleton] at hx
+      subst hx; exact ⟨rfl, rfl⟩
+  · show σ.ppending.drop 1 = σ.ppending.tail
+    cases σ.ppending <;> rfl
+
+/-- Two elements of a list whose second components strictly rise along it, with equal second components, are one. -/
+theorem pairwise_lt_unique {l : List (Nat × Nat)} (h : l.Pairwise (fun a b => a.2 < b.2)) {x y : Nat × Nat}
+    (hx : x ∈ l) (hy : y ∈ l) (he : x.2 = y.2) : x = y := by
+  induction l with
+  | nil => cases hx
+  | cons a l ih =>
+    rw [List.pairwise_cons] at h
+    rcases List.mem_cons.mp hx with rfl | hx'
+    · rcases List.mem_cons.mp hy with rfl | hy'
+      · rfl
+      · have := h.1 y hy'; omega
+    · rcases List.mem_cons.mp hy with rfl | hy'
+      · have := h.1 x hx'; omega
+      · exact ih h.2 hx' hy'
+
+/-- **Effective epochs of placement versions strictly rise in assignment order**, so no two placement versions share
+an effective epoch and each epoch has one version in effect. It holds for P24 as written.
+
+**Simulator invariant:** the sequencer's close records announce placement versions at strictly rising effective
+epochs, at most one per close. -/
+theorem placement_epochs_rise {W : World} {P : Protocol} {σ : State} (h : Reachable W P σ) :
+    σ.passigned.Pairwise (fun a b => a.2 < b.2) ∧
+      ∀ x ∈ σ.passigned, ∀ y ∈ σ.passigned, x.2 = y.2 → x = y :=
+  ⟨h.place.rise, fun _ hx _ hy he => pairwise_lt_unique h.place.rise hx hy he⟩
+
+/-! ## Placement in effect is fixed once announced -/
+
+/-- From `σ` to `σ'` the sequencer's close does not fall, and every placement version assigned after `σ` takes effect
+above `σ.seq + 1`. -/
+def PExtends (σ σ' : State) : Prop :=
+  σ.seq ≤ σ'.seq ∧ ∃ X, σ'.passigned = σ.passigned ++ X ∧ ∀ x ∈ X, σ.seq + 1 < x.2
+
+theorem PExtends.none {σ σ' : State} (hseq : σ'.seq = σ.seq) (ha : σ'.passigned = σ.passigned) : PExtends σ σ' :=
+  ⟨by rw [hseq]; exact Nat.le_refl _, [], by rw [ha, List.append_nil], by simp⟩
+
+theorem Step.pextends {W : World} {P : Protocol} {σ σ' : State} (hs : Step W P σ σ') : PExtends σ σ' := by
+  cases hs with
+  | close =>
+    refine ⟨Nat.le_succ _, _, rfl, fun x hx => ?_⟩
+    simp only [List.mem_map] at hx; obtain ⟨v, _, rfl⟩ := hx
+    show σ.seq + 1 < σ.seq + 2; omega
+  | accept src o g n mv _ =>
+    unfold State.accept
+    split
+    · exact PExtends.none rfl rfl
+    · split
+      · exact PExtends.none rfl rfl
+      · exact PExtends.none rfl rfl
+  | reclaim src o g k r _ =>
+    unfold State.onReport
+    split
+    · exact PExtends.none rfl rfl
+    · exact PExtends.none rfl rfl
+  | _ => exact PExtends.none rfl rfl
+
+theorem Steps.pextends {W : World} {P : Protocol} {σ σ' : State} (hs : Steps W P σ σ') : PExtends σ σ' := by
+  induction hs with
+  | refl => exact PExtends.none rfl rfl
+  | tail _ hstep ih =>
+    obtain ⟨s1, X1, e1, x1⟩ := ih
+    obtain ⟨s2, X2, e2, x2⟩ := hstep.pextends
+    refine ⟨Nat.le_trans s1 s2, X1 ++ X2, by rw [e2, e1, List.append_assoc], fun x hx => ?_⟩
+    rcases List.mem_append.mp hx with h | h
+    · exact x1 x h
+    · have := x2 x h; omega
+
+/-- **The placement version in effect at an announced epoch never changes.** Once the sequencer has issued close
+`seq`, no later step of any run changes which placement version is in effect at any epoch at or below `seq + 1`. It
+holds for every protocol variant, with no invariant needed.
+
+**Simulator invariant:** for every epoch at or below one above the sequencer's latest close, the placement version the
+close records put in effect there is the same after every later step. -/
+theorem placement_in_effect_is_fixed {W : World} {P : Protocol} {σ σ' : State} (hs : Steps W P σ σ') {t : Nat}
+    (ht : t ≤ σ.seq + 1) : σ'.versionAt t = σ.versionAt t := by
+  obtain ⟨_, X, e, x⟩ := hs.pextends
+  unfold State.versionAt
+  rw [e, lastWhere_append_none _ _ _ (fun y hy => by have := x y hy; simp; omega)]
+
+/-- Every partition's open epoch is announced: placement at it, and below it, is fixed for the rest of the run. -/
+theorem placement_fixed_at_open_epochs {W : World} {P : Protocol} {σ σ' : State} (h : Reachable W P σ)
+    (hs : Steps W P σ σ') (p : Nat) {t : Nat} (ht : t ≤ σ.openEpoch p) : σ'.versionAt t = σ.versionAt t :=
+  placement_in_effect_is_fixed hs (by have := h.base.delivLe p; simp only [State.openEpoch] at ht; omega)
+
+/-- A run whose world agrees with the versioned placement at its end agreed with it at every earlier state. -/
+theorem Placed.of_steps {W : World} {P : Protocol} {σ σ' : State} (hs : Steps W P σ σ') (hp : Placed W σ') :
+    Placed W σ := by
+  intro t ht s
+  rw [← placement_in_effect_is_fixed hs ht]
+  exact hp t (Nat.le_trans ht (Nat.succ_le_succ hs.pextends.1)) s
+
+/-- The placement version in effect at an epoch at or below a partition's open epoch is one it holds. -/
+theorem versionAt_held {σ : State} (h : PlaceInv σ) {p t : Nat} (ht : t ≤ σ.delivered p + 1) :
+    σ.versionAt t ∈ σ.pheld p := by
+  unfold State.versionAt
+  cases hl : lastWhere σ.passigned (fun x => decide (x.2 ≤ t)) with
+  | some x =>
+    obtain ⟨hx, hq⟩ := lastWhere_mem hl
+    simp only [decide_eq_true_eq] at hq
+    exact h.pheldAll p x hx (Nat.le_trans hq ht)
+  | none =>
+    have := lastWhere_none hl _ h.initial
+    simp at this
+
+/-- **A partition routes at its open epoch through the placement version in effect there, which it holds.** When the
+world's placement map is the versioned one (`Placed`), the partition the map gives a subject at `p`'s open epoch is the
+one the version in effect there gives it, and `p` holds that version. -/
+theorem routes_through_a_held_version {W : World} {P : Protocol} {σ : State} (h : Reachable W P σ)
+    (hp : Placed W σ) (p s : Nat) :
+    W.place (σ.openEpoch p) s = W.layout (σ.versionAt (σ.openEpoch p)) s ∧
+      σ.versionAt (σ.openEpoch p) ∈ σ.pheld p :=
+  ⟨hp _ (by have := h.base.delivLe p; simp only [State.openEpoch]; omega) s, versionAt_held h.place (Nat.le_refl _)⟩
+
+/-- Every commit held the placement version in effect at its stamp. -/
+theorem commit_held_its_placement_version {W : World} {P : Protocol} {σ : State} (h : Reachable W P σ)
+    {rec : CommitRec} (hrec : rec ∈ σ.commits) : σ.versionAt rec.stamp ∈ rec.pheld := by
+  unfold State.versionAt
+  cases hl : lastWhere σ.passigned (fun x => decide (x.2 ≤ rec.stamp)) with
+  | some x =>
+    obtain ⟨hx, hq⟩ := lastWhere_mem hl
+    simp only [decide_eq_true_eq] at hq
+    exact h.place.pcommitsOk rec hrec x hx hq
+  | none =>
+    have := lastWhere_none hl _ h.place.initial
+    simp at this
+
+/-- **The hand-over reads only announced placement.** Under `Placed`, `Handover` up to an epoch at most two above the
+sequencer's close — every partition's open epoch is one — names, at every earlier epoch, the partition of the placement
+version in effect there, which `placement_in_effect_is_fixed` keeps for the rest of the run. -/
+theorem handover_reads_fixed_versions {W : World} {σ : State} (hp : Placed W σ) (d : Nat → Nat) (s : Nat) {t : Nat}
+    (ht : t ≤ σ.seq + 2) :
+    Handover W d s t ↔ ∀ t', t' < t → t' ≤ d (W.layout (σ.versionAt t') s) := by
+  constructor
+  · intro hh t' ht'; rw [← hp t' (by omega) s]; exact hh t' ht'
+  · intro hh t' ht'; rw [hp t' (by omega) s]; exact hh t' ht'
+
+/-- **A reverse read's readiness reads only announced placement.** Under `Placed`, `ReadReady` names, at every epoch
+at or below the read's, the partition of the placement version in effect there. -/
+theorem readReady_reads_fixed_versions {W : World} {P : Protocol} {σ : State} (h : Reachable W P σ)
+    (hp : Placed W σ) (o e : Nat) :
+    ReadReady W σ o e ↔ e ≤ σ.delivered (W.home o) ∧
+      ∀ s, memAt σ.mems o (W.grp s) e = true → ∀ t, t ≤ e → t ≤ σ.delivered (W.layout (σ.versionAt t) s) := by
+  constructor
+  · intro ⟨he, hr⟩
+    have := h.base.delivLe (W.home o)
+    exact ⟨he, fun s hm t ht => by rw [← hp t (by omega) s]; exact hr s hm t ht⟩
+  · intro ⟨he, hr⟩
+    have := h.base.delivLe (W.home o)
+    exact ⟨he, fun s hm t ht => by rw [hp t (by omega) s]; exact hr s hm t ht⟩
 
 /-! ## Why the latest event is the right one -/
 

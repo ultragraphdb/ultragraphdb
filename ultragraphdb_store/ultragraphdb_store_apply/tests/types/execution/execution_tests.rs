@@ -196,8 +196,21 @@ fn test_a_finish_the_store_fails_releases_what_the_execution_created() -> TestRe
         .quads()
         .store()
         .inject(ultragraphdb_store_sim::Fault::FailNextRead);
-    let failed = execution.finish();
-    assert!(failed.is_err(), "the read the derivation needs fails");
+    let failed = execution
+        .finish()
+        .err()
+        .context("the read the derivation needs fails")?;
+    assert!(
+        matches!(
+            &failed.0,
+            ultragraphdb_store_apply::ChangesetErrorEnum::Quad(ultragraphdb_store_quads::QuadError(
+                ultragraphdb_store_quads::QuadErrorEnum::Store(ultragraphdb_error_store::StoreError(
+                    ultragraphdb_error_store::StoreErrorEnum::ReadFailed { reason, .. }
+                ))
+            )) if reason == "simulated read failure"
+        ),
+        "{failed:?}"
+    );
     assert_ne!(
         id_now(&applier)?,
         created,
@@ -210,6 +223,95 @@ fn test_a_finish_the_store_fails_releases_what_the_execution_created() -> TestRe
             .context("the dictionary reads")?,
         None,
         "nothing is written"
+    );
+    Ok(())
+}
+
+/// An execution prints its namespace and snapshot, and nothing of the writes it holds.
+#[test]
+fn test_an_execution_prints_its_namespace_and_snapshot() -> TestResult {
+    let applier = changesets()?;
+    let at = commit(&applier, "<a> <knows> <b>")?;
+    let mut execution = applier.begin(NS, at).context("begun")?;
+    execution.apply(&changeset(vec![insert("<new> <knows> <b>")?]))?;
+    assert_eq!(
+        format!("{execution:?}"),
+        format!("Execution {{ namespace: {NS}, read_ts: {at}, .. }}")
+    );
+    Ok(())
+}
+
+/// The subjects of the statements an execution named by their reifier and resolved, in order, across its changesets:
+/// a property set and one removed through a reifier, and a statement deleted by it; a statement named by its triple,
+/// and a reifier naming no statement, add none.
+#[test]
+fn test_an_execution_gives_the_subjects_its_reifiers_resolved_to() -> TestResult {
+    use crate::utils::changesets::{insert_edge, postings, term};
+    use oxrdf::NamedNode;
+    use ultragraphdb_core_mapping::{Change, StatementRef};
+    let applier = changesets()?;
+    let _applied = applier
+        .apply(&changeset(vec![
+            insert_edge("<a> <knows> <b>", &[("since", "2020")])?,
+            insert_edge("<c> <knows> <d>", &[("since", "2021")])?,
+        ]))
+        .context("applied")?;
+    let reifier = |subject: &str| -> TestResult<NamedNode> {
+        let id = postings(&applier, subject, "knows")?
+            .first()
+            .and_then(|(_, ids)| ids.first().copied())
+            .context("a statement ID")?;
+        Ok(NamedNode::new(applier.quads().iri_of(NS, id)?.0)?)
+    };
+    let by_reifier = |subject: &str| -> TestResult<StatementRef> {
+        Ok(StatementRef::Reifier {
+            graph: GraphName::DefaultGraph,
+            reifier: reifier(subject)?,
+        })
+    };
+    let at = applier.quads().lists().applied_ts();
+    let mut execution = applier.begin(NS, at).context("begun")?;
+    assert!(execution.reified_subjects().is_empty());
+    execution.apply(&changeset(vec![
+        Change::SetProperty {
+            statement: by_reifier("c")?,
+            predicate: ex("weight"),
+            value: term("1")?,
+        },
+        Change::SetProperty {
+            statement: StatementRef::Triple {
+                graph: GraphName::DefaultGraph,
+                subject: ex("a").into(),
+                predicate: ex("knows"),
+                object: ex("b").into(),
+            },
+            predicate: ex("weight"),
+            value: term("2")?,
+        },
+        Change::DeleteStatement {
+            graph: GraphName::DefaultGraph,
+            reifier: ex("nothing"),
+        },
+    ]))?;
+    assert_eq!(execution.reified_subjects(), &[uid(&applier, "c")?]);
+    execution.apply(&changeset(vec![
+        Change::DeleteProperty {
+            statement: by_reifier("a")?,
+            predicate: ex("since"),
+            value: None,
+        },
+        Change::DeleteStatement {
+            graph: GraphName::DefaultGraph,
+            reifier: reifier("c")?,
+        },
+    ]))?;
+    assert_eq!(
+        execution.reified_subjects(),
+        &[
+            uid(&applier, "c")?,
+            uid(&applier, "a")?,
+            uid(&applier, "c")?
+        ]
     );
     Ok(())
 }

@@ -78,6 +78,10 @@ Feature: Transactions decided by the commit step
     When a transaction bound to partition 1 writes a statement whose subject's bucket partition 2 owns
     Then it aborts with a cross-partition error naming partitions 1 and 2, not marked retryable, and nothing it wrote is held
 
+  Scenario: A statement named by its reifier is checked at its subject
+    When a transaction bound to partition 1 sets a property of a statement named by its reifier, the statement's subject's bucket owned by partition 2
+    Then it aborts with a cross-partition error naming partitions 1 and 2, not marked retryable, and nothing it wrote is held
+
   # Requirement: Commit-time operations
 
   Scenario: Concurrent insert-if-absent yields one node

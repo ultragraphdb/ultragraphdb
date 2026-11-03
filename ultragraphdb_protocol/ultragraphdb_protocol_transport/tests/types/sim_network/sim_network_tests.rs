@@ -240,3 +240,14 @@ fn test_a_fault_happens_for_a_draw_below_its_rate_and_not_at_it() {
         assert_eq!(network.stats().dropped(), dropped, "rate {rate}");
     }
 }
+
+#[test]
+fn test_a_delay_of_at_most_zero_steps_holds_nothing_back() {
+    // Every message drawn for a delay, the longest delay 0: it counts as delayed and still arrives after one step.
+    let network = SimNetwork::new(5, NetworkFaults::none().with_delay(1_000_000, 0));
+    let (mut client, mut server) = network.connect();
+    send(&mut client, b"now");
+    network.step();
+    assert_eq!(drain(&mut server), vec![b"now".to_vec()]);
+    assert_eq!((network.now(), network.stats().delayed()), (1, 1));
+}

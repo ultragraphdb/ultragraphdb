@@ -365,3 +365,263 @@ fn test_a_proposal_hands_its_dictionary_entries_to_its_round() -> TestResult {
     assert!(entries.iter().all(|(k, _)| k.first() == Some(&0x1B)));
     Ok(())
 }
+
+/// A build's end by an undo is a proposal naming an undo, as a swap's names a swap.
+#[test]
+fn test_a_builds_undo_is_a_proposal_naming_an_undo() -> TestResult {
+    use ultragraphdb_protocol_wire::{BuildOutcome, RecordKind, RecordOperation};
+    use ultragraphdb_store_apply::BuildEnd;
+    let applier = applier()?;
+    let prepared = Prepared::end_build(&applier, BuildEnd::Undo(8), TxnBuffers::new())?;
+    assert_eq!(prepared.build_end(), Some(BuildEnd::Undo(8)));
+    let record = WriteSetRecordView::new(prepared.record())?;
+    assert_eq!(record.kind(), RecordKind::Build);
+    assert_eq!(
+        record.operation(0),
+        Some(RecordOperation::CompleteBuild {
+            version: record.catalog(),
+            outcome: BuildOutcome::Undo
+        })
+    );
+    Ok(())
+}
+
+/// A drop of the default graph names no graph a record operation takes (`PROTOCOL.md` §6.5 names a graph by its IRI):
+/// refused as an invariant the store's API broke, releasing what the drop's execution held, and the applier goes on.
+#[test]
+fn test_a_drop_of_the_default_graph_is_refused_naming_no_graph() -> TestResult {
+    use ultragraphdb_store_apply::{ChangesetError, ChangesetErrorEnum, DropRequest};
+    use ultragraphdb_transactions_txn::{TxnError, TxnErrorEnum};
+    let applier = applier()?;
+    crate::utils::fixture::store(&applier, vec![insert("a", "knows", "b")])?;
+    let refused = Prepared::drop(
+        &applier,
+        NS,
+        DropRequest::Graph(oxrdf::GraphNameRef::DefaultGraph),
+        1,
+        1,
+        0,
+        TxnBuffers::new(),
+    )
+    .err()
+    .context("the drop is refused")?;
+    assert!(
+        matches!(
+            &refused,
+            TxnError(TxnErrorEnum::Changeset(ChangesetError(
+                ChangesetErrorEnum::Invariant(_)
+            )))
+        ),
+        "{refused:?}"
+    );
+    assert!(
+        refused
+            .to_string()
+            .contains("a drop of the default graph names no graph"),
+        "{refused}"
+    );
+    assert_eq!(
+        crate::utils::fixture::held(&applier, "a", "knows")?.len(),
+        1,
+        "nothing is dropped"
+    );
+    let data = Prepared::drop(&applier, NS, DropRequest::Data, 1, 2, 0, TxnBuffers::new())?;
+    assert!(data.is_drop());
+    Ok(())
+}
+
+/// An insert-if-absent finding the node that holds its value names that node by its own IRI, read from the dictionary,
+/// and says it was not created.
+#[test]
+fn test_an_insert_if_absent_finding_a_held_node_names_it_by_its_iri() -> TestResult {
+    use ultragraphdb_core_mapping::{Change, Declaration, PredicateDeclaration};
+    use ultragraphdb_protocol_wire::OperationResult;
+    let applier = applier()?;
+    let unique = PredicateDeclaration::new(crate::utils::fixture::ex("key")).with_unique(true);
+    crate::utils::fixture::store(
+        &applier,
+        vec![Change::Declare(Declaration::Predicate(unique))],
+    )?;
+    crate::utils::fixture::store(
+        &applier,
+        vec![crate::utils::fixture::insert_literal("a", "key", "w")],
+    )?;
+    let mut txn = begin(&applier, Mode::ReadWrite)?;
+    txn.operate(
+        ultragraphdb_store_apply::Operation::InsertIfAbsent {
+            graph: oxrdf::GraphName::DefaultGraph,
+            predicate: crate::utils::fixture::ex("key"),
+            value: oxrdf::Literal::new_simple_literal("w").into(),
+            properties: Vec::new(),
+        },
+        0,
+    )?;
+    let prepared = prepared(txn.commit(1, 1, &[], 0))?;
+    let overlay = applier.quads().lists().batch();
+    let mut results = Vec::new();
+    let operated = prepared.operated(&applier, &overlay, &[], &mut results)?;
+    assert_eq!(results, vec![OperationResult::for_node(0, false)]);
+    let view = WriteSetRecordView::new(operated.record())?;
+    let terms = view.result_terms();
+    assert_eq!(terms.len(), 1);
+    assert_eq!(
+        terms.get(0).context("the node")?.to_term(),
+        ultragraphdb_protocol_wire::RequestTerm::Iri("http://ex.org/a".to_string())
+    );
+    Ok(())
+}
+
+/// A compare-and-set that holds answers a result of zero, naming no node (§6.3).
+#[test]
+fn test_a_compare_and_set_that_holds_answers_zero() -> TestResult {
+    use ultragraphdb_protocol_wire::OperationResult;
+    let applier = applier()?;
+    crate::utils::fixture::store(
+        &applier,
+        vec![crate::utils::fixture::insert_literal("a", "status", "open")],
+    )?;
+    let mut txn = begin(&applier, Mode::ReadWrite)?;
+    txn.operate(
+        ultragraphdb_store_apply::Operation::CompareAndSet {
+            graph: oxrdf::GraphName::DefaultGraph,
+            subject: crate::utils::fixture::ex("a").into(),
+            predicate: crate::utils::fixture::ex("status"),
+            expected: oxrdf::Literal::new_simple_literal("open").into(),
+            new: oxrdf::Literal::new_simple_literal("closed").into(),
+        },
+        0,
+    )?;
+    let prepared = prepared(txn.commit(1, 1, &[], 0))?;
+    let overlay = applier.quads().lists().batch();
+    let mut results = Vec::new();
+    let operated = prepared.operated(&applier, &overlay, &[], &mut results)?;
+    assert_eq!(results, vec![OperationResult::compare_and_set()]);
+    let result = results.first().context("a result")?;
+    assert_eq!(
+        (result.value(), result.node(), result.created()),
+        (0, None, false)
+    );
+    assert_eq!(
+        WriteSetRecordView::new(operated.record())?.result(0),
+        Some(OperationResult::compare_and_set())
+    );
+    Ok(())
+}
+
+/// The operated transaction's execution is the proposal's namespace's, and its dictionary entries add those its
+/// operations created to the transaction's own: a counter on a new subject and a new predicate, two IRIs of two entries
+/// each.
+#[test]
+fn test_an_operated_transaction_hands_its_operations_dictionary_entries_to_its_round() -> TestResult
+{
+    let applier = applier()?;
+    // A first commit, so the namespace's initial catalog is written before the transaction below.
+    crate::utils::fixture::store(&applier, vec![insert("a", "knows", "b")])?;
+    let mut txn = begin(&applier, Mode::ReadWrite)?;
+    txn.operate(counter(1), 0)?;
+    let prepared = prepared(txn.commit(1, 1, &[], 0))?;
+    assert_eq!(
+        prepared.dictionary().count(),
+        0,
+        "the transaction writes nothing"
+    );
+    let overlay = applier.quads().lists().batch();
+    let mut results = Vec::new();
+    let operated = prepared.operated(&applier, &overlay, &[], &mut results)?;
+    assert_eq!(operated.executed().namespace(), NS);
+    let entries: Vec<&[u8]> = operated.dictionary().map(|(k, _)| k).collect();
+    assert_eq!(entries.len(), 4, "`<c>` and `<n>`, each both ways");
+    assert!(entries.iter().all(|k| k.first() == Some(&0x1B)));
+    Ok(())
+}
+
+/// A record written again past the transaction's write-set limit is refused naming its size and the limit, the record
+/// as sent having fitted it; the proposal is left as it was.
+#[test]
+fn test_a_record_written_again_past_the_limit_is_refused() -> TestResult {
+    use ultragraphdb_transactions_txn::{TxnErrorEnum, TxnLimits};
+    let applier = applier()?;
+    crate::utils::fixture::store(
+        &applier,
+        vec![ultragraphdb_core_mapping::Change::Insert {
+            graph: oxrdf::GraphName::DefaultGraph,
+            subject: crate::utils::fixture::ex("c").into(),
+            predicate: crate::utils::fixture::ex("n"),
+            object: oxrdf::Literal::from(1i64).into(),
+        }],
+    )?;
+    // The record as sent, with the counter's subject and predicate held: no dictionary entries beside it.
+    let mut probe = begin(&applier, Mode::ReadWrite)?;
+    probe.operate(counter(1), 0)?;
+    let probe = prepared(probe.commit(1, 1, &[], 0))?;
+    let limit = probe.record().len();
+    let _buffers = probe.release(&applier);
+    let limits = TxnLimits::default().with_max_write_set(limit);
+    let mut txn = crate::utils::fixture::begin_with(&applier, Mode::ReadWrite, limits)?;
+    txn.operate(counter(1), 0)?;
+    let prepared = prepared(txn.commit(1, 1, &[], 0))?;
+    assert_eq!(
+        prepared.record().len(),
+        limit,
+        "the record as sent fits exactly"
+    );
+    let before = prepared.record().to_vec();
+    let overlay = applier.quads().lists().batch();
+    let mut results = Vec::new();
+    let refused = prepared
+        .operated(&applier, &overlay, &[], &mut results)
+        .err()
+        .context("the record written again is refused")?;
+    let TxnErrorEnum::WriteSetTooLarge { size, limit: bound } = refused.0 else {
+        return Err(ultragraphdb_tool_bdd::TestError::new(format!(
+            "not too large: {refused:?}"
+        )));
+    };
+    assert_eq!(bound, limit);
+    assert!(size > limit, "{size} > {limit}");
+    assert_eq!(prepared.record(), &before[..]);
+    Ok(())
+}
+
+/// An operation the store refuses, a compare-and-set whose expected value is not held, refuses the operated
+/// transaction with the value found; the proposal is left as it was.
+#[test]
+fn test_a_compare_and_set_that_does_not_hold_is_refused_with_the_value_found() -> TestResult {
+    use ultragraphdb_store_apply::{ChangesetError, ChangesetErrorEnum};
+    use ultragraphdb_transactions_txn::{TxnError, TxnErrorEnum};
+    let applier = applier()?;
+    crate::utils::fixture::store(
+        &applier,
+        vec![crate::utils::fixture::insert_literal("a", "status", "done")],
+    )?;
+    let mut txn = begin(&applier, Mode::ReadWrite)?;
+    txn.operate(
+        ultragraphdb_store_apply::Operation::CompareAndSet {
+            graph: oxrdf::GraphName::DefaultGraph,
+            subject: crate::utils::fixture::ex("a").into(),
+            predicate: crate::utils::fixture::ex("status"),
+            expected: oxrdf::Literal::new_simple_literal("open").into(),
+            new: oxrdf::Literal::new_simple_literal("closed").into(),
+        },
+        0,
+    )?;
+    let prepared = prepared(txn.commit(1, 1, &[], 0))?;
+    let before = prepared.record().to_vec();
+    let overlay = applier.quads().lists().batch();
+    let mut results = Vec::new();
+    let refused = prepared
+        .operated(&applier, &overlay, &[], &mut results)
+        .err()
+        .context("the compare-and-set does not hold")?;
+    assert_eq!(
+        refused,
+        TxnError(TxnErrorEnum::Changeset(ChangesetError(
+            ChangesetErrorEnum::OperationFailed {
+                found: Some("\"done\"".to_string())
+            }
+        )))
+    );
+    assert!(results.is_empty(), "{results:?}");
+    assert_eq!(prepared.record(), &before[..]);
+    Ok(())
+}
