@@ -4,10 +4,11 @@ overlooked body (`clippy::unimplemented` warns by design); (2) the
 full suite written against it and observed failing for that reason, its run and test count recorded in the group's
 notes (`notes/group-N.md`): the group's scenarios verbatim as Gherkin in the crate's `features/<capability>/` bound by
 its `bdd` target with `fail_on_skipped`, unit tests for the corner cases enumerated in advance, and every error variant
-constructed through the public API, each expected value from a source independent of the code; (3) the suite audited
-against defects planted in a throwaway implementation; (4) the implementation, judged by the audited suite alone;
-(5) a group that decodes bytes from a client, a peer or the disk writes its fuzz targets and seeds and builds them,
-while the runs of `scripts/mutants.sh` and `scripts/fuzz.sh` happen once, in group 12. Before any of its crates'
+constructed through the public API, each expected value from a source independent of the code; (3) the suite's inputs
+reviewed against the corner-case enumeration; (4) the implementation, judged by the suite alone; (5) `scripts/mutants.sh`
+over the files the group added or edited, every survivor killed by a test or recorded in `.cargo/mutants.toml` with its
+measurement, and, for a group that decodes bytes from a client, a peer or the disk, its fuzz targets and seeds written
+and built, while the runs of `scripts/fuzz.sh` happen once, in group 12. No defects are planted by hand. Before any of its crates'
 behaviour changes, a group lifts each existing crate it touches into `openspec/protocols/ULTRA_STYLE.md`: `make format`
 and `make fix` leaving it unchanged and reporting nothing, the rules no lint checks reviewed and recorded, the suite
 unchanged and green with the same count under Bazel, all in a commit of its own; every crate this change creates
@@ -44,10 +45,10 @@ checked by `lake build PlacementModel` succeeding with no `sorry` in the library
 ## 3. Dictionary, statements and vectors → `ultragraphdb_core_terms`, `ultragraphdb_core_mapping`, `ultragraphdb_store_quads`, `ultragraphdb_store_posting`, `ultragraphdb_store_apply`, `ultragraphdb_store_hnsw`, `ultragraphdb_traits_index`
 
 - [x] 3.1 Ultra Style lift of `core_terms`, `core_mapping`, `store_quads`, `store_posting`, `store_apply`, `store_hnsw` and `traits_index`, each in its own commit
-- [ ] 3.2 Scenarios: term-dictionary ("IRIs and blank nodes get system IDs" but "Transactions naming only new blank nodes bind in turn", which runs in group 9; "An IRI's ID is got or created at its home", "The dictionary is a keyspace without versions", "A missing dictionary entry is corruption"), quad-storage ("Statement IDs", "The quad keyspaces", "Named graphs", "Every key belongs to one region", "A fresh term's lists are not read"), changesets ("A changeset describes a write", "A changeset reports its regions"), mapping-contract ("Names map between the views"), vector-index ("HNSW vectors live in posting lists")
-- [ ] 3.3 Phases 1–3: IDs from computed buckets and leased sequence blocks (a block source trait the metadata group implements in group 6 and a test double behind `test-utils`); an IRI's ID got or created during execution, shared by concurrent creators, durable no later than the round committing the first of them, with no abort for the race; the dictionary as naming state, existence read from committed data; changesets resolving terms with no provisional ID and no dictionary key in the read set; a property-graph node without an IRI named by a skolem IRI; the regions of registration-mark and referrer keys; skolem IRIs `…/.well-known/genid/{bucket}-{random}` drawn from an injected random source in `WriteTerms` and `Names`, with no UID in them, redrawn on a collision; statement IDs of the `Statement` type in the subject's bucket, each named by a reifier skolem IRI minted as a blank node's with the statement's bucket and held in the dictionary as the reifier's name; HNSW and the vector-search signatures of `traits_index` over `SystemId`, the dead list as hexadecimal strings
-- [ ] 3.4 Phase 4: the dictionary, statements and HNSW on 128-bit IDs; every suite of the store crates green on the new types
-- [ ] 3.5 Phase 5: fuzz target for the HNSW lists' decoders on 128-bit IDs
+- [x] 3.2 Scenarios: term-dictionary ("IRIs and blank nodes get system IDs" but "Transactions naming only new blank nodes bind in turn", which runs in group 9; "An IRI's ID is got or created at its home", "The dictionary is a keyspace without versions", "A missing dictionary entry is corruption"), quad-storage ("Statement IDs", "The quad keyspaces", "Named graphs", "Every key belongs to one region", "A fresh term's lists are not read"), changesets ("A changeset describes a write", "A changeset reports its regions"), mapping-contract ("Names map between the views"), vector-index ("HNSW vectors live in posting lists")
+- [x] 3.3 Phases 1–3: IDs from computed buckets and leased sequence blocks (a block source trait the metadata group implements in group 6 and a test double behind `test-utils`); an IRI's ID got or created during execution, shared by concurrent creators, durable no later than the round committing the first of them, with no abort for the race; the dictionary as naming state, existence read from committed data; changesets resolving terms with no provisional ID and no dictionary key in the read set; a property-graph node without an IRI named by a skolem IRI; the regions of registration-mark and referrer keys; skolem IRIs `…/.well-known/genid/{bucket}-{random}` drawn from an injected random source in `WriteTerms` and `Names`, with no UID in them, redrawn on a collision; statement IDs of the `Statement` type in the subject's bucket, each named by a reifier skolem IRI minted as a blank node's with the statement's bucket and held in the dictionary as the reifier's name; HNSW and the vector-search signatures of `traits_index` over `SystemId`, the dead list as hexadecimal strings
+- [x] 3.4 Phase 4: the dictionary, statements and HNSW on 128-bit IDs; every suite of the store crates green on the new types
+- [x] 3.5 Phase 5: fuzz target for the HNSW lists' decoders on 128-bit IDs
 
 ## 4. Versions and the logical log → `ultragraphdb_traits_log`, `ultragraphdb_transactions_log`, `ultragraphdb_transactions_commit`, `ultragraphdb_transactions_txn`, `ultragraphdb_store_kv`, `ultragraphdb_store_sim`
 
@@ -127,7 +128,7 @@ checked by `lake build PlacementModel` succeeding with no `sorry` in the library
 
 ## 12. Final verification and documentation
 
-- [ ] 12.1 `scripts/mutants.sh` over every crate the change added or edited; every survivor killed or recorded in `.cargo/mutants.toml` with its measurement
+- [ ] 12.1 `scripts/mutants.sh` again over every file a later group edited after its own group's run; every survivor killed or recorded in `.cargo/mutants.toml` with its measurement
 - [ ] 12.2 `scripts/fuzz.sh` over every target the change added, its report recorded, every regression case replayed under Bazel; the fuzzers audited by planting two or three decoder defects each
 - [ ] 12.3 Ultra Style conformance: `make format` and `make fix` leave every touched and created crate unchanged and report nothing, no `unimplemented` warning left; the review of the unlinted rules, each crate's exceptions and their reasons listed in the change's notes
 - [ ] 12.4 Coverage: `scripts/coverage.sh` over every crate the change adds files to; every added line covered, or listed with its reason in the change's notes

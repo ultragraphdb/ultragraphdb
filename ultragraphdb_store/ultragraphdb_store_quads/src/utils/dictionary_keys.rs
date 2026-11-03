@@ -3,59 +3,35 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_keys::{DictionaryEntry, QuadKey};
 use ultragraphdb_core_terms::Hash128;
 
-/// The tags after the namespace of a key in the keyspace without versions. They are stored: none changes meaning.
-/// This one keys an IRI's UID.
-pub const IRI_TO_UID: u8 = 0x01;
-/// The tag keying a UID's IRI.
-pub const UID_TO_IRI: u8 = 0x02;
-/// The tag keying the string a literal hash names.
-pub const HASH_TO_STRING: u8 = 0x03;
-/// The high-water marks of the namespace's leased UIDs and statement IDs: this one the UIDs'.
-pub const UID_LEASE: u8 = 0x10;
-/// The tag keying the high-water mark of the namespace's leased statement IDs.
-pub const STATEMENT_LEASE: u8 = 0x11;
-
-/// The key recording the mapping contract's version, once per store, under no namespace's prefix.
+/// The key recording the mapping contract's version, once per store, under no namespace and in no keyspace.
 pub const CONTRACT_KEY: &[u8] = b"\xffultragraphdb/contract";
 
-fn key(namespace: u64, tag: u8, rest: &[u8]) -> Vec<u8> {
-    let mut key = Vec::with_capacity(9 + rest.len());
-    key.extend_from_slice(&namespace.to_be_bytes());
-    key.push(tag);
-    key.extend_from_slice(rest);
-    key
-}
-
-/// The key of an IRI's UID: the IRI's 128-bit hash, for a fixed width.
-pub fn iri_key(namespace: u64, iri: &str) -> Vec<u8> {
+/// The dictionary key of the ID an IRI or a reifier's name has in `namespace`: the dictionary keyspace's byte, the
+/// namespace, kind 1 and the term's 128-bit hash. Its value is the ID's 16 bytes.
+pub fn term_key(namespace: u64, term: &str) -> Vec<u8> {
     key(
         namespace,
-        IRI_TO_UID,
-        Hash128::of(iri.as_bytes()).as_bytes(),
+        DictionaryEntry::Term(Hash128::of(term.as_bytes())),
     )
 }
 
-/// The key of a UID's IRI.
-pub fn uid_key(namespace: u64, uid: u64) -> Vec<u8> {
-    key(namespace, UID_TO_IRI, &uid.to_be_bytes())
+/// The dictionary key of the term `id` names in `namespace`: kind 2 and the ID's 16 bytes. Its value is the term's
+/// text.
+pub fn id_key(namespace: u64, id: SystemId) -> Vec<u8> {
+    key(namespace, DictionaryEntry::Id(id))
 }
 
-/// The key of the string a hash names.
-pub fn string_key(namespace: u64, hash: &Hash128) -> Vec<u8> {
-    key(namespace, HASH_TO_STRING, hash.as_bytes())
+/// The dictionary key of the string a literal names by `hash` in `namespace`: kind 3 and the hash. Its value is the
+/// string.
+pub fn literal_key(namespace: u64, hash: &Hash128) -> Vec<u8> {
+    key(namespace, DictionaryEntry::Literal(*hash))
 }
 
-/// The key of a lease's high-water mark, `tag` naming the sequence.
-pub fn lease_key(namespace: u64, tag: u8) -> Vec<u8> {
-    key(namespace, tag, &[])
-}
-
-/// The value of a UID's entry: a flag marking a skolemized blank node, then the IRI.
-pub fn uid_value(iri: &str, skolem: bool) -> Vec<u8> {
-    let mut value = Vec::with_capacity(1 + iri.len());
-    value.push(u8::from(skolem));
-    value.extend_from_slice(iri.as_bytes());
-    value
+/// The dictionary key of `entry` in `namespace`, as the quad layout writes it.
+fn key(namespace: u64, entry: DictionaryEntry) -> Vec<u8> {
+    QuadKey::Dictionary { namespace, entry }.to_bytes()
 }

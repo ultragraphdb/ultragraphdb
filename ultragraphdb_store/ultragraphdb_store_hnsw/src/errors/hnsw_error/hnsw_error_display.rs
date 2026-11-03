@@ -44,7 +44,10 @@ impl Display for HnswError {
             HnswErrorEnum::CannotCast(go_type) => {
                 write!(f, "cannot cast {go_type} to SimilarityType")
             }
-            HnswErrorEnum::UintSlice(s) => write!(f, "Cannot convert {s} to uint slice"),
+            HnswErrorEnum::MalformedDeadList(s) => write!(
+                f,
+                "malformed dead list: expected a JSON array of 32-digit hexadecimal system IDs, found {s}"
+            ),
             HnswErrorEnum::FloatBits { bits, expected } => write!(
                 f,
                 "a vector index of {expected}-bit floats cannot be created with {bits} float bits"

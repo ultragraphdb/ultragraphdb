@@ -4,19 +4,35 @@
  */
 
 use oxrdf::{Literal, Term};
-use ultragraphdb_core_keys::QuadKey;
+use ultragraphdb_core_ids::{Bucket, Sequence, SystemId, TypePrefix};
+use ultragraphdb_core_keys::{Graph, QuadKey};
+use ultragraphdb_core_mapping::RandomSource;
 use ultragraphdb_core_terms::{EncodedTerm, TermError};
-use ultragraphdb_store_posting::{Lists, ListsConfig};
 use ultragraphdb_store_quads::{QuadStore, QuadWrite};
-use ultragraphdb_store_sim::{FaultConfig, Seed, SimClock, SimListCache, SimStore, Stream};
 
-use crate::utils::helpers::{TestQuads, commit, ex, forward, quad, quads, uid, write};
+use crate::utils::helpers::{
+    TestQuads, TestWrite, blocks, commit, ex, forward, id, lists_over, quad, quads, sim, write,
+};
 use ultragraphdb_tool_bdd::TestResult;
+
+const D: Graph = Graph::Default;
+
+/// A statement ID of sequence `n` in bucket 9, as a posting carries it.
+fn statement(n: u64) -> TestResult<SystemId> {
+    Ok(SystemId::new(
+        TypePrefix::STATEMENT,
+        Bucket::new(9)?,
+        Sequence::new(n)?,
+    ))
+}
 
 fn literal(text: &str) -> TestResult<EncodedTerm> {
     Ok(
         EncodedTerm::literal(Literal::new_simple_literal(text).as_ref(), |_| {
-            Ok::<_, TermError>(0)
+            Err(TermError::malformed(
+                Vec::new(),
+                "a simple literal names no datatype",
+            ))
         })?
         .into_term(),
     )
@@ -27,11 +43,11 @@ fn delete(
     s: &str,
     p: &str,
     object: &EncodedTerm,
-) -> TestResult<Option<Vec<u64>>> {
+) -> TestResult<Option<Vec<SystemId>>> {
     let mut w = QuadWrite::new(store, 0, store.lists().request(store.lists().applied_ts()));
-    let (s, p) = (uid(store, 0, &ex(s))?, uid(store, 0, &ex(p))?);
-    let deleted = w.delete(0, s, p, object, "x")?;
-    let _committed_at: u64 = commit(store, vec![w])?.remove(0)?;
+    let (s, p) = (id(store, 0, &ex(s))?, id(store, 0, &ex(p))?);
+    let deleted = w.delete(D, s, p, object, "x")?;
+    let _committed_at: Vec<u64> = commit(store, vec![w])?;
     Ok(deleted)
 }
 
@@ -51,13 +67,13 @@ fn test_a_delete_removes_what_is_held_and_keeps_predicates_still_in_use() -> Tes
         0,
         &[quad("c", "nick", Literal::new_simple_literal("x"))],
     )?;
-    let (a, nick) = (uid(&store, 0, &ex("a"))?, uid(&store, 0, &ex("nick"))?);
-    let preds = |subject: u64| {
+    let (a, nick) = (id(&store, 0, &ex("a"))?, id(&store, 0, &ex("nick"))?);
+    let preds = |subject: SystemId| {
         store.list_terms(
             0,
             &QuadKey::SubjectPredicates {
                 namespace: 0,
-                graph: 0,
+                graph: D,
                 subject,
             }
             .to_bytes(),
@@ -69,7 +85,7 @@ fn test_a_delete_removes_what_is_held_and_keeps_predicates_still_in_use() -> Tes
             0,
             &QuadKey::ObjectPredicates {
                 namespace: 0,
-                graph: 0,
+                graph: D,
                 object: object.clone(),
             }
             .to_bytes(),
@@ -88,10 +104,10 @@ fn test_a_delete_removes_what_is_held_and_keeps_predicates_still_in_use() -> Tes
         vec![Term::from(ex("nick"))],
         "c still points at x"
     );
-    let _deleted: Option<Vec<u64>> = delete(&store, "a", "nick", &literal("y")?)?;
+    let _deleted: Option<Vec<SystemId>> = delete(&store, "a", "nick", &literal("y")?)?;
     assert!(preds(a)?.is_empty());
     assert!(object_preds(&literal("y")?)?.is_empty());
-    let stats = store.statistics(0, 0, nick, u64::MAX)?;
+    let stats = store.statistics(0, D, nick, u64::MAX)?;
     assert_eq!(stats.statements(), 1);
     Ok(())
 }
@@ -101,12 +117,8 @@ fn test_colliding_fingerprints_keep_both_literals_and_deleting_one_keeps_the_oth
     fn constant(_: &[u8]) -> u64 {
         42
     }
-    let lists = Lists::new(
-        SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new()),
-        SimListCache::new(16, Seed::new(1).stream(Stream::Cache)),
-        ListsConfig::default(),
-    );
-    let store = QuadStore::open(lists)?.with_fingerprint(constant);
+    let store: TestQuads = QuadStore::open(lists_over(sim()), blocks(), RandomSource::new(1))?
+        .with_fingerprint(constant);
     write(
         &store,
         0,
@@ -115,7 +127,7 @@ fn test_colliding_fingerprints_keep_both_literals_and_deleting_one_keeps_the_oth
             quad("a", "name", Literal::new_simple_literal("B")),
         ],
     )?;
-    let key = forward(&store, 0, 0, &ex("a"), &ex("name"))?;
+    let key = forward(&store, 0, D, &ex("a"), &ex("name"))?;
     let _rollup_key: bool = store.lists().rollup_key(&key)?;
     let mut held = store.list_terms(0, &key, u64::MAX)?;
     held.sort_by_key(Term::to_string);
@@ -126,7 +138,7 @@ fn test_colliding_fingerprints_keep_both_literals_and_deleting_one_keeps_the_oth
             Literal::new_simple_literal("B").into()
         ]
     );
-    let _deleted: Option<Vec<u64>> = delete(&store, "a", "name", &literal("A")?)?;
+    let _deleted: Option<Vec<SystemId>> = delete(&store, "a", "name", &literal("A")?)?;
     assert_eq!(
         store.list_terms(0, &key, u64::MAX)?,
         vec![Term::from(Literal::new_simple_literal("B"))]
@@ -135,22 +147,16 @@ fn test_colliding_fingerprints_keep_both_literals_and_deleting_one_keeps_the_oth
 }
 
 /// A write with the subject's and predicate's UIDs and the object's encoding it resolved.
-type Resolved<'a> = (
-    QuadWrite<'a, SimStore, SimListCache<ultragraphdb_store_posting::CachedList>>,
-    u64,
-    u64,
-    EncodedTerm,
-);
+type Resolved<'a> = (TestWrite<'a>, SystemId, SystemId, EncodedTerm);
 
 /// A write over a request at the newest timestamp, the terms of `<s>`, `<p>` and `<o>` resolved: the subject's and
 /// predicate's UIDs and the object's encoding.
 fn resolved<'a>(store: &'a TestQuads, s: &str, p: &str, o: &str) -> TestResult<Resolved<'a>> {
     let mut w = QuadWrite::new(store, 0, store.lists().request(store.lists().applied_ts()));
     let (terms, quads) = w.terms();
-    let (st, l) = (quads.store(), quads.leases());
-    let subject = terms.iri(st, l, ex(s).as_str())?;
-    let predicate = terms.iri(st, l, ex(p).as_str())?;
-    let object = EncodedTerm::uid(terms.iri(st, l, ex(o).as_str())?);
+    let subject = terms.iri(quads, ex(s).as_str())?;
+    let predicate = terms.iri(quads, ex(p).as_str())?;
+    let object = EncodedTerm::id(terms.iri(quads, ex(o).as_str())?);
     Ok((w, subject, predicate, object))
 }
 
@@ -165,8 +171,8 @@ fn test_a_held_statement_is_found_and_recorded_as_a_statement() -> TestResult {
         &[quad("a", "knows", ex("b")), quad("a", "knows", ex("c"))],
     )?;
     let (mut w, s, p, o) = resolved(&store, "a", "knows", "b")?;
-    assert_eq!(w.holds(0, s, p, &o)?, Some(Vec::new()));
-    let key = forward(&store, 0, 0, &ex("a"), &ex("knows"))?;
+    assert_eq!(w.holds(D, s, p, &o)?, Some(Vec::new()));
+    let key = forward(&store, 0, D, &ex("a"), &ex("knows"))?;
     let request = w.request();
     assert_eq!(
         request.tested().collect::<Vec<_>>(),
@@ -187,8 +193,8 @@ fn test_a_statement_not_held_is_recorded_too() -> TestResult {
         &[quad("a", "knows", ex("c")), quad("x", "y", ex("b"))],
     )?;
     let (mut w, s, p, o) = resolved(&store, "a", "knows", "b")?;
-    assert_eq!(w.holds(0, s, p, &o)?, None);
-    let key = forward(&store, 0, 0, &ex("a"), &ex("knows"))?;
+    assert_eq!(w.holds(D, s, p, &o)?, None);
+    let key = forward(&store, 0, D, &ex("a"), &ex("knows"))?;
     assert_eq!(
         w.request().tested().collect::<Vec<_>>(),
         vec![(key.as_slice(), o.as_bytes())]
@@ -202,12 +208,12 @@ fn test_a_statement_not_held_is_recorded_too() -> TestResult {
 fn test_a_held_statement_carries_its_statement_ids() -> TestResult {
     let store = quads()?;
     let (mut w, s, p, o) = resolved(&store, "a", "knows", "b")?;
-    w.insert(0, s, p, &o, &[7, 9], "iri");
-    let _committed_at: u64 = commit(&store, vec![w])?.remove(0)?;
+    w.insert(D, s, p, &o, &[statement(7)?, statement(9)?], "iri");
+    let _committed_at: Vec<u64> = commit(&store, vec![w])?;
     let (mut reader, subject, predicate, object) = resolved(&store, "a", "knows", "b")?;
     assert_eq!(
-        reader.holds(0, subject, predicate, &object)?,
-        Some(vec![7, 9])
+        reader.holds(D, subject, predicate, &object)?,
+        Some(vec![statement(7)?, statement(9)?])
     );
     Ok(())
 }
@@ -219,12 +225,12 @@ fn test_a_subject_the_write_created_records_no_test() -> TestResult {
     write(&store, 0, &[quad("x", "knows", ex("b"))])?;
     let (mut w, s, p, o) = resolved(&store, "new", "knows", "b")?;
     assert!(w.is_fresh(s));
-    assert_eq!(w.holds(0, s, p, &o)?, None);
+    assert_eq!(w.holds(D, s, p, &o)?, None);
     assert_eq!(w.request().tested().count(), 0);
     assert_eq!(w.request().read_keys().count(), 0);
-    w.insert(0, s, p, &o, &[], "iri");
+    w.insert(D, s, p, &o, &[], "iri");
     assert_eq!(
-        w.holds(0, s, p, &o)?,
+        w.holds(D, s, p, &o)?,
         Some(Vec::new()),
         "its own insert is seen"
     );
@@ -244,12 +250,12 @@ fn test_a_test_sees_the_writes_own_insert_and_delete() -> TestResult {
     let (mut w, s, p, b) = resolved(&store, "a", "knows", "b")?;
     let d = {
         let (terms, quads) = w.terms();
-        EncodedTerm::uid(terms.iri(quads.store(), quads.leases(), ex("d").as_str())?)
+        EncodedTerm::id(terms.iri(quads, ex("d").as_str())?)
     };
-    w.insert(0, s, p, &d, &[], "iri");
-    assert_eq!(w.holds(0, s, p, &d)?, Some(Vec::new()));
-    assert!(w.delete(0, s, p, &b, "iri")?.is_some());
-    assert_eq!(w.holds(0, s, p, &b)?, None);
+    w.insert(D, s, p, &d, &[], "iri");
+    assert_eq!(w.holds(D, s, p, &d)?, Some(Vec::new()));
+    assert!(w.delete(D, s, p, &b, "iri")?.is_some());
+    assert_eq!(w.holds(D, s, p, &b)?, None);
     Ok(())
 }
 
@@ -260,8 +266,8 @@ fn test_a_delete_reads_the_subjects_list_whole() -> TestResult {
     let store = quads()?;
     write(&store, 0, &[quad("a", "knows", ex("b"))])?;
     let (mut w, s, p, o) = resolved(&store, "a", "knows", "b")?;
-    let _deleted: Option<Vec<u64>> = w.delete(0, s, p, &o, "iri")?;
-    let key = forward(&store, 0, 0, &ex("a"), &ex("knows"))?;
+    let _deleted: Option<Vec<SystemId>> = w.delete(D, s, p, &o, "iri")?;
+    let key = forward(&store, 0, D, &ex("a"), &ex("knows"))?;
     assert!(w.request().read_keys().any(|k| k == key.as_slice()));
     Ok(())
 }
@@ -271,14 +277,14 @@ fn test_a_delete_reads_the_subjects_list_whole() -> TestResult {
 #[test]
 fn test_a_seeded_write_continues_the_write_it_was_seeded_with() -> TestResult {
     let store = quads()?;
-    let iri = |w: &mut QuadWrite<'_, _, _>, name: &str| {
+    let iri = |w: &mut TestWrite<'_>, name: &str| {
         let (terms, quads) = w.terms();
-        terms.iri(quads.store(), quads.leases(), ex(name).as_str())
+        terms.iri(quads, ex(name).as_str())
     };
     let read_ts = store.lists().applied_ts();
     let mut first = QuadWrite::new(&store, 0, store.lists().request(read_ts));
     let (s1, p) = (iri(&mut first, "s1")?, iri(&mut first, "p")?);
-    first.insert(0, s1, p, &literal("a")?, &[], "x");
+    first.insert(D, s1, p, &literal("a")?, &[], "x");
     let (request, terms) = first.finish();
     let writes = request.into_writes();
 
@@ -290,19 +296,92 @@ fn test_a_seeded_write_continues_the_write_it_was_seeded_with() -> TestResult {
         "the seeded terms resolve as before"
     );
     let s2 = iri(&mut second, "s2")?;
-    second.insert(0, s2, p, &literal("b")?, &[], "x");
-    let _committed_at: u64 = commit(&store, vec![second])?.remove(0)?;
-    let stats = store.statistics(0, 0, p, store.lists().applied_ts())?;
+    second.insert(D, s2, p, &literal("b")?, &[], "x");
+    let _committed_at: Vec<u64> = commit(&store, vec![second])?;
+    let stats = store.statistics(0, D, p, store.lists().applied_ts())?;
     assert_eq!(stats.statements(), 2, "both inserts counted, in one delta");
     assert_eq!(
         store
             .objects(
-                &forward(&store, 0, 0, &ex("s1"), &ex("p"))?,
+                &forward(&store, 0, D, &ex("s1"), &ex("p"))?,
                 store.lists().applied_ts()
             )?
             .len(),
         1,
         "the seeded insert is written"
     );
+    Ok(())
+}
+
+/// A new statement ID is of the `Statement` type in its subject's bucket; a record put at it reads back at the write's
+/// commit, and a deleted one is gone.
+#[test]
+fn test_a_statement_id_names_a_record_until_the_record_is_deleted() -> TestResult {
+    let store = quads()?;
+    let (mut w, s, p, o) = resolved(&store, "a", "knows", "b")?;
+    let id = w.next_statement_id(s)?;
+    assert_eq!(
+        (id.type_prefix(), id.bucket()),
+        (TypePrefix::STATEMENT, s.bucket())
+    );
+    assert!(w.is_fresh(id));
+    let record = ultragraphdb_store_quads::StatementRecord::new(s, p, o.clone(), Vec::new());
+    w.insert(D, s, p, &o, &[id], "iri");
+    w.put_statement(D, id, &record);
+    assert_eq!(w.statement(D, id)?, None, "the write reads at its snapshot");
+    let _committed_at: Vec<u64> = commit(&store, vec![w])?;
+    let (mut reader, ..) = resolved(&store, "a", "knows", "b")?;
+    assert_eq!(reader.statement(D, id)?, Some(record));
+    assert_eq!(reader.holds(D, s, p, &o)?, Some(vec![id]));
+    reader.delete_statement(D, id);
+    reader.set_statement_ids(D, s, p, &o, &[]);
+    let _deleted_at: Vec<u64> = commit(&store, vec![reader])?;
+    let (mut after, ..) = resolved(&store, "a", "knows", "b")?;
+    assert_eq!(after.statement(D, id)?, None);
+    assert_eq!(
+        after.holds(D, s, p, &o)?,
+        Some(Vec::new()),
+        "the posting no longer carries it"
+    );
+    Ok(())
+}
+
+/// The subjects of an object are its reverse list, read whole; a vector has none, and an object the write created
+/// reads no list.
+#[test]
+fn test_subjects_read_the_reverse_list() -> TestResult {
+    let store = quads()?;
+    write(
+        &store,
+        0,
+        &[quad("a", "knows", ex("b")), quad("c", "knows", ex("b"))],
+    )?;
+    let (mut w, _, p, o) = resolved(&store, "a", "knows", "b")?;
+    let mut subjects = w.subjects(D, p, &o)?;
+    subjects.sort();
+    let mut expected = vec![id(&store, 0, &ex("a"))?, id(&store, 0, &ex("c"))?];
+    expected.sort();
+    assert_eq!(subjects, expected);
+    assert_eq!(w.request().read_keys().count(), 1);
+    let (mut fresh, _, knows, new) = resolved(&store, "x", "knows", "new")?;
+    assert!(fresh.subjects(D, knows, &new)?.is_empty());
+    assert_eq!(fresh.request().read_keys().count(), 0);
+    let vector = EncodedTerm::literal(
+        Literal::new_typed_literal(
+            "[1, 2]",
+            oxrdf::NamedNode::new(ultragraphdb_core_terms::FLOAT32_VECTOR)?,
+        )
+        .as_ref(),
+        |_| {
+            Err(TermError::malformed(
+                Vec::new(),
+                "a vector names no datatype ID",
+            ))
+        },
+    )?
+    .into_term();
+    assert!(fresh.subjects(D, knows, &vector)?.is_empty());
+    assert_eq!(fresh.request().read_keys().count(), 0);
+    assert_eq!(QuadWrite::namespace(&fresh), 0);
     Ok(())
 }

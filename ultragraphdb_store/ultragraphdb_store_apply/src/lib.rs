@@ -6,7 +6,8 @@
 //! Changesets applied to the quads of one store: index maintenance, catalog changes, index builds and drops.
 //!
 //! A [`ChangesetApplier`] holds the quad store, the catalog of each namespace and the executor its builds run on. A
-//! changeset is one request of the posting lists: its terms resolved, its operations checked against the catalog, its
+//! changeset is one request of the posting lists: its terms resolved, each new term's ID got or created while it runs
+//! and shared with every execution naming the term, its operations checked against the catalog, its
 //! statements written to the forward, reverse and predicate lists with their value-index tokens, counts, statement
 //! records and statistics, committed whole or not at all. A declaration the data contradicts is refused; one adding an
 //! index to a predicate holding data builds it in the background while writes maintain the old declaration's indexes
@@ -19,17 +20,22 @@
 //! ([`ChangesetApplier::search_vectors`]) returns only nodes the lists hold whose vector is visible at its snapshot.
 //!
 //! ```
+//! use std::num::NonZeroU64;
+//!
 //! use oxrdf::{GraphName, Literal, NamedNode, Term};
-//! use ultragraphdb_core_mapping::{Change, Changeset, Declaration, PredicateDeclaration};
+//! use ultragraphdb_core_mapping::{Change, Changeset, Declaration, PredicateDeclaration, RandomSource};
 //! use ultragraphdb_store_apply::ChangesetApplier;
 //! use ultragraphdb_store_posting::{Lists, ListsConfig};
 //! use ultragraphdb_store_sim::{FaultConfig, Seed, SimClock, SimListCache, SimStore, SteppedExecutor, Stream};
+//! use ultragraphdb_traits_blocks::TestBlockSource;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let store = SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new());
 //! let cache = SimListCache::new(64, Seed::new(1).stream(Stream::Cache));
 //! let executor = SteppedExecutor::new(Seed::new(1).stream(Stream::Executor));
-//! let applier = ChangesetApplier::new(Lists::new(store, cache, ListsConfig::default()), executor, 1)?;
+//! let blocks = TestBlockSource::new(NonZeroU64::MIN.saturating_add(999));
+//! let lists = Lists::new(store, cache, ListsConfig::default());
+//! let applier = ChangesetApplier::new(lists, blocks, RandomSource::new(7), executor, 1)?;
 //!
 //! let name = NamedNode::new("http://ex.org/name")?;
 //! let declared = PredicateDeclaration::new(name.clone()).with_tokenizers(vec!["exact".to_string()]);
@@ -62,6 +68,7 @@ pub use crate::types::execution::Execution;
 pub use crate::types::level_draw::LevelDraw;
 pub use crate::types::operation::Operation;
 pub use crate::types::operation_link::OperationLink;
+pub use crate::types::operation_outcome::OperationOutcome;
 pub use crate::types::reads::Reads;
 pub use crate::types::record_writes::RecordWrites;
 pub use crate::types::vector_query::VectorQuery;

@@ -8,19 +8,23 @@
 //! it into the HNSW lists once its round is applied, or marks its node dead once it is deleted. While the predicate's
 //! vector index is built, writes record the nodes whose vector they change, which the build's swap inserts.
 
+use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_keys::Graph;
 use ultragraphdb_core_mapping::PredicateDeclaration;
 use ultragraphdb_core_terms::{EncodedTerm, TermView};
 use ultragraphdb_store_posting::CachedList;
+use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{ListCache, Store};
 
 use crate::errors::changeset_error::ChangesetError;
 use crate::types::changeset_write::ChangesetWrite;
 use crate::types::changeset_write::changeset_write_triples::Resolved;
 
-impl<S, C> ChangesetWrite<'_, S, C>
+impl<S, C, B> ChangesetWrite<'_, S, C, B>
 where
     S: Store,
     C: ListCache<Value = CachedList>,
+    B: BlockSource,
 {
     /// Refuses a vector written to a predicate with a vector index whose dimension is not the one its declaration
     /// states.
@@ -50,9 +54,9 @@ where
     /// predicate's vector index is being built.
     pub(crate) fn vector_changed(
         &mut self,
-        graph: u64,
-        subject: u64,
-        predicate: u64,
+        graph: Graph,
+        subject: SystemId,
+        predicate: SystemId,
         object: &EncodedTerm,
     ) {
         if self.vector_built == Some(predicate) && object.is_vector() {

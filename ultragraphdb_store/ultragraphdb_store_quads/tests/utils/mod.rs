@@ -8,4 +8,8 @@ pub mod dictionary_workload;
 pub mod helpers;
 
 #[cfg(test)]
+mod dictionary_keys_tests;
+#[cfg(test)]
 mod dictionary_workload_tests;
+#[cfg(test)]
+mod postings_tests;

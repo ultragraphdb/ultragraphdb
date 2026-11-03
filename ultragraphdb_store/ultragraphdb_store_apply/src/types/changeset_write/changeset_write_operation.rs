@@ -11,8 +11,10 @@ use oxrdf::vocab::xsd;
 use oxrdf::{
     BlankNode, GraphNameRef, Literal, NamedNode, NamedNodeRef, NamedOrBlankNodeRef, Term, TermRef,
 };
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_posting::CachedList;
+use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{ListCache, Store};
 
 use crate::errors::changeset_error::ChangesetError;
@@ -20,11 +22,13 @@ use crate::types::changeset_write::ChangesetWrite;
 use crate::types::changeset_write::changeset_write_triples::Resolved;
 use crate::types::operation::Operation;
 use crate::types::operation_link::OperationLink;
+use crate::types::operation_outcome::OperationOutcome;
 
-impl<S, C> ChangesetWrite<'_, S, C>
+impl<S, C, B> ChangesetWrite<'_, S, C, B>
 where
     S: Store,
     C: ListCache<Value = CachedList>,
+    B: BlockSource,
 {
     /// Runs `operation`, the `index`th of its transaction: the UID of the node an insert-if-absent or upsert-and-link
     /// found or created and whether it created it, zero and `false` for a compare-and-set and a counter add.
@@ -32,35 +36,39 @@ where
         &mut self,
         operation: &Operation,
         index: usize,
-    ) -> Result<(u64, bool), ChangesetError> {
+    ) -> Result<OperationOutcome, ChangesetError> {
         match operation {
             Operation::InsertIfAbsent {
                 graph,
                 predicate,
                 value,
                 properties,
-            } => self.upsert(
-                graph.as_ref(),
-                predicate.as_ref(),
-                value.as_ref(),
-                properties,
-                &[],
-                index,
-            ),
+            } => self
+                .upsert(
+                    graph.as_ref(),
+                    predicate.as_ref(),
+                    value.as_ref(),
+                    properties,
+                    &[],
+                    index,
+                )
+                .map(|(node, created)| OperationOutcome::Node { node, created }),
             Operation::UpsertAndLink {
                 graph,
                 predicate,
                 value,
                 properties,
                 links,
-            } => self.upsert(
-                graph.as_ref(),
-                predicate.as_ref(),
-                value.as_ref(),
-                properties,
-                links,
-                index,
-            ),
+            } => self
+                .upsert(
+                    graph.as_ref(),
+                    predicate.as_ref(),
+                    value.as_ref(),
+                    properties,
+                    links,
+                    index,
+                )
+                .map(|(node, created)| OperationOutcome::Node { node, created }),
             Operation::CompareAndSet {
                 graph,
                 subject,
@@ -75,7 +83,7 @@ where
                     expected.as_ref(),
                     new.as_ref(),
                 )
-                .map(|()| (0, false)),
+                .map(|()| OperationOutcome::Set),
             Operation::CounterAdd {
                 graph,
                 subject,
@@ -83,7 +91,7 @@ where
                 delta,
             } => self
                 .counter_add(graph.as_ref(), subject.as_ref(), predicate.as_ref(), *delta)
-                .map(|value| (value as u64, false)),
+                .map(OperationOutcome::Counter),
         }
     }
 
@@ -97,7 +105,7 @@ where
         properties: &[(NamedNode, Term)],
         links: &[OperationLink],
         index: usize,
-    ) -> Result<(u64, bool), ChangesetError> {
+    ) -> Result<(SystemId, bool), ChangesetError> {
         let g = self.graph(graph)?;
         let p = self.iri(predicate)?;
         let encoded = self.term(predicate, value)?;
@@ -127,7 +135,7 @@ where
                     graph: g,
                     subject: node,
                     predicate: lp,
-                    object: EncodedTerm::uid(other),
+                    object: EncodedTerm::id(other),
                 };
                 (resolved, Term::from(link.other().clone()))
             } else {
@@ -135,7 +143,7 @@ where
                     graph: g,
                     subject: other,
                     predicate: lp,
-                    object: EncodedTerm::uid(node),
+                    object: EncodedTerm::id(node),
                 };
                 (resolved, as_object.clone())
             };
@@ -146,10 +154,10 @@ where
 
     /// The node `uid` as a term, for its kind: the write's own IRI or skolem, the store's, or a blank node when its
     /// dictionary entry is in a round not yet applied, which only an operation's or a write's creation is.
-    fn node_term(&mut self, uid: u64) -> Result<Term, ChangesetError> {
-        match self.decode(&EncodedTerm::uid(uid)) {
+    fn node_term(&mut self, uid: SystemId) -> Result<Term, ChangesetError> {
+        match self.decode(&EncodedTerm::id(uid)) {
             Ok(term) => Ok(term),
-            Err(_) => Ok(BlankNode::new_unchecked(format!("b{uid}")).into()),
+            Err(_) => Ok(BlankNode::new_unchecked(format!("b{:032x}", uid.to_u128())).into()),
         }
     }
 

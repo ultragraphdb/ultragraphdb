@@ -6,25 +6,31 @@
 use std::collections::BTreeSet;
 
 use oxrdf::Term;
-use ultragraphdb_core_keys::{Keyspace, QuadKey};
+use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_keys::{Graph, Keyspace, QuadKey};
 use ultragraphdb_core_mapping::{Cardinality, PredicateDeclaration, PredicateKind};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_posting::CachedList;
+use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{ListCache, Scan, Store};
 
 use crate::errors::changeset_error::ChangesetError;
 use crate::types::changeset_write::ChangesetWrite;
 use crate::types::predicate_prefix::PredicatePrefix;
 
-impl<S, C> ChangesetWrite<'_, S, C>
+impl<S, C, B> ChangesetWrite<'_, S, C, B>
 where
     S: Store,
     C: ListCache<Value = CachedList>,
+    B: BlockSource,
 {
     /// The graph and subject of every forward list of predicate `uid` the write sees: those stored at its read
     /// timestamp, in every graph, and those it wrote. The ranges its skip scan and its scans read are recorded, so that
     /// a commit writing a forward list of the predicate in any graph conflicts with the write.
-    fn forward_lists(&mut self, uid: u64) -> Result<BTreeSet<(u64, u64)>, ChangesetError> {
+    fn forward_lists(
+        &mut self,
+        uid: SystemId,
+    ) -> Result<BTreeSet<(Graph, SystemId)>, ChangesetError> {
         let ns = self.namespace();
         let read_ts = self.write.read_ts();
         let lists = self.write.quads().lists();
@@ -61,7 +67,7 @@ where
     }
 
     /// Whether predicate `uid` holds an object in some graph: one of its forward lists is not empty.
-    pub(crate) fn holds_data(&mut self, uid: u64) -> Result<bool, ChangesetError> {
+    pub(crate) fn holds_data(&mut self, uid: SystemId) -> Result<bool, ChangesetError> {
         for (graph, subject) in self.forward_lists(uid)? {
             if !self.write.objects(graph, subject, uid)?.is_empty() {
                 return Ok(true);
@@ -75,7 +81,7 @@ where
     /// contradicts. The refusal names the predicate and the subject at fault.
     pub(crate) fn check_data(
         &mut self,
-        uid: u64,
+        uid: SystemId,
         old: &PredicateDeclaration,
         new: &PredicateDeclaration,
     ) -> Result<(), ChangesetError> {
@@ -98,9 +104,9 @@ where
                 .collect();
             let fault = if single && objects.len() > 1 {
                 Some("holds more than one object")
-            } else if edge && objects.iter().any(|o| o.as_uid().is_none()) {
+            } else if edge && objects.iter().any(|o| o.as_id().is_none()) {
                 Some("holds a literal")
-            } else if property && objects.iter().any(|o| o.as_uid().is_some()) {
+            } else if property && objects.iter().any(|o| o.as_id().is_some()) {
                 Some("holds an IRI or a blank node")
             } else {
                 None
@@ -109,7 +115,7 @@ where
                 (Some(f), _) => Some(f),
                 (None, Some(datatype)) => {
                     let mut contradicts = false;
-                    for object in objects.iter().filter(|o| o.as_uid().is_none()) {
+                    for object in objects.iter().filter(|o| o.as_id().is_none()) {
                         if let Term::Literal(l) = self.decode(object)? {
                             contradicts |= l.datatype() != datatype.as_ref();
                         }
@@ -119,7 +125,7 @@ where
                 (None, None) => None,
             };
             if let Some(reason) = fault {
-                let subject = self.decode(&EncodedTerm::uid(subject))?.to_string();
+                let subject = self.decode(&EncodedTerm::id(subject))?.to_string();
                 return Err(ChangesetError::contradicted(iri, subject, reason));
             }
         }

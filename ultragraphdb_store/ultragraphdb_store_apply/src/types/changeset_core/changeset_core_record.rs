@@ -12,6 +12,7 @@
 use std::collections::BTreeSet;
 
 use ultragraphdb_store_posting::CachedList;
+use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{ListCache, RebuildRecord, Store};
 
 use crate::errors::changeset_error::ChangesetError;
@@ -20,10 +21,11 @@ use crate::types::executed::Executed;
 use crate::types::predicate_prefix::PredicatePrefix;
 use crate::utils::quad_prefixes::declared_prefixes;
 
-impl<S, C> ChangesetCore<S, C>
+impl<S, C, B> ChangesetCore<S, C, B>
 where
     S: Store,
     C: ListCache<Value = CachedList>,
+    B: BlockSource,
 {
     /// Writes and syncs the record of the indexes `round`'s declarations build and remove, when they name any, under
     /// the number `id`, the round's first version, which no other round takes: its number, which a build started

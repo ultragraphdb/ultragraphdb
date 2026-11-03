@@ -8,8 +8,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_store_posting::{Batch, CachedList};
 use ultragraphdb_store_quads::QuadWrite;
+use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{ListCache, Store, VersionlessEntry};
 
 use crate::errors::changeset_error::ChangesetError;
@@ -17,12 +19,14 @@ use crate::types::changeset_core::ChangesetCore;
 use crate::types::changeset_write::ChangesetWrite;
 use crate::types::executed::Executed;
 use crate::types::operation::Operation;
+use crate::types::operation_outcome::OperationOutcome;
 use crate::utils::lock::lock;
 
-impl<S, C> ChangesetCore<S, C>
+impl<S, C, B> ChangesetCore<S, C, B>
 where
     S: Store,
     C: ListCache<Value = CachedList>,
+    B: BlockSource,
 {
     /// Runs `operations` on top of `executed`, as [`crate::ChangesetApplier::operate`] does.
     pub fn operate(
@@ -31,7 +35,7 @@ where
         operations: &[Operation],
         overlay: &Batch<'_, S, C>,
         dictionary: &[&VersionlessEntry],
-        results: &mut Vec<(u64, bool)>,
+        results: &mut Vec<OperationOutcome>,
     ) -> Result<Executed, ChangesetError> {
         let read_ts = self.quads().lists().applied_ts();
         let mut write = QuadWrite::new(self.quads(), executed.namespace, overlay.request(read_ts));
@@ -59,14 +63,14 @@ where
                 request.add_versionless(key, value);
             }
         }
-        let defaults: BTreeMap<Vec<u8>, u64> = executed
+        let defaults: BTreeMap<Vec<u8>, SystemId> = executed
             .defaults
             .iter()
             .cloned()
-            .zip(executed.default_uids.iter().copied())
-            .chain(outcome.defaults.into_iter().zip(outcome.default_uids))
+            .zip(executed.default_ids.iter().copied())
+            .chain(outcome.defaults.into_iter().zip(outcome.default_ids))
             .collect();
-        let (default_keys, default_uids) = defaults.into_iter().unzip();
+        let (default_keys, default_ids) = defaults.into_iter().unzip();
         let mut touched = executed.touched.clone();
         touched.extend(outcome.touched);
         Ok(Executed {
@@ -76,7 +80,7 @@ where
             read: executed.read.clone(),
             lists_read: executed.lists_read,
             defaults: default_keys,
-            default_uids,
+            default_ids,
             catalog_changed: executed.catalog_changed || outcome.catalog_changed,
             pending: executed.pending.clone(),
             touched,

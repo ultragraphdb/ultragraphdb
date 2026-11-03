@@ -32,13 +32,20 @@ fields are shorter than their keyspace defines, SHALL be refused with an error n
 - **THEN** the parse returns the referrers keyspace, namespace 7 and that entity's ID
 
 ### Requirement: Split keys address the parts of a split posting list
-A split key SHALL be the base key with the split flag set in its keyspace byte and the part's start appended: an ID as
-its 16 big-endian bytes for lists of IDs, a 64-bit fingerprint for lists of literals. Only keys of list keyspaces SHALL
-be split.
+A split key SHALL be the base key with the split flag set in its keyspace byte, then a kind byte naming the part's
+start, then the start: kind 1 and a 64-bit fingerprint as its 8 big-endian bytes for a part starting at a literal, kind
+2 and an ID as its 16 big-endian bytes for a part starting at an ID, so a list's split keys sort as their starts do. A
+value-index key's start SHALL always be an ID, its last 17 bytes, since its token runs to it. A kind byte other than 1
+or 2 SHALL be refused with an error naming the key's bytes. Only keys of list keyspaces SHALL be split.
 
 #### Scenario: A split key round-trips
 - **WHEN** the split key for a forward key and the start ID (type 1, bucket 5, sequence 1000) is built and parsed
 - **THEN** the parse returns the base key's parts and that start ID
+
+#### Scenario: An ID start cut by 8 bytes is refused
+- **WHEN** the split key of a forward key at the start ID (type 1, bucket 5, sequence 1000) loses its last 8 bytes and is
+  parsed
+- **THEN** parsing fails with an error naming the key's bytes
 
 #### Scenario: A split key with a trailing byte is refused
 - **WHEN** one byte is appended to a valid split forward key and the result is parsed

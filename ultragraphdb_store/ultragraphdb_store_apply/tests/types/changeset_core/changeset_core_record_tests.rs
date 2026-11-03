@@ -224,7 +224,7 @@ fn test_a_record_of_another_namespace_is_finished_against_that_namespace_s_catal
     let a = restarted(a)?;
     let name = a
         .quads()
-        .uid_of(3, "http://ex.org/name")?
+        .id_of(3, "http://ex.org/name")?
         .context("<name> has a UID in namespace 3")?;
     assert_eq!(
         a.catalog(3)?.predicate(name),

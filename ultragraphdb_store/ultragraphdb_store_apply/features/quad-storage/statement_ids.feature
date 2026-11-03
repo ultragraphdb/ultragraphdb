@@ -4,17 +4,14 @@
 #
 
 Feature: Statement IDs
-  A statement takes an ID, from its namespace's own sequence, when it gains a property or repeats a held triple; its
-  forward posting carries the ID and its record holds the statement and its properties.
+  A statement takes a system ID of the `Statement` type in its subject's bucket when it gains a property or repeats a
+  held triple; its forward posting carries the ID and its record holds the statement and its properties
+  (openspec/changes/stage-5-5-three-role-refactor/specs/quad-storage/spec.md, "Statement IDs", verbatim).
 
   Scenario: A property allocates a statement ID
-    Given `<a> <knows> <b>` is held
-    When `<a> <knows> <b>` gains the property `<since> 2020`
-    Then the forward posting of `<a> <knows> <b>` carries one statement ID
-    And the record of that ID holds `<a> <knows> <b>` and the property `<since> 2020`
+    When `<a> <knows> <b>` is held without a statement ID and gains the property `<since> 2020`
+    Then the statement has a statement ID of type prefix 2 and the bucket of `<a>`, its forward posting carries it, and its record holds `<since> 2020`
 
   Scenario: Removing a statement removes its record
-    Given `<a> <knows> <b>` is held with the property `<since> 2020`
-    When the statement of `<a> <knows> <b>` is deleted by its ID
+    When a statement with a statement ID is deleted
     Then no statement record of that ID remains
-    And `<a> <knows> <b>` is not held

@@ -5,12 +5,15 @@
 
 pub mod data_dictionary;
 pub mod description;
+pub mod dictionary;
 pub mod label_shape;
-pub mod leases;
+pub mod owned_buckets;
 pub mod property_shape;
 pub mod quad_store;
 pub mod quad_write;
+pub mod sequences;
 pub mod shapes;
 pub mod statement_record;
 pub mod statistics;
+pub mod term_origin;
 pub mod write_terms;

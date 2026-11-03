@@ -16,17 +16,40 @@ impl fmt::Display for QuadError {
             QuadErrorEnum::Key(e) => write!(f, "{e}"),
             QuadErrorEnum::Mapping(e) => write!(f, "{e}"),
             QuadErrorEnum::Catalog(e) => write!(f, "{e}"),
+            QuadErrorEnum::Id(e) => write!(f, "{e}"),
             QuadErrorEnum::Corrupted { key, reason } => {
                 let hex: String = key.iter().map(|b| format!("{b:02x}")).collect();
                 write!(f, "Corrupted dictionary at key {hex}: {reason}")
             }
-            QuadErrorEnum::Aborted => f.write_str("Transaction has been aborted. Please retry"),
-            QuadErrorEnum::UidsExhausted { namespace } => {
+            QuadErrorEnum::NoSequence { prefix } => {
+                let name = match prefix {
+                    1 => "Resource".to_string(),
+                    2 => "Statement".to_string(),
+                    p => format!("type {p}"),
+                };
                 write!(
                     f,
-                    "Namespace {namespace} has no UID left below the entity-type bits"
+                    "No sequence of {name} is held, and the block source leased no block"
                 )
             }
+            QuadErrorEnum::PendingFull { capacity } => write!(
+                f,
+                "{capacity} new IDs await their commit, all the dictionary holds: retry once a commit writes them"
+            ),
+            QuadErrorEnum::NoOwnedBucket { namespace } => write!(
+                f,
+                "The partition owns no bucket of namespace {namespace}'s run, so it mints no blank node of it"
+            ),
+            QuadErrorEnum::SkolemDraws { draws } => {
+                write!(
+                    f,
+                    "{draws} skolem IRIs drawn in turn each named an IRI the dictionary holds"
+                )
+            }
+            QuadErrorEnum::UnknownSkolem { iri } => write!(
+                f,
+                "{iri} lies under the skolem base, and the dictionary holds no blank node or reifier by it"
+            ),
         }
     }
 }

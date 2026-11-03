@@ -1787,6 +1787,7 @@ dependencies = [
  "tracing",
  "ultragraphdb_common_utils",
  "ultragraphdb_core_codec",
+ "ultragraphdb_core_ids",
  "ultragraphdb_core_keys",
  "ultragraphdb_core_terms",
  "ultragraphdb_core_tok",
@@ -1794,6 +1795,14 @@ dependencies = [
  "ultragraphdb_store_posting",
  "ultragraphdb_traits_index",
  "ultragraphdb_traits_store",
+]
+
+[[package]]
+name = "ultragraphdb_store_hnsw_fuzz"
+version = "0.0.0"
+dependencies = [
+ "libfuzzer-sys",
+ "ultragraphdb_store_hnsw",
 ]
 
 [[package]]
@@ -1818,11 +1827,13 @@ dependencies = [
  "oxrdf",
  "ultragraphdb_core_catalog",
  "ultragraphdb_core_codec",
+ "ultragraphdb_core_ids",
  "ultragraphdb_core_keys",
  "ultragraphdb_core_mapping",
  "ultragraphdb_core_terms",
  "ultragraphdb_error_store",
  "ultragraphdb_store_posting",
+ "ultragraphdb_traits_blocks",
  "ultragraphdb_traits_store",
  "xxhash-rust",
 ]
@@ -1840,6 +1851,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ultragraphdb_traits_blocks"
+version = "0.1.0"
+dependencies = [
+ "ultragraphdb_core_ids",
+]
+
+[[package]]
 name = "ultragraphdb_traits_collator"
 version = "0.1.0"
 
@@ -1848,6 +1866,7 @@ name = "ultragraphdb_traits_index"
 version = "0.1.0"
 dependencies = [
  "ultragraphdb_common_utils",
+ "ultragraphdb_core_ids",
  "ultragraphdb_error_options",
 ]
 

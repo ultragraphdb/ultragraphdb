@@ -25,21 +25,60 @@ use crate::utils::{go_math, go_sort};
 ///
 /// # Errors
 ///
-/// [`HnswError::uint_slice`] for text that is no such array, or names no valid system ID, naming the text without
+/// [`HnswError::malformed_dead_list`] for text that is no such array, or names no valid system ID, naming the text without
 /// its outer spaces.
 pub fn parse_edges(s: &str) -> Result<Vec<SystemId>, HnswError> {
-    unimplemented!()
+    let s = s.replace(['\n', '\t'], " ");
+    let s = s.trim();
+    if s.is_empty() {
+        return Ok(Vec::new());
+    }
+    let refuse = || HnswError::malformed_dead_list(s);
+    let inner = s
+        .strip_prefix('[')
+        .and_then(|rest| rest.strip_suffix(']'))
+        .ok_or_else(refuse)?
+        .trim();
+    if inner.is_empty() {
+        return Ok(Vec::new());
+    }
+    inner
+        .split(',')
+        .map(|element| parse_id(element.trim()).ok_or_else(refuse))
+        .collect()
 }
 
-/// The dead list after the node `id` is deleted: `existing`, the dead list's value or `None` when it has none, with
-/// `id` appended, as the JSON array [`parse_edges`] reads. The update `posting/index.go` makes when a vector is
+/// The ID a dead list's element names: a JSON string of 32 lowercase hexadecimal digits, a valid system ID's value.
+fn parse_id(element: &str) -> Option<SystemId> {
+    let digits = element.strip_prefix('"')?.strip_suffix('"')?;
+    let lowercase_hex = |b: &u8| b.is_ascii_digit() || (b'a'..=b'f').contains(b);
+    if digits.len() != ID_DIGITS || !digits.as_bytes().iter().all(lowercase_hex) {
+        return None;
+    }
+    SystemId::from_u128(u128::from_str_radix(digits, 16).ok()?).ok()
+}
+
+/// The hexadecimal digits of a system ID in a dead list.
+const ID_DIGITS: usize = 32;
+
+/// The dead list after `node` is deleted: `existing`, the dead list's value or `None` when it has none, with
+/// `node`'s ID appended, as the JSON array [`parse_edges`] reads. The update `posting/index.go` makes when a vector is
 /// deleted; an ID already listed is listed again, as Dgraph lists it.
 ///
 /// # Errors
 ///
-/// [`HnswError::uint_slice`] when `existing` does not parse.
-pub fn add_dead_node(existing: Option<&[u8]>, id: SystemId) -> Result<Vec<u8>, HnswError> {
-    unimplemented!()
+/// [`HnswError::malformed_dead_list`] when `existing` does not parse.
+pub fn add_dead_node(existing: Option<&[u8]>, node: SystemId) -> Result<Vec<u8>, HnswError> {
+    let mut dead = match existing {
+        Some(value) => parse_edges(&String::from_utf8_lossy(value))?,
+        None => Vec::new(),
+    };
+    dead.push(node);
+    let listed: Vec<String> = dead
+        .iter()
+        .map(|id| format!("\"{:032x}\"", id.to_u128()))
+        .collect();
+    Ok(format!("[{}]", listed.join(",")).into_bytes())
 }
 
 /// Dgraph's `ConcatStrings`.
@@ -62,7 +101,7 @@ pub fn insert_layer(max_levels: usize, rand_float: f64) -> usize {
 /// Dgraph's `BytesToUint64`: the node an entry point names, its system ID's 16 big-endian bytes; `None` unless
 /// `bytes` are exactly 16 bytes of a valid ID, where Go panics on fewer and reads the first 8 of more.
 pub fn bytes_to_id(bytes: &[u8]) -> Option<SystemId> {
-    unimplemented!()
+    SystemId::decode(bytes).ok()
 }
 
 /// Dgraph's `index.BytesAsFloatArray`: the little-endian floats of `encoded`; no bytes are no floats. `None` when
@@ -89,9 +128,7 @@ pub(crate) fn dedupe_uids_preserve_order(uids: Vec<SystemId>) -> Vec<SystemId> {
         return uids;
     }
     let mut seen = std::collections::HashSet::with_capacity(uids.len());
-    uids.into_iter()
-        .filter(|&uid| seen.insert(uid))
-        .collect()
+    uids.into_iter().filter(|&uid| seen.insert(uid)).collect()
 }
 
 /// Dgraph's `worstScore`: positive infinity for a distance, negative infinity for a similarity.

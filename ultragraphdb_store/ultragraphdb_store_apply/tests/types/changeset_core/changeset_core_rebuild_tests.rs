@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::QuadKey;
 use ultragraphdb_core_tok::get_tokenizer;
 
@@ -57,7 +58,7 @@ fn nearest(
     a: &crate::utils::changesets::TestChangesets,
     query: &[f32],
     k: usize,
-) -> TestResult<Vec<u64>> {
+) -> TestResult<Vec<SystemId>> {
     nearest_with(a, &ultragraphdb_traits_index::Options::new(), query, k)
 }
 
@@ -67,7 +68,7 @@ fn nearest_with(
     options: &ultragraphdb_traits_index::Options,
     query: &[f32],
     k: usize,
-) -> TestResult<Vec<u64>> {
+) -> TestResult<Vec<SystemId>> {
     use ultragraphdb_core_keys::DEFAULT_GRAPH;
     use ultragraphdb_store_hnsw::{PersistentHnsw, QueryCache, VectorKeys, ViTxn};
     use ultragraphdb_traits_index::accept_all;
@@ -158,7 +159,7 @@ fn test_a_count_index_is_built_over_held_edges_and_the_writes_during_its_build()
         Some(&declaration("friend", "with an exact count index")?)
     );
     let n = |name: &str| uid(&a, name);
-    let sorted = |mut v: Vec<u64>| {
+    let sorted = |mut v: Vec<SystemId>| {
         v.sort();
         v
     };

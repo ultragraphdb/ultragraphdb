@@ -35,6 +35,10 @@ Feature: Quad key encoding
       When the split key for a forward key and the start ID (type 1, bucket 5, sequence 1000) is built and parsed
       Then the parse returns the base key's parts and that start ID
 
+    Scenario: An ID start cut by 8 bytes is refused
+      When the split key of a forward key at the start ID (type 1, bucket 5, sequence 1000) loses its last 8 bytes and is parsed
+      Then parsing fails with an error naming the key's bytes
+
     Scenario: A split key with a trailing byte is refused
       When one byte is appended to a valid split forward key and the result is parsed
       Then parsing fails

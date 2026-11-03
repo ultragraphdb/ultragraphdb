@@ -5,9 +5,10 @@
 
 use oxrdf::vocab::rdf;
 use ultragraphdb_core_catalog::Catalog;
-use ultragraphdb_core_keys::{DEFAULT_GRAPH, Keyspace, QuadKey, key_prefix};
+use ultragraphdb_core_keys::{Graph, Keyspace, QuadKey, key_prefix};
 use ultragraphdb_core_mapping::{Cardinality, PredicateDeclaration, PredicateKind};
 use ultragraphdb_store_posting::CachedList;
+use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{ListCache, Scan, Store, StoreSnapshot};
 
 use crate::errors::quad_error::QuadError;
@@ -24,14 +25,15 @@ impl DataDictionary {
     /// What the namespace holds at `read_ts`: the catalog's declarations at that snapshot, exact; the statistics of
     /// each graph and predicate, exact at it; and the last pass's shapes, each declared predicate on the entity types
     /// it is declared on set as declared.
-    pub fn describe<S, C>(
+    pub fn describe<S, C, B>(
         &self,
-        quads: &QuadStore<S, C>,
+        quads: &QuadStore<S, C, B>,
         read_ts: u64,
     ) -> Result<Description, QuadError>
     where
         S: Store,
         C: ListCache<Value = CachedList>,
+        B: BlockSource,
     {
         let ns = self.namespace;
         let snapshot = quads.store().snapshot(read_ts)?;
@@ -55,8 +57,8 @@ impl DataDictionary {
                 let statistics = quads.statistics(ns, graph, predicate, read_ts)?;
                 let name = quads.iri_of(ns, predicate)?.0;
                 let graph_name = match graph {
-                    DEFAULT_GRAPH => String::new(),
-                    g => quads.iri_of(ns, g)?.0,
+                    Graph::Default => String::new(),
+                    Graph::Named(g) => quads.iri_of(ns, g)?.0,
                 };
                 if name != rdf::TYPE.as_str() {
                     let counted = |kind: &str| statistics.kinds().get(kind).is_some_and(|n| *n > 0);

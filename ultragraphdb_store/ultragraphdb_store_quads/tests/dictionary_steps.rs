@@ -129,21 +129,17 @@ fn declared(w: &mut Steps, args: &[String]) -> TestResult {
         .with_datatype(xsd::STRING.into_owned())
         .with_domains(vec![ex(domain)]);
     let store = store(w)?;
-    // One write assigns the predicate its UID and commits the declaration under it.
+    // One write assigns the predicate its ID and commits the declaration under it.
     let mut write = insert_write(store, 0, &[])?;
     let (terms, q) = write.terms();
-    let p = terms
-        .iri(q.store(), q.leases(), ex(predicate).as_str())
-        .context("a UID")?;
+    let p = terms.iri(q, ex(predicate).as_str()).context("an ID")?;
     write.request().add_entry(Catalog::entry(
         0,
         p,
         &Declaration::Predicate(declaration),
         0,
     ));
-    let _removed: u64 = commit(store, vec![write])?
-        .remove(0)
-        .context("the declaration commits")?;
+    let _versions: Vec<u64> = commit(store, vec![write])?;
     Ok(())
 }
 
@@ -168,11 +164,9 @@ fn written_during_pass(w: &mut Steps, args: &[String]) -> TestResult {
     let read_nothing = request.read_keys().next().is_none();
     let mut batch = store.lists().batch();
     batch.push(request);
-    let _removed: u64 = store
+    let _versions: Vec<u64> = store
         .commit(batch, &[terms])
-        .context("the batch is written")?
-        .remove(0)
-        .context("commits")?;
+        .context("the batch is written")?;
     let after = d.run_pass(store, before).context("the pass completes")?;
     w.flags = vec![read_nothing, during == after];
     Ok(())

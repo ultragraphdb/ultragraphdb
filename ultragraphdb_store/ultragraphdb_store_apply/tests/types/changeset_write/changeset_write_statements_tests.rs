@@ -3,12 +3,13 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! Statement IDs and their properties: properties set and deleted by triple and by ID, one value or every value, in
-//! the default graph and a named one; a triple several statements hold named only by an ID.
+//! Statement IDs and their properties: properties set and deleted by triple and by reifier, one value or every value,
+//! in the default graph and a named one; a triple several statements hold named only by a reifier.
 
-use oxrdf::GraphName;
-use ultragraphdb_core_keys::DEFAULT_GRAPH;
-use ultragraphdb_core_mapping::{Change, MappingErrorEnum, StatementId, StatementRef};
+use oxrdf::{GraphName, NamedNode};
+use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_keys::{DEFAULT_GRAPH, Graph};
+use ultragraphdb_core_mapping::{Change, MappingErrorEnum, StatementRef};
 use ultragraphdb_store_apply::ChangesetErrorEnum;
 use ultragraphdb_store_quads::StatementRecord;
 
@@ -28,14 +29,19 @@ fn by_triple(text: &str) -> TestResult<StatementRef> {
     })
 }
 
-fn record(a: &TestChangesets, graph: u64, id: u64) -> TestResult<Option<StatementRecord>> {
+/// The reifier naming statement `id`.
+fn reifier(a: &TestChangesets, id: SystemId) -> TestResult<NamedNode> {
+    Ok(NamedNode::new(a.quads().iri_of(NS, id)?.0)?)
+}
+
+fn record(a: &TestChangesets, graph: Graph, id: SystemId) -> TestResult<Option<StatementRecord>> {
     Ok(a.quads()
         .statement(NS, graph, id, a.quads().lists().applied_ts())?)
 }
 
 /// The properties of a record, as `(predicate name, value text)`.
-fn properties(a: &TestChangesets, record: &StatementRecord) -> TestResult<Vec<(u64, String)>> {
-    let mut p: Vec<(u64, String)> = record
+fn properties(a: &TestChangesets, record: &StatementRecord) -> TestResult<Vec<(SystemId, String)>> {
+    let mut p: Vec<(SystemId, String)> = record
         .properties()
         .iter()
         .map(|(p, v)| Ok((*p, a.quads().term_of(NS, v)?.to_string())))
@@ -105,7 +111,7 @@ fn test_a_property_is_deleted_by_value_or_entirely() -> TestResult {
 }
 
 #[test]
-fn test_a_triple_held_by_two_statements_is_named_by_an_id() -> TestResult {
+fn test_a_triple_held_by_two_statements_is_named_by_a_reifier() -> TestResult {
     let a = changesets()?;
     write_changes(
         &a,
@@ -131,15 +137,15 @@ fn test_a_triple_held_by_two_statements_is_named_by_an_id() -> TestResult {
     );
     assert_eq!(
         refused.to_string(),
-        "<http://ex.org/a> <http://ex.org/knows> <http://ex.org/b> is held by several statements; name one by its statement ID"
+        "<http://ex.org/a> <http://ex.org/knows> <http://ex.org/b> is held by several statements; name one by its reifier"
     );
     let ids = postings(&a, "a", "knows")?[0].1.clone();
     write_changes(
         &a,
         vec![Change::SetProperty {
-            statement: StatementRef::Id {
+            statement: StatementRef::Reifier {
                 graph: GraphName::DefaultGraph,
-                id: StatementId::new(ids[1]),
+                reifier: reifier(&a, ids[1])?,
             },
             predicate: ex("weight"),
             value: term("1")?,
@@ -163,15 +169,16 @@ fn test_a_triple_held_by_two_statements_is_named_by_an_id() -> TestResult {
 }
 
 #[test]
-fn test_an_id_no_statement_has_is_refused_or_changes_nothing() -> TestResult {
+fn test_a_reifier_naming_no_statement_is_refused_or_changes_nothing() -> TestResult {
     let a = changesets()?;
     write_changes(
         &a,
         vec![insert_edge("<a> <knows> <b>", &[("since", "2020")])?],
     )?;
-    let by_id = StatementRef::Id {
+    // An IRI the dictionary holds as a resource's, and one it does not hold: neither names a statement.
+    let by_id = StatementRef::Reifier {
         graph: GraphName::DefaultGraph,
-        id: StatementId::new(99),
+        reifier: ex("b"),
     };
     let refused = apply(
         &a,
@@ -183,14 +190,23 @@ fn test_an_id_no_statement_has_is_refused_or_changes_nothing() -> TestResult {
     )
     .err()
     .context("the error of apply(..)")?;
-    assert_eq!(refused.to_string(), "No statement 99 in DEFAULT is held");
+    assert_eq!(
+        refused.to_string(),
+        "No statement <http://ex.org/b> in DEFAULT is held"
+    );
     let before = a.quads().store().contents();
     write_changes(
         &a,
-        vec![Change::DeleteStatement {
-            graph: GraphName::DefaultGraph,
-            id: StatementId::new(99),
-        }],
+        vec![
+            Change::DeleteStatement {
+                graph: GraphName::DefaultGraph,
+                reifier: ex("b"),
+            },
+            Change::DeleteStatement {
+                graph: GraphName::DefaultGraph,
+                reifier: ex("nothing"),
+            },
+        ],
     )?;
     assert_eq!(a.quads().store().contents().keys(), before.keys());
     Ok(())
@@ -203,7 +219,7 @@ fn test_statements_in_a_named_graph_keep_their_records_there() -> TestResult {
         &a,
         vec![insert_edge("<a> <knows> <b> <g1>", &[("since", "2020")])?],
     )?;
-    let g1 = uid(&a, "g1")?;
+    let g1 = Graph::Named(uid(&a, "g1")?);
     let key = ultragraphdb_core_keys::QuadKey::Forward {
         namespace: NS,
         graph: g1,
@@ -221,10 +237,37 @@ fn test_statements_in_a_named_graph_keep_their_records_there() -> TestResult {
         &a,
         vec![Change::DeleteStatement {
             graph: GraphName::from(ex("g1")),
-            id: StatementId::new(ids[0]),
+            reifier: reifier(&a, ids[0])?,
         }],
     )?;
     assert!(record(&a, g1, ids[0])?.is_none());
     assert!(objects_in(&a, "g1", "a", "knows")?.is_empty());
+    Ok(())
+}
+
+#[test]
+fn test_an_edge_with_properties_and_a_parallel_edge_take_statement_ids_in_their_subjects_bucket()
+-> TestResult {
+    let a = changesets()?;
+    write_changes(
+        &a,
+        vec![insert_edge("<a> <knows> <b>", &[("since", "2020")])?],
+    )?;
+    write_changes(&a, vec![insert_edge("<a> <knows> <b>", &[])?])?;
+    let ids = postings(&a, "a", "knows")?
+        .first()
+        .context("a posting")?
+        .1
+        .clone();
+    assert_eq!(ids.len(), 2);
+    let subject = uid(&a, "a")?;
+    for id in ids {
+        assert_eq!(
+            id.type_prefix(),
+            ultragraphdb_core_ids::TypePrefix::STATEMENT
+        );
+        assert_eq!(id.bucket(), subject.bucket(), "{id:?}");
+        assert!(reifier(&a, id).is_ok(), "each is named by a reifier");
+    }
     Ok(())
 }

@@ -310,3 +310,34 @@ fn test_uids_keep_a_reference_coinciding_with_a_literals_fingerprint_on_every_pa
     assert_eq!(iterated.ids(), ids(&[7, 9])?, "iterating");
     Ok(())
 }
+
+/// A reference's key is a valid system ID; a reference keyed below 2^64, by a fingerprint, is corruption naming the
+/// list's key, on the iterating path and in a rollup alike.
+#[test]
+fn test_a_reference_keyed_by_no_id_is_corruption() -> TestResult {
+    let k = key("uids-no-id", 1);
+    let mut l = List::empty(k.clone());
+    add(
+        &mut l,
+        1,
+        &Posting::default()
+            .with_uid(5)
+            .with_op(ultragraphdb_store_posting::SET),
+    );
+    l.commit_mutation(2);
+    let expected = PostingErrorEnum::Store(ultragraphdb_error_store::StoreError(
+        ultragraphdb_error_store::StoreErrorEnum::Corrupted {
+            key: k.clone(),
+            reason: "a reference keyed by no ID".to_string(),
+        },
+    ));
+    let iterated = l
+        .uids(&ListOptions::at(2))
+        .failure("the IDs of a reference keyed by no ID")?;
+    assert_eq!(iterated.0, expected);
+    let rolled = l
+        .rollup(2, true, usize::MAX)
+        .failure("the rollup of a reference keyed by no ID")?;
+    assert_eq!(rolled.0, expected);
+    Ok(())
+}

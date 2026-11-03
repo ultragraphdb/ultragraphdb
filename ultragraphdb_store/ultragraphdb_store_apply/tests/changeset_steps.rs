@@ -11,9 +11,10 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use cucumber::{given, then, when};
-use oxrdf::{GraphName, Term};
-use ultragraphdb_core_keys::{CountDirection, DEFAULT_GRAPH, Keyspace};
-use ultragraphdb_core_mapping::{Change, PredicateDeclaration, StatementId, StatementRef};
+use oxrdf::{GraphName, NamedNode, Term};
+use ultragraphdb_core_ids::{SystemId, TypePrefix};
+use ultragraphdb_core_keys::{CountDirection, DEFAULT_GRAPH, Keyspace, QuadKey};
+use ultragraphdb_core_mapping::{Change, PredicateDeclaration, RandomSource, StatementRef};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_apply::{Applied, ChangesetApplier, ChangesetError};
 use ultragraphdb_store_posting::{Lists, ListsConfig};
@@ -65,7 +66,7 @@ pub(crate) fn is_held(a: &TestChangesets, text: &str) -> TestResult<bool> {
     };
     let known = |iri: &str| -> TestResult<bool> {
         Ok(a.quads()
-            .uid_of(NS, iri)
+            .id_of(NS, iri)
             .context("the dictionary reads")?
             .is_some())
     };
@@ -120,9 +121,13 @@ fn held(w: &mut Steps, args: &[String]) -> TestResult {
 #[given("every literal's fingerprint is 7")]
 fn constant_fingerprint(w: &mut Steps) -> TestResult {
     let cache = SimListCache::new(1024, Seed::new(1).stream(Stream::Cache));
-    let quads = QuadStore::open(Lists::new(sim_store(), cache, ListsConfig::default()))
-        .context("the quads open")?
-        .with_fingerprint(|_| 7);
+    let quads = QuadStore::open(
+        Lists::new(sim_store(), cache, ListsConfig::default()),
+        crate::utils::changesets::blocks(),
+        RandomSource::new(1),
+    )
+    .context("the quads open")?
+    .with_fingerprint(|_| 7);
     let executor = SteppedExecutor::new(Seed::new(1).stream(Stream::Executor));
     let applier = ChangesetApplier::over(quads, executor, 1).context("the applier opens")?;
     w.changesets = Some(Arc::new(applier));
@@ -249,26 +254,75 @@ fn gains_property(w: &mut Steps, args: &[String]) -> TestResult {
     Ok(())
 }
 
-#[when(regex = r"^the statement of `(.+)` is deleted by its ID$")]
-fn statement_deleted(w: &mut Steps, args: &[String]) -> TestResult {
-    let text = &args[0];
+#[when("a statement with a statement ID is deleted")]
+fn statement_deleted(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
-    let t = statement(text)?;
-    let name = |s: String| {
-        s.trim_start_matches("<http://ex.org/")
-            .trim_end_matches('>')
-            .to_string()
-    };
-    let (subject, predicate) = (name(t.subject.to_string()), name(t.predicate.to_string()));
-    let ids = postings(&a, &subject, &predicate)?[0].1.clone();
+    let _applied: Applied = apply(
+        &a,
+        vec![insert_edge("<a> <knows> <b>", &[("since", "2020")])?],
+    )
+    .context("the statement is written")?;
+    let ids = postings(&a, "a", "knows")?
+        .first()
+        .context("a posting")?
+        .1
+        .clone();
+    let id = *ids.first().context("one statement ID")?;
     assert_eq!(ids.len(), 1, "one statement ID");
-    w.statement = Some(ids[0]);
+    w.statement = Some(id);
     let change = Change::DeleteStatement {
-        graph: t.graph,
-        id: StatementId::new(ids[0]),
+        graph: GraphName::DefaultGraph,
+        reifier: reifier_of(&a, id)?,
     };
     let result = apply(&a, vec![change]);
     w.results.push(result);
+    Ok(())
+}
+
+/// The reifier naming statement `id`.
+pub(crate) fn reifier_of(a: &TestChangesets, id: SystemId) -> TestResult<NamedNode> {
+    Ok(NamedNode::new(
+        a.quads().iri_of(NS, id).context("the reifier reads")?.0,
+    )?)
+}
+
+#[when("`<a> <knows> <b>` is held without a statement ID and gains the property `<since> 2020`")]
+fn held_then_property(w: &mut Steps) -> TestResult {
+    let a = cs(w)?;
+    let _applied: Applied =
+        apply(&a, vec![insert("<a> <knows> <b>")?]).context("the statement is written")?;
+    assert!(
+        postings(&a, "a", "knows")?
+            .iter()
+            .all(|(_, ids)| ids.is_empty()),
+        "no statement ID yet"
+    );
+    gains_property(
+        w,
+        &["<a> <knows> <b>".into(), "<since>".into(), "2020".into()],
+    )
+}
+
+#[then(
+    "the statement has a statement ID of type prefix 2 and the bucket of `<a>`, its forward posting carries it, and its record holds `<since> 2020`"
+)]
+fn statement_id_allocated(w: &mut Steps) -> TestResult {
+    let a = cs(w)?;
+    assert!(last(w)?.is_ok(), "{:?}", last(w)?);
+    let held = postings(&a, "a", "knows")?;
+    let ids = &held.first().context("a posting")?.1;
+    let id = *ids.first().context("a statement ID")?;
+    assert_eq!(ids.len(), 1);
+    assert_eq!(id.type_prefix(), TypePrefix::STATEMENT);
+    assert_eq!(id.type_prefix().get(), 2);
+    assert_eq!(id.bucket(), uid(&a, "a")?.bucket());
+    let record = stored_record(&a, id)?.context("a record")?;
+    let properties = record.properties();
+    assert_eq!(properties.len(), 1);
+    let (p, v) = properties.first().context("a property")?;
+    assert_eq!(*p, uid(&a, "since")?);
+    assert_eq!(a.quads().term_of(NS, v)?, term("2020")?);
+    w.statement = Some(id);
     Ok(())
 }
 
@@ -616,7 +670,7 @@ fn reads_forward(w: &mut Steps, args: &[String]) -> TestResult {
 }
 
 /// Whether the last changeset wrote the region of `keyspace` in the default graph, for `predicate` when it names one.
-fn wrote(w: &Steps, keyspace: Keyspace, predicate: Option<u64>) -> TestResult<bool> {
+fn wrote(w: &Steps, keyspace: Keyspace, predicate: Option<SystemId>) -> TestResult<bool> {
     Ok(applied(w)?.written().iter().any(|r| {
         r.keyspace() == keyspace
             && r.namespace() == NS
@@ -698,7 +752,7 @@ fn read_set_holds_statement(w: &mut Steps, args: &[String]) -> TestResult {
     };
     let tested = (
         key(predicate, subject)?,
-        EncodedTerm::uid(uid(&a, object)?).as_bytes().to_vec(),
+        EncodedTerm::id(uid(&a, object)?).as_bytes().to_vec(),
     );
     assert!(
         reads.statements().contains(&tested),
@@ -714,35 +768,141 @@ fn read_set_holds_statement(w: &mut Steps, args: &[String]) -> TestResult {
 }
 
 #[when(
-    regex = r"^a transaction creates `<(\w+)>` and commits, and no other transaction created `<\w+>` meanwhile$"
+    "a transaction creates `<new>`, and another transaction writing `<new>` executes before the first commits"
 )]
-fn creates_and_commits(w: &mut Steps, args: &[String]) -> TestResult {
-    let name = &args[0];
+fn two_writers_of_new(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
-    let executed = a
-        .execute(&changeset(vec![insert(&format!("<{name}> <p> <q>"))?]))
-        .context("the transaction executes")?;
-    let provisional = executed
-        .terms()
-        .created()
-        .find(|(iri, _)| *iri == ex(name).as_str())
-        .map(|(_, uid)| uid)
-        .context("the transaction creates the IRI")?;
-    assert_eq!(a.quads().uid_of(NS, ex(name).as_str())?, None);
+    let first = a
+        .execute(&changeset(vec![insert("<new> <p> <q>")?]))
+        .context("the first executes")?;
+    let second = a
+        .execute(&changeset(vec![insert("<new> <r> <s>")?]))
+        .context("the second executes")?;
+    let id_in = |e: &ultragraphdb_store_apply::Executed| {
+        e.terms()
+            .written()
+            .find(|(iri, _)| *iri == ex("new").as_str())
+            .map(|(_, id)| id)
+    };
+    let (one, two) = (
+        id_in(&first).context("the first names <new>")?,
+        id_in(&second).context("the second names it")?,
+    );
+    w.names = vec![format!("{one:?}"), format!("{two:?}")];
+    assert_eq!(
+        a.quads().id_of(NS, ex("new").as_str())?,
+        None,
+        "neither has committed"
+    );
+    // The second commits; the first, refused by the commit step, is released.
     let version = a.quads().lists().next_version();
     let applied = a
-        .apply_round(vec![(version, executed)])
-        .context("it commits")?;
+        .apply_round(vec![(version, second)])
+        .context("the second commits")?;
+    a.release(&first).context("the first is released")?;
     w.results.extend(applied.into_iter().map(Ok));
-    w.statement = Some(provisional);
+    w.statement = Some(two);
     Ok(())
 }
 
-#[then(regex = r"^`<(\w+)>` holds the UID the transaction gave it$")]
-fn holds_given_uid(w: &mut Steps, args: &[String]) -> TestResult {
-    let name = &args[0];
+#[then(
+    "both receive the same system ID for `<new>` while executing, and whichever commits holds `<new>` under it"
+)]
+fn same_id_for_new(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
-    assert_eq!(Some(uid(&a, name)?), w.statement);
+    assert_eq!(w.names.first(), w.names.get(1), "one ID while executing");
+    assert_eq!(Some(uid(&a, "new")?), w.statement);
+    assert!(is_held(&a, "<new> <r> <s>")?);
+    assert!(
+        !is_held(&a, "<new> <p> <q>")?,
+        "the refused write wrote no statement"
+    );
+    Ok(())
+}
+
+#[when(
+    regex = r"^`a` holds three objects of `nick` and a changeset deletes the pattern `a`, `nick` in the default graph$"
+)]
+fn three_nicks_deleted(w: &mut Steps) -> TestResult {
+    let a = cs(w)?;
+    crate::utils::changesets::write(
+        &a,
+        &[r#"<a> <nick> "Al""#, "<a> <nick> <n1>", "<a> <nick> <n2>"],
+    )?;
+    let result = apply(&a, vec![delete_pattern("a", "nick")]);
+    w.results.push(result);
+    Ok(())
+}
+
+#[then("`a` holds no `nick`, and the reverse lists of the three objects no longer hold `a`")]
+fn nicks_gone(w: &mut Steps) -> TestResult {
+    let a = cs(w)?;
+    assert!(last(w)?.is_ok(), "{:?}", last(w)?);
+    assert!(objects(&a, "a", "nick")?.is_empty());
+    let subject = uid(&a, "a")?;
+    for object in ["n1", "n2"] {
+        assert!(!reverse(&a, "nick", object)?.contains(&subject), "{object}");
+    }
+    let al = QuadKey::Reverse {
+        namespace: NS,
+        graph: DEFAULT_GRAPH,
+        predicate: uid(&a, "nick")?,
+        object: crate::utils::changesets::encoded(&term(r#""Al""#)?)?,
+    }
+    .to_bytes();
+    assert!(
+        a.quads()
+            .objects(&al, a.quads().lists().applied_ts())?
+            .is_empty(),
+        "the literal's reverse list"
+    );
+    Ok(())
+}
+
+#[when(regex = r"^a changeset inserting `(.+)` is executed$")]
+fn insert_executed(w: &mut Steps, args: &[String]) -> TestResult {
+    let a = cs(w)?;
+    let result = apply(&a, vec![insert(&args[0])?]);
+    w.results.push(result);
+    Ok(())
+}
+
+#[then(
+    "the reported write regions include the forward and reverse regions of `knows` and the subject- and object-predicate regions of the default graph"
+)]
+fn reported_regions(w: &mut Steps) -> TestResult {
+    let a = cs(w)?;
+    let p = Some(uid(&a, "knows")?);
+    assert!(wrote(w, Keyspace::Forward, p)? && wrote(w, Keyspace::Reverse, p)?);
+    assert!(
+        wrote(w, Keyspace::SubjectPredicates, None)? && wrote(w, Keyspace::ObjectPredicates, None)?
+    );
+    Ok(())
+}
+
+#[when("a changeset inserting `<new> <knows> <b>` is executed and `<new>` had no ID")]
+fn new_term_executed(w: &mut Steps) -> TestResult {
+    let a = cs(w)?;
+    crate::utils::changesets::write(&a, &["<b> <knows> <c>"])?;
+    assert_eq!(a.quads().id_of(NS, ex("new").as_str())?, None);
+    let result = apply(&a, vec![insert("<new> <knows> <b>")?]);
+    w.results.push(result);
+    Ok(())
+}
+
+#[then("its read set holds the absent term `<new>` and no dictionary key")]
+fn absent_new(w: &mut Steps) -> TestResult {
+    let a = cs(w)?;
+    let reads = applied(w)?.reads();
+    assert_eq!(reads.absent(), &[uid(&a, "new")?]);
+    let dictionary = |key: &[u8]| key.first() == Some(&Keyspace::Dictionary.byte());
+    assert!(
+        !reads.lists().iter().any(|k| dictionary(k)),
+        "{:?}",
+        reads.lists()
+    );
+    assert!(!reads.statements().iter().any(|(k, _)| dictionary(k)));
+    assert!(!reads.ranges().iter().any(|(k, _)| dictionary(k)));
     Ok(())
 }
 
@@ -776,7 +936,7 @@ fn catalog_lacks(w: &mut Steps, args: &[String]) -> TestResult {
     let catalog = a.catalog(NS).context("the catalog loads")?;
     let declared = a
         .quads()
-        .uid_of(NS, ex(predicate).as_str())
+        .id_of(NS, ex(predicate).as_str())
         .context("the dictionary reads")?
         .and_then(|p| catalog.predicate(p).cloned());
     assert_eq!(declared, None);
@@ -788,7 +948,7 @@ fn carries_id(w: &mut Steps, args: &[String]) -> TestResult {
     let text = &args[0];
     let a = cs(w)?;
     let held = postings(&a, "a", "knows")?;
-    let object = EncodedTerm::uid(uid(&a, "b")?);
+    let object = EncodedTerm::id(uid(&a, "b")?);
     let ids = &held.iter().find(|(o, _)| *o == object).context(text)?.1;
     assert_eq!(ids.len(), 1);
     w.statement = Some(ids[0]);
@@ -812,7 +972,7 @@ fn record_holds(w: &mut Steps, args: &[String]) -> TestResult {
     assert_eq!(record.predicate(), uid(&a, &name(t.predicate.to_string()))?);
     assert_eq!(
         record.object(),
-        &EncodedTerm::uid(uid(&a, &name(t.object.to_string()))?)
+        &EncodedTerm::id(uid(&a, &name(t.object.to_string()))?)
     );
     let (p, v) = match record.properties() {
         [one] => Ok(one),
@@ -844,9 +1004,153 @@ fn no_record(w: &mut Steps) -> TestResult {
 /// The record of statement `id` in the default graph, as the last commit left it.
 fn stored_record(
     a: &TestChangesets,
-    id: u64,
+    id: SystemId,
 ) -> TestResult<Option<ultragraphdb_store_quads::StatementRecord>> {
     a.quads()
         .statement(NS, DEFAULT_GRAPH, id, a.quads().lists().applied_ts())
         .context("the record reads")
+}
+
+#[when("`<a> <knows> <b>` gains the property `<since> 2020` and so receives a statement ID")]
+fn gains_property_and_id(w: &mut Steps) -> TestResult {
+    let a = cs(w)?;
+    let _applied: Applied =
+        apply(&a, vec![insert("<a> <knows> <b>")?]).context("the statement is written")?;
+    gains_property(
+        w,
+        &["<a> <knows> <b>".into(), "<since>".into(), "2020".into()],
+    )?;
+    let ids = postings(&a, "a", "knows")?
+        .first()
+        .context("a posting")?
+        .1
+        .clone();
+    w.statement = Some(*ids.first().context("a statement ID")?);
+    Ok(())
+}
+
+#[then(
+    "the dictionary holds a skolem IRI `…/.well-known/genid/{bucket}-{random}` for it, whose bucket is `<a>`'s, mapping to the statement ID and back, and a write naming that IRI as the reifier adds properties to the statement"
+)]
+fn reifier_is_skolem(w: &mut Steps) -> TestResult {
+    let a = cs(w)?;
+    let id = w.statement.context("a statement ID")?;
+    let (reifier, blank) = a.quads().iri_of(NS, id)?;
+    assert!(!blank, "a reifier is no blank node");
+    let tail = reifier
+        .strip_prefix(&format!(
+            "{}.well-known/genid/",
+            ultragraphdb_store_quads::namespace_base(NS)
+        ))
+        .context("under the namespace's skolem base")?;
+    let (bucket, random) = tail.split_once('-').context("a bucket and random digits")?;
+    assert_eq!((bucket.len(), random.len()), (6, 26), "{reifier}");
+    assert_eq!(
+        u32::from_str_radix(bucket, 16)?,
+        uid(&a, "a")?.bucket().get(),
+        "<a>'s bucket"
+    );
+    assert_eq!(
+        a.quads().id_of(NS, &reifier)?,
+        Some(id),
+        "the IRI maps back to the statement ID"
+    );
+    let change = Change::SetProperty {
+        statement: StatementRef::Reifier {
+            graph: GraphName::DefaultGraph,
+            reifier: NamedNode::new(reifier)?,
+        },
+        predicate: ex("weight"),
+        value: term("1")?,
+    };
+    let _applied: Applied =
+        apply(&a, vec![change]).context("the property is added through the reifier")?;
+    let record = stored_record(&a, id)?.context("the record")?;
+    assert_eq!(record.properties().len(), 2, "{record:?}");
+    Ok(())
+}
+
+#[when(
+    "two transactions in `<new>`'s home read before either commits, both write `<new> <p> \"x\"`, not held, and both send their commit"
+)]
+fn two_creators(w: &mut Steps) -> TestResult {
+    let a = cs(w)?;
+    let first = a.execute(&changeset(vec![insert(r#"<new> <p> "x""#)?]));
+    let second = a.execute(&changeset(vec![insert(r#"<new> <p> "x""#)?]));
+    w.flags = vec![first.is_ok(), second.is_ok()];
+    let (first, second) = (
+        first.context("the first executes")?,
+        second.context("the second executes")?,
+    );
+    let id_in = |e: &ultragraphdb_store_apply::Executed| {
+        e.terms()
+            .written()
+            .find(|(iri, _)| *iri == ex("new").as_str())
+            .map(|(_, id)| id)
+    };
+    let (one, two) = (
+        id_in(&first).context("the first names <new>")?,
+        id_in(&second).context("the second names it")?,
+    );
+    // What the commit step validates by: each one's read set against the other's writes.
+    let wrote = |e: &ultragraphdb_store_apply::Executed, key: &[u8]| {
+        e.writes().written_keys().any(|k| k == key)
+    };
+    let names_new = |e: &ultragraphdb_store_apply::Executed| {
+        e.writes().written_keys().any(|k| {
+            matches!(QuadKey::parse(k), Ok((QuadKey::Forward { subject, .. }, _)) if subject == one)
+        })
+    };
+    let second_tested_what_first_wrote = second
+        .reads()
+        .statements()
+        .iter()
+        .any(|(key, _)| wrote(&first, key));
+    let first_absent_what_second_wrote =
+        first.reads().absent().contains(&one) && names_new(&second);
+    w.flags.extend([
+        one == two,
+        second_tested_what_first_wrote,
+        first_absent_what_second_wrote,
+    ]);
+    let version = a.quads().lists().next_version();
+    let applied = a
+        .apply_round(vec![(version, first)])
+        .context("the first commits")?;
+    a.release(&second)
+        .context("the second, refused, is released")?;
+    w.results.extend(applied.into_iter().map(Ok));
+    w.statement = Some(one);
+    Ok(())
+}
+
+#[then(
+    "both receive one system ID for `<new>` and neither aborts for creating it; the two still conflict on the statement (transactions, \"What a transaction's reads record and what conflicts with them\"), so exactly one commits, and `<new>` has one system ID"
+)]
+fn creators_share(w: &mut Steps) -> TestResult {
+    let a = cs(w)?;
+    assert_eq!(
+        w.flags.get(..2),
+        Some(&[true, true][..]),
+        "neither aborts for creating <new>"
+    );
+    assert_eq!(w.flags.get(2), Some(&true), "one system ID for <new>");
+    assert_eq!(
+        w.flags.get(3),
+        Some(&true),
+        "the second tested the statement the first wrote"
+    );
+    assert_eq!(
+        w.flags.get(4),
+        Some(&true),
+        "the first found <new> absent, which the second wrote"
+    );
+    let id = w.statement.context("the ID")?;
+    assert_eq!(uid(&a, "new")?, id);
+    assert_eq!(
+        a.quads().iri_of(NS, id)?,
+        (ex("new").as_str().to_string(), false)
+    );
+    assert!(is_held(&a, r#"<new> <p> "x""#)?);
+    Ok(())
 }

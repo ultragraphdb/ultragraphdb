@@ -8,8 +8,12 @@ use ultragraphdb_traits_index::CacheType;
 
 use crate::utils::helpers::{InMemLocalCache, TsDbs};
 
+use ultragraphdb_tool_bdd::TestResult;
+
+use crate::utils::helpers::id;
+
 #[test]
-fn test_a_query_cache_reads_through_its_local_cache() {
+fn test_a_query_cache_reads_through_its_local_cache() -> TestResult {
     let dbs = TsDbs::default();
     dbs.write_from(4, b"k", b"v");
     let early = InMemLocalCache::new(&dbs, 3);
@@ -21,7 +25,8 @@ fn test_a_query_cache_reads_through_its_local_cache() {
     let late = InMemLocalCache::new(&dbs, 4);
     let qc = QueryCache::new(&late, 4);
     assert_eq!((qc.get(b"k"), qc.ts()), (Ok(b"v".to_vec()), 4));
-    // Dgraph's double: 1 when a value passes, 0 when none does.
-    assert_eq!(qc.find(b"", |v| v == b"x"), Ok(0));
-    assert_eq!(qc.find(b"", |v| v == b"v"), Ok(1));
+    // Dgraph's double: the ID numbered 1 when a value passes, none when none does.
+    assert_eq!(qc.find(b"", |v| v == b"x"), Ok(None));
+    assert_eq!(qc.find(b"", |v| v == b"v"), Ok(Some(id(1)?)));
+    Ok(())
 }

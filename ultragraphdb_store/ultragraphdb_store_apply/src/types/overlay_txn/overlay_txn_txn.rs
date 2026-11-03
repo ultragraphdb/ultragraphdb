@@ -3,17 +3,20 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_store_hnsw::HnswError;
 use ultragraphdb_store_posting::CachedList;
+use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_index::{KeyValue, Txn};
 use ultragraphdb_traits_store::{ListCache, Store};
 
 use crate::types::overlay_txn::OverlayTxn;
 
-impl<S, C> Txn for OverlayTxn<'_, S, C>
+impl<S, C, B> Txn for OverlayTxn<'_, S, C, B>
 where
     S: Store,
     C: ListCache<Value = CachedList>,
+    B: BlockSource,
 {
     type Error = HnswError;
 
@@ -29,7 +32,11 @@ where
         self.value(key)
     }
 
-    fn find(&self, prefix: &[u8], filter: impl Fn(&[u8]) -> bool) -> Result<u64, Self::Error> {
+    fn find(
+        &self,
+        prefix: &[u8],
+        filter: impl Fn(&[u8]) -> bool,
+    ) -> Result<Option<SystemId>, Self::Error> {
         self.first_passing(prefix, filter)
     }
 

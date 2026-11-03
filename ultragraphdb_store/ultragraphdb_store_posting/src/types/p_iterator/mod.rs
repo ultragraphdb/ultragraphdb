@@ -25,15 +25,6 @@ pub(crate) enum PPosting<'a> {
     Uid(u128),
 }
 
-impl PPosting<'_> {
-    pub fn uid(&self) -> u128 {
-        match self {
-            PPosting::Found(p) => p.uid(),
-            PPosting::Uid(uid) => *uid,
-        }
-    }
-}
-
 /// Iterates the posting keys of a list's immutable layer after a key, part after part, with their postings: Dgraph's
 /// `pIterator`. In each part the values' keys come first, from its postings, then its pack's IDs, block by block.
 /// Behind a delete-all it yields nothing. An after-key of 0 starts at the first key.

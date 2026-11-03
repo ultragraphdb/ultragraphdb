@@ -94,7 +94,8 @@ Bazel is the one test gate (`make test`). Cargo runs three things: `make format`
 
 Every group follows `tdd-protocol.md`'s five phases: the surface with bare `unimplemented!()` bodies, whose warnings
 (`clippy::unimplemented` warns by design) are ignored until phase 4, where any left name an overlooked body; the full suite observed failing for that reason with its count recorded,
-the audit against planted defects, the implementation judged by the audited suite alone, then mutants and fuzz targets.
+the review of the suite's input variety, the implementation judged by the suite alone, then `scripts/mutants.sh` over the
+group's own files and its fuzz targets.
 Each capability's scenarios are copied verbatim into the crate's `features/<capability>/*.feature` and bound by its
 `bdd` target (cucumber, `fail_on_skipped`), as stage 5 did; unit tests cover the corner cases enumerated in advance and
 every error variant. Expected values come from independent sources: the xxHash reference for buckets, hand-computed

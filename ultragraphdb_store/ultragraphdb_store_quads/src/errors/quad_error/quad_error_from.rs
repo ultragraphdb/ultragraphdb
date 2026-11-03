@@ -4,6 +4,7 @@
  */
 
 use ultragraphdb_core_catalog::CatalogError;
+use ultragraphdb_core_ids::IdError;
 use ultragraphdb_core_keys::QuadKeyError;
 use ultragraphdb_core_mapping::MappingError;
 use ultragraphdb_core_terms::TermError;
@@ -45,5 +46,11 @@ impl From<CatalogError> for QuadError {
 impl From<MappingError> for QuadError {
     fn from(e: MappingError) -> Self {
         Self(QuadErrorEnum::Mapping(e))
+    }
+}
+
+impl From<IdError> for QuadError {
+    fn from(e: IdError) -> Self {
+        Self(QuadErrorEnum::Id(e))
     }
 }

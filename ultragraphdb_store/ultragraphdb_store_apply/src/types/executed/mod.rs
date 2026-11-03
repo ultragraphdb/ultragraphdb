@@ -6,7 +6,8 @@
 use std::collections::BTreeSet;
 
 use ultragraphdb_core_catalog::Catalog;
-use ultragraphdb_core_keys::Region;
+use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_keys::{Graph, Region};
 use ultragraphdb_store_posting::Writes;
 use ultragraphdb_store_quads::WriteTerms;
 
@@ -18,7 +19,7 @@ use crate::types::rebuild::Rebuild;
 
 /// A changeset executed against the snapshot at the watermark, on a worker, and not yet written: its writes, which the
 /// commit step writes at the version it gives it ([`crate::ChangesetApplier::apply_round`]), the terms it resolved, new
-/// ones with provisional UIDs, its read set, the catalog its commit installs, the build its declaration starts, the
+/// ones with the IDs they took while it ran, its read set, the catalog its commit installs, the build its declaration starts, the
 /// nodes whose vector it changed while a vector index is built, and the index keys its declarations remove.
 #[derive(Debug)]
 pub struct Executed {
@@ -31,10 +32,10 @@ pub struct Executed {
     pub(crate) lists_read: usize,
     pub(crate) catalog: Catalog,
     pub(crate) defaults: Vec<Vec<u8>>,
-    pub(crate) default_uids: Vec<u64>,
+    pub(crate) default_ids: Vec<SystemId>,
     pub(crate) catalog_changed: bool,
     pub(crate) pending: Option<Rebuild>,
-    pub(crate) touched: BTreeSet<(u64, u64)>,
+    pub(crate) touched: BTreeSet<(Graph, SystemId)>,
     pub(crate) removals: Vec<PredicatePrefix>,
     /// What a drop decided in a round drops, and the key ranges it writes, each from its start to the key past its last
     /// (7.7).
@@ -58,7 +59,7 @@ impl Executed {
             lists_read: 0,
             catalog,
             defaults: Vec::new(),
-            default_uids: Vec::new(),
+            default_ids: Vec::new(),
             catalog_changed: false,
             pending: None,
             touched: BTreeSet::new(),
@@ -133,7 +134,7 @@ impl Executed {
         &self.writes
     }
 
-    /// The terms it resolved: the IRIs it created, with their provisional UIDs, and those it found.
+    /// The terms it resolved: the IRIs it created or took from a concurrent creator, with their IDs, and those it found.
     pub fn terms(&self) -> &WriteTerms {
         &self.terms
     }

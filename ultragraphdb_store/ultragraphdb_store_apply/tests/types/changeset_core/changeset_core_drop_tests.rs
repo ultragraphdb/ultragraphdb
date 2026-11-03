@@ -8,7 +8,8 @@
 //! drop during a build; and the dictionary every drop keeps.
 
 use oxrdf::{BlankNode, GraphName, GraphNameRef};
-use ultragraphdb_core_keys::{Keyspace, QuadKey};
+use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_keys::{Graph, Keyspace, QuadKey};
 
 use ultragraphdb_traits_store::Store;
 
@@ -21,7 +22,7 @@ use crate::utils::changesets::{
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
-fn names(a: &TestChangesets, predicate: u64) -> Vec<Vec<u8>> {
+fn names(a: &TestChangesets, predicate: SystemId) -> Vec<Vec<u8>> {
     stored_keys(a)
         .into_iter()
         .filter(|k| QuadKey::parse(k).is_ok_and(|(q, _)| q.predicate() == Some(predicate)))
@@ -132,7 +133,7 @@ fn test_dropping_a_graph_removes_its_index_keys_and_keeps_the_other_graphs() -> 
             "<a> <friend> <b>",
         ],
     )?;
-    let g1 = uid(&a, "g1")?;
+    let g1 = Graph::Named(uid(&a, "g1")?);
     let _dropped_at: u64 = a.drop_graph(NS, GraphName::from(ex("g1")).as_ref())?;
     let left: Vec<Vec<u8>> = stored_keys(&a)
         .into_iter()
@@ -260,7 +261,13 @@ fn test_dropping_a_predicate_rewrites_a_split_predicate_list_whole() -> TestResu
         cache,
         ListsConfig::new(PersistMode::Buffer, 256),
     );
-    let a = TestChangesets::new(lists, executor, 1)?;
+    let a = TestChangesets::new(
+        lists,
+        crate::utils::changesets::blocks(),
+        ultragraphdb_core_mapping::RandomSource::new(1),
+        executor,
+        1,
+    )?;
     let changes = (0..2_000)
         .map(|i| insert(&format!("<a> <p{i}> <o>")))
         .collect::<TestResult<_>>()?;
@@ -486,7 +493,7 @@ fn test_a_drop_prepared_for_a_round_names_its_target_and_its_ranges() -> TestRes
     use ultragraphdb_core_keys::key_prefix;
     use ultragraphdb_store_apply::{DropRequest, DropTarget};
     let a = dropping_store()?;
-    let g1 = uid(&a, "g1")?;
+    let g1 = Graph::Named(uid(&a, "g1")?);
     let graph = a.prepare_drop(NS, DropRequest::Graph(GraphName::from(ex("g1")).as_ref()))?;
     assert_eq!(graph.dropped(), Some(DropTarget::Graph(g1)));
     let forward = key_prefix(Keyspace::Forward, false, NS, Some(g1), None);
@@ -556,7 +563,7 @@ fn test_a_drop_of_a_graph_the_store_does_not_hold_is_no_drop() -> TestResult {
 fn test_each_kind_of_drop_replayed_drops_what_it_dropped() -> TestResult {
     use ultragraphdb_store_apply::{DropRequest, DropTarget};
     let g1 = ex("g1");
-    let g1_uid = uid(&dropping_store()?, "g1")?;
+    let g1_uid = Graph::Named(uid(&dropping_store()?, "g1")?);
     for (request, target) in [
         (
             DropRequest::Graph(GraphNameRef::NamedNode(g1.as_ref())),
@@ -596,12 +603,18 @@ fn test_a_graph_dropped_in_a_round_takes_its_split_lists_parts() -> TestResult {
         cache,
         ListsConfig::new(PersistMode::Buffer, 256),
     );
-    let a = TestChangesets::new(lists, executor, 1)?;
+    let a = TestChangesets::new(
+        lists,
+        crate::utils::changesets::blocks(),
+        ultragraphdb_core_mapping::RandomSource::new(1),
+        executor,
+        1,
+    )?;
     let changes = (0..2_000)
         .map(|i| insert(&format!("<a> <p{i}> <o> <g1>")))
         .collect::<TestResult<_>>()?;
     write_changes(&a, changes)?;
-    let g1 = uid(&a, "g1")?;
+    let g1 = Graph::Named(uid(&a, "g1")?);
     let key = QuadKey::SubjectPredicates {
         namespace: NS,
         graph: g1,
@@ -638,9 +651,9 @@ fn test_a_graph_dropped_in_a_round_takes_its_split_lists_parts() -> TestResult {
 fn test_a_namespace_dropped_keeps_its_initial_catalog() -> TestResult {
     use ultragraphdb_core_catalog::Catalog;
     use ultragraphdb_store_apply::DropRequest;
-    let rdf_type = |a: &TestChangesets| -> TestResult<u64> {
+    let rdf_type = |a: &TestChangesets| -> TestResult<SystemId> {
         a.quads()
-            .uid_of(NS, oxrdf::vocab::rdf::TYPE.as_str())?
+            .id_of(NS, oxrdf::vocab::rdf::TYPE.as_str())?
             .context("rdf:type has a UID")
     };
     let initial = |a: &TestChangesets| -> TestResult<_> {

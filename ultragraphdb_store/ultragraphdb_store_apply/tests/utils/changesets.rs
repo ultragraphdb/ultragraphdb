@@ -8,9 +8,12 @@
 
 use oxrdf::vocab::{rdf, xsd};
 use oxrdf::{BlankNode, GraphName, Literal, NamedNode, NamedOrBlankNode, Term};
-use ultragraphdb_core_keys::{CountDirection, DEFAULT_GRAPH, QuadKey};
+use std::num::NonZeroU64;
+
+use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_keys::{CountDirection, DEFAULT_GRAPH, Graph, QuadKey};
 use ultragraphdb_core_mapping::{
-    Cardinality, Change, Changeset, Declaration, PredicateDeclaration, PredicateKind,
+    Cardinality, Change, Changeset, Declaration, PredicateDeclaration, PredicateKind, RandomSource,
     VectorIndexSpec,
 };
 use ultragraphdb_core_terms::{EncodedTerm, FLOAT32_VECTOR};
@@ -21,9 +24,11 @@ use ultragraphdb_store_sim::{
     FaultConfig, Seed, SimClock, SimListCache, SimStore, SteppedExecutor, Stream,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
+use ultragraphdb_traits_blocks::TestBlockSource;
 
 /// The changeset applier of the tests: over the simulated store, its cache and its stepped executor.
-pub type TestChangesets = ChangesetApplier<SimStore, SimListCache<CachedList>, SteppedExecutor>;
+pub type TestChangesets =
+    ChangesetApplier<SimStore, SimListCache<CachedList>, SteppedExecutor, TestBlockSource>;
 
 /// The namespace the tests write.
 pub const NS: u64 = 0;
@@ -35,16 +40,33 @@ pub fn sim_store() -> SimStore {
     SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new())
 }
 
-/// A changeset applier over `store`, with a fresh cache, its builds on a stepped executor.
-pub fn changesets_over(store: SimStore) -> TestResult<TestChangesets> {
+/// A block source handing out blocks of 1,000 sequences, standing in for the metadata group.
+pub fn blocks() -> TestBlockSource {
+    TestBlockSource::new(NonZeroU64::MIN.saturating_add(999))
+}
+
+/// A changeset applier over `store`, with a fresh cache, leasing from `source`, its names drawn from a source seeded
+/// with `seed`, its builds on a stepped executor.
+pub fn changesets_with(
+    store: SimStore,
+    source: TestBlockSource,
+    seed: u64,
+) -> TestResult<TestChangesets> {
     let cache = SimListCache::new(1024, Seed::new(1).stream(Stream::Cache));
     let executor = SteppedExecutor::new(Seed::new(1).stream(Stream::Executor));
     ChangesetApplier::new(
         Lists::new(store, cache, ListsConfig::default()),
+        source,
+        RandomSource::new(seed),
         executor,
         1,
     )
     .context("the applier opens")
+}
+
+/// A changeset applier over `store`, with a fresh cache and blocks of its own, its builds on a stepped executor.
+pub fn changesets_over(store: SimStore) -> TestResult<TestChangesets> {
+    changesets_with(store, blocks(), 1)
 }
 
 /// A changeset applier over a fault-free simulated store.
@@ -341,21 +363,21 @@ pub fn finish_builds(a: &TestChangesets) {
     a.executor().run_until_idle();
 }
 
-/// The UID of the IRI `<name>`.
-pub fn uid(a: &TestChangesets, name: &str) -> TestResult<u64> {
+/// The ID of the IRI `<name>`.
+pub fn uid(a: &TestChangesets, name: &str) -> TestResult<SystemId> {
     a.quads()
-        .uid_of(NS, ex(name).as_str())
+        .id_of(NS, ex(name).as_str())
         .context("the dictionary reads")?
-        .ok_or_else(|| format!("<{name}> has no UID"))
-        .context("the subject has a UID")
+        .ok_or_else(|| format!("<{name}> has no ID"))
+        .context("the subject has an ID")
 }
 
-/// The graph UID of `<name>`, the default graph for `""`.
-pub fn graph(a: &TestChangesets, name: &str) -> TestResult<u64> {
+/// The graph `<name>`, the default graph for `""`.
+pub fn graph(a: &TestChangesets, name: &str) -> TestResult<Graph> {
     if name.is_empty() {
         Ok(DEFAULT_GRAPH)
     } else {
-        uid(a, name)
+        Ok(Graph::Named(uid(a, name)?))
     }
 }
 
@@ -392,7 +414,7 @@ pub fn postings(
     a: &TestChangesets,
     subject: &str,
     predicate: &str,
-) -> TestResult<Vec<(EncodedTerm, Vec<u64>)>> {
+) -> TestResult<Vec<(EncodedTerm, Vec<SystemId>)>> {
     let key = QuadKey::Forward {
         namespace: NS,
         graph: DEFAULT_GRAPH,
@@ -403,19 +425,19 @@ pub fn postings(
     a.quads().objects(&key, latest(a)).context("the list reads")
 }
 
-/// The UIDs a list holds.
-fn uids(a: &TestChangesets, key: &[u8]) -> TestResult<Vec<u64>> {
+/// The IDs a list holds.
+fn uids(a: &TestChangesets, key: &[u8]) -> TestResult<Vec<SystemId>> {
     Ok(a.quads()
         .objects(key, latest(a))
         .context("the list reads")?
         .iter()
-        .filter_map(|(o, _)| o.as_uid())
+        .filter_map(|(o, _)| o.as_id())
         .collect())
 }
 
 /// The subjects of the reverse list of `predicate` for the object `object`, in the default graph.
-pub fn reverse(a: &TestChangesets, predicate: &str, object: &str) -> TestResult<Vec<u64>> {
-    let object = EncodedTerm::uid(uid(a, object)?);
+pub fn reverse(a: &TestChangesets, predicate: &str, object: &str) -> TestResult<Vec<SystemId>> {
+    let object = EncodedTerm::id(uid(a, object)?);
     let key = QuadKey::Reverse {
         namespace: NS,
         graph: DEFAULT_GRAPH,
@@ -424,6 +446,20 @@ pub fn reverse(a: &TestChangesets, predicate: &str, object: &str) -> TestResult<
     }
     .to_bytes();
     uids(a, &key)
+}
+
+/// The encoding of `literal`, a literal of a datatype encoded by value or a simple string.
+pub fn encoded(literal: &Term) -> TestResult<EncodedTerm> {
+    let Term::Literal(literal) = literal else {
+        return Err(TestError::new(format!("{literal} is no literal")));
+    };
+    Ok(EncodedTerm::literal(literal.as_ref(), |_| {
+        Err(ultragraphdb_core_terms::TermError::malformed(
+            Vec::new(),
+            "no datatype ID in a test",
+        ))
+    })?
+    .into_term())
 }
 
 /// The value-index tokens of `literal` under `tokenizer`, computed as index maintenance computes them.
@@ -469,7 +505,7 @@ pub fn indexed(
     a: &TestChangesets,
     predicate: &str,
     (tokenizer, token): &(u8, Vec<u8>),
-) -> TestResult<Vec<u64>> {
+) -> TestResult<Vec<SystemId>> {
     let key = QuadKey::ValueIndex {
         namespace: NS,
         graph: DEFAULT_GRAPH,
@@ -482,7 +518,7 @@ pub fn indexed(
 }
 
 /// The subjects the value-index key of `predicate` for the `term` token `word` holds.
-pub fn indexed_term(a: &TestChangesets, predicate: &str, word: &str) -> TestResult<Vec<u64>> {
+pub fn indexed_term(a: &TestChangesets, predicate: &str, word: &str) -> TestResult<Vec<SystemId>> {
     let id = get_tokenizer("term").context("term")?.identifier();
     indexed(a, predicate, &(id, word.as_bytes().to_vec()))
 }
@@ -491,7 +527,7 @@ pub fn indexed_term(a: &TestChangesets, predicate: &str, word: &str) -> TestResu
 pub fn index_keys_holding(
     a: &TestChangesets,
     predicate: &str,
-    subject: u64,
+    subject: SystemId,
 ) -> TestResult<Vec<Vec<u8>>> {
     let p = uid(a, predicate)?;
     let mut holding = Vec::new();
@@ -518,13 +554,13 @@ pub fn stored_keys(a: &TestChangesets) -> Vec<Vec<u8>> {
         .collect()
 }
 
-/// The UIDs listed under the count key of `predicate` for `count` in `direction`, in the default graph.
+/// The IDs listed under the count key of `predicate` for `count` in `direction`, in the default graph.
 pub fn counted(
     a: &TestChangesets,
     predicate: &str,
     direction: CountDirection,
     count: u32,
-) -> TestResult<Vec<u64>> {
+) -> TestResult<Vec<SystemId>> {
     let key = QuadKey::CountIndex {
         namespace: NS,
         graph: DEFAULT_GRAPH,
@@ -541,7 +577,7 @@ pub fn counts_of(
     a: &TestChangesets,
     predicate: &str,
     direction: CountDirection,
-    uid: u64,
+    uid: SystemId,
 ) -> TestResult<Vec<u32>> {
     let mut counts = Vec::new();
     for c in 1..=8 {
@@ -564,13 +600,13 @@ pub fn statistics(
 
 /// The predicates the subject-predicate list of `node` holds in the default graph, or with `objects` its
 /// object-predicate list.
-pub fn predicate_list(a: &TestChangesets, node: &str, objects: bool) -> TestResult<Vec<u64>> {
+pub fn predicate_list(a: &TestChangesets, node: &str, objects: bool) -> TestResult<Vec<SystemId>> {
     let node = uid(a, node)?;
     let key = if objects {
         QuadKey::ObjectPredicates {
             namespace: NS,
             graph: DEFAULT_GRAPH,
-            object: EncodedTerm::uid(node),
+            object: EncodedTerm::id(node),
         }
     } else {
         QuadKey::SubjectPredicates {
@@ -593,19 +629,38 @@ pub fn keys_of(
     Ok(stored_keys(a)
         .into_iter()
         .filter(|k| {
-            matches!(ultragraphdb_core_keys::Keyspace::from_byte(k[0]), Some((ks, _)) if ks == keyspace)
+            matches!(k.first().and_then(|b| ultragraphdb_core_keys::Keyspace::from_byte(*b)), Some((ks, _)) if ks == keyspace)
                 && QuadKey::parse(k).is_ok_and(|(q, _)| q.predicate() == Some(p))
         })
         .collect())
 }
 
-/// Whether `subject` holds an object of `predicate` in the default graph; `false` when either has no UID.
+/// Whether `subject` holds an object of `predicate` in the default graph; `false` when either has no ID.
 pub fn is_held_in_default(a: &TestChangesets, subject: &str, predicate: &str) -> TestResult<bool> {
     let known = |name: &str| -> TestResult<bool> {
         Ok(a.quads()
-            .uid_of(NS, ex(name).as_str())
+            .id_of(NS, ex(name).as_str())
             .context("the dictionary reads")?
             .is_some())
     };
     Ok(known(subject)? && known(predicate)? && !objects(a, subject, predicate)?.is_empty())
+}
+
+/// Whether `<name>` is the subject of no statement in the default graph: it has no ID, or its subject-predicate list
+/// is empty. A refused changeset's terms may keep their IDs, which name nothing that exists.
+pub fn holds_nothing(a: &TestChangesets, name: &str) -> TestResult<bool> {
+    let Some(id) = a
+        .quads()
+        .id_of(NS, ex(name).as_str())
+        .context("the dictionary reads")?
+    else {
+        return Ok(true);
+    };
+    let key = QuadKey::SubjectPredicates {
+        namespace: NS,
+        graph: DEFAULT_GRAPH,
+        subject: id,
+    }
+    .to_bytes();
+    Ok(uids(a, &key)?.is_empty())
 }

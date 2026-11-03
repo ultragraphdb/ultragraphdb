@@ -10,6 +10,10 @@
 use ultragraphdb_store_hnsw::{PersistentHeapElement, SimilarityType};
 use ultragraphdb_traits_index::Metric;
 
+use ultragraphdb_tool_bdd::TestResult;
+
+use crate::utils::helpers::{id, ids};
+
 #[test]
 fn test_similarity_type_is_similarity_metric() {
     for (index_type, expected) in [
@@ -51,20 +55,23 @@ fn test_scores_rank_by_metric() {
 }
 
 #[test]
-fn test_insort_keeps_the_best_first_and_equal_scores_in_arrival_order() {
-    let el = |v: f64, i: u64| PersistentHeapElement::new(v, i, false);
-    let mut ascending = vec![el(0.1, 1), el(0.5, 2)];
-    SimilarityType::new(Metric::Euclidean).insort_heap(&mut ascending, el(0.5, 3));
-    SimilarityType::new(Metric::Euclidean).insort_heap(&mut ascending, el(0.0, 4));
+fn test_insort_keeps_the_best_first_and_equal_scores_in_arrival_order() -> TestResult {
+    let el = |v: f64, i: u64| -> TestResult<PersistentHeapElement<f64>> {
+        Ok(PersistentHeapElement::new(v, id(i)?, false))
+    };
+    let mut ascending = vec![el(0.1, 1)?, el(0.5, 2)?];
+    SimilarityType::new(Metric::Euclidean).insort_heap(&mut ascending, el(0.5, 3)?);
+    SimilarityType::new(Metric::Euclidean).insort_heap(&mut ascending, el(0.0, 4)?);
     assert_eq!(
         ascending.iter().map(|e| e.index()).collect::<Vec<_>>(),
-        vec![4, 1, 2, 3]
+        ids(&[4, 1, 2, 3])?
     );
-    let mut descending = vec![el(0.9, 1), el(0.5, 2)];
-    SimilarityType::new(Metric::Cosine).insort_heap(&mut descending, el(0.5, 3));
-    SimilarityType::new(Metric::Cosine).insort_heap(&mut descending, el(1.0, 4));
+    let mut descending = vec![el(0.9, 1)?, el(0.5, 2)?];
+    SimilarityType::new(Metric::Cosine).insort_heap(&mut descending, el(0.5, 3)?);
+    SimilarityType::new(Metric::Cosine).insort_heap(&mut descending, el(1.0, 4)?);
     assert_eq!(
         descending.iter().map(|e| e.index()).collect::<Vec<_>>(),
-        vec![4, 1, 2, 3]
+        ids(&[4, 1, 2, 3])?
     );
+    Ok(())
 }

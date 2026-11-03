@@ -15,14 +15,17 @@ mod changeset_write_vector;
 use std::collections::{BTreeMap, BTreeSet};
 
 use oxrdf::vocab::rdf;
-use oxrdf::{
-    BlankNode, GraphNameRef, Literal, NamedNode, NamedNodeRef, NamedOrBlankNodeRef, Term, TermRef,
-};
+use oxrdf::{GraphNameRef, Literal, NamedNode, NamedNodeRef, NamedOrBlankNodeRef, Term, TermRef};
 use ultragraphdb_core_catalog::Catalog;
+use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_keys::Graph;
 use ultragraphdb_core_mapping::{Change, Changeset, Declaration, PredicateDeclaration};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_posting::CachedList;
-use ultragraphdb_store_quads::{QuadError, QuadErrorEnum, QuadWrite, StatementRecord, WriteTerms};
+use ultragraphdb_store_quads::{
+    QuadError, QuadErrorEnum, QuadWrite, StatementRecord, WriteTerms, skolem_blank_node,
+};
+use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{Entry, ListCache, Store};
 
 use crate::errors::changeset_error::ChangesetError;
@@ -35,36 +38,37 @@ use crate::types::write_outcome::WriteOutcome;
 /// changes of the same changeset read. Records and catalog entries are written once each, at [`ChangesetWrite::finish`],
 /// so that a key the changeset writes twice lands once. While an index is built, the predicate built is written under
 /// the declaration the build maintains.
-pub(crate) struct ChangesetWrite<'a, S, C> {
-    write: QuadWrite<'a, S, C>,
+pub(crate) struct ChangesetWrite<'a, S, C, B> {
+    write: QuadWrite<'a, S, C, B>,
     catalog: Catalog,
     /// The catalog entries the write adds, by key.
     entries: BTreeMap<Vec<u8>, Entry>,
     /// The keys of `entries` that are a predicate's implicit default entry and no declaration's, with the predicate.
-    defaults: BTreeMap<Vec<u8>, u64>,
+    defaults: BTreeMap<Vec<u8>, SystemId>,
     /// Whether the write changes the catalog: a declaration, or the namespace's initial catalog.
     catalog_changed: bool,
     /// The statement records the write has written, or removed, by graph and ID.
-    records: BTreeMap<(u64, u64), Option<StatementRecord>>,
+    records: BTreeMap<(Graph, SystemId), Option<StatementRecord>>,
     /// The predicate whose indexes are built and the declaration its writes are applied under.
-    maintained: Option<(u64, PredicateDeclaration)>,
+    maintained: Option<(SystemId, PredicateDeclaration)>,
     /// The predicate whose vector index is built: writes record the subjects whose vector they change.
-    vector_built: Option<u64>,
+    vector_built: Option<SystemId>,
     /// Whether a build runs, or another changeset of the batch starts one: a declaration needing one is refused.
     building: bool,
     /// The build the write's declaration starts.
     pending: Option<Rebuild>,
-    touched: BTreeSet<(u64, u64)>,
+    touched: BTreeSet<(Graph, SystemId)>,
     /// The keys of the indexes the write's declarations remove.
     removals: Vec<PredicatePrefix>,
 }
 
-impl<'a, S, C> ChangesetWrite<'a, S, C>
+impl<'a, S, C, B> ChangesetWrite<'a, S, C, B>
 where
     S: Store,
     C: ListCache<Value = CachedList>,
+    B: BlockSource,
 {
-    pub fn new(write: QuadWrite<'a, S, C>, catalog: Catalog) -> Self {
+    pub fn new(write: QuadWrite<'a, S, C, B>, catalog: Catalog) -> Self {
         Self {
             write,
             catalog,
@@ -152,8 +156,8 @@ where
                 predicate.as_ref(),
                 object.as_ref(),
             ),
-            Change::DeleteStatement { graph, id } => {
-                self.delete_statement(graph.as_ref(), id.value())
+            Change::DeleteStatement { graph, reifier } => {
+                self.delete_statement(graph.as_ref(), reifier.as_ref())
             }
             Change::DeletePattern {
                 graph,
@@ -195,7 +199,7 @@ where
             terms,
             catalog: self.catalog,
             catalog_changed: self.catalog_changed,
-            default_uids: self.defaults.values().copied().collect(),
+            default_ids: self.defaults.values().copied().collect(),
             defaults: self.defaults.into_keys().collect(),
             pending: self.pending,
             touched: self.touched,
@@ -207,70 +211,71 @@ where
         self.write.namespace()
     }
 
+    /// The terms the write resolved so far.
+    pub(crate) fn terms(&mut self) -> &WriteTerms {
+        self.write.terms().0
+    }
+
     /// Adds a catalog change's entry: a declaration's, or the namespace's initial catalog's.
     fn add_entry(&mut self, entry: Entry) {
         self.catalog_changed = true;
-        let _removed: Option<u64> = self.defaults.remove(entry.key());
+        let _removed: Option<SystemId> = self.defaults.remove(entry.key());
         let _previous: Option<Entry> = self.entries.insert(entry.key().to_vec(), entry);
     }
 
-    /// Adds predicate `uid`'s implicit default entry, an insert-if-absent on its key rather than a catalog change.
-    fn add_default(&mut self, uid: u64, entry: Entry) {
-        let _previous_default: Option<u64> = self.defaults.insert(entry.key().to_vec(), uid);
+    /// Adds predicate `id`'s implicit default entry, an insert-if-absent on its key rather than a catalog change.
+    fn add_default(&mut self, id: SystemId, entry: Entry) {
+        let _previous_default: Option<SystemId> = self.defaults.insert(entry.key().to_vec(), id);
         let _previous_entry: Option<Entry> = self.entries.insert(entry.key().to_vec(), entry);
     }
 
-    fn iri(&mut self, iri: NamedNodeRef<'_>) -> Result<u64, QuadError> {
+    fn iri(&mut self, iri: NamedNodeRef<'_>) -> Result<SystemId, QuadError> {
         let (terms, quads) = self.write.terms();
-        terms.iri(quads.store(), quads.leases(), iri.as_str())
+        terms.iri(quads, iri.as_str())
     }
 
-    fn graph(&mut self, graph: GraphNameRef<'_>) -> Result<u64, QuadError> {
+    fn graph(&mut self, graph: GraphNameRef<'_>) -> Result<Graph, QuadError> {
         let (terms, quads) = self.write.terms();
-        terms.graph(quads.store(), quads.leases(), graph)
+        terms.graph(quads, graph)
     }
 
-    fn node(&mut self, node: NamedOrBlankNodeRef<'_>) -> Result<u64, QuadError> {
+    fn node(&mut self, node: NamedOrBlankNodeRef<'_>) -> Result<SystemId, QuadError> {
         let (terms, quads) = self.write.terms();
-        terms.node(quads.store(), quads.leases(), node)
+        terms.node(quads, node)
     }
 
-    /// The UID `iri` has, allocating none.
-    fn find_iri(&mut self, iri: NamedNodeRef<'_>) -> Result<Option<u64>, QuadError> {
-        let (terms, quads) = self.write.terms();
-        terms.find_iri(quads.store(), iri.as_str())
+    /// The ID `iri` has as a delete or a read names it: got or created, as every IRI is, so a term no statement holds
+    /// is recorded absent by its ID; `None` for an IRI under the skolem base the dictionary does not hold.
+    fn find_iri(&mut self, iri: NamedNodeRef<'_>) -> Result<Option<SystemId>, ChangesetError> {
+        Ok(self
+            .find_term(rdf::TYPE, iri.into())?
+            .and_then(|e| e.as_id()))
     }
 
-    /// The UID a graph has, allocating none; the default graph's is 0.
-    fn find_graph(&mut self, graph: GraphNameRef<'_>) -> Result<Option<u64>, ChangesetError> {
+    /// The graph a graph name names, as a delete or a read resolves it: `None` for a blank node the write did not name
+    /// and an unheld skolem IRI.
+    fn find_graph(&mut self, graph: GraphNameRef<'_>) -> Result<Option<Graph>, ChangesetError> {
         Ok(match graph {
-            GraphNameRef::DefaultGraph => Some(ultragraphdb_core_keys::DEFAULT_GRAPH),
-            GraphNameRef::NamedNode(n) => self.find_iri(n)?,
+            GraphNameRef::DefaultGraph => Some(Graph::Default),
+            GraphNameRef::NamedNode(n) => self.find_iri(n)?.map(Graph::Named),
             GraphNameRef::BlankNode(b) => self
                 .find_term(rdf::TYPE, b.into())?
-                .and_then(|e| e.as_uid()),
+                .and_then(|e| e.as_id())
+                .map(Graph::Named),
         })
     }
 
-    /// The encoding `term` has as an object or property value of `predicate`, allocating no UID: `None` when the
-    /// store holds no term it names.
+    /// The encoding `term` has as an object or property value of `predicate`, as a delete or a read resolves it:
+    /// `None` when no statement can hold it.
     fn find_term(
         &mut self,
         predicate: NamedNodeRef<'_>,
         term: TermRef<'_>,
     ) -> Result<Option<EncodedTerm>, ChangesetError> {
         let (terms, quads) = self.write.terms();
-        terms.find(quads.store(), term).map_err(|e| match e.0 {
-            QuadErrorEnum::Term(t) => ChangesetError::literal(predicate.as_str(), t),
-            QuadErrorEnum::Store(_)
-            | QuadErrorEnum::Posting(_)
-            | QuadErrorEnum::Key(_)
-            | QuadErrorEnum::Mapping(_)
-            | QuadErrorEnum::Catalog(_)
-            | QuadErrorEnum::Corrupted { .. }
-            | QuadErrorEnum::Aborted
-            | QuadErrorEnum::UidsExhausted { .. } => e.into(),
-        })
+        terms
+            .find(quads, term)
+            .map_err(|e| literal_refusal(predicate, e))
     }
 
     /// The encoding of `term` as an object or property value of `predicate`: a literal that cannot be encoded, a
@@ -282,25 +287,15 @@ where
     ) -> Result<EncodedTerm, ChangesetError> {
         let (terms, quads) = self.write.terms();
         terms
-            .term(quads.store(), quads.leases(), term)
-            .map_err(|e| match e.0 {
-                QuadErrorEnum::Term(t) => ChangesetError::literal(predicate.as_str(), t),
-                QuadErrorEnum::Store(_)
-                | QuadErrorEnum::Posting(_)
-                | QuadErrorEnum::Key(_)
-                | QuadErrorEnum::Mapping(_)
-                | QuadErrorEnum::Catalog(_)
-                | QuadErrorEnum::Corrupted { .. }
-                | QuadErrorEnum::Aborted
-                | QuadErrorEnum::UidsExhausted { .. } => e.into(),
-            })
+            .term(quads, term)
+            .map_err(|e| literal_refusal(predicate, e))
     }
 
     /// The declaration predicate `uid` is written under: its own, or the default, which the write records in its
     /// commit batch the first time it names the predicate.
     fn declaration(
         &mut self,
-        uid: u64,
+        uid: SystemId,
         predicate: NamedNodeRef<'_>,
     ) -> Result<PredicateDeclaration, ChangesetError> {
         if let Some((_, maintained)) = self.maintained.as_ref().filter(|(m, _)| *m == uid) {
@@ -322,7 +317,7 @@ where
     }
 
     /// The declaration predicate `uid` behaves as, recording none: what a delete reads.
-    fn behaviour(&self, uid: u64, predicate: NamedNodeRef<'_>) -> PredicateDeclaration {
+    fn behaviour(&self, uid: SystemId, predicate: NamedNodeRef<'_>) -> PredicateDeclaration {
         if let Some((_, maintained)) = self.maintained.as_ref().filter(|(m, _)| *m == uid) {
             return maintained.clone();
         }
@@ -332,27 +327,27 @@ where
     }
 
     /// The RDF term `encoded` names, the write's own new dictionary entries first; a skolemized blank node reads back
-    /// as `_:b<uid>`.
+    /// as a blank node labelled by its skolem IRI, as the quad store labels it.
     fn decode(&mut self, encoded: &EncodedTerm) -> Result<Term, ChangesetError> {
         let ns = self.namespace();
         let (terms, quads) = self.write.terms();
         let terms: &WriteTerms = terms;
-        let iri = |uid: u64| -> Result<(String, bool), QuadError> {
-            match terms.pending_iri(uid) {
+        let iri = |id: SystemId| -> Result<(String, bool), QuadError> {
+            match terms.pending_iri(id) {
                 Some((iri, skolem)) => Ok((iri.to_string(), skolem)),
-                None => quads.iri_of(ns, uid),
+                None => quads.iri_of(ns, id),
             }
         };
-        if let Some(uid) = encoded.as_uid() {
-            let (iri, skolem) = iri(uid)?;
+        if let Some(id) = encoded.as_id() {
+            let (iri, skolem) = iri(id)?;
             return Ok(if skolem {
-                BlankNode::new_unchecked(format!("b{uid}")).into()
+                skolem_blank_node(&iri).into()
             } else {
                 NamedNode::new_unchecked(iri).into()
             });
         }
         let literal: Literal = encoded.view().map_err(QuadError::from)?.to_literal(
-            |uid| Ok::<_, QuadError>(NamedNode::new_unchecked(iri(uid)?.0)),
+            |id| Ok::<_, QuadError>(NamedNode::new_unchecked(iri(id)?.0)),
             |hash| match terms.pending_string(&hash) {
                 Some(s) => Ok(s.to_string()),
                 None => quads.string_of(ns, hash),
@@ -362,11 +357,34 @@ where
     }
 
     /// The record of statement `id` in `graph`, as the write sees it.
-    fn record(&self, graph: u64, id: u64) -> Result<Option<StatementRecord>, ChangesetError> {
+    fn record(
+        &self,
+        graph: Graph,
+        id: SystemId,
+    ) -> Result<Option<StatementRecord>, ChangesetError> {
         match self.records.get(&(graph, id)) {
             Some(record) => Ok(record.clone()),
             None => Ok(self.write.statement(graph, id)?),
         }
+    }
+}
+
+/// A literal the quad store could not encode, refused naming `predicate`; any other refusal as it is.
+fn literal_refusal(predicate: NamedNodeRef<'_>, e: QuadError) -> ChangesetError {
+    match e.0 {
+        QuadErrorEnum::Term(t) => ChangesetError::literal(predicate.as_str(), t),
+        QuadErrorEnum::Store(_)
+        | QuadErrorEnum::Posting(_)
+        | QuadErrorEnum::Key(_)
+        | QuadErrorEnum::Mapping(_)
+        | QuadErrorEnum::Catalog(_)
+        | QuadErrorEnum::Id(_)
+        | QuadErrorEnum::Corrupted { .. }
+        | QuadErrorEnum::NoSequence { .. }
+        | QuadErrorEnum::PendingFull { .. }
+        | QuadErrorEnum::NoOwnedBucket { .. }
+        | QuadErrorEnum::SkolemDraws { .. }
+        | QuadErrorEnum::UnknownSkolem { .. } => e.into(),
     }
 }
 

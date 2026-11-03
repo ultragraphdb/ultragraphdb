@@ -84,13 +84,14 @@ impl List {
         let mut result = Ok(());
         while midx < mposts.len() || pitr.valid() {
             let mp = mposts.get(midx).copied();
-            let mp_id = mp.filter(|p| p.uid() > 0).map(|p| identity(p, by_value));
+            // Key 0 is a key like any other, a literal's fingerprint; presence is the option, not Go's uid 0.
+            let mp_id = mp.map(|p| identity(p, by_value));
             let pp = if pitr.valid() {
                 Some(pitr.posting())
             } else {
                 None
             };
-            let pp_id = pp.filter(|p| p.uid() > 0).map(|p| match p {
+            let pp_id = pp.map(|p| match p {
                 PPosting::Found(p) => identity(p, by_value),
                 PPosting::Uid(uid) => (uid, &[][..]),
             });
@@ -99,8 +100,6 @@ impl List {
                 // Only the newest version of a posting counts.
                 midx += 1;
                 Ok(ControlFlow::Continue(()))
-            } else if pp_id.is_none() && mp_id.is_none() {
-                break;
             } else if mp_id.is_none() || pp_id.is_some_and(|p| mp_id.is_some_and(|m| p < m)) {
                 count(None);
                 let flow = call(&mut f, pp);

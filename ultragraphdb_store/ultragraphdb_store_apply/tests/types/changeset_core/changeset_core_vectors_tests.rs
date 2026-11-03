@@ -8,10 +8,11 @@
 //! visible at its snapshot.
 
 use oxrdf::{GraphNameRef, NamedNode};
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::{DEFAULT_GRAPH, Keyspace};
 use ultragraphdb_store_apply::{ChangesetErrorEnum, LevelDraw, VectorQuery};
 use ultragraphdb_store_hnsw::{
-    VectorKeys, bytes_to_uint64, decode_uint64_matrix, insert_layer, parse_edges,
+    VectorKeys, bytes_to_id, decode_id_matrix, insert_layer, parse_edges,
 };
 use ultragraphdb_traits_index::{VectorIndexOptions, accept_all};
 
@@ -42,7 +43,7 @@ fn value(a: &TestChangesets, key: &[u8]) -> TestResult<Option<Vec<u8>>> {
 }
 
 /// The nodes `emb`'s dead list holds.
-fn dead(a: &TestChangesets) -> TestResult<Vec<u64>> {
+fn dead(a: &TestChangesets) -> TestResult<Vec<SystemId>> {
     match value(a, &keys(a)?.dead())? {
         Some(v) => parse_edges(&String::from_utf8_lossy(&v)).context("a dead list"),
         None => Ok(Vec::new()),
@@ -50,7 +51,12 @@ fn dead(a: &TestChangesets) -> TestResult<Vec<u64>> {
 }
 
 /// The `k` nodes of `emb` nearest `query` in the default graph at `read_ts`.
-fn search_at(a: &TestChangesets, query: &[f32], k: usize, read_ts: u64) -> TestResult<Vec<u64>> {
+fn search_at(
+    a: &TestChangesets,
+    query: &[f32],
+    k: usize,
+    read_ts: u64,
+) -> TestResult<Vec<SystemId>> {
     Ok(a.search_vectors(
         NS,
         GraphNameRef::DefaultGraph,
@@ -61,7 +67,7 @@ fn search_at(a: &TestChangesets, query: &[f32], k: usize, read_ts: u64) -> TestR
 }
 
 /// The `k` nodes of `emb` nearest `query` at the newest version.
-fn search(a: &TestChangesets, query: &[f32], k: usize) -> TestResult<Vec<u64>> {
+fn search(a: &TestChangesets, query: &[f32], k: usize) -> TestResult<Vec<SystemId>> {
     search_at(a, query, k, a.quads().lists().applied_ts())
 }
 
@@ -85,7 +91,7 @@ fn test_committed_vectors_reach_the_lists_and_searches_only_through_the_indexer(
     emb_with(&a, &[("a", "[1, 0]"), ("b", "[0, 1]")])?;
     assert!(keys_of(&a, Keyspace::VectorIndex, "emb")?.is_empty());
     // Committed and not indexed: absent from a search, though the forward lists hold both.
-    assert_eq!(search(&a, &[1.0, 0.0], 2)?, Vec::<u64>::new());
+    assert_eq!(search(&a, &[1.0, 0.0], 2)?, Vec::<SystemId>::new());
     assert_eq!(a.indexed_version(NS, ex("emb").as_ref())?, 0);
     let watermark = a.quads().lists().applied_ts();
     let indexed = index(&a, "emb")?;
@@ -137,12 +143,12 @@ fn test_the_indexer_inserts_in_commit_order_not_in_uid_order() -> TestResult {
     run_indexer(&a, "emb")?;
     // The first vector inserted into the empty index is its entry point.
     let entry = value(&a, &keys(&a)?.entry())?.context("an entry point")?;
-    assert_eq!(bytes_to_uint64(&entry), Some(uid(&a, "b")?));
+    assert_eq!(bytes_to_id(&entry), Some(uid(&a, "b")?));
     // A later pass keeps an entry point that holds its vector, though `a` comes first in key order.
     emb_with(&a, &[("c", "[1, 1]")])?;
     run_indexer(&a, "emb")?;
     let kept_entry = value(&a, &keys(&a)?.entry())?.context("an entry point")?;
-    assert_eq!(bytes_to_uint64(&kept_entry), Some(uid(&a, "b")?));
+    assert_eq!(bytes_to_id(&kept_entry), Some(uid(&a, "b")?));
     Ok(())
 }
 
@@ -162,7 +168,7 @@ fn test_a_vector_deleted_is_marked_dead_by_the_indexer_and_set_again_leaves_the_
         vec![delete("<a> <emb> \"[1, 0]\"^^ugdb:float32vector")?],
     )?;
     // The transaction wrote its forward list alone.
-    assert_eq!(dead(&a)?, Vec::<u64>::new());
+    assert_eq!(dead(&a)?, Vec::<SystemId>::new());
     run_indexer(&a, "emb")?;
     assert_eq!(dead(&a)?, vec![uid(&a, "a")?]);
     // Deleting a node already dead lists it once.
@@ -177,7 +183,7 @@ fn test_a_vector_deleted_is_marked_dead_by_the_indexer_and_set_again_leaves_the_
     // Set again, then indexed: out of the dead list, and found.
     emb_with(&a, &[("a", "[1, 0]")])?;
     run_indexer(&a, "emb")?;
-    assert_eq!(dead(&a)?, Vec::<u64>::new());
+    assert_eq!(dead(&a)?, Vec::<SystemId>::new());
     assert_eq!(search(&a, &[1.0, 0.0], 1)?, vec![uid(&a, "a")?]);
     Ok(())
 }
@@ -366,7 +372,7 @@ fn test_a_search_finds_nothing_in_an_empty_index_or_an_unknown_graph() -> TestRe
     )?;
     // Declared, written to by nothing: the search of an empty index finds nothing, without error.
     write(&a, &["<x> <name> \"X\""])?;
-    assert_eq!(search(&a, &[1.0, 0.0], 3)?, Vec::<u64>::new());
+    assert_eq!(search(&a, &[1.0, 0.0], 3)?, Vec::<SystemId>::new());
     emb_with(&a, &[("a", "[1, 0]")])?;
     run_indexer(&a, "emb")?;
     let unknown = NamedNode::new_unchecked("http://ex.org/nowhere");
@@ -377,7 +383,7 @@ fn test_a_search_finds_nothing_in_an_empty_index_or_an_unknown_graph() -> TestRe
         VectorQuery::new(&[1.0, 0.0], 3, &VectorIndexOptions::default()),
         a.quads().lists().applied_ts(),
     )?;
-    assert_eq!(found, Vec::<u64>::new());
+    assert_eq!(found, Vec::<SystemId>::new());
     Ok(())
 }
 
@@ -450,7 +456,7 @@ fn levels(a: &TestChangesets, nodes: &[&str]) -> TestResult<Vec<usize>> {
         .iter()
         .map(|n| {
             let lists = match value(a, &keys(a)?.neighbours(uid(a, n)?))? {
-                Some(v) => decode_uint64_matrix(&v).context("a neighbour matrix")?,
+                Some(v) => decode_id_matrix(&v).context("a neighbour matrix")?,
                 None => Vec::new(),
             };
             lists
@@ -554,7 +560,7 @@ fn test_a_vector_written_before_its_predicate_declares_a_vector_index_is_not_que
     emb_with(&a, &[("b", "[0, 1]")])?;
     run_indexer(&a, "emb")?;
     // Only `b` reached the indexer: `a`'s vector came and went before its predicate had an index.
-    assert_eq!(dead(&a)?, Vec::<u64>::new());
+    assert_eq!(dead(&a)?, Vec::<SystemId>::new());
     assert_eq!(search(&a, &[0.0, 1.0], 2)?, vec![uid(&a, "b")?]);
     Ok(())
 }
@@ -592,7 +598,7 @@ fn test_the_queue_of_a_vector_index_removed_goes_with_it() -> TestResult {
     assert!(!a.rebuilding());
     emb_with(&a, &[("b", "[0, 1]")])?;
     run_indexer(&a, "emb")?;
-    assert_eq!(dead(&a)?, Vec::<u64>::new());
+    assert_eq!(dead(&a)?, Vec::<SystemId>::new());
     Ok(())
 }
 
@@ -648,7 +654,7 @@ fn test_a_dead_entry_point_hands_over_to_a_node_the_index_holds() -> TestResult 
     emb_with(&a, &[("a", "[1, 0]"), ("b", "[0, 1]"), ("c", "[1, 1]")])?;
     run_indexer(&a, "emb")?;
     assert_eq!(
-        bytes_to_uint64(&value(&a, &keys(&a)?.entry())?.context("value(&a, &keys(&a)?.entry())?")?),
+        bytes_to_id(&value(&a, &keys(&a)?.entry())?.context("value(&a, &keys(&a)?.entry())?")?),
         Some(uid(&a, "a")?)
     );
     // The entry point's vector is deleted and `p`, not yet indexed and first in key order, written in one pass.
@@ -660,7 +666,7 @@ fn test_a_dead_entry_point_hands_over_to_a_node_the_index_holds() -> TestResult 
     run_indexer(&a, "emb")?;
     // The entry point is the first node in key order the index held with a vector, `b`, and every node is reachable.
     assert_eq!(
-        bytes_to_uint64(&value(&a, &keys(&a)?.entry())?.context("value(&a, &keys(&a)?.entry())?")?),
+        bytes_to_id(&value(&a, &keys(&a)?.entry())?.context("value(&a, &keys(&a)?.entry())?")?),
         Some(uid(&a, "b")?)
     );
     for (subject, query) in [("b", [0.0, 1.0]), ("c", [1.0, 1.0]), ("p", [5.0, 5.0])] {
@@ -693,11 +699,45 @@ fn test_an_index_whose_every_node_lost_its_vector_starts_afresh_from_the_first_i
     emb_with(&a, &[("c", "[1, 1]"), ("d", "[2, 1]"), ("p", "[5, 5]")])?;
     run_indexer(&a, "emb")?;
     assert_eq!(
-        bytes_to_uint64(&value(&a, &keys(&a)?.entry())?.context("value(&a, &keys(&a)?.entry())?")?),
+        bytes_to_id(&value(&a, &keys(&a)?.entry())?.context("value(&a, &keys(&a)?.entry())?")?),
         Some(uid(&a, "c")?)
     );
     for (subject, query) in [("c", [1.0, 1.0]), ("d", [2.0, 1.0]), ("p", [5.0, 5.0])] {
         assert_eq!(search(&a, &query, 1)?, vec![uid(&a, subject)?], "{subject}");
     }
+    Ok(())
+}
+
+#[test]
+fn test_a_vector_set_again_leaves_the_other_dead_nodes_listed() -> TestResult {
+    let a = changesets()?;
+    declare(
+        &a,
+        "emb",
+        "single-valued with a vector index of dimension 2",
+    )?;
+    emb_with(&a, &[("a", "[1, 0]"), ("b", "[0, 1]"), ("c", "[1, 1]")])?;
+    run_indexer(&a, "emb")?;
+    for (s, v) in [("a", "[1, 0]"), ("b", "[0, 1]")] {
+        write_changes(
+            &a,
+            vec![delete(&format!("<{s}> <emb> \"{v}\"^^ugdb:float32vector"))?],
+        )?;
+    }
+    run_indexer(&a, "emb")?;
+    let mut both = vec![uid(&a, "a")?, uid(&a, "b")?];
+    both.sort();
+    let mut listed = dead(&a)?;
+    listed.sort();
+    assert_eq!(listed, both);
+    // `a` set again leaves the dead list, which keeps `b`, written as the index writes it.
+    emb_with(&a, &[("a", "[1, 0]")])?;
+    run_indexer(&a, "emb")?;
+    assert_eq!(dead(&a)?, vec![uid(&a, "b")?]);
+    let raw = value(&a, &keys(&a)?.dead())?.context("a dead list")?;
+    assert_eq!(
+        String::from_utf8(raw)?,
+        format!("[\"{:032x}\"]", uid(&a, "b")?.to_u128())
+    );
     Ok(())
 }

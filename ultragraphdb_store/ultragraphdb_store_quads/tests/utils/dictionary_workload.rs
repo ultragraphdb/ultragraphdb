@@ -5,13 +5,19 @@
 
 //! The term dictionary's workload on the storage simulator: batches of writes create IRIs, blank nodes and literals
 //! short and long, insert and delete quads naming them, and roll lists up; after every step and every recovery every
-//! UID and literal hash a stored list names has its dictionary entry, and no UID names two IRIs.
+//! ID and literal hash a stored list names has its dictionary entry, no ID names two terms and no term has two IDs.
+//! The block source, the metadata group's stand-in, survives every crash, and each store draws names from a seed of its
+//! own, as a partition seeds its random source afresh at every start: two starts drawing from one seed draw one
+//! sequence of names, and the later must draw past every name the earlier committed.
 
 use std::collections::BTreeMap;
+use std::num::NonZeroU64;
 use std::sync::Arc;
 
 use oxrdf::{BlankNode, GraphName, Literal, NamedNode, NamedOrBlankNode, Quad, Term};
-use ultragraphdb_core_keys::{Keyspace, QuadKey, key_prefix};
+use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_keys::{Graph, Keyspace, QuadKey, key_prefix};
+use ultragraphdb_core_mapping::RandomSource;
 use ultragraphdb_core_terms::FLOAT32_VECTOR;
 use ultragraphdb_error_store::StoreErrorEnum;
 use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig, PostingErrorEnum};
@@ -20,28 +26,50 @@ use ultragraphdb_store_sim::{
     Event, FaultConfig, RunOutcome, Seed, SimContext, SimListCache, SimStore, Simulation, Stream,
     Violation,
 };
+use ultragraphdb_traits_blocks::TestBlockSource;
 use ultragraphdb_traits_store::{PersistMode, Scan, Store, StoreSnapshot};
 
 use crate::utils::helpers::kind;
 
 /// The rule a stored term without its dictionary entry breaks.
 pub const DICTIONARY_COMPLETE: &str =
-    "every UID and literal hash a stored list names has its dictionary entry";
-/// The rule a UID naming a second IRI breaks.
-pub const UIDS_NEVER_REISSUED: &str = "a UID names one IRI for good";
+    "every ID and literal hash a stored list names has its dictionary entry";
+/// The rule an ID naming a second term breaks.
+pub const IDS_NEVER_REISSUED: &str = "an ID names one term for good";
+/// The rule a term named by a second ID breaks.
+pub const ONE_ID_PER_TERM: &str = "a term has one ID for good";
 /// The rule broken by an error no fault explains.
 pub const NO_UNEXPECTED_ERROR: &str =
     "a dictionary operation fails only for a fault the simulator injected";
 
-type SimQuads = QuadStore<SimStore, SimListCache<CachedList>>;
+type SimQuads = QuadStore<SimStore, SimListCache<CachedList>, TestBlockSource>;
 
-#[derive(Default)]
 pub struct DictionaryWorkload {
     quads: Option<Arc<SimQuads>>,
+    /// The stores opened so far, which seeds the next one's random source.
+    starts: u64,
+    /// The metadata group's stand-in, which outlives every crash: blocks of 50 sequences, so runs cross blocks.
+    source: TestBlockSource,
     next_iri: u64,
-    /// The IRI each UID was first seen naming.
-    seen: BTreeMap<u64, String>,
+    /// The term each ID was first seen naming.
+    seen: BTreeMap<SystemId, String>,
+    /// The ID each term was first seen named by.
+    named: BTreeMap<String, SystemId>,
     pub checked: usize,
+}
+
+impl Default for DictionaryWorkload {
+    fn default() -> Self {
+        Self {
+            quads: None,
+            starts: 0,
+            source: TestBlockSource::new(NonZeroU64::MIN.saturating_add(49)),
+            next_iri: 0,
+            seen: BTreeMap::new(),
+            named: BTreeMap::new(),
+            checked: 0,
+        }
+    }
 }
 
 impl DictionaryWorkload {
@@ -71,7 +99,14 @@ impl DictionaryWorkload {
             cache,
             ListsConfig::new(PersistMode::Buffer, 512),
         );
-        let q = Arc::new(QuadStore::open(lists)?);
+        self.starts += 1;
+        let random = RandomSource::new(
+            ctx.seed()
+                .value()
+                .wrapping_mul(1_000)
+                .wrapping_add(self.starts),
+        );
+        let q = Arc::new(QuadStore::open(lists, self.source.clone(), random)?);
         self.quads = Some(q.clone());
         Ok(q)
     }
@@ -115,13 +150,17 @@ impl DictionaryWorkload {
         let injected = match &error.0 {
             QuadErrorEnum::Store(e) => fault(&e.0),
             QuadErrorEnum::Posting(p) => matches!(&p.0, PostingErrorEnum::Store(e) if fault(&e.0)),
-            QuadErrorEnum::Aborted => true,
             QuadErrorEnum::Term(_)
             | QuadErrorEnum::Key(_)
             | QuadErrorEnum::Mapping(_)
             | QuadErrorEnum::Catalog(_)
+            | QuadErrorEnum::Id(_)
             | QuadErrorEnum::Corrupted { .. }
-            | QuadErrorEnum::UidsExhausted { .. } => false,
+            | QuadErrorEnum::NoSequence { .. }
+            | QuadErrorEnum::PendingFull { .. }
+            | QuadErrorEnum::NoOwnedBucket { .. }
+            | QuadErrorEnum::SkolemDraws { .. }
+            | QuadErrorEnum::UnknownSkolem { .. } => false,
         };
         if injected || ctx.store().needs_recovery() {
             Ok(())
@@ -205,23 +244,17 @@ impl DictionaryWorkload {
                     },
                 );
                 let (t, q) = write.terms();
-                let (s, l) = (q.store(), q.leases());
-                let graph = t.graph(s, l, quad.graph_name.as_ref())?;
-                let subject_uid = t.node(s, l, quad.subject.as_ref())?;
-                let predicate = t.predicate(s, l, quad.predicate.as_ref())?;
-                let object = t.term(s, l, quad.object.as_ref())?;
+                let graph = t.graph(q, quad.graph_name.as_ref())?;
+                let subject_id = t.node(q, quad.subject.as_ref())?;
+                let predicate = t.predicate(q, quad.predicate.as_ref())?;
+                let object = t.term(q, quad.object.as_ref())?;
                 if ctx.rng().chance(250) {
-                    let _deleted: Option<Vec<u64>> = write.delete(
-                        graph,
-                        subject_uid,
-                        predicate,
-                        &object,
-                        &kind(&quad.object),
-                    )?;
+                    let _deleted: Option<Vec<SystemId>> =
+                        write.delete(graph, subject_id, predicate, &object, &kind(&quad.object))?;
                 } else {
                     write.insert(
                         graph,
-                        subject_uid,
+                        subject_id,
                         predicate,
                         &object,
                         &[],
@@ -233,13 +266,7 @@ impl DictionaryWorkload {
             batch.push(request);
             terms.push(t);
         }
-        for result in quads.commit(batch, &terms)? {
-            if let Err(e) = result
-                && !matches!(e.0, QuadErrorEnum::Aborted)
-            {
-                return Err(e);
-            }
-        }
+        let _versions: Vec<u64> = quads.commit(batch, &terms)?;
         Ok(())
     }
 
@@ -274,10 +301,12 @@ impl DictionaryWorkload {
         }
         for key in keys {
             let (parsed, _) = QuadKey::parse(&key)?;
-            let mut uids = vec![parsed.predicate().unwrap_or(0)];
-            uids.extend(parsed.graph().filter(|g| *g != 0));
+            let mut ids: Vec<SystemId> = parsed.predicate().into_iter().collect();
+            if let Some(Graph::Named(graph)) = parsed.graph() {
+                ids.push(graph);
+            }
             match &parsed {
-                QuadKey::Forward { subject, .. } => uids.push(*subject),
+                QuadKey::Forward { subject, .. } => ids.push(*subject),
                 QuadKey::Reverse { object, .. } => {
                     if let Err(e) = quads.term_of(0, object) {
                         return dictionary_miss(e);
@@ -290,18 +319,16 @@ impl DictionaryWorkload {
                 | QuadKey::CountIndex { .. }
                 | QuadKey::VectorIndex { .. }
                 | QuadKey::Statement { .. }
-                | QuadKey::Statistics { .. } => {}
+                | QuadKey::Statistics { .. }
+                | QuadKey::Mark { .. }
+                | QuadKey::Referrers { .. }
+                | QuadKey::Dictionary { .. } => {}
             }
-            for uid in uids {
-                match quads.iri_of(0, uid) {
-                    Ok((iri, _)) => {
-                        if let Some(previous) = self.seen.insert(uid, iri.clone())
-                            && previous != iri
-                        {
-                            return Ok(Some((
-                                UIDS_NEVER_REISSUED,
-                                format!("UID {uid} named {previous}, now {iri}"),
-                            )));
+            for id in ids {
+                match quads.iri_of(0, id) {
+                    Ok((term, _)) => {
+                        if let Some(broken) = self.record(id, term) {
+                            return Ok(Some(broken));
                         }
                     }
                     Err(e) => return dictionary_miss(e),
@@ -313,6 +340,29 @@ impl DictionaryWorkload {
             }
         }
         Ok(None)
+    }
+
+    /// Records that `id` names `term`: the rule broken when either was seen with another.
+    fn record(&mut self, id: SystemId, term: String) -> Option<(&'static str, String)> {
+        if let Some(previous) = self.seen.get(&id)
+            && *previous != term
+        {
+            return Some((
+                IDS_NEVER_REISSUED,
+                format!("{id:?} named {previous}, now {term}"),
+            ));
+        }
+        if let Some(previous) = self.named.get(&term)
+            && *previous != id
+        {
+            return Some((
+                ONE_ID_PER_TERM,
+                format!("{term} was {previous:?}, now {id:?}"),
+            ));
+        }
+        let _seen: Option<String> = self.seen.insert(id, term.clone());
+        let _named: Option<SystemId> = self.named.insert(term, id);
+        None
     }
 }
 
@@ -326,7 +376,11 @@ fn dictionary_miss(e: QuadError) -> Result<Option<(&'static str, String)>, QuadE
         | QuadErrorEnum::Key(_)
         | QuadErrorEnum::Mapping(_)
         | QuadErrorEnum::Catalog(_)
-        | QuadErrorEnum::Aborted
-        | QuadErrorEnum::UidsExhausted { .. } => Err(e),
+        | QuadErrorEnum::Id(_)
+        | QuadErrorEnum::NoSequence { .. }
+        | QuadErrorEnum::PendingFull { .. }
+        | QuadErrorEnum::NoOwnedBucket { .. }
+        | QuadErrorEnum::SkolemDraws { .. }
+        | QuadErrorEnum::UnknownSkolem { .. } => Err(e),
     }
 }

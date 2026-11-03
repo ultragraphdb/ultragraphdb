@@ -17,6 +17,7 @@ pub(crate) mod index_plan;
 pub(crate) mod level_draw;
 pub(crate) mod operation;
 pub(crate) mod operation_link;
+pub(crate) mod operation_outcome;
 pub(crate) mod overlay_txn;
 pub(crate) mod predicate_prefix;
 pub(crate) mod reads;

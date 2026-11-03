@@ -10,11 +10,11 @@
 
 use ultragraphdb_traits_index::{KeyValue, Metric};
 
-use crate::utils::helpers::{InMemList, TsDbs, brute_force, oracle_score};
+use crate::utils::helpers::{InMemList, TsDbs, brute_force, id, nums, oracle_score};
 use ultragraphdb_tool_bdd::TestResult;
 
-fn kv(value: &str) -> KeyValue {
-    KeyValue::new(0, "", value.as_bytes().to_vec())
+fn kv(value: &str) -> TestResult<KeyValue> {
+    Ok(KeyValue::new(id(1)?, "", value.as_bytes().to_vec()))
 }
 
 /// Dgraph's `flatInMemListWriteMutation`.
@@ -27,7 +27,7 @@ fn write_mutation(
 ) -> TestResult {
     let list = InMemList::new(dbs, key, start_ts, finish_ts);
     assert_eq!(list.start_ts(), start_ts);
-    list.add_mutation(&kv(value))?;
+    list.add_mutation(&kv(value)?)?;
     let k = key.as_bytes();
     assert_eq!(
         dbs.get(finish_ts - 1, k),
@@ -64,7 +64,7 @@ fn test_flat_in_mem_list_add_multiple_writes_mutation() -> TestResult {
     let writes = [(0, 2, "abc"), (1, 3, "123"), (2, 4, "xyz")];
     for (i, (start, finish, value)) in writes.into_iter().enumerate() {
         let list = InMemList::new(&dbs, "a", start, finish);
-        list.add_mutation(&kv(value))?;
+        list.add_mutation(&kv(value)?)?;
         if i == 0 {
             write_mutation(&dbs, "a", start, finish, value)?;
         } else {
@@ -102,22 +102,26 @@ fn test_the_oracle_scores_by_hand() {
 /// The oracle ranks by hand: from (1,0), (2,0) is 1 away and has dot 2 and cosine 1; (0,1) is sqrt 2 away with dot
 /// and cosine 0; (-1,0) is 2 away with dot and cosine -1; (5,0) is 4 away with dot 5 and cosine 1. Ties go by uid.
 #[test]
-fn test_the_oracle_ranks_by_hand() {
+fn test_the_oracle_ranks_by_hand() -> TestResult {
     let vectors = vec![
-        (4, vec![5.0, 0.0]),
-        (1, vec![2.0, 0.0]),
-        (2, vec![0.0, 1.0]),
-        (3, vec![-1.0, 0.0]),
+        (id(4)?, vec![5.0, 0.0]),
+        (id(1)?, vec![2.0, 0.0]),
+        (id(2)?, vec![0.0, 1.0]),
+        (id(3)?, vec![-1.0, 0.0]),
     ];
     let q = [1.0, 0.0];
     assert_eq!(
-        brute_force(Metric::Euclidean, &vectors, &q, 9),
+        nums(&brute_force(Metric::Euclidean, &vectors, &q, 9)),
         vec![1, 2, 3, 4]
     );
     assert_eq!(
-        brute_force(Metric::Cosine, &vectors, &q, 9),
+        nums(&brute_force(Metric::Cosine, &vectors, &q, 9)),
         vec![1, 4, 2, 3]
     );
-    assert_eq!(brute_force(Metric::DotProduct, &vectors, &q, 2), vec![4, 1]);
+    assert_eq!(
+        nums(&brute_force(Metric::DotProduct, &vectors, &q, 2)),
+        vec![4, 1]
+    );
     assert!(brute_force(Metric::DotProduct, &vectors, &q, 0).is_empty());
+    Ok(())
 }

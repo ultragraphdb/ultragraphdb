@@ -7,6 +7,8 @@
 //! dictionary over a fault-free simulated store, and the dictionary workload on the simulator.
 
 #[cfg(test)]
+mod errors;
+#[cfg(test)]
 mod types;
 #[cfg(test)]
 mod utils;

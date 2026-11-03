@@ -8,10 +8,10 @@ TBD - created by archiving change unified-math-next. Update Purpose after archiv
 Each of the four stages SHALL pass through phases 1 to 5 in order, and SHALL NOT begin a phase before the previous phase's exit condition is met.
 
 The five phases are: (1) a compiling API with unimplemented bodies; (2) the full test suite, written
-against that API and observed failing; (3) an audit of the suite against deliberate defects and
-against its own input variety; (4) implementation, judged finished only by the audited suite; (5)
-hardening: mutation testing of what the suite still misses, and fuzzing of every decoder of bytes from
-a client, a peer or the disk.
+against that API and observed failing; (3) an audit of the suite against its own input variety;
+(4) implementation, judged finished only by the audited suite; (5) hardening: mutation testing with
+`scripts/mutants.sh` over the code the group added or edited, and fuzzing of every decoder of bytes
+from a client, a peer or the disk.
 
 The order is the point. A test written after the code it checks tends to encode what the code does
 rather than what it should do, and a suite that has never been shown to reject a wrong implementation
@@ -157,28 +157,14 @@ exactly the case a caller matching on the variant will get wrong.
 - **WHEN** a variant cannot be provoked through the public API
 - **THEN** either it is removed, or its unreachability is recorded with the argument that makes it unreachable
 
-### Requirement: Phase 3 audits the suite against deliberate defects before the suite is trusted
+### Requirement: Phase 3 audits the suite's input variety before the suite is trusted
 
-Each stage SHALL, before implementing, verify its suite by introducing deliberate defects into a throwaway implementation and confirming the suite rejects each one.
+Each stage SHALL, before implementing, review its suite's inputs against the corner-case enumeration, so that no
+behaviour is tested only where several distinct quantities happen to coincide.
 
-A suite that passes on correct code proves nothing by itself; it has to be shown to reject incorrect
-code. This is phase 3's whole purpose, and it happens before phase 4 so that the suite the
-implementation is written against has already been shown to have teeth.
-
-The defect classes SHALL include, wherever the stage's mathematics admits them: an off-by-one in an
-index or a loop bound; a flipped comparison or an inverted sign; a constant factor changed (halved,
-doubled, or a normalisation dropped); a tolerance loosened; an early return that skips a case; a
-guard removed; and a returned value replaced by a plausible neighbour rather than by a crash.
-
-#### Scenario: Each defect class is rejected
-- **WHEN** each enumerated defect is introduced one at a time into a throwaway implementation
-- **THEN** at least one test fails for each
-- **AND** the failing test is one whose subject is the defective behaviour, not an unrelated test failing incidentally
-
-#### Scenario: A defect the suite misses widens the suite
-- **WHEN** an introduced defect leaves the suite green
-- **THEN** a test is added that rejects it, and the audit is repeated
-- **AND** the throwaway implementation is discarded before phase 4 begins
+Whether the suite rejects incorrect code is settled by mutation testing in phase 5: `scripts/mutants.sh` changes one
+expression at a time in the real implementation and re-runs the affected crate's suite, which does what deliberate
+defects planted by hand would do, mechanically and over every mutable expression rather than a chosen few.
 
 #### Scenario: Input variety is audited
 - **WHEN** the phase-3 exit is claimed
@@ -208,7 +194,7 @@ recorded.
 
 ### Requirement: Phase 5 hardens the implementation with mutation testing
 
-Each stage SHALL run `scripts/mutants.sh` over the code it added or edited, and SHALL resolve every surviving mutant as either a suite gap or a recorded equivalence.
+Each group SHALL run `scripts/mutants.sh` over the code it added or edited, once its implementation passes, and SHALL resolve every surviving mutant as either a suite gap or a recorded equivalence before the group closes.
 
 Mutation testing answers the question coverage cannot: whether a test would notice if a line were
 wrong. It is scoped per stage rather than run over the workspace, because every mutant costs a build
@@ -254,8 +240,7 @@ checks that `cargo-fuzz` is installed, runs each target for `FUZZ_SECONDS` (60 b
 reports executions, coverage and failing inputs.
 
 A group that decodes bytes writes its targets and seeds in its phase 5 and builds them; the runs of
-`scripts/fuzz.sh`, like those of `scripts/mutants.sh`, happen once, in the stage's final
-verification.
+`scripts/fuzz.sh` happen once, in the stage's final verification, while `scripts/mutants.sh` runs in each group.
 
 #### Scenario: A decoder of untrusted or stored bytes has a fuzz target
 - **WHEN** a stage adds or edits code that decodes bytes from a client, a peer or the disk

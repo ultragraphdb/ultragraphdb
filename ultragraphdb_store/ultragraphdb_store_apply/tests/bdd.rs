@@ -37,7 +37,7 @@ struct Steps {
         Vec<Result<ultragraphdb_store_apply::Applied, ultragraphdb_store_apply::ChangesetError>>,
     names: Vec<String>,
     counts: Vec<Vec<u32>>,
-    statement: Option<u64>,
+    statement: Option<ultragraphdb_core_ids::SystemId>,
     events: Vec<ultragraphdb_store_sim::CapturedEvent>,
 }
 

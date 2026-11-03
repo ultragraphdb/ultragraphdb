@@ -6,6 +6,8 @@
 use std::collections::BTreeSet;
 
 use ultragraphdb_core_catalog::Catalog;
+use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_keys::Graph;
 use ultragraphdb_store_posting::Request;
 use ultragraphdb_store_quads::WriteTerms;
 
@@ -23,10 +25,10 @@ pub(crate) struct WriteOutcome<'a, S, C> {
     /// The catalog keys written as a predicate's implicit default entry, sorted.
     pub defaults: Vec<Vec<u8>>,
     /// The predicates of `defaults`, in the same order.
-    pub default_uids: Vec<u64>,
+    pub default_ids: Vec<SystemId>,
     /// Whether the write changes the catalog: a declaration, or the namespace's initial catalog.
     pub catalog_changed: bool,
     pub pending: Option<Rebuild>,
-    pub touched: BTreeSet<(u64, u64)>,
+    pub touched: BTreeSet<(Graph, SystemId)>,
     pub removals: Vec<PredicatePrefix>,
 }

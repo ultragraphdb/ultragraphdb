@@ -3,7 +3,9 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_ids::{Bucket, Sequence, SystemId, TypePrefix};
 use ultragraphdb_store_apply::LevelDraw;
+use ultragraphdb_tool_bdd::TestResult;
 
 /// 2^53, the number of multiples of 2^-53 in [0, 1).
 const TWO_53: f64 = 9_007_199_254_740_992.0;
@@ -36,66 +38,81 @@ fn test_a_seed_replays_and_another_seed_differs() {
     }
 }
 
+/// The system ID of type 1 in `bucket` with `sequence`.
+fn id(bucket: u32, sequence: u64) -> TestResult<SystemId> {
+    Ok(SystemId::new(
+        TypePrefix::RESOURCE,
+        Bucket::new(bucket)?,
+        Sequence::new(sequence)?,
+    ))
+}
+
 #[test]
-fn test_a_node_s_draws_are_splitmix64_seeded_by_the_hash_of_seed_namespace_predicate_and_uid() {
-    // The oracle, scratch levels.py, a separate implementation of splitmix64.c: the state is SplitMix64's output on
-    // the seed, then on that output XORed with the namespace, the predicate and the UID in turn; each draw is a later
-    // output's top 53 bits over 2^53. (0, 0, 0, 0) hashes to 0x2130748AAAC80268, (1, 0, 5, 7) to 0x0C7AD5836EA83279.
-    for ((seed, namespace, predicate, uid), tops) in [
+fn test_a_node_s_draws_are_splitmix64_seeded_by_the_hash_of_seed_namespace_and_both_ids()
+-> TestResult {
+    // The oracle, a separate implementation of splitmix64.c in Python: the state is SplitMix64's output on the seed,
+    // then on that output XORed in turn with the namespace, the predicate's high and low 64 bits and the node's; each
+    // draw is a later output's top 53 bits over 2^53. (0, 0, (1, bucket 0, 1), (1, bucket 0, 2)) hashes to
+    // 0x840E01843B9DA454, (1, 7, (1, 0xABCDEF, 5), (1, 0xABCDEF, 7)) to 0xB06934141E725F05.
+    for ((seed, namespace, predicate, node), tops) in [
         (
-            (0, 0, 0, 0),
+            (0, 0, id(0, 1)?, id(0, 2)?),
             [
-                0x000F_15CB_534D_6BFAu64,
-                0x0017_312B_456D_0B25,
-                0x0009_B26D_D9D0_3FC9,
+                0x000B_A37A_1BFC_57D9u64,
+                0x001B_F75E_82B2_4E13,
+                0x0009_8A71_4468_8DF2,
             ],
         ),
         (
-            (1, 0, 5, 7),
+            (1, 7, id(0xAB_CDEF, 5)?, id(0xAB_CDEF, 7)?),
             [
-                0x0010_2CC2_A630_AC85,
-                0x0017_4ACF_7F1A_4CD6,
-                0x000E_AF3D_1AF3_8AFB,
+                0x0012_9CF0_497A_0092,
+                0x001A_9BCE_393C_8F83,
+                0x0012_E0E7_E95B_0D18,
             ],
         ),
     ] {
-        let mut draw = LevelDraw::of_node(seed, namespace, predicate, uid);
+        let mut draw = LevelDraw::of_node(seed, namespace, predicate, node);
         for top in tops {
             assert_eq!(
                 draw.next_f64(),
                 top as f64 / TWO_53,
-                "{seed} {namespace} {predicate} {uid}"
+                "{seed} {namespace} {predicate:?} {node:?}"
             );
         }
     }
+    Ok(())
 }
 
 #[test]
-fn test_a_node_s_draws_depend_on_each_of_the_four_and_on_nothing_else() {
-    let first = |seed, namespace, predicate, uid| {
-        let mut d = LevelDraw::of_node(seed, namespace, predicate, uid);
+fn test_a_node_s_draws_depend_on_each_of_the_four_and_on_nothing_else() -> TestResult {
+    let first = |seed, namespace, predicate, node| {
+        let mut d = LevelDraw::of_node(seed, namespace, predicate, node);
         (d.next_f64(), d.next_f64())
     };
-    let base = first(3, 1, 5, 7);
+    let (p, n) = (id(5, 5)?, id(7, 7)?);
+    let base = first(3, 1, p, n);
     // The same node draws the same, however many other nodes drew before it.
-    let _others: Vec<(f64, f64)> = (0..10).map(|u| first(3, 1, 5, u)).collect();
-    assert_eq!(first(3, 1, 5, 7), base);
+    let _others: Vec<(f64, f64)> = (1..10)
+        .map(|u| id(7, u).map(|o| first(3, 1, p, o)))
+        .collect::<TestResult<_>>()?;
+    assert_eq!(first(3, 1, p, n), base);
     for other in [
-        first(4, 1, 5, 7),
-        first(3, 2, 5, 7),
-        first(3, 1, 6, 7),
-        first(3, 1, 5, 8),
+        first(4, 1, p, n),
+        first(3, 2, p, n),
+        first(3, 1, id(5, 6)?, n),
+        first(3, 1, p, id(7, 8)?),
     ] {
         assert_ne!(other, base);
     }
-    // Swapping two of the four is another node.
-    assert_ne!(first(3, 5, 1, 7), base);
-    assert_ne!(first(3, 1, 7, 5), base);
-    for v in [
-        base.0,
-        base.1,
-        first(u64::MAX, u64::MAX, u64::MAX, u64::MAX).0,
-    ] {
+    // Swapping the predicate and the node is another node; IDs differing in their bucket alone differ too.
+    assert_ne!(first(3, 1, n, p), base);
+    assert_ne!(first(3, 1, p, id(8, 7)?), base);
+    let top = SystemId::from_u128(
+        (u128::from(u16::MAX) << 112) | (u128::from(u64::MAX) << 48) | (0xFF_FFFF << 24),
+    )?;
+    for v in [base.0, base.1, first(u64::MAX, u64::MAX, top, top).0] {
         assert!((0.0..1.0).contains(&v), "{v}");
     }
+    Ok(())
 }

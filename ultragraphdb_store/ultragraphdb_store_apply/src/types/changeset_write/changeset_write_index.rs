@@ -7,21 +7,24 @@ use std::collections::BTreeSet;
 
 use oxrdf::LiteralRef;
 use ultragraphdb_core_codec::Posting;
-use ultragraphdb_core_keys::{CountDirection, QuadKey};
+use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_keys::{CountDirection, Graph, QuadKey};
 use ultragraphdb_core_mapping::PredicateDeclaration;
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_posting::{CachedList, DEL, SET};
 use ultragraphdb_store_quads::object_posting;
+use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{ListCache, Store};
 
 use crate::errors::changeset_error::ChangesetError;
 use crate::types::changeset_write::ChangesetWrite;
 use crate::utils::literal_tokens::literal_tokens;
 
-impl<S, C> ChangesetWrite<'_, S, C>
+impl<S, C, B> ChangesetWrite<'_, S, C, B>
 where
     S: Store,
     C: ListCache<Value = CachedList>,
+    B: BlockSource,
 {
     /// The value-index tokens of `literal` under each tokenizer `declaration` names, each with its tokenizer's
     /// identifier.
@@ -36,9 +39,9 @@ where
     /// Adds the subject to, or removes it from, the value-index list of `token`, without reading it.
     pub(crate) fn index(
         &mut self,
-        graph: u64,
-        subject: u64,
-        predicate: u64,
+        graph: Graph,
+        subject: SystemId,
+        predicate: SystemId,
         tokenizer: u8,
         token: Vec<u8>,
         add: bool,
@@ -52,7 +55,7 @@ where
         }
         .to_bytes();
         let posting = Posting::default()
-            .with_uid(subject)
+            .with_uid(subject.to_u128())
             .with_op(if add { SET } else { DEL });
         self.write
             .request()
@@ -64,9 +67,9 @@ where
     /// subject's list and of the object's reverse list.
     pub(crate) fn counts(
         &mut self,
-        graph: u64,
-        subject: u64,
-        predicate: u64,
+        graph: Graph,
+        subject: SystemId,
+        predicate: SystemId,
         object: &EncodedTerm,
     ) -> Result<(u32, u32), ChangesetError> {
         let objects = self.write.objects(graph, subject, predicate)?.len();
@@ -79,15 +82,15 @@ where
     /// count.
     pub(crate) fn move_counts(
         &mut self,
-        graph: u64,
-        subject: u64,
-        predicate: u64,
+        graph: Graph,
+        subject: SystemId,
+        predicate: SystemId,
         object: &EncodedTerm,
         objects: (u32, u32),
         subjects: (u32, u32),
     ) {
         let fp = self.write.quads().fingerprint();
-        let subject_posting = |op| Posting::default().with_uid(subject).with_op(op);
+        let subject_posting = |op| Posting::default().with_uid(subject.to_u128()).with_op(op);
         self.count(
             graph,
             predicate,
@@ -104,8 +107,8 @@ where
 
     fn count(
         &mut self,
-        graph: u64,
-        predicate: u64,
+        graph: Graph,
+        predicate: SystemId,
         direction: CountDirection,
         (from, to): (u32, u32),
         posting: impl Fn(u32) -> Posting,

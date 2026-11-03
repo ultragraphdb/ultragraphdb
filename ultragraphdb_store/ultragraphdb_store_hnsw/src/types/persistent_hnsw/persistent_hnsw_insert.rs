@@ -194,7 +194,11 @@ impl<T: HnswFloat> PersistentHnsw<T> {
     /// The entry point's value naming `node`: its ID's 16 big-endian bytes, under the predicate's ID, where Dgraph's
     /// named the entity 1.
     fn entry_value(&self, node: SystemId) -> KeyValue {
-        unimplemented!()
+        KeyValue::new(
+            self.keys.predicate(),
+            self.keys.entry_label(),
+            node.to_be_bytes().to_vec(),
+        )
     }
 
     /// Dgraph's `uidScoreForNode`: the score of `uid` against `node`, whose vector is `node_vec`; the metric's worst
@@ -289,7 +293,8 @@ impl<T: HnswFloat> PersistentHnsw<T> {
                 let _cached: Option<T> = score_cache.insert(uid, s);
                 Ok(s)
             };
-            let new_uids: Vec<SystemId> = new_level.iter().copied().filter(|&u| u != uuid).collect();
+            let new_uids: Vec<SystemId> =
+                new_level.iter().copied().filter(|&u| u != uuid).collect();
             *row = insert_uids_top_k_by_score(
                 std::mem::take(row),
                 &new_uids,
@@ -326,11 +331,11 @@ impl<T: HnswFloat> PersistentHnsw<T> {
                 self.keys.predicate(),
                 tc,
             )? {
-                    Some(data) => parse_edges(&String::from_utf8_lossy(&data))?
-                        .into_iter()
-                        .collect(),
-                    None => HashSet::new(),
-                };
+                Some(data) => parse_edges(&String::from_utf8_lossy(&data))?
+                    .into_iter()
+                    .collect(),
+                None => HashSet::new(),
+            };
             *self.dead_nodes.borrow_mut() = Some(dead);
         }
         let dead = self.dead_nodes.borrow();

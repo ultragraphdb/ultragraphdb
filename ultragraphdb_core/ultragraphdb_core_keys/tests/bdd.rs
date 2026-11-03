@@ -236,6 +236,21 @@ fn split_parsed(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
+#[when(
+    "the split key of a forward key at the start ID (type 1, bucket 5, sequence 1000) loses its last 8 bytes and is parsed"
+)]
+fn parse_split_id_start_cut(w: &mut Steps) -> TestResult {
+    let key = forward(id(1, 42, 42)?)?.split_bytes(SplitStart::Id(id(1, 5, 1000)?))?;
+    let cut = key
+        .len()
+        .checked_sub(8)
+        .context("a split key longer than 8 bytes")?;
+    let key = key.get(..cut).context("the cut key")?.to_vec();
+    w.quad = Some(QuadKey::parse(&key));
+    w.key = key;
+    Ok(())
+}
+
 #[when("one byte is appended to a valid split forward key and the result is parsed")]
 fn parse_quad_split_trailing(w: &mut Steps) -> TestResult {
     let mut key = forward(id(1, 42, 42)?)?.split_bytes(SplitStart::Id(id(1, 5, 1000)?))?;

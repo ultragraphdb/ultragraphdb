@@ -7,11 +7,13 @@
 //! overlay of decided but unapplied writes above it.
 
 use oxrdf::{GraphName, Literal, NamedNode, Term};
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::{DEFAULT_GRAPH, QuadKey};
 use ultragraphdb_core_mapping::Change;
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_apply::{
     Applied, ChangesetError, ChangesetErrorEnum, Executed, Operation, OperationLink,
+    OperationOutcome,
 };
 
 use crate::utils::changesets::{
@@ -30,7 +32,7 @@ fn operate(
     executed: &Executed,
     unapplied: &[&Executed],
     operations: &[Operation],
-) -> Result<(Executed, Vec<(u64, bool)>), ChangesetError> {
+) -> Result<(Executed, Vec<OperationOutcome>), ChangesetError> {
     let mut overlay = a.quads().lists().batch();
     for e in unapplied {
         overlay.stack(e.writes());
@@ -104,7 +106,21 @@ fn add(subject: &str, predicate: &str, delta: i64) -> Operation {
 }
 
 /// The objects of `uid`'s `<predicate>` in the default graph, encoded.
-fn objects_of(a: &TestChangesets, subject: u64, predicate: &str) -> TestResult<Vec<EncodedTerm>> {
+/// The node an operation found or created, and whether it created it.
+fn node_of(outcome: Option<&OperationOutcome>) -> TestResult<(SystemId, bool)> {
+    match outcome {
+        Some(OperationOutcome::Node { node, created }) => Ok((*node, *created)),
+        other => Err(ultragraphdb_tool_bdd::TestError::new(format!(
+            "no node: {other:?}"
+        ))),
+    }
+}
+
+fn objects_of(
+    a: &TestChangesets,
+    subject: SystemId,
+    predicate: &str,
+) -> TestResult<Vec<EncodedTerm>> {
     let key = QuadKey::Forward {
         namespace: NS,
         graph: DEFAULT_GRAPH,
@@ -138,8 +154,12 @@ fn test_an_insert_if_absent_creates_the_node_once_and_keeps_the_transactions_wri
         "the transaction is left as it was"
     );
     assert_eq!(results.len(), 1);
-    let (node, created) = results[0];
-    assert!(created && node != 0);
+    let (node, created) = node_of(results.first())?;
+    assert!(created);
+    assert_eq!(
+        node.type_prefix(),
+        ultragraphdb_core_ids::TypePrefix::RESOURCE
+    );
     apply(&a, vec![operated])?;
     let held = objects_of(&a, node, "id")?;
     assert_eq!(held.len(), 1);
@@ -156,7 +176,13 @@ fn test_an_insert_if_absent_finds_the_node_holding_the_value() -> TestResult {
     write(&a, &["<n> <id> \"x\""])?;
     let txn = executed(&a, vec![insert("<m> <kind> \"memory\"")?])?;
     let (operated, results) = operate(&a, &txn, &[], &[insert_if_absent("x")])?;
-    assert_eq!(results, vec![(uid(&a, "n")?, false)]);
+    assert_eq!(
+        results,
+        vec![OperationOutcome::Node {
+            node: uid(&a, "n")?,
+            created: false
+        }]
+    );
     apply(&a, vec![operated])?;
     let stats = a.quads().statistics(
         NS,
@@ -178,12 +204,18 @@ fn test_an_operation_reads_the_unapplied_writes_of_the_overlay() -> TestResult {
     let (second, found) = operate(&a, &second, &[&first], &[insert_if_absent("x")])?;
     assert_eq!(
         found,
-        vec![(created[0].0, false)],
+        vec![OperationOutcome::Node {
+            node: node_of(created.first())?.0,
+            created: false
+        }],
         "the unapplied node is found"
     );
     let third = executed(&a, vec![insert("<m3> <kind> \"memory\"")?])?;
     let (_, alone) = operate(&a, &third, &[], &[insert_if_absent("x")])?;
-    assert!(alone[0].1, "without the overlay the node is not found");
+    assert!(
+        node_of(alone.first())?.1,
+        "without the overlay the node is not found"
+    );
     apply(&a, vec![first, second])?;
     Ok(())
 }
@@ -212,7 +244,7 @@ fn test_an_upsert_and_link_writes_its_links_both_ways_and_its_properties_only_wh
         &[],
         &[upsert("y", &[("label", "\"first\"")], links())?],
     )?;
-    let node = results[0].0;
+    let node = node_of(results.first())?.0;
     apply(&a, vec![operated])?;
     let again = executed(&a, vec![insert("<m> <kind> \"again\"")?])?;
     let (operated_again, results_again) = operate(
@@ -221,15 +253,21 @@ fn test_an_upsert_and_link_writes_its_links_both_ways_and_its_properties_only_wh
         &[],
         &[upsert("y", &[("label", "\"second\"")], links())?],
     )?;
-    assert_eq!(results_again, vec![(node, false)]);
+    assert_eq!(
+        results_again,
+        vec![OperationOutcome::Node {
+            node,
+            created: false
+        }]
+    );
     apply(&a, vec![operated_again])?;
     assert_eq!(
         objects_of(&a, uid(&a, "m")?, "has")?,
-        vec![EncodedTerm::uid(node)]
+        vec![EncodedTerm::id(node)]
     );
     assert_eq!(
         objects_of(&a, node, "about")?,
-        vec![EncodedTerm::uid(uid(&a, "t")?)]
+        vec![EncodedTerm::id(uid(&a, "t")?)]
     );
     assert_eq!(
         objects_of(&a, node, "label")?.len(),
@@ -291,7 +329,7 @@ fn test_an_operation_reads_the_dictionary_entries_of_unapplied_writes() -> TestR
         &[cas("a", "note", &long, "\"short\"")?],
     )
     .context("the long string the unapplied write stored is read")?;
-    assert_eq!(results, vec![(0, false)]);
+    assert_eq!(results, vec![OperationOutcome::Set]);
     let (_, next_results) = operate(
         &a,
         &txn,
@@ -299,7 +337,7 @@ fn test_an_operation_reads_the_dictionary_entries_of_unapplied_writes() -> TestR
         &[cas("a", "next", "<brandnew>", "<other>")?],
     )
     .context("the IRI the unapplied write created is read")?;
-    assert_eq!(next_results, vec![(0, false)]);
+    assert_eq!(next_results, vec![OperationOutcome::Set]);
     Ok(())
 }
 
@@ -314,7 +352,7 @@ fn test_a_compare_and_set_replaces_the_value_it_expects_and_refuses_another() ->
         &[],
         &[cas("a", "status", "\"open\"", "\"closed\"")?],
     )?;
-    assert_eq!(results, vec![(0, false)]);
+    assert_eq!(results, vec![OperationOutcome::Set]);
     apply(&a, vec![operated])?;
     assert_eq!(objects(&a, "a", "status")?, vec![term("\"closed\"")?]);
     let refused = operate(
@@ -343,7 +381,10 @@ fn test_a_counter_add_adds_to_the_value_held_or_to_zero() -> TestResult {
     let txn = executed(&a, vec![insert("<other> <kind> \"k\"")?])?;
     let (operated, results) = operate(&a, &txn, &[], &[add("c", "n", 3), add("c", "fresh", -2)])?;
     // Each result is the counter's new value, an i64 in two's complement (point 33).
-    assert_eq!(results, vec![(8, false), ((-2i64) as u64, false)]);
+    assert_eq!(
+        results,
+        vec![OperationOutcome::Counter(8), OperationOutcome::Counter(-2)]
+    );
     apply(&a, vec![operated])?;
     // 5 + 3, and 0 − 2 for a counter holding nothing.
     assert_eq!(objects(&a, "c", "n")?, vec![term("8")?]);
@@ -408,7 +449,10 @@ fn test_a_counter_add_reaches_the_bounds_of_i64_and_refuses_to_pass_them() -> Te
     let (operated, results) = operate(&a, &txn, &[], &[add("c", "near", 1), add("c", "min", 0)])?;
     assert_eq!(
         results,
-        vec![(i64::MAX as u64, false), (i64::MIN as u64, false)]
+        vec![
+            OperationOutcome::Counter(i64::MAX),
+            OperationOutcome::Counter(i64::MIN)
+        ]
     );
     apply(&a, vec![operated])?;
     assert_eq!(
@@ -459,7 +503,7 @@ fn test_operations_seed_the_transactions_own_terms() -> TestResult {
     apply(&a, vec![operated])?;
     assert_eq!(
         objects_of(&a, uid(&a, "m")?, "has")?,
-        vec![EncodedTerm::uid(results[0].0)]
+        vec![EncodedTerm::id(node_of(results.first())?.0)]
     );
     assert_eq!(objects(&a, "m", "kind")?, vec![term("\"memory\"")?]);
     let _: Option<NamedNode> = None;
@@ -542,11 +586,11 @@ fn test_a_counter_of_every_integer_datatype_adds_across_its_range_and_writes_xsd
         .collect();
     operations.push(add("c", "signed", 1));
     let (operated, results) = operate(&a, &txn, &[], &operations)?;
-    let mut expected: Vec<(u64, bool)> = cases
+    let mut expected: Vec<OperationOutcome> = cases
         .iter()
-        .map(|(_, _, _, sum)| Ok((i64::try_from(*sum)? as u64, false)))
+        .map(|(_, _, _, sum)| Ok(OperationOutcome::Counter(i64::try_from(*sum)?)))
         .collect::<TestResult<_>>()?;
-    expected.push((6, false));
+    expected.push(OperationOutcome::Counter(6));
     assert_eq!(results, expected);
     apply(&a, vec![operated])?;
     for (i, (local, held, delta, sum)) in cases.iter().enumerate() {

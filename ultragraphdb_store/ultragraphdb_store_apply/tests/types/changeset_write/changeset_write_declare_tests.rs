@@ -163,7 +163,7 @@ fn test_a_vector_index_without_a_dimension_is_refused_and_not_held() -> TestResu
         "Predicate <http://ex.org/emb> declares a vector index without its dimension"
     );
     // Nothing of the declaration is held: no catalog entry for `emb`.
-    let held = match a.quads().uid_of(NS, ex("emb").as_str())? {
+    let held = match a.quads().id_of(NS, ex("emb").as_str())? {
         Some(p) => a.catalog(NS)?.predicate(p).cloned(),
         None => None,
     };
@@ -241,7 +241,7 @@ fn test_vector_options_their_factory_refuses_are_refused() -> TestResult {
         "Predicate <http://ex.org/emb> declares the unknown vector index nope"
     );
     // Neither refusal declared `emb`.
-    let held = match a.quads().uid_of(NS, ex("emb").as_str())? {
+    let held = match a.quads().id_of(NS, ex("emb").as_str())? {
         Some(p) => a.catalog(NS)?.predicate(p).cloned(),
         None => None,
     };

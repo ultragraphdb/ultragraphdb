@@ -11,11 +11,11 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_tok::{VEC_ENTRY, VEC_KEYWORD};
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_store_hnsw::{
-    HnswError, HnswErrorEnum, HnswFloat, PersistentHnsw, QueryCache, TxnCache,
-    encode_uint64_matrix, uint64_to_bytes,
+    HnswError, HnswErrorEnum, HnswFloat, PersistentHnsw, QueryCache, TxnCache, encode_id_matrix,
 };
 use ultragraphdb_store_posting::{PostingError, PostingErrorEnum};
 use ultragraphdb_store_sim::SimRng;
@@ -25,7 +25,7 @@ use ultragraphdb_traits_index::{
 
 use crate::utils::helpers::{
     InMemLocalCache, InMemTxn, MapTxn, MemoryCache, TsDbs, brute_force, draw,
-    float64_array_as_bytes, key, opts, vec_bytes, vkeys,
+    float64_array_as_bytes, id, ids, key, nums, opts, vec_bytes, vkeys,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -36,7 +36,7 @@ fn index(metric: &str, max_levels: &str) -> TestResult<PersistentHnsw<f64>> {
         ("efSearch", "12"),
         ("metric", metric),
     ])?;
-    Ok(PersistentHnsw::new(vkeys("0-a"), &o, 64)?)
+    Ok(PersistentHnsw::new(vkeys("0-a")?, &o, 64)?)
 }
 
 #[test]
@@ -49,12 +49,14 @@ fn test_basic_search_persistent_flat_storage() -> TestResult {
             (11, 15, 123, [0.824, 0.319, 0.111]),
             (20, 37, 1, [0.3, 0.5, 0.7]),
         ] {
-            dbs.set_all(&key("0-a", uid), &float64_array_as_bytes(&vec));
+            dbs.set_all(&key("0-a", uid)?, &float64_array_as_bytes(&vec));
             let txn = InMemTxn::new(&dbs, start, commit);
-            let _inserted: Vec<KeyValue> =
-                index(metric, "5")?.insert(&TxnCache::new(&txn, start), uid, &vec, &mut || {
-                    draw(&mut rng)
-                })?;
+            let _inserted: Vec<KeyValue> = index(metric, "5")?.insert(
+                &TxnCache::new(&txn, start),
+                id(uid)?,
+                &vec,
+                &mut || draw(&mut rng),
+            )?;
         }
         for (read_ts, query, expected) in [
             (45, [0.3, 0.5, 0.7], vec![1]),
@@ -67,7 +69,7 @@ fn test_basic_search_persistent_flat_storage() -> TestResult {
                 1,
                 accept_all::<f64>,
             )?;
-            assert_eq!(nns, expected, "{metric} at {read_ts}");
+            assert_eq!(nums(&nns), expected, "{metric} at {read_ts}");
         }
     }
     Ok(())
@@ -89,13 +91,13 @@ fn test_search_returns_correct_order_for_all_metrics() -> TestResult {
             (1, 20, [0.9, 0.1, 0.0]),
             (2, 30, [0.1, 0.9, 0.0]),
         ] {
-            dbs.set_all(&key(&pred, uid), &float64_array_as_bytes(&vec));
+            dbs.set_all(&key(&pred, uid)?, &float64_array_as_bytes(&vec));
             let txn = InMemTxn::new(&dbs, start, start + 1);
-            let _inserted: Vec<KeyValue> = PersistentHnsw::<f64>::new(vkeys(&pred), &o, 64)?
-                .insert(&TxnCache::new(&txn, start), uid, &vec, &mut || 0.5)?;
+            let _inserted: Vec<KeyValue> = PersistentHnsw::<f64>::new(vkeys(&pred)?, &o, 64)?
+                .insert(&TxnCache::new(&txn, start), id(uid)?, &vec, &mut || 0.5)?;
         }
         let lc = InMemLocalCache::new(&dbs, 10);
-        let results = PersistentHnsw::<f64>::new(vkeys(&pred), &o, 64)?.search(
+        let results = PersistentHnsw::<f64>::new(vkeys(&pred)?, &o, 64)?.search(
             &QueryCache::new(&lc, 10),
             &[1.0, 0.0, 0.0],
             2,
@@ -103,33 +105,39 @@ fn test_search_returns_correct_order_for_all_metrics() -> TestResult {
         )?;
         // By hand, from (1,0,0): uid 10 is 0 away, cosine 1, dot 1; uid 20 is sqrt 0.02 away, cosine 0.9/sqrt 0.82,
         // dot 0.9; uid 30 is sqrt 1.62 away, cosine 0.1/sqrt 0.82, dot 0.1. Go's test asserts only that 30 is not first.
-        assert_eq!(results, vec![10, 20], "{metric}");
+        assert_eq!(nums(&results), vec![10, 20], "{metric}");
     }
     Ok(())
 }
 
-/// The predicate of a synthetic graph, its vectors, the entry point and every node's stored neighbour lists.
+/// The predicate of a synthetic graph, its vectors, the entry point (the node numbered 1) and every node's stored
+/// neighbour lists, each node by its number.
 fn synthetic(
     pred: &str,
     vectors: &[(u64, Vec<f64>)],
     edges: &[(u64, Vec<Vec<u64>>)],
-) -> MemoryCache {
+) -> TestResult<MemoryCache> {
     let mut cache = MemoryCache::default();
     for (uid, v) in vectors {
         let _replaced_vector: Option<Vec<u8>> = cache
             .data
-            .insert(key(pred, *uid), float64_array_as_bytes(v));
+            .insert(key(pred, *uid)?, float64_array_as_bytes(v));
     }
-    let _replaced_entry: Option<Vec<u8>> = cache
-        .data
-        .insert(key(&format!("{pred}{VEC_ENTRY}"), 1), uint64_to_bytes(1));
+    let _replaced_entry: Option<Vec<u8>> = cache.data.insert(
+        key(&format!("{pred}{VEC_ENTRY}"), 1)?,
+        id(1)?.to_be_bytes().to_vec(),
+    );
     for (uid, lists) in edges {
+        let rows = lists
+            .iter()
+            .map(|row| Ok(ids(row)?))
+            .collect::<TestResult<Vec<_>>>()?;
         let _replaced_lists: Option<Vec<u8>> = cache.data.insert(
-            key(&format!("{pred}{VEC_KEYWORD}"), *uid),
-            encode_uint64_matrix(lists),
+            key(&format!("{pred}{VEC_KEYWORD}"), *uid)?,
+            encode_id_matrix(&rows),
         );
     }
-    cache
+    Ok(cache)
 }
 
 #[test]
@@ -140,7 +148,7 @@ fn test_hnsw_search_ef_override_improves_recall() -> TestResult {
         ("efSearch", "1"),
         ("metric", "euclidean"),
     ])?;
-    let ph = PersistentHnsw::<f64>::new(vkeys(pred), &o, 64)?;
+    let ph = PersistentHnsw::<f64>::new(vkeys(pred)?, &o, 64)?;
     assert_eq!(ph.keys().name(), pred);
     let cache = synthetic(
         pred,
@@ -156,17 +164,17 @@ fn test_hnsw_search_ef_override_improves_recall() -> TestResult {
             (201, vec![vec![1], vec![100]]),
             (100, vec![vec![201], vec![201]]),
         ],
-    );
+    )?;
     let query = [0.0, 0.0, 0.12, 0.0];
     let narrow = ph.search_with_options(&cache, &query, 1, &VectorIndexOptions::default());
-    assert_eq!(narrow, Ok(vec![200]));
+    assert_eq!(narrow, Ok(ids(&[200])?));
     let wide = ph.search_with_options(
         &cache,
         &query,
         1,
         &VectorIndexOptions::new(4, None, accept_all::<f64>),
     );
-    assert_eq!(wide, Ok(vec![100]));
+    assert_eq!(wide, Ok(ids(&[100])?));
     Ok(())
 }
 
@@ -178,12 +186,12 @@ fn test_hnsw_distance_threshold_euclidean() -> TestResult {
         ("efSearch", "10"),
         ("metric", "euclidean"),
     ])?;
-    let ph = PersistentHnsw::<f64>::new(vkeys(pred), &o, 64)?;
+    let ph = PersistentHnsw::<f64>::new(vkeys(pred)?, &o, 64)?;
     let cache = synthetic(
         pred,
         &[(1, vec![0.6, 0.0]), (2, vec![0.8, 0.0])],
         &[(1, vec![vec![1, 2]]), (2, vec![vec![1]])],
-    );
+    )?;
     let q = [0.0, 0.0];
     let search = |th: f64| {
         ph.search_with_options(
@@ -193,11 +201,11 @@ fn test_hnsw_distance_threshold_euclidean() -> TestResult {
             &VectorIndexOptions::new(10, Some(th), accept_all::<f64>),
         )
     };
-    assert_eq!(search(0.75)?, vec![1]);
-    let mut high = search(1.5)?;
+    assert_eq!(nums(&search(0.75)?), vec![1]);
+    let mut high = nums(&search(1.5)?);
     high.sort_unstable();
     assert_eq!(high, vec![1, 2]);
-    assert_eq!(search(0.6)?, vec![1], "the comparison is inclusive");
+    assert_eq!(nums(&search(0.6)?), vec![1], "the comparison is inclusive");
     assert!(search(0.5)?.is_empty());
     Ok(())
 }
@@ -206,19 +214,19 @@ fn test_hnsw_distance_threshold_euclidean() -> TestResult {
 fn test_hnsw_distance_threshold_cosine() -> TestResult {
     let pred = "0-thresh_pred_c";
     let o = opts(&[("maxLevels", "1"), ("efSearch", "10"), ("metric", "cosine")])?;
-    let ph = PersistentHnsw::<f64>::new(vkeys(pred), &o, 64)?;
+    let ph = PersistentHnsw::<f64>::new(vkeys(pred)?, &o, 64)?;
     let cache = synthetic(
         pred,
         &[(1, vec![1.0, 0.0]), (2, vec![0.8, 0.6])],
         &[(1, vec![vec![1, 2]]), (2, vec![vec![1]])],
-    );
+    )?;
     let res = ph.search_with_options(
         &cache,
         &[1.0, 0.0],
         10,
         &VectorIndexOptions::new(10, Some(0.1), accept_all::<f64>),
     );
-    assert_eq!(res, Ok(vec![1]));
+    assert_eq!(res, Ok(ids(&[1])?));
     Ok(())
 }
 
@@ -236,12 +244,12 @@ fn test_an_empty_index_reports_the_empty_index_result() -> TestResult {
         assert_eq!(e.to_string(), "HNSW tree has no elements: Key not found");
     }
     assert_eq!(
-        ph.search_with_uid(&qc, 7, 3, accept_all::<f64>),
+        ph.search_with_uid(&qc, id(7)?, 3, accept_all::<f64>),
         Ok(vec![]),
         "no vector, no neighbours"
     );
     assert_eq!(
-        ph.search_with_uid_and_options(&qc, 7, 3, &VectorIndexOptions::default()),
+        ph.search_with_uid_and_options(&qc, id(7)?, 3, &VectorIndexOptions::default()),
         Ok(vec![])
     );
     // A cache whose find reports nothing without an error is Dgraph's plain empty-tree error.
@@ -260,9 +268,9 @@ fn test_a_result_count_of_zero() -> TestResult {
     let txn = MapTxn::default();
     let ph = index("euclidean", "1")?;
     for (uid, v) in [(3, [0.0, 1.0]), (6, [1.0, 1.0]), (9, [5.0, 5.0])] {
-        txn.put(key("0-a", uid), float64_array_as_bytes(&v));
+        txn.put(key("0-a", uid)?, float64_array_as_bytes(&v));
         let _inserted: Vec<KeyValue> =
-            index("euclidean", "1")?.insert(&TxnCache::new(&txn, 1), uid, &v, &mut || 0.5)?;
+            index("euclidean", "1")?.insert(&TxnCache::new(&txn, 1), id(uid)?, &v, &mut || 0.5)?;
     }
     let qc = QueryCache::new(&txn, 1);
     let e = ph
@@ -281,9 +289,9 @@ fn test_a_result_count_of_zero() -> TestResult {
 fn test_a_search_reports_its_path_and_counters_and_honours_its_filter() -> TestResult {
     let txn = MapTxn::default();
     for (uid, v) in [(3, [0.0, 1.0]), (6, [1.0, 1.0]), (9, [5.0, 5.0])] {
-        txn.put(key("0-a", uid), float64_array_as_bytes(&v));
+        txn.put(key("0-a", uid)?, float64_array_as_bytes(&v));
         let _inserted: Vec<KeyValue> =
-            index("euclidean", "2")?.insert(&TxnCache::new(&txn, 1), uid, &v, &mut || 0.5)?;
+            index("euclidean", "2")?.insert(&TxnCache::new(&txn, 1), id(uid)?, &v, &mut || 0.5)?;
     }
     let ph = index("euclidean", "2")?;
     let qc = QueryCache::new(&txn, 1);
@@ -292,8 +300,8 @@ fn test_a_search_reports_its_path_and_counters_and_honours_its_filter() -> TestR
     // neighbours: one distance, one visit, path [3]. Level 1 holds 3 -> [6, 9], 6 -> [3, 9], 9 -> [6, 3]; from 3
     // (1.005 away) the search scores 6 (0.1 away, kept and on the path) and 9 (5.59 away, worse than the 2 kept), then
     // pops 6, whose neighbours are visited: three distances and three visits, path [3, 6].
-    assert_eq!(r.neighbors(), &[6, 3]);
-    assert_eq!(r.path(), &[3, 3, 6]);
+    assert_eq!(nums(r.neighbors()), vec![6, 3]);
+    assert_eq!(nums(r.path()), vec![3, 3, 6]);
     assert_eq!(
         r.metrics().clone(),
         std::collections::HashMap::from([
@@ -309,13 +317,13 @@ fn test_a_search_reports_its_path_and_counters_and_honours_its_filter() -> TestR
     // The uid search returns the filtered neighbours too, as Dgraph's does, beyond the count asked for: from 6, its
     // neighbours 3 (1 away) and 9 (5.66 away), filtered, do not count towards the 2 asked for.
     assert_eq!(
-        ph.search_with_uid(&qc, 6, 2, accept_none::<f64>),
-        Ok(vec![6, 3, 9])
+        ph.search_with_uid(&qc, id(6)?, 2, accept_none::<f64>),
+        Ok(ids(&[6, 3, 9])?)
     );
     assert_eq!(
         ph.search_with_uid_and_options(
             &qc,
-            6,
+            id(6)?,
             2,
             &VectorIndexOptions::new(0, None, accept_none::<f64>)
         ),
@@ -340,15 +348,15 @@ fn probe_index(
     ])?;
     let txn = MapTxn::default();
     for (uid, v) in nodes {
-        txn.put(key("0-a", *uid), float64_array_as_bytes(v));
-        let _inserted: Vec<KeyValue> = PersistentHnsw::<f64>::new(vkeys("0-a"), &o, 64)?.insert(
+        txn.put(key("0-a", *uid)?, float64_array_as_bytes(v));
+        let _inserted: Vec<KeyValue> = PersistentHnsw::<f64>::new(vkeys("0-a")?, &o, 64)?.insert(
             &TxnCache::new(&txn, 1),
-            *uid,
+            id(*uid)?,
             v,
             &mut || 0.5,
         )?;
     }
-    Ok((txn, PersistentHnsw::new(vkeys("0-a"), &o, 64)?))
+    Ok((txn, PersistentHnsw::new(vkeys("0-a")?, &o, 64)?))
 }
 
 fn options(ef: usize, threshold: Option<f64>) -> VectorIndexOptions<f64> {
@@ -376,28 +384,28 @@ fn test_ties_and_a_count_beyond_the_index_rank_as_gos() -> TestResult {
         let q = [1.0, 0.0];
         let search = |k: usize| ix.search(&qc, &q, k, accept_all::<f64>);
         // Go 1.27 probe.
-        assert_eq!(search(1)?, vec![3], "{metric}");
-        assert_eq!(search(2)?, vec![3, 6], "{metric}");
-        assert_eq!(search(5)?, vec![3, 6, 12, 9, 15], "{metric}");
-        assert_eq!(search(9)?, vec![3, 6, 12, 9, 15], "{metric}: k > n");
+        assert_eq!(nums(&search(1)?), vec![3], "{metric}");
+        assert_eq!(nums(&search(2)?), vec![3, 6], "{metric}");
+        assert_eq!(nums(&search(5)?), vec![3, 6, 12, 9, 15], "{metric}");
+        assert_eq!(nums(&search(9)?), vec![3, 6, 12, 9, 15], "{metric}: k > n");
         assert_eq!(
             ix.search(&qc, &[0.0, 1.0], 9, accept_all::<f64>),
-            Ok(vec![9, 3, 6, 12, 15]),
+            Ok(ids(&[9, 3, 6, 12, 15])?),
             "{metric}"
         );
         assert_eq!(
             ix.search_with_options(&qc, &q, 9, &options(0, None)),
-            Ok(vec![3, 6, 12, 9, 15]),
+            Ok(ids(&[3, 6, 12, 9, 15])?),
             "{metric}"
         );
         assert_eq!(
-            ix.search_with_uid(&qc, 6, 9, accept_all::<f64>),
-            Ok(vec![6, 3, 12, 9, 15]),
+            ix.search_with_uid(&qc, id(6)?, 9, accept_all::<f64>),
+            Ok(ids(&[6, 3, 12, 9, 15])?),
             "{metric}"
         );
         assert_eq!(
-            ix.search_with_uid_and_options(&qc, 6, 9, &options(0, None)),
-            Ok(vec![6, 3, 12, 9, 15]),
+            ix.search_with_uid_and_options(&qc, id(6)?, 9, &options(0, None)),
+            Ok(ids(&[6, 3, 12, 9, 15])?),
             "{metric}"
         );
     }
@@ -450,7 +458,8 @@ fn test_the_threshold_by_metric() -> TestResult {
         let (txn, ix) = probe_index(metric, "1", &duplicates())?;
         let qc = QueryCache::new(&txn, 1);
         assert_eq!(
-            ix.search_with_options(&qc, &[1.0, 0.0], 9, &options(0, Some(threshold))),
+            ix.search_with_options(&qc, &[1.0, 0.0], 9, &options(0, Some(threshold)))
+                .map(|r| nums(&r)),
             Ok(expected),
             "{metric} within {threshold}"
         );
@@ -466,21 +475,21 @@ fn test_a_count_of_zero_by_search() -> TestResult {
         let (txn, ix) = probe_index(metric, "1", &duplicates())?;
         let qc = QueryCache::new(&txn, 1);
         let q = [1.0, 0.0];
-        assert_eq!(ix.search(&qc, &q, 0, accept_all::<f64>), Ok(vec![3]));
+        assert_eq!(ix.search(&qc, &q, 0, accept_all::<f64>), Ok(ids(&[3])?));
         assert_eq!(
             ix.search_with_options(&qc, &q, 0, &options(0, None)),
             Ok(vec![])
         );
         assert_eq!(
-            ix.search_with_uid(&qc, 6, 0, accept_all::<f64>),
-            Ok(vec![6])
+            ix.search_with_uid(&qc, id(6)?, 0, accept_all::<f64>),
+            Ok(ids(&[6])?)
         );
         assert_eq!(
-            ix.search_with_uid_and_options(&qc, 6, 0, &options(0, None)),
+            ix.search_with_uid_and_options(&qc, id(6)?, 0, &options(0, None)),
             Ok(vec![])
         );
         assert_eq!(
-            ix.search_with_uid_and_options(&qc, 6, 0, &options(3, None)),
+            ix.search_with_uid_and_options(&qc, id(6)?, 0, &options(3, None)),
             Ok(vec![])
         );
     }
@@ -504,23 +513,23 @@ fn test_a_zero_vector_under_cosine() -> TestResult {
     let qc = QueryCache::new(&txn, 1);
     assert_eq!(
         ix.search(&qc, &[1.0, 0.0], 4, accept_all::<f64>),
-        Ok(vec![3, 6, 12, 9])
+        Ok(ids(&[3, 6, 12, 9])?)
     );
     assert_eq!(
         ix.search(&qc, &[0.0, 0.0], 4, accept_all::<f64>),
-        Ok(vec![3, 6, 12, 9])
+        Ok(ids(&[3, 6, 12, 9])?)
     );
     assert_eq!(
         ix.search_with_options(&qc, &[1.0, 0.0], 4, &options(0, Some(0.5))),
-        Ok(vec![3, 6, 12])
+        Ok(ids(&[3, 6, 12])?)
     );
     assert_eq!(
         ix.search_with_options(&qc, &[0.0, 0.0], 4, &options(0, Some(0.5))),
-        Ok(vec![3, 6, 12, 9])
+        Ok(ids(&[3, 6, 12, 9])?)
     );
     assert_eq!(
-        ix.search_with_uid(&qc, 6, 4, accept_all::<f64>),
-        Ok(vec![6, 3, 9, 12])
+        ix.search_with_uid(&qc, id(6)?, 4, accept_all::<f64>),
+        Ok(ids(&[6, 3, 9, 12])?)
     );
     Ok(())
 }
@@ -557,7 +566,7 @@ fn test_non_finite_components_rank_as_gos() -> TestResult {
             .zip(expected)
         {
             assert_eq!(
-                ix.search(&qc, q, 5, accept_all::<f64>),
+                ix.search(&qc, q, 5, accept_all::<f64>).map(|r| nums(&r)),
                 Ok(want.to_vec()),
                 "{metric} {q:?}"
             );
@@ -582,14 +591,14 @@ fn test_negative_dot_products_rank_highest_first() -> TestResult {
     let qc = QueryCache::new(&txn, 1);
     let q = [1.0, 1.0];
     // By hand, as the Go 1.27 probe returns them.
-    assert_eq!(ix.search(&qc, &q, 2, accept_all::<f64>), Ok(vec![9, 3]));
+    assert_eq!(ix.search(&qc, &q, 2, accept_all::<f64>), Ok(ids(&[9, 3])?));
     assert_eq!(
         ix.search(&qc, &q, 4, accept_all::<f64>),
-        Ok(vec![9, 3, 6, 12])
+        Ok(ids(&[9, 3, 6, 12])?)
     );
     assert_eq!(
         ix.search_with_options(&qc, &q, 4, &options(0, Some(-100.0))),
-        Ok(vec![9, 3, 6, 12]),
+        Ok(ids(&[9, 3, 6, 12])?),
         "dot product ignores a threshold"
     );
     Ok(())
@@ -602,11 +611,11 @@ fn test_one_vector() -> TestResult {
     let qc = QueryCache::new(&txn, 1);
     assert_eq!(
         ix.search(&qc, &[0.5, 0.5], 3, accept_all::<f64>),
-        Ok(vec![7])
+        Ok(ids(&[7])?)
     );
     assert_eq!(
         ix.search(&qc, &[9.0, 9.0], 3, accept_all::<f64>),
-        Ok(vec![7])
+        Ok(ids(&[7])?)
     );
     // (9,9) is 8.5 * sqrt 2 from (0.5,0.5), beyond 1.
     assert_eq!(
@@ -614,12 +623,12 @@ fn test_one_vector() -> TestResult {
         Ok(vec![])
     );
     assert_eq!(
-        ix.search_with_uid(&qc, 7, 3, accept_all::<f64>),
-        Ok(vec![7])
+        ix.search_with_uid(&qc, id(7)?, 3, accept_all::<f64>),
+        Ok(ids(&[7])?)
     );
     assert_eq!(
-        ix.search_with_uid_and_options(&qc, 7, 3, &options(0, None)),
-        Ok(vec![7])
+        ix.search_with_uid_and_options(&qc, id(7)?, 3, &options(0, None)),
+        Ok(ids(&[7])?)
     );
     Ok(())
 }
@@ -644,12 +653,14 @@ fn equals_brute_force<T: HnswFloat>(metric: Metric, seed: u64) -> TestResult {
     for uid in 1..=30u64 {
         let v = rand_vec(&mut rng);
         let tv: Vec<T> = v.iter().map(|&x| T::from_f64(x)).collect();
-        txn.put(key("0-a", uid), vec_bytes(&tv));
-        let _inserted: Vec<KeyValue> = PersistentHnsw::<T>::new(vkeys("0-a"), &o, T::BITS)?
-            .insert(&TxnCache::new(&txn, 1), uid, &tv, &mut || draw(&mut rng))?;
-        vectors.push((uid, v));
+        txn.put(key("0-a", uid)?, vec_bytes(&tv));
+        let _inserted: Vec<KeyValue> = PersistentHnsw::<T>::new(vkeys("0-a")?, &o, T::BITS)?
+            .insert(&TxnCache::new(&txn, 1), id(uid)?, &tv, &mut || {
+                draw(&mut rng)
+            })?;
+        vectors.push((id(uid)?, v));
     }
-    let ix = PersistentHnsw::<T>::new(vkeys("0-a"), &o, T::BITS)?;
+    let ix = PersistentHnsw::<T>::new(vkeys("0-a")?, &o, T::BITS)?;
     let qc = QueryCache::new(&txn, 1);
     for _ in 0..5 {
         let q = rand_vec(&mut rng);
@@ -689,7 +700,11 @@ impl CacheType for FailingFind {
         1
     }
 
-    fn find(&self, prefix: &[u8], _: impl Fn(&[u8]) -> bool) -> Result<u64, HnswError> {
+    fn find(
+        &self,
+        prefix: &[u8],
+        _: impl Fn(&[u8]) -> bool,
+    ) -> Result<Option<SystemId>, HnswError> {
         Err(PostingError::store(StoreError::read_failed(prefix.to_vec(), "injected".into())).into())
     }
 }
@@ -701,7 +716,7 @@ impl CacheType for FailingFind {
 fn test_a_search_refuses_what_does_not_decode() -> TestResult {
     let short = vec![0u8; 12];
     let txn = MapTxn::default();
-    txn.put(key("0-a", 3), short.clone());
+    txn.put(key("0-a", 3)?, short.clone());
     let e = index("euclidean", "2")?
         .search(&QueryCache::new(&txn, 1), &[1.0], 1, accept_all::<f64>)
         .err()
@@ -709,14 +724,14 @@ fn test_a_search_refuses_what_does_not_decode() -> TestResult {
     assert_eq!(
         e,
         HnswError::corrupted(
-            &key("0-a", 3),
+            &key("0-a", 3)?,
             "a vector whose length is not a multiple of its float width"
         )
     );
 
     let entry_txn = MapTxn::default();
-    entry_txn.put(key("0-a", 3), float64_array_as_bytes(&[1.0]));
-    entry_txn.put(key(&format!("0-a{VEC_ENTRY}"), 1), vec![0, 0, 3]);
+    entry_txn.put(key("0-a", 3)?, float64_array_as_bytes(&[1.0]));
+    entry_txn.put(key(&format!("0-a{VEC_ENTRY}"), 1)?, vec![0, 0, 3]);
     let bad_entry = index("euclidean", "2")?
         .search(
             &QueryCache::new(&entry_txn, 1),
@@ -729,7 +744,7 @@ fn test_a_search_refuses_what_does_not_decode() -> TestResult {
     assert_eq!(
         bad_entry,
         HnswError::corrupted(
-            &key(&format!("0-a{VEC_ENTRY}"), 1),
+            &key(&format!("0-a{VEC_ENTRY}"), 1)?,
             "an entry point of 3 bytes"
         )
     );
@@ -739,7 +754,7 @@ fn test_a_search_refuses_what_does_not_decode() -> TestResult {
         "0-a",
         &[(1, vec![0.0, 0.0]), (2, vec![1.0, 0.0])],
         &[(1, vec![vec![2], vec![2]]), (2, vec![vec![1]])],
-    );
+    )?;
     let level_missing = index("euclidean", "2")?
         .search(&cache, &[1.0, 0.0], 1, accept_all::<f64>)
         .err()
@@ -747,20 +762,20 @@ fn test_a_search_refuses_what_does_not_decode() -> TestResult {
     assert_eq!(
         level_missing.0,
         HnswErrorEnum::LevelMissing {
-            uid: 2,
+            uid: id(2)?,
             level: 1,
             levels: 1
         },
         "where Dgraph panics"
     );
-    let _previous: Option<Vec<u8>> = cache.data.insert(key("0-a", 2), short);
+    let _previous: Option<Vec<u8>> = cache.data.insert(key("0-a", 2)?, short);
     let short_neighbour = index("euclidean", "2")?
         .search(&cache, &[1.0, 0.0], 1, accept_all::<f64>)
         .err()
         .context("the error of index(\"euclidean\", \"2\") .search(..)")?;
     assert_eq!(
         short_neighbour,
-        HnswError::corrupted(&key("0-a", 2), "a vector of 12 bytes")
+        HnswError::corrupted(&key("0-a", 2)?, "a vector of 12 bytes")
     );
     assert_a_failed_scan_is_no_empty_index()?;
     Ok(())
@@ -797,10 +812,10 @@ fn test_a_uid_holding_no_vector_by_cache() -> TestResult {
     let ph = index("euclidean", "1")?;
     let cache = MemoryCache::default();
     for e in [
-        ph.search_with_uid(&cache, 7, 3, accept_all::<f64>)
+        ph.search_with_uid(&cache, id(7)?, 3, accept_all::<f64>)
             .err()
             .context("the error of ph.search_with_uid(..)")?,
-        ph.search_with_uid_and_options(&cache, 7, 3, &options(0, None))
+        ph.search_with_uid_and_options(&cache, id(7)?, 3, &options(0, None))
             .err()
             .context("the error of ph.search_with_uid_and_options(..)")?,
     ] {
@@ -850,7 +865,7 @@ fn test_the_candidate_heap_keeps_one_beyond_the_breadth() -> TestResult {
         .zip(1u64..)
         .map(|(l, uid)| (uid, vec![l.to_vec()]))
         .collect();
-    let cache = synthetic("0-a", &vectors, &edges);
+    let cache = synthetic("0-a", &vectors, &edges)?;
     let ph = index("euclidean", "1")?;
     let q = [79.0, 81.0];
     // Go 1.27 probe.
@@ -861,7 +876,8 @@ fn test_the_candidate_heap_keeps_one_beyond_the_breadth() -> TestResult {
         (4, vec![7, 5, 2, 6]),
     ] {
         assert_eq!(
-            ph.search(&cache, &q, k, accept_all::<f64>),
+            ph.search(&cache, &q, k, accept_all::<f64>)
+                .map(|r| nums(&r)),
             Ok(expected),
             "k {k}"
         );
@@ -883,27 +899,33 @@ fn test_a_search_from_a_lost_entry_point_starts_at_the_first_vector() -> TestRes
     ];
     for levels in ["1", "3"] {
         let (txn, ix) = probe_index("euclidean", levels, &nodes)?;
-        txn.remove(&key("0-a", 3));
+        txn.remove(&key("0-a", 3)?);
         let q = [2.2, 0.0];
-        let live: Vec<(u64, Vec<f64>)> = nodes[1..].to_vec();
-        assert_eq!(brute_force(Metric::Euclidean, &live, &q, 3), vec![9, 12, 6]);
+        let live: Vec<(SystemId, Vec<f64>)> = nodes[1..]
+            .iter()
+            .map(|(n, v)| Ok((id(*n)?, v.clone())))
+            .collect::<TestResult<_>>()?;
+        assert_eq!(
+            brute_force(Metric::Euclidean, &live, &q, 3),
+            ids(&[9, 12, 6])?
+        );
         let qc = QueryCache::new(&txn, 1);
         assert_eq!(
             ix.search(&qc, &q, 3, accept_all::<f64>),
-            Ok(vec![9, 12, 6]),
+            Ok(ids(&[9, 12, 6])?),
             "{levels} levels"
         );
         assert_eq!(
             ix.search_with_options(&qc, &q, 3, &options(0, None)),
-            Ok(vec![9, 12, 6]),
+            Ok(ids(&[9, 12, 6])?),
             "{levels} levels"
         );
         // Without any entry point the search starts from the same node.
-        txn.remove(&key(&format!("0-a{VEC_ENTRY}"), 1));
+        txn.remove(&key(&format!("0-a{VEC_ENTRY}"), 1)?);
         let qc_no_entry = QueryCache::new(&txn, 1);
         assert_eq!(
             ix.search(&qc_no_entry, &q, 3, accept_all::<f64>),
-            Ok(vec![9, 12, 6]),
+            Ok(ids(&[9, 12, 6])?),
             "{levels} levels, no entry point"
         );
     }
@@ -925,13 +947,19 @@ impl CacheType for EveryValue {
         1
     }
 
-    fn find(&self, prefix: &[u8], filter: impl Fn(&[u8]) -> bool) -> Result<u64, HnswError> {
+    fn find(
+        &self,
+        prefix: &[u8],
+        filter: impl Fn(&[u8]) -> bool,
+    ) -> Result<Option<SystemId>, HnswError> {
+        let keys = vkeys("0-a").map_err(|_| HnswError::key_not_found())?;
         let db = self.0.db.borrow();
         db.iter()
             .filter(|(k, _)| k.starts_with(prefix))
             .find(|(_, v)| filter(v))
-            .and_then(|(k, _)| vkeys("0-a").node_of(k))
+            .and_then(|(k, _)| keys.node_of(k))
             .ok_or_else(HnswError::key_not_found)
+            .map(Some)
     }
 }
 
@@ -941,12 +969,12 @@ impl CacheType for EveryValue {
 #[test]
 fn test_the_entry_scan_passes_over_an_empty_vector() -> TestResult {
     let txn = MapTxn::default();
-    txn.put(key("0-a", 2), Vec::new());
-    txn.put(key("0-a", 5), float64_array_as_bytes(&[1.0, 0.0]));
+    txn.put(key("0-a", 2)?, Vec::new());
+    txn.put(key("0-a", 5)?, float64_array_as_bytes(&[1.0, 0.0]));
     let cache = EveryValue(txn);
     assert_eq!(
         index("euclidean", "1")?.search(&cache, &[1.0, 0.0], 1, accept_all::<f64>),
-        Ok(vec![5])
+        Ok(ids(&[5])?)
     );
     Ok(())
 }
@@ -959,9 +987,9 @@ fn test_the_entry_scan_passes_over_an_empty_vector() -> TestResult {
 fn test_a_query_equal_to_the_start_searches_the_bottom_level_alone() -> TestResult {
     let txn = MapTxn::default();
     for (uid, v) in [(3, [0.0, 1.0]), (6, [1.0, 1.0]), (9, [5.0, 5.0])] {
-        txn.put(key("0-a", uid), float64_array_as_bytes(&v));
+        txn.put(key("0-a", uid)?, float64_array_as_bytes(&v));
         let _inserted: Vec<KeyValue> =
-            index("euclidean", "2")?.insert(&TxnCache::new(&txn, 1), uid, &v, &mut || 0.5)?;
+            index("euclidean", "2")?.insert(&TxnCache::new(&txn, 1), id(uid)?, &v, &mut || 0.5)?;
     }
     let r = index("euclidean", "2")?.search_with_path(
         &QueryCache::new(&txn, 1),
@@ -969,8 +997,8 @@ fn test_a_query_equal_to_the_start_searches_the_bottom_level_alone() -> TestResu
         2,
         accept_all::<f64>,
     )?;
-    assert_eq!(r.neighbors(), &[3, 6]);
-    assert_eq!(r.path(), &[3]);
+    assert_eq!(nums(r.neighbors()), vec![3, 6]);
+    assert_eq!(nums(r.path()), vec![3]);
     assert_eq!(
         r.metrics().clone(),
         std::collections::HashMap::from([
@@ -991,13 +1019,13 @@ fn test_a_query_equal_to_the_start_keeps_the_start_under_dot_product() -> TestRe
         "0-a",
         &[(1, vec![1.0, 0.0]), (2, vec![5.0, 0.0])],
         &[(1, vec![vec![2], vec![]]), (2, vec![vec![1], vec![]])],
-    );
+    )?;
     let ph = index("dotproduct", "2")?;
     let q = [1.0, 0.0];
-    assert_eq!(ph.search(&cache, &q, 1, accept_all::<f64>), Ok(vec![1]));
+    assert_eq!(ph.search(&cache, &q, 1, accept_all::<f64>), Ok(ids(&[1])?));
     assert_eq!(
         ph.search_with_options(&cache, &q, 1, &options(0, None)),
-        Ok(vec![1])
+        Ok(ids(&[1])?)
     );
     Ok(())
 }

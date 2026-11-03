@@ -4,20 +4,24 @@
  */
 
 use oxrdf::{GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNodeRef, Term, TermRef};
+use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_keys::Graph;
 use ultragraphdb_core_mapping::{MappingError, StatementRef};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_store_quads::StatementRecord;
+use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{ListCache, Store};
 
 use crate::errors::changeset_error::ChangesetError;
 use crate::types::changeset_write::ChangesetWrite;
 use crate::types::changeset_write::changeset_write_triples::Resolved;
 
-impl<S, C> ChangesetWrite<'_, S, C>
+impl<S, C, B> ChangesetWrite<'_, S, C, B>
 where
     S: Store,
     C: ListCache<Value = CachedList>,
+    B: BlockSource,
 {
     /// Inserts a statement of its own: beside a held triple, which then gives every statement holding it an ID, or
     /// with properties, which give it one; otherwise as [`ChangesetWrite::insert`] writes it.
@@ -57,23 +61,26 @@ where
     fn new_statement(
         &mut self,
         r: &Resolved,
-        properties: Vec<(u64, EncodedTerm)>,
-    ) -> Result<u64, ChangesetError> {
-        let id = self.write.next_statement_id()?;
+        properties: Vec<(SystemId, EncodedTerm)>,
+    ) -> Result<SystemId, ChangesetError> {
+        let id = self.write.next_statement_id(r.subject)?;
         let record = StatementRecord::new(r.subject, r.predicate, r.object.clone(), properties);
         let _previous: Option<Option<StatementRecord>> =
             self.records.insert((r.graph, id), Some(record));
         Ok(id)
     }
 
-    /// Deletes statement `id`: its record, and its triple when no other statement holds it. An ID no statement has
-    /// changes nothing.
+    /// Deletes the statement `reifier` names: its record, and its triple when no other statement holds it. A reifier
+    /// naming no statement changes nothing.
     pub(crate) fn delete_statement(
         &mut self,
         graph: GraphNameRef<'_>,
-        id: u64,
+        reifier: NamedNodeRef<'_>,
     ) -> Result<(), ChangesetError> {
         let Some(graph) = self.find_graph(graph)? else {
+            return Ok(());
+        };
+        let Some(id) = self.statement_of(reifier)? else {
             return Ok(());
         };
         let Some(record) = self.record(graph, id)? else {
@@ -90,10 +97,10 @@ where
             .find(|(o, _)| *o == object)
             .map(|(_, ids)| ids)
             .unwrap_or_default();
-        let remaining: Vec<u64> = ids.into_iter().filter(|i| *i != id).collect();
+        let remaining: Vec<SystemId> = ids.into_iter().filter(|i| *i != id).collect();
         let _previous: Option<Option<StatementRecord>> = self.records.insert((graph, id), None);
         if remaining.is_empty() {
-            let iri = self.decode(&EncodedTerm::uid(predicate))?;
+            let iri = self.decode(&EncodedTerm::id(predicate))?;
             let declaration = match &iri {
                 Term::NamedNode(n) => self.behaviour(predicate, n.as_ref()),
                 Term::BlankNode(_) | Term::Literal(_) | Term::Triple(_) => return Ok(()),
@@ -116,7 +123,7 @@ where
         let (graph, id, mut record) = match self.statement(statement)? {
             (graph, Some(id), record) => (graph, id, record),
             (graph, None, record) => {
-                let id = self.write.next_statement_id()?;
+                let id = self.write.next_statement_id(record.subject())?;
                 self.write.set_statement_ids(
                     graph,
                     record.subject(),
@@ -169,14 +176,14 @@ where
     fn statement(
         &mut self,
         statement: &StatementRef,
-    ) -> Result<(u64, Option<u64>, StatementRecord), ChangesetError> {
+    ) -> Result<(Graph, Option<SystemId>, StatementRecord), ChangesetError> {
         match statement {
-            StatementRef::Id { graph, id } => {
-                let missing =
-                    || MappingError::no_such_statement(format!("{} in {graph}", id.value()));
-                let uid = self.find_graph(graph.as_ref())?.ok_or_else(missing)?;
-                let record = self.record(uid, id.value())?.ok_or_else(missing)?;
-                Ok((uid, Some(id.value()), record))
+            StatementRef::Reifier { graph, reifier } => {
+                let missing = || MappingError::no_such_statement(format!("{reifier} in {graph}"));
+                let named = self.find_graph(graph.as_ref())?.ok_or_else(missing)?;
+                let id = self.statement_of(reifier.as_ref())?.ok_or_else(missing)?;
+                let record = self.record(named, id)?.ok_or_else(missing)?;
+                Ok((named, Some(id), record))
             }
             StatementRef::Triple {
                 graph,
@@ -221,5 +228,15 @@ where
                 }
             }
         }
+    }
+
+    /// The statement ID `reifier` names: the write's own reifiers, then the dictionary's; `None` when it names no
+    /// statement.
+    fn statement_of(
+        &mut self,
+        reifier: NamedNodeRef<'_>,
+    ) -> Result<Option<SystemId>, ChangesetError> {
+        let (terms, quads) = self.write.terms();
+        Ok(terms.reifier(quads, reifier.as_str())?)
     }
 }

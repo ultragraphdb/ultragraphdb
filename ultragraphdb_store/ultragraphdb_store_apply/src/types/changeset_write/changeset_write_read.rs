@@ -5,15 +5,17 @@
 
 use oxrdf::{GraphNameRef, NamedNodeRef, NamedOrBlankNodeRef, Term};
 use ultragraphdb_store_posting::CachedList;
+use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{ListCache, Store};
 
 use crate::errors::changeset_error::ChangesetError;
 use crate::types::changeset_write::ChangesetWrite;
 
-impl<S, C> ChangesetWrite<'_, S, C>
+impl<S, C, B> ChangesetWrite<'_, S, C, B>
 where
     S: Store,
     C: ListCache<Value = CachedList>,
+    B: BlockSource,
 {
     /// The objects of `subject`'s `predicate` in `graph` as the write sees them, its own writes on top of its
     /// snapshot, decoded into `out`, which is cleared first: a read of the subject's list whole, recorded. A graph,
@@ -31,7 +33,7 @@ where
         };
         let Some(subject) = self
             .find_term(predicate, subject.into())?
-            .and_then(|e| e.as_uid())
+            .and_then(|e| e.as_id())
         else {
             return Ok(());
         };

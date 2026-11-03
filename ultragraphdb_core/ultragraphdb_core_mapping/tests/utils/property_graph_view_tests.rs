@@ -4,10 +4,10 @@
  */
 
 use oxrdf::vocab::rdf;
-use oxrdf::{BlankNode, GraphName, Literal, NamedNode, NamedOrBlankNode, Term, Triple};
+use oxrdf::{BlankNode, GraphName, Literal, NamedNode, NamedOrBlankNode, Term};
 use ultragraphdb_core_mapping::{
     CanonicalDataset, Cardinality, Change, Changeset, Names, PgEdge, PgNode, PgValue,
-    PropertyGraph, Statement, property_graph_to_changeset, property_graph_view,
+    PropertyGraph, property_graph_to_changeset, property_graph_view,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -131,23 +131,6 @@ fn test_an_edge_carries_its_id_and_every_value_of_each_property() -> TestResult 
         .with_property("src", vec![iri("census").into()])
         .with_property("w", vec![Literal::from(1).into(), Literal::from(2).into()]);
     assert_eq!(pg.edges(), &[expected]);
-    Ok(())
-}
-
-#[test]
-fn test_a_triple_term_object_is_no_edge_and_its_subject_is_a_node() -> TestResult {
-    // A statement built directly, as no write stores one: its object neither an IRI, a blank node nor a literal.
-    let g = GraphName::DefaultGraph;
-    let triple = Triple::new(iri("x"), iri("p"), iri("y"));
-    let statement = Statement::new(g.clone(), iri("a").into(), iri("says"), triple.into());
-    let pg = property_graph_view(&[statement], &g, &Names::new("http://ex.org/")?, |_| {
-        Cardinality::Multi
-    });
-    assert!(pg.edges().is_empty());
-    assert_eq!(
-        pg.nodes().collect::<Vec<_>>(),
-        [&PgNode::new(iri("a").into())]
-    );
     Ok(())
 }
 

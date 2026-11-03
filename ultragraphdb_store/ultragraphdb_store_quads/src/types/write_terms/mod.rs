@@ -6,43 +6,51 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use oxrdf::{GraphNameRef, NamedNodeRef, NamedOrBlankNodeRef, TermRef};
-use ultragraphdb_core_keys::DEFAULT_GRAPH;
+use ultragraphdb_core_ids::{SystemId, TypePrefix};
+use ultragraphdb_core_keys::{DictionaryEntry, Graph, QuadKey};
+use ultragraphdb_core_mapping::MappingError;
 use ultragraphdb_core_terms::{EncodedTerm, Hash128, SYSTEM_VOCABULARY};
-use ultragraphdb_traits_store::{Store, VersionlessEntry};
+use ultragraphdb_store_posting::CachedList;
+use ultragraphdb_traits_blocks::BlockSource;
+use ultragraphdb_traits_store::{ListCache, Store, VersionlessEntry};
 
-use crate::errors::quad_error::{QuadError, QuadErrorEnum};
-use crate::types::leases::Leases;
-use crate::utils::dictionary_keys::{
-    HASH_TO_STRING, UID_TO_IRI, iri_key, string_key, uid_key, uid_value,
-};
+use crate::errors::quad_error::QuadError;
+use crate::types::quad_store::QuadStore;
+use crate::types::term_origin::TermOrigin;
+use crate::utils::dictionary_keys::{id_key, literal_key, term_key};
+use crate::utils::skolem::is_skolem;
 
-/// The terms one write names, resolved to their encodings: each IRI to the UID the dictionary holds for it, or to a
-/// UID drawn from the leases when it is new to the store; each blank node to a fresh UID, its skolem IRI new; each
-/// literal to its encoding by content, the strings it hashes kept for the dictionary. A new IRI's UID is confirmed at
-/// commit, when its dictionary entries are written, or the write is refused if a commit since claimed the IRI.
+/// The terms one write names, resolved to their encodings: each IRI to its ID, got or created while the write runs
+/// and shared with every other write of the IRI; each blank node to a new ID named by a fresh skolem IRI; each literal
+/// to its encoding by content, the strings it hashes kept for the dictionary. The write's commit writes the dictionary
+/// entries of every term it names that the store does not hold yet, so they are durable no later than the first
+/// commit naming them. What the write found absent is recorded by ID: an IRI it created, which no statement of its
+/// snapshot can hold.
 #[derive(Debug, Default, Clone)]
 pub struct WriteTerms {
     namespace: u64,
-    /// The IRIs new to the store, with their UIDs and whether each skolemizes a blank node.
-    created: BTreeMap<String, (u64, bool)>,
-    /// The IRIs the dictionary already held, with their UIDs.
-    known: BTreeMap<String, u64>,
-    /// The blank nodes of the write by label, each with its UID.
-    blanks: BTreeMap<String, u64>,
+    /// Every IRI resolved, with its ID.
+    ids: BTreeMap<String, SystemId>,
+    /// The terms whose dictionary entries the write's commit writes, with their IDs: IRIs it created or took from a
+    /// concurrent creator, its blank nodes' skolem IRIs, its statements' reifiers and other partitions' entries it
+    /// copies.
+    written: BTreeMap<String, SystemId>,
+    /// The blank nodes of the write by label, each with its ID.
+    blanks: BTreeMap<String, SystemId>,
     /// The strings the write's literals name by hash.
     strings: BTreeMap<Hash128, String>,
-    /// The UIDs the write created, whose lists hold nothing.
-    fresh: BTreeSet<u64>,
-    /// The dictionary keys the write looked up and found absent.
-    absent: BTreeSet<Vec<u8>>,
-    /// The IRIs, by UID, and the strings, by hash, of the dictionary entries decided but unapplied writes made, which
+    /// The IDs the write created, whose lists hold nothing.
+    fresh: BTreeSet<SystemId>,
+    /// The IRIs the write found absent and created, by ID.
+    absent: BTreeSet<SystemId>,
+    /// The terms, by ID, and the strings, by hash, of the dictionary entries decided but unapplied writes made, which
     /// no layer the write reads holds: read as the write's own are, never written again (7.5).
-    inherited_iris: BTreeMap<u64, (String, bool)>,
+    inherited_ids: BTreeMap<SystemId, String>,
     inherited_strings: BTreeMap<Hash128, String>,
 }
 
-/// The base of the skolem IRIs of `namespace`'s blank nodes: its default base, under the system vocabulary, until an
-/// administrator sets one (the stage 4 design's open question).
+/// The base of the skolem IRIs of `namespace`'s blank nodes and reifiers: its default base, under the system
+/// vocabulary, until an administrator sets one (the stage 4 design's open question).
 pub fn namespace_base(namespace: u64) -> String {
     format!("{SYSTEM_VOCABULARY}namespace/{namespace}/")
 }
@@ -61,191 +69,256 @@ impl WriteTerms {
         self.namespace
     }
 
-    /// Whether `uid` was created by this write, so that no list keyed by it holds anything.
-    pub fn is_fresh(&self, uid: u64) -> bool {
-        self.fresh.contains(&uid)
+    /// Whether `id` was created by this write, so that no list keyed by it holds anything.
+    pub fn is_fresh(&self, id: SystemId) -> bool {
+        self.fresh.contains(&id)
     }
 
-    /// Takes `iri` as known by `uid` unless the write already resolved it: an IRI a decided but unapplied write
-    /// created, whose dictionary entry that write's round writes before this one's, so this write neither creates it
-    /// again nor writes its entry (7.5).
-    pub fn know(&mut self, iri: &str, uid: u64) {
-        if !self.known.contains_key(iri) && !self.created.contains_key(iri) {
-            let _replaced_known: Option<u64> = self.known.insert(iri.to_string(), uid);
+    /// Takes `iri` as known by `id` unless the write already resolved it: an IRI a decided but unapplied write
+    /// created, whose dictionary entries that write's round writes before this one's, so this write neither creates
+    /// it again nor writes its entries (7.5).
+    pub fn know(&mut self, iri: &str, id: SystemId) {
+        if !self.ids.contains_key(iri) {
+            let _known: Option<SystemId> = self.ids.insert(iri.to_string(), id);
         }
     }
 
-    /// The UID of `iri`: the dictionary's, or a new one.
-    pub fn iri<S: Store>(
+    /// Takes `iri` as known by `id`, an entity another partition owns that answered its registration with that ID, and
+    /// copies its dictionary entries in both directions into this store's dictionary at the write's commit, so the
+    /// store names it and finds its ID without asking its home.
+    pub fn copy(&mut self, iri: &str, id: SystemId) {
+        if !self.ids.contains_key(iri) {
+            let _known: Option<SystemId> = self.ids.insert(iri.to_string(), id);
+            let _copied: Option<SystemId> = self.written.insert(iri.to_string(), id);
+        }
+    }
+
+    /// The ID of `iri`: the write's own, the dictionary's or a concurrent creator's, or a new one.
+    ///
+    /// # Errors
+    ///
+    /// [`QuadError::unknown_skolem`] for an IRI under the namespace's skolem base the dictionary does not hold; the
+    /// refusals of creating an ID ([`QuadError::no_sequence`], [`QuadError::pending_full`], an IRI past a canonical
+    /// key's length); the store's error.
+    pub fn iri<S, C, B>(
         &mut self,
-        store: &S,
-        leases: &Leases,
+        quads: &QuadStore<S, C, B>,
         iri: &str,
-    ) -> Result<u64, QuadError> {
-        if let Some(uid) = self
-            .known
-            .get(iri)
-            .or(self.created.get(iri).map(|(u, _)| u))
-        {
-            return Ok(*uid);
+    ) -> Result<SystemId, QuadError>
+    where
+        S: Store,
+        C: ListCache<Value = CachedList>,
+        B: BlockSource,
+    {
+        if let Some(id) = self.ids.get(iri) {
+            return Ok(*id);
         }
-        let key = iri_key(self.namespace, iri);
-        if let Some(value) = store.get_versionless(&key)? {
-            let uid = decode_uid(&key, &value)?;
-            let _replaced_known: Option<u64> = self.known.insert(iri.to_string(), uid);
-            return Ok(uid);
+        let (id, origin) = quads
+            .dictionary()
+            .resolve(quads.store(), self.namespace, iri)?;
+        let _resolved: Option<SystemId> = self.ids.insert(iri.to_string(), id);
+        if origin != TermOrigin::Held {
+            let _written: Option<SystemId> = self.written.insert(iri.to_string(), id);
         }
-        let _newly_absent: bool = self.absent.insert(key);
-        let uid = leases.next_uid(store, self.namespace)?;
-        let _replaced_created: Option<(u64, bool)> =
-            self.created.insert(iri.to_string(), (uid, false));
-        let _newly_fresh: bool = self.fresh.insert(uid);
-        Ok(uid)
+        if origin == TermOrigin::Created {
+            let _fresh: bool = self.fresh.insert(id);
+            let _absent: bool = self.absent.insert(id);
+        }
+        Ok(id)
     }
 
-    /// The UID `iri` has, in the dictionary or among the IRIs this write created, allocating none: what a delete
-    /// resolves its terms with, so that a delete of a term nothing holds writes no dictionary entry.
-    pub fn find_iri<S: Store>(&mut self, store: &S, iri: &str) -> Result<Option<u64>, QuadError> {
-        if let Some(uid) = self
-            .known
-            .get(iri)
-            .or(self.created.get(iri).map(|(u, _)| u))
-        {
-            return Ok(Some(*uid));
-        }
-        let key = iri_key(self.namespace, iri);
-        let Some(value) = store.get_versionless(&key)? else {
-            let _newly_absent: bool = self.absent.insert(key);
-            return Ok(None);
-        };
-        let uid = decode_uid(&key, &value)?;
-        let _replaced_known: Option<u64> = self.known.insert(iri.to_string(), uid);
-        Ok(Some(uid))
-    }
-
-    /// The encoding `term` has, allocating no UID: `None` when it names an IRI, a blank node or a datatype the store
-    /// does not hold, which no statement can then hold either. A blank node is found only among this write's own.
-    pub fn find<S: Store>(
+    /// The ID of the blank node labelled `label` in this write: one new ID per label, named by a skolem IRI drawn as
+    /// [`QuadStore`]'s random source draws it.
+    pub fn blank<S, C, B>(
         &mut self,
-        store: &S,
-        term: TermRef<'_>,
-    ) -> Result<Option<EncodedTerm>, QuadError> {
-        match term {
-            TermRef::NamedNode(n) => Ok(self.find_iri(store, n.as_str())?.map(EncodedTerm::uid)),
-            TermRef::BlankNode(b) => Ok(self.blanks.get(b.as_str()).map(|u| EncodedTerm::uid(*u))),
-            TermRef::Literal(literal) => {
-                let mut missing = false;
-                let encoded = EncodedTerm::literal::<QuadError>(literal, |d| {
-                    Ok(self.find_iri(store, d.as_str())?.unwrap_or_else(|| {
-                        missing = true;
-                        0
-                    }))
-                })?;
-                Ok((!missing).then(|| encoded.into_term()))
-            }
-            TermRef::Triple(t) => Err(QuadError(QuadErrorEnum::Mapping(
-                ultragraphdb_core_mapping::MappingError::unsupported_object(t.to_string()),
-            ))),
-        }
-    }
-
-    /// The UID of the blank node labelled `label` in this write: one fresh UID per label, its skolem IRI under the
-    /// namespace's base.
-    pub fn blank<S: Store>(
-        &mut self,
-        store: &S,
-        leases: &Leases,
+        quads: &QuadStore<S, C, B>,
         label: &str,
-    ) -> Result<u64, QuadError> {
-        if let Some(uid) = self.blanks.get(label) {
-            return Ok(*uid);
+    ) -> Result<SystemId, QuadError>
+    where
+        S: Store,
+        C: ListCache<Value = CachedList>,
+        B: BlockSource,
+    {
+        if let Some(id) = self.blanks.get(label) {
+            return Ok(*id);
         }
-        let uid = leases.next_uid(store, self.namespace)?;
-        let skolem = format!("{}.well-known/genid/{uid}", namespace_base(self.namespace));
-        let _replaced_created: Option<(u64, bool)> = self.created.insert(skolem, (uid, true));
-        let _replaced_blank: Option<u64> = self.blanks.insert(label.to_string(), uid);
-        let _newly_fresh: bool = self.fresh.insert(uid);
-        Ok(uid)
+        let (id, skolem) = quads
+            .dictionary()
+            .mint_blank(quads.store(), self.namespace)?;
+        let _resolved: Option<SystemId> = self.ids.insert(skolem.clone(), id);
+        let _written: Option<SystemId> = self.written.insert(skolem, id);
+        let _labelled: Option<SystemId> = self.blanks.insert(label.to_string(), id);
+        let _fresh: bool = self.fresh.insert(id);
+        Ok(id)
     }
 
-    /// The UID of an IRI or blank-node subject.
-    pub fn node<S: Store>(
+    /// The ID of an IRI or blank-node subject.
+    pub fn node<S, C, B>(
         &mut self,
-        store: &S,
-        leases: &Leases,
+        quads: &QuadStore<S, C, B>,
         node: NamedOrBlankNodeRef<'_>,
-    ) -> Result<u64, QuadError> {
+    ) -> Result<SystemId, QuadError>
+    where
+        S: Store,
+        C: ListCache<Value = CachedList>,
+        B: BlockSource,
+    {
         match node {
-            NamedOrBlankNodeRef::NamedNode(n) => self.iri(store, leases, n.as_str()),
-            NamedOrBlankNodeRef::BlankNode(b) => self.blank(store, leases, b.as_str()),
+            NamedOrBlankNodeRef::NamedNode(n) => self.iri(quads, n.as_str()),
+            NamedOrBlankNodeRef::BlankNode(b) => self.blank(quads, b.as_str()),
         }
     }
 
-    /// The UID of a graph, 0 for the default graph.
-    pub fn graph<S: Store>(
+    /// The graph a graph name names: the default graph, or a named graph by its ID.
+    pub fn graph<S, C, B>(
         &mut self,
-        store: &S,
-        leases: &Leases,
+        quads: &QuadStore<S, C, B>,
         graph: GraphNameRef<'_>,
-    ) -> Result<u64, QuadError> {
-        match graph {
-            GraphNameRef::DefaultGraph => Ok(DEFAULT_GRAPH),
-            GraphNameRef::NamedNode(n) => self.iri(store, leases, n.as_str()),
-            GraphNameRef::BlankNode(b) => self.blank(store, leases, b.as_str()),
-        }
+    ) -> Result<Graph, QuadError>
+    where
+        S: Store,
+        C: ListCache<Value = CachedList>,
+        B: BlockSource,
+    {
+        Ok(match graph {
+            GraphNameRef::DefaultGraph => Graph::Default,
+            GraphNameRef::NamedNode(n) => Graph::Named(self.iri(quads, n.as_str())?),
+            GraphNameRef::BlankNode(b) => Graph::Named(self.blank(quads, b.as_str())?),
+        })
     }
 
-    /// The UID of a predicate.
-    pub fn predicate<S: Store>(
+    /// The ID of a predicate.
+    pub fn predicate<S, C, B>(
         &mut self,
-        store: &S,
-        leases: &Leases,
+        quads: &QuadStore<S, C, B>,
         predicate: NamedNodeRef<'_>,
-    ) -> Result<u64, QuadError> {
-        self.iri(store, leases, predicate.as_str())
+    ) -> Result<SystemId, QuadError>
+    where
+        S: Store,
+        C: ListCache<Value = CachedList>,
+        B: BlockSource,
+    {
+        self.iri(quads, predicate.as_str())
     }
 
-    /// The encoding of an object. A triple term is no object a write stores.
-    pub fn term<S: Store>(
+    /// The encoding of an object, a literal's datatype IRI resolved as any IRI. A triple term is no object a write
+    /// stores.
+    pub fn term<S, C, B>(
         &mut self,
-        store: &S,
-        leases: &Leases,
+        quads: &QuadStore<S, C, B>,
         term: TermRef<'_>,
-    ) -> Result<EncodedTerm, QuadError> {
+    ) -> Result<EncodedTerm, QuadError>
+    where
+        S: Store,
+        C: ListCache<Value = CachedList>,
+        B: BlockSource,
+    {
         match term {
-            TermRef::NamedNode(n) => Ok(EncodedTerm::uid(self.iri(store, leases, n.as_str())?)),
-            TermRef::BlankNode(b) => Ok(EncodedTerm::uid(self.blank(store, leases, b.as_str())?)),
+            TermRef::NamedNode(n) => Ok(EncodedTerm::id(self.iri(quads, n.as_str())?)),
+            TermRef::BlankNode(b) => Ok(EncodedTerm::id(self.blank(quads, b.as_str())?)),
             TermRef::Literal(literal) => {
-                let encoded = EncodedTerm::literal::<QuadError>(literal, |d| {
-                    self.iri(store, leases, d.as_str())
-                })?;
+                let encoded =
+                    EncodedTerm::literal::<QuadError>(literal, |d| self.iri(quads, d.as_str()))?;
                 for (hash, string) in encoded.strings() {
-                    let _replaced_string: Option<String> =
-                        self.strings.insert(hash, string.to_string());
+                    let _replaced: Option<String> = self.strings.insert(hash, string.to_string());
                 }
                 Ok(encoded.into_term())
             }
-            TermRef::Triple(t) => Err(QuadError(QuadErrorEnum::Mapping(
-                ultragraphdb_core_mapping::MappingError::unsupported_object(t.to_string()),
-            ))),
+            TermRef::Triple(t) => Err(MappingError::unsupported_object(t.to_string()).into()),
         }
     }
 
-    /// The dictionary entries the write's commit adds: each new IRI's two, and each string its literals hash, which
-    /// equal strings write equally.
+    /// The encoding `term` has, as a delete or a read resolves it: an IRI as [`WriteTerms::iri`] resolves it; `None`
+    /// for a blank node this write did not name and for an IRI under the skolem base the dictionary does not hold,
+    /// which no statement can hold.
+    pub fn find<S, C, B>(
+        &mut self,
+        quads: &QuadStore<S, C, B>,
+        term: TermRef<'_>,
+    ) -> Result<Option<EncodedTerm>, QuadError>
+    where
+        S: Store,
+        C: ListCache<Value = CachedList>,
+        B: BlockSource,
+    {
+        match term {
+            TermRef::NamedNode(n)
+                if is_skolem(self.namespace, n.as_str()) && !self.ids.contains_key(n.as_str()) =>
+            {
+                let found = quads
+                    .dictionary()
+                    .lookup(quads.store(), self.namespace, n.as_str())?;
+                Ok(found.map(EncodedTerm::id))
+            }
+            TermRef::NamedNode(n) => Ok(Some(EncodedTerm::id(self.iri(quads, n.as_str())?))),
+            TermRef::BlankNode(b) => Ok(self.blanks.get(b.as_str()).map(|id| EncodedTerm::id(*id))),
+            TermRef::Literal(literal) => {
+                let encoded =
+                    EncodedTerm::literal::<QuadError>(literal, |d| self.iri(quads, d.as_str()))?;
+                Ok(Some(encoded.into_term()))
+            }
+            TermRef::Triple(t) => Err(MappingError::unsupported_object(t.to_string()).into()),
+        }
+    }
+
+    /// A new statement ID of `subject`: a `Statement` ID in the subject's bucket, named by a new reifier, a skolem IRI
+    /// of that bucket whose dictionary entries the write's commit writes.
+    pub fn statement<S, C, B>(
+        &mut self,
+        quads: &QuadStore<S, C, B>,
+        subject: SystemId,
+    ) -> Result<SystemId, QuadError>
+    where
+        S: Store,
+        C: ListCache<Value = CachedList>,
+        B: BlockSource,
+    {
+        let (id, reifier) =
+            quads
+                .dictionary()
+                .mint_statement(quads.store(), self.namespace, subject)?;
+        let _resolved: Option<SystemId> = self.ids.insert(reifier.clone(), id);
+        let _written: Option<SystemId> = self.written.insert(reifier, id);
+        let _fresh: bool = self.fresh.insert(id);
+        Ok(id)
+    }
+
+    /// The statement ID the reifier `reifier` names, among the write's own reifiers or in the dictionary; `None` when
+    /// it names none or names an ID that is no statement's.
+    pub fn reifier<S, C, B>(
+        &mut self,
+        quads: &QuadStore<S, C, B>,
+        reifier: &str,
+    ) -> Result<Option<SystemId>, QuadError>
+    where
+        S: Store,
+        C: ListCache<Value = CachedList>,
+        B: BlockSource,
+    {
+        let id = match self.ids.get(reifier) {
+            Some(id) => Some(*id),
+            None => quads
+                .dictionary()
+                .lookup(quads.store(), self.namespace, reifier)?,
+        };
+        Ok(id.filter(|id| id.type_prefix() == TypePrefix::STATEMENT))
+    }
+
+    /// The dictionary entries the write's commit adds: both of each term in [`WriteTerms::written`], and each string
+    /// its literals hash, which equal strings write equally.
     pub fn entries(&self) -> Vec<(Vec<u8>, Vec<u8>)> {
         let ns = self.namespace;
-        let iris = self.created.iter().flat_map(|(iri, (uid, skolem))| {
+        let terms = self.written.iter().flat_map(|(term, id)| {
             [
-                (iri_key(ns, iri), uid.to_be_bytes().to_vec()),
-                (uid_key(ns, *uid), uid_value(iri, *skolem)),
+                (term_key(ns, term), id.to_be_bytes().to_vec()),
+                (id_key(ns, *id), term.as_bytes().to_vec()),
             ]
         });
         let strings = self
             .strings
             .iter()
-            .map(|(hash, s)| (string_key(ns, hash), s.as_bytes().to_vec()));
-        iris.chain(strings).collect()
+            .map(|(hash, s)| (literal_key(ns, hash), s.as_bytes().to_vec()));
+        terms.chain(strings).collect()
     }
 
     /// The string `hash` names among the write's own literals, whose dictionary entries its commit writes, or among
@@ -257,82 +330,57 @@ impl WriteTerms {
             .map(String::as_str)
     }
 
-    /// The IRI `uid` names among the IRIs the write created or inherited, and whether it skolemizes a blank node.
-    pub fn pending_iri(&self, uid: u64) -> Option<(&str, bool)> {
-        self.created
+    /// The text `id` names among the terms the write wrote or inherited, and whether it skolemizes a blank node.
+    pub fn pending_iri(&self, id: SystemId) -> Option<(&str, bool)> {
+        let text = self
+            .written
             .iter()
-            .find(|(_, (u, _))| *u == uid)
-            .map(|(iri, (_, skolem))| (iri.as_str(), *skolem))
-            .or_else(|| {
-                self.inherited_iris
-                    .get(&uid)
-                    .map(|(iri, skolem)| (iri.as_str(), *skolem))
-            })
+            .find(|(_, i)| **i == id)
+            .map(|(term, _)| term)
+            .or_else(|| self.inherited_ids.get(&id))?;
+        let blank = id.type_prefix() == TypePrefix::RESOURCE && is_skolem(self.namespace, text);
+        Some((text.as_str(), blank))
     }
 
     /// Inherits the dictionary entries of `entries`, the entries without versions decided but unapplied writes made
-    /// (7.5): each UID's IRI, known by its UID as [`WriteTerms::know`] takes it, and each string by its hash, so the
-    /// write reads them as its own and writes neither again. Entries of another namespace, other tags, removals and
-    /// entries that do not parse are left alone: the writes that made them parsed them.
+    /// (7.5): each ID's term, known by its ID as [`WriteTerms::know`] takes it, and each string by its hash, so the
+    /// write reads them as its own and writes neither again. Entries of another namespace or another kind, removals
+    /// and entries that do not parse are left alone: the writes that made them parsed them.
     pub fn inherit(&mut self, entries: &[&VersionlessEntry]) {
-        let prefix = self.namespace.to_be_bytes();
         for entry in entries {
-            let (key, Some(value)) = (entry.key(), entry.value()) else {
+            let (Some(value), Ok((QuadKey::Dictionary { namespace, entry }, None))) =
+                (entry.value(), QuadKey::parse(entry.key()))
+            else {
                 continue;
             };
-            let Some(rest) = key.strip_prefix(prefix.as_slice()) else {
+            let Ok(text) = std::str::from_utf8(value) else {
                 continue;
             };
-            match rest.split_first() {
-                Some((&UID_TO_IRI, uid)) => {
-                    let (Ok(uid), Some((flag, iri))) =
-                        (<[u8; 8]>::try_from(uid), value.split_first())
-                    else {
-                        continue;
-                    };
-                    let Ok(iri) = std::str::from_utf8(iri) else {
-                        continue;
-                    };
-                    let uid = u64::from_be_bytes(uid);
-                    self.know(iri, uid);
-                    let _replaced_inherited_iri: Option<(String, bool)> = self
-                        .inherited_iris
-                        .insert(uid, (iri.to_string(), *flag == 1));
+            match entry {
+                DictionaryEntry::Id(id) if namespace == self.namespace => {
+                    self.know(text, id);
+                    let _inherited: Option<String> =
+                        self.inherited_ids.insert(id, text.to_string());
                 }
-                Some((&HASH_TO_STRING, hash)) => {
-                    let (Ok(hash), Ok(string)) =
-                        (<[u8; 16]>::try_from(hash), std::str::from_utf8(value))
-                    else {
-                        continue;
-                    };
-                    let _replaced_inherited_string: Option<String> = self
-                        .inherited_strings
-                        .insert(Hash128::from_bytes(hash), string.to_string());
+                DictionaryEntry::Literal(hash) if namespace == self.namespace => {
+                    let _inherited: Option<String> =
+                        self.inherited_strings.insert(hash, text.to_string());
                 }
-                _ => {}
+                DictionaryEntry::Id(_) | DictionaryEntry::Literal(_) | DictionaryEntry::Term(_) => {
+                }
             }
         }
     }
 
-    /// The dictionary keys the write looked up and found absent, in key order: an IRI it created, and one a delete
-    /// looked for and the store did not hold. A commit creating one of these terms after the write's read changes
-    /// what the write found.
-    pub fn absent(&self) -> impl Iterator<Item = &[u8]> {
-        self.absent.iter().map(Vec::as_slice)
+    /// The IRIs the write found absent and created, by ID, in ID order: no statement of the write's snapshot names
+    /// one, and a commit writing a statement of one since changes what the write found. No dictionary key is among
+    /// them.
+    pub fn absent(&self) -> impl Iterator<Item = SystemId> + '_ {
+        self.absent.iter().copied()
     }
 
-    /// The IRIs new to the store, with their UIDs.
-    pub fn created(&self) -> impl Iterator<Item = (&str, u64)> {
-        self.created
-            .iter()
-            .map(|(iri, (uid, _))| (iri.as_str(), *uid))
+    /// The terms whose dictionary entries the write's commit writes, each with its ID, in term order.
+    pub fn written(&self) -> impl Iterator<Item = (&str, SystemId)> {
+        self.written.iter().map(|(term, id)| (term.as_str(), *id))
     }
-}
-
-/// The UID an IRI's dictionary entry holds.
-pub(crate) fn decode_uid(key: &[u8], value: &[u8]) -> Result<u64, QuadError> {
-    let raw: [u8; 8] = value
-        .try_into()
-        .map_err(|_| QuadError::corrupted(key, "an IRI's UID is not 8 bytes"))?;
-    Ok(u64::from_be_bytes(raw))
 }

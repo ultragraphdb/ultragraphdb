@@ -5,37 +5,46 @@
 
 mod quad_store_read;
 
-use std::collections::{BTreeMap, BTreeSet};
-
-use ultragraphdb_core_mapping::{CONTRACT_VERSION, ContractVersion, MappingError};
-use ultragraphdb_store_posting::{Batch, CachedList, Lists, Request};
+use ultragraphdb_core_mapping::{CONTRACT_VERSION, ContractVersion, MappingError, RandomSource};
+use ultragraphdb_store_posting::{Batch, CachedList, Lists};
+use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{ListCache, PersistMode, Scan, Store, StoreSnapshot, WriteBatch};
 use xxhash_rust::xxh3::xxh3_64;
 
 use crate::errors::quad_error::QuadError;
-use crate::types::leases::Leases;
+use crate::types::dictionary::Dictionary;
+use crate::types::owned_buckets::OwnedBuckets;
 use crate::types::write_terms::WriteTerms;
-use crate::utils::dictionary_keys::{CONTRACT_KEY, iri_key};
+use crate::utils::dictionary_keys::CONTRACT_KEY;
 
-/// The quads of a store: its posting lists, the term dictionary in its keyspace without versions, the leases its UIDs
-/// and statement IDs come from, and the fingerprint its literal postings are ordered by. A write is a
-/// [`crate::QuadWrite`] over a request of the lists; its commit confirms the IRIs it created.
+/// The most IDs a store holds created and not yet committed, unless it is opened with another bound.
+pub const PENDING_MAX: usize = 1 << 16;
+
+/// The most skolem IRIs drawn for one name before the draw is refused: each repeat names an IRI the dictionary holds,
+/// which 104 random bits make all but impossible.
+pub const SKOLEM_DRAWS_MAX: usize = 4;
+
+/// The quads of a store: its posting lists, the term dictionary in its keyspace without versions with the IDs created
+/// and not yet committed, the block source its sequences are leased from, the random source its names are drawn from,
+/// and the fingerprint its literal postings are ordered by. A write is a [`crate::QuadWrite`] over a request of the
+/// lists; its commit writes the dictionary entries of the terms it names that the store does not hold yet.
 #[derive(Debug)]
-pub struct QuadStore<S, C> {
+pub struct QuadStore<S, C, B> {
     lists: Lists<S, C>,
-    leases: Leases,
+    dictionary: Dictionary<B>,
     fingerprint: fn(&[u8]) -> u64,
 }
 
-impl<S, C> QuadStore<S, C>
+impl<S, C, B> QuadStore<S, C, B>
 where
     S: Store,
     C: ListCache<Value = CachedList>,
+    B: BlockSource,
 {
-    /// The quads of `lists`' store. A new store records the mapping contract's version; a store recorded under
-    /// another major version, or holding data without a version, is refused naming both versions, and nothing is
-    /// written.
-    pub fn open(lists: Lists<S, C>) -> Result<Self, QuadError> {
+    /// The quads of `lists`' store, leasing sequences from `blocks` and drawing names from `random`, owning every
+    /// bucket. A new store records the mapping contract's version; a store recorded under another major version, or
+    /// holding data without a version, is refused naming both versions, and nothing is written.
+    pub fn open(lists: Lists<S, C>, blocks: B, random: RandomSource) -> Result<Self, QuadError> {
         let store = lists.store();
         match store.get_versionless(CONTRACT_KEY)? {
             Some(bytes) => CONTRACT_VERSION.check_stored(ContractVersion::from_bytes(&bytes)?)?,
@@ -55,9 +64,21 @@ where
         }
         Ok(Self {
             lists,
-            leases: Leases::new(),
+            dictionary: Dictionary::new(blocks, random, PENDING_MAX),
             fingerprint: xxh3_64,
         })
+    }
+
+    /// The store drawing its blank nodes' buckets among `owned`.
+    pub fn owning(mut self, owned: OwnedBuckets) -> Self {
+        self.dictionary = self.dictionary.owning(owned);
+        self
+    }
+
+    /// The store holding at most `max` IDs created and not yet committed.
+    pub fn with_pending_max(mut self, max: usize) -> Self {
+        self.dictionary = self.dictionary.with_pending_max(max);
+        self
     }
 
     /// The store ordering literal postings by `fingerprint`, as a test forces collisions with.
@@ -76,76 +97,59 @@ where
         self.lists.store()
     }
 
-    /// The leases UIDs and statement IDs are drawn from.
-    pub fn leases(&self) -> &Leases {
-        &self.leases
-    }
-
     /// The fingerprint literal postings are ordered by.
     pub fn fingerprint(&self) -> fn(&[u8]) -> u64 {
         self.fingerprint
     }
 
-    /// Commits `batch`, whose requests carry the writes `terms` resolved, in their order: under the writer lock each
-    /// write's new IRIs are confirmed and its dictionary entries added, and a write is refused with
-    /// `Transaction has been aborted. Please retry`, writing nothing, when a commit since its read, or an earlier write
-    /// of the batch, claimed an IRI it creates, or when it read a list an earlier refused write of the batch wrote,
-    /// whole or to test a statement. The commit timestamp of each write, or its refusal.
+    pub(crate) fn dictionary(&self) -> &Dictionary<B> {
+        &self.dictionary
+    }
+
+    /// Commits `batch`, whose requests carry the writes `terms` resolved, in their order, each with the dictionary
+    /// entries of its terms the store does not hold yet; once the batch is written their pending entries are settled.
+    /// Creating an ID refuses no write. The commit version of each write.
     pub fn commit(
         &self,
         batch: Batch<'_, S, C>,
         terms: &[WriteTerms],
-    ) -> Result<Vec<Result<u64, QuadError>>, QuadError> {
+    ) -> Result<Vec<u64>, QuadError> {
+        debug_assert_eq!(batch.len(), terms.len(), "one write's terms per request");
         let mut at = 0usize;
-        let mut claimed: BTreeMap<(u64, String), u64> = BTreeMap::new();
-        let mut refused_writes: BTreeSet<Vec<u8>> = BTreeSet::new();
         let results = self.lists.commit_with(batch, |request| {
-            let write = terms.get(at);
-            at += 1;
-            let read = request
-                .read_keys()
-                .chain(request.tested().map(|(key, _)| key))
-                .any(|k| refused_writes.contains(k));
-            let checked = if read {
-                Err(QuadError::aborted())
-            } else {
-                match write {
-                    Some(write) => self.confirm(request, write, &mut claimed),
-                    None => Ok(()),
-                }
-            };
-            if checked.is_err() {
-                refused_writes.extend(request.written_keys().map(<[u8]>::to_vec));
+            for (key, value) in terms.get(at).map(WriteTerms::entries).unwrap_or_default() {
+                request.add_versionless(key, value);
             }
-            checked
+            at += 1;
+            Ok::<(), QuadError>(())
         })?;
-        Ok(results)
+        let versions = results
+            .into_iter()
+            .collect::<Result<Vec<u64>, QuadError>>()?;
+        terms.iter().for_each(|t| self.settle(t));
+        Ok(versions)
     }
 
-    /// Confirms `write`'s new IRIs against the dictionary and the IRIs earlier writes of the batch claimed, and adds
-    /// its dictionary entries to `request`.
-    fn confirm(
-        &self,
-        request: &mut Request<'_, S, C>,
-        write: &WriteTerms,
-        claimed: &mut BTreeMap<(u64, String), u64>,
-    ) -> Result<(), QuadError> {
-        let ns = write.namespace();
-        for (iri, uid) in write.created() {
-            let taken = claimed
-                .get(&(ns, iri.to_string()))
-                .is_some_and(|u| *u != uid)
-                || self.store().get_versionless(&iri_key(ns, iri))?.is_some();
-            if taken {
-                return Err(QuadError::aborted());
-            }
+    /// Forgets the pending entries of the terms `terms` wrote, now that a batch holding its dictionary entries is
+    /// written: what the round applying a write calls once its batch is written.
+    pub fn settle(&self, terms: &WriteTerms) {
+        self.dictionary.settle(terms.namespace(), terms.written());
+    }
+
+    /// Releases the terms of a write that will not commit: the dictionary entries of the IRIs and names it got or
+    /// created are written on their own, since entries name nothing that exists, and their pending entries settled, so
+    /// a refused write holds no pending entry and the IDs stay those any other write of its terms took.
+    ///
+    /// # Errors
+    ///
+    /// The store's error when the entries cannot be written; the pending entries are then kept.
+    pub fn release(&self, terms: &WriteTerms) -> Result<(), QuadError> {
+        let mut batch = WriteBatch::new();
+        for (key, value) in terms.entries() {
+            batch.put_versionless(key, value);
         }
-        for (iri, uid) in write.created() {
-            let _replaced_claim: Option<u64> = claimed.insert((ns, iri.to_string()), uid);
-        }
-        for (key, value) in write.entries() {
-            request.add_versionless(key, value);
-        }
+        self.store().apply(batch, PersistMode::Buffer)?;
+        self.settle(terms);
         Ok(())
     }
 }

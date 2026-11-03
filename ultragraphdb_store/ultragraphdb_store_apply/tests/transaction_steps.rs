@@ -8,16 +8,18 @@
 //! writes of the transactions committed after its read version by the rules of that requirement, written out here as
 //! the commit step's resolver is to apply them: a list read whole conflicts with any write to it, a tested statement
 //! with a write adding or removing that object in that list, a scanned range with a write of a key inside it, an absent
-//! dictionary key with a commit creating it.
+//! term, by its ID, with a commit writing a statement of it.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use cucumber::{then, when};
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::{DEFAULT_GRAPH, QuadKey};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_store_quads::{QuadWrite, WriteTerms, posting_object};
 use ultragraphdb_store_sim::{SimListCache, SimStore};
+use ultragraphdb_traits_blocks::TestBlockSource;
 
 use ultragraphdb_store_apply::Applied;
 
@@ -28,7 +30,7 @@ use crate::utils::changesets::{
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
-type Write<'a> = QuadWrite<'a, SimStore, SimListCache<CachedList>>;
+type Write<'a> = QuadWrite<'a, SimStore, SimListCache<CachedList>, TestBlockSource>;
 
 /// What one transaction read, as it recorded it.
 #[derive(Debug, Default)]
@@ -36,15 +38,15 @@ struct Read {
     lists: BTreeSet<Vec<u8>>,
     statements: BTreeSet<(Vec<u8>, Vec<u8>)>,
     ranges: Vec<(Vec<u8>, Option<Vec<u8>>)>,
-    absent: BTreeSet<Vec<u8>>,
+    absent: BTreeSet<SystemId>,
 }
 
 /// What one committed transaction wrote: each list key with the objects it added or removed, `None` for a key whose
-/// objects are not known, and the dictionary keys it created.
+/// objects are not known, and the terms its statements name, by ID.
 #[derive(Debug, Default)]
 struct Written {
     keys: BTreeMap<Vec<u8>, Option<BTreeSet<Vec<u8>>>>,
-    dictionary: BTreeSet<Vec<u8>>,
+    named: BTreeSet<SystemId>,
 }
 
 /// Whether a transaction that read `read` conflicts with a commit that wrote `written` after its read version.
@@ -64,7 +66,7 @@ fn conflicts(read: &Read, written: &Written) -> bool {
             .keys()
             .any(|k| k >= start && end.as_ref().is_none_or(|e| k < e))
     });
-    let absent = read.absent.iter().any(|k| written.dictionary.contains(k));
+    let absent = read.absent.iter().any(|id| written.named.contains(id));
     list || statement || range || absent
 }
 
@@ -83,7 +85,7 @@ fn read_of(write: &mut Write<'_>) -> Read {
         absent: BTreeSet::new(),
     };
     let (terms, _) = write.terms();
-    read.absent = terms.absent().map(<[u8]>::to_vec).collect();
+    read.absent = terms.absent().collect();
     read
 }
 
@@ -105,9 +107,22 @@ fn written_of(write: &mut Write<'_>) -> TestResult<Written> {
             Ok((key.clone(), Some(objects)))
         })
         .collect::<TestResult<_>>()?;
-    let (terms, _) = write.terms();
-    let dictionary = terms.entries().into_iter().map(|(k, _)| k).collect();
-    Ok(Written { keys, dictionary })
+    // The subjects of the forward keys written and the ID objects of their postings: the terms a statement names.
+    let mut named = BTreeSet::new();
+    for (key, delta) in &deltas {
+        if let Ok((QuadKey::Forward { subject, .. }, _)) = QuadKey::parse(key) {
+            let _subject: bool = named.insert(subject);
+            for p in delta.postings() {
+                if let Some(id) = posting_object(key, p)
+                    .context("a posting names an object")?
+                    .as_id()
+                {
+                    let _object: bool = named.insert(id);
+                }
+            }
+        }
+    }
+    Ok(Written { keys, named })
 }
 
 /// A transaction reading at `ts` that inserts the statement `text` when its test finds it not held.
@@ -121,15 +136,14 @@ fn inserting<'a>(a: &'a TestChangesets, ts: u64, text: &str) -> TestResult<Write
 fn insert_into(w: &mut Write<'_>, text: &str) -> TestResult {
     let t = statement(text)?;
     let (terms, quads): (&mut WriteTerms, _) = w.terms();
-    let (s, l) = (quads.store(), quads.leases());
     let subject = terms
-        .node(s, l, t.subject.as_ref())
+        .node(quads, t.subject.as_ref())
         .context("the subject resolves")?;
     let predicate = terms
-        .predicate(s, l, t.predicate.as_ref())
+        .predicate(quads, t.predicate.as_ref())
         .context("the predicate resolves")?;
     let object = terms
-        .term(s, l, t.object.as_ref())
+        .term(quads, t.object.as_ref())
         .context("the object resolves")?;
     let kind = match &t.object {
         oxrdf::Term::Literal(literal) => literal.datatype().as_str().to_string(),
@@ -151,12 +165,10 @@ fn commit(a: &TestChangesets, w: Write<'_>) -> TestResult {
     let (request, terms) = w.finish();
     let mut batch = a.quads().lists().batch();
     batch.push(request);
-    let _committed_at: u64 = a
+    let _committed_at: Vec<u64> = a
         .quads()
         .commit(batch, &[terms])
-        .context("the batch is written")?
-        .remove(0)
-        .context("the transaction commits")?;
+        .context("the batch is written")?;
     Ok(())
 }
 
@@ -237,7 +249,6 @@ fn scan_and_insert(w: &mut Steps, args: &[String]) -> TestResult {
     insert_into(&mut scanning, own)?;
     let read = read_of(&mut scanning);
 
-    let before = a.quads().store().contents();
     let _applied: Applied = apply(&a, vec![insert(other)?]).context("the insert commits")?;
     let after = a.quads().store().contents();
     let written = Written {
@@ -247,11 +258,14 @@ fn scan_and_insert(w: &mut Steps, args: &[String]) -> TestResult {
             .filter(|(_, versions)| versions.iter().any(|v| v.version() > ts))
             .map(|(k, _)| (k.clone(), None))
             .collect(),
-        dictionary: after
-            .versionless()
+        named: after
             .keys()
-            .filter(|k| !before.versionless().contains_key(*k))
-            .cloned()
+            .iter()
+            .filter(|(_, versions)| versions.iter().any(|v| v.version() > ts))
+            .filter_map(|(k, _)| match QuadKey::parse(k) {
+                Ok((QuadKey::Forward { subject, .. }, _)) => Some(subject),
+                _ => None,
+            })
             .collect(),
     };
     let commits = !conflicts(&read, &written);
@@ -286,10 +300,9 @@ fn one_aborts(w: &mut Steps) -> TestResult {
     let ts = a.quads().lists().applied_ts();
     let mut retry = QuadWrite::new(a.quads(), NS, a.quads().lists().request(ts));
     let (terms, quads) = retry.terms();
-    let (s, l) = (quads.store(), quads.leases());
-    let subject = terms.node(s, l, t.subject.as_ref())?;
-    let predicate = terms.predicate(s, l, t.predicate.as_ref())?;
-    let object: EncodedTerm = terms.term(s, l, t.object.as_ref())?;
+    let subject = terms.node(quads, t.subject.as_ref())?;
+    let predicate = terms.predicate(quads, t.predicate.as_ref())?;
+    let object: EncodedTerm = terms.term(quads, t.object.as_ref())?;
     assert!(
         retry
             .holds(DEFAULT_GRAPH, subject, predicate, &object)?

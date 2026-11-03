@@ -9,7 +9,10 @@ use oxrdf::{GraphNameRef, NamedNodeRef, NamedOrBlankNodeRef, Term};
 use ultragraphdb_core_keys::Region;
 use ultragraphdb_core_mapping::Changeset;
 use ultragraphdb_store_posting::CachedList;
+use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{ListCache, Store};
+
+use ultragraphdb_store_quads::WriteTerms;
 
 use crate::errors::changeset_error::ChangesetError;
 use crate::types::changeset_core::reads_of;
@@ -22,13 +25,13 @@ use crate::types::executed::Executed;
 /// dropping it writes nothing and closes its read.
 ///
 /// The changesets applied to one execution behave as one changeset holding their changes in order.
-pub struct Execution<'a, S, C> {
+pub struct Execution<'a, S, C, B> {
     namespace: u64,
     read_ts: u64,
-    write: ChangesetWrite<'a, S, C>,
+    write: ChangesetWrite<'a, S, C, B>,
 }
 
-impl<S, C> std::fmt::Debug for Execution<'_, S, C> {
+impl<S, C, B> std::fmt::Debug for Execution<'_, S, C, B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Execution")
             .field("namespace", &self.namespace)
@@ -37,12 +40,13 @@ impl<S, C> std::fmt::Debug for Execution<'_, S, C> {
     }
 }
 
-impl<'a, S, C> Execution<'a, S, C>
+impl<'a, S, C, B> Execution<'a, S, C, B>
 where
     S: Store,
     C: ListCache<Value = CachedList>,
+    B: BlockSource,
 {
-    pub(crate) fn new(namespace: u64, read_ts: u64, write: ChangesetWrite<'a, S, C>) -> Self {
+    pub(crate) fn new(namespace: u64, read_ts: u64, write: ChangesetWrite<'a, S, C, B>) -> Self {
         Self {
             namespace,
             read_ts,
@@ -87,6 +91,11 @@ where
         self.write.objects_into(graph, subject, predicate, out)
     }
 
+    /// The terms the execution resolved so far.
+    pub(crate) fn terms(&mut self) -> &WriteTerms {
+        self.write.terms()
+    }
+
     /// What the execution leaves to commit: its writes, terms and read set, as [`crate::ChangesetApplier::execute`]
     /// gives them.
     pub fn finish(self) -> Executed {
@@ -110,7 +119,7 @@ where
             read,
             lists_read,
             defaults: outcome.defaults,
-            default_uids: outcome.default_uids,
+            default_ids: outcome.default_ids,
             catalog_changed: outcome.catalog_changed,
             pending: outcome.pending,
             touched: outcome.touched,

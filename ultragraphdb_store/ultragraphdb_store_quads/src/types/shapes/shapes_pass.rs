@@ -7,10 +7,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use oxrdf::Term;
 use oxrdf::vocab::rdf;
-use ultragraphdb_core_keys::{Keyspace, QuadKey, key_prefix};
+use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_keys::{Graph, Keyspace, QuadKey, key_prefix};
 use ultragraphdb_core_mapping::Cardinality;
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_posting::CachedList;
+use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{ListCache, Scan, Store, StoreSnapshot};
 
 use crate::errors::quad_error::QuadError;
@@ -22,7 +24,7 @@ use crate::types::shapes::Shapes;
 type Observed = BTreeMap<String, (BTreeSet<String>, usize)>;
 
 /// Each typed subject's labels, by its graph and subject.
-type Typed = BTreeMap<(u64, u64), Vec<String>>;
+type Typed = BTreeMap<(Graph, SystemId), Vec<String>>;
 
 /// The labels of the objects of each predicate a label's nodes hold, by label and predicate.
 type Related = BTreeMap<String, BTreeMap<String, BTreeSet<String>>>;
@@ -30,20 +32,21 @@ type Related = BTreeMap<String, BTreeMap<String, BTreeSet<String>>>;
 impl Shapes {
     /// The shapes of `namespace` at `read_ts`: each subject's labels from its `rdf:type` statements, joined with its
     /// subject-predicate list, and for each IRI object the labels of the object in the same graph.
-    pub fn compute<S, C>(
-        quads: &QuadStore<S, C>,
+    pub fn compute<S, C, B>(
+        quads: &QuadStore<S, C, B>,
         namespace: u64,
         read_ts: u64,
     ) -> Result<Self, QuadError>
     where
         S: Store,
         C: ListCache<Value = CachedList>,
+        B: BlockSource,
     {
         let mut shapes = Self {
             read_ts,
             labels: BTreeMap::new(),
         };
-        let Some(rdf_type) = quads.uid_of(namespace, rdf::TYPE.as_str())? else {
+        let Some(rdf_type) = quads.id_of(namespace, rdf::TYPE.as_str())? else {
             return Ok(shapes);
         };
         // Held to the end of the pass, so that what it reads stays at `read_ts`.
@@ -73,16 +76,17 @@ impl Shapes {
 
 /// The labels of each subject of `namespace` at `read_ts` from its `rdf_type` statements, by graph and subject, its
 /// forward lists found through `snapshot`.
-fn typed_subjects<S, C>(
-    quads: &QuadStore<S, C>,
+fn typed_subjects<S, C, B>(
+    quads: &QuadStore<S, C, B>,
     snapshot: &S::Snapshot,
     namespace: u64,
     read_ts: u64,
-    rdf_type: u64,
+    rdf_type: SystemId,
 ) -> Result<Typed, QuadError>
 where
     S: Store,
     C: ListCache<Value = CachedList>,
+    B: BlockSource,
 {
     let mut typed = Typed::new();
     for item in snapshot.scan(&Scan::prefix(key_prefix(
@@ -107,7 +111,7 @@ where
             let labels = quads
                 .objects(&key, read_ts)?
                 .iter()
-                .filter_map(|(o, _)| o.as_uid())
+                .filter_map(|(o, _)| o.as_id())
                 .map(|u| quads.iri_of(namespace, u).map(|(iri, _)| iri))
                 .collect::<Result<Vec<_>, _>>()?;
             if !labels.is_empty() {
@@ -120,16 +124,17 @@ where
 
 /// What the `typed` subjects' predicates other than `rdf_type` hold at `read_ts`, by label: each one's kinds and most
 /// objects, and the labels of its IRI objects in the same graph.
-fn observe_predicates<S, C>(
-    quads: &QuadStore<S, C>,
+fn observe_predicates<S, C, B>(
+    quads: &QuadStore<S, C, B>,
     namespace: u64,
     read_ts: u64,
-    rdf_type: u64,
+    rdf_type: SystemId,
     typed: &Typed,
 ) -> Result<(BTreeMap<String, Observed>, Related), QuadError>
 where
     S: Store,
     C: ListCache<Value = CachedList>,
+    B: BlockSource,
 {
     let mut properties: BTreeMap<String, Observed> = BTreeMap::new();
     let mut relationships = Related::new();
@@ -141,7 +146,7 @@ where
         }
         .to_bytes();
         for (p, _) in quads.objects(&predicates, read_ts)? {
-            let Some(predicate) = p.as_uid().filter(|p| *p != rdf_type) else {
+            let Some(predicate) = p.as_id().filter(|p| *p != rdf_type) else {
                 continue;
             };
             let name = quads.iri_of(namespace, predicate)?.0;
@@ -157,7 +162,7 @@ where
             let mut targets = BTreeSet::new();
             for (object, _) in &objects {
                 let _new_kind: bool = kinds.insert(kind(quads, namespace, object)?);
-                if let Some(uid) = object.as_uid() {
+                if let Some(uid) = object.as_id() {
                     targets.extend(typed.get(&(*graph, uid)).into_iter().flatten().cloned());
                 }
             }
@@ -184,14 +189,15 @@ where
 }
 
 /// The statistics kind of a stored object: `iri`, `blank` or its datatype IRI.
-fn kind<S, C>(
-    quads: &QuadStore<S, C>,
+fn kind<S, C, B>(
+    quads: &QuadStore<S, C, B>,
     namespace: u64,
     object: &EncodedTerm,
 ) -> Result<String, QuadError>
 where
     S: Store,
     C: ListCache<Value = CachedList>,
+    B: BlockSource,
 {
     Ok(match quads.term_of(namespace, object)? {
         Term::NamedNode(_) => "iri".to_string(),

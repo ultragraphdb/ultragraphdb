@@ -20,7 +20,7 @@ use ultragraphdb_store_posting::PostingError;
 
 /// Why a vector-index operation failed. `Display` gives Dgraph's text wherever Dgraph has one: `No value found`,
 /// `Key not found`, `nil vector returned`, `error fetching posting list`, `HNSW tree has no elements`, `can not compute
-/// … on vectors of different lengths`, `cannot cast … to SimilarityType`, `Cannot convert … to uint slice`.
+/// … on vectors of different lengths`, `cannot cast … to SimilarityType`.
 ///
 /// A stored value the index cannot decode is the posting crate's corruption, the store's `Corrupted` naming the key,
 /// so a caller sees one kind of corruption whichever decoder found it.
@@ -57,8 +57,8 @@ pub enum HnswErrorEnum {
     DifferentLengths(&'static str),
     /// The metric option holds a value of another type.
     CannotCast(&'static str),
-    /// A dead list that does not parse: Dgraph's `cannotConvertToUintSlice`.
-    UintSlice(String),
+    /// A dead list that is not a JSON array of 32-digit hexadecimal system IDs; holds the text found.
+    MalformedDeadList(String),
     /// An index whose float width is not its vectors' type's; Dgraph panics on a width other than 32 or 64.
     FloatBits {
         /// The index's float width.
@@ -138,8 +138,8 @@ impl HnswError {
     }
 
     /// A dead list `s` that does not parse.
-    pub fn uint_slice(s: impl Into<String>) -> Self {
-        Self(HnswErrorEnum::UintSlice(s.into()))
+    pub fn malformed_dead_list(s: impl Into<String>) -> Self {
+        Self(HnswErrorEnum::MalformedDeadList(s.into()))
     }
 
     /// An index of float width `bits` whose vectors' type is `expected` bits wide.
@@ -187,7 +187,7 @@ impl HnswError {
             | HnswErrorEnum::EmptyTree(_)
             | HnswErrorEnum::DifferentLengths(_)
             | HnswErrorEnum::CannotCast(_)
-            | HnswErrorEnum::UintSlice(_)
+            | HnswErrorEnum::MalformedDeadList(_)
             | HnswErrorEnum::FloatBits { .. }
             | HnswErrorEnum::InvalidParameter { .. }
             | HnswErrorEnum::LevelMissing { .. }

@@ -148,11 +148,11 @@ fn test_a_wrapped_error_converts_to_its_variant_and_shows_its_own_text() {
     let mapping = ChangesetError::from(MappingError::no_such_statement("<a> <p> <b>".into()));
     assert!(matches!(mapping.0, ChangesetErrorEnum::Mapping(_)));
     assert_eq!(mapping.to_string(), "No statement <a> <p> <b> is held");
-    let quad = ChangesetError::from(QuadError(QuadErrorEnum::Aborted));
+    let quad = ChangesetError::from(QuadError(QuadErrorEnum::PendingFull { capacity: 2 }));
     assert!(matches!(quad.0, ChangesetErrorEnum::Quad(_)));
     assert_eq!(
         quad.to_string(),
-        "Transaction has been aborted. Please retry"
+        "2 new IDs await their commit, all the dictionary holds: retry once a commit writes them"
     );
     let posting = ChangesetError::from(PostingError(PostingErrorEnum::HighPriorityOp));
     assert!(matches!(posting.0, ChangesetErrorEnum::Posting(_)));

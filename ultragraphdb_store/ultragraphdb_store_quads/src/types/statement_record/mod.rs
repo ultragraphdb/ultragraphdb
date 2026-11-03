@@ -3,31 +3,33 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_terms::EncodedTerm;
 
 use crate::errors::quad_error::QuadError;
 
 /// A statement's record, under its graph and statement ID: its subject, predicate and object, and its properties,
-/// each a predicate's UID and a value.
+/// each a predicate's ID and a value.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StatementRecord {
-    subject: u64,
-    predicate: u64,
+    subject: SystemId,
+    predicate: SystemId,
     object: EncodedTerm,
-    properties: Vec<(u64, EncodedTerm)>,
+    properties: Vec<(SystemId, EncodedTerm)>,
 }
 
-/// The format of a record: a version byte, the subject and predicate as u64 big-endian, the object's encoding, a u16
-/// count of properties, each a predicate's u64 and a value's encoding; encodings end where their tags say.
-const FORMAT: u8 = 1;
+/// The format of a record: a version byte, the subject's and the predicate's 16 bytes, the object's encoding, a u16
+/// big-endian count of properties, each a predicate's 16 bytes and a value's encoding; encodings end where their tags
+/// say.
+const FORMAT: u8 = 2;
 
 impl StatementRecord {
     /// The record of the statement `subject` `predicate` `object` with `properties`.
     pub fn new(
-        subject: u64,
-        predicate: u64,
+        subject: SystemId,
+        predicate: SystemId,
         object: EncodedTerm,
-        properties: Vec<(u64, EncodedTerm)>,
+        properties: Vec<(SystemId, EncodedTerm)>,
     ) -> Self {
         Self {
             subject,
@@ -37,13 +39,13 @@ impl StatementRecord {
         }
     }
 
-    /// The statement's subject UID.
-    pub fn subject(&self) -> u64 {
+    /// The statement's subject.
+    pub fn subject(&self) -> SystemId {
         self.subject
     }
 
-    /// The statement's predicate UID.
-    pub fn predicate(&self) -> u64 {
+    /// The statement's predicate.
+    pub fn predicate(&self) -> SystemId {
         self.predicate
     }
 
@@ -52,31 +54,38 @@ impl StatementRecord {
         &self.object
     }
 
-    /// The statement's properties, each a predicate's UID and a value.
-    pub fn properties(&self) -> &[(u64, EncodedTerm)] {
+    /// The statement's properties, each a predicate's ID and a value.
+    pub fn properties(&self) -> &[(SystemId, EncodedTerm)] {
         &self.properties
     }
 
     /// The statement's properties, to change.
-    pub fn properties_mut(&mut self) -> &mut Vec<(u64, EncodedTerm)> {
+    pub fn properties_mut(&mut self) -> &mut Vec<(SystemId, EncodedTerm)> {
         &mut self.properties
     }
 
     /// The record in its stored format.
     pub fn encode(&self) -> Vec<u8> {
-        let mut w = vec![FORMAT];
+        debug_assert!(
+            self.properties.len() <= usize::from(u16::MAX),
+            "a record holds at most 2^16 - 1 properties"
+        );
+        let count = u16::try_from(self.properties.len()).unwrap_or(u16::MAX);
+        let mut w = Vec::with_capacity(1 + 2 * SystemId::BYTES + self.object.as_bytes().len() + 2);
+        w.push(FORMAT);
         w.extend_from_slice(&self.subject.to_be_bytes());
         w.extend_from_slice(&self.predicate.to_be_bytes());
         w.extend_from_slice(self.object.as_bytes());
-        w.extend_from_slice(&(self.properties.len() as u16).to_be_bytes());
-        for (predicate, value) in &self.properties {
+        w.extend_from_slice(&count.to_be_bytes());
+        for (predicate, value) in self.properties.iter().take(usize::from(count)) {
             w.extend_from_slice(&predicate.to_be_bytes());
             w.extend_from_slice(value.as_bytes());
         }
         w
     }
 
-    /// The record stored as `bytes` under `key`.
+    /// The record stored as `bytes` under `key`, refused as corruption naming `key` when its format is unknown, it is
+    /// cut short or followed by bytes, an ID is invalid or an encoding does not read.
     pub fn decode(key: &[u8], bytes: &[u8]) -> Result<Self, QuadError> {
         let bad = |reason: &str| {
             QuadError::corrupted(key, format!("unreadable statement record: {reason}"))
@@ -85,14 +94,17 @@ impl StatementRecord {
         if *format != FORMAT {
             return Err(bad("unknown format"));
         }
-        let u64_at = |b| u64_at(key, b);
-        let (subject, rest) = u64_at(rest)?;
-        let (predicate, rest) = u64_at(rest)?;
+        let (subject, rest) = id_at(key, rest)?;
+        let (predicate, rest) = id_at(key, rest)?;
         let (object, rest) = EncodedTerm::read(rest).map_err(|e| bad(&e.to_string()))?;
-        let (count, mut rest) = rest.split_at_checked(2).ok_or_else(|| bad("ends early"))?;
-        let mut properties = Vec::new();
-        for _ in 0..u16::from_be_bytes([count[0], count[1]]) {
-            let (p, after) = u64_at(rest)?;
+        let (count, mut rest) = rest
+            .split_first_chunk::<2>()
+            .ok_or_else(|| bad("ends early"))?;
+        let count = u16::from_be_bytes(*count);
+        let mut properties =
+            Vec::with_capacity(usize::from(count).min(rest.len() / SystemId::BYTES));
+        for _ in 0..count {
+            let (p, after) = id_at(key, rest)?;
             let (value, after) = EncodedTerm::read(after).map_err(|e| bad(&e.to_string()))?;
             properties.push((p, value));
             rest = after;
@@ -109,12 +121,12 @@ impl StatementRecord {
     }
 }
 
-/// The u64 big-endian `bytes` begin with, and the bytes after it.
-fn u64_at<'b>(key: &[u8], bytes: &'b [u8]) -> Result<(u64, &'b [u8]), QuadError> {
+/// The system ID `bytes` begin with, and the bytes after it: cut short or invalid, corruption naming `key`.
+fn id_at<'b>(key: &[u8], bytes: &'b [u8]) -> Result<(SystemId, &'b [u8]), QuadError> {
     let (head, rest) = bytes
-        .split_at_checked(8)
+        .split_at_checked(SystemId::BYTES)
         .ok_or_else(|| QuadError::corrupted(key, "unreadable statement record: ends early"))?;
-    let mut raw = [0u8; 8];
-    raw.copy_from_slice(head);
-    Ok((u64::from_be_bytes(raw), rest))
+    let id = SystemId::decode(head)
+        .map_err(|e| QuadError::corrupted(key, format!("unreadable statement record: {e}")))?;
+    Ok((id, rest))
 }

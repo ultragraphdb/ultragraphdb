@@ -58,17 +58,20 @@ pub fn new_lists() -> TestLists {
 }
 
 /// The ID the tests number `n`, as Dgraph's tests number their uids: type 1, bucket 0 and sequence `n`, so the IDs
-/// sort as their numbers do.
-pub fn id(n: u64) -> TestResult<SystemId> {
+/// sort as their numbers do. A number no ID takes, 0, is refused as the index's error, so the helpers serve tests and
+/// the workload's steps alike.
+pub fn id(n: u64) -> Result<SystemId, HnswError> {
+    let refused =
+        |e: ultragraphdb_core_ids::IdError| HnswError::corrupted(b"", format!("no ID {n}: {e}"));
     Ok(SystemId::new(
         TypePrefix::RESOURCE,
-        Bucket::new(0)?,
-        Sequence::new(n)?,
+        Bucket::new(0).map_err(refused)?,
+        Sequence::new(n).map_err(refused)?,
     ))
 }
 
 /// The IDs numbered `ns`, in their order.
-pub fn ids(ns: &[u64]) -> TestResult<Vec<SystemId>> {
+pub fn ids(ns: &[u64]) -> Result<Vec<SystemId>, HnswError> {
     ns.iter().map(|&n| id(n)).collect()
 }
 
@@ -89,7 +92,7 @@ pub fn pred(name: &str) -> String {
 
 /// The keys of the index of the vector predicate `name`, a namespaced attribute as Dgraph's tests name one, in the
 /// default graph of the root namespace: its ID's sequence drawn from its name.
-pub fn vkeys(name: &str) -> TestResult<VectorKeys> {
+pub fn vkeys(name: &str) -> Result<VectorKeys, HnswError> {
     let sequence = name
         .bytes()
         .fold(1u64, |h, b| h.wrapping_mul(31).wrapping_add(u64::from(b)))
@@ -100,7 +103,7 @@ pub fn vkeys(name: &str) -> TestResult<VectorKeys> {
 /// The quad key Dgraph's key of `attr` at the uid `n` translates to, the uid the ID numbered `n`: `<pred>` a node's
 /// forward list, `<pred>__vector_` its neighbour lists, `<pred>__vector_entry` and `<pred>__vector_dead` the index's
 /// entry point and dead list, the predicate's [`vkeys`], whatever `n`.
-pub fn key(attr: &str, n: u64) -> TestResult<Vec<u8>> {
+pub fn key(attr: &str, n: u64) -> Result<Vec<u8>, HnswError> {
     if let Some(name) = attr.strip_suffix(VEC_ENTRY) {
         return Ok(vkeys(name)?.entry());
     }
@@ -269,10 +272,25 @@ pub fn insert<S>(
 where
     S: Store,
 {
+    insert_at(lists, &vkeys(pred)?, o, uid, vec, draw)
+}
+
+/// [`insert`] into the index at `keys`.
+pub fn insert_at<S>(
+    lists: &Lists<S, SimListCache<CachedList>>,
+    keys: &VectorKeys,
+    o: &Options,
+    uid: SystemId,
+    vec: &[f32],
+    draw: &mut impl FnMut() -> f64,
+) -> TestResult<Vec<KeyValue>>
+where
+    S: Store,
+{
     let read_ts = lists.applied_ts();
     let mut batch = lists.batch();
     let mut request = batch.request(read_ts);
-    let keys = vkeys(pred)?;
+    let keys = keys.clone();
     set_vector(&mut request, &keys, uid, vector_encoding(vec)?)?;
     let edges = {
         let txn = ViTxn::new(&mut request);
@@ -539,11 +557,7 @@ impl CacheType for MemoryCache {
         0
     }
 
-    fn find(
-        &self,
-        _: &[u8],
-        _: impl Fn(&[u8]) -> bool,
-    ) -> Result<Option<SystemId>, Self::Error> {
+    fn find(&self, _: &[u8], _: impl Fn(&[u8]) -> bool) -> Result<Option<SystemId>, Self::Error> {
         Ok(None)
     }
 }

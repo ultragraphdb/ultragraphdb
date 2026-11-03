@@ -16,12 +16,14 @@
 use std::collections::BTreeSet;
 
 use oxrdf::{GraphNameRef, NamedNodeRef};
-use ultragraphdb_core_keys::{DEFAULT_GRAPH, QuadKey};
+use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_keys::{DEFAULT_GRAPH, Graph, QuadKey};
 use ultragraphdb_store_hnsw::{
-    QueryCache, VectorKeys, ViTxn, add_dead_node, bytes_as_float_array, bytes_to_uint64,
-    index_posting, parse_edges, uint64_to_bytes,
+    QueryCache, VectorKeys, ViTxn, add_dead_node, bytes_as_float_array, bytes_to_id, index_posting,
+    parse_edges,
 };
 use ultragraphdb_store_posting::{CachedList, DEL, Request};
+use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_index::{KeyValue, Txn, VectorIndex};
 use ultragraphdb_traits_store::{ListCache, Scan, Store, StoreSnapshot};
 
@@ -33,10 +35,11 @@ use crate::types::vector_queue::VectorQueue;
 use crate::utils::lock::lock;
 use crate::utils::vector_index::hnsw;
 
-impl<S, C> ChangesetCore<S, C>
+impl<S, C, B> ChangesetCore<S, C, B>
 where
     S: Store,
     C: ListCache<Value = CachedList>,
+    B: BlockSource,
 {
     /// One pass of the vector indexer of `predicate` in `namespace`, as [`crate::ChangesetApplier::index_vectors`]
     /// runs it: under the apply lock, so no round is applied between its read at the watermark and its commit at the
@@ -50,7 +53,7 @@ where
         let refused = || ChangesetError::no_vector_index(predicate.as_str());
         let uid = self
             .quads
-            .uid_of(namespace, predicate.as_str())?
+            .id_of(namespace, predicate.as_str())?
             .ok_or_else(refused)?;
         let building = lock(&self.rebuild)
             .as_ref()
@@ -117,7 +120,7 @@ where
     ) -> Result<u64, ChangesetError> {
         Ok(self
             .quads
-            .uid_of(namespace, predicate.as_str())?
+            .id_of(namespace, predicate.as_str())?
             .map_or(0, |uid| self.recorded(namespace, uid)))
     }
 
@@ -128,7 +131,7 @@ where
         request: &mut Request<'_, S, C>,
         keys: &VectorKeys,
     ) -> Result<(), ChangesetError> {
-        let entry = index_value(request, &keys.entry())?.and_then(|v| bytes_to_uint64(&v));
+        let entry = index_value(request, &keys.entry())?.and_then(|v| bytes_to_id(&v));
         let Some(entry) = entry else {
             return Ok(());
         };
@@ -139,9 +142,9 @@ where
         let read_ts = request.read_ts();
         lists.gate(read_ts)?;
         let snapshot = lists.store().snapshot(read_ts)?;
-        // Every node's neighbour lists: the key of node 0's without its last 8 bytes, the node.
-        let first = keys.neighbours(0);
-        let prefix = first[..first.len() - 8].to_vec();
+        // Every node's neighbour lists: the key of the entry point's without its last 16 bytes, the node.
+        let mut prefix = keys.neighbours(entry);
+        prefix.truncate(prefix.len().saturating_sub(SystemId::BYTES));
         let mut heir = Vec::new();
         for item in snapshot.scan(&Scan::prefix(prefix)) {
             let item = item?;
@@ -149,7 +152,7 @@ where
                 continue;
             };
             if vector_of(request, keys, node)?.is_some() {
-                heir = uint64_to_bytes(node);
+                heir = node.to_be_bytes().to_vec();
                 break;
             }
         }
@@ -160,7 +163,7 @@ where
     }
 
     /// The version the indexer of predicate `uid` recorded.
-    fn recorded(&self, namespace: u64, uid: u64) -> u64 {
+    fn recorded(&self, namespace: u64, uid: SystemId) -> u64 {
         lock(&self.vectors)
             .get(&(namespace, uid))
             .map_or(0, |q| q.indexed)
@@ -174,11 +177,11 @@ where
         predicate: NamedNodeRef<'_>,
         query: VectorQuery<'_>,
         read_ts: u64,
-    ) -> Result<Vec<u64>, ChangesetError> {
+    ) -> Result<Vec<SystemId>, ChangesetError> {
         let refused = || ChangesetError::no_vector_index(predicate.as_str());
         let uid = self
             .quads
-            .uid_of(namespace, predicate.as_str())?
+            .id_of(namespace, predicate.as_str())?
             .ok_or_else(refused)?;
         let catalog = self.catalog(namespace)?;
         let spec = catalog
@@ -187,7 +190,9 @@ where
             .ok_or_else(refused)?;
         let graph = match graph {
             GraphNameRef::DefaultGraph => Some(DEFAULT_GRAPH),
-            GraphNameRef::NamedNode(n) => self.quads.uid_of(namespace, n.as_str())?,
+            GraphNameRef::NamedNode(n) => {
+                self.quads.id_of(namespace, n.as_str())?.map(Graph::Named)
+            }
             GraphNameRef::BlankNode(_) => None,
         };
         let Some(graph) = graph else {
@@ -223,7 +228,7 @@ where
 fn vector_of<S, C>(
     request: &mut Request<'_, S, C>,
     keys: &VectorKeys,
-    node: u64,
+    node: SystemId,
 ) -> Result<Option<Vec<f32>>, ChangesetError>
 where
     S: Store,
@@ -259,7 +264,7 @@ where
 fn dead_list<S, C>(
     request: &mut Request<'_, S, C>,
     keys: &VectorKeys,
-) -> Result<(Vec<u64>, Option<Vec<u8>>), ChangesetError>
+) -> Result<(Vec<SystemId>, Option<Vec<u8>>), ChangesetError>
 where
     S: Store,
     C: ListCache<Value = CachedList>,
@@ -276,7 +281,7 @@ where
 fn mark_dead<S, C>(
     request: &mut Request<'_, S, C>,
     keys: &VectorKeys,
-    node: u64,
+    node: SystemId,
 ) -> Result<(), ChangesetError>
 where
     S: Store,
@@ -297,7 +302,7 @@ where
 fn unmark_dead<S, C>(
     request: &mut Request<'_, S, C>,
     keys: &VectorKeys,
-    node: u64,
+    node: SystemId,
 ) -> Result<(), ChangesetError>
 where
     S: Store,
@@ -307,12 +312,14 @@ where
     if !listed.contains(&node) {
         return Ok(());
     }
-    let kept: Vec<String> = listed
+    // Written as the index writes a dead list: each kept node appended in turn, an empty array when none is kept.
+    let value = listed
         .iter()
-        .filter(|&&u| u != node)
-        .map(u64::to_string)
-        .collect();
-    let value = format!("[{}]", kept.join(",")).into_bytes();
+        .filter(|&&id| id != node)
+        .try_fold(None::<Vec<u8>>, |dead, id| {
+            add_dead_node(dead.as_deref(), *id).map(Some)
+        })?
+        .unwrap_or_else(|| b"[]".to_vec());
     request
         .get(&keys.dead())?
         .add_posting(index_posting(value), false);

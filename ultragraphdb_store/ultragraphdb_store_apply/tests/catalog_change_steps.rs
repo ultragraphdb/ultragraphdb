@@ -13,6 +13,7 @@ use cucumber::{then, when};
 use oxrdf::GraphName;
 use oxrdf::vocab::rdf;
 use ultragraphdb_core_catalog::Catalog;
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::{DEFAULT_GRAPH, Keyspace, QuadKey};
 use ultragraphdb_core_mapping::{Cardinality, Change, Changeset};
 use ultragraphdb_core_tok::get_tokenizer;
@@ -51,7 +52,7 @@ fn listed(
     predicate: &str,
     tokenizer: &str,
     text: &str,
-) -> TestResult<Vec<u64>> {
+) -> TestResult<Vec<SystemId>> {
     let token = match tokenizer {
         "exact" => Ok(exact_token(text)),
         "term" => Ok(term_token(text)),
@@ -73,11 +74,16 @@ fn namespace_keys(a: &TestChangesets, namespace: u64) -> (Vec<Vec<u8>>, Vec<Vec<
     stored_keys(a)
         .into_iter()
         .filter(|k| k.get(1..9) == Some(&namespace.to_be_bytes()[..]))
-        .partition(|k| matches!(Keyspace::from_byte(k[0]), Some((Keyspace::Catalog, _))))
+        .partition(|k| {
+            matches!(
+                k.first().and_then(|b| Keyspace::from_byte(*b)),
+                Some((Keyspace::Catalog, _))
+            )
+        })
 }
 
 /// The predicates the subject-predicate list of `subject` holds, in the default graph.
-fn subject_predicates(a: &TestChangesets, subject: &str) -> TestResult<Vec<u64>> {
+fn subject_predicates(a: &TestChangesets, subject: &str) -> TestResult<Vec<u128>> {
     let key = QuadKey::SubjectPredicates {
         namespace: NS,
         graph: DEFAULT_GRAPH,
@@ -99,8 +105,18 @@ fn subject_predicates(a: &TestChangesets, subject: &str) -> TestResult<Vec<u64>>
     Ok(predicates)
 }
 
+/// An ID as the steps carry it between them: its 32 hexadecimal digits.
+fn hex(id: SystemId) -> String {
+    format!("{:032x}", id.to_u128())
+}
+
+/// The ID `hex` wrote.
+fn id_of_hex(text: &str) -> TestResult<SystemId> {
+    Ok(SystemId::from_u128(u128::from_str_radix(text, 16)?)?)
+}
+
 /// Whether a stored key names predicate `predicate`.
-fn names_predicate(key: &[u8], predicate: u64) -> bool {
+fn names_predicate(key: &[u8], predicate: SystemId) -> bool {
     QuadKey::parse(key).is_ok_and(|(k, _)| k.predicate() == Some(predicate))
 }
 
@@ -342,7 +358,7 @@ fn knows_dropped(w: &mut Steps) -> TestResult {
     )?;
     let id = crate::utils::changesets::insert_edge("<a> <knows> <c>", &[("since", "2020")])?;
     let _applied: Applied = apply(&a, vec![id]).context("an edge with a statement ID applies")?;
-    w.names = vec![uid(&a, "knows")?.to_string()];
+    w.names = vec![hex(uid(&a, "knows")?)];
     let _dropped_at: u64 = a
         .drop_predicate(NS, ex("knows").as_ref())
         .context("the predicate drops")?;
@@ -354,7 +370,7 @@ fn knows_dropped(w: &mut Steps) -> TestResult {
 )]
 fn knows_gone(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
-    let knows: u64 = w.names[0].parse().context("a UID")?;
+    let knows = id_of_hex(w.names.first().context("an ID")?)?;
     assert!(!stored_keys(&a).iter().any(|k| names_predicate(k, knows)));
     assert!(
         !stored_keys(&a)
@@ -364,7 +380,11 @@ fn knows_gone(w: &mut Steps) -> TestResult {
     );
     let name = uid(&a, "name")?;
     for subject in ["a", "b"] {
-        assert_eq!(subject_predicates(&a, subject)?, vec![name], "{subject}");
+        assert_eq!(
+            subject_predicates(&a, subject)?,
+            vec![name.to_u128()],
+            "{subject}"
+        );
     }
     assert!(stored_catalog(&a, NS)?.predicate(knows).is_none());
     Ok(())
@@ -385,7 +405,7 @@ fn emb_dropped(w: &mut Steps) -> TestResult {
             "<b> <emb> \"[1, 0.5, 2]\"^^ugdb:float32vector",
         ],
     )?;
-    w.names = vec![uid(&a, "emb")?.to_string()];
+    w.names = vec![hex(uid(&a, "emb")?)];
     let _dropped_at: u64 = a
         .drop_predicate(NS, ex("emb").as_ref())
         .context("the predicate drops")?;
@@ -395,7 +415,7 @@ fn emb_dropped(w: &mut Steps) -> TestResult {
 #[then("no forward or vector-index key of `emb` remains")]
 fn emb_gone(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
-    let emb: u64 = w.names[0].parse().context("a UID")?;
+    let emb = id_of_hex(w.names.first().context("an ID")?)?;
     assert!(!stored_keys(&a).iter().any(|k| names_predicate(k, emb)));
     Ok(())
 }
@@ -412,7 +432,7 @@ fn g1_dropped(w: &mut Steps) -> TestResult {
             "<a> <name> \"Ann\" <g2>",
         ],
     )?;
-    w.names = vec![uid(&a, "g1")?.to_string()];
+    w.names = vec![hex(uid(&a, "g1")?)];
     let _dropped_at: u64 = a
         .drop_graph(NS, GraphName::from(ex("g1")).as_ref())
         .context("the graph drops")?;
@@ -422,7 +442,7 @@ fn g1_dropped(w: &mut Steps) -> TestResult {
 #[then("no key of `<g1>` remains, and every statement of `<g2>` is still held")]
 fn g1_gone(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
-    let g1: u64 = w.names[0].parse().context("a UID")?;
+    let g1 = ultragraphdb_core_keys::Graph::Named(id_of_hex(w.names.first().context("an ID")?)?);
     assert!(
         !stored_keys(&a)
             .iter()
@@ -485,7 +505,7 @@ fn namespace_three_initial(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
     let rdf_type = a
         .quads()
-        .uid_of(3, rdf::TYPE.as_str())
+        .id_of(3, rdf::TYPE.as_str())
         .context("the dictionary reads")?
         .context("rdf:type has a UID in namespace 3")?;
     let (catalog, quads) = namespace_keys(&a, 3);
@@ -525,7 +545,7 @@ fn initial_catalog_only(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
     let rdf_type = a
         .quads()
-        .uid_of(NS, rdf::TYPE.as_str())
+        .id_of(NS, rdf::TYPE.as_str())
         .context("the dictionary reads")?
         .context("the dictionary keeps rdf:type")?;
     let contents = a.quads().store().contents();
@@ -555,7 +575,16 @@ fn split_data_dropped(w: &mut Steps) -> TestResult {
         cache,
         ListsConfig::new(PersistMode::Buffer, 256),
     );
-    let a = Arc::new(TestChangesets::new(lists, executor, 1).context("the applier opens")?);
+    let a = Arc::new(
+        TestChangesets::new(
+            lists,
+            crate::utils::changesets::blocks(),
+            ultragraphdb_core_mapping::RandomSource::new(1),
+            executor,
+            1,
+        )
+        .context("the applier opens")?,
+    );
     w.changesets = Some(a.clone());
     declare(&a, "friend", "an edge")?;
     let changes = (0..3_000)
@@ -643,7 +672,16 @@ fn rollup_across_drop(w: &mut Steps) -> TestResult {
     let cache = SimListCache::new(1024, Seed::new(1).stream(Stream::Cache));
     let executor = SteppedExecutor::new(Seed::new(1).stream(Stream::Executor));
     let lists = Lists::new(probe.clone(), cache, ListsConfig::default());
-    let a = Arc::new(ChangesetApplier::new(lists, executor, 1).context("the applier opens")?);
+    let a = Arc::new(
+        ChangesetApplier::new(
+            lists,
+            crate::utils::changesets::blocks(),
+            ultragraphdb_core_mapping::RandomSource::new(1),
+            executor,
+            1,
+        )
+        .context("the applier opens")?,
+    );
     let changeset =
         |text: &str| -> TestResult<Changeset> { Ok(Changeset::new(NS).with(insert(text)?)) };
     let _applied: Applied = a
@@ -654,12 +692,12 @@ fn rollup_across_drop(w: &mut Steps) -> TestResult {
         .context("the write applies")?;
     let name = a
         .quads()
-        .uid_of(NS, ex("name").as_str())
+        .id_of(NS, ex("name").as_str())
         .context("the dictionary reads")?
         .context("`name` has a UID")?;
     let subject = a
         .quads()
-        .uid_of(NS, ex("a").as_str())
+        .id_of(NS, ex("a").as_str())
         .context("the dictionary reads")?
         .context("`a` has a UID")?;
     let key = QuadKey::Forward {

@@ -6,7 +6,6 @@
 //! Declarations checked against the data: each narrowing the data contradicts is refused naming the predicate, the
 //! subject at fault and why, and changes nothing; a widening is applied whatever the data holds.
 
-use oxrdf::NamedNode;
 use ultragraphdb_core_mapping::{Change, Declaration, PredicateKind};
 use ultragraphdb_store_apply::{Applied, ChangesetErrorEnum};
 
@@ -164,10 +163,9 @@ fn test_data_in_a_named_graph_or_earlier_in_the_changeset_contradicts() -> TestR
         data_refused.to_string(),
         "The declaration of <http://ex.org/title> is refused by its data: <http://ex.org/s> holds a literal"
     );
-    assert_eq!(
-        b.quads()
-            .uid_of(NS, NamedNode::new_unchecked("http://ex.org/s").as_str())?,
-        None
+    assert!(
+        crate::utils::changesets::holds_nothing(&b, "s")?,
+        "<s> holds nothing"
     );
     Ok(())
 }

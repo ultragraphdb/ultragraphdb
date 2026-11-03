@@ -22,11 +22,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use oxrdf::vocab::xsd;
+use std::num::NonZeroU64;
+
 use oxrdf::{GraphName, Literal, NamedNode, NamedOrBlankNode, Term};
-use ultragraphdb_core_keys::{CountDirection, DEFAULT_GRAPH, Keyspace, QuadKey, key_prefix};
+use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_keys::{CountDirection, DEFAULT_GRAPH, Graph, Keyspace, QuadKey, key_prefix};
 use ultragraphdb_core_mapping::{
     CanonicalDataset, Cardinality, Change, Changeset, Declaration, PredicateDeclaration,
-    PredicateKind, StatementId, StatementRef,
+    PredicateKind, RandomSource, StatementRef,
 };
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_core_tok::{get_tokenizer, get_tokenizer_for_lang};
@@ -40,6 +43,7 @@ use ultragraphdb_store_sim::{
     Event, FaultConfig, RunOutcome, Seed, SimContext, SimListCache, SimStore, Simulation,
     SteppedExecutor, Stream, Violation,
 };
+use ultragraphdb_traits_blocks::TestBlockSource;
 use ultragraphdb_traits_store::{PersistMode, Scan, Store, StoreSnapshot};
 
 /// The rule an index breaks when it disagrees with the statements it indexes.
@@ -59,7 +63,8 @@ const NS: u64 = 0;
 const SUBJECTS: u64 = 6;
 const PHRASES: [&str; 5] = ["big apple", "red apple", "green pear", "big fig", "red"];
 
-type SimChangesets = ChangesetApplier<SimStore, SimListCache<CachedList>, SteppedExecutor>;
+type SimChangesets =
+    ChangesetApplier<SimStore, SimListCache<CachedList>, SteppedExecutor, TestBlockSource>;
 
 fn ex(name: &str) -> NamedNode {
     NamedNode::new_unchecked(format!("http://ex.org/{name}"))
@@ -101,6 +106,10 @@ type Held = (String, Vec<String>, bool);
 #[derive(Default)]
 pub struct ChangesetWorkload {
     applier: Option<Arc<SimChangesets>>,
+    /// The metadata group's stand-in, which outlives every crash: no sequence is leased twice.
+    blocks: Option<TestBlockSource>,
+    /// The appliers opened so far, which seeds the next one's random source afresh, as a partition seeds it at start.
+    starts: u64,
     /// The model, until the first recovery.
     model: Option<CanonicalDataset>,
     /// A changeset the store and the model did not both apply, or both refuse.
@@ -151,12 +160,25 @@ impl ChangesetWorkload {
             cache,
             ListsConfig::new(PersistMode::Buffer, 256),
         );
+        let blocks = self
+            .blocks
+            .get_or_insert_with(|| TestBlockSource::new(NonZeroU64::MIN.saturating_add(99)))
+            .clone();
+        self.starts += 1;
+        let random = RandomSource::new(
+            ctx.seed()
+                .value()
+                .wrapping_mul(1_000)
+                .wrapping_add(self.starts),
+        );
         let a = Arc::new(ChangesetApplier::new(
             lists,
+            blocks,
+            random,
             ctx.executor().clone(),
             ctx.seed().value(),
         )?);
-        let declared = match a.quads().uid_of(NS, ex("friend").as_str())? {
+        let declared = match a.quads().id_of(NS, ex("friend").as_str())? {
             Some(friend) => a.catalog(NS)?.predicate(friend).is_some(),
             None => false,
         };
@@ -308,7 +330,10 @@ impl ChangesetWorkload {
         let Some(model) = &self.model else {
             return Ok(None);
         };
-        let candidates: Vec<_> = model.statements().filter(|s| s.id().is_some()).collect();
+        let candidates: Vec<_> = model
+            .statements()
+            .filter(|s| s.reifier().is_some())
+            .collect();
         if candidates.is_empty() {
             return Ok(None);
         }
@@ -325,12 +350,18 @@ impl ChangesetWorkload {
         let Some((_, Some(id))) = stored.iter().find(|(h, id)| *h == wanted && id.is_some()) else {
             return Ok(None);
         };
-        let delete = |statement: u64| Change::DeleteStatement {
-            graph: GraphName::DefaultGraph,
-            id: StatementId::new(statement),
+        let Some(model_reifier) = chosen.reifier() else {
+            return Ok(None);
         };
-        let model_id = chosen.id().map(|i| i.value()).unwrap_or_default();
-        Ok(Some((delete(*id), delete(model_id))))
+        let delete = |reifier: NamedNode| Change::DeleteStatement {
+            graph: GraphName::DefaultGraph,
+            reifier,
+        };
+        let stored_reifier = NamedNode::new_unchecked(a.quads().iri_of(NS, *id)?.0);
+        Ok(Some((
+            delete(stored_reifier),
+            delete(model_reifier.clone()),
+        )))
     }
 
     fn write(&mut self, ctx: &mut SimContext) -> Result<(), ChangesetError> {
@@ -425,7 +456,7 @@ impl ChangesetWorkload {
                         s.predicate(),
                         s.object(),
                         s.properties(),
-                        s.id().is_some(),
+                        s.reifier().is_some(),
                     )
                 })
                 .collect();
@@ -450,7 +481,7 @@ fn statistics_disagree(
     forward: &Lists,
     ts: u64,
 ) -> Result<Option<String>, ChangesetError> {
-    let mut held: BTreeMap<(u64, u64), i64> = BTreeMap::new();
+    let mut held: BTreeMap<(Graph, SystemId), i64> = BTreeMap::new();
     for (key, objects) in forward {
         if let QuadKey::Forward {
             graph, predicate, ..
@@ -476,7 +507,7 @@ fn statistics_disagree(
         let counted = a.quads().statistics(NS, graph, predicate, ts)?.statements();
         if counted != statements {
             return Ok(Some(format!(
-                "graph {graph} predicate {predicate}: {statements} statements held, {counted} counted"
+                "graph {graph:?} predicate {predicate:?}: {statements} statements held, {counted} counted"
             )));
         }
     }
@@ -504,9 +535,13 @@ fn injected(error: &ChangesetError) -> bool {
         QuadErrorEnum::Term(_)
         | QuadErrorEnum::Key(_)
         | QuadErrorEnum::Mapping(_)
+        | QuadErrorEnum::Id(_)
         | QuadErrorEnum::Corrupted { .. }
-        | QuadErrorEnum::Aborted
-        | QuadErrorEnum::UidsExhausted { .. } => false,
+        | QuadErrorEnum::NoSequence { .. }
+        | QuadErrorEnum::PendingFull { .. }
+        | QuadErrorEnum::NoOwnedBucket { .. }
+        | QuadErrorEnum::SkolemDraws { .. }
+        | QuadErrorEnum::UnknownSkolem { .. } => false,
     };
     match &error.0 {
         ChangesetErrorEnum::Store(s) => store(s),
@@ -566,7 +601,7 @@ fn live_keys(a: &SimChangesets, keyspace: Keyspace) -> Result<Vec<Vec<u8>>, Chan
 }
 
 /// Lists by key, each with its objects and their statement IDs.
-type Lists = Vec<(QuadKey, Vec<(EncodedTerm, Vec<u64>)>)>;
+type Lists = Vec<(QuadKey, Vec<(EncodedTerm, Vec<SystemId>)>)>;
 
 /// The objects of every non-empty list of `keyspace`, with its key, in key order.
 fn lists_of(a: &SimChangesets, keyspace: Keyspace) -> Result<Lists, ChangesetError> {
@@ -582,7 +617,7 @@ fn lists_of(a: &SimChangesets, keyspace: Keyspace) -> Result<Lists, ChangesetErr
 }
 
 /// Every statement the store holds, with its statement ID when it carries one.
-fn stored_statements(a: &SimChangesets) -> Result<Vec<(Held, Option<u64>)>, ChangesetError> {
+fn stored_statements(a: &SimChangesets) -> Result<Vec<(Held, Option<SystemId>)>, ChangesetError> {
     statements_of(a, &lists_of(a, Keyspace::Forward)?)
 }
 
@@ -590,7 +625,7 @@ fn stored_statements(a: &SimChangesets) -> Result<Vec<(Held, Option<u64>)>, Chan
 fn statements_of(
     a: &SimChangesets,
     forward: &Lists,
-) -> Result<Vec<(Held, Option<u64>)>, ChangesetError> {
+) -> Result<Vec<(Held, Option<SystemId>)>, ChangesetError> {
     let ts = a.quads().lists().applied_ts();
     let q = a.quads();
     let mut out = Vec::new();
@@ -605,8 +640,8 @@ fn statements_of(
             continue;
         };
         let graph_name = match graph {
-            DEFAULT_GRAPH => GraphName::DefaultGraph,
-            g => GraphName::NamedNode(NamedNode::new_unchecked(q.iri_of(NS, g)?.0)),
+            Graph::Default => GraphName::DefaultGraph,
+            Graph::Named(g) => GraphName::NamedNode(NamedNode::new_unchecked(q.iri_of(NS, g)?.0)),
         };
         let subject_term: NamedOrBlankNode =
             NamedNode::new_unchecked(q.iri_of(NS, subject)?.0).into();
@@ -628,14 +663,14 @@ fn statements_of(
             }
             for id in ids {
                 let record = q.statement(NS, graph, id, ts)?.ok_or_else(|| {
-                    QuadError::corrupted(&key.to_bytes(), format!("statement {id} has no record"))
+                    QuadError::corrupted(&key.to_bytes(), format!("statement {id:?} has no record"))
                 })?;
                 if (record.subject(), record.predicate(), record.object())
                     != (subject, predicate, &object)
                 {
                     return Err(QuadError::corrupted(
                         &key.to_bytes(),
-                        format!("record {id} names another statement"),
+                        format!("record {id:?} names another statement"),
                     )
                     .into());
                 }
@@ -659,9 +694,9 @@ fn statements_of(
 /// A statement record no posting carries the ID of.
 fn orphan_record(
     a: &SimChangesets,
-    stored: &[(Held, Option<u64>)],
+    stored: &[(Held, Option<SystemId>)],
 ) -> Result<Option<String>, ChangesetError> {
-    let ids: BTreeSet<u64> = stored.iter().filter_map(|(_, id)| *id).collect();
+    let ids: BTreeSet<SystemId> = stored.iter().filter_map(|(_, id)| *id).collect();
     for key in live_keys(a, Keyspace::Statements)? {
         if let (QuadKey::Statement { statement, .. }, _) =
             QuadKey::parse(&key).map_err(QuadError::from)?
@@ -670,7 +705,7 @@ fn orphan_record(
                 .statement(NS, DEFAULT_GRAPH, statement, a.quads().lists().applied_ts())?
                 .is_some()
         {
-            return Ok(Some(format!("record {statement} has no posting")));
+            return Ok(Some(format!("record {statement:?} has no posting")));
         }
     }
     Ok(None)
@@ -680,11 +715,11 @@ fn orphan_record(
 #[derive(Default)]
 struct DataIndexes {
     /// Each declared tokenizer's token of each literal, to its subjects.
-    tokens: BTreeMap<(u64, u8, Vec<u8>), BTreeSet<u64>>,
-    reverse: BTreeMap<(u64, EncodedTerm), BTreeSet<u64>>,
-    subject_predicates: BTreeMap<u64, BTreeSet<u64>>,
-    object_predicates: BTreeMap<EncodedTerm, BTreeSet<u64>>,
-    forward_counts: BTreeMap<(u64, u32), BTreeSet<u64>>,
+    tokens: BTreeMap<(SystemId, u8, Vec<u8>), BTreeSet<SystemId>>,
+    reverse: BTreeMap<(SystemId, EncodedTerm), BTreeSet<SystemId>>,
+    subject_predicates: BTreeMap<SystemId, BTreeSet<SystemId>>,
+    object_predicates: BTreeMap<EncodedTerm, BTreeSet<SystemId>>,
+    forward_counts: BTreeMap<(SystemId, u32), BTreeSet<SystemId>>,
 }
 
 /// The indexes `forward`, the store's forward lists, produce in the default graph.
@@ -754,15 +789,15 @@ fn data_indexes(a: &SimChangesets, forward: &Lists) -> Result<DataIndexes, Chang
     Ok(data)
 }
 
-/// The uids among `objects`.
-fn object_uids(objects: &[(EncodedTerm, Vec<u64>)]) -> BTreeSet<u64> {
-    objects.iter().filter_map(|(o, _)| o.as_uid()).collect()
+/// The IDs among `objects`.
+fn object_uids(objects: &[(EncodedTerm, Vec<SystemId>)]) -> BTreeSet<SystemId> {
+    objects.iter().filter_map(|(o, _)| o.as_id()).collect()
 }
 
 /// What an index holds that the statements do not produce, or lacks.
 fn indexes_disagree(a: &SimChangesets, forward: &Lists) -> Result<Option<String>, ChangesetError> {
     let data = data_indexes(a, forward)?;
-    let actual_tokens: BTreeMap<(u64, u8, Vec<u8>), BTreeSet<u64>> =
+    let actual_tokens: BTreeMap<(SystemId, u8, Vec<u8>), BTreeSet<SystemId>> =
         lists_of(a, Keyspace::ValueIndex)?
             .into_iter()
             .filter_map(|(k, o)| {
@@ -785,7 +820,7 @@ fn indexes_disagree(a: &SimChangesets, forward: &Lists) -> Result<Option<String>
             data.tokens
         )));
     }
-    let actual_reverse: BTreeMap<(u64, EncodedTerm), BTreeSet<u64>> =
+    let actual_reverse: BTreeMap<(SystemId, EncodedTerm), BTreeSet<SystemId>> =
         lists_of(a, Keyspace::Reverse)?
             .into_iter()
             .filter_map(|(k, o)| {
@@ -816,7 +851,7 @@ fn predicate_lists_disagree(
     a: &SimChangesets,
     data: &DataIndexes,
 ) -> Result<Option<String>, ChangesetError> {
-    let actual_subject_predicates: BTreeMap<u64, BTreeSet<u64>> =
+    let actual_subject_predicates: BTreeMap<SystemId, BTreeSet<SystemId>> =
         lists_of(a, Keyspace::SubjectPredicates)?
             .into_iter()
             .filter_map(|(k, o)| {
@@ -833,7 +868,7 @@ fn predicate_lists_disagree(
             data.subject_predicates
         )));
     }
-    let actual_object_predicates: BTreeMap<EncodedTerm, BTreeSet<u64>> =
+    let actual_object_predicates: BTreeMap<EncodedTerm, BTreeSet<SystemId>> =
         lists_of(a, Keyspace::ObjectPredicates)?
             .into_iter()
             .filter_map(|(k, o)| {
@@ -859,8 +894,8 @@ fn counts_disagree(
     a: &SimChangesets,
     data: &DataIndexes,
 ) -> Result<Option<String>, ChangesetError> {
-    let mut reverse_counts: BTreeMap<(u64, u32), BTreeSet<EncodedTerm>> = BTreeMap::new();
-    if let Some(friend) = a.quads().uid_of(NS, ex("friend").as_str())? {
+    let mut reverse_counts: BTreeMap<(SystemId, u32), BTreeSet<EncodedTerm>> = BTreeMap::new();
+    if let Some(friend) = a.quads().id_of(NS, ex("friend").as_str())? {
         for ((predicate, object), subjects) in &data.reverse {
             if *predicate == friend {
                 let count = u32::try_from(subjects.len()).unwrap_or(u32::MAX);
@@ -871,8 +906,9 @@ fn counts_disagree(
             }
         }
     }
-    let mut actual_forward_counts: BTreeMap<(u64, u32), BTreeSet<u64>> = BTreeMap::new();
-    let mut actual_reverse_counts: BTreeMap<(u64, u32), BTreeSet<EncodedTerm>> = BTreeMap::new();
+    let mut actual_forward_counts: BTreeMap<(SystemId, u32), BTreeSet<SystemId>> = BTreeMap::new();
+    let mut actual_reverse_counts: BTreeMap<(SystemId, u32), BTreeSet<EncodedTerm>> =
+        BTreeMap::new();
     for (k, o) in lists_of(a, Keyspace::CountIndex)? {
         if let QuadKey::CountIndex {
             predicate,
@@ -883,7 +919,7 @@ fn counts_disagree(
         {
             match direction {
                 CountDirection::Forward => {
-                    let _previous: Option<BTreeSet<u64>> =
+                    let _previous: Option<BTreeSet<SystemId>> =
                         actual_forward_counts.insert((predicate, count), object_uids(&o));
                 }
                 CountDirection::Reverse => {

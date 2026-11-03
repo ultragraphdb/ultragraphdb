@@ -5,69 +5,71 @@
 
 use std::ops::ControlFlow;
 
-use oxrdf::{BlankNode, NamedNode, Term};
-use ultragraphdb_core_keys::QuadKey;
+use oxrdf::{NamedNode, Term};
+use ultragraphdb_core_ids::{SystemId, TypePrefix};
+use ultragraphdb_core_keys::{Graph, QuadKey};
 use ultragraphdb_core_terms::{EncodedTerm, Hash128};
 use ultragraphdb_store_posting::{BIT_COMPLETE_POSTING, CachedList, PostingError};
+use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{ListCache, Store, StoreSnapshot};
 
 use crate::errors::quad_error::{QuadError, QuadErrorEnum};
+use crate::types::dictionary::held_id;
 use crate::types::quad_store::QuadStore;
 use crate::types::statement_record::StatementRecord;
 use crate::types::statistics::Statistics;
-use crate::types::write_terms::decode_uid;
-use crate::utils::dictionary_keys::{iri_key, string_key, uid_key};
+use crate::utils::dictionary_keys::{id_key, literal_key};
 use crate::utils::postings::posting_object;
+use crate::utils::skolem::{is_skolem, skolem_blank_node};
 
-impl<S, C> QuadStore<S, C>
+impl<S, C, B> QuadStore<S, C, B>
 where
     S: Store,
     C: ListCache<Value = CachedList>,
+    B: BlockSource,
 {
-    /// The UID the dictionary holds for `iri` in `namespace`, if any.
-    pub fn uid_of(&self, namespace: u64, iri: &str) -> Result<Option<u64>, QuadError> {
-        let key = iri_key(namespace, iri);
-        self.store()
-            .get_versionless(&key)?
-            .map(|v| decode_uid(&key, &v))
-            .transpose()
+    /// The ID the dictionary holds for `term`, an IRI or a reifier's name, in `namespace`, if any: what the store has
+    /// committed, never an ID a running execution created.
+    pub fn id_of(&self, namespace: u64, term: &str) -> Result<Option<SystemId>, QuadError> {
+        held_id(self.store(), namespace, term)
     }
 
-    /// The IRI `uid` names, and whether it skolemizes a blank node. A missing entry is corruption naming its key.
-    pub fn iri_of(&self, namespace: u64, uid: u64) -> Result<(String, bool), QuadError> {
-        let key = uid_key(namespace, uid);
-        let value = self.store().get_versionless(&key)?.ok_or_else(|| {
-            QuadError::corrupted(&key, format!("UID {uid} has no dictionary entry"))
-        })?;
-        let (flag, iri) = value
-            .split_first()
-            .ok_or_else(|| QuadError::corrupted(&key, "an empty UID entry"))?;
-        let iri = String::from_utf8(iri.to_vec())
-            .map_err(|_| QuadError::corrupted(&key, "an IRI is not UTF-8"))?;
-        Ok((iri, *flag == 1))
+    /// The text `id` names, and whether it skolemizes a blank node: a `Resource` ID named by a skolem IRI under the
+    /// namespace's base. A missing entry is corruption naming its key.
+    pub fn iri_of(&self, namespace: u64, id: SystemId) -> Result<(String, bool), QuadError> {
+        let key = id_key(namespace, id);
+        let value = self
+            .store()
+            .get_versionless(&key)?
+            .ok_or_else(|| QuadError::corrupted(&key, "a system ID has no dictionary entry"))?;
+        let text = String::from_utf8(value)
+            .map_err(|_| QuadError::corrupted(&key, "a term is not UTF-8"))?;
+        let blank = id.type_prefix() == TypePrefix::RESOURCE && is_skolem(namespace, &text);
+        Ok((text, blank))
     }
 
     /// The string `hash` names. A missing entry is corruption naming its key.
     pub fn string_of(&self, namespace: u64, hash: Hash128) -> Result<String, QuadError> {
-        let key = string_key(namespace, &hash);
+        let key = literal_key(namespace, &hash);
         let value = self.store().get_versionless(&key)?.ok_or_else(|| {
             QuadError::corrupted(&key, "a literal's hash has no dictionary entry")
         })?;
         String::from_utf8(value).map_err(|_| QuadError::corrupted(&key, "a string is not UTF-8"))
     }
 
-    /// The RDF term `encoded` names: an IRI, a skolemized blank node presented as a blank node again, or a literal.
+    /// The RDF term `encoded` names: an IRI, a skolemized blank node presented as a blank node again, labelled by its
+    /// skolem IRI's bucket and random digits, or a literal.
     pub fn term_of(&self, namespace: u64, encoded: &EncodedTerm) -> Result<Term, QuadError> {
-        if let Some(uid) = encoded.as_uid() {
-            let (iri, skolem) = self.iri_of(namespace, uid)?;
-            return Ok(if skolem {
-                BlankNode::new_unchecked(format!("b{uid}")).into()
+        if let Some(id) = encoded.as_id() {
+            let (text, blank) = self.iri_of(namespace, id)?;
+            return Ok(if blank {
+                skolem_blank_node(&text).into()
             } else {
-                NamedNode::new_unchecked(iri).into()
+                NamedNode::new_unchecked(text).into()
             });
         }
         let literal = encoded.view()?.to_literal(
-            |uid| Ok::<_, QuadError>(NamedNode::new_unchecked(self.iri_of(namespace, uid)?.0)),
+            |id| Ok::<_, QuadError>(NamedNode::new_unchecked(self.iri_of(namespace, id)?.0)),
             |hash| self.string_of(namespace, hash),
         )?;
         Ok(literal.into())
@@ -78,7 +80,7 @@ where
         &self,
         key: &[u8],
         read_ts: u64,
-    ) -> Result<Vec<(EncodedTerm, Vec<u64>)>, QuadError> {
+    ) -> Result<Vec<(EncodedTerm, Vec<SystemId>)>, QuadError> {
         let list = self.lists().read(key, read_ts)?;
         let mut objects = Vec::new();
         list.iterate(read_ts, 0, |p| {
@@ -111,8 +113,12 @@ where
                     | QuadErrorEnum::Key(_)
                     | QuadErrorEnum::Mapping(_)
                     | QuadErrorEnum::Catalog(_)
-                    | QuadErrorEnum::Aborted
-                    | QuadErrorEnum::UidsExhausted { .. } => e,
+                    | QuadErrorEnum::Id(_)
+                    | QuadErrorEnum::NoSequence { .. }
+                    | QuadErrorEnum::PendingFull { .. }
+                    | QuadErrorEnum::NoOwnedBucket { .. }
+                    | QuadErrorEnum::SkolemDraws { .. }
+                    | QuadErrorEnum::UnknownSkolem { .. } => e,
                 })
             })
             .collect()
@@ -123,8 +129,8 @@ where
     pub fn statistics(
         &self,
         namespace: u64,
-        graph: u64,
-        predicate: u64,
+        graph: Graph,
+        predicate: SystemId,
         read_ts: u64,
     ) -> Result<Statistics, QuadError> {
         let key = QuadKey::Statistics {
@@ -149,8 +155,8 @@ where
     pub fn statement(
         &self,
         namespace: u64,
-        graph: u64,
-        id: u64,
+        graph: Graph,
+        id: SystemId,
         read_ts: u64,
     ) -> Result<Option<StatementRecord>, QuadError> {
         let key = QuadKey::Statement {

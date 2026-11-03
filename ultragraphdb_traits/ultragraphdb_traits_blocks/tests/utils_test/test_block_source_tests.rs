@@ -140,3 +140,15 @@ fn test_a_block_reaching_past_the_last_sequence_is_not_cut_short() -> TestResult
     assert_eq!(source.lease(TypePrefix::RESOURCE), None);
     Ok(())
 }
+
+#[test]
+fn test_a_scripted_block_below_an_earlier_one_is_leased() -> TestResult {
+    // A source owes no order, only disjoint blocks: a later block may lie below an earlier one.
+    let source = TestBlockSource::new(len(10)?).with_blocks(
+        TypePrefix::RESOURCE,
+        vec![block(5000, 6000)?, block(1000, 2000)?],
+    );
+    assert_eq!(source.lease(TypePrefix::RESOURCE), Some(block(5000, 6000)?));
+    assert_eq!(source.lease(TypePrefix::RESOURCE), Some(block(1000, 2000)?));
+    Ok(())
+}

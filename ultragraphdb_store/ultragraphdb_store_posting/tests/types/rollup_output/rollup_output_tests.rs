@@ -149,3 +149,54 @@ fn test_a_rollup_deletes_only_the_parts_it_no_longer_has() -> TestResult {
     );
     Ok(())
 }
+
+/// Values, keyed below every ID, all fall in the low half, however many come before the middle block's first ID.
+#[test]
+fn test_every_value_falls_in_the_low_half() -> TestResult {
+    let values = [5u128, 7, 9].map(|fingerprint| Posting::default().with_uid(fingerprint));
+    let plist = pack_of(600)?.with_postings(
+        values
+            .iter()
+            .cloned()
+            .chain(
+                [256, 513]
+                    .iter()
+                    .map(|&n| Posting::default().with_uid(rid(n))),
+            )
+            .collect(),
+    );
+    let (starts, [low, high]) = bin_split(0, &plist)?;
+    assert_eq!(starts, [0, rid(257)]);
+    let keys = |p: &PostingList| p.postings().iter().map(|p| p.uid()).collect::<Vec<_>>();
+    let mut low_keys = vec![5, 7, 9];
+    low_keys.extend(rids(&[256]));
+    assert_eq!((keys(&low), keys(&high)), (low_keys, rids(&[513])));
+    Ok(())
+}
+
+/// A value-index list holds references alone and splits at IDs alone: its first part starts at the smallest valid ID
+/// (type 1, sequence 1, bucket 0), and every part reads back.
+#[test]
+fn test_a_value_index_list_splits_from_the_smallest_id() -> TestResult {
+    let k = ultragraphdb_core_keys::QuadKey::ValueIndex {
+        namespace: 0,
+        graph: ultragraphdb_core_keys::Graph::Default,
+        predicate: crate::utils::helpers::id(7)?,
+        tokenizer: 1,
+        token: b"tok".to_vec(),
+    }
+    .to_bytes();
+    let store = crate::utils::helpers::new_store();
+    let mut l = List::empty(k.clone());
+    (1..=1000).for_each(|u| add(&mut l, 1, &set_uid(u)));
+    l.commit_mutation(2);
+    let (rolled, _) = crate::utils::helpers::roll_up(&store, &l, u64::MAX, 1000)?;
+    let splits = rolled.part_splits();
+    assert!(splits.len() > 1, "{splits:?}");
+    assert_eq!(splits.first(), Some(&rid(1)));
+    assert_eq!(
+        crate::utils::helpers::uids(&rolled, 3, 0)?,
+        rids(&(1..=1000).collect::<Vec<_>>())
+    );
+    Ok(())
+}

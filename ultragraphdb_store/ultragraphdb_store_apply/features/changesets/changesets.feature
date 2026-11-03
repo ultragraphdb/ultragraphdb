@@ -4,20 +4,19 @@
 #
 
 Feature: Changesets
-  A changeset names its namespace and its changes in order; it executes against the snapshot at the watermark, its new
-  terms taking provisional UIDs its commit confirms; it applies whole, in one request, or not at all, reports what it
-  read and the regions it reads and writes, and writes the same bytes from the same stored state.
+  A changeset names its namespace and its changes in order; it executes against the snapshot at the watermark, each new
+  term's ID got or created while it runs and shared with every execution naming the term; it applies whole, in one
+  request, or not at all, reports what it read, the terms it found absent by ID and no dictionary key, and the regions
+  it reads and writes, and writes the same bytes from the same stored state
+  (openspec/changes/stage-5-5-three-role-refactor/specs/changesets/spec.md, its two requirements verbatim).
 
   Scenario: A delete by pattern removes every object
-    Given `<a> <nick> "Al"`, `<a> <nick> <n1>` and `<a> <nick> <n2>` are held
-    When the pattern `a`, `nick` is deleted
-    Then `a` holds no `nick`
-    And the reverse list of `nick` for `n1` does not hold `a`
-    And the reverse list of `nick` for `n2` does not hold `a`
+    When `a` holds three objects of `nick` and a changeset deletes the pattern `a`, `nick` in the default graph
+    Then `a` holds no `nick`, and the reverse lists of the three objects no longer hold `a`
 
-  Scenario: A provisional UID is confirmed at commit
-    When a transaction creates `<new>` and commits, and no other transaction created `<new>` meanwhile
-    Then `<new>` holds the UID the transaction gave it
+  Scenario: A new term's ID is fixed before the commit
+    When a transaction creates `<new>`, and another transaction writing `<new>` executes before the first commits
+    Then both receive the same system ID for `<new>` while executing, and whichever commits holds `<new>` under it
 
   Scenario: One refused operation refuses the changeset
     Given `knows` is declared an edge
@@ -26,13 +25,16 @@ Feature: Changesets
     And `<a> <knows> <b>` is not held
 
   Scenario: Written regions are reported
-    When `<a> <knows> <b>` is written
-    Then the write writes the forward and reverse regions of `knows`
-    And the write writes the subject- and object-predicate regions of the default graph
+    When a changeset inserting `<a> <knows> <b>` is executed
+    Then the reported write regions include the forward and reverse regions of `knows` and the subject- and object-predicate regions of the default graph
 
   Scenario: An insert records the statement it tested
     When a changeset inserting `<a> <knows> <b>` is executed and `a` holds other objects of `knows`
     Then its read set holds the statement `a`, `knows`, `b`, not the whole list of `knows` of `a`
+
+  Scenario: A new term leaves no dictionary key in the read set
+    When a changeset inserting `<new> <knows> <b>` is executed and `<new>` had no ID
+    Then its read set holds the absent term `<new>` and no dictionary key
 
   Scenario: Two applications write the same bytes
     When one changeset is applied to two copies of one store

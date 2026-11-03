@@ -24,8 +24,8 @@ use std::sync::Arc;
 use ultragraphdb_core_tok::{VEC_ENTRY, VEC_KEYWORD};
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_store_hnsw::{
-    HnswError, HnswErrorEnum, PersistentHnsw, SimilarityType, TxnCache, ViTxn, bytes_to_uint64,
-    decode_uint64_matrix,
+    HnswError, HnswErrorEnum, PersistentHnsw, SimilarityType, TxnCache, ViTxn, bytes_to_id,
+    decode_id_matrix,
 };
 use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig, PostingError, PostingErrorEnum};
 use ultragraphdb_store_sim::{
@@ -38,8 +38,8 @@ use ultragraphdb_traits_store::{PersistMode, Scan, Store, StoreSnapshot};
 use ultragraphdb_core_keys::QuadKey;
 
 use crate::utils::helpers::{
-    TestLists, delete_vector, draw, key, opts, oracle_score, pred, set_vector, vector_encoding,
-    vkeys,
+    TestLists, delete_vector, draw, id, key, nums, opts, oracle_score, pred, set_vector,
+    vector_encoding, vkeys,
 };
 use ultragraphdb_tool_bdd::TestResult;
 
@@ -256,10 +256,8 @@ impl HnswWorkload {
                 } else {
                     self.pred.clone()
                 };
-                lists
-                    .rollup_key(&key(&attr, uid))
-                    .map(|_| ())
-                    .map_err(HnswError::from)
+                key(&attr, uid)
+                    .and_then(|k| lists.rollup_key(&k).map(|_| ()).map_err(HnswError::from))
             }
             92..96 => {
                 lists.advance_epoch();
@@ -293,7 +291,7 @@ impl HnswWorkload {
                 if batch_dead.contains(&uid) {
                     continue;
                 }
-                delete_vector(&mut request, &self.pred, uid)?;
+                delete_vector(&mut request, &vkeys(&self.pred)?, id(uid)?)?;
                 let _inserted: bool = batch_dead.insert(uid);
                 ops.push(Op::Delete(uid));
             } else {
@@ -304,12 +302,15 @@ impl HnswWorkload {
                     Ok(encoding) => encoding,
                     Err(e) => return Ok(Some((NO_UNEXPECTED_ERROR, format!("vector {v:?}: {e}")))),
                 };
-                set_vector(&mut request, &self.pred, uid, encoding)?;
+                let keys = vkeys(&self.pred)?;
+                set_vector(&mut request, &keys, id(uid)?, encoding)?;
                 let edges = {
                     let txn = ViTxn::new(&mut request);
-                    let index = PersistentHnsw::<f32>::new(vkeys(&self.pred), &self.options, 32)?;
+                    let index = PersistentHnsw::<f32>::new(keys, &self.options, 32)?;
                     let rng = ctx.rng();
-                    index.insert(&TxnCache::new(&txn, read_ts), uid, &v, &mut || draw(rng))?
+                    index.insert(&TxnCache::new(&txn, read_ts), id(uid)?, &v, &mut || {
+                        draw(rng)
+                    })?
                 };
                 let mut dead = self.model.dead(read_ts);
                 dead.extend(batch_dead.iter().copied());
@@ -356,9 +357,12 @@ impl HnswWorkload {
             let mut request = lists.request(read_ts);
             let txn = ViTxn::new(&mut request);
             let qc = ultragraphdb_store_hnsw::QueryCache::new(&txn, read_ts);
-            PersistentHnsw::<f32>::new(vkeys(&self.pred), &self.options, 32).and_then(|index| {
-                index.search(&qc, &query, k, ultragraphdb_traits_index::accept_all::<f32>)
-            })
+            vkeys(&self.pred)
+                .and_then(|keys| PersistentHnsw::<f32>::new(keys, &self.options, 32))
+                .and_then(|index| {
+                    index.search(&qc, &query, k, ultragraphdb_traits_index::accept_all::<f32>)
+                })
+                .map(|found| nums(&found))
         };
         let live = self.model.live_uids(read_ts);
         match result {
@@ -456,15 +460,20 @@ fn random_vector(rng: &mut SimRng) -> Vec<f32> {
     (0..DIMS).map(|_| (draw(rng) * 2.0 - 1.0) as f32).collect()
 }
 
-/// The first neighbour list among `edges` naming a uid of `dead`.
+/// The first neighbour list among `edges` naming a node numbered in `dead`.
 pub fn names_dead(edges: &[KeyValue], vec_key: &str, dead: &BTreeSet<u64>) -> Option<String> {
     edges.iter().filter(|e| e.attr() == vec_key).find_map(|e| {
-        let lists = decode_uint64_matrix(e.value()).ok()?;
+        let lists = decode_id_matrix(e.value()).ok()?;
         lists
             .iter()
-            .flatten()
+            .flat_map(|row| nums(row))
             .find(|uid| dead.contains(uid))
-            .map(|uid| format!("the lists of {} name dead {uid}", e.entity()))
+            .map(|uid| {
+                format!(
+                    "the lists of {} name dead {uid}",
+                    e.entity().sequence().get()
+                )
+            })
     })
 }
 
@@ -475,8 +484,9 @@ pub fn graph_defect<S: Store>(
     pred: &str,
     read_ts: u64,
 ) -> Result<Option<String>, HnswError> {
-    let mut prefix = vkeys(pred).neighbours(1);
-    prefix.truncate(prefix.len() - 8);
+    // The neighbour lists' prefix: a node's key without the node's 16 bytes.
+    let mut prefix = vkeys(pred)?.neighbours(id(1)?);
+    prefix.truncate(prefix.len() - 16);
     lists.gate(read_ts)?;
     let snapshot = lists
         .store()
@@ -489,13 +499,15 @@ pub fn graph_defect<S: Store>(
             continue;
         };
         if let Some(v) = read_value(lists, item.key(), read_ts)? {
-            let levels =
-                decode_uint64_matrix(&v).map_err(|r| HnswError::corrupted(item.key(), r))?;
-            let _previous: Option<Vec<Vec<u64>>> = nodes.insert(uid, levels);
+            let levels = decode_id_matrix(&v).map_err(|r| HnswError::corrupted(item.key(), r))?;
+            let row_numbers: Vec<Vec<u64>> = levels.iter().map(|row| nums(row)).collect();
+            let _previous: Option<Vec<Vec<u64>>> = nodes.insert(uid.sequence().get(), row_numbers);
         }
     }
-    if let Some(entry) = read_value(lists, &key(&format!("{pred}{VEC_ENTRY}"), 1), read_ts)? {
-        let entry = bytes_to_uint64(&entry).unwrap_or_default();
+    if let Some(entry) = read_value(lists, &key(&format!("{pred}{VEC_ENTRY}"), 1)?, read_ts)? {
+        let Some(entry) = bytes_to_id(&entry).map(|id| id.sequence().get()) else {
+            return Ok(Some("an entry point naming no ID".to_string()));
+        };
         if !nodes.contains_key(&entry) {
             return Ok(Some(format!("the entry point {entry} has no lists")));
         }

@@ -8,6 +8,7 @@ mod data_dictionary_describe;
 use std::sync::{Arc, Mutex};
 
 use ultragraphdb_store_posting::CachedList;
+use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{ListCache, Store};
 
 use crate::errors::quad_error::QuadError;
@@ -46,14 +47,15 @@ impl DataDictionary {
 
     /// Computes the shapes at `read_ts` and, unless a pass over a newer snapshot completed meanwhile, replaces the
     /// shapes held with them.
-    pub fn run_pass<S, C>(
+    pub fn run_pass<S, C, B>(
         &self,
-        quads: &QuadStore<S, C>,
+        quads: &QuadStore<S, C, B>,
         read_ts: u64,
     ) -> Result<Arc<Shapes>, QuadError>
     where
         S: Store,
         C: ListCache<Value = CachedList>,
+        B: BlockSource,
     {
         let shapes = Arc::new(Shapes::compute(quads, self.namespace, read_ts)?);
         let mut held = lock(&self.shapes);

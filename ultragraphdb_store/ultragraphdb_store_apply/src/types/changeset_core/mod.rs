@@ -15,11 +15,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use ultragraphdb_core_catalog::Catalog;
-use ultragraphdb_core_keys::{QuadKey, Region};
+use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_keys::{Graph, QuadKey, Region};
 use ultragraphdb_core_mapping::Changeset;
 use ultragraphdb_error_invariant::InvariantError;
 use ultragraphdb_store_posting::{CachedList, PostingError, Writes};
 use ultragraphdb_store_quads::{QuadStore, QuadWrite, WriteTerms};
+use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{ListCache, Store, Temporary, VersionlessEntry};
 
 use crate::errors::changeset_error::ChangesetError;
@@ -36,7 +38,7 @@ use crate::types::vector_queue::VectorQueue;
 use crate::utils::lock::lock;
 
 /// The lists a build made, by graph, then by key: a vector index's, built in memory.
-pub(crate) type BuiltVectors = BTreeMap<u64, BTreeMap<Vec<u8>, Vec<u8>>>;
+pub(crate) type BuiltVectors = BTreeMap<Graph, BTreeMap<Vec<u8>, Vec<u8>>>;
 
 /// What a sequenced build made, kept until its swap's round: its temporary keyspace and its vector lists.
 #[derive(Debug)]
@@ -51,15 +53,15 @@ pub(crate) struct Built {
 /// Sequenced (decided 2026-10-28), a build ends with a proposal for the commit step instead of swapping itself in: the
 /// ends waiting to be taken, and what each build made, until its swap's round.
 #[derive(Debug)]
-pub(crate) struct ChangesetCore<S, C> {
-    quads: QuadStore<S, C>,
+pub(crate) struct ChangesetCore<S, C, B> {
+    quads: QuadStore<S, C, B>,
     // Locked state: executions, rounds and the builds on the executor reach the core at once; the flag only ever
     // turns on.
     catalogs: Mutex<BTreeMap<u64, Arc<Catalog>>>,
     apply: Mutex<()>,
     rebuild: Mutex<Option<Rebuild>>,
     seed: u64,
-    vectors: Mutex<BTreeMap<(u64, u64), VectorQueue>>,
+    vectors: Mutex<BTreeMap<(u64, SystemId), VectorQueue>>,
     sequenced: AtomicBool,
     ended: Mutex<Vec<BuildEnd>>,
     built: Mutex<BTreeMap<u64, Built>>,
@@ -72,12 +74,13 @@ type RoundOutcome = (Vec<Applied>, Option<u64>);
 /// each applied.
 type Settled = (Vec<PredicatePrefix>, Option<Rebuild>, Vec<Applied>);
 
-impl<S, C> ChangesetCore<S, C>
+impl<S, C, B> ChangesetCore<S, C, B>
 where
     S: Store,
     C: ListCache<Value = CachedList>,
+    B: BlockSource,
 {
-    pub fn new(quads: QuadStore<S, C>, seed: u64) -> Self {
+    pub fn new(quads: QuadStore<S, C, B>, seed: u64) -> Self {
         Self {
             quads,
             catalogs: Mutex::new(BTreeMap::new()),
@@ -149,7 +152,7 @@ where
         Ok(ending)
     }
 
-    pub fn quads(&self) -> &QuadStore<S, C> {
+    pub fn quads(&self) -> &QuadStore<S, C, B> {
         &self.quads
     }
 
@@ -182,8 +185,14 @@ where
     pub fn execute(&self, changeset: &Changeset) -> Result<Executed, ChangesetError> {
         let read_ts = self.quads.lists().applied_ts();
         let mut execution = self.begin_execution(changeset.namespace(), read_ts)?;
-        execution.apply(changeset)?;
-        Ok(execution.finish())
+        match execution.apply(changeset) {
+            Ok(()) => Ok(execution.finish()),
+            Err(refused) => {
+                // A refused changeset commits nothing: its terms are released, so it holds no pending ID.
+                self.quads.release(execution.terms())?;
+                Err(refused)
+            }
+        }
     }
 
     /// An execution in `namespace` reading at `read_ts`, as [`crate::ChangesetApplier::begin`] begins it: the build
@@ -192,7 +201,7 @@ where
         &self,
         namespace: u64,
         read_ts: u64,
-    ) -> Result<Execution<'_, S, C>, ChangesetError> {
+    ) -> Result<Execution<'_, S, C, B>, ChangesetError> {
         let running = lock(&self.rebuild).clone();
         let catalog = (*self.catalog(namespace)?).clone();
         let write = QuadWrite::new(&self.quads, namespace, self.quads.lists().request(read_ts));
@@ -325,6 +334,8 @@ where
         let mut started = None;
         let mut applied = Vec::with_capacity(round.len());
         for (version, executed) in round {
+            // The batch holding its dictionary entries is written: its pending IDs are settled.
+            self.quads.settle(&executed.terms);
             self.queue_vectors(version, &executed);
             let written: BTreeSet<Region> = executed
                 .writes
@@ -334,7 +345,7 @@ where
                 .collect();
             self.install(
                 executed.catalog,
-                &executed.default_uids,
+                &executed.default_ids,
                 executed.catalog_changed,
             )?;
             removals.extend(executed.removals);
@@ -354,7 +365,7 @@ where
     }
 }
 
-impl<S, C> ChangesetCore<S, C> {
+impl<S, C, B> ChangesetCore<S, C, B> {
     /// Queues for the indexer each vector `executed`, committed at `version`, wrote or removed: every forward list it
     /// wrote of a predicate its catalog declares with a vector index, a transaction's, an operation's or a replayed
     /// record's alike.
@@ -397,7 +408,7 @@ impl<S, C> ChangesetCore<S, C> {
     fn install(
         &self,
         mut catalog: Catalog,
-        defaults: &[u64],
+        defaults: &[SystemId],
         changed: bool,
     ) -> Result<(), ChangesetError> {
         let mut catalogs = lock(&self.catalogs);
@@ -452,6 +463,6 @@ where
             .ranges()
             .map(|(start, end)| (start.to_vec(), end.map(<[u8]>::to_vec)))
             .collect(),
-        terms.absent().map(<[u8]>::to_vec).collect(),
+        terms.absent().collect(),
     )
 }

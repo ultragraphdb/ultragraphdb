@@ -4,10 +4,12 @@
  */
 
 use ultragraphdb_core_catalog::Catalog;
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::DEFAULT_GRAPH;
 use ultragraphdb_core_mapping::{Declaration, PredicateDeclaration};
 use ultragraphdb_store_hnsw::{PersistentHnsw, VectorKeys};
 use ultragraphdb_store_posting::CachedList;
+use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{ListCache, Store};
 
 use crate::errors::changeset_error::ChangesetError;
@@ -17,10 +19,11 @@ use crate::types::rebuild::Rebuild;
 use crate::utils::quad_prefixes::{count_prefixes, tokenizer_prefixes, vector_prefixes};
 use crate::utils::vector_index::hnsw;
 
-impl<S, C> ChangesetWrite<'_, S, C>
+impl<S, C, B> ChangesetWrite<'_, S, C, B>
 where
     S: Store,
     C: ListCache<Value = CachedList>,
+    B: BlockSource,
 {
     /// Applies a declaration to the write's catalog, with its catalog entry; a type's parent is named by its UID.
     pub(crate) fn declare(&mut self, declaration: &Declaration) -> Result<(), ChangesetError> {
@@ -47,7 +50,7 @@ where
     /// index without building one removes its keys after the changeset.
     fn declare_predicate(
         &mut self,
-        uid: u64,
+        uid: SystemId,
         new: &PredicateDeclaration,
     ) -> Result<(), ChangesetError> {
         let iri = new.predicate().as_str();
@@ -97,7 +100,7 @@ where
     }
 
     /// Records the keys of the indexes `plan` removes from predicate `uid`, which a request after the write deletes.
-    fn remove_indexes(&mut self, uid: u64, plan: &IndexPlan) {
+    fn remove_indexes(&mut self, uid: SystemId, plan: &IndexPlan) {
         let ns = self.namespace();
         for t in &plan.remove_tokenizers {
             self.removals.extend(tokenizer_prefixes(ns, uid, t));

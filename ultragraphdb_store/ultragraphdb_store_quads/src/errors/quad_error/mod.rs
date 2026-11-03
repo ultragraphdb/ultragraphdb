@@ -8,6 +8,7 @@ mod quad_error_error;
 mod quad_error_from;
 
 use ultragraphdb_core_catalog::CatalogError;
+use ultragraphdb_core_ids::{IdError, TypePrefix};
 use ultragraphdb_core_keys::QuadKeyError;
 use ultragraphdb_core_mapping::MappingError;
 use ultragraphdb_core_terms::TermError;
@@ -15,6 +16,16 @@ use ultragraphdb_error_store::StoreError;
 use ultragraphdb_store_posting::PostingError;
 
 /// Why an operation of the quad store failed. The classification is the public field `.0`; branch on it.
+///
+/// - **Carried:** [`Store`](QuadErrorEnum::Store), [`Posting`](QuadErrorEnum::Posting), [`Term`](QuadErrorEnum::Term),
+///   [`Key`](QuadErrorEnum::Key), [`Mapping`](QuadErrorEnum::Mapping), [`Catalog`](QuadErrorEnum::Catalog),
+///   [`Id`](QuadErrorEnum::Id): a layer below refused.
+/// - **Damage:** [`Corrupted`](QuadErrorEnum::Corrupted): a stored value or dictionary entry is missing or unreadable.
+/// - **Allocation:** [`NoSequence`](QuadErrorEnum::NoSequence), [`PendingFull`](QuadErrorEnum::PendingFull),
+///   [`NoOwnedBucket`](QuadErrorEnum::NoOwnedBucket), [`SkolemDraws`](QuadErrorEnum::SkolemDraws): no ID or name can be
+///   given now; nothing is written, and the write may be retried.
+/// - **Refused name:** [`UnknownSkolem`](QuadErrorEnum::UnknownSkolem): an IRI under the skolem base the dictionary does
+///   not hold.
 #[derive(Debug, Clone, PartialEq)]
 pub enum QuadErrorEnum {
     /// The store failed.
@@ -29,19 +40,39 @@ pub enum QuadErrorEnum {
     Mapping(MappingError),
     /// The catalog could not be read.
     Catalog(CatalogError),
-    /// A stored UID or literal hash names no dictionary entry, or an entry cannot be read: `key` holds it.
+    /// A system ID or an IRI's canonical key was refused.
+    Id(IdError),
+    /// A stored ID or literal hash names no dictionary entry, or an entry cannot be read: `key` holds it.
     Corrupted {
         /// The key whose entry is missing or unreadable.
         key: Vec<u8>,
         /// What is wrong with it.
         reason: String,
     },
-    /// A commit since the write's read assigned an IRI the write creates: the write retries and finds its UID.
-    Aborted,
-    /// The UIDs below the entity-type bits are spent.
-    UidsExhausted {
-        /// The namespace whose UIDs are spent.
+    /// The partition holds no sequence of the type `prefix` and the block source leased none.
+    NoSequence {
+        /// The type's prefix.
+        prefix: u16,
+    },
+    /// The IDs created and not yet committed number `capacity`, all the store holds, so no other is created now.
+    PendingFull {
+        /// The most uncommitted IDs the store holds.
+        capacity: usize,
+    },
+    /// The partition owns no bucket of namespace `namespace`'s run, so it mints no blank node of it.
+    NoOwnedBucket {
+        /// The namespace.
         namespace: u64,
+    },
+    /// Each of `draws` skolem IRIs drawn in turn named an IRI the dictionary holds.
+    SkolemDraws {
+        /// The draws made.
+        draws: usize,
+    },
+    /// `iri` lies under the namespace's skolem base and the dictionary holds no blank node or reifier by it.
+    UnknownSkolem {
+        /// The IRI.
+        iri: String,
     },
 }
 
@@ -58,13 +89,30 @@ impl QuadError {
         })
     }
 
-    /// [`QuadErrorEnum::Aborted`].
-    pub fn aborted() -> Self {
-        Self(QuadErrorEnum::Aborted)
+    /// [`QuadErrorEnum::NoSequence`] for the type `prefix`.
+    pub fn no_sequence(prefix: TypePrefix) -> Self {
+        Self(QuadErrorEnum::NoSequence {
+            prefix: prefix.get(),
+        })
     }
 
-    /// [`QuadErrorEnum::UidsExhausted`] for `namespace`.
-    pub fn uids_exhausted(namespace: u64) -> Self {
-        Self(QuadErrorEnum::UidsExhausted { namespace })
+    /// [`QuadErrorEnum::PendingFull`] at `capacity`.
+    pub fn pending_full(capacity: usize) -> Self {
+        Self(QuadErrorEnum::PendingFull { capacity })
+    }
+
+    /// [`QuadErrorEnum::NoOwnedBucket`] for `namespace`.
+    pub fn no_owned_bucket(namespace: u64) -> Self {
+        Self(QuadErrorEnum::NoOwnedBucket { namespace })
+    }
+
+    /// [`QuadErrorEnum::SkolemDraws`] after `draws` draws.
+    pub fn skolem_draws(draws: usize) -> Self {
+        Self(QuadErrorEnum::SkolemDraws { draws })
+    }
+
+    /// [`QuadErrorEnum::UnknownSkolem`] for `iri`.
+    pub fn unknown_skolem(iri: impl Into<String>) -> Self {
+        Self(QuadErrorEnum::UnknownSkolem { iri: iri.into() })
     }
 }

@@ -4,15 +4,15 @@
  */
 
 //! What a changeset's execution records as read: an insert tests its statement, deletes, overwrites, unique checks and
-//! counts read lists whole, lookups record the dictionary keys they did not find, a declaration checking its
+//! counts read lists whole, terms new to the store are recorded absent by ID and no dictionary key is, a declaration checking its
 //! predicate's data records the ranges it scanned, and the namespace's catalog range is always there.
 
 use oxrdf::{GraphName, Literal, Term};
-use ultragraphdb_core_keys::{DEFAULT_GRAPH, QuadKey};
+use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_keys::{DEFAULT_GRAPH, Graph, Keyspace, QuadKey};
 use ultragraphdb_core_mapping::{Change, Changeset, Declaration, PredicateDeclaration};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_apply::Reads;
-use ultragraphdb_store_quads::iri_key;
 
 use crate::utils::changesets::{
     NS, TestChangesets, apply, changesets, declare, delete, ex, graph, insert, uid, write,
@@ -20,7 +20,7 @@ use crate::utils::changesets::{
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
 /// The forward key of `<subject>`'s `<predicate>` in graph `g`.
-fn forward(a: &TestChangesets, g: u64, predicate: &str, subject: &str) -> TestResult<Vec<u8>> {
+fn forward(a: &TestChangesets, g: Graph, predicate: &str, subject: &str) -> TestResult<Vec<u8>> {
     Ok(QuadKey::Forward {
         namespace: NS,
         graph: g,
@@ -32,7 +32,7 @@ fn forward(a: &TestChangesets, g: u64, predicate: &str, subject: &str) -> TestRe
 
 /// The encoding of the IRI `<name>` as an object.
 fn object(a: &TestChangesets, name: &str) -> TestResult<Vec<u8>> {
-    Ok(EncodedTerm::uid(uid(a, name)?).as_bytes().to_vec())
+    Ok(EncodedTerm::id(uid(a, name)?).as_bytes().to_vec())
 }
 
 fn reads_of(a: &TestChangesets, changes: Vec<Change>) -> TestResult<Reads> {
@@ -43,6 +43,14 @@ fn reads_of(a: &TestChangesets, changes: Vec<Change>) -> TestResult<Reads> {
 }
 
 /// Whether `key` lies in one of `reads`' ranges.
+/// Whether no list, statement or range `reads` records is a dictionary key.
+fn no_dictionary_key(reads: &Reads) -> bool {
+    let dictionary = |key: &[u8]| key.first() == Some(&Keyspace::Dictionary.byte());
+    !reads.lists().iter().any(|k| dictionary(k))
+        && !reads.statements().iter().any(|(k, _)| dictionary(k))
+        && !reads.ranges().iter().any(|(start, _)| dictionary(start))
+}
+
 fn in_a_range(reads: &Reads, key: &[u8]) -> bool {
     reads.ranges().iter().any(|(start, end)| {
         key >= start.as_slice() && end.as_ref().is_none_or(|e| key < e.as_slice())
@@ -114,7 +122,7 @@ fn test_a_count_index_reads_the_forward_and_reverse_lists_whole() -> TestResult 
         namespace: NS,
         graph: DEFAULT_GRAPH,
         predicate: uid(&a, "friend")?,
-        object: EncodedTerm::uid(uid(&a, "b")?),
+        object: EncodedTerm::id(uid(&a, "b")?),
     }
     .to_bytes();
     assert!(
@@ -144,12 +152,10 @@ fn test_terms_new_to_the_store_are_recorded_absent() -> TestResult {
     let a = changesets()?;
     write(&a, &["<a> <knows> <b>"])?;
     let reads = reads_of(&a, vec![insert("<n1> <knows> <n2>")?])?;
-    let mut expected = vec![
-        iri_key(NS, ex("n1").as_str()),
-        iri_key(NS, ex("n2").as_str()),
-    ];
+    let mut expected = vec![uid(&a, "n1")?, uid(&a, "n2")?];
     expected.sort();
     assert_eq!(reads.absent(), expected.as_slice());
+    assert!(no_dictionary_key(&reads), "no dictionary key is read");
     Ok(())
 }
 
@@ -158,8 +164,11 @@ fn test_a_delete_naming_a_term_the_store_lacks_records_it_absent() -> TestResult
     let a = changesets()?;
     write(&a, &["<a> <knows> <b>"])?;
     let reads = reads_of(&a, vec![delete("<a> <knows> <missing>")?])?;
-    assert_eq!(reads.absent(), &[iri_key(NS, ex("missing").as_str())]);
-    assert!(reads.statements().is_empty() && reads.lists().is_empty());
+    assert_eq!(reads.absent(), &[uid(&a, "missing")?]);
+    assert!(no_dictionary_key(&reads), "no dictionary key is read");
+    // The delete reads its subject's list whole, as a delete does.
+    assert_eq!(reads.lists(), &[forward(&a, DEFAULT_GRAPH, "knows", "a")?]);
+    assert!(reads.statements().is_empty());
     Ok(())
 }
 
@@ -190,26 +199,28 @@ fn test_a_declaration_checking_its_data_records_the_ranges_it_scanned() -> TestR
     )?;
     let (g, h) = (graph(&a, "g")?, graph(&a, "h")?);
     let nick = uid(&a, "nick")?;
-    let key_in = |graph: u64, subject: u64, namespace: u64| {
-        QuadKey::Forward {
-            namespace,
-            graph,
-            predicate: nick,
-            subject,
-        }
-        .to_bytes()
+    // A forward key of `nick` from its layout, its graph and subject any 16 bytes: a key a write could hold there.
+    let key_in = |graph: u128, subject: u128, namespace: u64| {
+        let mut key = vec![Keyspace::Forward.byte()];
+        key.extend_from_slice(&namespace.to_be_bytes());
+        key.extend_from_slice(&graph.to_be_bytes());
+        key.extend_from_slice(&nick.to_be_bytes());
+        key.extend_from_slice(&subject.to_be_bytes());
+        key
     };
-    let subject = uid(&a, "a")?;
-    for graph in [DEFAULT_GRAPH, 1, g - 1, g, g + 1, h - 1, h, h + 1, u64::MAX] {
-        for s in [1, subject, u64::MAX] {
+    let named = |graph: Graph| u128::from_be_bytes(graph.to_be_bytes());
+    let (g, h) = (named(g), named(h));
+    let subject = uid(&a, "a")?.to_u128();
+    for graph in [0, 1, g - 1, g, g + 1, h - 1, h, h + 1, u128::MAX] {
+        for s in [1, subject, u128::MAX] {
             assert!(
                 in_a_range(&reads, &key_in(graph, s, NS)),
-                "graph {graph}, subject {s}: {:?}",
+                "graph {graph:x}, subject {s:x}: {:?}",
                 reads.ranges()
             );
         }
     }
-    assert!(!in_a_range(&reads, &key_in(DEFAULT_GRAPH, subject, NS + 1)));
+    assert!(!in_a_range(&reads, &key_in(0, subject, NS + 1)));
     Ok(())
 }
 
@@ -266,10 +277,9 @@ fn test_the_catalog_range_is_the_namespaces() -> TestResult {
 fn test_an_empty_changeset_reads_nothing() -> TestResult {
     let a = changesets()?;
     let first = reads_of(&a, Vec::new())?;
-    assert_eq!(
-        first.absent(),
-        &[iri_key(NS, oxrdf::vocab::rdf::TYPE.as_str())]
-    );
+    let rdf_type: Option<SystemId> = a.quads().id_of(NS, oxrdf::vocab::rdf::TYPE.as_str())?;
+    assert_eq!(first.absent(), rdf_type.as_slice());
+    assert!(no_dictionary_key(&first));
     let reads = reads_of(&a, Vec::new())?;
     assert!(reads.lists().is_empty());
     assert!(reads.statements().is_empty());

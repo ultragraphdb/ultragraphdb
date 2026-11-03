@@ -1,0 +1,32 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+# The cargo-fuzz package of ultragraphdb_store_hnsw, run by scripts/fuzz.sh; a member of the fuzz workspace in fuzz/.
+# Its targets call the crate's public decoders only.
+
+[package]
+name = "ultragraphdb_store_hnsw_fuzz"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[package.metadata]
+cargo-fuzz = true
+
+[lints]
+workspace = true
+
+[dependencies]
+libfuzzer-sys = { workspace = true }
+ultragraphdb_store_hnsw = { workspace = true }
+
+# Any bytes as each of the HNSW lists' stored values: a node's neighbour matrix, the entry point and the dead list,
+# decoded or refused, never a panic; whatever decodes encodes back to the bytes it was read from.
+[[bin]]
+name = "hnsw_lists_decode"
+path = "fuzz_targets/hnsw_lists_decode.rs"
+test = false
+doc = false
+bench = false

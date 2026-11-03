@@ -5,6 +5,8 @@
 
 use std::collections::BTreeSet;
 
+use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_keys::Graph;
 use ultragraphdb_core_mapping::PredicateDeclaration;
 
 use crate::types::index_plan::IndexPlan;
@@ -18,20 +20,20 @@ use crate::utils::quad_prefixes::declared_prefixes;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Rebuild {
     pub namespace: u64,
-    pub predicate: u64,
+    pub predicate: SystemId,
     pub old: PredicateDeclaration,
     pub new: PredicateDeclaration,
     pub plan: IndexPlan,
     pub start_ts: u64,
     pub record: u64,
-    pub touched: BTreeSet<(u64, u64)>,
+    pub touched: BTreeSet<(Graph, SystemId)>,
 }
 
 impl Rebuild {
     /// The build a changeset's declaration asks for, before the changeset commits.
     pub fn pending(
         namespace: u64,
-        predicate: u64,
+        predicate: SystemId,
         old: PredicateDeclaration,
         new: PredicateDeclaration,
     ) -> Self {

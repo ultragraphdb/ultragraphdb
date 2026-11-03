@@ -3,16 +3,23 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! What the unit tests and the scenarios share: quads over a fault-free simulated store, and a write of quads.
+//! What the unit tests and the scenarios share: quads over a fault-free simulated store, leasing from a test block
+//! source, and a write of quads.
+
+use std::num::NonZeroU64;
 
 use oxrdf::{GraphName, NamedNode, NamedOrBlankNode, Quad, Term};
-use ultragraphdb_core_keys::QuadKey;
+use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_keys::{Graph, QuadKey};
+use ultragraphdb_core_mapping::RandomSource;
 use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig};
-use ultragraphdb_store_quads::{QuadError, QuadStore, QuadWrite, WriteTerms};
+use ultragraphdb_store_quads::{QuadStore, QuadWrite, WriteTerms};
 use ultragraphdb_store_sim::{FaultConfig, Seed, SimClock, SimListCache, SimStore, Stream};
 use ultragraphdb_tool_bdd::{Context, TestResult};
+use ultragraphdb_traits_blocks::TestBlockSource;
 
-pub type TestQuads = QuadStore<SimStore, SimListCache<CachedList>>;
+pub type TestQuads = QuadStore<SimStore, SimListCache<CachedList>, TestBlockSource>;
+pub type TestWrite<'a> = QuadWrite<'a, SimStore, SimListCache<CachedList>, TestBlockSource>;
 
 pub fn ex(name: &str) -> NamedNode {
     NamedNode::new_unchecked(format!("http://ex.org/{name}"))
@@ -22,19 +29,35 @@ pub fn node(name: &str) -> NamedOrBlankNode {
     ex(name).into()
 }
 
-/// Quads over `store`, with a fresh cache.
-pub fn quads_over(store: SimStore) -> TestResult<TestQuads> {
+/// A block source handing out blocks of 1,000 sequences.
+pub fn blocks() -> TestBlockSource {
+    TestBlockSource::new(NonZeroU64::MIN.saturating_add(999))
+}
+
+/// A fault-free simulated store.
+pub fn sim() -> SimStore {
+    SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new())
+}
+
+/// The posting lists over `store`, with a fresh cache.
+pub fn lists_over(store: SimStore) -> Lists<SimStore, SimListCache<CachedList>> {
     let cache = SimListCache::new(1024, Seed::new(1).stream(Stream::Cache));
-    QuadStore::open(Lists::new(store, cache, ListsConfig::default())).context("opens")
+    Lists::new(store, cache, ListsConfig::default())
+}
+
+/// Quads over `store`, leasing from `source` and drawing names from a source seeded with `seed`.
+pub fn quads_with(store: SimStore, source: TestBlockSource, seed: u64) -> TestResult<TestQuads> {
+    QuadStore::open(lists_over(store), source, RandomSource::new(seed)).context("opens")
+}
+
+/// Quads over `store`, with blocks of their own and the random seed 7.
+pub fn quads_over(store: SimStore) -> TestResult<TestQuads> {
+    quads_with(store, blocks(), 7)
 }
 
 /// Quads over a fault-free simulated store.
 pub fn quads() -> TestResult<TestQuads> {
-    quads_over(SimStore::new(
-        Seed::new(1),
-        FaultConfig::none(),
-        SimClock::new(),
-    ))
+    quads_over(sim())
 }
 
 /// The statistics kind of `object`.
@@ -53,26 +76,22 @@ pub fn insert_write<'a>(
     store: &'a TestQuads,
     ns: u64,
     quads: &[Quad],
-) -> TestResult<QuadWrite<'a, SimStore, SimListCache<CachedList>>> {
+) -> TestResult<TestWrite<'a>> {
     let read_ts = store.lists().applied_ts();
     let mut write = QuadWrite::new(store, ns, store.lists().request(read_ts));
     for q in quads {
         let (terms, quad_store) = write.terms();
-        let (s, l) = (quad_store.store(), quad_store.leases());
-        let graph = terms.graph(s, l, q.graph_name.as_ref())?;
-        let subject = terms.node(s, l, q.subject.as_ref())?;
-        let predicate = terms.predicate(s, l, q.predicate.as_ref())?;
-        let object = terms.term(s, l, q.object.as_ref())?;
+        let graph = terms.graph(quad_store, q.graph_name.as_ref())?;
+        let subject = terms.node(quad_store, q.subject.as_ref())?;
+        let predicate = terms.predicate(quad_store, q.predicate.as_ref())?;
+        let object = terms.term(quad_store, q.object.as_ref())?;
         write.insert(graph, subject, predicate, &object, &[], &kind(&q.object));
     }
     Ok(write)
 }
 
-/// Commits `writes` in one batch: each write's commit timestamp or refusal.
-pub fn commit(
-    store: &TestQuads,
-    writes: Vec<QuadWrite<'_, SimStore, SimListCache<CachedList>>>,
-) -> TestResult<Vec<Result<u64, QuadError>>> {
+/// Commits `writes` in one batch: each write's commit version.
+pub fn commit(store: &TestQuads, writes: Vec<TestWrite<'_>>) -> TestResult<Vec<u64>> {
     let mut batch = store.lists().batch();
     let mut terms: Vec<WriteTerms> = Vec::new();
     for write in writes {
@@ -83,36 +102,41 @@ pub fn commit(
     store.commit(batch, &terms).context("the batch is written")
 }
 
-/// `quads` written and committed in namespace `ns`: the commit timestamp.
+/// `quads` written and committed in namespace `ns`: the commit version.
 pub fn write_at(store: &TestQuads, ns: u64, quads: &[Quad]) -> TestResult<u64> {
     let w = insert_write(store, ns, quads)?;
-    commit(store, vec![w])?.remove(0).context("commits")
+    commit(store, vec![w])?.first().copied().context("commits")
 }
 
-/// `quads` written and committed in namespace `ns`, for a test that does not read the commit timestamp.
+/// `quads` written and committed in namespace `ns`, for a test that does not read the commit version.
 pub fn write(store: &TestQuads, ns: u64, quads: &[Quad]) -> TestResult {
     let _committed_at: u64 = write_at(store, ns, quads)?;
     Ok(())
 }
 
-/// The UID of `iri` in namespace `ns`.
-pub fn uid(store: &TestQuads, ns: u64, iri: &NamedNode) -> TestResult<u64> {
-    store.uid_of(ns, iri.as_str())?.context("a UID")
+/// The ID the dictionary holds for `iri` in namespace `ns`.
+pub fn id(store: &TestQuads, ns: u64, iri: &NamedNode) -> TestResult<SystemId> {
+    store.id_of(ns, iri.as_str())?.context("an ID")
 }
 
-/// The forward key of `subject`'s `predicate` in `graph`, all named by IRI.
+/// The named graph `iri` in namespace `ns`.
+pub fn named(store: &TestQuads, ns: u64, iri: &NamedNode) -> TestResult<Graph> {
+    Ok(Graph::Named(id(store, ns, iri)?))
+}
+
+/// The forward key of `subject`'s `predicate` in `graph`, both named by IRI.
 pub fn forward(
     store: &TestQuads,
     ns: u64,
-    graph: u64,
+    graph: Graph,
     subject: &NamedNode,
     predicate: &NamedNode,
 ) -> TestResult<Vec<u8>> {
     Ok(QuadKey::Forward {
         namespace: ns,
         graph,
-        predicate: uid(store, ns, predicate)?,
-        subject: uid(store, ns, subject)?,
+        predicate: id(store, ns, predicate)?,
+        subject: id(store, ns, subject)?,
     }
     .to_bytes())
 }

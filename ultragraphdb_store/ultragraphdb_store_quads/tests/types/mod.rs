@@ -6,11 +6,13 @@
 #[cfg(test)]
 mod data_dictionary;
 #[cfg(test)]
-mod leases_tests;
+mod owned_buckets_tests;
 #[cfg(test)]
 mod quad_store_tests;
 #[cfg(test)]
 mod quad_write_tests;
+#[cfg(test)]
+mod sequences_tests;
 #[cfg(test)]
 mod statement_record_tests;
 #[cfg(test)]

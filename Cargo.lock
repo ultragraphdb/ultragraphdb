@@ -3121,6 +3121,7 @@ dependencies = [
  "tracing",
  "ultragraphdb_core_catalog",
  "ultragraphdb_core_codec",
+ "ultragraphdb_core_ids",
  "ultragraphdb_core_keys",
  "ultragraphdb_core_mapping",
  "ultragraphdb_core_terms",
@@ -3134,6 +3135,7 @@ dependencies = [
  "ultragraphdb_store_sim",
  "ultragraphdb_tool_bdd",
  "ultragraphdb_tool_test",
+ "ultragraphdb_traits_blocks",
  "ultragraphdb_traits_index",
  "ultragraphdb_traits_store",
 ]
@@ -3209,6 +3211,7 @@ dependencies = [
  "oxrdf",
  "ultragraphdb_core_catalog",
  "ultragraphdb_core_codec",
+ "ultragraphdb_core_ids",
  "ultragraphdb_core_keys",
  "ultragraphdb_core_mapping",
  "ultragraphdb_core_terms",
@@ -3216,6 +3219,7 @@ dependencies = [
  "ultragraphdb_store_posting",
  "ultragraphdb_store_sim",
  "ultragraphdb_tool_bdd",
+ "ultragraphdb_traits_blocks",
  "ultragraphdb_traits_store",
  "xxhash-rust",
 ]
@@ -3275,6 +3279,7 @@ dependencies = [
  "oxrdf",
  "tracing",
  "ultragraphdb_core_catalog",
+ "ultragraphdb_core_ids",
  "ultragraphdb_core_keys",
  "ultragraphdb_core_mapping",
  "ultragraphdb_core_terms",
@@ -3286,6 +3291,7 @@ dependencies = [
  "ultragraphdb_store_quads",
  "ultragraphdb_store_sim",
  "ultragraphdb_tool_bdd",
+ "ultragraphdb_traits_blocks",
  "ultragraphdb_traits_store",
 ]
 

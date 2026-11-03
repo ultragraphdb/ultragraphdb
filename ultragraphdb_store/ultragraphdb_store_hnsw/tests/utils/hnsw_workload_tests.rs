@@ -14,7 +14,9 @@ use ultragraphdb_store_sim::{FaultConfig, Seed, SimRng};
 
 use ultragraphdb_traits_index::Metric;
 
-use crate::utils::helpers::{delete, draw, insert, lists_over, opts, oracle_score, pred, search};
+use crate::utils::helpers::{
+    delete, draw, id, insert, lists_over, nums, opts, oracle_score, pred, search, vkeys,
+};
 use crate::utils::hnsw_workload::{HnswWorkload, graph_defect, names_dead};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -90,13 +92,13 @@ fn test_the_workload_rules_hold_on_fjall() -> TestResult {
     for uid in 1..=150u64 {
         if uid % 7 == 0 && live.len() > 3 {
             let (gone, _) = live.remove(rng.index(live.len()));
-            delete(&lists, &p, gone)?;
+            delete(&lists, &vkeys(&p)?, id(gone)?)?;
             let _inserted: bool = dead.insert(gone);
         }
         let v: Vec<f32> = (0..3)
             .map(|_| (draw(&mut rng) * 2.0 - 1.0) as f32)
             .collect();
-        let edges = insert(&lists, &p, &o, uid, &v, &mut || draw(&mut rng))?;
+        let edges = insert(&lists, &p, &o, id(uid)?, &v, &mut || draw(&mut rng))?;
         assert_eq!(
             names_dead(&edges, &format!("{p}{VEC_KEYWORD}"), &dead),
             None,
@@ -109,7 +111,7 @@ fn test_the_workload_rules_hold_on_fjall() -> TestResult {
         let q: Vec<f32> = (0..3)
             .map(|_| (draw(&mut rng) * 2.0 - 1.0) as f32)
             .collect();
-        let found = search(&lists, &p, &o, &q, 4, None)?;
+        let found = nums(&search(&lists, &vkeys(&p)?, &o, &q, 4, None)?);
         assert_eq!(found.len(), 4, "{} live", live.len());
         let widen = |v: &[f32]| v.iter().map(|&f| f64::from(f)).collect::<Vec<f64>>();
         let scores: Vec<f64> = found

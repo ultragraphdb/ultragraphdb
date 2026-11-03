@@ -6,6 +6,7 @@
 //! The prefixes of a predicate's keys in the quad keyspaces: every keyspace whose keys name it, and each index a
 //! declaration names, split parts included, in every graph.
 
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::{CountDirection, Keyspace};
 use ultragraphdb_core_mapping::PredicateDeclaration;
 use ultragraphdb_core_tok::{get_tokenizer, get_tokenizer_for_lang};
@@ -30,7 +31,7 @@ pub(crate) fn tokenizer_ids(name: &str) -> Vec<u8> {
 /// The value-index keys of tokenizer `name` for predicate `predicate`.
 pub(crate) fn tokenizer_prefixes(
     namespace: u64,
-    predicate: u64,
+    predicate: SystemId,
     name: &str,
 ) -> Vec<PredicatePrefix> {
     tokenizer_ids(name)
@@ -42,7 +43,7 @@ pub(crate) fn tokenizer_prefixes(
 }
 
 /// The count keys of `predicate`, both directions.
-pub(crate) fn count_prefixes(namespace: u64, predicate: u64) -> Vec<PredicatePrefix> {
+pub(crate) fn count_prefixes(namespace: u64, predicate: SystemId) -> Vec<PredicatePrefix> {
     [CountDirection::Forward, CountDirection::Reverse]
         .into_iter()
         .flat_map(|d| {
@@ -52,14 +53,14 @@ pub(crate) fn count_prefixes(namespace: u64, predicate: u64) -> Vec<PredicatePre
 }
 
 /// The HNSW lists of `predicate`.
-pub(crate) fn vector_prefixes(namespace: u64, predicate: u64) -> Vec<PredicatePrefix> {
+pub(crate) fn vector_prefixes(namespace: u64, predicate: SystemId) -> Vec<PredicatePrefix> {
     PredicatePrefix::with_parts(Keyspace::VectorIndex, namespace, predicate, Vec::new())
 }
 
 /// The keys of every index `declaration` names for `predicate`.
 pub(crate) fn declared_prefixes(
     namespace: u64,
-    predicate: u64,
+    predicate: SystemId,
     declaration: &PredicateDeclaration,
 ) -> Vec<PredicatePrefix> {
     let mut prefixes: Vec<PredicatePrefix> = declaration
@@ -81,7 +82,7 @@ pub(crate) fn declared_prefixes(
 /// build was making (7.9).
 pub(crate) fn undeclared_prefixes(
     namespace: u64,
-    predicate: u64,
+    predicate: SystemId,
     declaration: &PredicateDeclaration,
 ) -> Vec<PredicatePrefix> {
     let declared: Vec<u8> = declaration
@@ -105,7 +106,7 @@ pub(crate) fn undeclared_prefixes(
 }
 
 /// The keys of `predicate` in every keyspace whose keys name it.
-pub(crate) fn predicate_prefixes(namespace: u64, predicate: u64) -> Vec<PredicatePrefix> {
+pub(crate) fn predicate_prefixes(namespace: u64, predicate: SystemId) -> Vec<PredicatePrefix> {
     [
         Keyspace::Forward,
         Keyspace::Reverse,

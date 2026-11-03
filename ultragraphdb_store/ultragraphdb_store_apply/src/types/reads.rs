@@ -3,11 +3,12 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::{Keyspace, key_prefix};
 use ultragraphdb_traits_store::Scan;
 
 /// What a changeset's execution read, the read set a commit is validated by: the lists it read whole, the statements
-/// it tested, the key ranges it scanned, the dictionary keys it found absent, and its namespace's catalog range, which
+/// it tested, the key ranges it scanned, the terms it found absent, by ID, and its namespace's catalog range, which
 /// every write of the namespace reads.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Reads {
@@ -15,7 +16,7 @@ pub struct Reads {
     lists: Vec<Vec<u8>>,
     statements: Vec<(Vec<u8>, Vec<u8>)>,
     ranges: Vec<(Vec<u8>, Option<Vec<u8>>)>,
-    absent: Vec<Vec<u8>>,
+    absent: Vec<SystemId>,
 }
 
 impl Reads {
@@ -24,7 +25,7 @@ impl Reads {
         lists: Vec<Vec<u8>>,
         statements: Vec<(Vec<u8>, Vec<u8>)>,
         ranges: Vec<(Vec<u8>, Option<Vec<u8>>)>,
-        absent: Vec<Vec<u8>>,
+        absent: Vec<SystemId>,
     ) -> Self {
         Self {
             namespace,
@@ -55,8 +56,9 @@ impl Reads {
         &self.ranges
     }
 
-    /// The dictionary keys found absent, in key order.
-    pub fn absent(&self) -> &[Vec<u8>] {
+    /// The terms found absent, by ID in ID order: no statement of the term in the store. No dictionary key is among
+    /// them.
+    pub fn absent(&self) -> &[SystemId] {
         &self.absent
     }
 

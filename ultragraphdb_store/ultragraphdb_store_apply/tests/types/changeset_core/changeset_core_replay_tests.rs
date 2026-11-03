@@ -10,7 +10,6 @@
 use ultragraphdb_core_keys::Keyspace;
 use ultragraphdb_error_store::StoreError;
 use ultragraphdb_store_apply::{Applied, BuildEnd, ChangesetErrorEnum, Executed, RecordWrites};
-use ultragraphdb_store_quads::{HASH_TO_STRING, IRI_TO_UID, UID_TO_IRI};
 use ultragraphdb_traits_store::{Store, VersionlessEntry};
 
 use crate::utils::changesets::{
@@ -67,12 +66,7 @@ fn sections(executed: &Executed) -> Sections {
         writes
             .versionless()
             .iter()
-            .filter(|e| {
-                matches!(
-                    e.key().get(8),
-                    Some(&IRI_TO_UID | &UID_TO_IRI | &HASH_TO_STRING)
-                ) == dictionary
-            })
+            .filter(|e| (keyspace(e.key()) == Some(Keyspace::Dictionary)) == dictionary)
             .map(|e: &VersionlessEntry| (e.key().to_vec(), e.value().map(<[u8]>::to_vec)))
             .collect()
     };

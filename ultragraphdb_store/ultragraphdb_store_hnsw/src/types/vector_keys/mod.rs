@@ -87,12 +87,12 @@ impl VectorKeys {
 
     /// The key of the entry point, the 16 big-endian bytes of its node's system ID, under the predicate's ID.
     pub fn entry(&self) -> Vec<u8> {
-        unimplemented!()
+        self.list(ENTRY_LIST, self.predicate)
     }
 
     /// The key of the dead nodes, a JSON array of their IDs, under the predicate's ID.
     pub fn dead(&self) -> Vec<u8> {
-        unimplemented!()
+        self.list(DEAD_LIST, self.predicate)
     }
 
     /// The label of the neighbour lists' values, `<name>__vector_`.
@@ -112,7 +112,20 @@ impl VectorKeys {
 
     /// The node `key` names, when it is a node's forward list of the index's predicate.
     pub fn node_of(&self, key: &[u8]) -> Option<SystemId> {
-        unimplemented!()
+        match QuadKey::parse(key) {
+            Ok((
+                QuadKey::Forward {
+                    namespace,
+                    graph,
+                    predicate,
+                    subject,
+                },
+                None,
+            )) if (namespace, graph, predicate) == (self.namespace, self.graph, self.predicate) => {
+                Some(subject)
+            }
+            _ => None,
+        }
     }
 
     fn list(&self, list: u8, node: SystemId) -> Vec<u8> {

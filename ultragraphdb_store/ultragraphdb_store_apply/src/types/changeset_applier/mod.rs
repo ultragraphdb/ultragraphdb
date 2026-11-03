@@ -7,9 +7,11 @@ use std::sync::Arc;
 
 use oxrdf::{GraphNameRef, NamedNodeRef};
 use ultragraphdb_core_catalog::Catalog;
-use ultragraphdb_core_mapping::Changeset;
+use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_mapping::{Changeset, RandomSource};
 use ultragraphdb_store_posting::{Batch, CachedList, Lists};
 use ultragraphdb_store_quads::QuadStore;
+use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{Executor, ListCache, Store, VersionlessEntry};
 
 use crate::errors::changeset_error::ChangesetError;
@@ -21,6 +23,7 @@ use crate::types::drop_target::DropTarget;
 use crate::types::executed::Executed;
 use crate::types::execution::Execution;
 use crate::types::operation::Operation;
+use crate::types::operation_outcome::OperationOutcome;
 use crate::types::record_writes::RecordWrites;
 use crate::types::vector_query::VectorQuery;
 
@@ -34,27 +37,34 @@ use crate::types::vector_query::VectorQuery;
 /// holds the interim declaration until one batch swaps the index in, and writes meanwhile maintain the old
 /// declaration's indexes and the new one's. One build runs at a time. Drops remove what they drop physically.
 #[derive(Debug)]
-pub struct ChangesetApplier<S, C, E> {
+pub struct ChangesetApplier<S, C, E, B> {
     // Shared: the builds running on the executor hold the core beside the applier.
-    core: Arc<ChangesetCore<S, C>>,
+    core: Arc<ChangesetCore<S, C, B>>,
     executor: E,
 }
 
-impl<S, C, E> ChangesetApplier<S, C, E>
+impl<S, C, E, B> ChangesetApplier<S, C, E, B>
 where
     S: Store + Send + Sync + 'static,
     C: ListCache<Value = CachedList> + Send + Sync + 'static,
+    B: BlockSource + Send + Sync + 'static,
     E: Executor,
 {
-    /// The applier of `lists`' store, its builds on `executor`, its vector index's level draws seeded by `seed`.
-    /// Refused when the store was written under another mapping contract. A rebuild record a crash left is finished
-    /// first.
-    pub fn new(lists: Lists<S, C>, executor: E, seed: u64) -> Result<Self, ChangesetError> {
-        Self::over(QuadStore::open(lists)?, executor, seed)
+    /// The applier of `lists`' store, its sequences leased from `blocks` and its names drawn from `random`, its builds
+    /// on `executor`, its vector index's level draws seeded by `seed`. Refused when the store was written under another
+    /// mapping contract. A rebuild record a crash left is finished first.
+    pub fn new(
+        lists: Lists<S, C>,
+        blocks: B,
+        random: RandomSource,
+        executor: E,
+        seed: u64,
+    ) -> Result<Self, ChangesetError> {
+        Self::over(QuadStore::open(lists, blocks, random)?, executor, seed)
     }
 
     /// The applier of `quads`, as [`ChangesetApplier::new`] makes it.
-    pub fn over(quads: QuadStore<S, C>, executor: E, seed: u64) -> Result<Self, ChangesetError> {
+    pub fn over(quads: QuadStore<S, C, B>, executor: E, seed: u64) -> Result<Self, ChangesetError> {
         let core = ChangesetCore::new(quads, seed);
         core.finish_records()?;
         Ok(Self {
@@ -64,7 +74,7 @@ where
     }
 
     /// The quad store the applier writes.
-    pub fn quads(&self) -> &QuadStore<S, C> {
+    pub fn quads(&self) -> &QuadStore<S, C, B> {
         self.core.quads()
     }
 
@@ -172,6 +182,18 @@ where
         self.core.execute(changeset)
     }
 
+    /// Releases `executed`, an execution the commit step refused and will not apply: the dictionary entries of the
+    /// terms it created or took from a concurrent creator are written on their own, since an entry names nothing that
+    /// exists, and their pending IDs settled, so the next writer of each term takes the same ID from the dictionary
+    /// and the store holds no pending ID for a write that will not commit.
+    ///
+    /// # Errors
+    ///
+    /// The store's error writing the entries; the pending IDs are then kept.
+    pub fn release(&self, executed: &Executed) -> Result<(), ChangesetError> {
+        Ok(self.core.quads().release(executed.terms())?)
+    }
+
     /// Begins an execution in `namespace` reading at `read_ts`, held open across a transaction's requests: the build
     /// running now and the catalog the last applied round left, as [`ChangesetApplier::execute`] reads them. A
     /// `read_ts` above the watermark makes its reads wait at the read gate until the watermark reaches it, so a caller
@@ -184,7 +206,7 @@ where
         &self,
         namespace: u64,
         read_ts: u64,
-    ) -> Result<Execution<'_, S, C>, ChangesetError> {
+    ) -> Result<Execution<'_, S, C, B>, ChangesetError> {
         self.core.begin_execution(namespace, read_ts)
     }
 
@@ -227,9 +249,8 @@ where
     /// store at the watermark with `overlay`'s layers above it (the writes of every decided but unapplied round) and
     /// `executed`'s own writes on top (7.5), and `dictionary`, the dictionary entries the unapplied writes made, read as
     /// the transaction's own (decided 2026-10-28). Gives the transaction as it commits, its writes and the operations' in one
-    /// execution, and appends each operation's result to `results`: the UID of the node an insert-if-absent or
-    /// upsert-and-link found or created and whether it created it, zero and `false` for a compare-and-set and a counter
-    /// add. `executed` is left as it was; the operations' reads are no part of its read set.
+    /// execution, and appends each operation's outcome to `results`: the node an insert-if-absent or upsert-and-link
+    /// found or created and whether it created it, a compare-and-set's success, a counter add's new value. `executed` is left as it was; the operations' reads are no part of its read set.
     ///
     /// # Errors
     ///
@@ -242,7 +263,7 @@ where
         operations: &[Operation],
         overlay: &Batch<'_, S, C>,
         dictionary: &[&VersionlessEntry],
-        results: &mut Vec<(u64, bool)>,
+        results: &mut Vec<OperationOutcome>,
     ) -> Result<Executed, ChangesetError> {
         self.core
             .operate(executed, operations, overlay, dictionary, results)
@@ -308,7 +329,7 @@ where
         predicate: NamedNodeRef<'_>,
         query: VectorQuery<'_>,
         read_ts: u64,
-    ) -> Result<Vec<u64>, ChangesetError> {
+    ) -> Result<Vec<SystemId>, ChangesetError> {
         self.core
             .search_vectors(namespace, graph, predicate, query, read_ts)
     }

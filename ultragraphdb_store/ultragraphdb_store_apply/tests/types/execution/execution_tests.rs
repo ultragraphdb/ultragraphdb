@@ -8,7 +8,6 @@
 
 use oxrdf::{GraphName, Term};
 use ultragraphdb_core_keys::{DEFAULT_GRAPH, QuadKey};
-use ultragraphdb_store_quads::iri_key;
 
 use crate::utils::changesets::{NS, TestChangesets, changeset, changesets, ex, insert, uid};
 use ultragraphdb_tool_bdd::{Context, TestResult};
@@ -18,6 +17,7 @@ fn read(
         '_,
         ultragraphdb_store_sim::SimStore,
         ultragraphdb_store_sim::SimListCache<ultragraphdb_store_posting::CachedList>,
+        ultragraphdb_traits_blocks::TestBlockSource,
     >,
     subject: &str,
     predicate: &str,
@@ -101,7 +101,7 @@ fn test_a_read_of_an_unknown_subject_and_predicate_records_the_subject_absent() 
         executed
             .reads()
             .absent()
-            .contains(&iri_key(NS, ex("ghost").as_str()))
+            .contains(&taken(&executed, "ghost")?)
     );
     Ok(())
 }
@@ -125,12 +125,22 @@ fn test_a_read_of_unknown_terms_holds_nothing_and_records_them_absent() -> TestR
     let executed = execution.finish();
     for name in ["nobody", "never", "nograph"] {
         assert!(
-            executed
-                .reads()
-                .absent()
-                .contains(&iri_key(NS, ex(name).as_str())),
+            executed.reads().absent().contains(&taken(&executed, name)?),
             "{name} recorded absent"
         );
     }
     Ok(())
+}
+
+/// The ID `<name>` took in `executed`, which created it: a read names a term by ID, got or created as any IRI is.
+fn taken(
+    executed: &ultragraphdb_store_apply::Executed,
+    name: &str,
+) -> TestResult<ultragraphdb_core_ids::SystemId> {
+    executed
+        .terms()
+        .written()
+        .find(|(term, _)| *term == ex(name).as_str())
+        .map(|(_, id)| id)
+        .context("the execution created the IRI")
 }

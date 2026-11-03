@@ -13,11 +13,13 @@ use std::ops::ControlFlow;
 use oxrdf::vocab::rdf;
 use oxrdf::{GraphNameRef, NamedNodeRef};
 use ultragraphdb_core_catalog::Catalog;
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::{
-    DEFAULT_GRAPH, Keyspace, QuadKey, ROOT_NAMESPACE, SPLIT_FLAG, key_prefix,
+    DEFAULT_GRAPH, Graph, Keyspace, QuadKey, ROOT_NAMESPACE, SPLIT_FLAG, key_prefix,
 };
 use ultragraphdb_core_mapping::Declaration;
 use ultragraphdb_store_posting::{CachedList, List, PostingError};
+use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{Entry, ListCache, Scan, Store, StoreSnapshot};
 
 use crate::errors::changeset_error::ChangesetError;
@@ -43,10 +45,11 @@ const QUAD_KEYSPACES: [Keyspace; 9] = [
     Keyspace::Statistics,
 ];
 
-impl<S, C> ChangesetCore<S, C>
+impl<S, C, B> ChangesetCore<S, C, B>
 where
     S: Store,
     C: ListCache<Value = CachedList>,
+    B: BlockSource,
 {
     /// Drops `predicate` of `namespace` in every graph: its keys in every keyspace naming it, the records of the
     /// statement IDs its postings carry, and its catalog entries; and writes each subject- and object-predicate list
@@ -58,7 +61,7 @@ where
     ) -> Result<u64, ChangesetError> {
         let _apply = lock(&self.apply);
         let lists = self.quads.lists();
-        let Some(uid) = self.quads.uid_of(namespace, predicate.as_str())? else {
+        let Some(uid) = self.quads.id_of(namespace, predicate.as_str())? else {
             return Ok(lists.applied_ts());
         };
         tracing::info!(predicate = predicate.as_str(), "dropping predicate");
@@ -71,7 +74,7 @@ where
     pub(crate) fn drop_predicate_uid(
         &self,
         namespace: u64,
-        uid: u64,
+        uid: SystemId,
         at: Option<u64>,
     ) -> Result<u64, ChangesetError> {
         let lists = self.quads.lists();
@@ -156,7 +159,7 @@ where
         let catalog = (*self.catalog(namespace)?).clone();
         let (target, prefixes) = match request {
             DropRequest::Predicate(predicate) => {
-                match self.quads.uid_of(namespace, predicate.as_str())? {
+                match self.quads.id_of(namespace, predicate.as_str())? {
                     Some(uid) => {
                         lists.gate(read_ts)?;
                         let snapshot = lists.store().snapshot(read_ts)?;
@@ -229,16 +232,18 @@ where
         })
     }
 
-    /// The UID of `graph` in `namespace`: the default graph's, a named graph's when the store knows it; `None` for a
+    /// The graph `graph` names in `namespace`: the default graph, a named graph when the store knows it; `None` for a
     /// graph it does not know and for a blank node, which names no stored graph.
     fn graph_uid(
         &self,
         namespace: u64,
         graph: GraphNameRef<'_>,
-    ) -> Result<Option<u64>, ChangesetError> {
+    ) -> Result<Option<Graph>, ChangesetError> {
         Ok(match graph {
             GraphNameRef::DefaultGraph => Some(DEFAULT_GRAPH),
-            GraphNameRef::NamedNode(n) => self.quads.uid_of(namespace, n.as_str())?,
+            GraphNameRef::NamedNode(n) => {
+                self.quads.id_of(namespace, n.as_str())?.map(Graph::Named)
+            }
             GraphNameRef::BlankNode(_) => None,
         })
     }
@@ -248,7 +253,7 @@ where
     fn rewrite_without(
         &self,
         list: &QuadKey,
-        predicate: u64,
+        predicate: SystemId,
         version: u64,
         prefixes: &mut BTreeSet<Vec<u8>>,
         entries: &mut Vec<Entry>,
@@ -262,7 +267,7 @@ where
         let mut kept = List::empty(key.clone());
         kept.set_ts(version);
         held.iterate(version, 0, |p| {
-            if p.uid() != predicate {
+            if p.uid() != predicate.to_u128() {
                 kept.add_posting(p.clone(), false);
             }
             Ok::<_, PostingError>(ControlFlow::Continue(()))
@@ -276,7 +281,9 @@ where
             );
         }
         let mut parts = key.clone();
-        parts[0] |= SPLIT_FLAG;
+        if let Some(first) = parts.first_mut() {
+            *first |= SPLIT_FLAG;
+        }
         let _new_key: bool = prefixes.insert(key);
         let _new_parts: bool = prefixes.insert(parts);
         Ok(())
@@ -295,14 +302,14 @@ where
         self.drop_graph_uid(namespace, uid, None)
     }
 
-    /// Drops graph `uid` of `namespace` under the apply lock the caller holds, at `at` or the next version.
+    /// Drops `graph` of `namespace` under the apply lock the caller holds, at `at` or the next version.
     fn drop_graph_uid(
         &self,
         namespace: u64,
-        uid: u64,
+        graph: Graph,
         at: Option<u64>,
     ) -> Result<u64, ChangesetError> {
-        self.drop_prefixes(&graph_prefixes(namespace, uid), Vec::new(), at)
+        self.drop_prefixes(&graph_prefixes(namespace, graph), Vec::new(), at)
     }
 
     /// Drops the data of `namespace`, every key of every quad keyspace, and keeps its catalog. A build in the namespace
@@ -367,7 +374,7 @@ where
 
     /// The entries of `namespace`'s initial catalog at timestamp 1, none when its `rdf:type` has no UID.
     fn initial_entries(&self, namespace: u64) -> Result<Vec<Entry>, ChangesetError> {
-        Ok(match self.quads.uid_of(namespace, rdf::TYPE.as_str())? {
+        Ok(match self.quads.id_of(namespace, rdf::TYPE.as_str())? {
             Some(rdf_type) => Catalog::initial(namespace, rdf_type).entries(1),
             None => Vec::new(),
         })
@@ -384,7 +391,7 @@ fn parts(keyspace: Keyspace, prefix: impl Fn(bool) -> Vec<u8>) -> Vec<Vec<u8>> {
 }
 
 /// Every quad keyspace's prefix of graph `graph` of `namespace`.
-fn graph_prefixes(namespace: u64, graph: u64) -> Vec<Vec<u8>> {
+fn graph_prefixes(namespace: u64, graph: Graph) -> Vec<Vec<u8>> {
     QUAD_KEYSPACES
         .iter()
         .flat_map(|k| {

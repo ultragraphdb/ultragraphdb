@@ -7,11 +7,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ops::ControlFlow;
 
 use ultragraphdb_core_codec::Posting;
-use ultragraphdb_core_keys::QuadKey;
+use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_keys::{Graph, QuadKey};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_posting::{
-    BIT_DELTA_POSTING, CachedList, DEL, PostingError, Request, SET, Writes,
+    BIT_DELTA_POSTING, CachedList, DEL, List, PostingError, Request, SET, Writes,
 };
+use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{Entry, ListCache, Store};
 
 use crate::errors::quad_error::QuadError;
@@ -27,21 +29,22 @@ use crate::utils::postings::{object_posting, posting_object};
 /// held and keeps a predicate in the predicate lists while anything still holds it. [`QuadWrite::finish`] adds the
 /// statistics deltas; [`QuadStore::commit`] commits the request.
 #[derive(Debug)]
-pub struct QuadWrite<'a, S, C> {
-    quads: &'a QuadStore<S, C>,
+pub struct QuadWrite<'a, S, C, B> {
+    quads: &'a QuadStore<S, C, B>,
     request: Request<'a, S, C>,
     terms: WriteTerms,
-    stats: BTreeMap<(u64, u64), Statistics>,
+    stats: BTreeMap<(Graph, SystemId), Statistics>,
     inserted: BTreeSet<Vec<u8>>,
 }
 
-impl<'a, S, C> QuadWrite<'a, S, C>
+impl<'a, S, C, B> QuadWrite<'a, S, C, B>
 where
     S: Store,
     C: ListCache<Value = CachedList>,
+    B: BlockSource,
 {
     /// A write of namespace `namespace` to `quads` through `request`, resolving no term yet.
-    pub fn new(quads: &'a QuadStore<S, C>, namespace: u64, request: Request<'a, S, C>) -> Self {
+    pub fn new(quads: &'a QuadStore<S, C, B>, namespace: u64, request: Request<'a, S, C>) -> Self {
         Self {
             quads,
             request,
@@ -103,7 +106,7 @@ where
     }
 
     /// The quad store the write writes to.
-    pub fn quads(&self) -> &'a QuadStore<S, C> {
+    pub fn quads(&self) -> &'a QuadStore<S, C, B> {
         self.quads
     }
 
@@ -118,44 +121,24 @@ where
     }
 
     /// The terms the write names, to resolve more with.
-    pub fn terms(&mut self) -> (&mut WriteTerms, &'a QuadStore<S, C>) {
+    pub fn terms(&mut self) -> (&mut WriteTerms, &'a QuadStore<S, C, B>) {
         (&mut self.terms, self.quads)
     }
 
-    /// Whether `uid` was created by this write, so that no list keyed by it holds anything.
-    pub fn is_fresh(&self, uid: u64) -> bool {
-        self.terms.is_fresh(uid)
-    }
-
-    fn forward(&self, graph: u64, predicate: u64, subject: u64) -> Vec<u8> {
-        QuadKey::Forward {
-            namespace: self.namespace(),
-            graph,
-            predicate,
-            subject,
-        }
-        .to_bytes()
-    }
-
-    fn reverse(&self, graph: u64, predicate: u64, object: &EncodedTerm) -> Vec<u8> {
-        QuadKey::Reverse {
-            namespace: self.namespace(),
-            graph,
-            predicate,
-            object: object.clone(),
-        }
-        .to_bytes()
+    /// Whether `id` was created by this write, so that no list keyed by it holds anything.
+    pub fn is_fresh(&self, id: SystemId) -> bool {
+        self.terms.is_fresh(id)
     }
 
     /// Inserts the statement `subject predicate object` in `graph`, the object's posting carrying `statement_ids`,
     /// reading no list. `kind` is the object's kind for the statistics: `iri`, `blank` or a literal's datatype IRI.
     pub fn insert(
         &mut self,
-        graph: u64,
-        subject: u64,
-        predicate: u64,
+        graph: Graph,
+        subject: SystemId,
+        predicate: SystemId,
         object: &EncodedTerm,
-        statement_ids: &[u64],
+        statement_ids: &[SystemId],
         kind: &str,
     ) {
         let fp = self.quads.fingerprint();
@@ -164,7 +147,11 @@ where
             .get_from_delta(&forward)
             .add_posting(object_posting(object, SET, statement_ids, fp), false);
         let ns = self.namespace();
-        let predicate_posting = || Posting::default().with_uid(predicate).with_op(SET);
+        let predicate_posting = || {
+            Posting::default()
+                .with_uid(predicate.to_u128())
+                .with_op(SET)
+        };
         let subject_predicates = QuadKey::SubjectPredicates {
             namespace: ns,
             graph,
@@ -176,9 +163,10 @@ where
             .add_posting(predicate_posting(), false);
         if !object.is_vector() {
             let reverse = self.reverse(graph, predicate, object);
-            self.request
-                .get_from_delta(&reverse)
-                .add_posting(Posting::default().with_uid(subject).with_op(SET), false);
+            self.request.get_from_delta(&reverse).add_posting(
+                Posting::default().with_uid(subject.to_u128()).with_op(SET),
+                false,
+            );
             let object_predicates = QuadKey::ObjectPredicates {
                 namespace: ns,
                 graph,
@@ -204,15 +192,14 @@ where
     /// of the subject's list, which none is for a subject the write created.
     pub fn objects(
         &mut self,
-        graph: u64,
-        subject: u64,
-        predicate: u64,
-    ) -> Result<Vec<(EncodedTerm, Vec<u64>)>, QuadError> {
+        graph: Graph,
+        subject: SystemId,
+        predicate: SystemId,
+    ) -> Result<Vec<(EncodedTerm, Vec<SystemId>)>, QuadError> {
+        let forward = self.forward(graph, predicate, subject);
         if self.terms.is_fresh(subject) {
-            let forward = self.forward(graph, predicate, subject);
             return read_list(&self.request.get_from_delta(&forward).clone(), &forward);
         }
-        let forward = self.forward(graph, predicate, subject);
         let list = self.request.get(&forward)?.clone();
         read_list(&list, &forward)
     }
@@ -223,11 +210,11 @@ where
     /// the write created.
     pub fn holds(
         &mut self,
-        graph: u64,
-        subject: u64,
-        predicate: u64,
+        graph: Graph,
+        subject: SystemId,
+        predicate: SystemId,
         object: &EncodedTerm,
-    ) -> Result<Option<Vec<u64>>, QuadError> {
+    ) -> Result<Option<Vec<SystemId>>, QuadError> {
         let forward = self.forward(graph, predicate, subject);
         let list = if self.terms.is_fresh(subject) {
             self.request.get_from_delta(&forward).clone()
@@ -247,27 +234,30 @@ where
     /// and the object's when no other subject points at the object with it.
     pub fn delete(
         &mut self,
-        graph: u64,
-        subject: u64,
-        predicate: u64,
+        graph: Graph,
+        subject: SystemId,
+        predicate: SystemId,
         object: &EncodedTerm,
         kind: &str,
-    ) -> Result<Option<Vec<u64>>, QuadError> {
+    ) -> Result<Option<Vec<SystemId>>, QuadError> {
         let held = self.objects(graph, subject, predicate)?;
         let Some((_, ids)) = held.iter().find(|(o, _)| o == object) else {
             return Ok(None);
         };
         let ids = ids.clone();
         let fp = self.quads.fingerprint();
-        let ns = self.namespace();
         let forward = self.forward(graph, predicate, subject);
         self.request
             .get(&forward)?
             .add_posting(object_posting(object, DEL, &[], fp), false);
-        let predicate_delete = || Posting::default().with_uid(predicate).with_op(DEL);
+        let predicate_delete = || {
+            Posting::default()
+                .with_uid(predicate.to_u128())
+                .with_op(DEL)
+        };
         if held.len() == 1 {
             let subject_predicates = QuadKey::SubjectPredicates {
-                namespace: ns,
+                namespace: self.namespace(),
                 graph,
                 subject,
             }
@@ -277,21 +267,7 @@ where
                 .add_posting(predicate_delete(), false);
         }
         if !object.is_vector() {
-            let reverse = self.reverse(graph, predicate, object);
-            let list = self.request.get(&reverse)?;
-            list.add_posting(Posting::default().with_uid(subject).with_op(DEL), false);
-            let remaining = list.clone();
-            if read_list(&remaining, &reverse)?.is_empty() {
-                let object_predicates = QuadKey::ObjectPredicates {
-                    namespace: ns,
-                    graph,
-                    object: object.clone(),
-                }
-                .to_bytes();
-                self.request
-                    .get(&object_predicates)?
-                    .add_posting(predicate_delete(), false);
-            }
+            self.delete_reverse(graph, subject, predicate, object)?;
         }
         let mut quad = forward;
         quad.extend_from_slice(object.as_bytes());
@@ -307,11 +283,11 @@ where
     /// property changes them: the reverse and predicate lists and the statistics are left as they are.
     pub fn set_statement_ids(
         &mut self,
-        graph: u64,
-        subject: u64,
-        predicate: u64,
+        graph: Graph,
+        subject: SystemId,
+        predicate: SystemId,
         object: &EncodedTerm,
-        statement_ids: &[u64],
+        statement_ids: &[SystemId],
     ) {
         let fp = self.quads.fingerprint();
         let forward = self.forward(graph, predicate, subject);
@@ -324,58 +300,51 @@ where
     /// reverse list, which none is for an object the write created. A vector has none.
     pub fn subjects(
         &mut self,
-        graph: u64,
-        predicate: u64,
+        graph: Graph,
+        predicate: SystemId,
         object: &EncodedTerm,
-    ) -> Result<Vec<u64>, QuadError> {
+    ) -> Result<Vec<SystemId>, QuadError> {
         if object.is_vector() {
             return Ok(Vec::new());
         }
         let reverse = self.reverse(graph, predicate, object);
-        let list = match object.as_uid() {
-            Some(uid) if self.terms.is_fresh(uid) => self.request.get_from_delta(&reverse).clone(),
+        let list = match object.as_id() {
+            Some(id) if self.terms.is_fresh(id) => self.request.get_from_delta(&reverse).clone(),
             _ => self.request.get(&reverse)?.clone(),
         };
         Ok(read_list(&list, &reverse)?
             .iter()
-            .filter_map(|(o, _)| o.as_uid())
+            .filter_map(|(o, _)| o.as_id())
             .collect())
     }
 
     /// Writes the record of statement `id` in `graph`, at the write's commit timestamp.
-    pub fn put_statement(&mut self, graph: u64, id: u64, record: &StatementRecord) {
-        let key = QuadKey::Statement {
-            namespace: self.namespace(),
-            graph,
-            statement: id,
-        }
-        .to_bytes();
+    pub fn put_statement(&mut self, graph: Graph, id: SystemId, record: &StatementRecord) {
+        let key = self.statement_key(graph, id);
         self.request
             .add_entry(Entry::put(key, 0, 0, record.encode()));
     }
 
     /// Removes the record of statement `id` in `graph`.
-    pub fn delete_statement(&mut self, graph: u64, id: u64) {
-        let key = QuadKey::Statement {
-            namespace: self.namespace(),
-            graph,
-            statement: id,
-        }
-        .to_bytes();
+    pub fn delete_statement(&mut self, graph: Graph, id: SystemId) {
+        let key = self.statement_key(graph, id);
         self.request.add_entry(Entry::deletion(key, 0));
     }
 
     /// The record of statement `id` in `graph` at the write's read timestamp.
-    pub fn statement(&self, graph: u64, id: u64) -> Result<Option<StatementRecord>, QuadError> {
+    pub fn statement(
+        &self,
+        graph: Graph,
+        id: SystemId,
+    ) -> Result<Option<StatementRecord>, QuadError> {
         self.quads
             .statement(self.namespace(), graph, id, self.read_ts())
     }
 
-    /// The next statement ID of the namespace.
-    pub fn next_statement_id(&self) -> Result<u64, QuadError> {
-        self.quads
-            .leases()
-            .next_statement_id(self.quads.store(), self.namespace())
+    /// A new statement ID of `subject`, named by a new reifier, as [`WriteTerms::statement`] gives it.
+    pub fn next_statement_id(&mut self, subject: SystemId) -> Result<SystemId, QuadError> {
+        let quads = self.quads;
+        self.terms.statement(quads, subject)
     }
 
     /// The request and the terms to commit it with, the statistics deltas added to the request.
@@ -395,13 +364,72 @@ where
         }
         (self.request, self.terms)
     }
+
+    fn forward(&self, graph: Graph, predicate: SystemId, subject: SystemId) -> Vec<u8> {
+        QuadKey::Forward {
+            namespace: self.namespace(),
+            graph,
+            predicate,
+            subject,
+        }
+        .to_bytes()
+    }
+
+    fn reverse(&self, graph: Graph, predicate: SystemId, object: &EncodedTerm) -> Vec<u8> {
+        QuadKey::Reverse {
+            namespace: self.namespace(),
+            graph,
+            predicate,
+            object: object.clone(),
+        }
+        .to_bytes()
+    }
+
+    fn statement_key(&self, graph: Graph, id: SystemId) -> Vec<u8> {
+        QuadKey::Statement {
+            namespace: self.namespace(),
+            graph,
+            statement: id,
+        }
+        .to_bytes()
+    }
+
+    /// Removes `subject` from `object`'s reverse list, and the predicate from the object's predicate list when no
+    /// other subject points at the object with it.
+    fn delete_reverse(
+        &mut self,
+        graph: Graph,
+        subject: SystemId,
+        predicate: SystemId,
+        object: &EncodedTerm,
+    ) -> Result<(), QuadError> {
+        let reverse = self.reverse(graph, predicate, object);
+        let list = self.request.get(&reverse)?;
+        list.add_posting(
+            Posting::default().with_uid(subject.to_u128()).with_op(DEL),
+            false,
+        );
+        let remaining = list.clone();
+        if read_list(&remaining, &reverse)?.is_empty() {
+            let object_predicates = QuadKey::ObjectPredicates {
+                namespace: self.namespace(),
+                graph,
+                object: object.clone(),
+            }
+            .to_bytes();
+            self.request.get(&object_predicates)?.add_posting(
+                Posting::default()
+                    .with_uid(predicate.to_u128())
+                    .with_op(DEL),
+                false,
+            );
+        }
+        Ok(())
+    }
 }
 
-/// The objects `list` holds at its own read timestamp.
-fn read_list(
-    list: &ultragraphdb_store_posting::List,
-    key: &[u8],
-) -> Result<Vec<(EncodedTerm, Vec<u64>)>, QuadError> {
+/// The objects `list` holds at its own read timestamp, each with its statement IDs.
+fn read_list(list: &List, key: &[u8]) -> Result<Vec<(EncodedTerm, Vec<SystemId>)>, QuadError> {
     let mut objects = Vec::new();
     let mut failure = None;
     list.iterate(list.mutation().read_ts(), 0, |p| {

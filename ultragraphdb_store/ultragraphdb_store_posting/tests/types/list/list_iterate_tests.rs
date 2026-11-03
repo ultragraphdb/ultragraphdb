@@ -315,3 +315,30 @@ fn test_a_read_after_every_uid_of_a_split_list_yields_the_uids_above_it() -> Tes
     }
     Ok(())
 }
+
+/// A literal whose fingerprint is 0 (one in 2^64) is keyed 0, a key like any other: it is iterated, and so are the
+/// postings after it, where Go's uid 0 marked an exhausted iterator.
+#[test]
+fn test_a_posting_keyed_0_is_iterated_with_the_postings_after_it() -> TestResult {
+    let mut l = List::empty(key("iter-zero", 1));
+    add(
+        &mut l,
+        1,
+        &ultragraphdb_core_codec::Posting::default()
+            .with_uid(0)
+            .with_value(b"v".to_vec())
+            .with_posting_type(ultragraphdb_core_codec::PostingType::Value)
+            .with_op(ultragraphdb_store_posting::SET),
+    );
+    l.commit_mutation(2);
+    assert_eq!(uids(&l, 2, 0)?, vec![0]);
+    add(&mut l, 3, &set_uid(4));
+    l.commit_mutation(4);
+    let mut expected = vec![0];
+    expected.extend(rids(&[4]));
+    assert_eq!(uids(&l, 4, 0)?, expected);
+    // Rolled up, the literal is the immutable layer's, before the pack's ID.
+    let (rolled, _) = roll_up(&new_store(), &l, u64::MAX, usize::MAX)?;
+    assert_eq!(uids(&rolled, 4, 0)?, expected);
+    Ok(())
+}

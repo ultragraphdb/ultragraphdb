@@ -12,15 +12,15 @@ use std::sync::Arc;
 
 use cucumber::{then, when};
 use oxrdf::GraphNameRef;
-use ultragraphdb_core_keys::{DEFAULT_GRAPH, QuadKey};
+use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_keys::{DEFAULT_GRAPH, Graph, QuadKey};
 use ultragraphdb_core_mapping::{
     Cardinality, Change, Declaration, PredicateDeclaration, VectorIndexSpec,
 };
 use ultragraphdb_core_tok::get_index_factory;
 use ultragraphdb_store_apply::{Applied, Executed, Reads, VectorQuery};
 use ultragraphdb_store_hnsw::{
-    PersistentHnsw, QueryCache, VectorKeys, ViTxn, bytes_to_uint64, decode_uint64_matrix,
-    parse_edges,
+    PersistentHnsw, QueryCache, VectorKeys, ViTxn, bytes_to_id, decode_id_matrix, parse_edges,
 };
 use ultragraphdb_traits_index::{Options, VectorIndexOptions, accept_all};
 
@@ -45,7 +45,7 @@ fn keys(a: &TestChangesets, predicate: &str, graph: &str) -> TestResult<VectorKe
     let graph = if graph.is_empty() {
         DEFAULT_GRAPH
     } else {
-        uid(a, graph)?
+        Graph::Named(uid(a, graph)?)
     };
     Ok(VectorKeys::new(
         ex(predicate).as_str(),
@@ -70,7 +70,7 @@ fn index_value(a: &TestChangesets, key: &[u8]) -> TestResult<Option<Vec<u8>>> {
 }
 
 /// The nodes the dead list of `predicate` in the default graph holds.
-fn dead(a: &TestChangesets, predicate: &str) -> TestResult<Vec<u64>> {
+fn dead(a: &TestChangesets, predicate: &str) -> TestResult<Vec<SystemId>> {
     match index_value(a, &keys(a, predicate, "")?.dead())? {
         Some(v) => parse_edges(&String::from_utf8_lossy(&v)).context("a dead list"),
         None => Ok(Vec::new()),
@@ -78,15 +78,24 @@ fn dead(a: &TestChangesets, predicate: &str) -> TestResult<Vec<u64>> {
 }
 
 /// Every level's neighbour list of `node`, empty when it has none.
-fn neighbours(a: &TestChangesets, keys: &VectorKeys, node: u64) -> TestResult<Vec<Vec<u64>>> {
+fn neighbours(
+    a: &TestChangesets,
+    keys: &VectorKeys,
+    node: SystemId,
+) -> TestResult<Vec<Vec<SystemId>>> {
     match index_value(a, &keys.neighbours(node))? {
-        Some(v) => decode_uint64_matrix(&v).context("a neighbour matrix"),
+        Some(v) => decode_id_matrix(&v).context("a neighbour matrix"),
         None => Ok(Vec::new()),
     }
 }
 
 /// The `k` nodes the index at `keys` finds nearest `query`, the text of a vector literal.
-fn search(a: &TestChangesets, keys: &VectorKeys, query: &str, k: usize) -> TestResult<Vec<u64>> {
+fn search(
+    a: &TestChangesets,
+    keys: &VectorKeys,
+    query: &str,
+    k: usize,
+) -> TestResult<Vec<SystemId>> {
     let latest = a.quads().lists().applied_ts();
     let mut request = a.quads().lists().request(latest);
     let txn = ViTxn::new(&mut request);
@@ -172,16 +181,20 @@ fn first_insert(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[then("the entry point names its node's UID and its neighbour lists exist, empty, at every level")]
+#[then(
+    "the entry point names its node's system ID and its neighbour lists exist, empty, at every level"
+)]
 fn entry_created(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
     let keys = keys(&a, "emb", "")?;
     let entry = index_value(&a, &keys.entry())?.context("an entry point")?;
-    assert_eq!(bytes_to_uint64(&entry), Some(uid(&a, "a")?));
+    // The entry point is the node's system ID as its 16 big-endian bytes, as the vector-index spec states it.
+    assert_eq!(entry, uid(&a, "a")?.to_be_bytes().to_vec());
+    assert_eq!(bytes_to_id(&entry), Some(uid(&a, "a")?));
     // 3 levels: Dgraph's default `maxLevels`, the default exponent 3 (`tok/hnsw/persistent_factory.go`).
     assert_eq!(
         neighbours(&a, &keys, uid(&a, "a")?)?,
-        vec![Vec::<u64>::new(); 3]
+        vec![Vec::<SystemId>::new(); 3]
     );
     Ok(())
 }
@@ -202,14 +215,20 @@ fn vector_deleted(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "its node's UID is added to the dead list, and later inserts leave it out of the neighbour lists they write"
+    "its node's ID is added to the dead list as 32 hexadecimal digits, and later inserts leave it out of the neighbour lists they write"
 )]
 fn dead_left_out(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
     let gone = uid(&a, "a")?;
     assert_eq!(dead(&a, "emb")?, vec![gone]);
+    // The dead list's text, written from the spec: a JSON array of the ID's 32 lowercase hexadecimal digits.
+    let raw = index_value(&a, &keys(&a, "emb", "")?.dead())?.context("a dead list")?;
+    assert_eq!(
+        String::from_utf8(raw)?,
+        format!("[\"{:032x}\"]", gone.to_u128())
+    );
     let keys = keys(&a, "emb", "")?;
-    let before: Vec<Vec<Vec<u64>>> = ["b", "c"]
+    let before: Vec<Vec<Vec<SystemId>>> = ["b", "c"]
         .iter()
         .map(|s| neighbours(&a, &keys, uid(&a, s)?))
         .collect::<TestResult<_>>()?;
@@ -254,7 +273,7 @@ fn lists_kept_apart(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
     let first = keys(&a, "e1", "g1")?;
     let second = keys(&a, "e2", "g2")?;
-    let places: Vec<(u64, u64)> = stored_keys(&a)
+    let places: Vec<(Graph, SystemId)> = stored_keys(&a)
         .iter()
         .filter_map(|k| match QuadKey::parse(k) {
             Ok((
@@ -279,7 +298,7 @@ fn lists_kept_apart(w: &mut Steps) -> TestResult {
         [uid(&a, "c")?, uid(&a, "d")?],
     );
     // Each index holds two nodes, so a search for four finds exactly those two.
-    let sorted = |mut v: Vec<u64>| {
+    let sorted = |mut v: Vec<SystemId>| {
         v.sort();
         v
     };
@@ -417,7 +436,7 @@ fn max_levels_refused(w: &mut Steps) -> TestResult {
 fn declaration_of(a: &TestChangesets, predicate: &str) -> TestResult<Option<PredicateDeclaration>> {
     match a
         .quads()
-        .uid_of(NS, ex(predicate).as_str())
+        .id_of(NS, ex(predicate).as_str())
         .context("the dictionary reads")?
     {
         Some(p) => Ok(a.catalog(NS).context("the catalog")?.predicate(p).cloned()),
@@ -496,7 +515,7 @@ fn no_dimension_refused(w: &mut Steps) -> TestResult {
 
 /// Whether a transaction that read `reads` conflicts with `written`, committed after its read version, by the commit
 /// step's rules, taken wider: any key it wrote inside a list read whole, a statement tested, a range scanned, the
-/// catalog range or among the dictionary keys found absent. No conflict here is none by the narrower rules either.
+/// catalog range, or names as a subject a term found absent. No conflict here is none by the narrower rules either.
 fn conflicts(reads: &Reads, written: &Executed) -> bool {
     let writes = written.writes();
     let keys: Vec<&[u8]> = writes
@@ -510,7 +529,7 @@ fn conflicts(reads: &Reads, written: &Executed) -> bool {
     keys.iter().any(|k| {
         reads.lists().iter().any(|l| l.as_slice() == *k)
             || reads.statements().iter().any(|(l, _)| l.as_slice() == *k)
-            || reads.absent().iter().any(|l| l.as_slice() == *k)
+            || matches!(QuadKey::parse(k), Ok((QuadKey::Forward { subject, .. }, _)) if reads.absent().contains(&subject))
             || ranges.iter().any(|(start, end)| {
                 *k >= start.as_slice() && end.as_ref().is_none_or(|e| *k < e.as_slice())
             })
@@ -519,7 +538,7 @@ fn conflicts(reads: &Reads, written: &Executed) -> bool {
 
 /// The search of `emb` in the default graph for the `k` nearest `query`, the text of a vector literal, at the newest
 /// version, through the applier.
-fn applier_search(a: &TestChangesets, query: &str, k: usize) -> TestResult<Vec<u64>> {
+fn applier_search(a: &TestChangesets, query: &str, k: usize) -> TestResult<Vec<SystemId>> {
     a.search_vectors(
         NS,
         GraphNameRef::DefaultGraph,
@@ -633,22 +652,20 @@ fn deleted_before_indexed(w: &mut Steps) -> TestResult {
             .iter()
             .any(|l| !l.is_empty())
     );
-    w.counts = vec![
-        applier_search(&a, &vector(3, 2), 3)?
-            .into_iter()
-            .map(|u| u as u32)
-            .collect(),
-    ];
+    w.keys = applier_search(&a, &vector(3, 2), 3)?
+        .into_iter()
+        .map(|id| id.to_be_bytes().to_vec())
+        .collect();
     Ok(())
 }
 
 #[then("the search does not return its node")]
 fn deleted_not_returned(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
-    let gone = uid(&a, "b")? as u32;
-    assert!(!w.counts[0].contains(&gone), "{:?}", w.counts[0]);
+    let gone = uid(&a, "b")?.to_be_bytes().to_vec();
+    assert!(!w.keys.contains(&gone), "{:?}", w.keys);
     // The others are found.
-    assert_eq!(w.counts[0].len(), 2, "{:?}", w.counts[0]);
+    assert_eq!(w.keys.len(), 2, "{:?}", w.keys);
     Ok(())
 }
 
@@ -716,7 +733,7 @@ fn same_levels(w: &mut Steps) -> TestResult {
         .iter()
         .map(|a| {
             let keys = keys(a, "emb", "")?;
-            Ok(bytes_to_uint64(
+            Ok(bytes_to_id(
                 &index_value(a, &keys.entry())?.context("an entry point")?,
             ))
         })

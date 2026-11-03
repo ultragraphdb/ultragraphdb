@@ -40,7 +40,7 @@ fn test_the_factory_names_itself_and_its_options() -> TestResult {
 fn test_every_index_is_created_fresh() -> TestResult {
     let f = HnswFactory::<f32>::new();
     let o = opts(&[("exponent", "4")])?;
-    let keys = vkeys("0-emb");
+    let keys = vkeys("0-emb")?;
     let ix = f.create(&keys, &o, 32)?;
     assert_eq!(
         (ix.max_levels(), ix.ef_construction(), ix.ef_search()),
@@ -66,7 +66,7 @@ fn test_every_index_is_created_fresh() -> TestResult {
 #[test]
 fn test_the_factory_refuses_another_float_width() -> TestResult {
     let f = HnswFactory::<f32>::new();
-    let (keys, o) = (vkeys("0-emb"), opts(&[])?);
+    let (keys, o) = (vkeys("0-emb")?, opts(&[])?);
     for e in [
         f.create(&keys, &o, 64)
             .err()
@@ -90,7 +90,7 @@ fn test_the_factory_refuses_another_float_width() -> TestResult {
 fn test_an_option_below_one_is_refused() -> TestResult {
     let f = HnswFactory::<f32>::new();
     let err = f
-        .create(&vkeys("0-emb"), &opts(&[("efSearch", "0")])?, 32)
+        .create(&vkeys("0-emb")?, &opts(&[("efSearch", "0")])?, 32)
         .err()
         .context("the error of f .create(..)")?;
     assert!(

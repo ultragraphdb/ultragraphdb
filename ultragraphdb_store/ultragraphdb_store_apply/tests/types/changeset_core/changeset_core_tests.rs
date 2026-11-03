@@ -9,10 +9,10 @@
 
 use std::collections::BTreeSet;
 
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_mapping::{Change, Changeset, Declaration, PredicateDeclaration};
 use ultragraphdb_store_apply::{Applied, ChangesetErrorEnum, Executed};
 use ultragraphdb_store_posting::{PostingError, PostingErrorEnum};
-use ultragraphdb_store_quads::iri_key;
 use ultragraphdb_store_sim::OpRecord;
 use ultragraphdb_traits_store::Store;
 
@@ -51,7 +51,7 @@ fn test_an_execution_writes_nothing_and_reads_at_the_watermark() -> TestResult {
         "its deltas are in its writes"
     );
     assert_eq!(executed.reads().namespace(), NS);
-    assert_eq!(executed.reads().absent(), &[iri_key(NS, ex("b").as_str())]);
+    assert_eq!(executed.reads().absent(), &[created_id(&executed, "b")?]);
     assert_eq!(
         a.quads().lists().oldest_open_read(),
         None,
@@ -61,7 +61,7 @@ fn test_an_execution_writes_nothing_and_reads_at_the_watermark() -> TestResult {
 }
 
 /// Two executions from one watermark do not see each other: each inserts a statement neither found held, so both
-/// write it, and each gives a new IRI its own provisional UID.
+/// write it; a new IRI takes one ID, which the first creates and the second takes, so only the first found it absent.
 #[test]
 fn test_executions_from_one_watermark_do_not_see_each_other() -> TestResult {
     let a = changesets()?;
@@ -70,9 +70,9 @@ fn test_executions_from_one_watermark_do_not_see_each_other() -> TestResult {
     let second = execute(&a, "<a> <knows> <b>")?;
     assert_eq!(first.writes().deltas(), second.writes().deltas());
     assert!(!first.writes().deltas().is_empty());
-    let created = |e: &Executed| -> Vec<(String, u64)> {
+    let created = |e: &Executed| -> Vec<(String, SystemId)> {
         e.terms()
-            .created()
+            .written()
             .map(|(i, u)| (i.to_string(), u))
             .collect()
     };
@@ -80,14 +80,20 @@ fn test_executions_from_one_watermark_do_not_see_each_other() -> TestResult {
         execute(&a, "<n> <knows> <b>")?,
         execute(&a, "<n> <knows> <b>")?,
     );
-    assert_eq!(created(&one).len(), 1);
-    assert_eq!(created(&one)[0].0, ex("n").as_str());
-    assert_ne!(
-        created(&one)[0].1,
-        created(&two)[0].1,
-        "each takes its own provisional UID"
+    // <b>, created by the two executions above that never commit, is pending: both take it too.
+    let n = |e: &Executed| {
+        created(e)
+            .into_iter()
+            .find(|(i, _)| i == ex("n").as_str())
+            .map(|(_, id)| id)
+    };
+    let n_one = n(&one).context("the first names <n>")?;
+    assert_eq!(Some(n_one), n(&two), "both take the IRI's one ID");
+    assert_eq!(one.reads().absent(), &[n_one]);
+    assert!(
+        two.reads().absent().is_empty(),
+        "the second took the ID the first created"
     );
-    assert_eq!(one.reads().absent(), two.reads().absent());
     Ok(())
 }
 
@@ -170,14 +176,15 @@ fn test_a_round_writes_its_executions_at_their_versions_in_one_batch() -> TestRe
     Ok(())
 }
 
-/// A term new to an execution takes a provisional UID, which its commit confirms: the dictionary then holds it.
+/// A term new to an execution takes its ID while the execution runs, and its commit writes its dictionary entries: the
+/// dictionary then holds that ID.
 #[test]
-fn test_a_provisional_uid_is_confirmed_at_commit() -> TestResult {
+fn test_a_new_terms_id_is_fixed_before_its_commit() -> TestResult {
     let a = changesets()?;
     let executed = execute(&a, "<new> <p> <q>")?;
-    let provisional: Vec<(String, u64)> = executed
+    let provisional: Vec<(String, SystemId)> = executed
         .terms()
-        .created()
+        .written()
         .map(|(i, u)| (i.to_string(), u))
         .collect();
     let new_uid = provisional
@@ -185,7 +192,7 @@ fn test_a_provisional_uid_is_confirmed_at_commit() -> TestResult {
         .find(|(i, _)| i == ex("new").as_str())
         .context("<new> is created")?
         .1;
-    assert_eq!(a.quads().uid_of(NS, ex("new").as_str())?, None);
+    assert_eq!(a.quads().id_of(NS, ex("new").as_str())?, None);
     let version = a.quads().lists().next_version();
     let _applied: Vec<Applied> = a.apply_round(vec![(version, executed)])?;
     assert_eq!(uid(&a, "new")?, new_uid);
@@ -214,7 +221,7 @@ fn test_a_round_installs_the_catalogs_its_executions_leave() -> TestResult {
     assert_eq!(catalog.predicate(uid(&a, "tag")?), Some(&declared));
     drop(alias);
     assert_eq!(
-        a.quads().uid_of(NS, ex("alias").as_str())?,
+        a.quads().id_of(NS, ex("alias").as_str())?,
         None,
         "an execution never applied writes nothing"
     );
@@ -493,4 +500,14 @@ fn test_the_installed_catalog_is_the_stored_one_after_a_default_follows_a_declar
         ultragraphdb_core_catalog::Catalog::load(&snapshot, NS)?
     );
     Ok(())
+}
+
+/// The ID `<name>` took in `executed`, which created it or took it from a concurrent creator.
+fn created_id(executed: &Executed, name: &str) -> TestResult<SystemId> {
+    executed
+        .terms()
+        .written()
+        .find(|(term, _)| *term == ex(name).as_str())
+        .map(|(_, id)| id)
+        .context("the execution named the IRI first")
 }

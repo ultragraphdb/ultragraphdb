@@ -23,7 +23,8 @@ use std::ops::ControlFlow;
 use oxrdf::Term;
 use ultragraphdb_core_catalog::Catalog;
 use ultragraphdb_core_codec::Posting;
-use ultragraphdb_core_keys::{CountDirection, Keyspace, QuadKey};
+use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_keys::{CountDirection, Graph, Keyspace, QuadKey};
 use ultragraphdb_core_mapping::Declaration;
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_store_hnsw::{VectorKeys, add_dead_node, bytes_as_float_array, index_posting};
@@ -31,6 +32,7 @@ use ultragraphdb_store_posting::{
     CachedList, List, Lists, PostingError, PostingErrorEnum, Request, SET,
 };
 use ultragraphdb_store_quads::object_posting;
+use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_index::{KeyValue, Txn, VectorIndex};
 use ultragraphdb_traits_store::{Entry, Item, ListCache, Scan, Store, StoreSnapshot, Temporary};
 
@@ -49,10 +51,11 @@ use crate::utils::quad_prefixes::{
 };
 use crate::utils::vector_index::hnsw;
 
-impl<S, C> ChangesetCore<S, C>
+impl<S, C, B> ChangesetCore<S, C, B>
 where
     S: Store,
     C: ListCache<Value = CachedList>,
+    B: BlockSource,
 {
     /// Registers `rebuild`, whose change committed, and pauses rollups until it ends: its record's number.
     pub(super) fn begin(&self, rebuild: Rebuild) -> u64 {
@@ -68,7 +71,7 @@ where
     }
 
     /// Adds `touched`, the subjects whose vector a write under `running` changed, to the build.
-    pub(super) fn touch(&self, running: &Rebuild, touched: BTreeSet<(u64, u64)>) {
+    pub(super) fn touch(&self, running: &Rebuild, touched: BTreeSet<(Graph, SystemId)>) {
         if let Some(r) = lock(&self.rebuild)
             .as_mut()
             .filter(|r| r.record == running.record)
@@ -229,7 +232,7 @@ where
         })?;
         buffer.flush(store)?;
         tracing::debug!(
-            predicate,
+            predicate = ?predicate,
             postings = buffer.added(),
             postings_held = buffer.peak(),
             "indexes built into the temporary keyspace"
@@ -242,14 +245,14 @@ where
     fn build_from_forward(
         &self,
         rebuild: &Rebuild,
-        graph: u64,
+        graph: Graph,
         key: &[u8],
-        subject: u64,
+        subject: SystemId,
         buffer: &mut BuildBuffer<'_>,
     ) -> Result<(), ChangesetError> {
         let (plan, ns, predicate) = (&rebuild.plan, rebuild.namespace, rebuild.predicate);
         let objects = self.quads.objects(key, rebuild.start_ts)?;
-        for (object, _) in objects.iter().filter(|(o, _)| o.as_uid().is_none()) {
+        for (object, _) in objects.iter().filter(|(o, _)| o.as_id().is_none()) {
             if plan.build_tokenizers.is_empty() {
                 break;
             }
@@ -282,7 +285,7 @@ where
         rebuild: &Rebuild,
         snapshot: &S::Snapshot,
         reverse: &PredicatePrefix,
-        graph: u64,
+        graph: Graph,
         buffer: &mut BuildBuffer<'_>,
     ) -> Result<(), ChangesetError> {
         let store = self.quads.lists().store();
@@ -344,8 +347,8 @@ where
     fn insert_built(
         &self,
         index: &ultragraphdb_store_hnsw::PersistentHnsw<f32>,
-        txn: &OverlayTxn<'_, S, C>,
-        node: u64,
+        txn: &OverlayTxn<'_, S, C, B>,
+        node: SystemId,
         dead_when_absent: bool,
     ) -> Result<(), ChangesetError> {
         let keys = txn.keys().clone();
@@ -521,8 +524,8 @@ where
 }
 
 /// A subject's posting in a value-index or forward count list.
-fn ref_posting(uid: u64) -> Posting {
-    Posting::default().with_uid(uid).with_op(SET)
+fn ref_posting(uid: SystemId) -> Posting {
+    Posting::default().with_uid(uid.to_u128()).with_op(SET)
 }
 
 /// Every key `snapshot` holds under `prefixes`, in every graph.
@@ -621,7 +624,7 @@ fn complete_entries(
 }
 
 /// The count-index key of `count` lists in `direction` of the predicate `rebuild` builds, in `graph`.
-fn count_key(rebuild: &Rebuild, graph: u64, direction: CountDirection, count: usize) -> Vec<u8> {
+fn count_key(rebuild: &Rebuild, graph: Graph, direction: CountDirection, count: usize) -> Vec<u8> {
     QuadKey::CountIndex {
         namespace: rebuild.namespace,
         graph,

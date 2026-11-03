@@ -5,29 +5,33 @@
 
 use oxrdf::{GraphNameRef, NamedNodeRef, NamedOrBlankNodeRef, TermRef};
 use ultragraphdb_core_catalog::Catalog;
+use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_keys::Graph;
 use ultragraphdb_core_mapping::{Cardinality, PredicateDeclaration};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_store_quads::StatementRecord;
+use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{ListCache, Store};
 
 use crate::errors::changeset_error::ChangesetError;
 use crate::types::changeset_write::{ChangesetWrite, kind_of};
 
-/// The statement a change names, resolved: its graph, subject and predicate UIDs and its object's encoding.
+/// The statement a change names, resolved: its graph, its subject's and predicate's IDs and its object's encoding.
 pub(crate) struct Resolved {
-    pub graph: u64,
-    pub subject: u64,
-    pub predicate: u64,
+    pub graph: Graph,
+    pub subject: SystemId,
+    pub predicate: SystemId,
     pub object: EncodedTerm,
 }
 
-impl<S, C> ChangesetWrite<'_, S, C>
+impl<S, C, B> ChangesetWrite<'_, S, C, B>
 where
     S: Store,
     C: ListCache<Value = CachedList>,
+    B: BlockSource,
 {
-    /// The UIDs and encoding of a statement's terms; a literal that cannot be encoded is refused naming `predicate`.
+    /// The IDs and encoding of a statement's terms; a literal that cannot be encoded is refused naming `predicate`.
     pub(crate) fn resolve(
         &mut self,
         graph: GraphNameRef<'_>,
@@ -43,8 +47,8 @@ where
         })
     }
 
-    /// The UIDs and encoding of a statement's terms when the store holds every one, allocating none: a statement
-    /// naming a term it does not hold is not held.
+    /// The IDs and encoding of a statement's terms as a delete or a read resolves them: `None` when one names a blank
+    /// node the write did not name or an unheld skolem IRI, which no statement holds.
     pub(crate) fn find(
         &mut self,
         graph: GraphNameRef<'_>,
@@ -55,7 +59,7 @@ where
         let (Some(graph), Some(subject), Some(uid), Some(object)) = (
             self.find_graph(graph)?,
             self.find_term(predicate, subject.into())?
-                .and_then(|e| e.as_uid()),
+                .and_then(|e| e.as_id()),
             self.find_iri(predicate)?,
             self.find_term(predicate, object)?,
         ) else {
@@ -106,7 +110,7 @@ where
                 .into_iter()
                 .find(|h| *h != r.subject);
             if let Some(holder) = holder {
-                let holder = self.decode(&EncodedTerm::uid(holder))?;
+                let holder = self.decode(&EncodedTerm::id(holder))?;
                 let value = self.decode(&r.object)?;
                 return Err(ChangesetError::unique(
                     predicate.as_str(),
@@ -125,7 +129,7 @@ where
         &mut self,
         r: &Resolved,
         declaration: &PredicateDeclaration,
-    ) -> Result<Option<Vec<u64>>, ChangesetError> {
+    ) -> Result<Option<Vec<SystemId>>, ChangesetError> {
         if declaration.cardinality() != Cardinality::Single {
             return Ok(self
                 .write
@@ -149,7 +153,7 @@ where
         r: &Resolved,
         declaration: &PredicateDeclaration,
         object: TermRef<'_>,
-        statement_ids: &[u64],
+        statement_ids: &[SystemId],
     ) -> Result<(), ChangesetError> {
         let counts = if declaration.count_index() {
             Some(self.counts(r.graph, r.subject, r.predicate, &r.object)?)
@@ -187,9 +191,9 @@ where
     /// token no remaining literal of the subject's predicate produces. Whether it was held.
     pub(crate) fn remove(
         &mut self,
-        graph: u64,
-        subject: u64,
-        predicate: u64,
+        graph: Graph,
+        subject: SystemId,
+        predicate: SystemId,
         declaration: &PredicateDeclaration,
         object: &EncodedTerm,
     ) -> Result<bool, ChangesetError> {
@@ -274,7 +278,7 @@ where
         let (Some(graph), Some(subject), Some(uid)) = (
             self.find_graph(graph)?,
             self.find_term(predicate, subject.into())?
-                .and_then(|e| e.as_uid()),
+                .and_then(|e| e.as_id()),
             self.find_iri(predicate)?,
         ) else {
             return Ok(());

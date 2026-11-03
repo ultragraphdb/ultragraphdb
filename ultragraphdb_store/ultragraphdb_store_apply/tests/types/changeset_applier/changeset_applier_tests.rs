@@ -6,7 +6,7 @@
 use oxrdf::{GraphName, GraphNameRef};
 use ultragraphdb_core_catalog::CatalogErrorEnum;
 use ultragraphdb_core_keys::{DEFAULT_GRAPH, Keyspace, Region};
-use ultragraphdb_core_mapping::{Change, MappingErrorEnum, StatementId, StatementRef};
+use ultragraphdb_core_mapping::{Change, MappingErrorEnum, StatementRef};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_core_tok::TokErrorEnum;
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
@@ -171,7 +171,10 @@ fn test_a_refused_change_refuses_the_whole_changeset() -> TestResult {
         refused.to_string(),
         "Predicate <http://ex.org/knows> is declared an edge and cannot hold the literal \"Bob\""
     );
-    assert_eq!(a.quads().uid_of(NS, ex("a").as_str())?, None);
+    assert!(
+        crate::utils::changesets::holds_nothing(&a, "a")?,
+        "<a> holds nothing"
+    );
     Ok(())
 }
 
@@ -195,7 +198,71 @@ fn test_a_non_canonical_vector_is_refused_naming_its_predicate() -> TestResult {
         refused.to_string(),
         "Predicate <http://ex.org/embedding> cannot hold the literal: Invalid vector literal \"[0.50,-1.0]\": an element is no 32-bit float"
     );
-    assert_eq!(a.quads().uid_of(NS, ex("a").as_str())?, None);
+    // The refused changeset's terms are released: their entries name nothing that exists, and the IDs stay the ones a
+    // later write takes.
+    let released = uid(&a, "a")?;
+    assert!(objects(&a, "a", "embedding")?.is_empty());
+    write(&a, &["<a> <knows> <b>"])?;
+    assert_eq!(uid(&a, "a")?, released);
+    Ok(())
+}
+
+#[test]
+fn test_a_round_settles_the_ids_its_executions_created() -> TestResult {
+    let a = changesets()?;
+    let executed = a.execute(&crate::utils::changesets::changeset(vec![insert(
+        "<new> <p> <q>",
+    )?]))?;
+    let created = executed
+        .terms()
+        .written()
+        .find(|(t, _)| *t == ex("new").as_str())
+        .map(|(_, id)| id);
+    let version = a.quads().lists().next_version();
+    let _applied: Vec<ultragraphdb_store_apply::Applied> =
+        a.apply_round(vec![(version, executed)])?;
+    assert_eq!(Some(uid(&a, "new")?), created);
+    let later = a.execute(&crate::utils::changesets::changeset(vec![insert(
+        "<new> <p> <r>",
+    )?]))?;
+    assert!(
+        later
+            .terms()
+            .written()
+            .all(|(t, _)| t != ex("new").as_str()),
+        "the round settled <new>: a later execution finds it held"
+    );
+    assert!(!later.reads().absent().contains(&uid(&a, "new")?));
+    Ok(())
+}
+
+#[test]
+fn test_a_released_execution_writes_its_entries_and_holds_no_pending_id() -> TestResult {
+    let a = changesets()?;
+    let refused = a.execute(&crate::utils::changesets::changeset(vec![insert(
+        "<gone> <p> <q>",
+    )?]))?;
+    let created = refused
+        .terms()
+        .written()
+        .find(|(t, _)| *t == ex("gone").as_str())
+        .map(|(_, id)| id);
+    assert_eq!(
+        a.quads().id_of(NS, ex("gone").as_str())?,
+        None,
+        "nothing is written before the release"
+    );
+    a.release(&refused)?;
+    assert_eq!(
+        a.quads().id_of(NS, ex("gone").as_str())?,
+        created,
+        "its entries are written"
+    );
+    assert!(objects(&a, "gone", "p")?.is_empty(), "and nothing it wrote");
+    let later = a.execute(&crate::utils::changesets::changeset(vec![insert(
+        "<gone> <p> <q>",
+    )?]))?;
+    assert_eq!(later.terms().written().count(), 0, "held, not pending");
     Ok(())
 }
 
@@ -203,7 +270,10 @@ fn test_a_non_canonical_vector_is_refused_naming_its_predicate() -> TestResult {
 fn test_a_property_gives_a_held_statement_an_id_and_a_record() -> TestResult {
     let a = changesets()?;
     write_changes(&a, vec![insert("<a> <knows> <b>")?])?;
-    assert_eq!(postings(&a, "a", "knows")?[0].1, Vec::<u64>::new());
+    assert_eq!(
+        postings(&a, "a", "knows")?[0].1,
+        Vec::<ultragraphdb_core_ids::SystemId>::new()
+    );
     let t = statement("<a> <knows> <b>")?;
     write_changes(
         &a,
@@ -226,7 +296,7 @@ fn test_a_property_gives_a_held_statement_an_id_and_a_record() -> TestResult {
         .context("a record")?;
     assert_eq!(record.subject(), uid(&a, "a")?);
     assert_eq!(record.predicate(), uid(&a, "knows")?);
-    assert_eq!(record.object(), &EncodedTerm::uid(uid(&a, "b")?));
+    assert_eq!(record.object(), &EncodedTerm::id(uid(&a, "b")?));
     let (property, value) = match record.properties() {
         [one] => Ok(one),
         more => Err(format!("one property: {more:?}")),
@@ -257,7 +327,7 @@ fn test_a_repeated_edge_gives_both_statements_ids() -> TestResult {
             (
                 uid(&a, "a")?,
                 uid(&a, "knows")?,
-                &EncodedTerm::uid(uid(&a, "b")?)
+                &EncodedTerm::id(uid(&a, "b")?)
             )
         );
         assert!(record.properties().is_empty());
@@ -282,14 +352,16 @@ fn test_deleting_statements_removes_their_records_and_then_the_triple() -> TestR
         a.quads()
             .statement(NS, DEFAULT_GRAPH, id, a.quads().lists().applied_ts())
     };
-    let delete_id = |id| Change::DeleteStatement {
-        graph: GraphName::DefaultGraph,
-        id: StatementId::new(id),
+    let delete_id = |id| -> TestResult<Change> {
+        Ok(Change::DeleteStatement {
+            graph: GraphName::DefaultGraph,
+            reifier: oxrdf::NamedNode::new(a.quads().iri_of(NS, id)?.0)?,
+        })
     };
-    write_changes(&a, vec![delete_id(ids[0])])?;
+    write_changes(&a, vec![delete_id(ids[0])?])?;
     assert!(record(ids[0])?.is_none());
     assert_eq!(postings(&a, "a", "knows")?[0].1, vec![ids[1]]);
-    write_changes(&a, vec![delete_id(ids[1])])?;
+    write_changes(&a, vec![delete_id(ids[1])?])?;
     assert!(record(ids[1])?.is_none());
     assert!(objects(&a, "a", "knows")?.is_empty());
     Ok(())
@@ -339,10 +411,10 @@ fn test_a_term_is_kept_as_written() -> TestResult {
 }
 
 #[test]
-fn test_a_delete_of_terms_the_store_does_not_hold_writes_no_dictionary_entry() -> TestResult {
+fn test_a_delete_of_terms_the_store_does_not_hold_reads_nothing_and_records_them_absent()
+-> TestResult {
     let a = changesets()?;
     write_changes(&a, vec![insert("<a> <knows> <b>")?])?;
-    let before = a.quads().store().contents().versionless().clone();
     let applied = apply(
         &a,
         vec![
@@ -350,17 +422,22 @@ fn test_a_delete_of_terms_the_store_does_not_hold_writes_no_dictionary_entry() -
             crate::utils::changesets::delete_pattern("nobody", "knows"),
         ],
     )?;
-    // A statement naming an IRI the store does not hold is not held: nothing is read.
+    // A term the store does not hold takes its ID, which no list of the snapshot holds: nothing is read, and the
+    // terms are recorded absent by ID, so a commit writing a statement of one conflicts with the delete.
     assert!(applied.read().is_empty(), "{:?}", applied.read());
-    // A literal is encoded by content, so its delete reads the subject's list.
+    let mut absent = vec![uid(&a, "never")?, uid(&a, "nobody")?];
+    absent.sort();
+    assert_eq!(applied.reads().absent(), absent.as_slice());
+    assert!(objects(&a, "never", "knows")?.is_empty());
+    // A literal is encoded by content, so its delete reads the subject's list and changes nothing.
+    let before = a.quads().store().contents().keys().clone();
     write_changes(
         &a,
         vec![delete(
             r#"<a> <knows> "a long literal the store has never held""#,
         )?],
     )?;
-    assert_eq!(a.quads().store().contents().versionless(), &before);
-    assert_eq!(a.quads().uid_of(NS, ex("never").as_str())?, None);
+    assert_eq!(a.quads().store().contents().keys(), &before);
     assert_eq!(objects(&a, "a", "knows")?, vec![term("<b>")?]);
     Ok(())
 }
@@ -443,7 +520,10 @@ fn test_a_geometry_the_geo_index_cannot_cover_is_refused_with_the_tokenizer_s_er
         refused.to_string(),
         "Cannot index geometry of type *geom.LineString"
     );
-    assert_eq!(a.quads().uid_of(NS, ex("a").as_str())?, None);
+    assert!(
+        crate::utils::changesets::holds_nothing(&a, "a")?,
+        "<a> holds nothing"
+    );
     // The same predicate without the index holds the line.
     declare(&a, "where", "")?;
     write_changes(&a, vec![insert(line)?])?;

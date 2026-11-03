@@ -8,8 +8,8 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use ultragraphdb_core_ids::SystemId;
 use std::collections::HashSet;
+use ultragraphdb_core_ids::SystemId;
 
 use ultragraphdb_traits_index::SearchPathResult;
 

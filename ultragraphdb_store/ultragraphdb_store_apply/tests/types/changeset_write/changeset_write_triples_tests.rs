@@ -12,13 +12,12 @@ use oxrdf::{GraphName, NamedOrBlankNode};
 use ultragraphdb_core_keys::{CountDirection, DEFAULT_GRAPH, Keyspace, QuadKey};
 use ultragraphdb_core_mapping::Change;
 use ultragraphdb_store_apply::{Applied, ChangesetErrorEnum};
-use ultragraphdb_store_quads::{MAX_UID, QuadErrorEnum, UID_LEASE, lease_key};
-use ultragraphdb_traits_store::{PersistMode, Store, WriteBatch};
+use ultragraphdb_store_quads::QuadErrorEnum;
 
 use crate::utils::changesets::{
-    NS, apply, changesets, changesets_over, counts_of, declare, delete, ex, exact_token,
-    index_keys_holding, indexed, insert, keys_of, objects, objects_in, postings, predicate_list,
-    reverse, sim_store, statistics, stored_keys, term, term_token, uid, write, write_changes,
+    NS, apply, changesets, counts_of, declare, delete, ex, exact_token, index_keys_holding,
+    indexed, insert, keys_of, objects, objects_in, postings, predicate_list, reverse, sim_store,
+    statistics, stored_keys, term, term_token, uid, write, write_changes,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -315,35 +314,33 @@ fn test_an_object_of_the_wrong_kind_or_datatype_is_refused_with_its_text() -> Te
 }
 
 #[test]
-fn test_the_largest_uids_are_written_and_the_next_is_refused() -> TestResult {
-    let store = sim_store();
-    // The lease mark is the next UID to hand out: MAX_UID - 3 = 2^48 - 4.
-    let mut batch = WriteBatch::new();
-    batch.put_versionless(
-        lease_key(NS, UID_LEASE),
-        (MAX_UID - 3).to_be_bytes().to_vec(),
-    );
-    store.apply(batch, PersistMode::Sync)?;
-    let a = changesets_over(store)?;
+fn test_the_largest_sequences_are_written_and_the_next_is_refused() -> TestResult {
+    // One block of the Resource type, the last four sequences, 2^64 - 5 to 2^64 - 2, and then none.
+    let last = ultragraphdb_traits_blocks::SequenceBlock::new(u64::MAX - 4, u64::MAX)
+        .context("a block")?;
+    let source = crate::utils::changesets::blocks()
+        .with_blocks(ultragraphdb_core_ids::TypePrefix::RESOURCE, vec![last]);
+    let a = crate::utils::changesets::changesets_with(sim_store(), source, 1)?;
     // rdf:type, then <a>, <knows> and <b>, in the order the write resolves them.
     write_changes(&a, vec![insert("<a> <knows> <b>")?])?;
+    let sequence = |name: &str| -> TestResult<u64> { Ok(uid(&a, name)?.sequence().get()) };
     assert_eq!(
-        (uid(&a, "a")?, uid(&a, "knows")?, uid(&a, "b")?),
-        (MAX_UID - 2, MAX_UID - 1, MAX_UID)
+        (sequence("a")?, sequence("knows")?, sequence("b")?),
+        (u64::MAX - 3, u64::MAX - 2, u64::MAX - 1)
     );
-    assert_eq!(reverse(&a, "knows", "b")?, vec![MAX_UID - 2]);
+    assert_eq!(reverse(&a, "knows", "b")?, vec![uid(&a, "a")?]);
     assert_eq!(objects(&a, "a", "knows")?, vec![term("<b>")?]);
-    assert_eq!(predicate_list(&a, "b", true)?, vec![MAX_UID - 1]);
+    assert_eq!(predicate_list(&a, "b", true)?, vec![uid(&a, "knows")?]);
     let refused = apply(&a, vec![insert("<a> <knows> <c>")?])
         .err()
         .context("the error of apply(..)")?;
     assert!(
-        matches!(&refused.0, ChangesetErrorEnum::Quad(q) if matches!(q.0, QuadErrorEnum::UidsExhausted { namespace: NS })),
+        matches!(&refused.0, ChangesetErrorEnum::Quad(q) if matches!(q.0, QuadErrorEnum::NoSequence { prefix: 1 })),
         "{refused:?}"
     );
     assert_eq!(
         refused.to_string(),
-        "Namespace 0 has no UID left below the entity-type bits"
+        "No sequence of Resource is held, and the block source leased no block"
     );
     assert_eq!(objects(&a, "a", "knows")?, vec![term("<b>")?]);
     Ok(())
@@ -385,7 +382,7 @@ fn test_a_write_in_another_namespace_keeps_its_keys_and_catalog_there() -> TestR
     }
     let name = a
         .quads()
-        .uid_of(3, ex("name").as_str())?
+        .id_of(3, ex("name").as_str())?
         .context("<name> has a UID in namespace 3")?;
     a.forget_catalogs();
     assert_eq!(
@@ -449,8 +446,14 @@ fn test_a_unique_value_given_to_two_subjects_in_one_changeset_is_refused() -> Te
             },
             "{object}"
         );
-        assert_eq!(a.quads().uid_of(NS, ex("a").as_str())?, None);
-        assert_eq!(a.quads().uid_of(NS, ex("b").as_str())?, None);
+        assert!(
+            crate::utils::changesets::holds_nothing(&a, "a")?,
+            "<a> holds nothing"
+        );
+        assert!(
+            crate::utils::changesets::holds_nothing(&a, "b")?,
+            "<b> holds nothing"
+        );
         // One subject writing the value twice in a changeset is no conflict.
         write_changes(
             &a,
@@ -484,12 +487,12 @@ fn test_a_literal_object_keeps_its_reverse_entry() -> TestResult {
         object: literal,
     }
     .to_bytes();
-    let subjects = |store: &crate::utils::changesets::TestChangesets| -> TestResult<Vec<u64>> {
+    let subjects = |store: &crate::utils::changesets::TestChangesets| -> TestResult<Vec<ultragraphdb_core_ids::SystemId>> {
         Ok(store
             .quads()
             .objects(&key, store.quads().lists().applied_ts())?
             .iter()
-            .filter_map(|(o, _)| o.as_uid())
+            .filter_map(|(o, _)| o.as_id())
             .collect())
     };
     let mut both = vec![uid(&a, "a")?, uid(&a, "b")?];
@@ -498,6 +501,6 @@ fn test_a_literal_object_keeps_its_reverse_entry() -> TestResult {
     write_changes(&a, vec![delete(r#"<a> <name> "Ann""#)?])?;
     assert_eq!(subjects(&a)?, vec![uid(&a, "b")?]);
     write_changes(&a, vec![delete(r#"<b> <name> "Ann""#)?])?;
-    assert_eq!(subjects(&a)?, Vec::<u64>::new());
+    assert_eq!(subjects(&a)?, Vec::<ultragraphdb_core_ids::SystemId>::new());
     Ok(())
 }

@@ -9,31 +9,34 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::ops::ControlFlow;
 
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_terms::{EncodedTerm, TermView};
 use ultragraphdb_store_hnsw::{HnswError, VectorKeys};
 use ultragraphdb_store_posting::{CachedList, PostingError};
 use ultragraphdb_store_quads::QuadStore;
+use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{ListCache, Scan, Store, StoreSnapshot};
 
 /// The vector index's transaction while a build makes an index afresh: the index's lists in memory, its own writes
 /// alone, and each node's vector read from the store's forward lists at the build's timestamp. The lists the store
 /// holds for the index are not read: the build replaces them.
-pub(crate) struct OverlayTxn<'q, S, C> {
-    quads: &'q QuadStore<S, C>,
+pub(crate) struct OverlayTxn<'q, S, C, B> {
+    quads: &'q QuadStore<S, C, B>,
     keys: VectorKeys,
     read_ts: u64,
     // Interior mutability: the `Txn` methods take `&self`, and the build's writes land here.
     values: RefCell<BTreeMap<Vec<u8>, Vec<u8>>>,
 }
 
-impl<'q, S, C> OverlayTxn<'q, S, C>
+impl<'q, S, C, B> OverlayTxn<'q, S, C, B>
 where
     S: Store,
     C: ListCache<Value = CachedList>,
+    B: BlockSource,
 {
     /// The transaction of the index at `keys`, reading vectors at `read_ts`, holding `values` already.
     pub fn new(
-        quads: &'q QuadStore<S, C>,
+        quads: &'q QuadStore<S, C, B>,
         keys: VectorKeys,
         read_ts: u64,
         values: BTreeMap<Vec<u8>, Vec<u8>>,
@@ -78,12 +81,13 @@ where
             .ok_or_else(HnswError::no_value)
     }
 
-    /// The node of the first forward list under `prefix` whose vector passes `filter`, in key order.
+    /// The node of the first forward list under `prefix` whose vector passes `filter`, in key order; the absence of a
+    /// key when none passes, as the store's own transaction answers.
     pub(crate) fn first_passing(
         &self,
         prefix: &[u8],
         filter: impl Fn(&[u8]) -> bool,
-    ) -> Result<u64, HnswError> {
+    ) -> Result<Option<SystemId>, HnswError> {
         let lists = self.quads.lists();
         lists.gate(self.read_ts)?;
         let snapshot = lists
@@ -96,7 +100,7 @@ where
                 continue;
             };
             match self.value(item.key()) {
-                Ok(v) if filter(&v) => return Ok(node),
+                Ok(v) if filter(&v) => return Ok(Some(node)),
                 Ok(_) => {}
                 Err(e) if e.is_absence() => {}
                 Err(e) => return Err(e),
@@ -118,7 +122,7 @@ where
 fn elements(encoding: &[u8]) -> Option<Vec<u8>> {
     match EncodedTerm::from_bytes(encoding).ok()?.view().ok()? {
         TermView::Vector(v) => Some(v.as_bytes().to_vec()),
-        TermView::Uid(_)
+        TermView::Id(_)
         | TermView::Boolean(_)
         | TermView::Integer(_)
         | TermView::Decimal(_)

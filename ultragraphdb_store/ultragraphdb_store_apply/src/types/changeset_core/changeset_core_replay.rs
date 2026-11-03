@@ -13,6 +13,7 @@ use ultragraphdb_core_codec::PostingList;
 use ultragraphdb_core_keys::{Keyspace, QuadKey};
 use ultragraphdb_core_mapping::Declaration;
 use ultragraphdb_store_posting::{BIT_DELTA_POSTING, CachedList, Writes};
+use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{Entry, ListCache, Store, VersionlessEntry};
 
 use crate::errors::changeset_error::ChangesetError;
@@ -38,10 +39,11 @@ fn entry(key: &[u8], value: Option<&[u8]>, put: impl Fn(Vec<u8>, Vec<u8>) -> Ent
     }
 }
 
-impl<S, C> ChangesetCore<S, C>
+impl<S, C, B> ChangesetCore<S, C, B>
 where
     S: Store,
     C: ListCache<Value = CachedList>,
+    B: BlockSource,
 {
     /// The execution of `namespace` writing `record`'s writes, as [`crate::ChangesetApplier::prepare_replay`] makes
     /// it: at the watermark, reading nothing.
@@ -121,7 +123,7 @@ where
         key: &[u8],
         value: &[u8],
     ) -> Result<bool, ChangesetError> {
-        let (Ok((QuadKey::Catalog { uid, .. }, _)), Declaration::Predicate(recorded)) =
+        let (Ok((QuadKey::Catalog { id: uid, .. }, _)), Declaration::Predicate(recorded)) =
             (QuadKey::parse(key), decode_declaration(key, value)?)
         else {
             return Ok(false);
