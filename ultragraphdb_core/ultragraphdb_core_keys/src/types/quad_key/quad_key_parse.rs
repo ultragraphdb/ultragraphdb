@@ -4,17 +4,22 @@
  */
 
 use ultragraphdb_core_ids::SystemId;
-use ultragraphdb_core_terms::{EncodedTerm, TermErrorEnum};
+use ultragraphdb_core_terms::{EncodedTerm, Hash128, TermErrorEnum};
 
 use crate::errors::quad_key_error::QuadKeyError;
 use crate::types::count_direction::CountDirection;
+use crate::types::dictionary_entry::DictionaryEntry;
 use crate::types::graph::Graph;
 use crate::types::keyspace::Keyspace;
 use crate::types::quad_key::{GROUP_MAX, QuadKey};
 use crate::types::split_start::SplitStart;
 
-/// The length of a fingerprint start.
-const FINGERPRINT_LEN: usize = 8;
+/// The kind byte of a split start that is a fingerprint.
+pub(crate) const START_FINGERPRINT: u8 = 0x01;
+/// The kind byte of a split start that is an ID.
+pub(crate) const START_ID: u8 = 0x02;
+/// The length of a split start that is an ID, its kind byte included.
+const ID_START_LEN: usize = 1 + SystemId::BYTES;
 
 /// The fields of a key being read, front to back: `key` is the whole key, for the errors, and `fields` the part of it
 /// a key's fields are read from, of which `at` bytes are read.
@@ -87,6 +92,13 @@ impl<'a> Reader<'a> {
         })?;
         if term.is_vector() {
             return Err(QuadKeyError::vector_object(self.key));
+        }
+        // An IRI or a blank node is named by its ID, which must name an entity.
+        if !term.is_literal() {
+            let id = term.as_bytes().get(1..).unwrap_or_default();
+            if let Err(error) = SystemId::decode(id) {
+                return Err(QuadKeyError::invalid_id(self.key, "object", error));
+            }
         }
         debug_assert!(after.len() < rest.len(), "an object takes at least its tag");
         self.at = self.fields.len() - after.len();
@@ -167,6 +179,7 @@ impl<'a> Reader<'a> {
                 namespace,
                 entity: self.id("entity")?,
             }),
+            Keyspace::Dictionary => self.dictionary(namespace),
         }
     }
 
@@ -190,6 +203,17 @@ impl<'a> Reader<'a> {
         })
     }
 
+    /// A dictionary key's fields: its kind byte, then a term's hash, an ID or a literal's hash.
+    fn dictionary(&mut self, namespace: u64) -> Result<QuadKey, QuadKeyError> {
+        let entry = match self.u8()? {
+            0x01 => DictionaryEntry::Term(Hash128::from_bytes(self.array::<16>()?)),
+            0x02 => DictionaryEntry::Id(self.id("ID")?),
+            0x03 => DictionaryEntry::Literal(Hash128::from_bytes(self.array::<16>()?)),
+            kind => return Err(QuadKeyError::unknown_kind(self.key, kind)),
+        };
+        Ok(QuadKey::Dictionary { namespace, entry })
+    }
+
     fn vector_index(&mut self, namespace: u64) -> Result<QuadKey, QuadKeyError> {
         Ok(QuadKey::VectorIndex {
             namespace,
@@ -200,14 +224,18 @@ impl<'a> Reader<'a> {
         })
     }
 
-    /// The split start after the fields: 16 bytes an ID, 8 a fingerprint.
+    /// The split start after the fields: its kind byte, then 8 bytes of a fingerprint or 16 of an ID.
     fn split_start(&mut self) -> Result<SplitStart, QuadKeyError> {
-        match self.remaining().len() {
-            SystemId::BYTES => Ok(SplitStart::Id(self.id("split start")?)),
-            FINGERPRINT_LEN => Ok(SplitStart::Fingerprint(self.u64()?)),
-            len if len > SystemId::BYTES => Err(QuadKeyError::trailing_bytes(self.key)),
-            _ => Err(QuadKeyError::truncated(self.key)),
-        }
+        let start = match self.u8()? {
+            START_FINGERPRINT => SplitStart::Fingerprint(self.u64()?),
+            START_ID => SplitStart::Id(self.id("split start")?),
+            kind => return Err(QuadKeyError::unknown_kind(self.key, kind)),
+        };
+        debug_assert!(
+            self.at <= self.fields.len(),
+            "a start is read within the key"
+        );
+        Ok(start)
     }
 
     fn done(&self) -> Result<(), QuadKeyError> {
@@ -225,18 +253,19 @@ impl<'a> Reader<'a> {
 
 impl QuadKey {
     /// The fields of `key`, and the start of the part when it is a split key: what follows a split key's fields is
-    /// its start, 16 bytes an ID and 8 a fingerprint, and a value-index key's start is the last 16 bytes. Nothing it
-    /// is given makes it panic.
+    /// its start's kind byte and the start, kind 1 and 8 bytes of a fingerprint or kind 2 and 16 of an ID, and a
+    /// value-index key's start is its last 17 bytes, always an ID. Nothing it is given makes it panic.
     ///
     /// # Errors
     ///
     /// Each names the key's bytes: [`QuadKeyError::truncated`] when it ends early, [`QuadKeyError::trailing_bytes`]
-    /// when it runs on past its fields or a split start is neither 8 nor 16 bytes, [`QuadKeyError::unknown_keyspace`]
-    /// for an unknown keyspace byte or the split flag on a keyspace without lists, [`QuadKeyError::invalid_id`] for an
-    /// ID that is not a valid system ID (the default graph's 16 zero bytes excepted),
-    /// [`QuadKeyError::unknown_direction`], [`QuadKeyError::bad_object`] and [`QuadKeyError::vector_object`] for a
-    /// count key's direction and an object it cannot take, and [`QuadKeyError::group_range`] for a mark's group of
-    /// 2^18 or more.
+    /// when it runs on past its fields or its split start, [`QuadKeyError::unknown_keyspace`] for an unknown keyspace
+    /// byte or the split flag on a keyspace without lists, [`QuadKeyError::invalid_id`] for an ID that is not a valid
+    /// system ID (the default graph's 16 zero bytes excepted), [`QuadKeyError::unknown_direction`],
+    /// [`QuadKeyError::bad_object`] and [`QuadKeyError::vector_object`] for a count key's direction and an object it
+    /// cannot take, [`QuadKeyError::group_range`] for a mark's group of 2^18 or more,
+    /// [`QuadKeyError::fingerprint_start`] for a value-index key split at a fingerprint, and
+    /// [`QuadKeyError::unknown_kind`] for a split start's or a dictionary key's kind byte the layout does not define.
     pub fn parse(key: &[u8]) -> Result<(QuadKey, Option<SplitStart>), QuadKeyError> {
         let first = *key.first().ok_or_else(|| QuadKeyError::truncated(key))?;
         let (keyspace, split) =
@@ -244,11 +273,12 @@ impl QuadKey {
         if split && !keyspace.is_list() {
             return Err(QuadKeyError::unknown_keyspace(key));
         }
-        // A value-index key's token runs to its end, so a split one's start is its last 16 bytes, read apart.
+        // A value-index key's token runs to its end, so a split one's start, always an ID, is its last 17 bytes: the
+        // kind byte and the ID, read apart.
         let (fields, id_start) = if split && keyspace == Keyspace::ValueIndex {
             let at = key
                 .len()
-                .checked_sub(SystemId::BYTES)
+                .checked_sub(ID_START_LEN)
                 .ok_or_else(|| QuadKeyError::truncated(key))?;
             let (fields, start) = key
                 .split_at_checked(at)
@@ -262,11 +292,7 @@ impl QuadKey {
         let parsed = reader.fields(keyspace, namespace)?;
         let start = match (split, id_start) {
             (false, _) => None,
-            (true, Some(start)) => {
-                Some(SplitStart::Id(SystemId::decode(start).map_err(|e| {
-                    QuadKeyError::invalid_id(key, "split start", e)
-                })?))
-            }
+            (true, Some(start)) => Some(value_index_start(key, start)?),
             (true, None) => Some(reader.split_start()?),
         };
         reader.done()?;
@@ -276,5 +302,22 @@ impl QuadKey {
             "a key parses into its keyspace"
         );
         Ok((parsed, start))
+    }
+}
+
+/// A split value-index key's start, `start`, its last 17 bytes: the ID kind byte and the ID.
+fn value_index_start(key: &[u8], start: &[u8]) -> Result<SplitStart, QuadKeyError> {
+    debug_assert_eq!(
+        start.len(),
+        ID_START_LEN,
+        "the start is the key's last 17 bytes"
+    );
+    match start.split_first() {
+        Some((&START_ID, id)) => SystemId::decode(id)
+            .map(SplitStart::Id)
+            .map_err(|e| QuadKeyError::invalid_id(key, "split start", e)),
+        Some((&START_FINGERPRINT, _)) => Err(QuadKeyError::fingerprint_start(key)),
+        Some((&kind, _)) => Err(QuadKeyError::unknown_kind(key, kind)),
+        None => Err(QuadKeyError::truncated(key)),
     }
 }

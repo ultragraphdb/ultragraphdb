@@ -3,7 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_core_keys::{Keyspace, QuadKey, key_prefix};
+use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_keys::{Graph, Keyspace, QuadKey, key_prefix};
 use ultragraphdb_core_tok::{VEC_DEAD, VEC_ENTRY, VEC_KEYWORD};
 
 /// The vector-index list kind of the entry point.
@@ -13,24 +14,22 @@ pub const NEIGHBOUR_LIST: u8 = 1;
 /// The vector-index list kind of the dead nodes.
 pub const DEAD_LIST: u8 = 2;
 
-/// The node the entry point's and the dead list's keys name, which hold one value each for the whole index.
-const INDEX_NODE: u64 = 1;
-
 /// Where the HNSW index of one predicate in one graph of a namespace keeps its lists and reads its vectors, by the quad
 /// keys: each node's vector in the predicate's forward list of the node; its neighbour lists, the entry point and the
-/// dead nodes in the vector-index keyspace under the graph and predicate. `name` labels the values an insert writes,
+/// dead nodes in the vector-index keyspace under the graph and predicate, the entry point and the dead list under the
+/// predicate's own ID, which their list kinds keep apart from a node's neighbour lists. `name` labels the values an insert writes,
 /// as Dgraph's attributes `<name>__vector_`, `<name>__vector_entry` and `<name>__vector_dead` named its lists.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct VectorKeys {
     name: String,
     namespace: u64,
-    graph: u64,
-    predicate: u64,
+    graph: Graph,
+    predicate: SystemId,
 }
 
 impl VectorKeys {
     /// The keys of the vector index `name` of `predicate` in `graph` of `namespace`.
-    pub fn new(name: impl Into<String>, namespace: u64, graph: u64, predicate: u64) -> Self {
+    pub fn new(name: impl Into<String>, namespace: u64, graph: Graph, predicate: SystemId) -> Self {
         Self {
             name: name.into(),
             namespace,
@@ -50,17 +49,17 @@ impl VectorKeys {
     }
 
     /// The graph the index belongs to.
-    pub fn graph(&self) -> u64 {
+    pub fn graph(&self) -> Graph {
         self.graph
     }
 
     /// The predicate the index indexes.
-    pub fn predicate(&self) -> u64 {
+    pub fn predicate(&self) -> SystemId {
         self.predicate
     }
 
     /// The forward list of `node`, which holds its vector.
-    pub fn vector(&self, node: u64) -> Vec<u8> {
+    pub fn vector(&self, node: SystemId) -> Vec<u8> {
         QuadKey::Forward {
             namespace: self.namespace,
             graph: self.graph,
@@ -82,18 +81,18 @@ impl VectorKeys {
     }
 
     /// The key of `node`'s neighbour lists, every level's in one matrix.
-    pub fn neighbours(&self, node: u64) -> Vec<u8> {
+    pub fn neighbours(&self, node: SystemId) -> Vec<u8> {
         self.list(NEIGHBOUR_LIST, node)
     }
 
-    /// The key of the entry point, the 8 big-endian bytes of its node's UID.
+    /// The key of the entry point, the 16 big-endian bytes of its node's system ID, under the predicate's ID.
     pub fn entry(&self) -> Vec<u8> {
-        self.list(ENTRY_LIST, INDEX_NODE)
+        unimplemented!()
     }
 
-    /// The key of the dead nodes, a JSON array of UIDs.
+    /// The key of the dead nodes, a JSON array of their IDs, under the predicate's ID.
     pub fn dead(&self) -> Vec<u8> {
-        self.list(DEAD_LIST, INDEX_NODE)
+        unimplemented!()
     }
 
     /// The label of the neighbour lists' values, `<name>__vector_`.
@@ -112,24 +111,11 @@ impl VectorKeys {
     }
 
     /// The node `key` names, when it is a node's forward list of the index's predicate.
-    pub fn node_of(&self, key: &[u8]) -> Option<u64> {
-        match QuadKey::parse(key) {
-            Ok((
-                QuadKey::Forward {
-                    namespace,
-                    graph,
-                    predicate,
-                    subject,
-                },
-                None,
-            )) if (namespace, graph, predicate) == (self.namespace, self.graph, self.predicate) => {
-                Some(subject)
-            }
-            _ => None,
-        }
+    pub fn node_of(&self, key: &[u8]) -> Option<SystemId> {
+        unimplemented!()
     }
 
-    fn list(&self, list: u8, node: u64) -> Vec<u8> {
+    fn list(&self, list: u8, node: SystemId) -> Vec<u8> {
         QuadKey::VectorIndex {
             namespace: self.namespace,
             graph: self.graph,

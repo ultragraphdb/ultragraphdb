@@ -52,10 +52,11 @@ impl List {
 ///
 /// # Errors
 ///
-/// The codec's error for uid bytes that are not uvarint deltas, where Dgraph panics or never returns.
+/// The codec's error for IDs out of order or bytes that are not LEB128 deltas of valid IDs, where Dgraph panics or
+/// never returns.
 pub fn from_backup_posting_list(bl: &BackupPostingList) -> Result<PostingList, PostingError> {
     let pack = if !bl.uids().is_empty() {
-        encode(bl.uids(), BLOCK_SIZE)
+        encode(bl.uids(), BLOCK_SIZE).map_err(|e| PostingError::corrupted(b"", e.to_string()))?
     } else if !bl.uid_bytes().is_empty() {
         encode_from_buffer(bl.uid_bytes(), BLOCK_SIZE)
             .map_err(|e| PostingError::corrupted(b"", e.to_string()))?

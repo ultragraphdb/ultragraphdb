@@ -53,6 +53,8 @@ pub(crate) struct Built {
 #[derive(Debug)]
 pub(crate) struct ChangesetCore<S, C> {
     quads: QuadStore<S, C>,
+    // Locked state: executions, rounds and the builds on the executor reach the core at once; the flag only ever
+    // turns on.
     catalogs: Mutex<BTreeMap<u64, Arc<Catalog>>>,
     apply: Mutex<()>,
     rebuild: Mutex<Option<Rebuild>>,

@@ -6,11 +6,12 @@
 use crate::errors::quad_key_error::QuadKeyError;
 use crate::types::keyspace::{Keyspace, SPLIT_FLAG};
 use crate::types::quad_key::QuadKey;
+use crate::types::quad_key::quad_key_parse::{START_FINGERPRINT, START_ID};
 use crate::types::split_start::SplitStart;
 
 impl QuadKey {
-    /// The key of the part of this key's split list that starts at `start`: the key with the split flag set and the
-    /// start appended, an ID as its 16 big-endian bytes or a fingerprint as 8.
+    /// The key of the part of this key's split list that starts at `start`: the key with the split flag set, then the
+    /// start's kind byte and the start, kind 1 and a fingerprint's 8 big-endian bytes or kind 2 and an ID's 16.
     ///
     /// # Errors
     ///
@@ -27,12 +28,16 @@ impl QuadKey {
             *first |= SPLIT_FLAG;
         }
         match start {
-            SplitStart::Id(id) => key.extend_from_slice(&id.to_be_bytes()),
+            SplitStart::Id(id) => {
+                key.push(START_ID);
+                key.extend_from_slice(&id.to_be_bytes());
+            }
             SplitStart::Fingerprint(_) if keyspace == Keyspace::ValueIndex => {
                 return Err(QuadKeyError::fingerprint_start(&self.to_bytes()));
             }
             SplitStart::Fingerprint(fingerprint) => {
-                key.extend_from_slice(&fingerprint.to_be_bytes())
+                key.push(START_FINGERPRINT);
+                key.extend_from_slice(&fingerprint.to_be_bytes());
             }
         }
         debug_assert!(

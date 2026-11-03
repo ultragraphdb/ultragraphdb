@@ -4,4 +4,6 @@
  */
 
 #[cfg(test)]
+pub mod helpers;
+#[cfg(test)]
 mod option_parser_tests;

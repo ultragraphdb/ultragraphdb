@@ -7,6 +7,8 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+use ultragraphdb_core_ids::SystemId;
+
 /// The local cache of a persistent store.
 pub trait LocalCache {
     /// Why a read failed.
@@ -18,6 +20,11 @@ pub trait LocalCache {
     /// The value under `key`, with the key's lock held.
     fn get_with_lock_held(&self, key: &[u8]) -> Result<Vec<u8>, Self::Error>;
 
-    /// The first uid under `prefix` whose value passes `filter`.
-    fn find(&self, prefix: &[u8], filter: impl Fn(&[u8]) -> bool) -> Result<u64, Self::Error>;
+    /// The ID of the first entry under `prefix`, in key order, whose value passes `filter`; `None` when none passes,
+    /// where Dgraph returns the uid 0.
+    fn find(
+        &self,
+        prefix: &[u8],
+        filter: impl Fn(&[u8]) -> bool,
+    ) -> Result<Option<SystemId>, Self::Error>;
 }

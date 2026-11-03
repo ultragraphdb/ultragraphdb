@@ -23,10 +23,6 @@ fn test_placement_texts_name_the_values() {
             "the bucket range 7..3 is empty or reaches past bucket 16777215",
         ),
         (
-            ClusterError::bucket_group_range(262_144),
-            "bucket group 262144 does not fit in 18 bits; the largest is 262143",
-        ),
-        (
             ClusterError::unassigned(100),
             "the change leaves bucket 100 assigned to no partition",
         ),

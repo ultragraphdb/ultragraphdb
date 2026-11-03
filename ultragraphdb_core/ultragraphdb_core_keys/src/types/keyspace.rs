@@ -31,6 +31,8 @@ pub enum Keyspace {
     Marks,
     /// An entity's referrer set, at its home: entity.
     Referrers,
+    /// A dictionary entry, in the keyspace without versions: a kind, then a term's 128-bit hash or an ID.
+    Dictionary,
 }
 
 /// The flag on the keyspace byte of a part of a split list.
@@ -53,6 +55,7 @@ impl Keyspace {
             Keyspace::Statistics => 0x18,
             Keyspace::Marks => 0x19,
             Keyspace::Referrers => 0x1A,
+            Keyspace::Dictionary => 0x1B,
         }
     }
 
@@ -72,6 +75,7 @@ impl Keyspace {
             0x18 => Keyspace::Statistics,
             0x19 => Keyspace::Marks,
             0x1A => Keyspace::Referrers,
+            0x1B => Keyspace::Dictionary,
             _ => return None,
         };
         debug_assert_eq!(
@@ -104,13 +108,13 @@ impl Keyspace {
         self.is_list() && self != Keyspace::VectorIndex
     }
 
-    /// Whether its keys name a graph after the namespace: every keyspace but the catalog's, the marks' and the
-    /// referrers'.
+    /// Whether its keys name a graph after the namespace: every keyspace but the catalog's, the marks', the
+    /// referrers' and the dictionary's.
     #[must_use]
     pub fn has_graph(self) -> bool {
         !matches!(
             self,
-            Keyspace::Catalog | Keyspace::Marks | Keyspace::Referrers
+            Keyspace::Catalog | Keyspace::Marks | Keyspace::Referrers | Keyspace::Dictionary
         )
     }
 

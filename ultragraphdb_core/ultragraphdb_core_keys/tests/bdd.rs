@@ -49,11 +49,11 @@ fn forward(subject: SystemId) -> TestResult<QuadKey> {
 }
 
 fn encode_literal(literal: &Literal) -> TestResult<EncodedTerm> {
-    Ok(
-        EncodedTerm::literal(literal.as_ref(), |_| Ok::<_, TermError>(1))
-            .context("encodes")?
-            .into_term(),
-    )
+    Ok(EncodedTerm::literal(literal.as_ref(), |_| {
+        Err::<SystemId, _>(TermError::malformed(Vec::new(), "no datatype ID is needed"))
+    })
+    .context("encodes")?
+    .into_term())
 }
 
 fn hex(bytes: &[u8]) -> String {

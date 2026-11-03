@@ -7,17 +7,19 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use ultragraphdb_core_codec::{Posting, PostingList, UidPack, encode};
+use ultragraphdb_core_codec::{Posting, PostingList, UidPack};
 use ultragraphdb_store_posting::{
     BLOCK_SIZE, DEL, OVR, SET, delete_all_posting, has_delete_all, is_plist_empty, length_delta,
 };
-use ultragraphdb_tool_bdd::{Context, TestResult};
+use ultragraphdb_tool_bdd::TestResult;
+
+use crate::utils::helpers::{ids, pack_of, rid};
 
 #[test]
 fn test_delete_all_and_lengths() -> TestResult {
     let all = delete_all_posting();
     assert!(has_delete_all(&all));
-    assert_eq!(all.uid(), u64::MAX);
+    assert_eq!(all.uid(), u128::from(u64::MAX));
     let tagged = all.clone().with_lang_tag(b"en".to_vec());
     assert!(!has_delete_all(&tagged));
     assert_eq!(
@@ -31,26 +33,27 @@ fn test_delete_all_and_lengths() -> TestResult {
 fn test_an_empty_list_has_no_uids_and_no_splits() -> TestResult {
     assert!(is_plist_empty(&PostingList::default()));
     assert!(!is_plist_empty(
-        &PostingList::default().with_splits(vec![1])
+        &PostingList::default().with_splits(vec![0])
     ));
     assert!(!is_plist_empty(
-        &PostingList::default().with_pack(encode(&[1], BLOCK_SIZE).context("the uids pack")?)
+        &PostingList::default().with_pack(pack_of(&ids(&[1])?, BLOCK_SIZE)?)
     ));
     Ok(())
 }
 
 #[test]
 fn test_a_delete_all_is_a_delete_of_star_all_whatever_its_uid() -> TestResult {
-    // Dgraph's createDeleteAllPosting: Op DEL, Value "_STAR_ALL", Uid math.MaxUint64, nothing else.
+    // Dgraph's createDeleteAllPosting: Op DEL, Value "_STAR_ALL", Uid math.MaxUint64 (here the largest fingerprint),
+    // nothing else.
     let all = delete_all_posting();
     assert_eq!(
         all,
         Posting::default()
             .with_op(DEL)
             .with_value(b"_STAR_ALL".to_vec())
-            .with_uid(u64::MAX)
+            .with_uid(u128::from(u64::MAX))
     );
-    assert!(has_delete_all(&all.clone().with_uid(7)));
+    assert!(has_delete_all(&all.clone().with_uid(rid(7))));
     assert!(!has_delete_all(&all.clone().with_op(SET)));
     assert!(!has_delete_all(&all.clone().with_op(OVR)));
     assert!(!has_delete_all(
@@ -70,8 +73,13 @@ fn test_an_operation_of_no_kind_adds_nothing_to_a_length() -> TestResult {
 }
 
 #[test]
-fn test_a_pack_without_blocks_is_empty() -> TestResult {
+fn test_a_pack_without_blocks_is_empty_unless_a_value_is_kept_beside_it() -> TestResult {
     assert!(is_plist_empty(
+        &PostingList::default().with_pack(UidPack::default())
+    ));
+    // A value's posting lives beside the pack alone, never in it, so a list holding one is not empty, where Dgraph's
+    // isPlistEmpty looks at the pack alone.
+    assert!(!is_plist_empty(
         &PostingList::default()
             .with_pack(UidPack::default())
             .with_postings(vec![Posting::default()])

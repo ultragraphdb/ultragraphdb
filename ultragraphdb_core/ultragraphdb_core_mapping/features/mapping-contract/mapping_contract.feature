@@ -44,6 +44,10 @@ Feature: The mapping contract
     When _:x <knows> <b> is written through the RDF view and read back through it
     Then the subject is presented as a blank node, the same blank node for every statement that named _:x
 
+  Scenario: A property-graph node is named without its ID
+    When a node is created through the property-graph view without an IRI
+    Then it is named by a skolem IRI whose text holds its bucket and 26 random hexadecimal digits, and no sequence or type prefix of its system ID
+
   Scenario: A non-canonical integer keeps its lexical form
     When <a> <n> "01"^^xsd:integer is written
     Then the RDF view returns "01"^^xsd:integer, a term distinct from "1"^^xsd:integer

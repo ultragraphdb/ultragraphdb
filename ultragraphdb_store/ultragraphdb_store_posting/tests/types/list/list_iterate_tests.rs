@@ -11,25 +11,26 @@ use std::ops::ControlFlow;
 use ultragraphdb_tool_bdd::TestResult;
 
 use ultragraphdb_core_codec::PostingList;
-use ultragraphdb_core_keys::QuadKey;
+use ultragraphdb_core_keys::{Graph, QuadKey};
 use ultragraphdb_store_posting::{List, ListOptions, PostingError, PostingErrorEnum};
 
 use crate::utils::helpers::{
-    Failure, add, del_uid, delete_all, key, new_store, roll_up, set_uid, uids, with_facet,
+    Failure, add, del_uid, delete_all, id, key, new_store, rid, rids, roll_up, set_uid, uids,
+    with_facet,
 };
 
 /// The forward key of predicate 7 for subject 1 in the default graph of the root namespace.
-fn known_key() -> Vec<u8> {
-    QuadKey::Forward {
+fn known_key() -> TestResult<Vec<u8>> {
+    Ok(QuadKey::Forward {
         namespace: 0,
-        graph: 0,
-        predicate: 7,
-        subject: 1,
+        graph: Graph::Default,
+        predicate: id(7)?,
+        subject: id(1)?,
     }
-    .to_bytes()
+    .to_bytes())
 }
 
-fn facets(list: &List, read_ts: u64) -> TestResult<Vec<(u64, String)>> {
+fn facets(list: &List, read_ts: u64) -> TestResult<Vec<(u128, String)>> {
     let mut out = Vec::new();
     list.iterate(read_ts, 0, |p| {
         out.push((
@@ -52,9 +53,9 @@ fn test_an_empty_list_reads_empty_everywhere() -> TestResult {
         assert_eq!(l.length(read_ts, 0), 0);
         assert!(l.is_empty(read_ts, 0)?);
         assert_eq!(l.get_length(read_ts)?, 0);
-        assert_eq!(l.find_posting(read_ts, 1)?, None);
+        assert_eq!(l.find_posting(read_ts, rid(1))?, None);
         assert!(l.static_value(read_ts).is_none());
-        assert!(l.uids(&ListOptions::at(read_ts))?.uids().is_empty());
+        assert!(l.uids(&ListOptions::at(read_ts))?.ids().is_empty());
         assert_eq!(l.pick_postings(read_ts), (0, Vec::new()));
     }
     assert_eq!(l.approx_len(), 0);
@@ -67,10 +68,10 @@ fn test_one_posting_is_read_from_its_commit_on() -> TestResult {
     add(&mut l, 4, &set_uid(9));
     l.commit_mutation(5);
     assert!(uids(&l, 4, 0)?.is_empty(), "not visible below its commit");
-    assert_eq!(uids(&l, 5, 0)?, vec![9]);
-    assert_eq!(uids(&l, 5, 8)?, vec![9]);
+    assert_eq!(uids(&l, 5, 0)?, rids(&[9]));
+    assert_eq!(uids(&l, 5, rid(8))?, rids(&[9]));
     assert!(
-        uids(&l, 5, 9)?.is_empty(),
+        uids(&l, 5, rid(9))?.is_empty(),
         "the after-uid itself is excluded"
     );
     assert_eq!((l.length(5, 0), l.get_length(5)?), (1, 1));
@@ -80,7 +81,7 @@ fn test_one_posting_is_read_from_its_commit_on() -> TestResult {
 
 #[test]
 fn test_a_read_at_the_complete_version_goes_ahead_and_one_below_is_refused() -> TestResult {
-    let l = List::new(known_key(), PostingList::default(), 5);
+    let l = List::new(known_key()?, PostingList::default(), 5);
     assert!(uids(&l, 5, 0)?.is_empty());
     let error = l
         .iterate(4, 0, |_| Ok::<_, PostingError>(ControlFlow::Continue(())))
@@ -90,20 +91,21 @@ fn test_a_read_at_the_complete_version_goes_ahead_and_one_below_is_refused() -> 
         PostingErrorEnum::ReadBelowMinTs {
             read_ts: 4,
             min_ts: 5,
-            key: known_key()
+            key: known_key()?
         }
     );
-    // Go 1.27 probe: errors.Errorf("readTs: %d less than minTs: %d for key: %q", 4, 5, key) over the same key.
+    // Go's errors.Errorf("readTs: %d less than minTs: %d for key: %q", 4, 5, key): %q quotes each byte as \xNN but
+    // 0x07, \a, written by hand over the key's 57 bytes.
     assert_eq!(
         error.to_string(),
-        "readTs: 4 less than minTs: 5 for key: \"\\x10\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\a\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x01\""
+        "readTs: 4 less than minTs: 5 for key: \"\\x10\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x01\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\a\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x01\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x01\\x00\\x00\\x00\\x00\\x00\\x00\""
     );
     assert_eq!(
         l.length(4, 0),
         -1,
         "Dgraph's Length reports a failed iteration as -1"
     );
-    assert_eq!(l.get_posting_and_length(4, 0, 1), (-1, None));
+    assert_eq!(l.get_posting_and_length(4, 0, rid(1)), (-1, None));
     Ok(())
 }
 
@@ -141,7 +143,7 @@ fn test_a_delete_all_below_the_complete_version_is_refused_and_one_at_it_hides_t
     let at = rolled.committed(3, PostingList::default().with_postings(vec![delete_all()]));
     assert!(uids(&at, 3, 0)?.is_empty());
     assert_eq!(at.get_length(3)?, 0);
-    assert_eq!(uids(&rolled, 3, 0)?, vec![3]);
+    assert_eq!(uids(&rolled, 3, 0)?, rids(&[3]));
     Ok(())
 }
 
@@ -152,8 +154,8 @@ fn test_only_the_newest_version_of_a_posting_counts() -> TestResult {
     l.commit_mutation(2);
     add(&mut l, 3, &with_facet(set_uid(5), "new"));
     l.commit_mutation(4);
-    assert_eq!(facets(&l, 3)?, vec![(5, "old".to_string())]);
-    assert_eq!(facets(&l, 4)?, vec![(5, "new".to_string())]);
+    assert_eq!(facets(&l, 3)?, vec![(rid(5), "old".to_string())]);
+    assert_eq!(facets(&l, 4)?, vec![(rid(5), "new".to_string())]);
     assert_eq!(l.length(4, 0), 1);
     Ok(())
 }
@@ -168,17 +170,17 @@ fn test_a_delete_hides_a_set_of_the_immutable_layer_and_a_later_set_restores_it(
     add(&mut l, 3, &del_uid(2));
     add(&mut l, 3, &del_uid(7));
     l.commit_mutation(4);
-    assert_eq!(uids(&l, 4, 0)?, vec![1, 3]);
+    assert_eq!(uids(&l, 4, 0)?, rids(&[1, 3]));
     assert_eq!(l.length(4, 0), 2);
-    assert_eq!(l.find_posting(4, 2)?, None);
+    assert_eq!(l.find_posting(4, rid(2))?, None);
     assert_eq!(
         uids(&l, 3, 0)?,
-        vec![1, 2, 3],
+        rids(&[1, 2, 3]),
         "the delete is not visible below its commit"
     );
     add(&mut l, 5, &set_uid(2));
     l.commit_mutation(6);
-    assert_eq!(uids(&l, 6, 0)?, vec![1, 2, 3]);
+    assert_eq!(uids(&l, 6, 0)?, rids(&[1, 2, 3]));
     Ok(())
 }
 
@@ -198,26 +200,27 @@ fn test_a_requests_own_write_is_newer_than_a_commit_at_its_read_timestamp() -> T
     add(&mut other, 4, &del_uid(3));
     other.commit_mutation(5);
     add(&mut other, 5, &set_uid(3));
-    assert_eq!(uids(&other, 5, 0)?, vec![3]);
+    assert_eq!(uids(&other, 5, 0)?, rids(&[3]));
     Ok(())
 }
 
 #[test]
-fn test_the_largest_uid_is_read_from_the_deltas_and_from_the_pack() -> TestResult {
+fn test_the_largest_sequence_is_read_from_the_deltas_and_from_the_pack() -> TestResult {
     let store = new_store();
     let mut l = List::empty(key("iter-max", 1));
     add(&mut l, 1, &set_uid(1));
     add(&mut l, 1, &set_uid(u64::MAX));
     l.commit_mutation(2);
-    assert_eq!(uids(&l, 2, 0)?, vec![1, u64::MAX]);
-    assert_eq!(uids(&l, 2, u64::MAX - 1)?, vec![u64::MAX]);
+    assert_eq!(uids(&l, 2, 0)?, rids(&[1, u64::MAX]));
+    assert_eq!(uids(&l, 2, rid(u64::MAX) - 1)?, rids(&[u64::MAX]));
     let (rolled, _) = roll_up(&store, &l, u64::MAX, usize::MAX)?;
-    assert_eq!(uids(&rolled, 2, 0)?, vec![1, u64::MAX]);
-    assert_eq!(uids(&rolled, 2, u64::MAX - 1)?, vec![u64::MAX]);
-    assert!(uids(&rolled, 2, u64::MAX)?.is_empty());
+    assert_eq!(uids(&rolled, 2, 0)?, rids(&[1, u64::MAX]));
+    assert_eq!(uids(&rolled, 2, rid(u64::MAX) - 1)?, rids(&[u64::MAX]));
+    assert!(uids(&rolled, 2, rid(u64::MAX))?.is_empty());
+    assert!(uids(&rolled, 2, u128::MAX)?.is_empty());
     assert_eq!(
-        rolled.find_posting(2, u64::MAX)?.map(|p| p.uid()),
-        Some(u64::MAX)
+        rolled.find_posting(2, rid(u64::MAX))?.map(|p| p.uid()),
+        Some(rid(u64::MAX))
     );
     Ok(())
 }
@@ -230,13 +233,13 @@ fn test_iteration_stops_where_the_callback_breaks_and_passes_its_error() -> Test
     let mut seen = Vec::new();
     l.iterate(2, 0, |p| {
         seen.push(p.uid());
-        Ok::<_, PostingError>(if p.uid() == 2 {
+        Ok::<_, PostingError>(if p.uid() == rid(2) {
             ControlFlow::Break(())
         } else {
             ControlFlow::Continue(())
         })
     })?;
-    assert_eq!(seen, vec![1, 2]);
+    assert_eq!(seen, rids(&[1, 2]));
     let error = l
         .iterate(2, 0, |_| -> Result<ControlFlow<()>, PostingError> {
             Err(PostingError::ts_too_old())
@@ -257,12 +260,12 @@ fn test_a_read_of_mostly_deleted_postings_is_reported() -> TestResult {
         add(&mut l, 1, &del_uid(2));
         add(&mut l, 1, &del_uid(3));
         l.commit_mutation(2);
-        assert_eq!(uids(&l, 2, 0)?, vec![1]);
+        assert_eq!(uids(&l, 2, 0)?, rids(&[1]));
         let mut even = List::empty(key("iter-deleted", 2));
         add(&mut even, 1, &set_uid(1));
         add(&mut even, 1, &del_uid(2));
         even.commit_mutation(2);
-        assert_eq!(uids(&even, 2, 0)?, vec![1]);
+        assert_eq!(uids(&even, 2, 0)?, rids(&[1]));
         Ok(())
     })?;
     let events = capture.events();
@@ -290,11 +293,13 @@ fn test_a_read_after_every_uid_of_a_split_list_yields_the_uids_above_it() -> Tes
     let splits = l.part_splits();
     assert!(splits.len() > 3, "{splits:?}");
     for after in 0..=2400u64 {
-        let expected: Vec<u64> = (after / 2 + 1..=1200)
-            .map(|i| 2 * i - 1)
-            .filter(|&u| u > after)
+        let expected: Vec<u128> = (after / 2 + 1..=1200)
+            .map(|i| rid(2 * i - 1))
+            .filter(|&u| u > rid(after))
             .collect();
-        let got = uids(&l, 2, after)?;
+        // An after-key of 0 reads from the start.
+        let after_key = if after == 0 { 0 } else { rid(after) };
+        let got = uids(&l, 2, after_key)?;
         assert!(
             got == expected,
             "after {after}: first {:?}, {} uids",
@@ -303,7 +308,7 @@ fn test_a_read_after_every_uid_of_a_split_list_yields_the_uids_above_it() -> Tes
         );
         let held = after % 2 == 1;
         assert_eq!(
-            l.find_posting(2, after)?.is_some(),
+            l.find_posting(2, after_key)?.is_some(),
             held && after > 0,
             "uid {after}"
         );

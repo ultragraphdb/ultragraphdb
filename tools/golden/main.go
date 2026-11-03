@@ -3,7 +3,7 @@
 
 // Command golden writes golden vectors from Dgraph's Go source for the Rust port's tests.
 //
-// Each package registers its generators with register() in a file of its own (keys.go, codec.go, ...). A generator
+// Each package registers its generators with register() in a file of its own (algo.go, hnsw.go, ...). A generator
 // returns its cases; this command wraps them with the Dgraph commit and writes
 // <crate>/testdata/golden/<name>.json under the repository root.
 //

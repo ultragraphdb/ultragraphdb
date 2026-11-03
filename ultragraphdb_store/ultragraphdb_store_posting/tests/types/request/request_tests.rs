@@ -7,7 +7,8 @@ use ultragraphdb_tool_bdd::TestResult;
 use ultragraphdb_traits_store::{Entry, ListCache};
 
 use crate::utils::helpers::{
-    check_uids, commit, commit_edges, del_uid, key, new_lists, set_uid, set_value, uids, values,
+    check_uids, commit, commit_edges, del_uid, key, new_lists, rids, set_uid, set_value, uids,
+    values,
 };
 
 #[test]
@@ -21,10 +22,10 @@ fn test_a_list_first_written_blind_is_read_whole() -> TestResult {
     request
         .get_from_delta(&k)
         .add_posting(set_uid(3).clone(), false);
-    assert_eq!(uids(request.get(&k)?, read_ts, 0)?, vec![2, 3]);
+    assert_eq!(uids(request.get(&k)?, read_ts, 0)?, rids(&[2, 3]));
     // The completed list keeps the write made blind, and later writes go on top.
     request.get(&k)?.add_posting(del_uid(2).clone(), false);
-    assert_eq!(uids(request.get(&k)?, read_ts, 0)?, vec![3]);
+    assert_eq!(uids(request.get(&k)?, read_ts, 0)?, rids(&[3]));
     Ok(())
 }
 
@@ -49,7 +50,7 @@ fn test_a_later_request_in_a_batch_reads_an_earlier_one() -> TestResult {
     let mut b = third_batch.request(read_ts);
     b.get_from_delta(&other)
         .add_posting(set_uid(5).clone(), false);
-    assert_eq!(uids(b.get(&other)?, read_ts, 0)?, vec![4, 5]);
+    assert_eq!(uids(b.get(&other)?, read_ts, 0)?, rids(&[4, 5]));
     assert_eq!(b.deltas().len(), 1, "only its own write is its delta");
     Ok(())
 }
@@ -110,15 +111,15 @@ fn test_a_fork_reads_as_its_request_and_is_absorbed_back() -> TestResult {
     assert_eq!(fork.read_ts(), request.read_ts());
     assert_eq!(fork.lists().count(), 0);
     let read_ts = fork.read_ts();
-    assert_eq!(uids(fork.get(&a)?, read_ts, 0)?, vec![1]);
+    assert_eq!(uids(fork.get(&a)?, read_ts, 0)?, rids(&[1]));
     fork.get(&a)?.add_posting(set_uid(2).clone(), false);
     fork.add_entry(Entry::deletion(key("fork", 3), 1));
     request.absorb(fork);
     assert_eq!(request.lists().count(), 2);
-    assert_eq!(uids(request.get(&a)?, read_ts, 0)?, vec![1, 2]);
+    assert_eq!(uids(request.get(&a)?, read_ts, 0)?, rids(&[1, 2]));
     batch.push(request);
     let ts = lists.commit(batch)?;
-    assert_eq!(uids(&lists.read(&a, ts[1])?, ts[1], 0)?, vec![1, 2]);
+    assert_eq!(uids(&lists.read(&a, ts[1])?, ts[1], 0)?, rids(&[1, 2]));
     assert_eq!(
         lists.store().contents().versions(&key("fork", 3))[0].version(),
         ts[1]
@@ -156,7 +157,7 @@ fn test_a_list_held_blind_without_a_write_is_read_whole() -> TestResult {
     let mut request = lists.request(ts);
     assert!(request.get_from_delta(&k).delta().is_none());
     let list = request.get(&k)?;
-    assert_eq!(uids(list, ts, 0)?, vec![2]);
+    assert_eq!(uids(list, ts, 0)?, rids(&[2]));
     assert_eq!(list.mutation().read_ts(), ts);
     assert!(list.delta().is_none());
     Ok(())
@@ -179,8 +180,8 @@ fn test_absorbing_a_fork_keeps_the_list_its_writer_holds() -> TestResult {
     request.absorb(fork);
     let read_ts = request.read_ts();
     // Only the fork wrote `both`, so its list is taken; both wrote `mine`, so the request's own stays.
-    assert_eq!(uids(request.get(&both)?, read_ts, 0)?, vec![2]);
-    assert_eq!(uids(request.get(&mine)?, read_ts, 0)?, vec![1]);
+    assert_eq!(uids(request.get(&both)?, read_ts, 0)?, rids(&[2]));
+    assert_eq!(uids(request.get(&mine)?, read_ts, 0)?, rids(&[1]));
     assert_eq!(
         request.entry_keys().collect::<Vec<_>>(),
         vec![key("absorb", 3).as_slice()]
@@ -266,7 +267,10 @@ fn test_a_tested_statement_is_recorded_and_its_list_is_not_read_whole() -> TestR
     commit(&lists, &k, &[set_uid(2)])?;
     let read_ts = lists.applied_ts();
     let mut request = lists.request(read_ts);
-    assert_eq!(uids(request.get_tested(&k, b"o3")?, read_ts, 0)?, vec![2]);
+    assert_eq!(
+        uids(request.get_tested(&k, b"o3")?, read_ts, 0)?,
+        rids(&[2])
+    );
     assert_eq!(
         request.tested().collect::<Vec<_>>(),
         vec![(k.as_slice(), b"o3".as_slice())]
@@ -312,7 +316,10 @@ fn test_a_test_completes_a_list_written_blind() -> TestResult {
     let read_ts = lists.applied_ts();
     let mut request = lists.request(read_ts);
     request.get_from_delta(&k).add_posting(set_uid(3), false);
-    assert_eq!(uids(request.get_tested(&k, b"o")?, read_ts, 0)?, vec![2, 3]);
+    assert_eq!(
+        uids(request.get_tested(&k, b"o")?, read_ts, 0)?,
+        rids(&[2, 3])
+    );
     assert_eq!(request.read_keys().count(), 0);
     assert_eq!(
         request.written_keys().collect::<Vec<_>>(),
@@ -508,14 +515,14 @@ fn test_seeded_deltas_are_the_requests_own_writes() -> TestResult {
     check_uids(request.get(&hub)?, &[1, 2], read_ts)?;
     request.get(&hub)?.add_posting(set_uid(3).clone(), false);
     let combined = request.into_writes();
-    let deltas: Vec<(Vec<u8>, Vec<u64>)> = combined
+    let deltas: Vec<(Vec<u8>, Vec<u128>)> = combined
         .deltas()
         .iter()
         .map(|(k, d)| (k.clone(), d.postings().iter().map(|p| p.uid()).collect()))
         .collect();
     assert_eq!(
         deltas,
-        vec![(hub.clone(), vec![2, 3]), (other.clone(), vec![7])],
+        vec![(hub.clone(), rids(&[2, 3])), (other.clone(), rids(&[7]))],
         "one delta per list, the seeded postings and the request's"
     );
     Ok(())

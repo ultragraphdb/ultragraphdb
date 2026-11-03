@@ -16,7 +16,11 @@ mod predicate_declaration;
 #[cfg(test)]
 mod property_graph_tests;
 #[cfg(test)]
+mod random_source_tests;
+#[cfg(test)]
 mod relation_declaration_tests;
+#[cfg(test)]
+mod statement_id_tests;
 #[cfg(test)]
 mod type_declaration_tests;
 #[cfg(test)]

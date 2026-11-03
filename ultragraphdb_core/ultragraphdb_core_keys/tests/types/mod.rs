@@ -6,6 +6,8 @@
 #[cfg(test)]
 mod count_direction_tests;
 #[cfg(test)]
+mod dictionary_entry_tests;
+#[cfg(test)]
 mod graph_tests;
 #[cfg(test)]
 mod keyspace_tests;

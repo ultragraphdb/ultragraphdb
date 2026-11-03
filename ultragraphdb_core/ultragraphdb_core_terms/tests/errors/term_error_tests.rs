@@ -3,10 +3,13 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_ids::{Bucket, Sequence, SystemId, TypePrefix};
 use ultragraphdb_core_terms::{TermError, TermErrorEnum};
+use ultragraphdb_tool_bdd::TestResult;
 
 #[test]
-fn test_each_error_names_what_it_refused() {
+fn test_each_error_names_what_it_refused() -> TestResult {
+    let seven = SystemId::new(TypePrefix::RESOURCE, Bucket::new(5)?, Sequence::new(7)?);
     let cases = [
         (
             TermError::truncated(vec![0x20, 3]),
@@ -26,8 +29,9 @@ fn test_each_error_names_what_it_refused() {
             "Invalid vector literal \"[]\": empty",
         ),
         (
-            TermError::not_a_literal(7),
-            "Encoded term names UID 7, not a literal",
+            TermError::not_a_literal(seven),
+            // Type 0001, sequence 0000000000000007, bucket 000005, reserved 000000, as 32 hexadecimal digits.
+            "Encoded term names the ID 00010000000000000007000005000000, not a literal",
         ),
     ];
     for (error, text) in cases {
@@ -39,4 +43,5 @@ fn test_each_error_names_what_it_refused() {
     ));
     let boxed: Box<dyn std::error::Error> = Box::new(TermError::unknown_tag(1));
     assert!(boxed.source().is_none());
+    Ok(())
 }

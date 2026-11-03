@@ -5,7 +5,7 @@
 
 //! The quad key's parser over arbitrary bytes. A key parses into its fields and a split part's start, or is refused
 //! with an error naming the bytes it was given; nothing panics. An accepted key encodes back to the bytes it was
-//! parsed from: the base key, or the split key with its start appended.
+//! parsed from: the base key, or the split key with its start's kind byte and the start appended.
 
 #![no_main]
 
@@ -24,7 +24,8 @@ fn named(error: &QuadKeyErrorEnum) -> &[u8] {
         | QuadKeyErrorEnum::VectorObject { key }
         | QuadKeyErrorEnum::NotAList { key }
         | QuadKeyErrorEnum::GroupRange { key, .. }
-        | QuadKeyErrorEnum::FingerprintStart { key } => key,
+        | QuadKeyErrorEnum::FingerprintStart { key }
+        | QuadKeyErrorEnum::UnknownKind { key, .. } => key,
     }
 }
 

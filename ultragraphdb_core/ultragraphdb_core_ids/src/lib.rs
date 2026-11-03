@@ -22,6 +22,7 @@ mod types;
 pub use crate::errors::id_error::{IdError, IdErrorEnum};
 
 pub use crate::types::bucket::Bucket;
+pub use crate::types::bucket_group::BucketGroup;
 pub use crate::types::canonical_key::CanonicalKey;
 pub use crate::types::epoch::Epoch;
 pub use crate::types::namespace::Namespace;

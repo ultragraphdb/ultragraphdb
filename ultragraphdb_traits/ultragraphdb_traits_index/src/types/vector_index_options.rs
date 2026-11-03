@@ -7,18 +7,20 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+use ultragraphdb_core_ids::SystemId;
+
 use crate::traits::float::Float;
 
-/// Dgraph's `SearchFilter`: whether a search keeps a result, given the query, the result's vector and its uid.
-pub type SearchFilter<T> = fn(query: &[T], result: &[T], uid: u64) -> bool;
+/// Dgraph's `SearchFilter`: whether a search keeps a result, given the query, the result's vector and its node's ID.
+pub type SearchFilter<T> = fn(query: &[T], result: &[T], id: SystemId) -> bool;
 
 /// Dgraph's `AcceptAll`.
-pub fn accept_all<T: Float>(_: &[T], _: &[T], _: u64) -> bool {
+pub fn accept_all<T: Float>(_: &[T], _: &[T], _: SystemId) -> bool {
     true
 }
 
 /// Dgraph's `AcceptNone`.
-pub fn accept_none<T: Float>(_: &[T], _: &[T], _: u64) -> bool {
+pub fn accept_none<T: Float>(_: &[T], _: &[T], _: SystemId) -> bool {
     false
 }
 

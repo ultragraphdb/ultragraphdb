@@ -21,6 +21,7 @@ use crate::utils::lock::lock;
 #[derive(Debug)]
 pub struct DataDictionary {
     namespace: u64,
+    // Shared and locked: a background pass replaces the shapes whole while readers hold the previous ones.
     shapes: Mutex<Option<Arc<Shapes>>>,
 }
 

@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::{Keyspace, QuadKey, key_prefix};
 use ultragraphdb_core_mapping::{Declaration, PredicateDeclaration, RelationDeclaration};
 use ultragraphdb_traits_store::{Entry, Scan, StoreSnapshot};
@@ -16,18 +17,18 @@ const CATALOG_META: u8 = 0x01;
 
 impl Catalog {
     /// The key of the declaration of `kind` for `uid`.
-    pub fn key(namespace: u64, kind: u8, uid: u64) -> Vec<u8> {
+    pub fn key(namespace: u64, kind: u8, uid: SystemId) -> Vec<u8> {
         QuadKey::Catalog {
             namespace,
             kind,
-            uid,
+            id: uid,
         }
         .to_bytes()
     }
 
     /// The entry writing `declaration` of `uid` at `version`, with the discard flag: a request's commit writes it at
     /// its commit timestamp.
-    pub fn entry(namespace: u64, uid: u64, declaration: &Declaration, version: u64) -> Entry {
+    pub fn entry(namespace: u64, uid: SystemId, declaration: &Declaration, version: u64) -> Entry {
         Entry::put(
             Self::key(namespace, kind_of(declaration), uid),
             version,
@@ -44,12 +45,12 @@ impl Catalog {
     }
 
     /// The key of predicate `uid`'s declaration.
-    pub fn predicate_key(namespace: u64, uid: u64) -> Vec<u8> {
+    pub fn predicate_key(namespace: u64, uid: SystemId) -> Vec<u8> {
         Self::key(namespace, PREDICATE, uid)
     }
 
     /// The entry removing the declaration of `kind` for `uid` at `version`.
-    pub fn removal(namespace: u64, kind: u8, uid: u64, version: u64) -> Entry {
+    pub fn removal(namespace: u64, kind: u8, uid: SystemId, version: u64) -> Entry {
         Entry::deletion(Self::key(namespace, kind, uid), version)
     }
 
@@ -81,7 +82,8 @@ impl Catalog {
         let scan = Scan::prefix(key_prefix(Keyspace::Catalog, false, namespace, None, None));
         for item in snapshot.scan(&scan) {
             let item = item?;
-            let Ok((QuadKey::Catalog { kind, uid, .. }, None)) = QuadKey::parse(item.key()) else {
+            let Ok((QuadKey::Catalog { kind, id: uid, .. }, None)) = QuadKey::parse(item.key())
+            else {
                 return Err(CatalogError::corrupted(item.key(), "not a catalog key"));
             };
             match (kind, decode(item.key(), item.value())?) {

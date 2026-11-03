@@ -30,12 +30,13 @@ use crate::utils::postings::has_delete_all;
 /// timestamp.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct MutableLayer {
+    // Shared: a cached list and every request's copy of it share the committed deltas, which nothing changes in place.
     committed: Arc<BTreeMap<u64, Arc<PostingList>>>,
     stacked: Vec<Arc<PostingList>>,
     current: Option<PostingList>,
     /// The index of each posting's identity in the current entries, Dgraph's `currentUids`: its uid, and in a quad
     /// list a value posting's value as well.
-    current_uids: BTreeMap<(u64, Vec<u8>), usize>,
+    current_uids: BTreeMap<(u128, Vec<u8>), usize>,
     read_ts: u64,
     /// Whether a value posting is told apart by its value as well as its uid: a list of the quad layout.
     by_value: bool,
@@ -207,7 +208,7 @@ impl MutableLayer {
 
     /// Whether the immutable layer still has to be searched for `uid` at `read_ts`, and the posting the visible
     /// layers hold for it: Dgraph's `findPosting`. A delete found, or a delete-all, ends the search with nothing.
-    pub fn find_posting(&self, read_ts: u64, uid: u64) -> (bool, Option<&Posting>) {
+    pub fn find_posting(&self, read_ts: u64, uid: u128) -> (bool, Option<&Posting>) {
         self.find_posting_where(read_ts, uid, |_| true)
     }
 
@@ -216,7 +217,7 @@ impl MutableLayer {
     pub(crate) fn find_posting_where(
         &self,
         read_ts: u64,
-        uid: u64,
+        uid: u128,
         pick: impl Fn(&Posting) -> bool,
     ) -> (bool, Option<&Posting>) {
         let (marker, layers) = self.live(read_ts);
@@ -264,7 +265,7 @@ impl MutableLayer {
 }
 
 /// The index of each identity's last posting in `plist`.
-pub(crate) fn uid_index(plist: &PostingList, by_value: bool) -> BTreeMap<(u64, Vec<u8>), usize> {
+pub(crate) fn uid_index(plist: &PostingList, by_value: bool) -> BTreeMap<(u128, Vec<u8>), usize> {
     plist
         .postings()
         .iter()

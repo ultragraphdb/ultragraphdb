@@ -11,8 +11,8 @@ use std::panic::Location;
 use std::sync::{Arc, Mutex, PoisonError};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
-use ultragraphdb_core_codec::{Facet, Posting, PostingType};
-use ultragraphdb_core_keys::{DEFAULT_GRAPH, QuadKey};
+use ultragraphdb_core_codec::{Facet, Posting, PostingType, UidPack, encode};
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_error_store::StoreError;
 use ultragraphdb_store_posting::{
     BIT_DELTA_POSTING, CachedList, DEL, List, Lists, ListsConfig, PostingError, SET,
@@ -58,30 +58,70 @@ pub fn lists_over(store: SimStore, config: ListsConfig) -> TestLists {
     Lists::new(store, cache, config)
 }
 
-/// The UID the tests give the predicate `attr`: drawn from its name, never 0.
-pub fn predicate(attr: &str) -> u64 {
+/// The posting key of the reference the Go tests number `n`: the system ID of type 1, sequence `n` and bucket 0 as
+/// its unsigned 128-bit value, written from the ID's bit layout (type in bits 127–112, sequence in bits 111–48). The
+/// map keeps the Go tests' order, so a read after `n` is a read after `rid(n)`; `n` = 0 gives no valid ID.
+pub const fn rid(n: u64) -> u128 {
+    (1 << 112) | ((n as u128) << 48)
+}
+
+/// The posting keys of the references numbered `ns`, in their order.
+pub fn rids(ns: &[u64]) -> Vec<u128> {
+    ns.iter().map(|&n| rid(n)).collect()
+}
+
+/// The system ID of the reference numbered `n`, [`rid`] decoded.
+pub fn id(n: u64) -> TestResult<SystemId> {
+    SystemId::from_u128(rid(n)).context("a valid ID")
+}
+
+/// The system IDs of the references numbered `ns`, in their order.
+pub fn ids(ns: &[u64]) -> TestResult<Vec<SystemId>> {
+    ns.iter().map(|&n| id(n)).collect()
+}
+
+/// The pack of `ids`, which holds at least one, in blocks of `block_size`.
+pub fn pack_of(ids: &[SystemId], block_size: usize) -> TestResult<UidPack> {
+    encode(ids, block_size)
+        .context("the IDs pack")?
+        .context("a pack of at least one ID")
+}
+
+/// The number [`rid`] gave the reference key `key`: its sequence.
+pub fn number(key: u128) -> TestResult<u64> {
+    u64::try_from((key >> 48) & u128::from(u64::MAX)).context("a sequence of 64 bits")
+}
+
+/// The sequence the tests give the predicate `attr`: drawn from its name, never 0.
+fn predicate_number(attr: &str) -> u64 {
     xxh3_64(attr.as_bytes()).max(1)
 }
 
-/// The forward key of `attr` for the subject `uid` in the default graph of the root namespace.
-pub fn key(attr: &str, uid: u64) -> Vec<u8> {
-    QuadKey::Forward {
-        namespace: 0,
-        graph: DEFAULT_GRAPH,
-        predicate: predicate(attr),
-        subject: uid,
-    }
-    .to_bytes()
+/// The ID the tests give the predicate `attr`.
+pub fn predicate(attr: &str) -> TestResult<SystemId> {
+    id(predicate_number(attr))
 }
 
-/// A set of the reference `uid`.
-pub fn set_uid(uid: u64) -> Posting {
-    Posting::default().with_uid(uid).with_op(SET)
+/// The forward key of `attr` for the subject numbered `n` (at least 1) in the default graph of the root namespace,
+/// written from the key's layout: the forward keyspace's byte 0x10, the namespace's 8 big-endian bytes, the default
+/// graph's 16 zero bytes, then the predicate's and the subject's IDs as 16 big-endian bytes each.
+pub fn key(attr: &str, n: u64) -> Vec<u8> {
+    let mut key = vec![0x10];
+    key.extend_from_slice(&0u64.to_be_bytes());
+    key.extend_from_slice(&[0; 16]);
+    key.extend_from_slice(&rid(predicate_number(attr)).to_be_bytes());
+    key.extend_from_slice(&rid(n.max(1)).to_be_bytes());
+    key
 }
 
-/// A delete of the reference `uid`.
-pub fn del_uid(uid: u64) -> Posting {
-    set_uid(uid).with_op(DEL)
+/// A set of the reference numbered `n`.
+pub fn set_uid(n: u64) -> Posting {
+    Posting::default().with_uid(rid(n)).with_op(SET)
+}
+
+/// A delete of the reference numbered `n`.
+pub fn del_uid(n: u64) -> Posting {
+    set_uid(n).with_op(DEL)
 }
 
 /// `posting` with a facet keyed `key`.
@@ -92,7 +132,7 @@ pub fn with_facet(posting: Posting, key: &str) -> Posting {
 /// A set of the value `value`, as a quad list holds a literal: its bytes, under their fingerprint.
 pub fn set_value(value: &str) -> Posting {
     Posting::default()
-        .with_uid(xxh3_64(value.as_bytes()))
+        .with_uid(u128::from(xxh3_64(value.as_bytes())))
         .with_value(value.as_bytes().to_vec())
         .with_posting_type(PostingType::Value)
         .with_op(SET)
@@ -132,8 +172,8 @@ pub fn commit(lists: &TestLists, key: &[u8], postings: &[Posting]) -> TestResult
     Ok(())
 }
 
-/// The uids `list` yields at `read_ts` after `after_uid`: Go's `listToArray`.
-pub fn uids(list: &List, read_ts: u64, after_uid: u64) -> TestResult<Vec<u64>> {
+/// The posting keys `list` yields at `read_ts` after `after_uid`: Go's `listToArray`.
+pub fn uids(list: &List, read_ts: u64, after_uid: u128) -> TestResult<Vec<u128>> {
     let mut out = Vec::new();
     list.iterate(read_ts, after_uid, |p| {
         out.push(p.uid());
@@ -154,13 +194,14 @@ pub fn values(list: &List, read_ts: u64) -> TestResult<Vec<Vec<u8>>> {
     Ok(out)
 }
 
-/// Go's `checkUids`: the uids, and for three or more the reads after 10, 80 and 82.
+/// Go's `checkUids`: the references numbered `expected`, and for three or more the reads after 10, 80 and 82.
 pub fn check_uids(list: &List, expected: &[u64], read_ts: u64) -> TestResult {
+    let expected = rids(expected);
     assert_eq!(uids(list, read_ts, 0)?, expected);
     if expected.len() >= 3 {
-        assert_eq!(uids(list, read_ts, 10)?, expected[1..]);
-        assert_eq!(uids(list, read_ts, 80)?, vec![81]);
-        assert!(uids(list, read_ts, 82)?.is_empty());
+        assert_eq!(uids(list, read_ts, rid(10))?, expected[1..]);
+        assert_eq!(uids(list, read_ts, rid(80))?, vec![rid(81)]);
+        assert!(uids(list, read_ts, rid(82))?.is_empty());
     }
     Ok(())
 }

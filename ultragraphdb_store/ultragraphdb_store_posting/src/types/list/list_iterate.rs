@@ -56,7 +56,7 @@ impl List {
     ///
     /// [`PostingError::read_below_min_ts`] when `read_ts` is below the list's complete version, a missing part, or
     /// the error `f` returns.
-    pub fn iterate<E, F>(&self, read_ts: u64, after_uid: u64, mut f: F) -> Result<(), E>
+    pub fn iterate<E, F>(&self, read_ts: u64, after_uid: u128, mut f: F) -> Result<(), E>
     where
         E: From<PostingError>,
         F: FnMut(&Posting) -> Result<ControlFlow<()>, E>,
@@ -74,13 +74,15 @@ impl List {
         };
         let by_value = self.mutation.by_value();
         let mut pitr = PIterator::seek(self, after_uid, delete_below_ts)?;
-        let mut prev: Option<(u64, Vec<u8>)> = None;
+        let mut prev: Option<(u128, Vec<u8>)> = None;
         let (mut read, mut deleted) = (0usize, 0usize);
         let mut count = |mp: Option<&Posting>| match mp {
             Some(p) if p.op() == DEL => deleted += 1,
             _ => read += 1,
         };
-        let result = loop {
+        // Ends: every turn moves past a delta's posting, an immutable posting or both, or stops the iteration.
+        let mut result = Ok(());
+        while midx < mposts.len() || pitr.valid() {
             let mp = mposts.get(midx).copied();
             let mp_id = mp.filter(|p| p.uid() > 0).map(|p| identity(p, by_value));
             let pp = if pitr.valid() {
@@ -98,7 +100,7 @@ impl List {
                 midx += 1;
                 Ok(ControlFlow::Continue(()))
             } else if pp_id.is_none() && mp_id.is_none() {
-                break Ok(());
+                break;
             } else if mp_id.is_none() || pp_id.is_some_and(|p| mp_id.is_some_and(|m| p < m)) {
                 count(None);
                 let flow = call(&mut f, pp);
@@ -119,24 +121,19 @@ impl List {
             };
             match flow {
                 Ok(ControlFlow::Continue(())) => {}
-                Ok(ControlFlow::Break(())) => break Ok(()),
-                Err(error) => break Err(error),
+                Ok(ControlFlow::Break(())) => break,
+                Err(error) => {
+                    result = Err(error);
+                    break;
+                }
             }
-        };
-        // Many deleted postings mean rollups lag behind the deletes.
-        if read < deleted {
-            tracing::trace!(
-                key = ?self.key,
-                total = read + deleted,
-                percent_deleted = deleted * 100 / (read + deleted),
-                "high proportion of deleted data observed for posting list"
-            );
         }
+        report_deleted(&self.key, read, deleted);
         result
     }
 
     /// Whether no posting lies above `after_uid` at `read_ts`: Dgraph's `IsEmpty`.
-    pub fn is_empty(&self, read_ts: u64, after_uid: u64) -> Result<bool, PostingError> {
+    pub fn is_empty(&self, read_ts: u64, after_uid: u128) -> Result<bool, PostingError> {
         let mut count = 0usize;
         self.iterate(read_ts, after_uid, |_| {
             count += 1;
@@ -147,7 +144,7 @@ impl List {
 
     /// The number of postings above `after_uid` at `read_ts`, counted by iterating: Dgraph's `Length`, which
     /// returns -1 where the iteration fails.
-    pub fn length(&self, read_ts: u64, after_uid: u64) -> i64 {
+    pub fn length(&self, read_ts: u64, after_uid: u128) -> i64 {
         let mut count = 0i64;
         let result = self.iterate(read_ts, after_uid, |_| {
             count += 1;
@@ -177,5 +174,17 @@ where
     match mp {
         Some(p) if p.op() != DEL => f(p),
         _ => Ok(ControlFlow::Continue(())),
+    }
+}
+
+/// Many deleted postings among those a read met mean rollups lag behind the deletes.
+fn report_deleted(key: &[u8], read: usize, deleted: usize) {
+    if read < deleted {
+        tracing::trace!(
+            key = ?key,
+            total = read + deleted,
+            percent_deleted = deleted * 100 / (read + deleted),
+            "high proportion of deleted data observed for posting list"
+        );
     }
 }

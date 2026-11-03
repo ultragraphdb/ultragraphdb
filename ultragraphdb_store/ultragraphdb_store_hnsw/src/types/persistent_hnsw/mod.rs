@@ -22,6 +22,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_tok::{
     EF_CONSTRUCTION_OPT, EF_SEARCH_OPT, EXPONENT_OPT, MAX_LEVELS_OPT, METRIC_OPT,
 };
@@ -31,12 +32,13 @@ use crate::errors::hnsw_error::HnswError;
 use crate::traits::hnsw_float::HnswFloat;
 use crate::types::similarity_type::SimilarityType;
 use crate::types::vector_keys::VectorKeys;
-use crate::utils::helper::{bytes_as_float_array, bytes_to_uint64};
-use crate::utils::matrix::decode_uint64_matrix;
+use crate::utils::helper::{bytes_as_float_array, bytes_to_id};
+use crate::utils::matrix::decode_id_matrix;
 
 /// Dgraph's `persistentHNSW`: the HNSW index of one vector predicate in one graph, stored in posting lists at the keys
-/// its [`VectorKeys`] name. Each node's neighbour lists, every level's, are one value under the node; the entry point
-/// is the 8 big-endian bytes of its node's uid; the deleted nodes are a JSON array of uids. A node's vector is its
+/// its [`VectorKeys`] name. Each node's neighbour lists, every level's, are one value under the node, a matrix of
+/// system IDs; the entry point is the 16 big-endian bytes of its node's ID; the deleted nodes are a JSON array of IDs,
+/// each as 32 lowercase hexadecimal digits. A node's vector is its
 /// forward list's value. Level 0 is the sparsest; level `max_levels - 1` holds every node.
 ///
 /// An index lives for one insert or one search, as Dgraph's does: its caches of neighbour lists and dead nodes are
@@ -48,8 +50,10 @@ pub struct PersistentHnsw<T> {
     ef_search: usize,
     keys: VectorKeys,
     sim_type: SimilarityType,
-    node_all_edges: RefCell<HashMap<u64, Vec<Vec<u64>>>>,
-    dead_nodes: RefCell<Option<HashSet<u64>>>,
+    // Interior mutability: the `VectorIndex` methods take `&self`, and the one operation an index lives for fills
+    // these caches as it reads; the index is never shared between threads.
+    node_all_edges: RefCell<HashMap<SystemId, Vec<Vec<SystemId>>>>,
+    dead_nodes: RefCell<Option<HashSet<SystemId>>>,
     float: PhantomData<T>,
 }
 
@@ -111,7 +115,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         &self,
         key: &[u8],
         label: &str,
-        uid: u64,
+        uid: SystemId,
         c: &C,
     ) -> Result<Option<Vec<u8>>, HnswError> {
         match c.get(key) {
@@ -127,7 +131,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         &self,
         key: &[u8],
         label: &str,
-        uid: u64,
+        uid: SystemId,
         c: &C,
     ) -> Result<Option<Vec<u8>>, HnswError> {
         match self.get_data(key, label, uid, c) {
@@ -144,7 +148,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
     /// corruption for a vector whose length is not a multiple of the float width.
     fn vec_from_uid<C: CacheType<Error = HnswError>>(
         &self,
-        uid: u64,
+        uid: SystemId,
         c: &C,
     ) -> Result<Vec<T>, HnswError> {
         let key = self.keys.vector(uid);
@@ -161,7 +165,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
     /// The vector of `uid`, empty when it holds none: what Dgraph's callers that check the vector's length read.
     fn vec_or_empty<C: CacheType<Error = HnswError>>(
         &self,
-        uid: u64,
+        uid: SystemId,
         c: &C,
     ) -> Result<Vec<T>, HnswError> {
         match self.vec_from_uid(uid, c) {
@@ -174,9 +178,9 @@ impl<T: HnswFloat> PersistentHnsw<T> {
     /// the cache; `None` when `uuid` has none.
     fn fill_neighbor_edges<C: CacheType<Error = HnswError>>(
         &self,
-        uuid: u64,
+        uuid: SystemId,
         c: &C,
-    ) -> Result<Option<Vec<Vec<u64>>>, HnswError> {
+    ) -> Result<Option<Vec<Vec<SystemId>>>, HnswError> {
         if let Some(edges) = self.node_all_edges.borrow().get(&uuid) {
             return Ok(Some(edges.clone()));
         }
@@ -186,14 +190,14 @@ impl<T: HnswFloat> PersistentHnsw<T> {
             return Ok(None);
         };
         let edges = self.decode_edges(uuid, &data)?;
-        let _cached: Option<Vec<Vec<u64>>> =
+        let _cached: Option<Vec<Vec<SystemId>>> =
             self.node_all_edges.borrow_mut().insert(uuid, edges.clone());
         Ok(Some(edges))
     }
 
     /// The neighbour lists stored for `uuid`.
-    fn decode_edges(&self, uuid: u64, data: &[u8]) -> Result<Vec<Vec<u64>>, HnswError> {
-        decode_uint64_matrix(data)
+    fn decode_edges(&self, uuid: SystemId, data: &[u8]) -> Result<Vec<Vec<SystemId>>, HnswError> {
+        decode_id_matrix(data)
             .map_err(|reason| HnswError::corrupted(&self.keys.neighbours(uuid), reason))
     }
 
@@ -202,9 +206,14 @@ impl<T: HnswFloat> PersistentHnsw<T> {
     fn pick_start_node<C: CacheType<Error = HnswError>>(
         &self,
         c: &C,
-    ) -> Result<(u64, Vec<T>), HnswError> {
+    ) -> Result<(SystemId, Vec<T>), HnswError> {
         // An empty entry point reads as an absent one, where Dgraph panics decoding it.
-        let data = match self.get_data(&self.keys.entry(), &self.keys.entry_label(), 1, c) {
+        let data = match self.get_data(
+            &self.keys.entry(),
+            &self.keys.entry_label(),
+            self.keys.predicate(),
+            c,
+        ) {
             Err(e) if e.is_fetching_posting_list() => return self.calculate_new_entry_vec(c),
             Err(e) => return Err(e),
             Ok(None) => return self.calculate_new_entry_vec(c),
@@ -218,9 +227,9 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         Ok((entry, start_vec))
     }
 
-    /// The uid an entry point's value names.
-    fn entry_uid(&self, data: &[u8]) -> Result<u64, HnswError> {
-        bytes_to_uint64(data).ok_or_else(|| {
+    /// The node an entry point's value names.
+    fn entry_uid(&self, data: &[u8]) -> Result<SystemId, HnswError> {
+        bytes_to_id(data).ok_or_else(|| {
             HnswError::corrupted(
                 &self.keys.entry(),
                 format!("an entry point of {} bytes", data.len()),
@@ -236,7 +245,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
     fn calculate_new_entry_vec<C: CacheType<Error = HnswError>>(
         &self,
         c: &C,
-    ) -> Result<(u64, Vec<T>), HnswError> {
+    ) -> Result<(SystemId, Vec<T>), HnswError> {
         let start_vec = RefCell::new(Vec::new());
         let corrupt = RefCell::new(false);
         let found = c.find(
@@ -256,16 +265,15 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         let itr = match found {
             Err(e) if e.is_absence() => return Err(HnswError::empty_tree(Some(e))),
             Err(e) => return Err(e),
-            Ok(itr) => itr,
+            // No node passing is Dgraph's uid 0.
+            Ok(None) => return Err(HnswError::empty_tree(None)),
+            Ok(Some(itr)) => itr,
         };
         if corrupt.into_inner() {
             return Err(HnswError::corrupted(
                 &self.keys.vector(itr),
                 "a vector whose length is not a multiple of its float width",
             ));
-        }
-        if itr == 0 {
-            return Err(HnswError::empty_tree(None));
         }
         Ok((itr, start_vec.into_inner()))
     }

@@ -4,7 +4,8 @@
  *
  * Ported from Dgraph v25.5.0, posting/list.go (pIterator). Changed for ultragraphdb: translated to Rust; the parts
  * of a split list are those the list holds, so moving to the next part reads nothing, and a part the list's splits
- * name but the list lacks is an error.
+ * name but the list lacks is an error; a posting is keyed by 128 bits, a value's fingerprint below every reference's ID, and
+ * a pack holds references alone, so a part's values come first, from its postings, then its pack's IDs.
  * Copyright (c) 2026. Marvin Hansen.
  */
 
@@ -14,15 +15,18 @@ use ultragraphdb_core_codec::{Decoder, Posting, PostingList, SeekPos};
 use crate::errors::posting_error::PostingError;
 use crate::types::list::List;
 
-/// What the iterator is at: a posting of the immutable layer, or a uid the layer holds no posting for.
+/// The keys below it are values' fingerprints; a reference's key is its ID, whose type prefix is never 0.
+pub(crate) const VALUE_KEYS_END: u128 = 1 << 64;
+
+/// What the iterator is at: a posting of the immutable layer, or a reference's ID the layer holds no posting for.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum PPosting<'a> {
     Found(&'a Posting),
-    Uid(u64),
+    Uid(u128),
 }
 
 impl PPosting<'_> {
-    pub fn uid(&self) -> u64 {
+    pub fn uid(&self) -> u128 {
         match self {
             PPosting::Found(p) => p.uid(),
             PPosting::Uid(uid) => *uid,
@@ -30,16 +34,19 @@ impl PPosting<'_> {
     }
 }
 
-/// Iterates the uids of a list's immutable layer after a uid, part after part, with their postings: Dgraph's
-/// `pIterator`. Behind a delete-all it yields nothing.
+/// Iterates the posting keys of a list's immutable layer after a key, part after part, with their postings: Dgraph's
+/// `pIterator`. In each part the values' keys come first, from its postings, then its pack's IDs, block by block.
+/// Behind a delete-all it yields nothing. An after-key of 0 starts at the first key.
 pub(crate) struct PIterator<'a> {
     parts: Vec<&'a PostingList>,
     part_idx: usize,
     decoder: Option<Decoder<'a>>,
-    uids: Vec<u64>,
+    uids: Vec<u128>,
+    /// Whether `uids` holds the current part's value keys rather than one of its pack's blocks.
+    values: bool,
     uidx: usize,
     pidx: usize,
-    after_uid: u64,
+    after_uid: u128,
     deleted: bool,
 }
 
@@ -48,7 +55,7 @@ impl<'a> PIterator<'a> {
     /// above the immutable layer, which hides it.
     pub fn seek(
         list: &'a List,
-        after_uid: u64,
+        after_uid: u128,
         delete_below_ts: u64,
     ) -> Result<Self, PostingError> {
         // A rollup is stored at a commit timestamp plus one, so a transaction starting there can delete all at the
@@ -60,8 +67,7 @@ impl<'a> PIterator<'a> {
             ));
         }
         let splits = list.plist().splits();
-        if list.parts().len() < splits.len() {
-            let missing = splits[list.parts().len()];
+        if let Some(&missing) = splits.get(list.parts().len()) {
             return Err(PostingError::missing_part(split_key_of(
                 list.key(),
                 missing,
@@ -72,6 +78,7 @@ impl<'a> PIterator<'a> {
             part_idx: select_initial_split(splits, after_uid),
             decoder: None,
             uids: Vec::new(),
+            values: false,
             uidx: 0,
             pidx: 0,
             after_uid,
@@ -83,34 +90,55 @@ impl<'a> PIterator<'a> {
         Ok(it)
     }
 
-    /// Positions the iterator at the start of the current part, after `after_uid`.
+    /// Positions the iterator at the start of the current part, after `after_uid`: its value keys, or, when it has
+    /// none left, its pack's block holding the first ID after `after_uid`.
     fn load_part(&mut self) {
         let Some(part) = self.parts.get(self.part_idx).copied() else {
             return;
         };
+        let after = self.after_uid;
+        let later = |key: u128| after == 0 || key > after;
         self.decoder = part
             .pack()
-            .as_ref()
-            .map(|pack| Decoder::sought(pack, self.after_uid, SeekPos::Current));
-        self.uids = self
-            .decoder
-            .as_ref()
-            .map(|d| d.uids().to_vec())
-            .unwrap_or_default();
+            .map(|pack| Decoder::sought(pack, after, SeekPos::Current));
+        self.uids = part
+            .postings()
+            .iter()
+            .map(Posting::uid)
+            .take_while(|key| *key < VALUE_KEYS_END)
+            .filter(|key| later(*key))
+            .collect();
+        self.uids.dedup();
+        self.values = !self.uids.is_empty();
+        if !self.values {
+            self.uids = self.block();
+        }
         self.uidx = 0;
-        let after = self.after_uid;
-        self.pidx = part.postings().partition_point(|p| p.uid() <= after);
+        self.pidx = if after == 0 {
+            0
+        } else {
+            part.postings().partition_point(|p| p.uid() <= after)
+        };
     }
 
-    /// Moves on to the next part holding uids, if the list is split.
+    /// The keys of the decoder's current block.
+    fn block(&self) -> Vec<u128> {
+        self.decoder
+            .as_ref()
+            .map(|d| d.ids().iter().map(|id| id.to_u128()).collect())
+            .unwrap_or_default()
+    }
+
+    /// Moves on to the next part holding keys, if the list is split.
     fn move_to_next_valid_part(&mut self) {
+        // Ends: each turn moves to the next of the list's parts.
         while self.uids.is_empty() && self.part_idx + 1 < self.parts.len() {
             self.part_idx += 1;
             self.load_part();
         }
     }
 
-    /// Whether the iterator is at a uid.
+    /// Whether the iterator is at a key.
     pub fn valid(&mut self) -> bool {
         if self.deleted {
             return false;
@@ -121,8 +149,8 @@ impl<'a> PIterator<'a> {
         !self.uids.is_empty()
     }
 
-    /// Moves to the next posting: the next one of the current uid, which a quad list holds when literals' fingerprints
-    /// collide, or the next uid.
+    /// Moves to the next posting: the next one of the current key, which a quad list holds when literals'
+    /// fingerprints collide, or the next key.
     pub fn next(&mut self) {
         if self.deleted {
             self.uids.clear();
@@ -146,15 +174,20 @@ impl<'a> PIterator<'a> {
             return;
         }
         self.uidx = 0;
-        self.uids = self
-            .decoder
-            .as_mut()
-            .map(|d| d.next_block().to_vec())
-            .unwrap_or_default();
+        self.uids = if self.values {
+            // The part's values are done; its pack's IDs follow, from the block holding the first after them.
+            self.values = false;
+            self.block()
+        } else {
+            self.decoder
+                .as_mut()
+                .map(|d| d.next_block().iter().map(|id| id.to_u128()).collect())
+                .unwrap_or_default()
+        };
         self.move_to_next_valid_part();
     }
 
-    /// The posting at the current uid, or the uid alone when the part holds no posting for it. Valid only after
+    /// The posting at the current key, or the key alone when the part holds no posting for it. Valid only after
     /// [`PIterator::valid`] returned true.
     pub fn posting(&mut self) -> PPosting<'a> {
         let Some(&uid) = self.uids.get(self.uidx) else {
@@ -163,6 +196,7 @@ impl<'a> PIterator<'a> {
         let Some(part) = self.parts.get(self.part_idx).copied() else {
             return PPosting::Uid(uid);
         };
+        // Ends: each turn moves past one of the part's postings.
         while let Some(p) = part.postings().get(self.pidx) {
             if p.uid() > uid {
                 break;
@@ -172,12 +206,16 @@ impl<'a> PIterator<'a> {
             }
             self.pidx += 1;
         }
+        debug_assert!(
+            uid >= VALUE_KEYS_END,
+            "a value's key always has its posting"
+        );
         PPosting::Uid(uid)
     }
 }
 
 /// The part holding `after_uid`: Dgraph's `selectInitialSplit`.
-fn select_initial_split(splits: &[u64], after_uid: u64) -> usize {
+fn select_initial_split(splits: &[u128], after_uid: u128) -> usize {
     if after_uid == 0 {
         return 0;
     }
@@ -186,7 +224,7 @@ fn select_initial_split(splits: &[u64], after_uid: u64) -> usize {
         if start == after_uid {
             return i;
         }
-        // A part starting above after_uid: the previous one may hold uids above it.
+        // A part starting above after_uid: the previous one may hold keys above it.
         if start > after_uid {
             return i.saturating_sub(1);
         }

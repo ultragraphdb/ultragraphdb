@@ -6,11 +6,10 @@
 use oxrdf::{GraphName, NamedNode, NamedOrBlankNode, Term};
 
 use crate::errors::mapping_error::MappingError;
-use crate::types::canonical_dataset::{CanonicalDataset, Held, Record, key};
+use crate::types::canonical_dataset::{CanonicalDataset, Held, Record, key, model_reifier};
 use crate::types::cardinality::Cardinality;
 use crate::types::change::Change;
 use crate::types::changeset::Changeset;
-use crate::types::statement_id::StatementId;
 use crate::types::statement_ref::StatementRef;
 
 impl CanonicalDataset {
@@ -46,7 +45,7 @@ impl CanonicalDataset {
                 let held = self.held(graph, subject, predicate, object);
                 if held.records.is_empty() {
                     held.records.push(Record {
-                        id: None,
+                        reifier: None,
                         properties: Vec::new(),
                     });
                 }
@@ -71,10 +70,10 @@ impl CanonicalDataset {
                 let _deleted: Option<Held> =
                     self.triples.remove(&key(graph, subject, predicate, object));
             }
-            Change::DeleteStatement { graph, id } => {
+            Change::DeleteStatement { graph, reifier } => {
                 self.triples.retain(|_, held| {
                     if held.graph == *graph {
-                        held.records.retain(|r| r.id != Some(*id));
+                        held.records.retain(|r| r.reifier.as_ref() != Some(reifier));
                     }
                     !held.records.is_empty()
                 });
@@ -117,21 +116,28 @@ impl CanonicalDataset {
         let mut next_id = self.next_id;
         let mut allocate = || {
             next_id += 1;
-            StatementId::new(next_id)
+            model_reifier(next_id)
         };
         let held = self.held(graph, subject, predicate, object);
         let repeats = !held.records.is_empty();
         if repeats {
             held.records
                 .iter_mut()
-                .filter(|r| r.id.is_none())
-                .for_each(|r| r.id = Some(allocate()));
+                .filter(|r| r.reifier.is_none())
+                .for_each(|r| r.reifier = Some(allocate()));
         }
-        let id = (repeats || !properties.is_empty()).then(&mut allocate);
+        let reifier = (repeats || !properties.is_empty()).then(&mut allocate);
         held.records.push(Record {
-            id,
+            reifier,
             properties: properties.to_vec(),
         });
+        if repeats {
+            debug_assert!(
+                held.records.iter().all(|r| r.reifier.is_some()),
+                "every statement of a repeated triple has an ID"
+            );
+        }
+        debug_assert!(next_id >= self.next_id, "statement IDs are never reused");
         self.next_id = next_id;
     }
 
@@ -144,14 +150,19 @@ impl CanonicalDataset {
     ) -> Result<(), MappingError> {
         let mut next_id = self.next_id;
         let record = self.record(statement)?;
-        if record.id.is_none() {
+        if record.reifier.is_none() {
             next_id += 1;
-            record.id = Some(StatementId::new(next_id));
+            record.reifier = Some(model_reifier(next_id));
         }
         let property = (predicate.clone(), value.clone());
         if !record.properties.contains(&property) {
             record.properties.push(property);
         }
+        debug_assert!(
+            record.reifier.is_some(),
+            "a statement with a property has an ID"
+        );
+        debug_assert!(next_id >= self.next_id, "statement IDs are never reused");
         self.next_id = next_id;
         Ok(())
     }
@@ -205,15 +216,13 @@ impl CanonicalDataset {
     /// The one statement `statement` names.
     fn record(&mut self, statement: &StatementRef) -> Result<&mut Record, MappingError> {
         match statement {
-            StatementRef::Id { graph, id } => self
+            StatementRef::Reifier { graph, reifier } => self
                 .triples
                 .values_mut()
                 .filter(|h| h.graph == *graph)
                 .flat_map(|h| h.records.iter_mut())
-                .find(|r| r.id == Some(*id))
-                .ok_or_else(|| {
-                    MappingError::no_such_statement(format!("{} in {graph}", id.value()))
-                }),
+                .find(|r| r.reifier.as_ref() == Some(reifier))
+                .ok_or_else(|| MappingError::no_such_statement(format!("{reifier} in {graph}"))),
             StatementRef::Triple {
                 graph,
                 subject,

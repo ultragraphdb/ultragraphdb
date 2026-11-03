@@ -21,8 +21,8 @@ use ultragraphdb_store_posting::{
 use ultragraphdb_traits_store::{Entry, ListCache, Store};
 
 use crate::utils::helpers::{
-    Failure, TestLists, commit, commit_at, commit_edges, commit_edges_at, delete_all, key,
-    lists_over, new_lists, new_store, set_uid, uids, write_delta, write_entries,
+    Failure, TestLists, commit, commit_at, commit_edges, commit_edges_at, delete_all, ids, key,
+    lists_over, new_lists, new_store, rids, set_uid, uids, write_delta, write_entries,
 };
 
 fn uid_count(lists: &TestLists, key: &[u8], read_ts: u64) -> TestResult<usize> {
@@ -32,7 +32,7 @@ fn uid_count(lists: &TestLists, key: &[u8], read_ts: u64) -> TestResult<usize> {
     Ok(list
         .uids(&ListOptions::at(read_ts))
         .context("uids")?
-        .uids()
+        .ids()
         .len())
 }
 
@@ -82,7 +82,7 @@ fn test_a_read_below_an_empty_rollup_reads_the_older_versions() -> TestResult {
     )?;
     let lists = lists_over(store, ListsConfig::default());
     let list = lists.read(&k, 4).context("read")?;
-    assert_eq!(uids(&list, 4, 0)?, vec![9]);
+    assert_eq!(uids(&list, 4, 0)?, rids(&[9]));
     // The empty version at 6 lies above the watermark, 5: a read of everything reaches it.
     let newest = lists.read(&k, u64::MAX).context("read")?;
     assert!(uids(&newest, 7, 0)?.is_empty());
@@ -104,7 +104,7 @@ fn test_cache_after_delta_update_received() -> TestResult {
     let k = ultragraphdb_core_keys::QuadKey::ValueIndex {
         namespace: 0,
         graph: ultragraphdb_core_keys::DEFAULT_GRAPH,
-        predicate: crate::utils::helpers::predicate("cache"),
+        predicate: crate::utils::helpers::predicate("cache")?,
         tokenizer: 1,
         token: b"temp".to_vec(),
     }
@@ -144,7 +144,7 @@ fn test_cache_is_replaced_by_a_commit_after_its_fill() -> TestResult {
         .cached(&k, 25)
         .context("read")?
         .context("a cache hit")?;
-    assert_eq!(l2.uids(&ListOptions::at(25))?.uids(), vec![1, 2]);
+    assert_eq!(l2.uids(&ListOptions::at(25))?.ids(), ids(&[1, 2])?);
     Ok(())
 }
 
@@ -161,7 +161,7 @@ fn test_a_read_above_the_lists_newest_version_hits() -> TestResult {
         .cached(&k, ts + 100)
         .context("read")?
         .context("a hit")?;
-    assert_eq!(uids(&hit, ts + 100, 0)?, vec![1]);
+    assert_eq!(uids(&hit, ts + 100, 0)?, rids(&[1]));
     Ok(())
 }
 
@@ -177,7 +177,7 @@ fn test_a_stale_fill_is_refused() -> TestResult {
     // The entry is the second commit's, which replaced the one its own request filled.
     assert_eq!(lists.cache().get(&k).map(|e| e.ts()), Some(second));
     let read = lists.read(&k, second).context("read")?;
-    assert_eq!(uids(&read, second, 0)?, vec![1, 2]);
+    assert_eq!(uids(&read, second, 0)?, rids(&[1, 2]));
     Ok(())
 }
 
@@ -244,10 +244,10 @@ fn test_a_miss_reads_below_a_newer_complete_version_again() -> TestResult {
     // A commit elsewhere moves the applied timestamp above the rollup's version.
     commit(&lists, &key("missbelow", 2), &[set_uid(3)])?;
     let miss = lists.miss(&k, first).context("miss")?;
-    assert_eq!(uids(miss.list(), first, 0)?, vec![1]);
+    assert_eq!(uids(miss.list(), first, 0)?, rids(&[1]));
     assert!(miss.base() >= second);
     assert_eq!(miss.epoch(), lists.epoch());
-    assert_eq!(uids(&miss.into_list(), first, 0)?, vec![1]);
+    assert_eq!(uids(&miss.into_list(), first, 0)?, rids(&[1]));
     Ok(())
 }
 
@@ -286,7 +286,7 @@ fn test_a_fill_is_made_when_the_last_commit_to_its_key_is_its_base() -> TestResu
             ts,
             0
         )?,
-        vec![1, 2]
+        rids(&[1, 2])
     );
     assert!(lists.fill(other), "no commit wrote b after its fill began");
     Ok(())
@@ -299,7 +299,7 @@ fn test_a_miss_taken_as_its_list_gives_its_fill_up() -> TestResult {
     let ts = commit_edges(&lists, &k, &[set_uid(1)])?;
     lists.cache().remove(&k);
     let list = lists.miss(&k, ts)?.into_list();
-    assert_eq!(uids(&list, ts, 0)?, vec![1]);
+    assert_eq!(uids(&list, ts, 0)?, rids(&[1]));
     assert!(lists.cache().get(&k).is_none());
     // No fill is left under way: a commit now does not refuse a later fill of another key.
     let miss = lists.miss(&key("into-list", 2), ts)?;

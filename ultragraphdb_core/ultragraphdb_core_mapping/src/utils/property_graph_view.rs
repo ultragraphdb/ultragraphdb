@@ -65,8 +65,8 @@ pub fn property_graph_view<'a>(
                         .collect();
                     edge = edge.with_property(names.name(predicate), values);
                 }
-                if let Some(id) = s.id() {
-                    edge = edge.with_id(id);
+                if let Some(reifier) = s.reifier() {
+                    edge = edge.with_reifier(reifier.clone());
                 }
                 pg.push_edge(edge);
             }

@@ -1539,6 +1539,7 @@ name = "ultragraphdb_core_catalog"
 version = "0.1.0"
 dependencies = [
  "oxrdf",
+ "ultragraphdb_core_ids",
  "ultragraphdb_core_keys",
  "ultragraphdb_core_mapping",
  "ultragraphdb_core_tok",
@@ -1602,6 +1603,7 @@ name = "ultragraphdb_core_mapping"
 version = "0.1.0"
 dependencies = [
  "oxrdf",
+ "ultragraphdb_core_ids",
  "ultragraphdb_core_terms",
 ]
 
@@ -1612,6 +1614,7 @@ dependencies = [
  "oxrdf",
  "oxsdatatypes",
  "sha2",
+ "ultragraphdb_core_ids",
  "xxhash-rust",
 ]
 
@@ -1801,6 +1804,7 @@ dependencies = [
  "ultragraphdb_common_utils",
  "ultragraphdb_core_algo",
  "ultragraphdb_core_codec",
+ "ultragraphdb_core_ids",
  "ultragraphdb_core_keys",
  "ultragraphdb_error_store",
  "ultragraphdb_traits_store",

@@ -75,6 +75,7 @@ impl<T: HnswFloat> CandidateHeap<T> {
     }
 
     fn up(&mut self, mut j: usize) {
+        // Ends: `j` at least halves each turn.
         while j > 0 {
             let i = (j - 1) / 2;
             if !self.less(j, i) {
@@ -87,11 +88,9 @@ impl<T: HnswFloat> CandidateHeap<T> {
 
     fn down(&mut self, i0: usize, n: usize) {
         let mut i = i0;
-        loop {
+        // Ends: `i` at least doubles each turn, and the turn stops once it has no child below `n`.
+        while 2 * i + 1 < n {
             let j1 = 2 * i + 1;
-            if j1 >= n {
-                break;
-            }
             let mut j = j1;
             let j2 = j1 + 1;
             if j2 < n && self.less(j2, j1) {

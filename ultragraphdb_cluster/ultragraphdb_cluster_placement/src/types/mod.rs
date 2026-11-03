@@ -3,7 +3,6 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-pub mod bucket_group;
 pub mod bucket_range;
 pub mod namespace_run;
 pub mod node_id;

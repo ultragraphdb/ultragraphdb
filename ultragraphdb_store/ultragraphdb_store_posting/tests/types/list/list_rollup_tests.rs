@@ -9,7 +9,8 @@ use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_store::Store;
 
 use crate::utils::helpers::{
-    add, del_uid, key, new_store, read_back, roll_up, set_uid, uids, with_facet,
+    add, del_uid, id, ids, key, new_store, number, read_back, rid, rids, roll_up, set_uid, uids,
+    with_facet,
 };
 
 #[test]
@@ -70,7 +71,10 @@ fn test_iteration_after_a_uid_crosses_part_boundaries() -> TestResult {
     l.commit_mutation(2);
     let (l, _) = roll_up(&store, &l, u64::MAX, 4096)?;
     assert!(l.part_splits().len() > 2);
-    assert_eq!(uids(&l, 3, 10)?, (11..=3000).collect::<Vec<_>>());
+    assert_eq!(
+        uids(&l, 3, rid(10))?,
+        rids(&(11..=3000).collect::<Vec<_>>())
+    );
     // Hand-derived: 3000 uids fill 12 blocks of 256, which splitting keeps whole; the approximate length is 12 × 256.
     assert_eq!(l.approx_len(), 3072);
     Ok(())
@@ -80,22 +84,31 @@ fn test_iteration_after_a_uid_crosses_part_boundaries() -> TestResult {
 fn test_a_rollup_keeps_the_statement_ids_of_a_uid_posting() -> TestResult {
     use std::ops::ControlFlow;
     use ultragraphdb_core_codec::Posting;
-    use ultragraphdb_core_keys::QuadKey;
+    use ultragraphdb_core_ids::{Bucket, Sequence, SystemId, TypePrefix};
+    use ultragraphdb_core_keys::{Graph, QuadKey};
     use ultragraphdb_store_posting::{PostingError, SET};
 
+    let statement = |n: u64| -> TestResult<SystemId> {
+        Ok(SystemId::new(
+            TypePrefix::STATEMENT,
+            Bucket::new(0)?,
+            Sequence::new(n)?,
+        ))
+    };
     let store = new_store();
     let k = QuadKey::Forward {
         namespace: 0,
-        graph: 0,
-        predicate: 2,
-        subject: 1,
+        graph: Graph::Default,
+        predicate: id(2)?,
+        subject: id(1)?,
     }
     .to_bytes();
     let mut l = read_back(&store, &k)?;
     l.set_ts(1);
-    for (uid, statement_ids) in [(7, vec![3, 4]), (8, Vec::new())] {
+    let statements = vec![statement(3)?, statement(4)?];
+    for (n, statement_ids) in [(7, statements.clone()), (8, Vec::new())] {
         let posting = Posting::default()
-            .with_uid(uid)
+            .with_uid(rid(n))
             .with_op(SET)
             .with_statement_ids(statement_ids);
         l.add_posting(posting, false);
@@ -107,7 +120,7 @@ fn test_a_rollup_keeps_the_statement_ids_of_a_uid_posting() -> TestResult {
         held.push((p.uid(), p.statement_ids().to_vec()));
         Ok::<_, PostingError>(ControlFlow::Continue(()))
     })?;
-    assert_eq!(held, vec![(7, vec![3, 4]), (8, Vec::new())]);
+    assert_eq!(held, vec![(rid(7), statements), (rid(8), Vec::new())]);
     Ok(())
 }
 
@@ -156,7 +169,7 @@ fn test_a_rollup_takes_the_deltas_at_or_below_its_timestamp() -> TestResult {
     assert_eq!(version, 3, "the newest commit read is 2");
     crate::utils::helpers::write_entries(&store, entries)?;
     let rolled = read_back(&store, l.key())?;
-    assert_eq!((rolled.min_ts(), uids(&rolled, 3, 0)?), (3, vec![1]));
+    assert_eq!((rolled.min_ts(), uids(&rolled, 3, 0)?), (3, rids(&[1])));
     Ok(())
 }
 
@@ -203,7 +216,7 @@ fn test_a_rollup_without_splitting_makes_one_list_of_a_split_one() -> TestResult
     assert!(out.plist().splits().is_empty() && out.parts().is_empty());
     assert_eq!(
         ultragraphdb_core_codec::decode(out.plist().pack().context("a pack")?, 0),
-        (1..=2000).collect::<Vec<_>>()
+        ids(&(1..=2000).collect::<Vec<_>>())?
     );
     Ok(())
 }
@@ -221,13 +234,13 @@ fn test_a_rollup_puts_each_uid_in_its_part_when_a_part_empties() -> TestResult {
     let (mut l, _) = roll_up(&store, &l, u64::MAX, 1000)?;
     let splits = l.part_splits();
     assert!(splits.len() > 3, "{splits:?}");
-    let (a, b) = (splits[1], splits[2]);
+    let (a, b) = (number(splits[1])?, number(splits[2])?);
     // Every uid of the part starting at a, and the first six of the part starting at b.
     (a..=b + 5).for_each(|u| add(&mut l, 3, &del_uid(u)));
     l.commit_mutation(4);
     let (rolled, _) = roll_up(&store, &l, u64::MAX, 1000)?;
-    let above: Vec<u64> = (b + 6..=3000).collect();
-    let read = uids(&rolled, 5, b + 1)?;
+    let above = rids(&(b + 6..=3000).collect::<Vec<_>>());
+    let read = uids(&rolled, 5, rid(b + 1))?;
     assert!(
         read == above,
         "a read after {} starts at {:?}, not {}",
@@ -235,16 +248,20 @@ fn test_a_rollup_puts_each_uid_in_its_part_when_a_part_empties() -> TestResult {
         read.first(),
         b + 6
     );
-    assert_eq!(rolled.find_posting(5, b + 6)?.map(|p| p.uid()), Some(b + 6));
-    let all: Vec<u64> = (1..a).chain(b + 6..=3000).collect();
+    assert_eq!(
+        rolled.find_posting(5, rid(b + 6))?.map(|p| p.uid()),
+        Some(rid(b + 6))
+    );
+    let all = rids(&(1..a).chain(b + 6..=3000).collect::<Vec<_>>());
     assert!(uids(&rolled, 5, 0)? == all, "every uid but those deleted");
     // Every part holds only uids of its own range.
     let part_starts = rolled.part_splits();
     for (i, part) in rolled.parts().iter().enumerate() {
-        let end = part_starts.get(i + 1).map_or(u64::MAX, |next| next - 1);
+        let end = part_starts.get(i + 1).map_or(u128::MAX, |next| next - 1);
         let held = ultragraphdb_core_codec::decode(part.pack().context("a pack")?, 0);
         assert!(
-            held.iter().all(|&u| (part_starts[i]..=end).contains(&u)),
+            held.iter()
+                .all(|u| (part_starts[i]..=end).contains(&u.to_u128())),
             "part {} holds {:?}..{:?}",
             part_starts[i],
             held.first(),

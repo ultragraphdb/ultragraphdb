@@ -3,9 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_cluster_placement::BucketGroup;
-use ultragraphdb_core_ids::Bucket;
-use ultragraphdb_error_cluster::ClusterErrorEnum;
+use ultragraphdb_core_ids::{Bucket, BucketGroup, IdErrorEnum};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
 #[test]
@@ -25,7 +23,7 @@ fn test_groups_zero_and_the_largest_hold_their_value() -> TestResult {
 fn test_a_group_past_18_bits_is_refused() -> TestResult {
     for group in [262_144, u32::MAX] {
         let refusal = BucketGroup::new(group).err().context("a refusal")?;
-        assert_eq!(refusal.0, ClusterErrorEnum::BucketGroupRange { group });
+        assert_eq!(refusal.0, IdErrorEnum::BucketGroupRange { group });
     }
     Ok(())
 }
@@ -43,21 +41,22 @@ fn test_a_buckets_group_is_its_top_18_bits() -> TestResult {
 }
 
 #[test]
-fn test_a_groups_range_and_run() -> TestResult {
-    let group = BucketGroup::new(342)?;
+fn test_a_groups_first_bucket_is_64_times_the_group() -> TestResult {
+    // 342 * 64 = 21,888; 262,143 * 64 = 16,777,152, the last group's first of its 64 buckets up to 2^24 - 1.
+    assert_eq!(BucketGroup::new(0)?.first_bucket(), Bucket::new(0)?);
+    assert_eq!(BucketGroup::new(342)?.first_bucket(), Bucket::new(21_888)?);
     assert_eq!(
-        (group.range().start(), group.range().end()),
-        (21_888, 21_952)
+        BucketGroup::new(262_143)?.first_bucket(),
+        Bucket::new(16_777_152)?
     );
-    assert_eq!(group.run().get(), 0);
-    // Group 1,023 is the last of run 0, group 1,024 the first of run 1.
-    assert_eq!(BucketGroup::new(1_023)?.run().get(), 0);
-    assert_eq!(BucketGroup::new(1_024)?.run().get(), 1);
-    let last = BucketGroup::new(262_143)?;
-    assert_eq!(
-        (last.range().start(), last.range().end()),
-        (16_777_152, 16_777_216)
-    );
-    assert_eq!(last.run().get(), 255);
+    Ok(())
+}
+
+#[test]
+fn test_a_groups_first_bucket_lies_in_the_group() -> TestResult {
+    for group in [0, 1, 342, 1_023, 1_024, 262_143] {
+        let group = BucketGroup::new(group)?;
+        assert_eq!(BucketGroup::of(group.first_bucket()), group);
+    }
     Ok(())
 }

@@ -6,8 +6,11 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_index::{KeyValue, Txn};
+
+use crate::utils::helpers::id;
 
 /// A transaction over a map, with its own lock set.
 #[derive(Default)]
@@ -38,13 +41,17 @@ impl Txn for MapTxn {
         self.get(key)
     }
 
-    fn find(&self, prefix: &[u8], filter: impl Fn(&[u8]) -> bool) -> Result<u64, Self::Error> {
-        self.values
+    fn find(
+        &self,
+        prefix: &[u8],
+        filter: impl Fn(&[u8]) -> bool,
+    ) -> Result<Option<SystemId>, Self::Error> {
+        Ok(self
+            .values
             .borrow()
             .iter()
             .find(|(k, kv)| k.starts_with(prefix) && filter(kv.value()))
-            .map(|(_, kv)| kv.entity())
-            .ok_or_else(|| "none passes".to_string())
+            .map(|(_, kv)| kv.entity()))
     }
 
     fn add_mutation(&self, key: &[u8], t: &KeyValue) -> Result<(), Self::Error> {
@@ -72,10 +79,10 @@ impl Txn for MapTxn {
 fn test_a_txn_reads_its_writes_and_honours_its_locks() -> TestResult {
     let t = MapTxn::default();
     assert_eq!(t.start_ts(), 7);
-    t.add_mutation(b"k1", &KeyValue::new(1, "a", b"v1".to_vec()))
+    t.add_mutation(b"k1", &KeyValue::new(id(1)?, "a", b"v1".to_vec()))
         .context("add_mutation(..)")?;
     assert_eq!(t.get(b"k1"), Ok(b"v1".to_vec()));
-    let kv = KeyValue::new(2, "a", b"v2".to_vec());
+    let kv = KeyValue::new(id(2)?, "a", b"v2".to_vec());
     assert!(t.add_mutation_with_lock_held(b"k2", &kv).is_err());
     t.lock_key(b"k2");
     t.add_mutation_with_lock_held(b"k2", &kv)
@@ -83,6 +90,7 @@ fn test_a_txn_reads_its_writes_and_honours_its_locks() -> TestResult {
     assert_eq!(t.get_with_lock_held(b"k2"), Ok(b"v2".to_vec()));
     t.unlock_key(b"k2");
     assert!(t.get_with_lock_held(b"k2").is_err());
-    assert_eq!(t.find(b"k", |v| v == b"v2"), Ok(2));
+    assert_eq!(t.find(b"k", |v| v == b"v2"), Ok(Some(id(2)?)));
+    assert_eq!(t.find(b"k", |_| false), Ok(None));
     Ok(())
 }

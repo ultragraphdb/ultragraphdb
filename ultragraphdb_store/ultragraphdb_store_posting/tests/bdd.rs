@@ -37,12 +37,15 @@ use crate::utils::helpers::{
     del_value, delete_all, key, lists_over, new_lists, new_store, probe_lists, read_back, roll_up,
     set_uid, set_value, uids, with_facet, write_delta, write_entries,
 };
+use crate::utils::helpers::{ids, pack_of, rid, rids};
 use crate::utils::posting_workload::PostingWorkload;
 
 #[derive(Debug, Default, World)]
 struct Steps {
-    uids: Vec<u64>,
-    second: Vec<u64>,
+    uids: Vec<u128>,
+    second: Vec<u128>,
+    counts: Vec<u64>,
+    counts_after: Vec<u64>,
     list: Option<List>,
     versions: Vec<u64>,
     flags: Vec<bool>,
@@ -51,7 +54,7 @@ struct Steps {
     key: Vec<u8>,
     texts: Vec<Vec<u8>>,
     outcomes: BTreeSet<u64>,
-    reads: Vec<Vec<Vec<u64>>>,
+    reads: Vec<Vec<Vec<u128>>>,
 }
 
 fn friend() -> Vec<u8> {
@@ -94,8 +97,7 @@ fn excludes_delta(w: &mut Steps) -> TestResult {
 fn merges(w: &mut Steps) -> TestResult {
     let store = new_store();
     let k = friend();
-    let complete = PostingList::default()
-        .with_pack(ultragraphdb_core_codec::encode(&[1, 2], 256).context("the uids pack")?);
+    let complete = PostingList::default().with_pack(pack_of(&ids(&[1, 2])?, 256)?);
     write_entries(
         &store,
         vec![Entry::put(k.clone(), 4, BIT_COMPLETE_POSTING, marshal(&complete)).with_discard()],
@@ -110,7 +112,7 @@ fn merges(w: &mut Steps) -> TestResult {
 #[then("the result is the complete list with both deltas applied in commit order")]
 fn merged(w: &mut Steps) {
     // The delta at 6 deletes what the delta at 5 set: applied out of order, 3 would remain.
-    assert_eq!(w.uids, vec![1, 2, 4]);
+    assert_eq!(w.uids, rids(&[1, 2, 4]));
 }
 
 #[when("a list with deltas at 3 and 5 was rolled up into a complete version at 6 and is read at 4")]
@@ -129,7 +131,7 @@ fn below_rollup(w: &mut Steps) -> TestResult {
 
 #[then("the result is the list as of the delta at 3")]
 fn as_of_three(w: &mut Steps) {
-    assert_eq!(w.uids, vec![3]);
+    assert_eq!(w.uids, rids(&[3]));
 }
 
 #[when("a list holds a delta at 4, a delete-all at 5 and an empty rollup at 6, and is read at 4")]
@@ -150,7 +152,7 @@ fn below_empty_rollup(w: &mut Steps) -> TestResult {
 #[then("the result holds the delta's postings")]
 fn holds_delta(w: &mut Steps) {
     // Dgraph serves the empty rollup to this read (mvcc.go:708-709).
-    assert_eq!(w.uids, vec![4]);
+    assert_eq!(w.uids, rids(&[4]));
 }
 
 // Posting lists: delete-all.
@@ -169,7 +171,7 @@ fn delete_all_at_eight(w: &mut Steps) -> TestResult {
 #[then("the read at 8 is empty and the read at 7 returns the postings")]
 fn empty_at_eight(w: &mut Steps) {
     assert!(w.uids.is_empty());
-    assert_eq!(w.second, vec![1, 2]);
+    assert_eq!(w.second, rids(&[1, 2]));
 }
 
 // Posting lists: rollups.
@@ -185,13 +187,13 @@ fn rollup_preserves(w: &mut Steps) -> TestResult {
     let last = commit_edges(&lists, &k, &[set_uid(9), del_uid(1)])?;
     // The watermark passes the reads below with a commit of another list.
     commit_at(&lists, &key("preserved", 1), &[set_uid(1)], last + 6)?;
-    let before: Vec<Vec<u64>> = (last..last + 6)
+    let before: Vec<Vec<u128>> = (last..last + 6)
         .map(|t| uids(&lists.read_uncached(&k, t)?, t, 0))
         .collect::<TestResult<_>>()?;
     assert!(lists.rollup_key(&k)?);
     let version = lists.store().contents().versions(&k)[0].version();
     assert_eq!(version, last + 1);
-    let after: Vec<Vec<u64>> = (last..last + 6)
+    let after: Vec<Vec<u128>> = (last..last + 6)
         .map(|t| uids(&lists.read_uncached(&k, t)?, t, 0))
         .collect::<TestResult<_>>()?;
     w.reads = vec![before, after];
@@ -205,7 +207,7 @@ fn rollup_preserves(w: &mut Steps) -> TestResult {
 fn rollup_preserved(w: &mut Steps) {
     let (before, after) = (&w.reads[0], &w.reads[1]);
     assert_eq!(before, after);
-    assert_eq!(before[0], vec![3, 4, 5, 7, 9]);
+    assert_eq!(before[0], rids(&[3, 4, 5, 7, 9]));
 }
 
 /// The list of TestRollupTimestamp: deltas at 2, 4 and 6 and a delete-all at 10.
@@ -274,7 +276,7 @@ fn facet_back(w: &mut Steps) -> TestResult {
         "read from the rolled-up version"
     );
     let p = list
-        .find_posting(w.versions[0], 5)?
+        .find_posting(w.versions[0], rid(5))?
         .context("the posting")?;
     assert_eq!(p.facets()[0].key(), "since");
     Ok(())
@@ -313,7 +315,7 @@ fn crash_split_rollup(w: &mut Steps) -> TestResult {
         let ts = reopened.applied_ts();
         let list = reopened.read_uncached(&k, ts)?;
         w.flags
-            .push(uids(&list, ts, 0)? == (1..=1600).collect::<Vec<_>>());
+            .push(uids(&list, ts, 0)? == rids(&(1..=1600).collect::<Vec<_>>()));
         let main = reopened.store().contents().versions(&k)[0].clone();
         // The old list's complete version, or the new one above it.
         assert!(main.version() == old || main.version() > old);
@@ -352,7 +354,7 @@ fn parts_recorded(w: &mut Steps) -> TestResult {
     let store = w.store.as_ref().context("the store")?;
     let splits = list.part_splits();
     assert!(splits.len() > 1);
-    assert_eq!(splits[0], 1);
+    assert_eq!(splits[0], 0, "a forward list's first part starts at 0");
     let contents = store.contents();
     let main = &contents.versions(&friend())[0];
     assert_eq!(main.meta(), BIT_COMPLETE_POSTING);
@@ -371,13 +373,13 @@ fn iterate_split(w: &mut Steps) -> TestResult {
     let list = lists.read(&k, ts)?;
     assert!(list.part_splits().len() > 2);
     assert!(list.part_splits()[1] > 10);
-    w.uids = uids(&list, ts, 10)?;
+    w.uids = uids(&list, ts, rid(10))?;
     Ok(())
 }
 
 #[then("the result is every uid above it, across all parts, in order")]
 fn every_uid_above(w: &mut Steps) {
-    assert_eq!(w.uids, (11..=1600).collect::<Vec<_>>());
+    assert_eq!(w.uids, rids(&(11..=1600).collect::<Vec<_>>()));
 }
 
 #[when("every uid of a split list is deleted and the list is rolled up")]
@@ -482,14 +484,14 @@ fn two_in_round(w: &mut Steps) -> TestResult {
     lists
         .commit_round(&[(4, &first), (6, &second)])
         .context("the round is written")?;
-    w.second = vec![lists.applied_ts()];
+    w.counts = vec![lists.applied_ts()];
     Ok(())
 }
 
 #[then("the second reads `name` of `0x1` as it was at the watermark")]
 fn second_reads_watermark(w: &mut Steps) {
     assert_eq!(w.texts, vec![b"before".to_vec()]);
-    assert_eq!(w.second, vec![6]);
+    assert_eq!(w.counts, vec![6]);
 }
 
 #[when(
@@ -530,7 +532,7 @@ fn blind(w: &mut Steps) -> TestResult {
 
 #[then("the read holds `0x2` and `0x3`")]
 fn holds_both(w: &mut Steps) {
-    assert_eq!(w.uids, vec![2, 3]);
+    assert_eq!(w.uids, rids(&[2, 3]));
 }
 
 /// Commits `keys` as one round at `versions`, one transaction per version, the keys shared out in order (one
@@ -601,8 +603,8 @@ fn three_lists(w: &mut Steps) -> TestResult {
     let keys: Vec<Vec<u8>> = (1..=3).map(|u| key("whole", u)).collect();
     let (lists, gates, during) = commit_while_reading(&keys, &[12], 12)?;
     w.flags = gates;
-    w.uids = during.into_iter().map(|n| n as u64).collect();
-    w.second = written_after(&lists, &keys, 12)?
+    w.counts = during.into_iter().map(|n| n as u64).collect();
+    w.counts_after = written_after(&lists, &keys, 12)?
         .into_iter()
         .map(|n| n as u64)
         .collect();
@@ -613,8 +615,8 @@ fn three_lists(w: &mut Steps) -> TestResult {
 fn all_or_none(w: &mut Steps) -> TestResult {
     // While the round is written the gate holds a read at 12 back, and the store underneath shows none of it.
     assert!(w.flags.iter().all(|&open| !open));
-    assert!(w.uids.iter().all(|&n| n == 0 || n == 3), "{:?}", w.uids);
-    assert_eq!(w.second, vec![3, 3, 3]);
+    assert!(w.counts.iter().all(|&n| n == 0 || n == 3), "{:?}", w.counts);
+    assert_eq!(w.counts_after, vec![3, 3, 3]);
     Ok(())
 }
 
@@ -625,8 +627,8 @@ fn two_commits(w: &mut Steps) -> TestResult {
     let keys: Vec<Vec<u8>> = (1..=2).map(|u| key("together", u)).collect();
     let (lists, gates, during) = commit_while_reading(&keys, &[12, 14], 14)?;
     w.flags = gates;
-    w.uids = during.into_iter().map(|n| n as u64).collect();
-    w.second = written_after(&lists, &keys, 14)?
+    w.counts = during.into_iter().map(|n| n as u64).collect();
+    w.counts_after = written_after(&lists, &keys, 14)?
         .into_iter()
         .map(|n| n as u64)
         .collect();
@@ -640,8 +642,8 @@ fn two_commits(w: &mut Steps) -> TestResult {
 #[then("every read sees both commits or neither")]
 fn both_or_neither(w: &mut Steps) -> TestResult {
     assert!(w.flags.iter().all(|&open| !open));
-    assert!(w.uids.iter().all(|&n| n == 0 || n == 2), "{:?}", w.uids);
-    assert_eq!(w.second, vec![2, 2, 2]);
+    assert!(w.counts.iter().all(|&n| n == 0 || n == 2), "{:?}", w.counts);
+    assert_eq!(w.counts_after, vec![2, 2, 2]);
     assert_eq!(w.versions, vec![12, 14]);
     Ok(())
 }
@@ -701,7 +703,7 @@ fn read_waits(w: &mut Steps) -> TestResult {
     let k = vec![key("gate", 1)];
     let (lists, gates, during) = commit_while_reading(&k, &[10], 10)?;
     w.flags = gates;
-    w.uids = during.into_iter().map(|n| n as u64).collect();
+    w.counts = during.into_iter().map(|n| n as u64).collect();
     w.flags.push(lists.try_gate(10)?);
     w.second = uids(&lists.read(&k[0], 10)?, 10, 0)?;
     Ok(())
@@ -710,8 +712,8 @@ fn read_waits(w: &mut Steps) -> TestResult {
 #[then("the read returns after the commit is applied and sees it")]
 fn waited(w: &mut Steps) {
     assert_eq!(w.flags, vec![false, false, false, true]);
-    assert_eq!(w.uids, vec![0, 0, 0]);
-    assert_eq!(w.second, vec![1]);
+    assert_eq!(w.counts, vec![0, 0, 0]);
+    assert_eq!(w.second, rids(&[1]));
 }
 
 #[when("a read at 6 is open and a list with deltas at 6 and 8 is rolled up")]
@@ -734,7 +736,7 @@ fn open_read_rollup(w: &mut Steps) -> TestResult {
 )]
 fn open_read_intact(w: &mut Steps) {
     assert_eq!(w.versions[0], 9);
-    assert_eq!(w.uids, vec![6]);
+    assert_eq!(w.uids, rids(&[6]));
     assert!(w.versions[1] <= 6);
 }
 
@@ -778,12 +780,12 @@ fn cached_then_commit(w: &mut Steps) -> TestResult {
 
 #[then("the read reflects the commit at 20")]
 fn reflects_twenty(w: &mut Steps) {
-    assert_eq!(w.uids, vec![1, 2]);
+    assert_eq!(w.uids, rids(&[1, 2]));
 }
 
 /// One seeded run of commits and reads at increasing timestamps over three keys, with a cache of `capacity`
 /// entries: what each read returned.
-fn interleaved(seed: u64, capacity: usize) -> TestResult<Vec<Vec<u64>>> {
+fn interleaved(seed: u64, capacity: usize) -> TestResult<Vec<Vec<u128>>> {
     let keys: Vec<Vec<u8>> = (1..=3).map(|u| key("concurrent", u)).collect();
     let mut lists: Option<TestLists> = None;
     let mut reads = Vec::new();
@@ -814,7 +816,7 @@ fn interleaved_step(
     lists: &TestLists,
     keys: &[Vec<u8>],
     actor: usize,
-    reads: &mut Vec<Vec<u64>>,
+    reads: &mut Vec<Vec<u128>>,
 ) -> TestResult {
     let k = keys[ctx.rng().index(keys.len())].clone();
     if actor == 0 {
@@ -897,7 +899,7 @@ fn commit_cached(w: &mut Steps) -> TestResult {
 #[then("no read that sees the batch in the store returns the cached list from before the batch")]
 fn no_stale_read(w: &mut Steps) {
     assert_eq!(w.flags, vec![false]);
-    assert_eq!(w.uids, vec![1, 2]);
+    assert_eq!(w.uids, rids(&[1, 2]));
 }
 
 #[when("a reader misses, a commit then writes the key, and the reader then inserts its list")]
@@ -917,18 +919,19 @@ fn stale_fill(w: &mut Steps) -> TestResult {
 #[then("the insert is refused and a read at the commit's timestamp reflects the commit")]
 fn fill_refused(w: &mut Steps) {
     assert_eq!(w.flags, vec![false, false]);
-    assert_eq!(w.uids, vec![1, 2]);
+    assert_eq!(w.uids, rids(&[1, 2]));
 }
 
 /// Drops the friend predicate of the root namespace through `lists`: its data and split prefixes.
 fn drop_friend(lists: &TestLists) -> TestResult {
+    let friend = crate::utils::helpers::predicate("friend")?;
     let prefix = |split| {
         ultragraphdb_core_keys::key_prefix(
             ultragraphdb_core_keys::Keyspace::Forward,
             split,
             0,
             Some(ultragraphdb_core_keys::DEFAULT_GRAPH),
-            Some(crate::utils::helpers::predicate("friend")),
+            Some(friend),
         )
     };
     let (data, split) = (prefix(false), prefix(true));
@@ -989,12 +992,12 @@ fn workload(w: &mut Steps) -> TestResult {
         let (_, reads, _) = PostingWorkload::run(Seed::new(seed), FaultConfig::none(), 300, 2)
             .map_err(|v| v.to_string())
             .context("the workload breaks no invariant")?;
-        w.uids.push(reads as u64);
+        w.counts.push(reads as u64);
         let (_, faulty_reads, _) =
             PostingWorkload::run(Seed::new(seed), PostingWorkload::faults(), 300, 2)
                 .map_err(|v| v.to_string())
                 .context("the workload breaks no invariant")?;
-        w.second.push(faulty_reads as u64);
+        w.counts_after.push(faulty_reads as u64);
     }
     Ok(())
 }
@@ -1004,11 +1007,11 @@ fn same_checks(w: &mut Steps) {
     // The checks are the workload's model rules, written against the Store trait; ultragraphdb_store_kv runs the
     // same workload over fjall once it lands.
     assert!(
-        w.uids.iter().all(|&r| r > 0),
+        w.counts.iter().all(|&r| r > 0),
         "a fault-free run compared no read"
     );
     assert!(
-        w.second.iter().sum::<u64>() > 0,
+        w.counts_after.iter().sum::<u64>() > 0,
         "the faulty runs compared no read"
     );
 }

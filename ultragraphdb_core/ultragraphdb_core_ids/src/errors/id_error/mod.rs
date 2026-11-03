@@ -12,6 +12,7 @@ mod id_error_error;
 ///   [`ZeroTypePrefix`](IdErrorEnum::ZeroTypePrefix), [`ZeroSequence`](IdErrorEnum::ZeroSequence). Decoded bytes or
 ///   numbers that name no entity; the caller refuses what carried them.
 /// - **Out of range:** [`Length`](IdErrorEnum::Length), [`BucketRange`](IdErrorEnum::BucketRange),
+///   [`BucketGroupRange`](IdErrorEnum::BucketGroupRange),
 ///   [`IriTooLong`](IdErrorEnum::IriTooLong), [`EpochRange`](IdErrorEnum::EpochRange),
 ///   [`CommitSequenceRange`](IdErrorEnum::CommitSequenceRange),
 ///   [`OddCommitSequence`](IdErrorEnum::OddCommitSequence). A value outside what its field holds.
@@ -45,6 +46,11 @@ pub enum IdErrorEnum {
     BucketRange {
         /// The value refused.
         bucket: u32,
+    },
+    /// `group` does not fit in a bucket group's 18 bits.
+    BucketGroupRange {
+        /// The value refused.
+        group: u32,
     },
     /// An IRI of `len` bytes is longer than a canonical key's 4-byte length counts.
     IriTooLong {
@@ -96,6 +102,11 @@ impl IdError {
     /// `bucket` does not fit in 24 bits.
     pub fn bucket_range(bucket: u32) -> Self {
         Self(IdErrorEnum::BucketRange { bucket })
+    }
+
+    /// `group` does not fit in 18 bits.
+    pub fn bucket_group_range(group: u32) -> Self {
+        Self(IdErrorEnum::BucketGroupRange { group })
     }
 
     /// An IRI of `len` bytes is too long for a canonical key.

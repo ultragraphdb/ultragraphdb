@@ -8,6 +8,7 @@ mod encoded_term_debug;
 mod encoded_term_encode;
 mod encoded_term_view;
 
+use ultragraphdb_core_ids::SystemId;
 use xxhash_rust::xxh3::xxh3_64;
 
 use crate::errors::term_error::TermError;
@@ -16,7 +17,8 @@ use crate::types::known_datatype::KnownDatatype;
 /// The tags an encoding begins with. Each fixes how many bytes follow, or where to read their length, so an encoding
 /// inside a key ends where its tag says and a key needs no length field. They are stored: none changes meaning.
 pub(crate) mod tag {
-    pub const UID: u8 = 0x01;
+    /// An IRI or a blank node: its system ID's 16 big-endian bytes.
+    pub const ID: u8 = 0x01;
     pub const BOOLEAN: u8 = 0x10;
     pub const INTEGER: u8 = 0x11;
     pub const DECIMAL: u8 = 0x12;
@@ -45,12 +47,16 @@ pub(crate) mod tag {
     /// A literal of a known datatype by its code: the length and lexical form, or the lexical form's hash.
     pub const SMALL_KNOWN: u8 = 0x30;
     pub const BIG_KNOWN: u8 = 0x31;
-    /// A literal of any other datatype by its UID: the length and lexical form, or the lexical form's hash.
+    /// A literal of any other datatype by its datatype's system ID: the length and lexical form, or the lexical form's
+    /// hash.
     pub const SMALL_TYPED: u8 = 0x32;
     pub const BIG_TYPED: u8 = 0x33;
     /// A vector: its dimension, a little-endian u16, then its elements, little-endian 32-bit floats.
     pub const VECTOR: u8 = 0x40;
 }
+
+/// The length of an IRI's or a blank node's encoding: the tag and the ID's 16 bytes.
+const ID_LEN: usize = 1 + SystemId::BYTES;
 
 /// The longest lexical form or language tag held inline; a longer one is hashed.
 pub const INLINE_MAX: usize = 15;
@@ -59,7 +65,7 @@ pub const ENCODED_MAX: usize = 33;
 /// The most elements a vector holds.
 pub const VECTOR_MAX: usize = u16::MAX as usize;
 
-/// A term as the store keeps it: an IRI or blank node by its UID, a literal by its content. Every encoding but a
+/// A term as the store keeps it: an IRI or blank node by its system ID, a literal by its content. Every encoding but a
 /// vector's is one tag byte and at most 32 more, held inline with no allocation; a vector's holds its elements, at
 /// whatever length. Equal terms encode equally and unequal terms unequally, so terms compare by their encodings.
 #[derive(Clone)]
@@ -72,12 +78,18 @@ enum Repr {
 }
 
 impl EncodedTerm {
-    /// The encoding of the IRI or blank node `uid` names.
-    pub fn uid(uid: u64) -> Self {
+    /// The encoding of the IRI or blank node `id` names: the tag and the ID's 16 big-endian bytes.
+    pub fn id(id: SystemId) -> Self {
         let mut bytes = [0u8; ENCODED_MAX];
-        bytes[0] = tag::UID;
-        bytes[1..9].copy_from_slice(&uid.to_be_bytes());
-        Self(Repr::Inline { len: 9, bytes })
+        let (tag_byte, rest) = bytes.split_at_mut(1);
+        tag_byte.fill(tag::ID);
+        if let Some(payload) = rest.first_chunk_mut::<{ SystemId::BYTES }>() {
+            *payload = id.to_be_bytes();
+        }
+        Self(Repr::Inline {
+            len: ID_LEN as u8,
+            bytes,
+        })
     }
 
     /// The encoding of `bytes`, which hold exactly one encoding.
@@ -160,7 +172,7 @@ impl EncodedTerm {
                 bytes.get(1).copied().unwrap_or_default(),
             )),
             tag::SMALL_KNOWN if !inline_utf8(2) => malformed("inline text that is not UTF-8"),
-            tag::SMALL_TYPED if !inline_utf8(9) => malformed("inline text that is not UTF-8"),
+            tag::SMALL_TYPED if !inline_utf8(17) => malformed("inline text that is not UTF-8"),
             _ => Ok(()),
         }
     }
@@ -168,8 +180,11 @@ impl EncodedTerm {
     /// The encoding `bytes` begin with, and the bytes after it: how a key holding a term is parsed.
     pub fn read(bytes: &[u8]) -> Result<(Self, &[u8]), TermError> {
         let len = encoded_len(bytes)?;
-        let (encoding, rest) = bytes.split_at(len);
-        let term = if encoding[0] == tag::VECTOR {
+        let (encoding, rest) = bytes
+            .split_at_checked(len)
+            .ok_or_else(|| TermError::truncated(bytes.to_vec()))?;
+        debug_assert!(!encoding.is_empty(), "an encoding holds at least its tag");
+        let term = if encoding.first() == Some(&tag::VECTOR) {
             Self(Repr::Vector(encoding.into()))
         } else {
             Self::inline(encoding)
@@ -179,6 +194,11 @@ impl EncodedTerm {
 
     /// An encoding of at most [`ENCODED_MAX`] bytes.
     pub(crate) fn inline(encoding: &[u8]) -> Self {
+        debug_assert!(!encoding.is_empty(), "an encoding holds at least its tag");
+        debug_assert!(
+            encoding.len() <= ENCODED_MAX,
+            "an inline encoding fits its array"
+        );
         let mut bytes = [0u8; ENCODED_MAX];
         bytes[..encoding.len()].copy_from_slice(encoding);
         Self(Repr::Inline {
@@ -199,24 +219,22 @@ impl EncodedTerm {
         }
     }
 
-    /// The UID it names, when it encodes an IRI or a blank node.
-    pub fn as_uid(&self) -> Option<u64> {
-        let bytes = self.as_bytes();
-        (bytes[0] == tag::UID).then(|| {
-            let mut raw = [0u8; 8];
-            raw.copy_from_slice(&bytes[1..9]);
-            u64::from_be_bytes(raw)
-        })
+    /// The system ID it names, when it encodes an IRI or a blank node whose ID is valid.
+    pub fn as_id(&self) -> Option<SystemId> {
+        match self.as_bytes().split_first() {
+            Some((&tag::ID, payload)) => SystemId::decode(payload).ok(),
+            _ => None,
+        }
     }
 
     /// Whether it encodes a literal rather than an IRI or a blank node.
     pub fn is_literal(&self) -> bool {
-        self.as_bytes()[0] != tag::UID
+        self.as_bytes().first() != Some(&tag::ID)
     }
 
     /// Whether it encodes a vector literal.
     pub fn is_vector(&self) -> bool {
-        self.as_bytes()[0] == tag::VECTOR
+        self.as_bytes().first() == Some(&tag::VECTOR)
     }
 
     /// The posting fingerprint: XXH3-64 of the encoding, which orders a list's literal postings.
@@ -241,7 +259,7 @@ fn encoded_len(bytes: &[u8]) -> Result<usize, TermError> {
         Ok(n)
     };
     let len = match first {
-        tag::UID => 9,
+        tag::ID => ID_LEN,
         tag::BOOLEAN => 2,
         tag::INTEGER | tag::DOUBLE | tag::YEAR_MONTH_DURATION => 9,
         tag::DECIMAL | tag::DAY_TIME_DURATION => 17,
@@ -258,8 +276,8 @@ fn encoded_len(bytes: &[u8]) -> Result<usize, TermError> {
         t if tag::BIG_LANG_BIG_TAG.contains(&t) => 33,
         tag::SMALL_KNOWN => 3 + inline_len(2)?,
         tag::BIG_KNOWN => 18,
-        tag::SMALL_TYPED => 10 + inline_len(9)?,
-        tag::BIG_TYPED => 25,
+        tag::SMALL_TYPED => 18 + inline_len(17)?,
+        tag::BIG_TYPED => 33,
         tag::VECTOR => {
             let dimension = at(1)? | at(2)? << 8;
             if dimension == 0 {

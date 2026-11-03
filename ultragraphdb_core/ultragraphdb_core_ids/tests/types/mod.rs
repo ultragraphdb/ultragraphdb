@@ -6,6 +6,8 @@
 #[cfg(test)]
 mod bucket;
 #[cfg(test)]
+mod bucket_group_tests;
+#[cfg(test)]
 mod canonical_key;
 #[cfg(test)]
 mod epoch_tests;

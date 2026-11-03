@@ -41,6 +41,11 @@ impl fmt::Display for QuadKeyError {
                     hex(key)
                 )
             }
+            QuadKeyErrorEnum::UnknownKind { key, kind } => write!(
+                f,
+                "Key {} holds the kind byte {kind:#04x}, which names no split start or dictionary entry",
+                hex(key)
+            ),
             QuadKeyErrorEnum::FingerprintStart { key } => write!(
                 f,
                 "Value-index key {} splits at an ID alone, not a fingerprint",

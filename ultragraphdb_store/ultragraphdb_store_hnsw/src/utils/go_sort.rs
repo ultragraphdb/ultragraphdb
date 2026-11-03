@@ -11,6 +11,7 @@
 /// bisection, so that a predicate that is not monotone (a NaN score) picks the index Go picks.
 pub(crate) fn search<E>(n: usize, mut f: impl FnMut(usize) -> Result<bool, E>) -> Result<usize, E> {
     let (mut i, mut j) = (0usize, n);
+    // Ends: each turn halves the range from `i` to `j`.
     while i < j {
         let h = i + (j - i) / 2;
         if !f(h)? {

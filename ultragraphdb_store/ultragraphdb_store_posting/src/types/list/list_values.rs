@@ -21,7 +21,7 @@ use crate::types::p_iterator::{PIterator, PPosting};
 
 impl List {
     /// The posting of `uid` at `read_ts`, from the deltas or the immutable layer: Dgraph's `FindPosting`.
-    pub fn find_posting(&self, read_ts: u64, uid: u64) -> Result<Option<Posting>, PostingError> {
+    pub fn find_posting(&self, read_ts: u64, uid: u128) -> Result<Option<Posting>, PostingError> {
         let (search_further, found) = self.mutation.find_posting(read_ts, uid);
         if let Some(p) = found {
             return Ok(Some(p.clone()));
@@ -69,8 +69,8 @@ impl List {
     pub fn get_posting_and_length(
         &self,
         read_ts: u64,
-        after_uid: u64,
-        uid: u64,
+        after_uid: u128,
+        uid: u128,
     ) -> (i64, Option<Posting>) {
         let mut count = 0i64;
         let mut found = None;
@@ -93,8 +93,8 @@ impl List {
     pub fn get_posting_and_length_no_sort(
         &self,
         read_ts: u64,
-        after_uid: u64,
-        uid: u64,
+        after_uid: u128,
+        uid: u128,
         indexing: bool,
     ) -> Result<(i64, Option<Posting>), PostingError> {
         if indexing {
@@ -135,6 +135,6 @@ impl List {
 }
 
 /// The uid posting the immutable layer yields for a uid it holds no posting for.
-fn uid_posting(uid: u64) -> Posting {
+fn uid_posting(uid: u128) -> Posting {
     Posting::default().with_uid(uid)
 }

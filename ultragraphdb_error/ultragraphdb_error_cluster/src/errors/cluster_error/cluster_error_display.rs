@@ -24,10 +24,6 @@ impl fmt::Display for ClusterError {
                 f,
                 "the bucket range {start}..{end} is empty or reaches past bucket 16777215"
             ),
-            ClusterErrorEnum::BucketGroupRange { group } => write!(
-                f,
-                "bucket group {group} does not fit in 18 bits; the largest is 262143"
-            ),
             ClusterErrorEnum::Unassigned { bucket } => write!(
                 f,
                 "the change leaves bucket {bucket} assigned to no partition"
@@ -131,7 +127,6 @@ fn fmt_sequencer(error: &ClusterErrorEnum, f: &mut fmt::Formatter<'_>) -> fmt::R
         ClusterErrorEnum::ZeroPartition
         | ClusterErrorEnum::PartitionCount { .. }
         | ClusterErrorEnum::BucketRange { .. }
-        | ClusterErrorEnum::BucketGroupRange { .. }
         | ClusterErrorEnum::Unassigned { .. }
         | ClusterErrorEnum::AssignedTwice { .. }
         | ClusterErrorEnum::ChangeEpoch { .. }

@@ -17,8 +17,10 @@ pub fn parse_vector(lexical: &str) -> Result<Vec<f32>, TermError> {
     if inner.is_empty() {
         return Err(refuse("empty"));
     }
+    // One element past the most a vector holds is enough to refuse it, so no more are parsed.
     let elements = inner
         .split(", ")
+        .take(VECTOR_MAX + 1)
         .map(|e| {
             let v: f32 = e
                 .parse()
@@ -35,6 +37,7 @@ pub fn parse_vector(lexical: &str) -> Result<Vec<f32>, TermError> {
     if elements.len() > VECTOR_MAX {
         return Err(refuse("more than 65,535 elements"));
     }
+    debug_assert!(!elements.is_empty(), "a vector holds an element");
     Ok(elements)
 }
 

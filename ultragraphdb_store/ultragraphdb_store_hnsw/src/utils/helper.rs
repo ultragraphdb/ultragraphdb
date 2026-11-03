@@ -5,69 +5,41 @@
  * Ported from Dgraph v25.5.0, tok/hnsw/helper.go (ParseEdges, ConcatStrings, getInsertLayer, Uint64ToBytes,
  * BytesToUint64, isEqual, dedupeUidsPreserveOrder, worstScore, insertUidsTopKByScore), tok/index/helper.go
  * (BytesAsFloatArray) and posting/index.go (the dead list's update in addIndexMutations). Changed for ultragraphdb:
- * translated to Rust; the level draw is the caller's, where Go reads its global random source; an entry of other
- * than 8 bytes and a vector whose length is not a multiple of its float width are refused, where Go panics on a
- * short entry and keeps the vector it decoded before; the scores of insertUidsTopKByScore may fail.
+ * translated to Rust; the level draw is the caller's, where Go reads its global random source; a node is a 128-bit
+ * system ID, so the entry point is its 16 big-endian bytes and the dead list a JSON array of IDs as 32 lowercase
+ * hexadecimal digits, where Go's held u64 uids, and no ID stands for Go's notAUid; an entry that is no valid ID and
+ * a vector whose length is not a multiple of its float width are refused, where Go panics on a short entry and keeps
+ * the vector it decoded before; the scores of insertUidsTopKByScore may fail.
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use ultragraphdb_common_utils::go_strconv;
+use ultragraphdb_core_ids::SystemId;
 
 use crate::errors::hnsw_error::HnswError;
 use crate::traits::hnsw_float::HnswFloat;
 use crate::types::similarity_type::SimilarityType;
 use crate::utils::{go_math, go_sort};
 
-/// The uid that is no uid, Dgraph's `notAUid`.
-pub const NOT_A_UID: u64 = 0;
-
-/// Dgraph's `ParseEdges`: the uids of a dead list, a JSON array of uids, or uids in brackets separated by spaces.
-/// Blank text is no uids.
+/// Dgraph's `ParseEdges`: the IDs of a dead list, a JSON array whose elements are strings of 32 lowercase
+/// hexadecimal digits, each a system ID's 128-bit value. Blank text and an empty array are no IDs.
 ///
 /// # Errors
 ///
-/// [`HnswError::uint_slice`] for text that is neither, naming the text without its outer spaces.
-pub fn parse_edges(s: &str) -> Result<Vec<u64>, HnswError> {
-    let s = s.replace(['\n', '\t'], " ");
-    let s = s.trim();
-    if s.is_empty() {
-        return Ok(Vec::new());
-    }
-    let refuse = || HnswError::uint_slice(s);
-    let trimmed_pre = s.strip_prefix('[').ok_or_else(refuse)?;
-    let trimmed = trimmed_pre.trim_end_matches(']');
-    if trimmed.len() == trimmed_pre.len() {
-        return Err(refuse());
-    }
-    if trimmed.is_empty() {
-        return Ok(Vec::new());
-    }
-    let parse = |v: &str| go_strconv::parse_uint(v, 10).map_err(|_| refuse());
-    if trimmed.contains(',') {
-        return trimmed.split(',').map(|v| parse(v.trim())).collect();
-    }
-    trimmed
-        .split(' ')
-        .filter(|v| !v.is_empty())
-        .map(parse)
-        .collect()
+/// [`HnswError::uint_slice`] for text that is no such array, or names no valid system ID, naming the text without
+/// its outer spaces.
+pub fn parse_edges(s: &str) -> Result<Vec<SystemId>, HnswError> {
+    unimplemented!()
 }
 
-/// The dead list after `uid` is deleted: `existing`, the dead list's value or `None` when it has none, with `uid`
-/// appended, as JSON, Go's `json.Marshal` of a `[]uint64`. The update `posting/index.go` makes when a vector is
-/// deleted; a uid already listed is listed again, as Dgraph lists it.
+/// The dead list after the node `id` is deleted: `existing`, the dead list's value or `None` when it has none, with
+/// `id` appended, as the JSON array [`parse_edges`] reads. The update `posting/index.go` makes when a vector is
+/// deleted; an ID already listed is listed again, as Dgraph lists it.
 ///
 /// # Errors
 ///
 /// [`HnswError::uint_slice`] when `existing` does not parse.
-pub fn add_dead_node(existing: Option<&[u8]>, uid: u64) -> Result<Vec<u8>, HnswError> {
-    let mut dead = match existing {
-        Some(value) => parse_edges(&String::from_utf8_lossy(value))?,
-        None => Vec::new(),
-    };
-    dead.push(uid);
-    let listed: Vec<String> = dead.iter().map(u64::to_string).collect();
-    Ok(format!("[{}]", listed.join(",")).into_bytes())
+pub fn add_dead_node(existing: Option<&[u8]>, id: SystemId) -> Result<Vec<u8>, HnswError> {
+    unimplemented!()
 }
 
 /// Dgraph's `ConcatStrings`.
@@ -87,15 +59,10 @@ pub fn insert_layer(max_levels: usize, rand_float: f64) -> usize {
         .unwrap_or(0)
 }
 
-/// Dgraph's `Uint64ToBytes`: big-endian.
-pub fn uint64_to_bytes(key: u64) -> Vec<u8> {
-    key.to_be_bytes().to_vec()
-}
-
-/// Dgraph's `BytesToUint64`: the big-endian uid of an entry; `None` unless `bytes` hold exactly 8 bytes, where Go
-/// panics on fewer and reads the first 8 of more.
-pub fn bytes_to_uint64(bytes: &[u8]) -> Option<u64> {
-    bytes.try_into().ok().map(u64::from_be_bytes)
+/// Dgraph's `BytesToUint64`: the node an entry point names, its system ID's 16 big-endian bytes; `None` unless
+/// `bytes` are exactly 16 bytes of a valid ID, where Go panics on fewer and reads the first 8 of more.
+pub fn bytes_to_id(bytes: &[u8]) -> Option<SystemId> {
+    unimplemented!()
 }
 
 /// Dgraph's `index.BytesAsFloatArray`: the little-endian floats of `encoded`; no bytes are no floats. `None` when
@@ -115,14 +82,15 @@ pub fn is_equal<T: PartialEq>(a: &[T], b: &[T]) -> bool {
     a == b
 }
 
-/// Dgraph's `dedupeUidsPreserveOrder`: `uids` without `notAUid` and without repeats, in their order.
-pub(crate) fn dedupe_uids_preserve_order(uids: Vec<u64>) -> Vec<u64> {
+/// Dgraph's `dedupeUidsPreserveOrder`: `uids` without repeats, in their order. No system ID stands for Go's
+/// `notAUid`, so none is left out for being one.
+pub(crate) fn dedupe_uids_preserve_order(uids: Vec<SystemId>) -> Vec<SystemId> {
     if uids.len() <= 1 {
         return uids;
     }
     let mut seen = std::collections::HashSet::with_capacity(uids.len());
     uids.into_iter()
-        .filter(|&uid| uid != NOT_A_UID && seen.insert(uid))
+        .filter(|&uid| seen.insert(uid))
         .collect()
 }
 
@@ -136,26 +104,26 @@ pub fn worst_score<T: HnswFloat>(sim: SimilarityType) -> T {
 }
 
 /// Dgraph's `insertUidsTopKByScore`: `edges`, sorted best to worst by `sim`, with `new_uids` inserted by `score`,
-/// without `notAUid` and repeats, at most `keep` long. A new uid goes after the uids it does not beat.
+/// without repeats, at most `keep` long. A new ID goes after the IDs it does not beat.
 ///
 /// # Errors
 ///
 /// The first error of `score`.
 pub fn insert_uids_top_k_by_score<T: HnswFloat, E>(
-    mut edges: Vec<u64>,
-    new_uids: &[u64],
+    mut edges: Vec<SystemId>,
+    new_uids: &[SystemId],
     keep: usize,
     sim: SimilarityType,
-    mut score: impl FnMut(u64) -> Result<T, E>,
-) -> Result<Vec<u64>, E> {
+    mut score: impl FnMut(SystemId) -> Result<T, E>,
+) -> Result<Vec<SystemId>, E> {
     if keep == 0 {
         return Ok(Vec::new());
     }
     edges.truncate(keep);
     let mut seen = std::collections::HashSet::with_capacity(edges.len() + new_uids.len());
-    edges.retain(|&uid| uid != NOT_A_UID && seen.insert(uid));
+    edges.retain(|&uid| seen.insert(uid));
     for &uid in new_uids {
-        if uid == NOT_A_UID || !seen.insert(uid) {
+        if !seen.insert(uid) {
             continue;
         }
         let score_new = score(uid)?;

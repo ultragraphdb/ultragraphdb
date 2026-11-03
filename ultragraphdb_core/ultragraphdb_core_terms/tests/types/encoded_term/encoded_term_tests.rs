@@ -5,18 +5,28 @@
 
 use oxrdf::vocab::xsd;
 use oxrdf::{BaseDirection, Literal, NamedNode};
+use ultragraphdb_core_ids::{Bucket, Sequence, SystemId, TypePrefix};
 use ultragraphdb_core_terms::{EncodedTerm, FLOAT32_VECTOR, TermError, TermView};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
+fn id(prefix: u16, bucket: u32, sequence: u64) -> TestResult<SystemId> {
+    Ok(SystemId::new(
+        TypePrefix::new(prefix)?,
+        Bucket::new(bucket)?,
+        Sequence::new(sequence)?,
+    ))
+}
+
 fn encode(literal: &Literal) -> TestResult<EncodedTerm> {
-    Ok(EncodedTerm::literal(literal.as_ref(), |_| Ok::<_, TermError>(9))?.into_term())
+    let datatype = id(1, 9, 9)?;
+    Ok(EncodedTerm::literal(literal.as_ref(), |_| Ok::<_, TermError>(datatype))?.into_term())
 }
 
 /// One encoding of every tag kind.
 fn every_kind() -> TestResult<Vec<EncodedTerm>> {
     let other = NamedNode::new_unchecked("http://example.org/other");
     let long = "z".repeat(20);
-    let mut terms = vec![EncodedTerm::uid(42)];
+    let mut terms = vec![EncodedTerm::id(id(1, 42, 42)?)];
     terms.extend(
         [
             Literal::new_typed_literal("true", xsd::BOOLEAN),
@@ -44,50 +54,108 @@ fn every_kind() -> TestResult<Vec<EncodedTerm>> {
 }
 
 #[test]
-fn test_a_uid_round_trips() {
-    let term = EncodedTerm::uid(0xDEAD_BEEF);
-    assert_eq!(term.as_uid(), Some(0xDEAD_BEEF));
+fn test_an_id_round_trips() -> TestResult {
+    let term = EncodedTerm::id(id(1, 0xAB_CDEF, 0xDEAD_BEEF)?);
+    assert_eq!(term.as_id(), Some(id(1, 0xAB_CDEF, 0xDEAD_BEEF)?));
     assert!(!term.is_literal());
     assert!(!term.is_vector());
-    assert_eq!(term.view(), Ok(TermView::Uid(0xDEAD_BEEF)));
+    assert_eq!(
+        term.view(),
+        Ok(TermView::Id(id(1, 0xAB_CDEF, 0xDEAD_BEEF)?))
+    );
     assert_eq!(EncodedTerm::from_bytes(term.as_bytes()), Ok(term));
+    Ok(())
 }
 
 #[test]
-fn test_a_uid_is_its_tag_and_its_value_big_endian() {
-    // PROTOCOL.md section 10.1: tag 0x01, then the UID as a u64 big-endian, 9 bytes.
-    for (uid, bytes) in [
-        (0xDEAD_BEEF, [0x01, 0, 0, 0, 0, 0xDE, 0xAD, 0xBE, 0xEF]),
-        (0, [0x01, 0, 0, 0, 0, 0, 0, 0, 0]),
+fn test_an_id_is_its_tag_and_its_16_bytes_big_endian() -> TestResult {
+    // Tag 0x01, then the ID's 16 bytes, written by hand: type prefix (2), sequence (8), bucket (3), 3 zero bytes.
+    for (term, bytes) in [
         (
-            u64::MAX,
-            [0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
+            id(1, 42, 42)?,
+            [0x01, 0, 1, 0, 0, 0, 0, 0, 0, 0, 42, 0, 0, 42, 0, 0, 0],
+        ),
+        (
+            id(u16::MAX, 0xFF_FFFF, u64::MAX)?,
+            [
+                0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                0, 0, 0,
+            ],
         ),
     ] {
-        let term = EncodedTerm::uid(uid);
-        assert_eq!(term.as_bytes(), &bytes, "{uid:#x}");
-        assert_eq!(term.as_uid(), Some(uid));
+        let encoded = EncodedTerm::id(term);
+        assert_eq!(encoded.as_bytes(), &bytes, "{term:?}");
+        assert_eq!(encoded.as_id(), Some(term));
     }
-    // Big-endian is what orders UIDs numerically by their bytes: 2 < 256, though 256's low byte is the smaller.
-    assert!(EncodedTerm::uid(2) < EncodedTerm::uid(256));
+    // Big-endian orders IDs as their numbers: by type, then sequence, then bucket. Sequence 2 sorts before 256 though
+    // 256's low byte is the smaller, and a larger bucket under a smaller sequence sorts first.
+    assert!(EncodedTerm::id(id(1, 0, 2)?) < EncodedTerm::id(id(1, 0, 256)?));
+    assert!(EncodedTerm::id(id(1, 0xFF_FFFF, 1)?) < EncodedTerm::id(id(1, 0, 2)?));
+    assert!(EncodedTerm::id(id(1, 0, u64::MAX)?) < EncodedTerm::id(id(2, 0, 1)?));
+    Ok(())
 }
 
 #[test]
-fn test_a_literal_names_no_uid() -> TestResult {
+fn test_an_id_encoding_of_no_valid_id_names_no_id() -> TestResult {
+    // An encoding's 17 bytes whose ID has sequence 0: the length rules take it, the ID does not decode.
+    let bytes = [0x01, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 42, 0, 0, 0];
+    let term = EncodedTerm::from_bytes(&bytes)?;
+    assert_eq!(term.as_id(), None);
+    // Its tag names an IRI or a blank node, whether or not its ID decodes.
+    assert!(!term.is_literal());
+    assert_eq!(
+        term.view(),
+        Err(TermError::malformed(
+            bytes.to_vec(),
+            "an ID that is no valid system ID"
+        ))
+    );
+    // Eight bytes after the tag, a stage-5 UID's length, are a cut ID.
+    let short = [0x01, 0, 0, 0, 0, 0, 0, 0, 42];
+    assert_eq!(
+        EncodedTerm::from_bytes(&short),
+        Err(TermError::truncated(short.to_vec()))
+    );
+    Ok(())
+}
+
+#[test]
+fn test_a_literal_names_no_id() -> TestResult {
     for term in every_kind()?.into_iter().skip(1) {
         assert!(term.is_literal(), "{term:?}");
-        assert_eq!(term.as_uid(), None, "{term:?}");
+        assert_eq!(term.as_id(), None, "{term:?}");
         assert_eq!(term.is_vector(), term.as_bytes()[0] == 0x40, "{term:?}");
     }
     Ok(())
 }
 
 #[test]
-fn test_debug_shows_the_encoding_in_hex() {
-    assert_eq!(
-        format!("{:?}", EncodedTerm::uid(0x0102)),
-        "EncodedTerm(010000000000000102)"
+fn test_a_literal_whose_16_bytes_are_a_valid_id_names_no_id() -> TestResult {
+    // PROTOCOL.md section 10.5: tag 0x12, then the decimal × 10¹⁸ as a big-endian i128. -64 × 10¹⁸ is -(2²⁴ × 5¹⁸),
+    // written by hand from Python's `(-64 * 10**18) & (2**128 - 1)`: type prefix 0xFFFF, a non-zero sequence, bucket
+    // 0x531627, reserved bits zero, so the 16 bytes after the tag decode as a system ID. The tag alone says literal.
+    let term = encode(&Literal::new_typed_literal("-64", xsd::DECIMAL))?;
+    let bytes = [
+        0x12, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFC, 0x87, 0xD2, 0x53, 0x16, 0x27, 0x00,
+        0x00, 0x00,
+    ];
+    assert_eq!(term.as_bytes(), &bytes);
+    assert!(
+        SystemId::decode(&bytes[1..]).is_ok(),
+        "the payload is an ID"
     );
+    assert_eq!(term.as_id(), None);
+    assert!(term.is_literal());
+    Ok(())
+}
+
+#[test]
+fn test_debug_shows_the_encoding_in_hex() -> TestResult {
+    assert_eq!(
+        format!("{:?}", EncodedTerm::id(id(1, 2, 0x0102)?)),
+        "EncodedTerm(0100010000000000000102000002000000)"
+    );
+    Ok(())
 }
 
 #[test]
@@ -163,7 +231,7 @@ fn test_every_inline_length_is_read_where_its_tag_puts_it() {
     let language_16 = [&[0x22, 1, b'x', 16][..], &sixteen].concat();
     let big_lang_16 = [&[0x23][..], &[0; 16], &[16], &sixteen].concat();
     let known_16 = [&[0x30, 2, 16][..], &sixteen].concat();
-    let typed_16 = [&[0x32][..], &[0; 8], &[16], &sixteen].concat();
+    let typed_16 = [&[0x32][..], &[0; 16], &[16], &sixteen].concat();
     for bytes in [lexical_16, language_16, big_lang_16, known_16, typed_16] {
         assert_eq!(
             EncodedTerm::read(&bytes).map(|_| ()),
@@ -181,7 +249,7 @@ fn test_every_inline_length_is_read_where_its_tag_puts_it() {
         [&[0x22, 15][..], &fifteen, &[15], &fifteen].concat(),
         [&[0x23][..], &[0; 16], &[15], &fifteen].concat(),
         [&[0x30, 2, 15][..], &fifteen].concat(),
-        [&[0x32][..], &[0; 8], &[15], &fifteen].concat(),
+        [&[0x32][..], &[0; 16], &[15], &fifteen].concat(),
     ] {
         assert_eq!(
             EncodedTerm::read(&bytes).map(|(t, rest)| (t.as_bytes().len(), rest.len())),
@@ -218,9 +286,10 @@ fn test_a_view_refuses_inline_text_that_is_not_utf8_wherever_it_is() -> TestResu
         vec![0x25, 1, b'x', 2, b'e', 0xFF],
         // A hashed lexical form's inline tag, in the right-to-left set.
         [&[0x29][..], &[0; 16], &[1, 0xFF]].concat(),
-        // A known datatype's and another datatype's lexical form.
+        // A known datatype's and another datatype's lexical form, the other datatype's ID (type 1, sequence 1, bucket
+        // 0) valid.
         vec![0x30, 2, 1, 0xFF],
-        [&[0x32][..], &[0; 8], &[1, 0xFF]].concat(),
+        [&[0x32, 0, 1][..], &[0; 7], &[1], &[0; 6], &[1, 0xFF]].concat(),
     ] {
         let term = EncodedTerm::from_bytes(&bytes)?;
         assert_eq!(
@@ -244,7 +313,10 @@ fn test_a_view_refuses_inline_text_that_is_not_utf8_wherever_it_is() -> TestResu
 fn test_the_fingerprint_is_xxh3_of_the_encoding_and_order_is_byte_order() -> TestResult {
     // XXH3-64 from Python's xxhash 3.6.0 (libxxhash 0.8.2) over each encoding's bytes, independently of the Rust code.
     for (term, fingerprint) in [
-        (EncodedTerm::uid(42), 5_096_793_477_454_505_956u64),
+        (
+            EncodedTerm::id(id(1, 42, 42)?),
+            6_006_982_149_053_221_746u64,
+        ),
         (
             encode(&Literal::new_simple_literal("short"))?,
             4_658_978_779_619_232_382,
@@ -349,8 +421,8 @@ fn test_check_refuses_what_a_peer_may_not_send() {
             malformed(&[0x30, 1, 1, 0xFF], not_utf8),
         ),
         (
-            vec![0x32, 0, 0, 0, 0, 0, 0, 0, 9, 1, 0xFF],
-            malformed(&[0x32, 0, 0, 0, 0, 0, 0, 0, 9, 1, 0xFF], not_utf8),
+            [&[0x32][..], &[0; 15], &[9, 1, 0xFF]].concat(),
+            malformed(&[&[0x32][..], &[0; 15], &[9, 1, 0xFF]].concat(), not_utf8),
         ),
         // A known datatype's code outside section 10.4 (point 13): 0 and 34 are one below and one above codes 1 to
         // 33, 200 far outside, under the hashed tag.
@@ -478,7 +550,7 @@ fn test_the_encoded_term_fuzz_regressions_replay_without_a_panic() -> TestResult
             let view = term.view().context(name)?;
             // A literal or an error, either of which passes: the replay asks only that nothing panics.
             let _literal: Result<Literal, TermError> = view.to_literal(
-                |uid| Err::<_, TermError>(TermError::not_a_literal(uid)),
+                |id| Err::<_, TermError>(TermError::not_a_literal(id)),
                 |_| Ok("the text the hash names".to_string()),
             );
         }

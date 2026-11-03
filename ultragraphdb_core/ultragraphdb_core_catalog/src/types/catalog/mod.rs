@@ -9,6 +9,7 @@ mod catalog_types;
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
+use ultragraphdb_core_ids::SystemId;
 
 use oxrdf::NamedNode;
 use oxrdf::vocab::rdf;
@@ -20,16 +21,16 @@ use ultragraphdb_core_tok::{get_index_factory, get_tokenizer};
 use crate::errors::catalog_error::CatalogError;
 use crate::utils::tokenizer_datatypes::tokenizer_takes;
 
-/// The declarations of one namespace, by the UID of the predicate, entity type or relation each declares: what both
+/// The declarations of one namespace, by the ID of the predicate, entity type or relation each declares: what both
 /// engines, index maintenance and the write checks read. A predicate it does not declare behaves as
 /// [`PredicateDeclaration::new`], kind either, multi-valued, no datatype constraint, values not unique, no index.
 /// A write works on a copy and the copy replaces the catalog when the write commits.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Catalog {
     namespace: u64,
-    predicates: BTreeMap<u64, PredicateDeclaration>,
-    types: BTreeMap<u64, TypeDeclaration>,
-    relations: BTreeMap<u64, RelationDeclaration>,
+    predicates: BTreeMap<SystemId, PredicateDeclaration>,
+    types: BTreeMap<SystemId, TypeDeclaration>,
+    relations: BTreeMap<SystemId, RelationDeclaration>,
 }
 
 impl Catalog {
@@ -41,8 +42,8 @@ impl Catalog {
         }
     }
 
-    /// A namespace's initial catalog: `rdf:type`, whose UID is `rdf_type`, declared an edge, and nothing else.
-    pub fn initial(namespace: u64, rdf_type: u64) -> Self {
+    /// A namespace's initial catalog: `rdf:type`, whose ID is `rdf_type`, declared an edge, and nothing else.
+    pub fn initial(namespace: u64, rdf_type: SystemId) -> Self {
         let mut catalog = Self::new(namespace);
         let _none: Option<PredicateDeclaration> = catalog.predicates.insert(
             rdf_type,
@@ -57,40 +58,44 @@ impl Catalog {
     }
 
     /// The declaration of predicate `uid`, if the catalog holds one.
-    pub fn predicate(&self, uid: u64) -> Option<&PredicateDeclaration> {
+    pub fn predicate(&self, uid: SystemId) -> Option<&PredicateDeclaration> {
         self.predicates.get(&uid)
     }
 
     /// The declaration predicate `uid`, named `iri`, behaves as: its own, or the default.
-    pub fn predicate_or_default(&self, uid: u64, iri: &NamedNode) -> Cow<'_, PredicateDeclaration> {
+    pub fn predicate_or_default(
+        &self,
+        uid: SystemId,
+        iri: &NamedNode,
+    ) -> Cow<'_, PredicateDeclaration> {
         match self.predicates.get(&uid) {
             Some(declared) => Cow::Borrowed(declared),
             None => Cow::Owned(PredicateDeclaration::new(iri.clone())),
         }
     }
 
-    /// Every predicate declared, by UID.
-    pub fn predicates(&self) -> impl Iterator<Item = (u64, &PredicateDeclaration)> {
+    /// Every predicate declared, by ID.
+    pub fn predicates(&self) -> impl Iterator<Item = (SystemId, &PredicateDeclaration)> {
         self.predicates.iter().map(|(uid, d)| (*uid, d))
     }
 
     /// The declaration of entity type `uid`, if the catalog holds one.
-    pub fn entity_type(&self, uid: u64) -> Option<&TypeDeclaration> {
+    pub fn entity_type(&self, uid: SystemId) -> Option<&TypeDeclaration> {
         self.types.get(&uid)
     }
 
-    /// Every entity type declared, by UID.
-    pub fn entity_types(&self) -> impl Iterator<Item = (u64, &TypeDeclaration)> {
+    /// Every entity type declared, by ID.
+    pub fn entity_types(&self) -> impl Iterator<Item = (SystemId, &TypeDeclaration)> {
         self.types.iter().map(|(uid, d)| (*uid, d))
     }
 
     /// The declaration of relation `uid`, if the catalog holds one.
-    pub fn relation(&self, uid: u64) -> Option<&RelationDeclaration> {
+    pub fn relation(&self, uid: SystemId) -> Option<&RelationDeclaration> {
         self.relations.get(&uid)
     }
 
-    /// Every relation declared, by UID.
-    pub fn relations(&self) -> impl Iterator<Item = (u64, &RelationDeclaration)> {
+    /// Every relation declared, by ID.
+    pub fn relations(&self) -> impl Iterator<Item = (SystemId, &RelationDeclaration)> {
         self.relations.iter().map(|(uid, d)| (*uid, d))
     }
 
@@ -98,7 +103,7 @@ impl Catalog {
     /// [`Catalog::check_predicate`] refuses.
     pub fn declare_predicate(
         &mut self,
-        uid: u64,
+        uid: SystemId,
         declaration: PredicateDeclaration,
     ) -> Result<(), CatalogError> {
         Self::check_predicate(&declaration)?;
@@ -133,22 +138,22 @@ impl Catalog {
     }
 
     /// Removes predicate `uid`'s declaration: it behaves as the default again. Whether it had one.
-    pub fn remove_predicate(&mut self, uid: u64) -> bool {
+    pub fn remove_predicate(&mut self, uid: SystemId) -> bool {
         self.predicates.remove(&uid).is_some()
     }
 
     /// Declares relation `uid`, replacing its declaration.
-    pub fn declare_relation(&mut self, uid: u64, declaration: RelationDeclaration) {
+    pub fn declare_relation(&mut self, uid: SystemId, declaration: RelationDeclaration) {
         let _replaced: Option<RelationDeclaration> = self.relations.insert(uid, declaration);
     }
 
     /// Applies `declaration` of the predicate, type or relation `uid` names; a type's parent, when it has one, is
-    /// `parent`'s UID.
+    /// `parent`'s ID.
     pub fn declare(
         &mut self,
-        uid: u64,
+        uid: SystemId,
         declaration: Declaration,
-        parent: Option<u64>,
+        parent: Option<SystemId>,
     ) -> Result<(), CatalogError> {
         match declaration {
             Declaration::Predicate(p) => self.declare_predicate(uid, p),

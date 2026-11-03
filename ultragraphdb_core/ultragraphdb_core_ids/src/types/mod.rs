@@ -4,6 +4,7 @@
  */
 
 pub mod bucket;
+pub mod bucket_group;
 pub mod canonical_key;
 pub mod epoch;
 pub mod namespace;

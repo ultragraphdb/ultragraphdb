@@ -6,8 +6,7 @@
 use oxrdf::vocab::{rdf, xsd};
 use oxrdf::{BaseDirection, BlankNode, GraphName, Literal, NamedNode, Quad, Term, Triple};
 use ultragraphdb_core_mapping::{
-    CanonicalDataset, Cardinality, Change, Changeset, MappingError, StatementId,
-    quads_to_changeset, rdf_view, statement_iri,
+    CanonicalDataset, Cardinality, Change, Changeset, MappingError, quads_to_changeset, rdf_view,
 };
 use ultragraphdb_tool_bdd::TestResult;
 
@@ -65,12 +64,9 @@ fn test_a_statement_id_presents_as_a_reifier_with_its_annotations() -> TestResul
     });
     d.apply(&changeset, |_| Cardinality::Multi)?;
     let statements: Vec<_> = d.statements().collect();
-    let reifier = statement_iri(StatementId::new(1));
-    // `ugdb:statement/1`, `ugdb:` being PROTOCOL.md section 10.4's https://w3id.org/ultragraphdb/ns/.
-    assert_eq!(
-        reifier.as_str(),
-        "https://w3id.org/ultragraphdb/ns/statement/1"
-    );
+    // The dataset names its first statement ID `ugdb:statement/1`, `ugdb:` being PROTOCOL.md section 10.4's
+    // https://w3id.org/ultragraphdb/ns/; the view presents whatever reifier a statement carries.
+    let reifier = NamedNode::new_unchecked("https://w3id.org/ultragraphdb/ns/statement/1");
     let triple = Term::Triple(Box::new(Triple::new(iri("a"), iri("knows"), iri("b"))));
     let read = rdf_view(&statements);
     assert_eq!(read.len(), 3);
@@ -115,7 +111,7 @@ fn test_a_reifier_and_its_annotations_are_in_their_statements_graph() -> TestRes
     });
     d.apply(&changeset, |_| Cardinality::Multi)?;
     let statements: Vec<_> = d.statements().collect();
-    let reifier = statement_iri(StatementId::new(1));
+    let reifier = NamedNode::new_unchecked("https://w3id.org/ultragraphdb/ns/statement/1");
     let triple = Term::Triple(Box::new(Triple::new(iri("a"), iri("knows"), iri("b"))));
     let mut expected = vec![
         Quad::new(iri("a"), iri("knows"), iri("b"), g.clone()),

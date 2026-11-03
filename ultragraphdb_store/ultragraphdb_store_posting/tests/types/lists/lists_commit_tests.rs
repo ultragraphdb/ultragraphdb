@@ -12,8 +12,8 @@ use ultragraphdb_store_sim::Fault;
 use ultragraphdb_traits_store::{Entry, ListCache, Store, StoreSnapshot, VersionlessEntry};
 
 use crate::utils::helpers::{
-    Failure, TestLists, commit, commit_edges, key, lists_over, new_lists, probe_lists, set_uid,
-    uids,
+    Failure, TestLists, commit, commit_edges, key, lists_over, new_lists, probe_lists, rids,
+    set_uid, uids,
 };
 
 #[test]
@@ -120,7 +120,7 @@ fn test_a_commit_replaces_the_entry_of_a_cached_list() -> TestResult {
     let second = commit_edges(&lists, &k, &[set_uid(2)])?;
     let entry = lists.cache().get(&k).context("replaced")?;
     assert_eq!(entry.ts(), second);
-    assert_eq!(uids(entry.list(), second, 0)?, vec![1, 2]);
+    assert_eq!(uids(entry.list(), second, 0)?, rids(&[1, 2]));
     Ok(())
 }
 
@@ -163,7 +163,7 @@ fn test_a_failed_commit_stops_writes_and_the_reads_above_it() -> TestResult {
     if applied >= failed_at {
         expected.insert(1, 2);
     }
-    assert_eq!(uids(&read, ts, 0)?, expected);
+    assert_eq!(uids(&read, ts, 0)?, rids(&expected));
     Ok(())
 }
 
@@ -198,7 +198,7 @@ fn test_a_read_waits_for_a_round_below_its_timestamp() -> TestResult {
         Some((true, true, false))
     );
     assert!(lists.try_gate(version)?);
-    assert_eq!(uids(&lists.read(&k, version)?, version, 0)?, vec![1]);
+    assert_eq!(uids(&lists.read(&k, version)?, version, 0)?, rids(&[1]));
     Ok(())
 }
 
@@ -325,7 +325,7 @@ fn test_a_round_replaces_the_cached_entries_at_their_versions() -> TestResult {
     crate::utils::helpers::commit_at(&lists, &k, &[set_uid(2)], 10)?;
     let entry = lists.cache().get(&k).context("replaced")?;
     assert_eq!(entry.ts(), 10);
-    assert_eq!(uids(entry.list(), 10, 0)?, vec![1, 2]);
+    assert_eq!(uids(entry.list(), 10, 0)?, rids(&[1, 2]));
     Ok(())
 }
 
@@ -511,7 +511,7 @@ fn test_a_read_inside_a_commits_check_neither_deadlocks_nor_fills() -> TestResul
     let next = lists.next_version();
     let results = lists.commit_with(batch, |_| {
         let read = lists.read(&k, ts)?;
-        assert_eq!(uids(&read, ts, 0)?, vec![1]);
+        assert_eq!(uids(&read, ts, 0)?, rids(&[1]));
         Ok::<_, TestError>(())
     })?;
     assert_eq!(results, vec![Ok(next)]);

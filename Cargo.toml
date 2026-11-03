@@ -84,6 +84,7 @@ ultragraphdb_tool_bench = { path = "ultragraphdb_tool/ultragraphdb_tool_bench" }
 ultragraphdb_tool_test = { path = "ultragraphdb_tool/ultragraphdb_tool_test" }
 ultragraphdb_tool_toml = { path = "ultragraphdb_tool/ultragraphdb_tool_toml" }
 ## Traits
+ultragraphdb_traits_blocks = { path = "ultragraphdb_traits/ultragraphdb_traits_blocks" }
 ultragraphdb_traits_collator = { path = "ultragraphdb_traits/ultragraphdb_traits_collator" }
 ultragraphdb_traits_index = { path = "ultragraphdb_traits/ultragraphdb_traits_index" }
 ultragraphdb_traits_log = { path = "ultragraphdb_traits/ultragraphdb_traits_log" }

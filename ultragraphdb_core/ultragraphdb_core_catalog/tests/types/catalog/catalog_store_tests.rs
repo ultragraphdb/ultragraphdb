@@ -7,11 +7,21 @@ use oxrdf::NamedNode;
 use ultragraphdb_core_catalog::{
     Catalog, CatalogErrorEnum, ENTITY_TYPE, PREDICATE, encode_declaration,
 };
+use ultragraphdb_core_ids::{Bucket, Sequence, SystemId, TypePrefix};
 use ultragraphdb_core_mapping::{Declaration, PredicateDeclaration};
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_store_sim::{FaultConfig, Seed, SimClock, SimStore};
 use ultragraphdb_tool_bdd::{TestError, TestResult};
 use ultragraphdb_traits_store::{Entry, PersistMode, Store, WriteBatch};
+
+/// The ID of sequence `n` in bucket 0, of the built-in `Resource` type.
+fn id(n: u64) -> TestResult<SystemId> {
+    Ok(SystemId::new(
+        TypePrefix::RESOURCE,
+        Bucket::new(0)?,
+        Sequence::new(n)?,
+    ))
+}
 
 fn write(store: &SimStore, entries: Vec<Entry>) -> TestResult {
     let mut batch = WriteBatch::new();
@@ -23,8 +33,8 @@ fn write(store: &SimStore, entries: Vec<Entry>) -> TestResult {
 #[test]
 fn test_entries_carry_the_discard_flag_and_load_reads_one_namespace() -> TestResult {
     let store = SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new());
-    let a = Catalog::initial(1, 10);
-    let b = Catalog::initial(2, 20);
+    let a = Catalog::initial(1, id(10)?);
+    let b = Catalog::initial(2, id(20)?);
     let entries = a.entries(5);
     assert!(entries.iter().all(|e| e.discard() && e.version() == 5));
     write(&store, entries)?;
@@ -45,7 +55,7 @@ fn test_an_entry_under_the_wrong_kind_or_undecodable_is_refused() -> TestResult 
     write(
         &store,
         vec![Entry::put(
-            Catalog::key(0, ENTITY_TYPE, 3),
+            Catalog::key(0, ENTITY_TYPE, id(3)?),
             2,
             1,
             encode_declaration(&declaration),
@@ -62,7 +72,12 @@ fn test_an_entry_under_the_wrong_kind_or_undecodable_is_refused() -> TestResult 
     ));
     write(
         &store,
-        vec![Entry::put(Catalog::key(1, PREDICATE, 3), 2, 1, vec![9])],
+        vec![Entry::put(
+            Catalog::key(1, PREDICATE, id(3)?),
+            2,
+            1,
+            vec![9],
+        )],
     )?;
     let Err(undecodable) = Catalog::load(&store.snapshot(u64::MAX)?, 1) else {
         return Err(TestError::new(

@@ -4,7 +4,7 @@
  */
 
 use ultragraphdb_cluster_placement::NamespaceRun;
-use ultragraphdb_core_ids::{Bucket, CanonicalKey, Namespace, TypePrefix};
+use ultragraphdb_core_ids::{Bucket, BucketGroup, CanonicalKey, Namespace, TypePrefix};
 use ultragraphdb_tool_bdd::TestResult;
 
 #[test]
@@ -49,4 +49,17 @@ fn test_a_runs_range() {
     assert_eq!((middle.start(), middle.end()), (11_206_656, 11_272_192));
     let last = NamespaceRun::new(255).range();
     assert_eq!((last.start(), last.end()), (16_711_680, 16_777_216));
+}
+
+#[test]
+fn test_a_groups_run() -> TestResult {
+    // A run holds 1,024 groups: group 1,023 is the last of run 0, 1,024 the first of run 1, 262,143 in run 255.
+    assert_eq!(NamespaceRun::of_group(BucketGroup::new(342)?).get(), 0);
+    assert_eq!(NamespaceRun::of_group(BucketGroup::new(1_023)?).get(), 0);
+    assert_eq!(NamespaceRun::of_group(BucketGroup::new(1_024)?).get(), 1);
+    assert_eq!(
+        NamespaceRun::of_group(BucketGroup::new(262_143)?).get(),
+        255
+    );
+    Ok(())
 }

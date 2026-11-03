@@ -4,7 +4,7 @@
  */
 
 use ultragraphdb_cluster_placement::BucketRange;
-use ultragraphdb_core_ids::Bucket;
+use ultragraphdb_core_ids::{Bucket, BucketGroup};
 use ultragraphdb_error_cluster::ClusterErrorEnum;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -57,5 +57,17 @@ fn test_a_range_contains_its_buckets_alone() -> TestResult {
     assert!(range.contains(Bucket::new(100)?));
     assert!(range.contains(Bucket::new(199)?));
     assert!(!range.contains(Bucket::new(200)?));
+    Ok(())
+}
+
+#[test]
+fn test_a_groups_range_is_its_64_buckets() -> TestResult {
+    // 342 * 64 = 21,888 and 262,143 * 64 = 16,777,152, each followed by the group's 64 buckets.
+    let range = BucketRange::of_group(BucketGroup::new(342)?);
+    assert_eq!((range.start(), range.end()), (21_888, 21_952));
+    let first = BucketRange::of_group(BucketGroup::new(0)?);
+    assert_eq!((first.start(), first.end()), (0, 64));
+    let last = BucketRange::of_group(BucketGroup::new(262_143)?);
+    assert_eq!((last.start(), last.end()), (16_777_152, 16_777_216));
     Ok(())
 }

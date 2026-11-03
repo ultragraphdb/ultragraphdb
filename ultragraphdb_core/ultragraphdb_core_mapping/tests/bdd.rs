@@ -8,10 +8,11 @@
 use cucumber::{World, then, when};
 use oxrdf::vocab::{rdf, xsd};
 use oxrdf::{BlankNode, GraphName, Literal, NamedNode, NamedOrBlankNode, Quad, Term};
+use ultragraphdb_core_ids::{Bucket, Sequence, SystemId, TypePrefix};
 use ultragraphdb_core_mapping::{
     CanonicalDataset, Cardinality, Change, Changeset, Names, PgEdge, PgNode, PgValue,
-    PropertyGraph, Statement, StatementRef, property_graph_to_changeset, property_graph_view,
-    quads_to_changeset, rdf_view,
+    PropertyGraph, RandomSource, Statement, StatementRef, property_graph_to_changeset,
+    property_graph_view, quads_to_changeset, rdf_view,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -22,6 +23,7 @@ struct Steps {
     dataset: CanonicalDataset,
     written: Vec<Quad>,
     pg_written: PropertyGraph,
+    skolem: Option<NamedNode>,
 }
 
 fn iri(name: &str) -> NamedNode {
@@ -98,7 +100,7 @@ fn write_plain(w: &mut Steps) -> TestResult {
 fn held_once(w: &mut Steps) {
     let statements = w.statements();
     assert_eq!(statements.len(), 1);
-    assert_eq!(statements[0].id(), None);
+    assert_eq!(statements[0].reifier(), None);
 }
 
 #[when("<a> <knows> <b> is written twice to the default graph as two distinct edges")]
@@ -110,7 +112,11 @@ fn write_parallel(w: &mut Steps) -> TestResult {
 
 #[then("both statements are held, each with its own statement ID")]
 fn both_ids(w: &mut Steps) {
-    let ids: Vec<_> = w.statements().iter().map(Statement::id).collect();
+    let ids: Vec<_> = w
+        .statements()
+        .iter()
+        .map(|s| s.reifier().cloned())
+        .collect();
     assert_eq!(ids.len(), 2);
     assert!(
         ids.iter().all(Option::is_some) && ids[0] != ids[1],
@@ -207,7 +213,7 @@ fn two_edges(w: &mut Steps) -> TestResult {
             .iter()
             .all(|e| *e.source() == node("a") && *e.target() == node("b"))
     );
-    assert_ne!(edges[0].id(), edges[1].id());
+    assert_ne!(edges[0].reifier(), edges[1].reifier());
     Ok(())
 }
 
@@ -258,6 +264,51 @@ fn age_iri(w: &mut Steps) {
         quads[0].predicate,
         NamedNode::new_unchecked("http://ex.org/age")
     );
+}
+
+/// The bucket and the sequence of the node the property-graph scenario mints, distinct values.
+const NODE_BUCKET: u32 = 0x00AB_CDEF;
+const NODE_SEQUENCE: u64 = 0x0012_3456;
+
+#[when("a node is created through the property-graph view without an IRI")]
+fn mint_node(w: &mut Steps) -> TestResult {
+    let mut random = RandomSource::new(42);
+    w.skolem = Some(names()?.mint_skolem(Bucket::new(NODE_BUCKET)?, &mut random));
+    Ok(())
+}
+
+#[then(
+    "it is named by a skolem IRI whose text holds its bucket and 26 random hexadecimal digits, and no sequence or type prefix of its system ID"
+)]
+fn node_named_without_its_id(w: &mut Steps) -> TestResult {
+    let skolem = w.skolem.take().context("a minted skolem IRI")?;
+    let names = names()?;
+    let tail = skolem
+        .as_str()
+        .strip_prefix(&format!("{BASE}.well-known/genid/"))
+        .context("the skolem base")?;
+    let (bucket, random) = tail.split_once('-').context("bucket-random")?;
+    assert_eq!(bucket, "abcdef");
+    assert_eq!(random.len(), 26);
+    assert!(
+        random
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+    );
+    assert_eq!(
+        names.skolem_bucket(skolem.as_str()),
+        Some(Bucket::new(NODE_BUCKET)?)
+    );
+    // The node's ID would be (type 1, sequence 0x123456, bucket 0xABCDEF): its text appears nowhere in the IRI.
+    let id = SystemId::new(
+        TypePrefix::RESOURCE,
+        Bucket::new(NODE_BUCKET)?,
+        Sequence::new(NODE_SEQUENCE)?,
+    );
+    assert!(!skolem.as_str().contains(&format!("{:032x}", id.to_u128())));
+    assert!(!skolem.as_str().contains("123456"));
+    assert!(!skolem.as_str().contains(&NODE_SEQUENCE.to_string()));
+    Ok(())
 }
 
 #[when("_:x <knows> <b> is written through the RDF view and read back through it")]
@@ -421,11 +472,11 @@ fn pg_equal(w: &mut Steps) -> TestResult {
         read.edges()
             .iter()
             .filter(|e| e.edge_type() == "knows")
-            .all(|e| e.id().is_some())
+            .all(|e| e.reifier().is_some())
     );
     assert_eq!(
-        read.without_edge_ids(),
-        w.pg_written.clone().without_edge_ids()
+        read.without_reifiers(),
+        w.pg_written.clone().without_reifiers()
     );
     Ok(())
 }

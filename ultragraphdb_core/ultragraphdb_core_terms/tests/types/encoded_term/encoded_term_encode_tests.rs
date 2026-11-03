@@ -7,17 +7,25 @@ use std::collections::BTreeMap;
 
 use oxrdf::vocab::xsd;
 use oxrdf::{BaseDirection, Literal, NamedNode, NamedNodeRef};
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_terms::{
     Datatype, EncodedTerm, FLOAT32_VECTOR, Hash128, KnownDatatype, TermError, TermView, Text,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
-/// The UID the tests give a datatype the encoding does not know.
-const OTHER_UID: u64 = 0x0102_0304_0506_0708;
+/// The system ID the tests give a datatype the encoding does not know, as its 16 bytes written by hand: type prefix
+/// 0x0102, sequence 0x0304050607080910, bucket 0x111213, reserved bits zero.
+const OTHER_ID: [u8; 16] = [
+    0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x10, 0x11, 0x12, 0x13, 0, 0, 0,
+];
 
-fn other_uid(datatype: NamedNodeRef<'_>) -> Result<u64, TermError> {
+fn other_id() -> Result<SystemId, TermError> {
+    SystemId::decode(&OTHER_ID).map_err(|_| TermError::malformed(OTHER_ID.to_vec(), "no system ID"))
+}
+
+fn other_uid(datatype: NamedNodeRef<'_>) -> Result<SystemId, TermError> {
     assert_eq!(datatype.as_str(), "http://example.org/other");
-    Ok(OTHER_UID)
+    other_id()
 }
 
 /// `literal` encoded, its dictionary strings collected, and decoded back.
@@ -39,8 +47,8 @@ fn round_trip(literal: &Literal) -> TestResult<(EncodedTerm, Literal)> {
         .view()
         .context("views")?
         .to_literal(
-            |uid| {
-                assert_eq!(uid, OTHER_UID);
+            |id| {
+                assert_eq!(Ok(id), other_id());
                 Ok::<_, TermError>(NamedNode::new_unchecked("http://example.org/other"))
             },
             |h| Ok(strings[&h].clone()),
@@ -113,7 +121,7 @@ fn test_each_by_value_datatype_encodes_canonical_forms_by_value_and_keeps_the_ot
                 !matches!(
                     view,
                     TermView::Typed {
-                        datatype: Datatype::Uid(_),
+                        datatype: Datatype::Id(_),
                         ..
                     }
                 ),
@@ -278,7 +286,7 @@ fn test_other_typed_literals_name_their_datatype_by_uid() -> TestResult {
     assert_eq!(
         small.view()?,
         TermView::Typed {
-            datatype: Datatype::Uid(OTHER_UID),
+            datatype: Datatype::Id(other_id()?),
             lexical: Text::Inline("x")
         }
     );
@@ -287,7 +295,7 @@ fn test_other_typed_literals_name_their_datatype_by_uid() -> TestResult {
     assert_eq!(
         big.view()?,
         TermView::Typed {
-            datatype: Datatype::Uid(OTHER_UID),
+            datatype: Datatype::Id(other_id()?),
             lexical: Text::Hashed(Hash128::of(long.as_bytes()))
         }
     );
@@ -347,7 +355,7 @@ fn test_a_failure_to_name_a_datatype_is_returned_as_the_callers_error() {
     let literal =
         Literal::new_typed_literal("x", NamedNode::new_unchecked("http://example.org/other"));
     let refused = EncodedTerm::literal(literal.as_ref(), |d| {
-        Err::<u64, _>(Failure::NoUid(d.as_str().to_string()))
+        Err::<SystemId, _>(Failure::NoUid(d.as_str().to_string()))
     });
     assert_eq!(
         refused,
@@ -355,7 +363,9 @@ fn test_a_failure_to_name_a_datatype_is_returned_as_the_callers_error() {
     );
     // A term's own refusal arrives through `From<TermError>`.
     let vector = Literal::new_typed_literal("[]", NamedNode::new_unchecked(FLOAT32_VECTOR));
-    let refused_vector = EncodedTerm::literal(vector.as_ref(), |_| Ok::<u64, Failure>(0));
+    let refused_vector = EncodedTerm::literal(vector.as_ref(), |_| {
+        Err::<SystemId, Failure>(Failure::NoUid(String::new()))
+    });
     assert_eq!(
         refused_vector,
         Err(Failure::Term(TermError::invalid_vector(
@@ -404,7 +414,7 @@ fn lang(lexical: &str, language: &str, direction: Option<BaseDirection>) -> Test
 /// The kept forms of simple and typed literals and a vector's by-value form, byte by byte.
 fn plain_and_typed_forms() -> Vec<KeptForm> {
     let other = NamedNode::new_unchecked("http://example.org/other");
-    let uid = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+    let uid = OTHER_ID;
     let fifteen_x = "x".repeat(15);
     vec![
         (

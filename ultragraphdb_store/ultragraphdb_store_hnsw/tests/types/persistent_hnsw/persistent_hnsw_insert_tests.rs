@@ -14,20 +14,49 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use ultragraphdb_core_tok::{VEC_DEAD, VEC_ENTRY, VEC_KEYWORD};
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_store_hnsw::{
-    HnswError, HnswErrorEnum, PersistentHnsw, TxnCache, bytes_as_float_array, bytes_to_uint64,
-    decode_uint64_matrix, encode_uint64_matrix, uint64_to_bytes,
+    HnswError, HnswErrorEnum, PersistentHnsw, TxnCache, bytes_as_float_array, bytes_to_id,
+    decode_id_matrix, encode_id_matrix,
 };
 use ultragraphdb_store_posting::{PostingError, PostingErrorEnum};
 use ultragraphdb_store_sim::SimRng;
 use ultragraphdb_traits_index::{KeyValue, Txn};
 
 use crate::utils::helpers::{
-    InMemTxn, MapTxn, TsDbs, draw, edge_names, float64_array_as_bytes, key, opts, vkeys,
+    InMemTxn, MapTxn, TsDbs, draw, edge_names, float64_array_as_bytes, hex_id, id, ids, key, nums,
+    opts, vkeys,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
 const PRED: &str = "0-a";
+
+/// The entry point's edge as [`edge_names`] prints it: its entity is the predicate's ID, numbered by its sequence.
+fn entry_name() -> TestResult<String> {
+    Ok(format!(
+        "0-a__vector_entry_{}",
+        vkeys(PRED)?.predicate().sequence().get()
+    ))
+}
+
+/// The matrix of the IDs numbered `rows`.
+fn matrix(rows: &[&[u64]]) -> TestResult<Vec<Vec<SystemId>>> {
+    rows.iter().map(|row| ids(row)).collect()
+}
+
+/// The encoding of the matrix of the IDs numbered `rows`.
+fn encoded(rows: &[&[u64]]) -> TestResult<Vec<u8>> {
+    Ok(encode_id_matrix(&matrix(rows)?))
+}
+
+/// The numbers of the IDs `bytes` encode as a matrix.
+fn decoded(bytes: &[u8]) -> TestResult<Vec<Vec<u64>>> {
+    Ok(decode_id_matrix(bytes)
+        .context("the matrix decodes")?
+        .iter()
+        .map(|row| nums(row))
+        .collect())
+}
 
 /// Dgraph's `flatPhs[0]`: 5 levels, an `efConstruction` of 16, an `efSearch` of 12, euclidean, float64.
 fn flat_ph() -> TestResult<PersistentHnsw<f64>> {
@@ -36,7 +65,7 @@ fn flat_ph() -> TestResult<PersistentHnsw<f64>> {
         ("efConstruction", "16"),
         ("efSearch", "12"),
     ])?;
-    Ok(PersistentHnsw::new(vkeys(PRED), &o, 64)?)
+    Ok(PersistentHnsw::new(vkeys(PRED)?, &o, 64)?)
 }
 
 /// Sets `uid`'s vector at every timestamp and inserts it in a transaction from `start_ts` to `commit_ts`.
@@ -48,9 +77,9 @@ fn insert_at(
     vec: &[f64],
     rng: &mut SimRng,
 ) -> TestResult<Vec<KeyValue>> {
-    dbs.set_all(&key(PRED, uid), &float64_array_as_bytes(vec));
+    dbs.set_all(&key(PRED, uid)?, &float64_array_as_bytes(vec));
     let txn = InMemTxn::new(dbs, start_ts, commit_ts);
-    Ok(flat_ph()?.insert(&TxnCache::new(&txn, start_ts), uid, vec, &mut || draw(rng))?)
+    Ok(flat_ph()?.insert(&TxnCache::new(&txn, start_ts), id(uid)?, vec, &mut || draw(rng))?)
 }
 
 #[test]
@@ -63,7 +92,7 @@ fn test_flat_entry_insert_to_persistent_flat_storage() -> TestResult {
     ] {
         let dbs = TsDbs::default();
         let edges = insert_at(&dbs, start, commit, uid, &vec, &mut rng)?;
-        let vkey = key(PRED, uid);
+        let vkey = key(PRED, uid)?;
         assert_eq!(
             dbs.get(0, &vkey),
             dbs.get(99, &vkey),
@@ -71,15 +100,12 @@ fn test_flat_entry_insert_to_persistent_flat_storage() -> TestResult {
         );
         assert_eq!(
             edge_names(&edges),
-            vec![
-                format!("0-a__vector__{uid}"),
-                "0-a__vector_entry_1".to_string()
-            ]
+            vec![format!("0-a__vector__{uid}"), entry_name()?]
         );
         let entry = dbs
-            .get(99, &key(&format!("{PRED}{VEC_ENTRY}"), 1))
+            .get(99, &key(&format!("{PRED}{VEC_ENTRY}"), 1)?)
             .context("dbs.get(..)")?;
-        assert_eq!(bytes_to_uint64(&entry), Some(uid));
+        assert_eq!(bytes_to_id(&entry), Some(id(uid)?));
     }
     Ok(())
 }
@@ -94,11 +120,11 @@ fn test_nonflat_entry_insert_to_persistent_flat_storage() -> TestResult {
         (11, 37, 1, [0.3, 0.5, 0.7]),
     ] {
         let entry = dbs
-            .get(99, &key(&format!("{PRED}{VEC_ENTRY}"), 1))
+            .get(99, &key(&format!("{PRED}{VEC_ENTRY}"), 1)?)
             .context("dbs.get(..)")?;
-        assert_eq!(bytes_to_uint64(&entry), Some(5));
+        assert_eq!(bytes_to_id(&entry), Some(id(5)?));
         let edges = insert_at(&dbs, start, commit, uid, &vec, &mut rng)?;
-        let vkey = key(PRED, uid);
+        let vkey = key(PRED, uid)?;
         assert_eq!(dbs.get(0, &vkey), dbs.get(99, &vkey));
         assert!(
             edge_names(&edges).contains(&format!("0-a__vector__{uid}")),
@@ -106,14 +132,14 @@ fn test_nonflat_entry_insert_to_persistent_flat_storage() -> TestResult {
             edge_names(&edges)
         );
         assert!(
-            !edge_names(&edges).contains(&"0-a__vector_entry_1".to_string()),
+            !edge_names(&edges).contains(&entry_name()?),
             "a live entry point is not rewritten"
         );
     }
     let entry = dbs
-        .get(99, &key(&format!("{PRED}{VEC_ENTRY}"), 1))
+        .get(99, &key(&format!("{PRED}{VEC_ENTRY}"), 1)?)
         .context("dbs.get(..)")?;
-    assert_eq!(bytes_to_uint64(&entry), Some(5));
+    assert_eq!(bytes_to_id(&entry), Some(id(5)?));
     Ok(())
 }
 
@@ -125,7 +151,8 @@ fn test_insert_helper_no_duplicate_neighbor_edges() -> TestResult {
     let edges2 = insert_at(&dbs, 12, 40, 123, &[0.824, 0.319, 0.111], &mut rng)?;
     let edges3 = insert_at(&dbs, 50, 60, 456, &[0.5, 0.3, 0.2], &mut rng)?;
     for (uid, edges) in [(123, &edges2), (456, &edges3)] {
-        let mut counts: BTreeMap<u64, usize> = BTreeMap::new();
+        let node = id(uid)?;
+        let mut counts: BTreeMap<SystemId, usize> = BTreeMap::new();
         edges
             .iter()
             .for_each(|e| *counts.entry(e.entity()).or_default() += 1);
@@ -134,23 +161,23 @@ fn test_insert_helper_no_duplicate_neighbor_edges() -> TestResult {
         // they name, each gaining the node as an inbound edge.
         let own = edges
             .iter()
-            .find(|e| e.entity() == uid)
+            .find(|e| e.entity() == node)
             .context("the node's lists")?;
-        let named: BTreeSet<u64> = decode_uint64_matrix(own.value())
+        let named: BTreeSet<SystemId> = decode_id_matrix(own.value())
             .context("the matrix decodes")?
             .into_iter()
             .flatten()
             .collect();
-        let written: BTreeSet<u64> = counts.keys().copied().filter(|&u| u != uid).collect();
+        let written: BTreeSet<SystemId> = counts.keys().copied().filter(|&u| u != node).collect();
         assert_eq!(written, named, "insert of {uid}");
         assert!(!named.is_empty(), "insert of {uid} links to the graph");
-        for e in edges.iter().filter(|e| e.entity() != uid) {
+        for e in edges.iter().filter(|e| e.entity() != node) {
             assert!(
-                decode_uint64_matrix(e.value())
+                decode_id_matrix(e.value())
                     .context("the matrix decodes")?
                     .iter()
                     .flatten()
-                    .any(|&u| u == uid),
+                    .any(|&u| u == node),
                 "{} gains {uid}",
                 e.entity()
             );
@@ -158,7 +185,7 @@ fn test_insert_helper_no_duplicate_neighbor_edges() -> TestResult {
     }
     assert_eq!(
         edges2.iter().map(|e| e.entity()).collect::<BTreeSet<_>>(),
-        BTreeSet::from([5, 123]),
+        BTreeSet::from([id(5)?, id(123)?]),
         "the second insert links to the only other node"
     );
     Ok(())
@@ -167,7 +194,7 @@ fn test_insert_helper_no_duplicate_neighbor_edges() -> TestResult {
 #[test]
 fn test_the_first_insert_writes_empty_lists_at_every_level() -> TestResult {
     let txn = MapTxn::default();
-    txn.put(key(PRED, 9), float64_array_as_bytes(&[1.0, 2.0]));
+    txn.put(key(PRED, 9)?, float64_array_as_bytes(&[1.0, 2.0]));
     let index = flat_ph()?;
     let edges = index.insert(&TxnCache::new(&txn, 1), 9, &[1.0, 2.0], &mut || 0.5)?;
     assert_eq!(edges.len(), 2);
@@ -182,7 +209,7 @@ fn test_the_first_insert_writes_empty_lists_at_every_level() -> TestResult {
         Ok(vec![])
     );
     // An entry point without its vector, in an index without another, is replaced by the node inserted.
-    txn.remove(&key(PRED, 9));
+    txn.remove(&key(PRED, 9)?);
     let handed_edges = flat_ph()?.insert(&TxnCache::new(&txn, 1), 9, &[1.0, 2.0], &mut || 0.5)?;
     assert_eq!(
         edge_names(&handed_edges),
@@ -250,7 +277,7 @@ fn is_read_failure(e: &HnswError, failing: &[u8]) -> bool {
 /// makes the inserted node the entry point with empty lists, losing the graph; the port returns the failed read.
 #[test]
 fn test_a_failed_entry_read_is_an_error() -> TestResult {
-    let entry_key = key(&format!("{PRED}{VEC_ENTRY}"), 1);
+    let entry_key = key(&format!("{PRED}{VEC_ENTRY}"), 1)?;
     let txn = FailingTxn {
         inner: MapTxn::default(),
         failing: entry_key.clone(),
@@ -274,24 +301,24 @@ fn test_a_failed_vector_read_is_an_error() -> TestResult {
         let _previous: Option<Vec<u8>> = inner
             .db
             .borrow_mut()
-            .insert(key(PRED, uid), float64_array_as_bytes(&v));
+            .insert(key(PRED, uid)?, float64_array_as_bytes(&v));
         let _inserted: Vec<KeyValue> =
             index.insert(&TxnCache::new(&inner, 1), uid, &v, &mut || 0.99)?;
     }
     let txn = FailingTxn {
         inner,
-        failing: key(PRED, 6),
+        failing: key(PRED, 6)?,
     };
     let _previous: Option<Vec<u8>> = txn
         .inner
         .db
         .borrow_mut()
-        .insert(key(PRED, 9), float64_array_as_bytes(&[2.0, 2.0]));
+        .insert(key(PRED, 9)?, float64_array_as_bytes(&[2.0, 2.0]));
     let e = flat_ph()?
         .insert(&TxnCache::new(&txn, 1), 9, &[2.0, 2.0], &mut || 0.99)
         .err()
         .context("the error of flat_ph()? .insert(..)")?;
-    assert!(is_read_failure(&e, &key(PRED, 6)), "{e}");
+    assert!(is_read_failure(&e, &key(PRED, 6)?), "{e}");
     Ok(())
 }
 
@@ -303,19 +330,19 @@ fn test_corrupted_index_values_are_refused() -> TestResult {
     assert_decoders_refuse_corruptions();
     assert_inserts_read_corruptions_as_the_stores()?;
     let txn = MapTxn::default();
-    txn.put(key(PRED, 3), float64_array_as_bytes(&[0.0, 1.0]));
+    txn.put(key(PRED, 3)?, float64_array_as_bytes(&[0.0, 1.0]));
     let _inserted: Vec<KeyValue> =
         flat_ph()?.insert(&TxnCache::new(&txn, 1), 3, &[0.0, 1.0], &mut || 0.5)?;
-    txn.put(key(&format!("{PRED}{VEC_DEAD}"), 1), b"[x]".to_vec());
-    txn.put(key(PRED, 6), float64_array_as_bytes(&[1.0, 1.0]));
+    txn.put(key(&format!("{PRED}{VEC_DEAD}"), 1)?, b"[x]".to_vec());
+    txn.put(key(PRED, 6)?, float64_array_as_bytes(&[1.0, 1.0]));
     let e = flat_ph()?
         .insert(&TxnCache::new(&txn, 1), 6, &[1.0, 1.0], &mut || 0.5)
         .err()
         .context("the error of flat_ph()? .insert(..)")?;
     assert_eq!(e.0, HnswErrorEnum::UintSlice("[x]".into()));
     let short = encode_uint64_matrix(&[vec![]]);
-    txn.put(key(&format!("{PRED}{VEC_KEYWORD}"), 3), short);
-    txn.remove(&key(&format!("{PRED}{VEC_DEAD}"), 1));
+    txn.put(key(&format!("{PRED}{VEC_KEYWORD}"), 3)?, short);
+    txn.remove(&key(&format!("{PRED}{VEC_DEAD}"), 1)?);
     let level_missing = flat_ph()?
         .insert(&TxnCache::new(&txn, 1), 6, &[1.0, 1.0], &mut || 0.5)
         .err()
@@ -393,18 +420,18 @@ fn assert_inserts_read_corruptions_as_the_stores() -> TestResult {
     ] {
         let txn = MapTxn::default();
         let index = flat_ph()?;
-        txn.put(key(PRED, 3), float64_array_as_bytes(&[0.0, 1.0]));
+        txn.put(key(PRED, 3)?, float64_array_as_bytes(&[0.0, 1.0]));
         let _inserted: Vec<KeyValue> =
             index.insert(&TxnCache::new(&txn, 1), 3, &[0.0, 1.0], &mut || 0.5)?;
-        txn.put(key(&attr, uid), value);
-        txn.put(key(PRED, 6), float64_array_as_bytes(&[1.0, 1.0]));
+        txn.put(key(&attr, uid)?, value);
+        txn.put(key(PRED, 6)?, float64_array_as_bytes(&[1.0, 1.0]));
         let e = flat_ph()?
             .insert(&TxnCache::new(&txn, 1), 6, &[1.0, 1.0], &mut || 0.5)
             .err()
             .context("the error of flat_ph()? .insert(..)")?;
         assert!(
             matches!(&e.0, HnswErrorEnum::Posting(PostingError(PostingErrorEnum::Store(StoreError(StoreErrorEnum::Corrupted { key: k, .. }))))
-                if *k == key(&attr, uid)),
+                if *k == key(&attr, uid)?),
             "{e}"
         );
     }
@@ -420,21 +447,21 @@ fn test_a_dead_entry_point_hands_over_and_the_insert_goes_ahead() -> TestResult 
     let txn = MapTxn::default();
     let index = flat_ph;
     for (uid, v) in [(3u64, [0.0, 0.0]), (6, [1.0, 0.0]), (9, [2.0, 0.0])] {
-        txn.put(key(PRED, uid), float64_array_as_bytes(&v));
+        txn.put(key(PRED, uid)?, float64_array_as_bytes(&v));
         let _inserted: Vec<KeyValue> =
             index()?.insert(&TxnCache::new(&txn, 1), uid, &v, &mut || 0.99)?;
     }
     let lists_of = |uid: u64| {
-        decode_uint64_matrix(&txn.db.borrow()[&key(&format!("{PRED}{VEC_KEYWORD}"), uid)])
+        decode_uint64_matrix(&txn.db.borrow()[&key(&format!("{PRED}{VEC_KEYWORD}"), uid)?])
             .context("the matrix decodes")
     };
     let six_before = lists_of(6)?;
     assert!(six_before.iter().any(|l| !l.is_empty()), "{six_before:?}");
     // The entry point, 3, loses its vector.
-    txn.remove(&key(PRED, 3));
-    txn.put(key(PRED, 12), float64_array_as_bytes(&[1.5, 0.0]));
+    txn.remove(&key(PRED, 3)?);
+    txn.put(key(PRED, 12)?, float64_array_as_bytes(&[1.5, 0.0]));
     let edges = index()?.insert(&TxnCache::new(&txn, 1), 12, &[1.5, 0.0], &mut || 0.99)?;
-    let entry = txn.db.borrow()[&key(&format!("{PRED}{VEC_ENTRY}"), 1)].clone();
+    let entry = txn.db.borrow()[&key(&format!("{PRED}{VEC_ENTRY}"), 1)?].clone();
     assert_eq!(bytes_to_uint64(&entry), Some(6));
     let names = edge_names(&edges);
     assert!(
@@ -471,7 +498,7 @@ fn one_level() -> TestResult<PersistentHnsw<f64>> {
 }
 
 fn insert_one(txn: &MapTxn, uid: u64, v: &[f64]) -> TestResult<Vec<KeyValue>> {
-    txn.put(key(PRED, uid), float64_array_as_bytes(v));
+    txn.put(key(PRED, uid)?, float64_array_as_bytes(v));
     Ok(one_level()?.insert(&TxnCache::new(txn, 1), uid, v, &mut || 0.5)?)
 }
 
@@ -504,8 +531,8 @@ fn test_an_insert_leaves_dead_nodes_out_of_the_lists_it_writes() -> TestResult {
             (9, vec![vec![6, 3]])
         ])
     );
-    txn.remove(&key(PRED, 6));
-    txn.put(key(&format!("{PRED}{VEC_DEAD}"), 1), b"[6]".to_vec());
+    txn.remove(&key(PRED, 6)?);
+    txn.put(key(&format!("{PRED}{VEC_DEAD}"), 1)?, b"[6]".to_vec());
     let rewritten = lists(&insert_one(&txn, 12, &[1.5, 0.0])?)?;
     assert_eq!(
         rewritten,
@@ -527,7 +554,7 @@ fn test_a_node_scores_worst_against_itself() -> TestResult {
     let _edges_of_3: Vec<KeyValue> = insert_one(&txn, 3, &[0.0, 0.0])?;
     let _edges_of_6: Vec<KeyValue> = insert_one(&txn, 6, &[1.0, 0.0])?;
     txn.put(
-        key(&format!("{PRED}{VEC_KEYWORD}"), 6),
+        key(&format!("{PRED}{VEC_KEYWORD}"), 6)?,
         encode_uint64_matrix(&[vec![6, 3]]),
     );
     let written = lists(&insert_one(&txn, 9, &[1.1, 0.0])?)?;
@@ -555,10 +582,10 @@ fn test_an_insert_of_another_dimension_is_refused() -> TestResult {
         ])?;
         let index = || PersistentHnsw::<f64>::new(vkeys(PRED), &o, 64);
         let txn = MapTxn::default();
-        txn.put(key(PRED, 3), float64_array_as_bytes(&[0.0, 1.0]));
+        txn.put(key(PRED, 3)?, float64_array_as_bytes(&[0.0, 1.0]));
         let _inserted: Vec<KeyValue> =
             index()?.insert(&TxnCache::new(&txn, 1), 3, &[0.0, 1.0], &mut || 0.99)?;
-        txn.put(key(PRED, 9), float64_array_as_bytes(&[1.0, 0.0, 0.0]));
+        txn.put(key(PRED, 9)?, float64_array_as_bytes(&[1.0, 0.0, 0.0]));
         let e = index()?
             .insert(&TxnCache::new(&txn, 1), 9, &[1.0, 0.0, 0.0], &mut || 0.99)
             .err()
@@ -567,7 +594,7 @@ fn test_an_insert_of_another_dimension_is_refused() -> TestResult {
         assert!(
             !txn.db
                 .borrow()
-                .contains_key(&key(&format!("{PRED}{VEC_KEYWORD}"), 9)),
+                .contains_key(&key(&format!("{PRED}{VEC_KEYWORD}"), 9)?),
             "{metric}: nothing written for 9"
         );
     }
@@ -583,7 +610,7 @@ fn test_a_dead_entry_point_hands_over_to_the_node_inserted() -> TestResult {
     let txn = MapTxn::default();
     let _edges_of_3: Vec<KeyValue> = insert_one(&txn, 3, &[0.0, 0.0])?;
     let _edges_of_6: Vec<KeyValue> = insert_one(&txn, 6, &[1.0, 0.0])?;
-    txn.remove(&key(PRED, 3));
+    txn.remove(&key(PRED, 3)?);
     let edges = insert_one(&txn, 1, &[0.5, 0.0])?;
     assert_eq!(
         edge_names(&edges),
@@ -609,12 +636,12 @@ fn test_a_node_without_its_vector_appends_dedupes_and_truncates() -> TestResult 
     let index = || PersistentHnsw::<f64>::new(vkeys(PRED), &o, 64);
     let txn = MapTxn::default();
     for (uid, v) in [(3u64, [0.0, 0.0]), (6, [1.0, 0.0])] {
-        txn.put(key(PRED, uid), float64_array_as_bytes(&v));
+        txn.put(key(PRED, uid)?, float64_array_as_bytes(&v));
         let _inserted: Vec<KeyValue> =
             index()?.insert(&TxnCache::new(&txn, 1), uid, &v, &mut || 0.5)?;
     }
     txn.put(
-        key(&format!("{PRED}{VEC_KEYWORD}"), 9),
+        key(&format!("{PRED}{VEC_KEYWORD}"), 9)?,
         encode_uint64_matrix(&[vec![0, 6, 6, 12, 15, 3]]),
     );
     let edges = index()?.insert(&TxnCache::new(&txn, 1), 9, &[2.0, 0.0], &mut || 0.5)?;
@@ -651,14 +678,14 @@ fn test_an_insert_searches_above_its_level_with_ef_search() -> TestResult {
         (201, 3.2, vec![1, 100]),
         (100, 0.1, vec![201]),
     ] {
-        txn.put(key(PRED, uid), at(x));
+        txn.put(key(PRED, uid)?, at(x));
         txn.put(
-            key(&format!("{PRED}{VEC_KEYWORD}"), uid),
+            key(&format!("{PRED}{VEC_KEYWORD}"), uid)?,
             encode_uint64_matrix(&[level0, vec![]]),
         );
     }
-    txn.put(key(&format!("{PRED}{VEC_ENTRY}"), 1), uint64_to_bytes(1));
-    txn.put(key(PRED, 300), at(0.12));
+    txn.put(key(&format!("{PRED}{VEC_ENTRY}"), 1)?, uint64_to_bytes(1));
+    txn.put(key(PRED, 300)?, at(0.12));
     let edges = PersistentHnsw::<f64>::new(vkeys(PRED), &o, 64)?.insert(
         &TxnCache::new(&txn, 1),
         300,

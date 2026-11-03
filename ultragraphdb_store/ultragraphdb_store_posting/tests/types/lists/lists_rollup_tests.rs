@@ -24,7 +24,7 @@ use ultragraphdb_traits_store::{Entry, ListCache, PersistMode, Store, WriteBatch
 
 use crate::utils::helpers::{
     Failure, TestLists, commit, commit_at, commit_edges, delete_all, key, new_lists, probe_lists,
-    set_uid, uids, write_delta,
+    rids, set_uid, uids, write_delta,
 };
 
 #[test]
@@ -36,11 +36,11 @@ fn test_rollup_timestamp() -> TestResult {
     write_delta(lists.store(), &k, 4, &[set_uid(3)])?;
     write_delta(lists.store(), &k, 6, &[set_uid(4)])?;
     let l = lists.read_uncached(&k, u64::MAX)?;
-    assert_eq!(l.uids(&ListOptions::at(7))?.uids().len(), 3);
+    assert_eq!(l.uids(&ListOptions::at(7))?.ids().len(), 3);
 
     write_delta(lists.store(), &k, 10, &[delete_all()])?;
     let nl = lists.read_uncached(&k, u64::MAX)?;
-    assert!(nl.uids(&ListOptions::at(11))?.uids().is_empty());
+    assert!(nl.uids(&ListOptions::at(11))?.ids().is_empty());
 
     // The highest version survives a rollup at the maximum timestamp, the delete-all being the newest update.
     let (version, entries) = nl
@@ -72,7 +72,7 @@ fn test_a_rollup_reads_at_the_watermark_and_takes_no_version() -> TestResult {
     assert_eq!(lists.next_version(), next);
     assert_eq!(lists.oldest_open_read(), None);
     commit_at(&lists, &k, &[set_uid(18)], next)?;
-    assert_eq!(uids(&lists.read(&k, next)?, next, 0)?, vec![10, 18]);
+    assert_eq!(uids(&lists.read(&k, next)?, next, 0)?, rids(&[10, 18]));
     Ok(())
 }
 
@@ -197,7 +197,7 @@ fn test_a_rollup_leaves_an_open_read_intact() -> TestResult {
     assert!(lists.rollup_key(&k)?);
     let rolled = lists.store().contents().versions(&k)[0].version();
     assert_eq!(rolled, 9);
-    assert_eq!(uids(request.get(&k)?, 6, 0)?, vec![6]);
+    assert_eq!(uids(request.get(&k)?, 6, 0)?, rids(&[6]));
     lists.set_discard_ts(100)?;
     assert!(lists.store().discard_ts() <= 6);
     Ok(())
@@ -292,7 +292,7 @@ fn test_the_worker_runs_on_the_executor() -> TestResult {
         lists.store().contents().versions(&k)[0].meta(),
         BIT_COMPLETE_POSTING
     );
-    assert_eq!(uids(&lists.read(&k, ts)?, ts, 0)?, vec![1]);
+    assert_eq!(uids(&lists.read(&k, ts)?, ts, 0)?, rids(&[1]));
     Ok(())
 }
 

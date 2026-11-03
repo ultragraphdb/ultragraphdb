@@ -27,16 +27,19 @@ use crate::utils::postings::is_plist_empty;
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct RollupOutput {
     plist: PostingList,
-    parts: BTreeMap<u64, PostingList>,
+    parts: BTreeMap<u128, PostingList>,
     new_min_ts: u64,
+    /// The start of the first part: the smallest key the list can hold.
+    first_start: u128,
 }
 
 impl RollupOutput {
-    pub(crate) fn new(plist: PostingList, new_min_ts: u64) -> Self {
+    pub(crate) fn new(plist: PostingList, new_min_ts: u64, first_start: u128) -> Self {
         Self {
             plist,
             parts: BTreeMap::new(),
             new_min_ts,
+            first_start,
         }
     }
 
@@ -46,7 +49,7 @@ impl RollupOutput {
     }
 
     /// The parts of a split list by start uid.
-    pub fn parts(&self) -> &BTreeMap<u64, PostingList> {
+    pub fn parts(&self) -> &BTreeMap<u128, PostingList> {
         &self.parts
     }
 
@@ -63,28 +66,30 @@ impl RollupOutput {
         self.new_min_ts = ts;
     }
 
-    pub(crate) fn insert_part(&mut self, start_uid: u64, part: PostingList) {
+    pub(crate) fn insert_part(&mut self, start_uid: u128, part: PostingList) {
         let _replaced: Option<PostingList> = self.parts.insert(start_uid, part);
     }
 
     /// The start uids of the parts, ascending: the parts are the record of the splits.
-    pub fn splits(&self) -> Vec<u64> {
+    pub fn splits(&self) -> Vec<u128> {
         self.parts.keys().copied().collect()
     }
 
     /// Splits the list, and then its parts, while one of them is at least `max_list_size` bytes and spans more
     /// than one block: Dgraph's `recursiveSplit`.
-    pub(crate) fn recursive_split(&mut self, max_list_size: usize) {
-        self.split_up_list(max_list_size);
+    pub(crate) fn recursive_split(&mut self, max_list_size: usize) -> Result<(), PostingError> {
+        self.split_up_list(max_list_size)?;
+        // Ends: each turn splits every part that spans more than one uid in two, and a part of one uid never splits.
         while self.parts.values().any(|p| should_split(p, max_list_size)) {
-            self.split_up_list(max_list_size);
+            self.split_up_list(max_list_size)?;
         }
+        Ok(())
     }
 
     /// Splits each list that is too large in two: Dgraph's `splitUpList`.
-    fn split_up_list(&mut self, max_list_size: usize) {
-        let lists: Vec<(u64, PostingList)> = if self.parts.is_empty() {
-            vec![(1, self.plist.clone())]
+    fn split_up_list(&mut self, max_list_size: usize) -> Result<(), PostingError> {
+        let lists: Vec<(u128, PostingList)> = if self.parts.is_empty() {
+            vec![(self.first_start, self.plist.clone())]
         } else {
             self.parts
                 .iter()
@@ -93,13 +98,14 @@ impl RollupOutput {
         };
         for (start_uid, list) in lists {
             if should_split(&list, max_list_size) {
-                let (starts, halves) = bin_split(start_uid, &list);
+                let (starts, halves) = bin_split(start_uid, &list)?;
                 starts.into_iter().zip(halves).for_each(|(start, half)| {
                     let _replaced: Option<PostingList> = self.parts.insert(start, half);
                 });
             }
         }
         self.update_splits();
+        Ok(())
     }
 
     /// Records the parts' start uids as the list's splits: Dgraph's `updateSplits`.
@@ -113,10 +119,11 @@ impl RollupOutput {
     /// Removes every empty part but the first, and the first when it is the last left, which unsplits the list:
     /// Dgraph's `removeEmptySplits`.
     pub(crate) fn remove_empty_splits(&mut self) {
+        let first = self.first_start;
         self.parts
-            .retain(|&start, part| start == 1 || !is_plist_empty(part));
+            .retain(|&start, part| start == first || !is_plist_empty(part));
         self.update_splits();
-        if self.parts.len() == 1 && self.parts.get(&1).is_some_and(is_plist_empty) {
+        if self.parts.len() == 1 && self.parts.get(&first).is_some_and(is_plist_empty) {
             self.parts.clear();
             self.plist.set_splits(Vec::new());
         }
@@ -128,7 +135,7 @@ impl RollupOutput {
     pub fn entries(
         &self,
         key: &[u8],
-        old_splits: &[u64],
+        old_splits: &[u128],
         version: u64,
     ) -> Result<Vec<Entry>, PostingError> {
         let mut entries = vec![posting_entry(key.to_vec(), &self.plist, version)];
@@ -157,19 +164,36 @@ pub fn should_split(plist: &PostingList, max_list_size: usize) -> bool {
     plist.encoded_len() >= max_list_size && plist.pack().is_some_and(|p| p.blocks().len() > 1)
 }
 
-/// Splits `plist`, starting at `low_uid`, at its middle block's base: the start uids of the two halves and the
-/// halves, each with its blocks and postings. Dgraph's `binSplit`.
-pub fn bin_split(low_uid: u64, plist: &PostingList) -> ([u64; 2], [PostingList; 2]) {
+/// Splits `plist`, starting at `low_uid`, at its middle block's first ID: the starts of the two halves and the halves,
+/// each with its blocks and postings, a value's posting, whose key sorts below every ID, in the low half. Dgraph's
+/// `binSplit`.
+///
+/// # Errors
+///
+/// The codec's error for halves of a pack that are no pack, which a pack's own blocks always are.
+pub fn bin_split(
+    low_uid: u128,
+    plist: &PostingList,
+) -> Result<([u128; 2], [PostingList; 2]), PostingError> {
     let pack = plist.pack().cloned().unwrap_or_default();
     let mid_block = pack.blocks().len() / 2;
-    let mid_uid = pack.blocks().get(mid_block).map_or(u64::MAX, |b| b.base());
-    let half = |blocks: &[_]| UidPack::new(pack.block_size(), blocks.to_vec());
+    let mid_uid = pack
+        .blocks()
+        .get(mid_block)
+        .map_or(u128::MAX, |b| b.first().to_u128());
+    let (low_blocks, high_blocks) = pack.blocks().split_at(mid_block);
+    let half = |blocks: &[_]| {
+        UidPack::new(pack.block_size(), blocks.to_vec())
+            .map_err(|e| PostingError::corrupted(b"", e.to_string()))
+    };
     let pidx = plist.postings().partition_point(|p| p.uid() < mid_uid);
+    let (low_postings, high_postings) = plist.postings().split_at(pidx);
     let low = PostingList::default()
-        .with_pack(half(&pack.blocks()[..mid_block]))
-        .with_postings(plist.postings()[..pidx].to_vec());
+        .with_pack(half(low_blocks)?)
+        .with_postings(low_postings.to_vec());
     let high = PostingList::default()
-        .with_pack(half(&pack.blocks()[mid_block..]))
-        .with_postings(plist.postings()[pidx..].to_vec());
-    ([low_uid, mid_uid], [low, high])
+        .with_pack(half(high_blocks)?)
+        .with_postings(high_postings.to_vec());
+    debug_assert!(low_uid < mid_uid, "the halves start in order");
+    Ok(([low_uid, mid_uid], [low, high]))
 }

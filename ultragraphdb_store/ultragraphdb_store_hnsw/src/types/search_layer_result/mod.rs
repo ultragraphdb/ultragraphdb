@@ -8,6 +8,7 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+use ultragraphdb_core_ids::SystemId;
 use std::collections::HashSet;
 
 use ultragraphdb_traits_index::SearchPathResult;
@@ -28,8 +29,8 @@ pub(crate) const VISITED_VECTORS_LEVEL: &str = "visited_vectors_level_";
 #[derive(Debug, Clone)]
 pub(crate) struct SearchLayerResult<T> {
     pub neighbors: Vec<PersistentHeapElement<T>>,
-    visited: HashSet<u64>,
-    path: Vec<u64>,
+    visited: HashSet<SystemId>,
+    path: Vec<SystemId>,
     metrics: Vec<(String, u64)>,
     level: usize,
     filtered: usize,
@@ -109,7 +110,7 @@ impl<T: HnswFloat> SearchLayerResult<T> {
             .ok_or_else(HnswError::no_neighbour)
     }
 
-    pub fn index_visited(&self, n: u64) -> bool {
+    pub fn index_visited(&self, n: SystemId) -> bool {
         self.visited.contains(&n)
     }
 

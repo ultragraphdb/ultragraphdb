@@ -5,15 +5,13 @@
 
 use std::collections::BTreeMap;
 
-use oxrdf::{NamedOrBlankNode, Term};
+use oxrdf::{NamedNode, NamedOrBlankNode, Term};
 
-use crate::types::statement_id::StatementId;
-
-/// An edge of the property-graph view: one statement with an IRI or blank-node object, its statement ID when it has
-/// one, and its properties by name, each with its values ordered by their N-Triples text.
+/// An edge of the property-graph view: one statement with an IRI or blank-node object, the reifier naming its
+/// statement ID when it has one, and its properties by name, each with its values ordered by their N-Triples text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PgEdge {
-    id: Option<StatementId>,
+    reifier: Option<NamedNode>,
     source: NamedOrBlankNode,
     edge_type: String,
     target: NamedOrBlankNode,
@@ -21,14 +19,14 @@ pub struct PgEdge {
 }
 
 impl PgEdge {
-    /// The edge of type `edge_type` from `source` to `target`, with no statement ID and no property.
+    /// The edge of type `edge_type` from `source` to `target`, with no reifier and no property.
     pub fn new(
         source: NamedOrBlankNode,
         edge_type: impl Into<String>,
         target: NamedOrBlankNode,
     ) -> Self {
         Self {
-            id: None,
+            reifier: None,
             source,
             edge_type: edge_type.into(),
             target,
@@ -36,9 +34,9 @@ impl PgEdge {
         }
     }
 
-    /// The edge with the statement ID `id`.
-    pub fn with_id(mut self, id: StatementId) -> Self {
-        self.id = Some(id);
+    /// The edge named by the reifier `reifier`.
+    pub fn with_reifier(mut self, reifier: NamedNode) -> Self {
+        self.reifier = Some(reifier);
         self
     }
 
@@ -49,15 +47,15 @@ impl PgEdge {
         self
     }
 
-    /// The edge without its statement ID, as it is written before storage allocates one.
-    pub fn without_id(mut self) -> Self {
-        self.id = None;
+    /// The edge without its reifier, as it is written before storage allocates its statement ID.
+    pub fn without_reifier(mut self) -> Self {
+        self.reifier = None;
         self
     }
 
-    /// The statement ID, when it has one.
-    pub fn id(&self) -> Option<StatementId> {
-        self.id
+    /// The reifier, when the edge has a statement ID.
+    pub fn reifier(&self) -> Option<&NamedNode> {
+        self.reifier.as_ref()
     }
 
     /// The source node.

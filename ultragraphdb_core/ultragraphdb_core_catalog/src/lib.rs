@@ -14,13 +14,18 @@
 //! ```
 //! use oxrdf::NamedNode;
 //! use ultragraphdb_core_catalog::Catalog;
+//! use ultragraphdb_core_ids::{Bucket, Sequence, SystemId, TypePrefix};
 //! use ultragraphdb_core_mapping::{PredicateDeclaration, PredicateKind};
 //!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let mut catalog = Catalog::new(0);
+//! let knows_id = SystemId::new(TypePrefix::RESOURCE, Bucket::new(7)?, Sequence::new(7)?);
 //! let knows = PredicateDeclaration::new(NamedNode::new_unchecked("http://ex.org/knows"))
 //!     .with_kind(PredicateKind::Edge);
-//! catalog.declare_predicate(7, knows).unwrap();
-//! assert_eq!(catalog.predicate(7).map(|d| d.kind()), Some(PredicateKind::Edge));
+//! catalog.declare_predicate(knows_id, knows)?;
+//! assert_eq!(catalog.predicate(knows_id).map(|d| d.kind()), Some(PredicateKind::Edge));
+//! # Ok(())
+//! # }
 //! ```
 
 mod errors;

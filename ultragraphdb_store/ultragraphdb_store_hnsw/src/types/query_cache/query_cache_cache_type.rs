@@ -7,6 +7,7 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_traits_index::{CacheType, LocalCache};
 
 use crate::types::query_cache::QueryCache;
@@ -22,7 +23,11 @@ impl<L: LocalCache> CacheType for QueryCache<'_, L> {
         self.read_ts
     }
 
-    fn find(&self, prefix: &[u8], filter: impl Fn(&[u8]) -> bool) -> Result<u64, Self::Error> {
+    fn find(
+        &self,
+        prefix: &[u8],
+        filter: impl Fn(&[u8]) -> bool,
+    ) -> Result<Option<SystemId>, Self::Error> {
         self.cache.find(prefix, filter)
     }
 }

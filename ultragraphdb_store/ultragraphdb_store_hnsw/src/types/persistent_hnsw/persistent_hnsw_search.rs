@@ -10,6 +10,7 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_traits_index::{
     CacheType, Metric, SearchFilter, SearchPathResult, VectorIndexOptions,
 };
@@ -46,6 +47,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         r.set_first_path_node(best);
         let mut candidates = CandidateHeap::build(vec![best], sim.is_similarity_metric());
 
+        // Ends: a node enters the candidates once, when first visited, and each turn takes one out.
         while let Some(curr) = candidates.pop() {
             if r.num_neighbors() >= expected
                 && sim.is_better_score(r.last_neighbor_score()?, curr.value())
@@ -94,7 +96,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         Ok(r)
     }
 
-    /// Dgraph's `Search`: the uids of at most `max_results` vectors nearest `query` that pass `filter`, best first.
+    /// Dgraph's `Search`: the IDs of at most `max_results` vectors nearest `query` that pass `filter`, best first.
     ///
     /// # Errors
     ///
@@ -106,7 +108,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         query: &[T],
         max_results: usize,
         filter: SearchFilter<T>,
-    ) -> Result<Vec<u64>, HnswError> {
+    ) -> Result<Vec<SystemId>, HnswError> {
         self.search_with_path(c, query, max_results, filter)
             .map(|r| r.neighbors().to_vec())
     }
@@ -120,7 +122,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         query: &[T],
         max_results: usize,
         opts: &VectorIndexOptions<T>,
-    ) -> Result<Vec<u64>, HnswError> {
+    ) -> Result<Vec<SystemId>, HnswError> {
         let filter = opts.filter();
         let (mut entry, mut start_vec) = self.pick_start_node(c)?;
         let ef_upper = if opts.ef_override() > 0 {
@@ -171,10 +173,10 @@ impl<T: HnswFloat> PersistentHnsw<T> {
     pub fn search_with_uid_and_options<C: CacheType<Error = HnswError>>(
         &self,
         c: &C,
-        query_uid: u64,
+        query_uid: SystemId,
         max_results: usize,
         opts: &VectorIndexOptions<T>,
-    ) -> Result<Vec<u64>, HnswError> {
+    ) -> Result<Vec<SystemId>, HnswError> {
         let filter = opts.filter();
         let query_vec = match self.vec_from_uid(query_uid, c) {
             Err(e) if e.is_fetching_posting_list() => return Ok(Vec::new()),
@@ -206,10 +208,10 @@ impl<T: HnswFloat> PersistentHnsw<T> {
     pub fn search_with_uid<C: CacheType<Error = HnswError>>(
         &self,
         c: &C,
-        query_uid: u64,
+        query_uid: SystemId,
         max_results: usize,
         filter: SearchFilter<T>,
-    ) -> Result<Vec<u64>, HnswError> {
+    ) -> Result<Vec<SystemId>, HnswError> {
         let query_vec = match self.vec_from_uid(query_uid, c) {
             Err(e) if e.is_fetching_posting_list() => return Ok(Vec::new()),
             Err(e) => return Err(e),
@@ -292,7 +294,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         layer: &SearchLayerResult<T>,
         max_results: usize,
         threshold: Option<f64>,
-    ) -> Vec<u64> {
+    ) -> Vec<SystemId> {
         let metric = self.sim_type.metric();
         layer
             .neighbors

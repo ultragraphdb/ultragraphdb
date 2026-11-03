@@ -4,7 +4,7 @@
  */
 
 use oxrdf::{Literal, NamedNode};
-use ultragraphdb_core_ids::{IdError, IdErrorEnum};
+use ultragraphdb_core_ids::{IdError, IdErrorEnum, SystemId};
 use ultragraphdb_core_keys::{CountDirection, DEFAULT_GRAPH, Graph, QuadKey, QuadKeyErrorEnum};
 use ultragraphdb_core_terms::{EncodedTerm, FLOAT32_VECTOR, TermError};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
@@ -88,6 +88,7 @@ fn id_fields() -> TestResult<Vec<(QuadKey, usize, &'static str)>> {
         (key(11)?, HEAD, "predicate"),
         (key(12)?, 9, "entity"),
         (key(13)?, 9, "entity"),
+        (key(14)?, 10, "ID"),
     ])
 }
 
@@ -174,7 +175,7 @@ fn test_a_mark_group_past_18_bits_is_refused() -> TestResult {
 fn test_unreadable_objects_unknown_keyspaces_and_directions_are_refused() -> TestResult {
     let vector = EncodedTerm::literal(
         Literal::new_typed_literal("[1]", NamedNode::new_unchecked(FLOAT32_VECTOR)).as_ref(),
-        |_| Ok::<_, TermError>(1),
+        |_| Err::<SystemId, _>(TermError::malformed(Vec::new(), "no datatype ID is needed")),
     )?
     .into_term();
     let key = QuadKey::Reverse {
@@ -191,7 +192,7 @@ fn test_unreadable_objects_unknown_keyspaces_and_directions_are_refused() -> Tes
     let mut bad_object = QuadKey::ObjectPredicates {
         namespace: 1,
         graph: DEFAULT_GRAPH,
-        object: EncodedTerm::uid(3),
+        object: EncodedTerm::id(id(1, 3, 3)?),
     }
     .to_bytes();
     // The object's tag follows the head.
@@ -255,5 +256,32 @@ fn test_a_byte_after_any_key_but_a_value_index_key_is_refused() -> TestResult {
             );
         }
     }
+    Ok(())
+}
+
+#[test]
+fn test_an_object_that_is_no_valid_id_is_refused() -> TestResult {
+    // A reverse key whose object, an IRI's tag and 16 bytes, has sequence 0: the key names no entity.
+    let key = QuadKey::Reverse {
+        namespace: 1,
+        graph: DEFAULT_GRAPH,
+        predicate: id(1, 1, 1)?,
+        object: EncodedTerm::id(id(1, 3, 3)?),
+    };
+    let mut bytes = key.to_bytes();
+    let at = bytes.len() - 16;
+    // The object's sequence, bytes 2 to 9 of its ID.
+    bytes
+        .get_mut(at + 2..at + 10)
+        .context("the sequence")?
+        .fill(0);
+    assert_eq!(
+        QuadKey::parse(&bytes).map_err(|e| e.0),
+        Err(QuadKeyErrorEnum::InvalidId {
+            key: bytes.clone(),
+            field: "object",
+            error: IdError::zero_sequence()
+        })
+    );
     Ok(())
 }

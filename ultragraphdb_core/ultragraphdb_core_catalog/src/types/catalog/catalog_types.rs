@@ -4,6 +4,7 @@
  */
 
 use std::collections::BTreeMap;
+use ultragraphdb_core_ids::SystemId;
 
 use ultragraphdb_core_mapping::TypeDeclaration;
 
@@ -11,13 +12,13 @@ use crate::errors::catalog_error::CatalogError;
 use crate::types::catalog::Catalog;
 
 impl Catalog {
-    /// Declares entity type `uid` with the parent `parent` names, `parent` being that parent's UID. Refused, changing
+    /// Declares entity type `uid` with the parent `parent` names, `parent` being that parent's ID. Refused, changing
     /// nothing, when the type already has another parent, or the parent descends from the type.
     pub fn declare_type(
         &mut self,
-        uid: u64,
+        uid: SystemId,
         declaration: TypeDeclaration,
-        parent: Option<u64>,
+        parent: Option<SystemId>,
     ) -> Result<(), CatalogError> {
         let name = declaration.iri().as_str();
         if let (Some(held), Some(new)) = (
@@ -45,8 +46,8 @@ impl Catalog {
         Ok(())
     }
 
-    /// The UID of type `uid`'s parent, when the parent is declared.
-    fn parent_uid(&self, uid: u64) -> Option<u64> {
+    /// The ID of type `uid`'s parent, when the parent is declared.
+    fn parent_uid(&self, uid: SystemId) -> Option<SystemId> {
         let parent = self.types.get(&uid)?.parent()?;
         self.types
             .iter()
@@ -55,10 +56,10 @@ impl Catalog {
     }
 
     /// Each declared type's number in a preorder walk of the type hierarchy, from 1: each type before its children,
-    /// roots and siblings in UID order, which is the order their IRIs were first named. A type's descendants then hold
-    /// the numbers right after its own, as the UID type bits will.
-    pub fn preorder(&self) -> BTreeMap<u64, u32> {
-        let mut children: BTreeMap<Option<u64>, Vec<u64>> = BTreeMap::new();
+    /// roots and siblings in ID order, which is the order their IRIs were first named. A type's descendants then hold
+    /// the numbers right after its own, as the ID type bits will.
+    pub fn preorder(&self) -> BTreeMap<SystemId, u32> {
+        let mut children: BTreeMap<Option<SystemId>, Vec<SystemId>> = BTreeMap::new();
         for uid in self.types.keys() {
             children
                 .entry(self.parent_uid(*uid))
@@ -66,7 +67,7 @@ impl Catalog {
                 .push(*uid);
         }
         let mut numbers = BTreeMap::new();
-        let mut stack: Vec<u64> = children
+        let mut stack: Vec<SystemId> = children
             .get(&None)
             .map(|roots| roots.iter().rev().copied().collect())
             .unwrap_or_default();

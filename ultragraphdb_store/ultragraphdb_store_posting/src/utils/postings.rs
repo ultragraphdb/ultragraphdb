@@ -14,12 +14,12 @@ use crate::utils::constants::{DEL, SET};
 /// The value a delete-all deletes, Dgraph's `_STAR_ALL`.
 const STAR_ALL: &[u8] = b"_STAR_ALL";
 
-/// The posting of a delete-all: a delete of the value `_STAR_ALL` at uid `u64::MAX`.
+/// The posting of a delete-all: a delete of the value `_STAR_ALL` at key `u64::MAX`, a value's.
 pub fn delete_all_posting() -> Posting {
     Posting::default()
         .with_op(DEL)
         .with_value(STAR_ALL.to_vec())
-        .with_uid(u64::MAX)
+        .with_uid(u128::from(u64::MAX))
 }
 
 /// Whether `posting` is a delete-all: a delete of `_STAR_ALL` without a language.
@@ -36,7 +36,9 @@ pub fn length_delta(op: u32) -> i64 {
     }
 }
 
-/// Whether `plist` holds nothing: no splits and no uids.
+/// Whether `plist` holds nothing: no splits, no IDs and no postings, a value's living in its postings alone.
 pub fn is_plist_empty(plist: &PostingList) -> bool {
-    plist.splits().is_empty() && plist.pack().is_none_or(|p| p.blocks().is_empty())
+    plist.splits().is_empty()
+        && plist.pack().is_none_or(|p| p.blocks().is_empty())
+        && plist.postings().is_empty()
 }

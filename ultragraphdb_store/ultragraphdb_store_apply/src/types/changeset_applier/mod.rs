@@ -35,6 +35,7 @@ use crate::types::vector_query::VectorQuery;
 /// declaration's indexes and the new one's. One build runs at a time. Drops remove what they drop physically.
 #[derive(Debug)]
 pub struct ChangesetApplier<S, C, E> {
+    // Shared: the builds running on the executor hold the core beside the applier.
     core: Arc<ChangesetCore<S, C>>,
     executor: E,
 }

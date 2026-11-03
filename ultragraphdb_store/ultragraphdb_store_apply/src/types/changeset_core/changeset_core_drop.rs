@@ -422,6 +422,7 @@ fn namespace_prefixes(namespace: u64, catalog: bool) -> Vec<Vec<u8>> {
 /// it removed; empty, past the last key, when every byte is 0xff.
 fn successor(prefix: &[u8]) -> Vec<u8> {
     let mut end = prefix.to_vec();
+    // Ends: each turn removes one of the prefix's bytes.
     while let Some(last) = end.pop() {
         if last < u8::MAX {
             end.push(last + 1);

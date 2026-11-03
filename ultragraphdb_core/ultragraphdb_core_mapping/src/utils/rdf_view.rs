@@ -6,22 +6,15 @@
 use std::collections::BTreeMap;
 
 use oxrdf::vocab::rdf;
-use oxrdf::{NamedNode, Quad, Term, Triple};
-use ultragraphdb_core_terms::SYSTEM_VOCABULARY;
+use oxrdf::{Quad, Term, Triple};
 
 use crate::errors::mapping_error::MappingError;
 use crate::types::change::Change;
 use crate::types::changeset::Changeset;
 use crate::types::statement::Statement;
-use crate::types::statement_id::StatementId;
 
-/// The reifier a statement ID presents as in the RDF view: `ugdb:statement/<id>`.
-pub fn statement_iri(id: StatementId) -> NamedNode {
-    NamedNode::new_unchecked(format!("{SYSTEM_VOCABULARY}statement/{}", id.value()))
-}
-
-/// The RDF view of `statements`: each triple as one quad, however many statements hold it, and each statement ID as
-/// a reifier of its triple, `rdf:reifies` a triple term as RDF 1.2 defines it, annotated with the statement's
+/// The RDF view of `statements`: each triple as one quad, however many statements hold it, and each statement's
+/// reifier as a reifier of its triple, `rdf:reifies` a triple term as RDF 1.2 defines it, annotated with the statement's
 /// properties. Quads are ordered by their N-Quads text.
 pub fn rdf_view<'a>(statements: impl IntoIterator<Item = &'a Statement>) -> Vec<Quad> {
     let mut quads: BTreeMap<String, Quad> = BTreeMap::new();
@@ -35,8 +28,7 @@ pub fn rdf_view<'a>(statements: impl IntoIterator<Item = &'a Statement>) -> Vec<
             s.object().clone(),
             s.graph().clone(),
         ));
-        if let Some(id) = s.id() {
-            let reifier = statement_iri(id);
+        if let Some(reifier) = s.reifier() {
             let triple = Triple::new(
                 s.subject().clone(),
                 s.predicate().clone(),

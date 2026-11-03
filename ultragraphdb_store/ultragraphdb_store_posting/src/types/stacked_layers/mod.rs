@@ -21,6 +21,7 @@ struct Stack {
 /// where a copy of the batch's map per request made a batch of n requests cost O(n²) map entries.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct StackedLayers {
+    // Shared and locked: every view reads the one stack while the batch appends to it.
     stack: Arc<RwLock<Stack>>,
     upto: u64,
 }

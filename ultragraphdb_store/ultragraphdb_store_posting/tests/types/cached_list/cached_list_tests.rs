@@ -4,30 +4,30 @@
  */
 
 use std::sync::Arc;
-use ultragraphdb_tool_bdd::{Context, TestResult};
+use ultragraphdb_tool_bdd::TestResult;
 
-use ultragraphdb_core_codec::{PostingList, encode};
+use ultragraphdb_core_codec::PostingList;
 use ultragraphdb_store_posting::{BLOCK_SIZE, CachedList, List};
 
-use crate::utils::helpers::{add, key, set_uid};
+use crate::utils::helpers::{add, ids, key, pack_of, set_uid};
 
 #[test]
 fn test_the_weigher_counts_the_lists_bytes() -> TestResult {
     let k = key("weigh", 1);
     let empty = CachedList::new(Arc::new(List::empty(k.clone())), 1, 0);
     let small = empty.weight();
-    // The fixed overhead of 64, the key, 33 bytes: the keyspace byte and four u64s, and the empty list's encoding, 26
-    // bytes: the posting format's version, flags, commit timestamp, posting and split counts and checksum.
-    assert_eq!(k.len(), 33);
-    assert_eq!(small, 64 + 33 + 26);
+    // The fixed overhead of 64, the key, 57 bytes: the keyspace byte, the namespace's 8, the graph's, the
+    // predicate's and the subject's 16 each, and the empty list's encoding, 26 bytes: the posting format's version,
+    // flags, commit version, posting and split counts and checksum.
+    assert_eq!(k.len(), 57);
+    assert_eq!(small, 64 + 57 + 26);
 
     let uids: Vec<u64> = (1..=10_000).collect();
-    let complete =
-        PostingList::default().with_pack(encode(&uids, BLOCK_SIZE).context("the uids pack")?);
+    let complete = PostingList::default().with_pack(pack_of(&ids(&uids)?, BLOCK_SIZE)?);
     let big = CachedList::new(Arc::new(List::new(k.clone(), complete.clone(), 1)), 1, 0);
     assert_eq!(
         big.weight(),
-        64 + 33 + complete.encoded_len() as u32,
+        64 + 57 + complete.encoded_len() as u32,
         "the complete list is weighed in place of the empty one"
     );
     assert!(complete.encoded_len() > 10_000);

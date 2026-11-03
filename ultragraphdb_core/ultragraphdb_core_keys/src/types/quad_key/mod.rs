@@ -10,6 +10,7 @@ use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_terms::EncodedTerm;
 
 use crate::types::count_direction::CountDirection;
+use crate::types::dictionary_entry::DictionaryEntry;
 use crate::types::graph::Graph;
 use crate::types::keyspace::Keyspace;
 use crate::types::region::Region;
@@ -150,6 +151,13 @@ pub enum QuadKey {
         /// The entity.
         entity: SystemId,
     },
+    /// The key of a dictionary entry, in the keyspace without versions.
+    Dictionary {
+        /// The namespace.
+        namespace: u64,
+        /// The entry's kind and its 16 bytes.
+        entry: DictionaryEntry,
+    },
 }
 
 /// The length of a key's namespace.
@@ -174,6 +182,7 @@ impl QuadKey {
             QuadKey::Statistics { .. } => Keyspace::Statistics,
             QuadKey::Mark { .. } => Keyspace::Marks,
             QuadKey::Referrers { .. } => Keyspace::Referrers,
+            QuadKey::Dictionary { .. } => Keyspace::Dictionary,
         }
     }
 
@@ -192,7 +201,8 @@ impl QuadKey {
             | QuadKey::Statement { namespace, .. }
             | QuadKey::Statistics { namespace, .. }
             | QuadKey::Mark { namespace, .. }
-            | QuadKey::Referrers { namespace, .. } => *namespace,
+            | QuadKey::Referrers { namespace, .. }
+            | QuadKey::Dictionary { namespace, .. } => *namespace,
         }
     }
 
@@ -201,7 +211,10 @@ impl QuadKey {
     #[must_use]
     pub fn graph(&self) -> Option<Graph> {
         match self {
-            QuadKey::Catalog { .. } | QuadKey::Mark { .. } | QuadKey::Referrers { .. } => None,
+            QuadKey::Catalog { .. }
+            | QuadKey::Mark { .. }
+            | QuadKey::Referrers { .. }
+            | QuadKey::Dictionary { .. } => None,
             QuadKey::Forward { graph, .. }
             | QuadKey::Reverse { graph, .. }
             | QuadKey::SubjectPredicates { graph, .. }
@@ -229,7 +242,8 @@ impl QuadKey {
             | QuadKey::ObjectPredicates { .. }
             | QuadKey::Statement { .. }
             | QuadKey::Mark { .. }
-            | QuadKey::Referrers { .. } => None,
+            | QuadKey::Referrers { .. }
+            | QuadKey::Dictionary { .. } => None,
         }
     }
 
@@ -304,6 +318,10 @@ impl QuadKey {
                 key.extend_from_slice(&entity.to_be_bytes());
                 let [_, high, middle, low] = group.to_be_bytes();
                 key.extend_from_slice(&[high, middle, low]);
+            }
+            QuadKey::Dictionary { entry, .. } => {
+                key.push(entry.kind());
+                key.extend_from_slice(&entry.to_bytes());
             }
         }
     }

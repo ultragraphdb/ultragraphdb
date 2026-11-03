@@ -27,8 +27,12 @@ impl fmt::Display for TermError {
             TermErrorEnum::InvalidVector { lexical, reason } => {
                 write!(f, "Invalid vector literal {lexical:?}: {reason}")
             }
-            TermErrorEnum::NotALiteral { uid } => {
-                write!(f, "Encoded term names UID {uid}, not a literal")
+            TermErrorEnum::NotALiteral { id } => {
+                write!(
+                    f,
+                    "Encoded term names the ID {:032x}, not a literal",
+                    id.to_u128()
+                )
             }
         }
     }

@@ -6,11 +6,14 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_index::{
     AllowedOptions, CacheType, IndexFactory, KeyValue, OptionalIndexSupport, Options, SearchFilter,
     SearchPathResult, Txn, VectorIndex,
 };
+
+use crate::utils::helpers::id;
 
 /// An index that holds nothing and finds nothing, named by its factory.
 #[derive(Debug, Clone, PartialEq)]
@@ -40,24 +43,24 @@ impl VectorIndex<f64> for Empty {
         _: &[f64],
         _: usize,
         _: SearchFilter<f64>,
-    ) -> Result<Vec<u64>, Self::Error> {
+    ) -> Result<Vec<SystemId>, Self::Error> {
         Ok(Vec::new())
     }
 
     fn search_with_uid<C: CacheType<Error = Self::Error>>(
         &self,
         _: &C,
-        _: u64,
+        _: SystemId,
         _: usize,
         _: SearchFilter<f64>,
-    ) -> Result<Vec<u64>, Self::Error> {
+    ) -> Result<Vec<SystemId>, Self::Error> {
         Ok(Vec::new())
     }
 
     fn insert<X: Txn<Error = Self::Error>>(
         &self,
         _: &X,
-        _: u64,
+        _: SystemId,
         _: &[f64],
         _: &mut impl FnMut() -> f64,
     ) -> Result<Vec<KeyValue>, Self::Error> {
@@ -153,10 +156,10 @@ fn test_a_factory_creates_finds_and_removes_indexes() -> TestResult {
     );
     assert_eq!(ix.search(&NoCache, &[1.0], 1, |_, _, _| true), Ok(vec![]));
     assert_eq!(
-        ix.search_with_uid(&NoCache, 1, 1, |_, _, _| true),
+        ix.search_with_uid(&NoCache, id(1)?, 1, |_, _, _| true),
         Ok(vec![])
     );
-    assert_eq!(ix.insert(&NoTxn, 1, &[1.0], &mut || 0.0), Ok(vec![]));
+    assert_eq!(ix.insert(&NoTxn, id(1)?, &[1.0], &mut || 0.0), Ok(vec![]));
     Ok(())
 }
 
@@ -180,8 +183,8 @@ impl Txn for NoTxn {
         Err("empty".to_string())
     }
 
-    fn find(&self, _: &[u8], _: impl Fn(&[u8]) -> bool) -> Result<u64, Self::Error> {
-        Err("empty".to_string())
+    fn find(&self, _: &[u8], _: impl Fn(&[u8]) -> bool) -> Result<Option<SystemId>, Self::Error> {
+        Ok(None)
     }
 
     fn add_mutation(&self, _: &[u8], _: &KeyValue) -> Result<(), Self::Error> {
@@ -208,7 +211,7 @@ impl CacheType for NoCache {
         0
     }
 
-    fn find(&self, _: &[u8], _: impl Fn(&[u8]) -> bool) -> Result<u64, Self::Error> {
-        Err("empty".to_string())
+    fn find(&self, _: &[u8], _: impl Fn(&[u8]) -> bool) -> Result<Option<SystemId>, Self::Error> {
+        Ok(None)
     }
 }

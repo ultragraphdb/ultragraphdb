@@ -11,16 +11,18 @@ use oxsdatatypes::{
     GMonthDay, GYear, GYearMonth, Integer, Time, YearMonthDuration,
 };
 
+use ultragraphdb_core_ids::SystemId;
+
 use crate::types::datatype::Datatype;
 use crate::types::text::Text;
 use crate::types::vector_view::VectorView;
 
-/// What an encoded term holds, read without the dictionary: a UID, a literal's value when it was encoded by value, or
+/// What an encoded term holds, read without the dictionary: a system ID, a literal's value when it was encoded by value, or
 /// its parts, each inline or as the hash naming its dictionary entry.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TermView<'a> {
-    /// The UID of an IRI or a blank node.
-    Uid(u64),
+    /// The system ID of an IRI or a blank node.
+    Id(SystemId),
     /// An `xsd:boolean`, by value.
     Boolean(Boolean),
     /// An `xsd:integer`, by value.

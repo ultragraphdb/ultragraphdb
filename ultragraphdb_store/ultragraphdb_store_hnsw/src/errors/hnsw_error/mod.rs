@@ -14,6 +14,7 @@ mod hnsw_error_display;
 mod hnsw_error_error;
 mod hnsw_error_from;
 
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_error_options::OptionsError;
 use ultragraphdb_store_posting::PostingError;
 
@@ -46,7 +47,7 @@ pub enum HnswErrorEnum {
         /// The predicate of the key read.
         pred: String,
         /// The uid of the key read.
-        uid: u64,
+        uid: SystemId,
     },
     /// A uid holds no vector: Dgraph's `errNilVector`, wrapping the absence when a read reported one.
     NilVector(Option<Box<HnswError>>),
@@ -75,7 +76,7 @@ pub enum HnswErrorEnum {
     /// A node's neighbour lists without the level read; Dgraph panics (index out of range).
     LevelMissing {
         /// The node read.
-        uid: u64,
+        uid: SystemId,
         /// The level the search read.
         level: usize,
         /// How many levels the node's lists hold.
@@ -108,7 +109,7 @@ impl HnswError {
     }
 
     /// A read of the key of `pred` and `uid` that found nothing, wrapping the absence `cause`.
-    pub fn fetching_posting_list(cause: HnswError, pred: impl Into<String>, uid: u64) -> Self {
+    pub fn fetching_posting_list(cause: HnswError, pred: impl Into<String>, uid: SystemId) -> Self {
         Self(HnswErrorEnum::FetchingPostingList {
             cause: Box::new(cause),
             pred: pred.into(),
@@ -152,7 +153,7 @@ impl HnswError {
     }
 
     /// The lists of node `uid`, holding `levels` levels, without the level `level` read.
-    pub fn level_missing(uid: u64, level: usize, levels: usize) -> Self {
+    pub fn level_missing(uid: SystemId, level: usize, levels: usize) -> Self {
         Self(HnswErrorEnum::LevelMissing { uid, level, levels })
     }
 

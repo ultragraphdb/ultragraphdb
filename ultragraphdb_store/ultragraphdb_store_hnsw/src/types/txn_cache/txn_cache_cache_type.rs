@@ -7,6 +7,7 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_traits_index::{CacheType, Txn};
 
 use crate::types::txn_cache::TxnCache;
@@ -22,7 +23,11 @@ impl<X: Txn> CacheType for TxnCache<'_, X> {
         self.start_ts
     }
 
-    fn find(&self, prefix: &[u8], filter: impl Fn(&[u8]) -> bool) -> Result<u64, Self::Error> {
+    fn find(
+        &self,
+        prefix: &[u8],
+        filter: impl Fn(&[u8]) -> bool,
+    ) -> Result<Option<SystemId>, Self::Error> {
         self.txn.find(prefix, filter)
     }
 }

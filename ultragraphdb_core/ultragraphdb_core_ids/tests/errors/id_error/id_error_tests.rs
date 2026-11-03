@@ -6,7 +6,7 @@
 use ultragraphdb_core_ids::{IdError, IdErrorEnum};
 
 /// Every constructor with the variant it builds, each field given a value distinct from the others'.
-fn cases() -> [(IdError, IdErrorEnum); 9] {
+fn cases() -> [(IdError, IdErrorEnum); 10] {
     [
         (
             IdError::length("a system ID", 16, 15),
@@ -25,6 +25,10 @@ fn cases() -> [(IdError, IdErrorEnum); 9] {
         (
             IdError::bucket_range(16_777_216),
             IdErrorEnum::BucketRange { bucket: 16_777_216 },
+        ),
+        (
+            IdError::bucket_group_range(262_144),
+            IdErrorEnum::BucketGroupRange { group: 262_144 },
         ),
         (
             IdError::iri_too_long(4_294_967_296),

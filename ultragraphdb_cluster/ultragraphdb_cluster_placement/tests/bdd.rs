@@ -7,9 +7,9 @@
 
 use cucumber::{World, then, when};
 use ultragraphdb_cluster_placement::{
-    BucketGroup, BucketRange, NamespaceRun, NodeId, PartitionId, PlacementMap,
+    BucketRange, NamespaceRun, NodeId, PartitionId, PlacementMap,
 };
-use ultragraphdb_core_ids::{Bucket, Epoch, Namespace};
+use ultragraphdb_core_ids::{Bucket, BucketGroup, Epoch, Namespace};
 use ultragraphdb_error_cluster::{ClusterError, ClusterErrorEnum};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -144,10 +144,8 @@ fn group_resolved(w: &mut Steps) -> TestResult {
     let layout = moved(&map, 21_888, 21_952, Some(pid(3)?))?;
     map.change(Epoch::new(21)?, &layout)?;
     let group = BucketGroup::of(Bucket::new(21_888)?);
-    assert_eq!(
-        (group.range().start(), group.range().end()),
-        (21_888, 21_952)
-    );
+    let range = BucketRange::of_group(group);
+    assert_eq!((range.start(), range.end()), (21_888, 21_952));
     for epoch in [20, 21] {
         let mut into = Vec::new();
         map.group_partitions(group, Epoch::new(epoch)?, &mut into);

@@ -24,10 +24,14 @@ use crate::errors::posting_error::{PostingError, PostingErrorEnum};
 use crate::types::cached_list::CachedList;
 use crate::types::list::List;
 use crate::types::lists::Lists;
+use crate::types::rollup_queues::ROLLUP_QUEUE;
 use crate::utils::lock::lock;
 
 /// How often the worker reports the number of keys it rolled up, as Dgraph does every thousand.
 const REPORT_EVERY: u64 = 1000;
+/// The most batches one turn rolls up: every full batch both priorities' queues hold and the batch being filled. A
+/// batch a writer queues during the turn waits for the next.
+const BATCHES_PER_TURN_MAX: usize = 2 * ROLLUP_QUEUE + 1;
 
 impl<S, C> Lists<S, C>
 where
@@ -68,7 +72,7 @@ where
     pub fn run_rollups(&self, now_secs: u64) -> Result<usize, PostingError> {
         let _running = lock(&self.rolling);
         let mut rolled = 0usize;
-        loop {
+        for _ in 0..BATCHES_PER_TURN_MAX {
             let Some(batch) = lock(&self.rollups).take_batch() else {
                 return Ok(rolled);
             };
@@ -98,6 +102,7 @@ where
                 }
             }
         }
+        Ok(rolled)
     }
 
     /// Starts [`Lists::run_rollups`] on `executor`.

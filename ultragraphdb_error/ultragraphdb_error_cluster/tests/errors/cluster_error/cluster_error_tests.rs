@@ -8,7 +8,7 @@ use ultragraphdb_error_invariant::InvariantError;
 use ultragraphdb_error_log::LogError;
 
 /// The placement map's constructors, each with the variant it builds; every field differs from the others.
-fn placement_cases() -> [(ClusterError, ClusterErrorEnum); 8] {
+fn placement_cases() -> [(ClusterError, ClusterErrorEnum); 7] {
     [
         (
             ClusterError::zero_partition(),
@@ -24,10 +24,6 @@ fn placement_cases() -> [(ClusterError, ClusterErrorEnum); 8] {
         (
             ClusterError::bucket_range(7, 3),
             ClusterErrorEnum::BucketRange { start: 7, end: 3 },
-        ),
-        (
-            ClusterError::bucket_group_range(262_144),
-            ClusterErrorEnum::BucketGroupRange { group: 262_144 },
         ),
         (
             ClusterError::unassigned(100),

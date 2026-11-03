@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_core_ids::Bucket;
+use ultragraphdb_core_ids::{Bucket, BucketGroup};
 use ultragraphdb_error_cluster::ClusterError;
 
 /// A half-open range of bucket numbers, `start..end`: at least one bucket, none past the last, 2^24 − 1.
@@ -16,6 +16,13 @@ pub struct BucketRange {
 impl BucketRange {
     /// The bucket after the last, 2^24: the largest `end` of a range.
     pub const END: u32 = 1 << 24;
+
+    /// The 64 buckets of `group`.
+    #[must_use]
+    pub fn of_group(group: BucketGroup) -> Self {
+        let start = group.first_bucket().get();
+        Self::from_checked(start, start + BucketGroup::BUCKETS)
+    }
 
     /// The range `start..end`.
     ///

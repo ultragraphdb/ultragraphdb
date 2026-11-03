@@ -45,7 +45,7 @@ fn test_race_create_or_replace() -> TestResult {
             .map(|_| {
                 s.spawn(|| -> TestResult {
                     for i in 0..10 {
-                        let index = PersistentHnsw::<f64>::new(vkeys("a"), &o, 64)
+                        let index = PersistentHnsw::<f64>::new(vkeys("a")?, &o, 64)
                             .map_err(|e| format!("case {i}: {e}"))
                             .context("the case passes")?;
                         assert_eq!(
@@ -78,7 +78,7 @@ fn test_create_persistent_hnsw() -> TestResult {
         ("cosine", "cosine"),
         ("dotproduct", "dotproduct"),
     ] {
-        let index = PersistentHnsw::<f64>::new(vkeys("a"), &options(1, 1, 1, index_type), 64)?;
+        let index = PersistentHnsw::<f64>::new(vkeys("a")?, &options(1, 1, 1, index_type), 64)?;
         assert_eq!(index.sim_type().index_type(), expected);
         assert_eq!(
             (
@@ -113,14 +113,14 @@ fn test_create_persistent_hnsw() -> TestResult {
 fn test_a_float_width_other_than_the_vectors_is_refused() -> TestResult {
     let o = options(1, 1, 1, "b");
     for bits in [32, 16, 0] {
-        let e = PersistentHnsw::<f64>::new(vkeys("a"), &o, bits)
+        let e = PersistentHnsw::<f64>::new(vkeys("a")?, &o, bits)
             .err()
             .context("the error of PersistentHnsw::<f64>::new(..)")?;
         assert_eq!(e.0, HnswErrorEnum::FloatBits { bits, expected: 64 });
     }
-    let f32_index = PersistentHnsw::<f32>::new(vkeys("a"), &o, 32)?;
+    let f32_index = PersistentHnsw::<f32>::new(vkeys("a")?, &o, 32)?;
     assert_eq!(f32_index.sim_type().index_type(), "euclidean");
-    let e = PersistentHnsw::<f32>::new(vkeys("a"), &o, 64)
+    let e = PersistentHnsw::<f32>::new(vkeys("a")?, &o, 64)
         .err()
         .context("the error of PersistentHnsw::<f32>::new(..)")?;
     assert_eq!(
@@ -154,7 +154,7 @@ fn test_an_option_below_one_is_refused() -> TestResult {
             opts(&[("exponent", "1"), ("efSearch", "0")])?,
         ),
     ] {
-        let e = PersistentHnsw::<f32>::new(vkeys("0-a"), &o, 32)
+        let e = PersistentHnsw::<f32>::new(vkeys("0-a")?, &o, 32)
             .err()
             .context("the error of PersistentHnsw::<f32>::new(..)")?;
         assert_eq!(e.0, HnswErrorEnum::InvalidParameter { name, value }, "{e}");
@@ -165,12 +165,12 @@ fn test_an_option_below_one_is_refused() -> TestResult {
         ("efConstruction", "1"),
         ("efSearch", "1"),
     ])?;
-    let ix = PersistentHnsw::<f32>::new(vkeys("0-a"), &one, 32)?;
+    let ix = PersistentHnsw::<f32>::new(vkeys("0-a")?, &one, 32)?;
     assert_eq!(
         (ix.max_levels(), ix.ef_construction(), ix.ef_search()),
         (1, 1, 1)
     );
-    let exponent_ix = PersistentHnsw::<f32>::new(vkeys("0-a"), &opts(&[("exponent", "1")])?, 32)?;
+    let exponent_ix = PersistentHnsw::<f32>::new(vkeys("0-a")?, &opts(&[("exponent", "1")])?, 32)?;
     assert_eq!(
         (
             exponent_ix.max_levels(),
@@ -221,7 +221,7 @@ fn test_options_set_gos_parameters() -> TestResult {
                 opts(&pairs)?
             }
         };
-        match PersistentHnsw::<f32>::new(vkeys("0-opts"), &o, 32) {
+        match PersistentHnsw::<f32>::new(vkeys("0-opts")?, &o, 32) {
             Ok(index) => {
                 assert!(
                     c.error.is_empty(),
@@ -270,7 +270,7 @@ fn test_options_set_gos_parameters() -> TestResult {
 fn test_a_wrong_option_type_is_gos_error() -> TestResult {
     let mut o = Options::new();
     let _options: &mut Options = o.set_opt("maxLevels", OptionValue::Bool(true));
-    let e = PersistentHnsw::<f32>::new(vkeys("0-a"), &o, 32)
+    let e = PersistentHnsw::<f32>::new(vkeys("0-a")?, &o, 32)
         .err()
         .context("the error of PersistentHnsw::<f32>::new(..)")?;
     assert!(
@@ -279,7 +279,7 @@ fn test_a_wrong_option_type_is_gos_error() -> TestResult {
     // An exponent of another type is ignored and leaves the defaults, as Dgraph ignores its error.
     let mut string_exponent = Options::new();
     let _exponent: &mut Options = string_exponent.set_opt("exponent", OptionValue::Str("4".into()));
-    let index = PersistentHnsw::<f32>::new(vkeys("0-a"), &string_exponent, 32)?;
+    let index = PersistentHnsw::<f32>::new(vkeys("0-a")?, &string_exponent, 32)?;
     assert_eq!(
         (
             index.max_levels(),

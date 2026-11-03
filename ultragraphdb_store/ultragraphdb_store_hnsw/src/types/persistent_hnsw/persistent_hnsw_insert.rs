@@ -17,6 +17,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_traits_index::{KeyValue, Txn, accept_all};
 
 use crate::errors::hnsw_error::{HnswError, HnswErrorEnum};
@@ -25,17 +26,16 @@ use crate::types::layer_entry::LayerEntry;
 use crate::types::persistent_hnsw::PersistentHnsw;
 use crate::types::txn_cache::TxnCache;
 use crate::utils::helper::{
-    NOT_A_UID, dedupe_uids_preserve_order, insert_layer, insert_uids_top_k_by_score, parse_edges,
-    uint64_to_bytes, worst_score,
+    dedupe_uids_preserve_order, insert_layer, insert_uids_top_k_by_score, parse_edges, worst_score,
 };
-use crate::utils::matrix::encode_uint64_matrix;
+use crate::utils::matrix::encode_id_matrix;
 
 /// Where an insert starts.
 enum Start {
     /// The insert is done, having written these values: the index was empty.
     Done(Vec<KeyValue>),
     /// From this entry point, having written these values to name it.
-    From(u64, Vec<KeyValue>),
+    From(SystemId, Vec<KeyValue>),
 }
 
 impl<T: HnswFloat> PersistentHnsw<T> {
@@ -56,7 +56,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
     pub fn insert<X: Txn<Error = HnswError>>(
         &self,
         tc: &TxnCache<'_, X>,
-        in_uuid: u64,
+        in_uuid: SystemId,
         in_vec: &[T],
         draw: &mut impl FnMut() -> f64,
     ) -> Result<Vec<KeyValue>, HnswError> {
@@ -90,7 +90,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         let _written: KeyValue =
             self.add_neighbors(tc, in_uuid, &vec![Vec::new(); self.max_levels])?;
         let mut outbound = vec![Vec::new(); self.max_levels];
-        let mut inbound: BTreeMap<u64, Vec<Vec<u64>>> = BTreeMap::new();
+        let mut inbound: BTreeMap<SystemId, Vec<Vec<SystemId>>> = BTreeMap::new();
         for (level, out) in outbound.iter_mut().enumerate().skip(in_level) {
             let start_vec = self.vec_from_uid(entry, tc)?;
             let layer = self.search_persistent_layer(
@@ -126,7 +126,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
     fn create_entry_and_start_nodes<X: Txn<Error = HnswError>>(
         &self,
         tc: &TxnCache<'_, X>,
-        in_uuid: u64,
+        in_uuid: SystemId,
     ) -> Result<Start, HnswError> {
         let txn = tc.txn();
         let entry_key = self.keys.entry();
@@ -140,10 +140,10 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         &self,
         tc: &TxnCache<'_, X>,
         entry_key: &[u8],
-        in_uuid: u64,
+        in_uuid: SystemId,
     ) -> Result<Start, HnswError> {
         let txn = tc.txn();
-        let create_edges = |uuid: u64| {
+        let create_edges = |uuid: SystemId| {
             self.add_start_node_to_all_levels(entry_key, txn, uuid)
                 .map(Start::Done)
         };
@@ -161,7 +161,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         // kept.
         match self.calculate_new_entry_vec(tc) {
             Ok((new_entry, _)) if new_entry != in_uuid => {
-                let named = KeyValue::new(1, self.keys.entry_label(), uint64_to_bytes(new_entry));
+                let named = self.entry_value(new_entry);
                 txn.add_mutation_with_lock_held(entry_key, &named)?;
                 Ok(Start::From(new_entry, vec![named]))
             }
@@ -176,32 +176,38 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         &self,
         entry_key: &[u8],
         txn: &X,
-        in_uuid: u64,
+        in_uuid: SystemId,
     ) -> Result<Vec<KeyValue>, HnswError> {
         let key = self.keys.neighbours(in_uuid);
-        let empty_edges = encode_uint64_matrix(&vec![Vec::new(); self.max_levels]);
+        let empty_edges = encode_id_matrix(&vec![Vec::new(); self.max_levels]);
         let edge = KeyValue::new(in_uuid, self.keys.neighbours_label(), empty_edges);
         txn.lock_key(&key);
         let written = txn.add_mutation_with_lock_held(&key, &edge);
         txn.unlock_key(&key);
         written?;
         // Dgraph's entryUuidInsert.
-        let entry = KeyValue::new(1, self.keys.entry_label(), uint64_to_bytes(in_uuid));
+        let entry = self.entry_value(in_uuid);
         txn.add_mutation_with_lock_held(entry_key, &entry)?;
         Ok(vec![edge, entry])
     }
 
+    /// The entry point's value naming `node`: its ID's 16 big-endian bytes, under the predicate's ID, where Dgraph's
+    /// named the entity 1.
+    fn entry_value(&self, node: SystemId) -> KeyValue {
+        unimplemented!()
+    }
+
     /// Dgraph's `uidScoreForNode`: the score of `uid` against `node`, whose vector is `node_vec`; the metric's worst
-    /// score for `notAUid`, `node` itself, a uid without a vector, and vectors of different lengths.
+    /// score for `node` itself, a node without a vector, and vectors of different lengths.
     fn uid_score_for_node<X: Txn<Error = HnswError>>(
         &self,
         tc: &TxnCache<'_, X>,
-        node: u64,
+        node: SystemId,
         node_vec: &[T],
-        uid: u64,
+        uid: SystemId,
     ) -> Result<T, HnswError> {
         let worst = worst_score(self.sim_type);
-        if uid == NOT_A_UID || uid == node {
+        if uid == node {
             return Ok(worst);
         }
         let out_vec = self.vec_or_empty(uid, tc)?;
@@ -219,8 +225,8 @@ impl<T: HnswFloat> PersistentHnsw<T> {
     fn add_neighbors<X: Txn<Error = HnswError>>(
         &self,
         tc: &TxnCache<'_, X>,
-        uuid: u64,
-        all_layer_neighbors: &[Vec<u64>],
+        uuid: SystemId,
+        all_layer_neighbors: &[Vec<SystemId>],
     ) -> Result<KeyValue, HnswError> {
         let txn = tc.txn();
         let key = self.keys.neighbours(uuid);
@@ -234,8 +240,8 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         &self,
         tc: &TxnCache<'_, X>,
         key: &[u8],
-        uuid: u64,
-        all_layer_neighbors: &[Vec<u64>],
+        uuid: SystemId,
+        all_layer_neighbors: &[Vec<SystemId>],
     ) -> Result<KeyValue, HnswError> {
         let txn = tc.txn();
         let cached = self.node_all_edges.borrow().get(&uuid).cloned();
@@ -274,8 +280,8 @@ impl<T: HnswFloat> PersistentHnsw<T> {
                 in_vec = Some(v);
             }
             let node_vec = in_vec.as_deref().unwrap_or_default();
-            let mut score_cache: HashMap<u64, T> = HashMap::new();
-            let mut score = |uid: u64| -> Result<T, HnswError> {
+            let mut score_cache: HashMap<SystemId, T> = HashMap::new();
+            let mut score = |uid: SystemId| -> Result<T, HnswError> {
                 if let Some(s) = score_cache.get(&uid) {
                     return Ok(*s);
                 }
@@ -283,11 +289,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
                 let _cached: Option<T> = score_cache.insert(uid, s);
                 Ok(s)
             };
-            let new_uids: Vec<u64> = if uuid != NOT_A_UID {
-                new_level.iter().copied().filter(|&u| u != uuid).collect()
-            } else {
-                new_level.clone()
-            };
+            let new_uids: Vec<SystemId> = new_level.iter().copied().filter(|&u| u != uuid).collect();
             *row = insert_uids_top_k_by_score(
                 std::mem::take(row),
                 &new_uids,
@@ -297,14 +299,14 @@ impl<T: HnswFloat> PersistentHnsw<T> {
             )?;
         }
 
-        let _cached: Option<Vec<Vec<u64>>> = self
+        let _cached: Option<Vec<Vec<SystemId>>> = self
             .node_all_edges
             .borrow_mut()
             .insert(uuid, all_layer_edges.clone());
         let edge = KeyValue::new(
             uuid,
             self.keys.neighbours_label(),
-            encode_uint64_matrix(&all_layer_edges),
+            encode_id_matrix(&all_layer_edges),
         );
         txn.add_mutation_with_lock_held(key, &edge)?;
         Ok(edge)
@@ -313,13 +315,17 @@ impl<T: HnswFloat> PersistentHnsw<T> {
     /// Dgraph's `removeDeadNodes`: `nn_edges` without the dead list's uids, the list read once per index.
     fn remove_dead_nodes<X: Txn<Error = HnswError>>(
         &self,
-        nn_edges: Vec<u64>,
+        nn_edges: Vec<SystemId>,
         tc: &TxnCache<'_, X>,
-    ) -> Result<Vec<u64>, HnswError> {
+    ) -> Result<Vec<SystemId>, HnswError> {
         if self.dead_nodes.borrow().is_none() {
             let dead_key = self.keys.dead();
-            let dead: HashSet<u64> =
-                match self.get_data_or_none(&dead_key, &self.keys.dead_label(), 1, tc)? {
+            let dead: HashSet<SystemId> = match self.get_data_or_none(
+                &dead_key,
+                &self.keys.dead_label(),
+                self.keys.predicate(),
+                tc,
+            )? {
                     Some(data) => parse_edges(&String::from_utf8_lossy(&data))?
                         .into_iter()
                         .collect(),

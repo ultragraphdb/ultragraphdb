@@ -7,7 +7,7 @@ use ultragraphdb_core_keys::{Keyspace, SPLIT_FLAG};
 
 /// Every keyspace with its byte and whether it holds lists, compares values, names a graph and names a predicate, as
 /// the quad layout states them (quad-storage, "The quad keyspaces"; the bytes are stored and never change).
-const TABLE: [(Keyspace, u8, bool, bool, bool, bool); 12] = [
+const TABLE: [(Keyspace, u8, bool, bool, bool, bool); 13] = [
     (Keyspace::Catalog, 0x01, false, false, false, false),
     (Keyspace::Forward, 0x10, true, true, true, true),
     (Keyspace::Reverse, 0x11, true, true, true, true),
@@ -20,6 +20,7 @@ const TABLE: [(Keyspace, u8, bool, bool, bool, bool); 12] = [
     (Keyspace::Statistics, 0x18, false, false, true, true),
     (Keyspace::Marks, 0x19, false, false, false, false),
     (Keyspace::Referrers, 0x1A, false, false, false, false),
+    (Keyspace::Dictionary, 0x1B, false, false, false, false),
 ];
 
 #[test]
@@ -44,7 +45,7 @@ fn test_each_keyspace_byte_reads_back_with_and_without_the_split_flag() {
     }
     let known = (0u8..=0x7f).filter_map(Keyspace::from_byte).count();
     assert_eq!(known, TABLE.len(), "no other byte is a keyspace's");
-    for unknown in [0x00, 0x02, 0x0F, 0x1B, 0x7F, 0x80, 0xFF] {
+    for unknown in [0x00, 0x02, 0x0F, 0x1C, 0x7F, 0x80, 0xFF] {
         assert_eq!(Keyspace::from_byte(unknown), None, "{unknown:#04x}");
     }
 }

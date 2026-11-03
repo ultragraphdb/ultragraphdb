@@ -5,17 +5,15 @@
 
 use oxrdf::{GraphName, NamedNode, NamedOrBlankNode, Term};
 
-use crate::types::statement_id::StatementId;
-
-/// The statement a property change names: by its ID, or by its triple when one statement alone holds it.
+/// The statement a property change names: by its reifier, or by its triple when one statement alone holds it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum StatementRef {
-    /// The statement by its ID.
-    Id {
+    /// The statement by its reifier, the IRI naming its statement ID.
+    Reifier {
         /// The graph.
         graph: GraphName,
-        /// The statement's ID.
-        id: StatementId,
+        /// The reifier.
+        reifier: NamedNode,
     },
     /// The one statement holding a triple.
     Triple {

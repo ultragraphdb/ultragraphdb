@@ -5,10 +5,29 @@
 
 use oxrdf::{GraphName, Literal, NamedNode, NamedOrBlankNode, Term, Triple};
 use ultragraphdb_core_mapping::{
-    CanonicalDataset, Cardinality, Change, Changeset, MappingError, Statement, StatementId,
-    StatementRef,
+    CanonicalDataset, Cardinality, Change, Changeset, MappingError, Statement, StatementRef,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
+
+/// The dataset's reifier of its `n`th statement ID, `ugdb:statement/{n}`, as its documentation names it.
+fn model_reifier(n: u64) -> NamedNode {
+    NamedNode::new_unchecked(format!("https://w3id.org/ultragraphdb/ns/statement/{n}"))
+}
+
+/// The refusal of a property change naming the model's `n`th reifier in `graph`, which holds no such statement.
+fn no_statement(n: u64, graph: &str) -> MappingError {
+    MappingError::no_such_statement(format!("{} in {graph}", model_reifier(n)))
+}
+
+/// The number a model reifier names.
+fn model_number(reifier: &NamedNode) -> u64 {
+    reifier
+        .as_str()
+        .rsplit('/')
+        .next()
+        .and_then(|n| n.parse().ok())
+        .unwrap_or(0)
+}
 
 fn iri(name: &str) -> NamedNode {
     NamedNode::new_unchecked(format!("http://ex.org/{name}"))
@@ -64,7 +83,9 @@ fn refusal(d: &mut CanonicalDataset, changes: Vec<Change>) -> TestResult<Mapping
 }
 
 fn ids(d: &CanonicalDataset) -> Vec<Option<u64>> {
-    d.statements().map(|s| s.id().map(|i| i.value())).collect()
+    d.statements()
+        .map(|s| s.reifier().map(model_number))
+        .collect()
 }
 
 /// Each statement held, as its subject's, predicate's and object's local names or literal values, with its ID.
@@ -90,7 +111,7 @@ fn held(d: &CanonicalDataset) -> Vec<(String, Option<u64>)> {
                     local(&s.predicate().to_string()),
                     local(&s.object().to_string())
                 ),
-                s.id().map(|i| i.value()),
+                s.reifier().map(model_number),
             )
         })
         .collect()
@@ -127,7 +148,7 @@ fn test_an_edge_with_properties_takes_an_id_and_inserts_never_repeat() -> TestRe
     )?;
     let held: Vec<Statement> = d.statements().collect();
     assert_eq!(held.len(), 1, "an insert of a held triple adds nothing");
-    assert_eq!(held[0].id(), Some(StatementId::new(1)));
+    assert_eq!(held[0].reifier(), Some(&model_reifier(1)));
     assert_eq!(held[0].properties(), &[since]);
     Ok(())
 }
@@ -152,7 +173,7 @@ fn test_a_property_set_on_a_plain_statement_gives_it_an_id_and_its_delete_remove
         vec![insert("a", "knows", iri("b")), set(1), set(2), set(2)],
     )?;
     let s = d.statements().next().context("a statement")?;
-    assert_eq!(s.id(), Some(StatementId::new(1)));
+    assert_eq!(s.reifier(), Some(&model_reifier(1)));
     assert_eq!(
         s.properties(),
         &[w(1), w(2)],
@@ -208,9 +229,9 @@ fn test_a_property_set_on_a_statement_with_an_id_allocates_none_and_finds_it_by_
             edge("a", "knows", "b", vec![]),
             edge("a", "knows", "b", vec![]),
             Change::SetProperty {
-                statement: StatementRef::Id {
+                statement: StatementRef::Reifier {
                     graph: G,
-                    id: StatementId::new(2),
+                    reifier: model_reifier(2),
                 },
                 predicate: iri("w"),
                 value: Literal::from(7).into(),
@@ -219,7 +240,7 @@ fn test_a_property_set_on_a_statement_with_an_id_allocates_none_and_finds_it_by_
     )?;
     let properties: StatementProperties = d
         .statements()
-        .map(|s| (s.id().map(|i| i.value()), s.properties().to_vec()))
+        .map(|s| (s.reifier().map(model_number), s.properties().to_vec()))
         .collect();
     assert_eq!(properties, vec![(Some(1), vec![]), (Some(2), vec![w(7)])]);
     assert_eq!(d.allocated_ids(), 2);
@@ -227,18 +248,15 @@ fn test_a_property_set_on_a_statement_with_an_id_allocates_none_and_finds_it_by_
     let error = refusal(
         &mut d,
         vec![Change::SetProperty {
-            statement: StatementRef::Id {
+            statement: StatementRef::Reifier {
                 graph: GraphName::NamedNode(iri("other")),
-                id: StatementId::new(2),
+                reifier: model_reifier(2),
             },
             predicate: iri("w"),
             value: Literal::from(8).into(),
         }],
     )?;
-    assert_eq!(
-        error,
-        MappingError::no_such_statement("2 in <http://ex.org/other>".into())
-    );
+    assert_eq!(error, no_statement(2, "<http://ex.org/other>"));
     Ok(())
 }
 
@@ -272,7 +290,7 @@ fn test_deletes_remove_a_triple_a_statement_or_a_pattern() -> TestResult {
         &mut d,
         vec![Change::DeleteStatement {
             graph: G,
-            id: StatementId::new(1),
+            reifier: model_reifier(1),
         }],
     )?;
     assert_eq!(
@@ -288,7 +306,7 @@ fn test_deletes_remove_a_triple_a_statement_or_a_pattern() -> TestResult {
         &mut d,
         vec![Change::DeleteStatement {
             graph: GraphName::NamedNode(iri("other")),
-            id: StatementId::new(2),
+            reifier: model_reifier(2),
         }],
     )?;
     assert_eq!(
@@ -330,7 +348,7 @@ fn test_deleting_a_triples_last_statement_removes_the_triple() -> TestResult {
     )?;
     let delete = |id| Change::DeleteStatement {
         graph: G,
-        id: StatementId::new(id),
+        reifier: model_reifier(id),
     };
     apply(&mut d, vec![delete(2), delete(1)])?;
     assert_eq!((d.triple_count(), d.statements().count()), (0, 0));
@@ -555,9 +573,9 @@ fn test_a_refused_change_leaves_nothing_of_its_changeset() -> TestResult {
         )
     );
     assert_eq!(d, before);
-    let missing = StatementRef::Id {
+    let missing = StatementRef::Reifier {
         graph: G,
-        id: StatementId::new(99),
+        reifier: model_reifier(99),
     };
     let missing_error = refusal(
         &mut d,
@@ -567,10 +585,7 @@ fn test_a_refused_change_leaves_nothing_of_its_changeset() -> TestResult {
             value: None,
         }],
     )?;
-    assert_eq!(
-        missing_error,
-        MappingError::no_such_statement("99 in DEFAULT".into())
-    );
+    assert_eq!(missing_error, no_statement(99, "DEFAULT"));
     assert_eq!(d, before);
     let unheld = StatementRef::Triple {
         graph: G,

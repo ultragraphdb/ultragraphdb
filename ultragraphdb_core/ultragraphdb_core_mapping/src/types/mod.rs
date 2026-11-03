@@ -16,6 +16,7 @@ pub mod pg_value;
 pub mod predicate_declaration;
 pub mod predicate_kind;
 pub mod property_graph;
+pub mod random_source;
 pub mod relation_declaration;
 pub mod statement;
 pub mod statement_id;

@@ -25,6 +25,10 @@ impl fmt::Display for IdError {
                 f,
                 "bucket {bucket} does not fit in 24 bits; the largest is 16777215"
             ),
+            IdErrorEnum::BucketGroupRange { group } => write!(
+                f,
+                "bucket group {group} does not fit in 18 bits; the largest is 262143"
+            ),
             IdErrorEnum::IriTooLong { len } => write!(
                 f,
                 "an IRI of {len} bytes is longer than a canonical key's 4-byte length counts, {} bytes",

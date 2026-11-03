@@ -19,6 +19,7 @@ use std::cell::RefCell;
 use std::ops::ControlFlow;
 
 use ultragraphdb_core_codec::{Posting, PostingType};
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::QuadKey;
 use ultragraphdb_core_terms::{EncodedTerm, TermView};
 use ultragraphdb_store_posting::{BIT_EMPTY_POSTING, CachedList, DEL, PostingError, Request, SET};
@@ -36,6 +37,7 @@ use crate::errors::hnsw_error::HnswError;
 /// crate's error.
 #[derive(Debug)]
 pub struct ViTxn<'r, 'a, S, C> {
+    // Interior mutability: the `Txn` and `LocalCache` methods take `&self` and write through the one request.
     request: RefCell<&'r mut Request<'a, S, C>>,
 }
 
@@ -85,7 +87,11 @@ where
 
     /// Dgraph's `LocalCache.Find`: the node of the first forward list under `prefix` whose vector passes `filter`, in
     /// key order, skipping lists whose newest version is empty and lists holding no vector.
-    fn find_value(&self, prefix: &[u8], filter: impl Fn(&[u8]) -> bool) -> Result<u64, HnswError> {
+    fn find_value(
+        &self,
+        prefix: &[u8],
+        filter: impl Fn(&[u8]) -> bool,
+    ) -> Result<Option<SystemId>, HnswError> {
         let (lists, read_ts) = {
             let request = self.request.borrow();
             (request.posting_lists(), request.read_ts())
@@ -109,7 +115,7 @@ where
                 Err(e) => return Err(e),
             };
             if filter(&value) {
-                return Ok(subject);
+                return Ok(Some(subject));
             }
         }
         Err(HnswError::key_not_found())
@@ -130,7 +136,7 @@ pub(crate) fn vector_elements(encoding: &[u8]) -> Option<Vec<u8>> {
     let term = EncodedTerm::from_bytes(encoding).ok()?;
     match term.view().ok()? {
         TermView::Vector(v) => Some(v.as_bytes().to_vec()),
-        TermView::Uid(_)
+        TermView::Id(_)
         | TermView::Boolean(_)
         | TermView::Integer(_)
         | TermView::Decimal(_)
@@ -154,10 +160,10 @@ pub(crate) fn vector_elements(encoding: &[u8]) -> Option<Vec<u8>> {
 }
 
 /// The posting of a vector-index list's one value, as Dgraph's `indexEdgeToPbEdge` makes the edge of an untyped value:
-/// under the uid of a value that is no list's element, so a later value replaces it.
+/// under the key of a value that is no list's element, the largest fingerprint, so a later value replaces it.
 pub fn index_posting(value: Vec<u8>) -> Posting {
     Posting::default()
-        .with_uid(u64::MAX)
+        .with_uid(u128::from(u64::MAX))
         .with_value(value)
         .with_posting_type(PostingType::Value)
         .with_op(SET)

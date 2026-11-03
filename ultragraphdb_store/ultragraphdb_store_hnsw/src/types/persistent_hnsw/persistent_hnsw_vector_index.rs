@@ -9,6 +9,7 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_traits_index::{
     CacheType, KeyValue, OptionalIndexSupport, OptionalSearchOptions, SearchFilter,
     SearchPathResult, Txn, VectorIndex, VectorIndexOptions,
@@ -40,24 +41,24 @@ impl<T: HnswFloat> VectorIndex<T> for PersistentHnsw<T> {
         query: &[T],
         max_results: usize,
         filter: SearchFilter<T>,
-    ) -> Result<Vec<u64>, Self::Error> {
+    ) -> Result<Vec<SystemId>, Self::Error> {
         PersistentHnsw::search(self, c, query, max_results, filter)
     }
 
     fn search_with_uid<C: CacheType<Error = Self::Error>>(
         &self,
         c: &C,
-        query_uid: u64,
+        query_uid: SystemId,
         max_results: usize,
         filter: SearchFilter<T>,
-    ) -> Result<Vec<u64>, Self::Error> {
+    ) -> Result<Vec<SystemId>, Self::Error> {
         PersistentHnsw::search_with_uid(self, c, query_uid, max_results, filter)
     }
 
     fn insert<X: Txn<Error = Self::Error>>(
         &self,
         txn: &X,
-        uuid: u64,
+        uuid: SystemId,
         vec: &[T],
         draw: &mut impl FnMut() -> f64,
     ) -> Result<Vec<KeyValue>, Self::Error> {
@@ -73,17 +74,17 @@ impl<T: HnswFloat> OptionalSearchOptions<T> for PersistentHnsw<T> {
         query: &[T],
         max_results: usize,
         opts: &VectorIndexOptions<T>,
-    ) -> Result<Vec<u64>, Self::Error> {
+    ) -> Result<Vec<SystemId>, Self::Error> {
         PersistentHnsw::search_with_options(self, c, query, max_results, opts)
     }
 
     fn search_with_uid_and_options<C: CacheType<Error = Self::Error>>(
         &self,
         c: &C,
-        query_uid: u64,
+        query_uid: SystemId,
         max_results: usize,
         opts: &VectorIndexOptions<T>,
-    ) -> Result<Vec<u64>, Self::Error> {
+    ) -> Result<Vec<SystemId>, Self::Error> {
         PersistentHnsw::search_with_uid_and_options(self, c, query_uid, max_results, opts)
     }
 }

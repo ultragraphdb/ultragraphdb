@@ -5,6 +5,7 @@
 
 use oxrdf::vocab::xsd;
 use oxrdf::{Literal, NamedNode, NamedNodeRef};
+use ultragraphdb_core_ids::SystemId;
 
 use crate::errors::term_error::TermError;
 use crate::types::datatype::Datatype;
@@ -16,10 +17,10 @@ use crate::utils::vector::format_vector;
 
 impl TermView<'_> {
     /// The literal this view holds, exactly as it was encoded: `datatype_iri` gives the IRI of a datatype named by
-    /// its UID, and `string` the string a hash names. Refused for a UID, which names an IRI or a blank node.
+    /// its system ID, and `string` the string a hash names. Refused for an ID, which names an IRI or a blank node.
     pub fn to_literal<E: From<TermError>>(
         &self,
-        datatype_iri: impl FnOnce(u64) -> Result<NamedNode, E>,
+        datatype_iri: impl FnOnce(SystemId) -> Result<NamedNode, E>,
         mut string: impl FnMut(Hash128) -> Result<String, E>,
     ) -> Result<Literal, E> {
         let mut text = |t: &Text<'_>| match t {
@@ -29,7 +30,7 @@ impl TermView<'_> {
         let typed =
             |value: String, datatype: NamedNodeRef<'_>| Literal::new_typed_literal(value, datatype);
         Ok(match self {
-            TermView::Uid(uid) => return Err(TermError::not_a_literal(*uid).into()),
+            TermView::Id(id) => return Err(TermError::not_a_literal(*id).into()),
             TermView::Boolean(v) => typed(v.to_string(), xsd::BOOLEAN),
             TermView::Integer(v) => typed(v.to_string(), xsd::INTEGER),
             TermView::Decimal(v) => typed(v.to_string(), xsd::DECIMAL),
@@ -64,7 +65,7 @@ impl TermView<'_> {
                 let lexical = text(lexical)?;
                 match datatype {
                     Datatype::Known(k) => typed(lexical, known_iri(*k)),
-                    Datatype::Uid(uid) => Literal::new_typed_literal(lexical, datatype_iri(*uid)?),
+                    Datatype::Id(id) => Literal::new_typed_literal(lexical, datatype_iri(*id)?),
                 }
             }
             TermView::Vector(elements) => typed(

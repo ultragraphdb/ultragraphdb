@@ -14,11 +14,12 @@ use ultragraphdb_core_codec::{List as UidList, Posting, PostingType};
 use ultragraphdb_store_posting::{List, ListOptions, PostingError, PostingErrorEnum};
 
 use crate::utils::helpers::{
-    Failure, add, del_uid, key, new_store, roll_up, set_uid, set_value, with_facet,
+    Failure, add, del_uid, ids, key, new_store, rid, rids, roll_up, set_uid, set_value, with_facet,
 };
 
-fn list_of(uids: &[u64]) -> UidList {
-    UidList::new(uids.to_vec())
+/// The ID list of the references numbered `ns`.
+fn list_of(ns: &[u64]) -> TestResult<UidList> {
+    Ok(UidList::new(ids(ns)?))
 }
 
 /// A rolled-up list of the uids 2, 4, …, 600, complete at its rollup's version, with no deltas: 300 uids in two
@@ -40,16 +41,16 @@ fn test_the_pack_is_intersected_directly_without_deltas() -> TestResult {
         2,
         "the rollup at the maximum timestamp takes the commit's version"
     );
-    let got = l.uids(&ListOptions::at(2).intersect(list_of(&[1, 4, 8, 9, 600, 601])))?;
-    assert_eq!(got.uids(), vec![4, 8, 600]);
+    let got = l.uids(&ListOptions::at(2).intersect(list_of(&[1, 4, 8, 9, 600, 601])?))?;
+    assert_eq!(got.ids(), ids(&[4, 8, 600])?);
     // Go 1.27 probe of algo.IntersectCompressedWith over the same pack: [4 8]. The direct path seeks with SeekStart,
     // which keeps the after-uid itself, where iterating starts above it (below): a Dgraph inconsistency kept.
     let after = l.uids(
         &ListOptions::at(2)
-            .intersect(list_of(&[1, 4, 8, 9]))
-            .after(4),
+            .intersect(list_of(&[1, 4, 8, 9])?)
+            .after(rid(4)),
     )?;
-    assert_eq!(after.uids(), vec![4, 8]);
+    assert_eq!(after.ids(), ids(&[4, 8])?);
     let mut with_delta = l.clone();
     add(&mut with_delta, 2, &set_uid(1));
     with_delta.commit_mutation(3);
@@ -57,10 +58,10 @@ fn test_the_pack_is_intersected_directly_without_deltas() -> TestResult {
     // ignores the after-uid altogether, as Go's (list.go:1903-1918, findPostingWithItr per uid).
     let looked_up = with_delta.uids(
         &ListOptions::at(3)
-            .intersect(list_of(&[1, 4, 8, 9]))
-            .after(4),
+            .intersect(list_of(&[1, 4, 8, 9])?)
+            .after(rid(4)),
     )?;
-    assert_eq!(looked_up.uids(), vec![1, 4, 8]);
+    assert_eq!(looked_up.ids(), ids(&[1, 4, 8])?);
     Ok(())
 }
 
@@ -68,7 +69,7 @@ fn test_the_pack_is_intersected_directly_without_deltas() -> TestResult {
 fn test_an_intersection_below_the_complete_version_is_too_old() -> TestResult {
     let l = rolled_evens()?;
     let error = l
-        .uids(&ListOptions::at(1).intersect(list_of(&[4])))
+        .uids(&ListOptions::at(1).intersect(list_of(&[4])?))
         .failure("an intersection below the complete version")?;
     assert_eq!(error.0, PostingErrorEnum::TsTooOld);
     assert_eq!(error.to_string(), "Transaction is too old");
@@ -87,16 +88,16 @@ fn test_a_short_intersection_looks_each_uid_up() -> TestResult {
         513,
         "one delta layer plus two blocks of 256"
     );
-    let got = l.uids(&ListOptions::at(4).intersect(list_of(&[4, 5, 6, 7])))?;
+    let got = l.uids(&ListOptions::at(4).intersect(list_of(&[4, 5, 6, 7])?))?;
     assert_eq!(
-        got.uids(),
-        vec![5, 6],
+        got.ids(),
+        ids(&[5, 6])?,
         "4 deleted, 5 set, 6 held, 7 never held"
     );
-    let before = l.uids(&ListOptions::at(3).intersect(list_of(&[4, 5, 6])))?;
+    let before = l.uids(&ListOptions::at(3).intersect(list_of(&[4, 5, 6])?))?;
     assert_eq!(
-        before.uids(),
-        vec![4, 6],
+        before.ids(),
+        ids(&[4, 6])?,
         "the delta at 4 is not visible at 3"
     );
     Ok(())
@@ -110,23 +111,27 @@ fn test_a_long_intersection_iterates_only_its_range() -> TestResult {
     (1..=10).for_each(|u| add(&mut l, 1, &set_uid(u)));
     l.commit_mutation(2);
     assert_eq!(l.approx_len(), 1);
-    let got = l.uids(&ListOptions::at(2).intersect(list_of(&[3, 7, 12])))?;
-    assert_eq!(got.uids(), vec![3, 7]);
-    let after = l.uids(&ListOptions::at(2).intersect(list_of(&[3, 7, 12])).after(3))?;
+    let got = l.uids(&ListOptions::at(2).intersect(list_of(&[3, 7, 12])?))?;
+    assert_eq!(got.ids(), ids(&[3, 7])?);
+    let after = l.uids(
+        &ListOptions::at(2)
+            .intersect(list_of(&[3, 7, 12])?)
+            .after(rid(3)),
+    )?;
     assert_eq!(
-        after.uids(),
-        vec![7],
+        after.ids(),
+        ids(&[7])?,
         "iterating starts above the after-uid"
     );
-    let first = l.uids(&ListOptions::at(2).intersect(list_of(&[3, 5, 7])).first(2))?;
+    let first = l.uids(&ListOptions::at(2).intersect(list_of(&[3, 5, 7])?).first(2))?;
     assert_eq!(
-        first.uids(),
-        vec![3, 5],
+        first.ids(),
+        ids(&[3, 5])?,
         "the count applies after the intersection"
     );
-    let empty = l.uids(&ListOptions::at(2).intersect(list_of(&[])))?;
+    let empty = l.uids(&ListOptions::at(2).intersect(list_of(&[])?))?;
     assert!(
-        empty.uids().is_empty(),
+        empty.ids().is_empty(),
         "an empty intersection holds nothing"
     );
     Ok(())
@@ -144,7 +149,7 @@ fn test_a_positive_count_at_and_around_the_list_length() -> TestResult {
         (0, vec![1, 2, 3, 4, 5]),
     ] {
         let got = l.uids(&ListOptions::at(2).first(first))?;
-        assert_eq!(got.uids(), expected, "first: {first}");
+        assert_eq!(got.ids(), ids(&expected)?, "first: {first}");
     }
     Ok(())
 }
@@ -155,13 +160,13 @@ fn test_uids_are_the_reference_postings_alone() -> TestResult {
     add(&mut l, 1, &set_uid(3));
     add(&mut l, 1, &set_value("literal"));
     l.commit_mutation(2);
-    assert_eq!(l.uids(&ListOptions::at(2))?.uids(), vec![3]);
+    assert_eq!(l.uids(&ListOptions::at(2))?.ids(), ids(&[3])?);
     let mut seen = Vec::new();
     l.postings(&ListOptions::at(2), |p| {
         seen.push(p.uid());
         Ok::<_, PostingError>(ControlFlow::Continue(()))
     })?;
-    assert_eq!(seen, vec![3], "postings skips the value posting too");
+    assert_eq!(seen, rids(&[3]), "postings skips the value posting too");
     Ok(())
 }
 
@@ -171,15 +176,18 @@ fn test_postings_stop_where_the_callback_breaks_and_pass_its_error() -> TestResu
     (1..=4).for_each(|u| add(&mut l, 1, &with_facet(set_uid(u), "f")));
     l.commit_mutation(2);
     let mut seen = Vec::new();
-    l.postings(&ListOptions::at(2).after(1), |p| {
+    l.postings(&ListOptions::at(2).after(rid(1)), |p| {
         seen.push((p.uid(), p.facets()[0].key().to_string()));
-        Ok::<_, PostingError>(if p.uid() == 3 {
+        Ok::<_, PostingError>(if p.uid() == rid(3) {
             ControlFlow::Break(())
         } else {
             ControlFlow::Continue(())
         })
     })?;
-    assert_eq!(seen, vec![(2, "f".to_string()), (3, "f".to_string())]);
+    assert_eq!(
+        seen,
+        vec![(rid(2), "f".to_string()), (rid(3), "f".to_string())]
+    );
     let error = l
         .postings(
             &ListOptions::at(2),
@@ -190,8 +198,9 @@ fn test_postings_stop_where_the_callback_breaks_and_pass_its_error() -> TestResu
     Ok(())
 }
 
-/// A reference uid that equals a literal's fingerprint in one quad list: the identities differ, (uid, "") against
-/// (uid, encoding), so the two postings coexist in a delta.
+/// A reference and a literal numbered alike in one quad list: the literal keyed by its fingerprint 5, the reference
+/// by the ID numbered 5, which no fingerprint equals, so the two postings never share a key and the literal sorts
+/// first.
 fn coincident() -> List {
     let mut l = List::empty(key("uids-coincident", 1));
     let literal = Posting::default()
@@ -207,37 +216,39 @@ fn coincident() -> List {
 }
 
 #[test]
-fn test_a_reference_coinciding_with_a_literals_fingerprint_is_one_uid() -> TestResult {
+fn test_a_reference_numbered_as_a_literals_fingerprint_is_one_id() -> TestResult {
     let l = coincident();
-    assert_eq!(l.uids(&ListOptions::at(2))?.uids(), vec![5, 7]);
+    assert_eq!(l.uids(&ListOptions::at(2))?.ids(), ids(&[5, 7])?);
     assert_eq!(l.length(2, 0), 3, "the reference, the literal and 7");
     Ok(())
 }
 
-/// A rollup packs a uid that postings share once, and keeps beside the pack the postings it cannot carry; a bare
-/// reference (no facets, no statement IDs) whose uid equals a literal's fingerprint in the same list is kept whole
-/// beside the literal, so the read back holds both.
+/// A rollup packs the references' IDs and keeps beside the pack the postings it cannot carry: the literal, keyed by
+/// its fingerprint, while the bare references are IDs in the pack alone.
 #[test]
-fn test_a_rollup_keeps_a_reference_coinciding_with_a_literals_fingerprint() -> TestResult {
+fn test_a_rollup_keeps_a_literal_beside_the_references_it_packs() -> TestResult {
     let store = new_store();
     let l = coincident();
     let (rolled, _) = roll_up(&store, &l, u64::MAX, usize::MAX)?;
-    let kept: Vec<(u64, PostingType)> = rolled
+    let kept: Vec<(u128, PostingType)> = rolled
         .plist()
         .postings()
         .iter()
         .map(|p| (p.uid(), p.posting_type()))
         .collect();
-    let (reference, value) = (PostingType::Ref, PostingType::Value);
-    assert_eq!(kept, vec![(5, reference), (5, value)], "7 stays a bare uid");
+    assert_eq!(kept, vec![(5, PostingType::Value)], "5 and 7 stay bare IDs");
     assert_eq!(rolled.length(u64::MAX, 0), 3);
-    assert_eq!(rolled.uids(&ListOptions::at(u64::MAX))?.uids(), vec![5, 7]);
+    assert_eq!(
+        rolled.uids(&ListOptions::at(u64::MAX))?.ids(),
+        ids(&[5, 7])?
+    );
     Ok(())
 }
 
-/// `uids` returns the uids of the list's reference postings on each of its three paths: iterating, the pack
-/// intersected directly, and each uid looked up. A forward list holds references and literals since stage 4, and the
-/// pack holds a literal's fingerprint as a uid, so the direct and lookup paths leave out a uid held by literals alone.
+/// `uids` returns the IDs of the list's reference postings on each of its three paths: iterating, the pack
+/// intersected directly, and each ID looked up. A forward list holds references and literals since stage 4; the pack
+/// holds references' IDs alone, so no path yields a literal, even one whose fingerprint shares its number with an ID
+/// asked for.
 #[test]
 fn test_uids_leave_out_a_literals_fingerprint_on_every_path() -> TestResult {
     let store = new_store();
@@ -250,50 +261,52 @@ fn test_uids_leave_out_a_literals_fingerprint_on_every_path() -> TestResult {
     add(&mut l, 1, &set_uid(3));
     add(&mut l, 1, &literal);
     l.commit_mutation(2);
-    let with = || ListOptions::at(4).intersect(list_of(&[3, 5]));
-    assert_eq!(l.uids(&with())?.uids(), vec![3], "iterating");
+    let set = list_of(&[3, 5])?;
+    let with = || ListOptions::at(4).intersect(set.clone());
+    assert_eq!(l.uids(&with())?.ids(), ids(&[3])?, "iterating");
     let (rolled, _) = roll_up(&store, &l, u64::MAX, usize::MAX)?;
-    assert_eq!(rolled.uids(&with())?.uids(), vec![3], "the pack directly");
+    assert_eq!(rolled.uids(&with())?.ids(), ids(&[3])?, "the pack directly");
     let mut looked_up = rolled.clone();
     add(&mut looked_up, 3, &set_uid(9));
     looked_up.commit_mutation(4);
     assert_eq!(
-        looked_up.uids(&with())?.uids(),
-        vec![3],
+        looked_up.uids(&with())?.ids(),
+        ids(&[3])?,
         "each uid looked up"
     );
     Ok(())
 }
 
-/// Where a reference and a literal share a uid, the uid is a reference's on every path, and a delete of the
-/// reference leaves the literal and drops the uid.
+/// Where a reference and a literal share a number, the ID is the reference's on every path, and a delete of the
+/// reference leaves the literal and drops the ID.
 #[test]
 fn test_uids_keep_a_reference_coinciding_with_a_literals_fingerprint_on_every_path() -> TestResult {
     let store = new_store();
     let (rolled, _) = roll_up(&store, &coincident(), u64::MAX, usize::MAX)?;
-    let with = |ts: u64| ListOptions::at(ts).intersect(list_of(&[5, 7]));
+    let set = list_of(&[5, 7])?;
+    let with = |ts: u64| ListOptions::at(ts).intersect(set.clone());
     assert_eq!(
-        rolled.uids(&with(2))?.uids(),
-        vec![5, 7],
+        rolled.uids(&with(2))?.ids(),
+        ids(&[5, 7])?,
         "the pack directly"
     );
     let mut looked_up = rolled.clone();
     add(&mut looked_up, 3, &set_uid(9));
     looked_up.commit_mutation(4);
     assert_eq!(
-        looked_up.uids(&with(4))?.uids(),
-        vec![5, 7],
+        looked_up.uids(&with(4))?.ids(),
+        ids(&[5, 7])?,
         "each uid looked up"
     );
     add(&mut looked_up, 5, &del_uid(5));
     looked_up.commit_mutation(6);
     assert_eq!(
-        looked_up.uids(&with(6))?.uids(),
-        vec![7],
+        looked_up.uids(&with(6))?.ids(),
+        ids(&[7])?,
         "the reference deleted"
     );
     assert_eq!(looked_up.length(6, 0), 3, "the literal, 7 and 9");
-    let iterated = looked_up.uids(&ListOptions::at(6).intersect(list_of(&[5, 7, 9])))?;
-    assert_eq!(iterated.uids(), vec![7, 9], "iterating");
+    let iterated = looked_up.uids(&ListOptions::at(6).intersect(list_of(&[5, 7, 9])?))?;
+    assert_eq!(iterated.ids(), ids(&[7, 9])?, "iterating");
     Ok(())
 }

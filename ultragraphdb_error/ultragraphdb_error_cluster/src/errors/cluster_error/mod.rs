@@ -14,8 +14,8 @@ use ultragraphdb_error_log::LogError;
 ///
 /// - **Placement:** [`ZeroPartition`](ClusterErrorEnum::ZeroPartition),
 ///   [`PartitionCount`](ClusterErrorEnum::PartitionCount), [`BucketRange`](ClusterErrorEnum::BucketRange),
-///   [`BucketGroupRange`](ClusterErrorEnum::BucketGroupRange), [`Unassigned`](ClusterErrorEnum::Unassigned),
-///   [`AssignedTwice`](ClusterErrorEnum::AssignedTwice), [`ChangeEpoch`](ClusterErrorEnum::ChangeEpoch),
+///   [`Unassigned`](ClusterErrorEnum::Unassigned), [`AssignedTwice`](ClusterErrorEnum::AssignedTwice),
+///   [`ChangeEpoch`](ClusterErrorEnum::ChangeEpoch),
 ///   [`UnknownPartition`](ClusterErrorEnum::UnknownPartition). A value or a change the placement map does not take;
 ///   the map is unchanged.
 /// - **Configuration:** [`SettingBelow`](ClusterErrorEnum::SettingBelow),
@@ -54,11 +54,6 @@ pub enum ClusterErrorEnum {
         start: u32,
         /// The bucket after the range's last.
         end: u32,
-    },
-    /// `group` does not fit in a bucket group's 18 bits.
-    BucketGroupRange {
-        /// The value refused.
-        group: u32,
     },
     /// A change leaves `bucket`, the first such bucket, assigned to no partition.
     Unassigned {
@@ -190,11 +185,6 @@ impl ClusterError {
     /// The bucket range `start..end` is empty or reaches past the last bucket.
     pub fn bucket_range(start: u32, end: u32) -> Self {
         Self(ClusterErrorEnum::BucketRange { start, end })
-    }
-
-    /// `group` does not fit in 18 bits.
-    pub fn bucket_group_range(group: u32) -> Self {
-        Self(ClusterErrorEnum::BucketGroupRange { group })
     }
 
     /// A change leaves `bucket` unassigned.

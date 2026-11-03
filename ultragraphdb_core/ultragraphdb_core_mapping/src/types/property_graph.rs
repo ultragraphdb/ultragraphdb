@@ -5,6 +5,8 @@
 
 use std::collections::BTreeMap;
 
+use oxrdf::NamedNode;
+
 use crate::types::pg_edge::PgEdge;
 use crate::types::pg_node::PgNode;
 
@@ -45,14 +47,18 @@ impl PropertyGraph {
         self.nodes.get(id)
     }
 
-    /// The edges, ordered by source, type, target and statement ID.
+    /// The edges, ordered by source, type, target and reifier.
     pub fn edges(&self) -> &[PgEdge] {
         &self.edges
     }
 
-    /// The graph with every edge's statement ID removed, to compare a graph read back with the one written.
-    pub fn without_edge_ids(mut self) -> Self {
-        self.edges = self.edges.into_iter().map(PgEdge::without_id).collect();
+    /// The graph with every edge's reifier removed, to compare a graph read back with the one written.
+    pub fn without_reifiers(mut self) -> Self {
+        self.edges = self
+            .edges
+            .into_iter()
+            .map(PgEdge::without_reifier)
+            .collect();
         self.sort_edges();
         self
     }
@@ -71,7 +77,7 @@ impl PropertyGraph {
                 e.source().to_string(),
                 e.edge_type().to_string(),
                 e.target().to_string(),
-                e.id(),
+                e.reifier().map(NamedNode::to_string),
                 format!("{:?}", e.properties()),
             )
         });

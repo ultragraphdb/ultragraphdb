@@ -4,6 +4,7 @@
  */
 
 pub(crate) mod count_direction;
+pub(crate) mod dictionary_entry;
 pub(crate) mod graph;
 pub(crate) mod keyspace;
 pub(crate) mod quad_key;

@@ -3,9 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_core_ids::{Bucket, Epoch};
+use ultragraphdb_core_ids::{Bucket, BucketGroup, Epoch};
 
-use crate::types::bucket_group::BucketGroup;
 use crate::types::bucket_range::BucketRange;
 use crate::types::partition_id::PartitionId;
 use crate::types::placement_map::PlacementMap;
@@ -23,7 +22,7 @@ impl PlacementMap {
     pub fn group_partitions(&self, group: BucketGroup, epoch: Epoch, into: &mut Vec<PartitionId>) {
         into.clear();
         let layout = self.layout_at(epoch);
-        let range = group.range();
+        let range = BucketRange::of_group(group);
         let first = layout.run_of(range.start());
         // A group's 64 buckets lie in at most 64 runs.
         for index in first..first + BucketGroup::BUCKETS as usize {

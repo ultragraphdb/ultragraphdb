@@ -26,7 +26,7 @@ impl fmt::Display for MappingError {
             }
             MappingErrorEnum::AmbiguousStatement { statement } => write!(
                 f,
-                "{statement} is held by several statements; name one by its statement ID"
+                "{statement} is held by several statements; name one by its reifier"
             ),
             MappingErrorEnum::UnsupportedObject { object } => {
                 write!(
@@ -37,6 +37,11 @@ impl fmt::Display for MappingError {
             MappingErrorEnum::InvalidBase { base, reason } => {
                 write!(f, "Invalid base IRI {base:?}: {reason}")
             }
+            MappingErrorEnum::NotAStatementId { id } => write!(
+                f,
+                "The ID {:032x} is not of the Statement type",
+                id.to_u128()
+            ),
         }
     }
 }

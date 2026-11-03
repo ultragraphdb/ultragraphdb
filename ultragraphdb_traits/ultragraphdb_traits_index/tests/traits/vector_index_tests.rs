@@ -5,11 +5,19 @@
 
 use std::cell::RefCell;
 
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_index::{
     CacheType, KeyValue, OptionalIndexSupport, OptionalSearchOptions, SearchFilter,
     SearchPathResult, Txn, VectorIndex, VectorIndexOptions, accept_all,
 };
+
+use crate::utils::helpers::id;
+
+/// The IDs numbered `ns`, in their order.
+fn ids(ns: &[u64]) -> TestResult<Vec<SystemId>> {
+    ns.iter().map(|&n| id(n)).collect()
+}
 
 /// A cache the brute-force index never reads.
 struct NoCache;
@@ -25,8 +33,8 @@ impl CacheType for NoCache {
         0
     }
 
-    fn find(&self, _: &[u8], _: impl Fn(&[u8]) -> bool) -> Result<u64, Self::Error> {
-        Err("empty".to_string())
+    fn find(&self, _: &[u8], _: impl Fn(&[u8]) -> bool) -> Result<Option<SystemId>, Self::Error> {
+        Ok(None)
     }
 }
 
@@ -48,8 +56,8 @@ impl Txn for NoTxn {
         Err("empty".to_string())
     }
 
-    fn find(&self, _: &[u8], _: impl Fn(&[u8]) -> bool) -> Result<u64, Self::Error> {
-        Err("empty".to_string())
+    fn find(&self, _: &[u8], _: impl Fn(&[u8]) -> bool) -> Result<Option<SystemId>, Self::Error> {
+        Ok(None)
     }
 
     fn add_mutation(&self, _: &[u8], _: &KeyValue) -> Result<(), Self::Error> {
@@ -72,7 +80,7 @@ fn no_draw() -> f64 {
 
 /// An index that searches every vector, nearest by euclidean distance.
 #[derive(Default)]
-struct BruteForce(RefCell<Vec<(u64, Vec<f32>)>>);
+struct BruteForce(RefCell<Vec<(SystemId, Vec<f32>)>>);
 
 impl BruteForce {
     fn nearest(
@@ -81,7 +89,7 @@ impl BruteForce {
         max: usize,
         filter: SearchFilter<f32>,
         threshold: Option<f64>,
-    ) -> Vec<u64> {
+    ) -> Vec<SystemId> {
         let dist = |v: &[f32]| -> f64 {
             q.iter()
                 .zip(v)
@@ -89,7 +97,7 @@ impl BruteForce {
                 .sum::<f64>()
                 .sqrt()
         };
-        let mut all: Vec<(f64, u64)> = self
+        let mut all: Vec<(f64, SystemId)> = self
             .0
             .borrow()
             .iter()
@@ -101,13 +109,13 @@ impl BruteForce {
         all.into_iter().take(max).map(|(_, uid)| uid).collect()
     }
 
-    fn vector_of(&self, uid: u64) -> Result<Vec<f32>, String> {
+    fn vector_of(&self, uid: SystemId) -> Result<Vec<f32>, String> {
         self.0
             .borrow()
             .iter()
             .find(|(u, _)| *u == uid)
             .map(|(_, v)| v.clone())
-            .ok_or_else(|| format!("no vector for {uid}"))
+            .ok_or_else(|| format!("no vector for {}", uid.sequence().get()))
     }
 }
 
@@ -139,29 +147,29 @@ impl VectorIndex<f32> for BruteForce {
         query: &[f32],
         max_results: usize,
         filter: SearchFilter<f32>,
-    ) -> Result<Vec<u64>, Self::Error> {
+    ) -> Result<Vec<SystemId>, Self::Error> {
         Ok(self.nearest(query, max_results, filter, None))
     }
 
     fn search_with_uid<C: CacheType<Error = Self::Error>>(
         &self,
         c: &C,
-        query_uid: u64,
+        query_uid: SystemId,
         max_results: usize,
         filter: SearchFilter<f32>,
-    ) -> Result<Vec<u64>, Self::Error> {
+    ) -> Result<Vec<SystemId>, Self::Error> {
         self.search(c, &self.vector_of(query_uid)?, max_results, filter)
     }
 
     fn insert<X: Txn<Error = Self::Error>>(
         &self,
         _: &X,
-        uuid: u64,
+        uuid: SystemId,
         vec: &[f32],
         _: &mut impl FnMut() -> f64,
     ) -> Result<Vec<KeyValue>, Self::Error> {
         if self.vector_of(uuid).is_ok() {
-            return Err(format!("{uuid} exists"));
+            return Err(format!("{} exists", uuid.sequence().get()));
         }
         self.0.borrow_mut().push((uuid, vec.to_vec()));
         let bytes = vec.iter().flat_map(|f| f.to_le_bytes()).collect();
@@ -176,23 +184,24 @@ impl OptionalSearchOptions<f32> for BruteForce {
         query: &[f32],
         max_results: usize,
         opts: &VectorIndexOptions<f32>,
-    ) -> Result<Vec<u64>, Self::Error> {
+    ) -> Result<Vec<SystemId>, Self::Error> {
         Ok(self.nearest(query, max_results, opts.filter(), opts.distance_threshold()))
     }
 
     fn search_with_uid_and_options<C: CacheType<Error = Self::Error>>(
         &self,
         c: &C,
-        query_uid: u64,
+        query_uid: SystemId,
         max_results: usize,
         opts: &VectorIndexOptions<f32>,
-    ) -> Result<Vec<u64>, Self::Error> {
+    ) -> Result<Vec<SystemId>, Self::Error> {
         self.search_with_options(c, &self.vector_of(query_uid)?, max_results, opts)
     }
 }
 
-fn odd_only(_: &[f32], _: &[f32], uid: u64) -> bool {
-    uid % 2 == 1
+/// Keeps the nodes of odd numbers.
+fn odd_only(_: &[f32], _: &[f32], uid: SystemId) -> bool {
+    uid.sequence().get() % 2 == 1
 }
 
 fn index() -> TestResult<BruteForce> {
@@ -204,7 +213,7 @@ fn index() -> TestResult<BruteForce> {
         (4, [10.0, 0.0]),
     ] {
         let _inserted: Vec<KeyValue> = ix
-            .insert(&NoTxn, uid, &v, &mut no_draw)
+            .insert(&NoTxn, id(uid)?, &v, &mut no_draw)
             .context("ix.insert(..)")?;
     }
     Ok(ix)
@@ -214,35 +223,35 @@ fn index() -> TestResult<BruteForce> {
 fn test_a_vector_index_inserts_and_searches() -> TestResult {
     let ix = index()?;
     let kv = ix
-        .insert(&NoTxn, 5, &[1.0, 1.0], &mut no_draw)
+        .insert(&NoTxn, id(5)?, &[1.0, 1.0], &mut no_draw)
         .context("ix.insert(..)")?;
     // 1.0f32 is 0x3F80_0000 in IEEE 754, little-endian 00 00 80 3F.
     assert_eq!(
         kv,
         vec![KeyValue::new(
-            5,
+            id(5)?,
             "vec",
             vec![0, 0, 0x80, 0x3f, 0, 0, 0x80, 0x3f]
         )]
     );
     assert_eq!(
-        ix.insert(&NoTxn, 5, &[0.0, 0.0], &mut no_draw),
+        ix.insert(&NoTxn, id(5)?, &[0.0, 0.0], &mut no_draw),
         Err("5 exists".to_string())
     );
     assert_eq!(
         ix.search(&NoCache, &[0.9, 0.0], 2, accept_all::<f32>),
-        Ok(vec![2, 1])
+        Ok(ids(&[2, 1])?)
     );
     assert_eq!(
         ix.search(&NoCache, &[0.9, 0.0], 2, odd_only),
-        Ok(vec![1, 5])
+        Ok(ids(&[1, 5])?)
     );
     assert_eq!(
-        ix.search_with_uid(&NoCache, 4, 1, accept_all::<f32>),
-        Ok(vec![4])
+        ix.search_with_uid(&NoCache, id(4)?, 1, accept_all::<f32>),
+        Ok(ids(&[4])?)
     );
     assert_eq!(
-        ix.search_with_uid(&NoCache, 9, 1, accept_all::<f32>),
+        ix.search_with_uid(&NoCache, id(9)?, 1, accept_all::<f32>),
         Err("no vector for 9".to_string())
     );
     Ok(())
@@ -253,7 +262,7 @@ fn test_a_vector_index_inserts_and_searches() -> TestResult {
 #[test]
 fn test_searches_at_their_edge_inputs() -> TestResult {
     let ix = index()?;
-    let none = |_: &[f32], _: &[f32], _: u64| false;
+    let none = |_: &[f32], _: &[f32], _: SystemId| false;
     assert_eq!(
         ix.search(&NoCache, &[0.0, 0.0], 0, accept_all::<f32>),
         Ok(vec![])
@@ -264,16 +273,16 @@ fn test_searches_at_their_edge_inputs() -> TestResult {
         Ok(vec![])
     );
     assert_eq!(
-        ix.search_with_uid(&NoCache, 1, 0, accept_all::<f32>),
+        ix.search_with_uid(&NoCache, id(1)?, 0, accept_all::<f32>),
         Ok(vec![])
     );
     let exact = VectorIndexOptions::new(0, Some(0.0), accept_all::<f32>);
     assert_eq!(
-        ix.search_with_uid_and_options(&NoCache, 3, 9, &exact),
-        Ok(vec![3])
+        ix.search_with_uid_and_options(&NoCache, id(3)?, 9, &exact),
+        Ok(ids(&[3])?)
     );
     assert_eq!(
-        ix.search_with_uid_and_options(&NoCache, 9, 9, &exact),
+        ix.search_with_uid_and_options(&NoCache, id(9)?, 9, &exact),
         Err("no vector for 9".to_string())
     );
     let r = ix
@@ -305,8 +314,8 @@ impl Txn for Recording {
         Err("empty".to_string())
     }
 
-    fn find(&self, _: &[u8], _: impl Fn(&[u8]) -> bool) -> Result<u64, Self::Error> {
-        Err("empty".to_string())
+    fn find(&self, _: &[u8], _: impl Fn(&[u8]) -> bool) -> Result<Option<SystemId>, Self::Error> {
+        Ok(None)
     }
 
     fn add_mutation(&self, key: &[u8], t: &KeyValue) -> Result<(), Self::Error> {
@@ -353,17 +362,17 @@ impl VectorIndex<f32> for Layered {
         _: &[f32],
         _: usize,
         _: SearchFilter<f32>,
-    ) -> Result<Vec<u64>, Self::Error> {
-        Ok(vec![c.ts()])
+    ) -> Result<Vec<SystemId>, Self::Error> {
+        Ok(c.find(b"entry", |_| true)?.into_iter().collect())
     }
 
     fn search_with_uid<C: CacheType<Error = Self::Error>>(
         &self,
         c: &C,
-        query_uid: u64,
+        query_uid: SystemId,
         _: usize,
         _: SearchFilter<f32>,
-    ) -> Result<Vec<u64>, Self::Error> {
+    ) -> Result<Vec<SystemId>, Self::Error> {
         let _get: Vec<u8> = c.get(&query_uid.to_be_bytes())?;
         Ok(vec![query_uid])
     }
@@ -371,7 +380,7 @@ impl VectorIndex<f32> for Layered {
     fn insert<X: Txn<Error = Self::Error>>(
         &self,
         txn: &X,
-        uuid: u64,
+        uuid: SystemId,
         _: &[f32],
         draw: &mut impl FnMut() -> f64,
     ) -> Result<Vec<KeyValue>, Self::Error> {
@@ -393,33 +402,38 @@ fn test_an_insert_writes_through_its_transaction_with_the_callers_draws() -> Tes
         next /= 2.0;
         u
     };
-    let levels: Vec<Vec<KeyValue>> = (1..=3)
-        .map(|uid| Layered.insert(&txn, uid, &[0.0], &mut draw))
-        .collect::<Result<_, _>>()
-        .context("Layered.insert(..)")?;
+    let mut levels: Vec<Vec<KeyValue>> = Vec::new();
+    for n in 1..=3 {
+        levels.push(
+            Layered
+                .insert(&txn, id(n)?, &[0.0], &mut draw)
+                .context("Layered.insert(..)")?,
+        );
+    }
     assert_eq!(
         levels,
         vec![
-            vec![KeyValue::new(1, "level", vec![1])],
-            vec![KeyValue::new(2, "level", vec![2])],
-            vec![KeyValue::new(3, "level", vec![3])],
+            vec![KeyValue::new(id(1)?, "level", vec![1])],
+            vec![KeyValue::new(id(2)?, "level", vec![2])],
+            vec![KeyValue::new(id(3)?, "level", vec![3])],
         ]
     );
     assert_eq!(draw(), 0.0625, "three draws were taken, no more");
+    // Each write is under the node's ID, 16 big-endian bytes whose sequence ends at byte 9.
     assert_eq!(
         txn.written
             .borrow()
             .iter()
-            .map(|(k, kv)| (k[7], kv.entity()))
+            .map(|(k, kv)| (k.get(9).copied(), kv.entity()))
             .collect::<Vec<_>>(),
-        vec![(1, 1), (2, 2), (3, 3)]
+        vec![(Some(1), id(1)?), (Some(2), id(2)?), (Some(3), id(3)?)]
     );
     let refusing = Recording {
         refuse: true,
         ..Recording::default()
     };
     assert_eq!(
-        Layered.insert(&refusing, 4, &[0.0], &mut || 0.5),
+        Layered.insert(&refusing, id(4)?, &[0.0], &mut || 0.5),
         Err("refused".to_string())
     );
     assert!(refusing.written.borrow().is_empty());
@@ -427,9 +441,9 @@ fn test_an_insert_writes_through_its_transaction_with_the_callers_draws() -> Tes
 }
 
 #[test]
-fn test_a_search_passes_on_its_caches_error() {
+fn test_a_search_passes_on_its_caches_error() -> TestResult {
     assert_eq!(
-        Layered.search_with_uid(&NoCache, 4, 1, accept_all::<f32>),
+        Layered.search_with_uid(&NoCache, id(4)?, 1, accept_all::<f32>),
         Err("empty".to_string())
     );
     assert_eq!(
@@ -438,10 +452,12 @@ fn test_a_search_passes_on_its_caches_error() {
             .map(|r| r.neighbors().to_vec()),
         Err("empty".to_string())
     );
+    // The cache finds no entry: nothing to return.
     assert_eq!(
         Layered.search(&NoCache, &[0.0], 1, accept_all::<f32>),
-        Ok(vec![0])
+        Ok(Vec::new())
     );
+    Ok(())
 }
 
 #[test]
@@ -452,17 +468,17 @@ fn test_optional_supports_give_the_path_and_take_options() -> TestResult {
         .context("search_with_path(..)")?;
     assert_eq!(
         (r.neighbors(), r.path(), r.metrics()["visited"]),
-        (&[3, 2][..], &[3][..], 4)
+        (&ids(&[3, 2])?[..], &ids(&[3])?[..], 4)
     );
     let opts = VectorIndexOptions::new(0, Some(1.5), accept_all::<f32>);
     assert_eq!(
         ix.search_with_options(&NoCache, &[0.0, 0.0], 9, &opts),
-        Ok(vec![1, 2])
+        Ok(ids(&[1, 2])?)
     );
     let odd_opts = VectorIndexOptions::new(0, None, odd_only);
     assert_eq!(
-        ix.search_with_uid_and_options(&NoCache, 2, 2, &odd_opts),
-        Ok(vec![1, 3])
+        ix.search_with_uid_and_options(&NoCache, id(2)?, 2, &odd_opts),
+        Ok(ids(&[1, 3])?)
     );
     Ok(())
 }

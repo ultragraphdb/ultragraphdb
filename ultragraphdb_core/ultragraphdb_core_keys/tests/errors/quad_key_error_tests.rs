@@ -63,6 +63,13 @@ fn test_each_constructor_builds_its_variant() {
             QuadKeyError::fingerprint_start(&key),
             QuadKeyErrorEnum::FingerprintStart { key: key.clone() },
         ),
+        (
+            QuadKeyError::unknown_kind(&key, 0x07),
+            QuadKeyErrorEnum::UnknownKind {
+                key: key.clone(),
+                kind: 0x07,
+            },
+        ),
     ];
     for (error, variant) in cases {
         assert_eq!(error.0, variant);
@@ -112,6 +119,10 @@ fn test_each_error_names_the_keys_bytes() {
         (
             QuadKeyError::fingerprint_start(&key),
             "Value-index key 10ab splits at an ID alone, not a fingerprint",
+        ),
+        (
+            QuadKeyError::unknown_kind(&key, 0x07),
+            "Key 10ab holds the kind byte 0x07, which names no split start or dictionary entry",
         ),
     ];
     for (error, text) in cases {

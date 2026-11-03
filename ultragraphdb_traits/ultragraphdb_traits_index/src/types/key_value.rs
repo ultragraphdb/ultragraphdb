@@ -6,17 +6,19 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+use ultragraphdb_core_ids::SystemId;
+
 /// A value a vector index writes under the key of an entity and an attribute.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyValue {
-    entity: u64,
+    entity: SystemId,
     attr: String,
     value: Vec<u8>,
 }
 
 impl KeyValue {
     /// The value of `attr` of `entity`.
-    pub fn new(entity: u64, attr: impl Into<String>, value: Vec<u8>) -> Self {
+    pub fn new(entity: SystemId, attr: impl Into<String>, value: Vec<u8>) -> Self {
         Self {
             entity,
             attr: attr.into(),
@@ -24,8 +26,8 @@ impl KeyValue {
         }
     }
 
-    /// The uid of the key.
-    pub fn entity(&self) -> u64 {
+    /// The ID of the key's entity.
+    pub fn entity(&self) -> SystemId {
         self.entity
     }
 

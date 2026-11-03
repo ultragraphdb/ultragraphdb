@@ -15,12 +15,14 @@
 use std::ops::ControlFlow;
 
 use ultragraphdb_core_codec::{Encoder, PostingList, PostingType};
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_traits_store::Entry;
 
 use crate::errors::posting_error::PostingError;
 use crate::types::list::List;
 use crate::types::rollup_output::RollupOutput;
 use crate::utils::constants::BLOCK_SIZE;
+use crate::utils::list_keys::first_split_start;
 
 impl List {
     /// The writes that roll the list up at `read_ts`, and the version they are written at: Dgraph's `Rollup`. The
@@ -55,14 +57,16 @@ impl List {
         if self.min_ts > read_ts {
             return Ok(None);
         }
+        let first = first_split_start(&self.key);
         let mut out = RollupOutput::new(
             PostingList::default().with_splits(self.plist.splits().to_vec()),
             0,
+            first,
         );
         if !self.plist.splits().is_empty() || !self.mutation.is_empty() {
             self.encode(&mut out, read_ts, split)?;
         } else {
-            out = RollupOutput::new((*self.plist).clone(), 0);
+            out = RollupOutput::new((*self.plist).clone(), 0, first);
         }
 
         // Iterating skips postings deleted to give a sorted view, so the newest commit is taken from every posting
@@ -74,7 +78,7 @@ impl List {
             .fold(self.min_ts.max(delete_below_ts), u64::max);
         out.set_new_min_ts(max_commit_ts);
         if split {
-            out.recursive_split(max_list_size);
+            out.recursive_split(max_list_size)?;
             out.remove_empty_splits();
         } else {
             out.plist_mut().set_splits(Vec::new());
@@ -83,8 +87,8 @@ impl List {
     }
 
     /// Packs the list's postings at `read_ts` into the output: into its parts when the list is split and `split`
-    /// is set, into one list otherwise. Value postings, postings with facets or statement IDs, and a bare reference
-    /// sharing its uid with one of those are kept beside the uids.
+    /// is set, into one list otherwise. The pack holds the references' IDs; value postings, postings with facets or
+    /// statement IDs, and a bare reference sharing its key with one of those are kept beside it.
     fn encode(
         &self,
         out: &mut RollupOutput,
@@ -94,12 +98,19 @@ impl List {
         let splits = self.plist.splits();
         let into_parts = split && !splits.is_empty();
         let mut split_idx = 0usize;
-        let bounds = |idx: usize| -> (u64, u64) {
-            let start = splits.get(idx).copied().unwrap_or(1);
-            let end = splits.get(idx + 1).map_or(u64::MAX, |next| next - 1);
+        let first = first_split_start(&self.key);
+        let bounds = |idx: usize| -> (u128, u128) {
+            let start = splits.get(idx).copied().unwrap_or(first);
+            let end = splits
+                .get(idx + 1)
+                .map_or(u128::MAX, |next| next.saturating_sub(1));
             (start, end)
         };
-        let (mut start_uid, mut end_uid) = if into_parts { bounds(0) } else { (1, u64::MAX) };
+        let (mut start_uid, mut end_uid) = if into_parts {
+            bounds(0)
+        } else {
+            (first, u128::MAX)
+        };
         let mut enc = Encoder::new(BLOCK_SIZE);
         let mut plist = PostingList::default();
         // Postings that share a uid, literals of a quad list whose fingerprints collide, share its pack entry.
@@ -110,6 +121,7 @@ impl List {
 
         self.iterate(read_ts, 0, |p| {
             // A part no posting falls in is left empty, and removed with the other empty parts.
+            // Ends: each turn moves to the next of the list's parts, the last of which ends at the largest uid.
             while into_parts && p.uid() > end_uid {
                 let done = std::mem::replace(&mut enc, Encoder::new(BLOCK_SIZE));
                 let mut part = std::mem::take(&mut plist);
@@ -119,7 +131,14 @@ impl List {
                 (start_uid, end_uid) = bounds(split_idx);
             }
             if last_uid != Some(p.uid()) {
-                enc.add(p.uid());
+                // The pack holds references' IDs alone; a value's key is its fingerprint, kept with its posting.
+                if p.posting_type() == PostingType::Ref {
+                    let id = SystemId::from_u128(p.uid()).map_err(|_| {
+                        PostingError::corrupted(&self.key, "a reference keyed by no ID")
+                    })?;
+                    enc.add(id)
+                        .map_err(|e| PostingError::corrupted(&self.key, e.to_string()))?;
+                }
                 last_uid = Some(p.uid());
                 bare_ref = None;
             }

@@ -3,6 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_ids::SystemId;
+
 mod term_error_display;
 mod term_error_error;
 
@@ -44,10 +46,10 @@ pub enum TermErrorEnum {
         /// What is wrong with it.
         reason: &'static str,
     },
-    /// An encoding of a UID where a literal was asked for.
+    /// An encoding of an IRI's or a blank node's system ID where a literal was asked for.
     NotALiteral {
-        /// The UID encoded.
-        uid: u64,
+        /// The ID encoded.
+        id: SystemId,
     },
 }
 
@@ -77,8 +79,8 @@ impl TermError {
         Self(TermErrorEnum::InvalidVector { lexical, reason })
     }
 
-    /// A [`TermErrorEnum::NotALiteral`] for `uid`.
-    pub fn not_a_literal(uid: u64) -> Self {
-        Self(TermErrorEnum::NotALiteral { uid })
+    /// A [`TermErrorEnum::NotALiteral`] for `id`.
+    pub fn not_a_literal(id: SystemId) -> Self {
+        Self(TermErrorEnum::NotALiteral { id })
     }
 }

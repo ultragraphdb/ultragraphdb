@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_core_ids::{Bucket, Namespace};
+use ultragraphdb_core_ids::{Bucket, BucketGroup, Namespace};
 
 use crate::types::bucket_range::BucketRange;
 
@@ -19,6 +19,12 @@ impl NamespaceRun {
 
     /// The bucket groups of a run, 2^10.
     pub const GROUPS: u32 = 1 << 10;
+
+    /// The run `group` lies in.
+    #[must_use]
+    pub fn of_group(group: BucketGroup) -> Self {
+        Self::of_bucket(group.first_bucket())
+    }
 
     /// The run whose buckets' top 8 bits are `bits`.
     #[must_use]

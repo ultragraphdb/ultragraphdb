@@ -11,7 +11,7 @@ use ultragraphdb_store_sim::{DropStage, Fault};
 use ultragraphdb_tool_bdd::TestResult;
 use ultragraphdb_traits_store::{Entry, Store};
 
-use crate::utils::helpers::{Failure, commit, commit_edges, key, new_lists, set_uid, uids};
+use crate::utils::helpers::{Failure, commit, commit_edges, key, new_lists, rids, set_uid, uids};
 
 #[test]
 fn test_a_drop_advances_the_epoch_and_clears_the_cache() -> TestResult {
@@ -216,7 +216,7 @@ fn test_a_drop_at_a_given_version_drops_its_keys_and_moves_the_watermark_there()
     assert_eq!(lists.applied_ts(), applied + 10);
     let read = lists.applied_ts();
     assert!(uids(&lists.read(&k, read)?, read, 0)?.is_empty());
-    assert_eq!(uids(&lists.read(&kept, read)?, read, 0)?, vec![3]);
+    assert_eq!(uids(&lists.read(&kept, read)?, read, 0)?, rids(&[3]));
     Ok(())
 }
 

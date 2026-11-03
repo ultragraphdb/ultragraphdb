@@ -15,18 +15,23 @@
 //!
 //! ```
 //! use ultragraphdb_core_codec::Posting;
-//! use ultragraphdb_core_keys::QuadKey;
-//! use ultragraphdb_store_posting::{List, ListOptions, PostingError, SET};
+//! use ultragraphdb_core_ids::{Bucket, Sequence, SystemId, TypePrefix};
+//! use ultragraphdb_core_keys::{DEFAULT_GRAPH, QuadKey};
+//! use ultragraphdb_store_posting::{List, ListOptions, SET};
 //!
-//! # fn main() -> Result<(), PostingError> {
-//! let key = QuadKey::Forward { namespace: 0, graph: 0, predicate: 7, subject: 1 }.to_bytes();
-//! let mut list = List::empty(key);
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let id = |sequence| -> Result<SystemId, Box<dyn std::error::Error>> {
+//!     Ok(SystemId::new(TypePrefix::RESOURCE, Bucket::new(0)?, Sequence::new(sequence)?))
+//! };
+//! let key = QuadKey::Forward { namespace: 0, graph: DEFAULT_GRAPH, predicate: id(7)?, subject: id(1)? };
+//! let mut list = List::empty(key.to_bytes());
 //! list.set_ts(5);
-//! list.add_posting(Posting::default().with_uid(2).with_op(SET), false);
+//! // A reference's posting is keyed by its ID's 128 bits.
+//! list.add_posting(Posting::default().with_uid(id(2)?.to_u128()).with_op(SET), false);
 //! list.commit_mutation(6);
 //!
-//! assert_eq!(list.uids(&ListOptions::at(6))?.uids(), &[2]);
-//! assert!(list.uids(&ListOptions::at(5))?.uids().is_empty());
+//! assert_eq!(list.uids(&ListOptions::at(6))?.ids(), &[id(2)?]);
+//! assert!(list.uids(&ListOptions::at(5))?.ids().is_empty());
 //! # Ok(())
 //! # }
 //! ```

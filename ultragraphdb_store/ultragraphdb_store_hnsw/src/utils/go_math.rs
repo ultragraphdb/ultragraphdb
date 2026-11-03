@@ -25,6 +25,7 @@ pub(crate) fn pow(x: f64, n: u32) -> f64 {
     let (mut a1, mut ae) = (1.0f64, 0i64);
     let (mut x1, mut xe) = frexp(x);
     let mut i = n;
+    // Ends: each turn halves `i`.
     while i != 0 {
         if !(-(1 << 12)..=(1 << 12)).contains(&xe) {
             ae += xe;

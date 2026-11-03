@@ -22,6 +22,7 @@ use std::collections::BTreeMap;
 
 use oxrdf::{Literal, NamedNode};
 use ultragraphdb_core_codec::{Posting, PostingType};
+use ultragraphdb_core_ids::{Bucket, Sequence, SystemId, TypePrefix};
 use ultragraphdb_core_keys::DEFAULT_GRAPH;
 use ultragraphdb_core_terms::{EncodedTerm, FLOAT32_VECTOR, format_vector};
 use ultragraphdb_core_tok::{VEC_DEAD, VEC_ENTRY, VEC_KEYWORD, get_index_factory};
@@ -56,35 +57,60 @@ pub fn new_lists() -> TestLists {
     lists_over(new_store())
 }
 
+/// The ID the tests number `n`, as Dgraph's tests number their uids: type 1, bucket 0 and sequence `n`, so the IDs
+/// sort as their numbers do.
+pub fn id(n: u64) -> TestResult<SystemId> {
+    Ok(SystemId::new(
+        TypePrefix::RESOURCE,
+        Bucket::new(0)?,
+        Sequence::new(n)?,
+    ))
+}
+
+/// The IDs numbered `ns`, in their order.
+pub fn ids(ns: &[u64]) -> TestResult<Vec<SystemId>> {
+    ns.iter().map(|&n| id(n)).collect()
+}
+
+/// The numbers of `ids`, their sequences: what [`id`] numbered them.
+pub fn nums(ids: &[SystemId]) -> Vec<u64> {
+    ids.iter().map(|id| id.sequence().get()).collect()
+}
+
+/// The ID's 32 lowercase hexadecimal digits, as the dead list writes it.
+pub fn hex_id(id: SystemId) -> String {
+    format!("{:032x}", id.to_u128())
+}
+
 /// The vector predicate `name` in the root namespace, as a namespaced attribute.
 pub fn pred(name: &str) -> String {
     format!("0-{name}")
 }
 
 /// The keys of the index of the vector predicate `name`, a namespaced attribute as Dgraph's tests name one, in the
-/// default graph of the root namespace: its UID drawn from its name.
-pub fn vkeys(name: &str) -> VectorKeys {
-    let uid = name
+/// default graph of the root namespace: its ID's sequence drawn from its name.
+pub fn vkeys(name: &str) -> TestResult<VectorKeys> {
+    let sequence = name
         .bytes()
         .fold(1u64, |h, b| h.wrapping_mul(31).wrapping_add(u64::from(b)))
         .max(1);
-    VectorKeys::new(name, 0, DEFAULT_GRAPH, uid)
+    Ok(VectorKeys::new(name, 0, DEFAULT_GRAPH, id(sequence)?))
 }
 
-/// The quad key Dgraph's key of `attr` at `uid` translates to: `<pred>` a node's forward list, `<pred>__vector_`
-/// its neighbour lists, `<pred>__vector_entry` and `<pred>__vector_dead` the index's entry point and dead list, the
-/// predicate's [`vkeys`].
-pub fn key(attr: &str, uid: u64) -> Vec<u8> {
+/// The quad key Dgraph's key of `attr` at the uid `n` translates to, the uid the ID numbered `n`: `<pred>` a node's
+/// forward list, `<pred>__vector_` its neighbour lists, `<pred>__vector_entry` and `<pred>__vector_dead` the index's
+/// entry point and dead list, the predicate's [`vkeys`], whatever `n`.
+pub fn key(attr: &str, n: u64) -> TestResult<Vec<u8>> {
     if let Some(name) = attr.strip_suffix(VEC_ENTRY) {
-        return vkeys(name).entry();
+        return Ok(vkeys(name)?.entry());
     }
     if let Some(name) = attr.strip_suffix(VEC_DEAD) {
-        return vkeys(name).dead();
+        return Ok(vkeys(name)?.dead());
     }
     if let Some(name) = attr.strip_suffix(VEC_KEYWORD) {
-        return vkeys(name).neighbours(uid);
+        return Ok(vkeys(name)?.neighbours(id(n)?));
     }
-    vkeys(attr).vector(uid)
+    Ok(vkeys(attr)?.vector(id(n)?))
 }
 
 /// The quad key a data key of Dgraph's layout, as the golden files hold one, translates to: its namespace and
@@ -94,7 +120,7 @@ pub fn translated(dgraph_key: &[u8]) -> Option<Vec<u8>> {
     let len = usize::from(u16::from_be_bytes(dgraph_key.get(9..11)?.try_into().ok()?));
     let attr = std::str::from_utf8(dgraph_key.get(11..11 + len)?).ok()?;
     let uid = u64::from_be_bytes(dgraph_key.get(12 + len..20 + len)?.try_into().ok()?);
-    Some(key(&format!("{ns:x}-{attr}"), uid))
+    key(&format!("{ns:x}-{attr}"), uid).ok()
 }
 
 /// The encoding of the `ugdb:float32vector` literal holding `v`, what a node's forward list holds.
@@ -116,7 +142,7 @@ pub fn vector_encoding(v: &[f32]) -> TestResult<Vec<u8>> {
 /// The posting of the vector `encoding` in a forward list, with `op`.
 fn vector_posting(encoding: Vec<u8>, op: u32) -> Posting {
     Posting::default()
-        .with_uid(xxhash_rust::xxh3::xxh3_64(&encoding))
+        .with_uid(u128::from(xxhash_rust::xxh3::xxh3_64(&encoding)))
         .with_value(encoding)
         .with_posting_type(PostingType::Value)
         .with_op(op)
@@ -167,19 +193,18 @@ pub fn draws(values: Vec<f64>) -> impl FnMut() -> f64 {
     move || it.next().unwrap_or(0.0)
 }
 
-/// Sets `uid`'s vector to `encoding`, a vector's [`vector_encoding`], in `request`, as a write of a
+/// Sets the node `uid`'s vector to `encoding`, a vector's [`vector_encoding`], in `request`, as a write of a
 /// `ugdb:float32vector` literal does: the vector it held replaced.
 pub fn set_vector<S, C>(
     request: &mut Request<'_, S, C>,
-    pred: &str,
-    uid: u64,
+    keys: &VectorKeys,
+    uid: SystemId,
     encoding: Vec<u8>,
 ) -> Result<(), PostingError>
 where
     S: Store,
     C: ListCache<Value = CachedList>,
 {
-    let keys = vkeys(pred);
     let read_ts = request.read_ts();
     let list = request.get(&keys.vector(uid))?;
     for held in held_values(list, read_ts)? {
@@ -206,14 +231,13 @@ fn held_values(
 /// vector.
 pub fn delete_vector<S, C>(
     request: &mut Request<'_, S, C>,
-    pred: &str,
-    uid: u64,
+    keys: &VectorKeys,
+    uid: SystemId,
 ) -> Result<(), HnswError>
 where
     S: Store,
     C: ListCache<Value = CachedList>,
 {
-    let keys = vkeys(pred);
     let read_ts = request.read_ts();
     let list = request.get(&keys.vector(uid))?;
     for held in held_values(list, read_ts)? {
@@ -238,7 +262,7 @@ pub fn insert<S>(
     lists: &Lists<S, SimListCache<CachedList>>,
     pred: &str,
     o: &Options,
-    uid: u64,
+    uid: SystemId,
     vec: &[f32],
     draw: &mut impl FnMut() -> f64,
 ) -> TestResult<Vec<KeyValue>>
@@ -248,10 +272,11 @@ where
     let read_ts = lists.applied_ts();
     let mut batch = lists.batch();
     let mut request = batch.request(read_ts);
-    set_vector(&mut request, pred, uid, vector_encoding(vec)?)?;
+    let keys = vkeys(pred)?;
+    set_vector(&mut request, &keys, uid, vector_encoding(vec)?)?;
     let edges = {
         let txn = ViTxn::new(&mut request);
-        let index = PersistentHnsw::<f32>::new(vkeys(pred), o, 32)?;
+        let index = PersistentHnsw::<f32>::new(keys, o, 32)?;
         index.insert(&TxnCache::new(&txn, read_ts), uid, vec, draw)?
     };
     batch.push(request);
@@ -259,11 +284,11 @@ where
     Ok(edges)
 }
 
-/// Deletes `uid`'s vector of `pred` in one request committed on its own.
+/// Deletes the node `uid`'s vector of the index at `keys` in one request committed on its own.
 pub fn delete<S>(
     lists: &Lists<S, SimListCache<CachedList>>,
-    pred: &str,
-    uid: u64,
+    keys: &VectorKeys,
+    uid: SystemId,
 ) -> Result<(), HnswError>
 where
     S: Store,
@@ -271,21 +296,21 @@ where
     let read_ts = lists.applied_ts();
     let mut batch = lists.batch();
     let mut request = batch.request(read_ts);
-    delete_vector(&mut request, pred, uid)?;
+    delete_vector(&mut request, keys, uid)?;
     batch.push(request);
     let _timestamps: Vec<u64> = lists.commit(batch)?;
     Ok(())
 }
 
-/// Searches the index of `pred` for the `k` nearest to `query` at the newest timestamp, with `options`.
+/// Searches the index at `keys` for the `k` nearest to `query` at the newest timestamp, with `options`.
 pub fn search<S>(
     lists: &Lists<S, SimListCache<CachedList>>,
-    pred: &str,
+    keys: &VectorKeys,
     o: &Options,
     query: &[f32],
     k: usize,
     options: Option<&VectorIndexOptions<f32>>,
-) -> Result<Vec<u64>, HnswError>
+) -> Result<Vec<SystemId>, HnswError>
 where
     S: Store,
 {
@@ -293,7 +318,7 @@ where
     let mut request = lists.request(read_ts);
     let txn = ViTxn::new(&mut request);
     let qc = QueryCache::new(&txn, read_ts);
-    let index = PersistentHnsw::<f32>::new(vkeys(pred), o, 32)?;
+    let index = PersistentHnsw::<f32>::new(keys.clone(), o, 32)?;
     match options {
         Some(options) => index.search_with_options(&qc, query, k, options),
         None => index.search(&qc, query, k, accept_all::<f32>),
@@ -354,8 +379,18 @@ impl TsDbs {
             });
     }
 
-    fn first_passing(&self, ts: u64, filter: impl Fn(&[u8]) -> bool) -> u64 {
-        u64::from(self.dbs.borrow()[ts as usize].values().any(|b| filter(b)))
+    /// Dgraph's double's find: the ID numbered 1 when any value passes, whatever its key, and no ID otherwise.
+    fn first_passing(
+        &self,
+        ts: u64,
+        filter: impl Fn(&[u8]) -> bool,
+    ) -> Result<Option<SystemId>, HnswError> {
+        let passes = self.dbs.borrow()[ts as usize].values().any(|b| filter(b));
+        // The ID numbered 1, from its layout: type 1 in bits 127-112, sequence 1 in bits 111-48.
+        passes
+            .then(|| SystemId::from_u128((1 << 112) | (1 << 48)))
+            .transpose()
+            .map_err(|_| HnswError::key_not_found())
     }
 }
 
@@ -428,8 +463,12 @@ impl Txn for InMemTxn<'_> {
     }
 
     /// Dgraph's double: 1 when any value passes, whatever its key.
-    fn find(&self, _: &[u8], filter: impl Fn(&[u8]) -> bool) -> Result<u64, Self::Error> {
-        Ok(self.dbs.first_passing(self.start_ts, filter))
+    fn find(
+        &self,
+        _: &[u8],
+        filter: impl Fn(&[u8]) -> bool,
+    ) -> Result<Option<SystemId>, Self::Error> {
+        self.dbs.first_passing(self.start_ts, filter)
     }
 
     fn add_mutation(&self, key: &[u8], t: &KeyValue) -> Result<(), Self::Error> {
@@ -473,8 +512,12 @@ impl LocalCache for InMemLocalCache<'_> {
         LocalCache::get(self, key)
     }
 
-    fn find(&self, _: &[u8], filter: impl Fn(&[u8]) -> bool) -> Result<u64, Self::Error> {
-        Ok(self.dbs.first_passing(self.read_ts, filter))
+    fn find(
+        &self,
+        _: &[u8],
+        filter: impl Fn(&[u8]) -> bool,
+    ) -> Result<Option<SystemId>, Self::Error> {
+        self.dbs.first_passing(self.read_ts, filter)
     }
 }
 
@@ -496,8 +539,12 @@ impl CacheType for MemoryCache {
         0
     }
 
-    fn find(&self, _: &[u8], _: impl Fn(&[u8]) -> bool) -> Result<u64, Self::Error> {
-        Ok(0)
+    fn find(
+        &self,
+        _: &[u8],
+        _: impl Fn(&[u8]) -> bool,
+    ) -> Result<Option<SystemId>, Self::Error> {
+        Ok(None)
     }
 }
 
@@ -528,7 +575,11 @@ impl MapTxn {
         }
     }
 
-    fn scan(&self, prefix: &[u8], filter: impl Fn(&[u8]) -> bool) -> Result<u64, HnswError> {
+    fn scan(
+        &self,
+        prefix: &[u8],
+        filter: impl Fn(&[u8]) -> bool,
+    ) -> Result<Option<SystemId>, HnswError> {
         let db = self.db.borrow();
         for (k, v) in db.range(prefix.to_vec()..) {
             if !k.starts_with(prefix) {
@@ -540,7 +591,7 @@ impl MapTxn {
             if filter(v) {
                 return match ultragraphdb_core_keys::QuadKey::parse(k) {
                     Ok((ultragraphdb_core_keys::QuadKey::Forward { subject, .. }, _)) => {
-                        Ok(subject)
+                        Ok(Some(subject))
                     }
                     _ => Err(HnswError::key_not_found()),
                 };
@@ -565,7 +616,11 @@ impl Txn for MapTxn {
         self.read(key)
     }
 
-    fn find(&self, prefix: &[u8], filter: impl Fn(&[u8]) -> bool) -> Result<u64, Self::Error> {
+    fn find(
+        &self,
+        prefix: &[u8],
+        filter: impl Fn(&[u8]) -> bool,
+    ) -> Result<Option<SystemId>, Self::Error> {
         self.scan(prefix, filter)
     }
 
@@ -594,7 +649,11 @@ impl LocalCache for MapTxn {
         self.read(key)
     }
 
-    fn find(&self, prefix: &[u8], filter: impl Fn(&[u8]) -> bool) -> Result<u64, Self::Error> {
+    fn find(
+        &self,
+        prefix: &[u8],
+        filter: impl Fn(&[u8]) -> bool,
+    ) -> Result<Option<SystemId>, Self::Error> {
         self.scan(prefix, filter)
     }
 }
@@ -622,11 +681,11 @@ pub fn oracle_score(metric: Metric, a: &[f64], b: &[f64]) -> f64 {
 /// answer an approximate search is compared with.
 pub fn brute_force(
     metric: Metric,
-    vectors: &[(u64, Vec<f64>)],
+    vectors: &[(SystemId, Vec<f64>)],
     query: &[f64],
     k: usize,
-) -> Vec<u64> {
-    let mut scored: Vec<(f64, u64)> = vectors
+) -> Vec<SystemId> {
+    let mut scored: Vec<(f64, SystemId)> = vectors
         .iter()
         .map(|(uid, v)| (oracle_score(metric, v, query), *uid))
         .collect();
@@ -642,10 +701,10 @@ pub fn brute_force(
     scored.into_iter().take(k).map(|(_, uid)| uid).collect()
 }
 
-/// The edges' names as Dgraph's tests print them, `attr_entity`.
+/// The edges' names as Dgraph's tests print them, `attr_entity`, the entity by its number.
 pub fn edge_names(edges: &[KeyValue]) -> Vec<String> {
     edges
         .iter()
-        .map(|e| format!("{}_{}", e.attr(), e.entity()))
+        .map(|e| format!("{}_{}", e.attr(), e.entity().sequence().get()))
         .collect()
 }

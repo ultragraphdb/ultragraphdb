@@ -14,7 +14,7 @@ use ultragraphdb_core_codec::List as UidList;
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ListOptions {
     read_ts: u64,
-    after_uid: u64,
+    after_uid: u128,
     intersect: Option<UidList>,
     first: i64,
 }
@@ -29,7 +29,7 @@ impl ListOptions {
     }
 
     /// Only the uids above `after_uid`.
-    pub fn after(mut self, after_uid: u64) -> Self {
+    pub fn after(mut self, after_uid: u128) -> Self {
         self.after_uid = after_uid;
         self
     }
@@ -52,7 +52,7 @@ impl ListOptions {
     }
 
     /// The uid after which the uids start.
-    pub fn after_uid(&self) -> u64 {
+    pub fn after_uid(&self) -> u128 {
         self.after_uid
     }
 

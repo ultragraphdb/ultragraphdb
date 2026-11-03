@@ -35,6 +35,7 @@ use crate::utils::list_keys::compares_values;
 #[derive(Debug, Clone, PartialEq)]
 pub struct List {
     key: Vec<u8>,
+    // Shared: the cache's list and every request's copy share the immutable layer and the parts, read only.
     plist: Arc<PostingList>,
     parts: Arc<[Arc<PostingList>]>,
     mutation: MutableLayer,
@@ -96,7 +97,7 @@ impl List {
     }
 
     /// The start uid of each part, empty for a list that is not split: Dgraph's `PartSplits`.
-    pub fn part_splits(&self) -> Vec<u64> {
+    pub fn part_splits(&self) -> Vec<u128> {
         self.plist.splits().to_vec()
     }
 

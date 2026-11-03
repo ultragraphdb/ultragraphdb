@@ -16,7 +16,6 @@ impl Error for ClusterError {
             ClusterErrorEnum::ZeroPartition
             | ClusterErrorEnum::PartitionCount { .. }
             | ClusterErrorEnum::BucketRange { .. }
-            | ClusterErrorEnum::BucketGroupRange { .. }
             | ClusterErrorEnum::Unassigned { .. }
             | ClusterErrorEnum::AssignedTwice { .. }
             | ClusterErrorEnum::ChangeEpoch { .. }

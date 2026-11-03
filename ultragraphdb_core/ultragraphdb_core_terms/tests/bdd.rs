@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 use cucumber::{World, then, when};
 use oxrdf::vocab::xsd;
 use oxrdf::{Literal, NamedNode, NamedNodeRef};
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_terms::{
     EncodedLiteral, EncodedTerm, FLOAT32_VECTOR, Hash128, TermError, TermView, Text,
 };
@@ -22,7 +23,7 @@ struct Steps {
     literals: Vec<Literal>,
 }
 
-fn no_uid(_: NamedNodeRef<'_>) -> Result<u64, TermError> {
+fn no_uid(_: NamedNodeRef<'_>) -> Result<SystemId, TermError> {
     Err(TermError::malformed(
         Vec::new(),
         "a known datatype needs no UID",

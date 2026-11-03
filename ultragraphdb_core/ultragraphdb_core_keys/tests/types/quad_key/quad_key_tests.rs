@@ -6,9 +6,10 @@
 use oxrdf::Literal;
 use ultragraphdb_core_ids::{Bucket, Sequence, SystemId, TypePrefix};
 use ultragraphdb_core_keys::{
-    CountDirection, DEFAULT_GRAPH, Graph, Keyspace, QuadKey, ROOT_NAMESPACE, key_prefix,
+    CountDirection, DEFAULT_GRAPH, DictionaryEntry, Graph, Keyspace, QuadKey, ROOT_NAMESPACE,
+    key_prefix,
 };
-use ultragraphdb_core_terms::{EncodedTerm, TermError};
+use ultragraphdb_core_terms::{EncodedTerm, Hash128, TermError};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
 pub fn id(prefix: u16, bucket: u32, sequence: u64) -> TestResult<SystemId> {
@@ -22,7 +23,7 @@ pub fn id(prefix: u16, bucket: u32, sequence: u64) -> TestResult<SystemId> {
 pub fn literal(lexical: &str) -> TestResult<EncodedTerm> {
     Ok(
         EncodedTerm::literal(Literal::new_simple_literal(lexical).as_ref(), |_| {
-            Ok::<_, TermError>(1)
+            Err::<SystemId, _>(TermError::malformed(Vec::new(), "no datatype ID is needed"))
         })?
         .into_term(),
     )
@@ -60,7 +61,7 @@ fn data_keys() -> TestResult<Vec<QuadKey>> {
             namespace: 4,
             graph: graph()?,
             predicate: id(1, 9, 9)?,
-            object: EncodedTerm::uid(7),
+            object: EncodedTerm::id(id(1, 7, 7)?),
         },
         QuadKey::Reverse {
             namespace: 4,
@@ -125,7 +126,7 @@ fn index_keys() -> TestResult<Vec<QuadKey>> {
     ])
 }
 
-/// Keys of the marks and the referrers.
+/// Keys of the marks, the referrers and the dictionary.
 fn placement_keys() -> TestResult<Vec<QuadKey>> {
     Ok(vec![
         QuadKey::Mark {
@@ -136,6 +137,18 @@ fn placement_keys() -> TestResult<Vec<QuadKey>> {
         QuadKey::Referrers {
             namespace: 4,
             entity: id(1, 42, 9)?,
+        },
+        QuadKey::Dictionary {
+            namespace: 4,
+            entry: DictionaryEntry::Id(id(1, 42, 10)?),
+        },
+        QuadKey::Dictionary {
+            namespace: 4,
+            entry: DictionaryEntry::Term(Hash128::from_bytes([0x5A; 16])),
+        },
+        QuadKey::Dictionary {
+            namespace: 4,
+            entry: DictionaryEntry::Literal(Hash128::from_bytes([0xA5; 16])),
         },
     ])
 }
@@ -148,7 +161,7 @@ fn test_every_keyspace_round_trips_and_reports_its_fields() -> TestResult {
             .map(QuadKey::keyspace)
             .collect::<std::collections::BTreeSet<_>>()
             .len(),
-        12,
+        13,
         "every keyspace is covered"
     );
     for key in keys {
@@ -333,7 +346,12 @@ fn test_a_prefix_is_the_keyspace_namespace_graph_and_predicate_bytes() -> TestRe
         .len(),
         1 + 8 + 16
     );
-    for keyspace in [Keyspace::Catalog, Keyspace::Marks, Keyspace::Referrers] {
+    for keyspace in [
+        Keyspace::Catalog,
+        Keyspace::Marks,
+        Keyspace::Referrers,
+        Keyspace::Dictionary,
+    ] {
         assert_eq!(
             key_prefix(keyspace, false, 133, Some(DEFAULT_GRAPH), Some(predicate)),
             vec![keyspace.byte(), 0, 0, 0, 0, 0, 0, 0, 133],

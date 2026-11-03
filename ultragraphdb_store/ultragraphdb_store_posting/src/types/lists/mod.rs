@@ -43,6 +43,9 @@ pub struct Lists<S, C> {
     store: S,
     cache: C,
     config: ListsConfig,
+    // Locked state: the lists are shared, through an `Arc`, by the commit path, the requests reading them and the
+    // background rollup worker, so the state, the writer lock and the rollup queues sit behind mutexes, and readers
+    // waiting for the watermark wait on `changed`.
     state: Mutex<State>,
     changed: Condvar,
     writer: Mutex<()>,
@@ -133,6 +136,8 @@ where
     /// the watermark, which then never reaches it.
     pub fn gate(&self, read_ts: u64) -> Result<(), PostingError> {
         let mut state = lock(&self.state);
+        // A wait, not a loop over data: every applied round moves the watermark and wakes the readers, and a failed
+        // write refuses them. Its deadline is the caller's (the transaction limits).
         while let Gate::Wait = Self::gate_of(&state, read_ts)? {
             state = wait(&self.changed, state);
         }

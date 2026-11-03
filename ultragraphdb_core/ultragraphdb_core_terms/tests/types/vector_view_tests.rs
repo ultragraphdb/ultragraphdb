@@ -4,6 +4,7 @@
  */
 
 use oxrdf::{Literal, NamedNode};
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_terms::{EncodedTerm, FLOAT32_VECTOR, TermError, TermView};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -11,7 +12,10 @@ use ultragraphdb_tool_bdd::{Context, TestResult};
 fn test_a_view_reads_the_elements_in_place() -> TestResult {
     let literal =
         Literal::new_typed_literal("[1, -2.5, 3]", NamedNode::new_unchecked(FLOAT32_VECTOR));
-    let term = EncodedTerm::literal(literal.as_ref(), |_| Ok::<_, TermError>(0))?.into_term();
+    let term = EncodedTerm::literal(literal.as_ref(), |_| {
+        Err::<SystemId, _>(TermError::malformed(Vec::new(), "no datatype ID is needed"))
+    })?
+    .into_term();
     let view = term.view()?;
     let view = if let TermView::Vector(v) = view {
         Some(v)

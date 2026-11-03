@@ -20,11 +20,13 @@ impl Display for HnswError {
             HnswErrorEnum::Options(error) => write!(f, "{error}"),
             HnswErrorEnum::NoValue => f.write_str("No value found"),
             HnswErrorEnum::KeyNotFound => f.write_str("Key not found"),
-            // helper.go: fmt.Errorf("%w: %w; %s", err, errFetchingPostingList, keyString+" with uid "+uid).
+            // helper.go: fmt.Errorf("%w: %w; %s", err, errFetchingPostingList, keyString+" with uid "+uid), the ID
+            // as its 32 hexadecimal digits.
             HnswErrorEnum::FetchingPostingList { cause, pred, uid } => {
                 write!(
                     f,
-                    "{cause}: error fetching posting list; {pred} with uid {uid}"
+                    "{cause}: error fetching posting list; {pred} with uid {:032x}",
+                    uid.to_u128()
                 )
             }
             // helper.go: fmt.Errorf("%w; %w", errNilVector, err).
@@ -55,7 +57,8 @@ impl Display for HnswError {
             }
             HnswErrorEnum::LevelMissing { uid, level, levels } => write!(
                 f,
-                "the neighbour lists of uid {uid} hold {levels} levels, level {level} is read"
+                "the neighbour lists of {:032x} hold {levels} levels, level {level} is read",
+                uid.to_u128()
             ),
             HnswErrorEnum::NoNeighbour => f.write_str(
                 "a vector index layer search kept no neighbour: its breadth or result count is 0",

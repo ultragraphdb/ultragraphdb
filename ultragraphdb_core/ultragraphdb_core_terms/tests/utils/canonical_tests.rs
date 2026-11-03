@@ -5,13 +5,17 @@
 
 use oxrdf::Literal;
 use oxrdf::vocab::xsd;
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_terms::{EncodedTerm, TermError, TermView};
 use ultragraphdb_tool_bdd::TestResult;
 
 /// The value an `xsd:integer` lexical form is held as, when it is held by value.
 fn by_value(lexical: &str) -> TestResult<Option<i64>> {
     let literal = Literal::new_typed_literal(lexical, xsd::INTEGER);
-    let term = EncodedTerm::literal(literal.as_ref(), |_| Ok::<_, TermError>(0))?.into_term();
+    let term = EncodedTerm::literal(literal.as_ref(), |_| {
+        Err::<SystemId, _>(TermError::malformed(Vec::new(), "no datatype ID is needed"))
+    })?
+    .into_term();
     Ok(if let TermView::Integer(v) = term.view()? {
         Some(i64::from(v))
     } else {

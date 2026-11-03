@@ -3,7 +3,9 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_core_mapping::MappingError;
+use ultragraphdb_core_ids::{Bucket, Sequence, SystemId, TypePrefix};
+use ultragraphdb_core_mapping::{MappingError, MappingErrorEnum};
+use ultragraphdb_tool_bdd::TestResult;
 
 #[test]
 fn test_each_error_says_what_was_refused() {
@@ -18,7 +20,7 @@ fn test_each_error_says_what_was_refused() {
         ),
         (
             MappingError::ambiguous_statement("t".into()),
-            "t is held by several statements; name one by its statement ID",
+            "t is held by several statements; name one by its reifier",
         ),
         (
             MappingError::unsupported_object("<< >>".into()),
@@ -32,4 +34,17 @@ fn test_each_error_says_what_was_refused() {
     for (error, text) in cases {
         assert_eq!(error.to_string(), text);
     }
+}
+
+#[test]
+fn test_a_statement_id_of_another_type_is_named_by_its_id() -> TestResult {
+    // Type 0001, sequence 0000000000000009, bucket 00002a, reserved 000000.
+    let id = SystemId::new(TypePrefix::RESOURCE, Bucket::new(42)?, Sequence::new(9)?);
+    let error = MappingError::not_a_statement_id(id);
+    assert_eq!(error.0, MappingErrorEnum::NotAStatementId { id });
+    assert_eq!(
+        error.to_string(),
+        "The ID 0001000000000000000900002a000000 is not of the Statement type"
+    );
+    Ok(())
 }

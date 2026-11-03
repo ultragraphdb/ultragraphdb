@@ -75,6 +75,13 @@ pub enum QuadKeyErrorEnum {
         /// The key's bytes.
         key: Vec<u8>,
     },
+    /// A kind byte the layout does not define: a split start's, or a dictionary key's.
+    UnknownKind {
+        /// The key's bytes.
+        key: Vec<u8>,
+        /// The kind byte.
+        kind: u8,
+    },
 }
 
 impl QuadKeyError {
@@ -146,5 +153,14 @@ impl QuadKeyError {
     #[must_use]
     pub fn fingerprint_start(key: &[u8]) -> Self {
         Self(QuadKeyErrorEnum::FingerprintStart { key: key.to_vec() })
+    }
+
+    /// A [`QuadKeyErrorEnum::UnknownKind`] for `key`, holding `kind`.
+    #[must_use]
+    pub fn unknown_kind(key: &[u8], kind: u8) -> Self {
+        Self(QuadKeyErrorEnum::UnknownKind {
+            key: key.to_vec(),
+            kind,
+        })
     }
 }

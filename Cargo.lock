@@ -2894,6 +2894,7 @@ dependencies = [
  "cucumber",
  "futures",
  "oxrdf",
+ "ultragraphdb_core_ids",
  "ultragraphdb_core_keys",
  "ultragraphdb_core_mapping",
  "ultragraphdb_core_tok",
@@ -2947,6 +2948,7 @@ dependencies = [
  "cucumber",
  "futures",
  "oxrdf",
+ "ultragraphdb_core_ids",
  "ultragraphdb_core_terms",
  "ultragraphdb_tool_bdd",
 ]
@@ -2960,6 +2962,7 @@ dependencies = [
  "oxrdf",
  "oxsdatatypes",
  "sha2",
+ "ultragraphdb_core_ids",
  "ultragraphdb_tool_bdd",
  "xxhash-rust",
 ]
@@ -3146,6 +3149,7 @@ dependencies = [
  "tracing",
  "ultragraphdb_common_utils",
  "ultragraphdb_core_codec",
+ "ultragraphdb_core_ids",
  "ultragraphdb_core_keys",
  "ultragraphdb_core_terms",
  "ultragraphdb_core_tok",
@@ -3187,6 +3191,7 @@ dependencies = [
  "ultragraphdb_common_utils",
  "ultragraphdb_core_algo",
  "ultragraphdb_core_codec",
+ "ultragraphdb_core_ids",
  "ultragraphdb_core_keys",
  "ultragraphdb_error_store",
  "ultragraphdb_store_sim",
@@ -3295,6 +3300,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ultragraphdb_traits_blocks"
+version = "0.1.0"
+dependencies = [
+ "ultragraphdb_core_ids",
+ "ultragraphdb_tool_bdd",
+]
+
+[[package]]
 name = "ultragraphdb_traits_collator"
 version = "0.1.0"
 dependencies = [
@@ -3306,6 +3319,7 @@ name = "ultragraphdb_traits_index"
 version = "0.1.0"
 dependencies = [
  "ultragraphdb_common_utils",
+ "ultragraphdb_core_ids",
  "ultragraphdb_error_options",
  "ultragraphdb_tool_bdd",
 ]

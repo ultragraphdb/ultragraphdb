@@ -6,7 +6,6 @@
 use oxrdf::{GraphName, NamedNode, NamedOrBlankNode, Term};
 
 use crate::types::declaration::Declaration;
-use crate::types::statement_id::StatementId;
 use crate::types::statement_ref::StatementRef;
 
 /// One operation of a [`crate::Changeset`], in RDF terms.
@@ -49,12 +48,12 @@ pub enum Change {
         /// The object.
         object: Term,
     },
-    /// One statement, by its ID.
+    /// One statement, by its reifier.
     DeleteStatement {
         /// The graph.
         graph: GraphName,
-        /// The statement's ID.
-        id: StatementId,
+        /// The reifier naming the statement's ID.
+        reifier: NamedNode,
     },
     /// Every object of the subject's predicate in the graph.
     DeletePattern {

@@ -7,6 +7,7 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_traits_index::LocalCache;
 use ultragraphdb_traits_store::{ListCache, Store};
@@ -29,7 +30,11 @@ where
         self.value(key)
     }
 
-    fn find(&self, prefix: &[u8], filter: impl Fn(&[u8]) -> bool) -> Result<u64, Self::Error> {
+    fn find(
+        &self,
+        prefix: &[u8],
+        filter: impl Fn(&[u8]) -> bool,
+    ) -> Result<Option<SystemId>, Self::Error> {
         self.find_value(prefix, filter)
     }
 }

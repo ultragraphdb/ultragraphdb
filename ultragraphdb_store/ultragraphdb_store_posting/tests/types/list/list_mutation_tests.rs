@@ -6,7 +6,7 @@
 use ultragraphdb_store_posting::{List, OVR, SET};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
-use crate::utils::helpers::{add, del_uid, key, set_uid, uids};
+use crate::utils::helpers::{add, del_uid, key, rids, set_uid, uids};
 
 #[test]
 fn test_uid_postings_accumulate() -> TestResult {
@@ -16,7 +16,7 @@ fn test_uid_postings_accumulate() -> TestResult {
         l.add_posting(set_uid(uid), false);
         l.commit_mutation(ts + 1);
     }
-    assert_eq!(uids(&l, 5, 0)?, vec![2, 3]);
+    assert_eq!(uids(&l, 5, 0)?, rids(&[2, 3]));
     Ok(())
 }
 

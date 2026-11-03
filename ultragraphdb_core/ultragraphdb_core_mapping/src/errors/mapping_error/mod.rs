@@ -3,6 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_ids::SystemId;
+
 mod mapping_error_display;
 mod mapping_error_error;
 
@@ -45,6 +47,11 @@ pub enum MappingErrorEnum {
         /// What is wrong with it.
         reason: &'static str,
     },
+    /// A statement ID whose system ID is not of the `Statement` type.
+    NotAStatementId {
+        /// The system ID given.
+        id: SystemId,
+    },
 }
 
 /// See [`MappingErrorEnum`].
@@ -85,5 +92,10 @@ impl MappingError {
     /// A [`MappingErrorEnum::InvalidBase`] for `base`, saying why.
     pub fn invalid_base(base: String, reason: &'static str) -> Self {
         Self(MappingErrorEnum::InvalidBase { base, reason })
+    }
+
+    /// A [`MappingErrorEnum::NotAStatementId`] for `id`.
+    pub fn not_a_statement_id(id: SystemId) -> Self {
+        Self(MappingErrorEnum::NotAStatementId { id })
     }
 }

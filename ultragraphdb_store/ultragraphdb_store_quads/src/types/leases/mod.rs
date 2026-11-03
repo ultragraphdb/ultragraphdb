@@ -23,7 +23,8 @@ pub const MAX_UID: u64 = (1 << 48) - 1;
 /// refused write drew is spent.
 #[derive(Debug, Default)]
 pub struct Leases {
-    /// By namespace and sequence: the next number and the end of the lease, exclusive.
+    /// By namespace and sequence: the next number and the end of the lease, exclusive. Locked, as executions running
+    /// beside each other draw numbers.
     held: Mutex<BTreeMap<(u64, u8), (u64, u64)>>,
 }
 
@@ -61,6 +62,8 @@ impl Leases {
                 self.lease(store, namespace, tag, mark)?
             }
         };
+        debug_assert!(next > 0, "no number is 0");
+        debug_assert!(next < end, "a number lies inside its lease");
         let _replaced_lease: Option<(u64, u64)> = held.insert((namespace, tag), (next + 1, end));
         Ok(next)
     }

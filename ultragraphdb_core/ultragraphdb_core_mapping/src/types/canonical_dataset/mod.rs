@@ -9,8 +9,9 @@ use std::collections::BTreeMap;
 
 use oxrdf::{GraphName, NamedNode, NamedOrBlankNode, Term};
 
+use ultragraphdb_core_terms::SYSTEM_VOCABULARY;
+
 use crate::types::statement::Statement;
-use crate::types::statement_id::StatementId;
 
 /// The canonical statements of one namespace, in memory: what a store holds, by the contract's rules, with no keys,
 /// terms or catalog beneath it. Writes apply a [`crate::Changeset`]; reads list the statements, which the views
@@ -32,10 +33,10 @@ struct Held {
     records: Vec<Record>,
 }
 
-/// One statement of a triple: its ID, when it has one, and its properties.
+/// One statement of a triple: its reifier, when it has a statement ID, and its properties.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Record {
-    id: Option<StatementId>,
+    reifier: Option<NamedNode>,
     properties: Vec<(NamedNode, Term)>,
 }
 
@@ -46,7 +47,7 @@ impl CanonicalDataset {
     }
 
     /// Every statement, a triple held by several statements once for each, in the order of their triples' N-Quads
-    /// text and then of their statement IDs.
+    /// text and then of their reifiers.
     pub fn statements(&self) -> impl Iterator<Item = Statement> + '_ {
         self.triples.values().flat_map(|held| {
             held.records.iter().map(move |record| {
@@ -57,8 +58,8 @@ impl CanonicalDataset {
                     held.object.clone(),
                 )
                 .with_properties(record.properties.clone());
-                match record.id {
-                    Some(id) => statement.with_id(id),
+                match &record.reifier {
+                    Some(reifier) => statement.with_reifier(reifier.clone()),
                     None => statement,
                 }
             })
@@ -74,6 +75,12 @@ impl CanonicalDataset {
     pub fn allocated_ids(&self) -> u64 {
         self.next_id
     }
+}
+
+/// The reifier the dataset names its `n`th statement ID by, `ugdb:statement/{n}`: the model's own names, which only
+/// tell its statements apart; a store names a statement ID by a skolem IRI its dictionary holds instead.
+pub(crate) fn model_reifier(n: u64) -> NamedNode {
+    NamedNode::new_unchecked(format!("{SYSTEM_VOCABULARY}statement/{n}"))
 }
 
 /// The key a triple is held under: its N-Quads text.

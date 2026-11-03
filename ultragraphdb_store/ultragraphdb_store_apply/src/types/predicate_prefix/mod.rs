@@ -97,14 +97,16 @@ impl PredicatePrefix {
         let mut graphs = Vec::new();
         let mut ranges = Vec::new();
         let mut cursor = namespace.clone();
-        loop {
-            let scan = Scan::prefix(namespace.clone())
-                .seek(cursor.clone())
-                .all_versions();
-            let Some(item) = snapshot.scan(&scan).next().transpose()? else {
-                ranges.push((cursor, namespace_end));
-                return Ok((graphs, ranges));
-            };
+        // Ends: each turn moves the cursor past the graph it found, and the namespace holds finitely many keys.
+        while let Some(item) = snapshot
+            .scan(
+                &Scan::prefix(namespace.clone())
+                    .seek(cursor.clone())
+                    .all_versions(),
+            )
+            .next()
+            .transpose()?
+        {
             ranges.push((cursor, Some(item.key().to_vec())));
             let Some(graph) = item.key().get(9..17).map(be_u64) else {
                 return Ok((graphs, ranges));
@@ -120,6 +122,8 @@ impl PredicatePrefix {
             };
             cursor = key_prefix(self.keyspace, self.split, self.namespace, Some(next), None);
         }
+        ranges.push((cursor, namespace_end));
+        Ok((graphs, ranges))
     }
 
     /// The prefix in every graph holding a key under it.

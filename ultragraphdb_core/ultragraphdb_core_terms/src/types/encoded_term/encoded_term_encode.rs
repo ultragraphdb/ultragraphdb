@@ -9,6 +9,7 @@ use oxsdatatypes::{
     Boolean, Date, DateTime, DayTimeDuration, Decimal, Double, Duration, Float, GDay, GMonth,
     GMonthDay, GYear, GYearMonth, Integer, Time, YearMonthDuration,
 };
+use ultragraphdb_core_ids::SystemId;
 
 use crate::errors::term_error::TermError;
 use crate::types::encoded_literal::EncodedLiteral;
@@ -32,6 +33,10 @@ impl Builder {
     }
 
     fn push(mut self, part: &[u8]) -> Self {
+        debug_assert!(
+            self.len + part.len() <= self.bytes.len(),
+            "a literal's encoding fits 33 bytes"
+        );
         self.bytes[self.len..self.len + part.len()].copy_from_slice(part);
         self.len += part.len();
         self
@@ -39,6 +44,10 @@ impl Builder {
 
     /// An inline part: its length, then its bytes.
     fn inline(self, part: &str) -> Self {
+        debug_assert!(
+            part.len() <= INLINE_MAX,
+            "an inline part is at most 15 bytes"
+        );
         self.push(&[part.len() as u8]).push(part.as_bytes())
     }
 
@@ -50,12 +59,12 @@ impl Builder {
 impl EncodedTerm {
     /// The encoding of `literal`, with the strings it names by hash. A literal of a datatype encoded by value is
     /// encoded by value when its lexical form is canonical, and by its known datatype's code and lexical form
-    /// otherwise; any other typed literal by its datatype's UID, which `datatype_uid` gives, and its lexical form. A
+    /// otherwise; any other typed literal by its datatype's system ID, which `datatype_id` gives, and its lexical form. A
     /// lexical form or language tag over 15 bytes is hashed; a language tag over 15 bytes hashes the lexical form too.
     /// A vector is encoded by value and must be in its canonical form.
     pub fn literal<'a, E: From<TermError>>(
         literal: LiteralRef<'a>,
-        datatype_uid: impl FnOnce(NamedNodeRef<'a>) -> Result<u64, E>,
+        datatype_id: impl FnOnce(NamedNodeRef<'a>) -> Result<SystemId, E>,
     ) -> Result<EncodedLiteral<'a>, E> {
         let lexical = literal.value();
         if let Some(language) = literal.language() {
@@ -98,12 +107,12 @@ impl EncodedTerm {
             None => (
                 tag::SMALL_TYPED,
                 tag::BIG_TYPED,
-                Head::Uid(datatype_uid(datatype)?),
+                Head::Id(datatype_id(datatype)?),
             ),
         };
         let head = |b: Builder| match head {
             Head::Code(code) => b.push(&[code]),
-            Head::Uid(uid) => b.push(&uid.to_be_bytes()),
+            Head::Id(id) => b.push(&id.to_be_bytes()),
         };
         Ok(if lexical.len() <= INLINE_MAX {
             EncodedLiteral::new(
@@ -123,7 +132,7 @@ impl EncodedTerm {
 /// How a typed literal names its datatype.
 enum Head {
     Code(u8),
-    Uid(u64),
+    Id(SystemId),
 }
 
 /// A language-tagged string, its direction choosing among the three sets of tags.

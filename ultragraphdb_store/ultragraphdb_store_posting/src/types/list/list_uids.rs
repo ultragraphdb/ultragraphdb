@@ -12,6 +12,7 @@ use std::ops::ControlFlow;
 
 use ultragraphdb_core_algo::{intersect_compressed_with, intersect_with};
 use ultragraphdb_core_codec::{List as UidList, Posting, PostingType};
+use ultragraphdb_core_ids::SystemId;
 
 use crate::errors::posting_error::PostingError;
 use crate::types::list::List;
@@ -19,9 +20,8 @@ use crate::types::list_options::ListOptions;
 use crate::types::p_iterator::{PIterator, PPosting};
 
 impl List {
-    /// The uids of the list's reference postings at the options' read timestamp: Dgraph's `Uids`. A quad list's pack
-    /// holds its literals' fingerprints as uids, so the paths that read the pack or look a uid up leave out a uid
-    /// held by value postings alone, as iterating does.
+    /// The IDs of the list's reference postings at the options' read timestamp: Dgraph's `Uids`. A pack holds
+    /// references' IDs alone, a value's key being its fingerprint, which no ID equals.
     ///
     /// # Errors
     ///
@@ -47,18 +47,19 @@ impl List {
             }
             intersect_compressed_with(self.plist.pack(), opt.after_uid(), with, &mut out);
             let postings = self.plist.postings();
-            out.uids_mut().retain(|&uid| reference_in(postings, uid));
+            out.ids_mut()
+                .retain(|id| reference_in(postings, id.to_u128()));
             return Ok(out);
         }
 
         let approx = self.approx_len();
         if let Some(with) = intersect
-            && with.uids().len() < approx
+            && with.ids().len() < approx
         {
-            // Few uids to look for: look each one up.
-            for &uid in with.uids() {
-                if self.has_reference(opt.read_ts(), uid)? {
-                    out.uids_mut().push(uid);
+            // Few IDs to look for: look each one up.
+            for &id in with.ids() {
+                if self.has_reference(opt.read_ts(), id.to_u128())? {
+                    out.ids_mut().push(id);
                 }
             }
             return Ok(out);
@@ -66,7 +67,7 @@ impl List {
 
         // Iterating, only the range of the intersection is read.
         let (uid_min, uid_max) = intersect
-            .and_then(|w| Some((*w.uids().first()?, *w.uids().last()?)))
+            .and_then(|w| Some((w.ids().first()?.to_u128(), w.ids().last()?.to_u128())))
             .unwrap_or((0, 0));
         self.iterate(opt.read_ts(), opt.after_uid(), |p| {
             if p.posting_type() == PostingType::Ref {
@@ -76,8 +77,11 @@ impl List {
                 if p.uid() > uid_max && uid_max > 0 {
                     return Ok(ControlFlow::Break(()));
                 }
-                out.uids_mut().push(p.uid());
-                if limit.is_some_and(|n| out.uids().len() > n) {
+                let id = SystemId::from_u128(p.uid()).map_err(|_| {
+                    PostingError::corrupted(&self.key, "a reference keyed by no ID")
+                })?;
+                out.ids_mut().push(id);
+                if limit.is_some_and(|n| out.ids().len() > n) {
                     return Ok(ControlFlow::Break(()));
                 }
             }
@@ -91,14 +95,14 @@ impl List {
         }
         // Only a positive count is applied here: a negative one is the query layer's, over the filtered result.
         if let Some(n) = limit {
-            out.uids_mut().truncate(n);
+            out.ids_mut().truncate(n);
         }
         Ok(out)
     }
 
     /// Whether a reference posting of `uid` is held at `read_ts`, from the deltas or the immutable layer, where a uid
     /// the pack holds without a posting beside it is a reference's.
-    fn has_reference(&self, read_ts: u64, uid: u64) -> Result<bool, PostingError> {
+    fn has_reference(&self, read_ts: u64, uid: u128) -> Result<bool, PostingError> {
         let (search_further, found) =
             self.mutation()
                 .find_posting_where(read_ts, uid, is_reference);
@@ -106,7 +110,8 @@ impl List {
             return Ok(found.is_some());
         }
         // Iteration starts after its argument, so it seeks the uid before.
-        let mut pitr = PIterator::seek(self, uid.wrapping_sub(1), 0)?;
+        let mut pitr = PIterator::seek(self, uid.saturating_sub(1), 0)?;
+        // Ends: each turn moves the iterator to its next posting.
         while pitr.valid() {
             match pitr.posting() {
                 PPosting::Uid(u) if u == uid => return Ok(true),
@@ -140,7 +145,7 @@ fn is_reference(p: &Posting) -> bool {
 
 /// Whether `uid` of a complete list's pack is a reference's: no posting of it is kept beside the pack, or one of those
 /// kept is a reference.
-fn reference_in(postings: &[Posting], uid: u64) -> bool {
+fn reference_in(postings: &[Posting], uid: u128) -> bool {
     let from = postings.partition_point(|p| p.uid() < uid);
     let mut held = postings[from..]
         .iter()

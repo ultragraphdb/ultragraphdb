@@ -3,65 +3,28 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Ported from Dgraph v25.5.0, tok/hnsw/helper.go (encodeUint64MatrixUnsafe, decodeUint64MatrixUnsafe). Changed for
- * ultragraphdb: translated to Rust without unsafe; the words are little-endian, as Go's native order is on amd64 and
- * arm64; the decoder refuses a matrix that does not fill its bytes exactly, where Go reads past a short one and
- * ignores trailing bytes.
+ * ultragraphdb: translated to Rust without unsafe; the counts are little-endian u64 words, as Go's native order is
+ * on amd64 and arm64, and each ID is a 128-bit system ID as its 16 little-endian bytes, where Go's were u64 uids;
+ * the decoder refuses a matrix that does not fill its bytes exactly and a word that is no valid system ID, where Go
+ * reads past a short one and ignores trailing bytes.
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-/// A node's neighbour lists, every level's, as one value: the number of rows, then each row's length and uids, every
-/// word a little-endian `u64`. An empty matrix encodes as no bytes, Go's nil.
-pub fn encode_uint64_matrix(matrix: &[Vec<u64>]) -> Vec<u8> {
-    if matrix.is_empty() {
-        return Vec::new();
-    }
-    let words = 1 + matrix.iter().map(|row| 1 + row.len()).sum::<usize>();
-    let mut data = Vec::with_capacity(8 * words);
-    data.extend_from_slice(&(matrix.len() as u64).to_le_bytes());
-    for row in matrix {
-        data.extend_from_slice(&(row.len() as u64).to_le_bytes());
-        row.iter()
-            .for_each(|uid| data.extend_from_slice(&uid.to_le_bytes()));
-    }
-    data
+use ultragraphdb_core_ids::SystemId;
+
+/// A node's neighbour lists, every level's, as one value: the number of rows, then each row's length, each a
+/// little-endian `u64`, and after each row's length its IDs, each the 16 little-endian bytes of its 128-bit value.
+/// An empty matrix encodes as no bytes, Go's nil.
+pub fn encode_id_matrix(matrix: &[Vec<SystemId>]) -> Vec<u8> {
+    unimplemented!()
 }
 
-/// The matrix [`encode_uint64_matrix`] wrote; no bytes decode as no rows.
+/// The matrix [`encode_id_matrix`] wrote; no bytes decode as no rows.
 ///
 /// # Errors
 ///
-/// Why the bytes are no matrix: a length that is not whole words, fewer words than the row count or a row length
-/// names, or words left after the last row. A corruption that leaves a valid matrix decodes.
-pub fn decode_uint64_matrix(data: &[u8]) -> Result<Vec<Vec<u64>>, &'static str> {
-    let (chunks, rest) = data.as_chunks::<8>();
-    if !rest.is_empty() {
-        return Err("a neighbour matrix whose length is not a multiple of 8 bytes");
-    }
-    // Any bytes that are whole words hold the row count; no bytes are no rows.
-    let [count, body @ ..] = chunks else {
-        return Ok(Vec::new());
-    };
-    let rows = u64::from_le_bytes(*count);
-    let mut words = body.iter().map(|w| u64::from_le_bytes(*w));
-    let available = (data.len() / 8) as u64;
-    if rows > available - 1 {
-        return Err("a neighbour matrix with more rows than its bytes hold");
-    }
-    let mut left = available - 1;
-    let mut matrix = Vec::with_capacity(rows as usize);
-    for _ in 0..rows {
-        let len = words
-            .next()
-            .ok_or("a neighbour matrix shorter than its rows")?;
-        left -= 1;
-        if len > left {
-            return Err("a neighbour row longer than the matrix holds");
-        }
-        left -= len;
-        matrix.push(words.by_ref().take(len as usize).collect());
-    }
-    if left > 0 {
-        return Err("bytes after a neighbour matrix's last row");
-    }
-    Ok(matrix)
+/// Why the bytes are no matrix: fewer bytes than the row count, a row's length or a row's IDs need, bytes left after
+/// the last row, or an ID that is no valid system ID. A corruption that leaves a valid matrix decodes.
+pub fn decode_id_matrix(data: &[u8]) -> Result<Vec<Vec<SystemId>>, &'static str> {
+    unimplemented!()
 }

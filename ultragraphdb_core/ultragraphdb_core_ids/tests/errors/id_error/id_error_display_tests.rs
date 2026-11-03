@@ -44,6 +44,10 @@ fn test_range_texts_name_the_limit() {
         "bucket 16777216 does not fit in 24 bits; the largest is 16777215"
     );
     assert_eq!(
+        IdError::bucket_group_range(262_144).to_string(),
+        "bucket group 262144 does not fit in 18 bits; the largest is 262143"
+    );
+    assert_eq!(
         IdError::iri_too_long(4_294_967_296).to_string(),
         "an IRI of 4294967296 bytes is longer than a canonical key's 4-byte length counts, 4294967295 bytes"
     );

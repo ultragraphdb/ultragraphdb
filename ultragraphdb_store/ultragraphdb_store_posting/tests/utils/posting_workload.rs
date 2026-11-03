@@ -26,7 +26,9 @@ use ultragraphdb_store_sim::{
 };
 use ultragraphdb_traits_store::{PersistMode, Store};
 
-use crate::utils::helpers::{TestLists, del_uid, del_value, delete_all, key, set_uid, set_value};
+use crate::utils::helpers::{
+    TestLists, del_uid, del_value, delete_all, key, rid, set_uid, set_value,
+};
 
 /// The rule a read breaks when it differs from the model.
 pub const READ_MATCHES_MODEL: &str =
@@ -70,10 +72,10 @@ impl Op {
     }
 }
 
-/// What a list holds: its reference uids and its values.
+/// What a list holds: its references' posting keys and its values.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Held {
-    uids: BTreeSet<u64>,
+    uids: BTreeSet<u128>,
     values: BTreeSet<Vec<u8>>,
 }
 
@@ -81,10 +83,10 @@ impl Held {
     fn apply(&mut self, op: &Op) {
         match op {
             Op::Set(uid) => {
-                let _added: bool = self.uids.insert(*uid);
+                let _added: bool = self.uids.insert(rid(*uid));
             }
             Op::Del(uid) => {
-                let _removed: bool = self.uids.remove(uid);
+                let _removed: bool = self.uids.remove(&rid(*uid));
             }
             Op::SetValue(v) => {
                 let _added: bool = self.values.insert(v.clone());

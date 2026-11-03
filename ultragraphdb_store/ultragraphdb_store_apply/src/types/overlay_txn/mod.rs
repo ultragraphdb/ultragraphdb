@@ -22,6 +22,7 @@ pub(crate) struct OverlayTxn<'q, S, C> {
     quads: &'q QuadStore<S, C>,
     keys: VectorKeys,
     read_ts: u64,
+    // Interior mutability: the `Txn` methods take `&self`, and the build's writes land here.
     values: RefCell<BTreeMap<Vec<u8>, Vec<u8>>>,
 }
 

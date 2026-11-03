@@ -10,6 +10,8 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+use ultragraphdb_core_ids::SystemId;
+
 use crate::traits::cache_type::CacheType;
 use crate::traits::float::Float;
 use crate::traits::txn::Txn;
@@ -34,7 +36,7 @@ pub trait OptionalIndexSupport<T: Float> {
 
 /// Dgraph's `VectorIndex`: searches for and adds vectors.
 pub trait VectorIndex<T: Float>: OptionalIndexSupport<T> {
-    /// The uids of at most `max_results` vectors nearest `query` that pass `filter`; the limit counts the results
+    /// The IDs of at most `max_results` vectors nearest `query` that pass `filter`; the limit counts the results
     /// after filtering.
     fn search<C: CacheType<Error = Self::Error>>(
         &self,
@@ -42,16 +44,16 @@ pub trait VectorIndex<T: Float>: OptionalIndexSupport<T> {
         query: &[T],
         max_results: usize,
         filter: SearchFilter<T>,
-    ) -> Result<Vec<u64>, Self::Error>;
+    ) -> Result<Vec<SystemId>, Self::Error>;
 
-    /// As [`search`](Self::search), from the vector of `query_uid`.
+    /// As [`search`](Self::search), from the vector of the node `query_uid`.
     fn search_with_uid<C: CacheType<Error = Self::Error>>(
         &self,
         c: &C,
-        query_uid: u64,
+        query_uid: SystemId,
         max_results: usize,
         filter: SearchFilter<T>,
-    ) -> Result<Vec<u64>, Self::Error>;
+    ) -> Result<Vec<SystemId>, Self::Error>;
 
     /// Adds the vector `vec` of `uuid`, writing through `txn`, and returns the values it wrote. `draw` gives a
     /// uniform draw in [0, 1) from the caller's seeded source whenever the index needs one, such as the level a node
@@ -59,7 +61,7 @@ pub trait VectorIndex<T: Float>: OptionalIndexSupport<T> {
     fn insert<X: Txn<Error = Self::Error>>(
         &self,
         txn: &X,
-        uuid: u64,
+        uuid: SystemId,
         vec: &[T],
         draw: &mut impl FnMut() -> f64,
     ) -> Result<Vec<KeyValue>, Self::Error>;
@@ -74,14 +76,14 @@ pub trait OptionalSearchOptions<T: Float>: VectorIndex<T> {
         query: &[T],
         max_results: usize,
         opts: &VectorIndexOptions<T>,
-    ) -> Result<Vec<u64>, Self::Error>;
+    ) -> Result<Vec<SystemId>, Self::Error>;
 
     /// As [`VectorIndex::search_with_uid`], tuned by `opts`.
     fn search_with_uid_and_options<C: CacheType<Error = Self::Error>>(
         &self,
         c: &C,
-        query_uid: u64,
+        query_uid: SystemId,
         max_results: usize,
         opts: &VectorIndexOptions<T>,
-    ) -> Result<Vec<u64>, Self::Error>;
+    ) -> Result<Vec<SystemId>, Self::Error>;
 }

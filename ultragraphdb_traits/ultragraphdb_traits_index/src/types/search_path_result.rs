@@ -8,11 +8,13 @@
 
 use std::collections::HashMap;
 
+use ultragraphdb_core_ids::SystemId;
+
 /// Dgraph's `SearchPathResult`: the result of a search with its path.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SearchPathResult {
-    neighbors: Vec<u64>,
-    path: Vec<u64>,
+    neighbors: Vec<SystemId>,
+    path: Vec<SystemId>,
     metrics: HashMap<String, u64>,
 }
 
@@ -23,22 +25,22 @@ impl SearchPathResult {
     }
 
     /// The nearest neighbors, in order, after filtering.
-    pub fn neighbors(&self) -> &[u64] {
+    pub fn neighbors(&self) -> &[SystemId] {
         &self.neighbors
     }
 
     /// The nearest neighbors, to fill.
-    pub fn neighbors_mut(&mut self) -> &mut Vec<u64> {
+    pub fn neighbors_mut(&mut self) -> &mut Vec<SystemId> {
         &mut self.neighbors
     }
 
     /// The path from the search's start to the nearest neighbor.
-    pub fn path(&self) -> &[u64] {
+    pub fn path(&self) -> &[SystemId] {
         &self.path
     }
 
     /// The path, to fill.
-    pub fn path_mut(&mut self) -> &mut Vec<u64> {
+    pub fn path_mut(&mut self) -> &mut Vec<SystemId> {
         &mut self.path
     }
 
