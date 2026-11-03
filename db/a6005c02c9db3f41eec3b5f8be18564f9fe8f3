@@ -1,0 +1,56 @@
+bazel/oci_images/scrach_base/README.md
+  s_98dc8cb91b21ea::t_7629763567ed83 3-4,6-108
+  s_98dc8cb91b21ea::t_2bf893770d6dca 5
+  s_6c9dcf457e80d9::t_f7b2796a568981 1-2
+.github/workflows/bazel_fmt.yml
+  s_98dc8cb91b21ea::t_0f6315009c5188 1-31
+MODULE.bazel
+  s_98dc8cb91b21ea::t_f956c91421e0c1 120-130
+bazel/oci_images/scrach_base/BUILD.bazel
+  s_98dc8cb91b21ea::t_52e7366cce9904 53-60,62-64
+  s_98dc8cb91b21ea::t_e7bcc5424f2794 6-7
+  s_98dc8cb91b21ea::t_ae8b512058ce7b 3
+  s_98dc8cb91b21ea::t_ea3780addae909 1-2,4-5,8-33,36-42,44-52
+  s_98dc8cb91b21ea::t_3b4db69d1d3eb1 34-35,43
+  s_6c9dcf457e80d9::t_90c9ac50b46295 61
+bazel/README_BAZEL.md
+  s_98dc8cb91b21ea::t_106ecaec4b438c 1-103,106-128,130,135-184,188-244
+  s_98dc8cb91b21ea::t_651d8ddc97fb39 185-187
+  s_98dc8cb91b21ea::t_d2a626bc3a48a7 129,131-134
+  s_98dc8cb91b21ea::t_7289bf4207e2a3 104-105
+.github/workflows/rust_audit.yml
+  s_98dc8cb91b21ea::t_f9c8b7ec1944f3 1-25
+bazel/container/img.bzl
+  s_98dc8cb91b21ea::t_35c208fea55f61 7-8
+  s_98dc8cb91b21ea::t_2d9d7431d05bcb 48-49,55
+bazel/oci_images/scrach_base/LICENSE
+  s_6c9dcf457e80d9::t_8bb751c81ba25d 1-21
+bazel/oci_images/scrach_base/group
+  s_98dc8cb91b21ea::t_eded839e3a4d93 1
+bazel/oci_images/scrach_base/passwd
+  s_98dc8cb91b21ea::t_1a333f16c232e6 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "dba6005c02c9db3f41eec3b5f8be18564f9fe8f3",
+  "prompts": {},
+  "sessions": {
+    "s_6c9dcf457e80d9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9e223492-f4c5-4f68-93b3-4ec87d773715",
+        "model": "unknown"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    },
+    "s_98dc8cb91b21ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "75a080b0-b5b8-40df-b5b4-375dc7d13203",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
