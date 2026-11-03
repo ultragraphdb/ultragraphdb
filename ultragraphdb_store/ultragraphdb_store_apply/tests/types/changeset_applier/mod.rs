@@ -4,4 +4,6 @@
  */
 
 #[cfg(test)]
+mod changeset_applier_logical_tests;
+#[cfg(test)]
 mod changeset_applier_tests;

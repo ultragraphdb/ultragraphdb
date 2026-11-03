@@ -35,6 +35,7 @@ use crate::utils::lock::lock;
 /// ```
 #[derive(Debug, Clone, Default)]
 pub struct LogCapture {
+    // Shared with the subscriber's layer (Ultra rule 9), which records events from any thread.
     events: Arc<Mutex<Vec<CapturedEvent>>>,
 }
 

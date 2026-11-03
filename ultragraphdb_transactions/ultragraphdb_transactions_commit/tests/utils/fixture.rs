@@ -7,14 +7,19 @@
 //! store, a driver standing in for the pipeline (it appends nothing, counts the rounds it is asked to append and the
 //! syncs it completes, and applies each synced round with `apply_round`), and a seeded generator.
 
+use std::num::NonZeroU64;
+
 use oxrdf::{GraphName, Literal, NamedNode, Term};
-use ultragraphdb_core_mapping::{Change, Changeset};
+use ultragraphdb_cluster_sequencer::{CatalogVersion, Close};
+use ultragraphdb_core_ids::{Epoch, SystemId};
+use ultragraphdb_core_mapping::{Change, Changeset, RandomSource};
 use ultragraphdb_store_apply::{Applied, ChangesetApplier};
 use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig};
 use ultragraphdb_store_sim::{
     FaultConfig, Seed, SimClock, SimListCache, SimStore, SteppedExecutor, Stream,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
+use ultragraphdb_traits_blocks::TestBlockSource;
 use ultragraphdb_transactions_commit::{
     CommitRequest, CommitStep, Input, Reply, RoundBounds, RoundRecord, StepOutput,
 };
@@ -24,9 +29,11 @@ use ultragraphdb_transactions_txn::{Commit, Mode, Prepared, Transaction, TxnBuff
 /// The write-ahead log of the tests, over simulated storage.
 pub type Log = Wal<SimStorage>;
 /// The changeset applier of the tests: over the simulated store, its cache and its stepped executor.
-pub type Applier = ChangesetApplier<SimStore, SimListCache<CachedList>, SteppedExecutor>;
+pub type Applier =
+    ChangesetApplier<SimStore, SimListCache<CachedList>, SteppedExecutor, TestBlockSource>;
 /// A transaction on the tests' applier.
-pub type Txn<'a> = Transaction<'a, SimStore, SimListCache<CachedList>>;
+pub type Txn<'a> =
+    Transaction<'a, SimStore, SimListCache<CachedList>, SteppedExecutor, TestBlockSource>;
 
 /// The namespace the tests write.
 pub const NS: u64 = 0;
@@ -45,8 +52,11 @@ pub fn applier() -> TestResult<Applier> {
 pub fn applier_over(store: SimStore) -> TestResult<Applier> {
     let cache = SimListCache::new(1024, Seed::new(1).stream(Stream::Cache));
     let executor = SteppedExecutor::new(Seed::new(1).stream(Stream::Executor));
+    // Blocks of 1,000 sequences stand in for the metadata group's leases; a restarted node leases afresh.
     ChangesetApplier::new(
         Lists::new(store, cache, ListsConfig::default()),
+        TestBlockSource::new(NonZeroU64::MIN.saturating_add(999)),
+        RandomSource::new(1),
         executor,
         1,
     )
@@ -88,13 +98,26 @@ pub fn ex(name: &str) -> NamedNode {
     NamedNode::new_unchecked(format!("http://ex.org/{name}"))
 }
 
-/// The UID the store holds for `<name>`.
-pub fn uid_of(applier: &Applier, name: &str) -> TestResult<u64> {
+/// The ID the store holds for `<name>`.
+pub fn id_of(applier: &Applier, name: &str) -> TestResult<SystemId> {
     applier
         .quads()
-        .uid_of(NS, ex(name).as_str())
+        .id_of(NS, ex(name).as_str())
         .context("the dictionary reads")?
         .context("the IRI is known")
+}
+
+/// The ID `prepared`'s execution gives `<name>`, an IRI it created or took from a concurrent creator: one whose
+/// dictionary entries its round writes.
+pub fn id_in(prepared: &Prepared, name: &str) -> TestResult<SystemId> {
+    let iri = ex(name);
+    prepared
+        .executed()
+        .terms()
+        .written()
+        .find(|(term, _)| *term == iri.as_str())
+        .map(|(_, id)| id)
+        .context("the execution writes the IRI's entries")
 }
 
 /// The insert of `<subject> <predicate> <object>`, all three IRIs under `http://ex.org/`.
@@ -188,7 +211,7 @@ pub fn prepare(txn: Txn<'_>) -> TestResult<Prepared> {
 }
 
 /// Ends a read-write `txn` as its proposal, request `request` of session `session`.
-pub fn prepare_in(txn: Txn<'_>, session: u64, request: u64) -> TestResult<Prepared> {
+pub fn prepare_in(txn: Txn<'_>, session: u128, request: u64) -> TestResult<Prepared> {
     let prepared = match txn
         .commit(session, request, &[], 0)
         .context("it prepares")?
@@ -219,10 +242,13 @@ pub struct Driver<'a> {
     pub syncs: usize,
     /// Every reply, in order.
     pub replies: Vec<Reply>,
-    /// The buffers of every proposal the step released, under its ticket, in order.
+    /// The buffers of every proposal the step released, under its ticket, in order: each released on the applier, as
+    /// the pipeline releases it.
     pub released: Vec<(u64, TxnBuffers)>,
     /// The clock the step is handed with every input, microseconds.
     pub now_us: u64,
+    /// The closes the step asked the sequencer for, in order.
+    pub close_requests: Vec<Epoch>,
 }
 
 impl<'a> Driver<'a> {
@@ -238,6 +264,7 @@ impl<'a> Driver<'a> {
             replies: Vec::new(),
             released: Vec::new(),
             now_us: 0,
+            close_requests: Vec::new(),
         }
     }
 
@@ -263,9 +290,31 @@ impl<'a> Driver<'a> {
             .out
             .released_mut()
             .drain(..)
-            .map(|(ticket, prepared)| (ticket, prepared.into_parts().1));
+            .map(|(ticket, prepared)| (ticket, prepared.release(self.applier)));
         self.released.extend(released);
+        self.close_requests.extend(self.out.close_request());
         Ok(())
+    }
+
+    /// Delivers the close of `epoch`, announcing no catalog version and evicting no session.
+    pub fn close(&mut self, epoch: u64) -> TestResult {
+        self.close_with(epoch, Vec::new(), Vec::new())
+    }
+
+    /// Delivers the close of `epoch` announcing `catalog` and carrying `evictions`.
+    pub fn close_with(
+        &mut self,
+        epoch: u64,
+        catalog: Vec<CatalogVersion>,
+        evictions: Vec<u128>,
+    ) -> TestResult {
+        self.run(Input::Close(close(epoch, catalog, evictions)?))
+    }
+
+    /// Steps the clock to `now_us` with nothing else to step on.
+    pub fn tick(&mut self, now_us: u64) -> TestResult {
+        self.now_us = now_us;
+        self.run(Input::Tick)
     }
 
     /// Hands `prepared` to the commit step under `ticket`.
@@ -333,4 +382,31 @@ impl<T: std::fmt::Debug, E> Refused<E> for Result<T, E> {
             Err(error) => Ok(error),
         }
     }
+}
+
+/// The sequencer's close of `epoch`, at time 0, announcing `catalog` and carrying `evictions`.
+pub fn close(epoch: u64, catalog: Vec<CatalogVersion>, evictions: Vec<u128>) -> TestResult<Close> {
+    Close::new(
+        Epoch::new(epoch).context("the epoch")?,
+        0,
+        catalog,
+        evictions,
+    )
+    .context("the close")
+}
+
+/// The commit version of `epoch` and `sequence`, written from the layout: `epoch << 22 | sequence`.
+pub fn version(epoch: u64, sequence: u64) -> u64 {
+    (epoch << 22) | sequence
+}
+
+/// `replies` without their session tokens, for a test about what else they answer: tokens are tested on their own.
+pub fn plain(replies: &[Reply]) -> Vec<Reply> {
+    replies
+        .iter()
+        .map(|r| {
+            Reply::new(r.ticket(), r.outcome().clone())
+                .with_results(r.results().to_vec(), r.terms().clone())
+        })
+        .collect()
 }

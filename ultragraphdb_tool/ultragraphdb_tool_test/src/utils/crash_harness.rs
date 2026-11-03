@@ -16,7 +16,7 @@ use ultragraphdb_store_kv::{
     DATA_KEYSPACE, Durability, FjallStore, META_KEYSPACE, TEMPORARY_KEYSPACE_PREFIX,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
-use ultragraphdb_traits_store::{Scan, Store, StoreSnapshot};
+use ultragraphdb_traits_store::{Entry, PersistMode, Scan, Store, StoreSnapshot, WriteBatch};
 
 /// How many keys each batch of the writer's batch modes writes.
 pub const KEYS_PER_BATCH: usize = 20_000;
@@ -220,4 +220,48 @@ pub fn drop_outcome(store: &FjallStore) -> TestResult<(usize, bool, bool)> {
     let entry = snapshot.get(&initial).context("readable")?.is_some();
     let kept = snapshot.get(b"\x00keep").context("readable")?.is_some();
     Ok((under, entry, kept))
+}
+
+/// The rounds the writer's `log` mode acknowledged: the whole lines of its log beside the store, `<dir>.rounds`, each
+/// synced before its round's batch was written; 0 when it wrote none.
+///
+/// # Errors
+///
+/// A [`TestError`] when the log holds a line that is not the next round's number.
+pub fn acknowledged_rounds(dir: &Path) -> TestResult<u64> {
+    let text = std::fs::read_to_string(dir.with_extension("rounds")).unwrap_or_default();
+    // A line cut by the kill has no newline after it, and was never acknowledged.
+    let whole = text.rsplit_once('\n').map_or("", |(lines, _)| lines);
+    let mut rounds = 0u64;
+    for line in whole.lines() {
+        let round: u64 = line.parse().context("a round's number")?;
+        rounds += 1;
+        if round != rounds {
+            return Err(TestError::new(format!(
+                "round {round} logged as round {rounds}"
+            )));
+        }
+    }
+    Ok(rounds)
+}
+
+/// Writes round `round`'s batch as the writer's `batches` and `log` modes write it, unsynced: [`KEYS_PER_BATCH`] keys
+/// at version `round`, recording `round` as applied. Recovery replays a round so.
+///
+/// # Errors
+///
+/// A [`TestError`] when the store refuses the batch.
+pub fn replay_round(store: &FjallStore, round: u64) -> TestResult {
+    let mut batch = WriteBatch::new();
+    let keys = u32::try_from(KEYS_PER_BATCH).context("a batch's key count fits a key's 4 bytes")?;
+    (0..keys).for_each(|j| {
+        let mut key = b"\x00b".to_vec();
+        key.extend_from_slice(&round.to_be_bytes());
+        key.extend_from_slice(&j.to_be_bytes());
+        batch.push(Entry::put(key, round, 0x04, vec![7; 100]));
+    });
+    batch.set_applied_ts(round);
+    store
+        .apply(batch, PersistMode::Buffer)
+        .context("the replayed round is written")
 }

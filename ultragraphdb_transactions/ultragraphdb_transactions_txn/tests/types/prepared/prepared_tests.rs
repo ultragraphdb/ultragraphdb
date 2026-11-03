@@ -19,7 +19,7 @@ fn test_its_parts_are_the_execution_and_the_buffers() -> TestResult {
     let view = WriteSetRecordView::new(prepared.record()).context("the wire reads the record")?;
     assert_eq!(
         (view.namespace(), view.session(), view.request()),
-        (NS, 1, 2)
+        (NS, 1u128.to_be_bytes(), 2)
     );
     assert_eq!(view.read_version(), prepared.read_version());
     let (executed, buffers) = prepared.into_parts();
@@ -60,18 +60,27 @@ fn test_operations_run_on_top_of_the_transaction_and_its_record_is_written_again
     let mut results = Vec::new();
     let operated = prepared.operated(&applier, &overlay, &[], &mut results)?;
     // A counter add's result is the counter's new value: 4 added to a counter holding nothing (point 33).
-    assert_eq!(results, vec![(4, false)]);
+    assert_eq!(
+        results,
+        vec![ultragraphdb_protocol_wire::OperationResult::counter(4)]
+    );
     assert_eq!(
         prepared.record(),
         &before[..],
         "the proposal is left as it was"
     );
     let view = WriteSetRecordView::new(operated.record())?;
-    assert_eq!((view.session(), view.request()), (3, 9));
+    assert_eq!((view.session(), view.request()), (3u128.to_be_bytes(), 9));
     assert_eq!(view.commit_record(), b"note");
     assert!(
-        view.list_deltas().len() > WriteSetRecordView::new(&before)?.list_deltas().len(),
-        "the counter's list is written"
+        view.inserted().iter().count()
+            > WriteSetRecordView::new(&before)?.inserted().iter().count(),
+        "the counter's statement is written"
+    );
+    assert_eq!(view.result_count(), 1);
+    assert_eq!(
+        view.result(0),
+        Some(ultragraphdb_protocol_wire::OperationResult::counter(4))
     );
     let record = operated.record().to_vec();
     prepared.adopt(operated);
@@ -146,8 +155,9 @@ fn test_a_builds_end_is_a_proposal_naming_its_operation() -> TestResult {
         applier.quads().lists().applied_ts()
     );
     let record = WriteSetRecordView::new(prepared.record())?;
-    assert_eq!(record.operation(), Some(RecordOperation::SwapBuild(8)));
-    assert_eq!((record.session(), record.request()), (0, 0));
+    assert_eq!(record.kind(), ultragraphdb_protocol_wire::RecordKind::Build);
+    assert_eq!(record.operation(0), Some(RecordOperation::CompleteBuild(8)));
+    assert_eq!((record.session(), record.request()), ([0; 16], 0));
     Ok(())
 }
 
@@ -185,11 +195,11 @@ fn test_a_drop_names_its_session_request_and_principal() -> TestResult {
     let view = WriteSetRecordView::new(drop.record())?;
     assert_eq!(
         (view.session(), view.request(), view.principal()),
-        (11, 4, 7)
+        (11u128.to_be_bytes(), 4, 7)
     );
-    assert_eq!(view.operation(), Some(RecordOperation::DropNamespaceData));
+    assert_eq!(view.operation(0), Some(RecordOperation::DropNamespaceData));
     assert_eq!(
-        view.conflict_ranges().len(),
+        view.conflict_ranges().iter().count(),
         drop.executed().drop_ranges().len()
     );
     Ok(())
@@ -235,5 +245,60 @@ fn test_a_declaration_indexing_a_predicate_with_data_starts_a_build() -> TestRes
     assert!(declared.starts_build());
     assert!(!declared.is_drop());
     assert!(!prepare(vec![insert("b", "knows", "c")])?.starts_build());
+    Ok(())
+}
+
+/// A node an insert-if-absent creates is named in the record's results by its IRI, never by its system ID (§6.3).
+#[test]
+fn test_an_insert_if_absents_result_names_its_node_by_its_iri() -> TestResult {
+    use ultragraphdb_core_mapping::{Change, Declaration, PredicateDeclaration};
+    use ultragraphdb_protocol_wire::OperationResult;
+    let applier = applier()?;
+    let unique = PredicateDeclaration::new(crate::utils::fixture::ex("key")).with_unique(true);
+    crate::utils::fixture::store(
+        &applier,
+        vec![Change::Declare(Declaration::Predicate(unique))],
+    )?;
+    let mut txn = begin(&applier, Mode::ReadWrite)?;
+    txn.operate(
+        ultragraphdb_store_apply::Operation::InsertIfAbsent {
+            graph: oxrdf::GraphName::DefaultGraph,
+            predicate: crate::utils::fixture::ex("key"),
+            value: oxrdf::Literal::new_simple_literal("w").into(),
+            properties: Vec::new(),
+        },
+        0,
+    )?;
+    let prepared = prepared(txn.commit(1, 1, &[], 0))?;
+    let overlay = applier.quads().lists().batch();
+    let mut results = Vec::new();
+    let operated = prepared.operated(&applier, &overlay, &[], &mut results)?;
+    // The first term of the reply's table, a node created.
+    assert_eq!(results, vec![OperationResult::for_node(0, true)]);
+    let view = WriteSetRecordView::new(operated.record())?;
+    let terms = view.result_terms();
+    assert_eq!(terms.len(), 1);
+    let named = terms.get(0).context("the node")?.to_term();
+    let text = format!("{named:?}");
+    // A node without an IRI of its own is named by its skolem IRI, under the namespace's genid base.
+    assert!(text.contains("/.well-known/genid/"), "{text}");
+    Ok(())
+}
+
+/// The dictionary entries a transaction creates are its round's, read off its execution: a new IRI's two entries.
+#[test]
+fn test_a_proposal_hands_its_dictionary_entries_to_its_round() -> TestResult {
+    let applier = applier()?;
+    let mut txn = begin(&applier, Mode::ReadWrite)?;
+    txn.write(&changeset(vec![insert("a", "knows", "b")]), 0)?;
+    let prepared = prepared(txn.commit(1, 1, &[], 0))?;
+    let entries: Vec<(Vec<u8>, Vec<u8>)> = prepared
+        .dictionary()
+        .map(|(k, v)| (k.to_vec(), v.to_vec()))
+        .collect();
+    // Four new IRIs, `rdf:type` among them for the namespace's initial catalog, each an entry from its term to its ID
+    // and one back: eight, every key the dictionary keyspace's byte 0x1B.
+    assert_eq!(entries.len(), 8, "{entries:?}");
+    assert!(entries.iter().all(|(k, _)| k.first() == Some(&0x1B)));
     Ok(())
 }

@@ -22,6 +22,7 @@ workspace = true
 [dependencies]
 ultragraphdb_common_telemetry = { workspace = true }
 oxrdf = { workspace = true }
+ultragraphdb_core_ids = { workspace = true }
 ultragraphdb_core_keys = { workspace = true }
 ultragraphdb_core_mapping = { workspace = true }
 ultragraphdb_core_terms = { workspace = true }
@@ -29,6 +30,7 @@ ultragraphdb_error_store = { workspace = true }
 ultragraphdb_store_apply = { workspace = true }
 ultragraphdb_store_kv = { workspace = true }
 ultragraphdb_store_posting = { workspace = true }
+ultragraphdb_traits_blocks = { workspace = true }
 ultragraphdb_traits_store = { workspace = true }
 ultragraphdb_traits_log = { workspace = true }
 ultragraphdb_transactions_commit = { workspace = true }

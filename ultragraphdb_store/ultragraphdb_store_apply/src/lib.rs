@@ -66,6 +66,8 @@ pub use crate::types::drop_target::DropTarget;
 pub use crate::types::executed::Executed;
 pub use crate::types::execution::Execution;
 pub use crate::types::level_draw::LevelDraw;
+pub use crate::types::logical_quad::LogicalQuad;
+pub use crate::types::logical_writes::LogicalWrites;
 pub use crate::types::operation::Operation;
 pub use crate::types::operation_link::OperationLink;
 pub use crate::types::operation_outcome::OperationOutcome;

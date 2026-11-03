@@ -3,10 +3,12 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::task::Poll;
 use ultragraphdb_error_log::LogError;
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
 use ultragraphdb_protocol_wire::{FrameView, MAX_FRAME_SIZE, RoundHeader};
-use ultragraphdb_traits_log::{LogEvent, OrderedLog, Position, Round, RoundRef};
+
+use ultragraphdb_traits_log::{DurabilityTicket, LogEvent, OrderedLog, Position, Round, RoundRef};
 
 use crate::traits::durable_file::DurableFile;
 use crate::traits::durable_storage::DurableStorage;
@@ -82,13 +84,14 @@ impl<S: DurableStorage> Wal<S> {
         if view.header().checksum() != entry.checksum {
             return Err(corrupt());
         }
-        let fields = RoundHeader::decode(view.header().command_header());
+        let fields = RoundHeader::decode(view.header().command_header()).map_err(|_| corrupt())?;
         Ok(Round::new(
             entry.position,
             entry.parent,
             entry.checksum,
             fields.first_version(),
             fields.transactions(),
+            fields.derivation(),
             view.body().to_vec(),
         ))
     }
@@ -100,7 +103,7 @@ impl<S: DurableStorage> OrderedLog for Wal<S> {
     /// [`LogError::parent_mismatch`] unless its parent is the tail's checksum; [`LogError::too_large`] when its frame
     /// exceeds 1 MiB or its padded frame a segment; [`LogError::busy`] when it would need a segment past the
     /// capacity. Nothing is written before [`OrderedLog::sync`].
-    fn append(&mut self, round: RoundRef<'_>) -> Result<Position, LogError> {
+    fn append(&mut self, round: RoundRef<'_>) -> Result<DurabilityTicket, LogError> {
         self.refuse_if_poisoned()?;
         if self.sealed {
             return Err(LogError::sealed(self.tail.0.get()));
@@ -157,13 +160,37 @@ impl<S: DurableStorage> OrderedLog for Wal<S> {
         self.staged.push_back((entry, frame));
         self.tail = (round.position(), checksum);
         self.cursor = (segment, offset + padded_len);
-        Ok(round.position())
+        Ok(DurabilityTicket::new(round.position()))
+    }
+
+    /// Complete once the committed position reaches the ticket's; refused as [`LogError::position_mismatch`], naming
+    /// the tail and the ticket's position, past the tail; failed as [`LogError::poisoned`] when a failed write or sync
+    /// lost its round; pending otherwise.
+    fn poll_ticket(&self, ticket: DurabilityTicket) -> Poll<Result<(), LogError>> {
+        let position = ticket.position();
+        debug_assert!(
+            self.committed.0 <= self.tail.0,
+            "nothing is durable past the tail"
+        );
+        if position <= self.committed.0 {
+            Poll::Ready(Ok(()))
+        } else if position > self.tail.0 {
+            Poll::Ready(Err(LogError::position_mismatch(
+                self.tail.0.get(),
+                position.get(),
+            )))
+        } else if self.poisoned {
+            Poll::Ready(Err(LogError::poisoned()))
+        } else {
+            Poll::Pending
+        }
     }
 
     /// Each staged round in order: its segment created, preallocated and synced with its directory when new, then
     /// the round's one write and one sync. A failure poisons the log and is [`LogError::io`].
     async fn sync(&mut self) -> Result<Position, LogError> {
         self.refuse_if_poisoned()?;
+        // Ends: each iteration takes one staged round, and nothing stages a round while the sync runs.
         while let Some((entry, frame)) = self.staged.pop_front() {
             if let Err(failure) = self.write_round(entry, frame).await {
                 self.poisoned = true;
@@ -213,11 +240,11 @@ impl<S: DurableStorage> OrderedLog for Wal<S> {
         Ok(rounds)
     }
 
-    /// Records `position`, its round's checksum and `version`, the last commit version it covers, as the checkpoint in
-    /// the superblock, then removes every segment whose rounds all lie at or below it, short of the segment the next
-    /// round is written to. A position at or below the checkpoint changes nothing; one past the committed position is
-    /// [`LogError::position_mismatch`]. A failure poisons the log.
-    async fn trim_through(&mut self, position: Position, version: u64) -> Result<(), LogError> {
+    /// Records `position` and its round's checksum as the checkpoint in the superblock, then removes every segment
+    /// whose rounds all lie at or below it, short of the segment the next round is written to. A position at or below
+    /// the checkpoint changes nothing; one past the committed position is [`LogError::position_mismatch`]. A failure
+    /// poisons the log.
+    async fn trim_through(&mut self, position: Position) -> Result<(), LogError> {
         self.refuse_if_poisoned()?;
         if position > self.committed.0 {
             return Err(LogError::position_mismatch(
@@ -225,17 +252,17 @@ impl<S: DurableStorage> OrderedLog for Wal<S> {
                 position.get(),
             ));
         }
-        if position <= self.checkpoint() {
+        if position <= self.superblock.checkpoint() {
             return Ok(());
         }
-        let result = self.checkpoint_at(position, version).await;
+        let result = self.checkpoint_at(position).await;
         self.poisoned = result.is_err();
         result
     }
 
-    /// The checkpoint's last commit version, from the superblock.
-    fn checkpoint_version(&self) -> u64 {
-        self.superblock.checkpoint_version()
+    /// The checkpoint's position, from the superblock.
+    fn checkpoint(&self) -> Position {
+        self.superblock.checkpoint()
     }
 
     fn seal(&mut self) -> Result<Position, LogError> {

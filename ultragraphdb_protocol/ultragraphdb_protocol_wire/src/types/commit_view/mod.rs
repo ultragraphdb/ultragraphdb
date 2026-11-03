@@ -10,7 +10,8 @@ use ultragraphdb_error_protocol::ProtocolError;
 use crate::types::command::Command;
 
 use crate::types::operation_result::OperationResult;
-use crate::utils::results::{RESULT_SIZE, result_at};
+use crate::utils::constants::OPERATION_RESULT_SIZE;
+use crate::utils::results::result_at;
 
 /// The body of a received Commit frame, read in place; see [`crate::Commit`] for its layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,7 +40,7 @@ impl<'a> CommitView<'a> {
 
     /// The number of results.
     pub fn result_count(&self) -> usize {
-        self.results.len() / RESULT_SIZE
+        self.results.len() / OPERATION_RESULT_SIZE
     }
 
     /// Result `index`, `None` past the last.

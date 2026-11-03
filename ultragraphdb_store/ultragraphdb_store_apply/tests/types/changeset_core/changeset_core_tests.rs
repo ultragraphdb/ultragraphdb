@@ -60,6 +60,24 @@ fn test_an_execution_writes_nothing_and_reads_at_the_watermark() -> TestResult {
     Ok(())
 }
 
+/// A changeset refused after creating terms commits nothing and writes none of their dictionary entries.
+#[test]
+fn test_a_refused_changeset_leaves_no_dictionary_entry() -> TestResult {
+    let a = changesets()?;
+    write(&a, &["<a> <knows> <z>"])?;
+    let before = a.quads().store().contents();
+    let refused = a.execute(&changeset(vec![
+        insert("<gone> <p> <q>")?,
+        insert(r#"<gone> <embedding> "[0.50,-1.0]"^^ugdb:float32vector"#)?,
+    ]));
+    assert!(refused.is_err(), "the vector is refused");
+    assert_eq!(a.quads().store().contents(), before, "nothing is written");
+    for name in ["gone", "p", "q"] {
+        assert_eq!(a.quads().id_of(NS, ex(name).as_str())?, None, "<{name}>");
+    }
+    Ok(())
+}
+
 /// Two executions from one watermark do not see each other: each inserts a statement neither found held, so both
 /// write it; a new IRI takes one ID, which the first creates and the second takes, so only the first found it absent.
 #[test]

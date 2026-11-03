@@ -3,174 +3,93 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! A write-set record's operation, section 10: its code and argument, written and read back, and every malformed
-//! operation refused.
+use ultragraphdb_protocol_wire::RecordOperation;
+use ultragraphdb_tool_bdd::TestResult;
 
-use ultragraphdb_error_protocol::ProtocolErrorEnum;
-use ultragraphdb_protocol_wire::{RecordOperation, WriteSetRecord, WriteSetRecordView};
-use ultragraphdb_tool_bdd::{Context, TestResult};
+use crate::types::write_set_record::write_set_record_tests::sid;
 
-use crate::utils::golden_bodies::section;
+/// The 16 big-endian bytes of the system ID of prefix 1, sequence 4 and bucket 0x2A, from PROTOCOL.md §1's table.
+const ID_4: [u8; 16] = [0, 1, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0x2A, 0, 0, 0];
+
+/// A catalog version's argument: the u64 little-endian, then 8 zero bytes.
+fn catalog(version: u64) -> [u8; 16] {
+    let mut out = [0u8; 16];
+    out[..8].copy_from_slice(&version.to_le_bytes());
+    out
+}
 
 #[test]
-fn test_each_operation_has_its_code_and_argument() {
-    for (operation, code, argument, drop) in [
-        (RecordOperation::DropPredicate(7), 1, 7, true),
-        (RecordOperation::SwapBuild(1_000), 2, 1_000, false),
-        (RecordOperation::UndoBuild(u64::MAX), 3, u64::MAX, false),
-        (RecordOperation::DropGraph(9), 4, 9, true),
-        (RecordOperation::DropNamespaceData, 5, 0, true),
-        (RecordOperation::DropNamespace, 6, 0, true),
-        (RecordOperation::DropAll, 7, 0, true),
-    ] {
-        assert_eq!((operation.code(), operation.argument()), (code, argument));
+fn test_each_operation_has_its_code_and_argument() -> TestResult {
+    let id = sid(1, 4, 0x2A)?;
+    let cases = [
+        (RecordOperation::DropPredicate(id), 1u16, ID_4, true),
+        (RecordOperation::DropGraph(id), 2, ID_4, true),
+        (RecordOperation::DropNamespaceData, 3, [0; 16], true),
+        (RecordOperation::DropNamespace, 4, [0; 16], true),
+        (RecordOperation::DropAll, 5, [0; 16], true),
+        (RecordOperation::StartBuild(12), 6, catalog(12), false),
+        (
+            RecordOperation::CompleteBuild(u64::MAX),
+            7,
+            catalog(u64::MAX),
+            false,
+        ),
+    ];
+    for (operation, code, argument, drop) in cases {
+        assert_eq!(operation.code(), code);
+        assert_eq!(operation.argument(), argument);
+        assert_eq!(operation.is_drop(), drop);
         assert_eq!(RecordOperation::from_parts(code, argument), Some(operation));
-        assert_eq!(operation.is_drop(), drop, "{operation:?}");
+        let mut expected = code.to_le_bytes().to_vec();
+        expected.extend_from_slice(&[0; 6]);
+        expected.extend_from_slice(&argument);
+        assert_eq!(operation.encode().to_vec(), expected);
     }
-    assert_eq!(RecordOperation::from_parts(0, 1), None);
-    assert_eq!(RecordOperation::from_parts(8, 1), None);
-    // The drops of a namespace's data, a namespace and every namespace take no argument.
-    for code in 5..=7 {
-        assert_eq!(RecordOperation::from_parts(code, 1), None, "code {code}");
+    // A build of catalog version 0 takes the zero argument.
+    assert_eq!(
+        RecordOperation::from_parts(6, [0; 16]),
+        Some(RecordOperation::StartBuild(0))
+    );
+    Ok(())
+}
+
+#[test]
+fn test_a_code_naming_no_operation_is_none() {
+    for code in [0u16, 8, u16::MAX] {
+        assert_eq!(RecordOperation::from_parts(code, [0; 16]), None);
+        assert_eq!(RecordOperation::from_parts(code, ID_4), None);
     }
-    assert_eq!(
-        RecordOperation::from_parts(4, 0),
-        Some(RecordOperation::DropGraph(0))
-    );
-}
-
-/// A record of `operation` alone, in namespace 5.
-fn operating(operation: RecordOperation) -> Vec<u8> {
-    let mut record = WriteSetRecord::new(5, 0, 0, 0);
-    record.set_operation(operation);
-    record.encode()
 }
 
 #[test]
-fn test_an_operation_is_sixteen_bytes_in_section_ten() -> TestResult {
-    let bytes = operating(RecordOperation::SwapBuild(0x0102));
-    let (offset, len) = section(&bytes, 40, 10);
-    assert_eq!(len, 16);
-    let mut expected = 2u16.to_le_bytes().to_vec();
-    expected.extend_from_slice(&[0; 6]);
-    expected.extend_from_slice(&0x0102u64.to_le_bytes());
-    assert_eq!(&bytes[offset..offset + 16], expected.as_slice());
-    let view = WriteSetRecordView::new(&bytes)?;
-    assert_eq!(view.operation(), Some(RecordOperation::SwapBuild(0x0102)));
-    assert_eq!(
-        view.to_record().encode(),
-        bytes,
-        "the view gives the record back"
-    );
-    // A transaction's record has none.
-    let plain = WriteSetRecord::new(5, 0, 0, 0).encode();
-    assert_eq!(section(&plain, 40, 10).1, 0);
-    assert_eq!(WriteSetRecordView::new(&plain)?.operation(), None);
-    Ok(())
-}
-
-#[test]
-fn test_a_malformed_operation_is_refused() -> TestResult {
-    let bytes = operating(RecordOperation::DropPredicate(9));
-    let (offset, _) = section(&bytes, 40, 10);
-    let mut unknown = bytes.clone();
-    unknown[offset] = 8;
-    assert_eq!(
-        WriteSetRecordView::new(&unknown)
-            .err()
-            .context("a refusal")?
-            .0,
-        ProtocolErrorEnum::FieldValue {
-            command: 17,
-            field: "operation",
-            value: 8
+fn test_an_argument_the_code_does_not_take_is_none() {
+    // A drop of a predicate or graph names a valid system ID: not one of type prefix 0, sequence 0 or reserved bytes
+    // set, nor zero.
+    let mut prefix_zero = ID_4;
+    prefix_zero[1] = 0;
+    let mut sequence_zero = ID_4;
+    sequence_zero[9] = 0;
+    let mut reserved = ID_4;
+    reserved[15] = 1;
+    for code in [1u16, 2] {
+        for argument in [prefix_zero, sequence_zero, reserved, [0; 16]] {
+            assert_eq!(RecordOperation::from_parts(code, argument), None);
         }
-    );
-    // Operation 5 with the predicate drop's argument 9: the namespace's data drop takes none.
-    let mut argument = bytes.clone();
-    argument[offset] = 5;
-    assert_eq!(
-        WriteSetRecordView::new(&argument)
-            .err()
-            .context("a refusal")?
-            .0,
-        ProtocolErrorEnum::FieldValue {
-            command: 17,
-            field: "argument",
-            value: 9
-        }
-    );
-    // Padding is checked before the argument.
-    let mut both = argument.clone();
-    both[offset + 2] = 1;
-    assert_eq!(
-        WriteSetRecordView::new(&both).err().context("a refusal")?.0,
-        ProtocolErrorEnum::PaddingNotZero {
-            command: 17,
-            offset: offset + 2
-        }
-    );
-    let mut zero = bytes.clone();
-    zero[offset] = 0;
-    assert_eq!(
-        WriteSetRecordView::new(&zero).err().context("a refusal")?.0,
-        ProtocolErrorEnum::FieldValue {
-            command: 17,
-            field: "operation",
-            value: 0
-        }
-    );
-    let mut padding = bytes.clone();
-    padding[offset + 7] = 1;
-    assert_eq!(
-        WriteSetRecordView::new(&padding)
-            .err()
-            .context("a refusal")?
-            .0,
-        ProtocolErrorEnum::PaddingNotZero {
-            command: 17,
-            offset: offset + 7
-        }
-    );
-    Ok(())
-}
-
-#[test]
-fn test_an_operation_section_of_the_wrong_length_is_refused() -> TestResult {
-    // A section of 8 bytes: the table's last entry names it, the bytes follow.
-    let mut short = WriteSetRecord::new(0, 1, 2, 3).encode();
-    let at = 40 + 8 * 10;
-    let end = short.len() as u32;
-    short[at..at + 4].copy_from_slice(&end.to_le_bytes());
-    short[at + 4..at + 8].copy_from_slice(&8u32.to_le_bytes());
-    short.extend_from_slice(&[0; 8]);
-    assert_eq!(
-        WriteSetRecordView::new(&short)
-            .err()
-            .context("a refusal")?
-            .0,
-        ProtocolErrorEnum::SectionLength {
-            command: 17,
-            section: 10,
-            len: 8,
-            unit: 16
-        }
-    );
-    // A section of 24 bytes: one operation and eight more, which is not "empty or one operation".
-    let mut long = WriteSetRecord::new(0, 1, 2, 3).encode();
-    let long_end = long.len() as u32;
-    long[at..at + 4].copy_from_slice(&long_end.to_le_bytes());
-    long[at + 4..at + 8].copy_from_slice(&24u32.to_le_bytes());
-    long.extend_from_slice(&[1, 0, 0, 0, 0, 0, 0, 0]);
-    long.extend_from_slice(&[0; 16]);
-    assert_eq!(
-        WriteSetRecordView::new(&long).err().context("a refusal")?.0,
-        ProtocolErrorEnum::SectionLength {
-            command: 17,
-            section: 10,
-            len: 24,
-            unit: 16
-        }
-    );
-    Ok(())
+    }
+    // The drops of a namespace's data, of everything in it and of everything take none.
+    for code in [3u16, 4, 5] {
+        assert_eq!(RecordOperation::from_parts(code, ID_4), None);
+        let mut last = [0u8; 16];
+        last[15] = 1;
+        assert_eq!(RecordOperation::from_parts(code, last), None);
+    }
+    // A build's catalog version leaves bytes 8 to 15 zero.
+    for code in [6u16, 7] {
+        let mut set = catalog(12);
+        set[8] = 1;
+        assert_eq!(RecordOperation::from_parts(code, set), None);
+        let mut last = catalog(12);
+        last[15] = 1;
+        assert_eq!(RecordOperation::from_parts(code, last), None);
+    }
 }

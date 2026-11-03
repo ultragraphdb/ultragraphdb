@@ -12,6 +12,7 @@ impl Iterator for FjallScan {
     type Item = Result<Item, StoreError>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        // Ends: each turn returns, or consumes at least one read of the fjall iterator, which is finite.
         loop {
             if let Some(item) = self.pending.pop_front() {
                 if item.is_err() {

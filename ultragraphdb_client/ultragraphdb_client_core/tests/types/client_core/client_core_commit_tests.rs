@@ -57,7 +57,7 @@ fn test_a_commit_answers_its_version_and_results_and_advances_the_session() -> T
     );
     let c = committed(h.settle(p)?)?;
     assert_eq!((c.version(), c.request(), c.results().len()), (1_000, 1, 2));
-    assert_eq!(c.results()[1].uid(), 101);
+    assert_eq!(c.results()[1].node(), Some(1));
     assert_eq!(h.core.next_request(s), Some(2));
     let committing = {
         let t = begin(&mut h)?;

@@ -64,11 +64,6 @@ impl<S: DurableStorage> Wal<S> {
         self.superblock.incarnation()
     }
 
-    /// The last checkpoint's position, from the superblock.
-    pub fn checkpoint(&self) -> Position {
-        self.superblock.checkpoint()
-    }
-
     /// The file of segment `index`.
     fn segment_path(&self, index: u64) -> PathBuf {
         self.dir.join(segment_name(index))

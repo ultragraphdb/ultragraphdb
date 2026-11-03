@@ -13,7 +13,7 @@ use crate::types::commit_step::frame_len;
 ///
 /// The largest write-set record a round holds on its own, [`RoundBounds::max_write_set`], is what the node announces as
 /// the Welcome's `max_write_set` and bounds its transactions' records by: a record the commit step accepts always fits a
-/// round, 1,046,224 bytes of a round of 1,048,576 and 261,328 of one of 262,144.
+/// round, 1,046,216 bytes of a round of 1,048,576 and 261,320 of one of 262,144.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RoundBounds {
     bytes: u32,
@@ -60,6 +60,7 @@ fn largest_record(bytes: usize) -> usize {
         return 0;
     }
     let (mut low, mut high) = (0, bytes);
+    // Each turn narrows `low..=high` by at least one, so it ends within `bytes` turns, and within log2 of them.
     while low < high {
         let mid = low + (high - low).div_ceil(2);
         if fits(mid) {
@@ -68,5 +69,7 @@ fn largest_record(bytes: usize) -> usize {
             high = mid - 1;
         }
     }
+    debug_assert!(fits(low));
+    debug_assert!(low == bytes || !fits(low + 1));
     low
 }

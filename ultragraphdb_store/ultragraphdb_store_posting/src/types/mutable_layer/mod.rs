@@ -79,6 +79,12 @@ impl MutableLayer {
         self.current = Some(plist);
     }
 
+    /// Drops the scratch layer, keeping the read timestamp and every other layer.
+    pub(crate) fn clear_current_entries(&mut self) {
+        self.current = None;
+        self.current_uids.clear();
+    }
+
     /// Whether a value posting is told apart by its value as well as its uid.
     pub fn by_value(&self) -> bool {
         self.by_value

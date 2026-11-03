@@ -7,6 +7,7 @@
 //! `frame_tests` pins against the tables; every expected offset, position and range is worked out by hand from the
 //! frame sizes (a 1,000-byte body is one block, a 5,000-byte body two).
 
+use std::num::NonZeroU32;
 use ultragraphdb_error_log::{LogError, LogErrorEnum};
 use ultragraphdb_protocol_wire::{Command, Header, RoundHeader};
 use ultragraphdb_tool_bdd::{Context, TestResult};
@@ -16,7 +17,8 @@ use ultragraphdb_transactions_log::{
 };
 
 use crate::utils::helpers::{
-    CLUSTER, FULL_BLOCK, FULL_TWO_BLOCKS, ONE_BLOCK, TWO_BLOCKS, body, frame_checksum,
+    CLUSTER, FULL_BLOCK, FULL_TWO_BLOCKS, ONE_BLOCK, TWO_BLOCKS, body, derivation_of,
+    frame_checksum,
 };
 
 /// A round to lay into a segment: position, parent, incarnation, body length.
@@ -58,6 +60,7 @@ fn frame_of(spec: Spec) -> TestResult<Vec<u8>> {
         spec.parent,
         spec.position.wrapping_mul(2),
         1,
+        derivation_of(spec.position),
         &data,
     );
     Ok(encode_round(CLUSTER, 0, spec.incarnation, &round)
@@ -237,7 +240,7 @@ fn test_rounds_of_an_older_incarnation_after_the_current_are_a_clean_end() -> Te
 #[test]
 fn test_a_valid_round_of_another_cluster_is_damage() -> TestResult {
     let data = body(1, 10);
-    let round = RoundRef::new(Position::new(1), 0, 2, 1, &data);
+    let round = RoundRef::new(Position::new(1), 0, 2, 1, derivation_of(1), &data);
     let foreign = encode_round(CLUSTER ^ 1, 0, 1, &round)
         .context("encoded")?
         .0;
@@ -292,7 +295,7 @@ fn test_a_size_out_of_bounds_is_header_damage_before_its_checksum_is_trusted() -
 fn test_a_frame_of_another_command_is_header_damage() -> TestResult {
     let data = body(1, 10);
     let header = Header::new(CLUSTER, Command::Commit)
-        .with_command_header(RoundHeader::new(1, 0, 1, 2, 1).encode());
+        .with_command_header(RoundHeader::new(1, 0, 1, 2, 1, NonZeroU32::MIN).encode());
     let mut frame = header.encode_frame(&data).context("a frame")?;
     frame.resize(4_096, 0);
     let scan = scan(&segment(4, &[frame]))?;
@@ -307,7 +310,7 @@ fn test_a_frame_of_another_command_numbered_as_a_round_is_header_damage() -> Tes
     let data = body(1, 10);
     let header = Header::new(CLUSTER, Command::Commit)
         .with_sequence(1)
-        .with_command_header(RoundHeader::new(1, 0, 1, 2, 1).encode());
+        .with_command_header(RoundHeader::new(1, 0, 1, 2, 1, NonZeroU32::MIN).encode());
     let mut frame = header.encode_frame(&data).context("a frame")?;
     frame.resize(4_096, 0);
     let scan = scan(&segment(4, &[frame]))?;
@@ -779,5 +782,110 @@ fn test_a_round_torn_at_every_byte_is_damage_or_a_clean_end() -> TestResult {
             );
         }
     }
+    Ok(())
+}
+
+/// A Round frame whose command header is no round's is header damage, though its frame verifies: derivation version 0,
+/// or a byte of the unused 40 to 127 set.
+#[test]
+fn test_a_round_header_of_derivation_zero_or_with_unused_bytes_set_is_header_damage() -> TestResult
+{
+    let data = body(1, 10);
+    let valid = RoundHeader::new(1, 0, 1, 2, 1, NonZeroU32::MIN).encode();
+    let mut zero_derivation = valid;
+    zero_derivation[36..40].copy_from_slice(&0u32.to_le_bytes());
+    let mut unused_set = valid;
+    unused_set[40] = 1;
+    let mut last_unused_set = valid;
+    last_unused_set[127] = 0x80;
+    for command_header in [zero_derivation, unused_set, last_unused_set] {
+        let header = Header::new(CLUSTER, Command::Round)
+            .with_sequence(1)
+            .with_command_header(command_header);
+        let mut frame = header.encode_frame(&data).context("a frame")?;
+        frame.resize(4_096, 0);
+        let scan = scan(&segment(4, &[frame]))?;
+        assert_eq!(positions(&scan), Vec::<u64>::new());
+        assert_eq!((scan.end(), scan.damage()), (0, Some(Damage::Header)));
+    }
+    // The same frame with the valid command header is the log's first round.
+    let header = Header::new(CLUSTER, Command::Round)
+        .with_sequence(1)
+        .with_command_header(valid);
+    let mut frame = header.encode_frame(&data).context("a frame")?;
+    frame.resize(4_096, 0);
+    assert_eq!(positions(&scan(&segment(4, &[frame]))?), vec![1]);
+    Ok(())
+}
+
+/// A scanned round carries the derivation version its frame names, each round its own.
+#[test]
+fn test_a_scanned_round_carries_its_derivation() -> TestResult {
+    let mut frames = Vec::new();
+    let mut parent = 0;
+    for position in 1..=3 {
+        let frame = frame_of(Spec {
+            position,
+            parent,
+            incarnation: 1,
+            len: ONE_BLOCK,
+        })?;
+        parent = frame_checksum(&frame);
+        frames.push(frame);
+    }
+    let scan = scan(&segment(4, &frames))?;
+    let derivations: Vec<u32> = scan.rounds().iter().map(|r| r.derivation().get()).collect();
+    assert_eq!(derivations, vec![2, 3, 4], "derivation_of(p) is p % 7 + 1");
+    Ok(())
+}
+
+/// The fuzz target `scan`'s seeds are records of the new Round header: `testdata/fuzz_seeds/generate_seeds.py` lays
+/// them out from `PROTOCOL.md`'s tables alone, and the three rounds it writes are, byte for byte, the segment the
+/// log's own encoder writes for the same rounds; every seed's rounds scan with their derivation versions.
+#[test]
+fn test_the_scan_seeds_are_records_of_the_round_header() -> TestResult {
+    let dir = ultragraphdb_tool_bdd::testdata_dir()?.join("fuzz_seeds/scan");
+    let read = |name: &str| std::fs::read(dir.join(name)).context("a seed is read");
+    let three = read("three_rounds.segment")?;
+    assert_eq!(three, segment(4, &chain(1, 1, 3, 0, ONE_BLOCK)?));
+    let derivations = |scan: &SegmentScan| -> Vec<(u64, u32)> {
+        scan.rounds()
+            .iter()
+            .map(|r| (r.position().get(), r.derivation().get()))
+            .collect()
+    };
+    let expected = [
+        ("three_rounds.segment", vec![(1, 2), (2, 3), (3, 4)], None),
+        (
+            "mixed_sizes.segment",
+            vec![(1, 2), (2, 3), (3, 4), (4, 5)],
+            None,
+        ),
+        ("older_incarnation.segment", vec![(1, 2), (2, 3)], None),
+        (
+            "torn_tail.segment",
+            vec![(1, 2)],
+            Some(Damage::ChunkTable {
+                position: Position::new(2),
+            }),
+        ),
+    ];
+    for (name, rounds, damage) in expected {
+        let scanned = scan(&read(name)?)?;
+        assert_eq!(
+            (derivations(&scanned), scanned.damage()),
+            (rounds, damage),
+            "{name}"
+        );
+    }
+    let after = read("after_checkpoint.segment")?;
+    let (checkpoint, rest) = after.split_at(8);
+    let checksum = u64::from_le_bytes(checkpoint.try_into().context("eight bytes")?);
+    let scanned = scan_segment(
+        rest,
+        &ScanStart::new(CLUSTER, 1, Position::new(3), checksum),
+    )
+    .context("scanned")?;
+    assert_eq!(derivations(&scanned), vec![(4, 5), (5, 6)]);
     Ok(())
 }

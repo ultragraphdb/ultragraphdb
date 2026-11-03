@@ -264,15 +264,15 @@ async fn golden_commit(
             )
             .await?;
     }
-    // Commit: through session 9's request 7, version 1,000, results (0x10, created) and (0x20, found).
+    // Commit: through session 9's request 7, version 1,000, results a counter add at -5 and a compare-and-set.
     let nine = client.resume_session(9, 7);
     let committed = client.commit(writer, nine).await?;
     assert_eq!((committed.version(), committed.request()), (1_000, 7));
     assert_eq!(
         committed.results(),
         &[
-            OperationResult::new(0x10, true),
-            OperationResult::new(0x20, false)
+            OperationResult::counter(-5),
+            OperationResult::compare_and_set()
         ]
     );
     let aborted = client.begin(0, false).await?;
@@ -699,8 +699,8 @@ fn test_every_damaged_golden_reply_through_the_shell_is_refused_with_the_connect
     let server = server.borrow();
     assert_eq!(server.mismatches(), &[] as &[String]);
     assert_eq!(server.steps_left(), 0);
-    // Twice the golden replies' lengths: 256 + 256 + 385 + 508 + 296 + 312 + 348 + 311 + 600 = 3,272 bytes.
-    assert_eq!(cases, 6_544);
+    // Twice the golden replies' lengths: 256 + 256 + 385 + 508 + 296 + 312 + 348 + 311 + 648 = 3,320 bytes.
+    assert_eq!(cases, 6_640);
     assert_eq!(
         passing, 0,
         "every damaged frame is refused by the framer or a rule"

@@ -13,6 +13,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::{DEFAULT_GRAPH, Keyspace, QuadKey, key_prefix};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_apply::Applied;
@@ -59,7 +60,7 @@ pub fn run_rollup(args: &RollupArgs) -> Result<String, BenchError> {
     prepare(&a, &shape, 1)?;
     let lists = a.quads().lists();
     let data_path = lists.store().inner().data_path().to_path_buf();
-    let predicate = uid_of(&a, CommitShape::iri("rel_t0_org").as_str())?;
+    let predicate = id_of(&a, CommitShape::iri("rel_t0_org").as_str())?;
     let prefix = |keyspace| key_prefix(keyspace, false, 0, Some(DEFAULT_GRAPH), Some(predicate));
     let (reverse, forward) = (prefix(Keyspace::Reverse), prefix(Keyspace::Forward));
 
@@ -120,24 +121,24 @@ pub fn run_rollup(args: &RollupArgs) -> Result<String, BenchError> {
     ))
 }
 
-/// The UID of `iri` in the root namespace.
-fn uid_of(a: &Arc<BenchApplier>, iri: &str) -> Result<u64, BenchError> {
+/// The ID of `iri` in the root namespace.
+fn id_of(a: &Arc<BenchApplier>, iri: &str) -> Result<SystemId, BenchError> {
     a.quads()
-        .uid_of(0, iri)
+        .id_of(0, iri)
         .map_err(ultragraphdb_store_apply::ChangesetError::from)?
-        .ok_or_else(|| BenchError::usage(format!("{iri} has no UID")))
+        .ok_or_else(|| BenchError::usage(format!("{iri} has no ID")))
 }
 
 /// Rolls up the reverse list of `predicate` of each of `hubs` hubs; how many it rolled up.
-fn roll_up_hubs(a: &Arc<BenchApplier>, hubs: u64, predicate: u64) -> Result<u64, BenchError> {
+fn roll_up_hubs(a: &Arc<BenchApplier>, hubs: u64, predicate: SystemId) -> Result<u64, BenchError> {
     let mut rolled = 0u64;
     for hub in 0..hubs {
-        let object = uid_of(a, CommitShape::hub(hub).as_str())?;
+        let object = id_of(a, CommitShape::hub(hub).as_str())?;
         let key = QuadKey::Reverse {
             namespace: 0,
             graph: DEFAULT_GRAPH,
             predicate,
-            object: EncodedTerm::uid(object),
+            object: EncodedTerm::id(object),
         }
         .to_bytes();
         if a.quads().lists().rollup_key(&key)? {

@@ -163,3 +163,11 @@ fn test_triple_terms_nest_at_most_the_maximum() -> TestResult {
     );
     Ok(())
 }
+
+#[test]
+fn test_a_table_holding_a_term_is_not_empty() {
+    let mut table = TermTable::new();
+    let _a: u32 = table.iri("http://ex.org/a");
+    assert!(!table.is_empty());
+    assert_eq!(table.len(), 1);
+}

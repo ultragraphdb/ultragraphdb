@@ -12,9 +12,11 @@ impl std::error::Error for RecoveryError {
             RecoveryErrorEnum::Round { cause, .. } => Some(cause),
             RecoveryErrorEnum::Apply { cause, .. } => Some(cause),
             RecoveryErrorEnum::Sessions { cause } => Some(cause),
+            RecoveryErrorEnum::AppliedPosition { cause } => Some(cause),
             RecoveryErrorEnum::StoreNotInLog { .. }
             | RecoveryErrorEnum::Gap { .. }
-            | RecoveryErrorEnum::BehindCheckpoint { .. } => None,
+            | RecoveryErrorEnum::BehindCheckpoint { .. }
+            | RecoveryErrorEnum::Derivation { .. } => None,
         }
     }
 }

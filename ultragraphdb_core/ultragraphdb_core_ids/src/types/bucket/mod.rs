@@ -8,6 +8,7 @@ use xxhash_rust::xxh3::Xxh3Default;
 
 use crate::types::canonical_key::CanonicalKey;
 use crate::types::namespace::Namespace;
+use crate::types::system_id::SystemId;
 use crate::types::type_prefix::TypePrefix;
 
 /// The 24-bit bucket of a [`SystemId`](crate::SystemId), which decides the partition an entity lives in. It is
@@ -37,6 +38,22 @@ impl Bucket {
     #[must_use]
     pub fn get(self) -> u32 {
         self.0
+    }
+
+    /// The bucket of the value `value`, a term's encoding, of the unique predicate `predicate`, in `namespace`, where an
+    /// insert-if-absent or upsert-and-link claims it (system-identity, "A unique value's bucket is computed from its
+    /// predicate and value"): its top 8 bits are the namespace's, as [`Bucket::derive`] takes them, its low 16 bits the
+    /// top 16 bits of XXH3-64 (seed 0) of the predicate's 16 big-endian bytes followed by `value`.
+    #[must_use]
+    pub fn of_value(namespace: Namespace, predicate: SystemId, value: &[u8]) -> Self {
+        let mut hasher = Xxh3Default::new();
+        hasher.update(&predicate.to_be_bytes());
+        hasher.update(value);
+        let [high, low, ..] = hasher.digest().to_be_bytes();
+        // The top byte is zero, so the bucket holds 24 bits by construction.
+        let bucket = u32::from_be_bytes([0, namespace.bucket_bits(), high, low]);
+        debug_assert!(bucket <= Self::MAX.0, "a value's bucket holds 24 bits");
+        Self(bucket)
     }
 
     /// The bucket of the entity of the type declaring `prefix` whose key is `key`, in `namespace`: its top 8

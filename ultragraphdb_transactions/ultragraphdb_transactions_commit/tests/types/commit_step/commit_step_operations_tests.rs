@@ -16,7 +16,19 @@ use ultragraphdb_transactions_commit::{
 };
 use ultragraphdb_transactions_txn::ReadSet;
 
+use ultragraphdb_core_ids::{Epoch, SessionToken};
+use ultragraphdb_protocol_wire::TermTable;
+use ultragraphdb_transactions_commit::StoredReply;
+
+use crate::utils::fixture::version;
 use crate::utils::proposal_double::{Reads, TestProposal, Writes, proposal, proposal_in, read_set};
+
+/// The term table of a reply whose one result names `http://ex.org/n{uid}`.
+fn node_terms(uid: u64) -> TermTable {
+    let mut terms = TermTable::new();
+    let _node: u32 = terms.iri(&format!("http://ex.org/n{uid}"));
+    terms
+}
 
 /// A proposal that asks for an operation when `asks` holds.
 #[derive(Debug, Clone)]
@@ -39,8 +51,9 @@ impl Proposal for OpProposal {
     }
 }
 
-/// An operator by script: an operation writes the conflict point `key` and returns the result `uid`, or is refused
-/// when `refuse` holds; `padding` bytes of commit record are added to the record it leaves.
+/// An operator by script: an operation writes the conflict point `key` and returns a result naming the node
+/// `http://ex.org/n{uid}`, created, or is refused when `refuse` holds; `padding` bytes of commit record are added to the
+/// record it leaves.
 #[derive(Debug, Default)]
 struct Script {
     key: Vec<u8>,
@@ -51,6 +64,8 @@ struct Script {
     admitted: usize,
     /// The number of unapplied proposals each operation saw.
     seen: Vec<usize>,
+    /// The staged records the step let go of without adopting them.
+    discarded: usize,
 }
 
 impl Operator<OpProposal> for Script {
@@ -73,8 +88,9 @@ impl Operator<OpProposal> for Script {
         if self.refuse {
             return Err(CommitError::operation_failed(Some("\"done\"".to_string())));
         }
-        results.push(OperationResult::new(self.uid, true));
-        let mut record = WriteSetRecord::new(0, 0, 0, 0);
+        results.push(OperationResult::for_node(0, true));
+        let mut record = WriteSetRecord::transaction(0);
+        record.push_node_result(&format!("http://ex.org/n{}", self.uid), true);
         record.push_conflict_point(self.key.clone());
         record.set_commit_record(vec![1; self.padding]);
         Ok(record.encode())
@@ -84,8 +100,19 @@ impl Operator<OpProposal> for Script {
         staged
     }
 
+    fn staged_dictionary<'s>(
+        &self,
+        _staged: &'s Vec<u8>,
+    ) -> impl Iterator<Item = (&'s [u8], &'s [u8])> {
+        std::iter::empty()
+    }
+
     fn adopt(&mut self, proposal: &mut OpProposal, staged: Vec<u8>) {
         proposal.inner.record = staged;
+    }
+
+    fn discard(&mut self, _proposal: &OpProposal, _staged: Vec<u8>) {
+        self.discarded += 1;
     }
 
     fn admitted(&mut self, _proposal: &OpProposal) {
@@ -169,7 +196,7 @@ fn test_a_refused_operation_takes_no_version_and_adds_nothing_to_the_history() -
         &Err(CommitError::operation_failed(Some("\"done\"".to_string())))
     );
     assert!(reply(2)?.results().is_empty());
-    assert_eq!(reply(3)?.outcome(), &Ok(4));
+    assert_eq!(reply(3)?.outcome(), &Ok(version(1, 2)));
     assert_eq!(
         script.admitted, 2,
         "only the two admitted reach the operator"
@@ -184,7 +211,7 @@ fn test_a_refused_operation_takes_no_version_and_adds_nothing_to_the_history() -
         &mut script,
     );
     sync(&mut step, &mut out, &mut script);
-    assert_eq!(out.replies()[0].outcome(), &Ok(6));
+    assert_eq!(out.replies()[0].outcome(), &Ok(version(1, 4)));
     Ok(())
 }
 
@@ -207,7 +234,8 @@ fn test_the_record_an_operation_leaves_is_logged_held_and_answered_with_its_resu
         &mut script,
     );
     let (_, body) = out.append().context("a round closed")?;
-    let mut staged = WriteSetRecord::new(0, 0, 0, 0);
+    let mut staged = WriteSetRecord::transaction(0);
+    staged.push_node_result("http://ex.org/n77", true);
     staged.push_conflict_point(b"node".to_vec());
     staged.set_commit_record(vec![1; 40]);
     let staged = staged.encode();
@@ -217,8 +245,9 @@ fn test_the_record_an_operation_leaves_is_logged_held_and_answered_with_its_resu
     );
     sync(&mut step, &mut out, &mut script);
     let reply = out.replies()[0].clone();
-    assert_eq!(reply.outcome(), &Ok(2));
-    assert_eq!(reply.results(), &[OperationResult::new(77, true)]);
+    assert_eq!(reply.outcome(), &Ok(version(1, 0)));
+    assert_eq!(reply.results(), &[OperationResult::for_node(0, true)]);
+    assert_eq!(reply.terms(), &node_terms(77));
     assert_eq!(
         out.apply()[0].1.record(),
         staged.as_slice(),
@@ -325,8 +354,9 @@ fn test_an_operation_whose_record_no_longer_fits_waits_for_the_next_round() -> T
     sync(&mut step, &mut out, &mut script);
     // 1 alone at 2; 2 and 3 at 4 and 6; the operation, decided again, alone at 8 with its result.
     assert_eq!(
-        out.replies(),
-        &[Reply::new(4, Ok(8)).with_results(vec![OperationResult::new(0, true)])]
+        crate::utils::fixture::plain(out.replies()),
+        &[Reply::new(4, Ok(version(1, 6)))
+            .with_results(vec![OperationResult::for_node(0, true)], node_terms(0))]
     );
     assert_eq!(
         script.seen.len(),
@@ -347,7 +377,7 @@ fn test_a_step_without_an_operator_refuses_operations() -> TestResult {
     );
     step.step(Input::Synced, 0, &mut out);
     assert_eq!(
-        out.replies(),
+        crate::utils::fixture::plain(out.replies()),
         &[Reply::new(
             1,
             Err(CommitError::refused(
@@ -367,69 +397,73 @@ fn test_a_step_without_an_operator_refuses_operations() -> TestResult {
 /// entry the step hands to the apply with the round (7.8).
 #[test]
 fn test_a_retry_is_answered_with_its_results_and_the_tables_entry_holds_them() -> TestResult {
-    let mut step = Step::new(unbounded(), 0);
+    let mut step = Step::new(unbounded(), 0).with_partition(1);
     let mut out = Out::new();
     let mut script = Script {
         key: b"node".to_vec(),
         uid: 77,
         ..Script::default()
     };
-    step.step_with(
-        Input::Register {
-            ticket: 9,
-            principal: 0,
-        },
-        0,
-        &mut out,
-        &mut script,
-    );
-    step.step_with(Input::Synced, 0, &mut out, &mut script);
-    assert_eq!(out.replies(), &[Reply::new(9, Ok(2))]);
-    let index = VersionlessEntry::put(
-        SessionEntry::INDEX_KEY.to_vec(),
-        2u64.to_le_bytes().to_vec(),
-    );
-    assert_eq!(
-        out.system(),
-        &[
-            VersionlessEntry::put(
-                SessionEntry::key(2),
-                SessionEntry::new(0, 0, 0, Vec::new()).encode()
-            ),
-            index,
-        ]
-    );
+    let session = 2u128;
     let asks = || -> TestResult<OpProposal> {
         Ok(OpProposal {
-            inner: proposal_in(2, 1, 0, &Reads::default(), &Writes::point(b"a"))?,
+            inner: proposal_in(session, 1, 0, &Reads::default(), &Writes::point(b"a"))?,
             asks: true,
         })
     };
     commit(&mut step, &mut out, 1, asks()?, &mut script);
     assert!(out.system().is_empty(), "nothing applied yet");
     step.step_with(Input::Synced, 0, &mut out, &mut script);
-    let results = vec![OperationResult::new(77, true)];
+    let results = vec![OperationResult::for_node(0, true)];
+    let token = SessionToken::new(1, 1, Epoch::new(1).context("the epoch")?);
     assert_eq!(
         out.replies(),
-        &[Reply::new(1, Ok(4)).with_results(results.clone())]
+        &[Reply::new(1, Ok(version(1, 0)))
+            .with_token(token.clone())
+            .with_results(results.clone(), node_terms(77))]
+    );
+    let stored = StoredReply::new(
+        version(1, 0),
+        token.clone(),
+        results.clone(),
+        node_terms(77),
+    );
+    let index = VersionlessEntry::put(
+        SessionEntry::INDEX_KEY.to_vec(),
+        session.to_be_bytes().to_vec(),
+    );
+    // The round's applied log position closes its entries: position 1, 8 bytes little-endian.
+    let applied_position = VersionlessEntry::put(
+        ultragraphdb_transactions_commit::Replay::APPLIED_POSITION_KEY.to_vec(),
+        1u64.to_le_bytes().to_vec(),
     );
     assert_eq!(
         out.system(),
-        &[VersionlessEntry::put(
-            SessionEntry::key(2),
-            SessionEntry::new(1, 4, 0, results.clone()).encode()
-        )]
+        &[
+            VersionlessEntry::put(
+                SessionEntry::key(session),
+                SessionEntry::new(1, stored).encode()
+            ),
+            index,
+            applied_position,
+        ]
     );
     let operations = script.seen.len();
     commit(&mut step, &mut out, 2, asks()?, &mut script);
-    assert_eq!(out.replies(), &[Reply::new(2, Ok(4)).with_results(results)]);
+    assert_eq!(
+        out.replies(),
+        &[Reply::new(2, Ok(version(1, 0)))
+            .with_token(token)
+            .with_results(results, node_terms(77))]
+    );
     assert_eq!(script.seen.len(), operations, "no operation runs again");
     Ok(())
 }
 
 /// The record `script`'s operation leaves, built as `Script::operate` builds it.
 fn staged(script: &Script) -> Vec<u8> {
-    let mut record = WriteSetRecord::new(0, 0, 0, 0);
+    let mut record = WriteSetRecord::transaction(0);
+    record.push_node_result(&format!("http://ex.org/n{}", script.uid), true);
     record.push_conflict_point(script.key.clone());
     record.set_commit_record(vec![1; script.padding]);
     record.encode()
@@ -457,7 +491,11 @@ fn test_an_operation_whose_record_fits_no_round_is_refused_too_large_and_the_que
     // Decided in the round it closed at once: an abort, no version (max(0 + 2, 0) would have been 2).
     assert_eq!(
         out.append().map(|(r, _)| r),
-        Some(ultragraphdb_transactions_commit::RoundRecord::new(2, 1, 0))
+        Some(ultragraphdb_transactions_commit::RoundRecord::new(
+            version(1, 0),
+            1,
+            0
+        ))
     );
     let released: Vec<(u64, Vec<u8>)> = out
         .released()
@@ -478,7 +516,7 @@ fn test_an_operation_whose_record_fits_no_round_is_refused_too_large_and_the_que
     );
     sync(&mut step, &mut out, &mut script);
     assert_eq!(
-        out.replies(),
+        crate::utils::fixture::plain(out.replies()),
         &[Reply::new(
             1,
             Err(CommitError::too_large(size, largest_record(4_096)))
@@ -486,10 +524,17 @@ fn test_an_operation_whose_record_fits_no_round_is_refused_too_large_and_the_que
     );
     assert_eq!(
         out.append().map(|(r, _)| r),
-        Some(ultragraphdb_transactions_commit::RoundRecord::new(2, 1, 1))
+        Some(ultragraphdb_transactions_commit::RoundRecord::new(
+            version(1, 0),
+            1,
+            1
+        ))
     );
     sync(&mut step, &mut out, &mut script);
-    assert_eq!(out.replies(), &[Reply::new(2, Ok(2))]);
+    assert_eq!(
+        crate::utils::fixture::plain(out.replies()),
+        &[Reply::new(2, Ok(version(1, 0)))]
+    );
     assert_eq!(script.seen.len(), 1, "decided once");
     assert_eq!(script.admitted, 1, "the plain commit alone");
     assert_eq!(
@@ -514,30 +559,34 @@ fn test_an_operation_record_that_just_fits_a_fresh_round_waits_for_it_and_one_by
     assert_eq!(
         rounds,
         vec![
-            RoundRecord::new(2, 1, 1),
-            RoundRecord::new(4, 1, 1),
-            RoundRecord::new(6, 1, 1)
+            RoundRecord::new(version(1, 0), 1, 1),
+            RoundRecord::new(version(1, 2), 1, 1),
+            RoundRecord::new(version(1, 4), 1, 1)
         ]
     );
     assert_eq!(
         replies,
         vec![
-            Reply::new(1, Ok(2)),
-            Reply::new(2, Ok(4)),
-            Reply::new(3, Ok(6)).with_results(vec![OperationResult::new(0, true)])
+            Reply::new(1, Ok(version(1, 0))),
+            Reply::new(2, Ok(version(1, 2))),
+            Reply::new(3, Ok(version(1, 4)))
+                .with_results(vec![OperationResult::for_node(0, true)], node_terms(0))
         ]
     );
     // One byte more: refused in the round it is decided in, beside 2.
     let (longer_replies, longer_rounds, size) = run_with_padding(padding + 1)?;
     assert_eq!(
         longer_rounds,
-        vec![RoundRecord::new(2, 1, 1), RoundRecord::new(4, 2, 1)]
+        vec![
+            RoundRecord::new(version(1, 0), 1, 1),
+            RoundRecord::new(version(1, 2), 2, 1)
+        ]
     );
     assert_eq!(
         longer_replies,
         vec![
-            Reply::new(1, Ok(2)),
-            Reply::new(2, Ok(4)),
+            Reply::new(1, Ok(version(1, 0))),
+            Reply::new(2, Ok(version(1, 2))),
             Reply::new(3, Err(CommitError::too_large(size, largest_record(4_096))))
         ]
     );
@@ -594,7 +643,7 @@ fn run_with_padding(
     );
     for _ in 0..3 {
         sync(&mut step, &mut out, &mut script);
-        replies.extend(out.replies().iter().cloned());
+        replies.extend(crate::utils::fixture::plain(out.replies()));
         rounds.extend(out.append().map(|(r, _)| r));
     }
     Ok((replies, rounds, staged(&script).len()))

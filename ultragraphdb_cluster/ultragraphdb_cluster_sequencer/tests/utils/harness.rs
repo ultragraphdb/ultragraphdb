@@ -141,7 +141,14 @@ pub fn write_log(storage: &SimStorage, records: &[SequencerRecord]) -> TestResul
             SequencerRecord::Close(_) => 0,
             SequencerRecord::Transaction(_) => 1,
         };
-        let round = RoundRef::new(position, parent, record.epoch().get(), transactions, &body);
+        let round = RoundRef::new(
+            position,
+            parent,
+            record.epoch().get(),
+            transactions,
+            NonZeroU32::MIN,
+            &body,
+        );
         let _appended = log.append(round)?;
     }
     let _durable = block_on(log.sync())??;

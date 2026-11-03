@@ -5,12 +5,13 @@
 
 Feature: The write-ahead log
   The ordered-log interface over the node's write-ahead log: rounds as checksummed, chained frames in preallocated
-  segments, synced before they are applied, recovered by a scan that tells a torn tail from interior damage, a
-  ping-pong superblock, checkpoints that trim, and a storage seam with a simulated implementation. These are the
-  scenarios whose decision the log makes. Where a scenario names the store, the store here applies what the log hands
-  it and nothing else; the commit step (task group 7) binds the same scenarios again against the real store. "A store
-  ahead of the log refuses to start" runs there alone: it is decided by the store's applied version, which the log
-  does not hold.
+  segments, synced before they are applied, each append answered by a durability ticket, recovered by a scan that
+  tells a torn tail from interior damage, a ping-pong superblock, checkpoints that trim, and a storage seam with a
+  simulated implementation. These are the scenarios whose decision the log makes. Where a scenario names the store,
+  the store here applies what the log hands it and nothing else; the commit step binds the same scenarios again
+  against the real store. "A store ahead of the log refuses to start" and "A store behind its checkpoint refuses to
+  start" run there alone: they are decided by the store's applied position, which the log does not hold, and "A crash
+  loses no acknowledged round" runs on fjall in the kv store's scenarios.
 
   Scenario: An append out of order is refused
     When the log holds rounds 1 to 5 and round 7 is appended
@@ -19,6 +20,10 @@ Feature: The write-ahead log
   Scenario: A sealed log refuses appends
     When the log is sealed at position 9 and a round is appended
     Then the append fails, and `seal` reported 9
+
+  Scenario: A ticket completes once its round is durable
+    When a round is appended and its ticket is polled before and after the sync that covers it
+    Then the ticket is pending before the sync and complete after it, and `committed` reaches the round's position only then
 
   Scenario: A round never reaches the store before the log
     When the node loses power at any step of a round

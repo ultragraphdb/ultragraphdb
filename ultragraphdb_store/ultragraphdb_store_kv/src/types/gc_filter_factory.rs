@@ -15,6 +15,7 @@ use crate::types::gc_settings::GcSettings;
 /// place this crate dispatches dynamically.
 #[derive(Debug)]
 pub struct GcFilterFactory {
+    // Shared with the store, which publishes the discard timestamp the filters read (Ultra rule 9).
     settings: Arc<GcSettings>,
 }
 

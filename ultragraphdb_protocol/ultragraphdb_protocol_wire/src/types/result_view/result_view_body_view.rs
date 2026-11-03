@@ -10,7 +10,7 @@ use crate::types::command::Command;
 use crate::types::frame_view::FrameView;
 use crate::types::result_batch::ResultBatch;
 use crate::types::result_term::ResultTerm;
-use crate::types::result_term_view::result_encoding_whole;
+use crate::types::result_term_view::{named_hash, result_encoding_whole};
 use crate::types::result_view::ResultView;
 use crate::types::string_list::StringList;
 use crate::utils::constants::ABSENT;
@@ -81,8 +81,8 @@ impl<'a> BodyView<'a> for ResultView<'a> {
                 let view = self
                     .term(i)
                     .ok_or(ProtocolError::bad_term(command, 2, i as usize))?;
-                if let Some(uid) = view.blank_uid() {
-                    return Ok(ResultTerm::blank(uid, view.text()));
+                if let Some((hash, blank_node)) = named_hash(view.encoding()) {
+                    return Ok(ResultTerm::named(hash, blank_node, view.text()));
                 }
                 let term = view
                     .term()

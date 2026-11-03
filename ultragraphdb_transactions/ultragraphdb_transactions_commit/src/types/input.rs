@@ -3,22 +3,32 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_cluster_sequencer::Close;
+
 use crate::types::commit_request::CommitRequest;
 
 /// What the commit step steps on.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Input<P> {
-    /// A commit request: it waits for the next round, which closes at once when no round is syncing.
+    /// A commit request: it waits for the next round, which closes at once when no round is syncing and the partition
+    /// may stamp it.
     Commit(CommitRequest<P>),
-    /// A session registration under its ticket, for `principal`, the session's owner: it waits for the next round as a
-    /// commit does, takes a commit version, which numbers the session, and is answered with it once its round is
-    /// applied.
-    Register {
+    /// A registration the partition accepted as an entity's home, under its ticket, its write-set record of kind 2
+    /// built by the home: it waits for the next round as a commit does, is admitted without validation and takes a
+    /// commit version of its own, and is answered with it once its round is applied.
+    Registration {
         /// The caller's ticket, which the answer carries back.
         ticket: u64,
-        /// The principal registering the session, its owner.
-        principal: u64,
+        /// The registration's write-set record, kind 2.
+        record: Vec<u8>,
     },
+    /// A close of the sequencer, delivered to the partition: the epoch after it opens, the catalog versions it announces
+    /// take effect there, the sessions it evicts are purged from the session table, and the commits held for it are
+    /// stamped in a round of the new epoch.
+    Close(Close),
+    /// The commit step's clock moved on, with nothing else to step on: a close request unanswered for
+    /// `close_request_ms` refuses the commits held as busy.
+    Tick,
     /// The sync of the round in flight completed: that round is to be applied and acknowledged, and the next round
     /// closes over the requests waiting.
     Synced,

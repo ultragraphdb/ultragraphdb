@@ -4,10 +4,12 @@
  */
 
 //! Any bytes as the body of a Round frame: the view never panics, accepts only records that read on their own and
-//! rebuilds an accepted body byte for byte; the naming of the transactions under a damaged range never panics and
-//! names only transactions of the round.
+//! dictionary entries in ascending key order, and rebuilds an accepted body byte for byte; the naming of the entries
+//! under a damaged range never panics and names only entries of the round.
 
 #![no_main]
+
+use std::num::NonZeroU32;
 
 use libfuzzer_sys::fuzz_target;
 use ultragraphdb_protocol_wire::{
@@ -25,8 +27,9 @@ fuzz_target!(|data: &[u8]| {
     let range_start = body.len() / 3;
     let named = RoundView::transactions_overlapping(body, range_start..body.len());
     assert!(named.windows(2).all(|w| w[0] < w[1]));
-    let header = Header::new(CLUSTER, Command::Round)
-        .with_command_header(RoundHeader::new(7, 9, 1, 100, u32::from(*count)).encode());
+    let header = Header::new(CLUSTER, Command::Round).with_command_header(
+        RoundHeader::new(7, 9, 1, 100, u32::from(*count), NonZeroU32::MIN).encode(),
+    );
     let Ok(frame) = header.clone().encode_frame(body) else {
         return;
     };
@@ -50,6 +53,8 @@ fuzz_target!(|data: &[u8]| {
             .iter()
             .all(|t| (*t as usize) < round.decisions().len())
     );
+    let keys: Vec<&[u8]> = round.dictionary().iter().map(|e| e.key()).collect();
+    assert!(keys.windows(2).all(|w| w[0] < w[1]));
     let rebuilt = round
         .to_body()
         .expect("an accepted round reads back")

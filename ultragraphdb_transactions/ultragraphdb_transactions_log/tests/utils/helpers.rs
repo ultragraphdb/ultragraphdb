@@ -98,8 +98,8 @@ pub fn body(position: u64, len: usize) -> Vec<u8> {
         .collect()
 }
 
-/// Appends rounds `from` to `to` after the log's tail, each with a body of `len` bytes, first version `2 * position`
-/// and one transaction, and syncs each: their checksums, from the tail after each append.
+/// Appends rounds `from` to `to` after the log's tail, each with a body of `len` bytes, first version `2 * position`,
+/// one transaction and derivation [`derivation_of`] its position, and syncs each: their checksums, from the tail after each append.
 pub fn append_synced<S: DurableStorage>(
     wal: &mut Wal<S>,
     from: u64,
@@ -148,8 +148,17 @@ pub fn append<S: DurableStorage>(
         parent,
         position.wrapping_mul(2),
         1,
+        derivation_of(position),
         &bytes,
     ))
+    .map(|ticket| ticket.position())
+}
+
+/// The derivation version of round `position`: 1 to 7, so neighbouring rounds name different versions and none names
+/// the transaction count of 1 alone.
+pub fn derivation_of(position: u64) -> NonZeroU32 {
+    // Below 7, so the cast is lossless.
+    NonZeroU32::MIN.saturating_add((position % 7) as u32)
 }
 
 /// XXH3-64 of a frame's header bytes 8 to 256, its `checksum`, computed with `xxhash_rust` directly.

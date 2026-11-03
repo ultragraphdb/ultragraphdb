@@ -4,4 +4,6 @@
  */
 
 #[cfg(test)]
+mod pipeline_release_tests;
+#[cfg(test)]
 mod pipeline_tests;

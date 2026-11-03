@@ -234,6 +234,38 @@ exclude_re = [
     # catches every other mutant of the file (46 caught, 3 unviable) and misses only this one.
     "replace > with >= in step",
 
+    # `segments as u64 + 1` versus `-` and `*` in `Wal::scan_chain`'s error after its loop: the found value of the
+    # `Diverged` returned when the chain walk crosses more segments than the log opened. Every turn either returns or
+    # continues into segment `segment + 1`, which `scan` found among the open files, so the walk crosses at most
+    # `files.len()` segments in its `files.len() + 1` turns and never reaches the error (Ultra rule 2's bound, added in
+    # group 4's lift). Measured: cargo-mutants over `types/wal/wal_recovery.rs`, 58 mutants: 47 caught, 9 unviable,
+    # these two missed.
+    "ultragraphdb_transactions_log/src/types/wal/wal_recovery\\.rs:\\d+:29: replace \\+ with [-*] in Wal<S>::scan_chain",
+
+    # ---------------------------------------------------------------------------------------------
+    # ultragraphdb_store_sim
+    # ---------------------------------------------------------------------------------------------
+    # Measured for the four below: cargo-mutants over `types/store_workload/mod.rs`, 69 mutants after group 4's
+    # workload change: 60 caught, 4 unviable, 1 timeout, these four missed; the same four at `95462282`, before it.
+
+    # `applied_ts() + 1` versus `* 1` in `StoreWorkload::step`'s recovery, `next_ts = next_ts.max(applied + 1)`: every
+    # version a batch records as applied was drawn as `next_ts` and `next_ts` then raised past it, and the store's applied
+    # timestamp is one of those (0 before any), so `next_ts > applied` holds always and the `max` keeps `next_ts` under
+    # both operators.
+    "ultragraphdb_store_sim/src/types/store_workload/mod\\.rs:\\d+:74: replace \\+ with \\* in StoreWorkload::step",
+
+    # `newest.max(deleted + 1)` versus `newest.max(deleted * 1)` in `StoreWorkload::rollup_batch`, the bound of
+    # `between(deleted + 1, hi)`: when `newest > deleted` both maxima are `newest`; otherwise the mutant's `hi` is
+    # `deleted`, below the lower bound, and `between` returns the lower bound, `deleted + 1`, as the original's `hi` is.
+    "ultragraphdb_store_sim/src/types/store_workload/mod\\.rs:\\d+:73: replace \\+ with \\* in StoreWorkload::rollup_batch",
+
+    # `n << 8 | b` versus `^` and versus `n >> 8 | b` in `StoreWorkload::drop_entries`, a namespace read back from a
+    # prefix's 8 big-endian bytes: `n << 8` has no bit below 8, so `|` and `^` agree; and every namespace the workload
+    # draws (`NAMESPACES`, 0, 1 and 5) is below 256, so `n` stays below 256 at every step, `n >> 8` is 0 and both folds
+    # end at the last byte, the namespace.
+    "ultragraphdb_store_sim/src/types/store_workload/mod\\.rs:\\d+:69: replace \\| with \\^ in StoreWorkload::drop_entries",
+    "ultragraphdb_store_sim/src/types/store_workload/mod\\.rs:\\d+:64: replace << with >> in StoreWorkload::drop_entries",
+
     # ===========================================================================================
     # Transport
     # ===========================================================================================
@@ -255,5 +287,20 @@ exclude_re = [
     # guard, so `true` takes the same branch. Measured: cargo-mutants over the crate, 56 mutants after
     # test_peer_tests: 30 caught, 25 unviable, 1 timeout (an echo that never ends), and this one missed.
     "ultragraphdb_transport_tls/src/utils_test/test_peer/mod\\.rs:\\d+:\\d+: replace match guard e\\.kind\\(\\) == io::ErrorKind::WouldBlock with true in TestPeer<A>::answer",
+
+    # ===========================================================================================
+    # Tools
+    # ===========================================================================================
+    # ---------------------------------------------------------------------------------------------
+    # ultragraphdb_tool_bench
+    # ---------------------------------------------------------------------------------------------
+
+    # `BLOCK_LEN`, `NonZeroU64::MIN.saturating_add((1 << 20) - 1)`, with `-` replaced by `+` or `/`: the block length
+    # becomes 2^20 + 2 or 2^20 + 1 instead of 2^20. Its one use is `TestBlockSource::new(BLOCK_LEN)`, and any positive
+    # length changes only how often the in-memory source leases a block, so which sequences the dictionary draws and
+    # never what the bench measures or reports. Measured: scripts/mutants.sh over setup.rs, 4 mutants: 2 unviable
+    # (`<<` with `>>` overflows the constant), these 2 missed.
+    "ultragraphdb_tool_bench/src/utils/setup\\.rs:\\d+:72: replace - with \\+",
+    "ultragraphdb_tool_bench/src/utils/setup\\.rs:\\d+:72: replace - with /",
 
 ]

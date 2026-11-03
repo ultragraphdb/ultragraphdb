@@ -23,17 +23,18 @@ use crate::utils::skolem::is_skolem;
 /// The terms one write names, resolved to their encodings: each IRI to its ID, got or created while the write runs
 /// and shared with every other write of the IRI; each blank node to a new ID named by a fresh skolem IRI; each literal
 /// to its encoding by content, the strings it hashes kept for the dictionary. The write's commit writes the dictionary
-/// entries of every term it names that the store does not hold yet, so they are durable no later than the first
-/// commit naming them. What the write found absent is recorded by ID: an IRI it created, which no statement of its
-/// snapshot can hold.
+/// entries of every term it names that the store does not hold yet, those it created and the pending ones another
+/// write created, so they are durable no later than the first commit naming them, whichever writes are refused. What
+/// the write found absent is recorded by ID: an IRI it created, which no statement of its snapshot can hold.
 #[derive(Debug, Default, Clone)]
 pub struct WriteTerms {
     namespace: u64,
     /// Every IRI resolved, with its ID.
     ids: BTreeMap<String, SystemId>,
     /// The terms whose dictionary entries the write's commit writes, with their IDs: IRIs it created or took from a
-    /// concurrent creator, its blank nodes' skolem IRIs, its statements' reifiers and other partitions' entries it
-    /// copies.
+    /// concurrent creator, its blank nodes' skolem IRIs, its statements' reifiers, the pending skolem IRIs and reifiers
+    /// it found, and other partitions' entries it copies. Each but the copies is a pending entry the write holds until
+    /// it is settled or released.
     written: BTreeMap<String, SystemId>,
     /// The blank nodes of the write by label, each with its ID.
     blanks: BTreeMap<String, SystemId>,
@@ -245,9 +246,7 @@ impl WriteTerms {
             TermRef::NamedNode(n)
                 if is_skolem(self.namespace, n.as_str()) && !self.ids.contains_key(n.as_str()) =>
             {
-                let found = quads
-                    .dictionary()
-                    .lookup(quads.store(), self.namespace, n.as_str())?;
+                let found = self.look_up(quads, n.as_str())?;
                 Ok(found.map(EncodedTerm::id))
             }
             TermRef::NamedNode(n) => Ok(Some(EncodedTerm::id(self.iri(quads, n.as_str())?))),
@@ -297,11 +296,31 @@ impl WriteTerms {
     {
         let id = match self.ids.get(reifier) {
             Some(id) => Some(*id),
-            None => quads
-                .dictionary()
-                .lookup(quads.store(), self.namespace, reifier)?,
+            None => self.look_up(quads, reifier)?,
         };
         Ok(id.filter(|id| id.type_prefix() == TypePrefix::STATEMENT))
+    }
+
+    /// The ID the dictionary has for `term`, pending or held, creating none: a pending one is taken as the write's own,
+    /// its entries written by the write's commit.
+    fn look_up<S, C, B>(
+        &mut self,
+        quads: &QuadStore<S, C, B>,
+        term: &str,
+    ) -> Result<Option<SystemId>, QuadError>
+    where
+        S: Store,
+        C: ListCache<Value = CachedList>,
+        B: BlockSource,
+    {
+        let found = quads
+            .dictionary()
+            .lookup(quads.store(), self.namespace, term)?;
+        if let Some((id, TermOrigin::Pending)) = found {
+            let _resolved: Option<SystemId> = self.ids.insert(term.to_string(), id);
+            let _written: Option<SystemId> = self.written.insert(term.to_string(), id);
+        }
+        Ok(found.map(|(id, _)| id))
     }
 
     /// The dictionary entries the write's commit adds: both of each term in [`WriteTerms::written`], and each string
@@ -382,5 +401,15 @@ impl WriteTerms {
     /// The terms whose dictionary entries the write's commit writes, each with its ID, in term order.
     pub fn written(&self) -> impl Iterator<Item = (&str, SystemId)> {
         self.written.iter().map(|(term, id)| (term.as_str(), *id))
+    }
+
+    /// The terms of [`WriteTerms::written`] that `base` does not write, each with its ID, in term order: what a write
+    /// continuing `base` on a clone of its terms took on its own.
+    pub fn written_beyond<'t>(
+        &'t self,
+        base: &'t WriteTerms,
+    ) -> impl Iterator<Item = (&'t str, SystemId)> {
+        self.written()
+            .filter(|(term, _)| !base.written.contains_key(*term))
     }
 }

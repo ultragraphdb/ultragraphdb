@@ -10,7 +10,7 @@ use ultragraphdb_protocol_wire::{BodyBuilder, Command, Header, RoundBody};
 
 /// The frame of a Round committing `records`, in order, `None` past the largest frame.
 pub fn round_frame(records: &[Vec<u8>]) -> Option<usize> {
-    let mut body = RoundBody::new(0, 0, 0, 2);
+    let mut body = RoundBody::new(0, 0, 0, 2, std::num::NonZeroU32::MIN);
     for record in records {
         body.commit(record.clone());
     }

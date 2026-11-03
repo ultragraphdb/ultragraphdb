@@ -96,7 +96,7 @@ fn refused_creator(w: &mut Steps) -> TestResult {
     )?;
     // Refused by the commit step: its request is never written, and its terms are released.
     let (_, terms) = refused.finish();
-    store.release(&terms)?;
+    store.release(&terms);
     w.flags = vec![store.id_of(0, ex("gone").as_str())?.is_some()];
     w.read = statements_naming(store, &ex("gone").into(), store.lists().applied_ts())?;
     Ok(())
@@ -104,11 +104,7 @@ fn refused_creator(w: &mut Steps) -> TestResult {
 
 #[then("the read returns nothing, whether or not the dictionary holds an entry for `<gone>`")]
 fn nothing_gone(w: &mut Steps) {
-    assert_eq!(
-        w.flags,
-        vec![true],
-        "the released write's entry is held, and names nothing that exists"
-    );
+    assert_eq!(w.flags, vec![false], "the released write wrote no entry");
     assert!(w.read.is_empty(), "{:?}", w.read);
 }
 

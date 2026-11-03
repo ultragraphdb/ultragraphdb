@@ -43,9 +43,10 @@ impl<S: DurableStorage> Wal<S> {
     /// the stop is a torn tail (truncated, reported) or interior damage (refused), the tail and cursor after it.
     pub(crate) async fn recover(&mut self) -> Result<Option<Truncation>, LogError> {
         let (stop, start) = self.scan_chain().await?;
-        let expected = start
-            .next()
-            .map_or(self.checkpoint().get().saturating_add(1), |(p, _)| p.get());
+        let expected = start.next().map_or(
+            self.superblock.checkpoint().get().saturating_add(1),
+            |(p, _)| p.get(),
+        );
         self.refuse_interior_damage(stop, expected).await?;
         let truncation = stop.damage.map(|damage| {
             let position = match damage {
@@ -65,7 +66,7 @@ impl<S: DurableStorage> Wal<S> {
             self.tail = (last.position, last.checksum);
         }
         self.cursor = (stop.segment, stop.offset);
-        if self.tail.0 < self.checkpoint() {
+        if self.tail.0 < self.superblock.checkpoint() {
             self.restart_at_checkpoint(stop.segment + 1).await?;
         }
         self.committed = self.tail;
@@ -83,13 +84,16 @@ impl<S: DurableStorage> Wal<S> {
         let mut start = ScanStart::new(
             self.config.cluster(),
             self.superblock.incarnation(),
-            self.checkpoint(),
+            self.superblock.checkpoint(),
             self.superblock.checkpoint_checksum(),
         );
         let size = self.config.segment_size();
         let mut segment = self.superblock.first_segment();
         let mut scan = self.scan(segment, &start).await?.unwrap_or_else(empty);
-        loop {
+        // The chain moves on only into a segment that exists, one index up each time, so it crosses at most every
+        // segment opened.
+        let segments = self.files.len();
+        for _ in 0..=segments {
             self.index_rounds(segment, &scan);
             if let Some(last) = scan.rounds().last()
                 && let Some(next) = last.position().next()
@@ -130,6 +134,11 @@ impl<S: DurableStorage> Wal<S> {
             };
             return Ok((stop, start));
         }
+        Err(LogError::diverged(
+            "the segments the chain crosses",
+            segments as u64,
+            segments as u64 + 1,
+        ))
     }
 
     /// Segment `index` scanned from `start`, `None` when it does not exist.
@@ -198,16 +207,18 @@ impl<S: DurableStorage> Wal<S> {
     /// of its own: the superblock records `first` as the first kept, and the segments below it, holding only rounds the
     /// checkpoint covers, are recycled.
     async fn restart_at_checkpoint(&mut self, first: u64) -> Result<(), LogError> {
-        self.tail = (self.checkpoint(), self.superblock.checkpoint_checksum());
+        self.tail = (
+            self.superblock.checkpoint(),
+            self.superblock.checkpoint_checksum(),
+        );
         self.cursor = (first, 0);
         self.index.clear();
         let record = Superblock::new(
             self.superblock.sequence() + 1,
             self.config.cluster(),
             self.superblock.incarnation(),
-            self.checkpoint(),
+            self.superblock.checkpoint(),
             self.superblock.checkpoint_checksum(),
-            self.superblock.checkpoint_version(),
             first,
         );
         record.write(&self.storage, &self.dir).await?;

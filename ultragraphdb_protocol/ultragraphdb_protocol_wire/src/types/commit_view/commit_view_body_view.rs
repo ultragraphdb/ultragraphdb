@@ -25,7 +25,8 @@ impl<'a> BodyView<'a> for CommitView<'a> {
         header.unused_zero(&[(0, 24)])?;
         let sections = Sections::<1>::read(command, frame.body(), 0)?;
         let results = sections.get(0);
-        check_results(command, 0, sections.offset(0), results)?;
+        // Commit's term table, which a result's node indexes, arrives with group 8's Commit body.
+        check_results(command, 0, sections.offset(0), results, None)?;
         Ok(Self {
             session: header.u64_at(0),
             request: header.u64_at(8),

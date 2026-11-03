@@ -21,8 +21,8 @@ use ultragraphdb_transactions_commit::{
 use ultragraphdb_transactions_log::{FaultMode, SimStorage, Wal, WalConfig};
 
 use crate::utils::fixture::{
-    Applier, Log, NS, applier, begin, delete_literal, held, insert, insert_literal, prepare,
-    prepare_in, read, setup, uid_of, wal, write,
+    Applier, Log, NS, applier, begin, delete_literal, held, id_of, insert, insert_literal, prepare,
+    prepare_in, read, setup, version, wal, write,
 };
 
 type Pipe<'a> = Pipeline<
@@ -31,6 +31,7 @@ type Pipe<'a> = Pipeline<
     ultragraphdb_store_sim::SimStore,
     ultragraphdb_store_sim::SimListCache<ultragraphdb_store_posting::CachedList>,
     ultragraphdb_store_sim::SteppedExecutor,
+    ultragraphdb_traits_blocks::TestBlockSource,
 >;
 
 fn unbounded() -> RoundBounds {
@@ -53,14 +54,20 @@ fn commit_insert(pipe: &mut Pipe<'_>, applier: &Applier, ticket: u64, subject: &
     Ok(())
 }
 
+/// The replies `pipe` handed out, without their session tokens.
 fn drained(pipe: &mut Pipe<'_>) -> Vec<Reply> {
+    crate::utils::fixture::plain(&std::mem::take(pipe.replies_mut()))
+}
+
+/// The replies `pipe` handed out, with their session tokens.
+fn drained_raw(pipe: &mut Pipe<'_>) -> Vec<Reply> {
     std::mem::take(pipe.replies_mut())
 }
 
 #[test]
 fn test_a_commit_is_acknowledged_once_synced_and_applied_and_visible_after() -> TestResult {
     let applier = applier()?;
-    let base = setup(&applier, vec![insert("a", "knows", "b")])?;
+    let _base = setup(&applier, vec![insert("a", "knows", "b")])?;
     let (_storage, mut pipe) = pipeline(&applier)?;
     commit_insert(&mut pipe, &applier, 7, "c")?;
     assert!(pipe.needs_sync());
@@ -73,7 +80,7 @@ fn test_a_commit_is_acknowledged_once_synced_and_applied_and_visible_after() -> 
     assert_eq!(pipe.log().committed(), Position::ZERO);
     block_on(pipe.sync(0)).context("synced")?;
     assert!(!pipe.needs_sync());
-    let version = base + 2;
+    let version = version(1, 0);
     assert_eq!(drained(&mut pipe), vec![Reply::new(7, Ok(version))]);
     assert_eq!(pipe.watermark(), version);
     assert_eq!(applier.quads().lists().applied_ts(), version);
@@ -90,7 +97,7 @@ fn test_a_commit_is_acknowledged_once_synced_and_applied_and_visible_after() -> 
 #[test]
 fn test_the_next_round_is_decided_and_appended_while_one_syncs() -> TestResult {
     let applier = applier()?;
-    let base = setup(&applier, vec![insert("a", "knows", "b")])?;
+    let _base = setup(&applier, vec![insert("a", "knows", "b")])?;
     let (_storage, mut pipe) = pipeline(&applier)?;
     commit_insert(&mut pipe, &applier, 1, "p")?;
     commit_insert(&mut pipe, &applier, 2, "q")?;
@@ -98,21 +105,24 @@ fn test_the_next_round_is_decided_and_appended_while_one_syncs() -> TestResult {
     assert_eq!(pipe.log().tail().0, Position::new(1), "two wait");
     assert_eq!(pipe.step().waiting(), 2);
     block_on(pipe.sync(0)).context("synced")?;
-    assert_eq!(drained(&mut pipe), vec![Reply::new(1, Ok(base + 2))]);
+    assert_eq!(drained(&mut pipe), vec![Reply::new(1, Ok(version(1, 0)))]);
     assert_eq!(
         pipe.log().tail().0,
         Position::new(2),
         "the next round appended"
     );
     assert!(pipe.needs_sync());
-    assert_eq!(pipe.watermark(), base + 2);
+    assert_eq!(pipe.watermark(), version(1, 0));
     block_on(pipe.sync(0)).context("synced")?;
     assert_eq!(
         drained(&mut pipe),
-        vec![Reply::new(2, Ok(base + 4)), Reply::new(3, Ok(base + 6))]
+        vec![
+            Reply::new(2, Ok(version(1, 2))),
+            Reply::new(3, Ok(version(1, 4)))
+        ]
     );
     assert_eq!(pipe.log().committed(), Position::new(2));
-    assert_eq!(pipe.watermark(), base + 6);
+    assert_eq!(pipe.watermark(), version(1, 4));
     // Nothing waits: a sync with no round appended does nothing.
     block_on(pipe.sync(0)).context("nothing to sync")?;
     assert!(drained(&mut pipe).is_empty());
@@ -164,9 +174,12 @@ fn test_a_round_the_store_refuses_withholds_its_replies_and_stops_the_pipeline()
     let (_storage, mut pipe) = pipeline(&applier)?;
     commit_insert(&mut pipe, &applier, 1, "p")?;
     commit_insert(&mut pipe, &applier, 2, "q")?;
-    // A write outside the pipeline takes the version the round was given: the store refuses the round as stale. The
-    // sync closes and appends the next round, holding 2, before the apply is refused.
-    let _outside: u64 = setup(&applier, vec![insert("x", "knows", "b")])?;
+    // The store refuses the round's batch. The sync closes and appends the next round, holding 2, before the apply is
+    // refused.
+    applier
+        .quads()
+        .store()
+        .inject(ultragraphdb_store_sim::Fault::FailNextBatch);
     let error = block_on(pipe.sync(0)).refused("refused")?;
     assert!(
         matches!(&error.0, PipelineErrorEnum::Apply { cause } if matches!(cause.0, ChangesetErrorEnum::Posting(_))),
@@ -192,7 +205,7 @@ fn test_a_round_the_store_refuses_withholds_its_replies_and_stops_the_pipeline()
 #[test]
 fn test_the_buffers_of_applied_and_aborted_transactions_come_back() -> TestResult {
     let applier = applier()?;
-    let base = setup(&applier, vec![insert_literal("x", "name", "X")])?;
+    let _base = setup(&applier, vec![insert_literal("x", "name", "X")])?;
     let (_storage, mut pipe) = pipeline(&applier)?;
     let mut loser = begin(&applier)?;
     let _read: Vec<Term> = read(&mut loser, "x", "name")?;
@@ -213,7 +226,7 @@ fn test_the_buffers_of_applied_and_aborted_transactions_come_back() -> TestResul
     assert_eq!(
         drained(&mut pipe),
         vec![
-            Reply::new(1, Ok(base + 2)),
+            Reply::new(1, Ok(version(1, 0))),
             Reply::new(2, Err(CommitError::conflict(ConflictKind::List)))
         ]
     );
@@ -249,8 +262,8 @@ fn test_pipeline_errors_name_their_cause() -> TestResult {
 #[test]
 fn test_concurrent_first_writes_of_a_predicate_both_commit_through_the_pipeline() -> TestResult {
     let applier = applier()?;
-    let base = setup(&applier, vec![insert("z", "seen", "score")])?;
-    let score = uid_of(&applier, "score")?;
+    let _base = setup(&applier, vec![insert("z", "seen", "score")])?;
+    let score = id_of(&applier, "score")?;
     let (_storage, mut pipe) = pipeline(&applier)?;
     let mut first = begin(&applier)?;
     let mut second = begin(&applier)?;
@@ -263,7 +276,10 @@ fn test_concurrent_first_writes_of_a_predicate_both_commit_through_the_pipeline(
     // Neither aborts: the first alone, the second in the next round.
     assert_eq!(
         drained(&mut pipe),
-        vec![Reply::new(1, Ok(base + 2)), Reply::new(2, Ok(base + 4))]
+        vec![
+            Reply::new(1, Ok(version(1, 0))),
+            Reply::new(2, Ok(version(1, 2)))
+        ]
     );
     assert!(applier.catalog(NS)?.predicate(score).is_some());
     assert_eq!(held(&applier, "b", "score")?.len(), 1);
@@ -306,46 +322,36 @@ fn test_a_round_the_log_refuses_acknowledges_nothing_and_stops_the_pipeline() ->
 }
 
 /// The session table is written with the rounds the store applies, so a pipeline opened again over the store answers
-/// a retry from it as the first did, and a round of a registration alone moves the watermark to its version (7.8).
+/// a retry from it as the first did (7.8).
 #[test]
 fn test_the_session_table_survives_a_restart_with_the_store() -> TestResult {
     let applier = applier()?;
-    let base = setup(&applier, vec![insert("a", "knows", "b")])?;
+    let _base = setup(&applier, vec![insert("a", "knows", "b")])?;
     let (_, log) = wal()?;
     let mut pipe: Pipe<'_> = Pipeline::new(&applier, log, unbounded()).context("it opens")?;
-    pipe.register(1, 0, 0)?;
-    block_on(pipe.sync(0))?;
-    let session = pipe
-        .replies_mut()
-        .pop()
-        .context("answered")?
-        .outcome()
-        .clone()?;
-    assert_eq!(session, base + 2, "numbered by its registration's version");
-    assert_eq!(
-        pipe.watermark(),
-        session,
-        "the registration's round moved the watermark"
-    );
+    let session = 0x07_u128 << 120;
     let mut txn = begin(&applier)?;
     write(&mut txn, vec![insert("s", "knows", "b")])?;
     pipe.commit(2, prepare_in(txn, session, 1)?, 0)?;
     block_on(pipe.sync(0))?;
     let first = pipe.replies_mut().pop().context("answered")?;
-    let version = first.outcome().clone()?;
-    assert_eq!(version, base + 4);
+    let committed = first.outcome().clone()?;
+    assert_eq!(committed, version(1, 0));
     drop(pipe);
     let (_, fresh_log) = wal()?;
     let mut again: Pipe<'_> =
         Pipeline::new(&applier, fresh_log, unbounded()).context("it opens again")?;
-    assert_eq!(again.step().sessions().last(session), Some((1, version)));
+    assert_eq!(again.step().sessions().last(session), Some((1, committed)));
+    assert_eq!(again.retry(session, 1)?.version(), committed);
     let mut retry_txn = begin(&applier)?;
     write(&mut retry_txn, vec![insert("s", "knows", "b")])?;
     again.commit(3, prepare_in(retry_txn, session, 1)?, 0)?;
-    assert_eq!(again.replies_mut().pop(), Some(Reply::new(3, Ok(version))));
+    let retried = again.replies_mut().pop().context("answered")?;
+    assert_eq!(retried.outcome(), &Ok(committed));
+    assert_eq!(retried.token(), first.token());
     assert_eq!(
         applier.quads().lists().applied_ts(),
-        version,
+        committed,
         "the retry applied nothing"
     );
     Ok(())
@@ -358,7 +364,7 @@ fn test_the_session_table_survives_a_restart_with_the_store() -> TestResult {
 fn test_a_builds_swap_takes_its_version_from_the_step_and_a_later_write_commits() -> TestResult {
     use ultragraphdb_core_mapping::{Change, Declaration, PredicateDeclaration};
     let applier = applier()?;
-    let base = setup(&applier, vec![insert_literal("a", "name", "apple")])?;
+    let _base = setup(&applier, vec![insert_literal("a", "name", "apple")])?;
     let (_s, mut pipe) = pipeline(&applier)?;
     let mut declaration = begin(&applier)?;
     write(
@@ -384,18 +390,21 @@ fn test_a_builds_swap_takes_its_version_from_the_step_and_a_later_write_commits(
         pipe.step().previous_version(),
         "at the step's version"
     );
-    // The declaration took base + 2 and the swap, a round of its own, the step's next version.
-    assert_eq!(swapped, base + 4);
+    // The declaration took version(1, 0) and the swap, a round of its own, the step's next version.
+    assert_eq!(swapped, version(1, 2));
     let mut txn = begin(&applier)?;
     write(&mut txn, vec![insert("b", "knows", "c")])?;
     pipe.commit(2, prepare(txn)?, 0)?;
     block_on(pipe.sync(0)).context("the write applies after the swap")?;
     assert_eq!(
         drained(&mut pipe),
-        vec![Reply::new(1, Ok(base + 2)), Reply::new(2, Ok(base + 6))],
+        vec![
+            Reply::new(1, Ok(version(1, 0))),
+            Reply::new(2, Ok(version(1, 4)))
+        ],
         "the swap's reply goes to nobody"
     );
-    assert_eq!(pipe.watermark(), base + 6);
+    assert_eq!(pipe.watermark(), version(1, 4));
     assert_eq!(held(&applier, "b", "knows")?.len(), 1);
     Ok(())
 }
@@ -432,7 +441,7 @@ fn test_a_session_table_that_does_not_read_refuses_the_pipeline() -> TestResult 
         refused,
         PipelineError::sessions(StoreError::corrupted(
             SessionEntry::INDEX_KEY.to_vec(),
-            "a session index whose length is not a multiple of 8".to_string()
+            "a session index whose length is not a multiple of 16".to_string()
         ))
     );
     // A read the store fails is the store's own error, not corruption.
@@ -494,7 +503,7 @@ fn test_a_builds_end_that_cannot_be_proposed_stops_the_pipeline() -> TestResult 
     assert_eq!(
         drained(&mut pipe),
         vec![
-            Reply::new(1, Ok(4)),
+            Reply::new(1, Ok(version(1, 0))),
             Reply::new(2, Err(CommitError::unavailable()))
         ]
     );
@@ -514,12 +523,70 @@ fn test_the_oldest_read_prunes_the_conflict_history_up_to_the_watermark() -> Tes
     commit_insert(&mut pipe, &applier, 2, "q")?;
     block_on(pipe.sync(0)).context("synced")?;
     assert!(!pipe.is_stopped(), "two commits stop nothing");
-    // One commit a round, each two above the one before.
-    assert_eq!(pipe.watermark(), base + 4);
-    pipe.oldest_read(base + 2);
-    assert_eq!(pipe.step().resolver().history().floor(), base + 2);
+    // One commit a round, each two above the one before, in epoch 1.
+    assert_eq!(pipe.watermark(), version(1, 2));
+    pipe.oldest_read(version(1, 0));
+    assert_eq!(pipe.step().resolver().history().floor(), version(1, 0));
     // A floor above the watermark is taken as the watermark (CommitStep's OldestRead).
-    pipe.oldest_read(base + 100);
-    assert_eq!(pipe.step().resolver().history().floor(), base + 4);
+    pipe.oldest_read(u64::MAX);
+    assert_eq!(pipe.step().resolver().history().floor(), version(1, 2));
+    Ok(())
+}
+
+/// A close delivered to the pipeline opens the next epoch; a full epoch's close request is handed out once.
+#[test]
+fn test_closes_reach_the_step_through_the_pipeline() -> TestResult {
+    use ultragraphdb_core_ids::Epoch;
+    let applier = applier()?;
+    let _base = setup(&applier, vec![insert("a", "knows", "b")])?;
+    let (_storage, pipe) = pipeline(&applier)?;
+    let request =
+        ultragraphdb_transactions_commit::CloseRequest::new(500, 250).context("setting")?;
+    let mut pipe = pipe.with_partition(4, Epoch::new(9).context("epoch")?, request, &[]);
+    commit_insert(&mut pipe, &applier, 1, "p")?;
+    block_on(pipe.sync(0)).context("synced")?;
+    pipe.close(crate::utils::fixture::close(10, Vec::new(), Vec::new())?, 0)?;
+    assert_eq!(pipe.step().delivered(), Epoch::new(10)?);
+    commit_insert(&mut pipe, &applier, 2, "q")?;
+    block_on(pipe.sync(0)).context("synced")?;
+    let replies = drained_raw(&mut pipe);
+    let versions: Vec<Result<u64, CommitError>> =
+        replies.iter().map(|r| r.outcome().clone()).collect();
+    assert_eq!(versions, vec![Ok(version(10, 0)), Ok(version(11, 0))]);
+    assert_eq!(
+        replies
+            .first()
+            .and_then(|r| r.token())
+            .map(|t| (t.partition(), t.epoch().get())),
+        Some((4, 10))
+    );
+    assert_eq!(pipe.take_close_request(), None, "no epoch filled");
+    pipe.tick(1_000);
+    assert!(!pipe.is_stopped());
+    Ok(())
+}
+
+/// A registration the partition accepted as a home goes through the pipeline's rounds and is answered with its version.
+#[test]
+fn test_a_registration_through_the_pipeline_is_answered_with_its_version() -> TestResult {
+    let applier = applier()?;
+    let _base = setup(&applier, vec![insert("a", "knows", "b")])?;
+    let (_storage, mut pipe) = pipeline(&applier)?;
+    let record = crate::utils::proposal_double::registration(7, 3, 1)?;
+    pipe.registration(5, record, 0)?;
+    block_on(pipe.sync(0)).context("synced")?;
+    let replies = drained(&mut pipe);
+    assert_eq!(
+        replies
+            .iter()
+            .map(|r| (r.ticket(), r.outcome().clone()))
+            .collect::<Vec<_>>(),
+        vec![(5, Ok(version(1, 0)))]
+    );
+    assert_eq!(
+        pipe.watermark(),
+        version(1, 0),
+        "its round moved the watermark"
+    );
     Ok(())
 }

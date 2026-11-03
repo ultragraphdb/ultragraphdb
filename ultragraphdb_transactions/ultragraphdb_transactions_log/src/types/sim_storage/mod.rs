@@ -28,6 +28,8 @@ use crate::types::storage_operation::StorageOperation;
 /// another.
 #[derive(Debug, Clone)]
 pub struct SimStorage {
+    // Shared and interiorly mutable (Ultra rule 9): the test's clone injects faults and cuts the power while the log
+    // owns another, on one thread, so `Rc` suffices and the `RefCell` is borrowed inside one call only.
     state: Rc<RefCell<SimState>>,
 }
 

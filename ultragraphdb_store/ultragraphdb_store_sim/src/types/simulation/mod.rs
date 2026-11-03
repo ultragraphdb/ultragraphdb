@@ -13,6 +13,10 @@ use crate::types::sim_rng::SimRng;
 use crate::types::sim_store::SimStore;
 use crate::types::stepped_executor::SteppedExecutor;
 use crate::types::store_model::StoreModel;
+
+/// The recoveries in a row after which a store that still does not serve breaks the simulation: each one stops only
+/// when a fault interrupts the work it finishes at open, so a long run of them is a defect, not bad luck.
+const RECOVERIES_MAX: usize = 1_000;
 use crate::types::stream::Stream;
 use crate::types::violation::Violation;
 
@@ -99,14 +103,23 @@ impl Simulation {
         F: FnMut(&mut SimContext, Event) -> Result<(), Violation>,
     {
         // A workload's recovery can itself fail, as finishing a rebuild at open drops prefixes the faults may stop: the
-        // store is recovered again until it serves.
-        while self.context.store().needs_recovery() {
+        // store is recovered again until it serves, at most `RECOVERIES_MAX` times in a row.
+        for _ in 0..RECOVERIES_MAX {
+            if !self.context.store().needs_recovery() {
+                return Ok(());
+            }
             self.check()?;
             self.context.executor().clear();
             self.context.store().recover();
             self.check()?;
             workload(&mut self.context, Event::Recovered)?;
             self.check()?;
+        }
+        if self.context.store().needs_recovery() {
+            return Err(self.context.violation(
+                "a store serves again within RECOVERIES_MAX recoveries in a row",
+                format!("{RECOVERIES_MAX} recoveries in a row left the store down"),
+            ));
         }
         Ok(())
     }

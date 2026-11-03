@@ -96,10 +96,6 @@ impl Model {
         if rs.absent().any(key_hit) {
             return Some(ConflictKind::AbsentTerm);
         }
-        let (cs, ce) = rs.catalog();
-        if range_hit(cs, ce) {
-            return Some(ConflictKind::Catalog);
-        }
         let dropped = above.iter().any(|w| {
             w.ranges.iter().any(|(ws, we)| {
                 let we = we.as_deref();
@@ -107,7 +103,6 @@ impl Model {
                     || rs.statements().any(|(k, _)| contains(ws, we, k))
                     || rs.absent().any(|k| contains(ws, we, k))
                     || rs.ranges().any(|(s, e)| overlaps(ws, we, s, e))
-                    || overlaps(ws, we, cs, ce)
             })
         });
         dropped.then_some(ConflictKind::Drop)

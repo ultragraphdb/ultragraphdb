@@ -194,11 +194,13 @@ recorded.
 
 ### Requirement: Phase 5 hardens the implementation with mutation testing
 
-Each group SHALL run `scripts/mutants.sh` over the code it added or edited, once its implementation passes, and SHALL resolve every surviving mutant as either a suite gap or a recorded equivalence before the group closes.
+Each group SHALL run `scripts/mutants.sh <crate> <file> --diff <base>` over the lines it added or edited, once its implementation passes, with `<base>` the commit the group started from, and SHALL run it at most three times per file: one run over the diff, one fix pass, and one re-run of only the mutants that pass killed (`--re`). A survivor is resolved as a suite gap, killed by a test, or as a recorded equivalence; a survivor still open after the third run is recorded in the group's notes for the stage's final verification, and the group closes.
 
 Mutation testing answers the question coverage cannot: whether a test would notice if a line were
-wrong. It is scoped per stage rather than run over the workspace, because every mutant costs a build
-plus a test run.
+wrong. It is scoped to the lines a group changed, through cargo-mutants' `--in-diff`, and bounded, because every
+mutant costs a build plus a test run: the script refuses a fourth run of a file for one base, holds one lock so only
+one run uses the machine at a time, and runs four jobs. Agents call the script, never `cargo mutants` directly, so the
+bound holds.
 
 Equivalent mutants belong in `.cargo/mutants.toml`, each carrying the measurement that settles it
 rather than an assertion that it is fine. Those entries are regular expressions matched against text
@@ -207,9 +209,9 @@ or `*` matches nothing, an unescaped `||` matches everything. Each entry SHALL b
 confirmed with the `comm` check the file carries, and SHALL match no more than it argues for.
 
 #### Scenario: Mutation runs over the stage's own code
-- **WHEN** a stage's phase-5 exit is claimed
-- **THEN** `scripts/mutants.sh` has run over the files that stage added or edited
-- **AND** its report is recorded in the stage's task notes
+- **WHEN** a group's phase-5 exit is claimed
+- **THEN** `scripts/mutants.sh --diff` has run over the lines that group added or edited, at most three times per file
+- **AND** its report, with every survivor left open, is recorded in the group's task notes
 
 #### Scenario: A survivor is a gap until argued otherwise
 - **WHEN** a mutant survives

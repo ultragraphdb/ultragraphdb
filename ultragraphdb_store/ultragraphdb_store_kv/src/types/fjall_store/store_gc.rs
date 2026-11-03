@@ -87,7 +87,7 @@ impl Shared {
 
 /// The version a stored key ends in; the caller has checked that it ends in one.
 fn version_of(stored: &[u8]) -> u64 {
-    let mut raw = [0u8; 8];
-    raw.copy_from_slice(&stored[stored.len() - 8..]);
-    !u64::from_be_bytes(raw)
+    stored
+        .last_chunk::<8>()
+        .map_or(0, |raw| !u64::from_be_bytes(*raw))
 }

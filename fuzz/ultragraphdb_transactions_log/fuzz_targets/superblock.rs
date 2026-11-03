@@ -4,7 +4,7 @@
  */
 
 //! Any bytes as a superblock copy: decoded or refused without a panic, and an accepted record has one encoding. Then,
-//! from the other side, a record of the input's first 56 bytes as its seven fields, little-endian, encodes to bytes
+//! from the other side, a record of the input's first 48 bytes as its six fields, little-endian, encodes to bytes
 //! that decode to it: random bytes almost never carry the checksum, which this reaches without forging it.
 
 #![no_main]
@@ -22,7 +22,7 @@ fuzz_target!(|data: &[u8]| {
         );
         assert!(record.copy() == 'a' || record.copy() == 'b');
     }
-    if let Some(fields) = data.get(..56) {
+    if let Some(fields) = data.get(..48) {
         let field = |i: usize| {
             u64::from_le_bytes(fields[8 * i..8 * i + 8].try_into().expect("eight bytes"))
         };
@@ -33,7 +33,6 @@ fuzz_target!(|data: &[u8]| {
             Position::new(field(3)),
             field(4),
             field(5),
-            field(6),
         );
         assert_eq!(
             Superblock::decode(&record.encode()),

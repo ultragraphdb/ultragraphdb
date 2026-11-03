@@ -4,9 +4,11 @@
  */
 
 pub mod applier_operator;
+pub mod close_request;
 pub mod commit_request;
 pub mod commit_step;
 pub mod conflict_history;
+pub mod epoch_stamp;
 pub mod input;
 pub mod no_operations;
 pub mod pipeline;
@@ -16,8 +18,8 @@ pub mod resolver;
 pub mod round_bounds;
 pub mod round_record;
 mod run;
-pub mod sequencer;
 pub mod session_entry;
 pub mod sessions;
 mod span;
 pub mod step_output;
+pub mod stored_reply;

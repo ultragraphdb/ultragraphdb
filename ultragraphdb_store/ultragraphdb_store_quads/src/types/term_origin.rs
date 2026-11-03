@@ -9,8 +9,8 @@
 pub(crate) enum TermOrigin {
     /// The dictionary held it: its entries are written, and lists may hold it.
     Held,
-    /// A concurrent execution created it and no commit has written its entries yet: the write writes them, and lists
-    /// written since the write's snapshot may hold it.
+    /// A concurrent execution created it and no commit has written its entries yet: the write holds it and writes
+    /// them, whether or not its creator commits, and lists written since the write's snapshot may hold it.
     Pending,
     /// The write created it: the write writes its entries, and no list of its snapshot holds it.
     Created,

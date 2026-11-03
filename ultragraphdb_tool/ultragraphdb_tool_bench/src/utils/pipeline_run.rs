@@ -9,10 +9,11 @@
 //! a channel; the commit thread runs each as a read-write transaction at the visibility watermark, hands its proposal
 //! to the [`Pipeline`] over the write-ahead log on [`CompioStorage`] and the changeset applier over fjall, and syncs:
 //! each round is closed by the previous sync, appended, synced, then applied to fjall as one batch with
-//! `PersistMode::Buffer`. The store is opened with `Durability::Process`, so fjall writes its journal unsynced, as the
-//! design has it; no checkpoint runs, so the log keeps every round it wrote and its segments' bytes are its write
-//! volume. Rollups do not run: they are fjall's local maintenance, outside the log, and the comparison is of the
-//! commits' bytes alone. At most 256 commits are in flight, Dgraph's pending-proposal limit, as in the apply run.
+//! `PersistMode::Buffer`. The store is opened with `Durability::Log`, so fjall's journal is persisted manually and the
+//! log is the only stream synced per round, as the design has it; the store is synced before and after the run, so
+//! the journal's bytes are read whole. No checkpoint runs, so the log keeps every round it wrote and its segments'
+//! bytes are its write volume. Rollups do not run: they are fjall's local maintenance, outside the log, and the
+//! comparison is of the commits' bytes alone. At most 256 commits are in flight, Dgraph's pending-proposal limit, as in the apply run.
 
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
@@ -84,11 +85,12 @@ pub fn run_pipeline(args: &PipelineArgs) -> Result<String, BenchError> {
     std::fs::create_dir_all(args.dir())?;
     let store_dir = args.dir().join("store");
     let wal_dir = args.dir().join("wal");
-    let a = open_applier(&store_dir, Durability::Process, args.cache_mb())?;
+    let a = open_applier(&store_dir, Durability::Log, args.cache_mb())?;
     let shape = CommitShape::new(args.relations(), HUBS, TYPES, 1);
     prepare(&a, &shape, TYPES)?;
     let data_path = a.quads().lists().store().inner().data_path().to_path_buf();
-    // The journal the declarations and the hubs wrote, before the run's first commit.
+    // The journal the declarations and the hubs wrote, before the run's first commit, persisted to be read.
+    a.quads().lists().sync()?;
     let journal_before = journal_written(&store_dir)?;
 
     let config = WalConfig::new(CLUSTER, args.power_loss_protection());

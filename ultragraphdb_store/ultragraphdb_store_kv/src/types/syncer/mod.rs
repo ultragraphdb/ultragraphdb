@@ -36,6 +36,7 @@ impl Syncer {
         let handle = thread::Builder::new()
             .name("ultragraphdb-store-sync".to_string())
             .spawn(move || {
+                // An event loop: it ends when the store is dropped, through the stop channel or the weak reference.
                 while let Err(RecvTimeoutError::Timeout) = stopped.recv_timeout(period) {
                     let Some(shared) = shared.upgrade() else {
                         return;

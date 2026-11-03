@@ -4,6 +4,7 @@
  */
 
 mod changeset_core_drop;
+mod changeset_core_logical;
 mod changeset_core_operate;
 mod changeset_core_rebuild;
 mod changeset_core_record;
@@ -186,10 +187,11 @@ where
         let read_ts = self.quads.lists().applied_ts();
         let mut execution = self.begin_execution(changeset.namespace(), read_ts)?;
         match execution.apply(changeset) {
-            Ok(()) => Ok(execution.finish()),
+            Ok(()) => execution.finish(),
             Err(refused) => {
-                // A refused changeset commits nothing: its terms are released, so it holds no pending ID.
-                self.quads.release(execution.terms())?;
+                // A refused changeset commits nothing: its terms are released, writing nothing, so it holds no pending
+                // ID and no entry of its terms reaches the store outside a commit.
+                self.quads.release(execution.terms());
                 Err(refused)
             }
         }
@@ -334,7 +336,8 @@ where
         let mut started = None;
         let mut applied = Vec::with_capacity(round.len());
         for (version, executed) in round {
-            // The batch holding its dictionary entries is written: its pending IDs are settled.
+            // The batch holding its dictionary entries, its pending terms' included, is written: its pending IDs are
+            // settled.
             self.quads.settle(&executed.terms);
             self.queue_vectors(version, &executed);
             let written: BTreeSet<Region> = executed

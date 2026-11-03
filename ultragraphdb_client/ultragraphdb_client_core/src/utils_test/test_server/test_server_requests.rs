@@ -3,7 +3,6 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{
     Begin, BeginView, BodyBuilder, BodyView, Command, CommitView, Describe, DropCommandView,
@@ -153,7 +152,7 @@ impl TestServer {
     /// The server's Result frames on `stream`: one column, two rows naming the same IRI, the last frame flagged; with
     /// no frames configured, one flagged batch of no rows, a read that matches nothing.
     fn results(&mut self, stream: u64) {
-        let term = ResultTerm::new(EncodedTerm::uid(42)).with_text("http://ex.org/same");
+        let term = ResultTerm::iri("http://ex.org/same");
         let results = self.results;
         if results == 0 {
             return self.reply(stream, &ResultBatch::new(1), FLAG_LAST);

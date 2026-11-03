@@ -11,60 +11,49 @@ use ultragraphdb_traits_store::{Store, VersionlessEntry};
 use crate::types::session_entry::SessionEntry;
 use crate::types::sessions::{Session, Sessions};
 
+/// A session identity's bytes in the index.
+const SESSION_BYTES: usize = 16;
+
 impl Sessions {
     /// The table `store` holds, as the entries drained into the rounds it applied left it, holding at most the
-    /// default capacity or the sessions it holds, whichever is more; [`Sessions::bounded`] bounds it. A session
-    /// committed is touched at its commit's version, one only registered at its own number, as before.
+    /// default capacity or the sessions it holds, whichever is more; [`Sessions::bounded`] bounds it.
     ///
     /// # Errors
     ///
     /// The store's error when an entry cannot be read; [`StoreError::corrupted`] for an index whose length is not a
-    /// multiple of 8 or whose numbers do not ascend from above 0, a session it names with no entry, a malformed
-    /// entry, or one committed at or before its registration.
+    /// multiple of 16 or whose sessions are not ascending and above 0, a session it names with no entry, or a
+    /// malformed entry.
     pub fn load<S: Store>(store: &S) -> Result<Self, StoreError> {
         let Some(index) = store.get_versionless(SessionEntry::INDEX_KEY)? else {
             return Ok(Self::new(Self::DEFAULT_CAPACITY));
         };
         let corrupted =
             |key: &[u8], reason: &str| StoreError::corrupted(key.to_vec(), reason.to_string());
-        let (numbers, rest) = index.as_chunks::<8>();
+        let (sessions, rest) = index.as_chunks::<SESSION_BYTES>();
         if !rest.is_empty() {
             return Err(corrupted(
                 SessionEntry::INDEX_KEY,
-                "a session index whose length is not a multiple of 8",
+                "a session index whose length is not a multiple of 16",
             ));
         }
-        let numbers: Vec<u64> = numbers.iter().map(|n| u64::from_le_bytes(*n)).collect();
-        if numbers.first() == Some(&0) || numbers.windows(2).any(|w| w[0] >= w[1]) {
+        let sessions: Vec<u128> = sessions.iter().map(|s| u128::from_be_bytes(*s)).collect();
+        if sessions.first() == Some(&0) || !sessions.is_sorted_by(|a, b| a < b) {
             return Err(corrupted(
                 SessionEntry::INDEX_KEY,
-                "a session index whose numbers are not ascending from above 0",
+                "a session index whose sessions are not ascending from above 0",
             ));
         }
-        let mut table = HashMap::with_capacity(numbers.len());
-        for session in numbers {
+        let mut table = HashMap::with_capacity(sessions.len());
+        for session in sessions {
             let key = SessionEntry::key(session);
             let Some(bytes) = store.get_versionless(&key)? else {
                 return Err(corrupted(&key, "the index names a session with no entry"));
             };
             let entry = SessionEntry::decode(&key, &bytes)?;
-            if entry.request() != 0 && entry.version() <= session {
-                return Err(corrupted(
-                    &key,
-                    "a session committed at or before its registration",
-                ));
-            }
-            let session_entry = if entry.request() == 0 {
-                Session::registered(session, entry.owner())
-            } else {
-                Session {
-                    last_request: entry.request(),
-                    last_version: entry.version(),
-                    touched: entry.version(),
-                    owner: entry.owner(),
-                    results: entry.into_results(),
-                    pending: false,
-                }
+            let last_request = entry.request();
+            let session_entry = Session {
+                last_request,
+                reply: entry.into_reply(),
             };
             let _replaced: Option<Session> = table.insert(session, session_entry);
         }
@@ -72,40 +61,37 @@ impl Sessions {
         Ok(Self {
             table,
             capacity,
+            pending: Vec::new(),
             changed: Vec::new(),
-            evicted: Vec::new(),
+            purged: Vec::new(),
             index_changed: false,
         })
     }
 
     /// Drains the changes since the last drain into `out` as entries of the keyspace without versions, for the batch
-    /// of the round that made them: each session registered or committed and still held, its entry, in order of
-    /// number; each session evicted, the removal of its entry; and the index, when the sessions held changed.
+    /// of the round that made them: each session committed and still held, its entry, in order of identity; each
+    /// session purged, the removal of its entry; and the index, when the sessions held changed.
     pub fn drain_entries(&mut self, out: &mut Vec<VersionlessEntry>) {
         self.changed.sort_unstable();
         self.changed.dedup();
         for session in self.changed.drain(..) {
             if let Some(entry) = self.table.get(&session) {
-                let value = SessionEntry::new(
-                    entry.last_request,
-                    entry.last_version,
-                    entry.owner,
-                    entry.results.clone(),
-                );
+                let value = SessionEntry::new(entry.last_request, entry.reply.clone());
                 out.push(VersionlessEntry::put(
                     SessionEntry::key(session),
                     value.encode(),
                 ));
             }
         }
-        self.evicted.sort_unstable();
-        for session in self.evicted.drain(..) {
+        self.purged.sort_unstable();
+        self.purged.dedup();
+        for session in self.purged.drain(..) {
             out.push(VersionlessEntry::removal(SessionEntry::key(session)));
         }
         if std::mem::take(&mut self.index_changed) {
-            let mut numbers: Vec<u64> = self.table.keys().copied().collect();
-            numbers.sort_unstable();
-            let index = numbers.iter().flat_map(|n| n.to_le_bytes()).collect();
+            let mut sessions: Vec<u128> = self.table.keys().copied().collect();
+            sessions.sort_unstable();
+            let index = sessions.iter().flat_map(|s| s.to_be_bytes()).collect();
             out.push(VersionlessEntry::put(
                 SessionEntry::INDEX_KEY.to_vec(),
                 index,

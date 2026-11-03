@@ -15,6 +15,8 @@ pub(crate) mod executed;
 pub(crate) mod execution;
 pub(crate) mod index_plan;
 pub(crate) mod level_draw;
+pub(crate) mod logical_quad;
+pub(crate) mod logical_writes;
 pub(crate) mod operation;
 pub(crate) mod operation_link;
 pub(crate) mod operation_outcome;

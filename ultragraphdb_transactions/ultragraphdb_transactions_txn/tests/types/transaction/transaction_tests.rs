@@ -159,13 +159,18 @@ fn test_a_read_of_terms_the_store_lacks_holds_nothing_and_records_them_absent() 
     assert!(objects(&mut txn, "nobody", "knows", 0)?.is_empty());
     assert!(objects(&mut txn, "a", "unknown", 0)?.is_empty());
     let prepared = prepared(txn.commit(1, 1, &[], 0))?;
-    let absent: Vec<&[u8]> = prepared.read_set().absent().collect();
-    assert!(
-        absent.contains(&ultragraphdb_store_quads::iri_key(NS, ex("nobody").as_str()).as_slice())
-    );
-    assert!(
-        absent.contains(&ultragraphdb_store_quads::iri_key(NS, ex("unknown").as_str()).as_slice())
-    );
+    // A term the store lacks takes an ID while the read runs (store_quads' get-or-create), recorded absent by it.
+    let absent: Vec<Vec<u8>> = prepared.read_set().absent().map(<[u8]>::to_vec).collect();
+    let executed_absent: Vec<Vec<u8>> = prepared
+        .executed()
+        .reads()
+        .absent()
+        .iter()
+        .map(|id| ultragraphdb_transactions_txn::ReadSet::term_key(*id).to_vec())
+        .collect();
+    assert_eq!(absent.len(), 2, "nobody and unknown: {absent:?}");
+    assert!(executed_absent.iter().all(|k| absent.contains(k)));
+    assert!(absent.iter().all(|k| k.first() == Some(&0xFE)));
     Ok(())
 }
 
@@ -177,21 +182,21 @@ fn test_a_read_write_transactions_reads_are_in_its_read_set() -> TestResult {
     read_objects(&mut txn, "a", "knows", 0)?;
     txn.write(&changeset(vec![insert("c", "knows", "b")]), 0)?;
     let watermark = txn.read_version();
-    let prepared = prepared(txn.commit(5, 6, b"cr", 0))?;
+    let prepared = prepared(txn.with_catalog(4).commit(5, 6, b"cr", 0))?;
     let set = prepared.read_set();
     assert!(set.is_sealed());
     assert_eq!((set.namespace(), set.read_version()), (NS, watermark));
     let a = applier
         .quads()
-        .uid_of(NS, ex("a").as_str())?
-        .context("a's uid")?;
+        .id_of(NS, ex("a").as_str())?
+        .context("a's ID")?;
     let knows = applier
         .quads()
-        .uid_of(NS, ex("knows").as_str())?
-        .context("knows's uid")?;
+        .id_of(NS, ex("knows").as_str())?
+        .context("knows's ID")?;
     let forward = ultragraphdb_core_keys::QuadKey::Forward {
         namespace: NS,
-        graph: 0,
+        graph: ultragraphdb_core_keys::DEFAULT_GRAPH,
         predicate: knows,
         subject: a,
     }
@@ -200,17 +205,15 @@ fn test_a_read_write_transactions_reads_are_in_its_read_set() -> TestResult {
         set.lists().any(|k| k == forward.as_slice()),
         "the list read whole"
     );
-    let mut catalog = vec![0x01];
-    catalog.extend_from_slice(&NS.to_be_bytes());
-    assert_eq!(set.catalog().0, catalog.as_slice());
     // The record carries the transaction's identity and writes.
     assert_eq!(prepared.namespace(), NS);
     assert_eq!(prepared.read_version(), watermark);
     let view = WriteSetRecordView::new(prepared.record())?;
     assert_eq!((view.namespace(), view.read_version()), (NS, watermark));
-    assert_eq!((view.session(), view.request()), (5, 6));
+    assert_eq!((view.session(), view.request()), (5u128.to_be_bytes(), 6));
     assert_eq!(view.commit_record(), b"cr");
-    assert!(!view.list_deltas().is_empty());
+    assert_eq!(view.catalog(), 4, "the catalog version it executed against");
+    assert_eq!(view.inserted().iter().count(), 1);
     assert_eq!(prepared.executed().read_ts(), watermark);
     Ok(())
 }
@@ -224,7 +227,8 @@ fn test_a_read_write_transaction_with_no_writes_is_still_validated() -> TestResu
     let prepared = prepared(txn.commit(1, 1, &[], 0))?;
     assert_eq!(prepared.read_set().lists().count(), 1);
     let view = WriteSetRecordView::new(prepared.record())?;
-    assert_eq!(view.list_deltas().len(), 0);
+    assert_eq!(view.inserted().iter().count(), 0);
+    assert_eq!(view.removed().iter().count(), 0);
     Ok(())
 }
 
@@ -441,14 +445,13 @@ fn test_an_aborted_transaction_writes_nothing_and_returns_its_buffers() -> TestR
 fn test_a_read_set_past_its_limit_refuses_the_commit() -> TestResult {
     let applier = applier()?;
     store(&applier, vec![insert("a", "knows", "b")])?;
-    // The catalog range alone takes 34 bytes (two 9-byte keys and their spans); a whole-list read of the 33-byte
-    // forward key (the keyspace byte, then namespace, graph, predicate and subject as u64s, QuadKey's layout) takes 41
-    // more, its key and its 8-byte span: 75 in all.
+    // A whole-list read of the 57-byte forward key (the keyspace byte, the namespace's 8 bytes, then graph, predicate
+    // and subject of 16 bytes each, QuadKey's layout) takes its key and its 8-byte span: 65 in all.
     let limits = TxnLimits::default().with_max_read_set(40);
     let mut txn = begin_with(&applier, Mode::ReadWrite, limits)?;
     read_objects(&mut txn, "a", "knows", 0)?;
     let error = txn.commit(1, 1, &[], 0).err().context("the call fails")?;
-    assert_eq!(error, TxnError::read_set_too_large(75, 40));
+    assert_eq!(error, TxnError::read_set_too_large(65, 40));
     assert!(!error.is_retryable());
     // The read set's bound exactly and one below it.
     let read = |max: usize| -> TestResult<Result<(), TxnError>> {
@@ -460,15 +463,16 @@ fn test_a_read_set_past_its_limit_refuses_the_commit() -> TestResult {
         read_objects(&mut bounded, "a", "knows", 0)?;
         Ok(bounded.commit(1, 1, &[], 0).map(|_| ()))
     };
-    assert_eq!(read(75)?, Ok(()));
-    assert_eq!(read(74)?, Err(TxnError::read_set_too_large(75, 74)));
+    assert_eq!(read(65)?, Ok(()));
+    assert_eq!(read(64)?, Err(TxnError::read_set_too_large(65, 64)));
     Ok(())
 }
 
 #[test]
 fn test_a_write_set_past_its_limit_refuses_the_commit() -> TestResult {
     let applier = applier()?;
-    // The record the same transaction writes with the default bound: its length is the size a smaller bound refuses.
+    // The write set the same transaction makes with the default bound, its record and the dictionary entries its round
+    // holds for it: their size is what a smaller bound refuses.
     let write = |max: usize| -> TestResult<Result<Commit, TxnError>> {
         let mut txn = begin_with(
             &applier,
@@ -478,15 +482,17 @@ fn test_a_write_set_past_its_limit_refuses_the_commit() -> TestResult {
         txn.write(&changeset(vec![insert("a", "knows", "b")]), 0)?;
         Ok(txn.commit(1, 1, &[], 0))
     };
-    let size = prepared(write(TxnLimits::default().max_write_set())?)?
-        .record()
-        .len();
+    let unbounded = prepared(write(TxnLimits::default().max_write_set())?)?;
+    let record = unbounded.record().len();
+    let size = record
+        + ultragraphdb_transactions_txn::WriteSetBuilder::dictionary_len(unbounded.executed());
+    assert!(size > record, "the new IRIs' entries count");
     assert!(size > 200, "{size}");
     let error = write(200)?.err().context("the call fails")?;
     assert_eq!(error, TxnError::write_set_too_large(size, 200));
     assert!(!error.is_retryable());
     // The bound exactly and one below it.
-    assert_eq!(prepared(write(size)?)?.record().len(), size);
+    assert_eq!(prepared(write(size)?)?.record().len(), record);
     assert_eq!(
         write(size - 1)?.err().context("the call fails")?,
         TxnError::write_set_too_large(size, size - 1)
@@ -643,5 +649,168 @@ fn test_a_transaction_of_another_namespace_names_it_in_its_proposal() -> TestRes
     assert_eq!(prepared.read_set().namespace(), 7);
     let view = WriteSetRecordView::new(prepared.record())?;
     assert_eq!(view.namespace(), 7);
+    Ok(())
+}
+
+/// The name `s{i}` of the first `i` whose IRI's bucket `placement` gives to `partition` at epoch 0: the placement map
+/// and the bucket derivation are the oracle.
+fn owned_by(
+    placement: &ultragraphdb_cluster_placement::PlacementMap,
+    partition: u32,
+) -> TestResult<String> {
+    use ultragraphdb_core_ids::{Bucket, CanonicalKey, Epoch, Namespace, TypePrefix};
+    for i in 0..1_000 {
+        let name = format!("s{i}");
+        let iri = ex(&name);
+        let key = CanonicalKey::iri(iri.as_str()).context("the key")?;
+        let bucket = Bucket::derive(Namespace::new(NS), TypePrefix::RESOURCE, &key);
+        if placement.partition_of(bucket, Epoch::ZERO).get() == partition {
+            return Ok(name);
+        }
+    }
+    Err(ultragraphdb_tool_bdd::TestError::new(format!(
+        "no name of partition {partition}"
+    )))
+}
+
+fn two_partitions() -> TestResult<ultragraphdb_cluster_placement::PlacementMap> {
+    ultragraphdb_cluster_placement::PlacementMap::even(
+        2,
+        ultragraphdb_cluster_placement::NodeId::new(1),
+    )
+    .context("the placement")
+}
+
+fn partition(n: u32) -> TestResult<ultragraphdb_cluster_placement::PartitionId> {
+    ultragraphdb_cluster_placement::PartitionId::new(n).context("the partition")
+}
+
+#[test]
+fn test_a_bound_transaction_writes_its_own_partitions_subjects() -> TestResult {
+    let applier = applier()?;
+    let placement = two_partitions()?;
+    let own = owned_by(&placement, 1)?;
+    let mut txn = begin(&applier, Mode::ReadWrite)?.bind(partition(1)?, &placement);
+    txn.write(&changeset(vec![insert(&own, "knows", "b")]), 0)?;
+    assert!(!txn.is_ended());
+    let prepared = prepared(txn.commit(1, 1, &[], 0))?;
+    assert_eq!(
+        WriteSetRecordView::new(prepared.record())?
+            .inserted()
+            .iter()
+            .count(),
+        1
+    );
+    Ok(())
+}
+
+#[test]
+fn test_a_write_of_another_partitions_subject_aborts_cross_partition() -> TestResult {
+    let applier = applier()?;
+    let placement = two_partitions()?;
+    let other = owned_by(&placement, 2)?;
+    let mut txn = begin(&applier, Mode::ReadWrite)?.bind(partition(1)?, &placement);
+    let error = txn
+        .write(&changeset(vec![insert(&other, "knows", "b")]), 0)
+        .err()
+        .context("the write is refused")?;
+    assert_eq!(error, TxnError::cross_partition(1, 2));
+    assert_eq!(
+        error.0,
+        TxnErrorEnum::CrossPartition {
+            partition: 1,
+            other: 2
+        }
+    );
+    assert!(!error.is_retryable());
+    assert!(txn.is_ended(), "it is aborted");
+    assert!(matches!(txn.commit(1, 1, &[], 0), Err(e) if e == TxnError::ended()));
+    assert!(
+        held(&applier, &other, "knows")?.is_empty(),
+        "nothing is held"
+    );
+    Ok(())
+}
+
+#[test]
+fn test_one_foreign_subject_among_owned_ones_aborts_the_whole_write() -> TestResult {
+    let applier = applier()?;
+    let placement = two_partitions()?;
+    let (own, other) = (owned_by(&placement, 2)?, owned_by(&placement, 1)?);
+    // Bound to partition 2 this time: the other partition is 1.
+    let mut txn = begin(&applier, Mode::ReadWrite)?.bind(partition(2)?, &placement);
+    let error = txn
+        .write(
+            &changeset(vec![
+                insert(&own, "knows", "b"),
+                insert(&other, "knows", "b"),
+            ]),
+            0,
+        )
+        .err()
+        .context("the write is refused")?;
+    assert_eq!(error, TxnError::cross_partition(2, 1));
+    assert!(txn.is_ended());
+    Ok(())
+}
+
+#[test]
+fn test_an_unbound_transaction_writes_every_subject() -> TestResult {
+    let applier = applier()?;
+    let placement = two_partitions()?;
+    let (one, two) = (owned_by(&placement, 1)?, owned_by(&placement, 2)?);
+    let mut txn = begin(&applier, Mode::ReadWrite)?;
+    txn.write(
+        &changeset(vec![insert(&one, "knows", "b"), insert(&two, "knows", "b")]),
+        0,
+    )?;
+    assert!(!txn.is_ended());
+    Ok(())
+}
+
+#[test]
+fn test_a_new_blank_node_subject_is_the_bound_partitions_own() -> TestResult {
+    let applier = applier()?;
+    let placement = two_partitions()?;
+    let mut txn = begin(&applier, Mode::ReadWrite)?.bind(partition(2)?, &placement);
+    let blank = Change::Insert {
+        graph: oxrdf::GraphName::DefaultGraph,
+        subject: oxrdf::BlankNode::new_unchecked("fresh").into(),
+        predicate: ex("knows"),
+        object: ex("b").into(),
+    };
+    txn.write(&changeset(vec![blank]), 0)?;
+    assert!(
+        !txn.is_ended(),
+        "the partition draws a new blank node's bucket"
+    );
+    Ok(())
+}
+
+#[test]
+fn test_a_transaction_carries_its_token_and_catalog_version_into_its_proposal() -> TestResult {
+    use ultragraphdb_core_ids::{Epoch, SessionToken};
+    let applier = applier()?;
+    let token = SessionToken::new(3, 40, Epoch::new(12).context("the epoch")?);
+    let txn = begin(&applier, Mode::ReadWrite)?
+        .with_token(token.clone())
+        .with_catalog(9);
+    assert_eq!(txn.token(), Some(&token));
+    assert_eq!(txn.catalog(), 9);
+    let prepared = prepared(txn.commit(1, 1, &[], 0))?;
+    assert_eq!(prepared.token(), Some(&token));
+    assert_eq!(WriteSetRecordView::new(prepared.record())?.catalog(), 9);
+    Ok(())
+}
+
+#[test]
+fn test_a_transaction_carries_no_token_and_catalog_0_by_default() -> TestResult {
+    let applier = applier()?;
+    let txn = begin(&applier, Mode::ReadWrite)?;
+    assert_eq!(txn.token(), None);
+    assert_eq!(txn.catalog(), 0);
+    let prepared = prepared(txn.commit(1, 1, &[], 0))?;
+    assert_eq!(prepared.token(), None);
+    assert_eq!(WriteSetRecordView::new(prepared.record())?.catalog(), 0);
     Ok(())
 }

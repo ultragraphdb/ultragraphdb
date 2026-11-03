@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_store_sim::{FaultConfig, Seed, StoreWorkload};
+use ultragraphdb_store_sim::{FaultConfig, Seed, Simulation, StoreWorkload};
 use ultragraphdb_tool_bdd::TestResult;
 
 #[test]
@@ -129,7 +129,8 @@ fn test_readers_make_earlier_reads_again_through_their_snapshots() -> TestResult
         .collect();
     let mut seen = std::collections::BTreeSet::new();
     let again = reads.iter().filter(|r| !seen.insert(**r)).count();
-    assert_eq!((reads.len(), again), (201, 56));
+    // Seed 3's run as the statistics keys left it: 198 reads, 55 of them made again (201 and 56 with catalog keys).
+    assert_eq!((reads.len(), again), (198, 55));
 
     let mixed_trace: Vec<String> = (0..8)
         .map(|s| {
@@ -149,7 +150,9 @@ fn test_readers_make_earlier_reads_again_through_their_snapshots() -> TestResult
             *read_failed && mixed_reads[at + 1..].iter().any(|(r, _)| r == read)
         })
         .count();
-    assert_eq!((failed, retried), (28, 20));
+    // The runs as the statistics keys and the checkpoint syncs left them (28 and 20 with catalog keys and synced
+    // commits).
+    assert_eq!((failed, retried), (43, 26));
     Ok(())
 }
 
@@ -281,11 +284,12 @@ fn entries_of(line: &str) -> Vec<(Vec<u8>, u64, Option<Vec<u8>>)> {
         .collect()
 }
 
-/// A drop of a namespace's catalog writes the declaration of predicate 7 there, and a drop of one predicate's
-/// catalog entry writes that entry again, at version 1 with meta 1 and the value `name`; by the catalog layout
-/// `[0x01][namespace u64][0x01][predicate u64]`, the namespace prefix is 9 bytes and an entry 18.
+/// A drop of a namespace's statistics writes the statistics of predicate 7 there, and a drop of one predicate's
+/// statistics entry writes that entry again, at version 1 with meta 1 and the value `name`; by the statistics layout
+/// `[0x18][namespace u64][graph u64][predicate u64]`, the default graph 0, the namespace prefix is 9 bytes and an
+/// entry 25.
 #[test]
-fn test_a_catalog_drop_writes_its_declaration_under_its_prefix() -> TestResult {
+fn test_a_statistics_drop_writes_its_entry_under_its_prefix() -> TestResult {
     let mut seen = std::collections::BTreeSet::new();
     for seed in 0..8 {
         let run = StoreWorkload::run(Seed::new(seed), FaultConfig::none(), 300, 0)?;
@@ -294,16 +298,16 @@ fn test_a_catalog_drop_writes_its_declaration_under_its_prefix() -> TestResult {
                 continue;
             };
             let entries = entries_of(line);
-            if prefix[0] != 0x01 {
+            if prefix[0] != 0x18 {
                 assert!(entries.is_empty(), "{line}");
                 continue;
             }
             let mut declaration = prefix.clone();
             if prefix.len() == 9 {
-                declaration.push(0x01);
+                declaration.extend_from_slice(&0u64.to_be_bytes());
                 declaration.extend_from_slice(&7u64.to_be_bytes());
             }
-            assert!(prefix.len() == 9 || prefix.len() == 18, "{line}");
+            assert!(prefix.len() == 9 || prefix.len() == 25, "{line}");
             assert!(
                 matches!(entries.as_slice(), [] | [(_, 1, Some(_))]),
                 "{entries:?} in {line}"
@@ -321,7 +325,7 @@ fn test_a_catalog_drop_writes_its_declaration_under_its_prefix() -> TestResult {
             }
         }
     }
-    for case in [(9, true), (18, true)] {
+    for case in [(9, true), (25, true)] {
         assert!(
             seen.iter().any(|(len, ns, _)| (*len, *ns) == case),
             "no {case:?} in {seen:?}"
@@ -329,7 +333,7 @@ fn test_a_catalog_drop_writes_its_declaration_under_its_prefix() -> TestResult {
     }
     assert!(
         seen.iter()
-            .any(|(len, _, predicate)| *len == 18 && *predicate == 9),
+            .any(|(len, _, predicate)| *len == 25 && *predicate == 9),
         "no drop of predicate 9's entry in {seen:?}"
     );
     Ok(())
@@ -383,5 +387,68 @@ fn test_the_workload_never_bans_the_root_namespace() -> TestResult {
             .map(String::from)
             .collect()
     );
+    Ok(())
+}
+
+/// The keyspace byte of the quad layout's catalog, which partitions do not hold: the catalog lives in the metadata
+/// group.
+const CATALOG: u8 = 0x01;
+
+/// A partition holds no catalog keys, so the workload writes none: not in a commit, a rollup, a drop's entries or the
+/// entries a drop of everything writes. Checked after every step and recovery, over seeds with and without faults.
+#[test]
+fn test_the_workload_writes_no_catalog_key() -> TestResult {
+    for seed in 0..12 {
+        let faults = if seed % 2 == 0 {
+            FaultConfig::none()
+        } else {
+            FaultConfig::mixed()
+        };
+        let mut workload = StoreWorkload::new(2);
+        let actors = workload.actors();
+        let _outcome =
+            Simulation::new(Seed::new(seed), faults).run(300, actors, |ctx, event| {
+                workload.step(ctx, event)?;
+                let contents = ctx.store().contents();
+                match contents
+                    .keys()
+                    .keys()
+                    .find(|key| key.first() == Some(&CATALOG))
+                {
+                    Some(key) => {
+                        Err(ctx.violation("the workload writes no catalog key", format!("{key:?}")))
+                    }
+                    None => Ok(()),
+                }
+            })?;
+    }
+    Ok(())
+}
+
+/// The store is synced only at checkpoints, as a store beside the write-ahead log is: every commit is written
+/// unsynced, and the syncs are the workload's own.
+#[test]
+fn test_the_workload_syncs_the_store_only_at_checkpoints() -> TestResult {
+    let mut synced = 0;
+    for seed in 0..6 {
+        let outcome = StoreWorkload::run(Seed::new(seed), FaultConfig::none(), 300, 1)?;
+        let applied: Vec<&String> = outcome
+            .trace()
+            .iter()
+            .filter(|l| is_record(l, "Applied"))
+            .collect();
+        assert!(!applied.is_empty(), "seed {seed} commits");
+        assert!(
+            applied.iter().all(|l| l.ends_with("mode: Buffer }")),
+            "seed {seed}: a commit synced: {:?}",
+            applied.iter().find(|l| !l.ends_with("mode: Buffer }"))
+        );
+        synced += outcome
+            .trace()
+            .iter()
+            .filter(|l| is_record(l, "Synced"))
+            .count();
+    }
+    assert!(synced > 0, "the checkpoints sync the store");
     Ok(())
 }

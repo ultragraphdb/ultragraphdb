@@ -474,15 +474,15 @@ fn commit_cases() -> Vec<Case> {
         Case {
             name: "commit",
             setup: commit,
-            // Commit: version 1,000, request 7, results (0x10, created) and (0x20, found).
+            // Commit: version 1,000, request 7, results a counter add at -5 and a compare-and-set.
             check: |peer, wait| {
                 let committed = committed(reply(peer, wait)?)?;
                 assert_eq!((committed.version(), committed.request()), (1_000, 7));
                 assert_eq!(
                     committed.results(),
                     &[
-                        OperationResult::new(0x10, true),
-                        OperationResult::new(0x20, false)
+                        OperationResult::counter(-5),
+                        OperationResult::compare_and_set()
                     ]
                 );
                 Ok(())

@@ -69,13 +69,14 @@ impl StoreModel {
                 let mut ops = self.pending.clone();
                 ops.extend(in_flight);
                 (0..=ops.len())
-                    .map(|k| {
-                        let state = replay(&ops[..k]);
+                    .filter_map(|k| ops.get(..k).map(|kept| (k, kept)))
+                    .map(|(k, kept)| {
+                        let state = replay(kept);
                         Outcome {
                             base: Arc::new(state.clone()),
                             state,
                             pending: Vec::new(),
-                            kept: ops[..k].to_vec(),
+                            kept: kept.to_vec(),
                             survivors: Some(k),
                         }
                     })

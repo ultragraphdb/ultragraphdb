@@ -3,16 +3,20 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_protocol_wire::OperationResult;
+use ultragraphdb_cluster_sequencer::{CatalogVersion, Close};
+use ultragraphdb_core_ids::Epoch;
+use ultragraphdb_store_apply::LogicalQuad;
 use ultragraphdb_store_apply::{ChangesetApplier, Executed};
 use ultragraphdb_store_posting::CachedList;
-use ultragraphdb_traits_log::{OrderedLog, Position};
+use ultragraphdb_traits_blocks::BlockSource;
+use ultragraphdb_traits_log::{DurabilityTicket, OrderedLog};
 use ultragraphdb_traits_store::{Executor, ListCache, Store};
 use ultragraphdb_transactions_txn::{Prepared, TxnBuffers};
 
 use crate::errors::commit_error::CommitError;
 use crate::errors::pipeline_error::PipelineError;
 use crate::types::applier_operator::ApplierOperator;
+use crate::types::close_request::CloseRequest;
 use crate::types::commit_request::CommitRequest;
 use crate::types::commit_step::CommitStep;
 use crate::types::input::Input;
@@ -20,6 +24,12 @@ use crate::types::reply::Reply;
 use crate::types::round_bounds::RoundBounds;
 use crate::types::sessions::Sessions;
 use crate::types::step_output::StepOutput;
+use crate::types::stored_reply::StoredReply;
+
+/// The derivation version of the rounds the pipeline appends, the store's.
+const DERIVATION: std::num::NonZeroU32 = std::num::NonZeroU32::MIN;
+
+const _: () = assert!(LogicalQuad::DERIVATION == DERIVATION.get());
 
 /// The commit step's pipeline on one node: the [`CommitStep`] over real transactions, the ordered log its rounds are
 /// appended to and synced in, and the changeset applier each synced round is applied by, driving every
@@ -44,25 +54,32 @@ use crate::types::step_output::StepOutput;
 /// **Commit-time operations** run on the applier ([`ApplierOperator`]), over the store at the watermark and the
 /// writes of the round syncing and of the round being decided.
 ///
+/// **Release.** Every proposal the step will not apply, an abort, a refusal or a proposal the step stopped on, is
+/// released on the applier as the step lets it go, so the dictionary entries it created or took are let go; a proposal
+/// applied is settled by its round's apply instead (transactions, "An ended transaction releases what it holds").
+///
 /// **Buffers.** The buffers of every transaction the step is done with, applied or released, are kept for the
 /// workers ([`Pipeline::buffers_mut`]), so the steady state allocates neither read sets nor record buffers.
 #[derive(Debug)]
-pub struct Pipeline<'a, L, S, C, E> {
-    applier: &'a ChangesetApplier<S, C, E>,
+pub struct Pipeline<'a, L, S, C, E, B> {
+    applier: &'a ChangesetApplier<S, C, E, B>,
     log: L,
     step: CommitStep<Prepared>,
-    operator: ApplierOperator<'a, S, C, E>,
+    operator: ApplierOperator<'a, S, C, E, B>,
     out: StepOutput<Prepared>,
     replies: Vec<Reply>,
     buffers: Vec<TxnBuffers>,
     unsynced: bool,
+    /// The close the step asked the sequencer for, not yet handed out.
+    close_request: Option<Epoch>,
 }
 
-impl<'a, L, S, C, E> Pipeline<'a, L, S, C, E>
+impl<'a, L, S, C, E, B> Pipeline<'a, L, S, C, E, B>
 where
     L: OrderedLog,
     S: Store + Send + Sync + 'static,
     C: ListCache<Value = CachedList> + Send + Sync + 'static,
+    B: BlockSource + Send + Sync + 'static,
     E: Executor,
 {
     /// The ticket of the proposals the pipeline makes itself, a build's end: a caller's ticket is never this one.
@@ -75,24 +92,27 @@ where
     ///
     /// [`PipelineError::sessions`] when the store's session table cannot be read or is corrupted.
     pub fn new(
-        applier: &'a ChangesetApplier<S, C, E>,
+        applier: &'a ChangesetApplier<S, C, E, B>,
         log: L,
         bounds: RoundBounds,
     ) -> Result<Self, PipelineError> {
         let applied = applier.quads().lists().applied_ts();
         let sessions = Sessions::load(applier.quads().store()).map_err(PipelineError::sessions)?;
+        let (tail, _) = log.tail();
         applier.sequence_builds();
         Ok(Self {
             applier,
-            log,
             step: CommitStep::new(bounds, applied)
                 .with_table(sessions)
-                .with_build_running(applier.rebuilding()),
+                .with_build_running(applier.rebuilding())
+                .with_tail(tail.get()),
+            log,
             operator: ApplierOperator::new(applier),
             out: StepOutput::new(),
             replies: Vec::new(),
             buffers: Vec::new(),
             unsynced: false,
+            close_request: None,
         })
     }
 
@@ -126,34 +146,77 @@ where
         self.run(Input::Commit(CommitRequest::new(ticket, prepared)), now_us)
     }
 
-    /// Hands a session registration for `principal`, its owner, to the commit step under `ticket` at `now_us`; it is
-    /// answered with the session's number once its round is applied.
+    /// The pipeline deciding for partition `partition`, its latest delivered close `delivered`, waiting
+    /// `close_request` for a close it asks for, and holding `catalog`, the catalog versions in effect at its open epoch.
+    pub fn with_partition(
+        self,
+        partition: u32,
+        delivered: Epoch,
+        close_request: CloseRequest,
+        catalog: &[CatalogVersion],
+    ) -> Self {
+        Self {
+            step: self
+                .step
+                .with_partition(partition)
+                .with_delivered(delivered)
+                .with_close_request(close_request)
+                .with_catalog(catalog),
+            ..self
+        }
+    }
+
+    /// Hands a registration the partition accepted as an entity's home, its write-set record of kind 2, to the commit
+    /// step under `ticket` at `now_us`; it is answered with its commit version once its round is applied.
     ///
     /// # Errors
     ///
     /// [`PipelineError::log`] when the log refuses the round, which stops the pipeline.
-    pub fn register(
+    pub fn registration(
         &mut self,
         ticket: u64,
-        principal: u64,
+        record: Vec<u8>,
         now_us: u64,
     ) -> Result<(), PipelineError> {
-        self.run(Input::Register { ticket, principal }, now_us)
+        self.run(Input::Registration { ticket, record }, now_us)
     }
 
-    /// A retry of `request` of `session` by `principal` with no transaction open for it, answered from the session
-    /// table ([`CommitStep::retry`]): the stored commit version and results.
+    /// Hands the commit step `close`, a close of the sequencer delivered to the partition, at `now_us`: the commits
+    /// held for it are decided in a round of the new epoch, which is appended to the log.
     ///
     /// # Errors
     ///
-    /// As [`Sessions::retry`] refuses.
-    pub fn retry(
-        &self,
-        session: u64,
-        request: u64,
-        principal: u64,
-    ) -> Result<(u64, Vec<OperationResult>), CommitError> {
-        self.step().retry(session, request, principal)
+    /// [`PipelineError::log`] when the log refuses the round, which stops the pipeline.
+    pub fn close(&mut self, close: Close, now_us: u64) -> Result<(), PipelineError> {
+        self.run(Input::Close(close), now_us)
+    }
+
+    /// Steps the commit step's clock to `now_us`: a close request unanswered for `close_request_ms` refuses the held
+    /// commits busy.
+    pub fn tick(&mut self, now_us: u64) {
+        // A tick refuses what waits for a close; it closes no round, so nothing is appended or applied.
+        self.step
+            .step_with(Input::Tick, now_us, &mut self.out, &mut self.operator);
+        let replies = self.out.replies.drain(..);
+        self.replies
+            .extend(replies.filter(|r| r.ticket() != Self::SYSTEM_TICKET));
+        self.release();
+    }
+
+    /// The close the commit step asked the sequencer for since the last call, its open epoch full, for the caller to
+    /// send.
+    pub fn take_close_request(&mut self) -> Option<Epoch> {
+        self.close_request.take()
+    }
+
+    /// A retry of `request` of `session` with no transaction open for it, answered from the session table
+    /// ([`CommitStep::retry`]): the stored reply.
+    ///
+    /// # Errors
+    ///
+    /// As [`CommitStep::retry`] refuses.
+    pub fn retry(&self, session: u128, request: u64) -> Result<StoredReply, CommitError> {
+        self.step.retry(session, request)
     }
 
     /// Syncs the round appended and not yet synced, if any, at `now_us`: once durable, it is applied and its replies
@@ -188,6 +251,7 @@ where
     /// [`PipelineError::build_end`] when an end cannot be proposed, and [`PipelineError::log`] when the log refuses its
     /// round; each stops the pipeline.
     pub fn poll_builds(&mut self, now_us: u64) -> Result<(), PipelineError> {
+        // Each turn takes one build the applier finished, of the few it runs at once.
         while let Some(end) = self.applier.take_build_end() {
             let buffers = self.buffers.pop().unwrap_or_default();
             let prepared = match Prepared::end_build(self.applier, end, buffers) {
@@ -214,6 +278,9 @@ where
     fn run(&mut self, input: Input<Prepared>, now_us: u64) -> Result<(), PipelineError> {
         self.step
             .step_with(input, now_us, &mut self.out, &mut self.operator);
+        if let Some(epoch) = self.out.close_request() {
+            self.close_request = Some(epoch);
+        }
         let refused = self.append().err();
         let applied = self.apply();
         if applied.is_ok() {
@@ -238,11 +305,11 @@ where
     /// Appends the round the step closed at the position after the log's tail, naming the tail's checksum.
     fn append(&mut self) -> Result<(), ultragraphdb_error_log::LogError> {
         let (tail, parent) = self.log.tail();
-        let position = Position::new(tail.get().saturating_add(1));
-        let Some(round) = self.out.round_ref(position, parent) else {
+        let Some(round) = self.out.round_ref(parent, DERIVATION) else {
             return Ok(());
         };
-        let _appended: Position = self.log.append(round)?;
+        debug_assert_eq!(round.position().get(), tail.get().saturating_add(1));
+        let _ticket: DurabilityTicket = self.log.append(round)?;
         self.unsynced = true;
         Ok(())
     }
@@ -250,9 +317,13 @@ where
     /// Applies the synced round, if any committed anything, with the session table's entries it changed and its
     /// last version, keeping its transactions' buffers.
     fn apply(&mut self) -> Result<(), PipelineError> {
-        let Some(through) = self.out.applied.and_then(|record| record.last_version()) else {
+        let Some(record) = self.out.applied else {
             return Ok(());
         };
+        // A round of aborts alone moves nothing but the applied position, which its batch records.
+        let through = record
+            .last_version()
+            .unwrap_or_else(|| self.applier.quads().lists().applied_ts());
         let mut round: Vec<(u64, Executed)> = Vec::with_capacity(self.out.apply.len());
         for (version, prepared) in self.out.apply.drain(..) {
             let (executed, buffers) = prepared.into_parts();
@@ -265,13 +336,15 @@ where
             .map_err(PipelineError::apply)
     }
 
-    /// Keeps the buffers of the proposals the step released.
+    /// Releases the proposals the step will not apply on the applier, each letting go of the dictionary entries it
+    /// holds (transactions, "An ended transaction releases what it holds"), and keeps their buffers.
     fn release(&mut self) {
+        let applier = self.applier;
         let released = self
             .out
             .released
             .drain(..)
-            .map(|(_, prepared)| prepared.into_parts().1);
+            .map(|(_, prepared)| prepared.release(applier));
         self.buffers.extend(released);
     }
 

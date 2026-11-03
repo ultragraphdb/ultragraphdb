@@ -25,10 +25,13 @@ use crate::types::fjall_store::Shared;
 /// A snapshot of a temporary keyspace reads that keyspace at `u64::MAX`, with no banned namespace, and holds no
 /// discard timestamp back.
 pub struct FjallSnapshot {
+    // Shared with the store (Ultra rule 9): a snapshot outlives no store state it reads, and releases its read
+    // timestamp in the store's view when dropped.
     shared: Arc<Shared>,
     snapshot: Snapshot,
     keyspace: Keyspace,
     read_ts: u64,
+    // The banned set the snapshot was opened with, shared and never changed (Ultra rule 9).
     banned: Arc<BTreeSet<u64>>,
     holds_discard: bool,
 }

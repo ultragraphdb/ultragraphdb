@@ -22,8 +22,12 @@ use crate::utils::skolem::is_skolem;
 
 /// The term dictionary's live state beside the stored entries: the IDs created during executions whose entries no
 /// commit has written yet, the sequences new IDs take, the random source names are drawn from and the buckets a blank
-/// node's is drawn among. A pending entry stays until a commit that wrote it is settled, or a refused write that took
-/// it is released, so an IRI has one ID from its creation on, whoever commits it.
+/// node's is drawn among. A pending entry counts the unsettled writes holding it: the write that created it and each
+/// that took it while it was pending, every one of which writes its entries. It stays until a commit holding it is
+/// settled, the store then holding its entries, or until every write holding it is released, refused, when no
+/// committed write names its ID; so an IRI has one ID from its creation on, whoever commits it, and every committed
+/// reference to an ID has its entries in its own commit or in one before it. A write dropped without a release keeps
+/// its holds, so what it held stays pending until a commit holding it settles, which errs only towards keeping.
 #[derive(Debug)]
 pub(crate) struct Dictionary<B> {
     // Locked: executions running beside each other get or create IDs, mint names and settle commits at once, and one
@@ -36,8 +40,9 @@ pub(crate) struct Dictionary<B> {
 /// What the dictionary's lock guards.
 #[derive(Debug)]
 struct DictionaryState<B> {
-    /// By namespace, then by term: the IDs created and not yet written by a settled commit.
-    pending: BTreeMap<u64, BTreeMap<String, SystemId>>,
+    /// By namespace, then by term: the IDs created and not yet written by a settled commit, each with how many
+    /// unsettled writes hold it.
+    pending: BTreeMap<u64, BTreeMap<String, (SystemId, usize)>>,
     /// How many pending entries there are, in every namespace.
     pending_len: usize,
     sequences: Sequences<B>,
@@ -74,8 +79,8 @@ impl<B: BlockSource> Dictionary<B> {
     }
 
     /// The ID of `iri` in `namespace` with where it came from: pending, held in `store`, or created, its bucket
-    /// computed from the namespace and the IRI and its sequence a `Resource` one. An IRI under the skolem base is
-    /// refused unless it is pending or held.
+    /// computed from the namespace and the IRI and its sequence a `Resource` one. A pending or created ID is held by
+    /// the caller's write from then on. An IRI under the skolem base is refused unless it is pending or held.
     pub(crate) fn resolve<S: Store>(
         &self,
         store: &S,
@@ -83,7 +88,7 @@ impl<B: BlockSource> Dictionary<B> {
         iri: &str,
     ) -> Result<(SystemId, TermOrigin), QuadError> {
         let mut state = self.lock();
-        if let Some(id) = state.pending_id(namespace, iri) {
+        if let Some(id) = state.hold_pending(namespace, iri) {
             return Ok((id, TermOrigin::Pending));
         }
         if let Some(id) = held_id(store, namespace, iri)? {
@@ -103,21 +108,23 @@ impl<B: BlockSource> Dictionary<B> {
         Ok((id, TermOrigin::Created))
     }
 
-    /// The ID `term` has, pending or held in `store`, creating none.
+    /// The ID `term` has with where it came from, pending or held in `store`, creating none. A pending ID is held by
+    /// the caller's write from then on.
     pub(crate) fn lookup<S: Store>(
         &self,
         store: &S,
         namespace: u64,
         term: &str,
-    ) -> Result<Option<SystemId>, QuadError> {
-        let state = self.lock();
-        match state.pending_id(namespace, term) {
-            Some(id) => Ok(Some(id)),
-            None => held_id(store, namespace, term),
+    ) -> Result<Option<(SystemId, TermOrigin)>, QuadError> {
+        let mut state = self.lock();
+        match state.hold_pending(namespace, term) {
+            Some(id) => Ok(Some((id, TermOrigin::Pending))),
+            None => Ok(held_id(store, namespace, term)?.map(|id| (id, TermOrigin::Held))),
         }
     }
 
-    /// Forgets the pending entries of `written`, each a term and the ID it took, now that the store holds them.
+    /// Forgets the pending entries of `written`, each a term and the ID it took, now that the store holds them,
+    /// whichever other writes still hold them: they find the entries held.
     pub(crate) fn settle<'t>(
         &self,
         namespace: u64,
@@ -126,6 +133,20 @@ impl<B: BlockSource> Dictionary<B> {
         let mut state = self.lock();
         for (term, id) in written {
             state.remove_pending(namespace, term, id);
+        }
+    }
+
+    /// Lets go of the pending entries of `written`, a refused write's terms with their IDs: each is forgotten once no
+    /// other unsettled write holds it, so a write that took it from the pending map still finds the ID it carries the
+    /// entries of. A term whose pending entry is gone, or names another ID, is left alone.
+    pub(crate) fn release<'t>(
+        &self,
+        namespace: u64,
+        written: impl Iterator<Item = (&'t str, SystemId)>,
+    ) {
+        let mut state = self.lock();
+        for (term, id) in written {
+            state.let_go(namespace, term, id);
         }
     }
 
@@ -152,32 +173,62 @@ impl<B> DictionaryState<B> {
         self.pending
             .get(&namespace)
             .and_then(|terms| terms.get(term))
-            .copied()
+            .map(|(id, _)| *id)
     }
 
-    /// Records `term`'s new ID `id` as pending.
+    /// The pending ID of `term` in `namespace`, held by one more write.
+    fn hold_pending(&mut self, namespace: u64, term: &str) -> Option<SystemId> {
+        let (id, holders) = self.pending.get_mut(&namespace)?.get_mut(term)?;
+        *holders = holders.saturating_add(1);
+        Some(*id)
+    }
+
+    /// Records `term`'s new ID `id` as pending, held by the write creating it.
     fn add_pending(&mut self, namespace: u64, term: &str, id: SystemId) {
         let previous = self
             .pending
             .entry(namespace)
             .or_default()
-            .insert(term.to_string(), id);
+            .insert(term.to_string(), (id, 1));
         debug_assert!(previous.is_none(), "a term is created once");
         self.pending_len += 1;
     }
 
     /// Forgets `term`'s pending entry when it is `id`.
     fn remove_pending(&mut self, namespace: u64, term: &str, id: SystemId) {
+        self.change_pending(namespace, term, id, |_| 0);
+    }
+
+    /// Takes one holder from `term`'s pending entry when it is `id`, forgetting it once none is left.
+    fn let_go(&mut self, namespace: u64, term: &str, id: SystemId) {
+        self.change_pending(namespace, term, id, |holders| holders.saturating_sub(1));
+    }
+
+    /// Sets the holders of `term`'s pending entry, when it is `id`, to what `holders` makes of them, forgetting the
+    /// entry at none.
+    fn change_pending(
+        &mut self,
+        namespace: u64,
+        term: &str,
+        id: SystemId,
+        holders: impl Fn(usize) -> usize,
+    ) {
         let Some(terms) = self.pending.get_mut(&namespace) else {
             return;
         };
-        if terms.get(term) == Some(&id) {
-            let _removed: Option<SystemId> = terms.remove(term);
-            debug_assert!(self.pending_len > 0, "a pending entry was counted");
-            self.pending_len = self.pending_len.saturating_sub(1);
+        if let Some((held, count)) = terms.get_mut(term)
+            && *held == id
+        {
+            *count = holders(*count);
+            if *count == 0 {
+                let _removed: Option<(SystemId, usize)> = terms.remove(term);
+                debug_assert!(self.pending_len > 0, "a pending entry was counted");
+                self.pending_len = self.pending_len.saturating_sub(1);
+            }
         }
         if terms.is_empty() {
-            let _emptied: Option<BTreeMap<String, SystemId>> = self.pending.remove(&namespace);
+            let _emptied: Option<BTreeMap<String, (SystemId, usize)>> =
+                self.pending.remove(&namespace);
         }
     }
 }

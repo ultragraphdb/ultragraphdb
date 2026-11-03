@@ -542,3 +542,78 @@ fn test_a_versionless_entry_is_added_as_it_is() -> TestResult {
     assert_eq!(writes.versionless()[1].value(), Some(&b"v"[..]));
     Ok(())
 }
+
+/// A snapshot is the list as the request's read timestamp holds it, the batch's earlier writes beneath, without the
+/// request's own writes, whether it read the list or wrote it blind, and it records no read.
+#[test]
+fn test_a_snapshot_leaves_out_the_requests_own_writes_and_records_no_read() -> TestResult {
+    let lists = new_lists();
+    let (read, blind, stacked) = (key("read", 1), key("blind", 1), key("stacked", 1));
+    commit(&lists, &read, &[set_uid(1)])?;
+    commit(&lists, &blind, &[set_uid(2)])?;
+    let read_ts = lists.applied_ts();
+    let mut batch = lists.batch();
+    let mut earlier = batch.request(read_ts);
+    earlier
+        .get_from_delta(&stacked)
+        .add_posting(set_uid(5).clone(), false);
+    batch.push(earlier);
+    let mut request = batch.request(read_ts);
+    request.get(&read)?.add_posting(set_uid(3).clone(), false);
+    request
+        .get_from_delta(&blind)
+        .add_posting(set_uid(4).clone(), false);
+    request
+        .get_from_delta(&stacked)
+        .add_posting(set_uid(6).clone(), false);
+    check_uids(&request.snapshot(&read)?, &[1], read_ts)?;
+    check_uids(&request.snapshot(&blind)?, &[2], read_ts)?;
+    check_uids(&request.snapshot(&stacked)?, &[5], read_ts)?;
+    check_uids(&request.snapshot(&key("unwritten", 1))?, &[], read_ts)?;
+    assert_eq!(
+        request.read_keys().collect::<Vec<_>>(),
+        vec![read.as_slice()],
+        "a snapshot is no read"
+    );
+    check_uids(request.get(&read)?, &[1, 3], read_ts)?;
+    Ok(())
+}
+
+/// Discarding the deltas keeps every read the request recorded and the lists it read, which read the snapshot again;
+/// a list written blind is dropped, and later writes are the request's only deltas.
+#[test]
+fn test_discarding_the_deltas_keeps_the_reads_and_drops_the_writes() -> TestResult {
+    let lists = new_lists();
+    let (read, tested, blind) = (key("read", 1), key("tested", 1), key("blind", 1));
+    commit(&lists, &read, &[set_uid(1)])?;
+    let read_ts = lists.applied_ts();
+    let mut request = lists.request(read_ts);
+    request.get(&read)?.add_posting(set_uid(2).clone(), false);
+    request
+        .get_tested(&tested, b"o")?
+        .add_posting(set_uid(3).clone(), false);
+    request
+        .get_from_delta(&blind)
+        .add_posting(set_uid(4).clone(), false);
+    request.discard_deltas();
+    assert!(request.deltas().is_empty(), "no delta is left");
+    assert_eq!(
+        request.read_keys().collect::<Vec<_>>(),
+        vec![read.as_slice()]
+    );
+    assert_eq!(
+        request.tested().collect::<Vec<_>>(),
+        vec![(tested.as_slice(), &b"o"[..])]
+    );
+    assert_eq!(request.lists().count(), 2, "the blind list is dropped");
+    check_uids(request.get(&read)?, &[1], read_ts)?;
+    request.get(&read)?.add_posting(set_uid(7).clone(), false);
+    let writes = request.into_writes();
+    let deltas: Vec<(Vec<u8>, Vec<u128>)> = writes
+        .deltas()
+        .iter()
+        .map(|(k, d)| (k.clone(), d.postings().iter().map(|p| p.uid()).collect()))
+        .collect();
+    assert_eq!(deltas, vec![(read, rids(&[7]))]);
+    Ok(())
+}

@@ -104,7 +104,7 @@ impl TestServer {
         );
     }
 
-    /// Request `request` of `session` applied with its `operations`, each answered with a UID it created.
+    /// Request `request` of `session` applied with its `operations`, each answered with the node it created, by its index in the reply's term table.
     fn apply(&mut self, session: u64, request: u64, operations: u32) -> SessionRecord {
         self.version += 2;
         self.applied += 1;
@@ -112,7 +112,7 @@ impl TestServer {
             last: request,
             version: self.version,
             results: (0..operations)
-                .map(|i| OperationResult::new(100 + u64::from(i), true))
+                .map(|i| OperationResult::for_node(i, true))
                 .collect(),
         };
         let _previous: Option<SessionRecord> = self.sessions.insert(session, record.clone());

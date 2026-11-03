@@ -78,8 +78,9 @@ where
     }
 
     /// Moves the subject between the forward count keys `objects` names, from its first count to its second, and the
-    /// object between the reverse count keys `subjects` names; a count of zero has no key. A vector has no reverse
-    /// count.
+    /// object between the reverse count keys `subjects` names. A vector has no reverse count. The move is recorded, and
+    /// [`ChangesetWrite::write_counts`] writes each subject's and object's moves as one, so that a count moved and moved
+    /// back writes no key and a count passed through writes none.
     pub(crate) fn move_counts(
         &mut self,
         graph: Graph,
@@ -90,17 +91,47 @@ where
         subjects: (u32, u32),
     ) {
         let fp = self.write.quads().fingerprint();
-        let subject_posting = |op| Posting::default().with_uid(subject.to_u128()).with_op(op);
-        self.count(
-            graph,
-            predicate,
-            CountDirection::Forward,
+        self.count_move(
+            (graph, predicate, CountDirection::Forward),
+            subject.to_be_bytes().to_vec(),
             objects,
-            subject_posting,
+            Posting::default().with_uid(subject.to_u128()),
         );
         if !object.is_vector() {
-            self.count(graph, predicate, CountDirection::Reverse, subjects, |op| {
-                object_posting(object, op, &[], fp)
+            self.count_move(
+                (graph, predicate, CountDirection::Reverse),
+                object.as_bytes().to_vec(),
+                subjects,
+                object_posting(object, SET, &[], fp),
+            );
+        }
+    }
+
+    /// Records a move of the member `identity` names, whose posting is `posting`, between the count keys of `list`:
+    /// from the count it held before the write's first move to the count of its last.
+    fn count_move(
+        &mut self,
+        list: (Graph, SystemId, CountDirection),
+        identity: Vec<u8>,
+        (from, to): (u32, u32),
+        posting: Posting,
+    ) {
+        let (graph, predicate, direction) = list;
+        let moved: &mut (u32, u32, Posting) = self
+            .counts
+            .entry((graph, predicate, direction, identity))
+            .or_insert((from, to, posting));
+        moved.1 = to;
+    }
+
+    /// Writes every count the write moved: each subject and object leaves the count key of the count it held before
+    /// the write and joins the key of the count it holds after it. A count of zero has no key.
+    pub(crate) fn write_counts(&mut self) {
+        for ((graph, predicate, direction, _), (from, to, posting)) in
+            std::mem::take(&mut self.counts)
+        {
+            self.count(graph, predicate, direction, (from, to), |op| {
+                posting.clone().with_op(op)
             });
         }
     }

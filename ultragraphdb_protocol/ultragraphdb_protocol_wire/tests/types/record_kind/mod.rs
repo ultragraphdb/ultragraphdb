@@ -4,4 +4,4 @@
  */
 
 #[cfg(test)]
-mod sequencer_tests;
+mod record_kind_tests;

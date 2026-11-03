@@ -7,7 +7,7 @@ use ultragraphdb_error_protocol::ProtocolErrorEnum;
 use ultragraphdb_protocol_wire::{BodyView, Commit, CommitView, OperationResult};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
-use crate::utils::golden_bodies::{frame_of, golden, reframe};
+use crate::utils::golden_bodies::{frame_of, golden, put, reframe};
 
 #[test]
 fn test_the_golden_commit_reads_its_values() -> TestResult {
@@ -18,8 +18,8 @@ fn test_the_golden_commit_reads_its_values() -> TestResult {
         (9, 7, 1000)
     );
     assert_eq!(view.result_count(), 2);
-    assert_eq!(view.result(0), Some(OperationResult::new(0x10, true)));
-    assert_eq!(view.result(1), Some(OperationResult::new(0x20, false)));
+    assert_eq!(view.result(0), Some(OperationResult::counter(-5)));
+    assert_eq!(view.result(1), Some(OperationResult::compare_and_set()));
     assert_eq!(view.result(2), None);
     assert_eq!(
         view.to_body()?,
@@ -28,8 +28,8 @@ fn test_the_golden_commit_reads_its_values() -> TestResult {
             7,
             1000,
             vec![
-                OperationResult::new(0x10, true),
-                OperationResult::new(0x20, false)
+                OperationResult::counter(-5),
+                OperationResult::compare_and_set()
             ]
         )
     );
@@ -55,8 +55,9 @@ fn test_results_are_whole_records_with_a_flag_and_zeros() -> TestResult {
             unit: 16
         }
     );
+    // Result 0's `created`, its byte 12: 2 is no boolean.
     let mut flag = data.clone();
-    flag[8 + 8] = 2;
+    flag[8 + 12] = 2;
     assert_eq!(
         CommitView::from_frame(&frame_of(&reframe(&bytes, &flag))?)
             .err()
@@ -68,6 +69,7 @@ fn test_results_are_whole_records_with_a_flag_and_zeros() -> TestResult {
             value: 2
         }
     );
+    // Result 1's last zero byte, its byte 15.
     let mut zeros = data.clone();
     zeros[8 + 16 + 15] = 1;
     assert_eq!(
@@ -99,7 +101,7 @@ fn test_a_commit_request_carries_no_results() -> TestResult {
     );
     use ultragraphdb_protocol_wire::BodyBuilder;
     // One result is one too many as well.
-    let one = Commit::new(9, 7, 0, vec![OperationResult::new(1, false)])
+    let one = Commit::new(9, 7, 0, vec![OperationResult::counter(1)])
         .frame(golden("commit")?.header())?;
     assert_eq!(
         CommitView::from_frame(&frame_of(&one)?)?
@@ -119,5 +121,51 @@ fn test_a_commit_request_carries_no_results() -> TestResult {
         CommitView::from_frame(&frame_of(&request)?)?.check_request(),
         Ok(())
     );
+    Ok(())
+}
+
+#[test]
+fn test_a_commit_result_names_a_node_or_a_value() -> TestResult {
+    let bytes = golden("commit")?.bytes()?;
+    let data = golden("commit")?.data()?;
+    let refusal = |changed: &[u8]| -> TestResult<ProtocolErrorEnum> {
+        Ok(
+            CommitView::from_frame(&frame_of(&reframe(&bytes, changed))?)
+                .err()
+                .context("a refusal")?
+                .0,
+        )
+    };
+    // Result 1, a compare-and-set, given node 0 beside a value of 4 (PROTOCOL.md §6.3).
+    let mut both = data.clone();
+    put(&mut both, 8 + 16 + 8, 0, 4);
+    put(&mut both, 8 + 16, 4, 8);
+    assert_eq!(
+        refusal(&both)?,
+        ProtocolErrorEnum::FieldValue {
+            command: 5,
+            field: "result",
+            value: 4
+        }
+    );
+    // Result 1 created a node it does not name.
+    let mut created = data.clone();
+    created[8 + 16 + 12] = 1;
+    assert_eq!(
+        refusal(&created)?,
+        ProtocolErrorEnum::FieldValue {
+            command: 5,
+            field: "result",
+            value: 1
+        }
+    );
+    // Result 0 naming node 3, created: read back as such.
+    let mut node = data.clone();
+    put(&mut node, 8, 0, 8);
+    put(&mut node, 8 + 8, 3, 4);
+    node[8 + 12] = 1;
+    let reframed = reframe(&bytes, &node);
+    let view = CommitView::from_frame(&frame_of(&reframed)?)?;
+    assert_eq!(view.result(0), Some(OperationResult::for_node(3, true)));
     Ok(())
 }

@@ -21,8 +21,8 @@ use crate::types::executed::Executed;
 
 /// A transaction's execution held open across its requests: one request of the posting lists at its read version,
 /// which every changeset applied to it writes and every read reads, so a read sees the execution's own writes on top
-/// of its snapshot and nothing another execution wrote. [`Execution::finish`] gives the [`Executed`] a commit writes;
-/// dropping it writes nothing and closes its read.
+/// of its snapshot and nothing another execution wrote. [`Execution::finish`] gives the [`Executed`] a commit writes,
+/// its keys derived once from its net effect on its snapshot; dropping it writes nothing and closes its read.
 ///
 /// The changesets applied to one execution behave as one changeset holding their changes in order.
 pub struct Execution<'a, S, C, B> {
@@ -97,9 +97,17 @@ where
     }
 
     /// What the execution leaves to commit: its writes, terms and read set, as [`crate::ChangesetApplier::execute`]
-    /// gives them.
-    pub fn finish(self) -> Executed {
-        let outcome = self.write.finish();
+    /// gives them. Its keys are derived once from its net effect on its snapshot, by the derivation replay runs on its
+    /// logical writes ([`Executed::logical`]), so a change it undid writes no key; the read set holds what its changes
+    /// and the derivation read.
+    ///
+    /// # Errors
+    ///
+    /// The store's error, or the corruption of a list or dictionary entry the derivation reads. The execution will not
+    /// commit, so its terms are released before the error is returned, once, as
+    /// [`crate::ChangesetApplier::release_execution`] releases them: a caller releases nothing again.
+    pub fn finish(self) -> Result<Executed, ChangesetError> {
+        let outcome = self.write.finish(None)?;
         let reads = reads_of(self.namespace, &outcome.request, &outcome.terms);
         let fetched: BTreeSet<&[u8]> = outcome
             .request
@@ -112,7 +120,7 @@ where
         for (key, value) in outcome.terms.entries() {
             request.add_versionless(key, value);
         }
-        Executed {
+        Ok(Executed {
             writes: request.into_writes(),
             terms: outcome.terms,
             reads,
@@ -125,6 +133,6 @@ where
             touched: outcome.touched,
             removals: outcome.removals,
             ..Executed::empty(self.namespace, self.read_ts, outcome.catalog)
-        }
+        })
     }
 }

@@ -19,6 +19,7 @@ pub(crate) async fn write_zeros<F: DurableFile>(
     to: u64,
 ) -> io::Result<()> {
     let mut at = from;
+    // Ends: each piece is at least one byte while `at` is short of `to`, and `at` moves on by it.
     while at < to {
         let piece = (to - at).min(ZEROS);
         file.write_at(at, AlignedBuf::zeroed(piece as usize))

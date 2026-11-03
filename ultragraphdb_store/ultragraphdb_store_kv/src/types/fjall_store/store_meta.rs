@@ -52,9 +52,15 @@ impl Shared {
                 let key = guard
                     .key()
                     .map_err(|e| StoreError::read_failed(BANNED_PREFIX.to_vec(), e.to_string()))?;
-                let ns: [u8; 8] = key[BANNED_PREFIX.len()..].try_into().map_err(|_| {
-                    StoreError::corrupted(key.to_vec(), "a banned namespace is eight bytes".into())
-                })?;
+                let ns: [u8; 8] = key
+                    .get(BANNED_PREFIX.len()..)
+                    .and_then(|namespace| namespace.try_into().ok())
+                    .ok_or_else(|| {
+                        StoreError::corrupted(
+                            key.to_vec(),
+                            "a banned namespace is eight bytes".into(),
+                        )
+                    })?;
                 Ok(u64::from_be_bytes(ns))
             })
             .collect::<Result<BTreeSet<u64>, StoreError>>()?;

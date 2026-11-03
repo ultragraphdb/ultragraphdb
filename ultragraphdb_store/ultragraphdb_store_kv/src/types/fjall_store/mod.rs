@@ -69,6 +69,7 @@ const TERM_CACHE_BYTES: u64 = 64 << 20;
 pub struct FjallStore {
     // Dropped first: the sync thread is joined before the database closes.
     _syncer: Option<Syncer>,
+    // Shared with every snapshot and the sync thread (Ultra rule 9), which read the store from their own threads.
     shared: Arc<Shared>,
 }
 
@@ -81,12 +82,16 @@ pub(crate) struct Shared {
     pub durability: Durability,
     /// Held by every write for its whole length, so that writes apply in order and a drop blocks commits.
     pub writer: Mutex<()>,
+    /// Locked only to open or close a snapshot or change what one is opened against, never across I/O.
     pub view: Mutex<View>,
+    /// Atomics (Ultra rule 9): set under the writer lock, read by snapshots and callers on any thread.
     pub poisoned: AtomicBool,
     pub applied_ts: AtomicU64,
+    /// Shared with the compaction filters, which fjall runs on its own threads.
     pub gc: Arc<GcSettings>,
     /// The temporary keyspaces by number, and the next number.
     pub temporaries: Mutex<BTreeMap<u64, Keyspace>>,
+    /// An atomic, so a temporary keyspace is numbered without the writer lock.
     pub next_temporary: AtomicU64,
     /// The dictionary entries found in the keyspace without versions.
     pub term_cache: TermCache,
@@ -135,7 +140,10 @@ impl FjallStore {
         let gc = Arc::new(GcSettings::default());
         let factory: Arc<dyn Factory> = Arc::new(GcFilterFactory::new(gc.clone()));
         let opened = |e: fjall::Error| StoreError::open_failed(e.to_string());
+        // The journal is persisted manually: a batch reaches the operating system only as its durability asks, so in
+        // the log mode the write-ahead log is the only stream synced per round.
         let db = Database::builder(path.as_ref())
+            .manual_journal_persist(true)
             .with_compaction_filter_factories(Arc::new(move |name: &str| {
                 (name == DATA_KEYSPACE).then(|| factory.clone())
             }))
@@ -178,7 +186,7 @@ impl FjallStore {
         shared.drop_left_temporaries()?;
         let syncer = match durability {
             Durability::Process => Some(Syncer::start(Arc::downgrade(&shared), period)?),
-            Durability::Filesystem => None,
+            Durability::Filesystem | Durability::Log => None,
         };
         tracing::info!(
             path = %path.as_ref().display(),
@@ -312,10 +320,14 @@ impl Shared {
     /// A batch persisted as `mode` asks and the store's durability requires.
     pub fn batch(&self, mode: PersistMode) -> OwnedWriteBatch {
         let mode = match (mode, self.durability) {
-            (PersistMode::Buffer, Durability::Process) => fjall::PersistMode::Buffer,
-            _ => fjall::PersistMode::SyncAll,
+            (PersistMode::Buffer, Durability::Process) => Some(fjall::PersistMode::Buffer),
+            // Left in fjall's journal buffer until a sync hands it over.
+            (PersistMode::Buffer, Durability::Log) => None,
+            (PersistMode::Sync, _) | (PersistMode::Buffer, Durability::Filesystem) => {
+                Some(fjall::PersistMode::SyncAll)
+            }
         };
-        self.db.batch().durability(Some(mode))
+        self.db.batch().durability(mode)
     }
 
     /// A metadata batch, synced: what compaction acts on is durable when the call that sets it returns.

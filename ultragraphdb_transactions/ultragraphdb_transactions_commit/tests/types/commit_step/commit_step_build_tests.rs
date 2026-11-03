@@ -78,15 +78,19 @@ fn test_a_proposal_starting_a_build_waits_while_one_runs_and_is_decided_after_it
     sync(&mut step, &mut out);
     // A second build waits; the plain write beside it is decided.
     commit(&mut step, &mut out, 2, of(b"b", true, false)?);
-    assert_eq!(round_size(&out), Some(0), "set aside, nothing to decide");
+    assert_eq!(
+        round_size(&out),
+        None,
+        "set aside, nothing to decide: no round is logged"
+    );
     assert_eq!((step.waiting(), step.deferred()), (0, 1));
     sync(&mut step, &mut out);
     commit(&mut step, &mut out, 3, of(b"c", false, false)?);
     assert_eq!(round_size(&out), Some(1));
     sync(&mut step, &mut out);
     assert_eq!(
-        out.replies(),
-        &[Reply::new(3, Ok(4))],
+        crate::utils::fixture::plain(out.replies()),
+        &[Reply::new(3, Ok(crate::utils::fixture::version(1, 2)))],
         "a round deciding nothing takes no version"
     );
     // The build's end: its round alone; the proposal set aside is decided in the next.
@@ -99,11 +103,17 @@ fn test_a_proposal_starting_a_build_waits_while_one_runs_and_is_decided_after_it
         "back in the queue"
     );
     sync(&mut step, &mut out);
-    assert_eq!(out.replies(), &[Reply::new(4, Ok(6))]);
+    assert_eq!(
+        crate::utils::fixture::plain(out.replies()),
+        &[Reply::new(4, Ok(crate::utils::fixture::version(1, 4)))]
+    );
     assert_eq!(round_size(&out), Some(1), "the next round decides it");
     assert!(step.is_building());
     sync(&mut step, &mut out);
-    assert_eq!(out.replies(), &[Reply::new(2, Ok(8))]);
+    assert_eq!(
+        crate::utils::fixture::plain(out.replies()),
+        &[Reply::new(2, Ok(crate::utils::fixture::version(1, 6)))]
+    );
     Ok(())
 }
 
@@ -119,13 +129,22 @@ fn test_a_builds_end_is_a_round_of_its_own() -> TestResult {
     sync(&mut step, &mut out);
     assert_eq!(round_size(&out), Some(1), "the round closes before the end");
     sync(&mut step, &mut out);
-    assert_eq!(out.replies(), &[Reply::new(2, Ok(4))]);
+    assert_eq!(
+        crate::utils::fixture::plain(out.replies()),
+        &[Reply::new(2, Ok(crate::utils::fixture::version(1, 2)))]
+    );
     assert_eq!(round_size(&out), Some(1), "the end alone");
     sync(&mut step, &mut out);
-    assert_eq!(out.replies(), &[Reply::new(3, Ok(6))]);
+    assert_eq!(
+        crate::utils::fixture::plain(out.replies()),
+        &[Reply::new(3, Ok(crate::utils::fixture::version(1, 4)))]
+    );
     assert_eq!(round_size(&out), Some(1));
     sync(&mut step, &mut out);
-    assert_eq!(out.replies(), &[Reply::new(4, Ok(8))]);
+    assert_eq!(
+        crate::utils::fixture::plain(out.replies()),
+        &[Reply::new(4, Ok(crate::utils::fixture::version(1, 6)))]
+    );
     Ok(())
 }
 
@@ -141,7 +160,7 @@ fn test_a_failed_sync_answers_the_proposals_set_aside_unavailable() -> TestResul
     assert_eq!(step.deferred(), 0);
     // The round in flight decided nothing (2 was set aside), so 2 is the only one answered, unavailable, and released.
     assert_eq!(
-        out.replies(),
+        crate::utils::fixture::plain(out.replies()),
         &[Reply::new(
             2,
             Err(ultragraphdb_transactions_commit::CommitError::unavailable())
@@ -166,7 +185,7 @@ fn test_a_proposal_set_aside_counts_against_the_commit_queue() -> TestResult {
     assert_eq!((step.waiting(), step.deferred()), (0, 1));
     commit(&mut step, &mut out, 3, of(b"c", false, false)?);
     assert_eq!(
-        out.replies(),
+        crate::utils::fixture::plain(out.replies()),
         &[Reply::new(
             3,
             Err(ultragraphdb_transactions_commit::CommitError::busy(1))

@@ -9,11 +9,12 @@
 
 #![no_main]
 
+use std::num::NonZeroU32;
+
 use arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
-use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_protocol_wire::{
-    Authenticate, AuthenticateView, BodyBuilder, BodyView, ColumnType, Command, Commit,
+    ABSENT, Authenticate, AuthenticateView, BodyBuilder, BodyView, ColumnType, Command, Commit,
     CommitOperation, CommitView, Credit, CreditView, Direction, DropCommand, DropCommandView,
     ErrorCode, ErrorReply, ErrorReplyView, Execute, ExecuteView, FrameView, Header, Hello,
     HelloView, Link, MAX_FRAME_FLOOR, MAX_FRAME_SIZE, Operation, OperationResult, OperationView,
@@ -258,7 +259,13 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
         } => {
             let results = results
                 .iter()
-                .map(|(u, c)| OperationResult::new(*u, *c))
+                .map(|(u, c)| {
+                    if *c {
+                        OperationResult::for_node((*u as u32).min(ABSENT - 1), true)
+                    } else {
+                        OperationResult::counter(*u as i64)
+                    }
+                })
                 .collect();
             let commit = Commit::new(*session, *request, *version, results);
             let frame = commit.frame(header).ok()?;
@@ -500,15 +507,12 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
                 let cells: Vec<Option<ResultTerm>> = (0..columns as usize)
                     .map(|c| {
                         row.get(c).copied().flatten().map(|n| {
-                            let uid = u64::from(n);
                             if n % 2 == 1 {
-                                ResultTerm::blank_node(
-                                    uid,
-                                    format!("http://ex.org/.well-known/genid/{n}"),
-                                )
+                                ResultTerm::blank_node(format!(
+                                    "http://ex.org/.well-known/genid/{n:06x}-0123456789abcdef0123456789"
+                                ))
                             } else {
-                                ResultTerm::new(EncodedTerm::uid(uid))
-                                    .with_text(format!("http://ex.org/{n}"))
+                                ResultTerm::iri(format!("http://ex.org/{n}"))
                             }
                         })
                     })
@@ -601,13 +605,18 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
             )
         }
         Body::Round { decisions, keys } => {
-            let mut round = RoundBody::new(3, 4, 1, 100);
+            let mut round = RoundBody::new(3, 4, 1, 100, NonZeroU32::MIN);
+            for key in keys {
+                round.insert_dictionary(key.clone(), key.clone());
+            }
             for (i, decision) in decisions.iter().enumerate() {
                 match decision {
                     None => {
-                        let mut record = WriteSetRecord::new(0, 99, i as u64, 1);
+                        let mut record = WriteSetRecord::transaction(0);
+                        record.set_read_version(99);
+                        record.set_session([i as u8; 16], 1);
                         for key in keys {
-                            record.push_list_delta(key.clone(), key.clone());
+                            record.push_inserted(key.clone(), None);
                             record.push_conflict_point(key.clone());
                         }
                         round.commit(record.encode());

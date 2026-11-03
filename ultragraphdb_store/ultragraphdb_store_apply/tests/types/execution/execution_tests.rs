@@ -60,7 +60,7 @@ fn test_an_execution_reads_its_own_writes_over_its_snapshot() -> TestResult {
         read(&mut execution, "n", "knows")?,
         vec![Term::from(ex("a"))]
     );
-    let executed = execution.finish();
+    let executed = execution.finish()?;
     let forward = QuadKey::Forward {
         namespace: NS,
         graph: DEFAULT_GRAPH,
@@ -96,7 +96,7 @@ fn test_a_read_of_an_unknown_subject_and_predicate_records_the_subject_absent() 
     let at = commit(&applier, "<a> <knows> <b>")?;
     let mut execution = applier.begin(NS, at).context("begun")?;
     assert!(read(&mut execution, "ghost", "phantom")?.is_empty());
-    let executed = execution.finish();
+    let executed = execution.finish()?;
     assert!(
         executed
             .reads()
@@ -122,7 +122,7 @@ fn test_a_read_of_unknown_terms_holds_nothing_and_records_them_absent() -> TestR
         &mut out,
     )?;
     assert!(out.is_empty());
-    let executed = execution.finish();
+    let executed = execution.finish()?;
     for name in ["nobody", "never", "nograph"] {
         assert!(
             executed.reads().absent().contains(&taken(&executed, name)?),
@@ -143,4 +143,73 @@ fn taken(
         .find(|(term, _)| *term == ex(name).as_str())
         .map(|(_, id)| id)
         .context("the execution created the IRI")
+}
+
+/// The ID a writer of `<new>` is given now, its execution released at once: the ID another write holds, or a new one.
+fn id_now(applier: &TestChangesets) -> TestResult<ultragraphdb_core_ids::SystemId> {
+    let at = applier.quads().lists().applied_ts();
+    let mut writer = applier.begin(NS, at).context("begun")?;
+    writer.apply(&changeset(vec![insert("<new> <knows> <a>")?]))?;
+    let executed = writer.finish()?;
+    let id = taken(&executed, "new")?;
+    applier.release(&executed);
+    Ok(id)
+}
+
+#[test]
+fn test_an_open_execution_released_lets_go_of_what_it_created_without_finishing() -> TestResult {
+    let applier = changesets()?;
+    let at = commit(&applier, "<a> <knows> <b>")?;
+    let mut execution = applier.begin(NS, at).context("begun")?;
+    execution.apply(&changeset(vec![insert("<new> <knows> <b>")?]))?;
+    // While the execution is open, every writer of `<new>` takes the ID it created.
+    let created = id_now(&applier)?;
+    assert_eq!(id_now(&applier)?, created, "the open execution holds it");
+    applier.release_execution(execution);
+    assert_ne!(
+        id_now(&applier)?,
+        created,
+        "released, its ID is never used again"
+    );
+    assert_eq!(
+        applier
+            .quads()
+            .id_of(NS, ex("new").as_str())
+            .context("the dictionary reads")?,
+        None,
+        "nothing is written"
+    );
+    assert_eq!(applier.quads().lists().applied_ts(), at);
+    Ok(())
+}
+
+#[test]
+fn test_a_finish_the_store_fails_releases_what_the_execution_created() -> TestResult {
+    let applier = changesets()?;
+    let at = commit(&applier, "<a> <knows> <b>")?;
+    let mut execution = applier.begin(NS, at).context("begun")?;
+    execution.apply(&changeset(vec![insert("<new> <knows> <b>")?]))?;
+    let created = id_now(&applier)?;
+    assert_eq!(id_now(&applier)?, created, "the open execution holds it");
+    // The derivation's first read of the store fails, and finishing it fails with it.
+    applier
+        .quads()
+        .store()
+        .inject(ultragraphdb_store_sim::Fault::FailNextRead);
+    let failed = execution.finish();
+    assert!(failed.is_err(), "the read the derivation needs fails");
+    assert_ne!(
+        id_now(&applier)?,
+        created,
+        "released by the failed finish, its ID is never used again"
+    );
+    assert_eq!(
+        applier
+            .quads()
+            .id_of(NS, ex("new").as_str())
+            .context("the dictionary reads")?,
+        None,
+        "nothing is written"
+    );
+    Ok(())
 }

@@ -116,7 +116,7 @@ fn test_every_code_reads_and_unused_bytes_are_zero() -> TestResult {
 #[test]
 fn test_an_unknown_code_is_refused() -> TestResult {
     let bytes = golden("error")?.bytes()?;
-    for code in [0u64, 23, 0xFFFF] {
+    for code in [0u64, 24, 0xFFFF] {
         let changed = with_command_header(&bytes, |h| put(h, 0, code, 2));
         assert_eq!(
             ErrorReplyView::from_frame(&frame_of(&changed)?)

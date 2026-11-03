@@ -47,9 +47,10 @@ impl StoreSnapshot for FjallSnapshot {
                 ),
             ));
         }
-        let mut raw = [0u8; 8];
-        raw.copy_from_slice(&stored[stored_len - 8..]);
-        let version = !u64::from_be_bytes(raw);
+        // The length check above leaves the version's eight bytes at the end.
+        let version = stored
+            .last_chunk::<8>()
+            .map_or(0, |raw| !u64::from_be_bytes(*raw));
         let v =
             decode_value(&bytes).map_err(|reason| StoreError::corrupted(key.to_vec(), reason))?;
         Ok((!v.deletion)

@@ -14,7 +14,8 @@ use ultragraphdb_store_apply::ChangesetError;
 ///   new transaction may succeed.
 /// - **Refused, not retryable:** [`ReadAboveWatermark`](Self::ReadAboveWatermark), [`WriteSetTooLarge`](Self::WriteSetTooLarge),
 ///   [`ReadSetTooLarge`](Self::ReadSetTooLarge), [`ReadOnly`](Self::ReadOnly), [`Namespace`](Self::Namespace),
-///   [`Ended`](Self::Ended), [`Changeset`](Self::Changeset). Retrying the same request meets the same refusal.
+///   [`Ended`](Self::Ended), [`Changeset`](Self::Changeset), [`CrossPartition`](Self::CrossPartition). Retrying the
+///   same request meets the same refusal.
 ///
 /// [`TxnError::is_retryable`] gives the classification; the variant is the public field `.0`.
 #[derive(Debug, Clone, PartialEq)]
@@ -60,6 +61,14 @@ pub enum TxnErrorEnum {
     Ended,
     /// The changeset was refused, or the store failed; the transaction is aborted.
     Changeset(ChangesetError),
+    /// The transaction, bound to `partition`, wrote a subject whose bucket `other` owns: cross-partition work is refused
+    /// in this stage, and the transaction is aborted, having written nothing.
+    CrossPartition {
+        /// The partition the transaction is bound to.
+        partition: u32,
+        /// The partition owning the subject's bucket.
+        other: u32,
+    },
 }
 
 /// A transaction's refusal on its worker; see [`TxnErrorEnum`].
@@ -108,6 +117,11 @@ impl TxnError {
     /// The changeset's refusal or the store's failure, `error`.
     pub fn changeset(error: ChangesetError) -> Self {
         Self(TxnErrorEnum::Changeset(error))
+    }
+
+    /// A write reaching `other`'s state in a transaction bound to `partition`.
+    pub fn cross_partition(partition: u32, other: u32) -> Self {
+        Self(TxnErrorEnum::CrossPartition { partition, other })
     }
 
     /// Whether the client may retry the transaction: only past its limit.

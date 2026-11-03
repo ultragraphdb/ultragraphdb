@@ -117,9 +117,9 @@ fn test_a_record_range_with_an_empty_end_reaches_past_the_last_key() -> TestResu
 #[test]
 fn test_the_record_list_deltas_and_dictionary_alone_are_not_conflict_keys() -> TestResult {
     // Only the conflict sections are the history's: a delta's key the worker left out of them conflicts with nothing.
-    let mut record = WriteSetRecord::new(0, 0, 0, 0);
-    record.push_list_delta(b"k".to_vec(), vec![1]);
-    record.push_dictionary(b"d".to_vec(), Some(vec![2]));
+    let mut record = WriteSetRecord::transaction(0);
+    record.push_inserted(b"k".to_vec(), None);
+    record.push_statement_record(b"d".to_vec(), Some(vec![2]));
     let bytes = record.encode();
     let view = WriteSetRecordView::new(&bytes).context("the record reads")?;
     let mut resolver = Resolver::new(0);
@@ -128,32 +128,26 @@ fn test_the_record_list_deltas_and_dictionary_alone_are_not_conflict_keys() -> T
         resolver.check(&read_set(0, 10, &Reads::list(b"k"))?),
         Ok(())
     );
-    assert_eq!(
-        resolver.check(&read_set(0, 10, &Reads::absent(b"d"))?),
-        Ok(())
-    );
+    assert_eq!(resolver.check(&read_set(0, 10, &Reads::absent(1))?), Ok(()));
     Ok(())
 }
 
 #[test]
-fn test_two_creations_of_one_iri_conflict_on_its_absence() -> TestResult {
-    // QuadStore::confirm's rule: both executions found the IRI's dictionary key absent and both write it; the second
-    // to be decided conflicts, whether the first was admitted in its round or committed above its read version.
-    let creation = Writes::point(b"iri:x");
+fn test_two_first_statements_of_one_term_conflict_on_its_absence() -> TestResult {
+    // Both executions found the term absent and both write a statement of it; the second to be decided conflicts,
+    // whether the first was admitted in its round or committed above its read version.
+    let statement = Writes::term(5);
     let mut resolver = Resolver::new(0);
-    let first = read_set(0, 10, &Reads::absent(b"iri:x"))?;
+    let first = read_set(0, 10, &Reads::absent(5))?;
     assert_eq!(resolver.check(&first), Ok(()));
-    admit(&mut resolver, 12, &creation)?;
-    let second = read_set(0, 10, &Reads::absent(b"iri:x"))?;
+    admit(&mut resolver, 12, &statement)?;
+    let second = read_set(0, 10, &Reads::absent(5))?;
     assert_eq!(
         resolver.check(&second),
         Err(CommitError::conflict(ConflictKind::AbsentTerm))
     );
-    // Another IRI is free.
-    assert_eq!(
-        resolver.check(&read_set(0, 10, &Reads::absent(b"iri:y"))?),
-        Ok(())
-    );
+    // Another term is free.
+    assert_eq!(resolver.check(&read_set(0, 10, &Reads::absent(6))?), Ok(()));
     Ok(())
 }
 

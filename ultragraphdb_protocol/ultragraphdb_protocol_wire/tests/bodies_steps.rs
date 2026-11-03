@@ -6,14 +6,16 @@
 //! The wire-protocol scenarios of bodies, prepared statements, describe, result batches and the conformance suite's
 //! truncations.
 
+use std::num::NonZeroU64;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use cucumber::{then, when};
 use oxrdf::NamedNode;
 use ultragraphdb_core_catalog::Catalog;
+use ultragraphdb_core_ids::{Bucket, Sequence, SystemId, TypePrefix};
 use ultragraphdb_core_mapping::{
-    Cardinality, Declaration, PredicateDeclaration, PredicateKind, RelationDeclaration,
-    TypeDeclaration,
+    Cardinality, Declaration, PredicateDeclaration, PredicateKind, RandomSource,
+    RelationDeclaration, TypeDeclaration,
 };
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
@@ -28,6 +30,7 @@ use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig};
 use ultragraphdb_store_quads::{DataDictionary, QuadStore};
 use ultragraphdb_store_sim::{FaultConfig, Seed, SimClock, SimListCache, SimStore, Stream};
 use ultragraphdb_tool_bdd::{Context, TestResult};
+use ultragraphdb_traits_blocks::TestBlockSource;
 use ultragraphdb_traits_store::{PersistMode, Store, WriteBatch};
 
 use crate::Steps;
@@ -42,23 +45,37 @@ fn ex(name: &str) -> NamedNode {
 /// from.
 struct Dictionary {
     store: SimStore,
-    quads: QuadStore<SimStore, SimListCache<CachedList>>,
+    quads: QuadStore<SimStore, SimListCache<CachedList>, TestBlockSource>,
 }
 
 impl Dictionary {
     fn new() -> TestResult<Self> {
         let store = SimStore::new(Seed::new(9), FaultConfig::none(), SimClock::new());
         let cache = SimListCache::new(64, Seed::new(9).stream(Stream::Cache));
-        let quads = QuadStore::open(Lists::new(store.clone(), cache, ListsConfig::default()))
-            .context("the quads open")?;
+        let quads = QuadStore::open(
+            Lists::new(store.clone(), cache, ListsConfig::default()),
+            TestBlockSource::new(NonZeroU64::MIN.saturating_add(999)),
+            RandomSource::new(9),
+        )
+        .context("the quads open")?;
         Ok(Self { store, quads })
     }
 
-    fn declare(&self, uid: u64, declaration: PredicateDeclaration, version: u64) -> TestResult {
+    fn declare(
+        &self,
+        sequence: u64,
+        declaration: PredicateDeclaration,
+        version: u64,
+    ) -> TestResult {
+        let predicate = SystemId::new(
+            TypePrefix::RESOURCE,
+            Bucket::new(0).context("bucket 0")?,
+            Sequence::new(sequence).context("a sequence from 1")?,
+        );
         let mut batch = WriteBatch::new();
         batch.push(Catalog::entry(
             0,
-            uid,
+            predicate,
             &Declaration::Predicate(declaration),
             version,
         ));
@@ -300,11 +317,10 @@ fn name_listed(w: &mut Steps) -> TestResult {
 
 #[when("a batch of 1,000 rows names the same IRI in every row")]
 fn thousand_rows(w: &mut Steps) -> TestResult {
-    let iri = ResultTerm::new(EncodedTerm::uid(42)).with_text("http://ex.org/same");
+    let iri = ResultTerm::iri("http://ex.org/same");
     let mut batch = ResultBatch::new(2);
     for row in 0..1_000u64 {
-        let other = ResultTerm::new(EncodedTerm::uid(1_000 + row))
-            .with_text(format!("http://ex.org/n{row}"));
+        let other = ResultTerm::iri(format!("http://ex.org/n{row}"));
         batch.push_row(&[Some(&iri), Some(&other)])?;
     }
     w.bytes = batch.frame(Header::new(CLUSTER, Command::Result).with_stream(1))?;
@@ -320,12 +336,8 @@ fn iri_once(w: &mut Steps) -> TestResult {
     assert_eq!(view.term_count(), 1_001);
     let mut same: Vec<u32> = Vec::new();
     for i in 0..view.term_count() as u32 {
-        let term = view
-            .term(i)
-            .context("each term of the batch")?
-            .term()
-            .context("the term in the store's encoding")?;
-        if term.as_uid() == Some(42) {
+        let term = view.term(i).context("each term of the batch")?;
+        if term.text() == Some("http://ex.org/same") {
             same.push(i);
         }
     }

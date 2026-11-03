@@ -191,21 +191,75 @@ fn test_a_commit_writes_the_entries_of_new_terms_and_settles_them() -> TestResul
 }
 
 #[test]
-fn test_a_released_write_leaves_its_ids_to_the_next_writer() -> TestResult {
+fn test_a_released_write_leaves_no_dictionary_entry_and_burns_its_ids() -> TestResult {
     let store = quads()?;
+    let before = store.store().contents();
     let mut refused = WriteTerms::new(0);
     let gone = refused.iri(&store, ex("gone").as_str())?;
     let blank = refused.blank(&store, "x")?;
-    store.release(&refused)?;
-    assert_eq!(
-        store.id_of(0, ex("gone").as_str())?,
-        Some(gone),
-        "its entries are written on their own"
-    );
-    assert!(store.iri_of(0, blank)?.1);
+    store.release(&refused);
+    assert_eq!(store.store().contents(), before, "nothing is written");
+    assert_eq!(store.id_of(0, ex("gone").as_str())?, None);
+    assert!(store.iri_of(0, blank).is_err(), "no entry names the blank");
     let mut later = WriteTerms::new(0);
-    assert_eq!(later.iri(&store, ex("gone").as_str())?, gone);
-    assert_eq!(later.written().count(), 0);
+    let again = later.iri(&store, ex("gone").as_str())?;
+    assert_ne!(again, gone, "the released ID is burned");
+    assert!(later.is_fresh(again), "the later write creates it");
+    assert_eq!(
+        later.written().collect::<Vec<_>>(),
+        vec![(ex("gone").as_str(), again)]
+    );
+    Ok(())
+}
+
+#[test]
+fn test_a_write_that_took_a_refused_creators_pending_id_carries_and_commits_its_entries()
+-> TestResult {
+    let store = quads()?;
+    let mut creator = WriteTerms::new(0);
+    let created = creator.iri(&store, ex("new").as_str())?;
+    let mut taker = WriteTerms::new(0);
+    assert_eq!(taker.iri(&store, ex("new").as_str())?, created);
+    store.release(&creator);
+    assert_eq!(store.id_of(0, ex("new").as_str())?, None);
+    let mut third = WriteTerms::new(0);
+    assert_eq!(
+        third.iri(&store, ex("new").as_str())?,
+        created,
+        "still pending: the taker holds it"
+    );
+    store.release(&third);
+    assert!(
+        taker.entries().contains(&(
+            term_key(0, ex("new").as_str()),
+            created.to_be_bytes().to_vec()
+        )),
+        "the taker carries the entries"
+    );
+    let mut batch = store.lists().batch();
+    batch.push(store.lists().request(store.lists().applied_ts()));
+    let _versions: Vec<u64> = store.commit(batch, &[taker])?;
+    assert_eq!(store.id_of(0, ex("new").as_str())?, Some(created));
+    assert_eq!(
+        store.iri_of(0, created)?,
+        (ex("new").as_str().to_string(), false)
+    );
+    Ok(())
+}
+
+#[test]
+fn test_a_pending_id_is_burned_once_every_write_holding_it_is_released() -> TestResult {
+    let store = quads()?;
+    let (mut creator, mut taker) = (WriteTerms::new(0), WriteTerms::new(0));
+    let created = creator.iri(&store, ex("new").as_str())?;
+    let _taken: SystemId = taker.iri(&store, ex("new").as_str())?;
+    store.release(&taker);
+    store.release(&creator);
+    assert_ne!(
+        WriteTerms::new(0).iri(&store, ex("new").as_str())?,
+        created,
+        "no write holds it: the next writer creates another"
+    );
     Ok(())
 }
 

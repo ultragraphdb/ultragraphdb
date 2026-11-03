@@ -9,3 +9,5 @@ mod commit_error;
 mod pipeline_error;
 #[cfg(test)]
 mod recovery_error;
+#[cfg(test)]
+mod setting_error;

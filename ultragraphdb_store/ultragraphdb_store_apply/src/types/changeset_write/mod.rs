@@ -6,6 +6,7 @@
 mod changeset_write_data;
 mod changeset_write_declare;
 mod changeset_write_index;
+mod changeset_write_logical;
 mod changeset_write_operation;
 mod changeset_write_read;
 mod changeset_write_statements;
@@ -17,8 +18,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use oxrdf::vocab::rdf;
 use oxrdf::{GraphNameRef, Literal, NamedNode, NamedNodeRef, NamedOrBlankNodeRef, Term, TermRef};
 use ultragraphdb_core_catalog::Catalog;
+use ultragraphdb_core_codec::Posting;
 use ultragraphdb_core_ids::SystemId;
-use ultragraphdb_core_keys::Graph;
+use ultragraphdb_core_keys::{CountDirection, Graph};
 use ultragraphdb_core_mapping::{Change, Changeset, Declaration, PredicateDeclaration};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_posting::CachedList;
@@ -33,11 +35,21 @@ use crate::types::predicate_prefix::PredicatePrefix;
 use crate::types::rebuild::Rebuild;
 use crate::types::write_outcome::WriteOutcome;
 
+/// The count moves a write records, by count list and member, each the member's identity: from the count before the
+/// write's first move, to the count of its last, with the member's posting.
+type CountMoves = BTreeMap<(Graph, SystemId, CountDirection, Vec<u8>), (u32, u32, Posting)>;
+
 /// The application of one changeset: its quad write, the catalog it is checked against, which its declarations and
-/// the default entries of the predicates it names first change, and the statement records it writes, which later
-/// changes of the same changeset read. Records and catalog entries are written once each, at [`ChangesetWrite::finish`],
-/// so that a key the changeset writes twice lands once. While an index is built, the predicate built is written under
-/// the declaration the build maintains.
+/// the default entries of the predicates its derived statements name first change, and the statement records it
+/// writes, which later changes of the same changeset read. Records and catalog entries are written once each, at
+/// [`ChangesetWrite::finish`], so that a key the changeset writes twice lands once. While an index is built, the
+/// predicate built is written under the declaration the build maintains.
+///
+/// Its changes resolve the changeset's semantics against the write's own forward and reverse lists, which they read,
+/// and maintain no value index, count index or vector record. [`ChangesetWrite::finish`] then derives every key of
+/// the statements once, from the write's net effect on its snapshot, with [`ChangesetWrite::derive`], the derivation
+/// replay runs on a logged record, so the first apply and a replay write the same keys and values (write-ahead-log,
+/// "A round's record is logical").
 pub(crate) struct ChangesetWrite<'a, S, C, B> {
     write: QuadWrite<'a, S, C, B>,
     catalog: Catalog,
@@ -60,6 +72,11 @@ pub(crate) struct ChangesetWrite<'a, S, C, B> {
     touched: BTreeSet<(Graph, SystemId)>,
     /// The keys of the indexes the write's declarations remove.
     removals: Vec<PredicatePrefix>,
+    /// Whether the write derives keys: adds and removals then maintain the value and count indexes and record the
+    /// vectors they change.
+    deriving: bool,
+    /// The count moves a derivation records, written once at its end.
+    counts: CountMoves,
 }
 
 impl<'a, S, C, B> ChangesetWrite<'a, S, C, B>
@@ -82,6 +99,8 @@ where
             pending: None,
             touched: BTreeSet::new(),
             removals: Vec::new(),
+            deriving: false,
+            counts: BTreeMap::new(),
         }
     }
 
@@ -182,8 +201,49 @@ where
         }
     }
 
-    /// What the write leaves to commit, the statement records and catalog entries added to its request.
-    pub fn finish(mut self) -> WriteOutcome<'a, S, C> {
+    /// What the write leaves to commit, its keys derived once from its net effect on its snapshot: every list and
+    /// statistics delta its changes wrote is dropped, keeping what they read, and [`ChangesetWrite::derive`] writes the
+    /// statements they left removed or inserted, as replay writes a logged record's; the statement records and
+    /// catalog entries are added to its request.
+    ///
+    /// # Errors
+    ///
+    /// The store's error, or the corruption of a list or dictionary entry the derivation reads. The write will not
+    /// commit, so before the error is returned what it holds is released once, as [`ChangesetWrite::release`] does with
+    /// `base`: every hold of a write of its own (`None`), or those it took beyond `base`, the terms it continues.
+    pub fn finish(
+        mut self,
+        base: Option<&WriteTerms>,
+    ) -> Result<WriteOutcome<'a, S, C>, ChangesetError> {
+        if let Err(e) = self.derive_net() {
+            self.release(base);
+            return Err(e);
+        }
+        Ok(self.outcome())
+    }
+
+    /// Derives the write's keys from its net effect, every list and statistics delta its changes wrote dropped.
+    fn derive_net(&mut self) -> Result<(), ChangesetError> {
+        let net = self.net_writes()?;
+        self.write.discard_lists();
+        self.derive(&net)
+    }
+
+    /// Releases what the write holds, writing nothing: every pending entry it created or took with `base` `None`, and
+    /// with `base`, the terms a write continuing another started from, only those it took beyond them, which leaves
+    /// the other write's holds with it.
+    pub(crate) fn release(&mut self, base: Option<&WriteTerms>) {
+        let (terms, quads) = self.write.terms();
+        match base {
+            None => quads.release(terms),
+            Some(base) => quads.release_beyond(terms, base),
+        }
+    }
+
+    /// What the write leaves to commit as it is: its count moves written, and the statement records and catalog
+    /// entries added to its request.
+    pub fn outcome(mut self) -> WriteOutcome<'a, S, C> {
+        self.write_counts();
         for ((graph, id), record) in std::mem::take(&mut self.records) {
             match record {
                 Some(record) => self.write.put_statement(graph, id, &record),
@@ -291,8 +351,10 @@ where
             .map_err(|e| literal_refusal(predicate, e))
     }
 
-    /// The declaration predicate `uid` is written under: its own, or the default, which the write records in its
-    /// commit batch the first time it names the predicate.
+    /// The declaration predicate `uid` is written under: its own, or the default. Only the derivation records the
+    /// default, in the catalog and the commit batch, the first time it names the predicate: a change names a predicate
+    /// its net effect may not keep, and replay derives the net effect alone, so the predicates of the statements
+    /// derived are the ones whose default entry the first apply and a replay both write.
     fn declaration(
         &mut self,
         uid: SystemId,
@@ -305,6 +367,9 @@ where
             return Ok(declared.clone());
         }
         let default = PredicateDeclaration::new(predicate.into_owned());
+        if !self.deriving {
+            return Ok(default);
+        }
         self.catalog.declare_predicate(uid, default.clone())?;
         let entry = Catalog::entry(
             self.namespace(),

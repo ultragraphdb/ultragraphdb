@@ -9,7 +9,7 @@ use ultragraphdb_protocol_wire::ErrorCode;
 fn test_codes_keep_their_numbers() {
     // The table of ErrorCode's docs.
     let numbers: Vec<u16> = ErrorCode::ALL.iter().map(|c| c.number()).collect();
-    assert_eq!(numbers, (1..=22).collect::<Vec<u16>>());
+    assert_eq!(numbers, (1..=23).collect::<Vec<u16>>());
     assert_eq!(ErrorCode::Protocol.number(), 1);
     assert_eq!(ErrorCode::Conflict.number(), 2);
     assert_eq!(ErrorCode::OperationFailed.number(), 8);
@@ -21,11 +21,14 @@ fn test_codes_keep_their_numbers() {
     assert_eq!(ErrorCode::Unauthenticated.number(), 20);
     assert_eq!(ErrorCode::PermissionDenied.number(), 21);
     assert_eq!(ErrorCode::CredentialExpired.number(), 22);
+    // PROTOCOL.md §9.4: CrossPartition is 23, not retryable.
+    assert_eq!(ErrorCode::CrossPartition.number(), 23);
+    assert!(!ErrorCode::CrossPartition.retryable());
     for code in ErrorCode::ALL {
         assert_eq!(ErrorCode::from_number(code.number()), Some(code));
     }
     assert_eq!(ErrorCode::from_number(0), None);
-    assert_eq!(ErrorCode::from_number(23), None);
+    assert_eq!(ErrorCode::from_number(24), None);
     assert_eq!(ErrorCode::from_number(u16::MAX), None);
 }
 

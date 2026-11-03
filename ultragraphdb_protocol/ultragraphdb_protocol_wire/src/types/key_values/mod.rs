@@ -47,6 +47,8 @@ impl<'a> KeyValues<'a> {
     ) -> Result<Self, ProtocolError> {
         let mut at = 0usize;
         let mut len = 0usize;
+        // Each entry takes at least its 8 bytes of lengths, so `at` grows by 8 or more a turn and the loop ends within
+        // `bytes.len() / 8` turns.
         while at < bytes.len() {
             let (_, end, next) = entry_at(bytes, at)
                 .ok_or_else(|| ProtocolError::entry_out_of_bounds(command, section, len, at))?;
@@ -76,10 +78,12 @@ impl<'a> KeyValues<'a> {
     pub fn iter(&self) -> impl Iterator<Item = RecordEntry<'a>> + 'a {
         let bytes = self.bytes;
         let mut at = 0usize;
+        // The checked section holds exactly `len` entries, which bounds the walk.
         std::iter::from_fn(move || {
             let (entry, _, next) = entry_at(bytes, at)?;
             at = next;
             Some(entry)
         })
+        .take(self.len)
     }
 }

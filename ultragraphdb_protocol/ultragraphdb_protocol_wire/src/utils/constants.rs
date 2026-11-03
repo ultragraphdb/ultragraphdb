@@ -61,3 +61,21 @@ pub const ABSENT: u32 = u32::MAX;
 /// term one more than the deepest of its three. It bounds the recursion of anything that walks a term, a conversion
 /// to another term model above all.
 pub const MAX_TERM_DEPTH: usize = 32;
+
+/// The fixed part of a write-set record (`PROTOCOL.md` §12.2): kind, namespace, catalog, read version, session,
+/// request and principal.
+pub const RECORD_FIXED_SIZE: usize = 64;
+
+/// The sections of a write-set record.
+pub const RECORD_SECTIONS: usize = 12;
+
+/// The size of a write-set record's operation, section 3: `operation` u16, 6 zero bytes, a 16-byte `argument`.
+pub const RECORD_OPERATION_SIZE: usize = 24;
+
+/// The size of a write-set record's registration, section 4: `entity` system ID, `group` u32, 4 zero bytes,
+/// `generation` u64.
+pub const RECORD_REGISTRATION_SIZE: usize = 32;
+
+/// The size of a commit-time operation's result (`PROTOCOL.md` §6.3): `value` i64, `node` u32, `created` u8, 3 zero
+/// bytes; a Commit reply's section 0 and a write-set record's section 9.
+pub const OPERATION_RESULT_SIZE: usize = 16;

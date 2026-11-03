@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// by its delay. Clones share one clock.
 #[derive(Debug, Clone, Default)]
 pub struct SimClock {
+    // Shared by its clones (Ultra rule 9): the store and the simulation read one clock from any thread.
     nanos: Arc<AtomicU64>,
 }
 

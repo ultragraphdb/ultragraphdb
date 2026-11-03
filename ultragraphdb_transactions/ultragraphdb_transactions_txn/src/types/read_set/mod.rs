@@ -5,7 +5,7 @@
 
 use std::cmp::Ordering;
 
-use ultragraphdb_core_keys::Keyspace;
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_store_apply::Reads;
 
 use crate::errors::txn_error::TxnError;
@@ -14,11 +14,15 @@ use crate::types::txn_limits::MAX_FRAME;
 
 /// The bytes a key in a table accounts for besides its own: its span.
 const SPAN_BYTES: usize = 8;
+/// A term key's length: its tag and a system ID's 16 bytes.
+const TERM_KEY: usize = 1 + SystemId::BYTES;
 
-/// What a read-write transaction read, the read set the commit step validates it by: the lists it read whole, the
-/// statements it tested (a list key and an object's encoding), the key ranges it scanned (a start, inclusive, and an
-/// end, exclusive, or none for the last key), the dictionary keys it found absent, and its namespace's catalog range,
-/// which is always in it.
+/// What a read-write transaction read, the read set the commit step validates it by (transactions, "What a
+/// transaction's reads record and what conflicts with them"): the lists it read whole, the statements it tested (a list
+/// key and an object's encoding), the key ranges it scanned (a start, inclusive, and an end, exclusive, or none for the
+/// last key), and the terms it found absent, each by its system ID's 16 big-endian bytes, recorded as no statement of
+/// the term in the partition. The catalog is read through the version in effect at the commit epoch, which the
+/// write-set record names, not through a key range.
 ///
 /// Every key is stored once, in one byte arena the read set owns, and named by a u32 offset and length; the arena and
 /// the tables are cleared by [`ReadSet::reset`] and keep their capacity, so a worker reuses one read set for every
@@ -27,8 +31,8 @@ const SPAN_BYTES: usize = 8;
 /// summarised.
 ///
 /// The read set is bounded: [`ReadSet::bytes`] counts the arena's bytes and 8 bytes per key the tables name (a
-/// statement or a range names two, an open end included), the catalog range included, and a push past the limit is
-/// refused with [`TxnError::read_set_too_large`] and adds nothing.
+/// statement or a range names two, an open end included), and a push past the limit is refused with
+/// [`TxnError::read_set_too_large`] and adds nothing.
 #[derive(Debug, Clone)]
 pub struct ReadSet {
     namespace: u64,
@@ -39,7 +43,6 @@ pub struct ReadSet {
     statements: Vec<(Span, Span)>,
     ranges: Vec<(Span, Option<Span>)>,
     absent: Vec<Span>,
-    catalog: (Span, Option<Span>),
     sealed: bool,
 }
 
@@ -58,7 +61,6 @@ impl ReadSet {
     /// An empty read set as [`ReadSet::new`] makes it, its arena holding `bytes` and its tables `keys` entries each
     /// before they grow.
     pub fn with_capacity(bytes: usize, keys: usize) -> Self {
-        let empty = Span { at: 0, len: 0 };
         let mut set = Self {
             namespace: 0,
             read_version: 0,
@@ -68,15 +70,14 @@ impl ReadSet {
             statements: Vec::with_capacity(keys),
             ranges: Vec::with_capacity(keys),
             absent: Vec::with_capacity(keys),
-            catalog: (empty, None),
             sealed: false,
         };
         set.reset(0, 0, MAX_FRAME);
         set
     }
 
-    /// Clears the read set for a transaction of `namespace` reading at `read_version`, bounded by `limit` bytes, and
-    /// records the namespace's catalog range. Its buffers keep their capacity.
+    /// Clears the read set for a transaction of `namespace` reading at `read_version`, bounded by `limit` bytes. Its
+    /// buffers keep their capacity.
     pub fn reset(&mut self, namespace: u64, read_version: u64, limit: usize) {
         self.namespace = namespace;
         self.read_version = read_version;
@@ -87,17 +88,7 @@ impl ReadSet {
         self.ranges.clear();
         self.absent.clear();
         self.sealed = false;
-        // The catalog keyspace's prefix of the namespace, and the first key past every key under it.
-        let mut prefix = [0u8; 9];
-        prefix[0] = Keyspace::Catalog.byte();
-        prefix[1..].copy_from_slice(&namespace.to_be_bytes());
-        let start = self.add(&prefix);
-        let end = prefix.iter().rposition(|b| *b != 0xff).map(|last| {
-            let mut next = prefix;
-            next[last] += 1;
-            self.add(&next[..=last])
-        });
-        self.catalog = (start, end);
+        debug_assert_eq!(self.bytes(), 0);
     }
 
     /// The bytes `arena` bytes and `spans` spans more would take the read set to, refused past its limit.
@@ -111,6 +102,7 @@ impl ReadSet {
 
     /// Appends `bytes` to the arena: their span. The limit keeps the arena within u32 offsets.
     fn add(&mut self, bytes: &[u8]) -> Span {
+        debug_assert!(self.arena.len() + bytes.len() <= u32::MAX as usize);
         let at = self.arena.len() as u32;
         self.arena.extend_from_slice(bytes);
         Span {
@@ -159,14 +151,31 @@ impl ReadSet {
         Ok(())
     }
 
-    /// Records the dictionary key `key`, found absent.
+    /// The tag of a term key, a conflict key no store key takes: every store key begins with its keyspace's byte, and
+    /// the keyspace without versions with 0xFF.
+    pub const TERM_TAG: u8 = 0xFE;
+
+    /// The conflict key of the term of `id`: [`ReadSet::TERM_TAG`] and the ID's 16 big-endian bytes. A term found
+    /// absent is recorded by it, and a statement written names each of its terms by it in its record's conflict
+    /// points, so the two meet exactly.
+    pub fn term_key(id: SystemId) -> [u8; TERM_KEY] {
+        let mut key = [Self::TERM_TAG; TERM_KEY];
+        if let Some((_, rest)) = key.split_first_mut() {
+            rest.copy_from_slice(&id.to_be_bytes());
+        }
+        debug_assert_eq!(key.first(), Some(&Self::TERM_TAG));
+        key
+    }
+
+    /// Records the term of `id`, found absent: no statement of it in the partition.
     ///
     /// # Errors
     ///
     /// As [`ReadSet::push_list`].
-    pub fn push_absent(&mut self, key: &[u8]) -> Result<(), TxnError> {
+    pub fn push_absent(&mut self, id: SystemId) -> Result<(), TxnError> {
+        let key = Self::term_key(id);
         self.room(key.len(), 1)?;
-        let span = self.add(key);
+        let span = self.add(&key);
         self.absent.push(span);
         self.sealed = false;
         Ok(())
@@ -180,7 +189,7 @@ impl ReadSet {
     pub fn gather(&mut self, reads: &Reads) -> Result<(), TxnError> {
         let keys = |keys: &[Vec<u8>]| keys.iter().map(Vec::len).sum::<usize>();
         let arena = keys(reads.lists())
-            + keys(reads.absent())
+            + TERM_KEY * reads.absent().len()
             + reads
                 .statements()
                 .iter()
@@ -213,8 +222,8 @@ impl ReadSet {
             let end = end.as_deref().map(|e| self.add(e));
             self.ranges.push((start, end));
         }
-        for key in reads.absent() {
-            let span = self.add(key);
+        for id in reads.absent() {
+            let span = self.add(&Self::term_key(*id));
             self.absent.push(span);
         }
         self.sealed = false;
@@ -244,6 +253,8 @@ impl ReadSet {
         self.statements.dedup_by(|a, b| pair(a) == pair(b));
         self.ranges.sort_unstable_by(range);
         self.ranges.dedup_by(|a, b| range(a, b) == Ordering::Equal);
+        debug_assert!(self.lists.is_sorted_by(|a, b| key(a) < key(b)));
+        debug_assert!(self.absent.is_sorted_by(|a, b| key(a) < key(b)));
         self.sealed = true;
     }
 
@@ -269,9 +280,8 @@ impl ReadSet {
 
     /// The bytes the read set accounts for: its arena's and 8 per key its tables name.
     pub fn bytes(&self) -> usize {
-        let spans = self.lists.len()
-            + self.absent.len()
-            + 2 * (self.statements.len() + self.ranges.len() + 1);
+        let spans =
+            self.lists.len() + self.absent.len() + 2 * (self.statements.len() + self.ranges.len());
         self.arena.len() + SPAN_BYTES * spans
     }
 
@@ -305,16 +315,8 @@ impl ReadSet {
             .map(|(s, e)| (s.of(&self.arena), e.map(|e| e.of(&self.arena))))
     }
 
-    /// The dictionary keys found absent: in key order once sealed.
+    /// The terms found absent, each its system ID's 16 big-endian bytes: in order once sealed.
     pub fn absent(&self) -> impl Iterator<Item = &[u8]> {
         self.absent.iter().map(|s| s.of(&self.arena))
-    }
-
-    /// The namespace's catalog range, from its start, inclusive, to its end, exclusive.
-    pub fn catalog(&self) -> (&[u8], Option<&[u8]>) {
-        (
-            self.catalog.0.of(&self.arena),
-            self.catalog.1.map(|e| e.of(&self.arena)),
-        )
     }
 }

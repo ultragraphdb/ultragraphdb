@@ -7,9 +7,12 @@ use std::collections::BTreeSet;
 
 use ultragraphdb_core_catalog::Catalog;
 use ultragraphdb_core_ids::SystemId;
-use ultragraphdb_core_keys::{Graph, Region};
+use ultragraphdb_core_keys::{Graph, QuadKey, Region};
+use ultragraphdb_store_posting::DEL;
 use ultragraphdb_store_posting::Writes;
-use ultragraphdb_store_quads::WriteTerms;
+use ultragraphdb_store_quads::{WriteTerms, posting_object};
+
+use crate::types::logical_quad::LogicalQuad;
 
 use crate::types::build_end::BuildEnd;
 use crate::types::drop_target::DropTarget;
@@ -91,6 +94,63 @@ impl Executed {
             build_end: Some(end),
             ..Self::dropping(namespace, read_ts, catalog, None, Vec::new())
         }
+    }
+
+    /// The execution's writes in their logical form (write-ahead-log, "A round's record is logical"): each statement a
+    /// forward list's delta sets, once per statement ID its posting carries, each statement one removes, and each
+    /// statement record written, by graph and statement ID. The deltas hold the execution's net effect on its snapshot,
+    /// derived from it by the derivation [`crate::ChangesetApplier::prepare_logical`] runs, so a replay of these writes
+    /// derives every key and value again.
+    ///
+    /// # Errors
+    ///
+    /// The store's corruption error for a forward key that does not parse or a posting that names no object.
+    pub fn logical(
+        &self,
+    ) -> Result<crate::types::logical_writes::LogicalWrites, crate::ChangesetError> {
+        let (mut inserted, mut removed) = (Vec::new(), Vec::new());
+        for (key, delta) in self.writes.deltas() {
+            let Ok((
+                QuadKey::Forward {
+                    graph,
+                    predicate,
+                    subject,
+                    ..
+                },
+                None,
+            )) = QuadKey::parse(key)
+            else {
+                continue;
+            };
+            for posting in delta.postings() {
+                let object = posting_object(key, posting)?;
+                let quad = |statement| {
+                    LogicalQuad::new(graph, subject, predicate, object.clone(), statement)
+                };
+                match (posting.op(), posting.statement_ids()) {
+                    (DEL, _) => removed.push(quad(None)),
+                    (_, []) => inserted.push(quad(None)),
+                    (_, ids) => inserted.extend(ids.iter().map(|id| quad(Some(*id)))),
+                }
+            }
+        }
+        let records = self
+            .writes
+            .entries()
+            .iter()
+            .filter_map(|e| match QuadKey::parse(e.key()) {
+                Ok((
+                    QuadKey::Statement {
+                        graph, statement, ..
+                    },
+                    None,
+                )) => Some((graph, statement, e.value().map(<[u8]>::to_vec))),
+                _ => None,
+            })
+            .collect();
+        Ok(crate::types::logical_writes::LogicalWrites::new(
+            inserted, removed, records,
+        ))
     }
 
     /// The end of a build this execution is, `None` for any other: a round of its own (decided 2026-10-28).

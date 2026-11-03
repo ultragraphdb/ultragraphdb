@@ -212,10 +212,12 @@ fn test_a_batch_of_vectors_and_long_terms_round_trips() -> TestResult {
         vector.extend_from_slice(&x.to_le_bytes());
     }
     let v = ResultTerm::new(EncodedTerm::from_bytes(&vector)?);
-    let typed = ResultTerm::new(EncodedTerm::from_bytes(&[
-        0x32, 0, 0, 0, 0, 0, 0, 0, 9, 1, b'x',
-    ])?)
-    .with_annotation("http://ex.org/type");
+    // Tag 0x32: the datatype's 16 bytes, then the inline lexical form `x`.
+    let mut typed = vec![0x32];
+    typed.extend_from_slice(ultragraphdb_core_terms::Hash128::of(b"http://ex.org/type").as_bytes());
+    typed.extend_from_slice(&[1, b'x']);
+    let typed =
+        ResultTerm::new(EncodedTerm::from_bytes(&typed)?).with_annotation("http://ex.org/type");
     let mut batch = ResultBatch::new(1);
     batch.push_row(&[Some(&v)])?;
     batch.push_row(&[Some(&typed)])?;
@@ -313,7 +315,7 @@ fn test_each_term_is_one_whole_encoding() -> TestResult {
     assert_eq!(one_term(&[0x10, 0])?, Ok(()));
     assert_eq!(one_term(&[0x30, 33, 1, b'x'])?, Ok(()));
     assert_eq!(one_term(&[0x20, 2, 0xC3, 0xA9])?, Ok(()));
-    // The term table's bytes: a blank node's tag with a UID's nine bytes is whole, eight are not.
+    // The term table's bytes: a blank node's tag with its 16-byte hash is whole, 15 bytes are not.
     let blank = golden("result")?.bytes()?;
     assert_eq!(
         ResultView::from_frame(&frame_of(&blank)?)
@@ -335,8 +337,8 @@ fn test_each_term_is_one_whole_encoding() -> TestResult {
             at: 3
         }
     );
-    // A tag the store never writes, 0x03, is no encoding.
-    let unknown = with_section(&blank, 8, 2, |e| e[30] = 0x03);
+    // A tag the store never writes, 0x03, is no encoding: term 3 starts after 17 + 4 + 17 bytes.
+    let unknown = with_section(&blank, 8, 2, |e| e[38] = 0x03);
     assert_eq!(
         ResultView::from_frame(&frame_of(&unknown)?)
             .err()

@@ -12,7 +12,7 @@ use ultragraphdb_protocol_wire::ConflictKind;
 use ultragraphdb_tool_bdd::TestResult;
 use ultragraphdb_transactions_commit::ConflictHistory;
 
-use crate::utils::proposal_double::{Reads, Writes, read_set};
+use crate::utils::proposal_double::{Reads, Writes, read_set, term_key};
 
 fn insert(history: &mut ConflictHistory, version: u64, writes: &Writes) {
     history.insert(
@@ -66,8 +66,14 @@ fn test_a_key_at_either_bound_of_a_run_conflicts_and_one_past_it_does_not() -> T
         Some(ConflictKind::List)
     );
     assert_eq!(check(&lists(&[b"a", b"b", b"z"]))?, None);
-    assert_eq!(check(&Reads::absent(b"m"))?, Some(ConflictKind::AbsentTerm));
-    assert_eq!(check(&Reads::absent(b"n"))?, None);
+    // A run holding the term key of `id(3)` among its points.
+    let mut terms = ConflictHistory::new(0);
+    let term = term_key(3);
+    insert(&mut terms, 12, &points(&[b"d", &term]));
+    let absent =
+        |sequence| read_set(0, 10, &Reads::absent(sequence)).map(|set| terms.conflict(&set));
+    assert_eq!(absent(3)?, Some(ConflictKind::AbsentTerm));
+    assert_eq!(absent(4)?, None);
     Ok(())
 }
 
@@ -173,24 +179,6 @@ fn test_a_written_range_at_its_bounds_conflicts_alone_and_after_a_merge() -> Tes
     assert_eq!(
         check(&history, &Reads::range(b"q", Some(b"x\x00")))?,
         Some(ConflictKind::Drop)
-    );
-    Ok(())
-}
-
-#[test]
-fn test_a_run_whose_keys_lie_in_another_keyspace_skips_the_catalog_range_but_a_catalog_write_conflicts()
--> TestResult {
-    // The catalog range of namespace 0 is the catalog keyspace byte 0x01 and the namespace; the run's keys sit above.
-    let history = one_run();
-    assert_eq!(history.conflict(&read_set(0, 10, &Reads::default())?), None);
-    let mut catalog = vec![0x01];
-    catalog.extend_from_slice(&0u64.to_be_bytes());
-    catalog.push(7);
-    let mut with_catalog = one_run();
-    insert(&mut with_catalog, 14, &points(&[&catalog, b"z"]));
-    assert_eq!(
-        with_catalog.conflict(&read_set(0, 10, &Reads::default())?),
-        Some(ConflictKind::Catalog)
     );
     Ok(())
 }

@@ -3,6 +3,9 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::num::NonZeroU32;
+
+use ultragraphdb_protocol_wire::RoundHeader;
 use ultragraphdb_traits_log::Position;
 
 use crate::utils::block::padded;
@@ -15,28 +18,22 @@ pub struct ScannedRound {
     checksum: u64,
     first_version: u64,
     transactions: u32,
+    derivation: NonZeroU32,
     offset: u64,
     size: u32,
 }
 
 impl ScannedRound {
-    /// A round at `position` naming `parent`, with its frame's `checksum`, its `first_version` and `transactions`,
-    /// its frame of `size` bytes at `offset`.
-    pub fn new(
-        position: Position,
-        parent: u64,
-        checksum: u64,
-        first_version: u64,
-        transactions: u32,
-        offset: u64,
-        size: u32,
-    ) -> Self {
+    /// The round whose command header reads `header`, with its frame's `checksum`, its frame of `size` bytes at
+    /// `offset`.
+    pub fn new(header: RoundHeader, checksum: u64, offset: u64, size: u32) -> Self {
         Self {
-            position,
-            parent,
+            position: Position::new(header.position()),
+            parent: header.parent(),
             checksum,
-            first_version,
-            transactions,
+            first_version: header.first_version(),
+            transactions: header.transactions(),
+            derivation: header.derivation(),
             offset,
             size,
         }
@@ -62,9 +59,14 @@ impl ScannedRound {
         self.first_version
     }
 
-    /// The number of transactions the round carries.
+    /// The number of decisions the round carries, one per entry.
     pub fn transactions(&self) -> u32 {
         self.transactions
+    }
+
+    /// The version of the derivation that turns the round's quads into keys.
+    pub fn derivation(&self) -> NonZeroU32 {
+        self.derivation
     }
 
     /// The frame's first byte within the segment, a multiple of 4,096.

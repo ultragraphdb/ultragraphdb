@@ -107,8 +107,9 @@ where
     }
 
     /// Commits `batch`, whose requests carry the writes `terms` resolved, in their order, each with the dictionary
-    /// entries of its terms the store does not hold yet; once the batch is written their pending entries are settled.
-    /// Creating an ID refuses no write. The commit version of each write.
+    /// entries of its terms the store does not hold yet: those it created and the pending ones it took from another
+    /// write, so two writes of one batch may carry one entry, equal in both. Once the batch is written their pending
+    /// entries are settled. Creating an ID refuses no write. The commit version of each write.
     pub fn commit(
         &self,
         batch: Batch<'_, S, C>,
@@ -131,25 +132,26 @@ where
     }
 
     /// Forgets the pending entries of the terms `terms` wrote, now that a batch holding its dictionary entries is
-    /// written: what the round applying a write calls once its batch is written.
+    /// written, whichever other writes still hold them, since the store now holds the entries: what the round applying
+    /// a write calls once its batch is written.
     pub fn settle(&self, terms: &WriteTerms) {
         self.dictionary.settle(terms.namespace(), terms.written());
     }
 
-    /// Releases the terms of a write that will not commit: the dictionary entries of the IRIs and names it got or
-    /// created are written on their own, since entries name nothing that exists, and their pending entries settled, so
-    /// a refused write holds no pending entry and the IDs stay those any other write of its terms took.
-    ///
-    /// # Errors
-    ///
-    /// The store's error when the entries cannot be written; the pending entries are then kept.
-    pub fn release(&self, terms: &WriteTerms) -> Result<(), QuadError> {
-        let mut batch = WriteBatch::new();
-        for (key, value) in terms.entries() {
-            batch.put_versionless(key, value);
-        }
-        self.store().apply(batch, PersistMode::Buffer)?;
-        self.settle(terms);
-        Ok(())
+    /// Releases the terms of a write that will not commit, writing nothing: each pending entry it created or took is
+    /// let go, and forgotten once no other unsettled write holds it. A write that took one from it carries its entries
+    /// and keeps its ID; an ID no other write holds is burned, the next writer of its term creating another, so no
+    /// entry outside a commit names an ID and every committed reference to an ID has its entries in its own commit or
+    /// in one before it.
+    pub fn release(&self, terms: &WriteTerms) {
+        self.dictionary.release(terms.namespace(), terms.written());
+    }
+
+    /// Releases what `terms`, a write continuing `base` on a clone of its terms, took beyond `base`, as
+    /// [`QuadStore::release`] releases a write's: each term `terms` writes and `base` does not. `base`'s own holds stay
+    /// with it, to be settled or released once, by its own commit or release.
+    pub fn release_beyond(&self, terms: &WriteTerms, base: &WriteTerms) {
+        self.dictionary
+            .release(terms.namespace(), terms.written_beyond(base));
     }
 }

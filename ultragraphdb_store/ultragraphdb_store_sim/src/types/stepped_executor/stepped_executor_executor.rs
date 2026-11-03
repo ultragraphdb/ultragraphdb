@@ -23,6 +23,7 @@ impl Executor for SteppedExecutor {
     {
         let mut waiting: Vec<(usize, F)> = tasks.into_iter().enumerate().collect();
         let mut done: Vec<(usize, T)> = Vec::with_capacity(waiting.len());
+        // Ends: each turn removes one task.
         while !waiting.is_empty() {
             let at = lock(&self.shared).rng.index(waiting.len());
             let (index, task) = waiting.swap_remove(at);

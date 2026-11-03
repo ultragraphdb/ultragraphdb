@@ -9,10 +9,11 @@ use std::ops::Range;
 
 use crate::types::command::Command;
 use crate::types::decision::Decision;
+use crate::types::key_values::KeyValues;
 use crate::types::round_body::{DECISION_SIZE, RECORD_ENTRY_SIZE};
 use crate::types::round_header::RoundHeader;
 use crate::types::write_set_record_view::WriteSetRecordView;
-use crate::utils::sections::{Sections, u32_at};
+use crate::utils::sections::{Sections, as_u32, u32_at};
 
 /// The body of a received Round frame, read in place; see [`crate::RoundBody`] for its layout.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,6 +21,7 @@ pub struct RoundView<'a> {
     header: RoundHeader,
     decisions: Vec<Decision>,
     records: Vec<WriteSetRecordView<'a>>,
+    dictionary: KeyValues<'a>,
 }
 
 impl<'a> RoundView<'a> {
@@ -28,17 +30,22 @@ impl<'a> RoundView<'a> {
         &self.header
     }
 
-    /// Each transaction's decision, in round order.
+    /// Each entry's decision, in round order.
     pub fn decisions(&self) -> &[Decision] {
         &self.decisions
     }
 
-    /// The committed transactions' records, in order.
+    /// The committed entries' records, in order.
     pub fn records(&self) -> &[WriteSetRecordView<'a>] {
         &self.records
     }
 
-    /// The commit version of committed transaction `record`: `first_version + 2 × record`; `None` past the last.
+    /// The dictionary entries the round creates, in ascending key order.
+    pub fn dictionary(&self) -> KeyValues<'a> {
+        self.dictionary
+    }
+
+    /// The commit version of committed entry `record`: `first_version + 2 × record`; `None` past the last.
     pub fn commit_version(&self, record: usize) -> Option<u64> {
         if record >= self.records.len() {
             return None;
@@ -48,11 +55,11 @@ impl<'a> RoundView<'a> {
             .checked_add(2u64.checked_mul(record as u64)?)
     }
 
-    /// The transactions, by their place in the round, whose write-set records overlap `range` of `body`, a Round
-    /// body's bytes before its chunk table, which need not pass its checks: how a damaged chunk is named by the
-    /// transactions it holds. Empty when the body's table or decisions cannot be read.
+    /// The entries, by their place in the round, whose write-set records overlap `range` of `body`, a Round body's
+    /// bytes before its chunk table, which need not pass its checks: how a damaged chunk is named by the entries it
+    /// holds. Empty when the body's table or decisions cannot be read.
     pub fn transactions_overlapping(body: &[u8], range: Range<usize>) -> Vec<u32> {
-        let Ok(sections) = Sections::<3>::read(Command::Round.number(), body, 0) else {
+        let Ok(sections) = Sections::<4>::read(Command::Round.number(), body, 0) else {
             return Vec::new();
         };
         let committed = sections
@@ -62,7 +69,7 @@ impl<'a> RoundView<'a> {
             .iter()
             .enumerate()
             .filter(|(_, decision)| decision.get(..2) == Some(&[0, 0][..]))
-            .map(|(transaction, _)| transaction as u32);
+            .map(|(transaction, _)| as_u32(transaction));
         let base = sections.offset(2);
         sections
             .get(1)

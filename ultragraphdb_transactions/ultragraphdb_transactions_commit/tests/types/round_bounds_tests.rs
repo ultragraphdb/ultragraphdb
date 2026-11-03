@@ -32,9 +32,10 @@ fn test_the_largest_write_set_is_what_a_lone_round_holds_on_either_drive() -> Te
     // Worked by hand from PROTOCOL.md §2.3 and §12.1: a frame is the 256-byte header, the body's data and 8 bytes a
     // chunk once there are two or more; the data is the 24-byte section table, one 16-byte decision, one 8-byte record
     // entry and the record; chunk 0 holds 3,840 bytes and every later one 4,096.
-    // 1,048,576 bytes (no power-loss protection): 256 chunks, 1,046,272 bytes of data, a record of 1,046,224.
-    // 262,144 bytes (power-loss protection): 64 chunks, 261,376 bytes of data, a record of 261,328.
-    for (protection, expected) in [(false, 1_046_224usize), (true, 261_328)] {
+    // 1,048,576 bytes (no power-loss protection): 256 chunks, 1,046,272 bytes of data, a record of 1,046,216: the data
+    // less the section table of four sections (32 bytes), one decision (16) and one record table entry (8).
+    // 262,144 bytes (power-loss protection): 64 chunks, 261,376 bytes of data, a record of 261,320.
+    for (protection, expected) in [(false, 1_046_216usize), (true, 261_320)] {
         let config = WalConfig::new(0, protection);
         let bounds = RoundBounds::new(config.round_bytes(), config.round_transactions());
         assert_eq!(bounds.max_write_set(), expected, "protection {protection}");

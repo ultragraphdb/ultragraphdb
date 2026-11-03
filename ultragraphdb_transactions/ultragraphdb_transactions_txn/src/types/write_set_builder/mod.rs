@@ -3,133 +3,55 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::collections::BTreeSet;
+
 use ultragraphdb_core_codec::PostingList;
-use ultragraphdb_core_keys::Keyspace;
-use ultragraphdb_store_apply::{BuildEnd, DropTarget, Executed};
-use ultragraphdb_store_quads::{HASH_TO_STRING, IRI_TO_UID, UID_TO_IRI, posting_object};
+use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_keys::{Graph, Keyspace};
+use ultragraphdb_error_invariant::InvariantError;
+use ultragraphdb_protocol_wire::{RecordKind, RecordOperation, WriteSetRecord};
+use ultragraphdb_store_apply::{BuildEnd, DropTarget, Executed, LogicalQuad};
+use ultragraphdb_store_quads::posting_object;
 
 use crate::errors::txn_error::TxnError;
+use crate::types::read_set::ReadSet;
 use crate::types::txn_limits::TxnLimits;
 
-/// The fixed part's size: namespace, read version, session, request and principal.
-const FIXED: usize = 40;
-/// The number of sections.
-const SECTIONS: usize = 11;
-/// Where section 0 starts: after the fixed part and the table of offsets and lengths.
-const TABLE_END: usize = FIXED + 8 * SECTIONS;
-/// A key-value entry's lengths, before its key.
-const ENTRY_HEADER: usize = 8;
-/// The value length of a removal.
-const ABSENT: u32 = u32::MAX;
-/// Where the tag of a key without versions sits, after its namespace.
-const TAG_AT: usize = 8;
-
-/// Writes an executed transaction's write-set record straight into a buffer, in `ultragraphdb_protocol_wire`'s
-/// [`WriteSetRecord`](ultragraphdb_protocol_wire::WriteSetRecord) layout, which a
-/// [`WriteSetRecordView`](ultragraphdb_protocol_wire::WriteSetRecordView) reads in place: the fixed part (namespace,
-/// read version, session, request, and the principal the transaction acted for), the section table, then the
-/// sections, in one pass with no copy of the writes in between.
+/// Builds an executed transaction's logical write-set record (`PROTOCOL.md` §12.2, write-ahead-log, "A round's record
+/// is logical") in `ultragraphdb_protocol_wire`'s [`WriteSetRecord`]: its resolved quads with their system IDs, its
+/// statement records, its drop or build as an operation, its session, request, principal and catalog version, the
+/// commit record the client attached, and the conflict keys of its writes; never a key the store derives.
 ///
 /// | Section | What the transaction's writes put there |
 /// |---|---|
-/// | 0 | each list's delta, in the posting format, by key; each statistics delta, by its key |
-/// | 1 | the dictionary entries (the keys without versions tagged IRI to UID, UID to IRI, hash to string) |
-/// | 2 | statement records, a removal for a record deleted |
-/// | 3 | catalog entries, a removal for an entry deleted |
-/// | 4 | the other writes of the keyspace without versions |
+/// | 0 | each statement a forward list's delta sets: the quad, graph, subject, predicate and object encoding, once per statement ID its posting carries, or once with none |
+/// | 1 | each statement a forward list's delta removes, as section 0: a delete by pattern as the statements it resolved to |
+/// | 2 | each statement record written, by its graph and statement ID, a removal for a record deleted |
+/// | 3 | the record's operation: a drop of a predicate or a graph by its system ID, of a namespace's data, a namespace or everything; a build's end |
 /// | 5 | the commit record the client attached, unchanged |
-/// | 6 | conflict points: the key of every write but the lists named object by object and a predicate's implicit default catalog entry, an insert-if-absent on its key and not a catalog change (decided 2026-10-27) |
-/// | 7 | conflict statements: a list key and an object it changed, for each list changed by no more than the bound's objects and not cleared whole |
-/// | 8 | conflict ranges: a drop's key ranges, each its first key and the key past its last; none for any other execution (7.7) |
-/// | 9 | the commit-time operations' results, 16 bytes each, as the commit step writes them; empty for a worker's record (decided 2026-10-28) |
-/// | 10 | the record's operation: a drop of a predicate (code 1) or a graph (4) with its UID, of a namespace's data (5), a namespace (6) or every namespace (7), a build's swap (2) or undo (3) with its record number; empty for any other execution (decided 2026-10-28) |
+/// | 6 | conflict points: the key of every write but the lists named object by object, a predicate's implicit default catalog entry and the dictionary's entries, which conflict with nothing |
+/// | 7 | conflict statements: a list key and an object it changed, for each forward list changed by no more than the bound's objects |
+/// | 8 | conflict ranges: a drop's key ranges, each its first key and the key past its last |
 ///
-/// Only a forward list is named object by object, since only a forward list's statements are tested by a read; a list
-/// of any other keyspace, a forward list changed by more objects than the bound, or one holding a posting that names
-/// no object is a conflict point instead, which can only add conflicts. A transaction's execution writes no entry at
-/// a version of its own, which only an index build's swap writes, so the record has no section for one.
+/// The dictionary entries the transaction creates are not in its record but in its round's (`PROTOCOL.md` §12.1); the
+/// commit-time operations' results (sections 9 to 11) are added by the commit step to the record it builds again.
 #[derive(Debug, Clone, Copy)]
 pub struct WriteSetBuilder<'e> {
     executed: &'e Executed,
-    session: u64,
+    session: u128,
     request: u64,
     principal: u64,
+    catalog: u64,
     commit_record: &'e [u8],
     objects_per_list: usize,
-    results: &'e [(u64, bool)],
-}
-
-/// The size of one commit-time operation's result: `uid` u64, `created` u8, 7 zero bytes.
-const RESULT_SIZE: usize = 16;
-/// The size of a record's operation: `operation` u16, 6 zero bytes, `argument` u64.
-const OPERATION_SIZE: usize = 16;
-
-/// The operation `executed` is, as section 10 names it: its code and argument.
-fn operation_of(executed: &Executed) -> Option<(u16, u64)> {
-    match (executed.dropped(), executed.build_end()) {
-        (Some(DropTarget::Predicate(uid)), _) => Some((1, uid)),
-        (Some(DropTarget::Graph(uid)), _) => Some((4, uid)),
-        (Some(DropTarget::Data), _) => Some((5, 0)),
-        (Some(DropTarget::Namespace), _) => Some((6, 0)),
-        (Some(DropTarget::All), _) => Some((7, 0)),
-        (None, Some(BuildEnd::Swap(record))) => Some((2, record)),
-        (None, Some(BuildEnd::Undo(record))) => Some((3, record)),
-        (None, None) => None,
-    }
-}
-
-/// An entry's value as the builder writes it: bytes, a delta in the posting format, or a removal.
-#[derive(Clone, Copy)]
-enum Value<'v> {
-    Bytes(&'v [u8]),
-    Delta(&'v PostingList),
-    Removal,
-}
-
-impl Value<'_> {
-    fn len(self) -> usize {
-        match self {
-            Value::Bytes(b) => b.len(),
-            Value::Delta(d) => d.encoded_len(),
-            Value::Removal => 0,
-        }
-    }
-}
-
-/// `n` rounded up to a multiple of 8.
-fn align8(n: usize) -> usize {
-    n.div_ceil(8) * 8
-}
-
-/// The size of a key-value entry of `key` and `value`, its padding included.
-fn entry_len(key: &[u8], value: Value<'_>) -> usize {
-    align8(ENTRY_HEADER + key.len() + value.len())
-}
-
-/// The section of the keyspace without versions `key` belongs to: 1 for the dictionary, 4 otherwise.
-fn versionless_section(key: &[u8]) -> usize {
-    match key.get(TAG_AT) {
-        Some(&IRI_TO_UID | &UID_TO_IRI | &HASH_TO_STRING) => 1,
-        _ => 4,
-    }
-}
-
-/// The section of an entry written at the commit version: 3 for the catalog, 2 for statement records, 0 for the
-/// others, the statistics deltas.
-fn entry_section(key: &[u8]) -> usize {
-    match key.first().and_then(|b| Keyspace::from_byte(*b)) {
-        Some((Keyspace::Catalog, _)) => 3,
-        Some((Keyspace::Statements, _)) => 2,
-        _ => 0,
-    }
 }
 
 impl<'e> WriteSetBuilder<'e> {
-    /// The record of `executed`, committed as request `request` of session `session` with `commit_record`, its
-    /// lists named object by object up to the default bound of [`TxnLimits`].
+    /// The record of `executed`, committed as request `request` of session `session` (0 for none) with
+    /// `commit_record`, its lists named object by object up to the default bound of [`crate::TxnLimits`].
     pub fn new(
         executed: &'e Executed,
-        session: u64,
+        session: u128,
         request: u64,
         commit_record: &'e [u8],
     ) -> Self {
@@ -138,23 +60,21 @@ impl<'e> WriteSetBuilder<'e> {
             session,
             request,
             principal: 0,
+            catalog: 0,
             commit_record,
             objects_per_list: TxnLimits::default().objects_per_list(),
-            results: &[],
         }
     }
 
-    /// The builder writing `principal`, the principal the transaction acted for, into the fixed part; 0, without
-    /// authentication, by default.
+    /// The builder writing `principal`, the principal the transaction acted for; 0, without authentication, by default.
     pub fn with_principal(self, principal: u64) -> Self {
         Self { principal, ..self }
     }
 
-    /// The builder writing `results`, the commit-time operations' UIDs and whether each created its node, in the
-    /// order the transaction asked them, into section 9: what the commit step's record of a transaction with
-    /// operations holds (decided 2026-10-28).
-    pub fn with_results(self, results: &'e [(u64, bool)]) -> Self {
-        Self { results, ..self }
+    /// The builder writing `catalog`, the catalog version of the namespace the transaction executed against; 0 by
+    /// default.
+    pub fn with_catalog(self, catalog: u64) -> Self {
+        Self { catalog, ..self }
     }
 
     /// The builder naming at most `objects` objects of one list one by one.
@@ -163,6 +83,120 @@ impl<'e> WriteSetBuilder<'e> {
             objects_per_list: objects,
             ..self
         }
+    }
+
+    /// The record.
+    ///
+    /// # Errors
+    ///
+    /// [`TxnError::changeset`] for a forward list's posting that names no object, or a key that does not parse:
+    /// corruption the execution cannot have written.
+    pub fn build(&self) -> Result<WriteSetRecord, TxnError> {
+        let executed = self.executed;
+        let namespace = executed.namespace();
+        let mut record = match executed.build_end() {
+            Some(BuildEnd::Swap(build) | BuildEnd::Undo(build)) => {
+                WriteSetRecord::build(namespace, RecordOperation::CompleteBuild(build))
+            }
+            None => self.transaction_record()?,
+        };
+        if record.kind() == RecordKind::Build {
+            record.set_catalog(self.catalog);
+            return Ok(record);
+        }
+        let logical = executed.logical()?;
+        let mut terms = BTreeSet::new();
+        for quad in logical.inserted() {
+            record.push_inserted(quad.key(), quad.statement().map(SystemId::to_be_bytes));
+            terms.extend(term_keys(quad));
+        }
+        for quad in logical.removed() {
+            record.push_removed(quad.key(), quad.statement().map(SystemId::to_be_bytes));
+            terms.extend(term_keys(quad));
+        }
+        for (graph, id, value) in logical.records() {
+            let key = [graph.to_be_bytes(), id.to_be_bytes()].concat();
+            record.push_statement_record(key, value.clone());
+        }
+        self.push_conflicts(&mut record);
+        terms
+            .into_iter()
+            .for_each(|key| record.push_conflict_point(key.to_vec()));
+        Ok(record)
+    }
+
+    /// Clears `out` and writes `record`'s bytes into it: their length.
+    ///
+    /// # Errors
+    ///
+    /// [`TxnError::write_set_too_large`] when the record is larger than `limit` bytes, or than `u32::MAX`; `out` is then
+    /// left empty, its capacity kept.
+    pub fn encode_into(
+        record: &WriteSetRecord,
+        out: &mut Vec<u8>,
+        limit: usize,
+    ) -> Result<usize, TxnError> {
+        let bytes = record.encode();
+        out.clear();
+        let limit = limit.min(u32::MAX as usize);
+        if bytes.len() > limit {
+            return Err(TxnError::write_set_too_large(bytes.len(), limit));
+        }
+        out.extend_from_slice(&bytes);
+        debug_assert_eq!(out.len(), bytes.len());
+        Ok(out.len())
+    }
+
+    /// The bytes the dictionary entries `executed` creates take in its round's dictionary section, each 8 bytes of
+    /// lengths, its key and its value, padded to 8: what the transaction's write set adds to its record.
+    pub fn dictionary_len(executed: &Executed) -> usize {
+        let dictionary = Keyspace::Dictionary.byte();
+        executed
+            .writes()
+            .versionless()
+            .iter()
+            .filter(|e| e.key().first() == Some(&dictionary))
+            .map(|e| (8 + e.key().len() + e.value().map_or(0, <[u8]>::len)).div_ceil(8) * 8)
+            .sum()
+    }
+
+    /// Builds the record and writes its bytes into `out`, cleared first: their length.
+    ///
+    /// # Errors
+    ///
+    /// As [`WriteSetBuilder::build`]; [`TxnError::write_set_too_large`] naming their size when the record and its
+    /// dictionary entries ([`WriteSetBuilder::dictionary_len`]) together are larger than `limit`, or than `u32::MAX`;
+    /// `out` is then left empty.
+    pub fn write_into(&self, out: &mut Vec<u8>, limit: usize) -> Result<usize, TxnError> {
+        out.clear();
+        let record = self.build()?;
+        // The round holds the transaction's dictionary entries beside its record: both count against the bound.
+        let dictionary = Self::dictionary_len(self.executed);
+        let limit = limit.min(u32::MAX as usize);
+        let len = Self::encode_into(&record, out, usize::MAX)?;
+        let size = len.saturating_add(dictionary);
+        if size > limit {
+            out.clear();
+            return Err(TxnError::write_set_too_large(size, limit));
+        }
+        Ok(len)
+    }
+}
+
+impl WriteSetBuilder<'_> {
+    /// The kind-1 record's fixed part and its operation: a transaction's, or a Drop's, its read version 0.
+    fn transaction_record(&self) -> Result<WriteSetRecord, TxnError> {
+        let executed = self.executed;
+        let mut record = WriteSetRecord::transaction(executed.namespace());
+        record.set_catalog(self.catalog);
+        record.set_session(self.session.to_be_bytes(), self.request);
+        record.set_principal(self.principal);
+        record.set_commit_record(self.commit_record.to_vec());
+        match executed.dropped() {
+            Some(target) => record.push_operation(drop_operation(target)?),
+            None => record.set_read_version(executed.read_ts()),
+        }
+        Ok(record)
     }
 
     /// Whether the delta of `key` is named object by object: a forward list, within the bound, every posting naming
@@ -178,190 +212,80 @@ impl<'e> WriteSetBuilder<'e> {
                 .all(|p| posting_object(key, p).is_ok())
     }
 
-    /// Calls `f` with every key-value entry of section `section`, in order. Section 5 is no key-value section and
-    /// gives none.
-    fn visit(&self, section: usize, f: &mut impl FnMut(&[u8], Value<'_>)) {
-        let writes = self.executed.writes();
-        let entry_value = |e: &'e ultragraphdb_traits_store::Entry| {
-            e.value().map_or(Value::Removal, Value::Bytes)
-        };
-        match section {
-            0 => {
-                for (key, delta) in writes.deltas() {
-                    f(key, Value::Delta(delta));
-                }
-                for e in writes
-                    .entries()
-                    .iter()
-                    .filter(|e| entry_section(e.key()) == 0)
-                {
-                    f(e.key(), entry_value(e));
-                }
-            }
-            1 | 4 => {
-                for e in writes
-                    .versionless()
-                    .iter()
-                    .filter(|e| versionless_section(e.key()) == section)
-                {
-                    f(e.key(), e.value().map_or(Value::Removal, Value::Bytes));
-                }
-            }
-            2 | 3 => {
-                for e in writes
-                    .entries()
-                    .iter()
-                    .filter(|e| entry_section(e.key()) == section)
-                {
-                    f(e.key(), entry_value(e));
-                }
-            }
-            6 => self.visit_conflict_points(f),
-            7 => self.visit_conflict_statements(f),
-            8 => {
-                for (start, end) in self.executed.drop_ranges() {
-                    f(start, Value::Bytes(end));
-                }
-            }
-            _ => {}
-        }
-    }
-
-    /// Calls `f` with every conflict point of section 6, an empty value each.
-    fn visit_conflict_points(&self, f: &mut impl FnMut(&[u8], Value<'_>)) {
-        let writes = self.executed.writes();
-        let empty = Value::Bytes(&[]);
+    /// Pushes the conflict sections: a point for every write but the lists named object by object, a predicate's
+    /// implicit default catalog entry and the dictionary's entries; a statement for each object of the lists named
+    /// object by object; and a drop's ranges.
+    fn push_conflicts(&self, record: &mut WriteSetRecord) {
+        let executed = self.executed;
+        let writes = executed.writes();
         for (key, delta) in writes.deltas() {
-            if !self.by_objects(key, delta) {
-                f(key, empty);
+            if self.by_objects(key, delta) {
+                for object in delta
+                    .postings()
+                    .iter()
+                    .filter_map(|p| posting_object(key, p).ok())
+                {
+                    record.push_conflict_statement(key.clone(), object.as_bytes().to_vec());
+                }
+            } else {
+                record.push_conflict_point(key.clone());
             }
         }
         // A predicate's implicit default entry is an insert-if-absent on its catalog key, no catalog change.
-        let defaults = self.executed.defaults();
+        let defaults = executed.defaults();
         for e in writes.entries() {
             if defaults
                 .binary_search_by(|k| k.as_slice().cmp(e.key()))
                 .is_err()
             {
-                f(e.key(), empty);
+                record.push_conflict_point(e.key().to_vec());
             }
         }
-        for e in writes.versionless() {
-            f(e.key(), empty);
-        }
-    }
-
-    /// Calls `f` with every conflict statement of section 7: a list key and an object it changed.
-    fn visit_conflict_statements(&self, f: &mut impl FnMut(&[u8], Value<'_>)) {
-        for (key, delta) in self.executed.writes().deltas() {
-            if self.by_objects(key, delta) {
-                for p in delta.postings() {
-                    if let Ok(object) = posting_object(key, p) {
-                        f(key, Value::Bytes(object.as_bytes()));
-                    }
-                }
-            }
-        }
-    }
-
-    /// The size of section `section`.
-    fn section_len(&self, section: usize) -> usize {
-        if section == 5 {
-            return self.commit_record.len();
-        }
-        if section == 9 {
-            return RESULT_SIZE * self.results.len();
-        }
-        if section == 10 {
-            return operation_of(self.executed).map_or(0, |_| OPERATION_SIZE);
-        }
-        let mut len = 0;
-        self.visit(section, &mut |key, value| len += entry_len(key, value));
-        len
-    }
-
-    /// The record's size in bytes, computed without writing it.
-    pub fn len(&self) -> usize {
-        (0..SECTIONS).fold(TABLE_END, |end, section| {
-            align8(end) + self.section_len(section)
-        })
-    }
-
-    /// Whether the record is empty, which it never is: its fixed part and table are always there.
-    pub fn is_empty(&self) -> bool {
-        false
-    }
-
-    /// Clears `out` and writes the record into it, reserving its exact size once: the record's size.
-    ///
-    /// # Errors
-    ///
-    /// [`TxnError::write_set_too_large`] when the record is larger than `limit` bytes, or than `u32::MAX`; `out` is then
-    /// left empty, its capacity kept, and nothing is written.
-    pub fn write_into(&self, out: &mut Vec<u8>, limit: usize) -> Result<usize, TxnError> {
-        out.clear();
-        let len = self.len();
-        let limit = limit.min(u32::MAX as usize);
-        if len > limit {
-            return Err(TxnError::write_set_too_large(len, limit));
-        }
-        out.reserve_exact(len);
-        let fixed = [
-            self.executed.namespace(),
-            self.executed.read_ts(),
-            self.session,
-            self.request,
-            self.principal,
-        ];
-        fixed
+        // The dictionary is naming state: creating an entry conflicts with nothing.
+        let dictionary = Keyspace::Dictionary.byte();
+        for e in writes
+            .versionless()
             .iter()
-            .for_each(|v| out.extend_from_slice(&v.to_le_bytes()));
-        out.resize(TABLE_END, 0);
-        for section in 0..SECTIONS {
-            out.resize(align8(out.len()), 0);
-            let start = out.len();
-            if section == 5 {
-                out.extend_from_slice(self.commit_record);
-            } else if section == 9 {
-                for (uid, created) in self.results {
-                    out.extend_from_slice(&uid.to_le_bytes());
-                    out.push(u8::from(*created));
-                    out.extend_from_slice(&[0; 7]);
-                }
-            } else if section == 10 {
-                if let Some((code, argument)) = operation_of(self.executed) {
-                    out.extend_from_slice(&code.to_le_bytes());
-                    out.extend_from_slice(&[0; 6]);
-                    out.extend_from_slice(&argument.to_le_bytes());
-                }
-            } else {
-                self.visit(section, &mut |key, value| write_entry(out, key, value));
-            }
-            let at = FIXED + 8 * section;
-            // The record is at most u32::MAX bytes, checked above.
-            let table = [start as u32, (out.len() - start) as u32];
-            if let Some(slot) = out.get_mut(at..at + 8) {
-                slot[..4].copy_from_slice(&table[0].to_le_bytes());
-                slot[4..].copy_from_slice(&table[1].to_le_bytes());
-            }
+            .filter(|e| e.key().first() != Some(&dictionary))
+        {
+            record.push_conflict_point(e.key().to_vec());
         }
-        Ok(out.len())
+        for (start, end) in executed.drop_ranges() {
+            record.push_conflict_range(start.clone(), end.clone());
+        }
     }
 }
 
-/// Appends the key-value entry of `key` and `value` to `out`, padded to 8 bytes.
-fn write_entry(out: &mut Vec<u8>, key: &[u8], value: Value<'_>) {
-    let value_len = match value {
-        Value::Removal => ABSENT,
-        v @ (Value::Bytes(_) | Value::Delta(_)) => v.len() as u32,
+/// The term keys of the terms `quad` names: its subject, predicate, object when an ID and graph when named.
+fn term_keys(quad: &LogicalQuad) -> impl Iterator<Item = [u8; 17]> {
+    let graph = match quad.graph() {
+        Graph::Named(id) => Some(id),
+        Graph::Default => None,
     };
-    out.extend_from_slice(&(key.len() as u32).to_le_bytes());
-    out.extend_from_slice(&value_len.to_le_bytes());
-    out.extend_from_slice(key);
-    match value {
-        Value::Bytes(b) => out.extend_from_slice(b),
-        Value::Delta(d) => d.encode_into(out),
-        Value::Removal => {}
+    [
+        Some(quad.subject()),
+        Some(quad.predicate()),
+        quad.object().as_id(),
+        graph,
+    ]
+    .into_iter()
+    .flatten()
+    .map(ReadSet::term_key)
+}
+
+/// The record operation of the drop of `target`.
+fn drop_operation(target: DropTarget) -> Result<RecordOperation, TxnError> {
+    match target {
+        DropTarget::Predicate(id) => Ok(RecordOperation::DropPredicate(id)),
+        DropTarget::Graph(Graph::Named(id)) => Ok(RecordOperation::DropGraph(id)),
+        DropTarget::Graph(Graph::Default) => Err(TxnError::changeset(
+            InvariantError::violated(
+                "a drop of the default graph names no graph a record operation takes",
+            )
+            .into(),
+        )),
+        DropTarget::Data => Ok(RecordOperation::DropNamespaceData),
+        DropTarget::Namespace => Ok(RecordOperation::DropNamespace),
+        DropTarget::All => Ok(RecordOperation::DropAll),
     }
-    out.resize(align8(out.len()), 0);
 }

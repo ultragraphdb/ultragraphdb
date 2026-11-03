@@ -85,10 +85,12 @@ impl Corrupted {
             Some(Corruption::FlipValueByte) if stored.len() > 2 => {
                 let mut bytes = stored.to_vec();
                 let at = 2 + (bytes.len() - 2) / 2;
-                bytes[at] = !bytes[at];
+                if let Some(byte) = bytes.get_mut(at) {
+                    *byte = !*byte;
+                }
                 bytes
             }
-            Some(_) => stored[..stored.len().min(1)].to_vec(),
+            Some(_) => stored.get(..1).unwrap_or_default().to_vec(),
         }
     }
 }

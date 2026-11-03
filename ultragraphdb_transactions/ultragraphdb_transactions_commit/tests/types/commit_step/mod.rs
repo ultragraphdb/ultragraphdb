@@ -6,9 +6,13 @@
 #[cfg(test)]
 mod commit_step_build_tests;
 #[cfg(test)]
+mod commit_step_epoch_tests;
+#[cfg(test)]
 mod commit_step_operations_tests;
 #[cfg(test)]
 mod commit_step_release_tests;
+#[cfg(test)]
+mod commit_step_round_size_tests;
 #[cfg(test)]
 mod commit_step_session_tests;
 #[cfg(test)]

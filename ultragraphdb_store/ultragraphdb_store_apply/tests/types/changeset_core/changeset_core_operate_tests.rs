@@ -727,3 +727,80 @@ fn test_a_counter_on_a_predicate_constrained_to_a_derived_datatype_is_refused_by
     assert_eq!(objects(&a, "c", "n")?, vec![term("\"5\"^^xsd:int")?]);
     Ok(())
 }
+
+/// The ID a writer of `<name>` is given now, its execution released at once: the pending ID another write holds, or a
+/// new one.
+fn id_now(a: &TestChangesets, name: &str) -> TestResult<SystemId> {
+    let writer = executed(a, vec![insert(&format!("<{name}> <knows> <x>"))?])?;
+    let id = written(&writer, name)?;
+    a.release(&writer);
+    Ok(id)
+}
+
+/// The ID `executed` writes the dictionary entries of `<name>` under.
+fn written(executed: &Executed, name: &str) -> TestResult<SystemId> {
+    executed
+        .terms()
+        .written()
+        .find(|(term, _)| *term == ex(name).as_str())
+        .map(|(_, id)| id)
+        .context("the execution writes the IRI's entries")
+}
+
+/// Whether some write holds a pending ID of `<name>`: two writers in a row take the one it holds, and otherwise each
+/// creates one of its own.
+fn held_pending(a: &TestChangesets, name: &str) -> TestResult<bool> {
+    Ok(id_now(a, name)? == id_now(a, name)?)
+}
+
+#[test]
+fn test_a_refused_operation_releases_what_it_resolved_and_leaves_the_transactions_holds()
+-> TestResult {
+    let a = changesets()?;
+    write(&a, &["<a> <status> \"open\""])?;
+    let txn = executed(&a, vec![insert("<own> <knows> <a>")?])?;
+    let own = written(&txn, "own")?;
+    // `<new>` is resolved, and given an ID, before the compare-and-set finds no value of it.
+    let refused = operate(&a, &txn, &[], &[cas("new", "status", "\"open\"", "\"x\"")?])
+        .err()
+        .context("the error of operate(..)")?;
+    assert_eq!(
+        refused.0,
+        ChangesetErrorEnum::OperationFailed { found: None }
+    );
+    assert!(!held_pending(&a, "new")?, "the operation let go of `<new>`");
+    assert_eq!(id_now(&a, "own")?, own, "the transaction keeps `<own>`");
+    a.release(&txn);
+    assert!(
+        !held_pending(&a, "own")?,
+        "released, the transaction let go"
+    );
+    Ok(())
+}
+
+#[test]
+fn test_an_operated_execution_not_taken_releases_only_what_its_operations_resolved() -> TestResult {
+    let a = changesets()?;
+    write(&a, &["<a> <knows> <b>"])?;
+    let txn = executed(&a, vec![insert("<own> <knows> <a>")?])?;
+    let own = written(&txn, "own")?;
+    let (operated, results) = operate(&a, &txn, &[], &[add("new", "n", 1)])?;
+    assert_eq!(results, vec![OperationOutcome::Counter(1)]);
+    let new = written(&operated, "new")?;
+    assert_eq!(
+        written(&operated, "own")?,
+        own,
+        "it carries the transaction's"
+    );
+    assert_eq!(
+        id_now(&a, "new")?,
+        new,
+        "the operated execution holds `<new>`"
+    );
+    a.release_operated(&operated, &txn);
+    assert!(!held_pending(&a, "new")?, "let go of `<new>`");
+    assert_eq!(id_now(&a, "own")?, own, "the transaction keeps `<own>`");
+    a.release(&txn);
+    assert!(!held_pending(&a, "own")?);
+    Ok(())
+}

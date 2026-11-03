@@ -6,23 +6,28 @@
 use std::collections::BTreeSet;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_mapping::{Cardinality, Change, Declaration, PredicateDeclaration};
 use ultragraphdb_transactions_txn::{ReadSet, TxnError, TxnErrorEnum};
 
 use crate::utils::fixture::{NS, Rng, applier, changeset, ex, insert, insert_literal, store};
 
-/// The catalog range of namespace `ns`, from the key layout: the catalog keyspace byte `0x01` and the namespace
-/// big-endian, to the same prefix of the next namespace.
-fn catalog_of(ns: u64) -> (Vec<u8>, Vec<u8>) {
-    let mut start = vec![0x01];
-    start.extend_from_slice(&ns.to_be_bytes());
-    let mut end = vec![0x01];
-    end.extend_from_slice(&(ns + 1).to_be_bytes());
-    (start, end)
+/// The bytes a fresh read set accounts for: nothing, since the catalog is read through its version.
+const CATALOG_BYTES: usize = 0;
+
+/// The system ID of type 1, sequence `sequence` and bucket 5: `(1 << 112) | (sequence << 48) | (5 << 24)`.
+fn id(sequence: u64) -> TestResult<SystemId> {
+    SystemId::from_u128((1 << 112) | (u128::from(sequence) << 48) | (5 << 24)).context("the ID")
 }
 
-/// The bytes a fresh read set of a namespace accounts for: the catalog range's two 9-byte keys and 8 bytes for each.
-const CATALOG_BYTES: usize = 9 + 9 + 16;
+/// The term key of `id(sequence)`, written from the layout: the tag 0xFE, then the ID's 16 big-endian bytes, type 1
+/// (`00 01`), the sequence's 8 bytes, bucket 5 (`00 00 05`) and 3 zero bytes.
+fn term_key(sequence: u64) -> Vec<u8> {
+    let mut key = vec![0xFE, 0x00, 0x01];
+    key.extend_from_slice(&sequence.to_be_bytes());
+    key.extend_from_slice(&[0, 0, 5, 0, 0, 0]);
+    key
+}
 
 fn lists(r: &ReadSet) -> Vec<Vec<u8>> {
     r.lists().map(<[u8]>::to_vec).collect()
@@ -45,34 +50,34 @@ fn absent(r: &ReadSet) -> Vec<Vec<u8>> {
 }
 
 #[test]
-fn test_a_reset_read_set_holds_its_namespaces_catalog_range_alone() {
+fn test_a_reset_read_set_holds_nothing() -> TestResult {
     let mut r = ReadSet::new();
+    r.push_list(b"before")?;
     r.reset(3, 40, 1_000);
-    let (start, end) = catalog_of(3);
-    assert_eq!(r.catalog(), (start.as_slice(), Some(end.as_slice())));
     assert_eq!((r.namespace(), r.read_version(), r.limit()), (3, 40, 1_000));
-    assert_eq!(r.bytes(), CATALOG_BYTES);
+    assert_eq!(r.bytes(), 0);
     assert!(lists(&r).is_empty() && statements(&r).is_empty());
     assert!(ranges(&r).is_empty() && absent(&r).is_empty());
+    Ok(())
 }
 
 #[test]
-fn test_the_last_namespaces_catalog_range_ends_at_the_next_keyspace() {
-    // 0x01 then eight 0xff bytes: the next key after the prefix carries into the keyspace byte, 0x02.
-    let mut r = ReadSet::new();
-    r.reset(u64::MAX, 1, 1_000);
-    let mut start = vec![0x01];
-    start.extend_from_slice(&[0xff; 8]);
-    assert_eq!(r.catalog(), (start.as_slice(), Some(&[0x02][..])));
-}
-
-#[test]
-fn test_a_new_read_set_is_bounded_by_the_default_and_holds_namespace_zeros_catalog() {
+fn test_a_new_read_set_is_bounded_by_the_default_and_empty() {
     let r = ReadSet::new();
-    let (start, end) = catalog_of(0);
-    assert_eq!(r.catalog(), (start.as_slice(), Some(end.as_slice())));
     assert_eq!(r.limit(), 1_048_576);
-    assert_eq!(r.bytes(), CATALOG_BYTES);
+    assert_eq!(r.bytes(), 0);
+    assert_eq!((r.namespace(), r.read_version()), (0, 0));
+}
+
+#[test]
+fn test_an_absent_term_is_recorded_by_its_term_key() -> TestResult {
+    let mut r = ReadSet::new();
+    r.push_absent(id(7)?)?;
+    assert_eq!(absent(&r), vec![term_key(7)]);
+    // 17 bytes of key and 8 of its span.
+    assert_eq!(r.bytes(), 25);
+    assert_eq!(ReadSet::term_key(id(7)?).to_vec(), term_key(7));
+    Ok(())
 }
 
 #[test]
@@ -87,8 +92,8 @@ fn test_each_push_is_accounted_as_its_bytes_and_8_per_key() -> TestResult {
     assert_eq!(r.bytes(), CATALOG_BYTES + 37 + 4 + 2 + 16);
     r.push_range(b"open", None)?;
     assert_eq!(r.bytes(), CATALOG_BYTES + 59 + 4 + 16);
-    r.push_absent(b"gone")?;
-    assert_eq!(r.bytes(), CATALOG_BYTES + 79 + 4 + 8);
+    r.push_absent(id(1)?)?;
+    assert_eq!(r.bytes(), CATALOG_BYTES + 79 + 17 + 8);
     Ok(())
 }
 
@@ -104,7 +109,7 @@ fn test_a_push_at_the_limit_is_taken_and_one_past_it_is_refused_adding_nothing()
         r.push_list(b"").err().context("the call fails")?,
         r.push_statement(b"", b"").err().context("the call fails")?,
         r.push_range(b"", None).err().context("the call fails")?,
-        r.push_absent(b"x").err().context("the call fails")?,
+        r.push_absent(id(1)?).err().context("the call fails")?,
     ];
     assert_eq!(
         refusals,
@@ -112,7 +117,7 @@ fn test_a_push_at_the_limit_is_taken_and_one_past_it_is_refused_adding_nothing()
             TxnError::read_set_too_large(limit + 8, limit),
             TxnError::read_set_too_large(limit + 16, limit),
             TxnError::read_set_too_large(limit + 16, limit),
-            TxnError::read_set_too_large(limit + 9, limit),
+            TxnError::read_set_too_large(limit + 25, limit),
         ]
     );
     assert_eq!(r.bytes(), limit);
@@ -141,7 +146,9 @@ fn test_sealing_sorts_and_drops_duplicates() -> TestResult {
     r.reset(NS, 1, 10_000);
     for key in [&b"b"[..], b"a", b"b", b"", b"ab"] {
         r.push_list(key)?;
-        r.push_absent(key)?;
+    }
+    for sequence in [3, 1, 3, 2] {
+        r.push_absent(id(sequence)?)?;
     }
     r.push_statement(b"k", b"2")?;
     r.push_statement(b"k", b"1")?;
@@ -157,7 +164,7 @@ fn test_sealing_sorts_and_drops_duplicates() -> TestResult {
     assert!(r.is_sealed());
     let sorted = vec![b"".to_vec(), b"a".to_vec(), b"ab".to_vec(), b"b".to_vec()];
     assert_eq!(lists(&r), sorted);
-    assert_eq!(absent(&r), sorted);
+    assert_eq!(absent(&r), vec![term_key(1), term_key(2), term_key(3)]);
     assert_eq!(
         statements(&r),
         vec![
@@ -175,9 +182,6 @@ fn test_sealing_sorts_and_drops_duplicates() -> TestResult {
             (b"m".to_vec(), None)
         ]
     );
-    // The catalog range stays, and accounting counts what was pushed.
-    let (start, end) = catalog_of(NS);
-    assert_eq!(r.catalog(), (start.as_slice(), Some(end.as_slice())));
     Ok(())
 }
 
@@ -212,15 +216,14 @@ fn test_a_reset_clears_everything_and_unseals() -> TestResult {
     r.push_list(b"a")?;
     r.push_statement(b"k", b"o")?;
     r.push_range(b"s", None)?;
-    r.push_absent(b"d")?;
+    r.push_absent(id(1)?)?;
     r.seal();
     r.reset(4, 9, 500);
     assert!(!r.is_sealed());
     assert_eq!(r.bytes(), CATALOG_BYTES);
     assert!(lists(&r).is_empty() && statements(&r).is_empty());
     assert!(ranges(&r).is_empty() && absent(&r).is_empty());
-    let (start, end) = catalog_of(4);
-    assert_eq!(r.catalog(), (start.as_slice(), Some(end.as_slice())));
+    assert_eq!((r.namespace(), r.read_version()), (4, 9));
     Ok(())
 }
 
@@ -264,8 +267,8 @@ impl Model {
     }
 }
 
-/// Asserts the sealed read set `r` of namespace `ns` holds what `model` does, in order, and the namespace's catalog.
-fn assert_sealed_agrees(r: &ReadSet, model: &Model, ns: u64, seed: u64) {
+/// Asserts the sealed read set `r` holds what `model` does, in order.
+fn assert_sealed_agrees(r: &ReadSet, model: &Model, seed: u64) {
     assert_eq!(
         lists(r),
         model.lists.iter().cloned().collect::<Vec<_>>(),
@@ -290,12 +293,10 @@ fn assert_sealed_agrees(r: &ReadSet, model: &Model, ns: u64, seed: u64) {
         })
         .collect();
     assert_eq!(ranges(r), expected, "seed {seed}");
-    let (start, end) = catalog_of(ns);
-    assert_eq!(r.catalog(), (start.as_slice(), Some(end.as_slice())));
 }
 
 #[test]
-fn test_the_sealed_read_set_agrees_with_a_set_model_over_random_pushes() {
+fn test_the_sealed_read_set_agrees_with_a_set_model_over_random_pushes() -> TestResult {
     let mut r = ReadSet::with_capacity(64, 4);
     for seed in 0..200u64 {
         let mut rng = Rng::new(seed);
@@ -309,7 +310,11 @@ fn test_the_sealed_read_set_agrees_with_a_set_model_over_random_pushes() {
         };
         for _ in 0..rng.below(60) {
             let kind = rng.below(5);
-            let (a, b) = (rng.key(6), rng.key(6));
+            let (mut a, b) = (rng.key(6), rng.key(6));
+            let sequence = 1 + rng.below(5);
+            if kind == 3 {
+                a = term_key(sequence);
+            }
             let cost = match kind {
                 0 | 3 => a.len() + 8,
                 1 => a.len() + b.len() + 16,
@@ -320,7 +325,7 @@ fn test_the_sealed_read_set_agrees_with_a_set_model_over_random_pushes() {
                 0 => r.push_list(&a),
                 1 => r.push_statement(&a, &b),
                 2 => r.push_range(&a, Some(&b)),
-                3 => r.push_absent(&a),
+                3 => r.push_absent(id(sequence)?),
                 _ => r.push_range(&a, None),
             };
             if model.bytes + cost > limit {
@@ -336,8 +341,10 @@ fn test_the_sealed_read_set_agrees_with_a_set_model_over_random_pushes() {
             assert_eq!(r.bytes(), model.bytes, "seed {seed}");
         }
         r.seal();
-        assert_sealed_agrees(&r, &model, ns, seed);
+        assert_eq!(r.namespace(), ns);
+        assert_sealed_agrees(&r, &model, seed);
     }
+    Ok(())
 }
 
 #[test]
@@ -349,7 +356,7 @@ fn test_a_reused_read_set_keeps_its_capacity_and_grows_no_more_for_what_fits() -
             set.push_list(&i.to_be_bytes())?;
             set.push_statement(&i.to_be_bytes(), b"object")?;
             set.push_range(&i.to_be_bytes(), None)?;
-            set.push_absent(&i.to_le_bytes())?;
+            set.push_absent(id(u64::from(i) + 1)?)?;
         }
         set.seal();
         Ok(())
@@ -357,7 +364,7 @@ fn test_a_reused_read_set_keeps_its_capacity_and_grows_no_more_for_what_fits() -
     fill(&mut r)?;
     let grown = r.capacity();
     assert!(
-        grown.0 >= 18 + 100 * (4 + 4 + 6 + 4 + 4) && grown.1 >= 400,
+        grown.0 >= 100 * (4 + 4 + 6 + 4 + 17) && grown.1 >= 400,
         "{grown:?}"
     );
     for _ in 0..3 {
@@ -419,9 +426,12 @@ fn test_gathering_an_executions_reads_records_each_of_them() -> TestResult {
     assert_eq!(lists(&r), reads.lists().to_vec());
     assert_eq!(statements(&r), reads.statements().to_vec());
     assert_eq!(ranges(&r), reads.ranges().to_vec());
-    assert_eq!(absent(&r), reads.absent().to_vec());
-    let (start, end) = reads.catalog();
-    assert_eq!(r.catalog(), (start.as_slice(), end.as_deref()));
+    let absent_keys: Vec<Vec<u8>> = reads
+        .absent()
+        .iter()
+        .map(|id| ReadSet::term_key(*id).to_vec())
+        .collect();
+    assert_eq!(absent(&r), absent_keys);
     // The bound exactly, and one byte below it: the gather is checked as a whole before anything is added, its
     // statements counted with two spans each.
     let needed = oracle.bytes();
@@ -453,8 +463,8 @@ fn pushed(reads: &ultragraphdb_store_apply::Reads, ns: u64, version: u64) -> Tes
     for (start, end) in reads.ranges() {
         r.push_range(start, end.as_deref())?;
     }
-    for key in reads.absent() {
-        r.push_absent(key)?;
+    for id in reads.absent() {
+        r.push_absent(*id)?;
     }
     Ok(r)
 }

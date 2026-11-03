@@ -34,7 +34,11 @@ fn check(data: &[u8]) {
     for (range, partition) in map.ranges_at(epoch) {
         assert_eq!(range.start(), next, "ranges follow each other");
         let first = Bucket::new(range.start()).map(|bucket| map.partition_of(bucket, epoch));
-        assert_eq!(first, Ok(partition), "a range's first bucket resolves to its partition");
+        assert_eq!(
+            first,
+            Ok(partition),
+            "a range's first bucket resolves to its partition"
+        );
         next = range.end();
     }
     assert_eq!(next, BucketRange::END, "the ranges cover every bucket");

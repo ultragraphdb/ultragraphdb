@@ -15,9 +15,13 @@
 //! each batch of removals, `data-removed`, `entries-synced` and `dropped`. `temporary` writes and syncs one batch at
 //! version 1 (`data-synced`), creates a temporary keyspace (`temporary-created`) and writes [`TEMPORARY_KEYS`] keys to
 //! it (`temporary-written`). `record` writes rebuild record 7, between `start` and `record-synced`.
+//!
+//! `log` opens the store with [`Durability::Log`] and stands in for a node whose write-ahead log is the only synced
+//! stream: for each round `i` it appends the line `i` to the log beside the store, `<dir>.rounds`, syncs it and says
+//! `acked i`, then writes round `i`'s batch, the batch of `batches`, unsynced, and says `applied i`.
 
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use ultragraphdb_error_store::StoreError;
@@ -52,12 +56,18 @@ fn key(prefix: &[u8], i: u64, j: u32) -> Vec<u8> {
     key
 }
 
+/// Batch `i` of the `batches` and `log` modes: [`KEYS_PER_BATCH`] keys at version `i`, recording `i` as applied.
+fn round_batch(i: u64) -> WriteBatch {
+    let mut batch = WriteBatch::new();
+    (0..KEYS_PER_BATCH)
+        .for_each(|j| batch.push(Entry::put(key(b"\x00b", i, j), i, 0x04, vec![7; 100])));
+    batch.set_applied_ts(i);
+    batch
+}
+
 fn batches(store: &FjallStore) -> Result<(), StoreError> {
     for i in 1u64.. {
-        let mut batch = WriteBatch::new();
-        (0..KEYS_PER_BATCH)
-            .for_each(|j| batch.push(Entry::put(key(b"\x00b", i, j), i, 0x04, vec![7; 100])));
-        batch.set_applied_ts(i);
+        let batch = round_batch(i);
         say(&format!("batch {i}"));
         store.apply(batch, PersistMode::Buffer)?;
         say(&format!("applied {i}"));
@@ -75,6 +85,23 @@ fn mixed(store: &FjallStore) -> Result<(), StoreError> {
         batch.set_applied_ts(i);
         say(&format!("batch {i}"));
         store.apply(batch, PersistMode::Buffer)?;
+        say(&format!("applied {i}"));
+    }
+    Ok(())
+}
+
+fn log_rounds(store: &FjallStore, dir: &str) -> Result<(), StoreError> {
+    let failed = |e: std::io::Error| StoreError::write_failed(format!("the log of rounds: {e}"));
+    let mut log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(Path::new(dir).with_extension("rounds"))
+        .map_err(failed)?;
+    for i in 1u64.. {
+        writeln!(log, "{i}").map_err(failed)?;
+        log.sync_data().map_err(failed)?;
+        say(&format!("acked {i}"));
+        store.apply(round_batch(i), PersistMode::Buffer)?;
         say(&format!("applied {i}"));
     }
     Ok(())
@@ -115,6 +142,7 @@ fn drop_prefix(store: &FjallStore, stop: &str) -> Result<(), StoreError> {
 }
 
 fn wait() -> ! {
+    // The one loop without an end: the crash test kills the process here.
     loop {
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
@@ -146,10 +174,17 @@ fn record(store: &FjallStore, stop: &str) -> Result<(), StoreError> {
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
     let (Some(dir), Some(mode)) = (args.get(1), args.get(2)) else {
-        eprintln!("usage: kv_crash_writer <dir> batches | <dir> drop|temporary|record [<stage>]");
+        eprintln!(
+            "usage: kv_crash_writer <dir> batches|mixed|log | <dir> drop|temporary|record [<stage>]"
+        );
         return ExitCode::from(2);
     };
-    let store = match FjallStore::open(PathBuf::from(dir), Durability::Process) {
+    let durability = if mode == "log" {
+        Durability::Log
+    } else {
+        Durability::Process
+    };
+    let store = match FjallStore::open(PathBuf::from(dir), durability) {
         Ok(store) => store,
         Err(e) => {
             eprintln!("{e}");
@@ -161,6 +196,7 @@ fn main() -> ExitCode {
     let result = match mode.as_str() {
         "batches" => batches(&store),
         "mixed" => mixed(&store),
+        "log" => log_rounds(&store, dir),
         "drop" => drop_prefix(&store, stop),
         "temporary" => temporary(&store, stop),
         "record" => record(&store, stop),

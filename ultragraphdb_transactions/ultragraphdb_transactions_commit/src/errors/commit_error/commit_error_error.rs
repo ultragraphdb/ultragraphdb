@@ -15,11 +15,11 @@ impl std::error::Error for CommitError {
             | CommitErrorEnum::Unsealed
             | CommitErrorEnum::Busy { .. }
             | CommitErrorEnum::Unavailable
-            | CommitErrorEnum::SessionEvicted { .. }
+            | CommitErrorEnum::CloseOutOfOrder { .. }
             | CommitErrorEnum::RequestOutOfOrder { .. }
             | CommitErrorEnum::SessionBusy { .. }
             | CommitErrorEnum::NotCommitted { .. }
-            | CommitErrorEnum::PermissionDenied { .. }
+            | CommitErrorEnum::CrossPartition { .. }
             | CommitErrorEnum::OperationFailed { .. }
             | CommitErrorEnum::Refused { .. } => None,
         }

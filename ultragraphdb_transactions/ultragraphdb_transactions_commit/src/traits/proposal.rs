@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_ids::SessionToken;
 use ultragraphdb_transactions_txn::ReadSet;
 
 /// What the commit step decides a read-write transaction by: its read set, sealed, which the resolver checks against
@@ -15,6 +16,19 @@ pub trait Proposal {
 
     /// The write-set record's bytes.
     fn record(&self) -> &[u8];
+
+    /// The session token the transaction carries, the highest of its session's commits the client knows of: a
+    /// transaction carrying a token of epoch `t` is held until the close of `t − 1` is delivered, so it commits at epoch
+    /// `t` or later (transactions, "Commits answer a session token"); none by default.
+    fn token(&self) -> Option<&SessionToken> {
+        None
+    }
+
+    /// The dictionary entries the transaction's execution creates, each a key of the dictionary keyspace and its value,
+    /// which its round's dictionary section holds (`PROTOCOL.md` §12.1); none by default.
+    fn dictionary(&self) -> impl Iterator<Item = (&[u8], &[u8])> {
+        std::iter::empty()
+    }
 
     /// Whether the proposal asks for commit-time operations, which the step's [`crate::Operator`] runs once it is
     /// admitted (7.5); none by default.

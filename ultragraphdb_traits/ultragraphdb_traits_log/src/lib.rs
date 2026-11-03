@@ -3,12 +3,13 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The ordered-log interface, `OrderedLog`: the write-ahead log implements it on one node, VSR from stage 10.
+//! The ordered-log interface, `OrderedLog`: the write-ahead log implements it on one node, VSR from stage 8.
 
 mod traits;
 mod types;
 
 pub use crate::traits::ordered_log::OrderedLog;
+pub use crate::types::durability_ticket::DurabilityTicket;
 pub use crate::types::log_event::LogEvent;
 pub use crate::types::position::Position;
 pub use crate::types::round::Round;

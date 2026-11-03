@@ -25,6 +25,7 @@ pub struct FjallScan {
     iter: Option<Iter>,
     scan: Scan,
     read_ts: u64,
+    // Shared with the snapshot the scan reads (Ultra rule 9): the banned set it was opened with, never changed.
     banned: Arc<BTreeSet<u64>>,
     pending: VecDeque<Result<Item, StoreError>>,
     /// The user key being read, and whether the scan is done with it.
@@ -112,21 +113,18 @@ impl FjallScan {
     /// Reads the next key in reverse: its versions until the first of the key before it, consumed newest first.
     fn read_back_key(&mut self) -> Result<bool, StoreError> {
         let mut group: Vec<Read> = self.carry.take().into_iter().collect();
+        // Ends: each turn consumes one read of the fjall iterator, which is finite.
         loop {
-            match self.read(true) {
-                None => {
-                    self.iter = None;
-                    break;
-                }
-                Some(item) => {
-                    let item = item?;
-                    if group.first().is_some_and(|(k, _, _)| *k != item.0) {
-                        self.carry = Some(item);
-                        break;
-                    }
-                    group.push(item);
-                }
+            let Some(item) = self.read(true) else {
+                self.iter = None;
+                break;
+            };
+            let item = item?;
+            if group.first().is_some_and(|(k, _, _)| *k != item.0) {
+                self.carry = Some(item);
+                break;
             }
+            group.push(item);
         }
         let read = !group.is_empty();
         group

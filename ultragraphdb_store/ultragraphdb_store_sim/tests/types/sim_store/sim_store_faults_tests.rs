@@ -439,6 +439,22 @@ fn test_a_corrupted_version_breaks_only_its_own_reads() -> TestResult {
     Ok(())
 }
 
+/// A drop of everything heals every corruption: the version its entries write again at the same key and version reads
+/// as written, though the drop wrote it with no batch of its own.
+#[test]
+fn test_a_drop_of_everything_heals_every_corruption() -> TestResult {
+    let s = store(1, FaultConfig::none());
+    s.apply(batch(b"k", 1), PersistMode::Buffer)?;
+    s.corrupt(b"k", 1, Corruption::Truncate);
+    assert!(s.get_at(b"k", 1).is_err(), "corrupted before the drop");
+    s.drop_all(vec![Entry::put(b"k".to_vec(), 1, 0x04, b"value".to_vec())])?;
+    assert_eq!(
+        s.get_at(b"k", 1)?.context("the drop's entry")?.value(),
+        b"value"
+    );
+    Ok(())
+}
+
 #[test]
 fn test_drawn_faults_follow_the_configuration() -> TestResult {
     let s = store(

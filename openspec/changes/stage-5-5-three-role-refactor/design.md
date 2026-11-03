@@ -242,7 +242,11 @@ carries each eviction to every partition with its next close, after which a part
 table holds at most `sessions_max` entries, and the frontend's owner check refuses a request of an evicted session, so
 no partition takes an evicted session for a new one. A commit's session-table entry is in its round's record, so replay
 rebuilds the table. A retry the frontend cannot route — after a reconnect, the open transaction gone — is asked of every
-partition, which is rare and bounded by the partition count.
+partition, which is rare and bounded by the partition count. The open transaction a reconnect leaves behind is
+aborted by its partition's host when the connection closes, or at its lifetime limit by the host's own timer when the
+close goes unseen, so the lifetime limit is the grace period and no client keeps a pending dictionary entry past it;
+an aborted transaction releases its entries without writing them, and a transaction that took one carries it in its
+own record (decided 2026-11-03).
 
 *Alternatives considered:* a strict +1 counter per (session, partition), which the client cannot compute and which only
 the frontend's memory could keep; and one session table in the metadata group, which would put every commit through

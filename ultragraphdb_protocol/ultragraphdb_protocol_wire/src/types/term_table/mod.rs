@@ -153,25 +153,58 @@ impl TermTable {
         index
     }
 
-    /// The index of term `index` of `from`, interned with the parts of a triple term before it; `None` when `from`
-    /// has no such term. A checked table nests at most [`MAX_TERM_DEPTH`] deep, which bounds the recursion.
+    /// The index of term `index` of `from`, interned with the parts of a triple term before it, a triple's subject's
+    /// parts first, then its predicate's, then its object's; `None` when `from` has no such term.
+    ///
+    /// The walk keeps an explicit stack and imports each entry of `from` once, so a triple naming one part twice at
+    /// every level of [`MAX_TERM_DEPTH`] costs one step per entry, not one per path. Each entry is pushed once per
+    /// parent naming it and a triple is expanded once, so the walk ends within `4 × from.len() + 1` steps.
     pub(crate) fn import(&mut self, from: &TermTableView<'_>, index: u32) -> Option<u32> {
-        let term = match from.get(index)? {
-            RequestTermView::Triple {
-                subject,
-                predicate,
-                object,
-            } => RequestTerm::Triple {
-                subject: self.import(from, subject)?,
-                predicate: self.import(from, predicate)?,
-                object: self.import(from, object)?,
-            },
-            other @ (RequestTermView::Iri(_)
-            | RequestTermView::BlankNode(_)
-            | RequestTermView::Literal { .. }
-            | RequestTermView::LanguageLiteral { .. }) => other.to_term(),
-        };
-        self.intern(term).ok()
+        let steps_max = from.len().checked_mul(4)?.checked_add(1)?;
+        let mut imported: HashMap<u32, u32> = HashMap::new();
+        let mut stack = vec![index];
+        for _ in 0..steps_max {
+            let Some(top) = stack.last().copied() else {
+                return imported.get(&index).copied();
+            };
+            if imported.contains_key(&top) {
+                let _done: Option<u32> = stack.pop();
+                continue;
+            }
+            let term = match from.get(top)? {
+                RequestTermView::Triple {
+                    subject,
+                    predicate,
+                    object,
+                } => {
+                    let parts = [subject, predicate, object];
+                    let pending: Vec<u32> = parts
+                        .iter()
+                        .rev()
+                        .filter(|part| !imported.contains_key(part))
+                        .copied()
+                        .collect();
+                    if !pending.is_empty() {
+                        stack.extend(pending);
+                        continue;
+                    }
+                    let [into_subject, into_predicate, into_object] =
+                        parts.map(|part| imported.get(&part).copied());
+                    RequestTerm::Triple {
+                        subject: into_subject?,
+                        predicate: into_predicate?,
+                        object: into_object?,
+                    }
+                }
+                other @ (RequestTermView::Iri(_)
+                | RequestTermView::BlankNode(_)
+                | RequestTermView::Literal { .. }
+                | RequestTermView::LanguageLiteral { .. }) => other.to_term(),
+            };
+            let _first: Option<u32> = imported.insert(top, self.intern(term).ok()?);
+            let _done: Option<u32> = stack.pop();
+        }
+        None
     }
 
     /// The two sections, the records and the text.

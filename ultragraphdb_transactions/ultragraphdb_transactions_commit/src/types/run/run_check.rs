@@ -143,13 +143,12 @@ impl Run {
         })
     }
 
-    /// Whether a range written above `rv` holds a key `rs` read: a list, a statement's list, an absent key, a key of
-    /// a range or of the catalog range.
+    /// Whether a range written above `rv` holds a key `rs` read: a list, a statement's list, an absent term's key or
+    /// a key of a range.
     pub fn ranges_over(&self, rs: &ReadSet, rv: u64) -> bool {
         let Some((low, high)) = self.range_bounds() else {
             return false;
         };
-        let (cs, ce) = rs.catalog();
         // A read outside every range's bounds is in none of them.
         let key_in = |k: &[u8]| contains(low, high, k);
         self.ranges.iter().filter(|w| w.version > rv).any(|w| {
@@ -162,7 +161,6 @@ impl Run {
                 || rs
                     .ranges()
                     .any(|(s, e)| overlaps(low, high, s, e) && overlaps(ws, we, s, e))
-                || overlaps(ws, we, cs, ce)
         })
     }
 }

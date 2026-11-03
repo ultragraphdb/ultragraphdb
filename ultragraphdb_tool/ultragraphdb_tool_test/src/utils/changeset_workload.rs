@@ -17,6 +17,17 @@
 //! The model allocates its statement IDs from its own sequence, so statements are compared by their triples,
 //! properties and whether they carry an ID; a statement deleted by its ID is named to each by its own ID for a
 //! statement of the same triple and properties.
+//!
+//! A replayed run ([`ChangesetWorkload::run_replayed`], without faults) keeps a replica beside the store, a second
+//! applier over a simulated store of its own, opened and declared alike, as the metadata group hands every replica
+//! the same catalog and leases. Each changeset is executed on the store and its round written there at the next
+//! version, as the stage-5 apply path writes it; the logical writes the execution leaves ([`Executed::logical`]) and
+//! its dictionary entries are then derived into the replica through
+//! [`ChangesetApplier::prepare_logical`] and written as a round at the same version, as recovery replays a logged
+//! round. A refused changeset reaches neither. The administration performed on the store, a sync or the rollup of a
+//! key, is performed on the replica too, so both lay their lists out alike. After every step the two stores hold the
+//! same contents, every key with every version, deletions and metadata included, the keyspace without versions, and
+//! the applied timestamp: replay derives every key and value the first apply wrote.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -35,16 +46,17 @@ use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_core_tok::{get_tokenizer, get_tokenizer_for_lang};
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_store_apply::{
-    Applied, ChangesetApplier, ChangesetError, ChangesetErrorEnum, token_value,
+    Applied, ChangesetApplier, ChangesetError, ChangesetErrorEnum, Executed, LogicalWrites,
+    token_value,
 };
 use ultragraphdb_store_posting::{CachedList, ListsConfig, PostingError, PostingErrorEnum};
 use ultragraphdb_store_quads::{QuadError, QuadErrorEnum};
 use ultragraphdb_store_sim::{
-    Event, FaultConfig, RunOutcome, Seed, SimContext, SimListCache, SimStore, Simulation,
-    SteppedExecutor, Stream, Violation,
+    Contents, Event, FaultConfig, RunOutcome, Seed, SimClock, SimContext, SimListCache, SimStore,
+    Simulation, SteppedExecutor, Stream, Violation,
 };
 use ultragraphdb_traits_blocks::TestBlockSource;
-use ultragraphdb_traits_store::{PersistMode, Scan, Store, StoreSnapshot};
+use ultragraphdb_traits_store::{PersistMode, Scan, Store, StoreSnapshot, VersionlessEntry};
 
 /// The rule an index breaks when it disagrees with the statements it indexes.
 pub const INDEXES_MATCH_DATA: &str = "every value-index, reverse, predicate-list and count key holds exactly what the statements produce";
@@ -58,6 +70,11 @@ pub const MODEL_AGREES: &str = "the store holds the statements the canonical mod
 /// The rule broken by an error no fault explains.
 pub const NO_UNEXPECTED_ERROR: &str =
     "a changeset fails only for a fault the simulator injected or a refusal the model makes too";
+/// The rule the replica breaks when it holds other contents than the store its rounds were replayed from.
+pub const REPLAY_AGREES: &str = "replay derives every key and value the first apply wrote";
+
+/// The differing keys a [`REPLAY_AGREES`] violation names at most.
+const DIFFERENCES_SHOWN: usize = 4;
 
 const NS: u64 = 0;
 const SUBJECTS: u64 = 6;
@@ -112,10 +129,16 @@ pub struct ChangesetWorkload {
     starts: u64,
     /// The model, until the first recovery.
     model: Option<CanonicalDataset>,
+    /// Whether every round is replayed into a replica.
+    replay: bool,
+    /// The replica every round is replayed into, in a replayed run.
+    replica: Option<Arc<SimChangesets>>,
     /// A changeset the store and the model did not both apply, or both refuse.
     disagreement: Option<String>,
     /// How many changesets the store applied.
     pub writes: usize,
+    /// How many rounds the replica replayed.
+    pub replayed: usize,
     /// How many changesets the store and the model both refused.
     pub refusals: usize,
     /// How many steps were checked.
@@ -150,40 +173,53 @@ impl ChangesetWorkload {
         Ok((outcome, w))
     }
 
+    /// Runs the workload for `steps` steps of `seed` without faults, every round replayed into a replica from the
+    /// logical writes its execution leaves, and the replica compared with the store after every step
+    /// ([`REPLAY_AGREES`]): the simulation's outcome and the workload's counts. Without faults, since a crash or a
+    /// lost power changes the store with no round to replay.
+    ///
+    /// # Errors
+    ///
+    /// The [`Violation`] of the first rule a step breaks.
+    pub fn run_replayed(
+        seed: Seed,
+        steps: u64,
+    ) -> Result<(RunOutcome, ChangesetWorkload), Violation> {
+        let mut w = Self {
+            model: Some(CanonicalDataset::new()),
+            replay: true,
+            ..Self::default()
+        };
+        let outcome = Simulation::new(seed, FaultConfig::none())
+            .run(steps, 2, |ctx, event| w.step(ctx, event))?;
+        Ok((outcome, w))
+    }
+
     fn applier(&mut self, ctx: &SimContext) -> Result<Arc<SimChangesets>, ChangesetError> {
         if let Some(a) = &self.applier {
             return Ok(a.clone());
         }
-        let cache = SimListCache::new(8, ctx.seed().stream(Stream::Cache));
-        let lists = ultragraphdb_store_posting::Lists::new(
-            ctx.store().clone(),
-            cache,
-            ListsConfig::new(PersistMode::Buffer, 256),
-        );
-        let blocks = self
-            .blocks
-            .get_or_insert_with(|| TestBlockSource::new(NonZeroU64::MIN.saturating_add(99)))
-            .clone();
+        let blocks = self.blocks.get_or_insert_with(new_blocks).clone();
         self.starts += 1;
-        let random = RandomSource::new(
-            ctx.seed()
-                .value()
-                .wrapping_mul(1_000)
-                .wrapping_add(self.starts),
-        );
-        let a = Arc::new(ChangesetApplier::new(
-            lists,
+        let a = open(
+            ctx.seed(),
+            ctx.store().clone(),
             blocks,
-            random,
+            self.starts,
             ctx.executor().clone(),
-            ctx.seed().value(),
-        )?);
-        let declared = match a.quads().id_of(NS, ex("friend").as_str())? {
-            Some(friend) => a.catalog(NS)?.predicate(friend).is_some(),
-            None => false,
-        };
-        if !declared {
-            let _declared: Applied = a.apply(&declarations())?;
+        )?;
+        if self.replay && self.replica.is_none() {
+            // The replica's own store, cache, executor and leases, seeded as the store's are, so that it gives the
+            // declarations the IDs the store gives them.
+            let store = SimStore::new(ctx.seed(), FaultConfig::none(), SimClock::new());
+            let executor = SteppedExecutor::new(ctx.seed().stream(Stream::Executor));
+            self.replica = Some(open(
+                ctx.seed(),
+                store,
+                new_blocks(),
+                self.starts,
+                executor,
+            )?);
         }
         self.applier = Some(a.clone());
         Ok(a)
@@ -373,11 +409,17 @@ impl ChangesetWorkload {
                 modelled.push(m);
             }
         }
-        let result = a.apply(&stored);
+        let result = match &self.replica {
+            Some(replica) => replayed(&a, replica, &stored),
+            None => a.apply(&stored).map(|_| ()),
+        };
         tracing::debug!(target: "workload", changes = ?stored.changes(), result = ?result, "changeset");
         let refused = match result {
-            Ok(_) => {
+            Ok(()) => {
                 self.writes += 1;
+                if self.replica.is_some() {
+                    self.replayed += 1;
+                }
                 false
             }
             Err(e) if matches!(e.0, ChangesetErrorEnum::Mapping(_)) => {
@@ -399,8 +441,16 @@ impl ChangesetWorkload {
 
     fn administer(&mut self, ctx: &mut SimContext) -> Result<(), ChangesetError> {
         let a = self.applier(ctx)?;
+        let stores: Vec<&SimChangesets> = [Some(&a), self.replica.as_ref()]
+            .into_iter()
+            .flatten()
+            .map(|s| &**s)
+            .collect();
         if ctx.rng().chance(300) {
-            return Ok(a.quads().lists().sync()?);
+            for s in &stores {
+                s.quads().lists().sync()?;
+            }
+            return Ok(());
         }
         let keyspace = [
             Keyspace::Forward,
@@ -413,10 +463,13 @@ impl ChangesetWorkload {
             return Ok(());
         }
         let key = &keys[ctx.rng().index(keys.len())];
-        match a.quads().lists().rollup_key(key) {
-            Ok(_) | Err(PostingError(PostingErrorEnum::HighPriorityOp)) => Ok(()),
-            Err(e) => Err(e.into()),
+        for s in &stores {
+            match s.quads().lists().rollup_key(key) {
+                Ok(_) | Err(PostingError(PostingErrorEnum::HighPriorityOp)) => {}
+                Err(e) => return Err(e.into()),
+            }
         }
+        Ok(())
     }
 
     fn check(
@@ -424,6 +477,11 @@ impl ChangesetWorkload {
         ctx: &mut SimContext,
     ) -> Result<Option<(&'static str, String)>, ChangesetError> {
         let a = self.applier(ctx)?;
+        if let Some(replica) = &self.replica
+            && let Some(detail) = replica_differs(&a, replica)
+        {
+            return Ok(Some((REPLAY_AGREES, detail)));
+        }
         let ts = a.quads().lists().applied_ts();
         a.quads().lists().gate(ts)?;
         let forward = lists_of(&a, Keyspace::Forward)?;
@@ -471,6 +529,138 @@ impl ChangesetWorkload {
             self.compared += 1;
         }
         Ok(None)
+    }
+}
+
+/// A block source of 100-sequence blocks, standing in for the metadata group: the store's, shared by every applier
+/// opened over it, or the replica's own.
+fn new_blocks() -> TestBlockSource {
+    TestBlockSource::new(NonZeroU64::MIN.saturating_add(99))
+}
+
+/// An applier over `store` leasing from `blocks`, its random source seeded afresh for its `start`, as a partition
+/// seeds it at start, the workload's declarations applied unless `store` holds them.
+fn open(
+    seed: Seed,
+    store: SimStore,
+    blocks: TestBlockSource,
+    start: u64,
+    executor: SteppedExecutor,
+) -> Result<Arc<SimChangesets>, ChangesetError> {
+    let cache = SimListCache::new(8, seed.stream(Stream::Cache));
+    let lists = ultragraphdb_store_posting::Lists::new(
+        store,
+        cache,
+        ListsConfig::new(PersistMode::Buffer, 256),
+    );
+    let random = RandomSource::new(seed.value().wrapping_mul(1_000).wrapping_add(start));
+    let a = Arc::new(ChangesetApplier::new(
+        lists,
+        blocks,
+        random,
+        executor,
+        seed.value(),
+    )?);
+    let declared = match a.quads().id_of(NS, ex("friend").as_str())? {
+        Some(friend) => a.catalog(NS)?.predicate(friend).is_some(),
+        None => false,
+    };
+    if !declared {
+        let _declared: Applied = a.apply(&declarations())?;
+    }
+    Ok(a)
+}
+
+/// Applies `changeset` to `first` as the stage-5 apply path does, executed and written as a round of one at the next
+/// version, and to `replica` as recovery replays a logged round: the logical writes the execution leaves derived at
+/// the same version, its dictionary entries beside them. A refused changeset reaches neither.
+fn replayed(
+    first: &SimChangesets,
+    replica: &SimChangesets,
+    changeset: &Changeset,
+) -> Result<(), ChangesetError> {
+    let executed = first.execute(changeset)?;
+    let logical: LogicalWrites = executed.logical()?;
+    let entries = dictionary(&executed);
+    let version = first.quads().lists().next_version();
+    let _applied: Vec<Applied> = first.apply_round(vec![(version, executed)])?;
+    let borrowed: Vec<&VersionlessEntry> = entries.iter().collect();
+    let derived = replica.prepare_logical(changeset.namespace(), &logical, &borrowed)?;
+    let _replayed: Vec<Applied> =
+        replica.apply_round_with(vec![(version, derived)], &entries, version)?;
+    Ok(())
+}
+
+/// The dictionary entries `executed` writes, the round's own beside its records.
+fn dictionary(executed: &Executed) -> Vec<VersionlessEntry> {
+    executed
+        .writes()
+        .versionless()
+        .iter()
+        .filter(|e| e.key().first() == Some(&Keyspace::Dictionary.byte()))
+        .cloned()
+        .collect()
+}
+
+/// How `replica`'s contents differ from `first`'s: the first keys whose versions differ, each with both sides, then
+/// the keys without versions, the applied timestamp and the remaining metadata. `None` when they are equal.
+fn replica_differs(first: &SimChangesets, replica: &SimChangesets) -> Option<String> {
+    let (a, b) = (
+        first.quads().store().contents(),
+        replica.quads().store().contents(),
+    );
+    if a == b {
+        return None;
+    }
+    let keys: BTreeSet<&Vec<u8>> = a.keys().keys().chain(b.keys().keys()).collect();
+    let differing: Vec<String> = keys
+        .into_iter()
+        .filter(|k| a.versions(k) != b.versions(k))
+        .take(DIFFERENCES_SHOWN)
+        .map(|k| {
+            format!(
+                "{k:?}: first {:?} replica {:?}",
+                a.versions(k),
+                b.versions(k)
+            )
+        })
+        .collect();
+    if !differing.is_empty() {
+        return Some(format!("keys {}", differing.join("; ")));
+    }
+    Some(metadata_differs(&a, &b))
+}
+
+/// How `a` and `b`, contents whose versioned keys agree, differ: the keys without versions, the applied timestamp, or
+/// the rest of the metadata.
+fn metadata_differs(a: &Contents, b: &Contents) -> String {
+    let keys: BTreeSet<&Vec<u8>> = a
+        .versionless()
+        .keys()
+        .chain(b.versionless().keys())
+        .collect();
+    let differing: Vec<String> = keys
+        .into_iter()
+        .filter(|k| a.versionless().get(*k) != b.versionless().get(*k))
+        .take(DIFFERENCES_SHOWN)
+        .map(|k| {
+            format!(
+                "{k:?}: first {:?} replica {:?}",
+                a.versionless().get(k),
+                b.versionless().get(k)
+            )
+        })
+        .collect();
+    if !differing.is_empty() {
+        format!("keys without versions {}", differing.join("; "))
+    } else if a.applied_ts() != b.applied_ts() {
+        format!(
+            "applied timestamp: first {} replica {}",
+            a.applied_ts(),
+            b.applied_ts()
+        )
+    } else {
+        format!("metadata: first {a:?} replica {b:?}")
     }
 }
 

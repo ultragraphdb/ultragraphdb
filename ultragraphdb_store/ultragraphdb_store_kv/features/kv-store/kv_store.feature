@@ -63,6 +63,10 @@ Feature: The versioned store over fjall
     When the process is killed while a batch is written and the store is reopened
     Then either the whole batch or none of it is present
 
+  Scenario: A crash loses no acknowledged round
+    When rounds are acknowledged, the process is killed before the store's journal is synced, and it restarts
+    Then every acknowledged round is held after recovery, replayed from the log above the store's applied position
+
   Scenario: A batch holds entries at several versions
     When one batch writes key a at version 12 and key b at version 13
     Then a read at 12 finds a and not b, and a read at 13 finds both

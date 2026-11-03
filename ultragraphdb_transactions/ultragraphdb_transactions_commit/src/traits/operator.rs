@@ -39,8 +39,20 @@ pub trait Operator<P> {
     /// The record `staged` logs.
     fn staged_record<'s>(&self, staged: &'s Self::Staged) -> &'s [u8];
 
+    /// The dictionary entries `staged` creates, each a key of the dictionary keyspace and its value: what its round's
+    /// dictionary section holds for it once it is adopted, the proposal's own entries and its operations'.
+    fn staged_dictionary<'s>(
+        &self,
+        staged: &'s Self::Staged,
+    ) -> impl Iterator<Item = (&'s [u8], &'s [u8])>;
+
     /// Takes `staged` as `proposal`'s writes and record.
     fn adopt(&mut self, proposal: &mut P, staged: Self::Staged);
+
+    /// Lets go of `staged`, what [`Operator::operate`] gave for `proposal`, which the step does not adopt: deferred,
+    /// refused or no longer fitting its round. What its operations hold beyond `proposal` is released, once; the step
+    /// calls it for every staged proposal it does not [`Operator::adopt`], and for no other.
+    fn discard(&mut self, proposal: &P, staged: Self::Staged);
 
     /// `proposal` was admitted: its writes are decided and unapplied until its round is.
     fn admitted(&mut self, proposal: &P);

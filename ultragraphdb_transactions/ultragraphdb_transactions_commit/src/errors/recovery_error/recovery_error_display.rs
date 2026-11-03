@@ -23,23 +23,36 @@ impl fmt::Display for RecoveryError {
             RecoveryErrorEnum::Sessions { cause } => {
                 write!(f, "the store's session table could not be read: {cause}")
             }
-            RecoveryErrorEnum::StoreNotInLog { version } => write!(
+            RecoveryErrorEnum::AppliedPosition { cause } => {
+                write!(
+                    f,
+                    "the store's applied log position could not be read: {cause}"
+                )
+            }
+            RecoveryErrorEnum::StoreNotInLog { position } => write!(
                 f,
-                "the store's applied version {version} is no round's last version in the log: the store is ahead \
-                 of the log or was written outside it"
+                "the store's applied log position {position} lies beyond the log's tail: the store is ahead of the log \
+                 or was written outside it"
             ),
-            RecoveryErrorEnum::Gap { checkpoint } => write!(
+            RecoveryErrorEnum::Gap { position } => write!(
                 f,
-                "the store is empty and the log was trimmed through position {checkpoint}: the rounds it covered \
-                 are lost"
+                "the log has no round at position {position}, between the store's applied position and the log's tail"
             ),
             RecoveryErrorEnum::BehindCheckpoint {
                 applied,
                 checkpoint,
             } => write!(
                 f,
-                "the store's applied version {applied} is below version {checkpoint}, which the log's checkpoint \
-                 covers: the rounds between them are no longer in the log"
+                "the store's applied log position {applied} is below the log's checkpoint at position {checkpoint}: the \
+                 rounds between them are no longer in the log"
+            ),
+            RecoveryErrorEnum::Derivation {
+                position,
+                derivation,
+            } => write!(
+                f,
+                "the round at position {position} names derivation {derivation}, which this store does not know: \
+                 nothing of it is applied"
             ),
         }
     }

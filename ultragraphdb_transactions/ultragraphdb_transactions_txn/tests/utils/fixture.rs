@@ -6,22 +6,28 @@
 //! What the unit tests and the scenarios share: a changeset applier over a fault-free simulated store, statements
 //! named by short IRIs, commits that pass the watermark, and a seeded generator for the property tests.
 
+use std::num::NonZeroU64;
+
 use oxrdf::{GraphName, Literal, NamedNode, Term};
-use ultragraphdb_core_mapping::{Change, Changeset};
+use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_mapping::{Change, Changeset, RandomSource};
 use ultragraphdb_store_apply::ChangesetApplier;
 use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig};
 use ultragraphdb_store_sim::{
     FaultConfig, Seed, SimClock, SimListCache, SimStore, SteppedExecutor, Stream,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
+use ultragraphdb_traits_blocks::TestBlockSource;
 use ultragraphdb_transactions_txn::{
     Commit, Mode, Prepared, Transaction, TxnBuffers, TxnError, TxnLimits,
 };
 
 /// The changeset applier of the tests: over the simulated store, its cache and its stepped executor.
-pub type Applier = ChangesetApplier<SimStore, SimListCache<CachedList>, SteppedExecutor>;
+pub type Applier =
+    ChangesetApplier<SimStore, SimListCache<CachedList>, SteppedExecutor, TestBlockSource>;
 /// A transaction on the tests' applier.
-pub type Txn<'a> = Transaction<'a, SimStore, SimListCache<CachedList>>;
+pub type Txn<'a> =
+    Transaction<'a, SimStore, SimListCache<CachedList>, SteppedExecutor, TestBlockSource>;
 
 /// The namespace the tests write.
 pub const NS: u64 = 0;
@@ -34,12 +40,28 @@ pub fn applier() -> TestResult<Applier> {
     let store = SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new());
     let cache = SimListCache::new(1024, Seed::new(1).stream(Stream::Cache));
     let executor = SteppedExecutor::new(Seed::new(1).stream(Stream::Executor));
+    // Blocks of 1,000 sequences stand in for the metadata group's leases.
     ChangesetApplier::new(
         Lists::new(store, cache, ListsConfig::default()),
+        TestBlockSource::new(NonZeroU64::MIN.saturating_add(999)),
+        RandomSource::new(1),
         executor,
         1,
     )
     .context("the applier opens")
+}
+
+/// The ID `prepared`'s execution gives `<name>`, an IRI it created or took from a concurrent creator: one whose
+/// dictionary entries its commit writes.
+pub fn id_in(prepared: &Prepared, name: &str) -> TestResult<SystemId> {
+    let iri = ex(name);
+    prepared
+        .executed()
+        .terms()
+        .written()
+        .find(|(term, _)| *term == iri.as_str())
+        .map(|(_, id)| id)
+        .context("the execution writes the IRI's entries")
 }
 
 /// The IRI `http://ex.org/<name>`.

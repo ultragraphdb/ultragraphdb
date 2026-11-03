@@ -12,12 +12,12 @@ mod utils;
 
 pub use crate::utils::changeset_workload::{
     ChangesetWorkload, INDEXES_MATCH_DATA, MODEL_AGREES, NO_UNEXPECTED_ERROR,
-    RECORDS_MATCH_POSTINGS, STATISTICS_MATCH_DATA,
+    RECORDS_MATCH_POSTINGS, REPLAY_AGREES, STATISTICS_MATCH_DATA,
 };
 pub use crate::utils::crash_harness::{
     DROP_PREFIX, DROP_STAGES, DROPPED_KEYS, KEYS_PER_BATCH, RECORD_STAGES, TEMPORARY_STAGES,
-    batch_counts, drop_outcome, fresh_dir, kill_after, kill_at, open, raw_drop_state,
-    raw_temporary_keyspaces, versionless_counts,
+    acknowledged_rounds, batch_counts, drop_outcome, fresh_dir, kill_after, kill_at, open,
+    raw_drop_state, raw_temporary_keyspaces, replay_round, versionless_counts,
 };
 pub use crate::utils::fjall_workload::{Run, run_both};
 pub use crate::utils::test_store::{

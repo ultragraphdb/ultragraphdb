@@ -35,6 +35,7 @@ rust_test(
         exclude = ["tests/bdd.rs"],
     ),
     crate_root = "tests/mod.rs",
+    data = glob(["testdata/fuzz_seeds/**"]),
     tags = ["unit-test"],
     visibility = ["//visibility:public"],
     deps = [":ultragraphdb_transactions_commit"] + all_crate_deps(

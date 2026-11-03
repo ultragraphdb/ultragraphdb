@@ -80,7 +80,9 @@ pub use crate::types::quad_pattern::QuadPattern;
 pub use crate::types::read::Read;
 pub use crate::types::read_view::ReadView;
 pub use crate::types::record_entry::RecordEntry;
+pub use crate::types::record_kind::RecordKind;
 pub use crate::types::record_operation::RecordOperation;
+pub use crate::types::record_registration::RecordRegistration;
 pub use crate::types::register::Register;
 pub use crate::types::register_view::RegisterView;
 pub use crate::types::request_term::RequestTerm;
@@ -108,6 +110,7 @@ pub use crate::utils::checksum::{xxh3_64, xxh3_64_with_seed};
 pub use crate::utils::constants::{
     ABSENT, CHUNK_SIZE, COMMAND_HEADER_SIZE, DEFAULT_INITIAL_CREDIT, DEFAULT_MAX_STREAMS,
     DEFAULT_MAX_WRITE_SET, DEFAULT_TRANSACTION_MS, FIRST_CHUNK_SIZE, FLAG_LAST, HEADER_SIZE,
-    LEAF_SIZE, MAX_FRAME_FLOOR, MAX_FRAME_SIZE, MAX_TERM_DEPTH, PROTOCOL_VERSION, REPLICA_COMMANDS,
-    RETIRED_COMMANDS,
+    LEAF_SIZE, MAX_FRAME_FLOOR, MAX_FRAME_SIZE, MAX_TERM_DEPTH, OPERATION_RESULT_SIZE,
+    PROTOCOL_VERSION, RECORD_FIXED_SIZE, RECORD_OPERATION_SIZE, RECORD_REGISTRATION_SIZE,
+    RECORD_SECTIONS, REPLICA_COMMANDS, RETIRED_COMMANDS,
 };

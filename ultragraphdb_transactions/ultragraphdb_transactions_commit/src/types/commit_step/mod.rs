@@ -7,29 +7,32 @@ mod commit_step_round;
 
 pub(crate) use commit_step_round::frame_len;
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 
-use ultragraphdb_protocol_wire::OperationResult;
+use ultragraphdb_cluster_sequencer::CatalogVersion;
+use ultragraphdb_core_ids::{Epoch, Version};
+use ultragraphdb_protocol_wire::{OperationResult, TermTable, WriteSetRecordView};
 
 use crate::errors::commit_error::CommitError;
 use crate::traits::operator::Operator;
 use crate::traits::proposal::Proposal;
+use crate::types::close_request::CloseRequest;
 use crate::types::commit_request::CommitRequest;
+use crate::types::epoch_stamp::EpochStamp;
 use crate::types::input::Input;
 use crate::types::no_operations::NoOperations;
-use crate::types::reply::Reply;
 use crate::types::resolver::Resolver;
 use crate::types::round_bounds::RoundBounds;
 use crate::types::round_record::RoundRecord;
-use crate::types::sequencer::Sequencer;
 use crate::types::sessions::Sessions;
 use crate::types::step_output::StepOutput;
+use crate::types::stored_reply::StoredReply;
 
-/// A request waiting for a round: a commit, or a session registration under its ticket for its owner.
+/// A request waiting for a round: a commit, or a registration a home accepted, under its ticket with its record.
 #[derive(Debug)]
-enum Waiting<P> {
+pub(crate) enum Waiting<P> {
     Commit(CommitRequest<P>),
-    Register { ticket: u64, principal: u64 },
+    Registration { ticket: u64, record: Vec<u8> },
 }
 
 /// Where a committed decision's record comes from: the round's admitted proposal or registration of that index.
@@ -39,20 +42,15 @@ enum Source {
     Registration(usize),
 }
 
-/// What the table takes once a round is applied: a session registered, or a session's request committed at a
-/// version with its operations' results.
+/// What the table takes once a round is applied: a session's request committed at a version with its operations'
+/// results; the stored reply's token is the round's.
 #[derive(Debug, Clone)]
-enum Update {
-    Registered {
-        session: u64,
-        principal: u64,
-    },
-    Committed {
-        session: u64,
-        request: u64,
-        version: u64,
-        results: Vec<OperationResult>,
-    },
+struct Update {
+    session: u128,
+    request: u64,
+    version: u64,
+    results: Vec<OperationResult>,
+    terms: TermTable,
 }
 
 /// The commit step as a step function: commit requests, sync completions and the oldest open read in
@@ -64,8 +62,9 @@ enum Update {
 /// frame stays within the bounds' bytes, every request counted as committed, and its transactions within their
 /// count; the rest wait for the next round. A request whose record is over the largest a round holds on its own
 /// ([`RoundBounds::max_write_set`]) is refused as too large when it arrives; one whose commit-time operations leave such
-/// a record is refused as too large when it is decided, taking no version, and one whose operations leave a record
-/// that a fresh round holds but its own round has no room for waits for the next round, decided again there first. The round's transactions are decided in round order ([`Resolver`]), each admitted one taking the
+/// a write set, their record and dictionary entries together, is refused as too large when it is decided, taking no
+/// version, and one whose operations leave a write set that a fresh round holds but its own round has no room for
+/// waits for the next round, decided again there first. The round's transactions are decided in round order ([`Resolver`]), each admitted one taking the
 /// next version of the [`Sequencer`], whose clock is read once per round; the body, every decision and the record of
 /// each committed transaction, is written into the output's buffer in `ultragraphdb_protocol_wire`'s `RoundBody`
 /// layout. A round is acknowledged as a unit: its replies, aborts included, go out once its sync has completed and
@@ -98,7 +97,21 @@ enum Update {
 #[derive(Debug)]
 pub struct CommitStep<P> {
     bounds: RoundBounds,
-    sequencer: Sequencer,
+    stamp: EpochStamp,
+    /// The partition the step decides for, which session tokens name.
+    partition: u32,
+    /// The log's tail: the position of the last round closed.
+    position: u64,
+    /// How long a close request may go unanswered before held and new commits are refused busy.
+    close_request: CloseRequest,
+    /// When the close of the full open epoch was asked for, on the step's clock; `None` when none is asked.
+    asked_us: Option<u64>,
+    /// The commits held for a close until their session token's epoch is open.
+    held: VecDeque<CommitRequest<P>>,
+    /// Each namespace's catalog version in effect at the open epoch, by namespace.
+    catalog: Vec<(u64, u64)>,
+    /// The reason a close out of order stopped the step.
+    fault: Option<CommitError>,
     resolver: Resolver,
     waiting: VecDeque<Waiting<P>>,
     /// The proposals starting a build, set aside while one runs.
@@ -106,13 +119,18 @@ pub struct CommitStep<P> {
     /// Whether a build runs: its start admitted, its end not yet.
     building: bool,
     in_flight: Option<RoundRecord>,
+    /// The log position of the round in flight, which its commits' session tokens name.
+    in_flight_position: u64,
     admitted: Vec<(u64, P)>,
     decided: Vec<(u64, Result<u64, CommitError>)>,
     sources: Vec<Source>,
     registrations: Vec<Vec<u8>>,
+    /// The dictionary entries the round's admitted transactions create, its dictionary section.
+    dictionary: BTreeMap<Vec<u8>, Vec<u8>>,
     updates: Vec<Update>,
-    /// The commit-time operations' results of the round's admitted transactions that asked any, under their tickets.
-    results: Vec<(u64, Vec<OperationResult>)>,
+    /// The commit-time operations' results of the round's admitted transactions that asked any, under their tickets,
+    /// with the term table naming their nodes.
+    results: Vec<(u64, Vec<OperationResult>, TermTable)>,
     sessions: Sessions,
     queue: usize,
     watermark: u64,
@@ -120,21 +138,33 @@ pub struct CommitStep<P> {
 }
 
 impl<P: Proposal> CommitStep<P> {
-    /// A commit step after `previous`, the store's applied version: the watermark, the version the next commits
-    /// follow and the history's floor.
+    /// A commit step after `previous`, the store's applied version: the watermark, the newest version stamped and the
+    /// history's floor; its latest delivered close the epoch before `previous`'s, or epoch 0 for version 0, until
+    /// [`CommitStep::with_delivered`] names it.
     pub fn new(bounds: RoundBounds, previous: u64) -> Self {
+        let last = Version::from_u64(previous);
+        let delivered = Epoch::new(last.epoch().get().saturating_sub(1)).unwrap_or(Epoch::ZERO);
         Self {
             bounds,
-            sequencer: Sequencer::new(previous),
+            stamp: EpochStamp::after(delivered, last),
+            partition: 0,
+            position: 0,
+            close_request: CloseRequest::default(),
+            asked_us: None,
+            held: VecDeque::new(),
+            catalog: Vec::new(),
+            fault: None,
             resolver: Resolver::new(previous),
             waiting: VecDeque::new(),
             deferred: VecDeque::new(),
             building: false,
             in_flight: None,
+            in_flight_position: 0,
             admitted: Vec::new(),
             decided: Vec::new(),
             sources: Vec::new(),
             registrations: Vec::new(),
+            dictionary: BTreeMap::new(),
             updates: Vec::new(),
             results: Vec::new(),
             sessions: Sessions::new(Sessions::DEFAULT_CAPACITY),
@@ -142,6 +172,53 @@ impl<P: Proposal> CommitStep<P> {
             watermark: previous,
             stopped: false,
         }
+    }
+
+    /// The step with `delivered` the latest close delivered to its partition, as the partition's subscription stands
+    /// when it opens.
+    pub fn with_delivered(self, delivered: Epoch) -> Self {
+        let last = self
+            .stamp
+            .last()
+            .unwrap_or(Version::from_u64(self.watermark));
+        Self {
+            stamp: EpochStamp::after(delivered, last),
+            ..self
+        }
+    }
+
+    /// The step deciding for partition `partition`, which its session tokens name; 0 by default.
+    pub fn with_partition(self, partition: u32) -> Self {
+        Self { partition, ..self }
+    }
+
+    /// The step whose log's tail is at `tail`, so its next round takes position `tail + 1`; 0 by default.
+    pub fn with_tail(self, tail: u64) -> Self {
+        Self {
+            position: tail,
+            ..self
+        }
+    }
+
+    /// The step waiting `close_request` for a close it asked for before refusing held and new commits busy; 60,000 ms
+    /// by default.
+    pub fn with_close_request(self, close_request: CloseRequest) -> Self {
+        Self {
+            close_request,
+            ..self
+        }
+    }
+
+    /// The step holding `versions`, each namespace's catalog version in effect at its open epoch, as the metadata
+    /// group's versions stand when the partition opens; a namespace not named is at version 0.
+    pub fn with_catalog(self, versions: &[CatalogVersion]) -> Self {
+        let mut catalog: Vec<(u64, u64)> = versions
+            .iter()
+            .map(|v| (v.namespace().get(), v.version()))
+            .collect();
+        catalog.sort_unstable();
+        catalog.dedup_by_key(|(namespace, _)| *namespace);
+        Self { catalog, ..self }
     }
 
     /// The step with a commit queue of at most `limit` requests waiting, at least one: a commit arriving to a full
@@ -153,7 +230,7 @@ impl<P: Proposal> CommitStep<P> {
         }
     }
 
-    /// The step with a session table of at most `capacity` sessions, the oldest evicted until it holds no more.
+    /// The step with a session table of at most `capacity` sessions, the registry's `sessions_max`.
     pub fn with_sessions(self, capacity: usize) -> Self {
         Self {
             sessions: self.sessions.bounded(capacity),
@@ -169,8 +246,7 @@ impl<P: Proposal> CommitStep<P> {
         }
     }
 
-    /// The step holding `sessions`, the table a store held ([`Sessions::load`]): its pending evictions are written
-    /// with the first round applied.
+    /// The step holding `sessions`, the table a store held ([`Sessions::load`]).
     pub fn with_table(self, sessions: Sessions) -> Self {
         Self { sessions, ..self }
     }
@@ -196,10 +272,17 @@ impl<P: Proposal> CommitStep<P> {
     ) {
         out.clear();
         match input {
-            Input::Commit(request) => self.arrive(request, now_us, out, operator),
-            Input::Register { ticket, principal } => {
-                self.register(ticket, principal, now_us, out, operator)
+            Input::Commit(request) => self.arrive(Waiting::Commit(request), now_us, out, operator),
+            Input::Registration { ticket, record } => {
+                self.arrive(
+                    Waiting::Registration { ticket, record },
+                    now_us,
+                    out,
+                    operator,
+                );
             }
+            Input::Close(close) => self.deliver(&close, now_us, out, operator),
+            Input::Tick => self.expire(now_us, out),
             Input::Synced => self.synced(now_us, out, operator),
             Input::SyncFailed => self.stop(out),
             // No open transaction reads above the watermark.
@@ -207,136 +290,66 @@ impl<P: Proposal> CommitStep<P> {
         }
     }
 
-    /// A commit request arrives: refused when the step is stopped or its record is over the largest a round holds on
-    /// its own ([`RoundBounds::max_write_set`]), else it waits, and a round closes at once when none is in flight.
-    fn arrive<O: Operator<P>>(
-        &mut self,
-        request: CommitRequest<P>,
-        now_us: u64,
-        out: &mut StepOutput<P>,
-        operator: &mut O,
-    ) {
-        if self.stopped {
-            out.replies.push(Reply::new(
-                request.ticket(),
-                Err(CommitError::unavailable()),
-            ));
-            out.released.push(request.into_parts());
-            return;
-        }
-        let size = request.proposal().record().len();
-        let limit = self.bounds.max_write_set();
-        if size > limit {
-            out.replies.push(Reply::new(
-                request.ticket(),
-                Err(CommitError::too_large(size, limit)),
-            ));
-            out.released.push(request.into_parts());
-            return;
-        }
-        if self.waiting.len() + self.deferred.len() >= self.queue {
-            out.replies.push(Reply::new(
-                request.ticket(),
-                Err(CommitError::busy(self.queue)),
-            ));
-            out.released.push(request.into_parts());
-            return;
-        }
-        self.waiting.push_back(Waiting::Commit(request));
-        if self.in_flight.is_none() {
-            self.close(now_us, out, operator);
-        }
-    }
-
-    /// A session registration arrives: refused when the step is stopped or its record cannot fit any round, else it
-    /// waits as a commit does.
-    fn register<O: Operator<P>>(
-        &mut self,
-        ticket: u64,
-        principal: u64,
-        now_us: u64,
-        out: &mut StepOutput<P>,
-        operator: &mut O,
-    ) {
-        if self.stopped {
-            out.replies
-                .push(Reply::new(ticket, Err(CommitError::unavailable())));
-            return;
-        }
-        let size = commit_step_round::registration_len();
-        let limit = self.bounds.max_write_set();
-        if size > limit {
-            out.replies
-                .push(Reply::new(ticket, Err(CommitError::too_large(size, limit))));
-            return;
-        }
-        self.waiting
-            .push_back(Waiting::Register { ticket, principal });
-        if self.in_flight.is_none() {
-            self.close(now_us, out, operator);
-        }
-    }
-
-    /// The round in flight is synced: it is handed over to apply with its replies, and the next round closes over the
-    /// requests waiting.
-    fn synced<O: Operator<P>>(&mut self, now_us: u64, out: &mut StepOutput<P>, operator: &mut O) {
-        let Some(record) = self.in_flight.take() else {
-            return;
-        };
-        out.applied = Some(record);
-        std::mem::swap(&mut out.apply, &mut self.admitted);
-        if let Some(last) = record.last_version() {
-            self.watermark = last;
-        }
-        for update in self.updates.drain(..) {
-            match update {
-                Update::Registered { session, principal } => {
-                    let _evicted: Option<u64> = self.sessions.register(session, principal);
-                }
-                Update::Committed {
-                    session,
-                    request,
-                    version,
-                    results,
-                } => self.sessions.committed(session, request, version, results),
-            }
-        }
-        self.sessions.drain_entries(&mut out.system);
-        let results = &mut self.results;
-        out.replies
-            .extend(self.decided.drain(..).map(|(ticket, outcome)| {
-                let reply = Reply::new(ticket, outcome);
-                match results.iter().position(|(t, _)| *t == ticket) {
-                    Some(at) => reply.with_results(results.swap_remove(at).1),
-                    None => reply,
-                }
-            }));
-        results.clear();
-        if !self.waiting.is_empty() {
-            self.close(now_us, out, operator);
-        }
-    }
-
-    /// A retry of `request` of `session` by `principal`, sent with no transaction open for it: answered from the
-    /// session table, as [`Sessions::retry`] answers it, without a round.
+    /// A retry of `request` of `session`, sent with no transaction open for it: answered from the session table, as
+    /// [`Sessions::retry`] answers it, without a round; session busy while a request of the session waits in the step.
     ///
     /// # Errors
     ///
-    /// As [`Sessions::retry`] refuses.
-    pub fn retry(
-        &self,
-        session: u64,
-        request: u64,
-        principal: u64,
-    ) -> Result<(u64, Vec<OperationResult>), CommitError> {
-        self.sessions
-            .retry(session, request, principal)
-            .map(|(version, results)| (version, results.to_vec()))
+    /// [`CommitError::session_busy`] while a request of the session waits, is held or is decided and not yet applied;
+    /// otherwise as [`Sessions::retry`] refuses.
+    pub fn retry(&self, session: u128, request: u64) -> Result<StoredReply, CommitError> {
+        let in_step = |w: &Waiting<P>| match w {
+            Waiting::Commit(c) => session_of(c.proposal().record()) == Some((session, request)),
+            Waiting::Registration { .. } => false,
+        };
+        let held = self
+            .held
+            .iter()
+            .any(|c| session_of(c.proposal().record()) == Some((session, request)));
+        if held || self.waiting.iter().chain(self.deferred.iter()).any(in_step) {
+            return Err(CommitError::session_busy(session));
+        }
+        self.sessions.retry(session, request).cloned()
     }
 
     /// The newest version handed over to apply: the visibility watermark once the caller has applied it.
     pub fn watermark(&self) -> u64 {
         self.watermark
+    }
+
+    /// The latest close delivered to the partition.
+    pub fn delivered(&self) -> Epoch {
+        self.stamp.delivered()
+    }
+
+    /// The partition's open epoch, one above its latest delivered close; `None` past the last epoch.
+    pub fn open(&self) -> Option<Epoch> {
+        self.stamp.open()
+    }
+
+    /// The newest epoch the partition has closed: its close delivered and every round stamped at or below it applied.
+    /// A snapshot read at an epoch waits until the partition has closed it.
+    pub fn closed(&self) -> Epoch {
+        let delivered = self.stamp.delivered();
+        match self.in_flight {
+            Some(round) if Version::from_u64(round.first_version()).epoch() <= delivered => {
+                Epoch::new(delivered.get().saturating_sub(1)).unwrap_or(Epoch::ZERO)
+            }
+            Some(_) | None => delivered,
+        }
+    }
+
+    /// The catalog version of `namespace` in effect at the open epoch, 0 when none is.
+    pub fn catalog_version(&self, namespace: u64) -> u64 {
+        self.catalog
+            .iter()
+            .find(|(n, _)| *n == namespace)
+            .map_or(0, |(_, version)| *version)
+    }
+
+    /// The log's tail: the position of the last round closed.
+    pub fn tail(&self) -> u64 {
+        self.position
     }
 
     /// The round in flight, closed and not yet synced.
@@ -354,6 +367,16 @@ impl<P: Proposal> CommitStep<P> {
         self.waiting.len()
     }
 
+    /// The number of commits held for a close.
+    pub fn held(&self) -> usize {
+        let full = if self.stamp.is_full() {
+            self.waiting.len()
+        } else {
+            0
+        };
+        self.held.len() + full
+    }
+
     /// The number of proposals starting a build set aside while one runs.
     pub fn deferred(&self) -> usize {
         self.deferred.len()
@@ -369,9 +392,14 @@ impl<P: Proposal> CommitStep<P> {
         &self.sessions
     }
 
-    /// Whether a failed sync or exhausted versions stopped the step.
+    /// Whether a failed sync, exhausted versions or a close out of order stopped the step.
     pub fn is_stopped(&self) -> bool {
         self.stopped
+    }
+
+    /// The close out of order that stopped the step, as the reason it names; `None` otherwise.
+    pub fn fault(&self) -> Option<&CommitError> {
+        self.fault.as_ref()
     }
 
     /// The resolver validating the step's transactions.
@@ -386,6 +414,14 @@ impl<P: Proposal> CommitStep<P> {
 
     /// The newest commit version given.
     pub fn previous_version(&self) -> u64 {
-        self.sequencer.previous()
+        self.stamp.last().map_or(self.watermark, Version::to_u64)
     }
+}
+
+/// The session and request number of the write-set record `record`, `None` for one that does not read or names no
+/// session.
+fn session_of(record: &[u8]) -> Option<(u128, u64)> {
+    let view = WriteSetRecordView::new(record).ok()?;
+    let session = u128::from_be_bytes(view.session());
+    (session != 0).then_some((session, view.request()))
 }

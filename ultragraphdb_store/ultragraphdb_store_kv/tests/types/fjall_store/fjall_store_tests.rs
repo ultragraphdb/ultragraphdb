@@ -52,6 +52,32 @@ fn test_versions_are_part_of_the_stored_key_and_the_metadata_a_value_prefix() ->
     Ok(())
 }
 
+/// A stored key is a version only when it ends in a zero byte, an end code and the version: one whose end code follows a
+/// byte other than zero is refused as corruption, naming its length, though its end code alone is in range.
+#[test]
+fn test_a_stored_key_without_its_zero_before_the_end_code_is_corruption() -> TestResult {
+    let dir = TestDir::new("unterminated");
+    drop(dir.open()?);
+    {
+        let db = Database::builder(dir.path()).open()?;
+        let data = db.keyspace(DATA_KEYSPACE, KeyspaceCreateOptions::default)?;
+        // `ab`, then 0x07 where the zero byte belongs and the end code 0x02, then the complemented version 1.
+        let mut stored = b"ab\x07\x02".to_vec();
+        stored.extend_from_slice(&(!1u64).to_be_bytes());
+        data.insert(stored, vec![0x04, 0x00, b'v'])?;
+        db.persist(fjall::PersistMode::SyncAll)?;
+    }
+    let s = dir.open()?;
+    let refusal = s.dump().err().context("the dump refuses the key")?;
+    assert!(
+        refusal
+            .to_string()
+            .contains("stored key of 12 bytes does not end in a terminated version"),
+        "{refusal}"
+    );
+    Ok(())
+}
+
 #[test]
 fn test_the_dump_lists_every_version_with_its_flags() -> TestResult {
     let dir = TestDir::new("dump");
@@ -98,6 +124,79 @@ fn test_the_filesystem_mode_syncs_every_batch_and_the_process_mode_on_its_period
             "{durability:?}"
         );
     }
+    Ok(())
+}
+
+/// Whether a journal file of the store in `dir`, fjall's `*.jnl` at most two directories down, holds `needle` on
+/// disk. fjall preallocates its journal, so its length says nothing; its bytes do.
+fn journal_holds(dir: &std::path::Path, needle: &[u8]) -> TestResult<bool> {
+    let mut level = vec![dir.to_path_buf()];
+    for _ in 0..3 {
+        let mut below = Vec::new();
+        for folder in level {
+            for entry in std::fs::read_dir(&folder)? {
+                let path = entry?.path();
+                if path.is_dir() {
+                    below.push(path);
+                } else if path.extension().is_some_and(|e| e == "jnl")
+                    && std::fs::read(&path)?
+                        .windows(needle.len())
+                        .any(|window| window == needle)
+                {
+                    return Ok(true);
+                }
+            }
+        }
+        level = below;
+    }
+    Ok(false)
+}
+
+/// fjall's journal persisted manually: in the log mode a batch written to be buffered stays in fjall's journal buffer,
+/// handed to the operating system by nothing but a sync, while the process mode hands each batch over as it is
+/// written. A batch of one small key fits the 8 KiB buffer whole, and its value is written uncompressed.
+#[test]
+fn test_the_log_mode_hands_the_journal_over_only_at_a_sync() -> TestResult {
+    let value = b"a value the journal holds once it is handed over";
+    for (durability, handed_over) in [(Durability::Log, false), (Durability::Process, true)] {
+        let dir = TestDir::new("journal");
+        let s = FjallStore::open(dir.path(), durability)?;
+        write(&s, vec![put(b"k", 1, value)])?;
+        assert_eq!(
+            journal_holds(dir.path(), value)?,
+            handed_over,
+            "{durability:?}"
+        );
+        s.sync()?;
+        assert!(
+            journal_holds(dir.path(), value)?,
+            "{durability:?}: a sync hands the batch over"
+        );
+    }
+    Ok(())
+}
+
+/// In the log mode the store is synced only when asked: batches synced by a checkpoint's sync, or written to be
+/// synced, are held after a reopen with the applied position of the last.
+#[test]
+fn test_the_log_mode_holds_what_a_sync_covered() -> TestResult {
+    let dir = TestDir::new("log-mode");
+    let s = FjallStore::open(dir.path(), Durability::Log)?;
+    let mut first = WriteBatch::new();
+    first.push(put(b"a", 1, b"x"));
+    first.set_applied_ts(1);
+    s.apply(first, PersistMode::Buffer)?;
+    s.sync()?;
+    let mut second = WriteBatch::new();
+    second.push(put(b"b", 2, b"y"));
+    second.set_applied_ts(2);
+    s.apply(second, PersistMode::Sync)?;
+    assert!(!s.is_poisoned());
+    drop(s);
+    let reopened = FjallStore::open(dir.path(), Durability::Log)?;
+    assert_eq!(reopened.get_at(b"a", 1)?.map(|i| i.version()), Some(1));
+    assert_eq!(reopened.get_at(b"b", 2)?.map(|i| i.version()), Some(2));
+    assert_eq!(reopened.applied_ts(), 2);
     Ok(())
 }
 

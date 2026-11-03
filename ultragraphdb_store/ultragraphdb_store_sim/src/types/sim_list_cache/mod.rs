@@ -15,6 +15,7 @@ use crate::utils::lock::lock;
 /// when full, evicts an entry its stream chooses, so its evictions are a function of the seed.
 #[derive(Debug)]
 pub struct SimListCache<V> {
+    // A lock (Ultra rule 9): `ListCache` takes `&self` from any thread; held for one lookup or insertion.
     shared: Mutex<Shared<V>>,
     capacity: usize,
 }

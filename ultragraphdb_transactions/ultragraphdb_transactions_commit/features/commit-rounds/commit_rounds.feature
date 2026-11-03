@@ -1,5 +1,8 @@
 # The scenarios of the commit-rounds capability that the commit step's rounds, versions, validation and history carry,
-# verbatim from openspec/changes/stage-5-transactions-and-binary-protocol/specs/commit-rounds/spec.md. The commit step
+# verbatim from openspec/changes/stage-5-transactions-and-binary-protocol/specs/commit-rounds/spec.md, and, for the
+# requirements stage 5.5 adds or modifies ("Commit versions are built from the epoch", "Acknowledgement at the
+# visibility watermark", and the round closing at a delivered close), from
+# openspec/changes/stage-5-5-three-role-refactor/specs/commit-rounds/spec.md. Closes reach the commit step as inputs. The commit step
 # runs as its step function: a driver stands in for the pipeline, counting the rounds it is asked to append and the
 # syncs it completes, and applying each synced round to a changeset applier over the simulated store; the scenarios of
 # acknowledgement at the watermark run the pipeline itself, over the write-ahead log on simulated storage.
@@ -16,11 +19,23 @@ Feature: Commit rounds
     When ten transactions commit while a round's sync is in progress
     Then they are decided in the next round, written with one log append and one sync
 
-  # Requirement: Commit versions follow the clock
+  # Requirement: Commit versions are built from the epoch
 
-  Scenario: A clock stepping back does not lower versions
-    When the commit step's clock steps back by one second between two rounds
-    Then the later round's versions are greater than the earlier round's
+  Scenario: A version carries the open epoch
+    When epoch 9 is the latest close delivered to a partition and it admits its first transaction since
+    Then the version's upper 42 bits are 10 and its lower 22 bits are 0
+
+  Scenario: Versions increase within an epoch
+    When a partition admits three transactions in epoch 10
+    Then their sequences are 0, 2 and 4
+
+  Scenario: A full epoch asks for a close and waits
+    When a partition's sequence in epoch 10 reaches 2^22 − 2 and it admits another transaction
+    Then it asks the sequencer to close epoch 10, holds the transaction until the close of 10 is delivered, and stamps it with epoch 11 and sequence 0
+
+  Scenario: A full epoch with the sequencer unreachable answers busy
+    When a partition's sequence in epoch 10 is full, `close_request_ms` is 500, and its close request is still unanswered 500 ms after it was sent
+    Then every transaction it holds or admits is refused as busy, marked retryable, writing nothing, until the close of 10 is delivered
 
   # Requirement: Validation is exact
 
@@ -41,14 +56,18 @@ Feature: Commit rounds
   # Requirement: Acknowledgement at the visibility watermark
 
   Scenario: No acknowledged commit is invisible
-    When a transaction is acknowledged and another transaction begins at any time after
+    When a transaction is acknowledged in a partition and a read-write transaction bound to that partition begins at any time after
     Then the second transaction reads the first one's writes
 
   Scenario: A failed sync acknowledges nothing
     When the log sync of a round fails
-    Then none of the round's transactions is acknowledged, and later commits are refused until restart
+    Then none of the round's transactions is acknowledged, and later commits of its partition are refused until restart
 
   # Requirement: Catalog changes, drops and index builds are ordered in rounds
+
+  Scenario: A round closes at a delivered close
+    When a round is gathering transactions of epoch 10 and the close of 10 is delivered
+    Then the round closes, and the next transaction is stamped with epoch 11 in a new round
 
   Scenario: Concurrent first writes of a predicate both commit
     When two transactions of `ns` read before either commits, the first writes `<a> <score> 12` and the second `<b> <score> "high"`, and `score` was not declared

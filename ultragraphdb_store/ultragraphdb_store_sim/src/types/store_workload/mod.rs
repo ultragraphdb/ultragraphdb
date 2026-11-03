@@ -23,7 +23,9 @@ use crate::types::simulation::Simulation;
 use crate::types::stream::Stream;
 use crate::types::violation::Violation;
 
-use crate::types::store_workload::store_workload_keys::{CATALOG, FORWARD, KeySpace, PREDICATES};
+use crate::types::store_workload::store_workload_keys::{
+    FORWARD, KeySpace, PREDICATES, STATISTICS,
+};
 use crate::types::store_workload::store_workload_reads::ReadShape;
 
 /// The meta byte of a delta posting list.
@@ -149,8 +151,10 @@ impl StoreWorkload {
         let choice = ctx.rng().below(110);
         let written = match choice {
             0..55 => {
-                let (batch, mode) = self.commit_batch(ctx);
-                store.apply(batch, mode)
+                let (batch, checkpoint) = self.commit_batch(ctx);
+                store
+                    .apply(batch, PersistMode::Buffer)
+                    .and_then(|()| if checkpoint { store.sync() } else { Ok(()) })
             }
             55..65 => match self.rollup_batch(ctx) {
                 Some(batch) => store.apply(batch, PersistMode::Buffer),
@@ -163,8 +167,8 @@ impl StoreWorkload {
                 store.drop_prefixes(self.next_ts, &[prefix], entries)
             }
             74..75 => {
-                let declaration = self.keys.catalog_key(0, PREDICATES[0]);
-                store.drop_all(vec![Entry::put(declaration, 1, 0x01, b"name".to_vec())])
+                let statistics = self.keys.statistics_key(0, PREDICATES[0]);
+                store.drop_all(vec![Entry::put(statistics, 1, 0x01, b"name".to_vec())])
             }
             75..77 => store.ban_namespace(self.keys.bannable(ctx.rng())),
             77..86 => {
@@ -240,7 +244,9 @@ impl StoreWorkload {
     }
 
     /// One to three commits at their own timestamps, each of one to four entries, recording the last as applied.
-    fn commit_batch(&mut self, ctx: &mut SimContext) -> (WriteBatch, PersistMode) {
+    /// A commit's batch, written unsynced as beside the write-ahead log, and whether a checkpoint syncs the store after
+    /// it.
+    fn commit_batch(&mut self, ctx: &mut SimContext) -> (WriteBatch, bool) {
         let mut batch = WriteBatch::new();
         for _ in 0..ctx.rng().between(1, 3) {
             let ts = self.next_ts;
@@ -278,12 +284,8 @@ impl StoreWorkload {
                 batch.remove_rebuild_record(id);
             }
         }
-        let mode = if ctx.rng().chance(250) {
-            PersistMode::Sync
-        } else {
-            PersistMode::Buffer
-        };
-        (batch, mode)
+        let checkpoint = ctx.rng().chance(250);
+        (batch, checkpoint)
     }
 
     /// A complete version with the discard flag below a key's newest version and above its newest deletion.
@@ -300,14 +302,14 @@ impl StoreWorkload {
 
     /// The entries a drop of `prefix` writes once it is empty: none, or one key under it at timestamp 1.
     fn drop_entries(&mut self, ctx: &mut SimContext, prefix: &[u8]) -> Vec<Entry> {
-        if prefix.first() != Some(&CATALOG) || ctx.rng().chance(500) {
+        if prefix.first() != Some(&STATISTICS) || ctx.rng().chance(500) {
             return Vec::new();
         }
-        // A namespace's catalog prefix gets the declaration of `name`; a predicate's prefix is its key.
+        // A namespace's statistics prefix gets the statistics of `name`; a predicate's prefix is its key.
         let key = match prefix.get(1..9) {
             Some(ns) if prefix.len() == 9 => {
                 let namespace = ns.iter().fold(0u64, |n, &b| n << 8 | u64::from(b));
-                self.keys.catalog_key(namespace, PREDICATES[0])
+                self.keys.statistics_key(namespace, PREDICATES[0])
             }
             _ => prefix.to_vec(),
         };
@@ -365,8 +367,9 @@ impl StoreWorkload {
             .for_each(|(read, failed)| *failed = read.issue(snapshot));
         if !made.is_empty() && rereads.chance(REREAD) {
             let at = rereads.index(made.len());
-            let (read, failed) = &mut made[at];
-            *failed = read.issue(snapshot);
+            if let Some((read, failed)) = made.get_mut(at) {
+                *failed = read.issue(snapshot);
+            }
         }
         let read = match ctx.rng().below(5) {
             0 => ReadShape::Get(self.keys.key(ctx.rng())),

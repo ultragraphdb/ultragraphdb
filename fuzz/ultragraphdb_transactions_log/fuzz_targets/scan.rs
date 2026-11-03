@@ -5,8 +5,9 @@
 
 //! Any bytes as a segment, scanned as the first segment kept of a log with its checkpoint at 0 and, from the same
 //! bytes, at a checkpoint the input chooses. The scan never panics; every round it accepts is a frame that validates
-//! on its own, at a block boundary, inside the segment, of this cluster and incarnation, numbered by its position from 1, and
-//! chained to the round before it; it stops at a block boundary less than a block past the bytes, inside the last round's padding when the
+//! on its own, at a block boundary, inside the segment, of this cluster and incarnation, numbered by its position from 1,
+//! its command header the Round header of `PROTOCOL.md` §12.1 (a derivation version of at least 1, which the scanned
+//! round carries, and the unused bytes 40 to 127 zero), and chained to the round before it; it stops at a block boundary less than a block past the bytes, inside the last round's padding when the
 //! bytes end there; and the probe finds every accepted round complete.
 //!
 //! Random bytes almost never carry a frame's header checksum, so the input is scanned again with the header of each
@@ -42,7 +43,20 @@ fn check(bytes: &[u8], start: &ScanStart) {
         let frame = &bytes[at..at + round.size() as usize];
         let view = FrameView::validate(frame, CLUSTER, MAX_FRAME_SIZE)
             .expect("an accepted round's checksums hold");
-        let header = RoundHeader::decode(view.header().command_header());
+        let command_header = view.header().command_header();
+        let header =
+            RoundHeader::decode(command_header).expect("an accepted round's header decodes");
+        assert!(
+            command_header[40..].iter().all(|byte| *byte == 0),
+            "an accepted round's unused header bytes are zero"
+        );
+        assert_eq!(
+            header.derivation(),
+            round.derivation(),
+            "the scanned round's derivation is its header's"
+        );
+        assert_eq!(header.first_version(), round.first_version());
+        assert_eq!(header.transactions(), round.transactions());
         assert_eq!(header.incarnation(), INCARNATION);
         assert_eq!(header.position(), round.position().get());
         // Positions are gapless from 1 (PROTOCOL.md section 12.1): 0 is the place before the first round.

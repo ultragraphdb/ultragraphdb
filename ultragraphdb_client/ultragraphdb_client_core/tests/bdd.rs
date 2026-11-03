@@ -13,7 +13,6 @@ use ultragraphdb_client_core::{
     BatchPoll, ClientErrorEnum, Reply, ResultStream, Session, TEST_PRINCIPAL, TestServer,
     Transaction,
 };
-use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_protocol_transport::{Anonymous, Login, NetworkFaults};
 use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, ColumnType, Command, CommitView, ErrorCode, Execute, FLAG_LAST,
@@ -299,7 +298,7 @@ fn repeated(w: &mut Steps) -> TestResult {
     let tx = begin(&mut h, true)?;
     let stream = h.core.read(&tx, &read(&tx), h.now)?;
     while h.core.transmit().is_some() {}
-    let iri = ResultTerm::new(EncodedTerm::uid(42)).with_text("http://ex.org/same");
+    let iri = ResultTerm::iri("http://ex.org/same");
     let mut batch = ResultBatch::new(1);
     for _ in 0..1_000 {
         batch.push_row(&[Some(&iri)])?;

@@ -28,7 +28,9 @@ where
     C: ListCache<Value = CachedList>,
     B: BlockSource,
 {
-    /// Runs `operations` on top of `executed`, as [`crate::ChangesetApplier::operate`] does.
+    /// Runs `operations` on top of `executed`, as [`crate::ChangesetApplier::operate`] does. The operations resolve
+    /// their terms on a clone of `executed`'s, so a refusal releases what they took beyond `executed`'s, once, and
+    /// leaves `executed`'s own holds with it.
     pub fn operate(
         &self,
         executed: &Executed,
@@ -45,11 +47,11 @@ where
         let running = lock(&self.rebuild).clone();
         let mut cw = ChangesetWrite::new(write, executed.catalog.clone())
             .under(running.as_ref(), running.is_some());
-        cw.initial()?;
-        for (index, operation) in operations.iter().enumerate() {
-            results.push(cw.operate(operation, index)?);
+        if let Err(refused) = run(&mut cw, operations, results) {
+            cw.release(Some(&executed.terms));
+            return Err(refused);
         }
-        let outcome = cw.finish();
+        let outcome = cw.finish(Some(&executed.terms))?;
         let mut request = outcome.request;
         // The transaction's own dictionary entries are among the seeded writes; the operations' new ones are added.
         let seeded: BTreeSet<Vec<u8>> = executed
@@ -88,4 +90,22 @@ where
             ..Executed::empty(executed.namespace, executed.read_ts, outcome.catalog)
         })
     }
+}
+
+/// Runs `operations` on `cw` in order, appending each one's outcome to `results`; the first refusal ends it.
+fn run<S, C, B>(
+    cw: &mut ChangesetWrite<'_, S, C, B>,
+    operations: &[Operation],
+    results: &mut Vec<OperationOutcome>,
+) -> Result<(), ChangesetError>
+where
+    S: Store,
+    C: ListCache<Value = CachedList>,
+    B: BlockSource,
+{
+    cw.initial()?;
+    for (index, operation) in operations.iter().enumerate() {
+        results.push(cw.operate(operation, index)?);
+    }
+    Ok(())
 }

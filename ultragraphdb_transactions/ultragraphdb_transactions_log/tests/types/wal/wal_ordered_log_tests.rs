@@ -11,7 +11,7 @@ use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use ultragraphdb_error_log::{LogError, LogErrorEnum};
 use ultragraphdb_protocol_wire::HeaderView;
-use ultragraphdb_traits_log::{OrderedLog, Position, RoundRef};
+use ultragraphdb_traits_log::{DurabilityTicket, OrderedLog, Position, RoundRef};
 use ultragraphdb_transactions_log::{
     CompioStorage, FaultMode, SimStorage, StorageOperation, Superblock, SuperblockRead, Wal,
     encode_round,
@@ -19,7 +19,7 @@ use ultragraphdb_transactions_log::{
 
 use crate::utils::helpers::{
     CLUSTER, ONE_BLOCK, TWO_BLOCKS, TempDir, append, append_rounds, append_synced, block_on, body,
-    config, dir, frame_checksum, open, run, segment, segment_in, spare, superblock,
+    config, derivation_of, dir, frame_checksum, open, run, segment, segment_in, spare, superblock,
 };
 
 /// Asserts `error` is the storage's failure of `operation`, as the simulated storage reports an injected fault.
@@ -48,7 +48,14 @@ fn test_an_append_out_of_order_is_refused_naming_the_next_position() -> TestResu
     for (position, found) in [(7, 7), (5, 5), (0, 0), (u64::MAX, u64::MAX)] {
         let data = body(position, ONE_BLOCK);
         let refused = wal
-            .append(RoundRef::new(Position::new(position), tail.1, 0, 1, &data))
+            .append(RoundRef::new(
+                Position::new(position),
+                tail.1,
+                0,
+                1,
+                derivation_of(position),
+                &data,
+            ))
             .err()
             .context("out of order")?;
         assert_eq!(refused, LogError::position_mismatch(6, found));
@@ -65,7 +72,14 @@ fn test_an_append_with_another_parent_is_refused() -> TestResult {
     let checksums = append_synced(&mut wal, 1, 2, ONE_BLOCK)?;
     let data = body(3, ONE_BLOCK);
     let refused = wal
-        .append(RoundRef::new(Position::new(3), checksums[0], 6, 1, &data))
+        .append(RoundRef::new(
+            Position::new(3),
+            checksums[0],
+            6,
+            1,
+            derivation_of(3),
+            &data,
+        ))
         .err()
         .context("not the tail's checksum")?;
     assert_eq!(
@@ -75,7 +89,14 @@ fn test_an_append_with_another_parent_is_refused() -> TestResult {
     // A fresh log's first round names the checkpoint's checksum, 0.
     let (_, mut fresh) = fresh()?;
     let refused_first = fresh
-        .append(RoundRef::new(Position::new(1), 1, 2, 1, &data))
+        .append(RoundRef::new(
+            Position::new(1),
+            1,
+            2,
+            1,
+            derivation_of(1),
+            &data,
+        ))
         .err()
         .context("not 0")?;
     assert_eq!(refused_first, LogError::parent_mismatch(1, 0, 1));
@@ -174,14 +195,28 @@ fn test_a_round_too_large_for_a_frame_or_a_segment_is_refused() -> TestResult {
     let before = storage.trace().len();
     let past_frame = vec![1u8; 1_046_273];
     let refused = wal
-        .append(RoundRef::new(Position::new(1), 0, 2, 1, &past_frame))
+        .append(RoundRef::new(
+            Position::new(1),
+            0,
+            2,
+            1,
+            derivation_of(1),
+            &past_frame,
+        ))
         .err()
         .context("past the frame")?;
     assert_eq!(refused, LogError::too_large(1_048_577, 1_048_576));
     // 20,000 bytes take five chunks and a 40-byte table: a 20,296-byte frame, five blocks; the segment holds four.
     let past_segment = vec![1u8; 20_000];
     let refused_segment = wal
-        .append(RoundRef::new(Position::new(1), 0, 2, 1, &past_segment))
+        .append(RoundRef::new(
+            Position::new(1),
+            0,
+            2,
+            1,
+            derivation_of(1),
+            &past_segment,
+        ))
         .err()
         .context("past the segment")?;
     assert_eq!(refused_segment, LogError::too_large(20_480, 16_384));
@@ -190,7 +225,15 @@ fn test_a_round_too_large_for_a_frame_or_a_segment_is_refused() -> TestResult {
     assert_eq!(storage.trace().len(), before);
     let whole = vec![1u8; 16_000];
     assert_eq!(
-        wal.append(RoundRef::new(Position::new(1), 0, 2, 1, &whole)),
+        wal.append(RoundRef::new(
+            Position::new(1),
+            0,
+            2,
+            1,
+            derivation_of(1),
+            &whole
+        ))
+        .map(|ticket| ticket.position()),
         Ok(Position::new(1))
     );
     Ok(())
@@ -205,7 +248,7 @@ fn test_an_append_past_the_capacity_is_busy_until_a_checkpoint_trims() -> TestRe
     let before = storage.trace().len();
     assert_eq!(append(&mut wal, 9, ONE_BLOCK), Err(LogError::busy(2)));
     assert_eq!(storage.trace().len(), before);
-    block_on(wal.trim_through(Position::new(4), 0)).context("trimmed")?;
+    block_on(wal.trim_through(Position::new(4))).context("trimmed")?;
     assert_eq!(append(&mut wal, 9, ONE_BLOCK), Ok(Position::new(9)));
     assert_eq!(block_on(wal.sync()), Ok(Position::new(9)));
     Ok(())
@@ -256,7 +299,7 @@ fn test_a_failed_write_or_sync_poisons_the_log() -> TestResult {
             Err(LogError::poisoned())
         );
         assert_eq!(
-            block_on(wal.trim_through(Position::ZERO, 0)),
+            block_on(wal.trim_through(Position::ZERO)),
             Err(LogError::poisoned())
         );
         assert_eq!(wal.seal(), Err(LogError::poisoned()));
@@ -416,7 +459,14 @@ fn test_read_refuses_a_valid_frame_that_is_not_the_round_logged_there() -> TestR
         CLUSTER,
         0,
         1,
-        &RoundRef::new(Position::new(2), checksums[0], 4, 1, &other),
+        &RoundRef::new(
+            Position::new(2),
+            checksums[0],
+            4,
+            1,
+            derivation_of(2),
+            &other,
+        ),
     )
     .context("encoded")?;
     let old = storage.contents(&segment(0)).context("segment 0")?;
@@ -439,10 +489,10 @@ fn test_trim_through_records_the_checkpoint_and_removes_whole_segments() -> Test
     let (storage, mut wal) = fresh()?;
     let checksums = append_synced(&mut wal, 1, 10, ONE_BLOCK)?;
     assert_eq!(
-        block_on(wal.trim_through(Position::new(11), 0)),
+        block_on(wal.trim_through(Position::new(11))),
         Err(LogError::position_mismatch(10, 11))
     );
-    block_on(wal.trim_through(Position::new(8), 0)).context("trimmed")?;
+    block_on(wal.trim_through(Position::new(8))).context("trimmed")?;
     assert_eq!(wal.checkpoint(), Position::new(8));
     // Segments 0 and 1 hold rounds 1 to 8; segment 2 holds 9 and 10.
     assert_eq!(storage.contents(&segment(0)), None);
@@ -498,7 +548,7 @@ fn test_a_failed_trim_poisons_the_log() -> TestResult {
         let (storage, mut wal) = fresh()?;
         append_rounds(&mut wal, 1, 6, ONE_BLOCK)?;
         storage.fail_at(storage.trace().len() + step, FaultMode::Before);
-        let error = block_on(wal.trim_through(Position::new(5), 0))
+        let error = block_on(wal.trim_through(Position::new(5)))
             .err()
             .context("faulted")?;
         assert_io(&error, operation);
@@ -508,7 +558,7 @@ fn test_a_failed_trim_poisons_the_log() -> TestResult {
             "step {step}"
         );
         assert_eq!(
-            block_on(wal.trim_through(Position::new(6), 0)),
+            block_on(wal.trim_through(Position::new(6))),
             Err(LogError::poisoned())
         );
     }
@@ -519,11 +569,11 @@ fn test_a_failed_trim_poisons_the_log() -> TestResult {
 fn test_trim_through_at_or_below_the_checkpoint_changes_nothing() -> TestResult {
     let (storage, mut wal) = fresh()?;
     append_rounds(&mut wal, 1, 6, ONE_BLOCK)?;
-    block_on(wal.trim_through(Position::new(5), 0)).context("trimmed")?;
+    block_on(wal.trim_through(Position::new(5))).context("trimmed")?;
     let before = storage.trace().len();
-    block_on(wal.trim_through(Position::new(5), 0)).context("no change")?;
-    block_on(wal.trim_through(Position::new(2), 0)).context("no change")?;
-    block_on(wal.trim_through(Position::ZERO, 0)).context("no change")?;
+    block_on(wal.trim_through(Position::new(5))).context("no change")?;
+    block_on(wal.trim_through(Position::new(2))).context("no change")?;
+    block_on(wal.trim_through(Position::ZERO)).context("no change")?;
     assert_eq!(storage.trace().len(), before);
     assert_eq!(wal.checkpoint(), Position::new(5));
     Ok(())
@@ -533,7 +583,7 @@ fn test_trim_through_at_or_below_the_checkpoint_changes_nothing() -> TestResult 
 fn test_trim_through_keeps_the_segment_the_next_round_goes_to() -> TestResult {
     let (storage, mut wal) = fresh()?;
     append_rounds(&mut wal, 1, 4, ONE_BLOCK)?;
-    block_on(wal.trim_through(Position::new(4), 0)).context("trimmed")?;
+    block_on(wal.trim_through(Position::new(4))).context("trimmed")?;
     assert!(storage.contents(&segment(0)).is_some());
     append_rounds(&mut wal, 5, 5, ONE_BLOCK)?;
     assert_eq!(wal.committed(), Position::new(5));
@@ -561,12 +611,13 @@ fn test_the_log_on_compio_survives_a_reopen() -> TestResult {
         for position in 1..=6u64 {
             let parent = wal.tail().1;
             let data = body(position, if position == 4 { TWO_BLOCKS } else { ONE_BLOCK });
-            let _appended: Position = wal
+            let _appended: DurabilityTicket = wal
                 .append(RoundRef::new(
                     Position::new(position),
                     parent,
                     2 * position,
                     1,
+                    derivation_of(position),
                     &data,
                 ))
                 .context("accepted")?;
@@ -610,7 +661,7 @@ fn test_a_checkpoint_zeroes_its_trimmed_segments_and_renames_them_spares() -> Te
     append_rounds(&mut wal, 1, 12, ONE_BLOCK)?;
     let before = storage.trace().len();
     // Rounds 1 to 8 fill segments 0 and 1; the checkpoint at 8 trims both.
-    block_on(wal.trim_through(Position::new(8), 0)).context("trimmed")?;
+    block_on(wal.trim_through(Position::new(8))).context("trimmed")?;
     // After the superblock's five steps: each segment zeroed whole, synced, renamed; then the directory synced.
     assert_eq!(
         storage.trace()[before + 5..],
@@ -639,7 +690,7 @@ fn test_a_checkpoint_zeroes_its_trimmed_segments_and_renames_them_spares() -> Te
 fn test_a_new_segment_takes_a_spare_and_allocates_nothing() -> TestResult {
     let (storage, mut wal) = fresh()?;
     append_rounds(&mut wal, 1, 12, ONE_BLOCK)?;
-    block_on(wal.trim_through(Position::new(8), 0)).context("trimmed")?;
+    block_on(wal.trim_through(Position::new(8))).context("trimmed")?;
     let before = storage.trace().len();
     append_rounds(&mut wal, 13, 13, ONE_BLOCK)?;
     // The lowest spare renamed as segment 3 and its entry made durable before the round's one write and one sync;
@@ -672,25 +723,29 @@ fn test_a_new_segment_takes_a_spare_and_allocates_nothing() -> TestResult {
     Ok(())
 }
 
-/// A checkpoint records the last commit version it covers beside its position, durably: the log reopened reads it
-/// back, and a trim at or below the checkpoint changes neither.
+/// A checkpoint records its position durably, the position recovery compares the store's applied position with: the
+/// log reopened reads it back, and a trim at or below the checkpoint changes nothing.
 #[test]
-fn test_a_checkpoint_records_the_version_it_covers() -> TestResult {
+fn test_a_checkpoint_records_its_position() -> TestResult {
     let (storage, mut wal) = fresh()?;
-    assert_eq!(wal.checkpoint_version(), 0, "before the first checkpoint");
-    append_rounds(&mut wal, 1, 3, ONE_BLOCK)?;
-    block_on(wal.trim_through(Position::new(2), 40)).context("trimmed")?;
-    assert_eq!(wal.checkpoint_version(), 40);
-    block_on(wal.trim_through(Position::new(1), 99)).context("no change")?;
     assert_eq!(
-        wal.checkpoint_version(),
-        40,
+        wal.checkpoint(),
+        Position::ZERO,
+        "before the first checkpoint"
+    );
+    append_rounds(&mut wal, 1, 3, ONE_BLOCK)?;
+    block_on(wal.trim_through(Position::new(2))).context("trimmed")?;
+    assert_eq!(wal.checkpoint(), Position::new(2));
+    block_on(wal.trim_through(Position::new(1))).context("no change")?;
+    assert_eq!(
+        wal.checkpoint(),
+        Position::new(2),
         "a trim below the checkpoint changes nothing"
     );
     drop(wal);
-    let (reopened, _) = open(&storage).context("reopened")?;
-    assert_eq!(reopened.checkpoint_version(), 40);
+    let (reopened, recovery) = open(&storage).context("reopened")?;
     assert_eq!(reopened.checkpoint(), Position::new(2));
+    assert_eq!(recovery.checkpoint(), Position::new(2));
     Ok(())
 }
 
@@ -712,6 +767,11 @@ fn test_each_round_names_the_release_the_log_is_configured_with() -> TestResult 
     Ok(())
 }
 
+/// A round at `position` naming `parent`, first version 0, one transaction, its body `bytes`.
+fn round_at(position: Position, parent: u64, bytes: &[u8]) -> RoundRef<'_> {
+    RoundRef::new(position, parent, 0, 1, derivation_of(position.get()), bytes)
+}
+
 /// A log whose tail is the last position, `u64::MAX`, has exhausted its positions: no round can follow it, so every
 /// append is refused as `Exhausted`, naming that position, whatever position or parent it names, and the positions never
 /// wrap to 0. The rounds at `u64::MAX - 1` and `u64::MAX` themselves are accepted, written and recovered.
@@ -722,7 +782,7 @@ fn test_the_last_position_ends_the_log_without_wrapping() -> TestResult {
     storage
         .put_file(
             &superblock('a'),
-            &Superblock::new(1, CLUSTER, 1, Position::new(u64::MAX - 2), 0x77, 0, 0).encode(),
+            &Superblock::new(1, CLUSTER, 1, Position::new(u64::MAX - 2), 0x77, 0).encode(),
         )
         .context("put")?;
     let (mut wal, recovery) = open(&storage).context("opened")?;
@@ -731,12 +791,14 @@ fn test_the_last_position_ends_the_log_without_wrapping() -> TestResult {
     let data = body(1, ONE_BLOCK);
     let next_to_last = Position::new(u64::MAX - 1);
     assert_eq!(
-        wal.append(RoundRef::new(next_to_last, 0x77, 0, 1, &data)),
+        wal.append(round_at(next_to_last, 0x77, &data))
+            .map(|ticket| ticket.position()),
         Ok(next_to_last)
     );
     let parent = wal.tail().1;
     assert_eq!(
-        wal.append(RoundRef::new(Position::new(u64::MAX), parent, 0, 1, &data)),
+        wal.append(round_at(Position::new(u64::MAX), parent, &data))
+            .map(|ticket| ticket.position()),
         Ok(Position::new(u64::MAX))
     );
     assert_eq!(block_on(wal.sync()), Ok(Position::new(u64::MAX)));
@@ -752,13 +814,8 @@ fn test_the_last_position_ends_the_log_without_wrapping() -> TestResult {
         (0, tail.1, past_frame.as_slice()),
     ] {
         assert_eq!(
-            wal.append(RoundRef::new(
-                Position::new(position),
-                named_parent,
-                0,
-                1,
-                bytes
-            )),
+            wal.append(round_at(Position::new(position), named_parent, bytes))
+                .map(|ticket| ticket.position()),
             Err(LogError::exhausted(u64::MAX)),
             "position {position}"
         );
@@ -769,7 +826,8 @@ fn test_the_last_position_ends_the_log_without_wrapping() -> TestResult {
     // A sealed log is refused as sealed first, as the order of the refusals says.
     assert_eq!(wal.seal(), Ok(Position::new(u64::MAX)));
     assert_eq!(
-        wal.append(RoundRef::new(Position::ZERO, tail.1, 0, 1, &data)),
+        wal.append(round_at(Position::ZERO, tail.1, &data))
+            .map(|ticket| ticket.position()),
         Err(LogError::sealed(u64::MAX))
     );
     drop(wal);
@@ -784,7 +842,9 @@ fn test_the_last_position_ends_the_log_without_wrapping() -> TestResult {
     assert_eq!(rounds[0].body(), data.as_slice());
     // Reopened, the log is exhausted still.
     assert_eq!(
-        reopened.append(RoundRef::new(Position::ZERO, tail.1, 0, 1, &data)),
+        reopened
+            .append(round_at(Position::ZERO, tail.1, &data))
+            .map(|ticket| ticket.position()),
         Err(LogError::exhausted(u64::MAX))
     );
     Ok(())
@@ -798,18 +858,25 @@ fn test_a_checkpoint_at_the_last_position_reopens() -> TestResult {
     storage
         .put_file(
             &superblock('a'),
-            &Superblock::new(1, CLUSTER, 1, Position::new(u64::MAX - 1), 0x77, 0, 0).encode(),
+            &Superblock::new(1, CLUSTER, 1, Position::new(u64::MAX - 1), 0x77, 0).encode(),
         )
         .context("put")?;
     let (mut wal, _) = open(&storage).context("opened")?;
     let data = body(1, ONE_BLOCK);
     // Round u64::MAX starts segment 0, so the first kept segment's first round is the checkpoint's.
-    let _appended: Position = wal
-        .append(RoundRef::new(Position::new(u64::MAX), 0x77, 0, 1, &data))
+    let _appended: DurabilityTicket = wal
+        .append(RoundRef::new(
+            Position::new(u64::MAX),
+            0x77,
+            0,
+            1,
+            derivation_of(u64::MAX),
+            &data,
+        ))
         .context("accepted")?;
     assert_eq!(block_on(wal.sync()), Ok(Position::new(u64::MAX)));
     let last = wal.tail().1;
-    block_on(wal.trim_through(Position::new(u64::MAX), 90)).context("trimmed")?;
+    block_on(wal.trim_through(Position::new(u64::MAX))).context("trimmed")?;
     assert_eq!(wal.checkpoint(), Position::new(u64::MAX));
     drop(wal);
     let (mut reopened, recovery) = open(&storage).context("reopened, not diverged")?;
@@ -822,10 +889,140 @@ fn test_a_checkpoint_at_the_last_position_reopens() -> TestResult {
         (Position::new(u64::MAX), Position::new(u64::MAX), None)
     );
     assert_eq!(reopened.tail(), (Position::new(u64::MAX), last));
-    assert_eq!(reopened.checkpoint_version(), 90);
+    assert_eq!(reopened.checkpoint(), Position::new(u64::MAX));
     assert_eq!(
-        reopened.append(RoundRef::new(Position::ZERO, last, 0, 1, &data)),
+        reopened
+            .append(RoundRef::new(
+                Position::ZERO,
+                last,
+                0,
+                1,
+                derivation_of(0),
+                &data
+            ))
+            .map(|ticket| ticket.position()),
         Err(LogError::exhausted(u64::MAX))
+    );
+    Ok(())
+}
+
+/// The ticket of `position`'s round, appended after the tail with its body of `len` bytes and not yet synced.
+fn append_ticket(
+    wal: &mut Wal<SimStorage>,
+    position: u64,
+    len: usize,
+) -> TestResult<DurabilityTicket> {
+    let parent = wal.tail().1;
+    let data = body(position, len);
+    wal.append(RoundRef::new(
+        Position::new(position),
+        parent,
+        2 * position,
+        1,
+        derivation_of(position),
+        &data,
+    ))
+    .context("the round is accepted")
+}
+
+/// A ticket is pending until the sync that covers its round, complete after it, and `committed` reaches the round's
+/// position only then; a sync covering several rounds completes each of their tickets, and a ticket stays complete.
+#[test]
+fn test_a_ticket_completes_once_its_round_is_durable() -> TestResult {
+    let (_storage, mut wal) = fresh()?;
+    let first = append_ticket(&mut wal, 1, ONE_BLOCK)?;
+    assert_eq!(first.position(), Position::new(1));
+    assert!(wal.poll_ticket(first).is_pending());
+    assert_eq!(wal.committed(), Position::ZERO);
+    assert_eq!(block_on(wal.sync()), Ok(Position::new(1)));
+    assert_eq!(wal.poll_ticket(first), std::task::Poll::Ready(Ok(())));
+    assert_eq!(wal.committed(), Position::new(1));
+    let second = append_ticket(&mut wal, 2, ONE_BLOCK)?;
+    let third = append_ticket(&mut wal, 3, TWO_BLOCKS)?;
+    assert_eq!(
+        (second.position(), third.position()),
+        (Position::new(2), Position::new(3))
+    );
+    assert!(wal.poll_ticket(second).is_pending());
+    assert!(wal.poll_ticket(third).is_pending());
+    assert_eq!(wal.poll_ticket(first), std::task::Poll::Ready(Ok(())));
+    assert_eq!(wal.committed(), Position::new(1));
+    assert_eq!(block_on(wal.sync()), Ok(Position::new(3)));
+    for ticket in [first, second, third] {
+        assert_eq!(
+            wal.poll_ticket(ticket),
+            std::task::Poll::Ready(Ok(())),
+            "{ticket:?}"
+        );
+    }
+    Ok(())
+}
+
+/// A failed sync loses the rounds it did not make durable: their tickets fail with the log's poisoning, while a round
+/// durable before it keeps its complete ticket.
+#[test]
+fn test_a_ticket_fails_when_its_sync_fails() -> TestResult {
+    let (storage, mut wal) = fresh()?;
+    let durable = append_ticket(&mut wal, 1, ONE_BLOCK)?;
+    let _synced: Position = block_on(wal.sync()).context("synced")?;
+    let lost = append_ticket(&mut wal, 2, ONE_BLOCK)?;
+    storage.fail_at(storage.trace().len(), FaultMode::Before);
+    assert!(block_on(wal.sync()).is_err(), "the write fails");
+    assert_eq!(
+        wal.poll_ticket(lost),
+        std::task::Poll::Ready(Err(LogError::poisoned()))
+    );
+    assert_eq!(wal.poll_ticket(durable), std::task::Poll::Ready(Ok(())));
+    assert_eq!(wal.committed(), Position::new(1));
+    Ok(())
+}
+
+/// A ticket naming a position past the tail was never handed out by this log, and never completes: it is refused,
+/// naming the tail and the position, before and after a sync.
+#[test]
+fn test_a_ticket_past_the_tail_is_refused() -> TestResult {
+    let (_storage, mut wal) = fresh()?;
+    let foreign = DurabilityTicket::new(Position::new(5));
+    assert_eq!(
+        wal.poll_ticket(foreign),
+        std::task::Poll::Ready(Err(LogError::position_mismatch(0, 5)))
+    );
+    let _staged = append_ticket(&mut wal, 1, ONE_BLOCK)?;
+    let _ticket = append_ticket(&mut wal, 2, ONE_BLOCK)?;
+    assert_eq!(
+        wal.poll_ticket(foreign),
+        std::task::Poll::Ready(Err(LogError::position_mismatch(2, 5)))
+    );
+    let _synced: Position = block_on(wal.sync()).context("synced")?;
+    assert_eq!(
+        wal.poll_ticket(DurabilityTicket::new(Position::new(3))),
+        std::task::Poll::Ready(Err(LogError::position_mismatch(2, 3)))
+    );
+    Ok(())
+}
+
+/// A round's derivation version is stored in its frame and read back with it, from the log that wrote it and from the
+/// log reopened by recovery's scan, each round its own.
+#[test]
+fn test_each_rounds_derivation_reads_back() -> TestResult {
+    let (storage, mut wal) = fresh()?;
+    append_rounds(&mut wal, 1, 9, ONE_BLOCK)?;
+    let expected: Vec<(u64, u32)> = (1..=9).map(|p| (p, derivation_of(p).get())).collect();
+    let read = |rounds: Vec<ultragraphdb_traits_log::Round>| -> Vec<(u64, u32)> {
+        rounds
+            .iter()
+            .map(|r| (r.position().get(), r.derivation().get()))
+            .collect()
+    };
+    assert_eq!(
+        read(block_on(wal.read(Position::new(1), u32::MAX)).context("read")?),
+        expected
+    );
+    drop(wal);
+    let (mut reopened, _) = open(&storage).context("reopened")?;
+    assert_eq!(
+        read(block_on(reopened.read(Position::new(1), u32::MAX)).context("read")?),
+        expected
     );
     Ok(())
 }

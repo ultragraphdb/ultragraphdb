@@ -49,6 +49,7 @@ const REMOVALS_PER_BATCH: usize = 64;
 /// [`SimStore::contents`] shows what the store holds, read without faults. Clones share one store.
 #[derive(Debug, Clone)]
 pub struct SimStore {
+    // Shared by its clones and snapshots (Ultra rule 9): `Store` takes `&self` from any thread.
     shared: Arc<Mutex<Inner>>,
     clock: SimClock,
 }
@@ -70,7 +71,7 @@ pub(crate) enum Status {
 
 #[derive(Debug)]
 pub(crate) struct Inner {
-    /// What the process sees.
+    /// What the process sees. States are shared with snapshots as `Arc`s and copied on write.
     pub current: Arc<State>,
     /// What survives a power loss: the state at the last sync.
     durable: Arc<State>,

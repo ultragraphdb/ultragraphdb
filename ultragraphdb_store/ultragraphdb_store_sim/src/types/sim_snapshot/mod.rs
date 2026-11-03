@@ -21,6 +21,7 @@ use crate::types::sim_store::state::{State, decode};
 /// corruption.
 #[derive(Debug)]
 pub struct SimSnapshot {
+    // The store it was opened on and the state it reads, shared (Ultra rule 9): the state is never changed in place.
     shared: Arc<Mutex<Inner>>,
     state: Arc<State>,
     read_ts: u64,

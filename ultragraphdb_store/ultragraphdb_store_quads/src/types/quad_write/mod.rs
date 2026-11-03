@@ -204,6 +204,30 @@ where
         read_list(&list, &forward)
     }
 
+    /// The objects of `subject`'s `predicate` in `graph` as the write's snapshot holds them, each with its statement
+    /// IDs: without the write's own writes, and recorded as read nowhere. A subject the write created holds none.
+    pub fn snapshot_objects(
+        &self,
+        graph: Graph,
+        subject: SystemId,
+        predicate: SystemId,
+    ) -> Result<Vec<(EncodedTerm, Vec<SystemId>)>, QuadError> {
+        if self.terms.is_fresh(subject) {
+            return Ok(Vec::new());
+        }
+        let forward = self.forward(graph, predicate, subject);
+        read_list(&self.request.snapshot(&forward)?, &forward)
+    }
+
+    /// Drops every list delta and statistics delta the write made, keeping its terms, its entries, its versionless
+    /// writes and what it read: what a write whose keys are derived again from its net effect on its snapshot starts
+    /// from.
+    pub fn discard_lists(&mut self) {
+        self.request.discard_deltas();
+        self.stats.clear();
+        self.inserted.clear();
+    }
+
     /// The statement IDs of `subject predicate object` in `graph` when the subject holds it, as the write sees it,
     /// `None` when it does not: a read of the subject's list that records the statement it tests, not the list, so
     /// that an insert conflicts only with a commit that added or removed this object. None is recorded for a subject

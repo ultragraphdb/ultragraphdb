@@ -6,11 +6,15 @@
 #[cfg(test)]
 mod applier_operator;
 #[cfg(test)]
+mod close_request_tests;
+#[cfg(test)]
 mod commit_request_tests;
 #[cfg(test)]
 mod commit_step;
 #[cfg(test)]
 mod conflict_history;
+#[cfg(test)]
+mod epoch_stamp;
 #[cfg(test)]
 mod pipeline;
 #[cfg(test)]
@@ -23,8 +27,6 @@ mod resolver;
 mod round_bounds_tests;
 #[cfg(test)]
 mod round_record_tests;
-#[cfg(test)]
-mod sequencer;
 #[cfg(test)]
 mod session_entry;
 #[cfg(test)]

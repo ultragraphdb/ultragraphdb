@@ -20,8 +20,8 @@ use ultragraphdb_traits_store::{Entry, Item, PersistMode, Scan, Store, StoreSnap
 
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_tool_test::{
-    DROPPED_KEYS, KEYS_PER_BATCH, batch_counts, drop_outcome, fresh_dir, kill_after, kill_at, open,
-    raw_drop_state, versionless_counts,
+    DROPPED_KEYS, KEYS_PER_BATCH, acknowledged_rounds, batch_counts, drop_outcome, fresh_dir,
+    kill_after, kill_at, open, raw_drop_state, replay_round, versionless_counts,
 };
 
 #[derive(Debug, Default, World)]
@@ -466,6 +466,67 @@ fn whole_batch(w: &mut Steps) -> TestResult {
             counts.iter().all(|&c| c == 0 || c == KEYS_PER_BATCH),
             "{outcome}"
         );
+    }
+    Ok(())
+}
+
+// The write-ahead log is the writer's synced log of rounds beside the store (`kv_crash_writer log`): a round is
+// acknowledged once its line is synced there, before its batch is written to the store, unsynced. Recovery replays it
+// as the commit step's replay does, from the store's applied position on.
+#[when(
+    "rounds are acknowledged, the process is killed before the store's journal is synced, and it restarts"
+)]
+fn killed_before_the_journal_is_synced(w: &mut Steps) -> TestResult {
+    for delay in [0u64, 2, 5] {
+        let dir = fresh_dir(&format!("bdd-log-{}", next()));
+        let _lines = kill_after(&dir, "log", "acked 2", Duration::from_millis(delay))?;
+        let acknowledged = acknowledged_rounds(&dir)?;
+        let store = FjallStore::open(&dir, Durability::Log).context("the store reopens")?;
+        let applied = store.applied_ts();
+        let replayed: Vec<u64> = (applied + 1..=acknowledged).collect();
+        for &round in &replayed {
+            replay_round(&store, round)?;
+        }
+        let counts = batch_counts(&store, acknowledged + 1)?;
+        w.outcomes.push(format!(
+            "{acknowledged} acknowledged, applied {applied}, replayed {replayed:?}, held {counts:?}"
+        ));
+        drop(store);
+        // A directory left behind is litter in the temporary directory, not a failure of the test.
+        drop(std::fs::remove_dir_all(&dir));
+        drop(std::fs::remove_file(dir.with_extension("rounds")));
+    }
+    Ok(())
+}
+
+#[then(
+    "every acknowledged round is held after recovery, replayed from the log above the store's applied position"
+)]
+fn acknowledged_rounds_held(w: &mut Steps) -> TestResult {
+    assert_eq!(w.outcomes.len(), 3);
+    for outcome in &w.outcomes {
+        let (acknowledged, rest) = outcome
+            .split_once(" acknowledged, applied ")
+            .context("an outcome")?;
+        let acknowledged: usize = acknowledged.parse()?;
+        let held = rest
+            .split_once("held [")
+            .context("the counts")?
+            .1
+            .trim_end_matches(']');
+        let counts: Vec<usize> = held.split(", ").map(str::parse).collect::<Result<_, _>>()?;
+        // The writer was killed after its second acknowledgement: at least two rounds, each whole, and nothing past
+        // the last acknowledged.
+        assert!(acknowledged >= 2, "{outcome}");
+        assert_eq!(counts.len(), acknowledged + 1, "{outcome}");
+        assert!(
+            counts
+                .iter()
+                .take(acknowledged)
+                .all(|&c| c == KEYS_PER_BATCH),
+            "{outcome}"
+        );
+        assert_eq!(counts.last(), Some(&0), "{outcome}");
     }
     Ok(())
 }

@@ -631,6 +631,28 @@ fn test_a_pending_skolem_iri_is_found_and_a_held_one_too() -> TestResult {
 }
 
 #[test]
+fn test_a_found_pending_skolem_iri_is_carried_by_the_write_that_found_it() -> TestResult {
+    let store = quads()?;
+    let mut minting = WriteTerms::new(0);
+    let x = minting.blank(&store, "x")?;
+    let skolem = Term::from(NamedNode::new(skolem_of(&minting, x)?)?);
+    let mut finding = WriteTerms::new(0);
+    assert_eq!(
+        finding.find(&store, skolem.as_ref())?,
+        Some(EncodedTerm::id(x))
+    );
+    store.release(&minting);
+    assert_eq!(
+        finding.find(&store, skolem.as_ref())?,
+        Some(EncodedTerm::id(x)),
+        "found once, the write's own"
+    );
+    write_terms(&store, finding)?;
+    assert!(store.iri_of(0, x)?.1, "its entries are committed");
+    Ok(())
+}
+
+#[test]
 fn test_statement_reifier_draws_past_the_bound_are_refused() -> TestResult {
     // As blank nodes: stores over one seed each mint one reifier of one subject and commit it.
     let shared = sim();

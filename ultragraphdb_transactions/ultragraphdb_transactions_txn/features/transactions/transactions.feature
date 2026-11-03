@@ -1,18 +1,20 @@
 # The scenarios of the transactions capability that a transaction on a worker carries, verbatim from
-# openspec/changes/stage-5-transactions-and-binary-protocol/specs/transactions/spec.md. An acknowledged commit is one the
-# changeset applier has applied, so the watermark has passed it; the commit step that acknowledges commits in rounds is
-# group 7's.
+# openspec/changes/stage-5-transactions-and-binary-protocol/specs/transactions/spec.md, and, for the requirements stage
+# 5.5 modifies ("Transactions read a snapshot at the visibility watermark", "Interactive transactions"), from
+# openspec/changes/stage-5-5-three-role-refactor/specs/transactions/spec.md. An acknowledged commit is one the changeset
+# applier has applied, so the watermark has passed it. The requirement's "A snapshot read waits for its epoch" is bound
+# where a partition reports the epochs it has closed, its commit step (`ultragraphdb_transactions_commit`).
 
 Feature: Transactions on a worker
 
   # Requirement: Transactions read a snapshot at the visibility watermark
 
   Scenario: A read above the watermark is refused
-    When a request names a read version above the visibility watermark
+    When a client's Begin names a read version above the visibility watermark of the partition answering it
     Then it is refused at once with an error naming the version and the watermark, and the worker serves the next request
 
   Scenario: A transaction sees every commit acknowledged before it began
-    When a commit setting `<a> <name> "A"` is acknowledged and a transaction then begins and reads `name` of `a`
+    When a commit setting `<a> <name> "A"` is acknowledged and a read-write transaction then begins and reads `name` of `a`
     Then it reads `"A"`
 
   Scenario: A read-only transaction does not abort

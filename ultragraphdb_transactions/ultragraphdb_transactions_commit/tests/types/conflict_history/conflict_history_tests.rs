@@ -7,7 +7,7 @@ use ultragraphdb_protocol_wire::ConflictKind;
 use ultragraphdb_tool_bdd::TestResult;
 use ultragraphdb_transactions_commit::ConflictHistory;
 
-use crate::utils::proposal_double::{Reads, Writes, read_set};
+use crate::utils::proposal_double::{Reads, Writes, read_set, term_key};
 
 /// Inserts `writes` at `version`.
 fn insert(history: &mut ConflictHistory, version: u64, writes: &Writes) {
@@ -138,34 +138,31 @@ fn test_an_empty_range_conflicts_with_nothing() -> TestResult {
 }
 
 #[test]
-fn test_a_key_found_absent_conflicts_with_its_creation() -> TestResult {
-    let read = Reads::absent(b"iri");
+fn test_a_term_found_absent_conflicts_with_a_statement_of_it() -> TestResult {
+    let read = Reads::absent(7);
     assert_eq!(
-        after(&Writes::point(b"iri"), &read)?,
+        after(&Writes::term(7), &read)?,
         Some(ConflictKind::AbsentTerm)
     );
+    // A range holding the term's key, a drop.
     assert_eq!(
-        after(&Writes::range(b"i", None), &read)?,
+        after(&Writes::range(&[0xFE], None), &read)?,
         Some(ConflictKind::Drop)
     );
-    assert_eq!(after(&Writes::point(b"iri2"), &read)?, None);
+    // Another term's statement, and a key sharing the term key's first bytes, do not.
+    assert_eq!(after(&Writes::term(8), &read)?, None);
+    assert_eq!(after(&Writes::point(&term_key(7)[..16]), &read)?, None);
     Ok(())
 }
 
 #[test]
-fn test_the_catalog_range_conflicts_with_a_catalog_write() -> TestResult {
-    let catalog = read_set(0, 10, &Reads::default())?;
-    let mut key = catalog.catalog().0.to_vec();
+fn test_no_write_conflicts_through_the_catalog_keyspace() -> TestResult {
+    // The catalog is read through its version in effect at the commit epoch: a catalog key written is a key like any
+    // other, which a read set that read nothing never holds.
+    let mut key = vec![0x01];
+    key.extend_from_slice(&0u64.to_be_bytes());
     key.extend_from_slice(b"score");
-    assert_eq!(
-        after(&Writes::point(&key), &Reads::default())?,
-        Some(ConflictKind::Catalog)
-    );
-    // A key of another namespace's catalog is outside it.
-    let other = read_set(1, 10, &Reads::default())?;
-    let mut other_key = other.catalog().0.to_vec();
-    other_key.extend_from_slice(b"score");
-    assert_eq!(after(&Writes::point(&other_key), &Reads::default())?, None);
+    assert_eq!(after(&Writes::point(&key), &Reads::default())?, None);
     Ok(())
 }
 
@@ -173,17 +170,17 @@ fn test_the_catalog_range_conflicts_with_a_catalog_write() -> TestResult {
 fn test_kinds_are_reported_in_order_and_ranges_last() -> TestResult {
     let reads = Reads {
         lists: vec![b"a".to_vec()],
-        absent: vec![b"b".to_vec()],
+        absent: vec![2],
         statements: vec![(b"s".to_vec(), b"o".to_vec())],
         ..Reads::default()
     };
     let both = Writes {
-        points: vec![b"b".to_vec(), b"a".to_vec()],
+        points: vec![term_key(2), b"a".to_vec()],
         ..Writes::default()
     };
     assert_eq!(after(&both, &reads)?, Some(ConflictKind::List));
     assert_eq!(
-        after(&Writes::point(b"b"), &reads)?,
+        after(&Writes::term(2), &reads)?,
         Some(ConflictKind::AbsentTerm)
     );
     let dropped = Writes {
@@ -421,14 +418,12 @@ fn test_a_list_written_whole_and_by_statements_in_one_transaction_is_held_as_bot
 }
 
 #[test]
-fn test_a_range_written_over_the_catalog_conflicts_as_a_drop() -> TestResult {
-    // A namespace's drop writes its whole catalog range, which every read set of the namespace holds.
-    let rs = read_set(0, 10, &Reads::default())?;
-    let (start, end) = rs.catalog();
+fn test_a_range_written_over_an_absent_terms_key_conflicts_as_a_drop() -> TestResult {
+    let rs = read_set(0, 10, &Reads::absent(4))?;
     let mut history = ConflictHistory::new(0);
-    insert(&mut history, 12, &Writes::range(start, end));
+    insert(&mut history, 12, &Writes::range(&[0xFE], Some(&[0xFF])));
     assert_eq!(history.conflict(&rs), Some(ConflictKind::Drop));
-    let other = read_set(1, 10, &Reads::default())?;
+    let other = read_set(0, 10, &Reads::list(b"k"))?;
     assert_eq!(history.conflict(&other), None);
     Ok(())
 }

@@ -161,7 +161,7 @@ fn test_a_commit_to_a_full_queue_is_refused_busy_and_released() -> TestResult {
     commit(&mut step, &mut out, 3, p(b"c")?);
     let busy = ultragraphdb_transactions_commit::CommitError::busy(1);
     assert_eq!(
-        out.replies(),
+        crate::utils::fixture::plain(out.replies()),
         &[ultragraphdb_transactions_commit::Reply::new(
             3,
             Err(busy.clone())

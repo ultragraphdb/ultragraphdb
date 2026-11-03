@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+pub mod durability_ticket;
 pub mod log_event;
 pub mod position;
 pub mod round;

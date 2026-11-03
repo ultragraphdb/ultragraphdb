@@ -4,82 +4,168 @@
  */
 
 use crate::utils::fixture::Refused;
+use ultragraphdb_core_ids::{Epoch, SessionToken};
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
-use ultragraphdb_protocol_wire::OperationResult;
+use ultragraphdb_protocol_wire::{OperationResult, TermTable};
 use ultragraphdb_store_sim::{FaultConfig, Seed, SimClock, SimStore};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_store::{PersistMode, Store, VersionlessEntry, WriteBatch};
-use ultragraphdb_transactions_commit::{CommitError, SessionEntry, Sessions};
+use ultragraphdb_transactions_commit::{CommitError, SessionEntry, Sessions, StoredReply};
+
+/// A session identity using all 128 bits, so a table keyed by 64 of them would merge sessions.
+const WIDE: u128 = 0x0123_4567_89AB_CDEF_FEDC_BA98_7654_3210;
+
+/// The stored reply of a commit at `version` in partition 1, at log position `position`, with no results.
+fn reply(version: u64, position: u64) -> TestResult<StoredReply> {
+    let epoch = Epoch::new(version >> 22).context("the epoch")?;
+    Ok(StoredReply::new(
+        version,
+        SessionToken::new(1, position, epoch),
+        Vec::new(),
+        TermTable::new(),
+    ))
+}
+
+/// The stored reply of a commit at `version` with one result naming the node `iri`, created.
+fn reply_naming(version: u64, iri: &str) -> TestResult<StoredReply> {
+    let epoch = Epoch::new(version >> 22).context("the epoch")?;
+    let mut terms = TermTable::new();
+    let node = terms.iri(iri);
+    Ok(StoredReply::new(
+        version,
+        SessionToken::new(1, 3, epoch),
+        vec![OperationResult::for_node(node, true)],
+        terms,
+    ))
+}
 
 #[test]
-fn test_a_table_holds_at_least_one_session_and_accounts_48_bytes_each() -> TestResult {
+fn test_a_table_holds_at_least_one_session_and_accounts_64_bytes_each() -> TestResult {
     let mut table = Sessions::new(0);
     assert_eq!(table.capacity(), 1);
     assert!(table.is_empty());
-    assert_eq!(table.register(10, 0), None);
-    assert_eq!(table.bytes(), 48);
-    assert_eq!(table.register(12, 0), Some(10));
-    assert_eq!((table.len(), table.bytes()), (1, 48));
-    assert_eq!(Sessions::new(Sessions::DEFAULT_CAPACITY).capacity(), 4_096);
+    table.committed(5, 1, reply(40, 1)?);
+    assert_eq!(table.len(), 1);
+    assert_eq!(table.bytes(), 64);
+    table.committed(6, 1, reply_naming(42, "http://ex.org/x")?);
+    // The full table still takes its sessions' commits; 64 and 16 for the result.
+    assert_eq!(table.bytes(), 64 + 64 + 16);
     Ok(())
 }
 
 #[test]
-fn test_the_session_touched_longest_ago_is_evicted_one_without_a_commit_in_flight_first()
--> TestResult {
-    let mut table = Sessions::new(3);
-    for s in [10, 12, 14] {
-        let _evicted: Option<u64> = table.register(s, 0);
-    }
-    // 10 commits at 20, 14 at 22: 12 is the oldest.
-    table.committed(10, 1, 20, Vec::new());
-    table.committed(14, 1, 22, Vec::new());
-    assert_eq!(table.register(30, 0), Some(12));
-    // 10 is now the oldest, but has a commit in flight: 14 goes instead.
-    table.begin(10);
-    assert_eq!(table.register(32, 0), Some(14));
-    assert_eq!(table.last(10), Some((1, 20)));
-    // Every session in flight: the oldest goes.
-    table.begin(30);
-    table.begin(32);
-    assert_eq!(table.register(34, 0), Some(10));
+fn test_a_session_the_table_does_not_hold_commits_there_first() -> TestResult {
+    let table = Sessions::new(4);
+    assert_eq!(table.check(0, 0,), Ok(None), "no session");
+    assert_eq!(table.check(WIDE, 1), Ok(None));
+    assert_eq!(
+        table.check(WIDE, 9),
+        Ok(None),
+        "any number: gaps are accepted"
+    );
     Ok(())
 }
 
 #[test]
 fn test_a_check_follows_the_lean_models_order() -> TestResult {
     let mut table = Sessions::new(4);
-    assert_eq!(table.check(0, 99, 0), Ok(None), "no session");
-    assert_eq!(table.check(5, 1, 0), Err(CommitError::session_evicted(5)));
-    let _evicted: Option<u64> = table.register(5, 0);
+    table.begin(WIDE);
     assert_eq!(
-        table.check(5, 0, 0),
-        Err(CommitError::request_out_of_order(1))
+        table.check(WIDE, 1),
+        Err(CommitError::session_busy(WIDE)),
+        "a request decided and not yet applied comes first"
     );
-    assert_eq!(table.check(5, 1, 0), Ok(None));
+    table.committed(WIDE, 3, reply(40, 2)?);
+    assert_eq!(table.last(WIDE), Some((3, 40)));
+    // A retry of the last before a number out of order.
     assert_eq!(
-        table.check(5, 2, 0),
-        Err(CommitError::request_out_of_order(1))
+        table.check(WIDE, 3)?.map(StoredReply::version),
+        Some(40),
+        "the stored reply"
     );
+    assert_eq!(
+        table.check(WIDE, 2),
+        Err(CommitError::request_out_of_order(3))
+    );
+    assert_eq!(table.check(WIDE, 4), Ok(None));
+    assert_eq!(
+        table.check(WIDE, 7),
+        Ok(None),
+        "a gap left by other partitions"
+    );
+    Ok(())
+}
+
+#[test]
+fn test_a_session_differing_only_in_its_high_bits_is_another() -> TestResult {
+    let mut table = Sessions::new(4);
+    table.committed(WIDE, 5, reply(40, 1)?);
+    let low_half = WIDE & u128::from(u64::MAX);
+    assert_eq!(table.last(low_half), None);
+    assert_eq!(table.check(low_half, 1), Ok(None));
+    Ok(())
+}
+
+#[test]
+fn test_a_full_table_refuses_a_session_it_does_not_hold_and_serves_its_own() -> TestResult {
+    let mut table = Sessions::new(2);
+    table.committed(1, 1, reply(40, 1)?);
+    table.committed(2, 1, reply(42, 1)?);
+    assert_eq!(table.check(3, 1), Err(CommitError::busy(2)));
+    assert_eq!(table.check(1, 2), Ok(None));
+    // Below the capacity, a new session is taken.
+    let mut room = Sessions::new(3);
+    room.committed(1, 1, reply(40, 1)?);
+    room.committed(2, 1, reply(42, 1)?);
+    assert_eq!(room.check(3, 1), Ok(None));
+    Ok(())
+}
+
+#[test]
+fn test_a_purge_removes_the_evicted_sessions_held_and_skips_the_others() -> TestResult {
+    let mut table = Sessions::new(3);
+    table.committed(1, 1, reply(40, 1)?);
+    table.committed(2, 4, reply(42, 1)?);
+    table.purge(&[2, 99]);
+    assert_eq!(table.len(), 1);
+    assert_eq!(table.last(2), None);
+    assert_eq!(table.last(1), Some((1, 40)));
+    // A purged session is unknown again; the registry's owner check keeps an evicted one from reaching here.
+    assert_eq!(table.check(2, 1), Ok(None));
+    table.purge(&[]);
+    assert_eq!(table.len(), 1);
+    Ok(())
+}
+
+/// A retry sent with no transaction open for it (the frontend's Recall, `PROTOCOL.md` §11.5): the last committed
+/// request's stored reply, busy while one is in flight, out of order below the last, not committed otherwise.
+#[test]
+fn test_a_retry_is_answered_from_the_table() -> TestResult {
+    let mut table = Sessions::new(4);
+    assert_eq!(table.retry(5, 1), Err(CommitError::not_committed(1)));
     table.begin(5);
-    assert_eq!(table.check(5, 1, 0), Err(CommitError::session_busy(5)));
-    let results = vec![OperationResult::new(9, true)];
-    table.committed(5, 1, 40, results.clone());
+    assert_eq!(table.retry(5, 1), Err(CommitError::session_busy(5)));
+    let stored = reply_naming(40, "http://ex.org/x")?;
+    table.committed(5, 7, stored.clone());
     assert_eq!(
-        table.check(5, 1, 0),
-        Ok(Some((40, results.as_slice()))),
-        "the stored reply, its results with it"
+        table.retry(5, 7),
+        Ok(&stored),
+        "byte for byte, its results and token"
     );
-    assert_eq!(table.bytes(), 64, "16 bytes a result");
-    assert_eq!(table.check(5, 2, 0), Ok(None));
-    assert_eq!(
-        table.check(5, 3, 0),
-        Err(CommitError::request_out_of_order(2))
-    );
-    // Unknown sessions take no state.
-    table.begin(77);
-    table.committed(77, 1, 50, Vec::new());
-    assert_eq!(table.last(77), None);
+    assert_eq!(table.retry(5, 8), Err(CommitError::not_committed(8)));
+    assert_eq!(table.retry(5, 6), Err(CommitError::request_out_of_order(7)));
+    assert_eq!(CommitError::not_committed(8).detail(), 8);
+    Ok(())
+}
+
+#[test]
+fn test_a_commit_clears_its_sessions_request_in_flight() -> TestResult {
+    let mut table = Sessions::new(4);
+    table.begin(5);
+    table.begin(6);
+    table.committed(5, 1, reply(40, 1)?);
+    assert_eq!(table.check(5, 2), Ok(None));
+    assert_eq!(table.check(6, 1), Err(CommitError::session_busy(6)));
     Ok(())
 }
 
@@ -90,59 +176,55 @@ fn drained(table: &mut Sessions) -> Vec<VersionlessEntry> {
     entries
 }
 
-fn put(session: u64, entry: &SessionEntry) -> VersionlessEntry {
+fn put(session: u128, entry: &SessionEntry) -> VersionlessEntry {
     VersionlessEntry::put(SessionEntry::key(session), entry.encode())
 }
 
-fn index(sessions: &[u64]) -> VersionlessEntry {
+/// The index of `sessions`: each identity's 16 big-endian bytes, ascending.
+fn index(sessions: &[u128]) -> VersionlessEntry {
     VersionlessEntry::put(
         SessionEntry::INDEX_KEY.to_vec(),
-        sessions.iter().flat_map(|s| s.to_le_bytes()).collect(),
+        sessions.iter().flat_map(|s| s.to_be_bytes()).collect(),
     )
 }
 
 #[test]
 fn test_the_table_hands_out_each_change_once_as_store_entries() -> TestResult {
-    let mut table = Sessions::new(2);
+    let mut table = Sessions::new(4);
     assert!(drained(&mut table).is_empty(), "nothing changed");
-    assert_eq!(table.register(12, 0), None);
-    assert_eq!(table.register(10, 0), None);
+    table.committed(12, 1, reply(40, 1)?);
+    table.committed(WIDE, 2, reply(42, 1)?);
     assert_eq!(
         drained(&mut table),
         vec![
-            put(10, &SessionEntry::new(0, 0, 0, Vec::new())),
-            put(12, &SessionEntry::new(0, 0, 0, Vec::new())),
-            index(&[10, 12]),
+            put(12, &SessionEntry::new(1, reply(40, 1)?)),
+            put(WIDE, &SessionEntry::new(2, reply(42, 1)?)),
+            index(&[12, WIDE]),
         ],
         "each session's entry in order, then the index"
     );
-    let results = vec![OperationResult::new(3, false)];
-    table.committed(10, 1, 20, results.clone());
+    table.committed(12, 5, reply(44, 2)?);
     assert_eq!(
         drained(&mut table),
-        vec![put(10, &SessionEntry::new(1, 20, 0, results.clone()))],
-        "a commit leaves the index alone"
+        vec![put(12, &SessionEntry::new(5, reply(44, 2)?))],
+        "a later commit of a session held leaves the index alone"
     );
-    // 12 is the oldest: evicted, its entry removed.
-    assert_eq!(table.register(14, 0), Some(12));
+    table.purge(&[12]);
     assert_eq!(
         drained(&mut table),
         vec![
-            put(14, &SessionEntry::new(0, 0, 0, Vec::new())),
             VersionlessEntry::removal(SessionEntry::key(12)),
-            index(&[10, 14]),
+            index(&[WIDE]),
         ]
     );
-    // 16 registered and evicted before the entries are drained: removed only, never written.
-    assert_eq!(table.register(16, 0), Some(14));
-    assert_eq!(table.register(18, 0), Some(16));
+    // Committed and purged before the entries are drained: removed only, never written.
+    table.committed(16, 1, reply(46, 3)?);
+    table.purge(&[16]);
     assert_eq!(
         drained(&mut table),
         vec![
-            put(18, &SessionEntry::new(0, 0, 0, Vec::new())),
-            VersionlessEntry::removal(SessionEntry::key(14)),
             VersionlessEntry::removal(SessionEntry::key(16)),
-            index(&[10, 18]),
+            index(&[WIDE]),
         ]
     );
     assert!(drained(&mut table).is_empty());
@@ -174,34 +256,19 @@ fn test_a_table_loads_as_its_entries_left_it() -> TestResult {
     assert_eq!(empty.capacity(), Sessions::DEFAULT_CAPACITY);
     let store = store();
     let mut table = Sessions::new(8);
-    for s in [10, 12, 14] {
-        let _evicted: Option<u64> = table.register(s, 0);
-    }
-    let results = vec![
-        OperationResult::new(5, true),
-        OperationResult::new(6, false),
-    ];
-    table.committed(10, 3, 30, results.clone());
-    table.committed(14, 1, 22, Vec::new());
+    let named = reply_naming(48, "http://ex.org/x")?;
+    table.committed(10, 3, named.clone());
+    table.committed(WIDE, 1, reply(50, 2)?);
     write(&store, &drained(&mut table))?;
     let mut loaded = Sessions::load(&store).context("the table loads")?;
-    assert_eq!(loaded.len(), 3);
-    assert_eq!(loaded.check(10, 3, 0), Ok(Some((30, results.as_slice()))));
-    assert_eq!(loaded.last(12), Some((0, 0)));
-    assert_eq!(loaded.last(14), Some((1, 22)));
+    assert_eq!(loaded.len(), 2);
+    assert_eq!(loaded.check(10, 3), Ok(Some(&named)));
+    assert_eq!(loaded.last(WIDE), Some((1, 50)));
     assert!(drained(&mut loaded).is_empty(), "loading changes nothing");
-    // Touched as before: 12 at its registration, then 14 at 22, then 10 at 30.
-    let mut bounded = loaded.bounded(2);
+    // Bounded below what it holds: none is evicted, and no new session is taken.
+    let bounded = loaded.bounded(1);
     assert_eq!(bounded.len(), 2);
-    assert_eq!(bounded.last(12), None, "the oldest trimmed");
-    assert_eq!(
-        drained(&mut bounded),
-        vec![
-            VersionlessEntry::removal(SessionEntry::key(12)),
-            index(&[10, 14])
-        ]
-    );
-    assert_eq!(bounded.register(40, 0), Some(14));
+    assert_eq!(bounded.check(77, 1), Err(CommitError::busy(2)));
     Ok(())
 }
 
@@ -225,29 +292,33 @@ fn test_a_malformed_table_is_refused_as_corrupted() -> TestResult {
         &ragged,
         &[VersionlessEntry::put(
             SessionEntry::INDEX_KEY.to_vec(),
-            vec![1; 9],
+            vec![1; 17],
         )],
     )?;
-    assert_eq!(refusal(&ragged)?.0, SessionEntry::INDEX_KEY);
+    assert_eq!(
+        refusal(&ragged)?,
+        (
+            SessionEntry::INDEX_KEY.to_vec(),
+            "a session index whose length is not a multiple of 16".to_string()
+        )
+    );
     let unordered = store();
     write(&unordered, &[index(&[12, 10])])?;
     assert_eq!(
         refusal(&unordered)?,
         (
             SessionEntry::INDEX_KEY.to_vec(),
-            "a session index whose numbers are not ascending from above 0".to_string()
+            "a session index whose sessions are not ascending from above 0".to_string()
         )
     );
-    // A number twice is not ascending either, though each entry exists.
     let repeated = store();
     write(
         &repeated,
         &[
             index(&[10, 10]),
-            put(10, &SessionEntry::new(0, 0, 0, Vec::new())),
+            put(10, &SessionEntry::new(1, reply(40, 1)?)),
         ],
     )?;
-    assert_eq!(refusal(&repeated)?.0, SessionEntry::INDEX_KEY);
     assert!(refusal(&repeated)?.1.contains("ascending"));
     let zero = store();
     write(&zero, &[index(&[0])])?;
@@ -261,15 +332,6 @@ fn test_a_malformed_table_is_refused_as_corrupted() -> TestResult {
             "the index names a session with no entry".to_string()
         )
     );
-    let early = store();
-    write(
-        &early,
-        &[
-            index(&[10]),
-            put(10, &SessionEntry::new(1, 10, 0, Vec::new())),
-        ],
-    )?;
-    assert!(refusal(&early)?.1.contains("registration"));
     let bad = store();
     write(
         &bad,
@@ -279,82 +341,6 @@ fn test_a_malformed_table_is_refused_as_corrupted() -> TestResult {
         ],
     )?;
     assert_eq!(refusal(&bad)?.0, SessionEntry::key(10));
-    Ok(())
-}
-
-/// A session belongs to the principal that registered it: another's commit, or its retry, is refused before anything
-/// else is checked, and the owner's next request is served (`PROTOCOL.md` §11.5).
-#[test]
-fn test_a_session_serves_its_owner_alone() -> TestResult {
-    let mut table = Sessions::new(4);
-    let _evicted: Option<u64> = table.register(5, 7);
-    assert_eq!(table.check(5, 1, 8), Err(CommitError::permission_denied(5)));
-    assert_eq!(table.retry(5, 1, 8), Err(CommitError::permission_denied(5)));
-    assert_eq!(table.check(5, 1, 7), Ok(None));
-    table.begin(5);
-    assert_eq!(
-        table.check(5, 1, 8),
-        Err(CommitError::permission_denied(5)),
-        "the owner is checked before the request in flight"
-    );
-    table.committed(5, 1, 30, Vec::new());
-    assert_eq!(
-        table.check(5, 1, 8),
-        Err(CommitError::permission_denied(5)),
-        "nor its stored reply"
-    );
-    assert_eq!(table.check(5, 2, 7), Ok(None));
-    Ok(())
-}
-
-/// A retry sent with no transaction open for it: the last committed request's stored reply, the next one not
-/// committed, any other out of order, busy while a request is in flight, evicted when the table holds no session.
-#[test]
-fn test_a_retry_is_answered_from_the_table() -> TestResult {
-    let results = vec![OperationResult::new(3, true)];
-    let mut table = Sessions::new(4);
-    assert_eq!(table.retry(5, 1, 7), Err(CommitError::session_evicted(5)));
-    let _evicted: Option<u64> = table.register(5, 7);
-    assert_eq!(table.retry(5, 1, 7), Err(CommitError::not_committed(1)));
-    assert_eq!(
-        table.retry(5, 0, 7),
-        Err(CommitError::request_out_of_order(1))
-    );
-    table.begin(5);
-    assert_eq!(table.retry(5, 1, 7), Err(CommitError::session_busy(5)));
-    table.committed(5, 1, 30, results.clone());
-    assert_eq!(table.retry(5, 1, 7), Ok((30, results.as_slice())));
-    assert_eq!(table.retry(5, 2, 7), Err(CommitError::not_committed(2)));
-    assert_eq!(
-        table.retry(5, 3, 7),
-        Err(CommitError::request_out_of_order(2))
-    );
-    assert!(CommitError::not_committed(2).is_retryable());
-    assert_eq!(CommitError::not_committed(2).detail(), 2);
-    assert_eq!(
-        CommitError::permission_denied(5).detail(),
-        2,
-        "the action, write"
-    );
-    assert!(!CommitError::permission_denied(5).is_retryable());
-    Ok(())
-}
-
-/// The owner is durable: the entries drained carry it, and the table loaded back refuses another principal.
-#[test]
-fn test_the_owner_survives_a_reload() -> TestResult {
-    let store = store();
-    let mut table = Sessions::new(4);
-    let _evicted: Option<u64> = table.register(5, 7);
-    let mut entries = Vec::new();
-    table.drain_entries(&mut entries);
-    write(&store, &entries)?;
-    let loaded = Sessions::load(&store)?;
-    assert_eq!(
-        loaded.check(5, 1, 8),
-        Err(CommitError::permission_denied(5))
-    );
-    assert_eq!(loaded.check(5, 1, 7), Ok(None));
     Ok(())
 }
 

@@ -22,9 +22,11 @@ use crate::types::write_batch::WriteBatch;
 /// below a deletion of that key: once [`Store::sweep_deletions`] has removed the deletion, such a write would be the
 /// newest version for reads above it.
 ///
-/// **Durability.** A batch handed to [`Store::apply`] survives a crash of the process; it survives a power loss
-/// once a sync has covered it, by [`PersistMode::Sync`] or [`Store::sync`]. After a power loss the surviving batches
-/// are a prefix of batch order, each whole. A failed write poisons the store: every later write returns
+/// **Durability.** A batch handed to [`Store::apply`] survives a crash of the process and a power loss once a sync has
+/// covered it, by [`PersistMode::Sync`] or [`Store::sync`]; a store beside the write-ahead log, whose log is the only
+/// stream synced per round, is synced explicitly at a checkpoint. After a crash or a power loss the surviving batches
+/// are a prefix of batch order, each whole, and recovery replays the log above the applied position the last of them
+/// recorded. A store may keep more through a crash of the process, as fjall's process mode does. A failed write poisons the store: every later write returns
 /// [`StoreError::poisoned`] until the store is reopened, and after reopening the failed batch is present whole or
 /// absent whole. Drops, bans, the discard timestamp and the tombstone horizon are durable when their call returns.
 ///

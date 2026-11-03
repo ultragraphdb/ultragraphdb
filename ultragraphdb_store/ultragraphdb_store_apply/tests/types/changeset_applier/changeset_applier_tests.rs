@@ -198,12 +198,12 @@ fn test_a_non_canonical_vector_is_refused_naming_its_predicate() -> TestResult {
         refused.to_string(),
         "Predicate <http://ex.org/embedding> cannot hold the literal: Invalid vector literal \"[0.50,-1.0]\": an element is no 32-bit float"
     );
-    // The refused changeset's terms are released: their entries name nothing that exists, and the IDs stay the ones a
-    // later write takes.
-    let released = uid(&a, "a")?;
-    assert!(objects(&a, "a", "embedding")?.is_empty());
+    // The refused changeset's terms are released, writing nothing: a later write creates them again.
+    for name in ["a", "embedding"] {
+        assert_eq!(a.quads().id_of(NS, ex(name).as_str())?, None, "<{name}>");
+    }
     write(&a, &["<a> <knows> <b>"])?;
-    assert_eq!(uid(&a, "a")?, released);
+    assert!(uid(&a, "a").is_ok());
     Ok(())
 }
 
@@ -237,7 +237,7 @@ fn test_a_round_settles_the_ids_its_executions_created() -> TestResult {
 }
 
 #[test]
-fn test_a_released_execution_writes_its_entries_and_holds_no_pending_id() -> TestResult {
+fn test_a_released_execution_writes_nothing_and_holds_no_pending_id() -> TestResult {
     let a = changesets()?;
     let refused = a.execute(&crate::utils::changesets::changeset(vec![insert(
         "<gone> <p> <q>",
@@ -246,23 +246,23 @@ fn test_a_released_execution_writes_its_entries_and_holds_no_pending_id() -> Tes
         .terms()
         .written()
         .find(|(t, _)| *t == ex("gone").as_str())
-        .map(|(_, id)| id);
-    assert_eq!(
-        a.quads().id_of(NS, ex("gone").as_str())?,
-        None,
-        "nothing is written before the release"
-    );
-    a.release(&refused)?;
-    assert_eq!(
-        a.quads().id_of(NS, ex("gone").as_str())?,
-        created,
-        "its entries are written"
-    );
-    assert!(objects(&a, "gone", "p")?.is_empty(), "and nothing it wrote");
+        .map(|(_, id)| id)
+        .context("the execution created <gone>")?;
+    let before = a.quads().store().contents();
+    a.release(&refused);
+    assert_eq!(a.quads().store().contents(), before, "nothing is written");
+    assert_eq!(a.quads().id_of(NS, ex("gone").as_str())?, None);
     let later = a.execute(&crate::utils::changesets::changeset(vec![insert(
         "<gone> <p> <q>",
     )?]))?;
-    assert_eq!(later.terms().written().count(), 0, "held, not pending");
+    let again = later
+        .terms()
+        .written()
+        .find(|(t, _)| *t == ex("gone").as_str())
+        .map(|(_, id)| id)
+        .context("the later execution creates <gone> again")?;
+    assert_ne!(again, created, "the released ID is burned");
+    assert!(later.reads().absent().contains(&again));
     Ok(())
 }
 

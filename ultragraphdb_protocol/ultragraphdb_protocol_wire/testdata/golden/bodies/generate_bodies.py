@@ -230,8 +230,9 @@ golden("register", 3, command_header([(0, le(0x1122_3344_5566_7788, 8))]), secti
 # 4 Begin: namespace 3, read version, read-only, on stream 5.
 golden("begin", 4, command_header([(0, le(3, 8)), (8, le(0xAB_CDEF_0002, 8)), (16, bytes([1]))]), sections([]),
        stream=5)
-# 5 Commit: session 9, request 7, commit version 1000; two results.
-results = le(0x10, 8) + bytes([1]) + bytes(7) + le(0x20, 8) + bytes([0]) + bytes(7)
+# 5 Commit: session 9, request 7, commit version 1000; two results of section 6.3's layout (value i64, node u32,
+# created u8, 3 zero bytes): a counter add's new value -5 and a compare-and-set, neither naming a node.
+results = le(-5, 8, signed=True) + le(ABSENT, 4) + bytes(4) + le(0, 8) + le(ABSENT, 4) + bytes(4)
 golden("commit", 5, command_header([(0, le(9, 8)), (8, le(7, 8)), (16, le(1000, 8))]), sections([results]),
        stream=5)
 # 6 Abort.
@@ -338,18 +339,20 @@ ch, body = describe([f"{EX}Person"], [f"{EX}knows"], [f"{EX}name"], 42)
 golden("describe_reply", 12, ch, body, stream=17)
 SCHEMA_ID = xxhash.xxh3_64_intdigest(describe([], [], [], 42)[1])
 
-# 13 Result: two columns, three rows; terms in order of first use, row by row; cells column by column; the last
-# term a blank node, tag 0x02, its text its skolem IRI; each row's statement ID, as a Read with flags bit 0 asks.
-def uid(n, tag=0x01):
-    return bytes([tag]) + n.to_bytes(8, "big")
+# 13 Result: two columns, three rows; terms in order of first use, row by row; cells column by column; the first
+# term an IRI, tag 0x01 and its text's hash, the last a blank node, tag 0x02 and its skolem IRI's hash, each text in
+# the string list (section 10.1); each row's statement ID, as a Read with flags bit 0 asks.
+def sha16(text):
+    return hashlib.sha256(text.encode()).digest()[:16]
 
 
 LONG = "a long lexical form beyond fifteen"
-encodings = [uid(5), bytes([0x20, 2]) + b"Al", bytes([0x21]) + hashlib.sha256(LONG.encode()).digest()[:16],
-             uid(6, 0x02)]
+BLANK = f"{SKOLEM}00002a-0123456789abcdef0123456789"
+encodings = [bytes([0x01]) + sha16(f"{EX}a"), bytes([0x20, 2]) + b"Al", bytes([0x21]) + sha16(LONG),
+             bytes([0x02]) + sha16(BLANK)]
 strings = Strings()
 texts = [(strings.intern(f"{EX}a"), ABSENT), (ABSENT, ABSENT), (strings.intern(LONG), ABSENT),
-         (strings.intern(f"{SKOLEM}6"), ABSENT)]
+         (strings.intern(BLANK), ABSENT)]
 offsets, pos = [], 0
 for e in encodings:
     offsets.append(pos)
@@ -381,33 +384,62 @@ for name, commit_version in [("drop", 0), ("drop_reply", 2002)]:
            flags=1 if commit_version else 0)
 
 
-# 17 Round: position 3, its header's sequence, its parent, incarnation 1, first version 2000, three transactions; the
-# second aborted with a conflict on a list (detail 1); the first record acted for principal 7. Two write-set records, the second's delta 5,000 bytes, so the body takes chunks; the
-# first carries two commit-time operations' results in section 9 (uid u64, created u8, 7 zero bytes), the second none.
-def record(namespace, read_version, session, request, tables, commit_record, results=(), operation=None,
-           principal=0):
-    fixed = le(namespace, 8) + le(read_version, 8) + le(session, 8) + le(request, 8) + le(principal, 8)
-    secs = [kv(tables.get(i, [])) for i in range(5)] + [commit_record] + [kv(tables.get(i, [])) for i in (6, 7, 8)]
-    secs.append(b"".join(le(uid, 8) + bytes([created]) + bytes(7) for uid, created in results))
-    secs.append(b"" if operation is None else le(operation[0], 2) + bytes(6) + le(operation[1], 8))
+# 17 Round (section 12.1): position 3, its header's sequence, its parent, incarnation 1, first version (7 << 22) | 100,
+# five entries, derivation 1; the second aborted with a conflict on a list (detail 1). Four write-set records (section
+# 12.2): a transaction of namespace 3 at catalog 11, a home's registration, a build's start in namespace 4 at catalog 12,
+# and a Drop of a predicate, the last; then three dictionary entries in ascending key order. The transaction's commit
+# record of 4,000 bytes makes the body take chunks.
+def sid(prefix, sequence, bucket):
+    """A system ID's 16 big-endian bytes: type prefix, sequence, bucket, 3 reserved zero bytes (section 1)."""
+    return prefix.to_bytes(2, "big") + sequence.to_bytes(8, "big") + bucket.to_bytes(3, "big") + bytes(3)
+
+
+def record(kind, namespace, catalog=0, read_version=0, session=bytes(16), request=0, principal=0, inserted=(),
+           removed=(), statements=(), operations=(), registrations=(), commit_record=b"", points=(), cstatements=(),
+           ranges=(), results=(), result_terms=None):
+    fixed = (bytes([kind]) + bytes(7) + le(namespace, 8) + le(catalog, 8) + le(read_version, 8) + session
+             + le(request, 8) + le(principal, 8))
+    assert len(fixed) == 64
+    ops = b"".join(le(code, 2) + bytes(6) + argument for code, argument in operations)
+    regs = b"".join(entity + le(group, 4) + bytes(4) + le(generation, 8) for entity, group, generation in registrations)
+    res = b"".join(le(value, 8, signed=True) + le(node, 4) + bytes([created]) + bytes(3)
+                   for value, node, created in results)
+    terms = result_terms or Terms()
+    secs = ([kv(inserted), kv(removed), kv(statements), ops, regs, commit_record, kv([(k, b"") for k in points]),
+             kv(cstatements), kv(ranges), res] + terms.sections())
+    assert len(secs) == 12
     return sections(secs, fixed)
 
 
-rec0 = record(0, 1998, 4, 2, {0: [(b"\x10key-a", b"delta-a")], 1: [(b"\x20dict", None)],
-                              4: [(b"sess-4", b"reply")], 6: [(b"\x10key-a", b"")],
-                              7: [(b"\x10key-a", b"\x01obj")], 8: [(b"\x30a", b"\x30b")]}, b"cr",
-             results=[(0x2A, 1), (0x2B, 0)], principal=7)
-rec1 = record(0, 1990, 6, 9, {0: [(b"\x10big", bytes((i * 31 + 7) % 251 for i in range(5000)))]}, b"")
-decisions = (le(0, 2) + le(0, 2) + le(0, 4) + le(0, 8) + le(2, 2) + le(0, 2) + le(ABSENT, 4) + le(1, 8)
-             + le(0, 2) + le(0, 2) + le(1, 4) + le(0, 8))
-rec_table, rec_data = b"", b""
-for r in (rec0, rec1):
+SESSION = bytes(range(0x11, 0x21))
+FIRST_VERSION = (7 << 22) | 100
+node_terms = Terms()
+node_terms.add(iri(f"{EX}x"))
+rec0 = record(1, 3, catalog=11, read_version=(7 << 22) | 50, session=SESSION, request=7, principal=9,
+              inserted=[(b"quad-a", sid(2, 5, 0x2A)), (b"quad-b", b"")], removed=[(b"quad-c", sid(2, 6, 0x2A))],
+              statements=[(b"g+stmt-5", b"record-5"), (b"g+stmt-6", None)],
+              registrations=[(sid(1, 9, 0x40), 0x40 >> 6, 3)],
+              commit_record=bytes((i * 31 + 7) % 251 for i in range(4000)), points=[b"\x10key-a"],
+              cstatements=[(b"\x10list-a", b"\x01obj")], ranges=[(b"\x30a", b"\x30b")],
+              results=[(0, 0, 1), (-5, ABSENT, 0), (0, ABSENT, 0)], result_terms=node_terms)
+rec1 = record(2, 3, registrations=[(sid(1, 12, 0x80), 0x80 >> 6, 1)])
+rec2 = record(3, 4, catalog=12, operations=[(6, le(12, 8) + bytes(8))])
+rec3 = record(1, 3, catalog=11, session=SESSION, request=8, principal=9, operations=[(1, sid(1, 4, 0x2A))],
+              ranges=[(b"\x40p-start", b"\x40p-end")])
+records = (rec0, rec1, rec2, rec3)
+outcomes = [(0, 0, 0), (2, ABSENT, 1), (0, 1, 0), (0, 2, 0), (0, 3, 0)]
+decisions = b"".join(le(outcome, 2) + bytes(2) + le(index, 4) + le(detail, 8) for outcome, index, detail in outcomes)
+rec_table, rec_data, rec_offsets = b"", b"", []
+for r in records:
     rec_data += b"\0" * (align8(len(rec_data)) - len(rec_data))
+    rec_offsets.append(len(rec_data))
     rec_table += le(len(rec_data), 4) + le(len(r), 4)
     rec_data += r
-round_ch = command_header([(0, le(3, 8)), (8, le(0x0F0E_0D0C_0B0A_0908, 8)), (16, le(1, 8)), (24, le(2000, 8)),
-                           (32, le(3, 4))])
-golden("round", 17, round_ch, sections([decisions, rec_table, rec_data]), sequence=3)
+dictionary = kv([(b"\x20dict-a", b"value-a"), (b"\x20dict-b", b""), (b"\x21dict-c", b"value-c")])
+round_ch = command_header([(0, le(3, 8)), (8, le(0x0F0E_0D0C_0B0A_0908, 8)), (16, le(1, 8)),
+                           (24, le(FIRST_VERSION, 8)), (32, le(len(outcomes), 4)), (36, le(1, 4))])
+round_body = sections([decisions, rec_table, rec_data, dictionary])
+golden("round", 17, round_ch, round_body, sequence=3)
 
 out = Path(sys.argv[1])
 for name, (data, size, checksum, checksum_body) in GOLDEN.items():
@@ -415,4 +447,5 @@ for name, (data, size, checksum, checksum_body) in GOLDEN.items():
     print(f"{name:18} size {size:6}  checksum {checksum:#018x}  checksum_body {checksum_body:#018x}")
 print(f"describe_reply schema id {SCHEMA_ID:#018x}")
 print(f"write terms {WRITE_TERMS}")
-print(f"round record 0: {len(rec0)} bytes, record 1: {len(rec1)} bytes, records at {len(decisions)}")
+print(f"round first version {FIRST_VERSION}; records {[len(r) for r in records]} bytes at {rec_offsets} within "
+      f"section 2, which starts at body offset {round_body.index(rec_data)}; body {len(round_body)} bytes")

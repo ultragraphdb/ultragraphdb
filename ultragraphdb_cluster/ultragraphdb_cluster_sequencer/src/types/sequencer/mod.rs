@@ -10,6 +10,7 @@ mod sequencer_recover;
 mod sequencer_submit;
 
 use std::collections::{BTreeMap, VecDeque};
+use std::num::NonZeroU32;
 
 use ultragraphdb_cluster_placement::PartitionId;
 use ultragraphdb_core_ids::Epoch;
@@ -22,6 +23,9 @@ use crate::types::close::Close;
 use crate::types::sequenced_transaction::SequencedTransaction;
 use crate::types::sequencer_config::SequencerConfig;
 use crate::types::sequencer_record::SequencerRecord;
+
+/// The derivation version the sequencer's rounds name: they hold no quads, so the first.
+const DERIVATION: NonZeroU32 = NonZeroU32::MIN;
 
 /// The sequencer: a state machine over the ordered log `L` that closes epochs and orders multi-partition
 /// transactions, with one replica in this stage behind the interface stage 8 replicates.
@@ -137,10 +141,14 @@ impl<L: OrderedLog> Sequencer<L> {
             parent,
             record.epoch().get(),
             transactions,
+            DERIVATION,
             &self.buffer,
         );
         let appended = self.log.append(round)?;
-        invariant(appended == position, "a round is appended after the tail")?;
+        invariant(
+            appended.position() == position,
+            "a round is appended after the tail",
+        )?;
         self.hold(position, record)?;
         Ok(position)
     }

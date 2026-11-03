@@ -16,4 +16,6 @@ mod execution;
 #[cfg(test)]
 mod level_draw_tests;
 #[cfg(test)]
+mod logical_quad_tests;
+#[cfg(test)]
 mod reads_tests;

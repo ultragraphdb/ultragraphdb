@@ -212,6 +212,59 @@ fn test_a_triple_term_parameter_brings_its_parts() -> TestResult {
 }
 
 #[test]
+fn test_a_parameter_naming_one_part_at_every_level_imports_each_entry_once() -> TestResult {
+    // t0 = <a>, t(k+1) = <<( t(k) <p> t(k) )>> to the depth bound, 32: every triple names its part twice, so a walk of
+    // every path would take 2^32 steps. The bound table holds each entry once, parts before the triple: <a>, <p>,
+    // then t1 to t32, 34 terms.
+    let mut cache = StatementCache::new(8);
+    let all = QuadPattern::new(
+        PatternSlot::Unbound,
+        PatternSlot::Unbound,
+        PatternSlot::Unbound,
+        PatternSlot::Parameter(0),
+    );
+    let bytes = prepare_frame(TermTable::new(), all, vec![ColumnType::Term])?;
+    let id = cache
+        .prepare(&PrepareView::from_frame(&frame_of(&bytes)?)?, 1)?
+        .statement();
+    let mut terms = TermTable::new();
+    let (_filler, p) = (terms.iri("filler"), terms.iri("p"));
+    let mut deepest = terms.iri("a");
+    for _ in 0..32 {
+        deepest = terms.intern(RequestTerm::Triple {
+            subject: deepest,
+            predicate: p,
+            object: deepest,
+        })?;
+    }
+    let execute = Execute::new(id, 5, 0, terms, vec![deepest], Vec::new())
+        .frame(golden("execute")?.header())?;
+    let (bound_terms, bound) = cache.execute(&ExecuteView::from_frame(&frame_of(&execute)?)?, 1)?;
+    assert_eq!(bound_terms.len(), 34);
+    // The subject's part first: <a>, then <p>, then t1.
+    assert_eq!(bound_terms.get(0), Some(&RequestTerm::Iri("a".to_string())));
+    assert_eq!(bound_terms.get(1), Some(&RequestTerm::Iri("p".to_string())));
+    assert_eq!(
+        bound_terms.get(2),
+        Some(&RequestTerm::Triple {
+            subject: 0,
+            predicate: 1,
+            object: 0
+        })
+    );
+    assert_eq!(
+        bound_terms.get(33),
+        Some(&RequestTerm::Triple {
+            subject: 32,
+            predicate: 1,
+            object: 32
+        })
+    );
+    assert_eq!(bound.object(), PatternSlot::Bound(33));
+    Ok(())
+}
+
+#[test]
 fn test_a_stale_statement_is_refused_and_prepares_again() -> TestResult {
     let mut cache = StatementCache::new(8);
     assert_eq!(prepare(&mut cache, SCHEMA)??.statement(), 1);

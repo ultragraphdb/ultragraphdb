@@ -336,8 +336,8 @@ fn test_golden_commits_results_and_errors_are_read_as_their_values() -> TestResu
     assert_eq!(
         committed.results(),
         &[
-            OperationResult::new(0x10, true),
-            OperationResult::new(0x20, false)
+            OperationResult::counter(-5),
+            OperationResult::compare_and_set()
         ]
     );
     assert_eq!(d.core.next_request(session), Some(8));

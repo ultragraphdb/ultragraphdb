@@ -4,6 +4,8 @@
  */
 
 #[cfg(test)]
+mod durability_ticket_tests;
+#[cfg(test)]
 mod log_event_tests;
 #[cfg(test)]
 mod position_tests;

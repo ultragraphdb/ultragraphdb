@@ -11,17 +11,18 @@ use ultragraphdb_tool_bdd::{Context, TestResult};
 use crate::utils::golden_bodies::golden;
 
 pub const LONG: &str = "a long lexical form beyond fifteen";
-/// The skolem IRI of blank node 6 in namespace 0.
-pub const SKOLEM_6: &str = "https://w3id.org/ultragraphdb/ns/namespace/0/.well-known/genid/6";
+/// A blank node's skolem IRI in namespace 0: bucket 0x00002a in 6 hexadecimal digits, then 104 random bits in 26
+/// (PROTOCOL.md §10.2).
+pub const SKOLEM_6: &str = "https://w3id.org/ultragraphdb/ns/namespace/0/.well-known/genid/00002a-0123456789abcdef0123456789";
 
 pub fn golden_terms() -> TestResult<[ResultTerm; 4]> {
     let mut big = vec![0x21];
     big.extend_from_slice(Hash128::of(LONG.as_bytes()).as_bytes());
     Ok([
-        ResultTerm::new(EncodedTerm::uid(5)).with_text("http://ex.org/a"),
+        ResultTerm::iri("http://ex.org/a"),
         ResultTerm::new(EncodedTerm::from_bytes(&[0x20, 2, b'A', b'l'])?),
         ResultTerm::new(EncodedTerm::from_bytes(&big)?).with_text(LONG),
-        ResultTerm::blank_node(6, SKOLEM_6),
+        ResultTerm::blank_node(SKOLEM_6),
     ])
 }
 
@@ -46,7 +47,7 @@ fn test_the_golden_batch_builds_the_golden_frame() -> TestResult {
         golden("result")?.bytes()?
     );
     assert_eq!(batch.encoded_len(), batch.body().len());
-    assert_eq!(batch.encoded_len(), 600 - 256);
+    assert_eq!(batch.encoded_len(), 648 - 256);
     assert_eq!(batch.statement_ids(), Some(&[0x1001, 0x1002, 0x1003][..]));
     Ok(())
 }
@@ -146,10 +147,10 @@ fn test_a_batch_carries_statement_ids_for_every_row_or_none() -> TestResult {
 }
 
 #[test]
-fn test_a_blank_node_and_an_iri_of_one_uid_are_two_terms() -> TestResult {
-    // One UID is either a blank node or an IRI in a store; a batch keys its table by the result's encoding.
-    let iri = ResultTerm::new(EncodedTerm::uid(6)).with_text("http://ex.org/b");
-    let blank = ResultTerm::blank_node(6, SKOLEM_6);
+fn test_a_blank_node_and_an_iri_of_one_text_are_two_terms() -> TestResult {
+    // One hash is either a blank node's or an IRI's; a batch keys its table by the result's encoding, tag included.
+    let iri = ResultTerm::iri(SKOLEM_6);
+    let blank = ResultTerm::blank_node(SKOLEM_6);
     let mut batch = ResultBatch::new(2);
     batch.push_row(&[Some(&iri), Some(&blank)])?;
     assert_eq!(batch.terms().len(), 2);

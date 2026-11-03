@@ -67,8 +67,8 @@ rust_test(
     ),
 )
 
-# The changeset workload on the simulator: the fixed seeds without faults, with faults, and a seed's replay, one target
-# each so that Bazel runs them in parallel with the unit tests. The workload itself is ultragraphdb_tool_test's.
+# The changeset workload on the simulator: its rounds replayed logically into a replica, the fixed seeds without faults,
+# with faults, and a seed's replay, one target each so that Bazel runs them in parallel with the unit tests. The workload itself is ultragraphdb_tool_test's.
 [
     rust_test(
         name = workload,
@@ -81,6 +81,7 @@ rust_test(
         ),
     )
     for workload in [
+        "workload_differential",
         "workload_faults",
         "workload_replay",
         "workload_seeds",

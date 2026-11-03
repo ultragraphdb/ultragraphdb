@@ -146,8 +146,8 @@ where
             .map(|(_, ids)| ids))
     }
 
-    /// Adds a triple the subject does not hold, its posting carrying `statement_ids`, with its index tokens and
-    /// counts.
+    /// Adds a triple the subject does not hold, its posting carrying `statement_ids`; with its index tokens and
+    /// counts when the write derives keys.
     pub(crate) fn add(
         &mut self,
         r: &Resolved,
@@ -155,7 +155,7 @@ where
         object: TermRef<'_>,
         statement_ids: &[SystemId],
     ) -> Result<(), ChangesetError> {
-        let counts = if declaration.count_index() {
+        let counts = if self.deriving && declaration.count_index() {
             Some(self.counts(r.graph, r.subject, r.predicate, &r.object)?)
         } else {
             None
@@ -168,6 +168,9 @@ where
             statement_ids,
             &kind_of(object),
         );
+        if !self.deriving {
+            return Ok(());
+        }
         self.vector_changed(r.graph, r.subject, r.predicate, &r.object);
         if let Some((objects, subjects)) = counts {
             self.move_counts(
@@ -187,8 +190,8 @@ where
         Ok(())
     }
 
-    /// Removes `object` of the subject's predicate when held: its statement records, its counts, and each index
-    /// token no remaining literal of the subject's predicate produces. Whether it was held.
+    /// Removes `object` of the subject's predicate when held, and its statement records; when the write derives keys,
+    /// its counts and each index token no remaining literal of the subject's predicate produces. Whether it was held.
     pub(crate) fn remove(
         &mut self,
         graph: Graph,
@@ -207,7 +210,7 @@ where
             return Ok(false);
         }
         let term = self.decode(object)?;
-        let counts = if declaration.count_index() {
+        let counts = if self.deriving && declaration.count_index() {
             Some(self.counts(graph, subject, predicate, object)?)
         } else {
             None
@@ -221,6 +224,9 @@ where
         ids.into_iter().for_each(|id| {
             let _previous: Option<Option<StatementRecord>> = self.records.insert((graph, id), None);
         });
+        if !self.deriving {
+            return Ok(true);
+        }
         self.vector_changed(graph, subject, predicate, object);
         if let Some((objects, subjects)) = counts {
             // A vector has no reverse list, so it counts no subject; move_counts leaves its reverse count alone.

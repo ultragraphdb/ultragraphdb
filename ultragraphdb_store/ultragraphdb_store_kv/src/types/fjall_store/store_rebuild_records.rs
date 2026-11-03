@@ -30,12 +30,15 @@ impl Shared {
                 let (key, value) = guard
                     .into_inner()
                     .map_err(|e| StoreError::read_failed(REBUILD_PREFIX.to_vec(), e.to_string()))?;
-                let id: [u8; 8] = key[REBUILD_PREFIX.len()..].try_into().map_err(|_| {
-                    StoreError::corrupted(
-                        key.to_vec(),
-                        "a rebuild record's number is eight bytes".into(),
-                    )
-                })?;
+                let id: [u8; 8] = key
+                    .get(REBUILD_PREFIX.len()..)
+                    .and_then(|number| number.try_into().ok())
+                    .ok_or_else(|| {
+                        StoreError::corrupted(
+                            key.to_vec(),
+                            "a rebuild record's number is eight bytes".into(),
+                        )
+                    })?;
                 let prefixes =
                     decode(&value).map_err(|reason| StoreError::corrupted(key.to_vec(), reason))?;
                 Ok(RebuildRecord::new(u64::from_be_bytes(id), prefixes))

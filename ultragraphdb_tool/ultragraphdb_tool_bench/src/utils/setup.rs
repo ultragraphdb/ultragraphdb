@@ -6,13 +6,16 @@
 //! What both runs open: a changeset applier over the timed fjall store with moka's cache, its list reads counted, its
 //! catalog the Dgraph runs' schema as declarations.
 
+use std::num::NonZeroU64;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use ultragraphdb_core_mapping::RandomSource;
 use ultragraphdb_store_apply::{Applied, ChangesetApplier};
 use ultragraphdb_store_kv::{Durability, FjallStore, MokaListCache, ThreadExecutor};
 use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig};
+use ultragraphdb_traits_blocks::TestBlockSource;
 
 use crate::errors::bench_error::BenchError;
 use crate::types::commit_shape::CommitShape;
@@ -24,11 +27,19 @@ use crate::types::summary::Summary;
 use crate::types::timed_store::TimedStore;
 
 /// The applier both runs drive.
-pub type BenchApplier =
-    ChangesetApplier<TimedStore, CountingCache<MokaListCache<CachedList>>, ThreadExecutor>;
+pub type BenchApplier = ChangesetApplier<
+    TimedStore,
+    CountingCache<MokaListCache<CachedList>>,
+    ThreadExecutor,
+    TestBlockSource,
+>;
 
 /// Dgraph's share of `--cache size-mb` given to the posting-list cache (`percentage=40,40,20`).
 const POSTING_CACHE_PERCENT: u64 = 40;
+
+/// The sequences of each block the applier leases. No metadata group runs beside the bench, so the in-memory source
+/// stands in for it.
+const BLOCK_LEN: NonZeroU64 = NonZeroU64::MIN.saturating_add((1 << 20) - 1);
 
 /// An applier over a fresh store in `dir`, which must not exist yet, its posting cache 40 % of `cache_mb`.
 ///
@@ -58,6 +69,8 @@ pub fn open_applier(
     let lists = Lists::new(store, cache, ListsConfig::default());
     Ok(Arc::new(ChangesetApplier::new(
         lists,
+        TestBlockSource::new(BLOCK_LEN),
+        RandomSource::new(1),
         ThreadExecutor::new(),
         1,
     )?))

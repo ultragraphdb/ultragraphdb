@@ -2791,7 +2791,6 @@ dependencies = [
  "cucumber",
  "futures",
  "ultragraphdb_client_core",
- "ultragraphdb_core_terms",
  "ultragraphdb_error_protocol",
  "ultragraphdb_protocol_scram",
  "ultragraphdb_protocol_transport",
@@ -3099,6 +3098,7 @@ dependencies = [
  "futures",
  "oxrdf",
  "ultragraphdb_core_catalog",
+ "ultragraphdb_core_ids",
  "ultragraphdb_core_mapping",
  "ultragraphdb_core_terms",
  "ultragraphdb_error_protocol",
@@ -3106,6 +3106,7 @@ dependencies = [
  "ultragraphdb_store_quads",
  "ultragraphdb_store_sim",
  "ultragraphdb_tool_bdd",
+ "ultragraphdb_traits_blocks",
  "ultragraphdb_traits_store",
  "xxhash-rust",
 ]
@@ -3256,6 +3257,7 @@ dependencies = [
  "oxrdf",
  "serde_json",
  "ultragraphdb_common_telemetry",
+ "ultragraphdb_core_ids",
  "ultragraphdb_core_keys",
  "ultragraphdb_core_mapping",
  "ultragraphdb_core_terms",
@@ -3264,6 +3266,7 @@ dependencies = [
  "ultragraphdb_store_kv",
  "ultragraphdb_store_posting",
  "ultragraphdb_tool_bdd",
+ "ultragraphdb_traits_blocks",
  "ultragraphdb_traits_log",
  "ultragraphdb_traits_store",
  "ultragraphdb_transactions_commit",
@@ -3335,6 +3338,7 @@ name = "ultragraphdb_traits_log"
 version = "0.1.0"
 dependencies = [
  "ultragraphdb_error_log",
+ "ultragraphdb_tool_bdd",
 ]
 
 [[package]]
@@ -3353,7 +3357,10 @@ dependencies = [
  "cucumber",
  "futures",
  "oxrdf",
+ "ultragraphdb_cluster_placement",
+ "ultragraphdb_cluster_sequencer",
  "ultragraphdb_core_catalog",
+ "ultragraphdb_core_ids",
  "ultragraphdb_core_keys",
  "ultragraphdb_core_mapping",
  "ultragraphdb_core_terms",
@@ -3365,6 +3372,7 @@ dependencies = [
  "ultragraphdb_store_posting",
  "ultragraphdb_store_sim",
  "ultragraphdb_tool_bdd",
+ "ultragraphdb_traits_blocks",
  "ultragraphdb_traits_log",
  "ultragraphdb_traits_store",
  "ultragraphdb_transactions_log",
@@ -3397,16 +3405,20 @@ dependencies = [
  "cucumber",
  "futures",
  "oxrdf",
+ "ultragraphdb_cluster_placement",
  "ultragraphdb_core_codec",
+ "ultragraphdb_core_ids",
  "ultragraphdb_core_keys",
  "ultragraphdb_core_mapping",
  "ultragraphdb_core_terms",
+ "ultragraphdb_error_invariant",
  "ultragraphdb_protocol_wire",
  "ultragraphdb_store_apply",
  "ultragraphdb_store_posting",
  "ultragraphdb_store_quads",
  "ultragraphdb_store_sim",
  "ultragraphdb_tool_bdd",
+ "ultragraphdb_traits_blocks",
  "ultragraphdb_traits_store",
 ]
 

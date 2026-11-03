@@ -119,3 +119,31 @@ fn test_buckets_order_as_numbers() -> TestResult {
     assert!(Bucket::new(0)? < Bucket::MAX);
     Ok(())
 }
+
+/// The predicate the value tests name: type 1, sequence 42, bucket 5, `(1 << 112) | (42 << 48) | (5 << 24)`.
+fn value_predicate() -> Result<ultragraphdb_core_ids::SystemId, ultragraphdb_core_ids::IdError> {
+    ultragraphdb_core_ids::SystemId::from_u128((1 << 112) | (42 << 48) | (5 << 24))
+}
+
+#[test]
+fn test_a_unique_values_bucket_is_its_namespaces_top_and_its_predicate_and_values_hash()
+-> Result<(), ultragraphdb_core_ids::IdError> {
+    use ultragraphdb_core_ids::{Bucket, Namespace};
+    // python-xxhash 3.6.0: XXH3-64 of namespace 0's 8 big-endian bytes has top byte 0xC7; of the predicate's 16 bytes
+    // followed by b"x", top two bytes 0xB4D0; followed by nothing, 0x75ED.
+    let predicate = value_predicate()?;
+    assert_eq!(
+        Bucket::of_value(Namespace::new(0), predicate, b"x").get(),
+        0xC7_B4D0
+    );
+    assert_eq!(
+        Bucket::of_value(Namespace::new(0), predicate, b"").get(),
+        0xC7_75ED
+    );
+    // Namespace 7's top byte, 0xF8, with the same low 16 bits.
+    assert_eq!(
+        Bucket::of_value(Namespace::new(7), predicate, b"x").get(),
+        0xF8_B4D0
+    );
+    Ok(())
+}

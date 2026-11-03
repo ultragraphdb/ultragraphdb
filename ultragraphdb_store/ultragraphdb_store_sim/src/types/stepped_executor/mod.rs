@@ -19,6 +19,7 @@ type Task = Box<dyn FnOnce() + Send>;
 /// thread, one after another, in an order drawn from the same stream. Clones share one queue.
 #[derive(Clone)]
 pub struct SteppedExecutor {
+    // Shared by its clones (Ultra rule 9): `Executor` hands it to code that spawns from any thread.
     shared: Arc<Mutex<Shared>>,
 }
 
@@ -60,6 +61,7 @@ impl SteppedExecutor {
 
     /// Runs waiting tasks, those they spawn included, until none waits.
     pub fn run_until_idle(&self) {
+        // Ends once the queue is empty: each turn runs one task, and the tasks the store crates spawn spawn finitely.
         while self.step() {}
     }
 

@@ -17,6 +17,7 @@ use crate::types::storage_operation::StorageOperation;
 /// A file of a [`crate::SimStorage`], open on its inode: a rename or removal of its entry does not close it.
 #[derive(Debug)]
 pub struct SimFile {
+    // The filesystem the file lives in, shared with its `SimStorage` as Ultra rule 9 allows there.
     state: Rc<RefCell<SimState>>,
     inode: usize,
     aligned: bool,

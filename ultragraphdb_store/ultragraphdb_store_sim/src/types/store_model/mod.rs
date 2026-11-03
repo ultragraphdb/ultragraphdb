@@ -32,6 +32,7 @@ use crate::types::store_model::model_state::{ModelOp, ModelState, covers};
 /// only when none is left.
 #[derive(Debug, Clone, Default)]
 pub struct StoreModel {
+    // States shared with snapshots and outcomes as `Arc`s and copied on write (Ultra rule 9).
     current: Arc<ModelState>,
     /// The state at the last sync point, which a power loss keeps.
     base: Arc<ModelState>,

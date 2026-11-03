@@ -3,8 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! Any bytes as a session's entry in the keyspace without versions, its owner among them: decoded or refused without a
-//! panic, and an accepted entry has one encoding.
+//! Any bytes as a session's entry in the keyspace without versions, its stored reply's token, results and node texts
+//! among them: decoded or refused without a panic, and an accepted entry has one encoding.
 
 #![no_main]
 
@@ -18,8 +18,18 @@ fuzz_target!(|data: &[u8]| {
             data,
             "an accepted entry has one encoding"
         );
-        // Request 0 is a session registered, with no version and no results; a committed request has its version.
-        assert!(entry.request() != 0 || (entry.version() == 0 && entry.results().is_empty()));
-        assert!(entry.request() == 0 || entry.version() != 0);
+        // A stored reply is a commit's: a request above 0 and an even commit version above 0.
+        assert!(entry.request() != 0);
+        assert!(entry.reply().version() != 0 && entry.reply().version() % 2 == 0);
+        // Every result naming a node names one the reply's term table holds.
+        let nodes = entry.reply().terms().len();
+        assert!(
+            entry
+                .reply()
+                .results()
+                .iter()
+                .filter_map(|r| r.node())
+                .all(|node| (node as usize) < nodes)
+        );
     }
 });

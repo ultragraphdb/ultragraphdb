@@ -72,7 +72,7 @@ impl<S: DurableStorage> Wal<S> {
                 ));
             }
             SuperblockRead::Empty => {
-                let record = Superblock::new(1, config.cluster(), 1, Position::ZERO, 0, 0, 0);
+                let record = Superblock::new(1, config.cluster(), 1, Position::ZERO, 0, 0);
                 record.write(&storage, &dir).await?;
                 record
             }
@@ -96,7 +96,7 @@ impl<S: DurableStorage> Wal<S> {
         };
         wal.sweep(&names, &segments).await?;
         let truncation = wal.recover().await?;
-        let recovery = Recovery::new(wal.checkpoint(), wal.committed.0, truncation);
+        let recovery = Recovery::new(wal.superblock.checkpoint(), wal.committed.0, truncation);
         Ok((wal, recovery))
     }
 

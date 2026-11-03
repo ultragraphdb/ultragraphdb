@@ -96,6 +96,7 @@ impl StatementCache {
                 parameter_types: declared.to_vec(),
             },
         );
+        // Each turn removes one statement, so the loop ends within the count above the capacity.
         while self.statements.len() > self.capacity {
             let _evicted: Option<(u64, Prepared)> = self.statements.pop_first();
         }

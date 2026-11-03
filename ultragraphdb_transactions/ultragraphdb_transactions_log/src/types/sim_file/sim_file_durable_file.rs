@@ -47,8 +47,17 @@ impl DurableFile for SimFile {
             if file.len() < end {
                 file.resize(end, 0);
             }
-            file[at..at + kept].copy_from_slice(&bytes.as_slice()[..kept]);
-            Ok(())
+            let target = at
+                .checked_add(kept)
+                .and_then(|kept_end| file.get_mut(at..kept_end));
+            match (target, bytes.as_slice().get(..kept)) {
+                (Some(target), Some(source)) => {
+                    target.copy_from_slice(source);
+                    Ok(())
+                }
+                // `kept` is at most the write's length and the file was grown to cover it.
+                _ => Err(error(io::ErrorKind::InvalidInput, "the range overflows")),
+            }
         })
     }
 

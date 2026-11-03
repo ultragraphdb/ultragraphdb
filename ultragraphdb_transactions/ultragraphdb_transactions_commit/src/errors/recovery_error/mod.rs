@@ -42,24 +42,38 @@ pub enum RecoveryErrorEnum {
         /// The store's error reading the session table.
         cause: StoreError,
     },
-    /// The store's applied version is no round's last version the log holds: the store is ahead of the log, or was
-    /// written outside it.
+    /// The store's applied log position could not be read: the store's error, or its corruption error for a value that
+    /// is not 8 bytes.
+    AppliedPosition {
+        /// The store's error.
+        cause: StoreError,
+    },
+    /// The store's applied log position lies beyond the log's tail: the store is ahead of the log, or was written
+    /// outside it.
     StoreNotInLog {
-        /// The store's applied version.
-        version: u64,
+        /// The store's applied log position.
+        position: u64,
     },
-    /// The store is empty and the log was trimmed through `checkpoint`: the rounds the checkpoint covers are lost.
+    /// The log has a gap between the store's applied position and its tail: `position` is the first missing.
     Gap {
-        /// The last commit version the log's checkpoint covers.
+        /// The first position missing.
+        position: u64,
+    },
+    /// The store's applied log position, `applied`, is below `checkpoint`, the log's checkpoint: the rounds between
+    /// them are trimmed, and nothing is replayed.
+    BehindCheckpoint {
+        /// The store's applied log position.
+        applied: u64,
+        /// The log's checkpoint position.
         checkpoint: u64,
     },
-    /// The store's applied version, `applied`, is below `checkpoint`, the last commit version the log's checkpoint
-    /// covers: rounds the store lost are no longer in the log, and nothing is replayed.
-    BehindCheckpoint {
-        /// The store's applied version.
-        applied: u64,
-        /// The last commit version the log's checkpoint covers.
-        checkpoint: u64,
+    /// The round at `position` names `derivation`, a derivation version the store does not know: its quads cannot be
+    /// turned into keys, and nothing of it is applied.
+    Derivation {
+        /// The log position of the round.
+        position: u64,
+        /// The derivation version it names.
+        derivation: u32,
     },
 }
 
@@ -85,13 +99,13 @@ impl RecoveryError {
     }
 
     /// The [`RecoveryErrorEnum::StoreNotInLog`] reason.
-    pub fn store_not_in_log(version: u64) -> Self {
-        Self(RecoveryErrorEnum::StoreNotInLog { version })
+    pub fn store_not_in_log(position: u64) -> Self {
+        Self(RecoveryErrorEnum::StoreNotInLog { position })
     }
 
     /// The [`RecoveryErrorEnum::Gap`] reason.
-    pub fn gap(checkpoint: u64) -> Self {
-        Self(RecoveryErrorEnum::Gap { checkpoint })
+    pub fn gap(position: u64) -> Self {
+        Self(RecoveryErrorEnum::Gap { position })
     }
 
     /// The [`RecoveryErrorEnum::BehindCheckpoint`] reason.
@@ -100,5 +114,18 @@ impl RecoveryError {
             applied,
             checkpoint,
         })
+    }
+
+    /// The [`RecoveryErrorEnum::Derivation`] reason.
+    pub fn derivation(position: u64, derivation: u32) -> Self {
+        Self(RecoveryErrorEnum::Derivation {
+            position,
+            derivation,
+        })
+    }
+
+    /// The [`RecoveryErrorEnum::AppliedPosition`] reason.
+    pub fn applied_position(cause: StoreError) -> Self {
+        Self(RecoveryErrorEnum::AppliedPosition { cause })
     }
 }

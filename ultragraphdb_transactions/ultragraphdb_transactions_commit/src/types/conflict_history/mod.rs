@@ -78,7 +78,8 @@ impl ConflictHistory {
             return;
         }
         self.runs.push_back(run);
-        // Merge the newest run into the one before it while that one is no larger, within the cap.
+        // Merge the newest run into the one before it while that one is no larger, within the cap. Each turn replaces
+        // two runs by one, so it ends within the runs held.
         while let [.., prev, last] = self.runs.make_contiguous() {
             if prev.len() > last.len() || prev.len() + last.len() > Self::RUN_CAP {
                 break;
@@ -123,9 +124,6 @@ impl ConflictHistory {
         if above().any(|run| run.keys_written(read_set.absent(), rv)) {
             return Some(ConflictKind::AbsentTerm);
         }
-        if above().any(|run| run.ranges_written(std::iter::once(read_set.catalog()), rv)) {
-            return Some(ConflictKind::Catalog);
-        }
         above()
             .any(|run| run.ranges_over(read_set, rv))
             .then_some(ConflictKind::Drop)
@@ -147,6 +145,7 @@ impl ConflictHistory {
     /// Raises the floor to `floor`, never lowering it, and drops what only versions at or below it wrote.
     pub fn prune(&mut self, floor: u64) {
         self.floor = self.floor.max(floor);
+        // Each turn removes the oldest run, so it ends within the runs held.
         while self
             .runs
             .front()

@@ -134,3 +134,21 @@ fn test_a_changesets_error_is_the_source() -> TestResult {
     }
     Ok(())
 }
+
+#[test]
+fn test_a_cross_partition_abort_names_both_partitions_and_is_not_retryable() {
+    let error = TxnError::cross_partition(1, 2);
+    assert_eq!(
+        error.0,
+        TxnErrorEnum::CrossPartition {
+            partition: 1,
+            other: 2
+        }
+    );
+    assert!(!error.is_retryable());
+    assert_eq!(
+        error.to_string(),
+        "the transaction, bound to partition 1, reached partition 2: cross-partition work is refused in this stage"
+    );
+    assert!(error.source().is_none());
+}

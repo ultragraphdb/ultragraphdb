@@ -55,22 +55,17 @@ fn frame_at(bytes: &[u8], offset: usize, cluster: u64) -> Found {
         HeaderView::new(frame).and_then(|view| Ok((view, view.verify(cluster, MAX_FRAME_SIZE)?)));
     match verified {
         Ok((view, header)) if header.command() == Command::Round => {
-            let fields = RoundHeader::decode(view.command_header());
+            // A command header with unused bytes set or derivation 0 is no round of the log.
+            let Ok(fields) = RoundHeader::decode(view.command_header()) else {
+                return Found::NotARound;
+            };
             // A Round frame is numbered by its round's position: a header saying otherwise is no round of the log, and
             // neither is one at position 0, the place before the first round.
             if fields.position() == 0 || header.sequence() != u128::from(fields.position()) {
                 return Found::NotARound;
             }
             Found::Frame {
-                round: ScannedRound::new(
-                    Position::new(fields.position()),
-                    fields.parent(),
-                    view.checksum(),
-                    fields.first_version(),
-                    fields.transactions(),
-                    offset as u64,
-                    size as u32,
-                ),
+                round: ScannedRound::new(fields, view.checksum(), offset as u64, size as u32),
                 incarnation: fields.incarnation(),
                 checksum_body: view.checksum_body(),
             }
@@ -223,10 +218,8 @@ pub fn scan_segment(bytes: &[u8], start: &ScanStart) -> Result<SegmentScan, LogE
     let mut rounds = Vec::new();
     let mut offset = 0usize;
     let mut next = start.next();
-    loop {
-        if bytes.len().saturating_sub(offset) < BLOCK {
-            return Ok(SegmentScan::new(rounds, offset as u64, None));
-        }
+    // Ends: every round moves `offset` on by its padded frame, at least one block, and every other step returns.
+    while bytes.len().saturating_sub(offset) >= BLOCK {
         match step(bytes, offset, start, next)? {
             Step::Round(round) => {
                 next = round
@@ -245,6 +238,7 @@ pub fn scan_segment(bytes: &[u8], start: &ScanStart) -> Result<SegmentScan, LogE
             }
         }
     }
+    Ok(SegmentScan::new(rounds, offset as u64, None))
 }
 
 /// The offset of the first complete round of `cluster` and `incarnation` at a block boundary at or after `from` in

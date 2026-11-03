@@ -15,6 +15,10 @@ pub struct RoundRecord {
 impl RoundRecord {
     /// The record of a round from `first_version` with `transactions` decisions, `committed` of them commits.
     pub fn new(first_version: u64, transactions: u32, committed: u32) -> Self {
+        debug_assert!(
+            committed <= transactions,
+            "a round commits at most its decisions"
+        );
         Self {
             first_version,
             transactions,

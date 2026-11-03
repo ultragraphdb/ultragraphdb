@@ -73,9 +73,9 @@ refused, naming the version.
   copied entry included
 
 #### Scenario: Replay rebuilds drops and the session table
-- **WHEN** a store holds `p`'s keys and statements a delete by pattern will remove, a round holding a drop of `p`, that
-  delete by pattern and a commit of session `s`'s request 7 is applied, the store is restored to its state before the
-  round, and the round's record is replayed onto it
+- **WHEN** a store holds `p`'s keys and statements a delete by pattern will remove, a round holding a drop of `p` and the
+  next round holding that delete by pattern and a commit of session `s`'s request 7 are applied, the store is restored
+  to its state before them, and their records are replayed onto it
 - **THEN** no key of `p` and none of the removed statements is held, and a retry of `s`'s request 7 returns its stored
   reply without committing again
 

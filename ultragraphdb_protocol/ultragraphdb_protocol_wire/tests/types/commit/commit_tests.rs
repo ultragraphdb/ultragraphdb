@@ -11,8 +11,8 @@ use crate::utils::golden_bodies::golden;
 #[test]
 fn test_commit_builds_the_golden_frame() -> TestResult {
     let results = vec![
-        OperationResult::new(0x10, true),
-        OperationResult::new(0x20, false),
+        OperationResult::counter(-5),
+        OperationResult::compare_and_set(),
     ];
     let commit = Commit::new(9, 7, 1000, results.clone());
     assert_eq!(commit.session(), 9);

@@ -18,13 +18,12 @@ members = [
     "ultragraphdb_transactions/*",
     "ultragraphdb_transport/*",
 ]
-# The cargo-fuzz packages are a workspace of their own (fuzz/Cargo.toml):
-# nightly-only, and libfuzzer-sys builds C++.
+# The cargo-fuzz is a dedicated workspace (fuzz/Cargo.toml): nightly-only, and libfuzzer-sys builds C++.
 exclude = ["fuzz"]
 
 [workspace.package]
 edition = "2024"
-rust-version = "1.98.1"
+rust-version = "1.99.1"
 readme = "README.md"
 license = "Apache-2.0"
 repository = "https://github.com/ultragraphdb/ultragraphdb.git"

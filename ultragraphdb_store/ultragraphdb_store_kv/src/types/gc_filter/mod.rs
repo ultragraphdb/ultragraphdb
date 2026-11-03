@@ -38,6 +38,7 @@ pub struct GcFilter {
     undecodable: u64,
     /// The stored keys collected, handed to the store when the compaction finishes.
     collected: Vec<Slice>,
+    // Shared with the store and every running compaction (Ultra rule 9): fjall runs compactions on its own threads.
     settings: Option<Arc<GcSettings>>,
 }
 
@@ -97,9 +98,10 @@ impl GcFilter {
             self.key = encoded.to_vec();
             self.cut = false;
         }
-        let mut version = [0u8; 8];
-        version.copy_from_slice(&stored[stored.len() - 8..]);
-        let version = !u64::from_be_bytes(version);
+        // `encoded_part` found the version's eight bytes at the end.
+        let version = stored
+            .last_chunk::<8>()
+            .map_or(0, |raw| !u64::from_be_bytes(*raw));
         let collected = self.cut && !decoded.deletion && !decoded.fenced;
         if version <= self.discard_ts && (decoded.discard || decoded.deletion) {
             self.cut = true;

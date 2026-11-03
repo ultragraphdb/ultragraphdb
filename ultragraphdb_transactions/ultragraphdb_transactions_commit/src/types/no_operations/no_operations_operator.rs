@@ -33,7 +33,13 @@ impl<P> Operator<P> for NoOperations {
         &[]
     }
 
+    fn staged_dictionary<'s>(&self, _staged: &'s ()) -> impl Iterator<Item = (&'s [u8], &'s [u8])> {
+        std::iter::empty()
+    }
+
     fn adopt(&mut self, _proposal: &mut P, _staged: ()) {}
+
+    fn discard(&mut self, _proposal: &P, _staged: ()) {}
 
     fn admitted(&mut self, _proposal: &P) {}
 }

@@ -38,6 +38,11 @@ impl fmt::Display for TxnError {
             ),
             TxnErrorEnum::Ended => write!(f, "the transaction has ended"),
             TxnErrorEnum::Changeset(e) => e.fmt(f),
+            TxnErrorEnum::CrossPartition { partition, other } => write!(
+                f,
+                "the transaction, bound to partition {partition}, reached partition {other}: cross-partition work is \
+                 refused in this stage"
+            ),
         }
     }
 }

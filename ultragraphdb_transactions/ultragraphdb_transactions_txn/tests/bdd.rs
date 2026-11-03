@@ -33,7 +33,9 @@ struct Steps {
     ended: bool,
 }
 
-#[when("a request names a read version above the visibility watermark")]
+#[when(
+    "a client's Begin names a read version above the visibility watermark of the partition answering it"
+)]
 fn read_above(w: &mut Steps) -> TestResult {
     let applier = applier()?;
     let watermark = commit(&applier, vec![insert_literal("a", "name", "A")])?;
@@ -71,7 +73,7 @@ fn refused_naming_both(w: &mut Steps) {
 }
 
 #[when(
-    "a commit setting `<a> <name> \"A\"` is acknowledged and a transaction then begins and reads `name` of `a`"
+    "a commit setting `<a> <name> \"A\"` is acknowledged and a read-write transaction then begins and reads `name` of `a`"
 )]
 fn sees_acknowledged(w: &mut Steps) -> TestResult {
     let applier = applier()?;

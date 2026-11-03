@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_ids::SessionToken;
 use ultragraphdb_transactions_txn::{Prepared, ReadSet};
 
 use crate::traits::proposal::Proposal;
@@ -19,6 +20,14 @@ impl Proposal for Prepared {
 
     fn has_operations(&self) -> bool {
         Prepared::has_operations(self)
+    }
+
+    fn token(&self) -> Option<&SessionToken> {
+        Prepared::token(self)
+    }
+
+    fn dictionary(&self) -> impl Iterator<Item = (&[u8], &[u8])> {
+        Prepared::dictionary(self)
     }
 
     fn starts_build(&self) -> bool {

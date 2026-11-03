@@ -3,51 +3,50 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use std::collections::BTreeSet;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use oxrdf::{GraphName, Literal};
-use ultragraphdb_core_keys::QuadKey;
+use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_keys::{DEFAULT_GRAPH, QuadKey};
 use ultragraphdb_core_mapping::Change;
 use ultragraphdb_core_terms::EncodedTerm;
-use ultragraphdb_protocol_wire::{KeyValues, RecordOperation, WriteSetRecordView};
-use ultragraphdb_store_apply::Executed;
-use ultragraphdb_store_quads::{iri_key, uid_key, uid_value};
-use ultragraphdb_transactions_txn::{TxnError, WriteSetBuilder};
+use ultragraphdb_protocol_wire::{KeyValues, RecordKind, RecordOperation, WriteSetRecordView};
+use ultragraphdb_store_apply::{DropRequest, Executed};
+use ultragraphdb_transactions_txn::{ReadSet, TxnError, WriteSetBuilder};
 
-use crate::utils::fixture::{Applier, NS, applier, changeset, ex, insert, store};
+use crate::utils::fixture::{Applier, NS, applier, changeset, ex, insert, insert_literal, store};
 
-/// The UID the store holds for `<name>`.
-fn uid(applier: &Applier, name: &str) -> TestResult<u64> {
+/// The ID the store holds for `<name>`.
+fn id(applier: &Applier, name: &str) -> TestResult<SystemId> {
     applier
         .quads()
-        .uid_of(NS, ex(name).as_str())
+        .id_of(NS, ex(name).as_str())
         .context("the dictionary reads")?
         .context("the IRI is known")
+}
+
+/// The quad `<subject> <predicate> object` of the default graph as a record's key, from §12.2: the graph's 16 bytes
+/// (the default graph's all zero), the subject's and the predicate's 16 big-endian bytes, then the object's encoding.
+fn quad(subject: SystemId, predicate: SystemId, object: &[u8]) -> Vec<u8> {
+    let mut key = vec![0; 16];
+    key.extend_from_slice(&subject.to_be_bytes());
+    key.extend_from_slice(&predicate.to_be_bytes());
+    key.extend_from_slice(object);
+    key
 }
 
 fn forward(applier: &Applier, subject: &str, predicate: &str) -> TestResult<Vec<u8>> {
     Ok(QuadKey::Forward {
         namespace: NS,
-        graph: 0,
-        predicate: uid(applier, predicate)?,
-        subject: uid(applier, subject)?,
-    }
-    .to_bytes())
-}
-
-fn reverse(applier: &Applier, predicate: &str, object: &str) -> TestResult<Vec<u8>> {
-    Ok(QuadKey::Reverse {
-        namespace: NS,
-        graph: 0,
-        predicate: uid(applier, predicate)?,
-        object: EncodedTerm::uid(uid(applier, object)?),
+        graph: DEFAULT_GRAPH,
+        predicate: id(applier, predicate)?,
+        subject: id(applier, subject)?,
     }
     .to_bytes())
 }
 
 fn object(applier: &Applier, name: &str) -> TestResult<Vec<u8>> {
-    Ok(EncodedTerm::uid(uid(applier, name)?).as_bytes().to_vec())
+    Ok(EncodedTerm::id(id(applier, name)?).as_bytes().to_vec())
 }
 
 fn keys(values: KeyValues<'_>) -> Vec<Vec<u8>> {
@@ -61,12 +60,11 @@ fn entries(values: KeyValues<'_>) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
         .collect()
 }
 
-/// `changes` executed on `applier`, where `<a>`, `<b>`, `<c>`, `<knows>` are known and `knows` has its default
-/// catalog entry.
 fn executed(applier: &Applier, changes: Vec<Change>) -> TestResult<Executed> {
     applier.execute(&changeset(changes)).context("executed")
 }
 
+/// An applier where `<a>`, `<b>`, `<c>` and `<knows>` are known.
 fn known() -> TestResult<Applier> {
     let applier = applier()?;
     store(
@@ -86,291 +84,168 @@ fn written(builder: &WriteSetBuilder<'_>) -> TestResult<Vec<u8>> {
 }
 
 #[test]
-fn test_the_record_is_in_the_wires_layout_and_its_one_encoding() -> TestResult {
+fn test_the_record_reads_back_in_the_wires_layout_and_its_one_encoding() -> TestResult {
     let applier = known()?;
     let executed = executed(&applier, vec![insert("a", "knows", "b")])?;
-    let builder = WriteSetBuilder::new(&executed, 9, 7, b"commit record");
+    let session = 0x0102_0304_0506_0708_090A_0B0C_0D0E_0F10;
+    let builder = WriteSetBuilder::new(&executed, session, 7, b"commit record")
+        .with_principal(11)
+        .with_catalog(3);
     let bytes = written(&builder)?;
-    // The wire crate's own encoder, a separate implementation of the layout, gives the same bytes again.
     let view = WriteSetRecordView::new(&bytes).context("the wire reads it")?;
+    // The wire crate's own encoder, a separate implementation of the layout, gives the same bytes again.
     assert_eq!(view.to_record().encode(), bytes);
-    assert_eq!(builder.len(), bytes.len());
-    assert!(!builder.is_empty());
+    assert_eq!(view.kind(), RecordKind::Transaction);
     assert_eq!(view.namespace(), NS);
     assert_eq!(view.read_version(), executed.read_ts());
-    assert_eq!((view.session(), view.request()), (9, 7));
+    assert_eq!(view.catalog(), 3);
+    assert_eq!(view.session(), session.to_be_bytes());
+    assert_eq!((view.request(), view.principal()), (7, 11));
     assert_eq!(view.commit_record(), b"commit record");
+    assert_eq!(view.operation_count(), 0);
+    assert_eq!(view.result_count(), 0);
     Ok(())
 }
 
 #[test]
-fn test_the_fixed_part_is_written_little_endian_first() -> TestResult {
-    // The layout table of `WriteSetRecord`: namespace, read version, session, request, principal, each u64
-    // little-endian; the principal 0 here.
+fn test_the_fixed_part_is_written_from_the_layout() -> TestResult {
     let applier = known()?;
     let executed = executed(&applier, vec![insert("a", "knows", "b")])?;
-    let bytes = written(&WriteSetBuilder::new(&executed, 0x0102, 0x0304, &[]))?;
-    let fixed: Vec<u8> = [NS, executed.read_ts(), 0x0102, 0x0304, 0]
-        .iter()
-        .flat_map(|v| v.to_le_bytes())
-        .collect();
-    assert_eq!(&bytes[..40], fixed.as_slice());
-    // Section 0 starts where the table of eleven sections ends: 40 + 11 × 8.
-    assert_eq!(u32::from_le_bytes(bytes[40..44].try_into()?), 128);
+    let bytes = written(&WriteSetBuilder::new(&executed, 0x0102, 0x0304, &[]).with_catalog(5))?;
+    // §12.2: kind 1 and 7 zero bytes; namespace, catalog and read version little-endian; the session's 16 bytes
+    // big-endian; request and principal little-endian.
+    let mut fixed = vec![1, 0, 0, 0, 0, 0, 0, 0];
+    fixed.extend_from_slice(&NS.to_le_bytes());
+    fixed.extend_from_slice(&5u64.to_le_bytes());
+    fixed.extend_from_slice(&executed.read_ts().to_le_bytes());
+    fixed.extend_from_slice(&0x0102u128.to_be_bytes());
+    fixed.extend_from_slice(&0x0304u64.to_le_bytes());
+    fixed.extend_from_slice(&0u64.to_le_bytes());
+    assert_eq!(bytes.get(..64), Some(fixed.as_slice()));
+    // Section 0 starts where the table of twelve sections ends: 64 + 12 × 8 = 160.
+    assert_eq!(bytes.get(64..68), Some(&160u32.to_le_bytes()[..]));
     Ok(())
 }
 
-/// A worker's record holds no results; the commit step's record of a transaction with operations holds each one in
-/// section 9, in the order asked, which the wire's view reads back (decided 2026-10-28).
 #[test]
-fn test_results_are_written_into_section_nine_in_order() -> TestResult {
+fn test_an_insert_records_its_quad_with_its_ids_and_names_its_statement() -> TestResult {
     let applier = known()?;
     let executed = executed(&applier, vec![insert("a", "knows", "b")])?;
-    let none = written(&WriteSetBuilder::new(&executed, 1, 1, &[]))?;
-    assert_eq!(WriteSetRecordView::new(&none)?.result_count(), 0);
-    let results = [(41, true), (7, false)];
-    let builder = WriteSetBuilder::new(&executed, 1, 1, &[]).with_results(&results);
-    let bytes = written(&builder)?;
-    assert_eq!(bytes.len(), builder.len());
-    assert_eq!(bytes.len(), none.len() + 32);
-    let view = WriteSetRecordView::new(&bytes)?;
-    let read: Vec<(u64, bool)> = (0..view.result_count())
-        .filter_map(|i| view.result(i))
-        .map(|r| (r.uid(), r.created()))
-        .collect();
-    assert_eq!(read, results);
-    Ok(())
-}
-
-/// A drop's record names its operation in section 10, the predicate's UID; a build's end names its record; any other
-/// execution's record has none (decided 2026-10-28).
-#[test]
-fn test_a_drop_and_a_builds_end_name_their_operation_in_section_ten() -> TestResult {
-    let applier = known()?;
-    let plain = executed(&applier, vec![insert("a", "knows", "b")])?;
-    let bytes = written(&WriteSetBuilder::new(&plain, 1, 1, &[]))?;
-    assert_eq!(WriteSetRecordView::new(&bytes)?.operation(), None);
-    let drop = applier.prepare_drop(
-        NS,
-        ultragraphdb_store_apply::DropRequest::Predicate(ex("knows").as_ref()),
-    )?;
-    let builder = WriteSetBuilder::new(&drop, 0, 0, &[]);
-    let drop_bytes = written(&builder)?;
-    assert_eq!(drop_bytes.len(), builder.len());
-    assert_eq!(
-        WriteSetRecordView::new(&drop_bytes)?.operation(),
-        Some(RecordOperation::DropPredicate(uid(&applier, "knows")?))
+    let view_bytes = written(&WriteSetBuilder::new(&executed, 1, 1, &[]))?;
+    let view = WriteSetRecordView::new(&view_bytes)?;
+    let (a, knows, b) = (
+        id(&applier, "a")?,
+        id(&applier, "knows")?,
+        id(&applier, "b")?,
     );
-    for (end, operation) in [
-        (
-            ultragraphdb_store_apply::BuildEnd::Swap(12),
-            RecordOperation::SwapBuild(12),
-        ),
-        (
-            ultragraphdb_store_apply::BuildEnd::Undo(14),
-            RecordOperation::UndoBuild(14),
-        ),
-    ] {
-        let ending = applier.prepare_build_end(end)?;
-        let end_builder = WriteSetBuilder::new(&ending, 0, 0, &[]);
-        let end_bytes = written(&end_builder)?;
-        assert_eq!(end_bytes.len(), end_builder.len());
-        assert_eq!(
-            WriteSetRecordView::new(&end_bytes)?.operation(),
-            Some(operation)
-        );
-    }
-    Ok(())
-}
-
-#[test]
-fn test_an_insert_writes_its_lists_deltas_and_names_its_forward_statement() -> TestResult {
-    let applier = known()?;
-    let executed = executed(&applier, vec![insert("a", "knows", "b")])?;
-    let bytes = written(&WriteSetBuilder::new(&executed, 1, 1, &[]))?;
-    let view = WriteSetRecordView::new(&bytes)?;
-    let mut expected_deltas: Vec<Vec<u8>> = executed
-        .writes()
-        .deltas()
-        .iter()
-        .map(|(k, _)| k.clone())
-        .collect();
-    let statistics = QuadKey::Statistics {
-        namespace: NS,
-        graph: 0,
-        predicate: uid(&applier, "knows")?,
-    }
-    .to_bytes();
-    expected_deltas.push(statistics.clone());
-    let mut deltas = keys(view.list_deltas());
-    deltas.sort();
-    expected_deltas.sort();
-    assert_eq!(deltas, expected_deltas);
-    assert!(deltas.contains(&forward(&applier, "a", "knows")?));
-    assert!(deltas.contains(&reverse(&applier, "knows", "b")?));
-    // Each list's delta in the posting format, as the posting list encodes itself.
-    for (key, delta) in executed.writes().deltas() {
-        let found = view
-            .list_deltas()
-            .iter()
-            .find(|e| e.key() == key.as_slice())
-            .context("the delta is there")?;
-        assert_eq!(found.value(), Some(delta.encode().as_slice()));
-    }
-    // The forward list changed by one object is named by that object; every other write is a point.
-    let statements = entries(view.conflict_statements());
+    let b_encoded = EncodedTerm::id(b).as_bytes().to_vec();
     assert_eq!(
-        statements,
+        entries(view.inserted()),
+        vec![(quad(a, knows, &b_encoded), Some(Vec::new()))],
+        "present and empty: a statement without an ID"
+    );
+    assert!(entries(view.removed()).is_empty());
+    assert!(entries(view.statement_records()).is_empty());
+    // The forward list's statement is its conflict statement, the list no point.
+    assert_eq!(
+        entries(view.conflict_statements()),
         vec![(
             forward(&applier, "a", "knows")?,
             Some(object(&applier, "b")?)
         )]
     );
-    let points = keys(view.conflict_points());
-    assert!(!points.contains(&forward(&applier, "a", "knows")?));
-    assert!(points.contains(&reverse(&applier, "knows", "b")?));
-    assert!(points.contains(&statistics));
-    assert_eq!(points.len(), deltas.len() - 1);
-    assert_eq!(view.conflict_ranges().len(), 0);
-    assert_eq!(view.dictionary().len(), 0);
-    assert_eq!(view.statements().len(), 0);
-    assert_eq!(view.catalog().len(), 0);
-    assert_eq!(view.versionless().len(), 0);
+    assert!(!keys(view.conflict_points()).contains(&forward(&applier, "a", "knows")?));
     Ok(())
 }
 
 #[test]
-fn test_a_list_changed_by_more_objects_than_the_bound_is_named_whole() -> TestResult {
+fn test_a_written_statement_names_its_terms_by_their_term_keys() -> TestResult {
     let applier = known()?;
-    store(&applier, vec![insert("d", "knows", "c")])?;
-    let executed = executed(
-        &applier,
-        vec![insert("a", "knows", "b"), insert("a", "knows", "d")],
-    )?;
-    let key = forward(&applier, "a", "knows")?;
-    let at = |bound: usize| -> TestResult<(bool, BTreeSet<_>)> {
-        let bytes =
-            written(&WriteSetBuilder::new(&executed, 1, 1, &[]).with_objects_per_list(bound))?;
-        let view = WriteSetRecordView::new(&bytes)?;
-        let statements: BTreeSet<_> = entries(view.conflict_statements()).into_iter().collect();
-        Ok((keys(view.conflict_points()).contains(&key), statements))
+    let executed = executed(&applier, vec![insert("a", "knows", "b")])?;
+    let bytes = written(&WriteSetBuilder::new(&executed, 1, 1, &[]))?;
+    let points = keys(WriteSetRecordView::new(&bytes)?.conflict_points());
+    for name in ["a", "knows", "b"] {
+        // The tag 0xFE and the ID's 16 bytes, written from the layout.
+        let mut key = vec![0xFE];
+        key.extend_from_slice(&id(&applier, name)?.to_be_bytes());
+        assert!(points.contains(&key), "{name}: {points:?}");
+        assert_eq!(ReadSet::term_key(id(&applier, name)?).to_vec(), key);
+    }
+    Ok(())
+}
+
+#[test]
+fn test_a_literal_object_names_no_term_key() -> TestResult {
+    let applier = known()?;
+    let executed = executed(&applier, vec![insert_literal("a", "name", "A")])?;
+    let bytes = written(&WriteSetBuilder::new(&executed, 1, 1, &[]))?;
+    let view = WriteSetRecordView::new(&bytes)?;
+    let term_keys: Vec<Vec<u8>> = keys(view.conflict_points())
+        .into_iter()
+        .filter(|k| k.first() == Some(&0xFE))
+        .collect();
+    // `name` is new: its ID is the execution's, not yet the dictionary's.
+    let named = |n: &str| -> TestResult<Vec<u8>> {
+        let iri = ex(n);
+        let found = executed
+            .terms()
+            .written()
+            .find(|(text, _)| *text == iri.as_str())
+            .map(|(_, id)| id);
+        let id = match found {
+            Some(id) => id,
+            None => id(&applier, n)?,
+        };
+        let mut key = vec![0xFE];
+        key.extend_from_slice(&id.to_be_bytes());
+        Ok(key)
     };
-    let (point, statements) = at(2)?;
-    assert!(
-        !point,
-        "two objects within a bound of two: named one by one"
-    );
-    let expected: BTreeSet<_> = [
-        (key.clone(), Some(object(&applier, "b")?)),
-        (key.clone(), Some(object(&applier, "d")?)),
-    ]
-    .into_iter()
-    .collect();
-    assert_eq!(statements, expected);
-    let (point_one, statements_one) = at(1)?;
-    assert!(point_one, "two objects past a bound of one: the list whole");
-    assert!(statements_one.is_empty());
-    let (point_zero, _) = at(0)?;
-    assert!(point_zero);
-    Ok(())
-}
-
-#[test]
-fn test_a_new_iri_writes_its_dictionary_entries_as_points() -> TestResult {
-    let applier = known()?;
-    let executed = executed(&applier, vec![insert("n", "knows", "b")])?;
-    let bytes = written(&WriteSetBuilder::new(&executed, 1, 1, &[]))?;
-    let view = WriteSetRecordView::new(&bytes)?;
-    let (iri, uid) = executed.terms().created().next().context("n is created")?;
-    assert_eq!(iri, ex("n").as_str());
-    let mut dictionary = entries(view.dictionary());
-    dictionary.sort();
-    let mut expected = vec![
-        (iri_key(NS, iri), Some(uid.to_be_bytes().to_vec())),
-        (uid_key(NS, uid), Some(uid_value(iri, false))),
-    ];
+    let mut expected = vec![named("a")?, named("name")?];
     expected.sort();
-    assert_eq!(dictionary, expected);
-    let points = keys(view.conflict_points());
-    assert!(points.contains(&iri_key(NS, iri)));
-    assert!(points.contains(&uid_key(NS, uid)));
-    assert_eq!(view.versionless().len(), 0);
-    Ok(())
-}
-
-/// A predicate's implicit default entry is an insert-if-absent on its catalog key, not a catalog change (decided
-/// 2026-10-27): the record carries the entry and names no conflict point for it, so concurrent first writes of one
-/// predicate both commit.
-#[test]
-fn test_a_predicates_first_write_writes_its_default_entry_without_a_point() -> TestResult {
-    let applier = known()?;
-    let executed = executed(&applier, vec![insert("a", "likes", "b")])?;
-    let bytes = written(&WriteSetBuilder::new(&executed, 1, 1, &[]))?;
-    let view = WriteSetRecordView::new(&bytes)?;
-    let catalog = keys(view.catalog());
-    assert_eq!(catalog.len(), 1, "the default entry of likes");
-    // A catalog key: the catalog keyspace byte, then the namespace big-endian.
-    let mut prefix = vec![0x01];
-    prefix.extend_from_slice(&NS.to_be_bytes());
-    assert!(catalog[0].starts_with(&prefix));
-    assert!(!keys(view.conflict_points()).contains(&catalog[0]));
-    assert!(view.catalog().iter().all(|e| e.value().is_some()));
-    Ok(())
-}
-
-/// A declaration remains a catalog change: its entry is a conflict point, even when the changeset first wrote the
-/// predicate under its default entry.
-#[test]
-fn test_a_declarations_catalog_entry_is_a_point() -> TestResult {
-    let applier = known()?;
-    let declared = ultragraphdb_core_mapping::PredicateDeclaration::new(ex("likes"));
-    let executed = executed(
-        &applier,
-        vec![
-            insert("a", "likes", "b"),
-            Change::Declare(ultragraphdb_core_mapping::Declaration::Predicate(declared)),
-        ],
-    )?;
-    let bytes = written(&WriteSetBuilder::new(&executed, 1, 1, &[]))?;
-    let view = WriteSetRecordView::new(&bytes)?;
-    let catalog = keys(view.catalog());
-    assert_eq!(catalog.len(), 1, "the declaration of likes");
-    assert!(keys(view.conflict_points()).contains(&catalog[0]));
+    let mut found = term_keys;
+    found.sort();
+    found.dedup();
+    assert_eq!(found, expected, "the subject and predicate alone");
+    let inserted = keys(view.inserted());
+    assert_eq!(inserted.len(), 1);
+    // The object's encoding follows the graph, subject and predicate: 48 bytes in.
+    let literal = inserted
+        .first()
+        .and_then(|k| k.get(48..))
+        .context("the object")?;
+    assert!(EncodedTerm::from_bytes(literal).is_ok());
     Ok(())
 }
 
 #[test]
-fn test_a_deleted_edges_statement_record_is_written_as_a_removal() -> TestResult {
+fn test_a_delete_by_pattern_records_the_statements_it_resolved_to() -> TestResult {
     let applier = known()?;
-    let properties = vec![(ex("since"), Literal::new_simple_literal("2020").into())];
-    let (subject, object) = (ex("a"), ex("b"));
     store(
         &applier,
-        vec![Change::InsertEdge {
-            graph: GraphName::DefaultGraph,
-            subject: subject.clone().into(),
-            predicate: ex("knows"),
-            object: object.clone().into(),
-            properties,
-        }],
+        vec![
+            insert_literal("a", "tag", "x"),
+            insert_literal("a", "tag", "y"),
+        ],
     )?;
-    let delete = Change::Delete {
+    let delete = Change::DeletePattern {
         graph: GraphName::DefaultGraph,
-        subject: subject.into(),
-        predicate: ex("knows"),
-        object: object.into(),
+        subject: ex("a").into(),
+        predicate: ex("tag"),
     };
     let executed = executed(&applier, vec![delete])?;
     let bytes = written(&WriteSetBuilder::new(&executed, 1, 1, &[]))?;
     let view = WriteSetRecordView::new(&bytes)?;
-    let records = entries(view.statements());
-    assert_eq!(records.len(), 1, "{records:?}");
-    assert_eq!(records[0].1, None, "a removal, not an empty value");
+    let removed = entries(view.removed());
+    assert_eq!(removed.len(), 2, "both statements: {removed:?}");
+    let (a, tag) = (id(&applier, "a")?, id(&applier, "tag")?);
+    let prefix = quad(a, tag, &[]);
+    assert!(removed.iter().all(|(k, _)| k.starts_with(&prefix)));
+    assert!(entries(view.inserted()).is_empty());
     Ok(())
 }
 
 #[test]
-fn test_an_edges_statement_record_is_written_with_its_key_a_point() -> TestResult {
+fn test_an_edge_with_properties_records_its_statement_id_and_record() -> TestResult {
     let applier = known()?;
     let edge = Change::InsertEdge {
         graph: GraphName::DefaultGraph,
@@ -382,15 +257,130 @@ fn test_an_edges_statement_record_is_written_with_its_key_a_point() -> TestResul
     let executed = executed(&applier, vec![edge])?;
     let bytes = written(&WriteSetBuilder::new(&executed, 1, 1, &[]))?;
     let view = WriteSetRecordView::new(&bytes)?;
-    let records = keys(view.statements());
+    let inserted = entries(view.inserted());
+    assert_eq!(inserted.len(), 1, "{inserted:?}");
+    let statement = inserted
+        .first()
+        .and_then(|(_, v)| v.clone())
+        .context("a statement ID")?;
+    assert_eq!(statement.len(), 16, "its ID's 16 bytes");
+    let statement_id = SystemId::decode(&statement).context("a valid ID")?;
+    // §12.2: a statement record's key is its graph's 16 bytes and the statement's ID.
+    let mut record_key = vec![0; 16];
+    record_key.extend_from_slice(&statement_id.to_be_bytes());
+    let records = entries(view.statement_records());
     assert_eq!(records.len(), 1);
-    // A statement record's key: the statements keyspace byte 0x17, then the namespace.
-    let mut prefix = vec![0x17];
-    prefix.extend_from_slice(&NS.to_be_bytes());
-    assert!(records[0].starts_with(&prefix));
-    assert!(keys(view.conflict_points()).contains(&records[0]));
-    // The record is not a catalog entry, and the catalog entry of `since` is not a record.
-    assert!(!keys(view.catalog()).contains(&records[0]));
+    assert_eq!(records.first().map(|(k, _)| k.clone()), Some(record_key));
+    assert!(records.first().is_some_and(|(_, v)| v.is_some()));
+    Ok(())
+}
+
+#[test]
+fn test_a_deleted_edges_statement_record_is_recorded_as_a_removal() -> TestResult {
+    let applier = known()?;
+    let properties = vec![(ex("since"), Literal::new_simple_literal("2020").into())];
+    store(
+        &applier,
+        vec![Change::InsertEdge {
+            graph: GraphName::DefaultGraph,
+            subject: ex("a").into(),
+            predicate: ex("knows"),
+            object: ex("b").into(),
+            properties,
+        }],
+    )?;
+    let delete = Change::Delete {
+        graph: GraphName::DefaultGraph,
+        subject: ex("a").into(),
+        predicate: ex("knows"),
+        object: ex("b").into(),
+    };
+    let executed = executed(&applier, vec![delete])?;
+    let bytes = written(&WriteSetBuilder::new(&executed, 1, 1, &[]))?;
+    let view = WriteSetRecordView::new(&bytes)?;
+    let records = entries(view.statement_records());
+    assert_eq!(records.len(), 1, "{records:?}");
+    assert_eq!(records.first().map(|(_, v)| v.clone()), Some(None));
+    assert_eq!(entries(view.removed()).len(), 1);
+    Ok(())
+}
+
+#[test]
+fn test_a_new_iris_dictionary_entries_are_no_conflict_points() -> TestResult {
+    let applier = known()?;
+    let executed = executed(&applier, vec![insert("new", "knows", "c")])?;
+    let bytes = written(&WriteSetBuilder::new(&executed, 1, 1, &[]))?;
+    let points = keys(WriteSetRecordView::new(&bytes)?.conflict_points());
+    // The dictionary keyspace's byte, 0x1B: creating an entry conflicts with nothing.
+    assert!(
+        points.iter().all(|k| k.first() != Some(&0x1B)),
+        "{points:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn test_a_list_changed_by_more_objects_than_the_bound_is_named_whole() -> TestResult {
+    let applier = known()?;
+    let executed = executed(
+        &applier,
+        vec![insert("a", "knows", "b"), insert("a", "knows", "x")],
+    )?;
+    let bytes = written(&WriteSetBuilder::new(&executed, 1, 1, &[]).with_objects_per_list(1))?;
+    let view = WriteSetRecordView::new(&bytes)?;
+    let list = forward(&applier, "a", "knows")?;
+    assert!(keys(view.conflict_points()).contains(&list));
+    assert!(keys(view.conflict_statements()).is_empty());
+    // Within the bound, each object is named.
+    let named = written(&WriteSetBuilder::new(&executed, 1, 1, &[]).with_objects_per_list(2))?;
+    let named_view = WriteSetRecordView::new(&named)?;
+    assert_eq!(
+        keys(named_view.conflict_statements()),
+        vec![list.clone(), list]
+    );
+    Ok(())
+}
+
+#[test]
+fn test_a_drop_records_its_operation_and_its_ranges() -> TestResult {
+    let applier = known()?;
+    let drop = applier
+        .prepare_drop(NS, DropRequest::Predicate(ex("knows").as_ref()))
+        .context("the drop")?;
+    let bytes = written(&WriteSetBuilder::new(&drop, 4, 2, &[]))?;
+    let view = WriteSetRecordView::new(&bytes)?;
+    assert_eq!(view.kind(), RecordKind::Transaction);
+    assert_eq!(view.operation_count(), 1);
+    assert_eq!(
+        view.operation(0),
+        Some(RecordOperation::DropPredicate(id(&applier, "knows")?))
+    );
+    assert_eq!(view.read_version(), 0, "a Drop's read version is 0");
+    let ranges: Vec<(Vec<u8>, Vec<u8>)> = view
+        .conflict_ranges()
+        .iter()
+        .map(|e| (e.key().to_vec(), e.value().unwrap_or_default().to_vec()))
+        .collect();
+    assert_eq!(ranges, drop.drop_ranges().to_vec());
+    assert!(entries(view.inserted()).is_empty());
+    Ok(())
+}
+
+#[test]
+fn test_each_drop_names_its_operation() -> TestResult {
+    let applier = known()?;
+    let cases = [
+        (DropRequest::Data, RecordOperation::DropNamespaceData),
+        (DropRequest::Namespace, RecordOperation::DropNamespace),
+        (DropRequest::All, RecordOperation::DropAll),
+    ];
+    for (request, operation) in cases {
+        let drop = applier.prepare_drop(NS, request).context("the drop")?;
+        let bytes = written(&WriteSetBuilder::new(&drop, 9, 3, &[]))?;
+        let view = WriteSetRecordView::new(&bytes)?;
+        assert_eq!(view.operation(0), Some(operation), "{operation:?}");
+        assert_eq!((view.session(), view.request()), (9u128.to_be_bytes(), 3));
+    }
     Ok(())
 }
 
@@ -400,7 +390,7 @@ fn test_a_record_at_its_limit_is_written_and_one_byte_over_is_refused_leaving_th
     let applier = known()?;
     let executed = executed(&applier, vec![insert("a", "knows", "b")])?;
     let builder = WriteSetBuilder::new(&executed, 1, 1, b"r");
-    let len = builder.len();
+    let len = written(&builder)?.len();
     let mut out = Vec::with_capacity(8_192);
     assert_eq!(builder.write_into(&mut out, len), Ok(len));
     assert_eq!(out.len(), len);
@@ -415,108 +405,34 @@ fn test_a_record_at_its_limit_is_written_and_one_byte_over_is_refused_leaving_th
 }
 
 #[test]
-fn test_a_reused_buffer_is_cleared_and_keeps_its_capacity() -> TestResult {
+fn test_a_built_record_encodes_as_its_writer_writes_it() -> TestResult {
+    let applier = known()?;
+    let executed = executed(&applier, vec![insert("a", "knows", "b")])?;
+    let builder = WriteSetBuilder::new(&executed, 5, 6, b"x").with_principal(2);
+    let record = builder.build()?;
+    let mut out = vec![0xAA; 3];
+    let len = WriteSetBuilder::encode_into(&record, &mut out, usize::MAX)?;
+    assert_eq!(out, record.encode());
+    assert_eq!(len, out.len());
+    assert_eq!(out, written(&builder)?);
+    Ok(())
+}
+
+#[test]
+fn test_a_reused_buffer_is_cleared() -> TestResult {
     let applier = known()?;
     let big = executed(
         &applier,
-        vec![insert("a", "knows", "b"), insert("n", "likes", "m")],
+        (0..20)
+            .map(|i| insert(&format!("s{i}"), "knows", "b"))
+            .collect(),
     )?;
-    let small = executed(&applier, vec![insert("b", "knows", "a")])?;
+    let small = executed(&applier, vec![insert("a", "knows", "b")])?;
     let mut out = Vec::new();
-    assert_eq!(
-        WriteSetBuilder::new(&big, 1, 1, &[]).write_into(&mut out, usize::MAX)?,
-        out.len()
-    );
-    let capacity = out.capacity();
-    let small_builder = WriteSetBuilder::new(&small, 2, 2, &[]);
-    assert_eq!(small_builder.write_into(&mut out, usize::MAX)?, out.len());
-    assert_eq!(
-        out,
-        written(&small_builder)?,
-        "nothing of the earlier record is left"
-    );
-    assert_eq!(out.capacity(), capacity);
-    assert_eq!(
-        WriteSetBuilder::new(&big, 1, 1, &[]).write_into(&mut out, usize::MAX)?,
-        out.len()
-    );
-    assert_eq!(
-        out.capacity(),
-        capacity,
-        "a record that fitted fits again without growing"
-    );
-    Ok(())
-}
-
-#[test]
-fn test_the_written_size_reserves_once() -> TestResult {
-    let applier = known()?;
-    let executed = executed(&applier, vec![insert("a", "knows", "b")])?;
-    let builder = WriteSetBuilder::new(&executed, 1, 1, &[]);
-    let mut out = Vec::new();
-    assert_eq!(builder.write_into(&mut out, usize::MAX)?, out.len());
-    assert_eq!(
-        out.capacity(),
-        builder.len(),
-        "one reservation of the exact size"
-    );
-    Ok(())
-}
-
-/// The drops of a graph, a namespace's data, a namespace and every namespace name their operation, codes 4 to 7, a
-/// graph's with its UID, and write their key ranges as conflict ranges (`PROTOCOL.md` §12.2).
-#[test]
-fn test_each_drop_names_its_operation_and_writes_its_ranges() -> TestResult {
-    use ultragraphdb_store_apply::DropRequest;
-    let applier = known()?;
-    let graph = ex("g");
-    store(
-        &applier,
-        vec![Change::Insert {
-            graph: GraphName::from(graph.clone()),
-            subject: ex("a").into(),
-            predicate: ex("knows"),
-            object: ex("b").into(),
-        }],
-    )?;
-    for (request, operation) in [
-        (
-            DropRequest::Graph(GraphName::from(graph.clone()).as_ref()),
-            RecordOperation::DropGraph(uid(&applier, "g")?),
-        ),
-        (DropRequest::Data, RecordOperation::DropNamespaceData),
-        (DropRequest::Namespace, RecordOperation::DropNamespace),
-        (DropRequest::All, RecordOperation::DropAll),
-    ] {
-        let drop = applier.prepare_drop(NS, request)?;
-        let builder = WriteSetBuilder::new(&drop, 9, 3, &[]);
-        let bytes = written(&builder)?;
-        assert_eq!(bytes.len(), builder.len());
-        let view = WriteSetRecordView::new(&bytes)?;
-        assert_eq!(view.operation(), Some(operation));
-        assert_eq!((view.session(), view.request()), (9, 3));
-        let ranges: Vec<(Vec<u8>, Vec<u8>)> = view
-            .conflict_ranges()
-            .iter()
-            .map(|e| (e.key().to_vec(), e.value().unwrap_or_default().to_vec()))
-            .collect();
-        assert_eq!(ranges, drop.drop_ranges().to_vec(), "{operation:?}");
-    }
-    Ok(())
-}
-
-/// The record names the principal the transaction acted for in its fixed part; 0 without one.
-#[test]
-fn test_the_record_names_its_principal() -> TestResult {
-    let applier = known()?;
-    let executed = executed(&applier, vec![insert("a", "knows", "b")])?;
-    let bytes = written(&WriteSetBuilder::new(&executed, 1, 1, &[]))?;
-    assert_eq!(WriteSetRecordView::new(&bytes)?.principal(), 0);
-    let principal_bytes = written(&WriteSetBuilder::new(&executed, 1, 1, &[]).with_principal(7))?;
-    let view = WriteSetRecordView::new(&principal_bytes)?;
-    assert_eq!(
-        (view.principal(), view.session(), view.request()),
-        (7, 1, 1)
-    );
+    let big_len = WriteSetBuilder::new(&big, 1, 1, &[]).write_into(&mut out, usize::MAX)?;
+    let small_len = WriteSetBuilder::new(&small, 1, 1, &[]).write_into(&mut out, usize::MAX)?;
+    assert!(small_len < big_len);
+    assert_eq!(out.len(), small_len);
+    assert_eq!(out, written(&WriteSetBuilder::new(&small, 1, 1, &[]))?);
     Ok(())
 }

@@ -50,7 +50,7 @@ fn test_the_overlay_lives_one_round_and_reads_the_unapplied_proposals() -> TestR
     // The counter's new value, 0 + 5, created 0 as a counter add's always is (PROTOCOL.md §6.3).
     assert_eq!(
         results,
-        vec![ultragraphdb_protocol_wire::OperationResult::new(5, false)]
+        vec![ultragraphdb_protocol_wire::OperationResult::counter(5)]
     );
     operator.adopt(&mut five, staged);
     // A counter of "zero" is no integer: refused with the value found.
@@ -75,10 +75,11 @@ fn test_the_overlay_lives_one_round_and_reads_the_unapplied_proposals() -> TestR
     Ok(())
 }
 
-/// An operation naming an IRI that a decided but unapplied proposal created takes that proposal's UID: the creator's
-/// round writes the dictionary entry, so the operation's record writes none and creates no second UID (7.5).
+/// An operation naming an IRI that a decided but unapplied proposal created takes that proposal's ID: the dictionary
+/// shares one ID among concurrent creators (term-dictionary, "An IRI's ID is got or created at its home"), so the
+/// operation's writes name the IRI by the creator's ID and create no second one (7.5).
 #[test]
-fn test_an_operation_on_an_iri_an_unapplied_proposal_created_reuses_its_uid() -> TestResult {
+fn test_an_operation_on_an_iri_an_unapplied_proposal_created_reuses_its_id() -> TestResult {
     let applier = applier()?;
     let _version: u64 = setup(&applier, vec![insert("a", "knows", "b")])?;
     let mut operator = ApplierOperator::new(&applier);
@@ -87,13 +88,13 @@ fn test_an_operation_on_an_iri_an_unapplied_proposal_created_reuses_its_uid() ->
     write(&mut creator, vec![insert("fresh", "knows", "b")])?;
     let creator = prepare(creator)?;
     let fresh = ex("fresh");
-    assert!(
-        creator
-            .executed()
-            .terms()
-            .created()
-            .any(|(iri, _)| iri == fresh.as_str())
-    );
+    let created = creator
+        .executed()
+        .terms()
+        .written()
+        .find(|(iri, _)| *iri == fresh.as_str())
+        .map(|(_, id)| id)
+        .context("the creator wrote the IRI")?;
     let mut adder = begin(&applier)?;
     adder.operate(
         Operation::CounterAdd {
@@ -110,16 +111,12 @@ fn test_an_operation_on_an_iri_an_unapplied_proposal_created_reuses_its_uid() ->
         .operate(&adder, std::iter::once(&creator), &mut results)
         .context("operated")?;
     let view = WriteSetRecordView::new(operator.staged_record(&staged))?;
-    let names_fresh = |bytes: &[u8]| {
-        bytes
-            .windows(fresh.as_str().len())
-            .any(|w| w == fresh.as_str().as_bytes())
-    };
+    let subject_prefix = [vec![0u8; 16], created.to_be_bytes().to_vec()].concat();
     assert!(
-        view.dictionary()
+        view.inserted()
             .iter()
-            .all(|e| !names_fresh(e.key()) && !e.value().is_some_and(names_fresh)),
-        "the operation writes no dictionary entry of an IRI the unapplied proposal created"
+            .any(|e| e.key().starts_with(&subject_prefix)),
+        "the counter's statement names the creator's ID"
     );
     Ok(())
 }

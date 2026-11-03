@@ -51,7 +51,14 @@ fn append_raw(storage: &SimStorage, version: u64, body: &[u8]) -> TestResult {
     let mut log = open(storage)?;
     let (tail, parent) = log.tail();
     let position = tail.next().context("a next position")?;
-    let _appended = log.append(RoundRef::new(position, parent, version, 0, body))?;
+    let _appended = log.append(RoundRef::new(
+        position,
+        parent,
+        version,
+        0,
+        NonZeroU32::MIN,
+        body,
+    ))?;
     let _durable = block_on(log.sync())??;
     Ok(())
 }

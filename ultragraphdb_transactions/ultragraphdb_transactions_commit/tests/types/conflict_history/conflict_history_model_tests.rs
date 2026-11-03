@@ -13,7 +13,7 @@ use ultragraphdb_transactions_commit::{CommitError, ConflictHistory, Resolver};
 
 use crate::utils::fixture::Rng;
 use crate::utils::model::Model;
-use crate::utils::proposal_double::{Reads, Writes, read_set, record};
+use crate::utils::proposal_double::{Reads, Writes, read_set, record, term_key};
 
 fn reads(rng: &mut Rng) -> Reads {
     let mut reads = Reads::default();
@@ -28,8 +28,9 @@ fn reads(rng: &mut Rng) -> Reads {
         let end = (rng.below(4) != 0).then(|| rng.key(3));
         reads.ranges.push((start, end));
     }
+    // Terms from a few, so a read term and a written statement of it meet.
     for _ in 0..rng.below(2) {
-        reads.absent.push(rng.key(3));
+        reads.absent.push(1 + rng.below(4));
     }
     reads
 }
@@ -38,6 +39,9 @@ fn writes(rng: &mut Rng) -> Writes {
     let mut writes = Writes::default();
     for _ in 0..rng.below(4) {
         writes.points.push(rng.key(3));
+    }
+    for _ in 0..rng.below(2) {
+        writes.points.push(term_key(1 + rng.below(4)));
     }
     for _ in 0..rng.below(4) {
         writes.statements.push((rng.key(2), rng.key(2)));

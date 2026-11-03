@@ -3,4 +3,5 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+mod transaction_release_tests;
 mod transaction_tests;

@@ -78,11 +78,14 @@ pub enum ErrorCode {
     PermissionDenied,
     /// The connection's credential expired before a new authentication; the connection closes.
     CredentialExpired,
+    /// Cross-partition work, refused in this stage: a read-write transaction reaching a second partition, or a Drop
+    /// reaching several (`PROTOCOL.md` §9.4, code 23).
+    CrossPartition,
 }
 
 impl ErrorCode {
     /// Every code, in the order of its number.
-    pub const ALL: [ErrorCode; 22] = [
+    pub const ALL: [ErrorCode; 23] = [
         ErrorCode::Protocol,
         ErrorCode::Conflict,
         ErrorCode::TooOld,
@@ -105,6 +108,7 @@ impl ErrorCode {
         ErrorCode::Unauthenticated,
         ErrorCode::PermissionDenied,
         ErrorCode::CredentialExpired,
+        ErrorCode::CrossPartition,
     ];
 
     /// The code's number on the wire.

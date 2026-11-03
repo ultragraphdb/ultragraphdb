@@ -73,10 +73,12 @@ fn encoded(user_key: &[u8]) -> Vec<u8> {
 /// The stored range of every version of every key beginning with `prefix`: from the prefix's first stored key to the
 /// first stored key of the least key above all of them, unbounded when there is none.
 pub fn prefix_range(prefix: &[u8]) -> (Vec<u8>, Option<Vec<u8>>) {
-    let above = prefix
-        .iter()
-        .rposition(|b| *b != 0xFF)
-        .map(|at| [&prefix[..at], &[prefix[at] + 1]].concat());
+    let above = prefix.iter().rposition(|b| *b != 0xFF).and_then(|at| {
+        let (head, tail) = prefix.split_at_checked(at)?;
+        // The byte at `at` is below 0xFF, so it rises by one.
+        let raised = tail.first()?.checked_add(1)?;
+        Some([head, &[raised]].concat())
+    });
     (key_start(prefix), above.map(|a| key_start(&a)))
 }
 
@@ -84,9 +86,10 @@ pub fn prefix_range(prefix: &[u8]) -> (Vec<u8>, Option<Vec<u8>>) {
 /// short to end in them.
 pub fn encoded_part(stored: &[u8]) -> Option<&[u8]> {
     let split = stored.len().checked_sub(VERSION)?;
-    let encoded = &stored[..split];
-    let code = split.checked_sub(2).map(|at| &encoded[at..])?;
-    (code[0] == 0x00 && (END..LONG).contains(&code[1])).then_some(encoded)
+    let encoded = stored.get(..split)?;
+    let (marker, end) = encoded.get(split.checked_sub(2)?..)?.split_first()?;
+    let end = *end.first()?;
+    (*marker == 0x00 && (END..LONG).contains(&end)).then_some(encoded)
 }
 
 /// The user key and version a stored key encodes, or why it does not encode one.
@@ -99,6 +102,7 @@ pub fn decode_stored_key(stored: &[u8]) -> Result<(Vec<u8>, u64), String> {
     })?;
     let mut user_key = Vec::with_capacity(encoded.len());
     let mut bytes = encoded.iter();
+    // Ends: each turn takes at least one byte of the encoded key.
     while let Some(&b) = bytes.next() {
         if b != 0 {
             user_key.push(b);
@@ -118,7 +122,9 @@ pub fn decode_stored_key(stored: &[u8]) -> Result<(Vec<u8>, u64), String> {
         };
         user_key.resize(user_key.len() + run, 0);
     }
-    let mut version = [0u8; 8];
-    version.copy_from_slice(&stored[stored.len() - VERSION..]);
-    Ok((user_key, !u64::from_be_bytes(version)))
+    // `encoded_part` found the version's bytes at the end.
+    let version = stored
+        .last_chunk::<VERSION>()
+        .ok_or_else(|| "stored key ends without its version".to_string())?;
+    Ok((user_key, !u64::from_be_bytes(*version)))
 }

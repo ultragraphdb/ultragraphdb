@@ -14,6 +14,8 @@ use moka::sync::Cache;
 /// the value it read before the change. Bounded by the bytes of its keys and values.
 pub(crate) struct TermCache {
     cache: Cache<Vec<u8>, Vec<u8>, RandomState>,
+    // An atomic (Ultra rule 9): readers on any thread compare it before and after a read; writers move it on under
+    // the store's writer lock.
     generation: AtomicU64,
 }
 

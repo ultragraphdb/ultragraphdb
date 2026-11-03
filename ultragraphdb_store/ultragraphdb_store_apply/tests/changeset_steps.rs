@@ -799,7 +799,7 @@ fn two_writers_of_new(w: &mut Steps) -> TestResult {
     let applied = a
         .apply_round(vec![(version, second)])
         .context("the second commits")?;
-    a.release(&first).context("the first is released")?;
+    a.release(&first);
     w.results.extend(applied.into_iter().map(Ok));
     w.statement = Some(two);
     Ok(())
@@ -1117,8 +1117,7 @@ fn two_creators(w: &mut Steps) -> TestResult {
     let applied = a
         .apply_round(vec![(version, first)])
         .context("the first commits")?;
-    a.release(&second)
-        .context("the second, refused, is released")?;
+    a.release(&second);
     w.results.extend(applied.into_iter().map(Ok));
     w.statement = Some(one);
     Ok(())

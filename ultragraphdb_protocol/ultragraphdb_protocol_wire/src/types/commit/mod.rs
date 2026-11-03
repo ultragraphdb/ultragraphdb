@@ -18,7 +18,7 @@ use crate::types::operation_result::OperationResult;
 ///
 /// | Section | Contents |
 /// |---|---|
-/// | 0 | results, 16 bytes each: `uid` u64, `created` u8 (0 or 1), 7 zero bytes |
+/// | 0 | results, 16 bytes each ([`OperationResult`]): `value` i64, `node` u32, `created` u8 (0 or 1), 3 zero bytes |
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Commit {
     session: u64,

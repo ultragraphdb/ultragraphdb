@@ -126,6 +126,30 @@ where
         self.fetch(key, false)
     }
 
+    /// The list of `key` as the request's snapshot holds it: at its read timestamp with the writes of the requests
+    /// before it in its batch beneath, without the request's own writes, and recorded as read nowhere. What a write
+    /// comparing its net effect with its snapshot reads.
+    pub fn snapshot(&self, key: &[u8]) -> Result<List, PostingError> {
+        match self.held.get(key) {
+            Some(held) if !held.blind => {
+                let mut list = held.list.clone();
+                list.mutation_mut().clear_current_entries();
+                Ok(list)
+            }
+            Some(_) | None => read_list(self.lists, &self.stacked, key, self.read_ts),
+        }
+    }
+
+    /// Drops every delta the request wrote, keeping each list it read, with its batch's writes beneath, and every
+    /// read it recorded: what a write deriving its keys again from its net effect starts from, so that it reads its
+    /// snapshot and its read set stays whole. A list written without a read is dropped with its delta.
+    pub fn discard_deltas(&mut self) {
+        self.held.retain(|_, held| !held.blind);
+        for held in self.held.values_mut() {
+            held.list.mutation_mut().clear_current_entries();
+        }
+    }
+
     /// The statements the request tested, by list key and object, in key order.
     pub fn tested(&self) -> impl Iterator<Item = (&[u8], &[u8])> {
         self.tested
@@ -286,7 +310,13 @@ where
         let deltas = std::mem::take(&mut self.held)
             .into_iter()
             .filter_map(|(key, held)| {
-                let delta = held.list.delta()?.clone();
+                let mut delta = held.list.delta()?.clone();
+                // In posting order, uid then value, whatever order the write made them in: the same writes give the
+                // same delta, so a logical record's replay derives it byte for byte (write-ahead-log, "A round's
+                // record is logical"). Readers sort a delta's postings themselves.
+                delta
+                    .postings_mut()
+                    .sort_by(|a, b| a.uid().cmp(&b.uid()).then_with(|| a.value().cmp(b.value())));
                 (!delta.postings().is_empty()).then_some((key, delta))
             })
             .collect();

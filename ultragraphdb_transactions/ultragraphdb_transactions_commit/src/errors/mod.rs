@@ -7,3 +7,4 @@ pub mod commit_error;
 
 pub mod pipeline_error;
 pub mod recovery_error;
+pub mod setting_error;

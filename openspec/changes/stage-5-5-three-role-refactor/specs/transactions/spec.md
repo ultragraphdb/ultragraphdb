@@ -274,3 +274,29 @@ the close of `t − 1` has been delivered to it, so a causally later write never
 - **WHEN** a session commits in partition 1 at epoch 20, and its next transaction, carrying that token, commits in
   partition 2 while partition 2's latest delivered close is 17
 - **THEN** partition 2 commits it only after close 19 is delivered, at epoch 20 or later
+
+### Requirement: An ended transaction releases what it holds
+A transaction ending without a commit SHALL release the dictionary entries it created or took while uncommitted, with
+everything else its execution holds: at its abort, at a refusal ending it, at its lifetime limit, and when the commit
+step aborts it. A released entry SHALL never be written to the store: its ID is never used again, and a transaction that
+took the same ID while the first was open carries the entry in its own round's record, so the log alone resolves every
+ID a committed statement names. A storage partition's host SHALL abort, on its own timer, each open transaction past its
+lifetime limit ("Transactions have bounded lifetimes"), whether or not its client sends another request, and SHALL abort
+a transaction at once when the connection carrying it closes. A client reconnecting SHALL not resume an open transaction:
+the transaction is aborted, and the client runs it again, its commit made exactly-once by its session.
+
+#### Scenario: A vanished client's transaction is aborted at its limit
+- **WHEN** a read-write transaction writes `<new> <p> "x"`, creating `<new>`, and its client then sends nothing, its
+  connection staying open
+- **THEN** the host aborts the transaction once 10 s have passed, nothing it wrote is held, the dictionary holds no
+  entry it created for `<new>`, and a later transaction writing `<new>` commits
+
+#### Scenario: A closed connection aborts its transaction at once
+- **WHEN** a read-write transaction creates `<new>` and the connection carrying it closes after 1 s
+- **THEN** the host aborts the transaction then, not at its limit, and its entry for `<new>` is released
+
+#### Scenario: A released entry never reaches the store
+- **WHEN** transaction T1 creates `<gone>`, transaction T2 writes `<gone>` while T1 is open, T1 aborts and T2 commits,
+  and the store is discarded and the log replayed into an empty store
+- **THEN** T2's record carries `<gone>`'s entry, replay resolves `<gone>` to the ID T2 committed, and nothing T1 created
+  is held

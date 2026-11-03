@@ -63,24 +63,24 @@ fn test_each_reason_with_a_cause_carries_and_displays_it() -> TestResult {
     Ok(())
 }
 
-/// The reasons about versions name them, and have no source.
+/// The reasons about log positions name them, and have no source.
 #[test]
-fn test_each_reason_about_versions_names_them_without_a_source() -> TestResult {
+fn test_each_reason_about_positions_names_them_without_a_source() -> TestResult {
     let not_in_log = RecoveryError::store_not_in_log(30);
     assert_eq!(
         not_in_log.0,
-        RecoveryErrorEnum::StoreNotInLog { version: 30 }
+        RecoveryErrorEnum::StoreNotInLog { position: 30 }
     );
     assert_eq!(
         not_in_log.to_string(),
-        "the store's applied version 30 is no round's last version in the log: the store is ahead of the log or was \
-         written outside it"
+        "the store's applied log position 30 lies beyond the log's tail: the store is ahead of the log or was written \
+         outside it"
     );
     let gap = RecoveryError::gap(5);
-    assert_eq!(gap.0, RecoveryErrorEnum::Gap { checkpoint: 5 });
+    assert_eq!(gap.0, RecoveryErrorEnum::Gap { position: 5 });
     assert_eq!(
         gap.to_string(),
-        "the store is empty and the log was trimmed through position 5: the rounds it covered are lost"
+        "the log has no round at position 5, between the store's applied position and the log's tail"
     );
     // The spec's "refuses to start, naming 30 and 40".
     let behind = RecoveryError::behind_checkpoint(30, 40);
@@ -93,11 +93,45 @@ fn test_each_reason_about_versions_names_them_without_a_source() -> TestResult {
     );
     assert_eq!(
         behind.to_string(),
-        "the store's applied version 30 is below version 40, which the log's checkpoint covers: the rounds between them \
-         are no longer in the log"
+        "the store's applied log position 30 is below the log's checkpoint at position 40: the rounds between them are \
+         no longer in the log"
     );
-    for error in [not_in_log, gap, behind] {
+    let derivation = RecoveryError::derivation(7, 3);
+    assert_eq!(
+        derivation.0,
+        RecoveryErrorEnum::Derivation {
+            position: 7,
+            derivation: 3
+        }
+    );
+    assert_eq!(
+        derivation.to_string(),
+        "the round at position 7 names derivation 3, which this store does not know: nothing of it is applied"
+    );
+    for error in [not_in_log, gap, behind, derivation] {
         assert!(error.source().is_none(), "{error:?}");
     }
+    Ok(())
+}
+
+/// A failed read of the applied position carries the store's error.
+#[test]
+fn test_an_unreadable_applied_position_carries_the_stores_error() -> TestResult {
+    let cause = ultragraphdb_error_store::StoreError::corrupted(b"k".to_vec(), "bad".to_string());
+    let error = RecoveryError::applied_position(cause.clone());
+    assert_eq!(
+        error.0,
+        RecoveryErrorEnum::AppliedPosition {
+            cause: cause.clone()
+        }
+    );
+    assert_eq!(
+        error.to_string(),
+        format!("the store's applied log position could not be read: {cause}")
+    );
+    assert_eq!(
+        error.source().map(|s| s.to_string()),
+        Some(cause.to_string())
+    );
     Ok(())
 }

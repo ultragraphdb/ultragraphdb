@@ -13,8 +13,8 @@ use crate::utils::block::padded;
 
 /// The bytes a round takes in a segment and its checksum: the Round frame of `cluster`, its header numbered by the
 /// round's position and naming `release`, the release of the node writing it (`PROTOCOL.md` §12), its command header
-/// the round's position, parent, `incarnation`, first version and transaction count, its body the round's body,
-/// padded with zeros to whole 4,096-byte blocks. The checksum is the frame's header `checksum`, the round's identity.
+/// the round's position, parent, `incarnation`, first version, decision count and derivation version, its body the
+/// round's body, padded with zeros to whole 4,096-byte blocks. The checksum is the frame's header `checksum`, the round's identity.
 /// Refused as [`LogError::too_large`] when the frame would exceed the 1 MiB maximum.
 pub fn encode_round(
     cluster: u64,
@@ -28,6 +28,7 @@ pub fn encode_round(
         incarnation,
         round.first_version(),
         round.transactions(),
+        round.derivation(),
     )
     .encode();
     let frame = Header::new(cluster, Command::Round)

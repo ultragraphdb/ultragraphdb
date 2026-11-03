@@ -25,7 +25,7 @@ pub mod utils {
 
 use crate::utils::helpers::{
     CLUSTER, DIR, FULL_TWO_BLOCKS, ONE_BLOCK, TWO_BLOCKS, append, append_rounds, append_synced,
-    block_on, body, config, frame_checksum, open, segment, spare, superblock,
+    block_on, body, config, derivation_of, frame_checksum, open, segment, spare, superblock,
 };
 
 #[derive(Debug, Default, World)]
@@ -64,7 +64,14 @@ fn append_seven(w: &mut Steps) -> TestResult {
     let data = body(7, ONE_BLOCK);
     let parent = wal.tail().1;
     w.refusals = wal
-        .append(RoundRef::new(Position::new(7), parent, 14, 1, &data))
+        .append(RoundRef::new(
+            Position::new(7),
+            parent,
+            14,
+            1,
+            derivation_of(7),
+            &data,
+        ))
         .err()
         .into_iter()
         .collect();
@@ -96,6 +103,42 @@ fn seal_at_nine(w: &mut Steps) -> TestResult {
 fn sealed_at_nine(w: &mut Steps) {
     assert_eq!(w.positions, vec![9]);
     assert_eq!(w.refusals, vec![LogError::sealed(9)]);
+}
+
+#[when("a round is appended and its ticket is polled before and after the sync that covers it")]
+fn ticket_polled(w: &mut Steps) -> TestResult {
+    let storage = SimStorage::new(1);
+    let (mut wal, _) = open(&storage).context("opened")?;
+    append_rounds(&mut wal, 1, 2, ONE_BLOCK)?;
+    let data = body(3, ONE_BLOCK);
+    let parent = wal.tail().1;
+    let ticket = wal
+        .append(RoundRef::new(
+            Position::new(3),
+            parent,
+            6,
+            1,
+            derivation_of(3),
+            &data,
+        ))
+        .context("accepted")?;
+    // Before the sync: the ticket's state, then the committed position; after it, the same two.
+    w.checks.push(wal.poll_ticket(ticket).is_pending());
+    w.positions.push(wal.committed().get());
+    let _synced: Position = block_on(wal.sync()).context("synced")?;
+    w.checks
+        .push(wal.poll_ticket(ticket) == std::task::Poll::Ready(Ok(())));
+    w.positions.push(wal.committed().get());
+    w.positions.push(ticket.position().get());
+    Ok(())
+}
+
+#[then(
+    "the ticket is pending before the sync and complete after it, and `committed` reaches the round's position only then"
+)]
+fn ticket_completes(w: &mut Steps) {
+    assert_eq!(w.checks, vec![true, true]);
+    assert_eq!(w.positions, vec![2, 3, 3]);
 }
 
 // A round is durable before it is applied.
@@ -183,7 +226,14 @@ fn reused_segment(w: &mut Steps) -> TestResult {
         let mut bytes = Vec::new();
         for position in 1..=count {
             let data = body(position + incarnation * 100, ONE_BLOCK);
-            let round = RoundRef::new(Position::new(position), parent, 2 * position, 1, &data);
+            let round = RoundRef::new(
+                Position::new(position),
+                parent,
+                2 * position,
+                1,
+                derivation_of(position),
+                &data,
+            );
             let (frame, checksum) =
                 encode_round(CLUSTER, 0, incarnation, &round).context("encoded")?;
             bytes.extend_from_slice(frame.as_slice());
@@ -203,7 +253,7 @@ fn reused_segment(w: &mut Steps) -> TestResult {
     storage
         .put_file(
             &superblock('a'),
-            &Superblock::new(3, CLUSTER, 2, Position::ZERO, 0, 0, 0).encode(),
+            &Superblock::new(3, CLUSTER, 2, Position::ZERO, 0, 0).encode(),
         )
         .context("put")?;
     let (mut wal, recovery) = open(&storage).context("opened")?;
@@ -335,7 +385,7 @@ fn corrupt_copy(w: &mut Steps) -> TestResult {
     let storage = SimStorage::new(1);
     let (mut wal, _) = open(&storage).context("opened")?;
     append_rounds(&mut wal, 1, 6, ONE_BLOCK)?;
-    block_on(wal.trim_through(Position::new(2), 0)).context("both copies written")?;
+    block_on(wal.trim_through(Position::new(2))).context("both copies written")?;
     drop(wal);
     storage
         .corrupt(&superblock('a'), 30, 0x01)
@@ -371,7 +421,7 @@ fn four_segments_checkpoint(w: &mut Steps) -> TestResult {
     let (mut wal, _) = open(&storage).context("opened")?;
     // Four one-block rounds fill a segment: rounds 1 to 16 fill segments 0 to 3, round 12 ends the third.
     append_rounds(&mut wal, 1, 16, ONE_BLOCK)?;
-    block_on(wal.trim_through(Position::new(12), 0)).context("trimmed")?;
+    block_on(wal.trim_through(Position::new(12))).context("trimmed")?;
     drop(wal);
     let (mut reopened, recovery) = open(&storage).context("recovered")?;
     w.recoveries = vec![recovery];

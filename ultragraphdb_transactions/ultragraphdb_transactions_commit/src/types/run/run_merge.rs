@@ -26,13 +26,17 @@ impl Run {
         self.merge_statements(a, b, floor);
         self.merge_ranges(a, b, floor);
         self.bound_ranges();
+        // Each key and statement once: never more than both runs held.
+        debug_assert!(self.points.len() <= a.points.len() + b.points.len());
+        debug_assert!(self.statements.len() <= a.statements.len() + b.statements.len());
     }
 
     /// Adds the keys of `a` and `b` in key order, each once with the newer of its two versions, none at or below
     /// `floor`.
     fn merge_points(&mut self, a: &Run, b: &Run, floor: u64) {
         let (mut i, mut j) = (0, 0);
-        loop {
+        // Each turn takes a point of `a`, of `b` or of both, so the merge ends within their sum.
+        for _ in 0..a.points.len() + b.points.len() {
             let (point, arena) = match (a.points.get(i), b.points.get(j)) {
                 (None, None) => break,
                 (Some(p), None) => {
@@ -82,7 +86,8 @@ impl Run {
     /// `floor`.
     fn merge_statements(&mut self, a: &Run, b: &Run, floor: u64) {
         let (mut i, mut j) = (0, 0);
-        loop {
+        // Each turn takes a statement of `a`, of `b` or of both, so the merge ends within their sum.
+        for _ in 0..a.statements.len() + b.statements.len() {
             let (statement, arena) = match (a.statements.get(i), b.statements.get(j)) {
                 (None, None) => break,
                 (Some(s), None) => {

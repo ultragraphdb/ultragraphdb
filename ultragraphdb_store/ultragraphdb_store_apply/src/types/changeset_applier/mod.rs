@@ -128,6 +128,24 @@ where
         self.core.prepare_replay(namespace, record)
     }
 
+    /// The execution deriving `writes`, a logged transaction's statements in their logical form, in `namespace`, for
+    /// recovery to apply at the record's commit version (write-ahead-log, "A round's record is logical"): at the
+    /// watermark, each removed statement removed and each inserted one added with its statement IDs as the first apply
+    /// did, every list, index, count and statistics entry derived through the same maintenance, and each statement record
+    /// written; `dictionary`, the round's dictionary entries, written beside it, read as the execution's own.
+    ///
+    /// # Errors
+    ///
+    /// The store's error, its corruption error for a statement naming an ID the dictionary does not hold.
+    pub fn prepare_logical(
+        &self,
+        namespace: u64,
+        writes: &crate::types::logical_writes::LogicalWrites,
+        dictionary: &[&VersionlessEntry],
+    ) -> Result<Executed, ChangesetError> {
+        self.core.prepare_logical(namespace, writes, dictionary)
+    }
+
     /// The drop of `target` in `namespace`, a logged record's operation, for recovery to apply at the record's commit
     /// version (7.9).
     ///
@@ -182,16 +200,30 @@ where
         self.core.execute(changeset)
     }
 
-    /// Releases `executed`, an execution the commit step refused and will not apply: the dictionary entries of the
-    /// terms it created or took from a concurrent creator are written on their own, since an entry names nothing that
-    /// exists, and their pending IDs settled, so the next writer of each term takes the same ID from the dictionary
-    /// and the store holds no pending ID for a write that will not commit.
-    ///
-    /// # Errors
-    ///
-    /// The store's error writing the entries; the pending IDs are then kept.
-    pub fn release(&self, executed: &Executed) -> Result<(), ChangesetError> {
-        Ok(self.core.quads().release(executed.terms())?)
+    /// Releases `executed`, an execution the commit step refused and will not apply, writing nothing: each pending ID
+    /// it created or took from a concurrent creator is let go, and forgotten once no other unsettled execution holds
+    /// it. An execution that took one carries its dictionary entries and keeps it; one no other holds is burned, the
+    /// next writer of its term creating another, so the store holds no pending ID and no entry for a write that will
+    /// not commit.
+    pub fn release(&self, executed: &Executed) {
+        self.core.quads().release(executed.terms());
+    }
+
+    /// Releases what `operated`, the execution [`ChangesetApplier::operate`] gave for `base`, took beyond `base`,
+    /// writing nothing, when the commit step does not take it: the operations' own holds are let go, and `base`'s stay
+    /// with `base`, released or settled once by its own end. An operated execution taken in `base`'s place is released
+    /// or settled whole instead, never this way as well.
+    pub fn release_operated(&self, operated: &Executed, base: &Executed) {
+        self.core
+            .quads()
+            .release_beyond(operated.terms(), base.terms());
+    }
+
+    /// Releases `execution`, ended without a commit while still open, as [`ChangesetApplier::release`] releases one
+    /// finished: each pending ID it created or took so far is let go, writing nothing and deriving nothing, so an abort
+    /// costs no read of the store and cannot fail.
+    pub fn release_execution(&self, mut execution: Execution<'_, S, C, B>) {
+        self.core.quads().release(execution.terms());
     }
 
     /// Begins an execution in `namespace` reading at `read_ts`, held open across a transaction's requests: the build
@@ -256,7 +288,8 @@ where
     ///
     /// [`ChangesetError::operation_failed`] for a compare-and-set whose expected value is not held, or a counter that
     /// is no integer or would overflow; [`ChangesetError::not_unique`] for an insert-if-absent on a predicate not
-    /// declared unique; a change the catalog refuses; the store's error.
+    /// declared unique; a change the catalog refuses; the store's error. Each releases the dictionary holds the
+    /// operations took, writing nothing, and leaves `executed`'s with it.
     pub fn operate(
         &self,
         executed: &Executed,
