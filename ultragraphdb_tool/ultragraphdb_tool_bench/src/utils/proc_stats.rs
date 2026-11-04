@@ -12,7 +12,7 @@ const TICKS_PER_SECOND: f64 = 100.0;
 /// `utime` plus `stime` from a `/proc/<pid>/stat` line, in ticks; the fields count from the last `)`, since the
 /// command name may hold spaces and parentheses. `None` for a line without both, or whose sum has no `u64`.
 pub fn parse_stat_cpu_ticks(stat: &str) -> Option<u64> {
-    let rest = &stat[stat.rfind(')')? + 1..];
+    let (_, rest) = stat.rsplit_once(')')?;
     let fields: Vec<&str> = rest.split_whitespace().collect();
     // After the name: state (field 3) first, so utime (field 14) and stime (field 15) are the 12th and 13th.
     let utime: u64 = fields.get(11)?.parse().ok()?;

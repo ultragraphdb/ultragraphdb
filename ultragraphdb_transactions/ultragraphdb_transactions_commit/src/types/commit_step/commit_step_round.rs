@@ -96,7 +96,9 @@ impl<P> Waiting<P> {
                 .dictionary()
                 .map(|(k, v)| entry_len(k, v))
                 .sum(),
-            Waiting::Registration { .. } => 0,
+            Waiting::Registration { dictionary, .. } => {
+                dictionary.iter().map(|(k, v)| entry_len(k, v)).sum()
+            }
         };
         self.record_len().saturating_add(dictionary)
     }
@@ -132,7 +134,7 @@ impl<P: Proposal> CommitStep<P> {
             return;
         }
         match entry {
-            Waiting::Commit(request) if self.waits_for_token(request.proposal()) => {
+            Waiting::Commit(request) if self.waits(request.proposal()) => {
                 self.held.push_back(request);
             }
             entry @ (Waiting::Commit(_) | Waiting::Registration { .. }) => {
@@ -144,10 +146,15 @@ impl<P: Proposal> CommitStep<P> {
         }
     }
 
-    /// Whether `proposal` carries a session token of an epoch above the open one: held until the close before it.
-    fn waits_for_token(&self, proposal: &P) -> bool {
-        match (proposal.token(), self.stamp.open()) {
-            (Some(token), Some(open)) => token.epoch() > open,
+    /// Whether `proposal` may not be stamped at the open epoch: the larger of its session token's epoch and its epoch
+    /// floor is above it, so it is held until the close before that epoch.
+    fn waits(&self, proposal: &P) -> bool {
+        let earliest = proposal
+            .token()
+            .map(SessionToken::epoch)
+            .max(proposal.epoch_floor());
+        match (earliest, self.stamp.open()) {
+            (Some(earliest), Some(open)) => earliest > open,
             (Some(_) | None, None) | (None, Some(_)) => false,
         }
     }
@@ -158,7 +165,8 @@ impl<P: Proposal> CommitStep<P> {
             .is_some_and(|asked| now_us.saturating_sub(asked) >= self.close_request.micros())
     }
 
-    /// Refuses busy every entry waiting for the close the step asked for, once it has gone unanswered for
+    /// Refuses busy every entry waiting for the close the step asked for, and every commit held for its token or its
+    /// epoch floor, which wait for later closes of the same sequencer, once the request has gone unanswered for
     /// `close_request_ms`.
     pub(crate) fn expire(&mut self, now_us: u64, out: &mut StepOutput<P>) {
         if !self.unreachable(now_us) || !self.stamp.is_full() {
@@ -168,6 +176,10 @@ impl<P: Proposal> CommitStep<P> {
         // Each turn takes one entry off the queue.
         while let Some(entry) = self.waiting.pop_front() {
             refuse(entry, busy.clone(), out);
+        }
+        // Each turn takes one commit off the held queue.
+        while let Some(request) = self.held.pop_front() {
+            refuse(Waiting::Commit(request), busy.clone(), out);
         }
     }
 
@@ -206,7 +218,7 @@ impl<P: Proposal> CommitStep<P> {
         self.asked_us = None;
         let held = std::mem::take(&mut self.held);
         for request in held {
-            if self.waits_for_token(request.proposal()) {
+            if self.waits(request.proposal()) {
                 self.held.push_back(request);
             } else {
                 self.waiting.push_back(Waiting::Commit(request));
@@ -254,6 +266,17 @@ impl<P: Proposal> CommitStep<P> {
             Replay::APPLIED_POSITION_KEY.to_vec(),
             position.to_le_bytes().to_vec(),
         ));
+        // The round's committed registrations, in round order, at their versions: their homes' writes apply with it.
+        let committed = self
+            .decided
+            .iter()
+            .filter_map(|(ticket, outcome)| Some((*ticket, *outcome.as_ref().ok()?)));
+        out.registered.extend(
+            committed
+                .zip(self.sources.iter())
+                .filter(|(_, source)| matches!(source, Source::Registration(_)))
+                .map(|(decision, _)| decision),
+        );
         let results = &mut self.results;
         for (ticket, outcome) in self.decided.drain(..) {
             let reply = match &outcome {
@@ -348,13 +371,16 @@ impl<P: Proposal> CommitStep<P> {
                 Waiting::Commit(request) => request.proposal().record().len(),
                 Waiting::Registration { record, .. } => record.len(),
             };
-            let entries = match next {
+            let entries: usize = match next {
                 Waiting::Commit(request) => request
                     .proposal()
                     .dictionary()
                     .map(|(k, v)| entry_len(k, v))
                     .sum(),
-                Waiting::Registration { .. } => 0,
+                Waiting::Registration {
+                    dictionary: entries,
+                    ..
+                } => entries.iter().map(|(k, v)| entry_len(k, v)).sum(),
             };
             if count == self.bounds.transactions() as usize
                 || frame_with(count + 1, count + 1, padded + len, dictionary + entries) > limit
@@ -406,10 +432,15 @@ impl<P: Proposal> CommitStep<P> {
                 let more = self.record_decision(ticket, proposal, decided, out);
                 (taken, len, entries, more)
             }
-            Waiting::Registration { ticket, record } => {
+            Waiting::Registration {
+                ticket,
+                record,
+                dictionary,
+            } => {
                 let len = record.len();
-                let more = self.admit_registration(ticket, record);
-                (more, len, 0, more)
+                let entries: usize = dictionary.iter().map(|(k, v)| entry_len(k, v)).sum();
+                let more = self.admit_registration(ticket, record, dictionary, out);
+                (more, len, if more { entries } else { 0 }, more)
             }
         }
     }
@@ -470,7 +501,13 @@ impl<P: Proposal> CommitStep<P> {
 
     /// Admits the registration a home accepted under `ticket` with its own commit version, or refuses one whose record
     /// is no registration's; with the open epoch full it waits. `false` when the round takes nothing after it.
-    fn admit_registration(&mut self, ticket: u64, record: Vec<u8>) -> bool {
+    fn admit_registration(
+        &mut self,
+        ticket: u64,
+        record: Vec<u8>,
+        dictionary: Vec<(Vec<u8>, Vec<u8>)>,
+        out: &mut StepOutput<P>,
+    ) -> bool {
         let kind = WriteSetRecordView::new(&record).map(|view| view.kind());
         match kind {
             Ok(RecordKind::Registration) => {}
@@ -482,22 +519,28 @@ impl<P: Proposal> CommitStep<P> {
                 );
                 self.decided
                     .push((ticket, Err(CommitError::malformed(cause))));
+                out.dismissed.push(ticket);
                 return true;
             }
             Err(cause) => {
                 self.decided
                     .push((ticket, Err(CommitError::malformed(cause))));
+                out.dismissed.push(ticket);
                 return true;
             }
         }
         let Some(version) = self.stamp.take() else {
-            self.waiting
-                .push_front(Waiting::Registration { ticket, record });
+            self.waiting.push_front(Waiting::Registration {
+                ticket,
+                record,
+                dictionary,
+            });
             return false;
         };
         self.sources
             .push(Source::Registration(self.registrations.len()));
         self.registrations.push(record);
+        self.dictionary.extend(dictionary);
         self.decided.push((ticket, Ok(version.to_u64())));
         true
     }
@@ -722,6 +765,16 @@ impl<P: Proposal> CommitStep<P> {
                 .zip(self.admitted.drain(..))
                 .map(|(ticket, (_, proposal))| (ticket, proposal)),
         );
+        // Its registrations are dismissed under their tickets the same way.
+        let registrations = self
+            .decided
+            .iter()
+            .filter(|(_, outcome)| outcome.is_ok())
+            .map(|(ticket, _)| *ticket)
+            .zip(self.sources.iter())
+            .filter(|(_, source)| matches!(source, Source::Registration(_)))
+            .map(|(ticket, _)| ticket);
+        out.dismissed.extend(registrations);
         self.sources.clear();
         out.replies.extend(
             self.decided
@@ -741,10 +794,11 @@ impl<P: Proposal> CommitStep<P> {
     }
 }
 
-/// Answers `entry` with `refusal`, releasing a commit's proposal.
+/// Answers `entry` with `refusal`, releasing a commit's proposal and dismissing a registration.
 fn refuse<P>(entry: Waiting<P>, refusal: CommitError, out: &mut StepOutput<P>) {
     out.replies.push(Reply::new(entry.ticket(), Err(refusal)));
-    if let Waiting::Commit(request) = entry {
-        out.released.push(request.into_parts());
+    match entry {
+        Waiting::Commit(request) => out.released.push(request.into_parts()),
+        Waiting::Registration { ticket, .. } => out.dismissed.push(ticket),
     }
 }

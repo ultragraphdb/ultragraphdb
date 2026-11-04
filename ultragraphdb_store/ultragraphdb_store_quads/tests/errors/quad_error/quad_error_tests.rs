@@ -22,6 +22,13 @@ fn test_each_constructor_builds_its_variant() -> TestResult {
         QuadErrorEnum::NoOwnedBucket { namespace: 4 }
     );
     assert_eq!(
+        QuadError::not_owned("http://ex.org/b", 0xC7_0001).0,
+        QuadErrorEnum::NotOwned {
+            iri: "http://ex.org/b".to_string(),
+            bucket: 0xC7_0001
+        }
+    );
+    assert_eq!(
         QuadError::skolem_draws(4).0,
         QuadErrorEnum::SkolemDraws { draws: 4 }
     );
@@ -48,6 +55,10 @@ fn test_each_constructor_builds_its_variant() -> TestResult {
 #[test]
 fn test_each_text_names_what_it_refused() {
     let cases = [
+        (
+            QuadError::not_owned("http://ex.org/b", 12),
+            "http://ex.org/b is of bucket 12, another partition's, and the partition holds no ID for it",
+        ),
         (
             QuadError::no_sequence(TypePrefix::RESOURCE),
             "No sequence of Resource is held, and the block source leased no block",

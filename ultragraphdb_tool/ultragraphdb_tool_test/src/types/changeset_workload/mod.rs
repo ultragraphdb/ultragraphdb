@@ -29,6 +29,8 @@
 //! same contents, every key with every version, deletions and metadata included, the keyspace without versions, and
 //! the applied timestamp: replay derives every key and value the first apply wrote.
 
+mod data_indexes;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -58,6 +60,8 @@ use ultragraphdb_store_sim::{
 };
 use ultragraphdb_traits_blocks::TestBlockSource;
 use ultragraphdb_traits_store::{PersistMode, Scan, Store, StoreSnapshot, VersionlessEntry};
+
+use crate::types::changeset_workload::data_indexes::DataIndexes;
 
 /// The rule an index breaks when it disagrees with the statements it indexes.
 pub const INDEXES_MATCH_DATA: &str = "every value-index, reverse, predicate-list and count key holds exactly what the statements produce";
@@ -129,6 +133,8 @@ type Held = (String, Vec<String>, bool);
 /// simulated store, each step checked against the canonical model and the store's own invariants.
 #[derive(Default)]
 pub struct ChangesetWorkload {
+    /// The applier over the simulated store, held until a recovery drops it. An `Arc`, so that a step holds the
+    /// applier while it changes the workload's own model and counts: [`ChangesetWorkload::applier`] hands out a clone.
     applier: Option<Arc<SimChangesets>>,
     /// The metadata group's stand-in, which outlives every crash: no sequence is leased twice.
     blocks: Option<TestBlockSource>,
@@ -138,7 +144,7 @@ pub struct ChangesetWorkload {
     model: Option<CanonicalDataset>,
     /// Whether every round is replayed into a replica.
     replay: bool,
-    /// The replica every round is replayed into, in a replayed run.
+    /// The replica every round is replayed into, in a replayed run; an `Arc` for the reason the applier is one.
     replica: Option<Arc<SimChangesets>>,
     /// A changeset the store and the model did not both apply, or both refuse.
     disagreement: Option<String>,
@@ -300,7 +306,10 @@ impl ChangesetWorkload {
     }
 
     fn literal(ctx: &mut SimContext) -> Term {
-        let phrase = PHRASES[ctx.rng().index(PHRASES.len())];
+        let i = ctx.rng().index(PHRASES.len());
+        debug_assert!(i < PHRASES.len());
+        // The draw is below the phrases' count, so a phrase is always found.
+        let phrase = PHRASES.get(i).copied().unwrap_or_default();
         match ctx.rng().below(6) {
             0 => Literal::new_language_tagged_literal_unchecked(phrase, "en").into(),
             1 => Literal::new_language_tagged_literal_unchecked(phrase, "de").into(),
@@ -327,7 +336,12 @@ impl ChangesetWorkload {
             3..5 => same(insert_triple(subject, "tags", Self::literal(ctx))),
             5 => same(delete_triple(subject, "tags", Self::literal(ctx))),
             6 => {
-                let predicate = ex(["name", "tags", "friend", "knows"][ctx.rng().index(4)]);
+                let predicate = ex(match ctx.rng().index(4) {
+                    0 => "name",
+                    1 => "tags",
+                    2 => "friend",
+                    _ => "knows",
+                });
                 same(Change::DeletePattern {
                     graph,
                     subject,
@@ -386,7 +400,9 @@ impl ChangesetWorkload {
         if candidates.is_empty() {
             return Ok(None);
         }
-        let chosen = &candidates[ctx.rng().index(candidates.len())];
+        let Some(chosen) = candidates.get(ctx.rng().index(candidates.len())) else {
+            return Ok(None);
+        };
         let wanted = held_of(
             chosen.graph(),
             chosen.subject(),
@@ -465,17 +481,19 @@ impl ChangesetWorkload {
             }
             return Ok(());
         }
-        let keyspace = [
-            Keyspace::Forward,
-            Keyspace::Reverse,
-            Keyspace::ValueIndex,
-            Keyspace::CountIndex,
-        ][ctx.rng().index(4)];
+        let keyspace = match ctx.rng().index(4) {
+            0 => Keyspace::Forward,
+            1 => Keyspace::Reverse,
+            2 => Keyspace::ValueIndex,
+            _ => Keyspace::CountIndex,
+        };
         let keys = live_keys(&a, keyspace)?;
         if keys.is_empty() {
             return Ok(());
         }
-        let key = &keys[ctx.rng().index(keys.len())];
+        let Some(key) = keys.get(ctx.rng().index(keys.len())) else {
+            return Ok(());
+        };
         for s in &stores {
             match s.quads().lists().rollup_key(key) {
                 Ok(_) | Err(PostingError(PostingErrorEnum::HighPriorityOp)) => {}
@@ -749,6 +767,7 @@ fn injected(error: &ChangesetError) -> bool {
         | QuadErrorEnum::PendingFull { .. }
         | QuadErrorEnum::NoOwnedBucket { .. }
         | QuadErrorEnum::SkolemDraws { .. }
+        | QuadErrorEnum::NotOwned { .. }
         | QuadErrorEnum::UnknownSkolem { .. } => false,
     };
     match &error.0 {
@@ -771,6 +790,7 @@ fn injected(error: &ChangesetError) -> bool {
         | ChangesetErrorEnum::NoDimension { .. }
         | ChangesetErrorEnum::NoVectorIndex { .. }
         | ChangesetErrorEnum::OperationFailed { .. }
+        | ChangesetErrorEnum::NoIndex { .. }
         | ChangesetErrorEnum::NotUnique { .. } => false,
     }
 }
@@ -917,17 +937,6 @@ fn orphan_record(
         }
     }
     Ok(None)
-}
-
-/// The indexes the statements of the default graph produce, by the list each names.
-#[derive(Default)]
-struct DataIndexes {
-    /// Each declared tokenizer's token of each literal, to its subjects.
-    tokens: BTreeMap<(SystemId, u8, Vec<u8>), BTreeSet<SystemId>>,
-    reverse: BTreeMap<(SystemId, EncodedTerm), BTreeSet<SystemId>>,
-    subject_predicates: BTreeMap<SystemId, BTreeSet<SystemId>>,
-    object_predicates: BTreeMap<EncodedTerm, BTreeSet<SystemId>>,
-    forward_counts: BTreeMap<(SystemId, u32), BTreeSet<SystemId>>,
 }
 
 /// The indexes `forward`, the store's forward lists, produce in the default graph.

@@ -127,6 +127,7 @@ async fn commit_loop(
         .map_err(|e| BenchError::commit(e.to_string()))?;
     let mut pipeline =
         Pipeline::new(a, wal, bounds).map_err(|e| BenchError::commit(e.to_string()))?;
+    // Shared with the source thread, which reads it to hold the pending limit; this loop stores to it.
     let replied = Arc::new(AtomicU64::new(0));
     let rx = spawn_source(args.rate(), args.seconds(), shape, clock, replied.clone());
     let micros = |timer: &WallClock| u64::try_from(timer.elapsed().as_micros()).unwrap_or(u64::MAX);
@@ -134,6 +135,7 @@ async fn commit_loop(
     let mut ticket = 0u64;
     let mut waiting = Vec::new();
     let mut open = true;
+    // Ends once the source has closed its channel, at the run's deadline, and nothing is in flight.
     loop {
         // Nothing in flight: wait for the next commit, or end once the source has stopped.
         if !pipeline.needs_sync() {
@@ -179,6 +181,7 @@ async fn commit_loop(
 
 /// Moves every commit waiting in `rx` to `waiting`; whether the source is still open.
 fn take_waiting(rx: &mpsc::Receiver<Changeset>, waiting: &mut Vec<Changeset>) -> bool {
+    // Each turn takes a waiting commit or returns; the source holds at most `PENDING_PROPOSALS` unreplied.
     loop {
         match rx.try_recv() {
             Ok(changeset) => waiting.push(changeset),
@@ -236,6 +239,7 @@ fn spawn_source(
         let mut pacer = Pacer::new(rate);
         let (mut sent, mut owed) = (0u64, 0u64);
         let end = Duration::from_secs(seconds);
+        // Both loops end at the run's deadline, `end`, or when the commit loop stops listening.
         'run: while clock.elapsed() < end {
             owed += pacer.take_due(&clock);
             while owed > 0 && clock.elapsed() < end {

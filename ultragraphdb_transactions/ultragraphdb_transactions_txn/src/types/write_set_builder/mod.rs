@@ -9,7 +9,9 @@ use ultragraphdb_core_codec::PostingList;
 use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::{Graph, Keyspace};
 use ultragraphdb_error_invariant::InvariantError;
-use ultragraphdb_protocol_wire::{BuildOutcome, RecordKind, RecordOperation, WriteSetRecord};
+use ultragraphdb_protocol_wire::{
+    BuildOutcome, RecordKind, RecordOperation, RecordRegistration, WriteSetRecord,
+};
 use ultragraphdb_store_apply::{BuildEnd, DropTarget, Executed, LogicalQuad};
 use ultragraphdb_store_quads::posting_object;
 
@@ -28,6 +30,7 @@ use crate::types::txn_limits::TxnLimits;
 /// | 1 | each statement a forward list's delta removes, as section 0: a delete by pattern as the statements it resolved to |
 /// | 2 | each statement record written, by its graph and statement ID, a removal for a record deleted |
 /// | 3 | the record's operation: a drop of a predicate or a graph by its system ID, of a namespace's data, a namespace or everything; a build's end |
+/// | 4 | each registration the transaction relied on as a referrer ([`Executed::marks`]): the entity, the subject bucket group and the generation its home's reply named |
 /// | 5 | the commit record the client attached, unchanged |
 /// | 6 | conflict points: the key of every write but the lists named object by object, a predicate's implicit default catalog entry and the dictionary's entries, which conflict with nothing |
 /// | 7 | conflict statements: a list key and an object it changed, for each forward list changed by no more than the bound's objects |
@@ -136,6 +139,13 @@ impl<'e> WriteSetBuilder<'e> {
         for (graph, id, value) in logical.records() {
             let key = [graph.to_be_bytes(), id.to_be_bytes()].concat();
             record.push_statement_record(key, value.clone());
+        }
+        for mark in executed.marks() {
+            record.push_registration(RecordRegistration::new(
+                mark.entity(),
+                mark.group(),
+                mark.generation(),
+            ));
         }
         self.push_conflicts(&mut record);
         terms

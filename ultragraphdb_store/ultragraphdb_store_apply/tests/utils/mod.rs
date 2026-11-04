@@ -6,4 +6,6 @@
 #[cfg(test)]
 pub mod changesets;
 #[cfg(test)]
+pub mod partitions;
+#[cfg(test)]
 mod token_values_tests;

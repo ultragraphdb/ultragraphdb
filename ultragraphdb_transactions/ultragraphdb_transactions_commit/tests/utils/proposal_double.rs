@@ -6,7 +6,7 @@
 //! A proposal built by hand: a read set and a write-set record encoded by `ultragraphdb_protocol_wire`'s own
 //! `WriteSetRecord`, so a test names exactly what a transaction read and wrote without a store.
 
-use ultragraphdb_core_ids::{SessionToken, SystemId};
+use ultragraphdb_core_ids::{Epoch, SessionToken, SystemId};
 use ultragraphdb_protocol_wire::WriteSetRecord;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_transactions_commit::Proposal;
@@ -111,6 +111,8 @@ pub struct TestProposal {
     pub record: Vec<u8>,
     /// The session token the transaction carries.
     pub token: Option<SessionToken>,
+    /// The epoch the transaction may be stamped at, at the earliest.
+    pub epoch_floor: Option<Epoch>,
 }
 
 impl TestProposal {
@@ -118,6 +120,14 @@ impl TestProposal {
     pub fn with_token(self, token: SessionToken) -> Self {
         Self {
             token: Some(token),
+            ..self
+        }
+    }
+
+    /// The proposal stamped at `epoch` at the earliest.
+    pub fn with_epoch_floor(self, epoch: Epoch) -> Self {
+        Self {
+            epoch_floor: Some(epoch),
             ..self
         }
     }
@@ -134,6 +144,10 @@ impl Proposal for TestProposal {
 
     fn token(&self) -> Option<&SessionToken> {
         self.token.as_ref()
+    }
+
+    fn epoch_floor(&self) -> Option<Epoch> {
+        self.epoch_floor
     }
 }
 
@@ -230,6 +244,7 @@ pub fn proposal(read_version: u64, reads: &Reads, writes: &Writes) -> TestResult
         read_set: read_set(0, read_version, reads)?,
         record: record(0, read_version, writes, 0),
         token: None,
+        epoch_floor: None,
     })
 }
 
@@ -246,6 +261,7 @@ pub fn proposal_in(
         read_set: read_set(0, read_version, reads)?,
         record: record_in(0, read_version, session, request, writes, 0),
         token: None,
+        epoch_floor: None,
     })
 }
 
@@ -261,6 +277,7 @@ pub fn proposal_at_catalog(
         read_set: read_set(0, read_version, reads)?,
         record: record_with(0, read_version, 0, 0, catalog, writes, 0),
         token: None,
+        epoch_floor: None,
     })
 }
 

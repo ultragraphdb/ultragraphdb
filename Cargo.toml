@@ -40,6 +40,7 @@ ultragraphdb_client_compio = { path = "ultragraphdb_client/ultragraphdb_client_c
 ultragraphdb_client_tokio = { path = "ultragraphdb_client/ultragraphdb_client_tokio" }
 ## Cluster
 ultragraphdb_cluster_metadata = { path = "ultragraphdb_cluster/ultragraphdb_cluster_metadata" }
+ultragraphdb_cluster_partition = { path = "ultragraphdb_cluster/ultragraphdb_cluster_partition" }
 ultragraphdb_cluster_placement = { path = "ultragraphdb_cluster/ultragraphdb_cluster_placement" }
 ultragraphdb_cluster_sequencer = { path = "ultragraphdb_cluster/ultragraphdb_cluster_sequencer" }
 ## Common

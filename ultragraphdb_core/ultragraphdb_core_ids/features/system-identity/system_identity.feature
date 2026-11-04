@@ -39,6 +39,10 @@ Feature: System identity
       When the IRI `http://ex.org/a` is bucketed in namespaces 0 and 1
       Then the two buckets' low 16 bits are equal, and their top 8 bits are the reference values for each namespace
 
+    Scenario: A unique value's bucket is computed from its predicate and value
+      When the bucket of the value `"x"` of the unique predicate `epi.id` is computed in namespace 0
+      Then its top 8 bits equal the namespace's reference value, and its low 16 bits equal the top two bytes of the reference XXH3-64 of `epi.id`'s 16 ID bytes followed by `"x"`'s term encoding
+
   Rule: Until UGS keys exist, an IRI is the key of the Resource type
 
     Scenario: The canonical encoding of an IRI

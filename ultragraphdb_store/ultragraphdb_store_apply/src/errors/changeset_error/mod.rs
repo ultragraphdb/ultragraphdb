@@ -106,6 +106,13 @@ pub enum ChangesetErrorEnum {
         /// The predicate named.
         predicate: String,
     },
+    /// An index lookup by a tokenizer the catalog declares no index of on the predicate.
+    NoIndex {
+        /// The predicate named.
+        predicate: String,
+        /// The tokenizer named.
+        tokenizer: String,
+    },
 }
 
 /// See [`ChangesetErrorEnum`].
@@ -186,6 +193,14 @@ impl ChangesetError {
     pub fn no_vector_index(predicate: &str) -> Self {
         Self(ChangesetErrorEnum::NoVectorIndex {
             predicate: predicate.to_string(),
+        })
+    }
+
+    /// An index lookup of `predicate` by `tokenizer`, an index the catalog does not declare on it.
+    pub fn no_index(predicate: &str, tokenizer: &str) -> Self {
+        Self(ChangesetErrorEnum::NoIndex {
+            predicate: predicate.to_string(),
+            tokenizer: tokenizer.to_string(),
         })
     }
 }

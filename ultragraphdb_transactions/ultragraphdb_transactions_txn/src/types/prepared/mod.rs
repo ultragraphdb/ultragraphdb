@@ -4,7 +4,7 @@
  */
 
 use ultragraphdb_core_catalog::CatalogContents;
-use ultragraphdb_core_ids::{SessionToken, SystemId};
+use ultragraphdb_core_ids::{Epoch, SessionToken, SystemId};
 use ultragraphdb_core_keys::Keyspace;
 use ultragraphdb_protocol_wire::OperationResult;
 use ultragraphdb_store_apply::{
@@ -36,8 +36,9 @@ pub(crate) struct Rewrite {
 /// A read-write transaction ready for the commit step: its execution, which `apply_round` writes once the transaction
 /// is admitted; its read set, sealed, which the resolver checks against the writes committed above its read version;
 /// its logical write-set record's bytes, which the round's log frame carries unchanged and whose conflict sections the
-/// resolver adds to its history once the transaction is admitted; and the session token it carries, which holds it
-/// until its epoch may be stamped. Nothing in it needs the store again.
+/// resolver adds to its history once the transaction is admitted; the session token it carries and its epoch floor, the
+/// epoch after the latest close a home's reply named, which each hold it until its epoch may be stamped. Nothing in it
+/// needs the store again.
 #[derive(Debug)]
 pub struct Prepared {
     executed: Executed,
@@ -46,6 +47,7 @@ pub struct Prepared {
     operations: Vec<Operation>,
     rewrite: Rewrite,
     token: Option<SessionToken>,
+    epoch_floor: Option<Epoch>,
 }
 
 impl Prepared {
@@ -63,12 +65,21 @@ impl Prepared {
             operations,
             rewrite,
             token: None,
+            epoch_floor: None,
         }
     }
 
     /// The proposal carrying `token`, its session's token.
     pub(crate) fn with_token(self, token: Option<SessionToken>) -> Self {
         Self { token, ..self }
+    }
+
+    /// The proposal whose commit may be stamped at `epoch_floor` at the earliest.
+    pub(crate) fn with_epoch_floor(self, epoch_floor: Option<Epoch>) -> Self {
+        Self {
+            epoch_floor,
+            ..self
+        }
     }
 
     /// The drop `drop` asks in `namespace` on `applier` as a proposal of the commit step, on `buffers` (7.7): request
@@ -224,6 +235,13 @@ impl Prepared {
     /// The session token the transaction carries, `None` for none.
     pub fn token(&self) -> Option<&SessionToken> {
         self.token.as_ref()
+    }
+
+    /// The epoch the transaction's commit may be stamped at, at the earliest: one above the latest close a home's reply
+    /// to one of its registrations named (partitions, "A registration's epoch is at most the epoch of every write
+    /// referencing it"); `None` for a transaction that relied on no reply.
+    pub fn epoch_floor(&self) -> Option<Epoch> {
+        self.epoch_floor
     }
 
     /// The dictionary entries the transaction's execution creates, each a key of the dictionary keyspace and its value,

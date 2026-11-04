@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_core_ids::SessionToken;
+use ultragraphdb_core_ids::{Epoch, SessionToken};
 use ultragraphdb_transactions_txn::{Prepared, ReadSet};
 
 use crate::traits::proposal::Proposal;
@@ -24,6 +24,10 @@ impl Proposal for Prepared {
 
     fn token(&self) -> Option<&SessionToken> {
         Prepared::token(self)
+    }
+
+    fn epoch_floor(&self) -> Option<Epoch> {
+        Prepared::epoch_floor(self)
     }
 
     fn dictionary(&self) -> impl Iterator<Item = (&[u8], &[u8])> {

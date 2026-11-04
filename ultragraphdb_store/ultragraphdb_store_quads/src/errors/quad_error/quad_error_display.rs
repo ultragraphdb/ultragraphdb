@@ -36,6 +36,10 @@ impl fmt::Display for QuadError {
                 f,
                 "{capacity} new IDs await their commit, all the dictionary holds: retry once a commit writes them"
             ),
+            QuadErrorEnum::NotOwned { iri, bucket } => write!(
+                f,
+                "{iri} is of bucket {bucket}, another partition's, and the partition holds no ID for it"
+            ),
             QuadErrorEnum::NoOwnedBucket { namespace } => write!(
                 f,
                 "The partition owns no bucket of namespace {namespace}'s run, so it mints no blank node of it"

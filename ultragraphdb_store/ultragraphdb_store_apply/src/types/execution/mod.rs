@@ -3,6 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+mod execution_partition;
+
 use std::collections::BTreeSet;
 
 use oxrdf::{GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNodeRef, Term};
@@ -19,6 +21,9 @@ use crate::errors::changeset_error::ChangesetError;
 use crate::types::changeset_core::reads_of;
 use crate::types::changeset_write::ChangesetWrite;
 use crate::types::executed::Executed;
+use crate::types::marked_reference::MarkedReference;
+use crate::utils::mark_keys::mark_entry;
+use crate::utils::referrer_candidates::referrer_candidates;
 
 /// A transaction's execution held open across its requests: one request of the posting lists at its read version,
 /// which every changeset applied to it writes and every read reads, so a read sees the execution's own writes on top
@@ -30,6 +35,10 @@ pub struct Execution<'a, S, C, B> {
     namespace: u64,
     read_ts: u64,
     write: ChangesetWrite<'a, S, C, B>,
+    /// The registrations relied on as a referrer, in the order marked, one per `(entity, group)`.
+    marks: Vec<MarkedReference>,
+    /// The mark keys read, each once, recorded in the read set.
+    marks_read: Vec<Vec<u8>>,
 }
 
 impl<S, C, B> std::fmt::Debug for Execution<'_, S, C, B> {
@@ -52,6 +61,8 @@ where
             namespace,
             read_ts,
             write,
+            marks: Vec::new(),
+            marks_read: Vec::new(),
         }
     }
 
@@ -135,12 +146,19 @@ where
     /// commit, so its terms are released before the error is returned, once, as
     /// [`crate::ChangesetApplier::release_execution`] releases them: a caller releases nothing again.
     pub fn finish(self) -> Result<Executed, ChangesetError> {
+        let quads = self.write.quads();
         let outcome = self.write.finish(None)?;
-        let reads = reads_of(self.namespace, &outcome.request, &outcome.terms);
+        let reads = reads_of(
+            self.namespace,
+            &outcome.request,
+            &outcome.terms,
+            &self.marks_read,
+        );
         let fetched: BTreeSet<&[u8]> = outcome
             .request
             .read_keys()
             .chain(outcome.request.tested().map(|(key, _)| key))
+            .chain(self.marks_read.iter().map(Vec::as_slice))
             .collect();
         let read: BTreeSet<Region> = fetched.iter().filter_map(|k| Region::of(k).ok()).collect();
         let lists_read = fetched.len();
@@ -148,8 +166,22 @@ where
         for (key, value) in outcome.terms.entries() {
             request.add_versionless(key, value);
         }
+        for marked in &self.marks {
+            request.add_entry(mark_entry(self.namespace, marked));
+        }
+        let writes = request.into_writes();
+        let referrers =
+            match referrer_candidates(quads, self.namespace, self.read_ts, &writes, &outcome.terms)
+            {
+                Ok(referrers) => referrers,
+                Err(e) => {
+                    // The execution will not commit: its terms are released once, as a failed derivation's are.
+                    quads.release(&outcome.terms);
+                    return Err(e);
+                }
+            };
         Ok(Executed {
-            writes: request.into_writes(),
+            writes,
             terms: outcome.terms,
             reads,
             read,
@@ -160,6 +192,8 @@ where
             pending: outcome.pending,
             touched: outcome.touched,
             removals: outcome.removals,
+            marks: self.marks,
+            referrers,
             ..Executed::empty(self.namespace, self.read_ts, outcome.catalog)
         })
     }

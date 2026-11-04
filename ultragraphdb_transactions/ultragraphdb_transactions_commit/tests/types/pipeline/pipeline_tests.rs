@@ -570,7 +570,8 @@ fn test_a_registration_through_the_pipeline_is_answered_with_its_version() -> Te
     let _base = setup(&applier, vec![insert("a", "knows", "b")])?;
     let (_storage, mut pipe) = pipeline(&applier)?;
     let record = crate::utils::proposal_double::registration(7, 3, 1)?;
-    pipe.registration(5, record, 0)?;
+    let executed = crate::utils::fixture::nothing(&applier)?;
+    pipe.registration(5, executed, record, 0)?;
     block_on(pipe.sync(0)).context("synced")?;
     let replies = drained(&mut pipe);
     assert_eq!(
@@ -622,5 +623,220 @@ fn test_a_pipeline_with_a_full_session_table_refuses_a_new_session_busy() -> Tes
     );
     assert_eq!(held(&applier, "q", "knows")?, Vec::<Term>::new());
     assert_eq!(held(&applier, "r", "knows")?.len(), 1);
+    Ok(())
+}
+
+/// A registration's round applies what its home's registration left at the registration's own commit version: the
+/// referrer set names the member from that version on and not below it (partitions, "An entity's referrer set names
+/// where its inverse edges may be"; the generation rule's first registration).
+#[test]
+fn test_a_registration_applies_its_member_at_its_own_commit_version() -> TestResult {
+    use crate::utils::fixture::{member_at, registered};
+    let applier = applier()?;
+    let (_storage, mut pipe) = pipeline(&applier)?;
+    let (entity, executed, record) = registered(&applier, "o", 7, 1)?;
+    pipe.registration(5, executed, record, 0)?;
+    block_on(pipe.sync(0)).context("synced")?;
+    let replies = drained(&mut pipe);
+    let at = version(1, 0);
+    assert_eq!(
+        replies
+            .iter()
+            .map(|r| (r.ticket(), r.outcome().clone()))
+            .collect::<Vec<_>>(),
+        vec![(5, Ok(at))]
+    );
+    assert_eq!(member_at(&applier, entity, 7, at)?, Some((1, 1)), "epoch 1");
+    assert_eq!(member_at(&applier, entity, 7, at - 1)?, None);
+    Ok(())
+}
+
+/// A round holding a commit and then a registration applies each at its own version, in round order.
+#[test]
+fn test_a_round_of_a_commit_and_a_registration_applies_both_at_their_versions() -> TestResult {
+    use crate::utils::fixture::{member_at, registered};
+    let applier = applier()?;
+    let (_storage, mut pipe) = pipeline(&applier)?;
+    // The first commit's round stays in flight while the next commit and the registration wait for one round.
+    commit_insert(&mut pipe, &applier, 1, "a")?;
+    commit_insert(&mut pipe, &applier, 2, "c")?;
+    let (entity, executed, record) = registered(&applier, "o", 7, 1)?;
+    pipe.registration(3, executed, record, 0)?;
+    block_on(pipe.sync(0)).context("the first round synced")?;
+    block_on(pipe.sync(0)).context("the second round synced")?;
+    let replies = drained(&mut pipe);
+    let outcomes: Vec<(u64, Result<u64, CommitError>)> = replies
+        .iter()
+        .map(|r| (r.ticket(), r.outcome().clone()))
+        .collect();
+    // Epoch 1's sequences go 0, 2, 4: each commit version is even (commit-rounds, "Commit versions are built from the
+    // epoch").
+    assert_eq!(
+        outcomes,
+        vec![
+            (1, Ok(version(1, 0))),
+            (2, Ok(version(1, 2))),
+            (3, Ok(version(1, 4)))
+        ]
+    );
+    assert_eq!(held(&applier, "c", "knows")?.len(), 1);
+    assert_eq!(member_at(&applier, entity, 7, version(1, 4))?, Some((1, 1)));
+    assert_eq!(member_at(&applier, entity, 7, version(1, 2))?, None);
+    Ok(())
+}
+
+/// The ID a writer of `<name>` is given now, its proposal released at once: the ID another write holds, or a new one.
+fn id_now(applier: &Applier, name: &str) -> TestResult<ultragraphdb_core_ids::SystemId> {
+    let mut txn = begin(applier)?;
+    write(&mut txn, vec![insert(name, "p", "q")])?;
+    let prepared = prepare(txn)?;
+    let id = crate::utils::fixture::id_in(&prepared, name)?;
+    let _buffers = prepared.release(applier);
+    Ok(id)
+}
+
+/// A registration the step refuses, its record no registration's, releases what its home held for it: a writer of the
+/// IRI it created is given another ID once it is released.
+#[test]
+fn test_a_refused_registration_releases_what_its_home_held() -> TestResult {
+    use crate::utils::fixture::registered;
+    let applier = applier()?;
+    let (_storage, mut pipe) = pipeline(&applier)?;
+    let (entity, executed, _record) = registered(&applier, "new", 7, 1)?;
+    assert_eq!(
+        id_now(&applier, "new")?,
+        entity,
+        "the home holds the IRI it created"
+    );
+    pipe.registration(5, executed, vec![0; 3], 0)?;
+    block_on(pipe.sync(0)).context("synced")?;
+    let replies = drained(&mut pipe);
+    // The wire's own reading of the three bytes is the reason the refusal names.
+    let cause = ultragraphdb_protocol_wire::WriteSetRecordView::new(&[0; 3])
+        .err()
+        .context("three bytes are no record")?;
+    assert_eq!(
+        replies
+            .iter()
+            .map(|r| (r.ticket(), r.outcome().clone()))
+            .collect::<Vec<_>>(),
+        vec![(5, Err(CommitError::malformed(cause)))]
+    );
+    assert_ne!(id_now(&applier, "new")?, entity, "the refusal released it");
+    Ok(())
+}
+
+#[test]
+fn test_the_pipeline_names_the_latest_close_delivered() -> TestResult {
+    let applier = applier()?;
+    let (_storage, log) = wal()?;
+    let mut pipe: Pipe<'_> = Pipeline::new(&applier, log, unbounded())?.with_partition(
+        4,
+        ultragraphdb_core_ids::Epoch::new(9)?,
+        ultragraphdb_transactions_commit::CloseRequest::default(),
+        &[],
+    );
+    assert_eq!(pipe.delivered().get(), 9);
+    pipe.close(crate::utils::fixture::close(10, Vec::new(), Vec::new())?, 0)?;
+    assert_eq!(pipe.delivered().get(), 10);
+    Ok(())
+}
+
+/// A pipeline bound to a partition claims for it: with one partition owning every bucket, partition 1's claim commits
+/// and partition 2's is refused cross-partition, naming partition 1.
+#[test]
+fn test_a_bound_pipeline_claims_only_its_partitions_values() -> TestResult {
+    use ultragraphdb_cluster_placement::{NodeId, PartitionId, PlacementMap};
+    use ultragraphdb_store_apply::Operation;
+    let one = PlacementMap::even(1, NodeId::new(1))?;
+    let mut outcomes = Vec::new();
+    for bound in [1, 2] {
+        let applier = applier()?;
+        let declared = ultragraphdb_core_mapping::PredicateDeclaration::new(
+            crate::utils::fixture::ex("epi.id"),
+        )
+        .with_unique(true);
+        let _declared = setup(
+            &applier,
+            vec![ultragraphdb_core_mapping::Change::Declare(
+                ultragraphdb_core_mapping::Declaration::Predicate(declared),
+            )],
+        )?;
+        let (_storage, log) = wal()?;
+        let mut pipe: Pipe<'_> =
+            Pipeline::new(&applier, log, unbounded())?.bound(PartitionId::new(bound)?, &one);
+        let mut txn = begin(&applier)?;
+        txn.operate(
+            Operation::InsertIfAbsent {
+                graph: oxrdf::GraphName::DefaultGraph,
+                predicate: crate::utils::fixture::ex("epi.id"),
+                value: Literal::new_simple_literal("x").into(),
+                properties: Vec::new(),
+            },
+            0,
+        )?;
+        pipe.commit(1, prepare(txn)?, 0)?;
+        block_on(pipe.sync(0))?;
+        outcomes.extend(drained(&mut pipe).into_iter().map(|r| r.outcome().clone()));
+    }
+    assert!(matches!(outcomes.first(), Some(Ok(_))), "{outcomes:?}");
+    assert_eq!(
+        outcomes.get(1),
+        Some(&Err(CommitError::cross_partition(2, 1)))
+    );
+    Ok(())
+}
+
+/// A commit under a registration reply reads its mark: a renewal of `(o, 7)` committed after T's reply and before T
+/// conflicts with T, which writes nothing, and T's retry marks `(o, 7)` at the renewed generation (partitions, "A
+/// renewal between the reply and the commit conflicts").
+#[test]
+fn test_a_renewal_between_the_reply_and_the_commit_conflicts() -> TestResult {
+    use std::num::NonZeroU64;
+    use ultragraphdb_core_ids::{BucketGroup, Epoch};
+    let applier = applier()?;
+    let (_storage, mut pipe) = pipeline(&applier)?;
+    let o = crate::utils::proposal_double::id(40)?;
+    let g = BucketGroup::new(7)?;
+    let (four, five) = (
+        NonZeroU64::new(4).context("4")?,
+        NonZeroU64::new(5).context("5")?,
+    );
+    let mut t = begin(&applier)?;
+    t.mark(o, g, four, Epoch::ZERO, 0)?;
+    write(&mut t, vec![insert("a", "knows", "b")])?;
+    let mut renewal = begin(&applier)?;
+    renewal.mark(o, g, five, Epoch::ZERO, 0)?;
+    pipe.commit(1, prepare(renewal)?, 0)?;
+    block_on(pipe.sync(0))?;
+    pipe.commit(2, prepare(t)?, 0)?;
+    block_on(pipe.sync(0))?;
+    assert_eq!(
+        drained(&mut pipe)
+            .iter()
+            .map(|r| (r.ticket(), r.outcome().clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (1, Ok(version(1, 0))),
+            (2, Err(CommitError::conflict(ConflictKind::List)))
+        ]
+    );
+    assert!(held(&applier, "a", "knows")?.is_empty(), "T wrote nothing");
+    let mut retry = begin(&applier)?;
+    assert_eq!(retry.read_mark(o, g, 0)?, Some(five));
+    retry.mark(o, g, five, Epoch::ZERO, 0)?;
+    write(&mut retry, vec![insert("a", "knows", "b")])?;
+    pipe.commit(3, prepare(retry)?, 0)?;
+    block_on(pipe.sync(0))?;
+    assert!(matches!(
+        drained(&mut pipe).first().map(Reply::outcome),
+        Some(Ok(_))
+    ));
+    let watermark = pipe.watermark();
+    assert_eq!(
+        applier.quads().mark(NS, o, g, watermark)?,
+        Some(five),
+        "the retry marks the renewed generation"
+    );
     Ok(())
 }

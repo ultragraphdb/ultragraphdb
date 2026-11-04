@@ -52,7 +52,7 @@ pub type OwnedEntry = (Vec<u8>, Option<Vec<u8>>);
 /// |---|---|---|
 /// | 1, a transaction | every field | 0 to 2 and 4 to 11 as it wrote and answered; 3 empty |
 /// | 1, a Drop | every field, `read_version` 0 | 3 one drop; 8 the dropped key ranges; every other empty |
-/// | 2 | `namespace` | 4 one registration; every other empty |
+/// | 2 | `namespace` | 4 one registration, or none for an entity got or created with no bucket group; every other empty |
 /// | 3 | `namespace`, `catalog` | 3 one build operation; every other empty |
 ///
 /// A key-value section holds entries of `key_len` u32, `value_len` u32 ([`crate::ABSENT`] for a removal, which holds
@@ -114,6 +114,12 @@ impl WriteSetRecord {
         let mut record = Self::empty(RecordKind::Registration, namespace);
         record.registrations.push(registration);
         record
+    }
+
+    /// The record of an entity the partition got or created as its home for a registration naming no bucket group (kind
+    /// 2 with no registration), in `namespace`: its dictionary entries ride in the round's dictionary section.
+    pub fn entity(namespace: u64) -> Self {
+        Self::empty(RecordKind::Registration, namespace)
     }
 
     /// The record of an index build's start or completion (kind 3), `operation`, in `namespace`; its catalog set by

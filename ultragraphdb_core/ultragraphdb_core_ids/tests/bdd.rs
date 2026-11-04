@@ -234,6 +234,62 @@ fn low_bits_equal_top_bits_reference(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
+/// A golden case of `testdata/golden/unique_values.json`, written by `unique_values.py` from the xxHash reference.
+#[derive(Debug, Clone, Deserialize)]
+struct ValueCase {
+    namespace: u64,
+    predicate_prefix: u16,
+    predicate_bucket: u32,
+    predicate_sequence: u64,
+    value: String,
+    namespace_xxh3: String,
+    value_xxh3: String,
+}
+
+/// The golden case of the scenario: `"x"` of `epi.id`, the predicate whose ID the case names, in namespace 0.
+fn value_scenario() -> TestResult<ValueCase> {
+    let golden =
+        load_golden::<ValueCase>(&testdata_dir()?.join("golden").join("unique_values.json"))?;
+    golden
+        .cases()
+        .iter()
+        .find(|c| c.namespace == 0 && c.value == "200178")
+        .cloned()
+        .context("the scenario's golden case")
+}
+
+#[when(
+    "the bucket of the value `\"x\"` of the unique predicate `epi.id` is computed in namespace 0"
+)]
+fn unique_value_bucket(w: &mut Steps) -> TestResult {
+    let case = value_scenario()?;
+    let epi_id = id(
+        case.predicate_prefix,
+        case.predicate_bucket,
+        case.predicate_sequence,
+    )?;
+    // `"x"`'s term encoding: the small-string tag 0x20, its length 1 and its byte (key-encoding).
+    w.buckets.push(Bucket::of_value(
+        Namespace::new(0),
+        epi_id,
+        &[0x20, 0x01, b'x'],
+    ));
+    Ok(())
+}
+
+#[then(
+    "its top 8 bits equal the namespace's reference value, and its low 16 bits equal the top two bytes of the reference XXH3-64 of `epi.id`'s 16 ID bytes followed by `\"x\"`'s term encoding"
+)]
+fn unique_value_bucket_matches_reference(w: &mut Steps) -> TestResult {
+    let bucket = w.buckets.first().context("the bucket")?.get();
+    let case = value_scenario()?;
+    let namespace_hash = u64::from_str_radix(&case.namespace_xxh3, 16).context("a hex hash")?;
+    let value_hash = u64::from_str_radix(&case.value_xxh3, 16).context("a hex hash")?;
+    assert_eq!(u64::from(bucket >> 16), namespace_hash >> 56);
+    assert_eq!(u64::from(bucket & 0xFFFF), value_hash >> 48);
+    Ok(())
+}
+
 #[when("the IRI `http://ex.org/a` is canonically encoded")]
 fn canonically_encoded(w: &mut Steps) -> TestResult {
     CanonicalKey::iri(IRI)?.encode_into(&mut w.encoded);

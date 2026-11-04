@@ -3,12 +3,15 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+mod transaction_partition;
+
 use oxrdf::{GraphNameRef, NamedNodeRef, NamedOrBlankNode, NamedOrBlankNodeRef, Term};
 use ultragraphdb_cluster_placement::{PartitionId, PlacementMap};
-use ultragraphdb_core_ids::{Bucket, CanonicalKey, Namespace, SessionToken, TypePrefix, Version};
+use ultragraphdb_core_ids::{Bucket, Epoch, Namespace, SessionToken, Version};
 use ultragraphdb_core_mapping::{Change, Changeset, StatementRef};
 use ultragraphdb_store_apply::{ChangesetApplier, Executed, Execution, Operation};
 use ultragraphdb_store_posting::CachedList;
+use ultragraphdb_store_quads::iri_bucket;
 use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{Executor, ListCache, Store};
 
@@ -76,6 +79,10 @@ where
     catalog: u64,
     token: Option<SessionToken>,
     binding: Option<(PartitionId, &'a PlacementMap)>,
+    /// One above the latest close a home's reply named, `None` before any reply.
+    floor: Option<Epoch>,
+    /// The unique values of the execution's plain writes already checked against their buckets' owners.
+    uniques_checked: usize,
 }
 
 impl<'a, S, C, E, B> Transaction<'a, S, C, E, B>
@@ -125,6 +132,8 @@ where
             catalog,
             token: None,
             binding: None,
+            floor: None,
+            uniques_checked: 0,
         })
     }
 
@@ -197,8 +206,9 @@ where
     ///
     /// [`TxnError::ended`]; [`TxnError::past_limit`], ending it; [`TxnError::read_only`], [`TxnError::namespace`] and
     /// [`TxnError::declaration`] for a changeset holding a declaration, which leave it as it was;
-    /// [`TxnError::cross_partition`] for a subject another partition owns, a statement named by its reifier checked
-    /// against the subject it resolves to once executed, and [`TxnError::changeset`] for a changeset refused or a store
+    /// [`TxnError::cross_partition`] for a subject another partition owns, an existing blank node by the bucket its
+    /// skolem IRI states, a statement named by its reifier checked against the subject it resolves to once executed and
+    /// a plain write of a unique predicate's value whose bucket another partition owns, and [`TxnError::changeset`] for a changeset refused or a store
     /// that failed, each ending it.
     pub fn write(&mut self, changeset: &Changeset, now_us: u64) -> Result<(), TxnError> {
         if self.mode == Mode::ReadOnly {
@@ -225,10 +235,18 @@ where
             self.end();
             return Err(e.into());
         }
-        // A statement named by its reifier is known by its subject only once executed.
-        if let Some((partition, other)) = self.foreign_reified() {
+        // A statement named by its reifier is known by its subject only once executed, and a unique value's bucket
+        // by the predicate's ID it resolved to.
+        if let Some((partition, other)) = self.foreign_reified().or_else(|| self.foreign_unique()) {
             self.end();
             return Err(TxnError::cross_partition(partition, other));
+        }
+        // Unbound, every value is taken, so none is checked.
+        if self.binding.is_some() {
+            self.uniques_checked = self
+                .execution
+                .as_ref()
+                .map_or(0, |e| e.unique_writes().len());
         }
         Ok(())
     }
@@ -253,8 +271,9 @@ where
     ///
     /// # Errors
     ///
-    /// [`TxnError::ended`]; [`TxnError::past_limit`], ending it; [`TxnError::changeset`] for a store that failed,
-    /// ending it.
+    /// [`TxnError::ended`]; [`TxnError::past_limit`], ending it; [`TxnError::cross_partition`] for a subject another
+    /// partition owns, an existing blank node by the bucket its skolem IRI states, ending it; [`TxnError::changeset`]
+    /// for a store that failed, ending it.
     pub fn objects_into(
         &mut self,
         graph: GraphNameRef<'_>,
@@ -263,7 +282,16 @@ where
         now_us: u64,
         out: &mut Vec<Term>,
     ) -> Result<(), TxnError> {
+        let foreign = match subject {
+            NamedOrBlankNodeRef::NamedNode(iri) => self.foreign_iri(iri.as_str()),
+            // A blank node by its label is one the transaction wrote: the partition's own.
+            NamedOrBlankNodeRef::BlankNode(_) => None,
+        };
         let execution = self.live(now_us)?;
+        if let Some((partition, other)) = foreign {
+            self.end();
+            return Err(TxnError::cross_partition(partition, other));
+        }
         if let Err(e) = execution.objects_into(graph, subject, predicate, out) {
             self.end();
             return Err(e.into());
@@ -331,7 +359,11 @@ where
         };
         let operations = std::mem::take(&mut self.operations);
         let prepared = Prepared::new(executed, read_set, record, operations, rewrite);
-        Ok(Commit::ReadWrite(prepared.with_token(self.token.take())))
+        Ok(Commit::ReadWrite(
+            prepared
+                .with_token(self.token.take())
+                .with_epoch_floor(self.floor),
+        ))
     }
 
     /// Gathers `executed`'s reads into `read_set`, sealed, and writes its record, request `request` of session
@@ -406,8 +438,9 @@ where
     }
 
     /// The bound partition and the owner of the first subject of `changeset` another partition owns, at the
-    /// transaction's read epoch; `None` when unbound or every subject is the partition's own. A blank node's subject is
-    /// new or the partition's own: a new one is drawn among the partition's buckets.
+    /// transaction's read epoch; `None` when unbound or every subject is the partition's own. A blank node by its label
+    /// is new, drawn among the partition's buckets; an existing one, named by its skolem IRI, is the bucket's the IRI
+    /// states.
     fn foreign_subject(&self, changeset: &Changeset) -> Option<(u32, u32)> {
         let (partition, placement) = self.binding?;
         let epoch = Version::from_u64(self.read_version).epoch();
@@ -435,11 +468,39 @@ where
             let NamedOrBlankNode::NamedNode(iri) = subject else {
                 return None;
             };
-            let key = CanonicalKey::iri(iri.as_str()).ok()?;
-            let owner = placement
-                .partition_of(Bucket::derive(namespace, TypePrefix::RESOURCE, &key), epoch);
-            (owner != partition).then_some((partition.get(), owner.get()))
+            owner_other(
+                partition,
+                placement,
+                epoch,
+                iri_bucket(namespace.get(), iri.as_str())?,
+            )
         })
+    }
+
+    /// The bound partition and the owner of `iri`, a subject, when another partition owns it at the transaction's read
+    /// epoch; `None` when unbound or the partition's own.
+    fn foreign_iri(&self, iri: &str) -> Option<(u32, u32)> {
+        let (partition, placement) = self.binding?;
+        let epoch = Version::from_u64(self.read_version).epoch();
+        let bucket = iri_bucket(self.namespace, iri)?;
+        owner_other(partition, placement, epoch, bucket)
+    }
+
+    /// The bound partition and the owner of the first value of a unique predicate the execution wrote since the last
+    /// check whose bucket another partition owns, at the transaction's read epoch (system-identity, "The bucket comes
+    /// from the namespace and the key"); `None` when unbound, ended or every such value is the partition's own.
+    fn foreign_unique(&self) -> Option<(u32, u32)> {
+        let (partition, placement) = self.binding?;
+        let epoch = Version::from_u64(self.read_version).epoch();
+        let namespace = Namespace::new(self.namespace);
+        let written = self.execution.as_ref()?.unique_writes();
+        written
+            .get(self.uniques_checked..)?
+            .iter()
+            .find_map(|(predicate, value)| {
+                let bucket = Bucket::of_value(namespace, *predicate, value);
+                owner_other(partition, placement, epoch, bucket)
+            })
     }
 
     /// Aborts the transaction, writing nothing and releasing what its execution held: its buffers, for the worker's
@@ -462,6 +523,17 @@ where
     fn drop(&mut self) {
         self.end();
     }
+}
+
+/// The bound `partition` and the owner of `bucket` at `epoch` by `placement`, when it is another partition.
+fn owner_other(
+    partition: PartitionId,
+    placement: &PlacementMap,
+    epoch: Epoch,
+    bucket: Bucket,
+) -> Option<(u32, u32)> {
+    let owner = placement.partition_of(bucket, epoch);
+    (owner != partition).then_some((partition.get(), owner.get()))
 }
 
 /// Whether `elapsed_us` microseconds are past `limit`, compared in u128: a limit's microseconds may exceed `u64::MAX`,

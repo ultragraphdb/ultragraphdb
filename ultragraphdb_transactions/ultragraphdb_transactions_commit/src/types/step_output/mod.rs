@@ -30,6 +30,11 @@ use crate::types::round_record::RoundRecord;
 /// requests waiting when a sync fails), so the caller gives each one's buffers back to its worker as a committed
 /// one's come back from the apply (approved 2026-10-28).
 ///
+/// A home's registrations ([`crate::Input::Registration`]) carry no proposal, so the caller keeps what each one's round
+/// applies: **registered** ([`StepOutput::registered`]) names the applied round's registrations under their tickets at
+/// their commit versions, in round order, to apply with it; **dismissed** ([`StepOutput::dismissed`]) the tickets of
+/// the registrations the step will not apply, in the step that decides so, to release.
+///
 /// The caller keeps one output for every step: each step clears it first and its buffers keep their capacity, so a
 /// steady state allocates neither the body nor the tables. The caller drains [`StepOutput::apply_mut`] and the
 /// drained vector goes back to the step for the next round.
@@ -42,6 +47,8 @@ pub struct StepOutput<P> {
     pub(crate) system: Vec<VersionlessEntry>,
     pub(crate) replies: Vec<Reply>,
     pub(crate) released: Vec<(u64, P)>,
+    pub(crate) registered: Vec<(u64, u64)>,
+    pub(crate) dismissed: Vec<u64>,
     pub(crate) close_request: Option<Epoch>,
     pub(crate) position: u64,
 }
@@ -63,6 +70,8 @@ impl<P> StepOutput<P> {
             system: Vec::new(),
             replies: Vec::new(),
             released: Vec::new(),
+            registered: Vec::new(),
+            dismissed: Vec::new(),
             close_request: None,
             position: 0,
         }
@@ -77,6 +86,8 @@ impl<P> StepOutput<P> {
         self.system.clear();
         self.replies.clear();
         self.released.clear();
+        self.registered.clear();
+        self.dismissed.clear();
         self.close_request = None;
         self.position = 0;
     }
@@ -143,6 +154,17 @@ impl<P> StepOutput<P> {
     /// The same, for the caller to drain.
     pub fn released_mut(&mut self) -> &mut Vec<(u64, P)> {
         &mut self.released
+    }
+
+    /// The applied round's registrations, each its ticket and commit version, in round order: what each one's home
+    /// left applies at that version with the round.
+    pub fn registered(&self) -> &[(u64, u64)] {
+        &self.registered
+    }
+
+    /// The tickets of the registrations this step will not apply: refused, or dropped with a round that failed.
+    pub fn dismissed(&self) -> &[u64] {
+        &self.dismissed
     }
 
     /// The replies to send.

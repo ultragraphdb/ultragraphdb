@@ -385,3 +385,69 @@ fn test_subjects_read_the_reverse_list() -> TestResult {
     assert_eq!(QuadWrite::namespace(&fresh), 0);
     Ok(())
 }
+
+#[test]
+fn test_predicate_lists_name_what_the_write_sees_and_are_recorded_whole() -> TestResult {
+    let store = quads()?;
+    write(&store, 0, &[quad("a", "knows", ex("b"))])?;
+    let (a, knows, b) = (
+        id(&store, 0, &ex("a"))?,
+        id(&store, 0, &ex("knows"))?,
+        id(&store, 0, &ex("b"))?,
+    );
+    let read_ts = store.lists().applied_ts();
+    let mut w = QuadWrite::new(&store, 0, store.lists().request(read_ts));
+    let likes = {
+        let (terms, q) = w.terms();
+        terms.iri(q, ex("likes").as_str())?
+    };
+    assert!(w.names_predicate(D, a, knows)?);
+    assert!(!w.names_predicate(D, a, likes)?);
+    assert!(w.points_with(D, &EncodedTerm::id(b), knows)?);
+    assert!(!w.points_with(D, &EncodedTerm::id(b), likes)?);
+    // The write's own insert shows on top.
+    w.insert(D, a, likes, &EncodedTerm::id(b), &[], "iri");
+    assert!(w.names_predicate(D, a, likes)?);
+    assert!(w.points_with(D, &EncodedTerm::id(b), likes)?);
+    let sp = QuadKey::SubjectPredicates {
+        namespace: 0,
+        graph: D,
+        subject: a,
+    }
+    .to_bytes();
+    let op = QuadKey::ObjectPredicates {
+        namespace: 0,
+        graph: D,
+        object: EncodedTerm::id(b),
+    }
+    .to_bytes();
+    let read: Vec<&[u8]> = w.request().read_keys().collect();
+    assert!(read.contains(&sp.as_slice()) && read.contains(&op.as_slice()));
+    Ok(())
+}
+
+#[test]
+fn test_ids_read_a_list_of_ids_whole_in_id_order() -> TestResult {
+    let store = quads()?;
+    write(
+        &store,
+        0,
+        &[quad("a", "knows", ex("z")), quad("c", "knows", ex("z"))],
+    )?;
+    let (knows, z) = (id(&store, 0, &ex("knows"))?, id(&store, 0, &ex("z"))?);
+    let reverse = QuadKey::Reverse {
+        namespace: 0,
+        graph: D,
+        predicate: knows,
+        object: EncodedTerm::id(z),
+    }
+    .to_bytes();
+    let read_ts = store.lists().applied_ts();
+    let mut w = QuadWrite::new(&store, 0, store.lists().request(read_ts));
+    let mut expected = vec![id(&store, 0, &ex("a"))?, id(&store, 0, &ex("c"))?];
+    expected.sort_by_key(|i| i.to_u128());
+    assert_eq!(w.ids(&reverse)?, expected);
+    assert!(w.request().read_keys().any(|k| k == reverse.as_slice()));
+    assert!(w.ids(b"\x11 no such list")?.is_empty());
+    Ok(())
+}

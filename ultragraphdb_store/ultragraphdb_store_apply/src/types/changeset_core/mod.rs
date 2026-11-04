@@ -9,6 +9,7 @@ mod changeset_core_logical;
 mod changeset_core_operate;
 mod changeset_core_rebuild;
 mod changeset_core_record;
+mod changeset_core_referrers;
 mod changeset_core_replay;
 mod changeset_core_vectors;
 
@@ -266,6 +267,7 @@ where
             self.quads.lists().commit_round_with(&[], system, through)?;
             return Ok((Vec::new(), None));
         };
+        self.derive_referrers(&mut round)?;
         let record = self.record_round(first, &mut round)?;
         if let Some(r) = &running {
             for (_, executed) in &mut round {
@@ -483,19 +485,27 @@ impl<S, C, B> ChangesetCore<S, C, B> {
     }
 }
 
-/// The read set of the write of namespace `namespace` that `request` and `terms` hold.
+/// The read set of the write of namespace `namespace` that `request` and `terms` hold, with `points`, the keys besides
+/// lists it read whole: the marks it read.
 pub(crate) fn reads_of<S, C>(
     namespace: u64,
     request: &ultragraphdb_store_posting::Request<'_, S, C>,
     terms: &WriteTerms,
+    points: &[Vec<u8>],
 ) -> Reads
 where
     S: Store,
     C: ListCache<Value = CachedList>,
 {
+    let mut lists: Vec<Vec<u8>> = request.read_keys().map(<[u8]>::to_vec).collect();
+    if !points.is_empty() {
+        lists.extend_from_slice(points);
+        lists.sort_unstable();
+        lists.dedup();
+    }
     Reads::new(
         namespace,
-        request.read_keys().map(<[u8]>::to_vec).collect(),
+        lists,
         request
             .tested()
             .map(|(key, object)| (key.to_vec(), object.to_vec()))

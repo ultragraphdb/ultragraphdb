@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_core_ids::SessionToken;
+use ultragraphdb_core_ids::{Epoch, SessionToken};
 use ultragraphdb_transactions_txn::ReadSet;
 
 /// What the commit step decides a read-write transaction by: its read set, sealed, which the resolver checks against
@@ -21,6 +21,14 @@ pub trait Proposal {
     /// transaction carrying a token of epoch `t` is held until the close of `t − 1` is delivered, so it commits at epoch
     /// `t` or later (transactions, "Commits answer a session token"); none by default.
     fn token(&self) -> Option<&SessionToken> {
+        None
+    }
+
+    /// The epoch the transaction may be stamped at, at the earliest: one above the latest close a home's reply to one of
+    /// its registrations named. A proposal is held until that epoch is open, as for its token, so it commits at that
+    /// epoch or later (partitions, "A registration's epoch is at most the epoch of every write referencing it"); none by
+    /// default.
+    fn epoch_floor(&self) -> Option<Epoch> {
         None
     }
 

@@ -57,6 +57,12 @@ impl Writes {
         )
     }
 
+    /// Adds `entry`, written at the commit version as [`Writes::entries`] are: what the commit step derives when the
+    /// round applies, once the version is known, such as an entity's referrer set at its commit version's epoch.
+    pub fn add_entry(&mut self, entry: Entry) {
+        self.entries.push(entry);
+    }
+
     /// The deltas, by key, in key order: every list whose scratch layer held postings.
     pub fn deltas(&self) -> &[(Vec<u8>, PostingList)] {
         &self.deltas

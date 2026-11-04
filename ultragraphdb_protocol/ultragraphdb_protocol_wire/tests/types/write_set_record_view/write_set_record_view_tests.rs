@@ -557,9 +557,12 @@ fn test_each_kind_holds_its_sections() -> TestResult {
     // A transaction holds no operation beside its writes.
     let tx_drop = changed(0, |_, secs| secs[3] = drop_op.clone())?;
     assert_eq!(refusal(&tx_drop)?, records_sections(2, 0));
-    // A registration holds exactly one registration and nothing else.
+    // A registration holds one registration, or none for an entity got or created with no bucket group, and nothing
+    // else.
     let none = changed(1, |_, secs| secs[4].clear())?;
-    assert_eq!(refusal(&none)?, records_sections(0, 1));
+    let entity = WriteSetRecordView::new(&none)?;
+    assert_eq!(entity.kind(), RecordKind::Registration);
+    assert_eq!(entity.registration(0), None);
     let two = changed(1, |_, secs| secs[4] = registration_bytes.repeat(2))?;
     assert_eq!(refusal(&two)?, records_sections(2, 1));
     let committed = changed(1, |_, secs| secs[5] = b"cr".to_vec())?;

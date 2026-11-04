@@ -55,6 +55,7 @@ fn refuses_declaration(error: &ChangesetError) -> bool {
         | ChangesetErrorEnum::Unique { .. }
         | ChangesetErrorEnum::NoVectorIndex { .. }
         | ChangesetErrorEnum::OperationFailed { .. }
+        | ChangesetErrorEnum::NoIndex { .. }
         | ChangesetErrorEnum::NotUnique { .. } => false,
     }
 }

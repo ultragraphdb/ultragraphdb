@@ -35,6 +35,7 @@ rust_test(
         exclude = [
             "tests/bdd.rs",
             "tests/catalog_steps.rs",
+            "tests/partition_steps.rs",
         ],
     ),
     crate_root = "tests/mod.rs",
@@ -54,6 +55,7 @@ rust_test(
     srcs = [
         "tests/bdd.rs",
         "tests/catalog_steps.rs",
+        "tests/partition_steps.rs",
         "tests/utils/fixture.rs",
         "tests/utils/proposal_double.rs",
     ],

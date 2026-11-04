@@ -3,9 +3,13 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::collections::VecDeque;
+
+use ultragraphdb_cluster_placement::{PartitionId, PlacementMap};
 use ultragraphdb_cluster_sequencer::{CatalogVersion, Close};
 use ultragraphdb_core_catalog::CatalogContents;
 use ultragraphdb_core_ids::Epoch;
+use ultragraphdb_core_keys::Keyspace;
 use ultragraphdb_store_apply::LogicalQuad;
 use ultragraphdb_store_apply::{ChangesetApplier, ChangesetError, Executed};
 use ultragraphdb_store_posting::CachedList;
@@ -73,6 +77,9 @@ pub struct Pipeline<'a, L, S, C, E, B> {
     unsynced: bool,
     /// The close the step asked the sequencer for, not yet handed out.
     close_request: Option<Epoch>,
+    /// What each registration handed to the step and not yet applied or released leaves, under its ticket, in the order
+    /// handed over.
+    registrations: VecDeque<(u64, Executed)>,
 }
 
 impl<'a, L, S, C, E, B> Pipeline<'a, L, S, C, E, B>
@@ -114,7 +121,18 @@ where
             buffers: Vec::new(),
             unsynced: false,
             close_request: None,
+            registrations: VecDeque::new(),
         })
+    }
+
+    /// The pipeline whose commit-time operations claim for `partition`, which owns the buckets `placement` gives it: a
+    /// claim of a value whose bucket another partition owns refuses its transaction cross-partition
+    /// ([`ApplierOperator::bound`]).
+    pub fn bound(self, partition: PartitionId, placement: &'a PlacementMap) -> Self {
+        Self {
+            operator: self.operator.bound(partition, placement),
+            ..self
+        }
     }
 
     /// The pipeline with a commit queue of at most `limit` requests waiting.
@@ -167,8 +185,10 @@ where
         }
     }
 
-    /// Hands a registration the partition accepted as an entity's home, its write-set record of kind 2, to the commit
-    /// step under `ticket` at `now_us`; it is answered with its commit version once its round is applied.
+    /// Hands a registration the partition accepted as an entity's home to the commit step under `ticket` at `now_us`:
+    /// `executed`, what [`ultragraphdb_store_apply::Registering::finish`] left, and `record`, its write-set record of kind
+    /// 2. Its round applies `executed` at the registration's own commit version, and it is answered with that version once
+    /// the round is applied; a registration the step refuses releases `executed`, writing nothing.
     ///
     /// # Errors
     ///
@@ -176,10 +196,27 @@ where
     pub fn registration(
         &mut self,
         ticket: u64,
+        executed: Executed,
         record: Vec<u8>,
         now_us: u64,
     ) -> Result<(), PipelineError> {
-        self.run(Input::Registration { ticket, record }, now_us)
+        let dictionary = Keyspace::Dictionary.byte();
+        let entries = executed
+            .writes()
+            .versionless()
+            .iter()
+            .filter(|e| e.key().first() == Some(&dictionary))
+            .filter_map(|e| Some((e.key().to_vec(), e.value()?.to_vec())))
+            .collect();
+        self.registrations.push_back((ticket, executed));
+        self.run(
+            Input::Registration {
+                ticket,
+                record,
+                dictionary: entries,
+            },
+            now_us,
+        )
     }
 
     /// Hands the commit step `close`, a close of the sequencer delivered to the partition, at `now_us`: the commits
@@ -356,12 +393,20 @@ where
         let through = record
             .last_version()
             .unwrap_or_else(|| self.applier.quads().lists().applied_ts());
-        let mut round: Vec<(u64, Executed)> = Vec::with_capacity(self.out.apply.len());
+        let mut round: Vec<(u64, Executed)> =
+            Vec::with_capacity(self.out.apply.len() + self.out.registered.len());
         for (version, prepared) in self.out.apply.drain(..) {
             let (executed, buffers) = prepared.into_parts();
             round.push((version, executed));
             self.buffers.push(buffers);
         }
+        // A registration's home writes apply at the registration's own version, among the round's commits.
+        for (ticket, version) in self.out.registered.drain(..) {
+            if let Some(executed) = take_registration(&mut self.registrations, ticket) {
+                round.push((version, executed));
+            }
+        }
+        round.sort_by_key(|(version, _)| *version);
         self.applier
             .apply_round_with(round, &self.out.system, through)
             .map(|_| ())
@@ -378,6 +423,11 @@ where
             .drain(..)
             .map(|(_, prepared)| prepared.release(applier));
         self.buffers.extend(released);
+        for ticket in self.out.dismissed.drain(..) {
+            if let Some(executed) = take_registration(&mut self.registrations, ticket) {
+                applier.release(&executed);
+            }
+        }
     }
 
     /// Stops the step: the round in flight, the requests waiting and every later commit are answered unavailable.
@@ -416,6 +466,11 @@ where
         self.applier.quads().lists().applied_ts()
     }
 
+    /// The latest close delivered to the partition, which a home's registration reply names.
+    pub fn delivered(&self) -> Epoch {
+        self.step.delivered()
+    }
+
     /// The commit step the pipeline drives.
     pub fn step(&self) -> &CommitStep<Prepared> {
         &self.step
@@ -430,4 +485,11 @@ where
     pub fn into_log(self) -> L {
         self.log
     }
+}
+
+/// Takes what the oldest registration handed over under `ticket` leaves out of `pending`: the step decides
+/// registrations in the order they arrive, so the oldest under a ticket is the one decided.
+fn take_registration(pending: &mut VecDeque<(u64, Executed)>, ticket: u64) -> Option<Executed> {
+    let at = pending.iter().position(|(t, _)| *t == ticket)?;
+    pending.remove(at).map(|(_, executed)| executed)
 }

@@ -708,3 +708,98 @@ fn test_aborted_decisions_registrations_named_graph_records_and_every_drop_repla
     }
     Ok(())
 }
+
+/// A round holding only two registrations a home accepted replays into an empty store as its first apply left it: each
+/// member of the referrer set at the commit version the record lists for its registration, and the dictionary entries
+/// of the IRIs the home created for them (write-ahead-log, "Replay derives a home's referrer-set deltas").
+#[test]
+fn test_a_round_of_two_registrations_replays_each_member_at_its_version() -> TestResult {
+    use crate::utils::fixture::{member_at, registered};
+    let original = applier()?;
+    let (_storage, log) = wal()?;
+    let mut pipe: Pipe<'_> = Pipeline::new(&original, log, unbounded())?;
+    // A commit's round in flight, so the two registrations wait for one round of their own.
+    let mut txn = begin(&original)?;
+    write(&mut txn, vec![insert("a", "knows", "b")])?;
+    pipe.commit(1, prepare(txn)?, 0)?;
+    let (o, o_executed, o_record) = registered(&original, "o", 7, 1)?;
+    let (p, p_executed, p_record) = registered(&original, "p", 9, 3)?;
+    pipe.registration(2, o_executed, o_record, 0)?;
+    pipe.registration(3, p_executed, p_record, 0)?;
+    block_on(pipe.sync(0))?;
+    block_on(pipe.sync(0))?;
+    let versions: Vec<(
+        u64,
+        Result<u64, ultragraphdb_transactions_commit::CommitError>,
+    )> = pipe
+        .replies_mut()
+        .iter()
+        .map(|r| (r.ticket(), r.outcome().clone()))
+        .collect();
+    assert_eq!(
+        versions,
+        vec![
+            (1, Ok(version(1, 0))),
+            (2, Ok(version(1, 2))),
+            (3, Ok(version(1, 4)))
+        ]
+    );
+    let mut written = pipe.into_log();
+    let replica = applier_over(sim_store())?;
+    let replayed = replay(&replica, &mut written)?;
+    assert_eq!(replayed.rounds(), 2);
+    assert_eq!(member_at(&replica, o, 7, version(1, 2))?, Some((1, 1)));
+    assert_eq!(member_at(&replica, o, 7, version(1, 0))?, None);
+    assert_eq!(
+        member_at(&replica, p, 9, version(1, 4))?,
+        Some((3, 1)),
+        "the generation its home set"
+    );
+    assert_eq!(member_at(&replica, p, 9, version(1, 2))?, None);
+    assert_eq!(
+        original.quads().store().contents(),
+        replica.quads().store().contents(),
+        "the replayed store holds every key and value the first apply left"
+    );
+    Ok(())
+}
+
+/// A round holding a first reference to an entity another partition owns, with its registration mark and the copied
+/// ID-to-IRI entry, replays into an empty store as its first apply left it, the mark's generation and the copied entry
+/// included (write-ahead-log, "Replay derives the same keys").
+#[test]
+fn test_a_reference_with_its_mark_and_copied_entry_replays_the_same_keys() -> TestResult {
+    use std::num::NonZeroU64;
+    use ultragraphdb_core_ids::{BucketGroup, Epoch};
+    let original = applier()?;
+    let (_storage, log) = wal()?;
+    let mut pipe: Pipe<'_> = Pipeline::new(&original, log, unbounded())?;
+    let b = crate::utils::proposal_double::id(40)?;
+    let g = BucketGroup::new(7)?;
+    let four = NonZeroU64::new(4).context("4")?;
+    let mut txn = begin(&original)?;
+    txn.adopt(crate::utils::fixture::ex("b").as_str(), b, Epoch::ZERO, 0)?;
+    txn.mark(b, g, four, Epoch::ZERO, 0)?;
+    write(&mut txn, vec![insert("a", "knows", "b")])?;
+    pipe.commit(1, prepare(txn)?, 0)?;
+    block_on(pipe.sync(0))?;
+    let at = pipe.watermark();
+    assert_eq!(original.quads().mark(NS, b, g, at)?, Some(four));
+    assert_eq!(
+        original
+            .quads()
+            .id_of(NS, crate::utils::fixture::ex("b").as_str())?,
+        Some(b),
+        "the copied entry names the home's ID"
+    );
+    let mut written = pipe.into_log();
+    let replica = applier_over(sim_store())?;
+    let _replayed: Replay = replay(&replica, &mut written)?;
+    assert_eq!(replica.quads().mark(NS, b, g, at)?, Some(four));
+    assert_eq!(
+        original.quads().store().contents(),
+        replica.quads().store().contents(),
+        "the replayed store holds every key and value the first apply left"
+    );
+    Ok(())
+}

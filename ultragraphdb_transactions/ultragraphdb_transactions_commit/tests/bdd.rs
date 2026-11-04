@@ -38,6 +38,8 @@ use ultragraphdb_transactions_txn::{MAX_WRITE_SET, Prepared, TxnBuffers, TxnErro
 
 /// The catalog-version scenarios' steps.
 mod catalog_steps;
+/// The single-store partitions scenarios' steps and the replay of a partition's references and registrations.
+mod partition_steps;
 
 /// The unit tests' fixture and doubles, shared by path.
 pub mod utils {
@@ -1438,6 +1440,7 @@ fn absent_then_registered(w: &mut Steps) -> TestResult {
     let registered = Input::Registration {
         ticket: 1,
         record: registration(7, 3, 1)?,
+        dictionary: Vec::new(),
     };
     w.replies = run(&mut step, registered, 0).replies().to_vec();
     w.replies

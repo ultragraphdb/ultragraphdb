@@ -17,6 +17,8 @@ use crate::types::changeset_write::ChangesetWrite;
 use crate::types::executed::Executed;
 use crate::types::logical_writes::LogicalWrites;
 use crate::utils::lock::lock;
+use crate::utils::mark_keys::mark_entry;
+use crate::utils::referrer_candidates::referrer_candidates;
 
 impl<S, C, B> ChangesetCore<S, C, B>
 where
@@ -46,8 +48,16 @@ where
         for (key, value) in outcome.terms.entries() {
             request.add_versionless(key, value);
         }
+        for marked in writes.marks() {
+            request.add_entry(mark_entry(namespace, marked));
+        }
+        let derived = request.into_writes();
+        let referrers =
+            referrer_candidates(&self.quads, namespace, read_ts, &derived, &outcome.terms)?;
         Ok(Executed {
-            writes: request.into_writes(),
+            writes: derived,
+            marks: writes.marks().to_vec(),
+            referrers,
             terms: outcome.terms,
             defaults: outcome.defaults,
             default_ids: outcome.default_ids,

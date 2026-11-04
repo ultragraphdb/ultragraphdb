@@ -21,6 +21,10 @@ pub enum Input<P> {
         ticket: u64,
         /// The registration's write-set record, kind 2.
         record: Vec<u8>,
+        /// The dictionary entries the home created for the registration's entity, each a key of the dictionary
+        /// keyspace and its value, which its round's dictionary section holds (`PROTOCOL.md` §12.1), so replay writes
+        /// them as the round's apply did.
+        dictionary: Vec<(Vec<u8>, Vec<u8>)>,
     },
     /// A close of the sequencer, delivered to the partition: the epoch after it opens, the catalog versions it announces
     /// take effect there, the sessions it evicts are purged from the session table, and the commits held for it are

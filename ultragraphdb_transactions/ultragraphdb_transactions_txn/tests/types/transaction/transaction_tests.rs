@@ -225,7 +225,8 @@ fn test_a_read_write_transaction_with_no_writes_is_still_validated() -> TestResu
     let mut txn = begin(&applier, Mode::ReadWrite)?;
     read_objects(&mut txn, "a", "knows", 0)?;
     let prepared = prepared(txn.commit(1, 1, &[], 0))?;
-    assert_eq!(prepared.read_set().lists().count(), 1);
+    // The subject's predicate list, which names `knows`, then the list of `<a> <knows>`.
+    assert_eq!(prepared.read_set().lists().count(), 2);
     let view = WriteSetRecordView::new(prepared.record())?;
     assert_eq!(view.inserted().iter().count(), 0);
     assert_eq!(view.removed().iter().count(), 0);
@@ -446,12 +447,14 @@ fn test_a_read_set_past_its_limit_refuses_the_commit() -> TestResult {
     let applier = applier()?;
     store(&applier, vec![insert("a", "knows", "b")])?;
     // A whole-list read of the 57-byte forward key (the keyspace byte, the namespace's 8 bytes, then graph, predicate
-    // and subject of 16 bytes each, QuadKey's layout) takes its key and its 8-byte span: 65 in all.
+    // and subject of 16 bytes each, QuadKey's layout) takes its key and its 8-byte span: 65; the subject-predicates list
+    // read before it (partitions, "Absence is proven by a node's predicate lists"), its 41-byte key (the keyspace byte,
+    // the namespace's 8 bytes, graph and subject of 16 each) and its span, 49 more: 114 in all.
     let limits = TxnLimits::default().with_max_read_set(40);
     let mut txn = begin_with(&applier, Mode::ReadWrite, limits)?;
     read_objects(&mut txn, "a", "knows", 0)?;
     let error = txn.commit(1, 1, &[], 0).err().context("the call fails")?;
-    assert_eq!(error, TxnError::read_set_too_large(65, 40));
+    assert_eq!(error, TxnError::read_set_too_large(114, 40));
     assert!(!error.is_retryable());
     // The read set's bound exactly and one below it.
     let read = |max: usize| -> TestResult<Result<(), TxnError>> {
@@ -463,8 +466,8 @@ fn test_a_read_set_past_its_limit_refuses_the_commit() -> TestResult {
         read_objects(&mut bounded, "a", "knows", 0)?;
         Ok(bounded.commit(1, 1, &[], 0).map(|_| ()))
     };
-    assert_eq!(read(65)?, Ok(()));
-    assert_eq!(read(64)?, Err(TxnError::read_set_too_large(65, 64)));
+    assert_eq!(read(114)?, Ok(()));
+    assert_eq!(read(113)?, Err(TxnError::read_set_too_large(114, 113)));
     Ok(())
 }
 

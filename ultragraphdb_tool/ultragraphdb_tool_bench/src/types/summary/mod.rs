@@ -21,14 +21,21 @@ impl Summary {
         }
         values.sort_unstable();
         let n = values.len();
-        let rank = |q: f64| values[((q * n as f64).ceil() as usize).clamp(1, n) - 1];
-        Self {
+        // A rank is clamped to `1..=n`, so every read is of a sample; `values` is not empty.
+        let rank = |q: f64| {
+            let i = ((q * n as f64).ceil() as usize).clamp(1, n) - 1;
+            values.get(i).copied().unwrap_or_default()
+        };
+        let summary = Self {
             count: n,
             p50: rank(0.5),
             p99: rank(0.99),
-            max: values[n - 1],
+            max: values.last().copied().unwrap_or_default(),
             mean: values.iter().map(|&v| v as f64).sum::<f64>() / n as f64,
-        }
+        };
+        debug_assert!(summary.p50 <= summary.p99);
+        debug_assert!(summary.p99 <= summary.max);
+        summary
     }
 
     /// The number of samples.

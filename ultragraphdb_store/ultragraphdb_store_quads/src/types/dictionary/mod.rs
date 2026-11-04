@@ -8,7 +8,7 @@ mod dictionary_mint;
 use std::collections::BTreeMap;
 use std::sync::{Mutex, MutexGuard};
 
-use ultragraphdb_core_ids::{CanonicalKey, Namespace, SystemId, TypePrefix};
+use ultragraphdb_core_ids::{Bucket, CanonicalKey, Namespace, SystemId, TypePrefix};
 use ultragraphdb_core_mapping::RandomSource;
 use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::Store;
@@ -78,9 +78,15 @@ impl<B: BlockSource> Dictionary<B> {
         self
     }
 
+    /// The buckets the dictionary owns.
+    pub(crate) fn owned(&self) -> &OwnedBuckets {
+        &self.owned
+    }
+
     /// The ID of `iri` in `namespace` with where it came from: pending, held in `store`, or created, its bucket
     /// computed from the namespace and the IRI and its sequence a `Resource` one. A pending or created ID is held by
-    /// the caller's write from then on. An IRI under the skolem base is refused unless it is pending or held.
+    /// the caller's write from then on. An IRI under the skolem base is refused unless it is pending or held, and an
+    /// IRI of a bucket the dictionary does not own unless it is held: its home creates its ID.
     pub(crate) fn resolve<S: Store>(
         &self,
         store: &S,
@@ -98,11 +104,20 @@ impl<B: BlockSource> Dictionary<B> {
             return Err(QuadError::unknown_skolem(iri));
         }
         let key = CanonicalKey::iri(iri)?;
+        let bucket = Bucket::derive(Namespace::new(namespace), TypePrefix::RESOURCE, &key);
+        if !self.owned.owns(bucket) {
+            return Err(QuadError::not_owned(iri, bucket.get()));
+        }
         self.check_room(&state)?;
-        let id = SystemId::resource(
-            Namespace::new(namespace),
-            &key,
+        let id = SystemId::new(
+            TypePrefix::RESOURCE,
+            bucket,
             state.sequences.next(TypePrefix::RESOURCE)?,
+        );
+        debug_assert_eq!(
+            id,
+            SystemId::resource(Namespace::new(namespace), &key, id.sequence()),
+            "a Resource's bucket is derived from its key"
         );
         state.add_pending(namespace, iri, id);
         Ok((id, TermOrigin::Created))

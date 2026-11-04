@@ -184,6 +184,27 @@ fn test_a_transactions_record_keeps_its_fields_and_sections() -> TestResult {
     Ok(())
 }
 
+/// An entity a home got or created for a registration naming no bucket group is a kind-2 record with no registration,
+/// every other field and section empty, which its view reads back.
+#[test]
+fn test_an_entity_record_is_a_registration_kind_with_no_registration() -> TestResult {
+    let entity = WriteSetRecord::entity(5);
+    assert_eq!(entity.kind(), RecordKind::Registration);
+    assert_eq!(
+        (entity.namespace(), entity.catalog(), entity.read_version()),
+        (5, 0, 0)
+    );
+    assert!(entity.registrations().is_empty());
+    let bytes = entity.encode();
+    let view = WriteSetRecordView::new(&bytes)?;
+    assert_eq!(
+        (view.kind(), view.namespace()),
+        (RecordKind::Registration, 5)
+    );
+    assert_eq!(view.registration(0), None);
+    Ok(())
+}
+
 #[test]
 fn test_the_other_kinds_leave_their_fields_zero() -> TestResult {
     let home = record1()?;

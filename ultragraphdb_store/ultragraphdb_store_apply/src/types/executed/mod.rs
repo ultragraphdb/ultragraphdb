@@ -4,15 +4,17 @@
  */
 
 use std::collections::BTreeSet;
+use std::num::NonZeroU64;
 
 use ultragraphdb_core_catalog::Catalog;
-use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_ids::{BucketGroup, SystemId};
 use ultragraphdb_core_keys::{Graph, QuadKey, Region};
 use ultragraphdb_store_posting::DEL;
 use ultragraphdb_store_posting::Writes;
 use ultragraphdb_store_quads::{WriteTerms, posting_object};
 
 use crate::types::logical_quad::LogicalQuad;
+use crate::types::marked_reference::MarkedReference;
 
 use crate::types::build_end::BuildEnd;
 use crate::types::drop_target::DropTarget;
@@ -50,6 +52,14 @@ pub struct Executed {
     /// The number of the catalog version this execution installs, a version's taking effect in the partition
     /// ([`crate::ChangesetApplier::execute_catalog`]); `None` for every other execution.
     pub(crate) catalog_version: Option<u64>,
+    pub(crate) marks: Vec<MarkedReference>,
+    /// The home's own groups the execution's edges reference entities of the store's buckets from, each `(entity,
+    /// group)` whose referrer set lacked the group at the read version: its round adds each still missing at
+    /// generation 1 with the commit version's epoch (partitions, "The home adds its own group without a
+    /// registration").
+    pub(crate) referrers: Vec<(SystemId, BucketGroup)>,
+    /// The referrer-set member a registration's round sets, `(entity, group, generation)` ([`crate::Registering`]).
+    pub(crate) registration: Option<(SystemId, BucketGroup, NonZeroU64)>,
 }
 
 impl Executed {
@@ -74,6 +84,9 @@ impl Executed {
             drop_ranges: Vec::new(),
             build_end: None,
             catalog_version: None,
+            marks: Vec::new(),
+            referrers: Vec::new(),
+            registration: None,
         }
     }
 
@@ -224,5 +237,11 @@ impl Executed {
     /// predicate, sorted: an insert-if-absent on the key, not a catalog change (decided 2026-10-27).
     pub fn defaults(&self) -> &[Vec<u8>] {
         &self.defaults
+    }
+
+    /// The registrations the execution relied on as a referrer, in the order marked: its commit writes each mark and
+    /// its record lists each (write-set record section 4).
+    pub fn marks(&self) -> &[MarkedReference] {
+        &self.marks
     }
 }

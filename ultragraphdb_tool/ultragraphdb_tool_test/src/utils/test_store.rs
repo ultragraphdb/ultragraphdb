@@ -6,52 +6,12 @@
 //! What the tests share: a store directory under `TEST_TMPDIR`, removed when the test ends, and short ways to write
 //! and read.
 
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-
 use fjall::{Database, KeyspaceCreateOptions};
-use ultragraphdb_store_kv::{DATA_KEYSPACE, Durability, FjallStore};
+use ultragraphdb_store_kv::{DATA_KEYSPACE, FjallStore};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_store::{Entry, PersistMode, Scan, Store, StoreSnapshot, WriteBatch};
 
-static NEXT: AtomicU64 = AtomicU64::new(0);
-
-/// A directory of its own under Bazel's `TEST_TMPDIR`, or the system's temporary directory under Cargo.
-#[derive(Debug)]
-pub struct TestDir(PathBuf);
-
-impl TestDir {
-    /// A fresh directory for the test `name`, empty: one an earlier run left behind is removed.
-    pub fn new(name: &str) -> Self {
-        let root = std::env::var_os("TEST_TMPDIR").map_or_else(std::env::temp_dir, PathBuf::from);
-        let n = NEXT.fetch_add(1, Ordering::Relaxed);
-        let dir = root.join(format!("kv-{name}-{}-{n}", std::process::id()));
-        // A directory an earlier run left behind, which is usually absent.
-        drop(std::fs::remove_dir_all(&dir));
-        Self(dir)
-    }
-
-    /// The directory's path.
-    pub fn path(&self) -> &Path {
-        &self.0
-    }
-
-    /// The fjall store in the directory, opened with process durability.
-    ///
-    /// # Errors
-    ///
-    /// A [`TestError`](ultragraphdb_tool_bdd::TestError) when the store does not open.
-    pub fn open(&self) -> TestResult<FjallStore> {
-        FjallStore::open(&self.0, Durability::Process).context("the store opens")
-    }
-}
-
-impl Drop for TestDir {
-    fn drop(&mut self) {
-        // A directory left behind is litter in the temporary directory, not a failure of the test.
-        drop(std::fs::remove_dir_all(&self.0));
-    }
-}
+use crate::types::test_dir::TestDir;
 
 /// Writes `entries` to `store` as one batch, buffered.
 ///
@@ -161,7 +121,10 @@ pub fn stored(key: &[u8], version: u64) -> Vec<u8> {
                 out.extend_from_slice(&[0x00, 0x80]);
                 run = 1;
             }
-            (0, _) => run += 1,
+            (0, _) => {
+                debug_assert!(run < 126);
+                run += 1;
+            }
             (_, 0) => out.push(b),
             _ => {
                 out.extend_from_slice(&[0x00, 0xFF - run, b]);

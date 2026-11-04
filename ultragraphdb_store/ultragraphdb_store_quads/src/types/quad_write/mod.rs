@@ -21,7 +21,7 @@ use crate::types::quad_store::QuadStore;
 use crate::types::statement_record::StatementRecord;
 use crate::types::statistics::Statistics;
 use crate::types::write_terms::WriteTerms;
-use crate::utils::postings::{object_posting, posting_object};
+use crate::utils::postings::{list_holds, object_posting, posting_object};
 
 /// One write to the quads of a namespace: a request of the posting lists, the terms it names and the statistics it
 /// changes. An insert writes the forward, reverse, subject-predicate and object-predicate lists without reading any,
@@ -342,6 +342,66 @@ where
             .collect())
     }
 
+    /// Whether `subject`'s subject-predicates list in `graph` names `predicate`, as the write sees it: the list read
+    /// whole and recorded, so a commit giving the subject a predicate since conflicts (partitions, "Absence is proven by
+    /// a node's predicate lists").
+    pub fn names_predicate(
+        &mut self,
+        graph: Graph,
+        subject: SystemId,
+        predicate: SystemId,
+    ) -> Result<bool, QuadError> {
+        let key = QuadKey::SubjectPredicates {
+            namespace: self.namespace(),
+            graph,
+            subject,
+        }
+        .to_bytes();
+        self.list_names(&key, predicate)
+    }
+
+    /// Whether `object`'s object-predicates list in `graph` names `predicate`, as the write sees it: the list read
+    /// whole and recorded.
+    pub fn points_with(
+        &mut self,
+        graph: Graph,
+        object: &EncodedTerm,
+        predicate: SystemId,
+    ) -> Result<bool, QuadError> {
+        let key = QuadKey::ObjectPredicates {
+            namespace: self.namespace(),
+            graph,
+            object: object.clone(),
+        }
+        .to_bytes();
+        self.list_names(&key, predicate)
+    }
+
+    /// The IDs the list of `key` holds as the write sees it, in ID order: the list read whole and recorded, as a lookup
+    /// reads a value-index list.
+    pub fn ids(&mut self, key: &[u8]) -> Result<Vec<SystemId>, QuadError> {
+        let list = self.request.get(key)?;
+        let mut ids = Vec::new();
+        let mut failure = None;
+        list.iterate(list.mutation().read_ts(), 0, |p| {
+            match SystemId::from_u128(p.uid()) {
+                Ok(id) => ids.push(id),
+                Err(e) => {
+                    failure = Some(QuadError::corrupted(
+                        key,
+                        format!("a reference posting names no system ID: {e}"),
+                    ));
+                    return Ok(ControlFlow::Break(()));
+                }
+            }
+            Ok::<_, PostingError>(ControlFlow::Continue(()))
+        })?;
+        match failure {
+            Some(e) => Err(e),
+            None => Ok(ids),
+        }
+    }
+
     /// Writes the record of statement `id` in `graph`, at the write's commit timestamp.
     pub fn put_statement(&mut self, graph: Graph, id: SystemId, record: &StatementRecord) {
         let key = self.statement_key(graph, id);
@@ -387,6 +447,12 @@ where
             }
         }
         (self.request, self.terms)
+    }
+
+    /// Whether the predicate list of `key` names `predicate`, as the write sees it, read whole and recorded.
+    fn list_names(&mut self, key: &[u8], predicate: SystemId) -> Result<bool, QuadError> {
+        let list = self.request.get(key)?;
+        Ok(list_holds(list, list.mutation().read_ts(), predicate)?)
     }
 
     fn forward(&self, graph: Graph, predicate: SystemId, subject: SystemId) -> Vec<u8> {

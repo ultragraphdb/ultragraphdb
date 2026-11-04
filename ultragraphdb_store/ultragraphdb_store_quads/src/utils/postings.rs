@@ -3,9 +3,12 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::ops::ControlFlow;
+
 use ultragraphdb_core_codec::{Posting, PostingType};
 use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_terms::EncodedTerm;
+use ultragraphdb_store_posting::{List, PostingError};
 
 use crate::errors::quad_error::QuadError;
 
@@ -41,4 +44,17 @@ pub fn posting_object(key: &[u8], p: &Posting) -> Result<EncodedTerm, QuadError>
     }
     EncodedTerm::from_bytes(p.value())
         .map_err(|e| QuadError::corrupted(key, format!("a literal posting holds no encoding: {e}")))
+}
+
+/// Whether `list` holds a posting of `id` at `read_ts`, as a predicate list names a predicate: the list's iteration
+/// seeks the ID and reads the one posting there, allocating nothing.
+pub(crate) fn list_holds(list: &List, read_ts: u64, id: SystemId) -> Result<bool, PostingError> {
+    let uid = id.to_u128();
+    let mut held = false;
+    // A system ID is never 0, since its type prefix is not, so the uid before it is its own less one.
+    list.iterate(read_ts, uid.saturating_sub(1), |p| {
+        held = p.uid() == uid;
+        Ok::<_, PostingError>(ControlFlow::Break(()))
+    })?;
+    Ok(held)
 }

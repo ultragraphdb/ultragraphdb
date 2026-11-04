@@ -15,6 +15,7 @@ use crate::types::read_counts::ReadCounts;
 /// the store, by a cache miss or a rollup.
 pub struct CountedSnapshot {
     inner: FjallSnapshot,
+    /// Shared with the store and the cache the snapshot's reads are counted beside.
     counts: Arc<ReadCounts>,
 }
 

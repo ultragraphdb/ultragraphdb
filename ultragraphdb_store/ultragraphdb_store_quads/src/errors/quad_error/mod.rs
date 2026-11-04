@@ -26,6 +26,8 @@ use ultragraphdb_store_posting::PostingError;
 ///   given now; nothing is written, and the write may be retried.
 /// - **Refused name:** [`UnknownSkolem`](QuadErrorEnum::UnknownSkolem): an IRI under the skolem base the dictionary does
 ///   not hold.
+/// - **Another partition's:** [`NotOwned`](QuadErrorEnum::NotOwned): an IRI of a bucket the partition does not own and
+///   holds no ID for; its home registers it first.
 #[derive(Debug, Clone, PartialEq)]
 pub enum QuadErrorEnum {
     /// The store failed.
@@ -74,6 +76,14 @@ pub enum QuadErrorEnum {
         /// The IRI.
         iri: String,
     },
+    /// `iri`'s bucket `bucket` is another partition's and the partition holds no ID for it: its home gives the ID
+    /// (term-dictionary, "A reference to another partition's entity registers at its home").
+    NotOwned {
+        /// The IRI.
+        iri: String,
+        /// Its bucket.
+        bucket: u32,
+    },
 }
 
 /// See [`QuadErrorEnum`].
@@ -104,6 +114,14 @@ impl QuadError {
     /// [`QuadErrorEnum::NoOwnedBucket`] for `namespace`.
     pub fn no_owned_bucket(namespace: u64) -> Self {
         Self(QuadErrorEnum::NoOwnedBucket { namespace })
+    }
+
+    /// [`QuadErrorEnum::NotOwned`] for `iri`, of bucket `bucket`.
+    pub fn not_owned(iri: impl Into<String>, bucket: u32) -> Self {
+        Self(QuadErrorEnum::NotOwned {
+            iri: iri.into(),
+            bucket,
+        })
     }
 
     /// [`QuadErrorEnum::SkolemDraws`] after `draws` draws.

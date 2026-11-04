@@ -3,6 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+mod changeset_applier_partition;
+
 use std::sync::Arc;
 
 use oxrdf::{GraphNameRef, NamedNodeRef};

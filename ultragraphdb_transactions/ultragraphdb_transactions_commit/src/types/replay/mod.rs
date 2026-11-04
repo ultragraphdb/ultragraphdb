@@ -3,6 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::num::NonZeroU64;
+
 use ultragraphdb_core_catalog::CatalogContents;
 use ultragraphdb_core_ids::{SessionToken, SystemId, Version};
 use ultragraphdb_core_keys::Graph;
@@ -12,7 +14,7 @@ use ultragraphdb_protocol_wire::{
 };
 use ultragraphdb_store_apply::{
     Applied, BuildEnd, ChangesetApplier, ChangesetError, DropTarget, Executed, LogicalQuad,
-    LogicalWrites,
+    LogicalWrites, MarkedReference,
 };
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_traits_blocks::BlockSource;
@@ -359,8 +361,9 @@ where
     }
 }
 
-/// The execution deriving `record`'s writes, `None` for a record whose keys this stage does not derive on replay: a
-/// registration a home accepted, whose referrer set is the partitions' (group 7).
+/// The execution deriving `record`'s writes: a transaction's logical writes or its drop; a registration a home
+/// accepted, its referrer-set member set as the first apply set it (write-ahead-log, "Replay derives a home's
+/// referrer-set deltas"); `None` for a build's record, which [`prepare_build`] derives.
 fn prepare<S, C, E, B>(
     applier: &ChangesetApplier<S, C, E, B>,
     record: &WriteSetRecordView<'_>,
@@ -372,8 +375,21 @@ where
     B: BlockSource + Send + Sync + 'static,
     E: Executor,
 {
-    if record.kind() != RecordKind::Transaction {
-        return Ok(None);
+    match record.kind() {
+        RecordKind::Transaction => {}
+        // A registration's record holds its one registration (`PROTOCOL.md` §12.2), its generation at least 1.
+        RecordKind::Registration => {
+            return Ok(record.registration(0).and_then(|registration| {
+                let generation = NonZeroU64::new(registration.generation())?;
+                Some(applier.prepare_replayed_registration(
+                    record.namespace(),
+                    registration.entity(),
+                    registration.group(),
+                    generation,
+                ))
+            }));
+        }
+        RecordKind::Build => return Ok(None),
     }
     let namespace = record.namespace();
     if let Some(target) = record.operation(0).and_then(drop_target) {
@@ -390,7 +406,15 @@ where
         .iter()
         .map(|e| statement_record(e.key(), e.value()))
         .collect::<Result<Vec<_>, ChangesetError>>()?;
-    let writes = LogicalWrites::new(quads(record.inserted())?, quads(record.removed())?, records);
+    // Section 4's registrations, each written as its mark, a generation of at least 1.
+    let marks = (0..record.registration_count())
+        .filter_map(|i| record.registration(i))
+        .filter_map(|r| {
+            NonZeroU64::new(r.generation()).map(|g| MarkedReference::new(r.entity(), r.group(), g))
+        })
+        .collect();
+    let writes = LogicalWrites::new(quads(record.inserted())?, quads(record.removed())?, records)
+        .with_marks(marks);
     applier
         .prepare_logical(namespace, &writes, dictionary)
         .map(Some)

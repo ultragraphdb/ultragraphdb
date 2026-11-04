@@ -1715,7 +1715,7 @@ derived on apply and on replay and never logged.
 |---|---|---|
 | 1, a transaction | every field | 0 to 2 and 5 to 11 as it wrote and answered; 3 empty; 4 the registrations it relied on as a referrer, each the entity's ID, the bucket group and the generation the home's reply named |
 | 1, a Drop | every field, `read_version` 0 | 3 one drop, operations 1 to 5; 8 the dropped key ranges; every other empty |
-| 2 | `namespace`; every other field 0 | 4 one registration: the member it adds or renews, at the entry's commit version; every other empty |
+| 2 | `namespace`; every other field 0 | 4 one registration: the member it adds or renews, at the entry's commit version; or none, for an entity the home got or created for a registration naming no bucket group, whose dictionary entries the round's dictionary section carries; every other empty |
 | 3 | `namespace`, `catalog`; every other field 0 | 3 one operation, 6 or 7; every other empty |
 
 | Operation offset | Width | Field | Type |
@@ -1750,7 +1750,8 @@ derived on apply and on replay and never logged.
   round of its own, and one waits while a build another started runs.
 - **A registration a home accepts** (kind 2) adds or renews its member in the entity's referrer set at the entry's
   commit version, a new member with the round's epoch as the epoch it was added at. The entity's dictionary entries
-  it created are in the round's section 3.
+  it created are in the round's section 3. One holding no registration records an entity the home got or created for
+  a registration naming no bucket group, a predicate's or a graph's: its dictionary entries are its whole effect.
 - **A session-table entry** is a kind-1 record's `session` and `request` with its stored reply: a Commit reply, or a
   Drop reply for a record holding a drop, rebuilt from the record, its commit version, its round's position and, for a
   Drop of a predicate or graph, the dropped IRI's dictionary entry.

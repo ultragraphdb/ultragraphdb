@@ -72,6 +72,18 @@ impl fmt::Display for ChangesetError {
                 f,
                 "Predicate <{predicate}> is not declared unique, so no node is found by its value"
             ),
+            ChangesetErrorEnum::NoIndex {
+                predicate,
+                tokenizer,
+            } => no_index(f, predicate, tokenizer),
         }
     }
+}
+
+/// The text of [`ChangesetErrorEnum::NoIndex`].
+fn no_index(f: &mut fmt::Formatter<'_>, predicate: &str, tokenizer: &str) -> fmt::Result {
+    write!(
+        f,
+        "Predicate <{predicate}> declares no {tokenizer} index, so no value is looked up by it"
+    )
 }

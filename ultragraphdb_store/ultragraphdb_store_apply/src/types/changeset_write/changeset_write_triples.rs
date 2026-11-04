@@ -118,6 +118,14 @@ where
                     holder.to_string(),
                 ));
             }
+            let written = (r.predicate, r.object.as_bytes());
+            if !self
+                .unique
+                .iter()
+                .any(|(p, v)| *p == written.0 && v.as_slice() == written.1)
+            {
+                self.unique.push((written.0, written.1.to_vec()));
+            }
         }
         Ok(declaration)
     }

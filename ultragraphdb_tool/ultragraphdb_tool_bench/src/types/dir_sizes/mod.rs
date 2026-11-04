@@ -58,15 +58,31 @@ impl DirSizes {
     }
 }
 
-/// Calls `f` with every file under `dir` and its size; `du`'s allocated size is the 512-byte blocks.
+/// The directories below a store's directory [`walk`] descends through at most; fjall nests a handful.
+const DIR_DEPTH_MAX: usize = 16;
+
+/// Calls `f` with every file under `dir` and its size; `du`'s allocated size is the 512-byte blocks. Walks with a
+/// stack of the directories still to read, each with its depth, and refuses a directory deeper than
+/// [`DIR_DEPTH_MAX`].
 fn walk(dir: &Path, f: &mut impl FnMut(&Path, Size)) -> std::io::Result<()> {
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
-        let meta = entry.metadata()?;
-        if meta.is_dir() {
-            walk(&entry.path(), f)?;
-        } else {
-            f(&entry.path(), Size::new(meta.len(), meta.blocks() * 512));
+    let mut pending = vec![(dir.to_path_buf(), 0usize)];
+    // Each turn reads one directory, pushed once by its parent: an entry's metadata does not follow a symbolic link,
+    // so no directory is reached twice, and the loop ends within the directories under `dir`.
+    while let Some((path, depth)) = pending.pop() {
+        for entry in std::fs::read_dir(&path)? {
+            let entry = entry?;
+            let meta = entry.metadata()?;
+            if !meta.is_dir() {
+                f(&entry.path(), Size::new(meta.len(), meta.blocks() * 512));
+            } else if depth < DIR_DEPTH_MAX {
+                pending.push((entry.path(), depth + 1));
+            } else {
+                return Err(std::io::Error::other(format!(
+                    "{} lies deeper than {DIR_DEPTH_MAX} directories below {}",
+                    entry.path().display(),
+                    dir.display()
+                )));
+            }
         }
     }
     Ok(())

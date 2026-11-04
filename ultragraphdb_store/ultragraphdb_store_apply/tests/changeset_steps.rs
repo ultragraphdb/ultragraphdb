@@ -172,19 +172,62 @@ fn written_together(w: &mut Steps, args: &[String]) -> TestResult {
     Ok(())
 }
 
-#[when(regex = r"^`(.+)` is written again$")]
-fn written_again(w: &mut Steps, args: &[String]) -> TestResult {
-    let text = &args[0];
+#[when(
+    regex = r"^`(\w+)` has an exact count index, `(\w+)` holds two objects of it, and a third is written$"
+)]
+fn third_object_written(w: &mut Steps, args: &[String]) -> TestResult {
+    let (predicate, subject) = (&args[0], &args[1]);
     let a = cs(w)?;
-    let t = statement(text)?;
-    let (subject, object) = (t.subject.to_string(), t.object.to_string());
-    let name = |s: &str| {
-        s.trim_start_matches("<http://ex.org/")
-            .trim_end_matches('>')
-            .to_string()
-    };
-    w.names = vec![name(&subject), name(&object), name(t.predicate.as_str())];
+    crate::utils::changesets::declare(&a, predicate, "with an exact count index")?;
+    for object in ["b", "c"] {
+        let _held: Applied = apply(
+            &a,
+            vec![insert(&format!("<{subject}> <{predicate}> <{object}>"))?],
+        )
+        .context("an object is held")?;
+    }
+    w.names = vec![predicate.clone()];
+    let result = apply(&a, vec![insert(&format!("<{subject}> <{predicate}> <d>"))?]);
+    w.results.push(result);
+    Ok(())
+}
+
+#[when(regex = r"^an object `(\w+)` already holds is written again$")]
+fn held_object_written_again(w: &mut Steps, args: &[String]) -> TestResult {
+    let subject = &args[0];
+    let a = cs(w)?;
+    crate::utils::changesets::declare(&a, "friend", "with an exact count index")?;
+    let text = format!("<{subject}> <friend> <b>");
+    let _held: Applied = apply(&a, vec![insert(&text)?]).context("the object is held")?;
+    w.names = vec![subject.clone(), "b".to_string(), "friend".to_string()];
     w.counts = count_snapshot(&a, &w.names)?;
+    let result = apply(&a, vec![insert(&text)?]);
+    w.results.push(result);
+    Ok(())
+}
+
+#[when(regex = r"^`(\w+)` has an exact count index and gains `(.+)`$")]
+fn gains_counted(w: &mut Steps, args: &[String]) -> TestResult {
+    let (predicate, text) = (&args[0], &args[1]);
+    let a = cs(w)?;
+    crate::utils::changesets::declare(&a, predicate, "with an exact count index")?;
+    let t = statement(text)?;
+    let object = t.object.to_string();
+    let object = object
+        .trim_start_matches("<http://ex.org/")
+        .trim_end_matches('>')
+        .to_string();
+    // The object's reverse counts before the edge: none when it is new to the store.
+    let before = match a
+        .quads()
+        .id_of(NS, ex(&object).as_str())
+        .context("the dictionary reads")?
+    {
+        Some(id) => counts_of(&a, predicate, CountDirection::Reverse, id)?,
+        None => Vec::new(),
+    };
+    w.names = vec![predicate.clone(), object];
+    w.counts = vec![before];
     let result = apply(&a, vec![insert(text)?]);
     w.results.push(result);
     Ok(())
@@ -578,17 +621,110 @@ fn listed_nowhere(w: &mut Steps, args: &[String]) -> TestResult {
     Ok(())
 }
 
-#[then(regex = r"^the count keys of `(\w+)` and `(\w+)` for `(\w+)` do not change$")]
-fn counts_unchanged(
-    w: &mut Steps,
-    _subject: String,
-    _object: String,
-    _predicate: String,
-) -> TestResult {
+#[then(regex = r"^`(\w+)` is listed under (forward|reverse) count (\d+) and not under (\d+)$")]
+fn listed_under_counted(w: &mut Steps, args: &[String]) -> TestResult {
+    let (node, dir) = (&args[0], &args[1]);
+    let count: u32 = args[2].parse().context("the step names a number")?;
+    let not: u32 = args[3].parse().context("the step names a number")?;
+    let predicate = w.names.first().cloned().context("the counted predicate")?;
+    let a = cs(w)?;
+    assert!(last(w)?.is_ok());
+    let counts = counts_of(&a, &predicate, direction(dir), uid(&a, node)?)?;
+    assert!(
+        counts.contains(&count) && !counts.contains(&not),
+        "{counts:?}"
+    );
+    Ok(())
+}
+
+#[then(regex = r"^the count keys of `(\w+)` do not change$")]
+fn counts_unchanged(w: &mut Steps, args: &[String]) -> TestResult {
+    let subject = &args[0];
+    assert_eq!(w.names.first(), Some(subject));
     let a = cs(w)?;
     assert!(last(w)?.is_ok());
     assert_eq!(count_snapshot(&a, &w.names)?, w.counts);
-    assert_eq!(w.counts[0], vec![1]);
+    assert_eq!(w.counts[0], vec![1], "one object counted before and after");
+    Ok(())
+}
+
+#[then(
+    regex = r"^the reverse count keys of `(\w+)` in `<(\w+)>`'s partition reflect one more subject$"
+)]
+fn reverse_count_one_more(w: &mut Steps, args: &[String]) -> TestResult {
+    let object = &args[0];
+    let predicate = w.names.first().cloned().context("the counted predicate")?;
+    assert_eq!(w.names.get(1), Some(object));
+    let before = w.counts.first().cloned().context("the counts before")?;
+    let a = cs(w)?;
+    assert!(last(w)?.is_ok());
+    let held_before = before.iter().copied().max().unwrap_or(0);
+    let after = counts_of(&a, &predicate, CountDirection::Reverse, uid(&a, object)?)?;
+    assert_eq!(
+        after,
+        vec![held_before + 1],
+        "listed under one more subject alone"
+    );
+    Ok(())
+}
+
+#[when(regex = r"^a node holds only `(\w+)`, and a read asks for its `(\w+)`$")]
+fn read_of_a_lacking_predicate(w: &mut Steps, args: &[String]) -> TestResult {
+    let (held, asked) = (&args[0], &args[1]);
+    let a = cs(w)?;
+    // Another node holds the asked predicate, so its lists exist for some subject.
+    crate::utils::changesets::write(
+        &a,
+        &[format!("<a> <{held}> \"Ann\""), format!("<b> <{asked}> 30")],
+    )?;
+    let mut execution = a
+        .begin(NS, a.quads().lists().applied_ts())
+        .context("begun")?;
+    let mut out = vec![Term::from(ex("stale"))];
+    let (subject, predicate) = (ex("a"), ex(asked));
+    execution
+        .objects_into(
+            GraphName::DefaultGraph.as_ref(),
+            subject.as_ref().into(),
+            predicate.as_ref(),
+            &mut out,
+        )
+        .context("the read")?;
+    let executed = execution.finish().context("finished")?;
+    w.flags = vec![out.is_empty()];
+    w.keys = executed.reads().lists().to_vec();
+    w.names = vec!["a".to_string(), asked.clone()];
+    Ok(())
+}
+
+#[then(
+    regex = r"^the read answers no `(\w+)` after reading the node's subject-predicates list, and reads no `(\w+)` list$"
+)]
+fn lacking_predicate_not_read(w: &mut Steps, args: &[String]) -> TestResult {
+    let asked = &args[0];
+    assert_eq!(&args[1], asked);
+    assert_eq!(w.names.get(1), Some(asked));
+    assert_eq!(w.flags, vec![true], "no {asked} is answered");
+    let a = cs(w)?;
+    let node = uid(&a, "a")?;
+    let subject_predicates = QuadKey::SubjectPredicates {
+        namespace: NS,
+        graph: DEFAULT_GRAPH,
+        subject: node,
+    }
+    .to_bytes();
+    assert!(
+        w.keys.contains(&subject_predicates),
+        "the subject-predicates list is read"
+    );
+    let forward = QuadKey::Forward {
+        namespace: NS,
+        graph: DEFAULT_GRAPH,
+        predicate: uid(&a, asked)?,
+        subject: node,
+    }
+    .to_bytes();
+    assert!(!w.keys.contains(&forward), "no {asked} list is read");
     Ok(())
 }
 

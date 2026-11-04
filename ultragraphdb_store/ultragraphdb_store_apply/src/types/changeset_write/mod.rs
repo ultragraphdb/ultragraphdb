@@ -25,7 +25,7 @@ use ultragraphdb_core_mapping::{Change, Changeset, PredicateDeclaration};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_store_quads::{
-    QuadError, QuadErrorEnum, QuadWrite, StatementRecord, WriteTerms, skolem_blank_node,
+    QuadError, QuadErrorEnum, QuadStore, QuadWrite, StatementRecord, WriteTerms, skolem_blank_node,
 };
 use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{ListCache, Store};
@@ -78,6 +78,8 @@ pub(crate) struct ChangesetWrite<'a, S, C, B> {
     counts: CountMoves,
     /// The subjects of the statements the write named by their reifier and resolved, in the order resolved.
     reified: Vec<SystemId>,
+    /// Each value of a unique predicate the write's changes wrote, with the predicate, in the order written.
+    unique: Vec<(SystemId, Vec<u8>)>,
 }
 
 impl<'a, S, C, B> ChangesetWrite<'a, S, C, B>
@@ -102,6 +104,7 @@ where
             deriving: false,
             counts: BTreeMap::new(),
             reified: Vec::new(),
+            unique: Vec::new(),
         }
     }
 
@@ -279,6 +282,21 @@ where
         self.write.terms().0
     }
 
+    /// The quad store the write writes to.
+    pub(crate) fn quads(&self) -> &'a QuadStore<S, C, B> {
+        self.write.quads()
+    }
+
+    /// Takes `iri` as named by `id`, its home's answer, as [`WriteTerms::copy`] takes it.
+    pub(crate) fn adopt(&mut self, iri: &str, id: SystemId) {
+        self.write.terms().0.copy(iri, id);
+    }
+
+    /// Each value of a unique predicate the write's changes wrote, with the predicate, in the order written.
+    pub(crate) fn unique_writes(&self) -> &[(SystemId, Vec<u8>)] {
+        &self.unique
+    }
+
     /// Records a catalog change under its key: a declaration's, or the namespace's initial catalog's.
     fn add_entry(&mut self, key: &[u8]) {
         self.catalog_changed = true;
@@ -300,7 +318,7 @@ where
         terms.graph(quads, graph)
     }
 
-    fn node(&mut self, node: NamedOrBlankNodeRef<'_>) -> Result<SystemId, QuadError> {
+    pub(crate) fn node(&mut self, node: NamedOrBlankNodeRef<'_>) -> Result<SystemId, QuadError> {
         let (terms, quads) = self.write.terms();
         terms.node(quads, node)
     }
@@ -444,6 +462,7 @@ fn literal_refusal(predicate: NamedNodeRef<'_>, e: QuadError) -> ChangesetError 
         | QuadErrorEnum::PendingFull { .. }
         | QuadErrorEnum::NoOwnedBucket { .. }
         | QuadErrorEnum::SkolemDraws { .. }
+        | QuadErrorEnum::NotOwned { .. }
         | QuadErrorEnum::UnknownSkolem { .. } => e.into(),
     }
 }

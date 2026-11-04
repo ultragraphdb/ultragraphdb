@@ -147,3 +147,48 @@ fn test_a_unique_values_bucket_is_its_namespaces_top_and_its_predicate_and_value
     );
     Ok(())
 }
+
+/// A golden case of `testdata/golden/unique_values.json`, written by `unique_values.py` from the xxHash reference.
+#[derive(Debug, Deserialize)]
+struct ValueCase {
+    namespace: u64,
+    predicate_prefix: u16,
+    predicate_bucket: u32,
+    predicate_sequence: u64,
+    value: String,
+    bucket: u32,
+}
+
+/// Every golden unique value's bucket equals the reference's: the predicate's ID built from its fields and the
+/// value's term encoding taken as the generator wrote it.
+#[test]
+fn test_every_golden_unique_values_bucket_matches_the_reference() -> TestResult {
+    let golden: Golden<ValueCase> =
+        load_golden(&testdata_dir()?.join("golden").join("unique_values.json"))?;
+    assert!(!golden.cases().is_empty(), "the golden holds cases");
+    for case in golden.cases() {
+        let predicate = ultragraphdb_core_ids::SystemId::new(
+            TypePrefix::new(case.predicate_prefix)?,
+            Bucket::new(case.predicate_bucket)?,
+            ultragraphdb_core_ids::Sequence::new(case.predicate_sequence)?,
+        );
+        let value = hex(&case.value)?;
+        assert_eq!(
+            Bucket::of_value(Namespace::new(case.namespace), predicate, &value).get(),
+            case.bucket,
+            "{case:?}"
+        );
+    }
+    Ok(())
+}
+
+/// The bytes a lower-case hex string spells.
+fn hex(text: &str) -> TestResult<Vec<u8>> {
+    (0..text.len())
+        .step_by(2)
+        .map(|at| {
+            let pair = text.get(at..at + 2).context("a pair of hex digits")?;
+            u8::from_str_radix(pair, 16).context("a hex byte")
+        })
+        .collect()
+}

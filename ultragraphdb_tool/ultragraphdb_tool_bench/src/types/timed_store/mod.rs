@@ -20,9 +20,12 @@ use crate::types::write_call::WriteCall;
 #[derive(Debug)]
 pub struct TimedStore {
     inner: FjallStore,
+    /// Behind a mutex, since the apply and rollup threads write through the one store; held for one push or one take.
     calls: Mutex<Vec<WriteCall>>,
+    /// Atomics for the same threads; each is read once the run's threads are done.
     other_calls: AtomicU64,
     other_nanos: AtomicU64,
+    /// Shared with the cache the run opens, which counts its lookups in the same [`ReadCounts`].
     reads: Arc<ReadCounts>,
 }
 

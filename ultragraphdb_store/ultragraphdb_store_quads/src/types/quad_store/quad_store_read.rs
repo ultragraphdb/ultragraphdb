@@ -118,6 +118,7 @@ where
                     | QuadErrorEnum::PendingFull { .. }
                     | QuadErrorEnum::NoOwnedBucket { .. }
                     | QuadErrorEnum::SkolemDraws { .. }
+                    | QuadErrorEnum::NotOwned { .. }
                     | QuadErrorEnum::UnknownSkolem { .. } => e,
                 })
             })

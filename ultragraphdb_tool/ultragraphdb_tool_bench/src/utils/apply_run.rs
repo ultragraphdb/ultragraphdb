@@ -96,7 +96,9 @@ pub fn run_apply(args: &ApplyArgs) -> Result<String, BenchError> {
     let rollup_calls_start = lists.store().other_calls();
 
     let clock = WallClock::new();
+    // Shared with the rollup thread, which reads it each turn and ends once it is set; the apply thread sets it.
     let stop = Arc::new(AtomicBool::new(false));
+    // Shared with the source thread, which reads it to hold the pending limit; the apply thread adds to it.
     let applied = Arc::new(AtomicU64::new(0));
     let cpu_start = process_cpu_secs();
 
@@ -175,6 +177,7 @@ fn spawn_source(
         let (mut waits, mut sent, mut owed) = (0u64, 0u64, 0u64);
         let end = Duration::from_secs(seconds);
         let cpu = thread_cpu_secs();
+        // Both loops end at the run's deadline, `end`, or when the apply thread stops listening.
         'run: while clock.elapsed() < end {
             owed += pacer.take_due(&clock);
             // Commits due while the limit held them back go out as soon as it allows, one at a time.
@@ -219,10 +222,12 @@ fn apply_batches(
 ) -> Result<(Vec<BatchStat>, u64), BenchError> {
     let mut stats = Vec::new();
     let mut errors = 0u64;
+    // Ends when the source closes the channel, which it does at the run's deadline.
     while let Ok(first) = rx.recv() {
+        let mut bytes = encoded_size(&first);
         let mut commits = vec![first];
-        let mut bytes = encoded_size(&commits[0]);
         let cap = args.max_batch().unwrap_or(usize::MAX);
+        // Each turn takes a waiting commit or ends; the source holds at most `PENDING_PROPOSALS` unapplied.
         while bytes < READY_BYTES && commits.len() < cap {
             match rx.try_recv() {
                 Ok(m) => {
@@ -232,6 +237,7 @@ fn apply_batches(
                 Err(_) => break,
             }
         }
+        debug_assert!(commits.len() <= cap);
         let (stat, failed) = apply_step(a, clock, &commits)?;
         errors += failed;
         let _before: u64 = applied.fetch_add(stat.commits, Ordering::Release);
@@ -283,6 +289,7 @@ fn spawn_rollups(
     executor.spawn(move || {
         let cpu = thread_cpu_secs();
         let mut rolled = 0usize;
+        // An event loop: it ends only through `stop`, set once the apply thread is done, or on an error.
         let outcome = loop {
             if stop.load(Ordering::Acquire) {
                 break Ok(());

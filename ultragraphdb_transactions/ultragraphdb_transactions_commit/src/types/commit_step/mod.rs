@@ -32,7 +32,11 @@ use crate::types::stored_reply::StoredReply;
 #[derive(Debug)]
 pub(crate) enum Waiting<P> {
     Commit(CommitRequest<P>),
-    Registration { ticket: u64, record: Vec<u8> },
+    Registration {
+        ticket: u64,
+        record: Vec<u8>,
+        dictionary: Vec<(Vec<u8>, Vec<u8>)>,
+    },
 }
 
 /// Where a committed decision's record comes from: the round's admitted proposal or registration of that index.
@@ -273,9 +277,17 @@ impl<P: Proposal> CommitStep<P> {
         out.clear();
         match input {
             Input::Commit(request) => self.arrive(Waiting::Commit(request), now_us, out, operator),
-            Input::Registration { ticket, record } => {
+            Input::Registration {
+                ticket,
+                record,
+                dictionary,
+            } => {
                 self.arrive(
-                    Waiting::Registration { ticket, record },
+                    Waiting::Registration {
+                        ticket,
+                        record,
+                        dictionary,
+                    },
                     now_us,
                     out,
                     operator,

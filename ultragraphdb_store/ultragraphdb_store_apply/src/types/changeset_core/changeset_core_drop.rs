@@ -45,6 +45,10 @@ const QUAD_KEYSPACES: [Keyspace; 9] = [
     Keyspace::Statistics,
 ];
 
+/// The keyspaces of the registrations between partitions, which name no graph: dropped with a namespace's data or
+/// every namespace's, never with a graph.
+const REGISTRATION_KEYSPACES: [Keyspace; 2] = [Keyspace::Marks, Keyspace::Referrers];
+
 impl<S, C, B> ChangesetCore<S, C, B>
 where
     S: Store,
@@ -403,10 +407,11 @@ fn graph_prefixes(namespace: u64, graph: Graph) -> Vec<Vec<u8>> {
         .collect()
 }
 
-/// Every quad keyspace's prefix, of every namespace: no partition holds a catalog key.
+/// Every quad and registration keyspace's prefix, of every namespace: no partition holds a catalog key.
 fn every_prefix() -> Vec<Vec<u8>> {
     QUAD_KEYSPACES
         .into_iter()
+        .chain(REGISTRATION_KEYSPACES)
         .flat_map(|k| {
             parts(k, |split| {
                 vec![k.byte() | if split { SPLIT_FLAG } else { 0 }]
@@ -415,10 +420,11 @@ fn every_prefix() -> Vec<Vec<u8>> {
         .collect()
 }
 
-/// Every quad keyspace's prefix of `namespace`: no partition holds a catalog key.
+/// Every quad and registration keyspace's prefix of `namespace`: no partition holds a catalog key.
 fn namespace_prefixes(namespace: u64) -> Vec<Vec<u8>> {
     QUAD_KEYSPACES
         .iter()
+        .chain(&REGISTRATION_KEYSPACES)
         .flat_map(|k| parts(*k, |split| key_prefix(*k, split, namespace, None, None)))
         .collect()
 }

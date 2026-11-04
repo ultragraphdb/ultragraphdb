@@ -16,6 +16,7 @@ use crate::types::read_counts::ReadCounts;
 #[derive(Debug)]
 pub struct CountingCache<C> {
     inner: C,
+    /// Shared with the store the run opens, which counts its reads in the same [`ReadCounts`].
     counts: Arc<ReadCounts>,
 }
 

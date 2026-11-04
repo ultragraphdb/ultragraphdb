@@ -430,6 +430,7 @@ fn test_a_registration_a_home_accepted_takes_a_version_of_its_own() -> TestResul
         Input::Registration {
             ticket: 5,
             record: record.clone(),
+            dictionary: Vec::new(),
         },
         0,
     );
@@ -464,6 +465,7 @@ fn test_a_registration_whose_record_does_not_read_is_refused() -> TestResult {
         Input::Registration {
             ticket: 5,
             record: vec![1, 2, 3],
+            dictionary: Vec::new(),
         },
         0,
     );
@@ -595,7 +597,15 @@ fn test_a_registration_whose_record_is_no_registrations_is_refused_naming_its_ki
     ];
     for (record, kind) in cases {
         let mut step = step(0, 9)?;
-        let out = run(&mut step, Input::Registration { ticket: 5, record }, 0);
+        let out = run(
+            &mut step,
+            Input::Registration {
+                ticket: 5,
+                record,
+                dictionary: Vec::new(),
+            },
+            0,
+        );
         let synced = run(&mut step, Input::Synced, 0);
         let mut replies = outcomes(&out);
         replies.extend(outcomes(&synced));
@@ -617,7 +627,15 @@ fn test_a_registration_in_a_full_epoch_waits_for_the_close() -> TestResult {
     let fresh = step(0, 9)?;
     let mut step = step(version(10, LAST), 9)?;
     let record = registration(7, 3, 1)?;
-    let waited = run(&mut step, Input::Registration { ticket: 5, record }, 0);
+    let waited = run(
+        &mut step,
+        Input::Registration {
+            ticket: 5,
+            record,
+            dictionary: Vec::new(),
+        },
+        0,
+    );
     assert_eq!(waited.append(), None);
     assert!(waited.replies().is_empty());
     assert_eq!(step.waiting(), 1);
@@ -646,7 +664,15 @@ fn test_a_failed_sync_answers_a_waiting_registration_unavailable_and_ignores_lat
         Some(version(10, LAST))
     );
     let record = registration(7, 3, 1)?;
-    let waited = run(&mut step, Input::Registration { ticket: 5, record }, 0);
+    let waited = run(
+        &mut step,
+        Input::Registration {
+            ticket: 5,
+            record,
+            dictionary: Vec::new(),
+        },
+        0,
+    );
     assert!(waited.replies().is_empty());
     let failed = run(&mut step, Input::SyncFailed, 0);
     let mut answered = outcomes(&failed);
@@ -662,5 +688,188 @@ fn test_a_failed_sync_answers_a_waiting_registration_unavailable_and_ignores_lat
     let late = deliver(&mut step, 10)?;
     assert!(late.replies().is_empty() && late.append().is_none());
     assert_eq!(step.delivered(), delivered, "a stopped step takes no close");
+    Ok(())
+}
+
+/// A commit relying on a home's reply naming close `c` carries the epoch floor `c + 1` and is held until that epoch is
+/// open, so it is stamped there or later (partitions, "A registration's epoch is at most the epoch of every write
+/// referencing it"): the scenario's close 11 and a registrant whose latest delivered close is 9.
+#[test]
+fn test_a_commit_with_an_epoch_floor_waits_for_the_close_before_it() -> TestResult {
+    let mut step = step(0, 9)?;
+    let mut out = commit(
+        &mut step,
+        1,
+        writer(1)?.with_epoch_floor(Epoch::new(12)?),
+        0,
+    );
+    assert_eq!(out.append(), None);
+    assert_eq!(step.held(), 1);
+    out = deliver(&mut step, 10)?;
+    assert_eq!(out.append(), None, "epoch 11 is open: still held");
+    assert_eq!(step.held(), 1);
+    out = deliver(&mut step, 11)?;
+    assert_eq!(
+        out.append().map(|(r, _)| r.first_version()),
+        Some(version(12, 0))
+    );
+    assert_eq!(step.held(), 0);
+    out = run(&mut step, Input::Synced, 0);
+    assert_eq!(outcomes(&out), vec![(1, Ok(version(12, 0)))]);
+    Ok(())
+}
+
+#[test]
+fn test_a_floor_at_or_below_the_open_epoch_holds_nothing() -> TestResult {
+    let mut step = step(0, 9)?;
+    for (ticket, floor) in [(1, 10), (2, 3)] {
+        let out = commit(
+            &mut step,
+            ticket,
+            writer(ticket)?.with_epoch_floor(Epoch::new(floor)?),
+            0,
+        );
+        assert!(out.append().is_some(), "floor {floor} with epoch 10 open");
+        let _synced = run(&mut step, Input::Synced, 0);
+    }
+    assert_eq!(step.held(), 0);
+    Ok(())
+}
+
+/// The larger of the token's epoch and the epoch floor holds the commit, whichever of the two it is.
+#[test]
+fn test_the_larger_of_the_token_and_the_floor_holds_the_commit() -> TestResult {
+    for (token_epoch, floor) in [(13, 11), (11, 13)] {
+        let mut step = step(0, 9)?;
+        let carried = writer(1)?
+            .with_token(token(1, 40, token_epoch)?)
+            .with_epoch_floor(Epoch::new(floor)?);
+        let mut out = commit(&mut step, 1, carried, 0);
+        assert_eq!(out.append(), None);
+        for close in 10..=11 {
+            out = deliver(&mut step, close)?;
+            assert_eq!(
+                out.append(),
+                None,
+                "token {token_epoch}, floor {floor}: epoch {} is open",
+                close + 1
+            );
+        }
+        out = deliver(&mut step, 12)?;
+        assert_eq!(
+            out.append().map(|(r, _)| r.first_version()),
+            Some(version(13, 0)),
+            "token {token_epoch}, floor {floor}"
+        );
+    }
+    Ok(())
+}
+
+/// The commits held for their floor or their token are refused busy, as the commits waiting for a full epoch's close
+/// are, once the close the step asked for goes unanswered for `close_request_ms`: the closes they wait for come from the
+/// sequencer counted unreachable.
+#[test]
+fn test_commits_held_for_a_floor_or_a_token_are_refused_busy_once_the_close_request_goes_unanswered()
+-> TestResult {
+    let mut step = CommitStep::new(unbounded(), version(10, LAST))
+        .with_delivered(Epoch::new(9)?)
+        .with_close_request(CloseRequest::new(500, 250).context("the setting")?);
+    let asked = 1_000;
+    let mut out = commit(&mut step, 1, writer(1)?, asked);
+    assert_eq!(out.close_request(), Some(Epoch::new(10)?));
+    out = commit(
+        &mut step,
+        2,
+        writer(2)?.with_epoch_floor(Epoch::new(12)?),
+        asked,
+    );
+    assert!(out.replies().is_empty());
+    out = commit(&mut step, 3, writer(3)?.with_token(token(1, 4, 12)?), asked);
+    assert!(out.replies().is_empty());
+    assert_eq!(step.held(), 3);
+    out = run(&mut step, Input::Tick, asked + 499_999);
+    assert!(out.replies().is_empty());
+    out = run(&mut step, Input::Tick, asked + 500_000);
+    let mut refused: Vec<(u64, bool)> = out
+        .replies()
+        .iter()
+        .map(|r| {
+            (
+                r.ticket(),
+                r.outcome()
+                    .as_ref()
+                    .err()
+                    .is_some_and(|e| e.code() == ultragraphdb_protocol_wire::ErrorCode::Busy),
+            )
+        })
+        .collect();
+    refused.sort_unstable();
+    assert_eq!(refused, vec![(1, true), (2, true), (3, true)]);
+    assert_eq!(out.released().len(), 3, "each released, writing nothing");
+    assert_eq!(step.held(), 0);
+    Ok(())
+}
+
+/// The dictionary entries a home created for a registration are in its round's dictionary section, as a transaction's
+/// are (write-ahead-log, "A round's record is logical": the new dictionary entries the round creates).
+#[test]
+fn test_a_registrations_dictionary_entries_are_in_its_rounds_dictionary_section() -> TestResult {
+    let mut step = step(0, 9)?;
+    let entries = vec![
+        (b"\x05a-key".to_vec(), b"a-value".to_vec()),
+        (b"\x05b-key".to_vec(), b"b-value".to_vec()),
+    ];
+    let out = run(
+        &mut step,
+        Input::Registration {
+            ticket: 5,
+            record: registration(7, 3, 1)?,
+            dictionary: entries.clone(),
+        },
+        0,
+    );
+    let (round, body) = out.append().context("a round closes")?;
+    let header = RoundHeader::new(1, 0, 0, round.first_version(), 1, std::num::NonZeroU32::MIN);
+    let view = RoundView::from_body(header, body).context("the round reads")?;
+    let logged: Vec<(Vec<u8>, Vec<u8>)> = view
+        .dictionary()
+        .iter()
+        .filter_map(|e| Some((e.key().to_vec(), e.value()?.to_vec())))
+        .collect();
+    assert_eq!(logged, entries);
+    Ok(())
+}
+
+/// The step names the registrations its applied round holds under their tickets at their versions, for the caller to
+/// apply what their homes left, and the tickets of those it will not apply, refused or dropped with a failed round.
+#[test]
+fn test_the_step_names_the_registrations_it_applies_and_those_it_dismisses() -> TestResult {
+    let registering = |ticket: u64, record: Vec<u8>| Input::Registration {
+        ticket,
+        record,
+        dictionary: Vec::new(),
+    };
+    let mut step = step(0, 9)?;
+    let out = run(&mut step, registering(5, registration(7, 3, 1)?), 0);
+    assert!(out.registered().is_empty(), "applied only once synced");
+    let malformed = run(&mut step, registering(6, vec![1, 2, 3]), 0);
+    assert!(
+        malformed.dismissed().is_empty(),
+        "it waits for the next round"
+    );
+    let synced = run(&mut step, Input::Synced, 0);
+    assert_eq!(synced.registered(), &[(5, version(10, 0))]);
+    assert_eq!(synced.dismissed(), &[6], "refused as its round is decided");
+    // A registration in the round in flight when its sync fails, and one waiting, are both dismissed.
+    let _in_flight = run(&mut step, registering(7, registration(8, 3, 1)?), 0);
+    let _waiting = run(&mut step, registering(8, registration(9, 3, 1)?), 0);
+    let failed = run(&mut step, Input::SyncFailed, 0);
+    let mut dismissed = failed.dismissed().to_vec();
+    dismissed.sort_unstable();
+    assert_eq!(dismissed, vec![7, 8]);
+    assert!(failed.registered().is_empty());
+    // A registration arriving at a stopped step is dismissed at once.
+    let refused = run(&mut step, registering(9, registration(10, 3, 1)?), 0);
+    assert_eq!(refused.dismissed(), &[9]);
     Ok(())
 }

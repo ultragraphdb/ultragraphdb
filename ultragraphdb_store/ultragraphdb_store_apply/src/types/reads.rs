@@ -7,8 +7,8 @@ use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::{Keyspace, key_prefix};
 use ultragraphdb_traits_store::Scan;
 
-/// What a changeset's execution read, the read set a commit is validated by: the lists it read whole, the statements
-/// it tested, the key ranges it scanned, the terms it found absent, by ID, and its namespace's catalog range, which
+/// What a changeset's execution read, the read set a commit is validated by: the lists it read whole and the marks it
+/// read (partitions, "A commit under a registration reply reads its mark"), the statements it tested, the key ranges it scanned, the terms it found absent, by ID, and its namespace's catalog range, which
 /// every write of the namespace reads.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Reads {
@@ -41,7 +41,7 @@ impl Reads {
         self.namespace
     }
 
-    /// The keys of the lists read whole, in key order.
+    /// The keys of the lists read whole and of the marks read, in key order: a write to one conflicts.
     pub fn lists(&self) -> &[Vec<u8>] {
         &self.lists
     }

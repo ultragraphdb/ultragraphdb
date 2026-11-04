@@ -160,6 +160,7 @@ impl DictionaryWorkload {
             | QuadErrorEnum::PendingFull { .. }
             | QuadErrorEnum::NoOwnedBucket { .. }
             | QuadErrorEnum::SkolemDraws { .. }
+            | QuadErrorEnum::NotOwned { .. }
             | QuadErrorEnum::UnknownSkolem { .. } => false,
         };
         if injected || ctx.store().needs_recovery() {
@@ -381,6 +382,7 @@ fn dictionary_miss(e: QuadError) -> Result<Option<(&'static str, String)>, QuadE
         | QuadErrorEnum::PendingFull { .. }
         | QuadErrorEnum::NoOwnedBucket { .. }
         | QuadErrorEnum::SkolemDraws { .. }
+        | QuadErrorEnum::NotOwned { .. }
         | QuadErrorEnum::UnknownSkolem { .. } => Err(e),
     }
 }

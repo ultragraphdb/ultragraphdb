@@ -79,6 +79,8 @@ fn run_until(dir: &Path, args: &[&str], line: &str) -> TestResult<(Child, Output
     let stdout = child.stdout.take().context("piped")?;
     let mut lines = BufReader::new(stdout).lines();
     let mut seen = Vec::new();
+    // Ends at `line` or at the end of the writer's output, when it exits; the test target's timeout bounds a writer
+    // that does neither.
     for l in lines.by_ref() {
         let l = l.context("the writer's output is text")?;
         let reached = l == line;
@@ -106,7 +108,7 @@ pub fn kill_after(dir: &Path, mode: &str, line: &str, delay: Duration) -> TestRe
     std::thread::sleep(delay);
     child.kill().context("the writer is killed")?;
     let _status: ExitStatus = child.wait().context("the writer is reaped")?;
-    // Lines it printed before the kill landed.
+    // Lines it printed before the kill landed; the output ends, since the writer is reaped.
     seen.extend(lines.map_while(Result::ok));
     Ok(seen)
 }

@@ -21,6 +21,7 @@ use crate::types::executed::Executed;
 use crate::types::operation::Operation;
 use crate::types::operation_outcome::OperationOutcome;
 use crate::utils::lock::lock;
+use crate::utils::referrer_candidates::referrer_candidates;
 
 impl<S, C, B> ChangesetCore<S, C, B>
 where
@@ -75,8 +76,25 @@ where
         let (default_keys, default_ids) = defaults.into_iter().unzip();
         let mut touched = executed.touched.clone();
         touched.extend(outcome.touched);
+        let writes = request.into_writes();
+        // Derived from the writes the operations leave, the transaction's own among them.
+        let referrers = match referrer_candidates(
+            self.quads(),
+            executed.namespace,
+            read_ts,
+            &writes,
+            &outcome.terms,
+        ) {
+            Ok(referrers) => referrers,
+            Err(e) => {
+                self.quads().release_beyond(&outcome.terms, &executed.terms);
+                return Err(e);
+            }
+        };
         Ok(Executed {
-            writes: request.into_writes(),
+            writes,
+            marks: executed.marks.clone(),
+            referrers,
             terms: outcome.terms,
             reads: executed.reads.clone(),
             read: executed.read.clone(),

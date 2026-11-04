@@ -49,22 +49,16 @@ Feature: Index maintenance
     Then the reverse list of `likes` for `b` holds `a`
 
   Scenario: Adding a third object moves the count
-    Given `friend` is declared with an exact count index
-    And `<a> <friend> <b>` and `<a> <friend> <c>` are held
-    When `<a> <friend> <d>` is written
-    Then `a` is listed under forward count 3 of `friend` and not under 2
+    When `friend` has an exact count index, `a` holds two objects of it, and a third is written
+    Then `a` is listed under forward count 3 and not under 2
 
   Scenario: Re-writing an existing object leaves the count
-    Given `friend` is declared with an exact count index
-    And `<a> <friend> <b>` is held
-    When `<a> <friend> <b>` is written again
-    Then the count keys of `a` and `b` for `friend` do not change
+    When an object `a` already holds is written again
+    Then the count keys of `a` do not change
 
   Scenario: Reverse counts are kept
-    Given `friend` is declared with an exact count index
-    And `<c> <friend> <b>` is held
-    When `<a> <friend> <b>` is written
-    Then `b` is listed under reverse count 2 of `friend` and not under 1
+    When `friend` has an exact count index and gains `<a> <friend> <b>`
+    Then the reverse count keys of `b` in `<a>`'s partition reflect one more subject
 
   Scenario: A delete by pattern clears reverse and count entries
     Given `friend` is declared with an exact count index

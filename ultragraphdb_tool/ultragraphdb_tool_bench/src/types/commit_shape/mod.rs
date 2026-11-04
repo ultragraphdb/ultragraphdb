@@ -87,6 +87,8 @@ impl CommitShape {
 
     /// The next commit.
     pub fn next_commit(&mut self) -> Changeset {
+        debug_assert!(self.types > 0);
+        debug_assert!(self.hubs > 0);
         let j = self.draw() % self.types;
         let org = Self::iri(&format!("rel_t{j}_org"));
         let w = Self::iri(&format!("rel_t{j}_w"));

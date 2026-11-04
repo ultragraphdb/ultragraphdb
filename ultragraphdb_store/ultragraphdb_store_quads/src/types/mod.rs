@@ -6,11 +6,15 @@
 pub mod data_dictionary;
 pub mod description;
 pub mod dictionary;
+pub mod kernel_row;
+pub mod kernel_scan;
 pub mod label_shape;
 pub mod owned_buckets;
 pub mod property_shape;
 pub mod quad_store;
 pub mod quad_write;
+pub mod referrer_member;
+pub mod referrer_set;
 pub mod sequences;
 pub mod shapes;
 pub mod statement_record;

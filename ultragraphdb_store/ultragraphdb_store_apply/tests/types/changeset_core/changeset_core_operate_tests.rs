@@ -843,3 +843,35 @@ fn test_an_operated_execution_not_taken_releases_only_what_its_operations_resolv
     assert!(!held_pending(&a, "own")?);
     Ok(())
 }
+
+#[test]
+fn test_an_operated_transaction_keeps_its_marks_and_its_edges_join_referrer_sets() -> TestResult {
+    let a = changesets()?;
+    unique(&a)?;
+    let entity = ultragraphdb_core_ids::SystemId::new(
+        ultragraphdb_core_ids::TypePrefix::RESOURCE,
+        crate::utils::partitions::bucket_of("o")?,
+        ultragraphdb_core_ids::Sequence::new(5)?,
+    );
+    let group = ultragraphdb_core_ids::BucketGroup::new(7)?;
+    let generation = std::num::NonZeroU64::new(2).context("2 is no zero")?;
+    let mut execution = a.begin(NS, a.quads().lists().applied_ts())?;
+    execution.mark(entity, group, generation)?;
+    execution.apply(&changeset(vec![insert("<s> <knows> <hub>")?]))?;
+    let txn = execution.finish()?;
+    let (operated, _results) = operate(&a, &txn, &[], &[insert_if_absent("x")])?;
+    assert_eq!(operated.marks(), txn.marks());
+    apply(&a, vec![operated])?;
+    let at = a.quads().lists().applied_ts();
+    assert_eq!(a.quads().mark(NS, entity, group, at)?, Some(generation));
+    let hub = uid(&a, "hub")?;
+    let groups: Vec<_> = a
+        .quads()
+        .referrers(NS, hub, at)?
+        .members()
+        .iter()
+        .map(ultragraphdb_store_quads::ReferrerMember::group)
+        .collect();
+    assert_eq!(groups, vec![crate::utils::partitions::group_of("s")?]);
+    Ok(())
+}

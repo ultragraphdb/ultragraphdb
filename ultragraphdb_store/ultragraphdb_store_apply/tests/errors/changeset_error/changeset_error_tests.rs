@@ -79,11 +79,22 @@ fn test_the_constructors_build_their_variants() {
             predicate: "p".into()
         }
     );
+    assert_eq!(
+        ChangesetError::no_index("p", "exact").0,
+        ChangesetErrorEnum::NoIndex {
+            predicate: "p".into(),
+            tokenizer: "exact".into(),
+        }
+    );
 }
 
 #[test]
 fn test_the_texts_of_the_applier_s_own_variants() {
     let cases = [
+        (
+            ChangesetError::no_index("http://ex.org/name", "term"),
+            "Predicate <http://ex.org/name> declares no term index, so no value is looked up by it",
+        ),
         (
             ChangesetError::literal(
                 "http://ex.org/v",

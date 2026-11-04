@@ -415,8 +415,19 @@ impl<'a> WriteSetRecordView<'a> {
                 (takes, true)
             }
             RecordKind::Registration => {
+                // One registration, or none for an entity got or created with no bucket group, whose dictionary
+                // entries the round carries.
+                let registrations = self.count(4);
+                if registrations > 1 {
+                    return Err(ProtocolError::count_mismatch(
+                        command,
+                        "record sections",
+                        registrations,
+                        1,
+                    ));
+                }
                 let mut takes = [Some(0); RECORD_SECTIONS];
-                takes[4] = Some(1);
+                takes[4] = None;
                 (takes, false)
             }
             RecordKind::Build => {

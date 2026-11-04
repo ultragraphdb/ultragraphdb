@@ -31,6 +31,7 @@ impl Pacer {
         let due = u64::try_from(scaled / 1_000_000_000).unwrap_or(u64::MAX);
         let fresh = due.saturating_sub(self.released);
         self.released = self.released.max(due);
+        debug_assert!(self.released >= due);
         fresh
     }
 

@@ -4,4 +4,6 @@
  */
 
 #[cfg(test)]
+mod execution_partition_tests;
+#[cfg(test)]
 mod execution_tests;

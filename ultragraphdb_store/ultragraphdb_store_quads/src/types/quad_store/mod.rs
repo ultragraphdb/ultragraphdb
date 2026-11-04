@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+mod quad_store_partition;
 mod quad_store_read;
 
 use ultragraphdb_core_mapping::{CONTRACT_VERSION, ContractVersion, MappingError, RandomSource};
@@ -73,6 +74,11 @@ where
     pub fn owning(mut self, owned: OwnedBuckets) -> Self {
         self.dictionary = self.dictionary.owning(owned);
         self
+    }
+
+    /// The buckets the store owns: where its blank nodes' buckets are drawn, and the IRIs it creates IDs for.
+    pub fn owned(&self) -> &OwnedBuckets {
+        self.dictionary.owned()
     }
 
     /// The store holding at most `max` IDs created and not yet committed.

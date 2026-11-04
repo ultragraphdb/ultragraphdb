@@ -10,6 +10,7 @@
 use ultragraphdb_core_codec::PostingList;
 use ultragraphdb_core_keys::Keyspace;
 use ultragraphdb_store_posting::{BIT_DELTA_POSTING, CachedList, Writes};
+use ultragraphdb_store_quads::WriteTerms;
 use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{Entry, ListCache, Store, VersionlessEntry};
 
@@ -18,6 +19,8 @@ use crate::types::changeset_core::ChangesetCore;
 use crate::types::drop_target::DropTarget;
 use crate::types::executed::Executed;
 use crate::types::record_writes::RecordWrites;
+use crate::utils::mark_keys::mark_entry;
+use crate::utils::referrer_candidates::referrer_candidates;
 
 /// The keyspace of `key`, `None` for a key of none.
 fn keyspace(key: &[u8]) -> Option<Keyspace> {
@@ -68,6 +71,7 @@ where
                 .iter()
                 .map(|(k, v)| entry(k, *v, |key, value| Entry::put(key, 0, 0, value))),
         );
+        entries.extend(record.marks.iter().map(|m| mark_entry(namespace, m)));
         let versionless = record
             .dictionary
             .iter()
@@ -81,8 +85,13 @@ where
         // epoch.
         let writes = Writes::replayed(deltas, entries, versionless, false);
         let catalog = (*self.catalog(namespace)?).clone();
+        let terms = WriteTerms::new(namespace);
+        // The home's own groups the record's edges reference are derived again, as its first apply derived them.
+        let referrers = referrer_candidates(&self.quads, namespace, read_ts, &writes, &terms)?;
         Ok(Executed {
             writes,
+            marks: record.marks,
+            referrers,
             ..Executed::empty(namespace, read_ts, catalog)
         })
     }

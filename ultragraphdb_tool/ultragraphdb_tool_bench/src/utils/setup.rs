@@ -41,7 +41,8 @@ const POSTING_CACHE_PERCENT: u64 = 40;
 /// stands in for it.
 const BLOCK_LEN: NonZeroU64 = NonZeroU64::MIN.saturating_add((1 << 20) - 1);
 
-/// An applier over a fresh store in `dir`, which must not exist yet, its posting cache 40 % of `cache_mb`.
+/// An applier over a fresh store in `dir`, which must not exist yet, its posting cache 40 % of `cache_mb`. Shared,
+/// since the apply run's rollup thread rolls lists up beside its apply thread.
 ///
 /// # Errors
 ///
@@ -83,6 +84,7 @@ pub fn open_applier(
 /// The applier's.
 pub fn prepare(a: &Arc<BenchApplier>, shape: &CommitShape, types: u64) -> Result<(), BenchError> {
     let _declared: Applied = a.apply(&CommitShape::declarations(types))?;
+    // Ends when the build the declarations started ends.
     while a.rebuilding() {
         std::thread::sleep(Duration::from_millis(10));
     }

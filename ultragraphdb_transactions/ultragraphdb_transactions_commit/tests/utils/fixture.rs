@@ -11,9 +11,9 @@ use std::num::NonZeroU64;
 
 use oxrdf::{GraphName, Literal, NamedNode, Term};
 use ultragraphdb_cluster_sequencer::{CatalogVersion, Close};
-use ultragraphdb_core_ids::{Epoch, SystemId};
+use ultragraphdb_core_ids::{BucketGroup, Epoch, SystemId};
 use ultragraphdb_core_mapping::{Change, Changeset, RandomSource};
-use ultragraphdb_store_apply::{Applied, ChangesetApplier};
+use ultragraphdb_store_apply::{Applied, ChangesetApplier, EntityRef, Executed};
 use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig};
 use ultragraphdb_store_sim::{
     FaultConfig, Seed, SimClock, SimListCache, SimStore, SteppedExecutor, Stream,
@@ -220,6 +220,55 @@ pub fn prepare_in(txn: Txn<'_>, session: u128, request: u64) -> TestResult<Prepa
         Commit::ReadOnly(_) => None,
     };
     prepared.context("a read-write transaction prepares")
+}
+
+/// A registration of `<name>` from bucket group `group` the partition of `applier` accepted as the IRI's home, the
+/// member's generation `generation`: the entity's ID, what its round applies ([`ultragraphdb_store_apply::Registering::finish`])
+/// and its record of kind 2.
+pub fn registered(
+    applier: &Applier,
+    name: &str,
+    group: u32,
+    generation: u64,
+) -> TestResult<(SystemId, Executed, Vec<u8>)> {
+    use ultragraphdb_protocol_wire::{RecordRegistration, WriteSetRecord};
+    let iri = ex(name);
+    let registering = applier
+        .register(NS, EntityRef::Iri(iri.as_str()))
+        .context("the home accepts the registration")?;
+    let entity = registering.entity();
+    let group = BucketGroup::new(group).context("the group")?;
+    let generation = NonZeroU64::new(generation).context("a generation")?;
+    let executed = registering.finish(group, generation);
+    let record =
+        WriteSetRecord::registration(NS, RecordRegistration::new(entity, group, generation))
+            .encode();
+    Ok((entity, executed, record))
+}
+
+/// What an execution writing nothing leaves, at the watermark: a registration's round that changes no member.
+pub fn nothing(applier: &Applier) -> TestResult<Executed> {
+    let watermark = applier.quads().lists().applied_ts();
+    let execution = applier.begin(NS, watermark).context("it begins")?;
+    execution.finish().context("it finishes")
+}
+
+/// The generation and epoch of the member of `group` in the referrer set of `entity` the store holds as of `version`;
+/// `None` when the set names no such member.
+pub fn member_at(
+    applier: &Applier,
+    entity: SystemId,
+    group: u32,
+    version: u64,
+) -> TestResult<Option<(u64, u64)>> {
+    let group = BucketGroup::new(group).context("the group")?;
+    let set = applier
+        .quads()
+        .referrers(NS, entity, version)
+        .context("the referrer set reads")?;
+    Ok(set
+        .member(group)
+        .map(|m| (m.generation().get(), m.epoch().get())))
 }
 
 /// What a fresh transaction reads of `<subject> <predicate>`: what the store holds at the watermark.

@@ -217,6 +217,7 @@ fn load(
 ) -> Result<Duration, BenchError> {
     let start = clock.elapsed();
     let mut left = commits;
+    // Each turn takes at least one commit off `left`, so the loop ends within `commits` turns.
     while left > 0 {
         let n = left.min(LOAD_BATCH as u64);
         let changesets: Vec<_> = (0..n).map(|_| shape.next_commit()).collect();

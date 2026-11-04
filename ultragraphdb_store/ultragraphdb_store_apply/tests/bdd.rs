@@ -4,9 +4,9 @@
  */
 
 //! The scenarios run over a changeset applier on the simulated store: in `changeset_steps`, those of changesets,
-//! index maintenance, posting lists, the catalog's write checks, schema storage's writes and statement IDs; in
-//! `catalog_change_steps`, those of index builds, the declarations data refuses and drops; in `transaction_steps`, the
-//! recording side of what a transaction's reads record; in `vector_steps`, those of the vector index's lists and
+//! index maintenance, posting lists, the catalog's write checks, schema storage's writes, statement IDs and the
+//! absence partitions prove by predicate lists; in `catalog_change_steps`, those of index builds, the declarations
+//! data refuses and drops; in `transaction_steps`, the recording side of what a transaction's reads record; in `vector_steps`, those of the vector index's lists and
 //! maintenance; in `schema_storage_steps`, the catalog versions a partition loads and the default entries it asks for.
 
 use std::sync::Arc;

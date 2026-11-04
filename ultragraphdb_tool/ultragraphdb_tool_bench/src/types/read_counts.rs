@@ -8,6 +8,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// What the run's lookups and list reads found: lookups of the posting cache, by reads and by commits, and the entries
 /// they found; the store's reads of a key's versions, by cache misses and rollups, and those that found none. Shared by
 /// the cache and the store the run opens.
+///
+/// Atomics, since the apply, source and rollup threads read through one cache and one store, and a count is read only
+/// once a run's threads are done; each count is independent of the others, so relaxed ordering suffices.
 #[derive(Debug, Default)]
 pub struct ReadCounts {
     lookups: AtomicU64,

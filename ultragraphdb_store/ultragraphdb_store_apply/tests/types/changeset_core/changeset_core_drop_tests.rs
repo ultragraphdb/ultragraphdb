@@ -685,3 +685,61 @@ fn test_a_namespace_dropped_keeps_its_initial_catalog() -> TestResult {
     }
     Ok(())
 }
+
+/// The keys of `keyspace` the store holds.
+fn held_in(a: &TestChangesets, keyspace: Keyspace) -> Vec<Vec<u8>> {
+    stored_keys(a)
+        .into_iter()
+        .filter(|k| k.first() == Some(&keyspace.byte()))
+        .collect()
+}
+
+/// A store holding a referrer set, of `<hub>`, and a mark, written by one transaction.
+fn registered() -> TestResult<TestChangesets> {
+    let a = changesets()?;
+    let entity = SystemId::new(
+        ultragraphdb_core_ids::TypePrefix::RESOURCE,
+        crate::utils::partitions::bucket_of("o")?,
+        ultragraphdb_core_ids::Sequence::new(5)?,
+    );
+    let mut execution = a.begin(NS, a.quads().lists().applied_ts())?;
+    execution.mark(
+        entity,
+        ultragraphdb_core_ids::BucketGroup::new(7)?,
+        std::num::NonZeroU64::MIN,
+    )?;
+    execution.apply(&crate::utils::changesets::changeset(vec![insert(
+        "<s> <knows> <hub>",
+    )?]))?;
+    let executed = execution.finish()?;
+    let at = a.quads().lists().next_version();
+    let _applied: Vec<Applied> = a.apply_round(vec![(at, executed)])?;
+    assert_eq!(held_in(&a, Keyspace::Referrers).len(), 1);
+    assert_eq!(held_in(&a, Keyspace::Marks).len(), 1);
+    Ok(a)
+}
+
+#[test]
+fn test_dropping_a_namespace_s_data_or_everything_drops_its_marks_and_referrer_sets() -> TestResult
+{
+    let data = registered()?;
+    let _data_dropped_at: u64 = data.drop_data(NS)?;
+    let everything = registered()?;
+    let _all_dropped_at: u64 = everything.drop_all()?;
+    let namespace = registered()?;
+    let _namespace_dropped_at: u64 = namespace.drop_namespace(NS)?;
+    for a in [&data, &everything, &namespace] {
+        assert!(held_in(a, Keyspace::Referrers).is_empty());
+        assert!(held_in(a, Keyspace::Marks).is_empty());
+    }
+    Ok(())
+}
+
+#[test]
+fn test_dropping_a_graph_keeps_the_marks_and_referrer_sets_which_name_none() -> TestResult {
+    let a = registered()?;
+    let _dropped_at: u64 = a.drop_graph(NS, GraphNameRef::DefaultGraph)?;
+    assert_eq!(held_in(&a, Keyspace::Referrers).len(), 1);
+    assert_eq!(held_in(&a, Keyspace::Marks).len(), 1);
+    Ok(())
+}
