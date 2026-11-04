@@ -143,11 +143,11 @@ Cross-group snapshots are defined by **sequencer epochs**. This was chosen over 
 
 Replication is VSR throughout, and every core runs its own event loop with no shared state on the hot path.
 
-- **VSR replica groups** for storage, plus one VSR group for metadata on the frontends.
+- **VSR replica groups** for storage, plus one VSR group for metadata on the frontends. Stage 8 builds them first, on the single container's `dev-ha` profile, and stage 10 at scale. `UltraGraphDB Distributio Protocol.md` is the protocol: storage groups acknowledge from memory on a quorum with a bounded exposure, and the metadata group and the sequencer acknowledge from disk.
 - **Thread-per-core with compio.** Completion-based I/O (io\_uring on Linux), with each core owning its submission and completion queues, NVMe queue pair and NIC queue.
 - **Sans-IO core.** VSR, the storage engine and the query engines take I/O through traits. Implementations: the deterministic simulator, Linux io\_uring, and any future backend without touching core logic. The same design gives native sync and async clients.
 - **Batching amortizes consensus.** TigerBeetle, the closest comparable system, processes batches of up to 8,190 transfers per request and is designed for about one million transactions per second on a single core.
-- **Scaling VSR itself.** Decoupling and partitioning protocol roles, analyzed for safety through monotonicity, raised Paxos throughput 3x and two-phase commit 5x in recent work (SIGMOD 2024). The same treatment applies to VSR: batching, ordering and execution as independently scaled roles, as in Compartmentalized Paxos.
+- **Scaling VSR itself.** Decoupling and partitioning protocol roles, analyzed for safety through monotonicity, raised Paxos throughput 3x (on 29 machines against 8) and two-phase commit 5x in recent work (SIGMOD 2024), raising throughput with negligible added latency, and reducing none. The same treatment applies to VSR: batching, ordering and execution as independently scaled roles, as in Compartmentalized Paxos.
 - **Internal traffic uses the same binary protocol** as clients: Iggy-style byte-level frames, Arrow-compatible column buffers, version negotiation one version back.
 
 ## Storage modes

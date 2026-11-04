@@ -5,7 +5,8 @@ and the runtime model the measurements point to. A storage node gives its cores 
 replica group with its own log, commit step and buckets; every partition core hosts three replicas, leading one, after
 ScyllaDB's shard-per-core model and TigerBeetle's one core per replica. The model is sized for nodes of 12 to 128
 cores. Backlog item 11 tracks what remains to specify; the distribution architecture
-(`UltraGraphDB Distribution Architecture.md`) is the frame it refines.
+(`UltraGraphDB Distribution Architecture.md`) is the frame it refines, and the distribution protocol
+(`UltraGraphDB Distributio Protocol.md`) is the replication protocol these replicas run.
 
 ## Measurements
 
@@ -347,7 +348,7 @@ change stream; blind writes across partitions are sequenced, with no validation 
    producing only its own buckets' commits, on the logical log with shared device flushes (P9, P10), measured on the
    VM disk and on a drive without power-loss protection.
 2. With replication in stage 8: each core leading one partition and following two (P8), with followers fed from the
-   leaders' logs.
+   leaders' logs (the distribution protocol's X4).
 3. With the sequencer in stage 8: a chosen share of cross-partition commits, drawn by the same seeded generators.
 
 The report gives per-partition and total throughput, disk bytes and flushes per second, as the side-by-side table

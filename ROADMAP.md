@@ -13,13 +13,14 @@
 | 6.5. Harden transactions  with chaos testing against multiple UGS schemata | `open` |
 | 7. Query core: SPARQL and GQL where they overlap | `open` |
 | 7.5. Fuzzy test and harden query core | `open` |
-| 8. Basic three-role clustering in a single container, the base of the DeepBrain MVP | `open` |
+| 8. Basic three-role clustering with VSR replication in a single container, the base of the DeepBrain MVP | `open` |
 | 9. Full SPARQL and GQL conformance | `open` |
 | 9.5. Bolt | `open` |
-| 10. Full distributed clustering and tiles: sharding, replication, storage/compute separation | `open` |
+| 10. Full distributed clustering and tiles: sharding, replication at scale, storage/compute separation | `open` |
 
 UltraGraphDB is distributed from the start: three roles, frontend, compute and storage, from one binary, replicated
-with VSR (`openspec/notes/UltraGraphDB Distribution Architecture.md`). A single machine runs the same topology folded
+with VSR (`openspec/notes/UltraGraphDB Distribution Architecture.md`, and for the protocol itself
+`openspec/notes/UltraGraphDB Distributio Protocol.md`). A single machine runs the same topology folded
 into one container (`openspec/notes/UltraGraphDB Single-Container Deployment.md`). Stages 4 to 10 replace DQL with
 SPARQL and GQL; UltraQL follows stage 10. What the next stages must specify is tracked in `openspec/notes/backlog.md`.
 
@@ -35,12 +36,15 @@ SPARQL and GQL; UltraQL follows stage 10. What the next stages must specify is t
   over one relation, and vector and text search. Where the two languages diverge, and full conformance testing, follow
   in stage 9. The design is `openspec/notes/UltraGraphDB Dual Query Engine Plan.md`, "The query core".
 - **8 Basic three-role clustering in a single container.** Frontend, compute and storage, the metadata group and the
-  sequencer in one container, two storage groups by default; epochs, change streams, Calvin ordering for multi-group
-  transactions, write classification from the schema. The DeepBrain MVP runs here, on the single container: the first
+  sequencer in one container, two storage groups by default; VSR's first build, its groups of three replicas running on
+  the `dev-ha` profile, proved and simulated acknowledging from memory; epochs, change streams, Calvin ordering for
+  multi-group transactions, write classification from the schema. The DeepBrain MVP runs here, on the single container: the first
   stage whose topology it can run on, since no role runs alone.
 - **9 Full conformance.** Everything outside the core, the W3C suites, the openCypher TCK and the GQL feature register.
 - **9.5 Bolt.** The Bolt adapter and Neo4j's schema procedures; Neo4j drivers run the TCK through it.
-- **10 Full distribution and tiles.** Clustering at scale, Jepsen, tiles and storage/compute separation across nodes.
+- **10 Full distribution and tiles.** Clustering at scale, Jepsen, tiles and storage/compute separation across nodes. Stage
+  10 opens by measuring replication on physical Linux nodes, which sets the acknowledgement's default and decides CURP's
+  fast path ("Experiments" in the distribution protocol note).
 
 Fuzzing in stage 7 centres on the query core, where it pays most: the SPARQL and GQL parsers and the planner take text
 from any client, and a query language's grammar nests without limit. Each parser gets a structure-aware fuzzer that
@@ -59,7 +63,7 @@ Improvements, done:
 --
 
 Improvements, clustering:
-1) Replace Raft with the more efficient VSR protocol (stage 8 for the basic cluster, stage 10 at full scale; Raft is not built, stage 5 defines the log interface)
+1) Replace Raft with the more efficient VSR protocol (stage 8 for the basic cluster, stage 10 at full scale; Raft is not built, stage 5 defines the log interface). The protocol, acknowledging from memory with a bounded exposure, is `openspec/notes/UltraGraphDB Distributio Protocol.md`
 2) Add Jepsen test suite to harden clustering (stage 10)
 3) Replace the Zero/Alpha separation with a proper storage/compute separation (built in stage 8 as the three roles, scaled out in stage 10; Zero/Alpha is not built)
 4) Adopt Aeron's stream position for the replicated log (stage 8, with VSR). Aeron locates every frame by its byte offset in the

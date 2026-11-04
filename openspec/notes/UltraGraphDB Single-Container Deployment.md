@@ -66,8 +66,8 @@ The container starts with no configuration: the supervisor's `dev` profile is th
 
 | Profile | Topology | Carrier | Purpose |
 | --- | --- | --- | --- |
-| `dev` (default) | 2 storage groups of 1 replica | Unix-domain sockets | Everyday development |
-| `dev-ha` | 2 storage groups of 3 replicas | Unix-domain sockets | Failover testing: replicas can be stopped and restarted from the web UI |
+| `dev` (default) | 2 storage groups of 1 replica | Unix-domain sockets | Everyday development; a group of one acknowledges from disk |
+| `dev-ha` | 2 storage groups of 3 replicas | Unix-domain sockets | Failover testing: replicas can be stopped and restarted from the web UI. Where stage 8 builds VSR and runs the protocol note's X3 and X4 (`UltraGraphDB Distributio Protocol.md`) |
 | `dev-net` | As `dev` | Loopback TCP | Protocol debugging and traffic capture |
 | `frontend`, `compute`, `storage` | One role per container, each from its own image | Network | Cluster deployment |
 

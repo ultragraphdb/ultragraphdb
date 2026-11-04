@@ -98,6 +98,43 @@ so creating a dictionary entry SHALL conflict with nothing.
   statement of `<new>` committed in the home
 - **THEN** the reading transaction commits
 
+### Requirement: A request declares its type
+A client SHALL declare a request's type by the command that carries it: read-only, read-write, or write-only. A write-only
+request SHALL be one frame holding its changes and commit-time operations, committing all of them or none, with no Begin and
+no open transaction, and SHALL hold the guarantees of any transaction: strict serializability, exactly-once through a session,
+and acknowledgement at the visibility watermark. Because no read reaches its client, a conflict on what its execution tested
+SHALL be retried by the partition, a bounded number of times, before the client sees it. A declaration SHALL be refused in one.
+The server SHALL decide from the catalog how each write is carried out, so that a client declares only that it reads nothing.
+
+#### Scenario: An insert commits in one request
+- **WHEN** a client sends a write-only request inserting `<a> <knows> <b>` through its session
+- **THEN** the reply carries the commit version and session token, `<a> <knows> <b>` is held, and the partition holds no open
+  transaction for it at any point after the reply
+
+#### Scenario: A write-only request is all or nothing
+- **WHEN** a write-only request holds a valid insert and an insert breaking a unique predicate
+- **THEN** it is refused, and neither is held
+
+#### Scenario: Concurrent identical inserts both succeed
+- **WHEN** two write-only requests insert `<a> <knows> <b>` concurrently
+- **THEN** both are answered with success, whichever executed first, and the statement is held once
+
+#### Scenario: An upsert decides in commit order
+- **WHEN** two write-only requests each insert-if-absent a node with `id` `"x"` concurrently
+- **THEN** both name the same node, created once
+
+#### Scenario: A retried write-only request commits once
+- **WHEN** a client loses the reply to request 7 of its session and sends it again
+- **THEN** it receives the same reply and commit version, and the writes are held once
+
+#### Scenario: A write-only request reaching two partitions is refused
+- **WHEN** a write-only request writes subjects of partitions 1 and 2
+- **THEN** it is refused with a cross-partition error, and neither is held
+
+#### Scenario: A declaration in a write-only request is refused
+- **WHEN** a write-only request holds a declaration of a predicate
+- **THEN** it is refused with a protocol error, and the catalog is unchanged
+
 ### Requirement: Interactive transactions
 A client SHALL begin a transaction, send any number of reads and writes in separate requests, and end it with a commit
 or an abort. An aborted transaction SHALL write nothing, though the registrations it issued stay, naming nothing that

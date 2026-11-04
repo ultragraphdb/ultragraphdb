@@ -200,6 +200,7 @@ A client refusing a frame from the server closes the connection.
 | 17 | Round | log and server only (section 12) | sections | |
 | 18 | Authenticate | both, stream 0 | sections | Authenticate, until the server's final one; or Error on stream 0 |
 | 19 | Drop | both | sections | Drop, or Error |
+| 20 | WriteCommit | client → server, and frontend → storage | sections | Commit, or Error |
 | 256–511 | reserved for the replica commands of stage 8 | | | |
 | 512 | Join | both; storage, compute → frontend | sections | Join, or Error |
 | 513 | Members | both; storage, compute → frontend | sections | Members |
@@ -664,6 +665,49 @@ namespace's data drop removes the namespace's data and keeps its catalog. A drop
 its data, and the frontend sets its catalog to the initial catalog by a catalog version. A drop of everything removes
 every quad key, and the frontend leaves the root namespace's initial catalog alone in the metadata group. No drop
 removes a dictionary entry. The privilege each takes is in `SECURITY.md`.
+
+### 6.6 WriteCommit (20)
+
+A changeset and any commit-time operations, committed as one write-only transaction in one frame: a statement is held or
+refused with the rest, and no read reaches the client. It opens a stream of its own and needs no Begin. The reply is a Commit,
+or an Error, and ends the stream, and a retry goes on a new stream with the same session and request (section 11.5). A set of
+changes larger than a frame is a read-write transaction's. A WriteCommit is a commit for every rule of section 11.5: its request
+number comes from the session's one counter, one commit is in flight per session, and one in flight when a connection is lost is
+in doubt.
+
+| Command header | Width | Field | Type | Rule |
+|---|---|---|---|---|
+| 0 | 16 | `session` | session (section 1) | all zero for none |
+| 16 | 8 | `request` | u64 | as Commit's; 0 with no session (`FieldValue` `"request"`) |
+| 24 | 8 | `namespace` | u64 | the namespace it acts in |
+| 32 | 24 | `token` | session token (section 4.8) | the token the client holds, which raises the commit's epoch as a Begin's does; zero for none |
+
+| Section | Contents |
+|---|---|
+| 0 | the change records, 16 bytes each, in order (section 4.6) |
+| 1 | the args, u32s: the change records', then each operation's in order, as the kind's Count in section 7.3 says |
+| 2 | the term table's records |
+| 3 | the term table's text |
+| 4 | the names: string list `ends` (section 4.3) |
+| 5 | the names: string list `text` |
+| 6 | the operations, 24 bytes each, the layout of Operation's command header bytes 0 to 23 (section 7.3) |
+
+Order: unused bytes 56–127 zero; `request`; `token` as section 4.8 says; sections; the term table (2, 3); the names (4, 5); the args
+a whole number of u32s (`SectionLength`, section 1); section 6 a whole number of 24-byte operations (`SectionLength`, section 6);
+sections 0 and 6 not both empty (`CountMismatch` `"changes"`); the records, then the operations, consuming the args exactly
+(`FieldValue` `"args_start"`). A record of kinds 8 to 10, a declaration, is refused with `FieldValue` `"record"`: it commits
+through the metadata group (section 11.13).
+
+The frontend checks the session and the rights as for a Commit (section 11.5), chooses the partition as for a transaction's first
+request (section 11.12, *Writes*), and relays the frame unchanged on a new stream to that partition's role address, relaying its
+reply. A partition refuses a key outside its bucket ranges with code 26, naming the owner, and the frontend refreshes its map and
+resends once; a statement reaching another partition's state is refused with code 23.
+
+The partition executes the frame in one turn at its visibility watermark, holding nothing between requests, so no lifetime limit
+or sweep applies. It commits through the commit step as any transaction does: the same log, the same acknowledgement, the same
+session table. A conflict on what the execution tested internally, such as a statement written concurrently, never reaches the
+client as a read conflict, since the client saw no read: the partition executes the frame again at a newer watermark, at most a
+bounded number of times, and past that answers code 2 (Conflict).
 
 ## 7. Bodies of data requests
 
@@ -1197,6 +1241,7 @@ ends the connection: an Error of code 22 (CredentialExpired) on stream 0, then t
 | Read, Execute | a new stream, naming the transaction | Result frames, the last flagged `LAST`; or Error |
 | Write, Operation | the transaction's stream | none; a refusal is an Error on the stream, which ends the transaction and answers its next request |
 | Commit | the transaction's stream; a retry goes on a new stream of its own | Commit or Error; the stream ends |
+| WriteCommit | a new stream; a retry goes on a new stream of its own | Commit or Error; the stream ends |
 | Abort | the transaction's stream | none; the stream ends |
 | Prepare, Describe, Drop | a new stream | Prepare, Describe or Drop, or Error; the stream ends |
 | Credit | the read's stream | none |
@@ -1207,6 +1252,20 @@ stream of its own, at the transaction's read level and snapshot (section 11.11).
 Commit's reply, its Abort, or an Error on its stream, the reads still open end with it, as a Cancel ends them (section
 11.4): a client that wants a read's every row reads it to its `LAST` first, as SQL closes a transaction's cursors when
 it ends. The Rust client sends no Write, Operation or Commit in a read-only transaction (Begin `mode` 1).
+
+### 11.2a Request types
+
+A request declares its type by the command that carries it, so the server chooses its path before it reads a term:
+
+| Type | Commands | What it costs |
+|---|---|---|
+| Read-only | Begin `mode` 1, then Read or Execute | No read set, no commit; a level names how far it may lag (section 11.11) |
+| Write-only | WriteCommit (section 6.6) | One frame and its reply: no Begin, no Bind stream, no open transaction, and nothing read reaches the client |
+| Read-write | Begin `mode` 0, then any of Read, Execute, Write, Operation, and Commit or Abort | An open transaction, validated at commit, and aborted to the client on a conflict |
+
+A write computed from an earlier read of the client's belongs in a read-write transaction, or in a commit-time operation that
+decides it in commit order (section 11.6). Sent as a read-only request and then a WriteCommit, it is two independent requests,
+and a commit between them is a lost update the server cannot see.
 
 ### 11.3 Credit
 
@@ -1449,7 +1508,8 @@ role secret opens no client session: it is refused there as a wrong password is.
 |---|---|---|
 | The frontend's role address | Join, Members, Placement, Catalog | storage and compute |
 | | Subscribe, Lease, CloseRequest, DefaultEntry, Report | storage |
-| A partition's role address | Bind, then Write, Operation, Commit and Abort, or Drop, on the Bind's stream; Recall | the frontend |
+| A partition's role address | WriteCommit | the frontend |
+| | Bind, then Write, Operation, Commit and Abort, or Drop, on the Bind's stream; Recall | the frontend |
 | | Reference | storage and the frontend |
 | | Scan, Closed | compute |
 | A compute process's role address | ComputeRead | the frontend |

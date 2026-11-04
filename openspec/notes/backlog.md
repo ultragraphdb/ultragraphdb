@@ -188,7 +188,7 @@ declaration contradicting its data.
 ### 7. The log of a replica group
 
 Checkpoints driven by the rounds' bytes (the store synced, then the log trimmed); the write-ahead log behind the
-ordered-log interface becoming the VSR log a replica group holds.
+ordered-log interface becoming the VSR log a replica group holds. Item 12 holds the protocol over that log.
 
 - Architecture: storage nodes hold the write log and the store (*Cluster architecture*); *Replication and runtime
   model*; the log tier of S3 mode (*Storage modes*).
@@ -213,6 +213,37 @@ binary (on Linux as well), the formal model of epochs, registration, referrer se
   fuzzers' audit for the bodies, the round and the write-set record (tasks 11.7 and 11.8 as scoped); and, stopped at
   the stage's close, the confirmation run for `core_codec`'s 22 survivors (tests added, not re-run) and the runs of
   `store_posting`, `store_quads` and `store_hnsw`.
+
+### 12. The replication protocol (stage 8, then stage 10)
+
+VSR's first build in stage 8, acknowledging from memory with a bounded exposure and no silent loss, its gates, and the CURP
+fast path as an experiment.
+
+- Design: `openspec/notes/UltraGraphDB Distributio Protocol.md`, whose *Experiments* places each measurement and whose *Open questions* list what remains: the gates'
+  thresholds, whether `W` = 0 is enough or a named durability mode is needed, what a declared loss must do across the cluster,
+  how a latest-state read avoids a deposed primary, and flexible quorums.
+- Architecture: *Replication and runtime model*.
+- Roadmap: *Improvements, clustering*, items 1 and 4; Aeron's stream position meets this protocol at `Prepare`.
+- Stage 5.5 supplies X1, per-phase timing in task 12.5b.
+
+### 13. The frontend's owner check crosses the network (stage 10)
+
+Stage 5.5 asks the frontend's owning core for every commit's owner check, a hop within a node, because a stale copy lets a
+partition take an evicted session for a new one. Once frontends scale out, that check is a round trip per commit. Can a
+check be held without asking, valid up to a fenced epoch that the sequencer's eviction delivery bounds?
+
+### 14. Pinning on a physical Linux machine (stage 10)
+
+Does `[runtime] pin_cores` hold on physical Linux, and what does it buy? macOS offers only a hint, and inside a Docker VM a
+pin binds a virtual CPU at most, so stage 5.5 verifies reporting and unpinned service only. Can the measurements of 12.5 and
+12.5b repeat pinned and unpinned once remote access to a physical machine exists? The protocol note's X5 runs on that machine.
+
+### 15. A read-write request in one statement (stage 7)
+
+Stage 5.5 declares three request types, read-only, write-only and read-write (PROTOCOL 11.2a). A single statement such as
+`MATCH … INSERT` reads and writes with no client between its stages, so its conflict window is shorter than an interactive
+transaction's. Should the query languages send such a statement as one request, and may the partition then retry its conflicts as it
+does a WriteCommit's? A read-only request still takes Begin and Read: does it need a one-frame form too?
 
 ## Source material: requirements
 
@@ -440,18 +471,6 @@ From the change's `wire-protocol` spec, the scenarios that need a server answeri
 - **WHEN** a connection's credential expires before a new exchange completes, with a transaction open
 - **THEN** the server answers code 22 on stream 0 and closes the connection, the transaction aborts, and the
   principal's sessions serve its next connection
-
-### Stage 8: the frontend's owner check crosses the network
-
-Stage 5.5 asks the frontend's owning core for every commit's owner check, a hop within a node, because a stale copy lets a
-partition take an evicted session for a new one. Once frontends scale out, that check is a round trip per commit. Can a
-check be held without asking, valid up to a fenced epoch that the sequencer's eviction delivery bounds?
-
-### Pinning on a physical Linux machine
-
-Does `[runtime] pin_cores` hold on physical Linux, and what does it buy? macOS offers only a hint, and inside a Docker VM a
-pin binds a virtual CPU at most, so stage 5.5 verifies reporting and unpinned service only. Can the measurements of 12.5 and 12.5b repeat pinned and
-unpinned once remote access to a physical machine exists?
 
 ## Source material: design
 

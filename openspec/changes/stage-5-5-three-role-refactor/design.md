@@ -45,7 +45,7 @@ Today:
   built in stage 8; until then a referrer set only grows.
 - Replication, VSR, preferred-leader enforcement, replica placement (P8), follower reads, the epoch agent per node
   (P12), node budgets (P4, P11), flush sharing behind the log interface (P10 builds only the interface), the bulk loader
-  (P3), backup and restore (P24 rule 10): stage 8.
+  (P3), backup and restore (P24 rule 10): stage 8, the replication protocol in `openspec/notes/UltraGraphDB Distributio Protocol.md`.
 - Moving bucket ranges at run time: stage 8. Here the frontend forms the placement, processes claim its partitions, and it
   stays fixed.
 - Bolt, the web UI and the vector indexer in the server path (decided 2026-11-01): stage 8 or 9.5.
@@ -366,6 +366,14 @@ dictionary the transaction's source is its `WriteTerms`.
 A Scan naming a transaction carries the text of the IRIs it needs IDs for, since a dictionary key holds only a hash and an
 absent term is recorded by its ID, which reading creates. Recording the dictionary key instead would miss a conflict: a
 home's registration round can create the entry without a statement, and a later statement of it then writes no such key.
+
+A request declares its type by its command, because reads alone and writes alone are simple and the costs come from mixing them.
+Read-only needs no commit. Read-write holds an open transaction, a Bind stream and a sweep entry. Write-only is one frame, WriteCommit:
+the frontend relays it and the partition executes it in one turn, so a plain insert pays for no transaction state, and the frame is the
+natural unit for any later fast path and for ordering across partitions, since its write set is declared. As no read reaches its client, a
+conflict on what the execution tested is the partition's to retry, which a read-write transaction cannot do. The client declares only that it
+reads nothing; the catalog decides how each write is carried out. A write computed from the client's own earlier read cannot be seen by the
+server, so the API documents that such a write is a read-write transaction or a commit-time operation.
 
 Role binaries are tested as processes, as scrith's services are: a tests crate copies each binary into the Bazel sandbox
 with `copy_file`, starts it through `service_utils` and waits on `/health` or `/ready`, dependencies first, and drives it
