@@ -3,87 +3,49 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_common_service::RoleStart;
+use ultragraphdb_common_service::{RoleIdentity, RoleStart};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
-const ADDRESS: (&str, &str) = (
-    "ULTRAGRAPHDB_OBSERVABILITY_ADDRESS",
-    "tcp://127.0.0.1:18080",
-);
-
-fn set(name: &str, value: &str) -> (String, String) {
-    (name.to_string(), value.to_string())
+fn identity() -> RoleIdentity {
+    RoleIdentity::new("ci", "storage_1", 7)
 }
 
 #[test]
-fn test_a_start_reads_its_address_from_the_environment() -> TestResult {
-    let start = RoleStart::read(&[], [set(ADDRESS.0, ADDRESS.1)])?;
-    let expected = ADDRESS.1.strip_prefix("tcp://").context("a tcp address")?;
-    assert_eq!(start.observability().to_string(), expected);
-    assert_eq!(start.config().observability().address(), Some(ADDRESS.1));
+fn test_a_start_reads_its_address_and_keeps_what_it_runs_as() -> TestResult {
+    let text = "[observability]\naddress = \"tcp://127.0.0.1:18080\"\n";
+    let start = RoleStart::from_settings(text.as_bytes(), identity())?;
+    assert_eq!(start.observability().to_string(), "127.0.0.1:18080");
+    assert_eq!(
+        start.config().observability().address(),
+        Some("tcp://127.0.0.1:18080")
+    );
+    assert_eq!(start.identity(), &identity());
     Ok(())
 }
 
-#[test]
-fn test_a_start_takes_a_named_file() -> TestResult {
-    let root = std::env::var_os("TEST_TMPDIR").map_or_else(std::env::temp_dir, Into::into);
-    let file = std::path::Path::new(&root).join(format!("role-start-{}.toml", std::process::id()));
-    std::fs::write(
-        &file,
-        "[observability]\naddress = \"tcp://127.0.0.1:18081\"\n",
-    )?;
-    let args = ["--config".to_string(), file.display().to_string()];
-    let start = RoleStart::read(&args, [])?;
-    assert_eq!(start.observability().port(), 18081);
-    std::fs::remove_file(&file)?;
-    Ok(())
-}
-
-/// Each is a configuration error, naming what it refused.
+/// Each is a configuration error, naming what it refused and what it was running as.
 #[test]
 fn test_a_start_refuses_what_it_cannot_use() -> TestResult {
     let cases = [
+        ("", "observability.address"),
         (
-            vec!["--other".to_string(), "x".to_string()],
-            vec![set(ADDRESS.0, ADDRESS.1)],
-            "--other",
-        ),
-        (
-            vec!["--other".to_string()],
-            vec![set(ADDRESS.0, ADDRESS.1)],
-            "--other",
-        ),
-        (
-            vec!["--config".to_string()],
-            vec![set(ADDRESS.0, ADDRESS.1)],
-            "--config",
-        ),
-        (vec![], vec![], "observability.address"),
-        (
-            vec![],
-            vec![set(ADDRESS.0, "127.0.0.1:18080")],
+            "[observability]\naddress = \"127.0.0.1:18080\"\n",
             "observability.address",
         ),
         (
-            vec![],
-            vec![set(ADDRESS.0, "tcp://nowhere")],
+            "[observability]\naddress = \"tcp://nowhere\"\n",
             "observability.address",
         ),
-        (
-            vec!["--config".to_string(), "/nonexistent/x.toml".to_string()],
-            vec![],
-            "/nonexistent/x.toml",
-        ),
+        ("[storage]\npartiton_count = 2\n", "partiton_count"),
     ];
-    for (args, variables, named) in cases {
-        let refused = RoleStart::read(&args, variables)
+    for (text, named) in cases {
+        let refused = RoleStart::from_settings(text.as_bytes(), identity())
             .err()
             .context("a refusal")?;
         assert_eq!(refused.exit_code(), 78, "{refused}");
-        assert!(
-            refused.to_string().contains(named),
-            "{refused} names {named}"
-        );
+        let message = refused.to_string();
+        assert!(message.contains(named), "{message} names {named}");
+        assert!(message.contains("instance storage_1"), "{message}");
     }
     Ok(())
 }

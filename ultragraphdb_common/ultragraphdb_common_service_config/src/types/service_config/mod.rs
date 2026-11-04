@@ -3,8 +3,6 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use std::path::Path;
-
 use crate::errors::service_config_error::ServiceConfigError;
 use crate::types::admin_table::AdminTable;
 use crate::types::cluster_table::ClusterTable;
@@ -36,36 +34,14 @@ pub struct ServiceConfig {
 }
 
 impl ServiceConfig {
-    /// The configuration of the file `file`, if one is named, and the environment `variables`, which override it.
+    /// The configuration `bytes` hold. Where they came from is the caller's: a role's come from the config service, and the
+    /// config service's own from the file it is started with.
     ///
     /// # Errors
     ///
-    /// [`ServiceConfigError::unreadable`] when the file cannot be read; as [`ServiceConfig::parse`] otherwise.
-    pub fn load(
-        file: Option<&Path>,
-        variables: impl IntoIterator<Item = (String, String)>,
-    ) -> Result<Self, ServiceConfigError> {
-        let bytes = file
-            .map(|path| {
-                std::fs::read(path).map_err(|error| {
-                    ServiceConfigError::unreadable(path.display().to_string(), error.to_string())
-                })
-            })
-            .transpose()?;
-        Self::parse(bytes.as_deref(), variables)
-    }
-
-    /// The configuration of a file holding `bytes`, if one is named, and the environment `variables`.
-    ///
-    /// # Errors
-    ///
-    /// The file's TOML refused; a table no type mirrors; a key no field takes; a variable naming no setting; a value of
-    /// the wrong kind, or outside its field.
-    pub fn parse(
-        bytes: Option<&[u8]>,
-        variables: impl IntoIterator<Item = (String, String)>,
-    ) -> Result<Self, ServiceConfigError> {
-        let mut reader = SettingsReader::new(bytes, variables)?;
+    /// The TOML refused; a table no type mirrors; a key no field takes; a value of the wrong kind, or outside its field.
+    pub fn parse(bytes: &[u8]) -> Result<Self, ServiceConfigError> {
+        let mut reader = SettingsReader::new(bytes)?;
         let config = Self::read(&mut reader)?;
         reader.finish()?;
         Ok(config)

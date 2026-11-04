@@ -14,27 +14,21 @@ pub const OBSERVABILITY: &str = "127.0.0.1:18082";
 /// The address the frontend connects back to on one host.
 pub const ROLE_ADDRESS: &str = "127.0.0.1:17082";
 
-/// The environment that starts it on one host, as `ULTRAGRAPHDB_<TABLE>_<KEY>` variables, joining the frontend. The role
+/// The settings that start it on one host, each named `table.key`, joining the frontend. The role
 /// secret's file is the starter's: a deployment's own, which no specification names.
 #[must_use]
 pub fn settings() -> Vec<(String, String)> {
     [
+        ("observability.address", format!("tcp://{OBSERVABILITY}")),
         (
-            "ULTRAGRAPHDB_OBSERVABILITY_ADDRESS",
-            format!("tcp://{OBSERVABILITY}"),
-        ),
-        (
-            "ULTRAGRAPHDB_CLUSTER_ID",
+            "cluster.id",
             ultragraphdb_frontend_specs::CLUSTER.to_string(),
         ),
         (
-            "ULTRAGRAPHDB_CLUSTER_FRONTEND_ADDRESS",
+            "cluster.frontend_address",
             format!("tcp://{}", ultragraphdb_frontend_specs::ROLE_ADDRESS),
         ),
-        (
-            "ULTRAGRAPHDB_COMPUTE_ROLE_ADDRESS",
-            format!("tcp://{ROLE_ADDRESS}"),
-        ),
+        ("compute.role_address", format!("tcp://{ROLE_ADDRESS}")),
     ]
     .map(|(name, value)| (name.to_string(), value))
     .to_vec()

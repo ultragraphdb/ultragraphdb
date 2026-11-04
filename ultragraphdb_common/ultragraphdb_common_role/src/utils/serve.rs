@@ -15,10 +15,10 @@ use ultragraphdb_protocol_scram::{
     Credentials, DEFAULT_ITERATIONS, MECHANISM, ScramAuthenticator, system_nonce,
 };
 use ultragraphdb_protocol_transport::{
-    AUTHENTICATION_TIMEOUT, Address, Authenticator, BufferPool, Endpoint, Framer, Inbound,
-    ReceivedFrame, ServerConnection, TransportError, TransportErrorEnum,
+    AUTHENTICATION_TIMEOUT, Authenticator, BufferPool, Endpoint, Framer, Inbound, ReceivedFrame,
+    ServerConnection, TransportError, TransportErrorEnum,
 };
-use ultragraphdb_protocol_transport_compio::{Connection, Listener};
+use ultragraphdb_protocol_transport_compio::Connection;
 use ultragraphdb_protocol_wire::{AuthenticateView, BodyView, Command, MAX_FRAME_SIZE, Welcome};
 
 use crate::traits::session::{Answer, Session};
@@ -26,46 +26,12 @@ use crate::traits::session::{Answer, Session};
 const PROTOCOL: u16 = 1;
 const RELEASE: u32 = 1;
 
-/// Mode 0600: a role's socket opens to the user the roles run as (`PROTOCOL.md` §11.12).
-const SOCKET_MODE: u32 = 0o600;
-
 #[expect(
     clippy::disallowed_methods,
     reason = "the shell reads the clock and tells the connection, which reads none"
 )]
 fn now() -> Instant {
     Instant::now()
-}
-
-/// Listens at the role address `text`. A Unix socket a process before this one left behind is replaced, and the new one
-/// is set to mode 0600.
-///
-/// # Errors
-///
-/// [`RoleError::configuration`] for an address that does not parse, and [`RoleError::unavailable`] when it cannot be
-/// listened at.
-pub async fn listen(text: &str) -> Result<Listener, RoleError> {
-    use std::os::unix::fs::{FileTypeExt, PermissionsExt};
-
-    let address = Address::parse(text)
-        .map_err(|error| RoleError::configuration(format!("the address {text}: {error}")))?;
-    let unavailable =
-        |why: &dyn std::fmt::Display| RoleError::unavailable(format!("listening at {text}: {why}"));
-    let path = address.path();
-    if let Some(path) = path {
-        let stale = std::fs::symlink_metadata(path).is_ok_and(|file| file.file_type().is_socket());
-        if stale {
-            std::fs::remove_file(path).map_err(|error| unavailable(&error))?;
-        }
-    }
-    let listener = Listener::bind(&address)
-        .await
-        .map_err(|error| unavailable(&error))?;
-    if let Some(path) = path {
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(SOCKET_MODE))
-            .map_err(|error| unavailable(&error))?;
-    }
-    Ok(listener)
 }
 
 /// How one kind of connection is served: its cluster, the endpoint it arrived at, and the secret an unknown name's

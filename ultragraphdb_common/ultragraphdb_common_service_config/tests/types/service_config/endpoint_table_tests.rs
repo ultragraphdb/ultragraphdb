@@ -9,7 +9,7 @@ use ultragraphdb_common_service_config::{
 use ultragraphdb_tool_bdd::TestResult;
 
 fn security(text: &str) -> TestResult<Result<EndpointSecurity, ServiceConfigError>> {
-    let config = ServiceConfig::parse(Some(text.as_bytes()), [])?;
+    let config = ServiceConfig::parse(text.as_bytes())?;
     Ok(config.endpoint().security())
 }
 

@@ -10,24 +10,10 @@ use crate::errors::service_config_error::{ServiceConfigError, ServiceConfigError
 impl fmt::Display for ServiceConfigError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.0 {
-            ServiceConfigErrorEnum::Unreadable { file, reason } => {
-                write!(f, "the settings file {file} cannot be read: {reason}")
-            }
             ServiceConfigErrorEnum::Toml(error) => write!(f, "{error}"),
             ServiceConfigErrorEnum::UnknownTable { table } => {
                 write!(f, "the table {table} is an unknown setting")
             }
-            ServiceConfigErrorEnum::UnknownVariable { variable } => {
-                write!(f, "the variable {variable} names no setting")
-            }
-            ServiceConfigErrorEnum::WrongKindVariable {
-                variable,
-                value,
-                expected,
-            } => write!(
-                f,
-                "the variable {variable} holds {value}; {expected} is expected"
-            ),
             ServiceConfigErrorEnum::OutOfRange {
                 setting,
                 value,

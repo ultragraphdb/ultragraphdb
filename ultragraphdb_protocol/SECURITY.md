@@ -134,6 +134,17 @@ connection with code 22: its open transactions abort, and its sessions carry ove
   holds no stream and no transaction.
 - No password, token, SCRAM message or proof is written to a log or into an error message.
 
+### The config service's keys
+
+The config service holds every role's settings, which name secret files and never hold a secret's value. It reads two keys at start,
+each at least 32 bytes, from its own file, and drawn at random by whoever provisions it. The read key reads settings, and every role holds it,
+so one read key reads every target of its service: a deployment wanting production apart from staging runs a service per environment.
+The admin key also changes settings, and only an administrator holds it. A key changes by a restart of the service.
+
+A role's admin listener, at `[admin] address`, restarts it at a revision on the admin key. A role holds only that key's SHA-256 digest in
+`[admin] key_sha256`, so no role can present the key, and a compromised role cannot change any setting or load any other role's revision.
+Each listener takes TLS or `plaintext = true` by the endpoint's rule, and compares keys in constant time.
+
 ### Running without authentication
 
 No role of a cluster runs without authentication: the frontend's client endpoint authenticates every connection

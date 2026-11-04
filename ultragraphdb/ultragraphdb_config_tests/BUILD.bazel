@@ -25,6 +25,7 @@ rust_test(
         ":config_deps",
         ":copy_config",
         ":copy_config_cli",
+        "//ultragraphdb/ultragraphdb_config:profiles",
     ],
     tags = [
         "exclusive",

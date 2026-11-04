@@ -18,12 +18,29 @@ const PROBE_TIME: Duration = Duration::from_secs(2);
 ///
 /// The connection refused, or an answer that is no HTTP response.
 pub fn http_status(address: &str, path: &str) -> TestResult<u16> {
+    let answer = asked(address, path)?;
+    let status = answer.split(' ').nth(1).context("a status")?;
+    Ok(status.parse()?)
+}
+
+/// The body of what `address` answers to `GET path`.
+///
+/// # Errors
+///
+/// As [`http_status`], for an answer holding no body.
+pub fn http_body(address: &str, path: &str) -> TestResult<String> {
+    let answer = asked(address, path)?;
+    let (_, body) = answer.split_once("\r\n\r\n").context("a body")?;
+    Ok(body.to_string())
+}
+
+/// All that `address` answers to `GET path`.
+fn asked(address: &str, path: &str) -> TestResult<String> {
     let mut stream = TcpStream::connect(address)?;
     stream.set_read_timeout(Some(PROBE_TIME))?;
     stream.set_write_timeout(Some(PROBE_TIME))?;
     write!(stream, "GET {path} HTTP/1.1\r\nHost: {address}\r\n\r\n")?;
     let mut answer = String::new();
     let _read: usize = stream.read_to_string(&mut answer)?;
-    let status = answer.split(' ').nth(1).context("a status")?;
-    Ok(status.parse()?)
+    Ok(answer)
 }

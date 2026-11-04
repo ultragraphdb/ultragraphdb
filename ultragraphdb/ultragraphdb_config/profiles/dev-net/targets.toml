@@ -1,0 +1,5 @@
+# The `dev-net` profile: every role on one host over TCP, in clear text, for development only.
+[dev-net]
+frontend = "frontend.toml"
+storage = "storage.toml"
+compute = "compute.toml"

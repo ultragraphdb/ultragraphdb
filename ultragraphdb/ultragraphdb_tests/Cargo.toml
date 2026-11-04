@@ -37,6 +37,10 @@ ultragraphdb_store_quads = { workspace = true }
 ultragraphdb_protocol_transport = { workspace = true }
 ultragraphdb_protocol_wire = { workspace = true }
 ultragraphdb_common_role = { workspace = true }
+ultragraphdb_common_service = { workspace = true }
+sha2 = { workspace = true }
+ultragraphdb_transport_http_client = { workspace = true }
+ultragraphdb_transport_tls = { workspace = true, features = ["test-utils"] }
 ultragraphdb_storage_specs = { workspace = true }
 
 [[test]]

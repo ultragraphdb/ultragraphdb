@@ -5,20 +5,16 @@
 
 use compio::runtime::Runtime;
 use ultragraphdb_common_role::compute_role;
-use ultragraphdb_common_service::{Readiness, RoleStart, Stopping};
+use ultragraphdb_common_service::{Readiness, RoleIdentity, RoleStart, Stopping};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
-fn start(settings: &[(&str, &str)]) -> TestResult<RoleStart> {
-    let mut variables = vec![(
-        "ULTRAGRAPHDB_OBSERVABILITY_ADDRESS".to_string(),
-        "tcp://127.0.0.1:1".to_string(),
-    )];
-    variables.extend(
-        settings
-            .iter()
-            .map(|(name, value)| (name.to_string(), value.to_string())),
-    );
-    Ok(RoleStart::read(&[], variables)?)
+/// A start holding its observability address alone.
+fn start() -> TestResult<RoleStart> {
+    let text = "[observability]\naddress = \"tcp://127.0.0.1:1\"\n";
+    Ok(RoleStart::from_settings(
+        text.as_bytes(),
+        RoleIdentity::new("ci", "compute", 1),
+    )?)
 }
 
 /// A compute process names its address.
@@ -26,7 +22,7 @@ fn start(settings: &[(&str, &str)]) -> TestResult<RoleStart> {
 fn test_compute_names_its_address() -> TestResult {
     let refused = Runtime::new()?
         .block_on(compute_role(
-            start(&[])?,
+            start()?,
             Readiness::default(),
             Stopping::default(),
         ))

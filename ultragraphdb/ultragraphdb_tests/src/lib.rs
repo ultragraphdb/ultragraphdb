@@ -7,4 +7,4 @@
 
 mod utils;
 
-pub use crate::utils::http_status::http_status;
+pub use crate::utils::http_status::{http_body, http_status};

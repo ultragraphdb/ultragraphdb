@@ -4,21 +4,20 @@
  */
 
 use ultragraphdb_common_role::RoleCluster;
-use ultragraphdb_common_service::RoleStart;
+use ultragraphdb_common_service::{RoleIdentity, RoleStart};
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
-fn start(settings: &[(&str, String)]) -> TestResult<RoleStart> {
-    let mut variables = vec![(
-        "ULTRAGRAPHDB_OBSERVABILITY_ADDRESS".to_string(),
-        "tcp://127.0.0.1:1".to_string(),
-    )];
-    variables.extend(
-        settings
-            .iter()
-            .map(|(name, value)| (name.to_string(), value.clone())),
+/// A start holding `settings`, each a line of the `[cluster]` table.
+fn start(settings: &[String]) -> TestResult<RoleStart> {
+    let text = format!(
+        "[observability]\naddress = \"tcp://127.0.0.1:1\"\n[cluster]\n{}\n",
+        settings.join("\n")
     );
-    Ok(RoleStart::read(&[], variables)?)
+    Ok(RoleStart::from_settings(
+        text.as_bytes(),
+        RoleIdentity::new("ci", "storage", 1),
+    )?)
 }
 
 fn secret_file(name: &str) -> TestResult<String> {
@@ -32,14 +31,8 @@ fn secret_file(name: &str) -> TestResult<String> {
 fn test_a_missing_setting_is_named() -> TestResult {
     let file = secret_file("missing")?;
     for (settings, named) in [
-        (
-            vec![("ULTRAGRAPHDB_CLUSTER_ROLE_SECRET_FILE", file)],
-            "cluster.id",
-        ),
-        (
-            vec![("ULTRAGRAPHDB_CLUSTER_ID", "7".to_string())],
-            "cluster.role_secret_file",
-        ),
+        (vec![format!("role_secret_file = \"{file}\"")], "cluster.id"),
+        (vec!["id = 7".to_string()], "cluster.role_secret_file"),
     ] {
         let refused = RoleCluster::read(&start(&settings)?)
             .err()
@@ -55,14 +48,14 @@ fn test_a_missing_setting_is_named() -> TestResult {
 fn test_the_table_reaches_the_cluster() -> TestResult {
     let file = secret_file("read")?;
     let mut settings = vec![
-        ("ULTRAGRAPHDB_CLUSTER_ID", "7".to_string()),
-        ("ULTRAGRAPHDB_CLUSTER_ROLE_SECRET_FILE", file),
+        "id = 7".to_string(),
+        format!("role_secret_file = \"{file}\""),
     ];
     let cluster = RoleCluster::read(&start(&settings)?)?;
     assert_eq!(cluster.id(), 7);
     assert_eq!(cluster.secret().password(), "s3cret");
     assert_eq!(cluster.deadline().as_secs(), 60);
-    settings.push(("ULTRAGRAPHDB_CLUSTER_JOIN_DEADLINE_MS", "250".to_string()));
+    settings.push("join_deadline_ms = 250".to_string());
     assert_eq!(
         RoleCluster::read(&start(&settings)?)?
             .deadline()

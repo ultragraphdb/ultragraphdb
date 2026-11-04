@@ -95,7 +95,7 @@ pub fn check_config_service(label: &str, bytes: &[u8]) -> Vec<Defect> {
     if !defects.is_empty() {
         return defects;
     }
-    let Ok(config) = ServiceConfig::parse(Some(bytes), []) else {
+    let Ok(config) = ServiceConfig::parse(bytes) else {
         return defects;
     };
     let table = config.config();

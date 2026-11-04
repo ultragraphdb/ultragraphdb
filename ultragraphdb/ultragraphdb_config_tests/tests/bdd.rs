@@ -778,6 +778,51 @@ fn cli_warned(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
+#[when("the config service starts with `--config` naming a file that does not exist")]
+fn no_settings_file(w: &mut Steps) -> TestResult {
+    prepare(w)?;
+    std::fs::remove_file(w.folder.join("service.toml"))?;
+    start_refused(w)
+}
+
+#[then("it exits with code 78 and an error naming the file")]
+fn no_settings_file_named(w: &mut Steps) -> TestResult {
+    assert_eq!(exit_code(w)?, 78, "{}", w.log);
+    says(
+        &w.log,
+        &[&w.folder.join("service.toml").display().to_string()],
+    );
+    Ok(())
+}
+
+#[when("an administrator checks the `dev` and `dev-net` profiles")]
+fn profiles(w: &mut Steps) -> TestResult {
+    let binary = Path::new(ROOT_PATH).join(CLI);
+    for profile in ["dev", "dev-net"] {
+        let central = Path::new("ultragraphdb/ultragraphdb_config/profiles")
+            .join(profile)
+            .join("targets.toml");
+        let output = Command::new(&binary).arg(central).env_clear().output()?;
+        let text = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(output.status.code(), Some(0), "{profile}: {text}");
+        w.log.push_str(&format!("{profile}: {text}"));
+    }
+    Ok(())
+}
+
+#[then("each passes, listing its frontend, storage and compute")]
+fn profiles_pass(w: &mut Steps) {
+    says(
+        &w.log,
+        &[
+            "dev: ",
+            "dev-net: ",
+            "target dev: compute, frontend, storage",
+            "target dev-net: compute, frontend, storage",
+        ],
+    );
+}
+
 fn main() -> TestResult {
     futures::executor::block_on(
         Steps::cucumber()

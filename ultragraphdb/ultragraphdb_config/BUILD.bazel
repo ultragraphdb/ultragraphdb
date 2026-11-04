@@ -39,3 +39,10 @@ image_push(
     tag_file = ":ultragraphdb_config_tag",
     visibility = ["//visibility:public"],
 )
+
+# The development profiles: central files with their settings, which the container of group 11 seeds a service from.
+filegroup(
+    name = "profiles",
+    srcs = glob(["profiles/**/*.toml"]),
+    visibility = ["//visibility:public"],
+)

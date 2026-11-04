@@ -25,7 +25,11 @@ tracing = { workspace = true }
 ultragraphdb_common_service_config = { workspace = true }
 ultragraphdb_common_telemetry = { workspace = true }
 ultragraphdb_error_role = { workspace = true }
+ultragraphdb_protocol_transport = { workspace = true }
+ultragraphdb_protocol_transport_compio = { workspace = true }
+ultragraphdb_transport_http_client = { workspace = true }
 ultragraphdb_transport_http_server = { workspace = true }
+ultragraphdb_transport_tls = { workspace = true }
 
 [dev-dependencies]
 ultragraphdb_tool_bdd = { workspace = true }

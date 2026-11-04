@@ -56,11 +56,11 @@ Feature: The role binaries as processes
     Then it exits with code 0
 
   Scenario: An unknown setting stops the start
-    When the storage binary starts with a TOML file whose `[storage]` table holds the key `partiton_count`
+    When the storage binary receives settings whose `[storage]` table holds the key `partiton_count`
     Then it exits with code 78 and an error naming `partiton_count`
 
   Scenario: A configuration error exits with its code
-    When the storage binary starts with a setting out of its bounds
+    When the storage binary receives a setting out of its bounds
     Then it exits with code 78 and an error naming the setting and the bound
 
   Scenario: A pinned role reports what it holds
@@ -74,3 +74,7 @@ Feature: The role binaries as processes
   Scenario: The compute binary carries no storage engine
     When the compute binary's dependency graph is listed
     Then it names neither `ultragraphdb_store_kv` nor fjall
+
+  Scenario: A missing required setting stops the start
+    When the storage binary receives settings with no `storage.data_dir`
+    Then it exits with code 78 and an error naming `storage.data_dir`

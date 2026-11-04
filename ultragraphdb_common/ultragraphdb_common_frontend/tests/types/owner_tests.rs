@@ -31,8 +31,7 @@ async fn owner(
 ) -> Result<OwnerThread, RoleError> {
     let sequencer =
         SequencerConfig::new(1, 5).map_err(|error| RoleError::software(error.to_string()))?;
-    let config =
-        ServiceConfig::parse(None, []).map_err(|error| RoleError::software(error.to_string()))?;
+    let config = ServiceConfig::default();
     start_owner(
         config,
         CLUSTER,

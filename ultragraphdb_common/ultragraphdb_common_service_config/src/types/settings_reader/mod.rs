@@ -3,14 +3,9 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use std::collections::{BTreeMap, BTreeSet};
-
 use ultragraphdb_tool_toml::{TomlDocument, TomlError, TomlErrorEnum};
 
 use crate::errors::service_config_error::{ServiceConfigError, ServiceConfigErrorEnum};
-
-/// What a variable overriding a setting begins with.
-const VARIABLE_PREFIX: &str = "ULTRAGRAPHDB_";
 
 /// The tables a settings file may hold, each mirrored by one type.
 const TABLES: [&str; 11] = [
@@ -27,38 +22,27 @@ const TABLES: [&str; 11] = [
     "storage",
 ];
 
-/// One start's reading of its settings: each setting taken from the file, then overridden by its variable, so that
-/// [`SettingsReader::finish`] can refuse whatever no read took.
+/// One reading of settings: each taken from the document, so that [`SettingsReader::finish`] can refuse whatever no read
+/// took.
 pub(crate) struct SettingsReader {
-    document: Option<TomlDocument>,
-    variables: BTreeMap<String, String>,
-    taken: BTreeSet<String>,
+    document: TomlDocument,
     /// When collecting, every refusal met, the read refused being absent.
     collected: Option<Vec<ServiceConfigError>>,
 }
 
 impl SettingsReader {
-    /// The reading of the file holding `bytes`, if one is named, and the environment `variables`. The variables that
-    /// do not begin with the prefix belong to someone else and are dropped.
-    pub(crate) fn new(
-        bytes: Option<&[u8]>,
-        variables: impl IntoIterator<Item = (String, String)>,
-    ) -> Result<Self, ServiceConfigError> {
-        let document = bytes.map(TomlDocument::parse).transpose()?;
+    /// The reading of `bytes`.
+    pub(crate) fn new(bytes: &[u8]) -> Result<Self, ServiceConfigError> {
+        let document = TomlDocument::parse(bytes)?;
         if let Some(unknown) = document
+            .tables()
             .iter()
-            .flat_map(TomlDocument::tables)
             .find(|table| !table.name().is_empty() && !TABLES.contains(&table.name()))
         {
             return Err(ServiceConfigError::unknown_table(unknown.name()));
         }
         Ok(Self {
             document,
-            variables: variables
-                .into_iter()
-                .filter(|(name, _)| name.starts_with(VARIABLE_PREFIX))
-                .collect(),
-            taken: BTreeSet::new(),
             collected: None,
         })
     }
@@ -74,9 +58,7 @@ impl SettingsReader {
             .map(|table| ServiceConfigError::unknown_table(table.name()))
             .collect();
         Ok(Self {
-            document: Some(document),
-            variables: BTreeMap::new(),
-            taken: BTreeSet::new(),
+            document,
             collected: Some(collected),
         })
     }
@@ -98,8 +80,8 @@ impl SettingsReader {
         let known = |table: &str| table.is_empty() || TABLES.contains(&table);
         collected.extend(
             self.document
-                .iter()
-                .flat_map(TomlDocument::unread)
+                .unread()
+                .into_iter()
                 .filter(|(table, _)| known(table))
                 .map(|(table, key)| {
                     ServiceConfigError(ServiceConfigErrorEnum::Toml(TomlError::unread_key(
@@ -110,16 +92,13 @@ impl SettingsReader {
         collected
     }
 
-    /// The string setting `key` of `table`; `None` when neither the file nor the environment names it.
+    /// The string setting `key` of `table`; `None` when the settings do not name it.
     pub(crate) fn string(
         &mut self,
         table: &str,
         key: &str,
     ) -> Result<Option<String>, ServiceConfigError> {
-        let in_file = self.in_file(|document| document.string(table, key))?;
-        Ok(self
-            .take(table, key)
-            .map_or(in_file, |(_, value)| Some(value)))
+        self.read(|document| document.string(table, key))
     }
 
     /// The boolean setting `key` of `table`.
@@ -128,17 +107,7 @@ impl SettingsReader {
         table: &str,
         key: &str,
     ) -> Result<Option<bool>, ServiceConfigError> {
-        let in_file = self.in_file(|document| document.boolean(table, key))?;
-        match self.take(table, key) {
-            None => Ok(in_file),
-            Some((_, value)) if value == "true" => Ok(Some(true)),
-            Some((_, value)) if value == "false" => Ok(Some(false)),
-            Some((variable, value)) => Err(ServiceConfigError::wrong_kind_variable(
-                variable,
-                value,
-                "a boolean",
-            )),
-        }
+        self.read(|document| document.boolean(table, key))
     }
 
     /// The integer setting `key` of `table`, as a `u32`.
@@ -181,61 +150,24 @@ impl SettingsReader {
         }
     }
 
-    /// Ends the reading: a setting of the file or a variable no read took is refused.
+    /// Ends the reading: a setting no read took is refused.
     pub(crate) fn finish(self) -> Result<(), ServiceConfigError> {
-        if let Some(document) = self.document {
-            document.finish()?;
-        }
-        match self
-            .variables
-            .keys()
-            .find(|name| !self.taken.contains(*name))
-        {
-            Some(unknown) => Err(ServiceConfigError::unknown_variable(unknown)),
-            None => Ok(()),
-        }
+        Ok(self.document.finish()?)
     }
 
     fn integer(&mut self, table: &str, key: &str) -> Result<Option<i64>, ServiceConfigError> {
-        let in_file = self.in_file(|document| document.integer(table, key))?;
-        match self.take(table, key) {
-            None => Ok(in_file),
-            Some((variable, value)) => match value.parse() {
-                Ok(number) => Ok(Some(number)),
-                Err(_) => Err(ServiceConfigError::wrong_kind_variable(
-                    variable,
-                    value,
-                    "an integer",
-                )),
-            },
-        }
+        self.read(|document| document.integer(table, key))
     }
 
-    /// What `read` takes from the file, a setting it does not hold being absent. Taking it even when a variable
-    /// overrides it checks its kind, and marks it read.
-    fn in_file<T>(
+    /// What `read` takes from the document, a setting it does not hold being absent.
+    fn read<T>(
         &mut self,
         read: impl FnOnce(&mut TomlDocument) -> Result<T, TomlError>,
     ) -> Result<Option<T>, ServiceConfigError> {
-        let Some(document) = self.document.as_mut() else {
-            return Ok(None);
-        };
-        match read(document) {
+        match read(&mut self.document) {
             Ok(value) => Ok(Some(value)),
             Err(TomlError(TomlErrorEnum::Missing { .. })) => Ok(None),
             Err(error) => self.refuse(error.into()),
         }
-    }
-
-    /// The variable overriding `table.key`, with its value, recorded as taken whether set or not.
-    fn take(&mut self, table: &str, key: &str) -> Option<(String, String)> {
-        let name = format!(
-            "{VARIABLE_PREFIX}{}_{}",
-            table.to_ascii_uppercase(),
-            key.to_ascii_uppercase()
-        );
-        let value = self.variables.get(&name).cloned();
-        let _new: bool = self.taken.insert(name.clone());
-        value.map(|value| (name, value))
     }
 }

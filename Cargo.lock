@@ -3010,8 +3010,12 @@ dependencies = [
  "ultragraphdb_common_service_config",
  "ultragraphdb_common_telemetry",
  "ultragraphdb_error_role",
+ "ultragraphdb_protocol_transport",
+ "ultragraphdb_protocol_transport_compio",
  "ultragraphdb_tool_bdd",
+ "ultragraphdb_transport_http_client",
  "ultragraphdb_transport_http_server",
+ "ultragraphdb_transport_tls",
 ]
 
 [[package]]
@@ -3557,9 +3561,11 @@ dependencies = [
  "futures",
  "oxrdf",
  "service_utils",
+ "sha2",
  "ultragraphdb_client_compio",
  "ultragraphdb_cluster_placement",
  "ultragraphdb_common_role",
+ "ultragraphdb_common_service",
  "ultragraphdb_compute_specs",
  "ultragraphdb_core_ids",
  "ultragraphdb_frontend_specs",
@@ -3569,6 +3575,8 @@ dependencies = [
  "ultragraphdb_storage_specs",
  "ultragraphdb_store_quads",
  "ultragraphdb_tool_bdd",
+ "ultragraphdb_transport_http_client",
+ "ultragraphdb_transport_tls",
 ]
 
 [[package]]

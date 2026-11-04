@@ -14,8 +14,8 @@ use compio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use compio::net::TcpStream;
 use compio::runtime::{JoinHandle, Runtime, spawn};
 use ultragraphdb_common_service::{
-    CpuBinding, Readiness, RoleKind, RoleStart, Stopping, binding, exit_status, run_service,
-    serve_service,
+    CpuBinding, Readiness, RoleIdentity, RoleKind, RoleStart, ServiceEnd, Stopping, binding,
+    exit_status, run_service, serve_service,
 };
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
@@ -23,18 +23,24 @@ use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 const HEALTH: &str = "GET /health HTTP/1.1\r\n\r\n";
 const READY: &str = "GET /ready HTTP/1.1\r\n\r\n";
 
-/// A configuration refused stops the role before it binds or installs anything.
+/// A refused start stops the role before it binds or installs anything: no environment, or any argument.
 #[test]
 fn test_a_refused_start_returns_its_error() -> TestResult {
-    let refused = run_service(
-        RoleKind::Storage,
-        &[],
-        [],
-        |_start, _readiness, _stopping| async { Ok(()) },
-    )
-    .err()
-    .context("a refusal")?;
-    assert_eq!(refused.exit_code(), RoleError::EX_CONFIG);
+    for (args, named) in [
+        (vec![], "ULTRAGRAPHDB_CONFIG_URL"),
+        (vec!["--config".to_string()], "--config"),
+    ] {
+        let refused = run_service(
+            RoleKind::Storage,
+            &args,
+            [],
+            |_start, _readiness, _stopping| async { Ok(()) },
+        )
+        .err()
+        .context("a refusal")?;
+        assert_eq!(refused.exit_code(), RoleError::EX_CONFIG);
+        assert!(refused.to_string().contains(named), "{refused}");
+    }
     Ok(())
 }
 
@@ -74,9 +80,10 @@ fn start_on_free_port() -> TestResult<RoleStart> {
         .local_addr()?
         .port();
     let address = format!("tcp://127.0.0.1:{port}");
-    Ok(RoleStart::read(
-        &[],
-        [("ULTRAGRAPHDB_OBSERVABILITY_ADDRESS".to_string(), address)],
+    let text = format!("[observability]\naddress = \"{address}\"\n");
+    Ok(RoleStart::from_settings(
+        text.as_bytes(),
+        RoleIdentity::new("ci", "storage", 1),
     )?)
 }
 
@@ -95,7 +102,7 @@ fn serving(
     kind: RoleKind,
     start: &RoleStart,
     ready: bool,
-) -> (Arc<AtomicBool>, JoinHandle<Result<(), RoleError>>) {
+) -> (Arc<AtomicBool>, JoinHandle<Result<ServiceEnd, RoleError>>) {
     let stop = Arc::new(AtomicBool::new(false));
     let (owned, flag) = (start.clone(), Arc::clone(&stop));
     let task = spawn(async move {
@@ -105,12 +112,13 @@ fn serving(
 }
 
 /// Stops the role and checks it ended cleanly.
-async fn stopped(stop: &AtomicBool, task: JoinHandle<Result<(), RoleError>>) -> TestResult {
+async fn stopped(stop: &AtomicBool, task: JoinHandle<Result<ServiceEnd, RoleError>>) -> TestResult {
     stop.store(true, Ordering::Release);
     let outcome = task
         .await
         .map_err(|_| TestError::new("the role panicked"))?;
-    Ok(outcome?)
+    assert_eq!(outcome?, ServiceEnd::Stopped);
+    Ok(())
 }
 
 /// Connects to the role, retrying while its listener is not up yet.
@@ -196,10 +204,8 @@ fn test_a_truncated_request_is_answered_and_closed() -> TestResult {
 fn test_an_address_taken_is_unavailable() -> TestResult {
     let held = std::net::TcpListener::bind("127.0.0.1:0")?;
     let address = format!("tcp://{}", held.local_addr()?);
-    let start = RoleStart::read(
-        &[],
-        [("ULTRAGRAPHDB_OBSERVABILITY_ADDRESS".to_string(), address)],
-    )?;
+    let text = format!("[observability]\naddress = \"{address}\"\n");
+    let start = RoleStart::from_settings(text.as_bytes(), RoleIdentity::new("ci", "storage", 1))?;
     let runtime = Runtime::new()?;
     let stop = AtomicBool::new(false);
     let refused = runtime
@@ -263,7 +269,7 @@ fn test_a_role_working_at_the_stop_ends_before_the_service() -> TestResult {
         let ended = service
             .await
             .map_err(|_| TestError::new("the service panicked"))?;
-        ended?;
+        assert_eq!(ended?, ServiceEnd::Stopped);
         assert!(
             flushed.load(Ordering::Acquire),
             "the role flushed before the service ended"

@@ -7,7 +7,7 @@ use std::future::Future;
 use std::time::Instant;
 
 use compio::runtime::spawn;
-use ultragraphdb_common_service::{Readiness, RoleKind, RoleStart, Stopping};
+use ultragraphdb_common_service::{Readiness, RoleKind, RoleStart, Stopping, listen};
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_transport::{Address, Endpoint, ReceivedFrame, TransportError};
 use ultragraphdb_protocol_wire::{BodyView, ErrorCode, ErrorReply, Join, Members, MembersView};
@@ -17,7 +17,7 @@ use crate::types::role_client::RoleClient;
 use crate::types::role_cluster::RoleCluster;
 use crate::types::role_credentials::RoleCredentials;
 use crate::types::role_secret::ROLE_ITERATIONS;
-use crate::utils::serve::{Server, listen, serve_connection};
+use crate::utils::serve::{Server, serve_connection};
 
 /// How long a refused or failed attempt waits before the next.
 const RETRY: std::time::Duration = std::time::Duration::from_millis(100);

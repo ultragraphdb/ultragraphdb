@@ -86,7 +86,7 @@ fn read_start(args: &[String]) -> Result<ServiceStart, RoleError> {
     if !defects.is_empty() {
         return Err(RoleError::configuration(listing(&defects)));
     }
-    let config = ServiceConfig::parse(Some(&bytes), [])
+    let config = ServiceConfig::parse(&bytes)
         .map_err(|error| RoleError::configuration(format!("{file}: {error}")))?;
     let table = config.config();
     let setting = |value: Option<&str>, name: &str| {

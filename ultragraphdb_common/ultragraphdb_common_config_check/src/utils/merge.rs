@@ -70,7 +70,7 @@ fn instance(files: &TargetFiles, key: &str, role: &'static str) -> Instance {
     }
     let rendered = render(&merged);
     let config = parsed
-        .then(|| ServiceConfig::parse(Some(rendered.as_bytes()), []).ok())
+        .then(|| ServiceConfig::parse(rendered.as_bytes()).ok())
         .flatten();
     Instance {
         name: key.to_string(),

@@ -9,16 +9,7 @@ use ultragraphdb_common_service_config::{ServiceConfigError, ServiceConfigErrorE
 #[test]
 fn test_each_refusal_names_what_it_refuses() {
     let cases = [
-        (ServiceConfigError::unreadable("/etc/x", "gone"), "/etc/x"),
         (ServiceConfigError::unknown_table("storge"), "storge"),
-        (
-            ServiceConfigError::unknown_variable("ULTRAGRAPHDB_X"),
-            "ULTRAGRAPHDB_X",
-        ),
-        (
-            ServiceConfigError::wrong_kind_variable("ULTRAGRAPHDB_Y", "many", "an integer"),
-            "ULTRAGRAPHDB_Y",
-        ),
         (
             ServiceConfigError::out_of_range("storage", "partition_count", -1, 7),
             "storage.partition_count",

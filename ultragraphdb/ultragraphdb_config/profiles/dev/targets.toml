@@ -1,0 +1,5 @@
+# The `dev` profile: every role on one host over Unix sockets, in clear text, for development only.
+[dev]
+frontend = "frontend.toml"
+storage = "storage.toml"
+compute = "compute.toml"

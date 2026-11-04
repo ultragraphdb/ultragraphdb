@@ -60,14 +60,7 @@ fn test_authentication_asks_the_owner_for_the_verifier() -> TestResult {
             "alice".to_string(),
             ScramVerifier::derive("pw", b"alice's salt", ITERATIONS)?,
         )];
-        let owner = start_owner(
-            ServiceConfig::parse(None, [])?,
-            CLUSTER,
-            data,
-            start,
-            principals,
-        )
-        .await?;
+        let owner = start_owner(ServiceConfig::default(), CLUSTER, data, start, principals).await?;
         let address = endpoint(owner.handle().clone()).await?;
         let mut alice = RoleClient::dial(&address, CLUSTER, "alice", "pw").await?;
         let asked = alice

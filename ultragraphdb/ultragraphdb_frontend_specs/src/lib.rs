@@ -20,29 +20,43 @@ pub const ROLE_ADDRESS: &str = "127.0.0.1:17081";
 /// The address clients connect to on one host.
 pub const CLIENT_ADDRESS: &str = "127.0.0.1:17080";
 
-/// The environment that starts it on one host, as `ULTRAGRAPHDB_<TABLE>_<KEY>` variables, and one partition to form the
+/// The settings that start it on one host, each named `table.key`, and one partition to form the
 /// placement over. The role secret's file and the data directory are the starter's: a deployment's own, which no specification names.
 #[must_use]
 pub fn settings() -> Vec<(String, String)> {
     [
-        (
-            "ULTRAGRAPHDB_OBSERVABILITY_ADDRESS",
-            format!("tcp://{OBSERVABILITY}"),
-        ),
-        ("ULTRAGRAPHDB_CLUSTER_ID", CLUSTER.to_string()),
-        ("ULTRAGRAPHDB_CLUSTER_PARTITION_COUNT", "1".to_string()),
-        (
-            "ULTRAGRAPHDB_FRONTEND_ROLE_ADDRESS",
-            format!("tcp://{ROLE_ADDRESS}"),
-        ),
-        (
-            "ULTRAGRAPHDB_ENDPOINT_ADDRESS",
-            format!("tcp://{CLIENT_ADDRESS}"),
-        ),
-        ("ULTRAGRAPHDB_ENDPOINT_PLAINTEXT", "true".to_string()),
-        ("ULTRAGRAPHDB_SEQUENCER_EPOCH_MS_MIN", "1".to_string()),
-        ("ULTRAGRAPHDB_SEQUENCER_EPOCH_MS_MAX", "20".to_string()),
+        ("observability.address", format!("tcp://{OBSERVABILITY}")),
+        ("cluster.id", CLUSTER.to_string()),
+        ("cluster.partition_count", "1".to_string()),
+        ("frontend.role_address", format!("tcp://{ROLE_ADDRESS}")),
+        ("endpoint.address", format!("tcp://{CLIENT_ADDRESS}")),
+        ("endpoint.plaintext", "true".to_string()),
+        ("sequencer.epoch_ms_min", "1".to_string()),
+        ("sequencer.epoch_ms_max", "20".to_string()),
     ]
     .map(|(name, value)| (name.to_string(), value))
     .to_vec()
+}
+
+/// `settings`, each named `table.key`, as the TOML a settings file holds: a value of digits an integer, `true` or `false` a
+/// boolean, and anything else a string.
+#[must_use]
+pub fn render(settings: &[(String, String)]) -> String {
+    let mut tables: std::collections::BTreeMap<&str, String> = std::collections::BTreeMap::new();
+    for (name, value) in settings {
+        let (table, key) = name.split_once('.').unwrap_or(("", name));
+        let bare = value == "true"
+            || value == "false"
+            || (!value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()));
+        let written = if bare {
+            format!("{key} = {value}\n")
+        } else {
+            format!("{key} = \"{value}\"\n")
+        };
+        tables.entry(table).or_default().push_str(&written);
+    }
+    tables
+        .iter()
+        .map(|(table, keys)| format!("[{table}]\n{keys}"))
+        .collect()
 }

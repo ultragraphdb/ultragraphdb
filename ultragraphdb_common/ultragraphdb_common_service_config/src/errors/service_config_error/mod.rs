@@ -13,33 +13,12 @@ use ultragraphdb_tool_toml::TomlError;
 /// `.0`; branch on it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ServiceConfigErrorEnum {
-    /// The named file could not be read.
-    Unreadable {
-        /// The file, as named.
-        file: String,
-        /// Why the operating system refused it.
-        reason: String,
-    },
     /// The file's TOML was refused, or a setting in it is unread or of the wrong kind.
     Toml(TomlError),
     /// The file holds a table no type mirrors.
     UnknownTable {
         /// The table, as the file names it.
         table: String,
-    },
-    /// A variable beginning `ULTRAGRAPHDB_` names no setting.
-    UnknownVariable {
-        /// The variable.
-        variable: String,
-    },
-    /// A variable's value is not of its setting's kind.
-    WrongKindVariable {
-        /// The variable.
-        variable: String,
-        /// The value it holds.
-        value: String,
-        /// The kind the setting takes.
-        expected: &'static str,
     },
     /// A value does not fit its setting's field.
     OutOfRange {
@@ -71,38 +50,10 @@ pub enum ServiceConfigErrorEnum {
 pub struct ServiceConfigError(pub ServiceConfigErrorEnum);
 
 impl ServiceConfigError {
-    /// The refusal of the file `file`, which could not be read for `reason`.
-    pub fn unreadable(file: impl Into<String>, reason: impl Into<String>) -> Self {
-        Self(ServiceConfigErrorEnum::Unreadable {
-            file: file.into(),
-            reason: reason.into(),
-        })
-    }
-
     /// The refusal of the table `table`, which no type mirrors.
     pub fn unknown_table(table: impl Into<String>) -> Self {
         Self(ServiceConfigErrorEnum::UnknownTable {
             table: table.into(),
-        })
-    }
-
-    /// The refusal of `variable`, which names no setting.
-    pub fn unknown_variable(variable: impl Into<String>) -> Self {
-        Self(ServiceConfigErrorEnum::UnknownVariable {
-            variable: variable.into(),
-        })
-    }
-
-    /// The refusal of `variable`, whose `value` is not `expected`.
-    pub fn wrong_kind_variable(
-        variable: impl Into<String>,
-        value: impl Into<String>,
-        expected: &'static str,
-    ) -> Self {
-        Self(ServiceConfigErrorEnum::WrongKindVariable {
-            variable: variable.into(),
-            value: value.into(),
-            expected,
         })
     }
 

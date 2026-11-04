@@ -95,3 +95,11 @@ Feature: The config service and its CLI as processes
   Scenario: A stray file is pointed out
     When the directory holds `ci_storge_1.toml`, which no target declares
     Then the check warns naming the file, and its exit code is unchanged
+
+  Scenario: A bad config-service file stops its start
+    When the config service starts with `--config` naming a file that does not exist
+    Then it exits with code 78 and an error naming the file
+
+  Scenario: The profiles ship and pass
+    When an administrator checks the `dev` and `dev-net` profiles
+    Then each passes, listing its frontend, storage and compute

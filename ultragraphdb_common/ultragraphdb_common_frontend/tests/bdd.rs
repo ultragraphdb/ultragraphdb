@@ -63,7 +63,7 @@ async fn owner(directory: &std::path::Path, sessions: u32) -> TestResult<OwnerTh
         4,
     );
     Ok(start_owner(
-        ServiceConfig::parse(None, [])?,
+        ServiceConfig::default(),
         CLUSTER,
         directory.to_path_buf(),
         start,
@@ -366,7 +366,7 @@ fn close_request(w: &mut Steps) -> TestResult {
     Runtime::new()?.block_on(async {
         let start = OwnerStart::new(MetadataConfig::new(), SequencerConfig::new(1, 10_000)?, 1);
         let running = start_owner(
-            ServiceConfig::parse(None, [])?,
+            ServiceConfig::default(),
             CLUSTER,
             directory.clone(),
             start,

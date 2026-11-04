@@ -230,7 +230,7 @@ naming it, with code 78:
 | `ULTRAGRAPHDB_CONFIG_KEY_FILE` | the file holding the read key | yes |
 | `ULTRAGRAPHDB_CONFIG_CA_FILE` | the certificates that verify an `https` service | with `https` |
 
-A role SHALL ask the service for its instance's active revision, retrying an unreachable service until 60 s have passed,
+A role executing itself to load a revision SHALL set `ULTRAGRAPHDB_CONFIG_REVISION` on itself, which nothing else sets and a start takes in place of the active revision. A role SHALL ask the service for its instance's active revision, retrying an unreachable service until 60 s have passed,
 then exit with code 69 and an error naming the URL, the target, the instance and the last failure. It SHALL NOT retry a
 refusal: a key refused, or a target or instance unknown, SHALL exit with code 78 at once, since waiting mends neither. It
 SHALL parse what it receives by `ServiceConfig`, whose tables and keys it holds, and check that the settings its role
@@ -263,7 +263,7 @@ settings, since its addresses are among them, so its log and its exit code are t
 
 ### Requirement: A role reports its revision and loads another by restarting
 A role's `/health` SHALL answer with its target, its instance and the revision it runs. A role SHALL hold settings fixed for
-its process's life, and SHALL serve `POST /admin/load-config`, naming a revision, on a listener of its own at `[admin]
+its process's life, and SHALL serve `POST /admin/load-config`, whose body holds a revision's decimal number, on a listener of its own at `[admin]
 address`, under the same TLS rule as the service's, authorising the admin key against the SHA-256 digest its `[admin] key_sha256`
 holds, so no node holds a key that can change settings. A role taking the request
 SHALL fetch that revision of its instance and check it as at a start, and on any failure SHALL refuse the request and

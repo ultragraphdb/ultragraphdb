@@ -8,7 +8,7 @@ use compio::io::{AsyncReadExt, AsyncWriteExt};
 use compio::net::{TcpListener, TcpStream};
 use compio::runtime::{Runtime, spawn};
 use std::time::Duration;
-use ultragraphdb_common_service::{HealthService, Readiness};
+use ultragraphdb_common_service::{HealthService, Readiness, RoleIdentity};
 use ultragraphdb_tool_bdd::TestResult;
 use ultragraphdb_transport_http_server::{HttpLimits, serve_http};
 
@@ -37,9 +37,14 @@ async fn asked(service: &HealthService, request: &str) -> TestResult<String> {
 fn test_health_answers_at_once_and_ready_only_when_ready() -> TestResult {
     Runtime::new()?.block_on(async {
         let readiness = Readiness::default();
-        let service = HealthService::new(readiness.clone());
+        let identity = RoleIdentity::new("ci", "storage_1", 7);
+        let service = HealthService::new(readiness.clone(), &identity);
         let status = |text: String| text.split(' ').nth(1).map(str::to_string);
         let health = asked(&service, "GET /health HTTP/1.1\r\n\r\n").await?;
+        assert!(
+            health.ends_with("target ci, instance storage_1, revision 7\n"),
+            "{health}"
+        );
         assert_eq!(status(health).as_deref(), Some("200"));
         let waiting = asked(&service, "GET /ready HTTP/1.1\r\n\r\n").await?;
         assert_eq!(status(waiting).as_deref(), Some("503"));

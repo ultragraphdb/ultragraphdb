@@ -11,7 +11,7 @@ use ultragraphdb_tool_bdd::TestResult;
 
 #[test]
 fn test_the_settings_are_ones_the_configuration_takes() -> TestResult {
-    let config = ServiceConfig::parse(None, settings())?;
+    let config = ServiceConfig::parse(ultragraphdb_frontend_specs::render(&settings()).as_bytes())?;
     let address = config.observability().address().map(ToString::to_string);
     assert_eq!(address, Some(format!("tcp://{OBSERVABILITY}")));
     Ok(())

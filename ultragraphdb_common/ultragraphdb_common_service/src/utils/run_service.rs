@@ -6,7 +6,8 @@
 use std::cell::Cell;
 use std::collections::{BTreeSet, HashSet};
 use std::future::Future;
-use std::process::ExitCode;
+use std::os::unix::process::CommandExt;
+use std::process::{Command, ExitCode};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -14,18 +15,24 @@ use std::time::Duration;
 
 use compio::net::TcpListener;
 use compio::runtime::{Runtime, spawn};
-use ultragraphdb_common_service_config::ServiceConfig;
+use ultragraphdb_common_service_config::{EndpointSecurity, ServiceConfig, ServiceConfigError};
 use ultragraphdb_common_telemetry::{LogFormat, TelemetryConfig, init};
 use ultragraphdb_error_role::RoleError;
-use ultragraphdb_transport_http_server::{HttpLimits, serve_http};
+use ultragraphdb_transport_http_server::{BearerKey, HttpLimits, serve_http, serve_listener};
+use ultragraphdb_transport_tls::{CertificateChainFile, PrivateKeyFile, TlsAcceptor};
 
+use crate::types::admin_service::AdminService;
+use crate::types::bootstrap::{Bootstrap, REVISION};
 use crate::types::cpu_binding::CpuBinding;
 use crate::types::health_service::HealthService;
 use crate::types::readiness::Readiness;
 use crate::types::role_kind::RoleKind;
 use crate::types::role_start::RoleStart;
+use crate::types::service_end::ServiceEnd;
 use crate::types::stopping::Stopping;
 use crate::utils::cpu_list::allowed_in_status;
+use crate::utils::fetch_settings::fetch_settings;
+use crate::utils::listen::listen;
 
 /// How often the role looks at whether a signal arrived: the flag is all a handler may safely set.
 const SIGNAL_POLL: Duration = Duration::from_millis(20);
@@ -36,17 +43,27 @@ const REQUEST_TIME: Duration = Duration::from_secs(5);
 /// How many looks a stopping role gets: 60 s of `SIGNAL_POLL`.
 const SHUTDOWN_POLLS: u32 = 3_000;
 
+/// How long a load's answer has to reach whoever asked, before the role stops.
+const LOAD_REPLY_TIME: Duration = Duration::from_millis(50);
+
+/// The most an admin request holds: a revision's number.
+const ADMIN_BYTES: usize = 64;
+
+/// How long a role asks an unreachable config service before it gives up.
+const CONFIG_PATIENCE: Duration = Duration::from_secs(60);
+
 const SIGNAL_INT: i32 = 2;
 const SIGNAL_TERM: i32 = 15;
 
-/// Runs the role `kind` with the arguments `args`, the program's name left out, until SIGTERM or SIGINT or until
-/// `role`, its work, fails. A `role` that ends without failing has started what it serves, which runs on. Past a
+/// Runs the role `kind`, its settings fetched from the config service the environment `variables` name, until SIGTERM or
+/// SIGINT or until `role`, its work, fails. It takes no arguments, `args` being the program's name left out. A `role` that ends without failing has started what it serves, which runs on. Past a
 /// signal, [`Stopping`] says so, and a `role` still working has until its limit to flush and end.
 ///
 /// # Errors
 ///
-/// [`RoleError::configuration`] for a refused configuration; [`RoleError::unavailable`] when the runtime, the
-/// handlers or the observability listener cannot be set up; whatever `role` fails with.
+/// [`RoleError::configuration`] for an argument, a variable, or settings refused; [`RoleError::unavailable`] when the config
+/// service does not answer within a minute, or the runtime, the handlers or the observability listener cannot be set up;
+/// whatever `role` fails with.
 pub fn run_service<R, F>(
     kind: RoleKind,
     args: &[String],
@@ -57,16 +74,51 @@ where
     R: FnOnce(RoleStart, Readiness, Stopping) -> F,
     F: Future<Output = Result<(), RoleError>> + 'static,
 {
-    let start = RoleStart::read(args, variables)?;
-    let _telemetry = init(&TelemetryConfig::new("info", LogFormat::Plain))
+    if let Some(argument) = args.first() {
+        return Err(RoleError::configuration(format!(
+            "a role takes no arguments, not {argument}: its environment names the config service, which holds its settings"
+        )));
+    }
+    let bootstrap = Bootstrap::read(kind, variables)?;
+    let telemetry = init(&TelemetryConfig::new("info", LogFormat::Plain))
         .map_err(|error| RoleError::unavailable(format!("telemetry: {error}")))?;
     let stop = stop_flag()?;
+    // Nothing listens before this: the role's addresses are among the settings it fetches.
+    let fetching =
+        Runtime::new().map_err(|error| RoleError::unavailable(format!("the runtime: {error}")))?;
+    let fetched = fetching.block_on(fetch_settings(&bootstrap, CONFIG_PATIENCE, &stop))?;
+    drop(fetching);
+    let Some(start) = fetched else {
+        return Ok(());
+    };
     let (runtime, cpu) = core_runtime(start.config(), 0)?;
-    runtime.block_on(serve_service(kind, &start, cpu, &stop, role))
+    let ended = runtime.block_on(serve_service(kind, &start, cpu, &stop, role))?;
+    drop(runtime);
+    drop(telemetry);
+    match ended {
+        ServiceEnd::Stopped => Ok(()),
+        ServiceEnd::Load(revision) => Err(restart_at(revision)),
+    }
 }
 
-/// Serves `/health` and `/ready` for the role `kind`, and runs `role`, which sets its readiness, until `stop` is set or
-/// `role` fails.
+/// Executes this binary again in this process, so a supervisor sees no exit, starting at `revision`: what comes back is why it
+/// could not. Every descriptor this process holds closes on the execution.
+fn restart_at(revision: u64) -> RoleError {
+    let failed = |why: &dyn std::fmt::Display| {
+        RoleError::unavailable(format!("restarting at revision {revision}: {why}"))
+    };
+    match std::env::current_exe() {
+        Ok(program) => failed(
+            &Command::new(program)
+                .env(REVISION, revision.to_string())
+                .exec(),
+        ),
+        Err(error) => failed(&error),
+    }
+}
+
+/// Serves `/health` and `/ready` for the role `kind`, and `/admin/load-config` when its settings name that listener, and runs
+/// `role`, which sets its readiness, until `stop` is set, a load is taken, or `role` fails.
 ///
 /// # Errors
 ///
@@ -77,18 +129,26 @@ pub async fn serve_service<R, F>(
     cpu: CpuBinding,
     stop: &AtomicBool,
     role: R,
-) -> Result<(), RoleError>
+) -> Result<ServiceEnd, RoleError>
 where
     R: FnOnce(RoleStart, Readiness, Stopping) -> F,
     F: Future<Output = Result<(), RoleError>> + 'static,
 {
+    let load = Rc::new(Cell::new(None));
+    if let Some(bootstrap) = start.bootstrap() {
+        serve_admin(start.config(), bootstrap, Rc::clone(&load)).await?;
+    }
     let readiness = Readiness::default();
     let address = start.observability();
     let listener = TcpListener::bind(address)
         .await
         .map_err(|error| RoleError::unavailable(format!("listening at {address}: {error}")))?;
-    tracing::info!(role = %kind, %address, "{cpu}");
-    spawn(accept(listener, readiness.clone())).detach();
+    tracing::info!(role = %kind, %address, running = %start.identity(), "{cpu}");
+    spawn(accept(
+        listener,
+        HealthService::new(readiness.clone(), start.identity()),
+    ))
+    .detach();
     // Shared with the one task on this runtime that fills them.
     let ended = Rc::new(Cell::new(None));
     let stopping = Stopping::default();
@@ -96,7 +156,7 @@ where
     let outcome = Rc::clone(&ended);
     spawn(async move { outcome.set(Some(working.await)) }).detach();
     let mut served = false;
-    while !stop.load(Ordering::Acquire) {
+    while !stop.load(Ordering::Acquire) && load.get().is_none() {
         match ended.take() {
             Some(Err(error)) => return Err(error),
             Some(Ok(())) => served = true,
@@ -104,15 +164,20 @@ where
         }
         compio::time::sleep(SIGNAL_POLL).await;
     }
-    tracing::info!(role = %kind, "stopping");
+    // The request that asked for the load has its answer on the wire before anything stops.
+    if load.get().is_some() {
+        compio::time::sleep(LOAD_REPLY_TIME).await;
+    }
+    let end = load.get().map_or(ServiceEnd::Stopped, ServiceEnd::Load);
+    tracing::info!(role = %kind, ?end, "stopping");
     stopping.set();
     if served {
-        return Ok(());
+        return Ok(end);
     }
     // A role still working flushes what it holds before it ends; one that does not end in time is left to the exit.
     for _ in 0..SHUTDOWN_POLLS {
         match ended.take() {
-            Some(finished) => return finished,
+            Some(finished) => return finished.map(|()| end),
             None => compio::time::sleep(SIGNAL_POLL).await,
         }
     }
@@ -197,9 +262,8 @@ pub fn binding(
 }
 
 /// Answers every connection on its own task; a failed accept costs that connection alone.
-async fn accept(listener: TcpListener, readiness: Readiness) {
+async fn accept(listener: TcpListener, service: HealthService) {
     let limits = HttpLimits::new(0, REQUEST_TIME);
-    let service = HealthService::new(readiness);
     loop {
         match listener.accept().await {
             Ok((stream, _peer)) => {
@@ -209,4 +273,45 @@ async fn accept(listener: TcpListener, readiness: Readiness) {
             Err(error) => tracing::warn!(%error, "a health connection was not accepted"),
         }
     }
+}
+
+/// Listens at `[admin] address`, when the settings name it, for a load.
+async fn serve_admin(
+    config: &ServiceConfig,
+    bootstrap: &Bootstrap,
+    load: Rc<Cell<Option<u64>>>,
+) -> Result<(), RoleError> {
+    let table = config.admin();
+    let Some(address) = table.address() else {
+        return Ok(());
+    };
+    let refused = |error: &dyn std::fmt::Display| RoleError::configuration(error.to_string());
+    let digest = table
+        .key_sha256()
+        .ok_or_else(|| refused(&ServiceConfigError::missing("admin", "key_sha256")))?;
+    let key = BearerKey::from_digest_hex(digest)
+        .map_err(|error| refused(&format!("the setting admin.key_sha256: {error}")))?;
+    let tls = match table.security().map_err(|error| refused(&error))? {
+        EndpointSecurity::Plaintext => None,
+        EndpointSecurity::Tls {
+            cert_file,
+            key_file,
+        } => Some(
+            TlsAcceptor::from_pem_files(
+                &CertificateChainFile::new(cert_file),
+                &PrivateKeyFile::new(key_file),
+            )
+            .map_err(|error| refused(&format!("the setting admin.tls_cert_file: {error}")))?,
+        ),
+    };
+    let listener = listen(address).await?;
+    let service = AdminService::new(key, bootstrap.clone(), load);
+    spawn(serve_listener(
+        listener,
+        tls,
+        HttpLimits::new(ADMIN_BYTES, REQUEST_TIME),
+        service,
+    ))
+    .detach();
+    Ok(())
 }
