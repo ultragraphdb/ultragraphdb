@@ -5,16 +5,16 @@
 
 use ultragraphdb_protocol_wire::Command;
 
-/// How the client endpoint's stream rules (`PROTOCOL.md` §11.2) take a command arriving on a stream other than 0.
+/// How an endpoint's stream rules (`PROTOCOL.md` §11.2) take a command arriving on a stream other than 0.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RequestKind {
     /// Credit for a result stream.
     Credit,
     /// A stream cancelled.
     Cancel,
-    /// Begin, which opens a transaction's stream.
+    /// Begin or Bind, which opens a transaction's stream.
     Begin,
-    /// Register, Prepare, Describe or Drop, each opening a stream of its own.
+    /// Register, Prepare, Describe, Drop or a role command, each opening a stream of its own.
     Open,
     /// Read or Execute, opening a stream for the transaction it names.
     Read,
@@ -22,8 +22,6 @@ pub(crate) enum RequestKind {
     InTransaction,
     /// Commit, on a transaction's stream or a stream of its own.
     Commit,
-    /// A role command (512–767), which the client endpoint serves none of.
-    Role,
     /// A command no client sends on a stream: Hello, Welcome, Result, Error, Round, Authenticate.
     Unexpected,
 }
@@ -34,12 +32,15 @@ impl RequestKind {
         match command {
             Command::Credit => Self::Credit,
             Command::Cancel => Self::Cancel,
-            Command::Begin => Self::Begin,
-            Command::Register | Command::Prepare | Command::Describe | Command::Drop => Self::Open,
+            Command::Begin | Command::Bind => Self::Begin,
             Command::Read | Command::Execute => Self::Read,
             Command::Write | Command::Operation | Command::Abort => Self::InTransaction,
             Command::Commit => Self::Commit,
-            Command::Join
+            Command::Register
+            | Command::Prepare
+            | Command::Describe
+            | Command::Drop
+            | Command::Join
             | Command::Members
             | Command::Subscribe
             | Command::EpochClose
@@ -48,7 +49,6 @@ impl RequestKind {
             | Command::Catalog
             | Command::Challenge
             | Command::Verify
-            | Command::Bind
             | Command::Recall
             | Command::ComputeRead
             | Command::Scan
@@ -57,7 +57,7 @@ impl RequestKind {
             | Command::CloseRequest
             | Command::Closed
             | Command::DefaultEntry
-            | Command::Report => Self::Role,
+            | Command::Report => Self::Open,
             Command::Hello
             | Command::Welcome
             | Command::Result

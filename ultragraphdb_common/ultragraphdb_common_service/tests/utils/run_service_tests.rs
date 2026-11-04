@@ -14,7 +14,7 @@ use compio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use compio::net::TcpStream;
 use compio::runtime::{JoinHandle, Runtime, spawn};
 use ultragraphdb_common_service::{
-    CpuBinding, RoleKind, RoleStart, binding, exit_status, run_role, serve_role,
+    CpuBinding, Readiness, RoleKind, RoleStart, binding, exit_status, run_service, serve_service,
 };
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
@@ -25,9 +25,11 @@ const READY: &str = "GET /ready HTTP/1.1\r\n\r\n";
 /// A configuration refused stops the role before it binds or installs anything.
 #[test]
 fn test_a_refused_start_returns_its_error() -> TestResult {
-    let refused = run_role(RoleKind::Storage, &[], [])
-        .err()
-        .context("a refusal")?;
+    let refused = run_service(RoleKind::Storage, &[], [], |_start, _readiness| async {
+        Ok(())
+    })
+    .err()
+    .context("a refusal")?;
     assert_eq!(refused.exit_code(), RoleError::EX_CONFIG);
     Ok(())
 }
@@ -74,14 +76,27 @@ fn start_on_free_port() -> TestResult<RoleStart> {
     )?)
 }
 
-/// The role `kind` serving `start` on this runtime until the flag it returns is set.
+/// A role whose work sets its readiness to `ready` and ends, leaving the service serving.
+fn role_ready(
+    ready: bool,
+) -> impl FnOnce(RoleStart, Readiness) -> std::future::Ready<Result<(), RoleError>> {
+    move |_start, readiness| {
+        readiness.set(ready);
+        std::future::ready(Ok(()))
+    }
+}
+
+/// The role `kind`, ready as `ready` says, serving `start` on this runtime until the flag it returns is set.
 fn serving(
     kind: RoleKind,
     start: &RoleStart,
+    ready: bool,
 ) -> (Arc<AtomicBool>, JoinHandle<Result<(), RoleError>>) {
     let stop = Arc::new(AtomicBool::new(false));
     let (owned, flag) = (start.clone(), Arc::clone(&stop));
-    let task = spawn(async move { serve_role(kind, &owned, CpuBinding::NotAsked, &flag).await });
+    let task = spawn(async move {
+        serve_service(kind, &owned, CpuBinding::NotAsked, &flag, role_ready(ready)).await
+    });
     (stop, task)
 }
 
@@ -132,17 +147,17 @@ fn status(text: &str) -> Option<&str> {
 fn test_a_role_answers_until_it_is_stopped() -> TestResult {
     let runtime = Runtime::new()?;
     runtime.block_on(async {
-        for (kind, ready) in [
-            (RoleKind::Storage, "200"),
-            (RoleKind::Frontend, "503"),
-            (RoleKind::Compute, "503"),
+        for (kind, ready, answers) in [
+            (RoleKind::Storage, true, "200"),
+            (RoleKind::Frontend, false, "503"),
+            (RoleKind::Compute, false, "503"),
         ] {
             let start = start_on_free_port()?;
-            let (stop, task) = serving(kind, &start);
+            let (stop, task) = serving(kind, &start, ready);
             let health = exchange(&start, &[HEALTH]).await?;
             assert_eq!(status(&health), Some("200"), "{kind}");
             let answered = exchange(&start, &[READY]).await?;
-            assert_eq!(status(&answered), Some(ready), "{kind}");
+            assert_eq!(status(&answered), Some(answers), "{kind}");
             let (first, last) = HEALTH.split_at(7);
             let pieces = exchange(&start, &[first, last]).await?;
             assert_eq!(status(&pieces), Some("200"), "a request in two writes");
@@ -159,7 +174,7 @@ fn test_a_truncated_request_is_answered_and_closed() -> TestResult {
     let runtime = Runtime::new()?;
     runtime.block_on(async {
         let start = start_on_free_port()?;
-        let (stop, task) = serving(RoleKind::Storage, &start);
+        let (stop, task) = serving(RoleKind::Storage, &start, true);
         let mut stream = connect(&start).await?;
         let BufResult(written, _) = stream.write_all(b"GET /hea".to_vec()).await;
         written?;
@@ -184,14 +199,36 @@ fn test_an_address_taken_is_unavailable() -> TestResult {
     let runtime = Runtime::new()?;
     let stop = AtomicBool::new(false);
     let refused = runtime
-        .block_on(serve_role(
+        .block_on(serve_service(
             RoleKind::Storage,
             &start,
             CpuBinding::NotAsked,
             &stop,
+            role_ready(true),
         ))
         .err()
         .context("a refusal")?;
     assert_eq!(refused.exit_code(), RoleError::EX_UNAVAILABLE);
+    Ok(())
+}
+
+/// A role's failure ends the service with that failure, its code the role's.
+#[test]
+fn test_a_failing_role_ends_the_service_with_its_error() -> TestResult {
+    let start = start_on_free_port()?;
+    let runtime = Runtime::new()?;
+    let stop = AtomicBool::new(false);
+    let refused = runtime
+        .block_on(serve_service(
+            RoleKind::Compute,
+            &start,
+            CpuBinding::NotAsked,
+            &stop,
+            |_start, _readiness| std::future::ready(Err(RoleError::configuration("no secret"))),
+        ))
+        .err()
+        .context("the role's failure")?;
+    assert_eq!(refused.exit_code(), RoleError::EX_CONFIG);
+    assert!(refused.to_string().contains("no secret"), "{refused}");
     Ok(())
 }

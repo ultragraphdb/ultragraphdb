@@ -41,8 +41,7 @@ echo "=============="
 echo "Run integration tests"
 echo "=============="
 
-# The role binaries as processes, with no container, so Bazel caches them. Each target is `exclusive`, since the binaries
-# listen at declared ports.
+# Each target is `exclusive`, since the binaries listen at declared ports.
 command bazel test //... --test_tag_filters=integration_test
 
 echo ""

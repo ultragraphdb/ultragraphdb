@@ -10,12 +10,13 @@ use std::time::{Duration, Instant};
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_wire::{
     Authenticate, AuthenticateView, BodyBuilder, BodyView, Command, CreditView, ErrorCode,
-    ErrorReply, ExecuteView, FLAG_LAST, FrameView, Header, ROLE_COMMANDS, ReadView, Welcome,
+    ErrorReply, ExecuteView, FLAG_LAST, FrameView, Header, ReadView, Welcome,
 };
 
 use crate::errors::transport_error::{TransportError, TransportErrorEnum};
 use crate::traits::authenticator::Authenticator;
 use crate::traits::server_mechanism::ServerMechanism;
+use crate::types::endpoint::Endpoint;
 use crate::types::inbound::Inbound;
 use crate::types::mechanism_step::MechanismStep;
 use crate::types::outbound::Outbound;
@@ -49,6 +50,7 @@ enum Phase {
 pub struct ServerConnection<A: Authenticator> {
     cluster: u64,
     server: Welcome,
+    endpoint: Endpoint,
     authenticator: A,
     exchange: Option<(A::Mechanism, u32)>,
     phase: Phase,
@@ -70,6 +72,7 @@ impl<A: Authenticator> ServerConnection<A> {
         Self {
             cluster,
             server,
+            endpoint: Endpoint::Client,
             authenticator,
             exchange: None,
             phase: Phase::Hello,
@@ -89,6 +92,12 @@ impl<A: Authenticator> ServerConnection<A> {
     pub fn with_limits(mut self, authentication: Duration, idle: Duration) -> Self {
         self.authentication_timeout = authentication;
         self.idle_limit = idle;
+        self
+    }
+
+    /// The connection taking the requests `endpoint` serves, [`Endpoint::Client`]'s by default.
+    pub fn with_endpoint(mut self, endpoint: Endpoint) -> Self {
+        self.endpoint = endpoint;
         self
     }
 
@@ -392,7 +401,19 @@ impl<A: Authenticator> ServerConnection<A> {
         let open = self.outbound.is_open(stream);
         let transaction = self.outbound.is_transaction(stream);
         let request = Inbound::Request { stream, command };
-        match RequestKind::of(command) {
+        let kind = if self.endpoint.only_bound(command) {
+            RequestKind::InTransaction
+        } else {
+            RequestKind::of(command)
+        };
+        let endpoints_rule = !matches!(
+            kind,
+            RequestKind::Credit | RequestKind::Cancel | RequestKind::Unexpected
+        );
+        if endpoints_rule && !self.endpoint.serves(command) {
+            return self.refuse_connection(&ProtocolError::command_not_served(command.number()));
+        }
+        match kind {
             RequestKind::Credit => self.credit(stream, view),
             RequestKind::Cancel => {
                 if !open {
@@ -437,20 +458,12 @@ impl<A: Authenticator> ServerConnection<A> {
                 let opened = self.outbound.open(stream);
                 self.open(stream, opened, request)
             }
-            RequestKind::Role => self.not_served(command),
             RequestKind::Unexpected => self.close(
                 ErrorCode::Protocol,
                 &TransportError::unexpected_command(Command::Begin.number(), command.number())
                     .to_string(),
             ),
         }
-    }
-
-    /// A role command, which the client endpoint serves none of (`PROTOCOL.md` §3): refused as `CommandNotServed`,
-    /// naming the command, and the connection closes.
-    fn not_served(&mut self, command: Command) -> Result<Inbound, TransportError> {
-        debug_assert!(ROLE_COMMANDS.contains(&command.number()));
-        self.refuse_connection(&ProtocolError::command_not_served(command.number()))
     }
 
     /// A Credit on `stream`: its frames granted, or the frame refused on the stream by a body's rule.

@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use ultragraphdb_error_protocol::{ProtocolError, ProtocolErrorEnum};
 use ultragraphdb_protocol_transport::{
-    AUTHENTICATION_TIMEOUT, IDLE_LIMIT, Inbound, ServerConnection, TransportError,
+    AUTHENTICATION_TIMEOUT, Endpoint, IDLE_LIMIT, Inbound, ServerConnection, TransportError,
     TransportErrorEnum,
 };
 use ultragraphdb_protocol_wire::{
@@ -1621,5 +1621,92 @@ fn test_a_closing_error_too_large_to_frame_is_an_error_and_the_connection_closes
     assert!(connection.is_closing());
     assert_eq!(connection.next_frame(), None);
     assert_eq!(connection.handle_timeout(now + IDLE_LIMIT)?, None);
+    Ok(())
+}
+
+/// What a connection of `endpoint` makes of `command` arriving on a stream of its own.
+fn taken_at(endpoint: Endpoint, command: Command) -> TestResult<Inbound> {
+    let now = start();
+    let mut peer = Peer::default();
+    let mut connection = serving(&mut peer, now)?.with_endpoint(endpoint);
+    Ok(connection.receive(&peer.command(1, command)?, now)?)
+}
+
+/// A role endpoint hands on what it serves and refuses every other request, as the client endpoint refuses a role command.
+#[test]
+fn test_a_role_endpoint_takes_what_it_serves_and_refuses_the_rest() -> TestResult {
+    for (endpoint, served, refused) in [
+        (Endpoint::Frontend, Command::Join, Command::Begin),
+        (Endpoint::Frontend, Command::Members, Command::Scan),
+        (Endpoint::Partition, Command::Scan, Command::Join),
+        (Endpoint::Partition, Command::Reference, Command::Begin),
+        (Endpoint::Compute, Command::ComputeRead, Command::Join),
+    ] {
+        assert_eq!(
+            taken_at(endpoint, served)?,
+            Inbound::Request {
+                stream: 1,
+                command: served
+            },
+            "{endpoint:?}"
+        );
+        assert_eq!(
+            taken_at(endpoint, refused)?,
+            Inbound::Closing {
+                code: Some(ErrorCode::Protocol)
+            },
+            "{endpoint:?} refuses {refused:?}"
+        );
+    }
+    Ok(())
+}
+
+/// A role command stays on the stream it opened: a second on that stream closes the connection, as a Begin's would.
+#[test]
+fn test_a_role_command_opens_a_stream_of_its_own() -> TestResult {
+    let now = start();
+    let mut peer = Peer::default();
+    let mut connection = serving(&mut peer, now)?.with_endpoint(Endpoint::Frontend);
+    let _first: Inbound = connection.receive(&peer.command(1, Command::Join)?, now)?;
+    assert_eq!(
+        connection.receive(&peer.command(1, Command::Members)?, now)?,
+        Inbound::Closing {
+            code: Some(ErrorCode::Protocol)
+        }
+    );
+    Ok(())
+}
+
+/// A Bind makes its stream a transaction's; Write, Commit and Drop arrive on it, and neither a Commit nor a Drop opens a
+/// stream at a partition.
+#[test]
+fn test_a_bind_opens_the_stream_a_partition_takes_a_transaction_on() -> TestResult {
+    let now = start();
+    let mut peer = Peer::default();
+    let mut connection = serving(&mut peer, now)?.with_endpoint(Endpoint::Partition);
+    let _bound: Inbound = connection.receive(&peer.command(1, Command::Bind)?, now)?;
+    assert!(connection.outbound().is_transaction(1));
+    for command in [
+        Command::Write,
+        Command::Operation,
+        Command::Commit,
+        Command::Drop,
+    ] {
+        assert_eq!(
+            connection.receive(&peer.command(1, command)?, now)?,
+            Inbound::Request { stream: 1, command },
+            "{command:?}"
+        );
+    }
+    for command in [Command::Commit, Command::Drop] {
+        assert_eq!(
+            connection.receive(&peer.command(3, command)?, now)?,
+            Inbound::Refused {
+                stream: 3,
+                code: ErrorCode::Protocol
+            },
+            "{command:?} without a Bind"
+        );
+    }
     Ok(())
 }

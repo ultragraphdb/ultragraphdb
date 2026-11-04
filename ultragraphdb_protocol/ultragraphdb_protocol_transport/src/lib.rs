@@ -37,6 +37,7 @@ pub use crate::types::buffer_pool::BufferPool;
 pub use crate::types::client_authentication::{AuthenticationStep, ClientAuthentication};
 pub use crate::types::client_handshake::ClientHandshake;
 pub use crate::types::credential::Credential;
+pub use crate::types::endpoint::Endpoint;
 pub use crate::types::frame_step::FrameStep;
 pub use crate::types::framer::Framer;
 pub use crate::types::handshake_answer::HandshakeAnswer;

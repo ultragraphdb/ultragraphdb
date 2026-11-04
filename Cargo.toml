@@ -35,6 +35,11 @@ publish = false
 # ==============
 # Internal crates
 # ==============
+# Ultragraphdb: service binaries, tests, and specs
+ultragraphdb_compute_specs = { path = "ultragraphdb/ultragraphdb_compute_specs" }
+ultragraphdb_frontend_specs = { path = "ultragraphdb/ultragraphdb_frontend_specs" }
+ultragraphdb_storage_specs = { path = "ultragraphdb/ultragraphdb_storage_specs" }
+ultragraphdb_tests = { path = "ultragraphdb/ultragraphdb_tests" }
 ## Client
 ultragraphdb_client_core = { path = "ultragraphdb_client/ultragraphdb_client_core" }
 ultragraphdb_client_compio = { path = "ultragraphdb_client/ultragraphdb_client_compio" }
@@ -45,12 +50,9 @@ ultragraphdb_cluster_partition = { path = "ultragraphdb_cluster/ultragraphdb_clu
 ultragraphdb_cluster_placement = { path = "ultragraphdb_cluster/ultragraphdb_cluster_placement" }
 ultragraphdb_cluster_sequencer = { path = "ultragraphdb_cluster/ultragraphdb_cluster_sequencer" }
 ## Common
+ultragraphdb_common_role = { path = "ultragraphdb_common/ultragraphdb_common_role" }
+ultragraphdb_common_frontend = { path = "ultragraphdb_common/ultragraphdb_common_frontend" }
 ultragraphdb_common_service = { path = "ultragraphdb_common/ultragraphdb_common_service" }
-ultragraphdb_compute_specs = { path = "ultragraphdb/ultragraphdb_compute_specs" }
-ultragraphdb_frontend_specs = { path = "ultragraphdb/ultragraphdb_frontend_specs" }
-ultragraphdb_storage_specs = { path = "ultragraphdb/ultragraphdb_storage_specs" }
-ultragraphdb_tests = { path = "ultragraphdb/ultragraphdb_tests" }
-ultragraphdb_error_role = { path = "ultragraphdb_error/ultragraphdb_error_role" }
 ultragraphdb_common_service_config = { path = "ultragraphdb_common/ultragraphdb_common_service_config" }
 ultragraphdb_common_telemetry = { path = "ultragraphdb_common/ultragraphdb_common_telemetry" }
 ultragraphdb_common_utils = { path = "ultragraphdb_common/ultragraphdb_common_utils" }
@@ -67,6 +69,7 @@ ultragraphdb_core_text = { path = "ultragraphdb_core/ultragraphdb_core_text" }
 ultragraphdb_core_tok = { path = "ultragraphdb_core/ultragraphdb_core_tok" }
 ultragraphdb_core_types = { path = "ultragraphdb_core/ultragraphdb_core_types" }
 ## Error
+ultragraphdb_error_role = { path = "ultragraphdb_error/ultragraphdb_error_role" }
 ultragraphdb_error_cluster = { path = "ultragraphdb_error/ultragraphdb_error_cluster" }
 ultragraphdb_error_json = { path = "ultragraphdb_error/ultragraphdb_error_json" }
 ultragraphdb_error_log = { path = "ultragraphdb_error/ultragraphdb_error_log" }

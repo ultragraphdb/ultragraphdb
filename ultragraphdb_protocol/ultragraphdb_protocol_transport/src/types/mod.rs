@@ -10,6 +10,7 @@ pub mod buffer_pool;
 pub mod client_authentication;
 pub mod client_handshake;
 pub mod credential;
+pub mod endpoint;
 pub mod frame_step;
 pub mod framer;
 pub mod handshake_answer;

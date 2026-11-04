@@ -21,6 +21,7 @@ workspace = true
 [dependencies]
 mimalloc = { workspace = true }
 ultragraphdb_common_service = { workspace = true }
+ultragraphdb_common_frontend = { workspace = true }
 
 [dev-dependencies]
 

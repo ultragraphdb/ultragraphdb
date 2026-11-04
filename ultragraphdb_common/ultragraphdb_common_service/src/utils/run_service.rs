@@ -3,8 +3,11 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::cell::Cell;
 use std::collections::{BTreeSet, HashSet};
+use std::future::Future;
 use std::process::ExitCode;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -34,17 +37,23 @@ const REQUEST_TIME: Duration = Duration::from_secs(5);
 const SIGNAL_INT: i32 = 2;
 const SIGNAL_TERM: i32 = 15;
 
-/// Runs the role `kind` with the arguments `args`, the program's name left out, until SIGTERM or SIGINT.
+/// Runs the role `kind` with the arguments `args`, the program's name left out, until SIGTERM or SIGINT or until
+/// `role`, its work, fails. A `role` that ends without failing has started what it serves, which runs on.
 ///
 /// # Errors
 ///
-/// [`RoleError::configuration`] for a refused configuration; [`RoleError::unavailable`] when the runtime, the signal
-/// handlers or the observability listener cannot be set up.
-pub fn run_role(
+/// [`RoleError::configuration`] for a refused configuration; [`RoleError::unavailable`] when the runtime, the
+/// handlers or the observability listener cannot be set up; whatever `role` fails with.
+pub fn run_service<R, F>(
     kind: RoleKind,
     args: &[String],
     variables: impl IntoIterator<Item = (String, String)>,
-) -> Result<(), RoleError> {
+    role: R,
+) -> Result<(), RoleError>
+where
+    R: FnOnce(RoleStart, Readiness) -> F,
+    F: Future<Output = Result<(), RoleError>> + 'static,
+{
     let start = RoleStart::read(args, variables)?;
     let _telemetry = init(&TelemetryConfig::new("info", LogFormat::Plain))
         .map_err(|error| RoleError::unavailable(format!("telemetry: {error}")))?;
@@ -55,24 +64,46 @@ pub fn run_role(
         asked,
         thread_allowed(),
     );
-    runtime.block_on(serve_role(kind, &start, cpu, &stop))
+    runtime.block_on(serve_service(kind, &start, cpu, &stop, role))
 }
 
-/// Serves `/health` and `/ready` for the role `kind` until `stop` is set. Storage holds no partition to recover yet; the
-/// frontend and compute have nothing that could answer them, so neither is ready.
+/// Serves `/health` and `/ready` for the role `kind`, and runs `role`, which sets its readiness, until `stop` is set or
+/// `role` fails.
 ///
 /// # Errors
 ///
-/// [`RoleError::unavailable`] when the observability address cannot be listened at.
-pub async fn serve_role(
+/// [`RoleError::unavailable`] when the observability address cannot be listened at; whatever `role` fails with.
+pub async fn serve_service<R, F>(
     kind: RoleKind,
     start: &RoleStart,
     cpu: CpuBinding,
     stop: &AtomicBool,
-) -> Result<(), RoleError> {
+    role: R,
+) -> Result<(), RoleError>
+where
+    R: FnOnce(RoleStart, Readiness) -> F,
+    F: Future<Output = Result<(), RoleError>> + 'static,
+{
     let readiness = Readiness::default();
-    readiness.set(kind == RoleKind::Storage);
-    serve(kind, start, cpu, readiness, stop).await
+    let address = start.observability();
+    let listener = TcpListener::bind(address)
+        .await
+        .map_err(|error| RoleError::unavailable(format!("listening at {address}: {error}")))?;
+    tracing::info!(role = %kind, %address, "{cpu}");
+    spawn(accept(listener, readiness.clone())).detach();
+    // Shared with the one task on this runtime that may fill it.
+    let failed = Rc::new(Cell::new(None));
+    let working = role(start.clone(), readiness);
+    let outcome = Rc::clone(&failed);
+    spawn(async move { outcome.set(working.await.err()) }).detach();
+    while !stop.load(Ordering::Acquire) {
+        if let Some(error) = failed.take() {
+            return Err(error);
+        }
+        compio::time::sleep(SIGNAL_POLL).await;
+    }
+    tracing::info!(role = %kind, "stopping");
+    Ok(())
 }
 
 /// The code the process exits with after `outcome`, its refusal printed where an operator reads it.
@@ -135,27 +166,6 @@ pub fn binding(
         (Some(asked), Some(held)) => CpuBinding::ReadBack { asked, held },
         _ => CpuBinding::Unavailable,
     }
-}
-
-/// Serves `/health` and `/ready` until a signal sets `stop`.
-async fn serve(
-    kind: RoleKind,
-    start: &RoleStart,
-    cpu: CpuBinding,
-    readiness: Readiness,
-    stop: &AtomicBool,
-) -> Result<(), RoleError> {
-    let address = start.observability();
-    let listener = TcpListener::bind(address)
-        .await
-        .map_err(|error| RoleError::unavailable(format!("listening at {address}: {error}")))?;
-    tracing::info!(role = %kind, %address, "{cpu}");
-    spawn(accept(listener, readiness)).detach();
-    while !stop.load(Ordering::Acquire) {
-        compio::time::sleep(SIGNAL_POLL).await;
-    }
-    tracing::info!(role = %kind, "stopping");
-    Ok(())
 }
 
 /// Answers every connection on its own task; a failed accept costs that connection alone.

@@ -16,6 +16,8 @@ mod client_handshake;
 #[cfg(test)]
 mod credential;
 #[cfg(test)]
+mod endpoint;
+#[cfg(test)]
 mod framer;
 #[cfg(test)]
 mod handshake_answer;

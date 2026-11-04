@@ -1525,6 +1525,9 @@ names the client's principal in its own fields. A refusal is code 19, as on the 
 retries until its deadline. The client endpoint authenticates against the metadata group's principals alone, so the
 role secret opens no client session: it is refused there as a wrong password is.
 
+A role connection has no idle limit (section 11.9): the side that dialled sends nothing between requests while it reads a
+Subscribe's closes.
+
 **What each endpoint serves.** Besides Hello, Authenticate, Credit and Cancel:
 
 | Endpoint | Serves | Requested by |

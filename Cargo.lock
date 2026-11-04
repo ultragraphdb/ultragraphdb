@@ -2920,6 +2920,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "ultragraphdb_common_frontend"
+version = "0.1.0"
+dependencies = [
+ "compio",
+ "tracing",
+ "ultragraphdb_common_role",
+ "ultragraphdb_common_service",
+ "ultragraphdb_common_service_config",
+ "ultragraphdb_error_role",
+ "ultragraphdb_protocol_scram",
+ "ultragraphdb_protocol_transport",
+ "ultragraphdb_protocol_transport_compio",
+ "ultragraphdb_protocol_wire",
+ "ultragraphdb_tool_bdd",
+]
+
+[[package]]
+name = "ultragraphdb_common_role"
+version = "0.1.0"
+dependencies = [
+ "compio",
+ "getrandom 0.4.3",
+ "tracing",
+ "ultragraphdb_common_service",
+ "ultragraphdb_error_role",
+ "ultragraphdb_protocol_scram",
+ "ultragraphdb_protocol_transport",
+ "ultragraphdb_protocol_transport_compio",
+ "ultragraphdb_protocol_wire",
+ "ultragraphdb_tool_bdd",
+]
+
+[[package]]
 name = "ultragraphdb_common_service"
 version = "0.1.0"
 dependencies = [
@@ -2981,6 +3014,7 @@ name = "ultragraphdb_compute"
 version = "0.1.0"
 dependencies = [
  "mimalloc",
+ "ultragraphdb_common_role",
  "ultragraphdb_common_service",
 ]
 
@@ -2989,6 +3023,7 @@ name = "ultragraphdb_compute_specs"
 version = "0.1.0"
 dependencies = [
  "ultragraphdb_common_service_config",
+ "ultragraphdb_frontend_specs",
  "ultragraphdb_tool_bdd",
 ]
 
@@ -3183,6 +3218,7 @@ name = "ultragraphdb_frontend"
 version = "0.1.0"
 dependencies = [
  "mimalloc",
+ "ultragraphdb_common_frontend",
  "ultragraphdb_common_service",
 ]
 
@@ -3259,6 +3295,7 @@ name = "ultragraphdb_storage"
 version = "0.1.0"
 dependencies = [
  "mimalloc",
+ "ultragraphdb_common_role",
  "ultragraphdb_common_service",
 ]
 
@@ -3267,6 +3304,7 @@ name = "ultragraphdb_storage_specs"
 version = "0.1.0"
 dependencies = [
  "ultragraphdb_common_service_config",
+ "ultragraphdb_frontend_specs",
  "ultragraphdb_tool_bdd",
 ]
 
@@ -3401,11 +3439,17 @@ dependencies = [
 name = "ultragraphdb_tests"
 version = "0.1.0"
 dependencies = [
+ "compio",
  "cucumber",
  "futures",
  "service_utils",
+ "ultragraphdb_client_compio",
+ "ultragraphdb_common_role",
  "ultragraphdb_compute_specs",
  "ultragraphdb_frontend_specs",
+ "ultragraphdb_protocol_scram",
+ "ultragraphdb_protocol_transport",
+ "ultragraphdb_protocol_wire",
  "ultragraphdb_storage_specs",
  "ultragraphdb_tool_bdd",
 ]

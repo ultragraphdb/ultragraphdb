@@ -133,7 +133,7 @@ placement decision adopted 2026-11-02), the review's D1–D8
 
 - **New Lean library:** `lean/PlacementModel`, beside `RoundModel`, built with `lake` outside Bazel.
 - **New group folders and crates:** `ultragraphdb_cluster/` (`_placement`, `_metadata`, `_sequencer`, `_partition`),
-  `ultragraphdb_roles/` (`_frontend`, `_compute`, `_storage`), the binaries `ultragraphdb/ultragraphdb_frontend`,
+  `ultragraphdb_common/` (`_frontend`, `_compute`, `_storage`), the binaries `ultragraphdb/ultragraphdb_frontend`,
   `_compute`, `_storage` and `_supervisor`, `ultragraphdb_core/ultragraphdb_core_ids`,
   `ultragraphdb_tool/ultragraphdb_tool_toml`, and the error crates `ultragraphdb_error_cluster` and
   `ultragraphdb_error_role`, each raised by several crates; `IdError` and `TomlError` live in the crate raising each.

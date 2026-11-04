@@ -6,9 +6,26 @@ Feature: The role binaries as processes
   (openspec/changes/stage-5-5-three-role-refactor/specs/role-binaries/spec.md). Scenarios reaching a role's logic join with its
   task.
 
-  Scenario: The roles start in the order their readiness needs
+  Scenario: The start order reaches readiness
     When the frontend starts, then storage, then compute
-    Then each answers `/health`, storage answers `/ready`, and the frontend and compute answer `/ready` with 503
+    Then every role's `/ready` answers, the frontend's last, and the frontend's members name storage and compute
+
+  Scenario: The roles join over Unix sockets
+    When the frontend starts, then storage, then compute, each at a Unix socket
+    Then every role's `/ready` answers, the frontend's last, and the frontend's members name storage and compute
+    And each role's socket has mode 0600
+
+  Scenario: A role with the wrong secret is refused
+    When a storage process started with a different role secret connects to the frontend
+    Then its authentication is refused, it sends no role command, and it retries until its deadline
+
+  Scenario: The role secret opens no client session
+    When a client authenticates on the client endpoint with the role secret
+    Then authentication is refused with the same error as a wrong password
+
+  Scenario: A missing role secret stops the start
+    When a role starts with `role_secret_file` naming a file that does not exist
+    Then it exits with code 78 and an error naming the file
 
   Scenario: A signal stops a role cleanly
     When a role is running and receives SIGTERM

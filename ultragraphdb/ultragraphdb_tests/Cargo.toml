@@ -22,11 +22,17 @@ workspace = true
 ultragraphdb_tool_bdd = { workspace = true }
 
 [dev-dependencies]
+compio = { workspace = true }
 cucumber = { workspace = true }
 service_utils = { workspace = true }
 futures = { workspace = true }
+ultragraphdb_client_compio = { workspace = true }
 ultragraphdb_compute_specs = { workspace = true }
 ultragraphdb_frontend_specs = { workspace = true }
+ultragraphdb_protocol_scram = { workspace = true }
+ultragraphdb_protocol_transport = { workspace = true }
+ultragraphdb_protocol_wire = { workspace = true }
+ultragraphdb_common_role = { workspace = true }
 ultragraphdb_storage_specs = { workspace = true }
 
 [[test]]

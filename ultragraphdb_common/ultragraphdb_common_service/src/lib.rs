@@ -4,7 +4,7 @@
  */
 
 //! What every role binary does around its role: reading its settings, a runtime per core, `/health` and `/ready`, and
-//! stopping on a signal. A binary holds only `main`, which names its role and calls [`run_role`].
+//! stopping on a signal. A binary holds only `main`, which names its role and calls [`run_service`].
 
 mod types;
 mod utils;
@@ -16,4 +16,4 @@ pub use crate::types::role_kind::RoleKind;
 pub use crate::types::role_start::RoleStart;
 pub use crate::utils::cpu_list::{allowed_in_status, parse_cpu_list};
 pub use crate::utils::http_responder::{parse_request, response};
-pub use crate::utils::run_role::{binding, exit_status, run_role, serve_role};
+pub use crate::utils::run_service::{binding, exit_status, run_service, serve_service};
