@@ -39,6 +39,11 @@ Compute SHALL decode what the entries hold and SHALL name every term by its text
 - **WHEN** compute scans the dictionary entry of `<b>` and `R(b)` at `b`'s home
 - **THEN** the answer holds `b`'s ID and its referrer set's members at that version
 
+#### Scenario: A hub's list crosses frames
+- **WHEN** a reverse list holds more objects than one frame carries, and compute scans it
+- **THEN** the answer takes several frames, each ending between two objects, and compute reads every object once, in the
+  list's order
+
 #### Scenario: A keyspace outside the kernel's is refused
 - **WHEN** a Scan names a range of the marks keyspace
 - **THEN** it is refused with a protocol error naming the keyspace
@@ -56,6 +61,23 @@ commit writes. A span the read set cannot hold SHALL end the transaction, and no
 - **WHEN** a transaction writes `<a> <knows> <b>`, the write is answered, and the same transaction reads `<a> <knows> ?o`
   before committing
 - **THEN** the read returns `<b>`, and a read by any other transaction does not
+
+#### Scenario: A read sees its transaction's new term and its emptied list
+- **WHEN** a transaction writes `<new> <p> "x"`, creating `<new>`, removes every object of `<a> <p> ?o`, and reads both
+- **THEN** the read returns `"x"` for `<new>` with `<new>` named by its text, and nothing for `<a>`
+
+#### Scenario: A scan through compute holds no list in the transaction
+- **WHEN** a transaction scans 10,000 lists through compute
+- **THEN** its read set holds one range and no list key, and it holds none of those lists in memory afterwards
+
+#### Scenario: A term nobody holds conflicts with its later statement through compute
+- **WHEN** transaction T1 reads `<nobody> <p> ?o` through compute, finding nothing, transaction T2 commits
+  `<nobody> <p> "x"`, and T1 commits a write
+- **THEN** T1 aborts with a conflict of kind AbsentTerm
+
+#### Scenario: A write waits for a read sent before it
+- **WHEN** a client sends a read of its transaction, and a write on another stream before the read is answered
+- **THEN** the frontend sends the write only after the read is answered, and the read returns none of it
 
 #### Scenario: A read waits for a write sent before it
 - **WHEN** a client sends a write and then a read of its transaction on another stream, without waiting for the write's

@@ -1543,8 +1543,10 @@ floor of the transaction's next read, and the partition a level-1 transaction's 
 The frontend sends each ComputeRead to the next compute process of Members, round-robin per endpoint core; one that does
 not answer is skipped for that read, and with none left the read is refused with code 17 (Unavailable). It sends a read
 of a read-write transaction only once every write request the client sent on the transaction's stream before it has been
-answered, holding the read until then, so the read sees those writes, whichever connection carries it. Compute reaches the
-partition on a connection of its own, so this order is the frontend's to keep. A transaction ended while a read is under
+answered, holding the read until then, and sends such a write only once every read of the transaction already sent has
+been answered, so a transaction's requests run one at a time in the order the client sent them: a read sees the writes
+before it, whichever connection carries it, and none after it appears in part of its answer. Compute reaches the partition
+on a connection of its own, so this order is the frontend's to keep. A transaction ended while a read is under
 way is refused at the partition as one it does not hold; the frontend then answers the read with the reason the Bind
 stream gave, such as code 4 (PastLimit), not the partition's refusal.
 
@@ -2170,6 +2172,8 @@ system IDs.
 |---|---|
 | 0 | ranges, 24 bytes each |
 | 1 | the ranges' keys, back to back: each range's first key, then its past key |
+| 2 | with `transaction` not zero, the IRIs the read names: a request term table's records (section 4.4); empty otherwise |
+| 3 | that term table's text |
 
 | Range offset | Width | Field | Type |
 |---|---|---|---|
@@ -2208,7 +2212,14 @@ transaction's commit serializable:
   nothing the transaction read, and the Scan continuing it records the rest. A span touching the range's previous span
   extends it, so a long scan holds one range in the read set however many frames it took.
 - A span of a keyspace of lists is a range scanned (conflict kind Range, section 9.4). A range of the dictionary records
-  no range, and each term it finds absent is recorded as an absent term (conflict kind AbsentTerm).
+  no range.
+- It resolves terms by their text. A dictionary key holds an IRI's hash, which cannot create an ID, and a term a read
+  finds absent is recorded by its ID. So the Scan's term table names each IRI the read needs an ID for, and its first
+  ranges name, in the table's order, one range each holding that IRI's dictionary key alone; a key that is not the text's
+  is refused with Error 1 (Protocol). The partition resolves each as a read in the partition does: got or created, the
+  same ID any concurrent writer of the IRI takes. One it created is recorded as an absent term (conflict kind AbsentTerm),
+  so a later commit of a statement of that term conflicts. The range answers the entry with its ID. A term no read can
+  hold, an unheld skolem IRI or an IRI another partition owns, answers no entry and records nothing.
 - A span the read set has no room for ends the transaction with code 6 (TooLarge), `detail` the limit in bytes, and no
   entry of that span is sent.
 
@@ -2219,7 +2230,8 @@ reverse, predicate lists and indexes alike.
 
 Order: unused bytes 1–7 and 52–127 zero; `at`; `read_version` 0 for `at` 2 and 3; `epoch` an epoch, and 0 for `at` 4
 (`FieldValue` `"epoch"`); sections; section 0 a whole number of 24-byte ranges (`SectionLength`) and not empty
-(`CountMismatch` `"ranges"`, 0 against 1); each range in order: bytes 4–7 zero (`PaddingNotZero` at the body offset),
+(`CountMismatch` `"ranges"`, 0 against 1); sections 2 and 3 empty when `transaction` is zero (`CountMismatch` `"terms"`),
+otherwise a term table (section 4.4) of at most as many terms as ranges (`CountMismatch` `"terms"`); each range in order: bytes 4–7 zero (`PaddingNotZero` at the body offset),
 `partition` at least 1, the same in every range when `transaction` is not zero (`FieldValue` `"partition"`, the
 partition), `first` and `past` where the keys before end and `first_len` at least 1 (`FieldValue` `"range"`, the
 range's index), both keys within section 1 (`IndexOutOfRange`, section 0, the range's index, the past key's end,
@@ -2240,17 +2252,35 @@ Entries frames spend credit as Result frames do (section 11.3).
 | 0 | 4 | `entries` | u32 | the batch's entry count |
 | 4 | 4 | `range` | u32 | the range's index in the Scan, from 0 |
 | 8 | 1 | `end` | u8 | 0 more of the range follows; 1 the range ended; 2 the range stopped at the Scan's `limit` (`FieldValue` `"end"`) |
+| 9 | 1 | `continues` | u8 | 1 the batch's last entry's value continues in the next frame; 0 otherwise (`FieldValue` `"continues"`) |
 | 16 | 8 | `epoch` | epoch (section 1) | the epoch of the version the range was read at, which `at` 3 and `at` 2 choose; 0 when the partition has closed no epoch and read at the version bound of none (`FieldValue` `"epoch"`) |
 
 | Section | Contents |
 |---|---|
 | 0 | the entries, in the key-value layout of section 12.2, every value present |
 
-Order: unused bytes 9–15 and 24–127 zero; `end`; `epoch` at most 2⁴² − 1; sections; each entry inside the section
+A value is what the keyspace holds at the version. In the dictionary and the referrer sets it is the stored bytes. In a
+keyspace of lists it is the list's objects visible at the version, in the list's order, each an object record:
+
+| Object record offset | Width | Field | Type |
+|---|---|---|---|
+| 0 | 4 | `encoding_len` | u32: the object's encoding's length |
+| 4 | 4 | `statements` | u32: its statement IDs' count |
+| 8 | `encoding_len` | `encoding` | the object as the store's keys encode it, a system ID for an IRI or blank node, as a Scan's keys carry them |
+| | 16 × `statements` | statement IDs | the IDs the object is held under, as they are; compute drops them from what it returns |
+
+A list larger than a frame continues across frames, as a hub's reverse list does. A frame with `continues` 1 ends between
+two object records, and has `end` 0; the next frame's first entry has the same key, and its value is the next object
+records. The value is the records of every such frame in order. The partition keeps the last object it sent and resumes
+after it, reading the same version; a frame stops at the receiver's `max_frame`, so a large list takes many frames and no
+turn of the partition holds more than one.
+
+Order: unused bytes 10–15 and 24–127 zero; `end`; `continues`, 0 when `end` is not 0; `epoch` at most 2⁴² − 1; sections; each entry inside the section
 (`EntryOutOfBounds`) with zero padding (`PaddingNotZero`); every value present (`FieldValue` `"entry"`, the entry's
 index); each key above the one before, compared byte by byte, within the batch (`FieldValue` `"entry order"`, the
 entry's index); the count equals `entries` (`CountMismatch` `"entries"`). The receiver also refuses a batch's first
-key at or below the last key of the range's previous batch (`FieldValue` `"entry order"`, 0). The receiver refuses a `range` that is not the previous frame's, or one above
+key at or below the last key of the range's previous batch, or, after a frame with `continues` 1, one not equal to it
+(`FieldValue` `"entry order"`, 0). The receiver refuses a `range` that is not the previous frame's, or one above
 it after a frame with `end` not 0, or one not below its Scan's range count (`FieldValue` `"range"`), as a stream error.
 
 ### 13.15 Reference (526)

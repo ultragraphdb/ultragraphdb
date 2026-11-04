@@ -334,8 +334,21 @@ breaking exactly-once. The hop is paid by commits alone, which wait for a durabl
 message. A read of a read-write transaction reaches its partition through compute, on a connection apart from the Bind
 stream, so the frontend holds it until the client's earlier writes are answered, and the partition records each entry's span
 before sending it: the read set covers everything the client could have seen, and no more, so a stopped read conflicts with
-nothing it did not return. Read-only reads pay none of this. A Scan naming a transaction reads through its overlay; the
-kernel's plain path stays as it is.
+nothing it did not return. Read-only reads pay none of this.
+
+The read kernel is one walk over two sources, so a transaction's scan and a plain one cannot disagree about a key's row.
+A transaction's `Request` is already its overlay: its held lists are sorted by key and hold its writes. The walk merges the
+store's keys with the keys a source adds, lowest first, and asks the source for each key's value. A plain read's source adds
+no key and reads `Lists`. A transaction's source adds its written keys and resolves a list without changing the request: a
+held list as held, a list written blind from the store with its delta on top, any other from the store. The walk neither
+inserts into `held` nor marks a list read whole, so a scan of a million lists costs the request one range and no memory:
+calling `Request::get` per key, the obvious way, would record a list read per key and keep each list. Each frame reads the
+same version and resumes from a key and an object, so no cursor borrows the transaction across a credit wait. In the
+dictionary the transaction's source is its `WriteTerms`.
+
+A Scan naming a transaction carries the text of the IRIs it needs IDs for, since a dictionary key holds only a hash and an
+absent term is recorded by its ID, which reading creates. Recording the dictionary key instead would miss a conflict: a
+home's registration round can create the entry without a statement, and a later statement of it then writes no such key.
 
 Role binaries are tested as processes, as scrith's services are: a tests crate copies each binary into the Bazel sandbox
 with `copy_file`, starts it through `service_utils` and waits on `/health` or `/ready`, dependencies first, and drives it
