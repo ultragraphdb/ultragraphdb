@@ -378,7 +378,7 @@ predicate rather than running a condition the client did not ask for. A write co
 server, so the API documents that such a write is a ConditionalWrite or a read-write transaction.
 
 Role binaries are tested as processes, as scrith's services are: a tests crate copies each binary into the Bazel sandbox
-with `copy_file`, starts it through a small `std::process` helper, which reads its exit code as the tests of `sysexits` need, and waits on `/health` or `/ready`, dependencies first, and drives it
+with `copy_file`, starts it through `service_utils`, whose 0.4 is `std` alone, reads a process's exit code and isolates its environment, and waits on `/health` or `/ready`, dependencies first, and drives it
 with the actual client. These tests need no container, so Bazel caches them; they declare fixed ports through the roles'
 specs crates and carry `exclusive` so none runs beside another, tagged `integration_test` and run as their own group of
 `scripts/test.sh`. `/health` and `/ready` therefore exist in every role from its first commit, ahead of the role's logic.

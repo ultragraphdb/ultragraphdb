@@ -135,6 +135,7 @@ stringprep = "0.1"
 getrandom = "0.4"
 futures = "0.3"
 signal-hook = { version = "0.4", default-features = false }
+service_utils = "0.4"
 compio = { version = "0.19", default-features = false, features = ["runtime", "io-uring", "fs", "net", "time"] }
 # The allocator of every shipped binary, set as its `#[global_allocator]`: musl's own allocator contends under threads,
 # measured 31% fewer commits per second than glibc's on `wal_bench` (2026-11-01). 

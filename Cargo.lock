@@ -2283,6 +2283,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "service_utils"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c579b9d8824f1db84edc97e989eeb4f1dfda2f2675e1a3073710d0dd82001ba8"
+dependencies = [
+ "wait_utils",
+]
+
+[[package]]
 name = "sfa"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3394,6 +3403,7 @@ version = "0.1.0"
 dependencies = [
  "cucumber",
  "futures",
+ "service_utils",
  "ultragraphdb_compute_specs",
  "ultragraphdb_frontend_specs",
  "ultragraphdb_storage_specs",
@@ -3718,6 +3728,12 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "wait_utils"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08bb7631d317dceaee6857e150c269cd9a88844419232ee97e4a12ffe238b6ba"
 
 [[package]]
 name = "walkdir"

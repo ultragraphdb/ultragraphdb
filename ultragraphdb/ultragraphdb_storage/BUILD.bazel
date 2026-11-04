@@ -17,14 +17,14 @@ static_binary(
     deps = all_crate_deps(normal = True),
 )
 
-# The role's image on the glibc base the server ships on (D7), for amd64 and arm64. Build with `-c opt`.
+# Buid for amd64 and arm64 with `-c opt`.
 glibc_multiarch_img(
     name = "ultragraphdb_storage_multiarch",
     binary = ":ultragraphdb_storage",
     visibility = ["//visibility:public"],
 )
 
-# A tag naming the image by its own content.
+# A simple sha256 tag.
 sha256_tag(
     name = "ultragraphdb_storage_tag",
     image = ":ultragraphdb_storage_multiarch",

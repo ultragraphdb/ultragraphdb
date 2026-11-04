@@ -6,14 +6,23 @@
 //! The role binaries' scenarios, bound to `features/role_binaries/`. One scenario runs at a time: the binaries listen at
 //! their declared ports.
 
+use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
+use std::time::Duration;
 
 use cucumber::{World, then, when};
+use service_utils::{ServiceStartConfig, ServiceUtil, WaitStrategy};
 use ultragraphdb_compute_specs as compute;
 use ultragraphdb_frontend_specs as frontend;
 use ultragraphdb_storage_specs as storage;
-use ultragraphdb_tests::{RoleProcess, http_status};
+use ultragraphdb_tests::http_status;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
+
+/// Where the sandbox holds the binaries, relative to the test's working directory: `copy_file` writes them to this package.
+const ROOT_PATH: &str = "ultragraphdb/ultragraphdb_tests";
+
+/// How long a role has to answer its first probe, or to exit. A start takes milliseconds; the margin is for a loaded machine.
+const START_SECONDS: u64 = 20;
 
 const GRAPHS: [&str; 2] = [
     "ultragraphdb/ultragraphdb_tests/frontend_deps",
@@ -22,27 +31,67 @@ const GRAPHS: [&str; 2] = [
 
 #[derive(Debug, Default, World)]
 struct Steps {
-    roles: Vec<RoleProcess>,
+    roles: Option<ServiceUtil>,
     exited: Option<ExitStatus>,
     log: String,
     graph: String,
 }
 
-/// The settings file of `text`, in the test's own directory.
-fn settings_file(text: &str) -> TestResult<String> {
-    let root =
-        std::env::var_os("TEST_TMPDIR").map_or_else(std::env::temp_dir, std::path::PathBuf::from);
-    let file = root.join(format!("settings-{}.toml", std::process::id()));
-    std::fs::write(&file, text)?;
-    Ok(file.display().to_string())
+/// The file in the test's own directory named `name`.
+fn scratch(name: &str) -> PathBuf {
+    std::env::var_os("TEST_TMPDIR")
+        .map_or_else(std::env::temp_dir, PathBuf::from)
+        .join(format!("{name}-{}", std::process::id()))
+}
+
+fn services() -> TestResult<ServiceUtil> {
+    Ok(ServiceUtil::new(
+        ROOT_PATH,
+        vec![frontend::BINARY, compute::BINARY, storage::BINARY],
+    )?)
+}
+
+/// What starts the binary `program` with `variables` alone in its environment, so nothing of the test's own reaches its
+/// settings, its log in the file `log`, waiting as `wait_strategy` says.
+fn role(
+    program: &'static str,
+    variables: Vec<(String, String)>,
+    log: &Path,
+    wait_strategy: WaitStrategy,
+) -> ServiceStartConfig {
+    ServiceStartConfig::builder()
+        .program(program)
+        .env_vars(variables)
+        .clear_env(true)
+        .stderr_file(log)
+        .wait_strategy(wait_strategy)
+        .build()
+}
+
+/// A wait for `address` to answer `path` with success.
+fn answering(address: &str, path: &str) -> WaitStrategy {
+    WaitStrategy::WaitForHttpHealthCheck(format!("http://{address}{path}"), START_SECONDS)
 }
 
 /// Runs the storage binary on `text` to its exit.
 fn storage_on(w: &mut Steps, text: &str) -> TestResult {
-    let file = settings_file(text)?;
-    let mut role = RoleProcess::start(storage::BINARY, &["--config", &file], &storage::settings())?;
-    w.exited = Some(role.wait_exit()?);
-    w.log = role.log()?;
+    let file = scratch("settings.toml");
+    std::fs::write(&file, text)?;
+    // The arguments live as long as the test, as `ServiceStartConfig` asks: a test process is short.
+    let path: &'static str = file.display().to_string().leak();
+    let log = scratch("storage-refused.log");
+    let config = ServiceStartConfig::builder()
+        .program(storage::BINARY)
+        .program_args(vec!["--config", path])
+        .env_vars(storage::settings())
+        .clear_env(true)
+        .stderr_file(&log)
+        .wait_strategy(WaitStrategy::NoWait)
+        .build();
+    let util = services()?;
+    let pid = util.start_service_from_config(config)?;
+    w.exited = Some(util.wait_for_exit(pid, Duration::from_secs(START_SECONDS))?);
+    w.log = std::fs::read_to_string(&log)?;
     Ok(())
 }
 
@@ -54,13 +103,29 @@ fn exited_with(w: &Steps, code: i32) -> TestResult {
 
 #[when("the frontend starts, then storage, then compute")]
 fn start_all(w: &mut Steps) -> TestResult {
-    let mut first = RoleProcess::start(frontend::BINARY, &[], &frontend::settings())?;
-    first.wait_for(frontend::OBSERVABILITY, "/health")?;
-    let mut second = RoleProcess::start(storage::BINARY, &[], &storage::settings())?;
-    second.wait_for(storage::OBSERVABILITY, "/ready")?;
-    let mut third = RoleProcess::start(compute::BINARY, &[], &compute::settings())?;
-    third.wait_for(compute::OBSERVABILITY, "/health")?;
-    w.roles = vec![first, second, third];
+    let util = services()?;
+    let starts = [
+        (
+            frontend::BINARY,
+            frontend::settings(),
+            answering(frontend::OBSERVABILITY, "/health"),
+        ),
+        (
+            storage::BINARY,
+            storage::settings(),
+            answering(storage::OBSERVABILITY, "/ready"),
+        ),
+        (
+            compute::BINARY,
+            compute::settings(),
+            answering(compute::OBSERVABILITY, "/health"),
+        ),
+    ];
+    for (program, variables, wait) in starts {
+        let log = scratch(program);
+        let _pid: u32 = util.start_service_from_config(role(program, variables, &log, wait))?;
+    }
+    w.roles = Some(util);
     Ok(())
 }
 
@@ -79,16 +144,19 @@ fn answers(w: &mut Steps) -> TestResult {
     assert_eq!(http_status(frontend::OBSERVABILITY, "/ready")?, 503);
     assert_eq!(http_status(compute::OBSERVABILITY, "/ready")?, 503);
     assert_eq!(http_status(frontend::OBSERVABILITY, "/other")?, 404);
-    w.roles.clear();
+    w.roles = None;
     Ok(())
 }
 
 #[when("a role is running and receives SIGTERM")]
 fn terminate(w: &mut Steps) -> TestResult {
-    let mut role = RoleProcess::start(compute::BINARY, &[], &compute::settings())?;
-    role.wait_for(compute::OBSERVABILITY, "/health")?;
-    w.exited = Some(role.terminate()?);
-    w.log = role.log()?;
+    let util = services()?;
+    let log = scratch("compute-stopped.log");
+    let wait = answering(compute::OBSERVABILITY, "/health");
+    let pid =
+        util.start_service_from_config(role(compute::BINARY, compute::settings(), &log, wait))?;
+    w.exited = Some(util.stop_service(pid)?);
+    w.log = std::fs::read_to_string(&log)?;
     Ok(())
 }
 
@@ -131,9 +199,11 @@ fn pinned(w: &mut Steps) -> TestResult {
         "ULTRAGRAPHDB_RUNTIME_PIN_CORES".to_string(),
         "true".to_string(),
     ));
-    let mut role = RoleProcess::start(storage::BINARY, &[], &variables)?;
-    role.wait_for(storage::OBSERVABILITY, "/health")?;
-    w.log = role.log()?;
+    let util = services()?;
+    let log = scratch("storage-pinned.log");
+    let wait = answering(storage::OBSERVABILITY, "/health");
+    let _pid: u32 = util.start_service_from_config(role(storage::BINARY, variables, &log, wait))?;
+    w.log = std::fs::read_to_string(&log)?;
     Ok(())
 }
 

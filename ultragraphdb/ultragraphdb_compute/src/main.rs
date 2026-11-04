@@ -10,7 +10,6 @@ use std::process::ExitCode;
 use mimalloc::MiMalloc;
 use ultragraphdb_common_service::{RoleKind, exit_status, run_role};
 
-// musl's allocator contends under threads; mimalloc is every shipped binary's allocator.
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 

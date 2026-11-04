@@ -13,9 +13,7 @@ on a signal. Until its role exists, storage reports ready, having no partition t
 having nothing that could answer them. Roles join in with their tasks.
 
 `ultragraphdb_tests` starts the binaries as processes, each copied into the sandbox with `copy_file`: 7 scenarios and 14 steps, cached by
-Bazel on a second run, tagged `exclusive` and `integration_test`, with no sandbox opt-out in the test action. A small `std::process`
-helper replaces scrith's `service_utils`, whose `wait_utils` depends on `tokio` and `tonic`, and which cannot read an exit code, as the
-`sysexits` scenarios must.
+Bazel on a second run, tagged `exclusive` and `integration_test`, with no sandbox opt-out in the test action. They start through `service_utils` 0.4, the same tool scrith uses, which is `std` alone and reads a process's exit code, as the `sysexits` scenarios need.
 
 Fuzz target `health_request`: 376,125 executions in 30 s, coverage 172, no failure. Its 6 seeds are hand-written requests.
 
