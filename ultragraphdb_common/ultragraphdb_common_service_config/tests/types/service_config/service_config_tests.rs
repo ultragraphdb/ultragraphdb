@@ -259,3 +259,63 @@ fn test_load_reads_the_named_file() -> TestResult {
     assert_eq!(ServiceConfig::load(None, [])?, ServiceConfig::default());
     Ok(())
 }
+
+/// Every problem of a file is listed, not the first; a good file has none.
+#[test]
+fn test_problems_lists_every_refusal() {
+    assert!(ServiceConfig::problems(b"[storage]\npartition_count = 2\n").is_empty());
+    let problems = ServiceConfig::problems(
+        b"[storage]\npartiton_count = 2\n[compute]\nrole_addres = \"tcp://c:1\"\n[nothing]\nx = 1\n",
+    );
+    let text = problems
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(problems.len() >= 3, "{text}");
+    for word in ["partiton_count", "role_addres", "nothing"] {
+        assert!(text.contains(word), "{word} in: {text}");
+    }
+    assert!(!ServiceConfig::problems(b"[broken\n").is_empty());
+}
+
+/// The service's own table and a role's admin table read back what they hold, and follow the endpoint's security rule.
+#[test]
+fn test_the_config_and_admin_tables_read_their_settings() -> TestResult {
+    let read = ServiceConfig::parse(
+        Some(
+            br#"[config]
+address = "tcp://c:1"
+plaintext = true
+data_dir = "/d"
+read_key_file = "/r"
+admin_key_file = "/a"
+targets_file = "/t"
+[admin]
+address = "tcp://a:2"
+tls_cert_file = "/cert"
+tls_key_file = "/key"
+key_sha256 = "abc"
+"#,
+        ),
+        [],
+    )?;
+    let config = read.config();
+    assert_eq!(config.address(), Some("tcp://c:1"));
+    assert_eq!(config.data_dir(), Some("/d"));
+    assert_eq!(config.read_key_file(), Some("/r"));
+    assert_eq!(config.admin_key_file(), Some("/a"));
+    assert_eq!(config.targets_file(), Some("/t"));
+    assert!(matches!(
+        config.security()?,
+        ultragraphdb_common_service_config::EndpointSecurity::Plaintext
+    ));
+    let admin = read.admin();
+    assert_eq!(admin.address(), Some("tcp://a:2"));
+    assert_eq!(admin.key_sha256(), Some("abc"));
+    assert!(matches!(
+        admin.security()?,
+        ultragraphdb_common_service_config::EndpointSecurity::Tls { .. }
+    ));
+    Ok(())
+}

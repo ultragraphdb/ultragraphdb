@@ -5,6 +5,7 @@
 
 use crate::errors::toml_error::TomlError;
 use crate::types::toml_document::TomlDocument;
+use crate::types::toml_entry::TomlEntry;
 use crate::types::toml_kind::TomlKind;
 use crate::types::toml_value::TomlValue;
 
@@ -59,6 +60,33 @@ impl TomlDocument {
                 .map(|entry| TomlError::unread_key(table.name(), entry.key()))
         });
         unread.map_or(Ok(()), Err)
+    }
+
+    /// Every setting no read took, as `(table, key)`, in the document's order.
+    #[must_use]
+    pub fn unread(&self) -> Vec<(String, String)> {
+        self.tables
+            .iter()
+            .flat_map(|table| {
+                table
+                    .entries()
+                    .iter()
+                    .filter(|entry| !entry.is_taken())
+                    .map(|entry| (table.name().to_string(), entry.key().to_string()))
+            })
+            .collect()
+    }
+
+    /// The line `key` of `table` stands on.
+    #[must_use]
+    pub fn line_of(&self, table: &str, key: &str) -> Option<usize> {
+        self.tables
+            .iter()
+            .find(|held| held.name() == table)?
+            .entries()
+            .iter()
+            .find(|entry| entry.key() == key)
+            .map(TomlEntry::line)
     }
 
     /// The value of `key` in `table` as `pick` reads it for the kind `expected`, marking the setting taken; a

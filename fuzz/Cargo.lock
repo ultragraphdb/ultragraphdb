@@ -451,12 +451,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "futures"
+version = "0.3.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a31d2a3fbaaeb2af2368bbdd904aa8e812d3c04a1ee10d3171f52d556e5d0a3"
+dependencies = [
+ "futures-channel",
+ "futures-core",
+ "futures-executor",
+ "futures-io",
+ "futures-sink",
+ "futures-task",
+ "futures-util",
+]
+
+[[package]]
 name = "futures-channel"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b1f9e3d69d39e4862ffed03ed071a76f9a13ba1d9109d355b0f0aa6b15e393c4"
 dependencies = [
  "futures-core",
+ "futures-sink",
 ]
 
 [[package]]
@@ -511,6 +527,7 @@ version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0d50a92467f8ba5dd6e3ee5d4bd04d73ab2e4e1c44474a0674821dfce14b79bc"
 dependencies = [
+ "futures-channel",
  "futures-core",
  "futures-io",
  "futures-macro",
@@ -1535,6 +1552,47 @@ dependencies = [
 ]
 
 [[package]]
+name = "ultragraphdb_common_config"
+version = "0.1.0"
+dependencies = [
+ "compio",
+ "futures",
+ "tracing",
+ "ultragraphdb_common_config_check",
+ "ultragraphdb_common_service",
+ "ultragraphdb_common_service_config",
+ "ultragraphdb_common_telemetry",
+ "ultragraphdb_error_log",
+ "ultragraphdb_error_role",
+ "ultragraphdb_protocol_transport",
+ "ultragraphdb_protocol_transport_compio",
+ "ultragraphdb_traits_log",
+ "ultragraphdb_transactions_log",
+ "ultragraphdb_transport_http_server",
+ "ultragraphdb_transport_tls",
+]
+
+[[package]]
+name = "ultragraphdb_common_config_check"
+version = "0.1.0"
+dependencies = [
+ "ultragraphdb_cluster_metadata",
+ "ultragraphdb_cluster_placement",
+ "ultragraphdb_cluster_sequencer",
+ "ultragraphdb_common_service_config",
+ "ultragraphdb_protocol_transport",
+ "ultragraphdb_tool_toml",
+]
+
+[[package]]
+name = "ultragraphdb_common_config_fuzz"
+version = "0.0.0"
+dependencies = [
+ "libfuzzer-sys",
+ "ultragraphdb_common_config",
+]
+
+[[package]]
 name = "ultragraphdb_common_service"
 version = "0.1.0"
 dependencies = [
@@ -1544,6 +1602,7 @@ dependencies = [
  "ultragraphdb_common_service_config",
  "ultragraphdb_common_telemetry",
  "ultragraphdb_error_role",
+ "ultragraphdb_transport_http_server",
 ]
 
 [[package]]
@@ -1551,14 +1610,6 @@ name = "ultragraphdb_common_service_config"
 version = "0.1.0"
 dependencies = [
  "ultragraphdb_tool_toml",
-]
-
-[[package]]
-name = "ultragraphdb_common_service_fuzz"
-version = "0.0.0"
-dependencies = [
- "libfuzzer-sys",
- "ultragraphdb_common_service",
 ]
 
 [[package]]
@@ -1811,6 +1862,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ultragraphdb_protocol_transport_compio"
+version = "0.1.0"
+dependencies = [
+ "compio",
+ "ultragraphdb_protocol_transport",
+ "ultragraphdb_protocol_wire",
+ "ultragraphdb_transport_tls",
+]
+
+[[package]]
 name = "ultragraphdb_protocol_transport_fuzz"
 version = "0.0.0"
 dependencies = [
@@ -2046,6 +2107,7 @@ dependencies = [
 name = "ultragraphdb_transactions_txn"
 version = "0.1.0"
 dependencies = [
+ "oxilangtag",
  "oxrdf",
  "ultragraphdb_cluster_placement",
  "ultragraphdb_core_catalog",
@@ -2054,12 +2116,51 @@ dependencies = [
  "ultragraphdb_core_keys",
  "ultragraphdb_core_mapping",
  "ultragraphdb_error_invariant",
+ "ultragraphdb_error_protocol",
  "ultragraphdb_protocol_wire",
  "ultragraphdb_store_apply",
  "ultragraphdb_store_posting",
  "ultragraphdb_store_quads",
  "ultragraphdb_traits_blocks",
  "ultragraphdb_traits_store",
+]
+
+[[package]]
+name = "ultragraphdb_transport_http_client"
+version = "0.1.0"
+dependencies = [
+ "compio",
+ "ultragraphdb_protocol_transport",
+ "ultragraphdb_protocol_transport_compio",
+ "ultragraphdb_transport_tls",
+]
+
+[[package]]
+name = "ultragraphdb_transport_http_client_fuzz"
+version = "0.0.0"
+dependencies = [
+ "libfuzzer-sys",
+ "ultragraphdb_transport_http_client",
+]
+
+[[package]]
+name = "ultragraphdb_transport_http_server"
+version = "0.1.0"
+dependencies = [
+ "compio",
+ "sha2",
+ "subtle",
+ "tracing",
+ "ultragraphdb_protocol_transport_compio",
+ "ultragraphdb_transport_tls",
+]
+
+[[package]]
+name = "ultragraphdb_transport_http_server_fuzz"
+version = "0.0.0"
+dependencies = [
+ "libfuzzer-sys",
+ "ultragraphdb_transport_http_server",
 ]
 
 [[package]]

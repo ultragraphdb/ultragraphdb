@@ -1,0 +1,16 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+load("@crates//:defs.bzl", "all_crate_deps")
+load("//bazel:binary.bzl", "static_binary")
+
+# No library: the check is reached from its crate, and a binary holds only `main`.
+static_binary(
+    name = "ultragraphdb_config_cli",
+    srcs = ["src/main.rs"],
+    tags = ["config_binary"],
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(normal = True),
+)

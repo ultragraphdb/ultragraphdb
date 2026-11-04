@@ -15,5 +15,4 @@ mod utils;
 
 pub use crate::types::refill_blocks::RefillBlocks;
 pub use crate::utils::error_reply::error_reply;
-pub use crate::utils::partition_address::partition_address;
 pub use crate::utils::storage_role::storage_role;

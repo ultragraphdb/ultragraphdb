@@ -1,0 +1,27 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+[package]
+name = "ultragraphdb_config_cli"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+readme.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Checks UltraGraphDB's settings files before anything starts"
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "ultragraphdb_config_cli"
+path = "src/main.rs"
+
+[dependencies]
+mimalloc = { workspace = true }
+ultragraphdb_common_config_check = { workspace = true }

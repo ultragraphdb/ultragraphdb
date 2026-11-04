@@ -7,7 +7,7 @@ name the file its instances share; that name, `_` and a label, such as `storage_
 with no labelled instance SHALL have one instance, named as the role. An instance's settings SHALL be its role's file with
 its own over them, key by key, rendered canonically, so two reads of one revision are byte-identical. The service SHALL be one process over one data directory, which it
 SHALL hold locked, so a second process over the directory is refused. It SHALL be a statically linked musl binary in a
-scratch image, running as user 65532, and SHALL link no storage engine.
+scratch image, running as the base's `nobody` (65534), and SHALL link no storage engine.
 
 #### Scenario: An instance's file overrides its role's
 - **WHEN** target `ci` holds `storage` with `partition_count = 2` and `storage_2` with `partition_first = 3`
@@ -19,7 +19,7 @@ scratch image, running as user 65532, and SHALL link no storage engine.
 
 #### Scenario: The image holds its binary alone
 - **WHEN** the config service's image is built
-- **THEN** it holds the statically linked binary on the scratch base, for amd64 and arm64, runs as user 65532, and its
+- **THEN** it holds the statically linked binary on the scratch base, for amd64 and arm64, runs as `nobody`, and its
   dependency graph names neither `ultragraphdb_store_kv` nor fjall
 
 ### Requirement: A target's settings are immutable numbered revisions
@@ -135,14 +135,14 @@ with their settings.
 ### Requirement: An administrator checks settings before starting anything
 The validation SHALL live in the crate `ultragraphdb_common_config_check`, which reads a central file and its files and reports every
 defect, with no store, no network and no key, and which the service and the CLI both call, so the two cannot disagree. The binary
-`ultragraphdb_config_check`, given a central file's path, SHALL print every defect, or each target with its instances when there is none,
+`ultragraphdb_config_cli`, given a central file's path, SHALL print every defect, or each target with its instances when there is none,
 and SHALL exit 0 when the settings pass and 78 when they do not. It SHALL also report, as a warning that does not fail the check, a
 `.toml` file in the central file's directory that nothing declares, since that is usually a misspelled name. Where a check compares a
 revision against the active one, only the service holds that revision, so those checks SHALL run there and the CLI SHALL say it did not
 make them.
 
 #### Scenario: The check finds what the service would refuse
-- **WHEN** an administrator runs `ultragraphdb_config_check` over settings the service would refuse
+- **WHEN** an administrator runs `ultragraphdb_config_cli` over settings the service would refuse
 - **THEN** it prints the same defects the service would, and exits with code 78
 
 #### Scenario: The check passes what the service would take

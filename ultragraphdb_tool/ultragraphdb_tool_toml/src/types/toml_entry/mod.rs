@@ -10,15 +10,17 @@ use crate::types::toml_value::TomlValue;
 pub struct TomlEntry {
     key: String,
     value: TomlValue,
+    line: usize,
     taken: bool,
 }
 
 impl TomlEntry {
-    /// An entry of `key` and `value`, not yet taken by a read.
-    pub(crate) fn new(key: String, value: TomlValue) -> Self {
+    /// An entry of `key` and `value` on line `line`, not yet taken by a read.
+    pub(crate) fn new(key: String, value: TomlValue, line: usize) -> Self {
         Self {
             key,
             value,
+            line,
             taken: false,
         }
     }
@@ -33,6 +35,12 @@ impl TomlEntry {
     #[must_use]
     pub fn value(&self) -> &TomlValue {
         &self.value
+    }
+
+    /// The line it stands on, counting from 1.
+    #[must_use]
+    pub fn line(&self) -> usize {
+        self.line
     }
 
     /// Whether a read took the entry.

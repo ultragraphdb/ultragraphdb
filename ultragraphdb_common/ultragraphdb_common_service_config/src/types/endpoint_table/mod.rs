@@ -61,29 +61,42 @@ impl EndpointTable {
     /// [`ServiceConfigErrorEnum::ConflictingEndpointSecurity`] for both;
     /// [`ServiceConfigErrorEnum::IncompleteEndpointSecurity`] for only one of the certificate and the key.
     pub fn security(&self) -> Result<EndpointSecurity, ServiceConfigError> {
-        let plaintext = self.plaintext == Some(true);
-        match (&self.tls_cert_file, &self.tls_key_file) {
-            (None, None) if plaintext => Ok(EndpointSecurity::Plaintext),
-            (None, None) => Err(ServiceConfigError(
-                ServiceConfigErrorEnum::NoEndpointSecurity,
-            )),
-            _ if plaintext => Err(ServiceConfigError(
-                ServiceConfigErrorEnum::ConflictingEndpointSecurity,
-            )),
-            (Some(cert_file), Some(key_file)) => Ok(EndpointSecurity::Tls {
-                cert_file: cert_file.clone(),
-                key_file: key_file.clone(),
-            }),
-            (Some(_), None) => Err(ServiceConfigError(
-                ServiceConfigErrorEnum::IncompleteEndpointSecurity {
-                    absent: "tls_key_file",
-                },
-            )),
-            (None, Some(_)) => Err(ServiceConfigError(
-                ServiceConfigErrorEnum::IncompleteEndpointSecurity {
-                    absent: "tls_cert_file",
-                },
-            )),
-        }
+        security_of(
+            self.tls_cert_file.as_deref(),
+            self.tls_key_file.as_deref(),
+            self.plaintext,
+        )
+    }
+}
+
+/// How a listener of `cert_file`, `key_file` and `plaintext` speaks, by the endpoint's rule.
+pub(crate) fn security_of(
+    cert_file: Option<&str>,
+    key_file: Option<&str>,
+    plaintext: Option<bool>,
+) -> Result<EndpointSecurity, ServiceConfigError> {
+    let plaintext = plaintext == Some(true);
+    match (cert_file, key_file) {
+        (None, None) if plaintext => Ok(EndpointSecurity::Plaintext),
+        (None, None) => Err(ServiceConfigError(
+            ServiceConfigErrorEnum::NoEndpointSecurity,
+        )),
+        _ if plaintext => Err(ServiceConfigError(
+            ServiceConfigErrorEnum::ConflictingEndpointSecurity,
+        )),
+        (Some(cert_file), Some(key_file)) => Ok(EndpointSecurity::Tls {
+            cert_file: cert_file.to_string(),
+            key_file: key_file.to_string(),
+        }),
+        (Some(_), None) => Err(ServiceConfigError(
+            ServiceConfigErrorEnum::IncompleteEndpointSecurity {
+                absent: "tls_key_file",
+            },
+        )),
+        (None, Some(_)) => Err(ServiceConfigError(
+            ServiceConfigErrorEnum::IncompleteEndpointSecurity {
+                absent: "tls_cert_file",
+            },
+        )),
     }
 }

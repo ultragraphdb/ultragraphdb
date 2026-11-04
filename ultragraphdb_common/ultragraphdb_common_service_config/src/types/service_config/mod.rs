@@ -6,8 +6,10 @@
 use std::path::Path;
 
 use crate::errors::service_config_error::ServiceConfigError;
+use crate::types::admin_table::AdminTable;
 use crate::types::cluster_table::ClusterTable;
 use crate::types::compute_table::ComputeTable;
+use crate::types::config_table::ConfigTable;
 use crate::types::endpoint_table::EndpointTable;
 use crate::types::frontend_table::FrontendTable;
 use crate::types::metadata_table::MetadataTable;
@@ -20,8 +22,10 @@ use crate::types::storage_table::StorageTable;
 /// The settings of one role's start: one type per table of the settings file, one field per setting.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ServiceConfig {
+    admin: AdminTable,
     cluster: ClusterTable,
     compute: ComputeTable,
+    config: ConfigTable,
     endpoint: EndpointTable,
     frontend: FrontendTable,
     metadata: MetadataTable,
@@ -62,19 +66,48 @@ impl ServiceConfig {
         variables: impl IntoIterator<Item = (String, String)>,
     ) -> Result<Self, ServiceConfigError> {
         let mut reader = SettingsReader::new(bytes, variables)?;
-        let config = Self {
-            cluster: ClusterTable::read(&mut reader)?,
-            compute: ComputeTable::read(&mut reader)?,
-            endpoint: EndpointTable::read(&mut reader)?,
-            frontend: FrontendTable::read(&mut reader)?,
-            metadata: MetadataTable::read(&mut reader)?,
-            observability: ObservabilityTable::read(&mut reader)?,
-            runtime: RuntimeTable::read(&mut reader)?,
-            sequencer: SequencerTable::read(&mut reader)?,
-            storage: StorageTable::read(&mut reader)?,
-        };
+        let config = Self::read(&mut reader)?;
         reader.finish()?;
         Ok(config)
+    }
+
+    /// Every refusal of a file holding `bytes`, not the first alone: an unknown table or key, or a value of the wrong
+    /// kind. A document that does not parse is its one refusal.
+    #[must_use]
+    pub fn problems(bytes: &[u8]) -> Vec<ServiceConfigError> {
+        let mut reader = match SettingsReader::collecting(bytes) {
+            Ok(reader) => reader,
+            Err(error) => return vec![error],
+        };
+        // A collecting reader records its refusals and refuses nothing.
+        let _config = Self::read(&mut reader);
+        reader.problems()
+    }
+
+    fn read(reader: &mut SettingsReader) -> Result<Self, ServiceConfigError> {
+        Ok(Self {
+            admin: AdminTable::read(reader)?,
+            cluster: ClusterTable::read(reader)?,
+            compute: ComputeTable::read(reader)?,
+            config: ConfigTable::read(reader)?,
+            endpoint: EndpointTable::read(reader)?,
+            frontend: FrontendTable::read(reader)?,
+            metadata: MetadataTable::read(reader)?,
+            observability: ObservabilityTable::read(reader)?,
+            runtime: RuntimeTable::read(reader)?,
+            sequencer: SequencerTable::read(reader)?,
+            storage: StorageTable::read(reader)?,
+        })
+    }
+
+    /// The `[admin]` table.
+    pub fn admin(&self) -> &AdminTable {
+        &self.admin
+    }
+
+    /// The `[config]` table.
+    pub fn config(&self) -> &ConfigTable {
+        &self.config
     }
 
     /// The `[cluster]` table.

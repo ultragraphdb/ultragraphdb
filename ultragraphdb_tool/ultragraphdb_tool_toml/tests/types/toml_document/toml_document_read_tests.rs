@@ -202,3 +202,22 @@ fn test_a_document_without_keys_finishes_with_nothing_read() -> TestResult {
     TomlDocument::parse(b"# nothing\n[storage]\n")?.finish()?;
     Ok(())
 }
+
+/// Every setting no read took is listed in the document's order, and a setting's line is where it stands.
+#[test]
+fn test_unread_lists_every_setting_left_and_line_of_finds_one() -> TestResult {
+    let mut document = TomlDocument::parse(b"a = 1\n[t]\n\nb = 2\nc = 3\n")?;
+    assert_eq!(document.line_of("", "a"), Some(1));
+    assert_eq!(document.line_of("t", "c"), Some(5));
+    assert_eq!(document.line_of("t", "absent"), None);
+    assert_eq!(document.line_of("absent", "c"), None);
+    let _taken = document.integer("t", "b")?;
+    assert_eq!(
+        document.unread(),
+        [
+            ("".to_string(), "a".to_string()),
+            ("t".to_string(), "c".to_string())
+        ]
+    );
+    Ok(())
+}

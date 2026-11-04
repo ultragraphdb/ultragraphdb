@@ -3,8 +3,10 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+pub mod admin_table;
 pub mod cluster_table;
 pub mod compute_table;
+pub mod config_table;
 pub mod endpoint_security;
 pub mod endpoint_table;
 pub mod frontend_table;

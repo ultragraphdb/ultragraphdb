@@ -73,7 +73,8 @@ impl<'a> TomlParser<'a> {
         self.claim_key(key, line)?;
         let (parsed, after_value) = value(skip_whitespace(chars.as_str()), line)?;
         end_of_line(after_value, line)?;
-        self.current.push(TomlEntry::new(key.to_string(), parsed));
+        self.current
+            .push(TomlEntry::new(key.to_string(), parsed, line));
         Ok(())
     }
 }

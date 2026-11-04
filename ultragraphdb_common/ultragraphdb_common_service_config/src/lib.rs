@@ -17,10 +17,13 @@
 
 mod errors;
 mod types;
+mod utils;
 
 pub use crate::errors::service_config_error::{ServiceConfigError, ServiceConfigErrorEnum};
+pub use crate::types::admin_table::AdminTable;
 pub use crate::types::cluster_table::ClusterTable;
 pub use crate::types::compute_table::ComputeTable;
+pub use crate::types::config_table::ConfigTable;
 pub use crate::types::endpoint_security::EndpointSecurity;
 pub use crate::types::endpoint_table::EndpointTable;
 pub use crate::types::frontend_table::FrontendTable;
@@ -30,3 +33,4 @@ pub use crate::types::runtime_table::RuntimeTable;
 pub use crate::types::sequencer_table::SequencerTable;
 pub use crate::types::service_config::ServiceConfig;
 pub use crate::types::storage_table::StorageTable;
+pub use crate::utils::partition_address::partition_address;

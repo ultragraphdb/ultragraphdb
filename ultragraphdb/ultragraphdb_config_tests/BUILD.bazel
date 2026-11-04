@@ -1,0 +1,51 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+load("@aspect_bazel_lib//lib:copy_file.bzl", "copy_file")
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+# What the service links, for the test that fails when it links an engine.
+genquery(
+    name = "config_deps",
+    expression = "deps(//ultragraphdb/ultragraphdb_config:ultragraphdb_config)",
+    scope = ["//ultragraphdb/ultragraphdb_config:ultragraphdb_config"],
+)
+
+# The binaries as processes: each is copied into the sandbox, and the test starts it. No container is involved, so Bazel
+# caches the result. The port is declared and fixed, so `exclusive` keeps any other test from running beside this one; it
+# stays sandboxed.
+rust_test(
+    name = "bdd",
+    srcs = ["tests/bdd.rs"],
+    crate_root = "tests/bdd.rs",
+    data = glob(["features/**/*.feature"]) + [
+        ":config_deps",
+        ":copy_config",
+        ":copy_config_cli",
+    ],
+    tags = [
+        "exclusive",
+        "integration_test",
+    ],
+    use_libtest_harness = False,
+    deps = all_crate_deps(normal_dev = True),
+)
+
+# Copy the service into the sandbox.
+copy_file(
+    name = "copy_config",
+    src = "//ultragraphdb/ultragraphdb_config:ultragraphdb_config",
+    out = "ultragraphdb_config",
+    is_executable = True,
+)
+
+# Copy the CLI into the sandbox.
+copy_file(
+    name = "copy_config_cli",
+    src = "//ultragraphdb/ultragraphdb_config_cli:ultragraphdb_config_cli",
+    out = "ultragraphdb_config_cli",
+    is_executable = True,
+)

@@ -3,28 +3,27 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_common_storage::partition_address;
-use ultragraphdb_error_role::RoleError;
+use ultragraphdb_common_service_config::partition_address;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
 /// Over TCP each partition takes the next port; over a Unix socket a path of its own.
 #[test]
 fn test_each_partition_has_an_address_of_its_own() -> TestResult {
     assert_eq!(
-        partition_address("tcp://127.0.0.1:7000", 3, 3)?,
-        "tcp://127.0.0.1:7000"
+        partition_address("tcp://127.0.0.1:7000", 3, 3),
+        Ok("tcp://127.0.0.1:7000".to_string())
     );
     assert_eq!(
-        partition_address("tcp://127.0.0.1:7000", 3, 5)?,
-        "tcp://127.0.0.1:7002"
+        partition_address("tcp://127.0.0.1:7000", 3, 5),
+        Ok("tcp://127.0.0.1:7002".to_string())
     );
     assert_eq!(
-        partition_address("unix:///run/ultragraph/storage.sock", 1, 2)?,
-        "unix:///run/ultragraph/storage-p2.sock"
+        partition_address("unix:///run/ultragraph/storage.sock", 1, 2),
+        Ok("unix:///run/ultragraph/storage-p2.sock".to_string())
     );
     assert_eq!(
-        partition_address("unix:///run/s", 1, 1)?,
-        "unix:///run/s-p1"
+        partition_address("unix:///run/s", 1, 1),
+        Ok("unix:///run/s-p1".to_string())
     );
     Ok(())
 }
@@ -36,7 +35,7 @@ fn test_an_address_past_the_ports_is_refused() -> TestResult {
         let refused = partition_address(base, 1, partition)
             .err()
             .context("a refusal")?;
-        assert_eq!(refused.exit_code(), RoleError::EX_CONFIG, "{base}");
+        assert!(refused.contains(base), "{refused}");
     }
     Ok(())
 }

@@ -80,7 +80,7 @@ Today:
 | `ultragraphdb_transport_http_client` | `ultragraphdb_transport/` | `_transport_tls`, `_protocol_transport_compio`, `compio` | HTTP/1.1 as a role asks the config service: requests with a bearer key, responses parsed and bounded in size and time, over TLS or clear text |
 | `ultragraphdb_common_config_check` | `ultragraphdb_common/` | `_common_service_config`, `ultragraphdb_tool_toml` | Reading a central file and its files, and every check of them, each defect stated for an administrator; no store, no network, no key |
 | `ultragraphdb_common_config` | `ultragraphdb_common/` | `_common_config_check`, `_transport_http_server`, `ultragraphdb_traits_log`, `ultragraphdb_transactions_log`, `ultragraphdb_transport_tls` | The config service: its records and state machine over `OrderedLog`, the API |
-| `ultragraphdb_config_check` | `ultragraphdb/` | `_common_config_check` | `main`: the CLI an administrator validates a folder with, statically linked against musl |
+| `ultragraphdb_config_cli` | `ultragraphdb/` | `_common_config_check` | `main`: the CLI an administrator validates a folder with, statically linked against musl |
 | `ultragraphdb_config` | `ultragraphdb/` | `_common_config`, `_common_service` | `main`, statically linked against musl, on the scratch base |
 | `ultragraphdb_frontend`, `_compute`, `_storage`, `_supervisor` | `ultragraphdb/` | their role crate, `ultragraphdb_common_service`, `mimalloc` | `main`: configuration, telemetry, the runtime, health, signals; `_supervisor` starts and stops the three roles |
 
@@ -460,7 +460,7 @@ which also separates their keys, since one read key reads every target of its se
 
 **The first thing an administrator meets.** The service and its settings come before any deployment, so a clear refusal is the point of them.
 The central file declares every settings file, and a start reads and validates all of it, so an absent or broken file stops the service with every
-defect listed at once. The same crate backs `ultragraphdb_config_check`, so a folder can be proved good before anything runs. Declared files seed a target
+defect listed at once. The same crate backs `ultragraphdb_config_cli`, so a folder can be proved good before anything runs. Declared files seed a target
 once; afterwards the API is the authority, and a start still validates the folder and says when it differs from what is stored.
 
 **Validation lives in the service.** The service has what no node has, every instance of a target at once, so it alone can check that

@@ -7,15 +7,17 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use ultragraphdb_tool_toml::{TomlDocument, TomlError, TomlErrorEnum};
 
-use crate::errors::service_config_error::ServiceConfigError;
+use crate::errors::service_config_error::{ServiceConfigError, ServiceConfigErrorEnum};
 
 /// What a variable overriding a setting begins with.
 const VARIABLE_PREFIX: &str = "ULTRAGRAPHDB_";
 
 /// The tables a settings file may hold, each mirrored by one type.
-const TABLES: [&str; 9] = [
+const TABLES: [&str; 11] = [
+    "admin",
     "cluster",
     "compute",
+    "config",
     "endpoint",
     "frontend",
     "metadata",
@@ -31,6 +33,8 @@ pub(crate) struct SettingsReader {
     document: Option<TomlDocument>,
     variables: BTreeMap<String, String>,
     taken: BTreeSet<String>,
+    /// When collecting, every refusal met, the read refused being absent.
+    collected: Option<Vec<ServiceConfigError>>,
 }
 
 impl SettingsReader {
@@ -55,7 +59,55 @@ impl SettingsReader {
                 .filter(|(name, _)| name.starts_with(VARIABLE_PREFIX))
                 .collect(),
             taken: BTreeSet::new(),
+            collected: None,
         })
+    }
+
+    /// The reading of the file holding `bytes` that goes on past a refusal, so [`SettingsReader::problems`] names them all.
+    /// Only a document that does not parse stops it.
+    pub(crate) fn collecting(bytes: &[u8]) -> Result<Self, ServiceConfigError> {
+        let document = TomlDocument::parse(bytes)?;
+        let collected = document
+            .tables()
+            .iter()
+            .filter(|table| !table.name().is_empty() && !TABLES.contains(&table.name()))
+            .map(|table| ServiceConfigError::unknown_table(table.name()))
+            .collect();
+        Ok(Self {
+            document: Some(document),
+            variables: BTreeMap::new(),
+            taken: BTreeSet::new(),
+            collected: Some(collected),
+        })
+    }
+
+    /// `error`, or, when collecting, its record and an absent value.
+    fn refuse<T>(&mut self, error: ServiceConfigError) -> Result<Option<T>, ServiceConfigError> {
+        match self.collected.as_mut() {
+            Some(collected) => {
+                collected.push(error);
+                Ok(None)
+            }
+            None => Err(error),
+        }
+    }
+
+    /// Every refusal met, every setting no read took among them.
+    pub(crate) fn problems(self) -> Vec<ServiceConfigError> {
+        let mut collected = self.collected.unwrap_or_default();
+        let known = |table: &str| table.is_empty() || TABLES.contains(&table);
+        collected.extend(
+            self.document
+                .iter()
+                .flat_map(TomlDocument::unread)
+                .filter(|(table, _)| known(table))
+                .map(|(table, key)| {
+                    ServiceConfigError(ServiceConfigErrorEnum::Toml(TomlError::unread_key(
+                        &table, &key,
+                    )))
+                }),
+        );
+        collected
     }
 
     /// The string setting `key` of `table`; `None` when neither the file nor the environment names it.
@@ -95,13 +147,18 @@ impl SettingsReader {
         table: &str,
         key: &str,
     ) -> Result<Option<u32>, ServiceConfigError> {
-        self.integer(table, key)?
-            .map(|value| {
-                u32::try_from(value).map_err(|_| {
-                    ServiceConfigError::out_of_range(table, key, value, u64::from(u32::MAX))
-                })
-            })
-            .transpose()
+        let Some(value) = self.integer(table, key)? else {
+            return Ok(None);
+        };
+        match u32::try_from(value) {
+            Ok(fits) => Ok(Some(fits)),
+            Err(_) => self.refuse(ServiceConfigError::out_of_range(
+                table,
+                key,
+                value,
+                u64::from(u32::MAX),
+            )),
+        }
     }
 
     /// The integer setting `key` of `table`, as a `u64`.
@@ -110,13 +167,18 @@ impl SettingsReader {
         table: &str,
         key: &str,
     ) -> Result<Option<u64>, ServiceConfigError> {
-        self.integer(table, key)?
-            .map(|value| {
-                u64::try_from(value).map_err(|_| {
-                    ServiceConfigError::out_of_range(table, key, value, i64::MAX.unsigned_abs())
-                })
-            })
-            .transpose()
+        let Some(value) = self.integer(table, key)? else {
+            return Ok(None);
+        };
+        match u64::try_from(value) {
+            Ok(fits) => Ok(Some(fits)),
+            Err(_) => self.refuse(ServiceConfigError::out_of_range(
+                table,
+                key,
+                value,
+                i64::MAX.unsigned_abs(),
+            )),
+        }
     }
 
     /// Ends the reading: a setting of the file or a variable no read took is refused.
@@ -161,7 +223,7 @@ impl SettingsReader {
         match read(document) {
             Ok(value) => Ok(Some(value)),
             Err(TomlError(TomlErrorEnum::Missing { .. })) => Ok(None),
-            Err(error) => Err(error.into()),
+            Err(error) => self.refuse(error.into()),
         }
     }
 

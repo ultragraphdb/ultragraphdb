@@ -121,3 +121,7 @@ arrives with 9.5.5.
 
 What later tasks replace or add: a Drop, a Recall, a Scan and a Closed are refused as unavailable; a close announcing a catalog version is
 delivered without its version read, since nothing offers one until the frontend's endpoint; 9.5.5 relays a client's frames to Bind.
+
+## 9.4b The config service
+
+**9.4b.1 HTTP.** `ultragraphdb_transport_http_server` and `_client`, one request per connection, bounded in size and time, with no keep-alive and no chunked body, so there is no framing two parsers could read differently: a `Transfer-Encoding` or a second `Content-Length` is refused. A request owns the buffer it arrived in, so its body moves on with no copy. `/health` and `/ready` moved onto the server as `HealthService`, the old responder's files and its fuzz package moved by `git mv`. Each crate has a fuzz target, `http_request` and `http_reply`, with hand-written seeds.

@@ -17,5 +17,5 @@ pub use crate::types::role_start::RoleStart;
 pub use crate::types::stopping::Stopping;
 pub use crate::utils::cpu_list::{allowed_in_status, parse_cpu_list};
 pub use crate::utils::run_service::{
-    binding, core_runtime, exit_status, run_service, serve_service,
+    binding, core_runtime, exit_status, run_service, serve_service, stop_flag,
 };

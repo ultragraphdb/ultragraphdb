@@ -133,7 +133,11 @@ pub fn exit_status(outcome: Result<(), RoleError>) -> ExitCode {
 }
 
 /// A flag SIGTERM and SIGINT set.
-fn stop_flag() -> Result<Arc<AtomicBool>, RoleError> {
+///
+/// # Errors
+///
+/// [`RoleError::unavailable`] when a handler cannot be set.
+pub fn stop_flag() -> Result<Arc<AtomicBool>, RoleError> {
     // Shared with the signal handler, which may do nothing else (Ultra rule 9).
     let stop = Arc::new(AtomicBool::new(false));
     for signal in [SIGNAL_TERM, SIGNAL_INT] {

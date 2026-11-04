@@ -1,0 +1,41 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_img//img:push.bzl", "image_push")
+load("//bazel:binary.bzl", "static_binary")
+load("//bazel/container:img.bzl", "scratch_multiarch_img", "sha256_tag")
+
+# No library: the service's work is reached from its crate, and a binary holds only `main`.
+static_binary(
+    name = "ultragraphdb_config",
+    srcs = ["src/main.rs"],
+    tags = ["config_binary"],
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(normal = True),
+)
+
+# Build for amd64 and arm64 with `-c opt`.
+scratch_multiarch_img(
+    name = "ultragraphdb_config_multiarch",
+    binary = ":ultragraphdb_config",
+    visibility = ["//visibility:public"],
+)
+
+# A simple sha256 tag.
+sha256_tag(
+    name = "ultragraphdb_config_tag",
+    image = ":ultragraphdb_config_multiarch",
+)
+
+# `bazel build` only produces the pusher; `bazel run -c opt` publishes. Credentials come from the Docker configuration.
+image_push(
+    name = "push",
+    image = ":ultragraphdb_config_multiarch",
+    registry = "index.docker.io",
+    repository = "hansenmarvin/ultragraphdb_config",
+    tag_file = ":ultragraphdb_config_tag",
+    visibility = ["//visibility:public"],
+)

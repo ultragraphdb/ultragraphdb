@@ -1,0 +1,35 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+[package]
+name = "ultragraphdb_transport_http_server"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+readme.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "The HTTP/1.1 server of UltraGraphDB's control plane"
+publish.workspace = true
+autotests = false
+
+[lints]
+workspace = true
+
+[dependencies]
+compio = { workspace = true }
+sha2 = { workspace = true }
+subtle = { workspace = true }
+tracing = { workspace = true }
+ultragraphdb_protocol_transport_compio = { workspace = true }
+ultragraphdb_transport_tls = { workspace = true }
+
+[dev-dependencies]
+ultragraphdb_tool_bdd = { workspace = true }
+
+[[test]]
+name = "unit"
+path = "tests/mod.rs"

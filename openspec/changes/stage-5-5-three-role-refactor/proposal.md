@@ -33,7 +33,7 @@ placement decision adopted 2026-11-02), the review's D1–D8
   sessions.
 - **The config service:** one service, `ultragraphdb_config`, holds every role's settings for every deployment target as immutable
   numbered revisions over an ordered log, validates a revision whole before storing it, refuses to start on anything broken, and serves them over authenticated HTTP.
-  `ultragraphdb_config_check` runs the same validation for an administrator before anything starts.
+  `ultragraphdb_config_cli` runs the same validation for an administrator before anything starts.
   Every role takes its settings from it at start, and loads another revision by restarting at an administrator's request. One
   instance until stage 8's VSR replicates its log.
 - **Partitions (P1–P4, P6, P11, P19, P20, P24):** a storage process hosts partitions, each its own log, commit step and

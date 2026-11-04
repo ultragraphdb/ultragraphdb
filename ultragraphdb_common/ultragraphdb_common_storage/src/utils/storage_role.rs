@@ -24,7 +24,7 @@ use ultragraphdb_common_role::{
     retry_until, serve_connection,
 };
 use ultragraphdb_common_service::{Readiness, RoleKind, RoleStart, Stopping, core_runtime};
-use ultragraphdb_common_service_config::ServiceConfig;
+use ultragraphdb_common_service_config::{ServiceConfig, partition_address};
 use ultragraphdb_core_ids::{Epoch, Namespace, TypePrefix, Version};
 use ultragraphdb_core_mapping::RandomSource;
 use ultragraphdb_error_role::RoleError;
@@ -48,7 +48,6 @@ use crate::types::partition_core::{
 };
 use crate::types::refill_blocks::RefillBlocks;
 use crate::types::storage_session::StorageSession;
-use crate::utils::partition_address::partition_address;
 
 /// The posting lists' cache per partition.
 const CACHE_BYTES: u64 = 64 << 20;
@@ -316,7 +315,8 @@ async fn serve_partition(
     let own = start.id;
     let cluster = &start.cluster;
     let name = RoleKind::Storage.to_string();
-    let address = partition_address(&start.base, start.first, own.get())?;
+    let address =
+        partition_address(&start.base, start.first, own.get()).map_err(RoleError::configuration)?;
     let (to_core, inbox) = unbounded();
     accept_connections(listen(&address).await?, start, to_core)?;
     let (asks_tx, asks) = unbounded();
