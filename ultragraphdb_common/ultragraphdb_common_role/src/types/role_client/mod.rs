@@ -85,6 +85,43 @@ impl RoleClient {
         Ok(reply)
     }
 
+    /// Sends `body` on a stream of its own, which ends with it: for a request no frame answers, a CloseRequest's.
+    ///
+    /// # Errors
+    ///
+    /// As writing fails.
+    pub async fn send_only<B: BodyBuilder>(&mut self, body: &B) -> Result<(), TransportError> {
+        self.stream += 1;
+        let header = Header::new(self.cluster, B::COMMAND).with_stream(self.stream);
+        let frame = body
+            .frame(header)
+            .map_err(|error| TransportError::frame_not_built(B::COMMAND.number(), error))?;
+        self.send(frame).await
+    }
+
+    /// The stream the last request opened, for what follows on it, as a Bind's transaction does.
+    #[must_use]
+    pub fn last_stream(&self) -> u64 {
+        self.stream
+    }
+
+    /// Sends `body` on the open stream `stream`.
+    ///
+    /// # Errors
+    ///
+    /// As writing fails.
+    pub async fn send_on<B: BodyBuilder>(
+        &mut self,
+        stream: u64,
+        body: &B,
+    ) -> Result<(), TransportError> {
+        let header = Header::new(self.cluster, B::COMMAND).with_stream(stream);
+        let frame = body
+            .frame(header)
+            .map_err(|error| TransportError::frame_not_built(B::COMMAND.number(), error))?;
+        self.send(frame).await
+    }
+
     /// The next frame the peer sends unasked, such as the next close on a Subscribe's stream. It holds the connection's
     /// one buffer until it is dropped.
     ///

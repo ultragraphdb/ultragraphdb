@@ -10,7 +10,7 @@ use crate::types::record_registration::RecordRegistration;
 use crate::types::term_table::TermTable;
 use crate::utils::key_value_writer::write_entries;
 use crate::utils::results::encode_results;
-use crate::utils::sections::write_sections;
+use crate::utils::sections::write_sections_into;
 
 /// One entry of a write-set record's key-value sections: a key and its value, `None` for a removal.
 pub type OwnedEntry = (Vec<u8>, Option<Vec<u8>>);
@@ -303,6 +303,14 @@ impl WriteSetRecord {
 
     /// The record's bytes.
     pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        self.encode_into(&mut out);
+        out
+    }
+
+    /// Writes the record's bytes into `out`, cleared first and its capacity kept: the log's buffer holds them with no
+    /// copy between.
+    pub fn encode_into(&self, out: &mut Vec<u8>) {
         let fixed: Vec<u8> = [self.kind.code(), 0, 0, 0, 0, 0, 0, 0]
             .into_iter()
             .chain(self.namespace.to_le_bytes())
@@ -338,7 +346,8 @@ impl WriteSetRecord {
             .flat_map(RecordRegistration::encode)
             .collect();
         let (term_records, term_text) = self.result_terms.sections();
-        write_sections(
+        write_sections_into(
+            out,
             &fixed,
             &[
                 &table(&self.inserted),
@@ -354,7 +363,7 @@ impl WriteSetRecord {
                 &term_records,
                 &term_text,
             ],
-        )
+        );
     }
 
     /// Sets the results' term table, as a received record holds it.

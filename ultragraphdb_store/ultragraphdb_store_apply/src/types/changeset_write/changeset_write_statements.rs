@@ -3,10 +3,10 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use oxrdf::{GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNodeRef, Term, TermRef};
+use oxrdf::{GraphNameRef, NamedNodeRef, NamedOrBlankNodeRef, Term, TermRef};
 use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::Graph;
-use ultragraphdb_core_mapping::{MappingError, StatementRef};
+use ultragraphdb_core_mapping::{MappingError, StatementView};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_store_quads::StatementRecord;
@@ -31,13 +31,13 @@ where
         subject: NamedOrBlankNodeRef<'_>,
         predicate: NamedNodeRef<'_>,
         object: TermRef<'_>,
-        properties: &[(NamedNode, Term)],
+        properties: &[(NamedNodeRef<'_>, TermRef<'_>)],
     ) -> Result<(), ChangesetError> {
         let r = self.resolve(graph, subject, predicate, object)?;
         let declaration = self.checked(&r, predicate, object)?;
         let properties = properties
             .iter()
-            .map(|(p, v)| Ok((self.iri(p.as_ref())?, self.term(p.as_ref(), v.as_ref())?)))
+            .map(|(p, v)| Ok((self.iri(*p)?, self.term(*p, *v)?)))
             .collect::<Result<Vec<_>, ChangesetError>>()?;
         match self.held(&r, &declaration)? {
             Some(mut ids) => {
@@ -117,7 +117,7 @@ where
     /// Adds a property to a statement, giving it an ID when it has none.
     pub(crate) fn set_property(
         &mut self,
-        statement: &StatementRef,
+        statement: StatementView<'_>,
         predicate: NamedNodeRef<'_>,
         value: TermRef<'_>,
     ) -> Result<(), ChangesetError> {
@@ -147,7 +147,7 @@ where
     /// Removes one value of a statement's property or, with no value, every value of it.
     pub(crate) fn delete_property(
         &mut self,
-        statement: &StatementRef,
+        statement: StatementView<'_>,
         predicate: NamedNodeRef<'_>,
         value: Option<TermRef<'_>>,
     ) -> Result<(), ChangesetError> {
@@ -176,37 +176,31 @@ where
     /// for a statement with no ID. Refused when no statement, or several, hold the triple named.
     fn statement(
         &mut self,
-        statement: &StatementRef,
+        statement: StatementView<'_>,
     ) -> Result<(Graph, Option<SystemId>, StatementRecord), ChangesetError> {
         match statement {
-            StatementRef::Reifier { graph, reifier } => {
+            StatementView::Reifier { graph, reifier } => {
                 let missing = || MappingError::no_such_statement(format!("{reifier} in {graph}"));
-                let named = self.find_graph(graph.as_ref())?.ok_or_else(missing)?;
-                let id = self.statement_of(reifier.as_ref())?.ok_or_else(missing)?;
+                let named = self.find_graph(graph)?.ok_or_else(missing)?;
+                let id = self.statement_of(reifier)?.ok_or_else(missing)?;
                 let record = self.record(named, id)?.ok_or_else(missing)?;
                 self.reified.push(record.subject());
                 Ok((named, Some(id), record))
             }
-            StatementRef::Triple {
+            StatementView::Triple {
                 graph,
                 subject,
                 predicate,
                 object,
             } => {
                 let text = match graph {
-                    oxrdf::GraphName::DefaultGraph => format!("{subject} {predicate} {object}"),
-                    named @ oxrdf::GraphName::NamedNode(_)
-                    | named @ oxrdf::GraphName::BlankNode(_) => {
+                    GraphNameRef::DefaultGraph => format!("{subject} {predicate} {object}"),
+                    named @ (GraphNameRef::NamedNode(_) | GraphNameRef::BlankNode(_)) => {
                         format!("{subject} {predicate} {object} {named}")
                     }
                 };
                 let r = self
-                    .find(
-                        graph.as_ref(),
-                        subject.as_ref(),
-                        predicate.as_ref(),
-                        object.as_ref(),
-                    )?
+                    .find(graph, subject, predicate, object)?
                     .ok_or_else(|| MappingError::no_such_statement(text.clone()))?;
                 let held = self.write.objects(r.graph, r.subject, r.predicate)?;
                 let ids = held

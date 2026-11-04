@@ -3,6 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_transactions_commit::Reply;
+
 use crate::errors::partition_error::PartitionError;
 
 /// How a write a [`crate::PartitionHost`] took ended: its commit version or its refusal, with how many registrations it
@@ -13,6 +15,7 @@ pub struct PartitionOutcome {
     outcome: Result<u64, PartitionError>,
     registrations: usize,
     waited_us: u64,
+    reply: Option<Reply>,
 }
 
 impl PartitionOutcome {
@@ -27,7 +30,19 @@ impl PartitionOutcome {
             outcome,
             registrations,
             waited_us,
+            reply: None,
         }
+    }
+
+    /// The outcome carrying what the commit step answered.
+    pub(crate) fn with_reply(mut self, reply: Reply) -> Self {
+        self.reply = Some(reply);
+        self
+    }
+
+    /// What the commit step answered: the commit's session token and its operations' results.
+    pub fn reply(&self) -> Option<&Reply> {
+        self.reply.as_ref()
     }
 
     /// The ticket [`crate::PartitionHost::submit`] gave the write.

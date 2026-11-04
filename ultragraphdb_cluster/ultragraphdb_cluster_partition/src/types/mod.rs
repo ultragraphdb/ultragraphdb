@@ -4,6 +4,7 @@
  */
 
 pub mod answer;
+pub mod bound_transaction;
 pub mod fanout;
 pub mod home;
 pub(crate) mod parked_write;

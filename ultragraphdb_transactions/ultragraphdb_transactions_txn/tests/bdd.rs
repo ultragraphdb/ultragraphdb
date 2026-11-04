@@ -8,10 +8,17 @@
 //! microseconds, so waiting 11 s is a clock 11 s later.
 
 use cucumber::{World, then, when};
-use oxrdf::{Literal, Term};
-use ultragraphdb_tool_bdd::{Context, TestResult};
+use oxrdf::vocab::xsd;
+use oxrdf::{BlankNode, GraphName, Literal, Term};
+use ultragraphdb_core_mapping::{Change, Changeset};
+use ultragraphdb_protocol_wire::{
+    BodyBuilder, BodyView, Command, FrameView, Header, MAX_FRAME_SIZE, RequestTerm, TermTable,
+    Write, WriteChange, WriteView,
+};
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transactions_txn::{
-    Commit, Mode, Transaction, TxnBuffers, TxnError, TxnErrorEnum, TxnLimits,
+    Commit, FrameChanges, FrameTerms, Mode, Transaction, TxnBuffers, TxnError, TxnErrorEnum,
+    TxnLimits,
 };
 
 /// The unit tests' fixture, shared by path.
@@ -21,8 +28,11 @@ pub mod utils {
 }
 
 use crate::utils::fixture::{
-    NS, SECOND, applier, begin, changeset, commit, ex, held, insert, insert_literal, objects, store,
+    NS, SECOND, Txn, applier, begin, changeset, commit, ex, held, insert, insert_literal, objects,
+    store,
 };
+
+const CLUSTER: u64 = 7;
 
 #[derive(Debug, Default, World)]
 struct Steps {
@@ -31,6 +41,7 @@ struct Steps {
     errors: Vec<TxnError>,
     versions: Vec<u64>,
     ended: bool,
+    records: Vec<Vec<u8>>,
 }
 
 #[when(
@@ -171,6 +182,140 @@ fn inserts_and_aborts(w: &mut Steps) -> TestResult {
 #[then("`<a> <knows> <b>` is not held")]
 fn not_held(w: &mut Steps) {
     assert!(w.later.is_empty(), "{:?}", w.later);
+}
+
+/// The changes the scenario writes, each kind of term in its place, the language tag as a client may send it.
+fn varied() -> Changeset {
+    let graph = ex("g");
+    let blank = BlankNode::new_unchecked("b1");
+    changeset(vec![
+        insert("a", "knows", "b"),
+        insert_literal("a", "name", "plain"),
+        Change::Insert {
+            graph: GraphName::NamedNode(graph),
+            subject: blank.into(),
+            predicate: ex("age"),
+            object: Literal::new_typed_literal("42", xsd::INTEGER).into(),
+        },
+        Change::Insert {
+            graph: GraphName::DefaultGraph,
+            subject: ex("a").into(),
+            predicate: ex("label"),
+            object: Literal::new_language_tagged_literal_unchecked("hallo", "de-de").into(),
+        },
+        Change::InsertEdge {
+            graph: GraphName::DefaultGraph,
+            subject: ex("a").into(),
+            predicate: ex("likes"),
+            object: ex("c").into(),
+            properties: vec![(ex("since"), Literal::new_simple_literal("2026").into())],
+        },
+        Change::Delete {
+            graph: GraphName::DefaultGraph,
+            subject: ex("a").into(),
+            predicate: ex("name"),
+            object: Literal::new_simple_literal("plain").into(),
+        },
+    ])
+}
+
+/// The Write frame holding what [`varied`] holds.
+fn varied_frame() -> TestResult<Vec<u8>> {
+    let mut table = TermTable::new();
+    let iri = |terms: &mut TermTable, name: &str| terms.iri(ex(name).as_str());
+    let (a, knows, b) = (
+        iri(&mut table, "a"),
+        iri(&mut table, "knows"),
+        iri(&mut table, "b"),
+    );
+    let name = iri(&mut table, "name");
+    let plain = table.intern(RequestTerm::Literal {
+        lexical: "plain".to_string(),
+        datatype: None,
+    })?;
+    let named = iri(&mut table, "g");
+    let blank = table.intern(RequestTerm::BlankNode("b1".to_string()))?;
+    let age = iri(&mut table, "age");
+    let integer = table.intern(RequestTerm::Literal {
+        lexical: "42".to_string(),
+        datatype: Some(xsd::INTEGER.as_str().to_string()),
+    })?;
+    let label = iri(&mut table, "label");
+    let hallo = table.intern(RequestTerm::LanguageLiteral {
+        lexical: "hallo".to_string(),
+        language: "DE-de".to_string(),
+        direction: None,
+    })?;
+    let (likes, c, since) = (
+        iri(&mut table, "likes"),
+        iri(&mut table, "c"),
+        iri(&mut table, "since"),
+    );
+    let year = table.intern(RequestTerm::Literal {
+        lexical: "2026".to_string(),
+        datatype: None,
+    })?;
+    let insert = |in_graph, subject, predicate, object| WriteChange::Insert {
+        graph: in_graph,
+        subject,
+        predicate,
+        object,
+    };
+    let write = Write::new(
+        table,
+        vec![
+            insert(None, a, knows, b),
+            insert(None, a, name, plain),
+            insert(Some(named), blank, age, integer),
+            insert(None, a, label, hallo),
+            WriteChange::InsertEdge {
+                graph: None,
+                subject: a,
+                predicate: likes,
+                object: c,
+                properties: vec![(since, year)],
+            },
+            WriteChange::Delete {
+                graph: None,
+                subject: a,
+                predicate: name,
+                object: plain,
+            },
+        ],
+    );
+    Ok(write.frame(Header::new(CLUSTER, Command::Write).with_stream(1))?)
+}
+
+/// The record a transaction of its own commits, having written what `write` writes.
+fn record_of(write: impl FnOnce(&mut Txn<'_>) -> TestResult) -> TestResult<Vec<u8>> {
+    let applier = applier()?;
+    let mut txn = begin(&applier, Mode::ReadWrite)?;
+    write(&mut txn)?;
+    let Commit::ReadWrite(prepared) = txn.commit(1, 1, &[], 0)? else {
+        return Err(TestError::new("a write commits read-write"));
+    };
+    Ok(prepared.record().to_vec())
+}
+
+#[when("the same changes are applied once from a Write frame and once as a `Changeset`")]
+fn both_paths(w: &mut Steps) -> TestResult {
+    w.records
+        .push(record_of(|txn| Ok(txn.write(&varied(), 0)?))?);
+    let frame = varied_frame()?;
+    w.records.push(record_of(|txn| {
+        let view = FrameView::validate(&frame, CLUSTER, MAX_FRAME_SIZE)?;
+        let write = WriteView::from_frame(&view)?;
+        let terms = FrameTerms::of(write.terms())?;
+        Ok(txn.write(&FrameChanges::new(NS, &write, &terms)?, 0)?)
+    })?);
+    Ok(())
+}
+
+#[then("the two write-set records are byte-identical")]
+fn byte_identical(w: &mut Steps) {
+    assert_eq!(w.records.len(), 2);
+    assert!(!w.records[0].is_empty());
+    assert_eq!(w.records[0], w.records[1]);
 }
 
 fn main() -> TestResult {

@@ -52,6 +52,7 @@ ultragraphdb_cluster_sequencer = { path = "ultragraphdb_cluster/ultragraphdb_clu
 ## Common
 ultragraphdb_common_role = { path = "ultragraphdb_common/ultragraphdb_common_role" }
 ultragraphdb_common_frontend = { path = "ultragraphdb_common/ultragraphdb_common_frontend" }
+ultragraphdb_common_storage = { path = "ultragraphdb_common/ultragraphdb_common_storage" }
 ultragraphdb_common_service = { path = "ultragraphdb_common/ultragraphdb_common_service" }
 ultragraphdb_common_service_config = { path = "ultragraphdb_common/ultragraphdb_common_service_config" }
 ultragraphdb_common_telemetry = { path = "ultragraphdb_common/ultragraphdb_common_telemetry" }
@@ -118,6 +119,7 @@ dashu-int = "0.6"
 rust-stemmers = "1.2"
 serde = { version = "1.0", features = ["derive"] }
 unicode-normalization = "0.1"
+oxilangtag = "0.1"
 oxrdf = { version = "0.3", features = ["rdf-12"] }
 oxsdatatypes = "0.2"
 tracing = "0.1"

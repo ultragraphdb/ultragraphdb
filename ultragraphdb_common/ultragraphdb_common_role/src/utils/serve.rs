@@ -169,7 +169,7 @@ where
 {
     while !machine.is_closing() {
         match next_frame(reader, writer, machine, pool, session).await? {
-            Some(Ok(received)) => take(reader, machine, session, &received).await?,
+            Some(Ok(received)) => take(reader, machine, session, received).await?,
             Some(Err(error)) => {
                 let TransportErrorEnum::Protocol { error: refusal } = &error.0 else {
                     return Err(error);
@@ -223,8 +223,11 @@ where
         match event {
             Event::Frame(frame) => return Ok(Some(frame)),
             Event::Push((stream, frame)) => {
-                machine.outbound().push(stream, frame)?;
-                flush(writer, machine).await?;
+                // A reply to a stream the peer cancelled meanwhile has no one to go to.
+                if machine.outbound().is_open(stream) {
+                    machine.outbound().push(stream, frame)?;
+                    flush(writer, machine).await?;
+                }
             }
             Event::Deadline => {
                 let _closing = machine.handle_timeout(now())?;
@@ -248,7 +251,7 @@ async fn take<R, A, H>(
     reader: &mut Connection<R>,
     machine: &mut ServerConnection<A>,
     session: &mut H,
-    received: &ReceivedFrame,
+    received: ReceivedFrame,
 ) -> Result<(), TransportError>
 where
     A: Authenticator,
@@ -262,19 +265,16 @@ where
     {
         session.authenticating(message.message()).await;
     }
-    match machine.receive(received, now())? {
+    match machine.receive(&received, now())? {
         Inbound::Welcomed { protocol } => reader.framer_mut().set_protocol(protocol),
-        Inbound::Request { stream, .. } => {
-            let view = received.view().map_err(TransportError::protocol)?;
-            match session.answer(stream, &view).await {
-                Answer::Reply(reply) => machine.outbound().push(stream, reply)?,
-                Answer::Open => {}
-                Answer::Done => {
-                    let _ended = machine.outbound().cancel(stream);
-                }
-                Answer::Refuse(refusal) => machine.refuse(stream, &refusal)?,
+        Inbound::Request { stream, .. } => match session.answer(stream, received).await {
+            Answer::Reply(reply) => machine.outbound().push(stream, reply)?,
+            Answer::Open => {}
+            Answer::Done => {
+                let _ended = machine.outbound().cancel(stream);
             }
-        }
+            Answer::Refuse(refusal) => machine.refuse(stream, &refusal)?,
+        },
         Inbound::Cancelled { stream, .. } => session.cancelled(stream),
         Inbound::Handled
         | Inbound::Authenticated { .. }

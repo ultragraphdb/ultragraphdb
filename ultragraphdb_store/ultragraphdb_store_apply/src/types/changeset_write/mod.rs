@@ -21,7 +21,7 @@ use ultragraphdb_core_catalog::{Catalog, PREDICATE};
 use ultragraphdb_core_codec::Posting;
 use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::{CountDirection, Graph};
-use ultragraphdb_core_mapping::{Change, Changeset, PredicateDeclaration};
+use ultragraphdb_core_mapping::{ChangeRef, Changes, PredicateDeclaration};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_store_quads::{
@@ -121,12 +121,9 @@ where
 
     /// Applies every change of `changeset`, in order; the first refusal ends it. A namespace with no catalog is given
     /// its initial one, written with the changeset.
-    pub fn apply(&mut self, changeset: &Changeset) -> Result<(), ChangesetError> {
+    pub fn apply<W: Changes>(&mut self, changes: &W) -> Result<(), ChangesetError> {
         self.initial()?;
-        changeset
-            .changes()
-            .iter()
-            .try_for_each(|change| self.change(change))
+        changes.changes().try_for_each(|change| self.change(change))
     }
 
     /// Gives a namespace with no catalog its initial one, written with the write.
@@ -140,66 +137,44 @@ where
         Ok(())
     }
 
-    fn change(&mut self, change: &Change) -> Result<(), ChangesetError> {
+    fn change(&mut self, change: ChangeRef<'_>) -> Result<(), ChangesetError> {
         match change {
-            Change::Insert {
+            ChangeRef::Insert {
                 graph,
                 subject,
                 predicate,
                 object,
-            } => self.insert(
-                graph.as_ref(),
-                subject.as_ref(),
-                predicate.as_ref(),
-                object.as_ref(),
-            ),
-            Change::InsertEdge {
+            } => self.insert(graph, subject, predicate, object),
+            ChangeRef::InsertEdge {
                 graph,
                 subject,
                 predicate,
                 object,
                 properties,
-            } => self.insert_edge(
-                graph.as_ref(),
-                subject.as_ref(),
-                predicate.as_ref(),
-                object.as_ref(),
-                properties,
-            ),
-            Change::Delete {
+            } => self.insert_edge(graph, subject, predicate, object, &properties),
+            ChangeRef::Delete {
                 graph,
                 subject,
                 predicate,
                 object,
-            } => self.delete(
-                graph.as_ref(),
-                subject.as_ref(),
-                predicate.as_ref(),
-                object.as_ref(),
-            ),
-            Change::DeleteStatement { graph, reifier } => {
-                self.delete_statement(graph.as_ref(), reifier.as_ref())
-            }
-            Change::DeletePattern {
+            } => self.delete(graph, subject, predicate, object),
+            ChangeRef::DeleteStatement { graph, reifier } => self.delete_statement(graph, reifier),
+            ChangeRef::DeletePattern {
                 graph,
                 subject,
                 predicate,
-            } => self.delete_pattern(graph.as_ref(), subject.as_ref(), predicate.as_ref()),
-            Change::SetProperty {
+            } => self.delete_pattern(graph, subject, predicate),
+            ChangeRef::SetProperty {
                 statement,
                 predicate,
                 value,
-            } => self.set_property(statement, predicate.as_ref(), value.as_ref()),
-            Change::DeleteProperty {
+            } => self.set_property(statement, predicate, value),
+            ChangeRef::DeleteProperty {
                 statement,
                 predicate,
                 value,
-            } => self.delete_property(
-                statement,
-                predicate.as_ref(),
-                value.as_ref().map(Term::as_ref),
-            ),
-            Change::Declare(declaration) => self.declare(declaration),
+            } => self.delete_property(statement, predicate, value),
+            ChangeRef::Declare(declaration) => self.declare(declaration),
         }
     }
 

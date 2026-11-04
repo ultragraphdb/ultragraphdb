@@ -8,7 +8,9 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 
 use ultragraphdb_cluster_placement::PartitionId;
 
-use crate::types::partition_message::PartitionMessage;
+use crate::errors::partition_error::PartitionError;
+use crate::types::answer::Answer;
+use crate::types::partition_message::{PartitionMessage, RemoteMessage};
 
 /// A partition's place in the exchange between the partitions of one process: its inbox and a sender to each partition,
 /// its own included, which is how a close reaches it from whoever delivers closes.
@@ -17,6 +19,7 @@ pub struct PartitionMailbox {
     id: PartitionId,
     inbox: Receiver<PartitionMessage>,
     peers: BTreeMap<PartitionId, Sender<PartitionMessage>>,
+    remote: Option<Sender<RemoteMessage>>,
 }
 
 impl PartitionMailbox {
@@ -32,8 +35,16 @@ impl PartitionMailbox {
                 id,
                 inbox,
                 peers: peers.clone(),
+                remote: None,
             })
             .collect()
+    }
+
+    /// The mailbox handing what it cannot deliver in this process to `remote`, its shell's way to other processes.
+    #[must_use]
+    pub fn with_remote(mut self, remote: Sender<RemoteMessage>) -> Self {
+        self.remote = Some(remote);
+        self
     }
 
     /// The partition the mailbox belongs to.
@@ -56,6 +67,34 @@ impl PartitionMailbox {
         if let Some(sender) = self.peers.get(&to) {
             // A receiver gone is a partition that stopped; see above.
             drop(sender.send(message));
+            return;
+        }
+        if let (Some(remote), PartitionMessage::Register { write, batch, .. }) =
+            (&self.remote, message)
+        {
+            // A shell gone is a process stopping; see above.
+            drop(remote.send(RemoteMessage::Register {
+                home: to,
+                write,
+                batch,
+            }));
+        }
+    }
+
+    /// Hands the answer of an asking a Reference brought to the shell.
+    pub(crate) fn answer_remote(
+        &self,
+        write: u64,
+        index: usize,
+        answer: Result<Answer, PartitionError>,
+    ) {
+        if let Some(remote) = &self.remote {
+            // A shell gone is a process stopping; see above.
+            drop(remote.send(RemoteMessage::Answered {
+                write,
+                index,
+                answer,
+            }));
         }
     }
 }

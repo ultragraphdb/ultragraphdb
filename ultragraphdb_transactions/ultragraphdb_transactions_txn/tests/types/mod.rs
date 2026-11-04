@@ -3,6 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+#[cfg(test)]
+mod frame_changes_tests;
 mod prepared;
 mod read_set;
 mod transaction;

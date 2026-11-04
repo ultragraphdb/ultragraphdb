@@ -14,7 +14,10 @@ impl BodyBuilder for Reference {
     const COMMAND: Command = Command::Reference;
 
     fn command_header(&self) -> [u8; COMMAND_HEADER_SIZE] {
-        command_header(&[(0, &[u8::from(self.reply)])])
+        command_header(&[
+            (0, &[u8::from(self.reply)]),
+            (8, &self.namespace.to_le_bytes()),
+        ])
     }
 
     fn body(&self) -> Vec<u8> {

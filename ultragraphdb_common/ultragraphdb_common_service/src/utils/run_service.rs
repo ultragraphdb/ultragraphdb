@@ -25,6 +25,7 @@ use crate::types::health_request::HealthRequest;
 use crate::types::readiness::Readiness;
 use crate::types::role_kind::RoleKind;
 use crate::types::role_start::RoleStart;
+use crate::types::stopping::Stopping;
 use crate::utils::cpu_list::allowed_in_status;
 use crate::utils::http_responder::{REQUEST_MAX, parse_request, response};
 
@@ -34,11 +35,15 @@ const SIGNAL_POLL: Duration = Duration::from_millis(20);
 /// How long a connection has to finish its request, so a silent one holds nothing.
 const REQUEST_TIME: Duration = Duration::from_secs(5);
 
+/// How many looks a stopping role gets: 60 s of `SIGNAL_POLL`.
+const SHUTDOWN_POLLS: u32 = 3_000;
+
 const SIGNAL_INT: i32 = 2;
 const SIGNAL_TERM: i32 = 15;
 
 /// Runs the role `kind` with the arguments `args`, the program's name left out, until SIGTERM or SIGINT or until
-/// `role`, its work, fails. A `role` that ends without failing has started what it serves, which runs on.
+/// `role`, its work, fails. A `role` that ends without failing has started what it serves, which runs on. Past a
+/// signal, [`Stopping`] says so, and a `role` still working has until its limit to flush and end.
 ///
 /// # Errors
 ///
@@ -51,7 +56,7 @@ pub fn run_service<R, F>(
     role: R,
 ) -> Result<(), RoleError>
 where
-    R: FnOnce(RoleStart, Readiness) -> F,
+    R: FnOnce(RoleStart, Readiness, Stopping) -> F,
     F: Future<Output = Result<(), RoleError>> + 'static,
 {
     let start = RoleStart::read(args, variables)?;
@@ -76,7 +81,7 @@ pub async fn serve_service<R, F>(
     role: R,
 ) -> Result<(), RoleError>
 where
-    R: FnOnce(RoleStart, Readiness) -> F,
+    R: FnOnce(RoleStart, Readiness, Stopping) -> F,
     F: Future<Output = Result<(), RoleError>> + 'static,
 {
     let readiness = Readiness::default();
@@ -86,19 +91,36 @@ where
         .map_err(|error| RoleError::unavailable(format!("listening at {address}: {error}")))?;
     tracing::info!(role = %kind, %address, "{cpu}");
     spawn(accept(listener, readiness.clone())).detach();
-    // Shared with the one task on this runtime that may fill it.
-    let failed = Rc::new(Cell::new(None));
-    let working = role(start.clone(), readiness);
-    let outcome = Rc::clone(&failed);
-    spawn(async move { outcome.set(working.await.err()) }).detach();
+    // Shared with the one task on this runtime that fills them.
+    let ended = Rc::new(Cell::new(None));
+    let stopping = Stopping::default();
+    let working = role(start.clone(), readiness, stopping.clone());
+    let outcome = Rc::clone(&ended);
+    spawn(async move { outcome.set(Some(working.await)) }).detach();
+    let mut served = false;
     while !stop.load(Ordering::Acquire) {
-        if let Some(error) = failed.take() {
-            return Err(error);
+        match ended.take() {
+            Some(Err(error)) => return Err(error),
+            Some(Ok(())) => served = true,
+            None => {}
         }
         compio::time::sleep(SIGNAL_POLL).await;
     }
     tracing::info!(role = %kind, "stopping");
-    Ok(())
+    stopping.set();
+    if served {
+        return Ok(());
+    }
+    // A role still working flushes what it holds before it ends; one that does not end in time is left to the exit.
+    for _ in 0..SHUTDOWN_POLLS {
+        match ended.take() {
+            Some(finished) => return finished,
+            None => compio::time::sleep(SIGNAL_POLL).await,
+        }
+    }
+    Err(RoleError::unavailable(
+        "the role did not stop within its shutdown limit",
+    ))
 }
 
 /// The code the process exits with after `outcome`, its refusal printed where an operator reads it.

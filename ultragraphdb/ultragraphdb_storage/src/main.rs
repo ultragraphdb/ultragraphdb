@@ -8,8 +8,8 @@
 use std::process::ExitCode;
 
 use mimalloc::MiMalloc;
-use ultragraphdb_common_role::storage_role;
 use ultragraphdb_common_service::{RoleKind, exit_status, run_service};
+use ultragraphdb_common_storage::storage_role;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;

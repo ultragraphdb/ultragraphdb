@@ -14,12 +14,22 @@
 #[path = "utils/cluster.rs"]
 mod cluster;
 
+/// The hosts' fixture, which reaches the cluster's by the path the unit tests give it.
+mod utils {
+    pub(crate) use crate::cluster;
+}
+
+#[path = "utils/hosts.rs"]
+mod hosts;
+
 use std::collections::BTreeSet;
 use std::num::NonZeroU64;
 
 use cucumber::{World, then, when};
 use oxrdf::{GraphName, Literal};
-use ultragraphdb_cluster_partition::{Answer, Fanout, PartitionError, Reference, ReverseQuery};
+use ultragraphdb_cluster_partition::{
+    Answer, BoundStep, Fanout, PartitionError, Reference, ReverseQuery,
+};
 use ultragraphdb_cluster_placement::{BucketRange, NodeId, PartitionId, PlacementMap};
 use ultragraphdb_core_ids::{Bucket, BucketGroup, Epoch, Namespace, SystemId, Version};
 use ultragraphdb_core_keys::Graph;
@@ -31,11 +41,14 @@ use ultragraphdb_transactions_commit::CommitErrorEnum;
 use ultragraphdb_transactions_txn::{Commit, TxnError};
 
 use crate::cluster::{
-    Cluster, NS, Outcome, Written, as_of, begin, epoch, ex, group, insert, insert_literal, pid,
+    Cluster, NS, Outcome, Written, as_of, begin, changeset, epoch, ex, group, insert,
+    insert_literal, pid,
 };
+use crate::hosts::{Host, on_hosts, turn_all};
 
 #[derive(Default, World)]
 struct Steps {
+    bound_done: bool,
     cluster: Option<Cluster>,
     /// The scenario's names, in the order its When step chose them.
     names: Vec<String>,
@@ -1424,6 +1437,100 @@ fn summed_count(w: &mut Steps) -> TestResult {
     }
     assert_eq!(w.subjects.first(), Some(&vec![id_at(cluster, 1, b)?]));
     Ok(())
+}
+
+/// The transaction of connection 1's stream 1, bound to the partition.
+const BOUND: (u64, u64) = (1, 1);
+
+/// A second, in the microseconds a host's clock counts.
+const SECOND_US: u64 = 1_000_000;
+
+/// Runs `body` on a host whose transaction `BOUND` wrote `<new> <p> "x"`, with `<new>` named as partition 1 homes it.
+fn on_written(body: impl FnOnce(&mut Host<'_>, &str, &str) -> TestResult) -> TestResult {
+    on_hosts(1, |hosts| {
+        let host = hosts.first_mut().context("partition 1")?;
+        let (new, p) = (ex("new"), ex("p"));
+        let write = changeset(vec![insert_literal("new", "p", "x")]);
+        let _read = host.bind(BOUND, write.namespace(), 1, Epoch::ZERO, 0)?;
+        let step = host.write_bound(BOUND, &write, 0)?;
+        assert_eq!(step, BoundStep::Done);
+        body(host, new.as_str(), p.as_str())
+    })
+}
+
+/// The ID the dictionary holds for `iri`.
+fn held_id(host: &Host<'_>, iri: &str) -> TestResult<Option<SystemId>> {
+    Ok(host
+        .partition()
+        .applier()
+        .quads()
+        .id_of(changeset(Vec::new()).namespace(), iri)?)
+}
+
+/// A later write of `<new>` commits.
+fn later_commits(host: &mut Host<'_>, now_us: u64) -> TestResult {
+    let ticket = host.submit(changeset(vec![insert_literal("new", "p", "y")]), now_us)?;
+    let ended = turn_all(std::slice::from_mut(host), 4, now_us)?;
+    let outcome = ended
+        .iter()
+        .find(|ended| ended.ticket() == ticket)
+        .context("the later write's outcome")?;
+    assert!(outcome.outcome().is_ok(), "{:?}", outcome.outcome());
+    Ok(())
+}
+
+#[when(
+    "a read-write transaction writes `<new> <p> \"x\"`, creating `<new>`, and its client then sends nothing, its connection staying open"
+)]
+fn vanished(w: &mut Steps) -> TestResult {
+    on_written(|host, new, _| {
+        assert!(
+            host.sweep_bound(10 * SECOND_US).is_empty(),
+            "within its limit"
+        );
+        assert_eq!(host.sweep_bound(10 * SECOND_US + 1), [BOUND]);
+        assert_eq!(held_id(host, new)?, None);
+        assert_eq!(host.sweep_bound(20 * SECOND_US), [], "aborted once");
+        later_commits(host, 11 * SECOND_US)
+    })?;
+    w.bound_done = true;
+    Ok(())
+}
+
+#[then(
+    "the host aborts the transaction once 10 s have passed, nothing it wrote is held, the dictionary holds no entry it created for `<new>`, and a later transaction writing `<new>` commits"
+)]
+fn aborted_at_limit(w: &mut Steps) {
+    assert!(w.bound_done);
+}
+
+#[when("a read-write transaction creates `<new>` and the connection carrying it closes after 1 s")]
+fn connection_closes(w: &mut Steps) -> TestResult {
+    on_written(|host, new, _| {
+        host.abort_connection(BOUND.0 + 1);
+        assert_eq!(
+            host.sweep_bound(10 * SECOND_US).len(),
+            0,
+            "another connection's close aborts nothing"
+        );
+        host.abort_connection(BOUND.0);
+        assert_eq!(held_id(host, new)?, None);
+        assert_eq!(
+            host.sweep_bound(20 * SECOND_US),
+            [],
+            "the limit finds nothing left"
+        );
+        later_commits(host, SECOND_US)
+    })?;
+    w.bound_done = true;
+    Ok(())
+}
+
+#[then(
+    "the host aborts the transaction then, not at its limit, and its entry for `<new>` is released"
+)]
+fn aborted_at_close(w: &mut Steps) {
+    assert!(w.bound_done);
 }
 
 fn main() -> TestResult {

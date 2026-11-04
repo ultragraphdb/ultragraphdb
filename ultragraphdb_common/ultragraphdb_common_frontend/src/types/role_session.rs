@@ -12,7 +12,7 @@ use compio::runtime::spawn;
 use ultragraphdb_cluster_sequencer::Close;
 use ultragraphdb_common_role::{Answer, RoleClient, RoleCluster, Session};
 use ultragraphdb_common_service::{Readiness, RoleKind as ServiceRole};
-use ultragraphdb_protocol_transport::Address;
+use ultragraphdb_protocol_transport::{Address, ReceivedFrame};
 use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, CatalogAnnouncement, CatalogView, CloseRequestView, Command, EpochClose,
     ErrorCode, ErrorReply, FLAG_LAST, FrameView, Header, Join, JoinView, Lease, LeaseView,
@@ -142,7 +142,12 @@ impl RoleSession {
 }
 
 impl Session for RoleSession {
-    async fn answer(&mut self, stream: u64, frame: &FrameView<'_>) -> Answer {
+    async fn answer(&mut self, stream: u64, received: ReceivedFrame) -> Answer {
+        let view = match received.view() {
+            Ok(view) => view,
+            Err(rule) => return Answer::Refuse(ErrorReply::protocol(&rule)),
+        };
+        let frame = &view;
         let command = frame.command();
         let answer = if command == Command::Join {
             self.join(stream, frame).await

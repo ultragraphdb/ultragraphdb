@@ -96,7 +96,15 @@ impl<'a, const N: usize> Sections<'a, N> {
 
 /// The body of `fixed` and `sections` in this layout. `fixed` is padded with zeros to a multiple of 8.
 pub(crate) fn write_sections(fixed: &[u8], sections: &[&[u8]]) -> Vec<u8> {
-    let mut out = fixed.to_vec();
+    let mut out = Vec::new();
+    write_sections_into(&mut out, fixed, sections);
+    out
+}
+
+/// Writes the body of `fixed` and `sections` into `out`, cleared first and its capacity kept, as [`write_sections`] does.
+pub(crate) fn write_sections_into(out: &mut Vec<u8>, fixed: &[u8], sections: &[&[u8]]) {
+    out.clear();
+    out.extend_from_slice(fixed);
     out.resize(align8(fixed.len()), 0);
     let table = out.len();
     out.resize(table + 8 * sections.len(), 0);
@@ -114,7 +122,6 @@ pub(crate) fn write_sections(fixed: &[u8], sections: &[&[u8]]) -> Vec<u8> {
         .skip(table)
         .zip(encoded)
         .for_each(|(byte, value)| *byte = value);
-    out
 }
 
 /// `n` rounded up to a multiple of 8, saturating.

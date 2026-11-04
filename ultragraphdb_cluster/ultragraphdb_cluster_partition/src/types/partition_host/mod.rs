@@ -3,6 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+mod partition_host_bound;
+
 use std::collections::BTreeMap;
 
 use ultragraphdb_cluster_placement::PartitionId;
@@ -17,6 +19,7 @@ use ultragraphdb_transactions_txn::{Commit, Mode, TxnError, TxnLimits};
 
 use crate::errors::partition_error::PartitionError;
 use crate::types::answer::Answer;
+use crate::types::bound_transaction::{BoundKey, BoundTransaction};
 use crate::types::home::Home;
 use crate::types::parked_write::ParkedWrite;
 use crate::types::partition::Partition;
@@ -27,7 +30,7 @@ use crate::types::reference::Reference;
 
 /// How long a write's registrations go unanswered before they are sent again: a home that crashed lost what it had not
 /// made durable, and a registration is idempotent.
-const RESEND_US: u64 = 1_000_000;
+pub(crate) const RESEND_US: u64 = 1_000_000;
 
 /// One partition's loop, on whichever runtime its caller runs it (the storage process's compio runtime per partition, a
 /// simulation's single thread): its pipeline, its home, the writes waiting for answers and its mailbox. A write
@@ -56,11 +59,15 @@ where
     /// The writes waiting for answers, by ticket.
     parked: BTreeMap<u64, ParkedWrite<'a, S, C, E, B>>,
     /// The registrations the home answers once durable, by the home's ticket: who asked, for which write and index.
-    asked: BTreeMap<u64, (PartitionId, u64, usize)>,
+    asked: BTreeMap<u64, (Option<PartitionId>, u64, usize)>,
     /// How many registrations and how long each write in the commit step waited, by ticket.
     waited: BTreeMap<u64, (usize, u64)>,
     outcomes: Vec<PartitionOutcome>,
     resends: u64,
+    /// The transactions bound to the partition, by the connection and stream that bound them.
+    bound: BTreeMap<BoundKey, BoundTransaction<'a, S, C, E, B>>,
+    /// The bound transactions whose references were all answered since the last look.
+    bound_ready: Vec<BoundKey>,
 }
 
 impl<'a, L, S, C, E, B> PartitionHost<'a, L, S, C, E, B>
@@ -90,6 +97,8 @@ where
             waited: BTreeMap::new(),
             outcomes: Vec::new(),
             resends: 0,
+            bound: BTreeMap::new(),
+            bound_ready: Vec::new(),
         }
     }
 
@@ -213,6 +222,7 @@ where
             self.handle(message, now_us)?;
         }
         self.resend(now_us);
+        self.resend_bound(now_us);
         self.pipeline.tick(now_us);
         // Ends when nothing decided is left unsynced: a sync takes every round decided, and a turn adds none during it.
         while self.pipeline.needs_sync() {
@@ -244,7 +254,7 @@ where
     /// once its entry is durable. A refusal goes back as its answer, unless the pipeline stopped.
     fn accept(
         &mut self,
-        from: PartitionId,
+        from: Option<PartitionId>,
         write: u64,
         index: usize,
         reference: &Reference,
@@ -271,14 +281,18 @@ where
         Ok(())
     }
 
-    /// Sends `answer` to `from`, itself included.
+    /// Sends `answer` to `from`, itself included; to the shell for an asking from another process.
     fn answer(
         &self,
-        from: PartitionId,
+        from: Option<PartitionId>,
         write: u64,
         index: usize,
         answer: Result<Answer, PartitionError>,
     ) {
+        let Some(from) = from else {
+            self.mailbox.answer_remote(write, index, answer);
+            return;
+        };
         self.mailbox.send(
             from,
             PartitionMessage::Answered {
@@ -298,6 +312,9 @@ where
         answer: Result<Answer, PartitionError>,
         now_us: u64,
     ) -> Result<(), PartitionError> {
+        if self.bound_answered(write, index, &answer, now_us) {
+            return Ok(());
+        }
         let Some(parked) = self.parked.get_mut(&write) else {
             return Ok(());
         };
@@ -397,8 +414,13 @@ where
 
     /// Sends `parked`'s unanswered references to their homes, one message per home.
     fn send_unanswered(&self, ticket: u64, parked: &ParkedWrite<'a, S, C, E, B>) {
+        self.send_references(ticket, &parked.references);
+    }
+
+    /// Sends the unanswered ones of `references` to their homes, one message per home.
+    fn send_references(&self, ticket: u64, references: &[(Reference, Option<Answer>)]) {
         let mut batches: BTreeMap<PartitionId, Vec<(usize, Reference)>> = BTreeMap::new();
-        for (index, (reference, answer)) in parked.references.iter().enumerate() {
+        for (index, (reference, answer)) in references.iter().enumerate() {
             if answer.is_none() {
                 batches
                     .entry(reference.home())
@@ -410,7 +432,7 @@ where
             self.mailbox.send(
                 home,
                 PartitionMessage::Register {
-                    from: self.partition.id(),
+                    from: Some(self.partition.id()),
                     write: ticket,
                     batch,
                 },
@@ -431,12 +453,10 @@ where
         for reply in replies {
             let (registrations, waited) = self.waited.remove(&reply.ticket()).unwrap_or_default();
             let outcome = reply.outcome().clone().map_err(PartitionError::from);
-            self.outcomes.push(PartitionOutcome::new(
-                reply.ticket(),
-                outcome,
-                registrations,
-                waited,
-            ));
+            self.outcomes.push(
+                PartitionOutcome::new(reply.ticket(), outcome, registrations, waited)
+                    .with_reply(reply),
+            );
         }
     }
 

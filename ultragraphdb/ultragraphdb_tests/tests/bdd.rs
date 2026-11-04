@@ -16,16 +16,20 @@ use compio::runtime::Runtime;
 use cucumber::{World, then, when};
 use service_utils::{ServiceStartConfig, ServiceUtil, WaitStrategy};
 use ultragraphdb_client_compio::{Client, ClientConfig, TcpConnector};
+use ultragraphdb_cluster_placement::{NodeId, PlacementMap};
 use ultragraphdb_common_role::RoleClient;
 use ultragraphdb_compute_specs as compute;
+use ultragraphdb_core_ids::Epoch;
 use ultragraphdb_frontend_specs as frontend;
 use ultragraphdb_protocol_scram::{ScramLogin, system_nonce};
 use ultragraphdb_protocol_transport::Address;
 use ultragraphdb_protocol_wire::{
-    BodyView, EpochCloseView, Lease, LeaseView, Members, MembersView, Placement, PlacementView,
-    RoleKind, Subscribe,
+    Bind, BindKind, BodyView, Command, Commit, CommitView, EpochCloseView, ErrorReplyView, Lease,
+    LeaseView, Members, MembersView, Placement, PlacementView, RoleKind, Subscribe, TermTable,
+    Write, WriteChange,
 };
 use ultragraphdb_storage_specs as storage;
+use ultragraphdb_store_quads::iri_bucket;
 use ultragraphdb_tests::http_status;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -42,6 +46,9 @@ const SECRET: &str = "the cluster's role secret";
 const SHORT_DEADLINE_MS: &str = "800";
 
 static DIRECTORIES: AtomicU32 = AtomicU32::new(0);
+
+const NAMESPACE: u64 = 1;
+const PREDICATE: &str = "http://ex.org/p";
 
 const GRAPHS: [&str; 2] = [
     "ultragraphdb/ultragraphdb_tests/frontend_deps",
@@ -61,6 +68,7 @@ struct Steps {
     epochs: Vec<u64>,
     leased: Option<(u64, u64)>,
     ranges: usize,
+    version: u64,
 }
 
 /// The file in the test's own directory named `name`.
@@ -104,6 +112,25 @@ fn with(mut settings: Vec<(String, String)>, name: &str, value: &str) -> Vec<(St
     settings.retain(|(held, _)| held != name);
     settings.push((name.to_string(), value.to_string()));
     settings
+}
+
+/// A data directory no other start of this run names.
+fn fresh_data() -> String {
+    scratch(&format!(
+        "data-{}",
+        DIRECTORIES.fetch_add(1, Ordering::Relaxed)
+    ))
+    .display()
+    .to_string()
+}
+
+/// A storage process's settings, with a role secret and a data directory of its own.
+fn storage_holding() -> TestResult<Vec<(String, String)>> {
+    Ok(with(
+        holding(storage::settings(), SECRET)?,
+        "ULTRAGRAPHDB_STORAGE_DATA_DIR",
+        &fresh_data(),
+    ))
 }
 
 /// The frontend's settings, with a role secret and a data directory of its own.
@@ -226,7 +253,7 @@ fn start_all(w: &mut Steps) -> TestResult {
     start_in_order(
         w,
         frontend_holding()?,
-        holding(storage::settings(), SECRET)?,
+        storage_holding()?,
         holding(compute::settings(), SECRET)?,
     )
 }
@@ -240,6 +267,7 @@ fn start_all_unix(w: &mut Steps) -> TestResult {
     let [f, st, c] = paths
         .each_ref()
         .map(|path| format!("unix://{}", path.display()));
+    let partition_socket = PathBuf::from(format!("/tmp/ugdb-s-{}-p1.sock", std::process::id()));
     let joining = "ULTRAGRAPHDB_CLUSTER_FRONTEND_ADDRESS";
     let frontend_settings = with(
         frontend_holding()?,
@@ -247,7 +275,7 @@ fn start_all_unix(w: &mut Steps) -> TestResult {
         &f,
     );
     let storage_settings = with(
-        with(storage::settings(), joining, &f),
+        with(storage_holding()?, joining, &f),
         "ULTRAGRAPHDB_STORAGE_ROLE_ADDRESS",
         &st,
     );
@@ -256,12 +284,13 @@ fn start_all_unix(w: &mut Steps) -> TestResult {
         "ULTRAGRAPHDB_COMPUTE_ROLE_ADDRESS",
         &c,
     );
-    (w.frontend, w.storage, w.compute) = (f, st, c);
-    w.sockets = paths.to_vec();
+    (w.frontend, w.storage, w.compute) = (f, format!("unix://{}", partition_socket.display()), c);
+    let [f_path, _, c_path] = paths;
+    w.sockets = vec![f_path, partition_socket, c_path];
     start_in_order(
         w,
         frontend_settings,
-        holding(storage_settings, SECRET)?,
+        storage_settings,
         holding(compute_settings, SECRET)?,
     )
 }
@@ -304,7 +333,11 @@ fn wrong_secret(w: &mut Steps) -> TestResult {
     let _frontend: u32 =
         util.start_service_from_config(role(frontend::BINARY, settings, &log, wait))?;
     let refused = with(
-        holding(storage::settings(), "another secret")?,
+        with(
+            holding(storage::settings(), "another secret")?,
+            "ULTRAGRAPHDB_STORAGE_DATA_DIR",
+            &fresh_data(),
+        ),
         "ULTRAGRAPHDB_CLUSTER_JOIN_DEADLINE_MS",
         SHORT_DEADLINE_MS,
     );
@@ -377,7 +410,11 @@ fn same_as_wrong_password(w: &mut Steps) -> TestResult {
 fn missing_secret(w: &mut Steps) -> TestResult {
     let absent = scratch("never-written");
     let settings = with(
-        storage::settings(),
+        with(
+            storage::settings(),
+            "ULTRAGRAPHDB_STORAGE_DATA_DIR",
+            &fresh_data(),
+        ),
         "ULTRAGRAPHDB_CLUSTER_ROLE_SECRET_FILE",
         &absent.display().to_string(),
     );
@@ -471,6 +508,264 @@ fn answered_both(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
+/// A subject of `partitions` partitions that `partition` homes.
+fn subject_of(partition: u32, partitions: u32, namespace: u64) -> TestResult<String> {
+    let map = PlacementMap::even(partitions, NodeId::new(1))?;
+    (0..100_000)
+        .map(|at| format!("http://ex.org/s{at}"))
+        .find(|iri| {
+            iri_bucket(namespace, iri)
+                .is_some_and(|bucket| map.partition_of(bucket, Epoch::ZERO).get() == partition)
+        })
+        .context("a subject of the partition")
+}
+
+/// A Write of `subject` `<p>` `object`, the object an IRI.
+fn edge_write(subject: &str, object: &str) -> Write {
+    let mut table = TermTable::new();
+    let s = table.iri(subject);
+    let p = table.iri(PREDICATE);
+    let o = table.iri(object);
+    Write::new(
+        table,
+        vec![WriteChange::Insert {
+            graph: None,
+            subject: s,
+            predicate: p,
+            object: o,
+        }],
+    )
+}
+
+/// Commits `write` in a transaction bound to `partition` at `address`: its commit version.
+async fn commit_at(address: &str, partition: u32, write: &Write) -> TestResult<u64> {
+    let target = Address::parse(address)?;
+    let mut client = RoleClient::dial(&target, frontend::CLUSTER, "frontend", SECRET).await?;
+    let bind = Bind::new(partition, BindKind::Transaction, NAMESPACE, 0, 1, [7; 16]);
+    drop(client.request(&bind).await?);
+    let stream = client.last_stream();
+    client.send_on(stream, write).await?;
+    client.send_on(stream, &Commit::new([0; 16], 0, 0)).await?;
+    let answer = client.next_frame().await?;
+    let view = answer.view()?;
+    if view.command() == Command::Error {
+        let refusal = ErrorReplyView::from_frame(&view)?;
+        return Err(TestError::new(format!(
+            "partition {partition} refused: {}",
+            refusal.message()
+        )));
+    }
+    Ok(CommitView::from_frame(&view)?.commit_version())
+}
+
+/// The settings of a storage process hosting `count` partitions from `first`, at TCP ports from `port`.
+fn storage_of(first: u32, count: u32, port: u32) -> TestResult<Vec<(String, String)>> {
+    let observed = format!("tcp://127.0.0.1:{}", 18_100 + first);
+    let mut settings = with(
+        storage_holding()?,
+        "ULTRAGRAPHDB_OBSERVABILITY_ADDRESS",
+        &observed,
+    );
+    settings = with(
+        settings,
+        "ULTRAGRAPHDB_STORAGE_PARTITION_FIRST",
+        &first.to_string(),
+    );
+    settings = with(
+        settings,
+        "ULTRAGRAPHDB_STORAGE_PARTITION_COUNT",
+        &count.to_string(),
+    );
+    Ok(with(
+        settings,
+        "ULTRAGRAPHDB_STORAGE_ROLE_ADDRESS",
+        &format!("tcp://127.0.0.1:{port}"),
+    ))
+}
+
+/// A frontend over 4 partitions and two storage processes hosting 1 and 2, and 3 and 4.
+fn two_processes(w: &mut Steps) -> TestResult {
+    let util = services()?;
+    let settings = with(
+        frontend_holding()?,
+        "ULTRAGRAPHDB_CLUSTER_PARTITION_COUNT",
+        "4",
+    );
+    let wait = answering(frontend::OBSERVABILITY, "/health");
+    let _frontend: u32 = util.start_service_from_config(role(
+        frontend::BINARY,
+        settings,
+        &scratch(frontend::BINARY),
+        wait,
+    ))?;
+    for (first, port) in [(1, 17_200), (3, 17_300)] {
+        let ready = answering(&format!("127.0.0.1:{}", 18_100 + first), "/ready");
+        let start = role(
+            storage::BINARY,
+            storage_of(first, 2, port)?,
+            &scratch(&format!("storage-{first}")),
+            ready,
+        );
+        let _storage: u32 = util.start_service_from_config(start)?;
+    }
+    w.roles = Some(util);
+    w.frontend = format!("tcp://{}", frontend::ROLE_ADDRESS);
+    Ok(())
+}
+
+#[when("one storage process claims partitions 1 and 2 and another claims 3 and 4")]
+fn claims(w: &mut Steps) -> TestResult {
+    two_processes(w)
+}
+
+#[then(
+    "both join, Members names each partition's address, and a write reaches its partition on either process"
+)]
+fn on_either(w: &mut Steps) -> TestResult {
+    let members = members_at(&w.frontend)?;
+    let expected: Vec<(RoleKind, u32, String)> =
+        [(1, 17_200), (2, 17_201), (3, 17_300), (4, 17_301)]
+            .map(|(partition, port)| {
+                (
+                    RoleKind::Storage,
+                    partition,
+                    format!("tcp://127.0.0.1:{port}"),
+                )
+            })
+            .to_vec();
+    assert_eq!(members, expected);
+    Runtime::new()?.block_on(async {
+        for (partition, _, address) in members
+            .iter()
+            .map(|(_, partition, address)| (*partition, (), address))
+        {
+            let subject = subject_of(partition, 4, NAMESPACE)?;
+            let write = edge_write(&subject, &subject);
+            let version = commit_at(address, partition, &write).await?;
+            assert!(version > 0, "partition {partition}");
+        }
+        Ok::<(), TestError>(())
+    })?;
+    w.roles = None;
+    Ok(())
+}
+
+#[when("a write in one storage process names an entity homed in the other")]
+fn crossing(w: &mut Steps) -> TestResult {
+    two_processes(w)?;
+    let subject = subject_of(1, 4, NAMESPACE)?;
+    let object = subject_of(3, 4, NAMESPACE)?;
+    w.version = Runtime::new()?.block_on(commit_at(
+        "tcp://127.0.0.1:17200",
+        1,
+        &edge_write(&subject, &object),
+    ))?;
+    Ok(())
+}
+
+#[then("the home registers it by a Reference, and the write commits")]
+fn registered(w: &mut Steps) {
+    assert!(w.version > 0);
+    w.roles = None;
+}
+
+/// One partition's storage, started with `settings`, waiting on `/ready`; its pid.
+fn start_storage(
+    util: &ServiceUtil,
+    settings: Vec<(String, String)>,
+    log: &Path,
+) -> TestResult<u32> {
+    let ready = answering(storage::OBSERVABILITY, "/ready");
+    Ok(util.start_service_from_config(role(storage::BINARY, settings, log, ready))?)
+}
+
+/// What runs a storage process with commits acknowledged, its settings and its pid.
+type Committed = (ServiceUtil, Vec<(String, String)>, u32);
+
+/// A frontend and one partition's storage, with commits acknowledged: what restarts it, its log and its pid.
+fn committed_storage(w: &mut Steps) -> TestResult<Committed> {
+    let util = services()?;
+    let wait = answering(frontend::OBSERVABILITY, "/health");
+    let _frontend: u32 = util.start_service_from_config(role(
+        frontend::BINARY,
+        frontend_holding()?,
+        &scratch(frontend::BINARY),
+        wait,
+    ))?;
+    let settings = storage_holding()?;
+    let pid = start_storage(&util, settings.clone(), &scratch("storage-first"))?;
+    let subject = subject_of(1, 1, NAMESPACE)?;
+    let address = format!("tcp://{}", storage::ROLE_ADDRESS);
+    Runtime::new()?.block_on(async {
+        for at in 0..8 {
+            let object = format!("http://ex.org/o{at}");
+            w.version = commit_at(&address, 1, &edge_write(&subject, &object)).await?;
+        }
+        Ok::<(), TestError>(())
+    })?;
+    Ok((util, settings, pid))
+}
+
+/// The rounds the log at `log` says its recovery replayed, its last recovery's.
+fn rounds_replayed(log: &str) -> TestResult<u64> {
+    log.lines()
+        .rev()
+        .filter(|line| line.contains("recovered"))
+        .filter_map(|line| line.split("rounds=").nth(1))
+        .filter_map(|rest| rest.split_whitespace().next())
+        .find_map(|count| count.parse().ok())
+        .context("a recovery in the log")
+}
+
+#[when("storage receives SIGTERM after acknowledging commits")]
+fn flushing(w: &mut Steps) -> TestResult {
+    let (util, settings, pid) = committed_storage(w)?;
+    w.exited = Some(util.stop_service(pid)?);
+    let again = scratch("storage-again.log");
+    let _restarted: u32 = start_storage(&util, settings, &again)?;
+    w.log = std::fs::read_to_string(&again)?;
+    w.roles = Some(util);
+    Ok(())
+}
+
+#[then(
+    "every acknowledged commit is applied to its store before it exits, and a restart replays nothing"
+)]
+fn nothing_to_replay(w: &mut Steps) -> TestResult {
+    exited_with(w, 0)?;
+    assert_eq!(rounds_replayed(&w.log)?, 0, "{}", w.log);
+    w.roles = None;
+    Ok(())
+}
+
+#[when("a storage process killed with rounds in its log restarts")]
+fn killed(w: &mut Steps) -> TestResult {
+    let (util, settings, pid) = committed_storage(w)?;
+    let killed = std::process::Command::new("kill")
+        .args(["-9", &pid.to_string()])
+        .status()?;
+    assert!(killed.success());
+    w.exited = Some(util.wait_for_exit(pid, Duration::from_secs(START_SECONDS))?);
+    let again = scratch("storage-recovered.log");
+    let health = answering(storage::OBSERVABILITY, "/health");
+    let _restarted: u32 =
+        util.start_service_from_config(role(storage::BINARY, settings, &again, health))?;
+    until_answering(storage::OBSERVABILITY, "/ready")?;
+    w.log = std::fs::read_to_string(&again)?;
+    w.roles = Some(util);
+    Ok(())
+}
+
+#[then("`/health` answers at once and `/ready` answers only after the replay")]
+fn replayed_first(w: &mut Steps) -> TestResult {
+    assert!(rounds_replayed(&w.log)? > 0, "{}", w.log);
+    let recovered = w.log.find("recovered").context("a recovery")?;
+    let ready = w.log.find("ready").context("the role ready")?;
+    assert!(recovered < ready, "{}", w.log);
+    w.roles = None;
+    Ok(())
+}
+
 #[when("a role is running and receives SIGTERM")]
 fn terminate(w: &mut Steps) -> TestResult {
     let util = services()?;
@@ -517,7 +812,7 @@ fn names_the_bound(w: &mut Steps) -> TestResult {
 
 #[when("a role starts with `pin_cores = true`")]
 fn pinned(w: &mut Steps) -> TestResult {
-    let mut variables = holding(storage::settings(), SECRET)?;
+    let mut variables = storage_holding()?;
     variables.push((
         "ULTRAGRAPHDB_RUNTIME_PIN_CORES".to_string(),
         "true".to_string(),

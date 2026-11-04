@@ -59,6 +59,7 @@ rust_test(
     srcs = [
         "tests/bdd.rs",
         "tests/utils/cluster.rs",
+        "tests/utils/hosts.rs",
     ],
     crate_root = "tests/bdd.rs",
     data = glob(["features/**/*.feature"]),

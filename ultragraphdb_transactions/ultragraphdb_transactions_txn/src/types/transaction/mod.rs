@@ -5,10 +5,10 @@
 
 mod transaction_partition;
 
-use oxrdf::{GraphNameRef, NamedNodeRef, NamedOrBlankNode, NamedOrBlankNodeRef, Term};
+use oxrdf::{GraphNameRef, NamedNodeRef, NamedOrBlankNodeRef, Term};
 use ultragraphdb_cluster_placement::{PartitionId, PlacementMap};
 use ultragraphdb_core_ids::{Bucket, Epoch, Namespace, SessionToken, Version};
-use ultragraphdb_core_mapping::{Change, Changeset, StatementRef};
+use ultragraphdb_core_mapping::{ChangeRef, Changes, StatementView};
 use ultragraphdb_store_apply::{ChangesetApplier, Executed, Execution, Operation};
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_store_quads::iri_bucket;
@@ -210,7 +210,7 @@ where
     /// skolem IRI states, a statement named by its reifier checked against the subject it resolves to once executed and
     /// a plain write of a unique predicate's value whose bucket another partition owns, and [`TxnError::changeset`] for a changeset refused or a store
     /// that failed, each ending it.
-    pub fn write(&mut self, changeset: &Changeset, now_us: u64) -> Result<(), TxnError> {
+    pub fn write<W: Changes>(&mut self, changeset: &W, now_us: u64) -> Result<(), TxnError> {
         if self.mode == Mode::ReadOnly {
             return Err(TxnError::read_only());
         }
@@ -220,8 +220,7 @@ where
         // Refused before the execution sees the changeset: nothing of it is written, and the transaction goes on.
         if changeset
             .changes()
-            .iter()
-            .any(|c| matches!(c, Change::Declare(_)))
+            .any(|c| matches!(c, ChangeRef::Declare(_)))
         {
             return Err(TxnError::declaration());
         }
@@ -441,31 +440,31 @@ where
     /// transaction's read epoch; `None` when unbound or every subject is the partition's own. A blank node by its label
     /// is new, drawn among the partition's buckets; an existing one, named by its skolem IRI, is the bucket's the IRI
     /// states.
-    fn foreign_subject(&self, changeset: &Changeset) -> Option<(u32, u32)> {
+    fn foreign_subject<W: Changes>(&self, changeset: &W) -> Option<(u32, u32)> {
         let (partition, placement) = self.binding?;
         let epoch = Version::from_u64(self.read_version).epoch();
         let namespace = Namespace::new(self.namespace);
-        changeset.changes().iter().find_map(|change| {
+        changeset.changes().find_map(|change| {
             let subject = match change {
-                Change::Insert { subject, .. }
-                | Change::InsertEdge { subject, .. }
-                | Change::Delete { subject, .. }
-                | Change::DeletePattern { subject, .. } => subject,
+                ChangeRef::Insert { subject, .. }
+                | ChangeRef::InsertEdge { subject, .. }
+                | ChangeRef::Delete { subject, .. }
+                | ChangeRef::DeletePattern { subject, .. } => subject,
                 // A statement named by its triple is its subject's, as an insert of it is.
-                Change::SetProperty {
-                    statement: StatementRef::Triple { subject, .. },
+                ChangeRef::SetProperty {
+                    statement: StatementView::Triple { subject, .. },
                     ..
                 }
-                | Change::DeleteProperty {
-                    statement: StatementRef::Triple { subject, .. },
+                | ChangeRef::DeleteProperty {
+                    statement: StatementView::Triple { subject, .. },
                     ..
                 } => subject,
-                Change::DeleteStatement { .. }
-                | Change::SetProperty { .. }
-                | Change::DeleteProperty { .. }
-                | Change::Declare(_) => return None,
+                ChangeRef::DeleteStatement { .. }
+                | ChangeRef::SetProperty { .. }
+                | ChangeRef::DeleteProperty { .. }
+                | ChangeRef::Declare(_) => return None,
             };
-            let NamedOrBlankNode::NamedNode(iri) = subject else {
+            let NamedOrBlankNodeRef::NamedNode(iri) = subject else {
                 return None;
             };
             owner_other(

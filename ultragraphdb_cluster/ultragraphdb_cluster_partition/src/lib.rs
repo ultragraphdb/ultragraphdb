@@ -12,12 +12,13 @@ mod types;
 
 pub use crate::errors::partition_error::{PartitionError, PartitionErrorEnum};
 pub use crate::types::answer::Answer;
+pub use crate::types::bound_transaction::{BoundKey, BoundStep};
 pub use crate::types::fanout::Fanout;
 pub use crate::types::home::Home;
 pub use crate::types::partition::Partition;
 pub use crate::types::partition_host::PartitionHost;
 pub use crate::types::partition_mailbox::PartitionMailbox;
-pub use crate::types::partition_message::PartitionMessage;
+pub use crate::types::partition_message::{PartitionMessage, RemoteMessage};
 pub use crate::types::partition_outcome::PartitionOutcome;
 pub use crate::types::reference::Reference;
 pub use crate::types::reverse_query::ReverseQuery;

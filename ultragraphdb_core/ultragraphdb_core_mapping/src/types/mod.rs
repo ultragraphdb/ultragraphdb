@@ -6,6 +6,7 @@
 pub mod canonical_dataset;
 pub mod cardinality;
 pub mod change;
+pub mod change_ref;
 pub mod changeset;
 pub mod contract_version;
 pub mod declaration;

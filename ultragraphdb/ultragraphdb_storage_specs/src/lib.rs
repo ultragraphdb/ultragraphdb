@@ -15,7 +15,7 @@ pub const OBSERVABILITY: &str = "127.0.0.1:18083";
 pub const ROLE_ADDRESS: &str = "127.0.0.1:17083";
 
 /// The environment that starts it on one host, as `ULTRAGRAPHDB_<TABLE>_<KEY>` variables, joining the frontend. The role
-/// secret's file is the starter's: a deployment's own, which no specification names.
+/// secret's file and the data directory are the starter's: a deployment's own, which no specification names.
 #[must_use]
 pub fn settings() -> Vec<(String, String)> {
     [

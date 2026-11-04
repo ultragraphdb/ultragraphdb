@@ -35,6 +35,22 @@ Feature: The role binaries as processes
     When a partition asks the frontend for a block and the placement
     Then the frontend answers both over the role connection
 
+  Scenario: Two storage processes share the partitions
+    When one storage process claims partitions 1 and 2 and another claims 3 and 4
+    Then both join, Members names each partition's address, and a write reaches its partition on either process
+
+  Scenario: A reference crosses storage processes
+    When a write in one storage process names an entity homed in the other
+    Then the home registers it by a Reference, and the write commits
+
+  Scenario: Storage flushes on shutdown
+    When storage receives SIGTERM after acknowledging commits
+    Then every acknowledged commit is applied to its store before it exits, and a restart replays nothing
+
+  Scenario: Storage is not ready before recovery
+    When a storage process killed with rounds in its log restarts
+    Then `/health` answers at once and `/ready` answers only after the replay
+
   Scenario: A signal stops a role cleanly
     When a role is running and receives SIGTERM
     Then it exits with code 0

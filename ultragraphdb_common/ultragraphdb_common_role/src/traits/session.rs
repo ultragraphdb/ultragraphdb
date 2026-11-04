@@ -5,7 +5,8 @@
 
 use std::future::Future;
 
-use ultragraphdb_protocol_wire::{ErrorReply, FrameView};
+use ultragraphdb_protocol_transport::ReceivedFrame;
+use ultragraphdb_protocol_wire::ErrorReply;
 
 /// What a [`Session`] made of a request.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,8 +30,9 @@ pub trait Session {
         std::future::ready(())
     }
 
-    /// The answer to the request `frame` on `stream`.
-    fn answer(&mut self, stream: u64, frame: &FrameView<'_>) -> impl Future<Output = Answer>;
+    /// The answer to the request `frame` on `stream`. The frame is the session's until it is dropped: a session may hand
+    /// it on whole, and the connection reads no further frame until this ends.
+    fn answer(&mut self, stream: u64, frame: ReceivedFrame) -> impl Future<Output = Answer>;
 
     /// The next frame this session sends unasked, and its stream. Dropped whenever a request arrives first, so it loses
     /// nothing when dropped; pending for a session with nothing to send.

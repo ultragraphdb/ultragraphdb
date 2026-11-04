@@ -8,3 +8,4 @@ pub mod health_request;
 pub mod readiness;
 pub mod role_kind;
 pub mod role_start;
+pub mod stopping;

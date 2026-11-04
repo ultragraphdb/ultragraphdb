@@ -5,7 +5,10 @@
 
 use ultragraphdb_core_ids::BucketGroup;
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
-use ultragraphdb_protocol_wire::{BodyView, MAX_EPOCH, ReferenceRegistration, ReferenceView};
+use ultragraphdb_protocol_wire::{
+    BodyBuilder, BodyView, Command, FrameView, Header, MAX_EPOCH, MAX_FRAME_SIZE, Reference,
+    ReferenceRegistration, ReferenceView,
+};
 use ultragraphdb_tool_bdd::TestResult;
 
 use crate::types::reference::reference_tests::{BLANK, O, golden_request, sid};
@@ -271,5 +274,19 @@ fn test_a_reply_accepts_with_an_entity_and_refuses_with_nothing_filled() -> Test
         view.registration(1).map(|r| (r.outcome(), r.entity())),
         Some((26, Some(sid(1, 9, 0x40)?)))
     );
+    Ok(())
+}
+
+/// The batch's namespace crosses the wire in the command header, and reads back into the body.
+#[test]
+fn test_the_namespace_crosses_in_the_command_header() -> TestResult {
+    let mut body = Reference::request().in_namespace(u64::MAX - 1);
+    let _at = body.register_iri(1, None, "http://ex.org/a", 0);
+    let cluster = 7;
+    let frame = body.frame(Header::new(cluster, Command::Reference).with_stream(1))?;
+    let view = FrameView::validate(&frame, cluster, MAX_FRAME_SIZE)?;
+    let read = ReferenceView::from_frame(&view)?;
+    assert_eq!(read.namespace(), u64::MAX - 1);
+    assert_eq!(read.to_body()?.namespace(), u64::MAX - 1);
     Ok(())
 }

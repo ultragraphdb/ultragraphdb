@@ -7,13 +7,16 @@
 //! `Changeset`, the write format the engines produce and storage applies.
 
 mod errors;
+mod traits;
 mod types;
 mod utils;
 
 pub use crate::errors::mapping_error::{MappingError, MappingErrorEnum};
+pub use crate::traits::changes::Changes;
 pub use crate::types::canonical_dataset::CanonicalDataset;
 pub use crate::types::cardinality::Cardinality;
 pub use crate::types::change::Change;
+pub use crate::types::change_ref::{ChangeRef, StatementView};
 pub use crate::types::changeset::Changeset;
 pub use crate::types::contract_version::{CONTRACT_VERSION, ContractVersion};
 pub use crate::types::declaration::Declaration;

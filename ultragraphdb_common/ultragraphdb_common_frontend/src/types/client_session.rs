@@ -5,7 +5,8 @@
 
 use ultragraphdb_common_role::{Answer, Session};
 use ultragraphdb_protocol_scram::ScramServer;
-use ultragraphdb_protocol_wire::{ErrorCode, ErrorReply, FrameView};
+use ultragraphdb_protocol_transport::ReceivedFrame;
+use ultragraphdb_protocol_wire::{ErrorCode, ErrorReply};
 
 use crate::types::asked_credentials::AskedCredentials;
 use crate::types::owner_handle::OwnerHandle;
@@ -34,13 +35,10 @@ impl Session for ClientSession {
         }
     }
 
-    async fn answer(&mut self, _stream: u64, frame: &FrameView<'_>) -> Answer {
+    async fn answer(&mut self, _stream: u64, frame: ReceivedFrame) -> Answer {
         Answer::Refuse(ErrorReply::new(
             ErrorCode::Unavailable,
-            format!(
-                "command {} is not served here yet",
-                frame.command().number()
-            ),
+            format!("command {} is not served here yet", frame.command()),
         ))
     }
 }

@@ -13,9 +13,11 @@ use ultragraphdb_common_role::{
     serve_connection,
 };
 use ultragraphdb_error_role::RoleError;
-use ultragraphdb_protocol_transport::{Address, Endpoint, TransportError, TransportErrorEnum};
+use ultragraphdb_protocol_transport::{
+    Address, Endpoint, ReceivedFrame, TransportError, TransportErrorEnum,
+};
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, Command, ErrorCode, ErrorReply, FLAG_LAST, FrameView, Header, Join, Members,
+    BodyBuilder, Command, ErrorCode, ErrorReply, FLAG_LAST, Header, Join, Members,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -41,8 +43,8 @@ fn credentials() -> TestResult<RoleCredentials> {
 struct Listing;
 
 impl Session for Listing {
-    async fn answer(&mut self, stream: u64, frame: &FrameView<'_>) -> Answer {
-        if frame.command() != Command::Members {
+    async fn answer(&mut self, stream: u64, frame: ReceivedFrame) -> Answer {
+        if frame.command() != Command::Members.number() {
             return Answer::Refuse(ErrorReply::new(ErrorCode::Unavailable, "no"));
         }
         let header = Header::new(CLUSTER, Command::Members)

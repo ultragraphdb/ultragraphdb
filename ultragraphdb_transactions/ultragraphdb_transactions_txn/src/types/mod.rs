@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+pub(crate) mod frame_changes;
 pub(crate) mod mode;
 pub(crate) mod operated;
 pub(crate) mod prepared;

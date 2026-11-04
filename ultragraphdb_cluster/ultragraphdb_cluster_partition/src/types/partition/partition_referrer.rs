@@ -4,10 +4,13 @@
  */
 
 use oxrdf::vocab::rdf;
-use oxrdf::{GraphName, NamedNode, NamedOrBlankNode, Term};
+use oxrdf::{
+    GraphName, GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNode, NamedOrBlankNodeRef, Term,
+    TermRef,
+};
 use ultragraphdb_cluster_placement::PartitionId;
 use ultragraphdb_core_ids::{BucketGroup, Epoch};
-use ultragraphdb_core_mapping::{Change, Changeset};
+use ultragraphdb_core_mapping::{ChangeRef, Changes};
 use ultragraphdb_store_apply::Operation;
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_store_quads::iri_bucket;
@@ -38,10 +41,10 @@ where
     /// # Errors
     ///
     /// The transaction's errors reading a mark or minting a new blank subject; the store's error.
-    pub fn references(
+    pub fn references<W: Changes>(
         &self,
         txn: &mut Transaction<'_, S, C, E, B>,
-        changeset: &Changeset,
+        changeset: &W,
         epoch: Epoch,
         now_us: u64,
         out: &mut Vec<Reference>,
@@ -51,7 +54,7 @@ where
         // The first write of a namespace installs its catalog, which names `rdf:type`.
         self.unheld(namespace, rdf::TYPE.as_str(), epoch, out)?;
         for change in changeset.changes() {
-            self.change_references(txn, namespace, change, epoch, now_us, out)?;
+            self.change_references(txn, namespace, &change, epoch, now_us, out)?;
         }
         batch(first, out);
         Ok(())
@@ -62,13 +65,13 @@ where
         &self,
         txn: &mut Transaction<'_, S, C, E, B>,
         namespace: u64,
-        change: &Change,
+        change: &ChangeRef<'_>,
         epoch: Epoch,
         now_us: u64,
         out: &mut Vec<Reference>,
     ) -> Result<(), PartitionError> {
         match change {
-            Change::Insert {
+            ChangeRef::Insert {
                 graph,
                 subject,
                 predicate,
@@ -76,12 +79,12 @@ where
             } => self.statement_references(
                 txn,
                 namespace,
-                (graph, subject, predicate, object),
+                (*graph, *subject, *predicate, *object),
                 epoch,
                 now_us,
                 out,
             )?,
-            Change::InsertEdge {
+            ChangeRef::InsertEdge {
                 graph,
                 subject,
                 predicate,
@@ -91,45 +94,45 @@ where
                 self.statement_references(
                     txn,
                     namespace,
-                    (graph, subject, predicate, object),
+                    (*graph, *subject, *predicate, *object),
                     epoch,
                     now_us,
                     out,
                 )?;
                 for (key, value) in properties {
                     self.unheld(namespace, key.as_str(), epoch, out)?;
-                    self.unheld_term(namespace, value, epoch, out)?;
+                    self.unheld_term(namespace, *value, epoch, out)?;
                 }
             }
-            Change::Delete {
+            ChangeRef::Delete {
                 graph,
                 predicate,
                 object,
                 ..
             } => {
-                self.unheld_graph(namespace, graph, epoch, out)?;
+                self.unheld_graph(namespace, *graph, epoch, out)?;
                 self.unheld(namespace, predicate.as_str(), epoch, out)?;
-                self.unheld_term(namespace, object, epoch, out)?;
+                self.unheld_term(namespace, *object, epoch, out)?;
             }
-            Change::DeletePattern {
+            ChangeRef::DeletePattern {
                 graph, predicate, ..
             } => {
-                self.unheld_graph(namespace, graph, epoch, out)?;
+                self.unheld_graph(namespace, *graph, epoch, out)?;
                 self.unheld(namespace, predicate.as_str(), epoch, out)?;
             }
-            Change::SetProperty {
+            ChangeRef::SetProperty {
                 predicate, value, ..
             } => {
                 self.unheld(namespace, predicate.as_str(), epoch, out)?;
-                self.unheld_term(namespace, value, epoch, out)?;
+                self.unheld_term(namespace, *value, epoch, out)?;
             }
-            Change::DeleteProperty { predicate, .. } => {
+            ChangeRef::DeleteProperty { predicate, .. } => {
                 self.unheld(namespace, predicate.as_str(), epoch, out)?;
             }
-            Change::DeleteStatement { graph, .. } => {
-                self.unheld_graph(namespace, graph, epoch, out)?;
+            ChangeRef::DeleteStatement { graph, .. } => {
+                self.unheld_graph(namespace, *graph, epoch, out)?;
             }
-            Change::Declare(_) => {}
+            ChangeRef::Declare(_) => {}
         }
         Ok(())
     }
@@ -150,7 +153,7 @@ where
         out: &mut Vec<Reference>,
     ) -> Result<(), PartitionError> {
         let first = out.len();
-        self.unheld_graph(namespace, graph, epoch, out)?;
+        self.unheld_graph(namespace, graph.as_ref(), epoch, out)?;
         self.unheld(namespace, predicate.as_str(), epoch, out)?;
         batch(first, out);
         Ok(())
@@ -211,11 +214,16 @@ where
                 expected,
                 new,
             } => {
-                self.unheld_term(namespace, expected, epoch, out)?;
+                self.unheld_term(namespace, expected.as_ref(), epoch, out)?;
                 self.statement_references(
                     txn,
                     namespace,
-                    (graph, subject, predicate, new),
+                    (
+                        graph.as_ref(),
+                        subject.as_ref(),
+                        predicate.as_ref(),
+                        new.as_ref(),
+                    ),
                     epoch,
                     now_us,
                     out,
@@ -224,7 +232,7 @@ where
             Operation::CounterAdd {
                 graph, predicate, ..
             } => {
-                self.unheld_graph(namespace, graph, epoch, out)?;
+                self.unheld_graph(namespace, graph.as_ref(), epoch, out)?;
                 self.unheld(namespace, predicate.as_str(), epoch, out)?;
             }
         }
@@ -245,14 +253,14 @@ where
         epoch: Epoch,
         out: &mut Vec<Reference>,
     ) -> Result<(), PartitionError> {
-        self.unheld_graph(namespace, graph, epoch, out)?;
+        self.unheld_graph(namespace, graph.as_ref(), epoch, out)?;
         self.unheld(namespace, predicate.as_str(), epoch, out)?;
         if let Term::NamedNode(value) = value {
             self.refuse_elsewhere(namespace, value.as_str(), epoch)?;
         }
         for (key, property) in properties {
             self.unheld(namespace, key.as_str(), epoch, out)?;
-            self.unheld_term(namespace, property, epoch, out)?;
+            self.unheld_term(namespace, property.as_ref(), epoch, out)?;
         }
         Ok(())
     }
@@ -276,22 +284,27 @@ where
         &self,
         txn: &mut Transaction<'_, S, C, E, B>,
         namespace: u64,
-        (graph, subject, predicate, object): (&GraphName, &NamedOrBlankNode, &NamedNode, &Term),
+        (graph, subject, predicate, object): (
+            GraphNameRef<'_>,
+            NamedOrBlankNodeRef<'_>,
+            NamedNodeRef<'_>,
+            TermRef<'_>,
+        ),
         epoch: Epoch,
         now_us: u64,
         out: &mut Vec<Reference>,
     ) -> Result<(), PartitionError> {
         self.unheld_graph(namespace, graph, epoch, out)?;
         self.unheld(namespace, predicate.as_str(), epoch, out)?;
-        let Term::NamedNode(object) = object else {
+        let TermRef::NamedNode(object) = object else {
             return self.unheld_term(namespace, object, epoch, out);
         };
         let Some(home) = self.home_elsewhere(namespace, object.as_str(), epoch) else {
             return Ok(());
         };
         let bucket = match subject {
-            NamedOrBlankNode::NamedNode(iri) => iri_bucket(namespace, iri.as_str()),
-            NamedOrBlankNode::BlankNode(_) => Some(txn.node_id(subject.as_ref(), now_us)?.bucket()),
+            NamedOrBlankNodeRef::NamedNode(iri) => iri_bucket(namespace, iri.as_str()),
+            NamedOrBlankNodeRef::BlankNode(_) => Some(txn.node_id(subject, now_us)?.bucket()),
         };
         let Some(bucket) = bucket else {
             return Ok(());
@@ -341,13 +354,13 @@ where
     fn unheld_graph(
         &self,
         namespace: u64,
-        graph: &GraphName,
+        graph: GraphNameRef<'_>,
         epoch: Epoch,
         out: &mut Vec<Reference>,
     ) -> Result<(), PartitionError> {
         match graph {
-            GraphName::NamedNode(iri) => self.unheld(namespace, iri.as_str(), epoch, out),
-            GraphName::BlankNode(_) | GraphName::DefaultGraph => Ok(()),
+            GraphNameRef::NamedNode(iri) => self.unheld(namespace, iri.as_str(), epoch, out),
+            GraphNameRef::BlankNode(_) | GraphNameRef::DefaultGraph => Ok(()),
         }
     }
 
@@ -355,14 +368,14 @@ where
     fn unheld_term(
         &self,
         namespace: u64,
-        term: &Term,
+        term: TermRef<'_>,
         epoch: Epoch,
         out: &mut Vec<Reference>,
     ) -> Result<(), PartitionError> {
         match term {
-            Term::NamedNode(iri) => self.unheld(namespace, iri.as_str(), epoch, out),
+            TermRef::NamedNode(iri) => self.unheld(namespace, iri.as_str(), epoch, out),
             // A triple term is refused where the write encodes it: it holds no statement here.
-            Term::BlankNode(_) | Term::Literal(_) | Term::Triple(_) => Ok(()),
+            TermRef::BlankNode(_) | TermRef::Literal(_) | TermRef::Triple(_) => Ok(()),
         }
     }
 

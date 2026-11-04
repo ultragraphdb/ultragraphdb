@@ -2986,6 +2986,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "ultragraphdb_common_storage"
+version = "0.1.0"
+dependencies = [
+ "compio",
+ "futures",
+ "getrandom 0.4.3",
+ "oxrdf",
+ "tracing",
+ "ultragraphdb_cluster_metadata",
+ "ultragraphdb_cluster_partition",
+ "ultragraphdb_cluster_placement",
+ "ultragraphdb_cluster_sequencer",
+ "ultragraphdb_common_role",
+ "ultragraphdb_common_service",
+ "ultragraphdb_common_service_config",
+ "ultragraphdb_core_ids",
+ "ultragraphdb_core_mapping",
+ "ultragraphdb_error_protocol",
+ "ultragraphdb_error_role",
+ "ultragraphdb_protocol_transport",
+ "ultragraphdb_protocol_transport_compio",
+ "ultragraphdb_protocol_wire",
+ "ultragraphdb_store_apply",
+ "ultragraphdb_store_kv",
+ "ultragraphdb_store_posting",
+ "ultragraphdb_store_quads",
+ "ultragraphdb_tool_bdd",
+ "ultragraphdb_traits_blocks",
+ "ultragraphdb_traits_store",
+ "ultragraphdb_transactions_commit",
+ "ultragraphdb_transactions_log",
+ "ultragraphdb_transactions_txn",
+]
+
+[[package]]
 name = "ultragraphdb_common_telemetry"
 version = "0.1.0"
 dependencies = [
@@ -3305,8 +3340,8 @@ name = "ultragraphdb_storage"
 version = "0.1.0"
 dependencies = [
  "mimalloc",
- "ultragraphdb_common_role",
  "ultragraphdb_common_service",
+ "ultragraphdb_common_storage",
 ]
 
 [[package]]
@@ -3452,15 +3487,19 @@ dependencies = [
  "compio",
  "cucumber",
  "futures",
+ "oxrdf",
  "service_utils",
  "ultragraphdb_client_compio",
+ "ultragraphdb_cluster_placement",
  "ultragraphdb_common_role",
  "ultragraphdb_compute_specs",
+ "ultragraphdb_core_ids",
  "ultragraphdb_frontend_specs",
  "ultragraphdb_protocol_scram",
  "ultragraphdb_protocol_transport",
  "ultragraphdb_protocol_wire",
  "ultragraphdb_storage_specs",
+ "ultragraphdb_store_quads",
  "ultragraphdb_tool_bdd",
 ]
 
@@ -3650,6 +3689,7 @@ dependencies = [
  "criterion",
  "cucumber",
  "futures",
+ "oxilangtag",
  "oxrdf",
  "ultragraphdb_cluster_placement",
  "ultragraphdb_core_catalog",
@@ -3659,6 +3699,7 @@ dependencies = [
  "ultragraphdb_core_mapping",
  "ultragraphdb_core_terms",
  "ultragraphdb_error_invariant",
+ "ultragraphdb_error_protocol",
  "ultragraphdb_protocol_wire",
  "ultragraphdb_store_apply",
  "ultragraphdb_store_posting",

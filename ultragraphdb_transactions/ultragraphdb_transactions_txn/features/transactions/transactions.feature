@@ -38,3 +38,9 @@ Feature: Transactions on a worker
   Scenario: An aborted transaction writes nothing
     When a transaction inserts `<a> <knows> <b>` in one request and aborts in the next
     Then `<a> <knows> <b>` is not held
+
+  # partitions, "A write reaches its log without copying its terms"
+
+  Scenario: A frame and a changeset give one record
+    When the same changes are applied once from a Write frame and once as a `Changeset`
+    Then the two write-set records are byte-identical

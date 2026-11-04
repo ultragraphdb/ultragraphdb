@@ -165,14 +165,14 @@ impl<'e> WriteSetBuilder<'e> {
         out: &mut Vec<u8>,
         limit: usize,
     ) -> Result<usize, TxnError> {
-        let bytes = record.encode();
         out.clear();
+        record.encode_into(out);
         let limit = limit.min(u32::MAX as usize);
-        if bytes.len() > limit {
-            return Err(TxnError::write_set_too_large(bytes.len(), limit));
+        if out.len() > limit {
+            let size = out.len();
+            out.clear();
+            return Err(TxnError::write_set_too_large(size, limit));
         }
-        out.extend_from_slice(&bytes);
-        debug_assert_eq!(out.len(), bytes.len());
         Ok(out.len())
     }
 

@@ -17,8 +17,8 @@ pub enum PartitionMessage {
     /// Registrations of one write request from partition `from`, batched for this home, each with its index in the
     /// request's references.
     Register {
-        /// The partition asking.
-        from: PartitionId,
+        /// The partition asking in this process; `None` when a Reference carried the asking from another process.
+        from: Option<PartitionId>,
         /// The asking write's ticket at `from`.
         write: u64,
         /// The references, each with its index.
@@ -35,4 +35,27 @@ pub enum PartitionMessage {
     },
     /// A close of the sequencer, delivered to the partition.
     Close(Close),
+}
+
+/// What a partition sends beyond its process, which its shell carries as role commands (`PROTOCOL.md` §13.15).
+#[derive(Debug)]
+pub enum RemoteMessage {
+    /// Registrations of the write `write`, for the home `home` in another process.
+    Register {
+        /// The entities' home.
+        home: PartitionId,
+        /// The asking write's ticket.
+        write: u64,
+        /// The references, each with its index.
+        batch: Vec<(usize, Reference)>,
+    },
+    /// The answer to registration `index` of the asking `write`, which a Reference brought.
+    Answered {
+        /// What the shell numbered the asking.
+        write: u64,
+        /// The registration's index.
+        index: usize,
+        /// The home's answer, or why it refused.
+        answer: Result<Answer, PartitionError>,
+    },
 }

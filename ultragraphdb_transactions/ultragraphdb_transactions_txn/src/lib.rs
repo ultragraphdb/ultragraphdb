@@ -17,6 +17,7 @@ mod errors;
 mod types;
 
 pub use crate::errors::txn_error::{TxnError, TxnErrorEnum};
+pub use crate::types::frame_changes::{FrameChanges, FrameTerms};
 pub use crate::types::mode::Mode;
 pub use crate::types::operated::Operated;
 pub use crate::types::prepared::Prepared;

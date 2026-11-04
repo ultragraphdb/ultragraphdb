@@ -19,7 +19,9 @@ autotests = false
 workspace = true
 
 [dependencies]
+oxilangtag = { workspace = true }
 oxrdf = { workspace = true }
+ultragraphdb_error_protocol = { workspace = true }
 ultragraphdb_cluster_placement = { workspace = true }
 ultragraphdb_core_catalog = { workspace = true }
 ultragraphdb_core_codec = { workspace = true }

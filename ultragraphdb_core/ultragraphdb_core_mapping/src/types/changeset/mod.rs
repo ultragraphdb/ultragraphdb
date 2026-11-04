@@ -3,7 +3,9 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use crate::traits::changes::Changes;
 use crate::types::change::Change;
+use crate::types::change_ref::ChangeRef;
 
 /// A write as the engines produce it and storage applies it: a namespace and its changes, applied in order, whole or
 /// not at all. Its terms are RDF terms; storage resolves them to term IDs.
@@ -51,5 +53,15 @@ impl Changeset {
     /// Whether it holds no change.
     pub fn is_empty(&self) -> bool {
         self.changes.is_empty()
+    }
+}
+
+impl Changes for Changeset {
+    fn namespace(&self) -> u64 {
+        Changeset::namespace(self)
+    }
+
+    fn changes(&self) -> impl Iterator<Item = ChangeRef<'_>> {
+        Changeset::changes(self).iter().map(Change::as_ref)
     }
 }

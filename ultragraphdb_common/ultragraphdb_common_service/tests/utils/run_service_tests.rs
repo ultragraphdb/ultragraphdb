@@ -14,7 +14,8 @@ use compio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use compio::net::TcpStream;
 use compio::runtime::{JoinHandle, Runtime, spawn};
 use ultragraphdb_common_service::{
-    CpuBinding, Readiness, RoleKind, RoleStart, binding, exit_status, run_service, serve_service,
+    CpuBinding, Readiness, RoleKind, RoleStart, Stopping, binding, exit_status, run_service,
+    serve_service,
 };
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
@@ -25,9 +26,12 @@ const READY: &str = "GET /ready HTTP/1.1\r\n\r\n";
 /// A configuration refused stops the role before it binds or installs anything.
 #[test]
 fn test_a_refused_start_returns_its_error() -> TestResult {
-    let refused = run_service(RoleKind::Storage, &[], [], |_start, _readiness| async {
-        Ok(())
-    })
+    let refused = run_service(
+        RoleKind::Storage,
+        &[],
+        [],
+        |_start, _readiness, _stopping| async { Ok(()) },
+    )
     .err()
     .context("a refusal")?;
     assert_eq!(refused.exit_code(), RoleError::EX_CONFIG);
@@ -79,8 +83,8 @@ fn start_on_free_port() -> TestResult<RoleStart> {
 /// A role whose work sets its readiness to `ready` and ends, leaving the service serving.
 fn role_ready(
     ready: bool,
-) -> impl FnOnce(RoleStart, Readiness) -> std::future::Ready<Result<(), RoleError>> {
-    move |_start, readiness| {
+) -> impl FnOnce(RoleStart, Readiness, Stopping) -> std::future::Ready<Result<(), RoleError>> {
+    move |_start, readiness, _stopping| {
         readiness.set(ready);
         std::future::ready(Ok(()))
     }
@@ -224,11 +228,46 @@ fn test_a_failing_role_ends_the_service_with_its_error() -> TestResult {
             &start,
             CpuBinding::NotAsked,
             &stop,
-            |_start, _readiness| std::future::ready(Err(RoleError::configuration("no secret"))),
+            |_start, _readiness, _stopping| {
+                std::future::ready(Err(RoleError::configuration("no secret")))
+            },
         ))
         .err()
         .context("the role's failure")?;
     assert_eq!(refused.exit_code(), RoleError::EX_CONFIG);
     assert!(refused.to_string().contains("no secret"), "{refused}");
     Ok(())
+}
+
+/// A role still working is told to stop, and the service waits for it to flush and end.
+#[test]
+fn test_a_role_working_at_the_stop_ends_before_the_service() -> TestResult {
+    let start = start_on_free_port()?;
+    let runtime = Runtime::new()?;
+    let stop = Arc::new(AtomicBool::new(false));
+    let flushed = Arc::new(AtomicBool::new(false));
+    let (flag, done) = (Arc::clone(&stop), Arc::clone(&flushed));
+    runtime.block_on(async {
+        let role = move |_start, _readiness, stopping: Stopping| async move {
+            while !stopping.is_stopping() {
+                compio::time::sleep(Duration::from_millis(2)).await;
+            }
+            done.store(true, Ordering::Release);
+            Ok(())
+        };
+        let service = spawn(async move {
+            serve_service(RoleKind::Storage, &start, CpuBinding::NotAsked, &flag, role).await
+        });
+        compio::time::sleep(Duration::from_millis(50)).await;
+        stop.store(true, Ordering::Release);
+        let ended = service
+            .await
+            .map_err(|_| TestError::new("the service panicked"))?;
+        ended?;
+        assert!(
+            flushed.load(Ordering::Acquire),
+            "the role flushed before the service ended"
+        );
+        Ok(())
+    })
 }

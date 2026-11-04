@@ -11,7 +11,7 @@ use ultragraphdb_cluster_sequencer::SequencerConfig;
 use ultragraphdb_common_role::{
     ROLE_ITERATIONS, RoleCluster, RoleCredentials, Server, listen, serve_connection,
 };
-use ultragraphdb_common_service::{Readiness, RoleStart};
+use ultragraphdb_common_service::{Readiness, RoleStart, Stopping};
 use ultragraphdb_common_service_config::{EndpointSecurity, ServiceConfig};
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_transport::Endpoint;
@@ -24,6 +24,9 @@ use crate::types::owner_start::OwnerStart;
 use crate::types::role_session::{RoleSession, RoleShared};
 use crate::utils::owner_thread::start_owner;
 
+/// How often the role looks at whether its owner stopped or the service was told to.
+const OWNER_POLL: std::time::Duration = std::time::Duration::from_millis(20);
+
 /// The frontend role: it recovers its owner, then listens at `[frontend] role_address` for the roles joining and at
 /// `[endpoint] address`, when set, for clients. It is ready once it has connected back to a partition, and runs until
 /// its owner stops.
@@ -33,7 +36,11 @@ use crate::utils::owner_thread::start_owner;
 /// [`RoleError::configuration`] for a setting absent or out of its bounds, a refused role secret, or a client endpoint
 /// asking for TLS, which this build's endpoint does not terminate; [`RoleError::unavailable`] when it cannot listen;
 /// what recovery refused or the owner stopped with.
-pub async fn frontend_role(start: RoleStart, readiness: Readiness) -> Result<(), RoleError> {
+pub async fn frontend_role(
+    start: RoleStart,
+    readiness: Readiness,
+    stopping: Stopping,
+) -> Result<(), RoleError> {
     let cluster = RoleCluster::read(&start)?;
     let config = start.config();
     let role_address = required(config.frontend().role_address(), "frontend.role_address")?;
@@ -48,7 +55,7 @@ pub async fn frontend_role(start: RoleStart, readiness: Readiness) -> Result<(),
         Vec::new(),
     )
     .await?;
-    let (handle, stopped) = owner.into_parts();
+    let (handle, mut stopped) = owner.into_parts();
     let roles =
         Server::new(cluster.id(), "frontend", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
     let shared = RoleShared::new(cluster.clone(), handle.clone(), readiness);
@@ -75,11 +82,19 @@ pub async fn frontend_role(start: RoleStart, readiness: Readiness) -> Result<(),
         let clients = Server::new(cluster.id(), "frontend", Endpoint::Client)?;
         spawn(accept_clients(listen(address).await?, clients, handle)).detach();
     }
-    stopped.await.unwrap_or_else(|_| {
-        Err(RoleError::software(
-            "the owner's thread ended without a word",
-        ))
-    })
+    // What the owner made durable it answered for, so a stop leaves nothing to flush.
+    while !stopping.is_stopping() {
+        match stopped.try_recv() {
+            Ok(Some(outcome)) => return outcome,
+            Ok(None) => compio::time::sleep(OWNER_POLL).await,
+            Err(_) => {
+                return Err(RoleError::software(
+                    "the owner's thread ended without a word",
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn required<'a>(value: Option<&'a str>, setting: &str) -> Result<&'a str, RoleError> {

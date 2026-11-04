@@ -84,3 +84,40 @@ What later tasks replace or add: DefaultEntry and Report are refused as unavaila
 core; no setting creates the bootstrap principal, so no client can authenticate at a running binary until 9.5.5; a TLS stream needs a
 `Splittable` of its own in 9.5.5; `RoleClient::request` reads the next frame as its reply, which 9.4's storage replaces where a Subscribe
 shares the connection; an EpochClose is always one frame, its lists holding at most 4,352 records of 16 bytes.
+
+## 9.4 Storage's host
+
+**The frame write path.** `ChangeRef` is a change with its terms borrowed, and `Changes` what a write applies, in order. A `Changeset`
+lends its terms and `FrameChanges` lends a Write frame's, so `Transaction::write`, `Partition::references` and `ChangesetWrite::apply` take
+either through one path. `FrameTerms` validates the table once and owns only what text cannot lend: a triple term, and a language tag
+not in RDF's lowercase. A declaration in a Write is refused by rule, since it commits at the metadata group and never reaches a partition.
+The scenario "A frame and a changeset give one record" proves the two records byte-identical. `WriteSetRecord::encode_into` writes into
+the log's buffer with no copy between.
+
+**The host.** `ultragraphdb_common_storage` runs each partition on a thread and runtime of its own. One task on each core owns the
+`PartitionHost`; a connection hands it each request by message, its frame whole, and waits for the answer, so nothing on the write path
+is shared. A Write whose references are unanswered is held with its frame until they are, and that holds its connection, bounded by the
+transaction's 10 s limit. A Commit's reply comes later as a pushed frame, once durable.
+
+`serve_connection`'s `Session::answer` takes the `ReceivedFrame` by value. `run_service` passes the role `Stopping` and waits for a role still
+working: at a stop each core aborts what is open, runs a last turn and syncs its store, so a restart replays nothing.
+
+A partition's address comes from `[storage] role_address`: over TCP the port plus the partition's place among the process's partitions,
+over a Unix socket `-p<partition>` before the extension. Each core joins for itself and subscribes from its own last close, which recovery
+reads as one below the epoch of its last applied commit. The placement is read from the frontend and checked against the even map this
+stage holds fixed. `[storage] data_dir` is required.
+
+Registrations reach another process's home by Reference, on connections each core keeps per address. `PROTOCOL.md` §13.15 gained `namespace`
+in the command header: a home resolves an IRI in its namespace's dictionary, and the body named none. A partition's mailbox hands what it
+cannot deliver in its process to its shell as a `RemoteMessage`.
+
+`RefillBlocks` hands out what `LeasedBlocks` holds and notes each type taken, and the core leases ahead. `LeasedBlocks` keeps its existing
+`Mutex`, taken once per block on the one core holding the partition, so never contended. Every other crossing is a message.
+
+Scenarios: `ultragraphdb_tests`, 17, adding two processes sharing the partitions, a reference crossing processes, a flush on shutdown and
+recovery before `/ready`. `ultragraphdb_cluster_partition`: a vanished client's transaction and a closed connection's, on the simulated host.
+A declaration in a Write is refused at the partition, so a vector index never reaches one; the frontend's own refusal naming the predicate
+arrives with 9.5.5.
+
+What later tasks replace or add: a Drop, a Recall, a Scan and a Closed are refused as unavailable; a close announcing a catalog version is
+delivered without its version read, since nothing offers one until the frontend's endpoint; 9.5.5 relays a client's frames to Bind.

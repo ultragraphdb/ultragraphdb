@@ -2386,6 +2386,7 @@ returns the same ID and changes nothing; concurrent registrants receive one ID.
 | Command header | Width | Field | Type | Rule |
 |---|---|---|---|---|
 | 0 | 1 | `reply` | u8 | boolean: 0 the request, 1 the home's reply (`FieldValue` `"reply"`). A reply's fields can be 0, a close of none among them, so the flag tells the two apart |
+| 8 | 8 | `namespace` | u64 | the namespace of the batch's entities, whose dictionary the home resolves each IRI in |
 
 | Section | Contents |
 |---|---|
@@ -2409,7 +2410,7 @@ renews the member at one generation above the one named; one naming an older gen
 answered with the current generation. The registrant commits a transaction referencing the entity only once close `c`
 has been delivered to it.
 
-Order: unused bytes 1–127 zero; `reply`; sections; the term table, every entry of kind 1 (`FieldValue`
+Order: unused bytes 1–7 and 16–127 zero; `reply`; sections; the term table, every entry of kind 1 (`FieldValue`
 `"reference term"`, the entry's kind); section 0 not empty and a whole number of 48-byte registrations
 (`SectionLength`, `CountMismatch` `"registrations"`); each registration in order: bytes 14–15 zero
 (`PaddingNotZero`, the body offset), then its fields, each refused as `FieldValue` `"registration"` naming the

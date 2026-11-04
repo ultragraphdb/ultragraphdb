@@ -25,6 +25,7 @@ use crate::types::term_table::TermTable;
 /// | 2 | the term table's text |
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Reference {
+    namespace: u64,
     reply: bool,
     registrations: Vec<ReferenceRegistration>,
     terms: TermTable,
@@ -39,6 +40,7 @@ impl Reference {
     /// The body of `registrations` over `terms`, the request or, with `reply`, the home's reply.
     pub fn new(reply: bool, registrations: Vec<ReferenceRegistration>, terms: TermTable) -> Self {
         Self {
+            namespace: 0,
             reply,
             registrations,
             terms,
@@ -85,6 +87,18 @@ impl Reference {
     fn push(&mut self, registration: ReferenceRegistration) -> usize {
         self.registrations.push(registration);
         self.registrations.len() - 1
+    }
+
+    /// The batch in `namespace`, whose dictionary the home resolves its IRIs in.
+    #[must_use]
+    pub fn in_namespace(mut self, namespace: u64) -> Self {
+        self.namespace = namespace;
+        self
+    }
+
+    /// The namespace of the batch's entities.
+    pub fn namespace(&self) -> u64 {
+        self.namespace
     }
 
     /// The home's reply to this request: every registration as sent, until [`Reference::accept`] or

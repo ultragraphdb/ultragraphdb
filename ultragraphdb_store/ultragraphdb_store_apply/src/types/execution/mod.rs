@@ -10,7 +10,7 @@ use std::collections::BTreeSet;
 use oxrdf::{GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNodeRef, Term};
 use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::Region;
-use ultragraphdb_core_mapping::Changeset;
+use ultragraphdb_core_mapping::Changes;
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{ListCache, Store};
@@ -89,8 +89,8 @@ where
     /// # Errors
     ///
     /// The changeset's refusal. The changeset's namespace is not checked: its changes are written in the execution's.
-    pub fn apply(&mut self, changeset: &Changeset) -> Result<(), ChangesetError> {
-        self.write.apply(changeset)
+    pub fn apply<W: Changes>(&mut self, changes: &W) -> Result<(), ChangesetError> {
+        self.write.apply(changes)
     }
 
     /// The objects of `subject`'s `predicate` in `graph` as the execution sees them, decoded into `out`, which is
