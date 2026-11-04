@@ -1,0 +1,41 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_img//img:push.bzl", "image_push")
+load("//bazel:binary.bzl", "static_binary")
+load("//bazel/container:img.bzl", "glibc_multiarch_img", "sha256_tag")
+
+# No library: the role's work is reached from its role crate, and a binary holds only `main`.
+static_binary(
+    name = "ultragraphdb_storage",
+    srcs = ["src/main.rs"],
+    tags = ["role_binary"],
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(normal = True),
+)
+
+# The role's image on the glibc base the server ships on (D7), for amd64 and arm64. Build with `-c opt`.
+glibc_multiarch_img(
+    name = "ultragraphdb_storage_multiarch",
+    binary = ":ultragraphdb_storage",
+    visibility = ["//visibility:public"],
+)
+
+# A tag naming the image by its own content.
+sha256_tag(
+    name = "ultragraphdb_storage_tag",
+    image = ":ultragraphdb_storage_multiarch",
+)
+
+# `bazel build` only produces the pusher; `bazel run -c opt` publishes. Credentials come from the Docker configuration.
+image_push(
+    name = "push",
+    image = ":ultragraphdb_storage_multiarch",
+    registry = "index.docker.io",
+    repository = "hansenmarvin/ultragraphdb_storage",
+    tag_file = ":ultragraphdb_storage_tag",
+    visibility = ["//visibility:public"],
+)

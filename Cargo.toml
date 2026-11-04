@@ -6,6 +6,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "ultragraphdb/*",
     "ultragraphdb_client/*",
     "ultragraphdb_cluster/*",
     "ultragraphdb_common/*",
@@ -44,6 +45,13 @@ ultragraphdb_cluster_partition = { path = "ultragraphdb_cluster/ultragraphdb_clu
 ultragraphdb_cluster_placement = { path = "ultragraphdb_cluster/ultragraphdb_cluster_placement" }
 ultragraphdb_cluster_sequencer = { path = "ultragraphdb_cluster/ultragraphdb_cluster_sequencer" }
 ## Common
+ultragraphdb_common_service = { path = "ultragraphdb_common/ultragraphdb_common_service" }
+ultragraphdb_compute_specs = { path = "ultragraphdb/ultragraphdb_compute_specs" }
+ultragraphdb_frontend_specs = { path = "ultragraphdb/ultragraphdb_frontend_specs" }
+ultragraphdb_storage_specs = { path = "ultragraphdb/ultragraphdb_storage_specs" }
+ultragraphdb_tests = { path = "ultragraphdb/ultragraphdb_tests" }
+ultragraphdb_error_role = { path = "ultragraphdb_error/ultragraphdb_error_role" }
+ultragraphdb_common_service_config = { path = "ultragraphdb_common/ultragraphdb_common_service_config" }
 ultragraphdb_common_telemetry = { path = "ultragraphdb_common/ultragraphdb_common_telemetry" }
 ultragraphdb_common_utils = { path = "ultragraphdb_common/ultragraphdb_common_utils" }
 ultragraphdb_common_version = { path = "ultragraphdb_common/ultragraphdb_common_version" }
@@ -126,6 +134,7 @@ base64 = "0.23"
 stringprep = "0.1"
 getrandom = "0.4"
 futures = "0.3"
+signal-hook = { version = "0.4", default-features = false }
 compio = { version = "0.19", default-features = false, features = ["runtime", "io-uring", "fs", "net", "time"] }
 # The allocator of every shipped binary, set as its `#[global_allocator]`: musl's own allocator contends under threads,
 # measured 31% fewer commits per second than glibc's on `wal_bench` (2026-11-01). 

@@ -72,9 +72,10 @@ Today:
 | `ultragraphdb_roles_frontend` | `ultragraphdb_roles/` | `_cluster_metadata`, `_cluster_sequencer`, `ultragraphdb_protocol_*` | The client endpoint, authentication, routing, the metadata group's and sequencer's hosts |
 | `ultragraphdb_roles_compute` | `ultragraphdb_roles/` | `_cluster_placement`, `_core_keys`, `_core_terms`, `ultragraphdb_protocol_*`; no storage engine | Quad-pattern reads over storage's kernels: routing by bucket, reverse reads through referrer sets, fan-out, merge in key order, resume keys, levels |
 | `ultragraphdb_roles_storage` | `ultragraphdb_roles/` | `_cluster_partition`, `ultragraphdb_protocol_*` | The partitions' host: role commands, epoch delivery, block leases |
+| `ultragraphdb_common_service` | `ultragraphdb_common/` | `_common_service_config`, `_common_telemetry`, `_error_role`, `compio`, `signal-hook` | What every role binary does around its role: reading its settings, its runtimes and their CPUs, `/health` and `/ready` from the in-house responder, stopping on a signal |
 | `ultragraphdb_common_service_config` | `ultragraphdb_common/` | `ultragraphdb_tool_toml` | `ServiceConfig`: one type per TOML table and one field per setting, shared by every binary; the optional file, the environment's overrides, `ServiceConfigError` |
 | `ultragraphdb_tool_toml` | `ultragraphdb_tool/` | — | The TOML subset's parser, its document and typed accessors, `TomlError` (unsupported feature, invalid document, limit, missing, wrong kind, unread key); no external dependency |
-| `ultragraphdb_frontend`, `_compute`, `_storage`, `_supervisor` | `ultragraphdb/` | their role crate, `ultragraphdb_common_service_config`, `ultragraphdb_common_telemetry` | `main`: configuration, telemetry, the runtime, health, signals; `_supervisor` starts and stops the three roles |
+| `ultragraphdb_frontend`, `_compute`, `_storage`, `_supervisor` | `ultragraphdb/` | their role crate, `ultragraphdb_common_service`, `mimalloc` | `main`: configuration, telemetry, the runtime, health, signals; `_supervisor` starts and stops the three roles |
 
 A role crate holds its role's logic and its I/O shell; a binary holds only `main`. The frontend's dependency graph
 holds no storage engine, which the role-binaries scenario checks. An error takes a crate of its own under `ultragraphdb_error/` only when more than one crate raises it
@@ -377,7 +378,7 @@ predicate rather than running a condition the client did not ask for. A write co
 server, so the API documents that such a write is a ConditionalWrite or a read-write transaction.
 
 Role binaries are tested as processes, as scrith's services are: a tests crate copies each binary into the Bazel sandbox
-with `copy_file`, starts it through `service_utils` and waits on `/health` or `/ready`, dependencies first, and drives it
+with `copy_file`, starts it through a small `std::process` helper, which reads its exit code as the tests of `sysexits` need, and waits on `/health` or `/ready`, dependencies first, and drives it
 with the actual client. These tests need no container, so Bazel caches them; they declare fixed ports through the roles'
 specs crates and carry `exclusive` so none runs beside another, tagged `integration_test` and run as their own group of
 `scripts/test.sh`. `/health` and `/ready` therefore exist in every role from its first commit, ahead of the role's logic.

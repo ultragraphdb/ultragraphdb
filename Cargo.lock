@@ -2320,6 +2320,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
+name = "signal-hook"
+version = "0.4.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "49f7447afd772ca79ad17ae0a3972a6b0df0cb4b80990fd82707593e9e012a74"
+dependencies = [
+ "libc",
+ "signal-hook-registry",
+]
+
+[[package]]
+name = "signal-hook-registry"
+version = "1.4.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4db69cba1110affc0e9f7bcd48bbf87b3f4fc7c61fc9155afd4c469eb3d6c1b"
+dependencies = [
+ "errno",
+ "libc",
+]
+
+[[package]]
 name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2891,6 +2911,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "ultragraphdb_common_service"
+version = "0.1.0"
+dependencies = [
+ "compio",
+ "signal-hook",
+ "tracing",
+ "ultragraphdb_common_service_config",
+ "ultragraphdb_common_telemetry",
+ "ultragraphdb_error_role",
+ "ultragraphdb_tool_bdd",
+]
+
+[[package]]
+name = "ultragraphdb_common_service_config"
+version = "0.1.0"
+dependencies = [
+ "cucumber",
+ "futures",
+ "ultragraphdb_tool_bdd",
+ "ultragraphdb_tool_toml",
+]
+
+[[package]]
 name = "ultragraphdb_common_telemetry"
 version = "0.1.0"
 dependencies = [
@@ -2923,6 +2966,22 @@ dependencies = [
 [[package]]
 name = "ultragraphdb_common_version"
 version = "0.1.0"
+
+[[package]]
+name = "ultragraphdb_compute"
+version = "0.1.0"
+dependencies = [
+ "mimalloc",
+ "ultragraphdb_common_service",
+]
+
+[[package]]
+name = "ultragraphdb_compute_specs"
+version = "0.1.0"
+dependencies = [
+ "ultragraphdb_common_service_config",
+ "ultragraphdb_tool_bdd",
+]
 
 [[package]]
 name = "ultragraphdb_core_algo"
@@ -3100,8 +3159,31 @@ name = "ultragraphdb_error_protocol"
 version = "0.1.0"
 
 [[package]]
+name = "ultragraphdb_error_role"
+version = "0.1.0"
+dependencies = [
+ "ultragraphdb_tool_bdd",
+]
+
+[[package]]
 name = "ultragraphdb_error_store"
 version = "0.1.0"
+
+[[package]]
+name = "ultragraphdb_frontend"
+version = "0.1.0"
+dependencies = [
+ "mimalloc",
+ "ultragraphdb_common_service",
+]
+
+[[package]]
+name = "ultragraphdb_frontend_specs"
+version = "0.1.0"
+dependencies = [
+ "ultragraphdb_common_service_config",
+ "ultragraphdb_tool_bdd",
+]
 
 [[package]]
 name = "ultragraphdb_protocol_scram"
@@ -3161,6 +3243,22 @@ dependencies = [
  "ultragraphdb_traits_blocks",
  "ultragraphdb_traits_store",
  "xxhash-rust",
+]
+
+[[package]]
+name = "ultragraphdb_storage"
+version = "0.1.0"
+dependencies = [
+ "mimalloc",
+ "ultragraphdb_common_service",
+]
+
+[[package]]
+name = "ultragraphdb_storage_specs"
+version = "0.1.0"
+dependencies = [
+ "ultragraphdb_common_service_config",
+ "ultragraphdb_tool_bdd",
 ]
 
 [[package]]
@@ -3288,6 +3386,18 @@ dependencies = [
  "ultragraphdb_error_store",
  "ultragraphdb_tool_bdd",
  "ultragraphdb_traits_store",
+]
+
+[[package]]
+name = "ultragraphdb_tests"
+version = "0.1.0"
+dependencies = [
+ "cucumber",
+ "futures",
+ "ultragraphdb_compute_specs",
+ "ultragraphdb_frontend_specs",
+ "ultragraphdb_storage_specs",
+ "ultragraphdb_tool_bdd",
 ]
 
 [[package]]
