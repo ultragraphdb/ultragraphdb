@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use compio::runtime::{Runtime, spawn};
+use ultragraphdb_common_config::{CONFIG_LOG_CLUSTER, ConfigApi, ConfigStore, store_owner};
 use ultragraphdb_common_config_check::{Defect, TargetFiles, check_central, check_config_service};
 use ultragraphdb_common_service::stop_flag;
 use ultragraphdb_common_service_config::{EndpointSecurity, ServiceConfig};
@@ -19,10 +20,6 @@ use ultragraphdb_protocol_transport_compio::Listener;
 use ultragraphdb_transactions_log::{CompioStorage, Wal, WalConfig};
 use ultragraphdb_transport_http_server::{BearerKey, HttpLimits, serve_listener};
 use ultragraphdb_transport_tls::{CertificateChainFile, PrivateKeyFile, TlsAcceptor};
-
-use crate::types::config_api::ConfigApi;
-use crate::types::config_store::{CONFIG_LOG_CLUSTER, ConfigStore};
-use crate::utils::store_owner::store_owner;
 
 /// The most a request holds: a revision fits one round of the log.
 const REQUEST_BYTES: usize = 512 * 1024;
@@ -51,7 +48,7 @@ struct ServiceStart {
 /// [`RoleError::configuration`] listing every defect of its settings, its central file or an active revision;
 /// [`RoleError::unavailable`] when the data directory is held by another process or the address cannot be listened at;
 /// [`RoleError::io`] when the log cannot be opened or read.
-pub fn run_config_service(args: &[String]) -> Result<(), RoleError> {
+pub(crate) fn run_config_service(args: &[String]) -> Result<(), RoleError> {
     let start = read_start(args)?;
     let _telemetry = init(&TelemetryConfig::new("info", LogFormat::Plain))
         .map_err(|error| RoleError::unavailable(format!("telemetry: {error}")))?;
@@ -194,7 +191,7 @@ async fn serve(start: ServiceStart, stop: &AtomicBool) -> Result<(), RoleError> 
         tracing::info!(
             %target,
             ?active,
-            "the declared files differ from the active revision, which stays: the API is the authority"
+            "the declared files differ from the active revision, which stays: the API is the authority, and GET /v1/targets/{target}/download returns what it holds"
         );
     }
     let tls = match &start.security {

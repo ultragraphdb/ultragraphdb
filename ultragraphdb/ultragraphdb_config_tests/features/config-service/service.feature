@@ -103,3 +103,35 @@ Feature: The config service and its CLI as processes
   Scenario: The profiles ship and pass
     When an administrator checks the `dev` and `dev-net` profiles
     Then each passes, listing its frontend, storage and compute
+
+  Scenario: An edit made through the API is downloaded and saved
+    When an administrator activates a revision through the API and downloads target `ci`
+    Then the answer holds that revision's files as received, names the revision and a file to save them as, and taken back it adds a revision
+
+  Scenario: A download needs the admin key
+    When a request downloads a target with the read key
+    Then it is refused with status 403
+
+  Scenario: A target with no active revision has nothing to download
+    When an administrator downloads a target whose only revision has not been activated
+    Then it is refused with status 404 saying the target has no active revision
+
+  Scenario: A restore rebuilds a folder a service can begin from
+    When an administrator adds a revision of target `ci` through the API, activates none, and restores the service into a folder
+    Then the folder holds the latest revision's files alone, says which is active, and a fresh service over it serves those settings
+
+  Scenario: A restore leaves out a retired target
+    When a service holds a retired target and one with no active revision beside `ci`
+    Then the restore holds `ci` and the one with no active revision, and says it left out the retired one
+
+  Scenario: A restore with the read key writes nothing
+    When a restore is run with the read key
+    Then it exits with code 78 saying the token was refused, prints no token, and no folder appears
+
+  Scenario: A restore adds to no folder
+    When a restore names a folder holding a file
+    Then it exits with code 74 saying so, and the folder is as it was
+
+  Scenario: A restore of a service that is down says so
+    When a restore names a URL where nothing answers
+    Then it exits with code 69 naming the URL

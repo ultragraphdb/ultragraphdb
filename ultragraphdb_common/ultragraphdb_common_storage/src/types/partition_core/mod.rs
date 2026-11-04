@@ -52,7 +52,7 @@ const TICK: std::time::Duration = std::time::Duration::from_millis(1);
 
 /// What the core asks of the frontend, on a connection of its own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum FrontendAsk {
+pub enum FrontendAsk {
     /// The close of an epoch.
     Close(Epoch),
 }
@@ -86,18 +86,24 @@ struct Committing {
 
 /// What the core's connections to others share: the address of each partition, and the connections it has open.
 #[derive(Debug, Clone)]
-pub(crate) struct Peers {
+pub struct Peers {
+    /// The cluster this role belongs to.
     pub cluster: RoleCluster,
+    /// The frontend's role address.
     pub frontend: Address,
+    /// The name this role dials others under.
     pub name: String,
+    /// Where an answering peer's messages reach this core.
     pub own: UnboundedSender<PartitionMessage>,
+    /// The role address of each partition.
     pub addresses: Rc<RefCell<BTreeMap<u32, String>>>,
+    /// The connections open, by address.
     pub open: Rc<RefCell<HashMap<String, RoleClient>>>,
 }
 
 /// One partition's core: the one task that owns its host. Connections hand it requests by message and it answers them,
 /// so nothing it holds is shared.
-pub(crate) struct PartitionCore<'a> {
+pub struct PartitionCore<'a> {
     host: StorageHost<'a>,
     id: PartitionId,
     cluster: u64,
@@ -124,21 +130,32 @@ impl std::fmt::Debug for PartitionCore<'_> {
 }
 
 /// What a core is made of.
-pub(crate) struct CoreParts<'a> {
+pub struct CoreParts<'a> {
+    /// What the partition is hosted over.
     pub host: StorageHost<'a>,
+    /// The partition.
     pub id: PartitionId,
+    /// The cluster every frame names.
     pub cluster: u64,
+    /// When the core began, which its time counts from.
     pub clock: Instant,
+    /// What its connections send it.
     pub inbox: UnboundedReceiver<CoreMessage>,
+    /// What other partitions send it.
     pub remote: Receiver<RemoteMessage>,
+    /// Where messages reach it.
     pub own: Sender<PartitionMessage>,
+    /// The epoch closes delivered to it.
     pub closes: Receiver<PartitionMessage>,
+    /// Where it asks the frontend.
     pub asks: UnboundedSender<FrontendAsk>,
+    /// What its connections to others share.
     pub peers: Peers,
 }
 
 impl<'a> PartitionCore<'a> {
-    pub(crate) fn new(parts: CoreParts<'a>) -> Self {
+    /// The core of `parts`.
+    pub fn new(parts: CoreParts<'a>) -> Self {
         Self {
             host: parts.host,
             id: parts.id,
@@ -172,7 +189,7 @@ impl<'a> PartitionCore<'a> {
     /// # Errors
     ///
     /// [`RoleError::io`] when the pipeline stops on its log or store.
-    pub(crate) async fn run(
+    pub async fn run(
         mut self,
         stopping: &ultragraphdb_common_service::Stopping,
     ) -> Result<(), RoleError> {

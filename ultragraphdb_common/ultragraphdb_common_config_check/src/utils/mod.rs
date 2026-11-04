@@ -7,3 +7,4 @@ pub(crate) mod check_central;
 pub(crate) mod check_target;
 pub(crate) mod cross_checks;
 pub(crate) mod merge;
+pub(crate) mod write_central;

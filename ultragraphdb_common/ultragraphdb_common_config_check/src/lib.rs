@@ -20,3 +20,4 @@ pub use crate::types::target_files::TargetFiles;
 pub use crate::utils::check_central::{check_central, read_central};
 pub use crate::utils::check_target::{check_config_service, check_target};
 pub use crate::utils::merge::instances;
+pub use crate::utils::write_central::{CENTRAL_FILE, write_central};

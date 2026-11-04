@@ -22,9 +22,7 @@ use ultragraphdb_client_compio::{Client, ClientConfig, TcpConnector};
 use ultragraphdb_cluster_placement::{NodeId, PlacementMap};
 use ultragraphdb_common_role::RoleClient;
 use ultragraphdb_common_service::{Bootstrap, RoleKind as ServiceKind, fetch_settings};
-use ultragraphdb_compute_specs as compute;
 use ultragraphdb_core_ids::Epoch;
-use ultragraphdb_frontend_specs as frontend;
 use ultragraphdb_protocol_scram::{ScramLogin, system_nonce};
 use ultragraphdb_protocol_transport::Address;
 use ultragraphdb_protocol_wire::{
@@ -32,9 +30,13 @@ use ultragraphdb_protocol_wire::{
     LeaseView, Members, MembersView, Placement, PlacementView, RoleKind, Subscribe, TermTable,
     Write, WriteChange,
 };
-use ultragraphdb_storage_specs as storage;
 use ultragraphdb_store_quads::iri_bucket;
-use ultragraphdb_tests::{http_body, http_status};
+use ultragraphdb_tests::{
+    CLIENT_ADDRESS, CLUSTER, COMPUTE_BINARY, COMPUTE_OBSERVABILITY, COMPUTE_ROLE_ADDRESS,
+    FRONTEND_BINARY, FRONTEND_OBSERVABILITY, FRONTEND_ROLE_ADDRESS, STORAGE_BINARY,
+    STORAGE_OBSERVABILITY, STORAGE_ROLE_ADDRESS, compute_on_one_host, frontend_on_one_host,
+    http_body, http_status, render_settings, storage_on_one_host,
+};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transport_http_client::{HttpClient, HttpReply, HttpUrl};
 use ultragraphdb_transport_tls::TestPki;
@@ -118,9 +120,9 @@ fn services() -> TestResult<ServiceUtil> {
         ROOT_PATH,
         vec![
             CONFIG_BINARY,
-            frontend::BINARY,
-            compute::BINARY,
-            storage::BINARY,
+            FRONTEND_BINARY,
+            COMPUTE_BINARY,
+            STORAGE_BINARY,
         ],
     )?)
 }
@@ -192,7 +194,7 @@ fn role(
     log: &Path,
     wait_strategy: WaitStrategy,
 ) -> ServiceStartConfig {
-    let instance = served_by_double(program, &frontend::render(settings));
+    let instance = served_by_double(program, &render_settings(settings));
     process(
         program,
         bootstrap(DOUBLE_ADDRESS, &instance),
@@ -227,7 +229,7 @@ fn config_folder(instances: &[(&str, &[(String, String)])], security: &str) -> T
     let mut central = format!("[{TARGET}]\n");
     for (key, settings) in instances {
         let file = format!("{key}.toml");
-        std::fs::write(folder.join(&file), frontend::render(settings))?;
+        std::fs::write(folder.join(&file), render_settings(settings))?;
         central.push_str(&format!("{key} = \"{file}\"\n"));
     }
     std::fs::write(folder.join("targets.toml"), central)?;
@@ -295,7 +297,7 @@ fn fresh_data() -> String {
 /// A storage process's settings, with a role secret and a data directory of its own.
 fn storage_holding() -> TestResult<Vec<(String, String)>> {
     Ok(with(
-        holding(storage::settings(), SECRET)?,
+        holding(storage_on_one_host(), SECRET)?,
         "storage.data_dir",
         &fresh_data(),
     ))
@@ -308,7 +310,7 @@ fn frontend_holding() -> TestResult<Vec<(String, String)>> {
         DIRECTORIES.fetch_add(1, Ordering::Relaxed)
     ));
     Ok(with(
-        holding(frontend::settings(), SECRET)?,
+        holding(frontend_on_one_host(), SECRET)?,
         "frontend.data_dir",
         &directory.display().to_string(),
     ))
@@ -341,7 +343,7 @@ fn until_answering(address: &str, path: &str) -> TestResult {
 fn members_at(address: &str) -> TestResult<Vec<(RoleKind, u32, String)>> {
     Runtime::new()?.block_on(async {
         let target = Address::parse(address)?;
-        let mut client = RoleClient::dial(&target, frontend::CLUSTER, "compute", SECRET).await?;
+        let mut client = RoleClient::dial(&target, CLUSTER, "compute", SECRET).await?;
         let reply = client.request(&Members::new()).await?;
         let view = reply.view()?;
         let members = MembersView::from_frame(&view)?;
@@ -373,18 +375,18 @@ fn start_in_order(
             ("compute", compute_settings),
         ],
     )?;
-    let log = scratch(frontend::BINARY);
-    let wait = answering(frontend::OBSERVABILITY, "/health");
+    let log = scratch(FRONTEND_BINARY);
+    let wait = answering(FRONTEND_OBSERVABILITY, "/health");
     let _pid: u32 =
-        util.start_service_from_config(role_of_service(frontend::BINARY, "frontend", &log, wait))?;
+        util.start_service_from_config(role_of_service(FRONTEND_BINARY, "frontend", &log, wait))?;
     assert_eq!(
-        http_status(frontend::OBSERVABILITY, "/ready")?,
+        http_status(FRONTEND_OBSERVABILITY, "/ready")?,
         503,
         "the frontend is ready only once a partition answers it"
     );
     for (program, instance, address) in [
-        (storage::BINARY, "storage", storage::OBSERVABILITY),
-        (compute::BINARY, "compute", compute::OBSERVABILITY),
+        (STORAGE_BINARY, "storage", STORAGE_OBSERVABILITY),
+        (COMPUTE_BINARY, "compute", COMPUTE_OBSERVABILITY),
     ] {
         let ready = answering(address, "/ready");
         let joined = role_of_service(program, instance, &scratch(program), ready);
@@ -396,7 +398,7 @@ fn start_in_order(
 
 /// Runs the storage binary on the settings `text` to its exit.
 fn storage_on(w: &mut Steps, text: &str) -> TestResult {
-    let instance = served_by_double(storage::BINARY, text);
+    let instance = served_by_double(STORAGE_BINARY, text);
     run_to_exit(w, bootstrap(DOUBLE_ADDRESS, &instance))
 }
 
@@ -405,7 +407,7 @@ fn run_to_exit(w: &mut Steps, variables: Vec<(String, String)>) -> TestResult {
     let log = scratch("storage-refused.log");
     let util = services()?;
     let pid = util.start_service_from_config(process(
-        storage::BINARY,
+        STORAGE_BINARY,
         variables,
         &log,
         WaitStrategy::NoWait,
@@ -423,14 +425,14 @@ fn exited_with(w: &Steps, code: i32) -> TestResult {
 
 #[when("the frontend starts, then storage, then compute")]
 fn start_all(w: &mut Steps) -> TestResult {
-    w.frontend = format!("tcp://{}", frontend::ROLE_ADDRESS);
-    w.storage = format!("tcp://{}", storage::ROLE_ADDRESS);
-    w.compute = format!("tcp://{}", compute::ROLE_ADDRESS);
+    w.frontend = format!("tcp://{}", FRONTEND_ROLE_ADDRESS);
+    w.storage = format!("tcp://{}", STORAGE_ROLE_ADDRESS);
+    w.compute = format!("tcp://{}", COMPUTE_ROLE_ADDRESS);
     start_in_order(
         w,
         &frontend_holding()?,
         &storage_holding()?,
-        &holding(compute::settings(), SECRET)?,
+        &holding(compute_on_one_host(), SECRET)?,
     )
 }
 
@@ -452,7 +454,7 @@ fn start_all_unix(w: &mut Steps) -> TestResult {
         &st,
     );
     let compute_settings = with(
-        with(compute::settings(), joining, &f),
+        with(compute_on_one_host(), joining, &f),
         "compute.role_address",
         &c,
     );
@@ -471,10 +473,10 @@ fn start_all_unix(w: &mut Steps) -> TestResult {
     "every role's `/ready` answers, the frontend's last, and the frontend's members name storage and compute"
 )]
 fn all_ready(w: &mut Steps) -> TestResult {
-    assert_eq!(http_status(storage::OBSERVABILITY, "/ready")?, 200);
-    assert_eq!(http_status(compute::OBSERVABILITY, "/ready")?, 200);
-    until_answering(frontend::OBSERVABILITY, "/ready")?;
-    assert_eq!(http_status(frontend::OBSERVABILITY, "/other")?, 404);
+    assert_eq!(http_status(STORAGE_OBSERVABILITY, "/ready")?, 200);
+    assert_eq!(http_status(COMPUTE_OBSERVABILITY, "/ready")?, 200);
+    until_answering(FRONTEND_OBSERVABILITY, "/ready")?;
+    assert_eq!(http_status(FRONTEND_OBSERVABILITY, "/other")?, 404);
     let expected = vec![
         (RoleKind::Compute, 0, w.compute.clone()),
         (RoleKind::Storage, 1, w.storage.clone()),
@@ -499,14 +501,14 @@ fn private_sockets(w: &mut Steps) -> TestResult {
 #[when("a storage process started with a different role secret connects to the frontend")]
 fn wrong_secret(w: &mut Steps) -> TestResult {
     let util = services()?;
-    let log = scratch(frontend::BINARY);
-    let wait = answering(frontend::OBSERVABILITY, "/health");
+    let log = scratch(FRONTEND_BINARY);
+    let wait = answering(FRONTEND_OBSERVABILITY, "/health");
     let settings = frontend_holding()?;
     let _frontend: u32 =
-        util.start_service_from_config(role(frontend::BINARY, &settings, &log, wait))?;
+        util.start_service_from_config(role(FRONTEND_BINARY, &settings, &log, wait))?;
     let refused = with(
         with(
-            holding(storage::settings(), "another secret")?,
+            holding(storage_on_one_host(), "another secret")?,
             "storage.data_dir",
             &fresh_data(),
         ),
@@ -515,14 +517,14 @@ fn wrong_secret(w: &mut Steps) -> TestResult {
     );
     let refused_log = scratch("storage-refused.log");
     let pid = util.start_service_from_config(role(
-        storage::BINARY,
+        STORAGE_BINARY,
         &refused,
         &refused_log,
         WaitStrategy::NoWait,
     ))?;
     w.exited = Some(util.wait_for_exit(pid, Duration::from_secs(START_SECONDS))?);
     w.log = std::fs::read_to_string(&refused_log)?;
-    w.frontend = format!("tcp://{}", frontend::ROLE_ADDRESS);
+    w.frontend = format!("tcp://{}", FRONTEND_ROLE_ADDRESS);
     w.roles = Some(util);
     Ok(())
 }
@@ -550,8 +552,8 @@ fn refused_and_retried(w: &mut Steps) -> TestResult {
 fn client_refusal(name: &str, password: &str) -> TestResult<String> {
     Runtime::new()?.block_on(async {
         let login = ScramLogin::new(name, password, system_nonce)?;
-        let address = frontend::CLIENT_ADDRESS.parse()?;
-        let config = ClientConfig::new(frontend::CLUSTER, "ultragraphdb-test");
+        let address = CLIENT_ADDRESS.parse()?;
+        let config = ClientConfig::new(CLUSTER, "ultragraphdb-test");
         let mut client = Client::new(TcpConnector::new(address), config, login, 16);
         let refused = client.connect().await.err().context("a refusal")?;
         Ok(refused.to_string())
@@ -561,11 +563,10 @@ fn client_refusal(name: &str, password: &str) -> TestResult<String> {
 #[when("a client authenticates on the client endpoint with the role secret")]
 fn client_with_secret(w: &mut Steps) -> TestResult {
     let util = services()?;
-    let log = scratch(frontend::BINARY);
-    let wait = answering(frontend::OBSERVABILITY, "/health");
+    let log = scratch(FRONTEND_BINARY);
+    let wait = answering(FRONTEND_OBSERVABILITY, "/health");
     let settings = frontend_holding()?;
-    let _pid: u32 =
-        util.start_service_from_config(role(frontend::BINARY, &settings, &log, wait))?;
+    let _pid: u32 = util.start_service_from_config(role(FRONTEND_BINARY, &settings, &log, wait))?;
     w.log = client_refusal("storage", SECRET)?;
     w.roles = Some(util);
     Ok(())
@@ -583,14 +584,14 @@ fn same_as_wrong_password(w: &mut Steps) -> TestResult {
 fn missing_secret(w: &mut Steps) -> TestResult {
     let absent = scratch("never-written");
     let settings = with(
-        with(storage::settings(), "storage.data_dir", &fresh_data()),
+        with(storage_on_one_host(), "storage.data_dir", &fresh_data()),
         "cluster.role_secret_file",
         &absent.display().to_string(),
     );
     let log = scratch("storage-no-secret.log");
     let util = services()?;
     let pid = util.start_service_from_config(role(
-        storage::BINARY,
+        STORAGE_BINARY,
         &settings,
         &log,
         WaitStrategy::NoWait,
@@ -611,18 +612,18 @@ fn names_the_file(w: &mut Steps) -> TestResult {
 /// Starts the frontend alone, waiting on its `/health`.
 fn frontend_alone(w: &mut Steps) -> TestResult {
     let util = services()?;
-    let log = scratch(frontend::BINARY);
-    let wait = answering(frontend::OBSERVABILITY, "/health");
+    let log = scratch(FRONTEND_BINARY);
+    let wait = answering(FRONTEND_OBSERVABILITY, "/health");
     let _pid: u32 =
-        util.start_service_from_config(role(frontend::BINARY, &frontend_holding()?, &log, wait))?;
+        util.start_service_from_config(role(FRONTEND_BINARY, &frontend_holding()?, &log, wait))?;
     w.roles = Some(util);
     Ok(())
 }
 
 /// The frontend's role address, dialled as storage holding the cluster's secret.
 async fn as_storage() -> TestResult<RoleClient> {
-    let target = Address::parse(&format!("tcp://{}", frontend::ROLE_ADDRESS))?;
-    Ok(RoleClient::dial(&target, frontend::CLUSTER, "storage", SECRET).await?)
+    let target = Address::parse(&format!("tcp://{}", FRONTEND_ROLE_ADDRESS))?;
+    Ok(RoleClient::dial(&target, CLUSTER, "storage", SECRET).await?)
 }
 
 #[when("the frontend's sequencer closes epochs 1 to 5 and storage is connected")]
@@ -709,7 +710,7 @@ fn edge_write(subject: &str, object: &str) -> Write {
 /// Commits `write` in a transaction bound to `partition` at `address`: its commit version.
 async fn commit_at(address: &str, partition: u32, write: &Write) -> TestResult<u64> {
     let target = Address::parse(address)?;
-    let mut client = RoleClient::dial(&target, frontend::CLUSTER, "frontend", SECRET).await?;
+    let mut client = RoleClient::dial(&target, CLUSTER, "frontend", SECRET).await?;
     let bind = Bind::new(partition, BindKind::Transaction, NAMESPACE, 0, 1, [7; 16]);
     drop(client.request(&bind).await?);
     let stream = client.last_stream();
@@ -753,17 +754,17 @@ fn two_processes(w: &mut Steps) -> TestResult {
             ("storage_3", &second),
         ],
     )?;
-    let wait = answering(frontend::OBSERVABILITY, "/health");
+    let wait = answering(FRONTEND_OBSERVABILITY, "/health");
     let _frontend: u32 = util.start_service_from_config(role_of_service(
-        frontend::BINARY,
+        FRONTEND_BINARY,
         "frontend",
-        &scratch(frontend::BINARY),
+        &scratch(FRONTEND_BINARY),
         wait,
     ))?;
     for at in [1, 3] {
         let ready = answering(&format!("127.0.0.1:{}", 18_100 + at), "/ready");
         let start = role_of_service(
-            storage::BINARY,
+            STORAGE_BINARY,
             &format!("storage_{at}"),
             &scratch(&format!("storage-{at}")),
             ready,
@@ -771,7 +772,7 @@ fn two_processes(w: &mut Steps) -> TestResult {
         let _storage: u32 = util.start_service_from_config(start)?;
     }
     w.roles = Some(util);
-    w.frontend = format!("tcp://{}", frontend::ROLE_ADDRESS);
+    w.frontend = format!("tcp://{}", FRONTEND_ROLE_ADDRESS);
     Ok(())
 }
 
@@ -833,8 +834,8 @@ fn registered(w: &mut Steps) {
 
 /// One partition's storage, started with `settings`, waiting on `/ready`; its pid.
 fn start_storage(util: &ServiceUtil, settings: &[(String, String)], log: &Path) -> TestResult<u32> {
-    let ready = answering(storage::OBSERVABILITY, "/ready");
-    Ok(util.start_service_from_config(role(storage::BINARY, settings, log, ready))?)
+    let ready = answering(STORAGE_OBSERVABILITY, "/ready");
+    Ok(util.start_service_from_config(role(STORAGE_BINARY, settings, log, ready))?)
 }
 
 /// What runs a storage process with commits acknowledged, its settings and its pid.
@@ -843,17 +844,17 @@ type Committed = (ServiceUtil, Vec<(String, String)>, u32);
 /// A frontend and one partition's storage, with commits acknowledged: what restarts it, its log and its pid.
 fn committed_storage(w: &mut Steps) -> TestResult<Committed> {
     let util = services()?;
-    let wait = answering(frontend::OBSERVABILITY, "/health");
+    let wait = answering(FRONTEND_OBSERVABILITY, "/health");
     let _frontend: u32 = util.start_service_from_config(role(
-        frontend::BINARY,
+        FRONTEND_BINARY,
         &frontend_holding()?,
-        &scratch(frontend::BINARY),
+        &scratch(FRONTEND_BINARY),
         wait,
     ))?;
     let settings = storage_holding()?;
     let pid = start_storage(&util, &settings, &scratch("storage-first"))?;
     let subject = subject_of(1, 1, NAMESPACE)?;
-    let address = format!("tcp://{}", storage::ROLE_ADDRESS);
+    let address = format!("tcp://{}", STORAGE_ROLE_ADDRESS);
     Runtime::new()?.block_on(async {
         for at in 0..8 {
             let object = format!("http://ex.org/o{at}");
@@ -905,10 +906,10 @@ fn killed(w: &mut Steps) -> TestResult {
     assert!(killed.success());
     w.exited = Some(util.wait_for_exit(pid, Duration::from_secs(START_SECONDS))?);
     let again = scratch("storage-recovered.log");
-    let health = answering(storage::OBSERVABILITY, "/health");
+    let health = answering(STORAGE_OBSERVABILITY, "/health");
     let _restarted: u32 =
-        util.start_service_from_config(role(storage::BINARY, &settings, &again, health))?;
-    until_answering(storage::OBSERVABILITY, "/ready")?;
+        util.start_service_from_config(role(STORAGE_BINARY, &settings, &again, health))?;
+    until_answering(STORAGE_OBSERVABILITY, "/ready")?;
     w.log = std::fs::read_to_string(&again)?;
     w.roles = Some(util);
     Ok(())
@@ -928,9 +929,9 @@ fn replayed_first(w: &mut Steps) -> TestResult {
 fn terminate(w: &mut Steps) -> TestResult {
     let util = services()?;
     let log = scratch("compute-stopped.log");
-    let wait = answering(compute::OBSERVABILITY, "/health");
-    let settings = holding(compute::settings(), SECRET)?;
-    let pid = util.start_service_from_config(role(compute::BINARY, &settings, &log, wait))?;
+    let wait = answering(COMPUTE_OBSERVABILITY, "/health");
+    let settings = holding(compute_on_one_host(), SECRET)?;
+    let pid = util.start_service_from_config(role(COMPUTE_BINARY, &settings, &log, wait))?;
     w.exited = Some(util.stop_service(pid)?);
     w.log = std::fs::read_to_string(&log)?;
     Ok(())
@@ -974,9 +975,8 @@ fn pinned(w: &mut Steps) -> TestResult {
     variables.push(("runtime.pin_cores".to_string(), "true".to_string()));
     let util = services()?;
     let log = scratch("storage-pinned.log");
-    let wait = answering(storage::OBSERVABILITY, "/health");
-    let _pid: u32 =
-        util.start_service_from_config(role(storage::BINARY, &variables, &log, wait))?;
+    let wait = answering(STORAGE_OBSERVABILITY, "/health");
+    let _pid: u32 = util.start_service_from_config(role(STORAGE_BINARY, &variables, &log, wait))?;
     w.log = std::fs::read_to_string(&log)?;
     Ok(())
 }
@@ -1026,7 +1026,7 @@ fn no_engine(w: &mut Steps) -> TestResult {
 
 #[when("the storage binary receives settings with no `storage.data_dir`")]
 fn no_data_dir(w: &mut Steps) -> TestResult {
-    let text = frontend::render(&holding(storage::settings(), SECRET)?);
+    let text = render_settings(&holding(storage_on_one_host(), SECRET)?);
     storage_on(w, &text)
 }
 
@@ -1034,6 +1034,31 @@ fn no_data_dir(w: &mut Steps) -> TestResult {
 fn names_data_dir(w: &mut Steps) -> TestResult {
     exited_with(w, 78)?;
     assert!(w.log.contains("storage.data_dir"), "{}", w.log);
+    Ok(())
+}
+
+#[when("the compute binary receives settings with no `compute.role_address`")]
+fn no_compute_address(w: &mut Steps) -> TestResult {
+    let mut settings = holding(compute_on_one_host(), SECRET)?;
+    settings.retain(|(name, _)| name != "compute.role_address");
+    let log = scratch("compute-no-address.log");
+    let util = services()?;
+    let instance = served_by_double(COMPUTE_BINARY, &render_settings(&settings));
+    let pid = util.start_service_from_config(process(
+        COMPUTE_BINARY,
+        bootstrap(DOUBLE_ADDRESS, &instance),
+        &log,
+        WaitStrategy::NoWait,
+    ))?;
+    w.exited = Some(util.wait_for_exit(pid, Duration::from_secs(START_SECONDS))?);
+    w.log = std::fs::read_to_string(&log)?;
+    Ok(())
+}
+
+#[then("it exits with code 78 and an error naming `compute.role_address`")]
+fn names_compute_address(w: &mut Steps) -> TestResult {
+    exited_with(w, 78)?;
+    assert!(w.log.contains("compute.role_address"), "{}", w.log);
     Ok(())
 }
 
@@ -1071,7 +1096,7 @@ fn service_late(w: &mut Steps) -> TestResult {
     let settings = storage_holding()?;
     let frontend_settings = frontend_holding()?;
     let waiting = role_of_service(
-        storage::BINARY,
+        STORAGE_BINARY,
         "storage",
         &scratch("storage-waiting.log"),
         WaitStrategy::NoWait,
@@ -1088,8 +1113,8 @@ fn service_late(w: &mut Steps) -> TestResult {
 
 #[then("the process takes its settings and starts")]
 fn took_settings(w: &mut Steps) -> TestResult {
-    until_answering(storage::OBSERVABILITY, "/health")?;
-    let health = http_body(storage::OBSERVABILITY, "/health")?;
+    until_answering(STORAGE_OBSERVABILITY, "/health")?;
+    let health = http_body(STORAGE_OBSERVABILITY, "/health")?;
     assert!(health.contains("instance storage,"), "{health}");
     assert!(health.contains("revision 1"), "{health}");
     w.roles = None;
@@ -1114,7 +1139,7 @@ fn wrong_key(w: &mut Steps) -> TestResult {
     );
     let log = scratch("storage-wrong-key.log");
     let pid = util.start_service_from_config(process(
-        storage::BINARY,
+        STORAGE_BINARY,
         variables,
         &log,
         WaitStrategy::NoWait,
@@ -1188,12 +1213,12 @@ fn same_revision(w: &mut Steps) -> TestResult {
 #[when("a role runs a revision of a target as an instance")]
 fn running_revision(w: &mut Steps) -> TestResult {
     let util = services()?;
-    let instance = served_by_double(storage::BINARY, &frontend::render(&storage_holding()?));
+    let instance = served_by_double(STORAGE_BINARY, &render_settings(&storage_holding()?));
     let start = process(
-        storage::BINARY,
+        STORAGE_BINARY,
         bootstrap(DOUBLE_ADDRESS, &instance),
         &scratch("storage-health.log"),
-        answering(storage::OBSERVABILITY, "/health"),
+        answering(STORAGE_OBSERVABILITY, "/health"),
     );
     let _pid: u32 = util.start_service_from_config(start)?;
     w.graph = instance;
@@ -1203,7 +1228,7 @@ fn running_revision(w: &mut Steps) -> TestResult {
 
 #[then("its `/health` body names the target, the instance and the revision")]
 fn health_names(w: &mut Steps) -> TestResult {
-    let health = http_body(storage::OBSERVABILITY, "/health")?;
+    let health = http_body(STORAGE_OBSERVABILITY, "/health")?;
     let expected = format!(
         "target {TARGET}, instance {}, revision {DOUBLE_REVISION}",
         w.graph
@@ -1244,10 +1269,10 @@ fn over_tls(w: &mut Steps) -> TestResult {
         &ca.display().to_string(),
     );
     let _role: u32 = util.start_service_from_config(process(
-        storage::BINARY,
+        STORAGE_BINARY,
         variables,
         &scratch("storage-tls.log"),
-        answering(storage::OBSERVABILITY, "/health"),
+        answering(STORAGE_OBSERVABILITY, "/health"),
     ))?;
     w.roles = Some(util);
     Ok(())
@@ -1255,7 +1280,7 @@ fn over_tls(w: &mut Steps) -> TestResult {
 
 #[then("it takes its settings over the verified connection")]
 fn took_over_tls(w: &mut Steps) -> TestResult {
-    let health = http_body(storage::OBSERVABILITY, "/health")?;
+    let health = http_body(STORAGE_OBSERVABILITY, "/health")?;
     assert!(health.contains("revision 1"), "{health}");
     w.roles = None;
     Ok(())
@@ -1293,19 +1318,19 @@ fn loadable(w: &mut Steps) -> TestResult {
         ],
     )?;
     let _frontend: u32 = util.start_service_from_config(role_of_service(
-        frontend::BINARY,
+        FRONTEND_BINARY,
         "frontend",
-        &scratch(frontend::BINARY),
-        answering(frontend::OBSERVABILITY, "/health"),
+        &scratch(FRONTEND_BINARY),
+        answering(FRONTEND_OBSERVABILITY, "/health"),
     ))?;
     w.pid = util.start_service_from_config(role_of_service(
-        storage::BINARY,
+        STORAGE_BINARY,
         "storage",
         &scratch("storage-loaded.log"),
-        answering(storage::OBSERVABILITY, "/ready"),
+        answering(STORAGE_OBSERVABILITY, "/ready"),
     ))?;
     let subject = subject_of(1, 1, NAMESPACE)?;
-    let address = format!("tcp://{}", storage::ROLE_ADDRESS);
+    let address = format!("tcp://{}", STORAGE_ROLE_ADDRESS);
     Runtime::new()?.block_on(async {
         for at in 0..8 {
             let object = format!("http://ex.org/o{at}");
@@ -1315,10 +1340,10 @@ fn loadable(w: &mut Steps) -> TestResult {
     })?;
     let mut body = Vec::new();
     for (key, text) in [
-        ("frontend", frontend::render(&frontend_settings)),
+        ("frontend", render_settings(&frontend_settings)),
         (
             "storage",
-            format!("{}# revision 2\n", frontend::render(&storage_settings)),
+            format!("{}# revision 2\n", render_settings(&storage_settings)),
         ),
     ] {
         body.extend_from_slice(format!("{key} {}\n{text}\n", text.len()).as_bytes());
@@ -1353,8 +1378,7 @@ fn load(w: &mut Steps, key: &str, revision: &str) -> TestResult {
 fn until_revision(revision: u64) -> TestResult {
     let expected = format!("revision {revision}\n");
     for _ in 0..START_SECONDS * 20 {
-        if http_body(storage::OBSERVABILITY, "/health").is_ok_and(|body| body.ends_with(&expected))
-        {
+        if http_body(STORAGE_OBSERVABILITY, "/health").is_ok_and(|body| body.ends_with(&expected)) {
             return Ok(());
         }
         std::thread::sleep(Duration::from_millis(50));
@@ -1376,7 +1400,7 @@ fn loads(w: &mut Steps) -> TestResult {
 fn loaded(w: &mut Steps) -> TestResult {
     assert_eq!(w.status, 202, "{}", w.log);
     until_revision(2)?;
-    until_answering(storage::OBSERVABILITY, "/ready")?;
+    until_answering(STORAGE_OBSERVABILITY, "/ready")?;
     let alive = std::process::Command::new("kill")
         .args(["-0", &w.pid.to_string()])
         .status()?;
@@ -1446,10 +1470,10 @@ fn load_crashes(w: &mut Steps) -> TestResult {
     let util = w.roles.as_ref().context("the roles")?;
     w.exited = Some(util.wait_for_exit(w.pid, Duration::from_secs(START_SECONDS))?);
     let _restarted: u32 = util.start_service_from_config(role_of_service(
-        storage::BINARY,
+        STORAGE_BINARY,
         "storage",
         &scratch("storage-after-crash.log"),
-        answering(storage::OBSERVABILITY, "/health"),
+        answering(STORAGE_OBSERVABILITY, "/health"),
     ))?;
     Ok(())
 }
@@ -1465,7 +1489,7 @@ fn active_after_crash(w: &mut Steps) -> TestResult {
 fn named_too_early(w: &mut Steps) -> TestResult {
     let text = format!(
         "{}new_in_a_later_release = 1\n",
-        frontend::render(&[("storage.partition_count".to_string(), "1".to_string())])
+        render_settings(&[("storage.partition_count".to_string(), "1".to_string())])
     );
     storage_on(w, &text)
 }

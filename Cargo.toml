@@ -36,9 +36,6 @@ publish = false
 # Internal crates
 # ==============
 # Ultragraphdb: service binaries, tests, and specs
-ultragraphdb_compute_specs = { path = "ultragraphdb/ultragraphdb_compute_specs" }
-ultragraphdb_frontend_specs = { path = "ultragraphdb/ultragraphdb_frontend_specs" }
-ultragraphdb_storage_specs = { path = "ultragraphdb/ultragraphdb_storage_specs" }
 ultragraphdb_tests = { path = "ultragraphdb/ultragraphdb_tests" }
 ## Client
 ultragraphdb_client_core = { path = "ultragraphdb_client/ultragraphdb_client_core" }

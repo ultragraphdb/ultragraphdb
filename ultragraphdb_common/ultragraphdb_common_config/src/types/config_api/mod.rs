@@ -110,6 +110,29 @@ impl ConfigApi {
         }
     }
 
+    /// The active revision's files as a file to save, which `add` takes back as they are.
+    async fn download(&self, target: &str) -> HttpResponse {
+        let answer = self
+            .store
+            .ask(|reply| ConfigCommand::Download {
+                target: target.to_string(),
+                reply,
+            })
+            .await;
+        match answer {
+            None => stopped(),
+            Some(Err(error)) => refusal(&error),
+            Some(Ok((number, files))) => HttpResponse::new(200)
+                .with_header("Content-Type", "application/octet-stream")
+                .with_header(
+                    "Content-Disposition",
+                    format!("attachment; filename=\"{target}-revision-{number}.bundle\""),
+                )
+                .with_header("X-Revision", number.to_string())
+                .with_body(files),
+        }
+    }
+
     async fn add(&self, target: &str, request: HttpRequest) -> HttpResponse {
         let Some(base) = request.query("base").and_then(|base| base.parse().ok()) else {
             return text(
@@ -217,6 +240,7 @@ impl ConfigApi {
                 Ok(number) => self.files(target, number).await,
                 Err(_) => not_a_number(number),
             },
+            ("GET", ["v1", "targets", target, "download"]) => self.download(target).await,
             ("POST", ["v1", "targets", target, "revisions"]) => self.add(target, request).await,
             ("PUT", ["v1", "targets", target, "active"]) => {
                 self.activate(target, request.body()).await

@@ -25,6 +25,10 @@ use ultragraphdb_common_role::{
 };
 use ultragraphdb_common_service::{Readiness, RoleKind, RoleStart, Stopping, core_runtime};
 use ultragraphdb_common_service_config::{ServiceConfig, partition_address};
+use ultragraphdb_common_storage::{
+    CoreMessage, CoreParts, FrontendAsk, PartitionCore, Peers, RefillBlocks, StorageHost,
+    StoragePartition, StorageSession,
+};
 use ultragraphdb_core_ids::{Epoch, Namespace, TypePrefix, Version};
 use ultragraphdb_core_mapping::RandomSource;
 use ultragraphdb_error_role::RoleError;
@@ -41,13 +45,6 @@ use ultragraphdb_store_quads::QuadStore;
 use ultragraphdb_traits_blocks::SequenceBlock;
 use ultragraphdb_transactions_commit::{CloseRequest, Pipeline, Replay, RoundBounds, Sessions};
 use ultragraphdb_transactions_log::{CompioStorage, Wal, WalConfig};
-
-use crate::types::core_message::CoreMessage;
-use crate::types::partition_core::{
-    CoreParts, FrontendAsk, PartitionCore, Peers, StorageHost, StoragePartition,
-};
-use crate::types::refill_blocks::RefillBlocks;
-use crate::types::storage_session::StorageSession;
 
 /// The posting lists' cache per partition.
 const CACHE_BYTES: u64 = 64 << 20;
@@ -97,7 +94,7 @@ struct CoreStart {
 /// [`RoleError::configuration`] for a setting absent or out of its bounds or a refused role secret;
 /// [`RoleError::unavailable`] when a thread cannot start or the frontend does not take the role by its deadline;
 /// [`RoleError::io`] for a failed store or log.
-pub async fn storage_role(
+pub(crate) async fn storage_role(
     start: RoleStart,
     readiness: Readiness,
     stopping: Stopping,

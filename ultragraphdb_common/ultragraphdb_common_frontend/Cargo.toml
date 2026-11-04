@@ -37,7 +37,6 @@ ultragraphdb_error_role = { workspace = true }
 ultragraphdb_protocol_scram = { workspace = true }
 ultragraphdb_common_role = { workspace = true }
 ultragraphdb_protocol_transport = { workspace = true }
-ultragraphdb_protocol_transport_compio = { workspace = true }
 ultragraphdb_protocol_wire = { workspace = true }
 
 [dev-dependencies]

@@ -109,7 +109,7 @@ refuse to start with code 78 when the central file is missing or unreadable, dec
 declares a file that is not there, or fails a check of the requirement above. On a directory holding no revision of a target, the service
 SHALL store the target's files as revision 1 and activate it. On a target holding a revision it SHALL leave the stored revisions as they
 are, logging the target's name and active revision when the declared files differ from them, since from then on the API is the one
-authority. The profiles `dev`, every role on one host over Unix sockets, and `dev-net`, the same over TCP, SHALL ship as central files
+authority, and an edit made through it is saved by downloading it. The profiles `dev`, every role on one host over Unix sockets, and `dev-net`, the same over TCP, SHALL ship as central files
 with their settings.
 
 #### Scenario: No central file stops the start
@@ -153,6 +153,33 @@ make them.
 - **WHEN** the directory holds `ci_storge_1.toml`, which no target declares
 - **THEN** the check warns naming the file, and its exit code is unchanged
 
+### Requirement: An administrator restores a running service's settings into a folder
+`ultragraphdb_config_cli restore <url> <admin token> <folder>` SHALL, with `--ca-file <file>` for a service whose certificate the system's roots do not verify, download the latest revision of every target, and no other revision, and write them under the folder as a central file, `targets.toml`,
+written last, and each target's files in a folder of its name, so a config service can begin from the folder, each target's latest revision becoming its revision 1.
+It SHALL say when a target's latest revision is not its active one, since a service beginning from the folder makes it active. A retired target's settings are run by no one, so it SHALL leave it out and say so. It SHALL write only into a folder
+that is absent or empty, and SHALL check names from the service before writing any. It SHALL never print the token. It SHALL exit
+0 once the folder passes the check, 69 when the service does not answer, 74 when the folder cannot take the files, and 78 otherwise.
+
+#### Scenario: A restore rebuilds a folder a service can begin from
+- **WHEN** an administrator adds a revision of a target through the API, activates none, and restores the service into a folder
+- **THEN** the folder holds the latest revision's files alone, says which is active, and a fresh service over it serves those settings
+
+#### Scenario: A restore leaves out a retired target
+- **WHEN** a service holds a retired target and one with no active revision beside `ci`
+- **THEN** the restore holds `ci` and the one with no active revision, and says it left out the retired one
+
+#### Scenario: A restore with the read key writes nothing
+- **WHEN** a restore is run with the read key
+- **THEN** it exits with code 78 saying the token was refused, prints no token, and no folder appears
+
+#### Scenario: A restore adds to no folder
+- **WHEN** a restore names a folder holding a file
+- **THEN** it exits with code 74 saying so, and the folder is as it was
+
+#### Scenario: A restore of a service that is down says so
+- **WHEN** a restore names a URL where nothing answers
+- **THEN** it exits with code 69 naming the URL
+
 ### Requirement: A configuration error tells the administrator what to do
 Every refusal of settings, from the service, the check or a role, SHALL state in one entry: where (the file and, when a parser knows it,
 the line), which target, instance and setting, what was found, and what is required. Every entry SHALL be complete on its own, written for
@@ -176,10 +203,11 @@ or too short SHALL stop the start with code 78. The API SHALL be:
 
 | Method and path | Key | Does |
 |---|---|---|
-| `GET /v1/targets` | read | lists the targets and each one's latest and active revision |
+| `GET /v1/targets` | read | lists the targets, one line each: `<name> latest <n> active <n or none>`, followed by ` retired` for a retired one |
 | `GET /v1/targets/{target}/instances/{instance}` | read | the instance's merged TOML at the active revision, its revision in `X-Revision` |
 | `GET /v1/targets/{target}/revisions/{n}/instances/{instance}` | read | the same at revision `n` |
 | `GET /v1/targets/{target}/revisions/{n}` | admin | revision `n`'s files |
+| `GET /v1/targets/{target}/download` | admin | the active revision's files as a file to save, its revision in `X-Revision`, which the `POST` below takes back as they are |
 | `POST /v1/targets/{target}/revisions?base={n}` | admin | adds a revision holding the files of the body; `base` 0 begins a target |
 | `PUT /v1/targets/{target}/active` | admin | activates the revision whose decimal number the body holds, which also ends a retirement |
 | `DELETE /v1/targets/{target}` | admin | retires the target: it serves no instance, and its revisions stay stored |
@@ -212,6 +240,18 @@ secret files, and each role reads its own.
 
 #### Scenario: A target with no active revision says so
 - **WHEN** a role asks for an instance of a target whose only revision has not been activated
+- **THEN** it is refused with status 404 saying the target has no active revision
+
+#### Scenario: An edit made through the API is downloaded and saved
+- **WHEN** an administrator activates a revision through the API and downloads its target
+- **THEN** the answer holds that revision's files as received, names the revision and a file to save them as, and taken back it adds a revision
+
+#### Scenario: A download needs the admin key
+- **WHEN** a request downloads a target with the read key
+- **THEN** it is refused with status 403
+
+#### Scenario: A target with no active revision has nothing to download
+- **WHEN** an administrator downloads a target whose only revision has not been activated
 - **THEN** it is refused with status 404 saying the target has no active revision
 
 #### Scenario: An oversized request is refused

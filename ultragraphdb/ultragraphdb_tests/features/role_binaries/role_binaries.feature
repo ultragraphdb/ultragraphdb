@@ -78,3 +78,7 @@ Feature: The role binaries as processes
   Scenario: A missing required setting stops the start
     When the storage binary receives settings with no `storage.data_dir`
     Then it exits with code 78 and an error naming `storage.data_dir`
+
+  Scenario: A compute process without its address stops the start
+    When the compute binary receives settings with no `compute.role_address`
+    Then it exits with code 78 and an error naming `compute.role_address`

@@ -8,10 +8,10 @@ load("@rules_img//img:push.bzl", "image_push")
 load("//bazel:binary.bzl", "static_binary")
 load("//bazel/container:img.bzl", "scratch_multiarch_img", "sha256_tag")
 
-# No library: the service's work is reached from its crate, and a binary holds only `main`.
+# No library: `main` and the start it runs, over the store and the API of `ultragraphdb_common_config`.
 static_binary(
     name = "ultragraphdb_config",
-    srcs = ["src/main.rs"],
+    srcs = glob(["src/**/*.rs"]),
     tags = ["config_binary"],
     visibility = ["//visibility:public"],
     deps = all_crate_deps(normal = True),

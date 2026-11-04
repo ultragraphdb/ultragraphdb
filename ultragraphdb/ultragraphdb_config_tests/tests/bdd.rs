@@ -823,6 +823,248 @@ fn profiles_pass(w: &mut Steps) {
     );
 }
 
+#[when("an administrator activates a revision through the API and downloads target `ci`")]
+fn downloads(w: &mut Steps) -> TestResult {
+    prepare(w)?;
+    let _pid = start_serving(w)?;
+    assert_eq!(add(1, "second")?.status(), 201);
+    assert_eq!(
+        ask(ADMIN_KEY, "PUT", "/v1/targets/ci/active", b"2")?.status(),
+        200
+    );
+    w.reply = Some(ask(ADMIN_KEY, "GET", "/v1/targets/ci/download", b"")?);
+    Ok(())
+}
+
+#[then(
+    "the answer holds that revision's files as received, names the revision and a file to save them as, and taken back it adds a revision"
+)]
+fn downloaded(w: &mut Steps) -> TestResult {
+    let reply = w.reply.as_ref().context("a reply")?;
+    assert_eq!(reply.status(), 200);
+    assert_eq!(
+        reply.body(),
+        bundle(&format!("{STORAGE}# second\n"), COMPUTE)
+    );
+    assert_eq!(reply.header("X-Revision"), Some("2"));
+    says(
+        reply
+            .header("Content-Disposition")
+            .context("a file's name")?,
+        &["attachment", "ci-revision-2.bundle"],
+    );
+    let back = ask(
+        ADMIN_KEY,
+        "POST",
+        "/v1/targets/ci/revisions?base=2",
+        reply.body(),
+    )?;
+    assert_eq!(back.status(), 201, "{}", body_of(&back));
+    says(&targets_list()?, &["ci latest 3 active 2"]);
+    Ok(())
+}
+
+#[when("a request downloads a target with the read key")]
+fn download_read_key(w: &mut Steps) -> TestResult {
+    prepare(w)?;
+    let _pid = start_serving(w)?;
+    w.reply = Some(ask(READ_KEY, "GET", "/v1/targets/ci/download", b"")?);
+    Ok(())
+}
+
+#[then("it is refused with status 403")]
+fn download_refused(w: &mut Steps) -> TestResult {
+    assert_eq!(w.reply.as_ref().context("a reply")?.status(), 403);
+    Ok(())
+}
+
+#[when("an administrator downloads a target whose only revision has not been activated")]
+fn download_none_active(w: &mut Steps) -> TestResult {
+    prepare(w)?;
+    let _pid = start_serving(w)?;
+    let begun = ask(
+        ADMIN_KEY,
+        "POST",
+        "/v1/targets/staging/revisions?base=0",
+        &bundle(STORAGE, COMPUTE),
+    )?;
+    assert_eq!(begun.status(), 201, "{}", body_of(&begun));
+    w.reply = Some(ask(ADMIN_KEY, "GET", "/v1/targets/staging/download", b"")?);
+    Ok(())
+}
+
+/// Runs the CLI's restore with `token` into `folder` of this scenario, holding its output.
+fn restore(w: &mut Steps, url: &str, token: &str) -> TestResult {
+    let folder = w.folder.join("restored");
+    w.output = Some(
+        Command::new(Path::new(ROOT_PATH).join(CLI))
+            .args(["restore", url, token])
+            .arg(&folder)
+            .env_clear()
+            .output()?,
+    );
+    Ok(())
+}
+
+#[when(
+    "an administrator adds a revision of target `ci` through the API, activates none, and restores the service into a folder"
+)]
+fn restores(w: &mut Steps) -> TestResult {
+    prepare(w)?;
+    let pid = start_serving(w)?;
+    assert_eq!(add(1, "edited")?.status(), 201);
+    restore(w, &format!("http://{ADDRESS}"), ADMIN_KEY)?;
+    let util = w.util.as_ref().context("the services")?;
+    let _exit = util.stop_service(pid)?;
+    Ok(())
+}
+
+#[then(
+    "the folder holds the latest revision's files alone, says which is active, and a fresh service over it serves those settings"
+)]
+fn restored(w: &mut Steps) -> TestResult {
+    let (text, code) = cli_text(w)?;
+    assert_eq!(code, 0, "{text}");
+    says(
+        &text,
+        &[
+            "target ci: revision 2, the latest",
+            "active revision is 1",
+            "is restored",
+        ],
+    );
+    let folder = w.folder.join("restored");
+    let storage = std::fs::read_to_string(folder.join("ci").join("storage.toml"))?;
+    assert_eq!(storage, format!("{STORAGE}# edited\n"));
+    let own = std::fs::read_to_string(w.folder.join("service.toml"))?
+        .replace(
+            &w.folder
+                .join("settings")
+                .join("targets.toml")
+                .display()
+                .to_string(),
+            &folder.join("targets.toml").display().to_string(),
+        )
+        .replace(
+            &w.folder.join("data").display().to_string(),
+            &w.folder.join("fresh").display().to_string(),
+        );
+    std::fs::write(w.folder.join("service.toml"), own)?;
+    let _pid = start_serving(w)?;
+    says(&targets_list()?, &["ci latest 1 active 1"]);
+    let served = body_of(&ask(
+        READ_KEY,
+        "GET",
+        "/v1/targets/ci/instances/storage_1",
+        b"",
+    )?);
+    says(&served, &["partition_first = 1", "data_dir = \"/data\""]);
+    let files = ask(ADMIN_KEY, "GET", "/v1/targets/ci/revisions/1", b"")?;
+    says(&String::from_utf8_lossy(files.body()), &["# edited"]);
+    Ok(())
+}
+
+#[when("a service holds a retired target and one with no active revision beside `ci`")]
+fn partly_serving(w: &mut Steps) -> TestResult {
+    prepare(w)?;
+    let _pid = start_serving(w)?;
+    let body = bundle(STORAGE, COMPUTE);
+    for target in ["idle", "old"] {
+        let path = format!("/v1/targets/{target}/revisions?base=0");
+        assert_eq!(ask(ADMIN_KEY, "POST", &path, &body)?.status(), 201);
+    }
+    assert_eq!(
+        ask(ADMIN_KEY, "PUT", "/v1/targets/old/active", b"1")?.status(),
+        200
+    );
+    assert_eq!(
+        ask(ADMIN_KEY, "DELETE", "/v1/targets/old", b"")?.status(),
+        200
+    );
+    restore(w, &format!("http://{ADDRESS}"), ADMIN_KEY)
+}
+
+#[then(
+    "the restore holds `ci` and the one with no active revision, and says it left out the retired one"
+)]
+fn left_out(w: &mut Steps) -> TestResult {
+    let (text, code) = cli_text(w)?;
+    assert_eq!(code, 0, "{text}");
+    says(
+        &text,
+        &[
+            "target old is retired",
+            "target ci: revision 1",
+            "target idle: revision 1",
+        ],
+    );
+    let folder = w.folder.join("restored");
+    assert!(folder.join("ci").is_dir());
+    assert!(folder.join("idle").is_dir());
+    assert!(!folder.join("old").exists());
+    Ok(())
+}
+
+#[when("a restore is run with the read key")]
+fn restore_read_key(w: &mut Steps) -> TestResult {
+    prepare(w)?;
+    let _pid = start_serving(w)?;
+    restore(w, &format!("http://{ADDRESS}"), READ_KEY)
+}
+
+#[then(
+    "it exits with code 78 saying the token was refused, prints no token, and no folder appears"
+)]
+fn restore_refused(w: &mut Steps) -> TestResult {
+    let (text, code) = cli_text(w)?;
+    assert_eq!(code, 78, "{text}");
+    says(&text, &["refused the token"]);
+    assert!(!text.contains(READ_KEY), "{text}");
+    assert!(!w.folder.join("restored").exists());
+    Ok(())
+}
+
+#[when("a restore names a folder holding a file")]
+fn restore_occupied(w: &mut Steps) -> TestResult {
+    prepare(w)?;
+    let _pid = start_serving(w)?;
+    let folder = w.folder.join("restored");
+    std::fs::create_dir_all(&folder)?;
+    std::fs::write(folder.join("mine.toml"), "# an administrator's own\n")?;
+    restore(w, &format!("http://{ADDRESS}"), ADMIN_KEY)
+}
+
+#[then("it exits with code 74 saying so, and the folder is as it was")]
+fn restore_left_alone(w: &mut Steps) -> TestResult {
+    let (text, code) = cli_text(w)?;
+    assert_eq!(code, 74, "{text}");
+    says(&text, &["already holds files", "absent or empty"]);
+    let entries: Vec<_> = std::fs::read_dir(w.folder.join("restored"))?
+        .flatten()
+        .collect();
+    assert_eq!(entries.len(), 1);
+    Ok(())
+}
+
+#[when("a restore names a URL where nothing answers")]
+fn restore_down(w: &mut Steps) -> TestResult {
+    prepare(w)?;
+    let port = std::net::TcpListener::bind("127.0.0.1:0")?
+        .local_addr()?
+        .port();
+    w.graph = format!("127.0.0.1:{port}");
+    let url = format!("http://{}", w.graph);
+    restore(w, &url, ADMIN_KEY)
+}
+
+#[then("it exits with code 69 naming the URL")]
+fn restore_unreachable(w: &mut Steps) -> TestResult {
+    let (text, code) = cli_text(w)?;
+    assert_eq!(code, 69, "{text}");
+    says(&text, &[&w.graph]);
+    Ok(())
+}
+
 fn main() -> TestResult {
     futures::executor::block_on(
         Steps::cucumber()

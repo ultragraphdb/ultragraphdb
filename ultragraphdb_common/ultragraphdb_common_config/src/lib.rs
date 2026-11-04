@@ -22,5 +22,4 @@ pub use crate::types::config_record::ConfigRecord;
 pub use crate::types::config_store::CONFIG_LOG_CLUSTER;
 pub use crate::types::config_store::ConfigStore;
 pub use crate::types::target_summary::TargetSummary;
-pub use crate::utils::run_config_service::run_config_service;
 pub use crate::utils::store_owner::store_owner;

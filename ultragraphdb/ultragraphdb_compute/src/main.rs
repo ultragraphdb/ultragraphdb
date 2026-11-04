@@ -5,11 +5,14 @@
 
 //! The compute role: quad-pattern reads.
 
+mod service;
+
 use std::process::ExitCode;
 
 use mimalloc::MiMalloc;
-use ultragraphdb_common_role::compute_role;
 use ultragraphdb_common_service::{RoleKind, exit_status, run_service};
+
+use crate::service::compute_role;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;

@@ -8,10 +8,10 @@ load("@rules_img//img:push.bzl", "image_push")
 load("//bazel:binary.bzl", "static_binary")
 load("//bazel/container:img.bzl", "glibc_multiarch_img", "sha256_tag")
 
-# No library: the role's work is reached from its role crate, and a binary holds only `main`.
+# No library: `main`, and `service`, the role's work.
 static_binary(
     name = "ultragraphdb_storage",
-    srcs = ["src/main.rs"],
+    srcs = glob(["src/**/*.rs"]),
     tags = ["role_binary"],
     visibility = ["//visibility:public"],
     deps = all_crate_deps(normal = True),

@@ -23,5 +23,8 @@ name = "ultragraphdb_config_cli"
 path = "src/main.rs"
 
 [dependencies]
+compio = { workspace = true }
 mimalloc = { workspace = true }
 ultragraphdb_common_config_check = { workspace = true }
+ultragraphdb_transport_http_client = { workspace = true }
+ultragraphdb_transport_tls = { workspace = true }

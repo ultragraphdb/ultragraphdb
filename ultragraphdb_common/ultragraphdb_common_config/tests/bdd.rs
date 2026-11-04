@@ -109,6 +109,8 @@ fn rolled_back(w: &mut Steps) -> TestResult {
     let (number, rendered) = store.instance("ci", None, "storage")?;
     assert_eq!(number, 1);
     assert!(rendered.contains("partition_count = 1"), "{rendered}");
+    assert_eq!(store.active_revision("ci")?, 1);
+    assert!(store.active_revision("absent").is_err());
     assert_eq!(store.instance("ci", Some(2), "storage")?.0, 2);
     assert!(!store.files("ci", 2)?.is_empty());
     assert_eq!(store.targets().first().context("a target")?.latest(), 2);

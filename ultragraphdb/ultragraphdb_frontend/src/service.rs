@@ -8,6 +8,9 @@ use std::path::PathBuf;
 use compio::runtime::spawn;
 use ultragraphdb_cluster_metadata::MetadataConfig;
 use ultragraphdb_cluster_sequencer::SequencerConfig;
+use ultragraphdb_common_frontend::{
+    AskedCredentials, ClientSession, OwnerHandle, OwnerStart, RoleSession, RoleShared, start_owner,
+};
 use ultragraphdb_common_role::{
     ROLE_ITERATIONS, RoleCluster, RoleCredentials, Server, listen, serve_connection,
 };
@@ -16,13 +19,6 @@ use ultragraphdb_common_service_config::{EndpointSecurity, ServiceConfig};
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_transport::Endpoint;
 use ultragraphdb_protocol_transport_compio::Listener;
-
-use crate::types::asked_credentials::AskedCredentials;
-use crate::types::client_session::ClientSession;
-use crate::types::owner_handle::OwnerHandle;
-use crate::types::owner_start::OwnerStart;
-use crate::types::role_session::{RoleSession, RoleShared};
-use crate::utils::owner_thread::start_owner;
 
 /// How often the role looks at whether its owner stopped or the service was told to.
 const OWNER_POLL: std::time::Duration = std::time::Duration::from_millis(20);
@@ -36,7 +32,7 @@ const OWNER_POLL: std::time::Duration = std::time::Duration::from_millis(20);
 /// [`RoleError::configuration`] for a setting absent or out of its bounds, a refused role secret, or a client endpoint
 /// asking for TLS, which this build's endpoint does not terminate; [`RoleError::unavailable`] when it cannot listen;
 /// what recovery refused or the owner stopped with.
-pub async fn frontend_role(
+pub(crate) async fn frontend_role(
     start: RoleStart,
     readiness: Readiness,
     stopping: Stopping,

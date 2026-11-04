@@ -6,10 +6,10 @@
 load("@crates//:defs.bzl", "all_crate_deps")
 load("//bazel:binary.bzl", "static_binary")
 
-# No library: the check is reached from its crate, and a binary holds only `main`.
+# No library: `main` and the restore it runs; the check is reached from its crate.
 static_binary(
     name = "ultragraphdb_config_cli",
-    srcs = ["src/main.rs"],
+    srcs = glob(["src/**/*.rs"]),
     tags = ["config_binary"],
     visibility = ["//visibility:public"],
     deps = all_crate_deps(normal = True),

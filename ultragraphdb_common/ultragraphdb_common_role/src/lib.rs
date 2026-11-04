@@ -17,6 +17,6 @@ pub use crate::types::role_client::RoleClient;
 pub use crate::types::role_cluster::RoleCluster;
 pub use crate::types::role_credentials::RoleCredentials;
 pub use crate::types::role_secret::{ROLE_ITERATIONS, RoleSecret};
-pub use crate::utils::joining_role::{compute_role, frontend_address, retry_until};
+pub use crate::utils::joining_role::{frontend_address, retry_until};
 pub use crate::utils::serve::{Server, serve_connection};
 pub use ultragraphdb_common_service::listen;

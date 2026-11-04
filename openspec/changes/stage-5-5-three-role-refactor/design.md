@@ -461,7 +461,7 @@ which also separates their keys, since one read key reads every target of its se
 **The first thing an administrator meets.** The service and its settings come before any deployment, so a clear refusal is the point of them.
 The central file declares every settings file, and a start reads and validates all of it, so an absent or broken file stops the service with every
 defect listed at once. The same crate backs `ultragraphdb_config_cli`, so a folder can be proved good before anything runs. Declared files seed a target
-once; afterwards the API is the authority, and a start still validates the folder and says when it differs from what is stored.
+once; afterwards the API is the authority, and a start still validates the folder and says when it differs from what is stored. An edit made through the API is kept by downloading the target, whose file the same API takes back. `ultragraphdb_config_cli restore` takes the latest revision of every target, rebuilding a folder a service can begin from.
 
 **Validation lives in the service.** The service has what no node has, every instance of a target at once, so it alone can check that
 partitions are covered once and listeners do not collide. A node checks only that it can parse its settings and holds what its role

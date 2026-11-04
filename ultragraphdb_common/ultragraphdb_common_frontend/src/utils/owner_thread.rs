@@ -51,7 +51,7 @@ impl OwnerThread {
     }
 
     /// The handle to clone for each core, and what the owner stopped with, for a role that keeps both.
-    pub(crate) fn into_parts(self) -> (OwnerHandle, oneshot::Receiver<Result<(), RoleError>>) {
+    pub fn into_parts(self) -> (OwnerHandle, oneshot::Receiver<Result<(), RoleError>>) {
         (self.handle, self.stopped)
     }
 }

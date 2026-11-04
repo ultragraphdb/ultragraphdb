@@ -27,8 +27,6 @@ cucumber = { workspace = true }
 service_utils = { workspace = true }
 futures = { workspace = true }
 ultragraphdb_client_compio = { workspace = true }
-ultragraphdb_compute_specs = { workspace = true }
-ultragraphdb_frontend_specs = { workspace = true }
 oxrdf = { workspace = true }
 ultragraphdb_cluster_placement = { workspace = true }
 ultragraphdb_core_ids = { workspace = true }
@@ -41,7 +39,6 @@ ultragraphdb_common_service = { workspace = true }
 sha2 = { workspace = true }
 ultragraphdb_transport_http_client = { workspace = true }
 ultragraphdb_transport_tls = { workspace = true, features = ["test-utils"] }
-ultragraphdb_storage_specs = { workspace = true }
 
 [[test]]
 name = "bdd"

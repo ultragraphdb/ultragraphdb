@@ -5,4 +5,3 @@
 
 pub mod error_reply;
 pub mod operation_of;
-pub mod storage_role;

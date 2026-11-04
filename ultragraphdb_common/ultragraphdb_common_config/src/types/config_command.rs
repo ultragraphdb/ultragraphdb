@@ -23,6 +23,10 @@ pub(crate) enum ConfigCommand {
         revision: u64,
         reply: Sender<Result<Vec<u8>, ConfigError>>,
     },
+    Download {
+        target: String,
+        reply: Sender<Result<(u64, Vec<u8>), ConfigError>>,
+    },
     Add {
         target: String,
         base: u64,

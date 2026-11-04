@@ -105,6 +105,17 @@ impl<L: OrderedLog> ConfigStore<L> {
         Ok((number, rendered))
     }
 
+    /// The target's active revision, which a retirement leaves recorded.
+    ///
+    /// # Errors
+    ///
+    /// The target unknown, or no revision of it activated.
+    pub fn active_revision(&self, target: &str) -> Result<u64, ConfigError> {
+        self.target(target)?
+            .active
+            .ok_or_else(|| ConfigError::no_active_revision(target))
+    }
+
     /// Revision `revision`'s files, the bytes it was received as.
     ///
     /// # Errors

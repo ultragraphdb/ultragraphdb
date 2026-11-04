@@ -5,11 +5,14 @@
 
 //! The frontend role: the client endpoint, authentication, the metadata group and the sequencer.
 
+mod service;
+
 use std::process::ExitCode;
 
 use mimalloc::MiMalloc;
-use ultragraphdb_common_frontend::frontend_role;
 use ultragraphdb_common_service::{RoleKind, exit_status, run_service};
+
+use crate::service::frontend_role;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;

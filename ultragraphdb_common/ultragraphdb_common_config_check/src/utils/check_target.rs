@@ -16,6 +16,15 @@ use crate::utils::merge::role_of;
 /// The longest name a target takes.
 const TARGET_NAME_MAX: usize = 64;
 
+/// Whether `name` can name a target, which stands in a path and a folder's name.
+pub(crate) fn well_named(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= TARGET_NAME_MAX
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+}
+
 /// Every defect of `target`, whole: each file by itself, each instance's merged settings, and what only the set of them can
 /// show. With `active`, the target's active revision, what must not change against it too.
 #[must_use]
@@ -28,12 +37,7 @@ pub fn check_target(target: &TargetFiles, active: Option<&TargetFiles>) -> Vec<D
 /// Every defect each of `target`'s files shows by itself.
 pub(crate) fn check_files(target: &TargetFiles) -> Vec<Defect> {
     let name = target.name();
-    let well_named = !name.is_empty()
-        && name.len() <= TARGET_NAME_MAX
-        && name
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-');
-    let named = (!well_named).then(|| {
+    let named = (!well_named(name)).then(|| {
         Defect::new(
             format!("the target's name {name} cannot stand in a path"),
             format!("a target is named by 1 to {TARGET_NAME_MAX} of A-Z, a-z, 0-9, _ and -"),

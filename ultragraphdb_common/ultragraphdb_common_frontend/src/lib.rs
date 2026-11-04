@@ -19,5 +19,5 @@ pub use crate::types::membership::Membership;
 pub use crate::types::owner::Owner;
 pub use crate::types::owner_handle::OwnerHandle;
 pub use crate::types::owner_start::OwnerStart;
-pub use crate::utils::frontend_role::frontend_role;
+pub use crate::types::role_session::{RoleSession, RoleShared};
 pub use crate::utils::owner_thread::{OwnerThread, start_owner};

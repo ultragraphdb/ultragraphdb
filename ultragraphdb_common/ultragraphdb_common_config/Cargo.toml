@@ -20,25 +20,16 @@ autotests = false
 workspace = true
 
 [dependencies]
-compio = { workspace = true }
 futures = { workspace = true }
-tracing = { workspace = true }
 ultragraphdb_common_config_check = { workspace = true }
-ultragraphdb_common_service = { workspace = true }
-ultragraphdb_common_service_config = { workspace = true }
-ultragraphdb_common_telemetry = { workspace = true }
 ultragraphdb_error_log = { workspace = true }
-ultragraphdb_error_role = { workspace = true }
-ultragraphdb_protocol_transport = { workspace = true }
-ultragraphdb_protocol_transport_compio = { workspace = true }
 ultragraphdb_traits_log = { workspace = true }
-ultragraphdb_transactions_log = { workspace = true }
 ultragraphdb_transport_http_server = { workspace = true }
-ultragraphdb_transport_tls = { workspace = true }
 
 [dev-dependencies]
 cucumber = { workspace = true }
 ultragraphdb_tool_bdd = { workspace = true }
+ultragraphdb_transactions_log = { workspace = true }
 
 [[test]]
 name = "unit"

@@ -40,6 +40,14 @@ pub fn store_owner<L: OrderedLog>(
                     revision,
                     reply,
                 } => drop(reply.send(store.files(&target, revision).map(<[u8]>::to_vec))),
+                ConfigCommand::Download { target, reply } => {
+                    let answer = store.active_revision(&target).and_then(|number| {
+                        store
+                            .files(&target, number)
+                            .map(|files| (number, files.to_vec()))
+                    });
+                    drop(reply.send(answer));
+                }
                 ConfigCommand::Add {
                     target,
                     base,
