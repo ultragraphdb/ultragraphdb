@@ -1,0 +1,35 @@
+AGENTS.md
+  s_6c9dcf457e80d9::t_4cecd699f80171 14-15,18
+openspec/changes/stage-5-5-three-role-refactor/design.md
+  s_6c9dcf457e80d9::t_d8454df77c55b1 49-50,340-355
+openspec/changes/stage-5-5-three-role-refactor/specs/partitions/spec.md
+  s_6c9dcf457e80d9::t_03dd8f65615b21 7-11,13-15,17-37
+openspec/changes/stage-5-5-three-role-refactor/specs/quad-reads/spec.md
+  s_6c9dcf457e80d9::t_ea7f45d07633bd 9,32-39,124
+openspec/changes/stage-5-5-three-role-refactor/specs/role-binaries/spec.md
+  s_6c9dcf457e80d9::t_4010406de8b110 27-28,59-75
+openspec/changes/stage-5-5-three-role-refactor/specs/term-dictionary/spec.md
+  s_6c9dcf457e80d9::t_11770127ab803d 121
+openspec/changes/stage-5-5-three-role-refactor/tasks.md
+  s_6c9dcf457e80d9::t_70e90bc017d47c 107,109-110,119-120,144,149,154
+openspec/notes/backlog.md
+  s_6c9dcf457e80d9::t_2d0f62d1911c4d 444-455
+ultragraphdb_protocol/PROTOCOL.md
+  s_6c9dcf457e80d9::t_20018eafb846e8 1452,1467-1474,1505,1557-1558,1565-1566,2160-2161,2293
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e565e5c469665772fe3feb39a1d1980654efc3fc",
+  "prompts": {},
+  "sessions": {
+    "s_6c9dcf457e80d9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9e223492-f4c5-4f68-93b3-4ec87d773715",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
