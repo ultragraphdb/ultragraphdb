@@ -15,6 +15,9 @@ impl fmt::Display for BenchError {
             BenchErrorEnum::Store(error) => write!(f, "store: {error}"),
             BenchErrorEnum::Io(reason) => write!(f, "i/o: {reason}"),
             BenchErrorEnum::Commit(reason) => write!(f, "commit: {reason}"),
+            BenchErrorEnum::BuildStuck { waited_ms } => {
+                write!(f, "an index build had not ended after {waited_ms} ms")
+            }
         }
     }
 }

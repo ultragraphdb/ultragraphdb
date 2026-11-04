@@ -741,7 +741,7 @@ fn statistics_disagree(
 }
 
 /// Whether `error` is one an injected fault explains.
-fn injected(error: &ChangesetError) -> bool {
+pub(crate) fn injected(error: &ChangesetError) -> bool {
     let store = |e: &StoreError| {
         matches!(
             e.0,

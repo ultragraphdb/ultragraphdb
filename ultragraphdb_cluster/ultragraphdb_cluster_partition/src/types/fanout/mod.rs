@@ -28,7 +28,7 @@ const COUNT_ROWS: NonZeroUsize = NonZeroUsize::MIN.saturating_add(255);
 /// reads at an epoch every partition has closed; stage 8's compute waits for it.
 #[derive(Debug)]
 pub struct Fanout<'p, S, C, E, B> {
-    partitions: &'p [Partition<S, C, E, B>],
+    partitions: Vec<&'p Partition<S, C, E, B>>,
     /// The latest epoch each partition has closed, by position; every one when empty.
     closed: Vec<Epoch>,
 }
@@ -42,6 +42,11 @@ where
 {
     /// The reads over `partitions`.
     pub fn new(partitions: &'p [Partition<S, C, E, B>]) -> Self {
+        Self::over(partitions.iter().collect())
+    }
+
+    /// The reads over `partitions`, wherever each is held.
+    pub fn over(partitions: Vec<&'p Partition<S, C, E, B>>) -> Self {
         Self {
             partitions,
             closed: Vec::new(),
@@ -126,7 +131,8 @@ where
         bucket: Bucket,
     ) -> Result<&'p Partition<S, C, E, B>, PartitionError> {
         let at = self.partitions.iter().position(|p| p.id() == id);
-        let Some((at, partition)) = at.and_then(|at| Some((at, self.partitions.get(at)?))) else {
+        let Some((at, partition)) = at.and_then(|at| Some((at, self.partitions.get(at).copied()?)))
+        else {
             return Err(PartitionError::wrong_partition(bucket.get(), id.get()));
         };
         match self.closed.get(at) {
@@ -232,7 +238,7 @@ where
         epoch: Epoch,
     ) -> Result<Vec<&'p Partition<S, C, E, B>>, PartitionError> {
         let run = NamespaceRun::of(Namespace::new(namespace)).range();
-        let Some(any) = self.partitions.first() else {
+        let Some(any) = self.partitions.first().copied() else {
             return Ok(Vec::new());
         };
         let mut holders: Vec<(PartitionId, Bucket)> = Vec::new();

@@ -15,6 +15,7 @@ pub use crate::types::changeset_workload::{
     ChangesetWorkload, INDEXES_MATCH_DATA, MODEL_AGREES, NO_UNEXPECTED_ERROR,
     RECORDS_MATCH_POSTINGS, REPLAY_AGREES, STATISTICS_MATCH_DATA,
 };
+pub use crate::types::partition_workload::PartitionWorkload;
 pub use crate::types::run::Run;
 pub use crate::types::test_dir::TestDir;
 pub use crate::utils::crash_harness::{

@@ -5,5 +5,6 @@
 
 pub mod changeset_workload;
 pub mod mirror;
+pub mod partition_workload;
 pub mod run;
 pub mod test_dir;

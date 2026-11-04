@@ -4,3 +4,4 @@
  */
 
 pub mod cluster;
+pub mod hosts;

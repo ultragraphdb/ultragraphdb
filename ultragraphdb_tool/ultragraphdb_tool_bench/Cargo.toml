@@ -20,6 +20,9 @@ autobins = false
 workspace = true
 
 [dependencies]
+ultragraphdb_cluster_partition = { workspace = true }
+ultragraphdb_cluster_placement = { workspace = true }
+ultragraphdb_cluster_sequencer = { workspace = true }
 ultragraphdb_common_telemetry = { workspace = true }
 oxrdf = { workspace = true }
 ultragraphdb_core_ids = { workspace = true }
@@ -30,6 +33,7 @@ ultragraphdb_error_store = { workspace = true }
 ultragraphdb_store_apply = { workspace = true }
 ultragraphdb_store_kv = { workspace = true }
 ultragraphdb_store_posting = { workspace = true }
+ultragraphdb_store_quads = { workspace = true }
 ultragraphdb_traits_blocks = { workspace = true }
 ultragraphdb_traits_store = { workspace = true }
 ultragraphdb_traits_log = { workspace = true }
@@ -40,6 +44,8 @@ compio = { workspace = true }
 mimalloc = { workspace = true }
 
 [dev-dependencies]
+cucumber = { workspace = true }
+futures = { workspace = true }
 ultragraphdb_tool_bdd = { workspace = true }
 serde_json = { workspace = true }
 
@@ -57,3 +63,8 @@ path = "src/bin/wal_bench.rs"
 [[test]]
 name = "unit"
 path = "tests/mod.rs"
+
+[[test]]
+name = "bdd"
+path = "tests/bdd.rs"
+harness = false

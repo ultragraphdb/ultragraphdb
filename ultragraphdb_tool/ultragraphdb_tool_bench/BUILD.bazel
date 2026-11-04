@@ -104,10 +104,27 @@ rust_doc(
 # each measurement, apply runs of one second at 10 commits a second, their timed figures checked by their invariants.
 rust_test(
     name = "ultragraphdb_tool_bench_tests",
-    srcs = glob(["tests/**/*.rs"]),
+    srcs = glob(
+        ["tests/**/*.rs"],
+        exclude = ["tests/bdd.rs"],
+    ),
     crate_root = "tests/mod.rs",
     tags = ["unit-test"],
     visibility = ["//visibility:public"],
+    deps = [":ultragraphdb_tool_bench"] + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)
+
+# cucumber runs its own main: the libtest harness is off, and the feature files are runfiles.
+rust_test(
+    name = "bdd",
+    srcs = ["tests/bdd.rs"],
+    crate_root = "tests/bdd.rs",
+    data = glob(["features/**/*.feature"]),
+    tags = ["bdd-test"],
+    use_libtest_harness = False,
     deps = [":ultragraphdb_tool_bench"] + all_crate_deps(
         normal = True,
         normal_dev = True,

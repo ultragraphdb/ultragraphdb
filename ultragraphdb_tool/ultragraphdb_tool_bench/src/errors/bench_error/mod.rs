@@ -27,6 +27,11 @@ pub enum BenchErrorEnum {
     Io(String),
     /// The commit pipeline, a transaction or the write-ahead log refused an operation, as its text.
     Commit(String),
+    /// A declaration's index build had not ended after `waited_ms` milliseconds.
+    BuildStuck {
+        /// How long the run waited.
+        waited_ms: u64,
+    },
 }
 
 impl BenchError {
@@ -53,5 +58,10 @@ impl BenchError {
     /// The commit pipeline, a transaction or the write-ahead log refused an operation, as its text `reason`.
     pub fn commit(reason: String) -> Self {
         Self(BenchErrorEnum::Commit(reason))
+    }
+
+    /// A declaration's index build had not ended after `waited_ms` milliseconds.
+    pub fn build_stuck(waited_ms: u64) -> Self {
+        Self(BenchErrorEnum::BuildStuck { waited_ms })
     }
 }

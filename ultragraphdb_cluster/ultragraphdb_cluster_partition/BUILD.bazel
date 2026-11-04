@@ -11,7 +11,13 @@ load("@rules_rust//rust:defs.bzl", "rust_doc")
 rust_library(
     name = "ultragraphdb_cluster_partition",
     srcs = glob(["src/**/*.rs"]),
-    aliases = aliases(),
+    # aliases() names every dependency, dev-dependencies included; the test helpers depend on this library, so their
+    # alias stays with the test targets.
+    aliases = {
+        label: name
+        for label, name in aliases().items()
+        if label != "//ultragraphdb_tool/ultragraphdb_tool_test"
+    },
     crate_root = "src/lib.rs",
     lint_config = lint_config(),
     tags = ["ultragraphdb_cluster_partition"],
@@ -31,7 +37,11 @@ rust_test(
     name = "ultragraphdb_cluster_partition_tests",
     srcs = glob(
         ["tests/**/*.rs"],
-        exclude = ["tests/bdd.rs"],
+        exclude = [
+            "tests/bdd.rs",
+            "tests/workload_faults.rs",
+            "tests/workload_seeds.rs",
+        ],
     ),
     crate_root = "tests/mod.rs",
     tags = ["unit-test"],
@@ -59,3 +69,21 @@ rust_test(
         normal_dev = True,
     ),
 )
+
+# The simulator's workload over several partitions, each seed run in full; one target per run, as the tests take seconds.
+[
+    rust_test(
+        name = workload,
+        srcs = ["tests/{}.rs".format(workload)],
+        crate_root = "tests/{}.rs".format(workload),
+        tags = ["unit-test"],
+        deps = [":ultragraphdb_cluster_partition"] + all_crate_deps(
+            normal = True,
+            normal_dev = True,
+        ),
+    )
+    for workload in [
+        "workload_faults",
+        "workload_seeds",
+    ]
+]

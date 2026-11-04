@@ -21,6 +21,7 @@ workspace = true
 [dependencies]
 oxrdf = { workspace = true }
 ultragraphdb_cluster_placement = { workspace = true }
+ultragraphdb_cluster_sequencer = { workspace = true }
 ultragraphdb_core_ids = { workspace = true }
 ultragraphdb_core_keys = { workspace = true }
 ultragraphdb_core_mapping = { workspace = true }
@@ -36,11 +37,12 @@ ultragraphdb_transactions_commit = { workspace = true }
 ultragraphdb_transactions_txn = { workspace = true }
 
 [dev-dependencies]
+compio = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }
-ultragraphdb_cluster_sequencer = { workspace = true }
 ultragraphdb_store_sim = { workspace = true }
 ultragraphdb_tool_bdd = { workspace = true }
+ultragraphdb_tool_test = { workspace = true }
 ultragraphdb_transactions_log = { workspace = true }
 
 [[test]]
@@ -51,3 +53,11 @@ path = "tests/mod.rs"
 name = "bdd"
 path = "tests/bdd.rs"
 harness = false
+
+[[test]]
+name = "workload_seeds"
+path = "tests/workload_seeds.rs"
+
+[[test]]
+name = "workload_faults"
+path = "tests/workload_faults.rs"

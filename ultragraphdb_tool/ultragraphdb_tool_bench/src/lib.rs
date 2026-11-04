@@ -23,6 +23,17 @@
 //! wal_bench --dir <path> --rate <commits/s> [--relations 1] [--seconds 30] [--cache-mb 128] [--plp off|on]
 //! ```
 //!
+//! Given `--partitions`, `wal_bench` runs N partitions in one process, each on a pinned compio runtime with its own store,
+//! log and generator seeded from the run's seed, a share of its edges pointing at other partitions' entities, so
+//! registration runs; it reports each partition's and the total relations and syncs a second, the disk bytes, and the
+//! registrations a second and the wait a first reference costs. `--verify on` compares each reverse read at the last
+//! closed epoch with the same commits on one partition.
+//!
+//! ```text
+//! wal_bench --partitions <n> --dir <path> --rate <commits/s per partition> [--relations 1] [--seconds 30]
+//!           [--commits 0] [--cross-percent 0] [--seed 1] [--cache-mb 128] [--verify off|on]
+//! ```
+//!
 //! Each run prints one JSON line. The library holds what the runs are built of, so it is tested apart from the
 //! clock: the arguments, the commit shape, the rate pacer behind the [`Clock`] trait, the summaries, the readers of
 //! `/proc`, the store wrapper timing each write call, the wrappers counting list reads and the directory sizes.
@@ -41,6 +52,8 @@ pub use crate::types::counted_snapshot::{CountedScan, CountedSnapshot};
 pub use crate::types::counting_cache::CountingCache;
 pub use crate::types::dir_sizes::DirSizes;
 pub use crate::types::pacer::Pacer;
+pub use crate::types::partition_args::PartitionArgs;
+pub use crate::types::partition_shape::PartitionShape;
 pub use crate::types::pipeline_args::PipelineArgs;
 pub use crate::types::read_counts::ReadCounts;
 pub use crate::types::rollup_args::RollupArgs;
@@ -50,6 +63,8 @@ pub use crate::types::timed_store::TimedStore;
 pub use crate::types::wall_clock::WallClock;
 pub use crate::types::write_call::WriteCall;
 pub use crate::utils::apply_run::run_apply;
+pub use crate::utils::partitions_run::run_partitions;
 pub use crate::utils::pipeline_run::run_pipeline;
 pub use crate::utils::proc_stats::{parse_schedstat_ns, parse_stat_cpu_ticks, parse_status_kib};
 pub use crate::utils::rollup_run::run_rollup;
+pub use crate::utils::setup::wait_out_build;

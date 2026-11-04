@@ -12,9 +12,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use ultragraphdb_core_mapping::RandomSource;
-use ultragraphdb_store_apply::{Applied, ChangesetApplier};
+use ultragraphdb_store_apply::{Applied, ChangesetApplier, ChangesetError};
 use ultragraphdb_store_kv::{Durability, FjallStore, MokaListCache, ThreadExecutor};
 use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig};
+use ultragraphdb_store_quads::{OwnedBuckets, QuadStore};
 use ultragraphdb_traits_blocks::TestBlockSource;
 
 use crate::errors::bench_error::BenchError;
@@ -52,6 +53,39 @@ pub fn open_applier(
     durability: Durability,
     cache_mb: u64,
 ) -> Result<Arc<BenchApplier>, BenchError> {
+    let lists = open_lists(dir, durability, cache_mb)?;
+    Ok(Arc::new(ChangesetApplier::new(
+        lists,
+        TestBlockSource::new(BLOCK_LEN),
+        RandomSource::new(1),
+        ThreadExecutor::new(),
+        1,
+    )?))
+}
+
+/// An applier as [`open_applier`] opens one, of a partition owning `owned`: its log is a partition's own.
+///
+/// # Errors
+///
+/// As [`open_applier`].
+pub fn open_partition(
+    dir: &Path,
+    cache_mb: u64,
+    owned: OwnedBuckets,
+) -> Result<BenchApplier, BenchError> {
+    let lists = open_lists(dir, Durability::Log, cache_mb)?;
+    let quads = QuadStore::open(lists, TestBlockSource::new(BLOCK_LEN), RandomSource::new(1))
+        .map_err(ChangesetError::from)?
+        .owning(owned);
+    Ok(ChangesetApplier::over(quads, ThreadExecutor::new(), 1)?)
+}
+
+/// The posting lists over a fresh store in `dir`, which must not exist yet.
+fn open_lists(
+    dir: &Path,
+    durability: Durability,
+    cache_mb: u64,
+) -> Result<Lists<TimedStore, CountingCache<MokaListCache<CachedList>>>, BenchError> {
     if dir.exists() {
         return Err(BenchError::usage(format!(
             "{} exists; every run takes a fresh directory",
@@ -67,27 +101,46 @@ pub fn open_applier(
         ),
         reads,
     );
-    let lists = Lists::new(store, cache, ListsConfig::default());
-    Ok(Arc::new(ChangesetApplier::new(
-        lists,
-        TestBlockSource::new(BLOCK_LEN),
-        RandomSource::new(1),
-        ThreadExecutor::new(),
-        1,
-    )?))
+    Ok(Lists::new(store, cache, ListsConfig::default()))
+}
+
+/// How long a run waits between looks at a declaration's index build.
+const BUILD_POLL: Duration = Duration::from_millis(10);
+
+/// How many times a run looks at a declaration's index build before giving up: ten minutes, far past any build of the
+/// empty store a run declares over.
+const BUILD_WAIT_POLLS: u32 = 60_000;
+
+/// Waits until `rebuilding` says the build is over, looking at most `polls` times, `pause` apart.
+///
+/// # Errors
+///
+/// [`BenchError::build_stuck`] naming the time waited when it is still rebuilding after the last look.
+pub fn wait_out_build(
+    mut rebuilding: impl FnMut() -> bool,
+    polls: u32,
+    pause: Duration,
+) -> Result<(), BenchError> {
+    for _ in 0..polls {
+        if !rebuilding() {
+            return Ok(());
+        }
+        std::thread::sleep(pause);
+    }
+    let waited = pause.saturating_mul(polls).as_millis();
+    Err(BenchError::build_stuck(
+        u64::try_from(waited).unwrap_or(u64::MAX),
+    ))
 }
 
 /// Declares the predicates of `types` relation types, waits out any build it started, and writes the hubs.
 ///
 /// # Errors
 ///
-/// The applier's.
+/// The applier's; [`BenchError::build_stuck`] when the build has not ended within [`BUILD_WAIT_POLLS`] polls.
 pub fn prepare(a: &Arc<BenchApplier>, shape: &CommitShape, types: u64) -> Result<(), BenchError> {
     let _declared: Applied = a.apply(&CommitShape::declarations(types))?;
-    // Ends when the build the declarations started ends.
-    while a.rebuilding() {
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    wait_out_build(|| a.rebuilding(), BUILD_WAIT_POLLS, BUILD_POLL)?;
     let _hubs: Applied = a.apply(&shape.hubs())?;
     Ok(())
 }

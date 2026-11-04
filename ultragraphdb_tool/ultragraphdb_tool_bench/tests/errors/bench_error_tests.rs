@@ -27,6 +27,10 @@ fn test_each_reason_says_what_failed() {
     let store = BenchError::from(StoreError::ts_too_old());
     assert!(matches!(&store.0, BenchErrorEnum::Store(e) if *e == StoreError::ts_too_old()));
     assert_eq!(store.to_string(), "store: Transaction is too old");
+    assert_eq!(
+        BenchError::build_stuck(600).to_string(),
+        "an index build had not ended after 600 ms"
+    );
     // Dgraph's ErrTsTooOld text, through the applier's error.
     let apply = BenchError::apply(ChangesetError::from(PostingError::ts_too_old()));
     assert_eq!(apply.to_string(), "apply: Transaction is too old");
@@ -40,6 +44,10 @@ fn test_each_variant_is_built_by_its_constructor() {
     assert!(matches!(
         BenchError::store(StoreError::ts_too_old()).0,
         BenchErrorEnum::Store(e) if e == StoreError::ts_too_old()
+    ));
+    assert!(matches!(
+        BenchError::build_stuck(600).0,
+        BenchErrorEnum::BuildStuck { waited_ms: 600 }
     ));
     let changeset = ChangesetError::from(PostingError::ts_too_old());
     assert!(matches!(

@@ -53,7 +53,7 @@ const POLLS_MAX: u32 = 1_000_000;
 
 /// Runs `future` to its end, refused past [`POLLS_MAX`] polls: a scenario's step already runs on the cucumber runner's
 /// executor, which another executor cannot enter.
-fn block_on<F: Future>(future: F) -> TestResult<F::Output> {
+pub fn block_on<F: Future>(future: F) -> TestResult<F::Output> {
     let mut future = pin!(future);
     let mut context = TaskContext::from_waker(Waker::noop());
     for _ in 0..POLLS_MAX {
@@ -208,26 +208,11 @@ impl Cluster {
             closed: first,
         };
         for id in ids {
-            let seed = Seed::new(u64::from(id.get()));
-            let store = SimStore::new(seed, FaultConfig::none(), SimClock::new());
-            let cache = SimListCache::new(1024, seed.stream(Stream::Cache));
-            let quads = QuadStore::open(
-                Lists::new(store, cache, ListsConfig::default()),
-                TestBlockSource::new(NonZeroU64::MIN.saturating_add(999)),
-                RandomSource::new(u64::from(id.get())),
-            )?
-            .owning(Part::owned(id, placement, first).context("the map's ranges")?);
-            let applier = ChangesetApplier::over(
-                quads,
-                SteppedExecutor::new(seed.stream(Stream::Executor)),
-                1,
-            )?;
+            let part = node(id, placement, first)?;
             let storage = SimStorage::new(u64::from(id.get()));
             let (log, _) = block_on(Wal::open(storage.clone(), "/wal", WalConfig::new(1, true)))?
                 .context("the log opens")?;
-            cluster
-                .parts
-                .push(Partition::new(id, placement.clone(), applier));
+            cluster.parts.push(part);
             cluster.storages.push(storage);
             cluster.logs.push(Some(log));
             cluster.delivered.push(first);
@@ -615,6 +600,25 @@ impl Cluster {
     pub fn contents(&self, id: u32) -> TestResult<ultragraphdb_store_sim::Contents> {
         Ok(self.part(id)?.applier().quads().store().contents())
     }
+}
+
+/// Partition `id` of `placement`, over a fault-free simulated store of its own, owning its buckets at `first`.
+pub fn node(id: PartitionId, placement: &PlacementMap, first: Epoch) -> TestResult<Part> {
+    let seed = Seed::new(u64::from(id.get()));
+    let store = SimStore::new(seed, FaultConfig::none(), SimClock::new());
+    let cache = SimListCache::new(1024, seed.stream(Stream::Cache));
+    let quads = QuadStore::open(
+        Lists::new(store, cache, ListsConfig::default()),
+        TestBlockSource::new(NonZeroU64::MIN.saturating_add(999)),
+        RandomSource::new(u64::from(id.get())),
+    )?
+    .owning(Part::owned(id, placement, first).context("the map's ranges")?);
+    let applier = ChangesetApplier::over(
+        quads,
+        SteppedExecutor::new(seed.stream(Stream::Executor)),
+        1,
+    )?;
+    Ok(Partition::new(id, placement.clone(), applier))
 }
 
 /// A read-write transaction of [`NS`] at partition `part`'s watermark, bound to it.

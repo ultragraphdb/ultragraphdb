@@ -6,6 +6,7 @@
 use ultragraphdb_error_store::StoreError;
 use ultragraphdb_store_apply::ChangesetError;
 use ultragraphdb_store_posting::PostingError;
+use ultragraphdb_store_quads::QuadError;
 
 use crate::errors::bench_error::BenchError;
 
@@ -30,5 +31,11 @@ impl From<PostingError> for BenchError {
 impl From<std::io::Error> for BenchError {
     fn from(error: std::io::Error) -> Self {
         Self::io(error.to_string())
+    }
+}
+
+impl From<QuadError> for BenchError {
+    fn from(error: QuadError) -> Self {
+        Self::apply(ChangesetError::from(error))
     }
 }

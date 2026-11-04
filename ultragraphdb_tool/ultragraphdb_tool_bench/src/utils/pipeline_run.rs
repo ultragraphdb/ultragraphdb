@@ -265,7 +265,7 @@ fn spawn_source(
 }
 
 /// The sizes of the log's files in `dir`: its segments when `segments`, every other file otherwise.
-fn wal_files(dir: &Path, segments: bool) -> std::io::Result<Size> {
+pub(crate) fn wal_files(dir: &Path, segments: bool) -> std::io::Result<Size> {
     std::fs::read_dir(dir)?.try_fold(Size::default(), |size, entry| {
         let entry = entry?;
         let meta = entry.metadata()?;

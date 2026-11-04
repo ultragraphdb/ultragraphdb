@@ -33,10 +33,7 @@ store crates' test targets.
   drain, like the pipeline's `take_waiting`, takes a waiting commit each turn from a source holding at most
   `PENDING_PROPOSALS` unapplied; the pipeline's commit loop ends once the source has closed and nothing is in flight;
   the rollup thread's loop is an event loop ending through `stop`; `load`'s `while left > 0` takes at least one commit
-  a turn; the argument parser iterates its arguments. **Not lifted:** `prepare`'s wait for a declaration's build,
-  `while a.rebuilding()` with a 10 ms sleep, has no deadline. A deadline needs an error for it, and `BenchErrorEnum`
-  has no variant that fits (it is not a usage, apply, store, I/O or commit error); adding one is a surface change, left
-  for a decision. A comment states when it ends.
+  a turn; the argument parser iterates its arguments. `prepare`'s wait for a declaration's build looks at most 60,000 times, 10 ms apart, and ends with `BenchError::build_stuck` (added at the user's decision, 2026-11-04).
 - **Rule 3.** Off the data plane; the runs allocate per commit as the workload they drive does.
 - **Rule 5.** Debug checks added: `Summary::of`'s percentiles are ordered (p50 ≤ p99 ≤ max); `Pacer::take_due` has
   released at least the commits due; `CommitShape::next_commit` has hubs and relation types to draw from; an apply step
@@ -53,8 +50,7 @@ store crates' test targets.
   `Arc<AtomicBool>` and `Arc<AtomicU64>` between a run's threads. No trait object.
 - **Rule 10.** The three `#[expect(clippy::disallowed_methods)]` (the wall clock in `WallClock` and `TimedStore::apply`,
   the source thread in `pipeline_run`) predate the lift and carry their reasons; none was added.
-- `src/utils/op_counts.rs` is in no module tree, so nothing compiles it (an experiment of 2026-11-01). It is left as it
-  is; removing it is the user's call.
+- `src/utils/op_counts.rs`, in no module tree and compiled by nothing, was deleted at the user's decision (2026-11-04).
 
 ### `ultragraphdb_tool_test`
 
@@ -420,5 +416,57 @@ subject's own group, as comments at the steps say; a registration's group, an in
 
 ### Not covered yet
 
-A home's `settle` with a refused entry and a pipeline that stops mid-registration have no test (task 7.4's fault runs
-reach them); fuzzing `ReferrerSet::decode` and coverage wait for task 12.1 with the other deferred hardening.
+A home's `settle` with a refused entry has no unit test; the fault runs of 7.4 reach it and a pipeline stopping
+mid-registration. Fuzzing `ReferrerSet::decode` and coverage wait for task 12.1 with the other deferred hardening.
+
+## 7.4 Partitions on runtimes and on the simulator
+
+`PartitionHost` is one partition's loop with no thread of its own: `submit` begins a write and registers what it
+references, batched per home; `turn` takes the mailbox, resends what went unanswered, syncs and hands out. The same host
+runs on a compio runtime per partition (`partition_host_runtimes_tests`: three threads, real logs, a reverse read across
+them) and on one thread under the simulator.
+
+`PartitionWorkload` (`ultragraphdb_tool_test`, run by `cluster_partition`'s `workload_seeds` and `workload_faults`): each
+partition has a `SimStore` and a `SimStorage` of its own, the seed drawing writes, closes, the order of turns and crashes
+and power losses between steps. A partition that stops recovers from its log while the others go on, its hosts' waiting
+writes resending. The check reads with no read failing. The reference model holds every edge's history by commit version.
+
+Group 6b's invariants (section 6b.4), after every step:
+
+| Invariant | Checked as |
+|---|---|
+| 1 stamping | each commit's epoch above the close delivered when it was taken, at most one above the latest |
+| 2 epoch inequality | each held edge's object's member added at or below the edge's epoch |
+| 3 catalog activation | not here: the workload announces no version; the sequencer's and metadata group's scenarios hold it |
+| 4 ordering | a partition's versions rising across its commits; a member's epoch never changing |
+| 5 coverage | each held edge's object's referrer set naming its subject's group |
+| 6 reverse-read completeness | every reverse read at the latest closed epoch and a drawn earlier one equal to the model |
+| 7 stale reports | not here: reclamation is stage 8's |
+| 8 supporting | a mark present at a subject's partition and no newer than its member |
+
+Fixed seeds (8 under faults, 4 without) keep every invariant, about 58,000 reverse reads without faults and 96,000 under
+them, 46 recoveries in all. The oracle was shown failing once, by hand: `Fanout` dropping the last partition it should
+ask makes the fault-free run fail at once.
+
+A write whose reply a crash lost is settled from the store: the versions of its subject's list where the edge's state
+changes are recorded in the model. A restarted host numbers its tickets above its predecessor's
+(`with_first_ticket`), so an answer to an earlier write cannot be taken for a later one's.
+
+A partition recovering is leaked deliberately in the workload (`Box::leak`): hosts hold their partition for the run and a
+partition recovers beside hosts of the others; a test process's few recoveries end with it.
+
+## 7.5 `wal_bench` over partitions
+
+`wal_bench --partitions N`: each partition on a pinned compio runtime with its own fjall store, log and `PartitionShape`,
+a generator that is a function of the seed and the partition, its nodes in the partition's own buckets, `--cross-percent`
+of its edges to other partitions' hubs. The main thread stands in for the sequencer, closing an epoch every 10 ms.
+`--verify on` applies the commits that committed to one partition and compares each reverse read at the last closed
+epoch. A sample on a laptop, 4 partitions at 500 commits a second each, 5 seconds, 10% crossing: 1,999 relations a
+second, 2,188 syncs a second, no refusal, 218 registrations a second, a first reference's wait 755 µs at p50 and 6.4 ms
+at p99, 813 reverse reads verified. These are a smoke run's figures, not a measurement; this change's final group measures.
+
+Decided by the user (2026-11-04): `tool_bench/src/utils/op_counts.rs` deleted; `prepare`'s wait bounded
+(`wait_out_build`, `BenchError::build_stuck`).
+
+The scenario's 10 seconds runs as one in the BDD target, tests staying small and fast. Open for the hardening task 12.1:
+mutants over the wave's diff, coverage, and fuzzing `ReferrerSet::decode`.

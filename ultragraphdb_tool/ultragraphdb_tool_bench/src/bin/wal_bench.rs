@@ -9,7 +9,7 @@
 use std::process::ExitCode;
 
 use ultragraphdb_common_telemetry::{LogFormat, TelemetryConfig, init};
-use ultragraphdb_tool_bench::{PipelineArgs, run_pipeline};
+use ultragraphdb_tool_bench::{PartitionArgs, PipelineArgs, run_partitions, run_pipeline};
 
 // musl's allocator contends under threads; mimalloc is every shipped binary's allocator (the workspace's `mimalloc` pin).
 #[global_allocator]
@@ -25,8 +25,14 @@ fn main() -> ExitCode {
         }
     };
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let report = match PipelineArgs::parse(&args) {
-        Ok(a) => run_pipeline(&a),
+    // `--partitions` selects the run over partitions; without it, the run of one log beside fjall's journal.
+    let report = if args.iter().any(|a| a == "--partitions") {
+        PartitionArgs::parse(&args).map(|a| run_partitions(&a))
+    } else {
+        PipelineArgs::parse(&args).map(|a| run_pipeline(&a))
+    };
+    let report = match report {
+        Ok(ran) => ran,
         Err(e) => {
             eprintln!("{e}");
             return ExitCode::from(2);

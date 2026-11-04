@@ -12,6 +12,12 @@ mod home;
 #[cfg(test)]
 mod partition;
 #[cfg(test)]
+mod partition_host;
+#[cfg(test)]
+mod partition_mailbox_tests;
+#[cfg(test)]
+mod partition_outcome_tests;
+#[cfg(test)]
 mod reference_tests;
 #[cfg(test)]
 mod reverse_query_tests;
