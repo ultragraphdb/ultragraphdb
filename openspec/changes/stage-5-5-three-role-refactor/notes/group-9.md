@@ -54,3 +54,33 @@ a Subscribe's closes sends nothing.
 What the later tasks replace: the client endpoint knows no principal and serves clear text alone until 9.3 and 9.5.5, every command an
 endpoint serves beyond Join and Members is refused as unavailable until its host exists, and storage is ready once joined until 9.4 opens
 its partitions. A role drops its connection to the frontend after joining; 9.3's Subscribe holds one.
+
+## 9.3 The frontend's hosts
+
+`Owner<M, S>` holds the metadata group, the sequencer and who joined on one core, generic over `OrderedLog`, with `Wal` today's log.
+It runs on a thread and runtime of its own; endpoint cores ask it through `OwnerHandle`, by a message and a one-shot answer, and keep
+nothing it decides. A turn takes everything asked, syncs once, answers what that sync made durable, and closes an epoch that is due. A
+close is durable in the sequencer's log before the group learns it; a close the group never learned, because the process stopped
+between the two syncs, is learned at recovery. A first start forms the even placement from `[cluster] partition_count`; a restart keeps
+the map it holds, warns when the setting disagrees, and bounds claims by the map.
+
+`serve_connection` now takes a `Session`, whose `next_push` sends what no request asked for. The read stays pinned across pushes, so a
+frame is never cut short. The connection splits through `Splittable`, which `Carrier` implements as two handles on one socket:
+`compio::io::split` guards the stream with a lock its pending read holds, so a push deadlocks behind it.
+
+`RoleSession` serves Join, Members, Placement, Catalog, Lease, Subscribe and CloseRequest. `ClientSession` asks the owner for a verifier on
+every authentication: `ScramServer::name_in` reads the name out of the first message, and the machine, which cannot wait, looks up what
+came back. `RoleError` gains codes 70 and 74, so a failed log stops the frontend with 74.
+
+The owner stores a snapshot, written beside, synced, renamed and its directory synced, before it trims a log through it: the metadata
+group when its `snapshot_rounds` say, the sequencer every 4,096 closes.
+
+`PROTOCOL.md` §13.3 now states that a connection holds one subscription.
+
+Scenarios: `ultragraphdb_common_frontend`, 9, the owner on its thread over real logs; `ultragraphdb_tests`, 13, adding five closes in order
+on a Subscribe and a Lease and a Placement over the wire.
+
+What later tasks replace or add: DefaultEntry and Report are refused as unavailable; the frontend's connections all run on one endpoint
+core; no setting creates the bootstrap principal, so no client can authenticate at a running binary until 9.5.5; a TLS stream needs a
+`Splittable` of its own in 9.5.5; `RoleClient::request` reads the next frame as its reply, which 9.4's storage replaces where a Subscribe
+shares the connection; an EpochClose is always one frame, its lists holding at most 4,352 records of 16 bytes.

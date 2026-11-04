@@ -2924,16 +2924,26 @@ name = "ultragraphdb_common_frontend"
 version = "0.1.0"
 dependencies = [
  "compio",
+ "cucumber",
+ "futures",
  "tracing",
+ "ultragraphdb_cluster_metadata",
+ "ultragraphdb_cluster_placement",
+ "ultragraphdb_cluster_sequencer",
  "ultragraphdb_common_role",
  "ultragraphdb_common_service",
  "ultragraphdb_common_service_config",
+ "ultragraphdb_core_ids",
+ "ultragraphdb_error_cluster",
+ "ultragraphdb_error_protocol",
  "ultragraphdb_error_role",
  "ultragraphdb_protocol_scram",
  "ultragraphdb_protocol_transport",
  "ultragraphdb_protocol_transport_compio",
  "ultragraphdb_protocol_wire",
  "ultragraphdb_tool_bdd",
+ "ultragraphdb_traits_log",
+ "ultragraphdb_transactions_log",
 ]
 
 [[package]]

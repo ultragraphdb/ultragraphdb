@@ -4,21 +4,15 @@
  */
 
 use ultragraphdb_common_frontend::Membership;
-use ultragraphdb_protocol_wire::{
-    BodyBuilder, BodyView, Command, ErrorCode, FrameView, Header, Join, JoinView, MAX_FRAME_SIZE,
-    RoleKind,
-};
+use ultragraphdb_protocol_wire::{ErrorCode, Join, RoleKind};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
-const CLUSTER: u64 = 7;
 const A: &str = "tcp://a:1";
 const B: &str = "tcp://b:1";
 
-/// `join` as a frame, taken by `membership`; the refusal's code and message, if any.
+/// `join` taken by `membership`; the refusal's code and message, if any.
 fn joined(membership: &mut Membership, join: &Join) -> TestResult<Option<(ErrorCode, String)>> {
-    let frame = join.frame(Header::new(CLUSTER, Command::Join).with_stream(1))?;
-    let view = FrameView::validate(&frame, CLUSTER, MAX_FRAME_SIZE)?;
-    let taken = membership.join(&JoinView::from_frame(&view)?);
+    let taken = membership.join(join);
     Ok(taken
         .err()
         .map(|error| (error.code(), error.message().to_string())))

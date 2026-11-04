@@ -4,4 +4,8 @@
  */
 
 #[cfg(test)]
+mod client_session_tests;
+#[cfg(test)]
 mod membership_tests;
+#[cfg(test)]
+mod owner_tests;

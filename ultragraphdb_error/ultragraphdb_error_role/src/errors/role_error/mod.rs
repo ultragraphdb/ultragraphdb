@@ -19,6 +19,16 @@ pub enum RoleErrorEnum {
         /// What is unavailable, and why.
         message: String,
     },
+    /// A log or a store failed, and the component stopped on it.
+    Io {
+        /// What failed.
+        message: String,
+    },
+    /// An invariant does not hold: a bug.
+    Software {
+        /// What does not hold.
+        message: String,
+    },
 }
 
 /// A role's reason to stop, carrying its exit code.
@@ -28,6 +38,10 @@ pub struct RoleError(pub RoleErrorEnum);
 impl RoleError {
     /// `EX_UNAVAILABLE`: a dependency lost, or a resource the role needs refused.
     pub const EX_UNAVAILABLE: u8 = 69;
+    /// `EX_SOFTWARE`: an invariant violation.
+    pub const EX_SOFTWARE: u8 = 70;
+    /// `EX_IOERR`: a failed store or log.
+    pub const EX_IOERR: u8 = 74;
     /// `EX_CONFIG`: a configuration error.
     pub const EX_CONFIG: u8 = 78;
 
@@ -45,11 +59,27 @@ impl RoleError {
         })
     }
 
+    /// A log or a store failed.
+    pub fn io(message: impl Into<String>) -> Self {
+        Self(RoleErrorEnum::Io {
+            message: message.into(),
+        })
+    }
+
+    /// An invariant does not hold.
+    pub fn software(message: impl Into<String>) -> Self {
+        Self(RoleErrorEnum::Software {
+            message: message.into(),
+        })
+    }
+
     /// The code the process exits with.
     pub fn exit_code(&self) -> u8 {
         match self.0 {
             RoleErrorEnum::Configuration { .. } => Self::EX_CONFIG,
             RoleErrorEnum::Unavailable { .. } => Self::EX_UNAVAILABLE,
+            RoleErrorEnum::Io { .. } => Self::EX_IOERR,
+            RoleErrorEnum::Software { .. } => Self::EX_SOFTWARE,
         }
     }
 }

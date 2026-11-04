@@ -9,12 +9,13 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use compio::runtime::{Runtime, spawn};
 use ultragraphdb_common_role::{
-    ROLE_ITERATIONS, RoleClient, RoleCredentials, RoleSecret, Server, listen, serve_connection,
+    Answer, ROLE_ITERATIONS, RoleClient, RoleCredentials, RoleSecret, Server, Session, listen,
+    serve_connection,
 };
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_transport::{Address, Endpoint, TransportError, TransportErrorEnum};
 use ultragraphdb_protocol_wire::{
-    Command, ErrorCode, ErrorReply, FLAG_LAST, Header, Join, Members,
+    BodyBuilder, Command, ErrorCode, ErrorReply, FLAG_LAST, FrameView, Header, Join, Members,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -35,30 +36,35 @@ fn credentials() -> TestResult<RoleCredentials> {
     Ok(RoleSecret::read(&file.display().to_string())?.credentials()?)
 }
 
-/// A server at `endpoint` listening at `text`, answering a Members with no member and refusing what else it serves as
-/// unavailable; the address it holds.
+/// Answers a Members with no member, and refuses what else its endpoint serves as unavailable.
+#[derive(Debug, Clone, Copy)]
+struct Listing;
+
+impl Session for Listing {
+    async fn answer(&mut self, stream: u64, frame: &FrameView<'_>) -> Answer {
+        if frame.command() != Command::Members {
+            return Answer::Refuse(ErrorReply::new(ErrorCode::Unavailable, "no"));
+        }
+        let header = Header::new(CLUSTER, Command::Members)
+            .with_stream(stream)
+            .with_flags(FLAG_LAST);
+        Members::new().frame(header).map_or_else(
+            |rule| Answer::Refuse(ErrorReply::protocol(&rule)),
+            Answer::Reply,
+        )
+    }
+}
+
+/// A server at `endpoint` listening at `text`; the address it holds.
 async fn serving(text: &str, endpoint: Endpoint) -> TestResult<Address> {
     let listener = listen(text).await?;
     let address = listener.local_address()?;
-    let server =
-        Server::new(CLUSTER, "test", endpoint, credentials()?)?.with_iterations(ROLE_ITERATIONS);
+    let server = Server::new(CLUSTER, "test", endpoint)?.with_iterations(ROLE_ITERATIONS);
+    let held = credentials()?;
     spawn(async move {
         while let Ok(carrier) = listener.accept().await {
-            let server = server.clone();
-            spawn(async move {
-                serve_connection(carrier, &server, |stream, frame| {
-                    if frame.command() != Command::Members {
-                        return Err(ErrorReply::new(ErrorCode::Unavailable, "no"));
-                    }
-                    let header = Header::new(CLUSTER, Command::Members)
-                        .with_stream(stream)
-                        .with_flags(FLAG_LAST);
-                    ultragraphdb_protocol_wire::BodyBuilder::frame(&Members::new(), header)
-                        .map_err(|rule| ErrorReply::protocol(&rule))
-                })
-                .await;
-            })
-            .detach();
+            let (server, held) = (server.clone(), held.clone());
+            spawn(async move { serve_connection(carrier, &server, held, Listing).await }).detach();
         }
     })
     .detach();

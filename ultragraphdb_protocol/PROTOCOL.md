@@ -1972,7 +1972,8 @@ closes. EpochClose frames spend no credit.
 | 0 | 8 | `from` | epoch (section 1) | the last epoch whose close the subscriber holds; 0 for none |
 
 No sections. Order: unused bytes 8–127 zero; `from` at most 2⁴² − 1 (`FieldValue` `"from"`); sections. A `from` above
-the latest epoch the sequencer closed is refused with Error 1 (Protocol), the message naming both epochs.
+the latest epoch the sequencer closed is refused with Error 1 (Protocol), the message naming both epochs. A connection holds one
+subscription: a second Subscribe while one is open is refused with Error 1 on its stream.
 
 ### 13.4 EpochClose (515)
 

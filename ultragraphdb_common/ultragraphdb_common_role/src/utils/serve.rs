@@ -3,8 +3,12 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::future::poll_fn;
+use std::pin::pin;
+use std::task::Poll;
 use std::time::{Duration, Instant};
 
+use compio::io::util::Splittable;
 use compio::io::{AsyncRead, AsyncWrite};
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_scram::{
@@ -12,10 +16,12 @@ use ultragraphdb_protocol_scram::{
 };
 use ultragraphdb_protocol_transport::{
     AUTHENTICATION_TIMEOUT, Address, Authenticator, BufferPool, Endpoint, Framer, Inbound,
-    ServerConnection, TransportError, TransportErrorEnum,
+    ReceivedFrame, ServerConnection, TransportError, TransportErrorEnum,
 };
 use ultragraphdb_protocol_transport_compio::{Connection, Listener};
-use ultragraphdb_protocol_wire::{ErrorReply, FrameView, MAX_FRAME_SIZE, Welcome};
+use ultragraphdb_protocol_wire::{AuthenticateView, BodyView, Command, MAX_FRAME_SIZE, Welcome};
+
+use crate::traits::session::{Answer, Session};
 
 const PROTOCOL: u16 = 1;
 const RELEASE: u32 = 1;
@@ -62,30 +68,24 @@ pub async fn listen(text: &str) -> Result<Listener, RoleError> {
     Ok(listener)
 }
 
-/// How one kind of connection is served: its cluster, the endpoint it arrived at, who may authenticate there, and the
-/// verifier-deriving secret an unknown name is answered with, so a refused name costs what a wrong password costs.
+/// How one kind of connection is served: its cluster, the endpoint it arrived at, and the secret an unknown name's
+/// verifier derives from, at the iterations a known name's took, so a refused name costs what a wrong password costs.
 #[derive(Debug, Clone)]
-pub struct Server<C> {
+pub struct Server {
     cluster: u64,
     endpoint: Endpoint,
     name: &'static str,
-    credentials: C,
     unknown: [u8; 32],
     iterations: u32,
 }
 
-impl<C: Credentials + Clone> Server<C> {
-    /// A server of `cluster`, `name` in its Welcome, at `endpoint`, authenticating against `credentials`.
+impl Server {
+    /// A server of `cluster`, `name` in its Welcome, at `endpoint`.
     ///
     /// # Errors
     ///
     /// [`RoleError::unavailable`] when the operating system gives no random bytes.
-    pub fn new(
-        cluster: u64,
-        name: &'static str,
-        endpoint: Endpoint,
-        credentials: C,
-    ) -> Result<Self, RoleError> {
+    pub fn new(cluster: u64, name: &'static str, endpoint: Endpoint) -> Result<Self, RoleError> {
         let mut unknown = [0u8; 32];
         getrandom::fill(&mut unknown)
             .map_err(|error| RoleError::unavailable(format!("the random source: {error}")))?;
@@ -93,7 +93,6 @@ impl<C: Credentials + Clone> Server<C> {
             cluster,
             endpoint,
             name,
-            credentials,
             unknown,
             iterations: DEFAULT_ITERATIONS,
         })
@@ -106,15 +105,20 @@ impl<C: Credentials + Clone> Server<C> {
         self
     }
 
-    /// The connection a stream accepted at `now` is, or `None` when no nonce can be drawn for it.
-    fn connection(&self, now: Instant) -> Option<ServerConnection<impl Authenticator>> {
+    /// The machine of a connection accepted at `at`, authenticating against `credentials`, or `None` when no nonce can
+    /// be drawn for it.
+    fn machine<C: Credentials + Clone>(
+        &self,
+        credentials: C,
+        at: Instant,
+    ) -> Option<ServerConnection<impl Authenticator>> {
         let fallback = system_nonce().ok()?;
         // A later exchange draws afresh; a source failing by then repeats this connection's nonce, not another's.
         let nonces = move || system_nonce().unwrap_or_else(|_| fallback.clone());
-        let authenticator = ScramAuthenticator::new(self.credentials.clone(), nonces, self.unknown)
+        let authenticator = ScramAuthenticator::new(credentials, nonces, self.unknown)
             .with_iterations(self.iterations);
         let welcome = Welcome::new(PROTOCOL, RELEASE, self.name).with_mechanisms([MECHANISM]);
-        let connection = ServerConnection::new(self.cluster, welcome, authenticator, now)
+        let connection = ServerConnection::new(self.cluster, welcome, authenticator, at)
             .with_endpoint(self.endpoint);
         Some(if self.endpoint == Endpoint::Client {
             connection
@@ -125,93 +129,172 @@ impl<C: Credentials + Clone> Server<C> {
     }
 }
 
-/// Serves one connection until it closes: its handshake, its authentication and the rules of its endpoint in the
-/// connection's machine, and each request it passes on answered by `answer`, given its stream and its frame, with the
-/// reply's frame or a refusal. A failing stream ends the connection, which holds nothing of anyone else's.
-pub async fn serve_connection<S, C, H>(stream: S, server: &Server<C>, mut answer: H)
+/// Serves one connection until it closes: its handshake, its authentication against `credentials` and its endpoint's
+/// rules in the connection's machine, and what those pass on in `session`. A failing stream ends the connection, which
+/// holds nothing of anyone else's.
+pub async fn serve_connection<S, C, H>(stream: S, server: &Server, credentials: C, mut session: H)
 where
-    S: AsyncRead + AsyncWrite,
+    S: Splittable,
+    S::ReadHalf: AsyncRead,
+    S::WriteHalf: AsyncWrite,
     C: Credentials + Clone,
-    H: FnMut(u64, &FrameView<'_>) -> Result<Vec<u8>, ErrorReply>,
+    H: Session,
 {
-    let Some(mut machine) = server.connection(now()) else {
+    let Some(mut machine) = server.machine(credentials, now()) else {
         tracing::warn!("no nonce could be drawn for a connection");
         return;
     };
-    let mut wire = Connection::new(stream, Framer::from_client(server.cluster, MAX_FRAME_SIZE));
+    let (reader, writer) = stream.split();
+    let mut reader = Connection::new(reader, Framer::from_client(server.cluster, MAX_FRAME_SIZE));
+    let mut writer = Connection::new(writer, Framer::new(server.cluster, MAX_FRAME_SIZE));
     let pool = BufferPool::new(1, MAX_FRAME_SIZE);
-    if let Err(error) = run(&mut wire, &mut machine, &pool, &mut answer).await {
+    if let Err(error) = run(&mut reader, &mut writer, &mut machine, &pool, &mut session).await {
         tracing::debug!(%error, "a connection ended");
     }
-    wire.shutdown().await;
+    writer.shutdown().await;
 }
 
-async fn run<S, A, H>(
-    wire: &mut Connection<S>,
+async fn run<R, W, A, H>(
+    reader: &mut Connection<R>,
+    writer: &mut Connection<W>,
     machine: &mut ServerConnection<A>,
     pool: &BufferPool,
-    answer: &mut H,
+    session: &mut H,
 ) -> Result<(), TransportError>
 where
-    S: AsyncRead + AsyncWrite,
+    R: AsyncRead,
+    W: AsyncWrite,
     A: Authenticator,
-    H: FnMut(u64, &FrameView<'_>) -> Result<Vec<u8>, ErrorReply>,
+    H: Session,
 {
     while !machine.is_closing() {
-        let read = read_until_deadline(wire, machine, pool).await;
-        match read {
-            Ok(Some(received)) => {
-                let inbound = machine.receive(&received, now())?;
-                match inbound {
-                    Inbound::Welcomed { protocol } => wire.framer_mut().set_protocol(protocol),
-                    Inbound::Request { stream, .. } => {
-                        let view = received.view().map_err(TransportError::protocol)?;
-                        match answer(stream, &view) {
-                            Ok(reply) => machine.outbound().push(stream, reply)?,
-                            Err(refusal) => machine.refuse(stream, &refusal)?,
-                        }
-                    }
-                    Inbound::Handled
-                    | Inbound::Authenticated { .. }
-                    | Inbound::Cancelled { .. }
-                    | Inbound::Refused { .. }
-                    | Inbound::Closing { .. } => {}
-                }
-            }
-            Ok(None) => {
-                let _closing = machine.handle_timeout(now())?;
-            }
-            Err(error) => {
+        match next_frame(reader, writer, machine, pool, session).await? {
+            Some(Ok(received)) => take(reader, machine, session, &received).await?,
+            Some(Err(error)) => {
                 let TransportErrorEnum::Protocol { error: refusal } = &error.0 else {
                     return Err(error);
                 };
                 let _closing = machine.refuse_connection(refusal)?;
             }
+            None => {}
         }
-        while let Some((_, frame)) = machine.next_frame() {
-            let _sent = wire.write_frame(frame).await?;
-        }
+        flush(writer, machine).await?;
     }
     Ok(())
 }
 
-/// The next frame, or `None` once the connection's next deadline passed. A deadline that passes ends in the
-/// connection's close, so a frame cut short by it is never read further.
-async fn read_until_deadline<S, A>(
-    wire: &mut Connection<S>,
-    machine: &ServerConnection<A>,
+/// The frame read next, sending what the session pushes meanwhile; the read stays pinned across those sends, so a frame
+/// is never cut short. `None` once a deadline passed and the connection's machine has taken it.
+async fn next_frame<R, W, A, H>(
+    reader: &mut Connection<R>,
+    writer: &mut Connection<W>,
+    machine: &mut ServerConnection<A>,
     pool: &BufferPool,
-) -> Result<Option<ultragraphdb_protocol_transport::ReceivedFrame>, TransportError>
+    session: &mut H,
+) -> Result<Option<Result<ReceivedFrame, TransportError>>, TransportError>
 where
-    S: AsyncRead + AsyncWrite,
+    R: AsyncRead,
+    W: AsyncWrite,
+    A: Authenticator,
+    H: Session,
+{
+    let mut read = pin!(reader.read_frame(pool));
+    loop {
+        let wait = machine
+            .next_deadline()
+            .map(|deadline| deadline.saturating_duration_since(now()));
+        let mut deadline = pin!(async {
+            match wait {
+                Some(wait) => compio::time::sleep(wait).await,
+                None => std::future::pending().await,
+            }
+        });
+        let mut push = pin!(session.next_push());
+        let event = poll_fn(|cx| {
+            if let Poll::Ready(frame) = read.as_mut().poll(cx) {
+                return Poll::Ready(Event::Frame(frame));
+            }
+            if let Poll::Ready(pushed) = push.as_mut().poll(cx) {
+                return Poll::Ready(Event::Push(pushed));
+            }
+            deadline.as_mut().poll(cx).map(|()| Event::Deadline)
+        })
+        .await;
+        match event {
+            Event::Frame(frame) => return Ok(Some(frame)),
+            Event::Push((stream, frame)) => {
+                machine.outbound().push(stream, frame)?;
+                flush(writer, machine).await?;
+            }
+            Event::Deadline => {
+                let _closing = machine.handle_timeout(now())?;
+                if machine.is_closing() {
+                    return Ok(None);
+                }
+            }
+        }
+    }
+}
+
+/// What woke a connection.
+enum Event {
+    Frame(Result<ReceivedFrame, TransportError>),
+    Push((u64, Vec<u8>)),
+    Deadline,
+}
+
+/// `received` taken by the machine, and a request it hands on answered.
+async fn take<R, A, H>(
+    reader: &mut Connection<R>,
+    machine: &mut ServerConnection<A>,
+    session: &mut H,
+    received: &ReceivedFrame,
+) -> Result<(), TransportError>
+where
+    A: Authenticator,
+    H: Session,
+{
+    if let Ok(view) = received.view()
+        && view.command() == Command::Authenticate
+        && view.header().stream() == 0
+        && let Ok(message) = AuthenticateView::from_frame(&view)
+        && message.step() == 0
+    {
+        session.authenticating(message.message()).await;
+    }
+    match machine.receive(received, now())? {
+        Inbound::Welcomed { protocol } => reader.framer_mut().set_protocol(protocol),
+        Inbound::Request { stream, .. } => {
+            let view = received.view().map_err(TransportError::protocol)?;
+            match session.answer(stream, &view).await {
+                Answer::Reply(reply) => machine.outbound().push(stream, reply)?,
+                Answer::Open => {}
+                Answer::Done => {
+                    let _ended = machine.outbound().cancel(stream);
+                }
+                Answer::Refuse(refusal) => machine.refuse(stream, &refusal)?,
+            }
+        }
+        Inbound::Cancelled { stream, .. } => session.cancelled(stream),
+        Inbound::Handled
+        | Inbound::Authenticated { .. }
+        | Inbound::Refused { .. }
+        | Inbound::Closing { .. } => {}
+    }
+    Ok(())
+}
+
+/// Writes every frame the machine lets go.
+async fn flush<W, A>(
+    writer: &mut Connection<W>,
+    machine: &mut ServerConnection<A>,
+) -> Result<(), TransportError>
+where
+    W: AsyncWrite,
     A: Authenticator,
 {
-    let Some(deadline) = machine.next_deadline() else {
-        return wire.read_frame(pool).await.map(Some);
-    };
-    let wait = deadline.saturating_duration_since(now());
-    match compio::time::timeout(wait, wire.read_frame(pool)).await {
-        Ok(read) => read.map(Some),
-        Err(_) => Ok(None),
+    while let Some((_, frame)) = machine.next_frame() {
+        let _sent = writer.write_frame(frame).await?;
     }
+    Ok(())
 }

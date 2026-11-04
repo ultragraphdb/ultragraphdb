@@ -27,6 +27,14 @@ Feature: The role binaries as processes
     When a role starts with `role_secret_file` naming a file that does not exist
     Then it exits with code 78 and an error naming the file
 
+  Scenario: Epoch closes reach storage in order
+    When the frontend's sequencer closes epochs 1 to 5 and storage is connected
+    Then storage receives five epoch-close commands, in order
+
+  Scenario: The frontend answers a partition's lease and its placement
+    When a partition asks the frontend for a block and the placement
+    Then the frontend answers both over the role connection
+
   Scenario: A signal stops a role cleanly
     When a role is running and receives SIGTERM
     Then it exits with code 0

@@ -56,6 +56,14 @@ impl ScramServer {
         self
     }
 
+    /// The SASLprep-prepared name `client_first` asks for, for a server that fetches the name's verifier before it runs
+    /// the exchange. Refused as [`ScramServer::first`] refuses the message's header and name.
+    pub fn name_in(client_first: &[u8]) -> Result<String, ScramError> {
+        let (_, bare) = header(client_first)?;
+        let name = attribute(bare.split(',').next(), 'n').ok_or(ScramError::malformed("name"))?;
+        prepare(&unescape(name)?)
+    }
+
     /// The server-first-message answering `client_first`, the name's verifier found by `lookup`: `r=<client nonce +
     /// server nonce>,s=<salt>,i=<iterations>`. Refused as [`ScramError::malformed`], [`ScramError::channel_binding`]
     /// for a client asking for channel binding, [`ScramError::prepare`], or [`ScramError::out_of_step`].
@@ -67,21 +75,7 @@ impl ScramServer {
         if self.state != ServerState::Initial {
             return Err(ScramError::out_of_step());
         }
-        let text = std::str::from_utf8(client_first)
-            .map_err(|_| ScramError::malformed("channel binding"))?;
-        let mut header = text.splitn(3, ',');
-        let (flag, authorization, bare) = match (header.next(), header.next(), header.next()) {
-            (Some(flag), Some(authorization), Some(bare)) => (flag, authorization, bare),
-            _ => return Err(ScramError::malformed("channel binding")),
-        };
-        match flag {
-            "n" | "y" => {}
-            f if f.starts_with("p=") => return Err(ScramError::channel_binding()),
-            _ => return Err(ScramError::malformed("channel binding")),
-        }
-        if !authorization.is_empty() {
-            return Err(ScramError::malformed("authorization identity"));
-        }
+        let (flag, bare) = header(client_first)?;
         let mut parts = bare.split(',');
         let name = attribute(parts.next(), 'n').ok_or(ScramError::malformed("name"))?;
         let name = prepare(&unescape(name)?)?;
@@ -165,4 +159,24 @@ impl ScramServer {
             principal,
         ))
     }
+}
+
+/// The GS2 flag and the bare message of `client_first`.
+fn header(client_first: &[u8]) -> Result<(&str, &str), ScramError> {
+    let text =
+        std::str::from_utf8(client_first).map_err(|_| ScramError::malformed("channel binding"))?;
+    let mut header = text.splitn(3, ',');
+    let (flag, authorization, bare) = match (header.next(), header.next(), header.next()) {
+        (Some(flag), Some(authorization), Some(bare)) => (flag, authorization, bare),
+        _ => return Err(ScramError::malformed("channel binding")),
+    };
+    match flag {
+        "n" | "y" => {}
+        f if f.starts_with("p=") => return Err(ScramError::channel_binding()),
+        _ => return Err(ScramError::malformed("channel binding")),
+    }
+    if !authorization.is_empty() {
+        return Err(ScramError::malformed("authorization identity"));
+    }
+    Ok((flag, bare))
 }

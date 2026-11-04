@@ -16,4 +16,6 @@ pub use crate::types::role_kind::RoleKind;
 pub use crate::types::role_start::RoleStart;
 pub use crate::utils::cpu_list::{allowed_in_status, parse_cpu_list};
 pub use crate::utils::http_responder::{parse_request, response};
-pub use crate::utils::run_service::{binding, exit_status, run_service, serve_service};
+pub use crate::utils::run_service::{
+    binding, core_runtime, exit_status, run_service, serve_service,
+};

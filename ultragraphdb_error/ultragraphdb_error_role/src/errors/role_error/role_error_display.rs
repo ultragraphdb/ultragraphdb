@@ -12,6 +12,8 @@ impl fmt::Display for RoleError {
         match &self.0 {
             RoleErrorEnum::Configuration { message } => write!(f, "configuration: {message}"),
             RoleErrorEnum::Unavailable { message } => write!(f, "unavailable: {message}"),
+            RoleErrorEnum::Io { message } => write!(f, "io: {message}"),
+            RoleErrorEnum::Software { message } => write!(f, "software: {message}"),
         }
     }
 }

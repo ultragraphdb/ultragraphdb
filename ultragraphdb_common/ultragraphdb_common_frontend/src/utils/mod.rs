@@ -4,3 +4,5 @@
  */
 
 pub mod frontend_role;
+pub mod owner_thread;
+pub mod snapshot_file;

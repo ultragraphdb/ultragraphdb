@@ -53,7 +53,7 @@ pub struct Connection<S> {
     framer: Framer,
 }
 
-impl<S: AsyncRead + AsyncWrite> Connection<S> {
+impl<S> Connection<S> {
     /// A connection over `stream`, its frames read by `framer`: a client's ([`Framer::new`]) or a server's
     /// ([`Framer::from_client`]), each with the cluster and the largest frame its side announced.
     pub fn new(stream: S, framer: Framer) -> Self {
@@ -79,7 +79,9 @@ impl<S: AsyncRead + AsyncWrite> Connection<S> {
     pub fn into_inner(self) -> S {
         self.stream
     }
+}
 
+impl<S: AsyncRead> Connection<S> {
     /// The next frame, read into a buffer of `pool` as the [`Framer`] asks: its header, verified for the
     /// connection's cluster so its `size` is trusted, then the rest of the frame into the same buffer. Refused as
     /// [`TransportError::closed`] when the peer closed before the frame's first byte, [`TransportError::truncated`]
@@ -117,7 +119,9 @@ impl<S: AsyncRead + AsyncWrite> Connection<S> {
         let received = buffer.len();
         Err(TransportError::truncated(received, self.framer.want()))
     }
+}
 
+impl<S: AsyncWrite> Connection<S> {
     /// Writes `frame` whole and flushes it; [`TransportError::io`] when the stream fails. The frame is handed
     /// back, so its buffer can be reused.
     pub async fn write_frame(&mut self, frame: Vec<u8>) -> Result<Vec<u8>, TransportError> {
@@ -135,7 +139,9 @@ impl<S: AsyncRead + AsyncWrite> Connection<S> {
         // The connection is given up, so a failed shutdown is dropped.
         drop(self.stream.shutdown().await);
     }
+}
 
+impl<S: AsyncRead + AsyncWrite> Connection<S> {
     /// The client's handshake, run through [`ClientHandshake`]: sends `hello` on stream 0 and reads the server's
     /// answer, its Welcome, refused as [`ClientHandshake::receive`] refuses it.
     pub async fn hello(

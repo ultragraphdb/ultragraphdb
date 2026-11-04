@@ -9,8 +9,11 @@ use compio::runtime::spawn;
 use ultragraphdb_common_service::{Readiness, RoleKind, RoleStart};
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_transport::{Address, Endpoint, TransportError};
-use ultragraphdb_protocol_wire::{BodyView, ErrorCode, ErrorReply, Join, Members, MembersView};
+use ultragraphdb_protocol_wire::{
+    BodyView, ErrorCode, ErrorReply, FrameView, Join, Members, MembersView,
+};
 
+use crate::traits::session::{Answer, Session};
 use crate::types::role_client::RoleClient;
 use crate::types::role_cluster::RoleCluster;
 use crate::types::role_credentials::RoleCredentials;
@@ -103,25 +106,15 @@ async fn join_as(
     let frontend = Address::parse(frontend)
         .map_err(|error| RoleError::configuration(format!("the address {frontend}: {error}")))?;
     let credentials: RoleCredentials = cluster.secret().credentials()?;
-    let server =
-        Server::new(cluster.id(), "role", endpoint, credentials)?.with_iterations(ROLE_ITERATIONS);
+    let server = Server::new(cluster.id(), "role", endpoint)?.with_iterations(ROLE_ITERATIONS);
     let listener = listen(own).await?;
     spawn(async move {
         loop {
             match listener.accept().await {
                 Ok(carrier) => {
-                    let server = server.clone();
+                    let (server, credentials) = (server.clone(), credentials.clone());
                     spawn(async move {
-                        serve_connection(carrier, &server, |_stream, frame| {
-                            Err(ErrorReply::new(
-                                ErrorCode::Unavailable,
-                                format!(
-                                    "command {} is not hosted here yet",
-                                    frame.command().number()
-                                ),
-                            ))
-                        })
-                        .await;
+                        serve_connection(carrier, &server, credentials, NotHosted).await;
                     })
                     .detach();
                 }
@@ -179,4 +172,20 @@ async fn attempt(
         .filter_map(|index| members.member(index))
         .filter(|member| member.partition() > 0)
         .count())
+}
+
+/// A role connection to a role that hosts nothing yet: it authenticates, and refuses every request.
+#[derive(Debug, Clone, Copy)]
+struct NotHosted;
+
+impl Session for NotHosted {
+    async fn answer(&mut self, _stream: u64, frame: &FrameView<'_>) -> Answer {
+        Answer::Refuse(ErrorReply::new(
+            ErrorCode::Unavailable,
+            format!(
+                "command {} is not hosted here yet",
+                frame.command().number()
+            ),
+        ))
+    }
 }

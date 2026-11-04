@@ -5,7 +5,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use ultragraphdb_protocol_wire::{ErrorCode, ErrorReply, JoinView, Members, RoleKind};
+use ultragraphdb_protocol_wire::{ErrorCode, ErrorReply, Join, Members, RoleKind};
 
 /// The roles that joined (`PROTOCOL.md` §11.12, §13.1): each partition's holder over the placement's partitions and
 /// each compute process.
@@ -32,16 +32,14 @@ impl Membership {
     ///
     /// An [`ErrorReply`] of code 1 naming the partition outside the placement, or naming it and its holder when another
     /// address holds it; nothing of the Join is registered.
-    pub fn join(&mut self, join: &JoinView<'_>) -> Result<(), ErrorReply> {
+    pub fn join(&mut self, join: &Join) -> Result<(), ErrorReply> {
         let address = join.address();
         if join.kind() == RoleKind::Compute {
             let _new = self.compute.insert(address.to_string());
             return Ok(());
         }
-        let claimed: Vec<u32> = (0..join.partition_count())
-            .filter_map(|index| join.partition(index))
-            .collect();
-        for partition in &claimed {
+        let claimed = join.partitions();
+        for partition in claimed {
             if *partition > self.partition_count {
                 return Err(protocol(format!(
                     "partition {partition} is outside the placement of {}",
@@ -61,8 +59,8 @@ impl Membership {
         self.partitions.retain(|_, holder| holder != address);
         self.partitions.extend(
             claimed
-                .into_iter()
-                .map(|partition| (partition, address.to_string())),
+                .iter()
+                .map(|partition| (*partition, address.to_string())),
         );
         Ok(())
     }

@@ -5,6 +5,7 @@
 
 mod carrier_async_read;
 mod carrier_async_write;
+mod carrier_splittable;
 
 use compio::net::{TcpStream, UnixStream};
 use ultragraphdb_protocol_transport::{Address, Scheme, TransportError};

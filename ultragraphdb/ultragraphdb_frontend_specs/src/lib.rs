@@ -21,7 +21,7 @@ pub const ROLE_ADDRESS: &str = "127.0.0.1:17081";
 pub const CLIENT_ADDRESS: &str = "127.0.0.1:17080";
 
 /// The environment that starts it on one host, as `ULTRAGRAPHDB_<TABLE>_<KEY>` variables, and one partition to form the
-/// placement over. The role secret's file is the starter's: a deployment's own, which no specification names.
+/// placement over. The role secret's file and the data directory are the starter's: a deployment's own, which no specification names.
 #[must_use]
 pub fn settings() -> Vec<(String, String)> {
     [
@@ -40,6 +40,8 @@ pub fn settings() -> Vec<(String, String)> {
             format!("tcp://{CLIENT_ADDRESS}"),
         ),
         ("ULTRAGRAPHDB_ENDPOINT_PLAINTEXT", "true".to_string()),
+        ("ULTRAGRAPHDB_SEQUENCER_EPOCH_MS_MIN", "1".to_string()),
+        ("ULTRAGRAPHDB_SEQUENCER_EPOCH_MS_MAX", "20".to_string()),
     ]
     .map(|(name, value)| (name.to_string(), value))
     .to_vec()

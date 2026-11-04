@@ -85,6 +85,16 @@ impl RoleClient {
         Ok(reply)
     }
 
+    /// The next frame the peer sends unasked, such as the next close on a Subscribe's stream. It holds the connection's
+    /// one buffer until it is dropped.
+    ///
+    /// # Errors
+    ///
+    /// As reading fails.
+    pub async fn next_frame(&mut self) -> Result<ReceivedFrame, TransportError> {
+        self.connection.read_frame(&self.pool).await
+    }
+
     async fn authenticate(&mut self, name: &str, password: &str) -> Result<(), TransportError> {
         let failed =
             |error: &dyn std::fmt::Display| TransportError::authentication(error.to_string());

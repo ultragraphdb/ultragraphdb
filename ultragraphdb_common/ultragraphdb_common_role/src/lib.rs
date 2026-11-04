@@ -8,9 +8,11 @@
 //! its endpoint takes through [`serve_connection`]. Storage and compute both join the frontend, which
 //! [`storage_role`] and [`compute_role`] do.
 
+mod traits;
 mod types;
 mod utils;
 
+pub use crate::traits::session::{Answer, Session};
 pub use crate::types::role_client::RoleClient;
 pub use crate::types::role_cluster::RoleCluster;
 pub use crate::types::role_credentials::RoleCredentials;

@@ -41,18 +41,12 @@ impl<L: OrderedLog> Sequencer<L> {
         let _ended: Option<Epoch> = self.subscribers.remove(&partition);
     }
 
-    /// The next durable close not yet delivered to `partition`, in epoch order, counted as delivered; `None` when every
-    /// durable close has been.
+    /// The durable close after `after`, which a host delivering closes by its own cursor reads; `None` until it is durable.
     ///
     /// # Errors
     ///
-    /// [`ClusterError::not_subscribed`] when `partition` has no subscription; [`ClusterError::catch_up_trimmed`] when
-    /// the next close it needs is older than the oldest close held.
-    pub fn take_delivery(&mut self, partition: PartitionId) -> Result<Option<Close>, ClusterError> {
-        let after = *self
-            .subscribers
-            .get(&partition)
-            .ok_or_else(|| ClusterError::not_subscribed(partition.get()))?;
+    /// [`ClusterError::catch_up_trimmed`] when that close is older than the oldest close held.
+    pub fn close_after(&self, after: Epoch) -> Result<Option<Close>, ClusterError> {
         // At most the last durable close, so one more cannot overflow.
         let next = after.get() + 1;
         if next > self.closed.get() {
@@ -69,6 +63,22 @@ impl<L: OrderedLog> Sequencer<L> {
         let index = usize::try_from(next - oldest).unwrap_or(usize::MAX);
         let close = self.closes.get(index).cloned();
         debug_assert!(close.as_ref().is_some_and(|c| c.epoch().get() == next));
+        Ok(close)
+    }
+
+    /// The next durable close not yet delivered to `partition`, in epoch order, counted as delivered; `None` when every
+    /// durable close has been.
+    ///
+    /// # Errors
+    ///
+    /// [`ClusterError::not_subscribed`] when `partition` has no subscription; [`ClusterError::catch_up_trimmed`] when
+    /// the next close it needs is older than the oldest close held.
+    pub fn take_delivery(&mut self, partition: PartitionId) -> Result<Option<Close>, ClusterError> {
+        let after = *self
+            .subscribers
+            .get(&partition)
+            .ok_or_else(|| ClusterError::not_subscribed(partition.get()))?;
+        let close = self.close_after(after)?;
         let delivered = close.as_ref().map_or(after, Close::epoch);
         let _previous: Option<Epoch> = self.subscribers.insert(partition, delivered);
         Ok(close)

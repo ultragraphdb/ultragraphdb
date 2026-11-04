@@ -21,3 +21,14 @@ fn test_each_cause_exits_with_its_code_and_names_itself() {
     let source: &dyn std::error::Error = &unavailable;
     assert!(source.source().is_none());
 }
+
+/// A failed log and a broken invariant exit with their own codes, each naming what happened.
+#[test]
+fn test_each_stop_has_its_code_and_its_words() {
+    let io = RoleError::io("the log");
+    assert_eq!(io.exit_code(), RoleError::EX_IOERR);
+    assert!(io.to_string().contains("the log"));
+    let software = RoleError::software("an invariant");
+    assert_eq!(software.exit_code(), RoleError::EX_SOFTWARE);
+    assert!(software.to_string().contains("an invariant"));
+}

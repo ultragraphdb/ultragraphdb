@@ -1,0 +1,288 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+ */
+
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
+use std::time::Instant;
+
+use compio::runtime::spawn;
+use ultragraphdb_cluster_sequencer::Close;
+use ultragraphdb_common_role::{Answer, RoleClient, RoleCluster, Session};
+use ultragraphdb_common_service::{Readiness, RoleKind as ServiceRole};
+use ultragraphdb_protocol_transport::Address;
+use ultragraphdb_protocol_wire::{
+    BodyBuilder, BodyView, CatalogAnnouncement, CatalogView, CloseRequestView, Command, EpochClose,
+    ErrorCode, ErrorReply, FLAG_LAST, FrameView, Header, Join, JoinView, Lease, LeaseView,
+    MembersView, PlacementView, RoleKind, SubscribeView,
+};
+
+use crate::types::owner_handle::OwnerHandle;
+
+/// How long a failed connection back waits before the next.
+const RETRY: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// What a frontend's role connections share on their core: the connections back, and its readiness.
+#[derive(Debug, Clone)]
+pub struct RoleShared {
+    cluster: RoleCluster,
+    owner: OwnerHandle,
+    peers: Rc<RefCell<HashMap<String, RoleClient>>>,
+    readiness: Readiness,
+}
+
+impl RoleShared {
+    /// What the core's role connections share.
+    pub fn new(cluster: RoleCluster, owner: OwnerHandle, readiness: Readiness) -> Self {
+        Self {
+            cluster,
+            owner,
+            peers: Rc::default(),
+            readiness,
+        }
+    }
+}
+
+/// One role connection at the frontend's role address.
+#[derive(Debug)]
+pub struct RoleSession {
+    shared: RoleShared,
+    subscription: Option<(u64, u64)>,
+}
+
+impl RoleSession {
+    /// A session over what the core shares.
+    pub fn new(shared: RoleShared) -> Self {
+        Self {
+            shared,
+            subscription: None,
+        }
+    }
+
+    fn header(&self, stream: u64, command: Command) -> Header {
+        Header::new(self.shared.cluster.id(), command)
+            .with_stream(stream)
+            .with_flags(FLAG_LAST)
+    }
+
+    async fn join(&self, stream: u64, frame: &FrameView<'_>) -> Result<Answer, ErrorReply> {
+        let view = JoinView::from_frame(frame).map_err(|rule| ErrorReply::protocol(&rule))?;
+        let join = joined(&view);
+        self.shared.owner.join(join.clone()).await?;
+        spawn(connect_back(
+            self.shared.clone(),
+            join.address().to_string(),
+            join.kind(),
+        ))
+        .detach();
+        built(&join, self.header(stream, Command::Join))
+    }
+
+    async fn members(&self, stream: u64, frame: &FrameView<'_>) -> Result<Answer, ErrorReply> {
+        let asked = MembersView::from_frame(frame).map_err(|rule| ErrorReply::protocol(&rule))?;
+        if !asked.is_empty() {
+            return Err(ErrorReply::new(
+                ErrorCode::Protocol,
+                format!("a Members request holds {} members", asked.len()),
+            ));
+        }
+        let members = self.shared.owner.members().await.ok_or_else(stopped)?;
+        built(&members, self.header(stream, Command::Members))
+    }
+
+    async fn lease(&self, stream: u64, frame: &FrameView<'_>) -> Result<Answer, ErrorReply> {
+        let asked = LeaseView::from_frame(frame).map_err(|rule| ErrorReply::protocol(&rule))?;
+        let (prefix, partition, size) = (asked.type_prefix(), asked.partition(), asked.size());
+        let start = self.shared.owner.lease(prefix, partition, size).await?;
+        let reply = Lease::request(prefix, partition, size).with_block(start);
+        built(&reply, self.header(stream, Command::Lease))
+    }
+
+    async fn placement(&self, stream: u64, frame: &FrameView<'_>) -> Result<Answer, ErrorReply> {
+        let asked = PlacementView::from_frame(frame).map_err(|rule| ErrorReply::protocol(&rule))?;
+        let reply = self.shared.owner.placement(asked.epoch()).await?;
+        built(&reply, self.header(stream, Command::Placement))
+    }
+
+    async fn catalog(&self, stream: u64, frame: &FrameView<'_>) -> Result<Answer, ErrorReply> {
+        let asked = CatalogView::from_frame(frame).map_err(|rule| ErrorReply::protocol(&rule))?;
+        let reply = self
+            .shared
+            .owner
+            .catalog(asked.namespace(), asked.version())
+            .await?;
+        built(&reply, self.header(stream, Command::Catalog))
+    }
+
+    async fn subscribe(
+        &mut self,
+        stream: u64,
+        frame: &FrameView<'_>,
+    ) -> Result<Answer, ErrorReply> {
+        let asked = SubscribeView::from_frame(frame).map_err(|rule| ErrorReply::protocol(&rule))?;
+        if self.subscription.is_some() {
+            return Err(ErrorReply::new(
+                ErrorCode::Protocol,
+                "this connection holds a subscription already",
+            ));
+        }
+        self.shared.owner.subscribe(asked.from()).await?;
+        self.subscription = Some((stream, asked.from()));
+        Ok(Answer::Open)
+    }
+
+    async fn close_request(&self, frame: &FrameView<'_>) -> Result<Answer, ErrorReply> {
+        let asked =
+            CloseRequestView::from_frame(frame).map_err(|rule| ErrorReply::protocol(&rule))?;
+        self.shared.owner.close_request(asked.epoch()).await?;
+        Ok(Answer::Done)
+    }
+}
+
+impl Session for RoleSession {
+    async fn answer(&mut self, stream: u64, frame: &FrameView<'_>) -> Answer {
+        let command = frame.command();
+        let answer = if command == Command::Join {
+            self.join(stream, frame).await
+        } else if command == Command::Members {
+            self.members(stream, frame).await
+        } else if command == Command::Lease {
+            self.lease(stream, frame).await
+        } else if command == Command::Placement {
+            self.placement(stream, frame).await
+        } else if command == Command::Catalog {
+            self.catalog(stream, frame).await
+        } else if command == Command::Subscribe {
+            self.subscribe(stream, frame).await
+        } else if command == Command::CloseRequest {
+            self.close_request(frame).await
+        } else {
+            Err(ErrorReply::new(
+                ErrorCode::Unavailable,
+                format!("command {} is not hosted here yet", command.number()),
+            ))
+        };
+        answer.unwrap_or_else(Answer::Refuse)
+    }
+
+    /// The next close of this connection's subscription. Its cursor moves only once a close came back, and a wait dropped
+    /// for a request that arrived first asks again, so a close is neither lost nor sent twice.
+    async fn next_push(&mut self) -> (u64, Vec<u8>) {
+        loop {
+            let Some((stream, after)) = self.subscription else {
+                return std::future::pending().await;
+            };
+            let close = match self.shared.owner.next_close(after).await {
+                Ok(close) => close,
+                Err(refusal) => {
+                    // A subscriber too far behind for the closes held has nothing left to read here.
+                    tracing::warn!(after, message = refusal.message(), "a subscription ended");
+                    self.subscription = None;
+                    continue;
+                }
+            };
+            let cluster = self.shared.cluster.id();
+            match close_frame(cluster, stream, &close) {
+                Ok(frame) => {
+                    self.subscription = Some((stream, close.epoch().get()));
+                    return (stream, frame);
+                }
+                Err(error) => {
+                    tracing::error!(%error, "a close could not be framed");
+                    self.subscription = None;
+                }
+            }
+        }
+    }
+
+    fn cancelled(&mut self, stream: u64) {
+        if self.subscription.is_some_and(|(held, _)| held == stream) {
+            self.subscription = None;
+        }
+    }
+}
+
+/// `close` as the one EpochClose frame it takes: its lists hold at most 4,352 records of 16 bytes, well inside the
+/// smallest `max_frame` a peer may announce, so `more` is never set.
+fn close_frame(
+    cluster: u64,
+    stream: u64,
+    close: &Close,
+) -> Result<Vec<u8>, ultragraphdb_error_protocol::ProtocolError> {
+    let mut body =
+        EpochClose::new(close.epoch().get(), close.time_us()).with_placement(close.placement());
+    let mut announcements: Vec<(u64, u64)> = close
+        .catalog()
+        .iter()
+        .map(|version| (version.namespace().get(), version.version()))
+        .collect();
+    announcements.sort_unstable();
+    for (namespace, version) in announcements {
+        body.push_announcement(CatalogAnnouncement::new(namespace, version));
+    }
+    let mut evictions = close.evictions().to_vec();
+    evictions.sort_unstable();
+    for session in evictions {
+        body.push_eviction(session.to_be_bytes());
+    }
+    body.frame(Header::new(cluster, Command::EpochClose).with_stream(stream))
+}
+
+/// The Join's own fields, held past its frame.
+fn joined(join: &JoinView<'_>) -> Join {
+    if join.kind() == RoleKind::Compute {
+        return Join::compute(join.address());
+    }
+    let partitions = (0..join.partition_count())
+        .filter_map(|index| join.partition(index))
+        .collect::<Vec<u32>>();
+    Join::storage(join.address(), partitions)
+}
+
+fn built<B: BodyBuilder>(body: &B, header: Header) -> Result<Answer, ErrorReply> {
+    body.frame(header)
+        .map(Answer::Reply)
+        .map_err(|rule| ErrorReply::protocol(&rule))
+}
+
+fn stopped() -> ErrorReply {
+    ErrorReply::new(ErrorCode::Unavailable, "the frontend's owner stopped")
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a deadline in the shell, which no simulation replays"
+)]
+fn now() -> Instant {
+    Instant::now()
+}
+
+/// Connects back to the role that joined at `text`, retrying until the deadline; the first partition reached makes the
+/// frontend ready. A connection a later Join of the address brings replaces this one.
+async fn connect_back(shared: RoleShared, text: String, kind: RoleKind) {
+    let Ok(address) = Address::parse(&text) else {
+        tracing::warn!(address = %text, "a role joined at an address that does not parse");
+        return;
+    };
+    let due = now() + shared.cluster.deadline();
+    let name = ServiceRole::Frontend.to_string();
+    loop {
+        let secret = shared.cluster.secret().password();
+        match RoleClient::dial(&address, shared.cluster.id(), &name, secret).await {
+            Ok(client) => {
+                let _replaced = shared.peers.borrow_mut().insert(text, client);
+                if kind == RoleKind::Storage {
+                    shared.readiness.set(true);
+                }
+                return;
+            }
+            Err(error) if now() >= due => {
+                tracing::warn!(address = %text, %error, "the frontend could not connect back");
+                return;
+            }
+            Err(_) => compio::time::sleep(RETRY).await,
+        }
+    }
+}

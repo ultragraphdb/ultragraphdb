@@ -58,12 +58,7 @@ where
     let _telemetry = init(&TelemetryConfig::new("info", LogFormat::Plain))
         .map_err(|error| RoleError::unavailable(format!("telemetry: {error}")))?;
     let stop = stop_flag()?;
-    let (runtime, asked) = role_runtime(start.config())?;
-    let cpu = binding(
-        start.config().runtime().pin_cores(),
-        asked,
-        thread_allowed(),
-    );
+    let (runtime, cpu) = core_runtime(start.config(), 0)?;
     runtime.block_on(serve_service(kind, &start, cpu, &stop, role))
 }
 
@@ -128,13 +123,22 @@ fn stop_flag() -> Result<Arc<AtomicBool>, RoleError> {
     Ok(stop)
 }
 
-/// The role's runtime, bound to the first CPU it is permitted when the settings ask and the platform can say what it
-/// holds. A platform without `/proc` gets no request at all: macOS would take it as no more than a cache hint.
-fn role_runtime(config: &ServiceConfig) -> Result<(Runtime, Option<usize>), RoleError> {
-    let asked = (config.runtime().pin_cores() == Some(true))
+/// A runtime for the calling thread, the role's `core`th, from 0, and what became of its binding: to the `core`th CPU it
+/// is permitted when the settings ask and the platform can say what it holds. A platform without `/proc` gets no request
+/// at all: macOS would take it as no more than a cache hint.
+///
+/// # Errors
+///
+/// [`RoleError::unavailable`] when the runtime cannot be built.
+pub fn core_runtime(
+    config: &ServiceConfig,
+    core: usize,
+) -> Result<(Runtime, CpuBinding), RoleError> {
+    let pin_cores = config.runtime().pin_cores();
+    let asked = (pin_cores == Some(true))
         .then(thread_allowed)
         .flatten()
-        .and_then(|allowed| allowed.first().copied());
+        .and_then(|allowed| allowed.iter().nth(core).copied());
     let mut builder = Runtime::builder();
     if let Some(cpu) = asked {
         let _builder = builder.thread_affinity(HashSet::from([cpu]));
@@ -142,7 +146,7 @@ fn role_runtime(config: &ServiceConfig) -> Result<(Runtime, Option<usize>), Role
     let runtime = builder
         .build()
         .map_err(|error| RoleError::unavailable(format!("the runtime: {error}")))?;
-    Ok((runtime, asked))
+    Ok((runtime, binding(pin_cores, asked, thread_allowed())))
 }
 
 /// The CPUs the calling thread may run on, or `None` where the operating system does not say.
