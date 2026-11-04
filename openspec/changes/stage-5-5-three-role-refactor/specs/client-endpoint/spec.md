@@ -9,6 +9,20 @@ connection's streams, prepared statements and pending requests, answering past a
 - **WHEN** the frontend allows 2 connections and a third client connects
 - **THEN** the third connection is refused with the limit error, and the first two keep working
 
+### Requirement: One owner answers for the metadata group
+The frontend SHALL run its metadata group, sequencer and session registry on one owning core, and its connections on
+endpoint cores, which SHALL hold no copy of what the owner decides. An endpoint core SHALL ask the owner by message for a
+session's owner check on every commit and for a principal's verifier on every authentication, so an eviction takes effect
+for the next commit on any core. An endpoint core MAY gather the checks of one turn into one message.
+
+#### Scenario: An eviction reaches every core at once
+- **WHEN** a session is evicted while a connection on another core holds it, and that connection commits next
+- **THEN** the commit is refused with the eviction's error, and no partition sees it
+
+#### Scenario: A blocked commit does not block other connections
+- **WHEN** one connection's commit waits on its owner check
+- **THEN** reads and writes of other connections on that core go on
+
 ### Requirement: The client endpoint speaks TLS 1.3 when configured
 The frontend's client endpoint SHALL speak TLS 1.3 from the first byte when its `[endpoint]` table names
 `tls_cert_file` and `tls_key_file`, through `ultragraphdb_transport_tls`' acceptor (transport-tls), and clear text only
@@ -57,6 +71,22 @@ stream. A partition's refusal naming another owner SHALL make the frontend refre
 #### Scenario: A stale placement map is corrected
 - **WHEN** a partition refuses a write naming its new owner
 - **THEN** the frontend refreshes its map, resends the write to the owner once, and the client receives the owner's reply
+
+### Requirement: Reads are spread over the compute processes
+The frontend SHALL send each read to the next compute process of its members, round-robin per endpoint core, skipping one
+that does not answer for that read, and SHALL refuse the read with `Unavailable` when none is left.
+
+#### Scenario: Reads alternate between two compute processes
+- **WHEN** two compute processes have joined and a connection sends two reads
+- **THEN** each process receives one
+
+#### Scenario: A silent compute process is skipped
+- **WHEN** one of two compute processes stops answering and a read is sent to it
+- **THEN** the frontend sends the read to the other, and the client receives its rows
+
+#### Scenario: No compute process answers
+- **WHEN** no compute process answers a read
+- **THEN** the client receives `Unavailable`, and its connection stays open
 
 ### Requirement: Errors reach the client through the error table
 Every refusal and failure SHALL reach the client as the wire's error code and detail from one error table, mapping each

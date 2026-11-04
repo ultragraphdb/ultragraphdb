@@ -4,7 +4,17 @@
 A storage process SHALL host the partitions the placement map gives it, each with its own log, its own commit step and
 its own keyspaces, holding the data of its bucket ranges and nothing else. An entity's home SHALL be the partition the
 placement map gives its bucket. A partition SHALL be the same code whether a process hosts one or many. The storage
-binary SHALL host one partition unless configured otherwise.
+binary SHALL host one partition unless configured otherwise. The first storage process to join SHALL form the placement
+when the metadata group holds none, an even map over the partitions it names; in this stage the placement SHALL then stay
+fixed, a process holding its map for its lifetime, and a later join naming other partitions SHALL be refused.
+
+#### Scenario: The first storage process forms the placement
+- **WHEN** a storage process hosting 4 partitions joins a frontend whose metadata group holds no placement
+- **THEN** the metadata group holds an even map over those 4 partitions, and a restart forms none
+
+#### Scenario: A join naming other partitions is refused
+- **WHEN** the placement names 4 partitions and a storage process joins naming 2
+- **THEN** its join is refused with an error naming both counts, and the placement is unchanged
 
 #### Scenario: Two partitions keep their data apart
 - **WHEN** a storage process hosts partitions 1 and 2, and an entity of each partition's buckets is written

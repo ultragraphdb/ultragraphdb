@@ -33,10 +33,16 @@ carriers, and no role SHALL ask which carrier it runs on.
   run's, apart from the transport's own framing
 
 ### Requirement: The supervisor starts, stops and reports the roles
-The supervisor SHALL start the frontend, then storage, then compute, each once its predecessor reports ready; SHALL
-restart no role on its own; SHALL forward SIGTERM and SIGINT; SHALL stop the roles in the shutdown order; and SHALL exit
+The supervisor SHALL start the frontend and wait for its `/health`, then start storage and wait for its `/ready`, then
+start compute and wait for its `/ready`, and then wait for the frontend's `/ready`, since the frontend is ready only once
+a storage partition answers it. Storage and compute SHALL retry joining until their deadline, so neither needs the
+frontend's recovery to have ended. The supervisor SHALL restart no role on its own; SHALL forward SIGTERM and SIGINT; SHALL stop the roles in the shutdown order; and SHALL exit
 with the exit code of the first role that failed, 128 plus the signal's number for a role a signal killed, or 0 after a
 clean shutdown.
+
+#### Scenario: The start order reaches readiness
+- **WHEN** the supervisor starts the three roles
+- **THEN** every role's `/ready` answers, the frontend's last, and no role waited on one that was waiting on it
 
 #### Scenario: A failing role ends the container with its code
 - **WHEN** the storage process exits with code 74 while the others run
@@ -65,9 +71,43 @@ and sync what its logs hold before it exits.
 - **WHEN** storage receives SIGTERM after acknowledging commits
 - **THEN** every acknowledged commit is applied to its store before it exits, and a restart replays nothing
 
+### Requirement: One service configuration maps the settings file one to one
+Every binary SHALL read its settings through one `ServiceConfig` of `ultragraphdb_common_service_config`, which SHALL
+hold one type per TOML table and one field per setting, named as the file names them, so a file's table and key name one
+field and a field names one table and key. A file SHALL be optional: with none named, the settings SHALL come from the
+environment alone, and none SHALL take a default the crate invents. A file named and unreadable SHALL be refused, naming
+the file. A table no type mirrors SHALL be refused even when empty, and so SHALL a variable beginning `ULTRAGRAPHDB_` that
+names no setting, since a misspelled variable is otherwise silently ignored. A role SHALL refuse a setting it requires
+and the configuration lacks, naming the setting. A variable's value SHALL be read as the setting's kind, and one that
+is not SHALL be refused naming the variable.
+
+#### Scenario: A file's settings reach their fields
+- **WHEN** a file holds `[storage] partition_count = 4` and `[cluster] role_secret_file = "/run/secret"`
+- **THEN** the configuration's storage table holds 4 partitions and its cluster table that file
+
+#### Scenario: No file leaves the environment alone
+- **WHEN** no file is named and `ULTRAGRAPHDB_STORAGE_PARTITION_COUNT=2` is set
+- **THEN** the storage table holds 2 partitions and every other setting is absent
+
+#### Scenario: A named file that cannot be read stops the start
+- **WHEN** a file is named that does not exist
+- **THEN** the configuration is refused with an error naming the file
+
+#### Scenario: An empty unknown table is refused
+- **WHEN** a file holds the header `[storge]` and no key
+- **THEN** the configuration is refused with an error naming `storge`
+
+#### Scenario: A misspelled variable is refused
+- **WHEN** `ULTRAGRAPHDB_STORAGE_PARTITON_COUNT=2` is set
+- **THEN** the configuration is refused with an error naming the variable
+
+#### Scenario: A variable of the wrong kind is refused
+- **WHEN** `ULTRAGRAPHDB_STORAGE_PARTITION_COUNT=many` is set
+- **THEN** the configuration is refused with an error naming the variable and the integer it expected
+
 ### Requirement: Configuration is explicit and validated at start
-Each role SHALL read its settings from one standard TOML file, parsed by `ultragraphdb_tool_toml` (settings-toml),
-with an environment variable `ULTRAGRAPHDB_<TABLE>_<KEY>`, the table and key in upper case, overriding the file's
+Each role SHALL read its settings from one standard TOML file when one is named, parsed by `ultragraphdb_tool_toml`
+(settings-toml), with an environment variable `ULTRAGRAPHDB_<TABLE>_<KEY>`, the table and key in upper case, overriding the file's
 value. Every table and setting name SHALL use only `a`–`z`, `0`–`9` and `_`, so each maps to one variable and back; a
 file naming any other SHALL be refused as an unknown setting. A role SHALL refuse to start on an unknown setting, a malformed
 file, a missing required setting or a value out of its bounds, naming the setting and the bound, and SHALL exit with

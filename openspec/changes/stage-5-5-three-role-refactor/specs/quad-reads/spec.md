@@ -29,6 +29,64 @@ only its partition (partitions, "A read-write transaction stays within one parti
 - **WHEN** a read leaves its subject and object unbound over two partitions that each hold matching rows
 - **THEN** compute returns the rows of both partitions merged in key order
 
+### Requirement: Storage's read kernel answers what compute scans
+Storage SHALL answer a Scan with the entries of its key ranges at the version the Scan names, each key once with its
+value visible at that version, in key order, each range at most the Scan's limit: from a keyspace of lists, the dictionary
+or the referrer sets, and no other. An answer at a closed epoch SHALL wait until the partition has closed that epoch.
+Compute SHALL decode what the entries hold and SHALL name every term by its text in what it returns.
+
+#### Scenario: A dictionary and a referrer set are read by Scan
+- **WHEN** compute scans the dictionary entry of `<b>` and `R(b)` at `b`'s home
+- **THEN** the answer holds `b`'s ID and its referrer set's members at that version
+
+#### Scenario: A keyspace outside the kernel's is refused
+- **WHEN** a Scan names a range of the marks keyspace
+- **THEN** it is refused with a protocol error naming the keyspace
+
+### Requirement: A read through compute is a read of its transaction
+A read of a read-write transaction SHALL reach the partition as a Scan naming the transaction, and SHALL see that
+transaction's own writes: every write the client sent before the read was answered before the frontend sent the read,
+and the partition SHALL read the transaction's version with its uncommitted writes over it. Before an entry leaves the
+partition, the span holding it SHALL be recorded in the transaction's reads: to the end of a range that ended, found
+nothing included, and to just past the last entry of a range stopped at its limit. Commit SHALL validate those spans as
+ranges scanned (transactions, "What a transaction's reads record and what conflicts with them"), against every list a
+commit writes. A span the read set cannot hold SHALL end the transaction, and no entry of it SHALL be sent.
+
+#### Scenario: A read sees its transaction's own write
+- **WHEN** a transaction writes `<a> <knows> <b>`, the write is answered, and the same transaction reads `<a> <knows> ?o`
+  before committing
+- **THEN** the read returns `<b>`, and a read by any other transaction does not
+
+#### Scenario: A read waits for a write sent before it
+- **WHEN** a client sends a write and then a read of its transaction on another stream, without waiting for the write's
+  reply
+- **THEN** the frontend sends the read to compute only after the write is answered, and the read returns the write
+
+#### Scenario: A scanned range conflicts with an insert into it through compute
+- **WHEN** transaction T1 reads `<a> <knows> ?o` through compute, finding nothing, transaction T2 commits `<a> <knows> <b>`,
+  and T1 commits a write
+- **THEN** T1 aborts with a conflict of kind Range
+
+#### Scenario: A reverse range conflicts with an edge whose reverse entry lands in it
+- **WHEN** transaction T1 reads `?s <knows> <b>` through compute, transaction T2 commits `<c> <knows> <b>` in the same
+  partition, and T1 commits a write
+- **THEN** T1 aborts with a conflict of kind Range
+
+#### Scenario: A range stopped at its limit conflicts only with what it returned
+- **WHEN** T1 reads with limit 1 a range holding `<a>` and `<z>`, T2 commits an insert past `<a>` that T1's read did not
+  reach, and T1 commits without resuming
+- **THEN** T1 commits
+
+#### Scenario: Resuming records the rest
+- **WHEN** T1 reads with limit 1, resumes to the range's end, T2 commits an insert into the resumed part, and T1 commits a
+  write
+- **THEN** T1 aborts with a conflict of kind Range
+
+#### Scenario: A read past the read set's room ends its transaction
+- **WHEN** a transaction's reads leave no room for a span
+- **THEN** the read is refused with `TooLarge`, no entry of that span reaches the client, and the transaction's next
+  request is refused
+
 ### Requirement: A reverse read asks the object's referrers
 A reverse read of an entity `o` at epoch `e` SHALL first read `o`'s referrer set at `e` (partitions, "An entity's
 referrer set names where its inbound edges may be") at `o`'s home, once the home has closed `e`; it SHALL then resolve

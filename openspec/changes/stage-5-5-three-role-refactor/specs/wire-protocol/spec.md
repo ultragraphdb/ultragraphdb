@@ -121,6 +121,7 @@ answer one batch flagged last, with no rows.
 ### Requirement: Roles exchange role commands
 Roles SHALL exchange role commands in the same frames as clients, in a command range clients may not send: routing a
 write or a read to a partition, a reverse read's request to the partitions an entity's referrer set names included,
+joining the cluster at the frontend's address and learning its members,
 registering a reference at an entity's home and its reply, delivering epoch closes with the catalog versions they assign
 and the session evictions they carry, a partition's request for a close, leasing a sequence block, reading the placement
 map and a catalog version, and verifying a principal's proof. A role command arriving on a client connection SHALL be

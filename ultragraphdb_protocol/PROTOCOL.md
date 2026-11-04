@@ -920,7 +920,7 @@ Order: unused bytes 2–7 and 16–127 zero; `code`; sections; the term table (1
 | 3 | TooOld | yes | 0 | The read version is below what validation still holds |
 | 4 | PastLimit | yes | the limit in milliseconds | The transaction lived past its limit, the Welcome's `transaction_ms` |
 | 5 | Busy | yes | 0 | The commit queue is full; or the partition's epoch is full and its close request has gone unanswered for `close_request_ms`, the sequencer counting as unreachable until the close arrives (section 11.12) |
-| 6 | TooLarge | no | the limit in bytes | A write set exceeds the Welcome's `max_write_set`, as sent or as its commit-time operations leave it (section 11.9) |
+| 6 | TooLarge | no | the limit in bytes | A write set exceeds the Welcome's `max_write_set`, as sent or as its commit-time operations leave it (section 11.9); or a transaction's reads exceed what its read set holds |
 | 7 | Refused | no | 0; for a term's rule, the term's index; for a declaration, its record's index | The catalog refused a write, a term broke the server's rules (section 4.4), or a declaration was refused: a vector index in this stage, a transaction mixing declarations with other changes, or a type change the data contradicts (section 11.13) |
 | 8 | OperationFailed | no | 0 | A compare-and-set did not hold; sections 1 and 2 hold the value found |
 | 9 | StaleStatement | no | the statement | The statement's schema id no longer matches its namespace's |
@@ -1461,7 +1461,13 @@ it verifies a client's proof in its own process; stage 8's frontends send them t
 **Joining.** Storage and compute are configured with the frontend's role address alone. Each connects to it and sends
 Join, naming its own role address and, for storage, the partitions it hosts; the frontend connects back to that
 address for the requests it sends the role. Storage and compute learn where each partition and each compute process
-listen from Members, and which partition owns a bucket at an epoch from Placement.
+listen from Members, and which partition owns a bucket at an epoch from Placement. Storage and compute retry Join until
+their deadline, so the frontend's recovery need not have ended when they start.
+
+The first storage process to Join forms the placement when the metadata group holds none: an even map over the partitions
+it names. A later Join naming other partitions is refused with Error 1 (Protocol), the message naming both. In this stage
+the placement is fixed once formed, and a process holds its map for its lifetime; moving bucket ranges arrives with stage
+8.
 
 **Epochs.** Storage sends Subscribe on its connection to the frontend, naming the last close it holds, and the frontend
 answers on that stream with an EpochClose per close, in order: first each close the sequencer recorded after the one
@@ -1533,6 +1539,14 @@ partition and identity once bound, the read version or epoch it reads at, its fl
 until its deadline. A read-write transaction binds before its first read reaches compute. The frontend relays
 compute's Result frames on the client's stream, and takes from them the epoch a monotonic-fast read answered at, the
 floor of the transaction's next read, and the partition a level-1 transaction's first read bound it to.
+
+The frontend sends each ComputeRead to the next compute process of Members, round-robin per endpoint core; one that does
+not answer is skipped for that read, and with none left the read is refused with code 17 (Unavailable). It sends a read
+of a read-write transaction only once every write request the client sent on the transaction's stream before it has been
+answered, holding the read until then, so the read sees those writes, whichever connection carries it. Compute reaches the
+partition on a connection of its own, so this order is the frontend's to keep. A transaction ended while a read is under
+way is refused at the partition as one it does not hold; the frontend then answers the read with the reason the Bind
+stream gave, such as code 4 (PastLimit), not the partition's refusal.
 
 Compute reads through storage's read kernel, Scan (section 13.13): key ranges of the partitions one storage process
 hosts, at a version, each bounded by a row limit, in key order, batched per process. It resolves the pattern's terms to
@@ -2169,11 +2183,39 @@ system IDs.
 The keys follow each other with no gap: range 0's first key starts at 0, each key starts where the one before ends, and
 section 1 ends with the last. With `at` 4, a partition holding `read_version` above its visibility watermark refuses
 the Scan at once with code 27 (AheadOfWatermark), `detail` the watermark, and one no longer retaining it with code 3
-(TooOld). A Scan naming a transaction reads its partition alone, at the transaction's version, and the partition records
-each range in the transaction's reads as transactions record a range scanned (conflict kind Range, section 9.4); a
-range of the dictionary keyspace records no range, and each term it finds absent is recorded as an absent term
-(conflict kind AbsentTerm). A range ending at its limit continues with a new Scan whose first key is the last entry's
-key followed by a zero byte.
+(TooOld). A range ending at its limit continues with a new Scan whose first key is the last entry's key followed by a
+zero byte.
+
+A range reads one keyspace: a keyspace of lists, the dictionary or the referrer sets. A range of any other keyspace is
+refused with Error 1 (Protocol), the message naming the keyspace.
+
+**A Scan naming a transaction** is a read of that transaction, and what it answers and records is what makes the
+transaction's commit serializable:
+
+- It sets `at` 1, `read_version` the Bind's answer (section 13.10), `epoch` 0, and `principal` the transaction's. A Scan
+  whose version or principal is not the transaction's is refused with Error 1 (Protocol), the message naming the field.
+- It reads the transaction's partition alone, at that version with the transaction's own uncommitted writes over it, so
+  a read sees what the transaction wrote in an earlier request: a list holds what the transaction added and lacks what it
+  removed, a list it emptied is absent, and a term it created is found. Those writes are the ones the partition
+  acknowledged before the Scan arrived; the frontend orders them (section 11.12, *Reads*).
+- It reads a keyspace of lists or the dictionary. A range of the referrer sets is refused with Error 1 (Protocol): a
+  read-write transaction reads no other partition, so it has no referrer set to ask.
+- Before it sends an Entries frame, the partition records in the transaction's reads the span that frame covers, so no
+  entry reaches compute unrecorded. A span runs from the range's first key, or from where the range's previous span
+  ended, to the frame's last entry's key followed by a zero byte; the frame ending a range with `end` 1 covers through the
+  range's past key, including a range that found nothing, which is what proves absence and catches a later insert into
+  it. A range stopped at the Scan's `limit`, `end` 2, covers only what it returned, so a write past it conflicts with
+  nothing the transaction read, and the Scan continuing it records the rest. A span touching the range's previous span
+  extends it, so a long scan holds one range in the read set however many frames it took.
+- A span of a keyspace of lists is a range scanned (conflict kind Range, section 9.4). A range of the dictionary records
+  no range, and each term it finds absent is recorded as an absent term (conflict kind AbsentTerm).
+- A span the read set has no room for ends the transaction with code 6 (TooLarge), `detail` the limit in bytes, and no
+  entry of that span is sent.
+
+Commit validates what these spans record as it does a range the partition scanned itself, by the table of *What a
+transaction's reads record*: a key inside the range, a statement whose list key is inside it, or a range sharing a key
+with it, written above the transaction's read version, aborts the commit. Every list a commit writes counts, forward,
+reverse, predicate lists and indexes alike.
 
 Order: unused bytes 1–7 and 52–127 zero; `at`; `read_version` 0 for `at` 2 and 3; `epoch` an epoch, and 0 for `at` 4
 (`FieldValue` `"epoch"`); sections; section 0 a whole number of 24-byte ranges (`SectionLength`) and not empty

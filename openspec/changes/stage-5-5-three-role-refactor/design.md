@@ -46,6 +46,7 @@ Today:
 - Replication, VSR, preferred-leader enforcement, replica placement (P8), follower reads, the epoch agent per node
   (P12), node budgets (P4, P11), flush sharing behind the log interface (P10 builds only the interface), the bulk loader
   (P3), backup and restore (P24 rule 10): stage 8.
+- Moving bucket ranges at run time: stage 8. Here the first storage process forms the placement and it stays fixed.
 - Bolt, the web UI and the vector indexer in the server path (decided 2026-11-01): stage 8 or 9.5.
 - UGS keys and declared types: stage 6. This stage knows the built-in `Resource` and `Statement` types only.
 - SPARQL, GQL and query planning: stage 7. Reads are quad patterns.
@@ -68,10 +69,11 @@ Today:
 | `ultragraphdb_cluster_metadata` | `ultragraphdb_cluster/` | `_cluster_placement`, `_core_ids`, `_error_cluster`, `ultragraphdb_traits_log`, `ultragraphdb_protocol_scram` | The metadata group's sans-I/O state machine: catalog versions, block leases, the placement map, principals, snapshots |
 | `ultragraphdb_cluster_partition` | `ultragraphdb_cluster/` | `_cluster_placement`, `_core_ids`, `ultragraphdb_transactions_*`, `ultragraphdb_store_*` | A partition: its log, commit step and store over its bucket ranges; routing checks; registration as a home and as a referrer; referrer sets; the read kernels |
 | `ultragraphdb_roles_frontend` | `ultragraphdb_roles/` | `_cluster_metadata`, `_cluster_sequencer`, `ultragraphdb_protocol_*` | The client endpoint, authentication, routing, the metadata group's and sequencer's hosts |
-| `ultragraphdb_roles_compute` | `ultragraphdb_roles/` | `_cluster_placement`, `ultragraphdb_protocol_*` | Quad-pattern reads over storage's kernels: routing by bucket, reverse reads through referrer sets, fan-out, merge in key order, resume keys, levels |
+| `ultragraphdb_roles_compute` | `ultragraphdb_roles/` | `_cluster_placement`, `_core_keys`, `_core_terms`, `ultragraphdb_protocol_*`; no storage engine | Quad-pattern reads over storage's kernels: routing by bucket, reverse reads through referrer sets, fan-out, merge in key order, resume keys, levels |
 | `ultragraphdb_roles_storage` | `ultragraphdb_roles/` | `_cluster_partition`, `ultragraphdb_protocol_*` | The partitions' host: role commands, epoch delivery, block leases |
+| `ultragraphdb_common_service_config` | `ultragraphdb_common/` | `ultragraphdb_tool_toml` | `ServiceConfig`: one type per TOML table and one field per setting, shared by every binary; the optional file, the environment's overrides, `ServiceConfigError` |
 | `ultragraphdb_tool_toml` | `ultragraphdb_tool/` | — | The TOML subset's parser, its document and typed accessors, `TomlError` (unsupported feature, invalid document, limit, missing, wrong kind, unread key); no external dependency |
-| `ultragraphdb_frontend`, `_compute`, `_storage`, `_supervisor` | `ultragraphdb/` | their role crate, `ultragraphdb_common_telemetry` | `main`: configuration, telemetry, the runtime, health, signals; `_supervisor` starts and stops the three roles |
+| `ultragraphdb_frontend`, `_compute`, `_storage`, `_supervisor` | `ultragraphdb/` | their role crate, `ultragraphdb_common_service_config`, `ultragraphdb_common_telemetry` | `main`: configuration, telemetry, the runtime, health, signals; `_supervisor` starts and stops the three roles |
 
 A role crate holds its role's logic and its I/O shell; a binary holds only `main`. The frontend's dependency graph
 holds no storage engine, which the role-binaries scenario checks. An error takes a crate of its own under `ultragraphdb_error/` only when more than one crate raises it
@@ -325,6 +327,22 @@ text is always a visible choice. `ultragraphdb_transport_tls` gains `TlsAcceptor
 rustls's connection driven by bytes in and bytes out, so the blocking socket, the compio transport and the tokio client
 shell drive the same code.
 
+The core directive orders these choices: correctness, then performance, then scale. The frontend's metadata group,
+sequencer and session registry have one owning core, and endpoint cores ask it by message for each commit's owner check and
+each authentication's verifier, holding no copy: a stale copy would let a partition take an evicted session for a new one,
+breaking exactly-once. The hop is paid by commits alone, which wait for a durable log anyway, and a turn's checks share one
+message. A read of a read-write transaction reaches its partition through compute, on a connection apart from the Bind
+stream, so the frontend holds it until the client's earlier writes are answered, and the partition records each entry's span
+before sending it: the read set covers everything the client could have seen, and no more, so a stopped read conflicts with
+nothing it did not return. Read-only reads pay none of this. A Scan naming a transaction reads through its overlay; the
+kernel's plain path stays as it is.
+
+Role binaries are tested as processes, as scrith's services are: a tests crate copies each binary into the Bazel sandbox
+with `copy_file`, starts it through `service_utils` and waits on `/health` or `/ready`, dependencies first, and drives it
+with the actual client. These tests need no container, so Bazel caches them; they declare fixed ports through the roles'
+specs crates and carry `exclusive` so none runs beside another, tagged `integration_test` and run as their own group of
+`scripts/test.sh`. `/health` and `/ready` therefore exist in every role from its first commit, ahead of the role's logic.
+
 The frontend endpoint takes stage 5's server source material from backlog items 2 and 3: connections bound per core,
 the handshake, SCRAM against the metadata group's principals, sessions, routing by bucket, statement caches, the
 error table. Compute asks storage's read kernel — a scan of one keyspace's range at a version, bounded by a row limit —
@@ -343,7 +361,10 @@ Each binary reads its settings from a standard TOML file, one table per concern 
 exactly the TOML subset the settings use (bare-named tables, bare keys, basic strings, decimal integers, booleans,
 comments), refusing every other feature by name. A document it accepts parses as any TOML 1.0 parser would read it, so
 the files stay standard; a new setting needing new syntax extends the parser, not the dependency list. A role reads its
-settings through typed accessors and then refuses any key it did not take, so a misspelled setting stops the start; an
+settings through `ultragraphdb_common_service_config`'s `ServiceConfig`, whose types mirror the file table for table and
+key for key, which takes every setting and refuses any other, so a misspelled setting stops the start. The crate sits
+below the cluster crates, so it checks a value's kind and leaves its bound to the constructor of the domain type it
+configures (`SequencerConfig::new`, `MetadataConfig`), the one place each bound is stated. An
 environment variable `ULTRAGRAPHDB_<TABLE>_<KEY>` overrides a file value, and every setting's bound is checked after
 both are read. Storage and compute register with the frontend at its address, so no setting is a list and the subset
 needs no arrays. Its independent test source is the toml-test suite's valid and invalid documents, vendored as data
