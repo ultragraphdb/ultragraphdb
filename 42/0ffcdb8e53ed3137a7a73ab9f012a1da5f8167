@@ -1,0 +1,51 @@
+Cargo.lock
+  s_6c9dcf457e80d9::t_5ea96c1ba2c6c8 2976,3714-3738
+Cargo.toml
+  s_6c9dcf457e80d9::t_bc5be05b6daa65 111-112
+fuzz/Cargo.toml
+  s_6c9dcf457e80d9::t_3e294966d946f3 42-43
+fuzz/ultragraphdb_transport_http_client/Cargo.toml
+  s_6c9dcf457e80d9::t_81c9a5fcb1fe51 1-31
+fuzz/ultragraphdb_transport_http_client/fuzz_targets/http_reply.rs
+  s_6c9dcf457e80d9::t_6e47bc935882cc 9,11-12,14-16,18-24
+fuzz/ultragraphdb_transport_http_server/Cargo.toml
+  s_6c9dcf457e80d9::t_59fe80805af432 5,9,23,25,28-29
+fuzz/ultragraphdb_transport_http_server/fuzz_targets/http_request.rs
+  s_6c9dcf457e80d9::t_374e6e4bf6645d 6-33
+openspec/changes/stage-5-5-three-role-refactor/design.md
+  s_6c9dcf457e80d9::t_acc3f92e88333e 79-84,414-415,418-420,424,426-427,431-481
+openspec/changes/stage-5-5-three-role-refactor/proposal.md
+  s_6c9dcf457e80d9::t_0a64c54f1fc843 34-38,82-83
+openspec/changes/stage-5-5-three-role-refactor/specs/config-service/spec.md
+  s_6c9dcf457e80d9::t_49b56b29743620 1-307
+openspec/changes/stage-5-5-three-role-refactor/specs/role-binaries/spec.md
+  s_6c9dcf457e80d9::t_ab9328b3924af0 8-9,36,39,44-46,78,86,95-98,109-115,118,121-127,163
+openspec/changes/stage-5-5-three-role-refactor/tasks.md
+  s_6c9dcf457e80d9::t_f4fb2a3fb5093d 113-123
+ultragraphdb_common/ultragraphdb_common_service/Cargo.toml
+  s_6c9dcf457e80d9::t_1ec2da304f8542 28
+ultragraphdb_common/ultragraphdb_common_service/src/lib.rs
+  s_6c9dcf457e80d9::t_8bf7cf81e0880e 13
+ultragraphdb_common/ultragraphdb_common_service/src/types/health_service.rs
+  s_6c9dcf457e80d9::t_2e174fb04895e9 6,8,10-13,16-21,23-32,36-39
+ultragraphdb_common/ultragraphdb_common_service/src/types/mod.rs
+  s_6c9dcf457e80d9::t_62465196b03161 7
+ultragraphdb_common/ultragraphdb_common_service/src/utils/run_service.rs
+  s_6c9dcf457e80d9::t_a9306d9e5370f8 15,20,23,197-198,201-204
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "420ffcdb8e53ed3137a7a73ab9f012a1da5f8167",
+  "prompts": {},
+  "sessions": {
+    "s_6c9dcf457e80d9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9e223492-f4c5-4f68-93b3-4ec87d773715",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
