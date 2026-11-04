@@ -1,0 +1,43 @@
+AGENTS.md
+  s_6c9dcf457e80d9::t_07f49cfa8ef6f2 228,252
+Cargo.lock
+  s_6c9dcf457e80d9::t_3f8c45b90717b6 2285-2293,3406,3732-3737
+Cargo.toml
+  s_6c9dcf457e80d9::t_cbd98e9e0d7bea 138
+MODULE.bazel.lock
+  s_6c9dcf457e80d9::t_3fe1b7fafa5065 1041,1139
+openspec/changes/stage-5-5-three-role-refactor/design.md
+  s_6c9dcf457e80d9::t_75abc1946fffb2 381
+openspec/changes/stage-5-5-three-role-refactor/notes/group-9.md
+  s_6c9dcf457e80d9::t_af3fc0a3fa9528 16
+openspec/changes/stage-5-5-three-role-refactor/tasks.md
+  s_6c9dcf457e80d9::t_d59a8d2c223531 107
+ultragraphdb/ultragraphdb_compute/BUILD.bazel
+  s_6c9dcf457e80d9::t_ab8b0498aa2b07 20,27
+ultragraphdb/ultragraphdb_frontend/BUILD.bazel
+  s_6c9dcf457e80d9::t_cbe580b6b10c35 20,27
+ultragraphdb/ultragraphdb_storage/BUILD.bazel
+  s_6c9dcf457e80d9::t_e861484d11fadd 20,27
+ultragraphdb/ultragraphdb_tests/Cargo.toml
+  s_6c9dcf457e80d9::t_486a9c27b43330 26
+ultragraphdb/ultragraphdb_tests/src/lib.rs
+  s_6c9dcf457e80d9::t_61dd39379c7b80 6
+ultragraphdb/ultragraphdb_tests/tests/bdd.rs
+  s_6c9dcf457e80d9::t_e5b35c0507054f 9,11,14,18,21-26,34,40-73,78-94,106-128,147,153-159,202-206
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6a6fdd2ca568b63d2d387d39f889d5667d5658ec",
+  "prompts": {},
+  "sessions": {
+    "s_6c9dcf457e80d9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9e223492-f4c5-4f68-93b3-4ec87d773715",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
