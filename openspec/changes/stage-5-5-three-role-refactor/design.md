@@ -76,6 +76,12 @@ Today:
 | `ultragraphdb_common_service` | `ultragraphdb_common/` | `_common_service_config`, `_common_telemetry`, `_error_role`, `compio`, `signal-hook` | What every role binary does around its role: reading its settings, its runtimes and their CPUs, `/health` and `/ready` from the in-house responder, stopping on a signal |
 | `ultragraphdb_common_service_config` | `ultragraphdb_common/` | `ultragraphdb_tool_toml` | `ServiceConfig`: one type per TOML table and one field per setting, shared by every binary; the optional file, the environment's overrides, `ServiceConfigError` |
 | `ultragraphdb_tool_toml` | `ultragraphdb_tool/` | — | The TOML subset's parser, its document and typed accessors, `TomlError` (unsupported feature, invalid document, limit, missing, wrong kind, unread key); no external dependency |
+| `ultragraphdb_transport_http_server` | `ultragraphdb_transport/` | `_transport_tls`, `_protocol_transport_compio`, `compio` | HTTP/1.1 as the roles and the config service serve it: requests parsed and bounded in size and time, responses, bearer keys compared in constant time, over TLS or clear text |
+| `ultragraphdb_transport_http_client` | `ultragraphdb_transport/` | `_transport_tls`, `_protocol_transport_compio`, `compio` | HTTP/1.1 as a role asks the config service: requests with a bearer key, responses parsed and bounded in size and time, over TLS or clear text |
+| `ultragraphdb_common_config_check` | `ultragraphdb_common/` | `_common_service_config`, `ultragraphdb_tool_toml` | Reading a central file and its files, and every check of them, each defect stated for an administrator; no store, no network, no key |
+| `ultragraphdb_common_config` | `ultragraphdb_common/` | `_common_config_check`, `_transport_http_server`, `ultragraphdb_traits_log`, `ultragraphdb_transactions_log`, `ultragraphdb_transport_tls` | The config service: its records and state machine over `OrderedLog`, the API |
+| `ultragraphdb_config_check` | `ultragraphdb/` | `_common_config_check` | `main`: the CLI an administrator validates a folder with, statically linked against musl |
+| `ultragraphdb_config` | `ultragraphdb/` | `_common_config`, `_common_service` | `main`, statically linked against musl, on the scratch base |
 | `ultragraphdb_frontend`, `_compute`, `_storage`, `_supervisor` | `ultragraphdb/` | their role crate, `ultragraphdb_common_service`, `mimalloc` | `main`: configuration, telemetry, the runtime, health, signals; `_supervisor` starts and stops the three roles |
 
 A role crate holds its role's logic and its I/O shell; a binary holds only `main`. The frontend's dependency graph
@@ -405,22 +411,73 @@ the files stay standard; a new setting needing new syntax extends the parser, no
 settings through `ultragraphdb_common_service_config`'s `ServiceConfig`, whose types mirror the file table for table and
 key for key, which takes every setting and refuses any other, so a misspelled setting stops the start. The crate sits
 below the cluster crates, so it checks a value's kind and leaves its bound to the constructor of the domain type it
-configures (`SequencerConfig::new`, `MetadataConfig`), the one place each bound is stated. An
-environment variable `ULTRAGRAPHDB_<TABLE>_<KEY>` overrides a file value, and every setting's bound is checked after
-both are read. Storage and compute register with the frontend at its address, so no setting is a list and the subset
+configures (`SequencerConfig::new`, `MetadataConfig`), the one place each bound is stated. A role
+takes those bytes from the config service, and every setting's bound is checked there, before it is served. Storage and compute register with the frontend at its address, so no setting is a list and the subset
 needs no arrays. Its independent test source is the toml-test suite's valid and invalid documents, vendored as data
 with their source, not a crate. The
-profiles are TOML files shipped in the images. `/health` and `/ready` are served by a minimal HTTP/1.1 responder (GET
-only, bounded request size) on the observability port, written in-house: two fixed answers do not earn an HTTP
-library. The supervisor spawns the role binaries with
+profiles are seed targets of the config service, shipped in the images. `/health` and `/ready` are served on the observability port by `ultragraphdb_transport_http_server`, a minimal HTTP/1.1 server
+bounded in size and time, with `ultragraphdb_transport_http_client` the side a role asks with, both written in-house: the config service's few routes and two fixed answers do not earn an
+HTTP library. The supervisor spawns the role binaries with
 `std::process::Command`, waits on readiness over each role's `/ready`, forwards signals, and exits with the first
 failing role's code. Exit codes follow `sysexits`: 0 clean, 69 a lost dependency, 70 an invariant violation, 74 a failed
 store or log, 78 configuration; a role a signal killed is reported as 128 plus the signal, as a shell does. Table and
-setting names use `a`–`z`, `0`–`9` and `_` alone, so each maps to one `ULTRAGRAPHDB_<TABLE>_<KEY>` variable and back.
+setting names use `a`–`z`, `0`–`9` and `_` alone.
 
-Each role image is `glibc_multiarch_img` of its binary; the development image layers the four binaries on the same base
+Each role image is `glibc_multiarch_img` of its binary, and the config service's is `scratch_multiarch_img` of its musl binary, since
+it is not on any request's path; the development image layers the five binaries on the same base
 through a variant of the macro taking several binaries. The seccomp profile, Docker's default plus the three io_uring
 system calls, ships beside the images in `bazel/oci_images/seccomp/`.
+
+### The config service
+
+A database runs on targets no one can list in advance, and one organisation runs several: development, staging, production, a
+standby. So no binary infers its settings from where it runs. One service holds every target's settings, and a role names its
+target and instance and asks. A rolling update's new node therefore takes the settings its neighbours run, and a service not
+answering is one clear diagnostic.
+
+**The store is a log.** Settings are immutable numbered revisions, which is an append-only log with a pointer. So the state is a
+state machine over `OrderedLog`, the shape of the metadata group, with `Wal` today's log. `OrderedLog` is the trait a store
+is swapped behind, and it is the seam stage 8's VSR replaces. So the service takes that replication with no change of its own, and
+no second consensus protocol exists. The log is never trimmed, because a revision is never discarded: settings files are a few
+kilobytes, changed rarely, and a replay at start reads them all. A revision is bounded to fit one round.
+
+**The bytes received are the bytes logged.** A request's body, once validated, is appended as the log record's body with no re-encoding,
+the rule the wire and the write-ahead log follow; a `GET` of a revision's files returns those bytes. Each instance's merged settings
+are rendered once, when a revision is stored or replayed, so a role's fetch is a lookup and a write, with nothing parsed per request. A
+binary protocol would gain nothing more here: validation must precede storage, a sync and a TLS handshake dwarf a copy of a few kilobytes,
+and admins and role starts are rare.
+
+**One instance until stage 8.** The service is one process over one locked directory, so in Kubernetes a StatefulSet of one replica
+with a persistent volume. A store embedded in each pod would give pods that disagree, and a store shared by several frontends adds
+a service with no gain in availability. While the service is down, running roles are unaffected, because a role reads settings only
+at start or when told to load; but no role can start, including one restarting after a crash, and no local copy stands in for it. That
+is accepted until VSR. A crashed process is back in seconds, since replay reads a few kilobytes; a lost machine takes as long as the
+orchestrator takes to move the pod and its volume, which is minutes, during which only role starts wait. A local copy would close
+that gap, and would let a node run settings no one can see. A deployment wanting prod apart from ci runs a service per environment,
+which also separates their keys, since one read key reads every target of its service. A key changes by a restart of the service.
+
+**The service's own log** takes a fixed cluster identity of its own, since it holds several clusters' settings and belongs to none.
+
+**The first thing an administrator meets.** The service and its settings come before any deployment, so a clear refusal is the point of them.
+The central file declares every settings file, and a start reads and validates all of it, so an absent or broken file stops the service with every
+defect listed at once. The same crate backs `ultragraphdb_config_check`, so a folder can be proved good before anything runs. Declared files seed a target
+once; afterwards the API is the authority, and a start still validates the folder and says when it differs from what is stored.
+
+**Validation lives in the service.** The service has what no node has, every instance of a target at once, so it alone can check that
+partitions are covered once and listeners do not collide. A node checks only that it can parse its settings and holds what its role
+requires. A secret's contents are the one thing the service cannot check, since it never holds them.
+
+**A load is a restart.** Few settings could change live, and each that could would need its own care in the code that reads it, so a role
+holds its settings for its process's life. `POST /admin/load-config` fetches and checks first, so a bad request costs nothing, then stops
+through the ordinary shutdown and executes itself again. Keeping the process means a supervisor or Kubernetes sees no failure, and the
+revision to start at passes through the executed process's environment. What only a node's host knows can still stop that start, and then
+the role exits with its code, as at any start. Nodes are told one at a time by an operator: the service calls
+no role, so it holds no list of nodes and no rollout logic. A change rolls out by adding a revision, loading it node by node, and activating
+it last, so a node crashing meanwhile returns to the settings still active; `/health` shows who runs what. A node verifies the admin key
+against its digest, because a key on every node would let one compromised node change every setting.
+
+**Its failure at an upgrade.** A release refusing the active revision stops at start, and while it is stopped no role can start, so such a
+release must be rolled back to the one before it, whose log it did not change. The compatibility rule makes this a mistake, not a routine.
 
 ### Decisions taken in drafting
 

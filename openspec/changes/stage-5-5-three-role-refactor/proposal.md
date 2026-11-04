@@ -31,6 +31,11 @@ placement decision adopted 2026-11-02), the review's D1–D8
   close when it is committed, ID sequence blocks, the placement map (bucket ranges per partition, namespace runs,
   preferred leaders) and the principals, whose credentials authenticate every client connection, and the registry of
   sessions.
+- **The config service:** one service, `ultragraphdb_config`, holds every role's settings for every deployment target as immutable
+  numbered revisions over an ordered log, validates a revision whole before storing it, refuses to start on anything broken, and serves them over authenticated HTTP.
+  `ultragraphdb_config_check` runs the same validation for an administrator before anything starts.
+  Every role takes its settings from it at start, and loads another revision by restarting at an administrator's request. One
+  instance until stage 8's VSR replicates its log.
 - **Partitions (P1–P4, P6, P11, P19, P20, P24):** a storage process hosts partitions, each its own log, commit step and
   keyspaces over the bucket ranges the placement map gives it; one partition by default for stages 6 and 7, N in
   `wal_bench`, each with its own seeded generator exercising registration. A partition is the one owner of every fact
@@ -74,6 +79,8 @@ placement decision adopted 2026-11-02), the review's D1–D8
 - `partitions`: a storage process hosting partitions over bucket ranges, routing by bucket, one owner per fact,
   referrer sets, the epoch inequality, one partition per read-write transaction, the delete refusal, absence by index,
   and the benchmark of N partitions.
+- `config-service`: one service holding every role's settings per deployment target as immutable revisions over an ordered log, its
+  validation, its authenticated API, the roles' bootstrap and loading a revision by restarting.
 - `role-binaries`: the frontend, compute and storage binaries and the supervisor; their images, profiles, transport
   addresses, the role secret, data layout, start, readiness, health, shutdown order, exit codes, seccomp profile and
   I/O fallback.

@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 #
-# The cargo-fuzz package of ultragraphdb_common_service, run by scripts/fuzz.sh; a member of the fuzz workspace in fuzz/.
+# The cargo-fuzz package of ultragraphdb_transport_http_server, run by scripts/fuzz.sh; a member of the fuzz workspace in fuzz/.
 # Its targets call the crate's public decoders only.
 
 [package]
-name = "ultragraphdb_common_service_fuzz"
+name = "ultragraphdb_transport_http_server_fuzz"
 version = "0.0.0"
 edition.workspace = true
 license.workspace = true
@@ -20,13 +20,13 @@ workspace = true
 
 [dependencies]
 libfuzzer-sys = { workspace = true }
-ultragraphdb_common_service = { workspace = true }
+ultragraphdb_transport_http_server = { workspace = true }
 
-# Any bytes on the observability port: an answer that is a complete HTTP response, and a request's
+# Any bytes on an HTTP listener: an answer that is a complete HTTP response, and a request's
 # outcome unchanged by what follows its headers.
 [[bin]]
-name = "health_request"
-path = "fuzz_targets/health_request.rs"
+name = "http_request"
+path = "fuzz_targets/http_request.rs"
 test = false
 doc = false
 bench = false

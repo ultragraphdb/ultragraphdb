@@ -6,6 +6,4 @@
 #[cfg(test)]
 mod cpu_list_tests;
 #[cfg(test)]
-mod http_responder_tests;
-#[cfg(test)]
 mod run_service_tests;

@@ -12,22 +12,20 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use compio::BufResult;
-use compio::io::{AsyncRead, AsyncWriteExt};
-use compio::net::{TcpListener, TcpStream};
+use compio::net::TcpListener;
 use compio::runtime::{Runtime, spawn};
 use ultragraphdb_common_service_config::ServiceConfig;
 use ultragraphdb_common_telemetry::{LogFormat, TelemetryConfig, init};
 use ultragraphdb_error_role::RoleError;
+use ultragraphdb_transport_http_server::{HttpLimits, serve_http};
 
 use crate::types::cpu_binding::CpuBinding;
-use crate::types::health_request::HealthRequest;
+use crate::types::health_service::HealthService;
 use crate::types::readiness::Readiness;
 use crate::types::role_kind::RoleKind;
 use crate::types::role_start::RoleStart;
 use crate::types::stopping::Stopping;
 use crate::utils::cpu_list::allowed_in_status;
-use crate::utils::http_responder::{REQUEST_MAX, parse_request, response};
 
 /// How often the role looks at whether a signal arrived: the flag is all a handler may safely set.
 const SIGNAL_POLL: Duration = Duration::from_millis(20);
@@ -196,41 +194,15 @@ pub fn binding(
 
 /// Answers every connection on its own task; a failed accept costs that connection alone.
 async fn accept(listener: TcpListener, readiness: Readiness) {
+    let limits = HttpLimits::new(0, REQUEST_TIME);
+    let service = HealthService::new(readiness);
     loop {
         match listener.accept().await {
-            Ok((stream, _peer)) => spawn(answer(stream, readiness.clone())).detach(),
+            Ok((stream, _peer)) => {
+                let service = service.clone();
+                spawn(async move { serve_http(stream, &limits, &service).await }).detach();
+            }
             Err(error) => tracing::warn!(%error, "a health connection was not accepted"),
         }
     }
-}
-
-/// Reads one request and writes its response. A connection that fails or goes silent is dropped: its probe sees that.
-async fn answer(mut stream: TcpStream, readiness: Readiness) {
-    let exchange = async {
-        let request = read_request(&mut stream).await;
-        let text = response(request, readiness.is_ready());
-        stream.write_all(text.as_bytes().to_vec()).await.0
-    };
-    if let Ok(Err(error)) = compio::time::timeout(REQUEST_TIME, exchange).await {
-        tracing::debug!(%error, "a health response was not written");
-    }
-}
-
-/// The request arriving on `stream`, read until it is complete, past its bound, or the peer stops sending.
-async fn read_request(stream: &mut TcpStream) -> HealthRequest {
-    let mut received = Vec::with_capacity(REQUEST_MAX);
-    // Each read takes at least a byte, so the bound on the bytes bounds the loop.
-    for _ in 0..REQUEST_MAX {
-        let chunk = Vec::with_capacity(REQUEST_MAX - received.len().min(REQUEST_MAX - 1));
-        let BufResult(read, chunk) = stream.read(chunk).await;
-        match read {
-            Ok(count) if count > 0 => received.extend_from_slice(&chunk),
-            Ok(_) | Err(_) => return HealthRequest::BadRequest,
-        }
-        let request = parse_request(&received);
-        if request != HealthRequest::Incomplete {
-            return request;
-        }
-    }
-    HealthRequest::BadRequest
 }

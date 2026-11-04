@@ -39,7 +39,8 @@ ultragraphdb_protocol_scram = { path = "../ultragraphdb_protocol/ultragraphdb_pr
 ultragraphdb_protocol_transport = { path = "../ultragraphdb_protocol/ultragraphdb_protocol_transport" }
 ultragraphdb_protocol_wire = { path = "../ultragraphdb_protocol/ultragraphdb_protocol_wire" }
 ultragraphdb_store_hnsw = { path = "../ultragraphdb_store/ultragraphdb_store_hnsw" }
-ultragraphdb_common_service = { path = "../ultragraphdb_common/ultragraphdb_common_service" }
+ultragraphdb_transport_http_client = { path = "../ultragraphdb_transport/ultragraphdb_transport_http_client" }
+ultragraphdb_transport_http_server = { path = "../ultragraphdb_transport/ultragraphdb_transport_http_server" }
 ultragraphdb_store_quads = { path = "../ultragraphdb_store/ultragraphdb_store_quads" }
 ultragraphdb_tool_toml = { path = "../ultragraphdb_tool/ultragraphdb_tool_toml" }
 ultragraphdb_traits_log = { path = "../ultragraphdb_traits/ultragraphdb_traits_log" }

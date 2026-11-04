@@ -4,7 +4,7 @@
  */
 
 pub mod cpu_binding;
-pub mod health_request;
+pub mod health_service;
 pub mod readiness;
 pub mod role_kind;
 pub mod role_start;

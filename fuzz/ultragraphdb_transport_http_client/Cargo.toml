@@ -1,0 +1,31 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+# The cargo-fuzz package of ultragraphdb_transport_http_client, run by scripts/fuzz.sh; a member of the fuzz workspace in fuzz/.
+# Its targets call the crate's public decoders only.
+
+[package]
+name = "ultragraphdb_transport_http_client_fuzz"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[package.metadata]
+cargo-fuzz = true
+
+[lints]
+workspace = true
+
+[dependencies]
+libfuzzer-sys = { workspace = true }
+ultragraphdb_transport_http_client = { workspace = true }
+
+# Any bytes a peer answers with: a whole reply, a refusal or a wait.
+[[bin]]
+name = "http_reply"
+path = "fuzz_targets/http_reply.rs"
+test = false
+doc = false
+bench = false
