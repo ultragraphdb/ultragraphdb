@@ -1,0 +1,88 @@
+ultragraphdb_tool/ultragraphdb_tool_bench/tests/utils/partitions_run_tests.rs
+  s_6c9dcf457e80d9::t_86a378f47d808a 254-256
+  s_6c9dcf457e80d9::t_ff4b90441734d8 10,108-253,257-272
+fuzz/Cargo.lock
+  s_6c9dcf457e80d9::t_921e5d640c7df5 1878-1886
+fuzz/Cargo.toml
+  s_6c9dcf457e80d9::t_c7843be8c28cd9 42
+fuzz/ultragraphdb_store_quads/Cargo.toml
+  s_6c9dcf457e80d9::t_6df4d7042788f9 1-33
+openspec/changes/stage-5-5-three-role-refactor/notes/group-7.md
+  s_6c9dcf457e80d9::t_9b1acc5526364f 471-521
+scripts/mutants.sh
+  s_6c9dcf457e80d9::t_38f75fb697e463 45-47,107-108,151-154
+ultragraphdb_cluster/ultragraphdb_cluster_partition/src/types/partition_host/mod.rs
+  s_6c9dcf457e80d9::t_8e8634c6387e87 63,92,133-137,390
+ultragraphdb_cluster/ultragraphdb_cluster_partition/tests/types/fanout/fanout_tests.rs
+  s_6c9dcf457e80d9::t_a1eb3af09b46bb 6-7,11,89-139
+ultragraphdb_cluster/ultragraphdb_cluster_partition/tests/types/partition/partition_referrer_tests.rs
+  s_6c9dcf457e80d9::t_1139b45a92f61c 377-595
+ultragraphdb_cluster/ultragraphdb_cluster_partition/tests/types/partition/partition_tests.rs
+  s_6c9dcf457e80d9::t_16da6cf3b7a278 132-168
+ultragraphdb_cluster/ultragraphdb_cluster_partition/tests/types/partition_host/partition_host_tests.rs
+  s_6c9dcf457e80d9::t_0837635f1c3cf3 235-301
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/changeset_applier/changeset_applier_partition_tests.rs
+  s_6c9dcf457e80d9::t_547d9eb7c80471 21-23,352-382
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/changeset_core/changeset_core_drop_tests.rs
+  s_6c9dcf457e80d9::t_ed0ad3579f985b 536-541
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/execution/execution_partition_tests.rs
+  s_6c9dcf457e80d9::t_63fe2235b687d5 526-573
+ultragraphdb_store/ultragraphdb_store_posting/tests/types/writes/writes_tests.rs
+  s_6c9dcf457e80d9::t_9db2e7acdbf005 76-98
+ultragraphdb_store/ultragraphdb_store_quads/BUILD.bazel
+  s_6c9dcf457e80d9::t_189613827b462c 40
+ultragraphdb_store/ultragraphdb_store_quads/testdata/fuzz_seeds/referrer_set_decode/malformed_count_huge
+  s_6c9dcf457e80d9::t_6f428726fc6080 1
+ultragraphdb_store/ultragraphdb_store_quads/testdata/referrer_set_seeds.py
+  s_6c9dcf457e80d9::t_fdb3c81fb52b72 1-49
+ultragraphdb_store/ultragraphdb_store_quads/tests/types/referrer_set/referrer_set_codec_tests.rs
+  s_6c9dcf457e80d9::t_5f45e1f5e1967d 174-202
+ultragraphdb_store/ultragraphdb_store_quads/tests/utils/mod.rs
+  s_6c9dcf457e80d9::t_a6fffadbb3d9e6 16-17
+ultragraphdb_store/ultragraphdb_store_quads/tests/utils/skolem_tests.rs
+  s_6c9dcf457e80d9::t_ea65a7b92bad64 1-56
+ultragraphdb_tool/ultragraphdb_tool_bench/src/bin/wal_bench.rs
+  s_6c9dcf457e80d9::t_123cfe2cc95d26 12,28
+ultragraphdb_tool/ultragraphdb_tool_bench/src/lib.rs
+  s_6c9dcf457e80d9::t_0904d5027f3552 71
+ultragraphdb_tool/ultragraphdb_tool_bench/src/utils/mod.rs
+  s_6c9dcf457e80d9::t_d4cbfdad203f5f 12
+ultragraphdb_tool/ultragraphdb_tool_bench/src/utils/partitions_run.rs
+  s_6c9dcf457e80d9::t_645a052d0b897b 84-85,153,332,475,492,498,515,524
+ultragraphdb_tool/ultragraphdb_tool_bench/src/utils/wal_bench_run.rs
+  s_6c9dcf457e80d9::t_7a22f7ebb45697 1-24
+ultragraphdb_tool/ultragraphdb_tool_bench/tests/types/dir_sizes_tests.rs
+  s_6c9dcf457e80d9::t_0d4f2c55717073 88-118
+ultragraphdb_tool/ultragraphdb_tool_bench/tests/types/partition_shape_tests.rs
+  s_6c9dcf457e80d9::t_26be8ec200837a 110-161
+ultragraphdb_transactions/ultragraphdb_transactions_commit/tests/types/pipeline/pipeline_tests.rs
+  s_6c9dcf457e80d9::t_b889fe41729df5 843-891
+ultragraphdb_transactions/ultragraphdb_transactions_txn/tests/types/transaction/transaction_partition_tests.rs
+  s_6c9dcf457e80d9::t_73bb72298d0ae0 666-696
+AGENTS.md
+  s_6c9dcf457e80d9::t_02c2a12c504201 1-19
+README.md
+  s_6c9dcf457e80d9::t_1f856dba2e45e6 3-11
+ROADMAP.md
+  s_6c9dcf457e80d9::t_1691de2b3b6a1c 15
+fuzz/ultragraphdb_store_quads/fuzz_targets/referrer_set_decode.rs
+  s_6c9dcf457e80d9::t_4494ac329e402f 1-58
+openspec/protocols/ULTRA_STYLE.md
+  s_6c9dcf457e80d9::t_280c61ce694691 19-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f99a170eb779250da18c3f071ddd506337f91fa7",
+  "prompts": {},
+  "sessions": {
+    "s_6c9dcf457e80d9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9e223492-f4c5-4f68-93b3-4ec87d773715",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
