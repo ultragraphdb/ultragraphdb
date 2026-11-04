@@ -232,3 +232,70 @@ fn test_a_homes_refusal_ends_the_write() -> TestResult {
         Ok(())
     })
 }
+
+/// Unanswered registrations go again at the delay and not before, each time it passes; a write ends past its limit and
+/// not at it.
+#[test]
+fn test_resends_and_the_limit_fall_at_their_boundaries() -> TestResult {
+    let (a, knows, b) = names()?;
+    on_hosts(2, |hosts| {
+        let host = hosts.first_mut().context("partition 1")?;
+        let ticket = host.submit(changeset(vec![insert(&a, &knows, &b)]), 0)?;
+        crate::utils::cluster::block_on(host.turn(999_999))??;
+        assert_eq!(host.resends(), 0, "before the delay");
+        crate::utils::cluster::block_on(host.turn(1_000_000))??;
+        assert_eq!(host.resends(), 1, "at the delay");
+        crate::utils::cluster::block_on(host.turn(1_999_999))??;
+        assert_eq!(host.resends(), 1, "the delay counts from the last send");
+        crate::utils::cluster::block_on(host.turn(2_000_000))??;
+        assert_eq!(host.resends(), 2);
+        crate::utils::cluster::block_on(host.turn(10_000_000))??;
+        assert!(
+            host.take_outcomes().is_empty(),
+            "at the limit it still waits"
+        );
+        assert_eq!(host.parked(), 1);
+        crate::utils::cluster::block_on(host.turn(10_000_001))??;
+        let ended = host.take_outcomes();
+        assert_eq!(ended.first().map(|o| o.ticket()), Some(ticket));
+        assert_eq!(host.parked(), 0);
+        Ok(())
+    })
+}
+
+/// What was decided waits for a sync until a turn syncs it, and the outcome names how many registrations the write waited
+/// for: every reference the partition's own scan of the write names.
+#[test]
+fn test_a_turn_syncs_what_was_decided_and_an_outcome_counts_its_registrations() -> TestResult {
+    let cluster = Cluster::even(2)?;
+    let (a, knows, b) = names()?;
+    let c = cluster.name_where("c", |n| Ok(n != b && cluster.owner(n)? == 2))?;
+    let changes = vec![insert(&a, &knows, &b), insert(&a, &knows, &c)];
+    let expected = cluster.references(1, changes.clone())?.len();
+    assert!(expected >= 2, "both objects are partition 2's");
+    on_hosts(2, |hosts| {
+        // A first write gets what the namespace's catalog names; a second has nothing to register.
+        let _first = hosts
+            .first_mut()
+            .context("partition 1")?
+            .submit(changeset(Vec::new()), 0)?;
+        let _settled = turn_all(hosts, 3, 0)?;
+        let local = hosts.first_mut().context("partition 1")?;
+        let _second = local.submit(changeset(Vec::new()), 0)?;
+        assert!(local.needs_sync(), "decided at once, and not yet synced");
+        let _ended = turn_all(hosts, 1, 0)?;
+        assert!(!hosts.first().context("partition 1")?.needs_sync());
+        let ticket = hosts
+            .first_mut()
+            .context("partition 1")?
+            .submit(changeset(changes), 0)?;
+        let ended = turn_all(hosts, 3, 0)?;
+        let outcome = ended
+            .iter()
+            .find(|o| o.ticket() == ticket)
+            .context("its outcome")?;
+        assert!(outcome.outcome().is_ok(), "{outcome:?}");
+        assert_eq!(outcome.registrations(), expected);
+        Ok(())
+    })
+}

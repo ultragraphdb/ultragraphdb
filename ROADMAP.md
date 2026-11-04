@@ -12,6 +12,7 @@
 | 6. UGS: the full data definition and its implementation | `open` |
 | 6.5. Harden transactions  with chaos testing against multiple UGS schemata | `open` |
 | 7. Query core: SPARQL and GQL where they overlap | `open` |
+| 7.5. Fuzzy test and harden query core | `open` |
 | 8. Basic three-role clustering in a single container, the base of the DeepBrain MVP | `open` |
 | 9. Full SPARQL and GQL conformance | `open` |
 | 9.5. Bolt | `open` |

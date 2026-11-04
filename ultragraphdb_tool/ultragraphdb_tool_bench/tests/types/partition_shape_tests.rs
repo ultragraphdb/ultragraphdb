@@ -107,3 +107,55 @@ fn test_the_cross_share_is_the_one_configured() -> TestResult {
     assert!((55..=105).contains(&tenth), "{tenth} of {of_tenth}");
     Ok(())
 }
+
+/// The relation type of each of `partition`'s first commits under `seed`, each commit one relation.
+fn relations(seed: u64, partition: u32) -> TestResult<Vec<u32>> {
+    let placement = PlacementMap::even(4, NodeId::new(1))?;
+    let mut generator = PartitionShape::new(seed, PartitionId::new(partition)?, &placement, 1, 0)
+        .context("hubs")?;
+    (0..10)
+        .map(|_| {
+            let commit = generator.next_commit();
+            let Some(Change::Insert { predicate, .. }) = commit.changes().first() else {
+                return Err(ultragraphdb_tool_bdd::TestError::new("an insert"));
+            };
+            predicate
+                .as_str()
+                .rsplit("rel_t")
+                .next()
+                .and_then(|tail| tail.strip_suffix("_org"))
+                .and_then(|digit| digit.parse().ok())
+                .context("a relation's number")
+        })
+        .collect()
+}
+
+/// The generator's draws are pinned: a Python xorshift of shifts 13, 7 and 17, from the state `(seed ^ partition *
+/// 0x9E3779B97F4A7C15) | 1`, three draws per relation, the first modulo 10 naming its type.
+#[test]
+fn test_the_draws_are_the_reference_xorshifts() -> TestResult {
+    assert_eq!(relations(1, 1)?, [9, 0, 7, 2, 7, 3, 1, 7, 3, 3]);
+    assert_eq!(relations(7, 3)?, [1, 9, 8, 2, 6, 4, 2, 6, 7, 3]);
+    Ok(())
+}
+
+/// A commit's hub is drawn among the partition's: edges spread over many hubs, not one.
+#[test]
+fn test_edges_spread_over_the_hubs() -> TestResult {
+    let (mut generator, _) = shape(3, 1, 0)?;
+    let mut hubs = std::collections::BTreeSet::new();
+    for _ in 0..COMMITS {
+        for change in generator.next_commit().changes() {
+            if let Change::Insert {
+                object: Term::NamedNode(object),
+                ..
+            } = change
+            {
+                let _new = hubs.insert(object.clone());
+            }
+        }
+    }
+    // 800 draws among 64 hubs miss any one of them about once in 400,000 runs.
+    assert_eq!(hubs.len(), 64);
+    Ok(())
+}

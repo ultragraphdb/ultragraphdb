@@ -840,3 +840,52 @@ fn test_a_renewal_between_the_reply_and_the_commit_conflicts() -> TestResult {
     );
     Ok(())
 }
+
+/// A real transaction's epoch floor holds its commit as a session token does: marked under a reply naming close 3, it is
+/// answered by no round until close 3 is delivered, and then stamped at epoch 4.
+#[test]
+fn test_a_transactions_epoch_floor_holds_its_commit() -> TestResult {
+    use std::num::NonZeroU64;
+    use ultragraphdb_core_ids::{BucketGroup, Epoch, Version};
+    let applier = applier()?;
+    let (_storage, log) = wal()?;
+    let mut pipe: Pipe<'_> = Pipeline::new(&applier, log, unbounded())?.with_partition(
+        4,
+        Epoch::new(1)?,
+        ultragraphdb_transactions_commit::CloseRequest::default(),
+        &[],
+    );
+    let entity = crate::utils::proposal_double::id(40)?;
+    let mut txn = begin(&applier)?;
+    txn.mark(
+        entity,
+        BucketGroup::new(7)?,
+        NonZeroU64::MIN,
+        Epoch::new(3)?,
+        0,
+    )?;
+    let proposal = prepare(txn)?;
+    assert_eq!(proposal.epoch_floor(), Some(Epoch::new(4)?));
+    pipe.commit(1, proposal, 0)?;
+    block_on(pipe.sync(0))?;
+    assert!(drained(&mut pipe).is_empty(), "held for close 3");
+    for epoch in [2, 3] {
+        pipe.close(
+            crate::utils::fixture::close(epoch, Vec::new(), Vec::new())?,
+            0,
+        )?;
+        if pipe.needs_sync() {
+            block_on(pipe.sync(0))?;
+        }
+    }
+    let replies = drained(&mut pipe);
+    let reply = replies
+        .first()
+        .context("answered once close 3 is delivered")?;
+    let version = *reply
+        .outcome()
+        .as_ref()
+        .map_err(|e| ultragraphdb_tool_bdd::TestError::new(e.to_string()))?;
+    assert_eq!(Version::from_u64(version).epoch(), Epoch::new(4)?);
+    Ok(())
+}

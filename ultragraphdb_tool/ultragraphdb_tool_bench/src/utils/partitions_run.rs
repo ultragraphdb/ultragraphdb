@@ -81,6 +81,8 @@ struct Stats {
     registrations: u64,
     waits_us: Vec<u64>,
     rounds: u64,
+    /// The latest close delivered when the partition ended.
+    delivered: u64,
     /// The writes committed, when the run verifies.
     kept: Vec<Changeset>,
 }
@@ -148,7 +150,7 @@ pub fn run_partitions(args: &PartitionArgs) -> Result<String, BenchError> {
     } else {
         None
     };
-    report(args, &parts, &stats, elapsed, verified)
+    report(args, &parts, &stats, elapsed, last_close, verified)
 }
 
 /// Partition `id`'s store, in a directory of its own, over the buckets `placement` gives it.
@@ -327,6 +329,7 @@ async fn write_loop(mut worker: Worker, mailbox: PartitionMailbox) -> Result<Sta
             compio::time::sleep(IDLE).await;
         }
     }
+    stats.delivered = host.delivered().get();
     let (_, used) = host.into_parts();
     stats.rounds = used.committed().get();
     Ok(stats)
@@ -469,6 +472,7 @@ fn report(
     parts: &[Arc<BenchPartition>],
     stats: &[Stats],
     elapsed: Duration,
+    last_close: Epoch,
     verified: Option<u64>,
 ) -> Result<String, BenchError> {
     let secs = elapsed.as_secs_f64();
@@ -485,12 +489,13 @@ fn report(
         total_bytes += store.total().apparent() + wal.apparent();
         partitions.push(format!(
             concat!(
-                "{{\"partition\":{},\"commits\":{},\"refused\":{},\"relations_per_s\":{:.0},",
+                "{{\"partition\":{},\"commits\":{},\"refused\":{},\"delivered\":{},\"relations_per_s\":{:.0},",
                 "\"syncs_per_s\":{:.1},\"store\":{},\"wal\":{}}}"
             ),
             id.get(),
             s.committed,
             s.refused,
+            s.delivered,
             relations(s) as f64 / secs,
             s.rounds as f64 / secs,
             size_json(store.total()),
@@ -507,7 +512,7 @@ fn report(
     let rounds: u64 = stats.iter().map(|s| s.rounds).sum();
     Ok(format!(
         concat!(
-            "{{\"run\":\"partitions\",\"partitions\":{},\"seed\":{},\"cross_percent\":{},\"seconds\":{:.2},",
+            "{{\"run\":\"partitions\",\"partitions\":{},\"seed\":{},\"cross_percent\":{},\"last_close\":{},\"seconds\":{:.2},",
             "\"relations_per_s\":{:.0},\"syncs_per_s\":{:.1},\"disk_bytes\":{},\"registrations\":{},",
             "\"registrations_per_s\":{:.1},",
             "\"first_reference_wait_us\":{{\"count\":{},\"p50\":{},\"p99\":{},\"max\":{},\"mean\":{:.1}}},",
@@ -516,6 +521,7 @@ fn report(
         args.partitions(),
         args.seed(),
         args.cross_percent(),
+        last_close.get(),
         secs,
         total_relations as f64 / secs,
         rounds as f64 / secs,

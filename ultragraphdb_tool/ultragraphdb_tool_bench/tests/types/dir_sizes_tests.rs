@@ -85,3 +85,34 @@ fn test_an_empty_directory_has_no_size() -> TestResult {
     std::fs::remove_dir_all(&dir).context("removing the test's directory")?;
     Ok(())
 }
+
+/// `depth` directories nested under `root`, a file of 5 bytes in the deepest.
+fn nested(root: &std::path::Path, depth: usize) -> TestResult {
+    let mut dir = root.to_path_buf();
+    for level in 0..depth {
+        dir = dir.join(format!("d{level}"));
+    }
+    std::fs::create_dir_all(&dir)?;
+    std::fs::write(dir.join("f"), b"hello")?;
+    Ok(())
+}
+
+/// A walk descends the 16 directories it allows and refuses the 17th, naming it.
+#[test]
+fn test_a_walk_stops_past_its_depth() -> TestResult {
+    let dir = fresh("depth");
+    let data = dir.join("data");
+    std::fs::create_dir_all(&data)?;
+    nested(&dir.join("kept"), 15)?;
+    let sizes = DirSizes::of(&dir, &data)?;
+    assert_eq!(
+        sizes.total().apparent(),
+        5,
+        "a file 16 directories down counts"
+    );
+    nested(&dir.join("deep"), 16)?;
+    let refused = DirSizes::of(&dir, &data).err().context("a refusal")?;
+    assert!(refused.to_string().contains("deeper than 16"), "{refused}");
+    std::fs::remove_dir_all(&dir)?;
+    Ok(())
+}

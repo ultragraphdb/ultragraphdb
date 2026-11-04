@@ -13,3 +13,5 @@ mod dictionary_keys_tests;
 mod dictionary_workload_tests;
 #[cfg(test)]
 mod postings_tests;
+#[cfg(test)]
+mod skolem_tests;

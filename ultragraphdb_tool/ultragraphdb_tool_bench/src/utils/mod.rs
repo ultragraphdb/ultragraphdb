@@ -9,3 +9,4 @@ pub mod pipeline_run;
 pub mod proc_stats;
 pub mod rollup_run;
 pub mod setup;
+pub mod wal_bench_run;

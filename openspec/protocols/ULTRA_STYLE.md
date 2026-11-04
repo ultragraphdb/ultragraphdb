@@ -16,8 +16,15 @@ simulation, the five-phase test protocol (`tdd-protocol.md`), fuzzing and mutati
 
 ## Design goals
 
-Correctness, performance, developer experience, in that order. All three matter, and the order decides the rare case
-where they conflict. In most cases they do not: simple, bounded, explicit code is easier to prove correct, easier for
+UltraGraphDB is a next generation distributed graph database written in Rust.
+UltraGraphDB aims for
+- Ultra Correct
+- Ultra Performance
+- Ultra Scale
+
+When a system is correct, it is fast and it can scale to make it even faster.
+
+Correctness, performance, scale, developer experience, in that order. All three matter, and the order decides the rare case where they conflict. In most cases they do not: simple, bounded, explicit code is easier to prove correct, easier for
 the CPU to run fast, and easier for the next reader to change. Finding that one design that serves all three is the
 work; it is rarely the first draft.
 

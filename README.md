@@ -1,6 +1,14 @@
 # UltraGraphDB
 
-A next generation distributed graph database in Rust.  
+UltraGraphDB is a next generation distributed graph database written in Rust.
+UltraGraphDB aims for
+- Ultra Correct
+- Ultra Performance
+- Ultra Scale
+
+When a system is correct, it is fast and it can scale to make it even faster.
+
+Correctness, performance, scale, developer experience, in that order. All three matter, and the order decides the rare case where they conflict.
 
 ## Build
 

@@ -468,5 +468,54 @@ at p99, 813 reverse reads verified. These are a smoke run's figures, not a measu
 Decided by the user (2026-11-04): `tool_bench/src/utils/op_counts.rs` deleted; `prepare`'s wait bounded
 (`wait_out_build`, `BenchError::build_stuck`).
 
-The scenario's 10 seconds runs as one in the BDD target, tests staying small and fast. Open for the hardening task 12.1:
-mutants over the wave's diff, coverage, and fuzzing `ReferrerSet::decode`.
+The scenario's 10 seconds runs as one in the BDD target, tests staying small and fast.
+
+## Hardening: mutants, coverage, fuzzing
+
+Over the group's diff from `5af53da6`, per crate. The second pass ran after the tests the first pass called for.
+
+| Crate | First pass missed | Second pass |
+|---|---|---|
+| `store_posting` | 1 | none missed |
+| `transactions_txn` | 4 | 47 caught, 7 unviable, none missed |
+| `cluster_partition` | 12 | 123 caught, 53 unviable, none missed |
+| `store_quads` | 3 | 76 caught, 25 unviable, 2 missed |
+| `transactions_commit` | 1 | 53 caught, 6 unviable, none missed |
+| `store_apply` | 9 of 119 | targeted at the survivors' functions: 42 caught, 4 unviable, 2 missed |
+| `protocol_wire` | 0 | not rerun: 4 caught, 1 unviable |
+
+Survivors left, each changing nothing a caller observes:
+
+- `store_quads`, `referrer_set_codec.rs:24` (two): the capacity `ReferrerSet::encode` reserves. The bytes are the same.
+- `store_apply`, `referrer_candidates.rs:52`: `||` to `&&` lets a literal's posting and a removed edge through the
+  filter. A literal adds no referrer set under the mutant, as `test_a_literal_object_adds_no_referrer_set` shows, and a
+  removed edge's group is named already, since referrer sets only grow.
+- `store_apply`, `referrer_candidates.rs:61`: deleting the `!` skips reading a named group, so it stays a candidate, and
+  the round checks every candidate again when it applies.
+- `store_apply`, `changeset_core_rebuild.rs:546`, `store_failed -> false`: read, not tested. `undo` fails too on a
+  poisoned store. The function predates the group, which adds one arm returning false, and the targeted pass left it out.
+
+`tool_bench` takes no mutation testing, by the user's decision (2026-11-04): a benchmark tool never reaches production
+code. Its first pass prompted the tests it has now, of the generator's draws, the report's totals, the pacing and the
+depth bound; `wal_bench`'s dispatch became the tested `run_wal_bench`.
+
+Found and fixed by the first pass: `Home::is_idle`, which nothing called, removed; `PartitionHost::resends` added, which
+the boundary of resending is tested through; and `transactions_commit`'s own suite drove no real `Prepared` through the
+epoch floor, which `test_a_transactions_epoch_floor_holds_its_commit` now does.
+
+A run with no crossing edges still registers: a predicate homed elsewhere is got before first use, and commits in flight
+repeat the get until its reply lands. The count follows the clock (52, then 102, then 52 at 40, 200 and 800 commits a
+partition), and stops once the predicates are known: 38 of 1,600 commits waited at 800 a partition.
+
+Coverage of the group's added lines, by each crate's own tests, before the tests above: `protocol_wire` 100%,
+`transactions_commit` 95.9%, `store_quads` 95.5%, `tool_bench` 95.4%, `cluster_partition` 94.2%, `store_apply` 94.2%,
+`transactions_txn` 88.1%, its gap mostly exercised by the commit suite, `store_posting` 0%, its one added line now tested.
+
+`fuzz/ultragraphdb_store_quads`, target `referrer_set_decode`: refusals are `Corrupted` naming the key, what decodes
+encodes back to itself and is strictly sorted, and a repeat changes nothing while a renewal raises the generation by one
+and keeps the epoch. 120 s, 2,512,424 executions, coverage 161, no failure. Its 16 seeds come from the format's text
+(`testdata/referrer_set_seeds.py`), and a unit test decodes each as its name says.
+
+`scripts/mutants.sh` takes `MUTANTS_SLOT=<name>`, a lane with its own lock and output, so crates run side by side.
+
+The workload leaves invariants 3 and 7 uncovered.

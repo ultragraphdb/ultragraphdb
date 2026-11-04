@@ -171,3 +171,32 @@ fn test_a_count_past_what_memory_could_hold_is_refused_without_allocating_it() -
     let _huge: String = refused(&[1, 0xFF, 0xFF, 0xFF, 0xFF])?;
     Ok(())
 }
+
+/// The seeds of `referrer_set_decode`, written from the format's text by `testdata/referrer_set_seeds.py`: one named
+/// `malformed_*` is refused as corrupted, naming the key, and any other decodes and encodes back to its bytes.
+#[test]
+fn test_every_fuzz_seed_decodes_as_its_name_says() -> TestResult {
+    let dir = ultragraphdb_tool_bdd::testdata_dir()?
+        .join("fuzz_seeds")
+        .join("referrer_set_decode");
+    let seeds = ultragraphdb_tool_bdd::fuzz_regressions_in(&dir)?;
+    assert_eq!(seeds.len(), 16);
+    for (name, bytes) in seeds {
+        match ReferrerSet::decode(b"key", &bytes) {
+            Ok(set) => {
+                assert!(!name.starts_with("malformed"), "{name} accepted");
+                let mut encoded = Vec::new();
+                set.encode(&mut encoded);
+                assert_eq!(encoded, bytes, "{name}");
+            }
+            Err(refusal) => {
+                assert!(name.starts_with("malformed"), "{name}: {refusal}");
+                assert!(
+                    matches!(&refusal.0, QuadErrorEnum::Corrupted { key, .. } if key == b"key"),
+                    "{name}: {refusal}"
+                );
+            }
+        }
+    }
+    Ok(())
+}

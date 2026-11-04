@@ -73,3 +73,26 @@ fn test_taking_the_writes_closes_the_read() -> TestResult {
     assert!(!writes.advances_epoch());
     Ok(())
 }
+
+/// An entry added once the commit version is known joins the writes after those the request made, in the order added,
+/// at the commit version and not among the entries at their own versions; nothing else of the writes changes.
+#[test]
+fn test_an_entry_added_to_writes_is_written_at_the_commit_version() -> TestResult {
+    let lists = new_lists();
+    let mut request = lists.request(lists.applied_ts());
+    request.add_entry(Entry::deletion(b"\x01a".to_vec(), 0));
+    let mut writes = request.into_writes();
+    let (versioned, versionless) = (writes.versioned_entries().len(), writes.versionless().len());
+    writes.add_entry(Entry::put(b"\x01b".to_vec(), 0, 0x04, b"member".to_vec()));
+    writes.add_entry(Entry::deletion(b"\x01c".to_vec(), 0));
+    let keys: Vec<&[u8]> = writes.entries().iter().map(Entry::key).collect();
+    assert_eq!(keys, [&b"\x01a"[..], &b"\x01b"[..], &b"\x01c"[..]]);
+    assert_eq!(
+        writes.entries().get(1).and_then(Entry::value),
+        Some(&b"member"[..])
+    );
+    assert_eq!(writes.versioned_entries().len(), versioned);
+    assert_eq!(writes.versionless().len(), versionless);
+    assert!(writes.entry_keys().any(|key| key == b"\x01c"));
+    Ok(())
+}

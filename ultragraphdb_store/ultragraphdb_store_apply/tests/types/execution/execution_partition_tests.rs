@@ -523,3 +523,51 @@ fn test_a_read_of_an_iri_another_partition_owns_names_it_unknown() -> TestResult
     );
     Ok(())
 }
+
+/// Marks of one entity under two groups, and of one group for two entities, are three marks: each read and each renewal
+/// finds its own.
+#[test]
+fn test_marks_sharing_an_entity_or_a_group_stay_apart() -> TestResult {
+    let a = changesets()?;
+    let one = SystemId::new(TypePrefix::RESOURCE, bucket_of("o")?, Sequence::new(5)?);
+    let two = SystemId::new(TypePrefix::RESOURCE, bucket_of("o")?, Sequence::new(6)?);
+    let (seven, nine) = (BucketGroup::new(7)?, BucketGroup::new(9)?);
+    let mut e = begin(&a)?;
+    e.mark(one, seven, generation(1)?)?;
+    e.mark(one, nine, generation(2)?)?;
+    e.mark(two, seven, generation(3)?)?;
+    assert_eq!(e.read_mark(one, seven)?, Some(generation(1)?));
+    assert_eq!(e.read_mark(one, nine)?, Some(generation(2)?));
+    assert_eq!(e.read_mark(two, seven)?, Some(generation(3)?));
+    assert_eq!(e.read_mark(two, nine)?, None, "no mark of the pair");
+    e.mark(one, nine, generation(4)?)?;
+    let executed = e.finish()?;
+    assert_eq!(
+        executed.marks(),
+        &[
+            MarkedReference::new(one, seven, generation(1)?),
+            MarkedReference::new(one, nine, generation(4)?),
+            MarkedReference::new(two, seven, generation(3)?),
+        ]
+    );
+    Ok(())
+}
+
+/// A unique value written twice is one value for its bucket derivation, and the same value under another unique
+/// predicate is another.
+#[test]
+fn test_a_unique_value_written_twice_is_named_once() -> TestResult {
+    let a = changesets()?;
+    declare(&a, "id", "unique")?;
+    declare(&a, "code", "unique")?;
+    write(&a, &["<z> <id> \"held\""])?;
+    write(&a, &["<z> <code> \"held\""])?;
+    let mut e = begin(&a)?;
+    e.apply(&changeset(vec![insert("<a> <id> \"x\"")?]))?;
+    e.apply(&changeset(vec![insert("<a> <id> \"x\"")?]))?;
+    e.apply(&changeset(vec![insert("<b> <code> \"x\"")?]))?;
+    let value = encoded(&term("\"x\"")?)?.as_bytes().to_vec();
+    let expected = vec![(uid(&a, "id")?, value.clone()), (uid(&a, "code")?, value)];
+    assert_eq!(e.unique_writes(), expected.as_slice());
+    Ok(())
+}

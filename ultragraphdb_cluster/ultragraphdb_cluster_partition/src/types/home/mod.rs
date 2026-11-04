@@ -170,11 +170,6 @@ impl Home {
             generation,
         });
     }
-
-    /// Whether the home waits on no entry.
-    pub fn is_idle(&self) -> bool {
-        self.waiting.is_empty()
-    }
 }
 
 /// The refusal of a registration past the last epoch, which no close follows: `Busy`, as a partition that cannot stamp

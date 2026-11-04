@@ -60,6 +60,7 @@ where
     /// How many registrations and how long each write in the commit step waited, by ticket.
     waited: BTreeMap<u64, (usize, u64)>,
     outcomes: Vec<PartitionOutcome>,
+    resends: u64,
 }
 
 impl<'a, L, S, C, E, B> PartitionHost<'a, L, S, C, E, B>
@@ -88,6 +89,7 @@ where
             asked: BTreeMap::new(),
             waited: BTreeMap::new(),
             outcomes: Vec::new(),
+            resends: 0,
         }
     }
 
@@ -126,6 +128,11 @@ where
     /// Whether the pipeline stopped: a failed sync or a refused round, after which recovery is the only next step.
     pub fn is_stopped(&self) -> bool {
         self.pipeline.is_stopped()
+    }
+
+    /// How many times a write's unanswered registrations went again: what a home's crash or a slow home costs.
+    pub fn resends(&self) -> u64 {
+        self.resends
     }
 
     /// How many writes wait for answers.
@@ -380,6 +387,7 @@ where
                 ));
             } else if now_us.saturating_sub(parked.sent_us) >= RESEND_US {
                 self.send_unanswered(ticket, parked);
+                self.resends += 1;
                 if let Some(resent) = self.parked.get_mut(&ticket) {
                     resent.sent_us = now_us;
                 }

@@ -663,3 +663,34 @@ fn test_replies_to_an_ended_or_expired_transaction_are_refused() -> TestResult {
     assert_eq!(txn.epoch_floor(), None, "a refused reply raises nothing");
     Ok(())
 }
+
+/// A partition holding the namespace's run whole reverse-reads whoever holds the ranges just before and after it: they
+/// touch the run and do not overlap it. Another partition is refused, naming the run's.
+#[test]
+fn test_ranges_touching_the_run_do_not_spread_it() -> TestResult {
+    let applier = applier()?;
+    // Stamped at epoch 1, the first the map's change below can take effect at.
+    let at = Epoch::new(1)?;
+    let executed = applier.execute(&changeset(vec![insert("x", "knows", "b")]))?;
+    let version = ultragraphdb_core_ids::Version::commit(at, 2)?.to_u64();
+    let _applied = applier.apply_round(vec![(version, executed)])?;
+    let run = NamespaceRun::of(Namespace::new(NS)).range();
+    let mut map = placement(2)?;
+    let mut layout = Vec::new();
+    for (range, owner) in map.ranges_at(Epoch::ZERO) {
+        if range.end() <= run.start() || range.start() >= run.end() {
+            let touching = range.end() == run.start() || range.start() == run.end();
+            layout.push((range, if touching { partition(2)? } else { owner }));
+        }
+    }
+    layout.push((run, partition(1)?));
+    map.change(at, &layout)?;
+    let mut whole = begin(&applier, Mode::ReadWrite)?.bind(partition(1)?, &map);
+    assert_eq!(subjects(&mut whole, "knows", "b")?.len(), 1);
+    let mut beside = begin(&applier, Mode::ReadWrite)?.bind(partition(2)?, &map);
+    assert_eq!(
+        subjects(&mut beside, "knows", "b").err(),
+        Some(TxnError::cross_partition(2, 1))
+    );
+    Ok(())
+}

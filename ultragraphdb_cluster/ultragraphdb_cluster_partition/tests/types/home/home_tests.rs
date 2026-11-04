@@ -154,7 +154,6 @@ fn test_a_home_refuses_another_partitions_entity() -> TestResult {
 #[test]
 fn test_settling_leaves_replies_the_home_does_not_wait_on() {
     let mut home = Home::new();
-    assert!(home.is_idle());
     let mut replies = vec![ultragraphdb_transactions_commit::Reply::new(
         5,
         Ok(Version::from_u64(8).to_u64()),

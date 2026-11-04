@@ -42,7 +42,9 @@
 #   fourth run is refused, and what still survives is recorded for the stage's final verification.
 #   The intended sequence is one run over the diff, one fix pass, one re-run of the killed mutants.
 # - One run at a time on this machine: a run takes target/mutants.lock (shlock, stale locks freed
-#   by PID) and waits up to MUTANTS_LOCK_WAIT seconds (3,600 by default) for it.
+#   by PID) and waits up to MUTANTS_LOCK_WAIT seconds (3,600 by default) for it. MUTANTS_SLOT names a
+#   second lane, with a lock and an output directory of its own (target/mutants-slot-<name>/mutants.out),
+#   for a second crate beside the first; give it fewer jobs through MUTANTS_JOBS.
 # - MUTANTS_JOBS parallel jobs (8 by default: one run holds the machine at a time, so it takes 8 of its 12
 #   performance cores and leaves the rest to the agents' builds).
 
@@ -102,7 +104,8 @@ fi
 # The diff a run mutates, settled before the ledger is touched: an unchanged crate costs no run. Untracked files under
 # src/ are new, so all of each is the change.
 DIFF_FILE="$(mktemp)"
-LOCK="$REPO_ROOT/target/mutants.lock"
+SLOT="${MUTANTS_SLOT:-}"
+LOCK="$REPO_ROOT/target/mutants${SLOT:+.$SLOT}.lock"
 HOLDS_LOCK=0
 cleanup() {
     rm -f "$DIFF_FILE"
@@ -145,6 +148,10 @@ echo $((RUNS + 1)) > "$LEDGER"
 echo "mutants.sh: run $((RUNS + 1)) of $MAX_RUNS for $CRATE (base $BASE, $JOBS jobs)"
 
 ARGS=(-p "$CRATE" --in-diff "$DIFF_FILE" -j "$JOBS")
+if [ -n "$SLOT" ]; then
+    mkdir -p "$REPO_ROOT/target/mutants-slot-$SLOT"
+    ARGS+=(--output "$REPO_ROOT/target/mutants-slot-$SLOT")
+fi
 if [ -n "$RE" ]; then
     ARGS+=(--re "$RE")
 fi

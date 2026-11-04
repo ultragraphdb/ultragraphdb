@@ -1876,6 +1876,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ultragraphdb_store_quads_fuzz"
+version = "0.0.0"
+dependencies = [
+ "libfuzzer-sys",
+ "ultragraphdb_core_ids",
+ "ultragraphdb_store_quads",
+]
+
+[[package]]
 name = "ultragraphdb_tool_toml"
 version = "0.1.0"
 

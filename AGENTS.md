@@ -1,4 +1,22 @@
-# ultragraphdb Codebase Guide for Agents
+# UltraGraphDB Codebase Guide for Agents
+
+UltraGraphDB is a next generation distributed graph database written in Rust.
+UltraGraphDB aims for
+- Ultra Correct
+- Ultra Performance
+- Ultra Scale
+
+When a system is correct, it is fast and it can scale to make it even faster.
+
+Correctness, performance, scale, developer experience, in that order. All three matter, and the order decides the rare case where they conflict.
+
+The key properties of the UltraGraphDB design:
+- Zero copy binary protocol for network and WAL to eliminate serialization overhead
+- Thread per core architecture to minimize CPU cache missses and thread contention
+- Coordination minimization through classification of typed queries
+- Storage Compute seperation 
+- Persistent free VSR replication
+
 
 ## Core Directives
 

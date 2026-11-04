@@ -533,6 +533,12 @@ fn test_a_drop_prepared_for_a_round_names_its_target_and_its_ranges() -> TestRes
             .any(|(start, _)| start.first() == Some(&Keyspace::Catalog.byte()))
     );
     assert!(!all.drop_ranges().is_empty());
+    // Whole keyspaces, the registrations' among them, and never the store's every key.
+    assert!(all.drop_ranges().iter().all(|(start, _)| start.len() == 1));
+    for keyspace in [Keyspace::Forward, Keyspace::Marks, Keyspace::Referrers] {
+        let whole = vec![keyspace.byte()];
+        assert!(all.drop_ranges().iter().any(|(start, _)| start == &whole));
+    }
     for drop in [&graph, &data, &namespace, &all] {
         assert!(drop.writes().deltas().is_empty());
     }

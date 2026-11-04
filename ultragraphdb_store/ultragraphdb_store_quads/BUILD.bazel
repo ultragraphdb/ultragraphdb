@@ -37,6 +37,7 @@ rust_test(
         ],
     ),
     crate_root = "tests/mod.rs",
+    data = glob(["testdata/fuzz_seeds/**"]),
     tags = ["unit-test"],
     visibility = ["//visibility:public"],
     deps = [":ultragraphdb_store_quads"] + all_crate_deps(

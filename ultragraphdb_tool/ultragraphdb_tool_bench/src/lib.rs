@@ -68,3 +68,4 @@ pub use crate::utils::pipeline_run::run_pipeline;
 pub use crate::utils::proc_stats::{parse_schedstat_ns, parse_stat_cpu_ticks, parse_status_kib};
 pub use crate::utils::rollup_run::run_rollup;
 pub use crate::utils::setup::wait_out_build;
+pub use crate::utils::wal_bench_run::run_wal_bench;

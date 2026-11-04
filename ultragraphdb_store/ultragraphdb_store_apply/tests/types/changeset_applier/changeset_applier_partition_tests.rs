@@ -18,7 +18,9 @@ use ultragraphdb_store_quads::{QuadErrorEnum, ReferrerMember};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_store::VersionlessEntry;
 
-use crate::utils::changesets::{NS, TestChangesets, changeset, changesets, ex, insert, uid, write};
+use crate::utils::changesets::{
+    NS, TestChangesets, changeset, changesets, ex, insert, stored_keys, uid, write,
+};
 use crate::utils::partitions::{
     bucket_of, epoch, group_of, owning_all_but, referrers_key, version,
 };
@@ -344,6 +346,37 @@ fn test_replay_derives_a_home_s_registrations_at_their_versions() -> TestResult 
     assert_eq!(
         members(&replica, o, v2)?,
         vec![member(seven, 12, 1)?, member(nine, 14, 2)?]
+    );
+    Ok(())
+}
+
+/// A registration holds entries to make durable when it created the ID, and none when the entity's are already durable.
+#[test]
+fn test_a_registration_holds_entries_only_of_an_id_it_created() -> TestResult {
+    let a = changesets()?;
+    write(&a, &["<s> <knows> <o>"])?;
+    let created = a.register(NS, EntityRef::Iri(ex("new").as_str()))?;
+    assert!(created.holds_entries());
+    a.release(&created.into_executed());
+    let known = a.register(NS, EntityRef::Id(uid(&a, "o")?))?;
+    assert!(!known.holds_entries());
+    a.release(&known.into_executed());
+    Ok(())
+}
+
+/// A literal object's posting names no entity: a commit of literals alone adds no referrer set.
+#[test]
+fn test_a_literal_object_adds_no_referrer_set() -> TestResult {
+    let a = changesets()?;
+    let executed = a.execute(&changeset(vec![
+        insert("<s> <name> \"Ann\"")?,
+        insert("<s> <age> \"42\"^^<http://www.w3.org/2001/XMLSchema#integer>")?,
+    ]))?;
+    apply_at(&a, version(8, 2)?, executed)?;
+    assert!(
+        !stored_keys(&a)
+            .iter()
+            .any(|key| key.first() == Some(&Keyspace::Referrers.byte()))
     );
     Ok(())
 }

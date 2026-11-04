@@ -129,3 +129,40 @@ fn test_a_drop_reaching_another_partition_is_refused() -> TestResult {
     );
     Ok(())
 }
+
+/// A map from epoch 2 giving namespace 0's run whole to partition 1, with the ranges just before and just after it
+/// partition 2's: neighbours of the run that touch it and do not overlap it.
+fn run_between_neighbours() -> TestResult<PlacementMap> {
+    let mut placement = PlacementMap::even(2, NodeId::new(1))?;
+    let run = NamespaceRun::of(Namespace::new(NS)).range();
+    let mut layout = Vec::new();
+    for (range, owner) in placement.ranges_at(epoch(1)?) {
+        if range.end() <= run.start() || range.start() >= run.end() {
+            let touching = range.end() == run.start() || range.start() == run.end();
+            layout.push((range, if touching { pid(2)? } else { owner }));
+        }
+    }
+    layout.push((run, pid(1)?));
+    placement.change(epoch(2)?, &layout)?;
+    Ok(placement)
+}
+
+/// A partition holding a run whole owns it however its neighbours are held, and a Drop of the namespace stays with it;
+/// a Drop of everything still reaches them. The other partition owns nothing of the run.
+#[test]
+fn test_ranges_touching_a_run_are_not_of_it() -> TestResult {
+    let cluster = Cluster::bare(&run_between_neighbours()?)?;
+    let at = epoch(2)?;
+    assert!(cluster.part(1)?.owns_run(NS, at));
+    cluster.part(1)?.check_drop(Some(NS), at)?;
+    assert_eq!(
+        cluster.part(1)?.check_drop(None, at),
+        Err(PartitionError::cross_partition(1, 2))
+    );
+    assert!(!cluster.part(2)?.owns_run(NS, at));
+    assert_eq!(
+        cluster.part(2)?.check_drop(Some(NS), at),
+        Err(PartitionError::cross_partition(2, 1))
+    );
+    Ok(())
+}

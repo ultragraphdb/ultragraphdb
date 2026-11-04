@@ -374,3 +374,222 @@ fn test_a_declaration_reaches_every_partition_with_one_id() -> TestResult {
     assert_eq!(cluster.id_at(2, "epi.id")?, Some(one));
     Ok(())
 }
+
+/// Each change with the names it registers with no group, and the objects it registers from `a`'s group.
+type ChangeCase = (ultragraphdb_core_mapping::Change, Vec<String>, Vec<String>);
+
+/// The terms of partition 2 the change cases name.
+struct Foreign {
+    edge: String,
+    key: String,
+    value: String,
+    graph: String,
+    predicate: String,
+}
+
+impl Foreign {
+    fn of(cluster: &Cluster) -> TestResult<Self> {
+        Ok(Self {
+            edge: cluster.name_in(2, "e")?,
+            key: cluster.name_in(2, "k")?,
+            value: cluster.name_in(2, "v")?,
+            graph: cluster.name_in(2, "g")?,
+            predicate: cluster.name_in(2, "q")?,
+        })
+    }
+
+    /// The graph, by name.
+    fn named(&self) -> oxrdf::GraphName {
+        oxrdf::GraphName::NamedNode(crate::utils::cluster::ex(&self.graph))
+    }
+}
+
+/// The owned names of `list`.
+fn owned(list: &[&String]) -> Vec<String> {
+    list.iter().map(|n| n.to_string()).collect()
+}
+
+/// The inserts and deletes of `a`, naming the local `local` and `f`'s terms.
+fn statement_cases(a: &str, local: &str, f: &Foreign) -> Vec<ChangeCase> {
+    use crate::utils::cluster::ex;
+    use oxrdf::{GraphName, Literal};
+    use ultragraphdb_core_mapping::Change;
+    vec![
+        (
+            Change::InsertEdge {
+                graph: GraphName::DefaultGraph,
+                subject: ex(a).into(),
+                predicate: ex(local),
+                object: ex(&f.edge).into(),
+                properties: vec![(ex(&f.key), ex(&f.value).into())],
+            },
+            owned(&[&f.key, &f.value]),
+            owned(&[&f.edge]),
+        ),
+        (
+            Change::Insert {
+                graph: f.named(),
+                subject: ex(a).into(),
+                predicate: ex(&f.predicate),
+                object: Literal::new_simple_literal("x").into(),
+            },
+            owned(&[&f.graph, &f.predicate]),
+            Vec::new(),
+        ),
+        (
+            Change::Delete {
+                graph: f.named(),
+                subject: ex(a).into(),
+                predicate: ex(&f.predicate),
+                object: ex(&f.value).into(),
+            },
+            owned(&[&f.graph, &f.predicate, &f.value]),
+            Vec::new(),
+        ),
+        (
+            Change::DeletePattern {
+                graph: f.named(),
+                subject: ex(a).into(),
+                predicate: ex(&f.predicate),
+            },
+            owned(&[&f.graph, &f.predicate]),
+            Vec::new(),
+        ),
+    ]
+}
+
+/// The changes of a statement named by its triple or its reifier.
+fn property_cases(a: &str, local: &str, f: &Foreign) -> Vec<ChangeCase> {
+    use crate::utils::cluster::ex;
+    use oxrdf::{GraphName, Literal};
+    use ultragraphdb_core_mapping::{Change, StatementRef};
+    let triple = StatementRef::Triple {
+        graph: GraphName::DefaultGraph,
+        subject: ex(a).into(),
+        predicate: ex(local),
+        object: Literal::new_simple_literal("x").into(),
+    };
+    vec![
+        (
+            Change::SetProperty {
+                statement: triple.clone(),
+                predicate: ex(&f.key),
+                value: ex(&f.value).into(),
+            },
+            owned(&[&f.key, &f.value]),
+            Vec::new(),
+        ),
+        (
+            Change::DeleteProperty {
+                statement: triple,
+                predicate: ex(&f.key),
+                value: None,
+            },
+            owned(&[&f.key]),
+            Vec::new(),
+        ),
+        (
+            Change::DeleteStatement {
+                graph: f.named(),
+                reifier: ex(local),
+            },
+            owned(&[&f.graph]),
+            Vec::new(),
+        ),
+    ]
+}
+
+/// Each kind of change names its terms: every IRI of a change homed elsewhere and unheld registers with no group, but an
+/// inserted statement's object, which registers from its subject's group.
+#[test]
+fn test_every_change_kind_registers_what_it_names() -> TestResult {
+    use crate::utils::cluster::ex;
+    let cluster = Cluster::even(2)?;
+    let a = cluster.name_in(1, "a")?;
+    let local = cluster.name_in(1, "p")?;
+    let foreign = Foreign::of(&cluster)?;
+    let mut cases = statement_cases(&a, &local, &foreign);
+    cases.extend(property_cases(&a, &local, &foreign));
+    for (change, plain, from_group) in cases {
+        let refs = references_of(&cluster, 1, vec![change.clone()])?;
+        let of = |group: bool| -> Vec<String> {
+            refs.iter()
+                .filter(|r| r.group().is_some() == group)
+                .map(|r| r.iri().to_string())
+                .collect()
+        };
+        let iris = |list: &[String]| -> Vec<String> {
+            let mut all: Vec<String> = list.iter().map(|n| ex(n).as_str().to_string()).collect();
+            all.sort();
+            all
+        };
+        assert_eq!(of(false), iris(&plain), "{change:?}");
+        assert_eq!(of(true), iris(&from_group), "{change:?}");
+    }
+    Ok(())
+}
+
+/// A claim's graph, predicate and properties register with no group, and a counter names its graph and predicate.
+#[test]
+fn test_operations_register_what_they_name() -> TestResult {
+    use crate::utils::cluster::{NS, ex};
+    use oxrdf::{GraphName, Literal};
+    use ultragraphdb_store_apply::{Operation, OperationLink};
+    let cluster = Cluster::even(2)?;
+    let a = cluster.name_in(1, "a")?;
+    let own = cluster.name_in(1, "o")?;
+    let (graph, predicate, key, linked) = (
+        cluster.name_in(2, "g")?,
+        cluster.name_in(2, "q")?,
+        cluster.name_in(2, "k")?,
+        cluster.name_in(2, "l")?,
+    );
+    let named = GraphName::NamedNode(ex(&graph));
+    let value = || Literal::new_simple_literal("x");
+    let cases = vec![
+        (
+            Operation::InsertIfAbsent {
+                graph: named.clone(),
+                predicate: ex(&predicate),
+                value: value().into(),
+                properties: vec![(ex(&key), value().into())],
+            },
+            vec![&graph, &predicate, &key],
+        ),
+        (
+            Operation::UpsertAndLink {
+                graph: GraphName::DefaultGraph,
+                predicate: ex(&own),
+                value: ex(&own).into(),
+                properties: Vec::new(),
+                links: vec![OperationLink::to_node(ex(&linked), ex(&own).into())],
+            },
+            vec![&linked],
+        ),
+        (
+            Operation::CounterAdd {
+                graph: named,
+                subject: ex(&a).into(),
+                predicate: ex(&predicate),
+                delta: 1,
+            },
+            vec![&graph, &predicate],
+        ),
+    ];
+    let part = cluster.part(1)?;
+    for (operation, expected) in cases {
+        let mut txn = begin(part)?;
+        let mut refs = Vec::new();
+        part.operation_references(&mut txn, NS, &operation, cluster.closed(), 0, &mut refs)?;
+        let found: Vec<String> = refs.iter().map(|r| r.iri().to_string()).collect();
+        let mut iris: Vec<String> = expected
+            .iter()
+            .map(|n| ex(n).as_str().to_string())
+            .collect();
+        iris.sort();
+        assert_eq!(found, iris, "{operation:?}");
+        assert!(refs.iter().all(|r| r.group().is_none()), "{refs:?}");
+        let _buffers = txn.abort();
+    }
+    Ok(())
+}
