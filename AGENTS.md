@@ -11,11 +11,11 @@ When a system is correct, it is fast and it can scale to make it even faster.
 Correctness, performance, scale, developer experience, in that order. All three matter, and the order decides the rare case where they conflict.
 
 The key properties of the UltraGraphDB design:
-- Zero copy binary protocol for network and WAL to eliminate serialization overhead
-- Thread per core architecture to minimize CPU cache missses and thread contention
+- Zero copy binary protocol for network and WAL to eliminate serialization overhead; writing to the KV store derives its keys and values and copies them, unavoidably
+- Thread per core architecture on compio to minimize CPU cache misses and thread contention; pinning where the platform allows it
 - Coordination minimization through classification of typed queries
 - Storage Compute seperation 
-- Persistent free VSR replication
+- Persistent-free VSR replication, built up over the stages from a single replica behind the log's interface
 
 
 ## Core Directives

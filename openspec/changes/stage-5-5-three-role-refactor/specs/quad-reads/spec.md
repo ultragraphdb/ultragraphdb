@@ -6,7 +6,7 @@ asks the partitions holding the pattern's entries for their rows through storage
 the store's key order. A pattern with a bound subject SHALL ask that subject's partition alone; a pattern with an
 unbound subject and a bound IRI or blank-node object SHALL be a reverse read ("A reverse read asks the object's
 referrers"); any other pattern, a bound literal object and a value-index lookup included, SHALL ask every partition
-holding a bucket of the namespace's run and merge their rows in key order, batched per node, through a merge scan when
+holding a bucket of the namespace's run and merge their rows in key order, batched per role address, through a merge scan when
 the frontier is large, since a literal has no home and no referrer set. A read of a read-write transaction SHALL reach
 only its partition (partitions, "A read-write transaction stays within one partition in this stage").
 
@@ -28,6 +28,14 @@ only its partition (partitions, "A read-write transaction stays within one parti
 #### Scenario: An unbound subject merges every partition
 - **WHEN** a read leaves its subject and object unbound over two partitions that each hold matching rows
 - **THEN** compute returns the rows of both partitions merged in key order
+
+### Requirement: Compute runs each read on one core
+Compute SHALL run one runtime per core, each holding its own connections to the frontend and the partitions, and SHALL run
+a read wholly on the core that received it, sharing no mutable state between cores.
+
+#### Scenario: A fan-out stays on its read's core
+- **WHEN** a read fans out over three partitions
+- **THEN** its Scans, its merge and its Result frames all run on the core its ComputeRead arrived on
 
 ### Requirement: Storage's read kernel answers what compute scans
 Storage SHALL answer a Scan with the entries of its key ranges at the version the Scan names, each key once with its
@@ -113,7 +121,7 @@ commit writes. A span the read set cannot hold SHALL end the transaction, and no
 A reverse read of an entity `o` at epoch `e` SHALL first read `o`'s referrer set at `e` (partitions, "An entity's
 referrer set names where its inbound edges may be") at `o`'s home, once the home has closed `e`; it SHALL then resolve
 the set's bucket groups to partitions through the placement map in effect at `e` and ask each of those partitions,
-batched per node, for its reverse entries of `o` at `e`, each answering once it has closed `e`. A partition the set does
+batched per role address, for its reverse entries of `o` at `e`, each answering once it has closed `e`. A partition the set does
 not name SHALL not be asked. A snapshot read SHALL return every matching row or wait, never a partial answer; a read
 still waiting at its transaction's deadline SHALL fail with a timeout naming the partition it waited on. Correctness
 SHALL depend on no cache of inbound entries at the home.

@@ -1449,7 +1449,7 @@ role secret opens no client session: it is refused there as a wrong password is.
 |---|---|---|
 | The frontend's role address | Join, Members, Placement, Catalog | storage and compute |
 | | Subscribe, Lease, CloseRequest, DefaultEntry, Report | storage |
-| A storage process's role address | Bind, then Write, Operation, Commit and Abort, or Drop, on the Bind's stream; Recall | the frontend |
+| A partition's role address | Bind, then Write, Operation, Commit and Abort, or Drop, on the Bind's stream; Recall | the frontend |
 | | Reference | storage and the frontend |
 | | Scan, Closed | compute |
 | A compute process's role address | ComputeRead | the frontend |
@@ -1464,10 +1464,14 @@ address for the requests it sends the role. Storage and compute learn where each
 listen from Members, and which partition owns a bucket at an epoch from Placement. Storage and compute retry Join until
 their deadline, so the frontend's recovery need not have ended when they start.
 
-The first storage process to Join forms the placement when the metadata group holds none: an even map over the partitions
-it names. A later Join naming other partitions is refused with Error 1 (Protocol), the message naming both. In this stage
-the placement is fixed once formed, and a process holds its map for its lifetime; moving bucket ranges arrives with stage
-8.
+The frontend forms the placement when its metadata group holds none: an even map over its configured partition count. A
+Join claims the partitions it names. One claiming a partition outside the placement, or one another role address holds, is
+refused with Error 1 (Protocol), the message naming the partition and its holder; a holder's own address, restarting,
+claims it again. So any number of storage processes host the partitions between them. In this stage the placement is fixed
+once formed, and a process holds its map for its lifetime; moving bucket ranges arrives with stage 8.
+
+Each partition's core listens at its own role address and joins for itself, so a connection to a partition lands on the core
+that owns it and no frame crosses cores on arrival. Peers read those addresses from Members and batch per address.
 
 **Epochs.** Storage sends Subscribe on its connection to the frontend, naming the last close it holds, and the frontend
 answers on that stream with an EpochClose per close, in order: first each close the sequencer recorded after the one
@@ -1498,7 +1502,7 @@ replies with the ID, the member's generation and the latest close delivered to i
 commits the referencing transaction only once close `c` has been delivered to it, so the write is stamped at `c + 1`
 or later and never below the member's epoch. A predicate or graph IRI another partition owns is got or created at its
 home the same way before its first use, naming no bucket group and joining no referrer set. Registrations are issued
-while the transaction executes, batched per home storage process within each write request, and idempotent: a repeat
+while the transaction executes, batched per home's role address within each write request, and idempotent: a repeat
 returns the same ID and changes nothing, and concurrent registrants receive one ID, none aborting for the race. A
 partition holding its mark of `(o, g)` sends none. The frontend registers a unique predicate's IRI the same way, naming
 no group, to learn the system ID a claimed value's bucket is computed from.
@@ -1550,16 +1554,16 @@ on a connection of its own, so this order is the frontend's to keep. A transacti
 way is refused at the partition as one it does not hold; the frontend then answers the read with the reason the Bind
 stream gave, such as code 4 (PastLimit), not the partition's refusal.
 
-Compute reads through storage's read kernel, Scan (section 13.13): key ranges of the partitions one storage process
-hosts, at a version, each bounded by a row limit, in key order, batched per process. It resolves the pattern's terms to
+Compute reads through storage's read kernel, Scan (section 13.13): key ranges of the partition at a role address, at a
+version, each bounded by a row limit, in key order, batched per address. It resolves the pattern's terms to
 system IDs, and the rows' system IDs back to their text, by Scans of the partitions' dictionaries: an entity's home, or
 the copy of its entries a referring partition holds. It chooses the partitions a read asks by its bound positions:
 
 | Pattern | Partitions asked |
 |---|---|
 | A bound subject | the subject's partition alone |
-| An unbound subject and a bound IRI or blank-node object, a reverse read | first the object's home, for its referrer set at the read's epoch `e`, once the home has closed `e`; then the partitions the set's bucket groups resolve to through the placement map in effect at `e`, for their reverse or object-predicates entries of the object at `e`, batched per process, each once it has closed `e`. A partition the set does not name is not asked |
-| Any other, a bound literal object, a value-index lookup and a lookup by reverse count among them | every partition holding a bucket of the namespace's run, batched per process; a reverse count is the sum of the partitions' counts |
+| An unbound subject and a bound IRI or blank-node object, a reverse read | first the object's home, for its referrer set at the read's epoch `e`, once the home has closed `e`; then the partitions the set's bucket groups resolve to through the placement map in effect at `e`, for their reverse or object-predicates entries of the object at `e`, batched per address, each once it has closed `e`. A partition the set does not name is not asked |
+| Any other, a bound literal object, a value-index lookup and a lookup by reverse count among them | every partition holding a bucket of the namespace's run, batched per address; a reverse count is the sum of the partitions' counts |
 
 It merges the partitions' entries in key order, through a merge scan when the frontier is large, into Result batches
 that name every term by its text, with resume keys of its own (section 11.8). Before a monotonic-fast read reaching
@@ -2153,8 +2157,8 @@ referrer set is read at the home; with a named version, `at` 4.
 
 ### 13.13 Scan (524)
 
-Storage's read kernel: the entries of key ranges of the partitions one storage process hosts, each range at a version,
-at most `limit` entries of it, in key order, batched per process. Compute builds each range from a pattern's terms and
+Storage's read kernel: the entries of key ranges of the partition at a role address, each range at a version, at most
+`limit` entries of it, in key order, batched per address. Compute builds each range from a pattern's terms and
 the store's key encoding, and reads the dictionary, a referrer set or a list by Scans as it reads the quads; a lookup of
 one key is a range holding it alone. Keys here are the store's keys without their 8-byte version suffix, and carry
 system IDs.
@@ -2286,7 +2290,7 @@ it after a frame with `end` not 0, or one not below its Scan's range count (`Fie
 ### 13.15 Reference (526)
 
 A partition registers its references at an entity's home, or gets or creates a predicate's or graph's ID there, in one
-batch per home storage process within each write request (section 11.12, *Registration*); the frontend sends it to
+batch per home's role address within each write request (section 11.12, *Registration*); the frontend sends it to
 learn a unique predicate's system ID. The home, for each registration, gets or creates the entity's ID, adds or renews
 the bucket group in the entity's referrer set when the registration names one, makes both durable in a round of its
 partition's log, and only then answers with every field as sent and each registration's reply fields filled. A repeat

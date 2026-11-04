@@ -118,7 +118,7 @@ when it has seen none. The home SHALL get or create `o`'s ID, add or renew `g` i
 entity's referrer set names where its inbound edges may be"), make both durable in its log (its durability ticket; the
 VSR commit in stage 8), and only then reply with the ID, the member's generation and the latest close delivered to the
 home. A registration SHALL be idempotent: a repeat SHALL return the same ID and change nothing. Registrations SHALL be
-issued while the transaction executes and batched per home node per write request. The registering transaction's commit
+issued while the transaction executes and batched per home's role address per write request. The registering transaction's commit
 SHALL write the registered mark of `(o, g)` with the generation the reply named (quad-storage, "The quad keyspaces"),
 and, at the partition's first reference to `o` from any group, `o`'s dictionary entries in both directions into the
 partition's own dictionary, so the partition names `o` and finds its ID without asking the home, after a restart too. A

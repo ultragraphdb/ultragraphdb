@@ -4,17 +4,37 @@
 A storage process SHALL host the partitions the placement map gives it, each with its own log, its own commit step and
 its own keyspaces, holding the data of its bucket ranges and nothing else. An entity's home SHALL be the partition the
 placement map gives its bucket. A partition SHALL be the same code whether a process hosts one or many. The storage
-binary SHALL host one partition unless configured otherwise. The first storage process to join SHALL form the placement
-when the metadata group holds none, an even map over the partitions it names; in this stage the placement SHALL then stay
-fixed, a process holding its map for its lifetime, and a later join naming other partitions SHALL be refused.
+binary SHALL host one partition unless configured otherwise. The frontend SHALL form the placement when the metadata group
+holds none, an even map over `[cluster] partition_count`. A storage process SHALL claim the partitions
+`[storage] partition_first` and `partition_count` name, and any number of processes SHALL host the partitions between
+them; a claim on a partition outside the placement, or one another address holds, SHALL be refused. In this stage the
+placement SHALL then stay fixed, a process holding its map for its lifetime.
 
-#### Scenario: The first storage process forms the placement
-- **WHEN** a storage process hosting 4 partitions joins a frontend whose metadata group holds no placement
-- **THEN** the metadata group holds an even map over those 4 partitions, and a restart forms none
+#### Scenario: The frontend forms the placement
+- **WHEN** a frontend with `partition_count` 4 starts on a metadata group holding no placement
+- **THEN** the metadata group holds an even map over 4 partitions, and a restart forms none
 
-#### Scenario: A join naming other partitions is refused
-- **WHEN** the placement names 4 partitions and a storage process joins naming 2
-- **THEN** its join is refused with an error naming both counts, and the placement is unchanged
+#### Scenario: Two storage processes share the partitions
+- **WHEN** one storage process claims partitions 1 and 2 and another claims 3 and 4
+- **THEN** both join, Members names each partition's address, and a write reaches its partition on either process
+
+#### Scenario: A claim on a held partition is refused
+- **WHEN** one storage process holds partition 2 and another claims it
+- **THEN** the claim is refused with an error naming partition 2 and its holder, and the placement is unchanged
+
+#### Scenario: A restart claims its partitions again
+- **WHEN** a storage process holding partitions 1 and 2 restarts at the same addresses
+- **THEN** its claim succeeds
+
+### Requirement: A write reaches its log without copying its terms
+A partition's host SHALL apply a write from the frame that carried it, its terms borrowed from the frame until each is
+resolved to its ID, with no owned copy of a term made per change, whatever a term's first resolution stores. The log
+SHALL hold the bytes the record was encoded to, and a replay and stage 8's replication SHALL read those bytes where they
+lie. Applying a frame and applying the same changes as a `Changeset` SHALL give the same record.
+
+#### Scenario: A frame and a changeset give one record
+- **WHEN** the same changes are applied once from a Write frame and once as a `Changeset`
+- **THEN** the two write-set records are byte-identical
 
 #### Scenario: Two partitions keep their data apart
 - **WHEN** a storage process hosts partitions 1 and 2, and an entity of each partition's buckets is written

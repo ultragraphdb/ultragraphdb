@@ -46,7 +46,8 @@ Today:
 - Replication, VSR, preferred-leader enforcement, replica placement (P8), follower reads, the epoch agent per node
   (P12), node budgets (P4, P11), flush sharing behind the log interface (P10 builds only the interface), the bulk loader
   (P3), backup and restore (P24 rule 10): stage 8.
-- Moving bucket ranges at run time: stage 8. Here the first storage process forms the placement and it stays fixed.
+- Moving bucket ranges at run time: stage 8. Here the frontend forms the placement, processes claim its partitions, and it
+  stays fixed.
 - Bolt, the web UI and the vector indexer in the server path (decided 2026-11-01): stage 8 or 9.5.
 - UGS keys and declared types: stage 6. This stage knows the built-in `Resource` and `Statement` types only.
 - SPARQL, GQL and query planning: stage 7. Reads are quad patterns.
@@ -335,6 +336,22 @@ message. A read of a read-write transaction reaches its partition through comput
 stream, so the frontend holds it until the client's earlier writes are answered, and the partition records each entry's span
 before sending it: the read set covers everything the client could have seen, and no more, so a stopped read conflicts with
 nothing it did not return. Read-only reads pay none of this.
+
+Zero copy covers the wire and the log, and stops at the store. A frame is read in place through its views, with no parse
+step. A Write names terms by text, so its bytes are not the log's: the record holds resolved quads and system IDs, built
+once, because the log must replay without the dictionary's answers. Text stays borrowed from the frame until an ID replaces
+it, and the record's bytes are what the log stores, what replay views where they lie, and what stage 8's replication carries,
+so no serialization step stands between them. The frontend relays frames unchanged. The store is where copying is
+unavoidable: applying a round derives keys and posting lists and writes them to fjall, since the protocol's bytes cannot be
+the persistent store while a KV backend holds that role. Entries carries decoded lists for the same reason. `Changeset`,
+which owns its terms, is therefore a convenience for tests and tools, never the wire's path.
+
+Thread per core rests on compio: one runtime per core, and `RuntimeBuilder::thread_affinity` for pinning. That call returns
+nothing and on failure only logs. It drops CPUs outside the permitted set, so under a container's cpuset a CPU number counted
+from zero can leave it nothing to bind, and on macOS it sets only a cache-locality hint. A role therefore reads the permitted
+set first and reads back what it holds: an unreported failure to pin looks exactly like success. Ownership gives correctness on its own, so
+pinning is only ever performance. Each partition's core owns its address, so peers batch per address, trading a frame's reach
+across a node's partitions for never crossing cores on arrival; correctness and contention outrank that batching.
 
 The read kernel is one walk over two sources, so a transaction's scan and a plain one cannot disagree about a key's row.
 A transaction's `Request` is already its overlay: its held lists are sorted by key and hold its writes. The walk merges the

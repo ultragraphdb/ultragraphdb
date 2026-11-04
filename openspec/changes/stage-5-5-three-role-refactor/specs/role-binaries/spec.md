@@ -24,8 +24,8 @@ carriers, and no role SHALL ask which carrier it runs on.
 
 #### Scenario: The development container uses Unix sockets
 - **WHEN** the development image starts with its default profile
-- **THEN** the frontend, compute and storage processes connect through `unix:///run/ultragraph/<role>.sock`, and a
-  write and a read through the frontend succeed
+- **THEN** the frontend and compute connect through `unix:///run/ultragraph/<role>.sock`, each partition through
+  `unix:///run/ultragraph/storage-p<partition>.sock`, and a write and a read through the frontend succeed
 
 #### Scenario: The same frames cross TCP
 - **WHEN** the three roles run in three containers configured with `tcp://` addresses
@@ -55,6 +55,23 @@ clean shutdown.
 #### Scenario: SIGTERM shuts down in order
 - **WHEN** the supervisor receives SIGTERM
 - **THEN** the frontend stops accepting work first, compute drains next, storage flushes last, and the supervisor exits 0
+
+### Requirement: Each role runs one runtime per core
+Each role SHALL run one compio runtime per core it uses, a storage partition on its own, sharing no mutable state with
+another; what crosses between them SHALL go by message. `[runtime] pin_cores` SHALL ask each runtime to bind to one CPU,
+chosen from those the process is permitted, as a container's cpuset restricts them. Pinning SHALL be a performance choice
+and never a condition of correctness: where the platform cannot bind a thread, as macOS cannot, offering only a
+cache-locality hint, the role SHALL run unpinned and say so.
+At start each role SHALL log, per runtime, the CPU it asked for and what it has, read back from the operating system where
+it can be.
+
+#### Scenario: A pinned role reports what it holds
+- **WHEN** a role starts with `pin_cores = true` on a platform that allows binding
+- **THEN** it logs each runtime's CPU, read back from the operating system, each within the permitted set
+
+#### Scenario: A platform refusing to pin still serves
+- **WHEN** a role starts with `pin_cores = true` where binding is unavailable
+- **THEN** it logs that it runs unpinned, and serves requests
 
 ### Requirement: Readiness, health and shutdown
 Each role SHALL serve `/health`, answering once its process runs, and `/ready`, answering once its dependencies are

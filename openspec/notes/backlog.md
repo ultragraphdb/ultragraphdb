@@ -441,6 +441,18 @@ From the change's `wire-protocol` spec, the scenarios that need a server answeri
 - **THEN** the server answers code 22 on stream 0 and closes the connection, the transaction aborts, and the
   principal's sessions serve its next connection
 
+### Stage 8: the frontend's owner check crosses the network
+
+Stage 5.5 asks the frontend's owning core for every commit's owner check, a hop within a node, because a stale copy lets a
+partition take an evicted session for a new one. Once frontends scale out, that check is a round trip per commit. Can a
+check be held without asking, valid up to a fenced epoch that the sequencer's eviction delivery bounds?
+
+### Pinning on a physical Linux machine
+
+Does `[runtime] pin_cores` hold on physical Linux, and what does it buy? macOS offers only a hint, and inside a Docker VM a
+pin binds a virtual CPU at most, so stage 5.5 verifies reporting and unpinned service only. Can the measurements of 12.5 and 12.5b repeat pinned and
+unpinned once remote access to a physical machine exists?
+
 ## Source material: design
 
 From *Crates and layering*:
