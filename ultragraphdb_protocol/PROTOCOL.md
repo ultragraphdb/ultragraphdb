@@ -200,7 +200,8 @@ A client refusing a frame from the server closes the connection.
 | 17 | Round | log and server only (section 12) | sections | |
 | 18 | Authenticate | both, stream 0 | sections | Authenticate, until the server's final one; or Error on stream 0 |
 | 19 | Drop | both | sections | Drop, or Error |
-| 20 | WriteCommit | client → server, and frontend → storage | sections | Commit, or Error |
+| 20 | DirectWrite | client → server, and frontend → storage | sections | Commit, or Error |
+| 21 | ConditionalWrite | client → server, and frontend → storage | sections | Commit, or Error |
 | 256–511 | reserved for the replica commands of stage 8 | | | |
 | 512 | Join | both; storage, compute → frontend | sections | Join, or Error |
 | 513 | Members | both; storage, compute → frontend | sections | Members |
@@ -666,14 +667,14 @@ its data, and the frontend sets its catalog to the initial catalog by a catalog 
 every quad key, and the frontend leaves the root namespace's initial catalog alone in the metadata group. No drop
 removes a dictionary entry. The privilege each takes is in `SECURITY.md`.
 
-### 6.6 WriteCommit (20)
+### 6.6 DirectWrite (20)
 
-A changeset and any commit-time operations, committed as one write-only transaction in one frame: a statement is held or
-refused with the rest, and no read reaches the client. It opens a stream of its own and needs no Begin. The reply is a Commit,
-or an Error, and ends the stream, and a retry goes on a new stream with the same session and request (section 11.5). A set of
-changes larger than a frame is a read-write transaction's. A WriteCommit is a commit for every rule of section 11.5: its request
-number comes from the session's one counter, one commit is in flight per session, and one in flight when a connection is lost is
-in doubt.
+A changeset committed as one transaction in one frame: unconditional writes, whose outcome depends on nothing the client must
+learn. Every change is held or refused with the rest, and no read reaches the client. It opens a stream of its own and needs no
+Begin. The reply is a Commit or an Error and ends the stream, and a retry goes on a new stream with the same session and request
+(section 11.5). A set of changes larger than a frame is a read-write transaction's. A DirectWrite is a commit for every rule of
+section 11.5: its request number comes from the session's one counter, one commit is in flight per session, and one in flight
+when a connection is lost is in doubt.
 
 | Command header | Width | Field | Type | Rule |
 |---|---|---|---|---|
@@ -684,19 +685,20 @@ in doubt.
 
 | Section | Contents |
 |---|---|
-| 0 | the change records, 16 bytes each, in order (section 4.6) |
-| 1 | the args, u32s: the change records', then each operation's in order, as the kind's Count in section 7.3 says |
+| 0 | the change records, 16 bytes each, in order (section 4.6), at least one |
+| 1 | the args, u32s |
 | 2 | the term table's records |
 | 3 | the term table's text |
 | 4 | the names: string list `ends` (section 4.3) |
 | 5 | the names: string list `text` |
-| 6 | the operations, 24 bytes each, the layout of Operation's command header bytes 0 to 23 (section 7.3) |
 
 Order: unused bytes 56–127 zero; `request`; `token` as section 4.8 says; sections; the term table (2, 3); the names (4, 5); the args
-a whole number of u32s (`SectionLength`, section 1); section 6 a whole number of 24-byte operations (`SectionLength`, section 6);
-sections 0 and 6 not both empty (`CountMismatch` `"changes"`); the records, then the operations, consuming the args exactly
-(`FieldValue` `"args_start"`). A record of kinds 8 to 10, a declaration, is refused with `FieldValue` `"record"`: it commits
-through the metadata group (section 11.13).
+a whole number of u32s (`SectionLength`, section 1); section 0 not empty (`CountMismatch` `"changes"`); the records. A record of kinds 8
+to 10, a declaration, is refused with `FieldValue` `"record"`: it commits through the metadata group (section 11.13).
+
+A write to a predicate the catalog in effect declares unique is conditional on the value being free, so a DirectWrite holding one is
+refused with code 7 (Refused), `detail` the term's index, the message naming the predicate and ConditionalWrite. The frame declares the
+client's intent and the catalog checks it, so a request named direct never runs a condition the client did not ask for.
 
 The frontend checks the session and the rights as for a Commit (section 11.5), chooses the partition as for a transaction's first
 request (section 11.12, *Writes*), and relays the frame unchanged on a new stream to that partition's role address, relaying its
@@ -708,6 +710,26 @@ or sweep applies. It commits through the commit step as any transaction does: th
 session table. A conflict on what the execution tested internally, such as a statement written concurrently, never reaches the
 client as a read conflict, since the client saw no read: the partition executes the frame again at a newer watermark, at most a
 bounded number of times, and past that answers code 2 (Conflict).
+
+### 6.7 ConditionalWrite (21)
+
+A DirectWrite's changes, at most, with commit-time operations (section 11.6), which the commit step decides in commit order: an
+outcome that depends on the state at that moment, and which the reply reports. Every rule of section 6.6 holds except the unique
+predicate's refusal: an operation claims a unique value. It is the one-frame form of "write this if that holds", and no read
+reaches the client beforehand, so no client-held read can go stale.
+
+The command header is DirectWrite's. A failed condition is an answer, not a conflict: a compare-and-set that does not hold is refused
+with code 8 (OperationFailed) and the value found, and is not retried.
+
+| Section | Contents |
+|---|---|
+| 0 to 5 | as DirectWrite's; section 0 may be empty |
+| 1 | the args: the change records', then each operation's in order, as the kind's Count in section 7.3 says |
+| 6 | the operations, 24 bytes each, the layout of Operation's command header bytes 0 to 23 (section 7.3), at least one |
+
+Order: as DirectWrite's, except that section 6 is a whole number of 24-byte operations (`SectionLength`, section 6) and not empty
+(`CountMismatch` `"operations"`), checked before the records; the records, then the operations, consuming the args exactly (`FieldValue`
+`"args_start"`).
 
 ## 7. Bodies of data requests
 
@@ -1241,7 +1263,7 @@ ends the connection: an Error of code 22 (CredentialExpired) on stream 0, then t
 | Read, Execute | a new stream, naming the transaction | Result frames, the last flagged `LAST`; or Error |
 | Write, Operation | the transaction's stream | none; a refusal is an Error on the stream, which ends the transaction and answers its next request |
 | Commit | the transaction's stream; a retry goes on a new stream of its own | Commit or Error; the stream ends |
-| WriteCommit | a new stream; a retry goes on a new stream of its own | Commit or Error; the stream ends |
+| DirectWrite, ConditionalWrite | a new stream; a retry goes on a new stream of its own | Commit or Error; the stream ends |
 | Abort | the transaction's stream | none; the stream ends |
 | Prepare, Describe, Drop | a new stream | Prepare, Describe or Drop, or Error; the stream ends |
 | Credit | the read's stream | none |
@@ -1260,12 +1282,13 @@ A request declares its type by the command that carries it, so the server choose
 | Type | Commands | What it costs |
 |---|---|---|
 | Read-only | Begin `mode` 1, then Read or Execute | No read set, no commit; a level names how far it may lag (section 11.11) |
-| Write-only | WriteCommit (section 6.6) | One frame and its reply: no Begin, no Bind stream, no open transaction, and nothing read reaches the client |
+| DirectWrite | DirectWrite (section 6.6) | One frame and its reply: no Begin, no Bind stream, no open transaction, and nothing read reaches the client |
+| ConditionalWrite | ConditionalWrite (section 6.7) | As DirectWrite, its conditions decided in commit order, and the outcome reported in the reply |
 | Read-write | Begin `mode` 0, then any of Read, Execute, Write, Operation, and Commit or Abort | An open transaction, validated at commit, and aborted to the client on a conflict |
 
 A write computed from an earlier read of the client's belongs in a read-write transaction, or in a commit-time operation that
-decides it in commit order (section 11.6). Sent as a read-only request and then a WriteCommit, it is two independent requests,
-and a commit between them is a lost update the server cannot see.
+decides it in commit order, which ConditionalWrite carries in one frame (section 11.6). Sent as a read-only request and then a
+DirectWrite, it is two independent requests, and a commit between them is a lost update the server cannot see.
 
 ### 11.3 Credit
 
@@ -1508,7 +1531,7 @@ role secret opens no client session: it is refused there as a wrong password is.
 |---|---|---|
 | The frontend's role address | Join, Members, Placement, Catalog | storage and compute |
 | | Subscribe, Lease, CloseRequest, DefaultEntry, Report | storage |
-| A partition's role address | WriteCommit | the frontend |
+| A partition's role address | DirectWrite, ConditionalWrite | the frontend |
 | | Bind, then Write, Operation, Commit and Abort, or Drop, on the Bind's stream; Recall | the frontend |
 | | Reference | storage and the frontend |
 | | Scan, Closed | compute |

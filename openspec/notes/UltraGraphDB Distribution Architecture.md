@@ -143,7 +143,7 @@ Cross-group snapshots are defined by **sequencer epochs**. This was chosen over 
 
 Replication is VSR throughout, and every core runs its own event loop with no shared state on the hot path.
 
-- **VSR replica groups** for storage, plus one VSR group for metadata on the frontends. Stage 8 builds them first, on the single container's `dev-ha` profile, and stage 10 at scale. `UltraGraphDB Distributio Protocol.md` is the protocol: storage groups acknowledge from memory on a quorum with a bounded exposure, and the metadata group and the sequencer acknowledge from disk.
+- **VSR replica groups** for storage, plus one VSR group for metadata on the frontends. Stage 8 builds them first, on the single container's `dev-ha` profile, and stage 10 at scale. `UltraGraphDB Distribution Protocol.md` is the protocol: storage groups acknowledge from memory on a quorum with a bounded exposure, and the metadata group and the sequencer acknowledge from disk.
 - **Thread-per-core with compio.** Completion-based I/O (io\_uring on Linux), with each core owning its submission and completion queues, NVMe queue pair and NIC queue.
 - **Sans-IO core.** VSR, the storage engine and the query engines take I/O through traits. Implementations: the deterministic simulator, Linux io\_uring, and any future backend without touching core logic. The same design gives native sync and async clients.
 - **Batching amortizes consensus.** TigerBeetle, the closest comparable system, processes batches of up to 8,190 transfers per request and is designed for about one million transactions per second on a single core.

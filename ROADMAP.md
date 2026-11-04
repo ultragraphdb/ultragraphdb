@@ -20,7 +20,7 @@
 
 UltraGraphDB is distributed from the start: three roles, frontend, compute and storage, from one binary, replicated
 with VSR (`openspec/notes/UltraGraphDB Distribution Architecture.md`, and for the protocol itself
-`openspec/notes/UltraGraphDB Distributio Protocol.md`). A single machine runs the same topology folded
+`openspec/notes/UltraGraphDB Distribution Protocol.md`). A single machine runs the same topology folded
 into one container (`openspec/notes/UltraGraphDB Single-Container Deployment.md`). Stages 4 to 10 replace DQL with
 SPARQL and GQL; UltraQL follows stage 10. What the next stages must specify is tracked in `openspec/notes/backlog.md`.
 
@@ -63,7 +63,7 @@ Improvements, done:
 --
 
 Improvements, clustering:
-1) Replace Raft with the more efficient VSR protocol (stage 8 for the basic cluster, stage 10 at full scale; Raft is not built, stage 5 defines the log interface). The protocol, acknowledging from memory with a bounded exposure, is `openspec/notes/UltraGraphDB Distributio Protocol.md`
+1) Replace Raft with the more efficient VSR protocol (stage 8 for the basic cluster, stage 10 at full scale; Raft is not built, stage 5 defines the log interface). The protocol, acknowledging from memory with a bounded exposure, is `openspec/notes/UltraGraphDB Distribution Protocol.md`
 2) Add Jepsen test suite to harden clustering (stage 10)
 3) Replace the Zero/Alpha separation with a proper storage/compute separation (built in stage 8 as the three roles, scaled out in stage 10; Zero/Alpha is not built)
 4) Adopt Aeron's stream position for the replicated log (stage 8, with VSR). Aeron locates every frame by its byte offset in the

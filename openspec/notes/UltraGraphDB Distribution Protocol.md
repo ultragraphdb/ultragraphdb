@@ -153,7 +153,7 @@ What follows is a hypothesis to test. The base protocol stands on its own withou
 and to every witness at once and answers the client once all accept, one internal round trip in place of two. Ordering follows
 in the background through normal rounds.
 
-**What qualifies.** A WriteCommit (PROTOCOL 6.6), which reads nothing by construction, whose changes write only statements the schema's classification marks
+**What qualifies.** A DirectWrite (PROTOCOL 6.6), which reads nothing by construction and refuses unique predicates, whose changes write only statements the schema's classification marks
 coordination-free, and needs no first-time registration, no new blank node, no single-valued or unique predicate and no
 commit-time operation. The frontend decides from the catalog and the frame; the primary may still decline.
 
@@ -192,7 +192,7 @@ it comes late. Each result below feeds one gate.
 | # | Question | Where | How | What it decides |
 |---|---|---|---|---|
 | X1 | How much of a commit is the fsync, on which drives? | Stage 5.5, task 12.5b | Time per phase of a commit through the three binaries, at 1 and at many relations per commit, on the VM disk and on a drive without power-loss protection | The ceiling on what memory acknowledgement can gain. A small share here means the base protocol's main benefit is smaller than assumed |
-| X2 | How many writes could qualify, and how often would they conflict? | Stage 6.5, against its chaos schemata; repeated on DeepBrain's writes at stage 8 | Offline. Count each commit by its type: blind write-only, write-only decided in commit order, read-write. Classify the first by the UGS schema, and replay the log's conflict keys (write-set record sections 6 to 8) through a model of a witness window | Whether the fast path has a workload at all. It costs no protocol work and can end the idea here |
+| X2 | How many writes could qualify, and how often would they conflict? | Stage 6.5, against its chaos schemata; repeated on DeepBrain's writes at stage 8 | Offline. Count each commit by its type: DirectWrite, ConditionalWrite, read-write. Classify the first by the UGS schema, and replay the log's conflict keys (write-set record sections 6 to 8) through a model of a witness window | Whether the fast path has a workload at all. It costs no protocol work and can end the idea here |
 | X3 | Is memory acknowledgement correct? | Stage 8, with VSR on `dev-ha` | A Lean model of replicas, modes, amnesia and `W`, with the theorems below; the simulator injecting crashes, memory loss, simultaneous and spaced failures, and a round that crashes every replica | Gate G1 |
 | X4 | What does the protocol itself cost? | Stage 8, `dev-ha` | Disk-acknowledge against memory-acknowledge on one build, over Unix sockets with injected delay: CPU per round, bytes per round, throughput. Loopback measures cost, never real latency | Finds regressions early; decides nothing about latency |
 | X5 | What does memory acknowledgement gain on real hardware? | Stage 10, first, on physical Linux nodes | Median and p99 commit latency and throughput against `W` = 0, on drives with and without power-loss protection, pinned and unpinned; the time to reach guarded mode against failure spacing; metadata and sequencer costs | Gate G1, and the default `W` |

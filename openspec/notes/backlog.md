@@ -219,7 +219,7 @@ binary (on Linux as well), the formal model of epochs, registration, referrer se
 VSR's first build in stage 8, acknowledging from memory with a bounded exposure and no silent loss, its gates, and the CURP
 fast path as an experiment.
 
-- Design: `openspec/notes/UltraGraphDB Distributio Protocol.md`, whose *Experiments* places each measurement and whose *Open questions* list what remains: the gates'
+- Design: `openspec/notes/UltraGraphDB Distribution Protocol.md`, whose *Experiments* places each measurement and whose *Open questions* list what remains: the gates'
   thresholds, whether `W` = 0 is enough or a named durability mode is needed, what a declared loss must do across the cluster,
   how a latest-state read avoids a deposed primary, and flexible quorums.
 - Architecture: *Replication and runtime model*.
@@ -240,10 +240,10 @@ pin binds a virtual CPU at most, so stage 5.5 verifies reporting and unpinned se
 
 ### 15. A read-write request in one statement (stage 7)
 
-Stage 5.5 declares three request types, read-only, write-only and read-write (PROTOCOL 11.2a). A single statement such as
+Stage 5.5 declares four request types, read-only, DirectWrite, ConditionalWrite and read-write (PROTOCOL 11.2a). A single statement such as
 `MATCH … INSERT` reads and writes with no client between its stages, so its conflict window is shorter than an interactive
 transaction's. Should the query languages send such a statement as one request, and may the partition then retry its conflicts as it
-does a WriteCommit's? A read-only request still takes Begin and Read: does it need a one-frame form too?
+does a DirectWrite's? A read-only request still takes Begin and Read: does it need a one-frame form too?
 
 ## Source material: requirements
 

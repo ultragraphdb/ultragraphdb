@@ -99,40 +99,46 @@ so creating a dictionary entry SHALL conflict with nothing.
 - **THEN** the reading transaction commits
 
 ### Requirement: A request declares its type
-A client SHALL declare a request's type by the command that carries it: read-only, read-write, or write-only. A write-only
-request SHALL be one frame holding its changes and commit-time operations, committing all of them or none, with no Begin and
-no open transaction, and SHALL hold the guarantees of any transaction: strict serializability, exactly-once through a session,
-and acknowledgement at the visibility watermark. Because no read reaches its client, a conflict on what its execution tested
-SHALL be retried by the partition, a bounded number of times, before the client sees it. A declaration SHALL be refused in one.
-The server SHALL decide from the catalog how each write is carried out, so that a client declares only that it reads nothing.
+A client SHALL declare a request's type by the command that carries it: read-only, DirectWrite, ConditionalWrite or read-write. A
+DirectWrite SHALL be one frame of unconditional changes. A ConditionalWrite SHALL be one frame of commit-time operations, with any
+changes, its conditions decided in commit order and its outcome reported in the reply. Each SHALL commit all it holds or none, with
+no Begin and no open transaction, and SHALL hold the guarantees of any transaction: strict serializability, exactly-once through a
+session, and acknowledgement at the visibility watermark. Because no read reaches its client, a conflict on what its execution
+tested SHALL be retried by the partition, a bounded number of times, before the client sees it. A DirectWrite writing a predicate the
+catalog declares unique SHALL be refused, naming the predicate and ConditionalWrite, so that a request named direct runs no condition
+its client did not ask for. A declaration SHALL be refused in either.
 
 #### Scenario: An insert commits in one request
-- **WHEN** a client sends a write-only request inserting `<a> <knows> <b>` through its session
+- **WHEN** a client sends a DirectWrite inserting `<a> <knows> <b>` through its session
 - **THEN** the reply carries the commit version and session token, `<a> <knows> <b>` is held, and the partition holds no open
   transaction for it at any point after the reply
 
-#### Scenario: A write-only request is all or nothing
-- **WHEN** a write-only request holds a valid insert and an insert breaking a unique predicate
-- **THEN** it is refused, and neither is held
+#### Scenario: A DirectWrite on a unique predicate is refused
+- **WHEN** a DirectWrite holds a valid insert and an insert of the predicate `id`, which the catalog declares unique
+- **THEN** it is refused with an error naming `id` and ConditionalWrite, and neither insert is held
 
 #### Scenario: Concurrent identical inserts both succeed
-- **WHEN** two write-only requests insert `<a> <knows> <b>` concurrently
+- **WHEN** two DirectWrites insert `<a> <knows> <b>` concurrently
 - **THEN** both are answered with success, whichever executed first, and the statement is held once
 
 #### Scenario: An upsert decides in commit order
-- **WHEN** two write-only requests each insert-if-absent a node with `id` `"x"` concurrently
+- **WHEN** two ConditionalWrites each insert-if-absent a node with `id` `"x"` concurrently
 - **THEN** both name the same node, created once
 
-#### Scenario: A retried write-only request commits once
-- **WHEN** a client loses the reply to request 7 of its session and sends it again
+#### Scenario: A failed condition is an answer
+- **WHEN** a ConditionalWrite holds a compare-and-set whose expected value does not hold
+- **THEN** it is refused with `OperationFailed` and the value found, is not retried, and nothing it holds is written
+
+#### Scenario: A retried write commits once
+- **WHEN** a client loses the reply to request 7 of its session, a DirectWrite, and sends it again
 - **THEN** it receives the same reply and commit version, and the writes are held once
 
-#### Scenario: A write-only request reaching two partitions is refused
-- **WHEN** a write-only request writes subjects of partitions 1 and 2
+#### Scenario: A write reaching two partitions is refused
+- **WHEN** a DirectWrite writes subjects of partitions 1 and 2
 - **THEN** it is refused with a cross-partition error, and neither is held
 
-#### Scenario: A declaration in a write-only request is refused
-- **WHEN** a write-only request holds a declaration of a predicate
+#### Scenario: A declaration in a write is refused
+- **WHEN** a DirectWrite holds a declaration of a predicate
 - **THEN** it is refused with a protocol error, and the catalog is unchanged
 
 ### Requirement: Interactive transactions

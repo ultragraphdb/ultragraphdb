@@ -14,17 +14,18 @@ clients may not send ("Roles exchange role commands").
 - **THEN** it is refused as an unknown command
 
 ### Requirement: A write commits in one frame
-WriteCommit SHALL carry a changeset and commit-time operations under a session, a request number and a session token, and SHALL be
-answered by a Commit. It SHALL open a stream of its own and need no Begin, and the frontend SHALL relay it unchanged.
+DirectWrite SHALL carry a changeset, and ConditionalWrite commit-time operations with any changes, each under a session, a request
+number and a session token, each answered by a Commit. Each SHALL open a stream of its own and need no Begin, and the frontend SHALL
+relay it unchanged.
 
-#### Scenario: A WriteCommit is relayed unchanged
-- **WHEN** a client sends a WriteCommit through the frontend
+#### Scenario: A DirectWrite is relayed unchanged
+- **WHEN** a client sends a DirectWrite through the frontend
 - **THEN** the frame the partition receives holds the client's command header and body byte for byte, and the client receives a
   Commit
 
-#### Scenario: A malformed WriteCommit is refused
-- **WHEN** a WriteCommit holds neither changes nor operations
-- **THEN** it is refused with `CountMismatch` naming `changes`
+#### Scenario: A malformed write is refused
+- **WHEN** a DirectWrite holds no change, or a ConditionalWrite no operation
+- **THEN** it is refused with `CountMismatch`, naming `changes` or `operations`
 
 ### Requirement: Requests name terms by their text
 A request body that carries RDF terms SHALL carry them in a term table of its own, one entry per distinct term, each a

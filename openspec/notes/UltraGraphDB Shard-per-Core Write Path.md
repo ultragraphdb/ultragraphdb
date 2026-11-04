@@ -6,7 +6,7 @@ replica group with its own log, commit step and buckets; every partition core ho
 ScyllaDB's shard-per-core model and TigerBeetle's one core per replica. The model is sized for nodes of 12 to 128
 cores. Backlog item 11 tracks what remains to specify; the distribution architecture
 (`UltraGraphDB Distribution Architecture.md`) is the frame it refines, and the distribution protocol
-(`UltraGraphDB Distributio Protocol.md`) is the replication protocol these replicas run.
+(`UltraGraphDB Distribution Protocol.md`) is the replication protocol these replicas run.
 
 ## Measurements
 
