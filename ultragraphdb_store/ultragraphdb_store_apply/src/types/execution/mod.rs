@@ -6,16 +6,18 @@
 mod execution_partition;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::ControlFlow;
 
 use oxrdf::{GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNodeRef, Term};
 use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::Region;
 use ultragraphdb_core_mapping::Changes;
-use ultragraphdb_store_posting::{CachedList, ListSource};
+use ultragraphdb_core_terms::EncodedTerm;
+use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{ListCache, Store};
 
-use ultragraphdb_store_quads::{KernelRow, KernelScan, QuadError, WriteTerms, list_objects};
+use ultragraphdb_store_quads::{KernelRow, KernelScan, Page, PageWalk, QuadError, WriteTerms};
 
 use crate::errors::changeset_error::ChangesetError;
 use crate::types::changeset_core::reads_of;
@@ -124,20 +126,33 @@ where
         scan: &KernelScan,
         out: &mut Vec<KernelRow>,
     ) -> Result<Option<Vec<u8>>, ChangesetError> {
+        let page = self.page(scan, KernelRow::gather(out))?;
+        Ok(page.into_end().resume_from())
+    }
+
+    /// A page of the read kernel over this execution's writes: the lists `scan` names, at the execution's read timestamp with its
+    /// own uncommitted writes over them, in key order, streamed to `sink` object by object by the walk a plain page takes
+    /// ([`PageWalk`]). Nothing is held. What it covered is recorded as a range scanned before it returns: to the past key when
+    /// the range ended, found nothing included, to just past the last key the sink took anything of when stopped at the limit
+    /// or paused, and nothing when the sink took nothing.
+    ///
+    /// # Errors
+    ///
+    /// The store's error; corruption of a list; a keyspace holding no lists. Nothing is recorded.
+    pub fn page<F>(&mut self, scan: &KernelScan, sink: F) -> Result<Page, ChangesetError>
+    where
+        F: FnMut(&[u8], &EncodedTerm, &[SystemId]) -> ControlFlow<()>,
+    {
         scan.check_keyspace()?;
-        let read_ts = self.read_ts;
         let (start, end) = scan.bounds();
-        self.write
-            .request()
-            .span(start, end, Some(scan.limit()), |key, request| {
-                let objects =
-                    request.with_list(key, read_ts, |list| list_objects(key, list, read_ts))??;
-                let row = !objects.is_empty();
-                if row {
-                    out.push(KernelRow::new(key.to_vec(), objects));
-                }
-                Ok::<bool, ChangesetError>(row)
-            })
+        let mut walk = PageWalk::new(scan, self.read_ts, sink);
+        let walked =
+            self.write
+                .request()
+                .span(start, end, scan.walk_bounds(), |key, request| {
+                    walk.visit(key, request).map_err(ChangesetError::from)
+                })?;
+        Ok(walk.end(walked))
     }
 
     /// The ID `iri` has as this execution's reads name it: got or created, the same ID any concurrent writer of the IRI takes,
@@ -149,6 +164,11 @@ where
     /// Refusals of creating an ID; the store's error.
     pub fn find_iri(&mut self, iri: NamedNodeRef<'_>) -> Result<Option<SystemId>, ChangesetError> {
         self.write.find_iri(iri)
+    }
+
+    /// Whether this execution resolved `iri` already, so its reads name it without asking the dictionary or its home.
+    pub fn knows_iri(&mut self, iri: &str) -> bool {
+        self.write.terms().knows(iri)
     }
 
     /// The value of each of `keys` in the dictionary as this execution sees it, into `out`, cleared first: the entries its
@@ -195,6 +215,16 @@ where
             request.range_count(),
             absent,
         )
+    }
+
+    /// The key ranges this execution scanned so far, in order, each from its start, inclusive, to its end, exclusive, or to
+    /// the last key when it has none.
+    pub fn scanned_ranges(&mut self) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
+        self.write
+            .request()
+            .ranges()
+            .map(|(start, end)| (start.to_vec(), end.map(<[u8]>::to_vec)))
+            .collect()
     }
 
     /// How many lists this execution holds: what a scan leaves unchanged.

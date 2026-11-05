@@ -42,4 +42,13 @@ pub trait Session {
 
     /// The peer cancelled `stream`.
     fn cancelled(&mut self, _stream: u64) {}
+
+    /// The peer's Hello was answered, stating `max_frame`, the largest frame it takes.
+    fn welcomed(&mut self, _max_frame: u32) {}
+
+    /// The Result or Entries frame last sent on `stream` has left and the stream holds credit: there is room for its next.
+    fn ready(&mut self, _stream: u64) {}
+
+    /// The Result or Entries frame last sent on `stream` has left and the stream holds no credit for its next.
+    fn left(&mut self, _stream: u64) {}
 }

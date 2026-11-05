@@ -166,6 +166,10 @@ secret (role-binaries, "Roles authenticate each other with the cluster's role se
 - **WHEN** a Scan names a transaction with `at` not 1, a nonzero `epoch`, or a term that is not an IRI
 - **THEN** it is refused with `FieldValue` naming `at`, `epoch` or `scan term`
 
+#### Scenario: A Scan names its deadline
+- **WHEN** a Scan whose `epoch` is 0 holds `deadline_ms` above 0, with a transaction or with none
+- **THEN** each is refused with `FieldValue` naming `deadline_ms`
+
 #### Scenario: A list larger than a frame continues across frames
 - **WHEN** a list's object records span two Entries frames, the first with `continues` 1
 - **THEN** the second's first entry holds the same key, and the records of both are the list's, in order

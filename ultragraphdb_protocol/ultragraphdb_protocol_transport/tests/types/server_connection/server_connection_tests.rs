@@ -14,9 +14,9 @@ use ultragraphdb_protocol_wire::{
     Abort, Authenticate, AuthenticateView, Begin, BodyBuilder, BodyView, Cancel, Command, Commit,
     CommitOperation, ConditionalWrite, Credit, Describe, DirectWrite, DropCommand, Entries,
     EntriesEnd, ErrorCode, ErrorReply, ErrorReplyView, Execute, FLAG_LAST, FrameView, Header,
-    HeaderView, Hello, MAX_FRAME_SIZE, Operation, PatternSlot, Prepare, QuadPattern, Read,
-    Register, ResultBatch, Scan, ScanAt, ScanRange, TermTable, Welcome, WelcomeView, Write,
-    WriteChange,
+    HeaderView, Hello, MAX_FRAME_FLOOR, MAX_FRAME_SIZE, Operation, PatternSlot, Prepare,
+    QuadPattern, Read, Register, ResultBatch, Scan, ScanAt, ScanRange, TermTable, Welcome,
+    WelcomeView, Write, WriteChange,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -127,7 +127,10 @@ fn welcomed(mechanisms: &[&str], peer: &mut Peer, now: Instant) -> TestResult<Co
     let mut connection = connection(mechanisms, now);
     assert_eq!(
         connection.receive(&peer.send(0, &hello())?, now)?,
-        Inbound::Welcomed { protocol: 1 }
+        Inbound::Welcomed {
+            protocol: 1,
+            max_frame: MAX_FRAME_SIZE as u32
+        }
     );
     drain(&mut connection)?;
     Ok(connection)
@@ -196,7 +199,10 @@ fn test_a_hello_is_welcomed_with_the_servers_mechanisms_at_sequence_one() -> Tes
     assert!(connection.welcome().is_none());
     assert_eq!(
         connection.receive(&peer.send(0, &hello())?, now)?,
-        Inbound::Welcomed { protocol: 1 }
+        Inbound::Welcomed {
+            protocol: 1,
+            max_frame: MAX_FRAME_SIZE as u32
+        }
     );
     let frames = sent(&mut connection)?;
     assert_eq!(frames.len(), 1);
@@ -343,7 +349,10 @@ fn test_a_server_without_authentication_serves_at_once() -> TestResult {
     let mut connection = connection(&[], now);
     assert_eq!(
         connection.receive(&peer.send(0, &hello())?, now)?,
-        Inbound::Welcomed { protocol: 1 }
+        Inbound::Welcomed {
+            protocol: 1,
+            max_frame: MAX_FRAME_SIZE as u32
+        }
     );
     let out = sent(&mut connection)?;
     let view = FrameView::validate(&out[0].3, CLUSTER, MAX_FRAME_SIZE)?;
@@ -851,6 +860,26 @@ fn test_a_closing_connection_sends_nothing_after_its_error() -> TestResult {
     Ok(())
 }
 
+/// The connection hands on the largest frame the client's Hello states, for what is sent to that client.
+#[test]
+fn test_a_welcome_carries_the_clients_max_frame() -> TestResult {
+    let now = start();
+    let mut peer = Peer::default();
+    let mut connection = connection(&[], now);
+    let max_frame = MAX_FRAME_FLOOR as u32;
+    assert_eq!(
+        connection.receive(
+            &peer.send(0, &Hello::new(1, 1, 0, max_frame, "client"))?,
+            now
+        )?,
+        Inbound::Welcomed {
+            protocol: 1,
+            max_frame
+        }
+    );
+    Ok(())
+}
+
 /// A Hello whose lowest protocol is above the server's highest is answered with code 16 on stream 0, `detail` the
 /// server's highest, and the connection closes: nothing more is read or sent (point 7).
 #[test]
@@ -930,7 +959,10 @@ fn test_limits_set_the_authentication_timeout_and_the_idle_limit() -> TestResult
     let mut connection = connection(&[TEST], now).with_limits(authentication, idle);
     assert_eq!(
         connection.receive(&peer.send(0, &hello())?, now)?,
-        Inbound::Welcomed { protocol: 1 }
+        Inbound::Welcomed {
+            protocol: 1,
+            max_frame: MAX_FRAME_SIZE as u32
+        }
     );
     assert_eq!(connection.next_deadline(), Some(now + authentication));
     assert_eq!(
@@ -948,7 +980,10 @@ fn test_limits_set_the_authentication_timeout_and_the_idle_limit() -> TestResult
     let mut authenticated = self::connection(&[TEST], now).with_limits(authentication, idle);
     assert_eq!(
         authenticated.receive(&authenticated_peer.send(0, &hello())?, now)?,
-        Inbound::Welcomed { protocol: 1 }
+        Inbound::Welcomed {
+            protocol: 1,
+            max_frame: MAX_FRAME_SIZE as u32
+        }
     );
     drain(&mut authenticated)?;
     assert_eq!(
@@ -984,7 +1019,10 @@ fn test_the_deadline_is_the_earlier_of_the_idle_limit_and_the_expiry() -> TestRe
         connection(&[TEST], now).with_limits(AUTHENTICATION_TIMEOUT, Duration::from_secs(30));
     assert_eq!(
         connection.receive(&peer.send(0, &hello())?, now)?,
-        Inbound::Welcomed { protocol: 1 }
+        Inbound::Welcomed {
+            protocol: 1,
+            max_frame: MAX_FRAME_SIZE as u32
+        }
     );
     drain(&mut connection)?;
     assert_eq!(
@@ -1057,7 +1095,10 @@ fn test_the_authentication_timeout_runs_from_the_welcome() -> TestResult {
     let hello_at = now + Duration::from_secs(30);
     assert_eq!(
         connection.receive(&peer.send(0, &hello())?, hello_at)?,
-        Inbound::Welcomed { protocol: 1 }
+        Inbound::Welcomed {
+            protocol: 1,
+            max_frame: MAX_FRAME_SIZE as u32
+        }
     );
     assert_eq!(
         connection.next_deadline(),
@@ -1373,7 +1414,10 @@ fn test_renewing_with_a_credential_that_never_expires_clears_the_expiry() -> Tes
     );
     assert_eq!(
         connection.receive(&peer.send(0, &hello())?, now)?,
-        Inbound::Welcomed { protocol: 1 }
+        Inbound::Welcomed {
+            protocol: 1,
+            max_frame: MAX_FRAME_SIZE as u32
+        }
     );
     drain(&mut connection)?;
     assert_eq!(
@@ -1461,7 +1505,10 @@ fn test_limits_past_what_an_instant_holds_set_no_deadline() -> TestResult {
     );
     assert_eq!(
         connection.receive(&peer.send(0, &hello())?, now)?,
-        Inbound::Welcomed { protocol: 1 }
+        Inbound::Welcomed {
+            protocol: 1,
+            max_frame: MAX_FRAME_SIZE as u32
+        }
     );
     drain(&mut connection)?;
     assert_eq!(
@@ -1780,7 +1827,7 @@ fn test_a_partitions_entries_frames_wait_for_computes_credit() -> TestResult {
     let now = start();
     let mut peer = Peer::default();
     let mut connection = serving(&mut peer, now)?.with_endpoint(Endpoint::Partition);
-    let mut scan = Scan::new(ScanAt::Latest, 0, 0, 1, [0; 16], 0);
+    let mut scan = Scan::new(ScanAt::Latest, 0, 0, 1, [0; 16], 0, 0);
     scan.push_range(ScanRange::new(1, b"a", b""));
     request(&mut connection, &mut peer, 1, &scan, now)?;
     let credit = connection.outbound().credit(1).context("an open stream")?;

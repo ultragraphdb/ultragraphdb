@@ -4,12 +4,15 @@
  */
 
 pub(crate) mod partition_core_frames;
+mod partition_core_reads;
 mod partition_core_remote;
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
+use std::future::poll_fn;
 use std::rc::Rc;
 use std::sync::mpsc::{Receiver, Sender};
+use std::task::Poll;
 use std::time::Instant;
 
 use futures::StreamExt;
@@ -23,14 +26,19 @@ use ultragraphdb_common_role::{Answer, RoleClient, RoleCluster};
 use ultragraphdb_core_ids::Epoch;
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_transport::{Address, ReceivedFrame};
-use ultragraphdb_protocol_wire::{BodyBuilder, Command, ErrorReply, FLAG_LAST, Header, Reference};
+use ultragraphdb_protocol_wire::{
+    BodyBuilder, Command, ErrorReply, FLAG_LAST, Header, Reference, TermTable,
+};
 use ultragraphdb_store_kv::{FjallStore, MokaListCache, ThreadExecutor};
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_traits_store::Store;
 use ultragraphdb_transactions_log::{CompioStorage, Wal};
 
 use crate::types::core_message::{CoreMessage, Pushes};
+use crate::types::open_scan::OpenScan;
 use crate::types::refill_blocks::RefillBlocks;
+use crate::types::scan_board::ScanBoard;
+use crate::utils::commit_body::commit_body;
 use crate::utils::error_reply::error_reply;
 
 /// A partition of the storage role, over fjall.
@@ -49,6 +57,9 @@ pub type StorageHost<'a> = PartitionHost<
 
 /// How long the core waits for a message before it looks at its timers and at what other partitions of the process sent.
 const TICK: std::time::Duration = std::time::Duration::from_millis(1);
+
+/// How long a partition keeps a Scan with no frame able to leave, by default (`PROTOCOL.md` §11.9), in milliseconds.
+pub const SCAN_STALL_MS_DEFAULT: u64 = 30_000;
 
 /// What the core asks of the frontend, on a connection of its own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -153,6 +164,9 @@ pub struct PartitionCore<'a> {
     home_askings: BTreeMap<u64, HomeAsking>,
     next_asking: u64,
     committing: BTreeMap<u64, Committing>,
+    /// The Scans it answers, and those with a frame to build, in turn.
+    scans: ScanBoard<OpenScan<'a>>,
+    scan_stall_ms: u64,
 }
 
 impl std::fmt::Debug for PartitionCore<'_> {
@@ -202,6 +216,7 @@ pub struct CoreParts<'a> {
     clock: Instant,
     channels: CoreChannels,
     peers: Peers,
+    scan_stall_ms: u64,
 }
 
 impl<'a> CoreParts<'a> {
@@ -222,7 +237,15 @@ impl<'a> CoreParts<'a> {
             clock,
             channels,
             peers,
+            scan_stall_ms: SCAN_STALL_MS_DEFAULT,
         }
+    }
+
+    /// The core keeping a Scan with no frame able to leave for `ms` milliseconds.
+    #[must_use]
+    pub fn with_scan_stall_ms(mut self, ms: u64) -> Self {
+        self.scan_stall_ms = ms;
+        self
     }
 }
 
@@ -245,6 +268,8 @@ impl<'a> PartitionCore<'a> {
             home_askings: BTreeMap::new(),
             next_asking: 1,
             committing: BTreeMap::new(),
+            scans: ScanBoard::default(),
+            scan_stall_ms: parts.scan_stall_ms,
         }
     }
 
@@ -267,11 +292,14 @@ impl<'a> PartitionCore<'a> {
         stopping: &ultragraphdb_common_service::Stopping,
     ) -> Result<(), RoleError> {
         while !stopping.is_stopping() {
-            if let Ok(Some(first)) = compio::time::timeout(TICK, self.inbox.next()).await {
+            if self.scan_ready() {
+                // A Scan's next frame is due, so no time is waited away: only its connection gets to run.
+                yield_once().await;
+            } else if let Ok(Some(first)) = compio::time::timeout(TICK, self.inbox.next()).await {
                 self.take(first);
-                while let Ok(next) = self.inbox.try_recv() {
-                    self.take(next);
-                }
+            }
+            while let Ok(next) = self.inbox.try_recv() {
+                self.take(next);
             }
             self.turn().await?;
         }
@@ -310,20 +338,25 @@ impl<'a> PartitionCore<'a> {
         }
         self.resume_ready();
         self.hand_out();
+        self.serve_scans();
         Ok(())
     }
 
     /// Tells the holder of `key` its transaction passed its limit.
     fn past_limit(&mut self, key: BoundKey) {
         let error = ultragraphdb_transactions_txn::TxnError::past_limit(self.host.bound_limit_ms());
-        let reply = error_reply(&error.into());
+        self.tell_ended(key, &error_reply(&error.into()));
+    }
+
+    /// Tells the holder of `key` its transaction ended with `reply`: the request it waits on, or else its stream.
+    fn tell_ended(&mut self, key: BoundKey, reply: &ErrorReply) {
         if let Some(parked) = self.parked.remove(&key) {
-            drop(parked.done.send(Answer::Refuse(reply)));
+            drop(parked.done.send(Answer::Refuse(reply.clone())));
             let _ended = self.bound_namespace.remove(&key);
             return;
         }
         if let Some((_, pushes)) = self.bound_namespace.remove(&key) {
-            self.push_error(key.1, &reply, &pushes);
+            self.push_error(key.1, reply, &pushes);
         }
     }
 
@@ -340,6 +373,7 @@ impl<'a> PartitionCore<'a> {
 
     /// Each commit's reply, durable now, to who asked.
     fn hand_out(&mut self) {
+        let no_terms = TermTable::new();
         for outcome in self.host.take_outcomes() {
             let Some(committing) = self.committing.remove(&outcome.ticket()) else {
                 continue;
@@ -349,25 +383,18 @@ impl<'a> PartitionCore<'a> {
                 .with_flags(FLAG_LAST);
             let frame = match outcome.outcome() {
                 Ok(version) => {
-                    let mut body = ultragraphdb_protocol_wire::Commit::new(
-                        committing.session.to_be_bytes(),
-                        committing.request,
+                    let (token, results, terms) =
+                        outcome.reply().map_or((None, &[][..], &no_terms), |reply| {
+                            (reply.token(), reply.results(), reply.terms())
+                        });
+                    commit_body(
+                        (committing.session, committing.request),
                         *version,
-                    );
-                    if let Some(reply) = outcome.reply() {
-                        if let Some(token) = reply.token() {
-                            body = body.with_token(token.clone());
-                        }
-                        for result in reply.results() {
-                            match result.node().and_then(|index| reply.terms().get(index)) {
-                                Some(ultragraphdb_protocol_wire::RequestTerm::Iri(node)) => {
-                                    body.push_node_result(node, result.created());
-                                }
-                                _ => body.push_result(*result),
-                            }
-                        }
-                    }
-                    body.frame(header)
+                        token,
+                        results,
+                        terms,
+                    )
+                    .frame(header)
                 }
                 Err(refusal) => error_reply(refusal).frame(
                     Header::new(self.cluster, Command::Error)
@@ -382,4 +409,18 @@ impl<'a> PartitionCore<'a> {
             }
         }
     }
+}
+
+/// Lets every other task of the core's runtime run once, waiting on nothing.
+async fn yield_once() {
+    let mut yielded = false;
+    poll_fn(|cx| {
+        if yielded {
+            return Poll::Ready(());
+        }
+        yielded = true;
+        cx.waker().wake_by_ref();
+        Poll::Pending
+    })
+    .await;
 }

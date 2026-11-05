@@ -1008,6 +1008,35 @@ fn refused_naming_at_epoch_or_term(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
+#[when("a Scan whose `epoch` is 0 holds `deadline_ms` above 0, with a transaction or with none")]
+fn a_scan_with_the_wrong_deadline(w: &mut Steps) -> TestResult {
+    w.frames = vec![
+        with_command_header(&role_frame("scan")?, |h| {
+            h[16..24].fill(0);
+            h[52..56].fill(0);
+            h[52] = 1;
+        }),
+        with_command_header(&role_frame("scan_transaction")?, |h| h[52] = 1),
+    ];
+    Ok(())
+}
+
+#[then("each is refused with `FieldValue` naming `deadline_ms`")]
+fn refused_naming_the_deadline(w: &mut Steps) -> TestResult {
+    let refusals = w
+        .frames
+        .iter()
+        .map(|bytes| role_refusal::<ScanView>(bytes))
+        .collect::<TestResult<Vec<_>>>()?;
+    let field = |value| ProtocolErrorEnum::FieldValue {
+        command: Command::Scan.number(),
+        field: "deadline_ms",
+        value,
+    };
+    assert_eq!(refusals, [field(1), field(1)]);
+    Ok(())
+}
+
 #[when("a list's object records span two Entries frames, the first with `continues` 1")]
 fn a_list_across_two_frames(w: &mut Steps) -> TestResult {
     w.frames = vec![

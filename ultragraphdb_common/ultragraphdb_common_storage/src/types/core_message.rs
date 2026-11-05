@@ -26,9 +26,25 @@ pub enum CoreMessage {
         done: oneshot::Sender<Answer>,
         /// Where the frames answering it later go.
         pushes: Pushes,
+        /// The largest frame the connection's peer takes.
+        max_frame: u32,
     },
     /// The peer of `connection` cancelled `stream`.
     Cancelled {
+        /// The connection.
+        connection: u64,
+        /// The stream.
+        stream: u64,
+    },
+    /// The frame last sent on `stream` of `connection` has left and the stream holds credit: there is room for its next.
+    Ready {
+        /// The connection.
+        connection: u64,
+        /// The stream.
+        stream: u64,
+    },
+    /// The frame last sent on `stream` of `connection` has left, and the stream holds no credit for its next.
+    Left {
         /// The connection.
         connection: u64,
         /// The stream.

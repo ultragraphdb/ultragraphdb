@@ -9,6 +9,11 @@
 use crate::utils::constants::ABSENT;
 use crate::utils::sections::{align8, as_u32};
 
+/// The bytes an entry of a key of `key_len` and a value of `value_len` takes in its section, padding included.
+pub(crate) fn entry_size(key_len: usize, value_len: usize) -> usize {
+    align8(8usize.saturating_add(key_len).saturating_add(value_len))
+}
+
 /// The section of `entries`, each a key and its value, `None` for a removal.
 pub(crate) fn write_entries<'e>(
     entries: impl IntoIterator<Item = (&'e [u8], Option<&'e [u8]>)>,

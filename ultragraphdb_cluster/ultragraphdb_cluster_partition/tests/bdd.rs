@@ -23,21 +23,24 @@ mod utils {
 mod hosts;
 
 use std::collections::BTreeSet;
-use std::num::NonZeroU64;
+use std::num::{NonZeroU64, NonZeroUsize};
+use std::ops::ControlFlow;
 
 use cucumber::{World, then, when};
-use oxrdf::{GraphName, Literal};
+use oxrdf::{GraphName, Literal, NamedNode};
 use ultragraphdb_cluster_partition::{
     Answer, BoundStep, Fanout, PartitionError, Reference, ReverseQuery,
 };
 use ultragraphdb_cluster_placement::{BucketRange, NodeId, PartitionId, PlacementMap};
 use ultragraphdb_core_ids::{Bucket, BucketGroup, Epoch, Namespace, SystemId, Version};
-use ultragraphdb_core_keys::Graph;
+use ultragraphdb_core_keys::{Graph, Keyspace, QuadKey};
 use ultragraphdb_core_mapping::PredicateDeclaration;
 use ultragraphdb_core_terms::{EncodedTerm, TermError};
+use ultragraphdb_protocol_wire::ConflictKind;
 use ultragraphdb_store_apply::Operation;
+use ultragraphdb_store_quads::KernelScan;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
-use ultragraphdb_transactions_commit::CommitErrorEnum;
+use ultragraphdb_transactions_commit::{CommitError, CommitErrorEnum};
 use ultragraphdb_transactions_txn::{Commit, TxnError};
 
 use crate::cluster::{
@@ -1451,7 +1454,7 @@ fn on_written(body: impl FnOnce(&mut Host<'_>, &str, &str) -> TestResult) -> Tes
         let host = hosts.first_mut().context("partition 1")?;
         let (new, p) = (ex("new"), ex("p"));
         let write = changeset(vec![insert_literal("new", "p", "x")]);
-        let _read = host.bind(BOUND, write.namespace(), 1, Epoch::ZERO, 0)?;
+        let _read = host.bind(BOUND, [1; 16], (write.namespace(), 1, Epoch::ZERO), 0)?;
         let step = host.write_bound(BOUND, &write, 0)?;
         assert_eq!(step, BoundStep::Done);
         body(host, new.as_str(), p.as_str())
@@ -1531,6 +1534,182 @@ fn connection_closes(w: &mut Steps) -> TestResult {
 )]
 fn aborted_at_close(w: &mut Steps) {
     assert!(w.bound_done);
+}
+
+/// The bound transaction reading the foreign predicate.
+const READER: (u64, u64) = (2, 1);
+/// The bound transaction writing into the list it read.
+const WRITER: (u64, u64) = (2, 2);
+
+/// A name of `prefix` partition `id` homes, of two partitions.
+fn homed(id: u32, prefix: &str) -> TestResult<String> {
+    Cluster::even(2)?.name_in(id, prefix)
+}
+
+/// Partition 1's host.
+fn first<'h, 'a>(hosts: &'h mut [Host<'a>]) -> TestResult<&'h mut Host<'a>> {
+    hosts.first_mut().context("partition 1")
+}
+
+/// Binds `key` at `host`, named `identity`, reading at its visibility watermark.
+fn bind_reader(host: &mut Host<'_>, key: (u64, u64), identity: u8) -> TestResult {
+    let _read = host.bind(key, [identity; 16], (NS, 1, epoch(0)?), 0)?;
+    Ok(())
+}
+
+/// Commits `name`'s statement of `predicate` in a transaction of its own at partition 1, its references answered: the version.
+fn commit_of(
+    hosts: &mut [Host<'_>],
+    key: (u64, u64),
+    identity: u8,
+    name: &str,
+    predicate: &str,
+) -> TestResult<u64> {
+    let write = changeset(vec![insert_literal(name, predicate, "x")]);
+    bind_reader(first(hosts)?, key, identity)?;
+    if first(hosts)?.write_bound(key, &write, 0)? == BoundStep::Waiting {
+        let _ended = turn_all(hosts, 4, 0)?;
+        assert_eq!(first(hosts)?.take_bound_ready(), [key]);
+        first(hosts)?.resume_write(key, &write, 0)?;
+    }
+    let ticket = first(hosts)?.commit_bound(key, 0, 0, 0)?;
+    let ended = turn_all(hosts, 4, 0)?;
+    let outcome = ended.iter().find(|end| end.ticket() == ticket);
+    match outcome.context("the commit's outcome")?.outcome() {
+        Ok(version) => Ok(*version),
+        Err(refusal) => Err(TestError::new(format!("the commit was refused: {refusal}"))),
+    }
+}
+
+/// The objects the transaction `key` reads of `subject`'s list of `predicate`, both by the IDs it resolves them to.
+fn read_list(
+    host: &mut Host<'_>,
+    key: (u64, u64),
+    predicate: &NamedNode,
+    subject: &NamedNode,
+) -> TestResult<(SystemId, usize)> {
+    let predicate = host
+        .resolve_bound(key, predicate.as_ref(), 0)?
+        .context("the predicate's ID")?;
+    let subject = host
+        .resolve_bound(key, subject.as_ref(), 0)?
+        .context("the subject's ID")?;
+    let list = QuadKey::Forward {
+        namespace: NS,
+        graph: Graph::Default,
+        predicate,
+        subject,
+    }
+    .to_bytes();
+    let scan = KernelScan::new(
+        Keyspace::Forward,
+        NS,
+        list.clone(),
+        host.bound_read(&[READER.0 as u8; 16])
+            .context("the transaction")?
+            .read_version(),
+        NonZeroUsize::MIN,
+    )
+    .to([list.as_slice(), &[0]].concat());
+    let mut objects = 0;
+    let _page = host.page_bound(key, &scan, 0, |_, _, _| {
+        objects += 1;
+        ControlFlow::Continue(())
+    })?;
+    Ok((predicate, objects))
+}
+
+#[when(
+    "a transaction on partition 1 reads a statement of a predicate partition 2 owns, partition 1 holding the copy"
+)]
+fn read_through_copy(w: &mut Steps) -> TestResult {
+    let (subject, predicate) = (homed(1, "a")?, homed(2, "knows")?);
+    on_hosts(2, |hosts| {
+        let _version = commit_of(hosts, WRITER, 9, &subject, &predicate)?;
+        let homes = hosts.get(1).context("partition 2")?;
+        let held = held_id(homes, ex(&predicate).as_str())?.context("the home's ID")?;
+        let host = hosts.first_mut().context("partition 1")?;
+        assert_eq!(
+            held_id(host, ex(&predicate).as_str())?,
+            Some(held),
+            "the copy"
+        );
+        bind_reader(host, READER, READER.0 as u8)?;
+        let step = host.read_terms_bound(READER, &[ex(&predicate)], 0)?;
+        assert_eq!(step, BoundStep::Done, "a copy asks its home for nothing");
+        let (read, objects) = read_list(host, READER, &ex(&predicate), &ex(&subject))?;
+        w.subjects.push(vec![held, read]);
+        w.numbers.push(objects as u64);
+        Ok(())
+    })
+}
+
+#[then("the Scan's range answers the predicate's ID, and the read returns the statement")]
+fn answered_by_copy(w: &mut Steps) -> TestResult {
+    let ids = w.subjects.first().context("the IDs")?;
+    assert_eq!(ids.first(), ids.get(1), "the home's ID, by its copy");
+    assert_eq!(w.numbers, [1]);
+    Ok(())
+}
+
+#[when(
+    "a transaction on partition 1 reads a predicate partition 2 owns, partition 1 holding no copy"
+)]
+fn read_without_copy(w: &mut Steps) -> TestResult {
+    let (subject, predicate, other) = (homed(1, "a")?, homed(2, "knows")?, homed(1, "other")?);
+    on_hosts(2, |hosts| {
+        // The subject is held already, so what the later commit conflicts with is the list alone.
+        let _held = commit_of(hosts, WRITER, 9, &subject, &other)?;
+        bind_reader(first(hosts)?, READER, READER.0 as u8)?;
+        assert_eq!(held_id(first(hosts)?, ex(&predicate).as_str())?, None);
+        assert_eq!(
+            first(hosts)?.read_terms_bound(READER, &[ex(&predicate)], 0)?,
+            BoundStep::Waiting
+        );
+        let _ended = turn_all(hosts, 4, 0)?;
+        assert_eq!(first(hosts)?.take_bound_ready(), [READER]);
+        let (read, objects) = read_list(first(hosts)?, READER, &ex(&predicate), &ex(&subject))?;
+        let homes = hosts.get(1).context("partition 2")?;
+        let home = held_id(homes, ex(&predicate).as_str())?.context("the home's ID")?;
+        w.subjects.push(vec![home, read]);
+        w.numbers.push(objects as u64);
+        let written = commit_of(hosts, WRITER, 9, &subject, &predicate)?;
+        w.numbers.push(u64::from(written > 0));
+        let own = changeset(vec![insert_literal(&subject, &other, "y")]);
+        assert_eq!(first(hosts)?.write_bound(READER, &own, 0)?, BoundStep::Done);
+        let ticket = first(hosts)?.commit_bound(READER, 0, 0, 0)?;
+        let ended = turn_all(hosts, 4, 0)?;
+        let outcome = ended.iter().find(|end| end.ticket() == ticket);
+        w.reverse.push(
+            outcome
+                .context("the commit's outcome")?
+                .outcome()
+                .clone()
+                .map(|_| Vec::new()),
+        );
+        Ok(())
+    })
+}
+
+#[then(
+    "partition 1 takes the ID from partition 2, the range answers it, and a later commit into the list the read scanned aborts the transaction"
+)]
+fn taken_from_home(w: &mut Steps) -> TestResult {
+    let ids = w.subjects.first().context("the IDs")?;
+    assert_eq!(ids.first(), ids.get(1), "the home's ID, none minted here");
+    assert_eq!(
+        w.numbers,
+        [0, 1],
+        "it found nothing, and the writer committed"
+    );
+    let refusal = w.reverse.first().context("the reader's commit")?;
+    let Err(PartitionError(ultragraphdb_cluster_partition::PartitionErrorEnum::Commit(refused))) =
+        refusal
+    else {
+        return Err(TestError::new(format!("{refusal:?}")));
+    };
+    assert_eq!(refused, &CommitError::conflict(ConflictKind::Range));
+    Ok(())
 }
 
 fn main() -> TestResult {

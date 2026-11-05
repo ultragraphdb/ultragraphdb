@@ -198,7 +198,9 @@ where
 
     /// Asks the store for discard timestamp `ts`, held at or below the oldest open request.
     pub fn set_discard_ts(&self, ts: u64) -> Result<(), PostingError> {
-        let bound = lock(&self.state).ts.discard_bound(ts);
+        // Locked through the store's call: a read pinned once the bound is taken finds the discard it set.
+        let state = lock(&self.state);
+        let bound = state.ts.discard_bound(ts);
         Ok(self.store.set_discard_ts(bound)?)
     }
 }

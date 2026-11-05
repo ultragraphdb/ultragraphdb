@@ -19,7 +19,7 @@ pub(crate) fn names(namespace: u64) -> Result<Names, QuadError> {
 }
 
 /// Whether `iri` is a skolem IRI under `namespace`'s base, as a blank node or a reifier is named.
-pub(crate) fn is_skolem(namespace: u64, iri: &str) -> bool {
+pub fn is_skolem(namespace: u64, iri: &str) -> bool {
     // The substring first, so an IRI that names no skolem builds no names.
     iri.contains(GENID) && names(namespace).is_ok_and(|n| n.skolem_bucket(iri).is_some())
 }

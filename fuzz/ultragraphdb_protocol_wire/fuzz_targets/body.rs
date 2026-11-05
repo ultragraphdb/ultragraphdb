@@ -6,10 +6,10 @@
 //! Any bytes as a frame, read through its command's body view, the role commands' (512–767) among them: validation never panics; a body its view accepts reads
 //! back to an owned body that builds the same frame, byte for byte, or, for the bodies whose strings and terms a
 //! builder lays out canonically (Write, Describe, Result), a frame that builds itself again. An accepted frame holds what
-//! its view promises: a commit's request fits its session; a Scan naming a transaction is at 1, waits for no epoch and
-//! holds at most as many terms as ranges; a frame whose value continues has end 0 and an entry; a range 0 frame alone in
-//! its Scan's answer is taken when `LAST` says how it ended. A Prepare's request and reply rules, which a view of a body
-//! sent both ways cannot hold alone, never panic.
+//! its view promises: a commit's request fits its session; a Scan naming a transaction is at 1, waits for no epoch, names
+//! no deadline and holds at most as many terms as ranges, and any other names one; a frame whose value continues has end 0
+//! and an entry; a range 0 frame alone in its Scan's answer is taken when `LAST` says how it ended. A Prepare's request and
+//! reply rules, which a view of a body sent both ways cannot hold alone, never panic.
 
 #![no_main]
 
@@ -117,11 +117,16 @@ fn holds_its_rules(frame: &FrameView<'_>) {
     if let Ok(view) = ConditionalWriteView::from_frame(frame) {
         request_fits(view.session(), view.request());
     }
-    if let Ok(view) = ScanView::from_frame(frame)
-        && view.transaction() != [0; 16]
-    {
-        assert_eq!((view.at(), view.epoch()), (ScanAt::ReadVersion, 0));
-        assert!(view.terms().len() <= view.range_count());
+    if let Ok(view) = ScanView::from_frame(frame) {
+        if view.transaction() != [0; 16] {
+            assert_eq!(
+                (view.at(), view.epoch(), view.deadline_ms()),
+                (ScanAt::ReadVersion, 0, 0)
+            );
+            assert!(view.terms().len() <= view.range_count());
+        } else {
+            assert!(view.deadline_ms() >= 1);
+        }
     }
     if let Ok(view) = EntriesView::from_frame(frame) {
         if view.continues() {

@@ -10,7 +10,8 @@ use std::time::{Duration, Instant};
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_wire::{
     Authenticate, AuthenticateView, BodyBuilder, BodyView, Command, CreditView, ErrorCode,
-    ErrorReply, ExecuteView, FLAG_LAST, FrameView, Header, ReadView, Welcome,
+    ErrorReply, ExecuteView, FLAG_LAST, FrameView, Header, HelloView, MAX_FRAME_FLOOR, ReadView,
+    Welcome,
 };
 
 use crate::errors::transport_error::{TransportError, TransportErrorEnum};
@@ -132,7 +133,7 @@ impl<A: Authenticator> ServerConnection<A> {
             Err(refusal) => return self.refuse_connection(&refusal),
         };
         if self.phase == Phase::Hello {
-            return self.hello(frame.bytes(), now);
+            return self.hello(&view, frame.bytes(), now);
         }
         let stream = view.header().stream();
         if stream == 0 {
@@ -278,7 +279,12 @@ impl<A: Authenticator> ServerConnection<A> {
 
     /// The Hello answered at `now` as [`ServerHandshake`] decides: its Welcome, from which the authentication timeout
     /// runs (`PROTOCOL.md` §11.9), or its refusal and the close.
-    fn hello(&mut self, frame: &[u8], now: Instant) -> Result<Inbound, TransportError> {
+    fn hello(
+        &mut self,
+        view: &FrameView<'_>,
+        frame: &[u8],
+        now: Instant,
+    ) -> Result<Inbound, TransportError> {
         let (answer, outcome) = ServerHandshake::new(self.cluster, self.server.clone())
             .receive(frame)
             .into_parts();
@@ -289,6 +295,9 @@ impl<A: Authenticator> ServerConnection<A> {
         match outcome {
             Ok(welcome) => {
                 let protocol = welcome.protocol();
+                // The handshake took this frame as a Hello, so its view reads; the floor is what every client takes.
+                let max_frame = HelloView::from_frame(view)
+                    .map_or(MAX_FRAME_FLOOR as u32, |hello| hello.max_frame());
                 if welcome.authenticates() {
                     self.phase = Phase::Authenticating;
                     self.opened = now;
@@ -297,7 +306,10 @@ impl<A: Authenticator> ServerConnection<A> {
                     self.principal = Some(0);
                 }
                 self.welcomed = Some(welcome);
-                Ok(Inbound::Welcomed { protocol })
+                Ok(Inbound::Welcomed {
+                    protocol,
+                    max_frame,
+                })
             }
             Err(error) => {
                 self.phase = Phase::Closing;

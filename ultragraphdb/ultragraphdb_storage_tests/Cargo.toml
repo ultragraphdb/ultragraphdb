@@ -29,6 +29,9 @@ ultragraphdb_cluster_placement = { workspace = true }
 ultragraphdb_common_role = { workspace = true }
 ultragraphdb_common_service = { workspace = true }
 ultragraphdb_core_ids = { workspace = true }
+ultragraphdb_core_keys = { workspace = true }
+ultragraphdb_core_mapping = { workspace = true }
+ultragraphdb_core_terms = { workspace = true }
 ultragraphdb_protocol_transport = { workspace = true }
 ultragraphdb_protocol_wire = { workspace = true }
 ultragraphdb_store_quads = { workspace = true }

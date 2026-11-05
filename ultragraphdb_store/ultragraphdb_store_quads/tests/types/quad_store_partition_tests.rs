@@ -8,6 +8,7 @@
 //! read kernel over a keyspace's range.
 
 use std::num::{NonZeroU64, NonZeroUsize};
+use std::ops::ControlFlow;
 
 use oxrdf::{Literal, Term};
 use ultragraphdb_core_codec::Posting;
@@ -15,7 +16,9 @@ use ultragraphdb_core_ids::{BucketGroup, Epoch, SystemId};
 use ultragraphdb_core_keys::{Graph, Keyspace, QuadKey, key_prefix};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_posting::DEL;
-use ultragraphdb_store_quads::{KernelRow, KernelScan, QuadErrorEnum, QuadWrite, ReferrerMember};
+use ultragraphdb_store_quads::{
+    KernelRow, KernelScan, PageEnd, QuadErrorEnum, QuadWrite, ReferrerMember,
+};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_traits_store::{Entry, PersistMode, Store, WriteBatch};
 
@@ -479,5 +482,174 @@ fn test_a_keyspace_holding_no_lists_is_refused() -> TestResult {
             .context("refused")?;
         let _corruption: (Vec<u8>, String) = corruption(error)?;
     }
+    Ok(())
+}
+
+/// The referrer set `value` of `entity`, written under its key at `version`.
+fn referrers(
+    store: &TestQuads,
+    entity: SystemId,
+    version: u64,
+    value: &[u8],
+) -> TestResult<Vec<u8>> {
+    let key = QuadKey::Referrers {
+        namespace: NS,
+        entity,
+    }
+    .to_bytes();
+    let mut batch = WriteBatch::new();
+    batch.push(Entry::put(key.clone(), version, 0, value.to_vec()));
+    store.store().apply(batch, PersistMode::Sync)?;
+    Ok(key)
+}
+
+/// A key and its stored value.
+type Stored = (Vec<u8>, Vec<u8>);
+
+/// Three referrer keys in key order, and the version the last was written at.
+fn referrer_store() -> TestResult<(TestQuads, Vec<Stored>, u64)> {
+    let store = quads()?;
+    let at = write_at(
+        &store,
+        NS,
+        &[
+            quad("a", "knows", ex("x")),
+            quad("b", "knows", ex("y")),
+            quad("c", "knows", ex("z")),
+        ],
+    )?;
+    // Any bytes: the page gives what is stored, and a reader decodes it.
+    let version = at + 100;
+    let mut held: Vec<Stored> = ["x", "y", "z"]
+        .iter()
+        .map(|name| {
+            let value = name.as_bytes().to_vec();
+            Ok((
+                referrers(&store, id(&store, NS, &ex(name))?, version, &value)?,
+                value,
+            ))
+        })
+        .collect::<TestResult<_>>()?;
+    held.sort();
+    Ok((store, held, version))
+}
+
+fn referrer_scan(from: Vec<u8>, version: u64, limit: usize) -> TestResult<KernelScan> {
+    Ok(KernelScan::new(
+        Keyspace::Referrers,
+        NS,
+        from,
+        version,
+        NonZeroUsize::new(limit).context("a limit")?,
+    ))
+}
+
+#[test]
+fn test_a_values_page_streams_each_key_s_stored_value_at_its_version() -> TestResult {
+    let (store, held, version) = referrer_store()?;
+    let mut read = Vec::new();
+    let page = store.values_page(&referrer_scan(Vec::new(), version, usize::MAX)?, |k, v| {
+        read.push((k.to_vec(), v.to_vec()));
+        ControlFlow::Continue(())
+    })?;
+    assert_eq!(read, held);
+    assert_eq!((page.end(), page.rows()), (&PageEnd::Exhausted, held.len()));
+    // Below the version they were written at, the sets are absent.
+    let mut below = 0;
+    let none = store.values_page(&referrer_scan(Vec::new(), version - 1, 8)?, |_, _| {
+        below += 1;
+        ControlFlow::Continue(())
+    })?;
+    assert_eq!(
+        (none.end(), none.rows(), below),
+        (&PageEnd::Exhausted, 0, 0)
+    );
+    Ok(())
+}
+
+#[test]
+fn test_a_values_page_stops_at_its_limit_and_pauses_between_keys() -> TestResult {
+    let (store, held, version) = referrer_store()?;
+    let [(first, _), (second, _), _] = held.as_slice() else {
+        return Err(TestError::new("three keys"));
+    };
+    let stopped = store.values_page(&referrer_scan(Vec::new(), version, 1)?, |_, _| {
+        ControlFlow::Continue(())
+    })?;
+    assert_eq!(
+        (stopped.end(), stopped.rows()),
+        (
+            &PageEnd::Stopped {
+                last: first.clone()
+            },
+            1
+        )
+    );
+
+    let scan = referrer_scan(Vec::new(), version, usize::MAX)?;
+    let nothing = store.values_page(&scan, |_, _| ControlFlow::Break(()))?;
+    assert_eq!(
+        (nothing.end(), nothing.rows()),
+        (
+            &PageEnd::Paused {
+                last: None,
+                from: first.clone(),
+                after: None,
+            },
+            0
+        )
+    );
+
+    let mut taken = 0;
+    let paused = store.values_page(&scan, |_, _| {
+        if taken == 2 {
+            return ControlFlow::Break(());
+        }
+        taken += 1;
+        ControlFlow::Continue(())
+    })?;
+    let mut past = second.clone();
+    past.push(0);
+    assert_eq!(
+        (paused.end(), paused.rows()),
+        (
+            &PageEnd::Paused {
+                last: Some(second.clone()),
+                from: past.clone(),
+                after: None,
+            },
+            2
+        )
+    );
+    // The next page from where it paused reads the rest.
+    let mut rest = Vec::new();
+    let end = store.values_page(&referrer_scan(past, version, usize::MAX)?, |k, _| {
+        rest.push(k.to_vec());
+        ControlFlow::Continue(())
+    })?;
+    assert_eq!(end.end(), &PageEnd::Exhausted);
+    assert_eq!(rest, vec![held.last().context("a last key")?.0.clone()]);
+    Ok(())
+}
+
+#[test]
+fn test_a_values_page_reads_the_referrer_sets_alone_and_a_page_reads_lists_alone() -> TestResult {
+    let store = quads()?;
+    let lists = forward_scan(Vec::new(), u64::MAX, 1)?;
+    let refused_lists = store
+        .values_page(&lists, |_, _| ControlFlow::Continue(()))
+        .err()
+        .context("a list's keyspace")?;
+    assert!(
+        format!("{refused_lists:?}").contains("referrer"),
+        "{refused_lists:?}"
+    );
+    let refused = store
+        .page(&referrer_scan(Vec::new(), u64::MAX, 1)?, |_, _, _| {
+            ControlFlow::Continue(())
+        })
+        .err()
+        .context("the referrers' keyspace")?;
+    assert!(format!("{refused:?}").contains("lists"), "{refused:?}");
     Ok(())
 }

@@ -251,7 +251,7 @@ impl TestServer {
             Err(_) => return self.close_unsent(),
         };
         match inbound {
-            Inbound::Welcomed { protocol } => self.framer.set_protocol(protocol),
+            Inbound::Welcomed { protocol, .. } => self.framer.set_protocol(protocol),
             Inbound::Request { stream, command } => self.request(stream, command, &received),
             Inbound::Cancelled {
                 stream,

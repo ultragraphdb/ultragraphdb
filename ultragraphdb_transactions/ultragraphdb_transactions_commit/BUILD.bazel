@@ -36,7 +36,6 @@ rust_test(
             "tests/bdd.rs",
             "tests/catalog_steps.rs",
             "tests/partition_steps.rs",
-        "tests/scan_steps.rs",
             "tests/scan_steps.rs",
         ],
     ),

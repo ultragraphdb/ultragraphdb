@@ -12,6 +12,8 @@ pub enum Inbound {
     Welcomed {
         /// The protocol version the Welcome names.
         protocol: u16,
+        /// The largest frame the client takes, as its Hello states.
+        max_frame: u32,
     },
     /// The connection's own frame, answered or applied: an Authenticate message, a Credit.
     Handled,

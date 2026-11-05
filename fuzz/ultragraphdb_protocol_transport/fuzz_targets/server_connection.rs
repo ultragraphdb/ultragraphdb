@@ -147,7 +147,7 @@ fn run<A: Authenticator>(
         // Every frame the connection answers a client with is bounded, so each one builds.
         let inbound = taken.expect("every answer to a client's frame is built");
         match inbound {
-            Inbound::Welcomed { protocol } => {
+            Inbound::Welcomed { protocol, .. } => {
                 framer.set_protocol(protocol);
                 assert_eq!(connection.principal().is_some(), !authenticates);
             }

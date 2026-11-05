@@ -11,7 +11,7 @@ use ultragraphdb_protocol_wire::{
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::types::scan::scan_tests::{
-    IRIS, dictionary_key, golden_scan, golden_scan_terms, golden_scan_transaction,
+    DEADLINE_MS, IRIS, dictionary_key, golden_scan, golden_scan_terms, golden_scan_transaction,
 };
 use crate::utils::golden_bodies::{
     body_data, frame_of, put, reframe, section, view_any, with_command_header, with_section,
@@ -231,7 +231,7 @@ fn test_a_scan_term_is_an_iri() -> TestResult {
             let _index = table.iri(iri);
         }
         let _other = table.intern(RequestTerm::BlankNode("b1".to_string()))?;
-        let mut scan = Scan::new(ScanAt::ReadVersion, 1, 0, 9, [7; 16], 0).with_terms(table);
+        let mut scan = Scan::new(ScanAt::ReadVersion, 1, 0, 9, [7; 16], 0, 0).with_terms(table);
         scan.push_range(ScanRange::new(3, b"\x10a", b""));
         scan.push_range(ScanRange::new(3, b"\x10b", b""));
         assert_eq!(
@@ -333,6 +333,40 @@ fn test_the_checks_run_in_the_protocols_order() -> TestResult {
     Ok(())
 }
 
+/// A deadline bounds the wait for an epoch, so a Scan waiting for none names none; one waiting may name 0, refused at once.
+#[test]
+fn test_a_scan_names_a_deadline_only_with_an_epoch() -> TestResult {
+    let none = with_command_header(&bytes("scan")?, |h| put(h, 52, 0, 4));
+    assert_eq!(ScanView::from_frame(&frame_of(&none)?)?.deadline_ms(), 0);
+    let least = with_command_header(&bytes("scan")?, |h| put(h, 52, 1, 4));
+    assert_eq!(ScanView::from_frame(&frame_of(&least)?)?.deadline_ms(), 1);
+    let named = with_command_header(&bytes("scan_transaction")?, |h| put(h, 52, 1, 4));
+    assert_eq!(refused(&named)?, field("deadline_ms", 1));
+    let plain = with_command_header(&bytes("scan")?, |h| {
+        put(h, 16, 0, 8);
+        put(h, 52, 7, 4);
+    });
+    assert_eq!(refused(&plain)?, field("deadline_ms", 7));
+    Ok(())
+}
+
+/// `deadline_ms` comes after `epoch`'s rules and before the sections'.
+#[test]
+fn test_a_deadline_lies_between_the_epoch_and_the_sections() -> TestResult {
+    let scan = bytes("scan")?;
+    let bad_epoch = with_command_header(&scan, |h| {
+        put(h, 16, MAX_EPOCH + 1, 8);
+        put(h, 52, 0, 4);
+    });
+    assert_eq!(refused(&bad_epoch)?, field("epoch", MAX_EPOCH + 1));
+    let bad_sections = with_command_header(&with_trailing_byte(&scan), |h| {
+        put(h, 16, 0, 8);
+        put(h, 52, 7, 4);
+    });
+    assert_eq!(refused(&bad_sections)?, field("deadline_ms", 7));
+    Ok(())
+}
+
 /// The sections come after the header's rules and before section 0's.
 #[test]
 fn test_the_sections_lie_between_the_header_and_the_ranges() -> TestResult {
@@ -374,16 +408,16 @@ fn test_the_golden_scans_read_back_to_their_bodies() -> TestResult {
         (view.principal(), view.transaction(), view.limit()),
         (9, [0; 16], 1_000)
     );
+    assert_eq!(view.deadline_ms(), DEADLINE_MS);
     assert_eq!(view.range_count(), 2);
     assert_eq!(view.range(1), Some(ScanRange::new(4, b"\x20k", b"")));
     assert_eq!(view.range(2), None);
     assert_eq!(view.ranges().count(), 2);
     assert_eq!(view.to_body()?, golden_scan());
     let transaction = bytes("scan_transaction")?;
-    assert_eq!(
-        ScanView::from_frame(&frame_of(&transaction)?)?.to_body()?,
-        golden_scan_transaction()
-    );
+    let named = ScanView::from_frame(&frame_of(&transaction)?)?;
+    assert_eq!(named.deadline_ms(), 0);
+    assert_eq!(named.to_body()?, golden_scan_transaction());
     for frame in [scan, transaction] {
         view_any(&frame)??;
     }
@@ -393,7 +427,7 @@ fn test_the_golden_scans_read_back_to_their_bodies() -> TestResult {
 #[test]
 fn test_unused_bytes_and_at_come_first() -> TestResult {
     let scan = bytes("scan")?;
-    for at in [1usize, 7, 52, 127] {
+    for at in [1usize, 7, 56, 127] {
         let bad = with_command_header(&scan, |h| {
             h[at] = 1;
             h[0] = 0;
@@ -433,6 +467,7 @@ fn test_only_at_1_and_4_name_a_version_and_at_4_waits_for_no_epoch() -> TestResu
     let named = with_command_header(&scan, |h| {
         h[0] = 4;
         put(h, 16, 0, 8);
+        put(h, 52, 0, 4);
     });
     assert_eq!(
         ScanView::from_frame(&frame_of(&named)?)?.at(),
@@ -503,6 +538,7 @@ fn test_a_range_holds_zero_padding_and_a_partition() -> TestResult {
     let bad_3 = with_command_header(&bytes("scan")?, |h| {
         h[32] = 1;
         put(h, 16, 0, 8);
+        put(h, 52, 0, 4);
     });
     assert_eq!(refused(&bad_3)?, field("partition", 4));
     Ok(())

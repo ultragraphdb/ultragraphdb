@@ -232,7 +232,7 @@ impl Conversation {
             }
         };
         let inbound = self.connection.receive(&received, self.now)?;
-        if let Inbound::Welcomed { protocol } = inbound {
+        if let Inbound::Welcomed { protocol, .. } = inbound {
             self.server.framer_mut().set_protocol(protocol);
         }
         if let Inbound::Request {

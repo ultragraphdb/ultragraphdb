@@ -3,10 +3,13 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::ops::ControlFlow;
+
 use oxrdf::NamedNodeRef;
 use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_posting::CachedList;
-use ultragraphdb_store_quads::{KernelRow, KernelScan};
+use ultragraphdb_store_quads::{KernelRow, KernelScan, Page};
 use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{Executor, ListCache, Store};
 
@@ -41,12 +44,35 @@ where
         out: &mut Vec<KernelRow>,
     ) -> Result<Option<Vec<u8>>, TxnError> {
         let before = out.len();
-        let limit = self.limits.max_read_set();
-        let execution = self.live(now_us)?;
-        let next = match execution.scan(scan, out) {
-            Ok(next) => next,
+        match self.page(scan, now_us, KernelRow::gather(out)) {
+            Ok(page) => Ok(page.into_end().resume_from()),
             Err(e) => {
                 out.truncate(before);
+                Err(e)
+            }
+        }
+    }
+
+    /// A page of the lists `scan` names, as the transaction sees them, in key order, streamed to `sink` object by object at
+    /// `now_us`, read at the transaction's own version and holding nothing. The span it covered is in the read set before it
+    /// returns, extending the span it resumes from, and what `sink` took may leave only once it returns: to the range's past key
+    /// when the range ended, found nothing included, to just past the last key `sink` took anything of when stopped at the
+    /// limit or paused, and nothing when `sink` took nothing.
+    ///
+    /// # Errors
+    ///
+    /// [`TxnError::ended`]; [`TxnError::past_limit`], ending it; [`TxnError::read_set_too_large`] for a span the read set has
+    /// no room for, ending it, so what `sink` took is not to be sent; [`TxnError::changeset`] for a store that failed or a
+    /// keyspace holding no lists, ending it.
+    pub fn page<F>(&mut self, scan: &KernelScan, now_us: u64, sink: F) -> Result<Page, TxnError>
+    where
+        F: FnMut(&[u8], &EncodedTerm, &[SystemId]) -> ControlFlow<()>,
+    {
+        let limit = self.limits.max_read_set();
+        let execution = self.live(now_us)?;
+        let page = match execution.page(scan, sink) {
+            Ok(page) => page,
+            Err(e) => {
                 self.end();
                 return Err(e.into());
             }
@@ -57,31 +83,27 @@ where
             + SPAN_BYTES
                 * (counts.lists() + counts.absent() + 2 * (counts.statements() + counts.ranges()));
         if size > limit {
-            out.truncate(before);
             self.end();
             return Err(TxnError::read_set_too_large(size, limit));
         }
-        Ok(next)
+        Ok(page)
     }
 
     /// The ID the transaction reads `iri` by at `now_us`, by the path its reads take: got or created, the same ID any concurrent
-    /// writer of the IRI takes, one it created recorded as an absent term, so a later commit of a statement of it conflicts.
-    /// `None`, recording nothing, for a term no read can hold: an IRI another partition owns, or an unheld skolem IRI.
+    /// writer of the IRI takes, one it created recorded as an absent term, so a later commit of a statement of it conflicts. An
+    /// IRI another partition owns answers the partition's copy of it, or the ID its home gave ([`Transaction::adopt`]). `None`,
+    /// recording nothing, for an unheld skolem IRI, which no read can hold.
     ///
     /// # Errors
     ///
-    /// [`TxnError::ended`]; [`TxnError::past_limit`], ending it; [`TxnError::changeset`] for a refusal of the ID or a store that
-    /// failed, ending it.
+    /// [`TxnError::ended`]; [`TxnError::past_limit`], ending it; [`TxnError::changeset`] for a refusal of the ID, an IRI another
+    /// partition owns with neither a copy nor an adopted ID among them, or a store that failed, ending it.
     pub fn resolve_iri(
         &mut self,
         iri: NamedNodeRef<'_>,
         now_us: u64,
     ) -> Result<Option<SystemId>, TxnError> {
-        let foreign = self.foreign_iri(iri.as_str()).is_some();
         let execution = self.live(now_us)?;
-        if foreign {
-            return Ok(None);
-        }
         match execution.find_iri(iri) {
             Ok(id) => Ok(id),
             Err(e) => {
@@ -89,6 +111,11 @@ where
                 Err(e.into())
             }
         }
+    }
+
+    /// Whether the transaction resolved `iri` already, so a read of it asks its home for nothing; false for an ended one.
+    pub fn knows_iri(&mut self, iri: &str) -> bool {
+        self.execution.as_mut().is_some_and(|e| e.knows_iri(iri))
     }
 
     /// The value of each of `keys` in the dictionary as the transaction sees it at `now_us`, into `out`, cleared first: a term it
@@ -109,6 +136,14 @@ where
             return Err(e.into());
         }
         Ok(())
+    }
+
+    /// The key ranges the transaction scanned so far, as [`ultragraphdb_store_apply::Execution::scanned_ranges`] gives them;
+    /// none for an ended one.
+    pub fn scanned_ranges(&mut self) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
+        self.execution
+            .as_mut()
+            .map_or_else(Vec::new, |e| e.scanned_ranges())
     }
 
     /// How many lists the transaction holds in memory; none for an ended one.

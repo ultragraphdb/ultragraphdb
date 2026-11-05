@@ -10,8 +10,11 @@ use ultragraphdb_tool_bdd::TestResult;
 use crate::types::bind::bind_tests::{TRANSACTION, WATERMARK};
 use crate::utils::golden_roles::{golden_role, role_bytes};
 
+/// The golden Scan's time left until its deadline.
+pub const DEADLINE_MS: u32 = 30_000;
+
 /// The golden Scan: at 1, the version bound of epoch 30, once epoch 30 closed, principal 9, no transaction, 1,000
-/// entries per range; partition 3 from 0x10 `abc` to 0x10 `abd`, partition 4 from 0x20 `k` to its keyspace's end.
+/// entries per range, [`DEADLINE_MS`] to its deadline; partition 3 from 0x10 `abc` to 0x10 `abd`, partition 4 from 0x20 `k` to its keyspace's end.
 pub fn golden_scan() -> Scan {
     let mut scan = Scan::new(
         ScanAt::ReadVersion,
@@ -20,6 +23,7 @@ pub fn golden_scan() -> Scan {
         9,
         [0; 16],
         1_000,
+        DEADLINE_MS,
     );
     scan.push_range(ScanRange::new(3, b"\x10abc", b"\x10abd"));
     scan.push_range(ScanRange::new(4, b"\x20k", b""));
@@ -28,7 +32,7 @@ pub fn golden_scan() -> Scan {
 
 /// The golden read-write transaction's Scan: the one key 0x30 `key` of partition 3 at the Bind's watermark.
 pub fn golden_scan_transaction() -> Scan {
-    let mut scan = Scan::new(ScanAt::ReadVersion, WATERMARK, 0, 9, TRANSACTION, 0);
+    let mut scan = Scan::new(ScanAt::ReadVersion, WATERMARK, 0, 9, TRANSACTION, 0, 0);
     scan.push_range(ScanRange::new(3, b"\x30key", b"\x30key\x00"));
     scan
 }
@@ -56,7 +60,7 @@ fn holding(key: &[u8]) -> (Vec<u8>, Vec<u8>) {
 /// table's order, then one holding a forward list's key.
 pub fn golden_scan_terms() -> Scan {
     let mut terms = TermTable::new();
-    let mut scan = Scan::new(ScanAt::ReadVersion, WATERMARK, 0, 9, TRANSACTION, 0);
+    let mut scan = Scan::new(ScanAt::ReadVersion, WATERMARK, 0, 9, TRANSACTION, 0, 0);
     for iri in IRIS {
         let _index: u32 = terms.iri(iri);
         let (first, past) = holding(&dictionary_key(iri));
@@ -88,7 +92,7 @@ pub fn golden_scan_terms() -> Scan {
 fn test_a_scan_names_no_term_until_given_a_table() -> TestResult {
     let mut terms = TermTable::new();
     let _index: u32 = terms.iri(IRIS[0]);
-    let scan = Scan::new(ScanAt::ReadVersion, WATERMARK, 0, 9, TRANSACTION, 0);
+    let scan = Scan::new(ScanAt::ReadVersion, WATERMARK, 0, 9, TRANSACTION, 0, 0);
     assert!(scan.terms().is_empty());
     assert_eq!(scan.with_terms(terms.clone()).terms(), &terms);
     Ok(())
@@ -115,6 +119,8 @@ fn test_a_scan_builds_the_golden_frames() -> TestResult {
         (scan.principal(), scan.transaction(), scan.limit()),
         (9, [0; 16], 1_000)
     );
+    assert_eq!(scan.deadline_ms(), DEADLINE_MS);
+    assert_eq!(golden_scan_transaction().deadline_ms(), 0);
     let ranges: Vec<ScanRange<'_>> = scan.ranges().collect();
     assert_eq!(
         ranges,

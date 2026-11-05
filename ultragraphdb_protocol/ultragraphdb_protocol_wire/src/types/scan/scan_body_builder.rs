@@ -23,6 +23,7 @@ impl BodyBuilder for Scan {
             (24, &self.principal().to_le_bytes()),
             (32, &self.transaction()),
             (48, &self.limit().to_le_bytes()),
+            (52, &self.deadline_ms().to_le_bytes()),
         ])
     }
 

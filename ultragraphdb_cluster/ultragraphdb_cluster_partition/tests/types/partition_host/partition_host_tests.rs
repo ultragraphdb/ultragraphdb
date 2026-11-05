@@ -3,7 +3,10 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_cluster_partition::{PartitionError, PartitionErrorEnum, PartitionMessage};
+use oxrdf::GraphNameRef;
+use ultragraphdb_cluster_partition::{
+    BoundStep, PartitionError, PartitionErrorEnum, PartitionMessage,
+};
 use ultragraphdb_cluster_placement::{NodeId, PlacementMap};
 use ultragraphdb_cluster_sequencer::Close;
 use ultragraphdb_core_ids::Version;
@@ -11,7 +14,9 @@ use ultragraphdb_store_quads::namespace_base;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_transactions_txn::{TxnError, TxnErrorEnum};
 
-use crate::utils::cluster::{Cluster, changeset, epoch, group, insert, insert_literal, pid};
+use crate::utils::cluster::{
+    Cluster, begin, changeset, epoch, ex, group, insert, insert_literal, pid,
+};
 use crate::utils::hosts::{on_hosts, turn_all};
 
 /// The names `a` and `knows` in partition 1 and `b` in partition 2.
@@ -296,6 +301,200 @@ fn test_a_turn_syncs_what_was_decided_and_an_outcome_counts_its_registrations() 
             .context("its outcome")?;
         assert!(outcome.outcome().is_ok(), "{outcome:?}");
         assert_eq!(outcome.registrations(), expected);
+        Ok(())
+    })
+}
+
+/// A Bind's identity names one transaction while the partition holds it: a repeat is refused, and a commit or an abort frees it.
+#[test]
+fn test_a_bound_transactions_identity_is_held_until_it_ends() -> TestResult {
+    on_hosts(1, |hosts| {
+        let host = hosts.first_mut().context("the host")?;
+        let (key, later, identity) = ((1, 1), (1, 3), [5; 16]);
+        let read_version = host.bind(key, identity, (0, 9, epoch(0)?), 0)?;
+        let read = host.bound_read(&identity).context("the transaction")?;
+        assert_eq!(read.key(), key);
+        assert_eq!(read.read_version(), read_version);
+        assert_eq!(read.principal(), 9);
+        assert_eq!(read.namespace(), 0);
+        assert_eq!(
+            host.bind(later, identity, (0, 9, epoch(0)?), 0),
+            Err(PartitionError::transaction_held(identity))
+        );
+        host.abort_bound(key);
+        assert_eq!(host.bound_read(&identity), None);
+        let _again = host.bind(later, identity, (0, 9, epoch(0)?), 0)?;
+        let _ticket = host.commit_bound(later, 0, 0, 0)?;
+        assert_eq!(host.bound_read(&identity), None);
+        let _once_more = host.bind(key, identity, (0, 9, epoch(0)?), 0)?;
+        Ok(())
+    })
+}
+
+/// A home's refusal ends the transaction waiting on it, and names it with the refusal.
+#[test]
+fn test_a_homes_refusal_ends_the_transaction_waiting_on_it() -> TestResult {
+    let (_, knows, _) = names()?;
+    let foreign = Cluster::even(2)?.name_in(2, &knows)?;
+    on_hosts(2, |hosts| {
+        let host = hosts.first_mut().context("partition 1")?;
+        let (key, identity) = ((1, 1), [5; 16]);
+        let _read = host.bind(key, identity, (0, 9, epoch(0)?), 0)?;
+        let step = host.read_terms_bound(key, &[ex(&foreign)], 0)?;
+        assert_eq!(step, BoundStep::Waiting);
+        // The home's answer never comes: what its mailbox delivers instead is a refusal of the ticket the transaction asked under.
+        let ticket = host.bound_ticket(key).context("its references' ticket")?;
+        let sender = host.mailbox().sender(pid(1)?).context("the mailbox")?;
+        sender.send(PartitionMessage::Answered {
+            write: ticket,
+            index: 0,
+            answer: Err(PartitionError::refused(7)),
+        })?;
+        let _ended = turn_all(hosts, 1, 0)?;
+        let turned = hosts.first_mut().context("partition 1")?;
+        assert_eq!(turned.take_bound_ready(), []);
+        assert_eq!(
+            turned.take_bound_refused(),
+            [(key, PartitionError::refused(7))]
+        );
+        assert_eq!(turned.bound_read(&identity), None);
+        Ok(())
+    })
+}
+
+/// A skolem IRI of another partition's bucket that its home holds none of is what one of the partition's own is: no entry, the
+/// transaction open, recording nothing, and no second asking. A write naming the same IRI is refused, its statement being forged.
+#[test]
+fn test_an_unheld_foreign_skolem_iri_answers_no_entry_and_leaves_a_read_open() -> TestResult {
+    let (_, knows, _) = names()?;
+    let homed = Cluster::even(2)?.name_in(2, &knows)?;
+    let bucket = crate::utils::cluster::bucket(&homed)?.get();
+    let forged = format!(
+        "{}.well-known/genid/{bucket:06x}-{}",
+        namespace_base(crate::utils::cluster::NS),
+        "1".repeat(26)
+    );
+    let iri = oxrdf::NamedNode::new(&forged)?;
+    on_hosts(2, |hosts| {
+        let host = hosts.first_mut().context("partition 1")?;
+        let (key, identity) = ((1, 1), [5; 16]);
+        let _read = host.bind(key, identity, (0, 9, epoch(0)?), 0)?;
+        assert_eq!(
+            host.read_terms_bound(key, std::slice::from_ref(&iri), 0)?,
+            BoundStep::Waiting
+        );
+        let _ended = turn_all(hosts, 4, 0)?;
+        let turned = hosts.first_mut().context("partition 1")?;
+        assert_eq!(turned.take_bound_refused(), []);
+        assert_eq!(turned.take_bound_ready(), [key]);
+        assert_eq!(
+            turned.read_terms_bound(key, std::slice::from_ref(&iri), 0)?,
+            BoundStep::Done,
+            "its home is not asked again"
+        );
+        assert_eq!(turned.resolve_bound(key, iri.as_ref(), 0)?, None);
+        assert!(turned.bound_read(&identity).is_some(), "it goes on");
+        Ok(())
+    })
+}
+
+/// Reads of a transaction waiting on a home wait together, the later one asking nothing until the earlier's answers came, and
+/// nothing an answer brings is lost to a later asking.
+#[test]
+fn test_a_read_waits_with_the_read_already_waiting_on_its_home() -> TestResult {
+    let (_, knows, b) = names()?;
+    let cluster = Cluster::even(2)?;
+    let (first, second) = (cluster.name_in(2, &knows)?, cluster.name_in(2, &b)?);
+    on_hosts(2, |hosts| {
+        let host = hosts.first_mut().context("partition 1")?;
+        let key = (1, 1);
+        let _read = host.bind(key, [5; 16], (0, 9, epoch(0)?), 0)?;
+        assert_eq!(
+            host.read_terms_bound(key, &[ex(&first)], 0)?,
+            BoundStep::Waiting
+        );
+        let ticket = host.bound_ticket(key);
+        assert_eq!(
+            host.read_terms_bound(key, &[ex(&second)], 0)?,
+            BoundStep::Waiting
+        );
+        assert_eq!(host.bound_ticket(key), ticket, "it asked nothing");
+        let _ended = turn_all(hosts, 4, 0)?;
+        let turned = hosts.first_mut().context("partition 1")?;
+        assert_eq!(turned.take_bound_ready(), [key]);
+        assert_eq!(
+            turned.read_terms_bound(key, &[ex(&first)], 0)?,
+            BoundStep::Done
+        );
+        assert_eq!(
+            turned.read_terms_bound(key, &[ex(&second)], 0)?,
+            BoundStep::Waiting,
+            "now it asks"
+        );
+        let _ended_too = turn_all(hosts, 4, 0)?;
+        let last = hosts.first_mut().context("partition 1")?;
+        assert_eq!(last.take_bound_ready(), [key]);
+        assert!(last.resolve_bound(key, ex(&first).as_ref(), 0)?.is_some());
+        assert!(last.resolve_bound(key, ex(&second).as_ref(), 0)?.is_some());
+        Ok(())
+    })
+}
+
+/// A term the partition holds no ID for, foreign and asked of no home, is refused rather than given an ID of its own.
+#[test]
+fn test_a_foreign_term_never_takes_a_local_id() -> TestResult {
+    let (_, knows, _) = names()?;
+    let foreign = Cluster::even(2)?.name_in(2, &knows)?;
+    on_hosts(2, |hosts| {
+        let host = hosts.first_mut().context("partition 1")?;
+        let (key, identity) = ((1, 1), [5; 16]);
+        let _read = host.bind(key, identity, (0, 9, epoch(0)?), 0)?;
+        assert!(host.resolve_bound(key, ex(&foreign).as_ref(), 0).is_err());
+        assert_eq!(host.bound_read(&identity), None, "the refusal ends it");
+        let held = host
+            .partition()
+            .applier()
+            .quads()
+            .id_of(0, ex(&foreign).as_str())?;
+        assert_eq!(held, None);
+        Ok(())
+    })
+}
+
+/// A transaction's objects read of a predicate another partition owns, asked of no home, mints no ID either.
+#[test]
+fn test_a_transactions_read_of_a_foreign_predicate_mints_no_id() -> TestResult {
+    let cluster = Cluster::even(2)?;
+    let (subject, foreign) = (cluster.name_in(1, "a")?, cluster.name_in(2, "knows")?);
+    let part = cluster.part(1)?;
+    let mut txn = begin(part)?;
+    let mut out = Vec::new();
+    let refused = txn.objects_into(
+        GraphNameRef::DefaultGraph,
+        ex(&subject).as_ref().into(),
+        ex(&foreign).as_ref(),
+        0,
+        &mut out,
+    );
+    assert!(refused.is_err(), "{refused:?}");
+    assert!(out.is_empty());
+    assert_eq!(
+        part.applier().quads().id_of(0, ex(&foreign).as_str())?,
+        None
+    );
+    Ok(())
+}
+
+/// A partition's plain reads: closed epochs, the watermark and a pin of a version it retains.
+#[test]
+fn test_a_host_answers_what_a_plain_read_asks() -> TestResult {
+    on_hosts(1, |hosts| {
+        let host = hosts.first_mut().context("the host")?;
+        assert_eq!(host.closed(), epoch(1)?);
+        let pin = host.pin(host.watermark())?;
+        assert_eq!(pin.version(), host.watermark());
+        assert_eq!(host.dictionary(b"\x1bnot a key")?, None);
+        assert!(host.recall(7, 1).is_err(), "no such session");
         Ok(())
     })
 }

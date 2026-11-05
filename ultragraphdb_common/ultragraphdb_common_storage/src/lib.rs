@@ -14,9 +14,14 @@ mod types;
 mod utils;
 
 pub use crate::types::core_message::CoreMessage;
+pub use crate::types::entries_fill::EntriesFill;
 pub use crate::types::partition_core::{
-    CoreChannels, CoreParts, FrontendAsk, PartitionCore, Peers, StorageHost, StoragePartition,
+    CoreChannels, CoreParts, FrontendAsk, PartitionCore, Peers, SCAN_STALL_MS_DEFAULT, StorageHost,
+    StoragePartition,
 };
 pub use crate::types::refill_blocks::RefillBlocks;
+pub use crate::types::scan_board::ScanBoard;
+pub use crate::types::scan_key::ScanKey;
 pub use crate::types::storage_session::StorageSession;
 pub use crate::utils::error_reply::error_reply;
+pub use crate::utils::scan_version::scan_version;

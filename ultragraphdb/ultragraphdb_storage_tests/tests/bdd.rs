@@ -6,6 +6,9 @@
 //! The storage binary as a process, bound to `features/`, with no container. One scenario runs at a time: the binaries listen
 //! at their declared ports.
 
+mod played_home;
+mod read_kernel_steps;
+
 use compio::runtime::Runtime;
 use cucumber::{World, then, when};
 use service_utils::{ServiceUtil, WaitStrategy};
@@ -55,6 +58,7 @@ struct Steps {
     exited: Option<ExitStatus>,
     frontend: String,
     graph: String,
+    kernel: read_kernel_steps::KernelSteps,
     log: String,
     pid: u32,
     roles: Option<ServiceUtil>,
@@ -246,6 +250,17 @@ fn storage_of(first: u32, count: u32, port: u32) -> TestResult<Vec<(String, Stri
 
 /// A frontend over 4 partitions and two storage processes hosting 1 and 2, and 3 and 4, all held by the config service.
 fn two_processes(w: &mut Steps) -> TestResult {
+    start_processes(w, &[1, 3])
+}
+
+/// As [`two_processes`], the second storage process left unstarted for the test to play the partitions it hosts.
+fn one_process_of_two(w: &mut Steps) -> TestResult {
+    start_processes(w, &[1])
+}
+
+/// The config service holding a frontend over 4 partitions and two storage processes hosting 1 and 2, and 3 and 4; then the
+/// frontend and the storage processes whose first partitions are `firsts`.
+fn start_processes(w: &mut Steps, firsts: &[u32]) -> TestResult {
     let util = services()?;
     let settings = with(frontend_holding()?, "cluster.partition_count", "4");
     let (first, second) = (storage_of(1, 2, 17_200)?, storage_of(3, 2, 17_300)?);
@@ -264,7 +279,7 @@ fn two_processes(w: &mut Steps) -> TestResult {
         &scratch(FRONTEND_BINARY),
         wait,
     ))?;
-    for at in [1, 3] {
+    for at in firsts {
         let ready = answering(&format!("127.0.0.1:{}", 18_100 + at), "/ready");
         let start = role_of_service(
             STORAGE_BINARY,

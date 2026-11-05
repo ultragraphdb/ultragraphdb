@@ -20,6 +20,8 @@ pub struct PartitionCounts {
     pub reverse_rows: u64,
     /// Transactions' scans compared with the reference model.
     pub scans: u64,
+    /// Scans read a second way, by pages, plain and by a transaction, and compared row for row.
+    pub paged_scans: u64,
     /// In-doubt writes a recovery found applied.
     pub in_doubt_applied: u64,
 }

@@ -14,6 +14,12 @@ mod kernel_scan_tests;
 #[cfg(test)]
 mod owned_buckets_tests;
 #[cfg(test)]
+mod page_end_tests;
+#[cfg(test)]
+mod page_tests;
+#[cfg(test)]
+mod page_walk_tests;
+#[cfg(test)]
 mod quad_store_partition_tests;
 #[cfg(test)]
 mod quad_store_tests;

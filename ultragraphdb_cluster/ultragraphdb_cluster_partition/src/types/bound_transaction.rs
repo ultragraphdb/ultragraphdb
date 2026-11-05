@@ -3,6 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::collections::BTreeSet;
+
 use ultragraphdb_store_apply::Operation;
 use ultragraphdb_transactions_txn::Transaction;
 
@@ -35,6 +37,8 @@ where
     E: ultragraphdb_traits_store::Executor,
 {
     pub txn: Transaction<'a, S, C, E, B>,
+    /// The identity its Bind named, which Scans of it name.
+    pub identity: [u8; 16],
     pub began_us: u64,
     /// The ticket its current references are asked under, and when they went last.
     pub ticket: u64,
@@ -42,4 +46,8 @@ where
     pub references: Vec<(Reference, Option<Answer>)>,
     /// A commit-time operation waiting for its references, applied when they come.
     pub operation: Option<Operation>,
+    /// Whether its current references are a read's, which a home holding no such skolem IRI leaves open.
+    pub reading: bool,
+    /// The skolem IRIs their homes hold none of, which its reads answer with no entry without asking again.
+    pub unheld: BTreeSet<String>,
 }

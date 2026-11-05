@@ -5,7 +5,20 @@
 
 mod entries_body_builder;
 
+use crate::types::chunk_layout::ChunkLayout;
 use crate::types::entries_end::EntriesEnd;
+use crate::utils::constants::HEADER_SIZE;
+use crate::utils::key_value_writer::entry_size;
+
+/// The bytes of an Entries body's table of its one section, which lies right after it.
+const SECTION_TABLE_SIZE: usize = 8;
+
+/// The size of the frame of an Entries body whose section holds `section_len` bytes: the header, the section table, the
+/// section and its chunk table.
+fn frame_size_of(section_len: usize) -> usize {
+    let data_len = SECTION_TABLE_SIZE.saturating_add(section_len);
+    HEADER_SIZE.saturating_add(ChunkLayout::of_data(data_len).body_len())
+}
 
 /// A batch of one scanned range's entries, in key order (`PROTOCOL.md` §13.14): each key once, with its value visible
 /// at the version the range was read at.
@@ -33,6 +46,7 @@ pub struct Entries {
     continues: bool,
     epoch: u64,
     entries: Vec<(Vec<u8>, Vec<u8>)>,
+    section_len: usize,
 }
 
 impl Entries {
@@ -44,6 +58,7 @@ impl Entries {
             continues: false,
             epoch,
             entries: Vec::new(),
+            section_len: 0,
         }
     }
 
@@ -57,9 +72,39 @@ impl Entries {
         }
     }
 
+    /// The batch ending as `end` says.
+    pub fn with_end(mut self, end: EntriesEnd) -> Self {
+        self.end = end;
+        self
+    }
+
+    /// The batch with its last entry's value continuing in the next frame, which needs an entry. More of the range follows.
+    pub fn continued(mut self) -> Self {
+        self.continues = true;
+        self.end = EntriesEnd::More;
+        self
+    }
+
     /// Appends the entry of `key` and `value`; entries are pushed in ascending key order.
     pub fn push(&mut self, key: &[u8], value: &[u8]) {
+        self.section_len = self
+            .section_len
+            .saturating_add(entry_size(key.len(), value.len()));
         self.entries.push((key.to_vec(), value.to_vec()));
+    }
+
+    /// The bytes [`crate::BodyBuilder::frame`] builds of this batch, header and chunk table included.
+    pub fn frame_size(&self) -> usize {
+        frame_size_of(self.section_len)
+    }
+
+    /// The bytes [`crate::BodyBuilder::frame`] builds of this batch with one more entry, of a key of `key_len` bytes and
+    /// a value of `value_len`.
+    pub fn frame_size_with(&self, key_len: usize, value_len: usize) -> usize {
+        frame_size_of(
+            self.section_len
+                .saturating_add(entry_size(key_len, value_len)),
+        )
     }
 
     /// The range's index in its Scan.

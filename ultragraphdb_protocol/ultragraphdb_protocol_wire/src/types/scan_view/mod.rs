@@ -20,6 +20,7 @@ pub struct ScanView<'a> {
     principal: u64,
     transaction: [u8; 16],
     limit: u32,
+    deadline_ms: u32,
     ranges: &'a [u8],
     keys: &'a [u8],
     terms: TermTableView<'a>,
@@ -54,6 +55,11 @@ impl<'a> ScanView<'a> {
     /// The most entries per range; 0 for no limit.
     pub fn limit(&self) -> u32 {
         self.limit
+    }
+
+    /// How long the partition waits for the close of [`ScanView::epoch`], in milliseconds; 0 when that is 0.
+    pub fn deadline_ms(&self) -> u32 {
+        self.deadline_ms
     }
 
     /// The number of ranges, at least 1.

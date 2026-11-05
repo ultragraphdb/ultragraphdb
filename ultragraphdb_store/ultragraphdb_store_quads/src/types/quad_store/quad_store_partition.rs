@@ -4,20 +4,23 @@
  */
 
 use std::num::NonZeroU64;
+use std::ops::ControlFlow;
 
 use ultragraphdb_core_ids::{BucketGroup, SystemId};
 use ultragraphdb_core_keys::{Graph, QuadKey};
 use ultragraphdb_core_terms::EncodedTerm;
-use ultragraphdb_store_posting::{CachedList, ListSource, WalkEnd, walk_lists};
+use ultragraphdb_store_posting::{CachedList, walk_lists};
 use ultragraphdb_traits_blocks::BlockSource;
-use ultragraphdb_traits_store::{ListCache, Scan, Store};
+use ultragraphdb_traits_store::{ListCache, Scan, Store, StoreSnapshot};
 
 use crate::errors::quad_error::QuadError;
 use crate::types::kernel_row::KernelRow;
 use crate::types::kernel_scan::KernelScan;
+use crate::types::page::Page;
+use crate::types::page_end::PageEnd;
+use crate::types::page_walk::PageWalk;
 use crate::types::quad_store::QuadStore;
 use crate::types::referrer_set::ReferrerSet;
-use crate::utils::list_objects::list_objects;
 use crate::utils::postings::list_holds;
 
 /// The reads a partition answers beside its quad reads (partitions, quad-reads): referrer sets and marks, its own
@@ -171,41 +174,78 @@ where
         Ok(u64::try_from(subjects.len()).unwrap_or(u64::MAX))
     }
 
-    /// The read kernel for a plain read, the walk ([`walk_lists`]) over the store's lists, a source adding no key: the lists
-    /// `scan` names, read as of its version, in key order, at most its limit of them, appended to `out`. A list holding nothing at the version gives no row. The key a next scan resumes from, the
-    /// first list of the range not read, as its `from`; or `None` when the range is exhausted.
+    /// The read kernel for a plain read: the lists `scan` names, read as of its version, in key order, at most its limit of
+    /// them, appended to `out`. A list holding nothing at the version gives no row. The key a next scan begins at, just past
+    /// the last row, as its `from`; or `None` when the range is exhausted.
     ///
     /// # Errors
     ///
-    /// The store's error; corruption of a list; [`QuadError::corrupted`] for a keyspace holding no lists.
+    /// As [`QuadStore::page`].
     pub fn scan(
         &self,
         scan: &KernelScan,
         out: &mut Vec<KernelRow>,
     ) -> Result<Option<Vec<u8>>, QuadError> {
+        let page = self.page(scan, KernelRow::gather(out))?;
+        Ok(page.into_end().resume_from())
+    }
+
+    /// A page of the read kernel for a plain read, the walk ([`walk_lists`]) over the store's lists, a source adding no key: the
+    /// lists `scan` names, read as of its version, in key order, streamed to `sink` object by object, each with its key and
+    /// statement IDs. It ends at the range's end, after the scan's limit of rows, where `sink`
+    /// breaks on an object it does not take, which the next page, resuming as the end says, reads again, or after the keys giving
+    /// nothing the scan allows. A sink that breaks having taken nothing leaves a paused end with no last key.
+    ///
+    /// # Errors
+    ///
+    /// The store's error; corruption of a list; [`QuadError::corrupted`] for a keyspace holding no lists.
+    pub fn page<F>(&self, scan: &KernelScan, sink: F) -> Result<Page, QuadError>
+    where
+        F: FnMut(&[u8], &EncodedTerm, &[SystemId]) -> ControlFlow<()>,
+    {
         scan.check_keyspace()?;
         let (start, end) = scan.bounds();
         let version = scan.version();
         let snapshot = self.store().snapshot(version)?;
+        let mut walk = PageWalk::new(scan, version, sink);
         let walked = walk_lists(
             &snapshot,
             &Scan::range(start, end),
             self.lists(),
-            Some(scan.limit()),
-            |key, lists| {
-                let objects =
-                    lists.with_list(key, version, |list| list_objects(key, list, version))??;
-                let row = !objects.is_empty();
-                if row {
-                    out.push(KernelRow::new(key.to_vec(), objects));
-                }
-                Ok::<bool, QuadError>(row)
-            },
+            version,
+            scan.walk_bounds(),
+            |key, lists| walk.visit(key, lists),
         )?;
-        Ok(match walked {
-            WalkEnd::Exhausted => None,
-            WalkEnd::Stopped { next, .. } => Some(next),
-        })
+        Ok(walk.end(walked))
+    }
+
+    /// A page of the referrer sets: each key `scan` names and its stored value as of the scan's version, in key order, streamed
+    /// to `sink`, which breaks on a value it does not take. It ends as [`QuadStore::page`] does; a value is taken whole or not
+    /// at all, so a pause lies between keys.
+    ///
+    /// # Errors
+    ///
+    /// The store's error; [`QuadError::corrupted`] for another keyspace.
+    pub fn values_page<F>(&self, scan: &KernelScan, mut sink: F) -> Result<Page, QuadError>
+    where
+        F: FnMut(&[u8], &[u8]) -> ControlFlow<()>,
+    {
+        scan.check_referrers()?;
+        let (start, end) = scan.bounds();
+        let snapshot = self.store().snapshot(scan.version())?;
+        let (mut rows, mut last) = (0usize, None::<Vec<u8>>);
+        for item in snapshot.scan(&Scan::range(start, end)) {
+            let item = item?;
+            if let Some(last) = last.take_if(|_| rows == scan.limit().get()) {
+                return Ok(Page::new(PageEnd::Stopped { last }, rows));
+            }
+            if sink(item.key(), item.value()).is_break() {
+                return Ok(Page::new(paused_values(last, item.key()), rows));
+            }
+            rows += 1;
+            last = Some(item.key().to_vec());
+        }
+        Ok(Page::new(PageEnd::Exhausted, rows))
     }
 
     /// Whether `object`'s object-predicates list in `graph` of `namespace` names `predicate` as of `version`.
@@ -220,6 +260,26 @@ where
         let key = object_predicates_key(namespace, graph, object);
         let list = self.lists().read(&key, version)?;
         Ok(list_holds(&list, version, predicate)?)
+    }
+}
+
+/// How a page of stored values paused at `next` ended, `last` the last key it gave.
+fn paused_values(last: Option<Vec<u8>>, next: &[u8]) -> PageEnd {
+    match last {
+        Some(last) => {
+            let mut from = last.clone();
+            from.push(0);
+            PageEnd::Paused {
+                last: Some(last),
+                from,
+                after: None,
+            }
+        }
+        None => PageEnd::Paused {
+            last: None,
+            from: next.to_vec(),
+            after: None,
+        },
     }
 }
 

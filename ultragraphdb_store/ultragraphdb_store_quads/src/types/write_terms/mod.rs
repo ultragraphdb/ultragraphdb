@@ -94,6 +94,11 @@ impl WriteTerms {
         }
     }
 
+    /// Whether the write resolved `iri` already: its own, taken from the dictionary, or copied from its home.
+    pub fn knows(&self, iri: &str) -> bool {
+        self.ids.contains_key(iri)
+    }
+
     /// The ID of `iri`: the write's own, the dictionary's or a concurrent creator's, or a new one.
     ///
     /// # Errors

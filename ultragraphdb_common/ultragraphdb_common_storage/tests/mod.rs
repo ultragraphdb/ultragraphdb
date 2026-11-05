@@ -6,4 +6,6 @@
 //! The storage role's unit tests.
 
 #[cfg(test)]
+mod types;
+#[cfg(test)]
 mod utils;

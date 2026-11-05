@@ -8,7 +8,7 @@ use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use futures::channel::oneshot;
 use ultragraphdb_common_role::{Answer, Session};
 use ultragraphdb_protocol_transport::ReceivedFrame;
-use ultragraphdb_protocol_wire::{ErrorCode, ErrorReply};
+use ultragraphdb_protocol_wire::{ErrorCode, ErrorReply, MAX_FRAME_FLOOR};
 
 use crate::types::core_message::{CoreMessage, Pushes};
 
@@ -19,6 +19,7 @@ pub struct StorageSession {
     core: UnboundedSender<CoreMessage>,
     pushes: Pushes,
     pushed: UnboundedReceiver<(u64, Vec<u8>)>,
+    max_frame: u32,
 }
 
 impl StorageSession {
@@ -31,6 +32,7 @@ impl StorageSession {
             core,
             pushes,
             pushed,
+            max_frame: MAX_FRAME_FLOOR as u32,
         }
     }
 }
@@ -44,6 +46,7 @@ impl Session for StorageSession {
             frame,
             done,
             pushes: self.pushes.clone(),
+            max_frame: self.max_frame,
         });
         let stopped = || {
             Answer::Refuse(ErrorReply::new(
@@ -63,6 +66,26 @@ impl Session for StorageSession {
             // This session holds a sender, so its channel never ends while it waits here.
             None => std::future::pending().await,
         }
+    }
+
+    fn welcomed(&mut self, max_frame: u32) {
+        self.max_frame = max_frame;
+    }
+
+    fn ready(&mut self, stream: u64) {
+        // A core gone holds nothing to go on with.
+        drop(self.core.unbounded_send(CoreMessage::Ready {
+            connection: self.connection,
+            stream,
+        }));
+    }
+
+    fn left(&mut self, stream: u64) {
+        // A core gone holds nothing to go on with.
+        drop(self.core.unbounded_send(CoreMessage::Left {
+            connection: self.connection,
+            stream,
+        }));
     }
 
     fn cancelled(&mut self, stream: u64) {

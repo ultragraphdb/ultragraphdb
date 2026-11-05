@@ -587,9 +587,9 @@ within the deadline; a read waiting past the deadline is refused with code 24 (T
 | 24 | 24 | `token` | session token (section 4.8) | the token the client holds; zero for none |
 
 No sections. Order: unused bytes 18–19 and 48–127 zero; `mode`; `level`; `read_version`; `token` (section 4.8);
-sections. A named `read_version` above the visibility watermark of a partition a read reaches is refused at once, never
-held waiting, with code 27 (AheadOfWatermark) on the read's stream; one below what the partition retains, with code 3
-(TooOld).
+sections. A named `read_version` within an epoch a partition a read reaches has closed reads what that partition applied at
+or below it. Any other above the partition's visibility watermark is refused at once, never held waiting, with code 27
+(AheadOfWatermark) on the read's stream; one below what the partition retains, with code 3 (TooOld).
 
 ### 6.3 Commit (5)
 
@@ -987,7 +987,7 @@ Order: unused bytes 2–7 and 16–127 zero; `code`; sections; the term table (1
 |---|---|---|---|---|
 | 1 | Protocol | no | 0 | A frame broke a validation rule: a connection error, after which the server closes the connection, or a stream error, which ends the request's stream (section 2.6). The message is the rule's text |
 | 2 | Conflict | yes | the conflict kind below | A transaction's read conflicted with a commit ordered before it |
-| 3 | TooOld | yes | 0 | The read version is below what validation still holds |
+| 3 | TooOld | yes | 0 | The read version is below what validation still holds, or below what the partition retains (section 11.9) |
 | 4 | PastLimit | yes | the limit in milliseconds | The transaction lived past its limit, the Welcome's `transaction_ms` |
 | 5 | Busy | yes | 0 | The commit queue is full; or the partition's epoch is full and its close request has gone unanswered for `close_request_ms`, the sequencer counting as unreachable until the close arrives (section 11.12) |
 | 6 | TooLarge | no | the limit in bytes | A write set exceeds the Welcome's `max_write_set`, as sent or as its commit-time operations leave it (section 11.9); or a transaction's reads exceed what its read set holds |
@@ -1008,10 +1008,10 @@ Order: unused bytes 2–7 and 16–127 zero; `code`; sections; the term table (1
 | 21 | PermissionDenied | no | the action below | The connection's principal may not do what the request asks; the request is refused, and a transaction's request ends the transaction |
 | 22 | CredentialExpired | no | 0 | The connection's credential expired before a new authentication; the server closes the connection |
 | 23 | CrossPartition | no | the transaction's partition in bits 0–31, or for an operation bound to none the lowest partition it reaches; the lowest other partition it reaches in bits 32–63 | Cross-partition work, refused in this stage: a read-write transaction reaching a second partition, or a Drop reaching several; it aborts and writes nothing, and the message names every partition it reaches (sections 11.11, 11.13) |
-| 24 | TimedOut | yes | the partition waited on | A read waited past its transaction's deadline for a partition to close the epoch it reads at; the message names the partition and the epoch, and the read returns no row (section 11.11) |
+| 24 | TimedOut | yes | the partition waited on | A read waited past its transaction's deadline for a partition to close the epoch it reads at, the message naming the partition and the epoch, and returns no row; or a Scan of it stayed past `scan_stall_ms` with no frame able to leave, the message saying so, and rows already sent are no answer (sections 11.11, 13.13) |
 | 25 | LevelRefused | no | as code 23's | A read-only transaction at level 1 (latest) whose read reaches another partition than the one its first read bound it to, or more than one; the message names the level and the partitions (section 11.11) |
 | 26 | WrongPartition | yes, after refreshing the placement map | the bucket in bits 0–23, bits 24–31 zero, the partition owning it in bits 32–63 | A key outside the receiving partition's bucket ranges, from a sender whose placement map is stale. Between roles; a client receives it only when the owner refuses the frontend's one resend too, and runs its transaction again after a delay (section 11.12) |
-| 27 | AheadOfWatermark | no | the watermark | A read version the client named is above the visibility watermark of the partition answering, refused at once; the message names the version and the watermark (section 6.2) |
+| 27 | AheadOfWatermark | no | the watermark | A read version is above the visibility watermark of the partition answering, in an epoch that partition has not closed: refused at once when the client named it; the message names the version and the watermark (sections 6.2, 13.13) |
 
 A client retries a request refused with a retryable code. Code numbers are never reused. A receiver refuses an Error
 of code 26 with any of bits 24 to 31 of its `detail` set (`FieldValue` `"detail"`).
@@ -1249,7 +1249,8 @@ ends the connection: an Error of code 22 (CredentialExpired) on stream 0, then t
 - Every request opens a new stream. The client numbers streams from 1 on each connection, upward, and never reuses a
   number on that connection. At most `max_streams` streams are open at once; the server refuses another with Error code
   15 (Limit), `detail` the limit. A request on stream 0 other than Hello and Authenticate, or a new request on a
-  stream already open, is a connection error (section 2.6).
+  stream already open, is a connection error (section 2.6). A server keeps no record of the numbers that ended, so a request
+  reusing one opens a new stream, which holds nothing of the ended one.
 - The server answers streams independently, in whatever order their results are ready.
 - A stream ends with its frame flagged `LAST`, when the client cancels it, or with an Error on it. Every reply that
   ends its stream carries `LAST`: Register, Commit, Prepare, Describe and Drop replies, a read's last Result, and every
@@ -1457,10 +1458,15 @@ so `max_streams` bounds them too.
 | Connections the frontend holds at once | 4,096 |
 | Sessions in the metadata group's registry (`sessions_max`), and so in each partition's table | 4,096 |
 | A transaction's deadline, `deadline_ms` 0 | the Welcome's `transaction_ms` |
+| `scan_stall_ms`, how long a partition keeps a Scan with no frame able to leave (section 13.13) | 30,000 ms |
 | Statements per connection | 256 |
 | Idle limit, a connection sending no frame | 600 s |
 | Authentication timeout, from Welcome to the final Authenticate | 60 s |
 | Refusal interval after 100 consecutive failed authentications of a principal | 15 minutes |
+
+A partition retains every version at or above its discard version, which it raises only past the versions no open read or
+Scan holds; a read below it is refused with code 3 (TooOld). A deadline bounds a read's wait, and a read-only transaction has
+no other limit on its life, so a reader that keeps taking frames keeps its version.
 
 ### 11.10 Authorization
 
@@ -1491,9 +1497,14 @@ bound is visible to it, and none after. A read-only transaction reads at the lev
 | Monotonic-fast | 2 | Each read answers at one epoch: the lowest latest-closed epoch among the partitions it reaches, but never below its floor, the larger of the token's epoch and the epoch of the transaction's previous read; it waits only for a partition that has not closed the floor. A reverse read reads its entity's referrer set at the home's latest closed epoch `e`, waiting until `e` reaches the floor, and has every member partition answer at `e`, each once it has closed `e`. Quad-pattern reads are monotonic, so the transaction's reads never go back and always see its token's commit, though they need not share one snapshot |
 
 A read-only transaction naming a read version (section 6.2) reads every partition at that version, without waiting: a
-partition holding it above its visibility watermark refuses the read at once with code 27 (AheadOfWatermark), and one
-no longer retaining it with code 3 (TooOld). A read still waiting at its transaction's deadline is refused with code 24
-(TimedOut), `detail` the partition it waited on, and returns no row: a snapshot read answers complete or waits, never
+partition that has closed the version's epoch reads what it applied at or below the version; one holding the version above
+its visibility watermark in an epoch it has not closed refuses the read at once with code 27 (AheadOfWatermark), and one no
+longer retaining it with code 3 (TooOld). A read still waiting for a close at its transaction's deadline is refused with
+code 24 (TimedOut), `detail` the partition it waited on, and returns no row, since compute sends no Result until every
+partition it asks has closed the read's epoch.
+
+A read's answer streams under credit, so it can fail after rows have left. Only a stream ending in `LAST` is an answer: a
+read ending in a refusal is no answer, whatever its stream carried before, and a snapshot read is complete or refused, never
 partial.
 
 A committed transaction's Commit reply, and a Drop's reply, carries its session token (section 4.8): its partition, its
@@ -1638,9 +1649,9 @@ The frontend sends each ComputeRead to the next compute process of Members, roun
 not answer is skipped for that read, and with none left the read is refused with code 17 (Unavailable). It sends a read
 of a read-write transaction only once every write request the client sent on the transaction's stream before it has been
 answered, holding the read until then, and sends such a write only once every read of the transaction already sent has
-been answered, so a transaction's requests run one at a time in the order the client sent them: a read sees the writes
-before it, whichever connection carries it, and none after it appears in part of its answer. Compute reaches the partition
-on a connection of its own, so this order is the frontend's to keep. A transaction ended while a read is under
+been answered, so writes and reads keep the order the client sent them: a read sees the writes before it, whichever
+connection carries it, none after it appears in part of its answer, and reads with no write between them run beside one
+another (section 11.2). Compute reaches the partition on a connection of its own, so this order is the frontend's to keep. A transaction ended while a read is under
 way is refused at the partition as one it does not hold; the frontend then answers the read with the reason the Bind
 stream gave, such as code 4 (PastLimit), not the partition's refusal.
 
@@ -2185,8 +2196,8 @@ partition acknowledged before it is visible to the transaction, and none after.
 | 40 | 16 | `transaction` | bytes | the transaction's identity, 128 random bits the frontend draws, not all zero (`FieldValue` `"transaction"`); Scans of the transaction name it |
 
 No sections. Order: unused bytes 5–7 and 56–127 zero; `partition`; `kind`; `read_version`; `epoch`; `transaction`;
-sections. A Bind naming a partition the process does not host is refused with Error 1 (Protocol), the message naming
-the partition.
+sections. A Bind naming a partition the role address does not serve is refused with Error 1 (Protocol), the message naming
+the partition, and one naming a transaction the partition holds with Error 1, the message naming the transaction.
 
 ### 13.11 Recall (522)
 
@@ -2212,7 +2223,7 @@ bound into the pattern, with what compute needs of the read's transaction. Compu
 client's layout (section 9.1), each batch's `epoch` and `partition` filled, the last flagged `LAST`, which the frontend
 relays; or with an Error: code 23 for a read of a read-write transaction reaching another partition than the
 transaction's; code 25 for a read at level 1 reaching another partition than `partition`, or more than one; code 24
-when a partition has not closed the epoch the read waits for by the deadline, `detail` that partition; code 27 or 3
+when a partition has not closed the epoch the read waits for by the deadline, or a Scan of it stalled (section 13.13), `detail` that partition; code 27 or 3
 for a named read version a partition does not hold; Error 1 (Protocol) for a resume key it refuses (section 11.8).
 
 | Command header | Width | Field | Type | Rule |
@@ -2248,8 +2259,8 @@ referrer set is read at the home; with a named version, `at` 4.
 
 ### 13.13 Scan (524)
 
-Storage's read kernel: the entries of key ranges of the partition at a role address, each range at a version, at most
-`limit` entries of it, in key order, batched per address. Compute builds each range from a pattern's terms and
+Storage's read kernel: the entries of key ranges of the partition at a role address, at one version, at most
+`limit` entries of each, in key order, batched per address. Compute builds each range from a pattern's terms and
 the store's key encoding, and reads the dictionary, a referrer set or a list by Scans as it reads the quads; a lookup of
 one key is a range holding it alone. Keys here are the store's keys without their 8-byte version suffix, and carry
 system IDs.
@@ -2262,6 +2273,7 @@ system IDs.
 | 24 | 8 | `principal` | u64 | the client's principal |
 | 32 | 16 | `transaction` | bytes | a read-write transaction's identity, the partition's own, whose reads record the ranges; all zero for none |
 | 48 | 4 | `limit` | u32 | the most entries per range; 0 for no limit |
+| 52 | 4 | `deadline_ms` | u32 | how long the partition waits for the close of `epoch`: the time left until the deadline of the read's transaction (section 6.2); 0 when `epoch` is 0 (`FieldValue` `"deadline_ms"`) |
 
 | Section | Contents |
 |---|---|
@@ -2272,28 +2284,44 @@ system IDs.
 
 | Range offset | Width | Field | Type |
 |---|---|---|---|
-| 0 | 4 | `partition` | u32: the partition read, one the process hosts |
+| 0 | 4 | `partition` | u32: the partition read, the one the role address serves |
 | 4 | 4 | zero | 0 |
 | 8 | 4 | `first` | u32: the offset in section 1 of the range's first key, inclusive |
 | 12 | 4 | `first_len` | u32: its length, at least 1 |
 | 16 | 4 | `past` | u32: the offset of the key past the range's last, exclusive, `first + first_len` |
-| 20 | 4 | `past_len` | u32: its length; 0 for the end of the first key's keyspace |
+| 20 | 4 | `past_len` | u32: its length; 0 for the end of the first key's namespace in its keyspace |
 
 The keys follow each other with no gap: range 0's first key starts at 0, each key starts where the one before ends, and
-section 1 ends with the last. With `at` 4, a partition holding `read_version` above its visibility watermark refuses
-the Scan at once with code 27 (AheadOfWatermark), `detail` the watermark, and one no longer retaining it with code 3
-(TooOld). A range ending at its limit continues with a new Scan whose first key is the last entry's key followed by a
-zero byte.
+section 1 ends with the last. A Scan chooses its version once, when any wait for `epoch` has ended, and every range of it
+reads that version. With `at` 1 and 4, a `read_version` at or below the version bound of an epoch the partition has closed,
+or of epoch 0, reads what the partition applied at or below that version, since every round of such an epoch is applied, so
+an idle partition answers a version it never reached. Any other `read_version` above the partition's visibility watermark
+is refused with code 27 (AheadOfWatermark), `detail` the watermark: with `at` 4 at once, with `at` 1 once the partition has
+closed `epoch`. One below what the partition retains (section 11.9) is refused with code 3 (TooOld). A range ending at its
+limit continues with a new Scan whose first key is the last entry's key followed by a zero byte.
 
-A range reads one keyspace: a keyspace of lists, the dictionary or the referrer sets. A range of any other keyspace is
-refused with Error 1 (Protocol), the message naming the keyspace.
+The partition counts `deadline_ms` from the Scan's arrival. A Scan whose `epoch` the partition has not closed by then is
+refused on its stream with code 24 (TimedOut), `detail` the partition, having sent no frame; with `deadline_ms` 0 it is
+refused so at once. The partition retains the version a Scan reads until the Scan ends. Once any wait is over, the setting
+`scan_stall_ms` (section 11.9) bounds how long a Scan stays open with no frame able to leave, because its stream holds no
+credit or its connection takes no bytes: past it the partition refuses the Scan with code 24, `detail` the partition, the
+message saying it stalled, and releases what it held, so a reader that stopped holds a version for no longer than that.
+Each frame that leaves restarts it. A Scan naming a transaction is bounded by it as well as by the transaction's limit.
+
+A range reads one namespace of one keyspace: a keyspace of lists, the dictionary or the referrer sets. A range of any
+other keyspace is refused with Error 1 (Protocol), the message naming the keyspace. In a keyspace of lists or the referrer
+sets, a first key too short to name a namespace, or a past key above the first key past that namespace, is refused with
+Error 1, the message naming the range. A range of the dictionary holds one key, its past key
+that key followed by a zero byte, since its keys are hashes and IDs, whose order means nothing to a reader; a wider one is
+refused with Error 1 (Protocol), the message naming the range. The partition refuses all of these before it sends a frame.
 
 **A Scan naming a transaction** is a read of that transaction, and what it answers and records is what makes the
 transaction's commit serializable:
 
 - It sets `at` 1, `read_version` the Bind's answer (section 13.10), `epoch` 0, and `principal` the transaction's. A Scan
   whose version or principal is not the transaction's is refused with Error 1 (Protocol), the message naming the field.
-- It reads the transaction's partition alone, at that version with the transaction's own uncommitted writes over it, so
+- It reads the transaction's partition and namespace alone, a range of another namespace refused with Error 1 (Protocol)
+  naming it, at that version with the transaction's own uncommitted writes over it, so
   a read sees what the transaction wrote in an earlier request: a list holds what the transaction added and lacks what it
   removed, a list it emptied is absent, and a term it created is found. Those writes are the ones the partition
   acknowledged before the Scan arrived; the frontend orders them (section 11.12, *Reads*).
@@ -2301,7 +2329,8 @@ transaction's commit serializable:
   read-write transaction reads no other partition, so it has no referrer set to ask.
 - Before it sends an Entries frame, the partition records in the transaction's reads the span that frame covers, so no
   entry reaches compute unrecorded. A span runs from the range's first key, or from where the range's previous span
-  ended, to the frame's last entry's key followed by a zero byte; the frame ending a range with `end` 1 covers through the
+  ended, to the frame's last entry's key followed by a zero byte, or through the keys holding nothing a turn stopped at
+  (section 13.14), recorded whether or not that turn sends a frame; the frame ending a range with `end` 1 covers through the
   range's past key, including a range that found nothing, which is what proves absence and catches a later insert into
   it. A range stopped at the Scan's `limit`, `end` 2, covers only what it returned, so a write past it conflicts with
   nothing the transaction read, and the Scan continuing it records the rest. A span touching the range's previous span
@@ -2313,18 +2342,27 @@ transaction's commit serializable:
   ranges name, in the table's order, one range each holding that IRI's dictionary key alone; a key that is not the text's
   is refused with Error 1 (Protocol). The partition resolves each as a read in the partition does: got or created, the
   same ID any concurrent writer of the IRI takes. One it created is recorded as an absent term (conflict kind AbsentTerm),
-  so a later commit of a statement of that term conflicts. The range answers the entry with its ID. A term no read can
-  hold, an unheld skolem IRI or an IRI another partition owns, answers no entry and records nothing.
+  so a later commit of a statement of that term conflicts. The range answers the entry with its ID. An unheld skolem IRI, which no read can hold, answers no entry and records
+  nothing. An IRI another partition owns is read by the partition's copy of its entries, as the partition's own reads do:
+  with no copy, the partition first takes the ID from the IRI's home by Reference, naming no group (section 11.12,
+  *Registration*), and answers the range once the home has replied, so the Scan waits on that reply within the transaction's
+  limit. A Scan arriving while another of the transaction's waits so waits with it, and asks for its own terms once that reply
+  is in; one arriving while a Write or Operation of the transaction waits so is refused with Error 1 (Protocol), since the
+  frontend sends a read only once the writes before it are answered. A home's outcome 7 for a skolem IRI says it holds none, so
+  the range answers no entry, the transaction goes on and its reads ask for that IRI no more, wherever the IRI is homed. Any
+  other refusal from the home ends the transaction. Compute names such an IRI as a predicate, a graph or an object; a bound
+  subject another partition owns never reaches the table, since compute answers it with code 23.
 - A span the read set has no room for ends the transaction with code 6 (TooLarge), `detail` the limit in bytes, and no
-  entry of that span is sent.
+  entry of that span is sent. A Scan that ends its transaction, for this or any reason, answers so on its stream and sends
+  the same Error on the Bind stream, which ends it.
 
 Commit validates what these spans record as it does a range the partition scanned itself, by the table of *What a
 transaction's reads record*: a key inside the range, a statement whose list key is inside it, or a range sharing a key
 with it, written above the transaction's read version, aborts the commit. Every list a commit writes counts, forward,
 reverse, predicate lists and indexes alike.
 
-Order: unused bytes 1–7 and 52–127 zero; `at`, and 1 when `transaction` is not zero (`FieldValue` `"at"`); `read_version` 0 for `at` 2 and 3; `epoch` an epoch, and 0 for `at` 4
-and when `transaction` is not zero (`FieldValue` `"epoch"`); sections; section 0 a whole number of 24-byte ranges (`SectionLength`) and not empty
+Order: unused bytes 1–7 and 56–127 zero; `at`, and 1 when `transaction` is not zero (`FieldValue` `"at"`); `read_version` 0 for `at` 2 and 3; `epoch` an epoch, and 0 for `at` 4
+and when `transaction` is not zero (`FieldValue` `"epoch"`); `deadline_ms` 0 when `epoch` is 0 (`FieldValue` `"deadline_ms"`); sections; section 0 a whole number of 24-byte ranges (`SectionLength`) and not empty
 (`CountMismatch` `"ranges"`, 0 against 1); sections 2 and 3 empty when `transaction` is zero (`CountMismatch` `"terms"`, their bytes against 0),
 otherwise a term table (section 4.4), then at most as many terms as ranges (`CountMismatch` `"terms"`, the terms against the ranges), then every entry of kind 1
 (`FieldValue` `"scan term"`, the entry's index); each range in order: bytes 4–7 zero (`PaddingNotZero` at the body offset),
@@ -2333,7 +2371,7 @@ partition), `first` and `past` where the keys before end and `first_len` at leas
 range's index), both keys within section 1 (`IndexOutOfRange`, section 0, the range's index, the past key's end,
 section 1's length), and the past key, when not empty, above the first, compared byte by byte (`FieldValue`
 `"range"`); section 1 ending with the last key (`CountMismatch` `"range keys"`, section 1's length against the last
-key's end). A range of a partition the process does not host, or a `transaction` the partition
+key's end). A range of a partition the role address does not serve, or a `transaction` the partition
 does not hold, is refused with Error 1 (Protocol), the message naming it.
 
 ### 13.14 Entries (525)
@@ -2347,9 +2385,9 @@ Entries frames spend credit as Result frames do (section 11.3).
 |---|---|---|---|---|
 | 0 | 4 | `entries` | u32 | the batch's entry count |
 | 4 | 4 | `range` | u32 | the range's index in the Scan, from 0 |
-| 8 | 1 | `end` | u8 | 0 more of the range follows; 1 the range ended; 2 the range stopped at the Scan's `limit` (`FieldValue` `"end"`) |
+| 8 | 1 | `end` | u8 | 0 more of the range follows; 1 the range ended; 2 the range stopped at the Scan's `limit` with a key of it remaining, so a range holding exactly `limit` entries ends with 1, unless 256 keys holding nothing at the version follow them, where the partition stops looking (`FieldValue` `"end"`) |
 | 9 | 1 | `continues` | u8 | 1 the batch's last entry's value continues in the next frame, which needs a last entry; 0 otherwise (`FieldValue` `"continues"`) |
-| 16 | 8 | `epoch` | epoch (section 1) | the epoch of the version the range was read at, which `at` 3 and `at` 2 choose; 0 when the partition has closed no epoch and read at the version bound of none (`FieldValue` `"epoch"`) |
+| 16 | 8 | `epoch` | epoch (section 1) | the epoch the range was read at: with `at` 1 and 4, `read_version`'s; with `at` 3, the latest closed epoch the partition chose; with `at` 2, the higher of that and the epoch of the version it chose; 0 when the partition has closed no epoch and read at the version bound of none (`FieldValue` `"epoch"`) |
 
 | Section | Contents |
 |---|---|
@@ -2367,9 +2405,14 @@ keyspace of lists it is the list's objects visible at the version, in the list's
 
 A list larger than a frame continues across frames, as a hub's reverse list does. A frame with `continues` 1 ends between
 two object records, and has `end` 0; the next frame's first entry has the same key, and its value is the next object
-records. The value is the records of every such frame in order. The partition keeps the last object it sent and resumes
-after it, reading the same version; a frame stops at the receiver's `max_frame`, so a large list takes many frames and no
-turn of the partition holds more than one.
+records. The value is the records of every such frame in order. The partition keeps the last object it sent and the list it
+reads, resuming after that object at the same version, so a list is read once however many frames it takes; a frame stops at
+the receiver's `max_frame`, so a large list takes many frames and no turn of the partition holds more than one. A turn also
+reads at most 256 keys holding nothing at the version, so a range of emptied lists takes many turns, and a turn that found no
+entry sends no frame. The partition builds a stream's next frame once the one before has left, so a reader's stalled stream
+holds at most one frame in memory and the list that frame stopped inside. A frame always takes at least one object record or one value of
+the dictionary or the referrer sets: one too large for an otherwise empty frame is refused with code 6 (TooLarge), `detail`
+the receiver's `max_frame`.
 
 An object record running past the value is refused with `EntryOutOfBounds` (section 0, the record's index, its offset in the value).
 
@@ -2432,7 +2475,7 @@ length, `entity` all zero or a valid system ID, `close` at most 2⁴² − 1, an
 in a request, `outcome` and `close` 0, and `entity` all zero exactly when `iri` is not `ABSENT`; in a reply, `outcome`
 0, 7 or 26; an accepted registration's `entity` a valid system ID and, with a `group`, its `generation` at least 1; a
 refused one's `generation` and `close` 0 and `entity` all zero exactly when `iri` is not `ABSENT`. A registration
-naming a partition the process does not host is answered with outcome 26.
+naming a partition the role address does not serve is answered with outcome 26.
 
 ### 13.16 CloseRequest (527)
 
@@ -2451,9 +2494,9 @@ No sections. Order: unused bytes 4–7 and 16–127 zero; `partition`; `epoch`; 
 
 ### 13.17 Closed (528)
 
-Compute asks a storage process for the latest closed epoch of each partition a monotonic-fast read reaches there, so
-the read answers at the lowest of them (section 11.11). The process answers with every field as sent and each
-partition's latest closed epoch filled.
+Compute asks each partition a monotonic-fast read reaches, at its role address, for its latest closed epoch, so the
+read answers at the lowest of them (section 11.11). The partition answers with every field as sent and its latest closed
+epoch filled.
 
 The command header is all zero.
 
@@ -2463,16 +2506,16 @@ The command header is all zero.
 
 | Partition offset | Width | Field | Type |
 |---|---|---|---|
-| 0 | 4 | `partition` | u32: a partition the process hosts |
+| 0 | 4 | `partition` | u32: the partition the role address serves |
 | 4 | 4 | zero | 0 |
 | 8 | 8 | `epoch` | epoch (section 1): 0 in a request; in a reply, the partition's latest closed epoch, 0 for none |
 
 Order: command header bytes 0–127 zero; sections; section 0 not empty and a whole number of 16 bytes
 (`SectionLength`, `CountMismatch` `"partitions"`); each partition in order: bytes 4–7 zero (`PaddingNotZero`),
 `partition` above the one before, the first at least 1 (`FieldValue` `"partition"`), `epoch` at most 2⁴² − 1
-(`FieldValue` `"epoch"`). A reply whose every epoch is 0 holds the bytes of its request; the storage process, which
-receives the request, also refuses a request whose `epoch` is not 0 (`FieldValue` `"epoch"`). A partition the process
-does not host is refused with Error 1 (Protocol), the message naming it.
+(`FieldValue` `"epoch"`). A reply whose every epoch is 0 holds the bytes of its request; the partition, which
+receives the request, also refuses a request whose `epoch` is not 0 (`FieldValue` `"epoch"`). A partition the role
+address does not serve is refused with Error 1 (Protocol), the message naming it.
 
 ### 13.18 DefaultEntry (529)
 

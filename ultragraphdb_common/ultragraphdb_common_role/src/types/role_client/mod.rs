@@ -45,15 +45,32 @@ impl RoleClient {
         name: &str,
         password: &str,
     ) -> Result<Self, TransportError> {
+        Self::dial_taking(address, cluster, name, password, MAX_FRAME_SIZE as u32).await
+    }
+
+    /// Dials as [`RoleClient::dial`] does, stating `max_frame` in its Hello as the largest frame it takes, and refusing
+    /// any larger.
+    ///
+    /// # Errors
+    ///
+    /// As [`RoleClient::dial`], and a `max_frame` outside what a Hello may state is refused by the peer.
+    pub async fn dial_taking(
+        address: &Address,
+        cluster: u64,
+        name: &str,
+        password: &str,
+        max_frame: u32,
+    ) -> Result<Self, TransportError> {
         let carrier = Carrier::connect(address).await?;
+        let taken = max_frame as usize;
         let mut client = Self {
-            connection: Connection::new(carrier, Framer::new(cluster, MAX_FRAME_SIZE)),
-            pool: BufferPool::new(1, MAX_FRAME_SIZE),
+            connection: Connection::new(carrier, Framer::new(cluster, taken)),
+            pool: BufferPool::new(1, taken),
             cluster,
             sent: 0,
             stream: 0,
         };
-        let hello = Hello::new(PROTOCOL, PROTOCOL, RELEASE, MAX_FRAME_SIZE as u32, name);
+        let hello = Hello::new(PROTOCOL, PROTOCOL, RELEASE, max_frame, name);
         let _welcome = client.connection.hello(&client.pool, &hello).await?;
         client.sent = 1;
         client.authenticate(name, password).await?;

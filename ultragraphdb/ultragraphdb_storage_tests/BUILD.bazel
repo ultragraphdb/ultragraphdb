@@ -12,7 +12,11 @@ load("@rules_rs//rs:rust_test.bzl", "rust_test")
 # stays sandboxed.
 rust_test(
     name = "bdd",
-    srcs = ["tests/bdd.rs"],
+    srcs = [
+        "tests/bdd.rs",
+        "tests/played_home.rs",
+        "tests/read_kernel_steps.rs",
+    ],
     crate_root = "tests/bdd.rs",
     data = glob(["features/**/*.feature"]) + [
         ":copy_config",

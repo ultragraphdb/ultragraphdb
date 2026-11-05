@@ -16,6 +16,10 @@ Feature: A read through compute is a read of its transaction
     When a transaction scans 10,000 lists through compute
     Then its read set holds one range and no list key, and it holds none of those lists in memory afterwards
 
+  Scenario: A scan read in several frames holds one range and conflicts as one scan does
+    When T1 reads a range of two subjects' lists through compute one object a frame, T2 commits an insert into a list it read, and T1 commits a write
+    Then its read set holds one range and no list key, and T1 aborts with a conflict of kind Range
+
   Scenario: A term nobody holds conflicts with its later statement through compute
     When transaction T1 reads `<nobody> <p> ?o` through compute, finding nothing, transaction T2 commits `<nobody> <p> "x"`, and T1 commits a write
     Then T1 aborts with a conflict of kind AbsentTerm

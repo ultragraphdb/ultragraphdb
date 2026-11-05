@@ -15,7 +15,6 @@ mod request_drop;
 
 use std::collections::btree_map::Entry as MapEntry;
 use std::collections::{BTreeMap, BTreeSet};
-use std::num::NonZeroUsize;
 use std::ops::Bound;
 
 use ultragraphdb_core_codec::PostingList;
@@ -27,7 +26,9 @@ use crate::types::cached_list::CachedList;
 use crate::types::list::List;
 use crate::types::lists::Lists;
 use crate::types::stacked_layers::StackedLayers;
+use crate::types::walk_bounds::WalkBounds;
 use crate::types::walk_end::WalkEnd;
+use crate::types::walk_step::WalkStep;
 use crate::types::writes::Writes;
 use crate::utils::walk_lists::walk_lists;
 
@@ -167,10 +168,11 @@ where
 
     /// Walks the lists in the range from `start`, inclusive, to `end`, exclusive, or to the last key when `end` is `None`, in
     /// key order: those the store holds at the request's read timestamp and those the request wrote, each given to `visit`, which
-    /// says whether it made a row, at most `limit` rows. Nothing is held and no list is read whole, so a scan of a million lists
-    /// costs the request one range and no memory. What it covered is recorded as scanned: the whole range, or, stopped at the
-    /// limit, what it returned. A span touching the one before extends it. The key a next span begins at when stopped; `None`
-    /// when the range is exhausted.
+    /// says what it made of the key, as far as `bounds` lets it. Nothing is held and no list is read whole, so a scan of a million
+    /// lists costs the request one range and no memory. What it covered is recorded as scanned: the whole range; stopped at the
+    /// limit or paused, from `start` to just past its last key, nothing when it gave nothing; yielded, from `start` to where it
+    /// goes on, since the keys it read gave nothing and a later write into them conflicts. A span touching the one before extends
+    /// it. How the walk ended.
     ///
     /// # Errors
     ///
@@ -179,12 +181,12 @@ where
         &mut self,
         start: Vec<u8>,
         end: Option<Vec<u8>>,
-        limit: Option<NonZeroUsize>,
+        bounds: WalkBounds,
         visit: V,
-    ) -> Result<Option<Vec<u8>>, E>
+    ) -> Result<WalkEnd, E>
     where
         E: From<PostingError>,
-        V: FnMut(&[u8], &Self) -> Result<bool, E>,
+        V: FnMut(&[u8], &Self) -> Result<WalkStep, E>,
     {
         self.lists.gate(self.read_ts)?;
         let snapshot = self
@@ -193,17 +195,18 @@ where
             .snapshot(self.read_ts)
             .map_err(PostingError::from)?;
         let range = Scan::range(start.clone(), end.clone());
-        match walk_lists(&snapshot, &range, &*self, limit, visit)? {
-            WalkEnd::Exhausted => {
-                self.record_range(start, end);
-                Ok(None)
+        let walked = walk_lists(&snapshot, &range, &*self, self.read_ts, bounds, visit)?;
+        match (&walked, walked.past_last()) {
+            (WalkEnd::Exhausted, _) => self.record_range(start, end),
+            (
+                WalkEnd::Stopped { .. } | WalkEnd::Paused { .. } | WalkEnd::Yielded { .. },
+                Some(past),
+            ) => {
+                self.record_range(start, Some(past));
             }
-            WalkEnd::Stopped { mut last, .. } => {
-                last.push(0);
-                self.record_range(start, Some(last.clone()));
-                Ok(Some(last))
-            }
+            (WalkEnd::Stopped { .. } | WalkEnd::Paused { .. } | WalkEnd::Yielded { .. }, None) => {}
         }
+        Ok(walked)
     }
 
     /// Records the range from `start`, inclusive, to `end`, exclusive, or to the last key when `end` is `None`, as

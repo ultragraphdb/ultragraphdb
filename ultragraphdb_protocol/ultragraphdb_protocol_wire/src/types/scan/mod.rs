@@ -20,6 +20,7 @@ use crate::types::term_table::TermTable;
 /// | 24 | `principal` | u64: the client's principal |
 /// | 32 | `transaction` | 16 bytes: a read-write transaction's identity, the partition's own, whose reads record the ranges; all zero for none |
 /// | 48 | `limit` | u32: the most entries per range; 0 for no limit |
+/// | 52 | `deadline_ms` | u32: how long the partition waits for the close of `epoch`, the time left until the deadline of the read's transaction; 0 when `epoch` is 0 |
 ///
 /// | Section | Contents |
 /// |---|---|
@@ -38,13 +39,15 @@ pub struct Scan {
     principal: u64,
     transaction: [u8; 16],
     limit: u32,
+    deadline_ms: u32,
     ranges: Vec<(u32, Vec<u8>, Vec<u8>)>,
     terms: TermTable,
 }
 
 impl Scan {
     /// A Scan reading `at` `read_version` (0 where `at` names none), once `epoch` has closed, for `principal`, in
-    /// `transaction` (all zero for none), at most `limit` entries per range; no range and no term yet.
+    /// `transaction` (all zero for none), at most `limit` entries per range, waiting at most `deadline_ms` for that close
+    /// (0 when `epoch` is 0); no range and no term yet.
     pub fn new(
         at: ScanAt,
         read_version: u64,
@@ -52,6 +55,7 @@ impl Scan {
         principal: u64,
         transaction: [u8; 16],
         limit: u32,
+        deadline_ms: u32,
     ) -> Self {
         Self {
             at,
@@ -60,6 +64,7 @@ impl Scan {
             principal,
             transaction,
             limit,
+            deadline_ms,
             ranges: Vec::new(),
             terms: TermTable::new(),
         }
@@ -109,6 +114,11 @@ impl Scan {
     /// The most entries per range; 0 for no limit.
     pub fn limit(&self) -> u32 {
         self.limit
+    }
+
+    /// How long the partition waits for the close of the epoch, in milliseconds; 0 when the epoch is 0.
+    pub fn deadline_ms(&self) -> u32 {
+        self.deadline_ms
     }
 
     /// The ranges, in order.

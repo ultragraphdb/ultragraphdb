@@ -43,6 +43,7 @@ partition_count = 20
 role_address = "tcp://s:6"
 data_dir = "/s"
 close_request_ms = 21
+scan_stall_ms = 22
 "#;
 
 fn refusal(
@@ -81,6 +82,7 @@ fn test_every_setting_reaches_its_field() -> TestResult {
     assert_eq!(c.storage().role_address(), Some("tcp://s:6"));
     assert_eq!(c.storage().data_dir(), Some("/s"));
     assert_eq!(c.storage().close_request_ms(), Some(21));
+    assert_eq!(c.storage().scan_stall_ms(), Some(22));
     Ok(())
 }
 

@@ -3,10 +3,13 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::collections::BTreeSet;
+
 use ultragraphdb_core_ids::{Epoch, SessionToken};
 use ultragraphdb_core_mapping::Changes;
 use ultragraphdb_store_apply::Operation;
 use ultragraphdb_store_posting::CachedList;
+use ultragraphdb_store_quads::is_skolem;
 use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_log::OrderedLog;
 use ultragraphdb_traits_store::{Executor, ListCache, Store};
@@ -26,20 +29,22 @@ where
     B: BlockSource + Send + Sync + 'static,
     E: Executor,
 {
-    /// Opens the read-write transaction of a Bind as `key` at `now_us`, acting for `principal`, committing at `epoch` or
-    /// later: the version it reads at, the partition's visibility watermark.
+    /// Opens the read-write transaction of a Bind as `key` at `now_us`, named `identity`, acting for `principal`, committing
+    /// at `epoch` or later: the version it reads at, the partition's visibility watermark.
     ///
     /// # Errors
     ///
-    /// The partition's refusal of the begin.
+    /// [`PartitionError::transaction_held`] for an identity the partition holds; the partition's refusal of the begin.
     pub fn bind(
         &mut self,
         key: BoundKey,
-        namespace: u64,
-        principal: u64,
-        epoch: Epoch,
+        identity: [u8; 16],
+        (namespace, principal, epoch): (u64, u64, Epoch),
         now_us: u64,
     ) -> Result<u64, PartitionError> {
+        if self.identities.contains_key(&identity) {
+            return Err(PartitionError::transaction_held(identity));
+        }
         let buffers = self.pipeline.buffers_mut().pop().unwrap_or_default();
         let begun = self
             .partition
@@ -51,15 +56,19 @@ where
             begun.with_token(SessionToken::new(self.partition.id().get(), 0, epoch))
         };
         let read_version = txn.read_version();
+        let _none = self.identities.insert(identity, key);
         let _previous = self.bound.insert(
             key,
             BoundTransaction {
                 txn,
+                identity,
                 began_us: now_us,
                 ticket: 0,
                 sent_us: now_us,
                 references: Vec::new(),
                 operation: None,
+                reading: false,
+                unheld: BTreeSet::new(),
             },
         );
         Ok(read_version)
@@ -167,6 +176,7 @@ where
             .bound
             .remove(&key)
             .ok_or_else(|| PartitionError::from(TxnError::ended()))?;
+        let _named = self.identities.remove(&bound.identity);
         let ticket = self.ticket();
         self.last_ticket = ticket;
         match bound.txn.commit(session, request, &[], now_us)? {
@@ -180,6 +190,7 @@ where
     /// released at once, so the next writer of its term creates its own.
     pub fn abort_bound(&mut self, key: BoundKey) {
         if let Some(bound) = self.bound.remove(&key) {
+            let _named = self.identities.remove(&bound.identity);
             let buffers = bound.txn.abort();
             self.pipeline.buffers_mut().push(buffers);
         }
@@ -228,13 +239,24 @@ where
         std::mem::take(&mut self.bound_ready)
     }
 
+    /// The ticket the transaction `key` asks its current references under.
+    pub fn bound_ticket(&self, key: BoundKey) -> Option<u64> {
+        self.bound.get(&key).map(|bound| bound.ticket)
+    }
+
+    /// The bound transactions a home's refusal or a failed adoption ended since the last call, each with why. A request
+    /// waiting on them gets that refusal.
+    pub fn take_bound_refused(&mut self) -> Vec<(BoundKey, PartitionError)> {
+        std::mem::take(&mut self.bound_refused)
+    }
+
     /// The open epoch of the partition.
-    fn open_epoch(&self) -> Epoch {
+    pub(super) fn open_epoch(&self) -> Epoch {
         // Past the last epoch no close follows; the commit step refuses what it holds.
         self.pipeline.delivered().next().unwrap_or(Epoch::MAX)
     }
 
-    fn held(
+    pub(super) fn held(
         &mut self,
         key: BoundKey,
     ) -> Result<&mut BoundTransaction<'a, S, C, E, B>, PartitionError> {
@@ -244,7 +266,7 @@ where
     }
 
     /// Asks `references` for the transaction `key`, under a ticket of their own.
-    fn ask(
+    pub(super) fn ask(
         &mut self,
         key: BoundKey,
         references: Vec<Reference>,
@@ -257,6 +279,7 @@ where
         bound.sent_us = now_us;
         bound.references = references.into_iter().map(|r| (r, None)).collect();
         bound.operation = operation;
+        bound.reading = false;
         if let Some(asking) = self.bound.get(&key) {
             self.send_references(ticket, &asking.references);
         }
@@ -264,7 +287,8 @@ where
     }
 
     /// Takes the answer to registration `index` of `ticket` when a bound transaction asked it: whether one did. A refusal
-    /// ends the transaction, which the next request finds ended.
+    /// ends the transaction, and [`PartitionHost::take_bound_refused`] names it, unless it says a read's skolem IRI is held
+    /// by nobody, which that read answers with no entry.
     pub(super) fn bound_answered(
         &mut self,
         ticket: u64,
@@ -289,18 +313,46 @@ where
                 }
                 self.finish_bound(key, now_us);
             }
-            Err(_) => self.abort_bound(key),
+            Err(refusal) if self.note_unheld(key, index, refusal) => {
+                self.finish_bound(key, now_us);
+            }
+            Err(refusal) => {
+                self.abort_bound(key);
+                self.bound_refused.push((key, refusal.clone()));
+            }
         }
         true
     }
 
-    /// Adopts the answers once every reference of `key` has one, and names it ready.
+    /// Whether `refusal` of registration `index` of `key` says the home holds no such skolem IRI, for a read: noted, so the read
+    /// answers no entry and asks no more (`PROTOCOL.md` §13.13).
+    fn note_unheld(&mut self, key: BoundKey, index: usize, refusal: &PartitionError) -> bool {
+        let Some(bound) = self.bound.get_mut(&key) else {
+            return false;
+        };
+        let namespace = bound.txn.namespace();
+        let Some((reference, _)) = bound.references.get(index) else {
+            return false;
+        };
+        let unheld =
+            bound.reading && refusal.holds_no_skolem() && is_skolem(namespace, reference.iri());
+        if unheld {
+            let _new: bool = bound.unheld.insert(reference.iri().to_string());
+        }
+        unheld
+    }
+
+    /// Adopts the answers once every reference of `key` has one, and names it ready; a refusal of them ends it, and
+    /// [`PartitionHost::take_bound_refused`] names it.
     fn finish_bound(&mut self, key: BoundKey, now_us: u64) {
         let partition = self.partition;
         let Some(bound) = self.bound.get_mut(&key) else {
             return;
         };
-        if !bound.references.iter().all(|(_, answer)| answer.is_some()) {
+        let answered = |(reference, answer): &(Reference, Option<Answer>)| {
+            answer.is_some() || bound.unheld.contains(reference.iri())
+        };
+        if !bound.references.iter().all(answered) {
             return;
         }
         let references = std::mem::take(&mut bound.references);
@@ -317,10 +369,13 @@ where
                 .map_err(PartitionError::from),
             None => Ok(()),
         });
-        if operated.is_err() {
-            self.abort_bound(key);
+        match operated {
+            Ok(()) => self.bound_ready.push(key),
+            Err(refusal) => {
+                self.abort_bound(key);
+                self.bound_refused.push((key, refusal));
+            }
         }
-        self.bound_ready.push(key);
     }
 
     /// Sends again the unanswered registrations of each bound transaction waiting past the resend interval.

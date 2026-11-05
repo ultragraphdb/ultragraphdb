@@ -447,3 +447,113 @@ fn test_a_reply_spends_none_of_its_streams_credit() -> TestResult {
     );
     Ok(())
 }
+
+/// Each Result or Entries frame not its stream's last reports the stream once, after it left.
+#[test]
+fn test_a_stream_is_reported_once_per_frame_pushed() -> TestResult {
+    let mut outbound = Outbound::new(4, 4);
+    outbound.open(1)?;
+    assert!(outbound.take_ready().is_empty(), "nothing pushed yet");
+    for range in 0..2 {
+        outbound.push(1, entries(1, range, false)?)?;
+        let _left = next(&mut outbound)?.context("the frame")?;
+        assert_eq!(outbound.take_ready(), vec![1]);
+        assert!(outbound.take_ready().is_empty(), "reported once");
+    }
+    outbound.open(3)?;
+    outbound.push(3, result(3, 0, false)?)?;
+    let _left = next(&mut outbound)?.context("the frame")?;
+    assert_eq!(outbound.take_ready(), vec![3], "a Result frame as well");
+    Ok(())
+}
+
+/// A frame still queued leaves no room, and neither does a stream with no credit, until a grant does.
+#[test]
+fn test_a_stream_is_not_reported_while_its_queue_holds_a_frame_or_its_credit_is_zero() -> TestResult
+{
+    let mut outbound = Outbound::new(4, 1);
+    outbound.open(1)?;
+    outbound.push(1, entries(1, 0, false)?)?;
+    assert!(outbound.take_ready().is_empty(), "the frame has not left");
+    let _left = next(&mut outbound)?.context("the frame")?;
+    assert_eq!(outbound.credit(1), Some(0));
+    assert!(outbound.take_ready().is_empty(), "no credit");
+    outbound.grant(1, 1);
+    assert_eq!(outbound.take_ready(), vec![1], "reported after the grant");
+    outbound.push(1, entries(1, 1, false)?)?;
+    outbound.push(1, entries(1, 2, false)?)?;
+    let _left_too = next(&mut outbound)?.context("the frame")?;
+    outbound.grant(1, 1);
+    assert!(outbound.take_ready().is_empty(), "one frame still queued");
+    Ok(())
+}
+
+/// A frame spending its stream's last credit left all the same: `take_left` says so, once, since no room follows it yet, and a
+/// frame leaving with room needs only `take_ready`.
+#[test]
+fn test_a_frame_leaving_with_no_credit_is_reported_as_left() -> TestResult {
+    let mut outbound = Outbound::new(4, 2);
+    outbound.open(1)?;
+    outbound.push(1, entries(1, 0, false)?)?;
+    assert!(outbound.take_left().is_empty(), "the frame has not left");
+    let _gone = next(&mut outbound)?.context("the frame")?;
+    assert_eq!(outbound.take_ready(), vec![1], "room");
+    assert!(outbound.take_left().is_empty(), "room says it left");
+    outbound.push(1, entries(1, 1, false)?)?;
+    let _gone_too = next(&mut outbound)?.context("the frame")?;
+    assert!(outbound.take_ready().is_empty(), "no credit");
+    assert_eq!(outbound.take_left(), vec![1]);
+    assert!(outbound.take_left().is_empty(), "reported once");
+    outbound.grant(1, 1);
+    assert_eq!(outbound.take_ready(), vec![1], "the grant makes room");
+    assert!(outbound.take_left().is_empty());
+    Ok(())
+}
+
+/// A stream's last frame leaves nothing to report, and neither does a frame no credit meters.
+#[test]
+fn test_a_last_frame_is_not_reported_as_left() -> TestResult {
+    let mut outbound = Outbound::new(4, 1);
+    outbound.open(1)?;
+    outbound.push(1, entries(1, 0, true)?)?;
+    let _gone = next(&mut outbound)?.context("the frame")?;
+    assert!(outbound.take_left().is_empty());
+    Ok(())
+}
+
+/// A stream ended by its last frame or a cancel has no next frame to make room for.
+#[test]
+fn test_a_stream_ended_is_not_reported() -> TestResult {
+    let mut outbound = Outbound::new(4, 4);
+    outbound.open(1)?;
+    outbound.push(1, entries(1, 0, true)?)?;
+    let _left = next(&mut outbound)?.context("the frame")?;
+    assert!(outbound.take_ready().is_empty(), "its last frame left");
+    outbound.open(3)?;
+    outbound.push(3, entries(3, 0, false)?)?;
+    let _left_too = next(&mut outbound)?.context("the frame")?;
+    assert!(outbound.cancel(3));
+    assert!(outbound.take_ready().is_empty(), "cancelled");
+    outbound.open(5)?;
+    outbound.push(5, entries(5, 0, false)?)?;
+    outbound.push(5, entries(5, 1, true)?)?;
+    assert_eq!(drain(&mut outbound)?.len(), 2);
+    assert!(
+        outbound.take_ready().is_empty(),
+        "its last frame followed the one that asked"
+    );
+    Ok(())
+}
+
+/// A stream carrying neither a Result nor an Entries frame is never reported, whatever its credit.
+#[test]
+fn test_a_stream_never_flagged_is_never_reported() -> TestResult {
+    let mut outbound = Outbound::new(4, 4);
+    outbound.open(1)?;
+    outbound.open(3)?;
+    outbound.push(1, reply(1, false)?)?;
+    let _left = next(&mut outbound)?.context("the reply")?;
+    outbound.grant(3, 1);
+    assert!(outbound.take_ready().is_empty());
+    Ok(())
+}

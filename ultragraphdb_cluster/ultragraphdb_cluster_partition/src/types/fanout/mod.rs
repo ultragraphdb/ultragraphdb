@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::num::NonZeroUsize;
 
 use ultragraphdb_cluster_placement::{NamespaceRun, PartitionId};
-use ultragraphdb_core_ids::{Bucket, Epoch, Namespace, SystemId};
+use ultragraphdb_core_ids::{Bucket, Epoch, Namespace, SystemId, Version};
 use ultragraphdb_core_keys::{CountDirection, Graph, Keyspace, QuadKey};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_posting::CachedList;
@@ -267,6 +267,5 @@ where
     B: BlockSource + Send + Sync + 'static,
     E: Executor,
 {
-    let top = ((epoch.get() + 1) << 22) - 1;
-    top.min(partition.applier().quads().lists().applied_ts())
+    Version::bound_of(epoch).min(partition.applier().quads().lists().applied_ts())
 }

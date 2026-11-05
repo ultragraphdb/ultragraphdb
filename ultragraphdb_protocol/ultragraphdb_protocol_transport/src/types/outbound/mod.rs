@@ -31,12 +31,15 @@ enum Role {
     Read(u64),
 }
 
-/// One open stream: its role, its credit for Result and Entries frames and the frames waiting to be sent.
+/// One open stream: its role, its credit for Result and Entries frames, the frames waiting to be sent, whether its sender
+/// waits to hear there is room for its next frame, and whether a frame it waits on left since it was last told.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 struct StreamState {
     role: Role,
     credit: u32,
     queue: VecDeque<Vec<u8>>,
+    wants_room: bool,
+    left: bool,
 }
 
 /// Every frame a server sends on one connection, scheduled across its streams and numbered as it leaves: the
@@ -152,21 +155,54 @@ impl Outbound {
                 role,
                 credit: self.initial_credit,
                 queue: VecDeque::new(),
+                wants_room: false,
+                left: false,
             },
         );
         Ok(())
     }
 
     /// Queues `frame`, a whole frame of `stream`, refused as [`TransportError::protocol`] when it holds no header and
-    /// [`TransportError::unknown_stream`] when the stream is not open.
+    /// [`TransportError::unknown_stream`] when the stream is not open. A Result or an Entries frame not its stream's last
+    /// makes [`Outbound::take_ready`] report the stream once there is room for the next.
     pub fn push(&mut self, stream: u64, frame: Vec<u8>) -> Result<(), TransportError> {
         let _header: HeaderView<'_> = HeaderView::new(&frame).map_err(TransportError::protocol)?;
         let state = self
             .streams
             .get_mut(&stream)
             .ok_or(TransportError::unknown_stream(stream))?;
+        state.wants_room |= is_metered(&frame) && !is_last(&frame);
         state.queue.push_back(frame);
         Ok(())
+    }
+
+    /// The streams with room for their next Result or Entries frame, in order of their ids: each that such a frame, not
+    /// its last, was pushed on since it was last reported, whose queue is empty and which holds credit. A sender keeping
+    /// to these builds a stream's next frame only once the one before has left and credit allows it.
+    pub fn take_ready(&mut self) -> Vec<u64> {
+        self.streams
+            .iter_mut()
+            .filter(|(_, state)| state.wants_room && state.queue.is_empty() && state.credit > 0)
+            .map(|(stream, state)| {
+                state.wants_room = false;
+                state.left = false;
+                *stream
+            })
+            .collect()
+    }
+
+    /// The streams a Result or Entries frame, not their last, left since they were last reported here or by
+    /// [`Outbound::take_ready`], which is asked first: those with no room for their next, whose sender so learns the frame it
+    /// waits on is gone, in order of their ids.
+    pub fn take_left(&mut self) -> Vec<u64> {
+        self.streams
+            .iter_mut()
+            .filter(|(_, state)| state.left)
+            .map(|(stream, state)| {
+                state.left = false;
+                *stream
+            })
+            .collect()
     }
 
     /// Grants `stream` credit for `frames` more Result or Entries frames; ignored for a stream not open.
@@ -217,6 +253,7 @@ impl Outbound {
             // `sendable` took a metered frame only while the stream held credit.
             debug_assert!(state.credit > 0);
             state.credit = state.credit.saturating_sub(1);
+            state.left = true;
         }
         if is_last(&frame) {
             self.close(stream);

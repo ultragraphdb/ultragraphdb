@@ -917,7 +917,7 @@ What each counts: live instances, unless the row says otherwise. Where it is che
 | `@limit` | At an insert, update of the aggregated attribute, delete or retraction, and for a lower bound at the creation of the grouped participant | `UGS1023` |
 | `@no_overlap` | At an insert or an update of the valid interval or of a `per` participant | `UGS1024` |
 | `@append_only` | At an update or delete of the instance | `UGS1013` |
-| `@bitemporal` content immutable; `update` refused; participants retracted | At an update; at an insert naming a retracted participant | `UGS1025`, `UGS1019` |
+| `@bitemporal` revision: an update opens a new version; participants retracted | At an update; at an insert naming a retracted participant | `UGS1019` |
 | `@ends(role)` | At the insert | `UGS1035` |
 | `@on_delete(restrict)`, `@on_retract(restrict)` | At the participant's delete or retraction | `UGS1020` |
 | Derived name written by a client | At every write | `UGS1029` |
@@ -930,7 +930,7 @@ What each counts: live instances, unless the row says otherwise. Where it is che
 | Class | Content | Removal | Monotonic reads |
 |---|---|---|---|
 | Mutable, the default | Updatable | Delete | None guaranteed |
-| `@bitemporal` | Immutable | A retraction closes `asserted` | `believed at` a past instant is immutable; `with retracted` reads not reading `asserted` only grow |
+| `@bitemporal` | Revised: an update is a new version of the same instance, every version kept | A retraction closes `asserted` | `believed at` a past instant is immutable; `with retracted` reads not reading `asserted` only grow |
 | `@append_only` | Immutable | Never, except by a legal purge | All reads of the type |
 
 `@immutable` on an attribute makes that value immutable within a mutable instance. On a subtype of a `@bitemporal`
@@ -952,7 +952,13 @@ abstract statement Asserted : Statement @bitemporal(valid: valid) {
    closes at the epoch of the commit retracting it; it is stored as the two epochs (section 12.4) and read as the
    wall-clock times the sequencer recorded for those epochs' closes, so `believed at $t` resolves `$t` to the last epoch
    closed before `$t` and compares epochs. `live` is `asserted.end is none`.
-2. **Content is immutable** (`UGS1025`). A correction is a retraction plus a new instance.
+2. **An update is a revision.** A write that changes an instance's attributes or an optional or set-valued role
+   closes the current version's `asserted` at the commit and opens a new version of the same instance, with the same
+   identity, key and handle, so `believed at $t` reads the version current at `$t` and the live slice reads the
+   newest; SQL:2011's system-versioned update. Every version is retained as section 8.4's history retention states.
+   A correction that must not keep the identity is a retraction plus a new instance. A key attribute, an `@immutable`
+   attribute and a required role stay as section 8.2 holds them; an `@append_only` type admits no revision
+   (`UGS1013`).
 3. **Retraction, not deletion.** `retract` closes `asserted` at the commit; the instance stays readable, and is never
    physically removed except by a legal purge (section 8.8). A retraction of an instance of a type that is not
    `@bitemporal` is refused (`UGS1026`).
@@ -1037,7 +1043,7 @@ refusal number and the instance. The refusals:
 | `UGS1022` | Depth | would create a path longer than `max_depth` |
 | `UGS1023` | Limit | breaks a `@limit` bound; the message names the bound and the participant |
 | `UGS1024` | Overlap | breaks `@no_overlap` |
-| `UGS1025` | BitemporalUpdate | updates an instance of a `@bitemporal` type |
+| `UGS1025` | BitemporalRevision | revises an instance of a `@bitemporal` type past what section 8.4 admits: a key, an `@immutable` attribute, a required role, or an `@append_only` instance |
 | `UGS1026` | RetractMutable | retracts an instance of a type that is not `@bitemporal` |
 | `UGS1027` | Unit | names an undeclared unit, or a unit of another quantity kind |
 | `UGS1028` | VectorDimension | writes a vector of another dimension |
@@ -1467,7 +1473,8 @@ whole at commit. A SPARQL Update may write one role triple at a time within the 
 once, at commit. GQL `INSERT` of a node with its label creates the entity of that concrete type; `INSERT` of an edge of
 an edge-encoded relation creates the instance; a node-encoded relation is inserted as its node with its role edges.
 `SET` on an `@immutable` or key property, `REMOVE` of a required property, and `DELETE` of a restricted participant are
-refused as sections 8.2 and 8.5 state. `DETACH DELETE` is an entity delete with `cascade` on every role that declares
+refused as sections 8.2 and 8.5 state; `SET` or `REMOVE` on an instance of a `@bitemporal` type is a revision
+(section 8.4), and `DELETE` of one is a retraction. `DETACH DELETE` is an entity delete with `cascade` on every role that declares
 it; it is refused where a role declares `restrict` (`UGS1020`).
 
 ## 12. Storage mapping
@@ -1798,7 +1805,6 @@ counterparty.
 | Attribute predicates | `@iri` on an attribute splits a shared name into a predicate of its own |
 | Quantifiers | `all` beside `some` and `no`, over a path with a filter, in place of a lambda |
 | `@colocate(root)` under valid time | One container at a time, by `?` or by `@no_overlap` over the first role; the tree is the open tree under `@acyclic(open)` |
-| Personal data and privacy | Deferred (2026-11-05). Personal data and privacy protection are deferred, decided 2026-11-05: UltraGraphDB and DeepBrain are both early, how the database and the ontology evolve is not yet clear, and a protection mechanism added now would be built on ground that moves, break, and be disabled. It is added once both have stabilised, onto a stable foundation. What it will be: a marker on personal attributes, named in grants and exports, and an erasure that clears every retained version |
 | Conformance corpus | Built once the language is final for DeepBrain's current target; the proposal is section E of `openspec/notes/UltraGraphDB Schema Feedback.md` |
 | Multiple inheritance | None; union roles cover overlapping participant sets |
 | A standalone compiler binary | None; the server compiles, in CI through the development container |

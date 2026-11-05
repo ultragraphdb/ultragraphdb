@@ -52,11 +52,15 @@ pub use crate::types::list_options::ListOptions;
 pub use crate::types::lists::Lists;
 pub use crate::types::lists_config::ListsConfig;
 pub use crate::types::mutable_layer::MutableLayer;
+pub use crate::types::posting_identity::PostingIdentity;
+pub use crate::types::read_pin::ReadPin;
 pub use crate::types::request::Request;
 pub use crate::types::rollup_output::{RollupOutput, bin_split, should_split};
 pub use crate::types::rollup_queues::{ROLLUP_BATCH, ROLLUP_DEDUP_SECS, ROLLUP_QUEUE};
 pub use crate::types::timestamps::Timestamps;
+pub use crate::types::walk_bounds::WalkBounds;
 pub use crate::types::walk_end::WalkEnd;
+pub use crate::types::walk_step::WalkStep;
 pub use crate::types::writes::Writes;
 pub use crate::utils::constants::{
     BIT_COMPLETE_POSTING, BIT_DELTA_POSTING, BIT_EMPTY_POSTING, BIT_SCHEMA_POSTING, BLOCK_SIZE,

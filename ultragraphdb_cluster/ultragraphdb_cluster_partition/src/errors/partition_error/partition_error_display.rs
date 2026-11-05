@@ -27,6 +27,11 @@ impl fmt::Display for PartitionError {
                     "The home refused the registration with error code {outcome}"
                 )
             }
+            PartitionErrorEnum::TransactionHeld { identity } => write!(
+                f,
+                "The partition holds transaction {:032x}",
+                u128::from_be_bytes(*identity)
+            ),
             PartitionErrorEnum::Txn(e) => write!(f, "{e}"),
             PartitionErrorEnum::Changeset(e) => write!(f, "{e}"),
             PartitionErrorEnum::Quad(e) => write!(f, "{e}"),

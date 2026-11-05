@@ -4,6 +4,7 @@
  */
 
 mod partition_host_bound;
+mod partition_host_read;
 
 use std::collections::BTreeMap;
 
@@ -66,8 +67,12 @@ where
     resends: u64,
     /// The transactions bound to the partition, by the connection and stream that bound them.
     bound: BTreeMap<BoundKey, BoundTransaction<'a, S, C, E, B>>,
+    /// The connection and stream of each bound transaction, by the identity its Bind named.
+    identities: BTreeMap<[u8; 16], BoundKey>,
     /// The bound transactions whose references were all answered since the last look.
     bound_ready: Vec<BoundKey>,
+    /// The bound transactions a home's refusal or a failed adoption ended since the last look, each with why.
+    bound_refused: Vec<(BoundKey, PartitionError)>,
 }
 
 impl<'a, L, S, C, E, B> PartitionHost<'a, L, S, C, E, B>
@@ -98,7 +103,9 @@ where
             outcomes: Vec::new(),
             resends: 0,
             bound: BTreeMap::new(),
+            identities: BTreeMap::new(),
             bound_ready: Vec::new(),
+            bound_refused: Vec::new(),
         }
     }
 

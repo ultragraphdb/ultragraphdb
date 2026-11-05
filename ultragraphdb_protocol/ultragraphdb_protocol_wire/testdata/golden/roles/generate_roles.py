@@ -298,7 +298,7 @@ golden("compute_read_rw", 523, command_header([(0, le(3, 4)), (5, bytes([1])), (
                                                (60, le(9000, 4))]),
        sections([slots] + terms.sections() + [b""]), stream=33)
 # 524 Scan: at 1 (read_version, once epoch 30 closed), the version bound of epoch 30, principal 9, no transaction,
-# 1,000 entries per range; two ranges: partition 3 from 0x10 "abc" to 0x10 "abd", partition 4 from 0x20 "k" to the
+# 1,000 entries per range, 30,000 ms to its deadline; two ranges: partition 3 from 0x10 "abc" to 0x10 "abd", partition 4 from 0x20 "k" to the
 # end of its keyspace (an empty past key). Each range: partition u32, 4 zero bytes, first, first_len, past, past_len.
 def scan_ranges(ranges):
     records, keys = b"", b""
@@ -311,9 +311,9 @@ def scan_ranges(ranges):
 
 # Sections 2 and 3, the term table, are empty with no transaction.
 golden("scan", 524, command_header([(0, bytes([1])), (8, le((30 << 22) | 0x3FFFFF, 8)), (16, le(30, 8)),
-                                    (24, le(9, 8)), (48, le(1000, 4))]),
+                                    (24, le(9, 8)), (48, le(1000, 4)), (52, le(30000, 4))]),
        sections(scan_ranges([(3, b"\x10abc", b"\x10abd"), (4, b"\x20k", b"")]) + [b"", b""]), stream=35)
-# A read-write transaction's Scan: at 1 at the Bind's version, epoch 0, the transaction's identity, no limit, one
+# A read-write transaction's Scan: at 1 at the Bind's version, epoch 0, the transaction's identity, no limit, no deadline, one
 # range of partition 3 holding the one key 0x30 "key" (past key 0x30 "key" 0x00), naming no IRI.
 golden("scan_transaction", 524, command_header([(0, bytes([1])), (8, le(WATERMARK, 8)), (24, le(9, 8)),
                                                 (32, TRANSACTION)]),

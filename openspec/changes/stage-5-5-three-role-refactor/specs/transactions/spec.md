@@ -7,10 +7,10 @@ SHALL become visible to it later; a session token it carries SHALL make its comm
 token's ("Commits answer a session token"). A read-only transaction SHALL read at the level its Begin names (quad-reads,
 "A read's transaction names its level"), waiting, at most until its deadline, for the epochs its level and its token
 require. A read-only transaction SHALL never be validated and SHALL never abort for a conflict. A read version a client
-names, an `as of` version or one its Begin names, SHALL be checked against the watermark W of the partition answering,
-and a version above that W SHALL be refused at once with an error naming the version and W, never held waiting: every
-version a client holds from a partition came from that partition at or below its W, and a commit is acknowledged only
-once its partition's W passes it. Reads at a level, which compute asks of the partitions on the client's behalf, SHALL
+names, an `as of` version or one its Begin names, SHALL be checked against the watermark W of the partition answering.
+A version within an epoch that partition has closed SHALL read what it applied at or below the version, since an idle
+partition's W stays below a version another partition reached. Any other version above that W SHALL be refused at once with
+an error naming the version and W, never held waiting. Reads at a level, which compute asks of the partitions on the client's behalf, SHALL
 wait as quad-reads states and are not checked against W.
 
 #### Scenario: A read above the watermark is refused

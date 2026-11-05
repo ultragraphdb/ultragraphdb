@@ -3,7 +3,10 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_protocol_wire::{BodyBuilder, Entries, EntriesEnd, ObjectRecordsBuilder};
+use ultragraphdb_protocol_wire::{
+    BodyBuilder, CHUNK_SIZE, Command, Entries, EntriesEnd, FIRST_CHUNK_SIZE, Header,
+    ObjectRecordsBuilder,
+};
 use ultragraphdb_tool_bdd::TestResult;
 
 use crate::utils::golden_roles::{golden_role, role_bytes};
@@ -116,6 +119,47 @@ fn test_the_golden_entries_are_built_byte_for_byte() -> TestResult {
     Ok(())
 }
 
+/// The frame sizes the batch states against the frame it builds.
+fn assert_sizes(lengths: &[(usize, usize)]) -> TestResult {
+    let mut entries = Entries::new(0, EntriesEnd::More, 0);
+    let frame_len = |e: &Entries| e.frame(Header::new(1, Command::Entries)).map(|f| f.len());
+    assert_eq!(entries.frame_size(), frame_len(&entries)?);
+    for (at, (key_len, value_len)) in lengths.iter().enumerate() {
+        let promised = entries.frame_size_with(*key_len, *value_len);
+        // Keys ascend by their first byte, whatever their lengths.
+        let mut key = vec![0; *key_len];
+        key[0] = at as u8;
+        entries.push(&key, &vec![0xAB; *value_len]);
+        assert_eq!(promised, frame_len(&entries)?, "{key_len} {value_len}");
+        assert_eq!(entries.frame_size(), promised, "{key_len} {value_len}");
+    }
+    Ok(())
+}
+
+#[test]
+fn test_the_stated_sizes_hold_the_padding_of_every_length() -> TestResult {
+    for key_len in 1..=9 {
+        for value_len in 0..=9 {
+            assert_sizes(&[(key_len, value_len), (key_len, value_len)])?;
+        }
+    }
+    Ok(())
+}
+
+/// A body of 3,840 bytes is one chunk with no table, one past it two chunks and a table of 16 bytes, and each 4,096 bytes
+/// more a chunk more.
+#[test]
+fn test_the_stated_sizes_hold_the_chunk_table() -> TestResult {
+    let first = FIRST_CHUNK_SIZE;
+    let body_before = 8 + 8 + 1;
+    for chunk_end in [first, first + CHUNK_SIZE, first + 2 * CHUNK_SIZE] {
+        for value_len in chunk_end - body_before - 16..=chunk_end - body_before + 16 {
+            assert_sizes(&[(1, value_len)])?;
+        }
+    }
+    assert_sizes(&[(1, first), (2, CHUNK_SIZE), (3, 2 * CHUNK_SIZE)])
+}
+
 #[test]
 fn test_a_batch_of_no_entries_has_an_empty_section() {
     let entries = Entries::new(0, EntriesEnd::More, 0);
@@ -159,4 +203,22 @@ fn test_the_getters_give_back_what_the_constructor_and_pushes_took() {
     for end in [EntriesEnd::More, EntriesEnd::Ended, EntriesEnd::Limit] {
         assert_eq!(Entries::new(0, end, 0).end(), end);
     }
+}
+
+/// A batch filled before how it ends is known says so afterwards, and its frame is the one built knowing it.
+#[test]
+fn test_a_batch_takes_its_end_once_filled() {
+    let mut filled = Entries::new(3, EntriesEnd::More, EPOCH);
+    filled.push(LIST_A, b"value");
+    let ended = filled.clone().with_end(EntriesEnd::Limit);
+    assert_eq!(ended.end(), EntriesEnd::Limit);
+    let mut known = Entries::new(3, EntriesEnd::Limit, EPOCH);
+    known.push(LIST_A, b"value");
+    assert_eq!(ended, known);
+    let continued = filled.continued();
+    assert!(continued.continues());
+    assert_eq!(continued.end(), EntriesEnd::More);
+    let mut continuing = Entries::continuing(3, EPOCH);
+    continuing.push(LIST_A, b"value");
+    assert_eq!(continued, continuing);
 }

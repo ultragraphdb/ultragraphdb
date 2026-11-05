@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_store_posting::ListSource;
+use ultragraphdb_store_posting::{ListSource, WalkBounds, WalkEnd, WalkStep};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_store::{Entry, ListCache};
 
@@ -485,9 +485,9 @@ where
     C: ListCache<Value = ultragraphdb_store_posting::CachedList>,
 {
     let mut keys = Vec::new();
-    let _exhausted = request.span(start, end, None, |key, _| {
+    let _exhausted = request.span(start, end, WalkBounds::default(), |key, _| {
         keys.push(key.to_vec());
-        Ok::<bool, ultragraphdb_store_posting::PostingError>(true)
+        Ok::<_, ultragraphdb_store_posting::PostingError>(WalkStep::Row)
     })?;
     Ok(keys)
 }
@@ -510,11 +510,16 @@ fn test_a_span_covers_what_it_returned_and_holds_nothing() -> TestResult {
     let mut spans = 0;
     loop {
         spans += 1;
-        let next = request.span(from.clone(), Some(last.clone()), Some(limit), |key, _| {
-            seen.push(key.to_vec());
-            Ok::<bool, ultragraphdb_store_posting::PostingError>(true)
-        })?;
-        let Some(resume) = next else {
+        let end = request.span(
+            from.clone(),
+            Some(last.clone()),
+            WalkBounds::rows(Some(limit)),
+            |key, _| {
+                seen.push(key.to_vec());
+                Ok::<_, ultragraphdb_store_posting::PostingError>(WalkStep::Row)
+            },
+        )?;
+        let Some(resume) = end.past_last() else {
             break;
         };
         let mut covered = seen.last().context("a row")?.clone();
@@ -539,6 +544,84 @@ fn test_a_span_covers_what_it_returned_and_holds_nothing() -> TestResult {
     Ok(())
 }
 
+/// A span paused records what it gave and starts the next where it ended, so the frames of one scan hold one range: inside a
+/// key through that key, between keys through the last key, and nothing when it gave nothing.
+#[test]
+fn test_a_paused_span_records_through_its_last_key_and_nothing_when_it_gave_nothing() -> TestResult
+{
+    let lists = new_lists();
+    let keys: Vec<Vec<u8>> = (1..=4).map(|n| key("paused", n)).collect();
+    for k in &keys {
+        commit(&lists, k, &[set_uid(1)])?;
+    }
+    let (first, second, third, end) = (
+        keys.first().context("a key")?.clone(),
+        keys.get(1).context("a key")?.clone(),
+        keys.get(2).context("a key")?.clone(),
+        key("paused", 9),
+    );
+    let past = |k: &[u8]| [k, &[0]].concat();
+    let span = |request: &mut ultragraphdb_store_posting::Request<'_, _, _>,
+                from: Vec<u8>,
+                step: WalkStep| {
+        request.span(from, Some(end.clone()), WalkBounds::default(), |_, _| {
+            Ok::<_, ultragraphdb_store_posting::PostingError>(step)
+        })
+    };
+    let mut request = lists.request(lists.applied_ts());
+    let nothing = span(&mut request, first.clone(), WalkStep::PausedBefore)?;
+    assert_eq!(
+        nothing,
+        WalkEnd::Paused {
+            last: None,
+            next: first.clone()
+        }
+    );
+    assert_eq!(request.range_count(), 0, "it gave nothing");
+
+    let inside = span(&mut request, first.clone(), WalkStep::PausedInside)?;
+    assert_eq!(
+        inside,
+        WalkEnd::Paused {
+            last: Some(first.clone()),
+            next: first.clone()
+        }
+    );
+    let through_first = past(&first);
+    assert_eq!(
+        request.ranges().collect::<Vec<_>>(),
+        vec![(first.as_slice(), Some(through_first.as_slice()))]
+    );
+
+    // Resumed inside the key it paused in, then between keys: one range.
+    let mut steps = [WalkStep::Row, WalkStep::Row, WalkStep::PausedBefore].into_iter();
+    let bounds = WalkBounds::default();
+    let between = request.span(first.clone(), Some(end.clone()), bounds, |_, _| {
+        Ok::<_, ultragraphdb_store_posting::PostingError>(steps.next().unwrap_or(WalkStep::Row))
+    })?;
+    assert_eq!(
+        between,
+        WalkEnd::Paused {
+            last: Some(second.clone()),
+            next: third
+        }
+    );
+    let through_second = past(&second);
+    assert_eq!(
+        request.ranges().collect::<Vec<_>>(),
+        vec![(first.as_slice(), Some(through_second.as_slice()))]
+    );
+
+    let last = span(&mut request, through_second.clone(), WalkStep::Row)?;
+    assert_eq!(last, WalkEnd::Exhausted);
+    assert_eq!(
+        request.ranges().collect::<Vec<_>>(),
+        vec![(first.as_slice(), Some(end.as_slice()))],
+        "the range ended, so it covers through its past key"
+    );
+    Ok(())
+}
+
 /// A span reads a list as the request sees it, changing nothing: a held list with its writes, a list written blind with the
 /// store beneath its delta, and any other from the store.
 #[test]
@@ -560,10 +643,10 @@ fn test_a_span_reads_the_requests_writes_over_the_store() -> TestResult {
         .add_posting(set_uid(3), false);
     let held_before = request.held_count();
     let (reads_before, mut rows) = (request.read_keys().count(), Vec::new());
-    let _exhausted = request.span(key("over", 0), None, None, |k, source| {
+    let _exhausted = request.span(key("over", 0), None, WalkBounds::default(), |k, source| {
         let uids = source.with_list(k, ts, |list| uids_of(list, ts))??;
         rows.push((k.to_vec(), uids));
-        Ok::<bool, ultragraphdb_store_posting::PostingError>(true)
+        Ok::<_, ultragraphdb_store_posting::PostingError>(WalkStep::Row)
     })?;
     let mut expected = vec![
         (held, vec![]),
@@ -747,5 +830,40 @@ fn test_discarding_the_deltas_keeps_the_reads_and_drops_the_writes() -> TestResu
         .map(|(k, d)| (k.clone(), d.postings().iter().map(|p| p.uid()).collect()))
         .collect();
     assert_eq!(deltas, vec![(read, rids(&[7]))]);
+    Ok(())
+}
+
+/// A span handing back at its bound of keys giving nothing covers them, so a later write into them conflicts, and the span going
+/// on from there extends it.
+#[test]
+fn test_a_yielded_span_covers_the_empty_keys_it_read() -> TestResult {
+    let lists = new_lists();
+    let keys: Vec<Vec<u8>> = (1..=3).map(|n| key("yielded", n)).collect();
+    for k in &keys {
+        commit(&lists, k, &[set_uid(1)])?;
+    }
+    let mut request = lists.request(lists.applied_ts());
+    let first = keys.first().context("a first key")?.clone();
+    let second = keys.get(1).context("a second key")?.clone();
+    let end = keys.last().context("a last key")?.clone();
+    let bounds = WalkBounds::rows(None).with_idle(Some(std::num::NonZeroUsize::MIN));
+    let walked = request.span(first.clone(), Some(end.clone()), bounds, |_, _| {
+        Ok::<_, ultragraphdb_store_posting::PostingError>(WalkStep::Nothing)
+    })?;
+    let next = [first.as_slice(), &[0]].concat();
+    assert_eq!(walked, WalkEnd::Yielded { next: next.clone() });
+    assert_eq!(
+        request.ranges().collect::<Vec<_>>(),
+        vec![(first.as_slice(), Some(next.as_slice()))]
+    );
+    let on = request.span(next, Some(second.clone()), WalkBounds::default(), |_, _| {
+        Ok::<_, ultragraphdb_store_posting::PostingError>(WalkStep::Nothing)
+    })?;
+    assert_eq!(on, WalkEnd::Exhausted);
+    assert_eq!(
+        request.ranges().collect::<Vec<_>>(),
+        vec![(first.as_slice(), Some(second.as_slice()))],
+        "one range"
+    );
     Ok(())
 }

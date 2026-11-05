@@ -10,9 +10,11 @@
 use std::ops::ControlFlow;
 use ultragraphdb_tool_bdd::TestResult;
 
-use ultragraphdb_core_codec::PostingList;
+use ultragraphdb_core_codec::{Posting, PostingList, PostingType};
 use ultragraphdb_core_keys::{Graph, QuadKey};
-use ultragraphdb_store_posting::{List, ListOptions, PostingError, PostingErrorEnum};
+use ultragraphdb_store_posting::{
+    List, ListOptions, PostingError, PostingErrorEnum, PostingIdentity, SET,
+};
 
 use crate::utils::helpers::{
     Failure, add, del_uid, delete_all, id, key, new_store, rid, rids, roll_up, set_uid, uids,
@@ -340,5 +342,155 @@ fn test_a_posting_keyed_0_is_iterated_with_the_postings_after_it() -> TestResult
     // Rolled up, the literal is the immutable layer's, before the pack's ID.
     let (rolled, _) = roll_up(&new_store(), &l, u64::MAX, usize::MAX)?;
     assert_eq!(uids(&rolled, 4, 0)?, expected);
+    Ok(())
+}
+
+/// A value posting keyed `uid` holding `value`, as two literals whose fingerprints collide share a uid.
+fn shared(uid: u128, value: &str) -> Posting {
+    Posting::default()
+        .with_uid(uid)
+        .with_value(value.as_bytes().to_vec())
+        .with_posting_type(PostingType::Value)
+        .with_op(SET)
+}
+
+/// The identity of each posting `list` yields at `read_ts` after `after`.
+fn identities(
+    list: &List,
+    read_ts: u64,
+    after: Option<&PostingIdentity>,
+) -> TestResult<Vec<PostingIdentity>> {
+    let mut out = Vec::new();
+    list.iterate_after(read_ts, after, |p| {
+        let mut identity = PostingIdentity::default();
+        list.identity_into(p, &mut identity);
+        out.push(identity);
+        Ok::<_, PostingError>(ControlFlow::Continue(()))
+    })?;
+    Ok(out)
+}
+
+/// A read resumed after each posting of `list` at `read_ts` yields exactly the postings after it: none lost, none repeated.
+fn resumes_after_each(list: &List, read_ts: u64, expected: usize) -> TestResult {
+    let whole = identities(list, read_ts, None)?;
+    assert_eq!(whole.len(), expected, "{whole:?}");
+    for (at, identity) in whole.iter().enumerate() {
+        let rest = whole.get(at + 1..).unwrap_or_default();
+        assert_eq!(
+            identities(list, read_ts, Some(identity))?,
+            rest,
+            "after {identity:?}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn test_a_resume_between_two_postings_of_one_uid_loses_neither_and_repeats_neither() -> TestResult {
+    let mut l = List::empty(key("iter-after", 1));
+    add(&mut l, 1, &shared(9, "low"));
+    add(&mut l, 1, &shared(9, "high"));
+    add(&mut l, 1, &set_uid(4));
+    l.commit_mutation(2);
+    resumes_after_each(&l, 2, 3)?;
+    let whole = identities(&l, 2, None)?;
+    let high = PostingIdentity::new(9, b"high".to_vec());
+    assert_eq!(whole.first(), Some(&high), "ordered by uid, then value");
+    let low = identities(&l, 2, Some(&high))?;
+    assert_eq!(
+        low.first(),
+        Some(&PostingIdentity::new(9, b"low".to_vec())),
+        "the posting sharing the uid is read"
+    );
+    Ok(())
+}
+
+#[test]
+fn test_a_resume_reads_a_list_spanning_its_immutable_layer_and_its_deltas() -> TestResult {
+    let mut l = List::empty(key("iter-after", 2));
+    add(&mut l, 1, &shared(9, "b"));
+    add(&mut l, 1, &shared(9, "d"));
+    add(&mut l, 1, &set_uid(4));
+    add(&mut l, 1, &set_uid(6));
+    l.commit_mutation(2);
+    let (mut rolled, _) = roll_up(&new_store(), &l, u64::MAX, usize::MAX)?;
+    // Above the complete version: between the two of one uid, past them, and deletes of an immutable posting.
+    add(&mut rolled, 3, &shared(9, "c"));
+    add(&mut rolled, 3, &set_uid(5));
+    add(&mut rolled, 3, &del_uid(6));
+    rolled.commit_mutation(4);
+    resumes_after_each(&rolled, 4, 5)?;
+    let values: Vec<Vec<u8>> = identities(&rolled, 4, None)?
+        .iter()
+        .take(3)
+        .map(|i| i.value().to_vec())
+        .collect();
+    assert_eq!(values, vec![b"b".to_vec(), b"c".to_vec(), b"d".to_vec()]);
+    // At the complete version the deltas are not read.
+    resumes_after_each(&rolled, 2, 4)?;
+    Ok(())
+}
+
+#[test]
+fn test_a_resume_after_a_posting_keyed_0_or_1_starts_at_it() -> TestResult {
+    let mut l = List::empty(key("iter-after", 3));
+    for (uid, value) in [(0, "a"), (0, "b"), (1, "c"), (1, "d")] {
+        add(&mut l, 1, &shared(uid, value));
+    }
+    l.commit_mutation(2);
+    resumes_after_each(&l, 2, 4)
+}
+
+#[test]
+fn test_a_resume_after_a_posting_since_deleted_reads_what_follows_it() -> TestResult {
+    let mut l = List::empty(key("iter-after", 4));
+    add(&mut l, 1, &set_uid(4));
+    add(&mut l, 1, &set_uid(6));
+    l.commit_mutation(2);
+    add(&mut l, 3, &del_uid(4));
+    l.commit_mutation(4);
+    let gone = PostingIdentity::new(rid(4), Vec::new());
+    assert_eq!(
+        identities(&l, 4, Some(&gone))?,
+        vec![PostingIdentity::new(rid(6), Vec::new())]
+    );
+    Ok(())
+}
+
+#[test]
+fn test_a_resume_across_a_split_list_s_parts_reads_each_posting_once() -> TestResult {
+    let store = new_store();
+    let mut l = List::empty(key("iter-after", 5));
+    (1..=1200u64).for_each(|i| add(&mut l, 1, &set_uid(i)));
+    l.commit_mutation(2);
+    let (l, _) = roll_up(&store, &l, u64::MAX, 300)?;
+    assert!(l.part_splits().len() > 1, "{:?}", l.part_splits());
+    let whole = identities(&l, 2, None)?;
+    assert_eq!(whole.len(), 1200);
+    for (at, identity) in whole.iter().enumerate().step_by(37) {
+        let rest = whole.get(at + 1..).unwrap_or_default();
+        assert_eq!(identities(&l, 2, Some(identity))?, rest, "after {at}");
+    }
+    Ok(())
+}
+
+/// A list that does not compare values, the vector index's, tells its postings apart by uid alone.
+#[test]
+fn test_an_identity_in_a_list_comparing_no_values_is_its_uid() -> TestResult {
+    let vector_key = QuadKey::VectorIndex {
+        namespace: 0,
+        graph: Graph::Default,
+        predicate: id(7)?,
+        list: 1,
+        node: id(1)?,
+    }
+    .to_bytes();
+    let mut l = List::empty(vector_key);
+    add(&mut l, 1, &shared(9, "held"));
+    l.commit_mutation(2);
+    assert_eq!(
+        identities(&l, 2, None)?,
+        vec![PostingIdentity::new(9, Vec::new())]
+    );
     Ok(())
 }

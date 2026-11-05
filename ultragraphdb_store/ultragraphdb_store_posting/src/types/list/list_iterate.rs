@@ -19,6 +19,7 @@ use crate::errors::posting_error::PostingError;
 use crate::types::list::List;
 use crate::types::mutable_layer::Rank;
 use crate::types::p_iterator::{PIterator, PPosting};
+use crate::types::posting_identity::PostingIdentity;
 use crate::utils::constants::DEL;
 use crate::utils::list_keys::identity;
 
@@ -129,6 +130,43 @@ impl List {
         }
         report_deleted(&self.key, read, deleted);
         result
+    }
+
+    /// Calls `f` with each posting of the list at `read_ts` after the whole identity `after`, or from the first with `None`,
+    /// in the list's order, until `f` breaks. Postings of a list that compares values may share a uid, so the iteration seeks
+    /// the uid before `after`'s and skips through the identity: a posting sharing `after`'s uid and following it is read.
+    ///
+    /// # Errors
+    ///
+    /// As [`List::iterate`].
+    pub fn iterate_after<E, F>(
+        &self,
+        read_ts: u64,
+        after: Option<&PostingIdentity>,
+        mut f: F,
+    ) -> Result<(), E>
+    where
+        E: From<PostingError>,
+        F: FnMut(&Posting) -> Result<ControlFlow<()>, E>,
+    {
+        let Some(after) = after else {
+            return self.iterate(read_ts, 0, f);
+        };
+        let by_value = self.mutation.by_value();
+        self.iterate(read_ts, after.uid().saturating_sub(1), |p| {
+            if identity(p, by_value) <= (after.uid(), after.value()) {
+                Ok(ControlFlow::Continue(()))
+            } else {
+                f(p)
+            }
+        })
+    }
+
+    /// Makes `into` the identity of `posting`, a posting of this list, keeping its buffer, so noting where a walk of a list
+    /// stands allocates nothing per posting.
+    pub fn identity_into(&self, posting: &Posting, into: &mut PostingIdentity) {
+        let (uid, value) = identity(posting, self.mutation.by_value());
+        into.assign(uid, value);
     }
 
     /// Whether no posting lies above `after_uid` at `read_ts`: Dgraph's `IsEmpty`.

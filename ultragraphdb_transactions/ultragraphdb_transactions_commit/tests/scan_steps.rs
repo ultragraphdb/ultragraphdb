@@ -7,6 +7,7 @@
 //! commit step against real writes.
 
 use std::num::NonZeroUsize;
+use std::ops::ControlFlow;
 
 use cucumber::{then, when};
 use oxrdf::NamedNode;
@@ -14,7 +15,7 @@ use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::{DEFAULT_GRAPH, Keyspace, QuadKey};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_protocol_wire::{ConflictKind, ErrorCode};
-use ultragraphdb_store_quads::{KernelRow, KernelScan, id_key};
+use ultragraphdb_store_quads::{KernelRow, KernelScan, PageEnd, id_key};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transactions_commit::{CommitError, Reply, RoundBounds};
 use ultragraphdb_transactions_txn::{Mode, Transaction, TxnBuffers, TxnError, TxnLimits};
@@ -237,6 +238,96 @@ fn ten_thousand(w: &mut Steps) -> TestResult {
 fn holds_nothing(w: &mut Steps) {
     assert_eq!(w.versions, vec![10_000, 0]);
     assert_eq!(w.checks, vec![true, true]);
+}
+
+/// `txn` reads the lists of `<a>`'s and `<z>`'s `<knows>` a frame of one object at a time, as a Scan's frames do: every object.
+fn read_in_frames(txn: &mut Txn<'_>, end: &[u8], from: Vec<u8>) -> TestResult<usize> {
+    let (mut from, mut after, mut objects) = (from, None, 0);
+    let limit = NonZeroUsize::MAX;
+    loop {
+        let request = KernelScan::new(Keyspace::Forward, NS, from, txn.read_version(), limit)
+            .to(end.to_vec())
+            .resuming(after.take());
+        let mut taken = 0;
+        let page = txn.page(&request, 0, |_, _, _| {
+            if taken == 1 {
+                return ControlFlow::Break(());
+            }
+            taken += 1;
+            ControlFlow::Continue(())
+        })?;
+        objects += taken;
+        match page.into_end() {
+            PageEnd::Exhausted => return Ok(objects),
+            PageEnd::Stopped { .. } | PageEnd::Paused { last: None, .. } => {
+                return Err(TestError::new("the frame took one object"));
+            }
+            PageEnd::Yielded { from: next } => from = next,
+            PageEnd::Paused {
+                from: next,
+                after: inside,
+                ..
+            } => {
+                from = next;
+                after = inside;
+            }
+        }
+    }
+}
+
+#[when(
+    "T1 reads a range of two subjects' lists through compute one object a frame, T2 commits an insert into a list it read, and T1 commits a write"
+)]
+fn read_across_frames(w: &mut Steps) -> TestResult {
+    let applier = applier()?;
+    let _set_up = setup(
+        &applier,
+        vec![
+            insert("a", "knows", "o"),
+            insert("a", "knows", "p"),
+            insert("z", "knows", "o"),
+            insert("z", "knows", "p"),
+        ],
+    )?;
+    let (a, z, knows) = (
+        id_of(&applier, "a")?,
+        id_of(&applier, "z")?,
+        id_of(&applier, "knows")?,
+    );
+    let (low, high) = {
+        let (x, y) = (forward_key(a, knows), forward_key(z, knows));
+        if x < y { (x, y) } else { (y, x) }
+    };
+    let end = past(&high);
+
+    let mut recording = begin(&applier)?;
+    let objects = read_in_frames(&mut recording, &end, low.clone())?;
+    write(&mut recording, vec![insert("x", "seen", "y")])?;
+    let (executed, _buffers) = prepare(recording)?.into_parts();
+    let reads = executed.reads();
+    let scanned = |key: &[u8]| {
+        QuadKey::parse(key).is_ok_and(|(parsed, _)| {
+            matches!(parsed, QuadKey::Forward { predicate, .. } if predicate == knows)
+        })
+    };
+    w.versions = vec![objects as u64];
+    w.checks = vec![
+        reads.ranges().len() == 1,
+        !reads.lists().iter().any(|key| scanned(key)),
+    ];
+
+    let mut reader = begin(&applier)?;
+    let _read = read_in_frames(&mut reader, &end, low)?;
+    let inside = subject_of(&applier, &high)?;
+    w.replies = decided(&applier, reader, insert(inside, "knows", "new"))?;
+    Ok(())
+}
+
+#[then("its read set holds one range and no list key, and T1 aborts with a conflict of kind Range")]
+fn one_range_conflicts(w: &mut Steps) -> TestResult {
+    assert_eq!(w.versions, vec![4], "every object, a frame each");
+    assert_eq!(w.checks, vec![true, true]);
+    second_is(&w.replies, ConflictKind::Range)
 }
 
 #[when(

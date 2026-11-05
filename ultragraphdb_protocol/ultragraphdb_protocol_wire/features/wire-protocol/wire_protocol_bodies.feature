@@ -96,6 +96,10 @@ Feature: Wire protocol: bodies, statements, describe, result batches and the con
     When a Scan names a transaction with `at` not 1, a nonzero `epoch`, or a term that is not an IRI
     Then it is refused with `FieldValue` naming `at`, `epoch` or `scan term`
 
+  Scenario: A Scan names its deadline
+    When a Scan whose `epoch` is 0 holds `deadline_ms` above 0, with a transaction or with none
+    Then each is refused with `FieldValue` naming `deadline_ms`
+
   Scenario: A list larger than a frame continues across frames
     When a list's object records span two Entries frames, the first with `continues` 1
     Then the second's first entry holds the same key, and the records of both are the list's, in order

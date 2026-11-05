@@ -168,6 +168,7 @@ enum Body {
         /// `None` for a Scan naming no transaction.
         transaction: Option<[u8; 16]>,
         limit: u32,
+        deadline_ms: u32,
         ranges: Vec<(u32, Vec<u8>, Vec<u8>)>,
         iris: Vec<String>,
     },
@@ -394,9 +395,9 @@ fn session_of(session: [u8; 16], request: u64) -> ([u8; 16], u64) {
     )
 }
 
-/// The Scan the fields make: the choice's version and epoch, each range's partition at least 1 and its keys ordered, a
-/// transaction's `at` 1 and epoch 0, its ranges of one partition and its table of the IRIs, at most one per range. `None`
-/// with no range left.
+/// The Scan the fields make: the choice's version and epoch, a deadline of at least 1, each range's partition at least 1
+/// and its keys ordered, a transaction's `at` 1, epoch 0 and deadline 0, its ranges of one partition and its table of the
+/// IRIs, at most one per range. `None` with no range left.
 fn scan(
     at: u8,
     read_version: u64,
@@ -404,6 +405,7 @@ fn scan(
     principal: u64,
     transaction: [u8; 16],
     limit: u32,
+    deadline_ms: u32,
     ranges: &[(u32, Vec<u8>, Vec<u8>)],
     iris: &[String],
 ) -> Option<Scan> {
@@ -423,6 +425,7 @@ fn scan(
     } else {
         epoch % (MAX_EPOCH + 1)
     };
+    let deadline_ms = if epoch == 0 { 0 } else { deadline_ms };
     let kept: Vec<_> = ranges
         .iter()
         .filter(|(_, first, past)| !first.is_empty() && (past.is_empty() || past > first))
@@ -434,8 +437,16 @@ fn scan(
             let _ = table.intern(RequestTerm::Iri(iri.clone()));
         });
     }
-    let mut built =
-        Scan::new(at, read_version, epoch, principal, transaction, limit).with_terms(table);
+    let mut built = Scan::new(
+        at,
+        read_version,
+        epoch,
+        principal,
+        transaction,
+        limit,
+        deadline_ms,
+    )
+    .with_terms(table);
     for (partition, first, past) in kept {
         let partition = if named {
             first_partition
@@ -1014,6 +1025,7 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
             principal,
             transaction,
             limit,
+            deadline_ms,
             ranges,
             iris,
         } => {
@@ -1024,6 +1036,7 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
                 *principal,
                 transaction.unwrap_or([0; 16]),
                 *limit,
+                *deadline_ms,
                 ranges,
                 iris,
             )?;
@@ -1175,9 +1188,13 @@ fuzz_target!(|input: Input| {
         Command::Scan => ScanView::from_frame(&frame)
             .map(|v| {
                 if v.transaction() != [0; 16] {
-                    assert_eq!((v.at(), v.epoch()), (ScanAt::ReadVersion, 0));
+                    assert_eq!(
+                        (v.at(), v.epoch(), v.deadline_ms()),
+                        (ScanAt::ReadVersion, 0, 0)
+                    );
                     assert!(v.terms().len() <= v.range_count());
                 }
+                assert!(v.epoch() != 0 || v.deadline_ms() == 0);
                 v
             })
             .and_then(|v| v.to_body())

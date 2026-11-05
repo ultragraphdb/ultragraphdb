@@ -242,11 +242,18 @@ fn scan_and_insert(w: &mut Steps, args: &[String]) -> TestResult {
     let mut scanning = QuadWrite::new(a.quads(), NS, a.quads().lists().request(ts));
     let mut end = key(high);
     end.push(0);
-    let _exhausted: Option<Vec<u8>> = scanning
+    let _exhausted: ultragraphdb_store_posting::WalkEnd = scanning
         .request()
-        .span(key(low), Some(end), None, |_, _| {
-            Ok::<bool, ultragraphdb_store_posting::PostingError>(true)
-        })
+        .span(
+            key(low),
+            Some(end),
+            ultragraphdb_store_posting::WalkBounds::default(),
+            |_, _| {
+                Ok::<_, ultragraphdb_store_posting::PostingError>(
+                    ultragraphdb_store_posting::WalkStep::Row,
+                )
+            },
+        )
         .context("the index scans")?;
     insert_into(&mut scanning, own)?;
     let read = read_of(&mut scanning);

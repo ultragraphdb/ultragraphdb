@@ -6,10 +6,17 @@
 //! An execution held open across a transaction's requests: each changeset applied on top of the ones before, reads
 //! of its own writes over its snapshot, recorded in its read set.
 
-use oxrdf::{GraphName, Term};
-use ultragraphdb_core_keys::{DEFAULT_GRAPH, QuadKey};
+use std::num::NonZeroUsize;
+use std::ops::ControlFlow;
 
-use crate::utils::changesets::{NS, TestChangesets, changeset, changesets, ex, insert, uid};
+use oxrdf::{GraphName, Term};
+use ultragraphdb_core_keys::{DEFAULT_GRAPH, Keyspace, QuadKey};
+use ultragraphdb_store_apply::ChangesetErrorEnum;
+use ultragraphdb_store_quads::{KernelRow, KernelScan, PageEnd, QuadErrorEnum};
+
+use crate::utils::changesets::{
+    NS, TestChangesets, changeset, changesets, delete, ex, insert, uid,
+};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
 fn read(
@@ -313,5 +320,225 @@ fn test_an_execution_gives_the_subjects_its_reifiers_resolved_to() -> TestResult
             uid(&applier, "c")?
         ]
     );
+    Ok(())
+}
+
+type TestExecution<'a> = ultragraphdb_store_apply::Execution<
+    'a,
+    ultragraphdb_store_sim::SimStore,
+    ultragraphdb_store_sim::SimListCache<ultragraphdb_store_posting::CachedList>,
+    ultragraphdb_traits_blocks::TestBlockSource,
+>;
+
+/// Lists of several objects committed for [`overlaid`].
+fn committed(applier: &TestChangesets) -> TestResult {
+    let changes = [
+        "<a> <knows> <y>",
+        "<a> <knows> <z>",
+        "<held> <knows> <y>",
+        "<gone> <knows> <z>",
+        "<c> <knows> <w>",
+        "<c> <knows> <x>",
+    ]
+    .iter()
+    .map(|text| insert(text))
+    .collect::<TestResult<Vec<_>>>()?;
+    let _applied = applier.apply(&changeset(changes))?;
+    Ok(())
+}
+
+/// An execution over [`committed`]'s lists: one it adds to, one it reads whole, one it emptied, one it left alone, and one only
+/// it holds.
+fn overlaid(applier: &TestChangesets) -> TestResult<TestExecution<'_>> {
+    let at = applier.quads().lists().applied_ts();
+    let mut execution = applier.begin(NS, at).context("begun")?;
+    execution.apply(&changeset(vec![
+        insert("<a> <knows> <b>")?,
+        insert("<new> <knows> <a>")?,
+        insert("<new> <knows> <b>")?,
+        delete("<gone> <knows> <z>")?,
+    ]))?;
+    let _whole = read(&mut execution, "held", "knows")?;
+    Ok(execution)
+}
+
+/// The forward lists of the namespace as `execution` sees them, whole.
+fn forward(version: u64) -> TestResult<KernelScan> {
+    Ok(KernelScan::new(
+        Keyspace::Forward,
+        NS,
+        Vec::new(),
+        version,
+        NonZeroUsize::MAX,
+    ))
+}
+
+/// `execution`'s pages of `scan`'s range at `budget` objects a page, `limit` rows a scan: the rows, whole, with the span after
+/// each page held to what section 13.13 states.
+fn paged(
+    execution: &mut TestExecution<'_>,
+    scan: &KernelScan,
+    budget: usize,
+    limit: NonZeroUsize,
+) -> TestResult<Vec<KernelRow>> {
+    let start = scan.bounds().0;
+    let end = scan.bounds().1;
+    let (mut rows, mut from, mut after, mut left) =
+        (Vec::<KernelRow>::new(), start.clone(), None, limit);
+    loop {
+        let this = KernelScan::new(scan.keyspace(), NS, from.clone(), scan.version(), left)
+            .to(end.clone().context("a namespace's keyspace ends")?)
+            .resuming(after.take());
+        let mut taken = 0;
+        let page = execution.page(&this, |key, object, statements| {
+            if taken == budget {
+                return ControlFlow::Break(());
+            }
+            taken += 1;
+            let mut objects = match rows.last() {
+                Some(row) if row.key() == key => rows
+                    .pop()
+                    .map_or_else(Vec::new, |popped| popped.objects().to_vec()),
+                Some(_) | None => Vec::new(),
+            };
+            objects.push((object.clone(), statements.to_vec()));
+            rows.push(KernelRow::new(key.to_vec(), objects));
+            ControlFlow::Continue(())
+        })?;
+        // Through the past key at the end; just past the last key read when stopped or paused.
+        let reach = match page.end() {
+            PageEnd::Exhausted => end.clone(),
+            PageEnd::Stopped { .. } | PageEnd::Paused { .. } => {
+                let last = rows.last().context("a row")?.key();
+                Some([last, &[0]].concat())
+            }
+            PageEnd::Yielded { from: next } => Some(next.clone()),
+        };
+        assert_eq!(
+            execution.scanned_ranges(),
+            vec![(start.clone(), reach)],
+            "one range however many pages, at {budget} objects a page"
+        );
+        let rows_left = left.get() - page.rows();
+        match page.into_end() {
+            PageEnd::Exhausted => return Ok(rows),
+            PageEnd::Stopped { mut last } => {
+                last.push(0);
+                from = last;
+                left = limit;
+            }
+            PageEnd::Yielded { from: next } => from = next,
+            PageEnd::Paused {
+                from: next,
+                after: inside,
+                ..
+            } => {
+                from = next;
+                after = inside;
+                left = NonZeroUsize::new(rows_left).context("a pause leaves a row to read")?;
+            }
+        }
+    }
+}
+
+/// Pages over an execution's writes concatenate to what its scan returns, and leave one range and no list newly held: an added
+/// key is read, an emptied list gives no row, and a held list reads what it holds.
+#[test]
+fn test_an_execution_s_pages_concatenate_to_its_scan_and_hold_one_range() -> TestResult {
+    let applier = changesets()?;
+    committed(&applier)?;
+    let expected = {
+        let mut execution = overlaid(&applier)?;
+        let mut rows = Vec::new();
+        let scan = forward(execution.read_ts())?;
+        assert_eq!(execution.scan(&scan, &mut rows)?, None);
+        rows
+    };
+    let gone = QuadKey::Forward {
+        namespace: NS,
+        graph: DEFAULT_GRAPH,
+        predicate: uid(&applier, "knows")?,
+        subject: uid(&applier, "gone")?,
+    }
+    .to_bytes();
+    assert!(expected.iter().all(|row| row.key() != gone), "{expected:?}");
+    assert_eq!(
+        expected.len(),
+        4,
+        "<a>, <held>, <c> and <new>: {expected:?}"
+    );
+    for budget in 1..=4 {
+        for limit in [NonZeroUsize::MIN, NonZeroUsize::MAX] {
+            let mut execution = overlaid(&applier)?;
+            let held = execution.held_lists();
+            let scan = forward(execution.read_ts())?;
+            let rows = paged(&mut execution, &scan, budget, limit)?;
+            assert_eq!(rows, expected, "{budget} objects a page, limit {limit}");
+            assert_eq!(execution.held_lists(), held, "nothing newly held");
+        }
+    }
+    Ok(())
+}
+
+/// A range holding nothing is recorded through its past key, which is what proves absence.
+#[test]
+fn test_a_page_of_an_empty_range_covers_it_through_its_past_key() -> TestResult {
+    let applier = changesets()?;
+    let at = commit(&applier, "<a> <knows> <b>")?;
+    let mut execution = applier.begin(NS, at).context("begun")?;
+    let start = QuadKey::Forward {
+        namespace: NS + 1,
+        graph: DEFAULT_GRAPH,
+        predicate: uid(&applier, "knows")?,
+        subject: uid(&applier, "a")?,
+    }
+    .to_bytes();
+    let past = [start.as_slice(), &[0]].concat();
+    let scan = KernelScan::new(
+        Keyspace::Forward,
+        NS + 1,
+        start.clone(),
+        at,
+        NonZeroUsize::MIN,
+    )
+    .to(past.clone());
+    let page = execution.page(&scan, |_, _, _| ControlFlow::Break(()))?;
+    assert_eq!((page.end(), page.rows()), (&PageEnd::Exhausted, 0));
+    assert_eq!(execution.scanned_ranges(), vec![(start, Some(past))]);
+    Ok(())
+}
+
+/// A sink taking nothing leaves a paused end with no last key, and nothing recorded.
+#[test]
+fn test_a_page_whose_sink_took_nothing_records_nothing() -> TestResult {
+    let applier = changesets()?;
+    let at = commit(&applier, "<a> <knows> <b>")?;
+    let mut execution = applier.begin(NS, at).context("begun")?;
+    let page = execution.page(&forward(at)?, |_, _, _| ControlFlow::Break(()))?;
+    assert!(
+        matches!(page.end(), PageEnd::Paused { last: None, .. }),
+        "{page:?}"
+    );
+    assert_eq!(execution.scanned_ranges(), Vec::new());
+    assert_eq!(execution.read_counts().ranges(), 0);
+    Ok(())
+}
+
+#[test]
+fn test_a_page_of_a_keyspace_holding_no_lists_is_refused_recording_nothing() -> TestResult {
+    let applier = changesets()?;
+    let at = commit(&applier, "<a> <knows> <b>")?;
+    let mut execution = applier.begin(NS, at).context("begun")?;
+    let scan = KernelScan::new(Keyspace::Marks, NS, Vec::new(), at, NonZeroUsize::MIN);
+    let refused = execution
+        .page(&scan, |_, _, _| ControlFlow::Continue(()))
+        .err()
+        .context("refused")?;
+    let corrupted = matches!(
+        &refused.0,
+        ChangesetErrorEnum::Quad(q) if matches!(q.0, QuadErrorEnum::Corrupted { .. })
+    );
+    assert!(corrupted, "{refused:?}");
+    assert_eq!(execution.scanned_ranges(), Vec::new());
     Ok(())
 }

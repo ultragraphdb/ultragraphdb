@@ -52,7 +52,7 @@ pub const ROLES: &[GoldenBody] = &[
     GoldenBody { name: "recall", command: 522, stream: 29, flags: 0, sequence: 1, size: 256, checksum: 0xea53_0560_8cb4_ae1c, checksum_body: 0x2d06_8005_38d3_94c2 },
     GoldenBody { name: "compute_read", command: 523, stream: 31, flags: 0, sequence: 1, size: 411, checksum: 0x3c93_c9ec_a9a7_2a2b, checksum_body: 0x1bc2_c9b8_8c66_c5da },
     GoldenBody { name: "compute_read_rw", command: 523, stream: 33, flags: 0, sequence: 1, size: 448, checksum: 0x2f89_0a6a_c7ec_7e35, checksum_body: 0xdf8a_a61c_bc3e_bd74 },
-    GoldenBody { name: "scan", command: 524, stream: 35, flags: 0, sequence: 1, size: 352, checksum: 0xf7d3_6d2f_ce8a_1895, checksum_body: 0x1d13_9a1f_84ac_9299 },
+    GoldenBody { name: "scan", command: 524, stream: 35, flags: 0, sequence: 1, size: 352, checksum: 0xf5b7_5c53_d0ec_a71f, checksum_body: 0x1d13_9a1f_84ac_9299 },
     GoldenBody { name: "scan_transaction", command: 524, stream: 37, flags: 0, sequence: 1, size: 328, checksum: 0xcd8b_0c82_459d_f67e, checksum_body: 0x3298_b6ed_95c9_3831 },
     GoldenBody { name: "scan_transaction_terms", command: 524, stream: 39, flags: 0, sequence: 1, size: 662, checksum: 0x41bb_b61e_d237_e5f1, checksum_body: 0xdb72_d7b0_ae0a_32fd },
     // 525–530

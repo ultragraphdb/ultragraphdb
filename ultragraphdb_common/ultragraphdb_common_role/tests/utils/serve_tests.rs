@@ -3,9 +3,12 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::cell::Cell;
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::Duration;
 
 use compio::runtime::{Runtime, spawn};
 use ultragraphdb_common_role::{
@@ -17,7 +20,9 @@ use ultragraphdb_protocol_transport::{
     Address, Endpoint, ReceivedFrame, TransportError, TransportErrorEnum,
 };
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, Command, ErrorCode, ErrorReply, FLAG_LAST, Header, Join, Members,
+    BodyBuilder, BodyView, Command, Credit, DEFAULT_INITIAL_CREDIT, Entries, EntriesEnd,
+    EntriesView, ErrorCode, ErrorReply, FLAG_LAST, Header, Join, MAX_FRAME_FLOOR, Members, Scan,
+    ScanAt, ScanRange,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -79,6 +84,125 @@ fn refused_with(error: &TransportError) -> Option<ErrorCode> {
     } else {
         None
     }
+}
+
+/// Sends `frames` Entries frames on the stream of the one request it takes, the first as it opens and each next once
+/// [`Session::ready`] says there is room; each frame's range is its place, and the last is flagged. `built` counts the
+/// frames built, `left` those [`Session::left`] says left with no room for the next, and `welcomed` holds the largest frame
+/// the peer takes.
+#[derive(Debug)]
+struct OneAtATime {
+    frames: u32,
+    built: Rc<Cell<u32>>,
+    left: Rc<Cell<u32>>,
+    welcomed: Rc<Cell<u32>>,
+    due: Option<u64>,
+}
+
+impl Session for OneAtATime {
+    async fn answer(&mut self, stream: u64, _frame: ReceivedFrame) -> Answer {
+        self.due = Some(stream);
+        Answer::Open
+    }
+
+    async fn next_push(&mut self) -> (u64, Vec<u8>) {
+        let Some(stream) = self.due.take() else {
+            return std::future::pending().await;
+        };
+        let range = self.built.get();
+        self.built.set(range + 1);
+        let last = range + 1 == self.frames;
+        let (end, flags) = if last {
+            (EntriesEnd::Ended, FLAG_LAST)
+        } else {
+            (EntriesEnd::More, 0)
+        };
+        let header = Header::new(CLUSTER, Command::Entries)
+            .with_stream(stream)
+            .with_flags(flags);
+        let frame = Entries::new(range, end, 0).frame(header);
+        (stream, frame.unwrap_or_default())
+    }
+
+    fn welcomed(&mut self, max_frame: u32) {
+        self.welcomed.set(max_frame);
+    }
+
+    fn ready(&mut self, stream: u64) {
+        self.due = Some(stream);
+    }
+
+    fn left(&mut self, _stream: u64) {
+        self.left.set(self.left.get() + 1);
+    }
+}
+
+/// The range of the next Entries frame `client` reads, and whether it is flagged last.
+async fn next_entries(client: &mut RoleClient) -> TestResult<(u32, bool)> {
+    let frame = client.next_frame().await?;
+    let view = frame.view()?;
+    let entries = EntriesView::from_frame(&view)?;
+    Ok((entries.range(), view.header().flags() & FLAG_LAST != 0))
+}
+
+/// A session producing a frame at a time reaches a reader as far as its credit goes, builds nothing past it, and goes on
+/// as the reader grants more, to its stream's last frame.
+#[test]
+fn test_a_session_producing_on_ready_stops_where_the_readers_credit_stops() -> TestResult {
+    Runtime::new()?.block_on(async {
+        let granted = 2;
+        let frames = DEFAULT_INITIAL_CREDIT + granted;
+        let built = Rc::new(Cell::new(0));
+        let left = Rc::new(Cell::new(0));
+        let welcomed = Rc::new(Cell::new(0));
+        let listener = listen(&free_tcp()?).await?;
+        let address = listener.local_address()?;
+        let server =
+            Server::new(CLUSTER, "test", Endpoint::Partition)?.with_iterations(ROLE_ITERATIONS);
+        let held = credentials()?;
+        let session = OneAtATime {
+            frames,
+            built: Rc::clone(&built),
+            left: Rc::clone(&left),
+            welcomed: Rc::clone(&welcomed),
+            due: None,
+        };
+        spawn(async move {
+            if let Ok(carrier) = listener.accept().await {
+                serve_connection(carrier, &server, held, session).await;
+            }
+        })
+        .detach();
+        let max_frame = MAX_FRAME_FLOOR as u32;
+        let mut client =
+            RoleClient::dial_taking(&address, CLUSTER, "compute", PASSWORD, max_frame).await?;
+        assert_eq!(
+            welcomed.get(),
+            max_frame,
+            "the session is told what it may send"
+        );
+        let mut scan = Scan::new(ScanAt::Latest, 0, 0, 1, [0; 16], 0, 0);
+        scan.push_range(ScanRange::new(1, b"a", b""));
+        client.send_only(&scan).await?;
+        let stream = client.last_stream();
+        for range in 0..DEFAULT_INITIAL_CREDIT {
+            assert_eq!(next_entries(&mut client).await?, (range, false));
+        }
+        // No credit is left: however long the reader waits, nothing more is built.
+        compio::time::sleep(Duration::from_millis(20)).await;
+        assert_eq!(built.get(), DEFAULT_INITIAL_CREDIT);
+        assert_eq!(left.get(), 1, "the frame spending the last credit left");
+        for range in DEFAULT_INITIAL_CREDIT..frames {
+            client.send_on(stream, &Credit::new(1)).await?;
+            assert_eq!(
+                next_entries(&mut client).await?,
+                (range, range + 1 == frames)
+            );
+            compio::time::sleep(Duration::from_millis(20)).await;
+            assert_eq!(built.get(), range + 1, "one frame per grant");
+        }
+        Ok(())
+    })
 }
 
 /// A TCP address of this host that was free a moment ago.

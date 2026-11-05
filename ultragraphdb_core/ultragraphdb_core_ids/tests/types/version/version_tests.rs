@@ -22,6 +22,18 @@ fn test_a_version_carries_the_epoch_in_its_upper_bits() -> TestResult {
     Ok(())
 }
 
+/// An epoch's version bound lies above every commit of it and below the next epoch's first, the last epoch's included.
+#[test]
+fn test_the_version_bound_of_an_epoch() -> TestResult {
+    let epoch = Epoch::new(30)?;
+    let bound = Version::bound_of(epoch);
+    assert_eq!(Version::from_u64(bound).epoch(), epoch);
+    assert!(bound > Version::commit(epoch, Version::COMMIT_SEQUENCE_MAX)?.to_u64());
+    assert_eq!(bound + 1, Version::commit(epoch.next()?, 0)?.to_u64());
+    assert_eq!(Version::bound_of(Epoch::MAX), u64::MAX);
+    Ok(())
+}
+
 #[test]
 fn test_versions_increase_within_an_epoch() -> TestResult {
     assert_eq!(commit(10, 2)?.to_u64(), 41_943_042);

@@ -14,6 +14,7 @@ pub struct StorageTable {
     role_address: Option<String>,
     data_dir: Option<String>,
     close_request_ms: Option<u64>,
+    scan_stall_ms: Option<u64>,
 }
 
 impl StorageTable {
@@ -24,6 +25,7 @@ impl StorageTable {
             role_address: reader.string("storage", "role_address")?,
             data_dir: reader.string("storage", "data_dir")?,
             close_request_ms: reader.u64("storage", "close_request_ms")?,
+            scan_stall_ms: reader.u64("storage", "scan_stall_ms")?,
         })
     }
 
@@ -50,5 +52,10 @@ impl StorageTable {
     /// `close_request_ms`: how long a close request goes unanswered before the partition answers `Busy`, in milliseconds.
     pub fn close_request_ms(&self) -> Option<u64> {
         self.close_request_ms
+    }
+
+    /// `scan_stall_ms`: how long a partition keeps a Scan with no frame able to leave, in milliseconds.
+    pub fn scan_stall_ms(&self) -> Option<u64> {
+        self.scan_stall_ms
     }
 }

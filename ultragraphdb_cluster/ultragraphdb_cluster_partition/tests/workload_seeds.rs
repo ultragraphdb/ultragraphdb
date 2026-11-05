@@ -20,6 +20,7 @@ fn test_seeds_without_faults_keep_every_invariant() -> TestResult {
         assert!(counts.commits > 50, "seed {seed}: {counts:?}");
         assert!(counts.registrations > 0, "seed {seed}: {counts:?}");
         assert!(counts.reverse_rows > 0, "seed {seed}: {counts:?}");
+        assert!(counts.paged_scans > 0, "seed {seed}: {counts:?}");
     }
     Ok(())
 }

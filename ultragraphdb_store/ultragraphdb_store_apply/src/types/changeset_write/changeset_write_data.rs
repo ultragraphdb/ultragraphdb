@@ -10,7 +10,7 @@ use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::{Graph, Keyspace, QuadKey};
 use ultragraphdb_core_mapping::{Cardinality, PredicateDeclaration, PredicateKind};
 use ultragraphdb_core_terms::EncodedTerm;
-use ultragraphdb_store_posting::{CachedList, PostingError};
+use ultragraphdb_store_posting::{CachedList, PostingError, WalkBounds, WalkEnd, WalkStep};
 use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{ListCache, Scan, Store};
 
@@ -46,10 +46,11 @@ where
         for graph in graphs {
             let graph_prefix = prefix.in_graph(graph);
             let end = Scan::prefix(graph_prefix.clone()).end().map(<[u8]>::to_vec);
-            let _exhausted: Option<Vec<u8>> = request.span(graph_prefix, end, None, |key, _| {
-                keys.push(key.to_vec());
-                Ok::<bool, PostingError>(true)
-            })?;
+            let _exhausted: WalkEnd =
+                request.span(graph_prefix, end, WalkBounds::default(), |key, _| {
+                    keys.push(key.to_vec());
+                    Ok::<WalkStep, PostingError>(WalkStep::Row)
+                })?;
         }
         keys.extend(request.written_keys().map(<[u8]>::to_vec));
         Ok(keys

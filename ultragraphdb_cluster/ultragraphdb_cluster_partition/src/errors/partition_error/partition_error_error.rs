@@ -18,7 +18,8 @@ impl Error for PartitionError {
             PartitionErrorEnum::WrongPartition { .. }
             | PartitionErrorEnum::CrossPartition { .. }
             | PartitionErrorEnum::TimedOut { .. }
-            | PartitionErrorEnum::Refused { .. } => None,
+            | PartitionErrorEnum::Refused { .. }
+            | PartitionErrorEnum::TransactionHeld { .. } => None,
         }
     }
 }

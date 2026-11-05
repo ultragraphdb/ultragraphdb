@@ -42,6 +42,13 @@ impl Version {
         Ok(Self((epoch.get() << SEQUENCE_BITS) | u64::from(sequence)))
     }
 
+    /// The version bound of `epoch`, the highest version of it: every commit stamped at or below `epoch` lies at or below it.
+    #[must_use]
+    pub fn bound_of(epoch: Epoch) -> u64 {
+        // An epoch holds 42 bits, so shifting it by 22 keeps every bit, and the sequence's 22 bits are all set.
+        (epoch.get() << SEQUENCE_BITS) | ((1 << SEQUENCE_BITS) - 1)
+    }
+
     /// The version whose number is `value`. Every 64-bit number is a version.
     #[must_use]
     pub fn from_u64(value: u64) -> Self {

@@ -371,6 +371,22 @@ calling `Request::get` per key, the obvious way, would record a list read per ke
 same version and resumes from a key and an object, so no cursor borrows the transaction across a credit wait. In the
 dictionary the transaction's source is its `WriteTerms`.
 
+Credit reaches the core as a message, so the core keeps one built frame per stream outside it. `Outbound` knows when a stream
+has room: a non-`LAST` Entries or Result frame pushed flags its stream, and `take_ready` reports each flagged stream whose
+queue is empty and whose credit is above 0. The serve loop passes those to `Session::ready` after every flush, a Credit's
+included, and `StorageSession` hands the core `CoreMessage::Ready`, which requeues the stream's Scan. Each turn builds one frame
+for the whole partition, the open Scans taking turns on a `ScanBoard`, whose turns end with their Scans, so a stalled reader
+holds one frame's memory and no reader starves another, and while a Scan is queued the core's loop yields to its connections'
+tasks instead of sleeping its tick. A frame leaving is what restarts `scan_stall_ms`: Ready says so, and `take_left`, which
+`CoreMessage::Left` carries, says so of a frame that spent its stream's last credit, since no Ready follows it. A Scan parked
+past it is refused and its `ReadPin` dropped, so a reader that stopped holds a version for no longer than that, and one that
+keeps taking frames keeps its version. A list crossing frames is read once: the first pause inside it keeps it in the Scan, an
+`Arc` shared with the page after, since a read below the cache's entry misses every time and a miss decodes every part of a hub.
+What that holds is bounded by `max_streams` and `scan_stall_ms`, and a hub's first frame still decodes it. A page reads at most
+256 keys holding nothing before it hands the turn back, and through those keys a transaction's span is recorded even with no
+frame, since a later write into them must conflict. Filling a frame stops at the receiver's
+`max_frame`, carried from its Hello, by exact sizes (`EntriesFill`), and the page it stopped on says where the next resumes.
+
 A Scan naming a transaction carries the text of the IRIs it needs IDs for, since a dictionary key holds only a hash and an
 absent term is recorded by its ID, which reading creates. Recording the dictionary key instead would miss a conflict: a
 home's registration round can create the entry without a statement, and a later statement of it then writes no such key.

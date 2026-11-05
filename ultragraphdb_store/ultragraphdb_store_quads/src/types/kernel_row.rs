@@ -3,6 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::ops::ControlFlow;
+
 use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_terms::EncodedTerm;
 
@@ -18,6 +20,23 @@ impl KernelRow {
     /// The row of the list `key` holding `objects`.
     pub fn new(key: Vec<u8>, objects: Vec<(EncodedTerm, Vec<SystemId>)>) -> Self {
         Self { key, objects }
+    }
+
+    /// A page's sink gathering what it is offered into rows appended to `out`, every object taken: how a read wanting whole
+    /// rows reads pages.
+    pub fn gather(
+        out: &mut Vec<KernelRow>,
+    ) -> impl FnMut(&[u8], &EncodedTerm, &[SystemId]) -> ControlFlow<()> + '_ {
+        let first = out.len();
+        move |key, object, statements| {
+            let object = (object.clone(), statements.to_vec());
+            let last = out.get_mut(first..).and_then(<[Self]>::last_mut);
+            match last.filter(|row| row.key == key) {
+                Some(row) => row.objects.push(object),
+                None => out.push(Self::new(key.to_vec(), vec![object])),
+            }
+            ControlFlow::Continue(())
+        }
     }
 
     /// The list's key, without its version.

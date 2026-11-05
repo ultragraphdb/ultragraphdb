@@ -13,6 +13,7 @@ use crate::types::scan_at::ScanAt;
 use crate::types::scan_view::ScanView;
 use crate::types::term_table::kind;
 use crate::types::term_table_view::TermTableView;
+use crate::utils::command_header::CommandHeader;
 use crate::utils::constants::SCAN_RANGE_SIZE;
 use crate::utils::fields::{epoch, identity};
 use crate::utils::le::bytes_at;
@@ -120,18 +121,42 @@ fn term_table<'a>(
     Ok(terms)
 }
 
+/// The `epoch` and `deadline_ms` of a Scan at `at`, `named` when it names a transaction, in `PROTOCOL.md` §13.13's order:
+/// `epoch` an epoch, and 0 for `at` 4 and with a transaction; `deadline_ms` 0 when `epoch` is 0.
+fn wait_and_deadline(
+    command: u16,
+    header: CommandHeader<'_>,
+    at: ScanAt,
+    named: bool,
+) -> Result<(u64, u32), ProtocolError> {
+    let wait = epoch(command, "epoch", header.u64_at(16), true)?;
+    if (at == ScanAt::Named || named) && wait != 0 {
+        return Err(ProtocolError::field_value(command, "epoch", wait));
+    }
+    let deadline_ms = header.u32_at(52);
+    if wait == 0 && deadline_ms != 0 {
+        return Err(ProtocolError::field_value(
+            command,
+            "deadline_ms",
+            deadline_ms.into(),
+        ));
+    }
+    Ok((wait, deadline_ms))
+}
+
 impl<'a> BodyView<'a> for ScanView<'a> {
     const COMMAND: Command = Command::Scan;
 
     type Body = Scan;
 
-    /// Checks, in `PROTOCOL.md` §13.13's order: unused bytes 1–7 and 52–127 zero; `at`, and 1 when `transaction` is not
-    /// zero; `read_version` 0 for `at` 2 and 3; `epoch` an epoch, and 0 for `at` 4 and when `transaction` is not zero; the
-    /// sections; the ranges whole and not empty; the term table; each range; section 1 ending with the last key.
+    /// Checks, in `PROTOCOL.md` §13.13's order: unused bytes 1–7 and 56–127 zero; `at`, and 1 when `transaction` is not
+    /// zero; `read_version` 0 for `at` 2 and 3; `epoch` an epoch, and 0 for `at` 4 and when `transaction` is not zero;
+    /// `deadline_ms` 0 when `epoch` is 0; the sections; the ranges whole and not empty;
+    /// the term table; each range; section 1 ending with the last key.
     fn from_frame(frame: &FrameView<'a>) -> Result<Self, ProtocolError> {
         let command = Self::COMMAND.number();
         let header = expect_command(frame, Self::COMMAND)?;
-        header.unused_zero(&[(0, 1), (8, 52)])?;
+        header.unused_zero(&[(0, 1), (8, 56)])?;
         let number = header.u8_at(0);
         let at = ScanAt::from_number(number).ok_or(ProtocolError::field_value(
             command,
@@ -151,10 +176,7 @@ impl<'a> BodyView<'a> for ScanView<'a> {
                 read_version,
             ));
         }
-        let wait = epoch(command, "epoch", header.u64_at(16), true)?;
-        if (at == ScanAt::Named || named) && wait != 0 {
-            return Err(ProtocolError::field_value(command, "epoch", wait));
-        }
+        let (wait, deadline_ms) = wait_and_deadline(command, header, at, named)?;
         let sections = Sections::<4>::read(command, frame.body(), 0)?;
         let (ranges, keys) = (sections.get(0), sections.get(1));
         let chunks = records(command, 0, ranges, SCAN_RANGE_SIZE)?;
@@ -193,6 +215,7 @@ impl<'a> BodyView<'a> for ScanView<'a> {
             principal: header.u64_at(24),
             transaction,
             limit: header.u32_at(48),
+            deadline_ms,
             ranges,
             keys,
             terms,
@@ -207,6 +230,7 @@ impl<'a> BodyView<'a> for ScanView<'a> {
             self.principal,
             self.transaction,
             self.limit,
+            self.deadline_ms,
         )
         .with_terms(self.terms.to_table());
         self.ranges().for_each(|range| scan.push_range(range));

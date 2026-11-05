@@ -17,3 +17,5 @@ mod posting_codec_tests;
 mod posting_workload_tests;
 #[cfg(test)]
 mod postings_tests;
+#[cfg(test)]
+mod walk_lists_tests;

@@ -12,6 +12,7 @@ mod types;
 
 pub use crate::errors::partition_error::{PartitionError, PartitionErrorEnum};
 pub use crate::types::answer::Answer;
+pub use crate::types::bound_read::BoundRead;
 pub use crate::types::bound_transaction::{BoundKey, BoundStep};
 pub use crate::types::fanout::Fanout;
 pub use crate::types::home::Home;

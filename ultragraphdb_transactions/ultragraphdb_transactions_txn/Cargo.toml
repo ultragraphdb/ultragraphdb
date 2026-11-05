@@ -28,6 +28,7 @@ ultragraphdb_core_codec = { workspace = true }
 ultragraphdb_core_ids = { workspace = true }
 ultragraphdb_core_keys = { workspace = true }
 ultragraphdb_core_mapping = { workspace = true }
+ultragraphdb_core_terms = { workspace = true }
 ultragraphdb_error_invariant = { workspace = true }
 ultragraphdb_protocol_wire = { workspace = true }
 ultragraphdb_store_apply = { workspace = true }
@@ -37,7 +38,6 @@ ultragraphdb_traits_blocks = { workspace = true }
 ultragraphdb_traits_store = { workspace = true }
 
 [dev-dependencies]
-ultragraphdb_core_terms = { workspace = true }
 ultragraphdb_store_sim = { workspace = true }
 ultragraphdb_tool_bdd = { workspace = true }
 criterion = { workspace = true }

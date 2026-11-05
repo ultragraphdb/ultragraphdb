@@ -40,8 +40,15 @@ a read wholly on the core that received it, sharing no mutable state between cor
 ### Requirement: Storage's read kernel answers what compute scans
 Storage SHALL answer a Scan with the entries of its key ranges at the version the Scan names, each key once with its
 value visible at that version, in key order, each range at most the Scan's limit: from a keyspace of lists, the dictionary
-or the referrer sets, and no other. An answer at a closed epoch SHALL wait until the partition has closed that epoch.
-Compute SHALL decode what the entries hold and SHALL name every term by its text in what it returns.
+or the referrer sets, and no other. An answer at a closed epoch SHALL wait until the partition has closed that epoch. A
+Scan whose epoch has not closed by its deadline, or with no frame able to leave for `scan_stall_ms`, SHALL be refused naming
+the partition. The partition SHALL build a stream's next frame once the one before has left, so a stalled stream holds at
+most one frame in its memory and the list that frame stopped inside, which it SHALL read once however many frames it takes.
+No turn of the partition SHALL read more than a bounded number of keys holding nothing. A Scan SHALL read one version, chosen
+once. Only a stream ending in `LAST` SHALL be an answer. A Scan naming a transaction SHALL end with that transaction.
+A foreign term SHALL read by the partition's copy of its entries, or by its home's answer when it holds none; an unheld skolem
+IRI SHALL answer no entry wherever it is homed, and any other refusal from the home SHALL end the transaction. Compute SHALL
+decode what the entries hold and SHALL name every term by its text in what it returns.
 
 #### Scenario: A dictionary and a referrer set are read by Scan
 - **WHEN** compute scans the dictionary entry of `<b>` and `R(b)` at `b`'s home
@@ -55,6 +62,110 @@ Compute SHALL decode what the entries hold and SHALL name every term by its text
 #### Scenario: A keyspace outside the kernel's is refused
 - **WHEN** a Scan names a range of the marks keyspace
 - **THEN** it is refused with a protocol error naming the keyspace
+
+#### Scenario: A range of the dictionary holds one key
+- **WHEN** a Scan names a range of the dictionary from one key to another
+- **THEN** it is refused with a protocol error naming the range
+
+#### Scenario: A Scan waits for the epoch it names
+- **WHEN** a Scan names an epoch the partition has not closed, and the partition then closes it
+- **THEN** the answer comes after the close, at that epoch
+
+#### Scenario: A Scan past its deadline names the partition
+- **WHEN** a Scan names an epoch the partition does not close before the Scan's deadline
+- **THEN** it is refused with code 24 (TimedOut), naming the partition, and returns no entry
+
+#### Scenario: A reader granting no credit stops the answer
+- **WHEN** a Scan's answer takes more frames than the stream's credit, and the reader grants no more
+- **THEN** it receives as many frames as its credit, and the Scan is refused with code 24 (TimedOut), naming the partition,
+  once `scan_stall_ms` has passed
+
+#### Scenario: A reader granting credit reads the rest
+- **WHEN** a Scan's answer takes more frames than the stream's credit, and the reader grants credit as it reads
+- **THEN** it receives every range in order, the last frame carrying `LAST`
+
+#### Scenario: A version above the watermark is refused at once
+- **WHEN** a Scan with `at` 4 names a version above the partition's visibility watermark
+- **THEN** it is refused with code 27 (AheadOfWatermark), `detail` the watermark
+
+#### Scenario: A named version in a closed epoch reads on an idle partition
+- **WHEN** a partition has closed an epoch, its visibility watermark lies below that epoch's version bound, and a Scan with
+  `at` 4 names that bound
+- **THEN** it reads what the partition applied, and is not refused
+
+#### Scenario: A Scan reads one version across a close
+- **WHEN** a Scan with `at` 3 has two ranges, and the partition closes another epoch between their frames
+- **THEN** both ranges read the version chosen first, and every frame names its epoch
+
+#### Scenario: A term another partition owns is read through its copy
+- **WHEN** a transaction on partition 1 reads a statement of a predicate partition 2 owns, partition 1 holding the copy
+- **THEN** the Scan's range answers the predicate's ID, and the read returns the statement
+
+#### Scenario: A term another partition owns and no copy holds comes from its home
+- **WHEN** a transaction on partition 1 reads a predicate partition 2 owns, partition 1 holding no copy
+- **THEN** partition 1 takes the ID from partition 2, the range answers it, and a later commit into the list the read scanned
+  aborts the transaction
+
+#### Scenario: A Scan that ends its transaction says so on the Bind stream
+- **WHEN** a Scan's span has no room in the transaction's read set
+- **THEN** the Scan's stream and the Bind stream each carry code 6 (TooLarge), and the transaction's next request is refused
+
+#### Scenario: Closed answers each partition's latest closed epoch
+- **WHEN** compute sends Closed naming the partition at its role address
+- **THEN** the reply holds the partition's latest closed epoch
+
+#### Scenario: A Scan of a partition the address does not serve is refused
+- **WHEN** a Scan and a Recall name a partition the role address does not serve
+- **THEN** each is refused with a protocol error naming the partition
+
+#### Scenario: Every range is checked before any frame
+- **WHEN** Scans hold a valid range and then one of the marks keyspace, of a split part, of an unknown keyspace, of the
+  dictionary with no past key, of the referrer sets with a first key too short, or of the referrer sets past their namespace
+- **THEN** each is refused with a protocol error naming what is wrong, and no frame precedes the refusal
+
+#### Scenario: A record too large for a frame is refused
+- **WHEN** the dictionary holds a value too large for the receiver's `max_frame`
+- **THEN** a Scan of it is refused with code 6 (TooLarge), `detail` that `max_frame`
+
+#### Scenario: A stalled Scan leaves another running
+- **WHEN** one Scan of a connection holds no credit and another takes its credit as it reads
+- **THEN** the second reaches `LAST` while the first takes no more frames
+
+#### Scenario: A range of emptied lists takes many turns
+- **WHEN** a range holds more emptied lists than a turn reads, and a list holding an object after them
+- **THEN** the answer holds that list alone, and the range ends with `end` 1
+
+#### Scenario: A Scan of a transaction ends with it
+- **WHEN** a Scan of a transaction waits for credit, and the transaction aborts
+- **THEN** the Scan is refused at once with a protocol error, as one the partition does not hold
+
+#### Scenario: Scans of a transaction wait on its home together
+- **WHEN** two Scans of a transaction overlap, each naming an IRI of a home that has not answered
+- **THEN** neither is refused, and each range answers the ID its home gave
+
+#### Scenario: A Scan arriving while its transaction's write waits on a home is refused
+- **WHEN** a transaction's Write waits on a home's answer, and a Scan of the transaction arrives
+- **THEN** the Scan is refused with a protocol error naming the write
+
+#### Scenario: An unheld skolem IRI answers no entry wherever it is homed
+- **WHEN** a transaction names in a Scan a skolem IRI no dictionary holds, homed on another partition
+- **THEN** the range answers no entry with `end` 1, and the transaction goes on
+
+#### Scenario: A home's refusal ends the transaction on both streams
+- **WHEN** a transaction names in a Scan an IRI its home refuses, and the IRI is no skolem IRI
+- **THEN** the Scan's stream and the Bind stream each carry the home's refusal
+
+### Requirement: A partition answers a Recall from its session table
+A partition SHALL answer a Recall with the session's stored reply when its table holds the request as the session's last,
+and SHALL otherwise say why it holds none: the request in its commit step, a later request as the session's last, or neither.
+
+#### Scenario: A Recall returns the stored reply
+- **WHEN** a session's request committed, and the frontend recalls it
+- **THEN** the partition answers with a Commit frame holding what the commit's reply held
+
+#### Scenario: A Recall of what the table does not hold
+- **WHEN** the frontend recalls a request the table holds no reply for, then a request below the session's last
+- **THEN** the first is refused with code 18 (NotCommitted), and the second with code 13 (RequestOutOfOrder), `detail` the last
 
 ### Requirement: A read through compute is a read of its transaction
 A read of a read-write transaction SHALL reach the partition as a Scan naming the transaction, and SHALL see that

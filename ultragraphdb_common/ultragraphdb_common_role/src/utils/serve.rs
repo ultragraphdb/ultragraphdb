@@ -144,7 +144,7 @@ where
             }
             None => {}
         }
-        flush(writer, machine).await?;
+        flush(writer, machine, session).await?;
     }
     Ok(())
 }
@@ -169,30 +169,33 @@ where
         let wait = machine
             .next_deadline()
             .map(|deadline| deadline.saturating_duration_since(now()));
-        let mut deadline = pin!(async {
-            match wait {
-                Some(wait) => compio::time::sleep(wait).await,
-                None => std::future::pending().await,
-            }
-        });
-        let mut push = pin!(session.next_push());
-        let event = poll_fn(|cx| {
-            if let Poll::Ready(frame) = read.as_mut().poll(cx) {
-                return Poll::Ready(Event::Frame(frame));
-            }
-            if let Poll::Ready(pushed) = push.as_mut().poll(cx) {
-                return Poll::Ready(Event::Push(pushed));
-            }
-            deadline.as_mut().poll(cx).map(|()| Event::Deadline)
-        })
-        .await;
+        // The push future borrows the session, so its scope ends before a flush tells the session of room.
+        let event = {
+            let mut deadline = pin!(async {
+                match wait {
+                    Some(wait) => compio::time::sleep(wait).await,
+                    None => std::future::pending().await,
+                }
+            });
+            let mut push = pin!(session.next_push());
+            poll_fn(|cx| {
+                if let Poll::Ready(frame) = read.as_mut().poll(cx) {
+                    return Poll::Ready(Event::Frame(frame));
+                }
+                if let Poll::Ready(pushed) = push.as_mut().poll(cx) {
+                    return Poll::Ready(Event::Push(pushed));
+                }
+                deadline.as_mut().poll(cx).map(|()| Event::Deadline)
+            })
+            .await
+        };
         match event {
             Event::Frame(frame) => return Ok(Some(frame)),
             Event::Push((stream, frame)) => {
                 // A reply to a stream the peer cancelled meanwhile has no one to go to.
                 if machine.outbound().is_open(stream) {
                     machine.outbound().push(stream, frame)?;
-                    flush(writer, machine).await?;
+                    flush(writer, machine, session).await?;
                 }
             }
             Event::Deadline => {
@@ -232,7 +235,13 @@ where
         session.authenticating(message.message()).await;
     }
     match machine.receive(&received, now())? {
-        Inbound::Welcomed { protocol } => reader.framer_mut().set_protocol(protocol),
+        Inbound::Welcomed {
+            protocol,
+            max_frame,
+        } => {
+            reader.framer_mut().set_protocol(protocol);
+            session.welcomed(max_frame);
+        }
         Inbound::Request { stream, .. } => match session.answer(stream, received).await {
             Answer::Reply(reply) => machine.outbound().push(stream, reply)?,
             Answer::Open => {}
@@ -250,17 +259,30 @@ where
     Ok(())
 }
 
-/// Writes every frame the machine lets go.
-async fn flush<W, A>(
+/// Writes every frame the machine lets go, then tells the session of each stream with room for its next frame, and of each
+/// whose frame left with none.
+async fn flush<W, A, H>(
     writer: &mut Connection<W>,
     machine: &mut ServerConnection<A>,
+    session: &mut H,
 ) -> Result<(), TransportError>
 where
     W: AsyncWrite,
     A: Authenticator,
+    H: Session,
 {
     while let Some((_, frame)) = machine.next_frame() {
         let _sent = writer.write_frame(frame).await?;
     }
+    machine
+        .outbound()
+        .take_ready()
+        .into_iter()
+        .for_each(|stream| session.ready(stream));
+    machine
+        .outbound()
+        .take_left()
+        .into_iter()
+        .for_each(|stream| session.left(stream));
     Ok(())
 }

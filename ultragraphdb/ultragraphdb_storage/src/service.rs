@@ -24,7 +24,7 @@ use ultragraphdb_common_service::{Readiness, RoleKind, RoleStart, Stopping, core
 use ultragraphdb_common_service_config::{ServiceConfig, partition_address};
 use ultragraphdb_common_storage::{
     CoreChannels, CoreMessage, CoreParts, FrontendAsk, PartitionCore, Peers, RefillBlocks,
-    StorageHost, StoragePartition, StorageSession,
+    SCAN_STALL_MS_DEFAULT, StorageHost, StoragePartition, StorageSession,
 };
 use ultragraphdb_core_ids::{Epoch, Namespace, TypePrefix, Version};
 use ultragraphdb_core_mapping::RandomSource;
@@ -354,14 +354,11 @@ async fn serve_partition(
     ))
     .detach();
     let channels = CoreChannels::new(inbox, serving.remote, serving.self_sender, closes, asks_tx);
-    let core = PartitionCore::new(CoreParts::new(
-        serving.host,
-        own,
-        cluster.id(),
-        now(),
-        channels,
-        peers,
-    ));
+    let stall = start.config.storage().scan_stall_ms();
+    let core = PartitionCore::new(
+        CoreParts::new(serving.host, own, cluster.id(), now(), channels, peers)
+            .with_scan_stall_ms(stall.unwrap_or(SCAN_STALL_MS_DEFAULT)),
+    );
     let mut running = std::pin::pin!(core.run(stopping));
     std::future::poll_fn(|cx| {
         if let std::task::Poll::Ready(Ok(failure)) = std::pin::Pin::new(&mut lost).poll(cx) {

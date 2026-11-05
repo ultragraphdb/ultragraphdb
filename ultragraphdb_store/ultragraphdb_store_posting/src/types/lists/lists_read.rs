@@ -21,6 +21,7 @@ use crate::types::cache_miss::CacheMiss;
 use crate::types::cached_list::CachedList;
 use crate::types::list::List;
 use crate::types::lists::Lists;
+use crate::types::read_pin::ReadPin;
 use crate::utils::constants::HIGH_PRIORITY_DELTAS;
 use crate::utils::lock::lock;
 
@@ -29,6 +30,22 @@ where
     S: Store,
     C: ListCache<Value = CachedList>,
 {
+    /// Keeps `version` readable until the [`ReadPin`] is dropped: an open read, as a request holds, bounding the discard
+    /// timestamp.
+    ///
+    /// # Errors
+    ///
+    /// [`PostingError::ts_too_old`] for a version below what the store has discarded.
+    pub fn pin(&self, version: u64) -> Result<ReadPin<'_, S, C>, PostingError> {
+        let mut state = lock(&self.state);
+        if version < self.store.discard_ts() {
+            return Err(PostingError::ts_too_old());
+        }
+        state.ts.open_read(version);
+        drop(state);
+        Ok(ReadPin::new(self, version))
+    }
+
     /// The list of `key` at `read_ts`, from the cache when an entry serves the read, from the store otherwise,
     /// filling the cache with what it read when no commit got in between: Dgraph's `ReadData`.
     pub fn read(&self, key: &[u8], read_ts: u64) -> Result<List, PostingError> {

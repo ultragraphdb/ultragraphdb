@@ -42,6 +42,7 @@ impl PartitionCore<'_> {
                 frame,
                 done,
                 pushes,
+                max_frame,
             } => {
                 let key = (connection, stream);
                 let command = frame.command();
@@ -52,7 +53,7 @@ impl PartitionCore<'_> {
                 } else if is_operation {
                     self.operate(key, frame, done);
                 } else {
-                    let answered = self.answer(key, &frame, &pushes);
+                    let answered = self.answer(key, &frame, &pushes, max_frame);
                     // An asker gone has no one to tell.
                     drop(done.send(answered));
                 }
@@ -62,11 +63,15 @@ impl PartitionCore<'_> {
                 self.host.abort_bound(key);
                 let _ended = self.bound_namespace.remove(&key);
                 let _parked = self.parked.remove(&key);
+                self.cancel_scan(key);
             }
+            CoreMessage::Ready { connection, stream } => self.scan_room((connection, stream)),
+            CoreMessage::Left { connection, stream } => self.scan_left((connection, stream)),
             CoreMessage::Closed { connection } => {
                 self.host.abort_connection(connection);
                 self.bound_namespace.retain(|(of, _), _| *of != connection);
                 self.parked.retain(|(of, _), _| *of != connection);
+                self.close_scans(connection);
             }
         }
     }
@@ -165,7 +170,13 @@ impl PartitionCore<'_> {
     /// Runs each write whose references were answered, from the frame it held.
     pub(super) fn resume_ready(&mut self) {
         let now = self.now_us();
+        for (key, refusal) in self.host.take_bound_refused() {
+            let reply = error_reply(&refusal);
+            self.tell_ended(key, &reply);
+            self.refuse_references(key, &reply);
+        }
         for key in self.host.take_bound_ready() {
+            self.wake_references(key);
             let Some(parked) = self.parked.remove(&key) else {
                 continue;
             };
@@ -190,7 +201,13 @@ impl PartitionCore<'_> {
     }
 
     /// Any request that is not a write: answered now, or later through `pushes`.
-    fn answer(&mut self, key: BoundKey, frame: &ReceivedFrame, pushes: &Pushes) -> Answer {
+    fn answer(
+        &mut self,
+        key: BoundKey,
+        frame: &ReceivedFrame,
+        pushes: &Pushes,
+        max_frame: u32,
+    ) -> Answer {
         let view = match frame.view() {
             Ok(view) => view,
             Err(rule) => return Answer::Refuse(ErrorReply::protocol(&rule)),
@@ -206,6 +223,12 @@ impl PartitionCore<'_> {
             Ok(Answer::Done)
         } else if command == Command::Reference {
             self.reference(key, &view, pushes)
+        } else if command == Command::Scan {
+            self.scan(key, &view, pushes, max_frame)
+        } else if command == Command::Closed {
+            self.closed_epochs(key.1, &view)
+        } else if command == Command::Recall {
+            self.recall(key.1, &view)
         } else {
             Err(ErrorReply::new(
                 ErrorCode::Unavailable,
@@ -243,7 +266,12 @@ impl PartitionCore<'_> {
         let now = self.now_us();
         let read_version = self
             .host
-            .bind(key, bind.namespace(), bind.principal(), epoch, now)
+            .bind(
+                key,
+                bind.transaction(),
+                (bind.namespace(), bind.principal(), epoch),
+                now,
+            )
             .map_err(|refusal| error_reply(&refusal))?;
         let _previous = self
             .bound_namespace
@@ -300,7 +328,7 @@ fn ended() -> Answer {
     ))
 }
 
-fn built<B: BodyBuilder>(body: &B, header: Header) -> Result<Answer, ErrorReply> {
+pub(super) fn built<B: BodyBuilder>(body: &B, header: Header) -> Result<Answer, ErrorReply> {
     body.frame(header)
         .map(Answer::Reply)
         .map_err(|rule| ErrorReply::protocol(&rule))

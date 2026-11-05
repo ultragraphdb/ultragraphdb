@@ -450,6 +450,24 @@ fn entry_complete(w: &mut Steps) {
     );
 }
 
+#[when("`ci_storage_1.toml` sets `storage.scan_stall_ms = 0`")]
+fn zero_stall(w: &mut Steps) {
+    let target = with(
+        valid(),
+        "storage_1",
+        "[storage]\npartition_first = 1\npartition_count = 2\nrole_address = \"tcp://10.0.0.2:7000\"\nscan_stall_ms = 0\n",
+    );
+    w.defects = check_target(&target, None);
+}
+
+#[then("the entry names `storage.scan_stall_ms`, the value 0 and the bound it must meet")]
+fn stall_entry(w: &mut Steps) {
+    says(
+        w,
+        &["setting storage.scan_stall_ms", "it holds 0", "at least 1"],
+    );
+}
+
 #[when("`ci_storage.toml` holds `partiton_count = 4` under `[storage]`")]
 fn misspelled(w: &mut Steps) {
     let target = with(valid(), "storage", "[storage]\n\npartiton_count = 4\n");

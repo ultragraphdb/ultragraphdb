@@ -7,8 +7,9 @@ mod partition_error_display;
 mod partition_error_error;
 mod partition_error_from;
 
-use ultragraphdb_store_apply::ChangesetError;
-use ultragraphdb_store_quads::QuadError;
+use ultragraphdb_protocol_wire::ErrorCode;
+use ultragraphdb_store_apply::{ChangesetError, ChangesetErrorEnum};
+use ultragraphdb_store_quads::{QuadError, QuadErrorEnum};
 use ultragraphdb_transactions_commit::{CommitError, PipelineError};
 use ultragraphdb_transactions_txn::TxnError;
 
@@ -22,6 +23,7 @@ use ultragraphdb_transactions_txn::TxnError;
 ///   partition that has not closed its epoch.
 /// - **Refused by the home:** [`Refused`](PartitionErrorEnum::Refused): a registration's home answered it with an error
 ///   code.
+/// - **A broken frontend:** [`TransactionHeld`](PartitionErrorEnum::TransactionHeld): a Bind repeating a transaction's identity.
 /// - **Below:** [`Txn`](PartitionErrorEnum::Txn), [`Changeset`](PartitionErrorEnum::Changeset),
 ///   [`Quad`](PartitionErrorEnum::Quad), [`Pipeline`](PartitionErrorEnum::Pipeline),
 ///   [`Commit`](PartitionErrorEnum::Commit): the transaction's, the applier's, the store's, the commit pipeline's or
@@ -52,6 +54,11 @@ pub enum PartitionErrorEnum {
     Refused {
         /// The error code.
         outcome: u16,
+    },
+    /// A Bind named the transaction `identity`, which the partition already holds.
+    TransactionHeld {
+        /// The identity the Bind named.
+        identity: [u8; 16],
     },
     /// The transaction's error.
     Txn(TxnError),
@@ -85,8 +92,25 @@ impl PartitionError {
         Self(PartitionErrorEnum::TimedOut { partition })
     }
 
+    /// Whether a home's refusal says its dictionary does not hold the skolem IRI it was asked: its dictionary's own refusal, or
+    /// from another process the outcome a registration of one carries (`PROTOCOL.md` §13.15).
+    pub fn holds_no_skolem(&self) -> bool {
+        matches!(&self.0, PartitionErrorEnum::Refused { outcome } if *outcome == ErrorCode::Refused.number())
+            || matches!(
+                &self.0,
+                PartitionErrorEnum::Changeset(ChangesetError(ChangesetErrorEnum::Quad(QuadError(
+                    QuadErrorEnum::UnknownSkolem { .. }
+                ))))
+            )
+    }
+
     /// [`PartitionErrorEnum::Refused`] with `outcome`.
     pub fn refused(outcome: u16) -> Self {
         Self(PartitionErrorEnum::Refused { outcome })
+    }
+
+    /// [`PartitionErrorEnum::TransactionHeld`] for `identity`.
+    pub fn transaction_held(identity: [u8; 16]) -> Self {
+        Self(PartitionErrorEnum::TransactionHeld { identity })
     }
 }

@@ -22,6 +22,7 @@ mod partition_counts;
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 use std::num::{NonZeroU64, NonZeroUsize};
+use std::ops::ControlFlow;
 use std::pin::pin;
 use std::task::{Context as TaskContext, Poll, Waker};
 
@@ -38,7 +39,7 @@ use ultragraphdb_core_mapping::{Change, Changeset, RandomSource};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_apply::{ChangesetApplier, ChangesetError};
 use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig};
-use ultragraphdb_store_quads::{KernelRow, KernelScan, QuadStore, iri_bucket};
+use ultragraphdb_store_quads::{KernelRow, KernelScan, Page, PageEnd, QuadStore, iri_bucket};
 use ultragraphdb_store_sim::{
     FaultConfig, Seed, SimClock, SimListCache, SimRng, SimStore, SteppedExecutor, Stream,
 };
@@ -48,13 +49,17 @@ use ultragraphdb_transactions_commit::{
     CloseRequest, CommitErrorEnum, Pipeline, Replay, RoundBounds, Sessions,
 };
 use ultragraphdb_transactions_log::{SimStorage, Wal, WalConfig};
-use ultragraphdb_transactions_txn::{Mode, TxnBuffers, TxnError, TxnErrorEnum, TxnLimits};
+use ultragraphdb_transactions_txn::{
+    Mode, Transaction, TxnBuffers, TxnError, TxnErrorEnum, TxnLimits,
+};
 
 use crate::types::changeset_workload::injected;
 use crate::types::partition_workload::edge_model::{Edge, EdgeModel};
 pub use crate::types::partition_workload::partition_counts::PartitionCounts;
 
 type Part = Partition<SimStore, SimListCache<CachedList>, SteppedExecutor, TestBlockSource>;
+type Txn<'a> =
+    Transaction<'a, SimStore, SimListCache<CachedList>, SteppedExecutor, TestBlockSource>;
 type Host = PartitionHost<
     'static,
     Wal<SimStorage>,
@@ -579,7 +584,7 @@ impl PartitionWorkload {
                 TxnBuffers::new(),
             )?;
             let version = txn.read_version();
-            let (mut from, mut found) = (Vec::new(), BTreeSet::new());
+            let (mut from, mut found, mut whole) = (Vec::new(), BTreeSet::new(), Vec::new());
             loop {
                 let scan = KernelScan::new(Keyspace::Forward, NS, from, version, frame);
                 let mut rows = Vec::new();
@@ -587,6 +592,7 @@ impl PartitionWorkload {
                 for row in &rows {
                     found.extend(self.edges_of(part, row)?);
                 }
+                whole.append(&mut rows);
                 let Some(resume) = next else {
                     break;
                 };
@@ -611,7 +617,52 @@ impl PartitionWorkload {
             if txn.held_lists() != 0 {
                 return Err(self.failure("scan_holds_nothing", "a scan held a list"));
             }
+            self.check_pages(part, version, &whole, at)?;
         }
+        Ok(())
+    }
+
+    /// `part`'s forward lists read a second way at `version`, by pages of a small budget and a limit drawn from the seed, as a
+    /// Scan's frames read them, plain and by a transaction: both answer `whole` row for row, and the transaction's read set
+    /// holds one range. The draws leave the workload's own stream as it is, so a seed's steps do not depend on this check.
+    fn check_pages(
+        &mut self,
+        part: &Part,
+        version: u64,
+        whole: &[KernelRow],
+        at: Epoch,
+    ) -> TestResult {
+        let mut rng = SimRng::new(self.seed ^ self.step ^ at.get());
+        let budget = usize::try_from(rng.between(1, 4))?;
+        let limit = NonZeroUsize::new(usize::try_from(rng.between(1, 4))?).context("a limit")?;
+        let plain = read_paged(part, version, budget, limit)?;
+        if plain != whole {
+            return Err(self.failure(
+                "plain_pages_complete",
+                format!("{budget} objects a page, limit {limit}: {plain:?}, a scan {whole:?}"),
+            ));
+        }
+        let now = self.now();
+        let mut txn = part.begin(
+            NS,
+            Mode::ReadOnly,
+            version,
+            now,
+            TxnLimits::default(),
+            TxnBuffers::new(),
+        )?;
+        let reader = TxnPages { txn: &mut txn, now };
+        let paged = read_paged(reader, version, budget, limit)?;
+        if paged != whole {
+            return Err(self.failure(
+                "transaction_pages_complete",
+                format!("{budget} objects a page, limit {limit}: {paged:?}, a scan {whole:?}"),
+            ));
+        }
+        if txn.scanned_ranges().len() > 1 || txn.held_lists() != 0 {
+            return Err(self.failure("pages_hold_one_range", "pages held more than one range"));
+        }
+        self.counts.paged_scans += 2;
         Ok(())
     }
 
@@ -850,6 +901,97 @@ fn unfaulted<T>(stores: &[SimStore], f: impl FnOnce() -> T) -> T {
     }
 }
 
+/// Who answers a page of [`read_paged`].
+trait PageReader {
+    /// The page of `scan`, streamed to `sink`.
+    fn read_page<F>(&mut self, scan: &KernelScan, sink: F) -> TestResult<Page>
+    where
+        F: FnMut(&[u8], &EncodedTerm, &[SystemId]) -> ControlFlow<()>;
+}
+
+impl PageReader for &Part {
+    fn read_page<F>(&mut self, scan: &KernelScan, sink: F) -> TestResult<Page>
+    where
+        F: FnMut(&[u8], &EncodedTerm, &[SystemId]) -> ControlFlow<()>,
+    {
+        Ok(self.applier().quads().page(scan, sink)?)
+    }
+}
+
+/// A transaction's pages at its clock's reading.
+struct TxnPages<'a, 't> {
+    txn: &'a mut Txn<'t>,
+    now: u64,
+}
+
+impl PageReader for TxnPages<'_, '_> {
+    fn read_page<F>(&mut self, scan: &KernelScan, sink: F) -> TestResult<Page>
+    where
+        F: FnMut(&[u8], &EncodedTerm, &[SystemId]) -> ControlFlow<()>,
+    {
+        Ok(self.txn.page(scan, self.now, sink)?)
+    }
+}
+
+/// A namespace's forward lists at `version`, whole, read from `reader`: scans of `limit` rows, each in pages of `budget` objects,
+/// a page resuming as the one before ended.
+fn read_paged<R: PageReader>(
+    mut reader: R,
+    version: u64,
+    budget: usize,
+    limit: NonZeroUsize,
+) -> TestResult<Vec<KernelRow>> {
+    let (mut rows, mut from, mut after, mut left) =
+        (Vec::<KernelRow>::new(), Vec::new(), None, limit);
+    loop {
+        let scan = KernelScan::new(Keyspace::Forward, NS, from, version, left).resuming(after);
+        let mut taken = 0;
+        let sink = |key: &[u8], object: &EncodedTerm, statements: &[SystemId]| {
+            if taken == budget {
+                return ControlFlow::Break(());
+            }
+            taken += 1;
+            let mut objects = match rows.last() {
+                Some(row) if row.key() == key => rows
+                    .pop()
+                    .map_or_else(Vec::new, |popped| popped.objects().to_vec()),
+                Some(_) | None => Vec::new(),
+            };
+            objects.push((object.clone(), statements.to_vec()));
+            rows.push(KernelRow::new(key.to_vec(), objects));
+            ControlFlow::Continue(())
+        };
+        let ended = reader.read_page(&scan, sink)?;
+        let rows_left = left.get() - ended.rows();
+        match ended.into_end() {
+            PageEnd::Exhausted => return Ok(rows),
+            PageEnd::Stopped { mut last } => {
+                last.push(0);
+                from = last;
+                after = None;
+                left = limit;
+            }
+            PageEnd::Yielded { from: next } => {
+                from = next;
+                after = None;
+                left = NonZeroUsize::new(rows_left).context("a yield leaves a row to read")?;
+            }
+            PageEnd::Paused { last: None, .. } => {
+                return Err(TestError::new("a page of a budget took nothing"));
+            }
+            PageEnd::Paused {
+                from: next,
+                after: inside,
+                ..
+            } => {
+                from = next;
+                after = inside;
+                left = NonZeroUsize::new(rows_left).context("a pause leaves a row to read")?;
+            }
+        }
+    }
+}
+
 /// Runs `future` to its end: the simulated log's futures wait on nothing.
 fn block_on<F: Future>(future: F) -> TestResult<F::Output> {
     let mut future = pin!(future);
@@ -881,6 +1023,7 @@ fn explained(error: &PartitionError) -> Result<(), String> {
         | PartitionErrorEnum::WrongPartition { .. }
         | PartitionErrorEnum::CrossPartition { .. }
         | PartitionErrorEnum::TimedOut { .. }
+        | PartitionErrorEnum::TransactionHeld { .. }
         | PartitionErrorEnum::Refused { .. } => false,
     };
     if fine { Ok(()) } else { Err(error.to_string()) }

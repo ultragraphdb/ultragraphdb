@@ -241,6 +241,14 @@ fn bounds(checking: &mut Checking<'_>, instance: &Instance, config: &ServiceConf
             "it must be at least 1",
         );
     }
+    if instance.role() == "storage" && config.storage().scan_stall_ms() == Some(0) {
+        checking.report(
+            name,
+            "storage.scan_stall_ms",
+            "it holds 0".to_string(),
+            "it must be at least 1",
+        );
+    }
     if let Some(address) = config.observability().address()
         && address
             .strip_prefix("tcp://")
