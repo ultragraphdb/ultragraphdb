@@ -1,0 +1,20 @@
+specification/SCHEMA.md
+  s_d18ff34562952d::t_bbef0c8544650d 1-1642
+  s_d18ff34562952d::t_2e7e0c6a93db4a 1643-1690
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b1094739a7bef72d344efb0c5bd1c5a563a3c87a",
+  "prompts": {},
+  "sessions": {
+    "s_d18ff34562952d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b263ae46-8b16-46b4-81c5-522c712b251f",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
