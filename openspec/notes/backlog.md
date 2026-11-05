@@ -305,7 +305,7 @@ after 100 consecutive failures of a principal its authentications SHALL be refus
 interval, 15 minutes by default, after which they are accepted again; a success SHALL reset the count. A server
 configured without authentication SHALL listen on the loopback interface only, and SHALL refuse to start on any other
 address. Each authentication, its outcome and the principal it named SHALL be written to the audit log, and no password,
-proof or token SHALL be written to any log (`ultragraphdb_protocol/SECURITY.md`).
+proof or token SHALL be written to any log (`../../specification/SECURITY.md`).
 
 #### Scenario: No bootstrap secret, no cluster
 - **WHEN** a server requiring authentication starts on an empty data directory without the bootstrap secret file

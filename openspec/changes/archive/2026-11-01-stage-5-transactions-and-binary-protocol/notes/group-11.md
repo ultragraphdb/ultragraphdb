@@ -285,7 +285,7 @@ Defects planted in a copy of the tree, run in Linux:
 - `ultragraphdb_core/ultragraphdb_core_terms/src/types/encoded_term/mod.rs`: findings 1 and 3;
   `tests/types/encoded_term/encoded_term_tests.rs`: three tests; `testdata/fuzz_regressions/encoded_term/` (new), two
   cases.
-- `ultragraphdb_protocol/PROTOCOL.md` §10.1 and §10.5: the duration's signs and the timezone range.
+- `../../../../../specification/PROTOCOL.md` §10.1 and §10.5: the duration's signs and the timezone range.
 - `ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/term_table/mod.rs`: finding 4;
   `tests/types/term_table/term_table_tests.rs` and `tests/types/result_view/result_view_tests.rs`: findings 4 and 2.
 - `fuzz/ultragraphdb_protocol_wire/fuzz_targets/body_fields.rs` (finding 2), `frame.rs`,

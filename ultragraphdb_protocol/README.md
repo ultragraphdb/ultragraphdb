@@ -11,8 +11,8 @@ define the protocol, so the client and the server share the same crates.
 | `ultragraphdb_protocol_transport` | the connection's logic | none | `ultragraphdb_protocol_wire`, `ultragraphdb_error_protocol` |
 | `ultragraphdb_protocol_transport_compio` | the I/O shell for compio | compio | `ultragraphdb_protocol_transport`, `ultragraphdb_protocol_wire`, `compio` |
 
-Two documents beside them specify what the crates implement: `PROTOCOL.md`, the protocol's bytes and the connection's
-rules, and `SECURITY.md`, the security architecture those bytes carry.
+Two documents beside them specify what the crates implement: `../specification/PROTOCOL.md`, the protocol's bytes and the connection's
+rules, and `../specification/SECURITY.md`, the security architecture those bytes carry.
 
 ## `ultragraphdb_protocol_wire`: the format
 

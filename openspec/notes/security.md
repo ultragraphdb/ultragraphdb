@@ -1,6 +1,6 @@
 # Security: authentication, authorization and encryption
 
-Status: designed 2026-10-30, for point 53 of `ultragraphdb_protocol/PROTOCOL.md` §13 (the user's decision: design
+Status: designed 2026-10-30, for point 53 of `../../specification/PROTOCOL.md` §13 (the user's decision: design
 authentication, authorization and encryption now, RBAC supported from the ground up and added later, TLS and other
 advanced encryption implemented later). The design was then checked against Dgraph's ACL and against current practice;
 where the two differ it follows the practice, since the port has already found an unusually large number of severe bugs
@@ -351,7 +351,7 @@ trusted issuer asserts and no principal holds is refused until an administrator 
 
 ## Refined in review
 
-A review of `ultragraphdb_protocol/SECURITY.md` (2026-10-30) refined the design, and the architecture states each:
+A review of `../../specification/SECURITY.md` (2026-10-30) refined the design, and the architecture states each:
 
 - The bootstrap secret file is read once, at the cluster's creation; the server keeps only the verifier derived from
   it, and the operator removes the file.

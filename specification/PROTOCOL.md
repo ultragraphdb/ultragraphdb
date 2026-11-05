@@ -3,13 +3,13 @@
 This file specifies the bytes of UltraGraphDB's binary protocol, version 1: the frame, every command's body, the term
 encodings, the error codes and the connection's rules, for a client's connection to the frontend and for the role
 connections between the frontend, compute and storage. A client in any language implements the protocol from this file
-and the golden frames in `ultragraphdb_protocol_wire/testdata/golden/`. The Rust crates `ultragraphdb_protocol_wire`
+and the golden frames in `../ultragraphdb_protocol/ultragraphdb_protocol_wire/testdata/golden`. The Rust crates `ultragraphdb_protocol_wire`
 (the bytes) and `ultragraphdb_protocol_transport` (the connection's state machines) implement it for client, server and
 roles. `SECURITY.md` beside this file describes the security architecture the protocol carries: authentication,
 authorization and encryption.
 
 This file leads the code: group 8 of stage 5.5 brings the crates and the golden frames to it
-(`openspec/changes/stage-5-5-three-role-refactor/tasks.md`).
+(`../openspec/changes/stage-5-5-three-role-refactor/tasks.md`).
 
 ## Contents
 
