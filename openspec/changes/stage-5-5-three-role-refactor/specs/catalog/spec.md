@@ -1,11 +1,31 @@
 ## MODIFIED Requirements
 
+### Requirement: Predicate declarations
+The catalog SHALL hold, per tenant, a declaration for each predicate IRI it knows: its kind (edge, property, or
+either), its cardinality (single- or multi-valued), an optional datatype constraint, whether its values are unique, its
+indexes (tokenizers, an exact count index, and a vector index with its parameters), and the entity types it is declared
+on, which the data dictionary reports it under. A declaration whose datatype constraint is not among the datatypes one
+of its tokenizers takes SHALL be refused. A predicate the catalog does not declare SHALL behave as declared with kind
+either, multi-valued, no datatype constraint, values not unique, no index and no entity type.
+
+#### Scenario: An undeclared predicate accepts any object
+- **WHEN** `<a> <p> <b>` and `<a> <p> "text"` are written and `p` is not declared
+- **THEN** both statements are held
+
+#### Scenario: A tokenizer that cannot take the datatype constraint is refused
+- **WHEN** `age` is declared with datatype `xsd:string` and an `int` index
+- **THEN** the declaration fails with an error naming `age`, `int` and `xsd:string`
+
+#### Scenario: A declared index is read by index maintenance
+- **WHEN** `name` is declared a property with a `term` index and `<a> <name> "big apple"` is written
+- **THEN** the term index of `name` lists `a` under `big` and `apple`
+
 ### Requirement: Unique values
 A write SHALL be refused, writing nothing of its changeset, when it gives a predicate declared unique an object that
 another subject holds for that predicate in the same graph. Writing an object the same subject already holds SHALL be
 accepted. Every write of a unique predicate's value, a plain write as well as an insert-if-absent or an
 upsert-and-link, SHALL claim the value at the partition owning the value's bucket (system-identity, "The bucket comes
-from the namespace and the key"), which records the claim and decides it; a claim from another partition is
+from the tenant and the key"), which records the claim and decides it; a claim from another partition is
 cross-partition and SHALL be refused with `CrossPartition` in this stage (partitions, "A read-write transaction stays
 within one partition in this stage"), with one partition it is local.
 

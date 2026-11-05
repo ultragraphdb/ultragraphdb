@@ -26,18 +26,18 @@ refused as invalid wherever it is decoded.
   are sorted by their bytes
 - **THEN** the order is (1, 900, 7), (1, 3, 99), (2, 9, 1): type first, then sequence
 
-### Requirement: The bucket comes from the namespace and the key
+### Requirement: The bucket comes from the tenant and the key
 An entity's bucket SHALL be fixed when the entity is created and SHALL be computed, never chosen: its top 8 bits SHALL
-be the top 8 bits of XXH3-64 (seed 0) of the namespace as 8 big-endian bytes, and its low 16 bits SHALL be the top 16
+be the top 8 bits of XXH3-64 (seed 0) of the tenant as 8 big-endian bytes, and its low 16 bits SHALL be the top 16
 bits of XXH3-64 (seed 0) of the declaring type's prefix as 2 big-endian bytes followed by the key's canonical encoding.
 A statement SHALL take the bucket of its subject. A blank node, which has no key, SHALL take the bucket its skolem IRI
 states (term-dictionary, "IRIs and blank nodes get system IDs"). A value of a predicate declared unique SHALL be claimed
 in the bucket computed the same way with the predicate's system ID as its 16 big-endian bytes, followed by the value's
 term encoding, in place of the type's prefix and the key, so the partition owning that bucket decides the claim. The
-same namespace, type and key SHALL always give the same bucket on every node and in every version that reads it.
+same tenant, type and key SHALL always give the same bucket on every node and in every version that reads it.
 
 #### Scenario: The bucket matches the XXH3 reference
-- **WHEN** the bucket of the IRI `http://ex.org/a` in namespace 0 is computed
+- **WHEN** the bucket of the IRI `http://ex.org/a` in tenant 0 is computed
 - **THEN** its top 8 bits equal the top byte of the xxHash reference implementation's XXH3-64 of eight zero bytes, and
   its low 16 bits equal the top two bytes of the reference XXH3-64 of the `Resource` prefix's 2 bytes followed by the
   IRI's canonical encoding, both values committed as golden values with their source
@@ -47,13 +47,18 @@ same namespace, type and key SHALL always give the same bucket on every node and
 - **THEN** the statement's bucket equals the bucket of `http://ex.org/a`
 
 #### Scenario: A unique value's bucket is computed from its predicate and value
-- **WHEN** the bucket of the value `"x"` of the unique predicate `epi.id` is computed in namespace 0
-- **THEN** its top 8 bits equal the namespace's reference value, and its low 16 bits equal the top two bytes of the
+- **WHEN** the bucket of the value `"x"` of the unique predicate `epi.id` is computed in tenant 0
+- **THEN** its top 8 bits equal the tenant's reference value, and its low 16 bits equal the top two bytes of the
   reference XXH3-64 of `epi.id`'s 16 ID bytes followed by `"x"`'s term encoding
 
-#### Scenario: Two namespaces separate one key
-- **WHEN** the IRI `http://ex.org/a` is bucketed in namespaces 0 and 1
-- **THEN** the two buckets' low 16 bits are equal, and their top 8 bits are the reference values for each namespace
+#### Scenario: Two tenants separate one key
+- **WHEN** the IRI `http://ex.org/a` is bucketed in tenants 0 and 1
+- **THEN** the two buckets' low 16 bits are equal, and their top 8 bits are the reference values for each tenant
+
+#### Scenario: Two tenants sharing a run keep one key apart
+- **WHEN** tenants A and B, whose hashes share their top 8 bits, each write the IRI `http://ex.org/a`
+- **THEN** the two buckets are equal, each tenant's dictionary holds its own entry under its own key, and each IRI has
+  its own system ID
 
 ### Requirement: Until UGS keys exist, an IRI is the key of the Resource type
 In this stage every IRI-named entity SHALL be of the built-in type `Resource`, whose key is the IRI, and every statement
@@ -100,7 +105,8 @@ predicate and object with its graph, which is unique among statements without on
 because it carries properties or repeats a quad as a parallel edge, SHALL be named by its reifier, a skolem IRI minted
 as a blank node's with the statement's bucket (term-dictionary, "IRIs and blank nodes get system IDs"). Neither SHALL be
 named by its statement ID. A resume key SHALL be an opaque, checksummed token the server alone decodes, carrying the
-read's last row by its terms in text form and the pattern's hash, never a store key.
+read's last row by its terms in text form, the pattern's hash and what binds it to its transaction (quad-reads, "Resume
+keys continue their own read"), never a store key.
 
 #### Scenario: A result names an IRI by its text
 - **WHEN** a client reads the subject of a statement whose subject is `http://ex.org/a`

@@ -71,7 +71,7 @@ Scenarios, verbatim from the change's specs, bound by each crate's `bdd` target 
   referrer key and the mark key included.
 - `core_keys/features/quad-storage/quad_storage_keys.feature`: quad-storage's "Forward keys of a predicate sort by
   subject" (the rewritten text), "Two subjects of one predicate share a region" and "Referrer keys share their
-  namespace's region", the scenarios the keys decide alone.
+  tenant's region", the scenarios the keys decide alone.
 - `core_keys/features/port-testing/port_testing.feature`: unchanged.
 - `core_codec/features/uid-lists/codec.feature`: "ID lists pack into the repository's own format" (3), "Packed lists
   decode, seek and round-trip" (2), and of "Decoders seek without panicking or hanging" the 4 the codec decides.
@@ -95,7 +95,7 @@ Corner cases enumerated before the suite, each with its test:
 |---|---|
 | keys: the default graph's 16 zero bytes, and the same bytes in an ID field | `test_16_zero_bytes_are_the_default_graph_and_nothing_else` |
 | keys: every ID field invalid three ways (zero sequence, zero prefix, a reserved bit) | `test_an_invalid_id_is_refused_in_every_field_naming_it` |
-| keys: IDs at their bounds, namespace `u64::MAX` | `test_ids_at_their_bounds_round_trip` |
+| keys: IDs at their bounds, tenant `u64::MAX` | `test_ids_at_their_bounds_round_trip` |
 | keys: groups 0 and 2^18 − 1 held; 2^18 and 2^24 − 1 refused | `test_a_mark_holds_every_group_of_18_bits`, `test_a_mark_group_past_18_bits_is_refused` |
 | keys: split starts of 0 to 7, 9 to 15, 17, 24 and 32 bytes; ID starts at their bounds; fingerprints 0, 1, `u64::MAX` | `test_a_split_start_of_neither_8_nor_16_bytes_is_refused`, the two split round trips |
 | keys: a value-index key's fingerprint start, its invalid ID start, a flag with no room for a start | `test_a_value_index_key_splits_at_an_id_alone`, `test_a_split_start_that_is_no_valid_id_is_refused`, `test_a_split_flag_with_no_room_for_a_start_is_truncated` |
@@ -339,7 +339,7 @@ Built with Bazel, `--keep_going`, each library alone:
 4. **Keyspace bytes and kinds.** Marks 0x19 and referrers 0x1A; neither holds lists (a referrer set never splits; a mark
    holds a generation). `Keyspace::has_graph` is new, and `key_prefix` leaves a graph out for the catalog, the marks and
    the referrers, where it used to append one for the catalog if given. The marks' and referrers' regions are their
-   namespace's, implemented here as `QuadKey::region` must be total; group 3's task 3.3 names them too.
+   tenant's, implemented here as `QuadKey::region` must be total; group 3's task 3.3 names them too.
 5. **A posting is keyed by 128 bits:** a reference's system ID, or a value's 64-bit fingerprint, which sorts below every
    ID; splits likewise. A reference and a literal can no longer share a key. The pack holds system IDs alone (see the
    downstream note on the rollup).

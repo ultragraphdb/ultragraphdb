@@ -14,7 +14,7 @@ placement decision adopted 2026-11-02), the review's D1–D8
 
 - **Identity (D1 as revised, P7, P15, P16, P24):** every entity and statement receives a 128-bit system ID: from the
   most significant bit, a 16-bit type prefix, a 64-bit sequence unique per type, a 24-bit bucket (8 bits hashed from the
-  namespace, 16 from the declaring type and the key), and 24 reserved bits. Until UGS keys exist, an IRI is the key of
+  tenant, 16 from the declaring type and the key), and 24 reserved bits. Until UGS keys exist, an IRI is the key of
   the built-in `Resource` type. Sequences are leased in blocks per (type, partition) from the metadata group. IDs never
   leave the database: result batches name IRIs by their text, a statement by its quad or, when it holds a statement ID,
   by its reifier's skolem IRI, and a commit-time operation's node by its IRI, a resume key carries its last row's terms
@@ -27,8 +27,12 @@ placement decision adopted 2026-11-02), the review's D1–D8
   sequence would run out, records each close, announces with each close the catalog versions taking effect after it,
   and keeps the ordered log of multi-partition transactions. Every commit carries its partition's open epoch, exactly
   one above the latest close delivered to it: a partition never advances on its own.
+- **Tenants:** the u64 older text calls namespace is the tenant, the engine's unit of isolation, created explicitly in the
+  metadata group, tenant 0 at the first start, bound per Begin and checked at one fail-closed gate on every request naming it;
+  tenants may share a bucket run, isolated by key and by grant. A namespace is a unit of organisation inside a tenant, built at
+  stage 6, with no field in any key, bucket, ID or frame.
 - **The metadata group (D4)** with one replica holds catalog versions, each taking effect two epochs after the latest
-  close when it is committed, ID sequence blocks, the placement map (bucket ranges per partition, namespace runs,
+  close when it is committed, ID sequence blocks, the placement map (bucket ranges per partition, tenant runs,
   preferred leaders) and the principals, whose credentials authenticate every client connection, and the registry of
   sessions.
 - **The config service:** one service, `ultragraphdb_config`, holds every role's settings for every deployment target as immutable
@@ -70,7 +74,7 @@ placement decision adopted 2026-11-02), the review's D1–D8
 
 ### New Capabilities
 
-- `system-identity`: the 128-bit system ID, type prefixes, bucket derivation from namespace and key, the canonical key
+- `system-identity`: the 128-bit system ID, type prefixes, bucket derivation from tenant and key, the canonical key
   encoding, sequences leased per (type, partition), and IDs that never leave the database.
 - `sequencer`: epochs closed at the sequencer's wall-clock time, the record of closes and `as of time`, epoch
   delivery to partitions, the ordered log of multi-partition transactions, one replica, log-backed.
@@ -97,6 +101,7 @@ placement decision adopted 2026-11-02), the review's D1–D8
 
 ### Modified Capabilities
 
+- `kv-store`: banned tenants, in the word the engine uses for the u64.
 - `key-encoding`: keys carry 128-bit IDs; a referrer key names an entity's referrer set; scenarios citing Dgraph's
   bytes are rewritten.
 - `uid-lists`: the packed list holds 128-bit IDs in a format of the repository's own with a version byte; decoders seek
@@ -111,7 +116,7 @@ placement decision adopted 2026-11-02), the review's D1–D8
   keyspaces hold every entry its subjects' statements derive, a registration mark per object and bucket group, and a
   referrers keyspace holds referrer sets, each with its region; graphs and fresh terms in system-ID terms.
 - `vector-index`: HNSW node IDs are 128-bit system IDs.
-- `schema-storage`: the catalog lives in the metadata group, not in each namespace's catalog keys; a first write of an
+- `schema-storage`: the catalog lives in the metadata group, not in each tenant's catalog keys; a first write of an
   undeclared predicate records its default entry there, and an undecodable version refuses the load.
 - `schema-changes`: a schema change takes effect in every partition at the epoch two above the latest close when it is
   committed, announced with the close between.

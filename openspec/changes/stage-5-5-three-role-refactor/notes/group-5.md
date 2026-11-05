@@ -11,8 +11,8 @@ Three new crates and a new group folder, `ultragraphdb_cluster/`:
   `ClockReading`, `Close`, `CatalogVersion`, `SequencedTransaction`, `SequencerRecord`.
 
 Two small additions to `ultragraphdb_core_ids`, test first: `Namespace::bucket_bits` (the top byte of XXH3-64 of the
-namespace's 8 big-endian bytes, which `Bucket::derive` now calls, so the hash rule has one owner and the placement map
-names a namespace's run by it) and `Epoch::ZERO` (epoch 0, which a fresh sequencer and a map's first layout need
+tenant's 8 big-endian bytes, which `Bucket::derive` now calls, so the hash rule has one owner and the placement map
+names a tenant's run by it) and `Epoch::ZERO` (epoch 0, which a fresh sequencer and a map's first layout need
 without a fallible constructor).
 
 Root `Cargo.toml` (member glob `ultragraphdb_cluster/*`, three workspace dependencies), `Cargo.lock`, `AGENTS.md`
@@ -36,7 +36,7 @@ Bazel (`--noincompatible_disallow_empty_glob` for that one build only, since the
   (`tests/utils/reference_model.rs`: each bucket answered by a linear scan over the assignments, no sort and no binary
   search; the first faulty bucket found by counting coverage at bucket 0 and at every range's start and end, the only
   buckets where coverage changes), over 200 seeded random layouts with one of three faults, at every cut and at random
-  buckets, and bucket by bucket over a whole namespace run.
+  buckets, and bucket by bucket over a whole tenant run.
 - The sequencer runs over the real write-ahead log on its simulated storage (`tests/utils/harness.rs`, the log in
   `/seq`, segments of 64 blocks). The scenarios of "Partitions learn each closed epoch and stamp the open one" are driven
   by the sequencer's deliveries into a model of a partition (`tests/utils/partition_model.rs`, the BDD target's alone).
@@ -206,10 +206,11 @@ files.
 
 ## Decisions the specs left open (for the user's review)
 
-1. **The initial map splits every namespace run, not only those of existing namespaces.** The spec asks the namespaces
+1. **The initial map splits every tenant run, not only those of existing tenants.** The spec asks the tenants
    that exist split evenly and every other bucket assigned somewhere; `PlacementMap::even(partitions, leader)` splits
-   all 256 runs alike, so a namespace created later is split evenly too and the map needs no namespace list. The
-   alternative, other runs on one partition, would give a later namespace a single partition (cheap single-partition
+   all 256 runs alike, so a tenant created later is split evenly too and the ranges need no tenant list; Placement's runs list
+   the tenants the metadata group holds, which may share a run. The
+   alternative, other runs on one partition, would give a later tenant a single partition (cheap single-partition
    transactions, no spread).
 2. **At most 1,024 partitions** (`PlacementMap::PARTITIONS_MAX`), hence at most `2^18` ranges per layout (every run
    split over every partition) and 1,024 subscribers and partitions per multi-partition transaction. With every run

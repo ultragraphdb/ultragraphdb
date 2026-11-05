@@ -55,8 +55,8 @@ Bazel after the lift: unit 272 passed, bdd 23 scenarios passed, the same counts.
   `OperationOutcome::Node { node, created }` by interning the node's IRI or skolem IRI (`WriteSetRecord::push_node_result`
   does both), `Set` to `compare_and_set()` and `Counter(v)` to `counter(v)`.
 - `RecordKind` (1 transaction or Drop, 2 a home's registration, 3 a build), `RecordOperation` (codes 1–7: drops of a
-  predicate or graph by `SystemId`, of a namespace's data, of everything in it, of everything; a build's start and
-  completion by catalog version), `RecordRegistration` (`SystemId`, `BucketGroup`, `NonZeroU64` generation), each with
+  predicate or graph by `SystemId`, of a tenant's data, of everything in it; a build's start and completion by catalog
+  version; code 5 is unassigned), `RecordRegistration` (`SystemId`, `BucketGroup`, `NonZeroU64` generation), each with
   `encode()` to its fixed bytes, so a builder writing straight into a lent buffer (`WriteSetBuilder`) need not allocate.
 - `WriteSetRecord`: `transaction(ns)`, `registration(ns, registration)`, `build(ns, operation)`; setters for catalog,
   read version, session (16 bytes) with its request, principal, commit record; pushes for each section, and
@@ -71,9 +71,9 @@ Bazel after the lift: unit 272 passed, bdd 23 scenarios passed, the same counts.
 ## Phase 2: the suite, observed failing
 
 `generate_bodies.py` lays out a new golden Round from §12.1 and §12.2 independently of the crate: position 3, first
-version `(7 << 22) | 100`, derivation 1, five entries (a transaction of namespace 3 at catalog 11 with every section
+version `(7 << 22) | 100`, derivation 1, five entries (a transaction of tenant 3 at catalog 11 with every section
 filled, three results and a 4,000-byte commit record so the body takes chunks; an abort; a home's registration; a
-build's start in namespace 4; a Drop of a predicate), and three dictionary entries. `round.frame` is 5,520 bytes,
+build's start in tenant 4; a Drop of a predicate), and three dictionary entries. `round.frame` is 5,520 bytes,
 checksum `0x9516930d4ee772f5`, body `0xf6853c79e1db4579`. The Commit golden frame's two results took §6.3's layout (a
 counter add of −5, a compare-and-set): 296 bytes, checksum `0xa27355ade16c06e6`, body `0xff715c73e704ed19`. Every other
 golden frame is unchanged byte for byte.
@@ -96,14 +96,14 @@ Corner cases enumerated before the suite, each with its test:
 | Every refusal of §12.2, in order: too short, trailing bytes, kinds 0, 4, 255, bytes 1 and 7, each field a kind leaves 0 (first and last byte), an entry past its section, padding, a statement ID of 15, 17 and no bytes, 16 and 0 taken, a conflict point with a value and with none, a conflict statement and range with none, operations of 23 bytes, unknown codes, padding at 2 and 7, a bad ID and a bad build argument, registrations of 31 bytes and each of their five breaks, group 2¹⁸ − 1 taken, a literal in the results' table, a text gap, results of 47 bytes, padding, `created` 2, a node past the table, a value beside a node, a creation without one, and each kind's sections (two drops, a Drop inserting, a transaction's build, a transaction beside a drop, a registration of 0 and 2 and with a commit record, a build of none, of a drop, with a registration, with a range, a Drop's read version) | `write_set_record_view_tests` |
 | The header's fields at distinct bytes, all ones, all zero; unused bytes 40 and 127; derivation 0, and unused bytes before it | `round_header_tests` |
 | The golden round, an empty round, a dictionary key inserted twice | `round_body_tests` |
-| Every refusal of §12.1: decisions short and miscounted, outcomes 99 and 65,535, padding, a commit's record and detail, an abort's record; the last commit at sequence 2²² − 2, one past it, into the next epoch; the record table short and miscounted, an offset, past section 2 by far and by one, a gap, padding, trailing bytes, a record refused; one namespace naming two catalogs; dictionary entries past the section, padded, removed, out of order, repeated, a prefix before a longer key; the damaged-range naming over each record and the dictionary | `round_view_tests` |
+| Every refusal of §12.1: decisions short and miscounted, outcomes 99 and 65,535, padding, a commit's record and detail, an abort's record; the last commit at sequence 2²² − 2, one past it, into the next epoch; the record table short and miscounted, an offset, past section 2 by far and by one, a gap, padding, trailing bytes, a record refused; one tenant naming two catalogs; dictionary entries past the section, padded, removed, out of order, repeated, a prefix before a longer key; the damaged-range naming over each record and the dictionary | `round_view_tests` |
 | A Commit result naming a node beside a value, creating without a node, naming node 3 | `commit_view_tests` |
 
 ## Phase 3: inputs reviewed for coincidences
 
 The golden build named catalog 12 in its fixed part and as its operation's version, so a field written into the other
 would pass; `test_a_builds_catalog_and_its_operations_version_are_apart` adds catalog 13 against version 12, checked
-byte by byte. Every other field of the golden records is distinct from its neighbours (namespace 3 and 4, catalogs 11
+byte by byte. Every other field of the golden records is distinct from its neighbours (tenant 3 and 4, catalogs 11
 and 12, requests 7 and 8, principal 9, read version `(7 << 22) | 50`, a session of 16 distinct bytes), and the round's
 abort names code 2 with detail 1.
 

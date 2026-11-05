@@ -35,7 +35,7 @@ Review of the rules no lint checks:
   executor's two loops say why they end.
 - **Rule 7.** Indexing and slicing replaced by `get`, `get_mut`, `split_at_checked`, `split_first` and `last_chunk`:
   the simulated file's write (`transactions_log`); the stored key's prefix range, end code and version, the GC filter's
-  and snapshot's version reads, the rebuild-record and banned-namespace keys (`store_kv`); the corruption of a read
+  and snapshot's version reads, the rebuild-record and banned-tenant keys (`store_kv`); the corruption of a read
   value, the reader's reread, the model's power-loss prefixes and the workload's key draws, through one `pick` taking
   the same draw as indexing did (`store_sim`).
 - **Rule 9.** Every `Rc<RefCell>`, `Arc`, `Mutex` and atomic of the four crates carries a comment saying why it is

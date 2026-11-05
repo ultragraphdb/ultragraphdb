@@ -34,7 +34,7 @@ lint checks:
   place. Nothing new allocates per commit.
 - **Rule 5.** Debug checks added: the read set's catalog end exists, its arena stays within u32 offsets, sealed tables
   are strictly sorted; the builder's record has its fixed part and table and is exactly its computed size within its
-  bound; a transaction reads at or below the watermark and its execution at its read version and namespace; the
+  bound; a transaction reads at or below the watermark and its execution at its read version and tenant; the
   sequencer's versions are even and strictly increase; a round record commits at most its decisions; a round's body
   is exactly the sections its table names and its sources are its commits; a merged run holds no more entries than
   both; the largest-record search's result fits and the next does not; a session entry's encoding is its decoded bytes.
@@ -99,7 +99,7 @@ first.
 
 Phase 4 corrections to tests, each test data and none a weakened assertion: replies now carry session tokens (old
 comparisons strip them through `fixture::plain`, tokens tested on their own); version literals moved to the epoch layout
-(`version(epoch, sequence)`); `rdf:type`'s entries in a namespace's first write (8 dictionary entries, not 6); a new
+(`version(epoch, sequence)`); `rdf:type`'s entries in a tenant's first write (8 dictionary entries, not 6); a new
 predicate's ID read from the execution, not the dictionary; the write set now counts the dictionary entries its round
 holds; a too-old read version in the epoch tests' proposals; a retry decided after its first is applied answers the
 stored reply (not busy); the drop scenario's unrelated write commits (no catalog range); a doubled conflict is named
@@ -176,7 +176,7 @@ byte-exact.
    the last delivered is ignored.
 6. **Busy** answers waiting commits once a close request is `close_request_ms` old and every new commit until the close
    arrives; commits held for a session token are not refused (they wait for an epoch, not a full one).
-7. **Catalog versions are per namespace**, taken from closes as announced (in effect from the epoch after the close);
+7. **Catalog versions are per tenant**, taken from closes as announced (in effect from the epoch after the close);
    a kind-1 record without an operation is checked, its conflict placed after the read kinds and before a drop.
 8. **Cross-partition** in the transaction checks the subject of `Insert`, `InsertEdge`, `Delete` and `DeletePattern`
    by its IRI's bucket against the placement at the read epoch; claims of `InsertIfAbsent`/`UpsertAndLink` use

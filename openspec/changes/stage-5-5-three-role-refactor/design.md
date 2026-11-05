@@ -12,7 +12,7 @@ Today:
 - Commit versions follow the clock, `max(previous + 2, 2 × clock µs)` (`ultragraphdb_transactions_commit`'s
   `Sequencer`), and one commit step serves one log.
 - The log records physical key deltas; fjall journals the same writes again (P9, P18).
-- The catalog lives in each namespace's catalog keys (`ultragraphdb_core_catalog`, `ultragraphdb_store_quads`).
+- The catalog lives in each tenant's catalog keys (`ultragraphdb_core_catalog`, `ultragraphdb_store_quads`).
 - Stage 5 built the wire protocol, its transport, SCRAM, sessions, the commit step, the WAL and the Rust client, and no
   server: nothing answers a client.
 - The Ultra lint set is the workspace's one lint table, `[workspace.lints]` in the root `Cargo.toml`, with
@@ -64,14 +64,14 @@ Today:
 |---|---|---|---|
 | `ultragraphdb_error_cluster` | `ultragraphdb_error/` | `_error_invariant`, `_error_log` | `ClusterError(pub ClusterErrorEnum)`: placement, metadata group, sequencer, partitions |
 | `ultragraphdb_error_role` | `ultragraphdb_error/` | `_error_cluster`, `_error_protocol` | `RoleError(pub RoleErrorEnum)`: configuration, start, readiness, exit codes |
-| `ultragraphdb_core_ids` | `ultragraphdb_core/` | `xxhash-rust` | `SystemId`, `TypePrefix`, `Bucket`, `Sequence`, `Namespace`, the canonical key encoding, bucket derivation, `Version` (epoch and sequence), `Epoch`, `SessionToken`, `IdError`; no I/O |
-| `ultragraphdb_cluster_placement` | `ultragraphdb_cluster/` | `_core_ids`, `_error_cluster` | `PartitionId`, `BucketRange`, `NamespaceRun`, `BucketGroup`, `PlacementMap` and its checks |
+| `ultragraphdb_core_ids` | `ultragraphdb_core/` | `xxhash-rust` | `SystemId`, `TypePrefix`, `Bucket`, `Sequence`, `Tenant`, the canonical key encoding, bucket derivation, `Version` (epoch and sequence), `Epoch`, `SessionToken`, `IdError`; no I/O |
+| `ultragraphdb_cluster_placement` | `ultragraphdb_cluster/` | `_core_ids`, `_error_cluster` | `PartitionId`, `BucketRange`, `TenantRun`, `BucketGroup`, `PlacementMap` and its checks |
 | `ultragraphdb_cluster_sequencer` | `ultragraphdb_cluster/` | `_core_ids`, `_error_cluster`, `ultragraphdb_traits_log` | The sequencer's sans-I/O state machine over the ordered-log interface: closes, close requests, catalog announcements, `as of`, subscriptions, the multi-partition log |
 | `ultragraphdb_cluster_metadata` | `ultragraphdb_cluster/` | `_cluster_placement`, `_core_ids`, `_error_cluster`, `ultragraphdb_traits_log`, `ultragraphdb_protocol_scram` | The metadata group's sans-I/O state machine: catalog versions, block leases, the placement map, principals, snapshots |
 | `ultragraphdb_cluster_partition` | `ultragraphdb_cluster/` | `_cluster_placement`, `_core_ids`, `ultragraphdb_transactions_*`, `ultragraphdb_store_*` | A partition: its log, commit step and store over its bucket ranges; routing checks; registration as a home and as a referrer; referrer sets; the read kernels |
 | `ultragraphdb_common_role` | `ultragraphdb_common/` | `_common_service`, `_error_role`, `ultragraphdb_protocol_*` | What every role does on its role connections: the cluster's settings and the role secret, its verifier, dialling and authenticating a peer, serving a connection, joining the frontend |
 | `ultragraphdb_common_frontend` | `ultragraphdb_common/` | `_cluster_metadata`, `_cluster_sequencer`, `_common_role`, `_transactions_log`, `ultragraphdb_protocol_*` | The client endpoint, authentication, routing, the metadata group's and sequencer's hosts |
-| `ultragraphdb_common_compute` | `ultragraphdb_common/` | `_cluster_placement`, `_core_keys`, `_core_terms`, `ultragraphdb_protocol_*`; no storage engine | Quad-pattern reads over storage's kernels: routing by bucket, reverse reads through referrer sets, fan-out, merge in key order, resume keys, levels |
+| `ultragraphdb_common_compute` | `ultragraphdb_common/` | `_cluster_placement`, `_core_keys`, `_core_terms`, `ultragraphdb_protocol_*`; no storage engine | Quad-pattern reads over storage's kernels: routing by bucket, reverse reads through referrer sets, fan-out, merge in key order, resume keys, levels; the value-index and reverse-count lookups the query core calls |
 | `ultragraphdb_common_storage` | `ultragraphdb_common/` | `_cluster_partition`, `_cluster_metadata`, `_common_role`, `_transactions_log`, `ultragraphdb_protocol_*` | The partitions' host: role commands, epoch delivery, block leases |
 | `ultragraphdb_common_service` | `ultragraphdb_common/` | `_common_service_config`, `_common_telemetry`, `_error_role`, `compio`, `signal-hook` | What every role binary does around its role: reading its settings, its runtimes and their CPUs, `/health` and `/ready` from the in-house responder, stopping on a signal |
 | `ultragraphdb_common_service_config` | `ultragraphdb_common/` | `ultragraphdb_tool_toml` | `ServiceConfig`: one type per TOML table and one field per setting, shared by every binary; the optional file, the environment's overrides, `ServiceConfigError` |
@@ -122,10 +122,10 @@ hashed bits, below it, keep a sorted list's deltas small. `TypePrefix(NonZeroU16
 `Resource`, 2 `Statement`; the metadata group allocates declared prefixes from 3 in declaration order (D2) from stage 6.
 The default graph keeps its own key encoding (no ID).
 
-A blank node has no key, so its partition draws its bucket, from those it owns in the namespace's run, and 104 random
+A blank node has no key, so its partition draws its bucket, from those it owns in the tenant's run, and 104 random
 bits from its injected random source, and writes both into the skolem IRI, `…/.well-known/genid/{bucket}-{random}`. The
 bucket rule reads a blank node's bucket back from that IRI, and the IRI shows nothing of the ID but its bucket, 8 hashed
-bits of the namespace and 16 the partition drew. `PROTOCOL.md` already accepts an IRI under the skolem base only when
+bits of the tenant and 16 the partition drew. `PROTOCOL.md` already accepts an IRI under the skolem base only when
 the dictionary holds it as a blank node's; this change extends the rule to an IRI the dictionary holds as a statement
 reifier's name, so a forged genid is still refused. This is the interim name until D6's handles.
 
@@ -133,21 +133,40 @@ reifier's name, so a forged genid is still refused. This is the interim name unt
 many entities a type holds and in what order they came, and it ties every IRI a client holds to the placement that
 stage 8's splits change.
 
-The bucket is two XXH3-64 hashes (`xxhash-rust`, already pinned): the namespace's 8 big-endian bytes for the top 8 bits,
+The bucket is two XXH3-64 hashes (`xxhash-rust`, already pinned): the tenant's 8 big-endian bytes for the top 8 bits,
 the declaring type's 2-byte prefix plus the canonical key for the low 16. The canonical IRI key is its length as a u32
 big-endian and its UTF-8 bytes. Golden values come from the xxHash reference implementation, committed with their
 source, so the derivation is pinned independently of the code (`tdd-protocol.md`, independent sources).
 
+### Tenants and namespaces
+
+A tenant isolates; a namespace organises. A tenant is the engine's unit of isolation, the u64 in every key, bucket and frame that
+names one: one catalog of numbered versions in the metadata group, one run of buckets and the grants of its principals. Nothing reads,
+writes or names across tenants, and the cluster scope alone reaches over them, for backup and export. A namespace is a unit of
+organisation inside a tenant, one schema source installed in it with its graphs, built at stage 6, with no field in any key, bucket,
+ID or frame (`SCHEMA.md`, sections 1 and 15).
+
+Tenants are explicit: the cluster's first start creates tenant 0 in the metadata group, stage 7's administration commands create and
+remove others, and a number the group does not hold is refused by the frontend, after the gate, and by Bind. A tenant binds per Begin,
+so a principal holding grants in several acts in each through its own transactions on one connection, and Execute refuses a statement
+prepared in another tenant than its transaction's. One gate at the frontend checks every request naming a tenant before it reaches
+another role or any state; it fails closed on what it does not know, allows every authenticated principal until stage 7's grants fill
+it in, and comes before the unknown-tenant refusal, so a principal without a grant cannot probe which numbers exist.
+
+Tenants may share a bucket run, of which there are at most 256: isolation is by key and by grant, not by resource. So a Scan's ranges
+are compared for one tenant, every range of it naming the same tenant bytes with no field of its own, and a drop's keys all hold its
+tenant, which is why no drop spans tenants and a cluster wipe is the removal of each.
+
 ### Keys and lists
 
-A key keeps its keyspace byte and the namespace as 8 big-endian bytes, then 16-byte IDs where stage 4 had 8-byte UIDs; a
+A key keeps its keyspace byte and the tenant as 8 big-endian bytes, then 16-byte IDs where stage 4 had 8-byte UIDs; a
 reverse key ends with its object, as in stage 4; split keys append a 16-byte start ID; the referrers keyspace, new, keys
 an entity's referrer set by its ID. The stored key's zero-run encoding absorbs the IDs' zero bytes, and the version
 stays its fixed 8-byte suffix, so a prefix filter needs only "all but the last 8 bytes" (P19). The posting format takes
 version byte 2; the packed ID list takes its own version byte 1, 104-bit LEB128 deltas in blocks of 256.
 
-*Alternative considered:* dropping the namespace from keys, since the bucket carries 8 bits of it. Rejected: drops and
-bans by namespace are prefix operations today, and 8 hashed bits identify no namespace.
+*Alternative considered:* dropping the tenant from keys, since the bucket carries 8 bits of it. Rejected: drops and
+bans by tenant are prefix operations today, and 8 hashed bits identify no tenant.
 
 ### One owner per fact
 
@@ -164,7 +183,7 @@ toward the reader. The rules are P24's; this section states how the code holds t
   reverse entries are always consistent, and nothing is derived in one partition and applied in another.
 - **Registration.** Registration is per entity and referring bucket group. While a transaction executes, its partition's
   first reference to an entity `o` another partition owns from a subject of bucket group `g` (the subject bucket's top
-  18 bits: 64 buckets, 2^10 groups per namespace run) becomes a registration at `o`'s home: the IRI's text for a new IRI
+  18 bits: 64 buckets, 2^10 groups per tenant run) becomes a registration at `o`'s home: the IRI's text for a new IRI
   or the ID of a known one, `g`, and the generation the referrer last saw for `(o, g)`. Registrations to one home node
   are batched within each write request. The home gets or creates the ID, adds or renews `g` in `R(o)`, writes both in a
   round of its log and replies once the round's ticket completes, with the ID, the member's generation and its last
@@ -187,9 +206,11 @@ toward the reader. The rules are P24's; this section states how the code holds t
 - **Reads.** Compute routes a bound subject to its bucket's partition. A bound IRI or blank-node object reads `R(o)` at
   the read's epoch `e` at the home once the home has closed `e`, resolves the groups to partitions through the placement
   map at `e`, and asks those partitions, batched per node, for their reverse entries at `e`, each once it has closed
-  `e`. A bound literal object, which has no home or referrer set, value-index lookups, lookups by reverse count (which
-  sum the partitions' counts) and other patterns ask every partition of the namespace. A read-write transaction's reads
-  stay in its partition. A snapshot read answers complete or waits; at its deadline it fails naming the partition it
+  `e`. A bound literal object, which has no home or referrer set, and other patterns ask every partition of the tenant;
+  a bound vector object, which no reverse key names, reads their forward lists. Value-index lookups and lookups by reverse
+  count (which sum the partitions' counts) are compute's own reads for the query core, reaching the same partitions; no client
+  request names them in this stage. A bound subject that is a reifier's skolem IRI reads the statement's record, one row per
+  property. A read-write transaction's reads stay in its partition. A snapshot read answers complete or waits; at its deadline it fails naming the partition it
   waited on.
 - **Deletes.** This stage's changesets delete by pattern; a delete by pattern reaching a subject another partition
   owns, or inbound entries another partition's subjects wrote, aborts with `CrossPartition`. The entity delete of P24
@@ -198,7 +219,7 @@ toward the reader. The rules are P24's; this section states how the code holds t
   the entity there.
 - **Reclamation and restore** (P24 rules 9 and 10) are stage 8's: a member leaves `R(o)` only on a report naming its
   unchanged generation, a cluster restores at one closed epoch, a restored partition abandons its open sequence blocks,
-  and namespace numbers are never reused.
+  and tenant numbers are never reused.
   The placement model found three runs in which P24's reclamation as first written loses an inbound edge, so stage 8
   builds it with the repairs proved in `lean/PlacementModel` (decided 2026-11-03, traces in `notes/group-6b.md`): a home
   applies a report only once its own open epoch has reached the report's epoch; only a partition holding every bucket
@@ -219,7 +240,7 @@ derived entity key; IDs derived from a hash of type and key; and global value in
 ceiling. The costs accepted: an inbound point read touches `min(d, partitions)` partitions for an in-degree `d` and
 needs one extra round, about 20× the store probes of one reverse list at in-degree 20; a partition's first reference to
 an entity from a bucket group waits for one durable round at its home; and an exact reverse count is a sum over the
-referrers' partitions, so a lookup by reverse count asks every partition of the namespace.
+referrers' partitions, so a lookup by reverse count asks every partition of the tenant.
 
 ### Versions and epochs
 
@@ -294,7 +315,7 @@ it, and the metadata group learns `E` from that close (P24 rule 11). A frontend 
 version pending, and the next close assigns it, so no window lets a partition stamp `E` without the version: a partition
 stamps `E` only once the close of `c + 1` has been delivered to it. The group keeps every version a partition's
 untrimmed log may name, and a partition loads them before replay. A first write of an undeclared predicate asks the
-group for a default-entry record, keyed by (namespace, predicate) beside the opaque versions, and recovery asks again
+group for a default-entry record, keyed by (tenant, predicate) beside the opaque versions, and recovery asks again
 for the predicates its replayed rounds wrote. Index builds start at a version's epoch in each partition, their start and
 completion are logical records in its log, and a crash that interrupts one runs its backfill again; a type change is
 checked by every partition at its epoch, and a refused one is restored by a new version.
@@ -310,11 +331,11 @@ step; a miss answers with the owner from the partition's copy of the placement m
 A read-write transaction binds to the partition owning the first subject it reads or writes; when its first write names
 only new blank nodes, to a partition the frontend chooses in turn; when its first operation is an insert-if-absent or an
 upsert-and-link, to the partition owning the claimed value's bucket; and when its first operation names no subject
-otherwise, to the partition owning the namespace's whole run if one does, the first operation aborting otherwise. It
+otherwise, to the partition owning the tenant's whole run if one does, the first operation aborting otherwise. It
 reads and writes what that partition owns, and registers its references to entities owned elsewhere as pre-steps outside
 it. It may make a reverse or fan-out read (a value-index lookup, a scan, an unbound subject, a bound literal object)
-only when its partition owns the namespace's whole run, always so with one partition, reading its own entries at their
-latest state; a read of another partition's subject, such a read over a namespace spread over several partitions, a
+only when its partition owns the tenant's whole run, always so with one partition, reading its own entries at their
+latest state; a read of another partition's subject, such a read over a tenant spread over several partitions, a
 write or a delete by pattern to a subject another partition owns, a write of a unique value whose bucket another
 partition owns, and any Drop reaching several partitions abort it with `CrossPartition` (a new abort reason in the
 transactions error and the wire's error table). A read-only transaction reads across partitions through compute at its
@@ -349,7 +370,8 @@ Zero copy covers the wire and the log, and stops at the store. A frame is read i
 step. A Write names terms by text, so its bytes are not the log's: the record holds resolved quads and system IDs, built
 once, because the log must replay without the dictionary's answers. Text stays borrowed from the frame until an ID replaces
 it, and the record's bytes are what the log stores, what replay views where they lie, and what stage 8's replication carries,
-so no serialization step stands between them. The frontend relays frames unchanged. The store is where copying is
+so no serialization step stands between them. The frontend relays frames with their bodies unchanged, filling a one-frame
+write's `principal` and a frame's stream, sequence and checksum. The store is where copying is
 unavoidable: applying a round derives keys and posting lists and writes them to fjall, since the protocol's bytes cannot be
 the persistent store while a KV backend holds that role. Entries carries decoded lists for the same reason. `Changeset`,
 which owns its terms, is therefore a convenience for tests and tools, never the wire's path.
@@ -391,6 +413,32 @@ A Scan naming a transaction carries the text of the IRIs it needs IDs for, since
 absent term is recorded by its ID, which reading creates. Recording the dictionary key instead would miss a conflict: a
 home's registration round can create the entry without a statement, and a later statement of it then writes no such key.
 
+Statement IDs sit in the forward and the reverse posting alike, so a reverse read fills its reifier column from the list it scans and
+takes no extra Scan per subject, a hub's whole forward list among them. `statements_per_object_max` keeps a key's object record within
+a frame at the floor of `max_frame` in either list. A statement's properties are read by Scan from the statements keyspace, its span a
+range scanned, so a property set after the read conflicts as an insert into a scanned list does. A read names one version of a
+partition across its Scans, so a term, its predicate list and its lists agree; compute resolves a bound term where it reads the term's
+lists, since an absent entry there says that partition holds no statement of it. It sends list Scans only once every partition it asks
+has closed the read's epoch, so a fan-out's merge never lets one partition's wait stall another's Scan into a refusal.
+
+A partition retains versions by `read_retain_ms`, 60,000 ms: its discard version rises only to the version bound of an epoch closed that
+long ago, never past what an open Scan or a read-write transaction holds, because a read-only transaction registers nowhere between its
+Scans. A hung compute process has no setting of its own: `scan_stall_ms` past the later of the read's deadline and its last frame, the
+timer holding off while the stream has no credit, tells it from one rightly waiting on a close. A read that has sent a frame to its client
+is never resent, since a second compute process would repeat its rows; it answers code 17, and only a stream ending in `LAST` is an answer.
+
+The frontend keeps a transaction's order. A read counts as answered at its `LAST`, an Error or the Cancel it sent, so a cancelled read
+never strands a write behind it. A Commit cancels the open reads, drops the held ones, sends the writes held behind them and then itself,
+so every write the client sent before its Commit is in what commits; an Abort drops them. A transaction's first request is answered before
+any later one is sent, so a code 26 leaves nothing on a stream it ended; a first read counts as answered at its first frame, since its
+refusals come before any row and holding a later read to its `LAST` would stall the two on one client's credit. What the frontend holds back is bounded by `held_bytes`, since
+Credit, which would drain the read, arrives on the socket it cannot stop reading.
+
+A home's failed store answers Reference outcome 17, apart from outcome 7's "no such skolem IRI", so a failed store never reads as absence.
+A catalog version is capped at 523,000 bytes, what one Catalog frame holds at the floor of `max_frame`; continuation frames are `SCHEMA.md`
+section 15's ask for stage 6. Describe answers from the metadata group, what is declared and recorded rather than what data holds, since
+the frontend links no storage and a pass over the data per Describe buys nothing the catalog does not state.
+
 A request declares its type by its command, because reads alone and writes alone are simple and the costs come from mixing them.
 Read-only needs no commit. Read-write holds an open transaction, a Bind stream and a sweep entry. DirectWrite is one frame of unconditional
 changes, and ConditionalWrite one frame whose commit-time operations the commit step decides in order. The frontend relays either and the
@@ -408,11 +456,11 @@ specs crates and carry `exclusive` so none runs beside another, tagged `integrat
 
 The frontend endpoint takes stage 5's server source material from backlog items 2 and 3: connections bound per core,
 the handshake, SCRAM against the metadata group's principals, sessions, routing by bucket, statement caches, the
-error table. Compute asks storage's read kernel — a scan of one keyspace's range at a version, bounded by a row limit —
+error table. Compute asks storage's read kernel — a scan of one tenant's range of one keyspace at a version, bounded by a row limit —
 through the routes of *One owner per fact*, and merges partitions' rows in key order. A transaction names on Begin the
 level, session token and deadline every one of its reads shares, since they read one snapshot. A resume key is an
-XXH3-checksummed token holding the pattern's hash and the last row by its terms in text form, never a store key, so a
-client never sees an ID. A statement without a statement ID is named to a client by its quad; one with a statement ID
+XXH3-checksummed token in a stream's last batch alone, holding the pattern's hash, what binds it to its transaction and the last row
+by its terms in text form, never a store key, so a client never sees an ID. A statement without a statement ID is named to a client by its quad; one with a statement ID
 (it carries properties or repeats a quad as a parallel edge) by its reifier, a skolem IRI minted as a blank node's with
 the statement's bucket and held in the dictionary as the reifier's name, through which a client addresses its
 properties as RDF 1.2 reification does. A commit-time operation's node is named by its IRI or skolem IRI.
@@ -521,7 +569,7 @@ release must be rolled back to the one before it, whose log it did not change. T
   refusing them with `Busy` only after the request has gone unanswered for `close_request_ms`; reads at a snapshot wait,
   within their deadline.
 - [An inbound read fans out to every partition its entity's referrer set names, after one round at the home] → The
-  fan-out is batched per node and bounded by the 2^10 groups of a namespace run; an inbound summary cache at the home
+  fan-out is batched per node and bounded by the 2^10 groups of a tenant run; an inbound summary cache at the home
   stays a later option, taken only if stage 7's measurements ask for it.
 - [A partition's first reference to an entity it does not own waits for a durable round at the home] → The mark makes
   every later reference free, registrations are batched per home node within each write request and issued while the

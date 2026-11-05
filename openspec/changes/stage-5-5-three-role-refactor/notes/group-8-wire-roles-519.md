@@ -14,7 +14,7 @@ Compiled with every body `unimplemented!()`; `SURFACE READY` posted in `wave-5-c
 - `Bind::new(partition: u32, kind: BindKind, namespace: u64, epoch: u64, principal: u64, transaction: [u8; 16])`,
   `.with_read_version(u64)`; getters; `BindView`. `BindKind { Transaction, Drop }` with `number()`, `from_number`.
 - `Recall::new(partition: u32, session: [u8; 16], request: u64)`; getters; `RecallView`.
-- `ComputeRead::new(namespace, read_only: bool, level: ReadLevel, terms: TermTable, pattern: QuadPattern, resume:
+- `ComputeRead::new(tenant, read_only: bool, level: ReadLevel, terms: TermTable, pattern: QuadPattern, resume:
   Vec<u8>)` with `with_partition`, `with_transaction`, `with_read_version` (clears `named`), `with_named_version`
   (sets it), `with_epoch`, `with_principal`, `with_limit`, `with_deadline_ms`; getters; `ComputeReadView` with
   `terms() -> &TermTableView`.
@@ -29,8 +29,8 @@ Compiled with every body `unimplemented!()`; `SURFACE READY` posted in `wave-5-c
 
 `testdata/golden/roles/generate_roles.py`, block `519 to 524`, laid out from §13's tables: `challenge` (request),
 `challenge_reply` (RFC 7677's salt, 4,096 iterations), `verify` (RFC 7677's AuthMessage and ClientProof),
-`verify_reply` (principal 7, RFC 7677's ServerSignature), `bind` and `bind_reply` (partition 3, namespace 5, token
-epoch 30, principal 9, the watermark `(29 << 22) | 500`), `bind_drop` (kind 2, partition 4, namespace 6, principal
+`verify_reply` (principal 7, RFC 7677's ServerSignature), `bind` and `bind_reply` (partition 3, tenant 5, token
+epoch 30, principal 9, the watermark `(29 << 22) | 500`), `bind_drop` (kind 2, partition 4, tenant 6, principal
 11), `recall` (partition 3, request 8), `compute_read` (read-only, level 2, floor epoch 31, limit 100, 50 ms, a resume
 key), `compute_read_rw` (read-write, level 1, partition 3, the Bind's version, the transaction, 9,000 ms), `scan` (two
 ranges of partitions 3 and 4, the second open-ended), `scan_transaction` (a transaction's one-key range).
@@ -54,10 +54,10 @@ Bazel, `--test_arg=types::<module>::` over the 15 test modules: **37 tests, 36 f
 
 ## Phase 3: inputs reviewed
 
-Every golden field is distinct from its neighbours: Bind's partition 3, namespace 5, epoch 30, principal 9, a
+Every golden field is distinct from its neighbours: Bind's partition 3, tenant 5, epoch 30, principal 9, a
 16-byte transaction of distinct bytes, the watermark a version of epoch 29; ComputeRead's limit 100 and deadline 50,
-floor 31, namespace 5, principal 9; Scan's epoch 30, principal 9, limit 1,000 and a version of epoch 30's bound; the
-Drop binding names partition 4, namespace 6, principal 11 and the session's bytes as its transaction. The read-write
+floor 31, tenant 5, principal 9; Scan's epoch 30, principal 9, limit 1,000 and a version of epoch 30's bound; the
+Drop binding names partition 4, tenant 6, principal 11 and the session's bytes as its transaction. The read-write
 ComputeRead leaves epoch and limit 0, which the read-only one covers nonzero; `ScanRange::encode`'s test places the
 first key at offset 7 with lengths 4 and 3, so no offset equals a length.
 

@@ -187,7 +187,7 @@ A privilege is an action on a scope. The action's number is the `detail` of a re
 |---|---|---|
 | `read` | 1 | reading statements and their properties, and seeing declarations in Describe |
 | `write` | 2 | Write, Operation, DirectWrite, ConditionalWrite and Commit of statements |
-| `declare` | 3 | declarations: predicates, entity types, relations, indexes |
+| `declare` | 3 | declarations: predicates, entity types, relations, indexes; Install |
 | `drop` | 4 | the Drop command |
 | `admin` | 5 | at a tenant: its roles, their grants to principals, and the group mappings onto its roles; at the cluster: also principals and trusted issuers |
 | `operate` | 6 | cluster operations: creating and removing tenants, backup, restore, export |
@@ -211,7 +211,7 @@ A privilege at a scope covers every scope inside it.
 
 ### Enforcement
 
-Every request naming a tenant, Begin, Prepare, Describe, Drop, DirectWrite and ConditionalWrite, passes one gate at the
+Every request naming a tenant, Begin, Prepare, Describe, Install, Drop, DirectWrite and ConditionalWrite, passes one gate at the
 frontend before it reaches another role or any state; a request it passes naming a tenant the metadata group does not hold
 is refused there (`PROTOCOL.md` §11.10). When a transaction begins, the principal's privileges in its tenant resolve into an
 **access** value: the predicates and graphs it may read and write, with the roles its token's groups map to. A partition
@@ -227,6 +227,7 @@ the grants do.
 | Write, Operation | `write` on each predicate and graph written; refused with code 21, ending the transaction |
 | DirectWrite, ConditionalWrite | `write` on each predicate and graph written; refused with code 21 |
 | Write's declarations | `declare` |
+| Install | `declare` on the tenant |
 | Commit | the transaction's writes, already checked; the security epoch (below) |
 | Drop | `drop` on the scope dropped |
 | Register | an authenticated principal; the session belongs to it |

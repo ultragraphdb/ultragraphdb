@@ -1,8 +1,13 @@
+## RENAMED Requirements
+
+- FROM: `### Requirement: A namespace's data drop removes its split parts`
+- TO: `### Requirement: A tenant's data drop removes its split parts`
+
 ## MODIFIED Requirements
 
 ### Requirement: Adding an index rebuilds it from existing data
 Declaring a tokenizer, an exact count index or a vector index on a predicate holding data SHALL build the new entries in
-every partition holding the namespace, from every existing object at the build's start version, the first of the
+every partition holding the tenant, from every existing object at the build's start version, the first of the
 catalog version's effective epoch, in the background, while writes from that epoch maintain the previous declaration's
 indexes as well as the new one's (commit-rounds, "Catalog changes, drops and index builds are ordered in rounds").
 When a partition's build succeeds, one atomic batch, logged as the build's completion record, SHALL swap its indexes:
@@ -36,7 +41,7 @@ removed.
 
 ### Requirement: Type changes
 A change to a predicate's declaration SHALL be checked against the predicate's data by every partition holding the
-namespace at the catalog version's effective epoch, each holding its commits of that epoch until its check completes,
+tenant at the catalog version's effective epoch, each holding its commits of that epoch until its check completes,
 and the change's reply SHALL wait for every check. When the data contradicts it in any partition, the change SHALL be
 refused with an error naming the predicate and the subject or object at fault, and the metadata group SHALL commit a
 version restoring the previous declaration, the partitions validating the predicate's writes against the previous
@@ -81,15 +86,20 @@ use the interim declaration.
 - **THEN** once the restoring version takes effect the schema declares `term`, and every term key is present
 
 ### Requirement: Drops
-Dropping a predicate SHALL remove, in every graph of its namespace and in every partition holding the namespace, its
-forward, reverse, value-index, count-index, vector-index and statistics keys, split parts included, the statement
-records of its statements, and the predicate from the subject- and object-predicate lists that held it, and SHALL remove
-its declaration from the metadata group. Dropping a graph SHALL remove every key of the graph. Dropping a namespace's
-data SHALL keep its catalog. Dropping everything in a namespace SHALL remove its data and set its catalog in the
-metadata group to the initial catalog. Dropping everything SHALL leave no quad key in any partition and the metadata
-group holding the root namespace's initial catalog alone. No partition SHALL hold catalog keys. Every drop SHALL remove
-what it drops physically. A drop SHALL not remove dictionary entries. A drop reaching several partitions is
-cross-partition (partitions, "A read-write transaction stays within one partition in this stage").
+Dropping a predicate SHALL remove, in every graph of its tenant and in every partition holding the tenant, its forward,
+reverse, value-index, count-index, vector-index and statistics keys, split parts included, the statement records of its
+statements, and the predicate from the subject- and object-predicate lists that held it, and SHALL remove its
+declaration from the metadata group. Dropping a graph SHALL remove every key of the graph in the tenant. Dropping a
+tenant's data SHALL keep its catalog. Dropping everything in a tenant SHALL remove its data and set its catalog in the
+metadata group to the initial catalog, which removes every namespace installed in it. A drop's keys all hold its tenant,
+so another tenant sharing the bucket run SHALL keep its own, and no drop SHALL span tenants: a cluster wipe is the
+removal of each tenant (metadata-group, "The metadata group holds the tenants"). No partition SHALL hold catalog keys.
+Every drop SHALL remove what it drops physically. A drop SHALL not remove dictionary entries or default-entry records. A
+drop reaching several partitions is cross-partition (partitions, "A read-write transaction stays within one partition in
+this stage"). The frontend SHALL commit the catalog version a Drop calls for as pending before it relays the Drop's
+reply, stored or new, and SHALL build no version that would change nothing, so a frontend that stopped in between leaves
+the step to the client's resend; a Drop through no session has no resend, and a client that lost its reply runs the Drop
+again, which removes nothing more and builds that version.
 
 #### Scenario: Dropping a predicate removes it from the predicate lists
 - **WHEN** `knows` is held for `a` and `b` and is dropped
@@ -104,24 +114,42 @@ cross-partition (partitions, "A read-write transaction stays within one partitio
 - **THEN** no key of `<g1>` remains, and every statement of `<g2>` is still held
 
 #### Scenario: Dropping data keeps the catalog
-- **WHEN** a namespace's data is dropped
+- **WHEN** a tenant's data is dropped
 - **THEN** its predicates hold no data and its catalog is unchanged
 
-#### Scenario: Dropping a namespace's everything survives a restart
-- **WHEN** everything in namespace 3 is dropped and the roles are restarted
-- **THEN** namespace 3 holds no quad key, and the metadata group holds its initial catalog
+#### Scenario: Dropping a tenant's everything survives a restart
+- **WHEN** everything in tenant 3 is dropped and the roles are restarted
+- **THEN** tenant 3 holds no quad key, and the metadata group holds its initial catalog
 
-#### Scenario: Dropping everything leaves the initial catalog
-- **WHEN** everything is dropped
-- **THEN** no partition holds a quad key, and the metadata group holds the root namespace's initial catalog alone
+#### Scenario: A tenant's drop leaves a tenant sharing its run
+- **WHEN** tenants 7 and 8 share a bucket run, each holds statements in one partition, and everything in tenant 7 is
+  dropped
+- **THEN** tenant 7 holds no quad key, its catalog is the initial catalog, and every statement and the catalog of tenant
+  8 are unchanged
 
-### Requirement: A namespace's data drop removes its split parts
-Dropping a namespace's data SHALL remove every key of every quad keyspace of the namespace, split parts included, in one
+#### Scenario: A resent Drop builds the version a stopped frontend left
+- **WHEN** a Drop of `p` through a session commits at its partition, the frontend stops before it commits the catalog
+  version removing `p`'s declaration, and the client resends the Drop after the frontend restarts
+- **THEN** the partition's table answers the stored reply, the frontend commits that version as pending before it relays
+  the reply, and `p` is dropped once
+
+#### Scenario: A Drop through no session runs again
+- **WHEN** a Drop of `p` through no session commits at its partition, its reply is lost, and the client sends the Drop
+  again
+- **THEN** the second Drop removes nothing more, and the frontend builds the version removing `p`'s declaration before
+  it relays the reply
+
+#### Scenario: A default entry outlives a drop
+- **WHEN** `score` holds a default-entry record, and a Drop of `score` commits
+- **THEN** the metadata group still holds the record, and Describe names `score` as recorded
+
+### Requirement: A tenant's data drop removes its split parts
+Dropping a tenant's data SHALL remove every key of every quad keyspace of the tenant, split parts included, in one
 drop, and leave its catalog in the metadata group.
 
-#### Scenario: Dropping a namespace's data leaves no split part
-- **WHEN** a namespace whose lists are split has its data dropped
-- **THEN** no key of any quad keyspace of the namespace remains, split or not, and its catalog is unchanged
+#### Scenario: Dropping a tenant's data leaves no split part
+- **WHEN** a tenant whose lists are split has its data dropped
+- **THEN** no key of any quad keyspace of the tenant remains, split or not, and its catalog is unchanged
 
 ## ADDED Requirements
 

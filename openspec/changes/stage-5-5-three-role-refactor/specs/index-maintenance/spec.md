@@ -6,7 +6,8 @@ its current number of objects when that number is above zero and under no count 
 predicate counting as one. An object SHALL be listed, in each partition, under the reverse count key of the number of
 that partition's own subjects pointing at it (partitions, "A partition owns every entry its subjects' writes derive"),
 so its exact number of subjects is the sum of the counts of the partitions its referrer set names, and a lookup by
-reverse count SHALL ask every partition of the namespace and sum each object's counts before it compares them. A write
+reverse count, compute's own read for the query core, called through compute's API since no client request names one in
+this stage, SHALL ask every partition of the tenant and sum each object's counts before it compares them. A write
 that adds no object SHALL leave the counts unchanged.
 
 #### Scenario: Adding a third object moves the count
@@ -23,5 +24,5 @@ that adds no object SHALL leave the counts unchanged.
 
 #### Scenario: A reverse count sums the referrers' partitions
 - **WHEN** `friend` has an exact count index, two subjects in partition 1 and one in partition 2 hold `friend` to `<b>`,
-  and a read looks up the objects of reverse count 3
+  and compute's API looks up the objects of reverse count 3
 - **THEN** partition 1 lists `<b>` under reverse count 2 and partition 2 under 1, and the lookup returns `<b>`

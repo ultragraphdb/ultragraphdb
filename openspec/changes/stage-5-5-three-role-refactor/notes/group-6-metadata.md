@@ -31,13 +31,13 @@ evicts, a close the versions it announced), so `MetadataState::apply` needs noth
 never reads the settings: `sessions_max` or `block_size_max` changed between starts changes only later decisions.
 
 - **Catalog versions.** `offer_catalog(ns, predecessor, bytes)` numbers the version `predecessor + 1` and refuses a
-  predecessor other than the namespace's latest (pending or not) with `StaleCatalog { namespace, predecessor, current }`.
+  predecessor other than the tenant's latest (pending or not) with `StaleCatalog { namespace, predecessor, current }`.
   The bytes are opaque (`CatalogContents::encode`). `pending_versions()` is what the sequencer's next `tick` announces;
   `learn_close(epoch, versions, evictions)` records the durable close and assigns each announced version
   `epoch + 1` (the close of `c + 1` gives `c + 2`). `catalog_at(ns, e)` answers every epoch up to one past the last
-  learned close (a pending version cannot take effect earlier) and refuses further with `EpochAhead`; the namespace's
+  learned close (a pending version cannot take effect earlier) and refuses further with `EpochAhead`; the tenant's
   initial catalog is `None`. `MetadataState` implements the catalog agent's `CatalogSource` (`Error = ClusterError`).
-- **Default entries**, by (namespace, predicate) beside the versions: `record_default_entry(&DefaultEntry)` answers
+- **Default entries**, by (tenant, predicate) beside the versions: `record_default_entry(&DefaultEntry)` answers
   `None` when a record exists (found in the head, so a second ask before the sync appends nothing), creates no version,
   and the predecessor check ignores it.
 - **Retention.** `report_untrimmed(partition, epoch)` records where a partition's untrimmed log begins; once every

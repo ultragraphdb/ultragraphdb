@@ -120,7 +120,7 @@ store_apply (stubs in place):
 ### Stream T: `ultragraphdb_transactions_txn`, `ultragraphdb_transactions_commit`
 
 - `Transaction` (stubs in place): `subjects_into`, `lookup_into` (allowed to a bound transaction only while its
-  partition owns the namespace's whole run at the read epoch, else `CrossPartition` naming the lowest other partition
+  partition owns the tenant's whole run at the read epoch, else `CrossPartition` naming the lowest other partition
   of the run), `adopt(iri, id, close)`, `read_mark`, `mark(entity, group, generation, close)`, `epoch_floor()`
   (max close + 1 of every reply). `objects_into` refuses a subject another partition owns. A write's subject that is
   an existing blank node is checked by its skolem IRI's bucket. After execution, every `unique_writes()` value whose
@@ -178,7 +178,7 @@ Bazel, the suite written against the stubs (`Transaction`'s partition bodies, `P
 | Reverse read, unbound: the subjects, own writes on top, `out` cleared first | txn `test_an_unbound_transaction_reads_the_subjects_pointing_at_an_object` |
 | Reverse read recorded in the read set | txn `test_a_reverse_read_is_recorded_in_the_read_set` |
 | Bound, one partition owns the whole run: reads, then writes and commits | txn `…owning_the_whole_run…`; bdd "One partition reads its own reverse entries" |
-| Bound, run spread: `CrossPartition` naming the lowest other partition, for 2 and 3 partitions, bound to the first, middle and last | txn `test_a_reverse_read_over_a_spread_run_aborts_naming_the_lowest_other_partition`; bdd "A reverse read over a spread namespace…" |
+| Bound, run spread: `CrossPartition` naming the lowest other partition, for 2 and 3 partitions, bound to the first, middle and last | txn `test_a_reverse_read_over_a_spread_run_aborts_naming_the_lowest_other_partition`; bdd "A reverse read over a spread tenant…" |
 | A cross-partition read ends the transaction: every later request `Ended`, nothing committed | txn `…spread_run_aborts_and_writes_nothing` |
 | A first lookup over a spread run aborts and holds nothing | txn `test_a_first_lookup_over_a_spread_run_aborts_and_holds_nothing`; bdd "A first read naming no subject…" |
 | A lookup by a declared `term` index finds its subjects | txn `test_a_lookup_finds_the_subjects_whose_value_matches_by_its_index` |
@@ -292,12 +292,12 @@ store_quads (`tests/types/`):
 - `QuadError::NotOwned` (`dictionary_tests.rs`, `errors/quad_error/quad_error_tests.rs`): refused as subject, object,
   predicate, graph and bare IRI, naming the IRI and its bucket; an owned IRI beside it; a held IRI resolves; a copied IRI
   resolves to its home's ID and its entries are written; blank nodes draw owned buckets; a store alone owns all.
-- Partition reads (`quad_store_partition_tests.rs`): referrer set absent, at two versions, in another namespace, corrupt;
+- Partition reads (`quad_store_partition_tests.rs`): referrer set absent, at two versions, in another tenant, corrupt;
   mark absent vs present at versions, another group's, zero and 7-byte values; subjects and reverse counts at two
   versions, of an object nobody points at, of a literal; a reverse list the object-predicates list does not name is not
   read (OP entry removed, reverse list kept); predicate lists at versions and for nodes without lists; the kernel in key
-  order, across namespaces, before the write; limit 1 and resume; a limit filled exactly; an exclusive end; a scan past
-  the namespace's end; a list emptied by a delete gives no row; non-list keyspaces refused.
+  order, across tenants, before the write; limit 1 and resume; a limit filled exactly; an exclusive end; a scan past
+  the tenant's end; a list emptied by a delete gives no row; non-list keyspaces refused.
 - `QuadWrite::names_predicate`, `points_with`, `ids` (`quad_write_tests.rs`), `KernelScan`, `KernelRow`,
   `ReferrerMember` getters.
 
@@ -318,7 +318,7 @@ store_apply (`tests/types/`):
   alike; replayed registrations at their versions ("Replay derives a home's referrer-set deltas").
 - `record_writes_tests.rs`: no section 4 writes no mark; `RecordWrites::with_marks` and `LogicalWrites::with_marks`
   replayed write each mark at the record's version. `changeset_core_operate_tests.rs`: an operated transaction keeps its
-  marks and its edges join referrer sets. `changeset_core_drop_tests.rs`: data, namespace and full drops remove marks and
+  marks and its edges join referrer sets. `changeset_core_drop_tests.rs`: data, tenant and full drops remove marks and
   referrer sets; a graph drop keeps them. `errors/`: `NoIndex` constructor and text.
 - BDD: index-maintenance "Adding a third object moves the count", "Re-writing an existing object leaves the count",
   "Reverse counts are kept" in the spec's wording; `features/partitions/partitions.feature` "A predicate the node lacks
@@ -351,7 +351,7 @@ store_apply (`tests/types/`):
   edit).
 - `QuadStore::scan`'s resume key is the first key of the range not read, to pass as the next scan's `from` (the stub's
   "the key past which" was ambiguous).
-- Data, namespace and full drops now also drop the marks and referrers keyspaces (a graph drop does not: they name no
+- Data, tenant and full drops now also drop the marks and referrers keyspaces (a graph drop does not: they name no
   graph).
 - Registrations execute under an empty catalog, which leaves the installed one alone, instead of cloning it.
 
@@ -385,7 +385,7 @@ alone exercised before.
   latest delivered close.
 - **A repeat of a member still in flight waits for the entry that decided it** (a waiter on that entry's ticket), so no
   reply names a generation that is not yet durable.
-- **`rdf:type` is got at its home before a namespace's first write**: the first write installs the catalog, which names
+- **`rdf:type` is got at its home before a tenant's first write**: the first write installs the catalog, which names
   it. `references` always asks for it when it is unheld and homed elsewhere.
 - **Reads get or create, so a read is a first use**: the store resolves what a read names so a term no statement holds
   is recorded absent by its ID. `read_references` gets a foreign predicate's or graph's ID before the read; without it
@@ -401,7 +401,7 @@ alone exercised before.
 ### Scenario numbers
 
 `A write reaches its bucket's partition` and `A misrouted write is refused with its owner` check bucket 30,000 itself
-through routing under a map placing it in partition 2; namespace 0's subjects lie in that namespace's run, so a subject
+through routing under a map placing it in partition 2; tenant 0's subjects lie in that tenant's run, so a subject
 partition 2 owns stands for the write. A scenario naming a bucket group a subject must come from (3, 7, 9) uses that
 subject's own group, as comments at the steps say; a registration's group, an input, is the number itself.
 

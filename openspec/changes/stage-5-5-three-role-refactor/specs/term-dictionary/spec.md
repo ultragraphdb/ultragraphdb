@@ -14,7 +14,7 @@ readable.
 
 ### Requirement: The dictionary is a keyspace without versions
 The dictionary SHALL map term to system ID, system ID to term and literal hash to string in a keyspace without versions,
-read by point lookups. Its keys SHALL be its keyspace byte, the namespace's 8 big-endian bytes, a kind byte and then:
+read by point lookups. Its keys SHALL be its keyspace byte, the tenant's 8 big-endian bytes, a kind byte and then:
 for an IRI or a reifier's name, the term's 128-bit hash (SHA-256 truncated to 16 bytes), its value the system ID, a
 `Resource` ID for an IRI and a `Statement` ID for a reifier's name; for an ID, its 16 bytes, its value the term's text;
 for a literal, its 128-bit hash, its value the string. It SHALL be naming state only: whether an entity exists, and
@@ -35,7 +35,9 @@ direction.
 
 ### Requirement: A missing dictionary entry is corruption
 A stored system ID or literal hash with no entry in its partition's dictionary SHALL be refused on read with an error
-naming the key that holds it, as a corrupted value is. An entity another partition owns that a partition's entries
+naming the key that holds it, as a corrupted value is. A dictionary range finding nothing is an ordinary empty answer at
+storage, so compute SHALL make the check on a read through it and answer the read with code 17 (Unavailable), the message
+naming the key holding the ID or hash, the connection staying open. An entity another partition owns that a partition's entries
 reference SHALL have its copied entries in the partition's own dictionary ("A reference to another partition's entity
 registers at its home"), so the rule holds for it locally.
 
@@ -48,17 +50,23 @@ registers at its home"), so the rule holds for it locally.
   is unreachable
 - **THEN** the read names `<b>` by its IRI from partition 1's dictionary
 
+#### Scenario: A dangling ID read through compute answers code 17
+- **WHEN** a list names a system ID its partition's dictionary answers no entry for, and a client's read through compute
+  reaches it
+- **THEN** the read is refused with code 17, the message naming the list's key, and the client's connection stays open
+
 ## ADDED Requirements
 
 ### Requirement: IRIs and blank nodes get system IDs
-Each IRI and each skolemized blank node, other than a reifier's skolem IRI, SHALL map, per namespace, to one system ID
-of the `Resource` type, never reused: an IRI's bucket computed from the namespace and the IRI's canonical encoding, a
+Each IRI and each skolemized blank node, other than a reifier's skolem IRI, SHALL map, per tenant, to one system ID
+of the `Resource` type, never reused: an IRI's bucket computed from the tenant and the IRI's canonical encoding, a
 blank node's the one its skolem IRI states, and its sequence drawn from a block its home holds. The same IRI SHALL
 always map to the same ID, and its dictionary entries SHALL be held in its home, the partition owning its bucket.
 
-A new blank node's skolem IRI SHALL be the namespace's skolem base followed by a bucket and 104 random bits, as
-`…/.well-known/genid/{bucket}-{random}`, the bucket in 6 and the random bits in 26 lowercase hexadecimal digits. The
-partition minting it SHALL draw both from its injected random source: the bucket from those it owns in the namespace's
+A new blank node's skolem IRI SHALL be the tenant's skolem base, `https://w3id.org/ultragraphdb/ns/tenant/{n}/` with `{n}` the tenant in decimal, followed
+by a bucket and 104 random bits, as `https://w3id.org/ultragraphdb/ns/tenant/{n}/.well-known/genid/{bucket}-{random}`, the bucket in 6 and the random bits
+in 26 lowercase hexadecimal digits. The
+partition minting it SHALL draw both from its injected random source: the bucket from those it owns in the tenant's
 run, the random bits uniformly. A skolem IRI that names an IRI the dictionary already holds SHALL be drawn again. The
 skolem IRI SHALL hold no part of the system ID beyond its bucket. A transaction whose first write names only new blank
 nodes SHALL bind to a partition the frontend chooses in turn.
@@ -70,7 +78,7 @@ client addresses the statement's properties, or one of several parallel edges, t
 
 #### Scenario: A statement ID's reifier is a skolem IRI
 - **WHEN** `<a> <knows> <b>` gains the property `<since> 2020` and so receives a statement ID
-- **THEN** the dictionary holds a skolem IRI `…/.well-known/genid/{bucket}-{random}` for it, whose bucket is `<a>`'s,
+- **THEN** the dictionary holds a skolem IRI `…/tenant/{n}/.well-known/genid/{bucket}-{random}` for it, whose bucket is `<a>`'s,
   mapping to the statement ID and back, and a write naming that IRI as the reifier adds properties to the statement
 
 #### Scenario: An IRI keeps its ID
@@ -84,12 +92,12 @@ client addresses the statement's properties, or one of several parallel edges, t
 
 #### Scenario: An IRI's bucket is its own
 - **WHEN** a new IRI receives a system ID
-- **THEN** its type prefix is 1 and its bucket equals the bucket computed from its namespace and canonical encoding
+- **THEN** its type prefix is 1 and its bucket equals the bucket computed from its tenant and canonical encoding
 
 #### Scenario: A blank node's skolem IRI names its bucket and nothing else
-- **WHEN** partition 1, owning the first 21,846 buckets of namespace 0's run, mints a blank node with its random source
+- **WHEN** partition 1, owning the first 21,846 buckets of tenant 0's run, mints a blank node with its random source
   seeded to a recorded value
-- **THEN** the skolem IRI is the namespace's skolem base, `.well-known/genid/`, 6 hexadecimal digits naming one of those
+- **THEN** the skolem IRI is the tenant's skolem base, ending `/tenant/0/`, `.well-known/genid/`, 6 hexadecimal digits naming one of those
   buckets, `-` and 26 hexadecimal digits; the node's ID carries that bucket; and the same seed mints the same IRI
 
 ### Requirement: An IRI's ID is got or created at its home
@@ -124,7 +132,10 @@ and, at the partition's first reference to `o` from any group, `o`'s dictionary 
 partition's own dictionary, so the partition names `o` and finds its ID without asking the home, after a restart too. A
 later reference to `o` from group `g` SHALL find the mark and send no registration; a first reference from another group
 of the same partition SHALL register that group. Concurrent registrants SHALL all receive the same ID, and none SHALL
-abort for the race. A predicate or graph IRI another partition owns SHALL be got or created at its home before the
+abort for the race. A home SHALL answer outcome 7 for a skolem IRI its dictionary does not hold, which ends a write's
+transaction with code 7 and reads as no entry for a Scan (quad-reads), and outcome 17 for a store that failed under the
+registration, which ends the registrant's transaction with code 17 in either case, so a failed store never reads as a
+skolem IRI nobody holds. A predicate or graph IRI another partition owns SHALL be got or created at its home before the
 partition first uses it, by a registration that adds no referrer-set member, since nothing reads predicates or graphs
 back through a referrer set, and its entries in both directions SHALL be copied into the partition's dictionary;
 referrer sets concern IRIs and blank nodes in the object position only. A partition MAY cache other partitions'
@@ -163,3 +174,13 @@ stale entry, arrive with the entity delete of stage 6.
 - **WHEN** partitions 1 and 3 each register a reference to the new IRI `<b>` at its home, both registrations reaching
   the home before it replies to either
 - **THEN** both replies name the same ID, both partitions' transactions commit, and `R(b)` names both groups
+
+#### Scenario: A forged skolem IRI in a write is refused at its home
+- **WHEN** a transaction in partition 1 writes an edge to a skolem IRI whose bucket partition 2 owns, and partition 2's
+  dictionary does not hold it
+- **THEN** the registration's outcome is 7, and the Write is refused with code 7, ending the transaction
+
+#### Scenario: A home's failed store never reads as absent
+- **WHEN** a transaction in partition 1 names, in a Write and in a Scan, a skolem IRI homed in partition 2, whose store
+  fails under the registration
+- **THEN** the registration's outcome is 17, each request is refused with code 17, and the transaction ends

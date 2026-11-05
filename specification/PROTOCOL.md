@@ -35,7 +35,7 @@ This file leads the code: group 8 of stage 5.5 brings the crates and the golden 
 |---|---|
 | Byte order | Little-endian, except inside a result term's encoding (section 10), and a system ID. A result term keeps the store's sortable value encoding, so its by-value numbers are big-endian, which sorts keys as their values, and a vector's elements little-endian; section 10 states the order per field. A system ID is big-endian (below) |
 | System ID | 16 bytes, the 128-bit ID the store names an entity or a statement by, big-endian as the store compares it: type prefix (bytes 0–1), sequence (2–9), bucket (10–12), reserved (13–15, zero). It is valid when its type prefix and sequence are not 0 and its reserved bytes are zero. System IDs cross only between roles, in role commands (section 13), and into the log (section 12). A client names and receives an entity by its IRI, a blank node by its skolem IRI, a statement without a statement ID by its quad and one with a statement ID by its reifier's skolem IRI (sections 4.4, 4.6, 9.1, 10.2); no frame a client sends or receives holds a system ID |
-| Version | u64: `epoch << 22 \| sequence`, the sequence even, 0 to 2²² − 2. The version bound of epoch `e`, `e << 22 \| 0x3FFFFF`, is above every version stamped at or below `e` |
+| Version | u64: `epoch << 22 \| sequence`, the sequence even, 0 to 2²² − 2. The version bound of epoch `e`, `e << 22 \| 0x3FFFFF`, is above every version stamped at or below `e`. A field holding a version or a version bound has its low 22 bits even or all ones, refused otherwise as `FieldValue` naming the field |
 | Epoch | u64 holding an epoch number of 42 bits, 1 to 2⁴² − 1, or 0 for none where a field allows it; a receiver refuses any other value as `FieldValue` naming the field |
 | Partition | u32, numbered from 1; 0 for none where a field allows it |
 | Tenant | u64, from 0: the engine's unit of isolation, one catalog of numbered versions in the metadata group, one run of buckets, the grants of its principals. The metadata group holds the tenants (section 11.13), and the frontend and Bind refuse a number it does not hold (sections 11.10, 13.10). Nothing reads, writes or names across tenants; the cluster scope alone reaches over them, for backup and export (`SECURITY.md`). Tenants may share a bucket run, of which there are at most 256: isolation is by key, whose bytes 1 to 8 hold the tenant, and by grant, not by resource |
@@ -361,7 +361,7 @@ one with Error 7 (Refused) on the request's stream, `detail` the term's index an
 
 | Term | Rule |
 |---|---|
-| IRI | an absolute IRI (RFC 3987). In a change or an operation, one under a tenant's skolem base, `…/tenant/{n}/.well-known/genid/`, only when the dictionary of the partition owning the bucket its text states holds it as a blank node's skolem IRI or as a statement reifier's name, `…/tenant/{n}/.well-known/genid/{bucket}-{random}` (section 10.2), so a forged one is refused. In a pattern, an unheld skolem IRI matches nothing, as any IRI nobody holds |
+| IRI | an absolute IRI (RFC 3987). A skolem IRI begins with a tenant's skolem base, `https://w3id.org/ultragraphdb/ns/tenant/{n}/`, then `.well-known/genid/`; the frontend compares that text exactly, so the same path under another base is an ordinary IRI. One that names another tenant than the request's, whose tail is not `{bucket}-{random}` in the digits section 10.2 gives, or whose bucket lies outside the tenant's run, is an IRI nobody holds: the frontend refuses it in a change or an operation, and a read binding it matches nothing and binds nothing (section 11.12). In a change or an operation, any other skolem IRI is taken only when the dictionary of the partition owning the bucket its text states holds it as a blank node's skolem IRI or as a statement reifier's name, so a forged one is refused (section 13.15). In a pattern, an unheld skolem IRI matches nothing, as any IRI nobody holds |
 | Language tag | well-formed (BCP 47) |
 | Literal of a known datatype (section 10.4) | its lexical form valid for its datatype |
 | The predicate slot of a pattern or a change | an IRI |
@@ -593,7 +593,7 @@ within the deadline; a read waiting past the deadline is refused with code 24 (T
 | Command header | Width | Field | Type | Rule |
 |---|---|---|---|---|
 | 0 | 8 | `tenant` | u64 | the transaction's tenant, which its every request acts in; a tenant binds per Begin, so one connection's transactions may name several (section 11.10) |
-| 8 | 8 | `read_version` | u64 | in a request, 0 or the version the client names, which only a read-only transaction at level 0 names (`FieldValue` `"read_version"`); in a reply, as above |
+| 8 | 8 | `read_version` | u64 | in a request, 0 or the version or version bound (section 1) the client names, which only a read-only transaction at level 0 names (`FieldValue` `"read_version"`); in a reply, as above |
 | 16 | 1 | `mode` | u8 | 0 read-write, 1 read-only; else `FieldValue` (`"mode"`) |
 | 17 | 1 | `level` | u8 | 0 snapshot, 1 latest, 2 monotonic-fast (section 11.11); else `FieldValue` (`"level"`) |
 | 20 | 4 | `deadline_ms` | u32 | the transaction's deadline, in milliseconds from the Begin's arrival, which every read's wait shares; 0 for the Welcome's `transaction_ms` |
@@ -608,7 +608,7 @@ or below it. Any other above the partition's visibility watermark is refused at 
 
 A transaction commits through a session with the next number of the session's request counter, or through no session,
 `session` all zero (section 11.5). The client sends `commit_version` 0, no token, no results and an empty term table;
-the server answers with the commit version, the commit's session token (section 11.11) and the result of each
+the server answers with the commit version, through a session the commit's session token (section 11.11), and the result of each
 commit-time operation the transaction asked for, in the order asked. A result names the node an insert-if-absent or
 upsert-and-link found or created by its IRI, or by its skolem IRI when the node is a blank node, through the reply's
 term table, never by its system ID.
@@ -618,7 +618,7 @@ term table, never by its system ID.
 | 0 | 16 | `session` | session (section 1) | |
 | 16 | 8 | `request` | u64 | at least 1 with a session, 0 with none (`FieldValue` `"request"`) |
 | 24 | 8 | `commit_version` | u64 | |
-| 32 | 24 | `token` | session token (section 4.8) | zero in a request; in a reply, a token whose `epoch` is `commit_version >> 22`, or zero when `session` is all zero, as a declaration's reply holds it (section 11.13) (`FieldValue` `"token"`) |
+| 32 | 24 | `token` | session token (section 4.8) | zero in a request; in a reply through a session, a token whose `epoch` is `commit_version >> 22`; in a reply through no session, `session` all zero, the zero token, as a declaration's reply holds it (section 11.13) (`FieldValue` `"token"`) |
 
 | Section | Contents |
 |---|---|
@@ -648,8 +648,8 @@ The frame's transaction aborts. The command header is all zero (`ReservedNotZero
 A drop on a stream of its own, outside any transaction: a predicate, a graph, a tenant's data or everything in a
 tenant. It commits as a transaction does, through a session with the next number of the session's
 counter or through no session, in the one partition it reaches: the client sends `commit_version` 0 and no token; the
-server answers with the drop's commit version and its session token, which the partition's session table stores as the
-Drop reply (section 11.5). A drop reaching several partitions, every partition holding the tenant's buckets, is
+server answers with the drop's commit version and, through a session, its session token, the reply the partition's
+session table stores as the Drop reply (section 11.5). A drop reaching several partitions, every partition holding the tenant's buckets, is
 cross-partition and refused with code 23 (CrossPartition), dropping
 nothing (section 11.13). The partition decides it as the last transaction of its round, and its write-set record
 names the drop as an operation (section 12.2). A read-write transaction that read or wrote what the drop removes, with
@@ -662,7 +662,7 @@ its read version below the drop's version, aborts with Conflict, kind Drop.
 | 16 | 16 | `session` | session (section 1) | as Commit's |
 | 32 | 8 | `request` | u64 | as Commit's |
 | 40 | 8 | `commit_version` | u64 | as Commit's |
-| 48 | 24 | `token` | session token (section 4.8) | as Commit's: zero in a request; in a reply, a token whose `epoch` is `commit_version >> 22` (`FieldValue` `"token"`) |
+| 48 | 24 | `token` | session token (section 4.8) | as Commit's: zero in a request; in a reply through a session, a token whose `epoch` is `commit_version >> 22`; in a reply through no session, the zero token (`FieldValue` `"token"`) |
 
 | Section | Contents |
 |---|---|
@@ -722,8 +722,8 @@ every other command-header byte and the body unchanged, relaying its reply. A on
 to the one at position XXH3-64, seed 0, of its `session` and `request` command-header bytes, modulo the count, among the
 partitions holding the tenant's run in ascending order, so a resend reaches the same session table. A resend is relayed the same way, and
 not recalled, since its frame holds its changes: the table decides, answering the stored reply for its last request, code 14 for
-a request in its commit step and code 13 below its last, and otherwise committing it. A partition refuses a key outside its bucket ranges with code 26, naming the owner, and the frontend refreshes its map and
-resends once; a statement reaching another partition's state is refused with code 23.
+a request in its commit step and code 13 below its last, and otherwise committing it. The frontend checks every subject the frame names by an IRI or a skolem IRI against its map, and refuses a frame whose subjects spread over partitions with code 23 before any relay, `detail` as for an operation bound to none. A partition answers a frame whose first subject lies outside its bucket ranges with code 26, naming the owner, and the frontend refreshes its map and
+resends once; it answers a frame whose first subject lies inside them and a later one outside, or any other statement reaching another partition's state, with code 23.
 
 The partition executes the frame in one turn at its visibility watermark, holding nothing between requests, so no lifetime limit
 or sweep applies. It commits through the commit step as any transaction does: the same log, the same acknowledgement, the same
@@ -870,7 +870,8 @@ routes writes.
 
 Order: unused bytes 9–11 and 16–127 zero; `language`; sections; the term table (4, 5); the names (1, 2); section 3 a
 whole number of u32s (`SectionLength`), one per name (`CountMismatch` `"parameters"`), each below the term table's
-length (`IndexOutOfRange`, section 3); section 0 UTF-8 (`FieldValue` `"query"`). A Query naming a transaction the
+length (`IndexOutOfRange`, section 3); section 0 at most `max_frame` less 512 bytes (`CountMismatch` `"query"`) and UTF-8
+(`NotUtf8`, section 0). A Query naming a transaction the
 connection does not hold open is refused with Error 1 (Protocol) on its stream. A parameter the text does not use is
 refused with code 11 (Parameters), `detail` 0; one the text uses and the names do not give likewise.
 
@@ -925,7 +926,7 @@ object, and the reifier column's 1. For a text, the server answers each projecti
 typing, 2 where it is a union of kinds.
 
 Order: unused bytes 25–127 zero; `language`; sections; the term table; for a pattern, the pattern, and sections 5 and 6
-empty (`CountMismatch` `"names"`); for a text, section 0 UTF-8 (`FieldValue` `"query"`); section 3's bytes, then
+empty (`CountMismatch` `"names"`); for a text, section 0 UTF-8 (`NotUtf8`, section 0); section 3's bytes, then
 section 4's, each 1 or 2 for a pattern and 1 to 13 for a text (`FieldValue` `"column type"`); parameter types count the
 pattern's parameter slots, or the text's parameter names (`CountMismatch` `"parameter types"`); in a request, result
 types are empty, and in an answer they count the unbound slots and one more, or the text's projections
@@ -998,7 +999,7 @@ replacing the source of its name, compiled with every source the tenant already 
 built on `version`, committed as pending through the metadata group and taking effect at the epoch section 11.13
 gives a version. The client sends the sources with `epoch` and the reply's `version` zero and no report; the server
 answers with the new version's number, its effective epoch and the compilation report, or refuses with code 28 and
-the diagnostics. Installing takes `declare` on the tenant (`SECURITY.md`). The reply answers once the epoch is
+the diagnostics. Installing takes `declare` on the tenant, which the gate of section 11.10 checks first (`SECURITY.md`). The reply answers once the epoch is
 assigned and, for a tightening change, once every partition holding the tenant's data has passed the validation scan
 at that epoch, as a type change's Commit does.
 
@@ -1014,10 +1015,12 @@ at that epoch, as a type change's Commit does.
 | 1 | sources: string list `text`: for each source its name, then its text, in that order |
 | 2 | the report, UTF-8, the coordination report of `SCHEMA.md` section 9.5; empty in a request |
 
-Order: unused bytes 24–127 zero; in a request, `epoch` 0 (`FieldValue` `"epoch"`) and section 2 empty (`CountMismatch`
-`"report"`); sections; the string list, an even count of strings, at least two (`CountMismatch` `"sources"`), each name
-at most 255 bytes (`FieldValue` `"source name"`); section 2 UTF-8. A version built on one no longer current is refused
-with code 2 (Conflict), kind 5 (Catalog), as a declaration's is.
+Order: unused bytes 24–127 zero; `version`, in a reply at least 1 (`FieldValue` `"version"`); `epoch`, 0 in a request and an
+epoch in a reply (`FieldValue` `"epoch"`); sections; in a request, section 2 empty (`CountMismatch` `"report"`); the string
+list, an even count of strings, at least two (`CountMismatch` `"sources"`), each name at most 255 bytes (`FieldValue`
+`"source name"`); section 2 UTF-8 (`NotUtf8`, section 2). A version built on one no longer current is refused with code 2
+(Conflict), kind 5 (Catalog), as a declaration's is. The frontend refuses a compiled version whose bytes pass 523,000 (section
+11.13) with code 7, `detail` 523,000, the message naming its size, and nothing is installed.
 
 ## 9. Bodies of results and control
 
@@ -1120,10 +1123,10 @@ Order: unused bytes 2–7 and 16–127 zero; `code`; sections; the term table (1
 | 1 | Protocol | no | 0; 1 when a Scan named a transaction the partition does not hold | A frame broke a validation rule: a connection error, after which the server closes the connection, or a stream error, which ends the request's stream (section 2.6). The message is the rule's text |
 | 2 | Conflict | yes | the conflict kind below | A transaction's read conflicted with a commit ordered before it |
 | 3 | TooOld | yes | 0 | The read version is below what validation still holds, or below what the partition retains (section 11.9) |
-| 4 | PastLimit | yes | the limit in milliseconds | The transaction lived past its limit, the Welcome's `transaction_ms` |
+| 4 | PastLimit | yes | the limit in milliseconds | The transaction lived past its limit, the Welcome's `transaction_ms`; when a read was holding a write back then, the message names that read's stream and says it had no credit |
 | 5 | Busy | yes | 0 | The commit queue is full; or the partition's epoch is full and its close request has gone unanswered for `close_request_ms`, the sequencer counting as unreachable until the close arrives (section 11.12) |
 | 6 | TooLarge | no | the limit in bytes; for statement IDs, their bound | A write set exceeds the Welcome's `max_write_set`, as sent or as its commit-time operations leave it (section 11.9); a transaction's reads exceed what its read set holds; a write would pass `statements_per_object_max`; a Commit reply's frame would pass the floor of `max_frame` (section 11.9); one entry's first object record or value is too large for an otherwise empty frame (section 13.14); a row or resume key is too large for an otherwise empty Result frame, or an Execute's ComputeRead for a frame (section 13.12); or a Describe's answer does not fit a frame (section 8.3) |
-| 7 | Refused | no | 0; for a term's rule, the term's index; for a declaration, its record's index; for a catalog version past its cap, the cap; for an unknown tenant, the tenant; for a Lease, the maximum; for a Catalog, the version; for a schema rule at commit, the UGS refusal number (`SCHEMA.md` section 8.7) | The catalog refused a write, a term broke the server's rules (section 4.4), or a declaration was refused: a vector index in this stage, a transaction mixing declarations with other changes, a type change the data contradicts, or a catalog version past what one Catalog frame holds (section 11.13); a request named a tenant the metadata group does not hold (section 11.10); or a role's request was refused: a Lease past `block_size_max`, a Catalog of a version never held, a CloseRequest past the last epoch; or a schema rule refused the transaction at commit, the message naming the instance and the rule |
+| 7 | Refused | no | 0; for a term's rule, the term's index; for a declaration, its record's index; for a catalog version past its cap, the cap; for an unknown tenant, the tenant; for a Lease, the maximum; for a Catalog, the version; for a schema rule at commit, the UGS refusal number (`SCHEMA.md` section 8.7) | The catalog refused a write, a term broke the server's rules (section 4.4), or a declaration was refused: a vector index in this stage, a transaction mixing declarations with other changes, a type change the data contradicts, or a catalog version past what one Catalog frame holds, a Commit's or an Install's (sections 8.4, 11.13); a request named a tenant the metadata group does not hold (section 11.10); or a role's request was refused: a Lease past `block_size_max`, a Catalog of a version never held, a CloseRequest past the last epoch; or a schema rule refused the transaction at commit, the message naming the instance and the rule; or the frontend does not serve the command in this stage (section 11.2) |
 | 8 | OperationFailed | no | 0 | A compare-and-set did not hold; sections 1 and 2 hold the value found |
 | 9 | StaleStatement | no | the statement | The statement's schema id no longer matches its tenant's |
 | 10 | UnknownStatement | no | the statement | The connection holds no statement of this id in the transaction's tenant: never prepared there, or evicted |
@@ -1133,16 +1136,16 @@ Order: unused bytes 2–7 and 16–127 zero; `code`; sections; the term table (1
 | 14 | SessionBusy | yes, after a delay | 0 | The session has a commit in flight, or a retried commit is still in a partition's commit step |
 | 15 | Limit | no | the limit | A bound is reached: past the frontend's connections, an Error on stream 0 in place of the Welcome, then the close; past the Welcome's `max_streams`, on the new stream; past `held_bytes`, on the transaction's stream, ending the transaction (section 11.9) |
 | 16 | ProtocolVersion | no | the server's highest protocol | No protocol both sides speak; the server closes the connection |
-| 17 | Unavailable | no; on a Commit, Drop, DirectWrite or ConditionalWrite it leaves the request in doubt (section 11.5) | 0 | The role or partition the request reaches stopped on an invariant violation, refuses writes after a failed log sync, until it restarts, or its role connection closed under the request (section 11.12); no compute process answers a read, or a hung one sent it nothing (section 11.12); a read found a list naming a dictionary entry its partition lacks (section 13.12); or a store failed under a Scan or a home's registration (sections 13.13, 13.15); requests reaching other partitions are served |
+| 17 | Unavailable | on a read, yes, the read again from its start or a resume key; no otherwise; on a Commit, Drop, DirectWrite or ConditionalWrite it leaves the request in doubt (section 11.5) | 0 | The role or partition the request reaches stopped on an invariant violation, refuses writes after a failed log sync, until it restarts, or its role connection closed under the request (section 11.12); no compute process answers a read, or a hung one sent it nothing (section 11.12); a read found a list naming a dictionary entry its partition lacks (section 13.12); or a store failed under a Scan or a home's registration (sections 13.13, 13.15); requests reaching other partitions are served |
 | 18 | NotCommitted | yes | the request | A retried commit no partition's session table holds, with no transaction open: the request was not committed, and the client runs its transaction again (section 11.5) |
 | 19 | AuthenticationFailed | no | 0 | The authentication exchange failed; the server closes the connection. The message says nothing of what failed |
 | 20 | Unauthenticated | no | 0 | A request before the connection authenticated, refused on the request's stream while the connection stays open for authentication; or an authentication not complete within its timeout, an Error on stream 0, after which the server closes the connection (section 11.1) |
 | 21 | PermissionDenied | no | the action below | The connection's principal may not do what the request asks, by the tenant gate (section 11.10) or a check at the store; the request is refused, and a transaction's request ends the transaction |
 | 22 | CredentialExpired | no | 0 | The connection's credential expired before a new authentication; the server closes the connection |
-| 23 | CrossPartition | no | the transaction's partition in bits 0–31, or for an operation bound to none the lowest partition it reaches; the lowest other partition it reaches in bits 32–63 | Cross-partition work, refused in this stage: a read-write transaction reaching a second partition, or a Drop reaching several; it aborts and writes nothing, and the message names every partition it reaches (sections 11.11, 11.13) |
+| 23 | CrossPartition | no | the transaction's partition in bits 0–31, or for an operation bound to none the lowest partition it reaches; the lowest other partition it reaches in bits 32–63 | Cross-partition work, refused in this stage: a read-write transaction reaching a second partition, a first request or one-frame write whose subjects spread over partitions, or a Drop reaching several; it aborts and writes nothing, and the message names every partition it reaches (sections 11.11, 11.13) |
 | 24 | TimedOut | yes | the partition waited on | A read waited past its transaction's deadline for a partition to close the epoch it reads at, the message naming the partition and the epoch, and returns no row; or a Scan of it stayed past `scan_stall_ms` with no frame able to leave, the message saying so, and rows already sent are no answer (sections 11.11, 13.13) |
 | 25 | LevelRefused | no | as code 23's | A read-only transaction at level 1 (latest) whose read reaches another partition than the one its first read bound it to, or more than one; the message names the level and the partitions (section 11.11) |
-| 26 | WrongPartition | yes, after refreshing the placement map | the bucket in bits 0–23, bits 24–31 zero, the partition owning it in bits 32–63 | A key outside the receiving partition's bucket ranges, from a sender whose placement map is stale. Between roles; a client receives it only when the owner refuses the frontend's one resend too, and runs its transaction again after a delay (section 11.12) |
+| 26 | WrongPartition | yes, after refreshing the placement map | the bucket in bits 0–23, bits 24–31 zero, the partition owning it in bits 32–63 | A key outside the receiving partition's bucket ranges, from a sender whose placement map is stale; a later subject of a request whose first lies inside them is code 23 (section 11.12). Between roles; a client receives it only when the owner refuses the frontend's one resend too, and runs its transaction again after a delay (section 11.12) |
 | 27 | AheadOfWatermark | no | the watermark | A read version is above the visibility watermark of the partition answering, in an epoch that partition has not closed: refused at once when the client named it; the message names the version and the watermark (sections 6.2, 13.13) |
 | 28 | SchemaRefused | no | the count of diagnostics | An Install's sources were refused: the message holds the diagnostics of `SCHEMA.md` section 10.4, each with its code and location, and nothing was installed |
 | 29 | QueryRefused | no | the diagnostic's number, with the language in bits 16–23: 1 GQL, 2 SPARQL | A query or prepared text was refused: the message begins with the diagnostic's code (`QUERY-GQL-CORE.md` section 11, `QUERY-SPARQL-CORE.md` section 11) and its `line:column`, then the reason and the fix; a feature outside the core is named |
@@ -1151,7 +1154,8 @@ Retryable says the same work can succeed if run again, and the code says what ru
 one-frame write, and code 5 on a Drop or one-frame write: the same request, same session and request number, on a new stream
 after a delay. Codes 2, 3, 4, 18, 26, and 5 on a Commit: the whole transaction on a new Begin, since its stream has ended or
 its read version is fixed. Code 24: the read, in the same transaction or a new one; past the deadline a read of an unclosed
-epoch is refused again at once, so a new wait takes a new Begin. A read that already gave rows runs again from its start or
+epoch is refused again at once, so a new wait takes a new Begin. Code 17 on a read: the read, in the same transaction or a new
+one, which another compute process or the restarted role may answer. A read that already gave rows runs again from its start or
 from a resume key, and its earlier rows are discarded. Code numbers are never reused. A receiver refuses an Error
 of code 26 with any of bits 24 to 31 of its `detail` set (`FieldValue` `"detail"`).
 
@@ -1230,7 +1234,7 @@ gives. A Result receiver checks this per term (section 9.1).
 | Term | Encoding |
 |---|---|
 | IRI | `0x01`, with the IRI's text as the term's `text` |
-| Blank node | `0x02`, with its skolem IRI (RDF 1.1 §3.5) as the term's `text`: `…/tenant/{n}/.well-known/genid/{bucket}-{random}`, `{n}` the tenant in decimal, `{bucket}` the node's bucket in 6 lowercase hexadecimal digits and `{random}` 104 random bits in 26, both zero-padded. The partition minting the node draws both from its random source, the bucket among those it owns in the tenant's run, and draws again when the IRI names one its dictionary holds; the IRI holds no part of the node's system ID beyond its bucket. A request names the node again by that IRI, as an IRI (section 4.4) |
+| Blank node | `0x02`, with its skolem IRI (RDF 1.1 §3.5) as the term's `text`: the tenant's skolem base, `https://w3id.org/ultragraphdb/ns/tenant/{n}/`, then `.well-known/genid/{bucket}-{random}`, `{n}` the tenant in decimal, `{bucket}` the node's bucket in 6 lowercase hexadecimal digits and `{random}` 104 random bits in 26, both zero-padded. The partition minting the node draws both from its random source, the bucket among those it owns in the tenant's run, and draws again when the IRI names one its dictionary holds; the IRI holds no part of the node's system ID beyond its bucket. A request names the node again by that IRI, as an IRI (section 4.4) |
 | A statement's reifier, in the reifier column (section 9.1) | `0x02`, with the reifier's skolem IRI as the term's `text`, of the same form: `{bucket}` the statement's bucket, its subject's, and `{random}` 104 random bits the subject's partition draws, drawn again when the IRI names one its dictionary holds. The dictionary holds the IRI as the reifier's name, mapping it to the statement ID and back; the IRI holds no part of the statement ID beyond its bucket. A request names the statement again by that IRI, as an IRI (sections 4.4, 4.6) |
 | `xsd:string` literal | `0x20` up to 15 bytes, else `0x21` |
 | Language-tagged literal | by tag length, then lexical form length, as the table gives |
@@ -1418,11 +1422,17 @@ A Write, Operation or Abort on a new stream, and a Commit through no session on 
 stream is refused the same way, ending the transaction. On a role endpoint, a Write, Operation, Commit or Abort on a stream
 no Bind of kind 1 opened, and a Drop on one no Bind of kind 2 opened, is refused with Error 1 the same way.
 
+In this stage the frontend refuses an Install, a Query and a Prepare of `language` 1 or 2 with code 7 (Refused) on the request's
+stream, `detail` 0, the message naming the command and the stage that serves it: stage 6 for an Install, stage 7 for a Query and a
+text. A request naming a tenant passes the gate of section 11.10 first. A Query's refusal leaves its transaction open.
+
 A transaction is its stream and its reads. Its stream takes one request at a time; its reads run beside it, each on a
 stream of its own, at the transaction's read level and snapshot (section 11.11). A Commit or an Abort ends the reads still
 open when the frontend takes it, as a Cancel ends them (section 11.4; section 11.12, *Reads*, orders them against held
 writes): a client that wants a read's every row reads it to its `LAST` first, as SQL closes a transaction's cursors when
-it ends. When the transaction ends by an Error on its stream, the frontend answers each read still open with that Error,
+it ends. A write behind an open read waits for that read's `LAST`, and a read behind that write waits for the write, and only the
+client's Credit drains the open read: a client reads an open read to its `LAST`, or cancels it, before it waits on a later read
+behind a write. When the transaction ends by an Error on its stream, the frontend answers each read still open with that Error,
 which a client that has already seen the transaction's Error drops as late. The Rust client sends no Write, Operation or
 Commit in a read-only transaction (Begin `mode` 1).
 
@@ -1504,8 +1514,9 @@ ComputeRead's stream starts with its `credit` in place of the Welcome's (section
   connection, with Recall (section 13.11). A partition answers the stored reply when its table holds the request as
   the session's last; code 14 when the request is in its commit step, not yet decided; code 13 when its last for the
   session is above the request; and code 18 (NotCommitted) when it holds neither. The frontend answers the client, in
-  this order: a stored reply any partition gave; code 14 when any answered 14; code 17 when any answered 17, or its role
-  connection closed or could not be opened before it answered; code 13 when any answered 13, `detail` that partition's
+  this order: a stored reply any partition gave; code 14 when any answered 14; code 17 when any answered 17 or a refusal not
+  named here, which is a partition that could not be asked, or its role connection closed or could not be opened before it
+  answered; code 13 when any answered 13, `detail` that partition's
   last; and, every partition having answered 18, code 12 when the registry has evicted the session
   meanwhile, since its partitions may have purged its entries, else code 18: the request was not committed, and the
   client runs its transaction again.
@@ -1664,8 +1675,10 @@ vector.
 
 A partition retains every version at or above its discard version, which it raises only to the version bound of an epoch closed
 more than `read_retain_ms` ago, and never past a version an open Scan or a read-write transaction holds; a read below it is refused
-with code 3 (TooOld). A deadline bounds a read's wait, and a read-only transaction has no other limit on its life, so a reader that
-keeps taking frames, and comes back within `read_retain_ms` between its Scans, keeps its version.
+with code 3 (TooOld). A deadline bounds a read's wait, and a read-only transaction has no other limit on its life. An open Scan keeps
+its version for as long as it stays open. Between Scans a version stays only until a later epoch has been closed for more than
+`read_retain_ms`, so compute keeps a Scan of each partition open across a read that may outlast that, and a next Scan past it is
+refused with code 3.
 
 ### 11.10 Authorization
 
@@ -1675,10 +1688,10 @@ unbound returns no row of it. A write, declaration, drop, administration or clus
 is refused with code 21 (PermissionDenied), `detail` the action (section 9.4).
 
 **The tenant gate.** A tenant binds per Begin, and a principal may hold grants in several. Every request naming a tenant,
-Begin, Prepare, Describe, Drop, DirectWrite and ConditionalWrite, passes one check at the frontend before it reaches any
-other role or any state: whether the connection's principal may do the request's action in that tenant. A refusal is code
-21 on the request's stream, `detail` `read` for Begin, Prepare and Describe, `write` for a one-frame write and `drop` for a
-Drop. The gate fails closed on an action or a scope it does not know. In this stage it allows every authenticated
+Begin, Prepare, Describe, Install, Drop, DirectWrite and ConditionalWrite, passes one check at the frontend before it reaches
+any other role or any state: whether the connection's principal may do the request's action in that tenant. A refusal is code
+21 on the request's stream, `detail` `read` for Begin, Prepare and Describe, `declare` for an Install, `write` for a one-frame
+write and `drop` for a Drop. The gate fails closed on an action or a scope it does not know. In this stage it allows every authenticated
 principal, and stage 7's grants fill it in (`SECURITY.md`, *Where it is built*). A request the gate passes naming a tenant
 the metadata group does not hold is then refused with code 7 (Refused), `detail` the tenant, the message naming it, so a
 principal holding no grant in a number learns nothing of whether it exists.
@@ -1689,7 +1702,7 @@ A storage process hosts partitions, each owning ranges of buckets (section 13.6)
 owning its bucket. A read-write transaction stays within the one partition the frontend binds it to (section 11.12):
 it reads and writes only what that partition owns, and a request reaching another partition's state aborts it with
 code 23 (CrossPartition), writing nothing. Its references to entities other partitions own register at their homes, as
-pre-steps outside it that never abort it (section 11.12). It makes a reverse or fan-out read, a value-index lookup, a
+pre-steps outside it that no race among registrants aborts (section 11.12); a home's refusal ends it as section 13.15 states. It makes a reverse or fan-out read, a value-index lookup, a
 scan, a pattern with an unbound subject or a bound literal object, only when its partition owns the tenant's whole
 run, as it always does with one partition. Code 23 is not retryable: the transaction run again reaches the same
 partitions. A read-only transaction reads across partitions at levels 0 and 2.
@@ -1721,8 +1734,9 @@ it, and no row it carried counts. The refusal ends the read alone unless section
 client returns the refusal after the batches already handed over and resends nothing of a read; running it again is its
 caller's choice.
 
-A committed transaction's Commit reply, and a Drop's reply, carries its session token (section 4.8): its partition, its
-round's position in that partition's log and the epoch of its commit version. A later transaction carrying the token
+A committed transaction's Commit reply, and a Drop's reply, through a session carries its session token (section 4.8): its
+partition, its round's position in that partition's log and the epoch of its commit version. A reply through no session holds
+the zero token, a declaration's and a Drop's among them. A later transaction carrying the token
 sees that commit and every commit before it in that partition, on any connection. A read-write transaction carrying a
 token of epoch `t` commits at epoch `t` or later: its partition holds the commit until the close of `t − 1` has been
 delivered to it, so a causally later write never falls in an earlier snapshot. A read-only transaction carrying a token
@@ -1839,20 +1853,28 @@ row that fits:
 | writes only new blank nodes as subjects | a partition the frontend chooses in turn, round-robin over the partitions holding the tenant's run, which draws the nodes' buckets from its own |
 | names no subject otherwise | the partition owning the tenant's whole run, when one does; when none does, the request aborts the transaction with code 23 |
 
+A read binding an IRI that section 4.4 makes one nobody holds, under a skolem base, binds nothing and reaches no other role: the
+frontend answers it itself, at any level, with one batch flagged `LAST`, `rows` 0, `columns` the unbound slots and one more, and
+`epoch` and `partition` 0, and the transaction's next request or read is its first.
+
 A Commit of a read-write transaction no request has bound and holding no declaration reaches no partition: the frontend
 answers it itself, `commit_version` 0, the token zero and no results, and stores nothing. The session's counter moves as after
 any Commit reply. A resend of it is answered code 18, and running the transaction again commits nothing as well.
 
 It sends Bind (section 13.10) on a new stream to the storage process hosting the partition, and the stream becomes the
 transaction's there. The frontend relays the client's Write, Operation, Commit and Abort frames on it, command headers
-and bodies unchanged; storage answers as a server answers a client, filling the commit's session token in its Commit
-reply, and the frontend relays each reply on the client's stream. Only a statement's subject decides where it goes: an
-object another partition owns is registered at its home and never refuses the write. A partition refuses a key outside
-its bucket ranges in the transaction's first request with code 26 (WrongPartition), naming the bucket and its owner;
-the frontend refreshes its placement map, then binds to the owner and resends once, and when the owner refuses with
-code 26 too, the frontend answers the client code 26 on the transaction's stream. Until the transaction's first request is
+and bodies unchanged; storage answers as a server answers a client, filling, through a session, the commit's session token in
+its Commit reply, and the frontend relays each reply on the client's stream. Only a statement's subject decides where it goes: an
+object another partition owns is registered at its home, where only section 13.15's outcomes refuse the write. Before it binds, the
+frontend checks every subject the first request names by an IRI or a skolem IRI against its map: a request whose subjects spread
+over partitions is refused with code 23 on the transaction's stream, `detail` as for an operation bound to none, binding nothing,
+and the transaction ends. A partition refuses a first request whose first subject lies outside its bucket ranges with code 26
+(WrongPartition), naming the bucket and its owner; the frontend refreshes its placement map, then binds to the owner and resends
+once, and when the owner refuses with code 26 too, the frontend answers the client code 26 on the transaction's stream. A partition
+refuses one whose first subject lies inside its ranges and a later one outside with code 23. Until the transaction's first request is
 answered, the frontend sends none of its later requests to a partition or to compute, keeping them, and on code 26 sends them
-after the resend, in order. A later request reaching another
+after the resend, in order. A first read counts as answered, for this rule alone, at its first frame or its Error, since its
+refusals come before any row. A later request reaching another
 partition aborts the transaction with code 23, at the frontend when its map shows it and at the partition otherwise; so
 does a unique value claimed in another partition, a delete by pattern reaching another partition's state, and a
 reverse or fan-out read over a tenant spread over several partitions. A write naming a statement by its reifier (a
@@ -1861,8 +1883,10 @@ reifier resolves to, once the write executes: when another partition owns that s
 transaction, `detail` the transaction's partition and the subject's owner, and nothing it wrote is held. When compute answers a read of a read-write
 transaction with code 23, the frontend cancels the transaction's Bind stream, which aborts it at the partition. When that read
 is the transaction's first request, the frontend refreshes its map, and if the refreshed map moves the read's subject, it binds
-to the owner and resends the read once. Otherwise it relays code 23 on the read's stream, and answers the transaction's next
-request on its stream with code 23.
+to the owner and resends the read once. Otherwise it relays code 23 on the read's stream, drops the writes it holds, cancels the
+transaction's other reads still open, and answers with code 23, the first's `detail`, each of those reads, each read it holds,
+every later Read, Execute or Query naming the transaction, which stays open for section 7.1 until then, and the next request on
+the transaction's stream, which ends it.
 
 **Drops.** The frontend sends a Drop to the one partition holding every bucket it reaches (section 6.5): it binds a
 stream with Bind of kind 2, relays the Drop on it, and relays the partition's Drop reply, which ends the stream. A resend
@@ -1900,7 +1924,8 @@ of a cancelled read reaches the client, and a span its Scan records after the Ca
 
 A read under way when its transaction ended is refused at the partition, and compute's Error 1 of `detail` 1 (section 13.13) may
 arrive first: the frontend holds it until the Bind stream ends, then answers the read with the Error the stream gave, such as
-code 4 (PastLimit), and sends nothing further when it has already answered the read.
+code 4 (PastLimit), or the code 23 a read's refusal cancelled the stream with, and sends nothing further when it has already
+answered the read.
 
 Compute reads through storage's read kernel, Scan (section 13.13): key ranges of the partition at a role address, at a
 version, each bounded by a row limit, in key order, batched per address. It resolves a bound term in the partition whose
@@ -1975,7 +2000,7 @@ effect at the round's epoch.
   transaction again against the current one; an offer resent after a lost reply is refused the same way, and Describe
   shows whether the first took effect. A version whose bytes pass 523,000, what one Catalog frame holds at the floor of
   `max_frame` (section 13.7), is refused at its Commit with code 7, `detail` 523,000, the message naming its size, and the
-  catalog is unchanged.
+  catalog is unchanged; an Install's is refused the same way (section 8.4).
 - **Its epoch.** At its next close `c + 1` the sequencer assigns every pending version the effective epoch `c + 2`,
   records the assignment in its durable close record and announces it with that close (section 11.12, *Epochs*); the
   metadata group learns the epoch from that close, and a version pending when the frontend crashes is assigned at the
@@ -2491,7 +2516,8 @@ no entry of the session or a last below `request`.
 | 8 | 16 | `session` | session (section 1) | not all zero (`FieldValue` `"session"`) |
 | 24 | 8 | `request` | u64 | at least 1 (`FieldValue` `"request"`) |
 
-No sections. Order: unused bytes 4–7 and 32–127 zero; `partition`; `session`; `request`; sections.
+No sections. Order: unused bytes 4–7 and 32–127 zero; `partition`; `session`; `request`; sections. A Recall naming a partition the
+role address does not serve is refused with Error 1 (Protocol), the message naming the partition.
 
 ### 13.12 ComputeRead (523)
 
@@ -2668,7 +2694,7 @@ Commit validates what these spans record as it does a range the partition scanne
 with it, written above the transaction's read version, aborts the commit. Every list a commit writes counts, forward,
 reverse, predicate lists and indexes alike, and so does every statement record it writes.
 
-Order: unused bytes 1–7 and 56–127 zero; `at`, and 1 when `transaction` is not zero (`FieldValue` `"at"`); `read_version` 0 for `at` 2 and 3; `epoch` an epoch, and 0 for `at` 4
+Order: unused bytes 1–7 and 56–127 zero; `at`, and 1 when `transaction` is not zero (`FieldValue` `"at"`); `read_version` 0 for `at` 2 and 3, and a version or version bound (section 1) for `at` 1 and 4 (`FieldValue` `"read_version"`); `epoch` an epoch, and 0 for `at` 4
 and when `transaction` is not zero (`FieldValue` `"epoch"`); `deadline_ms` 0 when `epoch` is 0 (`FieldValue` `"deadline_ms"`); sections; section 0 a whole number of 24-byte ranges (`SectionLength`) and not empty
 (`CountMismatch` `"ranges"`, 0 against 1); sections 2 and 3 empty when `transaction` is zero (`CountMismatch` `"terms"`, their bytes against 0),
 otherwise a term table (section 4.4), then at most as many terms as ranges (`CountMismatch` `"terms"`, the terms against the ranges), then every entry of kind 1
@@ -2697,7 +2723,7 @@ Entries frames spend credit as Result frames do (section 11.3).
 | 9 | 1 | `continues` | u8 | 1 the batch's last entry's value continues in the next frame, which needs a last entry; 0 otherwise (`FieldValue` `"continues"`) |
 | 12 | 4 | `through` | u32 | the batch's last range: `range`, or above it when the batch answers each range from `range` through this one, each a one-key range of the dictionary, each with `end` 1 and `continues` 0, a range finding nothing holding no entry (`FieldValue` `"through"`) |
 | 16 | 8 | `epoch` | epoch (section 1) | the epoch the range was read at: with `at` 1 and 4, `read_version`'s; with `at` 3, the latest closed epoch the partition chose; with `at` 2, the higher of that and the epoch of the version it chose; 0 when the partition has closed no epoch and read at the version bound of none (`FieldValue` `"epoch"`) |
-| 24 | 8 | `version` | u64 | the version the Scan chose, the same in every frame of the Scan |
+| 24 | 8 | `version` | u64 | the version the Scan chose, a version or version bound (section 1), the same in every frame of the Scan (`FieldValue` `"version"`) |
 
 | Section | Contents |
 |---|---|
@@ -2730,7 +2756,7 @@ the receiver's `max_frame`.
 
 An object record running past the value is refused with `EntryOutOfBounds` (section 0, the record's index, its offset in the value).
 
-Order: unused bytes 10–11 and 32–127 zero; `end`; `continues` 0 or 1, 0 when `end` is not 0; `through` not below `range`, and when above it `end` 1 (`FieldValue` `"through"`); `epoch` at most 2⁴² − 1; sections; each entry inside the section
+Order: unused bytes 10–11 and 32–127 zero; `end`; `continues` 0 or 1, 0 when `end` is not 0; `through` not below `range`, and when above it `end` 1 (`FieldValue` `"through"`); `epoch` at most 2⁴² − 1; `version` a version or version bound (section 1) (`FieldValue` `"version"`); sections; each entry inside the section
 (`EntryOutOfBounds`) with zero padding (`PaddingNotZero`); every value present (`FieldValue` `"entry"`, the entry's
 index); with `through` equal to `range`, each key above the one before, compared byte by byte, within the batch (`FieldValue` `"entry order"`, the
 entry's index); the count equals `entries` (`CountMismatch` `"entries"`); at least one entry when `continues` is 1 (`FieldValue` `"continues"`, 1).

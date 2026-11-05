@@ -27,3 +27,11 @@ changeset.
 - **WHEN** two predicates in two graphs each hold vectors
 - **THEN** each predicate's HNSW lists are under its own graph and predicate, and a search of one finds none of the
   other's nodes
+
+### Requirement: Level draws are a function of the node
+A node's HNSW level SHALL be drawn from a hash of the index's seed, the tenant, the predicate and the node's system ID, so
+inserting the same vectors in any order draws the same levels.
+
+#### Scenario: Insertion order does not change levels
+- **WHEN** the same ten vectors are indexed once in one order and once in the reverse order
+- **THEN** each node is drawn the same level both times

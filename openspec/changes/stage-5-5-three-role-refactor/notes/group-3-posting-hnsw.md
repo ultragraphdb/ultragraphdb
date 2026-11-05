@@ -28,7 +28,7 @@ It keeps Go's order, so a read after `n` is a read after `rid(n)`. The other hel
 - `number`: the sequence back.
 - `pack_of`: a non-empty pack.
 
-`key(attr, n)` writes the forward key from its layout: 0x10, then the namespace, the default graph's 16 zero bytes, and
+`key(attr, n)` writes the forward key from its layout: 0x10, then the tenant, the default graph's 16 zero bytes, and
 the predicate and subject IDs. Values stay keyed by their fingerprint, below 2^64.
 
 **Rewritten to the new format** (each keeps its behaviour, now checked on the 128-bit form):

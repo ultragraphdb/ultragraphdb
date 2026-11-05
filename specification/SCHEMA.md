@@ -1610,7 +1610,9 @@ and reports it as unenforced (`UGS0902`).
   that creates no ID and answers an entity's status (absent, live, deleted) and its type prefix, for participant
   checks; (4) the datatypes `ugdb:bfloat16vector`, `ugdb:measure` and `ugdb:precision` in section 10.4's table; (5)
   the Purge command of section 8.8; (6) an entity delete writing a tombstone, as P24 rule 8 states; (7) a handle IRI
-  accepted as a name when the dictionary holds it, as a skolem IRI is.
+  accepted as a name when the dictionary holds it, as a skolem IRI is; (8) continuation frames for Catalog and Describe, so
+  a catalog version may pass the 523,000 bytes one Catalog frame holds at the floor of `max_frame` (section 11.13 there) and a
+  Describe answer may pass a client's `max_frame`.
 - **`SECURITY.md`.** Installing a schema takes `declare` on the tenant; a purge takes a new action `purge` (7) at
   tenant scope, held by the built-in `owner` role, and is an audit event naming the principal and the purge epoch.
   The scopes become cluster, tenant, namespace, graph and predicate, a namespace scope covering its graphs and

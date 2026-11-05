@@ -28,8 +28,8 @@ SHALL execute against the version in effect. A predicate the version in effect d
 with the default entry, and its first write SHALL ask the metadata group to record that entry as a default-entry record
 (metadata-group, "Catalog versions take effect at an epoch boundary"), a command that finds the entry when it already
 exists and that no write waits for, so concurrent first writes of one predicate both commit; recording a default entry
-SHALL abort no transaction. A drop SHALL be an operation naming its target, a predicate, a graph, a namespace's data or
-everything, whose key removals the partition derives on apply and on replay, aborting every read-write transaction
+SHALL abort no transaction. A drop SHALL be an operation naming its target, a predicate, a graph, a tenant's data or
+everything in a tenant, whose key removals the partition derives on apply and on replay, aborting every read-write transaction
 whose read version is below it, that commits after it, and that read or wrote what it removes; removing a dropped
 predicate's declaration SHALL be a catalog change, and until it takes effect the partition SHALL maintain no index of
 the predicate. An index build a catalog version starts SHALL begin in each partition at the version's epoch: its start
@@ -42,22 +42,22 @@ taking effect at one epoch start SHALL begin in the order of their versions, eac
 aborts for them.
 
 #### Scenario: Concurrent first writes of a predicate both commit
-- **WHEN** two transactions of `ns` read before either commits, the first writes `<a> <score> 12` and the second
+- **WHEN** two transactions of `t1` read before either commits, the first writes `<a> <score> 12` and the second
   `<b> <score> "high"`, and `score` was not declared
 - **THEN** both commit, and the metadata group holds `score`'s default entry once
 
 #### Scenario: A write after a build's start in the same round aborts
-- **WHEN** a version of `ns` starting an index build of `p` takes effect at epoch 40, and a transaction executed
-  against the version before it writes `p` in `ns` and commits at epoch 40
+- **WHEN** a version of `t1` starting an index build of `p` takes effect at epoch 40, and a transaction executed
+  against the version before it writes `p` in `t1` and commits at epoch 40
 - **THEN** the transaction aborts with a conflict naming the catalog, and its retry is indexed by the build
 
 #### Scenario: A write executed against an old catalog aborts
-- **WHEN** a transaction executes against catalog version 2 of `ns`, and commits at an epoch from which version 3 is
+- **WHEN** a transaction executes against catalog version 2 of `t1`, and commits at an epoch from which version 3 is
   in effect
 - **THEN** the transaction aborts with a conflict naming the catalog, and its retry is checked against version 3
 
 #### Scenario: Two builds taking effect at one epoch take two rounds
-- **WHEN** versions 3 and 4 of `ns` both take effect at epoch 40, each starting an index build
+- **WHEN** versions 3 and 4 of `t1` both take effect at epoch 40, each starting an index build
 - **THEN** the build of version 3 begins in one round and that of version 4 in a later round, and no transaction aborts
   for either
 

@@ -55,7 +55,7 @@ store's position and its tail.
 A round's commits SHALL carry one epoch, since a round closes when a close is delivered (commit-rounds, "Catalog
 changes, drops and index builds are ordered in rounds"). A round's record SHALL hold, for each committed transaction,
 its resolved quads with their system IDs, its commit version, its drops as operations naming their target (a predicate,
-a graph, a namespace's data or everything), whose key removals replay derives, its deletes by pattern as their resolved
+a graph, a tenant's data or everything in a tenant), whose key removals replay derives, its deletes by pattern as their resolved
 removals, the session-table entry its commit writes (the session ID, the request number and the stored reply), and the
 registrations it relied on as a referrer, each the entity's ID, the bucket group and the generation the reply named; the
 new dictionary entries the round creates, a copied entry of another partition's entity in both directions counting as

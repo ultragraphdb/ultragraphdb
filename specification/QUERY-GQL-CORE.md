@@ -11,7 +11,7 @@ full-conformance stage's, and a query using any of it is refused naming the feat
 `QUERY-SPARQL-CORE.md` is the sibling: the two cores read one store, and a question asked in both answers alike
 (section 12). `SCHEMA.md` gives the graph the core sees; `PROTOCOL.md` the bytes a statement, its parameters and its
 result travel in; `openspec/notes/UltraGraphDB Dual Query Engine Plan.md`, "The query core", the design. The read
-fragment's reference semantics is MGQL (Thimmaiah, Lin and Gligoric, OOPSLA 2026; `2608.24565v1.pdf` beside this
+fragment's reference semantics is MGQL (Thimmaiah, Lin and Gligoric, OOPSLA 2026; `../papers/2608.24565v1.pdf` beside this
 file), a mechanised, executable semantics of GQL whose evaluator this core's results are checked against.
 
 ## Contents

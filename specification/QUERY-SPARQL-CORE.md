@@ -1,7 +1,7 @@
 # The SPARQL core
 
 This file specifies the subset of SPARQL 1.1 Query and SPARQL 1.1 Update (W3C Recommendations, 21 March 2013), with
-one construct of SPARQL 1.2 for RDF 1.2's reifiers, that UltraGraphDB's query core executes: the query forms,
+one construct for RDF 1.2's reifiers, the triple term, that UltraGraphDB's query core executes: the query forms,
 patterns, filters, solution modifiers and updates it accepts, their meaning over the RDF view a UGS schema declares,
 how they read and write through the engine's transactions, what they return, and how a query outside the core is
 refused. The core is the fragment the DeepBrain MVP needs: a schema is created, data is written, read, updated and
@@ -39,7 +39,7 @@ the oracle (section 12).
 | Term | Meaning |
 |---|---|
 | Query, Update | SPARQL 1.1 Query Language and SPARQL 1.1 Update, cited as `Query §n` and `Update §n` |
-| RDF 1.2 | RDF 1.2 Concepts and Abstract Syntax: terms, quads, reifiers and triple terms, which the mapping contract keeps |
+| RDF 1.2 | RDF 1.2 Concepts and Abstract Data Model (W3C Candidate Recommendation, 7 April 2026): terms, quads, reifiers and triple terms, which the mapping contract keeps. The triple term's written form `<<( s p o )>>` is the one taken from the SPARQL 1.2 Query Working Draft of 25 October 2026, frozen at that draft; nothing else of SPARQL 1.2 is in the core (section 15) |
 | Tenant, namespace, graph | As `SCHEMA.md` section 1: a tenant isolates; a namespace is an installed schema with its graphs; a graph is an RDF named graph |
 | Solution, solution sequence | A solution mapping from variables to terms and a sequence of them with multiplicity, `Query §18.1`; the core evaluates every operator as a bag |
 | Live | An instance that is not deleted and, on a `@bitemporal` type, not retracted (`SCHEMA.md` section 8.4) |
@@ -522,7 +522,8 @@ shapes `SCHEMA.md` section 11.2 publishes are what a SPARQL client reads for the
 | Question | Decision |
 |---|---|
 | The dataset | The tenant's: the `@default` graph and every declared graph; no `FROM` |
-| Reifiers | RDF 1.2's `rdf:reifies` with a triple term, the one SPARQL 1.2 construct in the core, since edge properties are otherwise unreachable |
+| Reifiers | RDF 1.2's `rdf:reifies` with a triple term, the one construct beyond SPARQL 1.1 in the core, since edge properties are otherwise unreachable; the data model is the RDF 1.2 Concepts Candidate Recommendation, the written form the frozen draft syntax of section 1 |
+| SPARQL 1.2 | Not followed. The core is SPARQL 1.1, a Recommendation since 2013. SPARQL 1.2 Query and Update are Working Drafts, revised monthly through October 2026, with the Working Group chartered to April 2027 and no implementation report; building on a draft binds the core to text that moves. Decided 2026-11-05: reviewed again in mid or late 2027, against the Recommendation if one exists by then |
 | Navigation properties | Derived one-step properties for node-encoded relations, so a property path walks a relation node as it walks an edge; read-only |
 | Property paths | Alternatives, sequences, inverse, `+`, `*` and `?` with set semantics by frontier expansion; nothing else until full conformance |
 | `NOT EXISTS` | One triple pattern with a bound subject: the absence read, recorded in the read set |

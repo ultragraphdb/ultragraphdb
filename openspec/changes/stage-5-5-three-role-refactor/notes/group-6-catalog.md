@@ -32,15 +32,15 @@ no lint checks:
 **The partition-side interface**, `ultragraphdb_traits/ultragraphdb_traits_catalog` (no dependencies), posted as
 `SURFACE READY`: `CatalogSource` (`version_at(namespace, epoch)`, the version in effect, `None` for the initial
 catalog; `version(namespace, version)`, for a replayed build's start record; an associated `Error`), `HeldVersion`
-(namespace, number, effective epoch, opaque contents), `DefaultEntry` (namespace, predicate IRI, the encoded default
+(tenant, number, effective epoch, opaque contents), `DefaultEntry` (tenant, predicate IRI, the encoded default
 declaration), and behind `test-utils` the double `TestCatalogSource` with `CatalogUnreachable`. The metadata agent
 implemented `CatalogSource` on `MetadataState` and takes `DefaultEntry` as its command's payload.
 
 **Catalog versions** (`core_catalog`): `CatalogContents` — a version's declarations by IRI, since the frontend and every
-partition read it and share no dictionary — encoded as format 1, namespace, version, count, then each declaration's
+partition read it and share no dictionary — encoded as format 1, tenant, version, count, then each declaration's
 entry value with its length; `decode` refuses bytes of another format, ending early, running on, naming another
-namespace or version, or holding a declaration that does not decode, with `CatalogErrorEnum::CorruptedVersion`
-naming the namespace and version. `Catalog::version`/`with_version`.
+tenant or version, or holding a declaration that does not decode, with `CatalogErrorEnum::CorruptedVersion`
+naming the tenant and version. `Catalog::version`/`with_version`.
 
 **The partition** (`store_apply`):
 - No catalog key is written: a write's declarations and default entries, a build's swap and undo, a build end's
@@ -102,7 +102,7 @@ installed by `Prepared::catalog`, the first two under the spec's new texts.
 - `store_apply`: schema-storage "A first write records the predicate", "A failed write records no predicate",
   "Concurrent first writes both commit" (`schema_storage.feature`), "The catalog survives a restart", "A removed
   declaration stays removed after a restart", "No catalog key is written to a partition" (`catalog_versions.feature`);
-  schema-changes Drops (all six), "A namespace's data drop removes its split parts", "Adding an index rebuilds it from
+  schema-changes Drops (all six), "A tenant's data drop removes its split parts", "Adding an index rebuilds it from
   existing data" (four of five), "Type changes" (all five, "A contradiction written before the change takes effect
   refuses it" new), "A failed rebuild restores the previous schema and its indexes", in the spec's texts. Steps in the
   new `tests/schema_storage_steps.rs`.
@@ -148,7 +148,7 @@ replayed with `-runs=0`; a 20-second sanity run in the scratchpad found nothing.
    §12.2 names. Replay ends whichever build runs, and replays an undo as a swap when the backfill now succeeds (the
    restoring version follows either way).
 3. **A version waits while a build runs**, refused with `Rebuilding`; the host proposes it again after the build's end.
-   Until then the namespace's transactions, executed against the installed version, abort at the version's epoch with a
+   Until then the tenant's transactions, executed against the installed version, abort at the version's epoch with a
    catalog conflict. Two builds in one version: the second declaration is refused like a contradicted one.
 4. **The host drives the catalog path**: `Pipeline::install` is called once the close announcing a version is
    delivered; a conflict (a commit changed what the checks read) is answered under the host's ticket, and the host

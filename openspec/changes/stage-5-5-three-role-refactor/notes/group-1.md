@@ -35,13 +35,13 @@ member glob stops Cargo and every Bazel build; the user may delete it there.
 ### 2. Suite
 
 - `features/system-identity/system_identity.feature`: the nine scenarios of the requirements "A system ID is 128 bits
-  of type, bucket, sequence and reserved bits", "The bucket comes from the namespace and the key" and "Until UGS keys
+  of type, bucket, sequence and reserved bits", "The bucket comes from the tenant and the key" and "Until UGS keys
   exist, an IRI is the key of the Resource type", verbatim, bound by `tests/bdd.rs` (cucumber, `fail_on_skipped`).
 - Unit tests mirroring `src/`: `tests/types/*` and `tests/errors/id_error/*`.
 - Golden buckets: `testdata/golden/buckets.json`, 14 cases, written by `testdata/golden/buckets.py` with python-xxhash
   4.0.2 over the xxHash C library 0.8.3 (Python 3.12.0, in a scratch venv run with `python3 -I`; its XXH3-64 of the
   empty input is the spec's `0x2d06800538d394c2`). The script builds each hashed byte string from the rule's text
-  alone. The cases cover namespaces 0, 1, 2, 0x0102030405060708 and 2^64 − 1; prefixes 1, 2, 3 and 65,535; and IRIs
+  alone. The cases cover tenants 0, 1, 2, 0x0102030405060708 and 2^64 − 1; prefixes 1, 2, 3 and 65,535; and IRIs
   taking the hashed input through every XXH3-64 length class (6, 11, 21, 156, 306 and 5,006 bytes, the last over several
   1,024-byte blocks) plus non-ASCII UTF-8. Read with `ultragraphdb_tool_bdd::load_golden`; `dgraph_commit` says the
   values are not from Dgraph.
@@ -77,7 +77,7 @@ Every error variant is provoked through the crate's API and asserted by variant:
 Run against the surface (`bazel test //ultragraphdb_error/ultragraphdb_error_ids/... //ultragraphdb_core/ultragraphdb_core_ids/...`,
 then two crates): error crate unit 8 tests, 8 failed; core unit 53 tests, 53 failed; BDD 9 scenarios, 9 failed. Every
 failure was the `not implemented` panic of a body in `src/` (counted by file: epoch 14, canonical key 11, type prefix
-10, system ID 6, version 3, sequence 3, bucket 3, namespace 2, session token 1; the error crate's constructors 7 and its
+10, system ID 6, version 3, sequence 3, bucket 3, tenant 2, session token 1; the error crate's constructors 7 and its
 `From` 1; each BDD step "Step panicked. Captured output: not implemented"). After the merge the suite is unit 59 (the
 53 and the error tests less the two of the removed `Invariant` variant) and BDD 9.
 
@@ -94,12 +94,12 @@ behaviour.
 | D03 the epoch bound off by one | `test_the_largest_epoch_is_two_to_the_42_minus_one`, `test_the_next_epoch_is_one_above` | — |
 | D04 the next epoch two above | `test_no_epoch_follows_the_last`, `test_the_next_epoch_is_one_above` | — |
 | D05 the bucket bound off by one | `test_buckets_zero_and_the_largest_hold_their_value`, `test_prefix_one_with_the_largest_bucket_and_sequence`, `test_the_order_is_type_then_bucket_then_sequence` | — |
-| D06 the namespace hashed little-endian | `test_every_golden_bucket_matches_the_reference`, `test_the_golden_buckets_are_the_reference_hashes_top_bits`, `test_a_resource_takes_prefix_one_and_its_derived_bucket` | Two namespaces separate one key |
+| D06 the tenant hashed little-endian | `test_every_golden_bucket_matches_the_reference`, `test_the_golden_buckets_are_the_reference_hashes_top_bits`, `test_a_resource_takes_prefix_one_and_its_derived_bucket` | Two tenants separate one key |
 | D07 the key's length left out of the hash | `test_every_golden_bucket_matches_the_reference`, `test_the_golden_buckets_are_the_reference_hashes_top_bits`, `test_the_scenario_bucket_of_http_ex_org_a`, `test_a_resource_takes_prefix_one_and_its_derived_bucket` | The bucket matches the XXH3 reference; A statement shares its subject's bucket |
-| D08 the namespace hash's low byte | `test_every_golden_bucket_matches_the_reference`, `test_the_golden_buckets_are_the_reference_hashes_top_bits`, `test_the_scenario_bucket_of_http_ex_org_a`, `test_a_resource_takes_prefix_one_and_its_derived_bucket` | The bucket matches the XXH3 reference; A statement shares its subject's bucket; Two namespaces separate one key |
+| D08 the tenant hash's low byte | `test_every_golden_bucket_matches_the_reference`, `test_the_golden_buckets_are_the_reference_hashes_top_bits`, `test_the_scenario_bucket_of_http_ex_org_a`, `test_a_resource_takes_prefix_one_and_its_derived_bucket` | The bucket matches the XXH3 reference; A statement shares its subject's bucket; Two tenants separate one key |
 | D09 the key hash's two bytes swapped | `test_every_golden_bucket_matches_the_reference`, `test_the_golden_buckets_are_the_reference_hashes_top_bits`, `test_the_scenario_bucket_of_http_ex_org_a`, `test_a_resource_takes_prefix_one_and_its_derived_bucket` | The bucket matches the XXH3 reference; A statement shares its subject's bucket |
 | D10 the prefix left out of the hash | `test_every_golden_bucket_matches_the_reference`, `test_the_golden_buckets_are_the_reference_hashes_top_bits` | — |
-| D11 the namespace hashed with seed 1 | `test_every_golden_bucket_matches_the_reference`, `test_the_golden_buckets_are_the_reference_hashes_top_bits`, `test_the_scenario_bucket_of_http_ex_org_a`, `test_a_resource_takes_prefix_one_and_its_derived_bucket` | The bucket matches the XXH3 reference; A statement shares its subject's bucket; Two namespaces separate one key |
+| D11 the tenant hashed with seed 1 | `test_every_golden_bucket_matches_the_reference`, `test_the_golden_buckets_are_the_reference_hashes_top_bits`, `test_the_scenario_bucket_of_http_ex_org_a`, `test_a_resource_takes_prefix_one_and_its_derived_bucket` | The bucket matches the XXH3 reference; A statement shares its subject's bucket; Two tenants separate one key |
 | D12 the IRI length truncated, unchecked | `test_a_4_gib_iri_is_refused` | — |
 | D13 the key length little-endian | `test_every_golden_bucket_matches_the_reference`, `test_the_golden_buckets_are_the_reference_hashes_top_bits`, `test_the_scenario_bucket_of_http_ex_org_a`, `test_a_length_above_255_takes_two_bytes`, `test_encoding_appends_to_the_buffer`, `test_the_canonical_encoding_of_an_iri`, `test_the_length_counts_utf8_bytes_not_characters`, `test_a_resource_takes_prefix_one_and_its_derived_bucket` | The bucket matches the XXH3 reference; A statement shares its subject's bucket; The canonical encoding of an IRI |
 | D14 the encoded length one short | `test_the_canonical_encoding_of_an_iri`, `test_the_empty_iri_encodes_as_a_zero_length`, `test_the_length_counts_utf8_bytes_not_characters` | — |
@@ -125,7 +125,7 @@ behaviour.
 | D34 bytes past 8 ignored | `test_bytes_of_another_length_are_refused` | — |
 | D35 the range checked before oddness | `test_an_odd_commit_sequence_is_refused` | — |
 | D36 a token's position returning its partition | `test_a_token_keeps_its_largest_fields`, `test_a_token_names_its_commit` | — |
-| D37 a namespace truncated to 32 bits | `test_every_golden_bucket_matches_the_reference`, `test_the_golden_buckets_are_the_reference_hashes_top_bits`, `test_a_namespace_holds_its_value` | — |
+| D37 a tenant truncated to 32 bits | `test_every_golden_bucket_matches_the_reference`, `test_the_golden_buckets_are_the_reference_hashes_top_bits`, `test_a_namespace_holds_its_value` | — |
 | D38 the epoch bound guard removed | `test_an_epoch_past_42_bits_is_refused`, `test_no_epoch_follows_the_last` | — |
 | E01 reserved bits printed unpadded | `test_invalid_id_texts_name_the_field` | — |
 | E02 the largest bucket off by one in the text | `test_range_texts_name_the_limit` | — |

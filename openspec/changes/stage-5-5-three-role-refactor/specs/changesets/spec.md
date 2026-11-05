@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A changeset describes a write
-A changeset SHALL name its namespace and hold, in order: statements to insert, statements to delete, deletes by pattern
+A changeset SHALL name its tenant and hold, in order: statements to insert, statements to delete, deletes by pattern
 (every object of a subject and predicate in a graph), statement-property sets and deletes, and catalog declarations. Its
 terms SHALL be RDF terms, resolved when the transaction holding it executes: an IRI or blank node to its system ID, got
 or created at its home before the commit (term-dictionary, "An IRI's ID is got or created at its home"), a reference to

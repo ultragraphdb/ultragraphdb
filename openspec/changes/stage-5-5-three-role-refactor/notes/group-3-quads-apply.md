@@ -40,13 +40,13 @@ double's debug check needed `test_a_scripted_block_below_an_earlier_one_is_lease
 - **Sequences.** Per type, the current block and the block ahead, leased when the current is begun; a used-up block
   gives way to the one ahead; with none held and none leased, `NoSequence` naming the type. Nothing persisted: a restart
   leases new blocks, the old ones abandoned.
-- **Names.** Blank nodes: bucket drawn by `OwnedBuckets::draw` among the owned buckets of the namespace's run, then
+- **Names.** Blank nodes: bucket drawn by `OwnedBuckets::draw` among the owned buckets of the tenant's run, then
   `Names::mint_skolem` (104 bits), both from the store's `RandomSource`; reifiers: the subject's bucket. A skolem IRI
   pending or held is drawn again, at most `SKOLEM_DRAWS_MAX` (4) times, then `SkolemDraws`. Statement IDs:
   `SystemId::statement(subject, Statement sequence)`, the reifier's entries in the dictionary both ways.
   `WriteTerms::reifier` resolves a reifier to its statement ID (the write's own, pending or held; never creating).
 - **Dictionary keyspace** 0x1B through `core_keys`: `term_key` (kind 1, SHA-256/16 of the term → ID), `id_key` (kind 2,
-  ID → text), `literal_key` (kind 3). A blank node is a `Resource` ID whose text is a skolem IRI under the namespace's
+  ID → text), `literal_key` (kind 3). A blank node is a `Resource` ID whose text is a skolem IRI under the tenant's
   base (no flag byte); reads present it as `b{bucket}-{random}` (`skolem_blank_node`, shared with `store_apply`).
 - **Absent terms** recorded by ID (`WriteTerms::absent() -> SystemId`); no dictionary key is ever in a read set.
 - `StatementRecord` format 2 (16-byte IDs, IDs validated on decode); `object_posting`/`posting_object` over 128-bit keys,
@@ -156,7 +156,7 @@ target builds in Bazel (`all_crate_deps(normal_dev = True)`), nor `store_kv`'s.
 5. **`OperationOutcome`** replaces the overloaded `(u64, bool)`; the wire's `OperationResult` (group 8) must follow.
 6. **`StatementRecord::encode`** writes at most 2^16 − 1 properties (a debug check; more are not written): nothing caps
    a statement's properties upstream.
-7. **The skolem flag is derived** from the text (a `Resource` ID named by a skolem IRI under the namespace's base), not
+7. **The skolem flag is derived** from the text (a `Resource` ID named by a skolem IRI under the tenant's base), not
    stored.
 8. **`DropTarget::Graph` holds a `Graph`**, so the default graph is droppable by target (PROTOCOL.md §12.2's record
    encoding is group 8's).

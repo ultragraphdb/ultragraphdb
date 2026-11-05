@@ -77,7 +77,7 @@ Also in `core_keys` (task 3.3's regions and group 2's decision 1):
 
 - **The dictionary keyspace**, byte `0x1B`, no lists, no graph: `QuadKey::Dictionary { namespace, entry }` with
   `DictionaryEntry::{Term, Id, Literal}`, kinds 1, 2, 3 and 16 bytes, as term-dictionary's layout states. Its region is
-  its keyspace and namespace (quad-storage, "Every key belongs to one region"). The spec leaves the byte open; 0x1B is
+  its keyspace and tenant (quad-storage, "Every key belongs to one region"). The spec leaves the byte open; 0x1B is
   a decision to review.
 - **An ID object must be a valid system ID**: a reverse or object-predicates key whose object ID does not decode is
   refused with `InvalidId { field: "object" }`.

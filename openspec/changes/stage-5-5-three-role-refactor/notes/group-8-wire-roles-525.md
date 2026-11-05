@@ -44,10 +44,10 @@ forks did 512–518 and 519–524.
 - `CloseRequest::new(partition: u32, epoch: u64)`, `CloseRequestView::{partition, epoch}`.
 - `Closed::new(Vec<ClosedPartition>)`, `Closed::request(&[u32])`, `partitions()`; `ClosedView::{len, is_empty,
   partition(i), partitions(), check_request()}`; `ClosedPartition::{new(partition, epoch), partition, epoch, encode}`.
-- `DefaultEntry::request(namespace, predicate)`, `with_found(bool)`, getters; `DefaultEntryView::{namespace, found,
+- `DefaultEntry::request(namespace, predicate)`, `with_found(bool)`, getters; `DefaultEntryView::{tenant, found,
   predicate, check_request()}`.
-- `Report::{passed(partition, namespace, version), refused(partition, namespace, version, predicate: &str, at_fault:
-  RequestTerm) -> Result<Report, ProtocolError>, build_failed(partition, namespace, version, predicate: &str)}`, getters;
+- `Report::{passed(partition, tenant, version), refused(partition, tenant, version, predicate: &str, at_fault:
+  RequestTerm) -> Result<Report, ProtocolError>, build_failed(partition, tenant, version, predicate: &str)}`, getters;
   `ReportView::{partition, kind, namespace, version, predicate(), at_fault(), terms}`; `ReportKind { Passed, Refused,
   BuildFailed }`.
 - Crate-private: `utils/term_kind.rs` (`term_kind(&RequestTermView) -> u8`); test helper `tests/utils/term_records.rs`
@@ -65,7 +65,7 @@ forks did 512–518 and 519–524.
    failed, 0 passed, every failure `not implemented`**.
 3. Inputs reviewed for coincidences: every golden field distinct from its neighbours (Entries count 3, range 2, end 1,
    epoch 0x1234; Reference partitions 3, 5, 8, groups 0x2A and 0x10, generation 4 → 5, close 41; CloseRequest 7 and 30;
-   Closed partitions 2, 4, 9, epochs 28, 0, 31; DefaultEntry namespace 3; Report partition 6, namespace 4, versions 12,
+   Closed partitions 2, 4, 9, epochs 28, 0, 31; DefaultEntry tenant 3; Report partition 6, tenant 4, versions 12,
    13, 14). An entity byte change in the reply tests first hit a byte that was already 0 (byte 32, the type prefix's
    high byte); it now clears byte 33.
 4. Implemented: **69 passed** under Bazel; `cargo clippy -p ultragraphdb_protocol_wire --all-targets -- -Wclippy::all`
