@@ -22,6 +22,10 @@ Feature: Partitions
       When a write for bucket 30,000 reaches partition 1
       Then partition 1 refuses it with an error naming bucket 30,000 and partition 2, and writes nothing
 
+    Scenario: A later subject outside the partition is cross-partition
+      When a DirectWrite's first subject lies in partition 1's ranges and a later one in partition 2's, and it reaches partition 1
+      Then partition 1 refuses it with code 23, not code 26, and writes nothing
+
   Rule: A partition owns every entry its subjects' writes derive
 
     Scenario: An edge to another partition's entity stays with its subject

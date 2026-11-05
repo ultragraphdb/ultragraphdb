@@ -119,3 +119,59 @@ Feature: Wire protocol: bodies, statements, describe, result batches and the con
   Scenario: An object record past its value is refused
     When an object record's encoding or statement IDs run past the value
     Then the reader refuses it with `EntryOutOfBounds`
+
+  Scenario: A Result holds its monotonic flag and column names
+    When a Result's `monotonic` is 3, and another's sections 7 and 8 name a column count other than its `columns`
+    Then the receiver refuses the first with `FieldValue` naming `monotonic` and the second with `CountMismatch` naming `column names`
+
+  Scenario: A resume key on a batch before the last is refused
+    When a Result frame not flagged `LAST` holds a resume key
+    Then the receiver refuses it with `FieldValue` naming `resume key`
+
+  Scenario: A hash-only term without its text is refused
+    When a Result's term encodes an IRI by hash, its `text` `ABSENT`
+    Then the receiver refuses it with `FieldValue` naming `term text`, the term's index
+
+  Scenario: A Drop of kind 5 is refused
+    When a Drop's `kind` is 5, and a write-set record names operation 5
+    Then the Drop is refused with `FieldValue` naming `kind`, the record with `FieldValue` naming `operation`, and nothing is dropped
+
+  Scenario: A client naming a principal is refused
+    When a client's DirectWrite holds a `principal` above 0
+    Then it is refused at the client endpoint with `FieldValue` naming `principal`, and no partition sees it
+
+  Scenario: Held elsewhere is refused
+    When a Held frame arrives on a stream whose request's answers do not list it, or carries a nonzero command-header byte
+    Then the receiver refuses it as `CommandNotServed`, or with `ReservedNotZero`
+
+  Scenario: A Welcome of no credit is refused
+    When a Welcome names `initial_credit` 0
+    Then it is refused with `FieldValue` naming `initial_credit`
+
+  Scenario: ComputeRead carries the client's limits
+    When a ComputeRead names `max_frame` 524,287 or 1,048,577, or `credit` 0
+    Then it is refused with `FieldValue` naming `max_frame` or `credit`
+
+  Scenario: A Scan's `after` is read from the frame
+    When a Scan's range holds `after_len` 16 and the object's encoding after its past key
+    Then the view reads the first key, the past key and the `after` borrowed from the frame, and the next range's first key starts where the `after` ends
+
+  Scenario: An Entries frame's run reads as its ranges
+    When an Entries frame holds `range` 2, `through` 5, `end` 1 and two entries, and a frame with `through` above `range` and `end` 0
+    Then the first is read as ranges 2 to 5, each ended, and the second is refused with `FieldValue` naming `through`
+
+  Scenario: A version field holds a version or a version bound
+    When an Entries frame's `version`, a Scan's `read_version` and a Begin's `read_version` each hold an odd sequence, and then each holds an epoch's version bound
+    Then the first three are refused with `FieldValue` naming the field, and the bound is read
+
+  Scenario: A frame of another version is refused
+    When a Scan's second Entries frame names another `version` than its first
+    Then the receiver refuses it with `FieldValue` naming `version`, and closes the connection
+
+  Scenario: An entry outside its run is refused
+    When a run's entry holds a key that is the first key of none of its ranges, or a range's entry lies below the range's first key
+    Then the receiver refuses it with `FieldValue` naming `entry order`, the entry's index, and closes the connection
+
+  Scenario: A Reference answers a home's failed store
+    When a home's store fails under a registration
+    Then the reply's `outcome` is 17, its `generation` and `close` 0, and a receiver accepts it

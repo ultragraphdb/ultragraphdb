@@ -11,6 +11,7 @@ use ultragraphdb_protocol_transport::{
 use ultragraphdb_protocol_transport_compio::{Carrier, Connection};
 use ultragraphdb_protocol_wire::{
     Authenticate, BodyBuilder, BodyView, Command, ErrorReplyView, Header, Hello, MAX_FRAME_SIZE,
+    Welcome,
 };
 
 /// The protocol version this release speaks, and its release number.
@@ -29,6 +30,7 @@ pub struct RoleClient {
     cluster: u64,
     sent: u128,
     stream: u64,
+    welcome: Welcome,
 }
 
 impl RoleClient {
@@ -69,9 +71,10 @@ impl RoleClient {
             cluster,
             sent: 0,
             stream: 0,
+            welcome: Welcome::new(PROTOCOL, RELEASE, ""),
         };
         let hello = Hello::new(PROTOCOL, PROTOCOL, RELEASE, max_frame, name);
-        let _welcome = client.connection.hello(&client.pool, &hello).await?;
+        client.welcome = client.connection.hello(&client.pool, &hello).await?;
         client.sent = 1;
         client.authenticate(name, password).await?;
         Ok(client)
@@ -82,7 +85,8 @@ impl RoleClient {
     ///
     /// # Errors
     ///
-    /// [`TransportError::refused`] when the peer answers with an Error, and as reading or writing fails.
+    /// [`TransportError::refused`] when the peer answers with an Error, [`TransportError::protocol`] naming a command the
+    /// request's answers do not list (`PROTOCOL.md` §2.5, step 3), and as reading or writing fails.
     pub async fn request<B: BodyBuilder>(
         &mut self,
         body: &B,
@@ -99,6 +103,10 @@ impl RoleClient {
             let error = ErrorReplyView::from_frame(&view).map_err(TransportError::protocol)?;
             return Err(TransportError::refused(error.code(), error.message()));
         }
+        let _answer: Command = view
+            .command()
+            .answering(B::COMMAND)
+            .map_err(TransportError::protocol)?;
         Ok(reply)
     }
 
@@ -114,6 +122,12 @@ impl RoleClient {
             .frame(header)
             .map_err(|error| TransportError::frame_not_built(B::COMMAND.number(), error))?;
         self.send(frame).await
+    }
+
+    /// The peer's Welcome: its limits.
+    #[must_use]
+    pub fn welcome(&self) -> &Welcome {
+        &self.welcome
     }
 
     /// The stream the last request opened, for what follows on it, as a Bind's transaction does.

@@ -4,7 +4,7 @@
  */
 
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
-use ultragraphdb_protocol_wire::{BodyView, Welcome, WelcomeView};
+use ultragraphdb_protocol_wire::{BodyView, ROLE_MAX_STREAMS, Welcome, WelcomeView};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::utils::golden_bodies::{
@@ -74,11 +74,12 @@ fn test_welcome_fields_are_bounded() -> TestResult {
         field("max_frame", 1_048_577)
     );
     assert_eq!(refused(|h| put(h, 12, 0, 4))?, field("max_streams", 0));
-    // At the bounds, and a zero initial credit, write set and transaction limit, are valid.
+    assert_eq!(refused(|h| put(h, 16, 0, 4))?, field("initial_credit", 0));
+    // At the bounds, and a zero write set and transaction limit, are valid.
     assert!(accepted(|h| put(h, 8, 524_288, 4))?);
     assert!(accepted(|h| put(h, 8, 1_048_576, 4))?);
     assert!(accepted(|h| put(h, 12, 1, 4))?);
-    assert!(accepted(|h| put(h, 16, 0, 4))?);
+    assert!(accepted(|h| put(h, 16, 1, 4))?);
     assert!(accepted(|h| put(h, 20, 0, 4))?);
     assert!(accepted(|h| put(h, 24, u64::from(u32::MAX), 4))?);
     Ok(())
@@ -175,5 +176,17 @@ fn test_auth_and_the_mechanisms_agree() -> TestResult {
             ..
         }
     ));
+    Ok(())
+}
+
+#[test]
+fn test_a_role_endpoints_welcome_reads_its_limits() -> TestResult {
+    let bytes = with_command_header(&golden("welcome")?.bytes()?, |h| {
+        put(h, 12, u64::from(ROLE_MAX_STREAMS), 4);
+    });
+    let view = WelcomeView::from_frame(&frame_of(&bytes)?)?;
+    assert_eq!(view.max_streams(), ROLE_MAX_STREAMS);
+    assert_eq!(ROLE_MAX_STREAMS, 4_294_967_295);
+    assert_eq!(view.max_frame(), 1_048_576);
     Ok(())
 }

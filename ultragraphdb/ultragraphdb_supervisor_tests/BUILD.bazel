@@ -1,0 +1,80 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+load("@aspect_bazel_lib//lib:copy_file.bzl", "copy_file")
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+# The supervisor as a process, with the binaries it starts beside it: each is copied into the sandbox, and the test starts the
+# supervisor. No container is involved, so Bazel caches the result. The ports are declared and fixed, so `exclusive` keeps any
+# other test from running beside this one; it stays sandboxed.
+rust_test(
+    name = "bdd",
+    srcs = ["tests/bdd.rs"],
+    crate_root = "tests/bdd.rs",
+    data = glob(["features/**/*.feature"]) + [
+        ":copy_compute",
+        ":copy_config",
+        ":copy_frontend",
+        ":copy_storage",
+        ":copy_supervisor",
+        ":copy_supervisor_alone",
+        "//ultragraphdb/ultragraphdb_config:profiles",
+    ],
+    tags = [
+        "exclusive",
+        "integration_test",
+    ],
+    use_libtest_harness = False,
+    deps = all_crate_deps(normal_dev = True),
+)
+
+# Copy the supervisor into the sandbox.
+copy_file(
+    name = "copy_supervisor",
+    src = "//ultragraphdb/ultragraphdb_supervisor",
+    out = "ultragraphdb_supervisor",
+    is_executable = True,
+)
+
+# Copy the supervisor to a directory of its own, for the scenario with no other binary beside it.
+copy_file(
+    name = "copy_supervisor_alone",
+    src = "//ultragraphdb/ultragraphdb_supervisor",
+    out = "alone/ultragraphdb_supervisor",
+    is_executable = True,
+)
+
+# Copy the config service into the sandbox.
+copy_file(
+    name = "copy_config",
+    src = "//ultragraphdb/ultragraphdb_config",
+    out = "ultragraphdb_config",
+    is_executable = True,
+)
+
+# Copy the frontend binary into the sandbox.
+copy_file(
+    name = "copy_frontend",
+    src = "//ultragraphdb/ultragraphdb_frontend",
+    out = "ultragraphdb_frontend",
+    is_executable = True,
+)
+
+# Copy the compute binary into the sandbox.
+copy_file(
+    name = "copy_compute",
+    src = "//ultragraphdb/ultragraphdb_compute",
+    out = "ultragraphdb_compute",
+    is_executable = True,
+)
+
+# Copy the storage binary into the sandbox.
+copy_file(
+    name = "copy_storage",
+    src = "//ultragraphdb/ultragraphdb_storage",
+    out = "ultragraphdb_storage",
+    is_executable = True,
+)

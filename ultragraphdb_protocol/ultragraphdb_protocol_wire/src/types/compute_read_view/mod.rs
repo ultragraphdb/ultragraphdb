@@ -23,6 +23,8 @@ pub struct ComputeReadView<'a> {
     transaction: [u8; 16],
     limit: u32,
     deadline_ms: u32,
+    max_frame: u32,
+    credit: u32,
     terms: TermTableView<'a>,
     pattern: QuadPattern,
     resume: &'a [u8],
@@ -82,6 +84,16 @@ impl<'a> ComputeReadView<'a> {
     /// The milliseconds left until the transaction's deadline.
     pub fn deadline_ms(&self) -> u32 {
         self.deadline_ms
+    }
+
+    /// The largest Result frame the read takes, 524,288 to 1,048,576.
+    pub fn max_frame(&self) -> u32 {
+        self.max_frame
+    }
+
+    /// The read's stream's starting credit, at least 1.
+    pub fn credit(&self) -> u32 {
+        self.credit
     }
 
     /// The request's term table.

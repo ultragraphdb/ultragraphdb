@@ -46,6 +46,12 @@ impl fmt::Display for StatementError {
                 "parameter {parameter} of statement {statement} binds a literal or a triple term at a slot taking a \
                  node"
             ),
+            StatementErrorEnum::NotAPattern { language } => {
+                write!(
+                    f,
+                    "a Prepare of language {language} holds a query text, not a quad pattern"
+                )
+            }
         }
     }
 }

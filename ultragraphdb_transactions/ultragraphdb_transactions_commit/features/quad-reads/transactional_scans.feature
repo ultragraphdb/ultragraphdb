@@ -51,3 +51,7 @@ Feature: A read through compute is a read of its transaction
   Scenario: A read past the read set's room ends its transaction
     When a transaction's reads leave no room for a span
     Then the read is refused with `TooLarge`, no entry of that span reaches the client, and the transaction's next request is refused
+
+  Scenario: A statement's record read conflicts with a property written
+    When T1 reads the properties of the reifier `r` through compute, T2 sets a property through `r` and commits, and T1 commits a write
+    Then T1 aborts with a conflict of kind Range

@@ -20,6 +20,8 @@ pub const LIST_A: &[u8] = b"\x10list-a";
 pub const LIST_B: &[u8] = b"\x10list-b";
 /// The epoch the golden lists were read at.
 pub const EPOCH: u64 = 0x1234;
+/// The version the golden lists were read at: the epoch's version bound.
+pub const VERSION: u64 = (EPOCH << 22) | 0x3F_FFFF;
 
 /// A system ID's 16 big-endian bytes.
 fn id(prefix: u16, sequence: u64, bucket: u32) -> [u8; 16] {
@@ -62,7 +64,7 @@ pub fn value_of(objects: &[Object]) -> Vec<u8> {
 
 /// The golden frame ending between two object records: range 0, [`LIST_A`] whole and [`LIST_B`]'s first object.
 pub fn golden_entries_continues() -> Entries {
-    let mut entries = Entries::continuing(0, EPOCH);
+    let mut entries = Entries::continuing(0, EPOCH).with_version(VERSION);
     entries.push(LIST_A, &value_of(&list_a()));
     entries.push(LIST_B, &value_of(&list_b_first()));
     entries
@@ -70,7 +72,7 @@ pub fn golden_entries_continues() -> Entries {
 
 /// The golden frame after it: [`LIST_B`] again with its next objects, ending the range.
 pub fn golden_entries_continued() -> Entries {
-    let mut entries = Entries::new(0, EntriesEnd::Ended, EPOCH);
+    let mut entries = Entries::new(0, EntriesEnd::Ended, EPOCH).with_version(VERSION);
     entries.push(LIST_B, &value_of(&list_b_rest()));
     entries
 }
@@ -110,7 +112,7 @@ fn test_a_batch_continues_only_when_built_to() {
 #[test]
 fn test_the_golden_entries_are_built_byte_for_byte() -> TestResult {
     let golden = golden_role("entries")?;
-    let mut entries = Entries::new(2, EntriesEnd::Ended, 0x1234);
+    let mut entries = Entries::new(2, EntriesEnd::Ended, EPOCH).with_version(VERSION);
     entries.push(b"\x10key-a", b"value-a");
     entries.push(b"\x10key-b", b"");
     entries.push(b"\x10key-b\x00", b"v");
@@ -170,16 +172,20 @@ fn test_a_batch_of_no_entries_has_an_empty_section() {
 }
 
 #[test]
-fn test_the_command_header_holds_count_range_end_and_epoch() {
-    let mut entries = Entries::new(0x0102_0304, EntriesEnd::Limit, 0x0000_0302_0100_0F0E);
+fn test_the_command_header_holds_count_range_end_through_epoch_and_version() {
+    let mut entries = Entries::new(0x0102_0304, EntriesEnd::Limit, 0x0000_0302_0100_0F0E)
+        .with_through(0x0506_0708)
+        .with_version(VERSION);
     entries.push(b"k", b"v");
     let header = entries.command_header();
     assert_eq!(&header[0..4], &1u32.to_le_bytes());
     assert_eq!(&header[4..8], &0x0102_0304u32.to_le_bytes());
     assert_eq!(header[8], 2);
-    assert_eq!(&header[9..16], &[0; 7]);
+    assert_eq!(&header[9..12], &[0; 3]);
+    assert_eq!(&header[12..16], &0x0506_0708u32.to_le_bytes());
     assert_eq!(&header[16..24], &0x0000_0302_0100_0F0Eu64.to_le_bytes());
-    assert!(header[24..].iter().all(|b| *b == 0));
+    assert_eq!(&header[24..32], &VERSION.to_le_bytes());
+    assert!(header[32..].iter().all(|b| *b == 0));
 }
 
 #[test]

@@ -17,6 +17,10 @@ impl fmt::Display for CommitError {
                 f,
                 "the write-set record of {size} bytes is over the largest a round holds, {limit} bytes"
             ),
+            CommitErrorEnum::ReplyTooLarge { size, limit } => write!(
+                f,
+                "the Commit reply's frame of {size} bytes is over the floor of max_frame, {limit} bytes"
+            ),
             CommitErrorEnum::Malformed { cause } => write!(f, "a write-set record is malformed: {cause}"),
             CommitErrorEnum::Unsealed => f.write_str("a read set reached the commit step unsealed"),
             CommitErrorEnum::Unavailable => f.write_str(

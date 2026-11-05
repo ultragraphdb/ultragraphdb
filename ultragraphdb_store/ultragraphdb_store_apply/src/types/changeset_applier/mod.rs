@@ -487,10 +487,4 @@ where
     pub fn drop_tenant(&self, tenant: u64) -> Result<u64, ChangesetError> {
         self.core.drop_tenant(tenant)
     }
-
-    /// Drops every quad key and writes the root tenant's initial catalog at timestamp 1; the dictionary is kept:
-    /// the drop's timestamp.
-    pub fn drop_all(&self) -> Result<u64, ChangesetError> {
-        self.core.drop_all()
-    }
 }

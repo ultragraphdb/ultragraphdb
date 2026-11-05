@@ -15,9 +15,13 @@ pub struct EndpointTable {
     tls_key_file: Option<String>,
     plaintext: Option<bool>,
     connections_max: Option<u32>,
+    held_bytes: Option<u64>,
 }
 
 impl EndpointTable {
+    /// `held_bytes` when the table names none: 4,194,304 bytes (`PROTOCOL.md` §11.9).
+    pub const HELD_BYTES_DEFAULT: u64 = 4_194_304;
+
     pub(crate) fn read(reader: &mut SettingsReader) -> Result<Self, ServiceConfigError> {
         Ok(Self {
             address: reader.string("endpoint", "address")?,
@@ -25,6 +29,7 @@ impl EndpointTable {
             tls_key_file: reader.string("endpoint", "tls_key_file")?,
             plaintext: reader.boolean("endpoint", "plaintext")?,
             connections_max: reader.u32("endpoint", "connections_max")?,
+            held_bytes: reader.u64("endpoint", "held_bytes")?,
         })
     }
 
@@ -51,6 +56,11 @@ impl EndpointTable {
     /// `connections_max`: the most connections the endpoint holds.
     pub fn connections_max(&self) -> Option<u32> {
         self.connections_max
+    }
+
+    /// `held_bytes`: the most bytes of Write and Operation frames a connection's reads hold back.
+    pub fn held_bytes(&self) -> Option<u64> {
+        self.held_bytes
     }
 
     /// How the endpoint speaks. Clear text is only ever chosen by name, so an endpoint deciding nothing does not start.

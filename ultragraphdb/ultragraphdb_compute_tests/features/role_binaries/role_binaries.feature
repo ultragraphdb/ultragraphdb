@@ -27,3 +27,11 @@ Feature: The compute binary as a process
   Scenario: Compute refuses a role with another secret
     When a role asks compute with a different role secret
     Then its authentication is refused
+
+  Scenario: A lost dependency exits with its code
+    When compute loses its storage process, which does not return within compute's deadline
+    Then compute shuts down through its ordinary path and exits with code 69
+
+  Scenario: A peer that stops answering without closing is a lost dependency
+    When compute's storage process stops answering with its connections open, and does not return within compute's deadline
+    Then compute shuts down through its ordinary path and exits with code 69

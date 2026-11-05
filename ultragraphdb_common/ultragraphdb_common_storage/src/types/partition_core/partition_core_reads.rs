@@ -24,9 +24,9 @@ use crate::types::scan_key::ScanKey;
 use crate::types::scan_read::ScanRead;
 use crate::types::scan_state::ScanState;
 use crate::utils::commit_body::commit_body;
-use crate::utils::error_reply::error_reply;
+use crate::utils::error_reply::{error_reply, scan_refusal};
 use crate::utils::scan_check::{check_bound, scan_reads, scan_terms};
-use crate::utils::scan_version::scan_version;
+use crate::utils::scan_version::{scan_named, scan_version};
 
 /// Why a frame of a Scan was not sent.
 enum FrameRefusal {
@@ -45,13 +45,10 @@ enum Due {
 }
 
 fn as_unheld(identity: [u8; 16]) -> ErrorReply {
-    ErrorReply::new(
-        ErrorCode::Protocol,
-        format!(
-            "a Scan of transaction {:032x}, as one the partition does not hold",
-            u128::from_be_bytes(identity)
-        ),
-    )
+    ErrorReply::transaction_not_held(format!(
+        "a Scan of transaction {:032x}, as one the partition does not hold",
+        u128::from_be_bytes(identity)
+    ))
 }
 
 impl<'a> PartitionCore<'a> {
@@ -65,7 +62,9 @@ impl<'a> PartitionCore<'a> {
         max_frame: u32,
     ) -> Result<Answer, ErrorReply> {
         let scan = ScanView::from_frame(view).map_err(|rule| ErrorReply::protocol(&rule))?;
-        let reads = scan_reads(&scan, self.id.get())?;
+        let reads = scan_reads(&scan, self.id.get(), |keyspace, after| {
+            self.host.resume_at(keyspace, after)
+        })?;
         let terms = scan_terms(&scan)?;
         let identity = scan.transaction();
         let bound = if identity == [0; 16] {
@@ -93,6 +92,7 @@ impl<'a> PartitionCore<'a> {
         if waits && scan.deadline_ms() == 0 {
             return Err(self.not_closed(scan.epoch()));
         }
+        let reads_after = reads.first().and_then(|read| read.after.clone());
         let open = OpenScan {
             pushes: pushes.clone(),
             max_frame: (max_frame as usize).min(MAX_FRAME_SIZE),
@@ -110,10 +110,11 @@ impl<'a> PartitionCore<'a> {
                 deadline_us: now.saturating_add(u64::from(scan.deadline_ms()) * 1_000),
             },
             version: 0,
+            named: 0,
             read_epoch: 0,
             pin: None,
             range: 0,
-            after: None,
+            after: reads_after,
             held: None,
             rows: 0,
         };
@@ -156,13 +157,11 @@ impl<'a> PartitionCore<'a> {
 
     /// Chooses the one version `open` reads, and keeps it readable.
     fn choose_version(&self, open: &mut OpenScan<'a>) -> Result<(), ErrorReply> {
-        let (version, epoch) = scan_version(
-            open.at,
-            open.read_version,
-            self.host.closed(),
-            self.host.watermark(),
-        )?;
+        let closed = self.host.closed();
+        let (version, epoch) =
+            scan_version(open.at, open.read_version, closed, self.host.watermark())?;
         open.version = version;
+        open.named = scan_named(open.at, open.read_version, closed, version);
         open.read_epoch = epoch;
         if open.bound.is_none() {
             let pin = self
@@ -388,53 +387,80 @@ impl<'a> PartitionCore<'a> {
             )));
         };
         let range = u32::try_from(scan.range).unwrap_or(u32::MAX);
-        let mut fill = EntriesFill::new(range, scan.read_epoch, scan.max_frame);
-        let refused = |refusal: &ultragraphdb_cluster_partition::PartitionError| match scan.bound {
-            Some(bound) => FrameRefusal::Transaction(bound.key, error_reply(refusal)),
-            None => FrameRefusal::Scan(error_reply(refusal)),
-        };
+        let mut fill = EntriesFill::new(range, (scan.read_epoch, scan.named), scan.max_frame);
         if read.keyspace == Keyspace::Dictionary {
-            let value = self
-                .dictionary_value(scan, &read, now)
-                .map_err(|refusal| refused(&refusal))?;
-            if let Some(value) = value
-                && fill.offer_value(&read.first, &value).is_break()
-            {
-                return Err(FrameRefusal::Scan(too_large(scan.max_frame)));
-            }
-            scan.next_range();
-            return Ok(Some(fill.finish(EntriesEnd::Ended)));
+            return self.fill_run(scan, fill, now).map(Some);
         }
         let request = scan.kernel_scan(&read);
-        let page = if read.keyspace == Keyspace::Referrers {
-            self.host
-                .referrers_page(&request, |key, value| fill.offer_value(key, value))
-        } else if let Some(bound) = scan.bound {
-            self.host
+        let values = matches!(read.keyspace, Keyspace::Referrers | Keyspace::Statements);
+        let page = match scan.bound {
+            Some(bound) if values => {
+                self.host
+                    .values_page_bound(bound.key, &request, now, |key, value| {
+                        fill.offer_value(key, value)
+                    })
+            }
+            Some(bound) => self
+                .host
                 .page_bound(bound.key, &request, now, |key, object, ids| {
                     fill.offer_object(key, object, ids)
-                })
-        } else {
-            self.host.page(&request, |key, object, ids| {
+                }),
+            None if values => self
+                .host
+                .values_page(&request, |key, value| fill.offer_value(key, value)),
+            None => self.host.page(&request, |key, object, ids| {
                 fill.offer_object(key, object, ids)
-            })
+            }),
         }
-        .map_err(|refusal| refused(&refusal))?;
+        .map_err(|refusal| frame_refusal(scan, &scan.from, &refusal))?;
         page_ended(scan, fill, page)
     }
 
-    /// What the dictionary answers range `read` of `scan`: a term's ID as a read of its transaction resolves it, the entry as the
-    /// transaction sees it, or as the store holds it.
+    /// The frame of the run of one-key dictionary ranges `scan` stands at: every one that fits, so resolving a batch of terms costs
+    /// one frame and not one per term (`PROTOCOL.md` §13.14).
+    fn fill_run(
+        &mut self,
+        scan: &mut OpenScan<'a>,
+        mut fill: EntriesFill,
+        now: u64,
+    ) -> Result<Entries, FrameRefusal> {
+        let first = scan.range;
+        let mut next = first;
+        while let Some(read) = scan
+            .ranges
+            .get(next)
+            .filter(|read| read.keyspace == Keyspace::Dictionary)
+        {
+            let value = self
+                .dictionary_value(scan, next, read, now)
+                .map_err(|refusal| frame_refusal(scan, &read.first, &refusal))?;
+            if let Some(value) = value
+                && fill.offer_value(&read.first, &value).is_break()
+            {
+                if next == first {
+                    return Err(FrameRefusal::Scan(too_large(scan.max_frame)));
+                }
+                break;
+            }
+            next += 1;
+        }
+        scan.move_to(next);
+        Ok(fill.finish_run(u32::try_from(next - 1).unwrap_or(u32::MAX)))
+    }
+
+    /// What the dictionary answers range `read`, at `index`, of `scan`: a term's ID as a read of its transaction resolves it, the
+    /// entry as the transaction sees it, or as the store holds it.
     fn dictionary_value(
         &mut self,
         scan: &OpenScan<'a>,
+        index: usize,
         read: &ScanRead,
         now: u64,
     ) -> Result<Option<Vec<u8>>, ultragraphdb_cluster_partition::PartitionError> {
         let Some(bound) = scan.bound else {
             return self.host.dictionary(&read.first);
         };
-        match scan.terms.get(scan.range) {
+        match scan.terms.get(index) {
             Some(iri) => Ok(self
                 .host
                 .resolve_bound(bound.key, iri.as_ref(), now)?
@@ -500,6 +526,19 @@ impl<'a> PartitionCore<'a> {
                 self.id.get()
             ),
         )
+    }
+}
+
+/// Why a read of `key` under `scan` sends no frame: a Scan of a transaction ended it, which its Bind stream says too.
+fn frame_refusal(
+    scan: &OpenScan<'_>,
+    key: &[u8],
+    refusal: &ultragraphdb_cluster_partition::PartitionError,
+) -> FrameRefusal {
+    let reply = scan_refusal(key, refusal);
+    match scan.bound {
+        Some(bound) => FrameRefusal::Transaction(bound.key, reply),
+        None => FrameRefusal::Scan(reply),
     }
 }
 

@@ -96,7 +96,7 @@ fn test_every_bit_flip_in_the_header_fails_its_checksum() -> TestResult {
 
 #[test]
 fn test_an_unknown_command_is_refused_by_number() -> TestResult {
-    for number in [0u16, 22, 255, 256, 511, 531, 767, u16::MAX] {
+    for number in [0u16, 24, 255, 256, 511, 532, 767, u16::MAX] {
         let bytes = resealed(|b| put(b, 54, number.into(), 2))?;
         assert_eq!(
             verify(&bytes)?,

@@ -7,7 +7,7 @@ mod txn_error_display;
 mod txn_error_error;
 
 use ultragraphdb_protocol_wire::ErrorCode;
-use ultragraphdb_store_apply::ChangesetError;
+use ultragraphdb_store_apply::{ChangesetError, ChangesetErrorEnum};
 
 /// Why a transaction's request was refused on its worker.
 ///
@@ -135,12 +135,18 @@ impl TxnError {
     }
 
     /// The wire's error code the refusal is answered with: [`ErrorCode::PastLimit`] past the limit,
-    /// [`ErrorCode::TooLarge`] for a read or write set past its limit, [`ErrorCode::CrossPartition`] for a write another
-    /// partition owns, and [`ErrorCode::Refused`] for every other refusal, a declaration's among them.
+    /// [`ErrorCode::TooLarge`] for a read or write set past its limit or an object past its statement bound,
+    /// [`ErrorCode::CrossPartition`] for a write another partition owns, and [`ErrorCode::Refused`] for every other refusal, a
+    /// declaration's among them.
     pub fn code(&self) -> ErrorCode {
         match &self.0 {
             TxnErrorEnum::PastLimit { .. } => ErrorCode::PastLimit,
             TxnErrorEnum::WriteSetTooLarge { .. } | TxnErrorEnum::ReadSetTooLarge { .. } => {
+                ErrorCode::TooLarge
+            }
+            TxnErrorEnum::Changeset(refusal)
+                if matches!(refusal.0, ChangesetErrorEnum::StatementsPerObject { .. }) =>
+            {
                 ErrorCode::TooLarge
             }
             TxnErrorEnum::CrossPartition { .. } => ErrorCode::CrossPartition,

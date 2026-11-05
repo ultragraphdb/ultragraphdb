@@ -115,6 +115,9 @@ structure TxnRequest where
   writes : List Write
   /-- The operations it asks the commit step to decide. -/
   ops : List Op
+  /-- Whether it is a frame holding what it does, a one-frame write or a Drop, whose resend reaches the session table;
+  otherwise it is a Commit on an open transaction. -/
+  oneFrame : Bool
   deriving Repr
 
 /-- A transaction's resolved writes and operation results against the state `s` it is serialised after: its own

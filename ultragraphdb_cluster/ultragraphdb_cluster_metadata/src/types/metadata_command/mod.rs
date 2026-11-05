@@ -137,8 +137,9 @@ pub enum MetadataCommand {
 }
 
 impl MetadataCommand {
-    /// The most bytes of a catalog version, 16 MiB, written in chunks.
-    pub const CATALOG_BYTES_MAX: usize = 1 << 24;
+    /// The most bytes of a catalog version, 523,000, what one Catalog frame holds at the floor of `max_frame`
+    /// (`PROTOCOL.md` §11.13, §13.7). A version over [`MetadataCommand::CHUNK_BYTES`] is written in chunks.
+    pub const CATALOG_BYTES_MAX: usize = 523_000;
 
     /// The most bytes of a command's encoding, 32 MiB.
     pub const COMMAND_BYTES_MAX: usize = 1 << 25;

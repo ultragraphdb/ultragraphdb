@@ -10,6 +10,7 @@ use crate::types::prepare::Prepare;
 use crate::utils::command_header::command_header;
 use crate::utils::constants::COMMAND_HEADER_SIZE;
 use crate::utils::sections::write_sections;
+use crate::utils::string_writer::StringWriter;
 
 impl BodyBuilder for Prepare {
     const COMMAND: Command = Command::Prepare;
@@ -19,20 +20,32 @@ impl BodyBuilder for Prepare {
             (0, &self.tenant().to_le_bytes()),
             (8, &self.statement().to_le_bytes()),
             (16, &self.schema().to_le_bytes()),
+            (24, &[self.language().number()]),
         ])
     }
 
     fn body(&self) -> Vec<u8> {
-        let (records, text) = self.terms().sections();
+        let (records, term_text) = self.terms().sections();
         let types = |types: &[ColumnType]| types.iter().map(|t| t.number()).collect::<Vec<u8>>();
+        let source = match (self.pattern(), self.text()) {
+            (Some(pattern), _) => pattern.write().to_vec(),
+            (None, text) => text.unwrap_or_default().as_bytes().to_vec(),
+        };
+        let mut names = StringWriter::default();
+        for name in self.names() {
+            let _index: u32 = names.push(name);
+        }
+        let (ends, names_text) = names.sections();
         write_sections(
             &[],
             &[
-                &self.pattern().write(),
+                &source,
                 &records,
-                &text,
+                &term_text,
                 &types(self.parameter_types()),
                 &types(self.result_types()),
+                &ends,
+                &names_text,
             ],
         )
     }

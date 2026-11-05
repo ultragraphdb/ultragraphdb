@@ -333,7 +333,7 @@ fn test_every_tables_count_past_its_limit_is_refused_before_its_values() -> Test
             snapshot_with(&[&1_048_577_u32.to_be_bytes()]),
             ClusterError::too_many("catalogs", 1_048_577, 1_048_576),
         ),
-        // One catalog of one pending version, version 1 above the released 0, of 16 MiB and one byte.
+        // One catalog of one pending version, version 1 above the released 0, of 523,000 bytes and one.
         (
             snapshot_with(&[
                 &one,
@@ -343,9 +343,9 @@ fn test_every_tables_count_past_its_limit_is_refused_before_its_values() -> Test
                 &one,
                 &1_u64.to_be_bytes(),
                 &[0],
-                &16_777_217_u32.to_be_bytes(),
+                &523_001_u32.to_be_bytes(),
             ]),
-            ClusterError::too_many("bytes of a catalog version", 16_777_217, 16_777_216),
+            ClusterError::too_many("bytes of a catalog version", 523_001, 523_000),
         ),
         (
             snapshot_with(&[&zero, &1_048_577_u32.to_be_bytes()]),

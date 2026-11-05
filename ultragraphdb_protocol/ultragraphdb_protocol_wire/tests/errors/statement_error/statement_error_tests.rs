@@ -126,3 +126,12 @@ fn test_each_names_its_values() {
     let error: Box<dyn Error> = Box::new(StatementError::unknown(1));
     assert!(error.source().is_none());
 }
+
+#[test]
+fn test_a_text_is_no_pattern() {
+    let error = StatementError::not_a_pattern(1);
+    assert_eq!(error.0, StatementErrorEnum::NotAPattern { language: 1 });
+    assert_eq!(error.code(), ErrorCode::Refused);
+    assert_eq!(error.reply().detail(), 0);
+    assert!(error.to_string().contains("language 1"));
+}

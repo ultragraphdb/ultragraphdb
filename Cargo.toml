@@ -142,12 +142,12 @@ getrandom = "0.4"
 futures = "0.3"
 signal-hook = { version = "0.4", default-features = false }
 service_utils = "0.4"
-compio = { version = "0.19", default-features = false, features = ["runtime", "io-uring", "fs", "net", "time"] }
+compio = { version = "0.19", default-features = false, features = ["runtime", "io-uring", "polling", "fs", "net", "time"] }
 # The allocator of every shipped binary, set as its `#[global_allocator]`: musl's own allocator contends under threads,
 # measured 31% fewer commits per second than glibc's on `wal_bench` (2026-11-01). 
 mimalloc = { version = "0.1", features = ["local_dynamic_tls"] }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
-rustix = { version = "1.1", default-features = false, features = ["fs"] }
+rustix = { version = "1.1", default-features = false, features = ["fs", "process"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "tls12", "std"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rcgen = { version = "0.14", default-features = false, features = ["pem", "ring"] }

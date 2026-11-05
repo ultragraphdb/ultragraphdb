@@ -4,9 +4,9 @@
  */
 
 //! Sessions through the commit step (D9, 7.8; transactions, "Exactly-once commits through sessions"): a session recorded
-//! at its first commit in the partition, checked first, in the Lean model's order (a retry of the last committed request
-//! answered with its stored reply, a number below the last refused, numbers above it with gaps taken), one commit in
-//! flight per session. Every version is written from the layout `epoch << 22 | sequence`: a step after version 0
+//! at its first commit in the partition, checked first, in the Lean model's order (a one-frame or Drop resend of the last
+//! committed request answered with its stored reply, a Commit on an open transaction at or below the last refused, a
+//! number below the last refused, numbers above it with gaps taken), one commit in flight per session. Every version is written from the layout `epoch << 22 | sequence`: a step after version 0
 //! stamps epoch 1 from sequence 0.
 
 use ultragraphdb_protocol_wire::{ConflictKind, ErrorCode};
@@ -62,7 +62,7 @@ fn test_a_session_is_recorded_at_its_first_commit_in_the_partition() -> TestResu
 }
 
 #[test]
-fn test_a_retry_of_the_last_committed_request_is_answered_with_its_reply_and_commits_nothing()
+fn test_a_resend_of_the_last_committed_request_is_answered_with_its_reply_and_commits_nothing()
 -> TestResult {
     let mut step = Step::new(unbounded(), 0);
     let mut out = Out::new();
@@ -73,9 +73,9 @@ fn test_a_retry_of_the_last_committed_request_is_answered_with_its_reply_and_com
         .first()
         .cloned()
         .ok_or_else(|| ultragraphdb_tool_bdd::TestError::new("the original reply"))?;
-    // The retry is answered at once, released, and no round is logged for it.
+    // The resend is answered at once, released, and no round is logged for it.
     let entries = step.resolver().history().len();
-    commit(&mut step, &mut out, 2, blind(S, 1, b"k")?);
+    commit(&mut step, &mut out, 2, blind(S, 1, b"k")?.with_one_frame());
     assert_eq!(outcomes(&out), vec![(2, Ok(version(1, 0)))]);
     assert_eq!(
         out.replies().first().and_then(Reply::token),
@@ -86,6 +86,72 @@ fn test_a_retry_of_the_last_committed_request_is_answered_with_its_reply_and_com
     assert_eq!(step.in_flight(), None);
     assert_eq!(step.resolver().history().len(), entries, "no writes added");
     assert_eq!(step.previous_version(), version(1, 0), "no version taken");
+    Ok(())
+}
+
+/// A Commit on an open transaction under the session's last number reads no stored reply: it is refused, its proposal
+/// released and no version taken.
+#[test]
+fn test_a_commit_reusing_the_last_number_is_refused_and_reads_no_stored_reply() -> TestResult {
+    let mut step = Step::new(unbounded(), 0);
+    let mut out = Out::new();
+    commit(&mut step, &mut out, 1, blind(S, 7, b"k")?);
+    sync(&mut step, &mut out);
+    let last = step.previous_version();
+    commit(&mut step, &mut out, 2, blind(S, 7, b"other")?);
+    assert_eq!(out.released().len(), 1, "the transaction is let go");
+    sync(&mut step, &mut out);
+    let refused = CommitError::request_out_of_order(7);
+    assert_eq!(outcomes(&out), vec![(2, Err(refused.clone()))]);
+    assert_eq!(refused.code(), ErrorCode::RequestOutOfOrder);
+    assert_eq!(refused.detail(), 7);
+    assert_eq!(out.replies().first().and_then(Reply::token), None);
+    assert_eq!(step.previous_version(), last, "no version taken");
+    assert_eq!(step.sessions().last(S), Some((7, last)));
+    Ok(())
+}
+
+/// A resend of a number below the last is refused naming the last, as a Commit's is.
+#[test]
+fn test_a_one_frame_resend_below_the_last_is_refused() -> TestResult {
+    let mut step = Step::new(unbounded(), 0);
+    let mut out = Out::new();
+    commit(&mut step, &mut out, 1, blind(S, 4, b"a")?);
+    sync(&mut step, &mut out);
+    commit(&mut step, &mut out, 2, blind(S, 3, b"b")?.with_one_frame());
+    sync(&mut step, &mut out);
+    assert_eq!(
+        outcomes(&out),
+        vec![(2, Err(CommitError::request_out_of_order(4)))]
+    );
+    Ok(())
+}
+
+/// A commit through no session holds no token, whatever else its round holds; one through a session in that round holds
+/// its own.
+#[test]
+fn test_a_reply_through_no_session_holds_no_token() -> TestResult {
+    let mut step = Step::new(unbounded(), 0);
+    let mut out = Out::new();
+    commit(&mut step, &mut out, 1, blind(0, 0, b"x")?);
+    // The next round: one through no session, one through a session, one through no session.
+    commit(&mut step, &mut out, 2, blind(0, 0, b"a")?);
+    commit(&mut step, &mut out, 3, blind(S, 1, b"b")?);
+    commit(&mut step, &mut out, 4, blind(0, 0, b"c")?);
+    sync(&mut step, &mut out);
+    assert_eq!(
+        out.replies().first().and_then(Reply::token),
+        None,
+        "round 1"
+    );
+    out = Out::new();
+    sync(&mut step, &mut out);
+    let held: Vec<(u64, bool)> = out
+        .replies()
+        .iter()
+        .map(|r| (r.ticket(), r.token().is_some()))
+        .collect();
+    assert_eq!(held, vec![(2, false), (3, true), (4, false)]);
     Ok(())
 }
 
@@ -119,9 +185,9 @@ fn test_a_session_has_at_most_one_commit_decided_and_not_applied() -> TestResult
     commit(&mut step, &mut out, 2, blind(S, 1, b"a")?);
     commit(&mut step, &mut out, 3, blind(S, 2, b"b")?);
     sync(&mut step, &mut out);
-    // Its retry, sent while the first is in flight, is decided in the round after, once the first is applied: it is
+    // Its resend, sent while the first is in flight, is decided in the round after, once the first is applied: it is
     // answered with the first's version.
-    commit(&mut step, &mut out, 4, blind(S, 1, b"a")?);
+    commit(&mut step, &mut out, 4, blind(S, 1, b"a")?.with_one_frame());
     sync(&mut step, &mut out);
     let busy = CommitError::session_busy(S);
     assert_eq!(
@@ -188,7 +254,7 @@ fn test_a_failed_sync_answers_unavailable_and_releases_the_commits_under_their_t
 }
 
 #[test]
-fn test_a_retry_is_answered_before_its_reads_are_validated() -> TestResult {
+fn test_a_resend_is_answered_before_its_reads_are_validated() -> TestResult {
     let mut step = Step::new(unbounded(), 0);
     let mut out = Out::new();
     let original = proposal_in(S, 1, 0, &Reads::list(b"k"), &Writes::point(b"x"))?;
@@ -196,8 +262,8 @@ fn test_a_retry_is_answered_before_its_reads_are_validated() -> TestResult {
     sync(&mut step, &mut out);
     commit(&mut step, &mut out, 2, blind(0, 0, b"k")?);
     sync(&mut step, &mut out);
-    let retry = proposal_in(S, 1, 0, &Reads::list(b"k"), &Writes::point(b"x"))?;
-    commit(&mut step, &mut out, 3, retry);
+    let resend = proposal_in(S, 1, 0, &Reads::list(b"k"), &Writes::point(b"x"))?.with_one_frame();
+    commit(&mut step, &mut out, 3, resend);
     assert_eq!(outcomes(&out), vec![(3, Ok(version(1, 0)))]);
     Ok(())
 }

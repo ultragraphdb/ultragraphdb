@@ -71,7 +71,7 @@ fn test_a_command_other_than_the_connections_own_on_stream_zero_closes_the_conne
     // The writes in one frame and every role command are among those tried.
     assert!(others().any(|c| c == Command::DirectWrite));
     assert!(others().any(|c| c == Command::ConditionalWrite));
-    assert_eq!(others().filter(|c| c.is_role()).count(), 19);
+    assert_eq!(others().filter(|c| c.is_role()).count(), 20);
     Ok(())
 }
 
@@ -205,12 +205,14 @@ fn test_a_drop_reply_of_another_session_is_a_mismatch() -> TestResult {
     let mut h = Harness::ready(server())?;
     let registering = h.core.register(h.now)?;
     let s = registered(h.settle(registering)?)?;
-    let p = h.core.drop_command(DropCommand::all(), s, h.now)?;
+    let p = h
+        .core
+        .drop_command(DropCommand::whole_tenant(0), s, h.now)?;
     while h.core.transmit().is_some() {}
     let version = h.server.version();
     let other = s.number() + 1;
     // The registration took stream 1; the drop takes stream 2.
-    let reply = DropCommand::all()
+    let reply = DropCommand::whole_tenant(0)
         .with_session(other.to_be_bytes(), 1)
         .with_commit_version(version)
         .with_token(ultragraphdb_client_core::TestServer::token(version))
@@ -235,7 +237,9 @@ fn test_a_drop_answers_its_version_and_request() -> TestResult {
     let mut h = Harness::ready(server())?;
     let registering = h.core.register(h.now)?;
     let s = registered(h.settle(registering)?)?;
-    let p = h.core.drop_command(DropCommand::all(), s, h.now)?;
+    let p = h
+        .core
+        .drop_command(DropCommand::whole_tenant(0), s, h.now)?;
     let d = dropped(h.settle(p)?)?;
     assert_eq!(
         (d.version(), d.request(), d.results().len()),

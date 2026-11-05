@@ -59,7 +59,6 @@ fn test_each_kind_has_its_constructor() {
         ),
         (DropCommand::tenant_data(3), DropKind::TenantData, 3, None),
         (DropCommand::whole_tenant(4), DropKind::Tenant, 4, None),
-        (DropCommand::all(), DropKind::All, 0, None),
     ];
     for (drop, kind, tenant, target) in cases {
         assert_eq!(drop.kind(), kind);

@@ -10,14 +10,16 @@
 
 use std::collections::BTreeMap;
 
+use oxrdf::{GraphName, NamedNode};
 use ultragraphdb_core_keys::{Graph, Keyspace};
+use ultragraphdb_core_mapping::Change;
 use ultragraphdb_store_apply::{Executed, LogicalWrites};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_store::VersionlessEntry;
 
 use crate::utils::changesets::{
     TestChangesets, changeset, changesets_over, declare, delete, delete_pattern, ex, insert,
-    insert_edge, sim_store,
+    insert_edge, postings, sim_store,
 };
 
 /// The dictionary entries `executed` writes, the round's own beside its records.
@@ -39,7 +41,7 @@ fn both(
     changes: Vec<ultragraphdb_core_mapping::Change>,
 ) -> TestResult {
     let executed = first.execute(&changeset(changes)).context("executed")?;
-    let logical: LogicalWrites = executed.logical().context("its logical writes")?;
+    let logical: LogicalWrites = executed.logical();
     let entries = dictionary(&executed);
     let version = first.quads().lists().next_version();
     let _applied = first
@@ -64,7 +66,7 @@ fn test_an_executions_logical_writes_name_its_statements() -> TestResult {
             insert("<a> <name> \"A\"")?,
         ]))
         .context("executed")?;
-    let logical = executed.logical()?;
+    let logical = executed.logical();
     assert_eq!(logical.inserted().len(), 2);
     assert!(logical.removed().is_empty() && logical.records().is_empty());
     assert!(
@@ -73,6 +75,81 @@ fn test_an_executions_logical_writes_name_its_statements() -> TestResult {
             .iter()
             .all(|q| q.graph() == Graph::Default && q.statement().is_none())
     );
+    Ok(())
+}
+
+/// A record holds what the transaction changed: a parallel edge its own ID, whatever the object holds, and a deleted statement of
+/// several its ID alone, the object staying. Replay adds and removes those IDs, so every key comes out as the first apply wrote it.
+#[test]
+fn test_a_record_logs_the_statement_ids_a_write_changed_alone() -> TestResult {
+    let (first, replica) = (changesets_over(sim_store())?, changesets_over(sim_store())?);
+    let edge = "<a> <knows> <b>";
+    both(&first, &replica, vec![insert(edge)?])?;
+    both(&first, &replica, vec![insert_edge(edge, &[])?])?;
+    both(&first, &replica, vec![insert_edge(edge, &[])?])?;
+    let held = postings(&first, "a", "knows")?;
+    let ids = &held.first().context("the object")?.1;
+    let middle = *ids.get(1).context("three statements")?;
+    let parallel = first
+        .execute(&changeset(vec![insert_edge(edge, &[])?]))
+        .context("one more")?;
+    let logged = parallel.logical();
+    assert_eq!(logged.inserted().len(), 1, "{:?}", logged.inserted());
+    assert!(
+        logged
+            .inserted()
+            .iter()
+            .all(|q| q.statement().is_some_and(|id| !ids.contains(&id))),
+        "its own ID, none the object held"
+    );
+    first.release(&parallel);
+    let reifier = NamedNode::new(first.quads().iri_of(0, middle)?.0)?;
+    let delete_middle = Change::DeleteStatement {
+        graph: GraphName::DefaultGraph,
+        reifier,
+    };
+    let deleting = first
+        .execute(&changeset(vec![delete_middle.clone()]))
+        .context("the deletion")?;
+    let removal = deleting.logical();
+    assert!(removal.inserted().is_empty(), "{:?}", removal.inserted());
+    assert_eq!(
+        removal
+            .removed()
+            .iter()
+            .map(|q| q.statement())
+            .collect::<Vec<_>>(),
+        vec![Some(middle)]
+    );
+    first.release(&deleting);
+    both(&first, &replica, vec![delete_middle])?;
+    let left = postings(&first, "a", "knows")?;
+    assert_eq!(left.first().context("the object")?.1.len(), ids.len() - 1);
+    assert_eq!(postings(&replica, "a", "knows")?, left);
+    assert_eq!(
+        first.quads().store().contents(),
+        replica.quads().store().contents()
+    );
+    Ok(())
+}
+
+/// A transaction that wrote nothing gives its tenant no catalog, so it resolves no `rdf:type`, and replay of its empty record does
+/// the same: a partition need not hold that ID to commit a read.
+#[test]
+fn test_an_execution_holding_no_write_resolves_no_catalog() -> TestResult {
+    let a = changesets_over(sim_store())?;
+    let read_ts = a.quads().lists().applied_ts();
+    let executed = a.begin(0, read_ts).context("begun")?.finish()?;
+    assert_eq!(executed.logical(), LogicalWrites::default());
+    assert!(executed.terms().entries().is_empty(), "no term resolved");
+    assert!(executed.writes().versionless().is_empty());
+    a.release(&executed);
+    let replayed = a
+        .prepare_logical(0, &LogicalWrites::default(), &[])
+        .context("the replay")?;
+    assert!(replayed.terms().entries().is_empty(), "no term resolved");
+    assert!(replayed.writes().versionless().is_empty());
+    a.release(&replayed);
     Ok(())
 }
 
@@ -150,7 +227,7 @@ fn test_two_executions_of_one_round_carrying_one_entry_replay() -> TestResult {
         }
     }
     assert!(shared >= 2, "both carry <new>'s entries, both directions");
-    let logical = [one.logical()?, two.logical()?];
+    let logical = [one.logical(), two.logical()];
     let version = first.quads().lists().next_version();
     let _applied = first.apply_round(vec![(version, one), (version + 2, two)])?;
     let entries: Vec<VersionlessEntry> = round
@@ -193,7 +270,7 @@ fn test_a_write_taking_a_refused_creators_id_commits_its_entries_and_replays() -
     let taker = first.execute(&changeset(vec![insert("<b> <p> <new>")?]))?;
     first.release(&refused);
     assert_eq!(first.quads().id_of(0, ex("new").as_str())?, None);
-    let logical = taker.logical()?;
+    let logical = taker.logical();
     let entries = dictionary(&taker);
     let version = first.quads().lists().next_version();
     let _applied = first.apply_round(vec![(version, taker)])?;

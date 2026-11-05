@@ -3,11 +3,13 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+pub mod core_ends;
 pub mod core_message;
 pub mod entries_fill;
 pub(crate) mod open_scan;
 pub mod partition_core;
 pub mod refill_blocks;
+pub mod retention;
 pub mod scan_board;
 pub(crate) mod scan_bound;
 pub mod scan_key;

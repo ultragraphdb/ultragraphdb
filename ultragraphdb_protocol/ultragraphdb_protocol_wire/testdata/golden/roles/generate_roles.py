@@ -283,29 +283,33 @@ golden("bind_drop", 521, command_header([(0, le(4, 4)), (4, bytes([2])), (8, le(
 # 522 Recall: session SESSION's reply to request 8 from partition 3.
 golden("recall", 522, command_header([(0, le(3, 4)), (8, SESSION), (24, le(8, 8))]), sections([]), stream=29)
 # 523 ComputeRead: a read-only transaction at level 2 (monotonic-fast) of tenant 5, its floor epoch 31, principal 9,
-# limit 100, 50 ms left, the pattern (?, <a>, <name>, ?) and a resume key; and a read of a read-write transaction at
-# level 1, bound to partition 3 at the Bind's version (29 << 22) | 500, with the transaction's identity, no limit,
-# 9,000 ms left, the pattern (<g>, ?, <knows>, <b>) and no resume key.
+# limit 100, 50 ms left, the client's max_frame 1 MiB and credit 4, the pattern (?, <a>, <name>, ?) and a resume key; and
+# a read of a read-write transaction at level 1, bound to partition 3 at the Bind's version (29 << 22) | 500, with the
+# transaction's identity, no limit, 9,000 ms left, the client's max_frame at its floor and credit 1, the pattern
+# (<g>, ?, <knows>, <b>) and no resume key.
 terms = Terms()
 slots = pattern(["unbound", iri(f"{EX}a"), iri(f"{EX}name"), "unbound"], terms)
 golden("compute_read", 523, command_header([(4, bytes([1])), (5, bytes([2])), (8, le(5, 8)), (24, le(31, 8)),
-                                            (32, le(9, 8)), (56, le(100, 4)), (60, le(50, 4))]),
+                                            (32, le(9, 8)), (56, le(100, 4)), (60, le(50, 4)), (64, le(1 << 20, 4)),
+                                            (68, le(4, 4))]),
        sections([slots] + terms.sections() + [b"rk1"]), stream=31)
 terms = Terms()
 slots = pattern([iri(f"{EX}g"), "unbound", iri(f"{EX}knows"), iri(f"{EX}b")], terms)
 golden("compute_read_rw", 523, command_header([(0, le(3, 4)), (5, bytes([1])), (8, le(5, 8)),
                                                (16, le(WATERMARK, 8)), (32, le(9, 8)), (40, TRANSACTION),
-                                               (60, le(9000, 4))]),
+                                               (60, le(9000, 4)), (64, le(1 << 19, 4)), (68, le(1, 4))]),
        sections([slots] + terms.sections() + [b""]), stream=33)
 # 524 Scan: at 1 (read_version, once epoch 30 closed), the version bound of epoch 30, principal 9, no transaction,
 # 1,000 entries per range, 30,000 ms to its deadline; two ranges: partition 3 from 0x10 "abc" to 0x10 "abd", partition 4 from 0x20 "k" to the
-# end of its keyspace (an empty past key). Each range: partition u32, 4 zero bytes, first, first_len, past, past_len.
+# end of its keyspace (an empty past key). Each range: partition u32, after_len u32, first, first_len, past, past_len;
+# its keys are its first key, its past key and its after, back to back.
 def scan_ranges(ranges):
     records, keys = b"", b""
-    for partition, first, past in ranges:
+    for partition, first, past, *rest in ranges:
+        after = rest[0] if rest else b""
         at = len(keys)
-        records += le(partition, 4) + bytes(4) + le(at, 4) + le(len(first), 4) + le(at + len(first), 4) + le(len(past), 4)
-        keys += first + past
+        records += le(partition, 4) + le(len(after), 4) + le(at, 4) + le(len(first), 4) + le(at + len(first), 4) + le(len(past), 4)
+        keys += first + past + after
     return [records, keys]
 
 
@@ -313,6 +317,12 @@ def scan_ranges(ranges):
 golden("scan", 524, command_header([(0, bytes([1])), (8, le((30 << 22) | 0x3FFFFF, 8)), (16, le(30, 8)),
                                     (24, le(9, 8)), (48, le(1000, 4)), (52, le(30000, 4))]),
        sections(scan_ranges([(3, b"\x10abc", b"\x10abd"), (4, b"\x20k", b"")]) + [b"", b""]), stream=35)
+# A read resumed inside a list: the first range holds the list of 0x10 "abc" from the object of a 16-byte encoding on, the
+# after following its past key, and the next range's first key starts where the after ends.
+AFTER = bytes(range(0xC0, 0xD0))
+golden("scan_after", 524, command_header([(0, bytes([1])), (8, le((30 << 22) | 0x3FFFFF, 8)), (16, le(30, 8)),
+                                          (24, le(9, 8)), (52, le(30000, 4))]),
+       sections(scan_ranges([(3, b"\x10abc", b"\x10abd", AFTER), (3, b"\x10abd", b"\x10abe")]) + [b"", b""]), stream=43)
 # A read-write transaction's Scan: at 1 at the Bind's version, epoch 0, the transaction's identity, no limit, no deadline, one
 # range of partition 3 holding the one key 0x30 "key" (past key 0x30 "key" 0x00), naming no IRI.
 golden("scan_transaction", 524, command_header([(0, bytes([1])), (8, le(WATERMARK, 8)), (24, le(9, 8)),
@@ -342,11 +352,19 @@ golden("scan_transaction_terms", 524, command_header([(0, bytes([1])), (8, le(WA
 # --- end 519 to 524 ---
 
 # --- 525 to 530 ---
-# 525 Entries: range 2 of its Scan, ended (1), read at epoch 0x1234; three entries in ascending key order, every value
-# present, one of them empty (section 12.2's key-value layout).
-golden("entries", 525, command_header([(0, le(3, 4)), (4, le(2, 4)), (8, bytes([1])), (16, le(0x1234, 8))]),
+# 525 Entries: range 2 of its Scan alone (through 2), ended (1), read at epoch 0x1234 at that epoch's version bound; three
+# entries in ascending key order, every value present, one of them empty (section 12.2's key-value layout).
+ENTRIES_VERSION = (0x1234 << 22) | 0x3FFFFF
+golden("entries", 525, command_header([(0, le(3, 4)), (4, le(2, 4)), (8, bytes([1])), (12, le(2, 4)), (16, le(0x1234, 8)),
+                                       (24, le(ENTRIES_VERSION, 8))]),
        sections([kv([(b"\x10key-a", b"value-a"), (b"\x10key-b", b""), (b"\x10key-b\x00", b"v")])]),
        stream=23, flags=1)
+# A run of one-key dictionary ranges: ranges 2 to 5 of its Scan, each ended; ranges 2 and 4 found their entries, ranges 3
+# and 5 nothing. The entries follow their ranges' order, not the keys'.
+DICTIONARY_A, DICTIONARY_B = b"\x1b" + b"\xee" * 25, b"\x1b" + b"\x11" * 25
+golden("entries_run", 525, command_header([(0, le(2, 4)), (4, le(2, 4)), (8, bytes([1])), (12, le(5, 4)), (16, le(0x1234, 8)),
+                                           (24, le(ENTRIES_VERSION, 8))]),
+       sections([kv([(DICTIONARY_A, b"term-a"), (DICTIONARY_B, b"term-b")])]), stream=45, flags=1)
 # A list larger than a frame: range 0, read at epoch 0x1234, in two frames. Each value is object records back to back:
 # encoding_len u32, statements u32, the encoding, 16 bytes per statement ID. The first frame, end 0 and continues 1,
 # holds list-a whole and list-b's first object, under two statement IDs. The second, end 1 and LAST, opens with list-b
@@ -355,11 +373,13 @@ def object_record(encoding, statements=()):
     return le(len(encoding), 4) + le(len(statements), 4) + encoding + b"".join(statements)
 
 
-golden("entries_continues", 525, command_header([(0, le(2, 4)), (9, bytes([1])), (16, le(0x1234, 8))]),
+golden("entries_continues", 525, command_header([(0, le(2, 4)), (9, bytes([1])), (16, le(0x1234, 8)),
+                                                 (24, le(ENTRIES_VERSION, 8))]),
        sections([kv([(b"\x10list-a", object_record(sid(1, 21, 0x000A01))),
                      (b"\x10list-b", object_record(sid(1, 22, 0x000A02), [sid(2, 31, 0x000B01), sid(2, 32, 0x000B02)]))])]),
        stream=41)
-golden("entries_continued", 525, command_header([(0, le(1, 4)), (8, bytes([1])), (16, le(0x1234, 8))]),
+golden("entries_continued", 525, command_header([(0, le(1, 4)), (8, bytes([1])), (16, le(0x1234, 8)),
+                                                 (24, le(ENTRIES_VERSION, 8))]),
        sections([kv([(b"\x10list-b", object_record(b"\x30abc") + object_record(sid(1, 23, 0x000A03), [sid(2, 33, 0x000B03)]))])]),
        stream=41, flags=1, sequence=2)
 
@@ -367,7 +387,8 @@ golden("entries_continued", 525, command_header([(0, le(1, 4)), (8, bytes([1])),
 # generation u64, close u64, entity 16 bytes), the term table of the IRIs named by text, kind 1 each. Registration 0
 # names <o> by its IRI for bucket group 0x2A, last seen at generation 4; 1 names a predicate by its system ID, no group;
 # 2 names a blank node by its skolem IRI for group 0x10, never seen. The reply accepts 0 (generation 5, close 41) and 1
-# (close 41), and refuses 2 with 26 (WrongPartition).
+# (close 41), and refuses 2 with 26 (WrongPartition). A second reply refuses 2 with 17 (Unavailable), a store that failed
+# at the home.
 def registration(partition, group, iri_index, outcome, generation, close, entity):
     return (le(partition, 4) + le(group, 4) + le(iri_index, 4) + le(outcome, 2) + bytes(2) + le(generation, 8)
             + le(close, 8) + entity)
@@ -382,7 +403,9 @@ request_regs = [(3, 0x2A, o_index, 0, 4, 0, bytes(16)), (5, ABSENT, ABSENT, 0, 0
                 (8, 0x10, blank_index, 0, 0, 0, bytes(16))]
 reply_regs = [(3, 0x2A, o_index, 0, 5, 41, REF_ENTITY), (5, ABSENT, ABSENT, 0, 0, 41, REF_PREDICATE),
               (8, 0x10, blank_index, 26, 0, 0, bytes(16))]
-for name, reply, regs in [("reference", 0, request_regs), ("reference_reply", 1, reply_regs)]:
+unavailable_regs = reply_regs[:2] + [(8, 0x10, blank_index, 17, 0, 0, bytes(16))]
+for name, reply, regs in [("reference", 0, request_regs), ("reference_reply", 1, reply_regs),
+                          ("reference_unavailable", 1, unavailable_regs)]:
     golden(name, 526, command_header([(0, bytes([reply]))]),
            sections([b"".join(registration(*r) for r in regs)] + terms.sections()), stream=25)
 
@@ -414,6 +437,9 @@ terms = Terms()
 terms.add(iri(f"{EX}embedding"))
 golden("report_build_failed", 530, command_header([(0, le(6, 4)), (4, bytes([3])), (8, le(4, 8)), (16, le(14, 8))]),
        sections(terms.sections()), stream=37)
+
+# 531 Held: the command header all zero, no sections, on a Bind stream.
+golden("held", 531, command_header([]), sections([]), stream=25)
 
 # --- end 525 to 530 ---
 

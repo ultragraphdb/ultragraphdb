@@ -9,8 +9,9 @@
 //! batches and reads, crash the process and cut its power.
 //!
 //! After every step and every recovery the indexes agree with the data: each value-index key holds the subjects whose
-//! literals produce its token, each reverse list the subjects holding its object, each predicate list the predicates
-//! its subject or object holds, each count key the nodes with its count, and each statement ID its record. Until the
+//! literals produce its token, each reverse list the subjects holding its object with the statement IDs their forward
+//! postings carry, each predicate list the predicates its subject or object holds, each count key the nodes with its
+//! count, and each statement ID its record, read as a Scan reads it through a page of the statements. Until the
 //! first recovery, after which what a lost power kept is not the workload's to know, the statements held equal the
 //! [`CanonicalDataset`]'s, the model every changeset is applied to as well.
 //!
@@ -32,10 +33,11 @@
 mod data_indexes;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::num::{NonZeroU64, NonZeroUsize};
+use std::ops::ControlFlow;
 use std::sync::Arc;
 
 use oxrdf::vocab::xsd;
-use std::num::NonZeroU64;
 
 use oxrdf::{GraphName, Literal, NamedNode, NamedOrBlankNode, Term};
 use ultragraphdb_core_catalog::CatalogContents;
@@ -53,7 +55,7 @@ use ultragraphdb_store_apply::{
     token_value,
 };
 use ultragraphdb_store_posting::{CachedList, ListsConfig, PostingError, PostingErrorEnum};
-use ultragraphdb_store_quads::{QuadError, QuadErrorEnum};
+use ultragraphdb_store_quads::{KernelScan, QuadError, QuadErrorEnum};
 use ultragraphdb_store_sim::{
     Contents, Event, FaultConfig, RunOutcome, Seed, SimClock, SimContext, SimListCache, SimStore,
     Simulation, SteppedExecutor, Stream, Violation,
@@ -68,6 +70,12 @@ pub const INDEXES_MATCH_DATA: &str = "every value-index, reverse, predicate-list
 /// The rule a statement ID breaks without its record, or a record without its statement.
 pub const RECORDS_MATCH_POSTINGS: &str =
     "every statement ID a posting carries has its record, and every record its posting";
+/// The rule a reverse list breaks when its statement IDs are not its forward postings'.
+pub const REVERSE_HOLDS_STATEMENTS: &str =
+    "every reverse posting carries the statement IDs of its forward posting";
+/// The rule a page of the statements breaks when it reads other bytes than a statement's record.
+pub const STATEMENT_READS_MATCH: &str =
+    "a page of the statements reads exactly the records of the statement IDs the postings carry";
 /// The rule the store breaks when it holds other statements than the model.
 pub const STATISTICS_MATCH_DATA: &str = "the statistics of every graph and predicate count exactly the statements its forward lists hold";
 /// The rule the store breaks when it holds other statements than the model.
@@ -519,6 +527,9 @@ impl ChangesetWorkload {
         if let Some(detail) = indexes_disagree(&a, &forward)? {
             return Ok(Some((INDEXES_MATCH_DATA, detail)));
         }
+        if let Some(detail) = reverse_statements_disagree(&a, &forward)? {
+            return Ok(Some((REVERSE_HOLDS_STATEMENTS, detail)));
+        }
         if let Some(detail) = statistics_disagree(&a, &forward, ts)? {
             return Ok(Some((STATISTICS_MATCH_DATA, detail)));
         }
@@ -533,6 +544,9 @@ impl ChangesetWorkload {
         };
         if let Some(detail) = orphan_record(&a, &stored)? {
             return Ok(Some((RECORDS_MATCH_POSTINGS, detail)));
+        }
+        if let Some(detail) = statement_reads_disagree(&a, &stored, ts)? {
+            return Ok(Some((STATEMENT_READS_MATCH, detail)));
         }
         if let Some(model) = &self.model {
             let mut held: Vec<Held> = stored.into_iter().map(|(h, _)| h).collect();
@@ -612,7 +626,7 @@ fn replayed(
     changeset: &Changeset,
 ) -> Result<(), ChangesetError> {
     let executed = first.execute(changeset)?;
-    let logical: LogicalWrites = executed.logical()?;
+    let logical: LogicalWrites = executed.logical();
     let entries = dictionary(&executed);
     let version = first.quads().lists().next_version();
     let _applied: Vec<Applied> = first.apply_round(vec![(version, executed)])?;
@@ -794,6 +808,7 @@ pub(crate) fn injected(error: &ChangesetError) -> bool {
         | ChangesetErrorEnum::NoVectorIndex { .. }
         | ChangesetErrorEnum::OperationFailed { .. }
         | ChangesetErrorEnum::NoIndex { .. }
+        | ChangesetErrorEnum::StatementsPerObject { .. }
         | ChangesetErrorEnum::NotUnique { .. } => false,
     }
 }
@@ -830,6 +845,9 @@ fn live_keys(a: &SimChangesets, keyspace: Keyspace) -> Result<Vec<Vec<u8>>, Chan
         .collect::<Result<Vec<_>, _>>()?;
     Ok(keys)
 }
+
+/// Each reverse list by predicate and object: its subjects and each one's statement IDs.
+type ReverseStatements = BTreeMap<(SystemId, EncodedTerm), BTreeMap<EncodedTerm, Vec<SystemId>>>;
 
 /// Lists by key, each with its objects and their statement IDs.
 type Lists = Vec<(QuadKey, Vec<(EncodedTerm, Vec<SystemId>)>)>;
@@ -947,6 +965,79 @@ fn orphan_record(
         }
     }
     Ok(None)
+}
+
+/// What the reverse lists of the default graph hold beside `forward`, the store's forward lists: each subject of each reverse list
+/// carrying the statement IDs its forward posting carries.
+fn reverse_statements_disagree(
+    a: &SimChangesets,
+    forward: &Lists,
+) -> Result<Option<String>, ChangesetError> {
+    let mut expected: ReverseStatements = BTreeMap::new();
+    for (key, objects) in forward {
+        let QuadKey::Forward {
+            predicate,
+            subject,
+            graph,
+            ..
+        } = key
+        else {
+            continue;
+        };
+        if *graph != DEFAULT_GRAPH {
+            continue;
+        }
+        for (object, ids) in objects {
+            let _previous: Option<Vec<SystemId>> = expected
+                .entry((*predicate, object.clone()))
+                .or_default()
+                .insert(EncodedTerm::id(*subject), ids.clone());
+        }
+    }
+    let mut actual: ReverseStatements = BTreeMap::new();
+    for (key, subjects) in lists_of(a, Keyspace::Reverse)? {
+        if let QuadKey::Reverse {
+            predicate, object, ..
+        } = key
+        {
+            let _previous = actual.insert((predicate, object), subjects.into_iter().collect());
+        }
+    }
+    Ok((actual != expected).then(|| format!("reverse {actual:?}, forward {expected:?}")))
+}
+
+/// What a page of the statements at `ts` reads beside the records of `stored`, the statements its postings hold: every key once,
+/// with the record's bytes.
+fn statement_reads_disagree(
+    a: &SimChangesets,
+    stored: &[(Held, Option<SystemId>)],
+    ts: u64,
+) -> Result<Option<String>, ChangesetError> {
+    let q = a.quads();
+    let mut expected = BTreeMap::new();
+    for id in stored.iter().filter_map(|(_, id)| *id) {
+        if let Some(record) = q.statement(TENANT, DEFAULT_GRAPH, id, ts)? {
+            let key = QuadKey::Statement {
+                tenant: TENANT,
+                graph: DEFAULT_GRAPH,
+                statement: id,
+            };
+            let _previous = expected.insert(key.to_bytes(), record.encode());
+        }
+    }
+    let scan = KernelScan::new(
+        Keyspace::Statements,
+        TENANT,
+        Vec::new(),
+        ts,
+        NonZeroUsize::MAX,
+    );
+    let mut read = BTreeMap::new();
+    let _page = q.values_page(&scan, |key, value| {
+        let _previous = read.insert(key.to_vec(), value.to_vec());
+        ControlFlow::Continue(())
+    })?;
+    Ok((read != expected).then(|| format!("read {read:?}, records {expected:?}")))
 }
 
 /// The indexes `forward`, the store's forward lists, produce in the default graph.

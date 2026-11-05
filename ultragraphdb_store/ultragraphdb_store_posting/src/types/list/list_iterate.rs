@@ -132,9 +132,10 @@ impl List {
         result
     }
 
-    /// Calls `f` with each posting of the list at `read_ts` after the whole identity `after`, or from the first with `None`,
-    /// in the list's order, until `f` breaks. Postings of a list that compares values may share a uid, so the iteration seeks
-    /// the uid before `after`'s and skips through the identity: a posting sharing `after`'s uid and following it is read.
+    /// Calls `f` with each posting of the list at `read_ts` after the whole identity `after`, the identity itself when it is
+    /// [`PostingIdentity::included`], or from the first with `None`, in the list's order, until `f` breaks. Postings of a list
+    /// that compares values may share a uid, so the iteration seeks the uid before `after`'s and skips up to the identity: a
+    /// posting sharing `after`'s uid and following it is read.
     ///
     /// # Errors
     ///
@@ -153,8 +154,10 @@ impl List {
             return self.iterate(read_ts, 0, f);
         };
         let by_value = self.mutation.by_value();
+        let at = (after.uid(), after.value());
         self.iterate(read_ts, after.uid().saturating_sub(1), |p| {
-            if identity(p, by_value) <= (after.uid(), after.value()) {
+            let posting = identity(p, by_value);
+            if posting < at || (posting == at && !after.is_included()) {
                 Ok(ControlFlow::Continue(()))
             } else {
                 f(p)

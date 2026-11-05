@@ -40,6 +40,9 @@ where
     /// The identity its Bind named, which Scans of it name.
     pub identity: [u8; 16],
     pub began_us: u64,
+    /// Whether no request of it has reached the partition yet: a first request's first subject outside the partition is the
+    /// sender's stale map, code 26, and any later one is cross-partition.
+    pub first: bool,
     /// The ticket its current references are asked under, and when they went last.
     pub ticket: u64,
     pub sent_us: u64,

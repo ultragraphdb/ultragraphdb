@@ -13,7 +13,7 @@ use crate::types::begin_view::BeginView;
 use crate::types::command::Command;
 use crate::types::frame_view::FrameView;
 use crate::types::read_level::ReadLevel;
-use crate::utils::fields::boolean;
+use crate::utils::fields::{boolean, version};
 use crate::utils::sections::Sections;
 use crate::utils::sections::expect_command;
 use crate::utils::token;
@@ -24,7 +24,7 @@ impl<'a> BodyView<'a> for BeginView<'a> {
     type Body = Begin;
 
     /// Checks, in `PROTOCOL.md` §6.2's order: unused bytes 18–19 and 48–127 zero; `mode`; `level`; `read_version`
-    /// nonzero only for a read-only transaction at level 0; the token; no sections.
+    /// nonzero only for a read-only transaction at level 0, and a version or version bound; the token; no sections.
     fn from_frame(frame: &FrameView<'a>) -> Result<Self, ProtocolError> {
         let command = Self::COMMAND.number();
         let header = expect_command(frame, Self::COMMAND)?;
@@ -44,6 +44,7 @@ impl<'a> BodyView<'a> for BeginView<'a> {
                 read_version,
             ));
         }
+        let read_version = version(command, "read_version", read_version)?;
         let token = token::read(command, header, 24)?;
         let _sections: Sections<'_, 0> = Sections::read(command, frame.body(), 0)?;
         Ok(Self {

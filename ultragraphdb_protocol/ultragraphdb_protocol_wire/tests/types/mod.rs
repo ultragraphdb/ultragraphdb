@@ -132,15 +132,25 @@ mod header;
 #[cfg(test)]
 mod header_view;
 #[cfg(test)]
+mod held;
+#[cfg(test)]
+mod held_view;
+#[cfg(test)]
 mod hello;
 #[cfg(test)]
 mod hello_view;
+#[cfg(test)]
+pub mod install;
+#[cfg(test)]
+mod install_view;
 #[cfg(test)]
 pub mod join;
 #[cfg(test)]
 mod join_view;
 #[cfg(test)]
 mod key_values;
+#[cfg(test)]
+mod language;
 #[cfg(test)]
 pub mod lease;
 #[cfg(test)]
@@ -153,6 +163,8 @@ mod member;
 pub mod members;
 #[cfg(test)]
 mod members_view;
+#[cfg(test)]
+mod monotonic;
 #[cfg(test)]
 mod object_record;
 #[cfg(test)]
@@ -179,6 +191,10 @@ pub mod prepare;
 mod prepare_view;
 #[cfg(test)]
 mod quad_pattern;
+#[cfg(test)]
+pub mod query;
+#[cfg(test)]
+mod query_view;
 #[cfg(test)]
 pub mod read;
 #[cfg(test)]

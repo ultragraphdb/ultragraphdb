@@ -32,19 +32,21 @@ use ultragraphdb_cluster_partition::{
     Answer, BoundStep, Fanout, PartitionError, Reference, ReverseQuery,
 };
 use ultragraphdb_cluster_placement::{BucketRange, NodeId, PartitionId, PlacementMap};
+use ultragraphdb_common_storage::{error_reply, registration_outcome};
 use ultragraphdb_core_ids::{Bucket, BucketGroup, Epoch, SystemId, Tenant, Version};
 use ultragraphdb_core_keys::{Graph, Keyspace, QuadKey};
-use ultragraphdb_core_mapping::PredicateDeclaration;
+use ultragraphdb_core_mapping::{Change, Names, PredicateDeclaration};
 use ultragraphdb_core_terms::{EncodedTerm, TermError};
-use ultragraphdb_protocol_wire::ConflictKind;
+use ultragraphdb_protocol_wire::{ConflictKind, ErrorCode};
 use ultragraphdb_store_apply::Operation;
-use ultragraphdb_store_quads::KernelScan;
+use ultragraphdb_store_quads::{KernelScan, tenant_base};
+use ultragraphdb_store_sim::Fault;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transactions_commit::{CommitError, CommitErrorEnum};
 use ultragraphdb_transactions_txn::{Commit, TxnError};
 
 use crate::cluster::{
-    Cluster, Outcome, TENANT, Written, as_of, begin, changeset, epoch, ex, group, insert,
+    Cluster, Outcome, TENANT, Written, as_of, begin, bucket, changeset, epoch, ex, group, insert,
     insert_literal, pid,
 };
 use crate::hosts::{Host, on_hosts, turn_all};
@@ -1711,6 +1713,151 @@ fn taken_from_home(w: &mut Steps) -> TestResult {
         return Err(TestError::new(format!("{refusal:?}")));
     };
     assert_eq!(refused, &CommitError::conflict(ConflictKind::Range));
+    Ok(())
+}
+
+#[when(
+    "a DirectWrite's first subject lies in partition 1's ranges and a later one in partition 2's, and it reaches partition 1"
+)]
+fn later_subject(w: &mut Steps) -> TestResult {
+    let (first_subject, later) = (homed(1, "a")?, homed(2, "b")?);
+    on_hosts(2, |hosts| {
+        let before = held_id(first(hosts)?, ex(&first_subject).as_str())?;
+        assert_eq!(before, None);
+        let write = changeset(vec![
+            insert_literal(&first_subject, "p", "x"),
+            insert_literal(&later, "p", "y"),
+        ]);
+        let ticket = first(hosts)?.submit(write, 0)?;
+        let ended = turn_all(hosts, 4, 0)?;
+        let outcome = ended.iter().find(|end| end.ticket() == ticket);
+        let refusal = outcome.context("its outcome")?.outcome().clone().err();
+        w.errors.push(refusal.context("a refusal")?);
+        // A first subject outside the partition is the sender's stale map.
+        let stale = changeset(vec![insert_literal(&later, "p", "y")]);
+        let refused_at = first(hosts)?.submit(stale, 0)?;
+        let stale_end = first(hosts)?.take_outcomes();
+        let stale_outcome = stale_end.iter().find(|end| end.ticket() == refused_at);
+        let stale_refusal = stale_outcome
+            .context("its outcome")?
+            .outcome()
+            .clone()
+            .err();
+        w.errors.push(stale_refusal.context("a refusal")?);
+        // A Bind stream's first request goes the same way.
+        bind_reader(first(hosts)?, READER, READER.0 as u8)?;
+        let on_bind = changeset(vec![insert_literal(&later, "p", "y")]);
+        w.errors.push(
+            first(hosts)?
+                .write_bound(READER, &on_bind, 0)
+                .err()
+                .context("a refusal")?,
+        );
+        w.numbers.push(
+            first(hosts)?
+                .partition()
+                .applier()
+                .quads()
+                .lists()
+                .applied_ts(),
+        );
+        Ok(())
+    })
+}
+
+#[then("partition 1 refuses it with code 23, not code 26, and writes nothing")]
+fn refused_cross_partition(w: &mut Steps) -> TestResult {
+    let [later, stale, bound] = w.errors.as_slice() else {
+        return Err(TestError::new(format!("{:?}", w.errors)));
+    };
+    assert_eq!(
+        error_reply(later).code(),
+        ErrorCode::CrossPartition,
+        "{later}"
+    );
+    for first_subject in [stale, bound] {
+        let reply = error_reply(first_subject);
+        assert_eq!(reply.code(), ErrorCode::WrongPartition, "{first_subject}");
+        assert_eq!(reply.detail() >> 32, 2, "its owner, in bits 32 to 63");
+        assert_eq!(reply.detail() >> 24 & 0xFF, 0, "bits 24 to 31 zero");
+    }
+    assert_eq!(w.numbers.first(), Some(&0), "nothing is written");
+    Ok(())
+}
+
+/// A skolem IRI homed in partition 2 of 2 that no dictionary holds.
+fn unheld_skolem() -> TestResult<NamedNode> {
+    let there = bucket(&homed(2, "home")?)?;
+    Ok(Names::new(tenant_base(TENANT))?.skolem_iri(there, 1))
+}
+
+/// Makes partition 2's store fail its next read and turns both, until partition 1's bound transaction `key` is refused: why.
+fn refused_by_home(hosts: &mut Vec<Host<'_>>, key: (u64, u64)) -> TestResult<PartitionError> {
+    let home = hosts.get(1).context("partition 2")?;
+    home.partition()
+        .applier()
+        .quads()
+        .store()
+        .inject(Fault::FailNextRead);
+    let _ended = turn_all(hosts, 4, 0)?;
+    let refused = first(hosts)?.take_bound_refused();
+    let (held, refusal) = refused.into_iter().next().context("a refusal")?;
+    assert_eq!(held, key);
+    Ok(refusal)
+}
+
+#[when(
+    "a transaction in partition 1 names, in a Write and in a Scan, a skolem IRI homed in partition 2, whose store fails under the registration"
+)]
+fn home_store_fails(w: &mut Steps) -> TestResult {
+    let (subject, skolem) = (homed(1, "a")?, unheld_skolem()?);
+    on_hosts(2, |hosts| {
+        // A statement of partition 1 and its terms first, so the two asks name the skolem IRI alone.
+        let _held = commit_of(hosts, WRITER, 9, &subject, &homed(1, "p")?)?;
+        bind_reader(first(hosts)?, READER, READER.0 as u8)?;
+        let edge = Change::Insert {
+            graph: GraphName::DefaultGraph,
+            subject: ex(&subject).into(),
+            predicate: ex(&homed(1, "p")?),
+            object: skolem.clone().into(),
+        };
+        let write = changeset(vec![edge]);
+        assert_eq!(
+            first(hosts)?.write_bound(READER, &write, 0)?,
+            BoundStep::Waiting
+        );
+        w.errors.push(refused_by_home(hosts, READER)?);
+        w.numbers.push(u64::from(
+            first(hosts)?.bound_read(&[READER.0 as u8; 16]).is_none(),
+        ));
+        let reading = (2, 3);
+        bind_reader(first(hosts)?, reading, 3)?;
+        assert_eq!(
+            first(hosts)?.read_terms_bound(reading, std::slice::from_ref(&skolem), 0)?,
+            BoundStep::Waiting
+        );
+        w.errors.push(refused_by_home(hosts, reading)?);
+        w.numbers
+            .push(u64::from(first(hosts)?.bound_read(&[3; 16]).is_none()));
+        Ok(())
+    })
+}
+
+#[then(
+    "the registration's outcome is 17, each request is refused with code 17, and the transaction ends"
+)]
+fn seventeen_ends_it(w: &mut Steps) -> TestResult {
+    assert_eq!(w.errors.len(), 2, "{:?}", w.errors);
+    let unavailable = ErrorCode::Unavailable;
+    for refusal in &w.errors {
+        assert_eq!(registration_outcome(refusal), unavailable.number());
+        assert_eq!(error_reply(refusal).code(), unavailable);
+        assert!(
+            !refusal.holds_no_skolem(),
+            "no failed store reads as absent"
+        );
+    }
+    assert_eq!(w.numbers, [1, 1], "both transactions ended");
     Ok(())
 }
 

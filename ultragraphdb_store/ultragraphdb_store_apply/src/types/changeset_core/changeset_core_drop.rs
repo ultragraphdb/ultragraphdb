@@ -15,9 +15,7 @@ use oxrdf::vocab::rdf;
 use oxrdf::{GraphNameRef, NamedNodeRef};
 use ultragraphdb_core_catalog::Catalog;
 use ultragraphdb_core_ids::SystemId;
-use ultragraphdb_core_keys::{
-    DEFAULT_GRAPH, Graph, Keyspace, QuadKey, ROOT_TENANT, SPLIT_FLAG, key_prefix,
-};
+use ultragraphdb_core_keys::{DEFAULT_GRAPH, Graph, Keyspace, QuadKey, SPLIT_FLAG, key_prefix};
 use ultragraphdb_store_posting::{CachedList, List, PostingError};
 use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{Entry, ListCache, Scan, Store, StoreSnapshot};
@@ -45,8 +43,8 @@ const QUAD_KEYSPACES: [Keyspace; 9] = [
     Keyspace::Statistics,
 ];
 
-/// The keyspaces of the registrations between partitions, which name no graph: dropped with a tenant's data or
-/// every tenant's, never with a graph.
+/// The keyspaces of the registrations between partitions, which name no graph: dropped with a tenant's data, never with
+/// a graph.
 const REGISTRATION_KEYSPACES: [Keyspace; 2] = [Keyspace::Marks, Keyspace::Referrers];
 
 impl<S, C, B> ChangesetCore<S, C, B>
@@ -154,8 +152,8 @@ where
     /// writes nothing but the key ranges of what it drops, which the commit step holds as a write of those ranges at
     /// its version, and which `apply_round` drops once its round's batch is written. A predicate's ranges are its keys
     /// in each graph holding it and its catalog entry; a graph's, its keys in every quad keyspace; a tenant's data,
-    /// every quad keyspace of it; a tenant, its catalog too; every tenant, every key of every quad keyspace and
-    /// catalog. A predicate or a graph the store does not know, or a blank-node graph, is dropped as nothing.
+    /// every quad keyspace of it; a tenant, its catalog too. A predicate or a graph the store does not know, or a
+    /// blank-node graph, is dropped as nothing.
     pub fn prepare_drop(
         &self,
         tenant: u64,
@@ -185,7 +183,6 @@ where
             },
             DropRequest::Data => (Some(DropTarget::Data), tenant_prefixes(tenant)),
             DropRequest::Tenant => (Some(DropTarget::Tenant), tenant_prefixes(tenant)),
-            DropRequest::All => (Some(DropTarget::All), every_prefix()),
         };
         let ranges = prefixes
             .into_iter()
@@ -211,7 +208,6 @@ where
             DropTarget::Graph(uid) => self.drop_graph_uid(tenant, uid, at),
             DropTarget::Data => self.drop_data_of(tenant, at),
             DropTarget::Tenant => self.drop_tenant_of(tenant, at),
-            DropTarget::All => self.drop_every(at),
         }
     }
 
@@ -347,25 +343,6 @@ where
         Ok(ts)
     }
 
-    /// Drops every quad key of every tenant and holds the root tenant's initial catalog alone in memory. The
-    /// dictionary is kept. The drop's timestamp.
-    pub fn drop_all(&self) -> Result<u64, ChangesetError> {
-        let _apply = lock(&self.apply);
-        self.drop_every(None)
-    }
-
-    /// Drops every tenant as [`ChangesetCore::drop_all`] does, under the apply lock the caller holds, at `at` or the
-    /// next version.
-    fn drop_every(&self, at: Option<u64>) -> Result<u64, ChangesetError> {
-        let _cancelled: Option<Rebuild> = self.cancel(|_| true);
-        let initial = self.initial_catalog(ROOT_TENANT)?;
-        let ts = self.drop_prefixes(&every_prefix(), Vec::new(), at)?;
-        let mut catalogs = lock(&self.catalogs);
-        catalogs.clear();
-        let _root: Option<Arc<Catalog>> = catalogs.insert(ROOT_TENANT, Arc::new(initial));
-        Ok(ts)
-    }
-
     /// The initial catalog of `tenant`, held in memory after a drop of everything in it: `rdf:type` declared an edge
     /// when it has a UID, else empty, so the tenant's first write gives it the initial catalog.
     fn initial_catalog(&self, tenant: u64) -> Result<Catalog, ChangesetError> {
@@ -390,19 +367,6 @@ fn graph_prefixes(tenant: u64, graph: Graph) -> Vec<Vec<u8>> {
     QUAD_KEYSPACES
         .iter()
         .flat_map(|k| parts(*k, |split| key_prefix(*k, split, tenant, Some(graph), None)))
-        .collect()
-}
-
-/// Every quad and registration keyspace's prefix, of every tenant: no partition holds a catalog key.
-fn every_prefix() -> Vec<Vec<u8>> {
-    QUAD_KEYSPACES
-        .into_iter()
-        .chain(REGISTRATION_KEYSPACES)
-        .flat_map(|k| {
-            parts(k, |split| {
-                vec![k.byte() | if split { SPLIT_FLAG } else { 0 }]
-            })
-        })
         .collect()
 }
 

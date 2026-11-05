@@ -37,6 +37,11 @@ pub enum ChangesetErrorEnum {
     Hnsw(HnswError),
     /// An invariant of the applier does not hold: a bug in UltraGraphDB, never the changeset.
     Invariant(InvariantError),
+    /// A statement that would hold its object under more statement IDs than `limit`, `statements_per_object_max`.
+    StatementsPerObject {
+        /// The bound.
+        limit: usize,
+    },
     /// A literal the write names cannot be encoded, a vector not in its canonical form above all; `predicate` names
     /// the statement's predicate.
     Literal {
@@ -159,6 +164,11 @@ impl ChangesetError {
             factory: factory.to_string(),
             error,
         })
+    }
+
+    /// A statement past `limit`, `statements_per_object_max`, the statement IDs one object holds.
+    pub fn statements_per_object(limit: usize) -> Self {
+        Self(ChangesetErrorEnum::StatementsPerObject { limit })
     }
 
     /// A failed compare-and-set or counter add, `found` the value held.

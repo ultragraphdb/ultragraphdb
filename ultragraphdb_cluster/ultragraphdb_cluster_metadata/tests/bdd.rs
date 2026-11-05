@@ -18,13 +18,16 @@ use std::fmt;
 
 use cucumber::{World, then, when};
 use ultragraphdb_cluster_metadata::{
-    LeasedBlocks, MetadataConfig, MetadataSnapshot, MetadataState,
+    LeasedBlocks, MetadataCommand, MetadataConfig, MetadataSnapshot, MetadataState,
 };
 use ultragraphdb_cluster_placement::{BucketRange, PartitionId, TenantRun};
 use ultragraphdb_cluster_sequencer::Close;
 use ultragraphdb_core_ids::{Bucket, BucketGroup, Epoch, Tenant, TypePrefix};
 use ultragraphdb_error_cluster::{ClusterError, ClusterErrorEnum};
 use ultragraphdb_protocol_scram::{Credentials, MIN_ITERATIONS, ScramClient, ScramServer};
+use ultragraphdb_protocol_wire::{
+    BodyBuilder, BodyView, Catalog, CatalogView, Command, FrameView, Header, MAX_FRAME_FLOOR,
+};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_traits_blocks::SequenceBlock;
 use ultragraphdb_traits_catalog::{CatalogSource, DefaultEntry};
@@ -37,6 +40,9 @@ use crate::harness::{
     recover, sync, tenant, verifier,
 };
 use crate::partition_model::{AllocatorModel, EpochModel};
+
+/// The cluster the Catalog frames name.
+const CATALOG_CLUSTER: u64 = 7;
 
 #[derive(Default, World)]
 struct Steps {
@@ -58,6 +64,8 @@ struct Steps {
     authenticated: Option<u64>,
     resolved: Vec<Vec<PartitionId>>,
     found: Option<PartitionId>,
+    /// A Catalog frame a storage process read.
+    catalog_frame: Vec<u8>,
 }
 
 impl fmt::Debug for Steps {
@@ -396,6 +404,42 @@ fn refused_naming_2_and_3(w: &mut Steps) -> TestResult {
     sync(group)?;
     assert_eq!(group.state().current_version(tenant()), 3);
     assert_eq!(group.applied().get(), 3);
+    Ok(())
+}
+
+#[when(
+    "a catalog version of 523,000 bytes is committed, and a storage process at the floor of `max_frame` reads it with Catalog"
+)]
+fn version_at_its_cap(w: &mut Steps) -> TestResult {
+    assert_eq!(MetadataCommand::CATALOG_BYTES_MAX, 523_000);
+    w.start()?;
+    let group = w.group()?;
+    let bytes = vec![7; MetadataCommand::CATALOG_BYTES_MAX];
+    let (_version, position) = group.offer_catalog(tenant(), 0, &bytes)?;
+    sync(group)?;
+    let state = group.state();
+    let versions = state.versions(tenant());
+    let record = versions.last().context("the version")?;
+    assert_eq!(record.bytes(), bytes.as_slice());
+    let reply = Catalog::reply(
+        tenant().get(),
+        record.version(),
+        0,
+        position.get(),
+        record.bytes().to_vec(),
+    );
+    w.catalog_frame = reply.frame(Header::new(CATALOG_CLUSTER, Command::Catalog))?;
+    Ok(())
+}
+
+#[then("one Catalog frame holds its whole bytes")]
+fn one_catalog_frame(w: &mut Steps) -> TestResult {
+    let frame = FrameView::validate(&w.catalog_frame, CATALOG_CLUSTER, MAX_FRAME_FLOOR)?;
+    let view = CatalogView::from_frame(&frame)?;
+    assert_eq!(view.bytes().len(), MetadataCommand::CATALOG_BYTES_MAX);
+    assert!(view.bytes().iter().all(|byte| *byte == 7));
+    assert!(w.catalog_frame.len() <= MAX_FRAME_FLOOR);
+    assert_eq!(MAX_FRAME_FLOOR, 524_288);
     Ok(())
 }
 

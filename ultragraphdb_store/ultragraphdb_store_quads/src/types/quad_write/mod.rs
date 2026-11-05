@@ -23,6 +23,10 @@ use crate::types::statistics::Statistics;
 use crate::types::write_terms::WriteTerms;
 use crate::utils::postings::{list_holds, object_posting, posting_object};
 
+/// The statement IDs one object of a list holds, in a forward and a reverse list alike (`PROTOCOL.md` §11.9): what keeps a
+/// key's object record inside a frame at the floor of `max_frame`.
+pub const STATEMENTS_PER_OBJECT_MAX: usize = 16_000;
+
 /// One write to the quads of a tenant: a request of the posting lists, the terms it names and the statistics it
 /// changes. An insert writes the forward, reverse, subject-predicate and object-predicate lists without reading any,
 /// a vector naming no reverse or object-predicate list; a delete reads the subject's list, so that it removes what is
@@ -130,8 +134,9 @@ where
         self.terms.is_fresh(id)
     }
 
-    /// Inserts the statement `subject predicate object` in `graph`, the object's posting carrying `statement_ids`,
-    /// reading no list. `kind` is the object's kind for the statistics: `iri`, `blank` or a literal's datatype IRI.
+    /// Inserts the statement `subject predicate object` in `graph`, its forward and reverse postings carrying
+    /// `statement_ids`, reading no list. `kind` is the object's kind for the statistics: `iri`, `blank` or a literal's
+    /// datatype IRI.
     pub fn insert(
         &mut self,
         graph: Graph,
@@ -163,10 +168,9 @@ where
             .add_posting(predicate_posting(), false);
         if !object.is_vector() {
             let reverse = self.reverse(graph, predicate, object);
-            self.request.get_from_delta(&reverse).add_posting(
-                Posting::default().with_uid(subject.to_u128()).with_op(SET),
-                false,
-            );
+            self.request
+                .get_from_delta(&reverse)
+                .add_posting(subject_posting(subject, statement_ids), false);
             let object_predicates = QuadKey::ObjectPredicates {
                 tenant,
                 graph,
@@ -303,8 +307,9 @@ where
         Ok(Some(ids))
     }
 
-    /// Rewrites the forward posting of a held object with `statement_ids`, as a parallel edge or a statement's first
-    /// property changes them: the reverse and predicate lists and the statistics are left as they are.
+    /// Rewrites the forward and reverse postings of a held object with `statement_ids`, as a parallel edge or a statement's
+    /// first property changes them, reading no list: the predicate lists and the statistics are left as they are. A vector
+    /// has no reverse posting.
     pub fn set_statement_ids(
         &mut self,
         graph: Graph,
@@ -318,6 +323,12 @@ where
         self.request
             .get_from_delta(&forward)
             .add_posting(object_posting(object, SET, statement_ids, fp), false);
+        if !object.is_vector() {
+            let reverse = self.reverse(graph, predicate, object);
+            self.request
+                .get_from_delta(&reverse)
+                .add_posting(subject_posting(subject, statement_ids), false);
+        }
     }
 
     /// The subjects that hold `object` for `predicate` in `graph`, as the write sees them: a read of the object's
@@ -516,6 +527,14 @@ where
         }
         Ok(())
     }
+}
+
+/// The posting setting `subject` in a reverse list, with the IDs of the statements holding it.
+fn subject_posting(subject: SystemId, statement_ids: &[SystemId]) -> Posting {
+    Posting::default()
+        .with_uid(subject.to_u128())
+        .with_op(SET)
+        .with_statement_ids(statement_ids.to_vec())
 }
 
 /// The objects `list` holds at its own read timestamp, each with its statement IDs.

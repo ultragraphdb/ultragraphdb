@@ -18,8 +18,8 @@ pub enum Durability {
     Filesystem,
     /// The write-ahead log is the only stream synced per round: fjall's journal is persisted manually, so a batch
     /// written with [`ultragraphdb_traits_store::PersistMode::Buffer`] stays in fjall's journal buffer, and the
-    /// store is synced only when asked, by [`ultragraphdb_traits_store::Store::sync`] at a checkpoint or a batch
-    /// written with [`ultragraphdb_traits_store::PersistMode::Sync`]. After a crash the store holds a prefix of its
+    /// store is synced only when asked, by [`ultragraphdb_traits_store::Store::sync`] at a checkpoint, a batch
+    /// written with [`ultragraphdb_traits_store::PersistMode::Sync`] or a raised discard timestamp. After a crash the store holds a prefix of its
     /// batches, each whole, and recovery replays the log above the applied position the last of them recorded.
     Log,
 }

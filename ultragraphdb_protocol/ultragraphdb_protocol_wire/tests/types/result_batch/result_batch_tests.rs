@@ -5,7 +5,7 @@
 
 use ultragraphdb_core_terms::{EncodedTerm, Hash128};
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
-use ultragraphdb_protocol_wire::{ABSENT, BodyBuilder, ResultBatch, ResultTerm};
+use ultragraphdb_protocol_wire::{ABSENT, BodyBuilder, Monotonic, ResultBatch, ResultTerm};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::utils::golden_bodies::golden;
@@ -57,7 +57,7 @@ fn test_the_golden_batch_builds_the_golden_frame() -> TestResult {
         golden("result")?.bytes()?
     );
     assert_eq!(batch.encoded_len(), batch.body().len());
-    assert_eq!(batch.encoded_len(), 746 - 256);
+    assert_eq!(batch.encoded_len(), golden("result")?.size as usize - 256);
     Ok(())
 }
 
@@ -137,16 +137,20 @@ fn test_a_reifier_is_a_blank_node_or_absent() -> TestResult {
         (batch.rows(), batch.cell(1, 0), batch.cell(1, 1)),
         (2, Some(0), Some(ABSENT))
     );
-    // The command header: epoch at 8, partition at 16, nothing after.
-    let header = batch.with_read_at(7, 9).command_header();
+    // The command header: epoch at 8, partition at 16, monotonic at 20, nothing after.
+    let header = batch
+        .with_read_at(7, 9)
+        .with_monotonic(Monotonic::Immutable)
+        .command_header();
     assert_eq!(&header[8..16], &7u64.to_le_bytes());
     assert_eq!(&header[16..20], &9u32.to_le_bytes());
-    assert!(header[20..].iter().all(|b| *b == 0));
-    // A batch holds seven sections, the resume key the last: no statement IDs.
+    assert_eq!(header[20], Monotonic::Immutable.number());
+    assert!(header[21..].iter().all(|b| *b == 0));
+    // A batch holds nine sections, the resume key the seventh and the column names the last two: no statement IDs.
     let body = ResultBatch::new(1).with_resume(b"k".to_vec()).body();
     let (offset, len) = crate::utils::golden_bodies::section(&body, 0, 6);
     assert_eq!((len, &body[offset..offset + len]), (1, &b"k"[..]));
-    assert_eq!(crate::utils::golden_bodies::u32_at(&body, 0), 56);
+    assert_eq!(crate::utils::golden_bodies::u32_at(&body, 0), 72);
     Ok(())
 }
 
@@ -159,5 +163,35 @@ fn test_a_blank_node_and_an_iri_of_one_text_are_two_terms() -> TestResult {
     batch.push_row(&[Some(&iri), Some(&blank)])?;
     assert_eq!(batch.terms().len(), 2);
     assert_eq!(batch.cell(1, 0), Some(1));
+    Ok(())
+}
+
+/// A query's last column is a projection like the others: an IRI there is no reifier.
+#[test]
+fn test_a_querys_row_holds_any_term_in_its_last_column() -> TestResult {
+    let mut batch = ResultBatch::new(2)
+        .with_column_names(vec!["n".to_string(), "age".to_string()])
+        .with_monotonic(Monotonic::Retractable)
+        .with_read_at(30, 0);
+    let a = ResultTerm::iri("http://ex.org/a");
+    batch.push_query_row(&[Some(&a), None])?;
+    assert_eq!(batch.monotonic(), Monotonic::Retractable);
+    assert_eq!(batch.column_names(), ["n", "age"]);
+    assert_eq!(
+        batch.frame(golden("result_query")?.header())?,
+        golden("result_query")?.bytes()?
+    );
+    let mut last = ResultBatch::new(1);
+    last.push_query_row(&[Some(&a)])?;
+    assert_eq!(last.rows(), 1);
+    assert_eq!(
+        last.push_query_row(&[]).err().context("a refusal")?.0,
+        ProtocolErrorEnum::CountMismatch {
+            command: 13,
+            field: "row",
+            count: 0,
+            expected: 1
+        }
+    );
     Ok(())
 }

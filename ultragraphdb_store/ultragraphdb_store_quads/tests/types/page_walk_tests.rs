@@ -436,3 +436,109 @@ fn test_a_page_hands_back_after_its_keys_giving_nothing() -> TestResult {
     assert_eq!(yielded, 1, "a key giving a row spends no bound");
     Ok(())
 }
+
+/// The objects of `hub`'s `knows` read from `after` as a Scan names it: the page's objects and how it ended.
+fn resumed_at(
+    store: &TestQuads,
+    version: u64,
+    after: &[u8],
+    limit: usize,
+) -> TestResult<(Vec<EncodedTerm>, Page)> {
+    let hub = store
+        .id_of(TENANT, ex("hub").as_str())?
+        .context("the subject")?;
+    let knows = store
+        .id_of(TENANT, ex("knows").as_str())?
+        .context("the predicate")?;
+    let key = ultragraphdb_core_keys::QuadKey::Forward {
+        tenant: TENANT,
+        graph: ultragraphdb_core_keys::DEFAULT_GRAPH,
+        predicate: knows,
+        subject: hub,
+    }
+    .to_bytes();
+    let scan = forward(key.clone(), version, limit)?
+        .to([key.as_slice(), &[0]].concat())
+        .resuming(Some(store.resume_at(Keyspace::Forward, after)?));
+    let mut objects = Vec::new();
+    let page = store.page(&scan, |_, object, _| {
+        objects.push(object.clone());
+        ControlFlow::Continue(())
+    })?;
+    Ok((objects, page))
+}
+
+/// A range's `after` reads the list from that object on, the object itself when the list holds it, and the next object when it
+/// does not; none past the last gives no row, since the page reads no row of a key it found empty.
+#[test]
+fn test_a_range_resumes_its_list_at_the_object_its_after_names() -> TestResult {
+    let (store, at) = store()?;
+    let hub = store
+        .id_of(TENANT, ex("hub").as_str())?
+        .context("the subject")?;
+    let knows = store
+        .id_of(TENANT, ex("knows").as_str())?
+        .context("the predicate")?;
+    let key = ultragraphdb_core_keys::QuadKey::Forward {
+        tenant: TENANT,
+        graph: ultragraphdb_core_keys::DEFAULT_GRAPH,
+        predicate: knows,
+        subject: hub,
+    }
+    .to_bytes();
+    let whole: Vec<EncodedTerm> = store
+        .objects(&key, at)?
+        .into_iter()
+        .map(|(object, _)| object)
+        .collect();
+    assert_eq!(whole.len(), 5);
+    for (from, object) in whole.iter().enumerate() {
+        let (read, page) = resumed_at(&store, at, object.as_bytes(), 8)?;
+        assert_eq!(read, whole.get(from..).unwrap_or_default(), "at {object:?}");
+        assert_eq!((page.end(), page.rows()), (&PageEnd::Exhausted, 1));
+    }
+    // An ID the list does not hold, in the bucket below the second object's: the second object is the one after it.
+    let second = whole.get(1).context("a second object")?;
+    let absent = second.as_id().context("an ID")?.to_u128() - (1 << 24);
+    let absent = EncodedTerm::id(SystemId::from_u128(absent)?);
+    assert!(!whole.contains(&absent));
+    let (next, _page) = resumed_at(&store, at, absent.as_bytes(), 8)?;
+    assert_eq!(next, whole.get(1..).unwrap_or_default());
+    let last = whole.last().context("a last object")?;
+    let beyond = EncodedTerm::id(SystemId::from_u128(
+        last.as_id().context("an ID")?.to_u128() + (1 << 48),
+    )?);
+    let (nothing, page) = resumed_at(&store, at, beyond.as_bytes(), 1)?;
+    assert!(nothing.is_empty());
+    assert_eq!((page.end(), page.rows()), (&PageEnd::Exhausted, 0));
+    Ok(())
+}
+
+/// A page pausing before it took anything of a key resumed at an object keeps that position, so the next page reads the object.
+#[test]
+fn test_a_pause_before_the_object_an_after_names_keeps_the_position() -> TestResult {
+    let (store, at) = store()?;
+    let hub = store
+        .id_of(TENANT, ex("hub").as_str())?
+        .context("the subject")?;
+    let knows = store
+        .id_of(TENANT, ex("knows").as_str())?
+        .context("the predicate")?;
+    let key = ultragraphdb_core_keys::QuadKey::Forward {
+        tenant: TENANT,
+        graph: ultragraphdb_core_keys::DEFAULT_GRAPH,
+        predicate: knows,
+        subject: hub,
+    }
+    .to_bytes();
+    let objects = store.objects(&key, at)?;
+    let (object, _) = objects.get(2).context("a third object")?;
+    let identity = store.resume_at(Keyspace::Forward, object.as_bytes())?;
+    let scan = forward(key.clone(), at, 8)?.resuming(Some(identity.clone()));
+    let paused = store.page(&scan, |_, _, _| ControlFlow::Break(()))?;
+    let PageEnd::Paused { last, after, .. } = paused.into_end() else {
+        return Err(TestError::new("the sink stopped it"));
+    };
+    assert_eq!((last, after), (None, Some(identity)));
+    Ok(())
+}

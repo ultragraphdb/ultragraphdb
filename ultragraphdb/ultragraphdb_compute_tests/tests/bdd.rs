@@ -10,17 +10,20 @@ use compio::runtime::Runtime;
 use cucumber::{World, then, when};
 use service_utils::{ServiceUtil, WaitStrategy};
 use std::path::Path;
-use std::process::ExitStatus;
+use std::process::{Command, ExitStatus};
 use std::time::Duration;
 use ultragraphdb_common_role::RoleClient;
 use ultragraphdb_protocol_transport::Address;
-use ultragraphdb_protocol_wire::{ComputeRead, PatternSlot, QuadPattern, ReadLevel, TermTable};
+use ultragraphdb_protocol_wire::{
+    ComputeRead, DEFAULT_INITIAL_CREDIT, MAX_FRAME_SIZE, PatternSlot, QuadPattern, ReadLevel,
+    TermTable,
+};
 use ultragraphdb_tests::{
     CLUSTER, COMPUTE_BINARY, COMPUTE_OBSERVABILITY, COMPUTE_ROLE_ADDRESS, DOUBLE_ADDRESS,
     FRONTEND_BINARY, FRONTEND_OBSERVABILITY, SECRET, START_SECONDS, STORAGE_BINARY,
-    STORAGE_OBSERVABILITY, answering, bootstrap, compute_on_one_host, exit_is, frontend_holding,
-    holding, http_status, process, render_settings, role, scratch, served_by_double, start_double,
-    storage_holding, until_answering,
+    STORAGE_OBSERVABILITY, STORAGE_ROLE_ADDRESS, answering, bootstrap, compute_on_one_host,
+    exit_is, frontend_holding, holding, http_status, process, render_settings, role, scratch,
+    served_by_double, start_double, storage_holding, until_answering, with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -167,7 +170,8 @@ fn asks_compute(w: &mut Steps) -> TestResult {
             terms,
             pattern,
             Vec::new(),
-        );
+        )
+        .with_client_limits(MAX_FRAME_SIZE as u32, DEFAULT_INITIAL_CREDIT);
         let refused = client.request(&read).await.err();
         let refused = refused.context("a refusal")?;
         Ok::<String, TestError>(refused.to_string())
@@ -202,6 +206,73 @@ fn wrong_secret_at_compute(w: &mut Steps) -> TestResult {
 fn refused_at_compute(w: &mut Steps) {
     assert!(w.log.contains("authentication failed"), "{}", w.log);
     w.roles = None;
+}
+
+/// Sends `signal` to `pid`, as an operator would.
+fn signal(pid: u32, signal: &str) -> TestResult {
+    let sent = Command::new("kill")
+        .arg(format!("-{signal}"))
+        .arg(pid.to_string())
+        .output()?;
+    assert!(sent.status.success(), "{sent:?}");
+    Ok(())
+}
+
+/// Starts the three roles with compute's deadline short, sends storage `to_storage`, and holds how compute exits; the storage
+/// process is returned to its caller, for what it still needs.
+fn lose_storage(w: &mut Steps, to_storage: &str) -> TestResult<u32> {
+    let util = services()?;
+    let _frontend: u32 = util.start_service_from_config(role(
+        FRONTEND_BINARY,
+        &frontend_holding()?,
+        &scratch(FRONTEND_BINARY),
+        answering(FRONTEND_OBSERVABILITY, "/health"),
+    ))?;
+    let storage = util.start_service_from_config(role(
+        STORAGE_BINARY,
+        &storage_holding()?,
+        &scratch(STORAGE_BINARY),
+        answering(STORAGE_OBSERVABILITY, "/ready"),
+    ))?;
+    let log = scratch("compute-lost-storage.log");
+    let compute = util.start_service_from_config(role(
+        COMPUTE_BINARY,
+        &with(
+            holding(compute_on_one_host(), SECRET)?,
+            "cluster.join_deadline_ms",
+            "800",
+        ),
+        &log,
+        answering(COMPUTE_OBSERVABILITY, "/ready"),
+    ))?;
+    signal(storage, to_storage)?;
+    w.exited = Some(util.wait_for_exit(compute, Duration::from_secs(START_SECONDS))?);
+    w.log = std::fs::read_to_string(&log)?;
+    w.roles = Some(util);
+    Ok(storage)
+}
+
+#[when("compute loses its storage process, which does not return within compute's deadline")]
+fn loses_storage(w: &mut Steps) -> TestResult {
+    let _gone = lose_storage(w, "KILL")?;
+    Ok(())
+}
+
+/// A stopped process closes nothing and its kernel still accepts, as a hung one does: only a question with a limit finds it.
+#[when(
+    "compute's storage process stops answering with its connections open, and does not return within compute's deadline"
+)]
+fn storage_hangs(w: &mut Steps) -> TestResult {
+    let stopped = lose_storage(w, "STOP")?;
+    signal(stopped, "KILL")
+}
+
+#[then("compute shuts down through its ordinary path and exits with code 69")]
+fn lost_storage(w: &mut Steps) -> TestResult {
+    exit_is(w.exited, &w.log, 69)?;
+    assert!(w.log.contains(STORAGE_ROLE_ADDRESS), "{}", w.log);
+    w.roles = None;
+    Ok(())
 }
 
 fn main() -> TestResult {

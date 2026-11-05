@@ -37,8 +37,9 @@ pub(crate) struct OpenScan<'a> {
     pub terms: Vec<NamedNode>,
     pub ranges: Vec<ScanRead>,
     pub state: ScanState,
-    /// The version chosen when any wait ended, and the epoch each frame names.
+    /// The version chosen when any wait ended, what each frame names of it, and the epoch each frame names.
     pub version: u64,
+    pub named: u64,
     pub read_epoch: u64,
     /// What keeps the version readable, for a Scan no transaction holds it for.
     pub pin: Option<ReadPin<'a, FjallStore, MokaListCache<CachedList>>>,
@@ -75,14 +76,17 @@ impl OpenScan<'_> {
 
     /// Moves on to the next range, which starts afresh.
     pub(crate) fn next_range(&mut self) {
-        self.range += 1;
-        self.after = None;
+        self.move_to(self.range + 1);
+    }
+
+    /// Moves on to range `range`, which starts afresh, at its `after` when it names one.
+    pub(crate) fn move_to(&mut self, range: usize) {
+        self.range = range;
         self.held = None;
         self.rows = 0;
-        self.from = self
-            .ranges
-            .get(self.range)
-            .map_or_else(Vec::new, |read| read.first.clone());
+        let next = self.ranges.get(range);
+        self.from = next.map_or_else(Vec::new, |read| read.first.clone());
+        self.after = next.and_then(|read| read.after.clone());
     }
 
     /// Whether every range has answered.

@@ -17,15 +17,16 @@ use ultragraphdb_transactions_txn::{TxnError, TxnErrorEnum};
 pub fn error_reply(error: &PartitionError) -> ErrorReply {
     let message = error.to_string();
     let (code, detail) = match &error.0 {
-        PartitionErrorEnum::WrongPartition { bucket, .. } => {
-            (ErrorCode::WrongPartition, u64::from(*bucket))
-        }
+        PartitionErrorEnum::WrongPartition { bucket, owner } => (
+            ErrorCode::WrongPartition,
+            u64::from(*bucket) | (u64::from(*owner) << 32),
+        ),
         PartitionErrorEnum::CrossPartition { partition, other } => (
             ErrorCode::CrossPartition,
             u64::from(*partition) | (u64::from(*other) << 32),
         ),
         PartitionErrorEnum::TimedOut { partition } => (ErrorCode::TimedOut, u64::from(*partition)),
-        PartitionErrorEnum::Refused { .. } => (ErrorCode::Refused, 0),
+        PartitionErrorEnum::Refused { outcome } => outcome_code(*outcome),
         PartitionErrorEnum::TransactionHeld { .. } => (ErrorCode::Protocol, 0),
         PartitionErrorEnum::Changeset(refusal) => changeset_code(refusal),
         PartitionErrorEnum::Quad(refusal) => quad_code(refusal),
@@ -56,48 +57,84 @@ fn txn_code(error: &TxnError) -> (ErrorCode, u64) {
     }
 }
 
-/// A read below what the partition retains is code 3 (`PROTOCOL.md` §11.9); any other refusal of a changeset, code 7.
-fn changeset_code(error: &ChangesetError) -> (ErrorCode, u64) {
-    if let ChangesetErrorEnum::Quad(quad) = &error.0 {
-        return quad_code(quad);
-    }
-    refused_or_too_old(
-        matches!(&error.0, ChangesetErrorEnum::Posting(posting) if posting_too_old(posting))
-            || matches!(&error.0, ChangesetErrorEnum::Store(store) if store_too_old(store)),
-    )
-}
-
-fn quad_code(error: &QuadError) -> (ErrorCode, u64) {
-    refused_or_too_old(
-        matches!(&error.0, QuadErrorEnum::Posting(posting) if posting_too_old(posting))
-            || matches!(&error.0, QuadErrorEnum::Store(store) if store_too_old(store)),
-    )
-}
-
-fn refused_or_too_old(too_old: bool) -> (ErrorCode, u64) {
-    if too_old {
-        (ErrorCode::TooOld, 0)
+/// What a home's outcome ends its registrant's transaction with: code 17 for a store that failed at the home, so no failed store
+/// reads as a skolem IRI nobody holds, and otherwise code 7 (`PROTOCOL.md` §13.15).
+fn outcome_code(outcome: u16) -> (ErrorCode, u64) {
+    if outcome == ErrorCode::Unavailable.number() {
+        (ErrorCode::Unavailable, 0)
     } else {
         (ErrorCode::Refused, 0)
     }
 }
 
-fn posting_too_old(error: &PostingError) -> bool {
-    matches!(
-        &error.0,
-        PostingErrorEnum::TsTooOld | PostingErrorEnum::ReadBelowMinTs { .. }
-    ) || matches!(&error.0, PostingErrorEnum::Store(store) if store_too_old(store))
+/// A read below what the partition retains is code 3 (`PROTOCOL.md` §11.9); a write past `statements_per_object_max`, code 6
+/// with its bound; a store that failed, code 17; any other refusal of a changeset, code 7.
+fn changeset_code(error: &ChangesetError) -> (ErrorCode, u64) {
+    if let ChangesetErrorEnum::Quad(quad) = &error.0 {
+        return quad_code(quad);
+    }
+    if let ChangesetErrorEnum::StatementsPerObject { limit } = &error.0 {
+        return (ErrorCode::TooLarge, *limit as u64);
+    }
+    if let ChangesetErrorEnum::Posting(posting) = &error.0 {
+        return posting_code(posting);
+    }
+    if let ChangesetErrorEnum::Store(store) = &error.0 {
+        return store_code(store);
+    }
+    (ErrorCode::Refused, 0)
 }
 
-fn store_too_old(error: &StoreError) -> bool {
-    matches!(error.0, StoreErrorEnum::TsTooOld)
+fn quad_code(error: &QuadError) -> (ErrorCode, u64) {
+    if let QuadErrorEnum::Posting(posting) = &error.0 {
+        return posting_code(posting);
+    }
+    if let QuadErrorEnum::Store(store) = &error.0 {
+        return store_code(store);
+    }
+    if matches!(&error.0, QuadErrorEnum::Corrupted { .. }) {
+        return (ErrorCode::Unavailable, 0);
+    }
+    (ErrorCode::Refused, 0)
+}
+
+fn posting_code(error: &PostingError) -> (ErrorCode, u64) {
+    if let PostingErrorEnum::Store(store) = &error.0 {
+        return store_code(store);
+    }
+    if matches!(
+        &error.0,
+        PostingErrorEnum::TsTooOld | PostingErrorEnum::ReadBelowMinTs { .. }
+    ) {
+        return (ErrorCode::TooOld, 0);
+    }
+    (ErrorCode::Refused, 0)
+}
+
+/// Code 3 for a read below the discard version, code 17 for a store that failed under the request (`PROTOCOL.md` §§9.4, 13.13),
+/// and code 7 for a request the store refused as it stands.
+fn store_code(error: &StoreError) -> (ErrorCode, u64) {
+    match &error.0 {
+        StoreErrorEnum::TsTooOld => (ErrorCode::TooOld, 0),
+        StoreErrorEnum::ReadFailed { .. }
+        | StoreErrorEnum::Corrupted { .. }
+        | StoreErrorEnum::WriteFailed(_)
+        | StoreErrorEnum::Poisoned
+        | StoreErrorEnum::OpenFailed(_) => (ErrorCode::Unavailable, 0),
+        StoreErrorEnum::KeyTooLarge { .. }
+        | StoreErrorEnum::Unsupported(_)
+        | StoreErrorEnum::UnknownTemporary(_)
+        | StoreErrorEnum::EmptyKey => (ErrorCode::Refused, 0),
+    }
 }
 
 fn commit_code(error: &CommitError) -> (ErrorCode, u64) {
     match &error.0 {
         CommitErrorEnum::Conflict { kind } => (ErrorCode::Conflict, kind.number()),
         CommitErrorEnum::TooOld { .. } => (ErrorCode::TooOld, 0),
-        CommitErrorEnum::TooLarge { limit, .. } => (ErrorCode::TooLarge, *limit as u64),
+        CommitErrorEnum::TooLarge { limit, .. } | CommitErrorEnum::ReplyTooLarge { limit, .. } => {
+            (ErrorCode::TooLarge, *limit as u64)
+        }
         CommitErrorEnum::Busy { .. } => (ErrorCode::Busy, 0),
         CommitErrorEnum::RequestOutOfOrder { last, .. } => (ErrorCode::RequestOutOfOrder, *last),
         CommitErrorEnum::SessionBusy { .. } => (ErrorCode::SessionBusy, 0),
@@ -112,5 +149,90 @@ fn commit_code(error: &CommitError) -> (ErrorCode, u64) {
         | CommitErrorEnum::Unsealed
         | CommitErrorEnum::Unavailable
         | CommitErrorEnum::CloseOutOfOrder { .. } => (ErrorCode::Unavailable, 0),
+    }
+}
+
+/// What a Scan's stream is told of `refusal`, met reading on from `at`: a store failed under the range names the key that failed, or
+/// `at` when the store named none, so a failed read never reads as absence (`PROTOCOL.md` §13.13); any other refusal as
+/// [`error_reply`] says it.
+#[must_use]
+pub fn scan_refusal(at: &[u8], refusal: &PartitionError) -> ErrorReply {
+    let reply = error_reply(refusal);
+    if reply.code() != ErrorCode::Unavailable {
+        return reply;
+    }
+    let key = failed_key(refusal).unwrap_or(at);
+    let hex: String = key.iter().map(|byte| format!("{byte:02x}")).collect();
+    ErrorReply::new(
+        ErrorCode::Unavailable,
+        format!("a Scan's read failed at the key {hex}: {}", reply.message()),
+    )
+}
+
+/// The key a failed read of `refusal` names, through every layer it passed.
+fn failed_key(refusal: &PartitionError) -> Option<&[u8]> {
+    if let PartitionErrorEnum::Quad(quad) = &refusal.0 {
+        return quad_key(quad);
+    }
+    if let PartitionErrorEnum::Changeset(changeset) = &refusal.0 {
+        return changeset_key(changeset);
+    }
+    if let PartitionErrorEnum::Txn(TxnError(TxnErrorEnum::Changeset(changeset))) = &refusal.0 {
+        return changeset_key(changeset);
+    }
+    None
+}
+
+fn changeset_key(error: &ChangesetError) -> Option<&[u8]> {
+    if let ChangesetErrorEnum::Quad(quad) = &error.0 {
+        return quad_key(quad);
+    }
+    if let ChangesetErrorEnum::Posting(posting) = &error.0 {
+        return posting_key(posting);
+    }
+    if let ChangesetErrorEnum::Store(store) = &error.0 {
+        return store_key(store);
+    }
+    None
+}
+
+fn quad_key(error: &QuadError) -> Option<&[u8]> {
+    if let QuadErrorEnum::Posting(posting) = &error.0 {
+        return posting_key(posting);
+    }
+    if let QuadErrorEnum::Store(store) = &error.0 {
+        return store_key(store);
+    }
+    if let QuadErrorEnum::Corrupted { key, .. } = &error.0 {
+        return Some(key);
+    }
+    None
+}
+
+fn posting_key(error: &PostingError) -> Option<&[u8]> {
+    if let PostingErrorEnum::Store(store) = &error.0 {
+        return store_key(store);
+    }
+    None
+}
+
+/// The key `error` names, when it names one.
+fn store_key(error: &StoreError) -> Option<&[u8]> {
+    if let StoreErrorEnum::ReadFailed { key, .. } | StoreErrorEnum::Corrupted { key, .. } = &error.0
+    {
+        return (!key.is_empty()).then_some(key.as_slice());
+    }
+    None
+}
+
+/// The outcome a home's reply says for a registration it refused with `refusal` (`PROTOCOL.md` §13.15): 26 for a bucket it does
+/// not own, 17 for a store that failed under it, and otherwise 7.
+#[must_use]
+pub fn registration_outcome(refusal: &PartitionError) -> u16 {
+    let code = error_reply(refusal).code();
+    if code == ErrorCode::WrongPartition || code == ErrorCode::Unavailable {
+        code.number()
+    } else {
+        ErrorCode::Refused.number()
     }
 }

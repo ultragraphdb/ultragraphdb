@@ -19,9 +19,13 @@ use ultragraphdb_protocol_transport::{
     ServerConnection, TransportError, TransportErrorEnum,
 };
 use ultragraphdb_protocol_transport_compio::Connection;
-use ultragraphdb_protocol_wire::{AuthenticateView, BodyView, Command, MAX_FRAME_SIZE, Welcome};
+use ultragraphdb_protocol_wire::{
+    AuthenticateView, BodyView, Command, ErrorCode, ErrorReply, MAX_FRAME_SIZE, ROLE_MAX_STREAMS,
+    Welcome,
+};
 
 use crate::traits::session::{Answer, Session};
+use crate::types::open_requests::OpenRequests;
 
 const PROTOCOL: u16 = 1;
 const RELEASE: u32 = 1;
@@ -43,6 +47,7 @@ pub struct Server {
     name: &'static str,
     unknown: [u8; 32],
     iterations: u32,
+    open: OpenRequests,
 }
 
 impl Server {
@@ -61,6 +66,7 @@ impl Server {
             name,
             unknown,
             iterations: DEFAULT_ITERATIONS,
+            open: OpenRequests::default(),
         })
     }
 
@@ -68,6 +74,13 @@ impl Server {
     #[must_use]
     pub fn with_iterations(mut self, iterations: u32) -> Self {
         self.iterations = iterations;
+        self
+    }
+
+    /// The server counting what its connections hold open in `open`, and refusing new requests once that says it stops.
+    #[must_use]
+    pub fn with_open(mut self, open: OpenRequests) -> Self {
+        self.open = open;
         self
     }
 
@@ -83,7 +96,16 @@ impl Server {
         let nonces = move || system_nonce().unwrap_or_else(|_| fallback.clone());
         let authenticator = ScramAuthenticator::new(credentials, nonces, self.unknown)
             .with_iterations(self.iterations);
-        let welcome = Welcome::new(PROTOCOL, RELEASE, self.name).with_mechanisms([MECHANISM]);
+        // The default limits are a client's. A role connection carries what the frontend already bounded on its clients'
+        // connections, so a role endpoint announces the protocol's largest frame and its most streams (`PROTOCOL.md` §11.12).
+        let limits = Welcome::new(PROTOCOL, RELEASE, self.name).with_mechanisms([MECHANISM]);
+        let welcome = if self.endpoint == Endpoint::Client {
+            limits
+        } else {
+            limits
+                .with_max_frame(MAX_FRAME_SIZE as u32)
+                .with_max_streams(ROLE_MAX_STREAMS)
+        };
         let connection = ServerConnection::new(self.cluster, welcome, authenticator, at)
             .with_endpoint(self.endpoint);
         Some(if self.endpoint == Endpoint::Client {
@@ -114,7 +136,16 @@ where
     let mut reader = Connection::new(reader, Framer::from_client(server.cluster, MAX_FRAME_SIZE));
     let mut writer = Connection::new(writer, Framer::new(server.cluster, MAX_FRAME_SIZE));
     let pool = BufferPool::new(1, MAX_FRAME_SIZE);
-    if let Err(error) = run(&mut reader, &mut writer, &mut machine, &pool, &mut session).await {
+    let ended = run(
+        &mut reader,
+        &mut writer,
+        &mut machine,
+        &pool,
+        &mut session,
+        &server.open,
+    )
+    .await;
+    if let Err(error) = ended {
         tracing::debug!(%error, "a connection ended");
     }
     writer.shutdown().await;
@@ -126,6 +157,7 @@ async fn run<R, W, A, H>(
     machine: &mut ServerConnection<A>,
     pool: &BufferPool,
     session: &mut H,
+    open: &OpenRequests,
 ) -> Result<(), TransportError>
 where
     R: AsyncRead,
@@ -134,8 +166,11 @@ where
     H: Session,
 {
     while !machine.is_closing() {
-        match next_frame(reader, writer, machine, pool, session).await? {
-            Some(Ok(received)) => take(reader, machine, session, received).await?,
+        let frame = next_frame(reader, writer, machine, pool, session).await?;
+        // A frame stays open until what it asks is on the wire, past the flush below: that is what a stop waits for.
+        let _open = open.enter();
+        match frame {
+            Some(Ok(received)) => take(reader, machine, session, received, open).await?,
             Some(Err(error)) => {
                 let TransportErrorEnum::Protocol { error: refusal } = &error.0 else {
                     return Err(error);
@@ -221,6 +256,7 @@ async fn take<R, A, H>(
     machine: &mut ServerConnection<A>,
     session: &mut H,
     received: ReceivedFrame,
+    open: &OpenRequests,
 ) -> Result<(), TransportError>
 where
     A: Authenticator,
@@ -242,6 +278,10 @@ where
             reader.framer_mut().set_protocol(protocol);
             session.welcomed(max_frame);
         }
+        Inbound::Request { stream, .. } if open.is_stopping() => machine.refuse(
+            stream,
+            &ErrorReply::new(ErrorCode::Unavailable, "this process is stopping"),
+        )?,
         Inbound::Request { stream, .. } => match session.answer(stream, received).await {
             Answer::Reply(reply) => machine.outbound().push(stream, reply)?,
             Answer::Open => {}

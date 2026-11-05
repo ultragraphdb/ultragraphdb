@@ -96,8 +96,8 @@ fn test_the_view_refuses_another_command() -> TestResult {
 }
 
 #[test]
-fn test_unused_bytes_56_to_127_are_zero() -> TestResult {
-    for at in [56usize, 127] {
+fn test_unused_bytes_64_to_127_are_zero() -> TestResult {
+    for at in [64usize, 127] {
         assert_eq!(
             header_refused(|h| h[at] = 1)?,
             ProtocolErrorEnum::ReservedNotZero { offset: 128 + at }
@@ -542,10 +542,29 @@ fn test_the_checks_run_in_the_protocols_order() -> TestResult {
     let request = golden_direct_write()?.request();
     frame = with_command_header(&frame, |h| h[..16].fill(0));
     assert_eq!(refusal(&frame)?, field_value("request", request));
-    frame = with_command_header(&frame, |h| h[56] = 1);
+    frame = with_command_header(&frame, |h| h[64] = 1);
     assert_eq!(
         refusal(&frame)?,
-        ProtocolErrorEnum::ReservedNotZero { offset: 128 + 56 }
+        ProtocolErrorEnum::ReservedNotZero { offset: 128 + 64 }
     );
+    Ok(())
+}
+
+/// The relayed frame differs from the client's by the principal alone; only the client endpoint holds it to 0.
+#[test]
+fn test_a_principal_is_read_and_refused_from_a_client() -> TestResult {
+    let sent = golden_bytes()?;
+    let sent_view = DirectWriteView::from_frame(&frame_of(&sent)?)?;
+    assert_eq!(sent_view.principal(), 0);
+    sent_view.check_from_client()?;
+    let relayed = with_command_header(&sent, |h| put(h, 56, 9, 8));
+    let view = DirectWriteView::from_frame(&frame_of(&relayed)?)?;
+    assert_eq!(view.principal(), 9);
+    assert_eq!(
+        view.check_from_client().err().context("a refusal")?.0,
+        field_value("principal", 9)
+    );
+    assert_eq!(view.to_body()?.principal(), 9);
+    assert_eq!(view_any(&relayed)?, Ok(()));
     Ok(())
 }

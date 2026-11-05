@@ -94,17 +94,23 @@ pub use crate::types::execute_view::ExecuteView;
 pub use crate::types::frame_view::FrameView;
 pub use crate::types::header::Header;
 pub use crate::types::header_view::HeaderView;
+pub use crate::types::held::Held;
+pub use crate::types::held_view::HeldView;
 pub use crate::types::hello::Hello;
 pub use crate::types::hello_view::HelloView;
+pub use crate::types::install::Install;
+pub use crate::types::install_view::InstallView;
 pub use crate::types::join::Join;
 pub use crate::types::join_view::JoinView;
 pub use crate::types::key_values::KeyValues;
+pub use crate::types::language::Language;
 pub use crate::types::lease::Lease;
 pub use crate::types::lease_view::LeaseView;
 pub use crate::types::link::Link;
 pub use crate::types::member::Member;
 pub use crate::types::members::Members;
 pub use crate::types::members_view::MembersView;
+pub use crate::types::monotonic::Monotonic;
 pub use crate::types::object_record::ObjectRecord;
 pub use crate::types::object_records::ObjectRecords;
 pub use crate::types::object_records_builder::ObjectRecordsBuilder;
@@ -118,6 +124,8 @@ pub use crate::types::preferred_leader::PreferredLeader;
 pub use crate::types::prepare::Prepare;
 pub use crate::types::prepare_view::PrepareView;
 pub use crate::types::quad_pattern::QuadPattern;
+pub use crate::types::query::Query;
+pub use crate::types::query_view::QueryView;
 pub use crate::types::read::Read;
 pub use crate::types::read_level::ReadLevel;
 pub use crate::types::read_view::ReadView;
@@ -169,8 +177,10 @@ pub use crate::types::write_view::WriteView;
 pub use crate::utils::checksum::{xxh3_64, xxh3_64_with_seed};
 pub use crate::utils::constants::{
     ABSENT, CHUNK_SIZE, COMMAND_HEADER_SIZE, DEFAULT_INITIAL_CREDIT, DEFAULT_MAX_STREAMS,
-    DEFAULT_MAX_WRITE_SET, DEFAULT_TRANSACTION_MS, FIRST_CHUNK_SIZE, FLAG_LAST, HEADER_SIZE,
-    LEAF_SIZE, MAX_EPOCH, MAX_FRAME_FLOOR, MAX_FRAME_SIZE, MAX_TERM_DEPTH, OPERATION_RESULT_SIZE,
-    PROTOCOL_VERSION, RECORD_FIXED_SIZE, RECORD_OPERATION_SIZE, RECORD_REGISTRATION_SIZE,
-    RECORD_SECTIONS, REPLICA_COMMANDS, RETIRED_COMMANDS, ROLE_COMMANDS, SCAN_RANGE_SIZE,
+    DEFAULT_MAX_WRITE_SET, DEFAULT_TRANSACTION_MS, DETAIL_TRANSACTION_NOT_HELD, FIRST_CHUNK_SIZE,
+    FLAG_LAST, HEADER_SIZE, LEAF_SIZE, MAX_EPOCH, MAX_FRAME_FLOOR, MAX_FRAME_SIZE, MAX_TERM_DEPTH,
+    OPERATION_RESULT_SIZE, PATTERN_COLUMNS_MAX, PROTOCOL_VERSION, QUERY_COLUMNS_MAX,
+    QUERY_TEXT_RESERVE, RECORD_FIXED_SIZE, RECORD_OPERATION_SIZE, RECORD_REGISTRATION_SIZE,
+    RECORD_SECTIONS, REPLICA_COMMANDS, RETIRED_COMMANDS, ROLE_COMMANDS, ROLE_MAX_STREAMS,
+    SCAN_RANGE_SIZE, SOURCE_NAME_MAX,
 };

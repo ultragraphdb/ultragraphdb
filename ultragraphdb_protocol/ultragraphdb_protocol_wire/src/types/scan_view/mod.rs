@@ -75,11 +75,13 @@ impl<'a> ScanView<'a> {
             .get(..SCAN_RANGE_SIZE)?;
         let field = |at| bytes_at(record, at).map(|b| u32::from_le_bytes(b) as usize);
         let (first, past) = (field(8)?, field(16)?);
-        Some(ScanRange::new(
+        let after = past.checked_add(field(20)?)?;
+        let range = ScanRange::new(
             bytes_at(record, 0).map(u32::from_le_bytes)?,
             self.keys.get(first..past)?,
-            self.keys.get(past..past.checked_add(field(20)?)?)?,
-        ))
+            self.keys.get(past..after)?,
+        );
+        Some(range.with_after(self.keys.get(after..after.checked_add(field(4)?)?)?))
     }
 
     /// The ranges, in order.

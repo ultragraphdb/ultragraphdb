@@ -238,7 +238,11 @@ fn refused_or_stop(error: &ClusterError) -> Result<ErrorReply, RoleError> {
     Ok(refused(error))
 }
 
-/// `error` as code 7, naming what refused it.
+/// `error` as code 7, naming what refused it, `detail` the maximum for a Lease past it.
 fn refused(error: &ClusterError) -> ErrorReply {
-    ErrorReply::new(ErrorCode::Refused, error.to_string())
+    let reply = ErrorReply::new(ErrorCode::Refused, error.to_string());
+    if let ClusterErrorEnum::BlockSize { max, .. } = error.0 {
+        return reply.with_detail(max);
+    }
+    reply
 }

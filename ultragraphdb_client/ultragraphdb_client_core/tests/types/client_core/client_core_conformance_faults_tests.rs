@@ -234,7 +234,7 @@ impl<L: Login> Peer<L> {
     fn begin(&mut self, read_only: bool) -> TestResult<ultragraphdb_client_core::Transaction> {
         let p = self.core.begin(0, read_only, self.now)?;
         let stream = self.request_stream()?;
-        let frame = Begin::new(0, if read_only { 5 } else { 0 }, read_only)
+        let frame = Begin::new(0, if read_only { 6 } else { 0 }, read_only)
             .frame(Header::new(CLUSTER, Command::Begin).with_stream(stream))?;
         self.direct(&frame)?;
         begun(self.core.take_reply(p).context("an answer")?)

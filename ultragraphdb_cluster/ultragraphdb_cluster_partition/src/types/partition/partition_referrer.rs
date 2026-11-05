@@ -10,7 +10,7 @@ use oxrdf::{
 };
 use ultragraphdb_cluster_placement::PartitionId;
 use ultragraphdb_core_ids::{BucketGroup, Epoch};
-use ultragraphdb_core_mapping::{ChangeRef, Changes};
+use ultragraphdb_core_mapping::{ChangeRef, Changes, StatementView};
 use ultragraphdb_store_apply::Operation;
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_store_quads::iri_bucket;
@@ -58,6 +58,65 @@ where
         }
         batch(first, out);
         Ok(())
+    }
+
+    /// Refuses `changes`, a first request or a one-frame write, whose first subject named by an IRI or a skolem IRI lies outside
+    /// the partition's ranges at `epoch`: the sender's map is stale (`PROTOCOL.md` §11.12). A later subject outside them is the
+    /// transaction's to refuse, cross-partition.
+    ///
+    /// # Errors
+    ///
+    /// [`PartitionError::wrong_partition`] naming the bucket and its owner.
+    pub fn check_first_subject<W: Changes>(
+        &self,
+        changes: &W,
+        epoch: Epoch,
+    ) -> Result<(), PartitionError> {
+        let first = changes.changes().find_map(|change| match change {
+            ChangeRef::Insert { subject, .. }
+            | ChangeRef::InsertEdge { subject, .. }
+            | ChangeRef::Delete { subject, .. }
+            | ChangeRef::DeletePattern { subject, .. }
+            | ChangeRef::SetProperty {
+                statement: StatementView::Triple { subject, .. },
+                ..
+            }
+            | ChangeRef::DeleteProperty {
+                statement: StatementView::Triple { subject, .. },
+                ..
+            } => match subject {
+                NamedOrBlankNodeRef::NamedNode(iri) => iri_bucket(changes.tenant(), iri.as_str()),
+                NamedOrBlankNodeRef::BlankNode(_) => None,
+            },
+            ChangeRef::DeleteStatement { .. }
+            | ChangeRef::SetProperty { .. }
+            | ChangeRef::DeleteProperty { .. }
+            | ChangeRef::Declare(_) => None,
+        });
+        first.map_or(Ok(()), |bucket| self.route(bucket, epoch))
+    }
+
+    /// As [`Partition::check_first_subject`], for a commit-time `operation` of `tenant` naming a subject.
+    ///
+    /// # Errors
+    ///
+    /// [`PartitionError::wrong_partition`] naming the bucket and its owner.
+    pub fn check_operation_subject(
+        &self,
+        tenant: u64,
+        operation: &Operation,
+        epoch: Epoch,
+    ) -> Result<(), PartitionError> {
+        let subject = match operation {
+            Operation::CompareAndSet { subject, .. } | Operation::CounterAdd { subject, .. } => {
+                subject
+            }
+            Operation::InsertIfAbsent { .. } | Operation::UpsertAndLink { .. } => return Ok(()),
+        };
+        let NamedOrBlankNode::NamedNode(iri) = subject else {
+            return Ok(());
+        };
+        iri_bucket(tenant, iri.as_str()).map_or(Ok(()), |bucket| self.route(bucket, epoch))
     }
 
     /// The references of one change, unsorted.

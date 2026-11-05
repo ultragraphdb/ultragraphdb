@@ -11,6 +11,7 @@ use ultragraphdb_core_keys::Graph;
 use ultragraphdb_store_posting::Request;
 use ultragraphdb_store_quads::WriteTerms;
 
+use crate::types::logical_writes::LogicalWrites;
 use crate::types::predicate_prefix::PredicatePrefix;
 use crate::types::rebuild::Rebuild;
 
@@ -31,4 +32,6 @@ pub(crate) struct WriteOutcome<'a, S, C> {
     pub pending: Option<Rebuild>,
     pub touched: BTreeSet<(Graph, SystemId)>,
     pub removals: Vec<PredicatePrefix>,
+    /// The statements the write's net effect inserted and removed, what its derivation ran on.
+    pub net: LogicalWrites,
 }

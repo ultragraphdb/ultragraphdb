@@ -35,10 +35,10 @@ fuzz_target!(|data: &[u8]| {
     let Ok(reply) = cache.prepare(&request, 5) else {
         return;
     };
-    assert_eq!(
-        reply.parameter_types().len(),
-        request.pattern().parameters()
-    );
+    let Some(pattern) = request.pattern() else {
+        return;
+    };
+    assert_eq!(reply.parameter_types().len(), pattern.parameters());
     let Ok(execute) = Header::new(CLUSTER, Command::Execute).encode_frame(execute) else {
         return;
     };

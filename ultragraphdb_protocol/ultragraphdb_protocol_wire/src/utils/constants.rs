@@ -48,7 +48,7 @@ pub const PROTOCOL_VERSION: u16 = 1;
 pub const REPLICA_COMMANDS: RangeInclusive<u16> = 256..=511;
 
 /// The command numbers of the role commands (`PROTOCOL.md` §3, §13): roles exchange them on role connections, and a
-/// client endpoint refuses every one as a command it does not serve. 512 to 530 are assigned; the rest are reserved
+/// client endpoint refuses every one as a command it does not serve. 512 to 531 are assigned; the rest are reserved
 /// and refused as unknown commands.
 pub const ROLE_COMMANDS: RangeInclusive<u16> = 512..=767;
 
@@ -88,6 +88,32 @@ pub const RECORD_REGISTRATION_SIZE: usize = 32;
 /// bytes; a Commit reply's section 0 and a write-set record's section 9.
 pub const OPERATION_RESULT_SIZE: usize = 16;
 
-/// The size of a Scan's range record (`PROTOCOL.md` §13.13): `partition` u32, 4 zero bytes, `first`, `first_len`,
+/// The size of a Scan's range record (`PROTOCOL.md` §13.13): `partition` u32, `after_len` u32, `first`, `first_len`,
 /// `past` and `past_len`, u32s.
 pub const SCAN_RANGE_SIZE: usize = 24;
+
+/// The streams a role endpoint's Welcome announces (`PROTOCOL.md` §11.12): what a role connection carries is already
+/// bounded by the frontend's bounds on its clients' connections and streams.
+pub const ROLE_MAX_STREAMS: u32 = u32::MAX;
+
+/// The most result columns a quad pattern's batch holds: its four slots unbound and the reifier column.
+pub const PATTERN_COLUMNS_MAX: u32 = 5;
+
+/// The most result columns a query's batch holds, its projections.
+pub const QUERY_COLUMNS_MAX: u32 = 1_024;
+
+/// What a Query's frame takes beside its text: a query text is at most the receiver's `max_frame` less this.
+pub const QUERY_TEXT_RESERVE: u32 = 512;
+
+/// The longest name an Install's source takes, in bytes.
+pub const SOURCE_NAME_MAX: usize = 255;
+
+/// The `detail` of an Error 1 answering a Scan that names a transaction the partition does not hold (`PROTOCOL.md`
+/// §9.4), which compute relays and the frontend holds until the Bind stream ends.
+pub const DETAIL_TRANSACTION_NOT_HELD: u64 = 1;
+
+/// A version's sequence bits: a version holds them even, an epoch's version bound all ones.
+pub(crate) const VERSION_SEQUENCE_MASK: u64 = (1 << 22) - 1;
+
+/// The keyspace byte a dictionary key begins with, which tells a one-key dictionary range (`PROTOCOL.md` §13.13).
+pub(crate) const DICTIONARY_KEYSPACE: u8 = 0x1B;

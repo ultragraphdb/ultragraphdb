@@ -88,6 +88,8 @@ impl<M: ClientMechanism> ClientAuthentication<M> {
             | Command::Drop
             | Command::DirectWrite
             | Command::ConditionalWrite
+            | Command::Query
+            | Command::Install
             | Command::Join
             | Command::Members
             | Command::Subscribe
@@ -106,7 +108,8 @@ impl<M: ClientMechanism> ClientAuthentication<M> {
             | Command::CloseRequest
             | Command::Closed
             | Command::DefaultEntry
-            | Command::Report) => Err(TransportError::unexpected_command(
+            | Command::Report
+            | Command::Held) => Err(TransportError::unexpected_command(
                 Command::Authenticate.number(),
                 other.number(),
             )),

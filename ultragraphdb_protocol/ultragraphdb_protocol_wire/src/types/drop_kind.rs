@@ -11,7 +11,6 @@
 /// | 2 | Graph | every key of the graph in the tenant |
 /// | 3 | TenantData | the tenant's data, keeping its catalog |
 /// | 4 | Tenant | everything in the tenant, writing its initial catalog |
-/// | 5 | All | every quad key, keeping the dictionary and writing the root tenant's initial catalog |
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum DropKind {
     /// The predicate's keys and its catalog entry.
@@ -22,21 +21,18 @@ pub enum DropKind {
     TenantData,
     /// Everything in the tenant, writing its initial catalog.
     Tenant,
-    /// Every quad key, keeping the dictionary and writing the root tenant's initial catalog.
-    All,
 }
 
 impl DropKind {
     /// Every kind, in the order of its number.
-    pub const ALL: [DropKind; 5] = [
+    pub const ALL: [DropKind; 4] = [
         DropKind::Predicate,
         DropKind::Graph,
         DropKind::TenantData,
         DropKind::Tenant,
-        DropKind::All,
     ];
 
-    /// The kind's number, 1 to 5.
+    /// The kind's number, 1 to 4.
     pub fn number(self) -> u8 {
         DropKind::ALL
             .iter()

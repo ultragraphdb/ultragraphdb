@@ -7,22 +7,23 @@
 //! by hand, its own reverse entries behind the object's predicate list, its predicate lists, reverse counts, and the
 //! read kernel over a keyspace's range.
 
+use std::collections::BTreeMap;
 use std::num::{NonZeroU64, NonZeroUsize};
 use std::ops::ControlFlow;
 
 use oxrdf::{Literal, Term};
 use ultragraphdb_core_codec::Posting;
-use ultragraphdb_core_ids::{BucketGroup, Epoch, SystemId};
+use ultragraphdb_core_ids::{Bucket, BucketGroup, Epoch, Sequence, SystemId, TypePrefix};
 use ultragraphdb_core_keys::{Graph, Keyspace, QuadKey, key_prefix};
-use ultragraphdb_core_terms::EncodedTerm;
-use ultragraphdb_store_posting::DEL;
+use ultragraphdb_core_terms::{EncodedTerm, TermError};
+use ultragraphdb_store_posting::{DEL, PostingIdentity};
 use ultragraphdb_store_quads::{
-    KernelRow, KernelScan, PageEnd, QuadErrorEnum, QuadWrite, ReferrerMember,
+    KernelRow, KernelScan, PageEnd, QuadErrorEnum, QuadWrite, ReferrerMember, StatementRecord,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_traits_store::{Entry, PersistMode, Store, WriteBatch};
 
-use crate::utils::helpers::{TestQuads, commit, ex, id, kind, quad, quads, write_at};
+use crate::utils::helpers::{TestQuads, commit, ex, id, kind, quad, quads, write, write_at};
 
 const TENANT: u64 = 0;
 
@@ -655,8 +656,166 @@ fn test_a_values_page_stops_at_its_limit_and_pauses_between_keys() -> TestResult
     Ok(())
 }
 
+/// A store's keys and stored values.
+type Held = Vec<(Vec<u8>, Vec<u8>)>;
+
+/// Three statement records, of sequences 1 to 3, written at the version returned: their keys and stored bytes, in key order.
+fn statement_store() -> TestResult<(TestQuads, Held, u64)> {
+    let store = quads()?;
+    write(&store, TENANT, &[quad("a", "knows", ex("b"))])?;
+    let (a, knows, b) = (
+        id(&store, TENANT, &ex("a"))?,
+        id(&store, TENANT, &ex("knows"))?,
+        EncodedTerm::id(id(&store, TENANT, &ex("b"))?),
+    );
+    let mut w = QuadWrite::new(
+        &store,
+        TENANT,
+        store.lists().request(store.lists().applied_ts()),
+    );
+    let mut held = Vec::new();
+    for sequence in 1..=3 {
+        let statement = SystemId::new(TypePrefix::STATEMENT, a.bucket(), Sequence::new(sequence)?);
+        let record = StatementRecord::new(a, knows, b.clone(), Vec::new());
+        w.put_statement(Graph::Default, statement, &record);
+        let key = QuadKey::Statement {
+            tenant: TENANT,
+            graph: Graph::Default,
+            statement,
+        }
+        .to_bytes();
+        held.push((key, record.encode()));
+    }
+    let version = *commit(&store, vec![w])?.first().context("a commit")?;
+    Ok((store, held, version))
+}
+
+fn statement_scan(version: u64) -> TestResult<KernelScan> {
+    Ok(KernelScan::new(
+        Keyspace::Statements,
+        TENANT,
+        Vec::new(),
+        version,
+        NonZeroUsize::new(usize::MAX).context("a limit")?,
+    ))
+}
+
+/// The statements are read as stored bytes at the version, none below it.
 #[test]
-fn test_a_values_page_reads_the_referrer_sets_alone_and_a_page_reads_lists_alone() -> TestResult {
+fn test_a_values_page_reads_the_statements_stored_bytes_at_its_version() -> TestResult {
+    let (store, held, version) = statement_store()?;
+    let mut read = Vec::new();
+    let page = store.values_page(&statement_scan(version)?, |k, v| {
+        read.push((k.to_vec(), v.to_vec()));
+        ControlFlow::Continue(())
+    })?;
+    assert_eq!(read, held);
+    assert_eq!((page.end(), page.rows()), (&PageEnd::Exhausted, held.len()));
+    let below = store.values_page(&statement_scan(version - 1)?, |_, _| ControlFlow::Break(()))?;
+    assert_eq!(below.end(), &PageEnd::Exhausted);
+    Ok(())
+}
+
+/// What a page is given over the store: a value replacing the stored one, a removal hiding it, one the store lacks in its key
+/// order, and those outside the range ignored; its limit counts what it gives.
+#[test]
+fn test_a_values_page_over_its_own_values_reads_them_over_the_store() -> TestResult {
+    let (store, held, version) = statement_store()?;
+    let [(first, _), (second, stored), (third, _)] = held.as_slice() else {
+        return Err(TestError::new("three keys"));
+    };
+    let mut between = first.clone();
+    between.push(0);
+    let mut own = BTreeMap::new();
+    let _replaced = own.insert(first.clone(), Some(b"mine".to_vec()));
+    let _added = own.insert(between.clone(), Some(b"new".to_vec()));
+    let _removed = own.insert(third.clone(), None);
+    let mut past = third.clone();
+    past.push(0);
+    let _outside = own.insert(past.clone(), Some(b"outside".to_vec()));
+    let scan = statement_scan(version)?.to(past.clone());
+    let mut read = Vec::new();
+    let page = store.values_page_over(&scan, &own, |k, v| {
+        read.push((k.to_vec(), v.to_vec()));
+        ControlFlow::Continue(())
+    })?;
+    assert_eq!(
+        read,
+        vec![
+            (first.clone(), b"mine".to_vec()),
+            (between.clone(), b"new".to_vec()),
+            (second.clone(), stored.clone()),
+        ]
+    );
+    assert_eq!((page.end(), page.rows()), (&PageEnd::Exhausted, 3));
+    let limited = KernelScan::new(
+        Keyspace::Statements,
+        TENANT,
+        Vec::new(),
+        version,
+        NonZeroUsize::new(2).context("a limit")?,
+    );
+    let stopped = store.values_page_over(&limited, &own, |_, _| ControlFlow::Continue(()))?;
+    assert_eq!(
+        (stopped.end(), stopped.rows()),
+        (&PageEnd::Stopped { last: between }, 2)
+    );
+    Ok(())
+}
+
+#[test]
+fn test_a_page_refuses_the_statements() -> TestResult {
+    let store = quads()?;
+    let refused = store
+        .page(&statement_scan(u64::MAX)?, |_, _, _| {
+            ControlFlow::Continue(())
+        })
+        .err()
+        .context("the statements hold no lists")?;
+    assert!(format!("{refused:?}").contains("lists"), "{refused:?}");
+    Ok(())
+}
+
+/// A Scan's `after` names an object by its encoding: an ID by its 128 bits, a literal by its fingerprint and, where the keyspace
+/// compares values, its encoding; bytes that are not one whole encoding are refused.
+#[test]
+fn test_a_resume_at_an_object_takes_the_identity_of_its_posting() -> TestResult {
+    let store = quads()?;
+    let id = SystemId::new(TypePrefix::RESOURCE, Bucket::new(1)?, Sequence::new(3)?);
+    let at = store.resume_at(Keyspace::Forward, EncodedTerm::id(id).as_bytes())?;
+    assert_eq!(
+        at,
+        PostingIdentity::new(id.to_u128(), Vec::new()).included()
+    );
+    let literal = EncodedTerm::literal(Literal::new_simple_literal("v0").as_ref(), |_| {
+        Err(TermError::malformed(Vec::new(), "no datatype"))
+    })?
+    .into_term();
+    let fingerprint = u128::from(store.fingerprint()(literal.as_bytes()));
+    assert_eq!(
+        store.resume_at(Keyspace::Forward, literal.as_bytes())?,
+        PostingIdentity::new(fingerprint, literal.as_bytes().to_vec()).included()
+    );
+    assert_eq!(
+        store.resume_at(Keyspace::VectorIndex, literal.as_bytes())?,
+        PostingIdentity::new(fingerprint, Vec::new()).included()
+    );
+    let whole = EncodedTerm::id(id);
+    for malformed in [
+        &[][..],
+        &whole.as_bytes()[..3],
+        &[whole.as_bytes(), &[0][..]].concat()[..],
+    ] {
+        assert!(
+            store.resume_at(Keyspace::Forward, malformed).is_err(),
+            "{malformed:?}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn test_a_values_page_reads_stored_values_alone_and_a_page_reads_lists_alone() -> TestResult {
     let store = quads()?;
     let lists = forward_scan(Vec::new(), u64::MAX, 1)?;
     let refused_lists = store
@@ -664,7 +823,7 @@ fn test_a_values_page_reads_the_referrer_sets_alone_and_a_page_reads_lists_alone
         .err()
         .context("a list's keyspace")?;
     assert!(
-        format!("{refused_lists:?}").contains("referrer"),
+        format!("{refused_lists:?}").contains("statements"),
         "{refused_lists:?}"
     );
     let refused = store

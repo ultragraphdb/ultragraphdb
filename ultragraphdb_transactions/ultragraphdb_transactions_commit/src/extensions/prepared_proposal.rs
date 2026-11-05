@@ -42,6 +42,10 @@ impl Proposal for Prepared {
         Prepared::is_drop(self)
     }
 
+    fn is_one_frame(&self) -> bool {
+        Prepared::is_one_frame(self)
+    }
+
     fn ends_build(&self) -> bool {
         Prepared::build_end(self).is_some()
     }

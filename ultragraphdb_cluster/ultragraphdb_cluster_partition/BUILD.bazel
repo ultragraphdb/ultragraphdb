@@ -16,7 +16,10 @@ rust_library(
     aliases = {
         label: name
         for label, name in aliases().items()
-        if label != "//ultragraphdb_tool/ultragraphdb_tool_test"
+        if label not in [
+            "//ultragraphdb_common/ultragraphdb_common_storage",
+            "//ultragraphdb_tool/ultragraphdb_tool_test",
+        ]
     },
     crate_root = "src/lib.rs",
     lint_config = lint_config(),

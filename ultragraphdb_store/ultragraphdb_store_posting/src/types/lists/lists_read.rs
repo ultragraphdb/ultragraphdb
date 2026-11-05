@@ -35,10 +35,10 @@ where
     ///
     /// # Errors
     ///
-    /// [`PostingError::ts_too_old`] for a version below what the store has discarded.
+    /// [`PostingError::ts_too_old`] for a version below what the store has discarded, or has been asked to.
     pub fn pin(&self, version: u64) -> Result<ReadPin<'_, S, C>, PostingError> {
         let mut state = lock(&self.state);
-        if version < self.store.discard_ts() {
+        if version < state.discard_asked.max(self.store.discard_ts()) {
             return Err(PostingError::ts_too_old());
         }
         state.ts.open_read(version);

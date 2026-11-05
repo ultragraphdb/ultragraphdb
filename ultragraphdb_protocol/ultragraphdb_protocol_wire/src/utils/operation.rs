@@ -12,7 +12,7 @@ use crate::types::record_registration::RecordRegistration;
 use crate::utils::constants::{RECORD_OPERATION_SIZE, RECORD_REGISTRATION_SIZE};
 
 /// Checks `bytes`, section `section` of a record of `command` at record offset `offset`: whole operations
-/// ([`ProtocolError::section_length`]), each `operation` 1 to 7 ([`ProtocolError::field_value`] `"operation"`), its
+/// ([`ProtocolError::section_length`]), each `operation` 1 to 4, 6 or 7 ([`ProtocolError::field_value`] `"operation"`), its
 /// bytes 2 to 7 zero ([`ProtocolError::padding_not_zero`]) and its `argument` as its code takes
 /// ([`ProtocolError::field_value`] `"argument"`, naming the operation's index).
 pub(crate) fn check_operations(
@@ -32,7 +32,7 @@ pub(crate) fn check_operations(
     }
     for (at, operation) in operations.iter().enumerate() {
         let (code, zeros, argument) = parts(operation);
-        if !(1..=7).contains(&code) {
+        if !matches!(code, 1..=4 | 6 | 7) {
             return Err(ProtocolError::field_value(
                 command,
                 "operation",

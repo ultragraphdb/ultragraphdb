@@ -7,9 +7,9 @@ use ultragraphdb_error_protocol::{ProtocolError, ProtocolErrorEnum};
 use ultragraphdb_protocol_wire::{Command, REPLICA_COMMANDS, ROLE_COMMANDS};
 
 /// The registry as assigned on 2026-10-27, in the order of the design note's body table, with Authenticate and Drop
-/// added on 2026-10-30, the role commands 512 to 530 of `PROTOCOL.md` §3 on 2026-11-03, and DirectWrite and
-/// ConditionalWrite on 2026-11-05. These numbers are never reused; a change here is a protocol break.
-const REGISTRY: [(Command, u16); 40] = [
+/// added on 2026-10-30, the role commands 512 to 530 of `PROTOCOL.md` §3 on 2026-11-03, DirectWrite and
+/// ConditionalWrite on 2026-11-05, and Query, Install and Held later that day. These numbers are never reused; a change here is a protocol break.
+const REGISTRY: [(Command, u16); 43] = [
     (Command::Hello, 1),
     (Command::Welcome, 2),
     (Command::Register, 3),
@@ -31,6 +31,8 @@ const REGISTRY: [(Command, u16); 40] = [
     (Command::Drop, 19),
     (Command::DirectWrite, 20),
     (Command::ConditionalWrite, 21),
+    (Command::Query, 22),
+    (Command::Install, 23),
     (Command::Join, 512),
     (Command::Members, 513),
     (Command::Subscribe, 514),
@@ -50,6 +52,7 @@ const REGISTRY: [(Command, u16); 40] = [
     (Command::Closed, 528),
     (Command::DefaultEntry, 529),
     (Command::Report, 530),
+    (Command::Held, 531),
 ];
 
 #[test]
@@ -73,7 +76,7 @@ fn test_exactly_the_registry_is_known() {
     let known: Vec<u16> = (0..=u16::MAX)
         .filter(|n| Command::from_number(*n).is_ok())
         .collect();
-    let assigned: Vec<u16> = (1..=21).chain(512..=530).collect();
+    let assigned: Vec<u16> = (1..=23).chain(512..=531).collect();
     assert_eq!(known, assigned);
     for number in (0..=u16::MAX).filter(|n| !assigned.contains(n)) {
         assert_eq!(
@@ -85,7 +88,7 @@ fn test_exactly_the_registry_is_known() {
 
 #[test]
 fn test_unassigned_numbers_are_unknown_commands() {
-    for number in [0, 22, 255, 531, 767, 1_000, u16::MAX] {
+    for number in [0, 24, 255, 532, 767, 1_000, u16::MAX] {
         assert_eq!(
             Command::from_number(number),
             Err(ProtocolError(ProtocolErrorEnum::UnknownCommand {
@@ -136,5 +139,70 @@ fn test_a_client_connection_refuses_every_role_command_by_number() {
     assert_eq!(
         Command::Lease.on_client_connection(),
         Err(ProtocolError::command_not_served(516))
+    );
+}
+
+/// Section 3's "Answered by", each request with the commands that answer it.
+const ANSWERS: [(Command, &[Command]); 32] = [
+    (Command::Hello, &[Command::Welcome]),
+    (Command::Register, &[Command::Register]),
+    (Command::Begin, &[Command::Begin]),
+    (Command::Commit, &[Command::Commit]),
+    (Command::Read, &[Command::Result]),
+    (Command::Write, &[Command::Held]),
+    (Command::Operation, &[Command::Held]),
+    (Command::Prepare, &[Command::Prepare]),
+    (Command::Execute, &[Command::Result]),
+    (Command::Describe, &[Command::Describe]),
+    (Command::Authenticate, &[Command::Authenticate]),
+    (Command::Drop, &[Command::Drop]),
+    (Command::DirectWrite, &[Command::Commit]),
+    (Command::ConditionalWrite, &[Command::Commit]),
+    (Command::Query, &[Command::Result]),
+    (Command::Install, &[Command::Install]),
+    (Command::Join, &[Command::Join]),
+    (Command::Members, &[Command::Members]),
+    (Command::Subscribe, &[Command::EpochClose]),
+    (Command::Lease, &[Command::Lease]),
+    (Command::Placement, &[Command::Placement]),
+    (Command::Catalog, &[Command::Catalog]),
+    (Command::Challenge, &[Command::Challenge]),
+    (Command::Verify, &[Command::Verify]),
+    (Command::Bind, &[Command::Bind]),
+    (Command::Recall, &[Command::Commit, Command::Drop]),
+    (Command::ComputeRead, &[Command::Result]),
+    (Command::Scan, &[Command::Entries]),
+    (Command::Reference, &[Command::Reference]),
+    (Command::Closed, &[Command::Closed]),
+    (Command::DefaultEntry, &[Command::DefaultEntry]),
+    (Command::Report, &[Command::Report]),
+];
+
+#[test]
+fn test_each_request_is_answered_by_section_3s_commands() {
+    for request in Command::ALL {
+        let listed = ANSWERS
+            .iter()
+            .find(|(asked, _)| *asked == request)
+            .map_or(&[][..], |(_, answers)| *answers);
+        for answer in Command::ALL {
+            assert_eq!(
+                request.answered_by(answer),
+                listed.contains(&answer),
+                "{request:?} by {answer:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_an_error_answers_any_request_and_another_command_is_not_served() {
+    for request in Command::ALL {
+        assert_eq!(Command::Error.answering(request), Ok(Command::Error));
+    }
+    assert_eq!(Command::Held.answering(Command::Write), Ok(Command::Held));
+    assert_eq!(
+        Command::Held.answering(Command::Commit),
+        Err(ProtocolError::command_not_served(531))
     );
 }

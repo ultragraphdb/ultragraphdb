@@ -64,8 +64,8 @@ impl ReferenceRegistration {
         }
     }
 
-    /// The registration refused with the error code `outcome`: 26 (WrongPartition) or 7 (Refused); its generation
-    /// and close 0, its entity as sent.
+    /// The registration refused with the error code `outcome`: 26 (WrongPartition), 7 (Refused) or 17 (Unavailable); its
+    /// generation and close 0, its entity as sent.
     pub fn refused(self, outcome: u16) -> Self {
         Self {
             outcome,

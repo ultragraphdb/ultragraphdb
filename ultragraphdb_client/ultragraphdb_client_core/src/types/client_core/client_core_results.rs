@@ -39,7 +39,12 @@ fn arrived<T>(frame: &ReceivedFrame, read: impl FnOnce(&ResultView<'_>) -> T) ->
             Err(error) => Arrived::Broken(error),
         };
     }
-    match ResultView::from_frame(&view) {
+    // Every read this client sends is of a quad pattern, whose batch holds its rules.
+    let batch = ResultView::from_frame(&view).and_then(|batch| {
+        batch.check_pattern()?;
+        Ok(batch)
+    });
+    match batch {
         Ok(batch) => Arrived::Batch(read(&batch), view.header().flags() & FLAG_LAST != 0),
         Err(error) => Arrived::Broken(ClientError::protocol(error)),
     }

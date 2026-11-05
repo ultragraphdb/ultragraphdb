@@ -62,11 +62,9 @@ pub fn numbered(frame: &[u8], sequence: u128) -> Vec<u8> {
     checksummed(frame)
 }
 
-/// `frame` without its last flag: bit 0 of the header's `flags`, byte 65.
-pub fn not_last(frame: &[u8]) -> Vec<u8> {
-    let mut frame = frame.to_vec();
-    frame[65] &= !1;
-    checksummed(frame)
+/// The golden Result as a batch before its stream's last: not flagged, and holding no resume key.
+pub fn not_last() -> TestResult<Vec<u8>> {
+    golden("result_more")
 }
 
 pub fn stream_of(frame: &[u8]) -> TestResult<u64> {

@@ -26,6 +26,8 @@ use crate::types::term_table::TermTable;
 /// | 40 | `transaction` | 16 bytes: a read-write transaction's identity; all zero for a read-only one |
 /// | 56 | `limit` | u32: the most rows; 0 for no limit |
 /// | 60 | `deadline_ms` | u32: the milliseconds left until the transaction's deadline |
+/// | 64 | `max_frame` | u32: the `max_frame` of the client's Hello, 524,288 to 1,048,576: every Result frame of the read is at most this |
+/// | 68 | `credit` | u32: the read's stream's starting credit, the `initial_credit` of the frontend's Welcome to the client, at least 1 |
 ///
 /// | Section | Contents |
 /// |---|---|
@@ -46,6 +48,8 @@ pub struct ComputeRead {
     transaction: [u8; 16],
     limit: u32,
     deadline_ms: u32,
+    max_frame: u32,
+    credit: u32,
     terms: TermTable,
     pattern: QuadPattern,
     resume: Vec<u8>,
@@ -74,6 +78,8 @@ impl ComputeRead {
             transaction: [0; 16],
             limit: 0,
             deadline_ms: 0,
+            max_frame: 0,
+            credit: 0,
             terms,
             pattern,
             resume,
@@ -130,6 +136,14 @@ impl ComputeRead {
         self
     }
 
+    /// The `max_frame` of the client's Hello and the read's stream's starting `credit`.
+    #[must_use]
+    pub fn with_client_limits(mut self, max_frame: u32, credit: u32) -> Self {
+        self.max_frame = max_frame;
+        self.credit = credit;
+        self
+    }
+
     /// The transaction's partition; 0 for none.
     pub fn partition(&self) -> u32 {
         self.partition
@@ -183,6 +197,16 @@ impl ComputeRead {
     /// The milliseconds left until the transaction's deadline.
     pub fn deadline_ms(&self) -> u32 {
         self.deadline_ms
+    }
+
+    /// The largest Result frame the read takes.
+    pub fn max_frame(&self) -> u32 {
+        self.max_frame
+    }
+
+    /// The read's stream's starting credit.
+    pub fn credit(&self) -> u32 {
+        self.credit
     }
 
     /// The request's term table.

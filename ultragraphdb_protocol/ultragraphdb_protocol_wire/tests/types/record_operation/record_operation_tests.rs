@@ -33,7 +33,6 @@ fn test_each_operation_has_its_code_and_argument() -> TestResult {
         (RecordOperation::DropGraph(id), 2, ID_4, true),
         (RecordOperation::DropTenantData, 3, [0; 16], true),
         (RecordOperation::DropTenant, 4, [0; 16], true),
-        (RecordOperation::DropAll, 5, [0; 16], true),
         (
             RecordOperation::CatalogTakesEffect(12),
             6,
@@ -128,4 +127,12 @@ fn test_an_argument_the_code_does_not_take_is_none() {
         last[15] = 1;
         assert_eq!(RecordOperation::from_parts(code, last), None);
     }
+}
+
+/// Operation 5 stays unassigned; 6 and 7 keep their numbers.
+#[test]
+fn test_operation_5_names_nothing() {
+    assert_eq!(RecordOperation::from_parts(5, [0; 16]), None);
+    assert!(RecordOperation::from_parts(6, catalog(1)).is_some());
+    assert!(!RecordOperation::CatalogTakesEffect(1).is_drop());
 }

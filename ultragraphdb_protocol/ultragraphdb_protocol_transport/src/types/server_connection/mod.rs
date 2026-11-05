@@ -9,9 +9,9 @@ use std::time::{Duration, Instant};
 
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_wire::{
-    Authenticate, AuthenticateView, BodyBuilder, BodyView, Command, CreditView, ErrorCode,
-    ErrorReply, ExecuteView, FLAG_LAST, FrameView, Header, HelloView, MAX_FRAME_FLOOR, ReadView,
-    Welcome,
+    Authenticate, AuthenticateView, BodyBuilder, BodyView, Command, ComputeReadView, CreditView,
+    ErrorCode, ErrorReply, ExecuteView, FLAG_LAST, FrameView, Header, HelloView, MAX_FRAME_FLOOR,
+    QueryView, ReadView, Welcome,
 };
 
 use crate::errors::transport_error::{TransportError, TransportErrorEnum};
@@ -437,10 +437,14 @@ impl<A: Authenticator> ServerConnection<A> {
                     transaction,
                 })
             }
-            RequestKind::Begin | RequestKind::Open | RequestKind::Read if open => self.close(
-                ErrorCode::Protocol,
-                &TransportError::stream_open(stream).to_string(),
-            ),
+            RequestKind::Begin
+            | RequestKind::Open
+            | RequestKind::ComputeRead
+            | RequestKind::Read
+                if open =>
+            {
+                self.stream_open(stream)
+            }
             RequestKind::Begin => {
                 let opened = self.outbound.open_transaction(stream);
                 self.open(stream, opened, request)
@@ -449,6 +453,7 @@ impl<A: Authenticator> ServerConnection<A> {
                 let opened = self.outbound.open(stream);
                 self.open(stream, opened, request)
             }
+            RequestKind::ComputeRead => self.compute_read(stream, view, request),
             RequestKind::Read => self.read(stream, view, request),
             RequestKind::InTransaction if transaction => {
                 if command == Command::Abort {
@@ -459,13 +464,10 @@ impl<A: Authenticator> ServerConnection<A> {
             RequestKind::InTransaction => self.refuse_with(
                 stream,
                 ErrorCode::Protocol,
-                "the stream holds no transaction",
+                &format!("{command:?} on a stream that holds no transaction"),
             ),
             RequestKind::Commit if transaction => Ok(request),
-            RequestKind::Commit if open => self.close(
-                ErrorCode::Protocol,
-                &TransportError::stream_open(stream).to_string(),
-            ),
+            RequestKind::Commit if open => self.stream_open(stream),
             RequestKind::Commit => {
                 let opened = self.outbound.open(stream);
                 self.open(stream, opened, request)
@@ -487,8 +489,33 @@ impl<A: Authenticator> ServerConnection<A> {
         Ok(Inbound::Handled)
     }
 
-    /// `request`, a Read or an Execute on `stream`, once its stream opened for the transaction it names; refused on
-    /// the stream by a body's rule.
+    /// A new request on `stream`, which is open: a connection error (`PROTOCOL.md` §2.6).
+    fn stream_open(&mut self, stream: u64) -> Result<Inbound, TransportError> {
+        self.close(
+            ErrorCode::Protocol,
+            &TransportError::stream_open(stream).to_string(),
+        )
+    }
+
+    /// `request`, a ComputeRead on `stream`, once its stream opened with the credit it names (`PROTOCOL.md` §11.3); refused
+    /// on the stream by a body's rule.
+    fn compute_read(
+        &mut self,
+        stream: u64,
+        view: &FrameView<'_>,
+        request: Inbound,
+    ) -> Result<Inbound, TransportError> {
+        match ComputeReadView::from_frame(view) {
+            Ok(read) => {
+                let opened = self.outbound.open_with_credit(stream, read.credit());
+                self.open(stream, opened, request)
+            }
+            Err(rule) => self.refuse_rule(stream, &rule),
+        }
+    }
+
+    /// `request`, a Read, an Execute or a Query on `stream`, once its stream opened for the transaction it names; refused
+    /// on the stream by a body's rule.
     fn read(
         &mut self,
         stream: u64,
@@ -497,6 +524,8 @@ impl<A: Authenticator> ServerConnection<A> {
     ) -> Result<Inbound, TransportError> {
         let named = if view.command() == Command::Read {
             ReadView::from_frame(view).map(|read| read.transaction())
+        } else if view.command() == Command::Query {
+            QueryView::from_frame(view).map(|query| query.transaction())
         } else {
             ExecuteView::from_frame(view).map(|execute| execute.transaction())
         };

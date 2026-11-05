@@ -6,7 +6,9 @@
 use oxrdf::NamedNode;
 use ultragraphdb_cluster_partition::BoundRead;
 use ultragraphdb_core_keys::{Keyspace, key_prefix};
+use ultragraphdb_core_terms::TermError;
 use ultragraphdb_protocol_wire::{ErrorCode, ErrorReply, RequestTermView, ScanRange, ScanView};
+use ultragraphdb_store_posting::PostingIdentity;
 use ultragraphdb_store_quads::term_key;
 use ultragraphdb_traits_store::Scan;
 
@@ -20,20 +22,40 @@ fn protocol(message: String) -> ErrorReply {
 }
 
 /// Each range of `scan`, its keys copied, checked in order against what the role address serves and what a range may read
-/// (`PROTOCOL.md` §13.13): partition `own`; a keyspace of lists, the dictionary or the referrer sets, no split part; a first
-/// key naming a tenant; a past key at most the first key past that tenant; one key alone in the dictionary.
+/// (`PROTOCOL.md` §13.13): partition `own`; a keyspace of lists, the statements, the dictionary or the referrer sets, no split
+/// part; a first key naming a tenant, the one the first range names; a past key at most the first key past that tenant; one key
+/// alone in the dictionary; an `after` only in a keyspace of lists, one whole object encoding `resume_at` takes.
 ///
 /// # Errors
 ///
 /// Error 1 naming what it found.
-pub(crate) fn scan_reads(scan: &ScanView<'_>, own: u32) -> Result<Vec<ScanRead>, ErrorReply> {
-    scan.ranges()
-        .enumerate()
-        .map(|(index, range)| scan_read(index, &range, own))
-        .collect()
+pub(crate) fn scan_reads(
+    scan: &ScanView<'_>,
+    own: u32,
+    resume_at: impl Fn(Keyspace, &[u8]) -> Result<PostingIdentity, TermError>,
+) -> Result<Vec<ScanRead>, ErrorReply> {
+    let mut reads: Vec<ScanRead> = Vec::with_capacity(scan.range_count());
+    for (index, range) in scan.ranges().enumerate() {
+        let read = scan_read(index, &range, own, &resume_at)?;
+        if let Some(first) = reads.first()
+            && first.tenant != read.tenant
+        {
+            return Err(protocol(format!(
+                "range {index} reads tenant {}, range 0 tenant {}: a Scan's ranges name one tenant",
+                read.tenant, first.tenant
+            )));
+        }
+        reads.push(read);
+    }
+    Ok(reads)
 }
 
-fn scan_read(index: usize, range: &ScanRange<'_>, own: u32) -> Result<ScanRead, ErrorReply> {
+fn scan_read(
+    index: usize,
+    range: &ScanRange<'_>,
+    own: u32,
+    resume_at: &impl Fn(Keyspace, &[u8]) -> Result<PostingIdentity, TermError>,
+) -> Result<ScanRead, ErrorReply> {
     if range.partition() != own {
         return Err(protocol(format!(
             "this address hosts partition {own}, not {}",
@@ -70,6 +92,29 @@ fn scan_read(index: usize, range: &ScanRange<'_>, own: u32) -> Result<ScanRead, 
         tenant,
         first: first.to_vec(),
         past: (!past.is_empty()).then(|| past.to_vec()),
+        after: after_of(index, range.after(), keyspace, resume_at)?,
+    })
+}
+
+/// Where a range's first list resumes, for a range of `keyspace` naming the `after` given.
+fn after_of(
+    index: usize,
+    after: &[u8],
+    keyspace: Keyspace,
+    resume_at: &impl Fn(Keyspace, &[u8]) -> Result<PostingIdentity, TermError>,
+) -> Result<Option<PostingIdentity>, ErrorReply> {
+    if after.is_empty() {
+        return Ok(None);
+    }
+    if !keyspace.is_list() {
+        return Err(protocol(format!(
+            "range {index} holds an `after`, which only a keyspace of lists has"
+        )));
+    }
+    resume_at(keyspace, after).map(Some).map_err(|error| {
+        protocol(format!(
+            "range {index}: its `after` is not one whole object encoding: {error}"
+        ))
     })
 }
 
@@ -79,6 +124,7 @@ fn keyspace_of(first: &[u8]) -> Result<Keyspace, ErrorReply> {
     match Keyspace::from_byte(byte) {
         Some((keyspace, false))
             if keyspace.is_list()
+                || keyspace == Keyspace::Statements
                 || keyspace == Keyspace::Dictionary
                 || keyspace == Keyspace::Referrers =>
         {

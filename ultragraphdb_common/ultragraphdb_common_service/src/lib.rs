@@ -23,5 +23,6 @@ pub use crate::utils::cpu_list::{allowed_in_status, parse_cpu_list};
 pub use crate::utils::fetch_settings::fetch_settings;
 pub use crate::utils::listen::listen;
 pub use crate::utils::run_service::{
-    binding, core_runtime, exit_status, run_service, serve_service, stop_flag,
+    binding, core_runtime, driver_name, exit_status, role_help, run_service, serve_service,
+    stop_flag,
 };

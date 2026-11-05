@@ -9,7 +9,7 @@ use ultragraphdb_protocol_wire::ErrorCode;
 fn test_codes_keep_their_numbers() {
     // The table of ErrorCode's docs.
     let numbers: Vec<u16> = ErrorCode::ALL.iter().map(|c| c.number()).collect();
-    assert_eq!(numbers, (1..=27).collect::<Vec<u16>>());
+    assert_eq!(numbers, (1..=29).collect::<Vec<u16>>());
     assert_eq!(ErrorCode::Protocol.number(), 1);
     assert_eq!(ErrorCode::Conflict.number(), 2);
     assert_eq!(ErrorCode::OperationFailed.number(), 8);
@@ -33,7 +33,7 @@ fn test_codes_keep_their_numbers() {
         assert_eq!(ErrorCode::from_number(code.number()), Some(code));
     }
     assert_eq!(ErrorCode::from_number(0), None);
-    assert_eq!(ErrorCode::from_number(28), None);
+    assert_eq!(ErrorCode::from_number(30), None);
     assert_eq!(ErrorCode::from_number(u16::MAX), None);
 }
 
@@ -56,4 +56,12 @@ fn test_the_retryable_codes_are_the_tables() {
             ErrorCode::WrongPartition
         ]
     );
+}
+
+#[test]
+fn test_a_refused_install_or_query_is_not_retried() {
+    assert_eq!(ErrorCode::SchemaRefused.number(), 28);
+    assert_eq!(ErrorCode::QueryRefused.number(), 29);
+    assert!(!ErrorCode::SchemaRefused.retryable());
+    assert!(!ErrorCode::QueryRefused.retryable());
 }

@@ -7,7 +7,7 @@
 //! before it takes a version, over the decided but unapplied proposals; their record is what the history holds and the
 //! round logs.
 
-use ultragraphdb_protocol_wire::{ConflictKind, OperationResult, WriteSetRecord};
+use ultragraphdb_protocol_wire::{ConflictKind, MAX_FRAME_FLOOR, OperationResult, WriteSetRecord};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_store::VersionlessEntry;
 use ultragraphdb_transactions_commit::{
@@ -21,6 +21,7 @@ use ultragraphdb_protocol_wire::TermTable;
 use ultragraphdb_transactions_commit::StoredReply;
 
 use crate::utils::fixture::version;
+use crate::utils::node_operator::{NodeOperator, reply_frame};
 use crate::utils::proposal_double::{Reads, TestProposal, Writes, proposal, proposal_in, read_set};
 
 /// The term table of a reply whose one result names `http://ex.org/n{uid}`.
@@ -48,6 +49,10 @@ impl Proposal for OpProposal {
 
     fn has_operations(&self) -> bool {
         self.asks
+    }
+
+    fn is_one_frame(&self) -> bool {
+        self.inner.one_frame
     }
 }
 
@@ -449,7 +454,11 @@ fn test_a_retry_is_answered_with_its_results_and_the_tables_entry_holds_them() -
         ]
     );
     let operations = script.seen.len();
-    commit(&mut step, &mut out, 2, asks()?, &mut script);
+    let resend = OpProposal {
+        inner: asks()?.inner.with_one_frame(),
+        asks: true,
+    };
+    commit(&mut step, &mut out, 2, resend, &mut script);
     assert_eq!(
         out.replies(),
         &[Reply::new(2, Ok(version(1, 0)))
@@ -699,5 +708,65 @@ fn test_a_step_running_no_operations_refuses_a_transaction_asking_them() -> Test
     }
     answered.sort_unstable();
     assert_eq!(answered, vec![(1, false), (2, true)]);
+    Ok(())
+}
+
+/// The reply the operations leave when its one node takes `iri_len` bytes, as the step answers it: the outcome, the
+/// operator's discards and whether the step's newest version moved.
+fn decided_with_a_node_of(iri_len: usize) -> TestResult<(Result<u64, CommitError>, usize, bool)> {
+    let mut step = CommitStep::<TestProposal>::new(unbounded(), 0);
+    let mut out = StepOutput::<TestProposal>::new();
+    let mut operator = NodeOperator {
+        iri: "n".repeat(iri_len),
+        ..NodeOperator::default()
+    };
+    let before = step.previous_version();
+    let asking = proposal(0, &Reads::default(), &Writes::point(b"k"))?.asking_operations();
+    step.step_with(
+        Input::Commit(CommitRequest::new(1, asking)),
+        0,
+        &mut out,
+        &mut operator,
+    );
+    step.step_with(Input::Synced, 0, &mut out, &mut operator);
+    let outcome = out
+        .replies()
+        .first()
+        .map(|reply| reply.outcome().clone())
+        .context("a reply")?;
+    Ok((
+        outcome,
+        operator.discarded,
+        step.previous_version() != before,
+    ))
+}
+
+/// The reply bound falls at its last byte: the largest node whose frame fits is admitted, a byte more is refused naming
+/// the frame and the floor, with the operator's work let go. The wire's builder measures each frame.
+#[test]
+fn test_a_reply_at_the_floor_commits_and_a_byte_past_it_is_refused() -> TestResult {
+    let fits = |len: usize| reply_frame(&"n".repeat(len)).is_some_and(|f| f <= MAX_FRAME_FLOOR);
+    let (mut low, mut high) = (0, MAX_FRAME_FLOOR);
+    while low < high {
+        let mid = low + (high - low).div_ceil(2);
+        if fits(mid) {
+            low = mid;
+        } else {
+            high = mid - 1;
+        }
+    }
+    let (at_floor, discarded_at_floor, took_at_floor) = decided_with_a_node_of(low)?;
+    assert_eq!(at_floor, Ok(version(1, 0)), "a node of {low} bytes fits");
+    assert_eq!((discarded_at_floor, took_at_floor), (0, true));
+
+    let past = low + 1;
+    let size = reply_frame(&"n".repeat(past)).context("within the largest frame")?;
+    assert!(size > MAX_FRAME_FLOOR, "{size}");
+    let (outcome, discarded, took) = decided_with_a_node_of(past)?;
+    let refused = CommitError::reply_too_large(size, MAX_FRAME_FLOOR);
+    assert_eq!(outcome, Err(refused.clone()));
+    assert_eq!((discarded, took), (1, false));
+    assert_eq!(refused.detail(), MAX_FRAME_FLOOR as u64);
+    assert!(!refused.is_retryable());
     Ok(())
 }

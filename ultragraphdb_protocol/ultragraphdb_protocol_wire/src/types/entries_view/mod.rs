@@ -9,13 +9,15 @@ use crate::types::entries_end::EntriesEnd;
 use crate::types::key_values::KeyValues;
 
 /// The body of a received Entries frame, read in place; see [`crate::Entries`] for its layout. Every entry's value is
-/// present and the keys ascend.
+/// present, and in a batch of one range the keys ascend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EntriesView<'a> {
     range: u32,
     end: EntriesEnd,
     continues: bool,
+    through: u32,
     epoch: u64,
+    version: u64,
     entries: KeyValues<'a>,
 }
 
@@ -23,6 +25,17 @@ impl<'a> EntriesView<'a> {
     /// The range's index in its Scan.
     pub fn range(&self) -> u32 {
         self.range
+    }
+
+    /// The batch's last range: [`EntriesView::range`], or above it when the batch answers each range from that one
+    /// through this one, each a one-key range of the dictionary, each ended.
+    pub fn through(&self) -> u32 {
+        self.through
+    }
+
+    /// The version the Scan chose, a version or version bound.
+    pub fn version(&self) -> u64 {
+        self.version
     }
 
     /// How the range ended.
@@ -40,7 +53,7 @@ impl<'a> EntriesView<'a> {
         self.epoch
     }
 
-    /// The entries, in key order, every value present.
+    /// The entries, every value present: in key order in a batch of one range, in the ranges' order in a run.
     pub fn entries(&self) -> KeyValues<'a> {
         self.entries
     }

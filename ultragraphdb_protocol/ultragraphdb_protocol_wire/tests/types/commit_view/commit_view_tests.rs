@@ -283,3 +283,27 @@ fn test_a_commit_result_names_a_node_or_a_value() -> TestResult {
     );
     Ok(())
 }
+
+#[test]
+fn test_a_reply_through_no_session_holds_the_zero_token() -> TestResult {
+    let reply = golden("commit_no_session")?.bytes()?;
+    let view = CommitView::from_frame(&frame_of(&reply)?)?;
+    assert_eq!(view.session(), [0; 16]);
+    assert_eq!(view.commit_version() >> 22, 32);
+    assert!(view.token().is_none());
+    assert_eq!(view_any(&reply)?, Ok(()));
+    let token = with_command_header(&reply, |h| {
+        put(h, 32, 2, 4);
+        put(h, 40, 41, 8);
+        put(h, 48, 32, 8);
+    });
+    assert_eq!(
+        refusal(&token)?,
+        ProtocolErrorEnum::FieldValue {
+            command: 5,
+            field: "token",
+            value: 32
+        }
+    );
+    Ok(())
+}

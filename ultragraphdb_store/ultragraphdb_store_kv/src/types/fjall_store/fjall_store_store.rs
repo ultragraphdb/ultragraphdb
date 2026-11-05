@@ -14,9 +14,7 @@ use ultragraphdb_traits_store::{
 use crate::types::drop_record::DropRecord;
 use crate::types::fjall_snapshot::FjallSnapshot;
 use crate::types::fjall_store::FjallStore;
-use crate::types::fjall_store::store_meta::{
-    APPLIED_KEY, DISCARD_KEY, HORIZON_KEY, banned_key, rebuild_key,
-};
+use crate::types::fjall_store::store_meta::{APPLIED_KEY, HORIZON_KEY, banned_key, rebuild_key};
 use crate::utils::lock::lock;
 use crate::utils::stored_key::stored_key;
 use crate::utils::stored_value::encode_value;
@@ -141,6 +139,7 @@ impl Store for FjallStore {
     }
 
     fn drop_all(&self, entries: Vec<Entry>) -> Result<(), StoreError> {
+        let _asking = lock(&self.shared.discard);
         let _writer = lock(&self.shared.writer);
         self.shared.run_drop(
             &DropRecord {
@@ -168,17 +167,7 @@ impl Store for FjallStore {
     }
 
     fn set_discard_ts(&self, ts: u64) -> Result<(), StoreError> {
-        let s = &self.shared;
-        let _writer = lock(&s.writer);
-        s.refuse_if_poisoned()?;
-        let asked = lock(&s.view).discard_ts.max(ts);
-        let mut batch = s.synced_batch();
-        batch.insert(&s.meta, DISCARD_KEY, asked.to_be_bytes().to_vec());
-        s.commit(batch)?;
-        let mut view = lock(&s.view);
-        view.discard_ts = asked;
-        s.publish_discard(&view);
-        Ok(())
+        self.set_discard_ts_observed(ts, |_| {})
     }
 
     fn discard_ts(&self) -> u64 {

@@ -54,9 +54,11 @@ fn test_a_whole_transaction_through_a_session_numbers_its_requests_from_1() -> T
     let committing = h.core.commit(tx, s, h.now)?;
     assert_eq!(committed(h.settle(committing)?)?.request(), first);
     assert_eq!(commits(&h), vec![(s.number(), first)]);
-    let dropping = h
-        .core
-        .drop_command(ultragraphdb_protocol_wire::DropCommand::all(), s, h.now)?;
+    let dropping = h.core.drop_command(
+        ultragraphdb_protocol_wire::DropCommand::whole_tenant(0),
+        s,
+        h.now,
+    )?;
     assert_eq!(dropped(h.settle(dropping)?)?.request(), first + 1);
     Ok(())
 }
@@ -414,16 +416,22 @@ fn test_a_drop_in_flight_keeps_its_session_busy() -> TestResult {
     let mut h = Harness::ready(server())?;
     let s = session(&mut h)?;
     let tx = begin(&mut h)?;
-    let p = h
-        .core
-        .drop_command(ultragraphdb_protocol_wire::DropCommand::all(), s, h.now)?;
+    let p = h.core.drop_command(
+        ultragraphdb_protocol_wire::DropCommand::whole_tenant(0),
+        s,
+        h.now,
+    )?;
     assert_eq!(
         h.core.commit(tx, s, h.now).err().context("an error")?.0,
         ClientErrorEnum::SessionBusy { session: 9 }
     );
     assert_eq!(
         h.core
-            .drop_command(ultragraphdb_protocol_wire::DropCommand::all(), s, h.now)
+            .drop_command(
+                ultragraphdb_protocol_wire::DropCommand::whole_tenant(0),
+                s,
+                h.now
+            )
             .err()
             .context("an error")?
             .0,
@@ -439,12 +447,14 @@ fn test_a_drop_reply_of_another_request_is_a_mismatch() -> TestResult {
     use ultragraphdb_protocol_wire::{BodyBuilder, Command, DropCommand, FLAG_LAST, Header};
     let mut h = Harness::ready(server())?;
     let s = session(&mut h)?;
-    let p = h.core.drop_command(DropCommand::all(), s, h.now)?;
+    let p = h
+        .core
+        .drop_command(DropCommand::whole_tenant(0), s, h.now)?;
     while h.core.transmit().is_some() {}
     // The session's registration took stream 1; the drop takes stream 2.
     let stream = 2;
     let version = h.server.version();
-    let reply = DropCommand::all()
+    let reply = DropCommand::whole_tenant(0)
         .with_session(s.number().to_be_bytes(), 2)
         .with_commit_version(version)
         .with_token(ultragraphdb_client_core::TestServer::token(version))
@@ -600,7 +610,7 @@ fn test_only_a_session_in_doubt_is_resolved() -> TestResult {
     assert_eq!(
         h.core
             .drop_command(
-                ultragraphdb_protocol_wire::DropCommand::all(),
+                ultragraphdb_protocol_wire::DropCommand::whole_tenant(0),
                 unknown,
                 h.now
             )
@@ -654,7 +664,11 @@ fn test_a_commit_unanswered_at_close_is_in_doubt_until_resolved() -> TestResult 
     );
     assert_eq!(
         h.core
-            .drop_command(ultragraphdb_protocol_wire::DropCommand::all(), s, h.now)
+            .drop_command(
+                ultragraphdb_protocol_wire::DropCommand::whole_tenant(0),
+                s,
+                h.now
+            )
             .err()
             .context("an error")?
             .0,
@@ -725,7 +739,9 @@ fn test_a_refused_drop_keeps_its_request_number() -> TestResult {
     let mut h = Harness::ready(server())?;
     let _session: Session = session(&mut h)?;
     let resumed = h.core.resume_session(9, 5);
-    let p = h.core.drop_command(DropCommand::all(), resumed, h.now)?;
+    let p = h
+        .core
+        .drop_command(DropCommand::whole_tenant(0), resumed, h.now)?;
     let error = h.settle(p)?.err().context("an error")?;
     assert!(
         matches!(
@@ -742,7 +758,9 @@ fn test_a_refused_drop_keeps_its_request_number() -> TestResult {
     assert_eq!(h.server.applied(), 0);
     // A first drop through an evicted session is refused as such, and forgets the session.
     let evicted = h.core.resume_session(4, 1);
-    let committing = h.core.drop_command(DropCommand::all(), evicted, h.now)?;
+    let committing = h
+        .core
+        .drop_command(DropCommand::whole_tenant(0), evicted, h.now)?;
     assert!(matches!(
         h.settle(committing)?.err().context("an error")?.0,
         ClientErrorEnum::Refused {
@@ -762,7 +780,11 @@ fn test_a_drop_before_a_connection_is_refused_as_not_connected() -> TestResult {
     h.core.close();
     assert_eq!(
         h.core
-            .drop_command(ultragraphdb_protocol_wire::DropCommand::all(), s, h.now)
+            .drop_command(
+                ultragraphdb_protocol_wire::DropCommand::whole_tenant(0),
+                s,
+                h.now
+            )
             .err()
             .context("an error")?
             .0,
@@ -771,9 +793,11 @@ fn test_a_drop_before_a_connection_is_refused_as_not_connected() -> TestResult {
     // The refusal left the session free: once connected, the drop goes through it as request 1.
     h.connect()?;
     h.until(|h| h.core.is_ready())?;
-    let p = h
-        .core
-        .drop_command(ultragraphdb_protocol_wire::DropCommand::all(), s, h.now)?;
+    let p = h.core.drop_command(
+        ultragraphdb_protocol_wire::DropCommand::whole_tenant(0),
+        s,
+        h.now,
+    )?;
     let dropped = dropped(h.settle(p)?)?;
     assert_eq!(dropped.request(), 1);
     Ok(())

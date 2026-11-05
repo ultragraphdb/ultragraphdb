@@ -47,3 +47,11 @@ Feature: The storage binary as a process
   Scenario: A missing required setting stops the start
     When the storage binary receives settings with no `storage.data_dir`
     Then it exits with code 78 and an error naming `storage.data_dir`
+
+  Scenario: A platform refusing to pin still serves
+    When a role starts with `pin_cores = true` where binding is unavailable
+    Then it logs that it runs unpinned, and serves requests
+
+  Scenario: An invariant violation exits with its code
+    When a storage partition detects an invariant violation in a release build
+    Then the partition stops, the process shuts down through its ordinary path, and it exits with code 70

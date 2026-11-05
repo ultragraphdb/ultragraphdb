@@ -6,11 +6,15 @@
 //! The storage binary as a process, bound to `features/`, with no container. One scenario runs at a time: the binaries listen
 //! at their declared ports.
 
+mod played_frontend;
 mod played_home;
 mod read_kernel_steps;
+mod retention_steps;
+mod scan_ranges_steps;
 
 use compio::runtime::Runtime;
 use cucumber::{World, then, when};
+use played_frontend::{OUT_OF_ORDER_EPOCH, PLAYED_FRONTEND_ADDRESS, exit_of, play_frontend};
 use service_utils::{ServiceUtil, WaitStrategy};
 use sha2::{Digest, Sha256};
 use std::path::Path;
@@ -21,7 +25,7 @@ use ultragraphdb_cluster_placement::{NodeId, PlacementMap};
 use ultragraphdb_common_role::RoleClient;
 use ultragraphdb_common_service::{Bootstrap, RoleKind as ServiceKind, fetch_settings};
 use ultragraphdb_core_ids::{BucketGroup, Epoch};
-use ultragraphdb_protocol_transport::Address;
+use ultragraphdb_protocol_transport::{Address, ReceivedFrame};
 use ultragraphdb_protocol_wire::{
     Bind, BindKind, BodyView, Command, Commit, CommitView, ErrorReplyView, Reference,
     ReferenceRegistration, ReferenceView, RoleKind, TermTable, Write, WriteChange,
@@ -32,7 +36,7 @@ use ultragraphdb_tests::{
     FRONTEND_BINARY, FRONTEND_OBSERVABILITY, FRONTEND_ROLE_ADDRESS, READ_KEY, SECRET,
     START_SECONDS, STORAGE_BINARY, STORAGE_OBSERVABILITY, STORAGE_ROLE_ADDRESS, TARGET, answering,
     bootstrap, config_folder, config_process, exit_is, fresh_data, frontend_holding, holding,
-    http_body, members_at, process, render_settings, role, role_of_service, scratch,
+    http_body, http_status, members_at, process, render_settings, role, role_of_service, scratch,
     served_by_double, start_config_service, start_double, storage_holding, storage_on_one_host,
     until_answering, with,
 };
@@ -222,9 +226,18 @@ async fn commit_through(
     drop(client.request(&bind).await?);
     let stream = client.last_stream();
     client.send_on(stream, write).await?;
+    let held = client.next_frame().await?;
+    refused_at(partition, &held)?;
+    drop(held);
     client.send_on(stream, &commit).await?;
     let answer = client.next_frame().await?;
-    let view = answer.view()?;
+    refused_at(partition, &answer)?;
+    Ok(CommitView::from_frame(&answer.view()?)?.commit_version())
+}
+
+/// Fails on `frame` when it is an Error of `partition`.
+fn refused_at(partition: u32, frame: &ReceivedFrame) -> TestResult {
+    let view = frame.view()?;
     if view.command() == Command::Error {
         let refusal = ErrorReplyView::from_frame(&view)?;
         return Err(TestError::new(format!(
@@ -232,7 +245,7 @@ async fn commit_through(
             refusal.message()
         )));
     }
-    Ok(CommitView::from_frame(&view)?.commit_version())
+    Ok(())
 }
 
 /// The settings of a storage process hosting `count` partitions from `first`, at TCP ports from `port`.
@@ -542,6 +555,70 @@ fn logs_the_binding(w: &mut Steps) {
         "{}",
         w.log
     );
+}
+
+#[when("a role starts with `pin_cores = true` where binding is unavailable")]
+fn pinned_where_unavailable(w: &mut Steps) -> TestResult {
+    let mut variables = storage_holding()?;
+    variables.push(("runtime.pin_cores".to_string(), "true".to_string()));
+    let util = services()?;
+    let log = scratch("storage-unpinned.log");
+    let wait = answering(STORAGE_OBSERVABILITY, "/health");
+    let _pid: u32 = util.start_service_from_config(role(STORAGE_BINARY, &variables, &log, wait))?;
+    w.log = std::fs::read_to_string(&log)?;
+    w.status = http_status(STORAGE_OBSERVABILITY, "/health")?;
+    Ok(())
+}
+
+/// macOS binds nothing. Linux may bind, and says what became of it either way, which the scenario above reads.
+#[then("it logs that it runs unpinned, and serves requests")]
+fn logs_unpinned(w: &mut Steps) {
+    assert_eq!(w.status, 200);
+    let said = if cfg!(target_os = "linux") {
+        "pin"
+    } else {
+        "unpinned: this platform cannot bind"
+    };
+    assert!(w.log.contains(said), "{}", w.log);
+}
+
+#[when("a storage partition detects an invariant violation in a release build")]
+fn close_out_of_order(w: &mut Steps) -> TestResult {
+    let log = scratch("storage-invariant.log");
+    let settings = with(
+        storage_holding()?,
+        "cluster.frontend_address",
+        &format!("tcp://{PLAYED_FRONTEND_ADDRESS}"),
+    );
+    let util = services()?;
+    Runtime::new()?.block_on(async {
+        play_frontend().await?;
+        let pid = util.start_service_from_config(role(
+            STORAGE_BINARY,
+            &settings,
+            &log,
+            WaitStrategy::NoWait,
+        ))?;
+        w.exited = exit_of(&util, pid).await;
+        Ok::<(), TestError>(())
+    })?;
+    w.log = std::fs::read_to_string(&log)?;
+    Ok(())
+}
+
+#[then(
+    "the partition stops, the process shuts down through its ordinary path, and it exits with code 70"
+)]
+fn exits_on_the_violation(w: &mut Steps) -> TestResult {
+    assert!(w.exited.is_some(), "it runs on:\n{}", w.log);
+    exit_is(w.exited, &w.log, 70)?;
+    let said = format!(
+        "the frontend delivered close {OUT_OF_ORDER_EPOCH} after close 0: a close follows the last by one epoch"
+    );
+    assert!(w.log.contains(&said), "{}", w.log);
+    assert!(w.log.contains("a partition stopped"), "{}", w.log);
+    assert!(w.log.contains("stopping role=storage"), "{}", w.log);
+    Ok(())
 }
 
 #[when("the storage binary receives settings with no `storage.data_dir`")]

@@ -4,7 +4,7 @@
  */
 
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, ColumnType, PatternSlot, Prepare, QuadPattern, TermTable,
+    BodyBuilder, ColumnType, Language, PatternSlot, Prepare, QuadPattern, TermTable,
 };
 use ultragraphdb_tool_bdd::TestResult;
 
@@ -59,8 +59,45 @@ fn test_prepare_and_its_reply_build_the_golden_frames() -> TestResult {
         (0, 1, 0x5C4E_3A2B_1D0F_7E6A)
     );
     assert_eq!(reply.terms(), &terms);
-    assert_eq!(reply.pattern(), &p);
+    assert_eq!(reply.pattern(), Some(&p));
     assert_eq!(reply.parameter_types(), &[ColumnType::Node]);
     assert_eq!(reply.result_types(), &[ColumnType::Term, ColumnType::Node]);
+    Ok(())
+}
+
+#[test]
+fn test_a_text_and_its_reply_build_the_golden_frames() -> TestResult {
+    let text = "MATCH (n) WHERE n = $who RETURN n, n.name";
+    let request = Prepare::of_text(
+        4,
+        Language::Gql,
+        text,
+        TermTable::new(),
+        vec!["who".to_string()],
+        vec![ColumnType::Node],
+    );
+    assert_eq!(
+        (request.language(), request.text()),
+        (Language::Gql, Some(text))
+    );
+    assert_eq!(request.pattern(), None);
+    assert_eq!(
+        request.frame(golden("prepare_text")?.header())?,
+        golden("prepare_text")?.bytes()?
+    );
+    let reply = request.answered(
+        2,
+        0x5C4E_3A2B_1D0F_7E6A,
+        vec![
+            ("n".to_string(), ColumnType::Node),
+            ("name".to_string(), ColumnType::String),
+        ],
+    );
+    assert_eq!(reply.names(), ["who", "n", "name"]);
+    assert_eq!(reply.result_types(), [ColumnType::Node, ColumnType::String]);
+    assert_eq!(
+        reply.frame(golden("prepare_text_reply")?.header())?,
+        golden("prepare_text_reply")?.bytes()?
+    );
     Ok(())
 }

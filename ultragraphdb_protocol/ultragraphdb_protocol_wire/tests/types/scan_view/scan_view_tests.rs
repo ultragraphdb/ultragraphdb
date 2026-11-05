@@ -231,7 +231,7 @@ fn test_a_scan_term_is_an_iri() -> TestResult {
             let _index = table.iri(iri);
         }
         let _other = table.intern(RequestTerm::BlankNode("b1".to_string()))?;
-        let mut scan = Scan::new(ScanAt::ReadVersion, 1, 0, 9, [7; 16], 0, 0).with_terms(table);
+        let mut scan = Scan::new(ScanAt::ReadVersion, 2, 0, 9, [7; 16], 0, 0).with_terms(table);
         scan.push_range(ScanRange::new(3, b"\x10a", b""));
         scan.push_range(ScanRange::new(3, b"\x10b", b""));
         assert_eq!(
@@ -296,15 +296,7 @@ fn test_the_checks_run_in_the_protocols_order() -> TestResult {
         r[4] = 1;
     })?;
     assert_eq!(refused(&more_terms)?, terms(iris as u64, iris as u64 - 1));
-    // Within a range: the padding, the partition, the offsets, the keys' bounds, the past key.
-    let padding_and_partition = ranges(|r| {
-        r[4] = 1;
-        put(r, 0, 0, 4);
-    })?;
-    assert!(matches!(
-        refused(&padding_and_partition)?,
-        ProtocolErrorEnum::PaddingNotZero { .. }
-    ));
+    // Within a range: the partition, the offsets, the keys' bounds, the past key.
     let partition_and_offset = ranges(|r| {
         put(r, 0, 0, 4);
         put(r, 8, 1, 4);
@@ -505,29 +497,10 @@ fn test_the_ranges_are_whole_records_and_at_least_one() -> TestResult {
 }
 
 #[test]
-fn test_a_range_holds_zero_padding_and_a_partition() -> TestResult {
-    // Section 0 starts at body offset 32, after the four-section table; range 0's padding is bytes 4 to 7.
-    for j in [0usize, 3] {
-        let bad = ranges(|r| {
-            r[4 + j] = 1;
-            put(r, 0, 0, 4);
-        })?;
-        assert_eq!(
-            refused(&bad)?,
-            ProtocolErrorEnum::PaddingNotZero {
-                command: 524,
-                offset: 36 + j
-            }
-        );
-    }
-    // Range 1's padding, at body offset 32 + 24 + 4.
-    let second = ranges(|r| r[29] = 1)?;
+fn test_a_range_holds_a_partition() -> TestResult {
     assert_eq!(
-        refused(&second)?,
-        ProtocolErrorEnum::PaddingNotZero {
-            command: 524,
-            offset: 61
-        }
+        refused(&ranges(|r| put(r, 0, 0, 4))?)?,
+        field("partition", 0)
     );
     let bad_2 = ranges(|r| {
         put(r, 24, 0, 4);
@@ -597,5 +570,59 @@ fn test_a_past_key_lies_above_its_first() -> TestResult {
     .map(|frame| with_section(&frame, SECTIONS, 1, |k| k.insert(8, 0)))?;
     let view = ScanView::from_frame(&frame_of(&longer)?)?;
     assert_eq!(view.range(0).map(|r| r.past().len()), Some(5));
+    Ok(())
+}
+
+#[test]
+fn test_the_golden_after_reads_between_the_past_key_and_the_next_first_key() -> TestResult {
+    let frame = bytes("scan_after")?;
+    let view = ScanView::from_frame(&frame_of(&frame)?)?;
+    let first = view.range(0).context("range 0")?;
+    assert_eq!(first.after().len(), 16);
+    assert_eq!(first.past(), b"\x10abd");
+    let second = view.range(1).context("range 1")?;
+    assert_eq!(second.first(), first.past());
+    assert!(second.after().is_empty());
+    assert_eq!(view_any(&frame)?, Ok(()));
+    Ok(())
+}
+
+#[test]
+fn test_an_after_within_the_keys_is_counted() -> TestResult {
+    let frame = bytes("scan_after")?;
+    // An after longer than what is left of the keys.
+    let keys_len = ScanView::from_frame(&frame_of(&frame)?)?
+        .ranges()
+        .map(|r| r.first().len() + r.past().len() + r.after().len())
+        .sum::<usize>();
+    let past = with_section(&frame, SECTIONS, 0, |r| put(r, 4, keys_len as u64, 4));
+    assert!(matches!(
+        refused(&past)?,
+        ProtocolErrorEnum::IndexOutOfRange {
+            command: 524,
+            section: 0,
+            at: 0,
+            ..
+        }
+    ));
+    // An after shorter than it is leaves range 1's first key where the keys before do not end.
+    let short = with_section(&frame, SECTIONS, 0, |r| put(r, 4, 15, 4));
+    assert_eq!(refused(&short)?, field("range", 1));
+    Ok(())
+}
+
+#[test]
+fn test_a_read_version_is_a_version_or_a_version_bound() -> TestResult {
+    let frame = bytes("scan")?;
+    let odd = (30 << 22) | 5;
+    let refusal = with_command_header(&frame, |h| put(h, 8, odd, 8));
+    assert_eq!(refused(&refusal)?, field("read_version", odd));
+    for version in [0u64, 30 << 22, (30 << 22) | 0x3F_FFFF] {
+        let read = with_command_header(&frame, |h| put(h, 8, version, 8));
+        assert_eq!(
+            ScanView::from_frame(&frame_of(&read)?)?.read_version(),
+            version
+        );
+    }
     Ok(())
 }

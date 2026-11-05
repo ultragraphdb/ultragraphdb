@@ -153,7 +153,7 @@ fn lock(directory: &Path) -> Result<File, RoleError> {
     match file.try_lock() {
         Ok(()) => Ok(file),
         Err(TryLockError::WouldBlock) => Err(RoleError::unavailable(format!(
-            "another process holds the data directory {}",
+            "another process holds the data directory {}: stop it, or name another data_dir. A supervisor killed outright leaves its config service running",
             directory.display()
         ))),
         Err(TryLockError::Error(error)) => Err(unavailable(&error)),

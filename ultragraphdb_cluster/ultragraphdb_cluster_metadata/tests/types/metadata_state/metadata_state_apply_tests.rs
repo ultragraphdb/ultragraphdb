@@ -102,12 +102,12 @@ fn test_a_version_not_on_the_latest_is_refused_naming_both() -> TestResult {
 #[test]
 fn test_a_version_past_its_bytes_limit_is_refused() -> TestResult {
     let mut state = MetadataState::new();
-    let big = vec![0; 16_777_217];
+    let big = vec![0; 523_001];
     assert_eq!(
         refused(&mut state, &offer(1, 0, &big))?,
-        ClusterError::too_many("bytes of a catalog version", 16_777_217, 16_777_216).0
+        ClusterError::too_many("bytes of a catalog version", 523_001, 523_000).0
     );
-    state.apply(&offer(1, 0, &vec![0; 16_777_216]))?;
+    state.apply(&offer(1, 0, &vec![0; 523_000]))?;
     Ok(())
 }
 

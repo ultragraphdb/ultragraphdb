@@ -150,6 +150,7 @@ fn test_what_the_owner_refuses_it_names() -> TestResult {
             .err()
             .context("a refusal")?;
         assert_eq!(large.code(), ErrorCode::Refused);
+        assert_eq!(large.detail(), MetadataConfig::new().block_size_max());
         assert!(handle.members().await.context("the members")?.is_empty());
         let compute = Join::compute("tcp://c:1");
         assert_eq!(compute.kind(), RoleKind::Compute);

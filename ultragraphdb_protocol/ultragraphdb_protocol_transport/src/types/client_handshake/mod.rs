@@ -51,67 +51,27 @@ impl ClientHandshake {
                 1, sequence,
             )));
         }
-        match view.command() {
-            Command::Welcome => {
-                let welcome = WelcomeView::from_frame(&view)
-                    .and_then(|w| w.to_body())
-                    .map_err(TransportError::protocol)?;
-                if !(self.hello.protocol_min()..=self.hello.protocol_max())
-                    .contains(&welcome.protocol())
-                {
-                    return Err(TransportError::protocol(ProtocolError::field_value(
-                        Command::Welcome.number(),
-                        "protocol",
-                        welcome.protocol().into(),
-                    )));
-                }
-                Ok(welcome)
-            }
-            Command::Error => {
-                let error = ErrorReplyView::from_frame(&view).map_err(TransportError::protocol)?;
-                Err(TransportError::refused(error.code(), error.message()))
-            }
-            other @ (Command::Hello
-            | Command::Register
-            | Command::Begin
-            | Command::Commit
-            | Command::Abort
-            | Command::Read
-            | Command::Write
-            | Command::Operation
-            | Command::Prepare
-            | Command::Execute
-            | Command::Describe
-            | Command::Result
-            | Command::Credit
-            | Command::Cancel
-            | Command::Round
-            | Command::Authenticate
-            | Command::Drop
-            | Command::DirectWrite
-            | Command::ConditionalWrite
-            | Command::Join
-            | Command::Members
-            | Command::Subscribe
-            | Command::EpochClose
-            | Command::Lease
-            | Command::Placement
-            | Command::Catalog
-            | Command::Challenge
-            | Command::Verify
-            | Command::Bind
-            | Command::Recall
-            | Command::ComputeRead
-            | Command::Scan
-            | Command::Entries
-            | Command::Reference
-            | Command::CloseRequest
-            | Command::Closed
-            | Command::DefaultEntry
-            | Command::Report) => Err(TransportError::unexpected_command(
-                Command::Welcome.number(),
-                other.number(),
-            )),
+        let command = view.command();
+        if command == Command::Error {
+            let error = ErrorReplyView::from_frame(&view).map_err(TransportError::protocol)?;
+            return Err(TransportError::refused(error.code(), error.message()));
         }
+        if command != Command::Welcome {
+            return Err(TransportError::unexpected_command(
+                Command::Welcome.number(),
+                command.number(),
+            ));
+        }
+        let welcome = WelcomeView::from_frame(&view)
+            .and_then(|w| w.to_body())
+            .map_err(TransportError::protocol)?;
+        if !(self.hello.protocol_min()..=self.hello.protocol_max()).contains(&welcome.protocol()) {
+            return Err(TransportError::protocol(ProtocolError::field_value(
+                Command::Welcome.number(),
+                "protocol",
+                welcome.protocol().into(),
+            )));
+        }
+        Ok(welcome)
     }
 }

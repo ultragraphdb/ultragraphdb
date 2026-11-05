@@ -397,7 +397,6 @@ fn test_each_drop_names_its_operation() -> TestResult {
         ),
         (DropRequest::Data, RecordOperation::DropTenantData),
         (DropRequest::Tenant, RecordOperation::DropTenant),
-        (DropRequest::All, RecordOperation::DropAll),
     ];
     for (request, operation) in cases {
         let drop = applier.prepare_drop(TENANT, request).context("the drop")?;

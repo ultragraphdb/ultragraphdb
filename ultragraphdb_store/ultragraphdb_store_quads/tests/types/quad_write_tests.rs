@@ -204,6 +204,81 @@ fn test_a_statement_not_held_is_recorded_too() -> TestResult {
 }
 
 /// The statement IDs of a held statement are those its posting carries.
+/// The objects of the reverse list of `<p>` for `object`, each with its statement IDs.
+fn reverse_postings(
+    store: &TestQuads,
+    p: &str,
+    object: &EncodedTerm,
+) -> TestResult<Vec<(EncodedTerm, Vec<SystemId>)>> {
+    let key = QuadKey::Reverse {
+        tenant: 0,
+        graph: D,
+        predicate: id(store, 0, &ex(p))?,
+        object: object.clone(),
+    }
+    .to_bytes();
+    Ok(store.objects(&key, store.lists().applied_ts())?)
+}
+
+/// An insert and a rewrite of a statement's IDs each write its forward and its reverse posting, a vector its forward alone.
+#[test]
+fn test_set_statement_ids_writes_both_postings() -> TestResult {
+    let store = quads()?;
+    write(&store, 0, &[quad("a", "knows", ex("b"))])?;
+    let (a, knows, b) = (
+        id(&store, 0, &ex("a"))?,
+        id(&store, 0, &ex("knows"))?,
+        EncodedTerm::id(id(&store, 0, &ex("b"))?),
+    );
+    let subject = EncodedTerm::id(a);
+    assert_eq!(
+        reverse_postings(&store, "knows", &b)?,
+        vec![(subject.clone(), Vec::new())]
+    );
+    let ids = [statement(1)?, statement(2)?];
+    let mut w = QuadWrite::new(&store, 0, store.lists().request(store.lists().applied_ts()));
+    w.set_statement_ids(D, a, knows, &b, &ids);
+    let _set_at: Vec<u64> = commit(&store, vec![w])?;
+    assert_eq!(
+        reverse_postings(&store, "knows", &b)?,
+        vec![(subject.clone(), ids.to_vec())]
+    );
+    let held = store.objects(
+        &forward(&store, 0, D, &ex("a"), &ex("knows"))?,
+        store.lists().applied_ts(),
+    )?;
+    assert_eq!(held, vec![(b.clone(), ids.to_vec())]);
+    let c = EncodedTerm::id(id(&store, 0, &ex("a"))?);
+    let mut inserting =
+        QuadWrite::new(&store, 0, store.lists().request(store.lists().applied_ts()));
+    inserting.insert(D, knows, knows, &c, &[statement(3)?], "iri");
+    let _inserted_at: Vec<u64> = commit(&store, vec![inserting])?;
+    assert_eq!(
+        reverse_postings(&store, "knows", &c)?,
+        vec![(EncodedTerm::id(knows), vec![statement(3)?])]
+    );
+    Ok(())
+}
+
+/// A vector names no reverse list, so its statement IDs reach its forward posting alone.
+#[test]
+fn test_set_statement_ids_of_a_vector_writes_its_forward_posting_alone() -> TestResult {
+    let store = quads()?;
+    write(&store, 0, &[quad("a", "knows", ex("b"))])?;
+    let (a, knows) = (id(&store, 0, &ex("a"))?, id(&store, 0, &ex("knows"))?);
+    let vector = EncodedTerm::from_bytes(&[0x40, 1, 0, 0, 0, 128, 63])?;
+    assert!(vector.is_vector());
+    let mut w = QuadWrite::new(&store, 0, store.lists().request(store.lists().applied_ts()));
+    w.set_statement_ids(D, a, knows, &vector, &[statement(1)?]);
+    let (request, _terms) = w.finish();
+    let written: Vec<Vec<u8>> = request.written_keys().map(<[u8]>::to_vec).collect();
+    assert_eq!(
+        written,
+        vec![forward(&store, 0, D, &ex("a"), &ex("knows"))?]
+    );
+    Ok(())
+}
+
 #[test]
 fn test_a_held_statement_carries_its_statement_ids() -> TestResult {
     let store = quads()?;

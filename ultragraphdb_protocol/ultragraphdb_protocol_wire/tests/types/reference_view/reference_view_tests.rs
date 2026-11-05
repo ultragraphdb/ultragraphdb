@@ -290,3 +290,35 @@ fn test_the_tenant_crosses_in_the_command_header() -> TestResult {
     assert_eq!(read.to_body()?.tenant(), u64::MAX - 1);
     Ok(())
 }
+
+#[test]
+fn test_a_home_refuses_with_a_failed_stores_outcome() -> TestResult {
+    let bytes = role_bytes(&golden_role("reference_unavailable")?)?;
+    let view = ReferenceView::from_frame(&frame_of(&bytes)?)?;
+    let refused: Vec<u16> = view.registrations().map(|r| r.outcome()).collect();
+    assert_eq!(refused, [0, 0, 17]);
+    assert_eq!(view_any(&bytes)?, Ok(()));
+    Ok(())
+}
+
+#[test]
+fn test_a_replys_refusing_outcomes_are_7_17_and_26() -> TestResult {
+    let bytes = role_bytes(&golden_role("reference_unavailable")?)?;
+    let third = 2 * 48 + 12;
+    for outcome in [7u64, 17, 26] {
+        let frame = with_section(&bytes, 3, 0, |r| put(r, third, outcome, 2));
+        assert!(ReferenceView::from_frame(&frame_of(&frame)?).is_ok());
+    }
+    for outcome in [1u64, 16, 18, 27] {
+        let frame = with_section(&bytes, 3, 0, |r| put(r, third, outcome, 2));
+        assert_eq!(
+            refusal::<ReferenceView>(&frame)?,
+            ProtocolErrorEnum::FieldValue {
+                command: 526,
+                field: "registration",
+                value: 2
+            }
+        );
+    }
+    Ok(())
+}

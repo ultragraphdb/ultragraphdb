@@ -14,10 +14,12 @@ pub(crate) enum RequestKind {
     Cancel,
     /// Begin or Bind, which opens a transaction's stream.
     Begin,
-    /// Register, Prepare, Describe, Drop, DirectWrite, ConditionalWrite or a role command, each opening a stream of its
-    /// own.
+    /// Register, Prepare, Describe, Install, Drop, DirectWrite, ConditionalWrite or a role command, each opening a stream
+    /// of its own.
     Open,
-    /// Read or Execute, opening a stream for the transaction it names.
+    /// ComputeRead, opening a stream of its own that starts with the credit it names.
+    ComputeRead,
+    /// Read, Execute or Query, opening a stream for the transaction it names.
     Read,
     /// Write, Operation or Abort, on a transaction's stream.
     InTransaction,
@@ -34,12 +36,14 @@ impl RequestKind {
             Command::Credit => Self::Credit,
             Command::Cancel => Self::Cancel,
             Command::Begin | Command::Bind => Self::Begin,
-            Command::Read | Command::Execute => Self::Read,
+            Command::Read | Command::Execute | Command::Query => Self::Read,
+            Command::ComputeRead => Self::ComputeRead,
             Command::Write | Command::Operation | Command::Abort => Self::InTransaction,
             Command::Commit => Self::Commit,
             Command::Register
             | Command::Prepare
             | Command::Describe
+            | Command::Install
             | Command::Drop
             | Command::DirectWrite
             | Command::ConditionalWrite
@@ -53,14 +57,14 @@ impl RequestKind {
             | Command::Challenge
             | Command::Verify
             | Command::Recall
-            | Command::ComputeRead
             | Command::Scan
             | Command::Entries
             | Command::Reference
             | Command::CloseRequest
             | Command::Closed
             | Command::DefaultEntry
-            | Command::Report => Self::Open,
+            | Command::Report
+            | Command::Held => Self::Open,
             Command::Hello
             | Command::Welcome
             | Command::Result

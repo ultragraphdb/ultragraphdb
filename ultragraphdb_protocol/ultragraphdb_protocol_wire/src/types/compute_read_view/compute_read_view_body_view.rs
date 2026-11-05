@@ -14,6 +14,7 @@ use crate::types::quad_pattern::QuadPattern;
 use crate::types::read_level::ReadLevel;
 use crate::types::term_table_view::TermTableView;
 use crate::utils::command_header::CommandHeader;
+use crate::utils::constants::{MAX_FRAME_FLOOR, MAX_FRAME_SIZE};
 use crate::utils::fields::{boolean, epoch, identity};
 use crate::utils::sections::{Sections, expect_command};
 
@@ -63,6 +64,23 @@ fn transaction(command: u16, header: CommandHeader<'_>) -> Result<Transaction, P
     })
 }
 
+/// `max_frame` and `credit` of a ComputeRead's command header, checked in `PROTOCOL.md` §13.12's order.
+fn client_limits(command: u16, header: CommandHeader<'_>) -> Result<(u32, u32), ProtocolError> {
+    let max_frame = header.u32_at(64);
+    if !(MAX_FRAME_FLOOR..=MAX_FRAME_SIZE).contains(&(max_frame as usize)) {
+        return Err(ProtocolError::field_value(
+            command,
+            "max_frame",
+            max_frame.into(),
+        ));
+    }
+    let credit = header.u32_at(68);
+    if credit == 0 {
+        return Err(ProtocolError::field_value(command, "credit", 0));
+    }
+    Ok((max_frame, credit))
+}
+
 impl<'a> BodyView<'a> for ComputeReadView<'a> {
     const COMMAND: Command = Command::ComputeRead;
 
@@ -71,8 +89,9 @@ impl<'a> BodyView<'a> for ComputeReadView<'a> {
     fn from_frame(frame: &FrameView<'a>) -> Result<Self, ProtocolError> {
         let command = Self::COMMAND.number();
         let header = expect_command(frame, Self::COMMAND)?;
-        header.unused_zero(&[(0, 7), (8, 64)])?;
+        header.unused_zero(&[(0, 7), (8, 72)])?;
         let fields = transaction(command, header)?;
+        let (max_frame, credit) = client_limits(command, header)?;
         let sections = Sections::<4>::read(command, frame.body(), 0)?;
         let terms = TermTableView::read(
             command,
@@ -94,6 +113,8 @@ impl<'a> BodyView<'a> for ComputeReadView<'a> {
             transaction: fields.transaction,
             limit: header.u32_at(56),
             deadline_ms: header.u32_at(60),
+            max_frame,
+            credit,
             terms,
             pattern,
             resume: sections.get(3),
@@ -114,7 +135,8 @@ impl<'a> BodyView<'a> for ComputeReadView<'a> {
         .with_epoch(self.epoch)
         .with_principal(self.principal)
         .with_limit(self.limit)
-        .with_deadline_ms(self.deadline_ms);
+        .with_deadline_ms(self.deadline_ms)
+        .with_client_limits(self.max_frame, self.credit);
         Ok(if self.named {
             read.with_named_version(self.read_version)
         } else {

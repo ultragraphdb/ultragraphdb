@@ -14,8 +14,11 @@ rust_test(
     name = "bdd",
     srcs = [
         "tests/bdd.rs",
+        "tests/played_frontend.rs",
         "tests/played_home.rs",
         "tests/read_kernel_steps.rs",
+        "tests/retention_steps.rs",
+        "tests/scan_ranges_steps.rs",
     ],
     crate_root = "tests/bdd.rs",
     data = glob(["features/**/*.feature"]) + [
@@ -34,7 +37,7 @@ rust_test(
 # Copy the config binary into the sandbox.
 copy_file(
     name = "copy_config",
-    src = "//ultragraphdb/ultragraphdb_config:ultragraphdb_config",
+    src = "//ultragraphdb/ultragraphdb_config",
     out = "ultragraphdb_config",
     is_executable = True,
 )
@@ -42,7 +45,7 @@ copy_file(
 # Copy the frontend binary into the sandbox.
 copy_file(
     name = "copy_frontend",
-    src = "//ultragraphdb/ultragraphdb_frontend:ultragraphdb_frontend",
+    src = "//ultragraphdb/ultragraphdb_frontend",
     out = "ultragraphdb_frontend",
     is_executable = True,
 )
@@ -50,7 +53,7 @@ copy_file(
 # Copy the storage binary into the sandbox.
 copy_file(
     name = "copy_storage",
-    src = "//ultragraphdb/ultragraphdb_storage:ultragraphdb_storage",
+    src = "//ultragraphdb/ultragraphdb_storage",
     out = "ultragraphdb_storage",
     is_executable = True,
 )

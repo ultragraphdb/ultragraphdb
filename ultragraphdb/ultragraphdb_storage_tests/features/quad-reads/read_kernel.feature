@@ -92,7 +92,7 @@ Feature: Quad reads: storage's read kernel
       Then each is refused with a protocol error naming what is wrong, and no frame precedes the refusal
 
     Scenario: A record too large for a frame is refused
-      When the dictionary holds a value too large for the receiver's `max_frame`
+      When the dictionary or the statements hold a value too large for the receiver's `max_frame`
       Then a Scan of it is refused with code 6 (TooLarge), `detail` that `max_frame`
 
     Scenario: A stalled Scan leaves another running
@@ -105,7 +105,7 @@ Feature: Quad reads: storage's read kernel
 
     Scenario: A Scan of a transaction ends with it
       When a Scan of a transaction waits for credit, and the transaction aborts
-      Then the Scan is refused at once with a protocol error, as one the partition does not hold
+      Then the Scan is refused at once with Error 1, `detail` 1, as one the partition does not hold
 
     Scenario: Scans of a transaction wait on its home together
       When two Scans of a transaction overlap, each naming an IRI of a home that has not answered
@@ -115,6 +115,14 @@ Feature: Quad reads: storage's read kernel
       When a transaction's Write waits on a home's answer, and a Scan of the transaction arrives
       Then the Scan is refused with a protocol error naming the write
 
+    Scenario: A failed store under a range is no absence
+      When the partition's store fails reading a key of a Scan's range
+      Then the Scan is refused with code 17, the message naming the key, and no frame says the range ended
+
+    Scenario: A Commit behind a cancelled read's wait takes its turn
+      When a Scan of a transaction waits on a home's answer, the frontend cancels the read and sends the Commit
+      Then the partition answers the Commit once the home's reply is in, and the Commit is not refused
+
     Scenario: An unheld skolem IRI answers no entry wherever it is homed
       When a transaction names in a Scan a skolem IRI no dictionary holds, homed on another partition
       Then the range answers no entry with `end` 1, and the transaction goes on
@@ -122,6 +130,56 @@ Feature: Quad reads: storage's read kernel
     Scenario: A home's refusal ends the transaction on both streams
       When a transaction names in a Scan an IRI its home refuses, and the IRI is no skolem IRI
       Then the Scan's stream and the Bind stream each carry the home's refusal
+
+    Scenario: A statement's record is read by Scan
+      When compute scans the key of a statement's record at its subject's partition, at a version
+      Then the entry's value is the record's stored bytes at that version
+
+    Scenario: A Scan of a transaction sees its statement's own property
+      When a transaction sets `<since> 2020` through the reifier `r`, the write is answered, and a Scan naming the transaction reads the statement's record
+      Then the record holds `<since> 2020` over what the Bind's version holds, a property the transaction removed is absent from it, and its span is recorded as a range scanned
+
+    Scenario: A Scan's ranges name one tenant
+      When a Scan's second range holds a first key of another tenant than its first range's
+      Then it is refused with Error 1, the message naming the range, and no frame precedes the refusal
+
+    Scenario: A run of dictionary lookups answers in one frame
+      When a Scan holds 50 one-key ranges of the dictionary, 3 of whose keys are absent
+      Then one Entries frame answers them, `range` 0, `through` 49, `end` 1, holding 47 entries in the ranges' order
+
+    Scenario: A resumed range reads its list from `after`
+      When a list holds `<a>`, `<m>` and `<z>`, and one range names `after` `<m>` and another `after` `<n>`, which the list does not hold
+      Then the first answers `<m>` and `<z>`, the second `<z>`, and neither reads the record of `<a>`
+
+    Scenario: A malformed `after` is refused
+      When a range's `after` is not one whole object encoding, and another range of the dictionary holds an `after`
+      Then each is refused with Error 1, the message naming the range, and no frame precedes the refusal
+
+    Scenario: A home's failed store ends the transaction
+      When a transaction names in a Scan a skolem IRI whose home's store fails under the registration, which answers outcome 17
+      Then the Scan's stream and the Bind stream each carry code 17, and the range answers no entry
+
+  Rule: A partition retains what a read may still read
+
+    Scenario: A reader coming back within the retention keeps its version
+      When a read-only transaction at snapshot level reads at epoch 20, epochs close for 30 s with `read_retain_ms` 60,000, and it reads again
+      Then the second read answers at epoch 20's version bound
+
+    Scenario: A reader coming back past the retention is refused
+      When a read-only transaction at snapshot level reads at epoch 20, the partition raises its discard version past that version bound once a later epoch has been closed for more than `read_retain_ms`, and it reads again
+      Then the read is refused with code 3
+
+    Scenario: An open Scan holds its version past the retention
+      When a Scan keeps taking frames for longer than `read_retain_ms` while later epochs close
+      Then the discard version stays at or below the Scan's version, and the Scan reaches `LAST` at that version
+
+    Scenario: A next Scan past the retention is refused after a long Scan
+      When a Scan at epoch 20's version bound stays open for 90 s with `read_retain_ms` 60,000 while later epochs close, it ends, the partition raises its discard version past that bound, and a next Scan at that version arrives
+      Then the next Scan is refused with code 3
+
+    Scenario: A read-write transaction holds its version
+      When a read-write transaction bound at a version is open while epochs close for longer than `read_retain_ms`
+      Then the discard version stays at or below the Bind's version until the transaction ends
 
   Rule: A partition answers a Recall from its session table
 

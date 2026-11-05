@@ -7,15 +7,16 @@
 //! in the default graph and a named one; a triple several statements hold named only by a reifier.
 
 use oxrdf::{GraphName, NamedNode};
-use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_ids::{Sequence, SystemId, TypePrefix};
 use ultragraphdb_core_keys::{DEFAULT_GRAPH, Graph};
 use ultragraphdb_core_mapping::{Change, MappingErrorEnum, StatementRef};
+use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_apply::ChangesetErrorEnum;
-use ultragraphdb_store_quads::StatementRecord;
+use ultragraphdb_store_quads::{QuadWrite, STATEMENTS_PER_OBJECT_MAX, StatementRecord};
 
 use crate::utils::changesets::{
-    TENANT, TestChangesets, apply, changesets, ex, insert_edge, objects_in, postings, statement,
-    term, uid, write_changes,
+    TENANT, TestChangesets, apply, changesets, ex, insert, insert_edge, objects_in, postings,
+    reverse_postings, statement, term, uid, write_changes,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -269,5 +270,113 @@ fn test_an_edge_with_properties_and_a_parallel_edge_take_statement_ids_in_their_
         assert_eq!(id.bucket(), subject.bucket(), "{id:?}");
         assert!(reifier(&a, id).is_ok(), "each is named by a reifier");
     }
+    Ok(())
+}
+
+/// `<a> <knows> <b>` held under `count` statement IDs, written as a commit writes its postings.
+fn held_under(a: &TestChangesets, count: u64) -> TestResult<Vec<SystemId>> {
+    write_changes(a, vec![insert("<a> <knows> <b>")?])?;
+    let (subject, knows) = (uid(a, "a")?, uid(a, "knows")?);
+    let object = EncodedTerm::id(uid(a, "b")?);
+    let ids = (1..=count)
+        .map(|n| {
+            Ok(SystemId::new(
+                TypePrefix::STATEMENT,
+                subject.bucket(),
+                // Above every sequence a test's leases hand out.
+                Sequence::new((1 << 40) + n)?,
+            ))
+        })
+        .collect::<TestResult<Vec<_>>>()?;
+    let quads = a.quads();
+    let mut batch = quads.lists().batch();
+    let mut write = QuadWrite::new(quads, TENANT, batch.request(quads.lists().applied_ts()));
+    write.set_statement_ids(DEFAULT_GRAPH, subject, knows, &object, &ids);
+    let (request, terms) = write.finish();
+    batch.push(request);
+    let _committed: Vec<u64> = quads.commit(batch, &[terms])?;
+    Ok(ids)
+}
+
+/// One object is held under the bound's IDs and no more: the edge reaching it is taken, the next refused naming it, what the object
+/// holds unchanged in both lists. An insert of the held triple, which takes no ID, is still an answer.
+#[test]
+fn test_an_object_past_its_statement_bound_is_refused_at_the_write() -> TestResult {
+    let a = changesets()?;
+    let bound = u64::try_from(STATEMENTS_PER_OBJECT_MAX)?;
+    let ids = held_under(&a, bound - 1)?;
+    write_changes(&a, vec![insert_edge("<a> <knows> <b>", &[])?])?;
+    let full = postings(&a, "a", "knows")?
+        .first()
+        .context("a posting")?
+        .1
+        .clone();
+    assert_eq!(full.len(), STATEMENTS_PER_OBJECT_MAX);
+    assert_eq!(full.get(1..), Some(ids.as_slice()), "in ascending order");
+    let refused = apply(&a, vec![insert_edge("<a> <knows> <b>", &[])?])
+        .err()
+        .context("one more statement")?;
+    assert_eq!(
+        refused.0,
+        ChangesetErrorEnum::StatementsPerObject {
+            limit: STATEMENTS_PER_OBJECT_MAX
+        }
+    );
+    assert!(
+        refused
+            .to_string()
+            .contains(&STATEMENTS_PER_OBJECT_MAX.to_string())
+    );
+    let forward = postings(&a, "a", "knows")?;
+    assert_eq!(forward.first().map(|(_, held)| held), Some(&full));
+    let reverse = reverse_postings(&a, "knows", "b")?;
+    assert_eq!(reverse.first().map(|(_, held)| held), Some(&full));
+    write_changes(&a, vec![insert("<a> <knows> <b>")?])?;
+    Ok(())
+}
+
+/// A deletion of a statement's parallel edge and a statement's first property each rewrite both postings.
+#[test]
+fn test_both_postings_follow_the_statement_ids() -> TestResult {
+    let a = changesets()?;
+    write_changes(
+        &a,
+        vec![
+            insert("<a> <knows> <b>")?,
+            Change::SetProperty {
+                statement: by_triple("<a> <knows> <b>")?,
+                predicate: ex("since"),
+                value: term("2020")?,
+            },
+            insert_edge("<a> <knows> <b>", &[])?,
+        ],
+    )?;
+    let ids = postings(&a, "a", "knows")?
+        .first()
+        .context("a posting")?
+        .1
+        .clone();
+    assert_eq!(ids.len(), 2);
+    let subject = EncodedTerm::id(uid(&a, "a")?);
+    assert_eq!(
+        reverse_postings(&a, "knows", "b")?,
+        vec![(subject.clone(), ids.clone())]
+    );
+    let (gone, kept) = (
+        *ids.first().context("a first ID")?,
+        *ids.get(1).context("a second ID")?,
+    );
+    let reifier = NamedNode::new(a.quads().iri_of(TENANT, gone)?.0)?;
+    write_changes(
+        &a,
+        vec![Change::DeleteStatement {
+            graph: GraphName::DefaultGraph,
+            reifier,
+        }],
+    )?;
+    assert_eq!(
+        reverse_postings(&a, "knows", "b")?,
+        vec![(subject, vec![kept])]
+    );
     Ok(())
 }

@@ -12,9 +12,11 @@ use oxrdf::vocab::xsd;
 use oxrdf::{BlankNode, GraphName, Literal, Term};
 use ultragraphdb_core_mapping::{Change, Changeset};
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, BodyView, Command, FrameView, Header, MAX_FRAME_SIZE, RequestTerm, TermTable,
-    Write, WriteChange, WriteView,
+    BodyBuilder, BodyView, Command, ErrorCode, FrameView, Header, MAX_FRAME_SIZE, RequestTerm,
+    TermTable, Write, WriteChange, WriteView,
 };
+use ultragraphdb_store_apply::ChangesetErrorEnum;
+use ultragraphdb_store_quads::STATEMENTS_PER_OBJECT_MAX;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transactions_txn::{
     Commit, FrameChanges, FrameTerms, Mode, Transaction, TxnBuffers, TxnError, TxnErrorEnum,
@@ -28,8 +30,8 @@ pub mod utils {
 }
 
 use crate::utils::fixture::{
-    SECOND, TENANT, Txn, applier, begin, changeset, commit, ex, held, insert, insert_literal,
-    objects, store,
+    SECOND, TENANT, Txn, applier, begin, both_postings, changeset, commit, ex, held, held_under,
+    insert, insert_literal, objects, parallel_edge, store,
 };
 
 const CLUSTER: u64 = 7;
@@ -41,6 +43,7 @@ struct Steps {
     errors: Vec<TxnError>,
     versions: Vec<u64>,
     ended: bool,
+    checks: Vec<bool>,
     records: Vec<Vec<u8>>,
 }
 
@@ -316,6 +319,46 @@ fn byte_identical(w: &mut Steps) {
     assert_eq!(w.records.len(), 2);
     assert!(!w.records[0].is_empty());
     assert_eq!(w.records[0], w.records[1]);
+}
+
+#[when(
+    "`<a> <knows> <b>` is held under `statements_per_object_max` statement IDs, and a transaction inserts one more parallel edge of it"
+)]
+fn one_past_the_bound(w: &mut Steps) -> TestResult {
+    let applier = applier()?;
+    let ids = held_under(&applier, STATEMENTS_PER_OBJECT_MAX)?;
+    assert_eq!(ids.len(), STATEMENTS_PER_OBJECT_MAX);
+    let before = both_postings(&applier)?;
+    let mut txn = begin(&applier, Mode::ReadWrite)?;
+    let refused = txn
+        .write(&changeset(vec![parallel_edge()]), 0)
+        .err()
+        .context("one more statement")?;
+    w.ended = txn.is_ended();
+    w.errors.push(refused);
+    w.checks.push(both_postings(&applier)? == before);
+    Ok(())
+}
+
+#[then(
+    "the Write is refused with code 6, `detail` the bound, on the transaction's stream, the transaction ends, and the object's postings are unchanged"
+)]
+fn refused_at_the_bound(w: &mut Steps) -> TestResult {
+    let refused = w.errors.first().context("the refusal")?;
+    assert_eq!(refused.code(), ErrorCode::TooLarge);
+    assert_eq!(refused.code().number(), 6);
+    let TxnErrorEnum::Changeset(refusal) = &refused.0 else {
+        return Err(TestError::new("the changeset's refusal"));
+    };
+    assert_eq!(
+        refusal.0,
+        ChangesetErrorEnum::StatementsPerObject {
+            limit: STATEMENTS_PER_OBJECT_MAX
+        }
+    );
+    assert!(w.ended, "the transaction ends");
+    assert_eq!(w.checks, vec![true], "its postings are unchanged");
+    Ok(())
 }
 
 fn main() -> TestResult {

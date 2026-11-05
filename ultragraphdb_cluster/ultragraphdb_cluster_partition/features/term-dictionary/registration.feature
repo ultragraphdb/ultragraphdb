@@ -27,3 +27,7 @@ Feature: Term dictionary: registration at an entity's home
     Scenario: Concurrent registrants share one ID
       When partitions 1 and 3 each register a reference to the new IRI `<b>` at its home, both registrations reaching the home before it replies to either
       Then both replies name the same ID, both partitions' transactions commit, and `R(b)` names both groups
+
+    Scenario: A home's failed store never reads as absent
+      When a transaction in partition 1 names, in a Write and in a Scan, a skolem IRI homed in partition 2, whose store fails under the registration
+      Then the registration's outcome is 17, each request is refused with code 17, and the transaction ends

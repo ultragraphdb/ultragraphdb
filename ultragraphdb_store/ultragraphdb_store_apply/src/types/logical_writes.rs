@@ -10,10 +10,10 @@ use crate::types::logical_quad::LogicalQuad;
 use crate::types::marked_reference::MarkedReference;
 
 /// A logged transaction's writes in their logical form (write-ahead-log, "A round's record is logical"): the statements
-/// it inserted, each once per statement ID its posting carries, the statements it removed, a delete by pattern as the
-/// statements it resolved to, its statement records, by graph and statement ID, `None` for a removal, and the
-/// registrations it relied on as a referrer (write-set record section 4), each written as its mark. Replay derives every
-/// key the first apply derived from them ([`crate::ChangesetApplier::prepare_logical`]).
+/// it inserted, each once per statement ID it added, the statements it removed, a delete by pattern as the statements it
+/// resolved to, and the IDs it removed from an object it left held, its statement records, by graph and statement ID,
+/// `None` for a removal, and the registrations it relied on as a referrer (write-set record section 4), each written as
+/// its mark. Replay derives every key the first apply derived from them ([`crate::ChangesetApplier::prepare_logical`]).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LogicalWrites {
     inserted: Vec<LogicalQuad>,
@@ -41,6 +41,11 @@ impl LogicalWrites {
     pub fn with_marks(mut self, marks: Vec<MarkedReference>) -> Self {
         self.marks = marks;
         self
+    }
+
+    /// Whether the writes hold no statement and no statement record, whatever marks they hold.
+    pub fn is_empty(&self) -> bool {
+        self.inserted.is_empty() && self.removed.is_empty() && self.records.is_empty()
     }
 
     /// The registrations relied on as a referrer, each written as its mark.

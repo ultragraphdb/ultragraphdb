@@ -36,8 +36,9 @@ fn test_a_refused_write_is_its_outcome_with_nothing_waited() -> TestResult {
             .context("its outcome")?;
         assert_eq!(
             outcome.outcome(),
-            &Err(PartitionError::from(
-                ultragraphdb_transactions_txn::TxnError::cross_partition(1, 2)
+            &Err(PartitionError::wrong_partition(
+                crate::utils::cluster::bucket(&foreign)?.get(),
+                2
             ))
         );
         Ok(())

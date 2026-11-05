@@ -10,14 +10,16 @@ use std::ops::ControlFlow;
 
 use oxrdf::{GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNodeRef, Term};
 use ultragraphdb_core_ids::SystemId;
-use ultragraphdb_core_keys::Region;
+use ultragraphdb_core_keys::{Keyspace, Region};
 use ultragraphdb_core_mapping::Changes;
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{ListCache, Store};
 
-use ultragraphdb_store_quads::{KernelRow, KernelScan, Page, PageWalk, QuadError, WriteTerms};
+use ultragraphdb_store_quads::{
+    KernelRow, KernelScan, Page, PageEnd, PageWalk, QuadError, WriteTerms,
+};
 
 use crate::errors::changeset_error::ChangesetError;
 use crate::types::changeset_core::reads_of;
@@ -153,6 +155,41 @@ where
                     walk.visit(key, request).map_err(ChangesetError::from)
                 })?;
         Ok(walk.end(walked))
+    }
+
+    /// A page of stored values over this execution's writes ([`ultragraphdb_store_quads::QuadStore::values_page_over`]): what `scan`
+    /// names at the execution's read timestamp, each key once in key order, the statement records it wrote over what the store
+    /// holds and none of those it removed, streamed to `sink`. Its span is a range scanned, recorded before it returns as
+    /// [`Execution::page`] records one, so a commit writing a statement's record inside it conflicts.
+    ///
+    /// # Errors
+    ///
+    /// The store's error; a keyspace holding no stored values. Nothing is recorded.
+    pub fn values_page<F>(&mut self, scan: &KernelScan, sink: F) -> Result<Page, ChangesetError>
+    where
+        F: FnMut(&[u8], &[u8]) -> ControlFlow<()>,
+    {
+        scan.check_values().map_err(ChangesetError::from)?;
+        let (start, end) = scan.bounds();
+        let own = if scan.keyspace() == Keyspace::Statements {
+            self.write.own_records(&start, end.as_deref())
+        } else {
+            BTreeMap::new()
+        };
+        let quads = self.write.quads();
+        quads.lists().gate(self.read_ts)?;
+        let page = quads.values_page_over(scan, &own, sink)?;
+        let request = self.write.request();
+        match page.end() {
+            PageEnd::Exhausted => request.record_range(start, end),
+            PageEnd::Paused { last: None, .. } => {}
+            reached @ (PageEnd::Stopped { .. }
+            | PageEnd::Paused { .. }
+            | PageEnd::Yielded { .. }) => {
+                request.record_range(start, reached.clone().resume_from());
+            }
+        }
+        Ok(page)
     }
 
     /// The ID `iri` has as this execution's reads name it: got or created, the same ID any concurrent writer of the IRI takes,
@@ -315,6 +352,7 @@ where
             removals: outcome.removals,
             marks: self.marks,
             referrers,
+            net: outcome.net,
             ..Executed::empty(self.tenant, self.read_ts, outcome.catalog)
         })
     }

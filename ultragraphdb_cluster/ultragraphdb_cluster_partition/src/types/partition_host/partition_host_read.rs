@@ -7,8 +7,9 @@ use std::ops::ControlFlow;
 
 use oxrdf::{GraphName, NamedNode, NamedNodeRef};
 use ultragraphdb_core_ids::{Epoch, SystemId};
-use ultragraphdb_core_terms::EncodedTerm;
-use ultragraphdb_store_posting::{CachedList, ReadPin};
+use ultragraphdb_core_keys::Keyspace;
+use ultragraphdb_core_terms::{EncodedTerm, TermError};
+use ultragraphdb_store_posting::{CachedList, PostingIdentity, ReadPin};
 use ultragraphdb_store_quads::{KernelScan, Page, QuadError};
 use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_log::OrderedLog;
@@ -61,6 +62,7 @@ where
         let open = self.open_epoch();
         let partition = self.partition;
         let bound = self.held(key)?;
+        bound.first = false;
         if !bound.references.is_empty() {
             return Ok(BoundStep::Waiting);
         }
@@ -167,6 +169,11 @@ where
             .map_err(|refused| QuadError::from(refused).into())
     }
 
+    /// The version below which the store refuses a read.
+    pub fn discard_ts(&self) -> u64 {
+        self.partition.applier().quads().store().discard_ts()
+    }
+
     /// A page of the lists `scan` names at its version ([`ultragraphdb_store_quads::QuadStore::page`]).
     ///
     /// # Errors
@@ -179,16 +186,55 @@ where
         Ok(self.partition.applier().quads().page(scan, sink)?)
     }
 
-    /// A page of the referrer sets `scan` names at its version ([`ultragraphdb_store_quads::QuadStore::values_page`]).
+    /// A page of the referrer sets or the statements `scan` names at its version ([`ultragraphdb_store_quads::QuadStore::values_page`]).
     ///
     /// # Errors
     ///
     /// The store's error.
-    pub fn referrers_page<F>(&self, scan: &KernelScan, sink: F) -> Result<Page, PartitionError>
+    pub fn values_page<F>(&self, scan: &KernelScan, sink: F) -> Result<Page, PartitionError>
     where
         F: FnMut(&[u8], &[u8]) -> ControlFlow<()>,
     {
         Ok(self.partition.applier().quads().values_page(scan, sink)?)
+    }
+
+    /// A page of the statements `scan` names as the transaction `key` sees them at `now_us`
+    /// ([`ultragraphdb_transactions_txn::Transaction::values_page`]).
+    ///
+    /// # Errors
+    ///
+    /// The transaction's refusal, which ends it, and its abort releases what it held; what `sink` took is not to be sent.
+    pub fn values_page_bound<F>(
+        &mut self,
+        key: BoundKey,
+        scan: &KernelScan,
+        now_us: u64,
+        sink: F,
+    ) -> Result<Page, PartitionError>
+    where
+        F: FnMut(&[u8], &[u8]) -> ControlFlow<()>,
+    {
+        let paged = self.held(key)?.txn.values_page(scan, now_us, sink);
+        paged.map_err(|refusal| {
+            self.abort_bound(key);
+            refusal.into()
+        })
+    }
+
+    /// Where a list of `keyspace` resumes for a Scan's `after`, the object `encoding` ([`ultragraphdb_store_quads::QuadStore::resume_at`]).
+    ///
+    /// # Errors
+    ///
+    /// [`TermError`] for bytes that are not one whole object encoding.
+    pub fn resume_at(
+        &self,
+        keyspace: Keyspace,
+        encoding: &[u8],
+    ) -> Result<PostingIdentity, TermError> {
+        self.partition
+            .applier()
+            .quads()
+            .resume_at(keyspace, encoding)
     }
 
     /// The value of the dictionary's `entry`, as the store holds it.

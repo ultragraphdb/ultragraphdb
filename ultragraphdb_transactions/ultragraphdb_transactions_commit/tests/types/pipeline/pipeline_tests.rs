@@ -339,16 +339,12 @@ fn test_the_session_table_survives_a_restart_with_the_store() -> TestResult {
     assert_eq!(committed, version(1, 0));
     drop(pipe);
     let (_, fresh_log) = wal()?;
-    let mut again: Pipe<'_> =
+    let again: Pipe<'_> =
         Pipeline::new(&applier, fresh_log, unbounded()).context("it opens again")?;
     assert_eq!(again.step().sessions().last(session), Some((1, committed)));
-    assert_eq!(again.retry(session, 1)?.version(), committed);
-    let mut retry_txn = begin(&applier)?;
-    write(&mut retry_txn, vec![insert("s", "knows", "b")])?;
-    again.commit(3, prepare_in(retry_txn, session, 1)?, 0)?;
-    let retried = again.replies_mut().pop().context("answered")?;
-    assert_eq!(retried.outcome(), &Ok(committed));
-    assert_eq!(retried.token(), first.token());
+    let retried = again.retry(session, 1)?;
+    assert_eq!(retried.version(), committed);
+    assert_eq!(Some(retried.token()), first.token());
     assert_eq!(
         applier.quads().lists().applied_ts(),
         committed,
@@ -540,7 +536,9 @@ fn test_closes_reach_the_step_through_the_pipeline() -> TestResult {
     let request =
         ultragraphdb_transactions_commit::CloseRequest::new(500, 250).context("setting")?;
     let mut pipe = pipe.with_partition(4, Epoch::new(9).context("epoch")?, request, &[]);
-    commit_insert(&mut pipe, &applier, 1, "p")?;
+    let mut through = begin(&applier)?;
+    write(&mut through, vec![insert("p", "knows", "b")])?;
+    pipe.commit(1, prepare_in(through, 0x07_u128 << 120, 1)?, 0)?;
     block_on(pipe.sync(0)).context("synced")?;
     pipe.close(crate::utils::fixture::close(10, Vec::new(), Vec::new())?, 0)?;
     assert_eq!(pipe.step().delivered(), Epoch::new(10)?);

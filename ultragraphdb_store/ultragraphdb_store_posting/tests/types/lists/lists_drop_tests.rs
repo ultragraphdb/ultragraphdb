@@ -8,7 +8,7 @@ use std::sync::PoisonError;
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_store_posting::{BIT_SCHEMA_POSTING, PostingError, PostingErrorEnum};
 use ultragraphdb_store_sim::{DropStage, Fault};
-use ultragraphdb_tool_bdd::TestResult;
+use ultragraphdb_tool_bdd::{TestError, TestResult};
 use ultragraphdb_traits_store::{Entry, Store};
 
 use crate::utils::helpers::{Failure, commit, commit_edges, key, new_lists, rids, set_uid, uids};
@@ -114,6 +114,45 @@ fn test_a_drop_of_everything_at_the_next_version_holds_reads_above_the_watermark
     assert_eq!(lists.epoch(), epoch + 1);
     assert!(lists.try_gate(ts)?);
     assert_eq!(lists.applied_ts(), ts);
+    Ok(())
+}
+
+/// The store's synced write of a discard holds no lock of the lists: a read, a request and a pin finish while it runs, the pin
+/// below the bound asked refused though the store has not moved yet. A write that lock held up would time out here.
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test's subject is a read on a thread beside the one a store's sync holds"
+)]
+fn test_a_read_finishes_while_the_store_syncs_a_discard() -> TestResult {
+    let patience = std::time::Duration::from_secs(10);
+    let (lists, probe) = crate::utils::helpers::probe_lists();
+    let k = key("discard", 1);
+    crate::utils::helpers::commit_at(&*lists, &k, &[set_uid(1)], 2)?;
+    crate::utils::helpers::commit_at(&*lists, &k, &[set_uid(2)], 4)?;
+    let (entered, syncing) = std::sync::mpsc::channel();
+    let (finished, released) = std::sync::mpsc::channel();
+    probe.on_next_discard(Box::new(move || -> TestResult {
+        entered.send(())?;
+        released
+            .recv_timeout(patience)
+            .map_err(|e| TestError::new(format!("a read waited for the sync: {e}")))
+    }));
+    assert!(lists.store().discard_ts() < 4);
+    std::thread::scope(|scope| -> TestResult {
+        let sync = scope.spawn(|| lists.set_discard_ts(4));
+        syncing.recv_timeout(patience)?;
+        assert_eq!(uids(&lists.read(&k, 4)?, 4, 0)?, rids(&[1, 2]));
+        drop(lists.request(4));
+        assert_eq!(lists.oldest_open_read(), None);
+        assert_eq!(lists.pin(2).err(), Some(PostingError::ts_too_old()));
+        assert!(lists.store().discard_ts() < 4, "the store has not moved");
+        finished.send(())?;
+        sync.join()
+            .map_err(|_| TestError::new("the discard's thread panicked"))??;
+        Ok(())
+    })?;
+    assert_eq!(lists.store().discard_ts(), 4);
     Ok(())
 }
 

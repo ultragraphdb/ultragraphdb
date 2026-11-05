@@ -6,4 +6,5 @@
 mod transaction_partition_tests;
 mod transaction_release_tests;
 mod transaction_scan_tests;
+mod transaction_statements_tests;
 mod transaction_tests;

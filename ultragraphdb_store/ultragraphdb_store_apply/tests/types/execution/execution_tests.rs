@@ -9,15 +9,16 @@
 use std::num::NonZeroUsize;
 use std::ops::ControlFlow;
 
-use oxrdf::{GraphName, Term};
+use oxrdf::{GraphName, NamedNode, Term};
 use ultragraphdb_core_keys::{DEFAULT_GRAPH, Keyspace, QuadKey};
+use ultragraphdb_core_mapping::{Change, StatementRef};
 use ultragraphdb_store_apply::ChangesetErrorEnum;
-use ultragraphdb_store_quads::{KernelRow, KernelScan, PageEnd, QuadErrorEnum};
+use ultragraphdb_store_quads::{KernelRow, KernelScan, Page, PageEnd, QuadErrorEnum};
 
 use crate::utils::changesets::{
     TENANT, TestChangesets, changeset, changesets, delete, ex, insert, uid,
 };
-use ultragraphdb_tool_bdd::{Context, TestResult};
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 fn read(
     execution: &mut ultragraphdb_store_apply::Execution<
@@ -540,5 +541,180 @@ fn test_a_page_of_a_keyspace_holding_no_lists_is_refused_recording_nothing() -> 
     );
     assert!(corrupted, "{refused:?}");
     assert_eq!(execution.scanned_ranges(), Vec::new());
+    Ok(())
+}
+
+/// Keys with their stored values, in key order.
+type Values = Vec<(Vec<u8>, Vec<u8>)>;
+
+/// What `execution` reads of the statements, each key's value, and how the page ended.
+fn statements_read(
+    execution: &mut TestExecution<'_>,
+    scan: &KernelScan,
+) -> TestResult<(Values, Page)> {
+    let mut read = Vec::new();
+    let page = execution
+        .values_page(scan, |key, value| {
+            read.push((key.to_vec(), value.to_vec()));
+            ControlFlow::Continue(())
+        })
+        .context("the read")?;
+    Ok((read, page))
+}
+
+/// The record of the one statement ID of `<a> <knows> <b>` at the watermark, its key and stored bytes.
+fn stored_statement(a: &TestChangesets) -> TestResult<(Vec<u8>, Vec<u8>)> {
+    let id = *crate::utils::changesets::postings(a, "a", "knows")?
+        .first()
+        .context("a posting")?
+        .1
+        .first()
+        .context("a statement ID")?;
+    let version = a.quads().lists().applied_ts();
+    let record = a
+        .quads()
+        .statement(TENANT, DEFAULT_GRAPH, id, version)?
+        .context("a record")?;
+    let key = QuadKey::Statement {
+        tenant: TENANT,
+        graph: DEFAULT_GRAPH,
+        statement: id,
+    }
+    .to_bytes();
+    Ok((key, record.encode()))
+}
+
+/// The statement of `<a> <knows> <b>`, named by its reifier.
+fn reifier_of_a(a: &TestChangesets) -> TestResult<StatementRef> {
+    let id = *crate::utils::changesets::postings(a, "a", "knows")?
+        .first()
+        .context("a posting")?
+        .1
+        .first()
+        .context("a statement ID")?;
+    Ok(StatementRef::Reifier {
+        graph: GraphName::DefaultGraph,
+        reifier: NamedNode::new(a.quads().iri_of(TENANT, id)?.0)?,
+    })
+}
+
+/// A read of the statements over an execution's writes: its own property over the stored bytes, a removal absent, a statement of
+/// its own found, and its span a range scanned.
+#[test]
+fn test_a_page_of_the_statements_sees_the_execution_s_own_records() -> TestResult {
+    let a = changesets()?;
+    crate::utils::changesets::write_changes(
+        &a,
+        vec![
+            crate::utils::changesets::insert_edge("<a> <knows> <b>", &[("since", "2020")])?,
+            crate::utils::changesets::insert_edge("<c> <knows> <d>", &[("since", "2021")])?,
+        ],
+    )?;
+    let read_ts = a.quads().lists().applied_ts();
+    let (key, stored) = stored_statement(&a)?;
+    let scan = KernelScan::new(
+        Keyspace::Statements,
+        TENANT,
+        Vec::new(),
+        read_ts,
+        NonZeroUsize::new(16).context("a limit")?,
+    );
+    let mut execution = a.begin(TENANT, read_ts)?;
+    let (before, page) = statements_read(&mut execution, &scan)?;
+    assert_eq!(before.len(), 2);
+    assert!(before.contains(&(key.clone(), stored.clone())));
+    assert_eq!(page.end(), &PageEnd::Exhausted);
+    let (start, end) = scan.bounds();
+    assert_eq!(execution.scanned_ranges(), vec![(start, end)]);
+    let statement = reifier_of_a(&a)?;
+    execution.apply(&changeset(vec![
+        Change::SetProperty {
+            statement: statement.clone(),
+            predicate: ex("until"),
+            value: crate::utils::changesets::term("2030")?,
+        },
+        Change::DeleteProperty {
+            statement,
+            predicate: ex("since"),
+            value: None,
+        },
+    ]))?;
+    let (over, _page) = statements_read(&mut execution, &scan)?;
+    let mine = over
+        .iter()
+        .find(|(k, _)| *k == key)
+        .context("the statement's record")?;
+    assert_ne!(mine.1, stored, "its own record over the stored bytes");
+    let decoded = ultragraphdb_store_quads::StatementRecord::decode(&key, &mine.1)?;
+    let until = execution
+        .find_iri(ex("until").as_ref())?
+        .context("the property's ID")?;
+    assert_eq!(
+        decoded
+            .properties()
+            .iter()
+            .map(|(p, _)| *p)
+            .collect::<Vec<_>>(),
+        vec![until],
+        "its own property, the one it removed gone"
+    );
+    assert_eq!(over.len(), 2);
+    execution.apply(&changeset(vec![crate::utils::changesets::insert_edge(
+        "<e> <knows> <f>",
+        &[("since", "2022")],
+    )?]))?;
+    assert_eq!(statements_read(&mut execution, &scan)?.0.len(), 3);
+    Ok(())
+}
+
+/// Stopped at its limit a read's span reaches just past the last key it gave; paused having given nothing it records nothing; and a
+/// keyspace of lists is refused, recording nothing.
+#[test]
+fn test_a_page_of_the_statements_records_what_it_covered() -> TestResult {
+    let a = changesets()?;
+    crate::utils::changesets::write_changes(
+        &a,
+        vec![
+            crate::utils::changesets::insert_edge("<a> <knows> <b>", &[("since", "2020")])?,
+            crate::utils::changesets::insert_edge("<c> <knows> <d>", &[("since", "2021")])?,
+        ],
+    )?;
+    let read_ts = a.quads().lists().applied_ts();
+    let limited = |limit| -> TestResult<KernelScan> {
+        Ok(KernelScan::new(
+            Keyspace::Statements,
+            TENANT,
+            Vec::new(),
+            read_ts,
+            NonZeroUsize::new(limit).context("a limit")?,
+        ))
+    };
+    let mut paused = a.begin(TENANT, read_ts)?;
+    let scan = limited(16)?;
+    let nothing = paused.values_page(&scan, |_, _| ControlFlow::Break(()))?;
+    assert_eq!(nothing.rows(), 0);
+    assert!(paused.scanned_ranges().is_empty());
+    let lists = KernelScan::new(
+        Keyspace::Forward,
+        TENANT,
+        Vec::new(),
+        read_ts,
+        NonZeroUsize::MIN,
+    );
+    assert!(
+        paused
+            .values_page(&lists, |_, _| ControlFlow::Continue(()))
+            .is_err()
+    );
+    assert!(paused.scanned_ranges().is_empty());
+    let mut stopped = a.begin(TENANT, read_ts)?;
+    let (read, page) = statements_read(&mut stopped, &limited(1)?)?;
+    let [(key, _)] = read.as_slice() else {
+        return Err(TestError::new("one record"));
+    };
+    assert_eq!(page.end(), &PageEnd::Stopped { last: key.clone() });
+    let (start, _) = limited(1)?.bounds();
+    let past = [key.as_slice(), &[0]].concat();
+    assert_eq!(stopped.scanned_ranges(), vec![(start, Some(past))]);
     Ok(())
 }

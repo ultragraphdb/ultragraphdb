@@ -70,10 +70,6 @@ Feature: Catalog changes, rebuilds and drops
     When everything in tenant 3 is dropped and the roles are restarted
     Then tenant 3 holds no quad key, and the metadata group holds its initial catalog
 
-  Scenario: Dropping everything leaves the initial catalog
-    When everything is dropped
-    Then no partition holds a quad key, and the metadata group holds the root tenant's initial catalog alone
-
   Scenario: Dropping a tenant's data leaves no split part
     When a tenant whose lists are split has its data dropped
     Then no key of any quad keyspace of the tenant remains, split or not, and its catalog is unchanged

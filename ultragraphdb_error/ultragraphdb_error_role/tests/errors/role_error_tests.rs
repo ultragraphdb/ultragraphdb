@@ -32,3 +32,20 @@ fn test_each_stop_has_its_code_and_its_words() {
     assert_eq!(software.exit_code(), RoleError::EX_SOFTWARE);
     assert!(software.to_string().contains("an invariant"));
 }
+
+/// A binary's help lists every code a [`RoleError`] exits with, and the clean one.
+#[test]
+fn test_the_help_lists_every_code() {
+    let listed: Vec<&str> = RoleError::EXIT_CODES
+        .lines()
+        .filter_map(|line| line.split_whitespace().next())
+        .collect();
+    let expected = [
+        "0".to_string(),
+        RoleError::EX_UNAVAILABLE.to_string(),
+        RoleError::EX_SOFTWARE.to_string(),
+        RoleError::EX_IOERR.to_string(),
+        RoleError::EX_CONFIG.to_string(),
+    ];
+    assert_eq!(listed, expected);
+}

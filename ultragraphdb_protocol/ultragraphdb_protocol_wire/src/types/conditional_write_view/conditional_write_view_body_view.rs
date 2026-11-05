@@ -22,7 +22,7 @@ impl<'a> BodyView<'a> for ConditionalWriteView<'a> {
 
     type Body = ConditionalWrite;
 
-    /// Checks, in `PROTOCOL.md` §6.7's order: unused bytes 56–127 zero; `request` at least 1 with a session, 0 with
+    /// Checks, in `PROTOCOL.md` §6.7's order: unused bytes 64–127 zero; `request` at least 1 with a session, 0 with
     /// none; the token; the
     /// sections; the term table; the names, holding none; the args a whole number of u32s; section 6 a whole number of operations and
     /// not empty; the records, a declaration refused; the operations, which with the records consume the args exactly.

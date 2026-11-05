@@ -56,10 +56,17 @@ fn test_a_table_holds_at_least_one_session_and_accounts_64_bytes_each() -> TestR
 #[test]
 fn test_a_session_the_table_does_not_hold_commits_there_first() -> TestResult {
     let table = Sessions::new(4);
-    assert_eq!(table.check(0, 0,), Ok(None), "no session");
-    assert_eq!(table.check(WIDE, 1), Ok(None));
+    assert_eq!(table.check(0, 0), Ok(()), "no session");
+    assert_eq!(table.check_one_frame(0, 0), Ok(None), "no session");
+    assert_eq!(table.check_one_frame(WIDE, 1), Ok(None));
+    assert_eq!(table.check(WIDE, 1), Ok(()));
     assert_eq!(
         table.check(WIDE, 9),
+        Ok(()),
+        "any number: gaps are accepted"
+    );
+    assert_eq!(
+        table.check_one_frame(WIDE, 9),
         Ok(None),
         "any number: gaps are accepted"
     );
@@ -67,30 +74,54 @@ fn test_a_session_the_table_does_not_hold_commits_there_first() -> TestResult {
 }
 
 #[test]
-fn test_a_check_follows_the_lean_models_order() -> TestResult {
+fn test_a_one_frame_check_follows_the_lean_models_order() -> TestResult {
     let mut table = Sessions::new(4);
     table.begin(WIDE);
     assert_eq!(
-        table.check(WIDE, 1),
+        table.check_one_frame(WIDE, 1),
         Err(CommitError::session_busy(WIDE)),
         "a request decided and not yet applied comes first"
     );
     table.committed(WIDE, 3, reply(40, 2)?);
     assert_eq!(table.last(WIDE), Some((3, 40)));
-    // A retry of the last before a number out of order.
+    // A resend of the last before a number out of order.
     assert_eq!(
-        table.check(WIDE, 3)?.map(StoredReply::version),
+        table.check_one_frame(WIDE, 3)?.map(StoredReply::version),
         Some(40),
         "the stored reply"
     );
     assert_eq!(
-        table.check(WIDE, 2),
+        table.check_one_frame(WIDE, 2),
         Err(CommitError::request_out_of_order(3))
     );
-    assert_eq!(table.check(WIDE, 4), Ok(None));
+    assert_eq!(table.check_one_frame(WIDE, 4), Ok(None));
+    assert_eq!(
+        table.check_one_frame(WIDE, 7),
+        Ok(None),
+        "a gap left by other partitions"
+    );
+    Ok(())
+}
+
+/// A Commit on an open transaction never reads a stored reply: at or below the last it is refused naming the last, above
+/// it taken, and while a request is in flight busy comes first.
+#[test]
+fn test_a_commit_on_an_open_transaction_refuses_a_reused_number() -> TestResult {
+    let mut table = Sessions::new(4);
+    table.begin(WIDE);
+    assert_eq!(
+        table.check(WIDE, 3),
+        Err(CommitError::session_busy(WIDE)),
+        "a request decided and not yet applied comes first"
+    );
+    table.committed(WIDE, 3, reply(40, 2)?);
+    let reused = CommitError::request_out_of_order(3);
+    assert_eq!(table.check(WIDE, 3), Err(reused.clone()), "the last");
+    assert_eq!(table.check(WIDE, 2), Err(reused), "below the last");
+    assert_eq!(table.check(WIDE, 4), Ok(()), "one above the last");
     assert_eq!(
         table.check(WIDE, 7),
-        Ok(None),
+        Ok(()),
         "a gap left by other partitions"
     );
     Ok(())
@@ -102,7 +133,7 @@ fn test_a_session_differing_only_in_its_high_bits_is_another() -> TestResult {
     table.committed(WIDE, 5, reply(40, 1)?);
     let low_half = WIDE & u128::from(u64::MAX);
     assert_eq!(table.last(low_half), None);
-    assert_eq!(table.check(low_half, 1), Ok(None));
+    assert_eq!(table.check(low_half, 1), Ok(()));
     Ok(())
 }
 
@@ -112,12 +143,13 @@ fn test_a_full_table_refuses_a_session_it_does_not_hold_and_serves_its_own() -> 
     table.committed(1, 1, reply(40, 1)?);
     table.committed(2, 1, reply(42, 1)?);
     assert_eq!(table.check(3, 1), Err(CommitError::busy(2)));
-    assert_eq!(table.check(1, 2), Ok(None));
+    assert_eq!(table.check_one_frame(3, 1), Err(CommitError::busy(2)));
+    assert_eq!(table.check(1, 2), Ok(()));
     // Below the capacity, a new session is taken.
     let mut room = Sessions::new(3);
     room.committed(1, 1, reply(40, 1)?);
     room.committed(2, 1, reply(42, 1)?);
-    assert_eq!(room.check(3, 1), Ok(None));
+    assert_eq!(room.check(3, 1), Ok(()));
     Ok(())
 }
 
@@ -131,7 +163,7 @@ fn test_a_purge_removes_the_evicted_sessions_held_and_skips_the_others() -> Test
     assert_eq!(table.last(2), None);
     assert_eq!(table.last(1), Some((1, 40)));
     // A purged session is unknown again; the registry's owner check keeps an evicted one from reaching here.
-    assert_eq!(table.check(2, 1), Ok(None));
+    assert_eq!(table.check(2, 1), Ok(()));
     table.purge(&[]);
     assert_eq!(table.len(), 1);
     Ok(())
@@ -164,7 +196,7 @@ fn test_a_commit_clears_its_sessions_request_in_flight() -> TestResult {
     table.begin(5);
     table.begin(6);
     table.committed(5, 1, reply(40, 1)?);
-    assert_eq!(table.check(5, 2), Ok(None));
+    assert_eq!(table.check(5, 2), Ok(()));
     assert_eq!(table.check(6, 1), Err(CommitError::session_busy(6)));
     Ok(())
 }
@@ -262,7 +294,7 @@ fn test_a_table_loads_as_its_entries_left_it() -> TestResult {
     write(&store, &drained(&mut table))?;
     let mut loaded = Sessions::load(&store).context("the table loads")?;
     assert_eq!(loaded.len(), 2);
-    assert_eq!(loaded.check(10, 3), Ok(Some(&named)));
+    assert_eq!(loaded.check_one_frame(10, 3), Ok(Some(&named)));
     assert_eq!(loaded.last(WIDE), Some((1, 50)));
     assert!(drained(&mut loaded).is_empty(), "loading changes nothing");
     // Bounded below what it holds: none is evicted, and no new session is taken.

@@ -6,6 +6,8 @@
 //! What the tests share: a store directory under `TEST_TMPDIR`, removed when the test ends, and short ways to write
 //! and read.
 
+use std::path::Path;
+
 use fjall::{Database, KeyspaceCreateOptions};
 use ultragraphdb_store_kv::{DATA_KEYSPACE, FjallStore};
 use ultragraphdb_tool_bdd::{Context, TestResult};
@@ -97,9 +99,16 @@ pub fn write_raw(dir: &TestDir, key: &[u8], version: u64, value: &[u8]) -> TestR
 ///
 /// A [`TestError`](ultragraphdb_tool_bdd::TestError) when fjall fails to open, write or persist.
 pub fn write_raw_in(dir: &TestDir, keyspace: &str, key: &[u8], value: &[u8]) -> TestResult {
-    let db = Database::builder(dir.path())
-        .open()
-        .context("fjall opens")?;
+    write_raw_at(dir.path(), keyspace, key, value)
+}
+
+/// [`write_raw_in`] on the store at `path`, closed.
+///
+/// # Errors
+///
+/// A [`TestError`](ultragraphdb_tool_bdd::TestError) when fjall refuses to open or write.
+pub fn write_raw_at(path: &Path, keyspace: &str, key: &[u8], value: &[u8]) -> TestResult {
+    let db = Database::builder(path).open().context("fjall opens")?;
     let ks = db
         .keyspace(keyspace, KeyspaceCreateOptions::default)
         .context("the keyspace opens")?;

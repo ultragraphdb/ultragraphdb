@@ -66,22 +66,25 @@ pub(crate) fn read(
 }
 
 /// The token at `at` of a Commit's or a Drop's `header`, read as [`read`] reads it, then held to its reply rule
-/// (`PROTOCOL.md` §6.3, §6.5): none in a request, `commit_version` 0; in a reply a token of epoch
-/// `commit_version >> 22`, refused as [`ProtocolError::field_value`] (`"token"`) with the token's epoch, 0 for none.
+/// (`PROTOCOL.md` §6.3, §6.5): none in a request, `commit_version` 0; in a reply through `session`, a token of epoch
+/// `commit_version >> 22`; in a reply through no session, `session` all zero, none. Refused as
+/// [`ProtocolError::field_value`] (`"token"`) with the token's epoch, 0 for none.
 pub(crate) fn commit_token(
     command: u16,
     header: CommandHeader<'_>,
     at: usize,
     commit_version: u64,
+    session: [u8; 16],
 ) -> Result<Option<SessionToken>, ProtocolError> {
     let token = read(command, header, at)?;
     let epoch = token.as_ref().map_or(0, |t| t.epoch().get());
-    let expected = if commit_version == 0 {
-        0
-    } else {
+    let expects_token = commit_version != 0 && session != [0; 16];
+    let expected = if expects_token {
         commit_version >> 22
+    } else {
+        0
     };
-    if epoch != expected || (commit_version != 0 && token.is_none()) {
+    if epoch != expected || (expects_token && token.is_none()) {
         return Err(ProtocolError::field_value(command, "token", epoch));
     }
     Ok(token)

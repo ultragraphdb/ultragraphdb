@@ -4,4 +4,6 @@
  */
 
 #[cfg(test)]
+mod finish_open_tests;
+#[cfg(test)]
 mod serve_tests;

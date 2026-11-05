@@ -25,8 +25,8 @@ impl<'a> BodyView<'a> for CommitView<'a> {
     type Body = Commit;
 
     /// Checks, in `PROTOCOL.md` §6.3's order: unused bytes 56–127 zero; `request` at least 1 with a session, 0 with none;
-    /// the token, zero in a request (`commit_version` 0) and in a reply a token of epoch `commit_version >> 22`; the
-    /// sections; the term table, every entry an IRI; in a request, every section empty; the results.
+    /// the token, zero in a request (`commit_version` 0), in a reply through a session a token of epoch
+    /// `commit_version >> 22` and in a reply through no session zero; the sections; the term table, every entry an IRI; in a request, every section empty; the results.
     fn from_frame(frame: &FrameView<'a>) -> Result<Self, ProtocolError> {
         let command = Self::COMMAND.number();
         let header = expect_command(frame, Self::COMMAND)?;
@@ -34,7 +34,7 @@ impl<'a> BodyView<'a> for CommitView<'a> {
         let session = identity(header.0, 0);
         let request = session_request(command, session, header.u64_at(16))?;
         let commit_version = header.u64_at(24);
-        let token = token::commit_token(command, header, 32, commit_version)?;
+        let token = token::commit_token(command, header, 32, commit_version, session)?;
         let reply = commit_version != 0;
         let sections = Sections::<3>::read(command, frame.body(), 0)?;
         let nodes = TermTableView::read(

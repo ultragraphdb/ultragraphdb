@@ -27,15 +27,6 @@ use crate::types::client_core::client_core_conformance_tests::{
 use crate::utils::harness::{CLUSTER, RELEASE, UNIX, begun, frame_through, start};
 use ultragraphdb_tool_bdd::{Context as _, TestResult};
 
-/// `frame` without its last flag: bit 0 of the header's `flags`, byte 65, the checksum recomputed with xxhash-rust.
-fn not_last(frame: &[u8]) -> Vec<u8> {
-    let mut frame = frame.to_vec();
-    frame[65] &= !1;
-    let checksum = xxhash_rust::xxh3::xxh3_64(&frame[8..256]);
-    frame[..8].copy_from_slice(&checksum.to_le_bytes());
-    frame
-}
-
 /// A core welcomed by the golden Welcome, its connection's framer, and the frames the server sent.
 struct Conn {
     core: ClientCore<Anonymous>,
@@ -92,7 +83,7 @@ impl Conn {
     fn begin(&mut self, read_only: bool) -> TestResult<Transaction> {
         let p = self.core.begin(0, read_only, start())?;
         let stream = self.stream()?;
-        let frame = Begin::new(0, if read_only { 5 } else { 0 }, read_only)
+        let frame = Begin::new(0, if read_only { 6 } else { 0 }, read_only)
             .frame(Header::new(CLUSTER, Command::Begin).with_stream(stream))?;
         self.deliver(&frame)??;
         begun(self.core.take_reply(p).context("an answer")?)
@@ -118,12 +109,8 @@ impl Conn {
 
     /// The golden Result on `stream`: flagged last, or not.
     fn result(&mut self, stream: &ResultStream, last: bool) -> TestResult {
-        let golden_result = restream(&golden("result")?, stream.stream());
-        let frame = if last {
-            golden_result
-        } else {
-            not_last(&golden_result)
-        };
+        let name = if last { "result" } else { "result_more" };
+        let frame = restream(&golden(name)?, stream.stream());
         self.deliver(&frame)?.context("the result taken")
     }
 
@@ -378,7 +365,7 @@ fn test_a_kept_read_ending_in_a_broken_frame_answers_its_rule_after_the_loss() -
     let tx = c.begin(true)?;
     let stream = c.read(&tx)?;
     // A Begin's body on the read's stream, flagged last: no Result.
-    let broken = Begin::new(0, 5, true).frame(
+    let broken = Begin::new(0, 6, true).frame(
         Header::new(CLUSTER, Command::Begin)
             .with_stream(stream.stream())
             .with_flags(ultragraphdb_protocol_wire::FLAG_LAST),

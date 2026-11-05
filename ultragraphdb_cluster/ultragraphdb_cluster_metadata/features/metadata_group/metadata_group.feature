@@ -35,6 +35,10 @@ Feature: The metadata group
       When a client offers version 4 built on version 2 while version 3 is current
       Then the offer is refused with an error naming versions 2 and 3, and version 3 stays current
 
+    Scenario: A catalog version at its cap travels in one Catalog frame
+      When a catalog version of 523,000 bytes is committed, and a storage process at the floor of `max_frame` reads it with Catalog
+      Then one Catalog frame holds its whole bytes
+
   Rule: The metadata group leases sequence blocks
 
     Scenario: Blocks never overlap

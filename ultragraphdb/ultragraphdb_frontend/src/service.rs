@@ -4,6 +4,7 @@
  */
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use compio::runtime::spawn;
 use ultragraphdb_cluster_metadata::MetadataConfig;
@@ -12,7 +13,8 @@ use ultragraphdb_common_frontend::{
     AskedCredentials, ClientSession, OwnerHandle, OwnerStart, RoleSession, RoleShared, start_owner,
 };
 use ultragraphdb_common_role::{
-    ROLE_ITERATIONS, RoleCluster, RoleCredentials, Server, listen, serve_connection,
+    OpenRequests, ROLE_ITERATIONS, RoleCluster, RoleCredentials, Server, finish_open, listen,
+    serve_connection,
 };
 use ultragraphdb_common_service::{Readiness, RoleStart, Stopping};
 use ultragraphdb_common_service_config::{EndpointSecurity, ServiceConfig};
@@ -21,11 +23,14 @@ use ultragraphdb_protocol_transport::Endpoint;
 use ultragraphdb_protocol_transport_compio::Listener;
 
 /// How often the role looks at whether its owner stopped or the service was told to.
-const OWNER_POLL: std::time::Duration = std::time::Duration::from_millis(20);
+const OWNER_POLL: Duration = Duration::from_millis(20);
+
+/// How long a stop waits on the open requests: within the 60 s a stopping role has, so a peer reading no answer costs no failure.
+const FINISH_LIMIT: Duration = Duration::from_secs(50);
 
 /// The frontend role: it recovers its owner, then listens at `[frontend] role_address` for the roles joining and at
 /// `[endpoint] address`, when set, for clients. It is ready once it has connected back to a partition, and runs until
-/// its owner stops.
+/// its owner stops or the service does, when it stops accepting connections and finishes its open requests.
 ///
 /// # Errors
 ///
@@ -52,16 +57,17 @@ pub(crate) async fn frontend_role(
     )
     .await?;
     let (handle, mut stopped) = owner.into_parts();
-    let roles =
-        Server::new(cluster.id(), "frontend", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
+    let open = OpenRequests::new(stopping.clone());
+    let roles = Server::new(cluster.id(), "frontend", Endpoint::Frontend)?
+        .with_iterations(ROLE_ITERATIONS)
+        .with_open(open.clone());
     let shared = RoleShared::new(cluster.clone(), handle.clone(), readiness);
-    spawn(accept_roles(
+    let mut accepting = vec![spawn(accept_roles(
         listen(role_address).await?,
         roles,
         credentials,
         shared,
-    ))
-    .detach();
+    ))];
     if let Some(address) = config.endpoint().address() {
         match config
             .endpoint()
@@ -75,10 +81,15 @@ pub(crate) async fn frontend_role(
                 ));
             }
         }
-        let clients = Server::new(cluster.id(), "frontend", Endpoint::Client)?;
-        spawn(accept_clients(listen(address).await?, clients, handle)).detach();
+        let clients =
+            Server::new(cluster.id(), "frontend", Endpoint::Client)?.with_open(open.clone());
+        accepting.push(spawn(accept_clients(
+            listen(address).await?,
+            clients,
+            handle,
+        )));
     }
-    // What the owner made durable it answered for, so a stop leaves nothing to flush.
+    // What the owner made durable it answered for, so a stop leaves nothing to flush but the answers on their way.
     while !stopping.is_stopping() {
         match stopped.try_recv() {
             Ok(Some(outcome)) => return outcome,
@@ -90,6 +101,7 @@ pub(crate) async fn frontend_role(
             }
         }
     }
+    let _left = finish_open(accepting, &open, FINISH_LIMIT).await;
     Ok(())
 }
 

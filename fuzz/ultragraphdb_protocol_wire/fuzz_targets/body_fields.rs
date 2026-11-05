@@ -23,11 +23,11 @@ use ultragraphdb_protocol_wire::{
     CommitOperation, CommitView, ConditionalWrite, ConditionalWriteView, Credit, CreditView,
     DirectWrite, DirectWriteView, Direction, DropCommand, DropCommandView, Entries, EntriesEnd,
     EntriesView, ErrorCode, ErrorReply, ErrorReplyView, Execute, ExecuteView, FrameView, Header,
-    Hello, HelloView, Link, MAX_EPOCH, MAX_FRAME_FLOOR, MAX_FRAME_SIZE, Operation, OperationResult,
-    OperationView, PatternSlot, Prepare, PrepareView, QuadPattern, Read, ReadView, RequestTerm,
-    ResultBatch, ResultTerm, ResultView, RoundBody, RoundView, Scan, ScanAt, ScanRange, ScanView,
-    StatementTarget, TermTable, Welcome, WelcomeView, Write, WriteChange, WriteSetRecord,
-    WriteView,
+    Hello, HelloView, Install, InstallView, Language, Link, MAX_EPOCH, MAX_FRAME_FLOOR,
+    MAX_FRAME_SIZE, Operation, OperationResult, OperationView, PatternSlot, Prepare, PrepareView,
+    QuadPattern, Query, QueryView, Read, ReadView, RequestTerm, ResultBatch, ResultTerm,
+    ResultView, RoundBody, RoundView, Scan, ScanAt, ScanRange, ScanView, StatementTarget,
+    TermTable, Welcome, WelcomeView, Write, WriteChange, WriteSetRecord, WriteView,
 };
 
 const CLUSTER: u64 = 0x0123_4567_89AB_CDEF;
@@ -169,15 +169,33 @@ enum Body {
         transaction: Option<[u8; 16]>,
         limit: u32,
         deadline_ms: u32,
-        ranges: Vec<(u32, Vec<u8>, Vec<u8>)>,
+        ranges: Vec<(u32, Vec<u8>, Vec<u8>, Vec<u8>)>,
         iris: Vec<String>,
     },
     Entries {
         range: u32,
+        /// Past `range` for a run, which ends every range.
+        run: u16,
         end: u8,
         continues: bool,
         epoch: u64,
+        version: u64,
         entries: Vec<(Vec<u8>, Vec<u8>)>,
+    },
+    Query {
+        transaction: u64,
+        sparql: bool,
+        limit: u32,
+        text: String,
+        parameters: Vec<(String, u16)>,
+        resume: Vec<u8>,
+    },
+    Install {
+        tenant: u64,
+        version: u64,
+        sources: Vec<(String, String)>,
+        /// A reply's version, the epoch it takes effect at and its report.
+        answered: Option<(u64, u64, String)>,
     },
 }
 
@@ -406,7 +424,7 @@ fn scan(
     transaction: [u8; 16],
     limit: u32,
     deadline_ms: u32,
-    ranges: &[(u32, Vec<u8>, Vec<u8>)],
+    ranges: &[(u32, Vec<u8>, Vec<u8>, Vec<u8>)],
     iris: &[String],
 ) -> Option<Scan> {
     let named = transaction != [0; 16];
@@ -416,7 +434,8 @@ fn scan(
         ScanAt::from_number(1 + at % 4)?
     };
     let read_version = if matches!(at, ScanAt::ReadVersion | ScanAt::Named) {
-        read_version
+        // A version: its sequence even.
+        read_version & !1
     } else {
         0
     };
@@ -428,7 +447,7 @@ fn scan(
     let deadline_ms = if epoch == 0 { 0 } else { deadline_ms };
     let kept: Vec<_> = ranges
         .iter()
-        .filter(|(_, first, past)| !first.is_empty() && (past.is_empty() || past > first))
+        .filter(|(_, first, past, _)| !first.is_empty() && (past.is_empty() || past > first))
         .collect();
     let first_partition = kept.first()?.0.max(1);
     let mut table = TermTable::new();
@@ -447,23 +466,24 @@ fn scan(
         deadline_ms,
     )
     .with_terms(table);
-    for (partition, first, past) in kept {
+    for (partition, first, past, after) in kept {
         let partition = if named {
             first_partition
         } else {
             (*partition).max(1)
         };
-        built.push_range(ScanRange::new(partition, first, past));
+        built.push_range(ScanRange::new(partition, first, past).with_after(after));
     }
     Some(built)
 }
 
-/// The Entries the fields make: their keys ascending and each once, a batch that continues having `end` 0 and an entry.
+/// The Entries the fields make: their keys ascending and each once, a batch that continues having `end` 0 and an entry, a
+/// run ending every range, its `version` a version.
 fn entries_of(
-    range: u32,
+    (range, run): (u32, u16),
     end: u8,
     continues: bool,
-    epoch: u64,
+    (epoch, version): (u64, u64),
     entries: &[(Vec<u8>, Vec<u8>)],
 ) -> Option<Entries> {
     if continues && entries.is_empty() {
@@ -473,8 +493,14 @@ fn entries_of(
     let mut built = if continues {
         Entries::continuing(range, epoch)
     } else {
-        Entries::new(range, EntriesEnd::from_number(end % 3)?, epoch)
-    };
+        let end = if run == 0 {
+            EntriesEnd::from_number(end % 3)?
+        } else {
+            EntriesEnd::Ended
+        };
+        Entries::new(range, end, epoch).with_through(range.checked_add(run.into())?)
+    }
+    .with_version(version & !1);
     let mut sorted: Vec<_> = entries.iter().collect();
     sorted.sort_by(|a, b| a.0.cmp(&b.0));
     sorted.dedup_by(|a, b| a.0 == b.0);
@@ -609,7 +635,7 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
             let welcome = Welcome::new((*protocol).max(1), 0, name.clone())
                 .with_max_frame(floor + max_frame % (MAX_FRAME_SIZE as u32 - floor + 1))
                 .with_max_streams((*streams).max(1))
-                .with_initial_credit(*credit)
+                .with_initial_credit((*credit).max(1))
                 .with_max_write_set(*write_set)
                 .with_transaction_ms(*transaction_ms)
                 .with_mechanisms(mechanisms.iter().filter(|m| !m.is_empty()).cloned());
@@ -635,7 +661,10 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
             let (session, request) = session_of(*session, *request);
             let mut commit = Commit::new(session, request, *version);
             if *version != 0 {
-                commit = commit.with_token(token_of(*version, request)?);
+                // A reply through no session holds the zero token.
+                if session != [0; 16] {
+                    commit = commit.with_token(token_of(*version, request)?);
+                }
                 for (u, c) in results {
                     if *c {
                         commit.push_node_result(&format!("http://ex.org/n{u}"), true);
@@ -895,17 +924,16 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
             version,
         } => {
             let (session, request) = session_of(*session, *request);
-            let command = match kind % 5 {
+            let command = match kind % 4 {
                 0 => DropCommand::predicate(*tenant, target.clone()),
                 1 => DropCommand::graph(*tenant, target.clone()),
                 2 => DropCommand::tenant_data(*tenant),
-                3 => DropCommand::whole_tenant(*tenant),
-                _ => DropCommand::all(),
+                _ => DropCommand::whole_tenant(*tenant),
             }
             .with_session(session, request)
             .with_commit_version(*version);
-            // A reply names its commit version and that epoch's token (PROTOCOL.md 6.5).
-            let command = if *version == 0 {
+            // A reply names its commit version and, through a session, that epoch's token (PROTOCOL.md 6.5).
+            let command = if *version == 0 || session == [0; 16] {
                 command
             } else {
                 command.with_token(token_of(*version, request)?)
@@ -1050,18 +1078,81 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
         }
         Body::Entries {
             range,
+            run,
             end,
             continues,
             epoch,
+            version,
             entries,
         } => {
-            let built = entries_of(*range, *end, *continues, *epoch, entries)?;
+            let built = entries_of(
+                (*range, *run),
+                *end,
+                *continues,
+                (*epoch, *version),
+                entries,
+            )?;
             let frame = built.frame(header).ok()?;
             (
                 frame,
                 Box::new(move |f| {
                     assert_eq!(
                         EntriesView::from_frame(f).unwrap().to_body().unwrap(),
+                        built
+                    )
+                }),
+            )
+        }
+        Body::Query {
+            transaction,
+            sparql,
+            limit,
+            text,
+            parameters,
+            resume,
+        } => {
+            let language = if *sparql {
+                Language::Sparql
+            } else {
+                Language::Gql
+            };
+            let built = parameters.iter().fold(
+                Query::new(*transaction, language, text.clone(), terms)
+                    .with_limit(*limit)
+                    .with_resume(resume.clone()),
+                |query, (name, value)| query.with_parameter(name.clone(), u32::from(*value) % n),
+            );
+            let frame = built.frame(header).ok()?;
+            (
+                frame,
+                Box::new(move |f| {
+                    assert_eq!(QueryView::from_frame(f).unwrap().to_body().unwrap(), built)
+                }),
+            )
+        }
+        Body::Install {
+            tenant,
+            version,
+            sources,
+            answered,
+        } => {
+            // At least one source, each name within its bound.
+            if sources.is_empty() || sources.iter().any(|(name, _)| name.len() > 255) {
+                return None;
+            }
+            let request = Install::new(*tenant, *version, sources.clone());
+            let built = match answered {
+                Some((installed, epoch, report)) => {
+                    request.installed((*installed).max(1), 1 + epoch % MAX_EPOCH, report.clone())
+                }
+                None => request,
+            };
+            let frame = built.frame(header).ok()?;
+            (
+                frame,
+                Box::new(move |f| {
+                    assert_eq!(
+                        InstallView::from_frame(f).unwrap().to_body().unwrap(),
                         built
                     )
                 }),

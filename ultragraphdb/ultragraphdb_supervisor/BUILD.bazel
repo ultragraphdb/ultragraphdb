@@ -1,0 +1,16 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+load("@crates//:defs.bzl", "all_crate_deps")
+load("//bazel:binary.bzl", "static_binary")
+
+# No library: `main` and `service`, the start, the watch and the stop of what the development container runs.
+static_binary(
+    name = "ultragraphdb_supervisor",
+    srcs = glob(["src/**/*.rs"]),
+    tags = ["supervisor_binary"],
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(normal = True),
+)

@@ -4,6 +4,9 @@
  */
 
 use std::collections::BTreeSet;
+use std::fs::OpenOptions;
+use std::io::ErrorKind;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
@@ -68,6 +71,56 @@ impl Shared {
         view.banned = Arc::new(banned);
         self.publish_discard(&view);
         Ok(())
+    }
+
+    /// Writes the discard timestamp `ts` asks for, the one held if that is higher, under the writer lock and into the journal file,
+    /// synced by nobody yet: its place in the journal keeps it behind every batch it may discard from. What it wrote.
+    pub fn write_discard(&self, ts: u64) -> Result<u64, StoreError> {
+        let _writer = lock(&self.writer);
+        self.refuse_if_poisoned()?;
+        let asked = lock(&self.view).discard_ts.max(ts);
+        let mut batch = self.db.batch().durability(Some(fjall::PersistMode::Buffer));
+        batch.insert(&self.meta, DISCARD_KEY, asked.to_be_bytes().to_vec());
+        self.commit(batch)?;
+        Ok(asked)
+    }
+
+    /// The journal file with the highest number, the active one when listed. fjall names them `{number}.jnl` in the store's
+    /// directory (`fjall-3.1.12/src/journal/writer.rs:110`), one more reason fjall is pinned exactly; a store with no journal is one
+    /// fjall left in a layout this does not know, and syncing nothing would lie.
+    pub fn newest_journal(&self) -> Result<PathBuf, StoreError> {
+        let failed = |error| self.failed(fjall::Error::Io(error));
+        let mut newest: Option<(u64, PathBuf)> = None;
+        for entry in std::fs::read_dir(&self.path).map_err(failed)? {
+            let path = entry.map_err(failed)?.path();
+            let number = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .and_then(|name| name.strip_suffix(".jnl"))
+                .and_then(|number| number.parse::<u64>().ok());
+            if let Some(number) = number
+                && newest.as_ref().is_none_or(|(held, _)| number > *held)
+            {
+                newest = Some((number, path));
+            }
+        }
+        newest.map(|(_, path)| path).ok_or_else(|| {
+            StoreError::write_failed(format!("no journal in {}", self.path.display()))
+        })
+    }
+
+    /// Makes `journal`, listed after a record was written, durable, through a handle of its own: `Database::persist` holds fjall's
+    /// journal lock for its whole fsync (`fjall-3.1.12/src/journal/mod.rs:122`), which every commit takes, so that way a commit waits
+    /// for the sync and a partition's core with it. Fjall syncs a journal as it seals it, and only a sealed one is removed, so a
+    /// journal found gone holds nothing unsynced, and every journal older than `journal` was synced the same way.
+    pub fn sync_journal(&self, journal: &Path) -> Result<(), StoreError> {
+        match OpenOptions::new().append(true).open(journal) {
+            Ok(file) => file
+                .sync_all()
+                .map_err(|error| self.failed(fjall::Error::Io(error))),
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(self.failed(fjall::Error::Io(error))),
+        }
     }
 
     /// The drop in progress, if a crash or power loss interrupted one.

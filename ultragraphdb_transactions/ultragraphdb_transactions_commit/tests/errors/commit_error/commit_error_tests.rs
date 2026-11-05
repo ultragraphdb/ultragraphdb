@@ -37,6 +37,13 @@ fn test_each_constructor_builds_its_variant() -> TestResult {
             limit: 1_048_576
         }
     );
+    assert_eq!(
+        CommitError::reply_too_large(600_000, 524_288).0,
+        CommitErrorEnum::ReplyTooLarge {
+            size: 600_000,
+            limit: 524_288
+        }
+    );
     assert!(matches!(malformed()?.0, CommitErrorEnum::Malformed { .. }));
     assert_eq!(CommitError::unsealed().0, CommitErrorEnum::Unsealed);
     assert_eq!(CommitError::unavailable().0, CommitErrorEnum::Unavailable);
@@ -63,6 +70,11 @@ fn test_each_reason_has_its_code_and_detail() -> TestResult {
         CommitError::too_large(2_000_000, 1_048_576).detail(),
         1_048_576
     );
+    let reply = CommitError::reply_too_large(600_000, 524_288);
+    assert_eq!(reply.code(), ErrorCode::TooLarge);
+    assert_eq!(reply.detail(), 524_288);
+    assert_eq!(reply.found(), None);
+    assert!(reply.source().is_none());
     assert_eq!(malformed()?.code(), ErrorCode::Protocol);
     assert_eq!(malformed()?.detail(), 0);
     assert_eq!(CommitError::unsealed().code(), ErrorCode::Protocol);
@@ -79,6 +91,7 @@ fn test_only_a_conflict_and_too_old_are_retryable() -> TestResult {
     assert!(CommitError::conflict(ConflictKind::List).is_retryable());
     assert!(CommitError::too_old(4, 10).is_retryable());
     assert!(!CommitError::too_large(2_000_000, 1_048_576).is_retryable());
+    assert!(!CommitError::reply_too_large(600_000, 524_288).is_retryable());
     assert!(!malformed()?.is_retryable());
     assert!(!CommitError::unsealed().is_retryable());
     assert!(!CommitError::unavailable().is_retryable());
@@ -99,6 +112,10 @@ fn test_each_reason_displays_its_text() -> TestResult {
     assert_eq!(
         CommitError::too_large(2_000_000, 1_048_576).to_string(),
         "the write-set record of 2000000 bytes is over the largest a round holds, 1048576 bytes"
+    );
+    assert_eq!(
+        CommitError::reply_too_large(600_000, 524_288).to_string(),
+        "the Commit reply's frame of 600000 bytes is over the floor of max_frame, 524288 bytes"
     );
     assert!(
         malformed()?

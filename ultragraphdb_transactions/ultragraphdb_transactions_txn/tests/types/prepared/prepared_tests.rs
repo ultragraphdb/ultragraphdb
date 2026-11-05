@@ -641,3 +641,30 @@ fn test_a_compare_and_set_that_does_not_hold_is_refused_with_the_value_found() -
     assert_eq!(prepared.record(), &before[..]);
     Ok(())
 }
+
+/// A Drop is a frame holding what it does, whatever it finds to remove, so the session table answers its resend; a
+/// transaction's Commit is not, until a one-frame write's host marks it.
+#[test]
+fn test_a_drop_is_one_frame_even_when_it_finds_nothing_to_remove() -> TestResult {
+    let applier = applier()?;
+    let unknown = oxrdf::NamedNode::new("http://ex.org/no-such-graph").context("the graph")?;
+    let drop = Prepared::drop(
+        &applier,
+        TENANT,
+        ultragraphdb_store_apply::DropRequest::Graph(oxrdf::GraphNameRef::NamedNode(
+            unknown.as_ref(),
+        )),
+        1,
+        1,
+        0,
+        TxnBuffers::new(),
+    )?;
+    assert!(drop.is_one_frame());
+    assert!(!drop.is_drop(), "it removes nothing");
+    let mut txn = begin(&applier, Mode::ReadWrite)?;
+    txn.write(&changeset(vec![insert("a", "knows", "b")]), 0)?;
+    let commit = prepared(txn.commit(1, 2, &[], 0))?;
+    assert!(!commit.is_one_frame());
+    assert!(commit.with_one_frame().is_one_frame());
+    Ok(())
+}

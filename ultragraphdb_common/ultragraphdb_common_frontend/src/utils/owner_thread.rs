@@ -155,14 +155,14 @@ async fn open(
     // No drive here is assumed to keep what it acknowledged through a power loss.
     let (metadata, _) = Wal::open(
         CompioStorage,
-        data_dir.join("metadata"),
+        data_dir.join("meta"),
         WalConfig::new(cluster, false),
     )
     .await
     .map_err(|error| failed("the metadata group's log", &error))?;
     let (sequencer, _) = Wal::open(
         CompioStorage,
-        data_dir.join("sequencer"),
+        data_dir.join("seq"),
         WalConfig::new(cluster, false),
     )
     .await

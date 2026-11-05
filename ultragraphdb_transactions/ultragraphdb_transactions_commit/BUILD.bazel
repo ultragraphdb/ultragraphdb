@@ -59,6 +59,7 @@ rust_test(
         "tests/partition_steps.rs",
         "tests/scan_steps.rs",
         "tests/utils/fixture.rs",
+        "tests/utils/node_operator.rs",
         "tests/utils/proposal_double.rs",
     ],
     crate_root = "tests/bdd.rs",

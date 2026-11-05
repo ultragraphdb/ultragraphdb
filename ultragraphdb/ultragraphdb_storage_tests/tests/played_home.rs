@@ -56,6 +56,12 @@ impl HomeScript {
         script
     }
 
+    /// Holds every answer from now on, counting what reaches the home from none.
+    pub fn hold(&self) {
+        self.asked.set(0);
+        self.holding.set(true);
+    }
+
     /// Lets every held answer go.
     pub fn release(&self) {
         self.holding.set(false);
@@ -95,12 +101,14 @@ impl PlayedHome {
         let asked = ReferenceView::from_frame(view)?;
         let mut reply = asked.to_body()?.into_reply();
         for index in 0..asked.registrations().count() {
+            let registration = asked.registration(index).context("a registration")?;
+            let generation = u64::from(registration.group().is_some());
             let filled = match self.script.refusing.get() {
                 Some(outcome) => reply.refuse(index, outcome),
                 None => reply.accept(
                     index,
                     played_id(asked.iri(index).context("a registration's IRI")?)?,
-                    0,
+                    generation,
                     0,
                 ),
             };

@@ -25,7 +25,8 @@ use crate::Steps;
 use crate::utils::changesets::{
     TENANT, TestChangesets, apply, changeset, changesets, changesets_over, counts_of, delete,
     delete_pattern, ex, exact_token, index_keys_holding, indexed, insert, insert_edge, int_token,
-    objects, objects_in, postings, reverse, sim_store, statement, term, term_token, tokens_of, uid,
+    objects, objects_in, postings, reverse, reverse_postings, sim_store, statement, term,
+    term_token, tokens_of, uid,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -347,7 +348,7 @@ fn held_then_property(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the statement has a statement ID of type prefix 2 and the bucket of `<a>`, its forward posting carries it, and its record holds `<since> 2020`"
+    "the statement has a statement ID of type prefix 2 and the bucket of `<a>`, its forward and reverse postings carry it, and its record holds `<since> 2020`"
 )]
 fn statement_id_allocated(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
@@ -356,6 +357,10 @@ fn statement_id_allocated(w: &mut Steps) -> TestResult {
     let ids = &held.first().context("a posting")?.1;
     let id = *ids.first().context("a statement ID")?;
     assert_eq!(ids.len(), 1);
+    assert_eq!(
+        reverse_postings(&a, "knows", "b")?,
+        vec![(EncodedTerm::id(uid(&a, "a")?), ids.clone())]
+    );
     assert_eq!(id.type_prefix(), TypePrefix::STATEMENT);
     assert_eq!(id.type_prefix().get(), 2);
     assert_eq!(id.bucket(), uid(&a, "a")?.bucket());

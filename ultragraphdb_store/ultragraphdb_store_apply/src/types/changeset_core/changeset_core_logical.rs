@@ -65,6 +65,7 @@ where
             pending: outcome.pending,
             touched: outcome.touched,
             removals: outcome.removals,
+            net: writes.clone(),
             ..Executed::empty(tenant, read_ts, outcome.catalog)
         })
     }

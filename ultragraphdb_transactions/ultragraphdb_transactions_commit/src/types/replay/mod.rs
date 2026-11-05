@@ -347,8 +347,7 @@ where
             RecordOperation::DropPredicate(_)
             | RecordOperation::DropGraph(_)
             | RecordOperation::DropTenantData
-            | RecordOperation::DropTenant
-            | RecordOperation::DropAll,
+            | RecordOperation::DropTenant,
         )
         | None => Err(RecoveryError::round(
             at.position,
@@ -449,7 +448,6 @@ fn drop_target(operation: RecordOperation) -> Option<DropTarget> {
         RecordOperation::DropGraph(id) => Some(DropTarget::Graph(Graph::Named(id))),
         RecordOperation::DropTenantData => Some(DropTarget::Data),
         RecordOperation::DropTenant => Some(DropTarget::Tenant),
-        RecordOperation::DropAll => Some(DropTarget::All),
         RecordOperation::CatalogTakesEffect(_) | RecordOperation::CompleteBuild { .. } => None,
     }
 }

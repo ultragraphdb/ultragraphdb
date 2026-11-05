@@ -9,7 +9,7 @@ mod partition_host_read;
 use std::collections::BTreeMap;
 
 use ultragraphdb_cluster_placement::PartitionId;
-use ultragraphdb_core_ids::Epoch;
+use ultragraphdb_core_ids::{Epoch, Version};
 use ultragraphdb_core_mapping::Changeset;
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_traits_blocks::BlockSource;
@@ -167,7 +167,8 @@ where
     }
 
     /// Takes the write `changeset` at `now_us`: its ticket, under which its outcome comes. Registers what it references
-    /// and waits for the answers, or goes to the commit step at once when it references nothing to register.
+    /// and waits for the answers, or goes to the commit step at once when it references nothing to register. A first subject
+    /// outside the partition is the sender's stale map, and a later one cross-partition.
     ///
     /// # Errors
     ///
@@ -192,6 +193,12 @@ where
                 return Ok(ticket);
             }
         };
+        let read_epoch = Version::from_u64(txn.read_version()).epoch();
+        if let Err(refusal) = self.partition.check_first_subject(&changeset, read_epoch) {
+            self.outcomes
+                .push(PartitionOutcome::new(ticket, Err(refusal), 0, 0));
+            return Ok(ticket);
+        }
         let mut references = Vec::new();
         // Past the last epoch no close follows; the commit step refuses what it holds.
         let open = self.pipeline.delivered().next().unwrap_or(Epoch::MAX);

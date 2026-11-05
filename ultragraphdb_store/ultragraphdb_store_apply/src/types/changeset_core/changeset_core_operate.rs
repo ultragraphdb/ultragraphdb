@@ -105,6 +105,7 @@ where
             pending: executed.pending.clone(),
             touched,
             removals: executed.removals.clone(),
+            net: outcome.net,
             ..Executed::empty(executed.tenant, executed.read_ts, outcome.catalog)
         })
     }

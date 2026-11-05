@@ -13,6 +13,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use compio::driver::DriverType;
 use compio::net::TcpListener;
 use compio::runtime::{Runtime, spawn};
 use ultragraphdb_common_service_config::{EndpointSecurity, ServiceConfig, ServiceConfigError};
@@ -75,8 +76,12 @@ where
     F: Future<Output = Result<(), RoleError>> + 'static,
 {
     if let Some(argument) = args.first() {
+        if argument == "--help" {
+            println!("{}", role_help(kind));
+            return Ok(());
+        }
         return Err(RoleError::configuration(format!(
-            "a role takes no arguments, not {argument}: its environment names the config service, which holds its settings"
+            "a role takes no arguments but --help, not {argument}: its environment names the config service, which holds its settings"
         )));
     }
     let bootstrap = Bootstrap::read(kind, variables)?;
@@ -99,6 +104,26 @@ where
         ServiceEnd::Stopped => Ok(()),
         ServiceEnd::Load(revision) => Err(restart_at(revision)),
     }
+}
+
+/// What `--help` prints for the role `kind`.
+#[must_use]
+pub fn role_help(kind: RoleKind) -> String {
+    format!(
+        "ultragraphdb_{kind}
+
+The {kind} role. It takes no arguments: its environment names the config service, which holds its settings.
+
+  ULTRAGRAPHDB_CONFIG_URL       the service's https://host:port, or http:// for a plaintext service
+  ULTRAGRAPHDB_CONFIG_TARGET    the deployment target
+  ULTRAGRAPHDB_CONFIG_INSTANCE  this instance's name: {kind}, or {kind} followed by _ and a label
+  ULTRAGRAPHDB_CONFIG_KEY_FILE  the file holding the read key
+  ULTRAGRAPHDB_CONFIG_CA_FILE   the certificates that verify an https service
+
+Exit codes:
+{}",
+        RoleError::EXIT_CODES
+    )
 }
 
 /// Executes this binary again in this process, so a supervisor sees no exit, starting at `revision`: what comes back is why it
@@ -235,7 +260,22 @@ pub fn core_runtime(
     let runtime = builder
         .build()
         .map_err(|error| RoleError::unavailable(format!("the runtime: {error}")))?;
+    tracing::info!(
+        core,
+        "a runtime on the {} driver",
+        driver_name(runtime.driver_type())
+    );
     Ok((runtime, binding(pin_cores, asked, thread_allowed())))
+}
+
+/// How the log names `driver`. compio takes io_uring where the kernel allows it and polls where its system calls are refused.
+#[must_use]
+pub fn driver_name(driver: DriverType) -> &'static str {
+    match driver {
+        DriverType::Poll => "polling",
+        DriverType::IoUring => "io_uring",
+        DriverType::IOCP => "iocp",
+    }
 }
 
 /// The CPUs the calling thread may run on, or `None` where the operating system does not say.

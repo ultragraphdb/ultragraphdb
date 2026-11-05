@@ -111,7 +111,7 @@ fn client(
     // Every Begin answered, so a transaction holds its stream: a commit on one, reads on the read-only ones.
     let mut streams = Vec::new();
     for (stream, pending) in begun.iter().filter(|(s, _)| (s - 1) % 5 >= 3) {
-        let begin = Begin::new(0, 5, (stream - 1) % 5 == 4)
+        let begin = Begin::new(0, 6, (stream - 1) % 5 == 4)
             .frame(Header::new(CLUSTER, Command::Begin).with_stream(*stream))
             .ok()?;
         core.receive(server.frame(pool, &begin)?, now).ok()?;
@@ -135,7 +135,8 @@ fn client(
             }
         }
     }
-    core.drop_command(DropCommand::all(), dropping, now).ok()?;
+    core.drop_command(DropCommand::whole_tenant(0), dropping, now)
+        .ok()?;
     while core.transmit().is_some() {}
     Some((core, streams))
 }

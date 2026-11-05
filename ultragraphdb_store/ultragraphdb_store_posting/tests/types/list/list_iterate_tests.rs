@@ -385,6 +385,49 @@ fn resumes_after_each(list: &List, read_ts: u64, expected: usize) -> TestResult 
     Ok(())
 }
 
+/// An identity included reads the posting itself when the list holds it, and otherwise the next one in the list's order; a walk's
+/// noting a posting makes the position exclusive again.
+#[test]
+fn test_a_resume_at_an_included_identity_reads_it_when_the_list_holds_it() -> TestResult {
+    let mut l = List::empty(key("iter-at", 1));
+    add(&mut l, 1, &set_uid(4));
+    add(&mut l, 1, &shared(9, "low"));
+    add(&mut l, 1, &shared(9, "high"));
+    l.commit_mutation(2);
+    let whole = identities(&l, 2, None)?;
+    for (at, identity) in whole.iter().enumerate() {
+        let included = identity.clone().included();
+        assert!(included.is_included());
+        assert_eq!(
+            identities(&l, 2, Some(&included))?,
+            whole.get(at..).unwrap_or_default(),
+            "at {identity:?}"
+        );
+    }
+    // Between the two postings of one uid, and between two uids: the list holds neither position.
+    let between = PostingIdentity::new(9, b"ice".to_vec()).included();
+    assert_eq!(
+        identities(&l, 2, Some(&between))?,
+        whole.get(1..).unwrap_or_default()
+    );
+    let before = PostingIdentity::new(rid(4) + 1, Vec::new()).included();
+    assert_eq!(
+        identities(&l, 2, Some(&before))?,
+        whole
+            .iter()
+            .filter(|identity| identity.uid() > rid(4))
+            .cloned()
+            .collect::<Vec<_>>()
+    );
+    let mut noted = PostingIdentity::new(1, Vec::new()).included();
+    l.iterate(2, 0, |p| {
+        l.identity_into(p, &mut noted);
+        Ok::<_, PostingError>(ControlFlow::Break(()))
+    })?;
+    assert!(!noted.is_included());
+    Ok(())
+}
+
 #[test]
 fn test_a_resume_between_two_postings_of_one_uid_loses_neither_and_repeats_neither() -> TestResult {
     let mut l = List::empty(key("iter-after", 1));

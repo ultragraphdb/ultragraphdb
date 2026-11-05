@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_common_storage::scan_version;
+use ultragraphdb_common_storage::{scan_named, scan_version};
 use ultragraphdb_core_ids::{Epoch, Version};
 use ultragraphdb_protocol_wire::{ErrorCode, ScanAt};
 use ultragraphdb_tool_bdd::{Context, TestResult};
@@ -93,5 +93,20 @@ fn test_the_latest_closed_version_names_the_closed_epoch() -> TestResult {
         scan_version(ScanAt::LatestClosed, 0, closed()?, ahead).ok(),
         Some((bound, CLOSED))
     );
+    Ok(())
+}
+
+/// A frame names what its Scan named, or the bound or watermark its `at` chose, whatever it read below that.
+#[test]
+fn test_a_frame_names_the_version_chosen() -> TestResult {
+    let closed = Epoch::new(3)?;
+    let read = 5;
+    assert_eq!(scan_named(ScanAt::ReadVersion, 77, closed, read), 77);
+    assert_eq!(scan_named(ScanAt::Named, 77, closed, read), 77);
+    assert_eq!(
+        scan_named(ScanAt::LatestClosed, 0, closed, read),
+        Version::bound_of(closed)
+    );
+    assert_eq!(scan_named(ScanAt::Latest, 0, closed, read), read);
     Ok(())
 }

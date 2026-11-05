@@ -24,3 +24,12 @@ fn test_a_range_encodes_its_partition_and_key_offsets() -> TestResult {
     assert_eq!(&open[16..24], &[1, 0, 0, 0, 0, 0, 0, 0]);
     Ok(())
 }
+
+#[test]
+fn test_a_range_with_an_after_states_its_length() {
+    let range = ScanRange::new(1, b"\x10a", b"\x10b").with_after(b"object");
+    assert_eq!(range.after(), b"object");
+    let record = range.encode(0);
+    assert_eq!(&record[4..8], &6u32.to_le_bytes());
+    assert!(ScanRange::new(1, b"\x10a", b"").after().is_empty());
+}

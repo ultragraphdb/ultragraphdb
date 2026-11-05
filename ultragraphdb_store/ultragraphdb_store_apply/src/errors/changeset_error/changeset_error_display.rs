@@ -18,6 +18,7 @@ impl fmt::Display for ChangesetError {
             ChangesetErrorEnum::Tok(e) => write!(f, "{e}"),
             ChangesetErrorEnum::Hnsw(e) => write!(f, "{e}"),
             ChangesetErrorEnum::Invariant(e) => write!(f, "{e}"),
+            ChangesetErrorEnum::StatementsPerObject { limit } => past_bound(f, *limit),
             ChangesetErrorEnum::Literal { predicate, error } => {
                 write!(
                     f,
@@ -85,5 +86,13 @@ fn no_index(f: &mut fmt::Formatter<'_>, predicate: &str, tokenizer: &str) -> fmt
     write!(
         f,
         "Predicate <{predicate}> declares no {tokenizer} index, so no value is looked up by it"
+    )
+}
+
+/// A statement past `limit`, the statement IDs one object holds.
+fn past_bound(f: &mut fmt::Formatter<'_>, limit: usize) -> fmt::Result {
+    write!(
+        f,
+        "A statement would hold its object under more than {limit} statement IDs"
     )
 }

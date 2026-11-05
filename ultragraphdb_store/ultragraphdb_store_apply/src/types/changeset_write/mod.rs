@@ -20,7 +20,7 @@ use oxrdf::{GraphNameRef, Literal, NamedNode, NamedNodeRef, NamedOrBlankNodeRef,
 use ultragraphdb_core_catalog::{Catalog, PREDICATE};
 use ultragraphdb_core_codec::Posting;
 use ultragraphdb_core_ids::SystemId;
-use ultragraphdb_core_keys::{CountDirection, Graph};
+use ultragraphdb_core_keys::{CountDirection, Graph, QuadKey};
 use ultragraphdb_core_mapping::{ChangeRef, Changes, PredicateDeclaration};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_posting::CachedList;
@@ -31,6 +31,7 @@ use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{ListCache, Store};
 
 use crate::errors::changeset_error::ChangesetError;
+use crate::types::logical_writes::LogicalWrites;
 use crate::types::predicate_prefix::PredicatePrefix;
 use crate::types::rebuild::Rebuild;
 use crate::types::write_outcome::WriteOutcome;
@@ -74,6 +75,8 @@ pub(crate) struct ChangesetWrite<'a, S, C, B> {
     /// Whether the write derives keys: adds and removals then maintain the value and count indexes and record the
     /// vectors they change.
     deriving: bool,
+    /// What its derivation ran on, once it has run on the write's net effect.
+    net: LogicalWrites,
     /// The count moves a derivation records, written once at its end.
     counts: CountMoves,
     /// The subjects of the statements the write named by their reifier and resolved, in the order resolved.
@@ -102,6 +105,7 @@ where
             touched: BTreeSet::new(),
             removals: Vec::new(),
             deriving: false,
+            net: LogicalWrites::default(),
             counts: BTreeMap::new(),
             reified: Vec::new(),
             unique: Vec::new(),
@@ -203,7 +207,9 @@ where
     fn derive_net(&mut self) -> Result<(), ChangesetError> {
         let net = self.net_writes()?;
         self.write.discard_lists();
-        self.derive(&net)
+        self.derive(&net)?;
+        self.net = net;
+        Ok(())
     }
 
     /// Releases what the write holds, writing nothing: every pending entry it created or took with `base` `None`, and
@@ -239,6 +245,7 @@ where
             pending: self.pending,
             touched: self.touched,
             removals: self.removals,
+            net: self.net,
         }
     }
 
@@ -415,6 +422,28 @@ where
             },
         )?;
         Ok(literal.into())
+    }
+
+    /// The statement records the write has written, by key, between `start`, inclusive, and `end`, exclusive, or the last key,
+    /// each as its keyspace holds it, `None` for one it removed: what a read of the statements takes over the store.
+    pub(crate) fn own_records(
+        &self,
+        start: &[u8],
+        end: Option<&[u8]>,
+    ) -> BTreeMap<Vec<u8>, Option<Vec<u8>>> {
+        self.records
+            .iter()
+            .filter_map(|((graph, id), record)| {
+                let key = QuadKey::Statement {
+                    tenant: self.tenant(),
+                    graph: *graph,
+                    statement: *id,
+                }
+                .to_bytes();
+                let inside = key.as_slice() >= start && end.is_none_or(|end| key.as_slice() < end);
+                inside.then(|| (key, record.as_ref().map(StatementRecord::encode)))
+            })
+            .collect()
     }
 
     /// The record of statement `id` in `graph`, as the write sees it.

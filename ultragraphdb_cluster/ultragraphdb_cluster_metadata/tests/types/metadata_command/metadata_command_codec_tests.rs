@@ -273,16 +273,16 @@ fn test_values_out_of_range_are_refused_naming_them() -> TestResult {
 
 #[test]
 fn test_lengths_and_counts_past_their_limits_are_refused_before_their_values() -> TestResult {
-    // A catalog version of 16 MiB and one byte, refused from its length alone.
+    // A catalog version of 523,000 bytes and one, refused from its length alone.
     let mut offer = vec![1];
     offer.extend_from_slice(&[0; 16]);
-    offer.extend_from_slice(&16_777_217_u32.to_be_bytes());
+    offer.extend_from_slice(&523_001_u32.to_be_bytes());
     assert_eq!(
         refusal(&offer)?,
         ClusterErrorEnum::TooMany {
             what: "bytes of a catalog version",
-            count: 16_777_217,
-            max: 16_777_216
+            count: 523_001,
+            max: 523_000
         }
     );
     // A change of 2^18 + 1 ranges.
@@ -349,7 +349,7 @@ fn test_records_at_their_limits_round_trip() -> TestResult {
         MetadataCommand::OfferCatalog {
             tenant: Tenant::new(u64::MAX),
             predecessor: u64::MAX - 1,
-            bytes: vec![7; 16_777_216],
+            bytes: vec![7; 523_000],
         },
         MetadataCommand::RecordDefault {
             tenant: Tenant::new(0),

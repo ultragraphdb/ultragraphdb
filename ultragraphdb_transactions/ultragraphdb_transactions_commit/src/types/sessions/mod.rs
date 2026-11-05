@@ -22,14 +22,16 @@ const ENTRY_BYTES: usize = 64;
 const RESULT_BYTES: usize = 16;
 
 /// A partition's session table (transactions, "Exactly-once commits through sessions"): keyed by the session's 128-bit
-/// identity, each session that committed in the partition with its last request committed there and that commit's
-/// whole reply. A session is recorded at its first commit in the partition; the metadata group's registry registers
-/// sessions and checks their owners before a commit is routed, so the table takes any session it does not hold for one
+/// identity, each session that committed in the partition with its last request committed there and that commit's whole
+/// reply. A session is recorded at its first commit in the partition; the metadata group's registry registers sessions
+/// and checks their owners before a commit is routed, so the table takes any session it does not hold for one
 /// committing there first. It takes any request number above the session's last, since the numbers the session
-/// committed in other partitions leave gaps, answers a retry of the last with its stored reply, and refuses a number
-/// below the last. Only the registry evicts: the table purges a session's entry when the close carrying its eviction is
-/// delivered ([`Sessions::purge`]), so it holds at most the registry's `sessions_max` entries, and refuses a session it
-/// does not hold as busy when full. A session has at most one commit decided and not yet applied.
+/// committed in other partitions leave gaps. It answers a one-frame or Drop resend of the last with its stored reply
+/// and refuses a number below the last ([`Sessions::check_one_frame`]), and refuses a Commit on an open transaction
+/// numbered at or below the last ([`Sessions::check`]). Only the registry evicts: the table purges a session's entry
+/// when the close carrying its eviction is delivered ([`Sessions::purge`]), so it holds at most the registry's
+/// `sessions_max` entries, and refuses a session it does not hold as busy when full. A session has at most one commit
+/// decided and not yet applied.
 ///
 /// **Durable** (7.8): the table keeps the sessions committed and purged since its entries were last drained, and
 /// [`Sessions::drain_entries`] hands them out as entries of the keyspace without versions ([`crate::SessionEntry`]),
@@ -74,19 +76,52 @@ impl Sessions {
         }
     }
 
-    /// What a commit of `session` numbered `request` is: `Ok(None)` a new request to decide, `Ok(Some(reply))` a retry of
-    /// the session's last committed request in the partition, answered with its stored reply and not committed again.
+    /// Whether a Commit on an open transaction of `session` numbered `request` may be decided. A retry is a Recall or a
+    /// one-frame or Drop resend, never such a Commit, so a number at or below the session's last is a reused one,
+    /// refused and never answered with another transaction's stored reply. Session 0 is no session and always passes.
+    ///
+    /// The checks run in this order: in flight, request number, room (`lean/RoundModel/Round.lean`, `decideTxn`).
+    ///
+    /// # Errors
+    ///
+    /// [`CommitError::session_busy`] while a request of the session is decided and not yet applied;
+    /// [`CommitError::request_out_of_order`] naming the last for a number at or below it; [`CommitError::busy`] naming
+    /// the capacity for a session the full table does not hold.
+    pub fn check(&self, session: u128, request: u64) -> Result<(), CommitError> {
+        if session == 0 {
+            return Ok(());
+        }
+        if self.pending.contains(&session) {
+            return Err(CommitError::session_busy(session));
+        }
+        match self.table.get(&session) {
+            Some(entry) if request <= entry.last_request => {
+                Err(CommitError::request_out_of_order(entry.last_request))
+            }
+            Some(_) => Ok(()),
+            None if self.table.len() >= self.capacity => Err(CommitError::busy(self.capacity)),
+            None => Ok(()),
+        }
+    }
+
+    /// What a one-frame write or a Drop of `session` numbered `request` is, whose frame holds what it does, so a resend
+    /// reaches the table as the first did: `Ok(None)` a new request to decide, `Ok(Some(reply))` a resend of the
+    /// session's last committed request in the partition, answered with its stored reply and not committed again.
     /// Session 0 is no session and is always new.
     ///
-    /// The checks run in this order: in flight, retry, request number, room. The retry before a number out of order is
-    /// the Lean model's order (`lean/RoundModel/Round.lean`, `decideTxn`).
+    /// The checks run in this order: in flight, resend, request number, room. The resend before a number out of order
+    /// is the Lean model's order (`lean/RoundModel/Round.lean`, `decideTxn`).
     ///
     /// # Errors
     ///
     /// [`CommitError::session_busy`] while a request of the session is decided and not yet applied;
     /// [`CommitError::request_out_of_order`] naming the last for a number below it; [`CommitError::busy`] naming the
     /// capacity for a session the full table does not hold.
-    pub fn check(&self, session: u128, request: u64) -> Result<Option<&StoredReply>, CommitError> {
+    pub fn check_one_frame(
+        &self,
+        session: u128,
+        request: u64,
+    ) -> Result<Option<&StoredReply>, CommitError> {
         if session == 0 {
             return Ok(None);
         }

@@ -4,7 +4,7 @@
 #
 
 Feature: Wire protocol: drops are commands
-  A client drops a predicate, a graph, a tenant's data, a tenant or every tenant by a Drop request on a stream
+  A client drops a predicate, a graph, a tenant's data or a tenant by a Drop request on a stream
   of its own, committed through a session as a commit is and answered with the drop's commit version. The commit step
   decides a drop as the last transaction of its round, and its write-set record names the drop, so recovery redoes it.
   A transaction that read or wrote what a drop removes, below the drop's version, aborts with a conflict of kind Drop.

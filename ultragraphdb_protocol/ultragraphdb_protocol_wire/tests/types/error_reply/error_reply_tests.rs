@@ -4,7 +4,9 @@
  */
 
 use ultragraphdb_error_protocol::ProtocolError;
-use ultragraphdb_protocol_wire::{BodyBuilder, ErrorCode, ErrorReply, RequestTerm};
+use ultragraphdb_protocol_wire::{
+    BodyBuilder, DETAIL_TRANSACTION_NOT_HELD, ErrorCode, ErrorReply, RequestTerm,
+};
 use ultragraphdb_tool_bdd::TestResult;
 
 use crate::utils::golden_bodies::golden;
@@ -77,5 +79,37 @@ fn test_a_detail_its_code_refuses_builds_no_frame() -> TestResult {
     let bytes = held.frame(header())?;
     let view = ErrorReplyView::from_frame(&FrameView::validate(&bytes, 1, MAX_FRAME_SIZE)?)?;
     assert_eq!(view.detail(), (7 << 32) | 0x00FF_FFFF);
+    Ok(())
+}
+
+#[test]
+fn test_a_transaction_not_held_is_a_protocol_error_of_detail_1() {
+    let reply = ErrorReply::transaction_not_held("no such transaction");
+    assert_eq!(reply.code(), ErrorCode::Protocol);
+    assert_eq!(reply.detail(), DETAIL_TRANSACTION_NOT_HELD);
+    assert_eq!(reply.detail(), 1);
+    assert_eq!(reply.message(), "no such transaction");
+}
+
+#[test]
+fn test_a_schemas_and_a_querys_refusal_build_their_golden_frames() -> TestResult {
+    let schema = ErrorReply::new(
+        ErrorCode::SchemaRefused,
+        "E101 1:1 unknown type; E102 2:1 unknown unit",
+    )
+    .with_detail(2);
+    assert_eq!(
+        schema.frame(golden("error_schema")?.header())?,
+        golden("error_schema")?.bytes()?
+    );
+    let query = ErrorReply::new(
+        ErrorCode::QueryRefused,
+        "S012 1:8 a feature outside the core",
+    )
+    .with_detail((2 << 16) | 12);
+    assert_eq!(
+        query.frame(golden("error_query")?.header())?,
+        golden("error_query")?.bytes()?
+    );
     Ok(())
 }

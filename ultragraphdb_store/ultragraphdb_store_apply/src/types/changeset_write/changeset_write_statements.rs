@@ -9,7 +9,7 @@ use ultragraphdb_core_keys::Graph;
 use ultragraphdb_core_mapping::{MappingError, StatementView};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_posting::CachedList;
-use ultragraphdb_store_quads::StatementRecord;
+use ultragraphdb_store_quads::{STATEMENTS_PER_OBJECT_MAX, StatementRecord};
 use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{ListCache, Store};
 
@@ -24,7 +24,8 @@ where
     B: BlockSource,
 {
     /// Inserts a statement of its own: beside a held triple, which then gives every statement holding it an ID, or
-    /// with properties, which give it one; otherwise as [`ChangesetWrite::insert`] writes it.
+    /// with properties, which give it one; otherwise as [`ChangesetWrite::insert`] writes it. A statement that would hold
+    /// the object under more than [`STATEMENTS_PER_OBJECT_MAX`] IDs is refused.
     pub(crate) fn insert_edge(
         &mut self,
         graph: GraphNameRef<'_>,
@@ -41,10 +42,16 @@ where
             .collect::<Result<Vec<_>, ChangesetError>>()?;
         match self.held(&r, &declaration)? {
             Some(mut ids) => {
+                if ids.len().max(1) >= STATEMENTS_PER_OBJECT_MAX {
+                    return Err(ChangesetError::statements_per_object(
+                        STATEMENTS_PER_OBJECT_MAX,
+                    ));
+                }
                 if ids.is_empty() {
                     ids.push(self.new_statement(&r, Vec::new())?);
                 }
                 ids.push(self.new_statement(&r, properties)?);
+                ids.sort_unstable();
                 self.write
                     .set_statement_ids(r.graph, r.subject, r.predicate, &r.object, &ids);
                 Ok(())

@@ -309,7 +309,14 @@ fn test_a_commit_carrying_a_token_of_epoch_t_waits_for_the_close_of_t_minus_1() 
 #[test]
 fn test_a_commits_reply_carries_its_session_token() -> TestResult {
     let mut step = step(0, 11)?.with_partition(1).with_tail(39);
-    let _commit = commit(&mut step, 1, writer(1)?, 0);
+    let through = proposal_in(
+        1,
+        1,
+        u64::MAX >> 1,
+        &Reads::default(),
+        &Writes::point(b"k1"),
+    )?;
+    let _commit = commit(&mut step, 1, through, 0);
     let mut out = run(&mut step, Input::Synced, 0);
     let reply = out.replies().first().context("a reply")?;
     assert_eq!(reply.outcome(), &Ok(version(12, 0)));
@@ -500,8 +507,8 @@ fn test_a_session_commits_through_two_partitions_with_gaps() -> TestResult {
     assert_eq!(stored.version(), version(10, 2));
     assert_eq!(Some(stored.token()), reply.token());
     assert_eq!(one.sessions().last(session), Some((3, version(10, 2))));
-    // Resent as a commit, it commits nothing again and answers the same.
-    let mut out = commit(&mut one, 4, p(3)?, 0);
+    // Resent as a one-frame write, it commits nothing again and answers the same.
+    let mut out = commit(&mut one, 4, p(3)?.with_one_frame(), 0);
     assert_eq!(out.append(), None, "nothing to log");
     assert_eq!(outcomes(&out), vec![(4, Ok(version(10, 2)))]);
     assert_eq!(out.replies().first().and_then(Reply::token), reply.token());

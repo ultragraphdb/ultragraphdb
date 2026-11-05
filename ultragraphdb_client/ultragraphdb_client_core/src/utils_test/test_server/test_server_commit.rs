@@ -81,9 +81,7 @@ impl TestServer {
             );
         };
         if request == record.last && request > 0 {
-            let reply = command
-                .with_commit_version(record.version)
-                .with_token(token(record.version));
+            let reply = dropped(command, session, record.version);
             return self.reply(stream, &reply, FLAG_LAST);
         }
         if request != record.last + 1 {
@@ -102,9 +100,7 @@ impl TestServer {
         }
         self.reply(
             stream,
-            &command
-                .with_commit_version(applied.version)
-                .with_token(token(applied.version)),
+            &dropped(command, session, applied.version),
             FLAG_LAST,
         );
     }
@@ -129,7 +125,11 @@ impl TestServer {
 /// The Commit reply to `request` of `session` at `version`, with the operations' `results`: a result naming a node
 /// names it in the reply's term table, by an IRI of its own (`PROTOCOL.md` §6.3).
 fn committed(session: u128, request: u64, version: u64, results: Vec<OperationResult>) -> Commit {
-    let mut reply = Commit::new(session.to_be_bytes(), request, version).with_token(token(version));
+    let mut reply = Commit::new(session.to_be_bytes(), request, version);
+    // A reply through no session holds the zero token (`PROTOCOL.md` §6.3).
+    if session != 0 {
+        reply = reply.with_token(token(version));
+    }
     for result in results {
         match result.node() {
             Some(node) => {
@@ -139,6 +139,15 @@ fn committed(session: u128, request: u64, version: u64, results: Vec<OperationRe
         }
     }
     reply
+}
+
+/// The reply to `command`, a Drop through `session` at `version`: through no session, the zero token.
+fn dropped(command: DropCommand, session: u128, version: u64) -> DropCommand {
+    let reply = command.with_commit_version(version);
+    if session == 0 {
+        return reply;
+    }
+    reply.with_token(token(version))
 }
 
 /// `session` as an Error's detail, which holds 64 bits: the test server numbers its sessions from 9 up.

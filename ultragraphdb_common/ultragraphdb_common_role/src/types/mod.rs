@@ -3,6 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+pub mod open_frame;
+pub mod open_requests;
 pub mod role_client;
 pub mod role_cluster;
 pub mod role_credentials;

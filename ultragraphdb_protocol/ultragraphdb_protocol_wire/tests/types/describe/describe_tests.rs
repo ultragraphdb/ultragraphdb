@@ -20,10 +20,10 @@ pub fn golden_answer() -> Describe {
         .with_relationship_types(vec![ex("knows")])
         .with_property_keys(vec![ex("name")])
         .with_predicates(vec![
+            DeclaredPredicate::new(ex("knows")).with_kind(DeclaredKind::Edge),
             DeclaredPredicate::new(ex("name"))
                 .with_kind(DeclaredKind::Property)
                 .with_tokenizers(vec!["term".to_string()]),
-            DeclaredPredicate::new(ex("knows")).with_kind(DeclaredKind::Edge),
         ])
         .with_entity_types(vec![(
             DeclaredEntityType::new(ex("Person"), None, false),

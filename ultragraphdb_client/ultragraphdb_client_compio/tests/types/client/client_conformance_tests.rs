@@ -115,6 +115,13 @@ fn golden_result() -> TestResult<ResultValues> {
     })
 }
 
+/// The values of the golden Result as a batch before its stream's last.
+fn golden_more() -> TestResult<ResultValues> {
+    decoded("result_more", |f| {
+        ResultView::from_frame(f).map(|v| result_values(&v))
+    })
+}
+
 /// The session the golden Register assigns.
 fn golden_session() -> TestResult<u128> {
     decoded("register", |f| {
@@ -139,10 +146,10 @@ fn conversation_script(golden_server: &mut Golden) -> TestResult {
         Step::any().reply(writable()?),
         Step::any().reply(golden("begin")?),
         Step::expect("read")
-            .reply(not_last(&result))
-            .reply(not_last(&result))
-            .reply(not_last(&result))
-            .reply(not_last(&result)),
+            .reply(not_last()?)
+            .reply(not_last()?)
+            .reply(not_last()?)
+            .reply(not_last()?),
         Step::expect("credit").reply(result.clone()),
         Step::expect("read"),
         Step::expect("cancel"),
@@ -234,10 +241,12 @@ async fn golden_reads(client: &mut Client<SimConnect, Anonymous>) -> TestResult<
             &decoded("read", |f| ReadView::from_frame(f)?.to_body())?,
         )
         .await?;
-    for _ in 0..5 {
+    for _ in 0..4 {
         let batch = client.next_batch(&stream, result_values).await?;
-        assert_eq!(batch, Some(golden_result()?));
+        assert_eq!(batch, Some(golden_more()?));
     }
+    let batch = client.next_batch(&stream, result_values).await?;
+    assert_eq!(batch, Some(golden_result()?));
     assert_eq!(client.next_batch(&stream, result_values).await?, None);
     let cancelled = client
         .read(
@@ -771,21 +780,20 @@ async fn cut_read(
 async fn cut_by_the_framer(
     client: &mut Client<SimConnect, Anonymous>,
     script: &RefCell<Golden>,
-    result: &[u8],
 ) -> TestResult {
     // Byte 10 lies in the header's checksummed bytes: the framer refuses the header, as the transport says of
     // these very bytes (numbered 4 after the Welcome, the Begin and the first batch, on the read's stream 2).
     let header = Step::any()
-        .reply(not_last(result))
-        .reply(not_last(result))
+        .reply(not_last()?)
+        .reply(not_last()?)
         .damaged(10);
     let stream = cut_read(client, script, header).await?;
-    let mut bad = numbered(&restream(&not_last(result), 2), 4);
+    let mut bad = numbered(&restream(&not_last()?, 2), 4);
     bad[10] ^= 1 << 2;
     let refusal = damage(&bad)?.framer().context("refused by the framer")?;
     assert_eq!(
         client.next_batch(&stream, result_values).await?,
-        Some(golden_result()?)
+        Some(golden_more()?)
     );
     assert_eq!(
         client
@@ -803,20 +811,19 @@ async fn cut_by_the_framer(
 async fn cut_by_a_rule(
     client: &mut Client<SimConnect, Anonymous>,
     script: &RefCell<Golden>,
-    result: &[u8],
 ) -> TestResult {
     // Byte 400 lies in the body: the frame passes the framer and breaks a rule of its own.
     let body = Step::any()
-        .reply(not_last(result))
-        .reply(not_last(result))
+        .reply(not_last()?)
+        .reply(not_last()?)
         .damaged(400);
     let stream = cut_read(client, script, body).await?;
-    let mut bad = numbered(&restream(&not_last(result), 2), 4);
+    let mut bad = numbered(&restream(&not_last()?, 2), 4);
     bad[400] ^= 1;
     let rule = damage(&bad)?.rule().context("a rule refuses the body")?;
     assert_eq!(
         client.next_batch(&stream, result_values).await?,
-        Some(golden_result()?)
+        Some(golden_more()?)
     );
     assert_eq!(
         client
@@ -836,20 +843,16 @@ async fn cut_by_a_rule(
 /// reply breaks a rule fails as lost with that rule.
 #[test]
 fn test_a_read_cut_short_through_the_shell_fails_as_lost_with_its_cause() -> TestResult {
-    let result = golden("result")?;
     let server = Golden::new("welcome_no_auth")?;
     let network = SimNetwork::new(2, NetworkFaults::none().with_split(500_000));
     let script = Rc::clone(&server);
     served(network, &server, Anonymous, |mut client| async move {
-        let two = Step::any()
-            .reply(not_last(&result))
-            .reply(not_last(&result))
-            .close();
+        let two = Step::any().reply(not_last()?).reply(not_last()?).close();
         let stream = cut_read(&mut client, &script, two).await?;
         for _ in 0..2 {
             assert_eq!(
                 client.next_batch(&stream, result_values).await?,
-                Some(golden_result()?)
+                Some(golden_more()?)
             );
         }
         assert_eq!(
@@ -861,8 +864,8 @@ fn test_a_read_cut_short_through_the_shell_fails_as_lost_with_its_cause() -> Tes
             ClientError::connection_lost(None),
             "cut short, not finished"
         );
-        cut_by_the_framer(&mut client, &script, &result).await?;
-        cut_by_a_rule(&mut client, &script, &result).await?;
+        cut_by_the_framer(&mut client, &script).await?;
+        cut_by_a_rule(&mut client, &script).await?;
         // A Register answered by the golden Describe reply with a body byte flipped, numbered 2 on stream 1.
         script
             .borrow_mut()

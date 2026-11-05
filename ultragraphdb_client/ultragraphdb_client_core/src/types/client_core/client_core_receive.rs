@@ -172,6 +172,8 @@ impl<L: Login> ClientCore<L> {
             | Command::Drop
             | Command::DirectWrite
             | Command::ConditionalWrite
+            | Command::Query
+            | Command::Install
             | Command::Join
             | Command::Members
             | Command::Subscribe
@@ -190,7 +192,8 @@ impl<L: Login> ClientCore<L> {
             | Command::CloseRequest
             | Command::Closed
             | Command::DefaultEntry
-            | Command::Report) => self.fatal(ClientError::protocol(
+            | Command::Report
+            | Command::Held) => self.fatal(ClientError::protocol(
                 ProtocolError::command_not_served(other.number()),
             )),
         }

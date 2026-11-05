@@ -20,7 +20,9 @@ impl BodyBuilder for Entries {
             (4, &self.range.to_le_bytes()),
             (8, &[self.end.number()]),
             (9, &[u8::from(self.continues)]),
+            (12, &self.through.to_le_bytes()),
             (16, &self.epoch.to_le_bytes()),
+            (24, &self.version.to_le_bytes()),
         ])
     }
 

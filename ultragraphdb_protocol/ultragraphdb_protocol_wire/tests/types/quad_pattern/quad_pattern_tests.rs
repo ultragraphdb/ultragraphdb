@@ -147,7 +147,7 @@ fn prepare(
     let bytes = Prepare::new(0, 0, 0, terms, pattern, types, Vec::new())
         .frame(golden("prepare")?.header())?;
     Ok(PrepareView::from_frame(&frame_of(&bytes)?)
-        .map(|v| v.pattern().parameters())
+        .map(|v| v.pattern().map_or(0, QuadPattern::parameters))
         .map_err(|e| e.0))
 }
 

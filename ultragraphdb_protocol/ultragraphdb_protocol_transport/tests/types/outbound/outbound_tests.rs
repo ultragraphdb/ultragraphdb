@@ -60,6 +60,29 @@ fn sequence(frame: &[u8]) -> TestResult<u128> {
 }
 
 #[test]
+fn test_a_stream_opened_with_its_credit_holds_it_and_its_limit() -> TestResult {
+    let mut outbound = Outbound::new(1, 4);
+    outbound.open_with_credit(1, 9)?;
+    assert_eq!(outbound.credit(1), Some(9));
+    assert_eq!(
+        outbound
+            .open_with_credit(1, 9)
+            .err()
+            .context("the refusal")?,
+        TransportError::stream_open(1)
+    );
+    assert_eq!(
+        outbound
+            .open_with_credit(2, 9)
+            .err()
+            .context("the refusal")?,
+        TransportError::stream_limit(1)
+    );
+    assert_eq!(outbound.credit(2), None);
+    Ok(())
+}
+
+#[test]
 fn test_streams_open_within_their_limit() -> TestResult {
     let mut outbound = Outbound::new(2, 0);
     assert_eq!(

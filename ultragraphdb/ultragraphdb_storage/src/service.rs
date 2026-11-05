@@ -4,6 +4,8 @@
  */
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::mpsc::Receiver;
 use std::time::Instant;
 
 use compio::runtime::spawn;
@@ -21,10 +23,10 @@ use ultragraphdb_common_role::{
     retry_until, serve_connection,
 };
 use ultragraphdb_common_service::{Readiness, RoleKind, RoleStart, Stopping, core_runtime};
-use ultragraphdb_common_service_config::{ServiceConfig, partition_address};
+use ultragraphdb_common_service_config::{ServiceConfig, StorageTable, partition_address};
 use ultragraphdb_common_storage::{
-    CoreChannels, CoreMessage, CoreParts, FrontendAsk, PartitionCore, Peers, RefillBlocks,
-    SCAN_STALL_MS_DEFAULT, StorageHost, StoragePartition, StorageSession,
+    CoreChannels, CoreEnds, CoreMessage, CoreParts, FrontendAsk, PartitionCore, Peers,
+    RefillBlocks, Retention, SCAN_STALL_MS_DEFAULT, StorageHost, StoragePartition, StorageSession,
 };
 use ultragraphdb_core_ids::{Epoch, Tenant, TypePrefix, Version};
 use ultragraphdb_core_mapping::RandomSource;
@@ -51,6 +53,9 @@ const BLOCK_SIZE: u64 = 1 << 16;
 const BLOCKS_AHEAD: usize = 2;
 
 const POLL: std::time::Duration = std::time::Duration::from_millis(20);
+
+/// The replica a partition's directory: one per partition until stage 8's replication.
+const REPLICA: u32 = 1;
 
 #[expect(
     clippy::disallowed_methods,
@@ -127,7 +132,7 @@ pub(crate) async fn storage_role(
         })
         .collect::<Result<Vec<_>, _>>()?;
     let mut mailboxes = PartitionMailbox::mesh(&ids);
-    let mut ended = Vec::new();
+    let mut ended = CoreEnds::default();
     let mut ready = Vec::new();
     for (core, id) in ids.iter().enumerate().rev() {
         let mailbox = mailboxes
@@ -145,56 +150,52 @@ pub(crate) async fn storage_role(
         };
         let (joined, is_ready) = oneshot::channel();
         ready.push(is_ready);
-        ended.push(spawn_core(core_start, mailbox, joined, stopping.clone())?);
+        ended.add(spawn_core(core_start, mailbox, joined, stopping.clone())?);
     }
     for is_ready in ready {
-        let joined = wait_or_end(is_ready, &mut ended, &stopping).await?;
-        if !joined {
-            return finish(ended).await;
+        match wait_or_end(is_ready, &mut ended, &stopping).await {
+            Ok(true) => {}
+            Ok(false) => return ended.finish().await,
+            Err(failure) => return stop_the_rest(failure, ended, &stopping).await,
         }
     }
     readiness.set(true);
     tracing::info!(partitions = count, "ready");
     while !stopping.is_stopping() {
-        for one in &mut ended {
-            if let Ok(Some(outcome)) = one.try_recv() {
-                outcome?;
-            }
+        if let Err(failure) = ended.look() {
+            return stop_the_rest(failure, ended, &stopping).await;
         }
         compio::time::sleep(POLL).await;
     }
-    finish(ended).await
+    ended.finish().await
 }
 
-/// Waits for every core to end, each past its flush.
-async fn finish(ended: Vec<oneshot::Receiver<Result<(), RoleError>>>) -> Result<(), RoleError> {
-    for one in ended {
-        one.await.unwrap_or_else(|_| {
-            Err(RoleError::software(
-                "a partition's thread ended without a word",
-            ))
-        })?;
-    }
-    Ok(())
+/// A partition failed, so the process shuts down through its ordinary path: every other partition flushes what its log holds, and
+/// the process exits with the failure's code.
+async fn stop_the_rest(
+    failure: RoleError,
+    ended: CoreEnds,
+    stopping: &Stopping,
+) -> Result<(), RoleError> {
+    tracing::error!(%failure, "a partition stopped; stopping the others");
+    stopping.set();
+    // The first failure is the one reported.
+    drop(ended.finish().await);
+    tracing::info!(role = %RoleKind::Storage, "stopping");
+    Err(failure)
 }
 
 /// Whether the core behind `is_ready` became ready; false once the service stops first. A core ending first ends this.
 async fn wait_or_end(
     mut is_ready: oneshot::Receiver<()>,
-    ended: &mut [oneshot::Receiver<Result<(), RoleError>>],
+    ended: &mut CoreEnds,
     stopping: &Stopping,
 ) -> Result<bool, RoleError> {
     loop {
         if matches!(is_ready.try_recv(), Ok(Some(()))) {
             return Ok(true);
         }
-        for one in ended.iter_mut() {
-            if let Ok(Some(outcome)) = one.try_recv() {
-                outcome?;
-                return Ok(false);
-            }
-        }
-        if stopping.is_stopping() {
+        if ended.look()? || stopping.is_stopping() {
             return Ok(false);
         }
         compio::time::sleep(POLL).await;
@@ -244,13 +245,18 @@ async fn serve_core(
         return Ok(());
     };
     let own = start.id;
-    let dir = start.data_dir.join(format!("p{}", own.get()));
+    let dir = start
+        .data_dir
+        .join(format!("p{}", own.get()))
+        .join(format!("r{REPLICA}"));
     std::fs::create_dir_all(&dir)
         .map_err(|error| RoleError::io(format!("the data directory {}: {error}", dir.display())))?;
     let leased = LeasedBlocks::new();
     let (wanted, wants) = unbounded();
     let blocks = RefillBlocks::new(leased.clone(), wanted);
-    let partition = open_partition(&dir.join("store"), own, &placement, blocks)?;
+    let partition = Arc::new(open_partition(&dir.join("store"), own, &placement, blocks)?);
+    let (discards, raised) = std::sync::mpsc::channel();
+    let discarding = spawn_discards(own, Arc::clone(&partition), raised)?;
     let config = WalConfig::new(cluster.id(), false);
     let bounds = RoundBounds::new(config.round_bytes(), config.round_transactions());
     let (mut log, _) = Wal::open(CompioStorage, dir.join("wal"), config)
@@ -284,8 +290,39 @@ async fn serve_core(
         wants,
         delivered,
         joined,
+        discards,
     };
-    serve_partition(&start, served, &stopping).await
+    let outcome = serve_partition(&start, served, &stopping).await;
+    // The core is gone, and its sender with it, so the thread ends past the write it may be in.
+    discarding
+        .join()
+        .map_err(|_| RoleError::software("a partition's discard thread panicked"))?;
+    outcome
+}
+
+/// A thread raising the discard version of `partition` as `raised` says: the store's write of it syncs, which no read of the core
+/// waits for. Asks arriving meanwhile come to one, the latest.
+fn spawn_discards(
+    id: PartitionId,
+    partition: Arc<StoragePartition>,
+    raised: Receiver<u64>,
+) -> Result<std::thread::JoinHandle<()>, RoleError> {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the store's synced write runs off the core on a real thread, which no simulation replays"
+    )]
+    let spawned = std::thread::Builder::new()
+        .name(format!("discard-{}", id.get()))
+        .spawn(move || {
+            while let Ok(first) = raised.recv() {
+                let latest = raised.try_iter().last().unwrap_or(first);
+                let lists = partition.applier().quads().lists();
+                if let Err(error) = lists.set_discard_ts(latest) {
+                    tracing::error!(partition = id.get(), %error, "the discard version was not raised");
+                }
+            }
+        });
+    spawned.map_err(|error| RoleError::unavailable(format!("a partition's thread: {error}")))
 }
 
 /// What a recovered partition serves with.
@@ -297,6 +334,7 @@ struct Serving<'a> {
     wants: UnboundedReceiver<TypePrefix>,
     delivered: Epoch,
     joined: oneshot::Sender<()>,
+    discards: std::sync::mpsc::Sender<u64>,
 }
 
 /// Listens at the partition's address, leases its first blocks, joins the frontend and subscribes to its closes, then runs
@@ -323,7 +361,9 @@ async fn serve_partition(
         answers_tx,
     );
     spawn(forward_answers(answers, serving.self_sender.clone())).detach();
-    top_up(&peers, &serving.leased, own, TypePrefix::RESOURCE, stopping).await?;
+    for prefix in [TypePrefix::RESOURCE, TypePrefix::STATEMENT] {
+        top_up(&peers, &serving.leased, own, prefix, stopping).await?;
+    }
     spawn(frontend_requests(
         peers.clone(),
         serving.leased,
@@ -353,12 +393,15 @@ async fn serve_partition(
         stopping.clone(),
     ))
     .detach();
-    let channels = CoreChannels::new(inbox, serving.remote, serving.self_sender, closes, asks_tx);
-    let stall = start.config.storage().scan_stall_ms();
-    let core = PartitionCore::new(
-        CoreParts::new(serving.host, own, cluster.id(), now(), channels, peers)
-            .with_scan_stall_ms(stall.unwrap_or(SCAN_STALL_MS_DEFAULT)),
+    let channels = CoreChannels::new(
+        inbox,
+        serving.remote,
+        serving.self_sender,
+        closes,
+        asks_tx,
+        serving.discards,
     );
+    let core = PartitionCore::new(core_parts(start, serving.host, channels, peers));
     let mut running = std::pin::pin!(core.run(stopping));
     std::future::poll_fn(|cx| {
         if let std::task::Poll::Ready(Ok(failure)) = std::pin::Pin::new(&mut lost).poll(cx) {
@@ -367,6 +410,29 @@ async fn serve_partition(
         running.as_mut().poll(cx)
     })
     .await
+}
+
+/// What the partition's core is made of, as the settings say.
+fn core_parts<'a>(
+    start: &CoreStart,
+    host: StorageHost<'a>,
+    channels: CoreChannels,
+    peers: Peers,
+) -> CoreParts<'a> {
+    let table = start.config.storage();
+    let retain = table
+        .read_retain_ms()
+        .unwrap_or(StorageTable::READ_RETAIN_MS_DEFAULT);
+    CoreParts::new(
+        host,
+        start.id,
+        start.cluster.id(),
+        now(),
+        channels,
+        peers,
+        Retention::new(retain),
+    )
+    .with_scan_stall_ms(table.scan_stall_ms().unwrap_or(SCAN_STALL_MS_DEFAULT))
 }
 
 /// The latest close certainly delivered before the version `applied`: a commit is stamped one above the close before it.
@@ -512,6 +578,15 @@ async fn deliver_closes(
         let close = read.and_then(|frame| close_of(&frame));
         match close {
             Ok(close) => {
+                if close.epoch().get() != after.get() + 1 {
+                    // A core gone has already stopped.
+                    drop(lost.send(RoleError::software(format!(
+                        "the frontend delivered close {} after close {}: a close follows the last by one epoch",
+                        close.epoch().get(),
+                        after.get()
+                    ))));
+                    return;
+                }
                 after = close.epoch();
                 // A core gone holds nothing to deliver to.
                 drop(closes.send(PartitionMessage::Close(close)));

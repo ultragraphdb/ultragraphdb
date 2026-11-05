@@ -9,10 +9,13 @@
 use std::num::NonZeroU64;
 
 use oxrdf::{GraphName, Literal, NamedNode, Term};
-use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_ids::{Sequence, SystemId, TypePrefix};
+use ultragraphdb_core_keys::{Graph, QuadKey};
 use ultragraphdb_core_mapping::{Change, Changeset, RandomSource};
+use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_apply::ChangesetApplier;
 use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig};
+use ultragraphdb_store_quads::QuadWrite;
 use ultragraphdb_store_sim::{
     FaultConfig, Seed, SimClock, SimListCache, SimStore, SteppedExecutor, Stream,
 };
@@ -107,6 +110,68 @@ pub fn commit(applier: &Applier, changes: Vec<Change>) -> TestResult<u64> {
 /// Commits `changes` as [`commit`] does, where the test needs no commit version.
 pub fn store(applier: &Applier, changes: Vec<Change>) -> TestResult {
     commit(applier, changes).map(|_version| ())
+}
+
+/// `<a> <knows> <b>` held under `count` statement IDs of sequences above every lease of the tests, in both its postings: the IDs.
+pub fn held_under(applier: &Applier, count: usize) -> TestResult<Vec<SystemId>> {
+    store(applier, vec![insert("a", "knows", "b")])?;
+    let quads = applier.quads();
+    let id = |name: &str| -> TestResult<SystemId> {
+        quads.id_of(TENANT, ex(name).as_str())?.context("an ID")
+    };
+    let (subject, knows, object) = (id("a")?, id("knows")?, EncodedTerm::id(id("b")?));
+    let ids = (1..=u64::try_from(count)?)
+        .map(|n| {
+            Ok(SystemId::new(
+                TypePrefix::STATEMENT,
+                subject.bucket(),
+                Sequence::new((1 << 40) + n)?,
+            ))
+        })
+        .collect::<TestResult<Vec<_>>>()?;
+    let mut batch = quads.lists().batch();
+    let mut write = QuadWrite::new(quads, TENANT, batch.request(quads.lists().applied_ts()));
+    write.set_statement_ids(Graph::Default, subject, knows, &object, &ids);
+    let (request, terms) = write.finish();
+    batch.push(request);
+    let _committed: Vec<u64> = quads.commit(batch, &[terms])?;
+    Ok(ids)
+}
+
+/// What `applier` holds of `<a> <knows> ?` and `? <knows> <b>`, each posting with its statement IDs.
+pub fn both_postings(applier: &Applier) -> TestResult<Vec<(EncodedTerm, Vec<SystemId>)>> {
+    let quads = applier.quads();
+    let id = |name: &str| -> TestResult<SystemId> {
+        quads.id_of(TENANT, ex(name).as_str())?.context("an ID")
+    };
+    let (subject, knows, object) = (id("a")?, id("knows")?, EncodedTerm::id(id("b")?));
+    let forward = QuadKey::Forward {
+        tenant: TENANT,
+        graph: Graph::Default,
+        predicate: knows,
+        subject,
+    };
+    let reverse = QuadKey::Reverse {
+        tenant: TENANT,
+        graph: Graph::Default,
+        predicate: knows,
+        object,
+    };
+    let version = quads.lists().applied_ts();
+    let mut held = quads.objects(&forward.to_bytes(), version)?;
+    held.extend(quads.objects(&reverse.to_bytes(), version)?);
+    Ok(held)
+}
+
+/// A parallel edge of `<a> <knows> <b>`.
+pub fn parallel_edge() -> Change {
+    Change::InsertEdge {
+        graph: GraphName::DefaultGraph,
+        subject: ex("a").into(),
+        predicate: ex("knows"),
+        object: ex("b").into(),
+        properties: Vec::new(),
+    }
 }
 
 /// Begins a transaction of `TENANT` at the watermark at time 0 with the default limits.

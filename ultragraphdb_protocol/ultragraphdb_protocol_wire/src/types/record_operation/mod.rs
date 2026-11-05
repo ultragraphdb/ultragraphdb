@@ -18,7 +18,6 @@ use crate::utils::constants::RECORD_OPERATION_SIZE;
 /// | 2 | drop a graph | the graph's system ID |
 /// | 3 | drop a tenant's data, keeping its catalog | zero |
 /// | 4 | drop everything in a tenant | zero |
-/// | 5 | drop everything | zero |
 /// | 6 | a catalog version takes effect | the version, a little-endian u64, then 8 zero bytes |
 /// | 7 | complete an index build | the catalog version that started it, a little-endian u64; its outcome's byte; 7 zero bytes |
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -31,8 +30,6 @@ pub enum RecordOperation {
     DropTenantData,
     /// 4: drops everything in the record's tenant.
     DropTenant,
-    /// 5: drops every quad key.
-    DropAll,
     /// 6: this catalog version takes effect, starting the builds it asks for.
     CatalogTakesEffect(u64),
     /// 7: completes the index build the catalog version `version` started, as `outcome` says.
@@ -45,14 +42,13 @@ pub enum RecordOperation {
 }
 
 impl RecordOperation {
-    /// The operation's code, 1 to 7.
+    /// The operation's code: 1 to 4, 6 or 7; 5 is unassigned.
     pub fn code(&self) -> u16 {
         match self {
             RecordOperation::DropPredicate(_) => 1,
             RecordOperation::DropGraph(_) => 2,
             RecordOperation::DropTenantData => 3,
             RecordOperation::DropTenant => 4,
-            RecordOperation::DropAll => 5,
             RecordOperation::CatalogTakesEffect(_) => 6,
             RecordOperation::CompleteBuild { .. } => 7,
         }
@@ -88,9 +84,7 @@ impl RecordOperation {
                     0,
                 ]
             }
-            RecordOperation::DropTenantData
-            | RecordOperation::DropTenant
-            | RecordOperation::DropAll => [0; 16],
+            RecordOperation::DropTenantData | RecordOperation::DropTenant => [0; 16],
         }
     }
 
@@ -111,7 +105,6 @@ impl RecordOperation {
                 .map(RecordOperation::DropGraph),
             3 => none.then_some(RecordOperation::DropTenantData),
             4 => none.then_some(RecordOperation::DropTenant),
-            5 => none.then_some(RecordOperation::DropAll),
             6 => catalog.map(RecordOperation::CatalogTakesEffect),
             7 => (rest == [0; 7])
                 .then(|| BuildOutcome::from_byte(outcome))
@@ -121,7 +114,7 @@ impl RecordOperation {
         }
     }
 
-    /// Whether the operation is a drop, codes 1 to 5, the last record of its round.
+    /// Whether the operation is a drop, codes 1 to 4, the last record of its round.
     pub fn is_drop(&self) -> bool {
         !matches!(
             self,

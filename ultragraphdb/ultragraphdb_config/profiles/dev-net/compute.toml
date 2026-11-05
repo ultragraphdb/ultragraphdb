@@ -1,6 +1,6 @@
 [cluster]
 id = 1
-role_secret_file = "/run/secrets/ultragraphdb_role_secret"
+role_secret_file = "/data/config/role.secret"
 frontend_address = "tcp://127.0.0.1:7081"
 [observability]
 address = "tcp://127.0.0.1:8082"

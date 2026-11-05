@@ -8,12 +8,13 @@ use ultragraphdb_error_protocol::ProtocolError;
 use crate::traits::body_view::BodyView;
 use crate::types::command::Command;
 use crate::types::frame_view::FrameView;
+use crate::types::monotonic::Monotonic;
 use crate::types::result_batch::ResultBatch;
 use crate::types::result_term::ResultTerm;
 use crate::types::result_term_view::{named_hash, result_encoding_whole};
 use crate::types::result_view::ResultView;
 use crate::types::string_list::StringList;
-use crate::utils::constants::ABSENT;
+use crate::utils::constants::{ABSENT, FLAG_LAST, QUERY_COLUMNS_MAX};
 use crate::utils::fields;
 use crate::utils::sections::Sections;
 use crate::utils::sections::expect_command;
@@ -27,9 +28,10 @@ impl<'a> BodyView<'a> for ResultView<'a> {
     fn from_frame(frame: &FrameView<'a>) -> Result<Self, ProtocolError> {
         let command = Self::COMMAND.number();
         let header = expect_command(frame, Self::COMMAND)?;
-        header.unused_zero(&[(0, 20)])?;
+        header.unused_zero(&[(0, 21)])?;
         let (columns, rows) = (header.u32_at(0), header.u32_at(4));
-        if !(1..=5).contains(&columns) {
+        // A GQL statement without `RETURN` answers no column and no row.
+        if columns > QUERY_COLUMNS_MAX || (columns == 0 && rows != 0) {
             return Err(ProtocolError::field_value(
                 command,
                 "columns",
@@ -37,7 +39,10 @@ impl<'a> BodyView<'a> for ResultView<'a> {
             ));
         }
         let epoch = fields::epoch(command, "epoch", header.u64_at(8), true)?;
-        let sections = Sections::<7>::read(command, frame.body(), 0)?;
+        let number = header.u8_at(20);
+        let monotonic = Monotonic::from_number(number)
+            .ok_or_else(|| ProtocolError::field_value(command, "monotonic", number.into()))?;
+        let sections = Sections::<9>::read(command, frame.body(), 0)?;
         let offsets = u32s(command, 1, sections.get(1))?;
         let terms = offsets.len();
         let texts = sections.get(3);
@@ -51,6 +56,15 @@ impl<'a> BodyView<'a> for ResultView<'a> {
             ));
         }
         let strings = StringList::read(command, (4, 5), sections.get(4), sections.get(5))?;
+        let column_names = StringList::read(command, (7, 8), sections.get(7), sections.get(8))?;
+        if !column_names.is_empty() && column_names.len() != columns as usize {
+            return Err(ProtocolError::count_mismatch(
+                command,
+                "column names",
+                column_names.len() as u64,
+                columns.into(),
+            ));
+        }
         check_cells(
             command,
             sections.get(0),
@@ -60,7 +74,15 @@ impl<'a> BodyView<'a> for ResultView<'a> {
         let encodings = sections.get(2);
         check_encodings(command, &offsets, encodings)?;
         check_texts(command, texts, as_u32(strings.len()))?;
-        check_reifiers(command, sections.get(0), &offsets, encodings, columns, rows)?;
+        check_term_texts(command, texts, &offsets, encodings)?;
+        let resume = sections.get(6);
+        if !resume.is_empty() && frame.header().flags() & FLAG_LAST == 0 {
+            return Err(ProtocolError::field_value(
+                command,
+                "resume key",
+                resume.len() as u64,
+            ));
+        }
         Ok(Self {
             columns,
             rows,
@@ -69,9 +91,11 @@ impl<'a> BodyView<'a> for ResultView<'a> {
             encodings,
             texts,
             strings,
-            resume: sections.get(6),
+            resume,
             epoch,
             partition: header.u32_at(16),
+            monotonic,
+            column_names,
         })
     }
 
@@ -100,42 +124,48 @@ impl<'a> BodyView<'a> for ResultView<'a> {
             .collect::<Result<Vec<_>, ProtocolError>>()?;
         let mut batch = ResultBatch::new(self.columns)
             .with_resume(self.resume.to_vec())
-            .with_read_at(self.epoch, self.partition);
+            .with_read_at(self.epoch, self.partition)
+            .with_monotonic(self.monotonic)
+            .with_column_names(self.column_names.iter().map(str::to_string).collect());
         for row in 0..self.rows {
             let cells: Vec<Option<&ResultTerm>> = (0..self.columns)
                 .map(|column| self.cell(column, row).and_then(|i| terms.get(i as usize)))
                 .collect();
-            batch.push_row(&cells)?;
+            batch.push_query_row(&cells)?;
         }
         Ok(batch)
     }
 }
 
-/// Refused as [`ProtocolError::field_value`] (`"reifier"`, the row) unless each cell of the last column, the reifier
-/// column, is [`ABSENT`] or a term of tag `0x02`, a blank node's: the cells, offsets and encodings already checked.
-fn check_reifiers(
+/// Whether a term of `tag` names a `text` and an `annotation` (`PROTOCOL.md` §10.3).
+fn names_text(tag: u8) -> (bool, bool) {
+    match tag {
+        0x01 | 0x02 | 0x21 | 0x23 | 0x26 | 0x29 | 0x31 => (true, false),
+        0x24 | 0x27 | 0x2A | 0x33 => (true, true),
+        0x32 => (false, true),
+        _ => (false, false),
+    }
+}
+
+/// Refused as [`ProtocolError::field_value`] (`"term text"`, the term's index) unless each term's `text` and `annotation`
+/// is a string index where §10.3's table names one and [`ABSENT`] elsewhere: the offsets, encodings and text indices
+/// already checked.
+fn check_term_texts(
     command: u16,
-    cells: &[u8],
+    texts: &[u8],
     offsets: &[u32],
     encodings: &[u8],
-    columns: u32,
-    rows: u32,
 ) -> Result<(), ProtocolError> {
-    let first = u64::from(columns.saturating_sub(1)) * u64::from(rows);
-    for row in 0..rows {
-        let cell = usize::try_from(first + u64::from(row))
-            .ok()
-            .and_then(|at| u32_at(cells, at))
-            .unwrap_or(ABSENT);
-        if cell == ABSENT {
-            continue;
-        }
-        let tag = offsets
-            .get(cell as usize)
-            .and_then(|start| encodings.get(*start as usize))
-            .copied();
-        if tag != Some(0x02) {
-            return Err(ProtocolError::field_value(command, "reifier", row.into()));
+    for (index, start) in offsets.iter().enumerate() {
+        let tag = encodings.get(*start as usize).copied().unwrap_or_default();
+        let (text, annotation) = names_text(tag);
+        let held = |at: usize| u32_at(texts, at).is_some_and(|string| string != ABSENT);
+        if held(2 * index) != text || held(2 * index + 1) != annotation {
+            return Err(ProtocolError::field_value(
+                command,
+                "term text",
+                index as u64,
+            ));
         }
     }
     Ok(())

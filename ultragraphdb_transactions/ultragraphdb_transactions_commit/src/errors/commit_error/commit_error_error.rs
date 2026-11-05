@@ -12,6 +12,7 @@ impl std::error::Error for CommitError {
             CommitErrorEnum::Conflict { .. }
             | CommitErrorEnum::TooOld { .. }
             | CommitErrorEnum::TooLarge { .. }
+            | CommitErrorEnum::ReplyTooLarge { .. }
             | CommitErrorEnum::Unsealed
             | CommitErrorEnum::Busy { .. }
             | CommitErrorEnum::Unavailable

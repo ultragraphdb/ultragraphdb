@@ -7,8 +7,9 @@ use std::ops::ControlFlow;
 
 use ultragraphdb_core_codec::{Posting, PostingType};
 use ultragraphdb_core_ids::SystemId;
-use ultragraphdb_core_terms::EncodedTerm;
-use ultragraphdb_store_posting::{List, PostingError};
+use ultragraphdb_core_keys::Keyspace;
+use ultragraphdb_core_terms::{EncodedTerm, TermError};
+use ultragraphdb_store_posting::{List, PostingError, PostingIdentity};
 
 use crate::errors::quad_error::QuadError;
 
@@ -31,6 +32,30 @@ pub fn object_posting(
     posting
         .with_op(op)
         .with_statement_ids(statement_ids.to_vec())
+}
+
+/// Where a list of `keyspace` resumes for a reader naming the object `encoding` (`PROTOCOL.md` §13.13): at the identity
+/// [`object_posting`] gives that object, read itself when the list holds it, a literal's value part of it only where the
+/// keyspace compares values.
+///
+/// # Errors
+///
+/// [`TermError`] for bytes that are not one whole object encoding.
+pub fn object_identity(
+    keyspace: Keyspace,
+    encoding: &[u8],
+    fingerprint: fn(&[u8]) -> u64,
+) -> Result<PostingIdentity, TermError> {
+    EncodedTerm::check(encoding)?;
+    let object = EncodedTerm::from_bytes(encoding)?;
+    let identity = match object.as_id() {
+        Some(id) => PostingIdentity::new(id.to_u128(), Vec::new()),
+        None if keyspace.compares_values() => {
+            PostingIdentity::new(u128::from(fingerprint(encoding)), encoding.to_vec())
+        }
+        None => PostingIdentity::new(u128::from(fingerprint(encoding)), Vec::new()),
+    };
+    Ok(identity.included())
 }
 
 /// The object a posting of the list under `key` holds: a reference posting's key read back as a system ID, a value

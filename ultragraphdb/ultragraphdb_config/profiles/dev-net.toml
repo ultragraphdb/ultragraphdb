@@ -1,0 +1,9 @@
+# The config service of the `dev-net` profile, in clear text, for development only: what `ultragraphdb_supervisor --config` starts
+# it on. The supervisor draws its two keys and the role secret at the first start and keeps them under its data directory.
+[config]
+address = "tcp://127.0.0.1:8090"
+plaintext = true
+data_dir = "/data/config"
+read_key_file = "/data/config/read.key"
+admin_key_file = "/data/config/admin.key"
+targets_file = "/etc/ultragraphdb/profiles/dev-net/targets.toml"

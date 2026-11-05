@@ -126,14 +126,14 @@ fn test_a_read_streams_its_batches_read_in_place_until_the_last() -> TestResult 
     Ok(())
 }
 
-/// Credit stops a stream, from the client's side: with no initial credit the client grants its window first, and the
-/// server sends that many frames before it waits.
+/// Credit stops a stream, from the client's side: once the Welcome's one frame is spent the client grants its window, and
+/// the server sends that many frames before it waits.
 #[test]
-fn test_without_credit_the_client_grants_before_any_frame_arrives() -> TestResult {
+fn test_the_client_grants_its_window_once_the_welcomes_credit_is_spent() -> TestResult {
     let welcome = Welcome::new(1, RELEASE, "s")
         .with_max_frame(1 << 20)
         .with_max_streams(8)
-        .with_initial_credit(0);
+        .with_initial_credit(1);
     let mut h = Harness::with(
         config(),
         TestServer::new(CLUSTER, welcome).with_results(3),
@@ -145,12 +145,8 @@ fn test_without_credit_the_client_grants_before_any_frame_arrives() -> TestResul
     h.until(|h| h.core.is_ready())?;
     let tx = begin(&mut h)?;
     let stream = h.core.read(&tx, &read(&tx), h.now)?;
-    assert!(matches!(
-        h.core.next_batch(&stream, h.now, |_| ()),
-        Ok(BatchPoll::Wait)
-    ));
     assert_eq!(drain(&mut h, &stream)?.len(), 3);
-    assert_eq!(credits(&h), vec![2, 2]);
+    assert_eq!(credits(&h), vec![2]);
     assert_eq!(
         h.core.grant(&stream, 1).err().context("an error")?.0,
         ClientErrorEnum::StreamFinished {
@@ -691,7 +687,7 @@ fn test_a_broken_frame_on_a_read_gives_the_connection_up() -> TestResult {
             .with_stream(stream.stream())
             .with_flags(FLAG_LAST);
         let frame = match case {
-            0 => Begin::new(0, 5, true).frame(header.with_command(Command::Begin))?,
+            0 => Begin::new(0, 6, true).frame(header.with_command(Command::Begin))?,
             1 => header
                 .with_command(Command::Error)
                 .encode_frame(&[0xFF; 3])?,

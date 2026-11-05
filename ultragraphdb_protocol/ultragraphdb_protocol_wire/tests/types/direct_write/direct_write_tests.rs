@@ -107,3 +107,15 @@ fn test_a_new_direct_write_goes_through_no_session_and_holds_no_token() {
     assert_eq!(write.request(), 0);
     assert_eq!(write.token(), None);
 }
+
+#[test]
+fn test_a_relayed_write_builds_the_golden_frame() -> TestResult {
+    let golden_relayed = golden("direct_write_relayed")?;
+    let relayed = golden_direct_write()?.with_principal(9);
+    assert_eq!(relayed.principal(), 9);
+    assert_eq!(
+        relayed.frame(golden_relayed.header())?,
+        golden_relayed.bytes()?
+    );
+    Ok(())
+}

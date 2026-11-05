@@ -61,18 +61,19 @@ struct Update {
 /// ([`Input`]), the round to append with its record and body, the round to apply and the replies out
 /// ([`StepOutput`]). One round is in flight at a time, between its close and its sync's completion.
 ///
-/// **Rounds.** A round closes when the sync of the round in flight completes, or at once when a commit request
-/// arrives with no round in flight, with no timer. It holds the requests waiting then, in arrival order, while its
-/// frame stays within the bounds' bytes, every request counted as committed, and its transactions within their
-/// count; the rest wait for the next round. A request whose record is over the largest a round holds on its own
-/// ([`RoundBounds::max_write_set`]) is refused as too large when it arrives; one whose commit-time operations leave such
-/// a write set, their record and dictionary entries together, is refused as too large when it is decided, taking no
-/// version, and one whose operations leave a write set that a fresh round holds but its own round has no room for
-/// waits for the next round, decided again there first. The round's transactions are decided in round order ([`Resolver`]), each admitted one taking the
-/// next version of the [`Sequencer`], whose clock is read once per round; the body, every decision and the record of
-/// each committed transaction, is written into the output's buffer in `ultragraphdb_protocol_wire`'s `RoundBody`
-/// layout. A round is acknowledged as a unit: its replies, aborts included, go out once its sync has completed and
-/// its apply is handed over.
+/// **Rounds.** A round closes when the sync of the round in flight completes, or at once when a commit request arrives
+/// with no round in flight, with no timer. It holds the requests waiting then, in arrival order, while its frame stays
+/// within the bounds' bytes, every request counted as committed, and its transactions within their count; the rest wait
+/// for the next round. A request whose record is over the largest a round holds on its own
+/// ([`RoundBounds::max_write_set`]) is refused as too large when it arrives; one whose commit-time operations leave
+/// such a write set, their record and dictionary entries together, or a Commit reply whose frame would pass the floor
+/// of `max_frame`, is refused as too large when it is decided, taking no version, and one whose operations leave a
+/// write set that a fresh round holds but its own round has no room for waits for the next round, decided again there
+/// first. The round's transactions are decided in round order ([`Resolver`]), each admitted one taking the next version
+/// of the [`Sequencer`], whose clock is read once per round; the body, every decision and the record of each committed
+/// transaction, is written into the output's buffer in `ultragraphdb_protocol_wire`'s `RoundBody` layout. A round is
+/// acknowledged as a unit: its replies, aborts included, go out once its sync has completed and its apply is handed
+/// over.
 ///
 /// **The commit queue** holds the requests waiting, at most [`CommitStep::with_queue`]'s limit: a commit arriving to
 /// a full queue is refused busy, retryable, and released.
@@ -80,17 +81,17 @@ struct Update {
 /// **A failed sync** acknowledges none of the round in flight and stops the step: its transactions, the requests
 /// waiting and every later request are answered unavailable.
 ///
-/// **Sessions** (D9). A commit names its session and request number in its record's fixed part, session 0 for none.
-/// Its session is checked once its record reads and before validation, in this order ([`Sessions::check`]): a session
-/// the table does not hold is refused as evicted, one another principal registered as permission denied, and one with
-/// a request decided and not yet applied as busy; then a retry of the session's last committed request is answered
-/// with that commit's stored reply, its version and its operations' results, and commits nothing (its proposal
-/// released); and a number neither that one nor one above it is refused as out of order. A retry sent while a request
-/// of its session is in flight is therefore refused busy, not answered. A registration
+/// **Sessions** (D9). A commit names its session and request number in its record's fixed part, session 0 for none. Its
+/// session is checked once its record reads and before validation, in this order: one with a request decided and not
+/// yet applied is refused as busy; then a Commit on an open transaction numbered at or below the session's last is
+/// refused as out of order, naming the last, and aborts ([`Sessions::check`]), while a one-frame or Drop resend of the
+/// last is answered with that commit's stored reply, its version and its operations' results, and commits nothing (its
+/// proposal released), and one below the last is refused as out of order ([`Sessions::check_one_frame`]). A resend sent
+/// while a request of its session is in flight is therefore refused busy, not answered. A registration
 /// ([`Input::Register`]) takes a commit version in its round, which numbers the session, its record a write-set record
-/// of that session, request 0 and no writes. The table takes each round's registrations and committed requests once
-/// the round is applied, the oldest session evicted when full, and hands the entries they changed to the round's
-/// apply ([`StepOutput::system`]), so the store holds the table as of every round it applied.
+/// of that session, request 0 and no writes. The table takes each round's registrations and committed requests once the
+/// round is applied, the oldest session evicted when full, and hands the entries they changed to the round's apply
+/// ([`StepOutput::system`]), so the store holds the table as of every round it applied.
 ///
 /// **Builds** (decided 2026-10-28). One index build runs at a time, from the admission of the proposal starting it to
 /// the admission of its end, its swap or undo, which is a round of its own: a proposal starting another build meanwhile
@@ -132,6 +133,9 @@ pub struct CommitStep<P> {
     /// The dictionary entries the round's admitted transactions create, its dictionary section.
     dictionary: BTreeMap<Vec<u8>, Vec<u8>>,
     updates: Vec<Update>,
+    /// The tickets of the round's admitted transactions through no session, in decision order: their replies hold no
+    /// token.
+    sessionless: Vec<u64>,
     /// The commit-time operations' results of the round's admitted transactions that asked any, under their tickets,
     /// with the term table naming their nodes.
     results: Vec<(u64, Vec<OperationResult>, TermTable)>,
@@ -170,6 +174,7 @@ impl<P: Proposal> CommitStep<P> {
             registrations: Vec::new(),
             dictionary: BTreeMap::new(),
             updates: Vec::new(),
+            sessionless: Vec::new(),
             results: Vec::new(),
             sessions: Sessions::new(Sessions::DEFAULT_CAPACITY),
             queue: usize::MAX,

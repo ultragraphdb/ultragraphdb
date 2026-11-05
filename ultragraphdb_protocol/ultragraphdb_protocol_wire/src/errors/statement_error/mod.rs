@@ -53,6 +53,11 @@ pub enum StatementErrorEnum {
         /// The parameter's index.
         parameter: usize,
     },
+    /// The Prepare holds a query text, of `language`, which a cache of quad patterns does not take.
+    NotAPattern {
+        /// The Prepare's `language` byte.
+        language: u8,
+    },
 }
 
 /// Why a statement was refused; `.0` classifies it.
@@ -100,8 +105,13 @@ impl StatementError {
         })
     }
 
-    /// The Error frame's code: [`ErrorCode::UnknownStatement`], [`ErrorCode::StaleStatement`] or
-    /// [`ErrorCode::Parameters`].
+    /// The Prepare holds a query text, of `language`, which a cache of quad patterns does not take.
+    pub fn not_a_pattern(language: u8) -> Self {
+        Self(StatementErrorEnum::NotAPattern { language })
+    }
+
+    /// The Error frame's code: [`ErrorCode::UnknownStatement`], [`ErrorCode::StaleStatement`],
+    /// [`ErrorCode::Parameters`] or [`ErrorCode::Refused`].
     pub fn code(&self) -> ErrorCode {
         match self.0 {
             StatementErrorEnum::Unknown { .. } => ErrorCode::UnknownStatement,
@@ -109,17 +119,19 @@ impl StatementError {
             StatementErrorEnum::Parameters { .. }
             | StatementErrorEnum::ParameterType { .. }
             | StatementErrorEnum::NotANode { .. } => ErrorCode::Parameters,
+            StatementErrorEnum::NotAPattern { .. } => ErrorCode::Refused,
         }
     }
 
-    /// The error reply: the code, the statement as its detail (zero for a parameter type), and the error's text.
+    /// The error reply: the code, the statement as its detail (zero for a parameter type and a text), and the error's
+    /// text.
     pub fn reply(&self) -> ErrorReply {
         let statement = match self.0 {
             StatementErrorEnum::Unknown { statement }
             | StatementErrorEnum::Stale { statement, .. }
             | StatementErrorEnum::Parameters { statement, .. }
             | StatementErrorEnum::NotANode { statement, .. } => statement,
-            StatementErrorEnum::ParameterType { .. } => 0,
+            StatementErrorEnum::ParameterType { .. } | StatementErrorEnum::NotAPattern { .. } => 0,
         };
         ErrorReply::new(self.code(), self.to_string()).with_detail(statement)
     }

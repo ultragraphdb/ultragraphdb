@@ -569,6 +569,7 @@ fn store_failed(error: &ChangesetError) -> bool {
         | ChangesetErrorEnum::NoVectorIndex { .. }
         | ChangesetErrorEnum::OperationFailed { .. }
         | ChangesetErrorEnum::NoIndex { .. }
+        | ChangesetErrorEnum::StatementsPerObject { .. }
         | ChangesetErrorEnum::NotUnique { .. } => false,
     }
 }

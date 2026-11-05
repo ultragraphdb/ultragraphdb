@@ -468,6 +468,46 @@ fn stall_entry(w: &mut Steps) {
     );
 }
 
+#[when("`ci_frontend.toml` sets `storage.scan_stall_ms = 0`")]
+fn zero_frontend_stall(w: &mut Steps) {
+    let frontend = format!("{FRONTEND}[storage]\nscan_stall_ms = 0\n");
+    let target = with(valid(), "frontend", &frontend);
+    w.defects = check_target(&target, None);
+}
+
+#[when("`ci_storage_1.toml` sets `storage.read_retain_ms = 0`")]
+fn zero_retention(w: &mut Steps) {
+    let target = with(
+        valid(),
+        "storage_1",
+        "[storage]\npartition_first = 1\npartition_count = 2\nrole_address = \"tcp://10.0.0.2:7000\"\nread_retain_ms = 0\n",
+    );
+    w.defects = check_target(&target, None);
+}
+
+#[then("the entry names `storage.read_retain_ms`, the value 0 and the bound it must meet")]
+fn retention_entry(w: &mut Steps) {
+    says(
+        w,
+        &["setting storage.read_retain_ms", "it holds 0", "at least 1"],
+    );
+}
+
+#[when("`ci_frontend.toml` sets `endpoint.held_bytes = 0`")]
+fn zero_held_bytes(w: &mut Steps) {
+    let frontend = format!("{FRONTEND}[endpoint]\nplaintext = true\nheld_bytes = 0\n");
+    let target = with(valid(), "frontend", &frontend);
+    w.defects = check_target(&target, None);
+}
+
+#[then("the entry names `endpoint.held_bytes`, the value 0 and the bound it must meet")]
+fn held_bytes_entry(w: &mut Steps) {
+    says(
+        w,
+        &["setting endpoint.held_bytes", "it holds 0", "at least 1"],
+    );
+}
+
 #[when("`ci_storage.toml` holds `partiton_count = 4` under `[storage]`")]
 fn misspelled(w: &mut Steps) {
     let target = with(valid(), "storage", "[storage]\n\npartiton_count = 4\n");

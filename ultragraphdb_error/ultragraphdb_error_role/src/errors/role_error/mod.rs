@@ -44,6 +44,13 @@ impl RoleError {
     pub const EX_IOERR: u8 = 74;
     /// `EX_CONFIG`: a configuration error.
     pub const EX_CONFIG: u8 = 78;
+    /// What each code says, as a binary's help lists it.
+    pub const EXIT_CODES: &'static str = "  0   a clean shutdown
+  69  EX_UNAVAILABLE: a dependency lost and not back within its deadline
+  70  EX_SOFTWARE: an invariant violation
+  74  EX_IOERR: a failed store or log: the component stopped on an operating error
+  78  EX_CONFIG: a configuration error: an unknown, malformed, missing or out-of-bounds setting, or an unreadable secret or certificate file
+";
 
     /// A refused configuration, `message` naming the setting.
     pub fn configuration(message: impl Into<String>) -> Self {

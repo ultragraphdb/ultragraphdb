@@ -301,7 +301,7 @@ fn test_replay_derives_the_home_s_own_groups_alike() -> TestResult {
         insert("<s> <knows> <hub>")?,
         insert("<t> <knows> <hub>")?,
     ]))?;
-    let logical: LogicalWrites = executed.logical()?;
+    let logical: LogicalWrites = executed.logical();
     let entries = dictionary(&executed);
     let at = version(8, 2)?;
     apply_at(&first, at, executed)?;

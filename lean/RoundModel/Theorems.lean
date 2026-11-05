@@ -16,7 +16,7 @@ step and every recovery to restate it.
 2. Durability: `durability`, `crash_recovers_synced_log`, `failed_sync_acknowledges_nothing`.
 3. Idempotent replay: `idempotent_replay`, with `applyAt_applied`, `replay_whole_log`, `recover_prefix`,
    `recover_idem` and `round_apply_idem` in `RoundModel.Log`.
-4. Sessions: `session_commits_at_most_once`, `acknowledged_request_commits_once`, with `decideTxn_retry` in
+4. Sessions: `session_commits_at_most_once`, `acknowledged_request_commits_once`, with `decideTxn_retry` and `decideTxn_reused` in
    `RoundModel.Round`.
 -/
 

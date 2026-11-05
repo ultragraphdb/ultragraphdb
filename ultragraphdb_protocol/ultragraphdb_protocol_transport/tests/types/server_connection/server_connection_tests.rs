@@ -12,11 +12,11 @@ use ultragraphdb_protocol_transport::{
 };
 use ultragraphdb_protocol_wire::{
     Abort, Authenticate, AuthenticateView, Begin, BodyBuilder, BodyView, Cancel, Command, Commit,
-    CommitOperation, ConditionalWrite, Credit, Describe, DirectWrite, DropCommand, Entries,
-    EntriesEnd, ErrorCode, ErrorReply, ErrorReplyView, Execute, FLAG_LAST, FrameView, Header,
-    HeaderView, Hello, MAX_FRAME_FLOOR, MAX_FRAME_SIZE, Operation, PatternSlot, Prepare,
-    QuadPattern, Read, Register, ResultBatch, Scan, ScanAt, ScanRange, TermTable, Welcome,
-    WelcomeView, Write, WriteChange,
+    CommitOperation, ComputeRead, ConditionalWrite, Credit, Describe, DirectWrite, DropCommand,
+    Entries, EntriesEnd, ErrorCode, ErrorReply, ErrorReplyView, Execute, FLAG_LAST, FrameView,
+    Header, HeaderView, Held, Hello, Install, Language, MAX_FRAME_FLOOR, MAX_FRAME_SIZE, Operation,
+    PatternSlot, Prepare, QuadPattern, Query, Read, ReadLevel, Register, ResultBatch, Scan, ScanAt,
+    ScanRange, TermTable, Welcome, WelcomeView, Write, WriteChange,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -1299,7 +1299,7 @@ fn test_requests_of_one_reply_each_open_a_stream_of_their_own() -> TestResult {
         }
     );
     assert_eq!(
-        connection.receive(&peer.send(3, &DropCommand::all())?, now)?,
+        connection.receive(&peer.send(3, &DropCommand::whole_tenant(0))?, now)?,
         Inbound::Request {
             stream: 3,
             command: Command::Drop
@@ -1453,7 +1453,7 @@ fn test_every_role_command_is_refused_as_not_served_and_closes_the_connection() 
         .into_iter()
         .filter(|command| (512..=767).contains(&command.number()))
         .collect();
-    assert_eq!(roles.len(), 19, "Join (512) to Report (530)");
+    assert_eq!(roles.len(), 20, "Join (512) to Held (531)");
     for role in roles {
         let mut peer = Peer::default();
         let mut connection = serving(&mut peer, now)?;
@@ -1689,7 +1689,6 @@ fn test_a_role_endpoint_takes_what_it_serves_and_refuses_the_rest() -> TestResul
         (Endpoint::Frontend, Command::Members, Command::Scan),
         (Endpoint::Partition, Command::Scan, Command::Join),
         (Endpoint::Partition, Command::Reference, Command::Begin),
-        (Endpoint::Compute, Command::ComputeRead, Command::Join),
     ] {
         assert_eq!(
             taken_at(endpoint, served)?,
@@ -1707,6 +1706,107 @@ fn test_a_role_endpoint_takes_what_it_serves_and_refuses_the_rest() -> TestResul
             "{endpoint:?} refuses {refused:?}"
         );
     }
+    Ok(())
+}
+
+/// The compute endpoint takes a ComputeRead, its stream starting with the credit it names in place of the Welcome's, and
+/// refuses what breaks its body on its stream and another role command as a command not served.
+#[test]
+fn test_a_compute_read_opens_its_stream_with_its_credit() -> TestResult {
+    let now = start();
+    let mut peer = Peer::default();
+    let mut connection = serving(&mut peer, now)?.with_endpoint(Endpoint::Compute);
+    let mut terms = TermTable::new();
+    let a = terms.iri("http://ex.org/a");
+    let pattern = QuadPattern::new(
+        PatternSlot::Unbound,
+        PatternSlot::Bound(a),
+        PatternSlot::Unbound,
+        PatternSlot::Unbound,
+    );
+    let credit = connection.welcome().context("a Welcome")?.initial_credit() + 3;
+    let read = ComputeRead::new(1, true, ReadLevel::Snapshot, terms, pattern, Vec::new())
+        .with_client_limits(MAX_FRAME_SIZE as u32, credit);
+    assert_eq!(
+        connection.receive(&peer.send(1, &read)?, now)?,
+        Inbound::Request {
+            stream: 1,
+            command: Command::ComputeRead
+        }
+    );
+    assert_eq!(connection.outbound().credit(1), Some(credit));
+    assert!(matches!(
+        connection.receive(&peer.command(3, Command::ComputeRead)?, now)?,
+        Inbound::Refused {
+            stream: 3,
+            code: ErrorCode::Protocol
+        }
+    ));
+    assert_eq!(connection.outbound().credit(3), None);
+    assert_eq!(
+        connection.receive(&peer.command(5, Command::Join)?, now)?,
+        Inbound::Closing {
+            code: Some(ErrorCode::Protocol)
+        }
+    );
+    Ok(())
+}
+
+/// A Query reads as a Read does: on a stream of its own for the transaction it names, which must be open.
+#[test]
+fn test_a_query_opens_a_stream_for_the_transaction_it_names() -> TestResult {
+    let now = start();
+    let mut peer = Peer::default();
+    let mut connection = serving(&mut peer, now)?;
+    let _begun: Inbound = connection.receive(&peer.send(1, &Begin::new(0, 0, true))?, now)?;
+    let query = |transaction| Query::new(transaction, Language::Gql, "RETURN 1", TermTable::new());
+    assert_eq!(
+        connection.receive(&peer.send(3, &query(1))?, now)?,
+        Inbound::Request {
+            stream: 3,
+            command: Command::Query
+        }
+    );
+    assert!(matches!(
+        connection.receive(&peer.send(5, &query(9))?, now)?,
+        Inbound::Refused {
+            stream: 5,
+            code: ErrorCode::Protocol
+        }
+    ));
+    // Its body refused on its stream.
+    assert!(matches!(
+        connection.receive(&peer.command(7, Command::Query)?, now)?,
+        Inbound::Refused {
+            stream: 7,
+            code: ErrorCode::Protocol
+        }
+    ));
+    Ok(())
+}
+
+/// An Install opens a stream of its own, as a Describe does; a Held is no request.
+#[test]
+fn test_an_install_opens_a_stream_and_a_held_closes_the_connection() -> TestResult {
+    let now = start();
+    let mut peer = Peer::default();
+    let mut connection = serving(&mut peer, now)?;
+    let sources = vec![("s".to_string(), "t".to_string())];
+    assert_eq!(
+        connection.receive(&peer.send(1, &Install::new(0, 0, sources))?, now)?,
+        Inbound::Request {
+            stream: 1,
+            command: Command::Install
+        }
+    );
+    let mut role = Peer::default();
+    let mut frontend = serving(&mut role, now)?.with_endpoint(Endpoint::Frontend);
+    assert_eq!(
+        frontend.receive(&role.send(1, &Held)?, now)?,
+        Inbound::Closing {
+            code: Some(ErrorCode::Protocol)
+        }
+    );
     Ok(())
 }
 

@@ -20,7 +20,7 @@ impl<'a> BodyView<'a> for DirectWriteView<'a> {
 
     type Body = DirectWrite;
 
-    /// Checks, in `PROTOCOL.md` §6.6's order: unused bytes 56–127 zero; `request` at least 1 with a session, 0 with
+    /// Checks, in `PROTOCOL.md` §6.6's order: unused bytes 64–127 zero; `request` at least 1 with a session, 0 with
     /// none; the token; the
     /// sections; the term table; the names, holding none; the args a whole number of u32s; section 0 not empty; the records, a
     /// declaration refused.

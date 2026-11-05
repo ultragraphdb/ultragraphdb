@@ -46,6 +46,10 @@ Feature: Transactions decided by the commit step
     When a transaction in `<new>`'s home reads `<new>`'s statements, finds none, and writes `<x> <seen> true`, and a registration from another partition creates `<new>`'s dictionary entry there after the read version, with no statement of `<new>` committed in the home
     Then the reading transaction commits
 
+  Scenario: An absent term is named before the range that read it
+    When a transaction reads `<new> <p> ?o` through compute, finding nothing, so it records both the term's absence and the list's range, and a transaction writing `<new> <p> "x"` commits after its read version
+    Then the reading transaction aborts with a conflict of kind AbsentTerm
+
   # Requirement: Exactly-once commits through sessions
 
   Scenario: A retried commit commits once
@@ -64,6 +68,10 @@ Feature: Transactions decided by the commit step
     When a client sends request 8 of its session again, with no transaction open for it, and the session's last committed request is 7
     Then the request is refused as not committed, `detail` 8, and nothing is committed
 
+  Scenario: A reused number on an open transaction is refused
+    When a session's last request in partition 1 is 7, and a new transaction bound to partition 1 sends its Commit as request 7
+    Then the Commit is refused with code 13, `detail` 7, the transaction aborts, nothing it wrote is held, and request 7's stored reply is not returned
+
   # Requirement: Aborts name their reason
 
   Scenario: A full commit queue answers busy
@@ -81,6 +89,10 @@ Feature: Transactions decided by the commit step
   Scenario: A statement named by its reifier is checked at its subject
     When a transaction bound to partition 1 sets a property of a statement named by its reifier, the statement's subject's bucket owned by partition 2
     Then it aborts with a cross-partition error naming partitions 1 and 2, not marked retryable, and nothing it wrote is held
+
+  Scenario: A Commit reply past the floor of `max_frame` is refused
+    When a transaction's commit-time operations leave a Commit reply whose frame would pass 524,288 bytes
+    Then the commit is refused when it is decided, with code 6, `detail` 524,288, taking no commit version and writing nothing
 
   # Requirement: Commit-time operations
 
@@ -133,6 +145,10 @@ Feature: Transactions decided by the commit step
   Scenario: A causally later commit is not stamped earlier
     When a session commits in partition 1 at epoch 20, and its next transaction, carrying that token, commits in partition 2 while partition 2's latest delivered close is 17
     Then partition 2 commits it only after close 19 is delivered, at epoch 20 or later
+
+  Scenario: A reply through no session carries no token
+    When a transaction and a Drop each commit through no session, `session` all zero
+    Then each reply's `commit_version` is its version and its token is 24 zero bytes, and a receiver accepts it
 
   # Requirement: An ended transaction releases what it holds
 

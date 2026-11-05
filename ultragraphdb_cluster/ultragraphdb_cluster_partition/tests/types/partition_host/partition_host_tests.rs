@@ -11,13 +11,13 @@ use ultragraphdb_cluster_placement::{NodeId, PlacementMap};
 use ultragraphdb_cluster_sequencer::Close;
 use ultragraphdb_core_ids::Version;
 use ultragraphdb_store_quads::tenant_base;
-use ultragraphdb_tool_bdd::{Context, TestResult};
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transactions_txn::{TxnError, TxnErrorEnum};
 
 use crate::utils::cluster::{
-    Cluster, begin, changeset, epoch, ex, group, insert, insert_literal, pid,
+    Cluster, TENANT, begin, changeset, epoch, ex, group, insert, insert_literal, pid,
 };
-use crate::utils::hosts::{on_hosts, turn_all};
+use crate::utils::hosts::{Host, on_hosts, turn_all};
 
 /// The names `a` and `knows` in partition 1 and `b` in partition 2.
 fn names() -> TestResult<(String, String, String)> {
@@ -495,6 +495,76 @@ fn test_a_host_answers_what_a_plain_read_asks() -> TestResult {
         assert_eq!(pin.version(), host.watermark());
         assert_eq!(host.dictionary(b"\x1bnot a key")?, None);
         assert!(host.recall(7, 1).is_err(), "no such session");
+        Ok(())
+    })
+}
+
+/// Partition 1's host.
+fn first_host<'h, 'a>(hosts: &'h mut [Host<'a>]) -> TestResult<&'h mut Host<'a>> {
+    hosts.first_mut().context("partition 1")
+}
+
+/// A bound transaction's first request whose first subject another partition owns names that owner, and a later request's subject
+/// there is cross-partition, each ending the transaction.
+#[test]
+fn test_a_first_subject_outside_is_a_stale_map_and_a_later_one_cross_partition() -> TestResult {
+    let (own, _, foreign) = names()?;
+    on_hosts(2, |hosts| {
+        let host = hosts.first_mut().context("partition 1")?;
+        let key = (1, 1);
+        let _read = host.bind(key, [1; 16], (TENANT, 1, epoch(0)?), 0)?;
+        let outside = changeset(vec![insert_literal(&foreign, "p", "x")]);
+        let refused = host.write_bound(key, &outside, 0);
+        let PartitionError(PartitionErrorEnum::WrongPartition { owner, .. }) =
+            refused.err().context("a refusal")?
+        else {
+            return Err(TestError::new("not code 26"));
+        };
+        assert_eq!(owner, 2);
+        assert_eq!(host.bound_read(&[1; 16]), None, "it ended the transaction");
+        let later = (1, 2);
+        let _later_read = host.bind(later, [2; 16], (TENANT, 1, epoch(0)?), 0)?;
+        let inside = changeset(vec![insert_literal(&own, "p", "x")]);
+        if host.write_bound(later, &inside, 0)? == BoundStep::Waiting {
+            let _ended = turn_all(hosts, 4, 0)?;
+            first_host(hosts)?.resume_write(later, &inside, 0)?;
+        }
+        let later_refused = match first_host(hosts)?.write_bound(later, &outside, 0) {
+            Ok(_) => {
+                let _ended = turn_all(hosts, 4, 0)?;
+                first_host(hosts)?.resume_write(later, &outside, 0).err()
+            }
+            Err(refusal) => Some(refusal),
+        };
+        assert!(
+            matches!(
+                later_refused.context("a refusal")?.0,
+                PartitionErrorEnum::Txn(TxnError(TxnErrorEnum::CrossPartition { .. }))
+            ),
+            "a later subject"
+        );
+        Ok(())
+    })
+}
+
+/// A read waiting on its home says so while it waits and no longer, and a write's wait is no read's.
+#[test]
+fn test_a_read_waits_only_while_its_home_has_not_answered() -> TestResult {
+    let knows = Cluster::even(2)?.name_in(2, "knows")?;
+    on_hosts(2, |hosts| {
+        let host = hosts.first_mut().context("partition 1")?;
+        let key = (1, 1);
+        let _read = host.bind(key, [1; 16], (TENANT, 1, epoch(0)?), 0)?;
+        assert!(!host.read_waits(key), "nothing asked");
+        assert_eq!(
+            host.read_terms_bound(key, &[ex(&knows)], 0)?,
+            BoundStep::Waiting
+        );
+        assert!(host.read_waits(key));
+        let _ended = turn_all(hosts, 4, 0)?;
+        let answered = hosts.first_mut().context("partition 1")?;
+        assert_eq!(answered.take_bound_ready(), [key]);
+        assert!(!answered.read_waits(key), "answered");
         Ok(())
     })
 }

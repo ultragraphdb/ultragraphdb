@@ -20,7 +20,11 @@ use ultragraphdb_core_ids::{
 use ultragraphdb_core_keys::{DEFAULT_GRAPH, QuadKey};
 use ultragraphdb_core_mapping::{Change, Declaration, PredicateDeclaration};
 use ultragraphdb_core_terms::EncodedTerm;
-use ultragraphdb_protocol_wire::{ConflictKind, ErrorCode, OperationResult, RequestTerm};
+use ultragraphdb_protocol_wire::{
+    BodyBuilder, BodyView, COMMAND_HEADER_SIZE, Command, Commit, CommitView, ConflictKind,
+    DropCommand, DropCommandView, ErrorCode, FrameView, HEADER_SIZE, Header, MAX_FRAME_FLOOR,
+    MAX_FRAME_SIZE, OperationResult, RequestTerm,
+};
 use ultragraphdb_store_apply::{Applied, DropRequest, Operation, OperationLink};
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_store_sim::{SimListCache, SimStore, SteppedExecutor};
@@ -46,6 +50,8 @@ mod scan_steps;
 pub mod utils {
     #[path = "fixture.rs"]
     pub mod fixture;
+    #[path = "node_operator.rs"]
+    pub mod node_operator;
     #[path = "proposal_double.rs"]
     pub mod proposal_double;
 }
@@ -55,6 +61,7 @@ use crate::utils::fixture::{
     ex, held, id_in, id_of, insert, insert_literal, open_wal, prepare, prepare_in, read, reopen,
     setup, sim_store, version, write,
 };
+use crate::utils::node_operator::{NodeOperator, reply_frame};
 use crate::utils::proposal_double::{Reads, TestProposal, Writes, proposal, registration};
 
 #[derive(Debug, Default, World)]
@@ -1508,10 +1515,9 @@ async fn retried(w: &mut Steps) -> TestResult {
     pipe.sync(0).await.context("synced")?;
     let first = pipe.replies_mut().pop().context("the reply, lost")?;
     let applied = applier.quads().lists().applied_ts();
-    pipe.commit(8, seven()?, 0).context("answered")?;
-    pipe.sync(0).await.context("synced")?;
+    // Sent again on a new stream, with no transaction: the partition answers from its session table.
+    w.stored = vec![pipe.retry(SESSION, 7).context("the stored reply")?];
     w.replies = vec![first];
-    w.replies.append(pipe.replies_mut());
     w.versions = vec![applied, applier.quads().lists().applied_ts()];
     w.held = held(&applier, "x", "knows")?;
     Ok(())
@@ -1519,14 +1525,13 @@ async fn retried(w: &mut Steps) -> TestResult {
 
 #[then("it receives the same reply and commit version, and the transaction's writes are held once")]
 fn same_reply(w: &mut Steps) -> TestResult {
-    // One round each: requests 1 to 6 at sequences 0 to 10 of epoch 1, request 7 at (1, 12); the retry, under ticket 8,
-    // takes no version and is answered with 7's reply, its token included.
-    assert_eq!(
-        outcomes(&w.replies),
-        vec![(7, Ok(version(1, 12))), (8, Ok(version(1, 12)))]
-    );
+    // One round each: requests 1 to 6 at sequences 0 to 10 of epoch 1, request 7 at (1, 12); the retry takes no version
+    // and is answered with 7's reply, its token included.
+    assert_eq!(outcomes(&w.replies), vec![(7, Ok(version(1, 12)))]);
+    let stored = w.stored.first().context("the stored reply")?;
+    assert_eq!(stored.version(), version(1, 12));
     assert!(w.replies[0].token().is_some());
-    assert_eq!(w.replies[0].token(), w.replies[1].token());
+    assert_eq!(w.replies[0].token(), Some(stored.token()));
     assert_eq!(w.versions[0], w.versions[1], "the retry applies nothing");
     assert_eq!(w.held.len(), 1);
     Ok(())
@@ -1632,6 +1637,94 @@ fn not_committed(w: &mut Steps) -> TestResult {
     assert_eq!(error, &CommitError::not_committed(8));
     assert_eq!(error.detail(), 8);
     assert_eq!(w.versions[0], w.versions[1], "nothing committed");
+    Ok(())
+}
+
+#[when(
+    "a session's last request in partition 1 is 7, and a new transaction bound to partition 1 sends its Commit as request 7"
+)]
+async fn reused_number(w: &mut Steps) -> TestResult {
+    let applier = applier()?;
+    let _version: u64 = setup(&applier, vec![insert("a", "knows", "b")])?;
+    let (_storage, log) = open_wal().await?;
+    let mut pipe: Pipe<'_> = Pipeline::new(&applier, log, unbounded()).context("it opens")?;
+    commit_through(&mut pipe, &applier, SESSION, 7, "seven").await?;
+    pipe.replies_mut().clear();
+    let applied = applier.quads().lists().applied_ts();
+    let mut txn = begin(&applier)?;
+    write(&mut txn, vec![insert("reused", "knows", "b")])?;
+    pipe.commit(8, prepare_in(txn, SESSION, 7)?, 0)
+        .context("answered")?;
+    pipe.sync(0).await.context("synced")?;
+    w.replies = std::mem::take(pipe.replies_mut());
+    w.versions = vec![applied, applier.quads().lists().applied_ts()];
+    w.held = held(&applier, "reused", "knows")?;
+    Ok(())
+}
+
+#[then(
+    "the Commit is refused with code 13, `detail` 7, the transaction aborts, nothing it wrote is held, and request 7's stored reply is not returned"
+)]
+fn reused_refused(w: &mut Steps) -> TestResult {
+    let reply = w.replies.first().context("the reply")?;
+    assert_eq!(w.replies.len(), 1, "{:?}", w.replies);
+    let refusal = reply.outcome().clone().err().context("refused")?;
+    assert_eq!(refusal, CommitError::request_out_of_order(7));
+    assert_eq!(refusal.code(), ErrorCode::RequestOutOfOrder);
+    assert_eq!(refusal.code().number(), 13);
+    assert_eq!(refusal.detail(), 7);
+    assert_eq!(reply.token(), None, "no stored reply's token");
+    assert!(w.held.is_empty(), "held: {:?}", w.held);
+    assert_eq!(w.versions[0], w.versions[1], "nothing committed");
+    Ok(())
+}
+
+#[when(
+    "a transaction's commit-time operations leave a Commit reply whose frame would pass 524,288 bytes"
+)]
+fn reply_past_the_floor(w: &mut Steps) -> TestResult {
+    let mut step = step_at(0, 0)?;
+    let mut out = Out::new();
+    let mut operator = NodeOperator {
+        iri: "n".repeat(MAX_FRAME_FLOOR),
+        ..NodeOperator::default()
+    };
+    let before = step.previous_version();
+    let asking = proposal(0, &Reads::default(), &Writes::point(b"k"))?.asking_operations();
+    let commit = Input::Commit(CommitRequest::new(1, asking));
+    step.step_with(commit, 0, &mut out, &mut operator);
+    let (round, _body) = out.append().context("the round holding the refusal")?;
+    w.checks = vec![
+        round.committed() == 0,
+        operator.discarded == 1,
+        operator.admitted == 0,
+        step.resolver().history().is_empty(),
+    ];
+    step.step_with(Input::Synced, 0, &mut out, &mut operator);
+    w.replies = out.replies().to_vec();
+    w.versions = vec![before, step.previous_version()];
+    w.names = vec![operator.iri];
+    Ok(())
+}
+
+#[then(
+    "the commit is refused when it is decided, with code 6, `detail` 524,288, taking no commit version and writing nothing"
+)]
+fn reply_refused(w: &mut Steps) -> TestResult {
+    let iri = w.names.first().context("the node's IRI")?;
+    let size = reply_frame(iri).context("a reply within the largest frame")?;
+    assert!(
+        size > MAX_FRAME_FLOOR,
+        "the frame is past the floor: {size}"
+    );
+    assert_eq!(MAX_FRAME_FLOOR, 524_288);
+    let refusal = CommitError::reply_too_large(size, MAX_FRAME_FLOOR);
+    assert_eq!(outcomes(&w.replies), vec![(1, Err(refusal.clone()))]);
+    assert_eq!(refusal.code(), ErrorCode::TooLarge);
+    assert_eq!(refusal.code().number(), 6);
+    assert_eq!(refusal.detail(), 524_288);
+    assert_eq!(w.versions[0], w.versions[1], "no version taken");
+    assert_eq!(w.checks, vec![true; 4], "nothing written");
     Ok(())
 }
 
@@ -2424,7 +2517,7 @@ fn commits_at_40(w: &mut Steps) -> TestResult {
         .with_tail(39);
     let mut txn = begin(&applier)?;
     write(&mut txn, vec![insert("c", "knows", "d")])?;
-    driver.submit(1, prepare(txn)?)?;
+    driver.submit(1, prepare_in(txn, SESSION, 1)?)?;
     driver.sync()?;
     w.replies = driver.replies.clone();
     Ok(())
@@ -2449,7 +2542,8 @@ async fn read_with_token(w: &mut Steps) -> TestResult {
     let mut pipe: Pipe<'_> = Pipeline::new(&applier, log, unbounded()).context("it opens")?;
     let mut txn = begin(&applier)?;
     write(&mut txn, vec![insert("a", "knows", "b")])?;
-    pipe.commit(1, prepare(txn)?, 0).context("appended")?;
+    pipe.commit(1, prepare_in(txn, SESSION, 1)?, 0)
+        .context("appended")?;
     pipe.sync(0).await.context("synced")?;
     w.replies = std::mem::take(pipe.replies_mut());
     let token = w
@@ -2930,6 +3024,62 @@ fn drop_once(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
+#[when("a transaction and a Drop each commit through no session, `session` all zero")]
+async fn commits_through_no_session(w: &mut Steps) -> TestResult {
+    let applier = graphs()?;
+    let (_storage, log) = open_wal().await?;
+    let mut pipe: Pipe<'_> = Pipeline::new(&applier, log, unbounded()).context("it opens")?;
+    let mut txn = begin(&applier)?;
+    write(&mut txn, vec![insert("t", "knows", "b")])?;
+    pipe.commit(1, prepare(txn)?, 0).context("appended")?;
+    pipe.sync(0).await.context("synced")?;
+    let g = ex("g");
+    pipe.commit(2, drop_of(&applier, graph_g(&g), 0, 0)?, 0)
+        .context("appended")?;
+    pipe.sync(0).await.context("synced")?;
+    w.replies = std::mem::take(pipe.replies_mut());
+    w.versions = vec![applier.quads().lists().applied_ts()];
+    Ok(())
+}
+
+#[then(
+    "each reply's `commit_version` is its version and its token is 24 zero bytes, and a receiver accepts it"
+)]
+fn tokenless_replies_accepted(w: &mut Steps) -> TestResult {
+    const CLUSTER: u64 = 7;
+    /// The token's offset in the frame: the command header's, then the token's in it.
+    const fn token_at(in_header: usize) -> std::ops::Range<usize> {
+        let at = HEADER_SIZE - COMMAND_HEADER_SIZE + in_header;
+        at..at + 24
+    }
+    let [transaction, dropped] = w.replies.as_slice() else {
+        return Err(TestError::new(format!("two replies: {:?}", w.replies)));
+    };
+    let version = transaction.outcome().clone().context("committed")?;
+    let last = dropped.outcome().clone().context("dropped")?;
+    assert_eq!(w.versions, vec![last], "the Drop is the last commit");
+    assert!(version < last, "{version} below {last}");
+    assert_eq!(transaction.token(), None);
+    assert_eq!(dropped.token(), None);
+
+    let commit = Commit::new([0; 16], 0, version).frame(Header::new(CLUSTER, Command::Commit))?;
+    let commit_frame = FrameView::validate(&commit, CLUSTER, MAX_FRAME_SIZE)?;
+    let commit_view = CommitView::from_frame(&commit_frame)?;
+    assert_eq!(commit_view.commit_version(), version);
+    assert_eq!(commit_view.token(), None);
+    assert_eq!(commit.get(token_at(32)), Some(&[0; 24][..]));
+
+    let g = ex("g");
+    let reply = DropCommand::graph(TENANT, g.as_str()).with_commit_version(last);
+    let drop_bytes = reply.frame(Header::new(CLUSTER, Command::Drop))?;
+    let drop_frame = FrameView::validate(&drop_bytes, CLUSTER, MAX_FRAME_SIZE)?;
+    let drop_view = DropCommandView::from_frame(&drop_frame)?;
+    assert_eq!(drop_view.commit_version(), last);
+    assert_eq!(drop_view.token(), None);
+    assert_eq!(drop_bytes.get(token_at(48)), Some(&[0; 24][..]));
+    Ok(())
+}
+
 #[when("a transaction reads before a drop of graph `g` commits and then writes into `g`")]
 async fn write_into_dropped_graph(w: &mut Steps) -> TestResult {
     let applier = graphs()?;
@@ -3150,9 +3300,9 @@ async fn replay_drop_pattern_session(w: &mut Steps) -> TestResult {
     w.held.extend(held(&replica, "b", "knows")?);
     let mut again: Pipe<'_> = Pipeline::new(&replica, written, unbounded())?;
     let stored = again.retry(SESSION, 7)?.version();
-    let mut retry = begin(&replica)?;
-    write(&mut retry, vec![insert("s", "knows", "b")])?;
-    again.commit(5, prepare_in(retry, SESSION, 7)?, 0)?;
+    // A Drop resent under the number reaches the rebuilt table, which answers it and commits nothing.
+    let g = ex("g");
+    again.commit(5, drop_of(&replica, graph_g(&g), SESSION, 7)?, 0)?;
     let answered = again
         .replies_mut()
         .pop()

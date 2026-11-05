@@ -10,7 +10,7 @@ use ultragraphdb_protocol_wire::{
 use ultragraphdb_tool_bdd::TestResult;
 
 use crate::types::entries::entries_tests::{
-    EPOCH, LIST_A, LIST_B, golden_entries_continued, golden_entries_continues,
+    EPOCH, LIST_A, LIST_B, VERSION, golden_entries_continued, golden_entries_continues,
 };
 use crate::utils::golden_bodies::{
     body_data, frame_of, put, reframe, view_any, with_command_header, with_section,
@@ -200,7 +200,7 @@ fn test_the_sections_lie_between_the_header_and_the_entries() -> TestResult {
 
 #[test]
 fn test_unused_header_bytes_are_refused() -> TestResult {
-    for at in [10usize, 15, 24, 127] {
+    for at in [10usize, 11, 32, 127] {
         let bytes = with_command_header(&golden()?, |h| h[at] = 1);
         assert_eq!(
             refusal::<EntriesView>(&bytes)?,
@@ -398,6 +398,90 @@ fn test_the_count_comes_after_the_entries() -> TestResult {
     assert_eq!(
         refusal::<EntriesView>(&with_entries(&mended, wrong_count)?)?,
         count_refused(mended.len() as u64, wrong_count.into())
+    );
+    Ok(())
+}
+
+fn run() -> TestResult<Vec<u8>> {
+    role_bytes(&golden_role("entries_run")?)
+}
+
+#[test]
+fn test_the_golden_run_reads_its_ranges_and_version() -> TestResult {
+    let bytes = run()?;
+    let view = EntriesView::from_frame(&frame_of(&bytes)?)?;
+    assert_eq!((view.range(), view.through()), (2, 5));
+    assert_eq!(view.end(), EntriesEnd::Ended);
+    assert_eq!(view.version(), VERSION);
+    assert_eq!(view.entries().len(), 2);
+    let keys: Vec<&[u8]> = view.entries().iter().map(|entry| entry.key()).collect();
+    assert!(
+        keys[0] > keys[1],
+        "a run follows its ranges' order, not the keys'"
+    );
+    assert_eq!(view_any(&bytes)?, Ok(()));
+    Ok(())
+}
+
+#[test]
+fn test_a_batch_of_one_range_reads_through_equal_to_range() -> TestResult {
+    let bytes = golden()?;
+    let view = EntriesView::from_frame(&frame_of(&bytes)?)?;
+    assert_eq!((view.range(), view.through()), (2, 2));
+    assert_eq!(view.to_body()?.through(), 2);
+    Ok(())
+}
+
+#[test]
+fn test_through_is_not_below_range_and_above_it_ends_the_range() -> TestResult {
+    let below = with_command_header(&golden()?, |h| put(h, 12, 1, 4));
+    assert_eq!(refusal::<EntriesView>(&below)?, field("through", 1));
+    for end in [0u8, 2] {
+        let open = with_command_header(&run()?, |h| h[8] = end);
+        assert_eq!(refusal::<EntriesView>(&open)?, field("through", 5));
+    }
+    Ok(())
+}
+
+/// A batch of one range holds its keys in order; a run holds them in its ranges'.
+#[test]
+fn test_only_a_batch_of_one_range_holds_its_keys_ascending() -> TestResult {
+    let one = with_command_header(&run()?, |h| put(h, 12, 2, 4));
+    assert_eq!(refusal::<EntriesView>(&one)?, field("entry order", 1));
+    Ok(())
+}
+
+#[test]
+fn test_a_version_holds_an_even_sequence_or_a_bound() -> TestResult {
+    for odd in [(EPOCH << 22) | 3, (EPOCH << 22) | 0x3F_FFFD] {
+        let refused = with_command_header(&golden()?, |h| put(h, 24, odd, 8));
+        assert_eq!(refusal::<EntriesView>(&refused)?, field("version", odd));
+    }
+    for version in [0, 2, EPOCH << 22, VERSION] {
+        let read = with_command_header(&golden()?, |h| put(h, 24, version, 8));
+        assert_eq!(
+            EntriesView::from_frame(&frame_of(&read)?)?.version(),
+            version
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn test_through_and_the_epoch_come_before_the_version() -> TestResult {
+    let frame = with_command_header(&golden()?, |h| {
+        put(h, 12, 1, 4);
+        put(h, 16, MAX_EPOCH + 1, 8);
+        put(h, 24, 1, 8);
+    });
+    assert_eq!(refusal::<EntriesView>(&frame)?, field("through", 1));
+    let epoch_first = with_command_header(&golden()?, |h| {
+        put(h, 16, MAX_EPOCH + 1, 8);
+        put(h, 24, 1, 8);
+    });
+    assert_eq!(
+        refusal::<EntriesView>(&epoch_first)?,
+        field("epoch", MAX_EPOCH + 1)
     );
     Ok(())
 }

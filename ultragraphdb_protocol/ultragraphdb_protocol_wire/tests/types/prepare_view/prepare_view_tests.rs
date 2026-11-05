@@ -4,11 +4,15 @@
  */
 
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
-use ultragraphdb_protocol_wire::{BodyView, ColumnType, PatternSlot, Prepare, PrepareView};
+use ultragraphdb_protocol_wire::{
+    BodyView, ColumnType, Language, PatternSlot, Prepare, PrepareView,
+};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::types::prepare::prepare_tests::pattern;
-use crate::utils::golden_bodies::{body_data, frame_of, golden, reframe, section, with_section};
+use crate::utils::golden_bodies::{
+    body_data, frame_of, golden, reframe, section, view_any, with_command_header, with_section,
+};
 
 #[test]
 fn test_the_golden_prepares_read_their_values() -> TestResult {
@@ -18,7 +22,10 @@ fn test_the_golden_prepares_read_their_values() -> TestResult {
         (view.tenant(), view.statement(), view.schema()),
         (0, 1, 0x5C4E_3A2B_1D0F_7E6A)
     );
-    assert_eq!(view.pattern().subject(), PatternSlot::Parameter(0));
+    assert_eq!(
+        view.pattern().context("a pattern")?.subject(),
+        PatternSlot::Parameter(0)
+    );
     assert_eq!(view.terms().len(), 1);
     assert_eq!(view.parameter_types(), &[ColumnType::Node]);
     assert_eq!(view.result_types(), &[ColumnType::Term, ColumnType::Node]);
@@ -74,7 +81,7 @@ fn test_types_are_known_and_counted() -> TestResult {
             value: 0
         }
     );
-    let none = with_section(&bytes, 5, 3, |types| types.clear());
+    let none = with_section(&bytes, 7, 3, |types| types.clear());
     assert_eq!(
         PrepareView::from_frame(&frame_of(&none)?)
             .err()
@@ -87,7 +94,7 @@ fn test_types_are_known_and_counted() -> TestResult {
             expected: 1
         }
     );
-    let two = with_section(&bytes, 5, 4, |types| types.push(2));
+    let two = with_section(&bytes, 7, 4, |types| types.push(2));
     assert_eq!(
         PrepareView::from_frame(&frame_of(&two)?)
             .err()
@@ -129,6 +136,164 @@ fn test_a_request_carries_no_result_types_and_an_answer_one_per_unbound_slot_and
             field: "result types",
             count: 0,
             expected: 2
+        }
+    );
+    Ok(())
+}
+
+fn text_bytes(name: &str) -> TestResult<Vec<u8>> {
+    golden(name)?.bytes()
+}
+
+fn refused(frame: &[u8]) -> TestResult<ProtocolErrorEnum> {
+    Ok(PrepareView::from_frame(&frame_of(frame)?)
+        .err()
+        .context("a refusal")?
+        .0)
+}
+
+#[test]
+fn test_the_golden_texts_read_their_values() -> TestResult {
+    let bytes = text_bytes("prepare_text")?;
+    let view = PrepareView::from_frame(&frame_of(&bytes)?)?;
+    assert_eq!(view.language(), Language::Gql);
+    assert_eq!(view.pattern(), None);
+    assert!(view.text().contains("$who"));
+    assert_eq!(view.names().iter().collect::<Vec<_>>(), ["who"]);
+    assert_eq!(view.parameter_types(), [ColumnType::Node]);
+    view.check_request()?;
+    view.check_reply()?;
+    assert_eq!(view_any(&bytes)?, Ok(()));
+    let answered = text_bytes("prepare_text_reply")?;
+    let reply = PrepareView::from_frame(&frame_of(&answered)?)?;
+    assert_eq!(reply.statement(), 2);
+    assert_eq!(reply.result_types(), [ColumnType::Node, ColumnType::String]);
+    assert_eq!(
+        reply.names().iter().collect::<Vec<_>>(),
+        ["who", "n", "name"]
+    );
+    reply.check_reply()?;
+    assert_eq!(view_any(&answered)?, Ok(()));
+    Ok(())
+}
+
+#[test]
+fn test_a_pattern_is_of_language_0_and_names_nothing() -> TestResult {
+    let bytes = golden("prepare")?.bytes()?;
+    let view = PrepareView::from_frame(&frame_of(&bytes)?)?;
+    assert_eq!(view.language(), Language::Pattern);
+    assert_eq!(view.text(), "");
+    assert!(view.names().is_empty());
+    let named = with_section(&bytes, 7, 5, |ends| {
+        ends.extend_from_slice(&1u32.to_le_bytes())
+    });
+    let named = with_section(&named, 7, 6, |text| text.push(b'n'));
+    assert_eq!(
+        refused(&named)?,
+        ProtocolErrorEnum::CountMismatch {
+            command: 10,
+            field: "names",
+            count: 1,
+            expected: 0
+        }
+    );
+    Ok(())
+}
+
+#[test]
+fn test_the_language_is_0_to_2_after_the_unused_bytes() -> TestResult {
+    let bytes = golden("prepare")?.bytes()?;
+    let frame = with_command_header(&bytes, |h| h[24] = 3);
+    assert_eq!(
+        refused(&frame)?,
+        ProtocolErrorEnum::FieldValue {
+            command: 10,
+            field: "language",
+            value: 3
+        }
+    );
+    let unused = with_command_header(&bytes, |h| {
+        h[24] = 3;
+        h[25] = 1;
+    });
+    assert_eq!(
+        refused(&unused)?,
+        ProtocolErrorEnum::ReservedNotZero { offset: 128 + 25 }
+    );
+    Ok(())
+}
+
+#[test]
+fn test_a_text_is_utf8() -> TestResult {
+    let frame = with_section(&text_bytes("prepare_text")?, 7, 0, |text| text[0] = 0xFF);
+    assert_eq!(
+        refused(&frame)?,
+        ProtocolErrorEnum::NotUtf8 {
+            command: 10,
+            section: 0,
+            offset: 0
+        }
+    );
+    Ok(())
+}
+
+/// A pattern's types are 1 or 2, a text's 1 to 13.
+#[test]
+fn test_a_column_type_follows_the_language() -> TestResult {
+    let pattern_frame = golden("prepare")?.bytes()?;
+    let integer = with_section(&pattern_frame, 7, 3, |types| types[0] = 3);
+    assert_eq!(
+        refused(&integer)?,
+        ProtocolErrorEnum::FieldValue {
+            command: 10,
+            field: "column type",
+            value: 3
+        }
+    );
+    let request = text_bytes("prepare_text")?;
+    for number in 1..=13u8 {
+        let frame = with_section(&request, 7, 3, |types| types[0] = number);
+        assert_eq!(
+            PrepareView::from_frame(&frame_of(&frame)?)?.parameter_types()[0].number(),
+            number
+        );
+    }
+    for number in [0u8, 14] {
+        let frame = with_section(&request, 7, 3, |types| types[0] = number);
+        assert_eq!(
+            refused(&frame)?,
+            ProtocolErrorEnum::FieldValue {
+                command: 10,
+                field: "column type",
+                value: number.into()
+            }
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn test_a_texts_names_count_its_parameters_and_columns() -> TestResult {
+    let request = with_section(&text_bytes("prepare_text")?, 7, 3, Vec::clear);
+    assert_eq!(
+        refused(&request)?,
+        ProtocolErrorEnum::CountMismatch {
+            command: 10,
+            field: "parameter types",
+            count: 0,
+            expected: 1
+        }
+    );
+    let reply = with_section(&text_bytes("prepare_text_reply")?, 7, 4, |types| {
+        types.push(1)
+    });
+    assert_eq!(
+        refused(&reply)?,
+        ProtocolErrorEnum::CountMismatch {
+            command: 10,
+            field: "names",
+            count: 3,
+            expected: 4
         }
     );
     Ok(())

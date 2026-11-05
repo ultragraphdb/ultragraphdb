@@ -9,6 +9,7 @@ use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::types::error_code::ErrorCode;
 use crate::types::request_term::RequestTerm;
+use crate::utils::constants::DETAIL_TRANSACTION_NOT_HELD;
 
 /// The Error frame: a request refused on the frame's stream, or, on stream 0, the connection's last frame after a
 /// connection error, a refused handshake or authentication, or an expired credential. Its code, a detail the code
@@ -66,6 +67,12 @@ impl ErrorReply {
     /// The reply to `error`: [`ErrorCode::Protocol`] with the error's text.
     pub fn protocol(error: &ProtocolError) -> Self {
         Self::new(ErrorCode::Protocol, error.to_string())
+    }
+
+    /// The reply to a Scan naming a transaction the partition does not hold: [`ErrorCode::Protocol`] with `detail`
+    /// [`crate::DETAIL_TRANSACTION_NOT_HELD`], saying `message`, which compute relays with that `detail`.
+    pub fn transaction_not_held(message: impl Into<String>) -> Self {
+        Self::new(ErrorCode::Protocol, message).with_detail(DETAIL_TRANSACTION_NOT_HELD)
     }
 
     /// The reply with the `detail` its code defines.

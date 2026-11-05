@@ -77,6 +77,46 @@ where
                 return Err(e.into());
             }
         };
+        self.span_fits(limit)?;
+        Ok(page)
+    }
+
+    /// A page of the stored values `scan` names, as the transaction sees them: the statements' stored bytes at its version with
+    /// the records it wrote over them, streamed to `sink` at `now_us` and holding nothing. Its span is a range scanned, in the
+    /// read set before it returns as [`Transaction::page`] records one, and what `sink` took may leave only once it returns.
+    ///
+    /// # Errors
+    ///
+    /// [`TxnError::ended`]; [`TxnError::past_limit`], ending it; [`TxnError::read_set_too_large`] for a span the read set has
+    /// no room for, ending it, so what `sink` took is not to be sent; [`TxnError::changeset`] for a store that failed or a
+    /// keyspace holding no stored values, ending it.
+    pub fn values_page<F>(
+        &mut self,
+        scan: &KernelScan,
+        now_us: u64,
+        sink: F,
+    ) -> Result<Page, TxnError>
+    where
+        F: FnMut(&[u8], &[u8]) -> ControlFlow<()>,
+    {
+        let limit = self.limits.max_read_set();
+        let execution = self.live(now_us)?;
+        let page = match execution.values_page(scan, sink) {
+            Ok(page) => page,
+            Err(e) => {
+                self.end();
+                return Err(e.into());
+            }
+        };
+        self.span_fits(limit)?;
+        Ok(page)
+    }
+
+    /// Refuses a read set grown past `limit` by the span just recorded, ending the transaction.
+    fn span_fits(&mut self, limit: usize) -> Result<(), TxnError> {
+        let Some(execution) = self.execution.as_mut() else {
+            return Ok(());
+        };
         let counts = execution.read_counts();
         let size = counts.key_bytes()
             + TERM_KEY * counts.absent()
@@ -86,7 +126,7 @@ where
             self.end();
             return Err(TxnError::read_set_too_large(size, limit));
         }
-        Ok(page)
+        Ok(())
     }
 
     /// The ID the transaction reads `iri` by at `now_us`, by the path its reads take: got or created, the same ID any concurrent

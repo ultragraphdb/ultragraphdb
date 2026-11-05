@@ -253,6 +253,7 @@ pub struct Probe {
     on_apply: Arc<Mutex<Option<ProbeHook>>>,
     on_snapshot: Arc<Mutex<Option<ProbeHook>>>,
     on_drop: Arc<Mutex<Option<ProbeHook>>>,
+    on_discard: Arc<Mutex<Option<ProbeHook>>>,
 }
 
 impl std::fmt::Debug for Probe {
@@ -269,6 +270,7 @@ impl Probe {
             on_apply: Arc::default(),
             on_snapshot: Arc::default(),
             on_drop: Arc::default(),
+            on_discard: Arc::default(),
         }
     }
 
@@ -293,6 +295,14 @@ impl Probe {
     /// Runs `hook` inside the next drop, of prefixes or of everything, before it removes anything.
     pub fn on_next_drop(&self, hook: ProbeHook) {
         *self.on_drop.lock().unwrap_or_else(PoisonError::into_inner) = Some(hook);
+    }
+
+    /// Runs `hook` inside the next write of a discard timestamp, before it is written.
+    pub fn on_next_discard(&self, hook: ProbeHook) {
+        *self
+            .on_discard
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(hook);
     }
 
     /// Runs the hook in `slot`, if any, once: a failed hook is a failed write, which fails the operation running it.
@@ -343,6 +353,7 @@ impl Store for Probe {
     }
 
     fn set_discard_ts(&self, ts: u64) -> Result<(), StoreError> {
+        Self::run(&self.on_discard)?;
         self.inner.set_discard_ts(ts)
     }
 

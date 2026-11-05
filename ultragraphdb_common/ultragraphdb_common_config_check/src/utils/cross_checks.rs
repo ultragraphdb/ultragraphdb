@@ -241,14 +241,7 @@ fn bounds(checking: &mut Checking<'_>, instance: &Instance, config: &ServiceConf
             "it must be at least 1",
         );
     }
-    if instance.role() == "storage" && config.storage().scan_stall_ms() == Some(0) {
-        checking.report(
-            name,
-            "storage.scan_stall_ms",
-            "it holds 0".to_string(),
-            "it must be at least 1",
-        );
-    }
+    no_time_bounds(checking, instance, config);
     if let Some(address) = config.observability().address()
         && address
             .strip_prefix("tcp://")
@@ -271,6 +264,40 @@ fn bounds(checking: &mut Checking<'_>, instance: &Instance, config: &ServiceConf
                 error.to_string(),
             );
         }
+    }
+}
+
+/// The settings a value of 0 leaves with no time or room to act: a Scan's stall, a storage process's retention and the
+/// bytes a frontend's reads hold back. A frontend bounds a hung compute process by its own `scan_stall_ms`.
+fn no_time_bounds(checking: &mut Checking<'_>, instance: &Instance, config: &ServiceConfig) {
+    let (storage, frontend) = (instance.role() == "storage", instance.role() == "frontend");
+    let settings = [
+        (
+            storage || frontend,
+            "storage.scan_stall_ms",
+            config.storage().scan_stall_ms(),
+        ),
+        (
+            storage,
+            "storage.read_retain_ms",
+            config.storage().read_retain_ms(),
+        ),
+        (
+            frontend,
+            "endpoint.held_bytes",
+            config.endpoint().held_bytes(),
+        ),
+    ];
+    for (_, setting, _) in settings
+        .iter()
+        .filter(|(applies, _, value)| *applies && *value == Some(0))
+    {
+        checking.report(
+            instance.name(),
+            setting,
+            "it holds 0".to_string(),
+            "it must be at least 1",
+        );
     }
 }
 

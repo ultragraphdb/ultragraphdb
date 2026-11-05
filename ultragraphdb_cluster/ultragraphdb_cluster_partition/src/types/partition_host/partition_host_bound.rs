@@ -5,7 +5,7 @@
 
 use std::collections::BTreeSet;
 
-use ultragraphdb_core_ids::{Epoch, SessionToken};
+use ultragraphdb_core_ids::{Epoch, SessionToken, Version};
 use ultragraphdb_core_mapping::Changes;
 use ultragraphdb_store_apply::Operation;
 use ultragraphdb_store_posting::CachedList;
@@ -63,6 +63,7 @@ where
                 txn,
                 identity,
                 began_us: now_us,
+                first: true,
                 ticket: 0,
                 sent_us: now_us,
                 references: Vec::new(),
@@ -90,7 +91,16 @@ where
         let mut references = Vec::new();
         let partition = self.partition;
         let bound = self.held(key)?;
-        let found = partition.references(&mut bound.txn, changes, open, now_us, &mut references);
+        let first = std::mem::replace(&mut bound.first, false);
+        let read_epoch = Version::from_u64(bound.txn.read_version()).epoch();
+        let routed = if first {
+            partition.check_first_subject(changes, read_epoch)
+        } else {
+            Ok(())
+        };
+        let found = routed.and_then(|()| {
+            partition.references(&mut bound.txn, changes, open, now_us, &mut references)
+        });
         if let Err(refusal) = found {
             self.abort_bound(key);
             return Err(refusal);
@@ -136,15 +146,24 @@ where
         let mut references = Vec::new();
         let partition = self.partition;
         let bound = self.held(key)?;
+        let first = std::mem::replace(&mut bound.first, false);
         let tenant = bound.txn.tenant();
-        let found = partition.operation_references(
-            &mut bound.txn,
-            tenant,
-            &operation,
-            open,
-            now_us,
-            &mut references,
-        );
+        let read_epoch = Version::from_u64(bound.txn.read_version()).epoch();
+        let routed = if first {
+            partition.check_operation_subject(tenant, &operation, read_epoch)
+        } else {
+            Ok(())
+        };
+        let found = routed.and_then(|()| {
+            partition.operation_references(
+                &mut bound.txn,
+                tenant,
+                &operation,
+                open,
+                now_us,
+                &mut references,
+            )
+        });
         if let Err(refusal) = found {
             self.abort_bound(key);
             return Err(refusal);
@@ -237,6 +256,14 @@ where
     /// The bound transactions whose references were all answered since the last call.
     pub fn take_bound_ready(&mut self) -> Vec<BoundKey> {
         std::mem::take(&mut self.bound_ready)
+    }
+
+    /// Whether a read of the transaction `key` waits on a home's answer, behind which its Write, Operation or Commit waits its turn
+    /// (`PROTOCOL.md` §13.13).
+    pub fn read_waits(&self, key: BoundKey) -> bool {
+        self.bound
+            .get(&key)
+            .is_some_and(|bound| bound.reading && !bound.references.is_empty())
     }
 
     /// The ticket the transaction `key` asks its current references under.

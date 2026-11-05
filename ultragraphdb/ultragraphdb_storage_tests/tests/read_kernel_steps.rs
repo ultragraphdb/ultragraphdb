@@ -32,54 +32,65 @@ use crate::{
     PREDICATE, Steps, TENANT, commit_at, edge_write, one_process_of_two, subject_of, two_processes,
 };
 
-const PARTITION: u32 = 1;
-const PRINCIPAL: u64 = 1;
-const NO_TRANSACTION: [u8; 16] = [0; 16];
+pub(crate) const PARTITION: u32 = 1;
+pub(crate) const PRINCIPAL: u64 = 1;
+pub(crate) const NO_TRANSACTION: [u8; 16] = [0; 16];
 
 /// What a reader of a Scan took from one frame.
 #[derive(Debug, Clone, Default)]
 pub struct Batch {
-    stream: u64,
-    range: u32,
-    end: u8,
-    continues: bool,
-    epoch: u64,
-    entries: Vec<(Vec<u8>, Vec<u8>)>,
-    last: bool,
-    size: usize,
+    pub(crate) stream: u64,
+    pub(crate) range: u32,
+    pub(crate) through: u32,
+    pub(crate) version: u64,
+    pub(crate) end: u8,
+    pub(crate) continues: bool,
+    pub(crate) epoch: u64,
+    pub(crate) entries: Vec<(Vec<u8>, Vec<u8>)>,
+    pub(crate) last: bool,
+    pub(crate) size: usize,
 }
 
 /// An Error frame.
 #[derive(Debug, Clone)]
 pub struct Refused {
-    stream: u64,
-    code: ErrorCode,
-    detail: u64,
-    message: String,
+    pub(crate) stream: u64,
+    pub(crate) code: ErrorCode,
+    pub(crate) detail: u64,
+    pub(crate) message: String,
 }
 
 /// What a scenario's When step took for its Then step.
 #[derive(Debug, Default)]
 pub struct KernelSteps {
-    batches: Vec<Batch>,
-    refused: Vec<Refused>,
-    numbers: Vec<u64>,
-    bytes: Vec<Vec<u8>>,
+    pub(crate) batches: Vec<Batch>,
+    pub(crate) refused: Vec<Refused>,
+    pub(crate) numbers: Vec<u64>,
+    pub(crate) bytes: Vec<Vec<u8>>,
 }
 
 /// One frame of a connection, decoded.
-enum Frame {
+pub(crate) enum Frame {
     Entries(Batch),
     Refused(Refused),
     Other(Command),
 }
 
-fn address() -> String {
+pub(crate) fn address() -> String {
     format!("tcp://{STORAGE_ROLE_ADDRESS}")
 }
 
 /// A frontend and one partition's storage; a Scan keeping `stall` milliseconds with no frame able to leave, when given.
-fn one_partition(w: &mut Steps, stall: Option<&str>) -> TestResult {
+pub(crate) fn one_partition(w: &mut Steps, stall: Option<&str>) -> TestResult {
+    let settings: Vec<(&str, &str)> = stall
+        .map(|ms| ("storage.scan_stall_ms", ms))
+        .into_iter()
+        .collect();
+    partition_holding(w, &settings)
+}
+
+/// A frontend and one partition's storage, holding `settings` beside its own.
+pub(crate) fn partition_holding(w: &mut Steps, settings: &[(&str, &str)]) -> TestResult {
     use ultragraphdb_tests::{
         FRONTEND_BINARY, FRONTEND_OBSERVABILITY, answering, frontend_holding, role, storage_holding,
     };
@@ -91,31 +102,35 @@ fn one_partition(w: &mut Steps, stall: Option<&str>) -> TestResult {
         &scratch(FRONTEND_BINARY),
         wait,
     ))?;
-    let mut settings = storage_holding()?;
-    if let Some(ms) = stall {
-        settings = with(settings, "storage.scan_stall_ms", ms);
-    }
-    let _storage = crate::start_storage(&util, &settings, &scratch("storage-kernel"))?;
+    let held = settings
+        .iter()
+        .fold(storage_holding()?, |held, (setting, value)| {
+            with(held, setting, value)
+        });
+    let _storage = crate::start_storage(&util, &held, &scratch("storage-kernel"))?;
     w.roles = Some(util);
     Ok(())
 }
 
-async fn dial_at(target: &str) -> TestResult<RoleClient> {
+pub(crate) async fn dial_at(target: &str) -> TestResult<RoleClient> {
     let target = Address::parse(target)?;
     Ok(RoleClient::dial(&target, CLUSTER, "compute", SECRET).await?)
 }
 
-async fn dial() -> TestResult<RoleClient> {
+pub(crate) async fn dial() -> TestResult<RoleClient> {
     dial_at(&address()).await
 }
 
 /// The next frame of `client`, an Entries frame checked by `sequence` as a dialling side checks it.
-async fn next_frame(client: &mut RoleClient, sequence: &mut EntriesSequence) -> TestResult<Frame> {
+pub(crate) async fn next_frame(
+    client: &mut RoleClient,
+    sequence: &mut EntriesSequence,
+) -> TestResult<Frame> {
     decoded(&client.next_frame().await?, sequence)
 }
 
 /// `frame` decoded, an Entries frame checked by `sequence`.
-fn decoded(frame: &ReceivedFrame, sequence: &mut EntriesSequence) -> TestResult<Frame> {
+pub(crate) fn decoded(frame: &ReceivedFrame, sequence: &mut EntriesSequence) -> TestResult<Frame> {
     let view = frame.view()?;
     let command = view.command();
     Ok(if command == Command::Error {
@@ -131,6 +146,8 @@ fn decoded(frame: &ReceivedFrame, sequence: &mut EntriesSequence) -> TestResult<
         Frame::Entries(Batch {
             stream: view.header().stream(),
             range: entries.range(),
+            through: entries.through(),
+            version: entries.version(),
             end: entries.end().number(),
             continues: entries.continues(),
             epoch: entries.epoch(),
@@ -153,7 +170,7 @@ fn decoded(frame: &ReceivedFrame, sequence: &mut EntriesSequence) -> TestResult<
 }
 
 /// A plain Scan of `ranges`, each a first key and a past key.
-fn plain(
+pub(crate) fn plain(
     at: ScanAt,
     version: u64,
     epoch: u64,
@@ -176,22 +193,21 @@ fn plain(
 }
 
 /// The range holding `key` alone.
-fn alone(key: Vec<u8>) -> (Vec<u8>, Vec<u8>) {
+pub(crate) fn alone(key: Vec<u8>) -> (Vec<u8>, Vec<u8>) {
     let past = [key.as_slice(), &[0]].concat();
     (key, past)
 }
 
-/// Sends `scan` of `ranges` ranges and reads its answer, granting a frame's credit per frame when `granting`: its frames, and
+/// Sends `scan` and reads its answer, granting a frame's credit per frame when `granting`: its frames, and
 /// the refusal ending it, if one does.
-async fn answer(
+pub(crate) async fn answer(
     client: &mut RoleClient,
     scan: &Scan,
-    ranges: u32,
     granting: bool,
 ) -> TestResult<(Vec<Batch>, Option<Refused>)> {
     client.send_only(scan).await?;
     let stream = client.last_stream();
-    let mut sequence = EntriesSequence::new(ranges);
+    let mut sequence = EntriesSequence::new(scan.ranges());
     let mut batches = Vec::new();
     loop {
         match next_frame(client, &mut sequence).await? {
@@ -217,9 +233,9 @@ async fn answer(
 }
 
 /// The ID the partition at `client` holds for `iri`.
-async fn id_of(client: &mut RoleClient, iri: &str) -> TestResult<SystemId> {
+pub(crate) async fn id_of(client: &mut RoleClient, iri: &str) -> TestResult<SystemId> {
     let scan = plain(ScanAt::Latest, 0, 0, 0, &[alone(term_key(TENANT, iri))]);
-    let (batches, _) = answer(client, &scan, 1, false).await?;
+    let (batches, _) = answer(client, &scan, false).await?;
     let (_, value) = batches
         .first()
         .and_then(|batch| batch.entries.first())
@@ -228,7 +244,7 @@ async fn id_of(client: &mut RoleClient, iri: &str) -> TestResult<SystemId> {
 }
 
 /// The partition's latest closed epoch.
-async fn closed_at(client: &mut RoleClient) -> TestResult<u64> {
+pub(crate) async fn closed_at(client: &mut RoleClient) -> TestResult<u64> {
     let reply = client.request(&Closed::request(&[PARTITION])).await?;
     let view = reply.view()?;
     let closed = ClosedView::from_frame(&view)?;
@@ -236,7 +252,7 @@ async fn closed_at(client: &mut RoleClient) -> TestResult<u64> {
 }
 
 /// Waits until the partition has closed `epoch`.
-async fn closed_by(client: &mut RoleClient, epoch: u64) -> TestResult {
+pub(crate) async fn closed_by(client: &mut RoleClient, epoch: u64) -> TestResult {
     for _ in 0..5_000 {
         if closed_at(client).await? >= epoch {
             return Ok(());
@@ -254,7 +270,7 @@ async fn watermark() -> TestResult<u64> {
     Ok(BindView::from_frame(&view)?.read_version())
 }
 
-fn bind_of(identity: u8, principal: u64) -> Bind {
+pub(crate) fn bind_of(identity: u8, principal: u64) -> Bind {
     Bind::new(
         PARTITION,
         BindKind::Transaction,
@@ -266,7 +282,7 @@ fn bind_of(identity: u8, principal: u64) -> Bind {
 }
 
 /// The key of `subject`'s forward list of the scenarios' predicate, both by the IDs `client`'s partition holds.
-async fn forward_key(client: &mut RoleClient, subject: &str) -> TestResult<Vec<u8>> {
+pub(crate) async fn forward_key(client: &mut RoleClient, subject: &str) -> TestResult<Vec<u8>> {
     Ok(QuadKey::Forward {
         tenant: TENANT,
         graph: Graph::Default,
@@ -277,18 +293,18 @@ async fn forward_key(client: &mut RoleClient, subject: &str) -> TestResult<Vec<u
 }
 
 /// The objects `value`, a list's object records, holds.
-fn objects_of(value: &[u8]) -> TestResult<Vec<Vec<u8>>> {
+pub(crate) fn objects_of(value: &[u8]) -> TestResult<Vec<Vec<u8>>> {
     Ok(ObjectRecords::read(value)?
         .iter()
         .map(|record| record.encoding().to_vec())
         .collect())
 }
 
-fn object_of(id: SystemId) -> Vec<u8> {
+pub(crate) fn object_of(id: SystemId) -> Vec<u8> {
     EncodedTerm::id(id).as_bytes().to_vec()
 }
 
-fn run<T>(future: impl Future<Output = TestResult<T>>) -> TestResult<T> {
+pub(crate) fn run<T>(future: impl Future<Output = TestResult<T>>) -> TestResult<T> {
     Runtime::new()?.block_on(future)
 }
 
@@ -317,10 +333,10 @@ fn dictionary_and_referrers(w: &mut Steps) -> TestResult {
         .to_bytes();
         let ranges = [alone(term_key(TENANT, b)), alone(set.clone())];
         let now = plain(ScanAt::Latest, 0, 0, 0, &ranges);
-        let (latest, _) = answer(&mut client, &now, 2, false).await?;
+        let (latest, _) = answer(&mut client, &now, false).await?;
         let before = Version::bound_of(Epoch::ZERO);
         let earlier = plain(ScanAt::Named, before, 0, 0, &ranges);
-        let (older, _) = answer(&mut client, &earlier, 2, false).await?;
+        let (older, _) = answer(&mut client, &earlier, false).await?;
         Ok::<_, TestError>((entity, group, set, latest, older))
     })?;
     let (entity, member, set, latest, older) = outcome;
@@ -396,7 +412,7 @@ fn hub_scanned(w: &mut Steps) -> TestResult {
         }
         .to_bytes();
         let scan = plain(ScanAt::Latest, 0, 0, 0, &[alone(key)]);
-        let (batches, refused) = answer(&mut client, &scan, 1, true).await?;
+        let (batches, refused) = answer(&mut client, &scan, true).await?;
         assert!(refused.is_none(), "{refused:?}");
         Ok::<_, TestError>(batches)
     })?;
@@ -450,17 +466,17 @@ fn hub_read(w: &mut Steps) -> TestResult {
 }
 
 /// The refusal of a Scan of `ranges` arriving at a partition.
-async fn refused_scan(
+pub(crate) async fn refused_scan(
     client: &mut RoleClient,
     ranges: &[(Vec<u8>, Vec<u8>)],
 ) -> TestResult<Refused> {
     let scan = plain(ScanAt::Latest, 0, 0, 0, ranges);
-    let (batches, refused) = answer(client, &scan, ranges.len() as u32, false).await?;
+    let (batches, refused) = answer(client, &scan, false).await?;
     assert!(batches.is_empty(), "before any frame: {batches:?}");
     refused.context("a refusal")
 }
 
-fn protocol_naming(refused: &Refused, what: &str) {
+pub(crate) fn protocol_naming(refused: &Refused, what: &str) {
     assert_eq!(refused.code, ErrorCode::Protocol, "{refused:?}");
     assert!(refused.message.contains(what), "{refused:?}");
 }
@@ -511,7 +527,7 @@ fn waits_for_epoch(w: &mut Steps) -> TestResult {
         let version = Version::bound_of(Epoch::new(epoch)?);
         let range = alone(term_key(TENANT, "http://ex.org/x"));
         let scan = plain(ScanAt::ReadVersion, version, epoch, 30_000, &[range]);
-        let (batches, refused) = answer(&mut client, &scan, 1, false).await?;
+        let (batches, refused) = answer(&mut client, &scan, false).await?;
         assert!(refused.is_none(), "{refused:?}");
         w.kernel.numbers = vec![epoch, closed_at(&mut client).await?];
         w.kernel.batches = batches;
@@ -547,7 +563,7 @@ fn past_deadline(w: &mut Steps) -> TestResult {
                 deadline_ms,
                 std::slice::from_ref(&range),
             );
-            let (batches, refused) = answer(&mut client, &scan, 1, false).await?;
+            let (batches, refused) = answer(&mut client, &scan, false).await?;
             w.kernel.batches.extend(batches);
             w.kernel.refused.extend(refused);
         }
@@ -575,10 +591,13 @@ fn timed_out(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-/// Dictionary ranges of `count` keys, one frame each.
-fn dictionary_ranges(count: u32) -> Vec<(Vec<u8>, Vec<u8>)> {
+/// Ranges of `count` lists nobody holds, one frame each: a run of dictionary ranges would take one.
+pub(crate) fn list_ranges(count: u32) -> Vec<(Vec<u8>, Vec<u8>)> {
     (0..count)
-        .map(|at| alone(term_key(TENANT, &format!("http://ex.org/t{at}"))))
+        .map(|at| {
+            let first = key_prefix(Keyspace::Forward, false, TENANT, None, None);
+            alone([first.as_slice(), &at.to_be_bytes()].concat())
+        })
         .collect()
 }
 
@@ -590,11 +609,11 @@ const STALL_MS: u64 = 1_000;
 fn no_credit(w: &mut Steps) -> TestResult {
     one_partition(w, Some(&STALL_MS.to_string()))?;
     let count = DEFAULT_INITIAL_CREDIT + 2;
-    let scan = plain(ScanAt::Latest, 0, 0, 0, &dictionary_ranges(count));
+    let scan = plain(ScanAt::Latest, 0, 0, 0, &list_ranges(count));
     run(async {
         let mut client = dial().await?;
         client.send_only(&scan).await?;
-        let mut sequence = EntriesSequence::new(count);
+        let mut sequence = EntriesSequence::new(scan.ranges());
         for _ in 0..DEFAULT_INITIAL_CREDIT {
             if let Frame::Entries(batch) = next_frame(&mut client, &mut sequence).await? {
                 w.kernel.batches.push(batch);
@@ -634,8 +653,8 @@ fn stalled(w: &mut Steps) -> TestResult {
 fn with_credit(w: &mut Steps) -> TestResult {
     one_partition(w, None)?;
     let count = DEFAULT_INITIAL_CREDIT * 3;
-    let scan = plain(ScanAt::Latest, 0, 0, 0, &dictionary_ranges(count));
-    let (batches, refused) = run(async { answer(&mut dial().await?, &scan, count, true).await })?;
+    let scan = plain(ScanAt::Latest, 0, 0, 0, &list_ranges(count));
+    let (batches, refused) = run(async { answer(&mut dial().await?, &scan, true).await })?;
     assert!(refused.is_none(), "{refused:?}");
     w.kernel.batches = batches;
     w.kernel.numbers = vec![u64::from(count)];
@@ -675,7 +694,7 @@ fn above_watermark(w: &mut Steps) -> TestResult {
         let version = Version::bound_of(Epoch::new(open)?);
         let range = alone(term_key(TENANT, "http://ex.org/x"));
         let scan = plain(ScanAt::Named, version, 0, 0, &[range]);
-        let (batches, refused) = answer(&mut client, &scan, 1, false).await?;
+        let (batches, refused) = answer(&mut client, &scan, false).await?;
         assert!(batches.is_empty(), "{batches:?}");
         w.kernel.refused.extend(refused);
         w.kernel.numbers = vec![watermark().await?];
@@ -715,7 +734,7 @@ fn named_on_idle(w: &mut Steps) -> TestResult {
         let held = watermark().await?;
         assert!(held < bound, "{held} is not below {bound}");
         let scan = plain(ScanAt::Named, bound, 0, 0, &[alone(key)]);
-        let (batches, refused) = answer(&mut client, &scan, 1, false).await?;
+        let (batches, refused) = answer(&mut client, &scan, false).await?;
         assert!(refused.is_none(), "{refused:?}");
         w.kernel.batches = batches;
         w.kernel.bytes = vec![object_of(object)];
@@ -756,13 +775,12 @@ fn across_a_close(w: &mut Steps) -> TestResult {
         let key = forward_key(&mut client, &subject).await?;
         let kept = id_of(&mut client, "http://ex.org/o1").await?;
         // The credit stops the answer after these, before its last range.
-        let mut ranges = dictionary_ranges(DEFAULT_INITIAL_CREDIT);
+        let mut ranges = list_ranges(DEFAULT_INITIAL_CREDIT);
         ranges.push(alone(key));
-        let count = ranges.len() as u32;
         let scan = plain(ScanAt::LatestClosed, 0, 0, 0, &ranges);
         client.send_only(&scan).await?;
         let stream = client.last_stream();
-        let mut sequence = EntriesSequence::new(count);
+        let mut sequence = EntriesSequence::new(scan.ranges());
         let mut batches = Vec::new();
         for _ in 0..DEFAULT_INITIAL_CREDIT {
             if let Frame::Entries(batch) = next_frame(&mut client, &mut sequence).await? {
@@ -815,7 +833,7 @@ fn one_version(w: &mut Steps) -> TestResult {
 }
 
 /// A Scan naming transaction `identity`, reading at `version`.
-fn of_transaction(identity: u8, version: u64, principal: u64) -> Scan {
+pub(crate) fn of_transaction(identity: u8, version: u64, principal: u64) -> Scan {
     Scan::new(
         ScanAt::ReadVersion,
         version,
@@ -856,14 +874,14 @@ fn no_room(w: &mut Steps) -> TestResult {
             for (first, past) in &ranges {
                 scan.push_range(ScanRange::new(PARTITION, first, past));
             }
-            let (_, refused) = answer(&mut client, &scan, 4, true).await?;
+            let (_, refused) = answer(&mut client, &scan, true).await?;
             if let Some(refused) = refused {
                 refusals.push(refused);
                 break;
             }
         }
         let scan_stream = client.last_stream();
-        let mut sequence = EntriesSequence::new(1);
+        let mut sequence = EntriesSequence::new([]);
         if let Frame::Refused(refused) = next_frame(&mut client, &mut sequence).await? {
             refusals.push(refused);
         }
@@ -906,7 +924,7 @@ fn closed_asked(w: &mut Steps) -> TestResult {
         closed_by(&mut client, 1).await?;
         w.kernel.numbers = vec![closed_at(&mut client).await?];
         client.send_only(&Closed::request(&[PARTITION + 1])).await?;
-        let mut sequence = EntriesSequence::new(1);
+        let mut sequence = EntriesSequence::new([]);
         if let Frame::Refused(refused) = next_frame(&mut client, &mut sequence).await? {
             w.kernel.refused.push(refused);
         }
@@ -948,7 +966,7 @@ fn tenant_rules(w: &mut Steps) -> TestResult {
             .refused
             .push(refused_scan(&mut client, &[(first.clone(), beyond)]).await?);
         let scan = plain(ScanAt::Latest, 0, 0, 0, &[(first, past)]);
-        let (batches, refused) = answer(&mut client, &scan, 1, false).await?;
+        let (batches, refused) = answer(&mut client, &scan, false).await?;
         assert!(refused.is_none(), "{refused:?}");
         w.kernel.batches = batches;
         Ok(())
@@ -985,7 +1003,7 @@ fn exact_limits(w: &mut Steps) -> TestResult {
             let dictionary = alone(term_key(TENANT, "http://ex.org/l1"));
             scan.push_range(ScanRange::new(PARTITION, &first, b""));
             scan.push_range(ScanRange::new(PARTITION, &dictionary.0, &dictionary.1));
-            let (batches, refused) = answer(&mut client, &scan, 2, false).await?;
+            let (batches, refused) = answer(&mut client, &scan, false).await?;
             assert!(refused.is_none(), "{refused:?}");
             w.kernel.batches.extend(batches);
         }
@@ -1012,10 +1030,29 @@ fn exact_ends(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
+/// Sends `write` on the Bind stream `stream` of `client`, and reads the Held that answers it.
+pub(crate) async fn write_held(client: &mut RoleClient, stream: u64, write: &Write) -> TestResult {
+    client.send_on(stream, write).await?;
+    let held = client.next_frame().await?;
+    let view = held.view()?;
+    assert_eq!(view.header().stream(), stream);
+    let _answer: Command = view.command().answering(Command::Write)?;
+    if view.command() == Command::Held {
+        return Ok(());
+    }
+    Err(TestError::new(format!(
+        "command {}",
+        view.command().number()
+    )))
+}
+
 /// Commits or fails on `stream` of `client`: the frame that answers, a refusal if it is one.
-async fn commit_answer(client: &mut RoleClient, stream: u64) -> TestResult<Option<Refused>> {
+pub(crate) async fn commit_answer(
+    client: &mut RoleClient,
+    stream: u64,
+) -> TestResult<Option<Refused>> {
     client.send_on(stream, &Commit::new([0; 16], 0, 0)).await?;
-    let mut sequence = EntriesSequence::new(1);
+    let mut sequence = EntriesSequence::new([]);
     match next_frame(client, &mut sequence).await? {
         Frame::Refused(refused) => Ok(Some(refused)),
         Frame::Entries(_) | Frame::Other(_) => Ok(None),
@@ -1036,7 +1073,7 @@ fn own_write_read(w: &mut Steps) -> TestResult {
         let read = BindView::from_frame(&reply.view()?)?.read_version();
         drop(reply);
         let bind_stream = client.last_stream();
-        client.send_on(bind_stream, &edge_write(a, b)).await?;
+        write_held(&mut client, bind_stream, &edge_write(a, b)).await?;
         let mut terms = TermTable::new();
         for iri in [PREDICATE, a, b] {
             let _at = terms.iri(iri);
@@ -1046,12 +1083,12 @@ fn own_write_read(w: &mut Steps) -> TestResult {
         for (first, past) in &keys {
             scan.push_range(ScanRange::new(PARTITION, first, past));
         }
-        let (ids, refused) = answer(&mut client, &scan, 3, false).await?;
+        let (ids, refused) = answer(&mut client, &scan, false).await?;
         assert!(refused.is_none(), "{refused:?}");
         let id = |at: usize| -> TestResult<SystemId> {
             let (_, value) = ids
-                .get(at)
-                .and_then(|batch| batch.entries.first())
+                .first()
+                .and_then(|batch| batch.entries.get(at))
                 .context("an ID")?;
             Ok(SystemId::decode(value)?)
         };
@@ -1065,10 +1102,10 @@ fn own_write_read(w: &mut Steps) -> TestResult {
         let mut list = of_transaction(4, read, PRINCIPAL);
         let (first, past) = alone(key.clone());
         list.push_range(ScanRange::new(PARTITION, &first, &past));
-        let (own, list_refused) = answer(&mut client, &list, 1, false).await?;
+        let (own, list_refused) = answer(&mut client, &list, false).await?;
         assert!(list_refused.is_none(), "{list_refused:?}");
         let other = plain(ScanAt::Latest, 0, 0, 0, &[alone(key)]);
-        let (seen, _) = answer(&mut dial().await?, &other, 1, false).await?;
+        let (seen, _) = answer(&mut dial().await?, &other, false).await?;
         let _second = commit_at(&address(), PARTITION, &edge_write(a, c)).await?;
         w.kernel
             .refused
@@ -1134,12 +1171,12 @@ fn wrong_transaction_scans(w: &mut Steps) -> TestResult {
             one(&forward, read, PRINCIPAL, 6),
         ];
         for scan in &scans {
-            let (batches, refused) = answer(&mut client, scan, 1, false).await?;
+            let (batches, refused) = answer(&mut client, scan, false).await?;
             assert!(batches.is_empty(), "{batches:?}");
             w.kernel.refused.extend(refused);
         }
         let held = one(&forward, read, PRINCIPAL, 5);
-        let (batches, refused) = answer(&mut client, &held, 1, false).await?;
+        let (batches, refused) = answer(&mut client, &held, false).await?;
         assert!(refused.is_none(), "{refused:?}");
         w.kernel.batches = batches;
         Ok(())
@@ -1177,7 +1214,7 @@ fn bind_twice(w: &mut Steps) -> TestResult {
         let mut client = dial().await?;
         drop(client.request(&bind_of(6, PRINCIPAL)).await?);
         client.send_only(&bind_of(6, PRINCIPAL)).await?;
-        let mut sequence = EntriesSequence::new(1);
+        let mut sequence = EntriesSequence::new([]);
         if let Frame::Refused(refused) = next_frame(&mut client, &mut sequence).await? {
             w.kernel.refused.push(refused);
         }
@@ -1195,7 +1232,7 @@ fn bind_refused(w: &mut Steps) -> TestResult {
 }
 
 /// Binds a transaction at `client`, partition 1 of two processes' four: its stream and version.
-async fn bind_first(client: &mut RoleClient, identity: u8) -> TestResult<(u64, u64)> {
+pub(crate) async fn bind_first(client: &mut RoleClient, identity: u8) -> TestResult<(u64, u64)> {
     let bind = Bind::new(
         1,
         BindKind::Transaction,
@@ -1210,7 +1247,7 @@ async fn bind_first(client: &mut RoleClient, identity: u8) -> TestResult<(u64, u
 }
 
 /// A Scan of `iri` as transaction `identity`'s term, at `version`.
-fn term_scan(identity: u8, version: u64, iri: &str) -> Scan {
+pub(crate) fn term_scan(identity: u8, version: u64, iri: &str) -> Scan {
     let mut terms = TermTable::new();
     let _at = terms.iri(iri);
     let mut scan = of_transaction(identity, version, PRINCIPAL).with_terms(terms);
@@ -1226,14 +1263,14 @@ fn foreign_from_home(w: &mut Steps) -> TestResult {
     run(async {
         let mut client = dial_at("tcp://127.0.0.1:17200").await?;
         let (_, read) = bind_first(&mut client, 7).await?;
-        let (batches, refused) = answer(&mut client, &term_scan(7, read, &iri), 1, false).await?;
+        let (batches, refused) = answer(&mut client, &term_scan(7, read, &iri), false).await?;
         assert!(refused.is_none(), "{refused:?}");
         w.kernel.batches = batches;
         let mut home = dial_at("tcp://127.0.0.1:17300").await?;
         let mut asked = Scan::new(ScanAt::Latest, 0, 0, PRINCIPAL, NO_TRANSACTION, 0, 0);
         let (first, past) = alone(term_key(TENANT, &iri));
         asked.push_range(ScanRange::new(3, &first, &past));
-        let (held, _) = answer(&mut home, &asked, 1, false).await?;
+        let (held, _) = answer(&mut home, &asked, false).await?;
         let (_, id) = held
             .first()
             .and_then(|batch| batch.entries.first())
@@ -1258,7 +1295,7 @@ async fn refusal_of(client: &mut RoleClient, sent: Refusing<'_>) -> TestResult<R
         Refusing::Scan(scan) => client.send_only(scan).await?,
         Refusing::Recall(recall) => client.send_only(recall).await?,
     }
-    let mut sequence = EntriesSequence::new(1);
+    let mut sequence = EntriesSequence::new([]);
     match next_frame(client, &mut sequence).await? {
         Frame::Refused(refused) => Ok(refused),
         Frame::Entries(batch) => Err(TestError::new(format!("a frame: {batch:?}"))),
@@ -1371,7 +1408,7 @@ fn each_named(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[when("the dictionary holds a value too large for the receiver's `max_frame`")]
+#[when("the dictionary or the statements hold a value too large for the receiver's `max_frame`")]
 fn too_large_value(w: &mut Steps) -> TestResult {
     one_partition(w, None)?;
     let lexical = "x".repeat(MAX_FRAME_FLOOR);
@@ -1402,15 +1439,21 @@ fn too_large_value(w: &mut Steps) -> TestResult {
         w.kernel
             .refused
             .push(refusal_of(&mut small, Refusing::Scan(&scan)).await?);
+        drop(small);
+        w.kernel
+            .refused
+            .push(crate::scan_ranges_steps::too_large_record().await?);
         Ok(())
     })
 }
 
 #[then("a Scan of it is refused with code 6 (TooLarge), `detail` that `max_frame`")]
 fn too_large_named(w: &mut Steps) -> TestResult {
-    let refused = w.kernel.refused.first().context("the refusal")?;
-    assert_eq!(refused.code, ErrorCode::TooLarge, "{refused:?}");
-    assert_eq!(refused.detail, MAX_FRAME_FLOOR as u64);
+    assert_eq!(w.kernel.refused.len(), 2, "{:?}", w.kernel.refused);
+    for refused in &w.kernel.refused {
+        assert_eq!(refused.code, ErrorCode::TooLarge, "{refused:?}");
+        assert_eq!(refused.detail, MAX_FRAME_FLOOR as u64);
+    }
     w.roles = None;
     Ok(())
 }
@@ -1421,14 +1464,16 @@ fn two_scans_open(w: &mut Steps) -> TestResult {
     let (stopped, running) = (DEFAULT_INITIAL_CREDIT + 1, DEFAULT_INITIAL_CREDIT * 3);
     run(async {
         let mut client = dial().await?;
-        let idle = plain(ScanAt::Latest, 0, 0, 0, &dictionary_ranges(stopped));
+        let idle = plain(ScanAt::Latest, 0, 0, 0, &list_ranges(stopped));
         client.send_only(&idle).await?;
         let idle_stream = client.last_stream();
-        let read = plain(ScanAt::Latest, 0, 0, 0, &dictionary_ranges(running));
+        let read = plain(ScanAt::Latest, 0, 0, 0, &list_ranges(running));
         client.send_only(&read).await?;
         let read_stream = client.last_stream();
-        let (mut idle_seq, mut read_seq) =
-            (EntriesSequence::new(stopped), EntriesSequence::new(running));
+        let (mut idle_seq, mut read_seq) = (
+            EntriesSequence::new(idle.ranges()),
+            EntriesSequence::new(read.ranges()),
+        );
         loop {
             let frame = client.next_frame().await?;
             let stream = frame.view()?.header().stream();
@@ -1522,7 +1567,7 @@ fn emptied_range(w: &mut Steps) -> TestResult {
         let kept = forward_key(&mut client, "http://ex.org/kept").await?;
         let first = key_prefix(Keyspace::Forward, false, TENANT, None, None);
         let scan = plain(ScanAt::Latest, 0, 0, 0, &[(first, Vec::new())]);
-        let (batches, refused) = answer(&mut client, &scan, 1, true).await?;
+        let (batches, refused) = answer(&mut client, &scan, true).await?;
         assert!(refused.is_none(), "{refused:?}");
         w.kernel.batches = batches;
         w.kernel.bytes = vec![kept];
@@ -1557,12 +1602,12 @@ fn aborted_under_scan(w: &mut Steps) -> TestResult {
         drop(reply);
         let bind_stream = client.last_stream();
         let mut scan = of_transaction(21, read, PRINCIPAL);
-        for (first, past) in &dictionary_ranges(count) {
+        for (first, past) in &list_ranges(count) {
             scan.push_range(ScanRange::new(PARTITION, first, past));
         }
         client.send_only(&scan).await?;
         let scan_stream = client.last_stream();
-        let mut sequence = EntriesSequence::new(count);
+        let mut sequence = EntriesSequence::new(scan.ranges());
         for _ in 0..DEFAULT_INITIAL_CREDIT {
             if let Frame::Entries(batch) = next_frame(&mut client, &mut sequence).await? {
                 w.kernel.batches.push(batch);
@@ -1577,18 +1622,19 @@ fn aborted_under_scan(w: &mut Steps) -> TestResult {
     })
 }
 
-#[then("the Scan is refused at once with a protocol error, as one the partition does not hold")]
+#[then("the Scan is refused at once with Error 1, `detail` 1, as one the partition does not hold")]
 fn ended_with_it(w: &mut Steps) -> TestResult {
     assert_eq!(w.kernel.batches.len(), DEFAULT_INITIAL_CREDIT as usize);
     let refused = w.kernel.refused.first().context("the refusal")?;
     protocol_naming(refused, "does not hold");
+    assert_eq!(refused.detail, 1, "{refused:?}");
     assert_eq!(Some(&refused.stream), w.kernel.numbers.first());
     w.roles = None;
     Ok(())
 }
 
 /// An IRI partition 3 of 4 owns, `at` choosing among them.
-fn homed_at_three(at: u32) -> TestResult<String> {
+pub(crate) fn homed_at_three(at: u32) -> TestResult<String> {
     let map = PlacementMap::even(4, NodeId::new(1))?;
     (0..100_000)
         .map(|n| format!("http://ex.org/h{at}-{n}"))
@@ -1617,7 +1663,9 @@ fn overlapping_scans(w: &mut Steps) -> TestResult {
         assert!(early.is_err(), "no frame before the home answers");
         script.release();
         for _ in 0..2 {
-            let mut sequence = EntriesSequence::new(1);
+            // The two Scans answer in either order, each of one key of the dictionary.
+            let first = [Keyspace::Dictionary.byte()];
+            let mut sequence = EntriesSequence::new([ScanRange::new(PARTITION, &first, &[])]);
             match next_frame(&mut client, &mut sequence).await? {
                 Frame::Entries(batch) => w.kernel.batches.push(batch),
                 Frame::Refused(refused) => w.kernel.refused.push(refused),
@@ -1694,7 +1742,7 @@ fn foreign_skolem(w: &mut Steps) -> TestResult {
         // A second Scan of the IRI finds what the first did, asking no one, and the transaction still reads.
         for _ in 0..2 {
             let scan = term_scan(8, read, skolem.as_str());
-            let (batches, refused) = answer(&mut client, &scan, 1, false).await?;
+            let (batches, refused) = answer(&mut client, &scan, false).await?;
             assert!(refused.is_none(), "{refused:?}");
             w.kernel.batches.extend(batches);
         }
@@ -1723,9 +1771,10 @@ fn foreign_refused(w: &mut Steps) -> TestResult {
         play_home(&script).await?;
         let mut client = dial_at("tcp://127.0.0.1:17200").await?;
         let (bind_stream, read) = bind_first(&mut client, 24).await?;
-        client.send_only(&term_scan(24, read, &iri)).await?;
+        let scan = term_scan(24, read, &iri);
+        client.send_only(&scan).await?;
         let scan_stream = client.last_stream();
-        let mut sequence = EntriesSequence::new(1);
+        let mut sequence = EntriesSequence::new(scan.ranges());
         for _ in 0..2 {
             if let Frame::Refused(refused) = next_frame(&mut client, &mut sequence).await? {
                 w.kernel.refused.push(refused);
@@ -1753,9 +1802,8 @@ async fn committed_body(session: [u8; 16], request: u64, subject: &str) -> TestR
     let mut client = dial().await?;
     drop(client.request(&bind_of(9, PRINCIPAL)).await?);
     let stream = client.last_stream();
-    client
-        .send_on(stream, &edge_write(subject, "http://ex.org/o"))
-        .await?;
+    let write = edge_write(subject, "http://ex.org/o");
+    write_held(&mut client, stream, &write).await?;
     client
         .send_on(stream, &Commit::new(session, request, 0))
         .await?;
@@ -1805,7 +1853,7 @@ fn recalled_unheld(w: &mut Steps) -> TestResult {
             client
                 .send_only(&Recall::new(PARTITION, session, request))
                 .await?;
-            let mut sequence = EntriesSequence::new(1);
+            let mut sequence = EntriesSequence::new([]);
             if let Frame::Refused(refused) = next_frame(&mut client, &mut sequence).await? {
                 w.kernel.refused.push(refused);
             }

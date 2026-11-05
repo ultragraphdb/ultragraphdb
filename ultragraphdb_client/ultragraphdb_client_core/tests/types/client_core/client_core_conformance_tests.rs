@@ -89,7 +89,7 @@ pub fn view<'a, V: BodyView<'a>>(frame: &'a FrameView<'a>) -> TestResult<V::Body
 }
 
 /// The version a read-only test transaction's snapshot reads at.
-const SNAPSHOT: u64 = 5;
+const SNAPSHOT: u64 = 6;
 
 #[test]
 fn test_every_request_the_client_sends_is_its_golden_frame() -> TestResult {

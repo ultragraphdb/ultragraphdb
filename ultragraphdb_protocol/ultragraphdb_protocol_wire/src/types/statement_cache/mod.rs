@@ -50,13 +50,16 @@ impl StatementCache {
 
     /// Prepares `request` against the tenant's current `schema` id: each declared parameter type fits its slot
     /// (a node where a node is expected, refused as [`StatementError::parameter_type`]); answered with the statement's
-    /// id, the schema id, the parameter types and a result column type per unbound slot.
+    /// id, the schema id, the parameter types and a result column type per unbound slot. A query text is refused as
+    /// [`StatementError::not_a_pattern`].
     pub fn prepare(
         &mut self,
         request: &PrepareView<'_>,
         schema: u64,
     ) -> Result<Prepare, StatementError> {
-        let pattern = *request.pattern();
+        let pattern = *request
+            .pattern()
+            .ok_or_else(|| StatementError::not_a_pattern(request.language().number()))?;
         let declared = request.parameter_types();
         let types = QuadPattern::slot_types();
         let parameter_slots = pattern

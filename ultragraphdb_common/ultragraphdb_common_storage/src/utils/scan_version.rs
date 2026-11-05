@@ -41,3 +41,14 @@ pub fn scan_version(
         ScanAt::LatestClosed => Ok((bound.min(watermark), closed.get())),
     }
 }
+
+/// The version the frames of a Scan name, `version` being what it reads (`PROTOCOL.md` §13.14): what it named at `at` 1 and 4, the
+/// version bound of `closed` at `at` 3, and the watermark it read at `at` 2. A later Scan naming it reads what this one read.
+#[must_use]
+pub fn scan_named(at: ScanAt, read_version: u64, closed: Epoch, version: u64) -> u64 {
+    match at {
+        ScanAt::ReadVersion | ScanAt::Named => read_version,
+        ScanAt::LatestClosed => Version::bound_of(closed),
+        ScanAt::Latest => version,
+    }
+}

@@ -13,6 +13,7 @@
 mod types;
 mod utils;
 
+pub use crate::types::core_ends::CoreEnds;
 pub use crate::types::core_message::CoreMessage;
 pub use crate::types::entries_fill::EntriesFill;
 pub use crate::types::partition_core::{
@@ -20,8 +21,9 @@ pub use crate::types::partition_core::{
     StoragePartition,
 };
 pub use crate::types::refill_blocks::RefillBlocks;
+pub use crate::types::retention::Retention;
 pub use crate::types::scan_board::ScanBoard;
 pub use crate::types::scan_key::ScanKey;
 pub use crate::types::storage_session::StorageSession;
-pub use crate::utils::error_reply::error_reply;
-pub use crate::utils::scan_version::scan_version;
+pub use crate::utils::error_reply::{error_reply, registration_outcome, scan_refusal};
+pub use crate::utils::scan_version::{scan_named, scan_version};

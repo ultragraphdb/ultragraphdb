@@ -48,9 +48,10 @@ where
         }
     }
 
-    /// Streams the list of `key`, as `source` sees it, to the sink. The key the scan resumes inside was a row before this page
-    /// reached it, so finishing it completes a row even with nothing left to give, and it is read from the list the page before
-    /// kept, so a list crossing many pages is read from the store once.
+    /// Streams the list of `key`, as `source` sees it, to the sink. The key the scan resumes after a posting of was a row before
+    /// this page reached it, so finishing it completes a row even with nothing left to give, and it is read from the list the page
+    /// before kept, so a list crossing many pages is read from the store once. A key resumed at a posting a reader named is a row
+    /// of this page only when it gives one.
     ///
     /// # Errors
     ///
@@ -93,7 +94,7 @@ where
             (true, true) => WalkStep::PausedInside,
             (true, false) => WalkStep::PausedBefore,
             (false, true) => self.completed(),
-            (false, false) if after.is_some() => self.completed(),
+            (false, false) if after.is_some_and(|after| !after.is_included()) => self.completed(),
             (false, false) => WalkStep::Nothing,
         })
     }

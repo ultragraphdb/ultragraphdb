@@ -15,14 +15,15 @@ use ultragraphdb_common_role::{
     Answer, ROLE_ITERATIONS, RoleClient, RoleCredentials, RoleSecret, Server, Session, listen,
     serve_connection,
 };
+use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_transport::{
     Address, Endpoint, ReceivedFrame, TransportError, TransportErrorEnum,
 };
 use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, Command, Credit, DEFAULT_INITIAL_CREDIT, Entries, EntriesEnd,
-    EntriesView, ErrorCode, ErrorReply, FLAG_LAST, Header, Join, MAX_FRAME_FLOOR, Members, Scan,
-    ScanAt, ScanRange,
+    EntriesView, ErrorCode, ErrorReply, FLAG_LAST, Header, Held, Join, MAX_FRAME_FLOOR, Members,
+    Scan, ScanAt, ScanRange,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -240,6 +241,47 @@ fn test_a_role_with_the_secret_exchanges_role_commands_on_either_carrier() -> Te
     })
 }
 
+/// Answers every request with a Held, which no request but a Write and an Operation lists.
+#[derive(Debug, Clone, Copy)]
+struct AnsweringHeld;
+
+impl Session for AnsweringHeld {
+    async fn answer(&mut self, stream: u64, _frame: ReceivedFrame) -> Answer {
+        let header = Header::new(CLUSTER, Command::Held).with_stream(stream);
+        Held.frame(header).map_or_else(
+            |rule| Answer::Refuse(ErrorReply::protocol(&rule)),
+            Answer::Reply,
+        )
+    }
+}
+
+/// The frame a request's answers do not list is refused as a command not served (`PROTOCOL.md` §2.5, step 3).
+#[test]
+fn test_a_reply_its_request_does_not_list_is_refused() -> TestResult {
+    Runtime::new()?.block_on(async {
+        let listener = listen(&free_tcp()?).await?;
+        let address = listener.local_address()?;
+        let server =
+            Server::new(CLUSTER, "test", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
+        let held = credentials()?;
+        spawn(async move {
+            if let Ok(carrier) = listener.accept().await {
+                serve_connection(carrier, &server, held, AnsweringHeld).await;
+            }
+        })
+        .detach();
+        let mut client = RoleClient::dial(&address, CLUSTER, "storage", PASSWORD).await?;
+        let refused = client.request(&Members::new()).await;
+        assert_eq!(
+            refused.err().context("a refusal")?.0,
+            TransportErrorEnum::Protocol {
+                error: ProtocolError::command_not_served(Command::Held.number())
+            }
+        );
+        Ok(())
+    })
+}
+
 /// A wrong secret and an unknown name are refused alike, and a command the endpoint does not serve by its rule.
 #[test]
 fn test_a_wrong_secret_or_name_is_refused_with_code_19() -> TestResult {
@@ -293,7 +335,7 @@ fn test_a_socket_is_private_and_replaces_a_stale_one() -> TestResult {
         std::fs::remove_file(&path)?;
         std::fs::write(&path, b"not a socket")?;
         let refused = listen(&text).await.err().context("a refusal")?;
-        assert_eq!(refused.exit_code(), RoleError::EX_UNAVAILABLE);
+        assert_eq!(refused.exit_code(), RoleError::EX_CONFIG);
         assert_eq!(std::fs::read(&path)?, b"not a socket");
         std::fs::remove_file(&path)?;
         Ok(())

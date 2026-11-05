@@ -8,7 +8,7 @@ mod partition_core_reads;
 mod partition_core_remote;
 
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::future::poll_fn;
 use std::rc::Rc;
 use std::sync::mpsc::{Receiver, Sender};
@@ -37,6 +37,7 @@ use ultragraphdb_transactions_log::{CompioStorage, Wal};
 use crate::types::core_message::{CoreMessage, Pushes};
 use crate::types::open_scan::OpenScan;
 use crate::types::refill_blocks::RefillBlocks;
+use crate::types::retention::Retention;
 use crate::types::scan_board::ScanBoard;
 use crate::utils::commit_body::commit_body;
 use crate::utils::error_reply::error_reply;
@@ -68,13 +69,24 @@ pub enum FrontendAsk {
     Close(Epoch),
 }
 
-/// A request waiting for its references' answers, its frame held, which a write's changes borrow.
+/// What a parked request does once its transaction's references are answered.
+#[derive(Debug)]
+enum ParkedWork {
+    /// A Write's references are answered: its changes run from the frame it held.
+    Write,
+    /// An Operation's references are answered, and the host applied it.
+    Operation,
+    /// A request that waited behind a read's references takes its turn from the start.
+    Turn { pushes: Pushes, max_frame: u32 },
+}
+
+/// A request waiting for its transaction's references' answers, its frame held, which a write's changes borrow.
 #[derive(Debug)]
 struct Parked {
     frame: ReceivedFrame,
     done: oneshot::Sender<Answer>,
     tenant: u64,
-    is_write: bool,
+    work: ParkedWork,
 }
 
 /// A Reference a home is answering, one registration at a time.
@@ -160,6 +172,8 @@ pub struct PartitionCore<'a> {
     asks: UnboundedSender<FrontendAsk>,
     peers: Peers,
     bound_tenant: BTreeMap<BoundKey, (u64, Pushes)>,
+    /// The streams a Bind of kind 2 opened, each waiting for its Drop.
+    drop_streams: BTreeSet<BoundKey>,
     parked: BTreeMap<BoundKey, Parked>,
     home_askings: BTreeMap<u64, HomeAsking>,
     next_asking: u64,
@@ -167,6 +181,9 @@ pub struct PartitionCore<'a> {
     /// The Scans it answers, and those with a frame to build, in turn.
     scans: ScanBoard<OpenScan<'a>>,
     scan_stall_ms: u64,
+    retention: Retention,
+    /// Where a higher discard version goes: the store's synced write of it runs off the core, so no read waits for it.
+    discards: Sender<u64>,
 }
 
 impl std::fmt::Debug for PartitionCore<'_> {
@@ -185,11 +202,13 @@ pub struct CoreChannels {
     own: Sender<PartitionMessage>,
     closes: Receiver<PartitionMessage>,
     asks: UnboundedSender<FrontendAsk>,
+    discards: Sender<u64>,
 }
 
 impl CoreChannels {
     /// What its connections send it, `inbox`; what other partitions send it, `remote`; where messages reach it, `own`; the epoch
-    /// closes delivered to it, `closes`; and where it asks the frontend, `asks`.
+    /// closes delivered to it, `closes`; where it asks the frontend, `asks`; and where each higher discard version goes,
+    /// `discards`, read off the core.
     #[must_use]
     pub fn new(
         inbox: UnboundedReceiver<CoreMessage>,
@@ -197,6 +216,7 @@ impl CoreChannels {
         own: Sender<PartitionMessage>,
         closes: Receiver<PartitionMessage>,
         asks: UnboundedSender<FrontendAsk>,
+        discards: Sender<u64>,
     ) -> Self {
         Self {
             inbox,
@@ -204,6 +224,7 @@ impl CoreChannels {
             own,
             closes,
             asks,
+            discards,
         }
     }
 }
@@ -217,10 +238,12 @@ pub struct CoreParts<'a> {
     channels: CoreChannels,
     peers: Peers,
     scan_stall_ms: u64,
+    retention: Retention,
 }
 
 impl<'a> CoreParts<'a> {
-    /// The core of partition `id`, hosted over `host`, every frame naming `cluster`, its time counted from `clock`.
+    /// The core of partition `id`, hosted over `host`, every frame naming `cluster`, its time counted from `clock`, retaining what
+    /// `retention` says.
     #[must_use]
     pub fn new(
         host: StorageHost<'a>,
@@ -229,6 +252,7 @@ impl<'a> CoreParts<'a> {
         clock: Instant,
         channels: CoreChannels,
         peers: Peers,
+        retention: Retention,
     ) -> Self {
         Self {
             host,
@@ -238,6 +262,7 @@ impl<'a> CoreParts<'a> {
             channels,
             peers,
             scan_stall_ms: SCAN_STALL_MS_DEFAULT,
+            retention,
         }
     }
 
@@ -264,12 +289,15 @@ impl<'a> PartitionCore<'a> {
             asks: parts.channels.asks,
             peers: parts.peers,
             bound_tenant: BTreeMap::new(),
+            drop_streams: BTreeSet::new(),
             parked: BTreeMap::new(),
             home_askings: BTreeMap::new(),
             next_asking: 1,
             committing: BTreeMap::new(),
             scans: ScanBoard::default(),
             scan_stall_ms: parts.scan_stall_ms,
+            retention: parts.retention,
+            discards: parts.channels.discards,
         }
     }
 
@@ -339,7 +367,23 @@ impl<'a> PartitionCore<'a> {
         self.resume_ready();
         self.hand_out();
         self.serve_scans();
+        self.raise_discard(now);
         Ok(())
+    }
+
+    /// Raises the discard version to what the retention allows at `now`, at most the visibility watermark: a read at the watermark
+    /// is always answered, though the version bound of a closed epoch lie above it on an idle partition.
+    fn raise_discard(&mut self, now: u64) {
+        self.retention.closed(self.host.closed(), now);
+        let Some(bound) = self.retention.due(now) else {
+            return;
+        };
+        let target = bound.min(self.host.watermark());
+        // An ask an open read held back asks again; one the store holds writes nothing.
+        if target > self.host.discard_ts() {
+            // A reader gone is a partition stopping, which discards nothing more.
+            let _gone: Result<(), _> = self.discards.send(target);
+        }
     }
 
     /// Tells the holder of `key` its transaction passed its limit.

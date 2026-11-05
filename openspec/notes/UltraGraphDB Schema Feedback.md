@@ -76,14 +76,15 @@ encoding, and a classification derived from declarations alone are all what the 
 developer, decides. The staging table keeps the engine honest about what it enforces, and `UGS0902` says so in every
 report.
 
-What does not yet. Three findings are correctness debts in the specification itself: the key-claim placement, which
-is a performance defect that reads as a correctness one because the worked example states a locality that does not
-hold; the tree rule, which refuses a correct schema; and the grammar bugs, which show the specification has been read
-but never parsed. Two findings move rules back to the writer, which the directive's first rank forbids as a design
-goal: the expression language's scope and the missing `@ends`. And one standing risk: a declared constraint the
-deployment does not enforce (`UGS0902`) is reported, but a reader of the schema alone, which is what a `.ugs` file
-invites, sees a promise the stage does not keep. A compiler flag refusing unenforced constraints, on by default in
-production, would keep the schema and the engine in one truth.
+What remained, and where it stands. The findings of the first pass are applied (section H): the key claim sits at
+the key's bucket, the tree rule reads valid time, the expression language has its accessors, quantifier and type
+test, `@ends` exists, and the grammar parses. The query cores of 2026-11-05 added two rules the schema had left
+open and the load exposed: a retraction never writes a relation without an `asserted` of its own, so an
+`@append_only` provenance link stays as written and leaves the live view with its retracted participant; and a
+required collection means at least one member, which made Gen5's identifier sets `Optional`. One standing risk
+remains: a declared constraint the deployment does not enforce (`UGS0902`) is reported, but a reader of the schema
+alone, which is what a `.ugs` file invites, sees a promise the stage does not keep. A compiler flag refusing
+unenforced constraints, on by default in production, would keep the schema and the engine in one truth.
 
 ### Performance
 
@@ -92,14 +93,16 @@ buckets put a keyed entity where its key is checked (once the claim rule is fixe
 are written in the same local commit, with no second owner to keep in step. Count indexes exist only where a bound
 needs them. Request typing decides a write's path before any read.
 
-What it costs, and what Gen5 pays. Every relation kind of Gen5 lies below `Statement`, so every relation instance is a
-node: one ID, two role quads, the envelope's attributes, and a registration at each participant's home the first time
-its bucket group references it, where a link costs one quad. That is the price of "a relation is a statement", and the
-directive's order says to pay it: identity for every relation is what makes it rankable, retractable and a participant.
-The specification should state the ratio plainly in the encoding section, so a modeller chooses a link where the
-epistemology is not needed, as Gen5's eighteen links do. Gen5 also indexes liberally, `@index(range)` on some seventy
-attributes and `interval` on seven, each interval four entries; the coordination report should count index entries per
-write operation so that amplification is visible when the schema is written, as coordination is.
+What it costs, and what Gen5 pays. A binary, single-valued relation kind is an edge with a reifier (G3, applied): one
+triple and one statement record, through which the instance keeps its identity, its envelope and its place as a
+participant. 61 of Gen5's 69 kinds below `Relation` take that form; the eight with three roles, a set-valued role or
+`@colocate(root)` are nodes, one ID and one role quad per participant. Both register once at each participant's home
+the first time its bucket group references it; a link costs one quad. That is the price of "a relation is a
+statement", and the directive's order says to pay it: identity for every relation is what makes it rankable,
+retractable and a participant. The GQL view presents a reifier-bearing edge also as a relation node, one element with
+one `ELEMENT_ID`, so provenance names it without a second encoding. Gen5 also indexes liberally, `@index(range)` on
+some seventy attributes and `interval` on seven, each interval four entries; the coordination report counts index
+entries per write operation (G4), so amplification is visible when the schema is written, as coordination is.
 
 ### Scale
 
@@ -121,18 +124,19 @@ partitions' state cannot be materialized before tiles, so DeepBrain's stale queu
 What holds. Diagnostics in the compiler's style with a fix, a report that prices every constraint when it is written,
 introspection with documentation, defaults, a worked example, and a staging table.
 
-What does not. The reserved-word and built-in-name collisions are pure friction, eight renames of vocabulary that
-clients will see as IRIs; the shared-attribute rule demands naming discipline the draft did not have; `multiplier: 1`
-on every unit is noise; a function cannot order its result; and a schema author must hold two relation encodings and
-their consequences in mind. None of these conflicts with the three ranks above it, so all of them should be fixed; the
-directive puts developer experience last only where it would cost correctness, and here it costs nothing.
+What does not. The reserved-word collisions are resolved and Gen5's names restored (section H). What remains: the
+shared-attribute rule demands naming discipline the draft did not have; `multiplier: 1` on every unit is noise; a
+function cannot order its result; and a schema author holds two relation encodings in mind, which section 11.1's rule,
+the roles' shape, the placement and the key alone, keeps mechanical. None of these conflicts with the three ranks
+above it, so all of them should be fixed; the directive puts developer experience last only where it would cost
+correctness, and here it costs nothing.
 
 ### Verdict
 
-UGS as specified expresses Gen5 whole: 27 markers, none structural, and six of them defects in the draft that the
-rules caught. Three rule changes are due before stage 6 builds against it, the key claim's placement, the tree rule under
-valid time, and the expression language's accessors, quantifier and type test; `@ends` and the lexical fixes follow.
-After those, the specification meets the directive's order: it puts every invariant in the database, pays performance
+UGS as specified expresses Gen5 whole: the first pass left 27 markers, none structural, six of them defects in the
+draft that the rules caught, and the files now carry none (section H). The rule changes that pass found due are in
+`SCHEMA.md`, and the two query cores of 2026-11-05 express every common Gen5 operation against it. With those, the
+specification meets the directive's order: it puts every invariant in the database, pays performance
 where identity requires it and nowhere else, bounds every structure that grows with the data, and leaves developer
 experience the work of removing friction that costs the first three nothing.
 
@@ -278,8 +282,9 @@ colocation, and the report says so. Gen5 avoids the price by keying entities onl
 asserted triple with its reifier, the reifier a statement ID carrying the relation's prefix, and a role naming the
 instance holds the reifier as its object term. The reifier is allocated at insert for such a relation, as it is for a
 `@multi` or attributed one. Node encoding remains for relations with three or more roles or a set-valued role. The GQL
-view keeps presenting a relation that fills roles as a relation node, since a GQL edge cannot be an endpoint; the view
-is derived from the encoding and no longer decides it.
+view presents such an instance twice, as its edge and as a relation node with derived role edges, one element with one
+`ELEMENT_ID`, since a GQL edge cannot be an endpoint (resolved 2026-11-05, `SCHEMA.md` section 11.3); the view follows
+the compiler's reifier decision and never makes one.
 
 **What it costs and saves.** Per instance, one triple and one statement record in place of one node and two role
 quads: two quads fewer, and the same two registrations. For Gen5, 61 of the 69 kinds below `Relation` are binary and

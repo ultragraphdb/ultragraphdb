@@ -5,8 +5,13 @@
 
 mod result_view_body_view;
 
+use ultragraphdb_error_protocol::ProtocolError;
+
+use crate::types::command::Command;
+use crate::types::monotonic::Monotonic;
 use crate::types::result_term_view::ResultTermView;
 use crate::types::string_list::StringList;
+use crate::utils::constants::{ABSENT, PATTERN_COLUMNS_MAX};
 use crate::utils::sections::u32_at;
 
 /// The body of a received Result frame, read in place; see [`crate::ResultBatch`] for its layout.
@@ -22,6 +27,8 @@ pub struct ResultView<'a> {
     resume: &'a [u8],
     epoch: u64,
     partition: u32,
+    monotonic: Monotonic,
+    column_names: StringList<'a>,
 }
 
 impl<'a> ResultView<'a> {
@@ -78,8 +85,42 @@ impl<'a> ResultView<'a> {
         self.partition
     }
 
-    /// The resume key a limited read continues from; empty for none.
+    /// The resume key a limited read continues from; empty for none, and on every batch but the stream's last.
     pub fn resume(&self) -> &'a [u8] {
         self.resume
+    }
+
+    /// What the rows read as.
+    pub fn monotonic(&self) -> Monotonic {
+        self.monotonic
+    }
+
+    /// The column names: one per column on a query's first batch, empty on every other batch and on a pattern's.
+    pub fn column_names(&self) -> StringList<'a> {
+        self.column_names
+    }
+
+    /// The rules a receiver that asked a quad pattern holds its batch to (`PROTOCOL.md` §9.1), which a batch's bytes alone
+    /// do not tell from a query's: `columns` 1 to [`PATTERN_COLUMNS_MAX`] ([`ProtocolError::field_value`] `"columns"`); each
+    /// cell of the reifier column, the last, [`ABSENT`] or a term of tag `0x02` ([`ProtocolError::field_value`] `"reifier"`,
+    /// the row).
+    pub fn check_pattern(&self) -> Result<(), ProtocolError> {
+        let command = Command::Result.number();
+        if !(1..=PATTERN_COLUMNS_MAX).contains(&self.columns) {
+            return Err(ProtocolError::field_value(
+                command,
+                "columns",
+                self.columns.into(),
+            ));
+        }
+        let reifier = self.columns.saturating_sub(1);
+        for row in 0..self.rows {
+            let cell = self.cell(reifier, row).unwrap_or(ABSENT);
+            let blank = cell == ABSENT || self.term(cell).is_some_and(|t| t.is_blank_node());
+            if !blank {
+                return Err(ProtocolError::field_value(command, "reifier", row.into()));
+            }
+        }
+        Ok(())
     }
 }

@@ -183,7 +183,7 @@ impl<'a> WriteSetRecordView<'a> {
     /// [`ProtocolError::field_value`] `"statement id"` for a value of section 0 or 1 absent or neither empty nor 16
     /// bytes, `"conflict point"` for a conflict point's value absent or not empty, `"conflict statement"` and
     /// `"conflict range"` for an absent value; [`ProtocolError::section_length`] for section 3 not a whole number of
-    /// 24-byte operations, [`ProtocolError::field_value`] `"operation"` for a code not 1 to 7,
+    /// 24-byte operations, [`ProtocolError::field_value`] `"operation"` for a code not 1 to 4, 6 or 7,
     /// [`ProtocolError::padding_not_zero`] for its bytes 2 to 7, `"argument"`, naming the operation's index, for an
     /// argument other than its code takes; [`ProtocolError::section_length`] for section 4 not a whole number of 32-byte
     /// registrations, [`ProtocolError::field_value`] `"registration"`, naming its index, for an invalid entity, a group

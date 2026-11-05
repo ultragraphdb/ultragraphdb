@@ -11,6 +11,9 @@ use crate::types::timestamps::Timestamps;
 #[derive(Debug)]
 pub(crate) struct State {
     pub ts: Timestamps,
+    /// The highest discard timestamp asked of the store: a read pinned below it would find it discarded once the store's
+    /// synced write ends, which no lock is held through.
+    pub discard_asked: u64,
     /// The visibility watermark: the highest commit version applied, written and its cache updates made.
     pub applied: u64,
     /// The first version of the round, batch or drop being written.
@@ -34,6 +37,7 @@ impl State {
     pub fn new(applied: u64) -> Self {
         Self {
             ts: Timestamps::default(),
+            discard_asked: 0,
             applied,
             in_flight: None,
             unapplied_from: None,

@@ -4,6 +4,8 @@
  */
 
 #[cfg(test)]
+mod open_requests_tests;
+#[cfg(test)]
 mod role_cluster_tests;
 #[cfg(test)]
 mod role_secret_tests;

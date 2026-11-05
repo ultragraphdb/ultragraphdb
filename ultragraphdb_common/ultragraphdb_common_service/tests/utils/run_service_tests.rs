@@ -10,12 +10,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use compio::BufResult;
+use compio::driver::DriverType;
 use compio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use compio::net::TcpStream;
 use compio::runtime::{JoinHandle, Runtime, spawn};
 use ultragraphdb_common_service::{
     CpuBinding, Readiness, RoleIdentity, RoleKind, RoleStart, ServiceEnd, Stopping, binding,
-    exit_status, run_service, serve_service,
+    driver_name, exit_status, role_help, run_service, serve_service,
 };
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
@@ -42,6 +43,38 @@ fn test_a_refused_start_returns_its_error() -> TestResult {
         assert!(refused.to_string().contains(named), "{refused}");
     }
     Ok(())
+}
+
+/// `--help` ends the role before it reads its environment, which holds nothing here.
+#[test]
+fn test_help_starts_nothing() -> TestResult {
+    run_service(
+        RoleKind::Storage,
+        &["--help".to_string()],
+        [],
+        |_start, _readiness, _stopping| async { Err(RoleError::software("it started")) },
+    )?;
+    Ok(())
+}
+
+#[test]
+fn test_a_role_s_help_names_it_its_variables_and_the_codes() {
+    let help = role_help(RoleKind::Compute);
+    for said in [
+        "ultragraphdb_compute",
+        "ULTRAGRAPHDB_CONFIG_URL",
+        RoleError::EXIT_CODES,
+    ] {
+        assert!(help.contains(said), "{said}: {help}");
+    }
+}
+
+/// The log names a driver as the role-binaries spec does.
+#[test]
+fn test_a_driver_has_its_name() {
+    assert_eq!(driver_name(DriverType::Poll), "polling");
+    assert_eq!(driver_name(DriverType::IoUring), "io_uring");
+    assert_eq!(driver_name(DriverType::IOCP), "iocp");
 }
 
 #[test]

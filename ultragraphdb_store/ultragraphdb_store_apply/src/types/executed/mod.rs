@@ -9,11 +9,10 @@ use std::num::NonZeroU64;
 use ultragraphdb_core_catalog::Catalog;
 use ultragraphdb_core_ids::{BucketGroup, SystemId};
 use ultragraphdb_core_keys::{Graph, QuadKey, Region};
-use ultragraphdb_store_posting::DEL;
 use ultragraphdb_store_posting::Writes;
-use ultragraphdb_store_quads::{WriteTerms, posting_object};
+use ultragraphdb_store_quads::WriteTerms;
 
-use crate::types::logical_quad::LogicalQuad;
+use crate::types::logical_writes::LogicalWrites;
 use crate::types::marked_reference::MarkedReference;
 
 use crate::types::build_end::BuildEnd;
@@ -60,6 +59,8 @@ pub struct Executed {
     pub(crate) referrers: Vec<(SystemId, BucketGroup)>,
     /// The referrer-set member a registration's round sets, `(entity, group, generation)` ([`crate::Registering`]).
     pub(crate) registration: Option<(SystemId, BucketGroup, NonZeroU64)>,
+    /// The statements its net effect on its snapshot inserted and removed, which its record logs.
+    pub(crate) net: LogicalWrites,
 }
 
 impl Executed {
@@ -87,6 +88,7 @@ impl Executed {
             marks: Vec::new(),
             referrers: Vec::new(),
             registration: None,
+            net: LogicalWrites::default(),
         }
     }
 
@@ -113,44 +115,11 @@ impl Executed {
         }
     }
 
-    /// The execution's writes in their logical form (write-ahead-log, "A round's record is logical"): each statement a
-    /// forward list's delta sets, once per statement ID its posting carries, each statement one removes, and each
-    /// statement record written, by graph and statement ID. The deltas hold the execution's net effect on its snapshot,
-    /// derived from it by the derivation [`crate::ChangesetApplier::prepare_logical`] runs, so a replay of these writes
-    /// derives every key and value again.
-    ///
-    /// # Errors
-    ///
-    /// The store's corruption error for a forward key that does not parse or a posting that names no object.
-    pub fn logical(
-        &self,
-    ) -> Result<crate::types::logical_writes::LogicalWrites, crate::ChangesetError> {
-        let (mut inserted, mut removed) = (Vec::new(), Vec::new());
-        for (key, delta) in self.writes.deltas() {
-            let Ok((
-                QuadKey::Forward {
-                    graph,
-                    predicate,
-                    subject,
-                    ..
-                },
-                None,
-            )) = QuadKey::parse(key)
-            else {
-                continue;
-            };
-            for posting in delta.postings() {
-                let object = posting_object(key, posting)?;
-                let quad = |statement| {
-                    LogicalQuad::new(graph, subject, predicate, object.clone(), statement)
-                };
-                match (posting.op(), posting.statement_ids()) {
-                    (DEL, _) => removed.push(quad(None)),
-                    (_, []) => inserted.push(quad(None)),
-                    (_, ids) => inserted.extend(ids.iter().map(|id| quad(Some(*id)))),
-                }
-            }
-        }
+    /// The execution's writes in their logical form (write-ahead-log, "A round's record is logical"): each statement its net effect
+    /// on its snapshot inserted, once per statement ID it added, each one removed, each ID removed from an object left held, and each
+    /// statement record written, by graph and statement ID. Its keys were derived from these by the derivation
+    /// [`crate::ChangesetApplier::prepare_logical`] runs, so a replay of these writes derives every key and value again.
+    pub fn logical(&self) -> LogicalWrites {
         let records = self
             .writes
             .entries()
@@ -165,9 +134,11 @@ impl Executed {
                 _ => None,
             })
             .collect();
-        Ok(crate::types::logical_writes::LogicalWrites::new(
-            inserted, removed, records,
-        ))
+        LogicalWrites::new(
+            self.net.inserted().to_vec(),
+            self.net.removed().to_vec(),
+            records,
+        )
     }
 
     /// The end of a build this execution is, `None` for any other: a round of its own (decided 2026-10-28).

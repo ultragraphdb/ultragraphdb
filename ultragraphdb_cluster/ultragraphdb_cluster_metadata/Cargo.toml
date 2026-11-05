@@ -31,6 +31,7 @@ xxhash-rust = { workspace = true }
 
 [dev-dependencies]
 ultragraphdb_cluster_sequencer = { workspace = true }
+ultragraphdb_protocol_wire = { workspace = true }
 ultragraphdb_tool_bdd = { workspace = true }
 ultragraphdb_transactions_log = { workspace = true }
 cucumber = { workspace = true }

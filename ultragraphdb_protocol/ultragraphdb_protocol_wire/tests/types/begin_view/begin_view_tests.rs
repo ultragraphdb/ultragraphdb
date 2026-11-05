@@ -54,3 +54,33 @@ fn test_a_mode_past_read_only_is_refused() -> TestResult {
     assert!(!BeginView::from_frame(&frame_of(&read_write)?)?.read_only());
     Ok(())
 }
+
+#[test]
+fn test_a_read_version_is_a_version_or_a_version_bound() -> TestResult {
+    let bytes = golden("begin_named")?.bytes()?;
+    for odd in [1u64, (29 << 22) | 7, (29 << 22) | 0x3F_FFFD] {
+        let frame = with_command_header(&bytes, |h| {
+            h[8..16].copy_from_slice(&odd.to_le_bytes());
+        });
+        assert_eq!(
+            BeginView::from_frame(&frame_of(&frame)?)
+                .err()
+                .context("a refusal")?
+                .0,
+            ProtocolErrorEnum::FieldValue {
+                command: 4,
+                field: "read_version",
+                value: odd
+            }
+        );
+    }
+    let even: u64 = (29 << 22) | 4;
+    let frame = with_command_header(&bytes, |h| {
+        h[8..16].copy_from_slice(&even.to_le_bytes());
+    });
+    assert_eq!(
+        BeginView::from_frame(&frame_of(&frame)?)?.read_version(),
+        even
+    );
+    Ok(())
+}

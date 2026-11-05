@@ -412,9 +412,11 @@ async fn serving(initial_credit: u32, lifetime: Option<Duration>) -> TestResult<
 // Handshake, streams, credit and cancellation.
 
 async fn credit_conversation(w: &mut Steps, faults: NetworkFaults) -> TestResult {
-    let mut c = Conversation::new(faults, welcome(0), None).await?;
+    let mut c = Conversation::new(faults, welcome(1), None).await?;
     c.connection.outbound().open(1)?;
     c.result(1, 10)?;
+    c.server_sends(usize::MAX).await?;
+    assert_eq!(c.client_reads().await?.len(), 1, "the Welcome's one frame");
     c.server_sends(usize::MAX).await?;
     assert!(c.client_reads().await?.is_empty(), "no credit, no frame");
     c.send(1, &Credit::new(2)).await?;
@@ -452,10 +454,10 @@ async fn credit_two_faulty(w: &mut Steps) -> TestResult {
 #[then("the server sends two frames and waits until more credit arrives")]
 fn two_then_wait(w: &mut Steps) -> TestResult {
     assert_eq!(w.seen, vec![(1, 13, 0), (1, 13, 0)]);
-    assert_eq!(w.queued, 8, "the other eight wait for credit");
-    assert_eq!(w.later.len(), 8);
-    assert!(w.later[..7].iter().all(|s| *s == (1, 13, 0)));
-    assert_eq!(w.later[7], (1, 13, FLAG_LAST));
+    assert_eq!(w.queued, 7, "the other seven wait for credit");
+    assert_eq!(w.later.len(), 7);
+    assert!(w.later[..6].iter().all(|s| *s == (1, 13, 0)));
+    assert_eq!(w.later[6], (1, 13, FLAG_LAST));
     Ok(())
 }
 

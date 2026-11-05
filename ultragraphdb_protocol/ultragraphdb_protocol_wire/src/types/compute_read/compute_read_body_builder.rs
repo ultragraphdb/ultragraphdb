@@ -26,6 +26,8 @@ impl BodyBuilder for ComputeRead {
             (40, &self.transaction()),
             (56, &self.limit().to_le_bytes()),
             (60, &self.deadline_ms().to_le_bytes()),
+            (64, &self.max_frame().to_le_bytes()),
+            (68, &self.credit().to_le_bytes()),
         ])
     }
 

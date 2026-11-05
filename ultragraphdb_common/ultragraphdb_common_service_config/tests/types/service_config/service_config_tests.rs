@@ -4,7 +4,7 @@
  */
 
 use ultragraphdb_common_service_config::{
-    ServiceConfig, ServiceConfigError, ServiceConfigErrorEnum,
+    EndpointTable, ServiceConfig, ServiceConfigError, ServiceConfigErrorEnum, StorageTable,
 };
 use ultragraphdb_tool_bdd::{TestError, TestResult};
 use ultragraphdb_tool_toml::TomlErrorEnum;
@@ -23,6 +23,7 @@ tls_cert_file = "/cert"
 tls_key_file = "/key"
 plaintext = false
 connections_max = 13
+held_bytes = 24
 [frontend]
 role_address = "tcp://f:4"
 data_dir = "/f"
@@ -44,6 +45,7 @@ role_address = "tcp://s:6"
 data_dir = "/s"
 close_request_ms = 21
 scan_stall_ms = 22
+read_retain_ms = 23
 "#;
 
 fn refusal(
@@ -68,6 +70,7 @@ fn test_every_setting_reaches_its_field() -> TestResult {
     assert_eq!(c.endpoint().tls_key_file(), Some("/key"));
     assert_eq!(c.endpoint().plaintext(), Some(false));
     assert_eq!(c.endpoint().connections_max(), Some(13));
+    assert_eq!(c.endpoint().held_bytes(), Some(24));
     assert_eq!(c.frontend().role_address(), Some("tcp://f:4"));
     assert_eq!(c.frontend().data_dir(), Some("/f"));
     assert_eq!(c.metadata().block_size_max(), Some(14));
@@ -83,6 +86,19 @@ fn test_every_setting_reaches_its_field() -> TestResult {
     assert_eq!(c.storage().data_dir(), Some("/s"));
     assert_eq!(c.storage().close_request_ms(), Some(21));
     assert_eq!(c.storage().scan_stall_ms(), Some(22));
+    assert_eq!(c.storage().read_retain_ms(), Some(23));
+    Ok(())
+}
+
+/// A retention and a held-bytes bound the file does not name read as absent, and the protocol's limits table holds what
+/// each role takes in their place (`PROTOCOL.md` §11.9).
+#[test]
+fn test_the_limits_a_file_leaves_out_take_their_defaults() -> TestResult {
+    let c = ServiceConfig::parse(b"# nothing\n")?;
+    assert_eq!(c.storage().read_retain_ms(), None);
+    assert_eq!(c.endpoint().held_bytes(), None);
+    assert_eq!(StorageTable::READ_RETAIN_MS_DEFAULT, 60_000);
+    assert_eq!(EndpointTable::HELD_BYTES_DEFAULT, 4_194_304);
     Ok(())
 }
 

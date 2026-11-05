@@ -31,40 +31,20 @@ where
     C: ListCache<Value = CachedList>,
     B: BlockSource,
 {
-    /// Derives the keys of `writes` on the write's snapshot: each removed statement removed, then each inserted
-    /// statement added with its statement IDs, or its IDs set when the subject holds it, every list, index, count and
-    /// statistics entry maintained as it goes; and each statement record written or removed.
+    /// Derives the keys of `writes` on the write's snapshot: each statement removed, or the IDs removed from it, then each statement
+    /// inserted with its IDs, or those IDs added when the subject holds it, every list, index, count and statistics entry maintained
+    /// as it goes; and each statement record written or removed. A write holding none of these, a transaction that only read, gives
+    /// its tenant no catalog, so it names no `rdf:type` its partition may have to ask the home of.
     pub(crate) fn derive(&mut self, writes: &LogicalWrites) -> Result<(), ChangesetError> {
         self.deriving = true;
-        self.initial()?;
-        for quad in writes.removed() {
-            let declaration = self.declaration_of(quad.predicate())?;
-            let _removed: bool = self.remove(
-                quad.graph(),
-                quad.subject(),
-                quad.predicate(),
-                &declaration,
-                quad.object(),
-            )?;
+        if !writes.is_empty() || !self.records.is_empty() {
+            self.initial()?;
         }
-        let inserted = writes.inserted();
-        let mut start = 0;
-        // Each turn takes the run of entries naming one statement, at least one, so the walk ends with the entries.
-        while let Some(first) = inserted.get(start) {
-            let run = inserted
-                .get(start..)
-                .unwrap_or_default()
-                .iter()
-                .take_while(|q| same_statement(q, first))
-                .count();
-            let ids: Vec<SystemId> = inserted
-                .get(start..start + run)
-                .unwrap_or_default()
-                .iter()
-                .filter_map(LogicalQuad::statement)
-                .collect();
-            self.replay_insert(first, &ids)?;
-            start += run.max(1);
+        for (quad, ids) in statements(writes.removed()) {
+            self.replay_remove(quad, &ids)?;
+        }
+        for (quad, ids) in statements(writes.inserted()) {
+            self.replay_insert(quad, &ids)?;
         }
         for (graph, id, record) in writes.records() {
             let record = match record {
@@ -77,10 +57,11 @@ where
         Ok(())
     }
 
-    /// The write's statements by their net effect on its snapshot: for each object a forward list's delta names,
-    /// removed when the snapshot holds it and the delta removes it, and inserted, once per statement ID, when the delta
-    /// sets it and the snapshot does not hold it with those IDs. A change the write undid leaves nothing. The write's
-    /// statement records are its own and not among them.
+    /// The write's statements by their net effect on its snapshot: for each object a forward list's delta names, removed when the
+    /// snapshot holds it and the delta removes it; inserted when the delta sets it and the snapshot does not hold it, once per
+    /// statement ID; and when the snapshot holds it, each ID the delta adds inserted and each it drops removed, so a record's size
+    /// follows what the write changed and not what the object holds. A change the write undid leaves nothing. The write's statement
+    /// records are its own and not among them.
     pub(crate) fn net_writes(&mut self) -> Result<LogicalWrites, ChangesetError> {
         let (mut inserted, mut removed) = (Vec::new(), Vec::new());
         for (key, delta) in self.write.request().deltas() {
@@ -106,30 +87,55 @@ where
                 match (posting.op(), before, posting.statement_ids()) {
                     (DEL, Some(_), _) => removed.push(quad(None)),
                     (DEL, None, _) => {}
-                    (_, Some(ids), now) if ids.as_slice() == now => {}
-                    (_, _, []) => inserted.push(quad(None)),
-                    (_, _, now) => inserted.extend(now.iter().map(|id| quad(Some(*id)))),
+                    (_, Some(ids), now) => {
+                        removed.extend(absent_from(ids, now).map(|id| quad(Some(id))));
+                        inserted.extend(absent_from(now, ids).map(|id| quad(Some(id))));
+                    }
+                    (_, None, []) => inserted.push(quad(None)),
+                    (_, None, now) => inserted.extend(now.iter().map(|id| quad(Some(*id)))),
                 }
             }
         }
         Ok(LogicalWrites::new(inserted, removed, Vec::new()))
     }
 
-    /// Adds the statement of `quad` with `ids`, or sets its IDs when the subject holds it already: a test of the one
-    /// statement, as an insert reads it.
+    /// Removes the statement of `quad`: the object itself for no `ids`, and otherwise those IDs, the object staying under the rest.
+    fn replay_remove(
+        &mut self,
+        quad: &LogicalQuad,
+        ids: &[SystemId],
+    ) -> Result<(), ChangesetError> {
+        let (graph, subject, predicate) = (quad.graph(), quad.subject(), quad.predicate());
+        if ids.is_empty() {
+            let declaration = self.declaration_of(predicate)?;
+            let _removed: bool =
+                self.remove(graph, subject, predicate, &declaration, quad.object())?;
+            return Ok(());
+        }
+        if let Some(held) = self.write.holds(graph, subject, predicate, quad.object())? {
+            let left: Vec<SystemId> = absent_from(&held, ids).collect();
+            self.write
+                .set_statement_ids(graph, subject, predicate, quad.object(), &left);
+        }
+        Ok(())
+    }
+
+    /// Adds the statement of `quad` with `ids`, or adds `ids` to those of the statement when the subject holds it already: a test of
+    /// the one statement, as an insert reads it.
     fn replay_insert(
         &mut self,
         quad: &LogicalQuad,
         ids: &[SystemId],
     ) -> Result<(), ChangesetError> {
         let (graph, subject, predicate) = (quad.graph(), quad.subject(), quad.predicate());
-        let held = self
-            .write
-            .holds(graph, subject, predicate, quad.object())?
-            .is_some();
-        if held {
-            self.write
-                .set_statement_ids(graph, subject, predicate, quad.object(), ids);
+        if let Some(mut held) = self.write.holds(graph, subject, predicate, quad.object())? {
+            if !ids.is_empty() {
+                held.extend_from_slice(ids);
+                held.sort_unstable();
+                held.dedup();
+                self.write
+                    .set_statement_ids(graph, subject, predicate, quad.object(), &held);
+            }
             return Ok(());
         }
         let declaration = self.declaration_of(predicate)?;
@@ -157,6 +163,27 @@ where
             .into()),
         }
     }
+}
+
+/// The IDs of `ids` that `others`, in ascending order as a posting holds them, lacks.
+fn absent_from<'a>(
+    ids: &'a [SystemId],
+    others: &'a [SystemId],
+) -> impl Iterator<Item = SystemId> + 'a {
+    ids.iter()
+        .copied()
+        .filter(|id| others.binary_search(id).is_err())
+}
+
+/// Each run of `quads` naming one statement, with the IDs its entries carry, in ascending order: [`ChangesetWrite::net_writes`] and a
+/// record's sections hold a statement's entries side by side.
+fn statements(quads: &[LogicalQuad]) -> impl Iterator<Item = (&LogicalQuad, Vec<SystemId>)> {
+    quads.chunk_by(same_statement).filter_map(|run| {
+        let first = run.first()?;
+        let mut ids: Vec<SystemId> = run.iter().filter_map(LogicalQuad::statement).collect();
+        ids.sort_unstable();
+        Some((first, ids))
+    })
 }
 
 /// Whether `a` and `b` name one statement: its graph, subject, predicate and object.

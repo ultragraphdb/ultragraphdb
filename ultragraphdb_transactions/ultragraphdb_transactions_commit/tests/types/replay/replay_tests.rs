@@ -329,12 +329,28 @@ fn test_every_kind_of_round_replays_into_an_empty_store_as_the_first_apply_left_
         replica.quads().store().contents(),
         "the replayed store holds every key and value the first apply left"
     );
-    // A retry of the session's request 7 is answered from the rebuilt table without committing again.
-    let mut again: Pipe<'_> = Pipeline::new(&replica, written, unbounded())?;
+    assert_retry_answered_from_the_table(&replica, written, session)
+}
+
+/// A retry of `session`'s request 7 is answered from the table replay rebuilt without committing again, through a
+/// Recall and a Drop resent under the number alike.
+fn assert_retry_answered_from_the_table(
+    replica: &Applier,
+    written: Log,
+    session: u128,
+) -> TestResult {
+    let mut again: Pipe<'_> = Pipeline::new(replica, written, unbounded())?;
     assert_eq!(again.retry(session, 7)?.version(), version(1, 8));
-    let mut retry = begin(&replica)?;
-    write(&mut retry, vec![insert("s", "knows", "b")])?;
-    again.commit(7, prepare_in(retry, session, 7)?, 0)?;
+    let resend = Prepared::drop(
+        replica,
+        TENANT,
+        DropRequest::Predicate(crate::utils::fixture::ex("name").as_ref()),
+        session,
+        7,
+        0,
+        TxnBuffers::new(),
+    )?;
+    again.commit(7, resend, 0)?;
     assert_eq!(
         again.replies_mut().pop().map(|r| r.outcome().clone()),
         Some(Ok(version(1, 8)))
@@ -571,7 +587,7 @@ fn log_of(
 fn test_a_build_record_naming_a_drop_refuses_recovery_naming_its_operation() -> TestResult {
     use ultragraphdb_error_protocol::ProtocolError;
     use ultragraphdb_protocol_wire::{RecordOperation, WriteSetRecord};
-    for drop in [RecordOperation::DropTenantData, RecordOperation::DropAll] {
+    for drop in [RecordOperation::DropTenantData, RecordOperation::DropTenant] {
         let (_storage, mut log) = log_with(WriteSetRecord::build(TENANT, drop).encode())?;
         let replica = applier_over(sim_store())?;
         let refused = replay(&replica, &mut log).refused("refused")?;
@@ -691,7 +707,6 @@ fn test_aborted_decisions_registrations_named_graph_records_and_every_drop_repla
         (dropping(RecordOperation::DropGraph(id)), 1),
         (dropping(RecordOperation::DropTenantData), 0),
         (dropping(RecordOperation::DropTenant), 0),
-        (dropping(RecordOperation::DropAll), 0),
     ];
     for (record, statements) in cases {
         let (_storage, mut log) = log_of(

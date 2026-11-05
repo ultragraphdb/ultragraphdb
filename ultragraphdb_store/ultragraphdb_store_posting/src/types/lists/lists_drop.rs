@@ -196,11 +196,15 @@ where
         lock(&self.state).epoch += 1;
     }
 
-    /// Asks the store for discard timestamp `ts`, held at or below the oldest open request.
+    /// Asks the store for discard timestamp `ts`, held at or below the oldest open request. The store's synced write runs with
+    /// no lock of the lists held, so no read waits for it, and a read pinned while it runs is checked against the bound asked.
     pub fn set_discard_ts(&self, ts: u64) -> Result<(), PostingError> {
-        // Locked through the store's call: a read pinned once the bound is taken finds the discard it set.
-        let state = lock(&self.state);
-        let bound = state.ts.discard_bound(ts);
+        let bound = {
+            let mut state = lock(&self.state);
+            let bound = state.ts.discard_bound(ts);
+            state.discard_asked = state.discard_asked.max(bound);
+            bound
+        };
         Ok(self.store.set_discard_ts(bound)?)
     }
 }

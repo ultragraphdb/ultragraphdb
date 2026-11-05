@@ -10,9 +10,10 @@ use std::num::NonZeroUsize;
 use std::ops::ControlFlow;
 
 use cucumber::{then, when};
-use oxrdf::NamedNode;
+use oxrdf::{GraphName, Literal, NamedNode};
 use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::{DEFAULT_GRAPH, Keyspace, QuadKey};
+use ultragraphdb_core_mapping::{Change, StatementRef};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_protocol_wire::{ConflictKind, ErrorCode};
 use ultragraphdb_store_quads::{KernelRow, KernelScan, PageEnd, id_key};
@@ -552,4 +553,97 @@ fn too_large(w: &mut Steps) -> TestResult {
     let after: &TxnError = w.refusal_after.as_ref().context("the next refusal")?;
     assert_eq!(after, &TxnError::ended());
     Ok(())
+}
+
+/// The reifier naming the one statement ID of `<subject> <knows> ?o`, and the key of its record.
+fn statement_of(applier: &Applier, subject: &str) -> TestResult<(NamedNode, Vec<u8>)> {
+    let key = forward_key(id_of(applier, subject)?, id_of(applier, "knows")?);
+    let held = applier
+        .quads()
+        .objects(&key, applier.quads().lists().applied_ts())?;
+    let statement = *held
+        .first()
+        .and_then(|(_, ids)| ids.first())
+        .context("a statement ID")?;
+    let reifier = NamedNode::new(applier.quads().iri_of(TENANT, statement)?.0)?;
+    let record = QuadKey::Statement {
+        tenant: TENANT,
+        graph: DEFAULT_GRAPH,
+        statement,
+    }
+    .to_bytes();
+    Ok((reifier, record))
+}
+
+/// The commit of a write by T1, having read the record of `<a> <knows> <b>`, after T2 sets a property through the reifier of
+/// `<written> <knows> <b>`: T2's reply, then T1's.
+fn record_read_against(written: &str) -> TestResult<Vec<Reply>> {
+    let applier = applier()?;
+    let edge = |subject: &str| Change::InsertEdge {
+        graph: GraphName::DefaultGraph,
+        subject: ex(subject).into(),
+        predicate: ex("knows"),
+        object: ex("b").into(),
+        properties: vec![(ex("since"), Literal::new_simple_literal("2020").into())],
+    };
+    let _set_up = setup(&applier, vec![edge("a"), edge("c")])?;
+    let (_, record) = statement_of(&applier, "a")?;
+    let (reifier, _) = statement_of(&applier, written)?;
+    let mut reader = begin(&applier)?;
+    let scan = KernelScan::new(
+        Keyspace::Statements,
+        TENANT,
+        record.clone(),
+        reader.read_version(),
+        NonZeroUsize::MIN,
+    )
+    .to(past(&record));
+    let mut read = 0;
+    let _page = reader.values_page(&scan, 0, |_, _| {
+        read += 1;
+        ControlFlow::Continue(())
+    })?;
+    assert_eq!(read, 1, "the statement's record");
+    let setting = Change::SetProperty {
+        statement: StatementRef::Reifier {
+            graph: GraphName::DefaultGraph,
+            reifier,
+        },
+        predicate: ex("until"),
+        value: Literal::new_simple_literal("2030").into(),
+    };
+    decided(&applier, reader, setting)
+}
+
+#[when(
+    "T1 reads the properties of the reifier `r` through compute, T2 sets a property through `r` and commits, and T1 commits a write"
+)]
+fn record_read_and_written(w: &mut Steps) -> TestResult {
+    w.replies = record_read_against("a")?;
+    // A record the read's span does not hold leaves its commit alone: the conflict is the span's, no wider.
+    let another = record_read_against("c")?;
+    assert!(
+        another.get(1).context("T1's reply")?.outcome().is_ok(),
+        "{another:?}"
+    );
+    Ok(())
+}
+
+#[when(
+    "a transaction reads `<new> <p> ?o` through compute, finding nothing, so it records both the term's absence and the list's range, and a transaction writing `<new> <p> \"x\"` commits after its read version"
+)]
+fn absent_and_range(w: &mut Steps) -> TestResult {
+    let applier = applier()?;
+    let _set_up = setup(&applier, vec![insert_literal("a", "p", "held")])?;
+    let mut reader = begin(&applier)?;
+    let (new, p) = (id(&mut reader, "new")?, id(&mut reader, "p")?);
+    assert_eq!(objects(&mut reader, &forward_key(new, p))?, Vec::new());
+    assert_eq!(reader.scanned_ranges().len(), 1, "the list's range");
+    w.replies = decided(&applier, reader, insert_literal("new", "p", "x"))?;
+    Ok(())
+}
+
+#[then("the reading transaction aborts with a conflict of kind AbsentTerm")]
+fn reader_absent_term(w: &mut Steps) -> TestResult {
+    second_is(&w.replies, ConflictKind::AbsentTerm)
 }

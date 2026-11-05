@@ -242,6 +242,9 @@ golden("begin", 4, command_header([(0, le(3, 8)), (16, bytes([1, 2])), (20, le(5
 # A read-only Begin at level 0 naming its read version, no token, the Welcome's deadline.
 golden("begin_named", 4, command_header([(0, le(4, 8)), (8, le((29 << 22) | 0x3FFFFF, 8)), (16, bytes([1, 0]))]),
        sections([]), stream=7)
+# 5 Commit through no session (section 6.3): the reply of a declaration, commit version the first of epoch 32, the zero
+# token, no results.
+golden("commit_no_session", 5, command_header([(24, le(32 << 22, 8))]), sections([b"", b"", b""]), stream=9)
 # 5 Commit (section 6.3): session, request 7, commit version (30 << 22) | 100, the token of partition 2's round at
 # position 41 in epoch 30; three results (value i64, node u32, created u8, 3 zero bytes): an insert-if-absent that
 # found <x>, a counter add's new value -5 and a compare-and-set; the term table holding <x>, the result's node.
@@ -335,7 +338,18 @@ for name, statement, schema, result_types in [("prepare", 0, 0, b""), ("prepare_
     terms = Terms()
     slots = pattern(["default", 0, iri(f"{EX}name"), "unbound"], terms)
     golden(name, 10, command_header([(0, le(0, 8)), (8, le(statement, 8)), (16, le(schema, 8))]),
-           sections([slots] + terms.sections() + [bytes([1]), result_types]), stream=13)
+           sections([slots] + terms.sections() + [bytes([1]), result_types, b"", b""]), stream=13)
+# A Prepare of a GQL text of tenant 4 with one parameter, $who, a node; the reply: statement 2, a schema id, the column
+# names following the parameter's and the columns' types, a node and a string.
+GQL = "MATCH (n) WHERE n = $who RETURN n, n.name"
+for name, statement, schema, result_types, words in [("prepare_text", 0, 0, b"", ["who"]),
+                                                     ("prepare_text_reply", 2, 0x5C4E_3A2B_1D0F_7E6A, bytes([1, 6]),
+                                                      ["who", "n", "name"])]:
+    names = Strings()
+    for word in words:
+        names.push(word)
+    golden(name, 10, command_header([(0, le(4, 8)), (8, le(statement, 8)), (16, le(schema, 8)), (24, bytes([1]))]),
+           sections([GQL.encode(), b"", b"", bytes([1]), result_types] + names.sections()), stream=47)
 # 11 Execute: statement 1, in the transaction of stream 5, no limit, one parameter, no resume key.
 terms = Terms()
 params = [terms.add(iri(f"{EX}a"))]
@@ -348,8 +362,8 @@ def describe(labels, rels, props, read_version):
     global records, args, strings, terms
     strings, records, args, terms = Strings(), b"", [], Terms()
     secs = [u32s([strings.intern(s) for s in group]) for group in (labels, rels, props)]
-    change(8, 1, [f"{EX}name", ABSENT, 1, "term", 0])
     change(8, 0, [f"{EX}knows", ABSENT, 0, 0])
+    change(8, 1, [f"{EX}name", ABSENT, 1, "term", 0])
     change(9, 0, [f"{EX}Person", ABSENT], extra=1)
     body = sections(strings.sections() + secs + [records, u32s(args)])
     return command_header([(0, le(0, 8)), (8, le(read_version, 8))]), body
@@ -384,8 +398,24 @@ for e in encodings:
 cells = u32s([0, 0, 4] + [1, 3, ABSENT] + [2, ABSENT, ABSENT])
 golden("result", 13, command_header([(0, le(3, 4)), (4, le(3, 4)), (8, le(30, 8)), (16, le(2, 4))]),
        sections([cells, u32s(offsets), b"".join(encodings), u32s([v for t in texts for v in t])]
-                + strings.sections() + [b"rk"]),
+                + strings.sections() + [b"rk", b"", b""]),
        stream=11, flags=1)
+# The same batch before its stream's last: not flagged, and holding no resume key.
+golden("result_more", 13, command_header([(0, le(3, 4)), (4, le(3, 4)), (8, le(30, 8)), (16, le(2, 4))]),
+       sections([cells, u32s(offsets), b"".join(encodings), u32s([v for t in texts for v in t])]
+                + strings.sections() + [b"", b"", b""]),
+       stream=11)
+# A query's first batch: two projections named, `n` and `age`, one row of an IRI that is no blank node and a null, read at
+# level 2 over data that may have been retracted (monotonic 1), flagged LAST.
+strings = Strings()
+query_text = strings.intern(f"{EX}a")
+names = Strings()
+names.push("n")
+names.push("age")
+golden("result_query", 13, command_header([(0, le(2, 4)), (4, le(1, 4)), (8, le(30, 8)), (20, bytes([1]))]),
+       sections([u32s([0, ABSENT]), u32s([0]), bytes([0x01]) + sha16(f"{EX}a"), u32s([query_text, ABSENT])]
+                + strings.sections() + [b""] + names.sections()),
+       stream=49, flags=1)
 # 14 Credit: two frames on stream 11.  15 Cancel.
 golden("credit", 14, command_header([(0, le(2, 4))]), sections([]), stream=11)
 golden("cancel", 15, command_header([]), sections([]), stream=11)
@@ -397,6 +427,12 @@ terms = Terms()
 terms.add(lit("done"))
 golden("error_operation", 16, command_header([(0, le(8, 2))]),
        sections([b"compare-and-set found another value"] + terms.sections()), stream=7, flags=1)
+
+# 28 and 29: an Install's sources refused, two diagnostics; a query refused, diagnostic 12 of SPARQL.
+golden("error_schema", 16, command_header([(0, le(28, 2)), (8, le(2, 8))]),
+       sections([b"E101 1:1 unknown type; E102 2:1 unknown unit", b"", b""]), stream=51, flags=1)
+golden("error_query", 16, command_header([(0, le(29, 2)), (8, le((2 << 16) | 12, 8))]),
+       sections([b"S012 1:8 a feature outside the core", b"", b""]), stream=53, flags=1)
 
 # 19 Drop: graph <g> of tenant 3, through the session's request 8, on a stream of its own; the reply with the
 # drop's commit version (31 << 22) | 2 and its token.
@@ -417,6 +453,10 @@ change(1, 0, [ABSENT, A, KNOWS, B])
 change(2, 0, [ABSENT, A, KNOWS, iri(f"{EX}c"), iri(f"{EX}since"), lit("2020", f"{XSD}gYear")])
 change(3, 0, [iri(f"{EX}g"), blank("b1"), iri(f"{EX}nick"), lang("x", "en")])
 golden("direct_write", 20, command_header([(0, SESSION), (16, le(9, 8)), (24, le(3, 8)), (32, token(2, 41, 30))]),
+       sections([records, u32s(args)] + terms.sections() + strings.sections()), stream=21)
+# The same frame as the frontend relays it: `principal` 9 filled, every other command-header byte and the body unchanged.
+golden("direct_write_relayed", 20, command_header([(0, SESSION), (16, le(9, 8)), (24, le(3, 8)), (32, token(2, 41, 30)),
+                                                   (56, le(9, 8))]),
        sections([records, u32s(args)] + terms.sections() + strings.sections()), stream=21)
 
 
@@ -452,6 +492,24 @@ records, args, operations = b"", [], b""
 operation(operation_fields(4, delta=1), [ABSENT, iri(f"{EX}counters"), iri(f"{EX}next-id")])
 golden("conditional_write_operation_only", 21, command_header([(24, le(4, 8))]),
        sections([records, u32s(args)] + terms.sections() + strings.sections() + [operations]), stream=25)
+
+
+# 22 Query: a GQL text in the transaction of stream 5, limit 100, one parameter `who` bound to <a>, a resume key.
+terms = Terms()
+query_value = terms.add(iri(f"{EX}a"))
+query_names = Strings()
+query_names.push("who")
+golden("query", 22, command_header([(0, le(5, 8)), (8, bytes([1])), (12, le(100, 4))]),
+       sections([GQL.encode()] + query_names.sections() + [u32s([query_value])] + terms.sections() + [b"\x01\x02"]),
+       stream=55)
+# 23 Install: a schema and a module of tenant 3, built on version 11; the reply, version 12 taking effect at epoch 44, and
+# the coordination report.
+sources = Strings()
+for word in ["crm", "namespace crm {}", "crm/people", "module people {}"]:
+    sources.push(word)
+golden("install", 23, command_header([(0, le(3, 8)), (8, le(11, 8))]), sections(sources.sections() + [b""]), stream=57)
+golden("install_reply", 23, command_header([(0, le(3, 8)), (8, le(12, 8)), (16, le(44, 8))]),
+       sections(sources.sections() + [b"coordination-free: 2"]), stream=57, flags=1)
 
 
 # 17 Round (section 12.1): position 3, its header's sequence, its parent, incarnation 1, first version (7 << 22) | 100,

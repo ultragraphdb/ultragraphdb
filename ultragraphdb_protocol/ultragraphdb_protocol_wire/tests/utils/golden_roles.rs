@@ -18,7 +18,8 @@ use ultragraphdb_protocol_wire::{
     PlacementView, SubscribeView,
 };
 use ultragraphdb_protocol_wire::{
-    CloseRequestView, ClosedView, DefaultEntryView, EntriesView, ReferenceView, ReportView,
+    CloseRequestView, ClosedView, DefaultEntryView, EntriesView, HeldView, ReferenceView,
+    ReportView,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -50,17 +51,20 @@ pub const ROLES: &[GoldenBody] = &[
     GoldenBody { name: "bind_reply", command: 521, stream: 25, flags: 0, sequence: 1, size: 256, checksum: 0xcc3d_b96e_1894_1063, checksum_body: 0x2d06_8005_38d3_94c2 },
     GoldenBody { name: "bind_drop", command: 521, stream: 27, flags: 0, sequence: 1, size: 256, checksum: 0x14c4_2984_e4bd_1f7c, checksum_body: 0x2d06_8005_38d3_94c2 },
     GoldenBody { name: "recall", command: 522, stream: 29, flags: 0, sequence: 1, size: 256, checksum: 0xea53_0560_8cb4_ae1c, checksum_body: 0x2d06_8005_38d3_94c2 },
-    GoldenBody { name: "compute_read", command: 523, stream: 31, flags: 0, sequence: 1, size: 411, checksum: 0x3c93_c9ec_a9a7_2a2b, checksum_body: 0x1bc2_c9b8_8c66_c5da },
-    GoldenBody { name: "compute_read_rw", command: 523, stream: 33, flags: 0, sequence: 1, size: 448, checksum: 0x2f89_0a6a_c7ec_7e35, checksum_body: 0xdf8a_a61c_bc3e_bd74 },
+    GoldenBody { name: "compute_read", command: 523, stream: 31, flags: 0, sequence: 1, size: 411, checksum: 0xf7c3_a94e_38e6_a409, checksum_body: 0x1bc2_c9b8_8c66_c5da },
+    GoldenBody { name: "compute_read_rw", command: 523, stream: 33, flags: 0, sequence: 1, size: 448, checksum: 0xfe25_ba72_bee9_af71, checksum_body: 0xdf8a_a61c_bc3e_bd74 },
     GoldenBody { name: "scan", command: 524, stream: 35, flags: 0, sequence: 1, size: 352, checksum: 0xf5b7_5c53_d0ec_a71f, checksum_body: 0x1d13_9a1f_84ac_9299 },
+    GoldenBody { name: "scan_after", command: 524, stream: 43, flags: 0, sequence: 1, size: 368, checksum: 0x621f_cab5_9c7d_df12, checksum_body: 0xe72b_a798_9576_ab38 },
     GoldenBody { name: "scan_transaction", command: 524, stream: 37, flags: 0, sequence: 1, size: 328, checksum: 0xcd8b_0c82_459d_f67e, checksum_body: 0x3298_b6ed_95c9_3831 },
     GoldenBody { name: "scan_transaction_terms", command: 524, stream: 39, flags: 0, sequence: 1, size: 662, checksum: 0x41bb_b61e_d237_e5f1, checksum_body: 0xdb72_d7b0_ae0a_32fd },
-    // 525–530
-    GoldenBody { name: "entries", command: 525, stream: 23, flags: 1, sequence: 1, size: 320, checksum: 0xf14d_18ee_c2d2_25b7, checksum_body: 0x4a84_7334_1c38_740e },
-    GoldenBody { name: "entries_continues", command: 525, stream: 41, flags: 0, sequence: 1, size: 376, checksum: 0x6a08_87d8_45c5_8e79, checksum_body: 0xbd5f_35bf_4f61_a812 },
-    GoldenBody { name: "entries_continued", command: 525, stream: 41, flags: 1, sequence: 2, size: 336, checksum: 0xbd08_1347_0b4f_6e21, checksum_body: 0x7b22_e7ca_14b9_76ee },
+    // 525–531
+    GoldenBody { name: "entries", command: 525, stream: 23, flags: 1, sequence: 1, size: 320, checksum: 0x0c9a_f9b5_83b1_9d33, checksum_body: 0x4a84_7334_1c38_740e },
+    GoldenBody { name: "entries_run", command: 525, stream: 45, flags: 1, sequence: 1, size: 344, checksum: 0x383e_967f_3fbf_505d, checksum_body: 0x36b9_b5fa_329b_8a30 },
+    GoldenBody { name: "entries_continues", command: 525, stream: 41, flags: 0, sequence: 1, size: 376, checksum: 0x7a7a_dab0_0195_0a15, checksum_body: 0xbd5f_35bf_4f61_a812 },
+    GoldenBody { name: "entries_continued", command: 525, stream: 41, flags: 1, sequence: 2, size: 336, checksum: 0xeef6_11a9_8906_3c2c, checksum_body: 0x7b22_e7ca_14b9_76ee },
     GoldenBody { name: "reference", command: 526, stream: 25, flags: 0, sequence: 1, size: 580, checksum: 0xe8b3_739a_24a5_ee19, checksum_body: 0x2689_55f8_7ef9_5978 },
     GoldenBody { name: "reference_reply", command: 526, stream: 25, flags: 0, sequence: 1, size: 580, checksum: 0x75f5_db4a_fcb3_9fa1, checksum_body: 0x5665_fe4e_726a_4416 },
+    GoldenBody { name: "reference_unavailable", command: 526, stream: 25, flags: 0, sequence: 1, size: 580, checksum: 0x9121_0611_22a2_5df9, checksum_body: 0xbe63_a6fd_ad25_c36a },
     GoldenBody { name: "close_request", command: 527, stream: 27, flags: 1, sequence: 1, size: 256, checksum: 0x997f_7e12_6cbb_af4d, checksum_body: 0x2d06_8005_38d3_94c2 },
     GoldenBody { name: "closed", command: 528, stream: 29, flags: 0, sequence: 1, size: 312, checksum: 0xf30e_3512_8795_a05e, checksum_body: 0x8399_8b43_ae72_d26d },
     GoldenBody { name: "closed_reply", command: 528, stream: 29, flags: 0, sequence: 1, size: 312, checksum: 0x21f0_d556_5d02_805c, checksum_body: 0x6c63_b0f1_3565_3208 },
@@ -69,6 +73,7 @@ pub const ROLES: &[GoldenBody] = &[
     GoldenBody { name: "report_refused", command: 530, stream: 33, flags: 0, sequence: 1, size: 380, checksum: 0xe4f8_1996_2064_7374, checksum_body: 0x6390_2d4a_b997_8fe7 },
     GoldenBody { name: "report_passed", command: 530, stream: 35, flags: 0, sequence: 1, size: 272, checksum: 0xfe00_fc84_1083_e032, checksum_body: 0x9a5b_b525_c909_6796 },
     GoldenBody { name: "report_build_failed", command: 530, stream: 37, flags: 0, sequence: 1, size: 319, checksum: 0x7e06_2788_7a08_38b0, checksum_body: 0xa43f_5368_aadf_6488 },
+    GoldenBody { name: "held", command: 531, stream: 25, flags: 0, sequence: 1, size: 256, checksum: 0x2a17_377c_2b5b_4291, checksum_body: 0x2d06_8005_38d3_94c2 },
 ];
 
 /// The golden role frame named `name`.
@@ -125,6 +130,7 @@ pub fn rebuild_role(frame: &FrameView<'_>) -> Result<Vec<u8>, ProtocolError> {
         Command::Closed => crate::utils::golden_bodies::through::<ClosedView>(frame),
         Command::DefaultEntry => crate::utils::golden_bodies::through::<DefaultEntryView>(frame),
         Command::Report => crate::utils::golden_bodies::through::<ReportView>(frame),
+        Command::Held => crate::utils::golden_bodies::through::<HeldView>(frame),
         Command::Hello
         | Command::Welcome
         | Command::Register
@@ -145,6 +151,8 @@ pub fn rebuild_role(frame: &FrameView<'_>) -> Result<Vec<u8>, ProtocolError> {
         | Command::Authenticate
         | Command::Drop
         | Command::DirectWrite
-        | Command::ConditionalWrite => Err(ProtocolError::wrong_command(512, command.number())),
+        | Command::ConditionalWrite
+        | Command::Query
+        | Command::Install => Err(ProtocolError::wrong_command(512, command.number())),
     }
 }

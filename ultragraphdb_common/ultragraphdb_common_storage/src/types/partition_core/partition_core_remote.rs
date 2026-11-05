@@ -7,8 +7,8 @@ use std::num::NonZeroU64;
 
 use compio::runtime::spawn;
 use ultragraphdb_cluster_partition::{
-    Answer as HomeAnswer, PartitionError, PartitionErrorEnum, PartitionMessage,
-    Reference as Registration, RemoteMessage,
+    Answer as HomeAnswer, PartitionError, PartitionMessage, Reference as Registration,
+    RemoteMessage,
 };
 use ultragraphdb_cluster_placement::PartitionId;
 use ultragraphdb_common_role::{Answer, RoleClient};
@@ -22,6 +22,7 @@ use ultragraphdb_protocol_wire::{
 use crate::types::core_message::Pushes;
 use crate::types::partition_core::partition_core_frames::last;
 use crate::types::partition_core::{HomeAsking, PartitionCore, Peers};
+use crate::utils::error_reply::registration_outcome;
 
 /// Outcomes a home's reply names (`PROTOCOL.md` §13.15).
 const OUTCOME_REFUSED: u16 = 7;
@@ -135,14 +136,7 @@ impl PartitionCore<'_> {
                 answered.generation().map_or(0, NonZeroU64::get),
                 answered.close().get(),
             ),
-            Err(refusal) => open.reply.refuse(
-                index,
-                if matches!(refusal.0, PartitionErrorEnum::WrongPartition { .. }) {
-                    OUTCOME_WRONG_PARTITION
-                } else {
-                    OUTCOME_REFUSED
-                },
-            ),
+            Err(refusal) => open.reply.refuse(index, registration_outcome(&refusal)),
         };
         open.unanswered = open.unanswered.saturating_sub(1);
         if open.unanswered > 0 {

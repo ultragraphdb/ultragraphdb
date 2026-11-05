@@ -3,18 +3,19 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use futures::channel::oneshot;
 use ultragraphdb_cluster_partition::{BoundKey, BoundStep, PartitionError};
 use ultragraphdb_common_role::Answer;
 use ultragraphdb_core_ids::Epoch;
 use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{
     BindKind, BindView, BodyBuilder, BodyView, Command, CommitView, ErrorCode, ErrorReply,
-    FLAG_LAST, FrameView, Header, OperationView, ReferenceView, WriteView,
+    FLAG_LAST, FrameView, Header, Held, OperationView, ReferenceView, WriteView,
 };
 use ultragraphdb_transactions_txn::{FrameChanges, FrameTerms};
 
 use crate::types::core_message::{CoreMessage, Pushes};
-use crate::types::partition_core::{Committing, Parked, PartitionCore};
+use crate::types::partition_core::{Committing, Parked, ParkedWork, PartitionCore};
 use crate::utils::error_reply::error_reply;
 use crate::utils::operation_of::operation_of;
 
@@ -43,25 +44,12 @@ impl PartitionCore<'_> {
                 done,
                 pushes,
                 max_frame,
-            } => {
-                let key = (connection, stream);
-                let command = frame.command();
-                let is_write = command == Command::Write.number();
-                let is_operation = command == Command::Operation.number();
-                if is_write {
-                    self.write(key, frame, done);
-                } else if is_operation {
-                    self.operate(key, frame, done);
-                } else {
-                    let answered = self.answer(key, &frame, &pushes, max_frame);
-                    // An asker gone has no one to tell.
-                    drop(done.send(answered));
-                }
-            }
+            } => self.request((connection, stream), frame, done, pushes, max_frame),
             CoreMessage::Cancelled { connection, stream } => {
                 let key = (connection, stream);
                 self.host.abort_bound(key);
                 let _ended = self.bound_tenant.remove(&key);
+                let _drop = self.drop_streams.remove(&key);
                 let _parked = self.parked.remove(&key);
                 self.cancel_scan(key);
             }
@@ -70,29 +58,79 @@ impl PartitionCore<'_> {
             CoreMessage::Closed { connection } => {
                 self.host.abort_connection(connection);
                 self.bound_tenant.retain(|(of, _), _| *of != connection);
+                self.drop_streams.retain(|(of, _)| *of != connection);
                 self.parked.retain(|(of, _), _| *of != connection);
                 self.close_scans(connection);
             }
         }
     }
 
-    /// A Write of the transaction `key`: its references asked, and it holds the frame until they are answered.
-    fn write(
+    /// A request of `key`, in its turn: one of a Write, an Operation or a Commit behind a read's wait on its home waits for that
+    /// reply (`PROTOCOL.md` §13.13), and any other is taken now.
+    fn request(
         &mut self,
         key: BoundKey,
         frame: ReceivedFrame,
-        done: futures::channel::oneshot::Sender<Answer>,
+        done: oneshot::Sender<Answer>,
+        pushes: Pushes,
+        max_frame: u32,
     ) {
-        let Some(tenant) = self.bound_tenant.get(&key).map(|(tenant, _)| *tenant) else {
-            drop(done.send(ended()));
-            return;
+        let command = frame.command();
+        let is_write = command == Command::Write.number();
+        let is_operation = command == Command::Operation.number();
+        if is_write || is_operation || command == Command::Commit.number() {
+            let tenant = self.bound_tenant.get(&key).map(|(tenant, _)| *tenant);
+            if let Some(tenant) = tenant.filter(|_| self.host.read_waits(key)) {
+                let work = ParkedWork::Turn { pushes, max_frame };
+                let _none = self.parked.insert(
+                    key,
+                    Parked {
+                        frame,
+                        done,
+                        tenant,
+                        work,
+                    },
+                );
+                return;
+            }
+        }
+        if is_write {
+            self.write(key, frame, done);
+        } else if is_operation {
+            self.operate(key, frame, done);
+        } else {
+            let answered = self.answer(key, &frame, &pushes, max_frame);
+            // An asker gone has no one to tell.
+            drop(done.send(answered));
+        }
+    }
+
+    /// The transaction a request of `key` needs, named `command` should a Bind of kind 1 have opened no such stream.
+    fn tenant_of(&mut self, key: BoundKey, command: &str) -> Result<u64, ErrorReply> {
+        match self.bound_tenant.get(&key) {
+            Some((tenant, _)) => Ok(*tenant),
+            None => {
+                let _ended = self.drop_streams.remove(&key);
+                Err(unbound(command, 1))
+            }
+        }
+    }
+
+    /// A Write of the transaction `key`: its references asked, and it holds the frame until they are answered.
+    fn write(&mut self, key: BoundKey, frame: ReceivedFrame, done: oneshot::Sender<Answer>) {
+        let tenant = match self.tenant_of(key, "Write") {
+            Ok(tenant) => tenant,
+            Err(refusal) => {
+                drop(done.send(Answer::Refuse(refusal)));
+                return;
+            }
         };
         let now = self.now_us();
         let host = &mut self.host;
         match with_changes(&frame, tenant, |changes| {
             host.write_bound(key, changes, now)
         }) {
-            Ok(BoundStep::Done) => drop(done.send(Answer::Open)),
+            Ok(BoundStep::Done) => drop(done.send(self.held(key.1))),
             Ok(BoundStep::Waiting) => {
                 let _none = self.parked.insert(
                     key,
@@ -100,7 +138,7 @@ impl PartitionCore<'_> {
                         frame,
                         done,
                         tenant,
-                        is_write: true,
+                        work: ParkedWork::Write,
                     },
                 );
             }
@@ -113,15 +151,13 @@ impl PartitionCore<'_> {
     }
 
     /// An Operation of the transaction `key`.
-    fn operate(
-        &mut self,
-        key: BoundKey,
-        frame: ReceivedFrame,
-        done: futures::channel::oneshot::Sender<Answer>,
-    ) {
-        let Some(tenant) = self.bound_tenant.get(&key).map(|(tenant, _)| *tenant) else {
-            drop(done.send(ended()));
-            return;
+    fn operate(&mut self, key: BoundKey, frame: ReceivedFrame, done: oneshot::Sender<Answer>) {
+        let tenant = match self.tenant_of(key, "Operation") {
+            Ok(tenant) => tenant,
+            Err(refusal) => {
+                drop(done.send(Answer::Refuse(refusal)));
+                return;
+            }
         };
         let read = (|| {
             let view = frame.view().map_err(|rule| ErrorReply::protocol(&rule))?;
@@ -139,7 +175,7 @@ impl PartitionCore<'_> {
                 .map_err(|refusal| error_reply(&refusal))
         });
         match step {
-            Ok(BoundStep::Done) => drop(done.send(Answer::Open)),
+            Ok(BoundStep::Done) => drop(done.send(self.held(key.1))),
             Ok(BoundStep::Waiting) => {
                 let _none = self.parked.insert(
                     key,
@@ -147,7 +183,7 @@ impl PartitionCore<'_> {
                         frame,
                         done,
                         tenant,
-                        is_write: false,
+                        work: ParkedWork::Operation,
                     },
                 );
             }
@@ -159,9 +195,14 @@ impl PartitionCore<'_> {
         }
     }
 
-    /// Runs each write whose references were answered, from the frame it held.
+    /// The answer to a Write or Operation the partition holds, on the Bind stream `stream`, which stays open.
+    fn held(&self, stream: u64) -> Answer {
+        let header = Header::new(self.cluster, Command::Held).with_stream(stream);
+        built(&Held, header).unwrap_or_else(Answer::Refuse)
+    }
+
+    /// Runs each request whose transaction's references were answered, from the frame it held.
     pub(super) fn resume_ready(&mut self) {
-        let now = self.now_us();
         for (key, refusal) in self.host.take_bound_refused() {
             let reply = error_reply(&refusal);
             self.tell_ended(key, &reply);
@@ -172,24 +213,54 @@ impl PartitionCore<'_> {
             let Some(parked) = self.parked.remove(&key) else {
                 continue;
             };
-            let answer = if parked.is_write {
+            self.resume_parked(key, parked);
+        }
+    }
+
+    /// The parked request of `key`, whose references were answered, on its way: a request behind a read's wait waits on while another
+    /// read of its transaction asks.
+    fn resume_parked(&mut self, key: BoundKey, parked: Parked) {
+        let Parked {
+            frame,
+            done,
+            tenant,
+            work,
+        } = parked;
+        let answer = match work {
+            ParkedWork::Turn { pushes, max_frame } if !self.host.read_waits(key) => {
+                self.request(key, frame, done, pushes, max_frame);
+                return;
+            }
+            work @ ParkedWork::Turn { .. } => {
+                let _none = self.parked.insert(
+                    key,
+                    Parked {
+                        frame,
+                        done,
+                        tenant,
+                        work,
+                    },
+                );
+                return;
+            }
+            ParkedWork::Write => {
+                let now = self.now_us();
                 let host = &mut self.host;
-                with_changes(&parked.frame, parked.tenant, |changes| {
+                with_changes(&frame, tenant, |changes| {
                     host.resume_write(key, changes, now)
                 })
-            } else {
-                Ok(())
-            };
-            let reply = match answer {
-                Ok(()) => Answer::Open,
-                Err(refusal) => {
-                    let _ended = self.bound_tenant.remove(&key);
-                    self.host.abort_bound(key);
-                    Answer::Refuse(refusal)
-                }
-            };
-            drop(parked.done.send(reply));
-        }
+            }
+            ParkedWork::Operation => Ok(()),
+        };
+        let reply = match answer {
+            Ok(()) => self.held(key.1),
+            Err(refusal) => {
+                let _ended = self.bound_tenant.remove(&key);
+                self.host.abort_bound(key);
+                Answer::Refuse(refusal)
+            }
+        };
+        drop(done.send(reply));
     }
 
     /// Any request that is not a write: answered now, or later through `pushes`.
@@ -210,9 +281,9 @@ impl PartitionCore<'_> {
         } else if command == Command::Commit {
             self.commit(key, &view, pushes)
         } else if command == Command::Abort {
-            self.host.abort_bound(key);
-            let _ended = self.bound_tenant.remove(&key);
-            Ok(Answer::Done)
+            self.abort(key)
+        } else if command == Command::Drop {
+            self.drop_on(key)
         } else if command == Command::Reference {
             self.reference(key, &view, pushes)
         } else if command == Command::Scan {
@@ -247,11 +318,11 @@ impl PartitionCore<'_> {
                 ),
             ));
         }
+        let header = Header::new(self.cluster, Command::Bind).with_stream(key.1);
         if bind.kind() == BindKind::Drop {
-            return Err(ErrorReply::new(
-                ErrorCode::Unavailable,
-                "a Drop is not hosted here yet",
-            ));
+            let _new = self.drop_streams.insert(key);
+            let reply = bind.to_body().map_err(|rule| ErrorReply::protocol(&rule))?;
+            return built(&reply, header);
         }
         let epoch = Epoch::new(bind.epoch())
             .map_err(|error| ErrorReply::new(ErrorCode::Protocol, error.to_string()))?;
@@ -272,8 +343,28 @@ impl PartitionCore<'_> {
             .to_body()
             .map_err(|rule| ErrorReply::protocol(&rule))?
             .with_read_version(read_version);
-        let header = Header::new(self.cluster, Command::Bind).with_stream(key.1);
         built(&reply, header)
+    }
+
+    /// An Abort of the transaction `key`.
+    fn abort(&mut self, key: BoundKey) -> Result<Answer, ErrorReply> {
+        let _tenant = self.tenant_of(key, "Abort")?;
+        self.host.abort_bound(key);
+        let _ended = self.bound_tenant.remove(&key);
+        Ok(Answer::Done)
+    }
+
+    /// A Drop on `key`: on a stream a Bind of kind 1 opened it ends that transaction, and hosting one is the endpoint's task.
+    fn drop_on(&mut self, key: BoundKey) -> Result<Answer, ErrorReply> {
+        if self.drop_streams.remove(&key) {
+            return Err(ErrorReply::new(
+                ErrorCode::Unavailable,
+                "a Drop is not hosted here yet",
+            ));
+        }
+        self.host.abort_bound(key);
+        let _ended = self.bound_tenant.remove(&key);
+        Err(unbound("Drop", 2))
     }
 
     fn commit(
@@ -282,6 +373,7 @@ impl PartitionCore<'_> {
         view: &FrameView<'_>,
         pushes: &Pushes,
     ) -> Result<Answer, ErrorReply> {
+        let _tenant = self.tenant_of(key, "Commit")?;
         let commit = CommitView::from_frame(view).map_err(|rule| ErrorReply::protocol(&rule))?;
         let session = u128::from_be_bytes(commit.session());
         let now = self.now_us();
@@ -313,11 +405,12 @@ impl PartitionCore<'_> {
     }
 }
 
-fn ended() -> Answer {
-    Answer::Refuse(ErrorReply::new(
+/// The refusal of `command` on a stream no Bind of `kind` opened (`PROTOCOL.md` §11.2).
+fn unbound(command: &str, kind: u8) -> ErrorReply {
+    ErrorReply::new(
         ErrorCode::Protocol,
-        "the stream holds no transaction",
-    ))
+        format!("{command} on a stream no Bind of kind {kind} opened"),
+    )
 }
 
 pub(super) fn built<B: BodyBuilder>(body: &B, header: Header) -> Result<Answer, ErrorReply> {

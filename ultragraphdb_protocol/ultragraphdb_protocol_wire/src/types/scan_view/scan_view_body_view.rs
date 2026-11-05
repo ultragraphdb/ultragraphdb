@@ -15,7 +15,7 @@ use crate::types::term_table::kind;
 use crate::types::term_table_view::TermTableView;
 use crate::utils::command_header::CommandHeader;
 use crate::utils::constants::SCAN_RANGE_SIZE;
-use crate::utils::fields::{epoch, identity};
+use crate::utils::fields::{epoch, identity, version};
 use crate::utils::le::bytes_at;
 use crate::utils::sections::{Sections, as_u32, expect_command, records};
 use crate::utils::term_kind::term_kind;
@@ -32,21 +32,15 @@ struct Cursor {
     partition: Option<u32>,
 }
 
-/// Range `index`, the record `record` at body offset `at`, checked against the keys `keys` in `PROTOCOL.md` §13.13's
-/// order; the cursor moves past its keys.
+/// Range `index`, the record `record`, checked against the keys `keys` in `PROTOCOL.md` §13.13's order; the cursor moves
+/// past its keys and its `after`.
 fn check_range(
     command: u16,
     index: usize,
-    (record, at): (&[u8], usize),
+    record: &[u8],
     keys: &[u8],
     cursor: &mut Cursor,
 ) -> Result<(), ProtocolError> {
-    if let Some(j) = record
-        .get(4..8)
-        .and_then(|zero| zero.iter().position(|b| *b != 0))
-    {
-        return Err(ProtocolError::padding_not_zero(command, at + 4 + j));
-    }
     let partition = bytes_at(record, 0).map_or(0, u32::from_le_bytes);
     if partition == 0 || cursor.partition.is_some_and(|first| first != partition) {
         return Err(ProtocolError::field_value(
@@ -61,7 +55,8 @@ fn check_range(
     if first != cursor.end || first_len == 0 || Some(past) != first.checked_add(first_len) {
         return Err(range());
     }
-    let end = past.saturating_add(past_len);
+    let past_end = past.saturating_add(past_len);
+    let end = past_end.saturating_add(field(record, 4));
     if end > keys.len() {
         return Err(ProtocolError::index_out_of_range(
             command,
@@ -71,7 +66,7 @@ fn check_range(
             as_u32(keys.len()),
         ));
     }
-    let past_key = keys.get(past..end).unwrap_or_default();
+    let past_key = keys.get(past..past_end).unwrap_or_default();
     if !past_key.is_empty() && past_key <= keys.get(first..past).unwrap_or_default() {
         return Err(range());
     }
@@ -150,7 +145,7 @@ impl<'a> BodyView<'a> for ScanView<'a> {
     type Body = Scan;
 
     /// Checks, in `PROTOCOL.md` §13.13's order: unused bytes 1–7 and 56–127 zero; `at`, and 1 when `transaction` is not
-    /// zero; `read_version` 0 for `at` 2 and 3; `epoch` an epoch, and 0 for `at` 4 and when `transaction` is not zero;
+    /// zero; `read_version` 0 for `at` 2 and 3, and a version or version bound for `at` 1 and 4; `epoch` an epoch, and 0 for `at` 4 and when `transaction` is not zero;
     /// `deadline_ms` 0 when `epoch` is 0; the sections; the ranges whole and not empty;
     /// the term table; each range; section 1 ending with the last key.
     fn from_frame(frame: &FrameView<'a>) -> Result<Self, ProtocolError> {
@@ -176,6 +171,7 @@ impl<'a> BodyView<'a> for ScanView<'a> {
                 read_version,
             ));
         }
+        let read_version = version(command, "read_version", read_version)?;
         let (wait, deadline_ms) = wait_and_deadline(command, header, at, named)?;
         let sections = Sections::<4>::read(command, frame.body(), 0)?;
         let (ranges, keys) = (sections.get(0), sections.get(1));
@@ -194,8 +190,7 @@ impl<'a> BodyView<'a> for ScanView<'a> {
             partition: None,
         };
         for (index, record) in chunks.enumerate() {
-            let at_offset = sections.offset(0) + index * SCAN_RANGE_SIZE;
-            check_range(command, index, (record, at_offset), keys, &mut cursor)?;
+            check_range(command, index, record, keys, &mut cursor)?;
             if named && cursor.partition.is_none() {
                 cursor.partition = Some(bytes_at(record, 0).map_or(0, u32::from_le_bytes));
             }

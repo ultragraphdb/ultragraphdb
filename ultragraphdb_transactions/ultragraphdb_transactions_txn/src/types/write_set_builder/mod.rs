@@ -26,10 +26,10 @@ use crate::types::txn_limits::TxnLimits;
 ///
 /// | Section | What the transaction's writes put there |
 /// |---|---|
-/// | 0 | each statement a forward list's delta sets: the quad, graph, subject, predicate and object encoding, once per statement ID its posting carries, or once with none |
-/// | 1 | each statement a forward list's delta removes, as section 0: a delete by pattern as the statements it resolved to |
+/// | 0 | each statement the net effect inserts: the quad, graph, subject, predicate and object encoding, once per statement ID it adds, or once with none |
+/// | 1 | each statement the net effect removes, as section 0: a delete by pattern as the statements it resolved to, and an ID removed from an object left held, once per ID |
 /// | 2 | each statement record written, by its graph and statement ID, a removal for a record deleted |
-/// | 3 | the record's operation: a drop of a predicate or a graph by its system ID, of a tenant's data, a tenant or everything; a build's end |
+/// | 3 | the record's operation: a drop of a predicate or a graph by its system ID, of a tenant's data or a tenant; a build's end |
 /// | 4 | each registration the transaction relied on as a referrer ([`Executed::marks`]): the entity, the subject bucket group and the generation its home's reply named |
 /// | 5 | the commit record the client attached, unchanged |
 /// | 6 | conflict points: the key of every write but the lists named object by object, a predicate's implicit default catalog entry and the dictionary's entries, which conflict with nothing |
@@ -126,7 +126,7 @@ impl<'e> WriteSetBuilder<'e> {
             record.set_catalog(self.catalog);
             return Ok(record);
         }
-        let logical = executed.logical()?;
+        let logical = executed.logical();
         let mut terms = BTreeSet::new();
         for quad in logical.inserted() {
             record.push_inserted(quad.key(), quad.statement().map(SystemId::to_be_bytes));
@@ -315,6 +315,5 @@ fn drop_operation(target: DropTarget) -> Result<RecordOperation, TxnError> {
         )),
         DropTarget::Data => Ok(RecordOperation::DropTenantData),
         DropTarget::Tenant => Ok(RecordOperation::DropTenant),
-        DropTarget::All => Ok(RecordOperation::DropAll),
     }
 }

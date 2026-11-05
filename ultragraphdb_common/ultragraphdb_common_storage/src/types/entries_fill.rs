@@ -25,11 +25,12 @@ pub struct EntriesFill {
 }
 
 impl EntriesFill {
-    /// A frame of range `range` read at `epoch`, built to at most `max_frame` bytes, holding nothing yet.
+    /// A frame of range `range` read at `epoch`, naming `version`, the one its Scan chose, built to at most `max_frame` bytes,
+    /// holding nothing yet.
     #[must_use]
-    pub fn new(range: u32, epoch: u64, max_frame: usize) -> Self {
+    pub fn new(range: u32, (epoch, version): (u64, u64), max_frame: usize) -> Self {
         Self {
-            entries: Entries::new(range, EntriesEnd::More, epoch),
+            entries: Entries::new(range, EntriesEnd::More, epoch).with_version(version),
             max_frame,
             key: None,
             value: ObjectRecordsBuilder::new(),
@@ -81,6 +82,12 @@ impl EntriesFill {
     pub fn finish(mut self, end: EntriesEnd) -> Entries {
         self.close_key();
         self.entries.with_end(end)
+    }
+
+    /// The frame's batch, answering each one-key dictionary range from its first through `through`, each ended.
+    #[must_use]
+    pub fn finish_run(self, through: u32) -> Entries {
+        self.finish(EntriesEnd::Ended).with_through(through)
     }
 
     /// The frame's batch, its last entry's value continuing in the next frame.

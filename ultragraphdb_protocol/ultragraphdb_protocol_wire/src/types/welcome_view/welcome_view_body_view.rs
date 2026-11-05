@@ -45,6 +45,10 @@ impl<'a> BodyView<'a> for WelcomeView<'a> {
         if max_streams == 0 {
             return Err(ProtocolError::field_value(command, "max_streams", 0));
         }
+        let initial_credit = header.u32_at(16);
+        if initial_credit == 0 {
+            return Err(ProtocolError::field_value(command, "initial_credit", 0));
+        }
         let sections = Sections::<3>::read(command, frame.body(), 0)?;
         let server = text(command, 0, sections.get(0))?;
         let mechanisms = StringList::read(command, (1, 2), sections.get(1), sections.get(2))?;
@@ -63,7 +67,7 @@ impl<'a> BodyView<'a> for WelcomeView<'a> {
             release: header.u32_at(4),
             max_frame,
             max_streams,
-            initial_credit: header.u32_at(16),
+            initial_credit,
             max_write_set: header.u32_at(20),
             transaction_ms: header.u32_at(24),
             server,

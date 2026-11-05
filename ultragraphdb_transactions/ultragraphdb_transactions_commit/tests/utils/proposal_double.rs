@@ -113,6 +113,10 @@ pub struct TestProposal {
     pub token: Option<SessionToken>,
     /// The epoch the transaction may be stamped at, at the earliest.
     pub epoch_floor: Option<Epoch>,
+    /// Whether it is a frame holding what it does: a one-frame write or a Drop.
+    pub one_frame: bool,
+    /// Whether it asks for commit-time operations.
+    pub operations: bool,
 }
 
 impl TestProposal {
@@ -120,6 +124,22 @@ impl TestProposal {
     pub fn with_token(self, token: SessionToken) -> Self {
         Self {
             token: Some(token),
+            ..self
+        }
+    }
+
+    /// The proposal as a frame holding what it does, whose resend the session table answers.
+    pub fn with_one_frame(self) -> Self {
+        Self {
+            one_frame: true,
+            ..self
+        }
+    }
+
+    /// The proposal asking for commit-time operations.
+    pub fn asking_operations(self) -> Self {
+        Self {
+            operations: true,
             ..self
         }
     }
@@ -148,6 +168,14 @@ impl Proposal for TestProposal {
 
     fn epoch_floor(&self) -> Option<Epoch> {
         self.epoch_floor
+    }
+
+    fn is_one_frame(&self) -> bool {
+        self.one_frame
+    }
+
+    fn has_operations(&self) -> bool {
+        self.operations
     }
 }
 
@@ -237,6 +265,8 @@ pub fn proposal(read_version: u64, reads: &Reads, writes: &Writes) -> TestResult
         record: record(0, read_version, writes, 0),
         token: None,
         epoch_floor: None,
+        one_frame: false,
+        operations: false,
     })
 }
 
@@ -254,6 +284,8 @@ pub fn proposal_in(
         record: record_in(0, read_version, session, request, writes, 0),
         token: None,
         epoch_floor: None,
+        one_frame: false,
+        operations: false,
     })
 }
 
@@ -270,6 +302,8 @@ pub fn proposal_at_catalog(
         record: record_with(0, read_version, 0, 0, catalog, writes, 0),
         token: None,
         epoch_floor: None,
+        one_frame: false,
+        operations: false,
     })
 }
 

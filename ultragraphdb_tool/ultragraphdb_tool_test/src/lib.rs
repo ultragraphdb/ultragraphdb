@@ -13,7 +13,8 @@ mod utils;
 
 pub use crate::types::changeset_workload::{
     ChangesetWorkload, INDEXES_MATCH_DATA, MODEL_AGREES, NO_UNEXPECTED_ERROR,
-    RECORDS_MATCH_POSTINGS, REPLAY_AGREES, STATISTICS_MATCH_DATA,
+    RECORDS_MATCH_POSTINGS, REPLAY_AGREES, REVERSE_HOLDS_STATEMENTS, STATEMENT_READS_MATCH,
+    STATISTICS_MATCH_DATA,
 };
 pub use crate::types::partition_workload::PartitionWorkload;
 pub use crate::types::run::Run;
@@ -25,5 +26,5 @@ pub use crate::utils::crash_harness::{
 };
 pub use crate::utils::fjall_workload::run_both;
 pub use crate::utils::test_store::{
-    held, put, scanned, stored, tenant_key, versions, write, write_raw, write_raw_in,
+    held, put, scanned, stored, tenant_key, versions, write, write_raw, write_raw_at, write_raw_in,
 };

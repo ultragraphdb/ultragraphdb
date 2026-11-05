@@ -52,12 +52,16 @@ pub enum Command {
     Round,
     /// One message of a SASL exchange on stream 0.
     Authenticate,
-    /// A predicate, a graph, a tenant's data, a tenant or every tenant dropped.
+    /// A predicate, a graph, a tenant's data or everything in a tenant dropped.
     Drop,
     /// A changeset committed as one transaction in one frame.
     DirectWrite,
     /// Commit-time operations, with any changes, committed as one transaction in one frame.
     ConditionalWrite,
+    /// A query of the GQL core or the SPARQL core, in the transaction it names.
+    Query,
+    /// The sources of a tenant's schema, installed as a catalog version.
+    Install,
     /// Role command 512: a storage or compute process registers with the frontend: its kind, role address and partitions.
     Join,
     /// Role command 513: the roles that joined: each storage partition's process address and each compute process's.
@@ -96,11 +100,13 @@ pub enum Command {
     DefaultEntry,
     /// Role command 530: a partition reports a type change's check, or a failed index build, at a catalog version's epoch.
     Report,
+    /// Role command 531: a partition holds a Write or an Operation sent on a Bind stream.
+    Held,
 }
 
 impl Command {
     /// Every command, in the order of its number.
-    pub const ALL: [Command; 40] = [
+    pub const ALL: [Command; 43] = [
         Command::Hello,
         Command::Welcome,
         Command::Register,
@@ -122,6 +128,8 @@ impl Command {
         Command::Drop,
         Command::DirectWrite,
         Command::ConditionalWrite,
+        Command::Query,
+        Command::Install,
         Command::Join,
         Command::Members,
         Command::Subscribe,
@@ -141,6 +149,7 @@ impl Command {
         Command::Closed,
         Command::DefaultEntry,
         Command::Report,
+        Command::Held,
     ];
 
     /// The command's number in the header.
@@ -167,6 +176,8 @@ impl Command {
             Command::Drop => 19,
             Command::DirectWrite => 20,
             Command::ConditionalWrite => 21,
+            Command::Query => 22,
+            Command::Install => 23,
             Command::Join => 512,
             Command::Members => 513,
             Command::Subscribe => 514,
@@ -186,6 +197,7 @@ impl Command {
             Command::Closed => 528,
             Command::DefaultEntry => 529,
             Command::Report => 530,
+            Command::Held => 531,
         }
     }
 
@@ -214,6 +226,8 @@ impl Command {
             19 => Ok(Command::Drop),
             20 => Ok(Command::DirectWrite),
             21 => Ok(Command::ConditionalWrite),
+            22 => Ok(Command::Query),
+            23 => Ok(Command::Install),
             512 => Ok(Command::Join),
             513 => Ok(Command::Members),
             514 => Ok(Command::Subscribe),
@@ -233,6 +247,7 @@ impl Command {
             528 => Ok(Command::Closed),
             529 => Ok(Command::DefaultEntry),
             530 => Ok(Command::Report),
+            531 => Ok(Command::Held),
             _ => Err(ProtocolError::unknown_command(number)),
         }
     }
@@ -251,5 +266,64 @@ impl Command {
             return Err(ProtocolError::command_not_served(self.number()));
         }
         Ok(self)
+    }
+
+    /// Whether `answer` is a command `PROTOCOL.md` §3 lists in this request's "Answered by": a Write's or an Operation's
+    /// Held is its answer on a Bind stream, the one stream a role sends them on. An Error answers any request and is
+    /// [`Command::answering`]'s to take.
+    pub fn answered_by(self, answer: Command) -> bool {
+        match self {
+            Command::Hello => answer == Command::Welcome,
+            Command::Commit | Command::DirectWrite | Command::ConditionalWrite => {
+                answer == Command::Commit
+            }
+            Command::Read | Command::Execute | Command::Query | Command::ComputeRead => {
+                answer == Command::Result
+            }
+            Command::Write | Command::Operation => answer == Command::Held,
+            Command::Subscribe => answer == Command::EpochClose,
+            Command::Scan => answer == Command::Entries,
+            Command::Recall => matches!(answer, Command::Commit | Command::Drop),
+            Command::Register
+            | Command::Begin
+            | Command::Prepare
+            | Command::Describe
+            | Command::Authenticate
+            | Command::Drop
+            | Command::Install
+            | Command::Join
+            | Command::Members
+            | Command::Lease
+            | Command::Placement
+            | Command::Catalog
+            | Command::Challenge
+            | Command::Verify
+            | Command::Bind
+            | Command::Reference
+            | Command::Closed
+            | Command::DefaultEntry
+            | Command::Report => answer == self,
+            Command::Welcome
+            | Command::Abort
+            | Command::Result
+            | Command::Credit
+            | Command::Cancel
+            | Command::Error
+            | Command::Round
+            | Command::EpochClose
+            | Command::Entries
+            | Command::CloseRequest
+            | Command::Held => false,
+        }
+    }
+
+    /// The frame's command as the side that dialled takes it on the stream of `request`: an Error, or a command
+    /// [`Command::answered_by`] lists; refused as [`ProtocolError::command_not_served`], naming its number, otherwise
+    /// (`PROTOCOL.md` §2.5, step 3).
+    pub fn answering(self, request: Command) -> Result<Command, ProtocolError> {
+        if self == Command::Error || request.answered_by(self) {
+            return Ok(self);
+        }
+        Err(ProtocolError::command_not_served(self.number()))
     }
 }

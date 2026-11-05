@@ -11,6 +11,7 @@ use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::traits::body_builder::BodyBuilder;
 use crate::types::command::Command;
+use crate::types::monotonic::Monotonic;
 use crate::types::result_term::ResultTerm;
 use crate::utils::constants::ABSENT;
 use crate::utils::sections::as_u32;
@@ -25,10 +26,11 @@ use crate::utils::sections::as_u32;
 ///
 /// | Command header | Field | Type |
 /// |---|---|---|
-/// | 0 | `columns` | u32: the unbound slots and the reifier column, 1 to 5 |
+/// | 0 | `columns` | u32: for a quad pattern, the unbound slots and the reifier column, 1 to 5; for a query, its projections, 1 to 1,024, or 0 with `rows` 0 for a GQL statement without `RETURN` |
 /// | 4 | `rows` | u32 |
 /// | 8 | `epoch` | u64: the epoch the rows were read at; 0 where none applies |
 /// | 16 | `partition` | u32: the partition the read reached alone; 0 for several |
+/// | 20 | `monotonic` | u8, a [`Monotonic`] |
 ///
 /// | Section | Contents |
 /// |---|---|
@@ -38,7 +40,9 @@ use crate::utils::sections::as_u32;
 /// | 3 | each term's text and annotation, two u32 string indices or [`crate::ABSENT`] |
 /// | 4 | strings: ends |
 /// | 5 | strings: text |
-/// | 6 | the resume key |
+/// | 6 | the resume key; empty on every batch but the stream's last |
+/// | 7 | column names: ends; one name per column on a query's first batch, empty otherwise |
+/// | 8 | column names: text |
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResultBatch {
     columns: u32,
@@ -49,10 +53,12 @@ pub struct ResultBatch {
     resume: Vec<u8>,
     epoch: u64,
     partition: u32,
+    monotonic: Monotonic,
+    column_names: Vec<String>,
 }
 
 impl ResultBatch {
-    /// An empty batch of `columns` columns, the last the reifier column.
+    /// An empty batch of `columns` columns, for a pattern the last the reifier column.
     pub fn new(columns: u32) -> Self {
         Self {
             columns,
@@ -63,6 +69,8 @@ impl ResultBatch {
             resume: Vec::new(),
             epoch: 0,
             partition: 0,
+            monotonic: Monotonic::Snapshot,
+            column_names: Vec::new(),
         }
     }
 
@@ -83,6 +91,36 @@ impl ResultBatch {
             ));
         }
         self.push_cells(row)
+    }
+
+    /// Appends a row of a query's batch, a term or `None` (null) per column. Refused as
+    /// [`ProtocolError::count_mismatch`] (`"row"`) when the row's length is not the batch's column count.
+    pub fn push_query_row(&mut self, row: &[Option<&ResultTerm>]) -> Result<(), ProtocolError> {
+        self.push_cells(row)
+    }
+
+    /// The batch whose rows read as `monotonic` says.
+    #[must_use]
+    pub fn with_monotonic(mut self, monotonic: Monotonic) -> Self {
+        self.monotonic = monotonic;
+        self
+    }
+
+    /// The batch naming its columns, a query's first.
+    #[must_use]
+    pub fn with_column_names(mut self, column_names: Vec<String>) -> Self {
+        self.column_names = column_names;
+        self
+    }
+
+    /// What the rows read as.
+    pub fn monotonic(&self) -> Monotonic {
+        self.monotonic
+    }
+
+    /// The column names; empty on every batch but a query's first.
+    pub fn column_names(&self) -> &[String] {
+        &self.column_names
     }
 
     /// The batch read at `epoch` in `partition`, 0 for none and for several.

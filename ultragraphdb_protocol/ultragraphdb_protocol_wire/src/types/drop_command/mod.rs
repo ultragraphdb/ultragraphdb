@@ -9,14 +9,14 @@ use ultragraphdb_core_ids::SessionToken;
 
 use crate::types::drop_kind::DropKind;
 
-/// The Drop command's body: a predicate, a graph, a tenant's data, a tenant or every tenant dropped, on a
+/// The Drop command's body: a predicate, a graph, a tenant's data or everything in a tenant dropped, on a
 /// stream of its own and outside any transaction, committed through a session as a Commit is and answered with the
 /// drop's commit version. Named for its command as [`crate::ErrorReply`] is, beside the standard `Drop` trait.
 ///
 /// | Command header | Field | Type |
 /// |---|---|---|
 /// | 0 | `kind` | u8, a [`DropKind`] |
-/// | 8 | `tenant` | u64: the tenant of kinds 1 to 4; 0 for kind 5 |
+/// | 8 | `tenant` | u64 |
 /// | 16 | `session` | 16 bytes; all zero for none |
 /// | 32 | `request` | u64; at least 1 with a session, 0 with none |
 /// | 40 | `commit_version` | u64, 0 in a request |
@@ -68,11 +68,6 @@ impl DropCommand {
     /// A drop of `tenant`, its catalog with it.
     pub fn whole_tenant(tenant: u64) -> Self {
         Self::new(DropKind::Tenant, tenant, None)
-    }
-
-    /// A drop of every tenant.
-    pub fn all() -> Self {
-        Self::new(DropKind::All, 0, None)
     }
 
     /// The drop through `session` with the next `request` number of the session's counter, from 1; a session all zero

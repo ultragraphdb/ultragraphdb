@@ -146,7 +146,7 @@ fn credit_two(w: &mut Steps) -> TestResult {
     let welcome = Welcome::new(1, RELEASE, "s")
         .with_max_frame(1 << 20)
         .with_max_streams(8)
-        .with_initial_credit(0);
+        .with_initial_credit(1);
     let mut h = Harness::with(
         config().with_credit(2),
         TestServer::new(CLUSTER, welcome).with_results(10),
@@ -158,13 +158,8 @@ fn credit_two(w: &mut Steps) -> TestResult {
     h.until(|h| h.core.is_ready())?;
     let tx = begin(&mut h, true)?;
     let stream = h.core.read(&tx, &read(&tx), h.now)?;
-    assert!(
-        matches!(
-            h.core.next_batch(&stream, h.now, |_| ()),
-            Ok(BatchPoll::Wait)
-        ),
-        "a grant is sent"
-    );
+    while h.step()? {}
+    assert_eq!(batches(&mut h, &stream), 1, "the Welcome's one frame");
     while h.step()? {}
     w.outcome = vec![batches(&mut h, &stream) as u64];
     while h.step()? {}
@@ -183,7 +178,7 @@ fn two_then_wait(w: &mut Steps) -> TestResult {
     );
     let h = w.harness.as_mut().context("a harness")?;
     let stream = w.stream.as_ref().context("a stream")?;
-    assert_eq!(rest(h, stream)?, 6);
+    assert_eq!(rest(h, stream)?, 5);
     Ok(())
 }
 

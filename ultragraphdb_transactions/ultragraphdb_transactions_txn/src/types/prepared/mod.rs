@@ -48,6 +48,7 @@ pub struct Prepared {
     rewrite: Rewrite,
     token: Option<SessionToken>,
     epoch_floor: Option<Epoch>,
+    one_frame: bool,
 }
 
 impl Prepared {
@@ -66,6 +67,7 @@ impl Prepared {
             rewrite,
             token: None,
             epoch_floor: None,
+            one_frame: false,
         }
     }
 
@@ -80,6 +82,21 @@ impl Prepared {
             epoch_floor,
             ..self
         }
+    }
+
+    /// The proposal as a frame holding what it does, a one-frame write or a Drop, so the session table answers a resend of
+    /// it with its stored reply; otherwise it is a Commit on an open transaction, whose reused number is refused.
+    #[must_use]
+    pub fn with_one_frame(self) -> Self {
+        Self {
+            one_frame: true,
+            ..self
+        }
+    }
+
+    /// Whether the proposal is a frame holding what it does ([`Prepared::with_one_frame`]).
+    pub fn is_one_frame(&self) -> bool {
+        self.one_frame
     }
 
     /// The drop `drop` asks in `tenant` on `applier` as a proposal of the commit step, on `buffers` (7.7): request
@@ -118,13 +135,7 @@ impl Prepared {
             applier.release(&executed);
             return Err(refused);
         }
-        Ok(Self::new(
-            executed,
-            read_set,
-            record,
-            Vec::new(),
-            Rewrite::default(),
-        ))
+        Ok(Self::new(executed, read_set, record, Vec::new(), Rewrite::default()).with_one_frame())
     }
 
     /// The end of a build sequenced through the commit step on `applier` as a proposal of the step, on `buffers`

@@ -6,7 +6,7 @@
 use std::ops::ControlFlow;
 
 use ultragraphdb_common_storage::EntriesFill;
-use ultragraphdb_core_ids::{Bucket, Sequence, SystemId, TypePrefix};
+use ultragraphdb_core_ids::{Bucket, Epoch, Sequence, SystemId, TypePrefix, Version};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, Command, Entries, EntriesEnd, EntriesView, FrameView, Header,
@@ -17,6 +17,11 @@ use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 const CLUSTER: u64 = 1;
 const KEY: &[u8] = b"\x10a list";
 const NEXT: &[u8] = b"\x10b list";
+
+/// The epoch and version every frame here names.
+fn at() -> (u64, u64) {
+    (7, Version::bound_of(Epoch::ZERO))
+}
 
 fn object(sequence: u64) -> TestResult<(EncodedTerm, SystemId)> {
     let id = SystemId::new(
@@ -33,7 +38,7 @@ fn built(entries: &Entries) -> TestResult<Vec<u8>> {
 
 /// `count` objects under one key, as a frame with no limit holds them: its bytes.
 fn frame_of(count: u64) -> TestResult<usize> {
-    let mut fill = EntriesFill::new(0, 7, usize::MAX);
+    let mut fill = EntriesFill::new(0, at(), usize::MAX);
     for at in 1..=count {
         let (term, _) = object(at)?;
         assert!(fill.offer_object(KEY, &term, &[]).is_continue());
@@ -46,7 +51,7 @@ fn frame_of(count: u64) -> TestResult<usize> {
 fn test_a_frame_is_filled_to_its_limit_and_no_further() -> TestResult {
     let one = frame_of(1)?;
     for max_frame in [one, one + 24, one + 25, one + 4_096, one + 70_000, 1 << 19] {
-        let mut fill = EntriesFill::new(0, 7, max_frame);
+        let mut fill = EntriesFill::new(0, at(), max_frame);
         let mut taken = 0;
         loop {
             let (term, _) = object(taken + 1)?;
@@ -70,10 +75,10 @@ fn test_a_frame_is_filled_to_its_limit_and_no_further() -> TestResult {
 #[test]
 fn test_an_object_too_large_for_an_empty_frame_is_not_taken() -> TestResult {
     let (term, _) = object(1)?;
-    let mut fill = EntriesFill::new(0, 7, 8);
+    let mut fill = EntriesFill::new(0, at(), 8);
     assert_eq!(fill.offer_object(KEY, &term, &[]), ControlFlow::Break(()));
     assert!(fill.finish(EntriesEnd::More).entries().is_empty());
-    let mut stored = EntriesFill::new(0, 7, 8);
+    let mut stored = EntriesFill::new(0, at(), 8);
     assert_eq!(stored.offer_value(KEY, b"value"), ControlFlow::Break(()));
     Ok(())
 }
@@ -83,7 +88,7 @@ fn test_an_object_too_large_for_an_empty_frame_is_not_taken() -> TestResult {
 fn test_a_frame_holds_each_key_once_with_its_objects() -> TestResult {
     let (first, statement) = object(1)?;
     let (second, _) = object(2)?;
-    let mut fill = EntriesFill::new(2, 7, 1 << 20);
+    let mut fill = EntriesFill::new(2, at(), 1 << 20);
     assert!(fill.offer_object(KEY, &first, &[statement]).is_continue());
     assert!(fill.offer_object(KEY, &second, &[]).is_continue());
     assert!(fill.offer_object(NEXT, &first, &[]).is_continue());
@@ -124,11 +129,24 @@ fn test_a_frame_holds_each_key_once_with_its_objects() -> TestResult {
 #[test]
 fn test_a_frame_stopping_inside_a_key_continues() -> TestResult {
     let (term, _) = object(1)?;
-    let mut fill = EntriesFill::new(0, 7, 1 << 20);
+    let mut fill = EntriesFill::new(0, at(), 1 << 20);
     assert!(fill.offer_object(KEY, &term, &[]).is_continue());
     let entries = fill.finish_continuing();
     assert!(entries.continues());
     assert_eq!(entries.end(), EntriesEnd::More);
     assert_eq!(entries.entries().len(), 1);
     Ok(())
+}
+
+/// A run's frame names its last range and how each ended, and every frame of a fill names the version it was given.
+#[test]
+fn test_a_run_names_its_ranges_through_its_last() {
+    let mut fill = EntriesFill::new(2, at(), MAX_FRAME_SIZE);
+    assert!(fill.offer_value(KEY, b"id").is_continue());
+    let entries = fill.finish_run(5);
+    assert_eq!(
+        (entries.range(), entries.through(), entries.end()),
+        (2, 5, EntriesEnd::Ended)
+    );
+    assert_eq!((entries.epoch(), entries.version()), at());
 }

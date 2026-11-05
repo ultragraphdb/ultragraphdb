@@ -126,7 +126,7 @@ fn test_a_proposal_refused_on_arrival_is_released() -> TestResult {
 }
 
 #[test]
-fn test_a_retry_answered_from_the_session_table_releases_its_proposal() -> TestResult {
+fn test_a_reused_number_refused_by_the_session_table_releases_its_proposal() -> TestResult {
     let applier = applier()?;
     let (_storage, log) = wal()?;
     let mut pipe: Pipe<'_> = Pipeline::new(&applier, log, unbounded())?;
@@ -134,25 +134,25 @@ fn test_a_retry_answered_from_the_session_table_releases_its_proposal() -> TestR
     write(&mut first, vec![insert("a", "knows", "b")])?;
     pipe.commit(1, prepare_in(first, SESSION, 7)?, 0)?;
     block_on(pipe.sync(0))?;
-    // The retry of request 7 runs again and creates `<only>`; the step answers it from the session table.
-    let mut retry = begin(&applier)?;
-    write(&mut retry, vec![insert("only", "knows", "a")])?;
-    let retry = prepare_in(retry, SESSION, 7)?;
-    let created = id_in(&retry, "only")?;
-    pipe.commit(2, retry, 0)?;
+    // A new transaction under request 7 creates `<only>`; the step refuses the number.
+    let mut reused = begin(&applier)?;
+    write(&mut reused, vec![insert("only", "knows", "a")])?;
+    let reused = prepare_in(reused, SESSION, 7)?;
+    let created = id_in(&reused, "only")?;
+    pipe.commit(2, reused, 0)?;
     block_on(pipe.sync(0))?;
     assert_eq!(
         drained(&mut pipe),
         vec![
             Reply::new(1, Ok(version(1, 0))),
-            Reply::new(2, Ok(version(1, 0)))
+            Reply::new(2, Err(CommitError::request_out_of_order(7)))
         ],
-        "the retry is answered with request 7's version"
+        "the number is refused naming the last, and request 7's reply is not returned"
     );
     assert_ne!(
         id_now(&applier)?,
         created,
-        "the retry's proposal let go of `<only>`"
+        "the refused proposal let go of `<only>`"
     );
     Ok(())
 }

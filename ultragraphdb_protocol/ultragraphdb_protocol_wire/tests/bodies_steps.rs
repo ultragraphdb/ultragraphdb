@@ -26,7 +26,7 @@ use ultragraphdb_protocol_wire::{
     EntriesView, ErrorCode, Execute, ExecuteView, FLAG_LAST, FrameView, Header, MAX_FRAME_SIZE,
     ObjectRecords, ObjectRecordsBuilder, Operation, OperationView, PatternSlot, Prepare,
     PrepareView, QuadPattern, Read, ReadView, RequestTerm, RequestTermView, ResultBatch,
-    ResultTerm, ResultView, ScanView, StatementCache, StatementError, TermTable, Write,
+    ResultTerm, ResultView, ScanRange, ScanView, StatementCache, StatementError, TermTable, Write,
     WriteChange, WriteView,
 };
 use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig};
@@ -894,9 +894,16 @@ fn role_refusal<'a, V: BodyView<'a>>(bytes: &'a [u8]) -> TestResult<ProtocolErro
     Ok(V::from_frame(&frame).err().context("a refusal")?.0)
 }
 
+/// `count` ranges of a keyspace of lists, each holding every key of it.
+fn whole(count: u32) -> Vec<ScanRange<'static>> {
+    (0..count)
+        .map(|_| ScanRange::new(1, b"\x10", b""))
+        .collect()
+}
+
 /// The refusals of the frames `frames`, in order, by a sequence of a Scan of `ranges` ranges.
 fn sequence_refusals(frames: &[Vec<u8>], ranges: u32) -> TestResult<Vec<ProtocolError>> {
-    let mut sequence = EntriesSequence::new(ranges);
+    let mut sequence = EntriesSequence::new(whole(ranges));
     let mut refusals = Vec::new();
     for bytes in frames {
         let frame = FrameView::validate(bytes, CLUSTER, MAX_FRAME_SIZE)?;
@@ -1056,7 +1063,7 @@ fn the_receiver_takes_both(w: &mut Steps) -> TestResult {
         FrameView::validate(first, CLUSTER, MAX_FRAME_SIZE)?,
         FrameView::validate(second, CLUSTER, MAX_FRAME_SIZE)?,
     );
-    let mut sequence = EntriesSequence::new(1);
+    let mut sequence = EntriesSequence::new(whole(1));
     let continued = sequence.accept(&first_frame)?;
     let opened = sequence.accept(&second_frame)?;
     assert!(continued.continues());

@@ -6,8 +6,8 @@
 use ultragraphdb_cluster_sequencer::Close;
 use ultragraphdb_core_ids::{SessionToken, Version};
 use ultragraphdb_protocol_wire::{
-    ABSENT, ChunkLayout, ConflictKind, HEADER_SIZE, OperationResult, RecordKind, TermTable,
-    WriteSetRecordView,
+    ABSENT, BodyBuilder, ChunkLayout, Commit, ConflictKind, HEADER_SIZE, MAX_FRAME_FLOOR,
+    OperationResult, RecordKind, RequestTerm, TermTable, WriteSetRecordView,
 };
 use ultragraphdb_traits_store::VersionlessEntry;
 
@@ -60,7 +60,8 @@ enum Decided {
     Admitted(u64, Option<(Vec<OperationResult>, TermTable)>),
     /// It waits for the next round: its operations left a record this round has no room for, or the open epoch filled.
     Deferred,
-    /// A retry of its session's last committed request: that commit's stored reply, nothing committed.
+    /// A one-frame or Drop resend of its session's last committed request: that commit's stored reply, nothing
+    /// committed.
     Retry(StoredReply),
     /// Refused.
     Refused(CommitError),
@@ -231,8 +232,9 @@ impl<P: Proposal> CommitStep<P> {
         }
     }
 
-    /// The round in flight is synced: it is handed over to apply with its replies, each commit's with its session
-    /// token, the session table takes its commits, and the next round closes over the entries waiting.
+    /// The round in flight is synced: it is handed over to apply with its replies, each commit through a session with
+    /// its session token and one through no session with none, the session table takes its commits, and the next round
+    /// closes over the entries waiting.
     pub(crate) fn synced<O: Operator<P>>(
         &mut self,
         now_us: u64,
@@ -278,8 +280,11 @@ impl<P: Proposal> CommitStep<P> {
                 .map(|(decision, _)| decision),
         );
         let results = &mut self.results;
+        let mut sessionless = self.sessionless.drain(..).peekable();
         for (ticket, outcome) in self.decided.drain(..) {
             let reply = match &outcome {
+                // In decision order, as the round decided them.
+                Ok(_) if sessionless.next_if_eq(&ticket).is_some() => Reply::new(ticket, outcome),
                 Ok(version) => Reply::new(ticket, outcome.clone()).with_token(token(*version)),
                 Err(_) => Reply::new(ticket, outcome),
             };
@@ -292,6 +297,7 @@ impl<P: Proposal> CommitStep<P> {
             };
             out.replies.push(reply);
         }
+        drop(sessionless);
         results.clear();
         if !self.waiting.is_empty() {
             self.close(now_us, out, operator);
@@ -323,6 +329,7 @@ impl<P: Proposal> CommitStep<P> {
         self.registrations.clear();
         self.dictionary.clear();
         self.updates.clear();
+        self.sessionless.clear();
         self.gather(out, operator);
         if self.stamp.is_full() && !self.waiting.is_empty() {
             self.ask(open, now_us, out);
@@ -425,7 +432,7 @@ impl<P: Proposal> CommitStep<P> {
         match entry {
             Waiting::Commit(request) => {
                 let (ticket, mut proposal) = request.into_parts();
-                let decided = self.decide(&mut proposal, &out.apply, operator, fits);
+                let decided = self.decide(ticket, &mut proposal, &out.apply, operator, fits);
                 let len = proposal.record().len();
                 let entries = proposal.dictionary().map(|(k, v)| entry_len(k, v)).sum();
                 let taken = matches!(decided, Decided::Admitted(..) | Decided::Refused(_));
@@ -551,6 +558,7 @@ impl<P: Proposal> CommitStep<P> {
     /// fitting the round by `fits`; then a version, then its writes added to the history and its session marked busy.
     fn decide<O: Operator<P>>(
         &mut self,
+        ticket: u64,
         proposal: &mut P,
         apply: &[(u64, P)],
         operator: &mut O,
@@ -561,7 +569,12 @@ impl<P: Proposal> CommitStep<P> {
             Err(cause) => return Decided::Refused(CommitError::malformed(cause)),
         };
         let (session, request) = (u128::from_be_bytes(record.session()), record.request());
-        match self.sessions.check(session, request) {
+        let stored = if proposal.is_one_frame() {
+            self.sessions.check_one_frame(session, request)
+        } else {
+            self.sessions.check(session, request).map(|()| None)
+        };
+        match stored {
             Ok(Some(reply)) => return Decided::Retry(reply.clone()),
             Ok(None) => {}
             Err(refusal) => return Decided::Refused(refusal),
@@ -592,6 +605,8 @@ impl<P: Proposal> CommitStep<P> {
                     results: found,
                     terms,
                 });
+            } else {
+                self.sessionless.push(ticket);
             }
         }
         decided
@@ -638,6 +653,12 @@ impl<P: Proposal> CommitStep<P> {
                 return Decided::Refused(CommitError::malformed(cause));
             }
         };
+        let terms = operated.result_terms().to_table();
+        let reply = reply_frame_len(&results, &terms);
+        if reply > MAX_FRAME_FLOOR {
+            operator.discard(proposal, staged);
+            return Decided::Refused(CommitError::reply_too_large(reply, MAX_FRAME_FLOOR));
+        }
         let size = operated.bytes().len();
         let entries: usize = operator
             .staged_dictionary(&staged)
@@ -658,7 +679,6 @@ impl<P: Proposal> CommitStep<P> {
             operator.discard(proposal, staged);
             return Decided::Deferred;
         };
-        let terms = operated.result_terms().to_table();
         self.resolver.admit(version.to_u64(), &operated);
         operator.adopt(proposal, staged);
         Decided::Admitted(version.to_u64(), Some((results, terms)))
@@ -749,6 +769,7 @@ impl<P: Proposal> CommitStep<P> {
         self.in_flight = None;
         self.updates.clear();
         self.results.clear();
+        self.sessionless.clear();
         let unavailable = |ticket| Reply::new(ticket, Err(CommitError::unavailable()));
         // The round's admitted proposals follow its committed transactions in round order: each is released under the
         // ticket of its decision. Its aborts and retries were released when the round closed.
@@ -792,6 +813,20 @@ impl<P: Proposal> CommitStep<P> {
             refuse(entry, CommitError::unavailable(), out);
         }
     }
+}
+
+/// The bytes of the Commit reply's frame holding `results`, naming their nodes in `terms`: what a resend of it is
+/// answered with on any connection, whatever the session.
+fn reply_frame_len(results: &[OperationResult], terms: &TermTable) -> usize {
+    let mut reply = Commit::new([0; 16], 0, 0);
+    for result in results {
+        if let Some(RequestTerm::Iri(node)) = result.node().and_then(|index| terms.get(index)) {
+            reply.push_node_result(node, result.created());
+        } else {
+            reply.push_result(*result);
+        }
+    }
+    HEADER_SIZE + ChunkLayout::of_data(reply.body().len()).body_len()
 }
 
 /// Answers `entry` with `refusal`, releasing a commit's proposal and dismissing a registration.

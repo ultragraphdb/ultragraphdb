@@ -550,46 +550,6 @@ fn tenant_three_initial(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[when("everything is dropped")]
-fn everything_dropped(w: &mut Steps) -> TestResult {
-    let a = cs(w)?;
-    declare(&a, "name", "with `exact`")?;
-    write(&a, &["<a> <name> \"Ann\"", "<a> <knows> <b> <g1>"])?;
-    let _applied: Applied = a
-        .apply(&Changeset::new(3).with(insert("<a> <name> \"Three\"")?))
-        .context("tenant 3 is written")?;
-    let _dropped_at: u64 = a.drop_all().context("everything drops")?;
-    // The group's half: the frontend commits the root tenant's initial catalog.
-    initial_version(w, TENANT, 2)?;
-    Ok(())
-}
-
-#[then(
-    "no partition holds a quad key, and the metadata group holds the root tenant's initial catalog alone"
-)]
-fn initial_catalog_only(w: &mut Steps) -> TestResult {
-    let a = cs(w)?;
-    let rdf_type = a
-        .quads()
-        .id_of(TENANT, rdf::TYPE.as_str())
-        .context("the dictionary reads")?
-        .context("the dictionary keeps rdf:type")?;
-    let contents = a.quads().store().contents();
-    assert!(contents.keys().is_empty(), "no quad key and no catalog key");
-    assert_eq!(*a.catalog(TENANT)?, Catalog::initial(TENANT, rdf_type));
-    assert!(
-        a.catalog(3)?.predicates().next().is_none(),
-        "tenant 3 holds nothing"
-    );
-    assert!(group_holds_initial(w, TENANT)?);
-    use ultragraphdb_traits_catalog::CatalogSource;
-    assert!(
-        w.source.version_at(3, u64::MAX)?.is_none(),
-        "the root tenant's alone"
-    );
-    Ok(())
-}
-
 #[when("a tenant whose lists are split has its data dropped")]
 fn split_data_dropped(w: &mut Steps) -> TestResult {
     let cache = SimListCache::new(1024, Seed::new(1).stream(Stream::Cache));

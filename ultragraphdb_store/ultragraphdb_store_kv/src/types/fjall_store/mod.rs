@@ -12,7 +12,7 @@ mod store_rebuild_records;
 mod store_temporaries;
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -76,12 +76,18 @@ pub struct FjallStore {
 /// What the store and its snapshots share.
 pub(crate) struct Shared {
     pub db: Database,
+    /// The store's directory, which holds fjall's journals.
+    pub path: PathBuf,
     pub data: Keyspace,
     pub meta: Keyspace,
     pub terms: Keyspace,
     pub durability: Durability,
-    /// Held by every write for its whole length, so that writes apply in order and a drop blocks commits.
+    /// Held by every write for its whole length, so that writes apply in order and a drop blocks commits. A raised
+    /// discard timestamp's sync runs without it, and without fjall's own journal lock, so no commit waits for that sync.
     pub writer: Mutex<()>,
+    /// Held through a raised discard timestamp, its sync included, so asks land in order; a drop of everything takes it
+    /// first, then the writer lock. No read and no commit takes it.
+    pub discard: Mutex<()>,
     /// Locked only to open or close a snapshot or change what one is opened against, never across I/O.
     pub view: Mutex<View>,
     /// Atomics (Ultra rule 9): set under the writer lock, read by snapshots and callers on any thread.
@@ -160,11 +166,13 @@ impl FjallStore {
             .map_err(opened)?;
         let shared = Arc::new(Shared {
             db,
+            path: path.as_ref().to_path_buf(),
             data,
             meta,
             terms,
             durability,
             writer: Mutex::new(()),
+            discard: Mutex::new(()),
             view: Mutex::new(View::default()),
             poisoned: AtomicBool::new(false),
             applied_ts: AtomicU64::new(0),
@@ -257,6 +265,30 @@ impl FjallStore {
             },
             &mut observe,
         )
+    }
+
+    /// [`ultragraphdb_traits_store::Store::set_discard_ts`], reporting to `observe` the journal file it is about to sync, on the
+    /// calling thread and with the locks that sync runs under: its record is in the journal file, and a commit goes on beside it.
+    /// The discard timestamp takes effect, for reads and compaction, once the record is durable.
+    ///
+    /// # Errors
+    ///
+    /// The store's error for a poisoned store or a failed write or sync, which poisons it.
+    pub fn set_discard_ts_observed(
+        &self,
+        ts: u64,
+        observe: impl FnOnce(&Path),
+    ) -> Result<(), StoreError> {
+        let s = &self.shared;
+        let _asking = lock(&s.discard);
+        let asked = s.write_discard(ts)?;
+        let journal = s.newest_journal()?;
+        observe(&journal);
+        s.sync_journal(&journal)?;
+        let mut view = lock(&s.view);
+        view.discard_ts = asked;
+        s.publish_discard(&view);
+        Ok(())
     }
 
     /// The items compactions kept because they could not decode them, since the store was opened.

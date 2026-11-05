@@ -18,6 +18,4 @@ pub enum DropTarget {
     Data,
     /// The tenant: everything, its initial catalog written again.
     Tenant,
-    /// Every tenant: every quad key and catalog, the root tenant's initial catalog written again.
-    All,
 }

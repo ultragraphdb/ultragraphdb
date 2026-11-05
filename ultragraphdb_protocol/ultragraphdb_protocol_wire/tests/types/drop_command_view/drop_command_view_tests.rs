@@ -73,20 +73,6 @@ fn test_unused_bytes_kind_and_tenant_are_checked_in_order() -> TestResult {
             }
         );
     }
-    // Every tenant is named by no tenant.
-    let all = DropCommand::all().frame(golden("drop")?.header())?;
-    let named = with_command_header(&all, |h| put(h, 8, 3, 8));
-    assert_eq!(
-        DropCommandView::from_frame(&frame_of(&named)?)
-            .err()
-            .context("a refusal")?
-            .0,
-        ProtocolErrorEnum::FieldValue {
-            command: 19,
-            field: "tenant",
-            value: 3
-        }
-    );
     Ok(())
 }
 
@@ -263,6 +249,34 @@ fn test_a_drop_target_of_any_kind_but_an_iri_is_refused_naming_its_kind() -> Tes
     assert_eq!(
         DropCommandView::from_frame(&frame_of(&iri)?)?.target(),
         Some("http://ex.org/h")
+    );
+    Ok(())
+}
+
+#[test]
+fn test_a_reply_through_no_session_holds_the_zero_token() -> TestResult {
+    let header = golden("drop_reply")?.header();
+    let version = (31 << 22) | 2;
+    let reply = DropCommand::tenant_data(3).with_commit_version(version);
+    let bytes = reply.clone().frame(header.clone())?;
+    let view = DropCommandView::from_frame(&frame_of(&bytes)?)?;
+    assert!(view.token().is_none());
+    assert_eq!(view.to_body()?, reply);
+    let token = with_command_header(&bytes, |h| {
+        put(h, 48, 2, 4);
+        put(h, 56, 42, 8);
+        put(h, 64, 31, 8);
+    });
+    assert_eq!(
+        DropCommandView::from_frame(&frame_of(&token)?)
+            .err()
+            .context("a refusal")?
+            .0,
+        ProtocolErrorEnum::FieldValue {
+            command: 19,
+            field: "token",
+            value: 31
+        }
     );
     Ok(())
 }

@@ -10,8 +10,9 @@ import RoundModel.History
 A round is a list of commit requests, decided in round order against the history `H` the log holds when the round is
 closed (spec `commit-rounds`):
 
-1. **Session.** A request whose number is its session's last committed one is a retry, answered with the stored reply
-   and not committed again; a number other than one above the last is refused as out of order.
+1. **Session.** A one-frame write or Drop whose number is its session's last committed one is a resend, answered with
+   the stored reply and not committed again; a Commit on an open transaction under that number never reads the reply.
+   Any other number than one above the last is refused as out of order, naming the last.
 2. **Exact validation.** It conflicts when a commit of `H`, or of its round before it, with a version above its read
    version wrote a key its read set covers. An aborted transaction adds no writes, so later requests are checked only
    against the commits admitted before them.
@@ -42,7 +43,7 @@ def nextVersion (H : List Commit) (clock : Nat) : Nat := max (maxVersion H + 2) 
 inductive Outcome where
   /-- Committed at the version, with the operations' results. -/
   | committed (version : Nat) (results : List OpResult)
-  /-- A retry of the session's last committed request: its stored reply, not committed again. -/
+  /-- A one-frame or Drop resend of the session's last committed request: its stored reply, not committed again. -/
   | duplicate (version : Nat) (results : List OpResult)
   /-- The request number is not one above the session's last; the last is named. -/
   | outOfOrder (last : Nat)
@@ -54,7 +55,7 @@ inductive Outcome where
 
 /-- Decide one request after the history `H`: its outcome, and its commit when it commits. -/
 def decideTxn (H : List Commit) (clock : Nat) (t : TxnRequest) : Outcome × Option Commit :=
-  if t.reqNo = maxReq t.session H ∧ maxReq t.session H ≠ 0 then
+  if t.oneFrame = true ∧ t.reqNo = maxReq t.session H ∧ maxReq t.session H ≠ 0 then
     match lastCommitOf t.session H with
     | some c => (.duplicate c.version c.results, none)
     | none => (.outOfOrder (maxReq t.session H), none)
@@ -178,11 +179,11 @@ theorem maxReq_none {s : Nat} {l : List Commit} (h : ∀ d ∈ l, d.txn.session 
     simp only [maxReq, h d (List.mem_cons_self _ _), ite_false]
     exact ih (fun d' hd' => h d' (List.mem_cons_of_mem _ hd'))
 
-/-- A retry of a session's last committed request is answered with that commit's stored reply, and commits nothing.
-The spec's "A retried commit commits once". -/
+/-- A one-frame or Drop resend of a session's last committed request is answered with that commit's stored reply, and
+commits nothing. The spec's "A retried commit commits once". -/
 theorem decideTxn_retry {pre post : List Commit} {c : Commit} (clock : Nat) (t : TxnRequest)
     (hv : Valid (pre ++ c :: post)) (hlast : ∀ d ∈ post, d.txn.session ≠ c.txn.session)
-    (hs : t.session = c.txn.session) (hn : t.reqNo = c.txn.reqNo) :
+    (hs : t.session = c.txn.session) (hn : t.reqNo = c.txn.reqNo) (hf : t.oneFrame = true) :
     decideTxn (pre ++ c :: post) clock t = (.duplicate c.version c.results, none) := by
   have hadm := valid_split hv
   have hmax : maxReq t.session (pre ++ c :: post) = c.txn.reqNo := by
@@ -195,6 +196,14 @@ theorem decideTxn_retry {pre post : List Commit} {c : Commit} (clock : Nat) (t :
     simp [lastCommitOf, lastCommitOf_none hlast]
   have hpos : c.txn.reqNo ≠ 0 := by rw [hadm.nextRequest]; omega
   unfold decideTxn
-  rw [if_pos ⟨by rw [hmax, hn], by rw [hmax]; exact hpos⟩, hlc]
+  rw [if_pos ⟨hf, by rw [hmax, hn], by rw [hmax]; exact hpos⟩, hlc]
+
+/-- A Commit on an open transaction numbered at or below its session's last is refused naming the last, commits nothing
+and reads no stored reply. The spec's "A reused number on an open transaction is refused". -/
+theorem decideTxn_reused (H : List Commit) (clock : Nat) (t : TxnRequest) (hf : t.oneFrame = false)
+    (hn : t.reqNo ≤ maxReq t.session H) :
+    decideTxn H clock t = (.outOfOrder (maxReq t.session H), none) := by
+  unfold decideTxn
+  rw [if_neg (by simp [hf]), if_pos (by omega)]
 
 end RoundModel

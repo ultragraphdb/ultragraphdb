@@ -4,11 +4,16 @@
  */
 
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
-use ultragraphdb_protocol_wire::{ABSENT, BodyView, ResultBatch, ResultView};
+use ultragraphdb_protocol_wire::{
+    ABSENT, BodyBuilder, BodyView, FLAG_LAST, Monotonic, PATTERN_COLUMNS_MAX, QUERY_COLUMNS_MAX,
+    ResultBatch, ResultView,
+};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::types::result_batch::result_batch_tests::{LONG, REIFIER, SKOLEM_6, golden_batch};
-use crate::utils::golden_bodies::{frame_of, golden, put, with_command_header, with_section};
+use crate::utils::golden_bodies::{
+    frame_of, golden, put, view_any, with_command_header, with_section,
+};
 
 #[test]
 fn test_the_golden_batch_reads_its_cells_and_terms() -> TestResult {
@@ -49,7 +54,7 @@ fn test_the_golden_batch_reads_its_cells_and_terms() -> TestResult {
 }
 
 fn refused(index: usize, change: impl FnOnce(&mut Vec<u8>)) -> TestResult<ProtocolErrorEnum> {
-    let bytes = with_section(&golden("result")?.bytes()?, 7, index, change);
+    let bytes = with_section(&golden("result")?.bytes()?, 9, index, change);
     Ok(ResultView::from_frame(&frame_of(&bytes)?)
         .err()
         .context("a refusal")?
@@ -158,7 +163,7 @@ fn test_the_first_term_starts_its_section() -> TestResult {
     // A junk byte before the first encoding, every offset moved past it: each term would still parse.
     use crate::utils::golden_bodies::{body_data, join_sections, reframe, split_sections};
     let bytes = golden("result")?.bytes()?;
-    let mut secs = split_sections(body_data(&bytes), 0, 7);
+    let mut secs = split_sections(body_data(&bytes), 0, 9);
     secs[1] = secs[1]
         .chunks(4)
         .map(|c| c.try_into().map(|o| u32::from_le_bytes(o) + 1))
@@ -245,8 +250,8 @@ fn test_header_fields_and_the_reifier_column_are_checked() -> TestResult {
             .context("a refusal")?
             .0)
     };
-    // Columns 0 and 6: the unbound slots and the reifier column are 1 to 5.
-    for columns in [0u64, 6] {
+    // Columns 1,025, and 0 with rows: a batch holds at most a query's projections.
+    for columns in [0u64, u64::from(QUERY_COLUMNS_MAX) + 1] {
         let frame = with_command_header(&bytes, |h| put(h, 0, columns, 4));
         assert_eq!(
             refusal(&frame)?,
@@ -257,7 +262,7 @@ fn test_header_fields_and_the_reifier_column_are_checked() -> TestResult {
             }
         );
     }
-    // An epoch past 2^42 - 1; bytes 20 to 127 unused.
+    // An epoch past 2^42 - 1; bytes 21 to 127 unused.
     let epoch = with_command_header(&bytes, |h| put(h, 8, 1 << 42, 8));
     assert_eq!(
         refusal(&epoch)?,
@@ -267,13 +272,39 @@ fn test_header_fields_and_the_reifier_column_are_checked() -> TestResult {
             value: 1 << 42
         }
     );
-    let unused = with_command_header(&bytes, |h| h[20] = 1);
+    let unused = with_command_header(&bytes, |h| h[21] = 1);
     assert_eq!(
         refusal(&unused)?,
-        ProtocolErrorEnum::ReservedNotZero { offset: 148 }
+        ProtocolErrorEnum::ReservedNotZero { offset: 149 }
     );
+    Ok(())
+}
+
+/// What a receiver asking a quad pattern holds the batch to, which its bytes alone do not tell from a query's.
+#[test]
+fn test_a_patterns_batch_holds_its_columns_and_reifier_column() -> TestResult {
+    let bytes = golden("result")?.bytes()?;
+    let refusal = |frame: &[u8]| -> TestResult<ProtocolErrorEnum> {
+        Ok(ResultView::from_frame(&frame_of(frame)?)?
+            .check_pattern()
+            .err()
+            .context("a refusal")?
+            .0)
+    };
+    for columns in [0, PATTERN_COLUMNS_MAX + 1] {
+        let wide = ResultBatch::new(columns).frame(golden("result")?.header())?;
+        assert_eq!(
+            refusal(&wide)?,
+            ProtocolErrorEnum::FieldValue {
+                command: 13,
+                field: "columns",
+                value: columns.into()
+            }
+        );
+    }
+    ResultView::from_frame(&frame_of(&bytes)?)?.check_pattern()?;
     // Row 0's reifier cell, cell 6, naming term 0, an IRI; row 2's naming term 3, a literal.
-    let iri = with_section(&bytes, 7, 0, |cells| put(cells, 24, 0, 4));
+    let iri = with_section(&bytes, 9, 0, |cells| put(cells, 24, 0, 4));
     assert_eq!(
         refusal(&iri)?,
         ProtocolErrorEnum::FieldValue {
@@ -282,7 +313,7 @@ fn test_header_fields_and_the_reifier_column_are_checked() -> TestResult {
             value: 0
         }
     );
-    let literal = with_section(&bytes, 7, 0, |cells| put(cells, 32, 3, 4));
+    let literal = with_section(&bytes, 9, 0, |cells| put(cells, 32, 3, 4));
     assert_eq!(
         refusal(&literal)?,
         ProtocolErrorEnum::FieldValue {
@@ -292,11 +323,10 @@ fn test_header_fields_and_the_reifier_column_are_checked() -> TestResult {
         }
     );
     // A blank node there, the other one, reads.
-    let blank = with_section(&bytes, 7, 0, |cells| put(cells, 32, 4, 4));
-    assert_eq!(
-        ResultView::from_frame(&frame_of(&blank)?)?.cell(2, 2),
-        Some(4)
-    );
+    let blank = with_section(&bytes, 9, 0, |cells| put(cells, 32, 4, 4));
+    let read = ResultView::from_frame(&frame_of(&blank)?)?;
+    read.check_pattern()?;
+    assert_eq!(read.cell(2, 2), Some(4));
     Ok(())
 }
 
@@ -307,7 +337,7 @@ fn test_cells_count_rows_times_columns_in_sixty_four_bits() -> TestResult {
         put(h, 0, 4, 4);
         put(h, 4, 1 << 30, 4);
     });
-    let empty = with_section(&wrapped, 7, 0, |cells| cells.clear());
+    let empty = with_section(&wrapped, 9, 0, |cells| cells.clear());
     assert_eq!(
         ResultView::from_frame(&frame_of(&empty)?)
             .err()
@@ -362,7 +392,7 @@ fn test_each_term_is_one_whole_encoding() -> TestResult {
             .map_err(|e| e.0),
         Ok(Some(true))
     );
-    let short = with_section(&blank, 7, 2, |e| {
+    let short = with_section(&blank, 9, 2, |e| {
         assert!(e.pop().is_some(), "the section holds a byte to cut");
     });
     assert_eq!(
@@ -377,7 +407,7 @@ fn test_each_term_is_one_whole_encoding() -> TestResult {
         }
     );
     // A tag the store never writes, 0x03, is no encoding: term 3 starts after 17 + 4 + 17 bytes.
-    let unknown = with_section(&blank, 7, 2, |e| e[38] = 0x03);
+    let unknown = with_section(&blank, 9, 2, |e| e[38] = 0x03);
     assert_eq!(
         ResultView::from_frame(&frame_of(&unknown)?)
             .err()
@@ -421,9 +451,9 @@ fn test_a_batch_of_no_terms_holds_no_encodings() -> TestResult {
     )[2]
     .len();
     assert!(encodings > 0);
-    let none = with_section(&bytes, 7, 1, |offsets| offsets.clear());
-    let none = with_section(&none, 7, 3, |texts| texts.clear());
-    let none = with_section(&none, 7, 0, |cells| cells.fill(0xFF));
+    let none = with_section(&bytes, 9, 1, |offsets| offsets.clear());
+    let none = with_section(&none, 9, 3, |texts| texts.clear());
+    let none = with_section(&none, 9, 0, |cells| cells.fill(0xFF));
     assert_eq!(
         ResultView::from_frame(&frame_of(&none)?)
             .err()
@@ -437,9 +467,192 @@ fn test_a_batch_of_no_terms_holds_no_encodings() -> TestResult {
         }
     );
     // With the encodings emptied as well, the batch reads: its nine cells unbound.
-    let empty = with_section(&none, 7, 2, |e| e.clear());
+    let empty = with_section(&none, 9, 2, |e| e.clear());
     let view = ResultView::from_frame(&frame_of(&empty)?)?;
     assert_eq!(view.term_count(), 0);
     assert_eq!(view.cell(1, 2), Some(ABSENT));
+    Ok(())
+}
+
+#[test]
+fn test_the_golden_querys_batch_reads_its_names_and_flag() -> TestResult {
+    let bytes = golden("result_query")?.bytes()?;
+    let view = ResultView::from_frame(&frame_of(&bytes)?)?;
+    assert_eq!(view.monotonic(), Monotonic::Retractable);
+    let names: Vec<&str> = view.column_names().iter().collect();
+    assert_eq!(names, ["n", "age"]);
+    assert_eq!(view_any(&bytes)?, Ok(()));
+    // Its last column holds a null here; an IRI there is a pattern's refusal alone.
+    let iri = with_section(&bytes, 9, 0, |cells| put(cells, 4, 0, 4));
+    let read = ResultView::from_frame(&frame_of(&iri)?)?;
+    assert_eq!(read.cell(1, 0), Some(0));
+    assert_eq!(
+        read.check_pattern().err().context("a refusal")?.0,
+        ProtocolErrorEnum::FieldValue {
+            command: 13,
+            field: "reifier",
+            value: 0
+        }
+    );
+    Ok(())
+}
+
+#[test]
+fn test_the_monotonic_byte_is_0_to_2_after_the_epoch() -> TestResult {
+    let bytes = golden("result")?.bytes()?;
+    for value in 0..=2u8 {
+        let frame = with_command_header(&bytes, |h| h[20] = value);
+        assert_eq!(
+            ResultView::from_frame(&frame_of(&frame)?)?
+                .monotonic()
+                .number(),
+            value
+        );
+    }
+    let refused_frame = with_command_header(&bytes, |h| h[20] = 3);
+    assert_eq!(
+        ResultView::from_frame(&frame_of(&refused_frame)?)
+            .err()
+            .context("a refusal")?
+            .0,
+        ProtocolErrorEnum::FieldValue {
+            command: 13,
+            field: "monotonic",
+            value: 3
+        }
+    );
+    let epoch = with_command_header(&bytes, |h| {
+        h[20] = 3;
+        put(h, 8, 1 << 42, 8);
+    });
+    assert!(matches!(
+        ResultView::from_frame(&frame_of(&epoch)?)
+            .err()
+            .context("a refusal")?
+            .0,
+        ProtocolErrorEnum::FieldValue { field: "epoch", .. }
+    ));
+    Ok(())
+}
+
+#[test]
+fn test_column_names_are_empty_or_one_per_column() -> TestResult {
+    let bytes = golden("result_query")?.bytes()?;
+    let empty = with_section(&bytes, 9, 7, Vec::clear);
+    let empty = with_section(&empty, 9, 8, Vec::clear);
+    assert!(
+        ResultView::from_frame(&frame_of(&empty)?)?
+            .column_names()
+            .is_empty()
+    );
+    let extra = with_section(&bytes, 9, 7, |ends| {
+        let last = ends[ends.len() - 4..].to_vec();
+        ends.extend_from_slice(&last);
+    });
+    assert_eq!(
+        ResultView::from_frame(&frame_of(&extra)?)
+            .err()
+            .context("a refusal")?
+            .0,
+        ProtocolErrorEnum::CountMismatch {
+            command: 13,
+            field: "column names",
+            count: 3,
+            expected: 2
+        }
+    );
+    Ok(())
+}
+
+#[test]
+fn test_a_resume_key_stays_off_every_batch_but_the_last() -> TestResult {
+    let header = golden("result")?.header().with_flags(0);
+    let keyed = ResultBatch::new(1).with_resume(b"rk".to_vec());
+    assert_eq!(
+        ResultView::from_frame(&frame_of(&keyed.frame(header.clone())?)?)
+            .err()
+            .context("a refusal")?
+            .0,
+        ProtocolErrorEnum::FieldValue {
+            command: 13,
+            field: "resume key",
+            value: 2
+        }
+    );
+    assert!(
+        ResultView::from_frame(&frame_of(&ResultBatch::new(1).frame(header.clone())?)?).is_ok()
+    );
+    let last = keyed.frame(header.with_flags(FLAG_LAST))?;
+    assert_eq!(ResultView::from_frame(&frame_of(&last)?)?.resume(), b"rk");
+    Ok(())
+}
+
+/// Each row of `PROTOCOL.md` §10.3's table, a term of the tag with what it names, broken one index at a time.
+#[test]
+fn test_a_terms_text_and_annotation_follow_its_tag() -> TestResult {
+    let hash = [7u8; 16];
+    let cases: [(Vec<u8>, bool, bool); 8] = [
+        ([&[0x01], &hash[..]].concat(), true, false),
+        ([&[0x02], &hash[..]].concat(), true, false),
+        ([&[0x21], &hash[..]].concat(), true, false),
+        ([&[0x23], &hash[..], &[0][..]].concat(), true, false),
+        ([&[0x24], &hash[..], &hash[..]].concat(), true, true),
+        ([&[0x32], &hash[..], &[0][..]].concat(), false, true),
+        ([&[0x33], &hash[..], &hash[..]].concat(), true, true),
+        (vec![0x20, 0], false, false),
+    ];
+    let bytes = golden("result")?.bytes()?;
+    for (encoding, text, annotation) in cases {
+        let batch = |texts: [u32; 2]| -> Vec<u8> {
+            let one = with_section(&bytes, 9, 0, |cells| {
+                *cells = [
+                    0u32, ABSENT, ABSENT, ABSENT, ABSENT, ABSENT, ABSENT, ABSENT, ABSENT,
+                ]
+                .iter()
+                .flat_map(|cell| cell.to_le_bytes())
+                .collect();
+            });
+            let one = with_section(&one, 9, 1, |offsets| *offsets = vec![0; 4]);
+            let one = with_section(&one, 9, 2, |terms| terms.clone_from(&encoding));
+            with_section(&one, 9, 3, |pairs| {
+                *pairs = texts.iter().flat_map(|index| index.to_le_bytes()).collect();
+            })
+        };
+        let string = |named: bool| if named { 0 } else { ABSENT };
+        let held = batch([string(text), string(annotation)]);
+        assert!(
+            ResultView::from_frame(&frame_of(&held)?).is_ok(),
+            "{encoding:02x?}"
+        );
+        for broken in [
+            [string(!text), string(annotation)],
+            [string(text), string(!annotation)],
+        ] {
+            assert_eq!(
+                ResultView::from_frame(&frame_of(&batch(broken))?)
+                    .err()
+                    .context("a refusal")?
+                    .0,
+                ProtocolErrorEnum::FieldValue {
+                    command: 13,
+                    field: "term text",
+                    value: 0
+                },
+                "{encoding:02x?}"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// A GQL statement without `RETURN` answers one batch of no column and no row.
+#[test]
+fn test_a_batch_of_no_column_holds_no_row() -> TestResult {
+    let header = golden("result")?.header();
+    let bytes = ResultBatch::new(0).frame(header)?;
+    let view = ResultView::from_frame(&frame_of(&bytes)?)?;
+    assert_eq!((view.columns(), view.rows()), (0, 0));
+    assert_eq!(view.cell(0, 0), None);
+    assert_eq!(view_any(&bytes)?, Ok(()));
     Ok(())
 }

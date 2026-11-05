@@ -8,7 +8,9 @@ use ultragraphdb_protocol_wire::{BodyView, ComputeReadView, MAX_EPOCH, ReadLevel
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::types::compute_read::compute_read_tests::{golden_compute_read, golden_compute_read_rw};
-use crate::utils::golden_bodies::{frame_of, put, view_any, with_command_header, with_section};
+use crate::utils::golden_bodies::{
+    frame_of, put, reframe, view_any, with_command_header, with_section,
+};
 use crate::utils::golden_roles::{golden_role, role_bytes};
 
 fn bytes(name: &str) -> TestResult<Vec<u8>> {
@@ -67,7 +69,7 @@ fn test_the_golden_reads_read_back_to_their_bodies() -> TestResult {
 #[test]
 fn test_unused_bytes_mode_and_level_come_first() -> TestResult {
     let read = bytes("compute_read")?;
-    for at in [7usize, 64, 127] {
+    for at in [7usize, 72, 127] {
         let bad = with_command_header(&read, |h| {
             h[at] = 1;
             h[4] = 2;
@@ -164,5 +166,44 @@ fn test_the_term_table_comes_before_the_pattern_which_takes_no_parameter() -> Te
             unit: 24
         }
     );
+    Ok(())
+}
+
+#[test]
+fn test_the_client_limits_are_read_and_bounded() -> TestResult {
+    let read = bytes("compute_read")?;
+    let view = ComputeReadView::from_frame(&frame_of(&read)?)?;
+    assert_eq!((view.max_frame(), view.credit()), (1 << 20, 4));
+    for max_frame in [0u64, (1 << 19) - 1, (1 << 20) + 1] {
+        let frame = with_command_header(&read, |h| put(h, 64, max_frame, 4));
+        assert_eq!(refused(&frame)?, field("max_frame", max_frame));
+    }
+    let no_credit = with_command_header(&read, |h| put(h, 68, 0, 4));
+    assert_eq!(refused(&no_credit)?, field("credit", 0));
+    for max_frame in [1u64 << 19, 1 << 20] {
+        let bound = with_command_header(&read, |h| put(h, 64, max_frame, 4));
+        assert_eq!(
+            u64::from(ComputeReadView::from_frame(&frame_of(&bound)?)?.max_frame()),
+            max_frame
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn test_the_client_limits_follow_the_transaction_and_come_before_the_sections() -> TestResult {
+    let read = bytes("compute_read")?;
+    let mode = with_command_header(&read, |h| {
+        h[4] = 2;
+        put(h, 64, 0, 4);
+    });
+    assert_eq!(refused(&mode)?, field("mode", 2));
+    let frame = with_command_header(&read, |h| {
+        put(h, 64, 0, 4);
+        put(h, 68, 0, 4);
+    });
+    assert_eq!(refused(&frame)?, field("max_frame", 0));
+    let cut = reframe(&with_command_header(&read, |h| put(h, 68, 0, 4)), &[]);
+    assert_eq!(refused(&cut)?, field("credit", 0));
     Ok(())
 }

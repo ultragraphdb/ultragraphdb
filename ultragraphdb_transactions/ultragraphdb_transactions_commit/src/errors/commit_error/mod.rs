@@ -38,6 +38,14 @@ pub enum CommitErrorEnum {
         /// The largest record a round holds, in bytes.
         limit: usize,
     },
+    /// The Commit reply the commit-time operations leave, `size` bytes as a frame, would pass `limit`, the floor of
+    /// `max_frame`: its stored reply answers a resend on any connection.
+    ReplyTooLarge {
+        /// The reply's frame in bytes.
+        size: usize,
+        /// The floor of `max_frame`, in bytes.
+        limit: usize,
+    },
     /// The write-set record does not read as one: a worker built it wrongly.
     Malformed {
         /// Why the record did not read.
@@ -119,6 +127,11 @@ impl CommitError {
         Self(CommitErrorEnum::TooLarge { size, limit })
     }
 
+    /// The [`CommitErrorEnum::ReplyTooLarge`] reason.
+    pub fn reply_too_large(size: usize, limit: usize) -> Self {
+        Self(CommitErrorEnum::ReplyTooLarge { size, limit })
+    }
+
     /// The [`CommitErrorEnum::Malformed`] reason.
     pub fn malformed(cause: ProtocolError) -> Self {
         Self(CommitErrorEnum::Malformed { cause })
@@ -182,6 +195,7 @@ impl CommitError {
             CommitErrorEnum::Conflict { .. }
             | CommitErrorEnum::TooOld { .. }
             | CommitErrorEnum::TooLarge { .. }
+            | CommitErrorEnum::ReplyTooLarge { .. }
             | CommitErrorEnum::Malformed { .. }
             | CommitErrorEnum::Unsealed
             | CommitErrorEnum::Busy { .. }
@@ -200,7 +214,9 @@ impl CommitError {
         match self.0 {
             CommitErrorEnum::Conflict { .. } => ErrorCode::Conflict,
             CommitErrorEnum::TooOld { .. } => ErrorCode::TooOld,
-            CommitErrorEnum::TooLarge { .. } => ErrorCode::TooLarge,
+            CommitErrorEnum::TooLarge { .. } | CommitErrorEnum::ReplyTooLarge { .. } => {
+                ErrorCode::TooLarge
+            }
             CommitErrorEnum::Malformed { .. } | CommitErrorEnum::Unsealed => ErrorCode::Protocol,
             CommitErrorEnum::Unavailable | CommitErrorEnum::CloseOutOfOrder { .. } => {
                 ErrorCode::Unavailable
@@ -218,11 +234,12 @@ impl CommitError {
     /// The code's detail: the conflict's kind, the too-large limit in bytes, the last request number the partition holds
     /// for the session, the request number not committed, the two partitions of a cross-partition abort (the
     /// transaction's in bits 0–31, the other in bits 32–63); zero otherwise. The too-large limit is the largest record a
-    /// round holds, the Welcome's `max_write_set`.
+    /// round holds, the Welcome's `max_write_set`, or for a reply the floor of `max_frame`.
     pub fn detail(&self) -> u64 {
         match self.0 {
             CommitErrorEnum::Conflict { kind } => kind.number(),
-            CommitErrorEnum::TooLarge { limit, .. } => limit as u64,
+            CommitErrorEnum::TooLarge { limit, .. }
+            | CommitErrorEnum::ReplyTooLarge { limit, .. } => limit as u64,
             CommitErrorEnum::RequestOutOfOrder { last } => last,
             CommitErrorEnum::NotCommitted { request } => request,
             CommitErrorEnum::CrossPartition { partition, other } => {

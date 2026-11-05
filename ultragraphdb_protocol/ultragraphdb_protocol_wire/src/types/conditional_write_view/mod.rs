@@ -6,7 +6,9 @@
 mod conditional_write_view_body_view;
 
 use ultragraphdb_core_ids::SessionToken;
+use ultragraphdb_error_protocol::ProtocolError;
 
+use crate::types::command::Command;
 use crate::types::commit_operation::CommitOperation;
 use crate::types::term_table_view::TermTableView;
 use crate::types::write_change::WriteChange;
@@ -24,6 +26,18 @@ pub struct ConditionalWriteView<'a> {
 }
 
 impl<'a> ConditionalWriteView<'a> {
+    /// The principal the frontend filled; 0 from a client.
+    pub fn principal(&self) -> u64 {
+        self.header.principal
+    }
+
+    /// The rule the client endpoint holds a received write to: `principal` 0, refused as
+    /// [`ProtocolError::field_value`] (`"principal"`).
+    pub fn check_from_client(&self) -> Result<(), ProtocolError> {
+        self.header
+            .check_from_client(Command::ConditionalWrite.number())
+    }
+
     /// The client's session; all zero for none.
     pub fn session(&self) -> [u8; 16] {
         self.header.session

@@ -425,6 +425,22 @@ pub fn postings(
     a.quads().objects(&key, latest(a)).context("the list reads")
 }
 
+/// The subjects of the reverse list of `predicate` for the object `object` in the default graph, each with its statement IDs.
+pub fn reverse_postings(
+    a: &TestChangesets,
+    predicate: &str,
+    object: &str,
+) -> TestResult<Vec<(EncodedTerm, Vec<SystemId>)>> {
+    let key = QuadKey::Reverse {
+        tenant: TENANT,
+        graph: DEFAULT_GRAPH,
+        predicate: uid(a, predicate)?,
+        object: EncodedTerm::id(uid(a, object)?),
+    }
+    .to_bytes();
+    a.quads().objects(&key, latest(a)).context("the list reads")
+}
+
 /// The IDs a list holds.
 fn uids(a: &TestChangesets, key: &[u8]) -> TestResult<Vec<SystemId>> {
     Ok(a.quads()

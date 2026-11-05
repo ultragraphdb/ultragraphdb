@@ -20,10 +20,11 @@ use ultragraphdb_protocol_wire::{
     CatalogView, ChallengeView, CloseRequestView, ClosedView, Command, CommitView, ComputeReadView,
     ConditionalWriteView, CreditView, DefaultEntryView, DescribeView, DirectWriteView,
     DropCommandView, EntriesEnd, EntriesSequence, EntriesView, EpochCloseView, ErrorReplyView,
-    ExecuteView, FLAG_LAST, FrameView, Header, HelloView, JoinView, LeaseView, MAX_FRAME_SIZE,
-    MembersView, OperationView, PlacementView, PrepareView, ReadView, RecallView, ReferenceView,
-    RegisterView, ReportView, ResultView, RoundView, ScanAt, ScanView, SubscribeView, VerifyView,
-    WelcomeView, WriteView,
+    ExecuteView, FLAG_LAST, FrameView, Header, HeldView, HelloView, InstallView, JoinView,
+    LeaseView, MAX_FRAME_FLOOR, MAX_FRAME_SIZE, MembersView, OperationView, PlacementView,
+    PrepareView, QueryView, ReadView, RecallView, ReferenceView, RegisterView, ReportView,
+    ResultView, RoundView, ScanAt, ScanRange, ScanView, SubscribeView, VerifyView, WelcomeView,
+    WriteView,
 };
 
 /// The golden frames' cluster, so seeds from `testdata/fuzz_seeds/body/` pass the cluster rule.
@@ -67,6 +68,8 @@ fn rebuild(bytes: &[u8]) -> Result<(Command, Vec<u8>), ProtocolError> {
         Command::Drop => through::<DropCommandView>(&frame),
         Command::DirectWrite => through::<DirectWriteView>(&frame),
         Command::ConditionalWrite => through::<ConditionalWriteView>(&frame),
+        Command::Query => through::<QueryView>(&frame),
+        Command::Install => through::<InstallView>(&frame),
         Command::Join => through::<JoinView>(&frame),
         Command::Members => through::<MembersView>(&frame),
         Command::Subscribe => through::<SubscribeView>(&frame),
@@ -86,10 +89,23 @@ fn rebuild(bytes: &[u8]) -> Result<(Command, Vec<u8>), ProtocolError> {
         Command::Closed => through::<ClosedView>(&frame),
         Command::DefaultEntry => through::<DefaultEntryView>(&frame),
         Command::Report => through::<ReportView>(&frame),
+        Command::Held => through::<HeldView>(&frame),
     }?;
     match frame.command() {
         Command::Prepare => {
             let _ = PrepareView::from_frame(&frame).map(|v| (v.check_request(), v.check_reply()));
+        }
+        Command::Result => {
+            let _ = ResultView::from_frame(&frame).map(|v| v.check_pattern());
+        }
+        Command::Query => {
+            let _ = QueryView::from_frame(&frame).map(|v| v.check_text(MAX_FRAME_FLOOR as u32));
+        }
+        Command::DirectWrite => {
+            let _ = DirectWriteView::from_frame(&frame).map(|v| v.check_from_client());
+        }
+        Command::ConditionalWrite => {
+            let _ = ConditionalWriteView::from_frame(&frame).map(|v| v.check_from_client());
         }
         _ => {}
     }
@@ -107,9 +123,15 @@ fn holds_its_rules(frame: &FrameView<'_>) {
     };
     if let Ok(view) = CommitView::from_frame(frame) {
         request_fits(view.session(), view.request());
+        if view.session() == [0; 16] {
+            assert!(view.token().is_none(), "a reply through no session");
+        }
     }
     if let Ok(view) = DropCommandView::from_frame(frame) {
         request_fits(view.session(), view.request());
+        if view.session() == [0; 16] {
+            assert!(view.token().is_none(), "a reply through no session");
+        }
     }
     if let Ok(view) = DirectWriteView::from_frame(frame) {
         request_fits(view.session(), view.request());
@@ -133,10 +155,15 @@ fn holds_its_rules(frame: &FrameView<'_>) {
             assert_eq!(view.end(), EntriesEnd::More);
             assert!(!view.entries().is_empty());
         }
-        if view.range() == 0 {
+        assert!(view.through() >= view.range());
+        assert!(view.through() == view.range() || view.end() == EntriesEnd::Ended);
+        if view.range() == 0 && view.through() == 0 {
             let last = frame.header().flags() & FLAG_LAST != 0;
+            // A range holding every key: the entries' places leave the rule of `LAST` to decide.
             assert_eq!(
-                EntriesSequence::new(1).accept(frame).is_ok(),
+                EntriesSequence::new([ScanRange::new(1, b"", b"")])
+                    .accept(frame)
+                    .is_ok(),
                 last == (view.end() != EntriesEnd::More),
                 "`LAST` says how the answer ended"
             );

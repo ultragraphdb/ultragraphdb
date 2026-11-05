@@ -1,6 +1,6 @@
 [cluster]
 id = 1
-role_secret_file = "/run/secrets/ultragraphdb_role_secret"
+role_secret_file = "/data/config/role.secret"
 partition_count = 1
 [observability]
 address = "tcp://127.0.0.1:8081"
@@ -8,7 +8,7 @@ address = "tcp://127.0.0.1:8081"
 address = "tcp://0.0.0.0:7080"
 plaintext = true
 [frontend]
-role_address = "unix:///run/ultragraphdb/frontend.sock"
+role_address = "unix:///run/ultragraph/frontend.sock"
 data_dir = "/data"
 [sequencer]
 epoch_ms_min = 2

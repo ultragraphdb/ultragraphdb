@@ -57,7 +57,8 @@ impl KernelScan {
         self
     }
 
-    /// The scan resuming inside the list of its first key, after the posting `after` names, when there is one.
+    /// The scan resuming inside the list of its first key, after the posting `after` names, or at it when the identity is
+    /// [`PostingIdentity::included`], when there is one.
     pub fn resuming(mut self, after: Option<PostingIdentity>) -> Self {
         self.after = after;
         self
@@ -107,7 +108,7 @@ impl KernelScan {
         self.limit
     }
 
-    /// The posting of the first key's list the scan resumes after.
+    /// The posting of the first key's list the scan resumes at.
     pub fn after(&self) -> Option<&PostingIdentity> {
         self.after.as_ref()
     }
@@ -137,18 +138,19 @@ impl KernelScan {
         ))
     }
 
-    /// Refuses a keyspace other than the referrer sets, the one keyspace of stored values the read kernel reads through a page.
+    /// Refuses a keyspace other than the referrer sets and the statements, the keyspaces of stored values the read kernel reads
+    /// through a page.
     ///
     /// # Errors
     ///
     /// [`QuadError::corrupted`] naming the keyspace's prefix.
-    pub fn check_referrers(&self) -> Result<(), QuadError> {
-        if self.keyspace == Keyspace::Referrers {
+    pub fn check_values(&self) -> Result<(), QuadError> {
+        if matches!(self.keyspace, Keyspace::Referrers | Keyspace::Statements) {
             return Ok(());
         }
         Err(QuadError::corrupted(
             &key_prefix(self.keyspace, false, self.tenant, None, None),
-            "a page of stored values reads the referrer sets",
+            "a page of stored values reads the referrer sets or the statements",
         ))
     }
 

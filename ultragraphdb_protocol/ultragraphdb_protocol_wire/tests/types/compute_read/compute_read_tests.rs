@@ -11,8 +11,8 @@ use ultragraphdb_tool_bdd::TestResult;
 use crate::types::bind::bind_tests::{TRANSACTION, WATERMARK};
 use crate::utils::golden_roles::{golden_role, role_bytes};
 
-/// The golden read-only ComputeRead: level 2 in tenant 5, floor epoch 31, principal 9, limit 100, 50 ms left, the
-/// pattern (?, <a>, <name>, ?) and the resume key `rk1`.
+/// The golden read-only ComputeRead: level 2 in tenant 5, floor epoch 31, principal 9, limit 100, 50 ms left, the client's
+/// `max_frame` 1 MiB and credit 4, the pattern (?, <a>, <name>, ?) and the resume key `rk1`.
 pub fn golden_compute_read() -> ComputeRead {
     let mut terms = TermTable::new();
     let a = terms.iri("http://ex.org/a");
@@ -35,10 +35,11 @@ pub fn golden_compute_read() -> ComputeRead {
     .with_principal(9)
     .with_limit(100)
     .with_deadline_ms(50)
+    .with_client_limits(1 << 20, 4)
 }
 
 /// The golden read of a read-write transaction: level 1, bound to partition 3 at the Bind's watermark, principal 9,
-/// 9,000 ms left, the pattern (<g>, ?, <knows>, <b>).
+/// 9,000 ms left, the client's `max_frame` at its floor and credit 1, the pattern (<g>, ?, <knows>, <b>).
 pub fn golden_compute_read_rw() -> ComputeRead {
     let mut terms = TermTable::new();
     let g = terms.iri("http://ex.org/g");
@@ -56,6 +57,7 @@ pub fn golden_compute_read_rw() -> ComputeRead {
         .with_read_version(WATERMARK)
         .with_principal(9)
         .with_deadline_ms(9_000)
+        .with_client_limits(1 << 19, 1)
 }
 
 #[test]

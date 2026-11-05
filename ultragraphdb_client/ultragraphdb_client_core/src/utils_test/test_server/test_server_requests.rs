@@ -73,15 +73,7 @@ impl TestServer {
                 let answer = Describe::new(0, self.version);
                 self.reply(stream, &answer, FLAG_LAST);
             }
-            Command::Commit => {
-                if let Ok(commit) = CommitView::from_frame(&view) {
-                    self.commit(
-                        stream,
-                        u128::from_be_bytes(commit.session()),
-                        commit.request(),
-                    );
-                }
-            }
+            Command::Commit => self.commit_view(stream, &view),
             Command::Drop => {
                 if let Ok(drop) = DropCommandView::from_frame(&view).and_then(|d| d.to_body()) {
                     self.drop(stream, drop);
@@ -95,6 +87,8 @@ impl TestServer {
             | Command::Write
             | Command::DirectWrite
             | Command::ConditionalWrite
+            | Command::Query
+            | Command::Install
             | Command::Result
             | Command::Credit
             | Command::Cancel
@@ -120,7 +114,16 @@ impl TestServer {
             | Command::CloseRequest
             | Command::Closed
             | Command::DefaultEntry
-            | Command::Report => {}
+            | Command::Report
+            | Command::Held => {}
+        }
+    }
+
+    /// A Commit `view` on `stream`, answered from its session and request.
+    fn commit_view(&mut self, stream: u64, view: &FrameView<'_>) {
+        if let Ok(commit) = CommitView::from_frame(view) {
+            let session = u128::from_be_bytes(commit.session());
+            self.commit(stream, session, commit.request());
         }
     }
 
@@ -128,10 +131,12 @@ impl TestServer {
     /// its result types those of the pattern's unbound slots.
     fn prepare(&mut self, stream: u64, view: &FrameView<'_>) {
         if let Ok(body) = PrepareView::from_frame(view).and_then(|p| p.to_body()) {
+            let Some(pattern) = body.pattern().copied() else {
+                return self.error(stream, ErrorCode::Refused, 0, "a text is not served");
+            };
             let id = self.statements.len() as u64 + 1;
             let _replaced: Option<u64> = self.statements.insert(id, self.schema);
-            let types = body
-                .pattern()
+            let types = pattern
                 .slots()
                 .iter()
                 .zip(QuadPattern::slot_types())
@@ -145,7 +150,7 @@ impl TestServer {
                 id,
                 self.schema,
                 body.terms().clone(),
-                *body.pattern(),
+                pattern,
                 body.parameter_types().to_vec(),
                 types,
             );
@@ -204,7 +209,10 @@ impl TestServer {
             return self.reply(stream, &ResultBatch::new(2), FLAG_LAST);
         }
         for i in 0..results {
-            let mut batch = ResultBatch::new(2).with_resume(vec![i as u8]);
+            // Only a stream's last batch holds a resume key.
+            let last = i + 1 == results;
+            let resume = if last { vec![i as u8] } else { Vec::new() };
+            let mut batch = ResultBatch::new(2).with_resume(resume);
             let rows = batch
                 .push_row(&[Some(&term), None])
                 .and_then(|()| batch.push_row(&[Some(&term), None]));
@@ -216,7 +224,7 @@ impl TestServer {
                 return self.error(stream, ErrorCode::OperationFailed, 0, &message);
             }
 
-            let flags = if i + 1 == results { FLAG_LAST } else { 0 };
+            let flags = if last { FLAG_LAST } else { 0 };
             self.reply(stream, &batch, flags);
         }
     }

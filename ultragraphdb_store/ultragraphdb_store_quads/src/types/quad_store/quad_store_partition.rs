@@ -3,15 +3,19 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::cmp::Ordering;
+use std::collections::BTreeMap;
+use std::iter::Peekable;
 use std::num::NonZeroU64;
 use std::ops::ControlFlow;
 
 use ultragraphdb_core_ids::{BucketGroup, SystemId};
-use ultragraphdb_core_keys::{Graph, QuadKey};
-use ultragraphdb_core_terms::EncodedTerm;
-use ultragraphdb_store_posting::{CachedList, walk_lists};
+use ultragraphdb_core_keys::{Graph, Keyspace, QuadKey};
+use ultragraphdb_core_terms::{EncodedTerm, TermError};
+use ultragraphdb_error_store::StoreError;
+use ultragraphdb_store_posting::{CachedList, PostingIdentity, walk_lists};
 use ultragraphdb_traits_blocks::BlockSource;
-use ultragraphdb_traits_store::{ListCache, Scan, Store, StoreSnapshot};
+use ultragraphdb_traits_store::{Item, ListCache, Scan, Store, StoreSnapshot};
 
 use crate::errors::quad_error::QuadError;
 use crate::types::kernel_row::KernelRow;
@@ -21,7 +25,7 @@ use crate::types::page_end::PageEnd;
 use crate::types::page_walk::PageWalk;
 use crate::types::quad_store::QuadStore;
 use crate::types::referrer_set::ReferrerSet;
-use crate::utils::postings::list_holds;
+use crate::utils::postings::{list_holds, object_identity};
 
 /// The reads a partition answers beside its quad reads (partitions, quad-reads): referrer sets and marks, its own
 /// reverse entries, its predicate lists and reverse counts, and the read kernel. Each reads the store at `version`,
@@ -219,31 +223,73 @@ where
         Ok(walk.end(walked))
     }
 
-    /// A page of the referrer sets: each key `scan` names and its stored value as of the scan's version, in key order, streamed
-    /// to `sink`, which breaks on a value it does not take. It ends as [`QuadStore::page`] does; a value is taken whole or not
-    /// at all, so a pause lies between keys.
+    /// Where a list of `keyspace` resumes for a reader naming the object `encoding` in a Scan's `after`, for [`KernelScan::resuming`]:
+    /// at that object's posting, read itself when the list holds it.
+    ///
+    /// # Errors
+    ///
+    /// [`TermError`] for bytes that are not one whole object encoding.
+    pub fn resume_at(
+        &self,
+        keyspace: Keyspace,
+        encoding: &[u8],
+    ) -> Result<PostingIdentity, TermError> {
+        object_identity(keyspace, encoding, self.fingerprint())
+    }
+
+    /// A page of the referrer sets or the statements: each key `scan` names and its stored value as of the scan's version, in key
+    /// order, streamed to `sink`, which breaks on a value it does not take. It ends as [`QuadStore::page`] does; a value is taken
+    /// whole or not at all, so a pause lies between keys.
     ///
     /// # Errors
     ///
     /// The store's error; [`QuadError::corrupted`] for another keyspace.
-    pub fn values_page<F>(&self, scan: &KernelScan, mut sink: F) -> Result<Page, QuadError>
+    pub fn values_page<F>(&self, scan: &KernelScan, sink: F) -> Result<Page, QuadError>
     where
         F: FnMut(&[u8], &[u8]) -> ControlFlow<()>,
     {
-        scan.check_referrers()?;
+        self.values_page_over(scan, &BTreeMap::new(), sink)
+    }
+
+    /// A page of stored values as [`QuadStore::values_page`] reads it, `own` over what the store holds: each key's value there, or
+    /// no entry for `None`, whatever the store holds at the version. What a transaction reads of the statements with its own
+    /// records over them.
+    ///
+    /// # Errors
+    ///
+    /// The store's error; [`QuadError::corrupted`] for another keyspace.
+    pub fn values_page_over<F>(
+        &self,
+        scan: &KernelScan,
+        own: &BTreeMap<Vec<u8>, Option<Vec<u8>>>,
+        mut sink: F,
+    ) -> Result<Page, QuadError>
+    where
+        F: FnMut(&[u8], &[u8]) -> ControlFlow<()>,
+    {
+        scan.check_values()?;
         let (start, end) = scan.bounds();
         let snapshot = self.store().snapshot(scan.version())?;
+        let mut held = snapshot
+            .scan(&Scan::range(start.clone(), end.clone()))
+            .peekable();
+        let mut written = own
+            .range(start..)
+            .take_while(|(key, _)| end.as_ref().is_none_or(|end| *key < end))
+            .peekable();
         let (mut rows, mut last) = (0usize, None::<Vec<u8>>);
-        for item in snapshot.scan(&Scan::range(start, end)) {
-            let item = item?;
+        while let Some((key, value)) = next_value(&mut held, &mut written)? {
+            let Some(value) = value else {
+                continue;
+            };
             if let Some(last) = last.take_if(|_| rows == scan.limit().get()) {
                 return Ok(Page::new(PageEnd::Stopped { last }, rows));
             }
-            if sink(item.key(), item.value()).is_break() {
-                return Ok(Page::new(paused_values(last, item.key()), rows));
+            if sink(&key, &value).is_break() {
+                return Ok(Page::new(paused_values(last, &key), rows));
             }
             rows += 1;
-            last = Some(item.key().to_vec());
+            last = Some(key);
         }
         Ok(Page::new(PageEnd::Exhausted, rows))
     }
@@ -261,6 +307,44 @@ where
         let list = self.lists().read(&key, version)?;
         Ok(list_holds(&list, version, predicate)?)
     }
+}
+
+/// A key of a page of stored values and its value, `None` for no entry.
+type StoredValue = (Vec<u8>, Option<Vec<u8>>);
+
+/// The next key of a page of stored values and its value: what `held`, a snapshot's scan, gives or `written`, the page's own
+/// values, says over it, `None` for no entry. `None` when both have ended.
+fn next_value<'a, H, W>(
+    held: &mut Peekable<H>,
+    written: &mut Peekable<W>,
+) -> Result<Option<StoredValue>, QuadError>
+where
+    H: Iterator<Item = Result<Item, StoreError>>,
+    W: Iterator<Item = (&'a Vec<u8>, &'a Option<Vec<u8>>)>,
+{
+    let stored = match held.peek() {
+        Some(Ok(item)) => Some(item.key()),
+        Some(Err(failed)) => return Err(failed.clone().into()),
+        None => None,
+    };
+    let order = match (stored, written.peek()) {
+        (None, None) => return Ok(None),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (Some(stored), Some((key, _))) => stored.cmp(key.as_slice()),
+    };
+    if order == Ordering::Less {
+        return Ok(held
+            .next()
+            .transpose()?
+            .map(|item| (item.key().to_vec(), Some(item.value().to_vec()))));
+    }
+    if order == Ordering::Equal {
+        let _shadowed: Option<Result<Item, StoreError>> = held.next();
+    }
+    Ok(written
+        .next()
+        .map(|(key, value)| (key.clone(), value.clone())))
 }
 
 /// How a page of stored values paused at `next` ended, `last` the last key it gave.

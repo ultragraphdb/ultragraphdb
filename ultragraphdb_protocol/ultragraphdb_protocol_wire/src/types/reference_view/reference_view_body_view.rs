@@ -122,7 +122,7 @@ fn fields_hold(reply: bool, registration: &ReferenceRegistration, terms: usize) 
                 && (registration.group().is_none() || registration.generation() >= 1)
         }
         (true, outcome) => {
-            matches!(outcome, 7 | 26)
+            matches!(outcome, 7 | 17 | 26)
                 && registration.generation() == 0
                 && registration.close() == 0
                 && one_way

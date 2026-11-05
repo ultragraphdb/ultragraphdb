@@ -8,9 +8,9 @@ use ultragraphdb_protocol_wire::{OperationResult, TermTable};
 
 use crate::errors::commit_error::CommitError;
 
-/// The commit step's answer to one commit request: its ticket and its commit version, or why it did not commit; a
-/// commit's session token, naming its partition, its round's log position and its version's epoch; and its commit-time
-/// operations' results.
+/// The commit step's answer to one commit request: its ticket and its commit version, or why it did not commit; the
+/// session token of a commit through a session, naming its partition, its round's log position and its version's epoch;
+/// and its commit-time operations' results.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reply {
     ticket: u64,
@@ -40,8 +40,8 @@ impl Reply {
         }
     }
 
-    /// The session token of a commit: its partition, its round's log position and its version's epoch; `None` for a
-    /// refusal.
+    /// The session token of a commit through a session: its partition, its round's log position and its version's
+    /// epoch; `None` for a commit through no session and for a refusal.
     pub fn token(&self) -> Option<&SessionToken> {
         self.token.as_ref()
     }

@@ -5,7 +5,7 @@
 
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, Command, Entries, EntriesEnd, EntriesSequence, FLAG_LAST, Header,
+    BodyBuilder, Command, Entries, EntriesEnd, EntriesSequence, FLAG_LAST, Header, ScanRange,
 };
 use ultragraphdb_tool_bdd::TestResult;
 
@@ -15,6 +15,13 @@ use crate::utils::golden_roles::{golden_role, role_bytes};
 const KEY: &[u8] = b"\x10k";
 const BELOW: &[u8] = b"\x10j";
 const ABOVE: &[u8] = b"\x10l";
+
+/// `count` ranges of the keyspace [`KEY`] lies in, each holding every key of it.
+fn whole(count: u32) -> Vec<ScanRange<'static>> {
+    (0..count)
+        .map(|_| ScanRange::new(1, b"\x10", b""))
+        .collect()
+}
 
 /// The receiver's sequence of an answer to a Scan of `ranges` ranges.
 struct Answer {
@@ -26,7 +33,7 @@ impl Answer {
     fn new(ranges: u32) -> Self {
         Self {
             ranges,
-            sequence: EntriesSequence::new(ranges),
+            sequence: EntriesSequence::new(whole(ranges)),
         }
     }
 
@@ -96,7 +103,7 @@ fn range(value: u64) -> ProtocolErrorEnum {
 
 #[test]
 fn test_the_golden_frames_across_a_list_are_accepted_and_read() -> TestResult {
-    let mut sequence = EntriesSequence::new(1);
+    let mut sequence = EntriesSequence::new(whole(1));
     for name in ["entries_continues", "entries_continued"] {
         let bytes = role_bytes(&golden_role(name)?)?;
         let view = sequence.accept(&frame_of(&bytes)?)?;
@@ -328,5 +335,167 @@ fn test_the_key_rule_comes_before_the_last_rule() -> TestResult {
         after(1, EntriesEnd::More)?.flagged(&batch, false)?,
         Err(entry_order())
     );
+    Ok(())
+}
+
+/// The dictionary keys of a run's four ranges, and the range holding each alone.
+const RUN: [&[u8]; 4] = [b"\x1b\x04", b"\x1b\x03", b"\x1b\x02", b"\x1b\x01"];
+
+/// A sequence of a Scan of [`RUN`]'s one-key ranges.
+fn run_sequence() -> EntriesSequence {
+    let pasts: Vec<Vec<u8>> = RUN.iter().map(|key| [*key, &[0]].concat()).collect();
+    EntriesSequence::new(
+        RUN.iter()
+            .zip(&pasts)
+            .map(|(key, past)| ScanRange::new(1, key, past)),
+    )
+}
+
+/// What `sequence` makes of the frame of `entries`, carrying `LAST` as `last` says.
+fn offered(
+    sequence: &mut EntriesSequence,
+    entries: &Entries,
+    last: bool,
+) -> TestResult<Result<(), ProtocolErrorEnum>> {
+    let flags = if last { FLAG_LAST } else { 0 };
+    let bytes = entries.frame(Header::new(CLUSTER, Command::Entries).with_flags(flags))?;
+    let frame = frame_of(&bytes)?;
+    Ok(sequence.accept(&frame).map(|_| ()).map_err(|e| e.0))
+}
+
+/// A run's entries follow its ranges' order, not the keys', and a range finding nothing holds no entry.
+#[test]
+fn test_a_run_is_taken_in_its_ranges_order() -> TestResult {
+    let mut sequence = run_sequence();
+    let mut whole = Entries::new(0, EntriesEnd::Ended, 0).with_through(3);
+    [RUN[0], RUN[2], RUN[3]]
+        .iter()
+        .for_each(|key| whole.push(key, b"id"));
+    assert_eq!(offered(&mut sequence, &whole, true)?, Ok(()));
+    Ok(())
+}
+
+#[test]
+fn test_a_run_leads_to_the_range_after_its_through() -> TestResult {
+    let mut sequence = run_sequence();
+    let first = Entries::new(0, EntriesEnd::Ended, 0).with_through(1);
+    assert_eq!(offered(&mut sequence, &first, false)?, Ok(()));
+    let next = Entries::new(2, EntriesEnd::Ended, 0).with_through(3);
+    assert_eq!(offered(&mut sequence, &next, true)?, Ok(()));
+    Ok(())
+}
+
+#[test]
+fn test_a_range_inside_the_last_run_is_refused() -> TestResult {
+    let mut sequence = run_sequence();
+    let first = Entries::new(0, EntriesEnd::Ended, 0).with_through(1);
+    assert_eq!(offered(&mut sequence, &first, false)?, Ok(()));
+    let inside = Entries::new(1, EntriesEnd::Ended, 0).with_through(3);
+    assert_eq!(offered(&mut sequence, &inside, true)?, Err(range(1)));
+    Ok(())
+}
+
+#[test]
+fn test_a_through_lies_below_the_scans_count() -> TestResult {
+    let past = Entries::new(0, EntriesEnd::Ended, 0).with_through(4);
+    assert_eq!(offered(&mut run_sequence(), &past, true)?, Err(range(0)));
+    Ok(())
+}
+
+/// A run covers one-key ranges of the dictionary alone: a range of another keyspace, or of more than one key, is none.
+#[test]
+fn test_a_run_covers_one_key_dictionary_ranges_alone() -> TestResult {
+    let run = Entries::new(0, EntriesEnd::Ended, 0).with_through(1);
+    let keyed = |first: &'static [u8], past: &'static [u8]| ScanRange::new(1, first, past);
+    for other in [
+        keyed(b"\x10k", b"\x10k\x00"),
+        keyed(b"\x1b\x01", b"\x1b\x02"),
+        keyed(b"\x1b\x01", b""),
+    ] {
+        let mut sequence = EntriesSequence::new([keyed(b"\x1b\x00", b"\x1b\x00\x00"), other]);
+        assert_eq!(offered(&mut sequence, &run, true)?, Err(range(0)));
+    }
+    Ok(())
+}
+
+#[test]
+fn test_last_goes_on_the_run_reaching_the_last_range() -> TestResult {
+    let reaching = Entries::new(0, EntriesEnd::Ended, 0).with_through(3);
+    assert_eq!(
+        offered(&mut run_sequence(), &reaching, false)?,
+        Err(refused("end", 0))
+    );
+    let short = Entries::new(0, EntriesEnd::Ended, 0).with_through(2);
+    assert_eq!(
+        offered(&mut run_sequence(), &short, true)?,
+        Err(refused("end", 0))
+    );
+    Ok(())
+}
+
+#[test]
+fn test_every_frame_names_the_first_frames_version() -> TestResult {
+    let bound = (30 << 22) | 0x3F_FFFF;
+    let mut answer = Answer::new(1);
+    answer.take(&Entries::new(0, EntriesEnd::More, 0).with_version(bound))?;
+    answer.take(&Entries::new(0, EntriesEnd::More, 0).with_version(bound))?;
+    let other = Entries::new(0, EntriesEnd::More, 0).with_version(bound - 1);
+    assert_eq!(answer.offer(&other)?, Err(refused("version", 0)));
+    Ok(())
+}
+
+#[test]
+fn test_the_last_rule_comes_before_the_version_rule() -> TestResult {
+    let mut answer = Answer::new(1);
+    answer.take(&Entries::new(0, EntriesEnd::More, 0).with_version(2))?;
+    let other = Entries::new(0, EntriesEnd::More, 0).with_version(4);
+    assert_eq!(answer.flagged(&other, true)?, Err(refused("end", 0)));
+    Ok(())
+}
+
+#[test]
+fn test_a_runs_entry_is_a_first_key_at_or_after_the_entry_before() -> TestResult {
+    let order = |index| refused("entry order", index);
+    // A key no range of the run has first.
+    let mut stranger = Entries::new(0, EntriesEnd::Ended, 0).with_through(3);
+    stranger.push(b"\x1b\x09", b"id");
+    assert_eq!(
+        offered(&mut run_sequence(), &stranger, true)?,
+        Err(order(0))
+    );
+    // A key of a range before the entry before's.
+    let mut back = Entries::new(0, EntriesEnd::Ended, 0).with_through(3);
+    back.push(RUN[2], b"id");
+    back.push(RUN[0], b"id");
+    assert_eq!(offered(&mut run_sequence(), &back, true)?, Err(order(1)));
+    // A key of a range of the Scan outside the run.
+    let mut sequence = run_sequence();
+    let mut outside = Entries::new(0, EntriesEnd::Ended, 0).with_through(1);
+    outside.push(RUN[2], b"id");
+    assert_eq!(offered(&mut sequence, &outside, false)?, Err(order(0)));
+    Ok(())
+}
+
+#[test]
+fn test_a_batchs_entry_lies_within_its_range() -> TestResult {
+    let order = |index| refused("entry order", index);
+    let one = |key: &[u8]| {
+        let mut batch = Entries::new(0, EntriesEnd::Ended, 0);
+        batch.push(key, b"");
+        batch
+    };
+    let bounded = || EntriesSequence::new([ScanRange::new(1, b"\x10b", b"\x10d")]);
+    assert_eq!(
+        offered(&mut bounded(), &one(b"\x10a"), true)?,
+        Err(order(0))
+    );
+    assert_eq!(
+        offered(&mut bounded(), &one(b"\x10d"), true)?,
+        Err(order(0))
+    );
+    assert_eq!(offered(&mut bounded(), &one(b"\x10b"), true)?, Ok(()));
+    assert_eq!(offered(&mut bounded(), &one(b"\x10c\xff"), true)?, Ok(()));
+    let mut open = EntriesSequence::new([ScanRange::new(1, b"\x10b", b"")]);
+    assert_eq!(offered(&mut open, &one(b"\x11"), true)?, Ok(()));
     Ok(())
 }

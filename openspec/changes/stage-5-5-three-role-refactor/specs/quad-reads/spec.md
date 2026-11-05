@@ -607,8 +607,8 @@ sees it.
 
 ### Requirement: A partition retains what a read may still read
 A partition SHALL retain every version at or above its discard version, which it SHALL raise only to the version bound
-of an epoch closed more than `read_retain_ms` ago, default 60,000 ms, and never past a version an open Scan or a
-read-write transaction holds. A read below the discard version SHALL be refused with code 3 (TooOld). A read-only
+of an epoch closed more than `read_retain_ms` ago, default 60,000 ms, and never past its visibility watermark or a version
+an open Scan or a read-write transaction holds. A read below the discard version SHALL be refused with code 3 (TooOld). A read-only
 transaction's deadline bounds only its reads' waits. An open Scan SHALL keep its version for as long as it stays open; between
 Scans a version SHALL stay only until a later epoch has been closed for more than `read_retain_ms`, so compute SHALL keep a Scan
 of each partition open across a read that may outlast that, and a next Scan past it SHALL be refused with code 3.

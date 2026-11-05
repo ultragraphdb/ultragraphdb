@@ -15,9 +15,13 @@ pub struct StorageTable {
     data_dir: Option<String>,
     close_request_ms: Option<u64>,
     scan_stall_ms: Option<u64>,
+    read_retain_ms: Option<u64>,
 }
 
 impl StorageTable {
+    /// `read_retain_ms` when the table names none: 60,000 ms (`PROTOCOL.md` §11.9).
+    pub const READ_RETAIN_MS_DEFAULT: u64 = 60_000;
+
     pub(crate) fn read(reader: &mut SettingsReader) -> Result<Self, ServiceConfigError> {
         Ok(Self {
             partition_first: reader.u32("storage", "partition_first")?,
@@ -26,6 +30,7 @@ impl StorageTable {
             data_dir: reader.string("storage", "data_dir")?,
             close_request_ms: reader.u64("storage", "close_request_ms")?,
             scan_stall_ms: reader.u64("storage", "scan_stall_ms")?,
+            read_retain_ms: reader.u64("storage", "read_retain_ms")?,
         })
     }
 
@@ -57,5 +62,11 @@ impl StorageTable {
     /// `scan_stall_ms`: how long a partition keeps a Scan with no frame able to leave, in milliseconds.
     pub fn scan_stall_ms(&self) -> Option<u64> {
         self.scan_stall_ms
+    }
+
+    /// `read_retain_ms`: how long a closed epoch stays readable between a read-only transaction's Scans, in
+    /// milliseconds.
+    pub fn read_retain_ms(&self) -> Option<u64> {
+        self.read_retain_ms
     }
 }

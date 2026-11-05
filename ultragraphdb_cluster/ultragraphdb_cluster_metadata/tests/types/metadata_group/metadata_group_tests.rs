@@ -98,7 +98,7 @@ fn test_every_command_is_one_round_of_the_groups_own_log() -> TestResult {
 
 #[test]
 fn test_a_round_the_log_refuses_changes_nothing() -> TestResult {
-    // A log of two 256 KiB segments: a version of 600 KiB, five chunks, does not fit after a first one of 200 KiB.
+    // A log of two 256 KiB segments: a version of 500 KiB, four chunks, does not fit after a first one of 200 KiB.
     let storage = SimStorage::new(13);
     let config = wal_config().with_capacity(NonZeroU32::MIN.saturating_add(1));
     let (log, _) = block_on(Wal::open(storage.clone(), DIR, config))??;
@@ -106,7 +106,7 @@ fn test_a_round_the_log_refuses_changes_nothing() -> TestResult {
     let _: (u64, Position) = group.offer_catalog(tenant(), 0, &vec![1; 200 * 1_024])?;
     sync(&mut group)?;
     let refusal = group
-        .offer_catalog(tenant(), 1, &vec![2; 600 * 1_024])
+        .offer_catalog(tenant(), 1, &vec![2; 500 * 1_024])
         .err()
         .context("a refusal")?;
     assert!(

@@ -40,6 +40,7 @@ ultragraphdb_transactions_txn = { workspace = true }
 compio = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }
+ultragraphdb_common_storage = { workspace = true }
 ultragraphdb_store_sim = { workspace = true }
 ultragraphdb_tool_bdd = { workspace = true }
 ultragraphdb_tool_test = { workspace = true }

@@ -846,8 +846,9 @@ A query of the GQL core or the SPARQL core (`QUERY-GQL-CORE.md`, `QUERY-SPARQL-C
 on a stream of its own, as a Read is: its text, its parameters by name, at most `limit` rows (0 for no limit), and the
 resume key a previous result of the same request ended with, empty to start (section 11.8). A statement with a writing
 clause needs a read-write transaction (`mode` 0), refused in a read-only one with code 29. The reply is a stream of
-Result frames (section 9.1), the first carrying the column names, the last flagged `LAST`; an update's reply is one
-Result of one row with the columns `inserted` and `deleted`, `xsd:integer` terms. The frontend compiles the text
+Result frames (section 9.1), the first carrying the column names, the last flagged `LAST`; a SPARQL update's reply is one
+Result of one row with the columns `inserted` and `deleted`, `xsd:integer` terms, and a GQL statement without `RETURN`
+answers one Result of no columns and no rows, flagged `LAST` (`QUERY-GQL-CORE.md` section 7.1). The frontend compiles the text
 against the catalog version in effect for the transaction's tenant, refuses it with code 29 and the core's diagnostic
 (section 9.4), and otherwise plans and executes it as the quad-reads specification routes reads and section 11.12
 routes writes.
@@ -1042,7 +1043,7 @@ answers one batch flagged `LAST`, `rows` 0 and `columns` the unbound slots and o
 
 | Command header | Width | Field | Type | Rule |
 |---|---|---|---|---|
-| 0 | 4 | `columns` | u32 | for a quad pattern, the unbound slots and the reifier column, 1 to 5; for a query, its projections, 1 to 1,024 (`FieldValue` `"columns"`) |
+| 0 | 4 | `columns` | u32 | for a quad pattern, the unbound slots and the reifier column, 1 to 5; for a query, its projections, 1 to 1,024, or 0 with `rows` 0 for a GQL statement without `RETURN` (`FieldValue` `"columns"`) |
 | 4 | 4 | `rows` | u32 | |
 | 8 | 8 | `epoch` | epoch (section 1) | the epoch the batch's rows were read at: the snapshot's at level 0, the read's at level 2; 0 for a read-write transaction, level 1 and a named read version |
 | 16 | 4 | `partition` | u32 | the partition the read reached when it reached one alone; 0 when it reached several |
@@ -1674,7 +1675,7 @@ frame's one section holds 523,000 bytes, and 16,000 IDs take 256,000, which with
 vector.
 
 A partition retains every version at or above its discard version, which it raises only to the version bound of an epoch closed
-more than `read_retain_ms` ago, and never past a version an open Scan or a read-write transaction holds; a read below it is refused
+more than `read_retain_ms` ago, and never past its visibility watermark or a version an open Scan or a read-write transaction holds; a read below it is refused
 with code 3 (TooOld). A deadline bounds a read's wait, and a read-only transaction has no other limit on its life. An open Scan keeps
 its version for as long as it stays open. Between Scans a version stays only until a later epoch has been closed for more than
 `read_retain_ms`, so compute keeps a Scan of each partition open across a read that may outlast that, and a next Scan past it is
@@ -2128,7 +2129,10 @@ sections 9 to 11, so the log holds exactly what was applied and what was answere
 A quad is its graph, subject and predicate, each a 16-byte system ID and the default graph its own encoding, and its
 object, a system ID or a literal's term encoding, in the encoding the round's `derivation` names. Every key the store
 derives from the record, a reverse, predicate-list, index, count or statistics entry, a dictionary entry aside, is
-derived on apply and on replay and never logged.
+derived on apply and on replay and never logged. Sections 0 and 1 hold what the transaction changed, never an ID an object
+already held and keeps: an entry of section 0 holding an ID adds it to the IDs its quad holds, an entry of section 1 holding one
+removes it and leaves the object held, and an empty entry of section 1 removes the object with every ID. So a parallel edge logs one
+entry whatever its object holds, and `statements_per_object_max` (section 11.9) is reached through commits.
 
 | Kind | Fixed part | Sections |
 |---|---|---|

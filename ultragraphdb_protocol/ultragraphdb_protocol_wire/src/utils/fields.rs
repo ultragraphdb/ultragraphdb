@@ -9,7 +9,7 @@
 
 use ultragraphdb_error_protocol::ProtocolError;
 
-use crate::utils::constants::MAX_EPOCH;
+use crate::utils::constants::{MAX_EPOCH, VERSION_SEQUENCE_MASK};
 use crate::utils::le::bytes_at;
 
 /// `value` as an epoch field: 1 to [`MAX_EPOCH`], or 0 where `zero` allows none.
@@ -20,6 +20,15 @@ pub(crate) fn epoch(
     zero: bool,
 ) -> Result<u64, ProtocolError> {
     if value > MAX_EPOCH || (value == 0 && !zero) {
+        return Err(ProtocolError::field_value(command, field, value));
+    }
+    Ok(value)
+}
+
+/// `value` as a field holding a version or a version bound (`PROTOCOL.md` §1): its low 22 bits even or all ones.
+pub(crate) fn version(command: u16, field: &'static str, value: u64) -> Result<u64, ProtocolError> {
+    let sequence = value & VERSION_SEQUENCE_MASK;
+    if !sequence.is_multiple_of(2) && sequence != VERSION_SEQUENCE_MASK {
         return Err(ProtocolError::field_value(command, field, value));
     }
     Ok(value)

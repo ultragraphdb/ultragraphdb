@@ -220,3 +220,13 @@ fn test_the_operation_errors_name_what_they_found() {
         "Predicate <http://ex.org/p> is not declared unique, so no node is found by its value"
     );
 }
+
+#[test]
+fn test_a_statement_past_its_bound_names_the_bound() {
+    let refused = ultragraphdb_store_apply::ChangesetError::statements_per_object(7);
+    assert_eq!(
+        refused.0,
+        ultragraphdb_store_apply::ChangesetErrorEnum::StatementsPerObject { limit: 7 }
+    );
+    assert!(refused.to_string().contains('7'), "{refused}");
+}

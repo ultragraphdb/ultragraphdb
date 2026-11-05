@@ -22,6 +22,7 @@ impl BodyBuilder for ResultBatch {
             (4, &self.rows().to_le_bytes()),
             (8, &self.epoch().to_le_bytes()),
             (16, &self.partition().to_le_bytes()),
+            (20, &[self.monotonic().number()]),
         ])
     }
 
@@ -42,6 +43,11 @@ impl BodyBuilder for ResultBatch {
             texts.push(term.annotation().map_or(ABSENT, |a| strings.intern(a)));
         }
         let (ends, text) = strings.sections();
+        let mut names = StringWriter::default();
+        for name in self.column_names() {
+            let _index: u32 = names.push(name);
+        }
+        let (name_ends, name_text) = names.sections();
         write_sections(
             &[],
             &[
@@ -52,6 +58,8 @@ impl BodyBuilder for ResultBatch {
                 &ends,
                 &text,
                 self.resume(),
+                &name_ends,
+                &name_text,
             ],
         )
     }

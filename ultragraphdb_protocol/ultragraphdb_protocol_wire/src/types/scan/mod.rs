@@ -9,6 +9,15 @@ use crate::types::scan_at::ScanAt;
 use crate::types::scan_range::ScanRange;
 use crate::types::term_table::TermTable;
 
+/// A range as a Scan's builder holds it, its keys copied.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OwnedRange {
+    partition: u32,
+    first: Vec<u8>,
+    past: Vec<u8>,
+    after: Vec<u8>,
+}
+
 /// Storage's read kernel (`PROTOCOL.md` §13.13): the entries of key ranges of the partition at a role address, each
 /// range at a version, at most `limit` entries of it, in key order, batched per address. Answered with Entries frames.
 ///
@@ -25,7 +34,7 @@ use crate::types::term_table::TermTable;
 /// | Section | Contents |
 /// |---|---|
 /// | 0 | ranges, 24 bytes each ([`ScanRange::encode`]), at least one |
-/// | 1 | the ranges' keys, back to back: each range's first key, then its past key |
+/// | 1 | the ranges' keys, back to back: each range's first key, its past key, then its `after` when it has one |
 /// | 2 | with `transaction` not zero, the IRIs the read names, each an entry of kind 1: a [`TermTable`]'s records, at most as many as ranges, interned in the order of the ranges naming them; empty otherwise |
 /// | 3 | that term table's text |
 ///
@@ -40,7 +49,7 @@ pub struct Scan {
     transaction: [u8; 16],
     limit: u32,
     deadline_ms: u32,
-    ranges: Vec<(u32, Vec<u8>, Vec<u8>)>,
+    ranges: Vec<OwnedRange>,
     terms: TermTable,
 }
 
@@ -79,11 +88,12 @@ impl Scan {
 
     /// Appends `range`, its keys copied.
     pub fn push_range(&mut self, range: ScanRange<'_>) {
-        self.ranges.push((
-            range.partition(),
-            range.first().to_vec(),
-            range.past().to_vec(),
-        ));
+        self.ranges.push(OwnedRange {
+            partition: range.partition(),
+            first: range.first().to_vec(),
+            past: range.past().to_vec(),
+            after: range.after().to_vec(),
+        });
     }
 
     /// The version each range is read at.
@@ -123,9 +133,9 @@ impl Scan {
 
     /// The ranges, in order.
     pub fn ranges(&self) -> impl Iterator<Item = ScanRange<'_>> {
-        self.ranges
-            .iter()
-            .map(|(partition, first, past)| ScanRange::new(*partition, first, past))
+        self.ranges.iter().map(|range| {
+            ScanRange::new(range.partition, &range.first, &range.past).with_after(&range.after)
+        })
     }
 
     /// The term table of the IRIs the read names.

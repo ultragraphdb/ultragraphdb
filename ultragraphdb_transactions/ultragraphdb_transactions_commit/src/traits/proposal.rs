@@ -61,4 +61,12 @@ pub trait Proposal {
     fn is_drop(&self) -> bool {
         false
     }
+
+    /// Whether the proposal is a frame holding what it does, a one-frame write or a Drop, so a resend of it reaches the
+    /// session table as the first did and is answered with the stored reply of the session's last request
+    /// ([`crate::Sessions::check_one_frame`]). By default it is not: it is a Commit on an open transaction, and a
+    /// number at or below the session's last is refused ([`crate::Sessions::check`]).
+    fn is_one_frame(&self) -> bool {
+        false
+    }
 }

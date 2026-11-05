@@ -212,12 +212,11 @@ fn test_dropping_the_data_during_a_build_declares_the_new_declaration() -> TestR
 fn test_each_drop_returns_its_own_timestamp() -> TestResult {
     let a = changesets()?;
     write(&a, &["<a> <knows> <b>", "<a> <knows> <c> <g1>"])?;
-    let drops: [&dyn Fn() -> Result<u64, ChangesetError>; 5] = [
+    let drops: [&dyn Fn() -> Result<u64, ChangesetError>; 4] = [
         &|| a.drop_predicate(TENANT, ex("knows").as_ref()),
         &|| a.drop_graph(TENANT, GraphName::from(ex("g1")).as_ref()),
         &|| a.drop_data(TENANT),
         &|| a.drop_tenant(TENANT),
-        &|| a.drop_all(),
     ];
     for (i, drop) in drops.iter().enumerate() {
         write(&a, &["<a> <knows> <b>", "<a> <knows> <c> <g1>"])?;
@@ -449,12 +448,12 @@ type DropCase<'a> = (
 );
 
 /// Each kind of drop decided in a round leaves the keys its immediate drop leaves: a graph, a tenant's data, the
-/// tenant, every tenant (`PROTOCOL.md` §6.5, §12.2 operations 4 to 7).
+/// tenant (`PROTOCOL.md` §6.5, §12.2 operations 4 to 7).
 #[test]
 fn test_each_kind_of_drop_decided_in_a_round_drops_what_its_immediate_drop_does() -> TestResult {
     use ultragraphdb_store_apply::DropRequest;
     let g1 = ex("g1");
-    let cases: [DropCase<'_>; 5] = [
+    let cases: [DropCase<'_>; 4] = [
         (
             "graph",
             DropRequest::Graph(GraphNameRef::NamedNode(g1.as_ref())),
@@ -467,7 +466,6 @@ fn test_each_kind_of_drop_decided_in_a_round_drops_what_its_immediate_drop_does(
         ),
         ("data", DropRequest::Data, |a| a.drop_data(TENANT)),
         ("tenant", DropRequest::Tenant, |a| a.drop_tenant(TENANT)),
-        ("all", DropRequest::All, |a| a.drop_all()),
     ];
     for (name, request, immediate) in cases {
         let oracle = dropping_store()?;
@@ -485,7 +483,7 @@ fn test_each_kind_of_drop_decided_in_a_round_drops_what_its_immediate_drop_does(
 }
 
 /// A drop prepared for a round names what it drops and writes the key ranges of it: a graph's in every quad keyspace,
-/// a tenant's data without its catalog, a tenant with it, every tenant's every keyspace.
+/// a tenant's data without its catalog, a tenant with it.
 #[test]
 fn test_a_drop_prepared_for_a_round_names_its_target_and_its_ranges() -> TestResult {
     use ultragraphdb_core_keys::key_prefix;
@@ -526,21 +524,7 @@ fn test_a_drop_prepared_for_a_round_names_its_target_and_its_ranges() -> TestRes
             .any(|(start, _)| start == &catalog)
     );
     assert_eq!(tenant.drop_ranges(), data.drop_ranges());
-    let all = a.prepare_drop(TENANT, DropRequest::All)?;
-    assert_eq!(all.dropped(), Some(DropTarget::All));
-    assert!(
-        !all.drop_ranges()
-            .iter()
-            .any(|(start, _)| start.first() == Some(&Keyspace::Catalog.byte()))
-    );
-    assert!(!all.drop_ranges().is_empty());
-    // Whole keyspaces, the registrations' among them, and never the store's every key.
-    assert!(all.drop_ranges().iter().all(|(start, _)| start.len() == 1));
-    for keyspace in [Keyspace::Forward, Keyspace::Marks, Keyspace::Referrers] {
-        let whole = vec![keyspace.byte()];
-        assert!(all.drop_ranges().iter().any(|(start, _)| start == &whole));
-    }
-    for drop in [&graph, &data, &tenant, &all] {
+    for drop in [&graph, &data, &tenant] {
         assert!(drop.writes().deltas().is_empty());
     }
     Ok(())
@@ -585,7 +569,6 @@ fn test_each_kind_of_drop_replayed_drops_what_it_dropped() -> TestResult {
         ),
         (DropRequest::Data, DropTarget::Data),
         (DropRequest::Tenant, DropTarget::Tenant),
-        (DropRequest::All, DropTarget::All),
     ] {
         let decided = dropped_in_a_round(request)?;
         let a = dropping_store()?;
@@ -730,14 +713,12 @@ fn registered() -> TestResult<TestChangesets> {
 }
 
 #[test]
-fn test_dropping_a_tenant_s_data_or_everything_drops_its_marks_and_referrer_sets() -> TestResult {
+fn test_dropping_a_tenant_or_its_data_drops_its_marks_and_referrer_sets() -> TestResult {
     let data = registered()?;
     let _data_dropped_at: u64 = data.drop_data(TENANT)?;
-    let everything = registered()?;
-    let _all_dropped_at: u64 = everything.drop_all()?;
     let tenant = registered()?;
     let _tenant_dropped_at: u64 = tenant.drop_tenant(TENANT)?;
-    for a in [&data, &everything, &tenant] {
+    for a in [&data, &tenant] {
         assert!(held_in(a, Keyspace::Referrers).is_empty());
         assert!(held_in(a, Keyspace::Marks).is_empty());
     }

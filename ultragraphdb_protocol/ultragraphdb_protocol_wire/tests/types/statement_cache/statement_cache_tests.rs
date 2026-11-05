@@ -492,3 +492,16 @@ fn test_the_default_cache_holds_256_statements() -> TestResult {
     );
     Ok(())
 }
+
+#[test]
+fn test_a_cache_of_patterns_refuses_a_text() -> TestResult {
+    let bytes = golden("prepare_text")?.bytes()?;
+    let view = PrepareView::from_frame(&frame_of(&bytes)?)?;
+    let mut cache = StatementCache::new(1);
+    assert_eq!(
+        cache.prepare(&view, 7).err(),
+        Some(StatementError::not_a_pattern(1))
+    );
+    assert!(cache.is_empty());
+    Ok(())
+}

@@ -28,10 +28,27 @@ rust_doc(
 
 rust_test(
     name = "ultragraphdb_common_role_tests",
-    srcs = glob(["tests/**/*.rs"]),
+    srcs = glob(
+        ["tests/**/*.rs"],
+        exclude = ["tests/bdd.rs"],
+    ),
     crate_root = "tests/mod.rs",
     tags = ["unit-test"],
     visibility = ["//visibility:public"],
+    deps = [":ultragraphdb_common_role"] + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)
+
+# cucumber runs its own main: the libtest harness is off, and the feature files are runfiles.
+rust_test(
+    name = "bdd",
+    srcs = ["tests/bdd.rs"],
+    crate_root = "tests/bdd.rs",
+    data = glob(["features/**/*.feature"]),
+    tags = ["bdd-test"],
+    use_libtest_harness = False,
     deps = [":ultragraphdb_common_role"] + all_crate_deps(
         normal = True,
         normal_dev = True,
