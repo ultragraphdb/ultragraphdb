@@ -8,11 +8,11 @@ use ultragraphdb_core_keys::{Keyspace, key_prefix};
 use ultragraphdb_traits_store::Scan;
 
 /// What a changeset's execution read, the read set a commit is validated by: the lists it read whole and the marks it
-/// read (partitions, "A commit under a registration reply reads its mark"), the statements it tested, the key ranges it scanned, the terms it found absent, by ID, and its namespace's catalog range, which
-/// every write of the namespace reads.
+/// read (partitions, "A commit under a registration reply reads its mark"), the statements it tested, the key ranges it scanned, the terms it found absent, by ID, and its tenant's catalog range, which
+/// every write of the tenant reads.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Reads {
-    namespace: u64,
+    tenant: u64,
     lists: Vec<Vec<u8>>,
     statements: Vec<(Vec<u8>, Vec<u8>)>,
     ranges: Vec<(Vec<u8>, Option<Vec<u8>>)>,
@@ -21,14 +21,14 @@ pub struct Reads {
 
 impl Reads {
     pub(crate) fn new(
-        namespace: u64,
+        tenant: u64,
         lists: Vec<Vec<u8>>,
         statements: Vec<(Vec<u8>, Vec<u8>)>,
         ranges: Vec<(Vec<u8>, Option<Vec<u8>>)>,
         absent: Vec<SystemId>,
     ) -> Self {
         Self {
-            namespace,
+            tenant,
             lists,
             statements,
             ranges,
@@ -36,9 +36,9 @@ impl Reads {
         }
     }
 
-    /// The namespace the reads were made in.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant the reads were made in.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// The keys of the lists read whole and of the marks read, in key order: a write to one conflicts.
@@ -62,9 +62,9 @@ impl Reads {
         &self.absent
     }
 
-    /// The namespace's catalog range, from its start, inclusive, to its end, exclusive.
+    /// The tenant's catalog range, from its start, inclusive, to its end, exclusive.
     pub fn catalog(&self) -> (Vec<u8>, Option<Vec<u8>>) {
-        let start = key_prefix(Keyspace::Catalog, false, self.namespace, None, None);
+        let start = key_prefix(Keyspace::Catalog, false, self.tenant, None, None);
         let end = Scan::prefix(start.clone()).end().map(<[u8]>::to_vec);
         (start, end)
     }

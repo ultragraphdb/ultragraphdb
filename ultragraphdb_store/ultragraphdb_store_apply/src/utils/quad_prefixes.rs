@@ -30,49 +30,49 @@ pub(crate) fn tokenizer_ids(name: &str) -> Vec<u8> {
 
 /// The value-index keys of tokenizer `name` for predicate `predicate`.
 pub(crate) fn tokenizer_prefixes(
-    namespace: u64,
+    tenant: u64,
     predicate: SystemId,
     name: &str,
 ) -> Vec<PredicatePrefix> {
     tokenizer_ids(name)
         .into_iter()
         .flat_map(|id| {
-            PredicatePrefix::with_parts(Keyspace::ValueIndex, namespace, predicate, vec![id])
+            PredicatePrefix::with_parts(Keyspace::ValueIndex, tenant, predicate, vec![id])
         })
         .collect()
 }
 
 /// The count keys of `predicate`, both directions.
-pub(crate) fn count_prefixes(namespace: u64, predicate: SystemId) -> Vec<PredicatePrefix> {
+pub(crate) fn count_prefixes(tenant: u64, predicate: SystemId) -> Vec<PredicatePrefix> {
     [CountDirection::Forward, CountDirection::Reverse]
         .into_iter()
         .flat_map(|d| {
-            PredicatePrefix::with_parts(Keyspace::CountIndex, namespace, predicate, vec![d.byte()])
+            PredicatePrefix::with_parts(Keyspace::CountIndex, tenant, predicate, vec![d.byte()])
         })
         .collect()
 }
 
 /// The HNSW lists of `predicate`.
-pub(crate) fn vector_prefixes(namespace: u64, predicate: SystemId) -> Vec<PredicatePrefix> {
-    PredicatePrefix::with_parts(Keyspace::VectorIndex, namespace, predicate, Vec::new())
+pub(crate) fn vector_prefixes(tenant: u64, predicate: SystemId) -> Vec<PredicatePrefix> {
+    PredicatePrefix::with_parts(Keyspace::VectorIndex, tenant, predicate, Vec::new())
 }
 
 /// The keys of every index `declaration` names for `predicate`.
 pub(crate) fn declared_prefixes(
-    namespace: u64,
+    tenant: u64,
     predicate: SystemId,
     declaration: &PredicateDeclaration,
 ) -> Vec<PredicatePrefix> {
     let mut prefixes: Vec<PredicatePrefix> = declaration
         .tokenizers()
         .iter()
-        .flat_map(|t| tokenizer_prefixes(namespace, predicate, t))
+        .flat_map(|t| tokenizer_prefixes(tenant, predicate, t))
         .collect();
     if declaration.count_index() {
-        prefixes.extend(count_prefixes(namespace, predicate));
+        prefixes.extend(count_prefixes(tenant, predicate));
     }
     if declaration.vector_index().is_some() {
-        prefixes.extend(vector_prefixes(namespace, predicate));
+        prefixes.extend(vector_prefixes(tenant, predicate));
     }
     prefixes
 }
@@ -81,7 +81,7 @@ pub(crate) fn declared_prefixes(
 /// tokenizers', and the count and vector indexes it does not declare. What an undone build removes, whatever the
 /// build was making (7.9).
 pub(crate) fn undeclared_prefixes(
-    namespace: u64,
+    tenant: u64,
     predicate: SystemId,
     declaration: &PredicateDeclaration,
 ) -> Vec<PredicatePrefix> {
@@ -93,20 +93,20 @@ pub(crate) fn undeclared_prefixes(
     let mut prefixes: Vec<PredicatePrefix> = (0..=u8::MAX)
         .filter(|id| !declared.contains(id))
         .flat_map(|id| {
-            PredicatePrefix::with_parts(Keyspace::ValueIndex, namespace, predicate, vec![id])
+            PredicatePrefix::with_parts(Keyspace::ValueIndex, tenant, predicate, vec![id])
         })
         .collect();
     if !declaration.count_index() {
-        prefixes.extend(count_prefixes(namespace, predicate));
+        prefixes.extend(count_prefixes(tenant, predicate));
     }
     if declaration.vector_index().is_none() {
-        prefixes.extend(vector_prefixes(namespace, predicate));
+        prefixes.extend(vector_prefixes(tenant, predicate));
     }
     prefixes
 }
 
 /// The keys of `predicate` in every keyspace whose keys name it.
-pub(crate) fn predicate_prefixes(namespace: u64, predicate: SystemId) -> Vec<PredicatePrefix> {
+pub(crate) fn predicate_prefixes(tenant: u64, predicate: SystemId) -> Vec<PredicatePrefix> {
     [
         Keyspace::Forward,
         Keyspace::Reverse,
@@ -116,6 +116,6 @@ pub(crate) fn predicate_prefixes(namespace: u64, predicate: SystemId) -> Vec<Pre
         Keyspace::Statistics,
     ]
     .into_iter()
-    .flat_map(|k| PredicatePrefix::with_parts(k, namespace, predicate, Vec::new()))
+    .flat_map(|k| PredicatePrefix::with_parts(k, tenant, predicate, Vec::new()))
     .collect()
 }

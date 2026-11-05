@@ -11,7 +11,7 @@ use ultragraphdb_transactions_txn::ReadSet;
 /// conflict sections the resolver adds to the history once the transaction is admitted and which the round's body
 /// carries unchanged. A worker's `Prepared` is one; the simulator and the tests hand over their own.
 pub trait Proposal {
-    /// The read set, sealed: its namespace, its read version and its tables in key order.
+    /// The read set, sealed: its tenant, its read version and its tables in key order.
     fn read_set(&self) -> &ReadSet;
 
     /// The write-set record's bytes.

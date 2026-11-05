@@ -58,7 +58,7 @@ Bazel after the lift: unit 272 passed, bdd 23 scenarios passed, the same counts.
   predicate or graph by `SystemId`, of a tenant's data, of everything in it; a build's start and completion by catalog
   version; code 5 is unassigned), `RecordRegistration` (`SystemId`, `BucketGroup`, `NonZeroU64` generation), each with
   `encode()` to its fixed bytes, so a builder writing straight into a lent buffer (`WriteSetBuilder`) need not allocate.
-- `WriteSetRecord`: `transaction(ns)`, `registration(ns, registration)`, `build(ns, operation)`; setters for catalog,
+- `WriteSetRecord`: `transaction(tenant)`, `registration(tenant, registration)`, `build(tenant, operation)`; setters for catalog,
   read version, session (16 bytes) with its request, principal, commit record; pushes for each section, and
   `push_node_result(iri, created)`; `encode()`. `WriteSetRecordView::new` checks in §12.2's order and reads every
   section in place; `to_record()`.

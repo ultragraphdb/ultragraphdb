@@ -70,15 +70,15 @@ pub fn kind(object: &Term) -> String {
     }
 }
 
-/// `quads` inserted by one write of namespace `ns` at a fresh read timestamp, the write's terms and request kept
+/// `quads` inserted by one write of tenant `tenant` at a fresh read timestamp, the write's terms and request kept
 /// apart so that a test can commit them as it chooses.
 pub fn insert_write<'a>(
     store: &'a TestQuads,
-    ns: u64,
+    tenant: u64,
     quads: &[Quad],
 ) -> TestResult<TestWrite<'a>> {
     let read_ts = store.lists().applied_ts();
-    let mut write = QuadWrite::new(store, ns, store.lists().request(read_ts));
+    let mut write = QuadWrite::new(store, tenant, store.lists().request(read_ts));
     for q in quads {
         let (terms, quad_store) = write.terms();
         let graph = terms.graph(quad_store, q.graph_name.as_ref())?;
@@ -102,41 +102,41 @@ pub fn commit(store: &TestQuads, writes: Vec<TestWrite<'_>>) -> TestResult<Vec<u
     store.commit(batch, &terms).context("the batch is written")
 }
 
-/// `quads` written and committed in namespace `ns`: the commit version.
-pub fn write_at(store: &TestQuads, ns: u64, quads: &[Quad]) -> TestResult<u64> {
-    let w = insert_write(store, ns, quads)?;
+/// `quads` written and committed in tenant `tenant`: the commit version.
+pub fn write_at(store: &TestQuads, tenant: u64, quads: &[Quad]) -> TestResult<u64> {
+    let w = insert_write(store, tenant, quads)?;
     commit(store, vec![w])?.first().copied().context("commits")
 }
 
-/// `quads` written and committed in namespace `ns`, for a test that does not read the commit version.
-pub fn write(store: &TestQuads, ns: u64, quads: &[Quad]) -> TestResult {
-    let _committed_at: u64 = write_at(store, ns, quads)?;
+/// `quads` written and committed in tenant `tenant`, for a test that does not read the commit version.
+pub fn write(store: &TestQuads, tenant: u64, quads: &[Quad]) -> TestResult {
+    let _committed_at: u64 = write_at(store, tenant, quads)?;
     Ok(())
 }
 
-/// The ID the dictionary holds for `iri` in namespace `ns`.
-pub fn id(store: &TestQuads, ns: u64, iri: &NamedNode) -> TestResult<SystemId> {
-    store.id_of(ns, iri.as_str())?.context("an ID")
+/// The ID the dictionary holds for `iri` in tenant `tenant`.
+pub fn id(store: &TestQuads, tenant: u64, iri: &NamedNode) -> TestResult<SystemId> {
+    store.id_of(tenant, iri.as_str())?.context("an ID")
 }
 
-/// The named graph `iri` in namespace `ns`.
-pub fn named(store: &TestQuads, ns: u64, iri: &NamedNode) -> TestResult<Graph> {
-    Ok(Graph::Named(id(store, ns, iri)?))
+/// The named graph `iri` in tenant `tenant`.
+pub fn named(store: &TestQuads, tenant: u64, iri: &NamedNode) -> TestResult<Graph> {
+    Ok(Graph::Named(id(store, tenant, iri)?))
 }
 
 /// The forward key of `subject`'s `predicate` in `graph`, both named by IRI.
 pub fn forward(
     store: &TestQuads,
-    ns: u64,
+    tenant: u64,
     graph: Graph,
     subject: &NamedNode,
     predicate: &NamedNode,
 ) -> TestResult<Vec<u8>> {
     Ok(QuadKey::Forward {
-        namespace: ns,
+        tenant,
         graph,
-        predicate: id(store, ns, predicate)?,
-        subject: id(store, ns, subject)?,
+        predicate: id(store, tenant, predicate)?,
+        subject: id(store, tenant, subject)?,
     }
     .to_bytes())
 }

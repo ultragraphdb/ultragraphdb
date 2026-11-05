@@ -9,8 +9,8 @@ Feature: The placement map
   Rule: The placement map assigns bucket ranges to partitions
 
     Scenario: The initial map covers every bucket once
-      When the map is initialised for one namespace and three partitions
-      Then that namespace's 65,536 buckets are assigned in three contiguous ranges whose sizes differ by at most one, and every other bucket is assigned to a partition
+      When the map is initialised for one tenant and three partitions
+      Then that tenant's 65,536 buckets are assigned in three contiguous ranges whose sizes differ by at most one, and every other bucket is assigned to a partition
 
     Scenario: A change leaving a bucket unassigned is refused
       When a change moves the range 100..200 from partition 1 to nowhere

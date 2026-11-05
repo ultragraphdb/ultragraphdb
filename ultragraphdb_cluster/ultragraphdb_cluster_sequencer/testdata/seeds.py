@@ -17,8 +17,8 @@ LAST_EPOCH = (1 << 42) - 1
 
 def close(epoch, time_us, catalog, evictions, placement=0):
     out = bytes([1]) + struct.pack(">QQH", epoch, time_us, len(catalog))
-    for namespace, version in catalog:
-        out += struct.pack(">QQ", namespace, version)
+    for tenant, version in catalog:
+        out += struct.pack(">QQ", tenant, version)
     out += struct.pack(">H", len(evictions))
     for session in evictions:
         out += session.to_bytes(16, "big")

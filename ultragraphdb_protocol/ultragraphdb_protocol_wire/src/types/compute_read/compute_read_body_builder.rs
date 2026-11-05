@@ -19,7 +19,7 @@ impl BodyBuilder for ComputeRead {
             (4, &[u8::from(self.read_only())]),
             (5, &[self.level().number()]),
             (6, &[u8::from(self.named())]),
-            (8, &self.namespace().to_le_bytes()),
+            (8, &self.tenant().to_le_bytes()),
             (16, &self.read_version().to_le_bytes()),
             (24, &self.epoch().to_le_bytes()),
             (32, &self.principal().to_le_bytes()),

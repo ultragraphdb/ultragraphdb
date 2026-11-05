@@ -21,10 +21,10 @@ use crate::utils::helpers::{
     with_facet,
 };
 
-/// The forward key of predicate 7 for subject 1 in the default graph of the root namespace.
+/// The forward key of predicate 7 for subject 1 in the default graph of the root tenant.
 fn known_key() -> TestResult<Vec<u8>> {
     Ok(QuadKey::Forward {
-        namespace: 0,
+        tenant: 0,
         graph: Graph::Default,
         predicate: id(7)?,
         subject: id(1)?,
@@ -478,7 +478,7 @@ fn test_a_resume_across_a_split_list_s_parts_reads_each_posting_once() -> TestRe
 #[test]
 fn test_an_identity_in_a_list_comparing_no_values_is_its_uid() -> TestResult {
     let vector_key = QuadKey::VectorIndex {
-        namespace: 0,
+        tenant: 0,
         graph: Graph::Default,
         predicate: id(7)?,
         list: 1,

@@ -215,7 +215,7 @@ fn test_versionless_reads_add_only_their_own_records() -> TestResult {
     Ok(())
 }
 
-/// Commit batches write and remove keys without a version, laid out as the dictionary's: namespace 0, the IRI tag
+/// Commit batches write and remove keys without a version, laid out as the dictionary's: tenant 0, the IRI tag
 /// 0x01, then an id below 8, each holding a u64 big-endian; 17 bytes of key and 8 of value, by that layout.
 #[test]
 fn test_commit_batches_write_and_remove_dictionary_shaped_versionless_keys() -> TestResult {
@@ -284,9 +284,9 @@ fn entries_of(line: &str) -> Vec<(Vec<u8>, u64, Option<Vec<u8>>)> {
         .collect()
 }
 
-/// A drop of a namespace's statistics writes the statistics of predicate 7 there, and a drop of one predicate's
+/// A drop of a tenant's statistics writes the statistics of predicate 7 there, and a drop of one predicate's
 /// statistics entry writes that entry again, at version 1 with meta 1 and the value `name`; by the statistics layout
-/// `[0x18][namespace u64][graph u64][predicate u64]`, the default graph 0, the namespace prefix is 9 bytes and an
+/// `[0x18][tenant u64][graph u64][predicate u64]`, the default graph 0, the tenant prefix is 9 bytes and an
 /// entry 25.
 #[test]
 fn test_a_statistics_drop_writes_its_entry_under_its_prefix() -> TestResult {
@@ -319,7 +319,7 @@ fn test_a_statistics_drop_writes_its_entry_under_its_prefix() -> TestResult {
                     "{line}"
                 );
                 assert!(line.contains("meta: 1,"), "{line}");
-                // The prefix's length, whether its namespace is other than 0, and its predicate byte.
+                // The prefix's length, whether its tenant is other than 0, and its predicate byte.
                 let _new: bool =
                     seen.insert((prefix.len(), prefix[8] != 0, prefix[prefix.len() - 1]));
             }
@@ -327,7 +327,7 @@ fn test_a_statistics_drop_writes_its_entry_under_its_prefix() -> TestResult {
     }
     for case in [(9, true), (25, true)] {
         assert!(
-            seen.iter().any(|(len, ns, _)| (*len, *ns) == case),
+            seen.iter().any(|(len, tenant, _)| (*len, *tenant) == case),
             "no {case:?} in {seen:?}"
         );
     }
@@ -367,9 +367,9 @@ fn test_a_rollup_lands_above_the_newest_deletion_of_its_key() -> TestResult {
     Ok(())
 }
 
-/// The workload bans namespaces 1 and 5, its two besides the root, and never the root namespace 0.
+/// The workload bans tenants 1 and 5, its two besides the root, and never the root tenant 0.
 #[test]
-fn test_the_workload_never_bans_the_root_namespace() -> TestResult {
+fn test_the_workload_never_bans_the_root_tenant() -> TestResult {
     let banned: std::collections::BTreeSet<String> = (0..8)
         .map(|seed| {
             StoreWorkload::run(Seed::new(seed), FaultConfig::none(), 300, 0)
@@ -382,7 +382,7 @@ fn test_the_workload_never_bans_the_root_namespace() -> TestResult {
         .collect();
     assert_eq!(
         banned,
-        ["Banned { namespace: 1 }", "Banned { namespace: 5 }"]
+        ["Banned { tenant: 1 }", "Banned { tenant: 5 }"]
             .into_iter()
             .map(String::from)
             .collect()

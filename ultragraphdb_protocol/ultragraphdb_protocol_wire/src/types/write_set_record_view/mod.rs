@@ -29,7 +29,7 @@ use crate::utils::sections::Sections;
 #[derive(Debug, Clone, Copy)]
 struct Fixed {
     kind: RecordKind,
-    namespace: u64,
+    tenant: u64,
     catalog: u64,
     read_version: u64,
     session: [u8; 16],
@@ -50,8 +50,8 @@ fn read_fixed(command: u16, fixed: &[u8]) -> Result<Fixed, ProtocolError> {
     }
     let u64_at = |at: usize| bytes_at(fixed, at).map_or(0, u64::from_le_bytes);
     let session: [u8; 16] = bytes_at(fixed, 32).unwrap_or([0; 16]);
-    // The fields each kind leaves 0, by their offsets: a registration all but its namespace, a build all but its
-    // namespace and catalog.
+    // The fields each kind leaves 0, by their offsets: a registration all but its tenant, a build all but its
+    // tenant and catalog.
     let zero: &[usize] = match kind {
         RecordKind::Transaction => &[],
         RecordKind::Registration => &[16, 24, 32, 48, 56],
@@ -66,7 +66,7 @@ fn read_fixed(command: u16, fixed: &[u8]) -> Result<Fixed, ProtocolError> {
     }
     Ok(Fixed {
         kind,
-        namespace: u64_at(8),
+        tenant: u64_at(8),
         catalog: u64_at(16),
         read_version: u64_at(24),
         session,
@@ -154,7 +154,7 @@ fn read_result_terms<'a>(
 pub struct WriteSetRecordView<'a> {
     bytes: &'a [u8],
     kind: RecordKind,
-    namespace: u64,
+    tenant: u64,
     catalog: u64,
     read_version: u64,
     session: [u8; 16],
@@ -214,7 +214,7 @@ impl<'a> WriteSetRecordView<'a> {
         let view = Self {
             bytes,
             kind: fixed.kind,
-            namespace: fixed.namespace,
+            tenant: fixed.tenant,
             catalog: fixed.catalog,
             read_version: fixed.read_version,
             session: fixed.session,
@@ -242,12 +242,12 @@ impl<'a> WriteSetRecordView<'a> {
         self.kind
     }
 
-    /// The namespace.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
-    /// The namespace's catalog version the entry was validated against; 0 for a registration.
+    /// The tenant's catalog version the entry was validated against; 0 for a registration.
     pub fn catalog(&self) -> u64 {
         self.catalog
     }
@@ -344,7 +344,7 @@ impl<'a> WriteSetRecordView<'a> {
 
     /// The owned record of the view's values.
     pub fn to_record(&self) -> WriteSetRecord {
-        let mut record = WriteSetRecord::empty(self.kind, self.namespace);
+        let mut record = WriteSetRecord::empty(self.kind, self.tenant);
         record.set_catalog(self.catalog);
         record.set_read_version(self.read_version);
         record.set_session(self.session, self.request);

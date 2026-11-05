@@ -5,7 +5,7 @@
 
 use crate::types::held_version::HeldVersion;
 
-/// The source a partition reads its namespaces' catalog versions from: the metadata group in a cluster.
+/// The source a partition reads its tenants' catalog versions from: the metadata group in a cluster.
 ///
 /// A version takes effect at the epoch the sequencer assigned it, and the source answers only versions it has given an
 /// effective epoch: a pending one is no partition's yet. It retains every version a partition's untrimmed log may
@@ -14,19 +14,19 @@ pub trait CatalogSource {
     /// Why the source cannot answer now: unreachable, or failing.
     type Error: std::error::Error;
 
-    /// The version of `namespace`'s catalog in effect at `epoch`: the one of the highest effective epoch at or below
-    /// it, `None` when no version takes effect by then, the namespace then holding its initial catalog.
+    /// The version of `tenant`'s catalog in effect at `epoch`: the one of the highest effective epoch at or below
+    /// it, `None` when no version takes effect by then, the tenant then holding its initial catalog.
     ///
     /// # Errors
     ///
     /// The source's error when it cannot answer now.
-    fn version_at(&self, namespace: u64, epoch: u64) -> Result<Option<HeldVersion>, Self::Error>;
+    fn version_at(&self, tenant: u64, epoch: u64) -> Result<Option<HeldVersion>, Self::Error>;
 
-    /// Version `version` of `namespace`'s catalog, as a replayed record naming it asks: `None` when the source holds
+    /// Version `version` of `tenant`'s catalog, as a replayed record naming it asks: `None` when the source holds
     /// no such version with an effective epoch.
     ///
     /// # Errors
     ///
     /// The source's error when it cannot answer now.
-    fn version(&self, namespace: u64, version: u64) -> Result<Option<HeldVersion>, Self::Error>;
+    fn version(&self, tenant: u64, version: u64) -> Result<Option<HeldVersion>, Self::Error>;
 }

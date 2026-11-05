@@ -16,7 +16,7 @@ use ultragraphdb_traits_store::{ListCache, Store};
 use crate::errors::changeset_error::ChangesetError;
 
 /// The home's own groups `writes` references entities from, as its round adds them (partitions, "The home adds its own
-/// group without a registration"): for each edge a forward delta of `namespace` sets, its subject's bucket group with
+/// group without a registration"): for each edge a forward delta of `tenant` sets, its subject's bucket group with
 /// its object, an IRI or blank node of a bucket `quads` owns, unless the object's referrer set at `read_ts` names the
 /// group already. Referrer sets only grow, so a group named at the read is named at the commit; one the read lacked is
 /// checked again when the round applies. An object `terms` created has no referrer set to read. In `(entity, group)`
@@ -27,7 +27,7 @@ use crate::errors::changeset_error::ChangesetError;
 /// The store's error; the corruption of a referrer set.
 pub(crate) fn referrer_candidates<S, C, B>(
     quads: &QuadStore<S, C, B>,
-    namespace: u64,
+    tenant: u64,
     read_ts: u64,
     writes: &Writes,
     terms: &WriteTerms,
@@ -60,7 +60,7 @@ where
             }
             let named = !terms.is_fresh(object)
                 && quads
-                    .referrers(namespace, object, read_ts)?
+                    .referrers(tenant, object, read_ts)?
                     .member(group)
                     .is_some();
             if !named {

@@ -77,7 +77,7 @@ impl DropRecord {
 
 fn push_len(out: &mut Vec<u8>, len: usize) {
     // A drop's prefixes and entries, and each one's bytes, are far below 4 GiB: keys are at most 65,000 bytes and a
-    // drop writes a namespace's initial schema.
+    // drop writes a tenant's initial schema.
     out.extend_from_slice(&u32::try_from(len).unwrap_or(u32::MAX).to_be_bytes());
 }
 

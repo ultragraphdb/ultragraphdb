@@ -8,7 +8,7 @@
 //! | Offset | Field |
 //! |---|---|
 //! | 0 | format, u8, 1 |
-//! | 1 | namespace, u64 |
+//! | 1 | tenant, u64 |
 //! | 9 | the version's number, u64 |
 //! | 17 | the number of declarations, u32 |
 //! | 21 | each declaration: its length, u32, then its catalog entry's value (`crate::encode_declaration`) |
@@ -24,7 +24,7 @@ use crate::utils::catalog_codec::{check_lengths, decode, encode};
 /// The contents' format byte.
 pub(crate) const CONTENTS_FORMAT: u8 = 1;
 
-/// The length of the fixed part before the first declaration: format, namespace, version and count.
+/// The length of the fixed part before the first declaration: format, tenant, version and count.
 const HEADER_LEN: usize = 21;
 
 const _: () = assert!(HEADER_LEN == 1 + 8 + 8 + 4);
@@ -58,7 +58,7 @@ impl CatalogContents {
         })?;
         let mut w = Vec::with_capacity(HEADER_LEN);
         w.push(CONTENTS_FORMAT);
-        w.extend_from_slice(&self.namespace.to_be_bytes());
+        w.extend_from_slice(&self.tenant.to_be_bytes());
         w.extend_from_slice(&self.version.to_be_bytes());
         w.extend_from_slice(&count.to_be_bytes());
         debug_assert_eq!(w.len(), HEADER_LEN);
@@ -72,37 +72,34 @@ impl CatalogContents {
             w.extend_from_slice(&entry);
         }
         // Paired with the load: what the group is given reads back as these contents.
-        debug_assert!(
-            Self::decode(self.namespace, self.version, &w).is_ok_and(|read| read == *self)
-        );
+        debug_assert!(Self::decode(self.tenant, self.version, &w).is_ok_and(|read| read == *self));
         Ok(w)
     }
 
-    /// The contents `bytes` hold, read as version `version` of `namespace`'s catalog.
+    /// The contents `bytes` hold, read as version `version` of `tenant`'s catalog.
     ///
     /// # Errors
     ///
-    /// [`CatalogError::corrupted_version`], naming the namespace and version, when the bytes are not of the format,
-    /// end early or run on, name another namespace or version, or hold a declaration that does not decode.
-    pub fn decode(namespace: u64, version: u64, bytes: &[u8]) -> Result<Self, CatalogError> {
-        let corrupted =
-            |reason: String| CatalogError::corrupted_version(namespace, version, reason);
+    /// [`CatalogError::corrupted_version`], naming the tenant and version, when the bytes are not of the format,
+    /// end early or run on, name another tenant or version, or hold a declaration that does not decode.
+    pub fn decode(tenant: u64, version: u64, bytes: &[u8]) -> Result<Self, CatalogError> {
+        let corrupted = |reason: String| CatalogError::corrupted_version(tenant, version, reason);
         let ends_early = || corrupted("the contents end early".to_string());
         let (header, mut rest) = bytes.split_at_checked(HEADER_LEN).ok_or_else(ends_early)?;
         let (format, header) = header.split_first().ok_or_else(ends_early)?;
         if *format != CONTENTS_FORMAT {
             return Err(corrupted(format!("unknown format {format}")));
         }
-        let (named_namespace, header) = header.split_first_chunk::<8>().ok_or_else(ends_early)?;
+        let (named_tenant, header) = header.split_first_chunk::<8>().ok_or_else(ends_early)?;
         let (named_version, header) = header.split_first_chunk::<8>().ok_or_else(ends_early)?;
         let (count, _) = header.split_first_chunk::<4>().ok_or_else(ends_early)?;
-        let (named_namespace, named_version) = (
-            u64::from_be_bytes(*named_namespace),
+        let (named_tenant, named_version) = (
+            u64::from_be_bytes(*named_tenant),
             u64::from_be_bytes(*named_version),
         );
-        if named_namespace != namespace {
+        if named_tenant != tenant {
             return Err(corrupted(format!(
-                "the contents name namespace {named_namespace}"
+                "the contents name tenant {named_tenant}"
             )));
         }
         if named_version != version {
@@ -123,6 +120,6 @@ impl CatalogContents {
         if !rest.is_empty() {
             return Err(corrupted("bytes follow the last declaration".to_string()));
         }
-        Ok(Self::new(namespace, version, declarations))
+        Ok(Self::new(tenant, version, declarations))
     }
 }

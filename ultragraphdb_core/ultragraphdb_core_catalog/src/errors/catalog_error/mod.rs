@@ -83,11 +83,11 @@ pub enum CatalogErrorEnum {
     },
     /// The store failed, or holds a catalog entry that does not parse or decode: its `Corrupted`, naming the key.
     Store(StoreError),
-    /// A catalog version the metadata group holds that does not decode: the load of its namespace's catalog is refused
+    /// A catalog version the metadata group holds that does not decode: the load of its tenant's catalog is refused
     /// whole, naming the version.
     CorruptedVersion {
-        /// The namespace whose catalog the version is.
-        namespace: u64,
+        /// The tenant whose catalog the version is.
+        tenant: u64,
         /// The version's number.
         version: u64,
         /// Why it does not decode.
@@ -186,11 +186,11 @@ impl CatalogError {
         })
     }
 
-    /// A [`CatalogErrorEnum::CorruptedVersion`]: version `version` of `namespace`'s catalog does not decode, as
+    /// A [`CatalogErrorEnum::CorruptedVersion`]: version `version` of `tenant`'s catalog does not decode, as
     /// `reason` says.
-    pub fn corrupted_version(namespace: u64, version: u64, reason: impl Into<String>) -> Self {
+    pub fn corrupted_version(tenant: u64, version: u64, reason: impl Into<String>) -> Self {
         Self(CatalogErrorEnum::CorruptedVersion {
-            namespace,
+            tenant,
             version,
             reason: reason.into(),
         })

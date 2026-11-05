@@ -7,12 +7,12 @@ use ultragraphdb_cluster_placement::PartitionId;
 use ultragraphdb_core_ids::{Epoch, SystemId};
 use ultragraphdb_core_keys::Graph;
 
-/// A reverse read of `object` through `predicate` in `graph` of `namespace` at the closed epoch `epoch`, `object`
+/// A reverse read of `object` through `predicate` in `graph` of `tenant` at the closed epoch `epoch`, `object`
 /// homed in `home` (quad-reads, "A reverse read asks the object's referrers").
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReverseQuery {
     home: PartitionId,
-    namespace: u64,
+    tenant: u64,
     graph: Graph,
     predicate: SystemId,
     object: SystemId,
@@ -20,10 +20,10 @@ pub struct ReverseQuery {
 }
 
 impl ReverseQuery {
-    /// The reverse read of `object`, homed in `home`, through `predicate` in `graph` of `namespace` at `epoch`.
+    /// The reverse read of `object`, homed in `home`, through `predicate` in `graph` of `tenant` at `epoch`.
     pub fn new(
         home: PartitionId,
-        namespace: u64,
+        tenant: u64,
         graph: Graph,
         predicate: SystemId,
         object: SystemId,
@@ -31,7 +31,7 @@ impl ReverseQuery {
     ) -> Self {
         Self {
             home,
-            namespace,
+            tenant,
             graph,
             predicate,
             object,
@@ -44,9 +44,9 @@ impl ReverseQuery {
         self.home
     }
 
-    /// The namespace.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// The graph.

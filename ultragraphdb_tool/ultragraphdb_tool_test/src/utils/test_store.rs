@@ -31,10 +31,10 @@ pub fn put(key: &[u8], version: u64, value: &[u8]) -> Entry {
     Entry::put(key.to_vec(), version, 0x04, value.to_vec())
 }
 
-/// A key of namespace `ns`.
-pub fn ns_key(ns: u64, tail: &[u8]) -> Vec<u8> {
+/// A key of tenant `tenant`.
+pub fn tenant_key(tenant: u64, tail: &[u8]) -> Vec<u8> {
     let mut key = vec![0x00];
-    key.extend_from_slice(&ns.to_be_bytes());
+    key.extend_from_slice(&tenant.to_be_bytes());
     key.extend_from_slice(tail);
     key
 }

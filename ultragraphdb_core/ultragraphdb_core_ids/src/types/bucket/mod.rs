@@ -7,8 +7,8 @@ use crate::errors::id_error::IdError;
 use xxhash_rust::xxh3::Xxh3Default;
 
 use crate::types::canonical_key::CanonicalKey;
-use crate::types::namespace::Namespace;
 use crate::types::system_id::SystemId;
+use crate::types::tenant::Tenant;
 use crate::types::type_prefix::TypePrefix;
 
 /// The 24-bit bucket of a [`SystemId`](crate::SystemId), which decides the partition an entity lives in. It is
@@ -40,29 +40,29 @@ impl Bucket {
         self.0
     }
 
-    /// The bucket of the value `value`, a term's encoding, of the unique predicate `predicate`, in `namespace`, where an
+    /// The bucket of the value `value`, a term's encoding, of the unique predicate `predicate`, in `tenant`, where an
     /// insert-if-absent or upsert-and-link claims it (system-identity, "A unique value's bucket is computed from its
-    /// predicate and value"): its top 8 bits are the namespace's, as [`Bucket::derive`] takes them, its low 16 bits the
+    /// predicate and value"): its top 8 bits are the tenant's, as [`Bucket::derive`] takes them, its low 16 bits the
     /// top 16 bits of XXH3-64 (seed 0) of the predicate's 16 big-endian bytes followed by `value`.
     #[must_use]
-    pub fn of_value(namespace: Namespace, predicate: SystemId, value: &[u8]) -> Self {
+    pub fn of_value(tenant: Tenant, predicate: SystemId, value: &[u8]) -> Self {
         let mut hasher = Xxh3Default::new();
         hasher.update(&predicate.to_be_bytes());
         hasher.update(value);
         let [high, low, ..] = hasher.digest().to_be_bytes();
         // The top byte is zero, so the bucket holds 24 bits by construction.
-        let bucket = u32::from_be_bytes([0, namespace.bucket_bits(), high, low]);
+        let bucket = u32::from_be_bytes([0, tenant.bucket_bits(), high, low]);
         debug_assert!(bucket <= Self::MAX.0, "a value's bucket holds 24 bits");
         Self(bucket)
     }
 
-    /// The bucket of the entity of the type declaring `prefix` whose key is `key`, in `namespace`: its top 8
-    /// bits are the top 8 bits of XXH3-64 (seed 0) of the namespace's 8 big-endian bytes, its low 16 bits the top 16
+    /// The bucket of the entity of the type declaring `prefix` whose key is `key`, in `tenant`: its top 8
+    /// bits are the top 8 bits of XXH3-64 (seed 0) of the tenant's 8 big-endian bytes, its low 16 bits the top 16
     /// bits of XXH3-64 (seed 0) of the prefix's 2 big-endian bytes followed by the key's canonical encoding. The same
-    /// namespace, type and key give the same bucket on every node and in every version.
+    /// tenant, type and key give the same bucket on every node and in every version.
     #[must_use]
-    pub fn derive(namespace: Namespace, prefix: TypePrefix, key: &CanonicalKey<'_>) -> Self {
-        let namespace_top = namespace.bucket_bits();
+    pub fn derive(tenant: Tenant, prefix: TypePrefix, key: &CanonicalKey<'_>) -> Self {
+        let tenant_top = tenant.bucket_bits();
         // Streamed, so no buffer holds the prefix and the key together; XXH3's streaming digest equals its one-shot
         // hash of the concatenated bytes.
         let mut hasher = Xxh3Default::new();
@@ -71,7 +71,7 @@ impl Bucket {
         hasher.update(key.as_str().as_bytes());
         let [key_high, key_low, ..] = hasher.digest().to_be_bytes();
         // The top byte is zero, so the bucket holds 24 bits by construction.
-        let bucket = u32::from_be_bytes([0, namespace_top, key_high, key_low]);
+        let bucket = u32::from_be_bytes([0, tenant_top, key_high, key_low]);
         debug_assert!(bucket <= Self::MAX.0, "a derived bucket holds 24 bits");
         Self(bucket)
     }

@@ -5,7 +5,7 @@
 
 //! Changesets applied to the quads of one store: index maintenance, catalog changes, index builds and drops.
 //!
-//! A [`ChangesetApplier`] holds the quad store, the catalog of each namespace and the executor its builds run on. A
+//! A [`ChangesetApplier`] holds the quad store, the catalog of each tenant and the executor its builds run on. A
 //! changeset is one request of the posting lists: its terms resolved, each new term's ID got or created while it runs
 //! and shared with every execution naming the term, its operations checked against the catalog, its
 //! statements written to the forward, reverse and predicate lists with their value-index tokens, counts, statement

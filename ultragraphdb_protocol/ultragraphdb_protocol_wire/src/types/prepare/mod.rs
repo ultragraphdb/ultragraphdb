@@ -11,11 +11,11 @@ use crate::types::term_table::TermTable;
 
 /// A statement prepared once per session (stage 5: a quad pattern with parameter slots): sent with the pattern and its
 /// parameters' types, `statement` and `schema` zero and no result types; answered with the statement's id, the
-/// schema id of its namespace's catalog, and its parameter and result column types.
+/// schema id of its tenant's catalog, and its parameter and result column types.
 ///
 /// | Command header | Field | Type |
 /// |---|---|---|
-/// | 0 | `namespace` | u64 |
+/// | 0 | `tenant` | u64 |
 /// | 8 | `statement` | u64 |
 /// | 16 | `schema` | u64 |
 ///
@@ -31,7 +31,7 @@ use crate::types::term_table::TermTable;
 /// names is an index into it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Prepare {
-    namespace: u64,
+    tenant: u64,
     statement: u64,
     schema: u64,
     terms: TermTable,
@@ -41,9 +41,9 @@ pub struct Prepare {
 }
 
 impl Prepare {
-    /// A Prepare of `pattern` in `namespace`, naming `terms`, with its statement, schema and column types.
+    /// A Prepare of `pattern` in `tenant`, naming `terms`, with its statement, schema and column types.
     pub fn new(
-        namespace: u64,
+        tenant: u64,
         statement: u64,
         schema: u64,
         terms: TermTable,
@@ -52,7 +52,7 @@ impl Prepare {
         result_types: Vec<ColumnType>,
     ) -> Self {
         Self {
-            namespace,
+            tenant,
             statement,
             schema,
             terms,
@@ -62,9 +62,9 @@ impl Prepare {
         }
     }
 
-    /// The namespace.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// The statement's id; zero in a request.
@@ -72,7 +72,7 @@ impl Prepare {
         self.statement
     }
 
-    /// The schema id of the namespace's catalog; zero in a request.
+    /// The schema id of the tenant's catalog; zero in a request.
     pub fn schema(&self) -> u64 {
         self.schema
     }

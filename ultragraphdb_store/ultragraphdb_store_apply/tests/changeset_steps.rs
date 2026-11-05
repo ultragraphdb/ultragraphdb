@@ -23,7 +23,7 @@ use ultragraphdb_store_sim::{Seed, SimListCache, SteppedExecutor, Stream};
 
 use crate::Steps;
 use crate::utils::changesets::{
-    NS, TestChangesets, apply, changeset, changesets, changesets_over, counts_of, delete,
+    TENANT, TestChangesets, apply, changeset, changesets, changesets_over, counts_of, delete,
     delete_pattern, ex, exact_token, index_keys_holding, indexed, insert, insert_edge, int_token,
     objects, objects_in, postings, reverse, sim_store, statement, term, term_token, tokens_of, uid,
 };
@@ -66,7 +66,7 @@ pub(crate) fn is_held(a: &TestChangesets, text: &str) -> TestResult<bool> {
     };
     let known = |iri: &str| -> TestResult<bool> {
         Ok(a.quads()
-            .id_of(NS, iri)
+            .id_of(TENANT, iri)
             .context("the dictionary reads")?
             .is_some())
     };
@@ -220,7 +220,7 @@ fn gains_counted(w: &mut Steps, args: &[String]) -> TestResult {
     // The object's reverse counts before the edge: none when it is new to the store.
     let before = match a
         .quads()
-        .id_of(NS, ex(&object).as_str())
+        .id_of(TENANT, ex(&object).as_str())
         .context("the dictionary reads")?
     {
         Some(id) => counts_of(&a, predicate, CountDirection::Reverse, id)?,
@@ -325,7 +325,7 @@ fn statement_deleted(w: &mut Steps) -> TestResult {
 /// The reifier naming statement `id`.
 pub(crate) fn reifier_of(a: &TestChangesets, id: SystemId) -> TestResult<NamedNode> {
     Ok(NamedNode::new(
-        a.quads().iri_of(NS, id).context("the reifier reads")?.0,
+        a.quads().iri_of(TENANT, id).context("the reifier reads")?.0,
     )?)
 }
 
@@ -364,7 +364,7 @@ fn statement_id_allocated(w: &mut Steps) -> TestResult {
     assert_eq!(properties.len(), 1);
     let (p, v) = properties.first().context("a property")?;
     assert_eq!(*p, uid(&a, "since")?);
-    assert_eq!(a.quads().term_of(NS, v)?, term("2020")?);
+    assert_eq!(a.quads().term_of(TENANT, v)?, term("2020")?);
     w.statement = Some(id);
     Ok(())
 }
@@ -678,7 +678,7 @@ fn read_of_a_lacking_predicate(w: &mut Steps, args: &[String]) -> TestResult {
         &[format!("<a> <{held}> \"Ann\""), format!("<b> <{asked}> 30")],
     )?;
     let mut execution = a
-        .begin(NS, a.quads().lists().applied_ts())
+        .begin(TENANT, a.quads().lists().applied_ts())
         .context("begun")?;
     let mut out = vec![Term::from(ex("stale"))];
     let (subject, predicate) = (ex("a"), ex(asked));
@@ -708,7 +708,7 @@ fn lacking_predicate_not_read(w: &mut Steps, args: &[String]) -> TestResult {
     let a = cs(w)?;
     let node = uid(&a, "a")?;
     let subject_predicates = QuadKey::SubjectPredicates {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         subject: node,
     }
@@ -718,7 +718,7 @@ fn lacking_predicate_not_read(w: &mut Steps, args: &[String]) -> TestResult {
         "the subject-predicates list is read"
     );
     let forward = QuadKey::Forward {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         predicate: uid(&a, asked)?,
         subject: node,
@@ -779,7 +779,7 @@ fn counted_once(w: &mut Steps) -> TestResult {
     let ts = a.quads().lists().applied_ts();
     let statistics = a
         .quads()
-        .statistics(NS, DEFAULT_GRAPH, uid(&a, "knows")?, ts)
+        .statistics(TENANT, DEFAULT_GRAPH, uid(&a, "knows")?, ts)
         .context("the statistics read")?;
     assert_eq!(statistics.statements(), 1);
     Ok(())
@@ -809,7 +809,7 @@ fn reads_forward(w: &mut Steps, args: &[String]) -> TestResult {
 fn wrote(w: &Steps, keyspace: Keyspace, predicate: Option<SystemId>) -> TestResult<bool> {
     Ok(applied(w)?.written().iter().any(|r| {
         r.keyspace() == keyspace
-            && r.namespace() == NS
+            && r.tenant() == TENANT
             && r.graph() == Some(DEFAULT_GRAPH)
             && r.predicate() == predicate
     }))
@@ -879,7 +879,7 @@ fn read_set_holds_statement(w: &mut Steps, args: &[String]) -> TestResult {
     let reads = applied(w)?.reads();
     let key = |p: &str, s: &str| -> TestResult<Vec<u8>> {
         Ok(ultragraphdb_core_keys::QuadKey::Forward {
-            namespace: NS,
+            tenant: TENANT,
             graph: DEFAULT_GRAPH,
             predicate: uid(&a, p)?,
             subject: uid(&a, s)?,
@@ -926,7 +926,7 @@ fn two_writers_of_new(w: &mut Steps) -> TestResult {
     );
     w.names = vec![format!("{one:?}"), format!("{two:?}")];
     assert_eq!(
-        a.quads().id_of(NS, ex("new").as_str())?,
+        a.quads().id_of(TENANT, ex("new").as_str())?,
         None,
         "neither has committed"
     );
@@ -980,7 +980,7 @@ fn nicks_gone(w: &mut Steps) -> TestResult {
         assert!(!reverse(&a, "nick", object)?.contains(&subject), "{object}");
     }
     let al = QuadKey::Reverse {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         predicate: uid(&a, "nick")?,
         object: crate::utils::changesets::encoded(&term(r#""Al""#)?)?,
@@ -1020,7 +1020,7 @@ fn reported_regions(w: &mut Steps) -> TestResult {
 fn new_term_executed(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
     crate::utils::changesets::write(&a, &["<b> <knows> <c>"])?;
-    assert_eq!(a.quads().id_of(NS, ex("new").as_str())?, None);
+    assert_eq!(a.quads().id_of(TENANT, ex("new").as_str())?, None);
     let result = apply(&a, vec![insert("<new> <knows> <b>")?]);
     w.results.push(result);
     Ok(())
@@ -1055,7 +1055,7 @@ fn same_bytes(w: &mut Steps) {
 fn catalog_default(w: &mut Steps, args: &[String]) -> TestResult {
     let predicate = &args[0];
     let a = cs(w)?;
-    let catalog = a.catalog(NS).context("the catalog is held")?;
+    let catalog = a.catalog(TENANT).context("the catalog is held")?;
     assert_eq!(
         catalog.predicate(uid(&a, predicate)?),
         Some(&PredicateDeclaration::new(ex(predicate)))
@@ -1068,17 +1068,17 @@ fn catalog_lacks(w: &mut Steps, args: &[String]) -> TestResult {
     let predicate = &args[0];
     let a = cs(w)?;
     crate::schema_storage_steps::send_defaults(w, &a)?;
-    let recorded = w.source.defaults(NS);
+    let recorded = w.source.defaults(TENANT);
     assert!(
         recorded
             .iter()
             .all(|e| e.predicate() != ex(predicate).as_str()),
         "{recorded:?}"
     );
-    let catalog = a.catalog(NS).context("the catalog is held")?;
+    let catalog = a.catalog(TENANT).context("the catalog is held")?;
     let declared = a
         .quads()
-        .id_of(NS, ex(predicate).as_str())
+        .id_of(TENANT, ex(predicate).as_str())
         .context("the dictionary reads")?
         .and_then(|p| catalog.predicate(p).cloned());
     assert_eq!(declared, None);
@@ -1126,7 +1126,7 @@ fn record_holds(w: &mut Steps, args: &[String]) -> TestResult {
         uid(&a, property.trim_start_matches('<').trim_end_matches('>'))?
     );
     assert_eq!(
-        a.quads().term_of(NS, v).context("the value decodes")?,
+        a.quads().term_of(TENANT, v).context("the value decodes")?,
         term(value)?
     );
     Ok(())
@@ -1149,7 +1149,7 @@ fn stored_record(
     id: SystemId,
 ) -> TestResult<Option<ultragraphdb_store_quads::StatementRecord>> {
     a.quads()
-        .statement(NS, DEFAULT_GRAPH, id, a.quads().lists().applied_ts())
+        .statement(TENANT, DEFAULT_GRAPH, id, a.quads().lists().applied_ts())
         .context("the record reads")
 }
 
@@ -1177,14 +1177,14 @@ fn gains_property_and_id(w: &mut Steps) -> TestResult {
 fn reifier_is_skolem(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
     let id = w.statement.context("a statement ID")?;
-    let (reifier, blank) = a.quads().iri_of(NS, id)?;
+    let (reifier, blank) = a.quads().iri_of(TENANT, id)?;
     assert!(!blank, "a reifier is no blank node");
     let tail = reifier
         .strip_prefix(&format!(
             "{}.well-known/genid/",
-            ultragraphdb_store_quads::namespace_base(NS)
+            ultragraphdb_store_quads::tenant_base(TENANT)
         ))
-        .context("under the namespace's skolem base")?;
+        .context("under the tenant's skolem base")?;
     let (bucket, random) = tail.split_once('-').context("a bucket and random digits")?;
     assert_eq!((bucket.len(), random.len()), (6, 26), "{reifier}");
     assert_eq!(
@@ -1193,7 +1193,7 @@ fn reifier_is_skolem(w: &mut Steps) -> TestResult {
         "<a>'s bucket"
     );
     assert_eq!(
-        a.quads().id_of(NS, &reifier)?,
+        a.quads().id_of(TENANT, &reifier)?,
         Some(id),
         "the IRI maps back to the statement ID"
     );
@@ -1289,7 +1289,7 @@ fn creators_share(w: &mut Steps) -> TestResult {
     let id = w.statement.context("the ID")?;
     assert_eq!(uid(&a, "new")?, id);
     assert_eq!(
-        a.quads().iri_of(NS, id)?,
+        a.quads().iri_of(TENANT, id)?,
         (ex("new").as_str().to_string(), false)
     );
     assert!(is_held(&a, r#"<new> <p> "x""#)?);

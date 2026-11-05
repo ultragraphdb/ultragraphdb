@@ -16,7 +16,9 @@ use std::num::NonZeroU32;
 use ultragraphdb_cluster_metadata::MetadataGroup;
 use ultragraphdb_transactions_log::{SimStorage, Wal};
 
-use crate::utils::harness::{DIR, block_on, fresh, fresh_with, ns, open, pid, sync, wal_config};
+use crate::utils::harness::{
+    DIR, block_on, fresh, fresh_with, open, pid, sync, tenant, wal_config,
+};
 
 #[test]
 fn test_a_fresh_group_reads_the_empty_state_at_position_0() -> TestResult {
@@ -31,14 +33,14 @@ fn test_a_fresh_group_reads_the_empty_state_at_position_0() -> TestResult {
 #[test]
 fn test_a_command_is_read_only_once_durable() -> TestResult {
     let (_storage, mut group) = fresh()?;
-    let (version, position) = group.offer_catalog(ns(), 0, b"v1")?;
+    let (version, position) = group.offer_catalog(tenant(), 0, b"v1")?;
     assert_eq!((version, position.get()), (1, 1));
     // Appended, not durable: the state reads answer from does not hold it.
-    assert_eq!(group.state().current_version(ns()), 0);
+    assert_eq!(group.state().current_version(tenant()), 0);
     assert_eq!(group.applied(), Position::ZERO);
     let durable = block_on(group.sync())??;
     assert_eq!(durable.get(), 1);
-    assert_eq!(group.state().current_version(ns()), 1);
+    assert_eq!(group.state().current_version(tenant()), 1);
     assert_eq!(group.applied().get(), 1);
     // A sync with nothing appended changes nothing.
     assert_eq!(block_on(group.sync())??.get(), 1);
@@ -53,19 +55,19 @@ fn test_a_command_is_decided_against_every_command_appended_before_it() -> TestR
     let (second, _) = group.lease_block(TypePrefix::RESOURCE, pid(2)?, 5)?;
     assert_eq!((first.start().get(), first.end()), (1, 11));
     assert_eq!((second.start().get(), second.end()), (11, 16));
-    let (_, _) = group.offer_catalog(ns(), 0, b"v1")?;
-    let (version, position) = group.offer_catalog(ns(), 1, b"v2")?;
+    let (_, _) = group.offer_catalog(tenant(), 0, b"v1")?;
+    let (version, position) = group.offer_catalog(tenant(), 1, b"v2")?;
     assert_eq!((version, position.get()), (2, 4));
     sync(&mut group)?;
     assert_eq!(group.state().next_sequence(TypePrefix::RESOURCE), 16);
-    assert_eq!(group.state().current_version(ns()), 2);
+    assert_eq!(group.state().current_version(tenant()), 2);
     Ok(())
 }
 
 #[test]
 fn test_every_command_is_one_round_of_the_groups_own_log() -> TestResult {
     let (storage, mut group) = fresh()?;
-    let _offer = group.offer_catalog(ns(), 0, b"v1")?;
+    let _offer = group.offer_catalog(tenant(), 0, b"v1")?;
     let _lease = group.lease_block(TypePrefix::RESOURCE, pid(1)?, 3)?;
     sync(&mut group)?;
     let mut log = open(&storage)?;
@@ -78,7 +80,7 @@ fn test_every_command_is_one_round_of_the_groups_own_log() -> TestResult {
         commands,
         vec![
             MetadataCommand::OfferCatalog {
-                namespace: ns(),
+                tenant: tenant(),
                 predecessor: 0,
                 bytes: b"v1".to_vec()
             },
@@ -101,10 +103,10 @@ fn test_a_round_the_log_refuses_changes_nothing() -> TestResult {
     let config = wal_config().with_capacity(NonZeroU32::MIN.saturating_add(1));
     let (log, _) = block_on(Wal::open(storage.clone(), DIR, config))??;
     let mut group = block_on(MetadataGroup::recover(log, MetadataConfig::new(), None))??;
-    let _: (u64, Position) = group.offer_catalog(ns(), 0, &vec![1; 200 * 1_024])?;
+    let _: (u64, Position) = group.offer_catalog(tenant(), 0, &vec![1; 200 * 1_024])?;
     sync(&mut group)?;
     let refusal = group
-        .offer_catalog(ns(), 1, &vec![2; 600 * 1_024])
+        .offer_catalog(tenant(), 1, &vec![2; 600 * 1_024])
         .err()
         .context("a refusal")?;
     assert!(
@@ -112,11 +114,11 @@ fn test_a_round_the_log_refuses_changes_nothing() -> TestResult {
         "{refusal:?}"
     );
     // The refused version is not the latest: an offer on version 1 is not stale, whatever room the log has left.
-    match group.offer_catalog(ns(), 1, b"small") {
+    match group.offer_catalog(tenant(), 1, b"small") {
         Ok((version, _)) => assert_eq!(version, 2),
         Err(again) => assert!(matches!(again.0, ClusterErrorEnum::Log(_)), "{again:?}"),
     }
-    assert_eq!(group.state().current_version(ns()), 1);
+    assert_eq!(group.state().current_version(tenant()), 1);
     Ok(())
 }
 
@@ -132,10 +134,10 @@ fn test_a_refused_command_appends_nothing() -> TestResult {
     );
     assert_eq!(
         group
-            .offer_catalog(ns(), 3, b"v")
+            .offer_catalog(tenant(), 3, b"v")
             .err()
             .context("a refusal")?,
-        ClusterError::stale_catalog(ns().get(), 3, 0)
+        ClusterError::stale_catalog(tenant().get(), 3, 0)
     );
     let (_, position) = group.lease_block(TypePrefix::RESOURCE, pid(1)?, 5)?;
     assert_eq!(position.get(), 1);
@@ -145,13 +147,13 @@ fn test_a_refused_command_appends_nothing() -> TestResult {
 #[test]
 fn test_a_failed_sync_is_the_logs_error_and_applies_nothing() -> TestResult {
     let (storage, mut group) = fresh()?;
-    let _offer = group.offer_catalog(ns(), 0, b"v1")?;
+    let _offer = group.offer_catalog(tenant(), 0, b"v1")?;
     storage.fail_at(storage.trace().len(), FaultMode::Before);
     let refusal = block_on(group.sync())?.err().context("a refusal")?;
     let ClusterErrorEnum::Log(_) = refusal.0 else {
         return Err(TestError::new(format!("{refusal:?}")));
     };
-    assert_eq!(group.state().current_version(ns()), 0);
+    assert_eq!(group.state().current_version(tenant()), 0);
     assert_eq!(group.applied(), Position::ZERO);
     let refused = group
         .lease_block(TypePrefix::RESOURCE, pid(1)?, 1)
@@ -180,12 +182,12 @@ fn test_a_version_larger_than_one_round_commits_across_rounds_and_reads_back_who
     // 300 KiB of bytes: three chunks of 128 KiB at most and their commit, four rounds.
     let (storage, mut group) = fresh()?;
     let large: Vec<u8> = (0..300 * 1_024).map(|i: u32| (i % 251) as u8).collect();
-    let (version, position) = group.offer_catalog(ns(), 0, &large)?;
+    let (version, position) = group.offer_catalog(tenant(), 0, &large)?;
     assert_eq!((version, position.get()), (1, 4));
     // Until the commit is durable the version is no one's: the state read answers from does not hold it.
-    assert_eq!(group.state().current_version(ns()), 0);
+    assert_eq!(group.state().current_version(tenant()), 0);
     sync(&mut group)?;
-    let held = group.state().versions(ns());
+    let held = group.state().versions(tenant());
     assert_eq!(held.first().map(|v| v.bytes()), Some(large.as_slice()));
     assert_eq!(group.applied().get(), 4);
     let mut log = open(&storage)?;
@@ -208,11 +210,11 @@ fn test_a_version_larger_than_one_round_commits_across_rounds_and_reads_back_who
 fn test_a_command_one_byte_past_a_chunk_takes_two_chunks() -> TestResult {
     // An offer's encoding is its 21 header bytes and its version: 131,051 bytes of version fill one round exactly.
     let (_storage, mut group) = fresh()?;
-    let (_, one) = group.offer_catalog(ns(), 0, &vec![3; 131_051])?;
+    let (_, one) = group.offer_catalog(tenant(), 0, &vec![3; 131_051])?;
     assert_eq!(one.get(), 1);
-    let (_, chunked) = group.offer_catalog(ns(), 1, &vec![3; 131_052])?;
+    let (_, chunked) = group.offer_catalog(tenant(), 1, &vec![3; 131_052])?;
     assert_eq!(chunked.get(), 4);
     sync(&mut group)?;
-    assert_eq!(group.state().current_version(ns()), 2);
+    assert_eq!(group.state().current_version(tenant()), 2);
     Ok(())
 }

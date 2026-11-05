@@ -10,7 +10,7 @@ use ultragraphdb_core_mapping::RandomSource;
 use ultragraphdb_core_terms::{EncodedTerm, Hash128};
 use ultragraphdb_store_quads::{
     OwnedBuckets, QuadErrorEnum, QuadStore, SKOLEM_DRAWS_MAX, WriteTerms, id_key, literal_key,
-    namespace_base, term_key,
+    tenant_base, term_key,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_store::VersionlessEntry;
@@ -19,24 +19,24 @@ use crate::utils::helpers::{
     TestQuads, blocks, ex, lists_over, quad, quads, quads_with, sim, write,
 };
 
-/// The bucket of `http://ex.org/a` in namespace 0: core_ids' `testdata/golden/buckets.json`, "the scenario: namespace
+/// The bucket of `http://ex.org/a` in tenant 0: core_ids' `testdata/golden/buckets.json`, "the scenario: tenant
 /// 0", from the xxHash reference.
-const BUCKET_A_NS0: u32 = 0xC7_F1AB;
-/// The first bucket of namespace 0's run, from the same file.
+const BUCKET_A_TENANT0: u32 = 0xC7_F1AB;
+/// The first bucket of tenant 0's run, from the same file.
 const RUN_0: u32 = 0xC7_0000;
 
 fn iri(terms: &mut WriteTerms, store: &TestQuads, name: &str) -> TestResult<SystemId> {
     Ok(terms.iri(store, ex(name).as_str())?)
 }
 
-fn skolem_prefix(ns: u64) -> String {
-    format!("{}.well-known/genid/", namespace_base(ns))
+fn skolem_prefix(tenant: u64) -> String {
+    format!("{}.well-known/genid/", tenant_base(tenant))
 }
 
-/// The bucket a skolem IRI of namespace `ns` states, read by hand from its text.
-fn stated_bucket(ns: u64, skolem: &str) -> TestResult<u32> {
+/// The bucket a skolem IRI of tenant `tenant` states, read by hand from its text.
+fn stated_bucket(tenant: u64, skolem: &str) -> TestResult<u32> {
     let tail = skolem
-        .strip_prefix(&skolem_prefix(ns))
+        .strip_prefix(&skolem_prefix(tenant))
         .context("under the skolem base")?;
     let (bucket, random) = tail.split_once('-').context("a bucket and random digits")?;
     assert_eq!(bucket.len(), 6, "{skolem}");
@@ -63,7 +63,7 @@ fn test_a_new_iri_takes_its_computed_bucket_the_resource_type_and_a_leased_seque
     let mut terms = WriteTerms::new(0);
     let a = iri(&mut terms, &store, "a")?;
     assert_eq!(a.type_prefix(), TypePrefix::RESOURCE);
-    assert_eq!(a.bucket().get(), BUCKET_A_NS0);
+    assert_eq!(a.bucket().get(), BUCKET_A_TENANT0);
     // The test source's first block of the Resource type starts at 1.
     assert_eq!(a.sequence().get(), 1);
     assert!(terms.is_fresh(a));
@@ -159,7 +159,7 @@ fn test_a_blank_node_is_one_new_id_per_label_named_by_a_skolem_iri() -> TestResu
     assert_eq!(
         x.bucket().get() >> 16,
         RUN_0 >> 16,
-        "a bucket of namespace 0's run"
+        "a bucket of tenant 0's run"
     );
     assert!(terms.is_fresh(x));
     assert_eq!(terms.absent().count(), 0, "a blank node is never looked up");
@@ -169,7 +169,7 @@ fn test_a_blank_node_is_one_new_id_per_label_named_by_a_skolem_iri() -> TestResu
 
 #[test]
 fn test_a_blank_nodes_skolem_iri_names_its_bucket_and_nothing_else() -> TestResult {
-    // The term-dictionary scenario's partition 1, owning the first 21,846 buckets of namespace 0's run, its random
+    // The term-dictionary scenario's partition 1, owning the first 21,846 buckets of tenant 0's run, its random
     // source seeded 0. SplitMix64 seeded 0 gives 0xe220a8397b1dcdaf, 0x6e789e6aa1b965f4, 0x06c45d188009454f (the
     // reference splitmix64.c): the bucket is the first reduced below 21,846, 19,296 above the run's start (Lemire's
     // multiply-shift, by hand in Python), and the 104 random bits the second's low 40 bits above the third.
@@ -246,8 +246,8 @@ fn test_a_blank_node_is_refused_where_no_bucket_of_the_run_is_owned() -> TestRes
         .blank(&store, "x")
         .err()
         .context("refused")?;
-    assert_eq!(error.0, QuadErrorEnum::NoOwnedBucket { namespace: 0 });
-    assert!(error.to_string().contains("namespace 0"), "{error}");
+    assert_eq!(error.0, QuadErrorEnum::NoOwnedBucket { tenant: 0 });
+    assert!(error.to_string().contains("tenant 0"), "{error}");
     Ok(())
 }
 
@@ -486,7 +486,7 @@ fn test_inherited_entries_are_read_as_the_writes_own_and_never_written() -> Test
     assert_eq!(
         terms.pending_iri(elsewhere),
         None,
-        "another namespace's entry, and a term entry"
+        "another tenant's entry, and a term entry"
     );
     assert_eq!(terms.pending_iri(removed), None, "a removal");
     assert_eq!(

@@ -6,8 +6,8 @@
 use std::num::NonZeroU64;
 
 use oxrdf::{GraphNameRef, NamedNodeRef, NamedOrBlankNode, NamedOrBlankNodeRef, TermRef};
-use ultragraphdb_cluster_placement::NamespaceRun;
-use ultragraphdb_core_ids::{BucketGroup, Epoch, Namespace, SystemId, Version};
+use ultragraphdb_cluster_placement::TenantRun;
+use ultragraphdb_core_ids::{BucketGroup, Epoch, SystemId, Tenant, Version};
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{Executor, ListCache, Store};
@@ -17,7 +17,7 @@ use crate::types::transaction::Transaction;
 
 /// What a transaction does as one partition's (partitions, "A read-write transaction stays within one partition in
 /// this stage"; term-dictionary, "A reference to another partition's entity registers at its home"): its reverse reads
-/// and index lookups, allowed only while its partition owns the namespace's whole run, and the IDs and marks of other
+/// and index lookups, allowed only while its partition owns the tenant's whole run, and the IDs and marks of other
 /// partitions' entities their homes answered, each holding its commit until the close the reply named is delivered.
 impl<S, C, E, B> Transaction<'_, S, C, E, B>
 where
@@ -28,12 +28,12 @@ where
 {
     /// The subjects holding `predicate` to `object` in `graph` at `now_us`, as the transaction sees them, into `out`,
     /// cleared first; recorded in its read set. A bound transaction reads its partition's own reverse entries, at its
-    /// latest state, only while the partition owns the namespace's whole run at its read epoch.
+    /// latest state, only while the partition owns the tenant's whole run at its read epoch.
     ///
     /// # Errors
     ///
     /// [`TxnError::ended`]; [`TxnError::past_limit`], ending it; [`TxnError::cross_partition`] naming the lowest other
-    /// partition of the namespace's run when the bound partition does not own all of it, ending it;
+    /// partition of the tenant's run when the bound partition does not own all of it, ending it;
     /// [`TxnError::changeset`] for a store that failed, ending it.
     pub fn subjects_into(
         &mut self,
@@ -58,7 +58,7 @@ where
 
     /// The subjects whose `predicate` in `graph` holds `value` by its `tokenizer` index at `now_us`, into `out`,
     /// cleared first; recorded in its read set. A fan-out read: allowed to a bound transaction only while its
-    /// partition owns the namespace's whole run at its read epoch.
+    /// partition owns the tenant's whole run at its read epoch.
     ///
     /// # Errors
     ///
@@ -188,12 +188,12 @@ where
         self.floor = Some(self.floor.map_or(next, |floor| floor.max(next)));
     }
 
-    /// The bound partition and the lowest other partition holding buckets of the namespace's run at the transaction's
+    /// The bound partition and the lowest other partition holding buckets of the tenant's run at the transaction's
     /// read epoch, when the bound partition does not own the whole run; `None` when unbound or it does.
     fn foreign_run(&self) -> Option<(u32, u32)> {
         let (partition, placement) = self.binding?;
         let epoch = Version::from_u64(self.read_version).epoch();
-        let run = NamespaceRun::of(Namespace::new(self.namespace)).range();
+        let run = TenantRun::of(Tenant::new(self.tenant)).range();
         placement
             .ranges_at(epoch)
             .into_iter()

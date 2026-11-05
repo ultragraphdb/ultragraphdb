@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 
 use crate::types::label_shape::LabelShape;
 
-/// The shapes of a namespace's labels, as one pass over a snapshot found them: each label, an entity type's IRI,
+/// The shapes of a tenant's labels, as one pass over a snapshot found them: each label, an entity type's IRI,
 /// with what its nodes hold, and the snapshot's timestamp. A pass replaces them whole; no write reads or updates them.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Shapes {

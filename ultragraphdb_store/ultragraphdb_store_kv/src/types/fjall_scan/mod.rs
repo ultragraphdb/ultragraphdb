@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use fjall::{Iter, Slice};
 use ultragraphdb_error_store::StoreError;
-use ultragraphdb_traits_store::{Item, Scan, key_namespace};
+use ultragraphdb_traits_store::{Item, Scan, key_tenant};
 
 use crate::utils::stored_key::decode_stored_key;
 use crate::utils::stored_value::decode_value;
@@ -85,7 +85,7 @@ impl FjallScan {
     fn consume(&mut self, key: Vec<u8>, version: u64, bytes: &[u8]) {
         if self.key.as_deref() != Some(key.as_slice()) {
             self.key_done = !self.scan.selects(&key)
-                || key_namespace(&key).is_some_and(|ns| self.banned.contains(&ns));
+                || key_tenant(&key).is_some_and(|tenant| self.banned.contains(&tenant));
             self.key = Some(key);
         }
         if self.key_done || version > self.read_ts {

@@ -8,21 +8,21 @@
 /// | Number | Kind | Removes |
 /// |---|---|---|
 /// | 1 | Predicate | the predicate's keys and its catalog entry |
-/// | 2 | Graph | every key of the graph in the namespace |
-/// | 3 | NamespaceData | the namespace's data, keeping its catalog |
-/// | 4 | Namespace | everything in the namespace, writing its initial catalog |
-/// | 5 | All | every quad key, keeping the dictionary and writing the root namespace's initial catalog |
+/// | 2 | Graph | every key of the graph in the tenant |
+/// | 3 | TenantData | the tenant's data, keeping its catalog |
+/// | 4 | Tenant | everything in the tenant, writing its initial catalog |
+/// | 5 | All | every quad key, keeping the dictionary and writing the root tenant's initial catalog |
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum DropKind {
     /// The predicate's keys and its catalog entry.
     Predicate,
-    /// Every key of the graph in the namespace.
+    /// Every key of the graph in the tenant.
     Graph,
-    /// The namespace's data, keeping its catalog.
-    NamespaceData,
-    /// Everything in the namespace, writing its initial catalog.
-    Namespace,
-    /// Every quad key, keeping the dictionary and writing the root namespace's initial catalog.
+    /// The tenant's data, keeping its catalog.
+    TenantData,
+    /// Everything in the tenant, writing its initial catalog.
+    Tenant,
+    /// Every quad key, keeping the dictionary and writing the root tenant's initial catalog.
     All,
 }
 
@@ -31,8 +31,8 @@ impl DropKind {
     pub const ALL: [DropKind; 5] = [
         DropKind::Predicate,
         DropKind::Graph,
-        DropKind::NamespaceData,
-        DropKind::Namespace,
+        DropKind::TenantData,
+        DropKind::Tenant,
         DropKind::All,
     ];
 

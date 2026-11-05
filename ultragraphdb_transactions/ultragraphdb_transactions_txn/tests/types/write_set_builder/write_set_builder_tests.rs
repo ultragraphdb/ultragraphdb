@@ -14,13 +14,15 @@ use ultragraphdb_protocol_wire::{KeyValues, RecordKind, RecordOperation, WriteSe
 use ultragraphdb_store_apply::{DropRequest, Executed};
 use ultragraphdb_transactions_txn::{ReadSet, TxnError, WriteSetBuilder};
 
-use crate::utils::fixture::{Applier, NS, applier, changeset, ex, insert, insert_literal, store};
+use crate::utils::fixture::{
+    Applier, TENANT, applier, changeset, ex, insert, insert_literal, store,
+};
 
 /// The ID the store holds for `<name>`.
 fn id(applier: &Applier, name: &str) -> TestResult<SystemId> {
     applier
         .quads()
-        .id_of(NS, ex(name).as_str())
+        .id_of(TENANT, ex(name).as_str())
         .context("the dictionary reads")?
         .context("the IRI is known")
 }
@@ -37,7 +39,7 @@ fn quad(subject: SystemId, predicate: SystemId, object: &[u8]) -> Vec<u8> {
 
 fn forward(applier: &Applier, subject: &str, predicate: &str) -> TestResult<Vec<u8>> {
     Ok(QuadKey::Forward {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         predicate: id(applier, predicate)?,
         subject: id(applier, subject)?,
@@ -96,7 +98,7 @@ fn test_the_record_reads_back_in_the_wires_layout_and_its_one_encoding() -> Test
     // The wire crate's own encoder, a separate implementation of the layout, gives the same bytes again.
     assert_eq!(view.to_record().encode(), bytes);
     assert_eq!(view.kind(), RecordKind::Transaction);
-    assert_eq!(view.namespace(), NS);
+    assert_eq!(view.tenant(), TENANT);
     assert_eq!(view.read_version(), executed.read_ts());
     assert_eq!(view.catalog(), 3);
     assert_eq!(view.session(), session.to_be_bytes());
@@ -112,10 +114,10 @@ fn test_the_fixed_part_is_written_from_the_layout() -> TestResult {
     let applier = known()?;
     let executed = executed(&applier, vec![insert("a", "knows", "b")])?;
     let bytes = written(&WriteSetBuilder::new(&executed, 0x0102, 0x0304, &[]).with_catalog(5))?;
-    // §12.2: kind 1 and 7 zero bytes; namespace, catalog and read version little-endian; the session's 16 bytes
+    // §12.2: kind 1 and 7 zero bytes; tenant, catalog and read version little-endian; the session's 16 bytes
     // big-endian; request and principal little-endian.
     let mut fixed = vec![1, 0, 0, 0, 0, 0, 0, 0];
-    fixed.extend_from_slice(&NS.to_le_bytes());
+    fixed.extend_from_slice(&TENANT.to_le_bytes());
     fixed.extend_from_slice(&5u64.to_le_bytes());
     fixed.extend_from_slice(&executed.read_ts().to_le_bytes());
     fixed.extend_from_slice(&0x0102u128.to_be_bytes());
@@ -350,7 +352,7 @@ fn test_a_list_changed_by_more_objects_than_the_bound_is_named_whole() -> TestRe
 fn test_a_drop_records_its_operation_and_its_ranges() -> TestResult {
     let applier = known()?;
     let drop = applier
-        .prepare_drop(NS, DropRequest::Predicate(ex("knows").as_ref()))
+        .prepare_drop(TENANT, DropRequest::Predicate(ex("knows").as_ref()))
         .context("the drop")?;
     let bytes = written(&WriteSetBuilder::new(&drop, 4, 2, &[]))?;
     let view = WriteSetRecordView::new(&bytes)?;
@@ -393,12 +395,12 @@ fn test_each_drop_names_its_operation() -> TestResult {
             DropRequest::Graph(g.as_ref().into()),
             RecordOperation::DropGraph(id(&applier, "g")?),
         ),
-        (DropRequest::Data, RecordOperation::DropNamespaceData),
-        (DropRequest::Namespace, RecordOperation::DropNamespace),
+        (DropRequest::Data, RecordOperation::DropTenantData),
+        (DropRequest::Tenant, RecordOperation::DropTenant),
         (DropRequest::All, RecordOperation::DropAll),
     ];
     for (request, operation) in cases {
-        let drop = applier.prepare_drop(NS, request).context("the drop")?;
+        let drop = applier.prepare_drop(TENANT, request).context("the drop")?;
         let bytes = written(&WriteSetBuilder::new(&drop, 9, 3, &[]))?;
         let view = WriteSetRecordView::new(&bytes)?;
         assert_eq!(view.operation(0), Some(operation), "{operation:?}");

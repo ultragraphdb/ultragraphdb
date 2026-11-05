@@ -4,7 +4,7 @@
  */
 
 use ultragraphdb_cluster_placement::{BucketRange, NodeId, PartitionId, PlacementMap};
-use ultragraphdb_core_ids::{Epoch, Namespace, TypePrefix};
+use ultragraphdb_core_ids::{Epoch, Tenant, TypePrefix};
 use ultragraphdb_error_cluster::ClusterError;
 use ultragraphdb_protocol_scram::ScramVerifier;
 
@@ -21,7 +21,7 @@ impl MetadataState {
     ///
     /// - [`MetadataCommand::OfferCatalog`]: [`ClusterError::stale_catalog`] naming the predecessor and the latest
     ///   version when they differ; [`ClusterError::full`] when [`MetadataState::PENDING_MAX`] versions are pending or
-    ///   the namespace retains [`MetadataState::RETAINED_MAX`]; [`ClusterError::too_many`] for bytes past
+    ///   the tenant retains [`MetadataState::RETAINED_MAX`]; [`ClusterError::too_many`] for bytes past
     ///   [`MetadataCommand::CATALOG_BYTES_MAX`].
     /// - [`MetadataCommand::RecordDefault`]: [`ClusterError::too_many`] for a predicate or an entry past its limit;
     ///   [`ClusterError::full`] at [`MetadataState::DEFAULTS_MAX`] records. A record that exists is kept and the command
@@ -52,7 +52,7 @@ impl MetadataState {
     ///   learned (the first learned may close any epoch from 1); [`ClusterError::epoch_limit`] for the close of the last
     ///   epoch; [`ClusterError::too_many`] past [`MetadataCommand::VERSIONS_MAX`] versions or
     ///   [`MetadataCommand::EVICTIONS_MAX`] evictions; [`ClusterError::not_pending`] for a version announced that is
-    ///   not pending; [`ClusterError::contradicts`] for a version announced while an earlier version of its namespace
+    ///   not pending; [`ClusterError::contradicts`] for a version announced while an earlier version of its tenant
     ///   stays pending, or a placement version announced other than the oldest pending. An eviction carried that is not
     ///   pending changes nothing.
     /// - [`MetadataCommand::ReportUntrimmed`]: none; an epoch below the partition's last report changes nothing.
@@ -61,15 +61,15 @@ impl MetadataState {
     pub fn apply(&mut self, command: &MetadataCommand) -> Result<(), ClusterError> {
         match command {
             MetadataCommand::OfferCatalog {
-                namespace,
+                tenant,
                 predecessor,
                 bytes,
-            } => self.offer(*namespace, *predecessor, bytes),
+            } => self.offer(*tenant, *predecessor, bytes),
             MetadataCommand::RecordDefault {
-                namespace,
+                tenant,
                 predicate,
                 entry,
-            } => self.record_default(*namespace, predicate, entry),
+            } => self.record_default(*tenant, predicate, entry),
             MetadataCommand::LeaseBlock {
                 prefix, start, end, ..
             } => self.lease(*prefix, *start, *end),
@@ -109,10 +109,10 @@ impl MetadataState {
         }
     }
 
-    /// Commits `bytes` as the pending version of `namespace` after `predecessor`.
+    /// Commits `bytes` as the pending version of `tenant` after `predecessor`.
     fn offer(
         &mut self,
-        namespace: Namespace,
+        tenant: Tenant,
         predecessor: u64,
         bytes: &[u8],
     ) -> Result<(), ClusterError> {
@@ -121,10 +121,10 @@ impl MetadataState {
             bytes.len(),
             MetadataCommand::CATALOG_BYTES_MAX,
         )?;
-        let current = self.current_version(namespace);
+        let current = self.current_version(tenant);
         if predecessor != current {
             return Err(ClusterError::stale_catalog(
-                namespace.get(),
+                tenant.get(),
                 predecessor,
                 current,
             ));
@@ -136,23 +136,23 @@ impl MetadataState {
                 Self::PENDING_MAX,
             ));
         }
-        let catalog = self.catalogs.entry(namespace).or_default();
+        let catalog = self.catalogs.entry(tenant).or_default();
         if catalog.versions.len() >= Self::RETAINED_MAX {
             return Err(ClusterError::full(
-                "retained catalog versions of a namespace",
+                "retained catalog versions of a tenant",
                 Self::RETAINED_MAX,
             ));
         }
-        // The latest version is below u64::MAX: 2^64 − 1 versions are never committed in one namespace.
+        // The latest version is below u64::MAX: 2^64 − 1 versions are never committed in one tenant.
         let version = current.saturating_add(1);
         catalog.current = version;
         catalog
             .versions
-            .push_back(CatalogRecord::new(namespace, version, None, bytes.to_vec()));
+            .push_back(CatalogRecord::new(tenant, version, None, bytes.to_vec()));
         Ok(())
     }
 
-    /// The versions pending across every namespace.
+    /// The versions pending across every tenant.
     fn pending_count(&self) -> usize {
         self.catalogs
             .values()
@@ -166,10 +166,10 @@ impl MetadataState {
             .sum()
     }
 
-    /// Records the default entry of `predicate` in `namespace`, keeping one that exists.
+    /// Records the default entry of `predicate` in `tenant`, keeping one that exists.
     fn record_default(
         &mut self,
-        namespace: Namespace,
+        tenant: Tenant,
         predicate: &str,
         entry: &[u8],
     ) -> Result<(), ClusterError> {
@@ -183,7 +183,7 @@ impl MetadataState {
             entry.len(),
             MetadataCommand::ENTRY_BYTES_MAX,
         )?;
-        let key = (namespace, predicate.to_string());
+        let key = (tenant, predicate.to_string());
         if self.defaults.contains_key(&key) {
             return Ok(());
         }
@@ -379,7 +379,7 @@ impl MetadataState {
     fn learn_close(
         &mut self,
         epoch: Epoch,
-        versions: &[(Namespace, u64)],
+        versions: &[(Tenant, u64)],
         placement: u64,
         evictions: &[u128],
     ) -> Result<(), ClusterError> {
@@ -406,36 +406,33 @@ impl MetadataState {
         let effective = epoch
             .next()
             .map_err(|_| ClusterError::epoch_limit(epoch.get()))?;
-        for (namespace, version) in versions {
-            let pending = self.catalogs.get(namespace).is_some_and(|catalog| {
+        for (tenant, version) in versions {
+            let pending = self.catalogs.get(tenant).is_some_and(|catalog| {
                 catalog
                     .versions
                     .iter()
                     .any(|v| v.version() == *version && v.effective().is_none())
             });
             if !pending {
-                return Err(ClusterError::not_pending(namespace.get(), *version));
+                return Err(ClusterError::not_pending(tenant.get(), *version));
             }
         }
         // A version takes effect no earlier than the one it is built on: every version below one announced is in
         // effect already or announced with it, so the effective epochs rise with the versions.
-        let in_order = versions.iter().all(|(namespace, version)| {
-            self.catalogs.get(namespace).is_none_or(|catalog| {
+        let in_order = versions.iter().all(|(tenant, version)| {
+            self.catalogs.get(tenant).is_none_or(|catalog| {
                 catalog
                     .versions
                     .iter()
                     .filter(|v| v.version() < *version && v.effective().is_none())
-                    .all(|v| versions.contains(&(*namespace, v.version())))
+                    .all(|v| versions.contains(&(*tenant, v.version())))
             })
         });
-        holds(
-            in_order,
-            "a close announces a namespace's versions in order",
-        )?;
+        holds(in_order, "a close announces a tenant's versions in order")?;
         // The last check, and the first change: nothing has changed when it refuses.
         self.announce_placement(placement, effective)?;
-        for (namespace, version) in versions {
-            let record = self.catalogs.get_mut(namespace).and_then(|catalog| {
+        for (tenant, version) in versions {
+            let record = self.catalogs.get_mut(tenant).and_then(|catalog| {
                 catalog
                     .versions
                     .iter_mut()

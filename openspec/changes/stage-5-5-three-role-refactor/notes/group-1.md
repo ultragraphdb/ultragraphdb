@@ -8,7 +8,7 @@ crate raises it). The fuzz package is `fuzz/ultragraphdb_core_ids`.
 
 `SystemId` (`new`, `resource`, `statement`, `type_prefix`, `bucket`, `sequence`, `to_u128`, `to_be_bytes`,
 `from_u128`, `decode`, `BYTES`), `TypePrefix` (`new`, `get`, `RESOURCE` = 1, `STATEMENT` = 2), `Bucket` (`new`, `get`,
-`MAX`, `derive`), `Sequence`, `Namespace`, `CanonicalKey` (`iri`, `as_str`, `encoded_len`, `encode_into`), `Epoch`
+`MAX`, `derive`), `Sequence`, `Tenant`, `CanonicalKey` (`iri`, `as_str`, `encoded_len`, `encode_into`), `Epoch`
 (`new`, `get`, `next`, `MAX`), `Version` (`commit`, `from_u64`, `decode`, `to_u64`, `to_be_bytes`, `epoch`, `sequence`,
 `is_commit`, `BYTES`, `COMMIT_SEQUENCE_MAX`), `SessionToken` (`new`, `partition`, `position`, `epoch`), and
 `IdError(pub IdErrorEnum)` with one variant per refusal: `Length`, `ReservedBits`, `ZeroTypePrefix`, `ZeroSequence`,
@@ -125,7 +125,7 @@ behaviour.
 | D34 bytes past 8 ignored | `test_bytes_of_another_length_are_refused` | — |
 | D35 the range checked before oddness | `test_an_odd_commit_sequence_is_refused` | — |
 | D36 a token's position returning its partition | `test_a_token_keeps_its_largest_fields`, `test_a_token_names_its_commit` | — |
-| D37 a tenant truncated to 32 bits | `test_every_golden_bucket_matches_the_reference`, `test_the_golden_buckets_are_the_reference_hashes_top_bits`, `test_a_namespace_holds_its_value` | — |
+| D37 a tenant truncated to 32 bits | `test_every_golden_bucket_matches_the_reference`, `test_the_golden_buckets_are_the_reference_hashes_top_bits`, `test_a_tenant_holds_its_value` | — |
 | D38 the epoch bound guard removed | `test_an_epoch_past_42_bits_is_refused`, `test_no_epoch_follows_the_last` | — |
 | E01 reserved bits printed unpadded | `test_invalid_id_texts_name_the_field` | — |
 | E02 the largest bucket off by one in the text | `test_range_texts_name_the_limit` | — |

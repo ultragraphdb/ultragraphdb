@@ -6,7 +6,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use ultragraphdb_traits_store::{
-    Direction, Entry, Item, RebuildRecord, Scan, VersionlessEntry, key_namespace,
+    Direction, Entry, Item, RebuildRecord, Scan, VersionlessEntry, key_tenant,
 };
 
 use crate::types::contents::Contents;
@@ -60,10 +60,10 @@ pub fn covers(prefixes: &Option<Vec<Vec<u8>>>, key: &[u8]) -> bool {
 
 impl ModelState {
     fn is_banned(&self, key: &[u8]) -> bool {
-        key_namespace(key).is_some_and(|ns| self.banned.contains(&ns))
+        key_tenant(key).is_some_and(|tenant| self.banned.contains(&tenant))
     }
 
-    /// `entries` without those addressed to a banned namespace.
+    /// `entries` without those addressed to a banned tenant.
     pub fn admitted(&self, entries: &[Entry]) -> Vec<Entry> {
         entries
             .iter()
@@ -236,7 +236,7 @@ impl ModelState {
         .with_versionless(self.versionless.clone())
     }
 
-    /// `entries` written to a temporary keyspace this state models: every entry, whatever its namespace.
+    /// `entries` written to a temporary keyspace this state models: every entry, whatever its tenant.
     pub fn write_temporary(&mut self, entries: &[Entry]) {
         self.write(entries, false);
     }

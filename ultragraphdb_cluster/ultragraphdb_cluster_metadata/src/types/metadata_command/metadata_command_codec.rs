@@ -4,7 +4,7 @@
  */
 
 use ultragraphdb_cluster_placement::{BucketRange, NodeId, PartitionId};
-use ultragraphdb_core_ids::{Epoch, Namespace, TypePrefix};
+use ultragraphdb_core_ids::{Epoch, Tenant, TypePrefix};
 use ultragraphdb_error_cluster::ClusterError;
 use ultragraphdb_protocol_scram::ScramVerifier;
 
@@ -17,7 +17,7 @@ const KIND: &str = "a kind byte, 1 to 13";
 
 impl MetadataCommand {
     /// Appends the command's encoding to `out`, big-endian throughout: its kind byte, 1 to 13 in declaration order, then
-    /// its fields in order. A namespace, an epoch, a sequence and a version number take 8 bytes, a type prefix 2, a
+    /// its fields in order. A tenant, an epoch, a sequence and a version number take 8 bytes, a type prefix 2, a
     /// partition, a node, a bucket and a partition count 4, a session 16, a principal's identity 8, a flag 1 (0 or 1);
     /// bytes and text take their length (4 bytes for a catalog version and an entry, 2 for a predicate, 1 for a name and
     /// a salt) and then themselves; a verifier is its salt, its iteration count as 4 bytes and its two keys of 32; a
@@ -26,20 +26,20 @@ impl MetadataCommand {
         out.push(self.kind());
         match self {
             Self::OfferCatalog {
-                namespace,
+                tenant,
                 predecessor,
                 bytes,
             } => {
-                put_u64(out, namespace.get());
+                put_u64(out, tenant.get());
                 put_u64(out, *predecessor);
                 put_len_u32(out, bytes);
             }
             Self::RecordDefault {
-                namespace,
+                tenant,
                 predicate,
                 entry,
             } => {
-                put_u64(out, namespace.get());
+                put_u64(out, tenant.get());
                 // At most PREDICATE_BYTES_MAX, which fits 2 bytes, once the state took it.
                 let len = u16::try_from(predicate.len()).unwrap_or(u16::MAX);
                 out.extend_from_slice(&len.to_be_bytes());
@@ -121,8 +121,8 @@ impl MetadataCommand {
             } => {
                 put_u64(out, epoch.get());
                 put_count(out, versions.len());
-                for (namespace, version) in versions {
-                    put_u64(out, namespace.get());
+                for (tenant, version) in versions {
+                    put_u64(out, tenant.get());
                     put_u64(out, *version);
                 }
                 put_sessions(out, evictions);
@@ -181,7 +181,7 @@ impl MetadataCommand {
         let mut reader = Reader::new(bytes);
         let command = match reader.u8(KIND)? {
             1 => Self::OfferCatalog {
-                namespace: Namespace::new(reader.u64("a namespace")?),
+                tenant: Tenant::new(reader.u64("a tenant")?),
                 predecessor: reader.u64("a predecessor")?,
                 bytes: read_len_u32(
                     &mut reader,
@@ -337,7 +337,7 @@ fn read_sessions(
 
 /// A RecordDefault's fields.
 fn read_default(reader: &mut Reader<'_>) -> Result<MetadataCommand, ClusterError> {
-    let namespace = Namespace::new(reader.u64("a namespace")?);
+    let tenant = Tenant::new(reader.u64("a tenant")?);
     let what = "bytes of a predicate's name";
     let len = Reader::bounded(
         usize::from(reader.u16(what)?),
@@ -351,7 +351,7 @@ fn read_default(reader: &mut Reader<'_>) -> Result<MetadataCommand, ClusterError
         MetadataCommand::ENTRY_BYTES_MAX,
     )?;
     Ok(MetadataCommand::RecordDefault {
-        namespace,
+        tenant,
         predicate,
         entry,
     })
@@ -398,8 +398,8 @@ fn read_close(reader: &mut Reader<'_>) -> Result<MetadataCommand, ClusterError> 
     )?;
     let mut versions = Vec::with_capacity(count);
     for _ in 0..count {
-        let namespace = Namespace::new(reader.u64("a namespace")?);
-        versions.push((namespace, reader.u64("a version")?));
+        let tenant = Tenant::new(reader.u64("a tenant")?);
+        versions.push((tenant, reader.u64("a version")?));
     }
     let evictions = read_sessions(
         reader,

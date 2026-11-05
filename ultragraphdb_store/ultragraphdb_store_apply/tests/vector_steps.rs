@@ -27,8 +27,8 @@ use ultragraphdb_traits_index::{Options, VectorIndexOptions, accept_all};
 use crate::Steps;
 use crate::changeset_steps::{cs, is_held, last};
 use crate::utils::changesets::{
-    NS, TestChangesets, apply, changeset, changesets, declare, declared, delete, ex, index, insert,
-    run_indexer, stored_keys, uid, write, write_indexed,
+    TENANT, TestChangesets, apply, changeset, changesets, declare, declared, delete, ex, index,
+    insert, run_indexer, stored_keys, uid, write, write_indexed,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -49,7 +49,7 @@ fn keys(a: &TestChangesets, predicate: &str, graph: &str) -> TestResult<VectorKe
     };
     Ok(VectorKeys::new(
         ex(predicate).as_str(),
-        NS,
+        TENANT,
         graph,
         uid(a, predicate)?,
     ))
@@ -441,10 +441,14 @@ fn max_levels_refused(w: &mut Steps) -> TestResult {
 fn declaration_of(a: &TestChangesets, predicate: &str) -> TestResult<Option<PredicateDeclaration>> {
     match a
         .quads()
-        .id_of(NS, ex(predicate).as_str())
+        .id_of(TENANT, ex(predicate).as_str())
         .context("the dictionary reads")?
     {
-        Some(p) => Ok(a.catalog(NS).context("the catalog")?.predicate(p).cloned()),
+        Some(p) => Ok(a
+            .catalog(TENANT)
+            .context("the catalog")?
+            .predicate(p)
+            .cloned()),
         None => Ok(None),
     }
 }
@@ -548,7 +552,7 @@ fn conflicts(reads: &Reads, written: &Executed) -> bool {
 /// version, through the applier.
 fn applier_search(a: &TestChangesets, query: &str, k: usize) -> TestResult<Vec<SystemId>> {
     a.search_vectors(
-        NS,
+        TENANT,
         GraphNameRef::DefaultGraph,
         ex("emb").as_ref(),
         VectorQuery::new(&elements(query)?, k, &VectorIndexOptions::default()),
@@ -630,7 +634,7 @@ fn eight_found(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
     let last = u64::from(*w.counts[1].last().context("eight versions")?);
     assert!(index(&a, "emb")? >= last);
-    assert!(a.indexed_version(NS, ex("emb").as_ref())? >= last);
+    assert!(a.indexed_version(TENANT, ex("emb").as_ref())? >= last);
     for i in 1..=8 {
         assert_eq!(
             applier_search(&a, &vector(4, i), 1)?,

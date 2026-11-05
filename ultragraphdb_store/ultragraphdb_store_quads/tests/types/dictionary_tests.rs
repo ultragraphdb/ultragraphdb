@@ -8,7 +8,7 @@
 //! registers at its home"), in every position of a statement.
 
 use oxrdf::{BlankNode, GraphName, NamedNode, NamedOrBlankNode, Term};
-use ultragraphdb_core_ids::{Bucket, CanonicalKey, Namespace, Sequence, SystemId, TypePrefix};
+use ultragraphdb_core_ids::{Bucket, CanonicalKey, Sequence, SystemId, Tenant, TypePrefix};
 use ultragraphdb_core_mapping::RandomSource;
 use ultragraphdb_store_quads::{OwnedBuckets, QuadErrorEnum, QuadStore, WriteTerms};
 use ultragraphdb_store_sim::SimStore;
@@ -16,12 +16,12 @@ use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::utils::helpers::{TestQuads, blocks, ex, lists_over, quad, quads_over, sim, write};
 
-const NS: u64 = 0;
+const TENANT: u64 = 0;
 
-/// The bucket of `iri` in namespace 0, as core_ids derives it.
+/// The bucket of `iri` in tenant 0, as core_ids derives it.
 fn bucket_of(iri: &NamedNode) -> TestResult<Bucket> {
     Ok(Bucket::derive(
-        Namespace::new(NS),
+        Tenant::new(TENANT),
         TypePrefix::RESOURCE,
         &CanonicalKey::iri(iri.as_str())?,
     ))
@@ -58,17 +58,17 @@ fn test_an_iri_of_another_partition_s_bucket_is_refused_in_every_position() -> T
     let store = owning_all_but(sim(), bucket)?;
     assert!(!store.owned().owns(bucket));
     let refusals = [
-        WriteTerms::new(NS).iri(&store, foreign.as_str()).err(),
-        WriteTerms::new(NS)
+        WriteTerms::new(TENANT).iri(&store, foreign.as_str()).err(),
+        WriteTerms::new(TENANT)
             .node(&store, NamedOrBlankNode::from(foreign.clone()).as_ref())
             .err(),
-        WriteTerms::new(NS)
+        WriteTerms::new(TENANT)
             .predicate(&store, foreign.as_ref())
             .err(),
-        WriteTerms::new(NS)
+        WriteTerms::new(TENANT)
             .term(&store, Term::from(foreign.clone()).as_ref())
             .err(),
-        WriteTerms::new(NS)
+        WriteTerms::new(TENANT)
             .graph(&store, GraphName::NamedNode(foreign.clone()).as_ref())
             .err(),
     ];
@@ -83,7 +83,7 @@ fn test_an_iri_of_another_partition_s_bucket_is_refused_in_every_position() -> T
 fn test_an_owned_iri_is_created_beside_a_refused_one() -> TestResult {
     let foreign = ex("foreign");
     let store = owning_all_but(sim(), bucket_of(&foreign)?)?;
-    let mut terms = WriteTerms::new(NS);
+    let mut terms = WriteTerms::new(TENANT);
     let own = ex("own");
     let id = terms.iri(&store, own.as_str())?;
     assert_eq!(id.bucket(), bucket_of(&own)?);
@@ -96,14 +96,17 @@ fn test_a_held_iri_of_another_partition_s_bucket_resolves() -> TestResult {
     let store = sim();
     write(
         &quads_over(store.clone())?,
-        NS,
+        TENANT,
         &[quad("a", "knows", foreign.clone())],
     )?;
     let held = quads_over(store.clone())?
-        .id_of(NS, foreign.as_str())?
+        .id_of(TENANT, foreign.as_str())?
         .context("held")?;
     let partition = owning_all_but(store, bucket_of(&foreign)?)?;
-    assert_eq!(WriteTerms::new(NS).iri(&partition, foreign.as_str())?, held);
+    assert_eq!(
+        WriteTerms::new(TENANT).iri(&partition, foreign.as_str())?,
+        held
+    );
     Ok(())
 }
 
@@ -113,7 +116,7 @@ fn test_a_copied_iri_resolves_to_the_id_its_home_gave() -> TestResult {
     let bucket = bucket_of(&foreign)?;
     let store = owning_all_but(sim(), bucket)?;
     let given = SystemId::new(TypePrefix::RESOURCE, bucket, Sequence::new(77)?);
-    let mut terms = WriteTerms::new(NS);
+    let mut terms = WriteTerms::new(TENANT);
     terms.copy(foreign.as_str(), given);
     assert_eq!(terms.iri(&store, foreign.as_str())?, given);
     assert_eq!(
@@ -129,7 +132,7 @@ fn test_a_new_blank_node_takes_an_owned_bucket() -> TestResult {
     let foreign = ex("foreign");
     let bucket = bucket_of(&foreign)?;
     let store = owning_all_but(sim(), bucket)?;
-    let mut terms = WriteTerms::new(NS);
+    let mut terms = WriteTerms::new(TENANT);
     for label in ["x", "y", "z"] {
         let blank = terms.node(&store, BlankNode::new_unchecked(label).as_ref().into())?;
         assert!(store.owned().owns(blank.bucket()));

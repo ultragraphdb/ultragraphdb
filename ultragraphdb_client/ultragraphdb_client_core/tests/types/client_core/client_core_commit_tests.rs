@@ -382,7 +382,7 @@ fn test_a_lost_drop_reply_is_retried_through_the_session_and_applied_once() -> T
     let s = session(&mut h)?;
     h.server.drop_after_next_commit();
     let p = h.core.drop_command(
-        ultragraphdb_protocol_wire::DropCommand::namespace_data(3),
+        ultragraphdb_protocol_wire::DropCommand::tenant_data(3),
         s,
         h.now,
     )?;
@@ -398,7 +398,7 @@ fn test_a_lost_drop_reply_is_retried_through_the_session_and_applied_once() -> T
             let view = FrameView::validate_client(f, CLUSTER, MAX_FRAME_SIZE).ok()?;
             let drop = DropCommandView::from_frame(&view).ok()?;
             Some((
-                drop.namespace(),
+                drop.tenant(),
                 u128::from_be_bytes(drop.session()),
                 drop.request(),
             ))

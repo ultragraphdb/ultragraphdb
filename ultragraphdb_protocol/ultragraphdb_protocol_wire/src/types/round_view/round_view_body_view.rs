@@ -84,7 +84,7 @@ impl<'a> RoundView<'a> {
     /// not a whole number of 8 bytes ([`ProtocolError::section_length`]) or not one entry per commit
     /// ([`ProtocolError::count_mismatch`] `"records"`); per entry, outside section 2
     /// ([`ProtocolError::index_out_of_range`]), not at the expected offset (`"record offset"`), padding not zero, the
-    /// record refused ([`ProtocolError::record`], wrapping its refusal), a namespace's records, registrations aside,
+    /// record refused ([`ProtocolError::record`], wrapping its refusal), a tenant's records, registrations aside,
     /// naming more than one catalog (`"catalog"`); bytes after the last record ([`ProtocolError::trailing_bytes`]); the
     /// dictionary's entries each inside the section ([`ProtocolError::entry_out_of_bounds`]) with zero padding, every
     /// value present (`"dictionary entry"`), each key above the one before (`"dictionary order"`, naming the entry).
@@ -185,7 +185,7 @@ fn check_first_version(
 }
 
 /// The `committed` records section 1's table places in section 2's data, each 8-aligned after the last with zero
-/// padding between, each valid, the records of a namespace naming one catalog, and nothing after the last.
+/// padding between, each valid, the records of a tenant naming one catalog, and nothing after the last.
 fn read_records<'a>(
     command: u16,
     sections: &Sections<'a, ROUND_SECTIONS>,
@@ -248,7 +248,7 @@ fn read_records<'a>(
     Ok(views)
 }
 
-/// `record`'s catalog against the one its namespace's records named before it, in `catalogs`, which it joins; a
+/// `record`'s catalog against the one its tenant's records named before it, in `catalogs`, which it joins; a
 /// registration names none.
 fn check_catalog(
     command: u16,
@@ -260,7 +260,7 @@ fn check_catalog(
     }
     match catalogs
         .iter()
-        .find(|(namespace, _)| *namespace == record.namespace())
+        .find(|(tenant, _)| *tenant == record.tenant())
     {
         Some((_, catalog)) if *catalog != record.catalog() => Err(ProtocolError::field_value(
             command,
@@ -269,7 +269,7 @@ fn check_catalog(
         )),
         Some(_) => Ok(()),
         None => {
-            catalogs.push((record.namespace(), record.catalog()));
+            catalogs.push((record.tenant(), record.catalog()));
             Ok(())
         }
     }

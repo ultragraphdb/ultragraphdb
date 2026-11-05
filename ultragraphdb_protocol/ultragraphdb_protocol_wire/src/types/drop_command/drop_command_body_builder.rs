@@ -18,7 +18,7 @@ impl BodyBuilder for DropCommand {
     fn command_header(&self) -> [u8; COMMAND_HEADER_SIZE] {
         command_header(&[
             (0, &[self.kind().number()]),
-            (8, &self.namespace().to_le_bytes()),
+            (8, &self.tenant().to_le_bytes()),
             (16, &self.session()),
             (32, &self.request().to_le_bytes()),
             (40, &self.commit_version().to_le_bytes()),

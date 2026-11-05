@@ -22,8 +22,8 @@ use ultragraphdb_transactions_txn::{Mode, Transaction, TxnBuffers, TxnError, Txn
 
 use crate::Steps;
 use crate::utils::fixture::{
-    Applier, Driver, NS, Txn, applier, begin, delete_literal, ex, id_of, insert, insert_literal,
-    prepare, setup, write,
+    Applier, Driver, TENANT, Txn, applier, begin, delete_literal, ex, id_of, insert,
+    insert_literal, prepare, setup, write,
 };
 
 fn unbounded() -> RoundBounds {
@@ -38,7 +38,7 @@ fn id(txn: &mut Txn<'_>, name: &str) -> TestResult<SystemId> {
 
 fn forward_key(subject: SystemId, predicate: SystemId) -> Vec<u8> {
     QuadKey::Forward {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         predicate,
         subject,
@@ -48,7 +48,7 @@ fn forward_key(subject: SystemId, predicate: SystemId) -> Vec<u8> {
 
 fn reverse_key(predicate: SystemId, object: SystemId) -> Vec<u8> {
     QuadKey::Reverse {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         predicate,
         object: EncodedTerm::id(object),
@@ -71,8 +71,14 @@ fn scan(
     limit: usize,
 ) -> TestResult<(Vec<KernelRow>, Option<Vec<u8>>)> {
     let limit = NonZeroUsize::new(limit).context("a limit")?;
-    let request = KernelScan::new(keyspace, NS, range.0.to_vec(), txn.read_version(), limit)
-        .to(range.1.to_vec());
+    let request = KernelScan::new(
+        keyspace,
+        TENANT,
+        range.0.to_vec(),
+        txn.read_version(),
+        limit,
+    )
+    .to(range.1.to_vec());
     let mut rows = Vec::new();
     let next = txn.scan_into(&request, 0, &mut rows)?;
     Ok((rows, next))
@@ -172,7 +178,7 @@ fn new_and_emptied(w: &mut Steps) -> TestResult {
         objects(&mut txn, &forward_key(new, p))?,
         objects(&mut txn, &forward_key(a, p))?,
     ];
-    let key = id_key(NS, new);
+    let key = id_key(TENANT, new);
     let mut text = Vec::new();
     txn.dictionary_into(&[key.as_slice()], 0, &mut text)?;
     w.names = text
@@ -206,7 +212,7 @@ fn ten_thousand(w: &mut Steps) -> TestResult {
     let (mut from, mut rows) = (Vec::new(), 0);
     let limit = NonZeroUsize::new(1_000).context("a limit")?;
     loop {
-        let request = KernelScan::new(Keyspace::Forward, NS, from, txn.read_version(), limit);
+        let request = KernelScan::new(Keyspace::Forward, TENANT, from, txn.read_version(), limit);
         let mut page = Vec::new();
         let next = txn.scan_into(&request, 0, &mut page)?;
         rows += page.len();
@@ -245,7 +251,7 @@ fn read_in_frames(txn: &mut Txn<'_>, end: &[u8], from: Vec<u8>) -> TestResult<us
     let (mut from, mut after, mut objects) = (from, None, 0);
     let limit = NonZeroUsize::MAX;
     loop {
-        let request = KernelScan::new(Keyspace::Forward, NS, from, txn.read_version(), limit)
+        let request = KernelScan::new(Keyspace::Forward, TENANT, from, txn.read_version(), limit)
             .to(end.to_vec())
             .resuming(after.take());
         let mut taken = 0;
@@ -354,7 +360,7 @@ fn unheld_skolem(w: &mut Steps) -> TestResult {
     let mut txn = begin(&applier)?;
     let skolem = NamedNode::new(format!(
         "{}.well-known/genid/000000-{:026x}",
-        ultragraphdb_store_quads::namespace_base(NS),
+        ultragraphdb_store_quads::tenant_base(TENANT),
         1
     ))?;
     w.checks = vec![txn.resolve_iri(skolem.as_ref(), 0)?.is_none()];
@@ -510,7 +516,7 @@ fn no_room(w: &mut Steps) -> TestResult {
     let limits = TxnLimits::default().with_max_read_set(held.len());
     let mut txn: Txn<'_> = Transaction::begin(
         &applier,
-        NS,
+        TENANT,
         Mode::ReadWrite,
         0,
         0,
@@ -519,7 +525,7 @@ fn no_room(w: &mut Steps) -> TestResult {
     )?;
     let request = KernelScan::new(
         Keyspace::Forward,
-        NS,
+        TENANT,
         held.clone(),
         txn.read_version(),
         NonZeroUsize::MIN,

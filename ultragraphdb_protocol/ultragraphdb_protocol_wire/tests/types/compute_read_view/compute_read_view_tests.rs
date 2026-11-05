@@ -39,7 +39,7 @@ fn test_the_golden_reads_read_back_to_their_bodies() -> TestResult {
         (0, true, ReadLevel::MonotonicFast)
     );
     assert_eq!(
-        (view.named(), view.namespace(), view.read_version()),
+        (view.named(), view.tenant(), view.read_version()),
         (false, 5, 0)
     );
     assert_eq!(

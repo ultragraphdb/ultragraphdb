@@ -6,7 +6,7 @@
 use futures::StreamExt;
 use futures::channel::mpsc::UnboundedReceiver;
 use ultragraphdb_cluster_sequencer::{CatalogVersion, ClockReading, Close};
-use ultragraphdb_core_ids::Namespace;
+use ultragraphdb_core_ids::Tenant;
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_wire::{ErrorCode, ErrorReply};
 use ultragraphdb_traits_log::OrderedLog;
@@ -68,14 +68,14 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
             }
         }
         let state = self.metadata.state();
-        let versions: Vec<(Namespace, u64)> = state
+        let versions: Vec<(Tenant, u64)> = state
             .pending_versions()
             .into_iter()
             .take(Close::CATALOG_MAX)
             .collect();
         let catalog: Vec<CatalogVersion> = versions
             .iter()
-            .map(|(namespace, version)| CatalogVersion::new(*namespace, *version))
+            .map(|(tenant, version)| CatalogVersion::new(*tenant, *version))
             .collect();
         let placement = state.pending_placement();
         let evictions: Vec<u128> = state
@@ -110,10 +110,10 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
             .close_after(after)
             .map_err(|error| stopped(&error))?
         {
-            let versions: Vec<(Namespace, u64)> = close
+            let versions: Vec<(Tenant, u64)> = close
                 .catalog()
                 .iter()
-                .map(|version| (version.namespace(), version.version()))
+                .map(|version| (version.tenant(), version.version()))
                 .collect();
             let _position = self
                 .metadata

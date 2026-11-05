@@ -6,7 +6,7 @@
 use std::collections::BTreeSet;
 
 use ultragraphdb_cluster_placement::{BucketRange, PlacementMap};
-use ultragraphdb_core_ids::Namespace;
+use ultragraphdb_core_ids::Tenant;
 use ultragraphdb_error_cluster::{ClusterError, ClusterErrorEnum};
 use ultragraphdb_traits_log::Position;
 
@@ -18,14 +18,14 @@ use crate::types::metadata_command::metadata_command_codec::{
 };
 use crate::types::metadata_config::MetadataConfig;
 use crate::types::metadata_snapshot::MetadataSnapshot;
-use crate::types::metadata_state::{MetadataState, NamespaceCatalog};
+use crate::types::metadata_state::{MetadataState, TenantCatalog};
 use crate::types::principal::Principal;
 use crate::types::reader::Reader;
 
 /// The format byte of the encoding.
 const FORMAT: u8 = 1;
 
-/// The most catalogs a snapshot holds: one per namespace, 2^20, as many as default-entry records.
+/// The most catalogs a snapshot holds: one per tenant, 2^20, as many as default-entry records.
 const CATALOGS_MAX: usize = MetadataState::DEFAULTS_MAX;
 
 /// The most high-water marks: one per type prefix.
@@ -40,9 +40,9 @@ const REPORTS_MAX: usize = PlacementMap::PARTITIONS_MAX as usize;
 impl MetadataSnapshot {
     /// Appends the snapshot's encoding to `out`, big-endian throughout, fields as [`crate::MetadataCommand::encode`]
     /// writes them: the format byte 1 and the position as 8 bytes; the last learned close as 8; the catalogs' count and
-    /// per namespace its number, its latest and highest released versions and its retained versions' count, then per
+    /// per tenant its number, its latest and highest released versions and its retained versions' count, then per
     /// version its number, a flag and, when set, its effective epoch, and its bytes; the default-entry records' count
-    /// and each namespace, predicate and entry; the high-water marks' count and each prefix and next sequence; a flag
+    /// and each tenant, predicate and entry; the high-water marks' count and each prefix and next sequence; a flag
     /// and, when set, the placement map's length as 4 bytes and its own encoding; the reports' count and each partition
     /// and epoch; the next principal's identity, the principals' count and each identity, name, verifier and
     /// administrator flag; the sessions' count and each session and principal in registration order; the pending
@@ -85,11 +85,11 @@ impl MetadataSnapshot {
     }
 }
 
-/// The catalogs: per namespace its versions.
+/// The catalogs: per tenant its versions.
 fn encode_catalogs(state: &MetadataState, out: &mut Vec<u8>) {
     put_count(out, state.catalogs.len());
-    for (namespace, catalog) in &state.catalogs {
-        put_u64(out, namespace.get());
+    for (tenant, catalog) in &state.catalogs {
+        put_u64(out, tenant.get());
         put_u64(out, catalog.current);
         put_u64(out, catalog.released);
         put_count(out, catalog.versions.len());
@@ -110,8 +110,8 @@ fn encode_catalogs(state: &MetadataState, out: &mut Vec<u8>) {
 /// The default entries, the high-water marks, the placement map and the reports.
 fn encode_tables(state: &MetadataState, out: &mut Vec<u8>) {
     put_count(out, state.defaults.len());
-    for ((namespace, predicate), entry) in &state.defaults {
-        put_u64(out, namespace.get());
+    for ((tenant, predicate), entry) in &state.defaults {
+        put_u64(out, tenant.get());
         // At most PREDICATE_BYTES_MAX, which fits 2 bytes.
         let len = u16::try_from(predicate.len()).unwrap_or(u16::MAX);
         out.extend_from_slice(&len.to_be_bytes());
@@ -242,49 +242,49 @@ fn check(holds: bool, what: &'static str, at: usize) -> Result<(), ClusterError>
     }
 }
 
-/// The catalogs, each namespace after the one before, its versions rising, effective ones first and rising, the last
+/// The catalogs, each tenant after the one before, its versions rising, effective ones first and rising, the last
 /// its latest.
 fn decode_catalogs(reader: &mut Reader<'_>, state: &mut MetadataState) -> Result<(), ClusterError> {
     let catalogs = count(reader, "catalogs", CATALOGS_MAX)?;
     for _ in 0..catalogs {
         let at = reader.offset();
-        let namespace = Namespace::new(reader.u64("a namespace")?);
+        let tenant = Tenant::new(reader.u64("a tenant")?);
         let after = state
             .catalogs
             .keys()
             .next_back()
-            .is_none_or(|last| *last < namespace);
-        check(after, "a namespace after the one before it", at)?;
+            .is_none_or(|last| *last < tenant);
+        check(after, "a tenant after the one before it", at)?;
         let current_at = reader.offset();
-        let current = reader.u64("a namespace's latest version")?;
-        let released = reader.u64("a namespace's highest released version")?;
-        let what = "retained catalog versions of a namespace";
+        let current = reader.u64("a tenant's latest version")?;
+        let released = reader.u64("a tenant's highest released version")?;
+        let what = "retained catalog versions of a tenant";
         let versions = count(reader, what, MetadataState::RETAINED_MAX)?;
-        let mut catalog = NamespaceCatalog {
+        let mut catalog = TenantCatalog {
             current,
             released,
             versions: std::collections::VecDeque::with_capacity(versions),
         };
         for _ in 0..versions {
-            let record = read_record(reader, namespace, &catalog)?;
+            let record = read_record(reader, tenant, &catalog)?;
             catalog.versions.push_back(record);
         }
         let last = catalog.versions.back().map(CatalogRecord::version);
         check(
             last == Some(current),
-            "a namespace's latest version, its last retained",
+            "a tenant's latest version, its last retained",
             current_at,
         )?;
-        let _absent: Option<NamespaceCatalog> = state.catalogs.insert(namespace, catalog);
+        let _absent: Option<TenantCatalog> = state.catalogs.insert(tenant, catalog);
     }
     Ok(())
 }
 
-/// One retained version of `namespace`, after the versions of `catalog` read before it.
+/// One retained version of `tenant`, after the versions of `catalog` read before it.
 fn read_record(
     reader: &mut Reader<'_>,
-    namespace: Namespace,
-    catalog: &NamespaceCatalog,
+    tenant: Tenant,
+    catalog: &TenantCatalog,
 ) -> Result<CatalogRecord, ClusterError> {
     let at = reader.offset();
     let version = reader.u64("a version")?;
@@ -309,7 +309,7 @@ fn read_record(
         "bytes of a catalog version",
         MetadataCommand::CATALOG_BYTES_MAX,
     )?;
-    Ok(CatalogRecord::new(namespace, version, effective, bytes))
+    Ok(CatalogRecord::new(tenant, version, effective, bytes))
 }
 
 /// The default entries, the high-water marks, the placement map and the reports, each table in its order.
@@ -317,14 +317,14 @@ fn decode_tables(reader: &mut Reader<'_>, state: &mut MetadataState) -> Result<(
     let defaults = count(reader, "default-entry records", MetadataState::DEFAULTS_MAX)?;
     for _ in 0..defaults {
         let at = reader.offset();
-        let namespace = Namespace::new(reader.u64("a namespace")?);
+        let tenant = Tenant::new(reader.u64("a tenant")?);
         let what = "bytes of a predicate's name";
         let len = Reader::bounded(
             usize::from(reader.u16(what)?),
             what,
             MetadataCommand::PREDICATE_BYTES_MAX,
         )?;
-        let key = (namespace, reader.text(len, what)?);
+        let key = (tenant, reader.text(len, what)?);
         let after = state
             .defaults
             .keys()

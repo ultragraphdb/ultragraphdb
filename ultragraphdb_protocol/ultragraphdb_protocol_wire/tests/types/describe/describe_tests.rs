@@ -43,7 +43,7 @@ fn test_the_request_and_the_answer_build_the_golden_frames() -> TestResult {
         answer.frame(golden("describe_reply")?.header())?,
         golden("describe_reply")?.bytes()?
     );
-    assert_eq!((answer.namespace(), answer.read_version()), (0, 42));
+    assert_eq!((answer.tenant(), answer.read_version()), (0, 42));
     assert_eq!(answer.labels(), &[ex("Person")]);
     assert_eq!(answer.predicates().len(), 2);
     assert_eq!(answer.entity_types()[0].1, 1);

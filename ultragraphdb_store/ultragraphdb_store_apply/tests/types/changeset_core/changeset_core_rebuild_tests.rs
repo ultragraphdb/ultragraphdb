@@ -14,7 +14,7 @@ use ultragraphdb_traits_store::Store;
 use ultragraphdb_store_apply::Applied;
 
 use crate::utils::changesets::{
-    NS, changesets, counted, declaration, declare, delete, exact_token, finish_builds, indexed,
+    TENANT, changesets, counted, declaration, declare, delete, exact_token, finish_builds, indexed,
     insert, keys_of, stored_keys, term_token, uid, write, write_changes,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
@@ -31,7 +31,7 @@ fn test_a_swap_deletes_the_keys_of_a_removed_tokenizer() -> TestResult {
     assert!(!a.rebuilding());
     let p = uid(&a, "name")?;
     let declared = a
-        .catalog(NS)?
+        .catalog(TENANT)?
         .predicate(p)
         .cloned()
         .context("the predicate is declared")?;
@@ -74,7 +74,7 @@ fn nearest_with(
     use ultragraphdb_traits_index::accept_all;
     let keys = VectorKeys::new(
         crate::utils::changesets::ex("emb").as_str(),
-        NS,
+        TENANT,
         DEFAULT_GRAPH,
         uid(a, "emb")?,
     );
@@ -111,7 +111,7 @@ fn test_a_vector_index_is_built_over_held_vectors_and_the_writes_during_its_buil
     finish_builds(&a);
     assert!(!a.rebuilding());
     assert!(
-        a.catalog(NS)?
+        a.catalog(TENANT)?
             .predicate(uid(&a, "emb")?)
             .is_some_and(|d| d.vector_index().is_some())
     );
@@ -145,7 +145,7 @@ fn test_a_count_index_is_built_over_held_edges_and_the_writes_during_its_build()
     assert!(a.rebuilding());
     // Until the swap, queries read the declaration without the count index being built.
     let interim = a
-        .catalog(NS)?
+        .catalog(TENANT)?
         .predicate(uid(&a, "friend")?)
         .cloned()
         .context("the predicate is declared")?;
@@ -155,7 +155,7 @@ fn test_a_count_index_is_built_over_held_edges_and_the_writes_during_its_build()
     finish_builds(&a);
     assert!(!a.rebuilding());
     assert_eq!(
-        a.catalog(NS)?.predicate(uid(&a, "friend")?),
+        a.catalog(TENANT)?.predicate(uid(&a, "friend")?),
         Some(&declaration("friend", "with an exact count index")?)
     );
     let n = |name: &str| uid(&a, name);
@@ -245,7 +245,7 @@ fn test_a_build_writes_a_deletion_for_a_key_whose_list_it_leaves_empty() -> Test
     write_changes(&a, vec![delete("<a> <name> \"big apple\"")?])?;
     finish_builds(&a);
     assert_eq!(
-        a.catalog(NS)?.predicate(uid(&a, "name")?),
+        a.catalog(TENANT)?.predicate(uid(&a, "name")?),
         Some(&declaration("name", "with `term` and `exact`")?)
     );
     assert!(indexed(&a, "name", &exact_token("big apple"))?.is_empty());
@@ -277,7 +277,7 @@ fn test_a_vector_deleted_during_its_build_is_dead_after_the_swap() -> TestResult
     let found = nearest(&a, &[1.0, 0.0, 0.0], 2)?;
     assert_eq!(found, vec![uid(&a, "b")?], "a dead node is not found");
     assert_eq!(
-        a.catalog(NS)?.predicate(uid(&a, "emb")?),
+        a.catalog(TENANT)?.predicate(uid(&a, "emb")?),
         Some(&declaration(
             "emb",
             "single-valued with a vector index of dimension 3"
@@ -286,7 +286,7 @@ fn test_a_vector_deleted_during_its_build_is_dead_after_the_swap() -> TestResult
     // The swap marks the node whose vector the write deleted dead: the dead list holds `a` alone.
     let keys = ultragraphdb_store_hnsw::VectorKeys::new(
         crate::utils::changesets::ex("emb").as_str(),
-        NS,
+        TENANT,
         ultragraphdb_core_keys::DEFAULT_GRAPH,
         uid(&a, "emb")?,
     );
@@ -330,7 +330,8 @@ fn test_dropping_another_predicate_keeps_the_build() -> TestResult {
     let a = changesets()?;
     write(&a, &["<a> <name> \"pear\"", "<a> <knows> <b>"])?;
     declare(&a, "name", "with `exact`")?;
-    let _dropped_at: u64 = a.drop_predicate(NS, crate::utils::changesets::ex("knows").as_ref())?;
+    let _dropped_at: u64 =
+        a.drop_predicate(TENANT, crate::utils::changesets::ex("knows").as_ref())?;
     assert!(a.rebuilding());
     finish_builds(&a);
     assert_eq!(
@@ -361,7 +362,7 @@ fn test_a_key_the_build_produces_nothing_for_is_deleted_at_the_build_s_timestamp
     assert!(a.rebuilding());
     finish_builds(&a);
     let key = QuadKey::ValueIndex {
-        namespace: NS,
+        tenant: TENANT,
         graph: ultragraphdb_core_keys::DEFAULT_GRAPH,
         predicate: uid(&a, "name")?,
         tokenizer: 0x02,
@@ -418,7 +419,7 @@ fn test_a_vector_index_rebuilt_with_other_options_replaces_its_lists() -> TestRe
     assert!(a.rebuilding());
     finish_builds(&a);
     assert_eq!(
-        a.catalog(NS)?.predicate(uid(&a, "emb")?),
+        a.catalog(TENANT)?.predicate(uid(&a, "emb")?),
         Some(&with_levels)
     );
     let mut levels = ultragraphdb_traits_index::Options::new();
@@ -463,7 +464,7 @@ fn test_a_vector_deleted_before_its_build_is_not_marked_dead() -> TestResult {
     finish_builds(&a);
     let keys = ultragraphdb_store_hnsw::VectorKeys::new(
         crate::utils::changesets::ex("emb").as_str(),
-        NS,
+        TENANT,
         ultragraphdb_core_keys::DEFAULT_GRAPH,
         uid(&a, "emb")?,
     );
@@ -585,7 +586,7 @@ fn test_a_sequenced_build_a_drop_cancels_ends_with_an_undo() -> TestResult {
     write(&a, &["<a> <name> \"big apple\""])?;
     declare(&a, "name", "with `term`")?;
     let drop = a.prepare_drop(
-        NS,
+        TENANT,
         ultragraphdb_store_apply::DropRequest::Predicate(
             crate::utils::changesets::ex("name").as_ref(),
         ),
@@ -618,7 +619,7 @@ fn test_a_swap_after_a_drop_cancelled_its_build_is_discarded() -> TestResult {
     finish_builds(&a);
     let swap = a.prepare_build_end(a.take_build_end().context("a build ended")?)?;
     let drop = a.prepare_drop(
-        NS,
+        TENANT,
         ultragraphdb_store_apply::DropRequest::Predicate(
             crate::utils::changesets::ex("name").as_ref(),
         ),
@@ -629,7 +630,7 @@ fn test_a_swap_after_a_drop_cancelled_its_build_is_discarded() -> TestResult {
     assert_eq!(a.quads().lists().applied_ts(), version + 2);
     assert!(a.quads().store().rebuild_records()?.is_empty());
     assert!(
-        a.catalog(NS)?.predicate(uid(&a, "name")?).is_none()
+        a.catalog(TENANT)?.predicate(uid(&a, "name")?).is_none()
             || indexed(&a, "name", &term_token("apple"))?.is_empty()
     );
     Ok(())
@@ -643,7 +644,7 @@ fn test_a_build_end_names_the_catalog_version_that_started_its_build() -> TestRe
     a.sequence_builds();
     write(&a, &["<a> <name> \"big apple\""])?;
     let contents = ultragraphdb_core_catalog::CatalogContents::new(
-        NS,
+        TENANT,
         2,
         vec![Declaration::Predicate(declaration(
             "name",

@@ -8,12 +8,12 @@ use ultragraphdb_traits_catalog::{
     CatalogSource, CatalogUnreachable, DefaultEntry, HeldVersion, TestCatalogSource,
 };
 
-fn held(namespace: u64, version: u64, effective: u64) -> HeldVersion {
-    HeldVersion::new(namespace, version, effective, vec![version as u8])
+fn held(tenant: u64, version: u64, effective: u64) -> HeldVersion {
+    HeldVersion::new(tenant, version, effective, vec![version as u8])
 }
 
-fn default(namespace: u64, predicate: &str, entry: u8) -> DefaultEntry {
-    DefaultEntry::new(namespace, format!("http://ex.org/{predicate}"), vec![entry])
+fn default(tenant: u64, predicate: &str, entry: u8) -> DefaultEntry {
+    DefaultEntry::new(tenant, format!("http://ex.org/{predicate}"), vec![entry])
 }
 
 #[test]
@@ -42,7 +42,7 @@ fn test_the_version_in_effect_is_the_latest_at_or_below_the_epoch() -> TestResul
 }
 
 #[test]
-fn test_each_namespace_has_its_own_versions() -> TestResult {
+fn test_each_tenant_has_its_own_versions() -> TestResult {
     let source = TestCatalogSource::new();
     source.commit(held(1, 2, 5));
     assert_eq!(source.version_at(0, 5)?, None);
@@ -86,7 +86,7 @@ fn test_a_default_entry_is_recorded_once() -> TestResult {
 }
 
 #[test]
-fn test_default_entries_are_kept_per_namespace_and_predicate() -> TestResult {
+fn test_default_entries_are_kept_per_tenant_and_predicate() -> TestResult {
     let source = TestCatalogSource::new();
     assert!(source.record_default(&default(0, "b", 1))?);
     assert!(source.record_default(&default(0, "a", 1))?);

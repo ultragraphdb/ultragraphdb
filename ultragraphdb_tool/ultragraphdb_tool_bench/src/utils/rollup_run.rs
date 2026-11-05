@@ -121,7 +121,7 @@ pub fn run_rollup(args: &RollupArgs) -> Result<String, BenchError> {
     ))
 }
 
-/// The ID of `iri` in the root namespace.
+/// The ID of `iri` in the root tenant.
 fn id_of(a: &Arc<BenchApplier>, iri: &str) -> Result<SystemId, BenchError> {
     a.quads()
         .id_of(0, iri)
@@ -135,7 +135,7 @@ fn roll_up_hubs(a: &Arc<BenchApplier>, hubs: u64, predicate: SystemId) -> Result
     for hub in 0..hubs {
         let object = id_of(a, CommitShape::hub(hub).as_str())?;
         let key = QuadKey::Reverse {
-            namespace: 0,
+            tenant: 0,
             graph: DEFAULT_GRAPH,
             predicate,
             object: EncodedTerm::id(object),

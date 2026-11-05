@@ -23,7 +23,7 @@ libfuzzer-sys = { workspace = true }
 ultragraphdb_core_catalog = { workspace = true }
 
 # Any bytes as a catalog version's contents, as the metadata group hands them to a partition: decoded, or refused as
-# a corrupted version naming the namespace and version asked for, never a panic; accepted contents encode back to
+# a corrupted version naming the tenant and version asked for, never a panic; accepted contents encode back to
 # their bytes.
 [[bin]]
 name = "catalog_contents_decode"

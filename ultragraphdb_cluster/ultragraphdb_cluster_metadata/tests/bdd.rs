@@ -20,9 +20,9 @@ use cucumber::{World, then, when};
 use ultragraphdb_cluster_metadata::{
     LeasedBlocks, MetadataConfig, MetadataSnapshot, MetadataState,
 };
-use ultragraphdb_cluster_placement::{BucketRange, NamespaceRun, PartitionId};
+use ultragraphdb_cluster_placement::{BucketRange, PartitionId, TenantRun};
 use ultragraphdb_cluster_sequencer::Close;
-use ultragraphdb_core_ids::{Bucket, BucketGroup, Epoch, Namespace, TypePrefix};
+use ultragraphdb_core_ids::{Bucket, BucketGroup, Epoch, Tenant, TypePrefix};
 use ultragraphdb_error_cluster::{ClusterError, ClusterErrorEnum};
 use ultragraphdb_protocol_scram::{Credentials, MIN_ITERATIONS, ScramClient, ScramServer};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
@@ -33,8 +33,8 @@ use ultragraphdb_transactions_log::SimStorage;
 
 use crate::cluster::Cluster;
 use crate::harness::{
-    Group, block_on, crash_and_recover, epoch, fresh_with, learn_through, node, ns, pid, range,
-    recover, sync, verifier,
+    Group, block_on, crash_and_recover, epoch, fresh_with, learn_through, node, pid, range,
+    recover, sync, tenant, verifier,
 };
 use crate::partition_model::{AllocatorModel, EpochModel};
 
@@ -114,21 +114,22 @@ impl Steps {
     }
 }
 
-/// Offers versions 1 to `through` of `ns`'s catalog, each holding its own number's text, and syncs them.
+/// Offers versions 1 to `through` of `tenant`'s catalog, each holding its own number's text, and syncs them.
 fn offer_versions(group: &mut Group, through: u64) -> TestResult {
     for version in 1..=through {
-        let _offered = group.offer_catalog(ns(), version - 1, format!("v{version}").as_bytes())?;
+        let _offered =
+            group.offer_catalog(tenant(), version - 1, format!("v{version}").as_bytes())?;
     }
     sync(group)
 }
 
-/// The placement map's ranges in effect at `at`, of the run of `namespace`.
+/// The placement map's ranges in effect at `at`, of the run of `tenant`.
 fn run_ranges(
     group: &Group,
-    namespace: Namespace,
+    tenant: Tenant,
     at: u64,
 ) -> TestResult<Vec<(BucketRange, PartitionId)>> {
-    let run = NamespaceRun::of(namespace).range();
+    let run = TenantRun::of(tenant).range();
     let map = group.state().placement().context("the placement map")?;
     Ok(map
         .ranges_at(epoch(at)?)
@@ -176,7 +177,7 @@ fn applies_and_restarts(w: &mut Steps) -> TestResult {
     let group = w.group()?;
     let _first = group.init_placement(3, node())?;
     sync(group)?;
-    let _offered = group.offer_catalog(ns(), 0, b"v1")?;
+    let _offered = group.offer_catalog(tenant(), 0, b"v1")?;
     let _first_lease = group.lease_block(TypePrefix::RESOURCE, pid(1)?, 1_000)?;
     let _second_lease = group.lease_block(TypePrefix::RESOURCE, pid(2)?, 500)?;
     let layout = layout_moving(group, range(0, 64)?, Some(pid(3)?))?;
@@ -195,7 +196,7 @@ fn state_equal_after_recovery(w: &mut Steps) -> TestResult {
     assert_eq!(position.get(), 6);
     assert_eq!(group.state(), &state);
     // The commands are all there, not merely two empty states alike.
-    assert_eq!(group.state().current_version(ns()), 1);
+    assert_eq!(group.state().current_version(tenant()), 1);
     assert_eq!(group.state().next_sequence(TypePrefix::RESOURCE), 1_501);
     assert_eq!(
         group.state().principal("ann").map(|p| p.name()),
@@ -266,7 +267,7 @@ fn version_3_at_38(w: &mut Steps) -> TestResult {
     let mut cluster = Cluster::new()?;
     offer_versions(&mut cluster.group, 2)?;
     let _closes = cluster.close_through(38)?;
-    let _offered = cluster.group.offer_catalog(ns(), 2, b"v3")?;
+    let _offered = cluster.group.offer_catalog(tenant(), 2, b"v3")?;
     sync(&mut cluster.group)?;
     let close = cluster.close()?;
     let mut partition = EpochModel::at(38);
@@ -274,7 +275,7 @@ fn version_3_at_38(w: &mut Steps) -> TestResult {
     partition.deliver(&close);
     w.stamps.push(partition.stamp());
     for round in [39, 40] {
-        let (version, _) = partition.validate(cluster.group.state(), ns().get(), round)?;
+        let (version, _) = partition.validate(cluster.group.state(), tenant().get(), round)?;
         w.validated.push((round, version));
     }
     w.closes.push(close);
@@ -291,15 +292,15 @@ fn version_3_at_40(w: &mut Steps) -> TestResult {
     let announced: Vec<(u64, u64)> = close
         .catalog()
         .iter()
-        .map(|v| (v.namespace().get(), v.version()))
+        .map(|v| (v.tenant().get(), v.version()))
         .collect();
-    assert_eq!(announced, vec![(ns().get(), 3)]);
+    assert_eq!(announced, vec![(tenant().get(), 3)]);
     assert_eq!(close.effective_epoch().map(Epoch::get), Some(40));
     assert_eq!(w.stamps, vec![39, 40]);
     assert_eq!(w.validated, vec![(39, 2), (40, 3)]);
     let state = w.cluster()?.group.state();
     let record = state
-        .catalog_at(ns(), epoch(40)?)?
+        .catalog_at(tenant(), epoch(40)?)?
         .context("the version at 40")?;
     assert_eq!(record.version(), 3);
     assert_eq!(record.effective().map(Epoch::get), Some(40));
@@ -309,44 +310,52 @@ fn version_3_at_40(w: &mut Steps) -> TestResult {
 }
 
 #[when(
-    "version 3 of `ns` is current, a first write of `score` records its default entry, and a client offers version 4 built on version 3"
+    "version 3 of `tenant` is current, a first write of `score` records its default entry, and a client offers version 4 built on version 3"
 )]
 fn default_then_version_4(w: &mut Steps) -> TestResult {
     w.start()?;
     let group = w.group()?;
     offer_versions(group, 3)?;
     learn_through(group, 1)?;
-    let before = group.state().current_version(ns());
-    let entry = DefaultEntry::new(ns().get(), "score".to_string(), b"default score".to_vec());
+    let before = group.state().current_version(tenant());
+    let entry = DefaultEntry::new(
+        tenant().get(),
+        "score".to_string(),
+        b"default score".to_vec(),
+    );
     let recorded = group.record_default_entry(&entry)?;
     // The record is the round after the three versions and the close.
     assert_eq!(recorded.map(|p| p.get()), Some(5));
     sync(group)?;
     // A prepared statement remembers the version current when it was prepared.
-    let after = group.state().current_version(ns());
-    let (version, _) = group.offer_catalog(ns(), 3, b"v4")?;
+    let after = group.state().current_version(tenant());
+    let (version, _) = group.offer_catalog(tenant(), 3, b"v4")?;
     sync(group)?;
     w.stamps = vec![before, after, version];
     Ok(())
 }
 
 #[then(
-    "the default-entry record of (`ns`, `score`) is held, version 4 is accepted, and no prepared statement of `ns` is stale"
+    "the default-entry record of (`tenant`, `score`) is held, version 4 is accepted, and no prepared statement of `tenant` is stale"
 )]
 fn default_held_version_4(w: &mut Steps) -> TestResult {
     // Current before and after the default entry, and the number the offer took.
     assert_eq!(w.stamps, vec![3, 3, 4]);
     let state = w.group()?.state();
     assert_eq!(
-        state.default_entry(ns(), "score"),
+        state.default_entry(tenant(), "score"),
         Some(&b"default score"[..])
     );
-    assert_eq!(state.current_version(ns()), 4);
-    let numbers: Vec<u64> = state.versions(ns()).iter().map(|v| v.version()).collect();
+    assert_eq!(state.current_version(tenant()), 4);
+    let numbers: Vec<u64> = state
+        .versions(tenant())
+        .iter()
+        .map(|v| v.version())
+        .collect();
     assert_eq!(numbers, vec![1, 2, 3, 4]);
     // The statement prepared at version 3 reads the version in effect, which only a learned close changes.
     let effective = state
-        .catalog_at(ns(), epoch(2)?)?
+        .catalog_at(tenant(), epoch(2)?)?
         .map(|record| record.version());
     assert_eq!(effective, Some(3));
     Ok(())
@@ -359,7 +368,7 @@ fn offers_4_on_2(w: &mut Steps) -> TestResult {
     offer_versions(group, 3)?;
     let applied = group.applied();
     let refusal = group
-        .offer_catalog(ns(), 2, b"v4")
+        .offer_catalog(tenant(), 2, b"v4")
         .err()
         .context("a refusal")?;
     assert_eq!(group.applied(), applied);
@@ -373,7 +382,7 @@ fn refused_naming_2_and_3(w: &mut Steps) -> TestResult {
     assert_eq!(
         refusal.0,
         ClusterErrorEnum::StaleCatalog {
-            namespace: ns().get(),
+            tenant: tenant().get(),
             predecessor: 2,
             current: 3
         }
@@ -385,7 +394,7 @@ fn refused_naming_2_and_3(w: &mut Steps) -> TestResult {
     );
     let group = w.group()?;
     sync(group)?;
-    assert_eq!(group.state().current_version(ns()), 3);
+    assert_eq!(group.state().current_version(tenant()), 3);
     assert_eq!(group.applied().get(), 3);
     Ok(())
 }
@@ -493,17 +502,17 @@ fn three_partitions(w: &mut Steps) -> TestResult {
     sync(group)
 }
 
-#[when("the map is initialised for one namespace and three partitions")]
+#[when("the map is initialised for one tenant and three partitions")]
 fn initialised_three(w: &mut Steps) -> TestResult {
     three_partitions(w)
 }
 
 #[then(
-    "that namespace's 65,536 buckets are assigned in three contiguous ranges whose sizes differ by at most one, and every other bucket is assigned to a partition"
+    "that tenant's 65,536 buckets are assigned in three contiguous ranges whose sizes differ by at most one, and every other bucket is assigned to a partition"
 )]
 fn three_ranges(w: &mut Steps) -> TestResult {
     let group = w.group()?;
-    let ranges = run_ranges(group, ns(), 0)?;
+    let ranges = run_ranges(group, tenant(), 0)?;
     let sizes: Vec<u32> = ranges.iter().map(|(r, _)| r.buckets()).collect();
     // 65,536 = 3 × 21,845 + 1: the first partition takes the one more.
     assert_eq!(sizes, vec![21_846, 21_845, 21_845]);
@@ -558,7 +567,7 @@ fn looks_up_30000(w: &mut Steps) -> TestResult {
     let run0: Vec<_> = map
         .ranges_at(Epoch::ZERO)
         .into_iter()
-        .filter(|(r, _)| r.end() <= NamespaceRun::BUCKETS)
+        .filter(|(r, _)| r.end() <= TenantRun::BUCKETS)
         .collect();
     assert!(
         run0.contains(&(range(21_846, 43_691)?, pid(2)?)),
@@ -1059,21 +1068,21 @@ fn refuses_resource(w: &mut Steps) -> TestResult {
 // A schema change takes effect at an epoch boundary
 // ---------------------------------------------------------------------------------------------------------------------
 
-/// A cluster whose namespace holds version 1, without the index, effective from epoch 2, with epoch 48 its latest
+/// A cluster whose tenant holds version 1, without the index, effective from epoch 2, with epoch 48 its latest
 /// close and version 2, adding the index, committed as pending.
 fn index_added_at_48() -> TestResult<Cluster> {
     let mut cluster = Cluster::new()?;
-    let _without = cluster.group.offer_catalog(ns(), 0, b"no index")?;
+    let _without = cluster.group.offer_catalog(tenant(), 0, b"no index")?;
     sync(&mut cluster.group)?;
     let _closes = cluster.close_through(48)?;
-    let _with = cluster.group.offer_catalog(ns(), 1, b"index")?;
+    let _with = cluster.group.offer_catalog(tenant(), 1, b"index")?;
     sync(&mut cluster.group)?;
     Ok(cluster)
 }
 
 /// Whether a round of `epoch` validated by `partition` maintains the index's entries.
 fn maintains_index(cluster: &Cluster, partition: &EpochModel, epoch: u64) -> TestResult<bool> {
-    let (_, contents) = partition.validate(cluster.group.state(), ns().get(), epoch)?;
+    let (_, contents) = partition.validate(cluster.group.state(), tenant().get(), epoch)?;
     Ok(contents == b"index")
 }
 
@@ -1105,7 +1114,9 @@ fn switch_at_50(w: &mut Steps) -> TestResult {
     let close = w.closes.first().context("the close of 49")?;
     assert_eq!(close.epoch().get(), 49);
     let state = w.cluster()?.group.state();
-    let record = state.catalog_at(ns(), epoch(50)?)?.context("the version")?;
+    let record = state
+        .catalog_at(tenant(), epoch(50)?)?
+        .context("the version")?;
     assert_eq!(
         (record.version(), record.effective().map(Epoch::get)),
         (2, Some(50))
@@ -1125,7 +1136,7 @@ fn index_partition_at_48(w: &mut Steps) -> TestResult {
     let ahead = cluster
         .group
         .state()
-        .version_at(ns().get(), 50)
+        .version_at(tenant().get(), 50)
         .err()
         .context("epoch 50 not yet answered")?;
     w.refusals.push(ahead);
@@ -1136,7 +1147,7 @@ fn index_partition_at_48(w: &mut Steps) -> TestResult {
     partition.deliver(&close);
     let first = partition.stamp();
     w.stamps.push(first);
-    let (version, contents) = partition.validate(cluster.group.state(), ns().get(), first)?;
+    let (version, contents) = partition.validate(cluster.group.state(), tenant().get(), first)?;
     assert_eq!(contents, b"index");
     w.validated.push((first, version));
     w.closes.push(close);

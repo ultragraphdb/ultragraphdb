@@ -63,7 +63,7 @@ fn test_a_blank_node_is_skolemized_once_per_write_and_presented_as_a_blank_node(
     )?;
     let reverse = |o: &str| -> TestResult<Vec<u8>> {
         Ok(QuadKey::Reverse {
-            namespace: 0,
+            tenant: 0,
             graph: Graph::Default,
             predicate: id(&store, 0, &ex("knows"))?,
             object: EncodedTerm::id(id(&store, 0, &ex(o))?),
@@ -398,7 +398,7 @@ fn test_objects_carry_their_statement_ids_and_records_read_back() -> TestResult 
         .copied()
         .context("committed")?;
     let key = QuadKey::Forward {
-        namespace: 0,
+        tenant: 0,
         graph: Graph::Default,
         predicate: p,
         subject: a,
@@ -455,8 +455,8 @@ fn test_id_of_reads_the_committed_dictionary_alone() -> TestResult {
     assert_eq!(
         a.bucket().get(),
         0xC7_F1AB,
-        "core_ids' golden bucket of http://ex.org/a in namespace 0"
+        "core_ids' golden bucket of http://ex.org/a in tenant 0"
     );
-    assert_eq!(store.id_of(1, ex("a").as_str())?, None, "another namespace");
+    assert_eq!(store.id_of(1, ex("a").as_str())?, None, "another tenant");
     Ok(())
 }

@@ -61,17 +61,17 @@ pub enum QuadErrorEnum {
         /// The most uncommitted IDs the store holds.
         capacity: usize,
     },
-    /// The partition owns no bucket of namespace `namespace`'s run, so it mints no blank node of it.
+    /// The partition owns no bucket of tenant `tenant`'s run, so it mints no blank node of it.
     NoOwnedBucket {
-        /// The namespace.
-        namespace: u64,
+        /// The tenant.
+        tenant: u64,
     },
     /// Each of `draws` skolem IRIs drawn in turn named an IRI the dictionary holds.
     SkolemDraws {
         /// The draws made.
         draws: usize,
     },
-    /// `iri` lies under the namespace's skolem base and the dictionary holds no blank node or reifier by it.
+    /// `iri` lies under the tenant's skolem base and the dictionary holds no blank node or reifier by it.
     UnknownSkolem {
         /// The IRI.
         iri: String,
@@ -111,9 +111,9 @@ impl QuadError {
         Self(QuadErrorEnum::PendingFull { capacity })
     }
 
-    /// [`QuadErrorEnum::NoOwnedBucket`] for `namespace`.
-    pub fn no_owned_bucket(namespace: u64) -> Self {
-        Self(QuadErrorEnum::NoOwnedBucket { namespace })
+    /// [`QuadErrorEnum::NoOwnedBucket`] for `tenant`.
+    pub fn no_owned_bucket(tenant: u64) -> Self {
+        Self(QuadErrorEnum::NoOwnedBucket { tenant })
     }
 
     /// [`QuadErrorEnum::NotOwned`] for `iri`, of bucket `bucket`.

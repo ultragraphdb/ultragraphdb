@@ -3,9 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_protocol_wire::{
-    BodyBuilder, BucketRange, NamespaceRun, Placement, PreferredLeader,
-};
+use ultragraphdb_protocol_wire::{BodyBuilder, BucketRange, Placement, PreferredLeader, TenantRun};
 use ultragraphdb_tool_bdd::TestResult;
 
 use crate::utils::golden_roles::{golden_role, role_bytes};
@@ -31,8 +29,8 @@ pub fn golden_placement_reply() -> Placement {
     map.push_range(BucketRange::new(0, 0x40_0000, 1));
     map.push_range(BucketRange::new(0x40_0000, 0x80_0000, 2));
     map.push_range(BucketRange::new(0x80_0000, 1 << 24, 1));
-    map.push_run(NamespaceRun::new(3, 0x40));
-    map.push_run(NamespaceRun::new(7, 0x81));
+    map.push_run(TenantRun::new(3, 0x40));
+    map.push_run(TenantRun::new(7, 0x81));
     map.push_leader(PreferredLeader::new(1, 3));
     map.push_leader(PreferredLeader::new(2, 4));
     map
@@ -79,7 +77,7 @@ fn test_the_getters_give_back_what_the_constructors_and_pushes_took() {
     );
     assert_eq!(
         reply.runs(),
-        [NamespaceRun::new(3, 0x40), NamespaceRun::new(7, 0x81)].as_slice()
+        [TenantRun::new(3, 0x40), TenantRun::new(7, 0x81)].as_slice()
     );
     assert_eq!(
         reply.leaders(),

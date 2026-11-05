@@ -9,14 +9,14 @@ use ultragraphdb_traits_catalog::{CatalogSource, HeldVersion, TestCatalogSource}
 /// The contents in effect for each epoch of `epochs`, read through the trait alone, as a partition reads them.
 fn contents_at<S: CatalogSource>(
     source: &S,
-    namespace: u64,
+    tenant: u64,
     epochs: &[u64],
 ) -> Result<Vec<Option<Vec<u8>>>, S::Error> {
     epochs
         .iter()
         .map(|e| {
             source
-                .version_at(namespace, *e)
+                .version_at(tenant, *e)
                 .map(|v| v.map(|v| v.contents().to_vec()))
         })
         .collect()

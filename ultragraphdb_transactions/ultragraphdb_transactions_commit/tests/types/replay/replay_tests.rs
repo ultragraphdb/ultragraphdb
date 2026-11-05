@@ -21,8 +21,8 @@ use ultragraphdb_transactions_commit::{
 use ultragraphdb_transactions_txn::{Prepared, TxnBuffers};
 
 use crate::utils::fixture::{
-    Applier, Log, NS, applier, applier_over, begin, delete_literal, held, insert, insert_literal,
-    prepare, prepare_in, reopen_wal, sim_store, version, wal, write,
+    Applier, Log, TENANT, applier, applier_over, begin, delete_literal, held, insert,
+    insert_literal, prepare, prepare_in, reopen_wal, sim_store, version, wal, write,
 };
 
 type Pipe<'a> = Pipeline<
@@ -311,7 +311,7 @@ fn test_every_kind_of_round_replays_into_an_empty_store_as_the_first_apply_left_
     block_on(pipe.sync(0))?;
     let drop = Prepared::drop(
         &original,
-        NS,
+        TENANT,
         DropRequest::Predicate(crate::utils::fixture::ex("name").as_ref()),
         0,
         0,
@@ -483,7 +483,7 @@ fn test_a_versions_removals_replay_as_the_first_apply_made_them() -> TestResult 
     )?;
     let group = TestCatalogSource::new();
     let two = CatalogContents::new(
-        NS,
+        TENANT,
         2,
         vec![
             Declaration::Predicate(
@@ -493,10 +493,10 @@ fn test_a_versions_removals_replay_as_the_first_apply_made_them() -> TestResult 
             Declaration::Relation(RelationDeclaration::new(ex("Marriage"), vec![ex("spouse")])),
         ],
     );
-    let three = CatalogContents::new(NS, 3, Vec::new());
+    let three = CatalogContents::new(TENANT, 3, Vec::new());
     for (ticket, contents) in [(2, &two), (3, &three)] {
         group.commit(HeldVersion::new(
-            NS,
+            TENANT,
             contents.version(),
             1,
             contents.encode()?,
@@ -509,7 +509,7 @@ fn test_a_versions_removals_replay_as_the_first_apply_made_them() -> TestResult 
         block_on(pipe.sync(0))?;
     }
     assert!(!original.rebuilding());
-    let catalog = original.catalog(NS)?;
+    let catalog = original.catalog(TENANT)?;
     assert_eq!(
         catalog.entity_types().count() + catalog.relations().count(),
         0
@@ -530,7 +530,7 @@ fn test_a_versions_removals_replay_as_the_first_apply_made_them() -> TestResult 
         replica.quads().store().contents(),
         "the replayed store holds every key and value the first apply left"
     );
-    assert_eq!(*replica.catalog(NS)?, *original.catalog(NS)?);
+    assert_eq!(*replica.catalog(TENANT)?, *original.catalog(TENANT)?);
     Ok(())
 }
 
@@ -571,8 +571,8 @@ fn log_of(
 fn test_a_build_record_naming_a_drop_refuses_recovery_naming_its_operation() -> TestResult {
     use ultragraphdb_error_protocol::ProtocolError;
     use ultragraphdb_protocol_wire::{RecordOperation, WriteSetRecord};
-    for drop in [RecordOperation::DropNamespaceData, RecordOperation::DropAll] {
-        let (_storage, mut log) = log_with(WriteSetRecord::build(NS, drop).encode())?;
+    for drop in [RecordOperation::DropTenantData, RecordOperation::DropAll] {
+        let (_storage, mut log) = log_with(WriteSetRecord::build(TENANT, drop).encode())?;
         let replica = applier_over(sim_store())?;
         let refused = replay(&replica, &mut log).refused("refused")?;
         let cause = ProtocolError::record(
@@ -590,11 +590,11 @@ fn test_a_build_record_naming_a_drop_refuses_recovery_naming_its_operation() -> 
 }
 
 /// A round starting a catalog version the replay's catalog source does not give refuses recovery naming the round, the
-/// namespace and the version: a replay given no source holds none.
+/// tenant and the version: a replay given no source holds none.
 #[test]
 fn test_a_catalog_version_the_source_does_not_give_refuses_recovery() -> TestResult {
     use ultragraphdb_protocol_wire::{RecordOperation, WriteSetRecord};
-    let mut record = WriteSetRecord::build(NS, RecordOperation::CatalogTakesEffect(5));
+    let mut record = WriteSetRecord::build(TENANT, RecordOperation::CatalogTakesEffect(5));
     record.set_catalog(5);
     let (_storage, mut log) = log_with(record.encode())?;
     let replica = applier_over(sim_store())?;
@@ -603,7 +603,7 @@ fn test_a_catalog_version_the_source_does_not_give_refuses_recovery() -> TestRes
         refused.0,
         RecoveryErrorEnum::Catalog {
             position: 2,
-            namespace: NS,
+            tenant: TENANT,
             version: 5,
             reason: "the metadata group does not hold it".to_string()
         }
@@ -626,7 +626,7 @@ fn test_a_statement_record_whose_key_is_no_graph_and_id_refuses_recovery() -> Te
         [vec![0u8; 16], vec![0xFF; 16]].concat(),
     ];
     for key in keys {
-        let mut record = WriteSetRecord::transaction(NS);
+        let mut record = WriteSetRecord::transaction(TENANT);
         record.push_statement_record(key.clone(), None);
         let (_storage, mut log) = log_with(record.encode())?;
         let replica = applier_over(sim_store())?;
@@ -652,7 +652,7 @@ fn test_a_builds_completion_with_no_build_running_replays_as_nothing() -> TestRe
     use ultragraphdb_protocol_wire::{BuildOutcome, RecordOperation, WriteSetRecord};
     for outcome in [BuildOutcome::Swap, BuildOutcome::Undo] {
         let mut record = WriteSetRecord::build(
-            NS,
+            TENANT,
             RecordOperation::CompleteBuild {
                 version: 2,
                 outcome,
@@ -676,11 +676,11 @@ fn test_aborted_decisions_registrations_named_graph_records_and_every_drop_repla
     use ultragraphdb_protocol_wire::{ErrorCode, RecordOperation, WriteSetRecord};
     let id = crate::utils::proposal_double::id(9)?;
     let dropping = |operation| {
-        let mut record = WriteSetRecord::transaction(NS);
+        let mut record = WriteSetRecord::transaction(TENANT);
         record.push_operation(operation);
         record.encode()
     };
-    let mut named = WriteSetRecord::transaction(NS);
+    let mut named = WriteSetRecord::transaction(TENANT);
     named.set_read_version(version(1, 0));
     named.push_statement_record([id.to_be_bytes(), id.to_be_bytes()].concat(), None);
     // Each case: the round's second entry, and how many of round 1's statements are held after it.
@@ -689,8 +689,8 @@ fn test_aborted_decisions_registrations_named_graph_records_and_every_drop_repla
         (named.encode(), 1),
         (dropping(RecordOperation::DropPredicate(id)), 1),
         (dropping(RecordOperation::DropGraph(id)), 1),
-        (dropping(RecordOperation::DropNamespaceData), 0),
-        (dropping(RecordOperation::DropNamespace), 0),
+        (dropping(RecordOperation::DropTenantData), 0),
+        (dropping(RecordOperation::DropTenant), 0),
         (dropping(RecordOperation::DropAll), 0),
     ];
     for (record, statements) in cases {
@@ -784,18 +784,18 @@ fn test_a_reference_with_its_mark_and_copied_entry_replays_the_same_keys() -> Te
     pipe.commit(1, prepare(txn)?, 0)?;
     block_on(pipe.sync(0))?;
     let at = pipe.watermark();
-    assert_eq!(original.quads().mark(NS, b, g, at)?, Some(four));
+    assert_eq!(original.quads().mark(TENANT, b, g, at)?, Some(four));
     assert_eq!(
         original
             .quads()
-            .id_of(NS, crate::utils::fixture::ex("b").as_str())?,
+            .id_of(TENANT, crate::utils::fixture::ex("b").as_str())?,
         Some(b),
         "the copied entry names the home's ID"
     );
     let mut written = pipe.into_log();
     let replica = applier_over(sim_store())?;
     let _replayed: Replay = replay(&replica, &mut written)?;
-    assert_eq!(replica.quads().mark(NS, b, g, at)?, Some(four));
+    assert_eq!(replica.quads().mark(TENANT, b, g, at)?, Some(four));
     assert_eq!(
         original.quads().store().contents(),
         replica.quads().store().contents(),

@@ -52,7 +52,7 @@ impl<'a> BodyView<'a> for DescribeView<'a> {
             RecordKinds::Declarations,
         )?;
         Ok(Self {
-            namespace: header.u64_at(0),
+            tenant: header.u64_at(0),
             read_version: header.u64_at(8),
             strings,
             labels,
@@ -79,7 +79,7 @@ impl<'a> BodyView<'a> for DescribeView<'a> {
                 None => {}
             }
         }
-        Ok(Describe::new(self.namespace, self.read_version)
+        Ok(Describe::new(self.tenant, self.read_version)
             .with_labels(owned(self.labels().collect()))
             .with_relationship_types(owned(self.relationship_types().collect()))
             .with_property_keys(owned(self.property_keys().collect()))

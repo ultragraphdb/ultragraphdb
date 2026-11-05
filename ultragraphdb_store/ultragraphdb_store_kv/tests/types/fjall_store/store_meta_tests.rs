@@ -10,7 +10,7 @@ use ultragraphdb_store_kv::{Durability, FjallStore, META_KEYSPACE};
 use ultragraphdb_traits_store::Store;
 
 use ultragraphdb_tool_bdd::{Context, TestResult};
-use ultragraphdb_tool_test::{TestDir, ns_key, put, write, write_raw_in};
+use ultragraphdb_tool_test::{TestDir, put, tenant_key, write, write_raw_in};
 
 #[test]
 fn test_the_settings_survive_a_reopen() -> TestResult {
@@ -18,14 +18,14 @@ fn test_the_settings_survive_a_reopen() -> TestResult {
     let s = dir.open()?;
     s.set_discard_ts(5)?;
     s.set_tombstone_horizon(3)?;
-    s.ban_namespace(7)?;
+    s.ban_tenant(7)?;
     drop(s);
     let reopened = dir.open()?;
     assert_eq!(
         (reopened.discard_ts(), reopened.tombstone_horizon()),
         (5, 3)
     );
-    let seven = ns_key(7, b"x");
+    let seven = tenant_key(7, b"x");
     write(&reopened, vec![put(&seven, 6, b"")])?;
     assert_eq!(reopened.get_at(&seven, 6)?, None);
     Ok(())
@@ -45,23 +45,29 @@ fn test_the_horizon_never_exceeds_the_discard_timestamp() -> TestResult {
 }
 
 #[test]
-fn test_a_reopen_restores_the_banned_set_of_several_namespaces() -> TestResult {
+fn test_a_reopen_restores_the_banned_set_of_several_tenants() -> TestResult {
     let dir = TestDir::new("meta-banned");
     let s = dir.open()?;
-    for ns in [0, 1, 256, u64::MAX] {
-        s.ban_namespace(ns)?;
+    for tenant in [0, 1, 256, u64::MAX] {
+        s.ban_tenant(tenant)?;
     }
     drop(s);
     let reopened = dir.open()?;
-    for ns in [0, 1, 256, u64::MAX] {
-        write(&reopened, vec![put(&ns_key(ns, b"x"), 2, b"")])?;
-        assert_eq!(reopened.get_at(&ns_key(ns, b"x"), 2)?, None, "{ns}");
+    for tenant in [0, 1, 256, u64::MAX] {
+        write(&reopened, vec![put(&tenant_key(tenant, b"x"), 2, b"")])?;
+        assert_eq!(
+            reopened.get_at(&tenant_key(tenant, b"x"), 2)?,
+            None,
+            "{tenant}"
+        );
     }
-    write(&reopened, vec![put(&ns_key(2, b"x"), 2, b"")])?;
+    write(&reopened, vec![put(&tenant_key(2, b"x"), 2, b"")])?;
     assert_eq!(
-        reopened.get_at(&ns_key(2, b"x"), 2)?.map(|i| i.version()),
+        reopened
+            .get_at(&tenant_key(2, b"x"), 2)?
+            .map(|i| i.version()),
         Some(2),
-        "a namespace no ban names"
+        "a tenant no ban names"
     );
     Ok(())
 }
@@ -86,7 +92,7 @@ fn test_unreadable_metadata_refuses_the_open() -> TestResult {
             Vec::new(),
             "0 bytes where eight belong",
         ),
-        (short_ban, Vec::new(), "a banned namespace is eight bytes"),
+        (short_ban, Vec::new(), "a banned tenant is eight bytes"),
     ] {
         let dir = TestDir::new("meta-corrupt");
         drop(dir.open()?);

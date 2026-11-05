@@ -186,12 +186,12 @@ impl Store for SimStore {
         run_drop(&mut lock(self.shared()), 0, None, entries)
     }
 
-    fn ban_namespace(&self, namespace: u64) -> Result<(), StoreError> {
+    fn ban_tenant(&self, tenant: u64) -> Result<(), StoreError> {
         meta_write(
             &mut lock(self.shared()),
-            "ban_namespace",
-            Record::Ban(namespace),
-            OpRecord::Banned { namespace },
+            "ban_tenant",
+            Record::Ban(tenant),
+            OpRecord::Banned { tenant },
         )
     }
 

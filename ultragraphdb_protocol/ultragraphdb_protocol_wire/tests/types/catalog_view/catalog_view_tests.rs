@@ -34,12 +34,7 @@ fn test_the_golden_catalogs_read_their_values() -> TestResult {
     let view = CatalogView::from_frame(&frame_of(&request)?)?;
     assert!(view.is_request());
     assert_eq!(
-        (
-            view.namespace(),
-            view.version(),
-            view.epoch(),
-            view.position()
-        ),
+        (view.tenant(), view.version(), view.epoch(), view.position()),
         (3, 0, 0, 0)
     );
     assert!(view.bytes().is_empty());
@@ -49,7 +44,7 @@ fn test_the_golden_catalogs_read_their_values() -> TestResult {
     assert!(!second.is_request());
     assert_eq!(
         (
-            second.namespace(),
+            second.tenant(),
             second.version(),
             second.epoch(),
             second.position()
@@ -64,7 +59,7 @@ fn test_the_golden_catalogs_read_their_values() -> TestResult {
 }
 
 #[test]
-fn test_a_request_names_namespace_and_version_alone() -> TestResult {
+fn test_a_request_names_tenant_and_version_alone() -> TestResult {
     for at in [32, 127] {
         assert_eq!(
             header_refusal("catalog", |h| put(h, at, 1, 1))?,
@@ -80,7 +75,7 @@ fn test_a_request_names_namespace_and_version_alone() -> TestResult {
         refusal(&with_bytes)?,
         ProtocolError::count_mismatch(518, "catalog", 1, 0)
     );
-    // A request may name a version, any namespace.
+    // A request may name a version, any tenant.
     let named = with_command_header(&bytes("catalog")?, |h| {
         put(h, 0, u64::MAX, 8);
         put(h, 8, 12, 8);

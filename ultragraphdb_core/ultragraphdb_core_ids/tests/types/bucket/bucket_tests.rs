@@ -4,7 +4,7 @@
  */
 
 use serde::Deserialize;
-use ultragraphdb_core_ids::{Bucket, CanonicalKey, IdError, IdErrorEnum, Namespace, TypePrefix};
+use ultragraphdb_core_ids::{Bucket, CanonicalKey, IdError, IdErrorEnum, Tenant, TypePrefix};
 use ultragraphdb_tool_bdd::{Context, Golden, TestResult, load_golden, testdata_dir};
 
 /// A golden bucket: the xxHash reference implementation's XXH3-64, through python-xxhash, over byte strings built by
@@ -12,10 +12,10 @@ use ultragraphdb_tool_bdd::{Context, Golden, TestResult, load_golden, testdata_d
 #[derive(Debug, Deserialize)]
 struct Case {
     note: String,
-    namespace: u64,
+    tenant: u64,
     prefix: u16,
     iri: String,
-    namespace_xxh3: String,
+    tenant_xxh3: String,
     key_xxh3: String,
     bucket: u32,
 }
@@ -57,7 +57,7 @@ fn test_every_golden_bucket_matches_the_reference() -> TestResult {
     for case in golden.cases() {
         let key = CanonicalKey::iri(&case.iri)?;
         let bucket = Bucket::derive(
-            Namespace::new(case.namespace),
+            Tenant::new(case.tenant),
             TypePrefix::new(case.prefix)?,
             &key,
         );
@@ -70,21 +70,16 @@ fn test_every_golden_bucket_matches_the_reference() -> TestResult {
 fn test_the_golden_buckets_are_the_reference_hashes_top_bits() -> TestResult {
     // The bucket's two halves read straight from the reference's hashes, not from the golden bucket.
     for case in golden()?.cases() {
-        let namespace_hash = u64::from_str_radix(&case.namespace_xxh3, 16).context("a hex hash")?;
+        let tenant_hash = u64::from_str_radix(&case.tenant_xxh3, 16).context("a hex hash")?;
         let key_hash = u64::from_str_radix(&case.key_xxh3, 16).context("a hex hash")?;
         let key = CanonicalKey::iri(&case.iri)?;
         let bucket = Bucket::derive(
-            Namespace::new(case.namespace),
+            Tenant::new(case.tenant),
             TypePrefix::new(case.prefix)?,
             &key,
         )
         .get();
-        assert_eq!(
-            u64::from(bucket >> 16),
-            namespace_hash >> 56,
-            "{}",
-            case.note
-        );
+        assert_eq!(u64::from(bucket >> 16), tenant_hash >> 56, "{}", case.note);
         assert_eq!(u64::from(bucket & 0xFFFF), key_hash >> 48, "{}", case.note);
     }
     Ok(())
@@ -92,10 +87,10 @@ fn test_the_golden_buckets_are_the_reference_hashes_top_bits() -> TestResult {
 
 #[test]
 fn test_the_scenario_bucket_of_http_ex_org_a() -> TestResult {
-    // buckets.json, "the scenario: namespace 0": XXH3-64 of eight zero bytes is 0xc77b3abb6f87acd9, of 00 01, 00 00 00
+    // buckets.json, "the scenario: tenant 0": XXH3-64 of eight zero bytes is 0xc77b3abb6f87acd9, of 00 01, 00 00 00
     // 0F and the IRI 0xf1ab1116c6f475ad.
     let key = CanonicalKey::iri("http://ex.org/a")?;
-    let bucket = Bucket::derive(Namespace::new(0), TypePrefix::RESOURCE, &key);
+    let bucket = Bucket::derive(Tenant::new(0), TypePrefix::RESOURCE, &key);
     assert_eq!(bucket.get(), 0xC7_F1AB);
     Ok(())
 }
@@ -103,9 +98,9 @@ fn test_the_scenario_bucket_of_http_ex_org_a() -> TestResult {
 #[test]
 fn test_a_bucket_is_the_same_every_time() -> TestResult {
     let key = CanonicalKey::iri("http://ex.org/a")?;
-    let first = Bucket::derive(Namespace::new(5), TypePrefix::RESOURCE, &key);
+    let first = Bucket::derive(Tenant::new(5), TypePrefix::RESOURCE, &key);
     let again = Bucket::derive(
-        Namespace::new(5),
+        Tenant::new(5),
         TypePrefix::RESOURCE,
         &CanonicalKey::iri("http://ex.org/a")?,
     );
@@ -126,23 +121,23 @@ fn value_predicate() -> Result<ultragraphdb_core_ids::SystemId, ultragraphdb_cor
 }
 
 #[test]
-fn test_a_unique_values_bucket_is_its_namespaces_top_and_its_predicate_and_values_hash()
+fn test_a_unique_values_bucket_is_its_tenants_top_and_its_predicate_and_values_hash()
 -> Result<(), ultragraphdb_core_ids::IdError> {
-    use ultragraphdb_core_ids::{Bucket, Namespace};
-    // python-xxhash 3.6.0: XXH3-64 of namespace 0's 8 big-endian bytes has top byte 0xC7; of the predicate's 16 bytes
+    use ultragraphdb_core_ids::{Bucket, Tenant};
+    // python-xxhash 3.6.0: XXH3-64 of tenant 0's 8 big-endian bytes has top byte 0xC7; of the predicate's 16 bytes
     // followed by b"x", top two bytes 0xB4D0; followed by nothing, 0x75ED.
     let predicate = value_predicate()?;
     assert_eq!(
-        Bucket::of_value(Namespace::new(0), predicate, b"x").get(),
+        Bucket::of_value(Tenant::new(0), predicate, b"x").get(),
         0xC7_B4D0
     );
     assert_eq!(
-        Bucket::of_value(Namespace::new(0), predicate, b"").get(),
+        Bucket::of_value(Tenant::new(0), predicate, b"").get(),
         0xC7_75ED
     );
-    // Namespace 7's top byte, 0xF8, with the same low 16 bits.
+    // Tenant 7's top byte, 0xF8, with the same low 16 bits.
     assert_eq!(
-        Bucket::of_value(Namespace::new(7), predicate, b"x").get(),
+        Bucket::of_value(Tenant::new(7), predicate, b"x").get(),
         0xF8_B4D0
     );
     Ok(())
@@ -151,7 +146,7 @@ fn test_a_unique_values_bucket_is_its_namespaces_top_and_its_predicate_and_value
 /// A golden case of `testdata/golden/unique_values.json`, written by `unique_values.py` from the xxHash reference.
 #[derive(Debug, Deserialize)]
 struct ValueCase {
-    namespace: u64,
+    tenant: u64,
     predicate_prefix: u16,
     predicate_bucket: u32,
     predicate_sequence: u64,
@@ -174,7 +169,7 @@ fn test_every_golden_unique_values_bucket_matches_the_reference() -> TestResult 
         );
         let value = hex(&case.value)?;
         assert_eq!(
-            Bucket::of_value(Namespace::new(case.namespace), predicate, &value).get(),
+            Bucket::of_value(Tenant::new(case.tenant), predicate, &value).get(),
             case.bucket,
             "{case:?}"
         );

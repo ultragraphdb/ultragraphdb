@@ -10,7 +10,7 @@
 //! version below is written from the layout `epoch << 22 | sequence` ([`version`]).
 
 use ultragraphdb_cluster_sequencer::CatalogVersion;
-use ultragraphdb_core_ids::{Epoch, Namespace, SessionToken};
+use ultragraphdb_core_ids::{Epoch, SessionToken, Tenant};
 use ultragraphdb_protocol_wire::{ConflictKind, RecordKind, RoundHeader, RoundView};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_transactions_commit::{
@@ -336,13 +336,13 @@ fn test_a_commits_reply_carries_its_session_token() -> TestResult {
 #[test]
 fn test_a_transaction_executed_against_another_catalog_version_conflicts_naming_the_catalog()
 -> TestResult {
-    let ns = Namespace::new(0);
-    let mut step = step(0, 38)?.with_catalog(&[CatalogVersion::new(ns, 2)]);
+    let tenant = Tenant::new(0);
+    let mut step = step(0, 38)?.with_catalog(&[CatalogVersion::new(tenant, 2)]);
     assert_eq!(step.catalog_version(0), 2);
     assert_eq!(
         step.catalog_version(1),
         0,
-        "a namespace not named is at version 0"
+        "a tenant not named is at version 0"
     );
     let current = proposal_at_catalog(2, 0, &Reads::default(), &Writes::point(b"a"))?;
     let stale = proposal_at_catalog(1, 0, &Reads::default(), &Writes::point(b"b"))?;
@@ -360,7 +360,7 @@ fn test_a_transaction_executed_against_another_catalog_version_conflicts_naming_
     // The close of 39 announces version 3, in effect at epoch 40.
     let _delivered = run(
         &mut step,
-        Input::Close(close(39, vec![CatalogVersion::new(ns, 3)], Vec::new())?),
+        Input::Close(close(39, vec![CatalogVersion::new(tenant, 3)], Vec::new())?),
         0,
     );
     assert_eq!(step.catalog_version(0), 3);
@@ -389,7 +389,7 @@ fn test_a_transaction_executed_against_another_catalog_version_conflicts_naming_
 
 #[test]
 fn test_a_catalog_conflict_comes_after_the_reads_and_before_a_drop() -> TestResult {
-    let mut step = step(0, 9)?.with_catalog(&[CatalogVersion::new(Namespace::new(0), 2)]);
+    let mut step = step(0, 9)?.with_catalog(&[CatalogVersion::new(Tenant::new(0), 2)]);
     // A list written above the read version, and a range dropped there.
     let _writes = commit(
         &mut step,

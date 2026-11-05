@@ -44,7 +44,7 @@ fn test_the_getters_give_back_what_the_constructors_took() {
     let request = golden_catalog();
     assert_eq!(
         (
-            request.namespace(),
+            request.tenant(),
             request.version(),
             request.epoch(),
             request.position()
@@ -55,7 +55,7 @@ fn test_the_getters_give_back_what_the_constructors_took() {
     let reply = golden_catalog_reply();
     assert_eq!(
         (
-            reply.namespace(),
+            reply.tenant(),
             reply.version(),
             reply.epoch(),
             reply.position()

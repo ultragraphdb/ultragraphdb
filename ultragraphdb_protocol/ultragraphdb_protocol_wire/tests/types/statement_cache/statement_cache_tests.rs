@@ -68,8 +68,8 @@ fn test_a_prepare_is_answered_with_its_id_schema_and_types() -> TestResult {
     );
     assert_eq!(prepare(&mut cache, SCHEMA)??.statement(), 2);
     assert_eq!(cache.len(), 2);
-    assert_eq!(cache.namespace(1), Some(4));
-    assert_eq!(cache.namespace(3), None);
+    assert_eq!(cache.tenant(1), Some(4));
+    assert_eq!(cache.tenant(3), None);
     let request = golden("prepare")?.bytes()?;
     let mut fresh = StatementCache::new(8);
     let answered = fresh.prepare(&PrepareView::from_frame(&frame_of(&request)?)?, SCHEMA)?;

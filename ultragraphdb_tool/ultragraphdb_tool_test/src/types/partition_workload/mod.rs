@@ -69,8 +69,8 @@ type Host = PartitionHost<
     TestBlockSource,
 >;
 
-/// The namespace the workload writes.
-const NS: u64 = 0;
+/// The tenant the workload writes.
+const TENANT: u64 = 0;
 /// The cluster its logs belong to.
 const CLUSTER: u64 = 1;
 /// How long a step takes on the hosts' clock: a registration unanswered for 100 steps goes again.
@@ -284,7 +284,7 @@ impl PartitionWorkload {
             return Ok(());
         };
         let delivered = host.delivered();
-        if let Err(stopped) = host.submit(Changeset::new(NS).with(change), now) {
+        if let Err(stopped) = host.submit(Changeset::new(TENANT).with(change), now) {
             return explained(&stopped)
                 .map_err(|detail| self.failure("no unexpected error", detail));
         }
@@ -410,16 +410,16 @@ impl PartitionWorkload {
         let quads = part.applier().quads();
         let ids = store.unfaulted_reads(|| -> TestResult<_> {
             Ok((
-                quads.id_of(NS, ex(subject).as_str())?,
-                quads.id_of(NS, ex(predicate).as_str())?,
-                quads.id_of(NS, ex(object).as_str())?,
+                quads.id_of(TENANT, ex(subject).as_str())?,
+                quads.id_of(TENANT, ex(predicate).as_str())?,
+                quads.id_of(TENANT, ex(object).as_str())?,
             ))
         })?;
         let (Some(s), Some(p), Some(o)) = ids else {
             return Ok(());
         };
         let key = QuadKey::Forward {
-            namespace: NS,
+            tenant: TENANT,
             graph: Graph::Default,
             predicate: p,
             subject: s,
@@ -473,14 +473,14 @@ impl PartitionWorkload {
             let id = home
                 .applier()
                 .quads()
-                .id_of(NS, ex(&object).as_str())?
+                .id_of(TENANT, ex(&object).as_str())?
                 .ok_or_else(|| {
                     self.failure(
                         "epoch_inequality",
                         format!("{object} has no ID at its home"),
                     )
                 })?;
-            let set = home.applier().quads().referrers(NS, id, u64::MAX)?;
+            let set = home.applier().quads().referrers(TENANT, id, u64::MAX)?;
             let member = set.member(group).ok_or_else(|| {
                 self.failure(
                     "reclamation_keeps_every_member_with_an_edge",
@@ -530,7 +530,10 @@ impl PartitionWorkload {
         if holder.id() == home {
             return Ok(());
         }
-        let mark = holder.applier().quads().mark(NS, entity, group, u64::MAX)?;
+        let mark = holder
+            .applier()
+            .quads()
+            .mark(TENANT, entity, group, u64::MAX)?;
         match mark {
             Some(marked) if marked <= generation => Ok(()),
             other => Err(self.failure(
@@ -576,7 +579,7 @@ impl PartitionWorkload {
                 continue;
             }
             let mut txn = part.begin(
-                NS,
+                TENANT,
                 Mode::ReadOnly,
                 top.min(part.applier().quads().lists().applied_ts()),
                 self.now(),
@@ -586,7 +589,7 @@ impl PartitionWorkload {
             let version = txn.read_version();
             let (mut from, mut found, mut whole) = (Vec::new(), BTreeSet::new(), Vec::new());
             loop {
-                let scan = KernelScan::new(Keyspace::Forward, NS, from, version, frame);
+                let scan = KernelScan::new(Keyspace::Forward, TENANT, from, version, frame);
                 let mut rows = Vec::new();
                 let next = txn.scan_into(&scan, self.now(), &mut rows)?;
                 for row in &rows {
@@ -644,7 +647,7 @@ impl PartitionWorkload {
         }
         let now = self.now();
         let mut txn = part.begin(
-            NS,
+            TENANT,
             Mode::ReadOnly,
             version,
             now,
@@ -677,7 +680,7 @@ impl PartitionWorkload {
         };
         let quads = part.applier().quads();
         let name = |id: SystemId| -> TestResult<String> {
-            let (iri, _) = quads.iri_of(NS, id)?;
+            let (iri, _) = quads.iri_of(TENANT, id)?;
             iri.strip_prefix("http://ex.org/")
                 .map(ToString::to_string)
                 .context("a workload name")
@@ -701,16 +704,16 @@ impl PartitionWorkload {
     ) -> TestResult<BTreeSet<String>> {
         let home = self.home_of(object)?;
         let held = (
-            home.applier().quads().id_of(NS, ex(object).as_str())?,
+            home.applier().quads().id_of(TENANT, ex(object).as_str())?,
             self.home_of(predicate)?
                 .applier()
                 .quads()
-                .id_of(NS, ex(predicate).as_str())?,
+                .id_of(TENANT, ex(predicate).as_str())?,
         );
         let (Some(o), Some(p)) = held else {
             return Ok(BTreeSet::new());
         };
-        let query = ReverseQuery::new(home.id(), NS, Graph::Default, p, o, at);
+        let query = ReverseQuery::new(home.id(), TENANT, Graph::Default, p, o, at);
         let partitions: Vec<&Part> = self.nodes.iter().map(|n| n.part).collect();
         let mut subjects = Vec::new();
         let _asked = Fanout::over(partitions).subjects(&query, &mut subjects)?;
@@ -718,7 +721,7 @@ impl PartitionWorkload {
             .into_iter()
             .map(|id| {
                 let holder = self.part_of(id)?;
-                let (iri, _) = holder.applier().quads().iri_of(NS, id)?;
+                let (iri, _) = holder.applier().quads().iri_of(TENANT, id)?;
                 iri.strip_prefix("http://ex.org/")
                     .map(ToString::to_string)
                     .context("a workload subject")
@@ -799,7 +802,7 @@ fn ex(name: &str) -> NamedNode {
 
 /// The bucket of `<name>`.
 fn bucket_of(name: &str) -> TestResult<ultragraphdb_core_ids::Bucket> {
-    iri_bucket(NS, ex(name).as_str()).context("a bucket")
+    iri_bucket(TENANT, ex(name).as_str()).context("a bucket")
 }
 
 /// The change of `edge`.
@@ -933,7 +936,7 @@ impl PageReader for TxnPages<'_, '_> {
     }
 }
 
-/// A namespace's forward lists at `version`, whole, read from `reader`: scans of `limit` rows, each in pages of `budget` objects,
+/// A tenant's forward lists at `version`, whole, read from `reader`: scans of `limit` rows, each in pages of `budget` objects,
 /// a page resuming as the one before ended.
 fn read_paged<R: PageReader>(
     mut reader: R,
@@ -944,7 +947,7 @@ fn read_paged<R: PageReader>(
     let (mut rows, mut from, mut after, mut left) =
         (Vec::<KernelRow>::new(), Vec::new(), None, limit);
     loop {
-        let scan = KernelScan::new(Keyspace::Forward, NS, from, version, left).resuming(after);
+        let scan = KernelScan::new(Keyspace::Forward, TENANT, from, version, left).resuming(after);
         let mut taken = 0;
         let sink = |key: &[u8], object: &EncodedTerm, statements: &[SystemId]| {
             if taken == budget {

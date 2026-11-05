@@ -15,14 +15,14 @@ use crate::types::graph::Graph;
 use crate::types::keyspace::Keyspace;
 use crate::types::region::Region;
 
-/// The namespace a deployment starts with.
-pub const ROOT_NAMESPACE: u64 = 0;
+/// The tenant a deployment starts with.
+pub const ROOT_TENANT: u64 = 0;
 
 /// The graph a statement belongs to when it names none.
 pub const DEFAULT_GRAPH: Graph = Graph::Default;
 
 /// A key of the quad layout, by its fields: what a key is built from and what parsing one returns. Every key is the
-/// keyspace byte, the namespace as a u64 big-endian, then the fields in the order a variant lists them. Every ID is a
+/// keyspace byte, the tenant as a u64 big-endian, then the fields in the order a variant lists them. Every ID is a
 /// 128-bit system ID written as its 16 big-endian bytes, so a predicate's forward keys sort by subject; the default
 /// graph is 16 zero bytes; an object is its encoding, which ends where its tag says; a mark's bucket group is 3
 /// big-endian bytes holding its 18 bits. No key carries a vector.
@@ -30,8 +30,8 @@ pub const DEFAULT_GRAPH: Graph = Graph::Default;
 pub enum QuadKey {
     /// A catalog entry's key.
     Catalog {
-        /// The namespace.
-        namespace: u64,
+        /// The tenant.
+        tenant: u64,
         /// The entry kind.
         kind: u8,
         /// The predicate's or type's ID.
@@ -39,8 +39,8 @@ pub enum QuadKey {
     },
     /// A key of a subject's objects of a predicate.
     Forward {
-        /// The namespace.
-        namespace: u64,
+        /// The tenant.
+        tenant: u64,
         /// The graph.
         graph: Graph,
         /// The predicate.
@@ -50,8 +50,8 @@ pub enum QuadKey {
     },
     /// A key of an object's subjects of a predicate; it ends with the object.
     Reverse {
-        /// The namespace.
-        namespace: u64,
+        /// The tenant.
+        tenant: u64,
         /// The graph.
         graph: Graph,
         /// The predicate.
@@ -61,8 +61,8 @@ pub enum QuadKey {
     },
     /// A key of the predicates a subject has.
     SubjectPredicates {
-        /// The namespace.
-        namespace: u64,
+        /// The tenant.
+        tenant: u64,
         /// The graph.
         graph: Graph,
         /// The subject.
@@ -70,8 +70,8 @@ pub enum QuadKey {
     },
     /// A key of the predicates that point at an object.
     ObjectPredicates {
-        /// The namespace.
-        namespace: u64,
+        /// The tenant.
+        tenant: u64,
         /// The graph.
         graph: Graph,
         /// The object's encoding.
@@ -79,8 +79,8 @@ pub enum QuadKey {
     },
     /// A token is raw bytes to the key's end, or to its split start.
     ValueIndex {
-        /// The namespace.
-        namespace: u64,
+        /// The tenant.
+        tenant: u64,
         /// The graph.
         graph: Graph,
         /// The predicate.
@@ -92,8 +92,8 @@ pub enum QuadKey {
     },
     /// A key of the subjects with a number of a predicate's objects.
     CountIndex {
-        /// The namespace.
-        namespace: u64,
+        /// The tenant.
+        tenant: u64,
         /// The graph.
         graph: Graph,
         /// The predicate.
@@ -105,8 +105,8 @@ pub enum QuadKey {
     },
     /// A key of a predicate's HNSW list.
     VectorIndex {
-        /// The namespace.
-        namespace: u64,
+        /// The tenant.
+        tenant: u64,
         /// The graph.
         graph: Graph,
         /// The predicate.
@@ -118,8 +118,8 @@ pub enum QuadKey {
     },
     /// A statement's record's key.
     Statement {
-        /// The namespace.
-        namespace: u64,
+        /// The tenant.
+        tenant: u64,
         /// The graph.
         graph: Graph,
         /// The statement ID.
@@ -127,8 +127,8 @@ pub enum QuadKey {
     },
     /// A key of a predicate's statistics in a graph.
     Statistics {
-        /// The namespace.
-        namespace: u64,
+        /// The tenant.
+        tenant: u64,
         /// The graph.
         graph: Graph,
         /// The predicate.
@@ -137,8 +137,8 @@ pub enum QuadKey {
     /// The key of a referring partition's registration mark of another partition's entity, for one bucket group of
     /// the referring subjects.
     Mark {
-        /// The namespace.
-        namespace: u64,
+        /// The tenant.
+        tenant: u64,
         /// The entity referred to.
         entity: SystemId,
         /// The bucket group of the referring subjects, the top 18 bits of their bucket, below 2^18.
@@ -146,22 +146,22 @@ pub enum QuadKey {
     },
     /// The key of an entity's referrer set, at its home.
     Referrers {
-        /// The namespace.
-        namespace: u64,
+        /// The tenant.
+        tenant: u64,
         /// The entity.
         entity: SystemId,
     },
     /// The key of a dictionary entry, in the keyspace without versions.
     Dictionary {
-        /// The namespace.
-        namespace: u64,
+        /// The tenant.
+        tenant: u64,
         /// The entry's kind and its 16 bytes.
         entry: DictionaryEntry,
     },
 }
 
-/// The length of a key's namespace.
-const NAMESPACE_LEN: usize = 8;
+/// The length of a key's tenant.
+const TENANT_LEN: usize = 8;
 /// The largest bucket group a mark key holds, 2^18 - 1.
 pub(crate) const GROUP_MAX: u32 = (1 << 18) - 1;
 
@@ -186,23 +186,23 @@ impl QuadKey {
         }
     }
 
-    /// The namespace.
+    /// The tenant.
     #[must_use]
-    pub fn namespace(&self) -> u64 {
+    pub fn tenant(&self) -> u64 {
         match self {
-            QuadKey::Catalog { namespace, .. }
-            | QuadKey::Forward { namespace, .. }
-            | QuadKey::Reverse { namespace, .. }
-            | QuadKey::SubjectPredicates { namespace, .. }
-            | QuadKey::ObjectPredicates { namespace, .. }
-            | QuadKey::ValueIndex { namespace, .. }
-            | QuadKey::CountIndex { namespace, .. }
-            | QuadKey::VectorIndex { namespace, .. }
-            | QuadKey::Statement { namespace, .. }
-            | QuadKey::Statistics { namespace, .. }
-            | QuadKey::Mark { namespace, .. }
-            | QuadKey::Referrers { namespace, .. }
-            | QuadKey::Dictionary { namespace, .. } => *namespace,
+            QuadKey::Catalog { tenant, .. }
+            | QuadKey::Forward { tenant, .. }
+            | QuadKey::Reverse { tenant, .. }
+            | QuadKey::SubjectPredicates { tenant, .. }
+            | QuadKey::ObjectPredicates { tenant, .. }
+            | QuadKey::ValueIndex { tenant, .. }
+            | QuadKey::CountIndex { tenant, .. }
+            | QuadKey::VectorIndex { tenant, .. }
+            | QuadKey::Statement { tenant, .. }
+            | QuadKey::Statistics { tenant, .. }
+            | QuadKey::Mark { tenant, .. }
+            | QuadKey::Referrers { tenant, .. }
+            | QuadKey::Dictionary { tenant, .. } => *tenant,
         }
     }
 
@@ -252,7 +252,7 @@ impl QuadKey {
     pub fn region(&self) -> Region {
         Region::new(
             self.keyspace(),
-            self.namespace(),
+            self.tenant(),
             self.graph(),
             self.predicate(),
         )
@@ -263,9 +263,9 @@ impl QuadKey {
     /// value, which is below 2^18 for every group.
     #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
-        let mut key = Vec::with_capacity(1 + NAMESPACE_LEN + 3 * SystemId::BYTES);
+        let mut key = Vec::with_capacity(1 + TENANT_LEN + 3 * SystemId::BYTES);
         key.push(self.keyspace().byte());
-        key.extend_from_slice(&self.namespace().to_be_bytes());
+        key.extend_from_slice(&self.tenant().to_be_bytes());
         // Every keyspace naming a graph and a predicate names them first, in that order.
         if let Some(graph) = self.graph() {
             key.extend_from_slice(&graph.to_be_bytes());
@@ -327,7 +327,7 @@ impl QuadKey {
     }
 }
 
-/// The prefix every key of `keyspace` in `namespace` begins with, narrowed to a graph when the keyspace's keys name
+/// The prefix every key of `keyspace` in `tenant` begins with, narrowed to a graph when the keyspace's keys name
 /// one and, when they name one too, a predicate: what a scan of a predicate's subjects or a drop of a graph reads. A
 /// split part's prefix sets the flag in the first byte. A graph or predicate the keyspace's keys do not name is left
 /// out.
@@ -335,13 +335,13 @@ impl QuadKey {
 pub fn key_prefix(
     keyspace: Keyspace,
     split: bool,
-    namespace: u64,
+    tenant: u64,
     graph: Option<Graph>,
     predicate: Option<SystemId>,
 ) -> Vec<u8> {
-    let mut prefix = Vec::with_capacity(1 + NAMESPACE_LEN + 2 * SystemId::BYTES);
+    let mut prefix = Vec::with_capacity(1 + TENANT_LEN + 2 * SystemId::BYTES);
     prefix.push(keyspace.byte() | if split { crate::SPLIT_FLAG } else { 0 });
-    prefix.extend_from_slice(&namespace.to_be_bytes());
+    prefix.extend_from_slice(&tenant.to_be_bytes());
     if let Some(graph) = graph.filter(|_| keyspace.has_graph()) {
         prefix.extend_from_slice(&graph.to_be_bytes());
         if let Some(predicate) = predicate.filter(|_| keyspace.has_predicate()) {
@@ -349,7 +349,7 @@ pub fn key_prefix(
         }
     }
     debug_assert!(
-        prefix.len() <= 1 + NAMESPACE_LEN + 2 * SystemId::BYTES,
+        prefix.len() <= 1 + TENANT_LEN + 2 * SystemId::BYTES,
         "a prefix is at most its three fields"
     );
     prefix

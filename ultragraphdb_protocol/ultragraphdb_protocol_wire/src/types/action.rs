@@ -25,7 +25,7 @@ pub enum Action {
     Drop,
     /// Administering roles, grants and group mappings, and at the cluster principals and issuers.
     Admin,
-    /// Cluster operations: namespaces, backup, restore, export.
+    /// Cluster operations: tenants, backup, restore, export.
     Operate,
 }
 

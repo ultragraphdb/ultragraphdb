@@ -41,37 +41,37 @@ where
     C: ListCache<Value = CachedList>,
     B: BlockSource,
 {
-    /// One pass of the vector indexer of `predicate` in `namespace`, as [`crate::ChangesetApplier::index_vectors`]
+    /// One pass of the vector indexer of `predicate` in `tenant`, as [`crate::ChangesetApplier::index_vectors`]
     /// runs it: under the apply lock, so no round is applied between its read at the watermark and its commit at the
     /// next version. A predicate whose vector index is being built is left to its build.
     pub fn index_vectors(
         &self,
-        namespace: u64,
+        tenant: u64,
         predicate: NamedNodeRef<'_>,
     ) -> Result<u64, ChangesetError> {
         let _apply = lock(&self.apply);
         let refused = || ChangesetError::no_vector_index(predicate.as_str());
         let uid = self
             .quads
-            .id_of(namespace, predicate.as_str())?
+            .id_of(tenant, predicate.as_str())?
             .ok_or_else(refused)?;
         let building = lock(&self.rebuild)
             .as_ref()
-            .is_some_and(|r| r.namespace == namespace && r.predicate == uid && r.plan.build_vector);
+            .is_some_and(|r| r.tenant == tenant && r.predicate == uid && r.plan.build_vector);
         if building {
-            return Ok(self.recorded(namespace, uid));
+            return Ok(self.recorded(tenant, uid));
         }
-        let catalog = self.catalog(namespace)?;
+        let catalog = self.catalog(tenant)?;
         let Some(spec) = catalog.predicate(uid).and_then(|d| d.vector_index()) else {
             // The queue of an index no longer declared goes with it.
-            let _removed: Option<VectorQueue> = lock(&self.vectors).remove(&(namespace, uid));
+            let _removed: Option<VectorQueue> = lock(&self.vectors).remove(&(tenant, uid));
             return Err(refused());
         };
         let lists = self.quads.lists();
         let watermark = lists.applied_ts();
         let pending = {
             let mut queues = lock(&self.vectors);
-            let queue = queues.entry((namespace, uid)).or_default();
+            let queue = queues.entry((tenant, uid)).or_default();
             std::mem::take(&mut queue.pending)
         };
         if !pending.is_empty() {
@@ -82,7 +82,7 @@ where
                 if !seen.insert((graph, node)) {
                     continue;
                 }
-                let keys = VectorKeys::new(predicate.as_str(), namespace, graph, uid);
+                let keys = VectorKeys::new(predicate.as_str(), tenant, graph, uid);
                 if graphs.insert(graph) {
                     self.hand_over_entry(&mut request, &keys)?;
                 }
@@ -91,7 +91,7 @@ where
                         unmark_dead(&mut request, &keys, node)?;
                         let index = hnsw(spec, keys)?;
                         let txn = ViTxn::new(&mut request);
-                        let mut levels = LevelDraw::of_node(self.seed, namespace, uid, node);
+                        let mut levels = LevelDraw::of_node(self.seed, tenant, uid, node);
                         let _inserted: Vec<KeyValue> =
                             VectorIndex::insert(&index, &txn, node, &vector, &mut || {
                                 levels.next_f64()
@@ -105,23 +105,23 @@ where
             let _committed: Vec<u64> = lists.commit(batch)?;
         }
         lock(&self.vectors)
-            .entry((namespace, uid))
+            .entry((tenant, uid))
             .or_default()
             .indexed = watermark;
         Ok(watermark)
     }
 
-    /// The version the vector indexer of `predicate` in `namespace` has indexed through, as
+    /// The version the vector indexer of `predicate` in `tenant` has indexed through, as
     /// [`crate::ChangesetApplier::indexed_version`] reads it.
     pub fn indexed_version(
         &self,
-        namespace: u64,
+        tenant: u64,
         predicate: NamedNodeRef<'_>,
     ) -> Result<u64, ChangesetError> {
         Ok(self
             .quads
-            .id_of(namespace, predicate.as_str())?
-            .map_or(0, |uid| self.recorded(namespace, uid)))
+            .id_of(tenant, predicate.as_str())?
+            .map_or(0, |uid| self.recorded(tenant, uid)))
     }
 
     /// Names the first node in key order the index at `keys` holds whose vector `request` sees the entry point, when the
@@ -163,16 +163,16 @@ where
     }
 
     /// The version the indexer of predicate `uid` recorded.
-    fn recorded(&self, namespace: u64, uid: SystemId) -> u64 {
+    fn recorded(&self, tenant: u64, uid: SystemId) -> u64 {
         lock(&self.vectors)
-            .get(&(namespace, uid))
+            .get(&(tenant, uid))
             .map_or(0, |q| q.indexed)
     }
 
     /// The search of `predicate`'s vector index in `graph`, as [`crate::ChangesetApplier::search_vectors`] runs it.
     pub fn search_vectors(
         &self,
-        namespace: u64,
+        tenant: u64,
         graph: GraphNameRef<'_>,
         predicate: NamedNodeRef<'_>,
         query: VectorQuery<'_>,
@@ -181,24 +181,22 @@ where
         let refused = || ChangesetError::no_vector_index(predicate.as_str());
         let uid = self
             .quads
-            .id_of(namespace, predicate.as_str())?
+            .id_of(tenant, predicate.as_str())?
             .ok_or_else(refused)?;
-        let catalog = self.catalog(namespace)?;
+        let catalog = self.catalog(tenant)?;
         let spec = catalog
             .predicate(uid)
             .and_then(|d| d.vector_index())
             .ok_or_else(refused)?;
         let graph = match graph {
             GraphNameRef::DefaultGraph => Some(DEFAULT_GRAPH),
-            GraphNameRef::NamedNode(n) => {
-                self.quads.id_of(namespace, n.as_str())?.map(Graph::Named)
-            }
+            GraphNameRef::NamedNode(n) => self.quads.id_of(tenant, n.as_str())?.map(Graph::Named),
             GraphNameRef::BlankNode(_) => None,
         };
         let Some(graph) = graph else {
             return Ok(Vec::new());
         };
-        let keys = VectorKeys::new(predicate.as_str(), namespace, graph, uid);
+        let keys = VectorKeys::new(predicate.as_str(), tenant, graph, uid);
         let index = hnsw(spec, keys.clone())?;
         let mut request = self.quads.lists().request(read_ts);
         let txn = ViTxn::new(&mut request);

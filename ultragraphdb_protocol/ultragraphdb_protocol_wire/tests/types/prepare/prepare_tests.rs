@@ -55,7 +55,7 @@ fn test_prepare_and_its_reply_build_the_golden_frames() -> TestResult {
         golden("prepare_reply")?.bytes()?
     );
     assert_eq!(
-        (reply.namespace(), reply.statement(), reply.schema()),
+        (reply.tenant(), reply.statement(), reply.schema()),
         (0, 1, 0x5C4E_3A2B_1D0F_7E6A)
     );
     assert_eq!(reply.terms(), &terms);

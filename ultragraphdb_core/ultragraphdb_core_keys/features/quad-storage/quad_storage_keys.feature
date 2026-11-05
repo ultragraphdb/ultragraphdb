@@ -14,6 +14,6 @@ Feature: The order and regions of quad keys
     When the forward keys of `knows` for `a` and for `c` in the default graph are mapped to regions
     Then both map to the same region, and the forward key of `name` for `a` maps to another
 
-  Scenario: Referrer keys share their namespace's region
-    When the referrer keys of two entities of namespace 7 are mapped to regions
-    Then both map to the referrers region of namespace 7, and a referrer key of namespace 8 maps to another
+  Scenario: Referrer keys share their tenant's region
+    When the referrer keys of two entities of tenant 7 are mapped to regions
+    Then both map to the referrers region of tenant 7, and a referrer key of tenant 8 maps to another

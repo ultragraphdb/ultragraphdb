@@ -15,7 +15,7 @@ use ultragraphdb_store_apply::ChangesetErrorEnum;
 use ultragraphdb_store_quads::{KernelRow, KernelScan, PageEnd, QuadErrorEnum};
 
 use crate::utils::changesets::{
-    NS, TestChangesets, changeset, changesets, delete, ex, insert, uid,
+    TENANT, TestChangesets, changeset, changesets, delete, ex, insert, uid,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -54,8 +54,8 @@ fn commit(applier: &TestChangesets, text: &str) -> TestResult<u64> {
 fn test_an_execution_reads_its_own_writes_over_its_snapshot() -> TestResult {
     let applier = changesets()?;
     let at = commit(&applier, "<a> <knows> <z>")?;
-    let mut execution = applier.begin(NS, at).context("begun")?;
-    assert_eq!((execution.namespace(), execution.read_ts()), (NS, at));
+    let mut execution = applier.begin(TENANT, at).context("begun")?;
+    assert_eq!((execution.tenant(), execution.read_ts()), (TENANT, at));
     execution.apply(&changeset(vec![insert("<a> <knows> <b>")?]))?;
     execution.apply(&changeset(vec![insert("<n> <knows> <a>")?]))?;
     assert_eq!(
@@ -69,7 +69,7 @@ fn test_an_execution_reads_its_own_writes_over_its_snapshot() -> TestResult {
     );
     let executed = execution.finish()?;
     let forward = QuadKey::Forward {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         predicate: uid(&applier, "knows")?,
         subject: uid(&applier, "a")?,
@@ -88,7 +88,7 @@ fn test_an_execution_at_an_earlier_version_reads_that_snapshot() -> TestResult {
     let applier = changesets()?;
     let first = commit(&applier, "<a> <knows> <b>")?;
     let _commit: u64 = commit(&applier, "<a> <knows> <c>")?;
-    let mut execution = applier.begin(NS, first).context("begun")?;
+    let mut execution = applier.begin(TENANT, first).context("begun")?;
     assert_eq!(
         read(&mut execution, "a", "knows")?,
         vec![Term::from(ex("b"))]
@@ -101,7 +101,7 @@ fn test_a_read_of_an_unknown_subject_and_predicate_records_the_subject_absent() 
     // Neither term exists: the subject is looked up first, so its absence is what a later creation of it conflicts on.
     let applier = changesets()?;
     let at = commit(&applier, "<a> <knows> <b>")?;
-    let mut execution = applier.begin(NS, at).context("begun")?;
+    let mut execution = applier.begin(TENANT, at).context("begun")?;
     assert!(read(&mut execution, "ghost", "phantom")?.is_empty());
     let executed = execution.finish()?;
     assert!(
@@ -117,7 +117,7 @@ fn test_a_read_of_an_unknown_subject_and_predicate_records_the_subject_absent() 
 fn test_a_read_of_unknown_terms_holds_nothing_and_records_them_absent() -> TestResult {
     let applier = changesets()?;
     let at = commit(&applier, "<a> <knows> <b>")?;
-    let mut execution = applier.begin(NS, at).context("begun")?;
+    let mut execution = applier.begin(TENANT, at).context("begun")?;
     assert!(read(&mut execution, "nobody", "knows")?.is_empty());
     assert!(read(&mut execution, "a", "never")?.is_empty());
     let mut out = vec![Term::from(ex("stale"))];
@@ -155,7 +155,7 @@ fn taken(
 /// The ID a writer of `<new>` is given now, its execution released at once: the ID another write holds, or a new one.
 fn id_now(applier: &TestChangesets) -> TestResult<ultragraphdb_core_ids::SystemId> {
     let at = applier.quads().lists().applied_ts();
-    let mut writer = applier.begin(NS, at).context("begun")?;
+    let mut writer = applier.begin(TENANT, at).context("begun")?;
     writer.apply(&changeset(vec![insert("<new> <knows> <a>")?]))?;
     let executed = writer.finish()?;
     let id = taken(&executed, "new")?;
@@ -167,7 +167,7 @@ fn id_now(applier: &TestChangesets) -> TestResult<ultragraphdb_core_ids::SystemI
 fn test_an_open_execution_released_lets_go_of_what_it_created_without_finishing() -> TestResult {
     let applier = changesets()?;
     let at = commit(&applier, "<a> <knows> <b>")?;
-    let mut execution = applier.begin(NS, at).context("begun")?;
+    let mut execution = applier.begin(TENANT, at).context("begun")?;
     execution.apply(&changeset(vec![insert("<new> <knows> <b>")?]))?;
     // While the execution is open, every writer of `<new>` takes the ID it created.
     let created = id_now(&applier)?;
@@ -181,7 +181,7 @@ fn test_an_open_execution_released_lets_go_of_what_it_created_without_finishing(
     assert_eq!(
         applier
             .quads()
-            .id_of(NS, ex("new").as_str())
+            .id_of(TENANT, ex("new").as_str())
             .context("the dictionary reads")?,
         None,
         "nothing is written"
@@ -194,7 +194,7 @@ fn test_an_open_execution_released_lets_go_of_what_it_created_without_finishing(
 fn test_a_finish_the_store_fails_releases_what_the_execution_created() -> TestResult {
     let applier = changesets()?;
     let at = commit(&applier, "<a> <knows> <b>")?;
-    let mut execution = applier.begin(NS, at).context("begun")?;
+    let mut execution = applier.begin(TENANT, at).context("begun")?;
     execution.apply(&changeset(vec![insert("<new> <knows> <b>")?]))?;
     let created = id_now(&applier)?;
     assert_eq!(id_now(&applier)?, created, "the open execution holds it");
@@ -226,7 +226,7 @@ fn test_a_finish_the_store_fails_releases_what_the_execution_created() -> TestRe
     assert_eq!(
         applier
             .quads()
-            .id_of(NS, ex("new").as_str())
+            .id_of(TENANT, ex("new").as_str())
             .context("the dictionary reads")?,
         None,
         "nothing is written"
@@ -234,16 +234,16 @@ fn test_a_finish_the_store_fails_releases_what_the_execution_created() -> TestRe
     Ok(())
 }
 
-/// An execution prints its namespace and snapshot, and nothing of the writes it holds.
+/// An execution prints its tenant and snapshot, and nothing of the writes it holds.
 #[test]
-fn test_an_execution_prints_its_namespace_and_snapshot() -> TestResult {
+fn test_an_execution_prints_its_tenant_and_snapshot() -> TestResult {
     let applier = changesets()?;
     let at = commit(&applier, "<a> <knows> <b>")?;
-    let mut execution = applier.begin(NS, at).context("begun")?;
+    let mut execution = applier.begin(TENANT, at).context("begun")?;
     execution.apply(&changeset(vec![insert("<new> <knows> <b>")?]))?;
     assert_eq!(
         format!("{execution:?}"),
-        format!("Execution {{ namespace: {NS}, read_ts: {at}, .. }}")
+        format!("Execution {{ tenant: {TENANT}, read_ts: {at}, .. }}")
     );
     Ok(())
 }
@@ -268,7 +268,7 @@ fn test_an_execution_gives_the_subjects_its_reifiers_resolved_to() -> TestResult
             .first()
             .and_then(|(_, ids)| ids.first().copied())
             .context("a statement ID")?;
-        Ok(NamedNode::new(applier.quads().iri_of(NS, id)?.0)?)
+        Ok(NamedNode::new(applier.quads().iri_of(TENANT, id)?.0)?)
     };
     let by_reifier = |subject: &str| -> TestResult<StatementRef> {
         Ok(StatementRef::Reifier {
@@ -277,7 +277,7 @@ fn test_an_execution_gives_the_subjects_its_reifiers_resolved_to() -> TestResult
         })
     };
     let at = applier.quads().lists().applied_ts();
-    let mut execution = applier.begin(NS, at).context("begun")?;
+    let mut execution = applier.begin(TENANT, at).context("begun")?;
     assert!(execution.reified_subjects().is_empty());
     execution.apply(&changeset(vec![
         Change::SetProperty {
@@ -351,7 +351,7 @@ fn committed(applier: &TestChangesets) -> TestResult {
 /// it holds.
 fn overlaid(applier: &TestChangesets) -> TestResult<TestExecution<'_>> {
     let at = applier.quads().lists().applied_ts();
-    let mut execution = applier.begin(NS, at).context("begun")?;
+    let mut execution = applier.begin(TENANT, at).context("begun")?;
     execution.apply(&changeset(vec![
         insert("<a> <knows> <b>")?,
         insert("<new> <knows> <a>")?,
@@ -362,11 +362,11 @@ fn overlaid(applier: &TestChangesets) -> TestResult<TestExecution<'_>> {
     Ok(execution)
 }
 
-/// The forward lists of the namespace as `execution` sees them, whole.
+/// The forward lists of the tenant as `execution` sees them, whole.
 fn forward(version: u64) -> TestResult<KernelScan> {
     Ok(KernelScan::new(
         Keyspace::Forward,
-        NS,
+        TENANT,
         Vec::new(),
         version,
         NonZeroUsize::MAX,
@@ -386,8 +386,8 @@ fn paged(
     let (mut rows, mut from, mut after, mut left) =
         (Vec::<KernelRow>::new(), start.clone(), None, limit);
     loop {
-        let this = KernelScan::new(scan.keyspace(), NS, from.clone(), scan.version(), left)
-            .to(end.clone().context("a namespace's keyspace ends")?)
+        let this = KernelScan::new(scan.keyspace(), TENANT, from.clone(), scan.version(), left)
+            .to(end.clone().context("a tenant's keyspace ends")?)
             .resuming(after.take());
         let mut taken = 0;
         let page = execution.page(&this, |key, object, statements| {
@@ -455,7 +455,7 @@ fn test_an_execution_s_pages_concatenate_to_its_scan_and_hold_one_range() -> Tes
         rows
     };
     let gone = QuadKey::Forward {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         predicate: uid(&applier, "knows")?,
         subject: uid(&applier, "gone")?,
@@ -485,9 +485,9 @@ fn test_an_execution_s_pages_concatenate_to_its_scan_and_hold_one_range() -> Tes
 fn test_a_page_of_an_empty_range_covers_it_through_its_past_key() -> TestResult {
     let applier = changesets()?;
     let at = commit(&applier, "<a> <knows> <b>")?;
-    let mut execution = applier.begin(NS, at).context("begun")?;
+    let mut execution = applier.begin(TENANT, at).context("begun")?;
     let start = QuadKey::Forward {
-        namespace: NS + 1,
+        tenant: TENANT + 1,
         graph: DEFAULT_GRAPH,
         predicate: uid(&applier, "knows")?,
         subject: uid(&applier, "a")?,
@@ -496,7 +496,7 @@ fn test_a_page_of_an_empty_range_covers_it_through_its_past_key() -> TestResult 
     let past = [start.as_slice(), &[0]].concat();
     let scan = KernelScan::new(
         Keyspace::Forward,
-        NS + 1,
+        TENANT + 1,
         start.clone(),
         at,
         NonZeroUsize::MIN,
@@ -513,7 +513,7 @@ fn test_a_page_of_an_empty_range_covers_it_through_its_past_key() -> TestResult 
 fn test_a_page_whose_sink_took_nothing_records_nothing() -> TestResult {
     let applier = changesets()?;
     let at = commit(&applier, "<a> <knows> <b>")?;
-    let mut execution = applier.begin(NS, at).context("begun")?;
+    let mut execution = applier.begin(TENANT, at).context("begun")?;
     let page = execution.page(&forward(at)?, |_, _, _| ControlFlow::Break(()))?;
     assert!(
         matches!(page.end(), PageEnd::Paused { last: None, .. }),
@@ -528,8 +528,8 @@ fn test_a_page_whose_sink_took_nothing_records_nothing() -> TestResult {
 fn test_a_page_of_a_keyspace_holding_no_lists_is_refused_recording_nothing() -> TestResult {
     let applier = changesets()?;
     let at = commit(&applier, "<a> <knows> <b>")?;
-    let mut execution = applier.begin(NS, at).context("begun")?;
-    let scan = KernelScan::new(Keyspace::Marks, NS, Vec::new(), at, NonZeroUsize::MIN);
+    let mut execution = applier.begin(TENANT, at).context("begun")?;
+    let scan = KernelScan::new(Keyspace::Marks, TENANT, Vec::new(), at, NonZeroUsize::MIN);
     let refused = execution
         .page(&scan, |_, _, _| ControlFlow::Continue(()))
         .err()

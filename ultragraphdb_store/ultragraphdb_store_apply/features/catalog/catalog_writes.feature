@@ -4,7 +4,7 @@
 #
 
 Feature: The catalog's write checks
-  A write is checked against its namespace's catalog: object kinds, datatype constraints and unique values refuse the
+  A write is checked against its tenant's catalog: object kinds, datatype constraints and unique values refuse the
   changeset whole; a single-valued predicate's write replaces the subject's object; the indexes declared are kept. The
   catalog's own scenarios run in ultragraphdb_core_catalog's features.
 

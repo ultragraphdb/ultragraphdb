@@ -166,19 +166,19 @@ impl FrameTerms {
 /// [`ultragraphdb_core_mapping::Changeset`] takes these too, so the two give one record.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FrameChanges<'a> {
-    namespace: u64,
+    tenant: u64,
     changes: Vec<ChangeRef<'a>>,
 }
 
 impl<'a> FrameChanges<'a> {
-    /// The changes of `write`, in the transaction's `namespace`, over `terms`, what [`FrameTerms::of`] made of its table.
+    /// The changes of `write`, in the transaction's `tenant`, over `terms`, what [`FrameTerms::of`] made of its table.
     ///
     /// # Errors
     ///
     /// [`ProtocolError::field_value`] naming a term of the wrong kind for its place, or a declaration, which commits as
     /// a catalog version of the metadata group and never reaches a partition (`PROTOCOL.md` §7.2).
     pub fn new(
-        namespace: u64,
+        tenant: u64,
         write: &WriteView<'a>,
         terms: &'a FrameTerms,
     ) -> Result<Self, ProtocolError> {
@@ -194,13 +194,13 @@ impl<'a> FrameChanges<'a> {
                 reader.change(change)
             })
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(Self { namespace, changes })
+        Ok(Self { tenant, changes })
     }
 }
 
 impl Changes for FrameChanges<'_> {
-    fn namespace(&self) -> u64 {
-        self.namespace
+    fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     fn changes(&self) -> impl Iterator<Item = ChangeRef<'_>> {

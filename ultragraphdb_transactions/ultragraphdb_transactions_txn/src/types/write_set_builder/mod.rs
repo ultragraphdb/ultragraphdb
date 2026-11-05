@@ -29,7 +29,7 @@ use crate::types::txn_limits::TxnLimits;
 /// | 0 | each statement a forward list's delta sets: the quad, graph, subject, predicate and object encoding, once per statement ID its posting carries, or once with none |
 /// | 1 | each statement a forward list's delta removes, as section 0: a delete by pattern as the statements it resolved to |
 /// | 2 | each statement record written, by its graph and statement ID, a removal for a record deleted |
-/// | 3 | the record's operation: a drop of a predicate or a graph by its system ID, of a namespace's data, a namespace or everything; a build's end |
+/// | 3 | the record's operation: a drop of a predicate or a graph by its system ID, of a tenant's data, a tenant or everything; a build's end |
 /// | 4 | each registration the transaction relied on as a referrer ([`Executed::marks`]): the entity, the subject bucket group and the generation its home's reply named |
 /// | 5 | the commit record the client attached, unchanged |
 /// | 6 | conflict points: the key of every write but the lists named object by object, a predicate's implicit default catalog entry and the dictionary's entries, which conflict with nothing |
@@ -74,7 +74,7 @@ impl<'e> WriteSetBuilder<'e> {
         Self { principal, ..self }
     }
 
-    /// The builder writing `catalog`, the catalog version of the namespace the transaction executed against; 0 by
+    /// The builder writing `catalog`, the catalog version of the tenant the transaction executed against; 0 by
     /// default.
     pub fn with_catalog(self, catalog: u64) -> Self {
         Self { catalog, ..self }
@@ -96,7 +96,7 @@ impl<'e> WriteSetBuilder<'e> {
     /// corruption the execution cannot have written.
     pub fn build(&self) -> Result<WriteSetRecord, TxnError> {
         let executed = self.executed;
-        let namespace = executed.namespace();
+        let tenant = executed.tenant();
         let mut record = match (executed.build_end(), executed.catalog_version()) {
             // A build's completion names the catalog version that started it, the one in effect while it ran (a later
             // version waits for the build), and how it ended, so replay ends it the same way (`PROTOCOL.md` §12.2).
@@ -106,7 +106,7 @@ impl<'e> WriteSetBuilder<'e> {
                     BuildEnd::Undo(_) => BuildOutcome::Undo,
                 };
                 WriteSetRecord::build(
-                    namespace,
+                    tenant,
                     RecordOperation::CompleteBuild {
                         version: self.catalog,
                         outcome,
@@ -116,7 +116,7 @@ impl<'e> WriteSetBuilder<'e> {
             // A catalog version taking effect names the version, its builds derived from it on replay.
             (None, Some(version)) => {
                 let mut start =
-                    WriteSetRecord::build(namespace, RecordOperation::CatalogTakesEffect(version));
+                    WriteSetRecord::build(tenant, RecordOperation::CatalogTakesEffect(version));
                 start.set_catalog(version);
                 return Ok(start);
             }
@@ -216,7 +216,7 @@ impl WriteSetBuilder<'_> {
     /// The kind-1 record's fixed part and its operation: a transaction's, or a Drop's, its read version 0.
     fn transaction_record(&self) -> Result<WriteSetRecord, TxnError> {
         let executed = self.executed;
-        let mut record = WriteSetRecord::transaction(executed.namespace());
+        let mut record = WriteSetRecord::transaction(executed.tenant());
         record.set_catalog(self.catalog);
         record.set_session(self.session.to_be_bytes(), self.request);
         record.set_principal(self.principal);
@@ -313,8 +313,8 @@ fn drop_operation(target: DropTarget) -> Result<RecordOperation, TxnError> {
             )
             .into(),
         )),
-        DropTarget::Data => Ok(RecordOperation::DropNamespaceData),
-        DropTarget::Namespace => Ok(RecordOperation::DropNamespace),
+        DropTarget::Data => Ok(RecordOperation::DropTenantData),
+        DropTarget::Tenant => Ok(RecordOperation::DropTenant),
         DropTarget::All => Ok(RecordOperation::DropAll),
     }
 }

@@ -17,7 +17,7 @@ use std::mem;
 use std::sync::{Arc, Mutex};
 
 use ultragraphdb_error_store::StoreError;
-use ultragraphdb_traits_store::{Entry, RebuildRecord, WriteBatch, key_namespace};
+use ultragraphdb_traits_store::{Entry, RebuildRecord, WriteBatch, key_tenant};
 
 use crate::types::contents::Contents;
 use crate::types::corruption::Corruption;
@@ -306,7 +306,7 @@ impl Inner {
         }
     }
 
-    /// The batch record of `batch`, its entries addressed to a banned namespace dropped; no ban drops its versionless
+    /// The batch record of `batch`, its entries addressed to a banned tenant dropped; no ban drops its versionless
     /// writes.
     pub fn batch_record(&self, batch: &WriteBatch) -> Record {
         Record::Batch {
@@ -318,12 +318,12 @@ impl Inner {
         }
     }
 
-    /// `entries` without those addressed to a banned namespace.
+    /// `entries` without those addressed to a banned tenant.
     fn admitted(&self, entries: &[Entry]) -> Vec<Entry> {
         let banned = &self.current.banned;
         entries
             .iter()
-            .filter(|e| key_namespace(e.key()).is_none_or(|ns| !banned.contains(&ns)))
+            .filter(|e| key_tenant(e.key()).is_none_or(|tenant| !banned.contains(&tenant)))
             .cloned()
             .collect()
     }

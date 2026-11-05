@@ -4,7 +4,7 @@
  */
 
 use oxrdf::Term;
-use ultragraphdb_core_ids::{Bucket, Namespace, Version};
+use ultragraphdb_core_ids::{Bucket, Tenant, Version};
 use ultragraphdb_core_terms::{EncodedTerm, TermError};
 use ultragraphdb_protocol_wire::OperationResult;
 use ultragraphdb_store_apply::{ChangesetError, ChangesetErrorEnum, Operation};
@@ -97,7 +97,7 @@ fn refusal(error: TxnError) -> CommitError {
         | TxnErrorEnum::WriteSetTooLarge { .. }
         | TxnErrorEnum::ReadSetTooLarge { .. }
         | TxnErrorEnum::ReadOnly
-        | TxnErrorEnum::Namespace { .. }
+        | TxnErrorEnum::Tenant { .. }
         | TxnErrorEnum::Ended
         | TxnErrorEnum::Changeset(_)
         | TxnErrorEnum::Declaration => CommitError::refused(error.to_string()),
@@ -122,7 +122,7 @@ where
         };
         let epoch = Version::from_u64(proposal.read_version()).epoch();
         for operation in proposal.operations() {
-            if let Some(bucket) = self.claim_bucket(proposal.namespace(), operation)? {
+            if let Some(bucket) = self.claim_bucket(proposal.tenant(), operation)? {
                 let owner = placement.partition_of(bucket, epoch);
                 if owner != partition {
                     return Err(CommitError::cross_partition(partition.get(), owner.get()));
@@ -136,7 +136,7 @@ where
     /// the dictionary does not hold, which no unique value of the store names.
     fn claim_bucket(
         &self,
-        namespace: u64,
+        tenant: u64,
         operation: &Operation,
     ) -> Result<Option<Bucket>, CommitError> {
         let (Operation::InsertIfAbsent {
@@ -151,7 +151,7 @@ where
         let quads = self.applier.quads();
         let held = |iri: &str| {
             quads
-                .id_of(namespace, iri)
+                .id_of(tenant, iri)
                 .map_err(|e| CommitError::refused(e.to_string()))
         };
         let Some(predicate) = held(predicate.as_str())? else {
@@ -175,6 +175,6 @@ where
             }
             Term::BlankNode(_) | Term::Triple(_) => None,
         };
-        Ok(encoded.map(|e| Bucket::of_value(Namespace::new(namespace), predicate, e.as_bytes())))
+        Ok(encoded.map(|e| Bucket::of_value(Tenant::new(tenant), predicate, e.as_bytes())))
     }
 }

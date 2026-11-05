@@ -32,9 +32,9 @@ use crate::types::record_writes::RecordWrites;
 use crate::types::vector_query::VectorQuery;
 
 /// Applies changesets to the quads of one store: each changeset executed against the snapshot at the watermark in a
-/// request of its own, checked against its namespace's catalog, its statements written to the quad lists with their
+/// request of its own, checked against its tenant's catalog, its statements written to the quad lists with their
 /// index, count and statistics entries, and committed whole or not at all, in a round at the version the commit step
-/// gives it. Executions run beside each other; rounds, drops and the swaps of index builds are serialised by one lock. A namespace's catalog is loaded on first use; a namespace with none is given its initial catalog by
+/// gives it. Executions run beside each other; rounds, drops and the swaps of index builds are serialised by one lock. A tenant's catalog is loaded on first use; a tenant with none is given its initial catalog by
 /// its first write.
 ///
 /// A declaration adding an index to a predicate holding data builds it on `executor`, in the background: the catalog
@@ -87,21 +87,21 @@ where
         &self.executor
     }
 
-    /// The catalog of `namespace` as the last commit left it: what queries read, the interim declaration of a
+    /// The catalog of `tenant` as the last commit left it: what queries read, the interim declaration of a
     /// predicate whose index is being built included.
-    pub fn catalog(&self, namespace: u64) -> Result<Arc<Catalog>, ChangesetError> {
-        self.core.catalog(namespace)
+    pub fn catalog(&self, tenant: u64) -> Result<Arc<Catalog>, ChangesetError> {
+        self.core.catalog(tenant)
     }
 
-    /// Forgets every catalog held in memory: each namespace then holds an empty catalog until a version is loaded or
+    /// Forgets every catalog held in memory: each tenant then holds an empty catalog until a version is loaded or
     /// its next write gives it the initial one.
     pub fn forget_catalogs(&self) {
         self.core.forget_catalogs();
     }
 
-    /// Installs `contents`, a catalog version the metadata group holds, as its namespace's catalog, as a partition
+    /// Installs `contents`, a catalog version the metadata group holds, as its tenant's catalog, as a partition
     /// loads the version in effect at its store's applied epoch before it replays: the store already reflects the
-    /// version, so nothing is checked against the data, built or written. The namespace's initial catalog is kept
+    /// version, so nothing is checked against the data, built or written. The tenant's initial catalog is kept
     /// beneath it, `rdf:type` an edge when it has an ID; each declaration's IRI is looked up in the dictionary.
     ///
     /// # Errors
@@ -159,7 +159,7 @@ where
         Ok(())
     }
 
-    /// The default-entry records of `namespace` a partition sends when it starts, once its catalog is loaded and its log
+    /// The default-entry records of `tenant` a partition sends when it starts, once its catalog is loaded and its log
     /// replayed: one for every predicate the store holds statements of that the catalog version in effect does not
     /// declare. The metadata group finds a record that exists, so sending every one again is harmless, and a record
     /// whose command a crash left unsent, at any point, is sent.
@@ -167,8 +167,8 @@ where
     /// # Errors
     ///
     /// The store's error, and a predicate's ID without its dictionary entry.
-    pub fn reconcile_defaults(&self, namespace: u64) -> Result<Vec<DefaultEntry>, ChangesetError> {
-        self.core.reconcile_defaults(namespace)
+    pub fn reconcile_defaults(&self, tenant: u64) -> Result<Vec<DefaultEntry>, ChangesetError> {
+        self.core.reconcile_defaults(tenant)
     }
 
     /// The default-entry records the rounds applied since the last call ask the metadata group for: one per predicate
@@ -203,7 +203,7 @@ where
         self.core.take_build_end()
     }
 
-    /// The execution writing a logged record's writes, `record`, in `namespace`, for recovery to apply at the record's
+    /// The execution writing a logged record's writes, `record`, in `tenant`, for recovery to apply at the record's
     /// commit version (7.9): at the watermark, reading nothing, each entry with the metadata its keyspace gives it, so
     /// the round writes what the record's first apply wrote.
     ///
@@ -212,13 +212,13 @@ where
     /// The store's error, and a list delta that is no posting list.
     pub fn prepare_replay(
         &self,
-        namespace: u64,
+        tenant: u64,
         record: RecordWrites<'_>,
     ) -> Result<Executed, ChangesetError> {
-        self.core.prepare_replay(namespace, record)
+        self.core.prepare_replay(tenant, record)
     }
 
-    /// The execution deriving `writes`, a logged transaction's statements in their logical form, in `namespace`, for
+    /// The execution deriving `writes`, a logged transaction's statements in their logical form, in `tenant`, for
     /// recovery to apply at the record's commit version (write-ahead-log, "A round's record is logical"): at the
     /// watermark, each removed statement removed and each inserted one added with its statement IDs as the first apply
     /// did, every list, index, count and statistics entry derived through the same maintenance, and each statement record
@@ -229,25 +229,25 @@ where
     /// The store's error, its corruption error for a statement naming an ID the dictionary does not hold.
     pub fn prepare_logical(
         &self,
-        namespace: u64,
+        tenant: u64,
         writes: &crate::types::logical_writes::LogicalWrites,
         dictionary: &[&VersionlessEntry],
     ) -> Result<Executed, ChangesetError> {
-        self.core.prepare_logical(namespace, writes, dictionary)
+        self.core.prepare_logical(tenant, writes, dictionary)
     }
 
-    /// The drop of `target` in `namespace`, a logged record's operation, for recovery to apply at the record's commit
+    /// The drop of `target` in `tenant`, a logged record's operation, for recovery to apply at the record's commit
     /// version (7.9).
     ///
     /// # Errors
     ///
-    /// The store's error loading the namespace's catalog.
+    /// The store's error loading the tenant's catalog.
     pub fn prepare_replayed_drop(
         &self,
-        namespace: u64,
+        tenant: u64,
         target: DropTarget,
     ) -> Result<Executed, ChangesetError> {
-        self.core.prepare_replayed_drop(namespace, target)
+        self.core.prepare_replayed_drop(tenant, target)
     }
 
     /// The proposal of `end` for the commit step: an execution at the watermark that writes nothing itself, whose
@@ -255,7 +255,7 @@ where
     ///
     /// # Errors
     ///
-    /// The store's error loading the build's namespace's catalog.
+    /// The store's error loading the build's tenant's catalog.
     pub fn prepare_build_end(&self, end: BuildEnd) -> Result<Executed, ChangesetError> {
         self.core.prepare_build_end(end)
     }
@@ -298,20 +298,20 @@ where
         self.core.quads().release(execution.terms());
     }
 
-    /// Begins an execution in `namespace` reading at `read_ts`, held open across a transaction's requests: the build
+    /// Begins an execution in `tenant` reading at `read_ts`, held open across a transaction's requests: the build
     /// running now and the catalog the last applied round left, as [`ChangesetApplier::execute`] reads them. A
     /// `read_ts` above the watermark makes its reads wait at the read gate until the watermark reaches it, so a caller
     /// refuses one first.
     ///
     /// # Errors
     ///
-    /// The store's error loading the namespace's catalog.
+    /// The store's error loading the tenant's catalog.
     pub fn begin(
         &self,
-        namespace: u64,
+        tenant: u64,
         read_ts: u64,
     ) -> Result<Execution<'_, S, C, B>, ChangesetError> {
-        self.core.begin_execution(namespace, read_ts)
+        self.core.begin_execution(tenant, read_ts)
     }
 
     /// Writes `round`, the admitted executions of one round with their commit versions, in round order, as one store
@@ -387,7 +387,7 @@ where
         Ok(applied)
     }
 
-    /// One pass of the vector indexer of `predicate` in `namespace`: every vector the rounds applied since its last pass
+    /// One pass of the vector indexer of `predicate` in `tenant`: every vector the rounds applied since its last pass
     /// wrote or removed, in commit order, inserted into the predicate's HNSW lists of its graph, or its node marked
     /// dead, each node's vector read at the watermark, and the lists written at the next version, nothing committing
     /// between the two. Transactions write vectors in their forward lists alone; the indexer is what writes the HNSW
@@ -398,13 +398,13 @@ where
     /// [`ChangesetError::no_vector_index`] when the catalog declares `predicate` with no vector index; the store's error.
     pub fn index_vectors(
         &self,
-        namespace: u64,
+        tenant: u64,
         predicate: NamedNodeRef<'_>,
     ) -> Result<u64, ChangesetError> {
-        self.core.index_vectors(namespace, predicate)
+        self.core.index_vectors(tenant, predicate)
     }
 
-    /// The version the vector indexer of `predicate` in `namespace` has indexed through: every vector a round applied
+    /// The version the vector indexer of `predicate` in `tenant` has indexed through: every vector a round applied
     /// at or below it is in the HNSW lists; 0 before its first pass.
     ///
     /// # Errors
@@ -412,13 +412,13 @@ where
     /// The store's error reading the dictionary.
     pub fn indexed_version(
         &self,
-        namespace: u64,
+        tenant: u64,
         predicate: NamedNodeRef<'_>,
     ) -> Result<u64, ChangesetError> {
-        self.core.indexed_version(namespace, predicate)
+        self.core.indexed_version(tenant, predicate)
     }
 
-    /// The nodes of the vectors of `predicate` in `graph` of `namespace` nearest `query`, best first and at most its
+    /// The nodes of the vectors of `predicate` in `graph` of `tenant` nearest `query`, best first and at most its
     /// `k`, by the predicate's vector index as its options ask, read at `read_ts`. A search reads the HNSW lists, and
     /// returns only nodes whose vector is visible at its snapshot and which the lists hold: a vector committed and not
     /// yet indexed is absent until the indexer reaches it. An index holding no vector finds none.
@@ -429,14 +429,14 @@ where
     /// a stored list that does not decode.
     pub fn search_vectors(
         &self,
-        namespace: u64,
+        tenant: u64,
         graph: GraphNameRef<'_>,
         predicate: NamedNodeRef<'_>,
         query: VectorQuery<'_>,
         read_ts: u64,
     ) -> Result<Vec<SystemId>, ChangesetError> {
         self.core
-            .search_vectors(namespace, graph, predicate, query, read_ts)
+            .search_vectors(tenant, graph, predicate, query, read_ts)
     }
 
     /// Spawns the build of record `started` on the executor, when one was started.
@@ -447,17 +447,17 @@ where
         }
     }
 
-    /// Drops `predicate` of `namespace` in every graph, with its catalog entries, its statement records, and its
+    /// Drops `predicate` of `tenant` in every graph, with its catalog entries, its statement records, and its
     /// entries in the subject- and object-predicate lists: the drop's timestamp.
     pub fn drop_predicate(
         &self,
-        namespace: u64,
+        tenant: u64,
         predicate: NamedNodeRef<'_>,
     ) -> Result<u64, ChangesetError> {
-        self.core.drop_predicate(namespace, predicate)
+        self.core.drop_predicate(tenant, predicate)
     }
 
-    /// The drop `request` asks in `namespace` as a proposal of the commit step (7.7): an execution writing the key
+    /// The drop `request` asks in `tenant` as a proposal of the commit step (7.7): an execution writing the key
     /// ranges of what it drops and nothing else, which [`ChangesetApplier::apply_round`] drops at the version the step
     /// gives it, once its round's batch is written; a round closes after a drop. A predicate or a graph the store does
     /// not know, or a blank-node graph, is dropped as nothing.
@@ -467,32 +467,28 @@ where
     /// The store's error reading the catalog or the predicate's graphs.
     pub fn prepare_drop(
         &self,
-        namespace: u64,
+        tenant: u64,
         request: DropRequest<'_>,
     ) -> Result<Executed, ChangesetError> {
-        self.core.prepare_drop(namespace, request)
+        self.core.prepare_drop(tenant, request)
     }
 
-    /// Drops every key of `graph` in `namespace`: the drop's timestamp.
-    pub fn drop_graph(
-        &self,
-        namespace: u64,
-        graph: GraphNameRef<'_>,
-    ) -> Result<u64, ChangesetError> {
-        self.core.drop_graph(namespace, graph)
+    /// Drops every key of `graph` in `tenant`: the drop's timestamp.
+    pub fn drop_graph(&self, tenant: u64, graph: GraphNameRef<'_>) -> Result<u64, ChangesetError> {
+        self.core.drop_graph(tenant, graph)
     }
 
-    /// Drops the data of `namespace` and keeps its catalog: the drop's timestamp.
-    pub fn drop_data(&self, namespace: u64) -> Result<u64, ChangesetError> {
-        self.core.drop_data(namespace)
+    /// Drops the data of `tenant` and keeps its catalog: the drop's timestamp.
+    pub fn drop_data(&self, tenant: u64) -> Result<u64, ChangesetError> {
+        self.core.drop_data(tenant)
     }
 
-    /// Drops everything in `namespace` and writes its initial catalog at timestamp 1: the drop's timestamp.
-    pub fn drop_namespace(&self, namespace: u64) -> Result<u64, ChangesetError> {
-        self.core.drop_namespace(namespace)
+    /// Drops everything in `tenant` and writes its initial catalog at timestamp 1: the drop's timestamp.
+    pub fn drop_tenant(&self, tenant: u64) -> Result<u64, ChangesetError> {
+        self.core.drop_tenant(tenant)
     }
 
-    /// Drops every quad key and writes the root namespace's initial catalog at timestamp 1; the dictionary is kept:
+    /// Drops every quad key and writes the root tenant's initial catalog at timestamp 1; the dictionary is kept:
     /// the drop's timestamp.
     pub fn drop_all(&self) -> Result<u64, ChangesetError> {
         self.core.drop_all()

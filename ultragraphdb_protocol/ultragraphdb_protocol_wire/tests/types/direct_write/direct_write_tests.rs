@@ -62,7 +62,7 @@ fn golden_changes() -> TestResult<(TermTable, Vec<WriteChange>)> {
     ))
 }
 
-/// The golden DirectWrite: through the session's request 9 in namespace 3, holding the token of partition 2's commit
+/// The golden DirectWrite: through the session's request 9 in tenant 3, holding the token of partition 2's commit
 /// at position 41 in epoch 30.
 ///
 /// # Errors
@@ -93,7 +93,7 @@ fn test_a_direct_write_holds_what_it_was_given() -> TestResult {
         .with_token(token.clone());
     assert_eq!(write.session(), session());
     assert_eq!(write.request(), 9);
-    assert_eq!(write.namespace(), 3);
+    assert_eq!(write.tenant(), 3);
     assert_eq!(write.token(), Some(&token));
     assert_eq!(write.terms(), &terms);
     assert_eq!(write.changes(), &changes[..]);

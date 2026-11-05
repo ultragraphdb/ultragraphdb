@@ -86,7 +86,7 @@ impl PartitionCore<'_> {
                 index,
                 Registration::new(
                     self.id,
-                    asked.namespace(),
+                    asked.tenant(),
                     iri,
                     registration.entity(),
                     registration.group(),
@@ -179,7 +179,7 @@ async fn exchange(
     let address = address_of(peers, home.get()).await?;
     let mut request = Reference::request();
     if let Some((_, first)) = batch.first() {
-        request = request.in_namespace(first.namespace());
+        request = request.in_tenant(first.tenant());
     }
     for (_, registration) in batch {
         let _at = match registration.entity() {

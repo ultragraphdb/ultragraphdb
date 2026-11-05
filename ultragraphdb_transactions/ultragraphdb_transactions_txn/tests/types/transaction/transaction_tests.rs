@@ -16,8 +16,8 @@ use ultragraphdb_transactions_txn::{
 };
 
 use crate::utils::fixture::{
-    NS, SECOND, applier, begin, begin_with, changeset, commit, ex, held, insert, insert_literal,
-    objects, prepared, read_objects, store,
+    SECOND, TENANT, applier, begin, begin_with, changeset, commit, ex, held, insert,
+    insert_literal, objects, prepared, read_objects, store,
 };
 
 fn literal(value: &str) -> Term {
@@ -30,7 +30,7 @@ fn test_a_transaction_begins_at_the_watermark() -> TestResult {
     let watermark = commit(&applier, vec![insert_literal("a", "name", "A")])?;
     let txn = begin(&applier, Mode::ReadWrite)?;
     assert_eq!(txn.read_version(), watermark);
-    assert_eq!(txn.namespace(), NS);
+    assert_eq!(txn.tenant(), TENANT);
     assert_eq!(txn.mode(), Mode::ReadWrite);
     assert!(!txn.is_ended());
     Ok(())
@@ -48,7 +48,7 @@ fn test_a_named_version_at_or_below_the_watermark_is_read() -> TestResult {
     ] {
         let mut txn = Transaction::begin(
             &applier,
-            NS,
+            TENANT,
             Mode::ReadOnly,
             version,
             0,
@@ -71,7 +71,7 @@ fn test_a_version_above_the_watermark_is_refused_at_once_naming_both() -> TestRe
     for above in [watermark + 1, watermark + 2, u64::MAX] {
         let refused = Transaction::begin(
             &applier,
-            NS,
+            TENANT,
             Mode::ReadWrite,
             above,
             0,
@@ -185,17 +185,17 @@ fn test_a_read_write_transactions_reads_are_in_its_read_set() -> TestResult {
     let prepared = prepared(txn.with_catalog(4).commit(5, 6, b"cr", 0))?;
     let set = prepared.read_set();
     assert!(set.is_sealed());
-    assert_eq!((set.namespace(), set.read_version()), (NS, watermark));
+    assert_eq!((set.tenant(), set.read_version()), (TENANT, watermark));
     let a = applier
         .quads()
-        .id_of(NS, ex("a").as_str())?
+        .id_of(TENANT, ex("a").as_str())?
         .context("a's ID")?;
     let knows = applier
         .quads()
-        .id_of(NS, ex("knows").as_str())?
+        .id_of(TENANT, ex("knows").as_str())?
         .context("knows's ID")?;
     let forward = ultragraphdb_core_keys::QuadKey::Forward {
-        namespace: NS,
+        tenant: TENANT,
         graph: ultragraphdb_core_keys::DEFAULT_GRAPH,
         predicate: knows,
         subject: a,
@@ -206,10 +206,10 @@ fn test_a_read_write_transactions_reads_are_in_its_read_set() -> TestResult {
         "the list read whole"
     );
     // The record carries the transaction's identity and writes.
-    assert_eq!(prepared.namespace(), NS);
+    assert_eq!(prepared.tenant(), TENANT);
     assert_eq!(prepared.read_version(), watermark);
     let view = WriteSetRecordView::new(prepared.record())?;
-    assert_eq!((view.namespace(), view.read_version()), (NS, watermark));
+    assert_eq!((view.tenant(), view.read_version()), (TENANT, watermark));
     assert_eq!((view.session(), view.request()), (5u128.to_be_bytes(), 6));
     assert_eq!(view.commit_record(), b"cr");
     assert_eq!(view.catalog(), 4, "the catalog version it executed against");
@@ -249,12 +249,12 @@ fn test_a_read_only_transaction_ends_on_its_worker_and_refuses_writes() -> TestR
 }
 
 #[test]
-fn test_a_changeset_of_another_namespace_is_refused_and_leaves_the_transaction_as_it_was()
--> TestResult {
+fn test_a_changeset_of_another_tenant_is_refused_and_leaves_the_transaction_as_it_was() -> TestResult
+{
     let applier = applier()?;
     let mut txn = begin(&applier, Mode::ReadWrite)?;
     let other = Changeset::new(3).with(insert("a", "knows", "b"));
-    assert_eq!(txn.write(&other, 0), Err(TxnError::namespace(NS, 3)));
+    assert_eq!(txn.write(&other, 0), Err(TxnError::tenant(TENANT, 3)));
     assert!(!txn.is_ended());
     txn.write(&changeset(vec![insert("a", "knows", "c")]), 0)?;
     assert_eq!(
@@ -377,7 +377,7 @@ fn test_the_limits_are_settings_and_count_from_the_transactions_begin() -> TestR
     let began = 5 * SECOND;
     let mut txn = Transaction::begin(
         &applier,
-        NS,
+        TENANT,
         Mode::ReadWrite,
         0,
         began,
@@ -391,7 +391,7 @@ fn test_the_limits_are_settings_and_count_from_the_transactions_begin() -> TestR
     );
     let mut read_only = Transaction::begin(
         &applier,
-        NS,
+        TENANT,
         Mode::ReadOnly,
         0,
         began,
@@ -410,7 +410,7 @@ fn test_a_clock_behind_the_begin_is_no_time_passed() -> TestResult {
     let applier = applier()?;
     let mut txn = Transaction::begin(
         &applier,
-        NS,
+        TENANT,
         Mode::ReadWrite,
         0,
         20 * SECOND,
@@ -431,7 +431,7 @@ fn test_an_aborted_transaction_writes_nothing_and_returns_its_buffers() -> TestR
     assert!(held(&applier, "a", "knows")?.is_empty());
     let mut again = Transaction::begin(
         &applier,
-        NS,
+        TENANT,
         Mode::ReadWrite,
         0,
         0,
@@ -446,10 +446,10 @@ fn test_an_aborted_transaction_writes_nothing_and_returns_its_buffers() -> TestR
 fn test_a_read_set_past_its_limit_refuses_the_commit() -> TestResult {
     let applier = applier()?;
     store(&applier, vec![insert("a", "knows", "b")])?;
-    // A whole-list read of the 57-byte forward key (the keyspace byte, the namespace's 8 bytes, then graph, predicate
+    // A whole-list read of the 57-byte forward key (the keyspace byte, the tenant's 8 bytes, then graph, predicate
     // and subject of 16 bytes each, QuadKey's layout) takes its key and its 8-byte span: 65; the subject-predicates list
     // read before it (partitions, "Absence is proven by a node's predicate lists"), its 41-byte key (the keyspace byte,
-    // the namespace's 8 bytes, graph and subject of 16 each) and its span, 49 more: 114 in all.
+    // the tenant's 8 bytes, graph and subject of 16 each) and its span, 49 more: 114 in all.
     let limits = TxnLimits::default().with_max_read_set(40);
     let mut txn = begin_with(&applier, Mode::ReadWrite, limits)?;
     read_objects(&mut txn, "a", "knows", 0)?;
@@ -511,7 +511,7 @@ fn test_an_abort_gives_back_the_buffers_it_was_given() -> TestResult {
     let (read, record) = (buffers.read_set_capacity(), buffers.record_capacity());
     let mut txn = Transaction::begin(
         &applier,
-        NS,
+        TENANT,
         Mode::ReadWrite,
         0,
         0,
@@ -585,7 +585,7 @@ fn test_the_buffers_are_reused_from_transaction_to_transaction() -> TestResult {
     let run = |buffers: TxnBuffers| -> TestResult<TxnBuffers> {
         let mut txn = Transaction::begin(
             &applier,
-            NS,
+            TENANT,
             Mode::ReadWrite,
             0,
             0,
@@ -642,8 +642,8 @@ fn test_a_limit_past_u64_microseconds_is_not_cut_short() -> TestResult {
 }
 
 #[test]
-fn test_a_transaction_of_another_namespace_names_it_in_its_proposal() -> TestResult {
-    // Namespace 7, not the fixture's 0: the transaction, its proposal, its read set and its record all name it.
+fn test_a_transaction_of_another_tenant_names_it_in_its_proposal() -> TestResult {
+    // Tenant 7, not the fixture's 0: the transaction, its proposal, its read set and its record all name it.
     let applier = applier()?;
     let mut txn = Transaction::begin(
         &applier,
@@ -655,13 +655,13 @@ fn test_a_transaction_of_another_namespace_names_it_in_its_proposal() -> TestRes
         TxnBuffers::new(),
     )
     .context("it begins")?;
-    assert_eq!(txn.namespace(), 7);
+    assert_eq!(txn.tenant(), 7);
     txn.write(&Changeset::new(7).with(insert("a", "knows", "b")), 0)?;
     let prepared = prepared(txn.commit(1, 1, &[], 0))?;
-    assert_eq!(prepared.namespace(), 7);
-    assert_eq!(prepared.read_set().namespace(), 7);
+    assert_eq!(prepared.tenant(), 7);
+    assert_eq!(prepared.read_set().tenant(), 7);
     let view = WriteSetRecordView::new(prepared.record())?;
-    assert_eq!(view.namespace(), 7);
+    assert_eq!(view.tenant(), 7);
     Ok(())
 }
 
@@ -671,12 +671,12 @@ fn owned_by(
     placement: &ultragraphdb_cluster_placement::PlacementMap,
     partition: u32,
 ) -> TestResult<String> {
-    use ultragraphdb_core_ids::{Bucket, CanonicalKey, Epoch, Namespace, TypePrefix};
+    use ultragraphdb_core_ids::{Bucket, CanonicalKey, Epoch, Tenant, TypePrefix};
     for i in 0..1_000 {
         let name = format!("s{i}");
         let iri = ex(&name);
         let key = CanonicalKey::iri(iri.as_str()).context("the key")?;
-        let bucket = Bucket::derive(Namespace::new(NS), TypePrefix::RESOURCE, &key);
+        let bucket = Bucket::derive(Tenant::new(TENANT), TypePrefix::RESOURCE, &key);
         if placement.partition_of(bucket, Epoch::ZERO).get() == partition {
             return Ok(name);
         }
@@ -925,11 +925,11 @@ fn edge(
     let quads = applier.quads();
     let id = |name: &str| -> TestResult<ultragraphdb_core_ids::SystemId> {
         quads
-            .id_of(crate::utils::fixture::NS, ex(name).as_str())?
+            .id_of(crate::utils::fixture::TENANT, ex(name).as_str())?
             .context("the IRI is held")
     };
     let key = QuadKey::Forward {
-        namespace: crate::utils::fixture::NS,
+        tenant: crate::utils::fixture::TENANT,
         graph: DEFAULT_GRAPH,
         predicate: id("knows")?,
         subject: id(subject)?,
@@ -940,7 +940,7 @@ fn edge(
         .first()
         .and_then(|(_, ids)| ids.first().copied())
         .context("the edge's statement ID")?;
-    let reifier = oxrdf::NamedNode::new(quads.iri_of(crate::utils::fixture::NS, statement)?.0)?;
+    let reifier = oxrdf::NamedNode::new(quads.iri_of(crate::utils::fixture::TENANT, statement)?.0)?;
     Ok((statement, reifier))
 }
 
@@ -950,7 +950,7 @@ fn properties_of(
     id: ultragraphdb_core_ids::SystemId,
 ) -> TestResult<usize> {
     let record = applier.quads().statement(
-        crate::utils::fixture::NS,
+        crate::utils::fixture::TENANT,
         ultragraphdb_core_keys::DEFAULT_GRAPH,
         id,
         applier.quads().lists().applied_ts(),

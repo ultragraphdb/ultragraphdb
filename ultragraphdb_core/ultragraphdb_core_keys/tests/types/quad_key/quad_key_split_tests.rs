@@ -178,11 +178,11 @@ fn test_a_split_start_cut_short_or_running_on_is_refused() -> TestResult {
 
 #[test]
 fn test_an_id_start_cut_by_8_bytes_is_no_fingerprint_start() -> TestResult {
-    // Hand-computed: forward key, namespace 133, the default graph, predicate (type 1, bucket 7, sequence 7), subject
-    // (type 1, bucket 42, sequence 42), split at the ID (type 1, bucket 5, sequence 1000): flag 0x90, the namespace,
+    // Hand-computed: forward key, tenant 133, the default graph, predicate (type 1, bucket 7, sequence 7), subject
+    // (type 1, bucket 42, sequence 42), split at the ID (type 1, bucket 5, sequence 1000): flag 0x90, the tenant,
     // 16 zero bytes, the two IDs, kind 2 and the start's 16 bytes.
     let key = QuadKey::Forward {
-        namespace: 133,
+        tenant: 133,
         graph: ultragraphdb_core_keys::DEFAULT_GRAPH,
         predicate: id(1, 7, 7)?,
         subject: id(1, 42, 42)?,

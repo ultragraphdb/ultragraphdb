@@ -7,19 +7,19 @@ use crate::traits::changes::Changes;
 use crate::types::change::Change;
 use crate::types::change_ref::ChangeRef;
 
-/// A write as the engines produce it and storage applies it: a namespace and its changes, applied in order, whole or
+/// A write as the engines produce it and storage applies it: a tenant and its changes, applied in order, whole or
 /// not at all. Its terms are RDF terms; storage resolves them to term IDs.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct Changeset {
-    namespace: u64,
+    tenant: u64,
     changes: Vec<Change>,
 }
 
 impl Changeset {
-    /// An empty changeset for `namespace`.
-    pub fn new(namespace: u64) -> Self {
+    /// An empty changeset for `tenant`.
+    pub fn new(tenant: u64) -> Self {
         Self {
-            namespace,
+            tenant,
             changes: Vec::new(),
         }
     }
@@ -35,9 +35,9 @@ impl Changeset {
         self
     }
 
-    /// The namespace the changes apply to.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant the changes apply to.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// The changes, in order.
@@ -57,8 +57,8 @@ impl Changeset {
 }
 
 impl Changes for Changeset {
-    fn namespace(&self) -> u64 {
-        Changeset::namespace(self)
+    fn tenant(&self) -> u64 {
+        Changeset::tenant(self)
     }
 
     fn changes(&self) -> impl Iterator<Item = ChangeRef<'_>> {

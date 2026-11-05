@@ -53,7 +53,7 @@ impl<'a> BodyView<'a> for BindView<'a> {
             frame: PhantomData,
             partition,
             kind,
-            namespace: header.u64_at(8),
+            tenant: header.u64_at(8),
             read_version,
             epoch: token_epoch,
             principal: header.u64_at(32),
@@ -65,7 +65,7 @@ impl<'a> BodyView<'a> for BindView<'a> {
         Ok(Bind::new(
             self.partition,
             self.kind,
-            self.namespace,
+            self.tenant,
             self.epoch,
             self.principal,
             self.transaction,

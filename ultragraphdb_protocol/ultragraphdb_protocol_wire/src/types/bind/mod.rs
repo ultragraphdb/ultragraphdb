@@ -16,7 +16,7 @@ use crate::types::bind_kind::BindKind;
 /// |---|---|---|
 /// | 0 | `partition` | u32, at least 1 |
 /// | 4 | `kind` | u8, a [`BindKind`] |
-/// | 8 | `namespace` | u64 |
+/// | 8 | `tenant` | u64 |
 /// | 16 | `read_version` | u64: 0 as sent; as answered, the watermark for a transaction, 0 for a Drop |
 /// | 24 | `epoch` | u64: the client's token's epoch, 0 for none |
 /// | 32 | `principal` | u64: the client's principal |
@@ -27,7 +27,7 @@ use crate::types::bind_kind::BindKind;
 pub struct Bind {
     partition: u32,
     kind: BindKind,
-    namespace: u64,
+    tenant: u64,
     read_version: u64,
     epoch: u64,
     principal: u64,
@@ -35,12 +35,12 @@ pub struct Bind {
 }
 
 impl Bind {
-    /// The binding of `transaction`, of `kind`, in `namespace`, acting for `principal`, to `partition`, committing at
+    /// The binding of `transaction`, of `kind`, in `tenant`, acting for `principal`, to `partition`, committing at
     /// `epoch` or later (0 for none).
     pub fn new(
         partition: u32,
         kind: BindKind,
-        namespace: u64,
+        tenant: u64,
         epoch: u64,
         principal: u64,
         transaction: [u8; 16],
@@ -48,7 +48,7 @@ impl Bind {
         Self {
             partition,
             kind,
-            namespace,
+            tenant,
             read_version: 0,
             epoch,
             principal,
@@ -72,9 +72,9 @@ impl Bind {
         self.kind
     }
 
-    /// The transaction's namespace.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The transaction's tenant.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// The version the transaction reads at; 0 as sent and for a Drop.

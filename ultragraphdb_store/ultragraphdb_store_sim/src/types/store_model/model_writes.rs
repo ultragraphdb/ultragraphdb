@@ -151,8 +151,8 @@ impl StoreModel {
             self.temporary_snapshots.insert(id, Arc::new(state));
     }
 
-    pub(super) fn observe_banned(&mut self, namespace: u64) {
-        let _newly: bool = Arc::make_mut(&mut self.current).banned.insert(namespace);
+    pub(super) fn observe_banned(&mut self, tenant: u64) {
+        let _newly: bool = Arc::make_mut(&mut self.current).banned.insert(tenant);
         self.sync_point();
     }
 

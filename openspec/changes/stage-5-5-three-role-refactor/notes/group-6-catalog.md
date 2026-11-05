@@ -30,8 +30,8 @@ no lint checks:
 ## What was built
 
 **The partition-side interface**, `ultragraphdb_traits/ultragraphdb_traits_catalog` (no dependencies), posted as
-`SURFACE READY`: `CatalogSource` (`version_at(namespace, epoch)`, the version in effect, `None` for the initial
-catalog; `version(namespace, version)`, for a replayed build's start record; an associated `Error`), `HeldVersion`
+`SURFACE READY`: `CatalogSource` (`version_at(tenant, epoch)`, the version in effect, `None` for the initial
+catalog; `version(tenant, version)`, for a replayed build's start record; an associated `Error`), `HeldVersion`
 (tenant, number, effective epoch, opaque contents), `DefaultEntry` (tenant, predicate IRI, the encoded default
 declaration), and behind `test-utils` the double `TestCatalogSource` with `CatalogUnreachable`. The metadata agent
 implemented `CatalogSource` on `MetadataState` and takes `DefaultEntry` as its command's payload.
@@ -44,7 +44,7 @@ naming the tenant and version. `Catalog::version`/`with_version`.
 
 **The partition** (`store_apply`):
 - No catalog key is written: a write's declarations and default entries, a build's swap and undo, a build end's
-  proposal and the drops change the catalog held in memory only. `catalog(ns)` no longer reads the store; it is the
+  proposal and the drops change the catalog held in memory only. `catalog(tenant)` no longer reads the store; it is the
   installed catalog, or empty until a version is loaded or the first write gives the initial one.
 - `load_catalog(contents)` installs a version at start, before replay: the initial catalog beneath it, every IRI looked
   up in the dictionary (one the dictionary does not hold is corruption: the round that installed the version gave each
@@ -90,8 +90,8 @@ Moved onto the catalog path, none dropped: txn `test_a_declaration_indexing_a_pr
 announcing version 2, then `Pipeline::install`; versions now of epoch 2), and
 `test_a_builds_end_that_cannot_be_proposed_stops_the_pipeline`: a build's end reads nothing of the store any more, so
 the failure is provoked at the build's other proposal, its start, the version's checks reading the data, which stops
-the pipeline. The BDD steps "a round admits a declaration of `ns` that starts an index build of `p`…", "a declaration
-of `ns` commits before it" and "a term index on `name` is being built…" are rebound on versions announced by a close and
+the pipeline. The BDD steps "a round admits a declaration of `tenant` that starts an index build of `p`…", "a declaration
+of `tenant` commits before it" and "a term index on `name` is being built…" are rebound on versions announced by a close and
 installed by `Prepared::catalog`, the first two under the spec's new texts.
 
 ## Scenarios bound

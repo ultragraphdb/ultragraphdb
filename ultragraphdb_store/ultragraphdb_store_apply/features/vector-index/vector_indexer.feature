@@ -6,7 +6,7 @@
 Feature: Vectors indexed in commit order, outside the transaction
   A transaction writing a vector commits it in its forward list alone. The vector indexer inserts committed vectors
   into the HNSW lists in commit order and records the version it has indexed; a search returns only nodes whose
-  vector is visible at its snapshot. A node's level is drawn from a hash of the index's seed, the namespace, the
+  vector is visible at its snapshot. A node's level is drawn from a hash of the index's seed, the tenant, the
   predicate and the node's UID. Transactions here execute against one snapshot and are judged by the commit step's
   conflict rules.
 

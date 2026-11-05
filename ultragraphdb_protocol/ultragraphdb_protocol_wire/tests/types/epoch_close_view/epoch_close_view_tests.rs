@@ -153,7 +153,7 @@ fn test_announcements_are_of_a_version_and_ordered() -> TestResult {
         section_refusal(0, |s| s[at(0, 1)] = 0)?,
         ProtocolError::field_value(515, "announcement", 0)
     );
-    // The same version again, a lower one in the same namespace, a lower namespace.
+    // The same version again, a lower one in the same tenant, a lower tenant.
     assert_eq!(
         section_refusal(0, |s| s[at(1, 1)] = 11)?,
         ProtocolError::field_value(515, "announcement", 1)
@@ -166,7 +166,7 @@ fn test_announcements_are_of_a_version_and_ordered() -> TestResult {
         section_refusal(0, |s| s[at(2, 0)] = 2)?,
         ProtocolError::field_value(515, "announcement", 2)
     );
-    // A higher namespace with a lower version is in order.
+    // A higher tenant with a lower version is in order.
     let lower_version = with_section(&bytes("epoch_close")?, 2, 0, |s| s[at(2, 1)] = 1);
     assert_eq!(
         EpochCloseView::from_frame(&frame_of(&lower_version)?)?.announcement(2),

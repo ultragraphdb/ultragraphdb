@@ -3,40 +3,35 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_core_ids::{Epoch, Namespace};
+use ultragraphdb_core_ids::{Epoch, Tenant};
 
-/// One version of a namespace's catalog as the metadata group holds it: its namespace, its number, counted from 1 in
-/// the namespace, the epoch it takes effect at once the sequencer has announced it, `None` while it is pending, and its
+/// One version of a tenant's catalog as the metadata group holds it: its tenant, its number, counted from 1 in
+/// the tenant, the epoch it takes effect at once the sequencer has announced it, `None` while it is pending, and its
 /// bytes in `ultragraphdb_core_catalog`'s encoding, which the group does not read.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CatalogRecord {
-    namespace: Namespace,
+    tenant: Tenant,
     version: u64,
     effective: Option<Epoch>,
     bytes: Vec<u8>,
 }
 
 impl CatalogRecord {
-    /// Version `version` of `namespace`'s catalog, taking effect at `effective` once announced, holding `bytes`.
+    /// Version `version` of `tenant`'s catalog, taking effect at `effective` once announced, holding `bytes`.
     #[must_use]
-    pub fn new(
-        namespace: Namespace,
-        version: u64,
-        effective: Option<Epoch>,
-        bytes: Vec<u8>,
-    ) -> Self {
+    pub fn new(tenant: Tenant, version: u64, effective: Option<Epoch>, bytes: Vec<u8>) -> Self {
         Self {
-            namespace,
+            tenant,
             version,
             effective,
             bytes,
         }
     }
 
-    /// The namespace whose catalog it is.
+    /// The tenant whose catalog it is.
     #[must_use]
-    pub fn namespace(&self) -> Namespace {
-        self.namespace
+    pub fn tenant(&self) -> Tenant {
+        self.tenant
     }
 
     /// The version's number.

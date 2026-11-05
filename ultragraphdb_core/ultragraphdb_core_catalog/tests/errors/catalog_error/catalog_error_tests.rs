@@ -8,19 +8,19 @@ use ultragraphdb_error_store::StoreError;
 use ultragraphdb_tool_bdd::TestResult;
 
 #[test]
-fn test_a_corrupted_version_names_its_namespace_version_and_reason() -> TestResult {
+fn test_a_corrupted_version_names_its_tenant_version_and_reason() -> TestResult {
     let error = CatalogError::corrupted_version(3, 7, "the contents end early");
     assert_eq!(
         error.0,
         CatalogErrorEnum::CorruptedVersion {
-            namespace: 3,
+            tenant: 3,
             version: 7,
             reason: "the contents end early".to_string(),
         }
     );
     assert_eq!(
         error.to_string(),
-        "Catalog version 7 of namespace 3 does not decode: the contents end early"
+        "Catalog version 7 of tenant 3 does not decode: the contents end early"
     );
     Ok(())
 }

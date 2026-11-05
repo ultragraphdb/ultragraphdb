@@ -4,7 +4,7 @@
  */
 
 use ultragraphdb_cluster_sequencer::{CatalogVersion, ClockReading, Close, SequencerRecord};
-use ultragraphdb_core_ids::{Epoch, Namespace};
+use ultragraphdb_core_ids::{Epoch, Tenant};
 use ultragraphdb_error_cluster::ClusterErrorEnum;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_transactions_log::SimStorage;
@@ -141,8 +141,8 @@ fn test_a_close_carries_the_pending_versions_and_evictions() -> TestResult {
     let (_, mut sequencer) = fresh(config(2, 10)?)?;
     sequencer.subscribe(pid(1)?, epoch(0)?)?;
     let pending = [
-        CatalogVersion::new(Namespace::new(4), 3),
-        CatalogVersion::new(Namespace::new(5), 1),
+        CatalogVersion::new(Tenant::new(4), 3),
+        CatalogVersion::new(Tenant::new(5), 1),
     ];
     let _first = sequencer.tick(at(10), &pending, 0, &[0xA1, 0xB2])?;
     let _second = sequencer.tick(at(20), &[], 0, &[])?;
@@ -162,7 +162,7 @@ fn test_a_close_carries_the_pending_versions_and_evictions() -> TestResult {
 fn test_too_many_versions_or_evictions_refuse_the_close() -> TestResult {
     let (_, mut sequencer) = fresh(config(2, 10)?)?;
     let versions: Vec<_> = (0..257)
-        .map(|v| CatalogVersion::new(Namespace::new(1), v))
+        .map(|v| CatalogVersion::new(Tenant::new(1), v))
         .collect();
     let refusal = sequencer
         .tick(at(10), &versions, 0, &[])

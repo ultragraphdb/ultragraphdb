@@ -56,12 +56,12 @@ impl fmt::Display for RecoveryError {
             ),
             RecoveryErrorEnum::Catalog {
                 position,
-                namespace,
+                tenant,
                 version,
                 reason,
             } => write!(
                 f,
-                "the round at position {position} starts catalog version {version} of namespace {namespace}, which \
+                "the round at position {position} starts catalog version {version} of tenant {tenant}, which \
                  could not be read: {reason}"
             ),
         }

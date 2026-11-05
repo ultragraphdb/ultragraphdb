@@ -4,7 +4,7 @@
  */
 
 use ultragraphdb_core_ids::{
-    Bucket, CanonicalKey, IdError, IdErrorEnum, Namespace, Sequence, SystemId, TypePrefix,
+    Bucket, CanonicalKey, IdError, IdErrorEnum, Sequence, SystemId, Tenant, TypePrefix,
 };
 use ultragraphdb_tool_bdd::TestResult;
 
@@ -203,11 +203,11 @@ fn test_the_order_is_type_then_sequence_then_bucket() -> TestResult {
 
 #[test]
 fn test_a_resource_takes_prefix_one_and_its_derived_bucket() -> TestResult {
-    // buckets.json, "the scenario: namespace 0": 0xC7F1AB; "namespace 1": 0xF3F1AB.
+    // buckets.json, "the scenario: tenant 0": 0xC7F1AB; "tenant 1": 0xF3F1AB.
     let key = CanonicalKey::iri("http://ex.org/a")?;
-    let resource = SystemId::resource(Namespace::new(0), &key, Sequence::new(5)?);
+    let resource = SystemId::resource(Tenant::new(0), &key, Sequence::new(5)?);
     assert_eq!(resource, id(1, 0xC7_F1AB, 5)?);
-    let other = SystemId::resource(Namespace::new(1), &key, Sequence::new(6)?);
+    let other = SystemId::resource(Tenant::new(1), &key, Sequence::new(6)?);
     assert_eq!(other, id(1, 0xF3_F1AB, 6)?);
     Ok(())
 }

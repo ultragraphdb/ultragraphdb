@@ -884,16 +884,16 @@ fn test_garbage_collection_keeps_what_open_reads_and_the_horizon_need() -> TestR
     Ok(())
 }
 
-/// A ban drops the later entries addressed to the namespace and hides its keys from snapshots opened after it.
+/// A ban drops the later entries addressed to the tenant and hides its keys from snapshots opened after it.
 #[test]
-fn test_a_banned_namespace_takes_no_writes_and_reads_empty() -> TestResult {
+fn test_a_banned_tenant_takes_no_writes_and_reads_empty() -> TestResult {
     let mut key = vec![0x00];
     key.extend_from_slice(&5u64.to_be_bytes());
     key.push(b'x');
     let store = SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new());
     let mut model = StoreModel::new();
     store.apply(batch(vec![put(&key, 1)], None), PersistMode::Buffer)?;
-    store.ban_namespace(5)?;
+    store.ban_tenant(5)?;
     store.apply(
         batch(vec![put(&key, 2), put(b"k", 2)], None),
         PersistMode::Buffer,

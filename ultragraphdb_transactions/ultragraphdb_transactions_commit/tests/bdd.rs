@@ -15,7 +15,7 @@ use cucumber::{World, then, when};
 use oxrdf::{GraphName, Literal, NamedNode, Term};
 use ultragraphdb_cluster_placement::{NodeId, PartitionId, PlacementMap};
 use ultragraphdb_core_ids::{
-    Bucket, CanonicalKey, Epoch, Namespace, SessionToken, SystemId, TypePrefix,
+    Bucket, CanonicalKey, Epoch, SessionToken, SystemId, Tenant, TypePrefix,
 };
 use ultragraphdb_core_keys::{DEFAULT_GRAPH, QuadKey};
 use ultragraphdb_core_mapping::{Change, Declaration, PredicateDeclaration};
@@ -51,9 +51,9 @@ pub mod utils {
 }
 
 use crate::utils::fixture::{
-    Applier, Driver, Log, NS, Refused, applier, applier_over, begin, changeset, delete_literal, ex,
-    held, id_in, id_of, insert, insert_literal, open_wal, prepare, prepare_in, read, reopen, setup,
-    sim_store, version, write,
+    Applier, Driver, Log, Refused, TENANT, applier, applier_over, begin, changeset, delete_literal,
+    ex, held, id_in, id_of, insert, insert_literal, open_wal, prepare, prepare_in, read, reopen,
+    setup, sim_store, version, write,
 };
 use crate::utils::proposal_double::{Reads, TestProposal, Writes, proposal, registration};
 
@@ -673,14 +673,14 @@ fn next_round_in_epoch_11(w: &mut Steps) {
 }
 
 #[when(
-    "two transactions of `ns` read before either commits, the first writes `<a> <score> 12` and the second `<b> <score> \"high\"`, and `score` was not declared"
+    "two transactions of `tenant` read before either commits, the first writes `<a> <score> 12` and the second `<b> <score> \"high\"`, and `score` was not declared"
 )]
 fn first_writes(w: &mut Steps) -> TestResult {
     let applier = applier()?;
-    // `score` is a known IRI, never written as a predicate, so the catalog of `ns` holds no entry for it.
+    // `score` is a known IRI, never written as a predicate, so the catalog of `tenant` holds no entry for it.
     w.version = setup(&applier, vec![insert("z", "seen", "score")])?;
     let score = id_of(&applier, "score")?;
-    assert!(applier.catalog(NS)?.predicate(score).is_none());
+    assert!(applier.catalog(TENANT)?.predicate(score).is_none());
     let mut driver = Driver::new(&applier, unbounded());
     let mut first = begin(&applier)?;
     let mut second = begin(&applier)?;
@@ -704,7 +704,7 @@ fn first_writes(w: &mut Steps) -> TestResult {
         let _created: bool = w.source.record_default(&entry)?;
     }
     w.entries = applier
-        .catalog(NS)?
+        .catalog(TENANT)?
         .predicates()
         .filter(|(id, _)| *id == score)
         .map(|(_, d)| d.clone())
@@ -722,7 +722,7 @@ fn both_first_writes_commit(w: &mut Steps) -> TestResult {
     assert_eq!(w.entries, vec![PredicateDeclaration::new(ex("score"))]);
     let recorded: Vec<String> = w
         .source
-        .defaults(NS)
+        .defaults(TENANT)
         .iter()
         .map(|e| e.predicate().to_string())
         .filter(|p| p == ex("score").as_str())
@@ -734,7 +734,7 @@ fn both_first_writes_commit(w: &mut Steps) -> TestResult {
 /// The subjects the `term` index of `<predicate>` lists under `word`, at the watermark.
 fn indexed_term(applier: &Applier, predicate: &str, word: &str) -> TestResult<Vec<SystemId>> {
     let key = QuadKey::ValueIndex {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         predicate: id_of(applier, predicate)?,
         // Dgraph's identifier of `term` (`tok/tok.go`).
@@ -760,7 +760,7 @@ fn reply_to(replies: &[Reply], ticket: u64) -> TestResult<&Reply> {
 }
 
 #[when(
-    "a version of `ns` starting an index build of `p` takes effect at epoch 40, and a transaction executed against the version before it writes `p` in `ns` and commits at epoch 40"
+    "a version of `tenant` starting an index build of `p` takes effect at epoch 40, and a transaction executed against the version before it writes `p` in `tenant` and commits at epoch 40"
 )]
 fn build_then_write(w: &mut Steps) -> TestResult {
     let applier = applier()?;
@@ -768,12 +768,12 @@ fn build_then_write(w: &mut Steps) -> TestResult {
     let mut driver = Driver::new(&applier, unbounded());
     driver.step = CommitStep::new(unbounded(), applier.quads().lists().applied_ts())
         .with_delivered(epoch(38)?)
-        .with_catalog(&[catalog_of_ns(1)]);
+        .with_catalog(&[catalog_of_tenant(1)]);
     // The transaction executes against version 1, before the close of 39 announces version 2.
     let mut later = begin(&applier)?.with_catalog(1);
     write(&mut later, vec![insert_literal("c", "p", "pear")])?;
-    driver.close_with(39, vec![catalog_of_ns(2)], Vec::new())?;
-    let starting = crate::utils::fixture::term_version(NS, 2, "p");
+    driver.close_with(39, vec![catalog_of_tenant(2)], Vec::new())?;
+    let starting = crate::utils::fixture::term_version(TENANT, 2, "p");
     driver.submit(
         1,
         crate::utils::fixture::catalog_proposal(&applier, &starting)?,
@@ -808,10 +808,10 @@ fn committed_versions(replies: &[Reply]) -> Vec<u64> {
         .collect()
 }
 
-/// Version `version` of the catalog of `ns`, namespace 0.
-fn catalog_of_ns(version: u64) -> ultragraphdb_cluster_sequencer::CatalogVersion {
+/// Version `version` of the catalog of `tenant`, tenant 0.
+fn catalog_of_tenant(version: u64) -> ultragraphdb_cluster_sequencer::CatalogVersion {
     ultragraphdb_cluster_sequencer::CatalogVersion::new(
-        ultragraphdb_core_ids::Namespace::new(NS),
+        ultragraphdb_core_ids::Tenant::new(TENANT),
         version,
     )
 }
@@ -846,7 +846,7 @@ fn later_aborts(w: &mut Steps) -> TestResult {
 }
 
 #[when(
-    "a transaction executes against catalog version 2 of `ns`, and commits at an epoch from which version 3 is in effect"
+    "a transaction executes against catalog version 2 of `tenant`, and commits at an epoch from which version 3 is in effect"
 )]
 fn old_catalog(w: &mut Steps) -> TestResult {
     let applier = applier()?;
@@ -854,18 +854,18 @@ fn old_catalog(w: &mut Steps) -> TestResult {
     let mut driver = Driver::new(&applier, unbounded());
     driver.step = CommitStep::new(unbounded(), applier.quads().lists().applied_ts())
         .with_delivered(epoch(38)?)
-        .with_catalog(&[catalog_of_ns(2)]);
+        .with_catalog(&[catalog_of_tenant(2)]);
     let mut stale = begin(&applier)?.with_catalog(2);
     write(&mut stale, vec![insert_literal("c", "age", "old")])?;
     let integer = PredicateDeclaration::new(ex("age")).with_datatype(NamedNode::new_unchecked(
         "http://www.w3.org/2001/XMLSchema#integer",
     ));
     let three = ultragraphdb_core_catalog::CatalogContents::new(
-        NS,
+        TENANT,
         3,
         vec![Declaration::Predicate(integer)],
     );
-    driver.close_with(39, vec![catalog_of_ns(3)], Vec::new())?;
+    driver.close_with(39, vec![catalog_of_tenant(3)], Vec::new())?;
     driver.submit(
         1,
         crate::utils::fixture::catalog_proposal(&applier, &three)?,
@@ -951,8 +951,8 @@ fn during_build(w: &mut Steps) -> TestResult {
     let _version: u64 = setup(&applier, vec![insert_literal("a", "name", "apple")])?;
     let mut driver = Driver::new(&applier, unbounded());
     // The close of epoch 1 announces version 2, which takes effect at epoch 2 as the round installing it.
-    driver.close_with(1, vec![catalog_of_ns(2)], Vec::new())?;
-    let indexing = crate::utils::fixture::term_version(NS, 2, "name");
+    driver.close_with(1, vec![catalog_of_tenant(2)], Vec::new())?;
+    let indexing = crate::utils::fixture::term_version(TENANT, 2, "name");
     driver.submit(
         1,
         crate::utils::fixture::catalog_proposal(&applier, &indexing)?,
@@ -1334,7 +1334,7 @@ fn age_key(value: i64) -> TestResult<Vec<u8>> {
     let mut token = vec![u8::from(value >= 0)];
     token.extend_from_slice(&value.to_be_bytes());
     Ok(QuadKey::ValueIndex {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         predicate: crate::utils::proposal_double::id(3)?,
         tokenizer: 0x06,
@@ -1720,7 +1720,7 @@ fn owned_by(placement: &PlacementMap, partition: u32) -> TestResult<String> {
         let name = format!("s{i}");
         let iri = ex(&name);
         let key = CanonicalKey::iri(iri.as_str()).context("the key")?;
-        let bucket = Bucket::derive(Namespace::new(NS), TypePrefix::RESOURCE, &key);
+        let bucket = Bucket::derive(Tenant::new(TENANT), TypePrefix::RESOURCE, &key);
         if placement.partition_of(bucket, Epoch::ZERO).get() == partition {
             return Ok(name);
         }
@@ -1763,7 +1763,7 @@ fn second_partitions_reified_statement(w: &mut Steps) -> TestResult {
         }],
     )?;
     let key = QuadKey::Forward {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         predicate: id_of(&applier, "knows")?,
         subject: id_of(&applier, &other)?,
@@ -1775,7 +1775,7 @@ fn second_partitions_reified_statement(w: &mut Steps) -> TestResult {
         .first()
         .and_then(|(_, ids)| ids.first().copied())
         .context("the edge's statement ID")?;
-    let reifier = NamedNode::new(applier.quads().iri_of(NS, statement)?.0)?;
+    let reifier = NamedNode::new(applier.quads().iri_of(TENANT, statement)?.0)?;
     let mut txn = begin(&applier)?.bind(partition(1)?, &placement);
     w.refusal = txn
         .write(
@@ -1871,7 +1871,7 @@ async fn commit_concurrently(applier: &Applier, txns: Vec<Prepared>) -> TestResu
 fn statements_of(applier: &Applier, name: &str) -> TestResult<i64> {
     let Some(predicate) = applier
         .quads()
-        .id_of(NS, ex(name).as_str())
+        .id_of(TENANT, ex(name).as_str())
         .context("the dictionary reads")?
     else {
         return Ok(0);
@@ -1879,7 +1879,7 @@ fn statements_of(applier: &Applier, name: &str) -> TestResult<i64> {
     let watermark = applier.quads().lists().applied_ts();
     Ok(applier
         .quads()
-        .statistics(NS, DEFAULT_GRAPH, predicate, watermark)
+        .statistics(TENANT, DEFAULT_GRAPH, predicate, watermark)
         .context("the statistics read")?
         .statements())
 }
@@ -1899,7 +1899,7 @@ fn objects_of(applier: &Applier, key: &QuadKey) -> TestResult<Vec<EncodedTerm>> 
 /// The forward list of `subject`'s `<predicate>`.
 fn forward(applier: &Applier, subject: SystemId, predicate: &str) -> TestResult<QuadKey> {
     Ok(QuadKey::Forward {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         predicate: id_of(applier, predicate)?,
         subject,
@@ -1911,7 +1911,11 @@ fn node_terms(applier: &Applier, iri: &str, predicate: &str) -> TestResult<Vec<T
     let key = forward(applier, node_id(applier, iri)?, predicate)?;
     applier
         .quads()
-        .list_terms(NS, &key.to_bytes(), applier.quads().lists().applied_ts())
+        .list_terms(
+            TENANT,
+            &key.to_bytes(),
+            applier.quads().lists().applied_ts(),
+        )
         .context("the node reads")
 }
 
@@ -1919,7 +1923,7 @@ fn node_terms(applier: &Applier, iri: &str, predicate: &str) -> TestResult<Vec<T
 fn node_id(applier: &Applier, iri: &str) -> TestResult<SystemId> {
     applier
         .quads()
-        .id_of(NS, iri)
+        .id_of(TENANT, iri)
         .context("the dictionary reads")?
         .context("the node's IRI is known")
 }
@@ -2025,7 +2029,7 @@ async fn upsert_and_link_eight(w: &mut Steps) -> TestResult {
         })
         .collect::<TestResult<_>>()?;
     let reverse = QuadKey::Reverse {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         predicate: id_of(&applier, "HAS_ENTITY")?,
         object: EncodedTerm::id(node),
@@ -2291,7 +2295,7 @@ fn owning_value(applier: &Applier, value: &str) -> TestResult<PlacementMap> {
     let encoded = EncodedTerm::literal::<TestError>(literal.as_ref(), |_| {
         Err(TestError::new("a plain literal names no datatype"))
     })?;
-    let bucket = Bucket::of_value(Namespace::new(NS), predicate, encoded.term().as_bytes());
+    let bucket = Bucket::of_value(Tenant::new(TENANT), predicate, encoded.term().as_bytes());
     for partitions in 2..=16 {
         let placement = PlacementMap::even(partitions, NodeId::new(1)).context("the placement")?;
         if placement.partition_of(bucket, Epoch::ZERO).get() == 2 {
@@ -2813,8 +2817,16 @@ fn drop_of(
     session: u128,
     number: u64,
 ) -> TestResult<Prepared> {
-    Prepared::drop(applier, NS, request, session, number, 0, TxnBuffers::new())
-        .context("the drop prepares")
+    Prepared::drop(
+        applier,
+        TENANT,
+        request,
+        session,
+        number,
+        0,
+        TxnBuffers::new(),
+    )
+    .context("the drop prepares")
 }
 
 /// The drop of graph `<g>`.
@@ -2822,7 +2834,7 @@ fn graph_g(g: &NamedNode) -> DropRequest<'_> {
     DropRequest::Graph(oxrdf::GraphNameRef::NamedNode(g.as_ref()))
 }
 
-#[when("a client drops graph `g` of a namespace holding statements in `g` and in `h`")]
+#[when("a client drops graph `g` of a tenant holding statements in `g` and in `h`")]
 async fn drop_graph_g(w: &mut Steps) -> TestResult {
     let applier = graphs()?;
     let (_storage, log) = open_wal().await?;
@@ -2849,7 +2861,7 @@ fn graph_dropped(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[when("a client drops a namespace's data after declaring `name` a property")]
+#[when("a client drops a tenant's data after declaring `name` a property")]
 async fn drop_data(w: &mut Steps) -> TestResult {
     let applier = graphs()?;
     let (_storage, log) = open_wal().await?;
@@ -2863,12 +2875,12 @@ async fn drop_data(w: &mut Steps) -> TestResult {
         held_in(&applier, "h", "c")?,
         held(&applier, "e", "name")?,
     ];
-    let catalog = applier.catalog(NS).context("the catalog reads")?;
+    let catalog = applier.catalog(TENANT).context("the catalog reads")?;
     w.checks = vec![catalog.predicate(id_of(&applier, "name")?).is_some()];
     Ok(())
 }
 
-#[then("no statement of the namespace remains, and Describe still lists `name`")]
+#[then("no statement of the tenant remains, and Describe still lists `name`")]
 fn data_dropped(w: &mut Steps) -> TestResult {
     assert!(w.replies[0].outcome().is_ok(), "{:?}", w.replies);
     assert!(w.terms.iter().all(Vec::is_empty), "{:?}", w.terms);
@@ -3001,12 +3013,12 @@ async fn released_entry_replayed(w: &mut Steps) -> TestResult {
         later_made != t1_made,
         original
             .quads()
-            .id_of(NS, ex("made").as_str())
+            .id_of(TENANT, ex("made").as_str())
             .context("the dictionary reads")?
             .is_none(),
         replica
             .quads()
-            .id_of(NS, ex("made").as_str())
+            .id_of(TENANT, ex("made").as_str())
             .context("the dictionary reads")?
             .is_none(),
     ];
@@ -3096,7 +3108,7 @@ async fn replay_drop_pattern_session(w: &mut Steps) -> TestResult {
     pipe.sync(0).await?;
     let drop = Prepared::drop(
         &original,
-        NS,
+        TENANT,
         DropRequest::Predicate(ex("p").as_ref()),
         0,
         0,

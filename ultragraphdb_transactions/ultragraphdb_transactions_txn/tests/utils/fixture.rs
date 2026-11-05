@@ -29,8 +29,8 @@ pub type Applier =
 pub type Txn<'a> =
     Transaction<'a, SimStore, SimListCache<CachedList>, SteppedExecutor, TestBlockSource>;
 
-/// The namespace the tests write.
-pub const NS: u64 = 0;
+/// The tenant the tests write.
+pub const TENANT: u64 = 0;
 
 /// One second, in the microseconds a transaction's clock counts.
 pub const SECOND: u64 = 1_000_000;
@@ -89,11 +89,11 @@ pub fn insert_literal(subject: &str, predicate: &str, value: &str) -> Change {
     }
 }
 
-/// A changeset of `NS` holding `changes`.
+/// A changeset of `TENANT` holding `changes`.
 pub fn changeset(changes: Vec<Change>) -> Changeset {
     changes
         .into_iter()
-        .fold(Changeset::new(NS), |cs, change| cs.with(change))
+        .fold(Changeset::new(TENANT), |cs, change| cs.with(change))
 }
 
 /// Commits `changes` on their own, as an acknowledged commit: the watermark passes it. Its commit version.
@@ -109,14 +109,14 @@ pub fn store(applier: &Applier, changes: Vec<Change>) -> TestResult {
     commit(applier, changes).map(|_version| ())
 }
 
-/// Begins a transaction of `NS` at the watermark at time 0 with the default limits.
+/// Begins a transaction of `TENANT` at the watermark at time 0 with the default limits.
 pub fn begin(applier: &Applier, mode: Mode) -> TestResult<Txn<'_>> {
     begin_with(applier, mode, TxnLimits::default())
 }
 
-/// Begins a transaction of `NS` at the watermark at time 0 with `limits`.
+/// Begins a transaction of `TENANT` at the watermark at time 0 with `limits`.
 pub fn begin_with(applier: &Applier, mode: Mode, limits: TxnLimits) -> TestResult<Txn<'_>> {
-    Transaction::begin(applier, NS, mode, 0, 0, limits, TxnBuffers::new()).context("it begins")
+    Transaction::begin(applier, TENANT, mode, 0, 0, limits, TxnBuffers::new()).context("it begins")
 }
 
 /// The objects of `<subject> <predicate>` in the default graph that `txn` reads at `now_us`.

@@ -43,8 +43,8 @@ def relation(iri, roles):
     return bytes([2, 3]) + string(iri) + strings(roles)
 
 
-def contents(namespace, version, entries, fmt=1):
-    out = bytes([fmt]) + struct.pack(">QQI", namespace, version, len(entries))
+def contents(tenant, version, entries, fmt=1):
+    out = bytes([fmt]) + struct.pack(">QQI", tenant, version, len(entries))
     for e in entries:
         out += struct.pack(">I", len(e)) + e
     return out
@@ -52,13 +52,13 @@ def contents(namespace, version, entries, fmt=1):
 
 EX = "http://ex.org/"
 SEEDS = {
-    "empty_ns_0_version_1": contents(0, 1, []),
-    "edge_knows_ns_3_version_7": contents(3, 7, [predicate(EX + "knows", kind=0)]),
-    "indexed_name_ns_1_version_2": contents(1, 2, [predicate(EX + "name", kind=1, single=True,
+    "empty_tenant_0_version_1": contents(0, 1, []),
+    "edge_knows_tenant_3_version_7": contents(3, 7, [predicate(EX + "knows", kind=0)]),
+    "indexed_name_tenant_1_version_2": contents(1, 2, [predicate(EX + "name", kind=1, single=True,
                                                              datatype="http://www.w3.org/2001/XMLSchema#string",
                                                              unique=True, tokenizers=["exact", "term"], count=True,
                                                              domains=[EX + "Person"])]),
-    "every_kind_ns_0_version_9": contents(0, 9, [predicate(EX + "p"), entity_type(EX + "Employee", EX + "Person", True),
+    "every_kind_tenant_0_version_9": contents(0, 9, [predicate(EX + "p"), entity_type(EX + "Employee", EX + "Person", True),
                                                  relation(EX + "marriage", [EX + "a", EX + "b"])]),
     "malformed_format_2": contents(0, 1, [], fmt=2),
     "malformed_truncated": contents(0, 1, [predicate(EX + "p")])[:-3],

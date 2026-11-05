@@ -189,7 +189,7 @@ fn test_splits_must_ascend_from_the_first_start_and_stand_alone() -> TestResult 
 /// A forward key of the quad layout, whose literals sharing a fingerprint sort by their encodings.
 fn quad_key() -> TestResult<Vec<u8>> {
     Ok(QuadKey::Forward {
-        namespace: 0,
+        tenant: 0,
         graph: Graph::Default,
         predicate: id(7)?,
         subject: id(1)?,

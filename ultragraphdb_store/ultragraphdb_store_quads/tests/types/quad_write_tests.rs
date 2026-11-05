@@ -72,7 +72,7 @@ fn test_a_delete_removes_what_is_held_and_keeps_predicates_still_in_use() -> Tes
         store.list_terms(
             0,
             &QuadKey::SubjectPredicates {
-                namespace: 0,
+                tenant: 0,
                 graph: D,
                 subject,
             }
@@ -84,7 +84,7 @@ fn test_a_delete_removes_what_is_held_and_keeps_predicates_still_in_use() -> Tes
         store.list_terms(
             0,
             &QuadKey::ObjectPredicates {
-                namespace: 0,
+                tenant: 0,
                 graph: D,
                 object: object.clone(),
             }
@@ -382,7 +382,7 @@ fn test_subjects_read_the_reverse_list() -> TestResult {
     .into_term();
     assert!(fresh.subjects(D, knows, &vector)?.is_empty());
     assert_eq!(fresh.request().read_keys().count(), 0);
-    assert_eq!(QuadWrite::namespace(&fresh), 0);
+    assert_eq!(QuadWrite::tenant(&fresh), 0);
     Ok(())
 }
 
@@ -410,13 +410,13 @@ fn test_predicate_lists_name_what_the_write_sees_and_are_recorded_whole() -> Tes
     assert!(w.names_predicate(D, a, likes)?);
     assert!(w.points_with(D, &EncodedTerm::id(b), likes)?);
     let sp = QuadKey::SubjectPredicates {
-        namespace: 0,
+        tenant: 0,
         graph: D,
         subject: a,
     }
     .to_bytes();
     let op = QuadKey::ObjectPredicates {
-        namespace: 0,
+        tenant: 0,
         graph: D,
         object: EncodedTerm::id(b),
     }
@@ -436,7 +436,7 @@ fn test_ids_read_a_list_of_ids_whole_in_id_order() -> TestResult {
     )?;
     let (knows, z) = (id(&store, 0, &ex("knows"))?, id(&store, 0, &ex("z"))?);
     let reverse = QuadKey::Reverse {
-        namespace: 0,
+        tenant: 0,
         graph: D,
         predicate: knows,
         object: EncodedTerm::id(z),

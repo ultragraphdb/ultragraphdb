@@ -10,7 +10,8 @@ use ultragraphdb_tool_bdd::TestResult;
 use crate::utils::golden_roles::{golden_role, role_bytes};
 
 pub const O: &str = "http://ex.org/o";
-pub const BLANK: &str = "https://w3id.org/ultragraphdb/ns/namespace/0/.well-known/genid/00a001-0123456789abcdef0123456789";
+pub const BLANK: &str =
+    "https://w3id.org/ultragraphdb/ns/tenant/0/.well-known/genid/00a001-0123456789abcdef0123456789";
 
 /// The system ID laid out from section 1's table: type prefix, sequence, bucket, three zero bytes, big-endian.
 pub fn sid(prefix: u16, sequence: u64, bucket: u32) -> TestResult<SystemId> {

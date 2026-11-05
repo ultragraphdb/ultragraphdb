@@ -35,15 +35,15 @@ pub struct ConditionalWrite {
 }
 
 impl ConditionalWrite {
-    /// A ConditionalWrite of `changes` and `operations` naming `terms` in `namespace`, through no session, holding no
+    /// A ConditionalWrite of `changes` and `operations` naming `terms` in `tenant`, through no session, holding no
     /// token.
     pub fn new(
-        namespace: u64,
+        tenant: u64,
         terms: TermTable,
         changes: Vec<WriteChange>,
         operations: Vec<CommitOperation>,
     ) -> Self {
-        Self::from_parts(WriteHeader::new(namespace), terms, changes, operations)
+        Self::from_parts(WriteHeader::new(tenant), terms, changes, operations)
     }
 
     /// The write through `session` with the next `request` number of the session's counter, from 1; a session all zero
@@ -70,9 +70,9 @@ impl ConditionalWrite {
         self.header.request
     }
 
-    /// The namespace it acts in.
-    pub fn namespace(&self) -> u64 {
-        self.header.namespace
+    /// The tenant it acts in.
+    pub fn tenant(&self) -> u64 {
+        self.header.tenant
     }
 
     /// The session token the client holds; `None` for none.

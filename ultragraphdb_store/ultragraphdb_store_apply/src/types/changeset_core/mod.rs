@@ -134,34 +134,34 @@ where
     }
 
     /// The proposal of `end`, as [`crate::ChangesetApplier::prepare_build_end`] makes it: at the watermark, in the
-    /// build's namespace while it is held, else namespace 0, under the catalog that namespace holds, whose version
+    /// build's tenant while it is held, else tenant 0, under the catalog that tenant holds, whose version
     /// started the build.
     pub fn prepare_build_end(&self, end: BuildEnd) -> Result<Executed, ChangesetError> {
         let record = match end {
             BuildEnd::Swap(r) | BuildEnd::Undo(r) => r,
         };
         let held = lock(&self.rebuild).clone().filter(|r| r.record == record);
-        let namespace = held.as_ref().map_or(0, |r| r.namespace);
+        let tenant = held.as_ref().map_or(0, |r| r.tenant);
         let read_ts = self.quads.lists().applied_ts();
-        let catalog = (*self.catalog(namespace)?).clone();
+        let catalog = (*self.catalog(tenant)?).clone();
         // The end writes nothing of its own: its round swaps or undoes the build at its version, and replay derives
         // the build again from the catalog version its start record names.
-        Ok(Executed::ending(namespace, read_ts, catalog, end))
+        Ok(Executed::ending(tenant, read_ts, catalog, end))
     }
 
     pub fn quads(&self) -> &QuadStore<S, C, B> {
         &self.quads
     }
 
-    /// The catalog of `namespace` as the last commit left it, held in memory: loaded from the metadata group's version
-    /// at start ([`ChangesetCore::load_catalog`]), changed by the rounds since; an empty catalog for a namespace none
+    /// The catalog of `tenant` as the last commit left it, held in memory: loaded from the metadata group's version
+    /// at start ([`ChangesetCore::load_catalog`]), changed by the rounds since; an empty catalog for a tenant none
     /// was installed for, which its first write gives its initial catalog.
-    pub fn catalog(&self, namespace: u64) -> Result<Arc<Catalog>, ChangesetError> {
+    pub fn catalog(&self, tenant: u64) -> Result<Arc<Catalog>, ChangesetError> {
         let mut catalogs = lock(&self.catalogs);
         let catalog = catalogs
-            .entry(namespace)
-            .or_insert_with(|| Arc::new(Catalog::new(namespace)));
-        debug_assert_eq!(catalog.namespace(), namespace);
+            .entry(tenant)
+            .or_insert_with(|| Arc::new(Catalog::new(tenant)));
+        debug_assert_eq!(catalog.tenant(), tenant);
         Ok(catalog.clone())
     }
 
@@ -169,17 +169,17 @@ where
         lock(&self.catalogs).clear();
     }
 
-    /// Changes the catalog of `namespace` held in memory with `change`, as a drop or a build's end changes it outside
+    /// Changes the catalog of `tenant` held in memory with `change`, as a drop or a build's end changes it outside
     /// an execution's commit.
     pub(crate) fn set_catalog(
         &self,
-        namespace: u64,
+        tenant: u64,
         change: impl FnOnce(&mut Catalog) -> Result<(), ChangesetError>,
     ) -> Result<(), ChangesetError> {
-        let mut catalog = (*self.catalog(namespace)?).clone();
+        let mut catalog = (*self.catalog(tenant)?).clone();
         change(&mut catalog)?;
         let _previous: Option<Arc<Catalog>> =
-            lock(&self.catalogs).insert(namespace, Arc::new(catalog));
+            lock(&self.catalogs).insert(tenant, Arc::new(catalog));
         Ok(())
     }
 
@@ -197,7 +197,7 @@ where
     /// take, so executions run beside each other and beside a round being written.
     pub fn execute(&self, changeset: &Changeset) -> Result<Executed, ChangesetError> {
         let read_ts = self.quads.lists().applied_ts();
-        let mut execution = self.begin_execution(changeset.namespace(), read_ts)?;
+        let mut execution = self.begin_execution(changeset.tenant(), read_ts)?;
         match execution.apply(changeset) {
             Ok(()) => execution.finish(),
             Err(refused) => {
@@ -209,18 +209,18 @@ where
         }
     }
 
-    /// An execution in `namespace` reading at `read_ts`, as [`crate::ChangesetApplier::begin`] begins it: the build
+    /// An execution in `tenant` reading at `read_ts`, as [`crate::ChangesetApplier::begin`] begins it: the build
     /// running now and the catalog the last applied round left.
     pub fn begin_execution(
         &self,
-        namespace: u64,
+        tenant: u64,
         read_ts: u64,
     ) -> Result<Execution<'_, S, C, B>, ChangesetError> {
         let running = lock(&self.rebuild).clone();
-        let catalog = (*self.catalog(namespace)?).clone();
-        let write = QuadWrite::new(&self.quads, namespace, self.quads.lists().request(read_ts));
+        let catalog = (*self.catalog(tenant)?).clone();
+        let write = QuadWrite::new(&self.quads, tenant, self.quads.lists().request(read_ts));
         let cw = ChangesetWrite::new(write, catalog).under(running.as_ref(), running.is_some());
-        Ok(Execution::new(namespace, read_ts, cw))
+        Ok(Execution::new(tenant, read_ts, cw))
     }
 
     /// Applies `changeset` on its own, as [`crate::ChangesetApplier::apply`] does: executed and written as a round of
@@ -283,7 +283,7 @@ where
             .collect();
         let drops: Vec<(u64, u64, DropTarget)> = round
             .iter()
-            .filter_map(|(v, e)| e.dropped.map(|target| (*v, e.namespace, target)))
+            .filter_map(|(v, e)| e.dropped.map(|target| (*v, e.tenant, target)))
             .collect();
         // A build's end writes at its version once the batch is written, as a drop does.
         let ends: Vec<(u64, BuildEnd)> = round
@@ -300,8 +300,8 @@ where
         }
         let (removals, started, applied) = self.settle_round(round)?;
         self.drop_removed(&removals)?;
-        for &(version, namespace, target) in &drops {
-            let _dropped_at: u64 = self.drop_at(namespace, target, version)?;
+        for &(version, tenant, target) in &drops {
+            let _dropped_at: u64 = self.drop_at(tenant, target, version)?;
         }
         for &(version, end) in &ends {
             self.end_build(end, version)?;
@@ -392,7 +392,7 @@ impl<S, C, B> ChangesetCore<S, C, B> {
             (!held).then(|| {
                 let entry = encode_declaration(&Declaration::Predicate(default.clone()));
                 DefaultEntry::new(
-                    catalog.namespace(),
+                    catalog.tenant(),
                     default.predicate().as_str().to_string(),
                     entry,
                 )
@@ -411,7 +411,7 @@ impl<S, C, B> ChangesetCore<S, C, B> {
         let changed = executed.writes.written_keys().filter_map(|key| {
             let Ok((
                 QuadKey::Forward {
-                    namespace,
+                    tenant,
                     graph,
                     predicate,
                     subject,
@@ -425,7 +425,7 @@ impl<S, C, B> ChangesetCore<S, C, B> {
                 .catalog
                 .predicate(predicate)
                 .and_then(|d| d.vector_index())
-                .map(|_| ((namespace, predicate), (version, graph, subject)))
+                .map(|_| ((tenant, predicate), (version, graph, subject)))
         });
         let mut queues = None;
         for (queue, change) in changed {
@@ -450,8 +450,8 @@ impl<S, C, B> ChangesetCore<S, C, B> {
         changed: bool,
     ) -> Result<(), ChangesetError> {
         let mut catalogs = lock(&self.catalogs);
-        let namespace = catalog.namespace();
-        let installed = catalogs.get(&namespace);
+        let tenant = catalog.tenant();
+        let installed = catalogs.get(&tenant);
         self.ask_defaults(installed.map(|c| &**c), &catalog, defaults);
         let merged = match installed {
             None => catalog,
@@ -480,15 +480,15 @@ impl<S, C, B> ChangesetCore<S, C, B> {
                 merged
             }
         };
-        let _previous: Option<Arc<Catalog>> = catalogs.insert(namespace, Arc::new(merged));
+        let _previous: Option<Arc<Catalog>> = catalogs.insert(tenant, Arc::new(merged));
         Ok(())
     }
 }
 
-/// The read set of the write of namespace `namespace` that `request` and `terms` hold, with `points`, the keys besides
+/// The read set of the write of tenant `tenant` that `request` and `terms` hold, with `points`, the keys besides
 /// lists it read whole: the marks it read.
 pub(crate) fn reads_of<S, C>(
-    namespace: u64,
+    tenant: u64,
     request: &ultragraphdb_store_posting::Request<'_, S, C>,
     terms: &WriteTerms,
     points: &[Vec<u8>],
@@ -504,7 +504,7 @@ where
         lists.dedup();
     }
     Reads::new(
-        namespace,
+        tenant,
         lists,
         request
             .tested()

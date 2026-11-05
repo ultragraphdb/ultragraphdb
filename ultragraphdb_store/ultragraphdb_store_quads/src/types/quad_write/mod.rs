@@ -23,7 +23,7 @@ use crate::types::statistics::Statistics;
 use crate::types::write_terms::WriteTerms;
 use crate::utils::postings::{list_holds, object_posting, posting_object};
 
-/// One write to the quads of a namespace: a request of the posting lists, the terms it names and the statistics it
+/// One write to the quads of a tenant: a request of the posting lists, the terms it names and the statistics it
 /// changes. An insert writes the forward, reverse, subject-predicate and object-predicate lists without reading any,
 /// a vector naming no reverse or object-predicate list; a delete reads the subject's list, so that it removes what is
 /// held and keeps a predicate in the predicate lists while anything still holds it. [`QuadWrite::finish`] adds the
@@ -43,12 +43,12 @@ where
     C: ListCache<Value = CachedList>,
     B: BlockSource,
 {
-    /// A write of namespace `namespace` to `quads` through `request`, resolving no term yet.
-    pub fn new(quads: &'a QuadStore<S, C, B>, namespace: u64, request: Request<'a, S, C>) -> Self {
+    /// A write of tenant `tenant` to `quads` through `request`, resolving no term yet.
+    pub fn new(quads: &'a QuadStore<S, C, B>, tenant: u64, request: Request<'a, S, C>) -> Self {
         Self {
             quads,
             request,
-            terms: WriteTerms::new(namespace),
+            terms: WriteTerms::new(tenant),
             stats: BTreeMap::new(),
             inserted: BTreeSet::new(),
         }
@@ -100,9 +100,9 @@ where
         Ok(())
     }
 
-    /// The namespace the write writes.
-    pub fn namespace(&self) -> u64 {
-        self.terms.namespace()
+    /// The tenant the write writes.
+    pub fn tenant(&self) -> u64 {
+        self.terms.tenant()
     }
 
     /// The quad store the write writes to.
@@ -146,14 +146,14 @@ where
         self.request
             .get_from_delta(&forward)
             .add_posting(object_posting(object, SET, statement_ids, fp), false);
-        let ns = self.namespace();
+        let tenant = self.tenant();
         let predicate_posting = || {
             Posting::default()
                 .with_uid(predicate.to_u128())
                 .with_op(SET)
         };
         let subject_predicates = QuadKey::SubjectPredicates {
-            namespace: ns,
+            tenant,
             graph,
             subject,
         }
@@ -168,7 +168,7 @@ where
                 false,
             );
             let object_predicates = QuadKey::ObjectPredicates {
-                namespace: ns,
+                tenant,
                 graph,
                 object: object.clone(),
             }
@@ -281,7 +281,7 @@ where
         };
         if held.len() == 1 {
             let subject_predicates = QuadKey::SubjectPredicates {
-                namespace: self.namespace(),
+                tenant: self.tenant(),
                 graph,
                 subject,
             }
@@ -352,7 +352,7 @@ where
         predicate: SystemId,
     ) -> Result<bool, QuadError> {
         let key = QuadKey::SubjectPredicates {
-            namespace: self.namespace(),
+            tenant: self.tenant(),
             graph,
             subject,
         }
@@ -369,7 +369,7 @@ where
         predicate: SystemId,
     ) -> Result<bool, QuadError> {
         let key = QuadKey::ObjectPredicates {
-            namespace: self.namespace(),
+            tenant: self.tenant(),
             graph,
             object: object.clone(),
         }
@@ -422,7 +422,7 @@ where
         id: SystemId,
     ) -> Result<Option<StatementRecord>, QuadError> {
         self.quads
-            .statement(self.namespace(), graph, id, self.read_ts())
+            .statement(self.tenant(), graph, id, self.read_ts())
     }
 
     /// A new statement ID of `subject`, named by a new reifier, as [`WriteTerms::statement`] gives it.
@@ -433,11 +433,11 @@ where
 
     /// The request and the terms to commit it with, the statistics deltas added to the request.
     pub fn finish(mut self) -> (Request<'a, S, C>, WriteTerms) {
-        let ns = self.namespace();
+        let tenant = self.tenant();
         for ((graph, predicate), delta) in std::mem::take(&mut self.stats) {
             if !delta.is_empty() {
                 let key = QuadKey::Statistics {
-                    namespace: ns,
+                    tenant,
                     graph,
                     predicate,
                 }
@@ -457,7 +457,7 @@ where
 
     fn forward(&self, graph: Graph, predicate: SystemId, subject: SystemId) -> Vec<u8> {
         QuadKey::Forward {
-            namespace: self.namespace(),
+            tenant: self.tenant(),
             graph,
             predicate,
             subject,
@@ -467,7 +467,7 @@ where
 
     fn reverse(&self, graph: Graph, predicate: SystemId, object: &EncodedTerm) -> Vec<u8> {
         QuadKey::Reverse {
-            namespace: self.namespace(),
+            tenant: self.tenant(),
             graph,
             predicate,
             object: object.clone(),
@@ -477,7 +477,7 @@ where
 
     fn statement_key(&self, graph: Graph, id: SystemId) -> Vec<u8> {
         QuadKey::Statement {
-            namespace: self.namespace(),
+            tenant: self.tenant(),
             graph,
             statement: id,
         }
@@ -502,7 +502,7 @@ where
         let remaining = list.clone();
         if read_list(&remaining, &reverse)?.is_empty() {
             let object_predicates = QuadKey::ObjectPredicates {
-                namespace: self.namespace(),
+                tenant: self.tenant(),
                 graph,
                 object: object.clone(),
             }

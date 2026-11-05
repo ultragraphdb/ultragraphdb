@@ -10,7 +10,7 @@ use ultragraphdb_core_mapping::{Change, Declaration, PredicateKind};
 use ultragraphdb_store_apply::{Applied, ChangesetErrorEnum};
 
 use crate::utils::changesets::{
-    NS, TestChangesets, apply, changesets, declaration, declare, declared, insert, uid, write,
+    TENANT, TestChangesets, apply, changesets, declaration, declare, declared, insert, uid, write,
     write_changes,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
@@ -19,7 +19,7 @@ fn declared_now(
     a: &TestChangesets,
     predicate: &str,
 ) -> TestResult<Option<ultragraphdb_core_mapping::PredicateDeclaration>> {
-    Ok(a.catalog(NS)?.predicate(uid(a, predicate)?).cloned())
+    Ok(a.catalog(TENANT)?.predicate(uid(a, predicate)?).cloned())
 }
 
 #[test]

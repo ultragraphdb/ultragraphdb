@@ -12,8 +12,8 @@ use ultragraphdb_traits_store::Scan;
 
 use crate::types::scan_read::ScanRead;
 
-/// The bytes of a key's keyspace and namespace.
-const NAMESPACED: usize = 9;
+/// The bytes of a key's keyspace and tenant.
+const TENANTED: usize = 9;
 
 fn protocol(message: String) -> ErrorReply {
     ErrorReply::new(ErrorCode::Protocol, message)
@@ -21,7 +21,7 @@ fn protocol(message: String) -> ErrorReply {
 
 /// Each range of `scan`, its keys copied, checked in order against what the role address serves and what a range may read
 /// (`PROTOCOL.md` §13.13): partition `own`; a keyspace of lists, the dictionary or the referrer sets, no split part; a first
-/// key naming a namespace; a past key at most the first key past that namespace; one key alone in the dictionary.
+/// key naming a tenant; a past key at most the first key past that tenant; one key alone in the dictionary.
 ///
 /// # Errors
 ///
@@ -42,13 +42,13 @@ fn scan_read(index: usize, range: &ScanRange<'_>, own: u32) -> Result<ScanRead, 
     }
     let (first, past) = (range.first(), range.past());
     let keyspace = keyspace_of(first)?;
-    let namespace = first
-        .get(1..NAMESPACED)
+    let tenant = first
+        .get(1..TENANTED)
         .and_then(|bytes| <[u8; 8]>::try_from(bytes).ok())
         .map(u64::from_be_bytes)
         .ok_or_else(|| {
             protocol(format!(
-                "range {index}: its first key is too short to name a namespace"
+                "range {index}: its first key is too short to name a tenant"
             ))
         })?;
     if keyspace == Keyspace::Dictionary {
@@ -58,16 +58,16 @@ fn scan_read(index: usize, range: &ScanRange<'_>, own: u32) -> Result<ScanRead, 
             )));
         }
     } else {
-        let whole = Scan::prefix(key_prefix(keyspace, false, namespace, None, None));
+        let whole = Scan::prefix(key_prefix(keyspace, false, tenant, None, None));
         if !past.is_empty() && whole.end().is_some_and(|end| past > end) {
             return Err(protocol(format!(
-                "range {index}: its past key lies beyond its namespace"
+                "range {index}: its past key lies beyond its tenant"
             )));
         }
     }
     Ok(ScanRead {
         keyspace,
-        namespace,
+        tenant,
         first: first.to_vec(),
         past: (!past.is_empty()).then(|| past.to_vec()),
     })
@@ -114,7 +114,7 @@ pub(crate) fn scan_terms(scan: &ScanView<'_>) -> Result<Vec<NamedNode>, ErrorRep
         .collect()
 }
 
-/// `scan` against the transaction it names, `bound` (`PROTOCOL.md` §13.13): its version and principal, its namespace alone, no
+/// `scan` against the transaction it names, `bound` (`PROTOCOL.md` §13.13): its version and principal, its tenant alone, no
 /// referrer set, and its first ranges each holding one term's dictionary key alone.
 ///
 /// # Errors
@@ -140,11 +140,11 @@ pub(crate) fn check_bound(
         )));
     }
     for (index, read) in reads.iter().enumerate() {
-        if read.namespace != bound.namespace() {
+        if read.tenant != bound.tenant() {
             return Err(protocol(format!(
-                "range {index} reads namespace {}, the transaction's being {}",
-                read.namespace,
-                bound.namespace()
+                "range {index} reads tenant {}, the transaction's being {}",
+                read.tenant,
+                bound.tenant()
             )));
         }
         if read.keyspace == Keyspace::Referrers {
@@ -154,7 +154,7 @@ pub(crate) fn check_bound(
         }
     }
     for (index, term) in terms.iter().enumerate() {
-        let key = term_key(bound.namespace(), term.as_str());
+        let key = term_key(bound.tenant(), term.as_str());
         if reads.get(index).is_none_or(|read| read.first != key) {
             return Err(protocol(format!(
                 "range {index} does not hold the dictionary key of scan term {index}"

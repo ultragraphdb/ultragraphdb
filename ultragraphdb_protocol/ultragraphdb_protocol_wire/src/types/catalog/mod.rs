@@ -5,12 +5,12 @@
 
 mod catalog_body_builder;
 
-/// A namespace's catalog version from the metadata group (`PROTOCOL.md` §13.7): its number, the epoch it applies from and
+/// A tenant's catalog version from the metadata group (`PROTOCOL.md` §13.7): its number, the epoch it applies from and
 /// its bytes, carried opaque. A body with `position` 0 is a request.
 ///
 /// | Command header | Field | Type |
 /// |---|---|---|
-/// | 0 | `namespace` | u64 |
+/// | 0 | `tenant` | u64 |
 /// | 8 | `version` | u64: the catalog version, 0 in a request for the current one; at least 1 in a reply |
 /// | 16 | `epoch` | epoch: the epoch from which the version applies, 0 while it is pending; 0 in a request |
 /// | 24 | `position` | u64: the metadata group's log position the version was read at, from 1; 0 in a request |
@@ -20,7 +20,7 @@ mod catalog_body_builder;
 /// | 0 | the version's bytes; empty in a request |
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Catalog {
-    namespace: u64,
+    tenant: u64,
     version: u64,
     epoch: u64,
     position: u64,
@@ -28,10 +28,10 @@ pub struct Catalog {
 }
 
 impl Catalog {
-    /// A request for `namespace`'s catalog `version`, 0 for its current one.
-    pub fn request(namespace: u64, version: u64) -> Self {
+    /// A request for `tenant`'s catalog `version`, 0 for its current one.
+    pub fn request(tenant: u64, version: u64) -> Self {
         Self {
-            namespace,
+            tenant,
             version,
             epoch: 0,
             position: 0,
@@ -39,11 +39,11 @@ impl Catalog {
         }
     }
 
-    /// A reply: `namespace`'s catalog `version`, applying from `epoch` (0 while pending), read at `position`, holding
+    /// A reply: `tenant`'s catalog `version`, applying from `epoch` (0 while pending), read at `position`, holding
     /// `bytes`.
-    pub fn reply(namespace: u64, version: u64, epoch: u64, position: u64, bytes: Vec<u8>) -> Self {
+    pub fn reply(tenant: u64, version: u64, epoch: u64, position: u64, bytes: Vec<u8>) -> Self {
         Self {
-            namespace,
+            tenant,
             version,
             epoch,
             position,
@@ -51,9 +51,9 @@ impl Catalog {
         }
     }
 
-    /// The namespace.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// The catalog version; 0 in a request for the current one.

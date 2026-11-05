@@ -310,20 +310,20 @@ fn fmt_damage(error: &ClusterErrorEnum, f: &mut fmt::Formatter<'_>) -> fmt::Resu
 fn fmt_catalog(error: &ClusterErrorEnum, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match error {
         ClusterErrorEnum::StaleCatalog {
-            namespace,
+            tenant,
             predecessor,
             current,
         } => write!(
             f,
-            "a catalog version of namespace {namespace} built on version {predecessor}, while version {current} is its latest"
+            "a catalog version of tenant {tenant} built on version {predecessor}, while version {current} is its latest"
         ),
-        ClusterErrorEnum::NotPending { namespace, version } => write!(
+        ClusterErrorEnum::NotPending { tenant, version } => write!(
             f,
-            "a close announces version {version} of namespace {namespace}'s catalog, which is not pending"
+            "a close announces version {version} of tenant {tenant}'s catalog, which is not pending"
         ),
-        ClusterErrorEnum::CatalogReleased { namespace, epoch } => write!(
+        ClusterErrorEnum::CatalogReleased { tenant, epoch } => write!(
             f,
-            "the catalog version of namespace {namespace} in effect at epoch {epoch} is no longer retained"
+            "the catalog version of tenant {tenant} in effect at epoch {epoch} is no longer retained"
         ),
         ClusterErrorEnum::BlockSize { size, max } => write!(
             f,

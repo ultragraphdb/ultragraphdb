@@ -10,7 +10,7 @@ use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_mapping::{Cardinality, Change, Declaration, PredicateDeclaration};
 use ultragraphdb_transactions_txn::{ReadSet, TxnError, TxnErrorEnum};
 
-use crate::utils::fixture::{NS, Rng, applier, changeset, ex, insert, insert_literal, store};
+use crate::utils::fixture::{Rng, TENANT, applier, changeset, ex, insert, insert_literal, store};
 
 /// The bytes a fresh read set accounts for: nothing, since the catalog is read through its version.
 const CATALOG_BYTES: usize = 0;
@@ -54,7 +54,7 @@ fn test_a_reset_read_set_holds_nothing() -> TestResult {
     let mut r = ReadSet::new();
     r.push_list(b"before")?;
     r.reset(3, 40, 1_000);
-    assert_eq!((r.namespace(), r.read_version(), r.limit()), (3, 40, 1_000));
+    assert_eq!((r.tenant(), r.read_version(), r.limit()), (3, 40, 1_000));
     assert_eq!(r.bytes(), 0);
     assert!(lists(&r).is_empty() && statements(&r).is_empty());
     assert!(ranges(&r).is_empty() && absent(&r).is_empty());
@@ -66,7 +66,7 @@ fn test_a_new_read_set_is_bounded_by_the_default_and_empty() {
     let r = ReadSet::new();
     assert_eq!(r.limit(), 1_048_576);
     assert_eq!(r.bytes(), 0);
-    assert_eq!((r.namespace(), r.read_version()), (0, 0));
+    assert_eq!((r.tenant(), r.read_version()), (0, 0));
 }
 
 #[test]
@@ -83,7 +83,7 @@ fn test_an_absent_term_is_recorded_by_its_term_key() -> TestResult {
 #[test]
 fn test_each_push_is_accounted_as_its_bytes_and_8_per_key() -> TestResult {
     let mut r = ReadSet::new();
-    r.reset(NS, 1, 10_000);
+    r.reset(TENANT, 1, 10_000);
     r.push_list(b"list")?;
     assert_eq!(r.bytes(), CATALOG_BYTES + 4 + 8);
     r.push_statement(b"key", b"object")?;
@@ -102,7 +102,7 @@ fn test_a_push_at_the_limit_is_taken_and_one_past_it_is_refused_adding_nothing()
     // CATALOG_BYTES + 5 + 8: a five-byte key fills the limit exactly.
     let limit = CATALOG_BYTES + 13;
     let mut r = ReadSet::new();
-    r.reset(NS, 1, limit);
+    r.reset(TENANT, 1, limit);
     r.push_list(b"12345")?;
     assert_eq!(r.bytes(), limit);
     let refusals = [
@@ -130,7 +130,7 @@ fn test_a_push_at_the_limit_is_taken_and_one_past_it_is_refused_adding_nothing()
 fn test_one_byte_under_the_limit_refuses_a_key_one_byte_too_long() -> TestResult {
     let limit = CATALOG_BYTES + 12;
     let mut r = ReadSet::new();
-    r.reset(NS, 1, limit);
+    r.reset(TENANT, 1, limit);
     assert!(matches!(
         r.push_list(b"12345").err().context("the call fails")?.0,
         TxnErrorEnum::ReadSetTooLarge { size, limit: l } if size == limit + 1 && l == limit
@@ -143,7 +143,7 @@ fn test_one_byte_under_the_limit_refuses_a_key_one_byte_too_long() -> TestResult
 #[test]
 fn test_sealing_sorts_and_drops_duplicates() -> TestResult {
     let mut r = ReadSet::new();
-    r.reset(NS, 1, 10_000);
+    r.reset(TENANT, 1, 10_000);
     for key in [&b"b"[..], b"a", b"b", b"", b"ab"] {
         r.push_list(key)?;
     }
@@ -188,7 +188,7 @@ fn test_sealing_sorts_and_drops_duplicates() -> TestResult {
 #[test]
 fn test_before_sealing_the_tables_keep_push_order() -> TestResult {
     let mut r = ReadSet::new();
-    r.reset(NS, 1, 10_000);
+    r.reset(TENANT, 1, 10_000);
     r.push_list(b"b")?;
     r.push_list(b"a")?;
     r.push_list(b"b")?;
@@ -199,7 +199,7 @@ fn test_before_sealing_the_tables_keep_push_order() -> TestResult {
 #[test]
 fn test_a_push_after_sealing_unseals() -> TestResult {
     let mut r = ReadSet::new();
-    r.reset(NS, 1, 10_000);
+    r.reset(TENANT, 1, 10_000);
     r.push_list(b"b")?;
     r.seal();
     r.push_list(b"a")?;
@@ -212,7 +212,7 @@ fn test_a_push_after_sealing_unseals() -> TestResult {
 #[test]
 fn test_a_reset_clears_everything_and_unseals() -> TestResult {
     let mut r = ReadSet::new();
-    r.reset(NS, 1, 10_000);
+    r.reset(TENANT, 1, 10_000);
     r.push_list(b"a")?;
     r.push_statement(b"k", b"o")?;
     r.push_range(b"s", None)?;
@@ -223,7 +223,7 @@ fn test_a_reset_clears_everything_and_unseals() -> TestResult {
     assert_eq!(r.bytes(), CATALOG_BYTES);
     assert!(lists(&r).is_empty() && statements(&r).is_empty());
     assert!(ranges(&r).is_empty() && absent(&r).is_empty());
-    assert_eq!((r.namespace(), r.read_version()), (4, 9));
+    assert_eq!((r.tenant(), r.read_version()), (4, 9));
     Ok(())
 }
 
@@ -302,8 +302,8 @@ fn test_the_sealed_read_set_agrees_with_a_set_model_over_random_pushes() -> Test
         let mut rng = Rng::new(seed);
         // Small limits so refusals happen, large ones so they do not.
         let limit = CATALOG_BYTES + rng.below(400) as usize;
-        let ns = rng.below(4);
-        r.reset(ns, seed, limit);
+        let tenant = rng.below(4);
+        r.reset(tenant, seed, limit);
         let mut model = Model {
             bytes: CATALOG_BYTES,
             ..Model::default()
@@ -341,7 +341,7 @@ fn test_the_sealed_read_set_agrees_with_a_set_model_over_random_pushes() -> Test
             assert_eq!(r.bytes(), model.bytes, "seed {seed}");
         }
         r.seal();
-        assert_eq!(r.namespace(), ns);
+        assert_eq!(r.tenant(), tenant);
         assert_sealed_agrees(&r, &model, seed);
     }
     Ok(())
@@ -351,7 +351,7 @@ fn test_the_sealed_read_set_agrees_with_a_set_model_over_random_pushes() -> Test
 fn test_a_reused_read_set_keeps_its_capacity_and_grows_no_more_for_what_fits() -> TestResult {
     let mut r = ReadSet::new();
     let fill = |set: &mut ReadSet| -> TestResult {
-        set.reset(NS, 1, 1 << 20);
+        set.reset(TENANT, 1, 1 << 20);
         for i in 0u32..100 {
             set.push_list(&i.to_be_bytes())?;
             set.push_statement(&i.to_be_bytes(), b"object")?;
@@ -368,7 +368,7 @@ fn test_a_reused_read_set_keeps_its_capacity_and_grows_no_more_for_what_fits() -
         "{grown:?}"
     );
     for _ in 0..3 {
-        r.reset(NS, 2, 1 << 20);
+        r.reset(TENANT, 2, 1 << 20);
         assert_eq!(r.capacity(), grown, "a reset keeps the buffers");
         fill(&mut r)?;
         assert_eq!(r.capacity(), grown, "what fits takes no more room");
@@ -411,10 +411,10 @@ fn test_gathering_an_executions_reads_records_each_of_them() -> TestResult {
     let reads = executed.reads();
     assert!(!reads.statements().is_empty() && !reads.absent().is_empty());
     let mut r = ReadSet::new();
-    r.reset(NS, executed.read_ts(), 1 << 20);
+    r.reset(TENANT, executed.read_ts(), 1 << 20);
     r.gather(reads)?;
     // Gathering accounts as pushing each read one at a time does: a second path through the documented rule.
-    let mut oracle = pushed(reads, NS, executed.read_ts())?;
+    let mut oracle = pushed(reads, TENANT, executed.read_ts())?;
     assert_eq!(r.bytes(), oracle.bytes());
     assert!(r.bytes() > CATALOG_BYTES, "the reads are accounted");
     r.seal();
@@ -436,11 +436,11 @@ fn test_gathering_an_executions_reads_records_each_of_them() -> TestResult {
     // statements counted with two spans each.
     let needed = oracle.bytes();
     let mut at = ReadSet::new();
-    at.reset(NS, executed.read_ts(), needed);
+    at.reset(TENANT, executed.read_ts(), needed);
     assert_eq!(at.gather(reads), Ok(()));
     assert_eq!(at.bytes(), needed);
     let mut below = ReadSet::new();
-    below.reset(NS, executed.read_ts(), needed - 1);
+    below.reset(TENANT, executed.read_ts(), needed - 1);
     assert_eq!(
         below.gather(reads),
         Err(TxnError::read_set_too_large(needed, needed - 1))
@@ -449,11 +449,15 @@ fn test_gathering_an_executions_reads_records_each_of_them() -> TestResult {
     Ok(())
 }
 
-/// `reads` recorded one push at a time into a read set of `ns` at `version` with no effective bound: the oracle
+/// `reads` recorded one push at a time into a read set of `tenant` at `version` with no effective bound: the oracle
 /// `gather`, which reserves room for all of them at once, is checked against.
-fn pushed(reads: &ultragraphdb_store_apply::Reads, ns: u64, version: u64) -> TestResult<ReadSet> {
+fn pushed(
+    reads: &ultragraphdb_store_apply::Reads,
+    tenant: u64,
+    version: u64,
+) -> TestResult<ReadSet> {
     let mut r = ReadSet::new();
-    r.reset(ns, version, usize::MAX);
+    r.reset(tenant, version, usize::MAX);
     for key in reads.lists() {
         r.push_list(key)?;
     }
@@ -486,21 +490,21 @@ fn test_gathering_a_declarations_scan_records_its_ranges() -> TestResult {
         "the declaration scans its predicate's data"
     );
     let mut r = ReadSet::new();
-    r.reset(NS, executed.read_ts(), 1 << 20);
+    r.reset(TENANT, executed.read_ts(), 1 << 20);
     r.gather(reads)?;
     r.seal();
     let gathered: BTreeSet<_> = ranges(&r).into_iter().collect();
     let expected: BTreeSet<_> = reads.ranges().iter().cloned().collect();
     assert_eq!(gathered, expected);
     // A range names two keys, its end included: accounted as pushing each range does.
-    let needed = pushed(reads, NS, executed.read_ts())?.bytes();
+    let needed = pushed(reads, TENANT, executed.read_ts())?.bytes();
     assert_eq!(r.bytes(), needed);
     // The bound exactly, and one byte below it: each range's start and end are counted as their bytes.
     let mut at = ReadSet::new();
-    at.reset(NS, executed.read_ts(), needed);
+    at.reset(TENANT, executed.read_ts(), needed);
     assert_eq!(at.gather(reads), Ok(()));
     let mut below = ReadSet::new();
-    below.reset(NS, executed.read_ts(), needed - 1);
+    below.reset(TENANT, executed.read_ts(), needed - 1);
     assert_eq!(
         below.gather(reads),
         Err(TxnError::read_set_too_large(needed, needed - 1))
@@ -511,7 +515,7 @@ fn test_gathering_a_declarations_scan_records_its_ranges() -> TestResult {
 #[test]
 fn test_a_limit_past_u32_is_capped_where_spans_reach() {
     let mut r = ReadSet::new();
-    r.reset(NS, 1, usize::MAX);
+    r.reset(TENANT, 1, usize::MAX);
     assert_eq!(r.limit(), u32::MAX as usize);
 }
 
@@ -522,11 +526,11 @@ fn test_a_gather_past_the_limit_leaves_the_read_set_as_it_was() -> TestResult {
         .execute(&changeset(vec![insert("a", "knows", "b")]))
         .context("executed")?;
     let mut r = ReadSet::new();
-    r.reset(NS, 1, CATALOG_BYTES + 20);
+    r.reset(TENANT, 1, CATALOG_BYTES + 20);
     r.push_list(b"before")?;
     let error = r.gather(executed.reads()).err().context("the call fails")?;
     // The size refused: the 14 bytes of "before" and its span, and everything the reads add, as pushing them would.
-    let added = pushed(executed.reads(), NS, 1)?.bytes() - CATALOG_BYTES;
+    let added = pushed(executed.reads(), TENANT, 1)?.bytes() - CATALOG_BYTES;
     assert!(added > 6, "the reads take more than the 6 bytes left");
     assert_eq!(
         error,

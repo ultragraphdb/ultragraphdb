@@ -16,7 +16,7 @@ fn test_the_golden_drop_reads_its_values() -> TestResult {
     let bytes = golden("drop")?.bytes()?;
     let view = DropCommandView::from_frame(&frame_of(&bytes)?)?;
     assert_eq!(view.kind(), DropKind::Graph);
-    assert_eq!(view.namespace(), 3);
+    assert_eq!(view.tenant(), 3);
     assert_eq!(view.target(), Some("http://ex.org/g"));
     assert_eq!(
         (view.session(), view.request(), view.commit_version()),
@@ -53,7 +53,7 @@ fn refused(change: impl FnOnce(&mut [u8])) -> TestResult<ProtocolErrorEnum> {
 }
 
 #[test]
-fn test_unused_bytes_kind_and_namespace_are_checked_in_order() -> TestResult {
+fn test_unused_bytes_kind_and_tenant_are_checked_in_order() -> TestResult {
     for at in [1usize, 7, 72, 127] {
         assert_eq!(
             refused(|h| {
@@ -73,7 +73,7 @@ fn test_unused_bytes_kind_and_namespace_are_checked_in_order() -> TestResult {
             }
         );
     }
-    // Every namespace is named by no namespace.
+    // Every tenant is named by no tenant.
     let all = DropCommand::all().frame(golden("drop")?.header())?;
     let named = with_command_header(&all, |h| put(h, 8, 3, 8));
     assert_eq!(
@@ -83,7 +83,7 @@ fn test_unused_bytes_kind_and_namespace_are_checked_in_order() -> TestResult {
             .0,
         ProtocolErrorEnum::FieldValue {
             command: 19,
-            field: "namespace",
+            field: "tenant",
             value: 3
         }
     );
@@ -142,7 +142,7 @@ fn test_the_request_lies_between_the_unused_bytes_and_the_kind() -> TestResult {
 
 #[test]
 fn test_a_predicate_and_a_graph_name_one_iri_and_the_others_none() -> TestResult {
-    // A namespace's data drop under the golden graph drop's term table: one term too many.
+    // A tenant's data drop under the golden graph drop's term table: one term too many.
     assert_eq!(
         refused(|h| h[0] = 3)?,
         ProtocolErrorEnum::CountMismatch {
@@ -153,7 +153,7 @@ fn test_a_predicate_and_a_graph_name_one_iri_and_the_others_none() -> TestResult
         }
     );
     // A graph drop with no term.
-    let data = DropCommand::namespace_data(3).frame(golden("drop")?.header())?;
+    let data = DropCommand::tenant_data(3).frame(golden("drop")?.header())?;
     let graph = with_command_header(&data, |h| h[0] = 2);
     assert_eq!(
         DropCommandView::from_frame(&frame_of(&graph)?)
@@ -200,8 +200,8 @@ fn test_a_predicate_and_a_graph_name_one_iri_and_the_others_none() -> TestResult
     // Each kind round-trips through its view.
     for command in [
         DropCommand::predicate(1, "http://ex.org/p").with_session([2; 16], 3),
-        DropCommand::namespace_data(4),
-        DropCommand::whole_namespace(5),
+        DropCommand::tenant_data(4),
+        DropCommand::whole_tenant(5),
         golden_drop_reply()?,
     ] {
         let bytes = command.frame(golden("drop")?.header())?;

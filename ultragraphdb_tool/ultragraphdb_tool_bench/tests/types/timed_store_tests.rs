@@ -83,10 +83,10 @@ fn versions(store: &TimedStore, key: &[u8]) -> TestResult<Vec<u64>> {
         .collect::<Result<_, _>>()?)
 }
 
-/// A key of namespace `ns`: a prefix byte, the namespace's eight big-endian bytes, then one byte more.
-fn namespaced(ns: u64) -> Vec<u8> {
+/// A key of tenant `tenant`: a prefix byte, the tenant's eight big-endian bytes, then one byte more.
+fn tenanted(tenant: u64) -> Vec<u8> {
     let mut key = vec![0u8];
-    key.extend_from_slice(&ns.to_be_bytes());
+    key.extend_from_slice(&tenant.to_be_bytes());
     key.push(b'k');
     key
 }
@@ -99,7 +99,7 @@ fn test_the_store_calls_reach_the_store_beneath() -> TestResult {
     batch.push(Entry::put(b"a".to_vec(), 4, 0, b"w".to_vec()).with_discard());
     batch.push(Entry::deletion(b"d".to_vec(), 2));
     batch.push(Entry::put(b"p1".to_vec(), 3, 0, b"v".to_vec()));
-    batch.push(Entry::put(namespaced(5), 3, 0, b"v".to_vec()));
+    batch.push(Entry::put(tenanted(5), 3, 0, b"v".to_vec()));
     batch.put_versionless(b"k".to_vec(), b"kv".to_vec());
     batch.set_applied_ts(4);
     store.apply(batch, PersistMode::Buffer)?;
@@ -110,10 +110,10 @@ fn test_the_store_calls_reach_the_store_beneath() -> TestResult {
         Some(b"kv".to_vec())
     );
 
-    // A ban hides the namespace's keys from later snapshots.
-    assert!(store.get_at(&namespaced(5), 9)?.is_some());
-    store.ban_namespace(5)?;
-    assert_eq!(store.get_at(&namespaced(5), 9)?, None);
+    // A ban hides the tenant's keys from later snapshots.
+    assert!(store.get_at(&tenanted(5), 9)?.is_some());
+    store.ban_tenant(5)?;
+    assert_eq!(store.get_at(&tenanted(5), 9)?, None);
 
     // A prefix drop removes every version under it and writes its entries.
     store.drop_prefixes(

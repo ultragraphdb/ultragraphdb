@@ -10,8 +10,8 @@ Feature: Quad key encoding
   Rule: Keys parse back into their parts
 
     Scenario: A forward key round-trips
-      When a forward key for namespace 133, the default graph, the predicate with ID (type 1, bucket 7, sequence 7) and the subject with ID (type 1, bucket 42, sequence 42) is parsed
-      Then the result is a forward key with namespace 133, the default graph, and those predicate and subject IDs
+      When a forward key for tenant 133, the default graph, the predicate with ID (type 1, bucket 7, sequence 7) and the subject with ID (type 1, bucket 42, sequence 42) is parsed
+      Then the result is a forward key with tenant 133, the default graph, and those predicate and subject IDs
 
     Scenario: An invalid subject ID is refused
       When a forward key carrying a subject ID whose sequence is 0 is parsed
@@ -22,12 +22,12 @@ Feature: Quad key encoding
       Then the parsed object decodes to `"Ann"@en`, and the key ends with the object's encoding
 
     Scenario: A mark key round-trips and stays apart from object predicates
-      When a mark key for namespace 7, the entity with ID (type 1, bucket 42, sequence 9) and bucket group 0x2_ABCD is built and parsed, and the object-predicates keys of the graph with that same ID are scanned by prefix
-      Then the parse returns the marks keyspace, namespace 7, that ID and group 0x2_ABCD from the bytes `02 AB CD`, and the prefix scan returns no mark key
+      When a mark key for tenant 7, the entity with ID (type 1, bucket 42, sequence 9) and bucket group 0x2_ABCD is built and parsed, and the object-predicates keys of the graph with that same ID are scanned by prefix
+      Then the parse returns the marks keyspace, tenant 7, that ID and group 0x2_ABCD from the bytes `02 AB CD`, and the prefix scan returns no mark key
 
     Scenario: A referrer key round-trips
-      When a referrer key for namespace 7 and the entity with ID (type 1, bucket 42, sequence 9) is built and parsed
-      Then the parse returns the referrers keyspace, namespace 7 and that entity's ID
+      When a referrer key for tenant 7 and the entity with ID (type 1, bucket 42, sequence 9) is built and parsed
+      Then the parse returns the referrers keyspace, tenant 7 and that entity's ID
 
   Rule: Split keys address the parts of a split posting list
 

@@ -49,10 +49,10 @@ where
                 continue;
             }
             let epoch = Version::from_u64(*version).epoch();
-            let namespace = executed.namespace;
+            let tenant = executed.tenant;
             changed.clear();
             for &(entity, group) in &executed.referrers {
-                let set = self.held_set(&mut sets, namespace, entity, read_ts)?;
+                let set = self.held_set(&mut sets, tenant, entity, read_ts)?;
                 if set.member(group).is_none() {
                     set.set(group, NonZeroU64::MIN, epoch);
                     if !changed.contains(&entity) {
@@ -61,37 +61,37 @@ where
                 }
             }
             if let Some((entity, group, generation)) = executed.registration {
-                self.held_set(&mut sets, namespace, entity, read_ts)?
+                self.held_set(&mut sets, tenant, entity, read_ts)?
                     .set(group, generation, epoch);
                 if !changed.contains(&entity) {
                     changed.push(entity);
                 }
             }
             for &entity in &changed {
-                let Some(set) = sets.get(&(namespace, entity)) else {
+                let Some(set) = sets.get(&(tenant, entity)) else {
                     continue;
                 };
                 let mut value = Vec::new();
                 set.encode(&mut value);
-                let key = QuadKey::Referrers { namespace, entity }.to_bytes();
+                let key = QuadKey::Referrers { tenant, entity }.to_bytes();
                 executed.writes.add_entry(Entry::put(key, 0, 0, value));
             }
         }
         Ok(())
     }
 
-    /// The referrer set of `entity` in `namespace` as the round has left it so far: read at `read_ts` the first time.
+    /// The referrer set of `entity` in `tenant` as the round has left it so far: read at `read_ts` the first time.
     fn held_set<'s>(
         &self,
         sets: &'s mut BTreeMap<(u64, SystemId), ReferrerSet>,
-        namespace: u64,
+        tenant: u64,
         entity: SystemId,
         read_ts: u64,
     ) -> Result<&'s mut ReferrerSet, ChangesetError> {
-        Ok(match sets.entry((namespace, entity)) {
+        Ok(match sets.entry((tenant, entity)) {
             MapEntry::Occupied(held) => held.into_mut(),
             MapEntry::Vacant(vacant) => {
-                vacant.insert(self.quads.referrers(namespace, entity, read_ts)?)
+                vacant.insert(self.quads.referrers(tenant, entity, read_ts)?)
             }
         })
     }

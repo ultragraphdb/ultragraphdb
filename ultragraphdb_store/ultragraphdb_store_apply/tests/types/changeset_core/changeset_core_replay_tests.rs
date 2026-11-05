@@ -15,7 +15,7 @@ use ultragraphdb_store_apply::{Applied, ChangesetErrorEnum, Executed, RecordWrit
 use ultragraphdb_traits_store::{Store, VersionlessEntry};
 
 use crate::utils::changesets::{
-    NS, TestChangesets, changeset, changesets, changesets_over, declaration, declare, ex,
+    TENANT, TestChangesets, changeset, changesets, changesets_over, declaration, declare, ex,
     finish_builds, indexed, insert, term_token, uid, write,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
@@ -143,7 +143,7 @@ fn test_a_replayed_execution_writes_what_the_original_wrote() -> TestResult {
     let replayed: Vec<(u64, Executed)> = parts
         .iter()
         .zip([version, version + 2])
-        .map(|(s, v)| Ok((v, replica.prepare_replay(NS, record_writes(s))?)))
+        .map(|(s, v)| Ok((v, replica.prepare_replay(TENANT, record_writes(s))?)))
         .collect::<TestResult<_>>()?;
     let _replayed: Vec<Applied> = replica.apply_round(replayed)?;
     replica.forget_catalogs();
@@ -166,12 +166,12 @@ fn test_a_replayed_drop_drops_its_predicate_at_its_version() -> TestResult {
     let p = uid(&original, "p")?;
     let version = next_version(&original);
     let drop = original.prepare_drop(
-        NS,
+        TENANT,
         ultragraphdb_store_apply::DropRequest::Predicate(ex("p").as_ref()),
     )?;
     let _applied: Vec<Applied> = original.apply_round(vec![(version, drop)])?;
-    let replayed =
-        replica.prepare_replayed_drop(NS, ultragraphdb_store_apply::DropTarget::Predicate(p))?;
+    let replayed = replica
+        .prepare_replayed_drop(TENANT, ultragraphdb_store_apply::DropTarget::Predicate(p))?;
     assert!(replayed.is_drop());
     let _replayed: Vec<Applied> = replica.apply_round(vec![(version, replayed)])?;
     replica.forget_catalogs();
@@ -179,13 +179,13 @@ fn test_a_replayed_drop_drops_its_predicate_at_its_version() -> TestResult {
     Ok(())
 }
 
-/// The version `version` of the root namespace's catalog declaring `name` as `phrase`, or nothing for `None`.
+/// The version `version` of the root tenant's catalog declaring `name` as `phrase`, or nothing for `None`.
 fn name_version(phrase: Option<&str>) -> TestResult<CatalogContents> {
     let declarations = match phrase {
         Some(p) => vec![Declaration::Predicate(declaration("name", p)?)],
         None => Vec::new(),
     };
-    Ok(CatalogContents::new(NS, 2, declarations))
+    Ok(CatalogContents::new(TENANT, 2, declarations))
 }
 
 /// A build in flight when the node stopped, its swap never applied: the reopened partition loads the version declaring
@@ -212,7 +212,7 @@ fn test_a_build_in_flight_at_a_restart_is_built_again_from_its_version() -> Test
         vec![uid(&b, "a")?]
     );
     assert_eq!(
-        b.catalog(NS)?
+        b.catalog(TENANT)?
             .predicate(uid(&b, "name")?)
             .context("the predicate is declared")?
             .tokenizers(),
@@ -247,7 +247,7 @@ fn test_a_restoring_version_loaded_after_a_restart_removes_the_built_index() -> 
         indexed(&b, "name", &term_token("pear"))?.is_empty(),
         "removed"
     );
-    assert!(b.catalog(NS)?.predicate(uid(&b, "name")?).is_none());
+    assert!(b.catalog(TENANT)?.predicate(uid(&b, "name")?).is_none());
     assert!(b.quads().store().rebuild_records()?.is_empty());
     Ok(())
 }
@@ -263,7 +263,7 @@ fn test_a_build_whose_predicate_was_dropped_is_not_built_again() -> TestResult {
     let _end = a.take_build_end().context("a build ended")?;
     let version = next_version(&a);
     let dropping = a.prepare_drop(
-        NS,
+        TENANT,
         ultragraphdb_store_apply::DropRequest::Predicate(ex("name").as_ref()),
     )?;
     let _applied: Vec<Applied> = a.apply_round(vec![(version, dropping)])?;
@@ -284,7 +284,7 @@ fn test_a_replayed_list_delta_that_is_no_posting_list_is_refused_naming_its_key(
     let a = changesets()?;
     write(&a, &["<a> <knows> <b>"])?;
     let key = ultragraphdb_core_keys::QuadKey::Forward {
-        namespace: NS,
+        tenant: TENANT,
         graph: ultragraphdb_core_keys::DEFAULT_GRAPH,
         predicate: uid(&a, "knows")?,
         subject: uid(&a, "a")?,
@@ -297,9 +297,9 @@ fn test_a_replayed_list_delta_that_is_no_posting_list_is_refused_naming_its_key(
         Vec::new(),
     );
     let refused = a
-        .prepare_replay(NS, record)
+        .prepare_replay(TENANT, record)
         .err()
-        .context("the error of a.prepare_replay(NS, record)")?;
+        .context("the error of a.prepare_replay(TENANT, record)")?;
     assert_eq!(
         refused.0,
         ChangesetErrorEnum::Store(StoreError::corrupted(
@@ -328,7 +328,7 @@ fn test_a_replayed_record_writes_and_removes_statement_records() -> TestResult {
     );
     let version = next_version(&original);
     let _applied: Vec<Applied> = original.apply_round(vec![(version, inserted)])?;
-    let replayed = replica.prepare_replay(NS, record_writes(&first))?;
+    let replayed = replica.prepare_replay(TENANT, record_writes(&first))?;
     let _replayed: Vec<Applied> = replica.apply_round(vec![(version, replayed)])?;
     assert_eq!(stored(&replica), stored(&original), "after the insert");
 
@@ -343,7 +343,7 @@ fn test_a_replayed_record_writes_and_removes_statement_records() -> TestResult {
     );
     let delete_version = next_version(&original);
     let _deleted: Vec<Applied> = original.apply_round(vec![(delete_version, deleted)])?;
-    let replayed_delete = replica.prepare_replay(NS, record_writes(&second))?;
+    let replayed_delete = replica.prepare_replay(TENANT, record_writes(&second))?;
     let _replayed_delete: Vec<Applied> =
         replica.apply_round(vec![(delete_version, replayed_delete)])?;
     assert_eq!(stored(&replica), stored(&original), "after the delete");

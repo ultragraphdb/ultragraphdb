@@ -9,7 +9,7 @@ use ultragraphdb_core_terms::Hash128;
 use ultragraphdb_store_quads::{CONTRACT_KEY, id_key, literal_key, term_key};
 use ultragraphdb_tool_bdd::TestResult;
 
-/// The dictionary keyspace's byte, 0x1B, and namespace 7 as 8 big-endian bytes, from the layout.
+/// The dictionary keyspace's byte, 0x1B, and tenant 7 as 8 big-endian bytes, from the layout.
 const PREFIX: [u8; 9] = [0x1B, 0, 0, 0, 0, 0, 0, 0, 7];
 
 #[test]
@@ -53,7 +53,7 @@ fn test_a_literals_key_is_kind_3_and_its_hash() {
 }
 
 #[test]
-fn test_dictionary_keys_parse_as_dictionary_keys_of_their_namespaces_region() -> TestResult {
+fn test_dictionary_keys_parse_as_dictionary_keys_of_their_tenants_region() -> TestResult {
     let id = SystemId::new(TypePrefix::RESOURCE, Bucket::new(1)?, Sequence::new(1)?);
     let keys = [
         term_key(7, "x"),
@@ -67,18 +67,12 @@ fn test_dictionary_keys_parse_as_dictionary_keys_of_their_namespaces_region() ->
     ];
     for (key, entry) in keys.iter().zip(entries) {
         let (parsed, split) = QuadKey::parse(key)?;
-        assert_eq!(
-            parsed,
-            QuadKey::Dictionary {
-                namespace: 7,
-                entry
-            }
-        );
+        assert_eq!(parsed, QuadKey::Dictionary { tenant: 7, entry });
         assert_eq!(split, None);
         assert_eq!(
             Region::of(key)?,
             Region::of(&keys[0])?,
-            "one region per namespace"
+            "one region per tenant"
         );
     }
     assert_ne!(Region::of(&term_key(8, "x"))?, Region::of(&keys[0])?);
@@ -86,7 +80,7 @@ fn test_dictionary_keys_parse_as_dictionary_keys_of_their_namespaces_region() ->
 }
 
 #[test]
-fn test_the_contract_key_lies_in_no_namespace() {
+fn test_the_contract_key_lies_in_no_tenant() {
     assert_eq!(CONTRACT_KEY.first(), Some(&0xFF));
     assert!(QuadKey::parse(CONTRACT_KEY).is_err());
 }

@@ -34,9 +34,9 @@ impl<'a> ConditionalWriteView<'a> {
         self.header.request
     }
 
-    /// The namespace it acts in.
-    pub fn namespace(&self) -> u64 {
-        self.header.namespace
+    /// The tenant it acts in.
+    pub fn tenant(&self) -> u64 {
+        self.header.tenant
     }
 
     /// The session token the client holds; `None` for none.

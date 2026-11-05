@@ -55,7 +55,7 @@ The system ID, type prefixes and the state machine that hands both out, decided 
 5.5's change before anything builds on them.
 
 - The system ID is 128 bits: from the most significant bit, a 16-bit type prefix, a 64-bit sequence unique per type
-  and leased per (type, partition), a 24-bit bucket (8 bits from the namespace, 16 from the declaring type and key),
+  and leased per (type, partition), a 24-bit bucket (8 bits from the tenant, 16 from the declaring type and key),
   and 24 reserved bits (D1 as revised 2026-11-01; Shard-per-Core note, P7, P15, P16; field order by P24 rule 1,
   2026-11-02). A bucket is a virtual partition the placement map assigns to
   a replica group, so rebalancing never changes an ID.
@@ -370,7 +370,7 @@ the node SHALL shut down and exit with code 1, so recovery starts from the log a
 ### Requirement: Reads match quad patterns in their transaction
 A Read or an Execute SHALL return every statement of its transaction's snapshot that its pattern matches, in the order
 of its access path, with a read-write transaction's own writes and with its reads recorded for validation; an unbound
-graph slot SHALL match in every graph of the namespace. A limit SHALL end the read with a resume key that continues it
+graph slot SHALL match in every graph of the tenant. A limit SHALL end the read with a resume key that continues it
 without repeating or skipping a row.
 
 #### Scenario: A resumed read neither repeats nor skips
@@ -461,7 +461,7 @@ From the change's `wire-protocol` spec, the scenarios that need a server answeri
 #### From the requirement "Requests name terms by their text" (`wire-protocol`)
 
 #### Scenario: A skolem IRI no blank node holds is refused
-- **WHEN** a request names an IRI under the namespace's `.well-known/genid/` base that the dictionary does not hold as a
+- **WHEN** a request names an IRI under the tenant's `.well-known/genid/` base that the dictionary does not hold as a
   blank node's skolem IRI
 - **THEN** the request is refused with code 7, `detail` the term's index
 
@@ -524,7 +524,7 @@ does not hold matches nothing, recorded as an absent term. Then one access path 
 | S O | as S, each list tested for O | predicate |
 | none | the forward keyspace of G | predicate, subject, postings |
 
-A bound graph or the default graph names one graph; an unbound graph slot skip-scans the namespace's graphs, as the
+A bound graph or the default graph names one graph; an unbound graph slot skip-scans the tenant's graphs, as the
 stage-4 drops do (one seek per graph). A vector is never a bound object: the reverse keyspace holds none (stage 4), so
 a pattern binding one is refused with code 7.
 
@@ -765,7 +765,7 @@ table, and checks its invariants through `ultragraphdb_error_invariant`. The des
   2026-10-27); result batches from rows, texts and skolem flags looked up once per batch, 4,096 rows or `max_frame`
   per batch; the error table; the authenticator over the principals' `Credentials`, throttling and the audit events
 - [ ] 10.3 Phases 1–3, the pattern engine (`ultragraphdb_transactions_txn`): `Transaction::match_into` over the access
-  paths of *Reads*, an unbound graph skip-scanning the namespace's graphs, resume keys checked against the path, a
+  paths of *Reads*, an unbound graph skip-scanning the tenant's graphs, resume keys checked against the path, a
   read-write transaction's matches recorded in its read set and its own writes seen
 - [ ] 10.4 Phases 1–3, the commit step's new work (`ultragraphdb_transactions_commit`, `_txn`,
   `ultragraphdb_store_apply`, `ultragraphdb_transactions_log`): `Input::CreatePrincipal` and its replay; the vector

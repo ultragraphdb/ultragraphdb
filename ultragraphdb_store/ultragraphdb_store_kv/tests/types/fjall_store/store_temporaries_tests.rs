@@ -14,7 +14,7 @@ use ultragraphdb_traits_store::{
 };
 
 use ultragraphdb_tool_bdd::{Context, TestResult};
-use ultragraphdb_tool_test::{TestDir, ns_key, put, write};
+use ultragraphdb_tool_test::{TestDir, put, tenant_key, write};
 
 fn batch(entries: Vec<Entry>) -> WriteBatch {
     let mut batch = WriteBatch::new();
@@ -39,7 +39,7 @@ fn temporary_keyspaces(dir: &TestDir) -> TestResult<Vec<String>> {
 fn test_a_temporary_keyspace_holds_its_versions_apart_from_the_data() -> TestResult {
     let dir = TestDir::new("temp-apart");
     let s = dir.open()?;
-    let k = ns_key(0, b"k");
+    let k = tenant_key(0, b"k");
     write(&s, vec![put(&k, 3, b"data")])?;
     let t = s.create_temporary()?;
     s.apply_temporary(
@@ -47,8 +47,8 @@ fn test_a_temporary_keyspace_holds_its_versions_apart_from_the_data() -> TestRes
         batch(vec![
             put(&k, 1, b"one"),
             put(&k, 2, b"two"),
-            put(&ns_key(0, b"m"), 9, b"m"),
-            Entry::deletion(ns_key(0, b"gone"), 4),
+            put(&tenant_key(0, b"m"), 9, b"m"),
+            Entry::deletion(tenant_key(0, b"gone"), 4),
         ]),
     )?;
     let snapshot = s.temporary_snapshot(&t)?;
@@ -62,10 +62,10 @@ fn test_a_temporary_keyspace_holds_its_versions_apart_from_the_data() -> TestRes
         .scan(&Scan::prefix(vec![0x00]))
         .map(|i| i.map(|i| i.key().to_vec()))
         .collect::<Result<_, _>>()?;
-    assert_eq!(keys, [k.clone(), ns_key(0, b"m")]);
+    assert_eq!(keys, [k.clone(), tenant_key(0, b"m")]);
     let dumped: Vec<u64> = s.dump()?.iter().map(Entry::version).collect();
     assert_eq!(dumped, [3], "the data holds none of it");
-    assert_eq!(s.get_at(&ns_key(0, b"m"), u64::MAX)?, None);
+    assert_eq!(s.get_at(&tenant_key(0, b"m"), u64::MAX)?, None);
     Ok(())
 }
 
@@ -81,12 +81,12 @@ fn test_a_temporary_snapshot_holds_no_discard_timestamp_back() -> TestResult {
 }
 
 #[test]
-fn test_a_temporary_keyspace_keeps_entries_of_a_banned_namespace() -> TestResult {
+fn test_a_temporary_keyspace_keeps_entries_of_a_banned_tenant() -> TestResult {
     let dir = TestDir::new("temp-banned");
     let s = dir.open()?;
-    s.ban_namespace(3)?;
+    s.ban_tenant(3)?;
     let t = s.create_temporary()?;
-    let key = ns_key(3, b"a");
+    let key = tenant_key(3, b"a");
     s.apply_temporary(&t, batch(vec![put(&key, 1, b"kept")]))?;
     assert_eq!(
         s.temporary_snapshot(&t)?.get(&key)?.map(|i| i.into_value()),
@@ -100,7 +100,7 @@ fn test_an_oversized_key_refuses_the_temporary_batch_whole() -> TestResult {
     let dir = TestDir::new("temp-oversized");
     let s = dir.open()?;
     let t = s.create_temporary()?;
-    let k = ns_key(0, b"k");
+    let k = tenant_key(0, b"k");
     let refused = s
         .apply_temporary(
             &t,
@@ -144,7 +144,7 @@ fn test_a_dropped_temporary_keyspace_is_gone() -> TestResult {
     let s = dir.open()?;
     let t = s.create_temporary()?;
     let id = t.id();
-    s.apply_temporary(&t, batch(vec![put(&ns_key(0, b"k"), 1, b"")]))?;
+    s.apply_temporary(&t, batch(vec![put(&tenant_key(0, b"k"), 1, b"")]))?;
     s.drop_temporary(t)?;
     let again = Temporary::new(id);
     assert_eq!(
@@ -169,7 +169,7 @@ fn test_a_temporary_keyspace_left_by_a_process_is_dropped_at_open() -> TestResul
     let dir = TestDir::new("temp-left");
     let s = dir.open()?;
     let left = s.create_temporary()?;
-    s.apply_temporary(&left, batch(vec![put(&ns_key(0, b"k"), 1, b"left")]))?;
+    s.apply_temporary(&left, batch(vec![put(&tenant_key(0, b"k"), 1, b"left")]))?;
     s.sync()?;
     drop(s);
     assert_eq!(
@@ -182,7 +182,7 @@ fn test_a_temporary_keyspace_left_by_a_process_is_dropped_at_open() -> TestResul
     assert!(
         reopened
             .temporary_snapshot(&t)?
-            .get(&ns_key(0, b"k"))?
+            .get(&tenant_key(0, b"k"))?
             .is_none(),
         "a new keyspace starts empty"
     );
@@ -196,10 +196,10 @@ fn test_a_temporary_keyspace_left_by_a_process_is_dropped_at_open() -> TestResul
 fn test_a_temporary_batch_ignores_its_applied_timestamp_and_rebuild_records() -> TestResult {
     let dir = TestDir::new("temp-ignores");
     let s = dir.open()?;
-    let record = RebuildRecord::new(4, vec![ns_key(0, b"idx")]);
+    let record = RebuildRecord::new(4, vec![tenant_key(0, b"idx")]);
     s.write_rebuild_record(&record)?;
     let t = s.create_temporary()?;
-    let mut b = batch(vec![put(&ns_key(0, b"k"), 1, b"")]);
+    let mut b = batch(vec![put(&tenant_key(0, b"k"), 1, b"")]);
     b.set_applied_ts(50);
     b.remove_rebuild_record(4);
     s.apply_temporary(&t, b)?;
@@ -207,7 +207,7 @@ fn test_a_temporary_batch_ignores_its_applied_timestamp_and_rebuild_records() ->
     assert_eq!(s.rebuild_records()?, [record]);
     assert_eq!(
         s.temporary_snapshot(&t)?
-            .get(&ns_key(0, b"k"))?
+            .get(&tenant_key(0, b"k"))?
             .map(|i| i.version()),
         Some(1)
     );

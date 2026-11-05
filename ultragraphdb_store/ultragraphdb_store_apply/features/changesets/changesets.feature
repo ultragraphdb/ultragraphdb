@@ -4,7 +4,7 @@
 #
 
 Feature: Changesets
-  A changeset names its namespace and its changes in order; it executes against the snapshot at the watermark, each new
+  A changeset names its tenant and its changes in order; it executes against the snapshot at the watermark, each new
   term's ID got or created while it runs and shared with every execution naming the term; it applies whole, in one
   request, or not at all, reports what it read, the terms it found absent by ID and no dictionary key, and the regions
   it reads and writes, and writes the same bytes from the same stored state

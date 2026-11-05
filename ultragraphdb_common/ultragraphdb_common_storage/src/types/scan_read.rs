@@ -9,8 +9,8 @@ use ultragraphdb_core_keys::Keyspace;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ScanRead {
     pub keyspace: Keyspace,
-    pub namespace: u64,
+    pub tenant: u64,
     pub first: Vec<u8>,
-    /// The key past its last; `None` for the end of its namespace in its keyspace.
+    /// The key past its last; `None` for the end of its tenant in its keyspace.
     pub past: Option<Vec<u8>>,
 }

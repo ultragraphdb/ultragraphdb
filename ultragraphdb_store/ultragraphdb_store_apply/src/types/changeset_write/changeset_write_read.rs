@@ -137,7 +137,7 @@ where
         let mut held: Option<Vec<SystemId>> = None;
         for (identifier, token) in &tokens {
             let key = QuadKey::ValueIndex {
-                namespace: self.namespace(),
+                tenant: self.tenant(),
                 graph,
                 predicate: uid,
                 tokenizer: *identifier,
@@ -178,7 +178,7 @@ where
         let prefix = key_prefix(
             Keyspace::Forward,
             false,
-            self.namespace(),
+            self.tenant(),
             Some(graph),
             Some(predicate),
         );

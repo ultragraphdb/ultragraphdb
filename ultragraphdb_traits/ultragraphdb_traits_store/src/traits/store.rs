@@ -56,7 +56,7 @@ pub trait Store {
     /// size limit that splits it. A batch whose user key exceeds [`crate::MAX_USER_KEY_SIZE`] or whose stored key
     /// exceeds [`crate::MAX_STORED_KEY_SIZE`] is refused with [`StoreError::key_too_large`] and writes nothing, as is a
     /// batch with an empty versionless key, refused with [`StoreError::empty_key`] ([`WriteBatch::check_key_sizes`]).
-    /// An entry addressed to a banned namespace is dropped and the rest is written. The batch's applied timestamp, if
+    /// An entry addressed to a banned tenant is dropped and the rest is written. The batch's applied timestamp, if
     /// it has one, is written in the same batch, as are its versionless writes, which no ban drops.
     fn apply(&self, batch: WriteBatch, mode: PersistMode) -> Result<(), StoreError>;
 
@@ -73,7 +73,7 @@ pub trait Store {
     }
 
     /// Removes every stored version of every key under `prefixes`, physically, then writes `entries`, such as a
-    /// namespace's initial schema at timestamp 1. Commits wait while it runs; a drop interrupted by a crash or a
+    /// tenant's initial schema at timestamp 1. Commits wait while it runs; a drop interrupted by a crash or a
     /// power loss after its record was synced is finished when the store is opened again. `ts` is the drop's
     /// timestamp, kept in its record.
     fn drop_prefixes(
@@ -83,13 +83,13 @@ pub trait Store {
         entries: Vec<Entry>,
     ) -> Result<(), StoreError>;
 
-    /// Removes every key, then writes `entries`; clears the banned namespaces, the discard timestamp, the tombstone
+    /// Removes every key, then writes `entries`; clears the banned tenants, the discard timestamp, the tombstone
     /// horizon and the applied timestamp. Finished at open when interrupted, as [`Store::drop_prefixes`] is.
     fn drop_all(&self, entries: Vec<Entry>) -> Result<(), StoreError>;
 
-    /// Bans `namespace`: later batches drop their entries addressed to it, and snapshots opened after the ban do
-    /// not see its keys. Keys belong to the namespace [`crate::key_namespace`] reads from them.
-    fn ban_namespace(&self, namespace: u64) -> Result<(), StoreError>;
+    /// Bans `tenant`: later batches drop their entries addressed to it, and snapshots opened after the ban do
+    /// not see its keys. Keys belong to the tenant [`crate::key_tenant`] reads from them.
+    fn ban_tenant(&self, tenant: u64) -> Result<(), StoreError>;
 
     /// Asks for discard timestamp `ts`. The discard timestamp never decreases and never exceeds the oldest open
     /// snapshot's read timestamp: a request above an open snapshot takes effect as the snapshots below it close.
@@ -126,7 +126,7 @@ pub trait Store {
     /// Writes `batch` to `temporary` atomically, as [`Store::apply`] writes to the data: refused whole when any key
     /// it holds, its versionless writes' included, breaks the limits [`WriteBatch::check_key_sizes`] checks, though
     /// the versionless writes themselves are ignored, as are the applied timestamp and the removed rebuild records; no
-    /// entry is dropped for a banned namespace. A failed write poisons the store as a failed batch does.
+    /// entry is dropped for a banned tenant. A failed write poisons the store as a failed batch does.
     fn apply_temporary(&self, temporary: &Temporary, batch: WriteBatch) -> Result<(), StoreError> {
         let _unsupported: (&Temporary, WriteBatch) = (temporary, batch);
         Err(StoreError::unsupported("temporary keyspaces"))

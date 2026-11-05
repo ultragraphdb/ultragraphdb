@@ -11,11 +11,11 @@
 //! of the log, rebuilt by [`MetadataGroup::recover`] from the last [`MetadataSnapshot`] and the rounds after it. Every
 //! read of the state names the log position it reads at ([`MetadataGroup::applied`]).
 //!
-//! - **Catalog versions.** Each namespace's catalog is a chain of numbered versions, each a [`CatalogRecord`] whose
+//! - **Catalog versions.** Each tenant's catalog is a chain of numbered versions, each a [`CatalogRecord`] whose
 //!   bytes, in `ultragraphdb_core_catalog`'s encoding, the group does not read. A version is committed as pending; the
 //!   sequencer's next close `c + 1` announces it, and the group learns from that close ([`MetadataGroup::learn_close`])
 //!   that it takes effect at `c + 2`. Beside the versions, the group holds the default-entry records keyed by
-//!   (namespace, predicate) that a predicate's first write asks for.
+//!   (tenant, predicate) that a predicate's first write asks for.
 //! - **Sequence blocks.** Blocks are leased per (type, partition) from a per-type high-water mark that only rises;
 //!   a partition takes them through [`LeasedBlocks`], its `BlockSource`.
 //! - **The placement map**, `ultragraphdb_cluster_placement::PlacementMap`, initialised evenly and changed from an
@@ -27,17 +27,17 @@
 //!
 //! ```
 //! use ultragraphdb_cluster_metadata::{MetadataCommand, MetadataState};
-//! use ultragraphdb_core_ids::Namespace;
+//! use ultragraphdb_core_ids::Tenant;
 //!
 //! let mut state = MetadataState::new();
 //! let offer = MetadataCommand::OfferCatalog {
-//!     namespace: Namespace::new(1),
+//!     tenant: Tenant::new(1),
 //!     predecessor: 0,
 //!     bytes: b"version 1".to_vec(),
 //! };
 //! assert!(state.apply(&offer).is_ok());
-//! assert_eq!(state.current_version(Namespace::new(1)), 1);
-//! assert_eq!(state.pending_versions(), vec![(Namespace::new(1), 1)]);
+//! assert_eq!(state.current_version(Tenant::new(1)), 1);
+//! assert_eq!(state.pending_versions(), vec![(Tenant::new(1), 1)]);
 //! ```
 
 mod types;

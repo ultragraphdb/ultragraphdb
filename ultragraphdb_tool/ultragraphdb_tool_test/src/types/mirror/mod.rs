@@ -90,7 +90,7 @@ impl Mirror {
                 prefixes,
                 entries,
             } => self.replay_drop(*ts, prefixes.as_deref(), entries)?,
-            OpRecord::Banned { namespace } => done(self.store()?.ban_namespace(*namespace))?,
+            OpRecord::Banned { tenant } => done(self.store()?.ban_tenant(*tenant))?,
             OpRecord::DiscardSet { ts } => done(self.store()?.set_discard_ts(*ts))?,
             OpRecord::HorizonSet { ts } => done(self.store()?.set_tombstone_horizon(*ts))?,
             OpRecord::Compacted => done(self.store()?.compact())?,

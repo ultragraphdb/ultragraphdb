@@ -14,7 +14,7 @@ change to the protocol or the security catalog ("Single sign-on"). A decision st
 
 - Every connection is authenticated before its first request, by a mechanism the client and server both speak, and
   acts for one **principal** from then on. Authentication is on by default.
-- Every request is authorized against that principal's privileges in the request's namespace, by role-based access
+- Every request is authorized against that principal's privileges in the request's tenant, by role-based access
   control (RBAC): principals hold roles, roles hold privileges, a role may hold other roles. A check happens where the
   data is read or written, against the current grants.
 - A session, its stored replies and its prepared statements belong to the principal that made them.
@@ -31,7 +31,7 @@ change to the protocol or the security catalog ("Single sign-on"). A decision st
 | Until TLS, the network between clients and the server is trusted: no one reads or alters frames | Authentication protects the password, not the connection after it: a party that can read frames can hijack an authenticated connection. Bearer tokens wait for TLS (see "Mechanisms") |
 | The server's disk and its configuration are trusted | Credentials are stored as verifiers, never as passwords; encryption at rest is not part of this design |
 | Security changes are rare beside data writes | A security change may abort every transaction in flight (see "Revocation") |
-| scrith runs one namespace per tenant and confines its PERSONAL predicates to its gateway (`UltraGraphDB Dual Query Engine Plan.md`, the requirements table) | Privileges reach down to a predicate in a namespace |
+| scrith runs one tenant per scrith tenant and confines its PERSONAL predicates to its gateway (`UltraGraphDB Dual Query Engine Plan.md`, the requirements table) | Privileges reach down to a predicate in a tenant |
 
 ## Principals
 
@@ -46,8 +46,8 @@ A principal is an identity the server authenticates: a person, or a service such
 | `enabled` | a disabled principal authenticates no more |
 | roles | the roles granted to it |
 
-Principals are cluster-wide; what a principal may do in a namespace is its grants there. One cluster serves many
-tenants, each a namespace, and a tenant's principals hold grants in their namespace only.
+Principals are cluster-wide; what a principal may do in a tenant is its grants there. One cluster serves many
+tenants, and a tenant's principals hold grants in their tenant only.
 
 **The bootstrap administrator**, the cluster's first principal, is created with the cluster from a credential the
 operator supplies in a secret file the configuration names. The server has no default password: a server requiring
@@ -178,14 +178,14 @@ A **privilege** is an action on a scope:
 | `declare` | declarations: predicates, entity types, relations, indexes |
 | `drop` | the Drop command (point 28) |
 | `admin` | creating and changing principals, roles and grants within the scope |
-| `operate` | cluster operations: creating and removing namespaces, backup, restore, export |
+| `operate` | cluster operations: creating and removing tenants, backup, restore, export |
 
 | Scope | Covers |
 |---|---|
-| cluster | every namespace, and the cluster's own administration |
-| namespace | one namespace: every graph and predicate in it |
-| graph | one named graph of a namespace |
-| predicate | one predicate of a namespace, in every graph |
+| cluster | every tenant, and the cluster's own administration |
+| tenant | one tenant: every graph and predicate in it |
+| graph | one named graph of a tenant |
+| predicate | one predicate of a tenant, in every graph |
 
 A privilege at a scope covers every scope inside it. Privileges only allow: an action is denied unless a privilege
 allows it, and no rule denies what another allows. PostgreSQL's privileges work this way; a later deny rule would be an
@@ -193,7 +193,7 @@ addition, not a change (decided 2026-10-30).
 
 **Built-in roles**, created with the cluster, follow least privilege and separate administration from data (Saltzer and
 Schroeder's separation of privilege): `cluster_admin` holds `admin` and `operate` at cluster scope and reads and writes
-no namespace's data unless also granted that; per namespace, `owner` holds every action in it, `writer` `read` and
+no tenant's data unless also granted that; per tenant, `owner` holds every action in it, `writer` `read` and
 `write`, and `reader` `read`. The bootstrap administrator holds `cluster_admin`. Dgraph's guardians pass every predicate check
 in their namespace (`edgraph/access.go:1000`), and the root namespace's guardians act in any tenant
 (`CapAssumeTenant`, `edgraph/predicate_acl.go:32`).
@@ -201,19 +201,19 @@ in their namespace (`edgraph/access.go:1000`), and the root namespace's guardian
 ### Where requests are checked
 
 Every check happens where data is read or written: complete mediation, in Saltzer and Schroeder's terms. The
-principal's privileges in a namespace are resolved when a transaction begins, into an **access** value the transaction
+principal's privileges in a tenant are resolved when a transaction begins, into an **access** value the transaction
 carries, the predicates and graphs it may read and write; the worker consults it at each read and write of the store,
 so a check costs a set lookup and no request construct can reach data around it. Dgraph instead rewrites a parsed query,
 removing the predicates it finds blocked (`edgraph/access.go:1053`, `removePredsFromQuery`), so a construct its
 extraction misses reads unchecked.
 
-A request's namespace is checked against the principal's grants; a namespace a client names authorizes nothing. The
+A request's tenant is checked against the principal's grants; a tenant a client names authorizes nothing. The
 fork found a guardian of any tenant could claim namespace 0 through client metadata and administer the cluster
 (`edgraph/predicate_acl.go`, `authSuperAdmin`'s comment).
 
 | Request | Check |
 |---|---|
-| Begin | `read` somewhere in the namespace |
+| Begin | `read` somewhere in the tenant |
 | Read, Execute | A statement the principal may not read is absent: a pattern naming such a predicate or graph matches nothing, and a pattern leaving it unbound returns no row of it, as Neo4j hides what a principal may not traverse and PostgreSQL's row security hides rows. Refusing would tell the principal the data exists (decided 2026-10-30) |
 | Describe | only the declarations the principal may read; the schema id hashes what the principal sees, so a statement is stale for a principal whose view changed |
 | Write, Operation | `write` on each predicate and graph written; a refusal is a code of its own on the stream, ending the transaction |
@@ -236,7 +236,7 @@ An unknown action or a scope the checks do not know is denied: the authorizer fa
 
 The security catalog is data in the store, changed only by proposals of the commit step, so it is logged, replayed and
 (stage 10) replicated as every write is. Every transaction's read set holds the catalog's **security epoch** key, as it
-holds its namespace's catalog range (stage 5 design, "Read sets at statement granularity"); every security change
+holds its tenant's catalog range (stage 5 design, "Read sets at statement granularity"); every security change
 writes it. A revocation therefore aborts every transaction that began before it and commits after it: from the
 revocation's commit version on, nothing commits under the revoked privilege. Security changes are rare, so one
 cluster-wide epoch suffices (decided 2026-10-30). Dgraph decides by the groups an access token carried when it was minted, up
@@ -244,7 +244,7 @@ to six hours before (`edgraph/access.go:243`, `x/vault.go:46`), and refreshes it
 (`edgraph/access.go:316`).
 
 The catalog lives under the system prefix (`\xffultragraphdb/security/`, beside the session table), outside every
-namespace, so no namespace drop removes it.
+tenant, so no tenant drop removes it.
 
 ## Sessions and statements
 
@@ -323,7 +323,7 @@ design takes Dgraph's choice; every other row is a divergence the design resolve
 | Short-lived, revocable tokens; refresh tokens rotated or bound (RFC 9700 §4.14) | Access tokens live 6 hours and refresh tokens 30 days (`x/vault.go:46-47`); neither is revoked by a password change or a removed user's groups, and refresh tokens do not rotate | No refresh tokens; an external token at most an hour, renewed by re-authentication on the open connection; a connection ends when its credential expires or its principal's credential changes |
 | Authorize against current state | Groups are read from the access token, fixed for its life (`edgraph/access.go:243`); the ACL cache refreshes asynchronously (`:316`) | Roles from the catalog; revocation through the epoch, exact at its commit version |
 | Complete mediation at the point of access (Saltzer and Schroeder) | A rewrite of the parsed query removes blocked predicates (`edgraph/access.go:1053`) | The access value checked at each store read and write |
-| Tenant identity from the credential, never from the client | Fixed in the fork: a tenant's guardian could claim namespace 0 through client metadata (`edgraph/predicate_acl.go`, `authSuperAdmin`) | A namespace authorizes nothing; grants do |
+| Tenant identity from the credential, never from the client | Fixed in the fork: a tenant's guardian could claim namespace 0 through client metadata (`edgraph/predicate_acl.go`, `authSuperAdmin`) | A tenant authorizes nothing; grants do |
 | Least privilege, administration apart from data | Guardians pass every predicate check in their namespace (`edgraph/access.go:1000`); the root namespace's guardians act in any tenant (`edgraph/predicate_acl.go:32`) | `cluster_admin` administers and operates; data needs a grant |
 | Durable audit of authentication and authorization (OWASP ASVS) | Trace span annotations only (`edgraph/access.go:1019`) | Structured audit events; security changes in the log |
 | Algorithm pinned, never read from the token (RFC 8725 §3.1) | Pinned to the configured algorithm (`x/jwt_helper.go:35`) | Follows |
@@ -361,9 +361,9 @@ A review of `../../specification/SECURITY.md` (2026-10-30) refined the design, a
   that ends on its own: no attacker locks an administrator out for good.
 - An authentication not complete within 60 seconds, as PostgreSQL's `authentication_timeout`, closes the connection
   with code 20; before it authenticates, a connection holds no stream.
-- `admin` at a namespace covers its roles, their grants and the group mappings onto them; principals and trusted
+- `admin` at a tenant covers its roles, their grants and the group mappings onto them; principals and trusted
   issuers are the cluster's `admin`.
-- Begin and Prepare need any privilege in the namespace, so a write-only principal can write.
+- Begin and Prepare need any privilege in the tenant, so a write-only principal can write.
 - A read-only transaction keeps the access its Begin resolved until it ends.
 - Audit events go to an audit log apart from the diagnostic log.
 - The server's clock is a trust boundary of the token checks.

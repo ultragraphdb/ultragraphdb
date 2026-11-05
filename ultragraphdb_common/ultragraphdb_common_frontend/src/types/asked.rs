@@ -32,8 +32,8 @@ pub enum Asked {
     },
     /// A catalog version.
     Catalog {
-        /// The namespace.
-        namespace: u64,
+        /// The tenant.
+        tenant: u64,
         /// The version; 0 for the current one.
         version: u64,
         /// Its answer.

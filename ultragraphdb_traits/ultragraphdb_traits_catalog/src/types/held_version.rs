@@ -3,32 +3,32 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-/// A catalog version the metadata group holds: its namespace, its number, the epoch it takes effect at, and its
+/// A catalog version the metadata group holds: its tenant, its number, the epoch it takes effect at, and its
 /// contents, the bytes the catalog's encoding wrote, which the group treats as opaque.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HeldVersion {
-    namespace: u64,
+    tenant: u64,
     version: u64,
     effective: u64,
     contents: Vec<u8>,
 }
 
 impl HeldVersion {
-    /// Version `version` of `namespace`'s catalog, in effect from epoch `effective`, holding `contents`.
+    /// Version `version` of `tenant`'s catalog, in effect from epoch `effective`, holding `contents`.
     #[must_use]
-    pub fn new(namespace: u64, version: u64, effective: u64, contents: Vec<u8>) -> Self {
+    pub fn new(tenant: u64, version: u64, effective: u64, contents: Vec<u8>) -> Self {
         Self {
-            namespace,
+            tenant,
             version,
             effective,
             contents,
         }
     }
 
-    /// The namespace whose catalog it is.
+    /// The tenant whose catalog it is.
     #[must_use]
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// The version's number.

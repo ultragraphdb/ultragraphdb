@@ -53,7 +53,7 @@ pub enum ErrorCode {
     Refused,
     /// A compare-and-set did not hold.
     OperationFailed,
-    /// A prepared statement's schema id no longer matches its namespace's catalog.
+    /// A prepared statement's schema id no longer matches its tenant's catalog.
     StaleStatement,
     /// No statement of the connection has the id executed.
     UnknownStatement,

@@ -12,7 +12,7 @@ mod metadata_state_credentials;
 use std::collections::{BTreeMap, VecDeque};
 
 use ultragraphdb_cluster_placement::{BucketRange, PartitionId, PlacementMap};
-use ultragraphdb_core_ids::{Epoch, Namespace};
+use ultragraphdb_core_ids::{Epoch, Tenant};
 
 use crate::types::catalog_record::CatalogRecord;
 use crate::types::principal::Principal;
@@ -21,10 +21,10 @@ use crate::types::principal::Principal;
 /// commands give equal states. [`MetadataState::apply`] is the step function; the queries read it. Control plane:
 /// every table is bounded, by the group's settings or by the limits below.
 ///
-/// - **Catalog versions.** Per namespace, the latest version's number and the versions retained, in order, each a
+/// - **Catalog versions.** Per tenant, the latest version's number and the versions retained, in order, each a
 ///   [`CatalogRecord`]; a version is pending until a learned close assigns it the epoch after that close. The versions
 ///   superseded before every partition's untrimmed log begins are released. Beside them, the default-entry records by
-///   (namespace, predicate).
+///   (tenant, predicate).
 /// - **Sequence blocks.** The next sequence of every type that has leased a block; a type absent starts at 1.
 /// - **Placement.** The placement map, once initialised, its layouts each applying from the epoch the close announcing
 ///   it gave; the placement versions pending, in order, each numbered one above the last (the initial map is version
@@ -34,8 +34,8 @@ use crate::types::principal::Principal;
 ///   has carried yet.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MetadataState {
-    pub(crate) catalogs: BTreeMap<Namespace, NamespaceCatalog>,
-    pub(crate) defaults: BTreeMap<(Namespace, String), Vec<u8>>,
+    pub(crate) catalogs: BTreeMap<Tenant, TenantCatalog>,
+    pub(crate) defaults: BTreeMap<(Tenant, String), Vec<u8>>,
     pub(crate) high_water: BTreeMap<u16, u64>,
     pub(crate) placement: Option<PlacementMap>,
     /// The placement versions no learned close has announced, oldest first, each its number and its layout.
@@ -52,20 +52,20 @@ pub struct MetadataState {
     pub(crate) learned: Epoch,
 }
 
-/// One namespace's catalog versions: the latest version's number, the highest released, and the versions retained in
+/// One tenant's catalog versions: the latest version's number, the highest released, and the versions retained in
 /// order, the last being the latest.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub(crate) struct NamespaceCatalog {
+pub(crate) struct TenantCatalog {
     pub(crate) current: u64,
     pub(crate) released: u64,
     pub(crate) versions: VecDeque<CatalogRecord>,
 }
 
 impl MetadataState {
-    /// The most catalog versions pending at once across every namespace, the most one close announces, 256.
+    /// The most catalog versions pending at once across every tenant, the most one close announces, 256.
     pub const PENDING_MAX: usize = 256;
 
-    /// The most catalog versions one namespace retains, 1,024.
+    /// The most catalog versions one tenant retains, 1,024.
     pub const RETAINED_MAX: usize = 1_024;
 
     /// The most placement versions pending at once, 16: a close announces one, so they wait at most 16 closes.

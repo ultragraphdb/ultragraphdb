@@ -26,29 +26,29 @@ where
     C: ListCache<Value = CachedList>,
     B: BlockSource,
 {
-    /// The ID the dictionary holds for `term`, an IRI or a reifier's name, in `namespace`, if any: what the store has
+    /// The ID the dictionary holds for `term`, an IRI or a reifier's name, in `tenant`, if any: what the store has
     /// committed, never an ID a running execution created.
-    pub fn id_of(&self, namespace: u64, term: &str) -> Result<Option<SystemId>, QuadError> {
-        held_id(self.store(), namespace, term)
+    pub fn id_of(&self, tenant: u64, term: &str) -> Result<Option<SystemId>, QuadError> {
+        held_id(self.store(), tenant, term)
     }
 
     /// The text `id` names, and whether it skolemizes a blank node: a `Resource` ID named by a skolem IRI under the
-    /// namespace's base. A missing entry is corruption naming its key.
-    pub fn iri_of(&self, namespace: u64, id: SystemId) -> Result<(String, bool), QuadError> {
-        let key = id_key(namespace, id);
+    /// tenant's base. A missing entry is corruption naming its key.
+    pub fn iri_of(&self, tenant: u64, id: SystemId) -> Result<(String, bool), QuadError> {
+        let key = id_key(tenant, id);
         let value = self
             .store()
             .get_versionless(&key)?
             .ok_or_else(|| QuadError::corrupted(&key, "a system ID has no dictionary entry"))?;
         let text = String::from_utf8(value)
             .map_err(|_| QuadError::corrupted(&key, "a term is not UTF-8"))?;
-        let blank = id.type_prefix() == TypePrefix::RESOURCE && is_skolem(namespace, &text);
+        let blank = id.type_prefix() == TypePrefix::RESOURCE && is_skolem(tenant, &text);
         Ok((text, blank))
     }
 
     /// The string `hash` names. A missing entry is corruption naming its key.
-    pub fn string_of(&self, namespace: u64, hash: Hash128) -> Result<String, QuadError> {
-        let key = literal_key(namespace, &hash);
+    pub fn string_of(&self, tenant: u64, hash: Hash128) -> Result<String, QuadError> {
+        let key = literal_key(tenant, &hash);
         let value = self.store().get_versionless(&key)?.ok_or_else(|| {
             QuadError::corrupted(&key, "a literal's hash has no dictionary entry")
         })?;
@@ -57,9 +57,9 @@ where
 
     /// The RDF term `encoded` names: an IRI, a skolemized blank node presented as a blank node again, labelled by its
     /// skolem IRI's bucket and random digits, or a literal.
-    pub fn term_of(&self, namespace: u64, encoded: &EncodedTerm) -> Result<Term, QuadError> {
+    pub fn term_of(&self, tenant: u64, encoded: &EncodedTerm) -> Result<Term, QuadError> {
         if let Some(id) = encoded.as_id() {
-            let (text, blank) = self.iri_of(namespace, id)?;
+            let (text, blank) = self.iri_of(tenant, id)?;
             return Ok(if blank {
                 skolem_blank_node(&text).into()
             } else {
@@ -67,8 +67,8 @@ where
             });
         }
         let literal = encoded.view()?.to_literal(
-            |id| Ok::<_, QuadError>(NamedNode::new_unchecked(self.iri_of(namespace, id)?.0)),
-            |hash| self.string_of(namespace, hash),
+            |id| Ok::<_, QuadError>(NamedNode::new_unchecked(self.iri_of(tenant, id)?.0)),
+            |hash| self.string_of(tenant, hash),
         )?;
         Ok(literal.into())
     }
@@ -87,14 +87,14 @@ where
     /// naming the list's key.
     pub fn list_terms(
         &self,
-        namespace: u64,
+        tenant: u64,
         key: &[u8],
         read_ts: u64,
     ) -> Result<Vec<Term>, QuadError> {
         self.objects(key, read_ts)?
             .iter()
             .map(|(object, _)| {
-                self.term_of(namespace, object).map_err(|e| match e.0 {
+                self.term_of(tenant, object).map_err(|e| match e.0 {
                     QuadErrorEnum::Corrupted { reason, .. } => QuadError::corrupted(key, reason),
                     QuadErrorEnum::Store(_)
                     | QuadErrorEnum::Posting(_)
@@ -118,13 +118,13 @@ where
     /// above it, merged.
     pub fn statistics(
         &self,
-        namespace: u64,
+        tenant: u64,
         graph: Graph,
         predicate: SystemId,
         read_ts: u64,
     ) -> Result<Statistics, QuadError> {
         let key = QuadKey::Statistics {
-            namespace,
+            tenant,
             graph,
             predicate,
         }
@@ -144,13 +144,13 @@ where
     /// The record of statement `id` in `graph` at `read_ts`.
     pub fn statement(
         &self,
-        namespace: u64,
+        tenant: u64,
         graph: Graph,
         id: SystemId,
         read_ts: u64,
     ) -> Result<Option<StatementRecord>, QuadError> {
         let key = QuadKey::Statement {
-            namespace,
+            tenant,
             graph,
             statement: id,
         }

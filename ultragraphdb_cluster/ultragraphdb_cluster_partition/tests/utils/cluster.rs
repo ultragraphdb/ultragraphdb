@@ -18,7 +18,7 @@ use ultragraphdb_cluster_partition::{Answer, Home, Partition, PartitionError, Re
 use ultragraphdb_cluster_placement::{NodeId, PartitionId, PlacementMap};
 use ultragraphdb_cluster_sequencer::Close;
 use ultragraphdb_core_ids::{
-    Bucket, BucketGroup, CanonicalKey, Epoch, Namespace, SystemId, TypePrefix,
+    Bucket, BucketGroup, CanonicalKey, Epoch, SystemId, Tenant, TypePrefix,
 };
 use ultragraphdb_core_mapping::{
     Change, Changeset, Declaration, PredicateDeclaration, RandomSource,
@@ -66,18 +66,18 @@ pub fn block_on<F: Future>(future: F) -> TestResult<F::Output> {
     ))
 }
 
-/// The namespace the tests write.
-pub const NS: u64 = 0;
+/// The tenant the tests write.
+pub const TENANT: u64 = 0;
 
 /// The IRI `http://ex.org/<name>`.
 pub fn ex(name: &str) -> NamedNode {
     NamedNode::new_unchecked(format!("http://ex.org/{name}"))
 }
 
-/// The bucket of `<name>` in [`NS`].
+/// The bucket of `<name>` in [`TENANT`].
 pub fn bucket(name: &str) -> TestResult<Bucket> {
     Ok(Bucket::derive(
-        Namespace::new(NS),
+        Tenant::new(TENANT),
         TypePrefix::RESOURCE,
         &CanonicalKey::iri(ex(name).as_str())?,
     ))
@@ -123,11 +123,11 @@ pub fn insert_literal(subject: &str, predicate: &str, value: &str) -> Change {
     }
 }
 
-/// A changeset of [`NS`] holding `changes`.
+/// A changeset of [`TENANT`] holding `changes`.
 pub fn changeset(changes: Vec<Change>) -> Changeset {
     changes
         .into_iter()
-        .fold(Changeset::new(NS), |cs, change| cs.with(change))
+        .fold(Changeset::new(TENANT), |cs, change| cs.with(change))
 }
 
 /// How a write through the cluster ended: committed at its version, refused by the partition before its commit (the
@@ -178,7 +178,7 @@ impl Cluster {
         Self::with_placement(&PlacementMap::even(count, NodeId::new(1))?)
     }
 
-    /// The partitions of `placement`, epoch 1 closed, each having written its namespace's catalog, so the first writes
+    /// The partitions of `placement`, epoch 1 closed, each having written its tenant's catalog, so the first writes
     /// of a test register what they name and no more.
     pub fn with_placement(placement: &PlacementMap) -> TestResult<Self> {
         let mut cluster = Self::bare(placement)?;
@@ -398,8 +398,14 @@ impl Cluster {
             if id == home {
                 continue;
             }
-            let reference =
-                Reference::new(pid(home)?, NS, ex(name).as_str().to_string(), None, None, 0);
+            let reference = Reference::new(
+                pid(home)?,
+                TENANT,
+                ex(name).as_str().to_string(),
+                None,
+                None,
+                0,
+            );
             let answer = self.register(&reference)?;
             let _copied = self
                 .write_answered(id, Vec::new(), vec![(reference, answer)])?
@@ -593,7 +599,7 @@ impl Cluster {
             .part(id)?
             .applier()
             .quads()
-            .id_of(NS, ex(name).as_str())?)
+            .id_of(TENANT, ex(name).as_str())?)
     }
 
     /// Partition `id`'s store's current contents.
@@ -621,10 +627,10 @@ pub fn node(id: PartitionId, placement: &PlacementMap, first: Epoch) -> TestResu
     Ok(Partition::new(id, placement.clone(), applier))
 }
 
-/// A read-write transaction of [`NS`] at partition `part`'s watermark, bound to it.
+/// A read-write transaction of [`TENANT`] at partition `part`'s watermark, bound to it.
 pub fn begin(part: &Part) -> TestResult<Txn<'_>> {
     Ok(part.begin(
-        NS,
+        TENANT,
         Mode::ReadWrite,
         0,
         0,

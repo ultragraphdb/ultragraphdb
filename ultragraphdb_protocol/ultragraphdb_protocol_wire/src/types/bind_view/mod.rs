@@ -15,7 +15,7 @@ pub struct BindView<'a> {
     frame: PhantomData<&'a [u8]>,
     partition: u32,
     kind: BindKind,
-    namespace: u64,
+    tenant: u64,
     read_version: u64,
     epoch: u64,
     principal: u64,
@@ -33,9 +33,9 @@ impl BindView<'_> {
         self.kind
     }
 
-    /// The transaction's namespace.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The transaction's tenant.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// The version the transaction reads at; 0 as sent and for a Drop.

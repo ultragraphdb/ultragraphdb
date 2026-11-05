@@ -11,7 +11,7 @@
 use ultragraphdb_cluster_sequencer::{
     CatalogVersion, ClockReading, Close, SequencedTransaction, SequencerConfig, SequencerRecord,
 };
-use ultragraphdb_core_ids::{Epoch, Namespace};
+use ultragraphdb_core_ids::{Epoch, Tenant};
 use ultragraphdb_error_cluster::ClusterError;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transactions_log::{FaultMode, SimStorage};
@@ -59,7 +59,7 @@ fn step(
     }
     let catalog: Vec<_> = step
         .is_multiple_of(5)
-        .then(|| CatalogVersion::new(Namespace::new(1), index))
+        .then(|| CatalogVersion::new(Tenant::new(1), index))
         .into_iter()
         .collect();
     let now = sequencer.deadline();

@@ -26,7 +26,7 @@ pub(crate) struct WriteOutcome<'a, S, C> {
     pub defaults: Vec<Vec<u8>>,
     /// The predicates of `defaults`, in the same order.
     pub default_ids: Vec<SystemId>,
-    /// Whether the write changes the catalog: a declaration, or the namespace's initial catalog.
+    /// Whether the write changes the catalog: a declaration, or the tenant's initial catalog.
     pub catalog_changed: bool,
     pub pending: Option<Rebuild>,
     pub touched: BTreeSet<(Graph, SystemId)>,

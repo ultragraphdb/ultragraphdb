@@ -68,7 +68,7 @@ fn test_the_golden_direct_write_reads_its_values() -> TestResult {
     let fixture = golden_direct_write()?;
     assert_eq!(view.session(), fixture.session());
     assert_eq!(view.request(), fixture.request());
-    assert_eq!(view.namespace(), fixture.namespace());
+    assert_eq!(view.tenant(), fixture.tenant());
     assert_eq!(view.token(), fixture.token());
     assert_eq!(view.len(), fixture.changes().len());
     assert!(!view.is_empty());

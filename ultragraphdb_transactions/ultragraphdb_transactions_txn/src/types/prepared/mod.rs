@@ -82,7 +82,7 @@ impl Prepared {
         }
     }
 
-    /// The drop `drop` asks in `namespace` on `applier` as a proposal of the commit step, on `buffers` (7.7): request
+    /// The drop `drop` asks in `tenant` on `applier` as a proposal of the commit step, on `buffers` (7.7): request
     /// `request` of session `session`, for `principal`, as a Commit is, so a retry is answered from the session table;
     /// a record naming the drop's target and its dropped key ranges, which abort every transaction that read or wrote in
     /// them below its version and commits after it, and whose round's apply drops what it names; its round closes after
@@ -94,7 +94,7 @@ impl Prepared {
     /// holds.
     pub fn drop<S, C, E, B>(
         applier: &ChangesetApplier<S, C, E, B>,
-        namespace: u64,
+        tenant: u64,
         drop: DropRequest<'_>,
         session: u128,
         request: u64,
@@ -107,9 +107,9 @@ impl Prepared {
         B: BlockSource + Send + Sync + 'static,
         E: Executor,
     {
-        let executed = applier.prepare_drop(namespace, drop)?;
+        let executed = applier.prepare_drop(tenant, drop)?;
         let (mut read_set, mut record) = buffers.into_parts();
-        read_set.reset(namespace, executed.read_ts(), usize::MAX);
+        read_set.reset(tenant, executed.read_ts(), usize::MAX);
         read_set.seal();
         let written = WriteSetBuilder::new(&executed, session, request, &[])
             .with_principal(principal)
@@ -148,7 +148,7 @@ impl Prepared {
     {
         let executed = applier.prepare_build_end(end)?;
         let (mut read_set, mut record) = buffers.into_parts();
-        read_set.reset(executed.namespace(), executed.read_ts(), usize::MAX);
+        read_set.reset(executed.tenant(), executed.read_ts(), usize::MAX);
         read_set.seal();
         let written =
             WriteSetBuilder::new(&executed, 0, 0, &[]).write_into(&mut record, usize::MAX);
@@ -192,7 +192,7 @@ impl Prepared {
         let executed = execution.into_executed();
         debug_assert_eq!(executed.catalog_version(), Some(contents.version()));
         let (mut read_set, mut record) = buffers.into_parts();
-        read_set.reset(executed.namespace(), executed.read_ts(), usize::MAX);
+        read_set.reset(executed.tenant(), executed.read_ts(), usize::MAX);
         let built = read_set.gather(executed.reads()).and_then(|()| {
             read_set.seal();
             WriteSetBuilder::new(&executed, 0, 0, &[])
@@ -366,9 +366,9 @@ impl Prepared {
         applier.release_operated(&executed, &self.executed);
     }
 
-    /// The namespace the transaction ran in.
-    pub fn namespace(&self) -> u64 {
-        self.executed.namespace()
+    /// The tenant the transaction ran in.
+    pub fn tenant(&self) -> u64 {
+        self.executed.tenant()
     }
 
     /// The version the transaction read at.
@@ -445,7 +445,7 @@ where
     }
     let (text, _) = applier
         .quads()
-        .iri_of(executed.namespace(), node)
+        .iri_of(executed.tenant(), node)
         .map_err(|e| TxnError::changeset(e.into()))?;
     Ok(text)
 }

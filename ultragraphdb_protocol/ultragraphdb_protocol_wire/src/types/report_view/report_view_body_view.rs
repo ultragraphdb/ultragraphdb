@@ -69,7 +69,7 @@ impl<'a> BodyView<'a> for ReportView<'a> {
         Ok(Self {
             partition,
             kind,
-            namespace: header.u64_at(8),
+            tenant: header.u64_at(8),
             version,
             terms,
         })
@@ -79,16 +79,16 @@ impl<'a> BodyView<'a> for ReportView<'a> {
         let missing =
             || ProtocolError::count_mismatch(Self::COMMAND.number(), "report terms", 0, 1);
         match self.kind {
-            ReportKind::Passed => Ok(Report::passed(self.partition, self.namespace, self.version)),
+            ReportKind::Passed => Ok(Report::passed(self.partition, self.tenant, self.version)),
             ReportKind::BuildFailed => Ok(Report::build_failed(
                 self.partition,
-                self.namespace,
+                self.tenant,
                 self.version,
                 self.predicate().ok_or_else(missing)?,
             )),
             ReportKind::Refused => Report::refused(
                 self.partition,
-                self.namespace,
+                self.tenant,
                 self.version,
                 self.predicate().ok_or_else(missing)?,
                 self.at_fault().ok_or_else(missing)?.to_term(),

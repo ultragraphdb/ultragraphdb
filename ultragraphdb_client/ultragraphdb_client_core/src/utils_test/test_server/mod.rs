@@ -149,7 +149,7 @@ impl TestServer {
         let _evicted: Option<SessionRecord> = self.sessions.remove(&session);
     }
 
-    /// The namespace's schema id changes, as a catalog change changes it.
+    /// The tenant's schema id changes, as a catalog change changes it.
     pub fn set_schema(&mut self, schema: u64) {
         self.schema = schema;
     }

@@ -4,13 +4,13 @@
  */
 
 use ultragraphdb_cluster_sequencer::{CatalogVersion, Close};
-use ultragraphdb_core_ids::{Epoch, Namespace};
+use ultragraphdb_core_ids::{Epoch, Tenant};
 use ultragraphdb_error_cluster::ClusterErrorEnum;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
 fn versions(count: u64) -> Vec<CatalogVersion> {
     (1..=count)
-        .map(|v| CatalogVersion::new(Namespace::new(1), v))
+        .map(|v| CatalogVersion::new(Tenant::new(1), v))
         .collect()
 }
 
@@ -22,7 +22,7 @@ fn test_the_limits() {
 
 #[test]
 fn test_a_close_keeps_its_fields() -> TestResult {
-    let catalog = vec![CatalogVersion::new(Namespace::new(3), 7)];
+    let catalog = vec![CatalogVersion::new(Tenant::new(3), 7)];
     let close = Close::new(
         Epoch::new(39)?,
         1_000,

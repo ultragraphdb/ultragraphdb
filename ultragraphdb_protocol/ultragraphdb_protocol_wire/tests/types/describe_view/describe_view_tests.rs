@@ -23,7 +23,7 @@ fn ex(name: &str) -> String {
 fn test_the_golden_answer_reads_its_values() -> TestResult {
     let bytes = golden("describe_reply")?.bytes()?;
     let view = DescribeView::from_frame(&frame_of(&bytes)?)?;
-    assert_eq!((view.namespace(), view.read_version()), (0, 42));
+    assert_eq!((view.tenant(), view.read_version()), (0, 42));
     assert_eq!(
         view.labels().collect::<Vec<_>>(),
         vec!["http://ex.org/Person"]
@@ -173,10 +173,10 @@ fn test_declarations_come_predicates_first_then_entity_types_then_relations() ->
 }
 
 #[test]
-fn test_a_nonzero_namespace_and_read_version_read_back() -> TestResult {
-    // The golden answer's namespace is 0; an answer built with namespace 5 and read version 6 reads both back.
+fn test_a_nonzero_tenant_and_read_version_read_back() -> TestResult {
+    // The golden answer's tenant is 0; an answer built with tenant 5 and read version 6 reads both back.
     let bytes = Describe::new(5, 6).frame(golden("describe")?.header())?;
     let view = DescribeView::from_frame(&frame_of(&bytes)?)?;
-    assert_eq!((view.namespace(), view.read_version()), (5, 6));
+    assert_eq!((view.tenant(), view.read_version()), (5, 6));
     Ok(())
 }

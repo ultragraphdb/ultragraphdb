@@ -16,10 +16,10 @@ fn insert(name: &str) -> Change {
 }
 
 #[test]
-fn test_a_changeset_keeps_its_namespace_and_its_changes_in_order() {
+fn test_a_changeset_keeps_its_tenant_and_its_changes_in_order() {
     let empty = Changeset::new(7);
     assert!(empty.is_empty());
-    assert_eq!(empty.namespace(), 7);
+    assert_eq!(empty.tenant(), 7);
 
     let mut c = Changeset::new(7).with(insert("a"));
     c.push(insert("b"));

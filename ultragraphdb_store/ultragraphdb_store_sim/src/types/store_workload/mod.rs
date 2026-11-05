@@ -38,7 +38,7 @@ const REREAD: u32 = 500;
 const VERSIONLESS_WRITE: u32 = 400;
 /// The chance per thousand that a reader, when versionless reads are on, reads a key without a version first.
 const VERSIONLESS_READ: u32 = 400;
-/// The keys without a version the workload writes and reads: dictionary-shaped, a namespace then a tag and an id.
+/// The keys without a version the workload writes and reads: dictionary-shaped, a tenant then a tag and an id.
 const VERSIONLESS_KEYS: u64 = 8;
 
 /// A reader's open snapshot, the reads it has left, and each read it made through it with whether it failed.
@@ -170,7 +170,7 @@ impl StoreWorkload {
                 let statistics = self.keys.statistics_key(0, PREDICATES[0]);
                 store.drop_all(vec![Entry::put(statistics, 1, 0x01, b"name".to_vec())])
             }
-            75..77 => store.ban_namespace(self.keys.bannable(ctx.rng())),
+            75..77 => store.ban_tenant(self.keys.bannable(ctx.rng())),
             77..86 => {
                 let discard = ctx.rng().between(store.discard_ts(), store.applied_ts());
                 let mut result = store.set_discard_ts(discard);
@@ -305,11 +305,11 @@ impl StoreWorkload {
         if prefix.first() != Some(&STATISTICS) || ctx.rng().chance(500) {
             return Vec::new();
         }
-        // A namespace's statistics prefix gets the statistics of `name`; a predicate's prefix is its key.
+        // A tenant's statistics prefix gets the statistics of `name`; a predicate's prefix is its key.
         let key = match prefix.get(1..9) {
-            Some(ns) if prefix.len() == 9 => {
-                let namespace = ns.iter().fold(0u64, |n, &b| n << 8 | u64::from(b));
-                self.keys.statistics_key(namespace, PREDICATES[0])
+            Some(tenant) if prefix.len() == 9 => {
+                let tenant = tenant.iter().fold(0u64, |n, &b| n << 8 | u64::from(b));
+                self.keys.statistics_key(tenant, PREDICATES[0])
             }
             _ => prefix.to_vec(),
         };
@@ -398,7 +398,7 @@ impl StoreWorkload {
     }
 }
 
-/// One of the keys without a version the workload draws: namespace 0, the dictionary's IRI tag, then a small id.
+/// One of the keys without a version the workload draws: tenant 0, the dictionary's IRI tag, then a small id.
 fn versionless_key(rng: &mut SimRng) -> Vec<u8> {
     let mut key = 0u64.to_be_bytes().to_vec();
     key.push(0x01);

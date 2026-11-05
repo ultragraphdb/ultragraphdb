@@ -28,7 +28,7 @@ use crate::types::rebuild::Rebuild;
 /// nodes whose vector it changed while a vector index is built, and the index keys its declarations remove.
 #[derive(Debug)]
 pub struct Executed {
-    pub(crate) namespace: u64,
+    pub(crate) tenant: u64,
     pub(crate) read_ts: u64,
     pub(crate) writes: Writes,
     pub(crate) terms: WriteTerms,
@@ -63,13 +63,13 @@ pub struct Executed {
 }
 
 impl Executed {
-    /// An execution of `namespace` read at `read_ts` under `catalog` that reads and writes nothing.
-    pub(crate) fn empty(namespace: u64, read_ts: u64, catalog: Catalog) -> Self {
+    /// An execution of `tenant` read at `read_ts` under `catalog` that reads and writes nothing.
+    pub(crate) fn empty(tenant: u64, read_ts: u64, catalog: Catalog) -> Self {
         Self {
-            namespace,
+            tenant,
             read_ts,
             writes: Writes::default(),
-            terms: WriteTerms::new(namespace),
+            terms: WriteTerms::new(tenant),
             reads: Reads::default(),
             read: BTreeSet::new(),
             lists_read: 0,
@@ -90,9 +90,9 @@ impl Executed {
         }
     }
 
-    /// A drop of `dropped` in `namespace` read at `read_ts`, writing `ranges`.
+    /// A drop of `dropped` in `tenant` read at `read_ts`, writing `ranges`.
     pub(crate) fn dropping(
-        namespace: u64,
+        tenant: u64,
         read_ts: u64,
         catalog: Catalog,
         dropped: Option<DropTarget>,
@@ -101,15 +101,15 @@ impl Executed {
         Self {
             dropped,
             drop_ranges: ranges,
-            ..Self::empty(namespace, read_ts, catalog)
+            ..Self::empty(tenant, read_ts, catalog)
         }
     }
 
-    /// The end of a build of `namespace` read at `read_ts`, as its proposal to the commit step.
-    pub(crate) fn ending(namespace: u64, read_ts: u64, catalog: Catalog, end: BuildEnd) -> Self {
+    /// The end of a build of `tenant` read at `read_ts`, as its proposal to the commit step.
+    pub(crate) fn ending(tenant: u64, read_ts: u64, catalog: Catalog, end: BuildEnd) -> Self {
         Self {
             build_end: Some(end),
-            ..Self::dropping(namespace, read_ts, catalog, None, Vec::new())
+            ..Self::dropping(tenant, read_ts, catalog, None, Vec::new())
         }
     }
 
@@ -196,9 +196,9 @@ impl Executed {
         self.pending.is_some()
     }
 
-    /// The namespace the changeset was executed in.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant the changeset was executed in.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// The watermark the changeset was executed at, its read version.
@@ -227,7 +227,7 @@ impl Executed {
         self.catalog_version
     }
 
-    /// The catalog version of the build this execution ends, `None` for any other execution: the version its namespace's
+    /// The catalog version of the build this execution ends, `None` for any other execution: the version its tenant's
     /// catalog holds, the one that started the build, since a later version waits for the build's end.
     pub fn build_version(&self) -> Option<u64> {
         self.build_end.map(|_| self.catalog.version())

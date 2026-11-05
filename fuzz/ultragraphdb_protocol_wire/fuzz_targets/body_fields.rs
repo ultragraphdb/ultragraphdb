@@ -94,7 +94,7 @@ enum Body {
     },
     Drop {
         kind: u8,
-        namespace: u64,
+        tenant: u64,
         target: String,
         session: [u8; 16],
         request: u64,
@@ -148,14 +148,14 @@ enum Body {
     DirectWrite {
         session: [u8; 16],
         request: u64,
-        namespace: u64,
+        tenant: u64,
         token: Option<u64>,
         changes: Vec<ChangeFields>,
     },
     ConditionalWrite {
         session: [u8; 16],
         request: u64,
-        namespace: u64,
+        tenant: u64,
         token: Option<u64>,
         changes: Vec<ChangeFields>,
         operations: Vec<OperationFields>,
@@ -888,7 +888,7 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
         }
         Body::Drop {
             kind,
-            namespace,
+            tenant,
             target,
             session,
             request,
@@ -896,10 +896,10 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
         } => {
             let (session, request) = session_of(*session, *request);
             let command = match kind % 5 {
-                0 => DropCommand::predicate(*namespace, target.clone()),
-                1 => DropCommand::graph(*namespace, target.clone()),
-                2 => DropCommand::namespace_data(*namespace),
-                3 => DropCommand::whole_namespace(*namespace),
+                0 => DropCommand::predicate(*tenant, target.clone()),
+                1 => DropCommand::graph(*tenant, target.clone()),
+                2 => DropCommand::tenant_data(*tenant),
+                3 => DropCommand::whole_tenant(*tenant),
                 _ => DropCommand::all(),
             }
             .with_session(session, request)
@@ -955,7 +955,7 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
         Body::DirectWrite {
             session,
             request,
-            namespace,
+            tenant,
             token,
             changes,
         } => {
@@ -966,7 +966,7 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
             let changes = changes.iter().map(|fields| change(fields, &t)).collect();
             let (session, request) = session_of(*session, *request);
             let mut write =
-                DirectWrite::new(*namespace, terms, changes).with_session(session, request);
+                DirectWrite::new(*tenant, terms, changes).with_session(session, request);
             if let Some(token) = token.and_then(|version| token_of(version, request)) {
                 write = write.with_token(token);
             }
@@ -984,7 +984,7 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
         Body::ConditionalWrite {
             session,
             request,
-            namespace,
+            tenant,
             token,
             changes,
             operations,
@@ -999,7 +999,7 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
                 .map(|fields| commit_operation(fields, &t))
                 .collect();
             let (session, request) = session_of(*session, *request);
-            let mut write = ConditionalWrite::new(*namespace, terms, changes, operations)
+            let mut write = ConditionalWrite::new(*tenant, terms, changes, operations)
                 .with_session(session, request);
             if let Some(token) = token.and_then(|version| token_of(version, request)) {
                 write = write.with_token(token);

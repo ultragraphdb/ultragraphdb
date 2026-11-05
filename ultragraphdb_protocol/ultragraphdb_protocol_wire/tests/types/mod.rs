@@ -154,8 +154,6 @@ pub mod members;
 #[cfg(test)]
 mod members_view;
 #[cfg(test)]
-mod namespace_run;
-#[cfg(test)]
 mod object_record;
 #[cfg(test)]
 mod object_records;
@@ -247,6 +245,8 @@ mod string_list;
 pub mod subscribe;
 #[cfg(test)]
 mod subscribe_view;
+#[cfg(test)]
+mod tenant_run;
 #[cfg(test)]
 mod term_table;
 #[cfg(test)]

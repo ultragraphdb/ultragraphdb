@@ -12,13 +12,13 @@ use ultragraphdb_traits_store::Scan;
 
 use crate::errors::quad_error::QuadError;
 
-/// A request of the read kernel ([`crate::QuadStore::scan`]): the lists of `keyspace` in `namespace` whose keys,
-/// without their versions, lie from `from`, inclusive, to `to`, exclusive, or to the end of the namespace's keyspace,
+/// A request of the read kernel ([`crate::QuadStore::scan`]): the lists of `keyspace` in `tenant` whose keys,
+/// without their versions, lie from `from`, inclusive, to `to`, exclusive, or to the end of the tenant's keyspace,
 /// read as of `version`, at most `limit` of them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct KernelScan {
     keyspace: Keyspace,
-    namespace: u64,
+    tenant: u64,
     from: Vec<u8>,
     to: Option<Vec<u8>>,
     version: u64,
@@ -29,18 +29,18 @@ pub struct KernelScan {
 }
 
 impl KernelScan {
-    /// The scan of `keyspace` in `namespace` from `from` to the namespace's keyspace's end, as of `version`, at most
+    /// The scan of `keyspace` in `tenant` from `from` to the tenant's keyspace's end, as of `version`, at most
     /// `limit` lists.
     pub fn new(
         keyspace: Keyspace,
-        namespace: u64,
+        tenant: u64,
         from: Vec<u8>,
         version: u64,
         limit: NonZeroUsize,
     ) -> Self {
         Self {
             keyspace,
-            namespace,
+            tenant,
             from,
             to: None,
             version,
@@ -82,9 +82,9 @@ impl KernelScan {
         self.keyspace
     }
 
-    /// The namespace.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// The first key, inclusive.
@@ -132,7 +132,7 @@ impl KernelScan {
             return Ok(());
         }
         Err(QuadError::corrupted(
-            &key_prefix(self.keyspace, false, self.namespace, None, None),
+            &key_prefix(self.keyspace, false, self.tenant, None, None),
             "the read kernel reads lists, and the keyspace holds none",
         ))
     }
@@ -147,15 +147,15 @@ impl KernelScan {
             return Ok(());
         }
         Err(QuadError::corrupted(
-            &key_prefix(self.keyspace, false, self.namespace, None, None),
+            &key_prefix(self.keyspace, false, self.tenant, None, None),
             "a page of stored values reads the referrer sets",
         ))
     }
 
-    /// The range within the namespace's keyspace, a bound outside it clamped to it: its first key, inclusive, and the key it
+    /// The range within the tenant's keyspace, a bound outside it clamped to it: its first key, inclusive, and the key it
     /// ends before.
     pub fn bounds(&self) -> (Vec<u8>, Option<Vec<u8>>) {
-        let whole = Scan::prefix(key_prefix(self.keyspace, false, self.namespace, None, None));
+        let whole = Scan::prefix(key_prefix(self.keyspace, false, self.tenant, None, None));
         let start = whole.start().max(self.from()).to_vec();
         let end = match (whole.end(), self.end()) {
             (Some(a), Some(b)) => Some(a.min(b).to_vec()),

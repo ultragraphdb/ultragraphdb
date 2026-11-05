@@ -154,7 +154,7 @@ fn test_a_commit_refused_past_the_write_set_limit_releases() -> TestResult {
 #[test]
 fn test_a_commit_whose_finish_the_store_fails_releases_once() -> TestResult {
     let applier = applier()?;
-    // A first commit, so the commit below writes nothing of the namespace's initial catalog.
+    // A first commit, so the commit below writes nothing of the tenant's initial catalog.
     store(&applier, vec![insert("a", "p", "b")])?;
     let mut txn = begin(&applier, Mode::ReadWrite)?;
     let created = creating(&applier, &mut txn)?;

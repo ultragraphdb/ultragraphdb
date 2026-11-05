@@ -141,7 +141,7 @@ ends the read alone, on a transaction's stream the transaction.
 ### Requirement: Data requests, prepared statements and describe
 In stage 5 a read SHALL be a quad pattern with each position bound or unbound, a limit and a resume key, naming its
 transaction and asking, when it wants them, each row's statement ID; a write SHALL be a changeset, in its transaction's
-namespace; a commit-time operation SHALL be its own request. A statement SHALL be prepared once per connection, which
+tenant; a commit-time operation SHALL be its own request. A statement SHALL be prepared once per connection, which
 holds it, from a quad pattern with parameter slots, answered with a statement id, its parameter and result column types
 and a schema id, and executed with parameters bound by position; after a catalog change its schema id SHALL no longer
 match, and an execution SHALL be refused as stale; a literal bound at a slot that takes a node SHALL be refused. A
@@ -149,11 +149,11 @@ resume key SHALL continue its own request only, and rows SHALL come in the store
 from the data dictionary, as far as the connection's principal may read it.
 
 #### Scenario: A stale statement is refused
-- **WHEN** a statement is prepared, the catalog of its namespace changes, and the statement is executed
+- **WHEN** a statement is prepared, the catalog of its tenant changes, and the statement is executed
 - **THEN** the execution is refused as stale, and preparing it again succeeds
 
 #### Scenario: Describe answers from the data dictionary
-- **WHEN** `name` is declared a property with a `term` index and a client sends Describe for the namespace
+- **WHEN** `name` is declared a property with a `term` index and a client sends Describe for the tenant
 - **THEN** the answer lists `name` as a property with its `term` index, as the data dictionary reports it
 
 #### Scenario: A literal at a node slot is refused
@@ -268,19 +268,19 @@ connection error. A log frame's sequence SHALL be its round's position.
   retries its commit through its session, which commits once
 
 ### Requirement: Drops are commands
-A client SHALL drop a predicate, a graph, a namespace's data, a namespace or every namespace by a Drop request on a
+A client SHALL drop a predicate, a graph, a tenant's data, a tenant or every tenant by a Drop request on a
 stream of its own, committed through a session as a commit is and answered with the drop's commit version. The commit
 step SHALL decide a drop as the last transaction of its round, and its write-set record SHALL name the drop, so
 recovery redoes it. A transaction that read or wrote what a drop removes, below the drop's version, SHALL abort with a
 conflict of kind Drop.
 
 #### Scenario: A graph drop removes the graph
-- **WHEN** a client drops graph `g` of a namespace holding statements in `g` and in `h`
+- **WHEN** a client drops graph `g` of a tenant holding statements in `g` and in `h`
 - **THEN** the reply carries the drop's commit version, no statement of `g` remains, and every statement of `h` remains
 
-#### Scenario: A namespace's data drop keeps its catalog
-- **WHEN** a client drops a namespace's data after declaring `name` a property
-- **THEN** no statement of the namespace remains, and Describe still lists `name`
+#### Scenario: A tenant's data drop keeps its catalog
+- **WHEN** a client drops a tenant's data after declaring `name` a property
+- **THEN** no statement of the tenant remains, and Describe still lists `name`
 
 #### Scenario: A drop retried through its session applies once
 - **WHEN** a Drop's reply is lost, and the client sends it again with the same session and request number

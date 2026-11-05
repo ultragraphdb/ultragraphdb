@@ -11,17 +11,17 @@ pub struct BoundRead {
     key: BoundKey,
     read_version: u64,
     principal: u64,
-    namespace: u64,
+    tenant: u64,
 }
 
 impl BoundRead {
-    /// The transaction bound as `key`, reading at `read_version` for `principal` in `namespace`.
-    pub(crate) fn new(key: BoundKey, read_version: u64, principal: u64, namespace: u64) -> Self {
+    /// The transaction bound as `key`, reading at `read_version` for `principal` in `tenant`.
+    pub(crate) fn new(key: BoundKey, read_version: u64, principal: u64, tenant: u64) -> Self {
         Self {
             key,
             read_version,
             principal,
-            namespace,
+            tenant,
         }
     }
 
@@ -40,8 +40,8 @@ impl BoundRead {
         self.principal
     }
 
-    /// The namespace it reads and writes.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant it reads and writes.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 }

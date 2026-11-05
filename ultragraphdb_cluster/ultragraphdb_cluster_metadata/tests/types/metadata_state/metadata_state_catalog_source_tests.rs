@@ -4,28 +4,28 @@
  */
 
 use ultragraphdb_cluster_metadata::{MetadataCommand, MetadataState};
-use ultragraphdb_core_ids::{Epoch, Namespace};
+use ultragraphdb_core_ids::{Epoch, Tenant};
 use ultragraphdb_error_cluster::ClusterError;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_catalog::{CatalogSource, HeldVersion};
 
-/// Namespace 4's version 1 effective at 2, version 2 pending, the last learned close 1.
+/// Tenant 4's version 1 effective at 2, version 2 pending, the last learned close 1.
 fn one_effective() -> TestResult<MetadataState> {
     let mut state = MetadataState::new();
-    let ns = Namespace::new(4);
+    let tenant = Tenant::new(4);
     state.apply(&MetadataCommand::OfferCatalog {
-        namespace: ns,
+        tenant,
         predecessor: 0,
         bytes: b"one".to_vec(),
     })?;
     state.apply(&MetadataCommand::LearnClose {
         placement: 0,
         epoch: Epoch::new(1)?,
-        versions: vec![(ns, 1)],
+        versions: vec![(tenant, 1)],
         evictions: Vec::new(),
     })?;
     state.apply(&MetadataCommand::OfferCatalog {
-        namespace: ns,
+        tenant,
         predecessor: 1,
         bytes: b"two".to_vec(),
     })?;
@@ -66,7 +66,7 @@ fn test_a_version_by_number_only_once_effective() -> TestResult {
         state.version(4, 1)?,
         Some(HeldVersion::new(4, 1, 2, b"one".to_vec()))
     );
-    // Pending, never committed, another namespace.
+    // Pending, never committed, another tenant.
     assert_eq!(state.version(4, 2)?, None);
     assert_eq!(state.version(4, 3)?, None);
     assert_eq!(state.version(4, 0)?, None);

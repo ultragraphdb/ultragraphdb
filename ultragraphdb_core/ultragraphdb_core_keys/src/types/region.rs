@@ -10,14 +10,14 @@ use crate::types::graph::Graph;
 use crate::types::keyspace::Keyspace;
 use crate::types::quad_key::QuadKey;
 
-/// The key range a key belongs to, the unit a write's reads and writes are reported in: the keyspace, the namespace,
+/// The key range a key belongs to, the unit a write's reads and writes are reported in: the keyspace, the tenant,
 /// the graph for the keyspaces whose keys name one and, for those whose keys name one too, the predicate. The
-/// catalog's, the marks' and the referrers' regions are their namespace's. A part of a split list belongs to its
+/// catalog's, the marks' and the referrers' regions are their tenant's. A part of a split list belongs to its
 /// list's region.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Region {
     keyspace: Keyspace,
-    namespace: u64,
+    tenant: u64,
     graph: Option<Graph>,
     predicate: Option<SystemId>,
 }
@@ -25,13 +25,13 @@ pub struct Region {
 impl Region {
     pub(crate) fn new(
         keyspace: Keyspace,
-        namespace: u64,
+        tenant: u64,
         graph: Option<Graph>,
         predicate: Option<SystemId>,
     ) -> Self {
         Self {
             keyspace,
-            namespace,
+            tenant,
             graph,
             predicate,
         }
@@ -52,10 +52,10 @@ impl Region {
         self.keyspace
     }
 
-    /// The namespace.
+    /// The tenant.
     #[must_use]
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// The graph, when the keyspace's keys name one.

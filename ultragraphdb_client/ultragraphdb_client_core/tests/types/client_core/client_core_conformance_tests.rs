@@ -288,8 +288,8 @@ fn test_every_golden_reply_is_read_as_its_values() -> TestResult {
     let begin_bytes = golden("begin")?;
     let begin = view::<BeginView>(&FrameView::validate(&begin_bytes, CLUSTER, MAX_FRAME_SIZE)?)?;
     assert_eq!(
-        (tx.namespace(), tx.read_version(), tx.read_only()),
-        (begin.namespace(), begin.read_version(), begin.read_only())
+        (tx.tenant(), tx.read_version(), tx.read_only()),
+        (begin.tenant(), begin.read_version(), begin.read_only())
     );
     let preparing = d.core.prepare(
         &view::<PrepareView>(&FrameView::validate(
@@ -315,7 +315,7 @@ fn test_every_golden_reply_is_read_as_its_values() -> TestResult {
     Ok(())
 }
 
-/// A transaction begun on `stream` of `d`, a Begin reply of namespace 0 delivered: a read-only one at its snapshot's
+/// A transaction begun on `stream` of `d`, a Begin reply of tenant 0 delivered: a read-only one at its snapshot's
 /// version `SNAPSHOT`, a read-write one at 0, as `PROTOCOL.md` §6.2 answers them.
 fn begin_direct(
     d: &mut Direct,

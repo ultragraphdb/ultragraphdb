@@ -26,7 +26,7 @@ use ultragraphdb_common_storage::{
     CoreChannels, CoreMessage, CoreParts, FrontendAsk, PartitionCore, Peers, RefillBlocks,
     SCAN_STALL_MS_DEFAULT, StorageHost, StoragePartition, StorageSession,
 };
-use ultragraphdb_core_ids::{Epoch, Namespace, TypePrefix, Version};
+use ultragraphdb_core_ids::{Epoch, Tenant, TypePrefix, Version};
 use ultragraphdb_core_mapping::RandomSource;
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_transport::{Address, Endpoint, TransportError};
@@ -548,9 +548,7 @@ fn close_of(
     let epoch = Epoch::new(close.epoch()).map_err(|error| wrong(error.to_string()))?;
     let catalog: Vec<CatalogVersion> = (0..close.announcement_count())
         .filter_map(|index| close.announcement(index))
-        .map(|announced| {
-            CatalogVersion::new(Namespace::new(announced.namespace()), announced.version())
-        })
+        .map(|announced| CatalogVersion::new(Tenant::new(announced.tenant()), announced.version()))
         .collect();
     let evictions: Vec<u128> = (0..close.eviction_count())
         .filter_map(|index| close.eviction(index))

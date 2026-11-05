@@ -3,11 +3,11 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-/// A catalog announcement of an EpochClose (`PROTOCOL.md` §13.4), 16 bytes: `namespace` u64, then `version` u64, the
+/// A catalog announcement of an EpochClose (`PROTOCOL.md` §13.4), 16 bytes: `tenant` u64, then `version` u64, the
 /// catalog version taking effect at the epoch one above the close's, at least 1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct CatalogAnnouncement {
-    namespace: u64,
+    tenant: u64,
     version: u64,
 }
 
@@ -15,14 +15,14 @@ impl CatalogAnnouncement {
     /// An announcement's size in bytes.
     pub const SIZE: usize = 16;
 
-    /// The announcement of `namespace`'s catalog `version`.
-    pub fn new(namespace: u64, version: u64) -> Self {
-        Self { namespace, version }
+    /// The announcement of `tenant`'s catalog `version`.
+    pub fn new(tenant: u64, version: u64) -> Self {
+        Self { tenant, version }
     }
 
-    /// The namespace.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// The catalog version.
@@ -35,7 +35,7 @@ impl CatalogAnnouncement {
         let mut out = [0u8; CatalogAnnouncement::SIZE];
         out.iter_mut()
             .zip(
-                self.namespace
+                self.tenant
                     .to_le_bytes()
                     .into_iter()
                     .chain(self.version.to_le_bytes()),
@@ -46,9 +46,9 @@ impl CatalogAnnouncement {
 
     /// The announcement `bytes` hold.
     pub(crate) fn decode(bytes: &[u8; CatalogAnnouncement::SIZE]) -> Self {
-        let (namespace, version) = bytes.split_at(8);
+        let (tenant, version) = bytes.split_at(8);
         Self::new(
-            namespace.try_into().map_or(0, u64::from_le_bytes),
+            tenant.try_into().map_or(0, u64::from_le_bytes),
             version.try_into().map_or(0, u64::from_le_bytes),
         )
     }

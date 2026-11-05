@@ -43,8 +43,8 @@ use crate::utils::setup::{BenchApplier, open_applier, prepare, size_json};
 /// The hubs and relation types of the apply run's commits.
 const HUBS: u64 = 1_000;
 const TYPES: u64 = 10;
-/// The namespace the commits write, the root.
-const NAMESPACE: u64 = 0;
+/// The tenant the commits write, the root.
+const TENANT: u64 = 0;
 /// The cluster the log's rounds name.
 const CLUSTER: u64 = 1;
 /// Dgraph's limit on mutation proposals in flight, as in the apply run.
@@ -200,7 +200,7 @@ fn prepare_commit(
 ) -> Result<Prepared, BenchError> {
     let mut txn = Transaction::begin(
         a,
-        NAMESPACE,
+        TENANT,
         Mode::ReadWrite,
         0,
         now,

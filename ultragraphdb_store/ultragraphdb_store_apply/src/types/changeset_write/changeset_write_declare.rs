@@ -41,7 +41,7 @@ where
             Declaration::Relation(r) => (self.iri(r.iri().as_ref())?, None),
         };
         self.catalog.declare(uid, declaration.clone(), parent)?;
-        self.add_entry(&declaration_key(self.namespace(), uid, declaration));
+        self.add_entry(&declaration_key(self.tenant(), uid, declaration));
         Ok(())
     }
 
@@ -65,7 +65,7 @@ where
             }
             let _index: PersistentHnsw<f32> = hnsw(
                 spec,
-                VectorKeys::new(iri, self.namespace(), DEFAULT_GRAPH, uid),
+                VectorKeys::new(iri, self.tenant(), DEFAULT_GRAPH, uid),
             )?;
         }
         let old = self
@@ -78,7 +78,7 @@ where
             if self.building {
                 return Err(ChangesetError::rebuilding(iri));
             }
-            let rebuild = Rebuild::pending(self.namespace(), uid, old, new.clone());
+            let rebuild = Rebuild::pending(self.tenant(), uid, old, new.clone());
             self.maintained = Some((uid, rebuild.maintained()));
             self.vector_built = rebuild.plan.build_vector.then_some(uid);
             self.building = true;
@@ -90,7 +90,7 @@ where
             new.clone()
         };
         self.catalog.declare_predicate(uid, declared)?;
-        self.add_entry(&catalog_key(self.namespace(), PREDICATE, uid));
+        self.add_entry(&catalog_key(self.tenant(), PREDICATE, uid));
         Ok(())
     }
 
@@ -115,22 +115,22 @@ where
             self.catalog.remove_relation(uid)
         };
         if removed {
-            self.add_entry(&catalog_key(self.namespace(), kind, uid));
+            self.add_entry(&catalog_key(self.tenant(), kind, uid));
         }
         debug_assert!(self.catalog.entity_type(uid).is_none() || kind != ENTITY_TYPE);
     }
 
     /// Records the keys of the indexes `plan` removes from predicate `uid`, which a request after the write deletes.
     fn remove_indexes(&mut self, uid: SystemId, plan: &IndexPlan) {
-        let ns = self.namespace();
+        let tenant = self.tenant();
         for t in &plan.remove_tokenizers {
-            self.removals.extend(tokenizer_prefixes(ns, uid, t));
+            self.removals.extend(tokenizer_prefixes(tenant, uid, t));
         }
         if plan.remove_count {
-            self.removals.extend(count_prefixes(ns, uid));
+            self.removals.extend(count_prefixes(tenant, uid));
         }
         if plan.remove_vector {
-            self.removals.extend(vector_prefixes(ns, uid));
+            self.removals.extend(vector_prefixes(tenant, uid));
         }
     }
 }

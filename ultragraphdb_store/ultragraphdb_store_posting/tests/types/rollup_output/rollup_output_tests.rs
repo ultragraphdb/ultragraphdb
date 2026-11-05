@@ -179,7 +179,7 @@ fn test_every_value_falls_in_the_low_half() -> TestResult {
 #[test]
 fn test_a_value_index_list_splits_from_the_smallest_id() -> TestResult {
     let k = ultragraphdb_core_keys::QuadKey::ValueIndex {
-        namespace: 0,
+        tenant: 0,
         graph: ultragraphdb_core_keys::Graph::Default,
         predicate: crate::utils::helpers::id(7)?,
         tokenizer: 1,

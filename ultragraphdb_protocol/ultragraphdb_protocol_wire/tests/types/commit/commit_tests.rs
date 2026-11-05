@@ -76,7 +76,7 @@ fn test_a_node_found_twice_is_interned_once() -> TestResult {
         Epoch::new(31)?,
     ));
     commit.push_node_result("http://ex.org/y", true);
-    commit.push_node_result("https://w3id.org/ultragraphdb/ns/namespace/0/.well-known/genid/00002a-0123456789abcdef0123456789", true);
+    commit.push_node_result("https://w3id.org/ultragraphdb/ns/tenant/0/.well-known/genid/00002a-0123456789abcdef0123456789", true);
     commit.push_node_result("http://ex.org/y", false);
     assert_eq!(
         commit.results(),

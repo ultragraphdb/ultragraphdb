@@ -28,7 +28,7 @@ use crate::utils::skolem::is_skolem;
 /// the write found absent is recorded by ID: an IRI it created, which no statement of its snapshot can hold.
 #[derive(Debug, Default, Clone)]
 pub struct WriteTerms {
-    namespace: u64,
+    tenant: u64,
     /// Every IRI resolved, with its ID.
     ids: BTreeMap<String, SystemId>,
     /// The terms whose dictionary entries the write's commit writes, with their IDs: IRIs it created or took from a
@@ -50,24 +50,24 @@ pub struct WriteTerms {
     inherited_strings: BTreeMap<Hash128, String>,
 }
 
-/// The base of the skolem IRIs of `namespace`'s blank nodes and reifiers: its default base, under the system
+/// The base of the skolem IRIs of `tenant`'s blank nodes and reifiers: its default base, under the system
 /// vocabulary, until an administrator sets one (the stage 4 design's open question).
-pub fn namespace_base(namespace: u64) -> String {
-    format!("{SYSTEM_VOCABULARY}namespace/{namespace}/")
+pub fn tenant_base(tenant: u64) -> String {
+    format!("{SYSTEM_VOCABULARY}tenant/{tenant}/")
 }
 
 impl WriteTerms {
-    /// The terms of a write of `namespace`, none resolved yet.
-    pub fn new(namespace: u64) -> Self {
+    /// The terms of a write of `tenant`, none resolved yet.
+    pub fn new(tenant: u64) -> Self {
         Self {
-            namespace,
+            tenant,
             ..Self::default()
         }
     }
 
-    /// The namespace the write writes.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant the write writes.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// Whether `id` was created by this write, so that no list keyed by it holds anything.
@@ -103,7 +103,7 @@ impl WriteTerms {
     ///
     /// # Errors
     ///
-    /// [`QuadError::unknown_skolem`] for an IRI under the namespace's skolem base the dictionary does not hold; the
+    /// [`QuadError::unknown_skolem`] for an IRI under the tenant's skolem base the dictionary does not hold; the
     /// refusals of creating an ID ([`QuadError::no_sequence`], [`QuadError::pending_full`], an IRI past a canonical
     /// key's length); the store's error.
     pub fn iri<S, C, B>(
@@ -121,7 +121,7 @@ impl WriteTerms {
         }
         let (id, origin) = quads
             .dictionary()
-            .resolve(quads.store(), self.namespace, iri)?;
+            .resolve(quads.store(), self.tenant, iri)?;
         let _resolved: Option<SystemId> = self.ids.insert(iri.to_string(), id);
         if origin != TermOrigin::Held {
             let _written: Option<SystemId> = self.written.insert(iri.to_string(), id);
@@ -148,9 +148,7 @@ impl WriteTerms {
         if let Some(id) = self.blanks.get(label) {
             return Ok(*id);
         }
-        let (id, skolem) = quads
-            .dictionary()
-            .mint_blank(quads.store(), self.namespace)?;
+        let (id, skolem) = quads.dictionary().mint_blank(quads.store(), self.tenant)?;
         let _resolved: Option<SystemId> = self.ids.insert(skolem.clone(), id);
         let _written: Option<SystemId> = self.written.insert(skolem, id);
         let _labelled: Option<SystemId> = self.blanks.insert(label.to_string(), id);
@@ -249,7 +247,7 @@ impl WriteTerms {
     {
         match term {
             TermRef::NamedNode(n)
-                if is_skolem(self.namespace, n.as_str()) && !self.ids.contains_key(n.as_str()) =>
+                if is_skolem(self.tenant, n.as_str()) && !self.ids.contains_key(n.as_str()) =>
             {
                 let found = self.look_up(quads, n.as_str())?;
                 Ok(found.map(EncodedTerm::id))
@@ -280,7 +278,7 @@ impl WriteTerms {
         let (id, reifier) =
             quads
                 .dictionary()
-                .mint_statement(quads.store(), self.namespace, subject)?;
+                .mint_statement(quads.store(), self.tenant, subject)?;
         let _resolved: Option<SystemId> = self.ids.insert(reifier.clone(), id);
         let _written: Option<SystemId> = self.written.insert(reifier, id);
         let _fresh: bool = self.fresh.insert(id);
@@ -320,7 +318,7 @@ impl WriteTerms {
     {
         let found = quads
             .dictionary()
-            .lookup(quads.store(), self.namespace, term)?;
+            .lookup(quads.store(), self.tenant, term)?;
         if let Some((id, TermOrigin::Pending)) = found {
             let _resolved: Option<SystemId> = self.ids.insert(term.to_string(), id);
             let _written: Option<SystemId> = self.written.insert(term.to_string(), id);
@@ -331,17 +329,17 @@ impl WriteTerms {
     /// The dictionary entries the write's commit adds: both of each term in [`WriteTerms::written`], and each string
     /// its literals hash, which equal strings write equally.
     pub fn entries(&self) -> Vec<(Vec<u8>, Vec<u8>)> {
-        let ns = self.namespace;
+        let tenant = self.tenant;
         let terms = self.written.iter().flat_map(|(term, id)| {
             [
-                (term_key(ns, term), id.to_be_bytes().to_vec()),
-                (id_key(ns, *id), term.as_bytes().to_vec()),
+                (term_key(tenant, term), id.to_be_bytes().to_vec()),
+                (id_key(tenant, *id), term.as_bytes().to_vec()),
             ]
         });
         let strings = self
             .strings
             .iter()
-            .map(|(hash, s)| (literal_key(ns, hash), s.as_bytes().to_vec()));
+            .map(|(hash, s)| (literal_key(tenant, hash), s.as_bytes().to_vec()));
         terms.chain(strings).collect()
     }
 
@@ -362,17 +360,17 @@ impl WriteTerms {
             .find(|(_, i)| **i == id)
             .map(|(term, _)| term)
             .or_else(|| self.inherited_ids.get(&id))?;
-        let blank = id.type_prefix() == TypePrefix::RESOURCE && is_skolem(self.namespace, text);
+        let blank = id.type_prefix() == TypePrefix::RESOURCE && is_skolem(self.tenant, text);
         Some((text.as_str(), blank))
     }
 
     /// Inherits the dictionary entries of `entries`, the entries without versions decided but unapplied writes made
     /// (7.5): each ID's term, known by its ID as [`WriteTerms::know`] takes it, and each string by its hash, so the
-    /// write reads them as its own and writes neither again. Entries of another namespace or another kind, removals
+    /// write reads them as its own and writes neither again. Entries of another tenant or another kind, removals
     /// and entries that do not parse are left alone: the writes that made them parsed them.
     pub fn inherit(&mut self, entries: &[&VersionlessEntry]) {
         for entry in entries {
-            let (Some(value), Ok((QuadKey::Dictionary { namespace, entry }, None))) =
+            let (Some(value), Ok((QuadKey::Dictionary { tenant, entry }, None))) =
                 (entry.value(), QuadKey::parse(entry.key()))
             else {
                 continue;
@@ -381,12 +379,12 @@ impl WriteTerms {
                 continue;
             };
             match entry {
-                DictionaryEntry::Id(id) if namespace == self.namespace => {
+                DictionaryEntry::Id(id) if tenant == self.tenant => {
                     self.know(text, id);
                     let _inherited: Option<String> =
                         self.inherited_ids.insert(id, text.to_string());
                 }
-                DictionaryEntry::Literal(hash) if namespace == self.namespace => {
+                DictionaryEntry::Literal(hash) if tenant == self.tenant => {
                     let _inherited: Option<String> =
                         self.inherited_strings.insert(hash, text.to_string());
                 }

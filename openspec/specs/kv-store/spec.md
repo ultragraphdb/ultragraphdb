@@ -2,7 +2,7 @@
 
 ## Purpose
 The versioned key-value store under the posting lists, on fjall: versions as part of the key, reads at a
-timestamp, snapshot scans, atomic write batches, prefix drops and banned namespaces, and garbage collection below the
+timestamp, snapshot scans, atomic write batches, prefix drops and banned tenants, and garbage collection below the
 discard timestamp.
 ## Requirements
 ### Requirement: Versions are part of the key
@@ -103,7 +103,7 @@ batches as needed, write the record's entries, sync, and delete the record; at o
 store finish the drop before it serves. A read below the drop's timestamp SHALL find nothing of the dropped data.
 Dropping everything SHALL follow the same pattern around clearing the data keyspace, SHALL leave only the entries it is
 given, and SHALL clear the banned set, the discard timestamp, the tombstone horizon and the applied timestamp. A batch
-SHALL drop the writes addressed to a banned namespace and write the rest, and a banned namespace SHALL be absent from
+SHALL drop the writes addressed to a banned tenant and write the rest, and a banned tenant SHALL be absent from
 reads and scans; Badger refuses such writes with `ErrBannedKey`, and Dgraph ignores the error and loses the rest of the
 Badger transaction.
 
@@ -123,12 +123,12 @@ Badger transaction.
 - **WHEN** everything is dropped with one entry to write at timestamp 1, and the store is closed and reopened
 - **THEN** that entry is the only key found, and the applied timestamp and the discard timestamp are 0
 
-#### Scenario: A banned namespace ignores writes
-- **WHEN** namespace 5 is banned and a batch writes a key in it and a key in namespace 6
-- **THEN** the batch succeeds, the key in namespace 5 is not found and the key in namespace 6 is
+#### Scenario: A banned tenant ignores writes
+- **WHEN** tenant 5 is banned and a batch writes a key in it and a key in tenant 6
+- **THEN** the batch succeeds, the key in tenant 5 is not found and the key in tenant 6 is
 
 #### Scenario: Dropping everything clears the banned set
-- **WHEN** namespace 5 is banned, everything is dropped, and a batch then writes a key in namespace 5
+- **WHEN** tenant 5 is banned, everything is dropped, and a batch then writes a key in tenant 5
 - **THEN** the key is found
 
 ### Requirement: Garbage collection below the discard timestamp
@@ -138,13 +138,13 @@ every version above `D`. A sweep at one snapshot SHALL remove a deletion at `T` 
 key remains below `T`, and no write SHALL land below a deletion of the same key. `H` SHALL equal `D` unless the store's
 owner sets it lower. The compaction filter SHALL keep any item it cannot decode, and until the store has loaded `D` the
 filter SHALL drop nothing. `D` SHALL never exceed the oldest open reader's timestamp. A version a prefix drop writes
-(the namespace's initial catalog) SHALL carry the fenced flag and SHALL never be collected. A version the
+(the tenant's initial catalog) SHALL carry the fenced flag and SHALL never be collected. A version the
 filter collects SHALL stay collected across a restart.
 
 #### Scenario: The initial catalog a drop writes survives garbage collection
-- **WHEN** everything in a namespace is dropped, its initial catalog is written at timestamp 1, the discard timestamp is
+- **WHEN** everything in a tenant is dropped, its initial catalog is written at timestamp 1, the discard timestamp is
   raised above the drop and the store compacts
-- **THEN** the namespace's initial catalog is still read at the discard timestamp
+- **THEN** the tenant's initial catalog is still read at the discard timestamp
 
 #### Scenario: A collected version stays collected after a restart
 - **WHEN** a version below the discard timestamp is collected, its deletion is swept and the store is closed and reopened

@@ -4,7 +4,7 @@
 #
 
 Feature: The schema persists in the metadata group
-  Each namespace's catalog is committed to the metadata group as numbered versions and loaded from it at start, in
+  Each tenant's catalog is committed to the metadata group as numbered versions and loaded from it at start, in
   place of catalog keys in a partition's store: a partition holds the version in effect in memory, and no other copy.
   The scenario of a version that does not decode runs in ultragraphdb_core_catalog's features.
 

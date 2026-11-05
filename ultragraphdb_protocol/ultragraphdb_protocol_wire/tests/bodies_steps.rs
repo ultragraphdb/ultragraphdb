@@ -47,8 +47,8 @@ fn ex(name: &str) -> NamedNode {
     NamedNode::new_unchecked(format!("http://ex.org/{name}"))
 }
 
-/// Quads over a simulated store, opened fresh, and namespace 0's declarations written into its store at their
-/// versions; the data dictionary's answer for the namespace at a version is what a server builds the Describe answer
+/// Quads over a simulated store, opened fresh, and tenant 0's declarations written into its store at their
+/// versions; the data dictionary's answer for the tenant at a version is what a server builds the Describe answer
 /// from.
 struct Dictionary {
     store: SimStore,
@@ -221,9 +221,7 @@ fn execute_frame(statement: u64) -> TestResult<Vec<u8>> {
         .frame(Header::new(CLUSTER, Command::Execute).with_stream(5))?)
 }
 
-#[when(
-    "a statement is prepared, the catalog of its namespace changes, and the statement is executed"
-)]
+#[when("a statement is prepared, the catalog of its tenant changes, and the statement is executed")]
 fn prepared_then_changed(w: &mut Steps) -> TestResult {
     let dictionary = Dictionary::new()?;
     dictionary.declare(7, name(), 10)?;
@@ -285,7 +283,7 @@ fn refused_stale(w: &mut Steps) -> TestResult {
 }
 
 #[when(
-    "`name` is declared a property with a `term` index and a client sends Describe for the namespace"
+    "`name` is declared a property with a `term` index and a client sends Describe for the tenant"
 )]
 fn describe_name(w: &mut Steps) -> TestResult {
     let dictionary = Dictionary::new()?;
@@ -293,9 +291,9 @@ fn describe_name(w: &mut Steps) -> TestResult {
     let request =
         Describe::request(0).frame(Header::new(CLUSTER, Command::Describe).with_stream(9))?;
     let asked = DescribeView::from_frame(&FrameView::validate(&request, CLUSTER, MAX_FRAME_SIZE)?)?;
-    // The server answers the namespace asked, from the dictionary.
+    // The server answers the tenant asked, from the dictionary.
     let answer = dictionary.describe(10)?;
-    assert_eq!(asked.namespace(), answer.namespace());
+    assert_eq!(asked.tenant(), answer.tenant());
     w.bytes = answer.frame(Header::new(CLUSTER, Command::Describe).with_stream(9))?;
     Ok(())
 }

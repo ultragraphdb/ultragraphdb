@@ -394,7 +394,7 @@ impl<L: Login> ClientCore<L> {
                 Ok(Reply::Begun(Transaction::new(
                     stream,
                     self.generation,
-                    begin.namespace(),
+                    begin.tenant(),
                     begin.read_version(),
                     begin.read_only(),
                 )))
@@ -405,7 +405,7 @@ impl<L: Login> ClientCore<L> {
                 let prepare = PrepareView::from_frame(view).map_err(ClientError::protocol)?;
                 Ok(Reply::Prepared(Statement::new(
                     prepare.statement(),
-                    prepare.namespace(),
+                    prepare.tenant(),
                     prepare.schema(),
                     prepare.parameter_types().to_vec(),
                     prepare.result_types().to_vec(),

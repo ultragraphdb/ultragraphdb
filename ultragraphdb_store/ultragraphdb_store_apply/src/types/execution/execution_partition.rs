@@ -101,7 +101,7 @@ where
         Ok(self
             .write
             .quads()
-            .mark(self.namespace, entity, group, self.read_ts)?)
+            .mark(self.tenant, entity, group, self.read_ts)?)
     }
 
     /// Marks `(entity, group)` at `generation`, the generation a home's reply named: the mark's key is read into the
@@ -132,7 +132,7 @@ where
     }
 
     /// Every value of a unique predicate the execution's changesets wrote by a plain write, with the predicate's ID,
-    /// as the bucket derivation hashes it (system-identity, "The bucket comes from the namespace and the key"):
+    /// as the bucket derivation hashes it (system-identity, "The bucket comes from the tenant and the key"):
     /// `(predicate, value's term encoding)`, in the order written.
     pub fn unique_writes(&self) -> &[(SystemId, Vec<u8>)] {
         self.write.unique_writes()
@@ -140,7 +140,7 @@ where
 
     /// Records the mark key of `(entity, group)` as read, once.
     fn record_mark(&mut self, entity: SystemId, group: BucketGroup) {
-        let key = mark_key(self.namespace, entity, group);
+        let key = mark_key(self.tenant, entity, group);
         if !self.marks_read.contains(&key) {
             self.marks_read.push(key);
         }

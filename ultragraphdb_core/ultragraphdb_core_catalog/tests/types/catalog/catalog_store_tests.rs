@@ -33,7 +33,7 @@ fn write(store: &SimStore, entries: Vec<Entry>) -> TestResult {
 }
 
 #[test]
-fn test_entries_carry_the_discard_flag_and_load_reads_one_namespace() -> TestResult {
+fn test_entries_carry_the_discard_flag_and_load_reads_one_tenant() -> TestResult {
     let store = SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new());
     let a = Catalog::initial(1, id(10)?);
     let b = Catalog::initial(2, id(20)?);
@@ -135,7 +135,7 @@ fn test_a_catalog_of_every_kind_reads_back_as_written() -> TestResult {
 }
 
 #[test]
-fn test_keys_name_the_namespace_the_kind_and_the_id() -> TestResult {
+fn test_keys_name_the_tenant_the_kind_and_the_id() -> TestResult {
     let predicate = Catalog::predicate_key(3, id(5)?);
     assert_eq!(predicate, Catalog::key(3, PREDICATE, id(5)?));
     for (kind, other) in [(ENTITY_TYPE, RELATION), (RELATION, PREDICATE)] {

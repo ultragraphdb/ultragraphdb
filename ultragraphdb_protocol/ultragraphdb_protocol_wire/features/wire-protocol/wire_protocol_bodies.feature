@@ -17,7 +17,7 @@ Feature: Wire protocol: bodies, statements, describe, result batches and the con
     Then the frame is refused with an error naming the section
 
   Scenario: A stale statement is refused
-    When a statement is prepared, the catalog of its namespace changes, and the statement is executed
+    When a statement is prepared, the catalog of its tenant changes, and the statement is executed
     Then the execution is refused as stale, and preparing it again succeeds
 
   Scenario: A literal at a node slot is refused
@@ -25,7 +25,7 @@ Feature: Wire protocol: bodies, statements, describe, result batches and the con
     Then the execution is refused with code 11, `detail` the statement
 
   Scenario: Describe answers from the data dictionary
-    When `name` is declared a property with a `term` index and a client sends Describe for the namespace
+    When `name` is declared a property with a `term` index and a client sends Describe for the tenant
     Then the answer lists `name` as a property with its `term` index, as the data dictionary reports it
 
   Scenario: A repeated term is sent once per batch

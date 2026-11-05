@@ -47,7 +47,7 @@ where
         add: bool,
     ) {
         let key = QuadKey::ValueIndex {
-            namespace: self.namespace(),
+            tenant: self.tenant(),
             graph,
             predicate,
             tokenizer,
@@ -147,10 +147,10 @@ where
         if from == to {
             return;
         }
-        let namespace = self.namespace();
+        let tenant = self.tenant();
         let key = |count| {
             QuadKey::CountIndex {
-                namespace,
+                tenant,
                 graph,
                 predicate,
                 direction,

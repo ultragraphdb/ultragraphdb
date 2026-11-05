@@ -7,7 +7,7 @@ use ultragraphdb_core_ids::SystemId;
 
 /// The seeded source of the vector index's level draws, uniform in [0, 1): SplitMix64, as the simulator's streams
 /// are. Dgraph draws from Go's global random source; the port draws a node's levels from a stream of its own, seeded by
-/// a hash of the index's seed, the namespace, the predicate and the node ([`LevelDraw::of_node`]), so a node draws the
+/// a hash of the index's seed, the tenant, the predicate and the node ([`LevelDraw::of_node`]), so a node draws the
 /// same levels whatever order it is inserted in, and a run replays.
 #[derive(Debug, Clone)]
 pub struct LevelDraw {
@@ -20,9 +20,9 @@ impl LevelDraw {
         Self { state: seed }
     }
 
-    /// The draws of `node` of `predicate` in `namespace`, under the index's `seed`: SplitMix64 seeded with the hash of
-    /// the seed, the namespace and the two IDs' high and low 64 bits, in that order.
-    pub fn of_node(seed: u64, namespace: u64, predicate: SystemId, node: SystemId) -> Self {
+    /// The draws of `node` of `predicate` in `tenant`, under the index's `seed`: SplitMix64 seeded with the hash of
+    /// the seed, the tenant and the two IDs' high and low 64 bits, in that order.
+    pub fn of_node(seed: u64, tenant: u64, predicate: SystemId, node: SystemId) -> Self {
         let halves = |id: SystemId| {
             let value = id.to_u128();
             // The high and the low 64 bits: each shift and truncation keeps exactly one half.
@@ -30,7 +30,7 @@ impl LevelDraw {
         };
         let [p_high, p_low] = halves(predicate);
         let [n_high, n_low] = halves(node);
-        let hash = [namespace, p_high, p_low, n_high, n_low]
+        let hash = [tenant, p_high, p_low, n_high, n_low]
             .into_iter()
             .fold(Self::new(seed).next_u64(), |h, x| {
                 Self::new(h ^ x).next_u64()

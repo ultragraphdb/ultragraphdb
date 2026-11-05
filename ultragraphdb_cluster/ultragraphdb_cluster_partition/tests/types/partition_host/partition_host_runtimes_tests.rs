@@ -17,7 +17,7 @@ use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transactions_commit::{CloseRequest, Pipeline, RoundBounds};
 use ultragraphdb_transactions_log::{CompioStorage, Wal, WalConfig};
 
-use crate::utils::cluster::{Cluster, NS, Part, changeset, epoch, ex, insert, node, pid};
+use crate::utils::cluster::{Cluster, Part, TENANT, changeset, epoch, ex, insert, node, pid};
 
 /// How many turns a partition's thread takes at most: far past what the exchange needs.
 const TURNS_MAX: u32 = 200_000;
@@ -141,7 +141,7 @@ fn test_partitions_on_their_own_runtimes_exchange_registrations() -> TestResult 
     std::fs::remove_dir_all(&root)?;
     let object = id_in(&parts, 2, &b)?;
     let predicate = id_in(&parts, 1, &knows)?;
-    let query = ReverseQuery::new(pid(2)?, NS, Graph::Default, predicate, object, close);
+    let query = ReverseQuery::new(pid(2)?, TENANT, Graph::Default, predicate, object, close);
     let mut subjects = Vec::new();
     let asked = Fanout::new(&parts).subjects(&query, &mut subjects)?;
     assert_eq!(asked, vec![pid(1)?, pid(3)?]);
@@ -158,6 +158,6 @@ fn id_in(parts: &[Part], id: u32, name: &str) -> TestResult<ultragraphdb_core_id
         .context("the partition")?
         .applier()
         .quads()
-        .id_of(NS, ex(name).as_str())?
+        .id_of(TENANT, ex(name).as_str())?
         .context("the partition holds the ID")
 }

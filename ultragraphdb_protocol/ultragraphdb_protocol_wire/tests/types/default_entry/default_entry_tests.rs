@@ -12,7 +12,7 @@ use crate::utils::golden_roles::{golden_role, role_bytes};
 fn test_the_golden_request_and_reply_are_built_byte_for_byte() -> TestResult {
     let request = DefaultEntry::request(3, "http://ex.org/age");
     assert!(!request.found());
-    assert_eq!(request.namespace(), 3);
+    assert_eq!(request.tenant(), 3);
     assert_eq!(request.predicate(), "http://ex.org/age");
     let golden = golden_role("default_entry")?;
     assert_eq!(request.frame(golden.header())?, role_bytes(&golden)?);

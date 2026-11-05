@@ -4,7 +4,7 @@
 How the schema persists in the store, and how a write to an unknown predicate creates its schema.
 ## Requirements
 ### Requirement: The schema persists in the store
-The catalog SHALL be written to catalog keys with the discard flag and loaded from them at startup, per namespace, in
+The catalog SHALL be written to catalog keys with the discard flag and loaded from them at startup, per tenant, in
 place of Dgraph's schema and type keys.
 
 #### Scenario: The catalog survives a restart
@@ -35,12 +35,12 @@ writes of one predicate SHALL record the same default entry, so neither depends 
 - **THEN** both commit, and the catalog holds `score` with the default entry
 
 ### Requirement: A catalog entry that does not read back is corruption
-A catalog key that does not parse, or a catalog entry that does not decode, SHALL refuse the load of its namespace's
+A catalog key that does not parse, or a catalog entry that does not decode, SHALL refuse the load of its tenant's
 catalog with the store's corruption error naming the key, skipping nothing: every entry is written from a declaration
 through the catalog's encoding, so one that does not read back is a fault of the store or of the code, and a declaration
 skipped would let writes go on under the default declaration. Dgraph skips such a schema key and logs it.
 
 #### Scenario: A catalog key that does not parse refuses the load
-- **WHEN** a namespace's catalog is loaded from a store holding a catalog key that does not parse
+- **WHEN** a tenant's catalog is loaded from a store holding a catalog key that does not parse
 - **THEN** the load fails with a corruption error naming the key, and nothing panics
 

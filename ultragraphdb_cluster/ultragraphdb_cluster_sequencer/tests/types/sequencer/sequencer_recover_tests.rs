@@ -8,7 +8,7 @@ use std::num::NonZeroU32;
 use ultragraphdb_cluster_sequencer::{
     CatalogVersion, ClockReading, Close, SequencedTransaction, Sequencer, SequencerRecord,
 };
-use ultragraphdb_core_ids::{Epoch, Namespace};
+use ultragraphdb_core_ids::{Epoch, Tenant};
 use ultragraphdb_error_cluster::ClusterErrorEnum;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_log::{OrderedLog, RoundRef};
@@ -69,7 +69,7 @@ fn test_recovery_rebuilds_the_closes_and_transactions() -> TestResult {
     let (storage, mut sequencer) = fresh(config)?;
     let _ms = close_through(&mut sequencer, 4)?;
     let _a = sequencer.submit(epoch(4)?, &[pid(1)?, pid(2)?], b"a")?;
-    let pending = [CatalogVersion::new(Namespace::new(2), 9)];
+    let pending = [CatalogVersion::new(Tenant::new(2), 9)];
     let _closed = sequencer.tick(
         ClockReading::new(sequencer.deadline(), 77_000),
         &pending,

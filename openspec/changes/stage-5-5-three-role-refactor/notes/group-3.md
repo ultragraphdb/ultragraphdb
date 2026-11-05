@@ -66,7 +66,7 @@ checks:
    `value_index_split` were rewritten from the layout; `quad_key_parse` now names `UnknownKind`.
 3. **`BucketGroup` in `core_ids`** (`new`, `of`, `get`, `first_bucket`, `BUCKETS`, `COUNT`; `IdError::BucketGroupRange`
    with the text placement had). The file moved with `git mv`, its tests too. Placement keeps the two methods needing
-   its own types as `BucketRange::of_group` and `NamespaceRun::of_group`. `ClusterErrorEnum::BucketGroupRange` is
+   its own types as `BucketRange::of_group` and `TenantRun::of_group`. `ClusterErrorEnum::BucketGroupRange` is
    removed (nothing raises it now) — a change to `ultragraphdb_error_cluster` beyond the two named crates.
 4. **groupvarint removed** with `git rm` (`core_codec/src/groupvarint.rs`, `LICENSE-GROUPVARINT`); the codec's
    manifest takes the workspace licence, and the two `go-groupvarint` rows left `ATTRIBUTION.md`. `tools/golden`'s
@@ -75,7 +75,7 @@ checks:
 
 Also in `core_keys` (task 3.3's regions and group 2's decision 1):
 
-- **The dictionary keyspace**, byte `0x1B`, no lists, no graph: `QuadKey::Dictionary { namespace, entry }` with
+- **The dictionary keyspace**, byte `0x1B`, no lists, no graph: `QuadKey::Dictionary { tenant, entry }` with
   `DictionaryEntry::{Term, Id, Literal}`, kinds 1, 2, 3 and 16 bytes, as term-dictionary's layout states. Its region is
   its keyspace and tenant (quad-storage, "Every key belongs to one region"). The spec leaves the byte open; 0x1B is
   a decision to review.

@@ -145,28 +145,28 @@ pub enum ClusterErrorEnum {
         /// The oldest epoch whose close is still held.
         oldest: u64,
     },
-    /// A catalog version of `namespace` built on version `predecessor`, while version `current` is the namespace's
+    /// A catalog version of `tenant` built on version `predecessor`, while version `current` is the tenant's
     /// latest.
     StaleCatalog {
-        /// The namespace whose catalog it is.
-        namespace: u64,
+        /// The tenant whose catalog it is.
+        tenant: u64,
         /// The version the offer is built on.
         predecessor: u64,
-        /// The namespace's latest version.
+        /// The tenant's latest version.
         current: u64,
     },
-    /// A close announces version `version` of `namespace`, which the metadata group holds no pending version of.
+    /// A close announces version `version` of `tenant`, which the metadata group holds no pending version of.
     NotPending {
-        /// The namespace whose catalog it is.
-        namespace: u64,
+        /// The tenant whose catalog it is.
+        tenant: u64,
         /// The version announced.
         version: u64,
     },
-    /// The catalog version of `namespace` in effect at `epoch` is no longer retained: no partition's untrimmed log
+    /// The catalog version of `tenant` in effect at `epoch` is no longer retained: no partition's untrimmed log
     /// names it.
     CatalogReleased {
-        /// The namespace whose catalog it is.
-        namespace: u64,
+        /// The tenant whose catalog it is.
+        tenant: u64,
         /// The epoch asked for.
         epoch: u64,
     },
@@ -363,23 +363,23 @@ impl ClusterError {
         Self(ClusterErrorEnum::CatchUpTrimmed { after, oldest })
     }
 
-    /// A version of `namespace` built on `predecessor` while `current` is the latest.
-    pub fn stale_catalog(namespace: u64, predecessor: u64, current: u64) -> Self {
+    /// A version of `tenant` built on `predecessor` while `current` is the latest.
+    pub fn stale_catalog(tenant: u64, predecessor: u64, current: u64) -> Self {
         Self(ClusterErrorEnum::StaleCatalog {
-            namespace,
+            tenant,
             predecessor,
             current,
         })
     }
 
-    /// A close announces version `version` of `namespace`, which is not pending.
-    pub fn not_pending(namespace: u64, version: u64) -> Self {
-        Self(ClusterErrorEnum::NotPending { namespace, version })
+    /// A close announces version `version` of `tenant`, which is not pending.
+    pub fn not_pending(tenant: u64, version: u64) -> Self {
+        Self(ClusterErrorEnum::NotPending { tenant, version })
     }
 
-    /// The version of `namespace` in effect at `epoch` is no longer retained.
-    pub fn catalog_released(namespace: u64, epoch: u64) -> Self {
-        Self(ClusterErrorEnum::CatalogReleased { namespace, epoch })
+    /// The version of `tenant` in effect at `epoch` is no longer retained.
+    pub fn catalog_released(tenant: u64, epoch: u64) -> Self {
+        Self(ClusterErrorEnum::CatalogReleased { tenant, epoch })
     }
 
     /// A block of `size` sequences, outside 1 to `max`.

@@ -11,12 +11,14 @@ use ultragraphdb_tool_bdd::{Context, TestResult};
 use crate::utils::golden_bodies::golden;
 
 pub const LONG: &str = "a long lexical form beyond fifteen";
-/// A blank node's skolem IRI in namespace 0: bucket 0x00002a in 6 hexadecimal digits, then 104 random bits in 26
+/// A blank node's skolem IRI in tenant 0: bucket 0x00002a in 6 hexadecimal digits, then 104 random bits in 26
 /// (PROTOCOL.md §10.2).
-pub const SKOLEM_6: &str = "https://w3id.org/ultragraphdb/ns/namespace/0/.well-known/genid/00002a-0123456789abcdef0123456789";
+pub const SKOLEM_6: &str =
+    "https://w3id.org/ultragraphdb/ns/tenant/0/.well-known/genid/00002a-0123456789abcdef0123456789";
 
 /// The golden batch's reifier: the skolem IRI of a statement of bucket 0x00002a (PROTOCOL.md §10.2).
-pub const REIFIER: &str = "https://w3id.org/ultragraphdb/ns/namespace/0/.well-known/genid/00002a-fedcba9876543210fedcba9876";
+pub const REIFIER: &str =
+    "https://w3id.org/ultragraphdb/ns/tenant/0/.well-known/genid/00002a-fedcba9876543210fedcba9876";
 
 pub fn golden_terms() -> TestResult<[ResultTerm; 5]> {
     let mut big = vec![0x21];
@@ -55,7 +57,7 @@ fn test_the_golden_batch_builds_the_golden_frame() -> TestResult {
         golden("result")?.bytes()?
     );
     assert_eq!(batch.encoded_len(), batch.body().len());
-    assert_eq!(batch.encoded_len(), 754 - 256);
+    assert_eq!(batch.encoded_len(), 746 - 256);
     Ok(())
 }
 

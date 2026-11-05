@@ -26,7 +26,7 @@ use crate::{
     statements_of, two_partitions, unbounded, unique_id,
 };
 
-/// One partition owning every bucket, so the namespace's whole run.
+/// One partition owning every bucket, so the tenant's whole run.
 fn one_partition() -> TestResult<PlacementMap> {
     PlacementMap::even(1, ultragraphdb_cluster_placement::NodeId::new(1)).context("the placement")
 }
@@ -143,7 +143,7 @@ fn second_read_aborts(w: &mut Steps) -> TestResult {
 }
 
 #[when(
-    "a namespace's run spans partitions 1 and 2, `<b>` is homed in partition 2, and a read-write transaction bound to partition 1 reads the subjects of `knows` pointing at `<b>`"
+    "a tenant's run spans partitions 1 and 2, `<b>` is homed in partition 2, and a read-write transaction bound to partition 1 reads the subjects of `knows` pointing at `<b>`"
 )]
 fn reverse_read_spread(w: &mut Steps) -> TestResult {
     let applier = applier()?;
@@ -164,7 +164,7 @@ fn aborts_cross_partition(w: &mut Steps) -> TestResult {
 }
 
 #[when(
-    "one partition owns the namespace's whole run, and a read-write transaction reads the subjects of `knows` pointing at `<b>` and then writes `<x> <seen> true`"
+    "one partition owns the tenant's whole run, and a read-write transaction reads the subjects of `knows` pointing at `<b>` and then writes `<x> <seen> true`"
 )]
 async fn own_reverse_entries(w: &mut Steps) -> TestResult {
     let applier = applier()?;
@@ -200,7 +200,7 @@ fn own_reverse_answered(w: &mut Steps) -> TestResult {
 }
 
 #[when(
-    "a namespace's run spans partitions 1 and 2, and a read-write transaction's first operation looks up the `term` index of `name`"
+    "a tenant's run spans partitions 1 and 2, and a read-write transaction's first operation looks up the `term` index of `name`"
 )]
 fn first_lookup_spread(w: &mut Steps) -> TestResult {
     let applier = applier()?;

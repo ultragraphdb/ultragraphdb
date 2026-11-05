@@ -10,7 +10,7 @@ use ultragraphdb_tool_bdd::TestResult;
 use crate::types::commit::commit_tests::session;
 use crate::utils::golden_bodies::golden;
 
-/// The golden Drop: graph <g> of namespace 3, through the session's request 8.
+/// The golden Drop: graph <g> of tenant 3, through the session's request 8.
 pub fn golden_drop() -> DropCommand {
     DropCommand::graph(3, "http://ex.org/g").with_session(session(), 8)
 }
@@ -57,23 +57,13 @@ fn test_each_kind_has_its_constructor() {
             2,
             Some("http://ex.org/g"),
         ),
-        (
-            DropCommand::namespace_data(3),
-            DropKind::NamespaceData,
-            3,
-            None,
-        ),
-        (
-            DropCommand::whole_namespace(4),
-            DropKind::Namespace,
-            4,
-            None,
-        ),
+        (DropCommand::tenant_data(3), DropKind::TenantData, 3, None),
+        (DropCommand::whole_tenant(4), DropKind::Tenant, 4, None),
         (DropCommand::all(), DropKind::All, 0, None),
     ];
-    for (drop, kind, namespace, target) in cases {
+    for (drop, kind, tenant, target) in cases {
         assert_eq!(drop.kind(), kind);
-        assert_eq!(drop.namespace(), namespace);
+        assert_eq!(drop.tenant(), tenant);
         assert_eq!(drop.target(), target);
         assert_eq!(
             (drop.session(), drop.request(), drop.commit_version()),
@@ -86,8 +76,8 @@ fn test_each_kind_has_its_constructor() {
 
 #[test]
 fn test_a_drop_lays_out_its_header_by_the_table() -> TestResult {
-    // kind at 0, namespace at 8, session at 16, request at 32, commit_version at 40, token at 48.
-    let drop = DropCommand::whole_namespace(0x0A)
+    // kind at 0, tenant at 8, session at 16, request at 32, commit_version at 40, token at 48.
+    let drop = DropCommand::whole_tenant(0x0A)
         .with_session([0x0B; 16], 0x0C)
         .with_commit_version((5 << 22) | 0x0D)
         .with_token(SessionToken::new(0x0E, 0x0F, Epoch::new(5)?));

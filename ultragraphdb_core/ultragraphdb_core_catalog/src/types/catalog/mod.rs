@@ -22,13 +22,13 @@ use crate::errors::catalog_error::CatalogError;
 use crate::utils::catalog_codec::check_lengths;
 use crate::utils::tokenizer_datatypes::tokenizer_takes;
 
-/// The declarations of one namespace, by the ID of the predicate, entity type or relation each declares: what both
+/// The declarations of one tenant, by the ID of the predicate, entity type or relation each declares: what both
 /// engines, index maintenance and the write checks read. A predicate it does not declare behaves as
 /// [`PredicateDeclaration::new`], kind either, multi-valued, no datatype constraint, values not unique, no index.
 /// A write works on a copy and the copy replaces the catalog when the write commits.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Catalog {
-    namespace: u64,
+    tenant: u64,
     version: u64,
     predicates: BTreeMap<SystemId, PredicateDeclaration>,
     types: BTreeMap<SystemId, TypeDeclaration>,
@@ -36,17 +36,17 @@ pub struct Catalog {
 }
 
 impl Catalog {
-    /// An empty catalog of `namespace`.
-    pub fn new(namespace: u64) -> Self {
+    /// An empty catalog of `tenant`.
+    pub fn new(tenant: u64) -> Self {
         Self {
-            namespace,
+            tenant,
             ..Self::default()
         }
     }
 
-    /// A namespace's initial catalog: `rdf:type`, whose ID is `rdf_type`, declared an edge, and nothing else.
-    pub fn initial(namespace: u64, rdf_type: SystemId) -> Self {
-        let mut catalog = Self::new(namespace);
+    /// A tenant's initial catalog: `rdf:type`, whose ID is `rdf_type`, declared an edge, and nothing else.
+    pub fn initial(tenant: u64, rdf_type: SystemId) -> Self {
+        let mut catalog = Self::new(tenant);
         let _none: Option<PredicateDeclaration> = catalog.predicates.insert(
             rdf_type,
             PredicateDeclaration::new(rdf::TYPE.into_owned()).with_kind(PredicateKind::Edge),
@@ -54,9 +54,9 @@ impl Catalog {
         catalog
     }
 
-    /// The namespace the catalog is of.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant the catalog is of.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// The number of the catalog version the catalog holds, 0 for one no version installed.

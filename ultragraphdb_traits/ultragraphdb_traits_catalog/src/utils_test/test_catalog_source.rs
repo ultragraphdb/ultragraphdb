@@ -12,7 +12,7 @@ use crate::types::held_version::HeldVersion;
 use crate::utils_test::catalog_unreachable::CatalogUnreachable;
 
 /// A [`CatalogSource`] for tests, standing in for the metadata group: the versions committed to it, each with its
-/// effective epoch, and the default-entry records sent to it, keyed by (namespace, predicate), a record that exists
+/// effective epoch, and the default-entry records sent to it, keyed by (tenant, predicate), a record that exists
 /// found and left as it is. It answers nothing while unreachable. Its clones share one state, as the partitions of one
 /// cluster share one metadata group, so a test keeps a handle on what its partitions read and record.
 #[derive(Debug, Clone, Default)]
@@ -36,14 +36,14 @@ impl TestCatalogSource {
         Self::default()
     }
 
-    /// Holds `version`, replacing a version of its namespace and number.
+    /// Holds `version`, replacing a version of its tenant and number.
     pub fn commit(&self, version: HeldVersion) {
-        let key = (version.namespace(), version.version());
+        let key = (version.tenant(), version.version());
         let _replaced: Option<HeldVersion> = self.lock().versions.insert(key, version);
     }
 
     /// Records `entry` as the group's command does: `true` when it created the record, `false` when it found one of
-    /// the entry's namespace and predicate, which it leaves as it was.
+    /// the entry's tenant and predicate, which it leaves as it was.
     ///
     /// # Errors
     ///
@@ -53,7 +53,7 @@ impl TestCatalogSource {
         if state.unreachable {
             return Err(CatalogUnreachable);
         }
-        let key = (entry.namespace(), entry.predicate().to_string());
+        let key = (entry.tenant(), entry.predicate().to_string());
         if state.defaults.contains_key(&key) {
             return Ok(false);
         }
@@ -61,13 +61,13 @@ impl TestCatalogSource {
         Ok(true)
     }
 
-    /// Every default-entry record of `namespace`, by predicate.
+    /// Every default-entry record of `tenant`, by predicate.
     #[must_use]
-    pub fn defaults(&self, namespace: u64) -> Vec<DefaultEntry> {
+    pub fn defaults(&self, tenant: u64) -> Vec<DefaultEntry> {
         self.lock()
             .defaults
             .values()
-            .filter(|e| e.namespace() == namespace)
+            .filter(|e| e.tenant() == tenant)
             .cloned()
             .collect()
     }
@@ -88,27 +88,27 @@ impl TestCatalogSource {
 impl CatalogSource for TestCatalogSource {
     type Error = CatalogUnreachable;
 
-    fn version_at(&self, namespace: u64, epoch: u64) -> Result<Option<HeldVersion>, Self::Error> {
+    fn version_at(&self, tenant: u64, epoch: u64) -> Result<Option<HeldVersion>, Self::Error> {
         let state = self.lock();
         if state.unreachable {
             return Err(CatalogUnreachable);
         }
-        // The versions of one namespace in key order are in number order, and a later version takes effect at or
+        // The versions of one tenant in key order are in number order, and a later version takes effect at or
         // after an earlier one, so the last at or below the epoch, found from the end, is the one in effect.
         Ok(state
             .versions
-            .range((namespace, 0)..=(namespace, u64::MAX))
+            .range((tenant, 0)..=(tenant, u64::MAX))
             .map(|(_, v)| v)
             .rev()
             .find(|v| v.effective() <= epoch)
             .cloned())
     }
 
-    fn version(&self, namespace: u64, version: u64) -> Result<Option<HeldVersion>, Self::Error> {
+    fn version(&self, tenant: u64, version: u64) -> Result<Option<HeldVersion>, Self::Error> {
         let state = self.lock();
         if state.unreachable {
             return Err(CatalogUnreachable);
         }
-        Ok(state.versions.get(&(namespace, version)).cloned())
+        Ok(state.versions.get(&(tenant, version)).cloned())
     }
 }

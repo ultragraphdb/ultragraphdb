@@ -62,7 +62,7 @@ second acknowledgement.
 
 Assertions changed in phase 4 alongside the specification, none weakened: `frame_tests`' layout test now reads the
 derivation at command-header offset 36 where it read zeros; `store_sim`'s catalog-drop test reads the statistics layout
-(`[0x18][ns][graph 0][predicate]`, a 25-byte entry) where it read the catalog's; two pinned trajectory counts of
+(`[0x18][tenant][graph 0][predicate]`, a 25-byte entry) where it read the catalog's; two pinned trajectory counts of
 `store_sim` moved with the workload (seed 3's reads 201 and rereads 56 became 198 and 55, by the key change alone,
 checked by reverting the checkpoint sync; the mixed seeds' failed and retried reads 28 and 20 became 43 and 26).
 

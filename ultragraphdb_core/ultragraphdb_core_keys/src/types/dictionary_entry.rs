@@ -6,7 +6,7 @@
 use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_terms::Hash128;
 
-/// What a dictionary key names after its namespace: a kind byte, then 16 bytes. The kind bytes are stored: none
+/// What a dictionary key names after its tenant: a kind byte, then 16 bytes. The kind bytes are stored: none
 /// changes meaning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum DictionaryEntry {

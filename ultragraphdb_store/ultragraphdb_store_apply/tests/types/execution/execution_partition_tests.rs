@@ -22,7 +22,7 @@ use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_blocks::TestBlockSource;
 
 use crate::utils::changesets::{
-    NS, TestChangesets, changeset, changesets, declare, encoded, ex, exact_token, insert, term,
+    TENANT, TestChangesets, changeset, changesets, declare, encoded, ex, exact_token, insert, term,
     uid, write,
 };
 use crate::utils::partitions::{bucket_of, mark_key, owning_all_but};
@@ -30,7 +30,7 @@ use crate::utils::partitions::{bucket_of, mark_key, owning_all_but};
 type TestExecution<'a> = Execution<'a, SimStore, SimListCache<CachedList>, TestBlockSource>;
 
 fn begin(a: &TestChangesets) -> TestResult<TestExecution<'_>> {
-    Ok(a.begin(NS, a.quads().lists().applied_ts())?)
+    Ok(a.begin(TENANT, a.quads().lists().applied_ts())?)
 }
 
 fn generation(n: u64) -> TestResult<NonZeroU64> {
@@ -83,7 +83,7 @@ fn objects(e: &mut TestExecution<'_>, subject: &str, predicate: &str) -> TestRes
 
 fn reverse_key(a: &TestChangesets, predicate: &str, object: &str) -> TestResult<Vec<u8>> {
     Ok(QuadKey::Reverse {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         predicate: uid(a, predicate)?,
         object: EncodedTerm::id(uid(a, object)?),
@@ -93,7 +93,7 @@ fn reverse_key(a: &TestChangesets, predicate: &str, object: &str) -> TestResult<
 
 fn object_predicates_key(a: &TestChangesets, object: &str) -> TestResult<Vec<u8>> {
     Ok(QuadKey::ObjectPredicates {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         object: EncodedTerm::id(uid(a, object)?),
     }
@@ -102,7 +102,7 @@ fn object_predicates_key(a: &TestChangesets, object: &str) -> TestResult<Vec<u8>
 
 fn subject_predicates_key(a: &TestChangesets, subject: &str) -> TestResult<Vec<u8>> {
     Ok(QuadKey::SubjectPredicates {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         subject: uid(a, subject)?,
     }
@@ -111,7 +111,7 @@ fn subject_predicates_key(a: &TestChangesets, subject: &str) -> TestResult<Vec<u
 
 fn forward_key(a: &TestChangesets, subject: &str, predicate: &str) -> TestResult<Vec<u8>> {
     Ok(QuadKey::Forward {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         predicate: uid(a, predicate)?,
         subject: uid(a, subject)?,
@@ -174,7 +174,7 @@ fn test_a_reverse_read_of_an_object_the_execution_created_reads_no_list() -> Tes
         .map(|(_, id)| id)
         .context("created")?;
     let op = QuadKey::ObjectPredicates {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         object: EncodedTerm::id(fresh),
     }
@@ -262,7 +262,7 @@ fn test_a_lookup_reads_the_index_keys_of_the_value_s_tokens_sorted_by_id() -> Te
     let executed = e.finish()?;
     let (tokenizer, token) = exact_token("Ann");
     let key = QuadKey::ValueIndex {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         predicate: uid(&a, "name")?,
         tokenizer,
@@ -347,7 +347,7 @@ fn test_a_node_created_in_the_execution_reads_no_list() -> TestResult {
         .map(|(_, id)| id)
         .context("created")?;
     let sp = QuadKey::SubjectPredicates {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         subject: n,
     }
@@ -394,16 +394,19 @@ fn test_an_adopted_iri_is_written_by_the_id_its_home_gave_and_its_entries_copied
         .map(|v| (v.key().to_vec(), v.value().map(<[u8]>::to_vec)))
         .collect();
     assert!(versionless.contains(&(
-        term_key(NS, ex("foreign").as_str()),
+        term_key(TENANT, ex("foreign").as_str()),
         Some(given.to_be_bytes().to_vec())
     )));
     assert!(versionless.contains(&(
-        id_key(NS, given),
+        id_key(TENANT, given),
         Some(ex("foreign").as_str().as_bytes().to_vec())
     )));
     let version = a.quads().lists().next_version();
     let _applied: Vec<Applied> = a.apply_round(vec![(version, executed)])?;
-    assert_eq!(a.quads().id_of(NS, ex("foreign").as_str())?, Some(given));
+    assert_eq!(
+        a.quads().id_of(TENANT, ex("foreign").as_str())?,
+        Some(given)
+    );
     Ok(())
 }
 
@@ -432,10 +435,10 @@ fn test_a_mark_is_read_into_the_read_set_written_at_commit_and_listed() -> TestR
     let version = a.quads().lists().next_version();
     let _applied: Vec<Applied> = a.apply_round(vec![(version, executed)])?;
     assert_eq!(
-        a.quads().mark(NS, entity, group, version)?,
+        a.quads().mark(TENANT, entity, group, version)?,
         Some(generation(5)?)
     );
-    assert_eq!(a.quads().mark(NS, entity, group, version - 1)?, None);
+    assert_eq!(a.quads().mark(TENANT, entity, group, version - 1)?, None);
     let mut later = begin(&a)?;
     assert_eq!(
         later.read_mark(entity, group)?,

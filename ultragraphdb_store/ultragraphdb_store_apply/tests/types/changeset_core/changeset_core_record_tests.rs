@@ -17,15 +17,15 @@ use ultragraphdb_store_sim::{Fault, RebuildStage};
 use ultragraphdb_traits_store::Store;
 
 use crate::utils::changesets::{
-    NS, TestChangesets, changesets, changesets_over, declaration, declare, declared, exact_token,
-    finish_builds, index_keys_holding, indexed, is_held_in_default, keys_of, term_token, uid,
-    write,
+    TENANT, TestChangesets, changesets, changesets_over, declaration, declare, declared,
+    exact_token, finish_builds, index_keys_holding, indexed, is_held_in_default, keys_of,
+    term_token, uid, write,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
-/// The applier of `a`'s store after a crash and a restart, which loads `name` declared as `phrase` in `namespace`, the
+/// The applier of `a`'s store after a crash and a restart, which loads `name` declared as `phrase` in `tenant`, the
 /// metadata group's version in effect, and recovers its builds, run to their end.
-fn restarted(a: TestChangesets, namespace: u64, phrase: &str) -> TestResult<TestChangesets> {
+fn restarted(a: TestChangesets, tenant: u64, phrase: &str) -> TestResult<TestChangesets> {
     let store = a.quads().store().clone();
     store.crash();
     store.recover();
@@ -33,7 +33,7 @@ fn restarted(a: TestChangesets, namespace: u64, phrase: &str) -> TestResult<Test
     // The applier the crash ended goes once the restarted one is open, as it always did.
     drop(a);
     let name = Declaration::Predicate(declaration("name", phrase)?);
-    restarted.load_catalog(&CatalogContents::new(namespace, 1, vec![name]))?;
+    restarted.load_catalog(&CatalogContents::new(tenant, 1, vec![name]))?;
     restarted.recover_builds()?;
     finish_builds(&restarted);
     Ok(restarted)
@@ -71,13 +71,13 @@ fn interrupted(
     } else {
         "with `term`"
     };
-    Ok((restarted(a, NS, loaded)?, refusal))
+    Ok((restarted(a, TENANT, loaded)?, refusal))
 }
 
 /// The catalog declares `term`, and `exact` with it or not; every index it declares holds each literal held, and no
 /// other index key remains; no record remains.
 fn assert_complete(a: &TestChangesets, case: &str) -> TestResult {
-    let declared = a.catalog(NS)?.predicate(uid(a, "name")?).cloned();
+    let declared = a.catalog(TENANT)?.predicate(uid(a, "name")?).cloned();
     let with_exact = declared == Some(declaration("name", "with `term` and `exact`")?);
     assert!(
         with_exact || declared == Some(declaration("name", "with `term`")?),
@@ -145,7 +145,7 @@ fn test_a_build_never_run_is_built_again_at_open() -> TestResult {
     assert!(is_held_in_default(&a, "b", "name")?);
     // The version's declaration, its indexes built again from the data.
     assert_eq!(
-        a.catalog(NS)?.predicate(uid(&a, "name")?),
+        a.catalog(TENANT)?.predicate(uid(&a, "name")?),
         Some(&declaration("name", "with `term` and `exact`")?)
     );
     assert_complete(&a, "never run")?;
@@ -186,7 +186,7 @@ fn test_a_build_interrupted_at_any_stage_is_built_again_at_open() -> TestResult 
             declaration("name", "with `term` and `exact`")?
         };
         assert_eq!(
-            a.catalog(NS)?.predicate(uid(&a, "name")?),
+            a.catalog(TENANT)?.predicate(uid(&a, "name")?),
             Some(&expected),
             "{stage:?}"
         );
@@ -219,7 +219,7 @@ fn test_an_index_removal_leaves_no_record() -> TestResult {
 }
 
 #[test]
-fn test_a_record_of_another_namespace_is_finished_against_that_namespace_s_catalog() -> TestResult {
+fn test_a_record_of_another_tenant_is_finished_against_that_tenant_s_catalog() -> TestResult {
     use ultragraphdb_core_mapping::{Change, Changeset};
     let a = changesets()?;
     let three = |changes: Vec<Change>| changes.into_iter().fold(Changeset::new(3), Changeset::with);
@@ -238,7 +238,7 @@ fn test_a_record_of_another_namespace_is_finished_against_that_namespace_s_catal
     let name = a
         .quads()
         .id_of(3, "http://ex.org/name")?
-        .context("<name> has a UID in namespace 3")?;
+        .context("<name> has a UID in tenant 3")?;
     assert_eq!(
         a.catalog(3)?.predicate(name),
         Some(&declaration("name", "with `term` and `exact`")?)
@@ -249,7 +249,7 @@ fn test_a_record_of_another_namespace_is_finished_against_that_namespace_s_catal
         .filter_map(|k| match QuadKey::parse(k) {
             Ok((
                 QuadKey::ValueIndex {
-                    namespace: 3,
+                    tenant: 3,
                     tokenizer,
                     ..
                 },

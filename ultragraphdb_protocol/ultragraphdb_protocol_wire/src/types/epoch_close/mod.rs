@@ -21,7 +21,7 @@ use crate::types::catalog_announcement::CatalogAnnouncement;
 ///
 /// | Section | Contents |
 /// |---|---|
-/// | 0 | catalog announcements, 16 bytes each ([`CatalogAnnouncement`]), by namespace then version |
+/// | 0 | catalog announcements, 16 bytes each ([`CatalogAnnouncement`]), by tenant then version |
 /// | 1 | session evictions, 16 bytes each, ascending by their bytes |
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EpochClose {

@@ -31,8 +31,8 @@ fn test_each_operation_has_its_code_and_argument() -> TestResult {
     let cases = [
         (RecordOperation::DropPredicate(id), 1u16, ID_4, true),
         (RecordOperation::DropGraph(id), 2, ID_4, true),
-        (RecordOperation::DropNamespaceData, 3, [0; 16], true),
-        (RecordOperation::DropNamespace, 4, [0; 16], true),
+        (RecordOperation::DropTenantData, 3, [0; 16], true),
+        (RecordOperation::DropTenant, 4, [0; 16], true),
         (RecordOperation::DropAll, 5, [0; 16], true),
         (
             RecordOperation::CatalogTakesEffect(12),
@@ -111,7 +111,7 @@ fn test_an_argument_the_code_does_not_take_is_none() {
             assert_eq!(RecordOperation::from_parts(code, argument), None);
         }
     }
-    // The drops of a namespace's data, of everything in it and of everything take none.
+    // The drops of a tenant's data, of everything in it and of everything take none.
     for code in [3u16, 4, 5] {
         assert_eq!(RecordOperation::from_parts(code, ID_4), None);
         let mut last = [0u8; 16];

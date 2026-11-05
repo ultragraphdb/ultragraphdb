@@ -5,8 +5,8 @@
 
 mod partition_referrer;
 
-use ultragraphdb_cluster_placement::{NamespaceRun, PartitionId, PlacementMap};
-use ultragraphdb_core_ids::{Bucket, Epoch, Namespace};
+use ultragraphdb_cluster_placement::{PartitionId, PlacementMap, TenantRun};
+use ultragraphdb_core_ids::{Bucket, Epoch, Tenant};
 use ultragraphdb_store_apply::ChangesetApplier;
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_store_quads::OwnedBuckets;
@@ -102,14 +102,14 @@ where
         }
     }
 
-    /// Whether the partition owns every bucket of `namespace`'s run at `epoch`, as it always does alone.
-    pub fn owns_run(&self, namespace: u64, epoch: Epoch) -> bool {
-        self.lowest_other(Some(namespace), epoch).is_none()
+    /// Whether the partition owns every bucket of `tenant`'s run at `epoch`, as it always does alone.
+    pub fn owns_run(&self, tenant: u64, epoch: Epoch) -> bool {
+        self.lowest_other(Some(tenant), epoch).is_none()
     }
 
-    /// The lowest other partition holding a bucket of `namespace`'s run at `epoch`, or of any run for `None`.
-    fn lowest_other(&self, namespace: Option<u64>, epoch: Epoch) -> Option<PartitionId> {
-        let run = namespace.map(|n| NamespaceRun::of(Namespace::new(n)).range());
+    /// The lowest other partition holding a bucket of `tenant`'s run at `epoch`, or of any run for `None`.
+    fn lowest_other(&self, tenant: Option<u64>, epoch: Epoch) -> Option<PartitionId> {
+        let run = tenant.map(|n| TenantRun::of(Tenant::new(n)).range());
         self.placement
             .ranges_at(epoch)
             .into_iter()
@@ -121,7 +121,7 @@ where
             .min()
     }
 
-    /// Begins a transaction of `namespace` on the partition at `now_us`, as [`Transaction::begin`] does, bound to the
+    /// Begins a transaction of `tenant` on the partition at `now_us`, as [`Transaction::begin`] does, bound to the
     /// partition at its read epoch.
     ///
     /// # Errors
@@ -129,7 +129,7 @@ where
     /// The transaction's refusals of [`Transaction::begin`].
     pub fn begin(
         &self,
-        namespace: u64,
+        tenant: u64,
         mode: Mode,
         read_version: u64,
         now_us: u64,
@@ -138,7 +138,7 @@ where
     ) -> Result<Transaction<'_, S, C, E, B>, PartitionError> {
         let begun = Transaction::begin(
             &self.applier,
-            namespace,
+            tenant,
             mode,
             read_version,
             now_us,
@@ -148,15 +148,15 @@ where
         Ok(begun.bind(self.id, &self.placement))
     }
 
-    /// Checks a Drop at `epoch`: of `namespace`'s data, a predicate or a graph of it, or, for `None`, of everything.
+    /// Checks a Drop at `epoch`: of `tenant`'s data, a predicate or a graph of it, or, for `None`, of everything.
     ///
     /// # Errors
     ///
     /// [`PartitionError::cross_partition`] naming the lowest other partition the Drop reaches: one holding a bucket of
-    /// the namespace's run, or any other partition for a Drop of everything (partitions, "A read-write transaction stays
+    /// the tenant's run, or any other partition for a Drop of everything (partitions, "A read-write transaction stays
     /// within one partition in this stage").
-    pub fn check_drop(&self, namespace: Option<u64>, epoch: Epoch) -> Result<(), PartitionError> {
-        match self.lowest_other(namespace, epoch) {
+    pub fn check_drop(&self, tenant: Option<u64>, epoch: Epoch) -> Result<(), PartitionError> {
+        match self.lowest_other(tenant, epoch) {
             Some(other) => Err(PartitionError::cross_partition(self.id.get(), other.get())),
             None => Ok(()),
         }

@@ -5,7 +5,7 @@
 
 Feature: The versioned store over fjall
   The store keeps every version of a key as a stored key of its own, reads at a timestamp through one snapshot,
-  writes atomic batches, drops prefixes physically, bans namespaces and collects versions below the discard timestamp.
+  writes atomic batches, drops prefixes physically, bans tenants and collects versions below the discard timestamp.
 
   Scenario: A key's versions iterate newest first
     When a key is written at versions 3, 7 and 5
@@ -87,17 +87,17 @@ Feature: The versioned store over fjall
     When everything is dropped with one entry to write at timestamp 1, and the store is closed and reopened
     Then that entry is the only key found, and the applied timestamp and the discard timestamp are 0
 
-  Scenario: A banned namespace ignores writes
-    When namespace 5 is banned and a batch writes a key in it and a key in namespace 6
-    Then the batch succeeds, the key in namespace 5 is not found and the key in namespace 6 is
+  Scenario: A banned tenant ignores writes
+    When tenant 5 is banned and a batch writes a key in it and a key in tenant 6
+    Then the batch succeeds, the key in tenant 5 is not found and the key in tenant 6 is
 
   Scenario: Dropping everything clears the banned set
-    When namespace 5 is banned, everything is dropped, and a batch then writes a key in namespace 5
+    When tenant 5 is banned, everything is dropped, and a batch then writes a key in tenant 5
     Then the key is found
 
   Scenario: The initial catalog a drop writes survives garbage collection
-    When everything in a namespace is dropped, its initial catalog is written at timestamp 1, the discard timestamp is raised above the drop and the store compacts
-    Then the namespace's initial catalog is still read at the discard timestamp
+    When everything in a tenant is dropped, its initial catalog is written at timestamp 1, the discard timestamp is raised above the drop and the store compacts
+    Then the tenant's initial catalog is still read at the discard timestamp
 
   Scenario: A collected version stays collected after a restart
     When a version below the discard timestamp is collected, its deletion is swept and the store is closed and reopened

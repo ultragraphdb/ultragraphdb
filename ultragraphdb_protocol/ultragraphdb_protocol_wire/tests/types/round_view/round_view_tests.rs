@@ -394,9 +394,9 @@ fn test_a_bad_record_is_named_by_its_index() -> TestResult {
 }
 
 #[test]
-fn test_a_namespaces_records_name_one_catalog() -> TestResult {
-    // The Drop of namespace 3 at catalog 12, beside the transaction of namespace 3 at catalog 11. The registration of
-    // namespace 3, catalog 0, and the build of namespace 4 at catalog 12 name no other catalog of it.
+fn test_a_tenants_records_name_one_catalog() -> TestResult {
+    // The Drop of tenant 3 at catalog 12, beside the transaction of tenant 3 at catalog 11. The registration of
+    // tenant 3, catalog 0, and the build of tenant 4 at catalog 12 name no other catalog of it.
     assert_eq!(
         refused(2, |r| put(r, RECORD_AT[3] + 16, 12, 8))?,
         ProtocolErrorEnum::FieldValue {

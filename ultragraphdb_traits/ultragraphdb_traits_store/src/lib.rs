@@ -44,4 +44,4 @@ pub use crate::types::write_batch::WriteBatch;
 pub use crate::utils::key_size::{
     MAX_STORED_KEY_SIZE, MAX_USER_KEY_SIZE, check_key_size, stored_key_size,
 };
-pub use crate::utils::namespace::{NAMESPACE_OFFSET, key_namespace};
+pub use crate::utils::tenant::{TENANT_OFFSET, key_tenant};

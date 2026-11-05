@@ -18,7 +18,7 @@ fn test_begin_builds_the_golden_frame() -> TestResult {
         .with_deadline_ms(50)
         .with_token(SessionToken::new(2, 41, Epoch::new(30)?));
     assert_eq!(
-        (begin.namespace(), begin.read_version(), begin.read_only()),
+        (begin.tenant(), begin.read_version(), begin.read_only()),
         (3, 0, true)
     );
     assert_eq!(

@@ -5,7 +5,7 @@
 
 use ultragraphdb_cluster_metadata::{MetadataCommand, MetadataSnapshot, MetadataState};
 use ultragraphdb_cluster_placement::{BucketRange, NodeId, PartitionId};
-use ultragraphdb_core_ids::{Epoch, Namespace, TypePrefix};
+use ultragraphdb_core_ids::{Epoch, Tenant, TypePrefix};
 use ultragraphdb_error_cluster::{ClusterError, ClusterErrorEnum};
 use ultragraphdb_protocol_scram::ScramVerifier;
 use ultragraphdb_tool_bdd::{Context, TestResult};
@@ -26,19 +26,19 @@ fn refusal(bytes: &[u8]) -> TestResult<ClusterErrorEnum> {
         .0)
 }
 
-/// The small state of the hand-written encoding: namespace 2's version 1, "ab", effective at 6 after the learned close
+/// The small state of the hand-written encoding: tenant 2's version 1, "ab", effective at 6 after the learned close
 /// of 5, and the `Resource` type's high-water mark at 11; three commands, so at position 3.
 fn small() -> TestResult<MetadataSnapshot> {
     let mut state = MetadataState::new();
     state.apply(&MetadataCommand::OfferCatalog {
-        namespace: Namespace::new(2),
+        tenant: Tenant::new(2),
         predecessor: 0,
         bytes: b"ab".to_vec(),
     })?;
     state.apply(&MetadataCommand::LearnClose {
         placement: 0,
         epoch: Epoch::new(5)?,
-        versions: vec![(Namespace::new(2), 1)],
+        versions: vec![(Tenant::new(2), 1)],
         evictions: Vec::new(),
     })?;
     state.apply(&MetadataCommand::LeaseBlock {
@@ -56,7 +56,7 @@ fn small_bytes() -> Vec<u8> {
     out.extend_from_slice(&3_u64.to_be_bytes()); // position
     out.extend_from_slice(&5_u64.to_be_bytes()); // last learned close
     out.extend_from_slice(&1_u32.to_be_bytes()); // one catalog
-    out.extend_from_slice(&2_u64.to_be_bytes()); // namespace 2
+    out.extend_from_slice(&2_u64.to_be_bytes()); // tenant 2
     out.extend_from_slice(&1_u64.to_be_bytes()); // latest version
     out.extend_from_slice(&0_u64.to_be_bytes()); // none released
     out.extend_from_slice(&1_u32.to_be_bytes()); // one version retained
@@ -80,16 +80,16 @@ fn small_bytes() -> Vec<u8> {
     out
 }
 
-/// The catalog commands of [`full`]: namespaces 1 and 3, namespace 1 with an effective, a second effective and a pending
+/// The catalog commands of [`full`]: tenants 1 and 3, tenant 1 with an effective, a second effective and a pending
 /// version, and the partitions' reports.
 fn full_catalogs() -> TestResult<Vec<MetadataCommand>> {
-    let ns = Namespace::new;
-    let offer = |namespace, predecessor, bytes: &[u8]| MetadataCommand::OfferCatalog {
-        namespace: ns(namespace),
+    let tenant = Tenant::new;
+    let offer = |number, predecessor, bytes: &[u8]| MetadataCommand::OfferCatalog {
+        tenant: tenant(number),
         predecessor,
         bytes: bytes.to_vec(),
     };
-    let close = |epoch, versions: Vec<(Namespace, u64)>| -> TestResult<MetadataCommand> {
+    let close = |epoch, versions: Vec<(Tenant, u64)>| -> TestResult<MetadataCommand> {
         Ok(MetadataCommand::LearnClose {
             placement: 0,
             epoch: Epoch::new(epoch)?,
@@ -110,9 +110,9 @@ fn full_catalogs() -> TestResult<Vec<MetadataCommand>> {
         },
         offer(1, 0, &[1; 3]),
         offer(3, 0, &[3; 3]),
-        close(1, vec![(ns(1), 1), (ns(3), 1)])?,
+        close(1, vec![(tenant(1), 1), (tenant(3), 1)])?,
         offer(1, 1, b"second"),
-        close(2, vec![(ns(1), 2)])?,
+        close(2, vec![(tenant(1), 2)])?,
         offer(1, 2, b""),
         report(1, 3)?,
         report(2, 4)?,
@@ -124,8 +124,8 @@ fn full_catalogs() -> TestResult<Vec<MetadataCommand>> {
 fn full_rest() -> TestResult<Vec<MetadataCommand>> {
     let mut commands: Vec<MetadataCommand> = [(1, "b"), (1, "a"), (0, "z")]
         .into_iter()
-        .map(|(namespace, predicate)| MetadataCommand::RecordDefault {
-            namespace: Namespace::new(namespace),
+        .map(|(tenant, predicate)| MetadataCommand::RecordDefault {
+            tenant: Tenant::new(tenant),
             predicate: predicate.to_string(),
             entry: predicate.as_bytes().to_vec(),
         })
@@ -197,7 +197,7 @@ fn test_a_full_state_round_trips() -> TestResult {
     assert_eq!(encoded(&decoded), bytes);
     // Spot checks that the tables were filled at all.
     let state = decoded.state();
-    assert_eq!(state.default_entry(Namespace::new(0), "z"), Some(&b"z"[..]));
+    assert_eq!(state.default_entry(Tenant::new(0), "z"), Some(&b"z"[..]));
     assert_eq!(state.session_principal(20)?, 2);
     assert_eq!(state.pending_evictions(), vec![30]);
     assert_eq!(state.next_sequence(TypePrefix::STATEMENT), 5);
@@ -276,7 +276,7 @@ fn test_values_out_of_order_or_range_are_refused() -> TestResult {
     }
     assert_eq!(
         refusal(&latest)?,
-        ClusterError::malformed("a namespace's latest version, its last retained", 29).0
+        ClusterError::malformed("a tenant's latest version, its last retained", 29).0
     );
     // The high-water mark's prefix (offset 80) as 0.
     let mut prefix = small_bytes();
@@ -301,13 +301,13 @@ fn test_values_out_of_order_or_range_are_refused() -> TestResult {
 
 #[test]
 fn test_counts_past_their_limits_are_refused_before_their_values() -> TestResult {
-    // 1,025 versions retained by one namespace.
+    // 1,025 versions retained by one tenant.
     let mut versions = small_bytes();
     versions.truncate(45);
     versions.extend_from_slice(&1_025_u32.to_be_bytes());
     assert_eq!(
         refusal(&versions)?,
-        ClusterError::too_many("retained catalog versions of a namespace", 1_025, 1_024).0
+        ClusterError::too_many("retained catalog versions of a tenant", 1_025, 1_024).0
     );
     Ok(())
 }
@@ -327,7 +327,7 @@ fn snapshot_with(rest: &[&[u8]]) -> Vec<u8> {
 fn test_every_tables_count_past_its_limit_is_refused_before_its_values() -> TestResult {
     let zero = 0_u32.to_be_bytes();
     let one = 1_u32.to_be_bytes();
-    let ns = 1_u64.to_be_bytes();
+    let tenant = 1_u64.to_be_bytes();
     let cases: [(Vec<u8>, ClusterError); 7] = [
         (
             snapshot_with(&[&1_048_577_u32.to_be_bytes()]),
@@ -337,7 +337,7 @@ fn test_every_tables_count_past_its_limit_is_refused_before_its_values() -> Test
         (
             snapshot_with(&[
                 &one,
-                &ns,
+                &tenant,
                 &1_u64.to_be_bytes(),
                 &0_u64.to_be_bytes(),
                 &one,
@@ -352,14 +352,14 @@ fn test_every_tables_count_past_its_limit_is_refused_before_its_values() -> Test
             ClusterError::too_many("default-entry records", 1_048_577, 1_048_576),
         ),
         (
-            snapshot_with(&[&zero, &one, &ns, &4_097_u16.to_be_bytes()]),
+            snapshot_with(&[&zero, &one, &tenant, &4_097_u16.to_be_bytes()]),
             ClusterError::too_many("bytes of a predicate's name", 4_097, 4_096),
         ),
         (
             snapshot_with(&[
                 &zero,
                 &one,
-                &ns,
+                &tenant,
                 &1_u16.to_be_bytes(),
                 b"p",
                 &65_537_u32.to_be_bytes(),

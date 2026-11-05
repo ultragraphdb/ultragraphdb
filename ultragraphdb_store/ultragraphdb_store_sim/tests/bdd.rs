@@ -33,7 +33,7 @@ struct Steps {
 const BATCHES: u64 = 12;
 const KEYS_PER_BATCH: u64 = 4;
 
-/// Key `j` of batch `i`: a data key of namespace 0.
+/// Key `j` of batch `i`: a data key of tenant 0.
 fn batch_key(i: u64, j: u64) -> Vec<u8> {
     let mut key = vec![0x00];
     key.extend_from_slice(&0u64.to_be_bytes());
@@ -285,7 +285,7 @@ fn interrupted_drop(w: &mut Steps) -> TestResult {
                     .context("no fault is configured")?;
             }
             store.set_discard_ts(2).context("no fault is configured")?;
-            store.ban_namespace(5).context("no fault is configured")?;
+            store.ban_tenant(5).context("no fault is configured")?;
             store.inject(Fault::PowerLossDuringNextDrop(stage));
             let result = store.drop_all(vec![Entry::put(
                 b"\x01schema".to_vec(),

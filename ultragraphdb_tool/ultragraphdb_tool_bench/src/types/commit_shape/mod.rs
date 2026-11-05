@@ -13,7 +13,7 @@ use ultragraphdb_core_mapping::{
 const BASE: &str = "http://bench.ultragraphdb.example/";
 
 /// The commits of the Dgraph write runs (scrith's `dgraph-bench.md` §5–§7, `dgload` over `singlefs.py`'s schema), as
-/// changesets of quads in the default graph of the root namespace: each commit picks one of the relation types
+/// changesets of quads in the default graph of the root tenant: each commit picks one of the relation types
 /// `rel_t<j>` and writes `relations` new nodes of it, each with an edge `rel_t<j>_org` to one of the hubs and the
 /// string `rel_t<j>_w` "x". The hubs `h<i>` carry `name`, indexed `exact`. Every edge keeps its reverse list, as every
 /// quad does; no predicate has a count index. New nodes are named in order; types and hubs are drawn from a seeded

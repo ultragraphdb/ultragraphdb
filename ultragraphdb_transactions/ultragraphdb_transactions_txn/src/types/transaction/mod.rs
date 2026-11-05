@@ -8,7 +8,7 @@ mod transaction_scan;
 
 use oxrdf::{GraphNameRef, NamedNodeRef, NamedOrBlankNodeRef, Term};
 use ultragraphdb_cluster_placement::{PartitionId, PlacementMap};
-use ultragraphdb_core_ids::{Bucket, Epoch, Namespace, SessionToken, Version};
+use ultragraphdb_core_ids::{Bucket, Epoch, SessionToken, Tenant, Version};
 use ultragraphdb_core_mapping::{ChangeRef, Changes, StatementView};
 use ultragraphdb_store_apply::{ChangesetApplier, Executed, Execution, Operation};
 use ultragraphdb_store_posting::CachedList;
@@ -70,7 +70,7 @@ where
     applier: &'a ChangesetApplier<S, C, E, B>,
     execution: Option<Execution<'a, S, C, B>>,
     mode: Mode,
-    namespace: u64,
+    tenant: u64,
     read_version: u64,
     began_us: u64,
     limits: TxnLimits,
@@ -93,16 +93,16 @@ where
     B: BlockSource + Send + Sync + 'static,
     E: Executor,
 {
-    /// Begins a transaction of `namespace` on `applier` at `now_us`: at the watermark when `read_version` is 0, at
+    /// Begins a transaction of `tenant` on `applier` at `now_us`: at the watermark when `read_version` is 0, at
     /// `read_version` otherwise, with `buffers` for its read set and record.
     ///
     /// # Errors
     ///
     /// [`TxnError::read_above_watermark`] at once, never waiting, when `read_version` is above the watermark; the
-    /// store's error loading the namespace's catalog.
+    /// store's error loading the tenant's catalog.
     pub fn begin(
         applier: &'a ChangesetApplier<S, C, E, B>,
-        namespace: u64,
+        tenant: u64,
         mode: Mode,
         read_version: u64,
         now_us: u64,
@@ -117,13 +117,13 @@ where
         };
         debug_assert!(read_version <= watermark);
         // The catalog version the execution checks against: the one the partition holds installed now.
-        let catalog = applier.catalog(namespace)?.version();
-        let execution = applier.begin(namespace, read_version)?;
+        let catalog = applier.catalog(tenant)?.version();
+        let execution = applier.begin(tenant, read_version)?;
         Ok(Self {
             applier,
             execution: Some(execution),
             mode,
-            namespace,
+            tenant,
             read_version,
             began_us: now_us,
             limits,
@@ -138,7 +138,7 @@ where
         })
     }
 
-    /// The transaction executing against `catalog`, its namespace's catalog version, which its record names; by default
+    /// The transaction executing against `catalog`, its tenant's catalog version, which its record names; by default
     /// the version the partition held installed when the transaction began.
     pub fn with_catalog(mut self, catalog: u64) -> Self {
         self.catalog = catalog;
@@ -180,9 +180,9 @@ where
         self.principal
     }
 
-    /// The namespace the transaction runs in.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant the transaction runs in.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// Whether the transaction writes.
@@ -205,7 +205,7 @@ where
     ///
     /// # Errors
     ///
-    /// [`TxnError::ended`]; [`TxnError::past_limit`], ending it; [`TxnError::read_only`], [`TxnError::namespace`] and
+    /// [`TxnError::ended`]; [`TxnError::past_limit`], ending it; [`TxnError::read_only`], [`TxnError::tenant`] and
     /// [`TxnError::declaration`] for a changeset holding a declaration, which leave it as it was;
     /// [`TxnError::cross_partition`] for a subject another partition owns, an existing blank node by the bucket its
     /// skolem IRI states, a statement named by its reifier checked against the subject it resolves to once executed and
@@ -215,8 +215,8 @@ where
         if self.mode == Mode::ReadOnly {
             return Err(TxnError::read_only());
         }
-        if changeset.namespace() != self.namespace {
-            return Err(TxnError::namespace(self.namespace, changeset.namespace()));
+        if changeset.tenant() != self.tenant {
+            return Err(TxnError::tenant(self.tenant, changeset.tenant()));
         }
         // Refused before the execution sees the changeset: nothing of it is written, and the transaction goes on.
         if changeset
@@ -330,7 +330,7 @@ where
         };
         let executed = execution.finish()?;
         debug_assert_eq!(executed.read_ts(), self.read_version);
-        debug_assert_eq!(executed.namespace(), self.namespace);
+        debug_assert_eq!(executed.tenant(), self.tenant);
         let (mut read_set, mut record) = std::mem::take(&mut self.buffers).into_parts();
         let built = self.build(
             &executed,
@@ -381,11 +381,7 @@ where
         request: u64,
         commit_record: &[u8],
     ) -> Result<(), TxnError> {
-        read_set.reset(
-            self.namespace,
-            self.read_version,
-            self.limits.max_read_set(),
-        );
+        read_set.reset(self.tenant, self.read_version, self.limits.max_read_set());
         read_set.gather(executed.reads())?;
         read_set.seal();
         let _record_len: usize = WriteSetBuilder::new(executed, session, request, commit_record)
@@ -444,7 +440,7 @@ where
     fn foreign_subject<W: Changes>(&self, changeset: &W) -> Option<(u32, u32)> {
         let (partition, placement) = self.binding?;
         let epoch = Version::from_u64(self.read_version).epoch();
-        let namespace = Namespace::new(self.namespace);
+        let tenant = Tenant::new(self.tenant);
         changeset.changes().find_map(|change| {
             let subject = match change {
                 ChangeRef::Insert { subject, .. }
@@ -472,7 +468,7 @@ where
                 partition,
                 placement,
                 epoch,
-                iri_bucket(namespace.get(), iri.as_str())?,
+                iri_bucket(tenant.get(), iri.as_str())?,
             )
         })
     }
@@ -482,23 +478,23 @@ where
     fn foreign_iri(&self, iri: &str) -> Option<(u32, u32)> {
         let (partition, placement) = self.binding?;
         let epoch = Version::from_u64(self.read_version).epoch();
-        let bucket = iri_bucket(self.namespace, iri)?;
+        let bucket = iri_bucket(self.tenant, iri)?;
         owner_other(partition, placement, epoch, bucket)
     }
 
     /// The bound partition and the owner of the first value of a unique predicate the execution wrote since the last
     /// check whose bucket another partition owns, at the transaction's read epoch (system-identity, "The bucket comes
-    /// from the namespace and the key"); `None` when unbound, ended or every such value is the partition's own.
+    /// from the tenant and the key"); `None` when unbound, ended or every such value is the partition's own.
     fn foreign_unique(&self) -> Option<(u32, u32)> {
         let (partition, placement) = self.binding?;
         let epoch = Version::from_u64(self.read_version).epoch();
-        let namespace = Namespace::new(self.namespace);
+        let tenant = Tenant::new(self.tenant);
         let written = self.execution.as_ref()?.unique_writes();
         written
             .get(self.uniques_checked..)?
             .iter()
             .find_map(|(predicate, value)| {
-                let bucket = Bucket::of_value(namespace, *predicate, value);
+                let bucket = Bucket::of_value(tenant, *predicate, value);
                 owner_other(partition, placement, epoch, bucket)
             })
     }

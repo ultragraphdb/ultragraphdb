@@ -5,7 +5,7 @@
 
 use ultragraphdb_core_keys::{DEFAULT_GRAPH, QuadKey, Region};
 
-use crate::utils::changesets::{NS, apply, changesets, insert, uid, write};
+use crate::utils::changesets::{TENANT, apply, changesets, insert, uid, write};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
 /// A list an insert tests is read from the store, so it counts among the lists read and its region among the regions
@@ -16,7 +16,7 @@ fn test_a_tested_list_counts_as_read_from_the_store() -> TestResult {
     write(&a, &["<a> <knows> <c>", "<b> <p> <q>"])?;
     let applied = apply(&a, vec![insert("<a> <knows> <b>")?]).context("applies")?;
     let key = QuadKey::Forward {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         predicate: uid(&a, "knows")?,
         subject: uid(&a, "a")?,

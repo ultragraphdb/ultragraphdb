@@ -18,22 +18,22 @@ use crate::utils::fields::{identity, session_request};
 use crate::utils::sections::{Sections, u32s};
 use crate::utils::token;
 
-/// The command header: `session` 16 bytes, `request` u64, `namespace` u64, `token` 24 bytes.
+/// The command header: `session` 16 bytes, `request` u64, `tenant` u64, `token` 24 bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct WriteHeader {
     pub(crate) session: [u8; 16],
     pub(crate) request: u64,
-    pub(crate) namespace: u64,
+    pub(crate) tenant: u64,
     pub(crate) token: Option<SessionToken>,
 }
 
 impl WriteHeader {
-    /// The header of a write in `namespace`, through no session, holding no token.
-    pub(crate) fn new(namespace: u64) -> Self {
+    /// The header of a write in `tenant`, through no session, holding no token.
+    pub(crate) fn new(tenant: u64) -> Self {
         Self {
             session: [0; 16],
             request: 0,
-            namespace,
+            tenant,
             token: None,
         }
     }
@@ -43,7 +43,7 @@ impl WriteHeader {
         command_header(&[
             (0, &self.session),
             (16, &self.request.to_le_bytes()),
-            (24, &self.namespace.to_le_bytes()),
+            (24, &self.tenant.to_le_bytes()),
             (32, &token::encode(self.token.as_ref())),
         ])
     }
@@ -56,7 +56,7 @@ impl WriteHeader {
         Ok(Self {
             session,
             request: session_request(command, session, header.u64_at(16))?,
-            namespace: header.u64_at(24),
+            tenant: header.u64_at(24),
             token: token::read(command, header, 32)?,
         })
     }

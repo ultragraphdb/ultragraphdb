@@ -28,8 +28,8 @@ Feature: The metadata group
       Then version 3 takes effect at epoch 40, assigned and announced with the close of 39, and the round of epoch 39 is validated against version 2 and the round of epoch 40 against version 3
 
     Scenario: A default entry is no catalog version
-      When version 3 of `ns` is current, a first write of `score` records its default entry, and a client offers version 4 built on version 3
-      Then the default-entry record of (`ns`, `score`) is held, version 4 is accepted, and no prepared statement of `ns` is stale
+      When version 3 of `tenant` is current, a first write of `score` records its default entry, and a client offers version 4 built on version 3
+      Then the default-entry record of (`tenant`, `score`) is held, version 4 is accepted, and no prepared statement of `tenant` is stale
 
     Scenario: A stale version is refused
       When a client offers version 4 built on version 2 while version 3 is current
@@ -52,8 +52,8 @@ Feature: The metadata group
   Rule: The placement map assigns bucket ranges to partitions
 
     Scenario: The initial map covers every bucket once
-      When the map is initialised for one namespace and three partitions
-      Then that namespace's 65,536 buckets are assigned in three contiguous ranges whose sizes differ by at most one, and every other bucket is assigned to a partition
+      When the map is initialised for one tenant and three partitions
+      Then that tenant's 65,536 buckets are assigned in three contiguous ranges whose sizes differ by at most one, and every other bucket is assigned to a partition
 
     Scenario: A change leaving a bucket unassigned is refused
       When a change moves the range 100..200 from partition 1 to nowhere

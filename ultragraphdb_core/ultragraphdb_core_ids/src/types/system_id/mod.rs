@@ -7,8 +7,8 @@ use crate::errors::id_error::IdError;
 
 use crate::types::bucket::Bucket;
 use crate::types::canonical_key::CanonicalKey;
-use crate::types::namespace::Namespace;
 use crate::types::sequence::Sequence;
+use crate::types::tenant::Tenant;
 use crate::types::type_prefix::TypePrefix;
 
 /// The 128-bit system ID that names an entity or a statement inside the database, never outside it. From the most
@@ -39,12 +39,12 @@ impl SystemId {
         }
     }
 
-    /// The ID of the `Resource` whose key is `key` in `namespace`, numbered `sequence`: type prefix 1 and the
+    /// The ID of the `Resource` whose key is `key` in `tenant`, numbered `sequence`: type prefix 1 and the
     /// bucket [`Bucket::derive`] gives.
     #[must_use]
-    pub fn resource(namespace: Namespace, key: &CanonicalKey<'_>, sequence: Sequence) -> Self {
+    pub fn resource(tenant: Tenant, key: &CanonicalKey<'_>, sequence: Sequence) -> Self {
         let prefix = TypePrefix::RESOURCE;
-        Self::new(prefix, Bucket::derive(namespace, prefix, key), sequence)
+        Self::new(prefix, Bucket::derive(tenant, prefix, key), sequence)
     }
 
     /// The ID of a statement whose subject is `subject`, numbered `sequence`: type prefix 2 and the subject's

@@ -13,7 +13,7 @@ use crate::types::sim_store::state::{DropRecord, State, encode};
 /// prefix of the records written since the last sync.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Record {
-    /// A write batch, its entries to banned namespaces already dropped, with its versionless writes and the rebuild
+    /// A write batch, its entries to banned tenants already dropped, with its versionless writes and the rebuild
     /// records it removes; fenced when a prefix drop writes it.
     Batch {
         entries: Vec<Entry>,
@@ -96,8 +96,8 @@ impl Record {
                 state.rebuild_records.clear();
             }
             Record::EndDrop => state.drop_record = None,
-            Record::Ban(namespace) => {
-                let _newly: bool = state.banned.insert(*namespace);
+            Record::Ban(tenant) => {
+                let _newly: bool = state.banned.insert(*tenant);
             }
             Record::Discard(ts) => state.discard_ts = state.discard_ts.max(*ts),
             Record::Horizon(ts) => state.horizon = Some(*ts),

@@ -3,12 +3,12 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The catalog: per namespace, the declarations of its predicates, entity types and relations, which both engines,
-//! index maintenance and the write checks read, kept in the catalog keyspace and loaded per namespace.
+//! The catalog: per tenant, the declarations of its predicates, entity types and relations, which both engines,
+//! index maintenance and the write checks read, kept in the catalog keyspace and loaded per tenant.
 //!
 //! A [`Catalog`] declares a predicate's kind, cardinality, datatype constraint, unique values, indexes and domains,
 //! an entity type's one parent, numbered in preorder, and a relation's roles; it checks a write's object against a
-//! declaration. [`Catalog::entry`] is a declaration's store entry, and [`Catalog::load`] reads a namespace's catalog
+//! declaration. [`Catalog::entry`] is a declaration's store entry, and [`Catalog::load`] reads a tenant's catalog
 //! back, refusing it whole when an entry does not read back.
 //!
 //! ```

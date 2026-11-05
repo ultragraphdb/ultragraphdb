@@ -36,8 +36,8 @@ fn test_each_constructor_builds_its_variant() {
     );
     assert_eq!(TxnError::read_only().0, TxnErrorEnum::ReadOnly);
     assert_eq!(
-        TxnError::namespace(0, 3).0,
-        TxnErrorEnum::Namespace {
+        TxnError::tenant(0, 3).0,
+        TxnErrorEnum::Tenant {
             transaction: 0,
             changeset: 3
         }
@@ -73,7 +73,7 @@ fn test_each_refusal_answers_its_wire_code() {
         (TxnError::cross_partition(1, 2), ErrorCode::CrossPartition),
         (TxnError::read_above_watermark(12, 10), ErrorCode::Refused),
         (TxnError::read_only(), ErrorCode::Refused),
-        (TxnError::namespace(0, 3), ErrorCode::Refused),
+        (TxnError::tenant(0, 3), ErrorCode::Refused),
         (TxnError::ended(), ErrorCode::Refused),
         (TxnError::changeset(changeset_error()), ErrorCode::Refused),
         (TxnError::declaration(), ErrorCode::Refused),
@@ -91,7 +91,7 @@ fn test_only_past_its_limit_is_retryable() {
         TxnError::write_set_too_large(5, 4),
         TxnError::read_set_too_large(7, 6),
         TxnError::read_only(),
-        TxnError::namespace(0, 3),
+        TxnError::tenant(0, 3),
         TxnError::ended(),
         TxnError::changeset(changeset_error()),
         TxnError::cross_partition(1, 2),
@@ -133,8 +133,8 @@ fn test_each_text_names_what_was_refused() {
         "a read-only transaction does not write"
     );
     assert_eq!(
-        TxnError::namespace(0, 3).to_string(),
-        "a changeset of namespace 3 in a transaction of namespace 0"
+        TxnError::tenant(0, 3).to_string(),
+        "a changeset of tenant 3 in a transaction of tenant 0"
     );
     assert_eq!(TxnError::ended().to_string(), "the transaction has ended");
     // A changeset's refusal keeps the applier's own text, Dgraph's retry text for a declaration during a build.
@@ -159,7 +159,7 @@ fn test_a_changesets_error_is_the_source() -> TestResult {
         TxnError::write_set_too_large(5, 4),
         TxnError::read_set_too_large(7, 6),
         TxnError::read_only(),
-        TxnError::namespace(0, 3),
+        TxnError::tenant(0, 3),
         TxnError::ended(),
         TxnError::declaration(),
     ] {

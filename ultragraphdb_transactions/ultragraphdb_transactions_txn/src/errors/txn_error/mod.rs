@@ -14,7 +14,7 @@ use ultragraphdb_store_apply::ChangesetError;
 /// - **Retryable:** [`PastLimit`](Self::PastLimit). The transaction is aborted and wrote nothing; the same work in a
 ///   new transaction may succeed.
 /// - **Refused, not retryable:** [`ReadAboveWatermark`](Self::ReadAboveWatermark), [`WriteSetTooLarge`](Self::WriteSetTooLarge),
-///   [`ReadSetTooLarge`](Self::ReadSetTooLarge), [`ReadOnly`](Self::ReadOnly), [`Namespace`](Self::Namespace),
+///   [`ReadSetTooLarge`](Self::ReadSetTooLarge), [`ReadOnly`](Self::ReadOnly), [`Tenant`](Self::Tenant),
 ///   [`Ended`](Self::Ended), [`Changeset`](Self::Changeset), [`CrossPartition`](Self::CrossPartition),
 ///   [`Declaration`](Self::Declaration). Retrying the same request meets the same refusal.
 ///
@@ -51,11 +51,11 @@ pub enum TxnErrorEnum {
     },
     /// A write in a read-only transaction.
     ReadOnly,
-    /// A changeset of namespace `changeset` in a transaction of namespace `transaction`.
-    Namespace {
-        /// The transaction's namespace.
+    /// A changeset of tenant `changeset` in a transaction of tenant `transaction`.
+    Tenant {
+        /// The transaction's tenant.
         transaction: u64,
-        /// The changeset's namespace.
+        /// The changeset's tenant.
         changeset: u64,
     },
     /// A request of a transaction already ended by a refusal or its limit.
@@ -106,9 +106,9 @@ impl TxnError {
         Self(TxnErrorEnum::ReadOnly)
     }
 
-    /// A changeset of namespace `changeset` in a transaction of namespace `transaction`.
-    pub fn namespace(transaction: u64, changeset: u64) -> Self {
-        Self(TxnErrorEnum::Namespace {
+    /// A changeset of tenant `changeset` in a transaction of tenant `transaction`.
+    pub fn tenant(transaction: u64, changeset: u64) -> Self {
+        Self(TxnErrorEnum::Tenant {
             transaction,
             changeset,
         })
@@ -146,7 +146,7 @@ impl TxnError {
             TxnErrorEnum::CrossPartition { .. } => ErrorCode::CrossPartition,
             TxnErrorEnum::ReadAboveWatermark { .. }
             | TxnErrorEnum::ReadOnly
-            | TxnErrorEnum::Namespace { .. }
+            | TxnErrorEnum::Tenant { .. }
             | TxnErrorEnum::Ended
             | TxnErrorEnum::Changeset(_)
             | TxnErrorEnum::Declaration => ErrorCode::Refused,

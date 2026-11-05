@@ -18,7 +18,7 @@ fn knows() -> Declaration {
 #[test]
 fn test_contents_read_back_what_they_were_made_of() -> TestResult {
     let contents = CatalogContents::new(3, 7, vec![knows()]);
-    assert_eq!(contents.namespace(), 3);
+    assert_eq!(contents.tenant(), 3);
     assert_eq!(contents.version(), 7);
     assert_eq!(contents.declarations(), &[knows()]);
     Ok(())
@@ -40,7 +40,7 @@ fn test_a_catalog_carries_the_version_it_holds() -> TestResult {
     assert_eq!(catalog.version(), 0);
     let versioned = catalog.clone().with_version(9);
     assert_eq!(versioned.version(), 9);
-    assert_eq!(versioned.namespace(), 2);
+    assert_eq!(versioned.tenant(), 2);
     assert_ne!(versioned, catalog, "the version is part of the catalog");
     assert_eq!(versioned.with_version(0), catalog);
     Ok(())

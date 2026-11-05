@@ -11,7 +11,7 @@ use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::types::quad_key::quad_key_tests::{every_keyspace, graph, id};
 
-/// The length of a key's fixed head: the keyspace byte, the namespace and the graph.
+/// The length of a key's fixed head: the keyspace byte, the tenant and the graph.
 const HEAD: usize = 1 + 8 + 16;
 
 #[test]
@@ -40,7 +40,7 @@ fn test_every_proper_prefix_of_every_key_is_refused_unless_a_shorter_token_makes
 fn test_a_cut_inside_any_id_is_truncated_naming_the_key() -> TestResult {
     // The forward key's predicate starts at 25 and its subject at 41; a cut inside either leaves a field short.
     let key = QuadKey::Forward {
-        namespace: 1,
+        tenant: 1,
         graph: graph()?,
         predicate: id(1, 9, 9)?,
         subject: id(1, 5, 5)?,
@@ -119,7 +119,7 @@ fn test_an_invalid_id_is_refused_in_every_field_naming_it() -> TestResult {
 fn test_16_zero_bytes_are_the_default_graph_and_nothing_else() -> TestResult {
     // The default graph's 16 zero bytes read back as the default graph; in an ID field they are a zero prefix.
     let key = QuadKey::Statement {
-        namespace: 1,
+        tenant: 1,
         graph: DEFAULT_GRAPH,
         statement: id(2, 1, 1)?,
     };
@@ -146,7 +146,7 @@ fn test_16_zero_bytes_are_the_default_graph_and_nothing_else() -> TestResult {
 #[test]
 fn test_a_mark_group_past_18_bits_is_refused() -> TestResult {
     let key = QuadKey::Mark {
-        namespace: 1,
+        tenant: 1,
         entity: id(1, 1, 1)?,
         group: 0,
     };
@@ -179,7 +179,7 @@ fn test_unreadable_objects_unknown_keyspaces_and_directions_are_refused() -> Tes
     )?
     .into_term();
     let key = QuadKey::Reverse {
-        namespace: 1,
+        tenant: 1,
         graph: DEFAULT_GRAPH,
         predicate: id(1, 1, 1)?,
         object: vector,
@@ -190,7 +190,7 @@ fn test_unreadable_objects_unknown_keyspaces_and_directions_are_refused() -> Tes
     ));
 
     let mut bad_object = QuadKey::ObjectPredicates {
-        namespace: 1,
+        tenant: 1,
         graph: DEFAULT_GRAPH,
         object: EncodedTerm::id(id(1, 3, 3)?),
     }
@@ -212,7 +212,7 @@ fn test_unreadable_objects_unknown_keyspaces_and_directions_are_refused() -> Tes
     );
 
     let mut direction = QuadKey::CountIndex {
-        namespace: 1,
+        tenant: 1,
         graph: DEFAULT_GRAPH,
         predicate: id(1, 1, 1)?,
         direction: CountDirection::Forward,
@@ -263,7 +263,7 @@ fn test_a_byte_after_any_key_but_a_value_index_key_is_refused() -> TestResult {
 fn test_an_object_that_is_no_valid_id_is_refused() -> TestResult {
     // A reverse key whose object, an IRI's tag and 16 bytes, has sequence 0: the key names no entity.
     let key = QuadKey::Reverse {
-        namespace: 1,
+        tenant: 1,
         graph: DEFAULT_GRAPH,
         predicate: id(1, 1, 1)?,
         object: EncodedTerm::id(id(1, 3, 3)?),

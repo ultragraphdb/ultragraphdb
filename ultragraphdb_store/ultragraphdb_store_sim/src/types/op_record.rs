@@ -127,10 +127,10 @@ pub enum OpRecord {
         /// The temporary keyspace's number.
         temporary: u64,
     },
-    /// A namespace banned.
+    /// A tenant banned.
     Banned {
-        /// The namespace.
-        namespace: u64,
+        /// The tenant.
+        tenant: u64,
     },
     /// The discard timestamp set.
     DiscardSet {

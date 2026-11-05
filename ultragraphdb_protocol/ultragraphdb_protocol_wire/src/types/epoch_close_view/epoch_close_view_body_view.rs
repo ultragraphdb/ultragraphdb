@@ -33,7 +33,7 @@ impl<'a> BodyView<'a> for EpochCloseView<'a> {
         let mut previous = (0u64, 0u64);
         for (i, bytes) in announcements.iter().enumerate() {
             let announcement = CatalogAnnouncement::decode(bytes);
-            let key = (announcement.namespace(), announcement.version());
+            let key = (announcement.tenant(), announcement.version());
             if announcement.version() == 0 || key <= previous {
                 return Err(ProtocolError::field_value(
                     command,

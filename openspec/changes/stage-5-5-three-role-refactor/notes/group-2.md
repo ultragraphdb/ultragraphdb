@@ -152,8 +152,8 @@ defective behaviour):
 |---|---|---|
 | K01 the default graph written as 16 one bytes | `test_the_default_graph_is_16_zero_bytes`, `test_16_zero_bytes_are_the_default_graph_and_nothing_else`, `test_a_byte_after_any_key_but_a_value_index_key_is_refused` and 10 more | `A forward key round-trips`, `A literal object round-trips` and 2 more |
 | K02 the marks keyspace given the statistics' byte | `test_each_keyspace_has_its_byte_and_properties`, `test_each_keyspace_byte_reads_back_with_and_without_the_split_flag`, `test_a_mark_group_past_18_bits_is_refused` and 7 more | `A mark key round-trips and stays apart from object predicates` |
-| K03 the referrers' byte read as no keyspace | `test_each_keyspace_byte_reads_back_with_and_without_the_split_flag`, `test_a_byte_after_any_key_but_a_value_index_key_is_refused`, `test_an_invalid_id_is_refused_in_every_field_naming_it` and 2 more | `A referrer key round-trips`, `Referrer keys share their namespace's region` |
-| K04 marks keys said to name a graph | `test_each_keyspace_has_its_byte_and_properties`, `test_a_prefix_is_the_keyspace_namespace_graph_and_predicate_bytes`, `test_every_keyspace_round_trips_and_reports_its_fields` | — |
+| K03 the referrers' byte read as no keyspace | `test_each_keyspace_byte_reads_back_with_and_without_the_split_flag`, `test_a_byte_after_any_key_but_a_value_index_key_is_refused`, `test_an_invalid_id_is_refused_in_every_field_naming_it` and 2 more | `A referrer key round-trips`, `Referrer keys share their tenant's region` |
+| K04 marks keys said to name a graph | `test_each_keyspace_has_its_byte_and_properties`, `test_a_prefix_is_the_keyspace_tenant_graph_and_predicate_bytes`, `test_every_keyspace_round_trips_and_reports_its_fields` | — |
 | K05 a mark's group written in 4 bytes | `test_every_proper_prefix_of_every_key_is_refused_unless_a_shorter_token_makes_it_a_key`, `test_a_mark_holds_every_group_of_18_bits`, `test_every_keyspace_round_trips_and_reports_its_fields` and 2 more | `A mark key round-trips and stays apart from object predicates` |
 | K06 the group bound off by one | `test_a_mark_group_past_18_bits_is_refused` | — |
 | K07 16 zero bytes not read as the default graph | `test_16_zero_bytes_are_the_default_graph_and_nothing_else`, `test_unreadable_objects_unknown_keyspaces_and_directions_are_refused`, `test_a_byte_after_any_key_but_a_value_index_key_is_refused` and 7 more | `A forward key round-trips`, `A literal object round-trips` and 2 more |
@@ -162,9 +162,9 @@ defective behaviour):
 | K10 a value-index key split at a fingerprint | `test_a_value_index_key_splits_at_an_id_alone` | — |
 | K11 a short split start called trailing | `test_a_split_start_of_neither_8_nor_16_bytes_is_refused` | — |
 | K12 the split flag accepted on a keyspace without lists | `test_only_a_list_key_splits`, `test_the_region_of_a_key_that_does_not_parse_is_refused` | — |
-| K13 a prefix naming a graph its keyspace does not have | `test_a_prefix_is_the_keyspace_namespace_graph_and_predicate_bytes` | — |
+| K13 a prefix naming a graph its keyspace does not have | `test_a_prefix_is_the_keyspace_tenant_graph_and_predicate_bytes` | — |
 | K14 the predicate left out of a key | `test_a_cut_inside_any_id_is_truncated_naming_the_key`, `test_an_invalid_id_is_refused_in_every_field_naming_it`, `test_a_byte_after_any_key_but_a_value_index_key_is_refused` and 9 more | `A forward key round-trips`, `An invalid subject ID is refused` and 5 more |
-| K15 a region without its graph | `test_a_region_is_the_keyspace_namespace_graph_and_predicate_of_its_key` | — |
+| K15 a region without its graph | `test_a_region_is_the_keyspace_tenant_graph_and_predicate_of_its_key` | — |
 | K16 bytes after the fields accepted | `test_a_byte_after_any_key_but_a_value_index_key_is_refused` | — |
 | K17 a value-index start refusal naming another field | `test_a_split_start_that_is_no_valid_id_is_refused` | — |
 | K18 a truncation not naming the key | `test_each_error_names_the_keys_bytes` | `Every prefix of a 128-bit ID field fails cleanly` |

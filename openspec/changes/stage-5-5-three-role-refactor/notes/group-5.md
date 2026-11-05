@@ -5,12 +5,12 @@ Three new crates and a new group folder, `ultragraphdb_cluster/`:
 - `ultragraphdb_error/ultragraphdb_error_cluster`: `ClusterError(pub ClusterErrorEnum)`, its own crate because the
   placement map, the sequencer and, from groups 6 and 7, the metadata group and the partitions raise it. It converts
   from `LogError` and `InvariantError`.
-- `ultragraphdb_cluster/ultragraphdb_cluster_placement`: `PartitionId`, `NodeId`, `BucketRange`, `NamespaceRun`,
+- `ultragraphdb_cluster/ultragraphdb_cluster_placement`: `PartitionId`, `NodeId`, `BucketRange`, `TenantRun`,
   `BucketGroup`, `PlacementMap` with its checks, lookups at an epoch, preferred leaders and encoding.
 - `ultragraphdb_cluster/ultragraphdb_cluster_sequencer`: `Sequencer<L: OrderedLog>`, `SequencerConfig`,
   `ClockReading`, `Close`, `CatalogVersion`, `SequencedTransaction`, `SequencerRecord`.
 
-Two small additions to `ultragraphdb_core_ids`, test first: `Namespace::bucket_bits` (the top byte of XXH3-64 of the
+Two small additions to `ultragraphdb_core_ids`, test first: `Tenant::bucket_bits` (the top byte of XXH3-64 of the
 tenant's 8 big-endian bytes, which `Bucket::derive` now calls, so the hash rule has one owner and the placement map
 names a tenant's run by it) and `Epoch::ZERO` (epoch 0, which a fresh sequencer and a map's first layout need
 without a fallible constructor).
@@ -62,11 +62,11 @@ Run against the surface (`bazel test //ultragraphdb_error/ultragraphdb_error_clu
 | Target | Tests | Failed | Reason |
 |---|---|---|---|
 | `error_cluster` unit | 12 | 12 | `not implemented` panic, all 12 |
-| `cluster_placement` unit | 57 | 53 | `not implemented` panic, all 53; the 4 passing assert constants (`BucketGroup::BUCKETS`/`COUNT`, `BucketRange::END`, `NamespaceRun::BUCKETS`/`GROUPS`, the map's limits), values of the surface |
+| `cluster_placement` unit | 57 | 53 | `not implemented` panic, all 53; the 4 passing assert constants (`BucketGroup::BUCKETS`/`COUNT`, `BucketRange::END`, `TenantRun::BUCKETS`/`GROUPS`, the map's limits), values of the surface |
 | `cluster_placement` bdd | 4 scenarios | 4 | `Step panicked. Captured output: not implemented`, 4 of 4 |
 | `cluster_sequencer` unit | 94 | 91 | `not implemented` panic, all 91; the 3 passing assert constants |
 | `cluster_sequencer` bdd | 19 scenarios | 19 | `Step panicked. Captured output: not implemented`, 19 of 19 |
-| `core_ids` unit (the two new tests) | 62 | 2 | `not implemented` in `Namespace::bucket_bits` |
+| `core_ids` unit (the two new tests) | 62 | 2 | `not implemented` in `Tenant::bucket_bits` |
 
 The first run had one failure that was not the panic: the harness put the log in `/data/seq`, whose parent the
 simulated storage does not create. The directory became `/seq`; the rerun failed 91 of 94, every one the panic.
@@ -91,7 +91,7 @@ the set's type uninferred) and was re-planted as a check that never fires.
 | P02 a range end bound off by one | `test_a_range_past_the_last_bucket_is_refused` |
 | P03 an empty range taken | `test_an_empty_or_reversed_range_is_refused` |
 | P04 contains takes the end | `test_a_range_contains_its_buckets_alone` |
-| P05 a bucket's run read from the wrong byte | `test_the_first_and_the_last_runs`, `test_a_namespaces_run_is_its_derived_buckets_top_bits` |
+| P05 a bucket's run read from the wrong byte | `test_the_first_and_the_last_runs`, `test_a_tenants_run_is_its_derived_buckets_top_bits` |
 | P06 a bucket's group shifted by 7 | `test_a_buckets_group_is_its_top_18_bits`, A bucket group resolves at an epoch (scenario) |
 | P07 the group bound off by one | `test_a_group_past_18_bits_is_refused` |
 | P08 a group's run shifted by 9 | `test_a_groups_range_and_run` |
@@ -230,7 +230,7 @@ files.
 7. **A close request names the epoch it wants closed**: the open epoch arms the early close, an epoch already closed
    (durable or not) is satisfied and changes nothing, a later one is refused (`EpochAhead`). Partition and frontend
    requests are the same call.
-8. **Catalog versions and evictions are the caller's**: `tick` takes the pending versions (as `(namespace, version)`)
+8. **Catalog versions and evictions are the caller's**: `tick` takes the pending versions (as `(tenant, version)`)
    and the evictions (as 128-bit session identities, `u128`, since no `SessionId` type exists yet; group 4 or 6 may add
    one to `core_ids`) and refuses more than 256 versions or 4,096 evictions per close with `TooMany`; the host passes
    at most that many. A close of the last epoch has no effective epoch (`Close::effective_epoch` is `None`).
@@ -270,5 +270,5 @@ files.
   cluster crates also `features/` and `testdata/`), `fuzz/ultragraphdb_cluster_placement/`,
   `fuzz/ultragraphdb_cluster_sequencer/`.
 - Changed: `Cargo.toml`, `Cargo.lock`, `AGENTS.md`, `fuzz/Cargo.toml`, `fuzz/Cargo.lock`,
-  `ultragraphdb_core/ultragraphdb_core_ids/src/types/{namespace.rs,epoch.rs,bucket/mod.rs}` and its
-  `tests/types/{namespace_tests.rs,epoch_tests.rs}`, `tasks.md`.
+  `ultragraphdb_core/ultragraphdb_core_ids/src/types/{tenant.rs,epoch.rs,bucket/mod.rs}` and its
+  `tests/types/{tenant_tests.rs,epoch_tests.rs}`, `tasks.md`.

@@ -11,13 +11,13 @@ use crate::types::declared_predicate::DeclaredPredicate;
 use crate::types::declared_relation::DeclaredRelation;
 use crate::utils::checksum::xxh3_64;
 
-/// What a namespace holds, the data dictionary's answer: sent with the namespace alone, answered with the snapshot it
+/// What a tenant holds, the data dictionary's answer: sent with the tenant alone, answered with the snapshot it
 /// was read at, the labels, relationship types and property keys, and the catalog's declarations: predicates, entity
 /// types with their preorder numbers, and relations.
 ///
 /// | Command header | Field | Type |
 /// |---|---|---|
-/// | 0 | `namespace` | u64 |
+/// | 0 | `tenant` | u64 |
 /// | 8 | `read_version` | u64 |
 ///
 /// | Section | Contents |
@@ -31,7 +31,7 @@ use crate::utils::checksum::xxh3_64;
 /// | 6 | the declarations' args |
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Describe {
-    namespace: u64,
+    tenant: u64,
     read_version: u64,
     labels: Vec<String>,
     relationship_types: Vec<String>,
@@ -42,10 +42,10 @@ pub struct Describe {
 }
 
 impl Describe {
-    /// An answer for `namespace` read at `read_version`, empty until its parts are set.
-    pub fn new(namespace: u64, read_version: u64) -> Self {
+    /// An answer for `tenant` read at `read_version`, empty until its parts are set.
+    pub fn new(tenant: u64, read_version: u64) -> Self {
         Self {
-            namespace,
+            tenant,
             read_version,
             labels: Vec::new(),
             relationship_types: Vec::new(),
@@ -56,9 +56,9 @@ impl Describe {
         }
     }
 
-    /// The namespace described.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant described.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// The snapshot the answer was read at; zero in a request.
@@ -132,12 +132,12 @@ impl Describe {
         self
     }
 
-    /// A request for `namespace`'s description.
-    pub fn request(namespace: u64) -> Self {
-        Self::new(namespace, 0)
+    /// A request for `tenant`'s description.
+    pub fn request(tenant: u64) -> Self {
+        Self::new(tenant, 0)
     }
 
-    /// The schema id of the declarations: XXH3-64 of the body of this answer with its namespace, labels, relationship
+    /// The schema id of the declarations: XXH3-64 of the body of this answer with its tenant, labels, relationship
     /// types and property keys left out, so it changes with the catalog and not with the data. A prepared
     /// statement's schema id.
     pub fn schema_id(&self) -> u64 {

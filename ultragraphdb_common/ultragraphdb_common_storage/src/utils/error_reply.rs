@@ -50,7 +50,7 @@ fn txn_code(error: &TxnError) -> (ErrorCode, u64) {
         TxnErrorEnum::WriteSetTooLarge { limit, .. }
         | TxnErrorEnum::ReadSetTooLarge { limit, .. } => (ErrorCode::TooLarge, *limit as u64),
         TxnErrorEnum::Changeset(refusal) => changeset_code(refusal),
-        TxnErrorEnum::ReadOnly | TxnErrorEnum::Namespace { .. } | TxnErrorEnum::Declaration => {
+        TxnErrorEnum::ReadOnly | TxnErrorEnum::Tenant { .. } | TxnErrorEnum::Declaration => {
             (ErrorCode::Refused, 0)
         }
     }

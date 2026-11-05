@@ -157,7 +157,7 @@ fn test_a_property_graph_writes_as_labels_values_and_edges_of_their_own() -> Tes
                 .with_property("since", vec![Literal::from(2020).into()]),
         );
     let changeset = property_graph_to_changeset(&pg, 7, &g, &names);
-    assert_eq!(changeset.namespace(), 7);
+    assert_eq!(changeset.tenant(), 7);
     let insert = |p: NamedNode, o: Term| Change::Insert {
         graph: g.clone(),
         subject: iri("a").into(),

@@ -60,8 +60,8 @@ const EPOCH: Duration = Duration::from_millis(10);
 const PENDING: u64 = 256;
 /// The cluster the logs' rounds name.
 const CLUSTER: u64 = 1;
-/// The namespace the commits write, the root.
-const NAMESPACE: u64 = 0;
+/// The tenant the commits write, the root.
+const TENANT: u64 = 0;
 /// How long an idle partition waits before its next turn.
 const IDLE: Duration = Duration::from_micros(50);
 
@@ -377,18 +377,18 @@ fn verify(
         let home = owner(parts, &object).ok_or_else(|| no_home(&object))?;
         let found = home.applier().quads();
         let (Some(o), Some(p)) = (
-            found.id_of(NAMESPACE, object.as_str())?,
+            found.id_of(TENANT, object.as_str())?,
             owner(parts, &predicate)
                 .ok_or_else(|| no_home(&predicate))?
                 .applier()
                 .quads()
-                .id_of(NAMESPACE, predicate.as_str())?,
+                .id_of(TENANT, predicate.as_str())?,
         ) else {
             return Err(BenchError::commit(format!(
                 "{object} has no ID at its home"
             )));
         };
-        let query = ReverseQuery::new(home.id(), NAMESPACE, Graph::Default, p, o, last_close);
+        let query = ReverseQuery::new(home.id(), TENANT, Graph::Default, p, o, last_close);
         let mut subjects = Vec::new();
         let _asked: Vec<PartitionId> = Fanout::over(refs.clone())
             .subjects(&query, &mut subjects)
@@ -401,7 +401,7 @@ fn verify(
                     part.placement().partition_of(subject.bucket(), Epoch::ZERO) == part.id()
                 })
                 .ok_or_else(|| BenchError::commit("a subject has no partition".to_string()))?;
-            let (iri, _) = holder.applier().quads().iri_of(NAMESPACE, subject)?;
+            let (iri, _) = holder.applier().quads().iri_of(TENANT, subject)?;
             let _new = names.insert(iri);
         }
         if names != one_subjects(&one, &predicate, &object)? {
@@ -435,7 +435,7 @@ fn cross_edge(
 
 /// The partition homing `iri`.
 fn owner<'p>(parts: &'p [Arc<BenchPartition>], iri: &NamedNode) -> Option<&'p BenchPartition> {
-    let bucket = iri_bucket(NAMESPACE, iri.as_str())?;
+    let bucket = iri_bucket(TENANT, iri.as_str())?;
     parts
         .iter()
         .find(|part| part.placement().partition_of(bucket, Epoch::ZERO) == part.id())
@@ -455,14 +455,14 @@ fn one_subjects(
     let quads = one.quads();
     let term = |iri: &NamedNode| -> Result<_, BenchError> {
         quads
-            .id_of(NAMESPACE, iri.as_str())?
+            .id_of(TENANT, iri.as_str())?
             .ok_or_else(|| BenchError::commit(format!("{iri} has no ID on one partition")))
     };
     let (o, p) = (term(object)?, term(predicate)?);
     quads
-        .subjects(NAMESPACE, Graph::Default, p, &EncodedTerm::id(o), u64::MAX)?
+        .subjects(TENANT, Graph::Default, p, &EncodedTerm::id(o), u64::MAX)?
         .into_iter()
-        .map(|id| Ok(quads.iri_of(NAMESPACE, id)?.0))
+        .map(|id| Ok(quads.iri_of(TENANT, id)?.0))
         .collect()
 }
 

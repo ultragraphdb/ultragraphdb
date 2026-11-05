@@ -443,15 +443,15 @@ fn session_cases() -> Vec<Case> {
                 let stream = peer.request_stream()?;
                 Ok(waiting(p, false, stream))
             },
-            // Begin: the namespace, read version and mode the golden Begin answers, read from the frame.
+            // Begin: the tenant, read version and mode the golden Begin answers, read from the frame.
             check: |peer, wait| {
                 let tx = begun(reply(peer, wait)?)?;
                 let bytes = golden("begin")?;
                 let begin =
                     BeginView::from_frame(&FrameView::validate(&bytes, CLUSTER, MAX_FRAME_SIZE)?)?;
                 assert_eq!(
-                    (tx.namespace(), tx.read_version(), tx.read_only()),
-                    (begin.namespace(), begin.read_version(), begin.read_only())
+                    (tx.tenant(), tx.read_version(), tx.read_only()),
+                    (begin.tenant(), begin.read_version(), begin.read_only())
                 );
                 Ok(())
             },
@@ -582,7 +582,7 @@ fn drop_and_result_cases() -> Vec<Case> {
                     .core
                     .resume_session(u128::from_be_bytes(request.session()), request.request());
                 let p = peer.core.drop_command(
-                    DropCommand::graph(request.namespace(), graph),
+                    DropCommand::graph(request.tenant(), graph),
                     session,
                     peer.now,
                 )?;
@@ -819,12 +819,12 @@ fn test_the_golden_authenticate_exchange_under_every_fault() -> TestResult {
 }
 
 /// The client's Drop is the golden Drop byte for byte, but for the stream it takes: graph <http://ex.org/g> of
-/// namespace 3, through session 9's request 8 (`generate_bodies.py`'s Drop).
+/// tenant 3, through session 9's request 8 (`generate_bodies.py`'s Drop).
 #[test]
 fn test_the_drop_the_client_sends_is_its_golden_frame() -> TestResult {
     let mut peer = Peer::welcomed()?;
 
-    // The session, request, namespace and graph the golden Drop names, read from the frame, so the client sends
+    // The session, request, tenant and graph the golden Drop names, read from the frame, so the client sends
     // exactly that Drop.
     let bytes = golden("drop")?;
     let golden_drop =
@@ -838,7 +838,7 @@ fn test_the_drop_the_client_sends_is_its_golden_frame() -> TestResult {
         golden_drop.request(),
     );
     let _pending: Pending = peer.core.drop_command(
-        DropCommand::graph(golden_drop.namespace(), graph),
+        DropCommand::graph(golden_drop.tenant(), graph),
         session,
         peer.now,
     )?;

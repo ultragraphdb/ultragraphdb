@@ -14,18 +14,18 @@ use ultragraphdb_store_apply::{ChangesetErrorEnum, Executed};
 use ultragraphdb_traits_catalog::DefaultEntry;
 
 use crate::utils::changesets::{
-    NS, TestChangesets, changesets, declaration, ex, finish_builds, indexed_term, stored_keys, uid,
-    write,
+    TENANT, TestChangesets, changesets, declaration, ex, finish_builds, indexed_term, stored_keys,
+    uid, write,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
-/// Version `version` of the root namespace's catalog declaring each `(predicate, phrase)`.
+/// Version `version` of the root tenant's catalog declaring each `(predicate, phrase)`.
 fn version(version: u64, declared: &[(&str, &str)]) -> TestResult<CatalogContents> {
     let declarations = declared
         .iter()
         .map(|(p, phrase)| declaration(p, phrase).map(Declaration::Predicate))
         .collect::<TestResult<Vec<_>>>()?;
-    Ok(CatalogContents::new(NS, version, declarations))
+    Ok(CatalogContents::new(TENANT, version, declarations))
 }
 
 /// Applies `executed` as a round of its own at the next version.
@@ -59,7 +59,7 @@ fn test_a_version_taking_effect_installs_its_declarations_and_number() -> TestRe
     write(&a, &["<a> <knows> <b>"])?;
     let refusals = take_effect(&a, &version(2, &[("name", "a property with `exact`")])?)?;
     assert!(refusals.is_empty(), "{refusals:?}");
-    let catalog = a.catalog(NS)?;
+    let catalog = a.catalog(TENANT)?;
     assert_eq!(catalog.version(), 2);
     let name = catalog
         .predicate(uid(&a, "name")?)
@@ -105,10 +105,10 @@ fn test_a_replayed_version_takes_the_ids_its_logged_round_gave() -> TestResult {
         version,
     )?;
     assert_eq!(uid(&replica, "name")?, uid(&original, "name")?);
-    assert_eq!(replica.catalog(NS)?.version(), 2);
+    assert_eq!(replica.catalog(TENANT)?.version(), 2);
     assert_eq!(
-        replica.catalog(NS)?.predicate(uid(&replica, "name")?),
-        original.catalog(NS)?.predicate(uid(&original, "name")?)
+        replica.catalog(TENANT)?.predicate(uid(&replica, "name")?),
+        original.catalog(TENANT)?.predicate(uid(&original, "name")?)
     );
     Ok(())
 }
@@ -118,7 +118,7 @@ fn test_a_version_is_installed_by_its_round_not_its_execution() -> TestResult {
     let a = changesets()?;
     write(&a, &["<a> <knows> <b>"])?;
     let execution = a.execute_catalog(&version(2, &[("name", "a property")])?)?;
-    assert_eq!(a.catalog(NS)?.version(), 0, "nothing installed yet");
+    assert_eq!(a.catalog(TENANT)?.version(), 0, "nothing installed yet");
     let executed = execution.into_executed();
     assert_eq!(executed.catalog_version(), Some(2));
     let plain = a.execute(&crate::utils::changesets::changeset(vec![
@@ -127,7 +127,7 @@ fn test_a_version_is_installed_by_its_round_not_its_execution() -> TestResult {
     assert_eq!(plain.catalog_version(), None, "a write installs no version");
     a.release(&plain);
     apply_alone(&a, executed)?;
-    assert_eq!(a.catalog(NS)?.version(), 2);
+    assert_eq!(a.catalog(TENANT)?.version(), 2);
     Ok(())
 }
 
@@ -167,7 +167,7 @@ fn test_a_declaration_the_data_contradicts_is_refused_and_the_rest_installed() -
                 .to_string()
         ]
     );
-    let catalog = a.catalog(NS)?;
+    let catalog = a.catalog(TENANT)?;
     assert_eq!(catalog.version(), 2, "the version takes effect");
     assert_eq!(
         catalog.predicate(uid(&a, "nick")?),
@@ -189,8 +189,8 @@ fn test_a_predicate_the_version_no_longer_declares_is_removed_with_its_indexes()
     assert_eq!(indexed_term(&a, "name", "pear")?, vec![uid(&a, "a")?]);
     let removed = take_effect(&a, &version(3, &[])?)?;
     assert!(removed.is_empty(), "{removed:?}");
-    assert_eq!(a.catalog(NS)?.version(), 3);
-    assert!(a.catalog(NS)?.predicate(uid(&a, "name")?).is_none());
+    assert_eq!(a.catalog(TENANT)?.version(), 3);
+    assert!(a.catalog(TENANT)?.predicate(uid(&a, "name")?).is_none());
     assert!(
         indexed_term(&a, "name", "pear")?.is_empty(),
         "its term keys are gone"
@@ -205,10 +205,10 @@ fn test_the_initial_catalog_stays_beneath_every_version() -> TestResult {
     let _refusals = take_effect(&a, &version(2, &[])?)?;
     let rdf_type = a
         .quads()
-        .id_of(NS, oxrdf::vocab::rdf::TYPE.as_str())?
+        .id_of(TENANT, oxrdf::vocab::rdf::TYPE.as_str())?
         .context("rdf:type has an ID")?;
     assert!(
-        a.catalog(NS)?.predicate(rdf_type).is_some(),
+        a.catalog(TENANT)?.predicate(rdf_type).is_some(),
         "rdf:type stays an edge"
     );
     Ok(())
@@ -246,7 +246,7 @@ fn test_a_loaded_version_installs_without_writing() -> TestResult {
     a.load_catalog(&version(4, &[("name", "a property with `exact`")])?)?;
     assert_eq!(a.quads().store().contents(), before, "nothing is written");
     assert!(!a.rebuilding(), "nothing is built");
-    let catalog = a.catalog(NS)?;
+    let catalog = a.catalog(TENANT)?;
     assert_eq!(catalog.version(), 4);
     let name = catalog
         .predicate(uid(&a, "name")?)
@@ -254,7 +254,7 @@ fn test_a_loaded_version_installs_without_writing() -> TestResult {
     assert_eq!(name.tokenizers(), &["exact".to_string()]);
     let rdf_type = a
         .quads()
-        .id_of(NS, oxrdf::vocab::rdf::TYPE.as_str())?
+        .id_of(TENANT, oxrdf::vocab::rdf::TYPE.as_str())?
         .context("rdf:type")?;
     assert!(
         catalog.predicate(rdf_type).is_some(),
@@ -270,7 +270,7 @@ fn test_a_loaded_version_naming_an_iri_without_an_id_is_refused() -> TestResult 
     let refused = a.load_catalog(&version(2, &[("never", "a property")])?);
     let error = refused.err().context("refused")?.to_string();
     assert!(error.contains("http://ex.org/never"), "{error}");
-    assert_eq!(a.catalog(NS)?.version(), 0, "nothing is installed");
+    assert_eq!(a.catalog(TENANT)?.version(), 0, "nothing is installed");
     Ok(())
 }
 
@@ -286,7 +286,7 @@ fn test_a_first_write_asks_for_its_default_entry_once() -> TestResult {
     assert_eq!(
         asked,
         vec![DefaultEntry::new(
-            NS,
+            TENANT,
             ex("nickname").as_str().to_string(),
             entry
         )]
@@ -351,7 +351,7 @@ fn test_a_store_failure_checking_a_version_fails_it_whole() -> TestResult {
         matches!(failed.map_err(|e| e.0), Err(ChangesetErrorEnum::Store(_))),
         "the store's failure, not a refusal"
     );
-    assert_eq!(a.catalog(NS)?.version(), 0, "nothing is installed");
+    assert_eq!(a.catalog(TENANT)?.version(), 0, "nothing is installed");
     Ok(())
 }
 
@@ -395,7 +395,7 @@ fn test_a_partition_reconciles_its_default_entries_at_start() -> TestResult {
     let _lost = a.take_default_entries();
     let group = ultragraphdb_traits_catalog::TestCatalogSource::new();
     let knows = DefaultEntry::new(
-        NS,
+        TENANT,
         ex("knows").as_str().to_string(),
         ultragraphdb_core_catalog::encode_declaration(&Declaration::Predicate(
             PredicateDeclaration::new(ex("knows")),
@@ -407,7 +407,7 @@ fn test_a_partition_reconciles_its_default_entries_at_start() -> TestResult {
     );
     let restarted = crate::utils::changesets::changesets_over(a.quads().store().clone())?;
     restarted.load_catalog(&version(2, &[("name", "a property")])?)?;
-    let sent = restarted.reconcile_defaults(NS)?;
+    let sent = restarted.reconcile_defaults(TENANT)?;
     let mut names: Vec<String> = sent.iter().map(|e| e.predicate().to_string()).collect();
     names.sort();
     assert_eq!(
@@ -426,10 +426,10 @@ fn test_a_partition_reconciles_its_default_entries_at_start() -> TestResult {
         1,
         "`nick` created, `knows` found"
     );
-    assert_eq!(group.defaults(NS).len(), 2, "no record duplicated");
+    assert_eq!(group.defaults(TENANT).len(), 2, "no record duplicated");
     assert!(
         restarted.reconcile_defaults(3)?.is_empty(),
-        "an empty namespace sends none"
+        "an empty tenant sends none"
     );
     Ok(())
 }
@@ -440,7 +440,7 @@ fn test_a_version_removes_the_types_and_relations_it_no_longer_names() -> TestRe
     use ultragraphdb_core_mapping::{RelationDeclaration, TypeDeclaration};
     let a = changesets()?;
     let named = CatalogContents::new(
-        NS,
+        TENANT,
         2,
         vec![
             Declaration::EntityType(TypeDeclaration::new(ex("Agent"), None, true)),
@@ -450,9 +450,9 @@ fn test_a_version_removes_the_types_and_relations_it_no_longer_names() -> TestRe
     );
     let execution = a.execute_catalog(&named)?;
     apply_alone(&a, execution.into_executed())?;
-    assert_eq!(a.catalog(NS)?.entity_types().count(), 2);
+    assert_eq!(a.catalog(TENANT)?.entity_types().count(), 2);
     let kept = CatalogContents::new(
-        NS,
+        TENANT,
         3,
         vec![Declaration::EntityType(TypeDeclaration::new(
             ex("Person"),
@@ -462,7 +462,7 @@ fn test_a_version_removes_the_types_and_relations_it_no_longer_names() -> TestRe
     );
     let removing = a.execute_catalog(&kept)?;
     apply_alone(&a, removing.into_executed())?;
-    let catalog = a.catalog(NS)?;
+    let catalog = a.catalog(TENANT)?;
     let types: Vec<&str> = catalog
         .entity_types()
         .map(|(_, t)| t.iri().as_str())

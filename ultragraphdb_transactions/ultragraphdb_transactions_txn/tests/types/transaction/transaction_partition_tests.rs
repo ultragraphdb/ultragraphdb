@@ -5,7 +5,7 @@
 
 //! A transaction as one partition's (partitions, "A read-write transaction stays within one partition in this stage";
 //! term-dictionary, "A reference to another partition's entity registers at its home"): its reverse reads and index
-//! lookups allowed only while its partition owns the namespace's whole run, a forward read or a write of a subject another
+//! lookups allowed only while its partition owns the tenant's whole run, a forward read or a write of a subject another
 //! partition owns aborting it, an existing blank node checked by its skolem IRI's bucket, a plain write of a unique
 //! value another partition owns aborting it, and the IDs and marks of other partitions' entities its homes answered,
 //! each raising its epoch floor and its marks listed in its record's section 4. The placement map and the bucket
@@ -14,9 +14,9 @@
 use std::num::NonZeroU64;
 
 use oxrdf::{GraphName, Literal, NamedNode, NamedOrBlankNode, Term};
-use ultragraphdb_cluster_placement::{NamespaceRun, NodeId, PartitionId, PlacementMap};
+use ultragraphdb_cluster_placement::{NodeId, PartitionId, PlacementMap, TenantRun};
 use ultragraphdb_core_ids::{
-    Bucket, BucketGroup, CanonicalKey, Epoch, Namespace, SystemId, TypePrefix,
+    Bucket, BucketGroup, CanonicalKey, Epoch, SystemId, Tenant, TypePrefix,
 };
 use ultragraphdb_core_keys::QuadKey;
 use ultragraphdb_core_mapping::{Change, Declaration, PredicateDeclaration};
@@ -26,7 +26,7 @@ use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transactions_txn::{Mode, TxnError, TxnErrorEnum, TxnLimits};
 
 use crate::utils::fixture::{
-    Applier, NS, SECOND, Txn, applier, begin, begin_with, changeset, ex, held, id_in, insert,
+    Applier, SECOND, TENANT, Txn, applier, begin, begin_with, changeset, ex, held, id_in, insert,
     insert_literal, objects, prepared, store,
 };
 
@@ -47,7 +47,7 @@ fn bucket_of(name: &str) -> TestResult<Bucket> {
     let iri = ex(name);
     let key = CanonicalKey::iri(iri.as_str()).context("the key")?;
     Ok(Bucket::derive(
-        Namespace::new(NS),
+        Tenant::new(TENANT),
         TypePrefix::RESOURCE,
         &key,
     ))
@@ -64,10 +64,10 @@ fn owned_by(placement: &PlacementMap, partition: u32) -> TestResult<String> {
     Err(TestError::new(format!("no name of partition {partition}")))
 }
 
-/// The partitions other than `own` the layout of `placement` at epoch 0 assigns buckets of the namespace's run to, read
+/// The partitions other than `own` the layout of `placement` at epoch 0 assigns buckets of the tenant's run to, read
 /// off its ranges: the oracle of the partition a fan-out read would reach.
 fn others_of_run(placement: &PlacementMap, own: u32) -> Vec<u32> {
-    let run = NamespaceRun::of(Namespace::new(NS)).range();
+    let run = TenantRun::of(Tenant::new(TENANT)).range();
     let mut others: Vec<u32> = placement
         .ranges_at(Epoch::ZERO)
         .into_iter()
@@ -468,14 +468,14 @@ fn unique_id(applier: &Applier) -> TestResult {
 fn value_owner(applier: &Applier, placement: &PlacementMap, value: &str) -> TestResult<u32> {
     let predicate = applier
         .quads()
-        .id_of(NS, ex("epi.id").as_str())
+        .id_of(TENANT, ex("epi.id").as_str())
         .context("the dictionary reads")?
         .context("declared")?;
     let literal = Literal::new_simple_literal(value);
     let encoded = EncodedTerm::literal::<TestError>(literal.as_ref(), |_| {
         Err(TestError::new("a plain literal names no datatype"))
     })?;
-    let bucket = Bucket::of_value(Namespace::new(NS), predicate, encoded.term().as_bytes());
+    let bucket = Bucket::of_value(Tenant::new(TENANT), predicate, encoded.term().as_bytes());
     Ok(placement.partition_of(bucket, Epoch::ZERO).get())
 }
 
@@ -603,7 +603,7 @@ fn test_a_mark_is_read_written_and_listed_in_section_4() -> TestResult {
         Some(RecordRegistration::new(entity, g, gen4))
     );
     let key = QuadKey::Mark {
-        namespace: NS,
+        tenant: TENANT,
         entity,
         group: g.get(),
     }
@@ -664,7 +664,7 @@ fn test_replies_to_an_ended_or_expired_transaction_are_refused() -> TestResult {
     Ok(())
 }
 
-/// A partition holding the namespace's run whole reverse-reads whoever holds the ranges just before and after it: they
+/// A partition holding the tenant's run whole reverse-reads whoever holds the ranges just before and after it: they
 /// touch the run and do not overlap it. Another partition is refused, naming the run's.
 #[test]
 fn test_ranges_touching_the_run_do_not_spread_it() -> TestResult {
@@ -674,7 +674,7 @@ fn test_ranges_touching_the_run_do_not_spread_it() -> TestResult {
     let executed = applier.execute(&changeset(vec![insert("x", "knows", "b")]))?;
     let version = ultragraphdb_core_ids::Version::commit(at, 2)?.to_u64();
     let _applied = applier.apply_round(vec![(version, executed)])?;
-    let run = NamespaceRun::of(Namespace::new(NS)).range();
+    let run = TenantRun::of(Tenant::new(TENANT)).range();
     let mut map = placement(2)?;
     let mut layout = Vec::new();
     for (range, owner) in map.ranges_at(Epoch::ZERO) {

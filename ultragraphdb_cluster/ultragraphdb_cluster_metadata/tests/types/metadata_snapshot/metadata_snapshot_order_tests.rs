@@ -14,7 +14,7 @@ use ultragraphdb_tool_bdd::{Context, TestResult};
 /// One retained version: its number, its effective epoch, its bytes.
 type Version<'a> = (u64, Option<u64>, &'a [u8]);
 
-/// One catalog: its namespace, latest and released versions, retained versions.
+/// One catalog: its tenant, latest and released versions, retained versions.
 type Catalog<'a> = (u64, u64, u64, Vec<Version<'a>>);
 
 /// One pending placement version: its number and its ranges (first bucket, end, partition).
@@ -44,8 +44,8 @@ impl Raw<'_> {
         out.extend_from_slice(&9_u64.to_be_bytes());
         out.extend_from_slice(&4_u64.to_be_bytes());
         put_count(&mut out, self.catalogs.len());
-        for (namespace, current, released, versions) in &self.catalogs {
-            for value in [namespace, current, released] {
+        for (tenant, current, released, versions) in &self.catalogs {
+            for value in [tenant, current, released] {
                 out.extend_from_slice(&value.to_be_bytes());
             }
             put_count(&mut out, versions.len());
@@ -63,8 +63,8 @@ impl Raw<'_> {
             }
         }
         put_count(&mut out, self.defaults.len());
-        for (namespace, predicate) in &self.defaults {
-            out.extend_from_slice(&namespace.to_be_bytes());
+        for (tenant, predicate) in &self.defaults {
+            out.extend_from_slice(&tenant.to_be_bytes());
             out.extend_from_slice(
                 &u16::try_from(predicate.len())
                     .unwrap_or_default()
@@ -143,8 +143,8 @@ fn refuses(raw: &Raw<'_>, what: &'static str, offset: usize) -> bool {
 }
 
 #[test]
-fn test_namespaces_rise() {
-    let one = |namespace| (namespace, 1, 0, vec![(1, Some(2), &b""[..])]);
+fn test_tenants_rise() {
+    let one = |tenant| (tenant, 1, 0, vec![(1, Some(2), &b""[..])]);
     let ok = Raw {
         catalogs: vec![one(1), one(2)],
         next: 1,
@@ -156,7 +156,7 @@ fn test_namespaces_rise() {
         next: 1,
         ..Raw::default()
     };
-    assert!(refuses(&twice, "a namespace after the one before it", 70));
+    assert!(refuses(&twice, "a tenant after the one before it", 70));
 }
 
 #[test]
@@ -204,7 +204,7 @@ fn test_versions_rise_and_their_epochs_never_fall() {
     let latest = versions(vec![(1, Some(3), b"")], 2);
     assert!(refuses(
         &latest,
-        "a namespace's latest version, its last retained",
+        "a tenant's latest version, its last retained",
         29
     ));
 }

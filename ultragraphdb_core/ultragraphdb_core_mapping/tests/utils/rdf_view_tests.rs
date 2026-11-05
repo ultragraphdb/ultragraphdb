@@ -136,7 +136,7 @@ fn test_each_quad_writes_as_one_insert_in_its_graph() -> TestResult {
         ),
     ];
     let changeset = quads_to_changeset(5, &quads)?;
-    assert_eq!(changeset.namespace(), 5);
+    assert_eq!(changeset.tenant(), 5);
     assert_eq!(
         changeset.changes(),
         &[

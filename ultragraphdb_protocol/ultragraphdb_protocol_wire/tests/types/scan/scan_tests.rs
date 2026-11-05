@@ -40,7 +40,7 @@ pub fn golden_scan_transaction() -> Scan {
 /// The IRIs the golden transaction's Scan names, in its term table's order.
 pub const IRIS: [&str; 2] = ["http://ex.org/a", "http://ex.org/b"];
 
-/// The store's dictionary key of `iri` in namespace 5, the golden Bind's: keyspace byte 0x1B, the namespace big-endian,
+/// The store's dictionary key of `iri` in tenant 5, the golden Bind's: keyspace byte 0x1B, the tenant big-endian,
 /// kind 1, the IRI's 128-bit hash.
 pub fn dictionary_key(iri: &str) -> Vec<u8> {
     let mut key = vec![0x1B];

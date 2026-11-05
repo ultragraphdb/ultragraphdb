@@ -3,8 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! A catalog version's contents decoder over arbitrary bytes, read as the namespace and version their fixed part
-//! names, and as another version: decoded, or refused as a corrupted version naming the namespace and version asked
+//! A catalog version's contents decoder over arbitrary bytes, read as the tenant and version their fixed part
+//! names, and as another version: decoded, or refused as a corrupted version naming the tenant and version asked
 //! for; nothing panics. Accepted contents encode back to the bytes they were decoded from, and are refused as any
 //! other version.
 
@@ -21,10 +21,10 @@ fn field(data: &[u8], at: usize) -> u64 {
 }
 
 fn check(data: &[u8]) {
-    let (namespace, version) = (field(data, 1), field(data, 9));
-    match CatalogContents::decode(namespace, version, data) {
+    let (tenant, version) = (field(data, 1), field(data, 9));
+    match CatalogContents::decode(tenant, version, data) {
         Ok(contents) => {
-            assert_eq!(contents.namespace(), namespace);
+            assert_eq!(contents.tenant(), tenant);
             assert_eq!(contents.version(), version);
             let encoded = contents.encode();
             assert_eq!(
@@ -32,15 +32,15 @@ fn check(data: &[u8]) {
                 Ok(data),
                 "accepted contents encode back to their bytes"
             );
-            let other = CatalogContents::decode(namespace, version.wrapping_add(1), data);
+            let other = CatalogContents::decode(tenant, version.wrapping_add(1), data);
             assert!(other.is_err(), "contents name their own version");
         }
         Err(error) => match error.0 {
             CatalogErrorEnum::CorruptedVersion {
-                namespace: n,
+                tenant: n,
                 version: v,
                 ..
-            } => assert_eq!((n, v), (namespace, version)),
+            } => assert_eq!((n, v), (tenant, version)),
             other => panic!("refused with another error: {other:?}"),
         },
     }

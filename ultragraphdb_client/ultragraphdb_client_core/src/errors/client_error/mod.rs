@@ -274,7 +274,7 @@ impl ClientError {
         matches!(&self.0, ClientErrorEnum::Refused { code, .. } if code.retryable())
     }
 
-    /// Whether a prepared statement was refused as stale: its namespace's catalog changed, and preparing it again
+    /// Whether a prepared statement was refused as stale: its tenant's catalog changed, and preparing it again
     /// succeeds.
     pub fn is_stale(&self) -> bool {
         matches!(

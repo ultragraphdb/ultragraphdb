@@ -231,9 +231,7 @@ fn cancelled(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[when(
-    "a statement is prepared, the catalog of its namespace changes, and the statement is executed"
-)]
+#[when("a statement is prepared, the catalog of its tenant changes, and the statement is executed")]
 fn stale(w: &mut Steps) -> TestResult {
     let mut h = Harness::ready(server().with_results(1))?;
     let mut terms = TermTable::new();

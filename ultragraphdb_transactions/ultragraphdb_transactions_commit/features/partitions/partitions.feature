@@ -15,16 +15,16 @@ Feature: A read-write transaction stays within one partition
     When `alice` is homed in partition 1 and `bob` in partition 2, both `on-call` `true`, and a read-write transaction reads `on-call` of `alice` and then of `bob`
     Then the second read aborts the transaction with `CrossPartition` naming partitions 1 and 2, and it writes nothing
 
-  Scenario: A reverse read over a spread namespace aborts a read-write transaction
-    When a namespace's run spans partitions 1 and 2, `<b>` is homed in partition 2, and a read-write transaction bound to partition 1 reads the subjects of `knows` pointing at `<b>`
+  Scenario: A reverse read over a spread tenant aborts a read-write transaction
+    When a tenant's run spans partitions 1 and 2, `<b>` is homed in partition 2, and a read-write transaction bound to partition 1 reads the subjects of `knows` pointing at `<b>`
     Then the transaction aborts with `CrossPartition` naming partitions 1 and 2
 
   Scenario: One partition reads its own reverse entries
-    When one partition owns the namespace's whole run, and a read-write transaction reads the subjects of `knows` pointing at `<b>` and then writes `<x> <seen> true`
+    When one partition owns the tenant's whole run, and a read-write transaction reads the subjects of `knows` pointing at `<b>` and then writes `<x> <seen> true`
     Then the read answers from the partition's own reverse entries at its latest state, and the transaction commits
 
-  Scenario: A first read naming no subject over a spread namespace aborts
-    When a namespace's run spans partitions 1 and 2, and a read-write transaction's first operation looks up the `term` index of `name`
+  Scenario: A first read naming no subject over a spread tenant aborts
+    When a tenant's run spans partitions 1 and 2, and a read-write transaction's first operation looks up the `term` index of `name`
     Then the transaction aborts with `CrossPartition` naming partitions 1 and 2, and holds nothing
 
   Scenario: A unique value owned by another partition is refused

@@ -32,25 +32,25 @@ where
     C: ListCache<Value = CachedList>,
     B: BlockSource,
 {
-    /// `entity`'s referrer set in `namespace` as of `version`, the empty set when its key holds none.
+    /// `entity`'s referrer set in `tenant` as of `version`, the empty set when its key holds none.
     ///
     /// # Errors
     ///
     /// The store's error; [`QuadError::corrupted`] for a value [`ReferrerSet::decode`] refuses.
     pub fn referrers(
         &self,
-        namespace: u64,
+        tenant: u64,
         entity: SystemId,
         version: u64,
     ) -> Result<ReferrerSet, QuadError> {
-        let key = QuadKey::Referrers { namespace, entity }.to_bytes();
+        let key = QuadKey::Referrers { tenant, entity }.to_bytes();
         match self.store().get_at(&key, version)? {
             Some(item) => ReferrerSet::decode(&key, item.value()),
             None => Ok(ReferrerSet::new()),
         }
     }
 
-    /// The generation of the mark of `(entity, group)` in `namespace` as of `version`, the partition's record of its
+    /// The generation of the mark of `(entity, group)` in `tenant` as of `version`, the partition's record of its
     /// registration at `entity`'s home (term-dictionary, "A reference to another partition's entity registers at its
     /// home"), or `None` when the partition holds no mark for it.
     ///
@@ -59,13 +59,13 @@ where
     /// The store's error; [`QuadError::corrupted`] for a value that is no 8-byte generation of at least 1.
     pub fn mark(
         &self,
-        namespace: u64,
+        tenant: u64,
         entity: SystemId,
         group: BucketGroup,
         version: u64,
     ) -> Result<Option<NonZeroU64>, QuadError> {
         let key = QuadKey::Mark {
-            namespace,
+            tenant,
             entity,
             group: group.get(),
         }
@@ -82,7 +82,7 @@ where
         Ok(Some(generation))
     }
 
-    /// The partition's own subjects holding `predicate` to `object` in `graph` of `namespace` as of `version`, sorted:
+    /// The partition's own subjects holding `predicate` to `object` in `graph` of `tenant` as of `version`, sorted:
     /// its reverse list of `object`, which names its own subjects alone (partitions, "A partition owns every entry its
     /// subjects' writes derive"). Read only after `object`'s object-predicates list names `predicate` (partitions,
     /// "Absence is proven by a node's predicate lists"): a list the predicate list does not name is not read.
@@ -92,17 +92,17 @@ where
     /// The store's error; corruption of a list.
     pub fn subjects(
         &self,
-        namespace: u64,
+        tenant: u64,
         graph: Graph,
         predicate: SystemId,
         object: &EncodedTerm,
         version: u64,
     ) -> Result<Vec<SystemId>, QuadError> {
-        if !self.points_at(namespace, graph, predicate, object, version)? {
+        if !self.points_at(tenant, graph, predicate, object, version)? {
             return Ok(Vec::new());
         }
         let key = QuadKey::Reverse {
-            namespace,
+            tenant,
             graph,
             predicate,
             object: object.clone(),
@@ -113,20 +113,20 @@ where
         Ok(subjects)
     }
 
-    /// The predicates `subject` holds in `graph` of `namespace` as of `version`: its subject-predicates list, sorted.
+    /// The predicates `subject` holds in `graph` of `tenant` as of `version`: its subject-predicates list, sorted.
     ///
     /// # Errors
     ///
     /// The store's error; corruption of a list.
     pub fn subject_predicates(
         &self,
-        namespace: u64,
+        tenant: u64,
         graph: Graph,
         subject: SystemId,
         version: u64,
     ) -> Result<Vec<SystemId>, QuadError> {
         let key = QuadKey::SubjectPredicates {
-            namespace,
+            tenant,
             graph,
             subject,
         }
@@ -136,7 +136,7 @@ where
         Ok(predicates)
     }
 
-    /// The predicates the partition's own subjects hold to `object` in `graph` of `namespace` as of `version`: its
+    /// The predicates the partition's own subjects hold to `object` in `graph` of `tenant` as of `version`: its
     /// object-predicates list of `object`, sorted.
     ///
     /// # Errors
@@ -144,18 +144,18 @@ where
     /// The store's error; corruption of a list.
     pub fn object_predicates(
         &self,
-        namespace: u64,
+        tenant: u64,
         graph: Graph,
         object: &EncodedTerm,
         version: u64,
     ) -> Result<Vec<SystemId>, QuadError> {
-        let key = object_predicates_key(namespace, graph, object);
+        let key = object_predicates_key(tenant, graph, object);
         let mut predicates = ids(self.objects(&key, version)?);
         predicates.sort_unstable();
         Ok(predicates)
     }
 
-    /// How many of the partition's own subjects hold `predicate` to `object` in `graph` of `namespace` as of
+    /// How many of the partition's own subjects hold `predicate` to `object` in `graph` of `tenant` as of
     /// `version`: its share of `object`'s reverse count, which a lookup sums over the partitions `object`'s referrer
     /// set names (index-maintenance, "Count indexes").
     ///
@@ -164,13 +164,13 @@ where
     /// The store's error; corruption of a list.
     pub fn reverse_count(
         &self,
-        namespace: u64,
+        tenant: u64,
         graph: Graph,
         predicate: SystemId,
         object: &EncodedTerm,
         version: u64,
     ) -> Result<u64, QuadError> {
-        let subjects = self.subjects(namespace, graph, predicate, object, version)?;
+        let subjects = self.subjects(tenant, graph, predicate, object, version)?;
         Ok(u64::try_from(subjects.len()).unwrap_or(u64::MAX))
     }
 
@@ -248,16 +248,16 @@ where
         Ok(Page::new(PageEnd::Exhausted, rows))
     }
 
-    /// Whether `object`'s object-predicates list in `graph` of `namespace` names `predicate` as of `version`.
+    /// Whether `object`'s object-predicates list in `graph` of `tenant` names `predicate` as of `version`.
     fn points_at(
         &self,
-        namespace: u64,
+        tenant: u64,
         graph: Graph,
         predicate: SystemId,
         object: &EncodedTerm,
         version: u64,
     ) -> Result<bool, QuadError> {
-        let key = object_predicates_key(namespace, graph, object);
+        let key = object_predicates_key(tenant, graph, object);
         let list = self.lists().read(&key, version)?;
         Ok(list_holds(&list, version, predicate)?)
     }
@@ -283,10 +283,10 @@ fn paused_values(last: Option<Vec<u8>>, next: &[u8]) -> PageEnd {
     }
 }
 
-/// The key of `object`'s object-predicates list in `graph` of `namespace`.
-fn object_predicates_key(namespace: u64, graph: Graph, object: &EncodedTerm) -> Vec<u8> {
+/// The key of `object`'s object-predicates list in `graph` of `tenant`.
+fn object_predicates_key(tenant: u64, graph: Graph, object: &EncodedTerm) -> Vec<u8> {
     QuadKey::ObjectPredicates {
-        namespace,
+        tenant,
         graph,
         object: object.clone(),
     }

@@ -19,13 +19,13 @@ pub enum StatementErrorEnum {
         /// The statement's number on the connection.
         statement: u64,
     },
-    /// Statement `statement` was prepared against schema id `prepared`; its namespace's is now `current`.
+    /// Statement `statement` was prepared against schema id `prepared`; its tenant's is now `current`.
     Stale {
         /// The statement's number on the connection.
         statement: u64,
         /// The schema id the statement was prepared against.
         prepared: u64,
-        /// The namespace's schema id now.
+        /// The tenant's schema id now.
         current: u64,
     },
     /// Statement `statement` takes `expected` parameters; the execution bound `found`.
@@ -65,7 +65,7 @@ impl StatementError {
         Self(StatementErrorEnum::Unknown { statement })
     }
 
-    /// Statement `statement` was prepared against schema id `prepared`; its namespace's is now `current`.
+    /// Statement `statement` was prepared against schema id `prepared`; its tenant's is now `current`.
     pub fn stale(statement: u64, prepared: u64, current: u64) -> Self {
         Self(StatementErrorEnum::Stale {
             statement,

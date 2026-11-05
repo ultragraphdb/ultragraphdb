@@ -17,7 +17,7 @@ use ultragraphdb_store_hnsw::{
 use ultragraphdb_traits_index::{VectorIndexOptions, accept_all};
 
 use crate::utils::changesets::{
-    NS, TestChangesets, changesets, declare, delete, ex, finish_builds, index, insert, keys_of,
+    TENANT, TestChangesets, changesets, declare, delete, ex, finish_builds, index, insert, keys_of,
     run_indexer, uid, write, write_changes,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
@@ -26,7 +26,7 @@ use ultragraphdb_tool_bdd::{Context, TestResult};
 fn keys(a: &TestChangesets) -> TestResult<VectorKeys> {
     Ok(VectorKeys::new(
         ex("emb").as_str(),
-        NS,
+        TENANT,
         DEFAULT_GRAPH,
         uid(a, "emb")?,
     ))
@@ -58,7 +58,7 @@ fn search_at(
     read_ts: u64,
 ) -> TestResult<Vec<SystemId>> {
     Ok(a.search_vectors(
-        NS,
+        TENANT,
         GraphNameRef::DefaultGraph,
         ex("emb").as_ref(),
         VectorQuery::new(query, k, &VectorIndexOptions::default()),
@@ -92,11 +92,11 @@ fn test_committed_vectors_reach_the_lists_and_searches_only_through_the_indexer(
     assert!(keys_of(&a, Keyspace::VectorIndex, "emb")?.is_empty());
     // Committed and not indexed: absent from a search, though the forward lists hold both.
     assert_eq!(search(&a, &[1.0, 0.0], 2)?, Vec::<SystemId>::new());
-    assert_eq!(a.indexed_version(NS, ex("emb").as_ref())?, 0);
+    assert_eq!(a.indexed_version(TENANT, ex("emb").as_ref())?, 0);
     let watermark = a.quads().lists().applied_ts();
     let indexed = index(&a, "emb")?;
     assert_eq!(indexed, watermark);
-    assert_eq!(a.indexed_version(NS, ex("emb").as_ref())?, indexed);
+    assert_eq!(a.indexed_version(TENANT, ex("emb").as_ref())?, indexed);
     // The pass wrote the lists at a version of its own, above every version it indexed.
     assert!(a.quads().lists().applied_ts() > watermark);
     assert!(!keys_of(&a, Keyspace::VectorIndex, "emb")?.is_empty());
@@ -124,7 +124,7 @@ fn test_a_pass_with_nothing_to_index_takes_no_version() -> TestResult {
     let moved = a.quads().lists().applied_ts();
     assert_eq!(index(&a, "emb")?, moved);
     assert_eq!(a.quads().lists().applied_ts(), moved);
-    assert_eq!(a.indexed_version(NS, ex("emb").as_ref())?, moved);
+    assert_eq!(a.indexed_version(TENANT, ex("emb").as_ref())?, moved);
     Ok(())
 }
 
@@ -239,7 +239,7 @@ fn test_each_graph_and_predicate_is_indexed_on_its_own() -> TestResult {
     // `e2` waits for its own pass.
     assert!(keys_of(&a, Keyspace::VectorIndex, "e2")?.is_empty());
     let in_g1 = a.search_vectors(
-        NS,
+        TENANT,
         GraphNameRef::NamedNode(ex("g1").as_ref()),
         ex("emb").as_ref(),
         VectorQuery::new(&[0.0, 1.0], 3, &VectorIndexOptions::default()),
@@ -258,16 +258,16 @@ fn test_the_indexer_and_the_search_refuse_a_predicate_without_a_vector_index() -
     declare(&a, "name", "with `exact`")?;
     for predicate in [ex("name"), ex("unknown")] {
         let refused = a
-            .index_vectors(NS, predicate.as_ref())
+            .index_vectors(TENANT, predicate.as_ref())
             .err()
-            .context("the error of a.index_vectors(NS, predicate.as_ref())")?;
+            .context("the error of a.index_vectors(TENANT, predicate.as_ref())")?;
         assert!(
             matches!(&refused.0, ChangesetErrorEnum::NoVectorIndex { predicate: p } if p == predicate.as_str()),
             "{refused:?}"
         );
         let search_refused = a
             .search_vectors(
-                NS,
+                TENANT,
                 GraphNameRef::DefaultGraph,
                 predicate.as_ref(),
                 VectorQuery::new(&[1.0], 1, &VectorIndexOptions::default()),
@@ -281,9 +281,9 @@ fn test_the_indexer_and_the_search_refuse_a_predicate_without_a_vector_index() -
         );
     }
     assert_eq!(
-        a.index_vectors(NS, ex("name").as_ref())
+        a.index_vectors(TENANT, ex("name").as_ref())
             .err()
-            .context("the error of a.index_vectors(NS, ex(\"name\").as_ref())")?
+            .context("the error of a.index_vectors(TENANT, ex(\"name\").as_ref())")?
             .to_string(),
         "Predicate <http://ex.org/name> has no vector index"
     );
@@ -377,7 +377,7 @@ fn test_a_search_finds_nothing_in_an_empty_index_or_an_unknown_graph() -> TestRe
     run_indexer(&a, "emb")?;
     let unknown = NamedNode::new_unchecked("http://ex.org/nowhere");
     let found = a.search_vectors(
-        NS,
+        TENANT,
         GraphNameRef::NamedNode(unknown.as_ref()),
         ex("emb").as_ref(),
         VectorQuery::new(&[1.0, 0.0], 3, &VectorIndexOptions::default()),
@@ -408,7 +408,7 @@ fn test_a_search_honours_its_count_and_options() -> TestResult {
     let latest = a.quads().lists().applied_ts();
     let found = |k: usize, options: &VectorIndexOptions<f32>| {
         a.search_vectors(
-            NS,
+            TENANT,
             GraphNameRef::DefaultGraph,
             ex("emb").as_ref(),
             VectorQuery::new(&[0.0, 0.0], k, options),
@@ -507,7 +507,7 @@ fn test_the_indexer_draws_each_node_s_level_from_the_node_s_own_stream() -> Test
         .map(|n| {
             Ok(insert_layer(
                 3,
-                LevelDraw::of_node(1, NS, uid(&a, "emb")?, uid(&a, n)?).next_f64(),
+                LevelDraw::of_node(1, TENANT, uid(&a, "emb")?, uid(&a, n)?).next_f64(),
             ))
         })
         .collect::<TestResult<_>>()?;
@@ -577,9 +577,9 @@ fn test_the_queue_of_a_vector_index_removed_goes_with_it() -> TestResult {
     // The index is removed before a pass: the pass is refused, and `a`'s queued vector dropped.
     declare(&a, "emb", "single-valued")?;
     let refused = a
-        .index_vectors(NS, ex("emb").as_ref())
+        .index_vectors(TENANT, ex("emb").as_ref())
         .err()
-        .context("the error of a.index_vectors(NS, ex(\"emb\").as_ref())")?;
+        .context("the error of a.index_vectors(TENANT, ex(\"emb\").as_ref())")?;
     assert_eq!(
         refused.0,
         ChangesetErrorEnum::NoVectorIndex {

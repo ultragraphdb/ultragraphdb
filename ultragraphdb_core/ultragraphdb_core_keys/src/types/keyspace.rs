@@ -108,7 +108,7 @@ impl Keyspace {
         self.is_list() && self != Keyspace::VectorIndex
     }
 
-    /// Whether its keys name a graph after the namespace: every keyspace but the catalog's, the marks', the
+    /// Whether its keys name a graph after the tenant: every keyspace but the catalog's, the marks', the
     /// referrers' and the dictionary's.
     #[must_use]
     pub fn has_graph(self) -> bool {

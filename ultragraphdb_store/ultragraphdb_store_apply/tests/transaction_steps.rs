@@ -26,7 +26,7 @@ use ultragraphdb_store_apply::Applied;
 use crate::Steps;
 use crate::changeset_steps::{cs, is_held};
 use crate::utils::changesets::{
-    NS, TestChangesets, apply, declare, insert, int_token, objects, statement, term, uid, write,
+    TENANT, TestChangesets, apply, declare, insert, int_token, objects, statement, term, uid, write,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -127,7 +127,7 @@ fn written_of(write: &mut Write<'_>) -> TestResult<Written> {
 
 /// A transaction reading at `ts` that inserts the statement `text` when its test finds it not held.
 fn inserting<'a>(a: &'a TestChangesets, ts: u64, text: &str) -> TestResult<Write<'a>> {
-    let mut w = QuadWrite::new(a.quads(), NS, a.quads().lists().request(ts));
+    let mut w = QuadWrite::new(a.quads(), TENANT, a.quads().lists().request(ts));
     insert_into(&mut w, text)?;
     Ok(w)
 }
@@ -231,7 +231,7 @@ fn scan_and_insert(w: &mut Steps, args: &[String]) -> TestResult {
     let key = |value: i64| {
         let (tokenizer, token) = int_token(value);
         QuadKey::ValueIndex {
-            namespace: NS,
+            tenant: TENANT,
             graph: DEFAULT_GRAPH,
             predicate: predicate_uid,
             tokenizer,
@@ -239,7 +239,7 @@ fn scan_and_insert(w: &mut Steps, args: &[String]) -> TestResult {
         }
         .to_bytes()
     };
-    let mut scanning = QuadWrite::new(a.quads(), NS, a.quads().lists().request(ts));
+    let mut scanning = QuadWrite::new(a.quads(), TENANT, a.quads().lists().request(ts));
     let mut end = key(high);
     end.push(0);
     let _exhausted: ultragraphdb_store_posting::WalkEnd = scanning
@@ -307,7 +307,7 @@ fn one_aborts(w: &mut Steps) -> TestResult {
     let text = w.names[0].clone();
     let t = statement(&text)?;
     let ts = a.quads().lists().applied_ts();
-    let mut retry = QuadWrite::new(a.quads(), NS, a.quads().lists().request(ts));
+    let mut retry = QuadWrite::new(a.quads(), TENANT, a.quads().lists().request(ts));
     let (terms, quads) = retry.terms();
     let subject = terms.node(quads, t.subject.as_ref())?;
     let predicate = terms.predicate(quads, t.predicate.as_ref())?;

@@ -25,7 +25,7 @@ impl<'a> BodyView<'a> for DropCommandView<'a> {
     type Body = DropCommand;
 
     /// Checks, in `PROTOCOL.md` §6.5's order: unused bytes 1–7 and 72–127 zero; `request` at least 1 with a session, 0
-    /// with none; `kind`; `namespace`; the token; the sections; the term table and its entry.
+    /// with none; `kind`; `tenant`; the token; the sections; the term table and its entry.
     fn from_frame(frame: &FrameView<'a>) -> Result<Self, ProtocolError> {
         let command = Self::COMMAND.number();
         let header = expect_command(frame, Self::COMMAND)?;
@@ -38,9 +38,9 @@ impl<'a> BodyView<'a> for DropCommandView<'a> {
             "kind",
             number.into(),
         ))?;
-        let namespace = header.u64_at(8);
-        if drop_kind == DropKind::All && namespace != 0 {
-            return Err(ProtocolError::field_value(command, "namespace", namespace));
+        let tenant = header.u64_at(8);
+        if drop_kind == DropKind::All && tenant != 0 {
+            return Err(ProtocolError::field_value(command, "tenant", tenant));
         }
         let commit_version = header.u64_at(40);
         let token = token::commit_token(command, header, 48, commit_version)?;
@@ -81,7 +81,7 @@ impl<'a> BodyView<'a> for DropCommandView<'a> {
         };
         Ok(Self {
             kind: drop_kind,
-            namespace,
+            tenant,
             target,
             session,
             request,
@@ -92,10 +92,10 @@ impl<'a> BodyView<'a> for DropCommandView<'a> {
 
     fn to_body(&self) -> Result<DropCommand, ProtocolError> {
         let drop = match (self.kind, self.target) {
-            (DropKind::Predicate, Some(iri)) => DropCommand::predicate(self.namespace, iri),
-            (DropKind::Graph, Some(iri)) => DropCommand::graph(self.namespace, iri),
-            (DropKind::NamespaceData, _) => DropCommand::namespace_data(self.namespace),
-            (DropKind::Namespace, _) => DropCommand::whole_namespace(self.namespace),
+            (DropKind::Predicate, Some(iri)) => DropCommand::predicate(self.tenant, iri),
+            (DropKind::Graph, Some(iri)) => DropCommand::graph(self.tenant, iri),
+            (DropKind::TenantData, _) => DropCommand::tenant_data(self.tenant),
+            (DropKind::Tenant, _) => DropCommand::whole_tenant(self.tenant),
             (DropKind::All, _) => DropCommand::all(),
             // The view's check gives a predicate and a graph their target.
             (DropKind::Predicate | DropKind::Graph, None) => {

@@ -141,7 +141,7 @@ where
     /// written, whichever other writes still hold them, since the store now holds the entries: what the round applying
     /// a write calls once its batch is written.
     pub fn settle(&self, terms: &WriteTerms) {
-        self.dictionary.settle(terms.namespace(), terms.written());
+        self.dictionary.settle(terms.tenant(), terms.written());
     }
 
     /// Releases the terms of a write that will not commit, writing nothing: each pending entry it created or took is
@@ -150,7 +150,7 @@ where
     /// entry outside a commit names an ID and every committed reference to an ID has its entries in its own commit or
     /// in one before it.
     pub fn release(&self, terms: &WriteTerms) {
-        self.dictionary.release(terms.namespace(), terms.written());
+        self.dictionary.release(terms.tenant(), terms.written());
     }
 
     /// Releases what `terms`, a write continuing `base` on a clone of its terms, took beyond `base`, as
@@ -158,6 +158,6 @@ where
     /// with it, to be settled or released once, by its own commit or release.
     pub fn release_beyond(&self, terms: &WriteTerms, base: &WriteTerms) {
         self.dictionary
-            .release(terms.namespace(), terms.written_beyond(base));
+            .release(terms.tenant(), terms.written_beyond(base));
     }
 }

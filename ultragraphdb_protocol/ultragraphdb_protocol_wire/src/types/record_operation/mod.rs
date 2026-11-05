@@ -16,21 +16,21 @@ use crate::utils::constants::RECORD_OPERATION_SIZE;
 /// |---|---|---|
 /// | 1 | drop a predicate | the predicate's system ID |
 /// | 2 | drop a graph | the graph's system ID |
-/// | 3 | drop a namespace's data, keeping its catalog | zero |
-/// | 4 | drop everything in a namespace | zero |
+/// | 3 | drop a tenant's data, keeping its catalog | zero |
+/// | 4 | drop everything in a tenant | zero |
 /// | 5 | drop everything | zero |
 /// | 6 | a catalog version takes effect | the version, a little-endian u64, then 8 zero bytes |
 /// | 7 | complete an index build | the catalog version that started it, a little-endian u64; its outcome's byte; 7 zero bytes |
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RecordOperation {
-    /// 1: drops the predicate of this system ID in the record's namespace, in every graph.
+    /// 1: drops the predicate of this system ID in the record's tenant, in every graph.
     DropPredicate(SystemId),
-    /// 2: drops the graph of this system ID in the record's namespace.
+    /// 2: drops the graph of this system ID in the record's tenant.
     DropGraph(SystemId),
-    /// 3: drops the record's namespace's data, keeping its catalog.
-    DropNamespaceData,
-    /// 4: drops everything in the record's namespace.
-    DropNamespace,
+    /// 3: drops the record's tenant's data, keeping its catalog.
+    DropTenantData,
+    /// 4: drops everything in the record's tenant.
+    DropTenant,
     /// 5: drops every quad key.
     DropAll,
     /// 6: this catalog version takes effect, starting the builds it asks for.
@@ -50,8 +50,8 @@ impl RecordOperation {
         match self {
             RecordOperation::DropPredicate(_) => 1,
             RecordOperation::DropGraph(_) => 2,
-            RecordOperation::DropNamespaceData => 3,
-            RecordOperation::DropNamespace => 4,
+            RecordOperation::DropTenantData => 3,
+            RecordOperation::DropTenant => 4,
             RecordOperation::DropAll => 5,
             RecordOperation::CatalogTakesEffect(_) => 6,
             RecordOperation::CompleteBuild { .. } => 7,
@@ -88,8 +88,8 @@ impl RecordOperation {
                     0,
                 ]
             }
-            RecordOperation::DropNamespaceData
-            | RecordOperation::DropNamespace
+            RecordOperation::DropTenantData
+            | RecordOperation::DropTenant
             | RecordOperation::DropAll => [0; 16],
         }
     }
@@ -109,8 +109,8 @@ impl RecordOperation {
             2 => SystemId::decode(&argument)
                 .ok()
                 .map(RecordOperation::DropGraph),
-            3 => none.then_some(RecordOperation::DropNamespaceData),
-            4 => none.then_some(RecordOperation::DropNamespace),
+            3 => none.then_some(RecordOperation::DropTenantData),
+            4 => none.then_some(RecordOperation::DropTenant),
             5 => none.then_some(RecordOperation::DropAll),
             6 => catalog.map(RecordOperation::CatalogTakesEffect),
             7 => (rest == [0; 7])

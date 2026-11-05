@@ -48,7 +48,7 @@ impl<'a> BodyView<'a> for BeginView<'a> {
         let _sections: Sections<'_, 0> = Sections::read(command, frame.body(), 0)?;
         Ok(Self {
             frame: PhantomData,
-            namespace: header.u64_at(0),
+            tenant: header.u64_at(0),
             read_version,
             read_only,
             level,
@@ -58,7 +58,7 @@ impl<'a> BodyView<'a> for BeginView<'a> {
     }
 
     fn to_body(&self) -> Result<Begin, ProtocolError> {
-        let begin = Begin::new(self.namespace, self.read_version, self.read_only)
+        let begin = Begin::new(self.tenant, self.read_version, self.read_only)
             .with_level(self.level)
             .with_deadline_ms(self.deadline_ms);
         Ok(match &self.token {

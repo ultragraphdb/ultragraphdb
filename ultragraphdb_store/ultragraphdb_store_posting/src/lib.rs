@@ -23,7 +23,7 @@
 //! let id = |sequence| -> Result<SystemId, Box<dyn std::error::Error>> {
 //!     Ok(SystemId::new(TypePrefix::RESOURCE, Bucket::new(0)?, Sequence::new(sequence)?))
 //! };
-//! let key = QuadKey::Forward { namespace: 0, graph: DEFAULT_GRAPH, predicate: id(7)?, subject: id(1)? };
+//! let key = QuadKey::Forward { tenant: 0, graph: DEFAULT_GRAPH, predicate: id(7)?, subject: id(1)? };
 //! let mut list = List::empty(key.to_bytes());
 //! list.set_ts(5);
 //! // A reference's posting is keyed by its ID's 128 bits.

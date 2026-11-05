@@ -7,7 +7,7 @@ use ultragraphdb_protocol_wire::WriteSetRecordView;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_transactions_txn::{Mode, Prepared, TxnBuffers};
 
-use crate::utils::fixture::{NS, applier, begin, changeset, insert, prepared};
+use crate::utils::fixture::{TENANT, applier, begin, changeset, insert, prepared};
 
 #[test]
 fn test_its_parts_are_the_execution_and_the_buffers() -> TestResult {
@@ -18,12 +18,12 @@ fn test_its_parts_are_the_execution_and_the_buffers() -> TestResult {
     let record_len = prepared.record().len();
     let view = WriteSetRecordView::new(prepared.record()).context("the wire reads the record")?;
     assert_eq!(
-        (view.namespace(), view.session(), view.request()),
-        (NS, 1u128.to_be_bytes(), 2)
+        (view.tenant(), view.session(), view.request()),
+        (TENANT, 1u128.to_be_bytes(), 2)
     );
     assert_eq!(view.read_version(), prepared.read_version());
     let (executed, buffers) = prepared.into_parts();
-    assert_eq!(executed.namespace(), NS);
+    assert_eq!(executed.tenant(), TENANT);
     assert!(buffers.record_capacity() >= record_len);
     // The execution is what the commit step writes: applied as a round of one, it is held.
     let version = applier.quads().lists().next_version();
@@ -196,7 +196,15 @@ fn test_a_drop_names_its_session_request_and_principal() -> TestResult {
     let (executed, _) = prepared.into_parts();
     let version = applier.quads().lists().next_version();
     assert_eq!(applier.apply_round(vec![(version, executed)])?.len(), 1);
-    let drop = Prepared::drop(&applier, NS, DropRequest::Data, 11, 4, 7, TxnBuffers::new())?;
+    let drop = Prepared::drop(
+        &applier,
+        TENANT,
+        DropRequest::Data,
+        11,
+        4,
+        7,
+        TxnBuffers::new(),
+    )?;
     assert!(drop.is_drop());
     assert!(drop.read_set().is_sealed());
     let view = WriteSetRecordView::new(drop.record())?;
@@ -204,7 +212,7 @@ fn test_a_drop_names_its_session_request_and_principal() -> TestResult {
         (view.session(), view.request(), view.principal()),
         (11u128.to_be_bytes(), 4, 7)
     );
-    assert_eq!(view.operation(0), Some(RecordOperation::DropNamespaceData));
+    assert_eq!(view.operation(0), Some(RecordOperation::DropTenantData));
     assert_eq!(
         view.conflict_ranges().iter().count(),
         drop.executed().drop_ranges().len()
@@ -243,7 +251,7 @@ fn test_a_declaration_indexing_a_predicate_with_data_starts_a_build() -> TestRes
         vec![crate::utils::fixture::insert_literal("a", "name", "Ann")],
     )?;
     let version = CatalogContents::new(
-        NS,
+        TENANT,
         2,
         vec![Declaration::Predicate(
             PredicateDeclaration::new(crate::utils::fixture::ex("name"))
@@ -304,7 +312,7 @@ fn test_a_declaration_in_a_data_transaction_is_refused() -> TestResult {
     assert_eq!(
         applier
             .quads()
-            .id_of(NS, crate::utils::fixture::ex("c").as_str())?,
+            .id_of(TENANT, crate::utils::fixture::ex("c").as_str())?,
         None,
         "nothing of the refused changeset was resolved"
     );
@@ -343,7 +351,7 @@ fn test_an_insert_if_absents_result_names_its_node_by_its_iri() -> TestResult {
     assert_eq!(terms.len(), 1);
     let named = terms.get(0).context("the node")?.to_term();
     let text = format!("{named:?}");
-    // A node without an IRI of its own is named by its skolem IRI, under the namespace's genid base.
+    // A node without an IRI of its own is named by its skolem IRI, under the tenant's genid base.
     assert!(text.contains("/.well-known/genid/"), "{text}");
     Ok(())
 }
@@ -359,7 +367,7 @@ fn test_a_proposal_hands_its_dictionary_entries_to_its_round() -> TestResult {
         .dictionary()
         .map(|(k, v)| (k.to_vec(), v.to_vec()))
         .collect();
-    // Four new IRIs, `rdf:type` among them for the namespace's initial catalog, each an entry from its term to its ID
+    // Four new IRIs, `rdf:type` among them for the tenant's initial catalog, each an entry from its term to its ID
     // and one back: eight, every key the dictionary keyspace's byte 0x1B.
     assert_eq!(entries.len(), 8, "{entries:?}");
     assert!(entries.iter().all(|(k, _)| k.first() == Some(&0x1B)));
@@ -396,7 +404,7 @@ fn test_a_drop_of_the_default_graph_is_refused_naming_no_graph() -> TestResult {
     crate::utils::fixture::store(&applier, vec![insert("a", "knows", "b")])?;
     let refused = Prepared::drop(
         &applier,
-        NS,
+        TENANT,
         DropRequest::Graph(oxrdf::GraphNameRef::DefaultGraph),
         1,
         1,
@@ -425,7 +433,15 @@ fn test_a_drop_of_the_default_graph_is_refused_naming_no_graph() -> TestResult {
         1,
         "nothing is dropped"
     );
-    let data = Prepared::drop(&applier, NS, DropRequest::Data, 1, 2, 0, TxnBuffers::new())?;
+    let data = Prepared::drop(
+        &applier,
+        TENANT,
+        DropRequest::Data,
+        1,
+        2,
+        0,
+        TxnBuffers::new(),
+    )?;
     assert!(data.is_drop());
     Ok(())
 }
@@ -508,14 +524,14 @@ fn test_a_compare_and_set_that_holds_answers_zero() -> TestResult {
     Ok(())
 }
 
-/// The operated transaction's execution is the proposal's namespace's, and its dictionary entries add those its
+/// The operated transaction's execution is the proposal's tenant's, and its dictionary entries add those its
 /// operations created to the transaction's own: a counter on a new subject and a new predicate, two IRIs of two entries
 /// each.
 #[test]
 fn test_an_operated_transaction_hands_its_operations_dictionary_entries_to_its_round() -> TestResult
 {
     let applier = applier()?;
-    // A first commit, so the namespace's initial catalog is written before the transaction below.
+    // A first commit, so the tenant's initial catalog is written before the transaction below.
     crate::utils::fixture::store(&applier, vec![insert("a", "knows", "b")])?;
     let mut txn = begin(&applier, Mode::ReadWrite)?;
     txn.operate(counter(1), 0)?;
@@ -528,7 +544,7 @@ fn test_an_operated_transaction_hands_its_operations_dictionary_entries_to_its_r
     let overlay = applier.quads().lists().batch();
     let mut results = Vec::new();
     let operated = prepared.operated(&applier, &overlay, &[], &mut results)?;
-    assert_eq!(operated.executed().namespace(), NS);
+    assert_eq!(operated.executed().tenant(), TENANT);
     let entries: Vec<&[u8]> = operated.dictionary().map(|(k, _)| k).collect();
     assert_eq!(entries.len(), 4, "`<c>` and `<n>`, each both ways");
     assert!(entries.iter().all(|k| k.first() == Some(&0x1B)));

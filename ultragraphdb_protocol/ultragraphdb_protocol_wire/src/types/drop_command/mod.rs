@@ -9,14 +9,14 @@ use ultragraphdb_core_ids::SessionToken;
 
 use crate::types::drop_kind::DropKind;
 
-/// The Drop command's body: a predicate, a graph, a namespace's data, a namespace or every namespace dropped, on a
+/// The Drop command's body: a predicate, a graph, a tenant's data, a tenant or every tenant dropped, on a
 /// stream of its own and outside any transaction, committed through a session as a Commit is and answered with the
 /// drop's commit version. Named for its command as [`crate::ErrorReply`] is, beside the standard `Drop` trait.
 ///
 /// | Command header | Field | Type |
 /// |---|---|---|
 /// | 0 | `kind` | u8, a [`DropKind`] |
-/// | 8 | `namespace` | u64: the namespace of kinds 1 to 4; 0 for kind 5 |
+/// | 8 | `tenant` | u64: the tenant of kinds 1 to 4; 0 for kind 5 |
 /// | 16 | `session` | 16 bytes; all zero for none |
 /// | 32 | `request` | u64; at least 1 with a session, 0 with none |
 /// | 40 | `commit_version` | u64, 0 in a request |
@@ -29,7 +29,7 @@ use crate::types::drop_kind::DropKind;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DropCommand {
     kind: DropKind,
-    namespace: u64,
+    tenant: u64,
     target: Option<String>,
     session: [u8; 16],
     request: u64,
@@ -38,10 +38,10 @@ pub struct DropCommand {
 }
 
 impl DropCommand {
-    fn new(kind: DropKind, namespace: u64, target: Option<String>) -> Self {
+    fn new(kind: DropKind, tenant: u64, target: Option<String>) -> Self {
         Self {
             kind,
-            namespace,
+            tenant,
             target,
             session: [0; 16],
             request: 0,
@@ -50,27 +50,27 @@ impl DropCommand {
         }
     }
 
-    /// A drop of the predicate `iri` of `namespace`.
-    pub fn predicate(namespace: u64, iri: impl Into<String>) -> Self {
-        Self::new(DropKind::Predicate, namespace, Some(iri.into()))
+    /// A drop of the predicate `iri` of `tenant`.
+    pub fn predicate(tenant: u64, iri: impl Into<String>) -> Self {
+        Self::new(DropKind::Predicate, tenant, Some(iri.into()))
     }
 
-    /// A drop of the graph `iri` of `namespace`.
-    pub fn graph(namespace: u64, iri: impl Into<String>) -> Self {
-        Self::new(DropKind::Graph, namespace, Some(iri.into()))
+    /// A drop of the graph `iri` of `tenant`.
+    pub fn graph(tenant: u64, iri: impl Into<String>) -> Self {
+        Self::new(DropKind::Graph, tenant, Some(iri.into()))
     }
 
-    /// A drop of `namespace`'s data, keeping its catalog.
-    pub fn namespace_data(namespace: u64) -> Self {
-        Self::new(DropKind::NamespaceData, namespace, None)
+    /// A drop of `tenant`'s data, keeping its catalog.
+    pub fn tenant_data(tenant: u64) -> Self {
+        Self::new(DropKind::TenantData, tenant, None)
     }
 
-    /// A drop of `namespace`, its catalog with it.
-    pub fn whole_namespace(namespace: u64) -> Self {
-        Self::new(DropKind::Namespace, namespace, None)
+    /// A drop of `tenant`, its catalog with it.
+    pub fn whole_tenant(tenant: u64) -> Self {
+        Self::new(DropKind::Tenant, tenant, None)
     }
 
-    /// A drop of every namespace.
+    /// A drop of every tenant.
     pub fn all() -> Self {
         Self::new(DropKind::All, 0, None)
     }
@@ -94,9 +94,9 @@ impl DropCommand {
         self.kind
     }
 
-    /// The namespace the drop applies to.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant the drop applies to.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// The IRI of the predicate or graph dropped; `None` for the other kinds.

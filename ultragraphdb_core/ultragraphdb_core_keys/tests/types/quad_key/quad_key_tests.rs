@@ -6,7 +6,7 @@
 use oxrdf::Literal;
 use ultragraphdb_core_ids::{Bucket, Sequence, SystemId, TypePrefix};
 use ultragraphdb_core_keys::{
-    CountDirection, DEFAULT_GRAPH, DictionaryEntry, Graph, Keyspace, QuadKey, ROOT_NAMESPACE,
+    CountDirection, DEFAULT_GRAPH, DictionaryEntry, Graph, Keyspace, QuadKey, ROOT_TENANT,
     key_prefix,
 };
 use ultragraphdb_core_terms::{EncodedTerm, Hash128, TermError};
@@ -34,7 +34,7 @@ pub fn graph() -> TestResult<Graph> {
     Ok(Graph::Named(id(1, 3, 3)?))
 }
 
-/// One key of every keyspace in namespace 4, every ID distinct from the others, the reverse key twice: with an ID
+/// One key of every keyspace in tenant 4, every ID distinct from the others, the reverse key twice: with an ID
 /// object and a hashed literal.
 pub fn every_keyspace() -> TestResult<Vec<QuadKey>> {
     let mut keys = data_keys()?;
@@ -47,35 +47,35 @@ pub fn every_keyspace() -> TestResult<Vec<QuadKey>> {
 fn data_keys() -> TestResult<Vec<QuadKey>> {
     Ok(vec![
         QuadKey::Catalog {
-            namespace: 4,
+            tenant: 4,
             kind: 2,
             id: id(1, 9, 90)?,
         },
         QuadKey::Forward {
-            namespace: 4,
+            tenant: 4,
             graph: DEFAULT_GRAPH,
             predicate: id(1, 9, 9)?,
             subject: id(1, 0xAB_CDEF, 1 << 40)?,
         },
         QuadKey::Reverse {
-            namespace: 4,
+            tenant: 4,
             graph: graph()?,
             predicate: id(1, 9, 9)?,
             object: EncodedTerm::id(id(1, 7, 7)?),
         },
         QuadKey::Reverse {
-            namespace: 4,
+            tenant: 4,
             graph: graph()?,
             predicate: id(1, 9, 9)?,
             object: literal("a string over fifteen bytes")?,
         },
         QuadKey::SubjectPredicates {
-            namespace: 4,
+            tenant: 4,
             graph: graph()?,
             subject: id(1, 5, 5)?,
         },
         QuadKey::ObjectPredicates {
-            namespace: 4,
+            tenant: 4,
             graph: graph()?,
             object: literal("short")?,
         },
@@ -86,40 +86,40 @@ fn data_keys() -> TestResult<Vec<QuadKey>> {
 fn index_keys() -> TestResult<Vec<QuadKey>> {
     Ok(vec![
         QuadKey::ValueIndex {
-            namespace: 4,
+            tenant: 4,
             graph: graph()?,
             predicate: id(1, 9, 9)?,
             tokenizer: 2,
             token: b"\x00ab\xff".to_vec(),
         },
         QuadKey::ValueIndex {
-            namespace: 4,
+            tenant: 4,
             graph: graph()?,
             predicate: id(1, 9, 9)?,
             tokenizer: 2,
             token: Vec::new(),
         },
         QuadKey::CountIndex {
-            namespace: 4,
+            tenant: 4,
             graph: graph()?,
             predicate: id(1, 9, 9)?,
             direction: CountDirection::Reverse,
             count: 70_000,
         },
         QuadKey::VectorIndex {
-            namespace: 4,
+            tenant: 4,
             graph: graph()?,
             predicate: id(1, 9, 9)?,
             list: 1,
             node: id(1, 8, 8)?,
         },
         QuadKey::Statement {
-            namespace: 4,
+            tenant: 4,
             graph: graph()?,
             statement: id(2, 5, 11)?,
         },
         QuadKey::Statistics {
-            namespace: 4,
+            tenant: 4,
             graph: DEFAULT_GRAPH,
             predicate: id(1, 9, 9)?,
         },
@@ -130,24 +130,24 @@ fn index_keys() -> TestResult<Vec<QuadKey>> {
 fn placement_keys() -> TestResult<Vec<QuadKey>> {
     Ok(vec![
         QuadKey::Mark {
-            namespace: 4,
+            tenant: 4,
             entity: id(1, 42, 9)?,
             group: 0x2_ABCD,
         },
         QuadKey::Referrers {
-            namespace: 4,
+            tenant: 4,
             entity: id(1, 42, 9)?,
         },
         QuadKey::Dictionary {
-            namespace: 4,
+            tenant: 4,
             entry: DictionaryEntry::Id(id(1, 42, 10)?),
         },
         QuadKey::Dictionary {
-            namespace: 4,
+            tenant: 4,
             entry: DictionaryEntry::Term(Hash128::from_bytes([0x5A; 16])),
         },
         QuadKey::Dictionary {
-            namespace: 4,
+            tenant: 4,
             entry: DictionaryEntry::Literal(Hash128::from_bytes([0xA5; 16])),
         },
     ])
@@ -170,10 +170,10 @@ fn test_every_keyspace_round_trips_and_reports_its_fields() -> TestResult {
         assert_eq!(
             bytes.get(1..9),
             Some(&4u64.to_be_bytes()[..]),
-            "the namespace follows the keyspace byte"
+            "the tenant follows the keyspace byte"
         );
         assert_eq!(QuadKey::parse(&bytes), Ok((key.clone(), None)), "{key:?}");
-        assert_eq!(key.namespace(), 4);
+        assert_eq!(key.tenant(), 4);
         assert_eq!(key.graph().is_some(), key.keyspace().has_graph(), "{key:?}");
         assert_eq!(
             key.predicate().is_some(),
@@ -204,7 +204,7 @@ const SUBJECT_42: [u8; 16] = [0, 1, 0, 0, 0, 0, 0, 0, 0, 0x2A, 0, 0, 0x2A, 0, 0,
 #[test]
 fn test_a_forward_key_is_its_hand_computed_bytes() -> TestResult {
     let key = QuadKey::Forward {
-        namespace: 133,
+        tenant: 133,
         graph: DEFAULT_GRAPH,
         predicate: id(1, 7, 7)?,
         subject: id(1, 42, 42)?,
@@ -220,7 +220,7 @@ fn test_a_forward_key_is_its_hand_computed_bytes() -> TestResult {
 #[test]
 fn test_mark_and_referrer_keys_are_their_hand_computed_bytes() -> TestResult {
     let mark = QuadKey::Mark {
-        namespace: 7,
+        tenant: 7,
         entity: id(1, 42, 42)?,
         group: 0x2_ABCD,
     };
@@ -230,7 +230,7 @@ fn test_mark_and_referrer_keys_are_their_hand_computed_bytes() -> TestResult {
     assert_eq!(mark.to_bytes(), want);
 
     let referrers = QuadKey::Referrers {
-        namespace: 7,
+        tenant: 7,
         entity: id(1, 42, 42)?,
     };
     let mut want_referrers = vec![0x1A, 0, 0, 0, 0, 0, 0, 0, 7];
@@ -244,7 +244,7 @@ fn test_a_mark_holds_every_group_of_18_bits() -> TestResult {
     // The smallest and the largest group, 0 and 2^18 - 1 = 0x3_FFFF, as 3 big-endian bytes.
     for (group, bytes) in [(0u32, [0u8, 0, 0]), (0x3_FFFF, [0x03, 0xFF, 0xFF])] {
         let key = QuadKey::Mark {
-            namespace: ROOT_NAMESPACE,
+            tenant: ROOT_TENANT,
             entity: id(1, 1, 1)?,
             group,
         };
@@ -262,7 +262,7 @@ fn test_ids_at_their_bounds_round_trip() -> TestResult {
         id(2, Bucket::MAX.get(), 1)?,
     ] {
         let key = QuadKey::SubjectPredicates {
-            namespace: u64::MAX,
+            tenant: u64::MAX,
             graph: Graph::Named(subject),
             subject,
         };
@@ -286,7 +286,7 @@ fn test_a_predicates_forward_keys_sort_as_their_subjects() -> TestResult {
         .iter()
         .map(|&subject| {
             QuadKey::Forward {
-                namespace: 1,
+                tenant: 1,
                 graph: DEFAULT_GRAPH,
                 predicate,
                 subject,
@@ -319,7 +319,7 @@ fn test_a_prefix_covers_exactly_its_keys() -> TestResult {
 }
 
 #[test]
-fn test_a_prefix_is_the_keyspace_namespace_graph_and_predicate_bytes() -> TestResult {
+fn test_a_prefix_is_the_keyspace_tenant_graph_and_predicate_bytes() -> TestResult {
     let predicate = id(1, 7, 7)?;
     let mut want = vec![0x10 | 0x80, 0, 0, 0, 0, 0, 0, 0, 133];
     want.extend_from_slice(&[0u8; 16]);

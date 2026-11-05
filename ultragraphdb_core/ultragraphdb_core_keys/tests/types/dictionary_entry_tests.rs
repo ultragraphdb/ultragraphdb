@@ -28,10 +28,10 @@ fn test_each_entry_has_its_kind_byte_and_16_bytes() -> TestResult {
 }
 
 #[test]
-fn test_a_dictionary_key_is_its_keyspace_namespace_kind_and_16_bytes() -> TestResult {
-    // term-dictionary, "The dictionary is a keyspace without versions": keyspace byte 0x1B, namespace 7, kind 2, the ID.
+fn test_a_dictionary_key_is_its_keyspace_tenant_kind_and_16_bytes() -> TestResult {
+    // term-dictionary, "The dictionary is a keyspace without versions": keyspace byte 0x1B, tenant 7, kind 2, the ID.
     let key = QuadKey::Dictionary {
-        namespace: 7,
+        tenant: 7,
         entry: DictionaryEntry::Id(id(1, 42, 9)?),
     };
     let mut want = vec![0x1B, 0, 0, 0, 0, 0, 0, 0, 7, 0x02];
@@ -39,7 +39,7 @@ fn test_a_dictionary_key_is_its_keyspace_namespace_kind_and_16_bytes() -> TestRe
     assert_eq!(key.to_bytes(), want);
     assert_eq!(key.keyspace(), Keyspace::Dictionary);
     assert_eq!(
-        (key.namespace(), key.graph(), key.predicate()),
+        (key.tenant(), key.graph(), key.predicate()),
         (7, None, None)
     );
     assert_eq!(QuadKey::parse(&want)?, (key, None));
@@ -55,7 +55,7 @@ fn test_every_entry_round_trips() -> TestResult {
         DictionaryEntry::Literal(Hash128::of(b"a string over fifteen bytes")),
     ] {
         let key = QuadKey::Dictionary {
-            namespace: u64::MAX,
+            tenant: u64::MAX,
             entry,
         };
         let bytes = key.to_bytes();
@@ -66,9 +66,9 @@ fn test_every_entry_round_trips() -> TestResult {
 }
 
 #[test]
-fn test_dictionary_keys_of_a_namespace_share_its_region() -> TestResult {
-    // quad-storage, "Every key belongs to one region": a dictionary key's region is its keyspace and namespace.
-    let key = |namespace, entry| QuadKey::Dictionary { namespace, entry }.to_bytes();
+fn test_dictionary_keys_of_a_tenant_share_its_region() -> TestResult {
+    // quad-storage, "Every key belongs to one region": a dictionary key's region is its keyspace and tenant.
+    let key = |tenant, entry| QuadKey::Dictionary { tenant, entry }.to_bytes();
     let a = Region::of(&key(7, DictionaryEntry::Id(id(1, 42, 9)?)))?;
     let b = Region::of(&key(
         7,
@@ -78,7 +78,7 @@ fn test_dictionary_keys_of_a_namespace_share_its_region() -> TestResult {
     assert_eq!(a, b);
     assert_ne!(a, c);
     assert_eq!(
-        (a.keyspace(), a.namespace(), a.graph(), a.predicate()),
+        (a.keyspace(), a.tenant(), a.graph(), a.predicate()),
         (Keyspace::Dictionary, 7, None, None)
     );
     Ok(())

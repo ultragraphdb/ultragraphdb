@@ -28,8 +28,8 @@ pub mod utils {
 }
 
 use crate::utils::fixture::{
-    NS, SECOND, Txn, applier, begin, changeset, commit, ex, held, insert, insert_literal, objects,
-    store,
+    SECOND, TENANT, Txn, applier, begin, changeset, commit, ex, held, insert, insert_literal,
+    objects, store,
 };
 
 const CLUSTER: u64 = 7;
@@ -54,7 +54,7 @@ fn read_above(w: &mut Steps) -> TestResult {
     w.versions = vec![above, watermark];
     let refused = Transaction::begin(
         &applier,
-        NS,
+        TENANT,
         Mode::ReadOnly,
         above,
         0,
@@ -306,7 +306,7 @@ fn both_paths(w: &mut Steps) -> TestResult {
         let view = FrameView::validate(&frame, CLUSTER, MAX_FRAME_SIZE)?;
         let write = WriteView::from_frame(&view)?;
         let terms = FrameTerms::of(write.terms())?;
-        Ok(txn.write(&FrameChanges::new(NS, &write, &terms)?, 0)?)
+        Ok(txn.write(&FrameChanges::new(TENANT, &write, &terms)?, 0)?)
     })?);
     Ok(())
 }

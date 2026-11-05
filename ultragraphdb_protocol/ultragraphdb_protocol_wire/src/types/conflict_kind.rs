@@ -11,7 +11,7 @@
 /// | 2 | Statement: a statement tested |
 /// | 3 | Range: a key range scanned |
 /// | 4 | AbsentTerm: a dictionary key found absent |
-/// | 5 | Catalog: the namespace's catalog |
+/// | 5 | Catalog: the tenant's catalog |
 /// | 6 | Drop: a range a drop wrote |
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ConflictKind {
@@ -23,7 +23,7 @@ pub enum ConflictKind {
     Range,
     /// A dictionary key found absent.
     AbsentTerm,
-    /// The namespace's catalog.
+    /// The tenant's catalog.
     Catalog,
     /// A range a drop wrote.
     Drop,

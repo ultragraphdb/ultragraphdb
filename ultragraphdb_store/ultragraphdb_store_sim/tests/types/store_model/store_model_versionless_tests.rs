@@ -493,7 +493,7 @@ fn test_only_a_drop_of_everything_clears_the_versionless_keys() -> TestResult {
     Ok(())
 }
 
-/// A ban drops a batch's entries to its namespace and none of its versionless writes, in the store and the model.
+/// A ban drops a batch's entries to its tenant and none of its versionless writes, in the store and the model.
 #[test]
 fn test_a_ban_drops_no_versionless_write() -> TestResult {
     let mut key = vec![0x00];
@@ -501,7 +501,7 @@ fn test_a_ban_drops_no_versionless_write() -> TestResult {
     key.push(b't');
     let to_five = || batch(vec![put(&key, 1)], &[(&key, Some(b"v"))]);
     let store = SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new());
-    store.ban_namespace(5)?;
+    store.ban_tenant(5)?;
     store.apply(to_five(), PersistMode::Buffer)?;
     let mut model = StoreModel::new();
     model.observe(&store.take_log())?;
@@ -509,7 +509,7 @@ fn test_a_ban_drops_no_versionless_write() -> TestResult {
     let contents = store.contents();
     assert!(
         contents.keys().is_empty(),
-        "the entry to namespace 5 is dropped"
+        "the entry to tenant 5 is dropped"
     );
     assert_eq!(
         contents.versionless().iter().collect::<Vec<_>>(),
@@ -517,7 +517,7 @@ fn test_a_ban_drops_no_versionless_write() -> TestResult {
     );
     // A store that dropped the versionless write too.
     let banned = SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new());
-    banned.ban_namespace(5)?;
+    banned.ban_tenant(5)?;
     banned.apply(batch(vec![put(&key, 1)], &[]), PersistMode::Buffer)?;
     let breach = model.check(&banned.contents()).err().context("an error")?;
     assert_eq!(

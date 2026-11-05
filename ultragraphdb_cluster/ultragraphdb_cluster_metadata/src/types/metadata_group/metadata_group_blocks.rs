@@ -45,7 +45,7 @@ impl<L: OrderedLog> MetadataGroup<L> {
         Ok((block, position))
     }
 
-    /// Initialises the placement map at the cluster's first start: every namespace run split evenly over the partitions
+    /// Initialises the placement map at the cluster's first start: every tenant run split evenly over the partitions
     /// 1 to `partitions`, each led by `leader`; returns the position it was appended at.
     ///
     /// # Errors

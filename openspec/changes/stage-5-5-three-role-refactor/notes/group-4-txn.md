@@ -298,7 +298,7 @@ its fix taken out and failed there. Mutants deferred to 12.1.
    `test_a_declaration_indexing_a_predicate_with_data_starts_a_build`; commit
    `test_a_second_build_waits_for_the_first_builds_end`, `test_a_builds_end_that_cannot_be_proposed_stops_the_pipeline`,
    `test_a_builds_swap_takes_its_version_from_the_step_and_a_later_write_commits`; and the BDD steps "a round admits a
-   declaration of `ns` that starts an index build of `p`…", "a declaration of `ns` commits before it", "a term index
+   declaration of `tenant` that starts an index build of `p`…", "a declaration of `tenant` commits before it", "a term index
    on `name` is being built…". With the refusal, the commit step's build path (`starts_build`, set-aside builds, the
    swap's round) has no producer until the metadata group's catalog path (group 6). Which path should build-starting
    proposals take meanwhile? The change was reverted whole; nothing of it remains.

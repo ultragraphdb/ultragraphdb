@@ -81,11 +81,11 @@ pub fn property_graph_view<'a>(
 /// properties.
 pub fn property_graph_to_changeset(
     pg: &PropertyGraph,
-    namespace: u64,
+    tenant: u64,
     graph: &GraphName,
     names: &Names,
 ) -> Changeset {
-    let mut changeset = Changeset::new(namespace);
+    let mut changeset = Changeset::new(tenant);
     for node in pg.nodes() {
         for label in node.labels() {
             changeset.push(Change::Insert {

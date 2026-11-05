@@ -11,10 +11,10 @@ use ultragraphdb_store_kv::META_KEYSPACE;
 use ultragraphdb_traits_store::{PersistMode, RebuildRecord, Store, WriteBatch};
 
 use ultragraphdb_tool_bdd::TestResult;
-use ultragraphdb_tool_test::{TestDir, ns_key, put, write_raw_in};
+use ultragraphdb_tool_test::{TestDir, put, tenant_key, write_raw_in};
 
 fn record(id: u64) -> RebuildRecord {
-    RebuildRecord::new(id, vec![ns_key(0, b"idx"), vec![0x04, 1, 2]])
+    RebuildRecord::new(id, vec![tenant_key(0, b"idx"), vec![0x04, 1, 2]])
 }
 
 #[test]
@@ -25,7 +25,7 @@ fn test_a_record_is_held_until_a_batch_removes_it() -> TestResult {
     s.write_rebuild_record(&record(300))?;
     assert_eq!(s.rebuild_records()?, [record(4), record(300)]);
     let mut batch = WriteBatch::new();
-    batch.push(put(&ns_key(0, b"k"), 5, b"swapped"));
+    batch.push(put(&tenant_key(0, b"k"), 5, b"swapped"));
     batch.remove_rebuild_record(4);
     s.apply(batch, PersistMode::Buffer)?;
     assert_eq!(s.rebuild_records()?, [record(300)]);
@@ -65,7 +65,7 @@ fn test_records_are_listed_by_number_whatever_their_prefixes() -> TestResult {
         RebuildRecord::new(u64::MAX, vec![Vec::new(), vec![0x00]]),
         RebuildRecord::new(256, vec![vec![0xFF; 3]]),
         RebuildRecord::new(1, Vec::new()),
-        RebuildRecord::new(0, vec![ns_key(0, b"")]),
+        RebuildRecord::new(0, vec![tenant_key(0, b"")]),
     ];
     for record in &records {
         s.write_rebuild_record(record)?;

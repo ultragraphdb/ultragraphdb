@@ -99,10 +99,10 @@ Any cluster with more than one replica group needs agreement on placement, snaps
 **Responsibilities**
 
 - **Membership:** which nodes exist and which replica group each belongs to.
-- **Placement:** bucket ranges per partition, namespace runs and bucket groups resolved at an epoch now (P1, P2, P24), GSL tile assignment later, constraint-locality rules, and changes during rebalancing.
+- **Placement:** bucket ranges per partition, tenant runs and bucket groups resolved at an epoch now (P1, P2, P24), GSL tile assignment later, constraint-locality rules, and changes during rebalancing.
 - **Sequencing:** the Calvin-style log that orders multi-group transactions.
 - **Snapshots:** consistent cross-group snapshot points (see below).
-- **ID ranges:** assigning bucket ranges to partitions and leasing sequence blocks per (type, partition). A system ID is 128 bits: from the most significant bit, a 16-bit type prefix, a 64-bit sequence unique per type, a 24-bit bucket (8 bits hashed from the namespace, 16 from the key) and 24 reserved bits (decided 2026-11-01, Shard-per-Core note P7, P15, P16; field order type, sequence, bucket, reserved by P24 rule 1, 2026-11-02).
+- **ID ranges:** assigning bucket ranges to partitions and leasing sequence blocks per (type, partition). A system ID is 128 bits: from the most significant bit, a 16-bit type prefix, a 64-bit sequence unique per type, a 24-bit bucket (8 bits hashed from the tenant, 16 from the key) and 24 reserved bits (decided 2026-11-01, Shard-per-Core note P7, P15, P16; field order type, sequence, bucket, reserved by P24 rule 1, 2026-11-02).
 - **Versions:** schema catalog, the write and query classification derived from it, the RDF/LPG mapping contract, and the finalized feature level.
 
 **Its home from stage 5.5 (decided 2026-11-01).** The metadata group's state machine is built in stage 5.5, log-backed like the commit step and with one replica, holding catalog versions, ID ranges and the placement map, with catalog contents opaque to it. UGS (stage 6) is built on it; stage 8 adds its replication.

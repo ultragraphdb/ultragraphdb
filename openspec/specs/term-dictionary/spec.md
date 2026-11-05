@@ -5,7 +5,7 @@ The term dictionary: UIDs allocated to IRIs and blank nodes, literals encoded by
 both ways between a term and its stored form.
 ## Requirements
 ### Requirement: IRIs and blank nodes get allocated UIDs
-Each IRI and each skolemized blank node SHALL map, per namespace, to one 64-bit UID, never reused. The top 16 bits of a
+Each IRI and each skolemized blank node SHALL map, per tenant, to one 64-bit UID, never reused. The top 16 bits of a
 UID SHALL be reserved for an entity-type prefix and SHALL be zero in this stage. The same IRI SHALL always map to the
 same UID, and UID 0 SHALL never be assigned.
 

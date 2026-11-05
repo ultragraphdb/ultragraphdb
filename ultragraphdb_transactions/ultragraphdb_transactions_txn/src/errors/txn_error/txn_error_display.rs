@@ -29,12 +29,12 @@ impl fmt::Display for TxnError {
                 "read set of {size} bytes exceeds the limit of {limit} bytes"
             ),
             TxnErrorEnum::ReadOnly => write!(f, "a read-only transaction does not write"),
-            TxnErrorEnum::Namespace {
+            TxnErrorEnum::Tenant {
                 transaction,
                 changeset,
             } => write!(
                 f,
-                "a changeset of namespace {changeset} in a transaction of namespace {transaction}"
+                "a changeset of tenant {changeset} in a transaction of tenant {transaction}"
             ),
             TxnErrorEnum::Ended => write!(f, "the transaction has ended"),
             TxnErrorEnum::Changeset(e) => e.fmt(f),

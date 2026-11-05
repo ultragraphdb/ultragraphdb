@@ -39,8 +39,8 @@ fn test_contents_list_keys_in_order_with_their_rebuild_records() -> TestResult {
         batch.push(Entry::put(key.to_vec(), 1, 0, vec![]));
     }
     s.apply(batch, PersistMode::Buffer)?;
-    s.ban_namespace(9)?;
-    s.ban_namespace(3)?;
+    s.ban_tenant(9)?;
+    s.ban_tenant(3)?;
     s.write_rebuild_record(&RebuildRecord::new(4, vec![b"\x02p".to_vec()]))?;
     let contents = s.contents();
     assert_eq!(
@@ -66,9 +66,9 @@ fn test_contents_compare_equal_exactly_when_the_stores_hold_the_same() -> TestRe
         s.apply(batch, PersistMode::Buffer)?;
     }
     assert_eq!(stores[0].contents(), stores[1].contents());
-    stores[1].ban_namespace(3)?;
+    stores[1].ban_tenant(3)?;
     assert_ne!(stores[0].contents(), stores[1].contents());
-    stores[0].ban_namespace(3)?;
+    stores[0].ban_tenant(3)?;
     assert_eq!(stores[0].contents(), stores[1].contents());
     let mut batch = WriteBatch::new();
     batch.push(Entry::put(b"k".to_vec(), 1, 0, b"w".to_vec()));

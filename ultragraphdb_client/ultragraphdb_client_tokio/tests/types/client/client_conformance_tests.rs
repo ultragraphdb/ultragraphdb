@@ -127,10 +127,10 @@ fn golden_session() -> TestResult<u128> {
     })
 }
 
-/// The namespace, read version and mode the golden Begin answers.
+/// The tenant, read version and mode the golden Begin answers.
 fn golden_begin() -> TestResult<(u64, u64, bool)> {
     decoded("begin", |f| {
-        BeginView::from_frame(f).map(|v| (v.namespace(), v.read_version(), v.read_only()))
+        BeginView::from_frame(f).map(|v| (v.tenant(), v.read_version(), v.read_only()))
     })
 }
 
@@ -221,16 +221,12 @@ async fn golden_catalog(client: &mut Client<SimConnect, Anonymous>) -> TestResul
 /// A writer begun, then a reader on stream 5, whose reads and execution stream the golden Results; the writer.
 async fn golden_reads(client: &mut Client<SimConnect, Anonymous>) -> TestResult<Transaction> {
     let writer = client.begin(0, false).await?;
-    // Begin: the namespace, read version and mode the golden Begin answers, on the stream the golden Read names.
+    // Begin: the tenant, read version and mode the golden Begin answers, on the stream the golden Read names.
     let reader = client.begin(0, true).await?;
     let read_stream = decoded("read", |f| ReadView::from_frame(f).map(|v| v.transaction()))?;
     assert_eq!(
         (
-            (
-                reader.namespace(),
-                reader.read_version(),
-                reader.read_only()
-            ),
+            (reader.tenant(), reader.read_version(), reader.read_only()),
             reader.stream()
         ),
         (golden_begin()?, read_stream)
@@ -341,7 +337,7 @@ async fn golden_refusals_and_drop(
             if *code == failed_reply.code() && *detail == failed_reply.detail() && Some(v) == failed_reply.value()),
         "{failed:?}"
     );
-    // Drop: the graph and namespace the golden Drop names, through the commit's session; its reply's version and
+    // Drop: the graph and tenant the golden Drop names, through the commit's session; its reply's version and
     // request read from the golden reply.
     let request = decoded("drop", |f| DropCommandView::from_frame(f)?.to_body())?;
     let reply = decoded("drop_reply", |f| DropCommandView::from_frame(f)?.to_body())?;
@@ -351,7 +347,7 @@ async fn golden_refusals_and_drop(
         .to_string();
     let dropped = client
         .drop_command(
-            DropCommand::graph(request.namespace(), graph),
+            DropCommand::graph(request.tenant(), graph),
             session_of_commit,
         )
         .await?;

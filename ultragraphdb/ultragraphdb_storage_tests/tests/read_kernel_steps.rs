@@ -23,14 +23,13 @@ use ultragraphdb_protocol_wire::{
     FLAG_LAST, MAX_FRAME_FLOOR, MAX_FRAME_SIZE, ObjectRecords, Recall, Reference, ReferenceView,
     RequestTerm, Scan, ScanAt, ScanRange, TermTable, Write, WriteChange,
 };
-use ultragraphdb_store_quads::{ReferrerSet, iri_bucket, literal_key, namespace_base, term_key};
+use ultragraphdb_store_quads::{ReferrerSet, iri_bucket, literal_key, tenant_base, term_key};
 use ultragraphdb_tests::{CLUSTER, SECRET, STORAGE_ROLE_ADDRESS, scratch, with};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::played_home::{HomeScript, play_home, played_id};
 use crate::{
-    NAMESPACE, PREDICATE, Steps, commit_at, edge_write, one_process_of_two, subject_of,
-    two_processes,
+    PREDICATE, Steps, TENANT, commit_at, edge_write, one_process_of_two, subject_of, two_processes,
 };
 
 const PARTITION: u32 = 1;
@@ -219,7 +218,7 @@ async fn answer(
 
 /// The ID the partition at `client` holds for `iri`.
 async fn id_of(client: &mut RoleClient, iri: &str) -> TestResult<SystemId> {
-    let scan = plain(ScanAt::Latest, 0, 0, 0, &[alone(term_key(NAMESPACE, iri))]);
+    let scan = plain(ScanAt::Latest, 0, 0, 0, &[alone(term_key(TENANT, iri))]);
     let (batches, _) = answer(client, &scan, 1, false).await?;
     let (_, value) = batches
         .first()
@@ -259,7 +258,7 @@ fn bind_of(identity: u8, principal: u64) -> Bind {
     Bind::new(
         PARTITION,
         BindKind::Transaction,
-        NAMESPACE,
+        TENANT,
         0,
         principal,
         [identity; 16],
@@ -269,7 +268,7 @@ fn bind_of(identity: u8, principal: u64) -> Bind {
 /// The key of `subject`'s forward list of the scenarios' predicate, both by the IDs `client`'s partition holds.
 async fn forward_key(client: &mut RoleClient, subject: &str) -> TestResult<Vec<u8>> {
     Ok(QuadKey::Forward {
-        namespace: NAMESPACE,
+        tenant: TENANT,
         graph: Graph::Default,
         predicate: id_of(client, PREDICATE).await?,
         subject: id_of(client, subject).await?,
@@ -297,10 +296,10 @@ fn run<T>(future: impl Future<Output = TestResult<T>>) -> TestResult<T> {
 fn dictionary_and_referrers(w: &mut Steps) -> TestResult {
     one_partition(w, None)?;
     let b = "http://ex.org/b";
-    let group = BucketGroup::of(iri_bucket(NAMESPACE, b).context("a bucket")?);
+    let group = BucketGroup::of(iri_bucket(TENANT, b).context("a bucket")?);
     let outcome = run(async {
         let mut client = dial().await?;
-        let mut asked = Reference::request().in_namespace(NAMESPACE);
+        let mut asked = Reference::request().in_tenant(TENANT);
         let _at = asked.register_iri(PARTITION, Some(group), b, 0);
         let reply = client.request(&asked).await?;
         let view = reply.view()?;
@@ -312,11 +311,11 @@ fn dictionary_and_referrers(w: &mut Steps) -> TestResult {
             .context("its ID")?;
         drop(reply);
         let set = QuadKey::Referrers {
-            namespace: NAMESPACE,
+            tenant: TENANT,
             entity,
         }
         .to_bytes();
-        let ranges = [alone(term_key(NAMESPACE, b)), alone(set.clone())];
+        let ranges = [alone(term_key(TENANT, b)), alone(set.clone())];
         let now = plain(ScanAt::Latest, 0, 0, 0, &ranges);
         let (latest, _) = answer(&mut client, &now, 2, false).await?;
         let before = Version::bound_of(Epoch::ZERO);
@@ -390,7 +389,7 @@ fn hub_scanned(w: &mut Steps) -> TestResult {
             RoleClient::dial_taking(&target, CLUSTER, "compute", SECRET, MAX_FRAME_FLOOR as u32)
                 .await?;
         let key = QuadKey::Reverse {
-            namespace: NAMESPACE,
+            tenant: TENANT,
             graph: Graph::Default,
             predicate: id_of(&mut client, PREDICATE).await?,
             object: EncodedTerm::id(id_of(&mut client, HUB).await?),
@@ -469,7 +468,7 @@ fn protocol_naming(refused: &Refused, what: &str) {
 #[when("a Scan names a range of the marks keyspace")]
 fn marks_range(w: &mut Steps) -> TestResult {
     one_partition(w, None)?;
-    let first = key_prefix(Keyspace::Marks, false, NAMESPACE, None, None);
+    let first = key_prefix(Keyspace::Marks, false, TENANT, None, None);
     let refused = run(async { refused_scan(&mut dial().await?, &[(first, Vec::new())]).await })?;
     w.kernel.refused = vec![refused];
     Ok(())
@@ -486,8 +485,8 @@ fn names_keyspace(w: &mut Steps) -> TestResult {
 fn wide_dictionary(w: &mut Steps) -> TestResult {
     one_partition(w, None)?;
     let mut keys = [
-        term_key(NAMESPACE, "http://ex.org/x"),
-        term_key(NAMESPACE, "http://ex.org/y"),
+        term_key(TENANT, "http://ex.org/x"),
+        term_key(TENANT, "http://ex.org/y"),
     ];
     keys.sort();
     let [first, past] = keys;
@@ -510,7 +509,7 @@ fn waits_for_epoch(w: &mut Steps) -> TestResult {
         let mut client = dial().await?;
         let epoch = closed_at(&mut client).await? + 8;
         let version = Version::bound_of(Epoch::new(epoch)?);
-        let range = alone(term_key(NAMESPACE, "http://ex.org/x"));
+        let range = alone(term_key(TENANT, "http://ex.org/x"));
         let scan = plain(ScanAt::ReadVersion, version, epoch, 30_000, &[range]);
         let (batches, refused) = answer(&mut client, &scan, 1, false).await?;
         assert!(refused.is_none(), "{refused:?}");
@@ -539,7 +538,7 @@ fn past_deadline(w: &mut Steps) -> TestResult {
         let mut client = dial().await?;
         let epoch = closed_at(&mut client).await? + 1_000_000;
         let version = Version::bound_of(Epoch::new(epoch)?);
-        let range = alone(term_key(NAMESPACE, "http://ex.org/x"));
+        let range = alone(term_key(TENANT, "http://ex.org/x"));
         for deadline_ms in [50, 0] {
             let scan = plain(
                 ScanAt::ReadVersion,
@@ -579,7 +578,7 @@ fn timed_out(w: &mut Steps) -> TestResult {
 /// Dictionary ranges of `count` keys, one frame each.
 fn dictionary_ranges(count: u32) -> Vec<(Vec<u8>, Vec<u8>)> {
     (0..count)
-        .map(|at| alone(term_key(NAMESPACE, &format!("http://ex.org/t{at}"))))
+        .map(|at| alone(term_key(TENANT, &format!("http://ex.org/t{at}"))))
         .collect()
 }
 
@@ -663,7 +662,7 @@ fn every_range(w: &mut Steps) -> TestResult {
 #[when("a Scan with `at` 4 names a version above the partition's visibility watermark")]
 fn above_watermark(w: &mut Steps) -> TestResult {
     one_partition(w, None)?;
-    let subject = subject_of(PARTITION, 1, NAMESPACE)?;
+    let subject = subject_of(PARTITION, 1, TENANT)?;
     run(async {
         let _version = commit_at(
             &address(),
@@ -674,7 +673,7 @@ fn above_watermark(w: &mut Steps) -> TestResult {
         let mut client = dial().await?;
         let open = closed_at(&mut client).await? + 1_000_000;
         let version = Version::bound_of(Epoch::new(open)?);
-        let range = alone(term_key(NAMESPACE, "http://ex.org/x"));
+        let range = alone(term_key(TENANT, "http://ex.org/x"));
         let scan = plain(ScanAt::Named, version, 0, 0, &[range]);
         let (batches, refused) = answer(&mut client, &scan, 1, false).await?;
         assert!(batches.is_empty(), "{batches:?}");
@@ -699,7 +698,7 @@ fn names_watermark(w: &mut Steps) -> TestResult {
 )]
 fn named_on_idle(w: &mut Steps) -> TestResult {
     one_partition(w, None)?;
-    let subject = subject_of(PARTITION, 1, NAMESPACE)?;
+    let subject = subject_of(PARTITION, 1, TENANT)?;
     run(async {
         let version = commit_at(
             &address(),
@@ -744,7 +743,7 @@ fn reads_applied(w: &mut Steps) -> TestResult {
 )]
 fn across_a_close(w: &mut Steps) -> TestResult {
     one_partition(w, None)?;
-    let subject = subject_of(PARTITION, 1, NAMESPACE)?;
+    let subject = subject_of(PARTITION, 1, TENANT)?;
     run(async {
         let first = commit_at(
             &address(),
@@ -833,7 +832,7 @@ fn long_ranges(start: u8, count: u8) -> Vec<(Vec<u8>, Vec<u8>)> {
     const KEY: usize = 60_000;
     (start..start + count)
         .map(|at| {
-            let mut first = key_prefix(Keyspace::Forward, false, NAMESPACE, None, None);
+            let mut first = key_prefix(Keyspace::Forward, false, TENANT, None, None);
             first.resize(KEY, at);
             let past = [first.as_slice(), &[1]].concat();
             (first, past)
@@ -925,11 +924,11 @@ fn closed_held(w: &mut Steps) -> TestResult {
 }
 
 #[when(
-    "Scans name a first key too short for a namespace, a past key beyond the namespace, and the first key past it"
+    "Scans name a first key too short for a tenant, a past key beyond the tenant, and the first key past it"
 )]
-fn namespace_rules(w: &mut Steps) -> TestResult {
+fn tenant_rules(w: &mut Steps) -> TestResult {
     one_partition(w, None)?;
-    let subject = subject_of(PARTITION, 1, NAMESPACE)?;
+    let subject = subject_of(PARTITION, 1, TENANT)?;
     run(async {
         let _version = commit_at(
             &address(),
@@ -938,8 +937,8 @@ fn namespace_rules(w: &mut Steps) -> TestResult {
         )
         .await?;
         let mut client = dial().await?;
-        let first = key_prefix(Keyspace::Forward, false, NAMESPACE, None, None);
-        let past = key_prefix(Keyspace::Forward, false, NAMESPACE + 1, None, None);
+        let first = key_prefix(Keyspace::Forward, false, TENANT, None, None);
+        let past = key_prefix(Keyspace::Forward, false, TENANT + 1, None, None);
         let short = (vec![Keyspace::Forward.byte(), 0, 1], Vec::new());
         w.kernel
             .refused
@@ -957,9 +956,9 @@ fn namespace_rules(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the first two are refused with a protocol error naming the range, and the third reads to the namespace's end"
+    "the first two are refused with a protocol error naming the range, and the third reads to the tenant's end"
 )]
-fn namespace_ruled(w: &mut Steps) -> TestResult {
+fn tenant_ruled(w: &mut Steps) -> TestResult {
     for refused in &w.kernel.refused {
         protocol_naming(refused, "range 0");
     }
@@ -980,10 +979,10 @@ fn exact_limits(w: &mut Steps) -> TestResult {
                 commit_at(&address(), PARTITION, &edge_write(at, "http://ex.org/o")).await?;
         }
         let mut client = dial().await?;
-        let first = key_prefix(Keyspace::Forward, false, NAMESPACE, None, None);
+        let first = key_prefix(Keyspace::Forward, false, TENANT, None, None);
         for limit in [2, 1] {
             let mut scan = Scan::new(ScanAt::Latest, 0, 0, PRINCIPAL, NO_TRANSACTION, limit, 0);
-            let dictionary = alone(term_key(NAMESPACE, "http://ex.org/l1"));
+            let dictionary = alone(term_key(TENANT, "http://ex.org/l1"));
             scan.push_range(ScanRange::new(PARTITION, &first, b""));
             scan.push_range(ScanRange::new(PARTITION, &dictionary.0, &dictionary.1));
             let (batches, refused) = answer(&mut client, &scan, 2, false).await?;
@@ -1043,7 +1042,7 @@ fn own_write_read(w: &mut Steps) -> TestResult {
             let _at = terms.iri(iri);
         }
         let mut scan = of_transaction(4, read, PRINCIPAL).with_terms(terms);
-        let keys = [PREDICATE, a, b].map(|iri| alone(term_key(NAMESPACE, iri)));
+        let keys = [PREDICATE, a, b].map(|iri| alone(term_key(TENANT, iri)));
         for (first, past) in &keys {
             scan.push_range(ScanRange::new(PARTITION, first, past));
         }
@@ -1057,7 +1056,7 @@ fn own_write_read(w: &mut Steps) -> TestResult {
             Ok(SystemId::decode(value)?)
         };
         let key = QuadKey::Forward {
-            namespace: NAMESPACE,
+            tenant: TENANT,
             graph: Graph::Default,
             predicate: id(0)?,
             subject: id(1)?,
@@ -1104,7 +1103,7 @@ fn own_write_seen(w: &mut Steps) -> TestResult {
 }
 
 #[when(
-    "Scans name a transaction with a wrong read version, a wrong principal, another namespace, a referrer set, a key not its term's, or an identity it does not hold"
+    "Scans name a transaction with a wrong read version, a wrong principal, another tenant, a referrer set, a key not its term's, or an identity it does not hold"
 )]
 fn wrong_transaction_scans(w: &mut Steps) -> TestResult {
     one_partition(w, None)?;
@@ -1113,10 +1112,10 @@ fn wrong_transaction_scans(w: &mut Steps) -> TestResult {
         let reply = client.request(&bind_of(5, PRINCIPAL)).await?;
         let read = BindView::from_frame(&reply.view()?)?.read_version();
         drop(reply);
-        let term = alone(term_key(NAMESPACE, "http://ex.org/t"));
-        let forward = key_prefix(Keyspace::Forward, false, NAMESPACE, None, None);
-        let foreign = key_prefix(Keyspace::Forward, false, NAMESPACE + 1, None, None);
-        let referrers = key_prefix(Keyspace::Referrers, false, NAMESPACE, None, None);
+        let term = alone(term_key(TENANT, "http://ex.org/t"));
+        let forward = key_prefix(Keyspace::Forward, false, TENANT, None, None);
+        let foreign = key_prefix(Keyspace::Forward, false, TENANT + 1, None, None);
+        let referrers = key_prefix(Keyspace::Referrers, false, TENANT, None, None);
         let one = |first: &Vec<u8>, version: u64, principal: u64, identity: u8| {
             let mut scan = of_transaction(identity, version, principal);
             scan.push_range(ScanRange::new(PARTITION, first, b""));
@@ -1152,7 +1151,7 @@ fn wrong_named(w: &mut Steps) -> TestResult {
     let names = [
         "read_version",
         "principal",
-        "namespace",
+        "tenant",
         "referrer",
         "scan term",
         "does not hold",
@@ -1200,7 +1199,7 @@ async fn bind_first(client: &mut RoleClient, identity: u8) -> TestResult<(u64, u
     let bind = Bind::new(
         1,
         BindKind::Transaction,
-        NAMESPACE,
+        TENANT,
         0,
         PRINCIPAL,
         [identity; 16],
@@ -1215,7 +1214,7 @@ fn term_scan(identity: u8, version: u64, iri: &str) -> Scan {
     let mut terms = TermTable::new();
     let _at = terms.iri(iri);
     let mut scan = of_transaction(identity, version, PRINCIPAL).with_terms(terms);
-    let (first, past) = alone(term_key(NAMESPACE, iri));
+    let (first, past) = alone(term_key(TENANT, iri));
     scan.push_range(ScanRange::new(1, &first, &past));
     scan
 }
@@ -1223,7 +1222,7 @@ fn term_scan(identity: u8, version: u64, iri: &str) -> Scan {
 #[when("a transaction on partition 1 names in a Scan an IRI a partition of another process owns")]
 fn foreign_from_home(w: &mut Steps) -> TestResult {
     two_processes(w)?;
-    let iri = subject_of(3, 4, NAMESPACE)?;
+    let iri = subject_of(3, 4, TENANT)?;
     run(async {
         let mut client = dial_at("tcp://127.0.0.1:17200").await?;
         let (_, read) = bind_first(&mut client, 7).await?;
@@ -1232,7 +1231,7 @@ fn foreign_from_home(w: &mut Steps) -> TestResult {
         w.kernel.batches = batches;
         let mut home = dial_at("tcp://127.0.0.1:17300").await?;
         let mut asked = Scan::new(ScanAt::Latest, 0, 0, PRINCIPAL, NO_TRANSACTION, 0, 0);
-        let (first, past) = alone(term_key(NAMESPACE, &iri));
+        let (first, past) = alone(term_key(TENANT, &iri));
         asked.push_range(ScanRange::new(3, &first, &past));
         let (held, _) = answer(&mut home, &asked, 1, false).await?;
         let (_, id) = held
@@ -1278,7 +1277,7 @@ fn other_partition(w: &mut Steps) -> TestResult {
     one_partition(w, None)?;
     run(async {
         let mut client = dial().await?;
-        let (first, past) = alone(term_key(NAMESPACE, "http://ex.org/x"));
+        let (first, past) = alone(term_key(TENANT, "http://ex.org/x"));
         let mut scan = Scan::new(ScanAt::Latest, 0, 0, PRINCIPAL, NO_TRANSACTION, 0, 0);
         scan.push_range(ScanRange::new(PARTITION + 1, &first, &past));
         w.kernel
@@ -1303,30 +1302,30 @@ fn names_partition(w: &mut Steps) -> TestResult {
 }
 
 #[when(
-    "Scans hold a valid range and then one of the marks keyspace, of a split part, of an unknown keyspace, of the dictionary with no past key, of the referrer sets with a first key too short, or of the referrer sets past their namespace"
+    "Scans hold a valid range and then one of the marks keyspace, of a split part, of an unknown keyspace, of the dictionary with no past key, of the referrer sets with a first key too short, or of the referrer sets past their tenant"
 )]
 fn bad_second_ranges(w: &mut Steps) -> TestResult {
     one_partition(w, None)?;
-    let referrers = key_prefix(Keyspace::Referrers, false, NAMESPACE, None, None);
-    let beyond = key_prefix(Keyspace::Referrers, false, NAMESPACE + 1, None, None);
+    let referrers = key_prefix(Keyspace::Referrers, false, TENANT, None, None);
+    let beyond = key_prefix(Keyspace::Referrers, false, TENANT + 1, None, None);
     let unknown = (0..=u8::MAX)
         .find(|byte| Keyspace::from_byte(*byte).is_none())
         .context("a byte naming no keyspace")?;
     let cases = [
         (
-            key_prefix(Keyspace::Marks, false, NAMESPACE, None, None),
+            key_prefix(Keyspace::Marks, false, TENANT, None, None),
             Vec::new(),
         ),
         (
-            key_prefix(Keyspace::Forward, true, NAMESPACE, None, None),
+            key_prefix(Keyspace::Forward, true, TENANT, None, None),
             Vec::new(),
         ),
         (vec![unknown; 9], Vec::new()),
-        (term_key(NAMESPACE, "http://ex.org/y"), Vec::new()),
+        (term_key(TENANT, "http://ex.org/y"), Vec::new()),
         (vec![Keyspace::Referrers.byte(), 0, 1], Vec::new()),
         (referrers, [beyond.as_slice(), &[0]].concat()),
     ];
-    let valid = alone(term_key(NAMESPACE, "http://ex.org/x"));
+    let valid = alone(term_key(TENANT, "http://ex.org/x"));
     run(async {
         let mut client = dial().await?;
         for bad in cases {
@@ -1392,7 +1391,7 @@ fn too_large_value(w: &mut Steps) -> TestResult {
             object,
         }],
     );
-    let key = literal_key(NAMESPACE, &Hash128::of(lexical.as_bytes()));
+    let key = literal_key(TENANT, &Hash128::of(lexical.as_bytes()));
     run(async {
         let _version = commit_at(&address(), PARTITION, &write).await?;
         let target = Address::parse(&address())?;
@@ -1521,7 +1520,7 @@ fn emptied_range(w: &mut Steps) -> TestResult {
         .await?;
         let mut client = dial().await?;
         let kept = forward_key(&mut client, "http://ex.org/kept").await?;
-        let first = key_prefix(Keyspace::Forward, false, NAMESPACE, None, None);
+        let first = key_prefix(Keyspace::Forward, false, TENANT, None, None);
         let scan = plain(ScanAt::Latest, 0, 0, 0, &[(first, Vec::new())]);
         let (batches, refused) = answer(&mut client, &scan, 1, true).await?;
         assert!(refused.is_none(), "{refused:?}");
@@ -1594,7 +1593,7 @@ fn homed_at_three(at: u32) -> TestResult<String> {
     (0..100_000)
         .map(|n| format!("http://ex.org/h{at}-{n}"))
         .find(|iri| {
-            iri_bucket(NAMESPACE, iri)
+            iri_bucket(TENANT, iri)
                 .is_some_and(|bucket| map.partition_of(bucket, Epoch::ZERO).get() == 3)
         })
         .context("an IRI of partition 3")
@@ -1653,7 +1652,7 @@ fn both_answered(w: &mut Steps) -> TestResult {
 #[when("a transaction's Write waits on a home's answer, and a Scan of the transaction arrives")]
 fn scan_during_write(w: &mut Steps) -> TestResult {
     one_process_of_two(w)?;
-    let (subject, object) = (subject_of(1, 4, NAMESPACE)?, homed_at_three(3)?);
+    let (subject, object) = (subject_of(1, 4, TENANT)?, homed_at_three(3)?);
     let script = HomeScript::holding();
     run(async {
         play_home(&script).await?;
@@ -1686,9 +1685,9 @@ fn names_the_write(w: &mut Steps) -> TestResult {
 )]
 fn foreign_skolem(w: &mut Steps) -> TestResult {
     two_processes(w)?;
-    let homed = subject_of(3, 4, NAMESPACE)?;
-    let bucket = iri_bucket(NAMESPACE, &homed).context("a bucket")?;
-    let skolem = Names::new(namespace_base(NAMESPACE))?.skolem_iri(bucket, 1);
+    let homed = subject_of(3, 4, TENANT)?;
+    let bucket = iri_bucket(TENANT, &homed).context("a bucket")?;
+    let skolem = Names::new(tenant_base(TENANT))?.skolem_iri(bucket, 1);
     run(async {
         let mut client = dial_at("tcp://127.0.0.1:17200").await?;
         let (_, read) = bind_first(&mut client, 8).await?;

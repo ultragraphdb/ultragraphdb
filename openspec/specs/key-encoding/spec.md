@@ -5,14 +5,14 @@ The byte layout of Dgraph's keys, as the port writes and parses them: data, inde
 and split keys, namespaced attribute names, and the reserved and pre-defined predicates.
 ## Requirements
 ### Requirement: Keys parse back into their parts
-Parsing a key SHALL return its keyspace, namespace and the fields its keyspace defines: graph, predicate, subject,
+Parsing a key SHALL return its keyspace, tenant and the fields its keyspace defines: graph, predicate, subject,
 object, tokenizer and token, direction and count, node, or statement ID. A key whose UIDs, other than the default
 graph's, are 0, or whose fields are shorter than their keyspace defines, SHALL be refused with an error naming the key's
 bytes.
 
 #### Scenario: A forward key round-trips
-- **WHEN** a forward key for namespace 133, the default graph, predicate UID 7 and subject UID 42 is parsed
-- **THEN** the result is a forward key with namespace 133, graph 0, predicate 7 and subject 42
+- **WHEN** a forward key for tenant 133, the default graph, predicate UID 7 and subject UID 42 is parsed
+- **THEN** the result is a forward key with tenant 133, graph 0, predicate 7 and subject 42
 
 #### Scenario: A subject UID of zero is refused
 - **WHEN** a forward key carrying subject UID 0 is parsed

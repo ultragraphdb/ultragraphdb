@@ -47,17 +47,17 @@ fn every_kind() -> TestResult<Vec<Declaration>> {
     ])
 }
 
-/// The reason a refusal names, and that it names the namespace and version, or why it is not such a refusal.
+/// The reason a refusal names, and that it names the tenant and version, or why it is not such a refusal.
 fn corruption(
     result: Result<CatalogContents, ultragraphdb_core_catalog::CatalogError>,
 ) -> TestResult<(u64, u64, String)> {
     match result {
         Err(e) => match e.0.clone() {
             CatalogErrorEnum::CorruptedVersion {
-                namespace,
+                tenant,
                 version,
                 reason,
-            } => Ok((namespace, version, reason)),
+            } => Ok((tenant, version, reason)),
             CatalogErrorEnum::LiteralOnEdge { .. }
             | CatalogErrorEnum::ResourceOnProperty { .. }
             | CatalogErrorEnum::DatatypeMismatch { .. }
@@ -117,8 +117,8 @@ fn test_every_truncation_is_refused_naming_the_version() -> TestResult {
     let bytes = CatalogContents::new(2, 3, every_kind()?).encode()?;
     for len in 0..bytes.len() {
         let prefix = bytes.get(..len).context("a prefix")?;
-        let (namespace, version, reason) = corruption(CatalogContents::decode(2, 3, prefix))?;
-        assert_eq!((namespace, version), (2, 3), "truncated to {len}");
+        let (tenant, version, reason) = corruption(CatalogContents::decode(2, 3, prefix))?;
+        assert_eq!((tenant, version), (2, 3), "truncated to {len}");
         // A cut inside a declaration leaves its length past the bytes, so every cut ends the contents early.
         assert_eq!(reason, "the contents end early", "truncated to {len}");
     }
@@ -148,13 +148,13 @@ fn test_an_unknown_format_is_refused() -> TestResult {
 }
 
 #[test]
-fn test_contents_naming_another_namespace_or_version_are_refused() -> TestResult {
+fn test_contents_naming_another_tenant_or_version_are_refused() -> TestResult {
     let bytes = CatalogContents::new(4, 6, Vec::new()).encode()?;
-    let (namespace, version, reason) = corruption(CatalogContents::decode(5, 6, &bytes))?;
-    assert_eq!((namespace, version), (5, 6));
-    assert_eq!(reason, "the contents name namespace 4");
-    let (namespace_7, version_7, other) = corruption(CatalogContents::decode(4, 7, &bytes))?;
-    assert_eq!((namespace_7, version_7), (4, 7));
+    let (tenant, version, reason) = corruption(CatalogContents::decode(5, 6, &bytes))?;
+    assert_eq!((tenant, version), (5, 6));
+    assert_eq!(reason, "the contents name tenant 4");
+    let (tenant_7, version_7, other) = corruption(CatalogContents::decode(4, 7, &bytes))?;
+    assert_eq!((tenant_7, version_7), (4, 7));
     assert_eq!(other, "the contents name version 6");
     Ok(())
 }
@@ -248,7 +248,7 @@ fn test_a_list_longer_than_the_encoding_holds_is_refused() -> TestResult {
     Ok(())
 }
 
-/// The namespace and version the fixed part of `bytes` names, (0, 1) when it is too short to name them.
+/// The tenant and version the fixed part of `bytes` names, (0, 1) when it is too short to name them.
 fn named(bytes: &[u8]) -> (u64, u64) {
     let read = |range: std::ops::Range<usize>| {
         bytes
@@ -268,12 +268,12 @@ fn test_every_fuzz_seed_decodes_as_its_name_says() -> TestResult {
     let seeds = ultragraphdb_tool_bdd::fuzz_regressions_in(&dir)?;
     assert_eq!(seeds.len(), 10);
     for (name, bytes) in seeds {
-        let (namespace, version) = named(&bytes);
-        match CatalogContents::decode(namespace, version, &bytes) {
+        let (tenant, version) = named(&bytes);
+        match CatalogContents::decode(tenant, version, &bytes) {
             Ok(contents) => {
                 assert!(!name.starts_with("malformed"), "{name} accepted");
                 assert!(
-                    name.ends_with(&format!("ns_{namespace}_version_{version}")),
+                    name.ends_with(&format!("tenant_{tenant}_version_{version}")),
                     "{name}"
                 );
                 assert_eq!(contents.encode()?, bytes, "{name}");

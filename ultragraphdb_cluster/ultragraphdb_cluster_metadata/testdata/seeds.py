@@ -50,8 +50,8 @@ COMMANDS["malformed_trailing_byte"] = COMMANDS["set_leader_7_8"] + b"\x00"
 
 def snapshot_bytes(position, learned, catalogs, high_water):
     out = bytes([1]) + struct.pack(">QQI", position, learned, len(catalogs))
-    for namespace, current, released, versions in catalogs:
-        out += struct.pack(">QQQI", namespace, current, released, len(versions))
+    for tenant, current, released, versions in catalogs:
+        out += struct.pack(">QQQI", tenant, current, released, len(versions))
         for version, effective, data in versions:
             out += struct.pack(">Q", version)
             out += b"\x00" if effective is None else b"\x01" + struct.pack(">Q", effective)
@@ -69,7 +69,7 @@ def snapshot_bytes(position, learned, catalogs, high_water):
 SMALL = snapshot_bytes(3, 5, [(2, 1, 0, [(1, 6, b"ab")])], [(1, 11)])
 SNAPSHOTS = {
     "empty": snapshot_bytes(0, 0, [], []),
-    "namespace_2_version_1_at_6": SMALL,
+    "tenant_2_version_1_at_6": SMALL,
     "malformed_format_2": bytes([2]) + SMALL[1:],
     "malformed_truncated": SMALL[:-1],
 }

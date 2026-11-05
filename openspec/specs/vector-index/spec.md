@@ -110,7 +110,7 @@ searches until the indexer reaches it.
 - **THEN** the search does not return its node
 
 ### Requirement: Level draws are a function of the node
-A node's HNSW level SHALL be drawn from a hash of the index's seed, the namespace, the predicate and the node's UID, so
+A node's HNSW level SHALL be drawn from a hash of the index's seed, the tenant, the predicate and the node's UID, so
 inserting the same vectors in any order draws the same levels.
 
 #### Scenario: Insertion order does not change levels

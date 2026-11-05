@@ -187,17 +187,17 @@ fn test_an_aborted_transaction_gives_its_buffers_back() -> TestResult {
     Ok(())
 }
 
-/// Catalog version 2 of `namespace` starting an index build of `predicate`, executed at the watermark.
+/// Catalog version 2 of `tenant` starting an index build of `predicate`, executed at the watermark.
 fn build_in(
     applier: &crate::utils::fixture::Applier,
-    namespace: u64,
+    tenant: u64,
     predicate: &str,
 ) -> TestResult<ultragraphdb_transactions_txn::Prepared> {
-    let version = crate::utils::fixture::term_version(namespace, 2, predicate);
+    let version = crate::utils::fixture::term_version(tenant, 2, predicate);
     crate::utils::fixture::catalog_proposal(applier, &version)
 }
 
-/// Two catalog versions starting index builds in different namespaces conflict on no key, and one build runs at a time:
+/// Two catalog versions starting index builds in different tenants conflict on no key, and one build runs at a time:
 /// the second waits in the step, set aside, until the first's end is admitted, in a round of its own, then is decided,
 /// and every one commits (decided 2026-10-28).
 #[test]
@@ -208,7 +208,7 @@ fn test_a_second_build_waits_for_the_first_builds_end() -> TestResult {
     let _version: u64 = setup(&applier, vec![insert_literal("a", "name", "apple")])?;
     let _base = applier
         .apply(&Changeset::new(1).with(insert_literal("a", "name", "pear")))
-        .context("namespace 1 holds data")?
+        .context("tenant 1 holds data")?
         .commit_ts();
     applier.sequence_builds();
     let mut driver = Driver::new(&applier, unbounded());
@@ -273,7 +273,7 @@ fn test_a_round_closes_after_a_drop() -> TestResult {
     driver.submit(1, prepare(first)?)?;
     let drop = ultragraphdb_transactions_txn::Prepared::drop(
         &applier,
-        crate::utils::fixture::NS,
+        crate::utils::fixture::TENANT,
         ultragraphdb_store_apply::DropRequest::Predicate(crate::utils::fixture::ex("p").as_ref()),
         0,
         0,

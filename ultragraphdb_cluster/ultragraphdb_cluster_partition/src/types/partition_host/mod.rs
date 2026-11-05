@@ -177,7 +177,7 @@ where
         self.last_ticket = ticket;
         let buffers = self.pipeline.buffers_mut().pop().unwrap_or_default();
         let begun = self.partition.begin(
-            changeset.namespace(),
+            changeset.tenant(),
             Mode::ReadWrite,
             0,
             now_us,

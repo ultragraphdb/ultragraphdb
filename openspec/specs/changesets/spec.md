@@ -5,7 +5,7 @@ Changesets, the write format the engines produce and storage applies: a changese
 declarations, applied to the quads as one request, committed whole or not at all.
 ## Requirements
 ### Requirement: A changeset describes a write
-A changeset SHALL name its namespace and hold, in order: statements to insert, statements to delete, deletes by pattern
+A changeset SHALL name its tenant and hold, in order: statements to insert, statements to delete, deletes by pattern
 (every object of a subject and predicate in a graph), statement-property sets and deletes, and catalog declarations. Its
 terms SHALL be RDF terms, resolved to term IDs when the transaction holding it executes, against its snapshot; a term
 new to the transaction SHALL take a provisional UID, confirmed by the commit step.
@@ -28,7 +28,7 @@ operations.
 
 ### Requirement: A changeset reports its regions
 Executing a changeset SHALL report its read set (the lists read whole, the statements tested, the ranges scanned, the
-dictionary keys found absent and the namespace's catalog range) and its write set (the keys written, with the objects
+dictionary keys found absent and the tenant's catalog range) and its write set (the keys written, with the objects
 of each list it changed by no more objects than the commit step's bound), which the commit step validates, and the
 regions of every key it reads and writes.
 

@@ -15,7 +15,7 @@ use ultragraphdb_store_apply::{Applied, ChangesetErrorEnum};
 use ultragraphdb_store_quads::QuadErrorEnum;
 
 use crate::utils::changesets::{
-    NS, apply, changesets, counts_of, declare, delete, ex, exact_token, index_keys_holding,
+    TENANT, apply, changesets, counts_of, declare, delete, ex, exact_token, index_keys_holding,
     indexed, insert, keys_of, objects, objects_in, postings, predicate_list, reverse, sim_store,
     statistics, stored_keys, term, term_token, uid, write, write_changes,
 };
@@ -347,7 +347,7 @@ fn test_the_largest_sequences_are_written_and_the_next_is_refused() -> TestResul
 }
 
 #[test]
-fn test_a_write_in_another_namespace_keeps_its_keys_and_catalog_there() -> TestResult {
+fn test_a_write_in_another_tenant_keeps_its_keys_and_catalog_there() -> TestResult {
     let a = changesets()?;
     let three = |change| ultragraphdb_core_mapping::Changeset::new(3).with(change);
     let _applied: Applied = a.apply(&three(Change::Declare(
@@ -357,17 +357,17 @@ fn test_a_write_in_another_namespace_keeps_its_keys_and_catalog_there() -> TestR
         )?),
     )))?;
     let _written: Applied = a.apply(&three(insert(r#"<a> <name> "big apple""#)?))?;
-    let namespace_of =
+    let tenant_of =
         |k: &Vec<u8>| -> TestResult<u64> { Ok(u64::from_be_bytes(k[1..9].try_into()?)) };
     let keys = stored_keys(&a);
     assert!(!keys.is_empty());
     assert!(
         keys.iter()
-            .map(namespace_of)
+            .map(tenant_of)
             .collect::<TestResult<Vec<u64>>>()?
             .iter()
             .all(|n| *n == 3),
-        "every key is namespace 3's"
+        "every key is tenant 3's"
     );
     for keyspace in [Keyspace::ValueIndex, Keyspace::CountIndex] {
         assert!(
@@ -379,7 +379,7 @@ fn test_a_write_in_another_namespace_keeps_its_keys_and_catalog_there() -> TestR
     let name = a
         .quads()
         .id_of(3, ex("name").as_str())?
-        .context("<name> has a UID in namespace 3")?;
+        .context("<name> has a UID in tenant 3")?;
     assert_eq!(
         a.catalog(3)?.predicate(name),
         Some(&crate::utils::changesets::declaration(
@@ -387,7 +387,7 @@ fn test_a_write_in_another_namespace_keeps_its_keys_and_catalog_there() -> TestR
             "with `term` and an exact count index"
         )?)
     );
-    assert!(a.catalog(NS)?.predicates().next().is_none());
+    assert!(a.catalog(TENANT)?.predicates().next().is_none());
     Ok(())
 }
 
@@ -476,7 +476,7 @@ fn test_a_literal_object_keeps_its_reverse_entry() -> TestResult {
     )?;
     let literal = postings(&a, "a", "name")?[0].0.clone();
     let key = QuadKey::Reverse {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         predicate: uid(&a, "name")?,
         object: literal,

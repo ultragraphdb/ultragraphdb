@@ -230,7 +230,7 @@ fn test_a_reserved_term_byte_is_named_at_its_body_offset() -> TestResult {
 
 #[test]
 fn test_every_command_header_byte_is_unused() -> TestResult {
-    // The transaction's Begin names the namespace; a Write's command header is all zero.
+    // The transaction's Begin names the tenant; a Write's command header is all zero.
     let bytes = golden("write")?.bytes()?;
     for at in [0usize, 7, 8, 127] {
         let frame = with_command_header(&bytes, |h| h[at] = 2);

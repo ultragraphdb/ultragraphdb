@@ -103,7 +103,7 @@ subjects, statement IDs, defaults, touched nodes, vector queues, `DropTarget::{P
 - `Reads::absent() -> &[SystemId]`.
 - `OperationOutcome` (`Node { node, created }`, `Set`, `Counter(i64)`) replaces `(u64, bool)`, since a node's ID no
   longer fits the counter's field.
-- `LevelDraw::of_node(seed, namespace, predicate: SystemId, node: SystemId)`, hashing both IDs' halves (golden values
+- `LevelDraw::of_node(seed, tenant, predicate: SystemId, node: SystemId)`, hashing both IDs' halves (golden values
   from a separate Python SplitMix64).
 - `search_vectors -> Vec<SystemId>`; the dead list rewritten in the index's hexadecimal form (each kept node through
   `add_dead_node`); the entry point's heir its 16 bytes.

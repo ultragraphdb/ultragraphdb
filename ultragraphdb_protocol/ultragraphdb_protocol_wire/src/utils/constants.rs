@@ -70,7 +70,7 @@ pub const ABSENT: u32 = u32::MAX;
 /// to another term model above all.
 pub const MAX_TERM_DEPTH: usize = 32;
 
-/// The fixed part of a write-set record (`PROTOCOL.md` §12.2): kind, namespace, catalog, read version, session,
+/// The fixed part of a write-set record (`PROTOCOL.md` §12.2): kind, tenant, catalog, read version, session,
 /// request and principal.
 pub const RECORD_FIXED_SIZE: usize = 64;
 

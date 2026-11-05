@@ -35,7 +35,7 @@ pub(crate) const TERM_KEY: usize = 1 + SystemId::BYTES;
 /// [`TxnError::read_set_too_large`] and adds nothing.
 #[derive(Debug, Clone)]
 pub struct ReadSet {
-    namespace: u64,
+    tenant: u64,
     read_version: u64,
     limit: usize,
     arena: Vec<u8>,
@@ -53,7 +53,7 @@ impl Default for ReadSet {
 }
 
 impl ReadSet {
-    /// An empty read set of namespace 0 at read version 0, its limit the default read-set bound.
+    /// An empty read set of tenant 0 at read version 0, its limit the default read-set bound.
     pub fn new() -> Self {
         Self::with_capacity(0, 0)
     }
@@ -62,7 +62,7 @@ impl ReadSet {
     /// before they grow.
     pub fn with_capacity(bytes: usize, keys: usize) -> Self {
         let mut set = Self {
-            namespace: 0,
+            tenant: 0,
             read_version: 0,
             limit: MAX_FRAME,
             arena: Vec::with_capacity(bytes),
@@ -76,10 +76,10 @@ impl ReadSet {
         set
     }
 
-    /// Clears the read set for a transaction of `namespace` reading at `read_version`, bounded by `limit` bytes. Its
+    /// Clears the read set for a transaction of `tenant` reading at `read_version`, bounded by `limit` bytes. Its
     /// buffers keep their capacity.
-    pub fn reset(&mut self, namespace: u64, read_version: u64, limit: usize) {
-        self.namespace = namespace;
+    pub fn reset(&mut self, tenant: u64, read_version: u64, limit: usize) {
+        self.tenant = tenant;
         self.read_version = read_version;
         self.limit = limit.min(u32::MAX as usize);
         self.arena.clear();
@@ -263,9 +263,9 @@ impl ReadSet {
         self.sealed
     }
 
-    /// The namespace the reads were made in.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant the reads were made in.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// The version the transaction read at.

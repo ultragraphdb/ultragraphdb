@@ -12,15 +12,15 @@ use crate::types::command::Command;
 /// The body of a received DefaultEntry frame, read in place; see [`crate::DefaultEntry`] for its layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DefaultEntryView<'a> {
-    namespace: u64,
+    tenant: u64,
     found: bool,
     predicate: &'a str,
 }
 
 impl<'a> DefaultEntryView<'a> {
-    /// The namespace.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// Whether the record already existed; false in a request.

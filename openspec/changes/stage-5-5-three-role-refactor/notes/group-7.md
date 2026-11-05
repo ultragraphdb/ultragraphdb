@@ -92,12 +92,12 @@ store_quads (stubs in place):
   named ≥ current: max(named, highest) + 1, a renewal keeping its epoch; named < current: unchanged, answer current;
   highest = current, no removal this stage) — and `set(group, generation, epoch)` (keep epoch when a member).
   Codec: version byte 1, count u32 BE, members (group u32, epoch u64, generation u64, BE), sorted, strict decode.
-  The value of `QuadKey::Referrers { namespace, entity }` in `Keyspace::Referrers`.
+  The value of `QuadKey::Referrers { tenant, entity }` in `Keyspace::Referrers`.
 - `QuadError::NotOwned { iri, bucket }`: `Dictionary::resolve` of an IRI whose bucket the store does not own
   (`QuadStore::owning`) and that is neither held, pending nor copied (`WriteTerms::copy`) — subject, object, predicate
   or graph alike. A new blank node draws its bucket among the owned buckets (exists).
-- `QuadStore` reads at a version: `referrers(ns, entity, version)`, `mark(ns, entity, group, version)` (value: the
-  generation, u64 BE, ≥ 1, of `QuadKey::Mark { namespace, entity, group }`), `subjects`, `subject_predicates`,
+- `QuadStore` reads at a version: `referrers(tenant, entity, version)`, `mark(tenant, entity, group, version)` (value: the
+  generation, u64 BE, ≥ 1, of `QuadKey::Mark { tenant, entity, group }`), `subjects`, `subject_predicates`,
   `object_predicates`, `reverse_count`, and the read kernel `scan(&KernelScan, &mut Vec<KernelRow>) -> resume`.
 
 store_apply (stubs in place):
@@ -111,9 +111,9 @@ store_apply (stubs in place):
   `o` whose bucket the store owns adds `g` to `R(o)` at generation 1 when `R(o)` lacks it, derived when the round
   applies, with the commit version's epoch, add-if-absent, so concurrent commits never conflict on `R(o)`; replay
   derives the same.
-- `ChangesetApplier::register(ns, EntityRef) -> Registering` (gets or creates the ID, holding its entries) and
+- `ChangesetApplier::register(tenant, EntityRef) -> Registering` (gets or creates the ID, holding its entries) and
   `Registering::finish(group, generation) -> Executed` (writes the member through `ReferrerSet::set` at apply time,
-  in round order, plus the IRI's dictionary entries); `prepare_replayed_registration(ns, entity, group, generation)`.
+  in round order, plus the IRI's dictionary entries); `prepare_replayed_registration(tenant, entity, group, generation)`.
 - `RecordWrites` gains the record's section 4 (`with_marks(Vec<MarkedReference>)` or equivalent); `prepare_replay`
   writes each mark.
 
@@ -261,7 +261,7 @@ its span, 49, beside the forward list's 65), derived from the key layout in its 
 
 ### Open: replaying a transaction record's section 4
 
-Replay derives a transaction record through `ChangesetApplier::prepare_logical(namespace, &LogicalWrites, dictionary)`,
+Replay derives a transaction record through `ChangesetApplier::prepare_logical(tenant, &LogicalWrites, dictionary)`,
 not `prepare_replay(RecordWrites)`, and `apply_round_with` refuses two executions at one version, so the marks cannot
 be a second execution beside the logical one. Q's `RecordWrites::with_marks` does not reach this path. It needs the
 marks on the logical path (`LogicalWrites` or `prepare_logical`); left for Q or the coordinator. Waiting on it: replay

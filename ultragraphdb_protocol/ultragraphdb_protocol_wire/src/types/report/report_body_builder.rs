@@ -17,7 +17,7 @@ impl BodyBuilder for Report {
         command_header(&[
             (0, &self.partition.to_le_bytes()),
             (4, &[self.kind.number()]),
-            (8, &self.namespace.to_le_bytes()),
+            (8, &self.tenant.to_le_bytes()),
             (16, &self.version.to_le_bytes()),
         ])
     }

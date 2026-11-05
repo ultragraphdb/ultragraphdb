@@ -15,10 +15,10 @@ use crate::types::quad_pattern::QuadPattern;
 use crate::types::request_term_view::RequestTermView;
 use crate::types::term_table::TermTable;
 
-/// A statement the cache holds: its pattern, its namespace, the schema id it was prepared against and its types.
+/// A statement the cache holds: its pattern, its tenant, the schema id it was prepared against and its types.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Prepared {
-    namespace: u64,
+    tenant: u64,
     terms: TermTable,
     pattern: QuadPattern,
     schema: u64,
@@ -26,7 +26,7 @@ struct Prepared {
 }
 
 /// A connection's prepared statements, by id: prepared once, executed with parameters bound by position, refused as
-/// stale once their namespace's schema id no longer matches. Ids start at 1 and are never reused on the connection;
+/// stale once their tenant's schema id no longer matches. Ids start at 1 and are never reused on the connection;
 /// past `capacity` statements the oldest is evicted, and executing it is refused as unknown.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StatementCache {
@@ -48,7 +48,7 @@ impl StatementCache {
         }
     }
 
-    /// Prepares `request` against the namespace's current `schema` id: each declared parameter type fits its slot
+    /// Prepares `request` against the tenant's current `schema` id: each declared parameter type fits its slot
     /// (a node where a node is expected, refused as [`StatementError::parameter_type`]); answered with the statement's
     /// id, the schema id, the parameter types and a result column type per unbound slot.
     pub fn prepare(
@@ -91,7 +91,7 @@ impl StatementCache {
         let _replaced: Option<Prepared> = self.statements.insert(
             statement,
             Prepared {
-                namespace: request.namespace(),
+                tenant: request.tenant(),
                 terms: terms.clone(),
                 pattern,
                 schema,
@@ -103,7 +103,7 @@ impl StatementCache {
             let _evicted: Option<(u64, Prepared)> = self.statements.pop_first();
         }
         Ok(Prepare::new(
-            request.namespace(),
+            request.tenant(),
             statement,
             schema,
             terms,
@@ -115,7 +115,7 @@ impl StatementCache {
 
     /// The pattern of `request`'s statement with its parameters bound, and the term table its indices name: the
     /// statement's terms, then the parameters' from the execution's table, each once. Given when `schema` is the
-    /// namespace's current schema id; refused, in this order: [`StatementError::unknown`]; [`StatementError::stale`]
+    /// tenant's current schema id; refused, in this order: [`StatementError::unknown`]; [`StatementError::stale`]
     /// when the statement was prepared against another schema id; [`StatementError::parameters`] when the parameters
     /// are not one per parameter slot; [`StatementError::not_a_node`] when a literal or a triple term is bound at a slot
     /// taking a node.
@@ -187,9 +187,9 @@ impl StatementCache {
         Ok((terms, pattern))
     }
 
-    /// The namespace statement `statement` reads, `None` when the cache does not hold it.
-    pub fn namespace(&self, statement: u64) -> Option<u64> {
-        self.statements.get(&statement).map(|p| p.namespace)
+    /// The tenant statement `statement` reads, `None` when the cache does not hold it.
+    pub fn tenant(&self, statement: u64) -> Option<u64> {
+        self.statements.get(&statement).map(|p| p.tenant)
     }
 
     /// The number of statements the cache holds.

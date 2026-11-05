@@ -6,8 +6,8 @@
 mod placement_view_body_view;
 
 use crate::types::bucket_range::BucketRange;
-use crate::types::namespace_run::NamespaceRun;
 use crate::types::preferred_leader::PreferredLeader;
+use crate::types::tenant_run::TenantRun;
 use crate::utils::whole_records::{record_at, record_count};
 
 /// The body of a received Placement frame, read in place; see [`crate::Placement`] for its layout.
@@ -59,15 +59,15 @@ impl<'a> PlacementView<'a> {
         BucketRange::decode(0, 0, bytes).ok()
     }
 
-    /// The number of namespace runs.
+    /// The number of tenant runs.
     pub fn run_count(&self) -> usize {
-        record_count::<{ NamespaceRun::SIZE }>(self.runs)
+        record_count::<{ TenantRun::SIZE }>(self.runs)
     }
 
     /// Run `index`; `None` past the last.
-    pub fn run(&self, index: usize) -> Option<NamespaceRun> {
-        let bytes = record_at::<{ NamespaceRun::SIZE }>(self.runs, index)?;
-        NamespaceRun::decode(0, 0, bytes).ok()
+    pub fn run(&self, index: usize) -> Option<TenantRun> {
+        let bytes = record_at::<{ TenantRun::SIZE }>(self.runs, index)?;
+        TenantRun::decode(0, 0, bytes).ok()
     }
 
     /// The number of preferred leaders.

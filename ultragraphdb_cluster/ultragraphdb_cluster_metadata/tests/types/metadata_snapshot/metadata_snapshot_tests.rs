@@ -4,7 +4,7 @@
  */
 
 use ultragraphdb_cluster_metadata::{MetadataCommand, MetadataSnapshot, MetadataState};
-use ultragraphdb_core_ids::Namespace;
+use ultragraphdb_core_ids::Tenant;
 use ultragraphdb_tool_bdd::TestResult;
 use ultragraphdb_traits_log::Position;
 
@@ -12,7 +12,7 @@ use ultragraphdb_traits_log::Position;
 fn test_a_snapshot_holds_its_position_and_state() -> TestResult {
     let mut state = MetadataState::new();
     state.apply(&MetadataCommand::OfferCatalog {
-        namespace: Namespace::new(1),
+        tenant: Tenant::new(1),
         predecessor: 0,
         bytes: b"v1".to_vec(),
     })?;

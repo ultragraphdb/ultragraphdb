@@ -31,13 +31,13 @@ where
         &mut self,
         uid: SystemId,
     ) -> Result<BTreeSet<(Graph, SystemId)>, ChangesetError> {
-        let ns = self.namespace();
+        let tenant = self.tenant();
         let read_ts = self.write.read_ts();
         let lists = self.write.quads().lists();
         lists.gate(read_ts)?;
         let snapshot = lists.store().snapshot(read_ts)?;
         let mut keys: Vec<Vec<u8>> = Vec::new();
-        let prefix = PredicatePrefix::new(Keyspace::Forward, false, ns, uid, Vec::new());
+        let prefix = PredicatePrefix::new(Keyspace::Forward, false, tenant, uid, Vec::new());
         let (graphs, ranges) = prefix.graphs_read(&snapshot)?;
         let request = self.write.request();
         for (start, end) in ranges {
@@ -58,13 +58,13 @@ where
             .filter_map(|k| match QuadKey::parse(k) {
                 Ok((
                     QuadKey::Forward {
-                        namespace,
+                        tenant: key_tenant,
                         graph,
                         predicate,
                         subject,
                     },
                     None,
-                )) if namespace == ns && predicate == uid => Some((graph, subject)),
+                )) if key_tenant == tenant && predicate == uid => Some((graph, subject)),
                 _ => None,
             })
             .collect())

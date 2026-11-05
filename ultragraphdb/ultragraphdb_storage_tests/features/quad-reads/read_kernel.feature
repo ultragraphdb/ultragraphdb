@@ -59,9 +59,9 @@ Feature: Quad reads: storage's read kernel
       When compute sends Closed naming the partition at its role address
       Then the reply holds the partition's latest closed epoch
 
-    Scenario: A range reads one namespace of one keyspace
-      When Scans name a first key too short for a namespace, a past key beyond the namespace, and the first key past it
-      Then the first two are refused with a protocol error naming the range, and the third reads to the namespace's end
+    Scenario: A range reads one tenant of one keyspace
+      When Scans name a first key too short for a tenant, a past key beyond the tenant, and the first key past it
+      Then the first two are refused with a protocol error naming the range, and the third reads to the tenant's end
 
     Scenario: A range holding exactly its limit ended
       When a Scan's limit equals what a range holds, and is one below what another holds
@@ -72,7 +72,7 @@ Feature: Quad reads: storage's read kernel
       Then the Scan's frames hold `<b>`, a Scan naming no transaction does not, and the first commit aborts with a conflict of kind Range
 
     Scenario: A Scan of a transaction names what is the transaction's
-      When Scans name a transaction with a wrong read version, a wrong principal, another namespace, a referrer set, a key not its term's, or an identity it does not hold
+      When Scans name a transaction with a wrong read version, a wrong principal, another tenant, a referrer set, a key not its term's, or an identity it does not hold
       Then each is refused with a protocol error naming what is wrong, and the transaction goes on
 
     Scenario: A second Bind of an identity the partition holds is refused
@@ -88,7 +88,7 @@ Feature: Quad reads: storage's read kernel
       Then each is refused with a protocol error naming the partition
 
     Scenario: Every range is checked before any frame
-      When Scans hold a valid range and then one of the marks keyspace, of a split part, of an unknown keyspace, of the dictionary with no past key, of the referrer sets with a first key too short, or of the referrer sets past their namespace
+      When Scans hold a valid range and then one of the marks keyspace, of a split part, of an unknown keyspace, of the dictionary with no past key, of the referrer sets with a first key too short, or of the referrer sets past their tenant
       Then each is refused with a protocol error naming what is wrong, and no frame precedes the refusal
 
     Scenario: A record too large for a frame is refused

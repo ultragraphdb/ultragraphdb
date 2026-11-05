@@ -9,7 +9,7 @@
 //! 16-bit [`TypePrefix`], a 64-bit [`Sequence`], a 24-bit [`Bucket`] and 24 reserved bits, which are zero. It is
 //! stored and compared as an unsigned big-endian value, so IDs of one type sort together and, within a type, by
 //! sequence then bucket. An entity's bucket is computed, never chosen ([`Bucket::derive`]): 8 bits hashed from its
-//! [`Namespace`] and 16 from its declaring type's prefix and its [`CanonicalKey`]. A statement takes its subject's
+//! [`Tenant`] and 16 from its declaring type's prefix and its [`CanonicalKey`]. A statement takes its subject's
 //! bucket. Until UGS keys exist, an IRI is the key of the built-in `Resource` type ([`TypePrefix::RESOURCE`]) and
 //! every statement is of the built-in `Statement` type ([`TypePrefix::STATEMENT`]).
 //!
@@ -25,9 +25,9 @@ pub use crate::types::bucket::Bucket;
 pub use crate::types::bucket_group::BucketGroup;
 pub use crate::types::canonical_key::CanonicalKey;
 pub use crate::types::epoch::Epoch;
-pub use crate::types::namespace::Namespace;
 pub use crate::types::sequence::Sequence;
 pub use crate::types::session_token::SessionToken;
 pub use crate::types::system_id::SystemId;
+pub use crate::types::tenant::Tenant;
 pub use crate::types::type_prefix::TypePrefix;
 pub use crate::types::version::Version;

@@ -29,10 +29,10 @@ fn put(key: &[u8], version: u64, value: &[u8]) -> Entry {
     Entry::put(key.to_vec(), version, 0x04, value.to_vec())
 }
 
-/// A key of namespace `ns`.
-fn ns_key(ns: u64, tail: &[u8]) -> Vec<u8> {
+/// A key of tenant `tenant`.
+fn tenant_key(tenant: u64, tail: &[u8]) -> Vec<u8> {
     let mut key = vec![0x00];
-    key.extend_from_slice(&ns.to_be_bytes());
+    key.extend_from_slice(&tenant.to_be_bytes());
     key.extend_from_slice(tail);
     key
 }
@@ -349,11 +349,11 @@ fn test_dropping_everything_keeps_only_its_entries_and_clears_the_metadata() -> 
 }
 
 #[test]
-fn test_a_banned_namespace_ignores_writes_and_hides_its_keys() -> TestResult {
+fn test_a_banned_tenant_ignores_writes_and_hides_its_keys() -> TestResult {
     let s = store();
-    let (five, six) = (ns_key(5, b"\x00\x01a"), ns_key(6, b"\x00\x01a"));
+    let (five, six) = (tenant_key(5, b"\x00\x01a"), tenant_key(6, b"\x00\x01a"));
     write(&s, vec![put(&five, 1, b"before")])?;
-    s.ban_namespace(5)?;
+    s.ban_tenant(5)?;
     write(&s, vec![put(&five, 2, b""), put(&six, 2, b"")])?;
     assert_eq!(s.get_at(&five, 3)?, None);
     assert_eq!(s.get_at(&six, 3)?.map(|i| i.version()), Some(2));
@@ -373,8 +373,8 @@ fn test_a_banned_namespace_ignores_writes_and_hides_its_keys() -> TestResult {
 #[test]
 fn test_dropping_everything_clears_the_banned_set() -> TestResult {
     let s = store();
-    let five = ns_key(5, b"\x00\x01a");
-    s.ban_namespace(5)?;
+    let five = tenant_key(5, b"\x00\x01a");
+    s.ban_tenant(5)?;
     s.drop_all(Vec::new())?;
     write(&s, vec![put(&five, 1, b"after")])?;
     assert_eq!(s.contents().banned().len(), 0);
@@ -404,7 +404,7 @@ fn test_a_poisoned_store_refuses_every_write_until_recovered() -> TestResult {
     assert_eq!(s.sync(), poisoned);
     assert_eq!(s.compact(), poisoned);
     assert_eq!(s.sweep_deletions(), poisoned);
-    assert_eq!(s.ban_namespace(1), poisoned);
+    assert_eq!(s.ban_tenant(1), poisoned);
     assert_eq!(s.set_discard_ts(1), poisoned);
     assert_eq!(s.set_tombstone_horizon(1), poisoned);
     assert_eq!(s.drop_all(Vec::new()), poisoned);
@@ -440,7 +440,7 @@ fn test_a_poisoned_store_refuses_every_write_until_recovered() -> TestResult {
             "sync",
             "compact",
             "sweep_deletions",
-            "ban_namespace",
+            "ban_tenant",
             "set_discard_ts",
             "set_tombstone_horizon",
             "drop",
@@ -523,7 +523,7 @@ fn test_a_drop_without_prefixes_removes_nothing_and_writes_its_entries() -> Test
 /// A batch of versionless writes, with one versioned entry beside them.
 fn versionless_batch(writes: &[(&[u8], Option<&[u8]>)], version: u64) -> WriteBatch {
     let mut batch = WriteBatch::new();
-    batch.push(put(&ns_key(0, b"data"), version, b"v"));
+    batch.push(put(&tenant_key(0, b"data"), version, b"v"));
     for (key, value) in writes {
         match value {
             Some(value) => batch.put_versionless(key.to_vec(), value.to_vec()),
@@ -588,23 +588,29 @@ fn test_a_snapshot_reads_the_versionless_keys_of_its_opening() -> TestResult {
 fn test_bans_prefix_drops_and_temporary_keyspaces_leave_versionless_keys_alone() -> TestResult {
     let s = store();
     s.apply(
-        versionless_batch(&[(&ns_key(5, b"t"), Some(b"1"))], 1),
+        versionless_batch(&[(&tenant_key(5, b"t"), Some(b"1"))], 1),
         PersistMode::Buffer,
     )?;
-    s.ban_namespace(5)?;
+    s.ban_tenant(5)?;
     s.apply(
-        versionless_batch(&[(&ns_key(5, b"u"), Some(b"2"))], 2),
+        versionless_batch(&[(&tenant_key(5, b"u"), Some(b"2"))], 2),
         PersistMode::Buffer,
     )?;
     s.drop_prefixes(3, &[vec![0x00]], Vec::new())?;
-    assert_eq!(s.get_versionless(&ns_key(5, b"t"))?, Some(b"1".to_vec()));
-    assert_eq!(s.get_versionless(&ns_key(5, b"u"))?, Some(b"2".to_vec()));
+    assert_eq!(
+        s.get_versionless(&tenant_key(5, b"t"))?,
+        Some(b"1".to_vec())
+    );
+    assert_eq!(
+        s.get_versionless(&tenant_key(5, b"u"))?,
+        Some(b"2".to_vec())
+    );
     let temporary = s.create_temporary()?;
     let mut batch = WriteBatch::new();
     batch.put_versionless(b"tmp".to_vec(), b"x".to_vec());
     s.apply_temporary(&temporary, batch)?;
     let snapshot = s.temporary_snapshot(&temporary)?;
-    assert_eq!(snapshot.get_versionless(&ns_key(5, b"t"))?, None);
+    assert_eq!(snapshot.get_versionless(&tenant_key(5, b"t"))?, None);
     assert_eq!(
         s.get_versionless(b"tmp")?,
         None,

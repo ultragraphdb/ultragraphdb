@@ -8,7 +8,7 @@ mod write_body_builder;
 use crate::types::term_table::TermTable;
 use crate::types::write_change::WriteChange;
 
-/// A changeset in the transaction of the frame's stream, in the transaction's namespace, in the wire's own layout: its
+/// A changeset in the transaction of the frame's stream, in the transaction's tenant, in the wire's own layout: its
 /// changes in order, their terms indices into the Write's term table, the IRIs, tokenizers and options its
 /// declarations name in a list of names. The server session converts it to the mapping crate's `Changeset`. The
 /// command header is all zero.

@@ -5,7 +5,7 @@ Quads on posting lists: the quad keyspaces and their key order, the forward, rev
 objects, statement records and statistics kept by deltas.
 ## Requirements
 ### Requirement: The quad keyspaces
-A statement SHALL be stored in these keyspaces, each key starting with a keyspace byte and the namespace as a u64
+A statement SHALL be stored in these keyspaces, each key starting with a keyspace byte and the tenant as a u64
 big-endian:
 - **forward**, keyed by graph, predicate and subject, holding the subject's objects;
 - **reverse**, keyed by graph, predicate and object, holding the subjects, for every object kind, literals included,
@@ -50,7 +50,7 @@ invisible to reads of every other graph.
 - **THEN** the read returns nothing
 
 ### Requirement: Statement IDs
-A statement ID SHALL be allocated per namespace from a sequence distinct from UIDs, only for a statement that gains a
+A statement ID SHALL be allocated per tenant from a sequence distinct from UIDs, only for a statement that gains a
 property or repeats a subject, predicate, object and graph already held. Its forward posting SHALL carry the statement
 ID, and its statement record SHALL hold the statement and its properties. Removing the statement SHALL remove its record.
 
@@ -64,8 +64,8 @@ ID, and its statement record SHALL hold the statement and its properties. Removi
 
 ### Requirement: Every key belongs to one region
 Each key SHALL map to exactly one region, a key range: for forward, reverse, value-index, count-index, vector-index and
-statistics keys, the keyspace, namespace, graph and predicate; for subject- and object-predicate keys and statement
-keys, the keyspace, namespace and graph. A region SHALL be computable from the key alone.
+statistics keys, the keyspace, tenant, graph and predicate; for subject- and object-predicate keys and statement
+keys, the keyspace, tenant and graph. A region SHALL be computable from the key alone.
 
 #### Scenario: Two subjects of one predicate share a region
 - **WHEN** the forward keys of `knows` for `a` and for `c` in the default graph are mapped to regions

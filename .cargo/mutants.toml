@@ -259,10 +259,10 @@ exclude_re = [
     # `deleted`, below the lower bound, and `between` returns the lower bound, `deleted + 1`, as the original's `hi` is.
     "ultragraphdb_store_sim/src/types/store_workload/mod\\.rs:\\d+:73: replace \\+ with \\* in StoreWorkload::rollup_batch",
 
-    # `n << 8 | b` versus `^` and versus `n >> 8 | b` in `StoreWorkload::drop_entries`, a namespace read back from a
-    # prefix's 8 big-endian bytes: `n << 8` has no bit below 8, so `|` and `^` agree; and every namespace the workload
-    # draws (`NAMESPACES`, 0, 1 and 5) is below 256, so `n` stays below 256 at every step, `n >> 8` is 0 and both folds
-    # end at the last byte, the namespace.
+    # `n << 8 | b` versus `^` and versus `n >> 8 | b` in `StoreWorkload::drop_entries`, a tenant read back from a
+    # prefix's 8 big-endian bytes: `n << 8` has no bit below 8, so `|` and `^` agree; and every tenant the workload
+    # draws (`TENANTS`, 0, 1 and 5) is below 256, so `n` stays below 256 at every step, `n >> 8` is 0 and both folds
+    # end at the last byte, the tenant.
     "ultragraphdb_store_sim/src/types/store_workload/mod\\.rs:\\d+:69: replace \\| with \\^ in StoreWorkload::drop_entries",
     "ultragraphdb_store_sim/src/types/store_workload/mod\\.rs:\\d+:64: replace << with >> in StoreWorkload::drop_entries",
 

@@ -17,7 +17,7 @@ use ultragraphdb_store_apply::{
 };
 
 use crate::utils::changesets::{
-    NS, TestChangesets, changeset, changesets, declare, ex, insert, objects, term, uid, write,
+    TENANT, TestChangesets, changeset, changesets, declare, ex, insert, objects, term, uid, write,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -122,7 +122,7 @@ fn objects_of(
     predicate: &str,
 ) -> TestResult<Vec<EncodedTerm>> {
     let key = QuadKey::Forward {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         predicate: uid(a, predicate)?,
         subject,
@@ -164,7 +164,7 @@ fn test_an_insert_if_absent_creates_the_node_once_and_keeps_the_transactions_wri
     let held = objects_of(&a, node, "id")?;
     assert_eq!(held.len(), 1);
     // The node created holds the value asked for.
-    assert_eq!(a.quads().term_of(NS, &held[0])?, term("\"x\"")?);
+    assert_eq!(a.quads().term_of(TENANT, &held[0])?, term("\"x\"")?);
     assert_eq!(objects(&a, "m", "kind")?, vec![term("\"memory\"")?]);
     Ok(())
 }
@@ -185,7 +185,7 @@ fn test_an_insert_if_absent_finds_the_node_holding_the_value() -> TestResult {
     );
     apply(&a, vec![operated])?;
     let stats = a.quads().statistics(
-        NS,
+        TENANT,
         DEFAULT_GRAPH,
         uid(&a, "id")?,
         a.quads().lists().applied_ts(),
@@ -276,9 +276,9 @@ fn test_an_upsert_and_link_writes_its_links_both_ways_and_its_properties_only_wh
     );
     assert_eq!(
         a.quads().list_terms(
-            NS,
+            TENANT,
             &QuadKey::Forward {
-                namespace: NS,
+                tenant: TENANT,
                 graph: DEFAULT_GRAPH,
                 predicate: uid(&a, "label")?,
                 subject: node,
@@ -855,7 +855,7 @@ fn test_an_operated_transaction_keeps_its_marks_and_its_edges_join_referrer_sets
     );
     let group = ultragraphdb_core_ids::BucketGroup::new(7)?;
     let generation = std::num::NonZeroU64::new(2).context("2 is no zero")?;
-    let mut execution = a.begin(NS, a.quads().lists().applied_ts())?;
+    let mut execution = a.begin(TENANT, a.quads().lists().applied_ts())?;
     execution.mark(entity, group, generation)?;
     execution.apply(&changeset(vec![insert("<s> <knows> <hub>")?]))?;
     let txn = execution.finish()?;
@@ -863,11 +863,11 @@ fn test_an_operated_transaction_keeps_its_marks_and_its_edges_join_referrer_sets
     assert_eq!(operated.marks(), txn.marks());
     apply(&a, vec![operated])?;
     let at = a.quads().lists().applied_ts();
-    assert_eq!(a.quads().mark(NS, entity, group, at)?, Some(generation));
+    assert_eq!(a.quads().mark(TENANT, entity, group, at)?, Some(generation));
     let hub = uid(&a, "hub")?;
     let groups: Vec<_> = a
         .quads()
-        .referrers(NS, hub, at)?
+        .referrers(TENANT, hub, at)?
         .members()
         .iter()
         .map(ultragraphdb_store_quads::ReferrerMember::group)

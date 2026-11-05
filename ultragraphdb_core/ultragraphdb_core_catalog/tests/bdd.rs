@@ -164,9 +164,7 @@ fn preorder_placed(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[when(
-    "a namespace's catalog is loaded from a metadata group holding a version that does not decode"
-)]
+#[when("a tenant's catalog is loaded from a metadata group holding a version that does not decode")]
 fn load_corrupted_version(w: &mut Steps) -> TestResult {
     let group = TestCatalogSource::new();
     let mut bytes = CatalogContents::new(
@@ -180,7 +178,7 @@ fn load_corrupted_version(w: &mut Steps) -> TestResult {
     // The version's last byte lost: its declaration ends early.
     let _last: Option<u8> = bytes.pop();
     group.commit(HeldVersion::new(3, 2, 40, bytes));
-    // Every role loads a namespace's catalog as the version in effect, decoded.
+    // Every role loads a tenant's catalog as the version in effect, decoded.
     let held = group.version_at(3, 40)?.context("a version is in effect")?;
     w.loaded = Some(CatalogContents::decode(3, held.version(), held.contents()));
     Ok(())
@@ -195,7 +193,7 @@ fn load_refused(w: &mut Steps) -> TestResult {
         matches!(
             &error.0,
             CatalogErrorEnum::CorruptedVersion {
-                namespace: 3,
+                tenant: 3,
                 version: 2,
                 ..
             }

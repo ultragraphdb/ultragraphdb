@@ -28,7 +28,7 @@ impl<'a> BodyView<'a> for ReferenceView<'a> {
         let header = expect_command(frame, Self::COMMAND)?;
         header.unused_zero(&[(0, 1), (8, 16)])?;
         let reply = boolean(command, "reply", header.u8_at(0))?;
-        let namespace = header.u64_at(8);
+        let tenant = header.u64_at(8);
         let sections = Sections::<3>::read(command, frame.body(), 0)?;
         let terms = TermTableView::read(
             command,
@@ -62,7 +62,7 @@ impl<'a> BodyView<'a> for ReferenceView<'a> {
             check_registration(command, reply, at, index, record, terms.len())?;
         }
         Ok(Self {
-            namespace,
+            tenant,
             reply,
             registrations,
             terms,
@@ -75,7 +75,7 @@ impl<'a> BodyView<'a> for ReferenceView<'a> {
             self.registrations().collect(),
             self.terms.to_table(),
         )
-        .in_namespace(self.namespace))
+        .in_tenant(self.tenant))
     }
 }
 

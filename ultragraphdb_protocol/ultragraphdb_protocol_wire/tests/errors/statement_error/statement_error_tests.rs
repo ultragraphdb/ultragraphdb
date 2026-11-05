@@ -109,7 +109,7 @@ fn test_each_names_its_values() {
     );
     assert_eq!(
         StatementError::stale(1, 0x10, 0x20).to_string(),
-        "statement 1 is stale: prepared against schema 0x0000000000000010, the namespace's is now 0x0000000000000020"
+        "statement 1 is stale: prepared against schema 0x0000000000000010, the tenant's is now 0x0000000000000020"
     );
     assert_eq!(
         StatementError::parameters(1, 2, 3).to_string(),

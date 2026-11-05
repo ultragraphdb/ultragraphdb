@@ -5,7 +5,7 @@
 
 use ultragraphdb_cluster_metadata::MetadataCommand;
 use ultragraphdb_cluster_placement::{BucketRange, NodeId, PartitionId};
-use ultragraphdb_core_ids::{Epoch, Namespace, TypePrefix};
+use ultragraphdb_core_ids::{Epoch, Tenant, TypePrefix};
 use ultragraphdb_error_cluster::{ClusterError, ClusterErrorEnum};
 use ultragraphdb_protocol_scram::ScramVerifier;
 use ultragraphdb_tool_bdd::{Context, TestResult};
@@ -31,12 +31,12 @@ fn malformed(what: &'static str, offset: usize) -> ClusterErrorEnum {
 fn every_kind() -> TestResult<Vec<MetadataCommand>> {
     Ok(vec![
         MetadataCommand::OfferCatalog {
-            namespace: Namespace::new(3),
+            tenant: Tenant::new(3),
             predecessor: 2,
             bytes: b"v3".to_vec(),
         },
         MetadataCommand::RecordDefault {
-            namespace: Namespace::new(4),
+            tenant: Tenant::new(4),
             predicate: "score".to_string(),
             entry: vec![9, 8],
         },
@@ -77,7 +77,7 @@ fn every_kind() -> TestResult<Vec<MetadataCommand>> {
         },
         MetadataCommand::LearnClose {
             epoch: Epoch::new(39)?,
-            versions: vec![(Namespace::new(3), 3)],
+            versions: vec![(Tenant::new(3), 3)],
             placement: 2,
             evictions: vec![14],
         },
@@ -118,12 +118,12 @@ fn test_the_kind_bytes_count_from_1_in_declaration_order() -> TestResult {
 #[test]
 fn test_commands_encode_as_written_by_hand() -> TestResult {
     let commands = every_kind()?;
-    // OfferCatalog: kind 1, namespace 3, predecessor 2, length 2, "v3".
+    // OfferCatalog: kind 1, tenant 3, predecessor 2, length 2, "v3".
     let mut offer = vec![
         1, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 2,
     ];
     offer.extend_from_slice(b"v3");
-    // RecordDefault: kind 2, namespace 4, predicate length 5 as 2 bytes, "score", entry length 2 as 4, 9 8.
+    // RecordDefault: kind 2, tenant 4, predicate length 5 as 2 bytes, "score", entry length 2 as 4, 9 8.
     let mut default = vec![2, 0, 0, 0, 0, 0, 0, 0, 4, 0, 5];
     default.extend_from_slice(b"score");
     default.extend_from_slice(&[0, 0, 0, 2, 9, 8]);
@@ -158,7 +158,7 @@ fn test_commands_encode_as_written_by_hand() -> TestResult {
     register.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 13, 0, 0, 0, 2]);
     register.extend_from_slice(&14_u128.to_be_bytes());
     register.extend_from_slice(&15_u128.to_be_bytes());
-    // LearnClose: kind 10, epoch 39, 1 version (namespace 3, version 3), 1 eviction, 14, placement version 2.
+    // LearnClose: kind 10, epoch 39, 1 version (tenant 3, version 3), 1 eviction, 14, placement version 2.
     let mut learn = vec![10, 0, 0, 0, 0, 0, 0, 0, 39, 0, 0, 0, 1];
     learn.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 1]);
     learn.extend_from_slice(&14_u128.to_be_bytes());
@@ -347,12 +347,12 @@ fn test_lengths_and_counts_past_their_limits_are_refused_before_their_values() -
 fn test_records_at_their_limits_round_trip() -> TestResult {
     let commands = [
         MetadataCommand::OfferCatalog {
-            namespace: Namespace::new(u64::MAX),
+            tenant: Tenant::new(u64::MAX),
             predecessor: u64::MAX - 1,
             bytes: vec![7; 16_777_216],
         },
         MetadataCommand::RecordDefault {
-            namespace: Namespace::new(0),
+            tenant: Tenant::new(0),
             predicate: "p".repeat(4_096),
             entry: vec![1; 65_536],
         },
@@ -365,7 +365,7 @@ fn test_records_at_their_limits_round_trip() -> TestResult {
         MetadataCommand::LearnClose {
             placement: u64::MAX,
             epoch: Epoch::MAX,
-            versions: vec![(Namespace::new(1), 1); 256],
+            versions: vec![(Tenant::new(1), 1); 256],
             evictions: vec![u128::MAX; 4_096],
         },
         MetadataCommand::LeaseBlock {

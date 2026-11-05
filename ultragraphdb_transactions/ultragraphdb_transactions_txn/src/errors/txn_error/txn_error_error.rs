@@ -14,7 +14,7 @@ impl std::error::Error for TxnError {
             | TxnErrorEnum::WriteSetTooLarge { .. }
             | TxnErrorEnum::ReadSetTooLarge { .. }
             | TxnErrorEnum::ReadOnly
-            | TxnErrorEnum::Namespace { .. }
+            | TxnErrorEnum::Tenant { .. }
             | TxnErrorEnum::Ended
             | TxnErrorEnum::CrossPartition { .. }
             | TxnErrorEnum::Declaration => None,

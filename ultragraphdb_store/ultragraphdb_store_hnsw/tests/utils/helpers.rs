@@ -85,13 +85,13 @@ pub fn hex_id(id: SystemId) -> String {
     format!("{:032x}", id.to_u128())
 }
 
-/// The vector predicate `name` in the root namespace, as a namespaced attribute.
+/// The vector predicate `name` in the root tenant, as a namespaced attribute.
 pub fn pred(name: &str) -> String {
     format!("0-{name}")
 }
 
 /// The keys of the index of the vector predicate `name`, a namespaced attribute as Dgraph's tests name one, in the
-/// default graph of the root namespace: its ID's sequence drawn from its name.
+/// default graph of the root tenant: its ID's sequence drawn from its name.
 pub fn vkeys(name: &str) -> Result<VectorKeys, HnswError> {
     let sequence = name
         .bytes()

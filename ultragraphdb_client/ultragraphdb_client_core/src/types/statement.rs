@@ -5,13 +5,13 @@
 
 use ultragraphdb_protocol_wire::ColumnType;
 
-/// A prepared statement: its id on the connection that prepared it, its namespace, the schema id of the catalog it was
-/// prepared against, and its parameter and result column types. Once its namespace's schema id is another, an
+/// A prepared statement: its id on the connection that prepared it, its tenant, the schema id of the catalog it was
+/// prepared against, and its parameter and result column types. Once its tenant's schema id is another, an
 /// execution is refused as stale and the statement is prepared again; on another connection it is unknown.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Statement {
     id: u64,
-    namespace: u64,
+    tenant: u64,
     schema: u64,
     parameter_types: Vec<ColumnType>,
     result_types: Vec<ColumnType>,
@@ -20,14 +20,14 @@ pub struct Statement {
 impl Statement {
     pub(crate) fn new(
         id: u64,
-        namespace: u64,
+        tenant: u64,
         schema: u64,
         parameter_types: Vec<ColumnType>,
         result_types: Vec<ColumnType>,
     ) -> Self {
         Self {
             id,
-            namespace,
+            tenant,
             schema,
             parameter_types,
             result_types,
@@ -39,9 +39,9 @@ impl Statement {
         self.id
     }
 
-    /// The namespace it was prepared in.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant it was prepared in.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// The schema id of the catalog it was prepared against.
@@ -59,7 +59,7 @@ impl Statement {
         &self.result_types
     }
 
-    /// Whether the statement was prepared against `schema`, its namespace's schema id as a Describe answers it.
+    /// Whether the statement was prepared against `schema`, its tenant's schema id as a Describe answers it.
     pub fn is_current(&self, schema: u64) -> bool {
         self.schema == schema
     }

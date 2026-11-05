@@ -19,7 +19,7 @@ use crate::utils::write_frame::WriteHeader;
 /// |---|---|---|
 /// | 0 | `session` | 16 bytes; all zero for none |
 /// | 16 | `request` | u64; at least 1 with a session, 0 with none |
-/// | 24 | `namespace` | u64 |
+/// | 24 | `tenant` | u64 |
 /// | 32 | `token` | session token, 24 bytes; zero for none |
 ///
 /// | Section | Contents |
@@ -38,9 +38,9 @@ pub struct DirectWrite {
 }
 
 impl DirectWrite {
-    /// A DirectWrite of `changes` naming `terms` in `namespace`, through no session, holding no token.
-    pub fn new(namespace: u64, terms: TermTable, changes: Vec<WriteChange>) -> Self {
-        Self::from_parts(WriteHeader::new(namespace), terms, changes)
+    /// A DirectWrite of `changes` naming `terms` in `tenant`, through no session, holding no token.
+    pub fn new(tenant: u64, terms: TermTable, changes: Vec<WriteChange>) -> Self {
+        Self::from_parts(WriteHeader::new(tenant), terms, changes)
     }
 
     /// The write through `session` with the next `request` number of the session's counter, from 1; a session all zero
@@ -67,9 +67,9 @@ impl DirectWrite {
         self.header.request
     }
 
-    /// The namespace it acts in.
-    pub fn namespace(&self) -> u64 {
-        self.header.namespace
+    /// The tenant it acts in.
+    pub fn tenant(&self) -> u64 {
+        self.header.tenant
     }
 
     /// The session token the client holds; `None` for none.

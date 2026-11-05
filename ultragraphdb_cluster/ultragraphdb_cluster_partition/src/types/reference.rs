@@ -15,7 +15,7 @@ use ultragraphdb_store_apply::EntityRef;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reference {
     home: PartitionId,
-    namespace: u64,
+    tenant: u64,
     iri: String,
     entity: Option<SystemId>,
     group: Option<BucketGroup>,
@@ -23,11 +23,11 @@ pub struct Reference {
 }
 
 impl Reference {
-    /// The reference to `iri` in `namespace`, homed in `home`, known by `entity` if the partition holds its ID, from
+    /// The reference to `iri` in `tenant`, homed in `home`, known by `entity` if the partition holds its ID, from
     /// `group`, having seen generation `named`.
     pub fn new(
         home: PartitionId,
-        namespace: u64,
+        tenant: u64,
         iri: String,
         entity: Option<SystemId>,
         group: Option<BucketGroup>,
@@ -35,7 +35,7 @@ impl Reference {
     ) -> Self {
         Self {
             home,
-            namespace,
+            tenant,
             iri,
             entity,
             group,
@@ -48,9 +48,9 @@ impl Reference {
         self.home
     }
 
-    /// The namespace.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// The entity's IRI.

@@ -82,7 +82,7 @@ fn golden_parts() -> TestResult<(TermTable, Vec<WriteChange>, Vec<CommitOperatio
     Ok((t, changes, operations))
 }
 
-/// The golden ConditionalWrite: through the session's request 10 in namespace 3, holding the token of partition 2's
+/// The golden ConditionalWrite: through the session's request 10 in tenant 3, holding the token of partition 2's
 /// commit at position 42 in epoch 31.
 ///
 /// # Errors
@@ -95,7 +95,7 @@ pub fn golden_conditional_write() -> TestResult<ConditionalWrite> {
         .with_token(SessionToken::new(2, 42, Epoch::new(31)?)))
 }
 
-/// The golden ConditionalWrite through no session, holding no token and no change: one counter add in namespace 4.
+/// The golden ConditionalWrite through no session, holding no token and no change: one counter add in tenant 4.
 pub fn golden_operation_only() -> ConditionalWrite {
     let mut t = TermTable::new();
     let (counters, next) = (t.iri(&ex("counters")), t.iri(&ex("next-id")));
@@ -135,7 +135,7 @@ fn test_a_conditional_write_holds_what_it_was_given() -> TestResult {
         .with_token(token.clone());
     assert_eq!(write.session(), session());
     assert_eq!(write.request(), 10);
-    assert_eq!(write.namespace(), 3);
+    assert_eq!(write.tenant(), 3);
     assert_eq!(write.token(), Some(&token));
     assert_eq!(write.terms(), &terms);
     assert_eq!(write.changes(), &changes[..]);

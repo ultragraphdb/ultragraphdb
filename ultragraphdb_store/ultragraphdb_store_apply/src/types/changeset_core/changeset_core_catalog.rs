@@ -66,11 +66,11 @@ where
     C: ListCache<Value = CachedList>,
     B: BlockSource,
 {
-    /// Installs `contents` as its namespace's catalog, as [`crate::ChangesetApplier::load_catalog`] does.
+    /// Installs `contents` as its tenant's catalog, as [`crate::ChangesetApplier::load_catalog`] does.
     pub fn load_catalog(&self, contents: &CatalogContents) -> Result<(), ChangesetError> {
-        let namespace = contents.namespace();
+        let tenant = contents.tenant();
         let id_of = |iri: &NamedNode| -> Result<SystemId, ChangesetError> {
-            self.quads.id_of(namespace, iri.as_str())?.ok_or_else(|| {
+            self.quads.id_of(tenant, iri.as_str())?.ok_or_else(|| {
                 StoreError::corrupted(
                     iri.as_str().as_bytes().to_vec(),
                     format!(
@@ -81,9 +81,9 @@ where
                 .into()
             })
         };
-        let mut catalog = match self.quads.id_of(namespace, rdf::TYPE.as_str())? {
-            Some(rdf_type) => Catalog::initial(namespace, rdf_type),
-            None => Catalog::new(namespace),
+        let mut catalog = match self.quads.id_of(tenant, rdf::TYPE.as_str())? {
+            Some(rdf_type) => Catalog::initial(tenant, rdf_type),
+            None => Catalog::new(tenant),
         };
         for declaration in contents.declarations() {
             let (uid, parent) = match declaration {
@@ -94,27 +94,21 @@ where
             catalog.declare(uid, declaration.clone(), parent)?;
         }
         let catalog = catalog.with_version(contents.version());
-        debug_assert_eq!(catalog.namespace(), namespace);
+        debug_assert_eq!(catalog.tenant(), tenant);
         let _previous: Option<Arc<Catalog>> =
-            lock(&self.catalogs).insert(namespace, Arc::new(catalog));
+            lock(&self.catalogs).insert(tenant, Arc::new(catalog));
         Ok(())
     }
 
-    /// The default-entry records of `namespace` to send at start, as [`crate::ChangesetApplier::reconcile_defaults`]
+    /// The default-entry records of `tenant` to send at start, as [`crate::ChangesetApplier::reconcile_defaults`]
     /// gives them.
-    pub fn reconcile_defaults(&self, namespace: u64) -> Result<Vec<DefaultEntry>, ChangesetError> {
+    pub fn reconcile_defaults(&self, tenant: u64) -> Result<Vec<DefaultEntry>, ChangesetError> {
         let read_ts = self.quads.lists().applied_ts();
         let snapshot = self.quads.store().snapshot(read_ts)?;
-        let catalog = self.catalog(namespace)?;
+        let catalog = self.catalog(tenant)?;
         let mut held: BTreeSet<SystemId> = BTreeSet::new();
-        let scan = Scan::prefix(key_prefix(
-            Keyspace::Statistics,
-            false,
-            namespace,
-            None,
-            None,
-        ));
-        // The scan ends at the namespace's last statistics key; each key is read once.
+        let scan = Scan::prefix(key_prefix(Keyspace::Statistics, false, tenant, None, None));
+        // The scan ends at the tenant's last statistics key; each key is read once.
         for item in snapshot.scan(&scan) {
             let key = item?.key().to_vec();
             let Ok((
@@ -133,7 +127,7 @@ where
                 && !held.contains(&predicate)
                 && self
                     .quads
-                    .statistics(namespace, graph, predicate, read_ts)?
+                    .statistics(tenant, graph, predicate, read_ts)?
                     .statements()
                     > 0
             {
@@ -142,10 +136,10 @@ where
         }
         held.into_iter()
             .map(|predicate| {
-                let iri = self.quads.iri_of(namespace, predicate)?.0;
+                let iri = self.quads.iri_of(tenant, predicate)?.0;
                 let default = PredicateDeclaration::new(NamedNode::new_unchecked(iri.clone()));
                 let entry = encode_declaration(&Declaration::Predicate(default));
-                Ok(DefaultEntry::new(namespace, iri, entry))
+                Ok(DefaultEntry::new(tenant, iri, entry))
             })
             .collect()
     }
@@ -159,18 +153,15 @@ where
         if let Some(running) = lock(&self.rebuild).as_ref() {
             return Err(ChangesetError::rebuilding(running.new.predicate().as_str()));
         }
-        let namespace = contents.namespace();
-        let current = (*self.catalog(namespace)?).clone();
+        let tenant = contents.tenant();
+        let current = (*self.catalog(tenant)?).clone();
         let read_ts = self.quads.lists().applied_ts();
-        let mut write = QuadWrite::new(&self.quads, namespace, self.quads.lists().request(read_ts));
-        let mut terms = WriteTerms::new(namespace);
+        let mut write = QuadWrite::new(&self.quads, tenant, self.quads.lists().request(read_ts));
+        let mut terms = WriteTerms::new(tenant);
         terms.inherit(dictionary);
         write.seed(&Writes::default(), terms)?;
-        let mut execution = Execution::new(
-            namespace,
-            read_ts,
-            ChangesetWrite::new(write, current.clone()),
-        );
+        let mut execution =
+            Execution::new(tenant, read_ts, ChangesetWrite::new(write, current.clone()));
         let refusals = match self.declare_version(&mut execution, contents, &current) {
             Ok(refusals) => refusals,
             Err(failed) => {
@@ -193,10 +184,10 @@ where
         contents: &CatalogContents,
         current: &Catalog,
     ) -> Result<Vec<ChangesetError>, ChangesetError> {
-        let namespace = contents.namespace();
+        let tenant = contents.tenant();
         let mut refusals = Vec::new();
         for declaration in contents.declarations() {
-            let changeset = Changeset::new(namespace).with(Change::Declare(declaration.clone()));
+            let changeset = Changeset::new(tenant).with(Change::Declare(declaration.clone()));
             match execution.apply(&changeset) {
                 Ok(()) => {}
                 Err(refused) if refuses_declaration(&refused) => refusals.push(refused),

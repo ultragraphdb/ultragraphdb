@@ -14,8 +14,8 @@ use ultragraphdb_store_apply::ChangesetErrorEnum;
 use ultragraphdb_store_quads::StatementRecord;
 
 use crate::utils::changesets::{
-    NS, TestChangesets, apply, changesets, ex, insert_edge, objects_in, postings, statement, term,
-    uid, write_changes,
+    TENANT, TestChangesets, apply, changesets, ex, insert_edge, objects_in, postings, statement,
+    term, uid, write_changes,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -31,12 +31,12 @@ fn by_triple(text: &str) -> TestResult<StatementRef> {
 
 /// The reifier naming statement `id`.
 fn reifier(a: &TestChangesets, id: SystemId) -> TestResult<NamedNode> {
-    Ok(NamedNode::new(a.quads().iri_of(NS, id)?.0)?)
+    Ok(NamedNode::new(a.quads().iri_of(TENANT, id)?.0)?)
 }
 
 fn record(a: &TestChangesets, graph: Graph, id: SystemId) -> TestResult<Option<StatementRecord>> {
     Ok(a.quads()
-        .statement(NS, graph, id, a.quads().lists().applied_ts())?)
+        .statement(TENANT, graph, id, a.quads().lists().applied_ts())?)
 }
 
 /// The properties of a record, as `(predicate name, value text)`.
@@ -44,7 +44,7 @@ fn properties(a: &TestChangesets, record: &StatementRecord) -> TestResult<Vec<(S
     let mut p: Vec<(SystemId, String)> = record
         .properties()
         .iter()
-        .map(|(p, v)| Ok((*p, a.quads().term_of(NS, v)?.to_string())))
+        .map(|(p, v)| Ok((*p, a.quads().term_of(TENANT, v)?.to_string())))
         .collect::<TestResult<_>>()?;
     p.sort();
     Ok(p)
@@ -221,7 +221,7 @@ fn test_statements_in_a_named_graph_keep_their_records_there() -> TestResult {
     )?;
     let g1 = Graph::Named(uid(&a, "g1")?);
     let key = ultragraphdb_core_keys::QuadKey::Forward {
-        namespace: NS,
+        tenant: TENANT,
         graph: g1,
         predicate: uid(&a, "knows")?,
         subject: uid(&a, "a")?,

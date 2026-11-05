@@ -102,8 +102,8 @@ pub fn predicate(attr: &str) -> TestResult<SystemId> {
     id(predicate_number(attr))
 }
 
-/// The forward key of `attr` for the subject numbered `n` (at least 1) in the default graph of the root namespace,
-/// written from the key's layout: the forward keyspace's byte 0x10, the namespace's 8 big-endian bytes, the default
+/// The forward key of `attr` for the subject numbered `n` (at least 1) in the default graph of the root tenant,
+/// written from the key's layout: the forward keyspace's byte 0x10, the tenant's 8 big-endian bytes, the default
 /// graph's 16 zero bytes, then the predicate's and the subject's IDs as 16 big-endian bytes each.
 pub fn key(attr: &str, n: u64) -> Vec<u8> {
     let mut key = vec![0x10];
@@ -338,8 +338,8 @@ impl Store for Probe {
         self.inner.drop_all(entries)
     }
 
-    fn ban_namespace(&self, namespace: u64) -> Result<(), StoreError> {
-        self.inner.ban_namespace(namespace)
+    fn ban_tenant(&self, tenant: u64) -> Result<(), StoreError> {
+        self.inner.ban_tenant(tenant)
     }
 
     fn set_discard_ts(&self, ts: u64) -> Result<(), StoreError> {

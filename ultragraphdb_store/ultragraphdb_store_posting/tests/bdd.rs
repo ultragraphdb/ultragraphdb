@@ -922,7 +922,7 @@ fn fill_refused(w: &mut Steps) {
     assert_eq!(w.uids, rids(&[1, 2]));
 }
 
-/// Drops the friend predicate of the root namespace through `lists`: its data and split prefixes.
+/// Drops the friend predicate of the root tenant through `lists`: its data and split prefixes.
 fn drop_friend(lists: &TestLists) -> TestResult {
     let friend = crate::utils::helpers::predicate("friend")?;
     let prefix = |split| {

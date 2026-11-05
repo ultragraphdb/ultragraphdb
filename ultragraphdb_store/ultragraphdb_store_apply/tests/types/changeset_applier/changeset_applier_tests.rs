@@ -17,7 +17,7 @@ use ultragraphdb_store_sim::Fault;
 use ultragraphdb_traits_index::VectorIndexOptions;
 
 use crate::utils::changesets::{
-    NS, apply, changesets, changesets_over, declare, delete, ex, indexed, insert, insert_edge,
+    TENANT, apply, changesets, changesets_over, declare, delete, ex, indexed, insert, insert_edge,
     int_token, objects, postings, run_indexer, sim_store, statement, term, uid, write,
     write_changes,
 };
@@ -95,7 +95,7 @@ fn test_the_written_regions_name_the_predicate_and_the_graph() -> TestResult {
     let has = |keyspace, predicate| {
         applied.written().iter().any(|r| {
             r.keyspace() == keyspace
-                && r.namespace() == NS
+                && r.tenant() == TENANT
                 && r.graph() == Some(DEFAULT_GRAPH)
                 && r.predicate() == predicate
         })
@@ -200,7 +200,11 @@ fn test_a_non_canonical_vector_is_refused_naming_its_predicate() -> TestResult {
     );
     // The refused changeset's terms are released, writing nothing: a later write creates them again.
     for name in ["a", "embedding"] {
-        assert_eq!(a.quads().id_of(NS, ex(name).as_str())?, None, "<{name}>");
+        assert_eq!(
+            a.quads().id_of(TENANT, ex(name).as_str())?,
+            None,
+            "<{name}>"
+        );
     }
     write(&a, &["<a> <knows> <b>"])?;
     assert!(uid(&a, "a").is_ok());
@@ -251,7 +255,7 @@ fn test_a_released_execution_writes_nothing_and_holds_no_pending_id() -> TestRes
     let before = a.quads().store().contents();
     a.release(&refused);
     assert_eq!(a.quads().store().contents(), before, "nothing is written");
-    assert_eq!(a.quads().id_of(NS, ex("gone").as_str())?, None);
+    assert_eq!(a.quads().id_of(TENANT, ex("gone").as_str())?, None);
     let later = a.execute(&crate::utils::changesets::changeset(vec![insert(
         "<gone> <p> <q>",
     )?]))?;
@@ -292,7 +296,12 @@ fn test_a_property_gives_a_held_statement_an_id_and_a_record() -> TestResult {
     assert_eq!(ids.len(), 1);
     let record = a
         .quads()
-        .statement(NS, DEFAULT_GRAPH, ids[0], a.quads().lists().applied_ts())?
+        .statement(
+            TENANT,
+            DEFAULT_GRAPH,
+            ids[0],
+            a.quads().lists().applied_ts(),
+        )?
         .context("a record")?;
     assert_eq!(record.subject(), uid(&a, "a")?);
     assert_eq!(record.predicate(), uid(&a, "knows")?);
@@ -303,7 +312,7 @@ fn test_a_property_gives_a_held_statement_an_id_and_a_record() -> TestResult {
     }
     .context("the record holds one property")?;
     assert_eq!(*property, uid(&a, "since")?);
-    assert_eq!(a.quads().term_of(NS, value)?, term("2020")?);
+    assert_eq!(a.quads().term_of(TENANT, value)?, term("2020")?);
     Ok(())
 }
 
@@ -320,7 +329,7 @@ fn test_a_repeated_edge_gives_both_statements_ids() -> TestResult {
     for id in &ids {
         let record = a
             .quads()
-            .statement(NS, DEFAULT_GRAPH, *id, a.quads().lists().applied_ts())?
+            .statement(TENANT, DEFAULT_GRAPH, *id, a.quads().lists().applied_ts())?
             .context("a record")?;
         assert_eq!(
             (record.subject(), record.predicate(), record.object()),
@@ -350,12 +359,12 @@ fn test_deleting_statements_removes_their_records_and_then_the_triple() -> TestR
     assert_eq!(ids.len(), 2);
     let record = |id| {
         a.quads()
-            .statement(NS, DEFAULT_GRAPH, id, a.quads().lists().applied_ts())
+            .statement(TENANT, DEFAULT_GRAPH, id, a.quads().lists().applied_ts())
     };
     let delete_id = |id| -> TestResult<Change> {
         Ok(Change::DeleteStatement {
             graph: GraphName::DefaultGraph,
-            reifier: oxrdf::NamedNode::new(a.quads().iri_of(NS, id)?.0)?,
+            reifier: oxrdf::NamedNode::new(a.quads().iri_of(TENANT, id)?.0)?,
         })
     };
     write_changes(&a, vec![delete_id(ids[0])?])?;
@@ -485,7 +494,7 @@ fn test_a_drop_whose_scan_fails_is_refused_with_the_store_s_error() -> TestResul
     write_changes(&a, vec![insert("<a> <knows> <b>")?])?;
     a.quads().store().inject(Fault::FailNextScanAfter(0));
     let refused = a
-        .drop_predicate(NS, ex("knows").as_ref())
+        .drop_predicate(TENANT, ex("knows").as_ref())
         .err()
         .context("the error of a.drop_predicate(..)")?;
     assert!(
@@ -553,7 +562,7 @@ fn test_a_search_with_a_query_of_another_dimension_is_refused_with_the_index_s_e
     run_indexer(&a, "emb")?;
     let search = |query: &[f32]| {
         a.search_vectors(
-            NS,
+            TENANT,
             GraphNameRef::DefaultGraph,
             ex("emb").as_ref(),
             VectorQuery::new(query, 2, &VectorIndexOptions::default()),

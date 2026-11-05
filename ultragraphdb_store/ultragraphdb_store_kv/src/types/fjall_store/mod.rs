@@ -35,7 +35,7 @@ use crate::utils::stored_value::decode_value;
 
 /// The fjall keyspace holding every version of every key.
 pub const DATA_KEYSPACE: &str = "data";
-/// The fjall keyspace holding the store's metadata: the applied timestamp, the banned namespaces, the discard
+/// The fjall keyspace holding the store's metadata: the applied timestamp, the banned tenants, the discard
 /// timestamp, the tombstone horizon, a drop in progress and the rebuild records.
 pub const META_KEYSPACE: &str = "meta";
 /// The fjall keyspace without versions: one value per key, read by point lookups that fjall's bloom filters answer
@@ -100,7 +100,7 @@ pub(crate) struct Shared {
 /// What a snapshot is opened against, changed under its lock.
 #[derive(Debug, Default)]
 pub(crate) struct View {
-    /// The banned namespaces; a snapshot keeps the set it was opened with.
+    /// The banned tenants; a snapshot keeps the set it was opened with.
     pub banned: Arc<BTreeSet<u64>>,
     /// The read timestamps of the open snapshots, with how many are open at each.
     pub readers: BTreeMap<u64, usize>,

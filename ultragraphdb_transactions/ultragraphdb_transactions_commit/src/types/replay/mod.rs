@@ -237,7 +237,7 @@ impl Replay {
         Ok(())
     }
 
-    /// The key of the store's applied log position, under the system prefix, outside every namespace: its 8 bytes,
+    /// The key of the store's applied log position, under the system prefix, outside every tenant: its 8 bytes,
     /// little-endian, written with every round's batch.
     pub const APPLIED_POSITION_KEY: &'static [u8] = b"\xffultragraphdb/applied_position";
 
@@ -314,18 +314,18 @@ where
     E: Executor,
     K: CatalogSource,
 {
-    let namespace = record.namespace();
+    let tenant = record.tenant();
     let apply = |cause| RecoveryError::apply(at.position, cause);
     match record.operation(0) {
         Some(RecordOperation::CatalogTakesEffect(version)) => {
             let refused =
-                |reason: String| RecoveryError::catalog(at.position, namespace, version, reason);
+                |reason: String| RecoveryError::catalog(at.position, tenant, version, reason);
             let held = at
                 .catalog
-                .version(namespace, version)
+                .version(tenant, version)
                 .map_err(|e| refused(e.to_string()))?
                 .ok_or_else(|| refused("the metadata group does not hold it".to_string()))?;
-            let contents = CatalogContents::decode(namespace, version, held.contents())
+            let contents = CatalogContents::decode(tenant, version, held.contents())
                 .map_err(|e| refused(e.to_string()))?;
             let execution = applier
                 .replay_catalog(&contents, dictionary)
@@ -346,8 +346,8 @@ where
         Some(
             RecordOperation::DropPredicate(_)
             | RecordOperation::DropGraph(_)
-            | RecordOperation::DropNamespaceData
-            | RecordOperation::DropNamespace
+            | RecordOperation::DropTenantData
+            | RecordOperation::DropTenant
             | RecordOperation::DropAll,
         )
         | None => Err(RecoveryError::round(
@@ -382,7 +382,7 @@ where
             return Ok(record.registration(0).and_then(|registration| {
                 let generation = NonZeroU64::new(registration.generation())?;
                 Some(applier.prepare_replayed_registration(
-                    record.namespace(),
+                    record.tenant(),
                     registration.entity(),
                     registration.group(),
                     generation,
@@ -391,9 +391,9 @@ where
         }
         RecordKind::Build => return Ok(None),
     }
-    let namespace = record.namespace();
+    let tenant = record.tenant();
     if let Some(target) = record.operation(0).and_then(drop_target) {
-        return applier.prepare_replayed_drop(namespace, target).map(Some);
+        return applier.prepare_replayed_drop(tenant, target).map(Some);
     }
     let quads = |values: ultragraphdb_protocol_wire::KeyValues<'_>| -> Result<Vec<LogicalQuad>, ChangesetError> {
         values
@@ -416,7 +416,7 @@ where
     let writes = LogicalWrites::new(quads(record.inserted())?, quads(record.removed())?, records)
         .with_marks(marks);
     applier
-        .prepare_logical(namespace, &writes, dictionary)
+        .prepare_logical(tenant, &writes, dictionary)
         .map(Some)
 }
 
@@ -447,8 +447,8 @@ fn drop_target(operation: RecordOperation) -> Option<DropTarget> {
     match operation {
         RecordOperation::DropPredicate(id) => Some(DropTarget::Predicate(id)),
         RecordOperation::DropGraph(id) => Some(DropTarget::Graph(Graph::Named(id))),
-        RecordOperation::DropNamespaceData => Some(DropTarget::Data),
-        RecordOperation::DropNamespace => Some(DropTarget::Namespace),
+        RecordOperation::DropTenantData => Some(DropTarget::Data),
+        RecordOperation::DropTenant => Some(DropTarget::Tenant),
         RecordOperation::DropAll => Some(DropTarget::All),
         RecordOperation::CatalogTakesEffect(_) | RecordOperation::CompleteBuild { .. } => None,
     }

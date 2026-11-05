@@ -73,7 +73,7 @@ impl<'a> BodyView<'a> for PrepareView<'a> {
             ));
         }
         Ok(Self {
-            namespace: header.u64_at(0),
+            tenant: header.u64_at(0),
             statement: header.u64_at(8),
             schema: header.u64_at(16),
             terms,
@@ -85,7 +85,7 @@ impl<'a> BodyView<'a> for PrepareView<'a> {
 
     fn to_body(&self) -> Result<Prepare, ProtocolError> {
         Ok(Prepare::new(
-            self.namespace,
+            self.tenant,
             self.statement,
             self.schema,
             self.terms.to_table(),

@@ -39,7 +39,7 @@ deployment always knows which declared constraint it checks and which it carries
 
 | Term | Meaning |
 |---|---|
-| Tenant | The engine's unit of isolation: the u64 `PROTOCOL.md` section 1 calls `namespace` until it is renamed (section 15), holding one catalog of numbered versions in the metadata group (section 11.13 there), one run of buckets, and the grants of its principals. Nothing reads, writes or names across tenants |
+| Tenant | The engine's unit of isolation: the u64 of `PROTOCOL.md` section 1, holding one catalog of numbered versions in the metadata group (section 11.13 there), one run of buckets, and the grants of its principals. Nothing reads, writes or names across tenants |
 | Namespace | A unit of organisation inside a tenant, as a schema is inside a PostgreSQL database: one `schema` source installed in the tenant, with its graphs. Its name is the schema's, and qualifies its types (`temporal.Day`). A tenant holds one or more namespaces; a query may span a tenant's namespaces through imports, bridges and shared graphs |
 | Schema | One `schema` source: a named, versioned set of declarations, which installed becomes a namespace of its tenant. A tenant's catalog version holds its namespaces and the modules extending them |
 | Catalog version | The compiled form of every schema and module installed in a tenant, numbered, committed through the metadata group and effective from an epoch |
@@ -1617,10 +1617,10 @@ and reports it as unenforced (`UGS0902`).
   tenant scope, held by the built-in `owner` role, and is an audit event naming the principal and the purge epoch.
   The scopes become cluster, tenant, namespace, graph and predicate, a namespace scope covering its graphs and
   predicates, and "a tenant is a namespace" becomes "a tenant isolates; a namespace organises".
-- **Naming, across `PROTOCOL.md`, `SECURITY.md` and the stage 5.5 specifications.** The u64 those files call
-  `namespace` is the tenant: the field, the bucket run, the catalog, the drops and the grants keep their bytes and
-  take the name `tenant`, and `Bucket::derive` and `Bucket::of_value` take a tenant. The word namespace is then free
-  for the unit this file defines, so that a client reads PostgreSQL's distinction, database and schema, in the
+- **Naming, across `PROTOCOL.md`, `SECURITY.md` and the stage 5.5 specifications.** Carried as of 2026-11-05: the u64
+  is the tenant, the field, the bucket run, the catalog, the drops and the grants keeping their bytes and taking the
+  name `tenant`, and `Bucket::derive` and `Bucket::of_value` take a tenant. The word namespace is free for the unit
+  this file defines, so that a client reads PostgreSQL's distinction, database and schema, in the
   engine's own terms.
 - **`system-identity`.** The canonical key encoding of section 7.2 for composite and non-IRI keys, as a revision of
   "Until UGS keys exist, an IRI is the key of the Resource type"; and a `@key`'s claim bucket hashed from the declaring

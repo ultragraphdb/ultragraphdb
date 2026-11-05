@@ -17,7 +17,7 @@ impl BodyBuilder for Bind {
         command_header(&[
             (0, &self.partition().to_le_bytes()),
             (4, &[self.kind().number()]),
-            (8, &self.namespace().to_le_bytes()),
+            (8, &self.tenant().to_le_bytes()),
             (16, &self.read_version().to_le_bytes()),
             (24, &self.epoch().to_le_bytes()),
             (32, &self.principal().to_le_bytes()),

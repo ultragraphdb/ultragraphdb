@@ -35,8 +35,8 @@ pub type Applier =
 pub type Txn<'a> =
     Transaction<'a, SimStore, SimListCache<CachedList>, SteppedExecutor, TestBlockSource>;
 
-/// The namespace the tests write.
-pub const NS: u64 = 0;
+/// The tenant the tests write.
+pub const TENANT: u64 = 0;
 
 /// A fault-free simulated store.
 pub fn sim_store() -> SimStore {
@@ -102,7 +102,7 @@ pub fn ex(name: &str) -> NamedNode {
 pub fn id_of(applier: &Applier, name: &str) -> TestResult<SystemId> {
     applier
         .quads()
-        .id_of(NS, ex(name).as_str())
+        .id_of(TENANT, ex(name).as_str())
         .context("the dictionary reads")?
         .context("the IRI is known")
 }
@@ -150,11 +150,11 @@ pub fn delete_literal(subject: &str, predicate: &str, value: &str) -> Change {
     }
 }
 
-/// A changeset of `NS` holding `changes`.
+/// A changeset of `TENANT` holding `changes`.
 pub fn changeset(changes: Vec<Change>) -> Changeset {
     changes
         .into_iter()
-        .fold(Changeset::new(NS), |cs, change| cs.with(change))
+        .fold(Changeset::new(TENANT), |cs, change| cs.with(change))
 }
 
 /// Commits `changes` on their own, outside the commit step, as set-up: its commit version.
@@ -165,16 +165,16 @@ pub fn setup(applier: &Applier, changes: Vec<Change>) -> TestResult<u64> {
         .commit_ts())
 }
 
-/// Begins a read-write transaction of `NS` at the watermark.
+/// Begins a read-write transaction of `TENANT` at the watermark.
 pub fn begin(applier: &Applier) -> TestResult<Txn<'_>> {
     begin_with(applier, TxnBuffers::new())
 }
 
-/// Begins a read-write transaction of `NS` at the watermark on `buffers`.
+/// Begins a read-write transaction of `TENANT` at the watermark on `buffers`.
 pub fn begin_with(applier: &Applier, buffers: TxnBuffers) -> TestResult<Txn<'_>> {
     Transaction::begin(
         applier,
-        NS,
+        TENANT,
         Mode::ReadWrite,
         0,
         0,
@@ -234,14 +234,14 @@ pub fn registered(
     use ultragraphdb_protocol_wire::{RecordRegistration, WriteSetRecord};
     let iri = ex(name);
     let registering = applier
-        .register(NS, EntityRef::Iri(iri.as_str()))
+        .register(TENANT, EntityRef::Iri(iri.as_str()))
         .context("the home accepts the registration")?;
     let entity = registering.entity();
     let group = BucketGroup::new(group).context("the group")?;
     let generation = NonZeroU64::new(generation).context("a generation")?;
     let executed = registering.finish(group, generation);
     let record =
-        WriteSetRecord::registration(NS, RecordRegistration::new(entity, group, generation))
+        WriteSetRecord::registration(TENANT, RecordRegistration::new(entity, group, generation))
             .encode();
     Ok((entity, executed, record))
 }
@@ -249,7 +249,7 @@ pub fn registered(
 /// What an execution writing nothing leaves, at the watermark: a registration's round that changes no member.
 pub fn nothing(applier: &Applier) -> TestResult<Executed> {
     let watermark = applier.quads().lists().applied_ts();
-    let execution = applier.begin(NS, watermark).context("it begins")?;
+    let execution = applier.begin(TENANT, watermark).context("it begins")?;
     execution.finish().context("it finishes")
 }
 
@@ -264,7 +264,7 @@ pub fn member_at(
     let group = BucketGroup::new(group).context("the group")?;
     let set = applier
         .quads()
-        .referrers(NS, entity, version)
+        .referrers(TENANT, entity, version)
         .context("the referrer set reads")?;
     Ok(set
         .member(group)
@@ -460,9 +460,9 @@ pub fn plain(replies: &[Reply]) -> Vec<Reply> {
         .collect()
 }
 
-/// Version `version` of `namespace`'s catalog declaring `predicate` with a `term` index.
+/// Version `version` of `tenant`'s catalog declaring `predicate` with a `term` index.
 pub fn term_version(
-    namespace: u64,
+    tenant: u64,
     version: u64,
     predicate: &str,
 ) -> ultragraphdb_core_catalog::CatalogContents {
@@ -470,7 +470,7 @@ pub fn term_version(
     let declared =
         PredicateDeclaration::new(ex(predicate)).with_tokenizers(vec!["term".to_string()]);
     ultragraphdb_core_catalog::CatalogContents::new(
-        namespace,
+        tenant,
         version,
         vec![Declaration::Predicate(declared)],
     )

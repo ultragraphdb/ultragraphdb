@@ -19,7 +19,7 @@ use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_store::VersionlessEntry;
 
 use crate::utils::changesets::{
-    NS, TestChangesets, changeset, changesets, ex, insert, stored_keys, uid, write,
+    TENANT, TestChangesets, changeset, changesets, ex, insert, stored_keys, uid, write,
 };
 use crate::utils::partitions::{
     bucket_of, epoch, group_of, owning_all_but, referrers_key, version,
@@ -34,7 +34,7 @@ fn member(group: BucketGroup, e: u64, n: u64) -> TestResult<ReferrerMember> {
 }
 
 fn members(a: &TestChangesets, entity: SystemId, at: u64) -> TestResult<Vec<ReferrerMember>> {
-    Ok(a.quads().referrers(NS, entity, at)?.members().to_vec())
+    Ok(a.quads().referrers(TENANT, entity, at)?.members().to_vec())
 }
 
 /// `executed` applied alone in a round at `at`.
@@ -47,7 +47,7 @@ fn apply_at(a: &TestChangesets, at: u64, executed: Executed) -> TestResult {
 fn test_a_registration_of_a_new_iri_creates_its_id_and_its_round_adds_the_member() -> TestResult {
     // partitions, "A first registration adds a member": group 7 at epoch 12, generation 1.
     let a = changesets()?;
-    let registering = a.register(NS, EntityRef::Iri(ex("o").as_str()))?;
+    let registering = a.register(TENANT, EntityRef::Iri(ex("o").as_str()))?;
     let o = registering.entity();
     assert_eq!(
         o.bucket(),
@@ -55,7 +55,7 @@ fn test_a_registration_of_a_new_iri_creates_its_id_and_its_round_adds_the_member
         "its bucket is derived from the IRI"
     );
     assert_eq!(
-        a.quads().id_of(NS, ex("o").as_str())?,
+        a.quads().id_of(TENANT, ex("o").as_str())?,
         None,
         "not held before its round"
     );
@@ -63,7 +63,7 @@ fn test_a_registration_of_a_new_iri_creates_its_id_and_its_round_adds_the_member
     let at = version(12, 2)?;
     apply_at(&a, at, registering.finish(seven, generation(1)?))?;
     assert_eq!(
-        a.quads().id_of(NS, ex("o").as_str())?,
+        a.quads().id_of(TENANT, ex("o").as_str())?,
         Some(o),
         "its round writes its entries"
     );
@@ -80,9 +80,9 @@ fn test_a_registration_of_a_known_entity_by_id_gives_its_id() -> TestResult {
     let a = changesets()?;
     write(&a, &["<s> <knows> <o>"])?;
     let o = uid(&a, "o")?;
-    let by_id = a.register(NS, EntityRef::Id(o))?;
+    let by_id = a.register(TENANT, EntityRef::Id(o))?;
     assert_eq!(by_id.entity(), o);
-    let by_iri = a.register(NS, EntityRef::Iri(ex("o").as_str()))?;
+    let by_iri = a.register(TENANT, EntityRef::Iri(ex("o").as_str()))?;
     assert_eq!(by_iri.entity(), o, "a repeat gives the same ID");
     a.release(&by_iri.into_executed());
     a.release(&by_id.into_executed());
@@ -94,7 +94,7 @@ fn test_a_registration_of_an_id_the_dictionary_does_not_hold_is_corruption() -> 
     let a = changesets()?;
     let unknown = SystemId::new(TypePrefix::RESOURCE, bucket_of("o")?, Sequence::new(999)?);
     let refused = a
-        .register(NS, EntityRef::Id(unknown))
+        .register(TENANT, EntityRef::Id(unknown))
         .err()
         .context("refused")?;
     assert!(
@@ -108,7 +108,7 @@ fn test_a_registration_of_an_id_the_dictionary_does_not_hold_is_corruption() -> 
 fn test_a_registration_of_an_iri_another_partition_owns_is_refused() -> TestResult {
     let a = owning_all_but("o")?;
     let refused = a
-        .register(NS, EntityRef::Iri(ex("o").as_str()))
+        .register(TENANT, EntityRef::Iri(ex("o").as_str()))
         .err()
         .context("refused")?;
     let expected = bucket_of("o")?.get();
@@ -124,7 +124,7 @@ fn test_a_registration_of_an_iri_another_partition_owns_is_refused() -> TestResu
 fn test_a_released_registration_writes_nothing_and_leaves_no_entry() -> TestResult {
     let a = changesets()?;
     write(&a, &["<x> <knows> <y>"])?;
-    let registering = a.register(NS, EntityRef::Iri(ex("o").as_str()))?;
+    let registering = a.register(TENANT, EntityRef::Iri(ex("o").as_str()))?;
     let o = registering.entity();
     let executed = registering.into_executed();
     assert!(
@@ -133,10 +133,10 @@ fn test_a_released_registration_writes_nothing_and_leaves_no_entry() -> TestResu
     );
     a.release(&executed);
     // The ID was burned: the next creator takes another.
-    let again = a.register(NS, EntityRef::Iri(ex("o").as_str()))?;
+    let again = a.register(TENANT, EntityRef::Iri(ex("o").as_str()))?;
     assert_ne!(again.entity(), o);
     a.release(&again.into_executed());
-    assert_eq!(a.quads().id_of(NS, ex("o").as_str())?, None);
+    assert_eq!(a.quads().id_of(TENANT, ex("o").as_str())?, None);
     Ok(())
 }
 
@@ -147,10 +147,10 @@ fn test_two_registrations_of_one_entity_in_one_round_both_land() -> TestResult {
     let o = uid(&a, "o")?;
     let (seven, nine) = (BucketGroup::new(7)?, BucketGroup::new(9)?);
     let first = a
-        .register(NS, EntityRef::Id(o))?
+        .register(TENANT, EntityRef::Id(o))?
         .finish(seven, generation(1)?);
     let second = a
-        .register(NS, EntityRef::Iri(ex("o").as_str()))?
+        .register(TENANT, EntityRef::Iri(ex("o").as_str()))?
         .finish(nine, generation(1)?);
     let (v1, v2) = (version(12, 2)?, version(13, 2)?);
     let _applied: Vec<Applied> = a.apply_round(vec![(v1, first), (v2, second)])?;
@@ -178,7 +178,7 @@ fn test_a_renewal_s_round_raises_the_generation_and_keeps_the_epoch() -> TestRes
     // partitions, "A renewal raises the generation", as the round writes it.
     let a = changesets()?;
     let seven = BucketGroup::new(7)?;
-    let registering = a.register(NS, EntityRef::Iri(ex("o").as_str()))?;
+    let registering = a.register(TENANT, EntityRef::Iri(ex("o").as_str()))?;
     let o = registering.entity();
     apply_at(
         &a,
@@ -186,7 +186,7 @@ fn test_a_renewal_s_round_raises_the_generation_and_keeps_the_epoch() -> TestRes
         registering.finish(seven, generation(3)?),
     )?;
     let renewed = a
-        .register(NS, EntityRef::Id(o))?
+        .register(TENANT, EntityRef::Id(o))?
         .finish(seven, generation(4)?);
     let at = version(20, 2)?;
     apply_at(&a, at, renewed)?;
@@ -265,7 +265,7 @@ fn test_an_object_another_partition_owns_joins_no_referrer_set_here() -> TestRes
         bucket_of("foreign")?,
         Sequence::new(77)?,
     );
-    let mut e = a.begin(NS, a.quads().lists().applied_ts())?;
+    let mut e = a.begin(TENANT, a.quads().lists().applied_ts())?;
     e.adopt(ex("foreign").as_str(), given);
     e.apply(&changeset(vec![insert("<a> <knows> <foreign>")?]))?;
     let executed = e.finish()?;
@@ -306,7 +306,7 @@ fn test_replay_derives_the_home_s_own_groups_alike() -> TestResult {
     let at = version(8, 2)?;
     apply_at(&first, at, executed)?;
     let borrowed: Vec<&VersionlessEntry> = entries.iter().collect();
-    let replayed = replica.prepare_logical(NS, &logical, &borrowed)?;
+    let replayed = replica.prepare_logical(TENANT, &logical, &borrowed)?;
     let _replayed: Vec<Applied> = replica.apply_round_with(vec![(at, replayed)], &entries, at)?;
     let hub = uid(&first, "hub")?;
     assert_eq!(members(&replica, hub, at)?, members(&first, hub, at)?);
@@ -320,22 +320,22 @@ fn test_replay_derives_a_home_s_registrations_at_their_versions() -> TestResult 
     let home = changesets()?;
     let replica = changesets()?;
     let (seven, nine) = (BucketGroup::new(7)?, BucketGroup::new(9)?);
-    let registering = home.register(NS, EntityRef::Iri(ex("o").as_str()))?;
+    let registering = home.register(TENANT, EntityRef::Iri(ex("o").as_str()))?;
     let o = registering.entity();
     let first = registering.finish(seven, generation(1)?);
     let second = home
-        .register(NS, EntityRef::Iri(ex("o").as_str()))?
+        .register(TENANT, EntityRef::Iri(ex("o").as_str()))?
         .finish(nine, generation(2)?);
     let (v1, v2) = (version(12, 2)?, version(14, 2)?);
     let _applied: Vec<Applied> = home.apply_round(vec![(v1, first), (v2, second)])?;
     let replayed = vec![
         (
             v1,
-            replica.prepare_replayed_registration(NS, o, seven, generation(1)?),
+            replica.prepare_replayed_registration(TENANT, o, seven, generation(1)?),
         ),
         (
             v2,
-            replica.prepare_replayed_registration(NS, o, nine, generation(2)?),
+            replica.prepare_replayed_registration(TENANT, o, nine, generation(2)?),
         ),
     ];
     let _replayed: Vec<Applied> = replica.apply_round(replayed)?;
@@ -355,10 +355,10 @@ fn test_replay_derives_a_home_s_registrations_at_their_versions() -> TestResult 
 fn test_a_registration_holds_entries_only_of_an_id_it_created() -> TestResult {
     let a = changesets()?;
     write(&a, &["<s> <knows> <o>"])?;
-    let created = a.register(NS, EntityRef::Iri(ex("new").as_str()))?;
+    let created = a.register(TENANT, EntityRef::Iri(ex("new").as_str()))?;
     assert!(created.holds_entries());
     a.release(&created.into_executed());
-    let known = a.register(NS, EntityRef::Id(uid(&a, "o")?))?;
+    let known = a.register(TENANT, EntityRef::Id(uid(&a, "o")?))?;
     assert!(!known.holds_entries());
     a.release(&known.into_executed());
     Ok(())

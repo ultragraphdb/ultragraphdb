@@ -11,7 +11,7 @@ use crate::utils::changes::CHANGE_RECORD_SIZE;
 /// The body of a received Describe frame, read in place; see [`crate::Describe`] for its layout.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DescribeView<'a> {
-    namespace: u64,
+    tenant: u64,
     read_version: u64,
     strings: StringList<'a>,
     labels: Vec<u32>,
@@ -22,9 +22,9 @@ pub struct DescribeView<'a> {
 }
 
 impl<'a> DescribeView<'a> {
-    /// The namespace described.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant described.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// The snapshot the answer was read at; zero in a request.

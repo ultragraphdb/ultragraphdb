@@ -4,7 +4,7 @@
  */
 
 //! Where a partition's catalog comes from: [`CatalogSource`], which the metadata group implements, answering the
-//! catalog version of a namespace in effect at an epoch, or a version by its number, each a [`HeldVersion`] whose
+//! catalog version of a tenant in effect at an epoch, or a version by its number, each a [`HeldVersion`] whose
 //! contents are opaque bytes the catalog's encoding wrote. A partition holds no catalog key: it loads the versions in
 //! effect at its open epochs, and those its untrimmed log names, before it replays. A first write of a predicate no
 //! version declares leaves a [`DefaultEntry`], which the partition's host sends to the group as a command no write

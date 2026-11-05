@@ -24,7 +24,7 @@ Feature: Wire protocol: the Rust client
     Then no further frame of that stream arrives, and other streams continue
 
   Scenario: A stale statement is refused
-    When a statement is prepared, the catalog of its namespace changes, and the statement is executed
+    When a statement is prepared, the catalog of its tenant changes, and the statement is executed
     Then the execution is refused as stale, and preparing it again succeeds
 
   Scenario: A repeated term is sent once per batch

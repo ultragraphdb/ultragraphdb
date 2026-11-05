@@ -113,14 +113,14 @@ fn test_each_reason_about_positions_names_them_without_a_source() -> TestResult 
         catalog.0,
         RecoveryErrorEnum::Catalog {
             position: 9,
-            namespace: 2,
+            tenant: 2,
             version: 5,
             reason: "the metadata group holds no version 5".to_string()
         }
     );
     assert_eq!(
         catalog.to_string(),
-        "the round at position 9 starts catalog version 5 of namespace 2, which could not be read: the metadata group \
+        "the round at position 9 starts catalog version 5 of tenant 2, which could not be read: the metadata group \
          holds no version 5"
     );
     for error in [not_in_log, gap, behind, derivation, catalog] {

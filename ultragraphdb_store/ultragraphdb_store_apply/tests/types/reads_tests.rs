@@ -5,7 +5,7 @@
 
 //! What a changeset's execution records as read: an insert tests its statement, deletes, overwrites, unique checks and
 //! counts read lists whole, terms new to the store are recorded absent by ID and no dictionary key is, a declaration checking its
-//! predicate's data records the ranges it scanned, and the namespace's catalog range is always there.
+//! predicate's data records the ranges it scanned, and the tenant's catalog range is always there.
 
 use oxrdf::{GraphName, Literal, Term};
 use ultragraphdb_core_ids::SystemId;
@@ -15,14 +15,14 @@ use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_apply::Reads;
 
 use crate::utils::changesets::{
-    NS, TestChangesets, apply, changesets, declare, delete, ex, graph, insert, uid, write,
+    TENANT, TestChangesets, apply, changesets, declare, delete, ex, graph, insert, uid, write,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
 /// The forward key of `<subject>`'s `<predicate>` in graph `g`.
 fn forward(a: &TestChangesets, g: Graph, predicate: &str, subject: &str) -> TestResult<Vec<u8>> {
     Ok(QuadKey::Forward {
-        namespace: NS,
+        tenant: TENANT,
         graph: g,
         predicate: uid(a, predicate)?,
         subject: uid(a, subject)?,
@@ -119,7 +119,7 @@ fn test_a_count_index_reads_the_forward_and_reverse_lists_whole() -> TestResult 
     write(&a, &["<a> <friend> <c>", "<b> <p> <q>"])?;
     let reads = reads_of(&a, vec![insert("<a> <friend> <b>")?])?;
     let reverse = QuadKey::Reverse {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         predicate: uid(&a, "friend")?,
         object: EncodedTerm::id(uid(&a, "b")?),
@@ -174,7 +174,7 @@ fn test_a_delete_naming_a_term_the_store_lacks_records_it_absent() -> TestResult
 
 /// A declaration narrowing a predicate holding data scans its forward keys in every graph: the ranges recorded hold
 /// every forward key of the predicate, in a graph holding it, in a graph holding only another predicate, in a graph
-/// between two that hold keys, and past the last, and no key of another namespace.
+/// between two that hold keys, and past the last, and no key of another tenant.
 #[test]
 fn test_a_declaration_checking_its_data_records_the_ranges_it_scanned() -> TestResult {
     let a = changesets()?;
@@ -200,9 +200,9 @@ fn test_a_declaration_checking_its_data_records_the_ranges_it_scanned() -> TestR
     let (g, h) = (graph(&a, "g")?, graph(&a, "h")?);
     let nick = uid(&a, "nick")?;
     // A forward key of `nick` from its layout, its graph and subject any 16 bytes: a key a write could hold there.
-    let key_in = |graph: u128, subject: u128, namespace: u64| {
+    let key_in = |graph: u128, subject: u128, tenant: u64| {
         let mut key = vec![Keyspace::Forward.byte()];
-        key.extend_from_slice(&namespace.to_be_bytes());
+        key.extend_from_slice(&tenant.to_be_bytes());
         key.extend_from_slice(&graph.to_be_bytes());
         key.extend_from_slice(&nick.to_be_bytes());
         key.extend_from_slice(&subject.to_be_bytes());
@@ -214,13 +214,13 @@ fn test_a_declaration_checking_its_data_records_the_ranges_it_scanned() -> TestR
     for graph in [0, 1, g - 1, g, g + 1, h - 1, h, h + 1, u128::MAX] {
         for s in [1, subject, u128::MAX] {
             assert!(
-                in_a_range(&reads, &key_in(graph, s, NS)),
+                in_a_range(&reads, &key_in(graph, s, TENANT)),
                 "graph {graph:x}, subject {s:x}: {:?}",
                 reads.ranges()
             );
         }
     }
-    assert!(!in_a_range(&reads, &key_in(0, subject, NS + 1)));
+    assert!(!in_a_range(&reads, &key_in(0, subject, TENANT + 1)));
     Ok(())
 }
 
@@ -239,13 +239,13 @@ fn test_a_declaration_without_a_data_check_records_no_range() -> TestResult {
     Ok(())
 }
 
-/// The catalog range is the namespace's catalog keys: the catalog keyspace byte, then the namespace, to the next
-/// namespace. Namespace 255 checks the carry: its end is namespace 256's prefix.
+/// The catalog range is the tenant's catalog keys: the catalog keyspace byte, then the tenant, to the next
+/// tenant. Tenant 255 checks the carry: its end is tenant 256's prefix.
 #[test]
-fn test_the_catalog_range_is_the_namespaces() -> TestResult {
+fn test_the_catalog_range_is_the_tenants() -> TestResult {
     let a = changesets()?;
     let reads = reads_of(&a, vec![insert("<a> <knows> <b>")?])?;
-    assert_eq!(reads.namespace(), NS);
+    assert_eq!(reads.tenant(), TENANT);
     assert_eq!(
         reads.catalog(),
         (
@@ -260,7 +260,7 @@ fn test_the_catalog_range_is_the_namespaces() -> TestResult {
         object: Term::from(Literal::new_simple_literal("v")),
     });
     let other_reads = a.apply(&other).context("applies")?.reads().clone();
-    assert_eq!(other_reads.namespace(), 255);
+    assert_eq!(other_reads.tenant(), 255);
     assert_eq!(
         other_reads.catalog(),
         (
@@ -271,13 +271,13 @@ fn test_the_catalog_range_is_the_namespaces() -> TestResult {
     Ok(())
 }
 
-/// An empty changeset reads nothing but its catalog range once its namespace has a catalog; the first changeset of a
-/// namespace looks up `rdf:type` for the initial catalog, and finds it absent on a new store.
+/// An empty changeset reads nothing but its catalog range once its tenant has a catalog; the first changeset of a
+/// tenant looks up `rdf:type` for the initial catalog, and finds it absent on a new store.
 #[test]
 fn test_an_empty_changeset_reads_nothing() -> TestResult {
     let a = changesets()?;
     let first = reads_of(&a, Vec::new())?;
-    let rdf_type: Option<SystemId> = a.quads().id_of(NS, oxrdf::vocab::rdf::TYPE.as_str())?;
+    let rdf_type: Option<SystemId> = a.quads().id_of(TENANT, oxrdf::vocab::rdf::TYPE.as_str())?;
     assert_eq!(first.absent(), rdf_type.as_slice());
     assert!(no_dictionary_key(&first));
     let reads = reads_of(&a, Vec::new())?;

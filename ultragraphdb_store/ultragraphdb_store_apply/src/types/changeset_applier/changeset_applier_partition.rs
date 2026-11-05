@@ -26,7 +26,7 @@ where
     B: BlockSource + Send + Sync + 'static,
     E: Executor,
 {
-    /// Gets or creates the ID of `entity` in `namespace`: an IRI's as the dictionary resolves it, shared with every
+    /// Gets or creates the ID of `entity` in `tenant`: an IRI's as the dictionary resolves it, shared with every
     /// concurrent registrant and creator, its entries held until the registration's round settles them; a known ID as
     /// it is, once the dictionary is found to hold it.
     ///
@@ -36,21 +36,18 @@ where
     /// not hold; the store's error.
     pub fn register(
         &self,
-        namespace: u64,
+        tenant: u64,
         entity: EntityRef<'_>,
     ) -> Result<Registering, ChangesetError> {
         let quads = self.quads();
         // A registration installs no catalog: it is executed under the empty one, which leaves the installed catalog as
         // it is.
-        let mut executed = Executed::empty(
-            namespace,
-            quads.lists().applied_ts(),
-            Catalog::new(namespace),
-        );
+        let mut executed =
+            Executed::empty(tenant, quads.lists().applied_ts(), Catalog::new(tenant));
         let id = match entity {
             EntityRef::Iri(iri) => executed.terms.iri(quads, iri)?,
             EntityRef::Id(id) => {
-                let _named: (String, bool) = quads.iri_of(namespace, id)?;
+                let _named: (String, bool) = quads.iri_of(tenant, id)?;
                 id
             }
         };
@@ -58,11 +55,11 @@ where
     }
 
     /// The execution deriving a home's logged registration of `entity`'s member `group` at `generation` in
-    /// `namespace`, for recovery to apply at the record's commit version (write-ahead-log, "Replay derives a home's
+    /// `tenant`, for recovery to apply at the record's commit version (write-ahead-log, "Replay derives a home's
     /// referrer-set deltas"), as [`Registering::finish`] derives it.
     pub fn prepare_replayed_registration(
         &self,
-        namespace: u64,
+        tenant: u64,
         entity: SystemId,
         group: BucketGroup,
         generation: NonZeroU64,
@@ -70,7 +67,7 @@ where
         let read_ts = self.quads().lists().applied_ts();
         Executed {
             registration: Some((entity, group, generation)),
-            ..Executed::empty(namespace, read_ts, Catalog::new(namespace))
+            ..Executed::empty(tenant, read_ts, Catalog::new(tenant))
         }
     }
 }

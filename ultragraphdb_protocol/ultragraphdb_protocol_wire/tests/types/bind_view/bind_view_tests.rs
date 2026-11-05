@@ -37,7 +37,7 @@ fn test_the_golden_binds_read_back_to_their_bodies() -> TestResult {
     let reply = bytes("bind_reply")?;
     let view = BindView::from_frame(&frame_of(&reply)?)?;
     assert_eq!(
-        (view.partition(), view.kind(), view.namespace()),
+        (view.partition(), view.kind(), view.tenant()),
         (3, BindKind::Transaction, 5)
     );
     assert_eq!(

@@ -30,8 +30,8 @@ use ultragraphdb_traits_blocks::TestBlockSource;
 pub type TestChangesets =
     ChangesetApplier<SimStore, SimListCache<CachedList>, SteppedExecutor, TestBlockSource>;
 
-/// The namespace the tests write.
-pub const NS: u64 = 0;
+/// The tenant the tests write.
+pub const TENANT: u64 = 0;
 
 const GEO_JSON: &str = "http://www.opengis.net/ont/geosparql#geoJSONLiteral";
 
@@ -284,11 +284,11 @@ pub fn declaration(predicate: &str, phrase: &str) -> TestResult<PredicateDeclara
     Ok(d.with_tokenizers(tokenizers))
 }
 
-/// One changeset of the root namespace holding `changes`.
+/// One changeset of the root tenant holding `changes`.
 pub fn changeset(changes: Vec<Change>) -> Changeset {
     changes
         .into_iter()
-        .fold(Changeset::new(NS), Changeset::with)
+        .fold(Changeset::new(TENANT), Changeset::with)
 }
 
 /// Applies `changes` as one changeset.
@@ -334,7 +334,7 @@ pub fn write<T: AsRef<str>>(a: &TestChangesets, texts: &[T]) -> TestResult {
 
 /// Runs one pass of the vector indexer of `predicate`: the version it indexed through.
 pub fn index(a: &TestChangesets, predicate: &str) -> TestResult<u64> {
-    a.index_vectors(NS, ex(predicate).as_ref())
+    a.index_vectors(TENANT, ex(predicate).as_ref())
         .context("the indexer runs")
 }
 
@@ -366,7 +366,7 @@ pub fn finish_builds(a: &TestChangesets) {
 /// The ID of the IRI `<name>`.
 pub fn uid(a: &TestChangesets, name: &str) -> TestResult<SystemId> {
     a.quads()
-        .id_of(NS, ex(name).as_str())
+        .id_of(TENANT, ex(name).as_str())
         .context("the dictionary reads")?
         .ok_or_else(|| format!("<{name}> has no ID"))
         .context("the subject has an ID")
@@ -398,14 +398,14 @@ pub fn objects_in(
     predicate: &str,
 ) -> TestResult<Vec<Term>> {
     let key = QuadKey::Forward {
-        namespace: NS,
+        tenant: TENANT,
         graph: graph(a, graph_name)?,
         predicate: uid(a, predicate)?,
         subject: uid(a, subject)?,
     }
     .to_bytes();
     a.quads()
-        .list_terms(NS, &key, latest(a))
+        .list_terms(TENANT, &key, latest(a))
         .context("the list reads")
 }
 
@@ -416,7 +416,7 @@ pub fn postings(
     predicate: &str,
 ) -> TestResult<Vec<(EncodedTerm, Vec<SystemId>)>> {
     let key = QuadKey::Forward {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         predicate: uid(a, predicate)?,
         subject: uid(a, subject)?,
@@ -439,7 +439,7 @@ fn uids(a: &TestChangesets, key: &[u8]) -> TestResult<Vec<SystemId>> {
 pub fn reverse(a: &TestChangesets, predicate: &str, object: &str) -> TestResult<Vec<SystemId>> {
     let object = EncodedTerm::id(uid(a, object)?);
     let key = QuadKey::Reverse {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         predicate: uid(a, predicate)?,
         object,
@@ -507,7 +507,7 @@ pub fn indexed(
     (tokenizer, token): &(u8, Vec<u8>),
 ) -> TestResult<Vec<SystemId>> {
     let key = QuadKey::ValueIndex {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         predicate: uid(a, predicate)?,
         tokenizer: *tokenizer,
@@ -562,7 +562,7 @@ pub fn counted(
     count: u32,
 ) -> TestResult<Vec<SystemId>> {
     let key = QuadKey::CountIndex {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         predicate: uid(a, predicate)?,
         direction,
@@ -594,7 +594,7 @@ pub fn statistics(
     predicate: &str,
 ) -> TestResult<ultragraphdb_store_quads::Statistics> {
     a.quads()
-        .statistics(NS, DEFAULT_GRAPH, uid(a, predicate)?, latest(a))
+        .statistics(TENANT, DEFAULT_GRAPH, uid(a, predicate)?, latest(a))
         .context("the statistics read")
 }
 
@@ -604,13 +604,13 @@ pub fn predicate_list(a: &TestChangesets, node: &str, objects: bool) -> TestResu
     let node = uid(a, node)?;
     let key = if objects {
         QuadKey::ObjectPredicates {
-            namespace: NS,
+            tenant: TENANT,
             graph: DEFAULT_GRAPH,
             object: EncodedTerm::id(node),
         }
     } else {
         QuadKey::SubjectPredicates {
-            namespace: NS,
+            tenant: TENANT,
             graph: DEFAULT_GRAPH,
             subject: node,
         }
@@ -639,7 +639,7 @@ pub fn keys_of(
 pub fn is_held_in_default(a: &TestChangesets, subject: &str, predicate: &str) -> TestResult<bool> {
     let known = |name: &str| -> TestResult<bool> {
         Ok(a.quads()
-            .id_of(NS, ex(name).as_str())
+            .id_of(TENANT, ex(name).as_str())
             .context("the dictionary reads")?
             .is_some())
     };
@@ -651,13 +651,13 @@ pub fn is_held_in_default(a: &TestChangesets, subject: &str, predicate: &str) ->
 pub fn holds_nothing(a: &TestChangesets, name: &str) -> TestResult<bool> {
     let Some(id) = a
         .quads()
-        .id_of(NS, ex(name).as_str())
+        .id_of(TENANT, ex(name).as_str())
         .context("the dictionary reads")?
     else {
         return Ok(true);
     };
     let key = QuadKey::SubjectPredicates {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         subject: id,
     }

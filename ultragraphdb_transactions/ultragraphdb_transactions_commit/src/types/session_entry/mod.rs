@@ -19,7 +19,7 @@ const RESULT: usize = 16;
 /// reply's term table, which names each node by its IRI or skolem IRI, so a retry after a restart is answered as the
 /// original was.
 ///
-/// The entry sits at [`SessionEntry::key`] under the system prefix, outside every namespace, so no drop removes it;
+/// The entry sits at [`SessionEntry::key`] under the system prefix, outside every tenant, so no drop removes it;
 /// [`SessionEntry::INDEX_KEY`] holds the identities of the sessions held, ascending, 16 big-endian bytes each. An entry's
 /// bytes, little-endian: `request` u64, `version` u64, the token's `partition` u32 and 4 zero bytes, its `position`
 /// u64 and its `epoch` u64, the result count u32 and the term table's length u32, then each result's 16 bytes as a

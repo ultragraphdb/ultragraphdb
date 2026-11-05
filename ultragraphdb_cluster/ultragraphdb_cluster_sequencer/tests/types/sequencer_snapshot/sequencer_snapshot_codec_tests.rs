@@ -7,7 +7,7 @@ use ultragraphdb_cluster_placement::PartitionId;
 use ultragraphdb_cluster_sequencer::{
     CatalogVersion, Close, SequencedTransaction, SequencerRecord, SequencerSnapshot,
 };
-use ultragraphdb_core_ids::{Epoch, Namespace};
+use ultragraphdb_core_ids::{Epoch, Tenant};
 use ultragraphdb_error_cluster::{ClusterError, ClusterErrorEnum};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_log::Position;
@@ -27,7 +27,7 @@ fn refusal(bytes: &[u8]) -> TestResult<ClusterErrorEnum> {
         .0)
 }
 
-/// The snapshot at position 6 of the closes of 3 (at 100 µs, announcing version 2 of namespace 1) and 4 (at 200 µs,
+/// The snapshot at position 6 of the closes of 3 (at 100 µs, announcing version 2 of tenant 1) and 4 (at 200 µs,
 /// announcing placement version 1 and carrying the eviction of session 7) and the transaction at position 5, placed in
 /// epoch 5.
 fn sample() -> TestResult<SequencerSnapshot> {
@@ -35,7 +35,7 @@ fn sample() -> TestResult<SequencerSnapshot> {
         Close::new(
             Epoch::new(3)?,
             100,
-            vec![CatalogVersion::new(Namespace::new(1), 2)],
+            vec![CatalogVersion::new(Tenant::new(1), 2)],
             Vec::new(),
         )?,
         Close::new(Epoch::new(4)?, 200, Vec::new(), vec![7])?.with_placement(1),
@@ -55,7 +55,7 @@ fn sample() -> TestResult<SequencerSnapshot> {
 
 /// The record encodings of the sample, written by hand from `SequencerRecord::encode`'s documentation.
 fn sample_bytes() -> Vec<u8> {
-    // The close of 3: kind 1, epoch 3, time 100, one version (namespace 1, version 2), no eviction, no placement.
+    // The close of 3: kind 1, epoch 3, time 100, one version (tenant 1, version 2), no eviction, no placement.
     let mut close3 = vec![1, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 100, 0, 1];
     close3.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0]);
     close3.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0]);

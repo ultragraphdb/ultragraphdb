@@ -112,7 +112,7 @@ pub struct CommitStep<P> {
     asked_us: Option<u64>,
     /// The commits held for a close until their session token's epoch is open.
     held: VecDeque<CommitRequest<P>>,
-    /// Each namespace's catalog version in effect at the open epoch, by namespace.
+    /// Each tenant's catalog version in effect at the open epoch, by tenant.
     catalog: Vec<(u64, u64)>,
     /// The reason a close out of order stopped the step.
     fault: Option<CommitError>,
@@ -213,15 +213,15 @@ impl<P: Proposal> CommitStep<P> {
         }
     }
 
-    /// The step holding `versions`, each namespace's catalog version in effect at its open epoch, as the metadata
-    /// group's versions stand when the partition opens; a namespace not named is at version 0.
+    /// The step holding `versions`, each tenant's catalog version in effect at its open epoch, as the metadata
+    /// group's versions stand when the partition opens; a tenant not named is at version 0.
     pub fn with_catalog(self, versions: &[CatalogVersion]) -> Self {
         let mut catalog: Vec<(u64, u64)> = versions
             .iter()
-            .map(|v| (v.namespace().get(), v.version()))
+            .map(|v| (v.tenant().get(), v.version()))
             .collect();
         catalog.sort_unstable();
-        catalog.dedup_by_key(|(namespace, _)| *namespace);
+        catalog.dedup_by_key(|(tenant, _)| *tenant);
         Self { catalog, ..self }
     }
 
@@ -351,11 +351,11 @@ impl<P: Proposal> CommitStep<P> {
         }
     }
 
-    /// The catalog version of `namespace` in effect at the open epoch, 0 when none is.
-    pub fn catalog_version(&self, namespace: u64) -> u64 {
+    /// The catalog version of `tenant` in effect at the open epoch, 0 when none is.
+    pub fn catalog_version(&self, tenant: u64) -> u64 {
         self.catalog
             .iter()
-            .find(|(n, _)| *n == namespace)
+            .find(|(n, _)| *n == tenant)
             .map_or(0, |(_, version)| *version)
     }
 

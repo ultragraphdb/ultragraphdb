@@ -19,7 +19,7 @@ fn test_each_constructor_builds_its_variant() -> TestResult {
     );
     assert_eq!(
         QuadError::no_owned_bucket(4).0,
-        QuadErrorEnum::NoOwnedBucket { namespace: 4 }
+        QuadErrorEnum::NoOwnedBucket { tenant: 4 }
     );
     assert_eq!(
         QuadError::not_owned("http://ex.org/b", 0xC7_0001).0,
@@ -73,7 +73,7 @@ fn test_each_text_names_what_it_refused() {
         ),
         (
             QuadError::no_owned_bucket(5),
-            "The partition owns no bucket of namespace 5's run, so it mints no blank node of it",
+            "The partition owns no bucket of tenant 5's run, so it mints no blank node of it",
         ),
         (
             QuadError::skolem_draws(4),

@@ -18,7 +18,7 @@ use ultragraphdb_traits_catalog::{CatalogSource, HeldVersion, TestCatalogSource}
 use crate::Steps;
 use crate::changeset_steps::cs;
 use crate::utils::changesets::{
-    NS, TestChangesets, changeset, changesets_over, declaration, ex, holds_catalog_key, insert,
+    TENANT, TestChangesets, changeset, changesets_over, declaration, ex, holds_catalog_key, insert,
     uid, write,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
@@ -31,18 +31,18 @@ pub(crate) fn send_defaults(w: &mut Steps, a: &TestChangesets) -> TestResult {
     Ok(())
 }
 
-/// Commits version `version` of `namespace` declaring `declarations` to `source`, in effect from epoch `version`, and
+/// Commits version `version` of `tenant` declaring `declarations` to `source`, in effect from epoch `version`, and
 /// makes it take effect in the partition `a` as the round installing it: the refusals it met.
 pub(crate) fn take_effect(
     source: &TestCatalogSource,
     a: &TestChangesets,
-    namespace: u64,
+    tenant: u64,
     version: u64,
     declarations: Vec<Declaration>,
 ) -> TestResult<Vec<String>> {
-    let contents = CatalogContents::new(namespace, version, declarations);
+    let contents = CatalogContents::new(tenant, version, declarations);
     source.commit(HeldVersion::new(
-        namespace,
+        tenant,
         version,
         version,
         contents.encode()?,
@@ -58,20 +58,20 @@ pub(crate) fn take_effect(
     Ok(refusals)
 }
 
-/// The partition over `a`'s store after a crash and a restart, which loads every namespace of `namespaces` from the
+/// The partition over `a`'s store after a crash and a restart, which loads every tenant of `tenants` from the
 /// version `source` holds in effect, decoded as every role loads it.
 pub(crate) fn restarted(
     source: &TestCatalogSource,
     a: &TestChangesets,
-    namespaces: &[u64],
+    tenants: &[u64],
 ) -> TestResult<TestChangesets> {
     let store = a.quads().store().clone();
     store.crash();
     store.recover();
     let b = changesets_over(store)?;
-    for &namespace in namespaces {
-        if let Some(held) = source.version_at(namespace, u64::MAX)? {
-            let contents = CatalogContents::decode(namespace, held.version(), held.contents())?;
+    for &tenant in tenants {
+        if let Some(held) = source.version_at(tenant, u64::MAX)? {
+            let contents = CatalogContents::decode(tenant, held.version(), held.contents())?;
             b.load_catalog(&contents)?;
         }
     }
@@ -102,7 +102,7 @@ fn nickname_recorded(w: &mut Steps) -> TestResult {
     let default = PredicateDeclaration::new(ex("nickname"));
     let recorded: Vec<String> = w
         .source
-        .defaults(NS)
+        .defaults(TENANT)
         .iter()
         .map(|e| e.predicate().to_string())
         .collect();
@@ -112,7 +112,7 @@ fn nickname_recorded(w: &mut Steps) -> TestResult {
     );
     let entry = w
         .source
-        .defaults(NS)
+        .defaults(TENANT)
         .into_iter()
         .find(|e| e.predicate() == ex("nickname").as_str())
         .context("the record of `nickname`")?;
@@ -120,7 +120,7 @@ fn nickname_recorded(w: &mut Steps) -> TestResult {
         ultragraphdb_core_catalog::decode_declaration(&[], entry.entry())?,
         Declaration::Predicate(default.clone())
     );
-    let catalog = a.catalog(NS)?;
+    let catalog = a.catalog(TENANT)?;
     assert_eq!(catalog.predicate(uid(&a, "nickname")?), Some(&default));
     Ok(())
 }
@@ -131,7 +131,7 @@ fn alias_refused(w: &mut Steps) -> TestResult {
     let _refusals = take_effect(
         &w.source,
         &a,
-        NS,
+        TENANT,
         2,
         vec![Declaration::Predicate(declaration("knows", "an edge")?)],
     )?;
@@ -175,12 +175,12 @@ fn both_commit_with_default(w: &mut Steps) -> TestResult {
     assert!(w.results.iter().all(Result::is_ok));
     let a = cs(w)?;
     assert_eq!(
-        a.catalog(NS)?.predicate(uid(&a, "score")?),
+        a.catalog(TENANT)?.predicate(uid(&a, "score")?),
         Some(&PredicateDeclaration::new(ex("score")))
     );
     let recorded: Vec<String> = w
         .source
-        .defaults(NS)
+        .defaults(TENANT)
         .iter()
         .map(|e| e.predicate().to_string())
         .filter(|p| p == ex("score").as_str())
@@ -196,10 +196,10 @@ fn both_commit_with_default(w: &mut Steps) -> TestResult {
 #[when("declarations are made and the frontend and storage are stopped and started")]
 fn declared_and_restarted(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
-    let _refusals = take_effect(&w.source, &a, NS, 2, declared()?)?;
+    let _refusals = take_effect(&w.source, &a, TENANT, 2, declared()?)?;
     write(&a, &[r#"<a> <name> "big apple""#, "<a> <knows> <b>"])?;
-    w.catalogs = vec![(*a.catalog(NS)?).clone()];
-    let b = restarted(&w.source, &a, &[NS])?;
+    w.catalogs = vec![(*a.catalog(TENANT)?).clone()];
+    let b = restarted(&w.source, &a, &[TENANT])?;
     w.changesets = Some(Arc::new(b));
     Ok(())
 }
@@ -208,7 +208,7 @@ fn declared_and_restarted(w: &mut Steps) -> TestResult {
 fn loaded_equals(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
     let before: &Catalog = w.catalogs.first().context("the catalog before stopping")?;
-    assert_eq!(*a.catalog(NS)?, *before);
+    assert_eq!(*a.catalog(TENANT)?, *before);
     assert!(!holds_catalog_key(&a));
     Ok(())
 }
@@ -216,12 +216,12 @@ fn loaded_equals(w: &mut Steps) -> TestResult {
 #[when("a predicate's declaration is removed and the roles are restarted")]
 fn removed_and_restarted(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
-    let _refusals = take_effect(&w.source, &a, NS, 2, declared()?)?;
+    let _refusals = take_effect(&w.source, &a, TENANT, 2, declared()?)?;
     write(&a, &[r#"<a> <name> "big apple""#])?;
     let kept = vec![Declaration::Predicate(declaration("knows", "an edge")?)];
-    let removed = take_effect(&w.source, &a, NS, 3, kept)?;
+    let removed = take_effect(&w.source, &a, TENANT, 3, kept)?;
     assert!(removed.is_empty(), "{removed:?}");
-    let b = restarted(&w.source, &a, &[NS])?;
+    let b = restarted(&w.source, &a, &[TENANT])?;
     w.changesets = Some(Arc::new(b));
     Ok(())
 }
@@ -229,7 +229,7 @@ fn removed_and_restarted(w: &mut Steps) -> TestResult {
 #[then("the loaded catalog does not declare the predicate")]
 fn removed_stays_removed(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
-    let catalog = a.catalog(NS)?;
+    let catalog = a.catalog(TENANT)?;
     assert!(catalog.predicate(uid(&a, "name")?).is_none());
     assert!(catalog.predicate(uid(&a, "knows")?).is_some());
     assert_eq!(catalog.version(), 3);
@@ -239,7 +239,7 @@ fn removed_stays_removed(w: &mut Steps) -> TestResult {
 #[when("a predicate is declared")]
 fn predicate_declared(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
-    let _refusals = take_effect(&w.source, &a, NS, 2, declared()?)?;
+    let _refusals = take_effect(&w.source, &a, TENANT, 2, declared()?)?;
     write(&a, &[r#"<a> <name> "pear""#])?;
     Ok(())
 }
@@ -247,7 +247,7 @@ fn predicate_declared(w: &mut Steps) -> TestResult {
 #[then("no partition's store holds a catalog key for it")]
 fn no_catalog_key(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
-    assert!(a.catalog(NS)?.predicate(uid(&a, "name")?).is_some());
+    assert!(a.catalog(TENANT)?.predicate(uid(&a, "name")?).is_some());
     assert!(!holds_catalog_key(&a));
     Ok(())
 }

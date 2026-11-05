@@ -56,7 +56,7 @@ pub(crate) struct ChangesetWrite<'a, S, C, B> {
     catalog: Catalog,
     /// The keys of `entries` that are a predicate's implicit default entry and no declaration's, with the predicate.
     defaults: BTreeMap<Vec<u8>, SystemId>,
-    /// Whether the write changes the catalog: a declaration, or the namespace's initial catalog.
+    /// Whether the write changes the catalog: a declaration, or the tenant's initial catalog.
     catalog_changed: bool,
     /// The statement records the write has written, or removed, by graph and ID.
     records: BTreeMap<(Graph, SystemId), Option<StatementRecord>>,
@@ -111,7 +111,7 @@ where
     /// The write while `rebuild` runs, or, with `None`, while another changeset of the batch starts one when
     /// `building` holds.
     pub fn under(mut self, rebuild: Option<&Rebuild>, building: bool) -> Self {
-        if let Some(r) = rebuild.filter(|r| r.namespace == self.namespace()) {
+        if let Some(r) = rebuild.filter(|r| r.tenant == self.tenant()) {
             self.maintained = Some((r.predicate, r.maintained()));
             self.vector_built = r.plan.build_vector.then_some(r.predicate);
         }
@@ -119,20 +119,20 @@ where
         self
     }
 
-    /// Applies every change of `changeset`, in order; the first refusal ends it. A namespace with no catalog is given
+    /// Applies every change of `changeset`, in order; the first refusal ends it. A tenant with no catalog is given
     /// its initial one, written with the changeset.
     pub fn apply<W: Changes>(&mut self, changes: &W) -> Result<(), ChangesetError> {
         self.initial()?;
         changes.changes().try_for_each(|change| self.change(change))
     }
 
-    /// Gives a namespace with no catalog its initial one, written with the write.
+    /// Gives a tenant with no catalog its initial one, written with the write.
     pub(crate) fn initial(&mut self) -> Result<(), ChangesetError> {
         if self.catalog.predicates().next().is_none() {
             let rdf_type = self.iri(rdf::TYPE)?;
             let version = self.catalog.version();
-            self.catalog = Catalog::initial(self.namespace(), rdf_type).with_version(version);
-            self.add_entry(&catalog_key(self.namespace(), PREDICATE, rdf_type));
+            self.catalog = Catalog::initial(self.tenant(), rdf_type).with_version(version);
+            self.add_entry(&catalog_key(self.tenant(), PREDICATE, rdf_type));
         }
         Ok(())
     }
@@ -242,8 +242,8 @@ where
         }
     }
 
-    fn namespace(&self) -> u64 {
-        self.write.namespace()
+    fn tenant(&self) -> u64 {
+        self.write.tenant()
     }
 
     /// The subjects of the statements the write named by their reifier and resolved so far, in the order resolved:
@@ -277,7 +277,7 @@ where
         &self.unique
     }
 
-    /// Records a catalog change under its key: a declaration's, or the namespace's initial catalog's.
+    /// Records a catalog change under its key: a declaration's, or the tenant's initial catalog's.
     fn add_entry(&mut self, key: &[u8]) {
         self.catalog_changed = true;
         let _removed: Option<SystemId> = self.defaults.remove(key);
@@ -373,7 +373,7 @@ where
             return Ok(default);
         }
         self.catalog.declare_predicate(uid, default.clone())?;
-        self.add_default(uid, catalog_key(self.namespace(), PREDICATE, uid));
+        self.add_default(uid, catalog_key(self.tenant(), PREDICATE, uid));
         Ok(default)
     }
 
@@ -390,13 +390,13 @@ where
     /// The RDF term `encoded` names, the write's own new dictionary entries first; a skolemized blank node reads back
     /// as a blank node labelled by its skolem IRI, as the quad store labels it.
     fn decode(&mut self, encoded: &EncodedTerm) -> Result<Term, ChangesetError> {
-        let ns = self.namespace();
+        let tenant = self.tenant();
         let (terms, quads) = self.write.terms();
         let terms: &WriteTerms = terms;
         let iri = |id: SystemId| -> Result<(String, bool), QuadError> {
             match terms.pending_iri(id) {
                 Some((iri, skolem)) => Ok((iri.to_string(), skolem)),
-                None => quads.iri_of(ns, id),
+                None => quads.iri_of(tenant, id),
             }
         };
         if let Some(id) = encoded.as_id() {
@@ -411,7 +411,7 @@ where
             |id| Ok::<_, QuadError>(NamedNode::new_unchecked(iri(id)?.0)),
             |hash| match terms.pending_string(&hash) {
                 Some(s) => Ok(s.to_string()),
-                None => quads.string_of(ns, hash),
+                None => quads.string_of(tenant, hash),
             },
         )?;
         Ok(literal.into())

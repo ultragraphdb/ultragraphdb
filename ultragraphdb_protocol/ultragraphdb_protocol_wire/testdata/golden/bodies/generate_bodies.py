@@ -25,7 +25,7 @@ RELEASE = 0x0005_0000
 ABSENT = 0xFFFF_FFFF
 XSD = "http://www.w3.org/2001/XMLSchema#"
 EX = "http://ex.org/"
-SKOLEM = "https://w3id.org/ultragraphdb/ns/namespace/0/.well-known/genid/"
+SKOLEM = "https://w3id.org/ultragraphdb/ns/tenant/0/.well-known/genid/"
 
 
 def le(value, width, signed=False):
@@ -235,7 +235,7 @@ def token(partition, position, epoch):
     return le(partition, 4) + bytes(4) + le(position, 8) + le(epoch, 8)
 
 
-# 4 Begin (section 6.2): namespace 3, read version 0, read-only, level 2 (monotonic-fast), deadline 50 ms, the token
+# 4 Begin (section 6.2): tenant 3, read version 0, read-only, level 2 (monotonic-fast), deadline 50 ms, the token
 # of partition 2's commit at position 41 in epoch 30; on stream 5.
 golden("begin", 4, command_header([(0, le(3, 8)), (16, bytes([1, 2])), (20, le(50, 4)), (24, token(2, 41, 30))]),
        sections([]), stream=5)
@@ -398,7 +398,7 @@ terms.add(lit("done"))
 golden("error_operation", 16, command_header([(0, le(8, 2))]),
        sections([b"compare-and-set found another value"] + terms.sections()), stream=7, flags=1)
 
-# 19 Drop: graph <g> of namespace 3, through the session's request 8, on a stream of its own; the reply with the
+# 19 Drop: graph <g> of tenant 3, through the session's request 8, on a stream of its own; the reply with the
 # drop's commit version (31 << 22) | 2 and its token.
 for name, commit_version, tok in [("drop", 0, bytes(24)), ("drop_reply", (31 << 22) | 2, token(2, 42, 31))]:
     terms = Terms()
@@ -408,7 +408,7 @@ for name, commit_version, tok in [("drop", 0, bytes(24)), ("drop_reply", (31 << 
            stream=19, flags=1 if commit_version else 0)
 
 
-# 20 DirectWrite (section 6.6): through the session's request 9 in namespace 3, the token of partition 2's commit at
+# 20 DirectWrite (section 6.6): through the session's request 9 in tenant 3, the token of partition 2's commit at
 # position 41 in epoch 30, on a stream of its own: an insert, an edge with one property and a delete in a graph, each
 # args following the last; no names.
 terms, strings = Terms(), Strings()
@@ -432,7 +432,7 @@ def operation(fields, items):
     args.extend(terms.add(item) if isinstance(item, tuple) else item for item in items)
 
 
-# 21 ConditionalWrite (section 6.7): through the session's request 10 in namespace 3, the token of partition 2's commit
+# 21 ConditionalWrite (section 6.7): through the session's request 10 in tenant 3, the token of partition 2's commit
 # at position 42 in epoch 31, on a stream of its own: one insert, then one operation of each kind, an upsert-and-link's
 # link with the node as its object; the args the insert's, then each operation's in order.
 terms, strings = Terms(), Strings()
@@ -446,7 +446,7 @@ operation(operation_fields(3), [ABSENT, A, iri(f"{EX}state"), lit("old"), lit("n
 operation(operation_fields(4, delta=-5), [ABSENT, iri(f"{EX}counters"), iri(f"{EX}next-id")])
 golden("conditional_write", 21, command_header([(0, SESSION), (16, le(10, 8)), (24, le(3, 8)), (32, token(2, 42, 31))]),
        sections([records, u32s(args)] + terms.sections() + strings.sections() + [operations]), stream=23)
-# Through no session, holding no token, no change: section 0 empty and one counter add in namespace 4.
+# Through no session, holding no token, no change: section 0 empty and one counter add in tenant 4.
 terms, strings = Terms(), Strings()
 records, args, operations = b"", [], b""
 operation(operation_fields(4, delta=1), [ABSENT, iri(f"{EX}counters"), iri(f"{EX}next-id")])
@@ -456,7 +456,7 @@ golden("conditional_write_operation_only", 21, command_header([(24, le(4, 8))]),
 
 # 17 Round (section 12.1): position 3, its header's sequence, its parent, incarnation 1, first version (7 << 22) | 100,
 # five entries, derivation 1; the second aborted with a conflict on a list (detail 1). Four write-set records (section
-# 12.2): a transaction of namespace 3 at catalog 11, a home's registration, a build's start in namespace 4 at catalog 12,
+# 12.2): a transaction of tenant 3 at catalog 11, a home's registration, a build's start in tenant 4 at catalog 12,
 # and a Drop of a predicate, the last; then three dictionary entries in ascending key order. The transaction's commit
 # record of 4,000 bytes makes the body take chunks.
 def sid(prefix, sequence, bucket):
@@ -464,10 +464,10 @@ def sid(prefix, sequence, bucket):
     return prefix.to_bytes(2, "big") + sequence.to_bytes(8, "big") + bucket.to_bytes(3, "big") + bytes(3)
 
 
-def record(kind, namespace, catalog=0, read_version=0, session=bytes(16), request=0, principal=0, inserted=(),
+def record(kind, tenant, catalog=0, read_version=0, session=bytes(16), request=0, principal=0, inserted=(),
            removed=(), statements=(), operations=(), registrations=(), commit_record=b"", points=(), cstatements=(),
            ranges=(), results=(), result_terms=None):
-    fixed = (bytes([kind]) + bytes(7) + le(namespace, 8) + le(catalog, 8) + le(read_version, 8) + session
+    fixed = (bytes([kind]) + bytes(7) + le(tenant, 8) + le(catalog, 8) + le(read_version, 8) + session
              + le(request, 8) + le(principal, 8))
     assert len(fixed) == 64
     ops = b"".join(le(code, 2) + bytes(6) + argument for code, argument in operations)

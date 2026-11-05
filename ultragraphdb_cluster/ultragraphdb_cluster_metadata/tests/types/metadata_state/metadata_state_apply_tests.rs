@@ -5,21 +5,21 @@
 
 use ultragraphdb_cluster_metadata::{MetadataCommand, MetadataSnapshot, MetadataState};
 use ultragraphdb_cluster_placement::{BucketRange, NodeId, PartitionId};
-use ultragraphdb_core_ids::{Epoch, Namespace, TypePrefix};
+use ultragraphdb_core_ids::{Epoch, Tenant, TypePrefix};
 use ultragraphdb_error_cluster::{ClusterError, ClusterErrorEnum};
 use ultragraphdb_protocol_scram::ScramVerifier;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_log::Position;
 
-/// Namespace `n`.
-fn ns(n: u64) -> Namespace {
-    Namespace::new(n)
+/// Tenant `n`.
+fn tenant(n: u64) -> Tenant {
+    Tenant::new(n)
 }
 
-/// Offers `bytes` as the version of `namespace` after `predecessor`.
-fn offer(namespace: u64, predecessor: u64, bytes: &[u8]) -> MetadataCommand {
+/// Offers `bytes` as the version of tenant `number` after `predecessor`.
+fn offer(number: u64, predecessor: u64, bytes: &[u8]) -> MetadataCommand {
     MetadataCommand::OfferCatalog {
-        namespace: ns(namespace),
+        tenant: tenant(number),
         predecessor,
         bytes: bytes.to_vec(),
     }
@@ -30,7 +30,7 @@ fn close(epoch: u64, versions: &[(u64, u64)], evictions: &[u128]) -> TestResult<
     Ok(MetadataCommand::LearnClose {
         placement: 0,
         epoch: Epoch::new(epoch)?,
-        versions: versions.iter().map(|(n, v)| (ns(*n), *v)).collect(),
+        versions: versions.iter().map(|(n, v)| (tenant(*n), *v)).collect(),
         evictions: evictions.to_vec(),
     })
 }
@@ -64,18 +64,18 @@ fn contradicts(what: &'static str) -> ClusterErrorEnum {
 }
 
 #[test]
-fn test_versions_chain_from_1_per_namespace() -> TestResult {
+fn test_versions_chain_from_1_per_tenant() -> TestResult {
     let mut state = MetadataState::new();
     state.apply(&offer(1, 0, b"a1"))?;
     state.apply(&offer(1, 1, b"a2"))?;
     state.apply(&offer(2, 0, b"b1"))?;
-    assert_eq!(state.current_version(ns(1)), 2);
-    assert_eq!(state.current_version(ns(2)), 1);
+    assert_eq!(state.current_version(tenant(1)), 2);
+    assert_eq!(state.current_version(tenant(2)), 1);
     assert_eq!(
         state.pending_versions(),
-        vec![(ns(1), 1), (ns(1), 2), (ns(2), 1)]
+        vec![(tenant(1), 1), (tenant(1), 2), (tenant(2), 1)]
     );
-    assert_eq!(state.namespaces(), vec![ns(1), ns(2)]);
+    assert_eq!(state.tenants(), vec![tenant(1), tenant(2)]);
     Ok(())
 }
 
@@ -114,8 +114,8 @@ fn test_a_version_past_its_bytes_limit_is_refused() -> TestResult {
 #[test]
 fn test_at_most_256_versions_are_pending() -> TestResult {
     let mut state = MetadataState::new();
-    for namespace in 0..256 {
-        state.apply(&offer(namespace, 0, b"v"))?;
+    for tenant in 0..256 {
+        state.apply(&offer(tenant, 0, b"v"))?;
     }
     assert_eq!(
         refused(&mut state, &offer(256, 0, b"v"))?,
@@ -129,7 +129,7 @@ fn test_at_most_256_versions_are_pending() -> TestResult {
 }
 
 #[test]
-fn test_a_namespace_retains_at_most_1024_versions() -> TestResult {
+fn test_a_tenant_retains_at_most_1024_versions() -> TestResult {
     let mut state = MetadataState::new();
     for version in 1..=1_024 {
         state.apply(&offer(1, version - 1, b"v"))?;
@@ -137,7 +137,7 @@ fn test_a_namespace_retains_at_most_1024_versions() -> TestResult {
     }
     assert_eq!(
         refused(&mut state, &offer(1, 1_024, b"v"))?,
-        ClusterError::full("retained catalog versions of a namespace", 1_024).0
+        ClusterError::full("retained catalog versions of a tenant", 1_024).0
     );
     Ok(())
 }
@@ -148,7 +148,7 @@ fn test_a_close_assigns_the_epoch_after_it() -> TestResult {
     state.apply(&offer(1, 0, b"a1"))?;
     state.apply(&close(38, &[(1, 1)], &[])?)?;
     assert_eq!(state.last_learned(), Epoch::new(38)?);
-    let record = state.versions(ns(1));
+    let record = state.versions(tenant(1));
     let record = record.first().context("version 1")?;
     assert_eq!(record.effective(), Some(Epoch::new(39)?));
     assert!(state.pending_versions().is_empty());
@@ -216,22 +216,22 @@ fn test_a_default_entry_is_kept_and_creates_no_version() -> TestResult {
     let mut state = MetadataState::new();
     state.apply(&offer(1, 0, b"a1"))?;
     let first = MetadataCommand::RecordDefault {
-        namespace: ns(1),
+        tenant: tenant(1),
         predicate: "score".to_string(),
         entry: b"first".to_vec(),
     };
     state.apply(&first)?;
     let again = MetadataCommand::RecordDefault {
-        namespace: ns(1),
+        tenant: tenant(1),
         predicate: "score".to_string(),
         entry: b"second".to_vec(),
     };
     state.apply(&again)?;
-    assert_eq!(state.default_entry(ns(1), "score"), Some(&b"first"[..]));
-    assert_eq!(state.default_entry(ns(2), "score"), None);
-    assert_eq!(state.default_entry(ns(1), "scores"), None);
-    assert_eq!(state.current_version(ns(1)), 1);
-    assert_eq!(state.pending_versions(), vec![(ns(1), 1)]);
+    assert_eq!(state.default_entry(tenant(1), "score"), Some(&b"first"[..]));
+    assert_eq!(state.default_entry(tenant(2), "score"), None);
+    assert_eq!(state.default_entry(tenant(1), "scores"), None);
+    assert_eq!(state.current_version(tenant(1)), 1);
+    assert_eq!(state.pending_versions(), vec![(tenant(1), 1)]);
     Ok(())
 }
 
@@ -239,7 +239,7 @@ fn test_a_default_entry_is_kept_and_creates_no_version() -> TestResult {
 fn test_a_default_entry_past_its_limits_is_refused() -> TestResult {
     let mut state = MetadataState::new();
     let long = MetadataCommand::RecordDefault {
-        namespace: ns(1),
+        tenant: tenant(1),
         predicate: "p".repeat(4_097),
         entry: Vec::new(),
     };
@@ -248,7 +248,7 @@ fn test_a_default_entry_past_its_limits_is_refused() -> TestResult {
         ClusterError::too_many("bytes of a predicate's name", 4_097, 4_096).0
     );
     let big = MetadataCommand::RecordDefault {
-        namespace: ns(1),
+        tenant: tenant(1),
         predicate: "p".to_string(),
         entry: vec![0; 65_537],
     };
@@ -575,7 +575,7 @@ fn test_versions_no_untrimmed_log_names_are_released() -> TestResult {
         partitions: 2,
         leader: NodeId::new(1),
     })?;
-    // Versions 1, 2 and 3 of namespace 1 take effect at 11, 21 and 31; version 1 of namespace 2 at 21.
+    // Versions 1, 2 and 3 of tenant 1 take effect at 11, 21 and 31; version 1 of tenant 2 at 21.
     state.apply(&offer(1, 0, b"a1"))?;
     state.apply(&close(10, &[(1, 1)], &[])?)?;
     for epoch in 11..20 {
@@ -597,15 +597,19 @@ fn test_versions_no_untrimmed_log_names_are_released() -> TestResult {
     };
     // Partition 2 has not reported: nothing is released.
     state.apply(&report(1, 25)?)?;
-    assert_eq!(state.versions(ns(1)).len(), 3);
+    assert_eq!(state.versions(tenant(1)).len(), 3);
     // Both logs begin at 25 or later: version 2 is in effect there, so version 1 is released.
     state.apply(&report(2, 26)?)?;
-    let kept: Vec<u64> = state.versions(ns(1)).iter().map(|v| v.version()).collect();
+    let kept: Vec<u64> = state
+        .versions(tenant(1))
+        .iter()
+        .map(|v| v.version())
+        .collect();
     assert_eq!(kept, vec![2, 3]);
-    assert_eq!(state.versions(ns(2)).len(), 1);
+    assert_eq!(state.versions(tenant(2)).len(), 1);
     assert_eq!(
         state
-            .catalog_at(ns(1), Epoch::new(15)?)
+            .catalog_at(tenant(1), Epoch::new(15)?)
             .err()
             .context("released")?
             .0,
@@ -613,12 +617,12 @@ fn test_versions_no_untrimmed_log_names_are_released() -> TestResult {
     );
     assert_eq!(
         state
-            .catalog_at(ns(1), Epoch::new(25)?)?
+            .catalog_at(tenant(1), Epoch::new(25)?)?
             .map(|v| v.version()),
         Some(2)
     );
-    // An epoch before namespace 2's first version reads its initial catalog: nothing of it was released.
-    assert_eq!(state.catalog_at(ns(2), Epoch::new(15)?)?, None);
+    // An epoch before tenant 2's first version reads its initial catalog: nothing of it was released.
+    assert_eq!(state.catalog_at(tenant(2), Epoch::new(15)?)?, None);
     Ok(())
 }
 
@@ -737,17 +741,17 @@ fn test_a_close_skipping_a_pending_version_is_refused() -> TestResult {
     // Version 2 announced while version 1 stays pending: refused, the state unchanged.
     assert_eq!(
         refused(&mut state, &close(1, &[(1, 2)], &[])?)?,
-        contradicts("a close announces a namespace's versions in order")
+        contradicts("a close announces a tenant's versions in order")
     );
     assert_eq!(
         refused(&mut state, &close(1, &[(2, 1), (1, 2)], &[])?)?,
-        contradicts("a close announces a namespace's versions in order")
+        contradicts("a close announces a tenant's versions in order")
     );
     assert_eq!(
         state.pending_versions(),
-        vec![(ns(1), 1), (ns(1), 2), (ns(2), 1)]
+        vec![(tenant(1), 1), (tenant(1), 2), (tenant(2), 1)]
     );
-    // Another namespace's pending version does not hold this one back.
+    // Another tenant's pending version does not hold this one back.
     state.apply(&close(1, &[(2, 1)], &[])?)?;
     assert_eq!(snapshot_round_trip(&state)?, state);
     Ok(())
@@ -764,7 +768,7 @@ fn test_versions_announced_in_order_take_effect_and_round_trip() -> TestResult {
     apart.apply(&close(2, &[(1, 2)], &[])?)?;
     let effective = |state: &MetadataState| -> Vec<Option<Epoch>> {
         state
-            .versions(ns(1))
+            .versions(tenant(1))
             .iter()
             .map(|v| v.effective())
             .collect()
@@ -909,7 +913,7 @@ fn test_a_refused_placement_announcement_learns_nothing_of_the_close() -> TestRe
         &mut state,
         &MetadataCommand::LearnClose {
             epoch: Epoch::new(6)?,
-            versions: vec![(ns(1), 1)],
+            versions: vec![(tenant(1), 1)],
             placement: 2,
             evictions: Vec::new(),
         },
@@ -919,7 +923,7 @@ fn test_a_refused_placement_announcement_learns_nothing_of_the_close() -> TestRe
         contradicts("a close announces the oldest pending placement version")
     );
     assert_eq!(state.last_learned(), Epoch::new(5)?);
-    assert_eq!(state.pending_versions(), vec![(ns(1), 1)]);
+    assert_eq!(state.pending_versions(), vec![(tenant(1), 1)]);
     Ok(())
 }
 

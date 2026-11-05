@@ -4,7 +4,7 @@
  */
 
 use ultragraphdb_cluster_metadata::MetadataState;
-use ultragraphdb_core_ids::{Epoch, Namespace, TypePrefix};
+use ultragraphdb_core_ids::{Epoch, Tenant, TypePrefix};
 
 #[test]
 fn test_the_limits() {
@@ -20,9 +20,9 @@ fn test_a_new_state_holds_nothing() {
     let state = MetadataState::new();
     assert_eq!(state, MetadataState::default());
     assert_eq!(state.last_learned(), Epoch::ZERO);
-    assert_eq!(state.current_version(Namespace::new(1)), 0);
+    assert_eq!(state.current_version(Tenant::new(1)), 0);
     assert!(state.pending_versions().is_empty());
-    assert!(state.namespaces().is_empty());
+    assert!(state.tenants().is_empty());
     assert_eq!(state.next_sequence(TypePrefix::RESOURCE), 1);
     assert!(state.placement().is_none());
     assert_eq!(state.principals(), 0);

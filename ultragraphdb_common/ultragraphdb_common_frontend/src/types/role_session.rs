@@ -111,7 +111,7 @@ impl RoleSession {
         let reply = self
             .shared
             .owner
-            .catalog(asked.namespace(), asked.version())
+            .catalog(asked.tenant(), asked.version())
             .await?;
         built(&reply, self.header(stream, Command::Catalog))
     }
@@ -221,11 +221,11 @@ fn close_frame(
     let mut announcements: Vec<(u64, u64)> = close
         .catalog()
         .iter()
-        .map(|version| (version.namespace().get(), version.version()))
+        .map(|version| (version.tenant().get(), version.version()))
         .collect();
     announcements.sort_unstable();
-    for (namespace, version) in announcements {
-        body.push_announcement(CatalogAnnouncement::new(namespace, version));
+    for (tenant, version) in announcements {
+        body.push_announcement(CatalogAnnouncement::new(tenant, version));
     }
     let mut evictions = close.evictions().to_vec();
     evictions.sort_unstable();

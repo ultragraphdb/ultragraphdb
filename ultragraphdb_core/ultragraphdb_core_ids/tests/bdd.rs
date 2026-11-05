@@ -8,7 +8,7 @@
 use cucumber::{World, then, when};
 use serde::Deserialize;
 use ultragraphdb_core_ids::{
-    Bucket, CanonicalKey, IdError, IdErrorEnum, Namespace, Sequence, SystemId, TypePrefix,
+    Bucket, CanonicalKey, IdError, IdErrorEnum, Sequence, SystemId, Tenant, TypePrefix,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult, load_golden, testdata_dir};
 
@@ -26,24 +26,24 @@ struct Steps {
 /// A golden case of `testdata/golden/buckets.json`, written by `buckets.py` from the xxHash reference.
 #[derive(Debug, Deserialize)]
 struct Case {
-    namespace: u64,
+    tenant: u64,
     prefix: u16,
     iri: String,
-    namespace_xxh3: String,
+    tenant_xxh3: String,
     key_xxh3: String,
     bucket: u32,
 }
 
-/// The reference's two hashes and the bucket for `iri` of the Resource type in `namespace`.
-fn reference(namespace: u64, iri: &str) -> TestResult<(u64, u64, u32)> {
+/// The reference's two hashes and the bucket for `iri` of the Resource type in `tenant`.
+fn reference(tenant: u64, iri: &str) -> TestResult<(u64, u64, u32)> {
     let golden = load_golden::<Case>(&testdata_dir()?.join("golden").join("buckets.json"))?;
     let case = golden
         .cases()
         .iter()
-        .find(|c| c.namespace == namespace && c.prefix == 1 && c.iri == iri)
+        .find(|c| c.tenant == tenant && c.prefix == 1 && c.iri == iri)
         .context("the golden case")?;
     Ok((
-        u64::from_str_radix(&case.namespace_xxh3, 16).context("a hex hash")?,
+        u64::from_str_radix(&case.tenant_xxh3, 16).context("a hex hash")?,
         u64::from_str_radix(&case.key_xxh3, 16).context("a hex hash")?,
         case.bucket,
     ))
@@ -57,9 +57,9 @@ fn id(prefix: u16, bucket: u32, sequence: u64) -> TestResult<SystemId> {
     ))
 }
 
-fn bucket_of(namespace: u64, iri: &str) -> TestResult<Bucket> {
+fn bucket_of(tenant: u64, iri: &str) -> TestResult<Bucket> {
     Ok(Bucket::derive(
-        Namespace::new(namespace),
+        Tenant::new(tenant),
         TypePrefix::RESOURCE,
         &CanonicalKey::iri(iri)?,
     ))
@@ -174,8 +174,8 @@ fn the_sorted_order(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[when("the bucket of the IRI `http://ex.org/a` in namespace 0 is computed")]
-fn bucket_in_namespace_zero(w: &mut Steps) -> TestResult {
+#[when("the bucket of the IRI `http://ex.org/a` in tenant 0 is computed")]
+fn bucket_in_tenant_zero(w: &mut Steps) -> TestResult {
     w.buckets.push(bucket_of(0, IRI)?);
     Ok(())
 }
@@ -185,8 +185,8 @@ fn bucket_in_namespace_zero(w: &mut Steps) -> TestResult {
 )]
 fn bucket_matches_reference(w: &mut Steps) -> TestResult {
     let bucket = w.buckets.first().context("the bucket")?.get();
-    let (namespace_hash, key_hash, golden_bucket) = reference(0, IRI)?;
-    assert_eq!(u64::from(bucket >> 16), namespace_hash >> 56);
+    let (tenant_hash, key_hash, golden_bucket) = reference(0, IRI)?;
+    assert_eq!(u64::from(bucket >> 16), tenant_hash >> 56);
     assert_eq!(u64::from(bucket & 0xFFFF), key_hash >> 48);
     assert_eq!(bucket, golden_bucket);
     Ok(())
@@ -194,11 +194,7 @@ fn bucket_matches_reference(w: &mut Steps) -> TestResult {
 
 #[when("a statement with subject `http://ex.org/a` receives a system ID")]
 fn statement_receives_id(w: &mut Steps) -> TestResult {
-    let subject = SystemId::resource(
-        Namespace::new(0),
-        &CanonicalKey::iri(IRI)?,
-        Sequence::new(11)?,
-    );
+    let subject = SystemId::resource(Tenant::new(0), &CanonicalKey::iri(IRI)?, Sequence::new(11)?);
     w.ids.push(SystemId::statement(subject, Sequence::new(12)?));
     Ok(())
 }
@@ -212,15 +208,15 @@ fn statement_bucket_is_subjects(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[when("the IRI `http://ex.org/a` is bucketed in namespaces 0 and 1")]
-fn bucketed_in_two_namespaces(w: &mut Steps) -> TestResult {
+#[when("the IRI `http://ex.org/a` is bucketed in tenants 0 and 1")]
+fn bucketed_in_two_tenants(w: &mut Steps) -> TestResult {
     w.buckets.push(bucket_of(0, IRI)?);
     w.buckets.push(bucket_of(1, IRI)?);
     Ok(())
 }
 
 #[then(
-    "the two buckets' low 16 bits are equal, and their top 8 bits are the reference values for each namespace"
+    "the two buckets' low 16 bits are equal, and their top 8 bits are the reference values for each tenant"
 )]
 fn low_bits_equal_top_bits_reference(w: &mut Steps) -> TestResult {
     let zero = w.buckets.first().context("two buckets")?.get();
@@ -237,30 +233,28 @@ fn low_bits_equal_top_bits_reference(w: &mut Steps) -> TestResult {
 /// A golden case of `testdata/golden/unique_values.json`, written by `unique_values.py` from the xxHash reference.
 #[derive(Debug, Clone, Deserialize)]
 struct ValueCase {
-    namespace: u64,
+    tenant: u64,
     predicate_prefix: u16,
     predicate_bucket: u32,
     predicate_sequence: u64,
     value: String,
-    namespace_xxh3: String,
+    tenant_xxh3: String,
     value_xxh3: String,
 }
 
-/// The golden case of the scenario: `"x"` of `epi.id`, the predicate whose ID the case names, in namespace 0.
+/// The golden case of the scenario: `"x"` of `epi.id`, the predicate whose ID the case names, in tenant 0.
 fn value_scenario() -> TestResult<ValueCase> {
     let golden =
         load_golden::<ValueCase>(&testdata_dir()?.join("golden").join("unique_values.json"))?;
     golden
         .cases()
         .iter()
-        .find(|c| c.namespace == 0 && c.value == "200178")
+        .find(|c| c.tenant == 0 && c.value == "200178")
         .cloned()
         .context("the scenario's golden case")
 }
 
-#[when(
-    "the bucket of the value `\"x\"` of the unique predicate `epi.id` is computed in namespace 0"
-)]
+#[when("the bucket of the value `\"x\"` of the unique predicate `epi.id` is computed in tenant 0")]
 fn unique_value_bucket(w: &mut Steps) -> TestResult {
     let case = value_scenario()?;
     let epi_id = id(
@@ -270,7 +264,7 @@ fn unique_value_bucket(w: &mut Steps) -> TestResult {
     )?;
     // `"x"`'s term encoding: the small-string tag 0x20, its length 1 and its byte (key-encoding).
     w.buckets.push(Bucket::of_value(
-        Namespace::new(0),
+        Tenant::new(0),
         epi_id,
         &[0x20, 0x01, b'x'],
     ));
@@ -278,14 +272,14 @@ fn unique_value_bucket(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "its top 8 bits equal the namespace's reference value, and its low 16 bits equal the top two bytes of the reference XXH3-64 of `epi.id`'s 16 ID bytes followed by `\"x\"`'s term encoding"
+    "its top 8 bits equal the tenant's reference value, and its low 16 bits equal the top two bytes of the reference XXH3-64 of `epi.id`'s 16 ID bytes followed by `\"x\"`'s term encoding"
 )]
 fn unique_value_bucket_matches_reference(w: &mut Steps) -> TestResult {
     let bucket = w.buckets.first().context("the bucket")?.get();
     let case = value_scenario()?;
-    let namespace_hash = u64::from_str_radix(&case.namespace_xxh3, 16).context("a hex hash")?;
+    let tenant_hash = u64::from_str_radix(&case.tenant_xxh3, 16).context("a hex hash")?;
     let value_hash = u64::from_str_radix(&case.value_xxh3, 16).context("a hex hash")?;
-    assert_eq!(u64::from(bucket >> 16), namespace_hash >> 56);
+    assert_eq!(u64::from(bucket >> 16), tenant_hash >> 56);
     assert_eq!(u64::from(bucket & 0xFFFF), value_hash >> 48);
     Ok(())
 }
@@ -307,11 +301,7 @@ fn the_canonical_bytes(w: &mut Steps) -> TestResult {
 
 #[when("a new IRI and a new statement receive IDs")]
 fn new_iri_and_statement(w: &mut Steps) -> TestResult {
-    let iri = SystemId::resource(
-        Namespace::new(3),
-        &CanonicalKey::iri(IRI)?,
-        Sequence::new(1)?,
-    );
+    let iri = SystemId::resource(Tenant::new(3), &CanonicalKey::iri(IRI)?, Sequence::new(1)?);
     w.ids.push(iri);
     w.ids.push(SystemId::statement(iri, Sequence::new(1)?));
     Ok(())

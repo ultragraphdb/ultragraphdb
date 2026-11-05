@@ -8,7 +8,7 @@ mod catalog_view_body_view;
 /// The body of a received Catalog frame, read in place; see [`crate::Catalog`] for its layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CatalogView<'a> {
-    namespace: u64,
+    tenant: u64,
     version: u64,
     epoch: u64,
     position: u64,
@@ -16,9 +16,9 @@ pub struct CatalogView<'a> {
 }
 
 impl<'a> CatalogView<'a> {
-    /// The namespace.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// The catalog version; 0 in a request for the current one.

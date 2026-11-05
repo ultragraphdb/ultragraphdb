@@ -4,7 +4,7 @@
  */
 
 mod bucket_range_tests;
-mod namespace_run_tests;
 mod node_id_tests;
 mod partition_id_tests;
 mod placement_map;
+mod tenant_run_tests;

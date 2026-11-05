@@ -65,29 +65,29 @@ until the node restarts.
 - **THEN** none of the round's transactions is acknowledged, and later commits are refused until restart
 
 ### Requirement: Catalog changes, drops and index builds are ordered in rounds
-A catalog change SHALL be a write to its namespace's catalog range, so every read-write transaction of that namespace
+A catalog change SHALL be a write to its tenant's catalog range, so every read-write transaction of that tenant
 whose read version is below it and that commits after it SHALL abort. A drop SHALL be a write of its whole key range,
 aborting every read-write transaction whose read version is below it, that commits after it, and that read or wrote in
 the range. The nodes a write changes during an index build SHALL be recorded by the commit step in commit order. A
 predicate's implicit default entry, recorded by its first write, SHALL be a commit-time insert-if-absent on its catalog
 key and not a catalog change: concurrent first writes of one predicate both commit, the first creating the entry and
 the second finding it (decided 2026-10-27). A declaration remains a catalog change. A drop's range SHALL hold the
-dropped predicate's catalog entry, so a drop aborts its namespace's transactions as a catalog change does, and a
+dropped predicate's catalog entry, so a drop aborts its tenant's transactions as a catalog change does, and a
 round SHALL close after a drop and before a second declaration that starts an index build: a round holds at most one
 build, and nothing aborts for it (decided 2026-10-28).
 
 #### Scenario: Concurrent first writes of a predicate both commit
-- **WHEN** two transactions of `ns` read before either commits, the first writes `<a> <score> 12` and the second
+- **WHEN** two transactions of `tenant` read before either commits, the first writes `<a> <score> 12` and the second
   `<b> <score> "high"`, and `score` was not declared
-- **THEN** both commit, and the catalog of `ns` holds `score` with the default entry once
+- **THEN** both commit, and the catalog of `tenant` holds `score` with the default entry once
 
 #### Scenario: A write after a build's start in the same round aborts
-- **WHEN** a round admits a declaration of `ns` that starts an index build of `p`, and a later transaction of the same
-  round, executed against the catalog before the declaration, writes `p` in `ns`
+- **WHEN** a round admits a declaration of `tenant` that starts an index build of `p`, and a later transaction of the same
+  round, executed against the catalog before the declaration, writes `p` in `tenant`
 - **THEN** the later transaction aborts with a conflict, and its retry is indexed by the build
 
 #### Scenario: A write executed against an old catalog aborts
-- **WHEN** a transaction executes against the catalog of `ns`, and a declaration of `ns` commits before it
+- **WHEN** a transaction executes against the catalog of `tenant`, and a declaration of `tenant` commits before it
 - **THEN** the transaction aborts with a conflict, and its retry is checked against the new declaration
 
 #### Scenario: A write into a dropped predicate aborts

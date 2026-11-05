@@ -95,7 +95,7 @@ fn test_the_log_records_each_operation_with_its_answer() -> TestResult {
             ..
         }
     ));
-    s.ban_namespace(7)?;
+    s.ban_tenant(7)?;
     s.set_discard_ts(2)?;
     s.set_tombstone_horizon(1)?;
     assert_eq!(s.snapshot(1).err(), Some(StoreError::ts_too_old()));
@@ -131,7 +131,7 @@ fn each_operation_logged(
             batch: big,
             error: too_large,
         },
-        OpRecord::Banned { namespace: 7 },
+        OpRecord::Banned { tenant: 7 },
         OpRecord::DiscardSet { ts: 2 },
         OpRecord::HorizonSet { ts: 1 },
         OpRecord::SnapshotRefused {
@@ -249,7 +249,7 @@ fn test_contents_lists_deletions_and_the_metadata() -> TestResult {
     batch.push(Entry::deletion(b"k".to_vec(), 3));
     batch.set_applied_ts(3);
     s.apply(batch, PersistMode::Buffer)?;
-    s.ban_namespace(7)?;
+    s.ban_tenant(7)?;
     s.set_discard_ts(1)?;
     s.set_tombstone_horizon(1)?;
     let contents = s.contents();

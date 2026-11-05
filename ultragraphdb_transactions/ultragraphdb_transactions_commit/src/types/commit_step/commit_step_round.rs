@@ -210,9 +210,9 @@ impl<P: Proposal> CommitStep<P> {
             Some(true) => {}
         }
         for version in close.catalog() {
-            let namespace = version.namespace().get();
-            self.catalog.retain(|(n, _)| *n != namespace);
-            self.catalog.push((namespace, version.version()));
+            let tenant = version.tenant().get();
+            self.catalog.retain(|(n, _)| *n != tenant);
+            self.catalog.push((tenant, version.version()));
         }
         self.sessions.purge(close.evictions());
         self.asked_us = None;
@@ -601,7 +601,7 @@ impl<P: Proposal> CommitStep<P> {
     fn validate(&self, proposal: &P, record: &WriteSetRecordView<'_>) -> Result<(), CommitError> {
         let stale = record.kind() == RecordKind::Transaction
             && record.operation_count() == 0
-            && record.catalog() != self.catalog_version(record.namespace());
+            && record.catalog() != self.catalog_version(record.tenant());
         match self.resolver.check(proposal.read_set()) {
             Err(CommitError(CommitErrorEnum::Conflict {
                 kind: ConflictKind::Drop,

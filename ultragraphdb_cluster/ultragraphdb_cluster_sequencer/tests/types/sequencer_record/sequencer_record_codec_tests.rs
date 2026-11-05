@@ -7,11 +7,11 @@ use ultragraphdb_cluster_placement::PartitionId;
 use ultragraphdb_cluster_sequencer::{
     CatalogVersion, Close, SequencedTransaction, SequencerRecord,
 };
-use ultragraphdb_core_ids::{Epoch, Namespace};
+use ultragraphdb_core_ids::{Epoch, Tenant};
 use ultragraphdb_error_cluster::ClusterErrorEnum;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
-/// The close of epoch 1 at 1,000 µs announcing version 7 of namespace 3 and placement version 5, and evicting session
+/// The close of epoch 1 at 1,000 µs announcing version 7 of tenant 3 and placement version 5, and evicting session
 /// 0x0102…10, by hand. Offsets: the kind 0, the epoch 1, the time 9, the catalog count 17, the version 19 and 27, the
 /// eviction count 35, the session 37, the placement version 53.
 const CLOSE: [u8; 61] = [
@@ -19,7 +19,7 @@ const CLOSE: [u8; 61] = [
     0, 0, 0, 0, 0, 0, 0, 1, // epoch 1
     0, 0, 0, 0, 0, 0, 0x03, 0xE8, // 1,000 µs
     0, 1, // one version
-    0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 7, // namespace 3, version 7
+    0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 7, // tenant 3, version 7
     0, 1, // one eviction
     0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
     0, 0, 0, 0, 0, 0, 0, 5, // placement version 5
@@ -43,7 +43,7 @@ fn close() -> TestResult<SequencerRecord> {
         Close::new(
             Epoch::new(1)?,
             1_000,
-            vec![CatalogVersion::new(Namespace::new(3), 7)],
+            vec![CatalogVersion::new(Tenant::new(3), 7)],
             vec![0x0102_0304_0506_0708_090A_0B0C_0D0E_0F10],
         )?
         .with_placement(5),
@@ -100,7 +100,7 @@ fn test_the_hand_written_records_decode() -> TestResult {
 #[test]
 fn test_records_at_their_limits_round_trip() -> TestResult {
     let catalog: Vec<_> = (0..256)
-        .map(|v| CatalogVersion::new(Namespace::new(v), v))
+        .map(|v| CatalogVersion::new(Tenant::new(v), v))
         .collect();
     let largest = SequencerRecord::Close(
         Close::new(Epoch::MAX, u64::MAX, catalog, (0..4_096).collect())?.with_placement(u64::MAX),
@@ -314,7 +314,7 @@ fn test_every_truncated_field_is_named_at_its_offset() -> TestResult {
     let close_fields = [
         (1, "a close's epoch", 1),
         (17, "catalog versions in a close", 17),
-        (19, "a catalog version's namespace", 19),
+        (19, "a catalog version's tenant", 19),
         (27, "a catalog version's number", 27),
         (35, "session evictions in a close", 35),
         (37, "an evicted session", 37),

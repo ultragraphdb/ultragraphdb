@@ -18,7 +18,7 @@ use crate::errors::catalog_error::CatalogError;
 /// Format 2 holds a vector index's dimension, u16 big-endian after its factory, 0 for none.
 const FORMAT: u8 = 2;
 
-/// The kind of a predicate's entry. An entry's kind is the byte after the namespace in its key, and the byte after the
+/// The kind of a predicate's entry. An entry's kind is the byte after the tenant in its key, and the byte after the
 /// format in its value.
 pub const PREDICATE: u8 = 1;
 /// The kind of an entity type's entry.

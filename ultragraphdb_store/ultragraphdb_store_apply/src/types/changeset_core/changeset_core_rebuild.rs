@@ -79,7 +79,7 @@ where
         }
     }
 
-    /// Ends the build when `cancel` selects it, as a drop of its predicate, data or namespace does: the build, now
+    /// Ends the build when `cancel` selects it, as a drop of its predicate, data or tenant does: the build, now
     /// cancelled; its job removes its record.
     pub(super) fn cancel(&self, cancel: impl Fn(&Rebuild) -> bool) -> Option<Rebuild> {
         let mut rebuild = lock(&self.rebuild);
@@ -200,15 +200,15 @@ where
         if plan.build_tokenizers.is_empty() && !plan.build_count {
             return Ok(vectors);
         }
-        let (ns, predicate, start_ts) = (rebuild.namespace, rebuild.predicate, rebuild.start_ts);
+        let (tenant, predicate, start_ts) = (rebuild.tenant, rebuild.predicate, rebuild.start_ts);
         let lists = self.quads.lists();
         lists.gate(start_ts)?;
         let snapshot = lists.store().snapshot(start_ts)?;
         let store = lists.store();
         let temp = &*temporary.insert(store.create_temporary()?);
         let mut buffer = BuildBuffer::new(temp, start_ts);
-        let forward = PredicatePrefix::new(Keyspace::Forward, false, ns, predicate, Vec::new());
-        let reverse = PredicatePrefix::new(Keyspace::Reverse, false, ns, predicate, Vec::new());
+        let forward = PredicatePrefix::new(Keyspace::Forward, false, tenant, predicate, Vec::new());
+        let reverse = PredicatePrefix::new(Keyspace::Reverse, false, tenant, predicate, Vec::new());
         for graph in forward.graphs(&snapshot)? {
             for item in snapshot.scan(&Scan::prefix(forward.in_graph(graph))) {
                 let key = item?.key().to_vec();
@@ -249,18 +249,18 @@ where
         subject: SystemId,
         buffer: &mut BuildBuffer<'_>,
     ) -> Result<(), ChangesetError> {
-        let (plan, ns, predicate) = (&rebuild.plan, rebuild.namespace, rebuild.predicate);
+        let (plan, tenant, predicate) = (&rebuild.plan, rebuild.tenant, rebuild.predicate);
         let objects = self.quads.objects(key, rebuild.start_ts)?;
         for (object, _) in objects.iter().filter(|(o, _)| o.as_id().is_none()) {
             if plan.build_tokenizers.is_empty() {
                 break;
             }
-            let Term::Literal(literal) = self.quads.term_of(ns, object)? else {
+            let Term::Literal(literal) = self.quads.term_of(tenant, object)? else {
                 continue;
             };
             for (tokenizer, token) in literal_tokens(&plan.build_tokenizers, literal.as_ref())? {
                 let index_key = QuadKey::ValueIndex {
-                    namespace: ns,
+                    tenant,
                     graph,
                     predicate,
                     tokenizer,
@@ -315,14 +315,14 @@ where
         else {
             return Ok(built);
         };
-        let (ns, predicate, start_ts) = (rebuild.namespace, rebuild.predicate, rebuild.start_ts);
+        let (tenant, predicate, start_ts) = (rebuild.tenant, rebuild.predicate, rebuild.start_ts);
         let lists = self.quads.lists();
         lists.gate(start_ts)?;
         let snapshot = lists.store().snapshot(start_ts)?;
-        let forward = PredicatePrefix::new(Keyspace::Forward, false, ns, predicate, Vec::new());
+        let forward = PredicatePrefix::new(Keyspace::Forward, false, tenant, predicate, Vec::new());
         let name = rebuild.new.predicate().as_str();
         for graph in forward.graphs(&snapshot)? {
-            let keys = VectorKeys::new(name, ns, graph, predicate);
+            let keys = VectorKeys::new(name, tenant, graph, predicate);
             let index = hnsw(spec, keys.clone())?;
             let txn = OverlayTxn::new(&self.quads, keys, start_ts, BTreeMap::new());
             for item in snapshot.scan(&Scan::prefix(forward.in_graph(graph))) {
@@ -357,7 +357,7 @@ where
                     return Ok(());
                 };
                 let mut levels =
-                    LevelDraw::of_node(self.seed, keys.namespace(), keys.predicate(), node);
+                    LevelDraw::of_node(self.seed, keys.tenant(), keys.predicate(), node);
                 let _inserted: Vec<KeyValue> =
                     VectorIndex::insert(index, txn, node, &vector, &mut || levels.next_f64())?;
             }
@@ -387,7 +387,7 @@ where
             self.remove_record(record)?;
             return Ok(0);
         };
-        let (ns, predicate, start_ts) = (rebuild.namespace, rebuild.predicate, rebuild.start_ts);
+        let (tenant, predicate, start_ts) = (rebuild.tenant, rebuild.predicate, rebuild.start_ts);
         let plan = &rebuild.plan;
         let lists = self.quads.lists();
         let latest = lists.applied_ts();
@@ -406,10 +406,10 @@ where
         let mut rebuilt: Vec<PredicatePrefix> = plan
             .build_tokenizers
             .iter()
-            .flat_map(|t| tokenizer_prefixes(ns, predicate, t))
+            .flat_map(|t| tokenizer_prefixes(tenant, predicate, t))
             .collect();
         if plan.build_count {
-            rebuilt.extend(count_prefixes(ns, predicate));
+            rebuilt.extend(count_prefixes(tenant, predicate));
         }
         for key in keys_under(&snapshot, &rebuilt)? {
             if !built.contains(&key) {
@@ -424,10 +424,10 @@ where
         // catalog keys.
         request.advance_epoch_on_commit();
         let ts = commit_at(lists, request, at)?;
-        let mut catalog = (*self.catalog(ns)?).clone();
+        let mut catalog = (*self.catalog(tenant)?).clone();
         catalog.declare_predicate(predicate, rebuild.new.clone())?;
         let _previous: Option<std::sync::Arc<Catalog>> =
-            lock(&self.catalogs).insert(ns, std::sync::Arc::new(catalog));
+            lock(&self.catalogs).insert(tenant, std::sync::Arc::new(catalog));
         let _cancelled: Option<Rebuild> = self.cancel(|r| r.record == record);
         self.drop_removed(&removed)?;
         self.remove_record(record)?;
@@ -449,10 +449,10 @@ where
         let Some(spec) = rebuild.new.vector_index() else {
             return Ok(());
         };
-        let (ns, predicate) = (rebuild.namespace, rebuild.predicate);
+        let (tenant, predicate) = (rebuild.tenant, rebuild.predicate);
         let name = rebuild.new.predicate().as_str();
         for (graph, node) in &rebuild.touched {
-            let keys = VectorKeys::new(name, ns, *graph, predicate);
+            let keys = VectorKeys::new(name, tenant, *graph, predicate);
             let index = hnsw(spec, keys.clone())?;
             let values = vectors.remove(graph).unwrap_or_default();
             let txn = OverlayTxn::new(&self.quads, keys, latest, values);
@@ -465,7 +465,7 @@ where
             request.get(&key)?.add_posting(index_posting(value), false);
             let _inserted: bool = written.insert(key);
         }
-        for key in keys_under(snapshot, &vector_prefixes(ns, predicate))? {
+        for key in keys_under(snapshot, &vector_prefixes(tenant, predicate))? {
             if !written.contains(&key) {
                 request.add_entry(Entry::deletion(key, 0));
             }
@@ -481,16 +481,16 @@ where
         let Some(rebuild) = self.cancel(|r| r.record == record) else {
             return self.remove_record(record);
         };
-        let (ns, predicate) = (rebuild.namespace, rebuild.predicate);
-        let built = undeclared_prefixes(ns, predicate, &rebuild.old);
+        let (tenant, predicate) = (rebuild.tenant, rebuild.predicate);
+        let built = undeclared_prefixes(tenant, predicate, &rebuild.old);
         let lists = self.quads.lists();
         let mut request = lists.request(lists.applied_ts());
         request.advance_epoch_on_commit();
         let _committed_at: u64 = commit_at(lists, request, at)?;
-        let mut catalog = (*self.catalog(ns)?).clone();
+        let mut catalog = (*self.catalog(tenant)?).clone();
         catalog.declare_predicate(predicate, rebuild.old.clone())?;
         let _previous: Option<std::sync::Arc<Catalog>> =
-            lock(&self.catalogs).insert(ns, std::sync::Arc::new(catalog));
+            lock(&self.catalogs).insert(tenant, std::sync::Arc::new(catalog));
         self.drop_removed(&built)?;
         self.remove_record(record)
     }
@@ -624,7 +624,7 @@ fn complete_entries(
 /// The count-index key of `count` lists in `direction` of the predicate `rebuild` builds, in `graph`.
 fn count_key(rebuild: &Rebuild, graph: Graph, direction: CountDirection, count: usize) -> Vec<u8> {
     QuadKey::CountIndex {
-        namespace: rebuild.namespace,
+        tenant: rebuild.tenant,
         graph,
         predicate: rebuild.predicate,
         direction,
@@ -635,17 +635,17 @@ fn count_key(rebuild: &Rebuild, graph: Graph, direction: CountDirection, count: 
 
 /// The prefixes of the indexes the change of `rebuild` removes.
 fn removed_prefixes(rebuild: &Rebuild) -> Vec<PredicatePrefix> {
-    let (plan, ns, predicate) = (&rebuild.plan, rebuild.namespace, rebuild.predicate);
+    let (plan, tenant, predicate) = (&rebuild.plan, rebuild.tenant, rebuild.predicate);
     let mut removed: Vec<PredicatePrefix> = plan
         .remove_tokenizers
         .iter()
-        .flat_map(|t| tokenizer_prefixes(ns, predicate, t))
+        .flat_map(|t| tokenizer_prefixes(tenant, predicate, t))
         .collect();
     if plan.remove_count {
-        removed.extend(count_prefixes(ns, predicate));
+        removed.extend(count_prefixes(tenant, predicate));
     }
     if plan.remove_vector {
-        removed.extend(vector_prefixes(ns, predicate));
+        removed.extend(vector_prefixes(tenant, predicate));
     }
     removed
 }

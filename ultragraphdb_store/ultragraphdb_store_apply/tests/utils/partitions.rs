@@ -7,7 +7,7 @@
 //! buckets and groups as core_ids derives them, and the keys of marks and referrer sets.
 
 use ultragraphdb_core_ids::{
-    Bucket, BucketGroup, CanonicalKey, Epoch, Namespace, SystemId, TypePrefix, Version,
+    Bucket, BucketGroup, CanonicalKey, Epoch, SystemId, Tenant, TypePrefix, Version,
 };
 use ultragraphdb_core_keys::QuadKey;
 use ultragraphdb_core_mapping::RandomSource;
@@ -17,13 +17,13 @@ use ultragraphdb_store_quads::{OwnedBuckets, QuadStore};
 use ultragraphdb_store_sim::{Seed, SimListCache, SteppedExecutor, Stream};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
-use crate::utils::changesets::{NS, TestChangesets, blocks, ex, sim_store};
+use crate::utils::changesets::{TENANT, TestChangesets, blocks, ex, sim_store};
 
-/// The bucket of `<name>` in the tests' namespace, as core_ids derives it.
+/// The bucket of `<name>` in the tests' tenant, as core_ids derives it.
 pub fn bucket_of(name: &str) -> TestResult<Bucket> {
     let iri = ex(name);
     Ok(Bucket::derive(
-        Namespace::new(NS),
+        Tenant::new(TENANT),
         TypePrefix::RESOURCE,
         &CanonicalKey::iri(iri.as_str())?,
     ))
@@ -69,7 +69,7 @@ pub fn epoch(epoch: u64) -> TestResult<Epoch> {
 /// The key of the mark of `(entity, group)`.
 pub fn mark_key(entity: SystemId, group: BucketGroup) -> Vec<u8> {
     QuadKey::Mark {
-        namespace: NS,
+        tenant: TENANT,
         entity,
         group: group.get(),
     }
@@ -79,7 +79,7 @@ pub fn mark_key(entity: SystemId, group: BucketGroup) -> Vec<u8> {
 /// The key of `entity`'s referrer set.
 pub fn referrers_key(entity: SystemId) -> Vec<u8> {
     QuadKey::Referrers {
-        namespace: NS,
+        tenant: TENANT,
         entity,
     }
     .to_bytes()

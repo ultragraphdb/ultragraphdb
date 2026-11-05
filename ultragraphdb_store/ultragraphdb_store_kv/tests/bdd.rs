@@ -96,11 +96,11 @@ fn put(key: &[u8], version: u64, value: &[u8]) -> Entry {
     Entry::put(key.to_vec(), version, 0x04, value.to_vec())
 }
 
-/// The forward list of subject 1 and predicate 7 in namespace `ns`, in the quad layout: the keyspace byte, then the
-/// namespace, graph, predicate and subject, each a u64 big-endian.
-fn ns_key(ns: u64) -> Vec<u8> {
+/// The forward list of subject 1 and predicate 7 in tenant `tenant`, in the quad layout: the keyspace byte, then the
+/// tenant, graph, predicate and subject, each a u64 big-endian.
+fn tenant_key(tenant: u64) -> Vec<u8> {
     let mut key = vec![0x10];
-    [ns, 0, 7, 1]
+    [tenant, 0, 7, 1]
         .iter()
         .for_each(|n| key.extend_from_slice(&n.to_be_bytes()));
     key
@@ -781,53 +781,51 @@ fn only_the_entry(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[when("namespace 5 is banned and a batch writes a key in it and a key in namespace 6")]
+#[when("tenant 5 is banned and a batch writes a key in it and a key in tenant 6")]
 fn banned_batch(w: &mut Steps) -> TestResult {
-    w.open()?.ban_namespace(5)?;
+    w.open()?.ban_tenant(5)?;
     let mut batch = WriteBatch::new();
-    batch.push(put(&ns_key(5), 2, b""));
-    batch.push(put(&ns_key(6), 2, b""));
+    batch.push(put(&tenant_key(5), 2, b""));
+    batch.push(put(&tenant_key(6), 2, b""));
     w.error = w.open()?.apply(batch, PersistMode::Buffer).err();
     Ok(())
 }
 
-#[then("the batch succeeds, the key in namespace 5 is not found and the key in namespace 6 is")]
+#[then("the batch succeeds, the key in tenant 5 is not found and the key in tenant 6 is")]
 fn ban_holds(w: &mut Steps) -> TestResult {
     assert!(w.error.is_none());
-    assert_eq!(w.open()?.get_at(&ns_key(5), 3)?, None);
+    assert_eq!(w.open()?.get_at(&tenant_key(5), 3)?, None);
     assert_eq!(
-        w.open()?.get_at(&ns_key(6), 3)?.map(|i| i.version()),
+        w.open()?.get_at(&tenant_key(6), 3)?.map(|i| i.version()),
         Some(2)
     );
     assert!(
-        w.held(&ns_key(5))?.is_empty(),
+        w.held(&tenant_key(5))?.is_empty(),
         "the write was dropped, not hidden"
     );
     Ok(())
 }
 
-#[when(
-    "namespace 5 is banned, everything is dropped, and a batch then writes a key in namespace 5"
-)]
+#[when("tenant 5 is banned, everything is dropped, and a batch then writes a key in tenant 5")]
 fn ban_then_drop_all(w: &mut Steps) -> TestResult {
-    w.open()?.ban_namespace(5)?;
+    w.open()?.ban_tenant(5)?;
     w.open()?.drop_all(Vec::new())?;
-    w.write(vec![put(&ns_key(5), 1, b"")])?;
+    w.write(vec![put(&tenant_key(5), 1, b"")])?;
     Ok(())
 }
 
 #[then("the key is found")]
 fn key_found(w: &mut Steps) -> TestResult {
     assert_eq!(
-        w.open()?.get_at(&ns_key(5), 1)?.map(|i| i.version()),
+        w.open()?.get_at(&tenant_key(5), 1)?.map(|i| i.version()),
         Some(1)
     );
     Ok(())
 }
 
-/// The catalog key of predicate 7's declaration in namespace 3, in the quad layout: the keyspace byte, the
-/// namespace, the entry kind and the predicate.
-fn catalog_key_ns3() -> Vec<u8> {
+/// The catalog key of predicate 7's declaration in tenant 3, in the quad layout: the keyspace byte, the
+/// tenant, the entry kind and the predicate.
+fn catalog_key_tenant3() -> Vec<u8> {
     let mut key = vec![0x01];
     key.extend_from_slice(&3u64.to_be_bytes());
     key.push(0x01);
@@ -836,10 +834,10 @@ fn catalog_key_ns3() -> Vec<u8> {
 }
 
 #[when(
-    "everything in a namespace is dropped, its initial catalog is written at timestamp 1, the discard timestamp is raised above the drop and the store compacts"
+    "everything in a tenant is dropped, its initial catalog is written at timestamp 1, the discard timestamp is raised above the drop and the store compacts"
 )]
-fn namespace_drop_and_compact(w: &mut Steps) -> TestResult {
-    let catalog = catalog_key_ns3();
+fn tenant_drop_and_compact(w: &mut Steps) -> TestResult {
+    let catalog = catalog_key_tenant3();
     w.write(vec![
         Entry::put(catalog.clone(), 5, 0x01, b"old".to_vec()).with_discard(),
     ])?;
@@ -862,13 +860,13 @@ fn namespace_drop_and_compact(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[then("the namespace's initial catalog is still read at the discard timestamp")]
+#[then("the tenant's initial catalog is still read at the discard timestamp")]
 fn initial_catalog_read(w: &mut Steps) -> TestResult {
-    let read = w.open()?.get_at(&catalog_key_ns3(), 9)?;
+    let read = w.open()?.get_at(&catalog_key_tenant3(), 9)?;
     assert_eq!(read.map(Item::into_value), Some(b"initial".to_vec()));
     let _reopened: &FjallStore = w.reopen()?;
     w.open()?.compact()?;
-    let compacted_read = w.open()?.get_at(&catalog_key_ns3(), 9)?;
+    let compacted_read = w.open()?.get_at(&catalog_key_tenant3(), 9)?;
     assert_eq!(
         compacted_read.map(Item::into_value),
         Some(b"initial".to_vec())

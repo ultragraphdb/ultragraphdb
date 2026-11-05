@@ -33,7 +33,7 @@ const SINGLE: u128 = u64::MAX as u128;
 /// index's lists hold theirs.
 fn single_key(attr: &str, node: u64) -> TestResult<Vec<u8>> {
     Ok(ultragraphdb_core_keys::QuadKey::VectorIndex {
-        namespace: 0,
+        tenant: 0,
         graph: ultragraphdb_core_keys::DEFAULT_GRAPH,
         predicate: crate::utils::helpers::predicate(attr)?,
         list: 1,

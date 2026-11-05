@@ -7,9 +7,9 @@ use ultragraphdb_protocol_wire::CatalogAnnouncement;
 use ultragraphdb_tool_bdd::TestResult;
 
 #[test]
-fn test_an_announcement_encodes_namespace_then_version() -> TestResult {
+fn test_an_announcement_encodes_tenant_then_version() -> TestResult {
     let announcement = CatalogAnnouncement::new(0x0102_0304_0506_0708, 0x1112_1314_1516_1718);
-    assert_eq!(announcement.namespace(), 0x0102_0304_0506_0708);
+    assert_eq!(announcement.tenant(), 0x0102_0304_0506_0708);
     assert_eq!(announcement.version(), 0x1112_1314_1516_1718);
     assert_eq!(
         announcement.encode(),

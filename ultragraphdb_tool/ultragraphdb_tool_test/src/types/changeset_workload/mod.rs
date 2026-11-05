@@ -81,7 +81,7 @@ pub const REPLAY_AGREES: &str = "replay derives every key and value the first ap
 /// The differing keys a [`REPLAY_AGREES`] violation names at most.
 const DIFFERENCES_SHOWN: usize = 4;
 
-const NS: u64 = 0;
+const TENANT: u64 = 0;
 const SUBJECTS: u64 = 6;
 const PHRASES: [&str; 5] = ["big apple", "red apple", "green pear", "big fig", "red"];
 
@@ -96,7 +96,7 @@ fn ex(name: &str) -> NamedNode {
 fn declarations() -> Changeset {
     declared()
         .into_iter()
-        .fold(Changeset::new(NS), |c, d| c.with(Change::Declare(d)))
+        .fold(Changeset::new(TENANT), |c, d| c.with(Change::Declare(d)))
 }
 
 /// The workload's declarations: `name` a single-valued property with a `term` index, `tags` a property with `term`
@@ -422,7 +422,7 @@ impl ChangesetWorkload {
             graph: GraphName::DefaultGraph,
             reifier,
         };
-        let stored_reifier = NamedNode::new_unchecked(a.quads().iri_of(NS, *id)?.0);
+        let stored_reifier = NamedNode::new_unchecked(a.quads().iri_of(TENANT, *id)?.0);
         Ok(Some((
             delete(stored_reifier),
             delete(model_reifier.clone()),
@@ -431,7 +431,7 @@ impl ChangesetWorkload {
 
     fn write(&mut self, ctx: &mut SimContext) -> Result<(), ChangesetError> {
         let a = self.applier(ctx)?;
-        let (mut stored, mut modelled) = (Changeset::new(NS), Changeset::new(NS));
+        let (mut stored, mut modelled) = (Changeset::new(TENANT), Changeset::new(TENANT));
         for _ in 0..ctx.rng().between(1, 3) {
             if let Some((s, m)) = self.change(ctx, &a)? {
                 stored.push(s);
@@ -594,8 +594,8 @@ fn open(
         seed.value(),
     )?);
     // The declarations' round gives `friend` its ID, so a store holding it applied them.
-    if a.quads().id_of(NS, ex("friend").as_str())?.is_some() {
-        a.load_catalog(&CatalogContents::new(NS, 1, declared()))?;
+    if a.quads().id_of(TENANT, ex("friend").as_str())?.is_some() {
+        a.load_catalog(&CatalogContents::new(TENANT, 1, declared()))?;
         a.recover_builds()?;
     } else {
         let _declared: Applied = a.apply(&declarations())?;
@@ -617,7 +617,7 @@ fn replayed(
     let version = first.quads().lists().next_version();
     let _applied: Vec<Applied> = first.apply_round(vec![(version, executed)])?;
     let borrowed: Vec<&VersionlessEntry> = entries.iter().collect();
-    let derived = replica.prepare_logical(changeset.namespace(), &logical, &borrowed)?;
+    let derived = replica.prepare_logical(changeset.tenant(), &logical, &borrowed)?;
     let _replayed: Vec<Applied> =
         replica.apply_round_with(vec![(version, derived)], &entries, version)?;
     Ok(())
@@ -730,7 +730,10 @@ fn statistics_disagree(
         let _statements: &mut i64 = held.entry((graph, predicate)).or_default();
     }
     for ((graph, predicate), statements) in held {
-        let counted = a.quads().statistics(NS, graph, predicate, ts)?.statements();
+        let counted = a
+            .quads()
+            .statistics(TENANT, graph, predicate, ts)?
+            .statements();
         if counted != statements {
             return Ok(Some(format!(
                 "graph {graph:?} predicate {predicate:?}: {statements} statements held, {counted} counted"
@@ -812,14 +815,14 @@ fn held_of(
     )
 }
 
-/// The keys of `keyspace` in the namespace's default graph live at the newest timestamp, split parts left out.
+/// The keys of `keyspace` in the tenant's default graph live at the newest timestamp, split parts left out.
 fn live_keys(a: &SimChangesets, keyspace: Keyspace) -> Result<Vec<Vec<u8>>, ChangesetError> {
     let snapshot = a.quads().store().snapshot(a.quads().lists().applied_ts())?;
     let keys = snapshot
         .scan(&Scan::prefix(key_prefix(
             keyspace,
             false,
-            NS,
+            TENANT,
             Some(DEFAULT_GRAPH),
             None,
         )))
@@ -869,13 +872,15 @@ fn statements_of(
         };
         let graph_name = match graph {
             Graph::Default => GraphName::DefaultGraph,
-            Graph::Named(g) => GraphName::NamedNode(NamedNode::new_unchecked(q.iri_of(NS, g)?.0)),
+            Graph::Named(g) => {
+                GraphName::NamedNode(NamedNode::new_unchecked(q.iri_of(TENANT, g)?.0))
+            }
         };
         let subject_term: NamedOrBlankNode =
-            NamedNode::new_unchecked(q.iri_of(NS, subject)?.0).into();
-        let predicate_iri = NamedNode::new_unchecked(q.iri_of(NS, predicate)?.0);
+            NamedNode::new_unchecked(q.iri_of(TENANT, subject)?.0).into();
+        let predicate_iri = NamedNode::new_unchecked(q.iri_of(TENANT, predicate)?.0);
         for (object, ids) in objects {
-            let object_term = q.term_of(NS, &object)?;
+            let object_term = q.term_of(TENANT, &object)?;
             let held = |properties: &[(NamedNode, Term)], with_id: bool| {
                 held_of(
                     &graph_name,
@@ -890,7 +895,7 @@ fn statements_of(
                 out.push((held(&[], false), None));
             }
             for id in ids {
-                let record = q.statement(NS, graph, id, ts)?.ok_or_else(|| {
+                let record = q.statement(TENANT, graph, id, ts)?.ok_or_else(|| {
                     QuadError::corrupted(&key.to_bytes(), format!("statement {id:?} has no record"))
                 })?;
                 if (record.subject(), record.predicate(), record.object())
@@ -907,8 +912,8 @@ fn statements_of(
                     .iter()
                     .map(|(p, v)| {
                         Ok((
-                            NamedNode::new_unchecked(q.iri_of(NS, *p)?.0),
-                            q.term_of(NS, v)?,
+                            NamedNode::new_unchecked(q.iri_of(TENANT, *p)?.0),
+                            q.term_of(TENANT, v)?,
                         ))
                     })
                     .collect::<Result<Vec<_>, QuadError>>()?;
@@ -930,7 +935,12 @@ fn orphan_record(
             QuadKey::parse(&key).map_err(QuadError::from)?
             && !ids.contains(&statement)
             && a.quads()
-                .statement(NS, DEFAULT_GRAPH, statement, a.quads().lists().applied_ts())?
+                .statement(
+                    TENANT,
+                    DEFAULT_GRAPH,
+                    statement,
+                    a.quads().lists().applied_ts(),
+                )?
                 .is_some()
         {
             return Ok(Some(format!("record {statement:?} has no posting")));
@@ -942,7 +952,7 @@ fn orphan_record(
 /// The indexes `forward`, the store's forward lists, produce in the default graph.
 fn data_indexes(a: &SimChangesets, forward: &Lists) -> Result<DataIndexes, ChangesetError> {
     let q = a.quads();
-    let catalog = a.catalog(NS)?;
+    let catalog = a.catalog(TENANT)?;
     let mut data = DataIndexes::default();
     for (key, objects) in forward {
         let QuadKey::Forward {
@@ -982,7 +992,8 @@ fn data_indexes(a: &SimChangesets, forward: &Lists) -> Result<DataIndexes, Chang
                 .entry(object.clone())
                 .or_default()
                 .insert(*predicate);
-            let (Some(declaration), Term::Literal(literal)) = (declaration, q.term_of(NS, object)?)
+            let (Some(declaration), Term::Literal(literal)) =
+                (declaration, q.term_of(TENANT, object)?)
             else {
                 continue;
             };
@@ -1112,7 +1123,7 @@ fn counts_disagree(
     data: &DataIndexes,
 ) -> Result<Option<String>, ChangesetError> {
     let mut reverse_counts: BTreeMap<(SystemId, u32), BTreeSet<EncodedTerm>> = BTreeMap::new();
-    if let Some(friend) = a.quads().id_of(NS, ex("friend").as_str())? {
+    if let Some(friend) = a.quads().id_of(TENANT, ex("friend").as_str())? {
         for ((predicate, object), subjects) in &data.reverse {
             if *predicate == friend {
                 let count = u32::try_from(subjects.len()).unwrap_or(u32::MAX);

@@ -21,7 +21,7 @@ pub const SESSION: [u8; 16] = [
 /// The golden Bind reply's watermark, the version (29 << 22) | 500.
 pub const WATERMARK: u64 = (29 << 22) | 500;
 
-/// The golden Bind request: partition 3, a transaction of namespace 5, token epoch 30, principal 9.
+/// The golden Bind request: partition 3, a transaction of tenant 5, token epoch 30, principal 9.
 pub fn golden_bind() -> Bind {
     Bind::new(3, BindKind::Transaction, 5, 30, 9, TRANSACTION)
 }
@@ -30,7 +30,7 @@ pub fn golden_bind() -> Bind {
 fn test_a_bind_builds_the_golden_request_reply_and_drop() -> TestResult {
     let bind = golden_bind();
     assert_eq!(
-        (bind.partition(), bind.kind(), bind.namespace()),
+        (bind.partition(), bind.kind(), bind.tenant()),
         (3, BindKind::Transaction, 5)
     );
     assert_eq!(

@@ -26,19 +26,19 @@ where
     C: ListCache<Value = CachedList>,
     B: BlockSource,
 {
-    /// The execution deriving `writes` in `namespace`, reading `dictionary` as its own, as
+    /// The execution deriving `writes` in `tenant`, reading `dictionary` as its own, as
     /// [`crate::ChangesetApplier::prepare_logical`] makes it.
     pub fn prepare_logical(
         &self,
-        namespace: u64,
+        tenant: u64,
         writes: &LogicalWrites,
         dictionary: &[&VersionlessEntry],
     ) -> Result<Executed, ChangesetError> {
         let read_ts = self.quads.lists().applied_ts();
         let running = lock(&self.rebuild).clone();
-        let catalog = (*self.catalog(namespace)?).clone();
-        let mut write = QuadWrite::new(&self.quads, namespace, self.quads.lists().request(read_ts));
-        let mut terms = WriteTerms::new(namespace);
+        let catalog = (*self.catalog(tenant)?).clone();
+        let mut write = QuadWrite::new(&self.quads, tenant, self.quads.lists().request(read_ts));
+        let mut terms = WriteTerms::new(tenant);
         terms.inherit(dictionary);
         write.seed(&Writes::default(), terms)?;
         let mut cw = ChangesetWrite::new(write, catalog).under(running.as_ref(), running.is_some());
@@ -49,11 +49,11 @@ where
             request.add_versionless(key, value);
         }
         for marked in writes.marks() {
-            request.add_entry(mark_entry(namespace, marked));
+            request.add_entry(mark_entry(tenant, marked));
         }
         let derived = request.into_writes();
         let referrers =
-            referrer_candidates(&self.quads, namespace, read_ts, &derived, &outcome.terms)?;
+            referrer_candidates(&self.quads, tenant, read_ts, &derived, &outcome.terms)?;
         Ok(Executed {
             writes: derived,
             marks: writes.marks().to_vec(),
@@ -65,7 +65,7 @@ where
             pending: outcome.pending,
             touched: outcome.touched,
             removals: outcome.removals,
-            ..Executed::empty(namespace, read_ts, outcome.catalog)
+            ..Executed::empty(tenant, read_ts, outcome.catalog)
         })
     }
 }

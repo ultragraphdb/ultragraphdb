@@ -3,13 +3,13 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-/// A transaction begun on a stream of the client's connection: its namespace, the snapshot it reads and whether it
+/// A transaction begun on a stream of the client's connection: its tenant, the snapshot it reads and whether it
 /// is read-only. Every request of it goes on its stream; it ends with a commit, an abort, or a refusal on its stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Transaction {
     stream: u64,
     generation: u64,
-    namespace: u64,
+    tenant: u64,
     read_version: u64,
     read_only: bool,
 }
@@ -18,14 +18,14 @@ impl Transaction {
     pub(crate) fn new(
         stream: u64,
         generation: u64,
-        namespace: u64,
+        tenant: u64,
         read_version: u64,
         read_only: bool,
     ) -> Self {
         Self {
             stream,
             generation,
-            namespace,
+            tenant,
             read_version,
             read_only,
         }
@@ -40,9 +40,9 @@ impl Transaction {
         self.generation
     }
 
-    /// The namespace the transaction reads and writes.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant the transaction reads and writes.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// The version of the snapshot it reads.

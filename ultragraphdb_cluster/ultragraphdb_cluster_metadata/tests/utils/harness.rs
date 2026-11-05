@@ -10,7 +10,7 @@ use std::num::NonZeroU32;
 
 use ultragraphdb_cluster_metadata::{MetadataConfig, MetadataGroup, MetadataSnapshot};
 use ultragraphdb_cluster_placement::{BucketRange, NodeId, PartitionId};
-use ultragraphdb_core_ids::{Epoch, Namespace};
+use ultragraphdb_core_ids::{Epoch, Tenant};
 use ultragraphdb_protocol_scram::{MIN_ITERATIONS, ScramVerifier};
 use ultragraphdb_tool_bdd::{TestError, TestResult};
 use ultragraphdb_transactions_log::{SimStorage, Wal, WalConfig};
@@ -105,9 +105,9 @@ pub fn range(start: u32, end: u32) -> TestResult<BucketRange> {
     Ok(BucketRange::new(start, end)?)
 }
 
-/// The namespace `ns` of the scenarios, number 7.
-pub fn ns() -> Namespace {
-    Namespace::new(7)
+/// The tenant `tenant` of the scenarios, number 7.
+pub fn tenant() -> Tenant {
+    Tenant::new(7)
 }
 
 /// The node every partition is led by.

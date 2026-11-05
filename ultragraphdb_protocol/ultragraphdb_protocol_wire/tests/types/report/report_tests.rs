@@ -33,7 +33,7 @@ fn test_the_golden_reports_are_built_byte_for_byte() -> TestResult {
         (
             refused.partition(),
             refused.kind(),
-            refused.namespace(),
+            refused.tenant(),
             refused.version()
         ),
         (6, ReportKind::Refused, 4, 12)

@@ -8,7 +8,7 @@
 //! index-maintenance's summed reverse counts. Each runs a [`Cluster`] of partitions in one process.
 //!
 //! A scenario naming a bucket or a bucket group by number names one a registration carries as given; where the number
-//! must come from a subject's IRI, which namespace 0's hash places in its own run, the subject's own group stands for
+//! must come from a subject's IRI, which tenant 0's hash places in its own run, the subject's own group stands for
 //! it, as a comment at the step says.
 
 #[path = "utils/cluster.rs"]
@@ -32,7 +32,7 @@ use ultragraphdb_cluster_partition::{
     Answer, BoundStep, Fanout, PartitionError, Reference, ReverseQuery,
 };
 use ultragraphdb_cluster_placement::{BucketRange, NodeId, PartitionId, PlacementMap};
-use ultragraphdb_core_ids::{Bucket, BucketGroup, Epoch, Namespace, SystemId, Version};
+use ultragraphdb_core_ids::{Bucket, BucketGroup, Epoch, SystemId, Tenant, Version};
 use ultragraphdb_core_keys::{Graph, Keyspace, QuadKey};
 use ultragraphdb_core_mapping::PredicateDeclaration;
 use ultragraphdb_core_terms::{EncodedTerm, TermError};
@@ -44,7 +44,7 @@ use ultragraphdb_transactions_commit::{CommitError, CommitErrorEnum};
 use ultragraphdb_transactions_txn::{Commit, TxnError};
 
 use crate::cluster::{
-    Cluster, NS, Outcome, Written, as_of, begin, changeset, epoch, ex, group, insert,
+    Cluster, Outcome, TENANT, Written, as_of, begin, changeset, epoch, ex, group, insert,
     insert_literal, pid,
 };
 use crate::hosts::{Host, on_hosts, turn_all};
@@ -105,7 +105,7 @@ fn epoch_of(version: u64) -> Epoch {
 fn groups_at(cluster: &Cluster, home: u32, entity: SystemId, at: Epoch) -> TestResult<Vec<u32>> {
     let quads = cluster.part(home)?.applier().quads();
     let version = as_of(at).min(quads.lists().applied_ts());
-    let set = quads.referrers(NS, entity, version)?;
+    let set = quads.referrers(TENANT, entity, version)?;
     Ok(set.at(at).map(|m| m.group().get()).collect())
 }
 
@@ -113,7 +113,7 @@ fn groups_at(cluster: &Cluster, home: u32, entity: SystemId, at: Epoch) -> TestR
 fn registration(home: u32, name: &str, group: BucketGroup, named: u64) -> TestResult<Reference> {
     Ok(Reference::new(
         pid(home)?,
-        NS,
+        TENANT,
         ex(name).as_str().to_string(),
         None,
         Some(group),
@@ -132,7 +132,7 @@ fn reverse(
 ) -> TestResult<ReverseQuery> {
     Ok(ReverseQuery::new(
         pid(home)?,
-        NS,
+        TENANT,
         Graph::Default,
         id_at(cluster, predicate_home, predicate)?,
         id_at(cluster, home, object)?,
@@ -234,8 +234,8 @@ fn one_owning_every_bucket(w: &mut Steps) -> TestResult {
     for b in [0, 30_000, Bucket::MAX.get()] {
         part.route(Bucket::new(b)?, cluster.closed())?;
     }
-    for namespace in [NS, 1, u64::MAX] {
-        assert!(part.owns_run(namespace, cluster.closed()));
+    for tenant in [TENANT, 1, u64::MAX] {
+        assert!(part.owns_run(tenant, cluster.closed()));
     }
     Ok(())
 }
@@ -276,7 +276,7 @@ fn partition_2_applies(w: &mut Steps) -> TestResult {
         "partition 2 takes bucket 30,000: {:?}",
         w.errors
     );
-    // Namespace 0's subjects lie in its own run, not bucket 30,000's; a subject partition 2 owns stands for it.
+    // Tenant 0's subjects lie in its own run, not bucket 30,000's; a subject partition 2 owns stands for it.
     let cluster = w.cluster()?;
     let subject = cluster.name_in(2, "s")?;
     let predicate = cluster.name_in(2, "p")?;
@@ -368,22 +368,22 @@ fn edge_entries_at_subject(w: &mut Steps) -> TestResult {
     read?;
     assert_eq!(forward, vec![ex(b).into()]);
     assert_eq!(
-        quads.subjects(NS, Graph::Default, knows_id, &object, version)?,
+        quads.subjects(TENANT, Graph::Default, knows_id, &object, version)?,
         vec![a_id]
     );
     assert_eq!(
-        quads.object_predicates(NS, Graph::Default, &object, version)?,
+        quads.object_predicates(TENANT, Graph::Default, &object, version)?,
         vec![knows_id]
     );
     // One commit: none of the three is there just before it.
     assert!(
         quads
-            .subjects(NS, Graph::Default, knows_id, &object, version - 1)?
+            .subjects(TENANT, Graph::Default, knows_id, &object, version - 1)?
             .is_empty()
     );
     assert!(
         quads
-            .object_predicates(NS, Graph::Default, &object, version - 1)?
+            .object_predicates(TENANT, Graph::Default, &object, version - 1)?
             .is_empty()
     );
     assert!(
@@ -431,7 +431,7 @@ fn hub_spread(w: &mut Steps) -> TestResult {
         let quads = cluster.part(id)?.applier().quads();
         let object = EncodedTerm::id(id_at(cluster, id, hub)?);
         let found = quads.subjects(
-            NS,
+            TENANT,
             Graph::Default,
             id_at(cluster, id, knows)?,
             &object,
@@ -470,7 +470,7 @@ fn member_at_12(w: &mut Steps) -> TestResult {
     let cluster = w.cluster_ref()?;
     let answer = *w.answers.first().context("the answer")?;
     let quads = cluster.part(2)?.applier().quads();
-    let set = quads.referrers(NS, answer.entity(), u64::MAX)?;
+    let set = quads.referrers(TENANT, answer.entity(), u64::MAX)?;
     let member = set
         .member(BucketGroup::new(7)?)
         .context("group 7's member")?;
@@ -496,7 +496,7 @@ fn at_generation_3(w: &mut Steps) -> TestResult<SystemId> {
         .part(2)?
         .applier()
         .quads()
-        .referrers(NS, entity, u64::MAX)?;
+        .referrers(TENANT, entity, u64::MAX)?;
     w.numbers
         .push(set.member(g).context("the member")?.epoch().get());
     w.names = vec![o];
@@ -553,7 +553,7 @@ fn member_is(w: &Steps, generation: u64) -> TestResult {
         .part(2)?
         .applier()
         .quads()
-        .referrers(NS, answer.entity(), u64::MAX)?;
+        .referrers(TENANT, answer.entity(), u64::MAX)?;
     let member = set
         .member(BucketGroup::new(7)?)
         .context("group 7's member")?;
@@ -572,7 +572,7 @@ fn member_is(w: &Steps, generation: u64) -> TestResult {
 fn own_group_edge(w: &mut Steps) -> TestResult {
     let mut cluster = Cluster::even(2)?;
     let hub = cluster.name_in(1, "hub")?;
-    // The subject's own group stands for group 3: namespace 0's subjects lie in its own run.
+    // The subject's own group stands for group 3: tenant 0's subjects lie in its own run.
     let subject = cluster.name_in(1, "s")?;
     let knows = cluster.name_in(1, "knows")?;
     cluster.deliver_through(1, epoch(7)?)?;
@@ -630,7 +630,7 @@ fn group_resolves_by_epoch(w: &mut Steps) -> TestResult {
     let entity = w.answers.first().context("the answer")?.entity();
     for (at, asked) in [(20, 2), (21, 3)] {
         // Any predicate serves: the read asks the partitions the set names whatever they hold.
-        let query = ReverseQuery::new(pid(1)?, NS, Graph::Default, entity, entity, epoch(at)?);
+        let query = ReverseQuery::new(pid(1)?, TENANT, Graph::Default, entity, entity, epoch(at)?);
         let mut subjects = Vec::new();
         let partitions = Fanout::new(cluster.parts()).subjects(&query, &mut subjects)?;
         assert_eq!(partitions, vec![pid(asked)?], "at epoch {at}");
@@ -699,12 +699,12 @@ fn t_conflicts(w: &mut Steps) -> TestResult {
         "the retry finds the renewed mark"
     );
     let (o, s) = (w.name(0)?, w.name(1)?);
-    let mark =
-        cluster
-            .part(1)?
-            .applier()
-            .quads()
-            .mark(NS, id_at(cluster, 1, o)?, group(s)?, u64::MAX)?;
+    let mark = cluster.part(1)?.applier().quads().mark(
+        TENANT,
+        id_at(cluster, 1, o)?,
+        group(s)?,
+        u64::MAX,
+    )?;
     assert_eq!(mark.map(NonZeroU64::get), Some(5));
     Ok(())
 }
@@ -748,7 +748,7 @@ fn stamped_above_registration(w: &mut Steps) -> TestResult {
         .part(2)?
         .applier()
         .quads()
-        .referrers(NS, answer.entity(), u64::MAX)?;
+        .referrers(TENANT, answer.entity(), u64::MAX)?;
     assert_eq!(set.member(group(a)?).map(|m| m.epoch()), Some(epoch(12)?));
     let version = w.written.first().context("the write")?.version()?;
     assert!(epoch_of(version) >= epoch(12)?, "{version}");
@@ -812,7 +812,7 @@ fn value_in(cluster: &Cluster, id: u32, predicate: SystemId) -> TestResult<Strin
         } else {
             format!("x{n}")
         };
-        let b = Bucket::of_value(Namespace::new(NS), predicate, simple(&text)?.as_bytes());
+        let b = Bucket::of_value(Tenant::new(TENANT), predicate, simple(&text)?.as_bytes());
         if cluster
             .part(1)?
             .placement()
@@ -873,7 +873,7 @@ fn first_claim(w: &mut Steps) -> TestResult {
     )?;
     let predicate = id_at(&cluster, 2, "epi.id")?;
     let value = value_in(&cluster, 2, predicate)?;
-    let claim = Bucket::of_value(Namespace::new(NS), predicate, simple(&value)?.as_bytes());
+    let claim = Bucket::of_value(Tenant::new(TENANT), predicate, simple(&value)?.as_bytes());
     // The frontend binds the transaction to the partition owning the claim's bucket: partition 1 refuses it, naming 2.
     let refused = cluster.part(1)?.route(claim, cluster.closed());
     w.errors
@@ -938,7 +938,7 @@ fn registered_and_committed(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[when("a namespace's buckets span partitions 1 and 2, and a client drops the namespace's data")]
+#[when("a tenant's buckets span partitions 1 and 2, and a client drops the tenant's data")]
 fn drop_spread(w: &mut Steps) -> TestResult {
     let mut cluster = Cluster::even(2)?;
     let a = cluster.name_in(1, "a")?;
@@ -946,7 +946,7 @@ fn drop_spread(w: &mut Steps) -> TestResult {
     let _version = cluster
         .write(1, vec![insert_literal(&a, &p, "kept")])?
         .version()?;
-    let refused = cluster.part(1)?.check_drop(Some(NS), cluster.closed());
+    let refused = cluster.part(1)?.check_drop(Some(TENANT), cluster.closed());
     w.errors.push(refused.err().context("a refusal")?);
     w.names = vec![a];
     w.cluster = Some(cluster);
@@ -992,7 +992,7 @@ fn first_reference_registered(w: &mut Steps) -> TestResult {
         .part(2)?
         .applier()
         .quads()
-        .referrers(NS, b_id, u64::MAX)?;
+        .referrers(TENANT, b_id, u64::MAX)?;
     assert_eq!(
         set.member(group(a)?).map(|m| m.generation()),
         answer.generation()
@@ -1004,15 +1004,15 @@ fn first_reference_registered(w: &mut Steps) -> TestResult {
     );
     let quads = cluster.part(1)?.applier().quads();
     assert_eq!(
-        quads.mark(NS, b_id, group(a)?, version)?,
+        quads.mark(TENANT, b_id, group(a)?, version)?,
         answer.generation()
     );
     assert!(
-        quads.mark(NS, b_id, group(a)?, version - 1)?.is_none(),
+        quads.mark(TENANT, b_id, group(a)?, version - 1)?.is_none(),
         "with the statement"
     );
-    assert_eq!(quads.id_of(NS, ex(b).as_str())?, Some(b_id));
-    assert_eq!(quads.iri_of(NS, b_id)?.0, ex(b).as_str());
+    assert_eq!(quads.id_of(TENANT, ex(b).as_str())?, Some(b_id));
+    assert_eq!(quads.iri_of(TENANT, b_id)?.0, ex(b).as_str());
     Ok(())
 }
 
@@ -1098,7 +1098,9 @@ fn both_groups(w: &mut Steps) -> TestResult {
     let quads = cluster.part(1)?.applier().quads();
     for subject in [a, t] {
         assert!(
-            quads.mark(NS, b_id, group(subject)?, u64::MAX)?.is_some(),
+            quads
+                .mark(TENANT, b_id, group(subject)?, u64::MAX)?
+                .is_some(),
             "{subject}"
         );
     }
@@ -1131,13 +1133,13 @@ fn predicate_copied(w: &mut Steps) -> TestResult {
     let home_id = id_at(cluster, 2, knows)?;
     assert_eq!(answer.entity(), home_id);
     let quads = cluster.part(1)?.applier().quads();
-    assert_eq!(quads.id_of(NS, ex(knows).as_str())?, Some(home_id));
-    assert_eq!(quads.iri_of(NS, home_id)?.0, ex(knows).as_str());
+    assert_eq!(quads.id_of(TENANT, ex(knows).as_str())?, Some(home_id));
+    assert_eq!(quads.iri_of(TENANT, home_id)?.0, ex(knows).as_str());
     let set = cluster
         .part(2)?
         .applier()
         .quads()
-        .referrers(NS, home_id, u64::MAX)?;
+        .referrers(TENANT, home_id, u64::MAX)?;
     assert!(set.members().is_empty());
     Ok(())
 }
@@ -1408,7 +1410,7 @@ fn friends_of_b(w: &mut Steps) -> TestResult {
     let mut found = Vec::new();
     let friend = id_at(&cluster, 1, "friend")?;
     Fanout::new(cluster.parts()).reverse_counted(
-        NS,
+        TENANT,
         Graph::Default,
         friend,
         3,
@@ -1433,7 +1435,7 @@ fn summed_count(w: &mut Steps) -> TestResult {
         let object = EncodedTerm::id(id_at(cluster, id, b)?);
         let friend = id_at(cluster, id, "friend")?;
         assert_eq!(
-            quads.reverse_count(NS, Graph::Default, friend, &object, u64::MAX)?,
+            quads.reverse_count(TENANT, Graph::Default, friend, &object, u64::MAX)?,
             count,
             "partition {id}"
         );
@@ -1454,7 +1456,7 @@ fn on_written(body: impl FnOnce(&mut Host<'_>, &str, &str) -> TestResult) -> Tes
         let host = hosts.first_mut().context("partition 1")?;
         let (new, p) = (ex("new"), ex("p"));
         let write = changeset(vec![insert_literal("new", "p", "x")]);
-        let _read = host.bind(BOUND, [1; 16], (write.namespace(), 1, Epoch::ZERO), 0)?;
+        let _read = host.bind(BOUND, [1; 16], (write.tenant(), 1, Epoch::ZERO), 0)?;
         let step = host.write_bound(BOUND, &write, 0)?;
         assert_eq!(step, BoundStep::Done);
         body(host, new.as_str(), p.as_str())
@@ -1467,7 +1469,7 @@ fn held_id(host: &Host<'_>, iri: &str) -> TestResult<Option<SystemId>> {
         .partition()
         .applier()
         .quads()
-        .id_of(changeset(Vec::new()).namespace(), iri)?)
+        .id_of(changeset(Vec::new()).tenant(), iri)?)
 }
 
 /// A later write of `<new>` commits.
@@ -1553,7 +1555,7 @@ fn first<'h, 'a>(hosts: &'h mut [Host<'a>]) -> TestResult<&'h mut Host<'a>> {
 
 /// Binds `key` at `host`, named `identity`, reading at its visibility watermark.
 fn bind_reader(host: &mut Host<'_>, key: (u64, u64), identity: u8) -> TestResult {
-    let _read = host.bind(key, [identity; 16], (NS, 1, epoch(0)?), 0)?;
+    let _read = host.bind(key, [identity; 16], (TENANT, 1, epoch(0)?), 0)?;
     Ok(())
 }
 
@@ -1595,7 +1597,7 @@ fn read_list(
         .resolve_bound(key, subject.as_ref(), 0)?
         .context("the subject's ID")?;
     let list = QuadKey::Forward {
-        namespace: NS,
+        tenant: TENANT,
         graph: Graph::Default,
         predicate,
         subject,
@@ -1603,7 +1605,7 @@ fn read_list(
     .to_bytes();
     let scan = KernelScan::new(
         Keyspace::Forward,
-        NS,
+        TENANT,
         list.clone(),
         host.bound_read(&[READER.0 as u8; 16])
             .context("the transaction")?

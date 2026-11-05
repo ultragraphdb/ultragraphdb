@@ -11,7 +11,7 @@ use ultragraphdb_store_kv::{FjallStore, TERMS_KEYSPACE};
 use ultragraphdb_traits_store::{Entry, Item, PersistMode, Scan, Store, StoreSnapshot, WriteBatch};
 
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
-use ultragraphdb_tool_test::{TestDir, ns_key, put, scanned, versions, write};
+use ultragraphdb_tool_test::{TestDir, put, scanned, tenant_key, versions, write};
 
 /// `len` bytes of `0x00 0x01` repeated: every zero byte a run of one, the densest the stored key's codes get.
 fn alternating(len: usize) -> Vec<u8> {
@@ -446,7 +446,7 @@ fn test_dropping_everything_keeps_only_its_entries_and_clears_the_metadata() -> 
     s.apply(batch, PersistMode::Buffer)?;
     s.set_discard_ts(2)?;
     s.set_tombstone_horizon(1)?;
-    s.ban_namespace(5)?;
+    s.ban_tenant(5)?;
     s.drop_all(vec![put(b"\x01schema", 1, b"s")])?;
     drop(s);
     let reopened = dir.open()?;
@@ -464,13 +464,13 @@ fn test_dropping_everything_keeps_only_its_entries_and_clears_the_metadata() -> 
 }
 
 #[test]
-fn test_a_banned_namespace_ignores_writes_and_hides_its_keys() -> TestResult {
+fn test_a_banned_tenant_ignores_writes_and_hides_its_keys() -> TestResult {
     let dir = TestDir::new("banned");
     let s = dir.open()?;
-    let (five, six) = (ns_key(5, b"\x00\x01a"), ns_key(6, b"\x00\x01a"));
+    let (five, six) = (tenant_key(5, b"\x00\x01a"), tenant_key(6, b"\x00\x01a"));
     write(&s, vec![put(&five, 1, b"before")])?;
     let before = s.snapshot(3)?;
-    s.ban_namespace(5)?;
+    s.ban_tenant(5)?;
     write(&s, vec![put(&five, 2, b""), put(&six, 2, b"")])?;
     assert_eq!(s.get_at(&five, 3)?, None);
     assert_eq!(s.get_at(&six, 3)?.map(|i| i.version()), Some(2));
@@ -504,8 +504,8 @@ fn test_a_banned_namespace_ignores_writes_and_hides_its_keys() -> TestResult {
 fn test_dropping_everything_clears_the_banned_set() -> TestResult {
     let dir = TestDir::new("drop-all-ban");
     let s = dir.open()?;
-    let five = ns_key(5, b"\x00\x01a");
-    s.ban_namespace(5)?;
+    let five = tenant_key(5, b"\x00\x01a");
+    s.ban_tenant(5)?;
     s.drop_all(Vec::new())?;
     write(&s, vec![put(&five, 1, b"after")])?;
     assert_eq!(
@@ -539,14 +539,14 @@ fn test_a_second_open_of_a_held_directory_is_refused() -> TestResult {
 }
 
 #[test]
-fn test_a_ban_covers_only_keys_longer_than_their_namespace() -> TestResult {
+fn test_a_ban_covers_only_keys_longer_than_their_tenant() -> TestResult {
     // Badger's `isBanned` reads a namespace only from a key longer than the prefix byte and the eight namespace bytes
-    // (`db.go:1921-1932`): a key of exactly nine bytes belongs to no namespace and is written under any ban.
+    // (`db.go:1921-1932`): a key of exactly nine bytes belongs to no tenant and is written under any ban.
     let dir = TestDir::new("banned-length");
     let s = dir.open()?;
-    s.ban_namespace(5)?;
-    let nine = ns_key(5, b"");
-    let ten = ns_key(5, b"x");
+    s.ban_tenant(5)?;
+    let nine = tenant_key(5, b"");
+    let ten = tenant_key(5, b"x");
     let short = nine[..8].to_vec();
     write(
         &s,
@@ -569,7 +569,7 @@ fn test_a_ban_covers_only_keys_longer_than_their_namespace() -> TestResult {
     assert_eq!(
         keys,
         vec![short, nine],
-        "the write to the banned namespace was dropped"
+        "the write to the banned tenant was dropped"
     );
     Ok(())
 }
@@ -577,7 +577,7 @@ fn test_a_ban_covers_only_keys_longer_than_their_namespace() -> TestResult {
 /// A batch of versionless writes, with one versioned entry beside them.
 fn versionless_batch(writes: &[(&[u8], Option<&[u8]>)], version: u64) -> WriteBatch {
     let mut batch = WriteBatch::new();
-    batch.push(put(&ns_key(0, b"data"), version, b"v"));
+    batch.push(put(&tenant_key(0, b"data"), version, b"v"));
     for (key, value) in writes {
         match value {
             Some(value) => batch.put_versionless(key.to_vec(), value.to_vec()),
@@ -643,23 +643,29 @@ fn test_bans_prefix_drops_and_temporary_keyspaces_leave_versionless_keys_alone()
     let dir = TestDir::new("versionless-kept");
     let s = dir.open()?;
     s.apply(
-        versionless_batch(&[(&ns_key(5, b"t"), Some(b"1"))], 1),
+        versionless_batch(&[(&tenant_key(5, b"t"), Some(b"1"))], 1),
         PersistMode::Buffer,
     )?;
-    s.ban_namespace(5)?;
+    s.ban_tenant(5)?;
     s.apply(
-        versionless_batch(&[(&ns_key(5, b"u"), Some(b"2"))], 2),
+        versionless_batch(&[(&tenant_key(5, b"u"), Some(b"2"))], 2),
         PersistMode::Buffer,
     )?;
     s.drop_prefixes(3, &[vec![0x00]], Vec::new())?;
-    assert_eq!(s.get_versionless(&ns_key(5, b"t"))?, Some(b"1".to_vec()));
-    assert_eq!(s.get_versionless(&ns_key(5, b"u"))?, Some(b"2".to_vec()));
+    assert_eq!(
+        s.get_versionless(&tenant_key(5, b"t"))?,
+        Some(b"1".to_vec())
+    );
+    assert_eq!(
+        s.get_versionless(&tenant_key(5, b"u"))?,
+        Some(b"2".to_vec())
+    );
     let temporary = s.create_temporary()?;
     let mut batch = WriteBatch::new();
     batch.put_versionless(b"tmp".to_vec(), b"x".to_vec());
     s.apply_temporary(&temporary, batch)?;
     let snapshot = s.temporary_snapshot(&temporary)?;
-    assert_eq!(snapshot.get_versionless(&ns_key(5, b"t"))?, None);
+    assert_eq!(snapshot.get_versionless(&tenant_key(5, b"t"))?, None);
     assert_eq!(
         s.get_versionless(b"tmp")?,
         None,

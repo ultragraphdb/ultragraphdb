@@ -17,7 +17,7 @@ use ultragraphdb_traits_catalog::DefaultEntry;
 use ultragraphdb_transactions_log::{FaultMode, SimStorage};
 
 use crate::utils::harness::{
-    Group, block_on, crash_and_recover, fresh_with, node, ns, pid, verifier,
+    Group, block_on, crash_and_recover, fresh_with, node, pid, tenant, verifier,
 };
 
 /// The workload's steps, one command each.
@@ -65,8 +65,8 @@ fn expected(state: &MetadataState, step: usize) -> TestResult<MetadataCommand> {
     let index = u64::try_from(step)?;
     Ok(match step % 6 {
         0 => MetadataCommand::OfferCatalog {
-            namespace: ns(),
-            predecessor: state.current_version(ns()),
+            tenant: tenant(),
+            predecessor: state.current_version(tenant()),
             bytes: vec![u8::try_from(step)?; 3],
         },
         1 => {
@@ -105,7 +105,7 @@ fn expected(state: &MetadataState, step: usize) -> TestResult<MetadataCommand> {
             leader: node(),
         },
         _ => MetadataCommand::RecordDefault {
-            namespace: ns(),
+            tenant: tenant(),
             predicate: format!("q{step}"),
             entry: vec![1],
         },
@@ -117,12 +117,10 @@ fn expected(state: &MetadataState, step: usize) -> TestResult<MetadataCommand> {
 fn perform(group: &mut Group, command: &MetadataCommand) -> Result<(), ClusterError> {
     match command {
         MetadataCommand::OfferCatalog {
-            namespace,
+            tenant,
             predecessor,
             bytes,
-        } => group
-            .offer_catalog(*namespace, *predecessor, bytes)
-            .map(drop),
+        } => group.offer_catalog(*tenant, *predecessor, bytes).map(drop),
         MetadataCommand::LeaseBlock {
             prefix,
             partition,
@@ -154,11 +152,11 @@ fn perform(group: &mut Group, command: &MetadataCommand) -> Result<(), ClusterEr
             group.init_placement(*partitions, *leader).map(drop)
         }
         MetadataCommand::RecordDefault {
-            namespace,
+            tenant,
             predicate,
             entry,
         } => {
-            let entry = DefaultEntry::new(namespace.get(), predicate.clone(), entry.clone());
+            let entry = DefaultEntry::new(tenant.get(), predicate.clone(), entry.clone());
             group.record_default_entry(&entry).map(drop)
         }
         MetadataCommand::ChangePlacement { .. }

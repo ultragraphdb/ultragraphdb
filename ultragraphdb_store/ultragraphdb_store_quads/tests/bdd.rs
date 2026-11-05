@@ -15,7 +15,7 @@ use ultragraphdb_core_mapping::{CONTRACT_VERSION, ContractVersion, RandomSource}
 use ultragraphdb_core_terms::{EncodedTerm, FLOAT32_VECTOR, TermError};
 use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig};
 use ultragraphdb_store_quads::{
-    CONTRACT_KEY, OwnedBuckets, QuadError, QuadStore, WriteTerms, literal_key, namespace_base,
+    CONTRACT_KEY, OwnedBuckets, QuadError, QuadStore, WriteTerms, literal_key, tenant_base,
 };
 use ultragraphdb_store_sim::{OpRecord, Seed, SimListCache, SimStore, Stream};
 use ultragraphdb_traits_store::{PersistMode, Scan, Store, StoreSnapshot, WriteBatch};
@@ -49,7 +49,7 @@ struct Steps {
     flags: Vec<bool>,
 }
 
-/// The first bucket of namespace 0's run: the top byte of the xxHash reference's XXH3-64 of eight zero bytes, 0xC7
+/// The first bucket of tenant 0's run: the top byte of the xxHash reference's XXH3-64 of eight zero bytes, 0xC7
 /// (core_ids' `testdata/golden/buckets.json`).
 const RUN_0: u32 = 0xC7_0000;
 
@@ -237,19 +237,19 @@ fn new_id(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "its type prefix is 1 and its bucket equals the bucket computed from its namespace and canonical encoding"
+    "its type prefix is 1 and its bucket equals the bucket computed from its tenant and canonical encoding"
 )]
 fn own_bucket(w: &mut Steps) -> TestResult {
     let a = w.ids.first().context("an ID")?;
     assert_eq!(a.type_prefix().get(), 1);
-    // core_ids' `testdata/golden/buckets.json`, "the scenario: namespace 0": http://ex.org/a in namespace 0, from the
+    // core_ids' `testdata/golden/buckets.json`, "the scenario: tenant 0": http://ex.org/a in tenant 0, from the
     // xxHash reference.
     assert_eq!(a.bucket().get(), 0xC7_F1AB);
     Ok(())
 }
 
 #[when(
-    "partition 1, owning the first 21,846 buckets of namespace 0's run, mints a blank node with its random source seeded to a recorded value"
+    "partition 1, owning the first 21,846 buckets of tenant 0's run, mints a blank node with its random source seeded to a recorded value"
 )]
 fn mint_blank(w: &mut Steps) -> TestResult {
     let owned = OwnedBuckets::new(&[(Bucket::new(RUN_0)?, Bucket::new(RUN_0 + 21_845)?)])
@@ -267,12 +267,12 @@ fn mint_blank(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the skolem IRI is the namespace's skolem base, `.well-known/genid/`, 6 hexadecimal digits naming one of those buckets, `-` and 26 hexadecimal digits; the node's ID carries that bucket; and the same seed mints the same IRI"
+    "the skolem IRI is the tenant's skolem base, `.well-known/genid/`, 6 hexadecimal digits naming one of those buckets, `-` and 26 hexadecimal digits; the node's ID carries that bucket; and the same seed mints the same IRI"
 )]
 fn skolem_names_bucket(w: &mut Steps) -> TestResult {
     let skolem = w.texts.first().context("a skolem IRI")?;
     let tail = skolem
-        .strip_prefix(&format!("{}.well-known/genid/", namespace_base(0)))
+        .strip_prefix(&format!("{}.well-known/genid/", tenant_base(0)))
         .context("the skolem base and the genid path")?;
     let (bucket, random) = tail.split_once('-').context("a bucket and random digits")?;
     assert_eq!((bucket.len(), random.len()), (6, 26), "{skolem}");
@@ -360,7 +360,7 @@ fn four_lists(w: &mut Steps) -> TestResult {
     let d = Graph::Default;
     assert_eq!(
         terms(QuadKey::Forward {
-            namespace: 0,
+            tenant: 0,
             graph: d,
             predicate: knows,
             subject: a
@@ -369,7 +369,7 @@ fn four_lists(w: &mut Steps) -> TestResult {
     );
     assert_eq!(
         terms(QuadKey::Reverse {
-            namespace: 0,
+            tenant: 0,
             graph: d,
             predicate: knows,
             object: EncodedTerm::id(b)
@@ -378,7 +378,7 @@ fn four_lists(w: &mut Steps) -> TestResult {
     );
     assert_eq!(
         terms(QuadKey::SubjectPredicates {
-            namespace: 0,
+            tenant: 0,
             graph: d,
             subject: a
         })?,
@@ -386,7 +386,7 @@ fn four_lists(w: &mut Steps) -> TestResult {
     );
     assert_eq!(
         terms(QuadKey::ObjectPredicates {
-            namespace: 0,
+            tenant: 0,
             graph: d,
             object: EncodedTerm::id(b)
         })?,
@@ -418,7 +418,7 @@ fn reverse_ann(w: &mut Steps) -> TestResult {
     })?
     .into_term();
     let key = QuadKey::Reverse {
-        namespace: 0,
+        tenant: 0,
         graph: Graph::Default,
         predicate: id(store, 0, &ex("name"))?,
         object: ann,
@@ -573,7 +573,7 @@ fn big_reverse(w: &mut Steps) -> TestResult {
         .collect();
     let ts = write_at(store, 0, &quads)?;
     let key = QuadKey::Reverse {
-        namespace: 0,
+        tenant: 0,
         graph: Graph::Default,
         predicate: id(store, 0, &ex("knows"))?,
         object: EncodedTerm::id(id(store, 0, &ex("hub"))?),

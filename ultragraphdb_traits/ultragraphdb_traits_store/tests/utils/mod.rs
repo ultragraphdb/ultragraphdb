@@ -6,4 +6,4 @@
 #[cfg(test)]
 mod key_size_tests;
 #[cfg(test)]
-mod namespace_tests;
+mod tenant_tests;

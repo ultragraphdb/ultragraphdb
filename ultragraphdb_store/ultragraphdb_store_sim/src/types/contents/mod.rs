@@ -73,7 +73,7 @@ impl Contents {
         self.applied_ts
     }
 
-    /// The namespaces the store holds banned.
+    /// The tenants the store holds banned.
     pub fn banned(&self) -> &BTreeSet<u64> {
         &self.banned
     }

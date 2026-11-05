@@ -25,7 +25,7 @@ use ultragraphdb_store_quads::iri_bucket;
 use ultragraphdb_tests::{CLUSTER, FRONTEND_ROLE_ADDRESS, SECRET};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
-use crate::NAMESPACE;
+use crate::TENANT;
 
 /// The ports of partitions 3 and 4, which the home claims.
 const PORTS: [(u32, u16); 2] = [(3, 17_300), (4, 17_301)];
@@ -75,7 +75,7 @@ impl HomeScript {
 
 /// The ID the home gives `iri`.
 pub fn played_id(iri: &str) -> TestResult<SystemId> {
-    let bucket = iri_bucket(NAMESPACE, iri).context("the IRI's bucket")?;
+    let bucket = iri_bucket(TENANT, iri).context("the IRI's bucket")?;
     Ok(SystemId::new(
         TypePrefix::RESOURCE,
         bucket,

@@ -102,7 +102,7 @@ fn test_a_read_below_an_empty_rollup_reads_the_older_versions() -> TestResult {
 fn test_cache_after_delta_update_received() -> TestResult {
     let lists = new_lists();
     let k = ultragraphdb_core_keys::QuadKey::ValueIndex {
-        namespace: 0,
+        tenant: 0,
         graph: ultragraphdb_core_keys::DEFAULT_GRAPH,
         predicate: crate::utils::helpers::predicate("cache")?,
         tokenizer: 1,

@@ -40,9 +40,9 @@ impl fmt::Display for QuadError {
                 f,
                 "{iri} is of bucket {bucket}, another partition's, and the partition holds no ID for it"
             ),
-            QuadErrorEnum::NoOwnedBucket { namespace } => write!(
+            QuadErrorEnum::NoOwnedBucket { tenant } => write!(
                 f,
-                "The partition owns no bucket of namespace {namespace}'s run, so it mints no blank node of it"
+                "The partition owns no bucket of tenant {tenant}'s run, so it mints no blank node of it"
             ),
             QuadErrorEnum::SkolemDraws { draws } => {
                 write!(

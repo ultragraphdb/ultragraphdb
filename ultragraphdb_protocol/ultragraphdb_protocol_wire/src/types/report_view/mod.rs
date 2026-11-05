@@ -14,7 +14,7 @@ use crate::types::term_table_view::TermTableView;
 pub struct ReportView<'a> {
     partition: u32,
     kind: ReportKind,
-    namespace: u64,
+    tenant: u64,
     version: u64,
     terms: TermTableView<'a>,
 }
@@ -30,9 +30,9 @@ impl<'a> ReportView<'a> {
         self.kind
     }
 
-    /// The namespace.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// The catalog version reported on.

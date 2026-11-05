@@ -4,15 +4,15 @@
  */
 
 use ultragraphdb_cluster_partition::{Partition, PartitionError};
-use ultragraphdb_cluster_placement::{BucketRange, NamespaceRun, NodeId, PlacementMap};
-use ultragraphdb_core_ids::{Bucket, Namespace};
+use ultragraphdb_cluster_placement::{BucketRange, NodeId, PlacementMap, TenantRun};
+use ultragraphdb_core_ids::{Bucket, Tenant};
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_store_sim::{SimListCache, SimStore, SteppedExecutor};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_blocks::TestBlockSource;
 use ultragraphdb_transactions_txn::TxnError;
 
-use crate::utils::cluster::{Cluster, NS, epoch, insert, pid};
+use crate::utils::cluster::{Cluster, TENANT, epoch, insert, pid};
 
 type Part = Partition<SimStore, SimListCache<CachedList>, SteppedExecutor, TestBlockSource>;
 
@@ -60,24 +60,27 @@ fn test_routing_names_the_owner_of_a_bucket_elsewhere() -> TestResult {
     Ok(())
 }
 
-/// One partition owns every namespace's run; of two even partitions neither owns a run; a partition given a run whole
+/// One partition owns every tenant's run; of two even partitions neither owns a run; a partition given a run whole
 /// owns it.
 #[test]
 fn test_a_partition_owns_a_run_only_when_it_holds_all_of_it() -> TestResult {
     let at = epoch(1)?;
     let alone = Cluster::even(1)?;
-    assert!(alone.part(1)?.owns_run(NS, at));
+    assert!(alone.part(1)?.owns_run(TENANT, at));
     let spread = Cluster::even(2)?;
-    assert!(!spread.part(1)?.owns_run(NS, at));
-    assert!(!spread.part(2)?.owns_run(NS, at));
-    let run = NamespaceRun::of(Namespace::new(NS)).range();
+    assert!(!spread.part(1)?.owns_run(TENANT, at));
+    assert!(!spread.part(2)?.owns_run(TENANT, at));
+    let run = TenantRun::of(Tenant::new(TENANT)).range();
     let mut placement = PlacementMap::even(2, NodeId::new(1))?;
     placement.change(epoch(2)?, &whole_run_to_one(&placement, run)?)?;
     let moved = Cluster::bare(&placement)?;
     let later = epoch(2)?;
-    assert!(moved.part(1)?.owns_run(NS, later));
-    assert!(!moved.part(2)?.owns_run(NS, later));
-    assert!(!moved.part(1)?.owns_run(NS, at), "not before the change");
+    assert!(moved.part(1)?.owns_run(TENANT, later));
+    assert!(!moved.part(2)?.owns_run(TENANT, later));
+    assert!(
+        !moved.part(1)?.owns_run(TENANT, at),
+        "not before the change"
+    );
     Ok(())
 }
 
@@ -111,16 +114,16 @@ fn test_a_transaction_begun_at_a_partition_is_bound_to_it() -> TestResult {
 }
 
 /// A Drop is local only when the partition owns every bucket it reaches: alone, every Drop is; of two partitions a
-/// Drop of the namespace's data or of everything reaches the other, named.
+/// Drop of the tenant's data or of everything reaches the other, named.
 #[test]
 fn test_a_drop_reaching_another_partition_is_refused() -> TestResult {
     let at = epoch(1)?;
     let alone = Cluster::even(1)?;
-    alone.part(1)?.check_drop(Some(NS), at)?;
+    alone.part(1)?.check_drop(Some(TENANT), at)?;
     alone.part(1)?.check_drop(None, at)?;
     let spread = Cluster::even(2)?;
     assert_eq!(
-        spread.part(1)?.check_drop(Some(NS), at),
+        spread.part(1)?.check_drop(Some(TENANT), at),
         Err(PartitionError::cross_partition(1, 2))
     );
     assert_eq!(
@@ -130,11 +133,11 @@ fn test_a_drop_reaching_another_partition_is_refused() -> TestResult {
     Ok(())
 }
 
-/// A map from epoch 2 giving namespace 0's run whole to partition 1, with the ranges just before and just after it
+/// A map from epoch 2 giving tenant 0's run whole to partition 1, with the ranges just before and just after it
 /// partition 2's: neighbours of the run that touch it and do not overlap it.
 fn run_between_neighbours() -> TestResult<PlacementMap> {
     let mut placement = PlacementMap::even(2, NodeId::new(1))?;
-    let run = NamespaceRun::of(Namespace::new(NS)).range();
+    let run = TenantRun::of(Tenant::new(TENANT)).range();
     let mut layout = Vec::new();
     for (range, owner) in placement.ranges_at(epoch(1)?) {
         if range.end() <= run.start() || range.start() >= run.end() {
@@ -147,21 +150,21 @@ fn run_between_neighbours() -> TestResult<PlacementMap> {
     Ok(placement)
 }
 
-/// A partition holding a run whole owns it however its neighbours are held, and a Drop of the namespace stays with it;
+/// A partition holding a run whole owns it however its neighbours are held, and a Drop of the tenant stays with it;
 /// a Drop of everything still reaches them. The other partition owns nothing of the run.
 #[test]
 fn test_ranges_touching_a_run_are_not_of_it() -> TestResult {
     let cluster = Cluster::bare(&run_between_neighbours()?)?;
     let at = epoch(2)?;
-    assert!(cluster.part(1)?.owns_run(NS, at));
-    cluster.part(1)?.check_drop(Some(NS), at)?;
+    assert!(cluster.part(1)?.owns_run(TENANT, at));
+    cluster.part(1)?.check_drop(Some(TENANT), at)?;
     assert_eq!(
         cluster.part(1)?.check_drop(None, at),
         Err(PartitionError::cross_partition(1, 2))
     );
-    assert!(!cluster.part(2)?.owns_run(NS, at));
+    assert!(!cluster.part(2)?.owns_run(TENANT, at));
     assert_eq!(
-        cluster.part(2)?.check_drop(Some(NS), at),
+        cluster.part(2)?.check_drop(Some(TENANT), at),
         Err(PartitionError::cross_partition(2, 1))
     );
     Ok(())

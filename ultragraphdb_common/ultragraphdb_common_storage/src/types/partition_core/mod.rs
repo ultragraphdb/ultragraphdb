@@ -73,7 +73,7 @@ pub enum FrontendAsk {
 struct Parked {
     frame: ReceivedFrame,
     done: oneshot::Sender<Answer>,
-    namespace: u64,
+    tenant: u64,
     is_write: bool,
 }
 
@@ -159,7 +159,7 @@ pub struct PartitionCore<'a> {
     closes: Receiver<PartitionMessage>,
     asks: UnboundedSender<FrontendAsk>,
     peers: Peers,
-    bound_namespace: BTreeMap<BoundKey, (u64, Pushes)>,
+    bound_tenant: BTreeMap<BoundKey, (u64, Pushes)>,
     parked: BTreeMap<BoundKey, Parked>,
     home_askings: BTreeMap<u64, HomeAsking>,
     next_asking: u64,
@@ -263,7 +263,7 @@ impl<'a> PartitionCore<'a> {
             closes: parts.channels.closes,
             asks: parts.channels.asks,
             peers: parts.peers,
-            bound_namespace: BTreeMap::new(),
+            bound_tenant: BTreeMap::new(),
             parked: BTreeMap::new(),
             home_askings: BTreeMap::new(),
             next_asking: 1,
@@ -303,7 +303,7 @@ impl<'a> PartitionCore<'a> {
             }
             self.turn().await?;
         }
-        let keys: Vec<BoundKey> = self.bound_namespace.keys().copied().collect();
+        let keys: Vec<BoundKey> = self.bound_tenant.keys().copied().collect();
         for key in keys {
             self.host.abort_bound(key);
         }
@@ -352,10 +352,10 @@ impl<'a> PartitionCore<'a> {
     fn tell_ended(&mut self, key: BoundKey, reply: &ErrorReply) {
         if let Some(parked) = self.parked.remove(&key) {
             drop(parked.done.send(Answer::Refuse(reply.clone())));
-            let _ended = self.bound_namespace.remove(&key);
+            let _ended = self.bound_tenant.remove(&key);
             return;
         }
-        if let Some((_, pushes)) = self.bound_namespace.remove(&key) {
+        if let Some((_, pushes)) = self.bound_tenant.remove(&key) {
             self.push_error(key.1, reply, &pushes);
         }
     }

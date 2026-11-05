@@ -16,7 +16,7 @@ impl BodyBuilder for Prepare {
 
     fn command_header(&self) -> [u8; COMMAND_HEADER_SIZE] {
         command_header(&[
-            (0, &self.namespace().to_le_bytes()),
+            (0, &self.tenant().to_le_bytes()),
             (8, &self.statement().to_le_bytes()),
             (16, &self.schema().to_le_bytes()),
         ])

@@ -129,7 +129,7 @@ fn static_of(l: &List, read_ts: u64) -> Option<Vec<u8>> {
 fn test_a_static_value_is_the_newest_layer_at_its_timestamp() -> TestResult {
     let store = new_store();
     let k = ultragraphdb_core_keys::QuadKey::VectorIndex {
-        namespace: 0,
+        tenant: 0,
         graph: ultragraphdb_core_keys::Graph::Default,
         predicate: id(7)?,
         list: 1,

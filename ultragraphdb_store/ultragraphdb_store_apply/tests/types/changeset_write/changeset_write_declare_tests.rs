@@ -21,8 +21,8 @@ use ultragraphdb_store_apply::{Applied, ChangesetErrorEnum};
 use ultragraphdb_traits_store::Store;
 
 use crate::utils::changesets::{
-    NS, apply, changeset, changesets, counts_of, declaration, declare, declared, ex, finish_builds,
-    holds_catalog_key, keys_of, reverse, run_indexer, uid, write, write_changes,
+    TENANT, apply, changeset, changesets, counts_of, declaration, declare, declared, ex,
+    finish_builds, holds_catalog_key, keys_of, reverse, run_indexer, uid, write, write_changes,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -32,7 +32,7 @@ fn test_an_index_declared_on_a_predicate_without_data_needs_no_build() -> TestRe
     declare(&a, "name", "with `exact`")?;
     assert!(!a.rebuilding());
     assert_eq!(
-        a.catalog(NS)?.predicate(uid(&a, "name")?),
+        a.catalog(TENANT)?.predicate(uid(&a, "name")?),
         Some(&declaration("name", "with `exact`")?)
     );
     assert!(a.quads().store().rebuild_records()?.is_empty());
@@ -72,7 +72,7 @@ fn test_a_declaration_needing_a_build_while_one_runs_is_refused() -> TestResult 
     assert!(a.rebuilding());
     finish_builds(&a);
     assert_eq!(
-        a.catalog(NS)?.predicate(uid(&a, "tag")?),
+        a.catalog(TENANT)?.predicate(uid(&a, "tag")?),
         Some(&declaration("tag", "single-valued with `exact`")?)
     );
     Ok(())
@@ -104,7 +104,7 @@ fn test_two_builds_executed_together_refuse_the_second() -> TestResult {
     finish_builds(&a);
     // `tag` keeps the default entry its first write recorded.
     assert_eq!(
-        a.catalog(NS)?.predicate(uid(&a, "tag")?),
+        a.catalog(TENANT)?.predicate(uid(&a, "tag")?),
         Some(&PredicateDeclaration::new(ex("tag")))
     );
     Ok(())
@@ -163,8 +163,8 @@ fn test_a_vector_index_without_a_dimension_is_refused_and_not_held() -> TestResu
         "Predicate <http://ex.org/emb> declares a vector index without its dimension"
     );
     // Nothing of the declaration is held: no catalog entry for `emb`.
-    let held = match a.quads().id_of(NS, ex("emb").as_str())? {
-        Some(p) => a.catalog(NS)?.predicate(p).cloned(),
+    let held = match a.quads().id_of(TENANT, ex("emb").as_str())? {
+        Some(p) => a.catalog(TENANT)?.predicate(p).cloned(),
         None => None,
     };
     assert_eq!(held, None);
@@ -179,7 +179,7 @@ fn test_a_vector_index_s_dimension_is_held_in_the_catalog() -> TestResult {
         "emb",
         "single-valued with a vector index of dimension 768",
     )?;
-    let declared = a.catalog(NS)?.predicate(uid(&a, "emb")?).cloned();
+    let declared = a.catalog(TENANT)?.predicate(uid(&a, "emb")?).cloned();
     assert_eq!(
         declared
             .as_ref()
@@ -240,8 +240,8 @@ fn test_vector_options_their_factory_refuses_are_refused() -> TestResult {
         "Predicate <http://ex.org/emb> declares the unknown vector index nope"
     );
     // Neither refusal declared `emb`.
-    let held = match a.quads().id_of(NS, ex("emb").as_str())? {
-        Some(p) => a.catalog(NS)?.predicate(p).cloned(),
+    let held = match a.quads().id_of(TENANT, ex("emb").as_str())? {
+        Some(p) => a.catalog(TENANT)?.predicate(p).cloned(),
         None => None,
     };
     assert_eq!(held, None);
@@ -274,7 +274,7 @@ fn test_entity_types_and_relations_are_declared_with_their_entries() -> TestResu
         !holds_catalog_key(&a),
         "the catalog is held in memory alone"
     );
-    let catalog = a.catalog(NS)?;
+    let catalog = a.catalog(TENANT)?;
     let person = catalog
         .entity_type(uid(&a, "Person")?)
         .context("Person is declared")?;

@@ -4,40 +4,40 @@
  */
 
 use ultragraphdb_cluster_placement::{PartitionId, PlacementMap};
-use ultragraphdb_core_ids::{Epoch, Namespace, TypePrefix};
+use ultragraphdb_core_ids::{Epoch, Tenant, TypePrefix};
 use ultragraphdb_error_cluster::ClusterError;
 
 use crate::types::catalog_record::CatalogRecord;
 use crate::types::metadata_state::MetadataState;
 
 impl MetadataState {
-    /// The number of `namespace`'s latest version, pending or not, 0 before its first: the predecessor a new version
+    /// The number of `tenant`'s latest version, pending or not, 0 before its first: the predecessor a new version
     /// names.
     #[must_use]
-    pub fn current_version(&self, namespace: Namespace) -> u64 {
+    pub fn current_version(&self, tenant: Tenant) -> u64 {
         self.catalogs
-            .get(&namespace)
+            .get(&tenant)
             .map_or(0, |catalog| catalog.current)
     }
 
-    /// The versions pending, by namespace and number, in namespace and version order: those no learned close has
+    /// The versions pending, by tenant and number, in tenant and version order: those no learned close has
     /// announced, which the sequencer's next close announces. At most [`MetadataState::PENDING_MAX`].
     #[must_use]
-    pub fn pending_versions(&self) -> Vec<(Namespace, u64)> {
+    pub fn pending_versions(&self) -> Vec<(Tenant, u64)> {
         self.catalogs
             .iter()
-            .flat_map(|(namespace, catalog)| {
+            .flat_map(|(tenant, catalog)| {
                 catalog
                     .versions
                     .iter()
                     .filter(|v| v.effective().is_none())
-                    .map(|v| (*namespace, v.version()))
+                    .map(|v| (*tenant, v.version()))
             })
             .collect()
     }
 
-    /// The version of `namespace`'s catalog in effect at `epoch`: the latest announced to take effect at or before it,
-    /// `None` when none is, the namespace's catalog then being empty. Every epoch up to one after the last learned
+    /// The version of `tenant`'s catalog in effect at `epoch`: the latest announced to take effect at or before it,
+    /// `None` when none is, the tenant's catalog then being empty. Every epoch up to one after the last learned
     /// close is answered, since a version pending now takes effect no earlier than two epochs after it.
     ///
     /// # Errors
@@ -46,7 +46,7 @@ impl MetadataState {
     /// [`ClusterError::catalog_released`] when the version in effect at `epoch` is released.
     pub fn catalog_at(
         &self,
-        namespace: Namespace,
+        tenant: Tenant,
         epoch: Epoch,
     ) -> Result<Option<&CatalogRecord>, ClusterError> {
         // The last learned close is below 2^42 − 1, so one more cannot overflow.
@@ -54,7 +54,7 @@ impl MetadataState {
         if epoch.get() > furthest {
             return Err(ClusterError::epoch_ahead(epoch.get(), furthest));
         }
-        let Some(catalog) = self.catalogs.get(&namespace) else {
+        let Some(catalog) = self.catalogs.get(&tenant) else {
             return Ok(None);
         };
         let in_effect = catalog
@@ -63,32 +63,32 @@ impl MetadataState {
             .rev()
             .find(|v| v.effective().is_some_and(|e| e <= epoch));
         if in_effect.is_none() && catalog.released > 0 {
-            return Err(ClusterError::catalog_released(namespace.get(), epoch.get()));
+            return Err(ClusterError::catalog_released(tenant.get(), epoch.get()));
         }
         Ok(in_effect)
     }
 
-    /// The versions of `namespace`'s catalog retained, in order, pending ones last: those a partition loads before it
+    /// The versions of `tenant`'s catalog retained, in order, pending ones last: those a partition loads before it
     /// replays its log.
     #[must_use]
-    pub fn versions(&self, namespace: Namespace) -> Vec<&CatalogRecord> {
+    pub fn versions(&self, tenant: Tenant) -> Vec<&CatalogRecord> {
         self.catalogs
-            .get(&namespace)
+            .get(&tenant)
             .map(|catalog| catalog.versions.iter().collect())
             .unwrap_or_default()
     }
 
-    /// The namespaces holding a catalog version, in order.
+    /// The tenants holding a catalog version, in order.
     #[must_use]
-    pub fn namespaces(&self) -> Vec<Namespace> {
+    pub fn tenants(&self) -> Vec<Tenant> {
         self.catalogs.keys().copied().collect()
     }
 
-    /// The default entry recorded for `predicate` in `namespace`, `None` when none is.
+    /// The default entry recorded for `predicate` in `tenant`, `None` when none is.
     #[must_use]
-    pub fn default_entry(&self, namespace: Namespace, predicate: &str) -> Option<&[u8]> {
+    pub fn default_entry(&self, tenant: Tenant, predicate: &str) -> Option<&[u8]> {
         self.defaults
-            .get(&(namespace, predicate.to_string()))
+            .get(&(tenant, predicate.to_string()))
             .map(Vec::as_slice)
     }
 

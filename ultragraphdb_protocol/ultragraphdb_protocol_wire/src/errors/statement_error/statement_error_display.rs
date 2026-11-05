@@ -19,7 +19,7 @@ impl fmt::Display for StatementError {
                 current,
             } => write!(
                 f,
-                "statement {statement} is stale: prepared against schema {prepared:#018x}, the namespace's is now \
+                "statement {statement} is stale: prepared against schema {prepared:#018x}, the tenant's is now \
                  {current:#018x}"
             ),
             StatementErrorEnum::Parameters {

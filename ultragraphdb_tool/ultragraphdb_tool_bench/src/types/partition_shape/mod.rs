@@ -17,8 +17,8 @@ const TYPES: u64 = 10;
 const HUBS_PER_PARTITION: usize = 64;
 /// How far a name's search goes: a hash places about one name in `partitions` in each.
 const NAME_SEARCH: u64 = 1 << 24;
-/// The namespace the commits write, the root.
-const NAMESPACE: u64 = 0;
+/// The tenant the commits write, the root.
+const TENANT: u64 = 0;
 
 /// One partition's generator of commits (partitions, "The benchmark measures N partitions in one process"), a function
 /// of the run's seed and the partition: each commit writes `relations` new nodes of the partition's own buckets, each
@@ -90,7 +90,7 @@ impl PartitionShape {
 
     /// The next commit.
     pub fn next_commit(&mut self) -> Changeset {
-        let mut commit = Changeset::new(NAMESPACE);
+        let mut commit = Changeset::new(TENANT);
         for _ in 0..self.relations {
             let node = CommitShape::iri(&self.next_node_name());
             let relation = self.draw() % TYPES;
@@ -132,7 +132,7 @@ impl PartitionShape {
                 return name;
             }
         }
-        // A map giving the partition no bucket of the namespace's run: the run's routing refuses the write.
+        // A map giving the partition no bucket of the tenant's run: the run's routing refuses the write.
         format!("n{id}-{}", self.next_node)
     }
 
@@ -149,7 +149,7 @@ impl PartitionShape {
 
 /// The bucket of the bench's IRI `name`.
 fn bucket_of(name: &str) -> Option<Bucket> {
-    iri_bucket(NAMESPACE, CommitShape::iri(name).as_str())
+    iri_bucket(TENANT, CommitShape::iri(name).as_str())
 }
 
 /// The edge `<node> <predicate> <hub>`.

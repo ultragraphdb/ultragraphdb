@@ -115,7 +115,7 @@ fn test_a_language_tag_reads_as_rdf_holds_it() -> TestResult {
     })?;
     let languages = reading(table, vec![insert(a, a, upper)], |read| {
         read.map(|changes| {
-            assert_eq!(changes.namespace(), 9);
+            assert_eq!(changes.tenant(), 9);
             changes
                 .changes()
                 .filter_map(|change| {

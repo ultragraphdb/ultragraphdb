@@ -56,10 +56,10 @@ pub fn rdf_view<'a>(statements: impl IntoIterator<Item = &'a Statement>) -> Vec<
 /// The changeset that writes `quads` through the RDF view: each quad inserted, held once however often it is named.
 /// A quad whose object is a triple term is refused; a statement's properties are written as statement properties.
 pub fn quads_to_changeset<'a>(
-    namespace: u64,
+    tenant: u64,
     quads: impl IntoIterator<Item = &'a Quad>,
 ) -> Result<Changeset, MappingError> {
-    let mut changeset = Changeset::new(namespace);
+    let mut changeset = Changeset::new(tenant);
     for quad in quads {
         if let Term::Triple(t) = &quad.object {
             return Err(MappingError::unsupported_object(t.to_string()));

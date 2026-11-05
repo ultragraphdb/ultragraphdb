@@ -26,8 +26,8 @@ pub type OwnedEntry = (Vec<u8>, Option<Vec<u8>>);
 /// | Fixed part | Field | Type |
 /// |---|---|---|
 /// | 0 | `kind` | u8, [`RecordKind`]; then 7 zero bytes |
-/// | 8 | `namespace` | u64 |
-/// | 16 | `catalog` | u64: kinds 1 and 3, the namespace's catalog version in effect at the round's epoch; 0 for kind 2 |
+/// | 8 | `tenant` | u64 |
+/// | 16 | `catalog` | u64: kinds 1 and 3, the tenant's catalog version in effect at the round's epoch; 0 for kind 2 |
 /// | 24 | `read_version` | u64: kind 1, the version the transaction read at; 0 otherwise and for a Drop |
 /// | 32 | `session` | 16 bytes: kind 1, the session committing through it, zero for none; zero otherwise |
 /// | 48 | `request` | u64: kind 1, the session's request number, 0 for none; 0 otherwise |
@@ -52,15 +52,15 @@ pub type OwnedEntry = (Vec<u8>, Option<Vec<u8>>);
 /// |---|---|---|
 /// | 1, a transaction | every field | 0 to 2 and 4 to 11 as it wrote and answered; 3 empty |
 /// | 1, a Drop | every field, `read_version` 0 | 3 one drop; 8 the dropped key ranges; every other empty |
-/// | 2 | `namespace` | 4 one registration, or none for an entity got or created with no bucket group; every other empty |
-/// | 3 | `namespace`, `catalog` | 3 one build operation; every other empty |
+/// | 2 | `tenant` | 4 one registration, or none for an entity got or created with no bucket group; every other empty |
+/// | 3 | `tenant`, `catalog` | 3 one build operation; every other empty |
 ///
 /// A key-value section holds entries of `key_len` u32, `value_len` u32 ([`crate::ABSENT`] for a removal, which holds
 /// no value), the key, the value, then zeros to a multiple of 8.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WriteSetRecord {
     kind: RecordKind,
-    namespace: u64,
+    tenant: u64,
     catalog: u64,
     read_version: u64,
     session: [u8; 16],
@@ -80,16 +80,16 @@ pub struct WriteSetRecord {
 }
 
 impl WriteSetRecord {
-    /// An empty record of a transaction or a Drop (kind 1) in `namespace`, every other field zero.
-    pub fn transaction(namespace: u64) -> Self {
-        Self::empty(RecordKind::Transaction, namespace)
+    /// An empty record of a transaction or a Drop (kind 1) in `tenant`, every other field zero.
+    pub fn transaction(tenant: u64) -> Self {
+        Self::empty(RecordKind::Transaction, tenant)
     }
 
-    /// An empty record of `kind` in `namespace`, every other field zero.
-    pub(crate) fn empty(kind: RecordKind, namespace: u64) -> Self {
+    /// An empty record of `kind` in `tenant`, every other field zero.
+    pub(crate) fn empty(kind: RecordKind, tenant: u64) -> Self {
         Self {
             kind,
-            namespace,
+            tenant,
             catalog: 0,
             read_version: 0,
             session: [0; 16],
@@ -109,28 +109,28 @@ impl WriteSetRecord {
         }
     }
 
-    /// The record of `registration`, which the partition accepted as its entity's home (kind 2), in `namespace`.
-    pub fn registration(namespace: u64, registration: RecordRegistration) -> Self {
-        let mut record = Self::empty(RecordKind::Registration, namespace);
+    /// The record of `registration`, which the partition accepted as its entity's home (kind 2), in `tenant`.
+    pub fn registration(tenant: u64, registration: RecordRegistration) -> Self {
+        let mut record = Self::empty(RecordKind::Registration, tenant);
         record.registrations.push(registration);
         record
     }
 
     /// The record of an entity the partition got or created as its home for a registration naming no bucket group (kind
-    /// 2 with no registration), in `namespace`: its dictionary entries ride in the round's dictionary section.
-    pub fn entity(namespace: u64) -> Self {
-        Self::empty(RecordKind::Registration, namespace)
+    /// 2 with no registration), in `tenant`: its dictionary entries ride in the round's dictionary section.
+    pub fn entity(tenant: u64) -> Self {
+        Self::empty(RecordKind::Registration, tenant)
     }
 
-    /// The record of an index build's start or completion (kind 3), `operation`, in `namespace`; its catalog set by
+    /// The record of an index build's start or completion (kind 3), `operation`, in `tenant`; its catalog set by
     /// [`WriteSetRecord::set_catalog`].
-    pub fn build(namespace: u64, operation: RecordOperation) -> Self {
-        let mut record = Self::empty(RecordKind::Build, namespace);
+    pub fn build(tenant: u64, operation: RecordOperation) -> Self {
+        let mut record = Self::empty(RecordKind::Build, tenant);
         record.operations.push(operation);
         record
     }
 
-    /// Sets the namespace's catalog version the entry was validated against.
+    /// Sets the tenant's catalog version the entry was validated against.
     pub fn set_catalog(&mut self, catalog: u64) {
         self.catalog = catalog;
     }
@@ -216,12 +216,12 @@ impl WriteSetRecord {
         self.kind
     }
 
-    /// The namespace.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
-    /// The namespace's catalog version the entry was validated against; 0 for a registration.
+    /// The tenant's catalog version the entry was validated against; 0 for a registration.
     pub fn catalog(&self) -> u64 {
         self.catalog
     }
@@ -313,7 +313,7 @@ impl WriteSetRecord {
     pub fn encode_into(&self, out: &mut Vec<u8>) {
         let fixed: Vec<u8> = [self.kind.code(), 0, 0, 0, 0, 0, 0, 0]
             .into_iter()
-            .chain(self.namespace.to_le_bytes())
+            .chain(self.tenant.to_le_bytes())
             .chain(self.catalog.to_le_bytes())
             .chain(self.read_version.to_le_bytes())
             .chain(self.session)

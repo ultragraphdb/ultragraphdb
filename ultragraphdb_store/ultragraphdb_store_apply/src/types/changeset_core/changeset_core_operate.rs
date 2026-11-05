@@ -41,7 +41,7 @@ where
         results: &mut Vec<OperationOutcome>,
     ) -> Result<Executed, ChangesetError> {
         let read_ts = self.quads().lists().applied_ts();
-        let mut write = QuadWrite::new(self.quads(), executed.namespace, overlay.request(read_ts));
+        let mut write = QuadWrite::new(self.quads(), executed.tenant, overlay.request(read_ts));
         let mut terms = executed.terms.clone();
         terms.inherit(dictionary);
         write.seed(&executed.writes, terms)?;
@@ -80,7 +80,7 @@ where
         // Derived from the writes the operations leave, the transaction's own among them.
         let referrers = match referrer_candidates(
             self.quads(),
-            executed.namespace,
+            executed.tenant,
             read_ts,
             &writes,
             &outcome.terms,
@@ -105,7 +105,7 @@ where
             pending: executed.pending.clone(),
             touched,
             removals: executed.removals.clone(),
-            ..Executed::empty(executed.namespace, executed.read_ts, outcome.catalog)
+            ..Executed::empty(executed.tenant, executed.read_ts, outcome.catalog)
         })
     }
 }

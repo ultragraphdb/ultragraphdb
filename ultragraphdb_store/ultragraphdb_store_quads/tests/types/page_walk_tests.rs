@@ -23,7 +23,7 @@ use crate::utils::helpers::{
     TestQuads, blocks, commit, ex, lists_over, quad, quads, sim, write_at,
 };
 
-const NS: u64 = 0;
+const TENANT: u64 = 0;
 
 /// Lists of one, two and five objects, of IRIs and literals alike, and of the version they were written at.
 fn store() -> TestResult<(TestQuads, u64)> {
@@ -34,15 +34,15 @@ fn store() -> TestResult<(TestQuads, u64)> {
     held.extend((0..2).map(|n| quad("a", "name", Literal::new_simple_literal(format!("v{n}")))));
     held.push(quad("b", "knows", ex("o0")));
     held.push(quad("c", "name", Literal::new_simple_literal("x")));
-    let at = write_at(&store, NS, &held)?;
+    let at = write_at(&store, TENANT, &held)?;
     Ok((store, at))
 }
 
-/// The forward lists of `NS` at `version`, at most `limit`, from `from`.
+/// The forward lists of `TENANT` at `version`, at most `limit`, from `from`.
 fn forward(from: Vec<u8>, version: u64, limit: usize) -> TestResult<KernelScan> {
     Ok(KernelScan::new(
         Keyspace::Forward,
-        NS,
+        TENANT,
         from,
         version,
         NonZeroUsize::new(limit).context("a limit")?,
@@ -136,7 +136,7 @@ fn test_pages_of_many_lists_at_small_budgets_concatenate_to_the_scan() -> TestRe
                 .map(move |object| quad(&format!("s{subject}"), "knows", ex(&format!("o{object}"))))
         })
         .collect();
-    let at = write_at(&store, NS, &held)?;
+    let at = write_at(&store, TENANT, &held)?;
     let expected = whole(&store, at)?;
     assert_eq!(expected.len(), 64);
     for budget in [1, 2, 3, 5] {
@@ -321,7 +321,7 @@ fn test_a_page_paused_between_two_literals_of_one_fingerprint_loses_neither() ->
     .with_fingerprint(|_| 9);
     let at = write_at(
         &store,
-        NS,
+        TENANT,
         &[
             quad("a", "name", Literal::new_simple_literal("one")),
             quad("a", "name", Literal::new_simple_literal("two")),
@@ -404,7 +404,7 @@ fn test_a_page_hands_back_after_its_keys_giving_nothing() -> TestResult {
             _ => None,
         })
         .context("a list of one ID")?;
-    let mut write = QuadWrite::new(&store, NS, store.lists().request(at));
+    let mut write = QuadWrite::new(&store, TENANT, store.lists().request(at));
     write.request().get_from_delta(&emptied).add_posting(
         Posting::default().with_uid(object.to_u128()).with_op(DEL),
         false,

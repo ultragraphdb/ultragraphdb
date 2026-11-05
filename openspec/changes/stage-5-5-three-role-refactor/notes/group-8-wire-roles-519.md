@@ -11,7 +11,7 @@ Compiled with every body `unimplemented!()`; `SURFACE READY` posted in `wave-5-c
   `ChallengeView` alike, borrowing.
 - `Verify::request(name, auth_message, proof: [u8; 32])`, `.with_verified(principal: u64, signature: [u8; 32])`;
   `name()`, `auth_message()`, `proof()`, `verified()`, `principal()`, `signature() -> Option<&[u8; 32]>`; `VerifyView`.
-- `Bind::new(partition: u32, kind: BindKind, namespace: u64, epoch: u64, principal: u64, transaction: [u8; 16])`,
+- `Bind::new(partition: u32, kind: BindKind, tenant: u64, epoch: u64, principal: u64, transaction: [u8; 16])`,
   `.with_read_version(u64)`; getters; `BindView`. `BindKind { Transaction, Drop }` with `number()`, `from_number`.
 - `Recall::new(partition: u32, session: [u8; 16], request: u64)`; getters; `RecallView`.
 - `ComputeRead::new(tenant, read_only: bool, level: ReadLevel, terms: TermTable, pattern: QuadPattern, resume:

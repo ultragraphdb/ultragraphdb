@@ -11,7 +11,7 @@ use std::collections::BTreeSet;
 use ultragraphdb_core_keys::{CountDirection, DEFAULT_GRAPH, Keyspace, QuadKey};
 
 use crate::utils::changesets::{
-    NS, TestChangesets, changesets, counted, counts_of, declare, delete, delete_pattern,
+    TENANT, TestChangesets, changesets, counted, counts_of, declare, delete, delete_pattern,
     exact_token, index_keys_holding, indexed, insert, int_token, keys_of, term_token, uid,
     write_changes,
 };
@@ -24,7 +24,7 @@ fn index_key(
     (tokenizer, token): (u8, Vec<u8>),
 ) -> TestResult<Vec<u8>> {
     Ok(QuadKey::ValueIndex {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         predicate: uid(a, predicate)?,
         tokenizer,

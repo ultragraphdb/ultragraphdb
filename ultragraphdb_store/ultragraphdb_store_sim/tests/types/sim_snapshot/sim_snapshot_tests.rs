@@ -8,9 +8,9 @@ use ultragraphdb_store_sim::{Corruption, FaultConfig, Seed, SimClock, SimStore};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_store::{Entry, Item, PersistMode, Scan, Store, StoreSnapshot, WriteBatch};
 
-fn ns_key(ns: u64, tail: &[u8]) -> Vec<u8> {
+fn tenant_key(tenant: u64, tail: &[u8]) -> Vec<u8> {
     let mut key = vec![0x00];
-    key.extend_from_slice(&ns.to_be_bytes());
+    key.extend_from_slice(&tenant.to_be_bytes());
     key.extend_from_slice(tail);
     key
 }
@@ -18,12 +18,12 @@ fn ns_key(ns: u64, tail: &[u8]) -> Vec<u8> {
 #[test]
 fn test_a_snapshot_reads_at_its_timestamp_with_the_ban_set_when_opened() -> TestResult {
     let s = SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new());
-    let key = ns_key(3, b"a");
+    let key = tenant_key(3, b"a");
     let mut batch = WriteBatch::new();
     batch.push(Entry::put(key.clone(), 2, 0x05, b"v".to_vec()));
     s.apply(batch, PersistMode::Buffer)?;
     let before = s.snapshot(5)?;
-    s.ban_namespace(3)?;
+    s.ban_tenant(3)?;
     let after = s.snapshot(5)?;
     assert_eq!((before.read_ts(), before.id(), after.id()), (5, 0, 1));
     let item = before.get(&key)?.context("opened before the ban")?;
@@ -42,14 +42,14 @@ fn test_a_snapshot_reads_at_its_timestamp_with_the_ban_set_when_opened() -> Test
 }
 
 #[test]
-fn test_a_ban_covers_only_keys_longer_than_their_namespace() -> TestResult {
-    // A key of exactly the prefix byte and eight namespace bytes names no namespace a ban covers.
+fn test_a_ban_covers_only_keys_longer_than_their_tenant() -> TestResult {
+    // A key of exactly the prefix byte and eight tenant bytes names no tenant a ban covers.
     let s = SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new());
-    let short = ns_key(3, b"");
+    let short = tenant_key(3, b"");
     let mut batch = WriteBatch::new();
     batch.push(Entry::put(short.clone(), 1, 0, vec![]));
     s.apply(batch, PersistMode::Buffer)?;
-    s.ban_namespace(3)?;
+    s.ban_tenant(3)?;
     assert_eq!(s.get_at(&short, 1)?.context("a value")?.key(), &short[..]);
     Ok(())
 }

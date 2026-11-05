@@ -49,12 +49,7 @@ fn test_the_golden_reports_read_in_place() -> TestResult {
     let bytes = golden("report_refused")?;
     let view = ReportView::from_frame(&frame_of(&bytes)?)?;
     assert_eq!(
-        (
-            view.partition(),
-            view.kind(),
-            view.namespace(),
-            view.version()
-        ),
+        (view.partition(), view.kind(), view.tenant(), view.version()),
         (6, ReportKind::Refused, 4, 12)
     );
     assert_eq!(view.predicate(), Some(AGE));

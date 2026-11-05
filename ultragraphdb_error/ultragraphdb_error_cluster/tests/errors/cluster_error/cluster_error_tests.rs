@@ -164,7 +164,7 @@ fn metadata_cases() -> [(ClusterError, ClusterErrorEnum); 8] {
         (
             ClusterError::stale_catalog(7, 2, 3),
             ClusterErrorEnum::StaleCatalog {
-                namespace: 7,
+                tenant: 7,
                 predecessor: 2,
                 current: 3,
             },
@@ -172,14 +172,14 @@ fn metadata_cases() -> [(ClusterError, ClusterErrorEnum); 8] {
         (
             ClusterError::not_pending(7, 4),
             ClusterErrorEnum::NotPending {
-                namespace: 7,
+                tenant: 7,
                 version: 4,
             },
         ),
         (
             ClusterError::catalog_released(7, 15),
             ClusterErrorEnum::CatalogReleased {
-                namespace: 7,
+                tenant: 7,
                 epoch: 15,
             },
         ),

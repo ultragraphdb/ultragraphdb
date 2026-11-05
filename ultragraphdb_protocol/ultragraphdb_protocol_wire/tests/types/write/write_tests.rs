@@ -20,8 +20,8 @@ fn ex(name: &str) -> String {
 
 const XSD: &str = "http://www.w3.org/2001/XMLSchema#";
 
-/// Namespace 0's skolem base: a reifier's IRI names a statement holding a statement ID (PROTOCOL.md §10.2).
-const SKOLEM: &str = "https://w3id.org/ultragraphdb/ns/namespace/0/.well-known/genid/";
+/// Tenant 0's skolem base: a reifier's IRI names a statement holding a statement ID (PROTOCOL.md §10.2).
+const SKOLEM: &str = "https://w3id.org/ultragraphdb/ns/tenant/0/.well-known/genid/";
 
 fn literal(lexical: &str, datatype: Option<&str>) -> RequestTerm {
     RequestTerm::Literal {

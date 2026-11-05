@@ -52,7 +52,7 @@ pub enum Command {
     Round,
     /// One message of a SASL exchange on stream 0.
     Authenticate,
-    /// A predicate, a graph, a namespace's data, a namespace or every namespace dropped.
+    /// A predicate, a graph, a tenant's data, a tenant or every tenant dropped.
     Drop,
     /// A changeset committed as one transaction in one frame.
     DirectWrite,
@@ -70,7 +70,7 @@ pub enum Command {
     Lease,
     /// Role command 517: the placement map in effect at an epoch.
     Placement,
-    /// Role command 518: a namespace's catalog version, its bytes opaque.
+    /// Role command 518: a tenant's catalog version, its bytes opaque.
     Catalog,
     /// Role command 519: the first half of verifying a principal's SCRAM proof: its salt and iteration count.
     Challenge,

@@ -17,9 +17,9 @@ const CATALOG_META: u8 = 0x01;
 
 impl Catalog {
     /// The key of the declaration of `kind` for `uid`.
-    pub fn key(namespace: u64, kind: u8, uid: SystemId) -> Vec<u8> {
+    pub fn key(tenant: u64, kind: u8, uid: SystemId) -> Vec<u8> {
         QuadKey::Catalog {
-            namespace,
+            tenant,
             kind,
             id: uid,
         }
@@ -28,9 +28,9 @@ impl Catalog {
 
     /// The entry writing `declaration` of `uid` at `version`, with the discard flag: a request's commit writes it at
     /// its commit timestamp.
-    pub fn entry(namespace: u64, uid: SystemId, declaration: &Declaration, version: u64) -> Entry {
+    pub fn entry(tenant: u64, uid: SystemId, declaration: &Declaration, version: u64) -> Entry {
         Entry::put(
-            Self::key(namespace, kind_of(declaration), uid),
+            Self::key(tenant, kind_of(declaration), uid),
             version,
             CATALOG_META,
             encode(declaration),
@@ -45,41 +45,40 @@ impl Catalog {
     }
 
     /// The key of predicate `uid`'s declaration.
-    pub fn predicate_key(namespace: u64, uid: SystemId) -> Vec<u8> {
-        Self::key(namespace, PREDICATE, uid)
+    pub fn predicate_key(tenant: u64, uid: SystemId) -> Vec<u8> {
+        Self::key(tenant, PREDICATE, uid)
     }
 
     /// The entry removing the declaration of `kind` for `uid` at `version`.
-    pub fn removal(namespace: u64, kind: u8, uid: SystemId, version: u64) -> Entry {
-        Entry::deletion(Self::key(namespace, kind, uid), version)
+    pub fn removal(tenant: u64, kind: u8, uid: SystemId, version: u64) -> Entry {
+        Entry::deletion(Self::key(tenant, kind, uid), version)
     }
 
-    /// Every entry of the catalog at `version`, as a drop of everything in the namespace writes its initial catalog.
+    /// Every entry of the catalog at `version`, as a drop of everything in the tenant writes its initial catalog.
     pub fn entries(&self, version: u64) -> Vec<Entry> {
-        let ns = self.namespace;
+        let tenant = self.tenant;
         let predicates = self
             .predicates
             .iter()
-            .map(|(uid, d)| Self::entry(ns, *uid, &Declaration::Predicate(d.clone()), version));
-        let types = self
-            .types
-            .iter()
-            .map(|(uid, d)| Self::entry(ns, *uid, &Declaration::EntityType(d.clone()), version));
+            .map(|(uid, d)| Self::entry(tenant, *uid, &Declaration::Predicate(d.clone()), version));
+        let types = self.types.iter().map(|(uid, d)| {
+            Self::entry(tenant, *uid, &Declaration::EntityType(d.clone()), version)
+        });
         let relations = self
             .relations
             .iter()
-            .map(|(uid, d)| Self::entry(ns, *uid, &Declaration::Relation(d.clone()), version));
+            .map(|(uid, d)| Self::entry(tenant, *uid, &Declaration::Relation(d.clone()), version));
         predicates.chain(types).chain(relations).collect()
     }
 
-    /// The catalog of `namespace` as `snapshot` reads it, every entry decoded, a type's parent resolved among the
+    /// The catalog of `tenant` as `snapshot` reads it, every entry decoded, a type's parent resolved among the
     /// types it holds. A key that does not parse as a catalog key, or an entry that does not decode, is corruption
     /// naming the key and refuses the whole catalog: a declaration skipped would let writes go on under the default
     /// declaration, unchecked and unindexed. Dgraph skips such a key with an error event.
-    pub fn load<S: StoreSnapshot>(snapshot: &S, namespace: u64) -> Result<Catalog, CatalogError> {
-        let mut catalog = Catalog::new(namespace);
+    pub fn load<S: StoreSnapshot>(snapshot: &S, tenant: u64) -> Result<Catalog, CatalogError> {
+        let mut catalog = Catalog::new(tenant);
         let mut types = Vec::new();
-        let scan = Scan::prefix(key_prefix(Keyspace::Catalog, false, namespace, None, None));
+        let scan = Scan::prefix(key_prefix(Keyspace::Catalog, false, tenant, None, None));
         for item in snapshot.scan(&scan) {
             let item = item?;
             let Ok((QuadKey::Catalog { kind, id: uid, .. }, None)) = QuadKey::parse(item.key())

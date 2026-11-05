@@ -15,11 +15,11 @@ pub(crate) struct NoVersions;
 impl CatalogSource for NoVersions {
     type Error = Infallible;
 
-    fn version_at(&self, _namespace: u64, _epoch: u64) -> Result<Option<HeldVersion>, Infallible> {
+    fn version_at(&self, _tenant: u64, _epoch: u64) -> Result<Option<HeldVersion>, Infallible> {
         Ok(None)
     }
 
-    fn version(&self, _namespace: u64, _version: u64) -> Result<Option<HeldVersion>, Infallible> {
+    fn version(&self, _tenant: u64, _version: u64) -> Result<Option<HeldVersion>, Infallible> {
         Ok(None)
     }
 }

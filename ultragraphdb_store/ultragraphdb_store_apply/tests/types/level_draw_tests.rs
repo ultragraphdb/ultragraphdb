@@ -48,13 +48,13 @@ fn id(bucket: u32, sequence: u64) -> TestResult<SystemId> {
 }
 
 #[test]
-fn test_a_node_s_draws_are_splitmix64_seeded_by_the_hash_of_seed_namespace_and_both_ids()
--> TestResult {
+fn test_a_node_s_draws_are_splitmix64_seeded_by_the_hash_of_seed_tenant_and_both_ids() -> TestResult
+{
     // The oracle, a separate implementation of splitmix64.c in Python: the state is SplitMix64's output on the seed,
-    // then on that output XORed in turn with the namespace, the predicate's high and low 64 bits and the node's; each
+    // then on that output XORed in turn with the tenant, the predicate's high and low 64 bits and the node's; each
     // draw is a later output's top 53 bits over 2^53. (0, 0, (1, bucket 0, 1), (1, bucket 0, 2)) hashes to
     // 0x840E01843B9DA454, (1, 7, (1, 0xABCDEF, 5), (1, 0xABCDEF, 7)) to 0xB06934141E725F05.
-    for ((seed, namespace, predicate, node), tops) in [
+    for ((seed, tenant, predicate, node), tops) in [
         (
             (0, 0, id(0, 1)?, id(0, 2)?),
             [
@@ -72,12 +72,12 @@ fn test_a_node_s_draws_are_splitmix64_seeded_by_the_hash_of_seed_namespace_and_b
             ],
         ),
     ] {
-        let mut draw = LevelDraw::of_node(seed, namespace, predicate, node);
+        let mut draw = LevelDraw::of_node(seed, tenant, predicate, node);
         for top in tops {
             assert_eq!(
                 draw.next_f64(),
                 top as f64 / TWO_53,
-                "{seed} {namespace} {predicate:?} {node:?}"
+                "{seed} {tenant} {predicate:?} {node:?}"
             );
         }
     }
@@ -86,8 +86,8 @@ fn test_a_node_s_draws_are_splitmix64_seeded_by_the_hash_of_seed_namespace_and_b
 
 #[test]
 fn test_a_node_s_draws_depend_on_each_of_the_four_and_on_nothing_else() -> TestResult {
-    let first = |seed, namespace, predicate, node| {
-        let mut d = LevelDraw::of_node(seed, namespace, predicate, node);
+    let first = |seed, tenant, predicate, node| {
+        let mut d = LevelDraw::of_node(seed, tenant, predicate, node);
         (d.next_f64(), d.next_f64())
     };
     let (p, n) = (id(5, 5)?, id(7, 7)?);

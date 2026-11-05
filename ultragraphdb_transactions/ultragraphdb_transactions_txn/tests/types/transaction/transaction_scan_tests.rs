@@ -17,7 +17,7 @@ use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transactions_txn::{Mode, TxnError, TxnLimits};
 
 use crate::utils::fixture::{
-    Applier, NS, SECOND, Txn, applier, begin, begin_with, changeset, ex, insert, store,
+    Applier, SECOND, TENANT, Txn, applier, begin, begin_with, changeset, ex, insert, store,
 };
 
 /// The delete of `<subject> <predicate> <object>`.
@@ -67,7 +67,13 @@ fn overlaid(applier: &Applier) -> TestResult<Txn<'_>> {
 }
 
 fn forward(txn: &Txn<'_>, limit: NonZeroUsize) -> KernelScan {
-    KernelScan::new(Keyspace::Forward, NS, Vec::new(), txn.read_version(), limit)
+    KernelScan::new(
+        Keyspace::Forward,
+        TENANT,
+        Vec::new(),
+        txn.read_version(),
+        limit,
+    )
 }
 
 /// The transaction's pages of `scan`'s range at `budget` objects a page: the rows, whole, with the span after each page held to
@@ -79,11 +85,11 @@ fn paged(
     limit: NonZeroUsize,
 ) -> TestResult<Vec<KernelRow>> {
     let (start, end) = scan.bounds();
-    let past = end.context("a namespace's keyspace ends")?;
+    let past = end.context("a tenant's keyspace ends")?;
     let (mut rows, mut from, mut after, mut left) =
         (Vec::<KernelRow>::new(), start.clone(), None, limit);
     loop {
-        let this = KernelScan::new(scan.keyspace(), NS, from.clone(), scan.version(), left)
+        let this = KernelScan::new(scan.keyspace(), TENANT, from.clone(), scan.version(), left)
             .to(past.clone())
             .resuming(after.take())
             .yielding(NonZeroUsize::MIN);
@@ -187,7 +193,7 @@ fn test_a_scan_stopped_at_its_limit_resumes_where_its_span_ended() -> TestResult
 fn knows_key(txn: &mut Txn<'_>, subject: &str) -> TestResult<Vec<u8>> {
     let (s, p) = (ex(subject), ex("knows"));
     Ok(QuadKey::Forward {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         predicate: txn.resolve_iri(p.as_ref(), 0)?.context("the predicate")?,
         subject: txn.resolve_iri(s.as_ref(), 0)?.context("the subject")?,
@@ -199,7 +205,7 @@ fn knows_key(txn: &mut Txn<'_>, subject: &str) -> TestResult<Vec<u8>> {
 fn of_key(txn: &Txn<'_>, key: &[u8]) -> KernelScan {
     KernelScan::new(
         Keyspace::Forward,
-        NS,
+        TENANT,
         key.to_vec(),
         txn.read_version(),
         NonZeroUsize::MAX,
@@ -295,7 +301,7 @@ fn test_a_page_past_the_transaction_s_limit_or_of_no_lists_ends_it() -> TestResu
     let mut marks = begin(&applier, Mode::ReadOnly)?;
     let of_marks = KernelScan::new(
         Keyspace::Marks,
-        NS,
+        TENANT,
         Vec::new(),
         marks.read_version(),
         NonZeroUsize::MIN,

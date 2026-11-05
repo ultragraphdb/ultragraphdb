@@ -13,7 +13,7 @@ use ultragraphdb_core_terms::SYSTEM_VOCABULARY;
 
 use crate::types::statement::Statement;
 
-/// The canonical statements of one namespace, in memory: what a store holds, by the contract's rules, with no keys,
+/// The canonical statements of one tenant, in memory: what a store holds, by the contract's rules, with no keys,
 /// terms or catalog beneath it. Writes apply a [`crate::Changeset`]; reads list the statements, which the views
 /// present. It is the reference a store is checked against.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

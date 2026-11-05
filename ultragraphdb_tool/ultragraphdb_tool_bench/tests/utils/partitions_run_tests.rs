@@ -39,7 +39,7 @@ fn number(report: &Value, field: &str) -> TestResult<u64> {
 }
 
 /// A run to a count of commits commits them all, reports each partition and the totals, and with no edge between the
-/// partitions registers only what a first write of a namespace must: `rdf:type` and the predicates homed elsewhere.
+/// partitions registers only what a first write of a tenant must: `rdf:type` and the predicates homed elsewhere.
 #[test]
 fn test_a_run_reports_each_partition_and_the_total() -> TestResult {
     let dir = fresh("report")?;

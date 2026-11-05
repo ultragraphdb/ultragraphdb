@@ -63,9 +63,9 @@ fn test_a_temporary_snapshot_holds_no_discard_timestamp_back() -> TestResult {
 }
 
 #[test]
-fn test_a_temporary_keyspace_keeps_entries_of_a_banned_namespace() -> TestResult {
+fn test_a_temporary_keyspace_keeps_entries_of_a_banned_tenant() -> TestResult {
     let s = store();
-    s.ban_namespace(3)?;
+    s.ban_tenant(3)?;
     let mut key = vec![0x00];
     key.extend_from_slice(&3u64.to_be_bytes());
     key.push(b'a');

@@ -6,10 +6,10 @@
 mod placement_body_builder;
 
 use crate::types::bucket_range::BucketRange;
-use crate::types::namespace_run::NamespaceRun;
 use crate::types::preferred_leader::PreferredLeader;
+use crate::types::tenant_run::TenantRun;
 
-/// The placement map in effect at an epoch (`PROTOCOL.md` §13.6): every bucket's partition, each namespace's run and
+/// The placement map in effect at an epoch (`PROTOCOL.md` §13.6): every bucket's partition, each tenant's run and
 /// each partition's preferred leader, with the epochs between which the map applies. A body with `from` 0 is a request.
 ///
 /// | Command header | Field | Type |
@@ -22,7 +22,7 @@ use crate::types::preferred_leader::PreferredLeader;
 /// | Section | Contents |
 /// |---|---|
 /// | 0 | bucket ranges, 16 bytes each ([`BucketRange`]), covering every bucket once, in order |
-/// | 1 | namespace runs, 16 bytes each ([`NamespaceRun`]), by namespace |
+/// | 1 | tenant runs, 16 bytes each ([`TenantRun`]), by tenant |
 /// | 2 | preferred leaders, 8 bytes each ([`PreferredLeader`]), by partition |
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Placement {
@@ -31,7 +31,7 @@ pub struct Placement {
     from: u64,
     until: u64,
     ranges: Vec<BucketRange>,
-    runs: Vec<NamespaceRun>,
+    runs: Vec<TenantRun>,
     leaders: Vec<PreferredLeader>,
 }
 
@@ -61,7 +61,7 @@ impl Placement {
     }
 
     /// `run` appended.
-    pub fn push_run(&mut self, run: NamespaceRun) {
+    pub fn push_run(&mut self, run: TenantRun) {
         self.runs.push(run);
     }
 
@@ -95,8 +95,8 @@ impl Placement {
         &self.ranges
     }
 
-    /// The namespace runs.
-    pub fn runs(&self) -> &[NamespaceRun] {
+    /// The tenant runs.
+    pub fn runs(&self) -> &[TenantRun] {
         &self.runs
     }
 

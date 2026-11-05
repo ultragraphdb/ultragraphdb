@@ -12,7 +12,7 @@ use ultragraphdb_core_ids::{BucketGroup, Sequence, SystemId, TypePrefix};
 use ultragraphdb_store_apply::{Applied, MarkedReference, RecordWrites};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
-use crate::utils::changesets::{NS, changesets};
+use crate::utils::changesets::{TENANT, changesets};
 use crate::utils::partitions::{bucket_of, mark_key};
 
 fn reference(group: u32, generation: u64) -> TestResult<MarkedReference> {
@@ -27,7 +27,7 @@ fn reference(group: u32, generation: u64) -> TestResult<MarkedReference> {
 #[test]
 fn test_a_record_without_section_four_writes_no_mark() -> TestResult {
     let a = changesets()?;
-    let replayed = a.prepare_replay(NS, RecordWrites::default())?;
+    let replayed = a.prepare_replay(TENANT, RecordWrites::default())?;
     assert!(replayed.marks().is_empty());
     assert!(replayed.writes().entries().is_empty());
     Ok(())
@@ -39,7 +39,7 @@ fn test_replay_writes_each_mark_of_section_four_at_the_record_s_version() -> Tes
     let marks = vec![reference(7, 4)?, reference(9, 1)?];
     let record =
         RecordWrites::new(Vec::new(), Vec::new(), Vec::new(), Vec::new()).with_marks(marks.clone());
-    let replayed = a.prepare_replay(NS, record)?;
+    let replayed = a.prepare_replay(TENANT, record)?;
     assert_eq!(replayed.marks(), marks.as_slice());
     let written: Vec<&[u8]> = replayed.writes().entry_keys().collect();
     for m in &marks {
@@ -49,10 +49,10 @@ fn test_replay_writes_each_mark_of_section_four_at_the_record_s_version() -> Tes
     let _applied: Vec<Applied> = a.apply_round(vec![(at, replayed)])?;
     for m in &marks {
         assert_eq!(
-            a.quads().mark(NS, m.entity(), m.group(), at)?,
+            a.quads().mark(TENANT, m.entity(), m.group(), at)?,
             Some(m.generation())
         );
-        assert_eq!(a.quads().mark(NS, m.entity(), m.group(), at - 1)?, None);
+        assert_eq!(a.quads().mark(TENANT, m.entity(), m.group(), at - 1)?, None);
     }
     Ok(())
 }
@@ -64,13 +64,13 @@ fn test_a_logical_replay_writes_each_mark_of_section_four() -> TestResult {
     let writes = ultragraphdb_store_apply::LogicalWrites::new(Vec::new(), Vec::new(), Vec::new())
         .with_marks(marks.clone());
     assert_eq!(writes.marks(), marks.as_slice());
-    let replayed = a.prepare_logical(NS, &writes, &[])?;
+    let replayed = a.prepare_logical(TENANT, &writes, &[])?;
     assert_eq!(replayed.marks(), marks.as_slice());
     let at = a.quads().lists().next_version();
     let _applied: Vec<Applied> = a.apply_round(vec![(at, replayed)])?;
     let m = marks.first().context("one mark")?;
     assert_eq!(
-        a.quads().mark(NS, m.entity(), m.group(), at)?,
+        a.quads().mark(TENANT, m.entity(), m.group(), at)?,
         Some(m.generation())
     );
     Ok(())

@@ -20,7 +20,7 @@ use crate::utils::helpers::{Failure, id, ids, new_lists, new_store, read_back, r
 
 fn forward(subject: u64) -> TestResult<QuadKey> {
     Ok(QuadKey::Forward {
-        namespace: 0,
+        tenant: 0,
         graph: DEFAULT_GRAPH,
         predicate: id(7)?,
         subject: id(subject)?,
@@ -74,7 +74,7 @@ fn test_quad_keys_are_lists_and_split_in_their_own_layout() -> TestResult {
     assert!(is_quad_list(&part));
     assert!(!is_quad_list(
         &QuadKey::Statement {
-            namespace: 0,
+            tenant: 0,
             graph: Graph::Default,
             statement: id(1)?
         }
@@ -105,7 +105,7 @@ fn test_a_split_start_that_is_no_id_or_a_fingerprint_on_a_value_index_key_is_ref
         "{reason}"
     );
     let value_index = QuadKey::ValueIndex {
-        namespace: 0,
+        tenant: 0,
         graph: Graph::Default,
         predicate: id(7)?,
         tokenizer: 2,
@@ -232,7 +232,7 @@ fn test_a_requests_versionless_writes_commit_with_its_lists() -> TestResult {
 
 #[test]
 fn test_a_split_key_is_the_flagged_keyspace_byte_the_kind_and_the_start_appended() -> TestResult {
-    // Written from the key layout: Forward is 0x10 and the split flag 0x80; the namespace as u64 big-endian, the
+    // Written from the key layout: Forward is 0x10 and the split flag 0x80; the tenant as u64 big-endian, the
     // default graph's 16 zero bytes, predicate 7 and subject 42 as IDs of type 1 and bucket 0, 16 big-endian bytes
     // each; then kind 1 and the fingerprint 1000 = 0x03e8 as 8 big-endian bytes, or kind 2 and an ID's 16 bytes.
     let id_bytes = |sequence: u8| [0, 1, 0, 0, 0, 0, 0, 0, 0, sequence, 0, 0, 0, 0, 0, 0];
@@ -282,7 +282,7 @@ fn test_every_list_keyspace_and_no_other_is_a_list() -> TestResult {
 #[test]
 fn test_a_key_of_no_list_has_no_split_key() -> TestResult {
     let statement = QuadKey::Statement {
-        namespace: 0,
+        tenant: 0,
         graph: Graph::Default,
         statement: id(1)?,
     }
@@ -310,7 +310,7 @@ fn test_a_key_of_no_list_has_no_split_key() -> TestResult {
 fn test_a_vector_index_list_tells_postings_apart_by_uid_alone() -> TestResult {
     // A vector-index list holds one value per uid, which the next write replaces; a forward list keeps both literals.
     let vector = QuadKey::VectorIndex {
-        namespace: 0,
+        tenant: 0,
         graph: Graph::Default,
         predicate: id(7)?,
         list: 1,

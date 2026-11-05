@@ -15,7 +15,7 @@ use crate::types::read_level::ReadLevel;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BeginView<'a> {
     frame: PhantomData<&'a [u8]>,
-    namespace: u64,
+    tenant: u64,
     read_version: u64,
     read_only: bool,
     level: ReadLevel,
@@ -24,9 +24,9 @@ pub struct BeginView<'a> {
 }
 
 impl<'a> BeginView<'a> {
-    /// The namespace.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// The version the transaction's reads take; 0 where each partition gives it.

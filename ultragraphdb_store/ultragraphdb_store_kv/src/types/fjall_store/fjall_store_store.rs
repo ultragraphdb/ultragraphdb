@@ -8,7 +8,7 @@ use std::sync::atomic::Ordering;
 
 use ultragraphdb_error_store::StoreError;
 use ultragraphdb_traits_store::{
-    Entry, PersistMode, RebuildRecord, Store, Temporary, WriteBatch, key_namespace,
+    Entry, PersistMode, RebuildRecord, Store, Temporary, WriteBatch, key_tenant,
 };
 
 use crate::types::drop_record::DropRecord;
@@ -54,7 +54,7 @@ impl Store for FjallStore {
             }
         }
         for e in entries {
-            if key_namespace(e.key()).is_some_and(|ns| banned.contains(&ns)) {
+            if key_tenant(e.key()).is_some_and(|tenant| banned.contains(&tenant)) {
                 continue;
             }
             fb.insert(
@@ -152,18 +152,18 @@ impl Store for FjallStore {
         )
     }
 
-    fn ban_namespace(&self, namespace: u64) -> Result<(), StoreError> {
+    fn ban_tenant(&self, tenant: u64) -> Result<(), StoreError> {
         let s = &self.shared;
         let _writer = lock(&s.writer);
         s.refuse_if_poisoned()?;
         let mut batch = s.synced_batch();
-        batch.insert(&s.meta, banned_key(namespace), Vec::new());
+        batch.insert(&s.meta, banned_key(tenant), Vec::new());
         s.commit(batch)?;
         let mut view = lock(&s.view);
         let mut banned = (*view.banned).clone();
-        let _newly_banned: bool = banned.insert(namespace);
+        let _newly_banned: bool = banned.insert(tenant);
         view.banned = Arc::new(banned);
-        tracing::info!(namespace, "namespace banned");
+        tracing::info!(tenant, "tenant banned");
         Ok(())
     }
 

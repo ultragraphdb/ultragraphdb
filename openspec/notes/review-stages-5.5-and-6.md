@@ -103,7 +103,7 @@ verify the RAMP-TAO and SIGMOD 2024 figures.
 
 1. **The ID layout has no bit widths** (§4.1).
 2. **The opaque handle is "a keyed encryption of the system ID, stable for the entity's lifetime".** The note leaves
-   open which key, held where, per namespace or per cluster, and what happens when the key leaks. A key that is never
+   open which key, held where, per tenant or per cluster, and what happens when the key leaks. A key that is never
    rotated is what keeps a handle stable, so rotation changes every keyless IRI.
 3. **`today()` and `now()` "return the time of the snapshot epoch", and `as of time t` reads "the last epoch closed
    before t".** Both require the sequencer to record a wall time per epoch. The distribution note calls the epoch
@@ -255,7 +255,7 @@ The transport's in-process carrier (single-container note) belongs here; the tra
 
 ### 4.5 The catalog's home
 
-Stage 4 keeps the catalog in each namespace's catalog keyspace. The distribution note puts schema versions, the
+Stage 4 keeps the catalog in each tenant's catalog keyspace. The distribution note puts schema versions, the
 classification and the mapping contract in the metadata group, committed at epoch boundaries. If stage 6 builds UGS
 on the store-side catalog, stage 8 moves it. Should stage 5.5 introduce the metadata group's state machine, with one
 replica, as the catalog's home?
@@ -353,7 +353,7 @@ decisions, each with its trade-off, a recommendation and the consequences.
 #### D1. The system ID: 64 or 128 bits
 
 - **Status: adopted (2026-11-01).** Recorded in the schema note, the distribution note and backlog item 10.
-- **Revised and adopted (2026-11-01):** a 16-bit type prefix, a 24-bit bucket (8 bits from the namespace, 16 from the
+- **Revised and adopted (2026-11-01):** a 16-bit type prefix, a 24-bit bucket (8 bits from the tenant, 16 from the
   key), a 64-bit sequence unique per type, leased per (type, partition), and 24 reserved bits, for partitions per core on
   large nodes (`UltraGraphDB Shard-per-Core Write Path.md`, P7, P15, P16).
 
@@ -419,7 +419,7 @@ decisions, each with its trade-off, a recommendation and the consequences.
 
 - **Status: adopted (2026-11-01).** Recorded in the distribution note and backlog item 10.
 
-- **Trade-off.** Stage 6 can build UGS on the per-namespace catalog keyspace that stage 4 built, and stage 8 can then
+- **Trade-off.** Stage 6 can build UGS on the per-tenant catalog keyspace that stage 4 built, and stage 8 can then
   move it into the metadata group. That makes 5.5 smaller, but schema storage gets built twice. Alternatively, stage
   5.5 introduces the metadata group's state machine with one replica, holding catalog versions, ID ranges and the
   placement map. Stage 6 then builds on it once, and stage 8 only adds replication.

@@ -2,7 +2,7 @@
 
 The fork of the wire agent building `PROTOCOL.md` §13.1–13.7: Join, Members, Subscribe, EpochClose, Lease, Placement,
 Catalog, each an owned body (`BodyBuilder`) and a view (`BodyView`), with the records `Member`, `CatalogAnnouncement`,
-`BucketRange`, `NamespaceRun`, `PreferredLeader` and the enum `RoleKind`. The crate-private helper
+`BucketRange`, `TenantRun`, `PreferredLeader` and the enum `RoleKind`. The crate-private helper
 `utils/whole_records.rs` reads a section of fixed-size records as arrays (`whole_records`, `record_at`,
 `record_count`); `utils/fields.rs` (the parent's) supplies the epoch, boolean and at-least-one rules.
 
@@ -46,7 +46,7 @@ every one on `not implemented` (the suite's 51 panics are exactly these).
 | Case | Test |
 |---|---|
 | Each kind's number; 0, 4, 255 naming none | `role_kind_tests` |
-| Each record's bytes, every field at distinct bytes | `member_tests`, `catalog_announcement_tests`, `bucket_range_tests`, `namespace_run_tests`, `preferred_leader_tests` |
+| Each record's bytes, every field at distinct bytes | `member_tests`, `catalog_announcement_tests`, `bucket_range_tests`, `tenant_run_tests`, `preferred_leader_tests` |
 | Each golden built byte for byte by its builder | `join_tests` … `catalog_tests` |
 | Join: unused bytes 1 and 127 (after a bad kind), kinds 0, 1, 4, 255; address not UTF-8, empty, `http://`, `tcp:/`, `TCP://`, `unix:/`; `tcp://`, `unix://` alone taken; partitions ragged, 0, repeated, descending, repeated last; a bad address before a ragged section; storage with none, compute with one; `u32::MAX` alone | `join_view_tests` |
 | Members: header bytes 0 and 127; ends ragged before members ragged; kinds 0, 1, 4, 255 and a bad kind before padding; padding bytes 1–3 at their body offsets; compute with a partition, storage with 0; address equal to the count; compute after storage, compute addresses repeated and descending, storage partitions repeated and descending; storage alone, compute alone | `members_view_tests` |
@@ -82,7 +82,7 @@ suite was green, before `scripts/mutants.sh` became one run per crate:
 | `types/member.rs` | 16 | 14 | 2 | — |
 | `types/catalog_announcement.rs` | 7 | 6 | 1 | — |
 | `types/bucket_range.rs` | 14 | 13 | 1 | — |
-| `types/namespace_run.rs` | 12 | 11 | 1 | — |
+| `types/tenant_run.rs` | 12 | 11 | 1 | — |
 | `types/preferred_leader.rs` | 7 | 6 | 1 | — |
 | `utils/whole_records.rs` | 11 | 11 | 0 | — |
 | `types/join/join_body_builder.rs` | 5 | 5 | 0 | — |
@@ -107,7 +107,7 @@ Not yet mutated: `types/subscribe/subscribe_body_builder.rs`, `types/subscribe_v
 
 ## Choices the spec left open
 
-- A record's crate-private `decode` checks its own zero bytes and kinds (`Member`, `BucketRange`, `NamespaceRun`); the
+- A record's crate-private `decode` checks its own zero bytes and kinds (`Member`, `BucketRange`, `TenantRun`); the
   view checks what needs the body (an address against the string count, order between records).
 - `MembersView::member`, `PlacementView::range`/`run` re-decode a record already checked, with command 0; the error
   cannot arise after `from_frame`.

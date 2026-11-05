@@ -57,8 +57,8 @@ impl Store for TimedStore {
         self.inner.drop_all(entries)
     }
 
-    fn ban_namespace(&self, namespace: u64) -> Result<(), StoreError> {
-        self.inner.ban_namespace(namespace)
+    fn ban_tenant(&self, tenant: u64) -> Result<(), StoreError> {
+        self.inner.ban_tenant(tenant)
     }
 
     fn set_discard_ts(&self, ts: u64) -> Result<(), StoreError> {

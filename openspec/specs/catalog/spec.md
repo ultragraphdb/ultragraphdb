@@ -1,11 +1,11 @@
 # catalog Specification
 
 ## Purpose
-The catalog of each namespace: the declarations of its predicates, entity types and relations, which both engines,
-index maintenance and the write checks read, kept in the catalog keyspace and loaded per namespace.
+The catalog of each tenant: the declarations of its predicates, entity types and relations, which both engines,
+index maintenance and the write checks read, kept in the catalog keyspace and loaded per tenant.
 ## Requirements
 ### Requirement: Predicate declarations
-The catalog SHALL hold, per namespace, a declaration for each predicate IRI it knows: its kind (edge, property, or
+The catalog SHALL hold, per tenant, a declaration for each predicate IRI it knows: its kind (edge, property, or
 either), its cardinality (single- or multi-valued), an optional datatype constraint, whether its values are unique, its
 indexes (tokenizers, an exact count index, and a vector index with its parameters), and the entity types it is declared
 on, which the data dictionary reports it under. A declaration whose datatype constraint is not among the datatypes one

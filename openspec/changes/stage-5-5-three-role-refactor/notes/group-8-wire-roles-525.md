@@ -44,11 +44,11 @@ forks did 512–518 and 519–524.
 - `CloseRequest::new(partition: u32, epoch: u64)`, `CloseRequestView::{partition, epoch}`.
 - `Closed::new(Vec<ClosedPartition>)`, `Closed::request(&[u32])`, `partitions()`; `ClosedView::{len, is_empty,
   partition(i), partitions(), check_request()}`; `ClosedPartition::{new(partition, epoch), partition, epoch, encode}`.
-- `DefaultEntry::request(namespace, predicate)`, `with_found(bool)`, getters; `DefaultEntryView::{tenant, found,
+- `DefaultEntry::request(tenant, predicate)`, `with_found(bool)`, getters; `DefaultEntryView::{tenant, found,
   predicate, check_request()}`.
 - `Report::{passed(partition, tenant, version), refused(partition, tenant, version, predicate: &str, at_fault:
   RequestTerm) -> Result<Report, ProtocolError>, build_failed(partition, tenant, version, predicate: &str)}`, getters;
-  `ReportView::{partition, kind, namespace, version, predicate(), at_fault(), terms}`; `ReportKind { Passed, Refused,
+  `ReportView::{partition, kind, tenant, version, predicate(), at_fault(), terms}`; `ReportKind { Passed, Refused,
   BuildFailed }`.
 - Crate-private: `utils/term_kind.rs` (`term_kind(&RequestTermView) -> u8`); test helper `tests/utils/term_records.rs`
   (hand-laid term tables, `refusal::<V>`).

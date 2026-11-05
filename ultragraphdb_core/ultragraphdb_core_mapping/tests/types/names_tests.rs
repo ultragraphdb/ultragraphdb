@@ -106,20 +106,20 @@ fn test_an_absolute_base_ending_in_a_slash_names_iris_under_it() -> TestResult {
         "http://ex.org/",
         "urn:ex:ns/",
         "file:///",
-        // The design's default base of namespace 0, under the system vocabulary.
-        "https://w3id.org/ultragraphdb/ns/namespace/0/",
+        // The design's default base of tenant 0, under the system vocabulary.
+        "https://w3id.org/ultragraphdb/ns/tenant/0/",
     ] {
         let names = Names::new(base)?;
         assert_eq!(names.base(), base);
         assert_eq!(names.iri("age").as_str(), format!("{base}age"));
         assert_eq!(names.name(&names.iri("age")), "age");
     }
-    // PROTOCOL.md section 10.2's skolem IRI of a blank node of namespace 0 in bucket 6, its random bits 9.
+    // PROTOCOL.md section 10.2's skolem IRI of a blank node of tenant 0 in bucket 6, its random bits 9.
     assert_eq!(
-        Names::new("https://w3id.org/ultragraphdb/ns/namespace/0/")?
+        Names::new("https://w3id.org/ultragraphdb/ns/tenant/0/")?
             .skolem_iri(Bucket::new(6)?, 9)
             .as_str(),
-        "https://w3id.org/ultragraphdb/ns/namespace/0/.well-known/genid/000006-00000000000000000000000009"
+        "https://w3id.org/ultragraphdb/ns/tenant/0/.well-known/genid/000006-00000000000000000000000009"
     );
     Ok(())
 }

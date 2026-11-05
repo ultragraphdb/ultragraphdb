@@ -4,7 +4,7 @@
 #
 
 Feature: The data dictionary
-  One read API answers what a namespace holds at a snapshot: its labels, relationship types and property keys, each
+  One read API answers what a tenant holds at a snapshot: its labels, relationship types and property keys, each
   label's shape, the catalog's declarations and the statistics. Declared entries are exact; the shapes of undeclared
   data come from a background pass over a snapshot, which no write reads or updates.
 

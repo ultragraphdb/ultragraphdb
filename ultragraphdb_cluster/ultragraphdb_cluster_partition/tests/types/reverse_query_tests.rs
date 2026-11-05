@@ -24,7 +24,7 @@ fn test_a_reverse_query_keeps_its_fields() -> TestResult {
     assert_eq!(
         (
             query.home(),
-            query.namespace(),
+            query.tenant(),
             query.graph(),
             query.predicate(),
             query.object(),

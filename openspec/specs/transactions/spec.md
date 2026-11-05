@@ -44,7 +44,7 @@ transaction SHALL see them before the transaction is acknowledged.
 
 ### Requirement: What a transaction's reads record and what conflicts with them
 A read-write transaction SHALL record: the key of each list it read whole; the list key and object of each statement
-it tested; each key range it scanned; each dictionary key it found absent; and its namespace's catalog range. It SHALL
+it tested; each key range it scanned; each dictionary key it found absent; and its tenant's catalog range. It SHALL
 abort with a conflict when a transaction committed after its read version wrote what the table below names for one of
 its reads, a written statement counting as its list touched and a written range being a drop (amended 2026-10-28 to
 state the rules the resolver holds):

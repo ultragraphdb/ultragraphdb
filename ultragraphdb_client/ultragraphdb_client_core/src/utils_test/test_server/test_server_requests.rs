@@ -141,7 +141,7 @@ impl TestServer {
                 .chain(std::iter::once(ColumnType::Node))
                 .collect();
             let reply = Prepare::new(
-                body.namespace(),
+                body.tenant(),
                 id,
                 self.schema,
                 body.terms().clone(),
@@ -184,7 +184,7 @@ impl TestServer {
         let _replaced: Option<u32> = self.transactions.insert(stream, 0);
         let snapshot = begin.read_only() && begin.level() == ReadLevel::Snapshot;
         let read_version = if snapshot { self.version } else { 0 };
-        let body = Begin::new(begin.namespace(), read_version, begin.read_only())
+        let body = Begin::new(begin.tenant(), read_version, begin.read_only())
             .with_level(begin.level())
             .with_deadline_ms(begin.deadline_ms());
         let body = match begin.token() {

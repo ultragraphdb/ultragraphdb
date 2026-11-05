@@ -97,7 +97,7 @@ fn test_a_rollup_keeps_the_statement_ids_of_a_uid_posting() -> TestResult {
     };
     let store = new_store();
     let k = QuadKey::Forward {
-        namespace: 0,
+        tenant: 0,
         graph: Graph::Default,
         predicate: id(2)?,
         subject: id(1)?,

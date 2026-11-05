@@ -50,11 +50,11 @@ where
         out: &mut Vec<Reference>,
     ) -> Result<(), PartitionError> {
         let first = out.len();
-        let namespace = changeset.namespace();
-        // The first write of a namespace installs its catalog, which names `rdf:type`.
-        self.unheld(namespace, rdf::TYPE.as_str(), epoch, out)?;
+        let tenant = changeset.tenant();
+        // The first write of a tenant installs its catalog, which names `rdf:type`.
+        self.unheld(tenant, rdf::TYPE.as_str(), epoch, out)?;
         for change in changeset.changes() {
-            self.change_references(txn, namespace, &change, epoch, now_us, out)?;
+            self.change_references(txn, tenant, &change, epoch, now_us, out)?;
         }
         batch(first, out);
         Ok(())
@@ -64,7 +64,7 @@ where
     fn change_references(
         &self,
         txn: &mut Transaction<'_, S, C, E, B>,
-        namespace: u64,
+        tenant: u64,
         change: &ChangeRef<'_>,
         epoch: Epoch,
         now_us: u64,
@@ -78,7 +78,7 @@ where
                 object,
             } => self.statement_references(
                 txn,
-                namespace,
+                tenant,
                 (*graph, *subject, *predicate, *object),
                 epoch,
                 now_us,
@@ -93,15 +93,15 @@ where
             } => {
                 self.statement_references(
                     txn,
-                    namespace,
+                    tenant,
                     (*graph, *subject, *predicate, *object),
                     epoch,
                     now_us,
                     out,
                 )?;
                 for (key, value) in properties {
-                    self.unheld(namespace, key.as_str(), epoch, out)?;
-                    self.unheld_term(namespace, *value, epoch, out)?;
+                    self.unheld(tenant, key.as_str(), epoch, out)?;
+                    self.unheld_term(tenant, *value, epoch, out)?;
                 }
             }
             ChangeRef::Delete {
@@ -110,34 +110,34 @@ where
                 object,
                 ..
             } => {
-                self.unheld_graph(namespace, *graph, epoch, out)?;
-                self.unheld(namespace, predicate.as_str(), epoch, out)?;
-                self.unheld_term(namespace, *object, epoch, out)?;
+                self.unheld_graph(tenant, *graph, epoch, out)?;
+                self.unheld(tenant, predicate.as_str(), epoch, out)?;
+                self.unheld_term(tenant, *object, epoch, out)?;
             }
             ChangeRef::DeletePattern {
                 graph, predicate, ..
             } => {
-                self.unheld_graph(namespace, *graph, epoch, out)?;
-                self.unheld(namespace, predicate.as_str(), epoch, out)?;
+                self.unheld_graph(tenant, *graph, epoch, out)?;
+                self.unheld(tenant, predicate.as_str(), epoch, out)?;
             }
             ChangeRef::SetProperty {
                 predicate, value, ..
             } => {
-                self.unheld(namespace, predicate.as_str(), epoch, out)?;
-                self.unheld_term(namespace, *value, epoch, out)?;
+                self.unheld(tenant, predicate.as_str(), epoch, out)?;
+                self.unheld_term(tenant, *value, epoch, out)?;
             }
             ChangeRef::DeleteProperty { predicate, .. } => {
-                self.unheld(namespace, predicate.as_str(), epoch, out)?;
+                self.unheld(tenant, predicate.as_str(), epoch, out)?;
             }
             ChangeRef::DeleteStatement { graph, .. } => {
-                self.unheld_graph(namespace, *graph, epoch, out)?;
+                self.unheld_graph(tenant, *graph, epoch, out)?;
             }
             ChangeRef::Declare(_) => {}
         }
         Ok(())
     }
 
-    /// The references a read of `predicate` in `graph` of `namespace` registers first, at `epoch`, appended to `out` as
+    /// The references a read of `predicate` in `graph` of `tenant` registers first, at `epoch`, appended to `out` as
     /// [`Partition::references`] appends them: a read gets or creates what it names, so a term no statement holds is
     /// recorded absent by its ID, and a predicate or graph homed elsewhere takes its ID from its home.
     ///
@@ -146,15 +146,15 @@ where
     /// The store's error.
     pub fn read_references(
         &self,
-        namespace: u64,
+        tenant: u64,
         graph: &GraphName,
         predicate: &NamedNode,
         epoch: Epoch,
         out: &mut Vec<Reference>,
     ) -> Result<(), PartitionError> {
         let first = out.len();
-        self.unheld_graph(namespace, graph.as_ref(), epoch, out)?;
-        self.unheld(namespace, predicate.as_str(), epoch, out)?;
+        self.unheld_graph(tenant, graph.as_ref(), epoch, out)?;
+        self.unheld(tenant, predicate.as_str(), epoch, out)?;
         batch(first, out);
         Ok(())
     }
@@ -170,14 +170,14 @@ where
     pub fn operation_references(
         &self,
         txn: &mut Transaction<'_, S, C, E, B>,
-        namespace: u64,
+        tenant: u64,
         operation: &Operation,
         epoch: Epoch,
         now_us: u64,
         out: &mut Vec<Reference>,
     ) -> Result<(), PartitionError> {
         let first = out.len();
-        self.unheld(namespace, rdf::TYPE.as_str(), epoch, out)?;
+        self.unheld(tenant, rdf::TYPE.as_str(), epoch, out)?;
         match operation {
             Operation::InsertIfAbsent {
                 graph,
@@ -185,7 +185,7 @@ where
                 value,
                 properties,
             } => {
-                self.claim_references(namespace, (graph, predicate, value, properties), epoch, out)?
+                self.claim_references(tenant, (graph, predicate, value, properties), epoch, out)?
             }
             Operation::UpsertAndLink {
                 graph,
@@ -194,16 +194,11 @@ where
                 properties,
                 links,
             } => {
-                self.claim_references(
-                    namespace,
-                    (graph, predicate, value, properties),
-                    epoch,
-                    out,
-                )?;
+                self.claim_references(tenant, (graph, predicate, value, properties), epoch, out)?;
                 for link in links {
-                    self.unheld(namespace, link.predicate().as_str(), epoch, out)?;
+                    self.unheld(tenant, link.predicate().as_str(), epoch, out)?;
                     if let NamedOrBlankNode::NamedNode(other) = link.other() {
-                        self.refuse_elsewhere(namespace, other.as_str(), epoch)?;
+                        self.refuse_elsewhere(tenant, other.as_str(), epoch)?;
                     }
                 }
             }
@@ -214,10 +209,10 @@ where
                 expected,
                 new,
             } => {
-                self.unheld_term(namespace, expected.as_ref(), epoch, out)?;
+                self.unheld_term(tenant, expected.as_ref(), epoch, out)?;
                 self.statement_references(
                     txn,
-                    namespace,
+                    tenant,
                     (
                         graph.as_ref(),
                         subject.as_ref(),
@@ -232,8 +227,8 @@ where
             Operation::CounterAdd {
                 graph, predicate, ..
             } => {
-                self.unheld_graph(namespace, graph.as_ref(), epoch, out)?;
-                self.unheld(namespace, predicate.as_str(), epoch, out)?;
+                self.unheld_graph(tenant, graph.as_ref(), epoch, out)?;
+                self.unheld(tenant, predicate.as_str(), epoch, out)?;
             }
         }
         batch(first, out);
@@ -243,7 +238,7 @@ where
     /// The references of a claim's graph, predicate and properties; a value naming a node homed elsewhere is refused.
     fn claim_references(
         &self,
-        namespace: u64,
+        tenant: u64,
         (graph, predicate, value, properties): (
             &GraphName,
             &NamedNode,
@@ -253,26 +248,21 @@ where
         epoch: Epoch,
         out: &mut Vec<Reference>,
     ) -> Result<(), PartitionError> {
-        self.unheld_graph(namespace, graph.as_ref(), epoch, out)?;
-        self.unheld(namespace, predicate.as_str(), epoch, out)?;
+        self.unheld_graph(tenant, graph.as_ref(), epoch, out)?;
+        self.unheld(tenant, predicate.as_str(), epoch, out)?;
         if let Term::NamedNode(value) = value {
-            self.refuse_elsewhere(namespace, value.as_str(), epoch)?;
+            self.refuse_elsewhere(tenant, value.as_str(), epoch)?;
         }
         for (key, property) in properties {
-            self.unheld(namespace, key.as_str(), epoch, out)?;
-            self.unheld_term(namespace, property.as_ref(), epoch, out)?;
+            self.unheld(tenant, key.as_str(), epoch, out)?;
+            self.unheld_term(tenant, property.as_ref(), epoch, out)?;
         }
         Ok(())
     }
 
     /// Refuses `iri` as cross-partition when it is homed elsewhere.
-    fn refuse_elsewhere(
-        &self,
-        namespace: u64,
-        iri: &str,
-        epoch: Epoch,
-    ) -> Result<(), PartitionError> {
-        match self.home_elsewhere(namespace, iri, epoch) {
+    fn refuse_elsewhere(&self, tenant: u64, iri: &str, epoch: Epoch) -> Result<(), PartitionError> {
+        match self.home_elsewhere(tenant, iri, epoch) {
             Some(home) => Err(PartitionError::cross_partition(self.id.get(), home.get())),
             None => Ok(()),
         }
@@ -283,7 +273,7 @@ where
     fn statement_references(
         &self,
         txn: &mut Transaction<'_, S, C, E, B>,
-        namespace: u64,
+        tenant: u64,
         (graph, subject, predicate, object): (
             GraphNameRef<'_>,
             NamedOrBlankNodeRef<'_>,
@@ -294,23 +284,23 @@ where
         now_us: u64,
         out: &mut Vec<Reference>,
     ) -> Result<(), PartitionError> {
-        self.unheld_graph(namespace, graph, epoch, out)?;
-        self.unheld(namespace, predicate.as_str(), epoch, out)?;
+        self.unheld_graph(tenant, graph, epoch, out)?;
+        self.unheld(tenant, predicate.as_str(), epoch, out)?;
         let TermRef::NamedNode(object) = object else {
-            return self.unheld_term(namespace, object, epoch, out);
+            return self.unheld_term(tenant, object, epoch, out);
         };
-        let Some(home) = self.home_elsewhere(namespace, object.as_str(), epoch) else {
+        let Some(home) = self.home_elsewhere(tenant, object.as_str(), epoch) else {
             return Ok(());
         };
         let bucket = match subject {
-            NamedOrBlankNodeRef::NamedNode(iri) => iri_bucket(namespace, iri.as_str()),
+            NamedOrBlankNodeRef::NamedNode(iri) => iri_bucket(tenant, iri.as_str()),
             NamedOrBlankNodeRef::BlankNode(_) => Some(txn.node_id(subject, now_us)?.bucket()),
         };
         let Some(bucket) = bucket else {
             return Ok(());
         };
         let group = BucketGroup::of(bucket);
-        let held = self.applier.quads().id_of(namespace, object.as_str())?;
+        let held = self.applier.quads().id_of(tenant, object.as_str())?;
         if let Some(id) = held
             && txn.read_mark(id, group, now_us)?.is_some()
         {
@@ -318,7 +308,7 @@ where
         }
         out.push(Reference::new(
             home,
-            namespace,
+            tenant,
             object.as_str().to_string(),
             held,
             Some(group),
@@ -330,22 +320,15 @@ where
     /// A reference naming no group to `iri` when it is homed elsewhere and the partition holds no ID for it.
     fn unheld(
         &self,
-        namespace: u64,
+        tenant: u64,
         iri: &str,
         epoch: Epoch,
         out: &mut Vec<Reference>,
     ) -> Result<(), PartitionError> {
-        if let Some(home) = self.home_elsewhere(namespace, iri, epoch)
-            && self.applier.quads().id_of(namespace, iri)?.is_none()
+        if let Some(home) = self.home_elsewhere(tenant, iri, epoch)
+            && self.applier.quads().id_of(tenant, iri)?.is_none()
         {
-            out.push(Reference::new(
-                home,
-                namespace,
-                iri.to_string(),
-                None,
-                None,
-                0,
-            ));
+            out.push(Reference::new(home, tenant, iri.to_string(), None, None, 0));
         }
         Ok(())
     }
@@ -353,13 +336,13 @@ where
     /// As [`Partition::unheld`] for a named graph.
     fn unheld_graph(
         &self,
-        namespace: u64,
+        tenant: u64,
         graph: GraphNameRef<'_>,
         epoch: Epoch,
         out: &mut Vec<Reference>,
     ) -> Result<(), PartitionError> {
         match graph {
-            GraphNameRef::NamedNode(iri) => self.unheld(namespace, iri.as_str(), epoch, out),
+            GraphNameRef::NamedNode(iri) => self.unheld(tenant, iri.as_str(), epoch, out),
             GraphNameRef::BlankNode(_) | GraphNameRef::DefaultGraph => Ok(()),
         }
     }
@@ -367,23 +350,21 @@ where
     /// As [`Partition::unheld`] for a term that is an IRI; a literal or a blank node's label is the partition's own.
     fn unheld_term(
         &self,
-        namespace: u64,
+        tenant: u64,
         term: TermRef<'_>,
         epoch: Epoch,
         out: &mut Vec<Reference>,
     ) -> Result<(), PartitionError> {
         match term {
-            TermRef::NamedNode(iri) => self.unheld(namespace, iri.as_str(), epoch, out),
+            TermRef::NamedNode(iri) => self.unheld(tenant, iri.as_str(), epoch, out),
             // A triple term is refused where the write encodes it: it holds no statement here.
             TermRef::BlankNode(_) | TermRef::Literal(_) | TermRef::Triple(_) => Ok(()),
         }
     }
 
     /// The partition owning `iri`'s bucket at `epoch` when it is another one.
-    fn home_elsewhere(&self, namespace: u64, iri: &str, epoch: Epoch) -> Option<PartitionId> {
-        let home = self
-            .placement
-            .partition_of(iri_bucket(namespace, iri)?, epoch);
+    fn home_elsewhere(&self, tenant: u64, iri: &str, epoch: Epoch) -> Option<PartitionId> {
+        let home = self.placement.partition_of(iri_bucket(tenant, iri)?, epoch);
         (home != self.id).then_some(home)
     }
 

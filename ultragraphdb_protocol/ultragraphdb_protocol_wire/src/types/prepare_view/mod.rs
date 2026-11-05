@@ -16,7 +16,7 @@ use crate::types::term_table_view::TermTableView;
 /// The body of a received Prepare frame, read in place; see [`crate::Prepare`] for its layout.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrepareView<'a> {
-    namespace: u64,
+    tenant: u64,
     statement: u64,
     schema: u64,
     terms: TermTableView<'a>,
@@ -26,9 +26,9 @@ pub struct PrepareView<'a> {
 }
 
 impl<'a> PrepareView<'a> {
-    /// The namespace.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// The statement's id; zero in a request.
@@ -36,7 +36,7 @@ impl<'a> PrepareView<'a> {
         self.statement
     }
 
-    /// The schema id of the namespace's catalog; zero in a request.
+    /// The schema id of the tenant's catalog; zero in a request.
     pub fn schema(&self) -> u64 {
         self.schema
     }

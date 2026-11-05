@@ -4,8 +4,8 @@
  */
 
 pub mod bucket_range;
-pub mod namespace_run;
 pub mod node_id;
 pub mod partition_id;
 pub mod placement_map;
 pub(crate) mod reader;
+pub mod tenant_run;

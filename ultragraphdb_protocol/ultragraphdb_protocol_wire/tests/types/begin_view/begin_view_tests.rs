@@ -15,7 +15,7 @@ fn test_the_golden_begin_reads_its_values() -> TestResult {
     let bytes = golden("begin")?.bytes()?;
     let view = BeginView::from_frame(&frame_of(&bytes)?)?;
     let token = SessionToken::new(2, 41, Epoch::new(30)?);
-    assert_eq!(view.namespace(), 3);
+    assert_eq!(view.tenant(), 3);
     assert_eq!(view.read_version(), 0);
     assert!(view.read_only());
     assert_eq!(

@@ -9,7 +9,7 @@ use ultragraphdb_traits_catalog::HeldVersion;
 #[test]
 fn test_a_held_version_reads_back_what_it_was_made_of() -> TestResult {
     let held = HeldVersion::new(3, 7, 41, vec![9, 8]);
-    assert_eq!(held.namespace(), 3);
+    assert_eq!(held.tenant(), 3);
     assert_eq!(held.version(), 7);
     assert_eq!(held.effective(), 41);
     assert_eq!(held.contents(), &[9, 8]);
@@ -31,7 +31,7 @@ fn test_held_versions_differ_in_each_field() -> TestResult {
 fn test_a_version_at_the_bounds_of_its_fields_keeps_them() -> TestResult {
     let held = HeldVersion::new(u64::MAX, u64::MAX, u64::MAX, Vec::new());
     assert_eq!(
-        (held.namespace(), held.version(), held.effective()),
+        (held.tenant(), held.version(), held.effective()),
         (u64::MAX, u64::MAX, u64::MAX)
     );
     assert!(held.contents().is_empty());

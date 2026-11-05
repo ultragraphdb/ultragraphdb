@@ -22,7 +22,7 @@ use crate::types::statistics::Statistics;
 const NODE_KINDS: [&str; 2] = ["iri", "blank"];
 
 impl DataDictionary {
-    /// What the namespace holds at `read_ts`: the catalog's declarations at that snapshot, exact; the statistics of
+    /// What the tenant holds at `read_ts`: the catalog's declarations at that snapshot, exact; the statistics of
     /// each graph and predicate, exact at it; and the last pass's shapes, each declared predicate on the entity types
     /// it is declared on set as declared.
     pub fn describe<S, C, B>(
@@ -35,14 +35,14 @@ impl DataDictionary {
         C: ListCache<Value = CachedList>,
         B: BlockSource,
     {
-        let ns = self.namespace;
+        let tenant = self.tenant;
         let snapshot = quads.store().snapshot(read_ts)?;
-        let catalog = Catalog::load(&snapshot, ns)?;
+        let catalog = Catalog::load(&snapshot, tenant)?;
         let mut d = Description::from_shapes(self.shapes().as_ref());
         for item in snapshot.scan(&Scan::prefix(key_prefix(
             Keyspace::Statistics,
             false,
-            ns,
+            tenant,
             None,
             None,
         ))) {
@@ -54,11 +54,11 @@ impl DataDictionary {
                 _,
             ) = QuadKey::parse(&key)?
             {
-                let statistics = quads.statistics(ns, graph, predicate, read_ts)?;
-                let name = quads.iri_of(ns, predicate)?.0;
+                let statistics = quads.statistics(tenant, graph, predicate, read_ts)?;
+                let name = quads.iri_of(tenant, predicate)?.0;
                 let graph_name = match graph {
                     Graph::Default => String::new(),
-                    Graph::Named(g) => quads.iri_of(ns, g)?.0,
+                    Graph::Named(g) => quads.iri_of(tenant, g)?.0,
                 };
                 if name != rdf::TYPE.as_str() {
                     let counted = |kind: &str| statistics.kinds().get(kind).is_some_and(|n| *n > 0);

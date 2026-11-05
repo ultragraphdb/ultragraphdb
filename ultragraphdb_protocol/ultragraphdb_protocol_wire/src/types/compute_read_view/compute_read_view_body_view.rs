@@ -87,7 +87,7 @@ impl<'a> BodyView<'a> for ComputeReadView<'a> {
             read_only: fields.read_only,
             level: fields.level,
             named: fields.named,
-            namespace: header.u64_at(8),
+            tenant: header.u64_at(8),
             read_version: header.u64_at(16),
             epoch: fields.epoch,
             principal: header.u64_at(32),
@@ -102,7 +102,7 @@ impl<'a> BodyView<'a> for ComputeReadView<'a> {
 
     fn to_body(&self) -> Result<ComputeRead, ProtocolError> {
         let read = ComputeRead::new(
-            self.namespace,
+            self.tenant,
             self.read_only,
             self.level,
             self.terms.to_table(),

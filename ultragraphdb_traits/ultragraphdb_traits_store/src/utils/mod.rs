@@ -4,4 +4,4 @@
  */
 
 pub mod key_size;
-pub mod namespace;
+pub mod tenant;

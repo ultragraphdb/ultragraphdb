@@ -3,14 +3,14 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_core_ids::{Bucket, Namespace};
+use ultragraphdb_core_ids::{Bucket, Tenant};
 use ultragraphdb_core_mapping::RandomSource;
 
-/// The buckets of a namespace's run: its 2^16 buckets share their top 8 bits.
+/// The buckets of a tenant's run: its 2^16 buckets share their top 8 bits.
 const RUN_BUCKETS: u32 = 1 << 16;
 
 /// The buckets a partition owns, as sorted, disjoint ranges: where it draws a new blank node's bucket, among those of
-/// the namespace's run. A store on its own owns every bucket.
+/// the tenant's run. A store on its own owns every bucket.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OwnedBuckets {
     /// Half-open ranges of bucket numbers, sorted and disjoint.
@@ -48,10 +48,10 @@ impl OwnedBuckets {
             .any(|&(start, end)| (start..end).contains(&bucket.get()))
     }
 
-    /// A bucket drawn uniformly from `random` among those owned in `namespace`'s run, the 2^16 buckets whose top 8
-    /// bits are the namespace's hash; `None` when none of them is owned.
-    pub fn draw(&self, namespace: Namespace, random: &mut RandomSource) -> Option<Bucket> {
-        let run_start = u32::from(namespace.bucket_bits()) << 16;
+    /// A bucket drawn uniformly from `random` among those owned in `tenant`'s run, the 2^16 buckets whose top 8
+    /// bits are the tenant's hash; `None` when none of them is owned.
+    pub fn draw(&self, tenant: Tenant, random: &mut RandomSource) -> Option<Bucket> {
+        let run_start = u32::from(tenant.bucket_bits()) << 16;
         let in_run: Vec<(u32, u32)> = self
             .ranges
             .iter()

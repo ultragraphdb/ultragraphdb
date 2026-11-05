@@ -13,10 +13,10 @@ use ultragraphdb_core_ids::Epoch;
 use ultragraphdb_error_cluster::ClusterError;
 
 use crate::types::bucket_range::BucketRange;
-use crate::types::namespace_run::NamespaceRun;
 use crate::types::node_id::NodeId;
 use crate::types::partition_id::PartitionId;
 use crate::types::placement_map::layout::Layout;
+use crate::types::tenant_run::TenantRun;
 
 /// The placement map: every one of the 2^24 buckets assigned to exactly one partition, as half-open ranges, with the
 /// epoch each layout applies from, and each partition's preferred leader.
@@ -40,14 +40,14 @@ impl PlacementMap {
     /// The most partitions a layout assigns buckets to, 1,024.
     pub const PARTITIONS_MAX: u32 = 1 << 10;
 
-    /// The most ranges a layout holds once normalised, 2^18: the even split of every namespace run over the most
+    /// The most ranges a layout holds once normalised, 2^18: the even split of every tenant run over the most
     /// partitions.
     pub const RANGES_MAX: u32 = 1 << 18;
 
     /// The most layouts the map keeps, 256.
     pub const LAYOUTS_MAX: u32 = 256;
 
-    /// The map applying from epoch 0 that splits every namespace run over the partitions 1 to `partitions` in
+    /// The map applying from epoch 0 that splits every tenant run over the partitions 1 to `partitions` in
     /// contiguous ranges, in partition order, whose sizes differ by at most one, the first partitions taking the larger
     /// ranges, with `leader` the preferred leader of every partition.
     ///
@@ -63,17 +63,17 @@ impl PlacementMap {
         }
         // Division by a count of 1 to 1,024: each run's 65,536 buckets give every partition `base` and the first
         // `larger` partitions one more.
-        let base = NamespaceRun::BUCKETS / partitions;
-        let larger = NamespaceRun::BUCKETS % partitions;
+        let base = TenantRun::BUCKETS / partitions;
+        let larger = TenantRun::BUCKETS % partitions;
         let runs = 256 * partitions as usize;
         let mut layout = Layout::with_capacity(Epoch::ZERO, runs);
         for run in 0..=u8::MAX {
-            let mut start = NamespaceRun::new(run).range().start();
+            let mut start = TenantRun::new(run).range().start();
             for index in 0..partitions {
                 layout.push_run(start, PartitionId::new(index + 1)?);
                 start += base + u32::from(index < larger);
             }
-            debug_assert_eq!(start, NamespaceRun::new(run).range().end());
+            debug_assert_eq!(start, TenantRun::new(run).range().end());
         }
         let leaders = layout.partitions.iter().map(|p| (*p, leader)).collect();
         Ok(Self {

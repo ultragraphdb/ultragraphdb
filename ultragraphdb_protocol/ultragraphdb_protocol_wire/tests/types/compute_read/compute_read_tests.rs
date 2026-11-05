@@ -11,7 +11,7 @@ use ultragraphdb_tool_bdd::TestResult;
 use crate::types::bind::bind_tests::{TRANSACTION, WATERMARK};
 use crate::utils::golden_roles::{golden_role, role_bytes};
 
-/// The golden read-only ComputeRead: level 2 in namespace 5, floor epoch 31, principal 9, limit 100, 50 ms left, the
+/// The golden read-only ComputeRead: level 2 in tenant 5, floor epoch 31, principal 9, limit 100, 50 ms left, the
 /// pattern (?, <a>, <name>, ?) and the resume key `rk1`.
 pub fn golden_compute_read() -> ComputeRead {
     let mut terms = TermTable::new();
@@ -66,7 +66,7 @@ fn test_a_compute_read_builds_the_golden_frames() -> TestResult {
         (0, true, ReadLevel::MonotonicFast)
     );
     assert_eq!(
-        (read.named(), read.namespace(), read.read_version()),
+        (read.named(), read.tenant(), read.read_version()),
         (false, 5, 0)
     );
     assert_eq!(

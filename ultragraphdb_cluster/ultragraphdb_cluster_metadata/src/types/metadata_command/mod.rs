@@ -6,7 +6,7 @@
 pub(crate) mod metadata_command_codec;
 
 use ultragraphdb_cluster_placement::{BucketRange, NodeId, PartitionId};
-use ultragraphdb_core_ids::{Epoch, Namespace, TypePrefix};
+use ultragraphdb_core_ids::{Epoch, Tenant, TypePrefix};
 use ultragraphdb_protocol_scram::ScramVerifier;
 
 /// One command of the metadata group's log, the body of one round. Each records its decision whole, so replaying it
@@ -19,21 +19,21 @@ use ultragraphdb_protocol_scram::ScramVerifier;
 /// and a run with no commit after it is no command.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum MetadataCommand {
-    /// A new version of `namespace`'s catalog, numbered `predecessor + 1`, built on version `predecessor`, holding
+    /// A new version of `tenant`'s catalog, numbered `predecessor + 1`, built on version `predecessor`, holding
     /// `bytes`; it is pending until a close announces it.
     OfferCatalog {
-        /// The namespace whose catalog it is.
-        namespace: Namespace,
+        /// The tenant whose catalog it is.
+        tenant: Tenant,
         /// The version it is built on, 0 for the first.
         predecessor: u64,
         /// The version's bytes, in `ultragraphdb_core_catalog`'s encoding.
         bytes: Vec<u8>,
     },
-    /// The default entry `entry` a first write of the undeclared `predicate` in `namespace` asks for; no catalog
+    /// The default entry `entry` a first write of the undeclared `predicate` in `tenant` asks for; no catalog
     /// version.
     RecordDefault {
-        /// The namespace written.
-        namespace: Namespace,
+        /// The tenant written.
+        tenant: Tenant,
         /// The predicate's name.
         predicate: String,
         /// The default entry, in `ultragraphdb_core_catalog`'s encoding.
@@ -50,7 +50,7 @@ pub enum MetadataCommand {
         /// The sequence after its last.
         end: u64,
     },
-    /// The placement map's first layout: every namespace run split evenly over the partitions 1 to `partitions`, each
+    /// The placement map's first layout: every tenant run split evenly over the partitions 1 to `partitions`, each
     /// led by `leader`.
     InitPlacement {
         /// The partitions the buckets are split over.
@@ -107,7 +107,7 @@ pub enum MetadataCommand {
         /// The epoch closed.
         epoch: Epoch,
         /// The catalog versions the close announces.
-        versions: Vec<(Namespace, u64)>,
+        versions: Vec<(Tenant, u64)>,
         /// The placement version the close announces, the oldest pending; 0 for none.
         placement: u64,
         /// The session evictions the close carries.

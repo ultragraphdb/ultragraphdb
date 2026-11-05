@@ -11,7 +11,7 @@ use ultragraphdb_cluster_placement::PartitionId;
 use ultragraphdb_cluster_sequencer::{
     CatalogVersion, ClockReading, Close, Sequencer, SequencerConfig,
 };
-use ultragraphdb_core_ids::Namespace;
+use ultragraphdb_core_ids::Tenant;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_transactions_log::Wal;
 
@@ -49,7 +49,7 @@ impl Cluster {
             .state()
             .pending_versions()
             .into_iter()
-            .map(|(namespace, version)| CatalogVersion::new(namespace, version))
+            .map(|(tenant, version)| CatalogVersion::new(tenant, version))
             .collect();
         let evictions = self.group.state().pending_evictions();
         let placement = self.group.state().pending_placement();
@@ -67,10 +67,10 @@ impl Cluster {
             .sequencer
             .take_delivery(PartitionId::new(HOST)?)?
             .context("the durable close")?;
-        let announced: Vec<(Namespace, u64)> = close
+        let announced: Vec<(Tenant, u64)> = close
             .catalog()
             .iter()
-            .map(|version| (version.namespace(), version.version()))
+            .map(|version| (version.tenant(), version.version()))
             .collect();
         let _learned = self.group.learn_close(
             close.epoch(),

@@ -91,14 +91,14 @@ fn parent_dropped(f: &mut fmt::Formatter<'_>, entity_type: &str, parent: &str) -
 /// The text of a refusal of the catalog's encoding: a version that does not decode, a declaration too long to encode.
 fn encoding(f: &mut fmt::Formatter<'_>, error: &CatalogErrorEnum) -> fmt::Result {
     if let CatalogErrorEnum::CorruptedVersion {
-        namespace,
+        tenant,
         version,
         reason,
     } = error
     {
         write!(
             f,
-            "Catalog version {version} of namespace {namespace} does not decode: {reason}"
+            "Catalog version {version} of tenant {tenant} does not decode: {reason}"
         )
     } else if let CatalogErrorEnum::TooLarge {
         iri,

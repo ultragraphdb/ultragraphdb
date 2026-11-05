@@ -43,11 +43,11 @@ where
     C: ListCache<Value = CachedList>,
     B: BlockSource,
 {
-    /// The execution of `namespace` writing `record`'s writes, as [`crate::ChangesetApplier::prepare_replay`] makes
+    /// The execution of `tenant` writing `record`'s writes, as [`crate::ChangesetApplier::prepare_replay`] makes
     /// it: at the watermark, reading nothing.
     pub fn prepare_replay(
         &self,
-        namespace: u64,
+        tenant: u64,
         record: RecordWrites<'_>,
     ) -> Result<Executed, ChangesetError> {
         let read_ts = self.quads.lists().applied_ts();
@@ -71,7 +71,7 @@ where
                 .iter()
                 .map(|(k, v)| entry(k, *v, |key, value| Entry::put(key, 0, 0, value))),
         );
-        entries.extend(record.marks.iter().map(|m| mark_entry(namespace, m)));
+        entries.extend(record.marks.iter().map(|m| mark_entry(tenant, m)));
         let versionless = record
             .dictionary
             .iter()
@@ -84,28 +84,28 @@ where
         // A record carries no catalog change: the catalog lives in the metadata group, so nothing advances the lists'
         // epoch.
         let writes = Writes::replayed(deltas, entries, versionless, false);
-        let catalog = (*self.catalog(namespace)?).clone();
-        let terms = WriteTerms::new(namespace);
+        let catalog = (*self.catalog(tenant)?).clone();
+        let terms = WriteTerms::new(tenant);
         // The home's own groups the record's edges reference are derived again, as its first apply derived them.
-        let referrers = referrer_candidates(&self.quads, namespace, read_ts, &writes, &terms)?;
+        let referrers = referrer_candidates(&self.quads, tenant, read_ts, &writes, &terms)?;
         Ok(Executed {
             writes,
             marks: record.marks,
             referrers,
-            ..Executed::empty(namespace, read_ts, catalog)
+            ..Executed::empty(tenant, read_ts, catalog)
         })
     }
 
-    /// The drop of `target` in `namespace` replayed, as [`crate::ChangesetApplier::prepare_replayed_drop`] makes it.
+    /// The drop of `target` in `tenant` replayed, as [`crate::ChangesetApplier::prepare_replayed_drop`] makes it.
     pub fn prepare_replayed_drop(
         &self,
-        namespace: u64,
+        tenant: u64,
         target: DropTarget,
     ) -> Result<Executed, ChangesetError> {
         let read_ts = self.quads.lists().applied_ts();
-        let catalog = (*self.catalog(namespace)?).clone();
+        let catalog = (*self.catalog(tenant)?).clone();
         Ok(Executed::dropping(
-            namespace,
+            tenant,
             read_ts,
             catalog,
             Some(target),

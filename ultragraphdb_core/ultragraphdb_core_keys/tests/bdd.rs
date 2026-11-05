@@ -38,10 +38,10 @@ fn id(prefix: u16, bucket: u32, sequence: u64) -> TestResult<SystemId> {
     ))
 }
 
-/// The scenario's forward key: namespace 133, the default graph, predicate (1, 7, 7), the subject given.
+/// The scenario's forward key: tenant 133, the default graph, predicate (1, 7, 7), the subject given.
 fn forward(subject: SystemId) -> TestResult<QuadKey> {
     Ok(QuadKey::Forward {
-        namespace: 133,
+        tenant: 133,
         graph: DEFAULT_GRAPH,
         predicate: id(1, 7, 7)?,
         subject,
@@ -61,7 +61,7 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 #[when(
-    "a forward key for namespace 133, the default graph, the predicate with ID (type 1, bucket 7, sequence 7) and the subject with ID (type 1, bucket 42, sequence 42) is parsed"
+    "a forward key for tenant 133, the default graph, the predicate with ID (type 1, bucket 7, sequence 7) and the subject with ID (type 1, bucket 42, sequence 42) is parsed"
 )]
 fn parse_forward(w: &mut Steps) -> TestResult {
     w.quad = Some(QuadKey::parse(&forward(id(1, 42, 42)?)?.to_bytes()));
@@ -69,11 +69,11 @@ fn parse_forward(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the result is a forward key with namespace 133, the default graph, and those predicate and subject IDs"
+    "the result is a forward key with tenant 133, the default graph, and those predicate and subject IDs"
 )]
 fn forward_parsed(w: &mut Steps) -> TestResult {
     let want = QuadKey::Forward {
-        namespace: 133,
+        tenant: 133,
         graph: Graph::Default,
         predicate: id(1, 7, 7)?,
         subject: id(1, 42, 42)?,
@@ -85,7 +85,7 @@ fn forward_parsed(w: &mut Steps) -> TestResult {
 #[when("a forward key carrying a subject ID whose sequence is 0 is parsed")]
 fn parse_zero_subject(w: &mut Steps) -> TestResult {
     let mut key = forward(id(1, 42, 42)?)?.to_bytes();
-    // The subject's sequence: after the keyspace byte, the namespace (8), the graph (16), the predicate (16) and the
+    // The subject's sequence: after the keyspace byte, the tenant (8), the graph (16), the predicate (16) and the
     // subject's type prefix (2), at bytes 43 to 50.
     key.get_mut(43..51)
         .context("the subject's sequence")?
@@ -107,7 +107,7 @@ fn fails_naming_key(w: &mut Steps) -> TestResult {
 #[when("a reverse key whose object is the encoding of `\"Ann\"@en` is built and parsed")]
 fn parse_reverse_literal(w: &mut Steps) -> TestResult {
     let key = QuadKey::Reverse {
-        namespace: 0,
+        tenant: 0,
         graph: DEFAULT_GRAPH,
         predicate: id(1, 9, 9)?,
         object: encode_literal(&Literal::new_language_tagged_literal("Ann", "en")?)?,
@@ -134,12 +134,12 @@ fn reverse_object_decodes(w: &mut Steps) -> TestResult {
 }
 
 #[when(
-    "a mark key for namespace 7, the entity with ID (type 1, bucket 42, sequence 9) and bucket group 0x2_ABCD is built and parsed, and the object-predicates keys of the graph with that same ID are scanned by prefix"
+    "a mark key for tenant 7, the entity with ID (type 1, bucket 42, sequence 9) and bucket group 0x2_ABCD is built and parsed, and the object-predicates keys of the graph with that same ID are scanned by prefix"
 )]
 fn parse_mark(w: &mut Steps) -> TestResult {
     let entity = id(1, 42, 9)?;
     let key = QuadKey::Mark {
-        namespace: 7,
+        tenant: 7,
         entity,
         group: 0x2_ABCD,
     };
@@ -162,7 +162,7 @@ fn parse_mark(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the parse returns the marks keyspace, namespace 7, that ID and group 0x2_ABCD from the bytes `02 AB CD`, and the prefix scan returns no mark key"
+    "the parse returns the marks keyspace, tenant 7, that ID and group 0x2_ABCD from the bytes `02 AB CD`, and the prefix scan returns no mark key"
 )]
 fn mark_parsed(w: &mut Steps) -> TestResult {
     let entity = *w.ids.first().context("the entity")?;
@@ -171,7 +171,7 @@ fn mark_parsed(w: &mut Steps) -> TestResult {
     assert_eq!(
         parsed,
         QuadKey::Mark {
-            namespace: 7,
+            tenant: 7,
             entity,
             group: 0x2_ABCD
         }
@@ -183,34 +183,24 @@ fn mark_parsed(w: &mut Steps) -> TestResult {
 }
 
 #[when(
-    "a referrer key for namespace 7 and the entity with ID (type 1, bucket 42, sequence 9) is built and parsed"
+    "a referrer key for tenant 7 and the entity with ID (type 1, bucket 42, sequence 9) is built and parsed"
 )]
 fn parse_referrers(w: &mut Steps) -> TestResult {
     let entity = id(1, 42, 9)?;
     w.quad = Some(QuadKey::parse(
-        &QuadKey::Referrers {
-            namespace: 7,
-            entity,
-        }
-        .to_bytes(),
+        &QuadKey::Referrers { tenant: 7, entity }.to_bytes(),
     ));
     w.ids.push(entity);
     Ok(())
 }
 
-#[then("the parse returns the referrers keyspace, namespace 7 and that entity's ID")]
+#[then("the parse returns the referrers keyspace, tenant 7 and that entity's ID")]
 fn referrers_parsed(w: &mut Steps) -> TestResult {
     let entity = *w.ids.first().context("the entity")?;
     let (parsed, start) = w.quad.take().context("parsed")??;
     assert_eq!(parsed.keyspace(), Keyspace::Referrers);
-    assert_eq!(parsed.namespace(), 7);
-    assert_eq!(
-        parsed,
-        QuadKey::Referrers {
-            namespace: 7,
-            entity
-        }
-    );
+    assert_eq!(parsed.tenant(), 7);
+    assert_eq!(parsed, QuadKey::Referrers { tenant: 7, entity });
     assert_eq!(start, None);
     Ok(())
 }
@@ -270,20 +260,20 @@ fn parse_prefixes(w: &mut Steps) -> TestResult {
     let keys = [
         forward(id(1, 42, 42)?)?,
         QuadKey::Reverse {
-            namespace: 1,
+            tenant: 1,
             graph: Graph::Named(id(1, 3, 3)?),
             predicate: id(1, 9, 9)?,
             object: encode_literal(&Literal::new_simple_literal("a long string, hashed"))?,
         },
         QuadKey::ValueIndex {
-            namespace: 1,
+            tenant: 1,
             graph: Graph::Named(id(1, 3, 3)?),
             predicate: id(1, 9, 9)?,
             tokenizer: 2,
             token: b"abc".to_vec(),
         },
         QuadKey::Statement {
-            namespace: 1,
+            tenant: 1,
             graph: Graph::Named(id(1, 3, 3)?),
             statement: id(2, 3, 77)?,
         },
@@ -383,7 +373,7 @@ fn forward_keys_sorted(w: &mut Steps) {
 fn map_regions(w: &mut Steps) -> TestResult {
     let (knows, name, a, c) = (id(1, 1, 11)?, id(1, 2, 12)?, id(1, 3, 21)?, id(1, 3, 23)?);
     let key = |predicate, subject| QuadKey::Forward {
-        namespace: 0,
+        tenant: 0,
         graph: DEFAULT_GRAPH,
         predicate,
         subject,
@@ -405,9 +395,9 @@ fn regions_shared(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[when("the referrer keys of two entities of namespace 7 are mapped to regions")]
+#[when("the referrer keys of two entities of tenant 7 are mapped to regions")]
 fn map_referrer_regions(w: &mut Steps) -> TestResult {
-    let referrers = |namespace, entity| QuadKey::Referrers { namespace, entity };
+    let referrers = |tenant, entity| QuadKey::Referrers { tenant, entity };
     w.regions = [
         referrers(7, id(1, 42, 9)?),
         referrers(7, id(3, 1, 10)?),
@@ -420,7 +410,7 @@ fn map_referrer_regions(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "both map to the referrers region of namespace 7, and a referrer key of namespace 8 maps to another"
+    "both map to the referrers region of tenant 7, and a referrer key of tenant 8 maps to another"
 )]
 fn referrer_regions_shared(w: &mut Steps) -> TestResult {
     let [first, second, other] = w.regions.as_slice() else {
@@ -430,14 +420,14 @@ fn referrer_regions_shared(w: &mut Steps) -> TestResult {
     assert_eq!(
         (
             first.keyspace(),
-            first.namespace(),
+            first.tenant(),
             first.graph(),
             first.predicate()
         ),
         (Keyspace::Referrers, 7, None, None)
     );
     assert_ne!(first, other);
-    assert_eq!(other.namespace(), 8);
+    assert_eq!(other.tenant(), 8);
     Ok(())
 }
 

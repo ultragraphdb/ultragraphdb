@@ -25,5 +25,5 @@ pub use crate::utils::crash_harness::{
 };
 pub use crate::utils::fjall_workload::run_both;
 pub use crate::utils::test_store::{
-    held, ns_key, put, scanned, stored, versions, write, write_raw, write_raw_in,
+    held, put, scanned, stored, tenant_key, versions, write, write_raw, write_raw_in,
 };

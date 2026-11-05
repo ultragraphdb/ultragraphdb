@@ -10,7 +10,7 @@
 
 use cucumber::{then, when};
 use ultragraphdb_core_catalog::CatalogContents;
-use ultragraphdb_core_ids::{Epoch, Namespace, Version};
+use ultragraphdb_core_ids::{Epoch, Tenant, Version};
 use ultragraphdb_core_keys::Keyspace;
 use ultragraphdb_core_mapping::{Declaration, PredicateDeclaration};
 use ultragraphdb_tool_bdd::{Context, TestResult};
@@ -20,7 +20,7 @@ use ultragraphdb_transactions_txn::{Prepared, TxnBuffers};
 
 use crate::Steps;
 use crate::utils::fixture::{
-    Applier, Driver, NS, applier, applier_over, begin, catalog_proposal, ex, id_of, insert,
+    Applier, Driver, TENANT, applier, applier_over, begin, catalog_proposal, ex, id_of, insert,
     insert_literal, open_wal, prepare, setup, sim_store, term_version, version, write,
 };
 
@@ -28,15 +28,15 @@ fn unbounded() -> RoundBounds {
     RoundBounds::new(u32::MAX, u32::MAX)
 }
 
-/// Version `version` of the catalog of `ns`, as a close announces it.
+/// Version `version` of the catalog of `tenant`, as a close announces it.
 fn announced(version: u64) -> ultragraphdb_cluster_sequencer::CatalogVersion {
-    ultragraphdb_cluster_sequencer::CatalogVersion::new(Namespace::new(NS), version)
+    ultragraphdb_cluster_sequencer::CatalogVersion::new(Tenant::new(TENANT), version)
 }
 
-/// A driver over `applier` whose latest delivered close is `delivered`, with catalog version 1 of `ns` in effect, an
-/// empty version the partition loaded.
+/// A driver over `applier` whose latest delivered close is `delivered`, with catalog version 1 of `tenant` in effect,
+/// an empty version the partition loaded.
 fn driver_at(applier: &Applier, delivered: u64) -> TestResult<Driver<'_>> {
-    applier.load_catalog(&CatalogContents::new(NS, 1, Vec::new()))?;
+    applier.load_catalog(&CatalogContents::new(TENANT, 1, Vec::new()))?;
     let mut driver = Driver::new(applier, unbounded());
     driver.step = CommitStep::new(unbounded(), applier.quads().lists().applied_ts())
         .with_delivered(Epoch::new(delivered).context("the epoch")?)
@@ -52,7 +52,7 @@ fn commit_version(
 ) -> TestResult {
     let bytes = contents.encode()?;
     source.commit(HeldVersion::new(
-        contents.namespace(),
+        contents.tenant(),
         contents.version(),
         effective,
         bytes,
@@ -81,7 +81,7 @@ fn listed(
     token: &str,
 ) -> TestResult<Vec<ultragraphdb_core_ids::SystemId>> {
     let key = ultragraphdb_core_keys::QuadKey::ValueIndex {
-        namespace: NS,
+        tenant: TENANT,
         graph: ultragraphdb_core_keys::DEFAULT_GRAPH,
         predicate: id_of(applier, predicate)?,
         tokenizer,
@@ -101,7 +101,7 @@ fn listed(
 const TERM: u8 = 0x01;
 const EXACT: u8 = 0x02;
 
-#[when("versions 3 and 4 of `ns` both take effect at epoch 40, each starting an index build")]
+#[when("versions 3 and 4 of `tenant` both take effect at epoch 40, each starting an index build")]
 fn two_builds(w: &mut Steps) -> TestResult {
     let applier = applier()?;
     applier.sequence_builds();
@@ -115,9 +115,9 @@ fn two_builds(w: &mut Steps) -> TestResult {
     let mut driver = driver_at(&applier, 38)?;
     driver.close_with(39, vec![announced(3), announced(4)], Vec::new())?;
     // Version 4 builds on version 3: `p`'s index, then `q`'s beside it.
-    let three = term_version(NS, 3, "p");
+    let three = term_version(TENANT, 3, "p");
     let four = CatalogContents::new(
-        NS,
+        TENANT,
         4,
         vec![
             Declaration::Predicate(
@@ -201,7 +201,7 @@ async fn crash_during_build(w: &mut Steps) -> TestResult {
         pipe.commit(ticket, prepare(txn)?, 0)?;
         pipe.sync(0).await.context("synced and applied")?;
     }
-    let indexing = term_version(NS, 2, "name");
+    let indexing = term_version(TENANT, 2, "name");
     commit_version(&w.source, &indexing, 1)?;
     let refusals = pipe.install(3, &indexing, 0)?;
     assert!(refusals.is_empty(), "{refusals:?}");
@@ -263,7 +263,7 @@ fn declared_and_written(w: &mut Steps) -> TestResult {
     let applier = applier()?;
     let mut driver = driver_at(&applier, 0)?;
     let declaring = CatalogContents::new(
-        NS,
+        TENANT,
         2,
         vec![Declaration::Predicate(
             PredicateDeclaration::new(ex("name")).with_tokenizers(vec!["exact".into()]),
@@ -304,9 +304,9 @@ fn both_entries(w: &mut Steps) -> TestResult {
     assert_eq!(w.versions, vec![0], "no catalog key");
     let held = w
         .source
-        .version_at(NS, u64::MAX)?
+        .version_at(TENANT, u64::MAX)?
         .context("the declaration's version")?;
-    let contents = CatalogContents::decode(NS, held.version(), held.contents())?;
+    let contents = CatalogContents::decode(TENANT, held.version(), held.contents())?;
     assert_eq!(
         contents.declarations().len(),
         1,
@@ -314,7 +314,7 @@ fn both_entries(w: &mut Steps) -> TestResult {
     );
     let defaults: Vec<String> = w
         .source
-        .defaults(NS)
+        .defaults(TENANT)
         .iter()
         .map(|e| e.predicate().to_string())
         .collect();
@@ -366,7 +366,7 @@ async fn killed_before_the_command(w: &mut Steps) -> TestResult {
 fn record_held(w: &mut Steps) -> TestResult {
     let defaults: Vec<String> = w
         .source
-        .defaults(NS)
+        .defaults(TENANT)
         .iter()
         .map(|e| e.predicate().to_string())
         .collect();
@@ -389,7 +389,7 @@ fn two_partitions_swap(w: &mut Steps) -> TestResult {
     one.sequence_builds();
     two.sequence_builds();
     let exact = CatalogContents::new(
-        NS,
+        TENANT,
         2,
         vec![Declaration::Predicate(
             PredicateDeclaration::new(ex("name")).with_tokenizers(vec!["exact".into()]),
@@ -406,7 +406,7 @@ fn two_partitions_swap(w: &mut Steps) -> TestResult {
     first.submit(2, Prepared::end_build(&one, first_end, TxnBuffers::new())?)?;
     first.sync()?;
     let tokenizers = |a: &Applier| -> TestResult<Vec<String>> {
-        Ok(a.catalog(NS)?
+        Ok(a.catalog(TENANT)?
             .predicate(id_of(a, "name")?)
             .context("`name` is declared")?
             .tokenizers()
@@ -448,7 +448,7 @@ fn each_swaps(w: &mut Steps) -> TestResult {
 )]
 fn switch_together(w: &mut Steps) -> TestResult {
     let (one, two) = (applier()?, applier()?);
-    let indexing = term_version(NS, 2, "name");
+    let indexing = term_version(TENANT, 2, "name");
     commit_version(&w.source, &indexing, 50)?;
     let mut epochs = Vec::new();
     let mut listed_words = Vec::new();
@@ -515,10 +515,13 @@ fn holds_before_stamping(w: &mut Steps) -> TestResult {
     write(&mut txn, vec![insert_literal("a", "name", "plum")])?;
     driver.submit(1, prepare(txn)?)?;
     driver.sync()?;
-    w.checks = vec![driver.step.catalog_version(NS) == 1];
+    w.checks = vec![driver.step.catalog_version(TENANT) == 1];
     driver.close_with(49, vec![announced(2)], Vec::new())?;
-    w.checks.push(driver.step.catalog_version(NS) == 2);
-    driver.submit(2, catalog_proposal(&applier, &term_version(NS, 2, "name"))?)?;
+    w.checks.push(driver.step.catalog_version(TENANT) == 2);
+    driver.submit(
+        2,
+        catalog_proposal(&applier, &term_version(TENANT, 2, "name"))?,
+    )?;
     driver.sync()?;
     let mut later = begin(&applier)?;
     w.checks.push(later.catalog() == 2);
@@ -559,7 +562,7 @@ fn index_range(w: &mut Steps) -> TestResult {
     let applier = applier()?;
     let mut driver = driver_at(&applier, 0)?;
     let declaring = CatalogContents::new(
-        NS,
+        TENANT,
         2,
         vec![Declaration::Predicate(
             PredicateDeclaration::new(ex("name")).with_tokenizers(vec!["exact".into()]),
@@ -572,7 +575,7 @@ fn index_range(w: &mut Steps) -> TestResult {
     let mut reader = begin(&applier)?;
     let request = ultragraphdb_store_quads::KernelScan::new(
         Keyspace::ValueIndex,
-        NS,
+        TENANT,
         Vec::new(),
         reader.read_version(),
         std::num::NonZeroUsize::MIN,

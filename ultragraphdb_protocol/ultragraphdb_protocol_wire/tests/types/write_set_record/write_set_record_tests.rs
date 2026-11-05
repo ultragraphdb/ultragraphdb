@@ -76,7 +76,7 @@ pub fn record1() -> TestResult<WriteSetRecord> {
     ))
 }
 
-/// Record 2: the start of the build of catalog version 12 in namespace 4.
+/// Record 2: the start of the build of catalog version 12 in tenant 4.
 pub fn record2() -> WriteSetRecord {
     let mut record = WriteSetRecord::build(4, RecordOperation::CatalogTakesEffect(12));
     record.set_catalog(12);
@@ -121,7 +121,7 @@ fn test_a_transactions_record_keeps_its_fields_and_sections() -> TestResult {
     assert_eq!(record.kind(), RecordKind::Transaction);
     assert_eq!(
         (
-            record.namespace(),
+            record.tenant(),
             record.catalog(),
             record.read_version(),
             record.request(),
@@ -191,16 +191,13 @@ fn test_an_entity_record_is_a_registration_kind_with_no_registration() -> TestRe
     let entity = WriteSetRecord::entity(5);
     assert_eq!(entity.kind(), RecordKind::Registration);
     assert_eq!(
-        (entity.namespace(), entity.catalog(), entity.read_version()),
+        (entity.tenant(), entity.catalog(), entity.read_version()),
         (5, 0, 0)
     );
     assert!(entity.registrations().is_empty());
     let bytes = entity.encode();
     let view = WriteSetRecordView::new(&bytes)?;
-    assert_eq!(
-        (view.kind(), view.namespace()),
-        (RecordKind::Registration, 5)
-    );
+    assert_eq!((view.kind(), view.tenant()), (RecordKind::Registration, 5));
     assert_eq!(view.registration(0), None);
     Ok(())
 }
@@ -211,7 +208,7 @@ fn test_the_other_kinds_leave_their_fields_zero() -> TestResult {
     assert_eq!(home.kind(), RecordKind::Registration);
     assert_eq!(
         (
-            home.namespace(),
+            home.tenant(),
             home.catalog(),
             home.read_version(),
             home.request(),
@@ -227,7 +224,7 @@ fn test_the_other_kinds_leave_their_fields_zero() -> TestResult {
     assert!(home.operations().is_empty());
     let build = record2();
     assert_eq!(build.kind(), RecordKind::Build);
-    assert_eq!((build.namespace(), build.catalog()), (4, 12));
+    assert_eq!((build.tenant(), build.catalog()), (4, 12));
     assert_eq!(
         build.operations(),
         &[RecordOperation::CatalogTakesEffect(12)]

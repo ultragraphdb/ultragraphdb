@@ -4,8 +4,8 @@
 #
 
 Feature: The term dictionary
-  Each IRI and skolemized blank node maps to one system ID per namespace, never reused: an IRI's bucket computed from
-  the namespace and the IRI, a blank node's stated by its skolem IRI, and its sequence drawn from a leased block. An
+  Each IRI and skolemized blank node maps to one system ID per tenant, never reused: an IRI's bucket computed from
+  the tenant and the IRI, a blank node's stated by its skolem IRI, and its sequence drawn from a leased block. An
   IRI's ID is got or created while the writing transaction executes and shared by every writer of it; the dictionary,
   a keyspace without versions, is naming state only
   (openspec/changes/stage-5-5-three-role-refactor/specs/term-dictionary/spec.md): the scenarios the quad store decides
@@ -33,11 +33,11 @@ Feature: The term dictionary
 
   Scenario: An IRI's bucket is its own
     When a new IRI receives a system ID
-    Then its type prefix is 1 and its bucket equals the bucket computed from its namespace and canonical encoding
+    Then its type prefix is 1 and its bucket equals the bucket computed from its tenant and canonical encoding
 
   Scenario: A blank node's skolem IRI names its bucket and nothing else
-    When partition 1, owning the first 21,846 buckets of namespace 0's run, mints a blank node with its random source seeded to a recorded value
-    Then the skolem IRI is the namespace's skolem base, `.well-known/genid/`, 6 hexadecimal digits naming one of those buckets, `-` and 26 hexadecimal digits; the node's ID carries that bucket; and the same seed mints the same IRI
+    When partition 1, owning the first 21,846 buckets of tenant 0's run, mints a blank node with its random source seeded to a recorded value
+    Then the skolem IRI is the tenant's skolem base, `.well-known/genid/`, 6 hexadecimal digits naming one of those buckets, `-` and 26 hexadecimal digits; the node's ID carries that bucket; and the same seed mints the same IRI
 
   Scenario: An aborted creator leaves the IRI usable
     When a transaction creates `<new>` and aborts, and a later transaction writes `<new>`

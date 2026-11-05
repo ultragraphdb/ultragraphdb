@@ -72,7 +72,7 @@ const SHORT_DEADLINE_MS: &str = "800";
 /// The address a loadable role's admin listener holds.
 const ADMIN_ADDRESS: &str = "127.0.0.1:18090";
 
-const NAMESPACE: u64 = 1;
+const TENANT: u64 = 1;
 const PREDICATE: &str = "http://ex.org/p";
 
 /// Runs the storage binary on the settings `text` to its exit.
@@ -176,12 +176,12 @@ fn names_the_file(w: &mut Steps) -> TestResult {
 }
 
 /// A subject of `partitions` partitions that `partition` homes.
-fn subject_of(partition: u32, partitions: u32, namespace: u64) -> TestResult<String> {
+fn subject_of(partition: u32, partitions: u32, tenant: u64) -> TestResult<String> {
     let map = PlacementMap::even(partitions, NodeId::new(1))?;
     (0..100_000)
         .map(|at| format!("http://ex.org/s{at}"))
         .find(|iri| {
-            iri_bucket(namespace, iri)
+            iri_bucket(tenant, iri)
                 .is_some_and(|bucket| map.partition_of(bucket, Epoch::ZERO).get() == partition)
         })
         .context("a subject of the partition")
@@ -218,7 +218,7 @@ async fn commit_through(
 ) -> TestResult<u64> {
     let target = Address::parse(address)?;
     let mut client = RoleClient::dial(&target, CLUSTER, "frontend", SECRET).await?;
-    let bind = Bind::new(partition, BindKind::Transaction, NAMESPACE, 0, 1, [7; 16]);
+    let bind = Bind::new(partition, BindKind::Transaction, TENANT, 0, 1, [7; 16]);
     drop(client.request(&bind).await?);
     let stream = client.last_stream();
     client.send_on(stream, write).await?;
@@ -320,7 +320,7 @@ fn on_either(w: &mut Steps) -> TestResult {
             .iter()
             .map(|(_, partition, address)| (*partition, (), address))
         {
-            let subject = subject_of(partition, 4, NAMESPACE)?;
+            let subject = subject_of(partition, 4, TENANT)?;
             let write = edge_write(&subject, &subject);
             let version = commit_at(address, partition, &write).await?;
             assert!(version > 0, "partition {partition}");
@@ -340,10 +340,10 @@ fn on_either(w: &mut Steps) -> TestResult {
 )]
 fn registers(w: &mut Steps) -> TestResult {
     two_processes(w)?;
-    let subject = subject_of(3, 4, NAMESPACE)?;
-    let group = BucketGroup::of(iri_bucket(NAMESPACE, &subject).context("a bucket")?);
+    let subject = subject_of(3, 4, TENANT)?;
+    let group = BucketGroup::of(iri_bucket(TENANT, &subject).context("a bucket")?);
     let target = Address::parse("tcp://127.0.0.1:17300")?;
-    let mut reference = Reference::request().in_namespace(NAMESPACE);
+    let mut reference = Reference::request().in_tenant(TENANT);
     let _index = reference.register_iri(3, Some(group), &subject, 0);
     let registered = Runtime::new()?.block_on(async {
         let mut client = RoleClient::dial(&target, CLUSTER, "storage", SECRET).await?;
@@ -381,8 +381,8 @@ fn registered_reply(w: &mut Steps) -> TestResult {
 #[when("a write in one storage process names an entity homed in the other")]
 fn crossing(w: &mut Steps) -> TestResult {
     two_processes(w)?;
-    let subject = subject_of(1, 4, NAMESPACE)?;
-    let object = subject_of(3, 4, NAMESPACE)?;
+    let subject = subject_of(1, 4, TENANT)?;
+    let object = subject_of(3, 4, TENANT)?;
     w.version = Runtime::new()?.block_on(commit_at(
         "tcp://127.0.0.1:17200",
         1,
@@ -418,7 +418,7 @@ fn committed_storage(w: &mut Steps) -> TestResult<Committed> {
     ))?;
     let settings = storage_holding()?;
     let pid = start_storage(&util, &settings, &scratch("storage-first"))?;
-    let subject = subject_of(1, 1, NAMESPACE)?;
+    let subject = subject_of(1, 1, TENANT)?;
     let address = format!("tcp://{}", STORAGE_ROLE_ADDRESS);
     Runtime::new()?.block_on(async {
         for at in 0..8 {
@@ -824,7 +824,7 @@ fn loadable(w: &mut Steps) -> TestResult {
         &scratch("storage-loaded.log"),
         answering(STORAGE_OBSERVABILITY, "/ready"),
     ))?;
-    let subject = subject_of(1, 1, NAMESPACE)?;
+    let subject = subject_of(1, 1, TENANT)?;
     let address = format!("tcp://{}", STORAGE_ROLE_ADDRESS);
     Runtime::new()?.block_on(async {
         for at in 0..8 {

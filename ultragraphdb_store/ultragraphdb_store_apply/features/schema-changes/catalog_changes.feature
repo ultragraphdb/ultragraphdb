@@ -63,17 +63,17 @@ Feature: Catalog changes, rebuilds and drops
     Then no key of `<g1>` remains, and every statement of `<g2>` is still held
 
   Scenario: Dropping data keeps the catalog
-    When a namespace's data is dropped
+    When a tenant's data is dropped
     Then its predicates hold no data and its catalog is unchanged
 
-  Scenario: Dropping a namespace's everything survives a restart
-    When everything in namespace 3 is dropped and the roles are restarted
-    Then namespace 3 holds no quad key, and the metadata group holds its initial catalog
+  Scenario: Dropping a tenant's everything survives a restart
+    When everything in tenant 3 is dropped and the roles are restarted
+    Then tenant 3 holds no quad key, and the metadata group holds its initial catalog
 
   Scenario: Dropping everything leaves the initial catalog
     When everything is dropped
-    Then no partition holds a quad key, and the metadata group holds the root namespace's initial catalog alone
+    Then no partition holds a quad key, and the metadata group holds the root tenant's initial catalog alone
 
-  Scenario: Dropping a namespace's data leaves no split part
-    When a namespace whose lists are split has its data dropped
-    Then no key of any quad keyspace of the namespace remains, split or not, and its catalog is unchanged
+  Scenario: Dropping a tenant's data leaves no split part
+    When a tenant whose lists are split has its data dropped
+    Then no key of any quad keyspace of the tenant remains, split or not, and its catalog is unchanged

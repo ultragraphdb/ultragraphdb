@@ -126,7 +126,7 @@ fn test_register_and_begin_answer_a_session_and_a_snapshot() -> TestResult {
     let beginning = h.core.begin(3, true, h.now)?;
     let tx = begun(h.settle(beginning)?)?;
     assert_eq!(
-        (tx.namespace(), tx.read_version(), tx.read_only()),
+        (tx.tenant(), tx.read_version(), tx.read_only()),
         (3, h.server.version(), true)
     );
     assert_eq!(
@@ -195,7 +195,7 @@ fn test_prepare_describe_and_a_stale_statement() -> TestResult {
     let p = h.core.prepare(&prepare, h.now)?;
     let statement = prepared(h.settle(p)?)?;
     assert_eq!(
-        (statement.id(), statement.schema(), statement.namespace()),
+        (statement.id(), statement.schema(), statement.tenant()),
         (1, 1, 0)
     );
     assert_eq!(statement.parameter_types(), &[ColumnType::Node]);

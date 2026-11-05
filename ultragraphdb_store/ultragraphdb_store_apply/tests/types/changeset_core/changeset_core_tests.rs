@@ -17,8 +17,8 @@ use ultragraphdb_store_sim::OpRecord;
 use ultragraphdb_traits_store::Store;
 
 use crate::utils::changesets::{
-    NS, TestChangesets, changeset, changesets, declaration, ex, finish_builds, holds_catalog_key,
-    insert, is_held_in_default, objects, term, uid, write,
+    TENANT, TestChangesets, changeset, changesets, declaration, ex, finish_builds,
+    holds_catalog_key, insert, is_held_in_default, objects, term, uid, write,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -28,10 +28,10 @@ fn default_of(predicate: &str) -> PredicateDeclaration {
     PredicateDeclaration::new(ex(predicate))
 }
 
-/// The key a write records predicate `uid`'s catalog change under, in the root namespace.
+/// The key a write records predicate `uid`'s catalog change under, in the root tenant.
 fn predicate_key(uid: SystemId) -> Vec<u8> {
     ultragraphdb_core_keys::QuadKey::Catalog {
-        namespace: NS,
+        tenant: TENANT,
         kind: ultragraphdb_core_catalog::PREDICATE,
         id: uid,
     }
@@ -52,7 +52,7 @@ fn test_an_execution_writes_nothing_and_reads_at_the_watermark() -> TestResult {
     let executed = execute(&a, "<a> <knows> <b>")?;
     assert_eq!(a.quads().store().contents(), before, "nothing is written");
     assert_eq!(executed.read_ts(), watermark);
-    assert_eq!(executed.namespace(), NS);
+    assert_eq!(executed.tenant(), TENANT);
     assert!(
         executed
             .writes()
@@ -60,7 +60,7 @@ fn test_an_execution_writes_nothing_and_reads_at_the_watermark() -> TestResult {
             .any(|k| ultragraphdb_core_keys::Region::of(k).is_ok()),
         "its deltas are in its writes"
     );
-    assert_eq!(executed.reads().namespace(), NS);
+    assert_eq!(executed.reads().tenant(), TENANT);
     assert_eq!(executed.reads().absent(), &[created_id(&executed, "b")?]);
     assert_eq!(
         a.quads().lists().oldest_open_read(),
@@ -91,7 +91,11 @@ fn test_a_refused_changeset_leaves_no_dictionary_entry() -> TestResult {
     );
     assert_eq!(a.quads().store().contents(), before, "nothing is written");
     for name in ["gone", "p", "q"] {
-        assert_eq!(a.quads().id_of(NS, ex(name).as_str())?, None, "<{name}>");
+        assert_eq!(
+            a.quads().id_of(TENANT, ex(name).as_str())?,
+            None,
+            "<{name}>"
+        );
     }
     Ok(())
 }
@@ -228,7 +232,7 @@ fn test_a_new_terms_id_is_fixed_before_its_commit() -> TestResult {
         .find(|(i, _)| i == ex("new").as_str())
         .context("<new> is created")?
         .1;
-    assert_eq!(a.quads().id_of(NS, ex("new").as_str())?, None);
+    assert_eq!(a.quads().id_of(TENANT, ex("new").as_str())?, None);
     let version = a.quads().lists().next_version();
     let _applied: Vec<Applied> = a.apply_round(vec![(version, executed)])?;
     assert_eq!(uid(&a, "new")?, new_uid);
@@ -245,7 +249,7 @@ fn test_a_round_installs_the_catalogs_its_executions_leave() -> TestResult {
         declared.clone(),
     ))]))?;
     let alias = execute(&a, "<a> <alias> \"x\"")?;
-    let before = (*a.catalog(NS)?).clone();
+    let before = (*a.catalog(TENANT)?).clone();
     assert!(
         before
             .predicates()
@@ -253,11 +257,11 @@ fn test_a_round_installs_the_catalogs_its_executions_leave() -> TestResult {
     );
     let next = a.quads().lists().next_version();
     let _applied: Vec<Applied> = a.apply_round(vec![(next, executed)])?;
-    let catalog = a.catalog(NS)?;
+    let catalog = a.catalog(TENANT)?;
     assert_eq!(catalog.predicate(uid(&a, "tag")?), Some(&declared));
     drop(alias);
     assert_eq!(
-        a.quads().id_of(NS, ex("alias").as_str())?,
+        a.quads().id_of(TENANT, ex("alias").as_str())?,
         None,
         "an execution never applied writes nothing"
     );
@@ -352,7 +356,7 @@ fn test_a_round_starting_a_second_build_is_refused_whole() -> TestResult {
     let _tag_applied: Applied = a.apply(&declare_change("tag")?)?;
     finish_builds(&a);
     assert_eq!(
-        a.catalog(NS)?.predicate(uid(&a, "tag")?),
+        a.catalog(TENANT)?.predicate(uid(&a, "tag")?),
         Some(&declaration("tag", "with `exact`")?)
     );
     Ok(())
@@ -372,7 +376,7 @@ fn test_a_build_starts_at_its_own_executions_version() -> TestResult {
     let _applied: Vec<Applied> = a.apply_round(vec![(next, plain), (next + 4, declared)])?;
     finish_builds(&a);
     let key = ultragraphdb_core_keys::QuadKey::ValueIndex {
-        namespace: NS,
+        tenant: TENANT,
         graph: ultragraphdb_core_keys::DEFAULT_GRAPH,
         predicate: uid(&a, "name")?,
         tokenizer: crate::utils::changesets::exact_token("Ann").0,
@@ -461,7 +465,7 @@ fn test_a_round_keeps_the_default_entries_of_the_executions_before_it() -> TestR
     let second = a.execute(&changeset(vec![insert("<b> <score> \"z\"")?]))?;
     let next = a.quads().lists().next_version();
     let _applied: Vec<Applied> = a.apply_round(vec![(next, first), (next + 2, second)])?;
-    let catalog = a.catalog(NS)?;
+    let catalog = a.catalog(TENANT)?;
     // Each predicate first written holds the default declaration (the catalog specification's defaults).
     assert_eq!(catalog.predicate(uid(&a, "age")?), Some(&default_of("age")));
     assert_eq!(
@@ -488,7 +492,7 @@ fn test_a_catalog_change_keeps_the_default_entries_written_since_it_read() -> Te
     ))]))?;
     let next = a.quads().lists().next_version();
     let _applied: Vec<Applied> = a.apply_round(vec![(next, first), (next + 2, declared)])?;
-    let catalog = a.catalog(NS)?;
+    let catalog = a.catalog(TENANT)?;
     assert_eq!(catalog.predicate(uid(&a, "age")?), Some(&default_of("age")));
     assert_eq!(
         catalog.predicate(uid(&a, "tag")?),
@@ -510,7 +514,7 @@ fn test_an_execution_writing_no_catalog_entry_leaves_the_catalog() -> TestResult
     let plain = a.execute(&changeset(vec![insert("<a> <knows> <c>")?]))?;
     let next = a.quads().lists().next_version();
     let _applied: Vec<Applied> = a.apply_round(vec![(next, first), (next + 2, plain)])?;
-    let catalog = a.catalog(NS)?;
+    let catalog = a.catalog(TENANT)?;
     assert_eq!(catalog.predicate(uid(&a, "age")?), Some(&default_of("age")));
     assert!(
         !holds_catalog_key(&a),
@@ -532,7 +536,7 @@ fn test_a_default_entry_after_a_declaration_leaves_the_declaration() -> TestResu
     let next = a.quads().lists().next_version();
     let _applied: Vec<Applied> = a.apply_round(vec![(next, declared), (next + 2, default)])?;
     assert_eq!(
-        a.catalog(NS)?.predicate(uid(&a, "score")?),
+        a.catalog(TENANT)?.predicate(uid(&a, "score")?),
         Some(&declaration("score", "a property")?)
     );
     assert!(

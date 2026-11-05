@@ -17,7 +17,7 @@ use ultragraphdb_traits_log::{DurabilityTicket, LogEvent, OrderedLog, Position, 
 use ultragraphdb_transactions_log::SimStorage;
 
 use crate::utils::harness::{
-    Log, block_on, crash_and_recover, fresh, ns, open, pid, recover, sync,
+    Log, block_on, crash_and_recover, fresh, open, pid, recover, sync, tenant,
 };
 
 /// Writes `bodies` as the rounds of a fresh log in `storage`, synced.
@@ -42,8 +42,8 @@ fn encoded(command: &MetadataCommand) -> Vec<u8> {
 #[test]
 fn test_recovery_replays_every_durable_command_in_order() -> TestResult {
     let (storage, mut group) = fresh()?;
-    let _: (u64, Position) = group.offer_catalog(ns(), 0, b"v1")?;
-    let _: (u64, Position) = group.offer_catalog(ns(), 1, b"v2")?;
+    let _: (u64, Position) = group.offer_catalog(tenant(), 0, b"v1")?;
+    let _: (u64, Position) = group.offer_catalog(tenant(), 1, b"v2")?;
     let _: (SequenceBlock, Position) = group.lease_block(TypePrefix::RESOURCE, pid(1)?, 9)?;
     sync(&mut group)?;
     let before = group.state().clone();
@@ -57,11 +57,11 @@ fn test_recovery_replays_every_durable_command_in_order() -> TestResult {
 #[test]
 fn test_a_command_not_durable_at_the_kill_is_lost_whole() -> TestResult {
     let (storage, mut group) = fresh()?;
-    let _: (u64, Position) = group.offer_catalog(ns(), 0, b"v1")?;
+    let _: (u64, Position) = group.offer_catalog(tenant(), 0, b"v1")?;
     sync(&mut group)?;
-    let _: (u64, Position) = group.offer_catalog(ns(), 1, b"v2")?;
+    let _: (u64, Position) = group.offer_catalog(tenant(), 1, b"v2")?;
     let recovered = crash_and_recover(&storage, MetadataConfig::new(), None)?;
-    assert_eq!(recovered.state().current_version(ns()), 1);
+    assert_eq!(recovered.state().current_version(tenant()), 1);
     assert_eq!(recovered.applied().get(), 1);
     Ok(())
 }
@@ -91,11 +91,11 @@ fn test_a_recovered_group_goes_on_deciding_from_its_state() -> TestResult {
 #[test]
 fn test_recovery_from_a_snapshot_replays_only_the_rounds_after_it() -> TestResult {
     let (storage, mut group) = fresh()?;
-    let _: (u64, Position) = group.offer_catalog(ns(), 0, b"v1")?;
-    let _: (u64, Position) = group.offer_catalog(ns(), 1, b"v2")?;
+    let _: (u64, Position) = group.offer_catalog(tenant(), 0, b"v1")?;
+    let _: (u64, Position) = group.offer_catalog(tenant(), 1, b"v2")?;
     sync(&mut group)?;
     let snapshot = group.snapshot();
-    let _: (u64, Position) = group.offer_catalog(ns(), 2, b"v3")?;
+    let _: (u64, Position) = group.offer_catalog(tenant(), 2, b"v3")?;
     sync(&mut group)?;
     let before = group.state().clone();
     let recovered = crash_and_recover(&storage, MetadataConfig::new(), Some(snapshot))?;
@@ -108,13 +108,13 @@ fn test_recovery_from_a_snapshot_replays_only_the_rounds_after_it() -> TestResul
 #[test]
 fn test_a_snapshot_at_the_committed_position_replays_nothing() -> TestResult {
     let (storage, mut group) = fresh()?;
-    let _: (u64, Position) = group.offer_catalog(ns(), 0, b"v1")?;
+    let _: (u64, Position) = group.offer_catalog(tenant(), 0, b"v1")?;
     sync(&mut group)?;
     let snapshot = group.snapshot();
     let recovered = crash_and_recover(&storage, MetadataConfig::new(), Some(snapshot))?;
     assert_eq!(recovered.replayed(), 0);
     assert_eq!(recovered.applied().get(), 1);
-    assert_eq!(recovered.state().current_version(ns()), 1);
+    assert_eq!(recovered.state().current_version(tenant()), 1);
     Ok(())
 }
 
@@ -140,11 +140,11 @@ fn test_a_snapshot_past_the_committed_position_is_refused() -> TestResult {
 fn test_a_trimmed_log_needs_a_snapshot_at_or_past_its_checkpoint() -> TestResult {
     let (storage, mut group) = fresh()?;
     for predecessor in 0..3 {
-        let _: (u64, Position) = group.offer_catalog(ns(), predecessor, b"v")?;
+        let _: (u64, Position) = group.offer_catalog(tenant(), predecessor, b"v")?;
     }
     sync(&mut group)?;
     let old = group.snapshot();
-    let _: (u64, Position) = group.offer_catalog(ns(), 3, b"v")?;
+    let _: (u64, Position) = group.offer_catalog(tenant(), 3, b"v")?;
     sync(&mut group)?;
     let snapshot = group.snapshot();
     block_on(group.trim(&snapshot))??;
@@ -164,7 +164,7 @@ fn test_a_trimmed_log_needs_a_snapshot_at_or_past_its_checkpoint() -> TestResult
     assert_eq!(refused(None)?, ClusterError::snapshot_behind(0, 4).0);
     assert_eq!(refused(Some(old))?, ClusterError::snapshot_behind(3, 4).0);
     let recovered = recover(&storage, MetadataConfig::new(), Some(snapshot))?;
-    assert_eq!(recovered.state().current_version(ns()), 4);
+    assert_eq!(recovered.state().current_version(tenant()), 4);
     Ok(())
 }
 
@@ -191,7 +191,7 @@ fn test_a_command_the_state_does_not_take_diverges_at_its_position() -> TestResu
     let storage = SimStorage::new(6);
     // Version 1 offered twice: the second is built on 0 while 1 is the latest.
     let offer = encoded(&MetadataCommand::OfferCatalog {
-        namespace: ns(),
+        tenant: tenant(),
         predecessor: 0,
         bytes: b"v".to_vec(),
     });
@@ -251,12 +251,13 @@ fn test_recovery_reads_a_log_longer_than_one_read() -> TestResult {
     // 12 rounds of 100 KiB each pass the 1 MiB one read returns; the test log's segments hold 256 KiB each.
     let (storage, mut group) = fresh()?;
     for predecessor in 0..12 {
-        let _: (u64, Position) = group.offer_catalog(ns(), predecessor, &vec![7; 100 * 1_024])?;
+        let _: (u64, Position) =
+            group.offer_catalog(tenant(), predecessor, &vec![7; 100 * 1_024])?;
         sync(&mut group)?;
     }
     let recovered = crash_and_recover(&storage, MetadataConfig::new(), None)?;
     assert_eq!(recovered.replayed(), 12);
-    assert_eq!(recovered.state().current_version(ns()), 12);
+    assert_eq!(recovered.state().current_version(tenant()), 12);
     Ok(())
 }
 
@@ -292,10 +293,10 @@ fn replay_refusal(bodies: &[Vec<u8>]) -> TestResult<ClusterErrorEnum> {
     )
 }
 
-/// The offer of version 1 of the scenarios' namespace holding `bytes`.
+/// The offer of version 1 of the scenarios' tenant holding `bytes`.
 fn offer_1(bytes: &[u8]) -> Vec<u8> {
     encoded(&MetadataCommand::OfferCatalog {
-        namespace: ns(),
+        tenant: tenant(),
         predecessor: 0,
         bytes: bytes.to_vec(),
     })
@@ -315,7 +316,7 @@ fn test_chunks_with_their_commit_replay_as_one_command() -> TestResult {
     let group = recover(&storage, MetadataConfig::new(), None)?;
     assert_eq!(group.replayed(), 1);
     assert_eq!(group.applied().get(), 4);
-    let held = group.state().versions(ns());
+    let held = group.state().versions(tenant());
     assert_eq!(
         held.first().map(|v| v.bytes()),
         Some(&b"a version in three pieces"[..])
@@ -331,14 +332,14 @@ fn test_chunks_with_no_commit_are_discarded_and_a_retry_commits() -> TestResult 
     // At the log's end: a crash cut the run.
     write_log(&storage, &[chunk(0, a), chunk(9, b)])?;
     let mut group = recover(&storage, MetadataConfig::new(), None)?;
-    assert_eq!(group.state().current_version(ns()), 0);
+    assert_eq!(group.state().current_version(tenant()), 0);
     assert_eq!((group.applied().get(), group.replayed()), (0, 0));
     // The retry is appended after the cut run, which a new run's first chunk or any command discards on replay.
-    let (version, position) = group.offer_catalog(ns(), 0, b"retried")?;
+    let (version, position) = group.offer_catalog(tenant(), 0, b"retried")?;
     assert_eq!((version, position.get()), (1, 3));
     sync(&mut group)?;
     let recovered = crash_and_recover(&storage, MetadataConfig::new(), None)?;
-    let held_retried = recovered.state().versions(ns());
+    let held_retried = recovered.state().versions(tenant());
     assert_eq!(
         held_retried.first().map(|v| v.bytes()),
         Some(&b"retried"[..])
@@ -353,7 +354,7 @@ fn test_chunks_with_no_commit_are_discarded_and_a_retry_commits() -> TestResult 
         &[chunk(0, a), chunk(0, c), chunk(4, d), commit_of(&retry)],
     )?;
     let again = recover(&other, MetadataConfig::new(), None)?;
-    let held_again = again.state().versions(ns());
+    let held_again = again.state().versions(tenant());
     assert_eq!(
         held_again.first().map(|v| v.bytes()),
         Some(&b"second run"[..])
@@ -368,18 +369,18 @@ fn test_a_crash_between_chunks_leaves_the_version_absent() -> TestResult {
     let large = vec![4; 300 * 1_024];
     let (clean, mut probe) = crate::utils::harness::fresh()?;
     let start = clean.trace().len();
-    let _: (u64, Position) = probe.offer_catalog(ns(), 0, &large)?;
+    let _: (u64, Position) = probe.offer_catalog(tenant(), 0, &large)?;
     sync(&mut probe)?;
     let end = clean.trace().len();
     let mut cut = 0;
     for operation in start..end {
         let (storage, mut group) = crate::utils::harness::fresh()?;
-        let _: (u64, Position) = group.offer_catalog(ns(), 0, &large)?;
+        let _: (u64, Position) = group.offer_catalog(tenant(), 0, &large)?;
         storage.fail_at(operation, ultragraphdb_transactions_log::FaultMode::Before);
         let _synced = block_on(group.sync())?;
         drop(group);
         let mut recovered = crash_and_recover(&storage, MetadataConfig::new(), None)?;
-        let held = recovered.state().versions(ns());
+        let held = recovered.state().versions(tenant());
         match held.first() {
             Some(record) => assert_eq!(record.bytes(), large.as_slice(), "operation {operation}"),
             None => {
@@ -388,10 +389,10 @@ fn test_a_crash_between_chunks_leaves_the_version_absent() -> TestResult {
                 // The snapshot holds no half-written command: it is the state before the run.
                 assert_eq!(recovered.snapshot().position(), Position::ZERO);
                 assert_eq!(recovered.snapshot().state(), &MetadataState::new());
-                let (version, _) = recovered.offer_catalog(ns(), 0, &large)?;
+                let (version, _) = recovered.offer_catalog(tenant(), 0, &large)?;
                 assert_eq!(version, 1);
                 sync(&mut recovered)?;
-                assert_eq!(recovered.state().current_version(ns()), 1);
+                assert_eq!(recovered.state().current_version(tenant()), 1);
             }
         }
     }

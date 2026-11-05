@@ -16,7 +16,7 @@ pub struct ComputeReadView<'a> {
     read_only: bool,
     level: ReadLevel,
     named: bool,
-    namespace: u64,
+    tenant: u64,
     read_version: u64,
     epoch: u64,
     principal: u64,
@@ -49,9 +49,9 @@ impl<'a> ComputeReadView<'a> {
         self.named
     }
 
-    /// The transaction's namespace.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The transaction's tenant.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// The version the read reads at; 0 for none.

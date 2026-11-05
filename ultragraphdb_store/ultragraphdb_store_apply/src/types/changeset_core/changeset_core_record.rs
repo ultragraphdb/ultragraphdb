@@ -104,14 +104,14 @@ where
                 let Some(prefix) = PredicatePrefix::from_bytes(bytes) else {
                     continue;
                 };
-                let (namespace, predicate) = (prefix.namespace(), prefix.predicate());
-                let catalog = self.catalog(namespace)?;
+                let (tenant, predicate) = (prefix.tenant(), prefix.predicate());
+                let catalog = self.catalog(tenant)?;
                 let declared = catalog
                     .predicate(predicate)
-                    .map(|d| declared_prefixes(namespace, predicate, d))
+                    .map(|d| declared_prefixes(tenant, predicate, d))
                     .unwrap_or_default();
                 if declared.contains(&prefix) {
-                    rebuilt = rebuilt.or(Some((namespace, predicate)));
+                    rebuilt = rebuilt.or(Some((tenant, predicate)));
                 } else {
                     let _inserted: bool = undeclared.insert(prefix);
                 }
@@ -123,8 +123,8 @@ where
             );
             self.drop_removed(&undeclared.into_iter().collect::<Vec<_>>())?;
             match rebuilt.filter(|_| started.is_none()) {
-                Some((namespace, predicate)) => {
-                    started = self.build_again(namespace, predicate, record.id())?;
+                Some((tenant, predicate)) => {
+                    started = self.build_again(tenant, predicate, record.id())?;
                 }
                 None => self.remove_record(record.id())?,
             }
@@ -132,15 +132,15 @@ where
         Ok(started)
     }
 
-    /// Runs the build of predicate `predicate`'s declared indexes in `namespace` again, under record `record`, from the
+    /// Runs the build of predicate `predicate`'s declared indexes in `tenant` again, under record `record`, from the
     /// data at the watermark: the catalog holds the declaration without its indexes until the build swaps them in.
     fn build_again(
         &self,
-        namespace: u64,
+        tenant: u64,
         predicate: SystemId,
         record: u64,
     ) -> Result<Option<u64>, ChangesetError> {
-        let Some(declared) = self.catalog(namespace)?.predicate(predicate).cloned() else {
+        let Some(declared) = self.catalog(tenant)?.predicate(predicate).cloned() else {
             self.remove_record(record)?;
             return Ok(None);
         };
@@ -152,11 +152,11 @@ where
         if let Some(datatype) = declared.datatype() {
             bare = bare.with_datatype(datatype.clone());
         }
-        let mut rebuild = Rebuild::pending(namespace, predicate, bare, declared);
+        let mut rebuild = Rebuild::pending(tenant, predicate, bare, declared);
         rebuild.record = record;
         rebuild.start_ts = self.quads.lists().applied_ts();
         let interim = rebuild.interim();
-        self.set_catalog(namespace, |catalog| {
+        self.set_catalog(tenant, |catalog| {
             catalog.declare_predicate(predicate, interim)?;
             Ok(())
         })?;

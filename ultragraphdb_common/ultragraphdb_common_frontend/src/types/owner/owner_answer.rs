@@ -3,12 +3,12 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_cluster_placement::{NamespaceRun as PlacedRun, PartitionId};
-use ultragraphdb_core_ids::{Epoch, Namespace, TypePrefix};
+use ultragraphdb_cluster_placement::{PartitionId, TenantRun as PlacedRun};
+use ultragraphdb_core_ids::{Epoch, Tenant, TypePrefix};
 use ultragraphdb_error_cluster::{ClusterError, ClusterErrorEnum};
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_wire::{
-    BucketRange, Catalog, ErrorCode, ErrorReply, NamespaceRun, Placement, PreferredLeader,
+    BucketRange, Catalog, ErrorCode, ErrorReply, Placement, PreferredLeader, TenantRun,
 };
 use ultragraphdb_traits_log::OrderedLog;
 
@@ -28,10 +28,10 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
             Asked::Members { reply } => drop(reply.send(self.membership.members())),
             Asked::Placement { epoch, reply } => drop(reply.send(self.placement(epoch))),
             Asked::Catalog {
-                namespace,
+                tenant,
                 version,
                 reply,
-            } => drop(reply.send(self.catalog(namespace, version))),
+            } => drop(reply.send(self.catalog(tenant, version))),
             Asked::Lease {
                 prefix,
                 partition,
@@ -189,11 +189,8 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
                 partition.get(),
             ));
         }
-        for namespace in state.namespaces() {
-            reply.push_run(NamespaceRun::new(
-                namespace.get(),
-                PlacedRun::of(namespace).get(),
-            ));
+        for tenant in state.tenants() {
+            reply.push_run(TenantRun::new(tenant.get(), PlacedRun::of(tenant).get()));
         }
         for partition in partitions {
             if let Some(leader) = map.preferred_leader(partition) {
@@ -203,8 +200,8 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
         Ok(reply)
     }
 
-    fn catalog(&self, namespace: u64, version: u64) -> Result<Catalog, ErrorReply> {
-        let held = Namespace::new(namespace);
+    fn catalog(&self, tenant: u64, version: u64) -> Result<Catalog, ErrorReply> {
+        let held = Tenant::new(tenant);
         let state = self.metadata.state();
         let wanted = if version == 0 {
             state.current_version(held)
@@ -214,7 +211,7 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
         let never = || {
             ErrorReply::new(
                 ErrorCode::Refused,
-                format!("namespace {namespace} never held catalog version {wanted}"),
+                format!("tenant {tenant} never held catalog version {wanted}"),
             )
             .with_detail(wanted)
         };
@@ -224,7 +221,7 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
             .find(|record| record.version() == wanted)
             .ok_or_else(never)?;
         Ok(Catalog::reply(
-            namespace,
+            tenant,
             wanted,
             record.effective().map_or(0, Epoch::get),
             self.metadata.applied().get(),

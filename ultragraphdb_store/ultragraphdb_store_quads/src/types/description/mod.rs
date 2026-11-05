@@ -12,7 +12,7 @@ use crate::types::label_shape::LabelShape;
 use crate::types::shapes::Shapes;
 use crate::types::statistics::Statistics;
 
-/// What a namespace holds at a snapshot, the data dictionary's answer: its labels, relationship types and property
+/// What a tenant holds at a snapshot, the data dictionary's answer: its labels, relationship types and property
 /// keys; each label's shape; the catalog's declarations, its entity types with their preorder numbers; and the
 /// statistics of each graph and predicate, by the graph's IRI, empty for the default graph, and the predicate's.
 /// Declared entries are exact; the shapes of undeclared data are the last pass's, at [`Description::shapes_ts`].

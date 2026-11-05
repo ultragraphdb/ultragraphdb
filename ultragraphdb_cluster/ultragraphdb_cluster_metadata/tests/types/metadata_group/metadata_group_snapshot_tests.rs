@@ -11,19 +11,21 @@ use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_blocks::SequenceBlock;
 use ultragraphdb_traits_log::{OrderedLog, Position};
 
-use crate::utils::harness::{block_on, crash_and_recover, fresh, fresh_with, ns, open, pid, sync};
+use crate::utils::harness::{
+    block_on, crash_and_recover, fresh, fresh_with, open, pid, sync, tenant,
+};
 
 #[test]
 fn test_a_snapshot_is_the_durable_state_at_the_applied_position() -> TestResult {
     let (_storage, mut group) = fresh()?;
-    let _: (u64, Position) = group.offer_catalog(ns(), 0, b"v1")?;
+    let _: (u64, Position) = group.offer_catalog(tenant(), 0, b"v1")?;
     sync(&mut group)?;
-    let _: (u64, Position) = group.offer_catalog(ns(), 1, b"v2")?;
+    let _: (u64, Position) = group.offer_catalog(tenant(), 1, b"v2")?;
     // Version 2 is not durable: the snapshot holds version 1 at position 1.
     let snapshot = group.snapshot();
     assert_eq!(snapshot.position().get(), 1);
     assert_eq!(snapshot.state(), group.state());
-    assert_eq!(snapshot.state().current_version(ns()), 1);
+    assert_eq!(snapshot.state().current_version(tenant()), 1);
     Ok(())
 }
 
@@ -77,7 +79,7 @@ fn test_a_recovered_group_counts_from_its_snapshot() -> TestResult {
 fn test_a_trim_moves_the_logs_checkpoint_to_the_snapshot() -> TestResult {
     let (storage, mut group) = fresh()?;
     for predecessor in 0..5 {
-        let _: (u64, Position) = group.offer_catalog(ns(), predecessor, b"v")?;
+        let _: (u64, Position) = group.offer_catalog(tenant(), predecessor, b"v")?;
     }
     sync(&mut group)?;
     let snapshot = group.snapshot();
@@ -92,11 +94,11 @@ fn test_a_trim_moves_the_logs_checkpoint_to_the_snapshot() -> TestResult {
 #[test]
 fn test_a_trim_past_the_committed_position_is_the_logs_refusal() -> TestResult {
     let (_storage, mut group) = fresh()?;
-    let _: (u64, Position) = group.offer_catalog(ns(), 0, b"v")?;
+    let _: (u64, Position) = group.offer_catalog(tenant(), 0, b"v")?;
     sync(&mut group)?;
     let (other_storage, mut other) = fresh()?;
     for predecessor in 0..3 {
-        let _: (u64, Position) = other.offer_catalog(ns(), predecessor, b"v")?;
+        let _: (u64, Position) = other.offer_catalog(tenant(), predecessor, b"v")?;
     }
     sync(&mut other)?;
     drop(other_storage);

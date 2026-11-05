@@ -11,18 +11,18 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use fjall::{Keyspace, Snapshot};
-use ultragraphdb_traits_store::key_namespace;
+use ultragraphdb_traits_store::key_tenant;
 
 use crate::types::fjall_store::Shared;
 
 /// A snapshot of a [`crate::FjallStore`]: one `Database::snapshot()` covering its three keyspaces, read at one
-/// timestamp, with the banned namespaces of its opening. While it is open, the store's discard timestamp stays at or
+/// timestamp, with the banned tenants of its opening. While it is open, the store's discard timestamp stays at or
 /// below its read timestamp.
 ///
 /// A compaction collects versions an all-versions scan of an open snapshot would report: versions older than a
 /// discard-flagged version at or below the discard timestamp, which no read at or above that timestamp needs.
 ///
-/// A snapshot of a temporary keyspace reads that keyspace at `u64::MAX`, with no banned namespace, and holds no
+/// A snapshot of a temporary keyspace reads that keyspace at `u64::MAX`, with no banned tenant, and holds no
 /// discard timestamp back.
 pub struct FjallSnapshot {
     // Shared with the store (Ultra rule 9): a snapshot outlives no store state it reads, and releases its read
@@ -67,6 +67,6 @@ impl FjallSnapshot {
     }
 
     fn banned(&self, key: &[u8]) -> bool {
-        key_namespace(key).is_some_and(|ns| self.banned.contains(&ns))
+        key_tenant(key).is_some_and(|tenant| self.banned.contains(&tenant))
     }
 }

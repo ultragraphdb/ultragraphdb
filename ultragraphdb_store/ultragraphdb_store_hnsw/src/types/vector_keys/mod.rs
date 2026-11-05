@@ -14,7 +14,7 @@ pub const NEIGHBOUR_LIST: u8 = 1;
 /// The vector-index list kind of the dead nodes.
 pub const DEAD_LIST: u8 = 2;
 
-/// Where the HNSW index of one predicate in one graph of a namespace keeps its lists and reads its vectors, by the quad
+/// Where the HNSW index of one predicate in one graph of a tenant keeps its lists and reads its vectors, by the quad
 /// keys: each node's vector in the predicate's forward list of the node; its neighbour lists, the entry point and the
 /// dead nodes in the vector-index keyspace under the graph and predicate, the entry point and the dead list under the
 /// predicate's own ID, which their list kinds keep apart from a node's neighbour lists. `name` labels the values an insert writes,
@@ -22,17 +22,17 @@ pub const DEAD_LIST: u8 = 2;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct VectorKeys {
     name: String,
-    namespace: u64,
+    tenant: u64,
     graph: Graph,
     predicate: SystemId,
 }
 
 impl VectorKeys {
-    /// The keys of the vector index `name` of `predicate` in `graph` of `namespace`.
-    pub fn new(name: impl Into<String>, namespace: u64, graph: Graph, predicate: SystemId) -> Self {
+    /// The keys of the vector index `name` of `predicate` in `graph` of `tenant`.
+    pub fn new(name: impl Into<String>, tenant: u64, graph: Graph, predicate: SystemId) -> Self {
         Self {
             name: name.into(),
-            namespace,
+            tenant,
             graph,
             predicate,
         }
@@ -43,9 +43,9 @@ impl VectorKeys {
         &self.name
     }
 
-    /// The namespace the index belongs to.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant the index belongs to.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// The graph the index belongs to.
@@ -61,7 +61,7 @@ impl VectorKeys {
     /// The forward list of `node`, which holds its vector.
     pub fn vector(&self, node: SystemId) -> Vec<u8> {
         QuadKey::Forward {
-            namespace: self.namespace,
+            tenant: self.tenant,
             graph: self.graph,
             predicate: self.predicate,
             subject: node,
@@ -74,7 +74,7 @@ impl VectorKeys {
         key_prefix(
             Keyspace::Forward,
             false,
-            self.namespace,
+            self.tenant,
             Some(self.graph),
             Some(self.predicate),
         )
@@ -115,13 +115,13 @@ impl VectorKeys {
         match QuadKey::parse(key) {
             Ok((
                 QuadKey::Forward {
-                    namespace,
+                    tenant,
                     graph,
                     predicate,
                     subject,
                 },
                 None,
-            )) if (namespace, graph, predicate) == (self.namespace, self.graph, self.predicate) => {
+            )) if (tenant, graph, predicate) == (self.tenant, self.graph, self.predicate) => {
                 Some(subject)
             }
             _ => None,
@@ -130,7 +130,7 @@ impl VectorKeys {
 
     fn list(&self, list: u8, node: SystemId) -> Vec<u8> {
         QuadKey::VectorIndex {
-            namespace: self.namespace,
+            tenant: self.tenant,
             graph: self.graph,
             predicate: self.predicate,
             list,

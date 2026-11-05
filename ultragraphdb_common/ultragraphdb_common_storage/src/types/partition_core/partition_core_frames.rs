@@ -21,14 +21,14 @@ use crate::utils::operation_of::operation_of;
 /// The write `frame` carries, its terms lent by the frame: what `run` makes of its changes.
 fn with_changes<T>(
     frame: &ReceivedFrame,
-    namespace: u64,
+    tenant: u64,
     run: impl FnOnce(&FrameChanges<'_>) -> Result<T, PartitionError>,
 ) -> Result<T, ErrorReply> {
     let view = frame.view().map_err(|rule| ErrorReply::protocol(&rule))?;
     let write = WriteView::from_frame(&view).map_err(|rule| ErrorReply::protocol(&rule))?;
     let terms = FrameTerms::of(write.terms()).map_err(|rule| ErrorReply::protocol(&rule))?;
     let changes =
-        FrameChanges::new(namespace, &write, &terms).map_err(|rule| ErrorReply::protocol(&rule))?;
+        FrameChanges::new(tenant, &write, &terms).map_err(|rule| ErrorReply::protocol(&rule))?;
     run(&changes).map_err(|refusal| error_reply(&refusal))
 }
 
@@ -61,7 +61,7 @@ impl PartitionCore<'_> {
             CoreMessage::Cancelled { connection, stream } => {
                 let key = (connection, stream);
                 self.host.abort_bound(key);
-                let _ended = self.bound_namespace.remove(&key);
+                let _ended = self.bound_tenant.remove(&key);
                 let _parked = self.parked.remove(&key);
                 self.cancel_scan(key);
             }
@@ -69,7 +69,7 @@ impl PartitionCore<'_> {
             CoreMessage::Left { connection, stream } => self.scan_left((connection, stream)),
             CoreMessage::Closed { connection } => {
                 self.host.abort_connection(connection);
-                self.bound_namespace.retain(|(of, _), _| *of != connection);
+                self.bound_tenant.retain(|(of, _), _| *of != connection);
                 self.parked.retain(|(of, _), _| *of != connection);
                 self.close_scans(connection);
             }
@@ -83,17 +83,13 @@ impl PartitionCore<'_> {
         frame: ReceivedFrame,
         done: futures::channel::oneshot::Sender<Answer>,
     ) {
-        let Some(namespace) = self
-            .bound_namespace
-            .get(&key)
-            .map(|(namespace, _)| *namespace)
-        else {
+        let Some(tenant) = self.bound_tenant.get(&key).map(|(tenant, _)| *tenant) else {
             drop(done.send(ended()));
             return;
         };
         let now = self.now_us();
         let host = &mut self.host;
-        match with_changes(&frame, namespace, |changes| {
+        match with_changes(&frame, tenant, |changes| {
             host.write_bound(key, changes, now)
         }) {
             Ok(BoundStep::Done) => drop(done.send(Answer::Open)),
@@ -103,13 +99,13 @@ impl PartitionCore<'_> {
                     Parked {
                         frame,
                         done,
-                        namespace,
+                        tenant,
                         is_write: true,
                     },
                 );
             }
             Err(refusal) => {
-                let _ended = self.bound_namespace.remove(&key);
+                let _ended = self.bound_tenant.remove(&key);
                 self.host.abort_bound(key);
                 drop(done.send(Answer::Refuse(refusal)));
             }
@@ -123,11 +119,7 @@ impl PartitionCore<'_> {
         frame: ReceivedFrame,
         done: futures::channel::oneshot::Sender<Answer>,
     ) {
-        let Some(namespace) = self
-            .bound_namespace
-            .get(&key)
-            .map(|(namespace, _)| *namespace)
-        else {
+        let Some(tenant) = self.bound_tenant.get(&key).map(|(tenant, _)| *tenant) else {
             drop(done.send(ended()));
             return;
         };
@@ -154,13 +146,13 @@ impl PartitionCore<'_> {
                     Parked {
                         frame,
                         done,
-                        namespace,
+                        tenant,
                         is_write: false,
                     },
                 );
             }
             Err(refusal) => {
-                let _ended = self.bound_namespace.remove(&key);
+                let _ended = self.bound_tenant.remove(&key);
                 self.host.abort_bound(key);
                 drop(done.send(Answer::Refuse(refusal)));
             }
@@ -182,7 +174,7 @@ impl PartitionCore<'_> {
             };
             let answer = if parked.is_write {
                 let host = &mut self.host;
-                with_changes(&parked.frame, parked.namespace, |changes| {
+                with_changes(&parked.frame, parked.tenant, |changes| {
                     host.resume_write(key, changes, now)
                 })
             } else {
@@ -191,7 +183,7 @@ impl PartitionCore<'_> {
             let reply = match answer {
                 Ok(()) => Answer::Open,
                 Err(refusal) => {
-                    let _ended = self.bound_namespace.remove(&key);
+                    let _ended = self.bound_tenant.remove(&key);
                     self.host.abort_bound(key);
                     Answer::Refuse(refusal)
                 }
@@ -219,7 +211,7 @@ impl PartitionCore<'_> {
             self.commit(key, &view, pushes)
         } else if command == Command::Abort {
             self.host.abort_bound(key);
-            let _ended = self.bound_namespace.remove(&key);
+            let _ended = self.bound_tenant.remove(&key);
             Ok(Answer::Done)
         } else if command == Command::Reference {
             self.reference(key, &view, pushes)
@@ -269,13 +261,13 @@ impl PartitionCore<'_> {
             .bind(
                 key,
                 bind.transaction(),
-                (bind.namespace(), bind.principal(), epoch),
+                (bind.tenant(), bind.principal(), epoch),
                 now,
             )
             .map_err(|refusal| error_reply(&refusal))?;
         let _previous = self
-            .bound_namespace
-            .insert(key, (bind.namespace(), pushes.clone()));
+            .bound_tenant
+            .insert(key, (bind.tenant(), pushes.clone()));
         let reply = bind
             .to_body()
             .map_err(|rule| ErrorReply::protocol(&rule))?
@@ -293,7 +285,7 @@ impl PartitionCore<'_> {
         let commit = CommitView::from_frame(view).map_err(|rule| ErrorReply::protocol(&rule))?;
         let session = u128::from_be_bytes(commit.session());
         let now = self.now_us();
-        let _ended = self.bound_namespace.remove(&key);
+        let _ended = self.bound_tenant.remove(&key);
         let ticket = self
             .host
             .commit_bound(key, session, commit.request(), now)

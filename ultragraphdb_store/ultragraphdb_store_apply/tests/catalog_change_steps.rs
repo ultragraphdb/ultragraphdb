@@ -25,7 +25,7 @@ use ultragraphdb_traits_store::PersistMode;
 use crate::Steps;
 use crate::changeset_steps::{cs, is_held, last};
 use crate::utils::changesets::{
-    NS, TestChangesets, apply, declare, declared, ex, exact_token, finish_builds,
+    TENANT, TestChangesets, apply, declare, declared, ex, exact_token, finish_builds,
     holds_catalog_key, indexed, insert, stored_keys, term_token, uid, write,
 };
 use crate::utils::probe::Probe;
@@ -62,18 +62,18 @@ fn listed(
     indexed(a, predicate, &token)
 }
 
-/// The catalog of `namespace` the partition holds in memory, the store holding no catalog key: the catalog lives in the
+/// The catalog of `tenant` the partition holds in memory, the store holding no catalog key: the catalog lives in the
 /// metadata group.
-fn stored_catalog(a: &TestChangesets, namespace: u64) -> TestResult<Catalog> {
+fn stored_catalog(a: &TestChangesets, tenant: u64) -> TestResult<Catalog> {
     assert!(!holds_catalog_key(a), "no partition holds a catalog key");
-    Ok((*a.catalog(namespace).context("the catalog")?).clone())
+    Ok((*a.catalog(tenant).context("the catalog")?).clone())
 }
 
-/// The keys the store holds of `namespace`, by keyspace: its catalog's, and every quad keyspace's.
-fn namespace_keys(a: &TestChangesets, namespace: u64) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
+/// The keys the store holds of `tenant`, by keyspace: its catalog's, and every quad keyspace's.
+fn tenant_keys(a: &TestChangesets, tenant: u64) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
     stored_keys(a)
         .into_iter()
-        .filter(|k| k.get(1..9) == Some(&namespace.to_be_bytes()[..]))
+        .filter(|k| k.get(1..9) == Some(&tenant.to_be_bytes()[..]))
         .partition(|k| {
             matches!(
                 k.first().and_then(|b| Keyspace::from_byte(*b)),
@@ -85,7 +85,7 @@ fn namespace_keys(a: &TestChangesets, namespace: u64) -> (Vec<Vec<u8>>, Vec<Vec<
 /// The predicates the subject-predicate list of `subject` holds, in the default graph.
 fn subject_predicates(a: &TestChangesets, subject: &str) -> TestResult<Vec<u128>> {
     let key = QuadKey::SubjectPredicates {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         subject: uid(a, subject)?,
     }
@@ -166,15 +166,15 @@ fn interim_reported(w: &mut Steps) -> TestResult {
     assert!(a.rebuilding(), "the build is under way");
     let p = uid(&a, "name")?;
     for catalog in [
-        (*a.catalog(NS).context("the catalog")?).clone(),
-        stored_catalog(&a, NS)?,
+        (*a.catalog(TENANT).context("the catalog")?).clone(),
+        stored_catalog(&a, TENANT)?,
     ] {
         let declaration = catalog.predicate(p).context("`name` is declared")?;
         assert!(declaration.tokenizers().is_empty(), "{declaration:?}");
     }
     finish_builds(&a);
     assert_eq!(
-        a.catalog(NS)
+        a.catalog(TENANT)
             .context("the catalog")?
             .predicate(p)
             .map(|d| d.tokenizers().to_vec()),
@@ -321,7 +321,7 @@ fn change_fails(w: &mut Steps, args: &[String]) -> TestResult {
     );
     if !multi.is_empty() {
         let a = cs(w)?;
-        let catalog = a.catalog(NS).context("the catalog")?;
+        let catalog = a.catalog(TENANT).context("the catalog")?;
         let declared = catalog.predicate(uid(&a, multi)?);
         assert!(declared.is_none_or(|d| d.cardinality() == Cardinality::Multi));
     }
@@ -335,10 +335,10 @@ fn change_applied(w: &mut Steps) -> TestResult {
     let expected = crate::utils::changesets::declaration(&w.names[0], &w.names[1])?;
     let p = uid(&a, &w.names[0])?;
     assert_eq!(
-        a.catalog(NS).context("the catalog")?.predicate(p),
+        a.catalog(TENANT).context("the catalog")?.predicate(p),
         Some(&expected)
     );
-    assert_eq!(stored_catalog(&a, NS)?.predicate(p), Some(&expected));
+    assert_eq!(stored_catalog(&a, TENANT)?.predicate(p), Some(&expected));
     Ok(())
 }
 
@@ -360,7 +360,7 @@ fn knows_dropped(w: &mut Steps) -> TestResult {
     let _applied: Applied = apply(&a, vec![id]).context("an edge with a statement ID applies")?;
     w.names = vec![hex(uid(&a, "knows")?)];
     let _dropped_at: u64 = a
-        .drop_predicate(NS, ex("knows").as_ref())
+        .drop_predicate(TENANT, ex("knows").as_ref())
         .context("the predicate drops")?;
     Ok(())
 }
@@ -386,7 +386,7 @@ fn knows_gone(w: &mut Steps) -> TestResult {
             "{subject}"
         );
     }
-    assert!(stored_catalog(&a, NS)?.predicate(knows).is_none());
+    assert!(stored_catalog(&a, TENANT)?.predicate(knows).is_none());
     Ok(())
 }
 
@@ -407,7 +407,7 @@ fn emb_dropped(w: &mut Steps) -> TestResult {
     )?;
     w.names = vec![hex(uid(&a, "emb")?)];
     let _dropped_at: u64 = a
-        .drop_predicate(NS, ex("emb").as_ref())
+        .drop_predicate(TENANT, ex("emb").as_ref())
         .context("the predicate drops")?;
     Ok(())
 }
@@ -434,7 +434,7 @@ fn g1_dropped(w: &mut Steps) -> TestResult {
     )?;
     w.names = vec![hex(uid(&a, "g1")?)];
     let _dropped_at: u64 = a
-        .drop_graph(NS, GraphName::from(ex("g1")).as_ref())
+        .drop_graph(TENANT, GraphName::from(ex("g1")).as_ref())
         .context("the graph drops")?;
     Ok(())
 }
@@ -454,87 +454,90 @@ fn g1_gone(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[when("a namespace's data is dropped")]
+#[when("a tenant's data is dropped")]
 fn data_dropped(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
     declare(&a, "name", "with `exact`")?;
     write(&a, &["<a> <name> \"Ann\"", "<a> <knows> <b>"])?;
-    w.schemas = vec![format!("{:?}", stored_catalog(&a, NS)?)];
-    let _dropped_at: u64 = a.drop_data(NS).context("the data drops")?;
+    w.schemas = vec![format!("{:?}", stored_catalog(&a, TENANT)?)];
+    let _dropped_at: u64 = a.drop_data(TENANT).context("the data drops")?;
     Ok(())
 }
 
 #[then("its predicates hold no data and its catalog is unchanged")]
 fn data_gone_catalog_kept(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
-    let (_, quads) = namespace_keys(&a, NS);
+    let (_, quads) = tenant_keys(&a, TENANT);
     assert!(quads.is_empty(), "{} quad keys remain", quads.len());
-    assert_eq!(vec![format!("{:?}", stored_catalog(&a, NS)?)], w.schemas);
     assert_eq!(
-        *a.catalog(NS).context("the catalog")?,
-        stored_catalog(&a, NS)?
+        vec![format!("{:?}", stored_catalog(&a, TENANT)?)],
+        w.schemas
+    );
+    assert_eq!(
+        *a.catalog(TENANT).context("the catalog")?,
+        stored_catalog(&a, TENANT)?
     );
     Ok(())
 }
 
-#[when("everything in namespace 3 is dropped and the roles are restarted")]
-fn namespace_three_dropped(w: &mut Steps) -> TestResult {
+#[when("everything in tenant 3 is dropped and the roles are restarted")]
+fn tenant_three_dropped(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
     write(&a, &["<a> <name> \"Ann\""])?;
     let three = |change| Changeset::new(3).with(change);
     let _applied: Applied = a
         .apply(&three(insert("<a> <name> \"Three\"")?))
-        .context("namespace 3 is written")?;
+        .context("tenant 3 is written")?;
     let _declared: Applied = a
         .apply(&three(Change::Declare(
             ultragraphdb_core_mapping::Declaration::Predicate(
                 crate::utils::changesets::declaration("name", "with `exact`")?,
             ),
         )))
-        .context("namespace 3 declares")?;
-    let _dropped_at: u64 = a.drop_namespace(3).context("the namespace drops")?;
-    // The group's half: the frontend commits namespace 3's initial catalog as its next version.
+        .context("tenant 3 declares")?;
+    let _dropped_at: u64 = a.drop_tenant(3).context("the tenant drops")?;
+    // The group's half: the frontend commits tenant 3's initial catalog as its next version.
     initial_version(w, 3, 2)?;
-    let b = crate::schema_storage_steps::restarted(&w.source, &a, &[NS, 3])?;
+    let b = crate::schema_storage_steps::restarted(&w.source, &a, &[TENANT, 3])?;
     w.changesets = Some(Arc::new(b));
     Ok(())
 }
 
-/// Commits `namespace`'s initial catalog, a version declaring nothing above it, as version `version` to the group.
-fn initial_version(w: &mut Steps, namespace: u64, version: u64) -> TestResult {
+/// Commits `tenant`'s initial catalog, a version declaring nothing above it, as version `version` to the group.
+fn initial_version(w: &mut Steps, tenant: u64, version: u64) -> TestResult {
     let bytes =
-        ultragraphdb_core_catalog::CatalogContents::new(namespace, version, Vec::new()).encode()?;
+        ultragraphdb_core_catalog::CatalogContents::new(tenant, version, Vec::new()).encode()?;
     w.source
         .commit(ultragraphdb_traits_catalog::HeldVersion::new(
-            namespace, version, version, bytes,
+            tenant, version, version, bytes,
         ));
     Ok(())
 }
 
-/// Whether the group holds `namespace`'s initial catalog as the version in effect.
-fn group_holds_initial(w: &Steps, namespace: u64) -> TestResult<bool> {
+/// Whether the group holds `tenant`'s initial catalog as the version in effect.
+fn group_holds_initial(w: &Steps, tenant: u64) -> TestResult<bool> {
     use ultragraphdb_traits_catalog::CatalogSource;
     let held = w
         .source
-        .version_at(namespace, u64::MAX)?
+        .version_at(tenant, u64::MAX)?
         .context("a version")?;
     let contents = ultragraphdb_core_catalog::CatalogContents::decode(
-        namespace,
+        tenant,
         held.version(),
         held.contents(),
     )?;
     Ok(contents.declarations().is_empty())
 }
 
-#[then("namespace 3 holds no quad key, and the metadata group holds its initial catalog")]
-fn namespace_three_initial(w: &mut Steps) -> TestResult {
+#[then("tenant 3 holds no quad key, and the metadata group holds its initial catalog")]
+fn tenant_three_initial(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
     let rdf_type = a
         .quads()
         .id_of(3, rdf::TYPE.as_str())
         .context("the dictionary reads")?
-        .context("rdf:type has a UID in namespace 3")?;
-    let (catalog, quads) = namespace_keys(&a, 3);
+        .context("rdf:type has a UID in tenant 3")?;
+    let (catalog, quads) = tenant_keys(&a, 3);
     assert!(quads.is_empty(), "{} quad keys remain", quads.len());
     assert!(catalog.is_empty(), "no catalog key");
     assert!(group_holds_initial(w, 3)?);
@@ -542,7 +545,7 @@ fn namespace_three_initial(w: &mut Steps) -> TestResult {
     assert_eq!(*a.catalog(3).context("the catalog")?, initial);
     assert!(
         is_held(&a, "<a> <name> \"Ann\"")?,
-        "namespace 0 keeps its data"
+        "tenant 0 keeps its data"
     );
     Ok(())
 }
@@ -554,40 +557,40 @@ fn everything_dropped(w: &mut Steps) -> TestResult {
     write(&a, &["<a> <name> \"Ann\"", "<a> <knows> <b> <g1>"])?;
     let _applied: Applied = a
         .apply(&Changeset::new(3).with(insert("<a> <name> \"Three\"")?))
-        .context("namespace 3 is written")?;
+        .context("tenant 3 is written")?;
     let _dropped_at: u64 = a.drop_all().context("everything drops")?;
-    // The group's half: the frontend commits the root namespace's initial catalog.
-    initial_version(w, NS, 2)?;
+    // The group's half: the frontend commits the root tenant's initial catalog.
+    initial_version(w, TENANT, 2)?;
     Ok(())
 }
 
 #[then(
-    "no partition holds a quad key, and the metadata group holds the root namespace's initial catalog alone"
+    "no partition holds a quad key, and the metadata group holds the root tenant's initial catalog alone"
 )]
 fn initial_catalog_only(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
     let rdf_type = a
         .quads()
-        .id_of(NS, rdf::TYPE.as_str())
+        .id_of(TENANT, rdf::TYPE.as_str())
         .context("the dictionary reads")?
         .context("the dictionary keeps rdf:type")?;
     let contents = a.quads().store().contents();
     assert!(contents.keys().is_empty(), "no quad key and no catalog key");
-    assert_eq!(*a.catalog(NS)?, Catalog::initial(NS, rdf_type));
+    assert_eq!(*a.catalog(TENANT)?, Catalog::initial(TENANT, rdf_type));
     assert!(
         a.catalog(3)?.predicates().next().is_none(),
-        "namespace 3 holds nothing"
+        "tenant 3 holds nothing"
     );
-    assert!(group_holds_initial(w, NS)?);
+    assert!(group_holds_initial(w, TENANT)?);
     use ultragraphdb_traits_catalog::CatalogSource;
     assert!(
         w.source.version_at(3, u64::MAX)?.is_none(),
-        "the root namespace's alone"
+        "the root tenant's alone"
     );
     Ok(())
 }
 
-#[when("a namespace whose lists are split has its data dropped")]
+#[when("a tenant whose lists are split has its data dropped")]
 fn split_data_dropped(w: &mut Steps) -> TestResult {
     let cache = SimListCache::new(1024, Seed::new(1).stream(Stream::Cache));
     let executor = SteppedExecutor::new(Seed::new(1).stream(Stream::Executor));
@@ -613,7 +616,7 @@ fn split_data_dropped(w: &mut Steps) -> TestResult {
         .collect::<TestResult<_>>()?;
     let _applied: Applied = apply(&a, changes).context("the edges are written")?;
     let key = QuadKey::Forward {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         predicate: uid(&a, "friend")?,
         subject: uid(&a, "a")?,
@@ -631,19 +634,22 @@ fn split_data_dropped(w: &mut Steps) -> TestResult {
         .read(&key, u64::MAX)
         .context("the list reads")?;
     assert!(!list.plist().splits().is_empty(), "the list is split");
-    w.schemas = vec![format!("{:?}", stored_catalog(&a, NS)?)];
-    let _dropped_at: u64 = a.drop_data(NS).context("the data drops")?;
+    w.schemas = vec![format!("{:?}", stored_catalog(&a, TENANT)?)];
+    let _dropped_at: u64 = a.drop_data(TENANT).context("the data drops")?;
     Ok(())
 }
 
 #[then(
-    "no key of any quad keyspace of the namespace remains, split or not, and its catalog is unchanged"
+    "no key of any quad keyspace of the tenant remains, split or not, and its catalog is unchanged"
 )]
 fn split_data_gone(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
-    let (_, quads) = namespace_keys(&a, NS);
+    let (_, quads) = tenant_keys(&a, TENANT);
     assert!(quads.is_empty(), "{} quad keys remain", quads.len());
-    assert_eq!(vec![format!("{:?}", stored_catalog(&a, NS)?)], w.schemas);
+    assert_eq!(
+        vec![format!("{:?}", stored_catalog(&a, TENANT)?)],
+        w.schemas
+    );
     Ok(())
 }
 
@@ -673,11 +679,11 @@ fn old_index_kept(w: &mut Steps) -> TestResult {
     let restoring = vec![ultragraphdb_core_mapping::Declaration::Predicate(
         crate::utils::changesets::declaration("name", "with `term`")?,
     )];
-    let refusals = crate::schema_storage_steps::take_effect(&w.source, &a, NS, 3, restoring)?;
+    let refusals = crate::schema_storage_steps::take_effect(&w.source, &a, TENANT, 3, restoring)?;
     assert!(refusals.is_empty(), "{refusals:?}");
     for catalog in [
-        (*a.catalog(NS).context("the catalog")?).clone(),
-        stored_catalog(&a, NS)?,
+        (*a.catalog(TENANT).context("the catalog")?).clone(),
+        stored_catalog(&a, TENANT)?,
     ] {
         let declared = catalog.predicate(p).context("`name` is declared")?;
         assert_eq!(declared.tokenizers(), ["term"], "{declared:?}");
@@ -712,7 +718,7 @@ fn rollup_across_drop(w: &mut Steps) -> TestResult {
         .context("the applier opens")?,
     );
     let changeset =
-        |text: &str| -> TestResult<Changeset> { Ok(Changeset::new(NS).with(insert(text)?)) };
+        |text: &str| -> TestResult<Changeset> { Ok(Changeset::new(TENANT).with(insert(text)?)) };
     let _applied: Applied = a
         .apply(&changeset("<a> <name> \"A\"")?)
         .context("the write applies")?;
@@ -721,16 +727,16 @@ fn rollup_across_drop(w: &mut Steps) -> TestResult {
         .context("the write applies")?;
     let name = a
         .quads()
-        .id_of(NS, ex("name").as_str())
+        .id_of(TENANT, ex("name").as_str())
         .context("the dictionary reads")?
         .context("`name` has a UID")?;
     let subject = a
         .quads()
-        .id_of(NS, ex("a").as_str())
+        .id_of(TENANT, ex("a").as_str())
         .context("the dictionary reads")?
         .context("`a` has a UID")?;
     let key = QuadKey::Forward {
-        namespace: NS,
+        tenant: TENANT,
         graph: DEFAULT_GRAPH,
         predicate: name,
         subject,
@@ -739,7 +745,7 @@ fn rollup_across_drop(w: &mut Steps) -> TestResult {
     let dropped = Arc::new(Mutex::new(None));
     let (inner, record) = (Arc::clone(&a), Arc::clone(&dropped));
     probe.on_next_snapshot(Box::new(move || {
-        let outcome = inner.drop_predicate(NS, ex("name").as_ref());
+        let outcome = inner.drop_predicate(TENANT, ex("name").as_ref());
         *record.lock().unwrap_or_else(PoisonError::into_inner) = Some(outcome.is_ok());
     }));
     w.flags = vec![
@@ -817,7 +823,7 @@ fn contradiction_before_effect(w: &mut Steps) -> TestResult {
     let single = vec![ultragraphdb_core_mapping::Declaration::Predicate(
         crate::utils::changesets::declaration("nick", "single-valued")?,
     )];
-    w.refusals = crate::schema_storage_steps::take_effect(&w.source, &a, NS, 2, single)?;
+    w.refusals = crate::schema_storage_steps::take_effect(&w.source, &a, TENANT, 2, single)?;
     Ok(())
 }
 
@@ -832,7 +838,7 @@ fn contradiction_refused(w: &mut Steps) -> TestResult {
         reply,
         "The declaration of <http://ex.org/nick> is refused by its data: <http://ex.org/a> holds more than one object"
     );
-    let catalog = a.catalog(NS)?;
+    let catalog = a.catalog(TENANT)?;
     assert_eq!(catalog.version(), 2, "the version took effect");
     let nick = catalog.predicate(uid(&a, "nick")?);
     assert!(

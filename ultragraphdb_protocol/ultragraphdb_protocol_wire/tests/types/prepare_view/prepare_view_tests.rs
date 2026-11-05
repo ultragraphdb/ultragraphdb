@@ -15,7 +15,7 @@ fn test_the_golden_prepares_read_their_values() -> TestResult {
     let bytes = golden("prepare_reply")?.bytes()?;
     let view = PrepareView::from_frame(&frame_of(&bytes)?)?;
     assert_eq!(
-        (view.namespace(), view.statement(), view.schema()),
+        (view.tenant(), view.statement(), view.schema()),
         (0, 1, 0x5C4E_3A2B_1D0F_7E6A)
     );
     assert_eq!(view.pattern().subject(), PatternSlot::Parameter(0));

@@ -24,7 +24,7 @@ RELEASE = 0x0005_0000
 ABSENT = 0xFFFF_FFFF
 XSD = "http://www.w3.org/2001/XMLSchema#"
 EX = "http://ex.org/"
-SKOLEM = "https://w3id.org/ultragraphdb/ns/namespace/0/.well-known/genid/"
+SKOLEM = "https://w3id.org/ultragraphdb/ns/tenant/0/.well-known/genid/"
 
 
 def le(value, width, signed=False):
@@ -226,9 +226,9 @@ for kind, partition, address in [(2, 0, "tcp://compute-a:7400"), (2, 0, "tcp://c
 golden("members_reply", 513, command_header([]), sections([members] + addresses.sections()), stream=5)
 # 514 Subscribe: from the close of epoch 41.
 golden("subscribe", 514, command_header([(0, le(41, 8))]), sections([]), stream=7)
-# 515 EpochClose: epoch 42 at a time, more to follow; catalog versions 11 and 12 of namespace 3 and 4 of namespace 7;
+# 515 EpochClose: epoch 42 at a time, more to follow; catalog versions 11 and 12 of tenant 3 and 4 of tenant 7;
 # two sessions evicted, ascending by their bytes.
-announcements = b"".join(le(ns, 8) + le(version, 8) for ns, version in [(3, 11), (3, 12), (7, 4)])
+announcements = b"".join(le(tenant, 8) + le(version, 8) for tenant, version in [(3, 11), (3, 12), (7, 4)])
 evictions = SESSION + bytes(range(0x31, 0x41))
 golden("epoch_close", 515, command_header([(0, le(42, 8)), (8, le(1_798_761_600_123_456, 8)), (16, bytes([1]))]),
        sections([announcements, evictions]), stream=7)
@@ -237,15 +237,15 @@ golden("lease", 516, command_header([(0, le(2, 2)), (4, le(5, 4)), (8, le(4096, 
 golden("lease_reply", 516, command_header([(0, le(2, 2)), (4, le(5, 4)), (8, le(4096, 8)), (16, le(81_921, 8)),
                                            (24, le(86_017, 8))]), sections([]), stream=9)
 # 517 Placement: the request for epoch 42; the reply read at position 1,234, applying from 40 until 45: three ranges
-# over partitions 1, 2, 1, two namespace runs, a leader per partition.
+# over partitions 1, 2, 1, two tenant runs, a leader per partition.
 golden("placement", 517, command_header([(8, le(42, 8))]), sections([b"", b"", b""]), stream=11)
 ranges = b"".join(le(start, 4) + le(end, 4) + le(partition, 4) + bytes(4)
                   for start, end, partition in [(0, 0x40_0000, 1), (0x40_0000, 0x80_0000, 2), (0x80_0000, 1 << 24, 1)])
-runs = b"".join(le(ns, 8) + bytes([run]) + bytes(7) for ns, run in [(3, 0x40), (7, 0x81)])
+runs = b"".join(le(tenant, 8) + bytes([run]) + bytes(7) for tenant, run in [(3, 0x40), (7, 0x81)])
 leaders = b"".join(le(partition, 4) + le(replica, 4) for partition, replica in [(1, 3), (2, 4)])
 golden("placement_reply", 517, command_header([(0, le(1_234, 8)), (8, le(42, 8)), (16, le(40, 8)), (24, le(45, 8))]),
        sections([ranges, runs, leaders]), stream=11)
-# 518 Catalog: the request for namespace 3's current version; the reply, version 12 applying from epoch 44, read at
+# 518 Catalog: the request for tenant 3's current version; the reply, version 12 applying from epoch 44, read at
 # position 1,240, its 37 opaque bytes.
 golden("catalog", 518, command_header([(0, le(3, 8))]), sections([b""]), stream=13)
 golden("catalog_reply", 518, command_header([(0, le(3, 8)), (8, le(12, 8)), (16, le(44, 8)), (24, le(1_240, 8))]),
@@ -271,9 +271,9 @@ SIGNATURE = base64.b64decode("6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4=")
 golden("verify", 520, command_header([]), sections([b"user", AUTH_MESSAGE, PROOF, b""]), stream=23)
 golden("verify_reply", 520, command_header([(0, bytes([1])), (8, le(7, 8))]),
        sections([b"user", AUTH_MESSAGE, PROOF, SIGNATURE]), stream=23)
-# 521 Bind: partition 3, a read-write transaction (kind 1) of namespace 5, the token's epoch 30, principal 9 and the
+# 521 Bind: partition 3, a read-write transaction (kind 1) of tenant 5, the token's epoch 30, principal 9 and the
 # transaction's identity; the request with read_version 0, the reply with the watermark (29 << 22) | 500; and a
-# Drop's binding (kind 2) to partition 4 in namespace 6, epoch 0, principal 11.
+# Drop's binding (kind 2) to partition 4 in tenant 6, epoch 0, principal 11.
 WATERMARK = (29 << 22) | 500
 for name, read_version in [("bind", 0), ("bind_reply", WATERMARK)]:
     golden(name, 521, command_header([(0, le(3, 4)), (4, bytes([1])), (8, le(5, 8)), (16, le(read_version, 8)),
@@ -282,7 +282,7 @@ golden("bind_drop", 521, command_header([(0, le(4, 4)), (4, bytes([2])), (8, le(
                                          (40, SESSION)]), sections([]), stream=27)
 # 522 Recall: session SESSION's reply to request 8 from partition 3.
 golden("recall", 522, command_header([(0, le(3, 4)), (8, SESSION), (24, le(8, 8))]), sections([]), stream=29)
-# 523 ComputeRead: a read-only transaction at level 2 (monotonic-fast) of namespace 5, its floor epoch 31, principal 9,
+# 523 ComputeRead: a read-only transaction at level 2 (monotonic-fast) of tenant 5, its floor epoch 31, principal 9,
 # limit 100, 50 ms left, the pattern (?, <a>, <name>, ?) and a resume key; and a read of a read-write transaction at
 # level 1, bound to partition 3 at the Bind's version (29 << 22) | 500, with the transaction's identity, no limit,
 # 9,000 ms left, the pattern (<g>, ?, <knows>, <b>) and no resume key.
@@ -319,8 +319,8 @@ golden("scan_transaction", 524, command_header([(0, bytes([1])), (8, le(WATERMAR
                                                 (32, TRANSACTION)]),
        sections(scan_ranges([(3, b"\x30key", b"\x30key\x00")]) + [b"", b""]), stream=37)
 # The same transaction's Scan naming two IRIs: its first ranges hold each IRI's dictionary key alone, in the table's
-# order (keyspace byte 0x1B, the namespace big-endian, kind 1, SHA-256 of the IRI truncated to 16 bytes), and a third
-# holds the one forward list of a predicate and subject of the default graph (keyspace byte 0x10, the namespace, 16
+# order (keyspace byte 0x1B, the tenant big-endian, kind 1, SHA-256 of the IRI truncated to 16 bytes), and a third
+# holds the one forward list of a predicate and subject of the default graph (keyspace byte 0x10, the tenant, 16
 # zero bytes, the predicate's and subject's system IDs).
 def holding(key):
     return (3, key, key + b"\0")
@@ -395,13 +395,13 @@ for name, epochs in [("closed", (0, 0, 0)), ("closed_reply", (28, 0, 31))]:
     parts = b"".join(le(p, 4) + bytes(4) + le(e, 8) for p, e in zip((2, 4, 9), epochs))
     golden(name, 528, command_header([]), sections([parts]), stream=29)
 
-# 529 DefaultEntry: the predicate <age> of namespace 3; the reply found the record (found 1).
+# 529 DefaultEntry: the predicate <age> of tenant 3; the reply found the record (found 1).
 terms = Terms()
 terms.add(iri(f"{EX}age"))
 for name, found in [("default_entry", 0), ("default_entry_reply", 1)]:
     golden(name, 529, command_header([(0, le(3, 8)), (8, bytes([found]))]), sections(terms.sections()), stream=31)
 
-# 530 Report: partition 6 of namespace 4. Catalog version 12's change of <age> refused by the literal "abc" of
+# 530 Report: partition 6 of tenant 4. Catalog version 12's change of <age> refused by the literal "abc" of
 # xsd:integer; version 13's check passed; version 14's build of <embedding> failed.
 terms = Terms()
 terms.add(iri(f"{EX}age"))

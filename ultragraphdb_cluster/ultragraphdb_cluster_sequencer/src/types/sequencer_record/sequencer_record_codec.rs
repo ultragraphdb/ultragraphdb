@@ -4,7 +4,7 @@
  */
 
 use ultragraphdb_cluster_placement::PartitionId;
-use ultragraphdb_core_ids::{Epoch, Namespace};
+use ultragraphdb_core_ids::{Epoch, Tenant};
 use ultragraphdb_error_cluster::ClusterError;
 
 use crate::types::catalog_version::CatalogVersion;
@@ -21,7 +21,7 @@ const TRANSACTION: u8 = 2;
 
 impl SequencerRecord {
     /// Appends the record's encoding to `out`, big-endian throughout. A close: the kind byte 1, the epoch and the time
-    /// as 8 bytes each, the catalog versions' count as 2 and each version's namespace and number as 8 each, the
+    /// as 8 bytes each, the catalog versions' count as 2 and each version's tenant and number as 8 each, the
     /// evictions' count as 2 and each session as 16, the placement version as 8, 0 for none. A transaction: the kind byte 2, the epoch and the reply epoch as 8
     /// bytes each, the partitions' count as 2 and each partition as 4, the body's length as 4 and its bytes. A record
     /// has one encoding.
@@ -33,7 +33,7 @@ impl SequencerRecord {
                 out.extend_from_slice(&close.time_us().to_be_bytes());
                 out.extend_from_slice(&count_u16(close.catalog().len()).to_be_bytes());
                 for version in close.catalog() {
-                    out.extend_from_slice(&version.namespace().get().to_be_bytes());
+                    out.extend_from_slice(&version.tenant().get().to_be_bytes());
                     out.extend_from_slice(&version.version().to_be_bytes());
                 }
                 out.extend_from_slice(&count_u16(close.evictions().len()).to_be_bytes());
@@ -111,9 +111,9 @@ fn read_close(reader: &mut Reader<'_>) -> Result<Close, ClusterError> {
     let versions = read_count(reader, "catalog versions in a close", Close::CATALOG_MAX)?;
     let mut catalog = Vec::with_capacity(versions);
     for _ in 0..versions {
-        let namespace = Namespace::new(reader.u64("a catalog version's namespace")?);
+        let tenant = Tenant::new(reader.u64("a catalog version's tenant")?);
         catalog.push(CatalogVersion::new(
-            namespace,
+            tenant,
             reader.u64("a catalog version's number")?,
         ));
     }

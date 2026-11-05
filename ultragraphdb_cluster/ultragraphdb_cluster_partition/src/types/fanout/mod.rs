@@ -6,8 +6,8 @@
 use std::collections::BTreeMap;
 use std::num::NonZeroUsize;
 
-use ultragraphdb_cluster_placement::{NamespaceRun, PartitionId};
-use ultragraphdb_core_ids::{Bucket, Epoch, Namespace, SystemId, Version};
+use ultragraphdb_cluster_placement::{PartitionId, TenantRun};
+use ultragraphdb_core_ids::{Bucket, Epoch, SystemId, Tenant, Version};
 use ultragraphdb_core_keys::{CountDirection, Graph, Keyspace, QuadKey};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_posting::CachedList;
@@ -80,7 +80,7 @@ where
         let mut gathered = Vec::new();
         for partition in &asked {
             gathered.extend(partition.applier().quads().subjects(
-                query.namespace(),
+                query.tenant(),
                 query.graph(),
                 query.predicate(),
                 &object,
@@ -101,7 +101,7 @@ where
         let epoch = query.epoch();
         let home = self.closed_partition(query.home(), epoch, query.object().bucket())?;
         let set = home.applier().quads().referrers(
-            query.namespace(),
+            query.tenant(),
             query.object(),
             read_version(home, epoch),
         )?;
@@ -153,7 +153,7 @@ where
             .into_iter()
             .try_fold(0u64, |sum, partition| {
                 let count = partition.applier().quads().reverse_count(
-                    query.namespace(),
+                    query.tenant(),
                     query.graph(),
                     query.predicate(),
                     &object,
@@ -163,8 +163,8 @@ where
             })
     }
 
-    /// The objects whose reverse count of `predicate` in `graph` of `namespace` at `epoch` is exactly `count`, summed
-    /// over every partition of the namespace's run, since each lists an object under its own subjects' count alone
+    /// The objects whose reverse count of `predicate` in `graph` of `tenant` at `epoch` is exactly `count`, summed
+    /// over every partition of the tenant's run, since each lists an object under its own subjects' count alone
     /// (index-maintenance, "A reverse count sums the referrers' partitions"), sorted; into `out`, cleared first.
     ///
     /// # Errors
@@ -172,7 +172,7 @@ where
     /// [`PartitionError::timed_out`] for a partition that has not closed `epoch`; the store's error.
     pub fn reverse_counted(
         &self,
-        namespace: u64,
+        tenant: u64,
         graph: Graph,
         predicate: SystemId,
         count: u64,
@@ -182,7 +182,7 @@ where
         out.clear();
         let key = |listed| {
             QuadKey::CountIndex {
-                namespace,
+                tenant,
                 graph,
                 predicate,
                 direction: CountDirection::Reverse,
@@ -193,13 +193,13 @@ where
         let (first, past) = (key(0), key(u32::MAX));
         let mut counts: BTreeMap<Vec<u8>, u64> = BTreeMap::new();
         let mut rows = Vec::new();
-        for partition in self.of_run(namespace, epoch)? {
+        for partition in self.of_run(tenant, epoch)? {
             let mut from = first.clone();
             // Ends: each scan resumes past the lists it read, and the range holds finitely many.
             loop {
                 let scan = KernelScan::new(
                     Keyspace::CountIndex,
-                    namespace,
+                    tenant,
                     from,
                     read_version(partition, epoch),
                     COUNT_ROWS,
@@ -231,13 +231,13 @@ where
         Ok(())
     }
 
-    /// The partitions holding a bucket of `namespace`'s run at `epoch`, all of which have closed it.
+    /// The partitions holding a bucket of `tenant`'s run at `epoch`, all of which have closed it.
     fn of_run(
         &self,
-        namespace: u64,
+        tenant: u64,
         epoch: Epoch,
     ) -> Result<Vec<&'p Partition<S, C, E, B>>, PartitionError> {
-        let run = NamespaceRun::of(Namespace::new(namespace)).range();
+        let run = TenantRun::of(Tenant::new(tenant)).range();
         let Some(any) = self.partitions.first().copied() else {
             return Ok(Vec::new());
         };

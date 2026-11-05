@@ -38,7 +38,7 @@ fn field(field: &'static str, value: u64) -> ProtocolErrorEnum {
 fn test_the_golden_request_and_reply_read() -> TestResult {
     let request = golden("default_entry")?;
     let view = DefaultEntryView::from_frame(&frame_of(&request)?)?;
-    assert_eq!(view.namespace(), 3);
+    assert_eq!(view.tenant(), 3);
     assert!(!view.found());
     assert_eq!(view.predicate(), "http://ex.org/age");
     assert_eq!(view.check_request(), Ok(()));

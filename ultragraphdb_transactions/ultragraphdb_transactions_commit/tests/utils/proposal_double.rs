@@ -151,10 +151,10 @@ impl Proposal for TestProposal {
     }
 }
 
-/// The sealed read set of a transaction of `namespace` at `read_version` that read `reads`.
-pub fn read_set(namespace: u64, read_version: u64, reads: &Reads) -> TestResult<ReadSet> {
+/// The sealed read set of a transaction of `tenant` at `read_version` that read `reads`.
+pub fn read_set(tenant: u64, read_version: u64, reads: &Reads) -> TestResult<ReadSet> {
     let mut set = ReadSet::new();
-    set.reset(namespace, read_version, usize::MAX);
+    set.reset(tenant, read_version, usize::MAX);
     for key in &reads.lists {
         set.push_list(key)?;
     }
@@ -185,35 +185,27 @@ pub fn term_key(sequence: u64) -> Vec<u8> {
     key
 }
 
-/// The record of a transaction of `namespace` at `read_version` that wrote `writes`, with `padding` bytes of commit
+/// The record of a transaction of `tenant` at `read_version` that wrote `writes`, with `padding` bytes of commit
 /// record to give it a size.
-pub fn record(namespace: u64, read_version: u64, writes: &Writes, padding: usize) -> Vec<u8> {
-    record_in(namespace, read_version, 0, 0, writes, padding)
+pub fn record(tenant: u64, read_version: u64, writes: &Writes, padding: usize) -> Vec<u8> {
+    record_in(tenant, read_version, 0, 0, writes, padding)
 }
 
 /// The same, committed as request `request` of session `session`.
 pub fn record_in(
-    namespace: u64,
+    tenant: u64,
     read_version: u64,
     session: u128,
     request: u64,
     writes: &Writes,
     padding: usize,
 ) -> Vec<u8> {
-    record_with(
-        namespace,
-        read_version,
-        session,
-        request,
-        0,
-        writes,
-        padding,
-    )
+    record_with(tenant, read_version, session, request, 0, writes, padding)
 }
 
 /// The same, executed against catalog version `catalog`.
 pub fn record_with(
-    namespace: u64,
+    tenant: u64,
     read_version: u64,
     session: u128,
     request: u64,
@@ -221,7 +213,7 @@ pub fn record_with(
     writes: &Writes,
     padding: usize,
 ) -> Vec<u8> {
-    let mut record = WriteSetRecord::transaction(namespace);
+    let mut record = WriteSetRecord::transaction(tenant);
     record.set_read_version(read_version);
     record.set_session(session.to_be_bytes(), request);
     record.set_catalog(catalog);
@@ -238,7 +230,7 @@ pub fn record_with(
     record.encode()
 }
 
-/// A proposal of namespace 0 at `read_version` reading `reads` and writing `writes`.
+/// A proposal of tenant 0 at `read_version` reading `reads` and writing `writes`.
 pub fn proposal(read_version: u64, reads: &Reads, writes: &Writes) -> TestResult<TestProposal> {
     Ok(TestProposal {
         read_set: read_set(0, read_version, reads)?,
@@ -248,7 +240,7 @@ pub fn proposal(read_version: u64, reads: &Reads, writes: &Writes) -> TestResult
     })
 }
 
-/// A proposal of namespace 0 at `read_version`, request `request` of session `session`, reading `reads` and writing
+/// A proposal of tenant 0 at `read_version`, request `request` of session `session`, reading `reads` and writing
 /// `writes`.
 pub fn proposal_in(
     session: u128,
@@ -265,7 +257,7 @@ pub fn proposal_in(
     })
 }
 
-/// A proposal of namespace 0 at `read_version` executed against catalog version `catalog`, reading `reads` and writing
+/// A proposal of tenant 0 at `read_version` executed against catalog version `catalog`, reading `reads` and writing
 /// `writes`.
 pub fn proposal_at_catalog(
     catalog: u64,
@@ -281,7 +273,7 @@ pub fn proposal_at_catalog(
     })
 }
 
-/// A registration record a home accepted (kind 2) in namespace 0: `id(entity)` from bucket group `group`, at generation
+/// A registration record a home accepted (kind 2) in tenant 0: `id(entity)` from bucket group `group`, at generation
 /// `generation`.
 pub fn registration(entity: u64, group: u32, generation: u64) -> TestResult<Vec<u8>> {
     use ultragraphdb_core_ids::BucketGroup;

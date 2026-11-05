@@ -34,7 +34,7 @@ use crate::types::waiter::Waiter;
 /// once, changing nothing.
 #[derive(Debug, Default)]
 pub struct Home {
-    /// By namespace and entity: the referrer set as decided, and the pipeline ticket of its latest decision, until that
+    /// By tenant and entity: the referrer set as decided, and the pipeline ticket of its latest decision, until that
     /// decision is applied.
     overlay: BTreeMap<(u64, SystemId), (ReferrerSet, u64)>,
     /// By pipeline ticket: the registrations answered once its entry is durable.
@@ -71,14 +71,14 @@ impl Home {
         B: BlockSource + Send + Sync + 'static,
         E: Executor,
     {
-        let namespace = reference.namespace();
+        let tenant = reference.tenant();
         let open = pipeline
             .delivered()
             .next()
             .map_err(|_| refused_at_the_last_epoch())?;
         let applier = partition.applier();
         let registering = applier
-            .register(namespace, reference.entity_ref())
+            .register(tenant, reference.entity_ref())
             .map_err(|e| not_owned(partition, open, e))?;
         let entity = registering.entity();
         if let Err(misrouted) = partition.route(entity.bucket(), open) {
@@ -89,24 +89,24 @@ impl Home {
             if !registering.holds_entries() {
                 return Ok(Some(Answer::new(entity, None, pipeline.delivered())));
             }
-            let record = WriteSetRecord::entity(namespace).encode();
+            let record = WriteSetRecord::entity(tenant).encode();
             pipeline.registration(ticket, registering.finish_entity(), record, now_us)?;
             self.wait(ticket, ticket, entity, None);
             return Ok(None);
         };
-        let key = (namespace, entity);
+        let key = (tenant, entity);
         let mut set = match self.overlay.get(&key) {
             Some((set, _)) => set.clone(),
             None => {
                 let applied = applier.quads().lists().applied_ts();
-                applier.quads().referrers(namespace, entity, applied)?
+                applier.quads().referrers(tenant, entity, applied)?
             }
         };
         let registered = set.register(group, reference.named(), open);
         let generation = registered.generation;
         if registered.changed {
             let record = WriteSetRecord::registration(
-                namespace,
+                tenant,
                 RecordRegistration::new(entity, group, generation),
             )
             .encode();

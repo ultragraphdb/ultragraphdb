@@ -13,7 +13,7 @@ use crate::utils::le::bytes_at;
 /// The body of a received Reference frame, read in place; see [`crate::Reference`] for its layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReferenceView<'a> {
-    pub(crate) namespace: u64,
+    pub(crate) tenant: u64,
     reply: bool,
     registrations: &'a [u8],
     terms: TermTableView<'a>,
@@ -21,9 +21,9 @@ pub struct ReferenceView<'a> {
 
 impl<'a> ReferenceView<'a> {
     /// Whether this is the home's reply.
-    /// The namespace of the batch's entities.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant of the batch's entities.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// Whether this is the home's reply.

@@ -14,10 +14,10 @@ pub enum DropTarget {
     Predicate(SystemId),
     /// This graph, the default or a named one: every key of it.
     Graph(Graph),
-    /// The namespace's data: every quad key, its catalog kept.
+    /// The tenant's data: every quad key, its catalog kept.
     Data,
-    /// The namespace: everything, its initial catalog written again.
-    Namespace,
-    /// Every namespace: every quad key and catalog, the root namespace's initial catalog written again.
+    /// The tenant: everything, its initial catalog written again.
+    Tenant,
+    /// Every tenant: every quad key and catalog, the root tenant's initial catalog written again.
     All,
 }

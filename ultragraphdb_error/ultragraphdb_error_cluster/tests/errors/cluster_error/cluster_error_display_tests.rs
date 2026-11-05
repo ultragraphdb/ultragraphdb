@@ -145,15 +145,15 @@ fn test_metadata_texts_name_the_values() {
     let cases = [
         (
             ClusterError::stale_catalog(7, 2, 3),
-            "a catalog version of namespace 7 built on version 2, while version 3 is its latest",
+            "a catalog version of tenant 7 built on version 2, while version 3 is its latest",
         ),
         (
             ClusterError::not_pending(7, 4),
-            "a close announces version 4 of namespace 7's catalog, which is not pending",
+            "a close announces version 4 of tenant 7's catalog, which is not pending",
         ),
         (
             ClusterError::catalog_released(7, 15),
-            "the catalog version of namespace 7 in effect at epoch 15 is no longer retained",
+            "the catalog version of tenant 7 in effect at epoch 15 is no longer retained",
         ),
         (
             ClusterError::block_size(1_001, 1_000),

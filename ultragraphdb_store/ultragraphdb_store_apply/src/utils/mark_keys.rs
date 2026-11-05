@@ -9,18 +9,18 @@ use ultragraphdb_traits_store::Entry;
 
 use crate::types::marked_reference::MarkedReference;
 
-/// The key of the mark of `(entity, group)` in `namespace`, in the marks keyspace.
-pub(crate) fn mark_key(namespace: u64, entity: SystemId, group: BucketGroup) -> Vec<u8> {
+/// The key of the mark of `(entity, group)` in `tenant`, in the marks keyspace.
+pub(crate) fn mark_key(tenant: u64, entity: SystemId, group: BucketGroup) -> Vec<u8> {
     QuadKey::Mark {
-        namespace,
+        tenant,
         entity,
         group: group.get(),
     }
     .to_bytes()
 }
 
-/// The entry writing `marked`'s mark in `namespace` at its commit version: its generation, 8 bytes big-endian.
-pub(crate) fn mark_entry(namespace: u64, marked: &MarkedReference) -> Entry {
-    let key = mark_key(namespace, marked.entity(), marked.group());
+/// The entry writing `marked`'s mark in `tenant` at its commit version: its generation, 8 bytes big-endian.
+pub(crate) fn mark_entry(tenant: u64, marked: &MarkedReference) -> Entry {
+    let key = mark_key(tenant, marked.entity(), marked.group());
     Entry::put(key, 0, 0, marked.generation().get().to_be_bytes().to_vec())
 }

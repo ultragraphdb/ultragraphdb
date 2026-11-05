@@ -3,45 +3,48 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_core_ids::{Epoch, Namespace};
+use ultragraphdb_core_ids::{Epoch, Tenant};
 use ultragraphdb_error_cluster::ClusterError;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_catalog::DefaultEntry;
 use ultragraphdb_traits_log::Position;
 
-use crate::utils::harness::{epoch, fresh, learn_through, ns, pid, sync};
+use crate::utils::harness::{epoch, fresh, learn_through, pid, sync, tenant};
 
 #[test]
 fn test_an_offer_numbers_the_version_after_its_predecessor() -> TestResult {
     let (_storage, mut group) = fresh()?;
-    assert_eq!(group.offer_catalog(ns(), 0, b"a")?.0, 1);
-    assert_eq!(group.offer_catalog(ns(), 1, b"b")?.0, 2);
-    assert_eq!(group.offer_catalog(Namespace::new(8), 0, b"c")?.0, 1);
+    assert_eq!(group.offer_catalog(tenant(), 0, b"a")?.0, 1);
+    assert_eq!(group.offer_catalog(tenant(), 1, b"b")?.0, 2);
+    assert_eq!(group.offer_catalog(Tenant::new(8), 0, b"c")?.0, 1);
     let refusal = group
-        .offer_catalog(ns(), 1, b"x")
+        .offer_catalog(tenant(), 1, b"x")
         .err()
         .context("a refusal")?;
-    assert_eq!(refusal.0, ClusterError::stale_catalog(ns().get(), 1, 2).0);
+    assert_eq!(
+        refusal.0,
+        ClusterError::stale_catalog(tenant().get(), 1, 2).0
+    );
     Ok(())
 }
 
 #[test]
 fn test_a_default_entry_is_recorded_once() -> TestResult {
     let (_storage, mut group) = fresh()?;
-    let first = DefaultEntry::new(ns().get(), "score".to_string(), b"first".to_vec());
+    let first = DefaultEntry::new(tenant().get(), "score".to_string(), b"first".to_vec());
     let position = group.record_default_entry(&first)?.context("recorded")?;
     assert_eq!(position.get(), 1);
     // Found among the commands appended, durable or not: nothing is appended again.
-    let again = DefaultEntry::new(ns().get(), "score".to_string(), b"second".to_vec());
+    let again = DefaultEntry::new(tenant().get(), "score".to_string(), b"second".to_vec());
     assert_eq!(group.record_default_entry(&again)?, None);
     sync(&mut group)?;
     assert_eq!(group.record_default_entry(&again)?, None);
     assert_eq!(
-        group.state().default_entry(ns(), "score"),
+        group.state().default_entry(tenant(), "score"),
         Some(&b"first"[..])
     );
     assert_eq!(group.applied().get(), 1);
-    // Another namespace or predicate is another record.
+    // Another tenant or predicate is another record.
     let other = DefaultEntry::new(9, "score".to_string(), b"other".to_vec());
     assert_eq!(
         group.record_default_entry(&other)?.map(|p| p.get()),
@@ -53,17 +56,17 @@ fn test_a_default_entry_is_recorded_once() -> TestResult {
 #[test]
 fn test_a_learned_close_assigns_its_versions_the_epoch_after_it() -> TestResult {
     let (_storage, mut group) = fresh()?;
-    let _: (u64, Position) = group.offer_catalog(ns(), 0, b"a")?;
+    let _: (u64, Position) = group.offer_catalog(tenant(), 0, b"a")?;
     sync(&mut group)?;
-    let position = group.learn_close(epoch(39)?, &[(ns(), 1)], 0, &[])?;
+    let position = group.learn_close(epoch(39)?, &[(tenant(), 1)], 0, &[])?;
     assert_eq!(position.map(|p| p.get()), Some(2));
     sync(&mut group)?;
     let record = group
         .state()
-        .catalog_at(ns(), epoch(40)?)?
+        .catalog_at(tenant(), epoch(40)?)?
         .context("version 1")?;
     assert_eq!(record.effective(), Some(epoch(40)?));
-    assert_eq!(group.state().catalog_at(ns(), epoch(39)?)?, None);
+    assert_eq!(group.state().catalog_at(tenant(), epoch(39)?)?, None);
     Ok(())
 }
 
@@ -97,7 +100,7 @@ fn test_a_close_skipping_an_epoch_is_refused() -> TestResult {
 #[test]
 fn test_a_close_past_the_sequencers_limits_is_refused() -> TestResult {
     let (_storage, mut group) = fresh()?;
-    let versions = vec![(ns(), 1); 257];
+    let versions = vec![(tenant(), 1); 257];
     let refusal = group
         .learn_close(epoch(1)?, &versions, 0, &[])
         .err()

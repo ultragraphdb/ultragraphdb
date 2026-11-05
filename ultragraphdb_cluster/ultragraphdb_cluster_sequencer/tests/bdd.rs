@@ -16,7 +16,7 @@ use cucumber::{World, then, when};
 use ultragraphdb_cluster_sequencer::{
     CatalogVersion, ClockReading, Close, SequencerConfig, SequencerRecord,
 };
-use ultragraphdb_core_ids::{Epoch, Namespace, Version};
+use ultragraphdb_core_ids::{Epoch, Tenant, Version};
 use ultragraphdb_error_cluster::{ClusterError, ClusterErrorEnum};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transactions_log::SimStorage;
@@ -70,9 +70,9 @@ impl Steps {
     }
 }
 
-/// The version `version` of namespace 1's catalog.
+/// The version `version` of tenant 1's catalog.
 fn version(version: u64) -> CatalogVersion {
-    CatalogVersion::new(Namespace::new(1), version)
+    CatalogVersion::new(Tenant::new(1), version)
 }
 
 #[when(

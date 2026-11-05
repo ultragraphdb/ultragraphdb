@@ -11,10 +11,10 @@ use crate::traits::body_view::BodyView;
 use crate::types::bucket_range::BucketRange;
 use crate::types::command::Command;
 use crate::types::frame_view::FrameView;
-use crate::types::namespace_run::NamespaceRun;
 use crate::types::placement::Placement;
 use crate::types::placement_view::PlacementView;
 use crate::types::preferred_leader::PreferredLeader;
+use crate::types::tenant_run::TenantRun;
 use crate::utils::command_header::CommandHeader;
 use crate::utils::fields::epoch;
 use crate::utils::sections::{Sections, expect_command};
@@ -100,7 +100,7 @@ fn epochs(command: u16, header: CommandHeader<'_>) -> Result<(u64, u64, u64, u64
 /// A reply's sections: each a whole number of its records, then the ranges, the runs and the leaders in turn.
 fn check_map(command: u16, sections: &Sections<'_, 3>) -> Result<(), ProtocolError> {
     let ranges = whole_records::<{ BucketRange::SIZE }>(command, 0, sections.get(0))?;
-    let runs = whole_records::<{ NamespaceRun::SIZE }>(command, 1, sections.get(1))?;
+    let runs = whole_records::<{ TenantRun::SIZE }>(command, 1, sections.get(1))?;
     let leaders = whole_records::<{ PreferredLeader::SIZE }>(command, 2, sections.get(2))?;
     let partitions = check_ranges(command, sections.offset(0), ranges)?;
     check_runs(command, sections.offset(1), runs)?;
@@ -137,19 +137,19 @@ fn check_ranges(
     Ok(partitions)
 }
 
-/// The runs come by namespace, each above the one before.
+/// The runs come by tenant, each above the one before.
 fn check_runs(
     command: u16,
     at: usize,
-    runs: &[[u8; NamespaceRun::SIZE]],
+    runs: &[[u8; TenantRun::SIZE]],
 ) -> Result<(), ProtocolError> {
     let mut previous: Option<u64> = None;
     for (i, bytes) in runs.iter().enumerate() {
-        let run = NamespaceRun::decode(command, at + NamespaceRun::SIZE * i, bytes)?;
-        if previous.is_some_and(|before| run.namespace() <= before) {
+        let run = TenantRun::decode(command, at + TenantRun::SIZE * i, bytes)?;
+        if previous.is_some_and(|before| run.tenant() <= before) {
             return Err(ProtocolError::field_value(command, "run", i as u64));
         }
-        previous = Some(run.namespace());
+        previous = Some(run.tenant());
     }
     Ok(())
 }

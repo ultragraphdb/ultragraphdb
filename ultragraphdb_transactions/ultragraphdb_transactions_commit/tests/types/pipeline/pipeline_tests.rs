@@ -21,8 +21,8 @@ use ultragraphdb_transactions_commit::{
 use ultragraphdb_transactions_log::{FaultMode, SimStorage, Wal, WalConfig};
 
 use crate::utils::fixture::{
-    Applier, Log, NS, applier, begin, delete_literal, held, id_of, insert, insert_literal, prepare,
-    prepare_in, read, setup, version, wal, write,
+    Applier, Log, TENANT, applier, begin, delete_literal, held, id_of, insert, insert_literal,
+    prepare, prepare_in, read, setup, version, wal, write,
 };
 
 type Pipe<'a> = Pipeline<
@@ -281,7 +281,7 @@ fn test_concurrent_first_writes_of_a_predicate_both_commit_through_the_pipeline(
             Reply::new(2, Ok(version(1, 2)))
         ]
     );
-    assert!(applier.catalog(NS)?.predicate(score).is_some());
+    assert!(applier.catalog(TENANT)?.predicate(score).is_some());
     assert_eq!(held(&applier, "b", "score")?.len(), 1);
     Ok(())
 }
@@ -367,14 +367,14 @@ fn test_a_builds_swap_takes_its_version_from_the_step_and_a_later_write_commits(
     let (_s, mut pipe) = pipeline(&applier)?;
     // The close of epoch 1 announces version 2, which takes effect at epoch 2 as the round installing it.
     let announced = ultragraphdb_cluster_sequencer::CatalogVersion::new(
-        ultragraphdb_core_ids::Namespace::new(NS),
+        ultragraphdb_core_ids::Tenant::new(TENANT),
         2,
     );
     pipe.close(
         crate::utils::fixture::close(1, vec![announced], Vec::new())?,
         0,
     )?;
-    let version_two = crate::utils::fixture::term_version(NS, 2, "name");
+    let version_two = crate::utils::fixture::term_version(TENANT, 2, "name");
     let refusals = pipe.install(1, &version_two, 0)?;
     assert!(refusals.is_empty(), "{refusals:?}");
     block_on(pipe.sync(0))?;
@@ -475,7 +475,7 @@ fn test_a_builds_end_that_cannot_be_proposed_stops_the_pipeline() -> TestResult 
     let _version: u64 = setup(&applier, vec![insert_literal("a", "name", "apple")])?;
     let (_s, mut pipe) = pipeline(&applier)?;
     let narrowing = ultragraphdb_core_catalog::CatalogContents::new(
-        NS,
+        TENANT,
         2,
         vec![ultragraphdb_core_mapping::Declaration::Predicate(
             ultragraphdb_core_mapping::PredicateDeclaration::new(crate::utils::fixture::ex("name"))
@@ -834,7 +834,7 @@ fn test_a_renewal_between_the_reply_and_the_commit_conflicts() -> TestResult {
     ));
     let watermark = pipe.watermark();
     assert_eq!(
-        applier.quads().mark(NS, o, g, watermark)?,
+        applier.quads().mark(TENANT, o, g, watermark)?,
         Some(five),
         "the retry marks the renewed generation"
     );

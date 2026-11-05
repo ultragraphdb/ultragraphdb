@@ -15,7 +15,7 @@ use crate::types::fjall_store::Shared;
 use crate::utils::lock::lock;
 
 /// The metadata keys: the highest applied timestamp, the discard timestamp asked for, the tombstone horizon set, a
-/// drop in progress, one key per banned namespace, the namespace in big-endian after the prefix, and one per rebuild
+/// drop in progress, one key per banned tenant, the tenant in big-endian after the prefix, and one per rebuild
 /// record.
 pub const APPLIED_KEY: &[u8] = b"applied_ts";
 pub const DISCARD_KEY: &[u8] = b"discard_ts";
@@ -32,10 +32,10 @@ pub fn rebuild_key(id: u64) -> Vec<u8> {
     key
 }
 
-/// The metadata key of banned namespace `namespace`.
-pub fn banned_key(namespace: u64) -> Vec<u8> {
+/// The metadata key of banned tenant `tenant`.
+pub fn banned_key(tenant: u64) -> Vec<u8> {
     let mut key = BANNED_PREFIX.to_vec();
-    key.extend_from_slice(&namespace.to_be_bytes());
+    key.extend_from_slice(&tenant.to_be_bytes());
     key
 }
 
@@ -52,16 +52,13 @@ impl Shared {
                 let key = guard
                     .key()
                     .map_err(|e| StoreError::read_failed(BANNED_PREFIX.to_vec(), e.to_string()))?;
-                let ns: [u8; 8] = key
+                let tenant: [u8; 8] = key
                     .get(BANNED_PREFIX.len()..)
-                    .and_then(|namespace| namespace.try_into().ok())
+                    .and_then(|tenant| tenant.try_into().ok())
                     .ok_or_else(|| {
-                        StoreError::corrupted(
-                            key.to_vec(),
-                            "a banned namespace is eight bytes".into(),
-                        )
+                        StoreError::corrupted(key.to_vec(), "a banned tenant is eight bytes".into())
                     })?;
-                Ok(u64::from_be_bytes(ns))
+                Ok(u64::from_be_bytes(tenant))
             })
             .collect::<Result<BTreeSet<u64>, StoreError>>()?;
         self.applied_ts.store(applied, Ordering::Release);

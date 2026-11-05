@@ -11,7 +11,7 @@ use ultragraphdb_store_kv::{DropStage, META_KEYSPACE};
 use ultragraphdb_traits_store::{Entry, Store};
 
 use ultragraphdb_tool_bdd::{Context, TestResult};
-use ultragraphdb_tool_test::{TestDir, held, ns_key, put, write};
+use ultragraphdb_tool_test::{TestDir, held, put, tenant_key, write};
 
 /// An entry of a drop record: key, version, kind, meta byte and value.
 type RecordEntry<'a> = (&'a [u8], u64, u8, u8, &'a [u8]);
@@ -109,10 +109,10 @@ fn test_a_drop_of_everything_left_by_a_crash_is_finished_at_open() -> TestResult
     batch.push(put(b"old", 3, b""));
     batch.set_applied_ts(3);
     s.apply(batch, ultragraphdb_traits_store::PersistMode::Buffer)?;
-    s.ban_namespace(5)?;
+    s.ban_tenant(5)?;
     s.set_discard_ts(2)?;
     drop(s);
-    let five = ns_key(5, b"\x00\x01a");
+    let five = tenant_key(5, b"\x00\x01a");
     leave_record(&dir, record(None, 0, &[(&five, 1, 0x01, b"s")]))?;
     let reopened = dir.open()?;
     let keys: Vec<Vec<u8>> = reopened.dump()?.iter().map(|e| e.key().to_vec()).collect();
@@ -357,32 +357,36 @@ fn test_the_empty_prefix_drops_every_version_and_keeps_the_metadata() -> TestRes
     batch.set_applied_ts(3);
     s.apply(batch, ultragraphdb_traits_store::PersistMode::Buffer)?;
     s.set_discard_ts(2)?;
-    s.ban_namespace(5)?;
+    s.ban_tenant(5)?;
     s.drop_prefixes(4, &[Vec::new()], vec![put(b"\x01catalog", 1, b"c")])?;
     drop(s);
     let reopened = dir.open()?;
     assert_eq!(reopened.dump()?, vec![put(b"\x01catalog", 1, b"c")]);
     assert_eq!((reopened.applied_ts(), reopened.discard_ts()), (3, 2));
     assert_eq!(reopened.get_versionless(b"t")?, Some(b"1".to_vec()));
-    write(&reopened, vec![put(&ns_key(5, b"x"), 4, b"")])?;
-    assert_eq!(reopened.get_at(&ns_key(5, b"x"), 4)?, None, "the ban holds");
+    write(&reopened, vec![put(&tenant_key(5, b"x"), 4, b"")])?;
+    assert_eq!(
+        reopened.get_at(&tenant_key(5, b"x"), 4)?,
+        None,
+        "the ban holds"
+    );
     Ok(())
 }
 
 #[test]
-fn test_a_drop_writes_no_entry_addressed_to_a_banned_namespace() -> TestResult {
+fn test_a_drop_writes_no_entry_addressed_to_a_banned_tenant() -> TestResult {
     let dir = TestDir::new("drop-banned-entry");
     let s = dir.open()?;
-    s.ban_namespace(5)?;
+    s.ban_tenant(5)?;
     s.drop_prefixes(
         2,
         &[vec![0x00]],
         vec![
-            put(&ns_key(5, b"x"), 1, b"banned"),
-            put(&ns_key(6, b"x"), 1, b"kept"),
+            put(&tenant_key(5, b"x"), 1, b"banned"),
+            put(&tenant_key(6, b"x"), 1, b"kept"),
         ],
     )?;
-    assert_eq!(s.dump()?, vec![put(&ns_key(6, b"x"), 1, b"kept")]);
+    assert_eq!(s.dump()?, vec![put(&tenant_key(6, b"x"), 1, b"kept")]);
     Ok(())
 }
 

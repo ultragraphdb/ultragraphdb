@@ -18,7 +18,7 @@ fn test_a_reference_names_its_entity_by_id_when_held_and_by_iri_otherwise() -> T
     assert_eq!(
         (
             unknown.home(),
-            unknown.namespace(),
+            unknown.tenant(),
             unknown.iri(),
             unknown.entity()
         ),

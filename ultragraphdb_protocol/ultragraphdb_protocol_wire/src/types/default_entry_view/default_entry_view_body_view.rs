@@ -54,13 +54,13 @@ impl<'a> BodyView<'a> for DefaultEntryView<'a> {
             }
         };
         Ok(Self {
-            namespace: header.u64_at(0),
+            tenant: header.u64_at(0),
             found,
             predicate,
         })
     }
 
     fn to_body(&self) -> Result<DefaultEntry, ProtocolError> {
-        Ok(DefaultEntry::request(self.namespace, self.predicate).with_found(self.found))
+        Ok(DefaultEntry::request(self.tenant, self.predicate).with_found(self.found))
     }
 }

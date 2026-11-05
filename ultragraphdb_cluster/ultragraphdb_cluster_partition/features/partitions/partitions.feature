@@ -81,5 +81,5 @@ Feature: Partitions
       Then it registers the reference at partition 2, commits in partition 1 alone, and does not abort
 
     Scenario: A Drop over several partitions is refused
-      When a namespace's buckets span partitions 1 and 2, and a client drops the namespace's data
+      When a tenant's buckets span partitions 1 and 2, and a client drops the tenant's data
       Then the Drop is refused with `CrossPartition` naming partitions 1 and 2, and nothing is dropped

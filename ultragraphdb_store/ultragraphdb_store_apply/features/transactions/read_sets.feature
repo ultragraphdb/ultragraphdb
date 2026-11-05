@@ -5,7 +5,7 @@
 
 Feature: What a transaction's reads record and what conflicts with them
   A read-write transaction records the lists it read whole, the statements it tested, the key ranges it scanned, the
-  dictionary keys it found absent and its namespace's catalog range, and conflicts with a transaction committed after
+  dictionary keys it found absent and its tenant's catalog range, and conflicts with a transaction committed after
   its read version only where that one wrote what it read. These scenarios run the recording side: each transaction
   executes against its snapshot, and its recorded reads are judged against the other's writes by the rules the commit
   step's resolver applies.

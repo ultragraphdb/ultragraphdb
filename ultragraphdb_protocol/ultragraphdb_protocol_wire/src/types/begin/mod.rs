@@ -15,7 +15,7 @@ use crate::types::read_level::ReadLevel;
 ///
 /// | Command header | Field | Type |
 /// |---|---|---|
-/// | 0 | `namespace` | u64 |
+/// | 0 | `tenant` | u64 |
 /// | 8 | `read_version` | u64: 0, or the version a read-only transaction at level 0 names |
 /// | 16 | `mode` | u8: 0 read-write, 1 read-only |
 /// | 17 | `level` | u8, a [`ReadLevel`] |
@@ -25,7 +25,7 @@ use crate::types::read_level::ReadLevel;
 /// No sections.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Begin {
-    namespace: u64,
+    tenant: u64,
     read_version: u64,
     read_only: bool,
     level: ReadLevel,
@@ -34,11 +34,11 @@ pub struct Begin {
 }
 
 impl Begin {
-    /// A transaction in `namespace` reading at `read_version`, read-only or read-write, at level snapshot, with the
+    /// A transaction in `tenant` reading at `read_version`, read-only or read-write, at level snapshot, with the
     /// Welcome's deadline and no token.
-    pub fn new(namespace: u64, read_version: u64, read_only: bool) -> Self {
+    pub fn new(tenant: u64, read_version: u64, read_only: bool) -> Self {
         Self {
-            namespace,
+            tenant,
             read_version,
             read_only,
             level: ReadLevel::Snapshot,
@@ -65,9 +65,9 @@ impl Begin {
         self
     }
 
-    /// The namespace.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// The version the transaction's reads take; 0 where each partition gives it.

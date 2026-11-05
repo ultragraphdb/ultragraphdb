@@ -6,10 +6,8 @@
 //! The placement map's scenarios, bound to `features/metadata-group/`.
 
 use cucumber::{World, then, when};
-use ultragraphdb_cluster_placement::{
-    BucketRange, NamespaceRun, NodeId, PartitionId, PlacementMap,
-};
-use ultragraphdb_core_ids::{Bucket, BucketGroup, Epoch, Namespace};
+use ultragraphdb_cluster_placement::{BucketRange, NodeId, PartitionId, PlacementMap, TenantRun};
+use ultragraphdb_core_ids::{Bucket, BucketGroup, Epoch, Tenant};
 use ultragraphdb_error_cluster::{ClusterError, ClusterErrorEnum};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -20,7 +18,7 @@ const END: u32 = 1 << 24;
 struct Steps {
     map: Option<PlacementMap>,
     before: Option<PlacementMap>,
-    namespace: Option<Namespace>,
+    tenant: Option<Tenant>,
     refusal: Option<ClusterError>,
     found: Vec<PartitionId>,
     resolved: Vec<Vec<PartitionId>>,
@@ -60,19 +58,19 @@ fn moved(
     Ok(layout)
 }
 
-#[when("the map is initialised for one namespace and three partitions")]
+#[when("the map is initialised for one tenant and three partitions")]
 fn initialised(w: &mut Steps) -> TestResult {
-    w.namespace = Some(Namespace::new(42));
+    w.tenant = Some(Tenant::new(42));
     w.map = Some(PlacementMap::even(3, NodeId::new(1))?);
     Ok(())
 }
 
 #[then(
-    "that namespace's 65,536 buckets are assigned in three contiguous ranges whose sizes differ by at most one, and every other bucket is assigned to a partition"
+    "that tenant's 65,536 buckets are assigned in three contiguous ranges whose sizes differ by at most one, and every other bucket is assigned to a partition"
 )]
 fn covers_every_bucket(w: &mut Steps) -> TestResult {
     let map = w.map.as_ref().context("the map")?;
-    let run = NamespaceRun::of(w.namespace.context("the namespace")?).range();
+    let run = TenantRun::of(w.tenant.context("the tenant")?).range();
     let ranges = map.ranges_at(Epoch::new(0)?);
     let mine: Vec<_> = ranges
         .iter()

@@ -80,14 +80,14 @@ impl<L: Login> ClientCore<L> {
         self.request(&Register::new([0; 16]), Expect::Register, now)
     }
 
-    /// Begins a transaction in `namespace` on a new stream, answered [`crate::Reply::Begun`] with its snapshot.
+    /// Begins a transaction in `tenant` on a new stream, answered [`crate::Reply::Begun`] with its snapshot.
     pub fn begin(
         &mut self,
-        namespace: u64,
+        tenant: u64,
         read_only: bool,
         now: Instant,
     ) -> Result<Pending, ClientError> {
-        self.request(&Begin::new(namespace, 0, read_only), Expect::Begin, now)
+        self.request(&Begin::new(tenant, 0, read_only), Expect::Begin, now)
     }
 
     /// Prepares `prepare`'s statement, answered [`crate::Reply::Prepared`].
@@ -95,9 +95,9 @@ impl<L: Login> ClientCore<L> {
         self.request(prepare, Expect::Prepare, now)
     }
 
-    /// Asks for `namespace`'s data dictionary, answered [`crate::Reply::Described`].
-    pub fn describe(&mut self, namespace: u64, now: Instant) -> Result<Pending, ClientError> {
-        self.request(&Describe::request(namespace), Expect::Describe, now)
+    /// Asks for `tenant`'s data dictionary, answered [`crate::Reply::Described`].
+    pub fn describe(&mut self, tenant: u64, now: Instant) -> Result<Pending, ClientError> {
+        self.request(&Describe::request(tenant), Expect::Describe, now)
     }
 
     /// Queues a frame on a transaction's stream, a request without a reply.
@@ -182,7 +182,7 @@ impl<L: Login> ClientCore<L> {
     }
 
     /// Executes a prepared statement in `transaction`: a result stream of its own, as [`ClientCore::read`]'s,
-    /// refused as stale once its namespace's catalog changed ([`ClientError::is_stale`]).
+    /// refused as stale once its tenant's catalog changed ([`ClientError::is_stale`]).
     pub fn execute(
         &mut self,
         transaction: &Transaction,

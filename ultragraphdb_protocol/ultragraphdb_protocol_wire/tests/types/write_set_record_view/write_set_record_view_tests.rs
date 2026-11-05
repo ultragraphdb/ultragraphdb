@@ -71,7 +71,7 @@ fn test_the_golden_transaction_reads_its_values() -> TestResult {
     assert_eq!(view.kind(), RecordKind::Transaction);
     assert_eq!(
         (
-            view.namespace(),
+            view.tenant(),
             view.catalog(),
             view.read_version(),
             view.request(),
@@ -129,7 +129,7 @@ fn test_the_golden_registration_build_and_drop_read_their_values() -> TestResult
     let records = golden_records()?;
     let home = WriteSetRecordView::new(&records[1])?;
     assert_eq!(home.kind(), RecordKind::Registration);
-    assert_eq!((home.namespace(), home.catalog()), (3, 0));
+    assert_eq!((home.tenant(), home.catalog()), (3, 0));
     assert_eq!(
         home.registration(0),
         Some(registration(sid(1, 12, 0x80)?, 2, 1)?)
@@ -137,7 +137,7 @@ fn test_the_golden_registration_build_and_drop_read_their_values() -> TestResult
     assert_eq!(home.to_record(), record1()?);
     let build = WriteSetRecordView::new(&records[2])?;
     assert_eq!(build.kind(), RecordKind::Build);
-    assert_eq!((build.namespace(), build.catalog()), (4, 12));
+    assert_eq!((build.tenant(), build.catalog()), (4, 12));
     assert_eq!(
         build.operation(0),
         Some(RecordOperation::CatalogTakesEffect(12))
@@ -209,7 +209,7 @@ fn test_the_kind_and_its_zero_bytes_are_checked() -> TestResult {
 
 #[test]
 fn test_the_fixed_fields_a_kind_leaves_zero_are_zero() -> TestResult {
-    // A registration (record 1) leaves every field but the namespace zero; a build (record 2) all but namespace and
+    // A registration (record 1) leaves every field but the tenant zero; a build (record 2) all but tenant and
     // catalog. The refusal names the field's offset in the fixed part.
     for (index, at) in [
         (1usize, 16usize),

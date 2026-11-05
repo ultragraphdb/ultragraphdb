@@ -19,7 +19,7 @@ use crate::types::term_table::TermTable;
 /// | 4 | `mode` | u8: 0 read-write, 1 read-only |
 /// | 5 | `level` | u8, a [`ReadLevel`] |
 /// | 6 | `named` | u8 boolean: `read_version` is a version the client named; only read-only at level 0 |
-/// | 8 | `namespace` | u64 |
+/// | 8 | `tenant` | u64 |
 /// | 16 | `read_version` | u64: the version the read reads at, or 0 |
 /// | 24 | `epoch` | u64: the snapshot's epoch, the token's, or the read's floor; 0 for none |
 /// | 32 | `principal` | u64: the client's principal |
@@ -39,7 +39,7 @@ pub struct ComputeRead {
     read_only: bool,
     level: ReadLevel,
     named: bool,
-    namespace: u64,
+    tenant: u64,
     read_version: u64,
     epoch: u64,
     principal: u64,
@@ -52,10 +52,10 @@ pub struct ComputeRead {
 }
 
 impl ComputeRead {
-    /// A read of `pattern`, naming `terms`, from `resume`, in a transaction of `namespace` at `level`, read-only or
+    /// A read of `pattern`, naming `terms`, from `resume`, in a transaction of `tenant` at `level`, read-only or
     /// read-write; every other field 0 until set.
     pub fn new(
-        namespace: u64,
+        tenant: u64,
         read_only: bool,
         level: ReadLevel,
         terms: TermTable,
@@ -67,7 +67,7 @@ impl ComputeRead {
             read_only,
             level,
             named: false,
-            namespace,
+            tenant,
             read_version: 0,
             epoch: 0,
             principal: 0,
@@ -150,9 +150,9 @@ impl ComputeRead {
         self.named
     }
 
-    /// The transaction's namespace.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The transaction's tenant.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// The version the read reads at; 0 for none.

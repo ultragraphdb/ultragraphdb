@@ -4,4 +4,4 @@
  */
 
 #[cfg(test)]
-mod namespace_run_tests;
+mod tenant_run_tests;

@@ -14,7 +14,7 @@ commit step to decide. A committed transaction is logged as a `Commit`: the requ
 not inputs (D2) and replaying it re-decides nothing.
 
 **The read set.** Point keys and key ranges, `lo ≤ k < hi`. The spec's kinds of read map onto them: a list read whole,
-a tested statement, a dictionary key found absent and the namespace's catalog key are points; a scan is a range. A
+a tested statement, a dictionary key found absent and the tenant's catalog key are points; a scan is a range. A
 transaction *covers* a key when a point or a range of its read set holds it.
 
 **Commit-time operations modelled** (spec `transactions`, "Commit-time operations"):

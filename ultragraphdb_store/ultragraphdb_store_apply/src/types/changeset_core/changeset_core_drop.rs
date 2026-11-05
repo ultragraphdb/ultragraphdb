@@ -16,7 +16,7 @@ use oxrdf::{GraphNameRef, NamedNodeRef};
 use ultragraphdb_core_catalog::Catalog;
 use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::{
-    DEFAULT_GRAPH, Graph, Keyspace, QuadKey, ROOT_NAMESPACE, SPLIT_FLAG, key_prefix,
+    DEFAULT_GRAPH, Graph, Keyspace, QuadKey, ROOT_TENANT, SPLIT_FLAG, key_prefix,
 };
 use ultragraphdb_store_posting::{CachedList, List, PostingError};
 use ultragraphdb_traits_blocks::BlockSource;
@@ -45,8 +45,8 @@ const QUAD_KEYSPACES: [Keyspace; 9] = [
     Keyspace::Statistics,
 ];
 
-/// The keyspaces of the registrations between partitions, which name no graph: dropped with a namespace's data or
-/// every namespace's, never with a graph.
+/// The keyspaces of the registrations between partitions, which name no graph: dropped with a tenant's data or
+/// every tenant's, never with a graph.
 const REGISTRATION_KEYSPACES: [Keyspace; 2] = [Keyspace::Marks, Keyspace::Referrers];
 
 impl<S, C, B> ChangesetCore<S, C, B>
@@ -55,45 +55,44 @@ where
     C: ListCache<Value = CachedList>,
     B: BlockSource,
 {
-    /// Drops `predicate` of `namespace` in every graph: its keys in every keyspace naming it, the records of the
+    /// Drops `predicate` of `tenant` in every graph: its keys in every keyspace naming it, the records of the
     /// statement IDs its postings carry, and its catalog entries; and writes each subject- and object-predicate list
     /// that held it again without it, complete. The drop's timestamp.
     pub fn drop_predicate(
         &self,
-        namespace: u64,
+        tenant: u64,
         predicate: NamedNodeRef<'_>,
     ) -> Result<u64, ChangesetError> {
         let _apply = lock(&self.apply);
         let lists = self.quads.lists();
-        let Some(uid) = self.quads.id_of(namespace, predicate.as_str())? else {
+        let Some(uid) = self.quads.id_of(tenant, predicate.as_str())? else {
             return Ok(lists.applied_ts());
         };
         tracing::info!(predicate = predicate.as_str(), "dropping predicate");
-        self.drop_predicate_uid(namespace, uid, None)
+        self.drop_predicate_uid(tenant, uid, None)
     }
 
-    /// Drops predicate `uid` of `namespace` as [`ChangesetCore::drop_predicate`] does, under the apply lock the caller
+    /// Drops predicate `uid` of `tenant` as [`ChangesetCore::drop_predicate`] does, under the apply lock the caller
     /// holds: at the next version, or at `at`, the version the commit step gave a drop decided in a round (7.7). The
     /// drop's version.
     pub(crate) fn drop_predicate_uid(
         &self,
-        namespace: u64,
+        tenant: u64,
         uid: SystemId,
         at: Option<u64>,
     ) -> Result<u64, ChangesetError> {
         let lists = self.quads.lists();
-        let _cancelled: Option<Rebuild> =
-            self.cancel(|r| r.namespace == namespace && r.predicate == uid);
+        let _cancelled: Option<Rebuild> = self.cancel(|r| r.tenant == tenant && r.predicate == uid);
         let latest = lists.applied_ts();
         lists.gate(latest)?;
         let snapshot = lists.store().snapshot(latest)?;
         let mut prefixes: BTreeSet<Vec<u8>> = BTreeSet::new();
-        for p in predicate_prefixes(namespace, uid) {
+        for p in predicate_prefixes(tenant, uid) {
             prefixes.extend(p.expand(&snapshot)?);
         }
         let mut entries = Vec::new();
-        let forward = PredicatePrefix::new(Keyspace::Forward, false, namespace, uid, Vec::new());
-        let reverse = PredicatePrefix::new(Keyspace::Reverse, false, namespace, uid, Vec::new());
+        let forward = PredicatePrefix::new(Keyspace::Forward, false, tenant, uid, Vec::new());
+        let reverse = PredicatePrefix::new(Keyspace::Reverse, false, tenant, uid, Vec::new());
         for graph in forward.graphs(&snapshot)? {
             for item in snapshot.scan(&Scan::prefix(forward.in_graph(graph))) {
                 let key = item?.key().to_vec();
@@ -104,7 +103,7 @@ where
                     for statement in ids {
                         let _inserted: bool = prefixes.insert(
                             QuadKey::Statement {
-                                namespace,
+                                tenant,
                                 graph,
                                 statement,
                             }
@@ -113,7 +112,7 @@ where
                     }
                 }
                 let list = QuadKey::SubjectPredicates {
-                    namespace,
+                    tenant,
                     graph,
                     subject,
                 };
@@ -127,7 +126,7 @@ where
                     continue;
                 };
                 let list = QuadKey::ObjectPredicates {
-                    namespace,
+                    tenant,
                     graph,
                     object,
                 };
@@ -144,35 +143,35 @@ where
         };
         // The predicate's declaration leaves the catalog held in memory, so no index of it is maintained until the
         // metadata group's version removing it takes effect.
-        self.set_catalog(namespace, |catalog| {
+        self.set_catalog(tenant, |catalog| {
             let _declared: bool = catalog.remove_predicate(uid);
             Ok(())
         })?;
         Ok(ts)
     }
 
-    /// The drop `request` asks in `namespace` as a proposal of the commit step (7.7): an execution at the watermark that
+    /// The drop `request` asks in `tenant` as a proposal of the commit step (7.7): an execution at the watermark that
     /// writes nothing but the key ranges of what it drops, which the commit step holds as a write of those ranges at
     /// its version, and which `apply_round` drops once its round's batch is written. A predicate's ranges are its keys
-    /// in each graph holding it and its catalog entry; a graph's, its keys in every quad keyspace; a namespace's data,
-    /// every quad keyspace of it; a namespace, its catalog too; every namespace, every key of every quad keyspace and
+    /// in each graph holding it and its catalog entry; a graph's, its keys in every quad keyspace; a tenant's data,
+    /// every quad keyspace of it; a tenant, its catalog too; every tenant, every key of every quad keyspace and
     /// catalog. A predicate or a graph the store does not know, or a blank-node graph, is dropped as nothing.
     pub fn prepare_drop(
         &self,
-        namespace: u64,
+        tenant: u64,
         request: DropRequest<'_>,
     ) -> Result<Executed, ChangesetError> {
         let lists = self.quads.lists();
         let read_ts = lists.applied_ts();
-        let catalog = (*self.catalog(namespace)?).clone();
+        let catalog = (*self.catalog(tenant)?).clone();
         let (target, prefixes) = match request {
             DropRequest::Predicate(predicate) => {
-                match self.quads.id_of(namespace, predicate.as_str())? {
+                match self.quads.id_of(tenant, predicate.as_str())? {
                     Some(uid) => {
                         lists.gate(read_ts)?;
                         let snapshot = lists.store().snapshot(read_ts)?;
                         let mut prefixes = Vec::new();
-                        for p in predicate_prefixes(namespace, uid) {
+                        for p in predicate_prefixes(tenant, uid) {
                             prefixes.extend(p.expand(&snapshot)?);
                         }
                         (Some(DropTarget::Predicate(uid)), prefixes)
@@ -180,12 +179,12 @@ where
                     None => (None, Vec::new()),
                 }
             }
-            DropRequest::Graph(graph) => match self.graph_uid(namespace, graph)? {
-                Some(uid) => (Some(DropTarget::Graph(uid)), graph_prefixes(namespace, uid)),
+            DropRequest::Graph(graph) => match self.graph_uid(tenant, graph)? {
+                Some(uid) => (Some(DropTarget::Graph(uid)), graph_prefixes(tenant, uid)),
                 None => (None, Vec::new()),
             },
-            DropRequest::Data => (Some(DropTarget::Data), namespace_prefixes(namespace)),
-            DropRequest::Namespace => (Some(DropTarget::Namespace), namespace_prefixes(namespace)),
+            DropRequest::Data => (Some(DropTarget::Data), tenant_prefixes(tenant)),
+            DropRequest::Tenant => (Some(DropTarget::Tenant), tenant_prefixes(tenant)),
             DropRequest::All => (Some(DropTarget::All), every_prefix()),
         };
         let ranges = prefixes
@@ -195,25 +194,23 @@ where
                 (start, end)
             })
             .collect();
-        Ok(Executed::dropping(
-            namespace, read_ts, catalog, target, ranges,
-        ))
+        Ok(Executed::dropping(tenant, read_ts, catalog, target, ranges))
     }
 
-    /// Drops `target` of `namespace` at `version`, the version the commit step gave the drop decided in a round, under
+    /// Drops `target` of `tenant` at `version`, the version the commit step gave the drop decided in a round, under
     /// the apply lock the caller holds (7.7).
     pub(crate) fn drop_at(
         &self,
-        namespace: u64,
+        tenant: u64,
         target: DropTarget,
         version: u64,
     ) -> Result<u64, ChangesetError> {
         let at = Some(version);
         match target {
-            DropTarget::Predicate(uid) => self.drop_predicate_uid(namespace, uid, at),
-            DropTarget::Graph(uid) => self.drop_graph_uid(namespace, uid, at),
-            DropTarget::Data => self.drop_data_of(namespace, at),
-            DropTarget::Namespace => self.drop_namespace_of(namespace, at),
+            DropTarget::Predicate(uid) => self.drop_predicate_uid(tenant, uid, at),
+            DropTarget::Graph(uid) => self.drop_graph_uid(tenant, uid, at),
+            DropTarget::Data => self.drop_data_of(tenant, at),
+            DropTarget::Tenant => self.drop_tenant_of(tenant, at),
             DropTarget::All => self.drop_every(at),
         }
     }
@@ -236,18 +233,16 @@ where
         })
     }
 
-    /// The graph `graph` names in `namespace`: the default graph, a named graph when the store knows it; `None` for a
+    /// The graph `graph` names in `tenant`: the default graph, a named graph when the store knows it; `None` for a
     /// graph it does not know and for a blank node, which names no stored graph.
     fn graph_uid(
         &self,
-        namespace: u64,
+        tenant: u64,
         graph: GraphNameRef<'_>,
     ) -> Result<Option<Graph>, ChangesetError> {
         Ok(match graph {
             GraphNameRef::DefaultGraph => Some(DEFAULT_GRAPH),
-            GraphNameRef::NamedNode(n) => {
-                self.quads.id_of(namespace, n.as_str())?.map(Graph::Named)
-            }
+            GraphNameRef::NamedNode(n) => self.quads.id_of(tenant, n.as_str())?.map(Graph::Named),
             GraphNameRef::BlankNode(_) => None,
         })
     }
@@ -293,44 +288,40 @@ where
         Ok(())
     }
 
-    /// Drops `graph` of `namespace`: every key of the graph. The drop's timestamp.
-    pub fn drop_graph(
-        &self,
-        namespace: u64,
-        graph: GraphNameRef<'_>,
-    ) -> Result<u64, ChangesetError> {
+    /// Drops `graph` of `tenant`: every key of the graph. The drop's timestamp.
+    pub fn drop_graph(&self, tenant: u64, graph: GraphNameRef<'_>) -> Result<u64, ChangesetError> {
         let _apply = lock(&self.apply);
-        let Some(uid) = self.graph_uid(namespace, graph)? else {
+        let Some(uid) = self.graph_uid(tenant, graph)? else {
             return Ok(self.quads.lists().applied_ts());
         };
-        self.drop_graph_uid(namespace, uid, None)
+        self.drop_graph_uid(tenant, uid, None)
     }
 
-    /// Drops `graph` of `namespace` under the apply lock the caller holds, at `at` or the next version.
+    /// Drops `graph` of `tenant` under the apply lock the caller holds, at `at` or the next version.
     fn drop_graph_uid(
         &self,
-        namespace: u64,
+        tenant: u64,
         graph: Graph,
         at: Option<u64>,
     ) -> Result<u64, ChangesetError> {
-        self.drop_prefixes(&graph_prefixes(namespace, graph), Vec::new(), at)
+        self.drop_prefixes(&graph_prefixes(tenant, graph), Vec::new(), at)
     }
 
-    /// Drops the data of `namespace`, every key of every quad keyspace, and keeps its catalog. A build in the namespace
+    /// Drops the data of `tenant`, every key of every quad keyspace, and keeps its catalog. A build in the tenant
     /// is cancelled, its predicate declared as the change asked, since no data is left to build from. The drop's
     /// timestamp.
-    pub fn drop_data(&self, namespace: u64) -> Result<u64, ChangesetError> {
+    pub fn drop_data(&self, tenant: u64) -> Result<u64, ChangesetError> {
         let _apply = lock(&self.apply);
-        self.drop_data_of(namespace, None)
+        self.drop_data_of(tenant, None)
     }
 
-    /// Drops the data of `namespace` as [`ChangesetCore::drop_data`] does, under the apply lock the caller holds, at
+    /// Drops the data of `tenant` as [`ChangesetCore::drop_data`] does, under the apply lock the caller holds, at
     /// `at` or the next version.
-    fn drop_data_of(&self, namespace: u64, at: Option<u64>) -> Result<u64, ChangesetError> {
-        let cancelled = self.cancel(|r| r.namespace == namespace);
-        let ts = self.drop_prefixes(&namespace_prefixes(namespace), Vec::new(), at)?;
+    fn drop_data_of(&self, tenant: u64, at: Option<u64>) -> Result<u64, ChangesetError> {
+        let cancelled = self.cancel(|r| r.tenant == tenant);
+        let ts = self.drop_prefixes(&tenant_prefixes(tenant), Vec::new(), at)?;
         if let Some(r) = cancelled {
-            self.set_catalog(namespace, |catalog| {
+            self.set_catalog(tenant, |catalog| {
                 catalog.declare_predicate(r.predicate, r.new)?;
                 Ok(())
             })?;
@@ -338,50 +329,49 @@ where
         Ok(ts)
     }
 
-    /// Drops everything `namespace` holds and holds its initial catalog in memory: `rdf:type` declared an edge when it
-    /// has a UID; a namespace whose has none was never written, and its first write gives it the initial catalog. The
-    /// metadata group commits the namespace's initial catalog as a version of its own. The drop's timestamp.
-    pub fn drop_namespace(&self, namespace: u64) -> Result<u64, ChangesetError> {
+    /// Drops everything `tenant` holds and holds its initial catalog in memory: `rdf:type` declared an edge when it
+    /// has a UID; a tenant whose has none was never written, and its first write gives it the initial catalog. The
+    /// metadata group commits the tenant's initial catalog as a version of its own. The drop's timestamp.
+    pub fn drop_tenant(&self, tenant: u64) -> Result<u64, ChangesetError> {
         let _apply = lock(&self.apply);
-        self.drop_namespace_of(namespace, None)
+        self.drop_tenant_of(tenant, None)
     }
 
-    /// Drops `namespace` as [`ChangesetCore::drop_namespace`] does, under the apply lock the caller holds, at `at` or
+    /// Drops `tenant` as [`ChangesetCore::drop_tenant`] does, under the apply lock the caller holds, at `at` or
     /// the next version.
-    fn drop_namespace_of(&self, namespace: u64, at: Option<u64>) -> Result<u64, ChangesetError> {
-        let _cancelled: Option<Rebuild> = self.cancel(|r| r.namespace == namespace);
-        let initial = self.initial_catalog(namespace)?;
-        let ts = self.drop_prefixes(&namespace_prefixes(namespace), Vec::new(), at)?;
-        let _dropped: Option<Arc<Catalog>> =
-            lock(&self.catalogs).insert(namespace, Arc::new(initial));
+    fn drop_tenant_of(&self, tenant: u64, at: Option<u64>) -> Result<u64, ChangesetError> {
+        let _cancelled: Option<Rebuild> = self.cancel(|r| r.tenant == tenant);
+        let initial = self.initial_catalog(tenant)?;
+        let ts = self.drop_prefixes(&tenant_prefixes(tenant), Vec::new(), at)?;
+        let _dropped: Option<Arc<Catalog>> = lock(&self.catalogs).insert(tenant, Arc::new(initial));
         Ok(ts)
     }
 
-    /// Drops every quad key of every namespace and holds the root namespace's initial catalog alone in memory. The
+    /// Drops every quad key of every tenant and holds the root tenant's initial catalog alone in memory. The
     /// dictionary is kept. The drop's timestamp.
     pub fn drop_all(&self) -> Result<u64, ChangesetError> {
         let _apply = lock(&self.apply);
         self.drop_every(None)
     }
 
-    /// Drops every namespace as [`ChangesetCore::drop_all`] does, under the apply lock the caller holds, at `at` or the
+    /// Drops every tenant as [`ChangesetCore::drop_all`] does, under the apply lock the caller holds, at `at` or the
     /// next version.
     fn drop_every(&self, at: Option<u64>) -> Result<u64, ChangesetError> {
         let _cancelled: Option<Rebuild> = self.cancel(|_| true);
-        let initial = self.initial_catalog(ROOT_NAMESPACE)?;
+        let initial = self.initial_catalog(ROOT_TENANT)?;
         let ts = self.drop_prefixes(&every_prefix(), Vec::new(), at)?;
         let mut catalogs = lock(&self.catalogs);
         catalogs.clear();
-        let _root: Option<Arc<Catalog>> = catalogs.insert(ROOT_NAMESPACE, Arc::new(initial));
+        let _root: Option<Arc<Catalog>> = catalogs.insert(ROOT_TENANT, Arc::new(initial));
         Ok(ts)
     }
 
-    /// The initial catalog of `namespace`, held in memory after a drop of everything in it: `rdf:type` declared an edge
-    /// when it has a UID, else empty, so the namespace's first write gives it the initial catalog.
-    fn initial_catalog(&self, namespace: u64) -> Result<Catalog, ChangesetError> {
-        Ok(match self.quads.id_of(namespace, rdf::TYPE.as_str())? {
-            Some(rdf_type) => Catalog::initial(namespace, rdf_type),
-            None => Catalog::new(namespace),
+    /// The initial catalog of `tenant`, held in memory after a drop of everything in it: `rdf:type` declared an edge
+    /// when it has a UID, else empty, so the tenant's first write gives it the initial catalog.
+    fn initial_catalog(&self, tenant: u64) -> Result<Catalog, ChangesetError> {
+        Ok(match self.quads.id_of(tenant, rdf::TYPE.as_str())? {
+            Some(rdf_type) => Catalog::initial(tenant, rdf_type),
+            None => Catalog::new(tenant),
         })
     }
 }
@@ -395,19 +385,15 @@ fn parts(keyspace: Keyspace, prefix: impl Fn(bool) -> Vec<u8>) -> Vec<Vec<u8>> {
     }
 }
 
-/// Every quad keyspace's prefix of graph `graph` of `namespace`.
-fn graph_prefixes(namespace: u64, graph: Graph) -> Vec<Vec<u8>> {
+/// Every quad keyspace's prefix of graph `graph` of `tenant`.
+fn graph_prefixes(tenant: u64, graph: Graph) -> Vec<Vec<u8>> {
     QUAD_KEYSPACES
         .iter()
-        .flat_map(|k| {
-            parts(*k, |split| {
-                key_prefix(*k, split, namespace, Some(graph), None)
-            })
-        })
+        .flat_map(|k| parts(*k, |split| key_prefix(*k, split, tenant, Some(graph), None)))
         .collect()
 }
 
-/// Every quad and registration keyspace's prefix, of every namespace: no partition holds a catalog key.
+/// Every quad and registration keyspace's prefix, of every tenant: no partition holds a catalog key.
 fn every_prefix() -> Vec<Vec<u8>> {
     QUAD_KEYSPACES
         .into_iter()
@@ -420,12 +406,12 @@ fn every_prefix() -> Vec<Vec<u8>> {
         .collect()
 }
 
-/// Every quad and registration keyspace's prefix of `namespace`: no partition holds a catalog key.
-fn namespace_prefixes(namespace: u64) -> Vec<Vec<u8>> {
+/// Every quad and registration keyspace's prefix of `tenant`: no partition holds a catalog key.
+fn tenant_prefixes(tenant: u64) -> Vec<Vec<u8>> {
     QUAD_KEYSPACES
         .iter()
         .chain(&REGISTRATION_KEYSPACES)
-        .flat_map(|k| parts(*k, |split| key_prefix(*k, split, namespace, None, None)))
+        .flat_map(|k| parts(*k, |split| key_prefix(*k, split, tenant, None, None)))
         .collect()
 }
 

@@ -16,7 +16,7 @@ fn test_the_weigher_counts_the_lists_bytes() -> TestResult {
     let k = key("weigh", 1);
     let empty = CachedList::new(Arc::new(List::empty(k.clone())), 1, 0);
     let small = empty.weight();
-    // The fixed overhead of 64, the key, 57 bytes: the keyspace byte, the namespace's 8, the graph's, the
+    // The fixed overhead of 64, the key, 57 bytes: the keyspace byte, the tenant's 8, the graph's, the
     // predicate's and the subject's 16 each, and the empty list's encoding, 26 bytes: the posting format's version,
     // flags, commit version, posting and split counts and checksum.
     assert_eq!(k.len(), 57);

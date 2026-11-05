@@ -8,7 +8,7 @@ mod dictionary_mint;
 use std::collections::BTreeMap;
 use std::sync::{Mutex, MutexGuard};
 
-use ultragraphdb_core_ids::{Bucket, CanonicalKey, Namespace, SystemId, TypePrefix};
+use ultragraphdb_core_ids::{Bucket, CanonicalKey, SystemId, Tenant, TypePrefix};
 use ultragraphdb_core_mapping::RandomSource;
 use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::Store;
@@ -40,10 +40,10 @@ pub(crate) struct Dictionary<B> {
 /// What the dictionary's lock guards.
 #[derive(Debug)]
 struct DictionaryState<B> {
-    /// By namespace, then by term: the IDs created and not yet written by a settled commit, each with how many
+    /// By tenant, then by term: the IDs created and not yet written by a settled commit, each with how many
     /// unsettled writes hold it.
     pending: BTreeMap<u64, BTreeMap<String, (SystemId, usize)>>,
-    /// How many pending entries there are, in every namespace.
+    /// How many pending entries there are, in every tenant.
     pending_len: usize,
     sequences: Sequences<B>,
     random: RandomSource,
@@ -83,28 +83,28 @@ impl<B: BlockSource> Dictionary<B> {
         &self.owned
     }
 
-    /// The ID of `iri` in `namespace` with where it came from: pending, held in `store`, or created, its bucket
-    /// computed from the namespace and the IRI and its sequence a `Resource` one. A pending or created ID is held by
+    /// The ID of `iri` in `tenant` with where it came from: pending, held in `store`, or created, its bucket
+    /// computed from the tenant and the IRI and its sequence a `Resource` one. A pending or created ID is held by
     /// the caller's write from then on. An IRI under the skolem base is refused unless it is pending or held, and an
     /// IRI of a bucket the dictionary does not own unless it is held: its home creates its ID.
     pub(crate) fn resolve<S: Store>(
         &self,
         store: &S,
-        namespace: u64,
+        tenant: u64,
         iri: &str,
     ) -> Result<(SystemId, TermOrigin), QuadError> {
         let mut state = self.lock();
-        if let Some(id) = state.hold_pending(namespace, iri) {
+        if let Some(id) = state.hold_pending(tenant, iri) {
             return Ok((id, TermOrigin::Pending));
         }
-        if let Some(id) = held_id(store, namespace, iri)? {
+        if let Some(id) = held_id(store, tenant, iri)? {
             return Ok((id, TermOrigin::Held));
         }
-        if is_skolem(namespace, iri) {
+        if is_skolem(tenant, iri) {
             return Err(QuadError::unknown_skolem(iri));
         }
         let key = CanonicalKey::iri(iri)?;
-        let bucket = Bucket::derive(Namespace::new(namespace), TypePrefix::RESOURCE, &key);
+        let bucket = Bucket::derive(Tenant::new(tenant), TypePrefix::RESOURCE, &key);
         if !self.owned.owns(bucket) {
             return Err(QuadError::not_owned(iri, bucket.get()));
         }
@@ -116,10 +116,10 @@ impl<B: BlockSource> Dictionary<B> {
         );
         debug_assert_eq!(
             id,
-            SystemId::resource(Namespace::new(namespace), &key, id.sequence()),
+            SystemId::resource(Tenant::new(tenant), &key, id.sequence()),
             "a Resource's bucket is derived from its key"
         );
-        state.add_pending(namespace, iri, id);
+        state.add_pending(tenant, iri, id);
         Ok((id, TermOrigin::Created))
     }
 
@@ -128,13 +128,13 @@ impl<B: BlockSource> Dictionary<B> {
     pub(crate) fn lookup<S: Store>(
         &self,
         store: &S,
-        namespace: u64,
+        tenant: u64,
         term: &str,
     ) -> Result<Option<(SystemId, TermOrigin)>, QuadError> {
         let mut state = self.lock();
-        match state.hold_pending(namespace, term) {
+        match state.hold_pending(tenant, term) {
             Some(id) => Ok(Some((id, TermOrigin::Pending))),
-            None => Ok(held_id(store, namespace, term)?.map(|id| (id, TermOrigin::Held))),
+            None => Ok(held_id(store, tenant, term)?.map(|id| (id, TermOrigin::Held))),
         }
     }
 
@@ -142,12 +142,12 @@ impl<B: BlockSource> Dictionary<B> {
     /// whichever other writes still hold them: they find the entries held.
     pub(crate) fn settle<'t>(
         &self,
-        namespace: u64,
+        tenant: u64,
         written: impl Iterator<Item = (&'t str, SystemId)>,
     ) {
         let mut state = self.lock();
         for (term, id) in written {
-            state.remove_pending(namespace, term, id);
+            state.remove_pending(tenant, term, id);
         }
     }
 
@@ -156,12 +156,12 @@ impl<B: BlockSource> Dictionary<B> {
     /// entries of. A term whose pending entry is gone, or names another ID, is left alone.
     pub(crate) fn release<'t>(
         &self,
-        namespace: u64,
+        tenant: u64,
         written: impl Iterator<Item = (&'t str, SystemId)>,
     ) {
         let mut state = self.lock();
         for (term, id) in written {
-            state.let_go(namespace, term, id);
+            state.let_go(tenant, term, id);
         }
     }
 
@@ -183,26 +183,26 @@ impl<B: BlockSource> Dictionary<B> {
 }
 
 impl<B> DictionaryState<B> {
-    /// The pending ID of `term` in `namespace`.
-    fn pending_id(&self, namespace: u64, term: &str) -> Option<SystemId> {
+    /// The pending ID of `term` in `tenant`.
+    fn pending_id(&self, tenant: u64, term: &str) -> Option<SystemId> {
         self.pending
-            .get(&namespace)
+            .get(&tenant)
             .and_then(|terms| terms.get(term))
             .map(|(id, _)| *id)
     }
 
-    /// The pending ID of `term` in `namespace`, held by one more write.
-    fn hold_pending(&mut self, namespace: u64, term: &str) -> Option<SystemId> {
-        let (id, holders) = self.pending.get_mut(&namespace)?.get_mut(term)?;
+    /// The pending ID of `term` in `tenant`, held by one more write.
+    fn hold_pending(&mut self, tenant: u64, term: &str) -> Option<SystemId> {
+        let (id, holders) = self.pending.get_mut(&tenant)?.get_mut(term)?;
         *holders = holders.saturating_add(1);
         Some(*id)
     }
 
     /// Records `term`'s new ID `id` as pending, held by the write creating it.
-    fn add_pending(&mut self, namespace: u64, term: &str, id: SystemId) {
+    fn add_pending(&mut self, tenant: u64, term: &str, id: SystemId) {
         let previous = self
             .pending
-            .entry(namespace)
+            .entry(tenant)
             .or_default()
             .insert(term.to_string(), (id, 1));
         debug_assert!(previous.is_none(), "a term is created once");
@@ -210,25 +210,25 @@ impl<B> DictionaryState<B> {
     }
 
     /// Forgets `term`'s pending entry when it is `id`.
-    fn remove_pending(&mut self, namespace: u64, term: &str, id: SystemId) {
-        self.change_pending(namespace, term, id, |_| 0);
+    fn remove_pending(&mut self, tenant: u64, term: &str, id: SystemId) {
+        self.change_pending(tenant, term, id, |_| 0);
     }
 
     /// Takes one holder from `term`'s pending entry when it is `id`, forgetting it once none is left.
-    fn let_go(&mut self, namespace: u64, term: &str, id: SystemId) {
-        self.change_pending(namespace, term, id, |holders| holders.saturating_sub(1));
+    fn let_go(&mut self, tenant: u64, term: &str, id: SystemId) {
+        self.change_pending(tenant, term, id, |holders| holders.saturating_sub(1));
     }
 
     /// Sets the holders of `term`'s pending entry, when it is `id`, to what `holders` makes of them, forgetting the
     /// entry at none.
     fn change_pending(
         &mut self,
-        namespace: u64,
+        tenant: u64,
         term: &str,
         id: SystemId,
         holders: impl Fn(usize) -> usize,
     ) {
-        let Some(terms) = self.pending.get_mut(&namespace) else {
+        let Some(terms) = self.pending.get_mut(&tenant) else {
             return;
         };
         if let Some((held, count)) = terms.get_mut(term)
@@ -243,19 +243,19 @@ impl<B> DictionaryState<B> {
         }
         if terms.is_empty() {
             let _emptied: Option<BTreeMap<String, (SystemId, usize)>> =
-                self.pending.remove(&namespace);
+                self.pending.remove(&tenant);
         }
     }
 }
 
-/// The ID the dictionary of `store` holds for `term`, an IRI or a reifier's name, in `namespace`: an entry that is no
+/// The ID the dictionary of `store` holds for `term`, an IRI or a reifier's name, in `tenant`: an entry that is no
 /// valid system ID is corruption naming its key.
 pub(crate) fn held_id<S: Store>(
     store: &S,
-    namespace: u64,
+    tenant: u64,
     term: &str,
 ) -> Result<Option<SystemId>, QuadError> {
-    let key = term_key(namespace, term);
+    let key = term_key(tenant, term);
     store
         .get_versionless(&key)?
         .map(|value| {

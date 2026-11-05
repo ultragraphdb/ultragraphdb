@@ -103,13 +103,13 @@ write operation so that amplification is visible when the schema is written, as 
 
 ### Scale
 
-What holds. 65,533 types per namespace, 64-bit sequences per type, 2²⁴ buckets with 65,536 per namespace run, and
+What holds. 65,533 types per tenant, 64-bit sequences per type, 2²⁴ buckets with 65,536 per tenant run, and
 prefix sets that absorb modules without renumbering: nothing in the identity scheme bounds a DeepBrain deployment. Hub
 participants, `Activity.generated*` over millions of readings and `Statement.incoming*` on every node, are bounded by
 P24: inbound entries live with their subjects, and a referrer set holds at most 2¹⁰ groups per run, so a reverse read
 fans out to a bounded set whatever the in-degree. `-> _` removes even that for roles never walked backward.
 
-What it costs. Until stage 8 every segmented and coordinated path is refused, and a single-tenant namespace is spread
+What it costs. Until stage 8 every segmented and coordinated path is refused, and a single tenant is spread
 over every partition by design, so nearly every relation insert in Gen5 registers remotely and every `restrict`
 retraction, cross-tree move and `@ends` across partitions waits for the sequencer. The classification makes that cost
 visible per operation, which is the directive's intent; what it does not yet do is weigh operations by expected traffic,
@@ -170,7 +170,7 @@ second implementation, a client-side checker or a language server, can be held t
 | Static semantics | `static/<code>/reject.ugs`, `static/<code>/accept.ugs` | The code and location; the twin compiles | Section 10.4's table: every code from `UGS0101` to `UGS0905`, warnings and notes included |
 | Compilation | `compile/<name>/schema.ugs`, `expected.json` | The compiled catalog as a logical JSON document: types with prefixes and prefix sets, encodings and anchors, predicates, roles, navigations, enums, units, derivations, functions, graphs, the classification table and the report | Sections 7, 9, 10 and 11.1; goldens hand-written for the small cases, frozen after review for section 16 and Gen5 |
 | Canonical encoding | the same schemas | Once the catalog's byte encoding is specified: the bytes, and `decode(encode(c)) = c` with any other byte sequence refused | Section 10.2; the schema id of `PROTOCOL.md` section 11.7 over the Describe body |
-| Identity | `identity/*.json` | For (namespace, type, key): the canonical key bytes, the bucket, the IRI; for an IRI: the type, the key read back, the bucket; percent-encoding edge cases, composite keys, `@iri` templates, handles | Section 7; buckets from the xxHash reference, as `system-identity`'s golden values |
+| Identity | `identity/*.json` | For (tenant, type, key): the canonical key bytes, the bucket, the IRI; for an IRI: the type, the key read back, the bucket; percent-encoding edge cases, composite keys, `@iri` templates, handles | Section 7; buckets from the xxHash reference, as `system-identity`'s golden values |
 | Standard views | `views/<name>/vocabulary.nt`, `shapes.nt`, `graph_type.gql` | The RDF vocabulary and SHACL shapes as sorted N-Triples after canonicalisation; the GQL graph type as text | Section 11; hand-written for the small cases |
 | Commit-time rules | `commit/<code>.feature` | Gherkin: Given a schema, When a write in N-Quads or a UQL statement, Then refused with `UGS1xxx` naming the instance and rule, or accepted and read back; the report classifies the write as the table says | Sections 8 and 9; one scenario per refusal `UGS1001` to `UGS1035`, one per row of section 9.3, run by the repository's cucumber harness with step definitions in the implementing crate |
 | Evolution | `evolution/<name>/v1.ugs`, `v2.ugs`, `expected.json` | The change's kind, the prefixes before and after (stable), the report's path changes, or `UGS2xxx` | Section 13 |

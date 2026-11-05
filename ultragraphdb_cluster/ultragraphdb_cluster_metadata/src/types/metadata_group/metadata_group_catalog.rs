@@ -4,7 +4,7 @@
  */
 
 use ultragraphdb_cluster_placement::PartitionId;
-use ultragraphdb_core_ids::{Epoch, Namespace};
+use ultragraphdb_core_ids::{Epoch, Tenant};
 use ultragraphdb_error_cluster::ClusterError;
 use ultragraphdb_traits_catalog::DefaultEntry;
 use ultragraphdb_traits_log::{OrderedLog, Position};
@@ -13,7 +13,7 @@ use crate::types::metadata_command::MetadataCommand;
 use crate::types::metadata_group::MetadataGroup;
 
 impl<L: OrderedLog> MetadataGroup<L> {
-    /// Commits `bytes` as a new version of `namespace`'s catalog built on version `predecessor`, pending until a close
+    /// Commits `bytes` as a new version of `tenant`'s catalog built on version `predecessor`, pending until a close
     /// announces it; returns its number, `predecessor + 1`, and the position it was appended at.
     ///
     /// # Errors
@@ -24,12 +24,12 @@ impl<L: OrderedLog> MetadataGroup<L> {
     /// refuses the round. Nothing is appended on a refusal.
     pub fn offer_catalog(
         &mut self,
-        namespace: Namespace,
+        tenant: Tenant,
         predecessor: u64,
         bytes: &[u8],
     ) -> Result<(u64, Position), ClusterError> {
         let position = self.append(MetadataCommand::OfferCatalog {
-            namespace,
+            tenant,
             predecessor,
             bytes: bytes.to_vec(),
         })?;
@@ -37,7 +37,7 @@ impl<L: OrderedLog> MetadataGroup<L> {
         Ok((predecessor + 1, position))
     }
 
-    /// Records `entry`, the default entry a first write of an undeclared predicate asks for, keyed by its namespace and
+    /// Records `entry`, the default entry a first write of an undeclared predicate asks for, keyed by its tenant and
     /// predicate; returns the position it was appended at, or `None` when a record of that key exists, which is kept
     /// and nothing is appended. It creates no catalog version, so it stales no prepared statement.
     ///
@@ -49,16 +49,12 @@ impl<L: OrderedLog> MetadataGroup<L> {
         &mut self,
         entry: &DefaultEntry,
     ) -> Result<Option<Position>, ClusterError> {
-        let namespace = Namespace::new(entry.namespace());
-        if self
-            .head
-            .default_entry(namespace, entry.predicate())
-            .is_some()
-        {
+        let tenant = Tenant::new(entry.tenant());
+        if self.head.default_entry(tenant, entry.predicate()).is_some() {
             return Ok(None);
         }
         let position = self.append(MetadataCommand::RecordDefault {
-            namespace,
+            tenant,
             predicate: entry.predicate().to_string(),
             entry: entry.entry().to_vec(),
         })?;
@@ -79,7 +75,7 @@ impl<L: OrderedLog> MetadataGroup<L> {
     pub fn learn_close(
         &mut self,
         epoch: Epoch,
-        versions: &[(Namespace, u64)],
+        versions: &[(Tenant, u64)],
         placement: u64,
         evictions: &[u128],
     ) -> Result<Option<Position>, ClusterError> {

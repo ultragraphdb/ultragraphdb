@@ -30,11 +30,11 @@ Every command records its decision whole (a lease its block, a principal its ide
 evicts, a close the versions it announced), so `MetadataState::apply` needs nothing but the state before it and replay
 never reads the settings: `sessions_max` or `block_size_max` changed between starts changes only later decisions.
 
-- **Catalog versions.** `offer_catalog(ns, predecessor, bytes)` numbers the version `predecessor + 1` and refuses a
-  predecessor other than the tenant's latest (pending or not) with `StaleCatalog { namespace, predecessor, current }`.
+- **Catalog versions.** `offer_catalog(tenant, predecessor, bytes)` numbers the version `predecessor + 1` and refuses a
+  predecessor other than the tenant's latest (pending or not) with `StaleCatalog { tenant, predecessor, current }`.
   The bytes are opaque (`CatalogContents::encode`). `pending_versions()` is what the sequencer's next `tick` announces;
   `learn_close(epoch, versions, evictions)` records the durable close and assigns each announced version
-  `epoch + 1` (the close of `c + 1` gives `c + 2`). `catalog_at(ns, e)` answers every epoch up to one past the last
+  `epoch + 1` (the close of `c + 1` gives `c + 2`). `catalog_at(tenant, e)` answers every epoch up to one past the last
   learned close (a pending version cannot take effect earlier) and refuses further with `EpochAhead`; the tenant's
   initial catalog is `None`. `MetadataState` implements the catalog agent's `CatalogSource` (`Error = ClusterError`).
 - **Default entries**, by (tenant, predicate) beside the versions: `record_default_entry(&DefaultEntry)` answers

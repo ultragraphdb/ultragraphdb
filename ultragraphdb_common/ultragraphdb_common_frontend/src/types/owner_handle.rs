@@ -64,14 +64,14 @@ impl OwnerHandle {
             .await
     }
 
-    /// A catalog version of `namespace`, `version` 0 for the current one.
+    /// A catalog version of `tenant`, `version` 0 for the current one.
     ///
     /// # Errors
     ///
-    /// Code 7 for a version the namespace never held, or unavailable when the owner stopped.
-    pub async fn catalog(&self, namespace: u64, version: u64) -> Result<Catalog, ErrorReply> {
+    /// Code 7 for a version the tenant never held, or unavailable when the owner stopped.
+    pub async fn catalog(&self, tenant: u64, version: u64) -> Result<Catalog, ErrorReply> {
         self.ask_or_refuse(|reply| Asked::Catalog {
-            namespace,
+            tenant,
             version,
             reply,
         })

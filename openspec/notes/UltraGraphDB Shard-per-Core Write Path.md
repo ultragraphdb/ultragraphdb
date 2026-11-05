@@ -642,28 +642,28 @@ its own; when its sequence would run out, it asks the sequencer to close the epo
 - Any node finds an entity's bucket from its IRI and the catalog.
 - The UGS note's instance-IRI rule names the declaring type.
 
-### P16. Namespaces in the bucket
+### P16. Tenants in the bucket
 
 **Trade-off.**
 
-- IDs carry no namespace, and hashing across all 16.7 million buckets spreads every namespace over every partition:
-  a small tenant's queries scatter over the cluster, dropping a namespace touches every partition, and tenants share
+- IDs carry no tenant, and hashing across all 16.7 million buckets spreads every tenant over every partition:
+  a small tenant's queries scatter over the cluster, dropping a tenant touches every partition, and tenants share
   every partition's load.
-- Confining a namespace to fewer partitions gives locality and isolation, and must still let a large namespace spread
+- Confining a tenant to fewer partitions gives locality and isolation, and must still let a large tenant spread
   as it grows, without changing an ID.
 
 **Recommendation.**
 
-- A bucket's 24 bits are 8 bits hashed from the namespace and 16 bits hashed from the key (P15): each namespace owns an
-  aligned run of 65,536 contiguous buckets, shared with the namespaces whose hash it shares.
-- The placement map assigns runs to partitions like any range (P2): a small namespace starts on one partition, and a
+- A bucket's 24 bits are 8 bits hashed from the tenant and 16 bits hashed from the key (P15): each tenant owns an
+  aligned run of 65,536 contiguous buckets, shared with the tenants whose hash it shares.
+- The placement map assigns runs to partitions like any range (P2): a small tenant starts on one partition, and a
   growing one is spread by splitting its run, up to 65,536 partitions, with no ID changing.
-- Initial placement spreads the runs of the namespaces that exist, so a single-tenant cluster spreads its one namespace
+- Initial placement spreads the runs of the tenants that exist, so a single-tenant cluster spreads its one tenant
   over every partition.
 
 **Consequences.**
 
-- A namespace's queries reach only its partitions; a namespace drop reaches only them.
+- A tenant's queries reach only its partitions; a tenant drop reaches only them.
 - The rebalancer watches load per run as well as per partition.
 
 ### P17. Reverse entries of heavily referenced nodes
@@ -854,7 +854,7 @@ facts it points at, only the guarantee that it grows before they are written.
 
 1. **Identity.** A system ID is, from the most significant bit, a 16-bit type prefix, a 64-bit sequence, a 24-bit bucket
    and 24 reserved bits (field order type, sequence, bucket, approved 2026-11-02: the bucket's hashed bits sit below the
-   sequence, so a sorted list's deltas stay small). `Bucket::derive` hashes the namespace for the bucket's top 8 bits
+   sequence, so a sorted list's deltas stay small). `Bucket::derive` hashes the tenant for the bucket's top 8 bits
    and the declaring type's prefix with the canonical key for its low 16 (P15, P16). Sequences are leased per (type,
    partition) and never reused (P7). An entity's home is the partition the placement map gives its bucket.
 2. **One owner.** A partition owns its home entities' state and every entry derived from the edges and values its own
@@ -888,7 +888,7 @@ facts it points at, only the guarantee that it grows before they are written.
    stamps exactly one above its last delivered close, so it never stamps an epoch whose close has been delivered to it,
    and it holds the catalog versions announced with that close (rule 11) when it stamps the epoch they take effect at.
 5. **Referrer set.** `R(o)`, kept at `o`'s home, is a monotone superset of the subject bucket groups holding edges to
-   `o`. A bucket group is 64 contiguous buckets, 2^10 groups per namespace run. Each member carries the epoch it was
+   `o`. A bucket group is 64 contiguous buckets, 2^10 groups per tenant run. Each member carries the epoch it was
    added at and a generation, under MVCC. The home adds its own subjects' groups in the commit that first references
    `o` from them. A registration naming the member's current generation, or naming any generation for a group not in
    `R(o)`, adds or renews the member at one generation above the one named; a registration naming an older generation
@@ -897,19 +897,19 @@ facts it points at, only the guarantee that it grows before they are written.
 6. **Reads.** A forward read routes by bucket. A reverse read reads `R(o)` at epoch `e` at the home once the home has
    closed `e`, then fans out, batched per node, to the member partitions, each answering from its local reverse index at
    `e` once it has closed `e`; a large frontier uses a merge scan. A bound literal object, which has no home or referrer
-   set, index lookups and lookups by reverse count fan out the same way over the namespace's partitions, a reverse count
+   set, index lookups and lookups by reverse count fan out the same way over the tenant's partitions, a reverse count
    being the sum of the partitions' counts. A snapshot read is complete or it waits, never partial; a read reaching its
    deadline fails with an error naming the lagging partition; in stage 8 followers serve reads. An opt-in inbound
    summary cache at the home stays a later option, taken only if measurement asks for it; correctness never depends on
    it.
 7. **Transactions.** A read-write transaction binds to the partition owning the first subject it reads or writes, or,
-   when its first operation names no subject, to the partition owning the namespace's whole run if one does, and reads
+   when its first operation names no subject, to the partition owning the tenant's whole run if one does, and reads
    and writes only what that partition owns; registrations are idempotent pre-steps outside it. It makes a reverse or
-   fan-out read only when its partition owns the namespace's whole run, always so with one partition. Everything else is
+   fan-out read only when its partition owns the tenant's whole run, always so with one partition. Everything else is
    cross-partition: a forward read of another partition's subject, a fan-out lookup or scan or a reverse read over a
-   namespace spread over several partitions, cascading the delete of inbound edges, multi-subject writes across
+   tenant spread over several partitions, cascading the delete of inbound edges, multi-subject writes across
    partitions, blind writes to other partitions (P3's blind multi-partition path, which becomes sequenced with no
-   validation exchange, at one epoch of latency), and a Drop whose namespace spans several partitions. Stage 5.5 refuses
+   validation exchange, at one epoch of latency), and a Drop whose tenant spans several partitions. Stage 5.5 refuses
    it with `CrossPartition`; stage 8 sequences it. A `@unique` value, written by any write, plain writes included, stays
    a sequenced claim at the owner of the value's bucket, computed from the predicate's ID and the value's encoding (P3);
    with one partition it is local. A read-only transaction reads across partitions at its snapshot.
@@ -925,7 +925,7 @@ facts it points at, only the guarantee that it grows before they are written.
    entry is reclaimed once `R(o)` is empty below the horizon and `o` has no committed data. IDs are never reused.
 10. **Durability and restore.** A cluster restores at one closed epoch, since referrer sets and marks span partitions;
     a single partition restores only from its replicas; a restored partition abandons its open sequence blocks, whose
-    sequences it may have issued after the restore point; a namespace drop is sequenced at an epoch, and namespace
+    sequences it may have issued after the restore point; a tenant drop is sequenced at an epoch, and tenant
     numbers are never reused.
 11. **Catalog activation.** The metadata group commits a catalog version as pending; at its next close `c + 1` the
     sequencer assigns every pending version the effective epoch `E = c + 2` in its own durable close record, which
@@ -959,9 +959,9 @@ facts it points at, only the guarantee that it grows before they are written.
 - An inbound point read touches `min(d, partitions)` partitions for an in-degree `d` and needs one extra round, `R(o)`
   at the home first: about 20× the store probes of one reverse list at in-degree 20.
 - A partition's first reference to an entity it does not own waits for one durable round at the entity's home. Later
-  references find the mark and wait for nothing; a hub's home answers at most 2^10 registrations per namespace run for
+  references find the mark and wait for nothing; a hub's home answers at most 2^10 registrations per tenant run for
   it over its life, one per bucket group, whatever the ingest.
-- Index lookups, reads of a bound literal object and lookups by reverse count ask every partition of the namespace; an
+- Index lookups, reads of a bound literal object and lookups by reverse count ask every partition of the tenant; an
   exact reverse count is the sum of the referrers' partition counts.
 - `R(o)` only grows until stage 8 builds reclamation; it is bounded by the 2^10 groups of a run.
 

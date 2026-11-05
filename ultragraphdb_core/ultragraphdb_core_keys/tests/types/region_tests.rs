@@ -9,23 +9,18 @@ use ultragraphdb_tool_bdd::TestResult;
 use crate::types::quad_key::quad_key_tests::{every_keyspace, graph, id};
 
 #[test]
-fn test_a_region_is_the_keyspace_namespace_graph_and_predicate_of_its_key() -> TestResult {
+fn test_a_region_is_the_keyspace_tenant_graph_and_predicate_of_its_key() -> TestResult {
     for key in every_keyspace()? {
         let region = Region::of(&key.to_bytes())?;
         assert_eq!(region, key.region());
         assert_eq!(
             (
                 region.keyspace(),
-                region.namespace(),
+                region.tenant(),
                 region.graph(),
                 region.predicate()
             ),
-            (
-                key.keyspace(),
-                key.namespace(),
-                key.graph(),
-                key.predicate()
-            )
+            (key.keyspace(), key.tenant(), key.graph(), key.predicate())
         );
     }
     Ok(())
@@ -35,7 +30,7 @@ fn test_a_region_is_the_keyspace_namespace_graph_and_predicate_of_its_key() -> T
 fn test_subject_predicate_keys_share_their_graphs_region() -> TestResult {
     let graph = ultragraphdb_core_keys::Graph::Named(id(1, 2, 2)?);
     let key = |subject| QuadKey::SubjectPredicates {
-        namespace: 1,
+        tenant: 1,
         graph,
         subject,
     };
@@ -47,9 +42,9 @@ fn test_subject_predicate_keys_share_their_graphs_region() -> TestResult {
 }
 
 #[test]
-fn test_mark_and_referrer_regions_are_their_namespaces() -> TestResult {
+fn test_mark_and_referrer_regions_are_their_tenants() -> TestResult {
     let mark = |entity, group| QuadKey::Mark {
-        namespace: 7,
+        tenant: 7,
         entity,
         group,
     };
@@ -57,7 +52,7 @@ fn test_mark_and_referrer_regions_are_their_namespaces() -> TestResult {
     assert_eq!(a.region(), b.region());
     assert_eq!((a.region().graph(), a.region().predicate()), (None, None));
     let referrers = QuadKey::Referrers {
-        namespace: 7,
+        tenant: 7,
         entity: id(1, 1, 1)?,
     };
     assert_ne!(
@@ -66,7 +61,7 @@ fn test_mark_and_referrer_regions_are_their_namespaces() -> TestResult {
         "the keyspace tells them apart"
     );
     let catalog = QuadKey::Catalog {
-        namespace: 7,
+        tenant: 7,
         kind: 1,
         id: id(1, 1, 1)?,
     };

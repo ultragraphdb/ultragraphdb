@@ -43,7 +43,7 @@ impl<'a> BodyView<'a> for CatalogView<'a> {
             ));
         }
         Ok(Self {
-            namespace: header.u64_at(0),
+            tenant: header.u64_at(0),
             version,
             epoch: effective,
             position,
@@ -53,10 +53,10 @@ impl<'a> BodyView<'a> for CatalogView<'a> {
 
     fn to_body(&self) -> Result<Catalog, ProtocolError> {
         Ok(if self.is_request() {
-            Catalog::request(self.namespace, self.version)
+            Catalog::request(self.tenant, self.version)
         } else {
             Catalog::reply(
-                self.namespace,
+                self.tenant,
                 self.version,
                 self.epoch,
                 self.position,

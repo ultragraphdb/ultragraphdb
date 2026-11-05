@@ -77,7 +77,7 @@ impl Store for OneItem {
         Ok(())
     }
 
-    fn ban_namespace(&self, _: u64) -> Result<(), StoreError> {
+    fn ban_tenant(&self, _: u64) -> Result<(), StoreError> {
         Ok(())
     }
 

@@ -5,7 +5,7 @@
 
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_wire::{
-    BodyView, BucketRange, MAX_EPOCH, NamespaceRun, PlacementView, PreferredLeader,
+    BodyView, BucketRange, MAX_EPOCH, PlacementView, PreferredLeader, TenantRun,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -79,7 +79,7 @@ fn test_the_golden_placements_read_their_values() -> TestResult {
     );
     assert_eq!(second.range(3), None);
     assert_eq!(second.run_count(), 2);
-    assert_eq!(second.run(1), Some(NamespaceRun::new(7, 0x81)));
+    assert_eq!(second.run(1), Some(TenantRun::new(7, 0x81)));
     assert_eq!(second.run(2), None);
     assert_eq!(second.leader_count(), 2);
     assert_eq!(second.leader(0), Some(PreferredLeader::new(1, 3)));
@@ -253,9 +253,9 @@ fn test_ranges_are_checked_before_runs_and_runs_before_leaders() -> TestResult {
             ProtocolError::padding_not_zero(517, start + 16 + byte)
         );
     }
-    for namespace in [3u32, 2] {
+    for tenant in [3u32, 2] {
         assert_eq!(
-            section_refusal(1, |s| set(s, 16, namespace))?,
+            section_refusal(1, |s| set(s, 16, tenant))?,
             ProtocolError::field_value(517, "run", 1)
         );
     }

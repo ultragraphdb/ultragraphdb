@@ -7,7 +7,7 @@
 //! buckets and leased sequence blocks, quad reads and writes, statistics, and the data dictionary's read API.
 //!
 //! An IRI's ID is got or created while the writing execution runs ([`WriteTerms::iri`]): the dictionary's ID, the ID
-//! a concurrent execution created and has not yet committed, or a new one, its bucket computed from the namespace and
+//! a concurrent execution created and has not yet committed, or a new one, its bucket computed from the tenant and
 //! the IRI ([`ultragraphdb_core_ids::Bucket::derive`]) and its sequence drawn from a block the partition leased through
 //! [`ultragraphdb_traits_blocks::BlockSource`]. Every writer of one IRI receives one ID and none is refused for it; the
 //! dictionary entries are written by every commit naming a term not yet held, so they are durable no later than the
@@ -38,7 +38,7 @@ pub use crate::types::sequences::Sequences;
 pub use crate::types::shapes::Shapes;
 pub use crate::types::statement_record::StatementRecord;
 pub use crate::types::statistics::{SKETCH_REGISTERS, Statistics};
-pub use crate::types::write_terms::{WriteTerms, namespace_base};
+pub use crate::types::write_terms::{WriteTerms, tenant_base};
 pub use crate::utils::dictionary_keys::{CONTRACT_KEY, id_key, literal_key, term_key};
 pub use crate::utils::list_objects::list_objects;
 pub use crate::utils::postings::{object_posting, posting_object};

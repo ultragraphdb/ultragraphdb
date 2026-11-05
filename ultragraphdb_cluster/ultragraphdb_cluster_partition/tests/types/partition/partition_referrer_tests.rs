@@ -125,7 +125,7 @@ fn test_an_adopted_answer_raises_the_floor_to_one_above_its_close() -> TestResul
     Ok(())
 }
 
-/// A namespace's first write names `rdf:type`, which its catalog declares: a partition not holding it gets its ID from
+/// A tenant's first write names `rdf:type`, which its catalog declares: a partition not holding it gets its ID from
 /// its home, so that first write registers it with no group; the same partition's next write registers nothing more.
 #[test]
 fn test_a_first_write_gets_rdf_type_at_its_home() -> TestResult {
@@ -133,7 +133,8 @@ fn test_a_first_write_gets_rdf_type_at_its_home() -> TestResult {
     use ultragraphdb_cluster_placement::{NodeId, PlacementMap};
     use ultragraphdb_store_quads::iri_bucket;
     let placement = PlacementMap::even(2, NodeId::new(1))?;
-    let bucket = iri_bucket(crate::utils::cluster::NS, rdf::TYPE.as_str()).context("its bucket")?;
+    let bucket =
+        iri_bucket(crate::utils::cluster::TENANT, rdf::TYPE.as_str()).context("its bucket")?;
     let home = placement
         .partition_of(bucket, crate::utils::cluster::epoch(1)?)
         .get();
@@ -155,7 +156,7 @@ fn test_a_first_write_gets_rdf_type_at_its_home() -> TestResult {
 /// registers nothing, and a graph is treated as a predicate is.
 #[test]
 fn test_a_read_of_a_foreign_predicate_gets_its_id_first() -> TestResult {
-    use crate::utils::cluster::{NS, ex};
+    use crate::utils::cluster::{TENANT, ex};
     use oxrdf::GraphName;
     let mut cluster = Cluster::even(2)?;
     let foreign = cluster.name_in(2, "knows")?;
@@ -163,16 +164,22 @@ fn test_a_read_of_a_foreign_predicate_gets_its_id_first() -> TestResult {
     let closed = cluster.closed();
     let mut refs = Vec::new();
     let part = cluster.part(1)?;
-    part.read_references(NS, &GraphName::DefaultGraph, &ex(&own), closed, &mut refs)?;
+    part.read_references(
+        TENANT,
+        &GraphName::DefaultGraph,
+        &ex(&own),
+        closed,
+        &mut refs,
+    )?;
     assert!(refs.is_empty(), "{refs:?}");
     part.read_references(
-        NS,
+        TENANT,
         &GraphName::DefaultGraph,
         &ex(&foreign),
         closed,
         &mut refs,
     )?;
-    part.read_references(NS, &ex(&foreign).into(), &ex(&own), closed, &mut refs)?;
+    part.read_references(TENANT, &ex(&foreign).into(), &ex(&own), closed, &mut refs)?;
     assert_eq!(refs.len(), 2, "a predicate and a graph: {refs:?}");
     let home = pid(2)?;
     assert!(refs.iter().all(|r| r.home() == home && r.group().is_none()));
@@ -183,7 +190,7 @@ fn test_a_read_of_a_foreign_predicate_gets_its_id_first() -> TestResult {
         .version()?;
     let mut after = Vec::new();
     cluster.part(1)?.read_references(
-        NS,
+        TENANT,
         &GraphName::DefaultGraph,
         &ex(&foreign),
         cluster.closed(),
@@ -197,7 +204,7 @@ fn test_a_read_of_a_foreign_predicate_gets_its_id_first() -> TestResult {
 /// refused cross-partition; a compare-and-set's new value, an edge from a known subject, registers as an insert does.
 #[test]
 fn test_an_operation_naming_a_foreign_node_registers_or_is_refused() -> TestResult {
-    use crate::utils::cluster::{NS, ex};
+    use crate::utils::cluster::{TENANT, ex};
     use oxrdf::GraphName;
     use ultragraphdb_cluster_partition::PartitionError;
     use ultragraphdb_store_apply::{Operation, OperationLink};
@@ -219,7 +226,7 @@ fn test_an_operation_naming_a_foreign_node_registers_or_is_refused() -> TestResu
     let refused = PartitionError::cross_partition(1, 2);
     let by_value = claim(ex(&b).into(), Vec::new());
     assert_eq!(
-        part.operation_references(&mut txn, NS, &by_value, closed, 0, &mut refs),
+        part.operation_references(&mut txn, TENANT, &by_value, closed, 0, &mut refs),
         Err(refused.clone())
     );
     let by_link = claim(
@@ -227,7 +234,7 @@ fn test_an_operation_naming_a_foreign_node_registers_or_is_refused() -> TestResu
         vec![OperationLink::from_node(ex(&p), ex(&b).into())],
     );
     assert_eq!(
-        part.operation_references(&mut txn, NS, &by_link, closed, 0, &mut refs),
+        part.operation_references(&mut txn, TENANT, &by_link, closed, 0, &mut refs),
         Err(refused)
     );
     let set = Operation::CompareAndSet {
@@ -237,7 +244,7 @@ fn test_an_operation_naming_a_foreign_node_registers_or_is_refused() -> TestResu
         expected: oxrdf::Literal::new_simple_literal("old").into(),
         new: ex(&b).into(),
     };
-    part.operation_references(&mut txn, NS, &set, closed, 0, &mut refs)?;
+    part.operation_references(&mut txn, TENANT, &set, closed, 0, &mut refs)?;
     let reference = refs.first().context("the new value's reference")?;
     assert_eq!((refs.len(), reference.group()), (1, Some(group(&a)?)));
     let _buffers = txn.abort();
@@ -299,7 +306,7 @@ fn test_a_local_statement_registers_nothing() -> TestResult {
 /// and a later edge from the group registers nothing, as of the commit's epoch and after.
 #[test]
 fn test_the_mark_and_the_copied_entries_survive_a_restart() -> TestResult {
-    use crate::utils::cluster::{NS, as_of};
+    use crate::utils::cluster::{TENANT, as_of};
     use ultragraphdb_core_ids::Version;
     let mut cluster = Cluster::even(2)?;
     let a = cluster.name_in(1, "a")?;
@@ -311,7 +318,7 @@ fn test_the_mark_and_the_copied_entries_survive_a_restart() -> TestResult {
     let held = cluster.id_at(1, &b)?.context("the copied entry")?;
     let quads = cluster.part(1)?.applier().quads();
     let read_at = as_of(at).min(quads.lists().applied_ts());
-    assert!(quads.mark(NS, held, group(&a)?, read_at)?.is_some());
+    assert!(quads.mark(TENANT, held, group(&a)?, read_at)?.is_some());
     assert!(references_of(&cluster, 1, vec![insert(&a, &knows, &b)])?.is_empty());
     assert!(
         cluster
@@ -328,7 +335,7 @@ fn test_the_mark_and_the_copied_entries_survive_a_restart() -> TestResult {
 /// mark key is in the commit's read set (partitions, "A commit under a registration reply reads its mark").
 #[test]
 fn test_a_renewal_before_a_reply_commits_conflicts() -> TestResult {
-    use crate::utils::cluster::{NS, Outcome, ex};
+    use crate::utils::cluster::{Outcome, TENANT, ex};
     use ultragraphdb_cluster_partition::Reference;
     use ultragraphdb_transactions_commit::CommitErrorEnum;
     let mut cluster = Cluster::even(2)?;
@@ -340,7 +347,7 @@ fn test_a_renewal_before_a_reply_commits_conflicts() -> TestResult {
     let of = |named| {
         Ok::<_, ultragraphdb_tool_bdd::TestError>(Reference::new(
             pid(2)?,
-            NS,
+            TENANT,
             ex(&o).as_str().to_string(),
             None,
             Some(g),
@@ -532,7 +539,7 @@ fn test_every_change_kind_registers_what_it_names() -> TestResult {
 /// A claim's graph, predicate and properties register with no group, and a counter names its graph and predicate.
 #[test]
 fn test_operations_register_what_they_name() -> TestResult {
-    use crate::utils::cluster::{NS, ex};
+    use crate::utils::cluster::{TENANT, ex};
     use oxrdf::{GraphName, Literal};
     use ultragraphdb_store_apply::{Operation, OperationLink};
     let cluster = Cluster::even(2)?;
@@ -580,7 +587,7 @@ fn test_operations_register_what_they_name() -> TestResult {
     for (operation, expected) in cases {
         let mut txn = begin(part)?;
         let mut refs = Vec::new();
-        part.operation_references(&mut txn, NS, &operation, cluster.closed(), 0, &mut refs)?;
+        part.operation_references(&mut txn, TENANT, &operation, cluster.closed(), 0, &mut refs)?;
         let found: Vec<String> = refs.iter().map(|r| r.iri().to_string()).collect();
         let mut iris: Vec<String> = expected
             .iter()

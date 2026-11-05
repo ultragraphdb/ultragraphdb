@@ -39,7 +39,7 @@ where
         &mut self,
         key: BoundKey,
         identity: [u8; 16],
-        (namespace, principal, epoch): (u64, u64, Epoch),
+        (tenant, principal, epoch): (u64, u64, Epoch),
         now_us: u64,
     ) -> Result<u64, PartitionError> {
         if self.identities.contains_key(&identity) {
@@ -48,7 +48,7 @@ where
         let buffers = self.pipeline.buffers_mut().pop().unwrap_or_default();
         let begun = self
             .partition
-            .begin(namespace, Mode::ReadWrite, 0, now_us, self.limits, buffers)?
+            .begin(tenant, Mode::ReadWrite, 0, now_us, self.limits, buffers)?
             .with_principal(principal);
         let txn = if epoch == Epoch::ZERO {
             begun
@@ -136,10 +136,10 @@ where
         let mut references = Vec::new();
         let partition = self.partition;
         let bound = self.held(key)?;
-        let namespace = bound.txn.namespace();
+        let tenant = bound.txn.tenant();
         let found = partition.operation_references(
             &mut bound.txn,
-            namespace,
+            tenant,
             &operation,
             open,
             now_us,
@@ -330,12 +330,12 @@ where
         let Some(bound) = self.bound.get_mut(&key) else {
             return false;
         };
-        let namespace = bound.txn.namespace();
+        let tenant = bound.txn.tenant();
         let Some((reference, _)) = bound.references.get(index) else {
             return false;
         };
         let unheld =
-            bound.reading && refusal.holds_no_skolem() && is_skolem(namespace, reference.iri());
+            bound.reading && refusal.holds_no_skolem() && is_skolem(tenant, reference.iri());
         if unheld {
             let _new: bool = bound.unheld.insert(reference.iri().to_string());
         }

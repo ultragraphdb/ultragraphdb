@@ -19,7 +19,7 @@ use crate::utils::quad_prefixes::declared_prefixes;
 /// vector index the build made.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Rebuild {
-    pub namespace: u64,
+    pub tenant: u64,
     pub predicate: SystemId,
     pub old: PredicateDeclaration,
     pub new: PredicateDeclaration,
@@ -32,14 +32,14 @@ pub(crate) struct Rebuild {
 impl Rebuild {
     /// The build a changeset's declaration asks for, before the changeset commits.
     pub fn pending(
-        namespace: u64,
+        tenant: u64,
         predicate: SystemId,
         old: PredicateDeclaration,
         new: PredicateDeclaration,
     ) -> Self {
         let plan = IndexPlan::of(&old, &new);
         Self {
-            namespace,
+            tenant,
             predicate,
             old,
             new,
@@ -63,8 +63,8 @@ impl Rebuild {
     /// The indexes writes maintain while the build runs, which its record names: the old declaration's and the new
     /// one's.
     pub fn maintained_prefixes(&self) -> Vec<PredicatePrefix> {
-        let mut prefixes = declared_prefixes(self.namespace, self.predicate, &self.old);
-        for p in declared_prefixes(self.namespace, self.predicate, &self.new) {
+        let mut prefixes = declared_prefixes(self.tenant, self.predicate, &self.old);
+        for p in declared_prefixes(self.tenant, self.predicate, &self.new) {
             if !prefixes.contains(&p) {
                 prefixes.push(p);
             }

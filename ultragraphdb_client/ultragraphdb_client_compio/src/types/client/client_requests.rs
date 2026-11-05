@@ -39,14 +39,14 @@ impl<C: Connect, L: Login> Client<C, L> {
         self.core.resume_session(number, next_request)
     }
 
-    /// Begins a transaction in `namespace`, read-only or read-write.
+    /// Begins a transaction in `tenant`, read-only or read-write.
     pub async fn begin(
         &mut self,
-        namespace: u64,
+        tenant: u64,
         read_only: bool,
     ) -> Result<Transaction, ClientError> {
         self.ready().await?;
-        let pending = self.core.begin(namespace, read_only, now())?;
+        let pending = self.core.begin(tenant, read_only, now())?;
         match self.settle(pending).await? {
             Reply::Begun(transaction) => Ok(transaction),
             Reply::Registered(_)
@@ -151,10 +151,10 @@ impl<C: Connect, L: Login> Client<C, L> {
         }
     }
 
-    /// `namespace`'s data dictionary.
-    pub async fn describe(&mut self, namespace: u64) -> Result<Describe, ClientError> {
+    /// `tenant`'s data dictionary.
+    pub async fn describe(&mut self, tenant: u64) -> Result<Describe, ClientError> {
         self.ready().await?;
-        let pending = self.core.describe(namespace, now())?;
+        let pending = self.core.describe(tenant, now())?;
         match self.settle(pending).await? {
             Reply::Described(describe) => Ok(describe),
             Reply::Registered(_)

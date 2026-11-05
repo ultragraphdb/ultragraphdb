@@ -59,7 +59,7 @@ impl OpenScan<'_> {
             .map_or(usize::MAX, |limit| limit.get().saturating_sub(self.rows));
         let scan = KernelScan::new(
             read.keyspace,
-            read.namespace,
+            read.tenant,
             self.from.clone(),
             self.version,
             NonZeroUsize::new(left).unwrap_or(NonZeroUsize::MIN),

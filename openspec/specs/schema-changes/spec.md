@@ -2,7 +2,7 @@
 
 ## Purpose
 Schema changes over stored data: adding and removing indexes, type changes, a failed rebuild that restores the
-previous schema and its indexes, drops and a namespace's split parts, the refusal of a request older than a drop or
+previous schema and its indexes, drops and a tenant's split parts, the refusal of a request older than a drop or
 schema change it writes under, and rollups that do not write across a drop.
 ## Requirements
 ### Requirement: Adding an index rebuilds it from existing data
@@ -74,12 +74,12 @@ complete. Dgraph restores the schema record only, after its index drops and list
 - **THEN** the schema declares `term` and every term key is present
 
 ### Requirement: Drops
-Dropping a predicate SHALL remove, in every graph of its namespace, its forward, reverse, value-index, count-index,
+Dropping a predicate SHALL remove, in every graph of its tenant, its forward, reverse, value-index, count-index,
 vector-index and statistics keys, split parts included, the statement records of its statements, and the predicate
 from the subject- and object-predicate lists that held it, and SHALL remove its catalog declaration. Dropping a graph
-SHALL remove every key of the graph. Dropping a namespace's data SHALL keep its catalog. Dropping everything in a
-namespace SHALL remove its data and catalog and write its initial catalog at timestamp 1. Dropping everything SHALL leave
-no quad key but the root namespace's initial catalog, written at timestamp 1. Every drop SHALL remove what it drops
+SHALL remove every key of the graph. Dropping a tenant's data SHALL keep its catalog. Dropping everything in a
+tenant SHALL remove its data and catalog and write its initial catalog at timestamp 1. Dropping everything SHALL leave
+no quad key but the root tenant's initial catalog, written at timestamp 1. Every drop SHALL remove what it drops
 physically. A drop SHALL not remove dictionary entries.
 
 #### Scenario: Dropping a predicate removes it from the predicate lists
@@ -95,24 +95,24 @@ physically. A drop SHALL not remove dictionary entries.
 - **THEN** no key of `<g1>` remains, and every statement of `<g2>` is still held
 
 #### Scenario: Dropping data keeps the catalog
-- **WHEN** a namespace's data is dropped
+- **WHEN** a tenant's data is dropped
 - **THEN** its predicates hold no data and its catalog is unchanged
 
-#### Scenario: Dropping a namespace's everything survives a restart
-- **WHEN** everything in namespace 3 is dropped and the store is reopened
-- **THEN** namespace 3 holds only its initial catalog
+#### Scenario: Dropping a tenant's everything survives a restart
+- **WHEN** everything in tenant 3 is dropped and the store is reopened
+- **THEN** tenant 3 holds only its initial catalog
 
 #### Scenario: Dropping everything leaves the initial catalog
 - **WHEN** everything is dropped
-- **THEN** the store holds no quad key but the root namespace's initial catalog, written at timestamp 1
+- **THEN** the store holds no quad key but the root tenant's initial catalog, written at timestamp 1
 
 ### Requirement: A namespace's data drop removes its split parts
-Dropping a namespace's data SHALL remove every key of every quad keyspace of the namespace, split parts included, in one
+Dropping a tenant's data SHALL remove every key of every quad keyspace of the tenant, split parts included, in one
 drop, and leave its catalog keys.
 
-#### Scenario: Dropping a namespace's data leaves no split part
-- **WHEN** a namespace whose lists are split has its data dropped
-- **THEN** no key of any quad keyspace of the namespace remains, split or not, and its catalog keys are unchanged
+#### Scenario: Dropping a tenant's data leaves no split part
+- **WHEN** a tenant whose lists are split has its data dropped
+- **THEN** no key of any quad keyspace of the tenant remains, split or not, and its catalog keys are unchanged
 
 ### Requirement: A rollup does not write across a drop
 A rollup that read a key before a drop covering it SHALL be discarded and write nothing. Dgraph's drops do not stop

@@ -127,65 +127,65 @@ impl<'a> Reader<'a> {
         Ok(group)
     }
 
-    /// The fields after the namespace of a key of `keyspace`.
-    fn fields(&mut self, keyspace: Keyspace, namespace: u64) -> Result<QuadKey, QuadKeyError> {
+    /// The fields after the tenant of a key of `keyspace`.
+    fn fields(&mut self, keyspace: Keyspace, tenant: u64) -> Result<QuadKey, QuadKeyError> {
         match keyspace {
             Keyspace::Catalog => Ok(QuadKey::Catalog {
-                namespace,
+                tenant,
                 kind: self.u8()?,
                 id: self.id("id")?,
             }),
             Keyspace::Forward => Ok(QuadKey::Forward {
-                namespace,
+                tenant,
                 graph: self.graph()?,
                 predicate: self.id("predicate")?,
                 subject: self.id("subject")?,
             }),
             Keyspace::Reverse => Ok(QuadKey::Reverse {
-                namespace,
+                tenant,
                 graph: self.graph()?,
                 predicate: self.id("predicate")?,
                 object: self.object()?,
             }),
             Keyspace::SubjectPredicates => Ok(QuadKey::SubjectPredicates {
-                namespace,
+                tenant,
                 graph: self.graph()?,
                 subject: self.id("subject")?,
             }),
             Keyspace::ObjectPredicates => Ok(QuadKey::ObjectPredicates {
-                namespace,
+                tenant,
                 graph: self.graph()?,
                 object: self.object()?,
             }),
-            Keyspace::ValueIndex => self.value_index(namespace),
-            Keyspace::CountIndex => self.count_index(namespace),
-            Keyspace::VectorIndex => self.vector_index(namespace),
+            Keyspace::ValueIndex => self.value_index(tenant),
+            Keyspace::CountIndex => self.count_index(tenant),
+            Keyspace::VectorIndex => self.vector_index(tenant),
             Keyspace::Statements => Ok(QuadKey::Statement {
-                namespace,
+                tenant,
                 graph: self.graph()?,
                 statement: self.id("statement ID")?,
             }),
             Keyspace::Statistics => Ok(QuadKey::Statistics {
-                namespace,
+                tenant,
                 graph: self.graph()?,
                 predicate: self.id("predicate")?,
             }),
             Keyspace::Marks => Ok(QuadKey::Mark {
-                namespace,
+                tenant,
                 entity: self.id("entity")?,
                 group: self.group()?,
             }),
             Keyspace::Referrers => Ok(QuadKey::Referrers {
-                namespace,
+                tenant,
                 entity: self.id("entity")?,
             }),
-            Keyspace::Dictionary => self.dictionary(namespace),
+            Keyspace::Dictionary => self.dictionary(tenant),
         }
     }
 
-    fn value_index(&mut self, namespace: u64) -> Result<QuadKey, QuadKeyError> {
+    fn value_index(&mut self, tenant: u64) -> Result<QuadKey, QuadKeyError> {
         Ok(QuadKey::ValueIndex {
-            namespace,
+            tenant,
             graph: self.graph()?,
             predicate: self.id("predicate")?,
             tokenizer: self.u8()?,
@@ -193,9 +193,9 @@ impl<'a> Reader<'a> {
         })
     }
 
-    fn count_index(&mut self, namespace: u64) -> Result<QuadKey, QuadKeyError> {
+    fn count_index(&mut self, tenant: u64) -> Result<QuadKey, QuadKeyError> {
         Ok(QuadKey::CountIndex {
-            namespace,
+            tenant,
             graph: self.graph()?,
             predicate: self.id("predicate")?,
             direction: self.direction()?,
@@ -204,19 +204,19 @@ impl<'a> Reader<'a> {
     }
 
     /// A dictionary key's fields: its kind byte, then a term's hash, an ID or a literal's hash.
-    fn dictionary(&mut self, namespace: u64) -> Result<QuadKey, QuadKeyError> {
+    fn dictionary(&mut self, tenant: u64) -> Result<QuadKey, QuadKeyError> {
         let entry = match self.u8()? {
             0x01 => DictionaryEntry::Term(Hash128::from_bytes(self.array::<16>()?)),
             0x02 => DictionaryEntry::Id(self.id("ID")?),
             0x03 => DictionaryEntry::Literal(Hash128::from_bytes(self.array::<16>()?)),
             kind => return Err(QuadKeyError::unknown_kind(self.key, kind)),
         };
-        Ok(QuadKey::Dictionary { namespace, entry })
+        Ok(QuadKey::Dictionary { tenant, entry })
     }
 
-    fn vector_index(&mut self, namespace: u64) -> Result<QuadKey, QuadKeyError> {
+    fn vector_index(&mut self, tenant: u64) -> Result<QuadKey, QuadKeyError> {
         Ok(QuadKey::VectorIndex {
-            namespace,
+            tenant,
             graph: self.graph()?,
             predicate: self.id("predicate")?,
             list: self.u8()?,
@@ -288,8 +288,8 @@ impl QuadKey {
             (key, None)
         };
         let mut reader = Reader { key, fields, at: 1 };
-        let namespace = reader.u64()?;
-        let parsed = reader.fields(keyspace, namespace)?;
+        let tenant = reader.u64()?;
+        let parsed = reader.fields(keyspace, tenant)?;
         let start = match (split, id_start) {
             (false, _) => None,
             (true, Some(start)) => Some(value_index_start(key, start)?),

@@ -9,13 +9,13 @@ use ultragraphdb_cluster_partition::{Home, PartitionError, Reference};
 use ultragraphdb_core_ids::{BucketGroup, Version};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
-use crate::utils::cluster::{Cluster, NS, ex, group, pid};
+use crate::utils::cluster::{Cluster, TENANT, ex, group, pid};
 
 /// A reference to `<name>`, homed in `home`, from `group`, having seen `named`, by its IRI.
 fn reference(home: u32, name: &str, group: BucketGroup, named: u64) -> TestResult<Reference> {
     Ok(Reference::new(
         pid(home)?,
-        NS,
+        TENANT,
         ex(name).as_str().to_string(),
         None,
         Some(group),
@@ -37,7 +37,7 @@ fn test_a_first_registration_creates_the_id_and_adds_the_member() -> TestResult 
     assert_eq!(answer.generation(), NonZeroU64::new(1));
     assert_eq!(answer.close(), delivered);
     let quads = cluster.part(2)?.applier().quads();
-    let set = quads.referrers(NS, held, u64::MAX)?;
+    let set = quads.referrers(TENANT, held, u64::MAX)?;
     let member = set.member(g).context("the member")?;
     assert_eq!(member.generation().get(), 1);
     assert_eq!(
@@ -57,14 +57,14 @@ fn test_a_renewal_raises_the_generation_and_a_repeat_changes_nothing() -> TestRe
     let g = group(&cluster.name_in(1, "a")?)?;
     let first = cluster.register(&reference(2, &b, g, 0)?)?;
     let quads = cluster.part(2)?.applier().quads();
-    let added = quads.referrers(NS, first.entity(), u64::MAX)?;
+    let added = quads.referrers(TENANT, first.entity(), u64::MAX)?;
     let renewed = cluster.register(&reference(2, &b, g, 1)?)?;
     assert_eq!(renewed.generation(), NonZeroU64::new(2));
     let after = cluster
         .part(2)?
         .applier()
         .quads()
-        .referrers(NS, first.entity(), u64::MAX)?;
+        .referrers(TENANT, first.entity(), u64::MAX)?;
     assert_eq!(
         after.member(g).map(|m| m.epoch()),
         added.member(g).map(|m| m.epoch()),
@@ -100,7 +100,7 @@ fn test_concurrent_registrants_share_one_id() -> TestResult {
         .part(2)?
         .applier()
         .quads()
-        .referrers(NS, held, u64::MAX)?;
+        .referrers(TENANT, held, u64::MAX)?;
     let mut groups: Vec<u32> = set.members().iter().map(|m| m.group().get()).collect();
     let mut expected = vec![g1.get(), g3.get()];
     groups.sort_unstable();
@@ -116,7 +116,7 @@ fn test_a_predicate_registration_adds_no_member() -> TestResult {
     let knows = cluster.name_in(2, "knows")?;
     let answer = cluster.register(&Reference::new(
         pid(2)?,
-        NS,
+        TENANT,
         ex(&knows).as_str().to_string(),
         None,
         None,
@@ -128,7 +128,7 @@ fn test_a_predicate_registration_adds_no_member() -> TestResult {
         .part(2)?
         .applier()
         .quads()
-        .referrers(NS, answer.entity(), u64::MAX)?;
+        .referrers(TENANT, answer.entity(), u64::MAX)?;
     assert!(set.members().is_empty());
     Ok(())
 }

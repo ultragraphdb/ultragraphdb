@@ -255,7 +255,7 @@ impl StoreModel {
             OpRecord::TemporarySnapshotOpened { id, temporary } => {
                 self.observe_temporary_snapshot(*id, *temporary);
             }
-            OpRecord::Banned { namespace } => self.observe_banned(*namespace),
+            OpRecord::Banned { tenant } => self.observe_banned(*tenant),
             OpRecord::DiscardSet { ts } => self.observe_discard_set(*ts),
             OpRecord::HorizonSet { ts } => self.observe_horizon_set(*ts),
             OpRecord::Compacted => self.observe_compacted(),
@@ -282,7 +282,7 @@ impl StoreModel {
         self.observe_repeat(record)
     }
 
-    /// The write `batch` makes, its entries to banned namespaces dropped, after checking that none of them lands
+    /// The write `batch` makes, its entries to banned tenants dropped, after checking that none of them lands
     /// below a deletion of its key.
     fn batch_op(&mut self, batch: &WriteBatch) -> Result<ModelOp, Breach> {
         for entry in batch.entries() {

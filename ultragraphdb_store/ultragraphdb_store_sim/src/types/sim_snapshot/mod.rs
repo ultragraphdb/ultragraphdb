@@ -9,7 +9,7 @@ mod sim_snapshot_store_snapshot;
 use std::sync::{Arc, Mutex};
 
 use ultragraphdb_error_store::StoreError;
-use ultragraphdb_traits_store::{Item, Scan, key_namespace};
+use ultragraphdb_traits_store::{Item, Scan, key_tenant};
 
 use crate::types::sim_store::Inner;
 use crate::types::sim_store::state::{State, decode};
@@ -90,7 +90,7 @@ impl SimSnapshot {
     }
 
     fn banned(&self, key: &[u8]) -> bool {
-        key_namespace(key).is_some_and(|ns| self.state.banned.contains(&ns))
+        key_tenant(key).is_some_and(|tenant| self.state.banned.contains(&tenant))
     }
 
     /// The newest version of `key` at or below the read timestamp, as `inner`'s corruptions leave its bytes.

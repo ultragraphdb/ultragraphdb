@@ -29,7 +29,7 @@ fn ex(name: &str) -> NamedNode {
 #[test]
 fn test_the_initial_catalog_declares_rdf_type_an_edge_and_nothing_else() -> TestResult {
     let catalog = Catalog::initial(4, id(1)?);
-    assert_eq!(catalog.namespace(), 4);
+    assert_eq!(catalog.tenant(), 4);
     assert_eq!(catalog.predicates().count(), 1);
     let declared = catalog.predicate(id(1)?).context("rdf:type is declared")?;
     assert_eq!(

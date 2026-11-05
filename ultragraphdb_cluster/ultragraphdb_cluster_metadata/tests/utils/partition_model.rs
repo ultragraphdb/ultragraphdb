@@ -34,16 +34,16 @@ impl EpochModel {
         self.delivered + 1
     }
 
-    /// The number and contents of the version of `namespace` a round of `epoch` is validated against, 0 and none for
+    /// The number and contents of the version of `tenant` a round of `epoch` is validated against, 0 and none for
     /// the initial catalog.
     pub fn validate<S: CatalogSource>(
         &self,
         source: &S,
-        namespace: u64,
+        tenant: u64,
         epoch: u64,
     ) -> Result<(u64, Vec<u8>), S::Error> {
         Ok(source
-            .version_at(namespace, epoch)?
+            .version_at(tenant, epoch)?
             .map_or((0, Vec::new()), |held| {
                 (held.version(), held.contents().to_vec())
             }))

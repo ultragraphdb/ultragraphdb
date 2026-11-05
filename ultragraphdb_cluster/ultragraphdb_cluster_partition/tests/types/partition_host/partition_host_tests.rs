@@ -10,7 +10,7 @@ use ultragraphdb_cluster_partition::{
 use ultragraphdb_cluster_placement::{NodeId, PlacementMap};
 use ultragraphdb_cluster_sequencer::Close;
 use ultragraphdb_core_ids::Version;
-use ultragraphdb_store_quads::namespace_base;
+use ultragraphdb_store_quads::tenant_base;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_transactions_txn::{TxnError, TxnErrorEnum};
 
@@ -147,7 +147,7 @@ fn test_a_resent_registration_is_idempotent() -> TestResult {
             .applier()
             .quads()
             .id_of(
-                crate::utils::cluster::NS,
+                crate::utils::cluster::TENANT,
                 crate::utils::cluster::ex(&b).as_str(),
             )?
             .context("the home holds the ID")?;
@@ -157,7 +157,7 @@ fn test_a_resent_registration_is_idempotent() -> TestResult {
             .partition()
             .applier()
             .quads()
-            .referrers(crate::utils::cluster::NS, id, u64::MAX)?;
+            .referrers(crate::utils::cluster::TENANT, id, u64::MAX)?;
         assert_eq!(
             set.member(group(&a)?).map(|m| m.generation().get()),
             Some(1),
@@ -211,10 +211,10 @@ fn test_a_homes_refusal_ends_the_write() -> TestResult {
                         .unwrap_or(0)
         })
         .map(|(range, _)| range.start())
-        .context("a bucket of partition 2 in the namespace's run")?;
+        .context("a bucket of partition 2 in the tenant's run")?;
     let forged = format!(
         "{}.well-known/genid/{bucket:06x}-{}",
-        namespace_base(crate::utils::cluster::NS),
+        tenant_base(crate::utils::cluster::TENANT),
         "1".repeat(26)
     );
     let object = oxrdf::NamedNode::new(&forged)?;
@@ -279,7 +279,7 @@ fn test_a_turn_syncs_what_was_decided_and_an_outcome_counts_its_registrations() 
     let expected = cluster.references(1, changes.clone())?.len();
     assert!(expected >= 2, "both objects are partition 2's");
     on_hosts(2, |hosts| {
-        // A first write gets what the namespace's catalog names; a second has nothing to register.
+        // A first write gets what the tenant's catalog names; a second has nothing to register.
         let _first = hosts
             .first_mut()
             .context("partition 1")?
@@ -316,7 +316,7 @@ fn test_a_bound_transactions_identity_is_held_until_it_ends() -> TestResult {
         assert_eq!(read.key(), key);
         assert_eq!(read.read_version(), read_version);
         assert_eq!(read.principal(), 9);
-        assert_eq!(read.namespace(), 0);
+        assert_eq!(read.tenant(), 0);
         assert_eq!(
             host.bind(later, identity, (0, 9, epoch(0)?), 0),
             Err(PartitionError::transaction_held(identity))
@@ -371,7 +371,7 @@ fn test_an_unheld_foreign_skolem_iri_answers_no_entry_and_leaves_a_read_open() -
     let bucket = crate::utils::cluster::bucket(&homed)?.get();
     let forged = format!(
         "{}.well-known/genid/{bucket:06x}-{}",
-        namespace_base(crate::utils::cluster::NS),
+        tenant_base(crate::utils::cluster::TENANT),
         "1".repeat(26)
     );
     let iri = oxrdf::NamedNode::new(&forged)?;

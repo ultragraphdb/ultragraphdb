@@ -35,7 +35,7 @@ use crate::utils::referrer_candidates::referrer_candidates;
 ///
 /// The changesets applied to one execution behave as one changeset holding their changes in order.
 pub struct Execution<'a, S, C, B> {
-    namespace: u64,
+    tenant: u64,
     read_ts: u64,
     write: ChangesetWrite<'a, S, C, B>,
     /// The registrations relied on as a referrer, in the order marked, one per `(entity, group)`.
@@ -47,7 +47,7 @@ pub struct Execution<'a, S, C, B> {
 impl<S, C, B> std::fmt::Debug for Execution<'_, S, C, B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Execution")
-            .field("namespace", &self.namespace)
+            .field("tenant", &self.tenant)
             .field("read_ts", &self.read_ts)
             .finish_non_exhaustive()
     }
@@ -59,9 +59,9 @@ where
     C: ListCache<Value = CachedList>,
     B: BlockSource,
 {
-    pub(crate) fn new(namespace: u64, read_ts: u64, write: ChangesetWrite<'a, S, C, B>) -> Self {
+    pub(crate) fn new(tenant: u64, read_ts: u64, write: ChangesetWrite<'a, S, C, B>) -> Self {
         Self {
-            namespace,
+            tenant,
             read_ts,
             write,
             marks: Vec::new(),
@@ -69,9 +69,9 @@ where
         }
     }
 
-    /// The namespace the execution writes.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant the execution writes.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// The version the execution reads at.
@@ -91,7 +91,7 @@ where
     ///
     /// # Errors
     ///
-    /// The changeset's refusal. The changeset's namespace is not checked: its changes are written in the execution's.
+    /// The changeset's refusal. The changeset's tenant is not checked: its changes are written in the execution's.
     pub fn apply<W: Changes>(&mut self, changes: &W) -> Result<(), ChangesetError> {
         self.write.apply(changes)
     }
@@ -271,7 +271,7 @@ where
         let quads = self.write.quads();
         let outcome = self.write.finish(None)?;
         let reads = reads_of(
-            self.namespace,
+            self.tenant,
             &outcome.request,
             &outcome.terms,
             &self.marks_read,
@@ -289,12 +289,11 @@ where
             request.add_versionless(key, value);
         }
         for marked in &self.marks {
-            request.add_entry(mark_entry(self.namespace, marked));
+            request.add_entry(mark_entry(self.tenant, marked));
         }
         let writes = request.into_writes();
         let referrers =
-            match referrer_candidates(quads, self.namespace, self.read_ts, &writes, &outcome.terms)
-            {
+            match referrer_candidates(quads, self.tenant, self.read_ts, &writes, &outcome.terms) {
                 Ok(referrers) => referrers,
                 Err(e) => {
                     // The execution will not commit: its terms are released once, as a failed derivation's are.
@@ -316,7 +315,7 @@ where
             removals: outcome.removals,
             marks: self.marks,
             referrers,
-            ..Executed::empty(self.namespace, self.read_ts, outcome.catalog)
+            ..Executed::empty(self.tenant, self.read_ts, outcome.catalog)
         })
     }
 }

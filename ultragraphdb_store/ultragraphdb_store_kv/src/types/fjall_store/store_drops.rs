@@ -8,7 +8,7 @@ use std::sync::atomic::Ordering;
 
 use fjall::Readable;
 use ultragraphdb_error_store::StoreError;
-use ultragraphdb_traits_store::{PersistMode, WriteBatch, key_namespace};
+use ultragraphdb_traits_store::{PersistMode, WriteBatch, key_tenant};
 
 use crate::types::drop_record::DropRecord;
 use crate::types::drop_stage::DropStage;
@@ -77,7 +77,7 @@ impl Shared {
         record
             .entries
             .iter()
-            .filter(|e| key_namespace(e.key()).is_none_or(|ns| !banned.contains(&ns)))
+            .filter(|e| key_tenant(e.key()).is_none_or(|tenant| !banned.contains(&tenant)))
             .for_each(|e| {
                 batch.insert(
                     &self.data,
@@ -134,7 +134,7 @@ impl Shared {
         Ok(())
     }
 
-    /// A drop of everything clears the applied timestamp, the banned namespaces, the discard timestamp, the
+    /// A drop of everything clears the applied timestamp, the banned tenants, the discard timestamp, the
     /// tombstone horizon and the rebuild records.
     fn reset_meta(&self) -> Result<(), StoreError> {
         let mut batch = self.batch(PersistMode::Buffer);

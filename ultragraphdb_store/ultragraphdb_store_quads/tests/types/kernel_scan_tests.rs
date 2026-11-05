@@ -11,11 +11,11 @@ use ultragraphdb_store_quads::KernelScan;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
 #[test]
-fn test_a_scan_holds_its_request_and_ends_at_the_namespace_unless_bounded() -> TestResult {
+fn test_a_scan_holds_its_request_and_ends_at_the_tenant_unless_bounded() -> TestResult {
     let limit = NonZeroUsize::new(5).context("5 is no zero")?;
     let scan = KernelScan::new(Keyspace::Reverse, 3, vec![0x11, 9], 40, limit);
     assert_eq!(scan.keyspace(), Keyspace::Reverse);
-    assert_eq!(scan.namespace(), 3);
+    assert_eq!(scan.tenant(), 3);
     assert_eq!(scan.from(), &[0x11, 9]);
     assert_eq!(scan.end(), None);
     assert_eq!(scan.version(), 40);

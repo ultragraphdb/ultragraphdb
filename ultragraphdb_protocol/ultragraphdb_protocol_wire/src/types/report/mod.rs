@@ -20,7 +20,7 @@ use crate::types::term_table::TermTable;
 /// |---|---|---|
 /// | 0 | `partition` | u32, at least 1 |
 /// | 4 | `kind` | u8, a [`ReportKind`] |
-/// | 8 | `namespace` | u64 |
+/// | 8 | `tenant` | u64 |
 /// | 16 | `version` | u64: the catalog version reported on, at least 1 |
 ///
 /// | Section | Contents |
@@ -31,18 +31,18 @@ use crate::types::term_table::TermTable;
 pub struct Report {
     partition: u32,
     kind: ReportKind,
-    namespace: u64,
+    tenant: u64,
     version: u64,
     terms: TermTable,
 }
 
 impl Report {
-    /// `partition`'s report that catalog `version` of `namespace`'s type change passed its check.
-    pub fn passed(partition: u32, namespace: u64, version: u64) -> Self {
+    /// `partition`'s report that catalog `version` of `tenant`'s type change passed its check.
+    pub fn passed(partition: u32, tenant: u64, version: u64) -> Self {
         Self {
             partition,
             kind: ReportKind::Passed,
-            namespace,
+            tenant,
             version,
             terms: TermTable::new(),
         }
@@ -53,7 +53,7 @@ impl Report {
     /// cannot name, or a literal the term table refuses.
     pub fn refused(
         partition: u32,
-        namespace: u64,
+        tenant: u64,
         version: u64,
         predicate: &str,
         at_fault: RequestTerm,
@@ -62,15 +62,15 @@ impl Report {
         if matches!(at_fault, RequestTerm::Triple { .. }) {
             return Err(refusal);
         }
-        let mut report = Self::build_failed(partition, namespace, version, predicate);
+        let mut report = Self::build_failed(partition, tenant, version, predicate);
         report.kind = ReportKind::Refused;
         let _at_fault: u32 = report.terms.intern(at_fault).map_err(|_| refusal)?;
         Ok(report)
     }
 
     /// `partition`'s report that `version`'s index build of `predicate` failed.
-    pub fn build_failed(partition: u32, namespace: u64, version: u64, predicate: &str) -> Self {
-        let mut report = Self::passed(partition, namespace, version);
+    pub fn build_failed(partition: u32, tenant: u64, version: u64, predicate: &str) -> Self {
+        let mut report = Self::passed(partition, tenant, version);
         report.kind = ReportKind::BuildFailed;
         let _predicate: u32 = report.terms.iri(predicate);
         report
@@ -86,9 +86,9 @@ impl Report {
         self.kind
     }
 
-    /// The namespace.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// The catalog version reported on.

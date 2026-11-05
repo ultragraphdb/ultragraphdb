@@ -11,7 +11,7 @@ mod default_entry_body_builder;
 ///
 /// | Command header | Field | Type |
 /// |---|---|---|
-/// | 0 | `namespace` | u64 |
+/// | 0 | `tenant` | u64 |
 /// | 8 | `found` | u8 boolean: 0 in a request |
 ///
 /// | Section | Contents |
@@ -20,16 +20,16 @@ mod default_entry_body_builder;
 /// | 1 | the term table's text |
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DefaultEntry {
-    namespace: u64,
+    tenant: u64,
     found: bool,
     predicate: String,
 }
 
 impl DefaultEntry {
-    /// The request recording the default entry of `predicate` in `namespace`.
-    pub fn request(namespace: u64, predicate: impl Into<String>) -> Self {
+    /// The request recording the default entry of `predicate` in `tenant`.
+    pub fn request(tenant: u64, predicate: impl Into<String>) -> Self {
         Self {
-            namespace,
+            tenant,
             found: false,
             predicate: predicate.into(),
         }
@@ -41,9 +41,9 @@ impl DefaultEntry {
         self
     }
 
-    /// The namespace.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// Whether the record already existed; false in a request.

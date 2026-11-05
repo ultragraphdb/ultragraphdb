@@ -155,7 +155,7 @@ fn test_a_cycle_closed_through_a_parent_not_yet_declared_is_refused() -> TestRes
     Ok(())
 }
 
-/// A catalog of namespace 0 loaded from a store holding `types`, each `(uid, name, parent)`, written as entries.
+/// A catalog of tenant 0 loaded from a store holding `types`, each `(uid, name, parent)`, written as entries.
 fn loaded(types: &[(u64, &str, Option<&str>)]) -> TestResult<Catalog> {
     let store = SimStore::new(Seed::new(3), FaultConfig::none(), SimClock::new());
     let mut batch = WriteBatch::new();

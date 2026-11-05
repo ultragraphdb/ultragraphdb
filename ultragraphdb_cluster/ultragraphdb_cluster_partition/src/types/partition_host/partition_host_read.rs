@@ -39,7 +39,7 @@ where
             key,
             bound.txn.read_version(),
             bound.txn.principal(),
-            bound.txn.namespace(),
+            bound.txn.tenant(),
         ))
     }
 
@@ -64,7 +64,7 @@ where
         if !bound.references.is_empty() {
             return Ok(BoundStep::Waiting);
         }
-        let namespace = bound.txn.namespace();
+        let tenant = bound.txn.tenant();
         let mut references = Vec::new();
         let found = iris
             .iter()
@@ -73,7 +73,7 @@ where
             })
             .try_for_each(|iri| {
                 partition.read_references(
-                    namespace,
+                    tenant,
                     &GraphName::DefaultGraph,
                     iri,
                     open,

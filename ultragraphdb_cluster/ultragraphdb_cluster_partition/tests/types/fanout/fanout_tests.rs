@@ -8,7 +8,7 @@ use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::Graph;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
-use crate::utils::cluster::{Cluster, NS, epoch, insert, pid};
+use crate::utils::cluster::{Cluster, TENANT, epoch, insert, pid};
 
 /// `<a>` in partition 1 and `<c>` in partition 3 hold `knows` to `<b>`, homed in partition 2, the epoch closed: the
 /// cluster and the names.
@@ -31,7 +31,7 @@ fn query(cluster: &Cluster, names: &[String; 4]) -> TestResult<ReverseQuery> {
     let predicate = cluster.id_at(1, knows)?.context("knows's ID")?;
     Ok(ReverseQuery::new(
         pid(2)?,
-        NS,
+        TENANT,
         Graph::Default,
         predicate,
         home,
@@ -87,13 +87,13 @@ fn test_a_lagging_partition_fails_the_read_naming_it() -> TestResult {
     Ok(())
 }
 
-/// A lookup by count asks the partitions of the namespace's run alone: one holding only ranges beside the run may lag,
+/// A lookup by count asks the partitions of the tenant's run alone: one holding only ranges beside the run may lag,
 /// and a partition of the run that lags fails it, naming that partition.
 #[test]
 fn test_a_lookup_by_count_waits_on_the_run_and_nothing_beside_it() -> TestResult {
-    use ultragraphdb_cluster_placement::{NamespaceRun, NodeId, PlacementMap};
-    use ultragraphdb_core_ids::{Epoch, Namespace};
-    let run = NamespaceRun::of(Namespace::new(NS)).range();
+    use ultragraphdb_cluster_placement::{NodeId, PlacementMap, TenantRun};
+    use ultragraphdb_core_ids::{Epoch, Tenant};
+    let run = TenantRun::of(Tenant::new(TENANT)).range();
     let mut placement = PlacementMap::even(2, NodeId::new(1))?;
     let at = epoch(2)?;
     let mut layout = Vec::new();
@@ -111,7 +111,7 @@ fn test_a_lookup_by_count_waits_on_the_run_and_nothing_beside_it() -> TestResult
         let mut found = Vec::new();
         Fanout::new(cluster.parts())
             .with_closed(closed)
-            .reverse_counted(NS, Graph::Default, predicate, 1, at, &mut found)
+            .reverse_counted(TENANT, Graph::Default, predicate, 1, at, &mut found)
     };
     lookup(vec![at, Epoch::ZERO])?;
     assert_eq!(

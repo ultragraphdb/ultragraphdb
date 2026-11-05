@@ -13,7 +13,7 @@ use crate::types::drop_kind::DropKind;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DropCommandView<'a> {
     kind: DropKind,
-    namespace: u64,
+    tenant: u64,
     target: Option<&'a str>,
     session: [u8; 16],
     request: u64,
@@ -27,9 +27,9 @@ impl<'a> DropCommandView<'a> {
         self.kind
     }
 
-    /// The namespace the drop applies to.
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The tenant the drop applies to.
+    pub fn tenant(&self) -> u64 {
+        self.tenant
     }
 
     /// The IRI of the predicate or graph dropped; `None` for the other kinds.
