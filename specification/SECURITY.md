@@ -13,7 +13,7 @@ reasoning and its check against Dgraph's ACL are in `openspec/notes/security.md`
 | Fail closed | An action, scope or capability the authorizer does not know is denied |
 | Complete mediation | Every read and write is checked where the store is read or written, never by rewriting a request |
 | Current state | Authorization uses the grants as they stand; a revocation holds from its epoch on |
-| Least privilege | Administering the cluster grants no access to a namespace's data |
+| Least privilege | Administering the cluster grants no access to a tenant's data |
 | Standard mechanisms | SASL, SCRAM, OAuth bearer tokens, OpenID Connect and TLS 1.3; no cryptography of the protocol's own |
 | Credentials as verifiers, secrets out of logs | The store keeps a password only as its SCRAM verifier; no password, token or authentication message reaches a log or an error |
 
@@ -41,8 +41,13 @@ A principal is an identity the server authenticates: a person, or a service.
 | `enabled` | a disabled principal authenticates no more |
 | roles | the roles granted to it |
 
-Principals are cluster-wide and live in the metadata group, which every frontend authenticates against. A tenant is a
-namespace, and a tenant's principals hold grants in their namespace only.
+Principals are cluster-wide and live in the metadata group, which every frontend authenticates against. A tenant isolates;
+a namespace organises. A tenant is the engine's unit of isolation, one catalog of numbered versions, one run of buckets and the
+grants of its principals; a namespace is a unit of organisation inside it, one schema source installed in it with its graphs
+(`SCHEMA.md`, section 1), and has no field in any key, bucket, ID or frame. A principal may hold grants in several tenants, and
+a connection's transactions may act in several, each bound at its Begin; every request acts in one. Nothing reads, writes or
+names across tenants; the cluster scope alone reaches over them, for backup and export. Tenants may share a bucket run, of which
+there are at most 256: isolation is by key and by grant, not by resource.
 
 The **bootstrap administrator** is the metadata group's first principal, created at the cluster's first start from a
 password the operator supplies in a secret file the configuration names, and holds `cluster_admin`. The frontend reads
@@ -124,7 +129,8 @@ connection with code 22: its open transactions abort, and its sessions carry ove
 ### Failures
 
 - A failed authentication says nothing of what failed, and takes as long for an unknown principal as for a known one:
-  the server answers an unknown name with a verifier derived from a server secret.
+  the server answers an unknown name with a verifier derived from a secret the metadata group draws at the cluster's first
+  start and holds durably, so every core and restart, and from stage 8 every frontend, answers one name with one salt.
 - Failed attempts are throttled per principal and per source address, with a growing delay. After 100 consecutive
   failures (NIST SP 800-63B-4), a principal's authentications are refused from every source for a configured interval,
   15 minutes by default, and a success resets the count. The interval ends on its own, so an attacker cannot lock an
@@ -180,40 +186,46 @@ A privilege is an action on a scope. The action's number is the `detail` of a re
 | Action | Number | Allows |
 |---|---|---|
 | `read` | 1 | reading statements and their properties, and seeing declarations in Describe |
-| `write` | 2 | Write, Operation and Commit of statements |
+| `write` | 2 | Write, Operation, DirectWrite, ConditionalWrite and Commit of statements |
 | `declare` | 3 | declarations: predicates, entity types, relations, indexes |
 | `drop` | 4 | the Drop command |
-| `admin` | 5 | at a namespace: its roles, their grants to principals, and the group mappings onto its roles; at the cluster: also principals and trusted issuers |
-| `operate` | 6 | cluster operations: creating and removing namespaces, backup, restore, export |
+| `admin` | 5 | at a tenant: its roles, their grants to principals, and the group mappings onto its roles; at the cluster: also principals and trusted issuers |
+| `operate` | 6 | cluster operations: creating and removing tenants, backup, restore, export |
 
 | Scope | Covers |
 |---|---|
-| cluster | every namespace, and the cluster's own administration |
-| namespace | one namespace: every graph and predicate in it |
-| graph | one named graph of a namespace |
-| predicate | one predicate of a namespace, in every graph |
+| cluster | every tenant, and the cluster's own administration; its operations, backup and export among them, are what reaches over tenants |
+| tenant | one tenant: every namespace, graph and predicate in it |
+| namespace | one namespace of a tenant: its graphs and predicates, from stage 6 |
+| graph | one named graph of a tenant |
+| predicate | one predicate of a tenant, in every graph |
 
 A privilege at a scope covers every scope inside it.
 
 | Built-in role | Privileges |
 |---|---|
-| `cluster_admin` | `admin` and `operate` at cluster scope, and no data of any namespace unless also granted it |
-| `owner`, per namespace | every action in the namespace |
-| `writer`, per namespace | `read` and `write` |
-| `reader`, per namespace | `read` |
+| `cluster_admin` | `admin` and `operate` at cluster scope, and no data of any tenant unless also granted it |
+| `owner`, per tenant | every action in the tenant |
+| `writer`, per tenant | `read` and `write` |
+| `reader`, per tenant | `read` |
 
 ### Enforcement
 
-When a transaction begins, the principal's privileges in its namespace resolve into an **access** value: the predicates
-and graphs it may read and write, with the roles its token's groups map to. The worker consults it at each read and
-write of the store. A request's namespace authorizes nothing; the grants do.
+Every request naming a tenant, Begin, Prepare, Describe, Drop, DirectWrite and ConditionalWrite, passes one gate at the
+frontend before it reaches another role or any state; a request it passes naming a tenant the metadata group does not hold
+is refused there (`PROTOCOL.md` §11.10). When a transaction begins, the principal's privileges in its tenant resolve into an
+**access** value: the predicates and graphs it may read and write, with the roles its token's groups map to. A partition
+consults it at each read and write of its store, for the principal the Bind, the Scan or the one-frame write names; compute,
+which holds no store, passes the principal on in each Scan and consults nothing itself. A request's tenant authorizes nothing;
+the grants do.
 
 | Request | Check |
 |---|---|
-| Begin, Prepare | any privilege in the namespace |
+| Begin, Prepare | any privilege in the tenant |
 | Read, Execute | a statement the principal may not read is absent: a pattern naming a predicate or graph it may not read matches nothing, and one leaving it unbound returns no row of it. Refusing would tell the principal the data exists |
-| Describe | only the declarations the principal may read; the schema id hashes what the principal sees |
+| Describe | any privilege in the tenant; only the declarations the principal may read; the schema id hashes what the principal sees |
 | Write, Operation | `write` on each predicate and graph written; refused with code 21, ending the transaction |
+| DirectWrite, ConditionalWrite | `write` on each predicate and graph written; refused with code 21 |
 | Write's declarations | `declare` |
 | Commit | the transaction's writes, already checked; the security epoch (below) |
 | Drop | `drop` on the scope dropped |
@@ -229,7 +241,7 @@ knowing that.
 ### The security catalog and revocation
 
 Principals, their credentials and external identities, roles, grants, trusted issuers and their group mappings form the
-security catalog. It lives in the metadata group, outside every namespace, so no namespace drop removes it. It changes
+security catalog. It lives in the metadata group, outside every tenant, so no tenant's drop removes it. It changes
 only through the metadata group's commands, so each change is logged, replayed on recovery and replicated as the
 group's every command is.
 
@@ -319,11 +331,12 @@ output before starting a service from the folder.
 | Verifying a principal's proof in the metadata group, from stage 8 | §13.8, §13.9 |
 | Error codes 19 AuthenticationFailed, 20 Unauthenticated, 21 PermissionDenied with its action, 22 CredentialExpired | §9.4 |
 | A session's owner, its random identity and the owner check | §6.1, §11.5 |
-| The Drop command and its privilege | §6.5, §11.13 |
+| The Drop command and its privilege, per tenant | §6.5, §11.13 |
 | The authentication timeout and the connection bound | §11.1, §11.9 |
 | Absent reads and refusals | §11.10 |
 | Statements per connection, schema ids per principal | §8.1, §8.3, §11.7 |
-| `principal` in the write-set record, and in role commands acting for a client | §12.2, §13.10, §13.12, §13.13 |
+| `principal` in the write-set record, and in role commands acting for a client | §6.6, §12.2, §13.10, §13.12, §13.13 |
+| Tenants: what a tenant is, explicit creation, the gate on every request naming one | §1, §11.10, §11.13, §13.10 |
 | Epochs, from which catalog versions and security changes take effect | §11.12, §13.4 |
 | The frame sequence | §2.1, §2.5, §11.2 |
 
@@ -332,9 +345,9 @@ output before starting a service from the folder.
 | Stage | What |
 |---|---|
 | Stage 5, the protocol block | The bytes above in the wire, the transport and the Rust client: Authenticate and re-authentication, the error codes, `principal` in the write-set record and the session entry, a session's owner; `SCRAM-SHA-256` in the client and the client's test server |
-| Stage 5.5, the frontend | The client endpoint: TLS 1.3 from the first byte with the server's certificate and key, or clear text with `plaintext = true`, and the client shells verifying the server's certificate; inside it, the exchange with `SCRAM-SHA-256` against the principals the metadata group holds, required of every connection, a request before it refused while the connection stays open; the password rules, failures answered alike and throttled, the authentication timeout, the connection bound and the audit of authentication; principals and the bootstrap administrator in the metadata group, which a cluster without a principal answers by refusing every connection; sessions registered there with their principal and checked before routing, evicted by the registry alone; the authorizer, holding every privilege for an authenticated principal and failing closed on what it does not know |
+| Stage 5.5, the frontend | The client endpoint: TLS 1.3 from the first byte with the server's certificate and key, or clear text with `plaintext = true`, and the client shells verifying the server's certificate; inside it, the exchange with `SCRAM-SHA-256` against the principals the metadata group holds, required of every connection, a request before it refused while the connection stays open; the password rules, failures answered alike and throttled, the authentication timeout, the connection bound and the audit of authentication; principals and the bootstrap administrator in the metadata group, which a cluster without a principal answers by refusing every connection; sessions registered there with their principal and checked before routing, evicted by the registry alone; tenants created explicitly, tenant 0 by the cluster's first start, a number the metadata group does not hold refused at the frontend and at Bind; the authorizer, one gate on every request naming a tenant, holding every privilege for an authenticated principal and failing closed on what it does not know, which stage 7's grants fill in |
 | Stage 5.5, between roles | The role secret: `SCRAM-SHA-256` against it on every role connection, each role verifying its peer locally, refused on the client endpoint as a wrong password is; role connections in clear text; Unix sockets of user 65532 with mode 0600 in the development container |
-| Stage 7 | The rest of the security catalog, in the metadata group: external identities, roles, grants, trusted issuers and group mappings, the security epoch; enforcement through the access value; Describe filtered; the administration commands and their audit |
+| Stage 7 | The rest of the security catalog, in the metadata group: external identities, roles, grants, in as many tenants as a principal is given, trusted issuers and group mappings, the security epoch; enforcement through the access value; Describe filtered; the administration commands, creating and removing a tenant among them, and their audit |
 | Stage 8 | TLS between roles, with certificates per role; `SCRAM-SHA-256-PLUS`; `OAUTHBEARER` and single sign-on; `EXTERNAL`; replica certificates; Challenge and Verify between frontends and the metadata group's host |
 
 ## Standards

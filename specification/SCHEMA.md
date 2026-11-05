@@ -955,7 +955,9 @@ abstract statement Asserted : Statement @bitemporal(valid: valid) {
 2. **An update is a revision.** A write that changes an instance's attributes or an optional or set-valued role
    closes the current version's `asserted` at the commit and opens a new version of the same instance, with the same
    identity, key and handle, so `believed at $t` reads the version current at `$t` and the live slice reads the
-   newest; SQL:2011's system-versioned update. Every version is retained as section 8.4's history retention states.
+   newest. The engine already stamps every write with a commit version and resolves an instant to an epoch; a
+   revision is one more version of the same instance, kept for the type's whole history rather than the retention
+   window, so the statement every edge, pointer and handle names stays the same statement.
    A correction that must not keep the identity is a retraction plus a new instance. A key attribute, an `@immutable`
    attribute and a required role stay as section 8.2 holds them; an `@append_only` type admits no revision
    (`UGS1013`).
@@ -1426,6 +1428,7 @@ either encoding (section 6.4).
 | Edge-encoded `@multi` relation | One asserted triple; one reifier per instance |
 | `@symmetric` relation | An `owl:SymmetricProperty` |
 | Node-encoded relation | A class `{base}{Relation}` with one property `{base}{Relation}_{role}` per role; the instance a node of that class |
+| Navigation name of a node-encoded relation | A derived object property `{base}{nav}`, `owl:propertyChainAxiom` over the inverse of the gaining role's property and the reached role's property, one triple per instance, answered by the query core and never stored or written |
 | Relation subtype | `rdfs:subClassOf` between relation classes; an instance has `rdf:type` of its type and supertypes |
 | Specialized role | `{base}{Rel}_{role} rdfs:subPropertyOf {base}{Super}_{superrole}`; the super role's triple is answered from the specialized one |
 | Optional or set-valued role | The role triple absent, or several |
@@ -1456,6 +1459,7 @@ checks, `sh:class` and `sh:or` for roles and unions, and `sh:sparql` for keys an
 | Statement type | A label on nodes and relation nodes alike |
 | Edge-encoded relation | An edge type from the anchor's label to the other's, directed; properties for the attributes; a `@symmetric` relation an undirected edge type. A relation whose instances fill roles is presented as a relation node with one edge per role, since a GQL edge cannot be an endpoint: the view follows the encoding and never decides it |
 | Node-encoded relation | A node type for the relation and one edge type per role, labelled with the role and, for a specialized role, the super role too; `rdf:type` and the labels are answered from the reifier's or node's prefix alike |
+| Navigation name of a node-encoded relation | A derived, directed, read-only edge type from the participant that gains the name to the participant the name reaches, with no properties and no element id, answered by the query core from the two role edges |
 | Union role | A label expression `A\|B\|C` |
 | Enum | `STRING` with a value check |
 | `@bitemporal` | `asserted` and the valid interval as `RECORD` properties |
@@ -1599,18 +1603,14 @@ and reports it as unenforced (`UGS0902`).
 
 ## 15. What this specification asks of the others
 
-- **`PROTOCOL.md`.** (1) A command or change-record kind that installs sources: the tenant, the version built on,
-  and the sources' names and text, committing through the metadata group as section 11.13's declarations do, with the
-  reply carrying the version, its epoch and the report, or the diagnostics. (2) Describe extended with record kinds for
-  the catalog entries of section 10.2 and the sources, so the schema id covers them. (3) Error code 7's `detail` and
-  message carrying the UGS refusal number of section 8.7 and the instance's IRI or quad; `EntityDeleted` for a write
-  naming a tombstoned entity. (4) Reference (526) in a get-only mode that creates no ID and answers an entity's status
-  (absent, live, deleted) and its type prefix, for participant checks. (5) The datatypes `ugdb:bfloat16vector`,
-  `ugdb:measure` and `ugdb:precision` in section 10.4's table. (6) The Purge command of section 8.8. (7) An entity
-  delete writing a tombstone, as P24 rule 8 states. (8) A handle IRI accepted as a name when the dictionary holds it,
-  as a skolem IRI is.
-- **`tokenizers`, `index-maintenance`.** A `measure` tokenizer indexing a `ugdb:measure` literal by its value in the
-  kind's canonical unit, read from the catalog; the count index serving relation cardinalities.
+- **`PROTOCOL.md`.** Carried as of 2026-11-05: Install (section 8.4 there) installs sources and answers the version,
+  its epoch and the report, or code 28 with the diagnostics; code 7 carries a schema refusal's number at commit. Still
+  asked: (1) Describe extended with record kinds for the catalog entries of section 10.2 and the sources, so the schema
+  id covers them; (2) `EntityDeleted` for a write naming a tombstoned entity; (3) Reference (526) in a get-only mode
+  that creates no ID and answers an entity's status (absent, live, deleted) and its type prefix, for participant
+  checks; (4) the datatypes `ugdb:bfloat16vector`, `ugdb:measure` and `ugdb:precision` in section 10.4's table; (5)
+  the Purge command of section 8.8; (6) an entity delete writing a tombstone, as P24 rule 8 states; (7) a handle IRI
+  accepted as a name when the dictionary holds it, as a skolem IRI is.
 - **`SECURITY.md`.** Installing a schema takes `declare` on the tenant; a purge takes a new action `purge` (7) at
   tenant scope, held by the built-in `owner` role, and is an audit event naming the principal and the purge epoch.
   The scopes become cluster, tenant, namespace, graph and predicate, a namespace scope covering its graphs and
@@ -1779,6 +1779,7 @@ counterparty.
 | A subrelation's anchor | A subrelation may declare its own `@colocate`; inherited constraints anchored elsewhere become non-anchor constraints for that kind, which the report states (the exercise's G1): DeepBrain's `Hierarchy` and `LiveUnit` need it |
 | A keyed relation's home | Its key's bucket, as an entity's, and no `@colocate`: one rule for where an instance lives, derivable from its IRI (the exercise's G2) |
 | Index writes in the report | Counted per write operation (the exercise's G4) |
+| Navigation edges | A node-encoded relation's navigation names are derived one-hop edges in both views, read-only, so a quantified edge or a property path walks a relation node as it walks an edge; what makes DeepBrain's tree walks expressible in the query cores (`QUERY-GQL-CORE.md`, `QUERY-SPARQL-CORE.md`, 2026-11-05) |
 | Tenant and namespace | Decided 2026-11-05: a tenant isolates, with nothing read, written or named across tenants; a namespace organises inside a tenant, one `schema` with its graphs, as a PostgreSQL schema inside a database. The engine's u64 is the tenant; the UGS declaration of a vocabulary base is `prefix`, since `namespace` now names the unit |
 | `rdf:type` of declared types | Answered from the type prefix; no stored quad |
 | `Iri` and enum values | Literals (`xsd:anyURI`, `xsd:string`), so a value creates no entity, no referrer set and no registration; the note's "IRI term" and "one IRI per member" are kept as vocabulary, not as object terms |
