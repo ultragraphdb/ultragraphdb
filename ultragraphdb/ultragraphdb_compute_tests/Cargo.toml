@@ -1,0 +1,36 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+[package]
+name = "ultragraphdb_compute_tests"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+readme.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "The compute binary as a process, end to end, with no container"
+publish.workspace = true
+autotests = false
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+compio = { workspace = true }
+cucumber = { workspace = true }
+futures = { workspace = true }
+service_utils = { workspace = true }
+ultragraphdb_common_role = { workspace = true }
+ultragraphdb_protocol_transport = { workspace = true }
+ultragraphdb_protocol_wire = { workspace = true }
+ultragraphdb_tests = { workspace = true }
+ultragraphdb_tool_bdd = { workspace = true }
+
+[[test]]
+name = "bdd"
+path = "tests/bdd.rs"
+harness = false

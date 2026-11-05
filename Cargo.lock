@@ -3096,6 +3096,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ultragraphdb_compute_tests"
+version = "0.1.0"
+dependencies = [
+ "compio",
+ "cucumber",
+ "futures",
+ "service_utils",
+ "ultragraphdb_common_role",
+ "ultragraphdb_protocol_transport",
+ "ultragraphdb_protocol_wire",
+ "ultragraphdb_tests",
+ "ultragraphdb_tool_bdd",
+]
+
+[[package]]
 name = "ultragraphdb_config"
 version = "0.1.0"
 dependencies = [
@@ -3343,6 +3358,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "ultragraphdb_frontend_tests"
+version = "0.1.0"
+dependencies = [
+ "compio",
+ "cucumber",
+ "futures",
+ "service_utils",
+ "ultragraphdb_client_compio",
+ "ultragraphdb_common_role",
+ "ultragraphdb_protocol_scram",
+ "ultragraphdb_protocol_transport",
+ "ultragraphdb_protocol_wire",
+ "ultragraphdb_tests",
+ "ultragraphdb_tool_bdd",
+]
+
+[[package]]
 name = "ultragraphdb_protocol_scram"
 version = "0.1.0"
 dependencies = [
@@ -3432,6 +3464,28 @@ dependencies = [
  "ultragraphdb_traits_blocks",
  "ultragraphdb_transactions_commit",
  "ultragraphdb_transactions_log",
+]
+
+[[package]]
+name = "ultragraphdb_storage_tests"
+version = "0.1.0"
+dependencies = [
+ "compio",
+ "cucumber",
+ "futures",
+ "service_utils",
+ "sha2",
+ "ultragraphdb_cluster_placement",
+ "ultragraphdb_common_role",
+ "ultragraphdb_common_service",
+ "ultragraphdb_core_ids",
+ "ultragraphdb_protocol_transport",
+ "ultragraphdb_protocol_wire",
+ "ultragraphdb_store_quads",
+ "ultragraphdb_tests",
+ "ultragraphdb_tool_bdd",
+ "ultragraphdb_transport_http_client",
+ "ultragraphdb_transport_tls",
 ]
 
 [[package]]
@@ -3568,21 +3622,11 @@ dependencies = [
  "compio",
  "cucumber",
  "futures",
- "oxrdf",
  "service_utils",
- "sha2",
- "ultragraphdb_client_compio",
- "ultragraphdb_cluster_placement",
  "ultragraphdb_common_role",
- "ultragraphdb_common_service",
- "ultragraphdb_core_ids",
- "ultragraphdb_protocol_scram",
  "ultragraphdb_protocol_transport",
  "ultragraphdb_protocol_wire",
- "ultragraphdb_store_quads",
  "ultragraphdb_tool_bdd",
- "ultragraphdb_transport_http_client",
- "ultragraphdb_transport_tls",
 ]
 
 [[package]]

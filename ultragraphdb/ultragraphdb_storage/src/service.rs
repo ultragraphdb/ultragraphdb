@@ -3,10 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 use std::time::Instant;
 
 use compio::runtime::spawn;
@@ -26,8 +23,8 @@ use ultragraphdb_common_role::{
 use ultragraphdb_common_service::{Readiness, RoleKind, RoleStart, Stopping, core_runtime};
 use ultragraphdb_common_service_config::{ServiceConfig, partition_address};
 use ultragraphdb_common_storage::{
-    CoreMessage, CoreParts, FrontendAsk, PartitionCore, Peers, RefillBlocks, StorageHost,
-    StoragePartition, StorageSession,
+    CoreChannels, CoreMessage, CoreParts, FrontendAsk, PartitionCore, Peers, RefillBlocks,
+    StorageHost, StoragePartition, StorageSession,
 };
 use ultragraphdb_core_ids::{Epoch, Namespace, TypePrefix, Version};
 use ultragraphdb_core_mapping::RandomSource;
@@ -319,14 +316,12 @@ async fn serve_partition(
     let (asks_tx, asks) = unbounded();
     let (closes_tx, closes) = std::sync::mpsc::channel();
     let (answers_tx, answers) = unbounded();
-    let peers = Peers {
-        cluster: cluster.clone(),
-        frontend: start.frontend.clone(),
-        name: name.clone(),
-        own: answers_tx,
-        addresses: Rc::new(RefCell::new(BTreeMap::new())),
-        open: Rc::new(RefCell::new(HashMap::new())),
-    };
+    let peers = Peers::new(
+        cluster.clone(),
+        start.frontend.clone(),
+        name.clone(),
+        answers_tx,
+    );
     spawn(forward_answers(answers, serving.self_sender.clone())).detach();
     top_up(&peers, &serving.leased, own, TypePrefix::RESOURCE, stopping).await?;
     spawn(frontend_requests(
@@ -358,18 +353,15 @@ async fn serve_partition(
         stopping.clone(),
     ))
     .detach();
-    let core = PartitionCore::new(CoreParts {
-        host: serving.host,
-        id: own,
-        cluster: cluster.id(),
-        clock: now(),
-        inbox,
-        remote: serving.remote,
-        own: serving.self_sender,
-        closes,
-        asks: asks_tx,
+    let channels = CoreChannels::new(inbox, serving.remote, serving.self_sender, closes, asks_tx);
+    let core = PartitionCore::new(CoreParts::new(
+        serving.host,
+        own,
+        cluster.id(),
+        now(),
+        channels,
         peers,
-    });
+    ));
     let mut running = std::pin::pin!(core.run(stopping));
     std::future::poll_fn(|cx| {
         if let std::task::Poll::Ready(Ok(failure)) = std::pin::Pin::new(&mut lost).poll(cx) {
@@ -496,10 +488,10 @@ async fn joined_subscription(
     from: Epoch,
 ) -> Result<RoleClient, TransportError> {
     let mut client = RoleClient::dial(
-        &peers.frontend,
-        peers.cluster.id(),
-        &peers.name,
-        peers.cluster.secret().password(),
+        peers.frontend(),
+        peers.cluster().id(),
+        peers.name(),
+        peers.cluster().secret().password(),
     )
     .await?;
     drop(client.request(join).await?);
@@ -529,8 +521,8 @@ async fn deliver_closes(
             }
             Err(error) => {
                 tracing::warn!(%error, "the frontend's connection ended; joining again");
-                let name = peers.name.clone();
-                let cluster = peers.cluster.clone();
+                let name = peers.name().to_string();
+                let cluster = peers.cluster().clone();
                 let again = retry_until(&cluster, &name, &stopping, || {
                     joined_subscription(&peers, &join, after)
                 })
@@ -591,13 +583,13 @@ async fn top_up(
     prefix: TypePrefix,
     stopping: &Stopping,
 ) -> Result<(), RoleError> {
-    let name = peers.name.clone();
-    let _done = retry_until(&peers.cluster, &name, stopping, || async {
+    let name = peers.name().to_string();
+    let _done = retry_until(peers.cluster(), &name, stopping, || async {
         let mut client = RoleClient::dial(
-            &peers.frontend,
-            peers.cluster.id(),
-            &peers.name,
-            peers.cluster.secret().password(),
+            peers.frontend(),
+            peers.cluster().id(),
+            peers.name(),
+            peers.cluster().secret().password(),
         )
         .await?;
         lease_ahead(&mut client, leased, own, prefix).await
@@ -651,10 +643,10 @@ async fn frontend_requests(
             Some(open) => Ok(open),
             None => {
                 RoleClient::dial(
-                    &peers.frontend,
-                    peers.cluster.id(),
-                    &peers.name,
-                    peers.cluster.secret().password(),
+                    peers.frontend(),
+                    peers.cluster().id(),
+                    peers.name(),
+                    peers.cluster().secret().password(),
                 )
                 .await
             }

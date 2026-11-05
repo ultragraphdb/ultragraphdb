@@ -19,20 +19,7 @@ rust_library(
     deps = all_crate_deps(normal = True),
 )
 
-# What each storage-free role links, for the test that fails when one links an engine.
-genquery(
-    name = "frontend_deps",
-    expression = "deps(//ultragraphdb/ultragraphdb_frontend:ultragraphdb_frontend)",
-    scope = ["//ultragraphdb/ultragraphdb_frontend:ultragraphdb_frontend"],
-)
-
-genquery(
-    name = "compute_deps",
-    expression = "deps(//ultragraphdb/ultragraphdb_compute:ultragraphdb_compute)",
-    scope = ["//ultragraphdb/ultragraphdb_compute:ultragraphdb_compute"],
-)
-
-# The role binaries as processes: each is copied into the sandbox, and the test starts it, its dependencies first. No
+# Whole clusters as processes: each is copied into the sandbox, and the test starts it, its dependencies first. No
 # container is involved, so Bazel caches the result. The ports are declared and fixed, so `exclusive` keeps any other test
 # from running beside this one; it stays sandboxed.
 rust_test(
@@ -40,8 +27,6 @@ rust_test(
     srcs = ["tests/bdd.rs"],
     crate_root = "tests/bdd.rs",
     data = glob(["features/**/*.feature"]) + [
-        ":compute_deps",
-        ":frontend_deps",
         ":copy_config",
         ":copy_compute",
         ":copy_frontend",

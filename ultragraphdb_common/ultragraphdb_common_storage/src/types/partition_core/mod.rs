@@ -87,18 +87,52 @@ struct Committing {
 /// What the core's connections to others share: the address of each partition, and the connections it has open.
 #[derive(Debug, Clone)]
 pub struct Peers {
+    cluster: RoleCluster,
+    frontend: Address,
+    name: String,
+    own: UnboundedSender<PartitionMessage>,
+    // Shared by this core's tasks, all on its one thread, so `Rc` and `RefCell` hold them and no borrow crosses a wait.
+    addresses: Rc<RefCell<BTreeMap<u32, String>>>,
+    open: Rc<RefCell<HashMap<String, RoleClient>>>,
+}
+
+impl Peers {
+    /// What a core of `cluster` shares, dialling others as `name`, the frontend at `frontend`, a peer's messages reaching it
+    /// through `own`. It knows no partition's address and holds no connection yet.
+    #[must_use]
+    pub fn new(
+        cluster: RoleCluster,
+        frontend: Address,
+        name: String,
+        own: UnboundedSender<PartitionMessage>,
+    ) -> Self {
+        Self {
+            cluster,
+            frontend,
+            name,
+            own,
+            addresses: Rc::new(RefCell::new(BTreeMap::new())),
+            open: Rc::new(RefCell::new(HashMap::new())),
+        }
+    }
+
     /// The cluster this role belongs to.
-    pub cluster: RoleCluster,
+    #[must_use]
+    pub fn cluster(&self) -> &RoleCluster {
+        &self.cluster
+    }
+
     /// The frontend's role address.
-    pub frontend: Address,
+    #[must_use]
+    pub fn frontend(&self) -> &Address {
+        &self.frontend
+    }
+
     /// The name this role dials others under.
-    pub name: String,
-    /// Where an answering peer's messages reach this core.
-    pub own: UnboundedSender<PartitionMessage>,
-    /// The role address of each partition.
-    pub addresses: Rc<RefCell<BTreeMap<u32, String>>>,
-    /// The connections open, by address.
-    pub open: Rc<RefCell<HashMap<String, RoleClient>>>,
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
 }
 
 /// One partition's core: the one task that owns its host. Connections hand it requests by message and it answers them,
@@ -129,28 +163,67 @@ impl std::fmt::Debug for PartitionCore<'_> {
     }
 }
 
+/// The channels a core is reached by and reaches others through.
+#[derive(Debug)]
+pub struct CoreChannels {
+    inbox: UnboundedReceiver<CoreMessage>,
+    remote: Receiver<RemoteMessage>,
+    own: Sender<PartitionMessage>,
+    closes: Receiver<PartitionMessage>,
+    asks: UnboundedSender<FrontendAsk>,
+}
+
+impl CoreChannels {
+    /// What its connections send it, `inbox`; what other partitions send it, `remote`; where messages reach it, `own`; the epoch
+    /// closes delivered to it, `closes`; and where it asks the frontend, `asks`.
+    #[must_use]
+    pub fn new(
+        inbox: UnboundedReceiver<CoreMessage>,
+        remote: Receiver<RemoteMessage>,
+        own: Sender<PartitionMessage>,
+        closes: Receiver<PartitionMessage>,
+        asks: UnboundedSender<FrontendAsk>,
+    ) -> Self {
+        Self {
+            inbox,
+            remote,
+            own,
+            closes,
+            asks,
+        }
+    }
+}
+
 /// What a core is made of.
 pub struct CoreParts<'a> {
-    /// What the partition is hosted over.
-    pub host: StorageHost<'a>,
-    /// The partition.
-    pub id: PartitionId,
-    /// The cluster every frame names.
-    pub cluster: u64,
-    /// When the core began, which its time counts from.
-    pub clock: Instant,
-    /// What its connections send it.
-    pub inbox: UnboundedReceiver<CoreMessage>,
-    /// What other partitions send it.
-    pub remote: Receiver<RemoteMessage>,
-    /// Where messages reach it.
-    pub own: Sender<PartitionMessage>,
-    /// The epoch closes delivered to it.
-    pub closes: Receiver<PartitionMessage>,
-    /// Where it asks the frontend.
-    pub asks: UnboundedSender<FrontendAsk>,
-    /// What its connections to others share.
-    pub peers: Peers,
+    host: StorageHost<'a>,
+    id: PartitionId,
+    cluster: u64,
+    clock: Instant,
+    channels: CoreChannels,
+    peers: Peers,
+}
+
+impl<'a> CoreParts<'a> {
+    /// The core of partition `id`, hosted over `host`, every frame naming `cluster`, its time counted from `clock`.
+    #[must_use]
+    pub fn new(
+        host: StorageHost<'a>,
+        id: PartitionId,
+        cluster: u64,
+        clock: Instant,
+        channels: CoreChannels,
+        peers: Peers,
+    ) -> Self {
+        Self {
+            host,
+            id,
+            cluster,
+            clock,
+            channels,
+            peers,
+        }
+    }
 }
 
 impl<'a> PartitionCore<'a> {
@@ -161,11 +234,11 @@ impl<'a> PartitionCore<'a> {
             id: parts.id,
             cluster: parts.cluster,
             clock: parts.clock,
-            inbox: parts.inbox,
-            remote: parts.remote,
-            own: parts.own,
-            closes: parts.closes,
-            asks: parts.asks,
+            inbox: parts.channels.inbox,
+            remote: parts.channels.remote,
+            own: parts.channels.own,
+            closes: parts.channels.closes,
+            asks: parts.channels.asks,
             peers: parts.peers,
             bound_namespace: BTreeMap::new(),
             parked: BTreeMap::new(),

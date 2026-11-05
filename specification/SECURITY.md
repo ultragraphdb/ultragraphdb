@@ -279,6 +279,34 @@ changes are also in the metadata group's log, as its every command is.
 - TLS seals each record with a sequence number of its own; the frame header's `sequence` numbers frames for the
   protocol's own order and loss checks.
 
+## Securing the CLI
+
+`ultragraphdb_config_cli` has two commands. Checking a central file reads local files and takes no key. `restore` reaches a running config
+service with its admin key, the key that can change every setting of every target, so what follows is about `restore`.
+
+**The token is an argument.** `restore <url> <admin token> <folder>` takes the admin key on its command line, so while the command runs any
+user who can list processes on that host can read it, and the shell's history keeps it afterwards. Run `restore` on a host whose other users
+are trusted with that key, with the shell's history left out of it, for example by `HISTCONTROL=ignorespace` and a leading space. A key that
+may have been seen is replaced: a new key in the service's `admin_key_file`, a restart of the service, and the new digest in every role's
+`[admin] key_sha256`.
+
+**The transport follows the URL.** `https://` verifies the service's certificate against the system's roots, or against the file `--ca-file`
+names, and never proceeds on a certificate it cannot verify. `http://` sends the token and every setting in clear text to whatever answers, so
+it belongs only on a network the [trust boundaries](#trust-boundaries) already trust.
+
+**What the service answers is not trusted to name files.** Every target's name and file's key is checked before anything is written, so an
+answer cannot place a file outside the folder. A reply is bounded to 1 MiB and an exchange to 5 s.
+
+**The folder.** `restore` writes only into a folder that is absent or empty, so it overwrites nothing. Settings name secret files and hold no
+secret's value, so the folder holds none, and its files take the mode the process's umask gives them. Settings do show a deployment's addresses
+and paths, so a folder kept in a repository shows them too.
+
+**A restored folder is the latest revision, not the active one.** A target's latest revision may be one nobody activated, and a service
+beginning from the folder makes it active. `restore` names each target for which the two differ, and a retired target is left out. Read that
+output before starting a service from the folder.
+
+**What it prints.** The token never appears in the command's output or its errors. A refusal says which request the service refused.
+
 ## Protocol touchpoints
 
 | Concern | `PROTOCOL.md` |

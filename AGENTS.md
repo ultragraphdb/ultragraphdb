@@ -234,7 +234,8 @@ either depends on that alone. Tests find their crate's `features/` and `testdata
 | `ultragraphdb_config` | `ultragraphdb/ultragraphdb_config` | `ultragraphdb_common_config`, `ultragraphdb_common_config_check`, `ultragraphdb_common_service`, `ultragraphdb_transactions_log`, `ultragraphdb_transport_http_server`, `ultragraphdb_transport_tls` | **Binary**, `main` and `service`, its start: settings and central file read and validated, the data directory locked, the log opened, the API served; the config service, static musl on the scratch image, run as its `nobody` |
 | `ultragraphdb_config_cli` | `ultragraphdb/ultragraphdb_config_cli` | `ultragraphdb_common_config_check`, `ultragraphdb_transport_http_client`, `ultragraphdb_transport_tls`, `compio` | **Binary**, `main` and `restore`: checks a central file and everything it declares, exiting 0 or 78; `restore` downloads the latest revision of every target a running service holds into a folder a service can begin from |
 | `ultragraphdb_config_tests` | `ultragraphdb/ultragraphdb_config_tests` | `ultragraphdb_tool_bdd`, `service_utils`, `ultragraphdb_transport_http_client`, for tests only | The service and its CLI as processes, end to end with no container, tagged `integration_test` and `exclusive` |
-| `ultragraphdb_tests` | `ultragraphdb/ultragraphdb_tests` | `ultragraphdb_tool_bdd`, `service_utils` for tests | The role binaries tested as processes, copied into the sandbox and started dependencies first through `service_utils`; `http_status`; the check that the frontend and compute link no storage engine |
+| `ultragraphdb_tests` | `ultragraphdb/ultragraphdb_tests` | `ultragraphdb_tool_bdd`, `service_utils` for tests | The process harness every service's sister crate uses, the config service and its double, each binary's place on one host, `http_status`, `http_body`; whole clusters tested as processes |
+| `ultragraphdb_frontend_tests`, `ultragraphdb_compute_tests`, `ultragraphdb_storage_tests` | `ultragraphdb/` | `ultragraphdb_tests`, `service_utils`, for tests only | Each role binary's full integration test, as processes with no container, with the dependency-graph check of a storage-free role |
 | `ultragraphdb_common_service_config` | `ultragraphdb_common/ultragraphdb_common_service_config` | `ultragraphdb_tool_toml` | `ServiceConfig`: the settings a binary runs on, read from bytes, one type per TOML table and one field per setting, every table and key taken or refused; `EndpointSecurity`; `ServiceConfigError` |
 | `ultragraphdb_tool_toml` | `ultragraphdb_tool/ultragraphdb_tool_toml` | — | The roles' settings files: an in-house parser of the subset of TOML 1.0 they use (blank lines, comments, `[table]` headers with a bare name, root keys, `key = value` with a bare key and a basic string, a decimal `i64` or a boolean), read in one pass with no recursion, bounded at 64 KiB, 4 KiB a line, 256 tables and 4,096 keys, and parsing as any TOML 1.0 parser reads it: `TomlDocument` with its `TomlTable`s, `TomlEntry`s and `TomlValue`s, the typed reads `string`, `integer` and `boolean` and `finish`, which refuses any setting no read took; `TomlError` with `TomlFeature` (every feature outside the subset, refused by name and line), `TomlInvalid` (every rule of TOML 1.0 broken), `TomlLimit` and `TomlKind`. Pinned against the toml-test suite v1.6.0, vendored under `testdata/toml-test/` |
 
@@ -258,7 +259,7 @@ Every external crate is pinned once in `[workspace.dependencies]` and referenced
 | `fjall` | 3.1 | `ultragraphdb_store_kv` | The LSM-tree storage engine, pure Rust. `Store::compact` calls fjall's `#[doc(hidden)]` `rotate_memtable_and_wait` and `major_compact`, which carry no stability promise |
 | `moka` | 0.12, `sync` | `ultragraphdb_store_kv` | The posting-list cache, keyed with a per-process `RandomState` |
 | `tracing` | 0.1 | every library crate that logs | Structured log events where the ported Go code logs; its macros are used in `src/` |
-| `service_utils` | 0.4 | `ultragraphdb_tests`, tests only | Starts a role binary as a process, waits on its health and reads its exit code, in `std` alone |
+| `service_utils` | 0.4 | `ultragraphdb_tests` and the `*_tests` crates, tests only | Starts a role binary as a process, waits on its health and reads its exit code, in `std` alone |
 | `futures` | 0.3 | `ultragraphdb_common_frontend` | The channels by which endpoint cores ask the frontend's owner, which wake a runtime on another thread. Pure Rust, and already in the tree for the tests |
 | `signal-hook` | 0.4, no default features | `ultragraphdb_common_service` | Setting a flag from SIGTERM and SIGINT with safe code, which `unsafe_code = "forbid"` otherwise rules out; compio's own signal feature needs a prerelease crate |
 | `tracing-subscriber` | 0.3, `fmt` + `json` + `env-filter` | `ultragraphdb_common_telemetry`, `ultragraphdb_store_sim` | The level filter and plain or JSON output; the simulator's capturing subscriber |
@@ -417,7 +418,11 @@ The usage of a prelude file is prohibited.
 
 Every service binary, `ultragraphdb_frontend`, `ultragraphdb_compute`, `ultragraphdb_storage` and `ultragraphdb_config`, is two files
 and no library: `src/main.rs`, its allocator and `main`, and `src/service.rs`, the service's own work. What more than one service shares,
-or what is worth testing apart from a process, stays in `ultragraphdb_common/`. A service is tested as a process, by its `*_tests` crate.
+or what is worth testing apart from a process, stays in `ultragraphdb_common/`.
+
+Each has a test-only sister crate, named for it with `_tests`, holding its full integration test: its binaries copied into the sandbox and
+started as processes through `service_utils`, with no container, tagged `integration_test` and `exclusive`. A `service.rs` is covered there.
+`ultragraphdb_tests` holds what they share and the whole-cluster scenarios.
 
 ## Code export
 

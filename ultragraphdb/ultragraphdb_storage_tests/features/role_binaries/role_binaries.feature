@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+
+Feature: The storage binary as a process
+  openspec/changes/stage-5-5-three-role-refactor/specs/role-binaries/spec.md
+
+  Scenario: A role with the wrong secret is refused
+    When a storage process started with a different role secret connects to the frontend
+    Then its authentication is refused, it sends no role command, and it retries until its deadline
+
+  Scenario: A missing role secret stops the start
+    When a role starts with `role_secret_file` naming a file that does not exist
+    Then it exits with code 78 and an error naming the file
+
+  Scenario: Two storage processes share the partitions
+    When one storage process claims partitions 1 and 2 and another claims 3 and 4
+    Then both join, Members names each partition's address, and a write reaches its partition on either process
+
+  Scenario: A reference crosses storage processes
+    When a write in one storage process names an entity homed in the other
+    Then the home registers it by a Reference, and the write commits
+
+  Scenario: Storage flushes on shutdown
+    When storage receives SIGTERM after acknowledging commits
+    Then every acknowledged commit is applied to its store before it exits, and a restart replays nothing
+
+  Scenario: Storage is not ready before recovery
+    When a storage process killed with rounds in its log restarts
+    Then `/health` answers at once and `/ready` answers only after the replay
+
+  Scenario: An unknown setting stops the start
+    When the storage binary receives settings whose `[storage]` table holds the key `partiton_count`
+    Then it exits with code 78 and an error naming `partiton_count`
+
+  Scenario: A configuration error exits with its code
+    When the storage binary receives a setting out of its bounds
+    Then it exits with code 78 and an error naming the setting and the bound
+
+  Scenario: A pinned role reports what it holds
+    When a role starts with `pin_cores = true`
+    Then it logs what became of its binding, and serves requests
+
+  Scenario: A missing required setting stops the start
+    When the storage binary receives settings with no `storage.data_dir`
+    Then it exits with code 78 and an error naming `storage.data_dir`

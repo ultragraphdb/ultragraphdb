@@ -15,7 +15,7 @@ mod utils;
 
 pub use crate::types::core_message::CoreMessage;
 pub use crate::types::partition_core::{
-    CoreParts, FrontendAsk, PartitionCore, Peers, StorageHost, StoragePartition,
+    CoreChannels, CoreParts, FrontendAsk, PartitionCore, Peers, StorageHost, StoragePartition,
 };
 pub use crate::types::refill_blocks::RefillBlocks;
 pub use crate::types::storage_session::StorageSession;
