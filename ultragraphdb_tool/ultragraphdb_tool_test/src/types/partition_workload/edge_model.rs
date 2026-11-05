@@ -44,6 +44,13 @@ impl EdgeModel {
             .collect()
     }
 
+    /// Every edge held at `version`.
+    pub(crate) fn held_edges_at(&self, version: u64) -> impl Iterator<Item = &Edge> {
+        self.history
+            .keys()
+            .filter(move |edge| self.held_at(edge, version))
+    }
+
     /// Every edge held now, with the version of the change that made it held.
     pub(crate) fn held(&self) -> impl Iterator<Item = (&Edge, u64)> {
         self.history.iter().filter_map(|(edge, changes)| {

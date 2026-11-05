@@ -252,6 +252,11 @@ where
         &self.reified
     }
 
+    /// The request the write reads and writes through.
+    pub(crate) fn request(&mut self) -> &mut ultragraphdb_store_posting::Request<'a, S, C> {
+        self.write.request()
+    }
+
     /// The terms the write resolved so far.
     pub(crate) fn terms(&mut self) -> &WriteTerms {
         self.write.terms().0
@@ -300,7 +305,10 @@ where
 
     /// The ID `iri` has as a delete or a read names it: got or created, as every IRI is, so a term no statement holds
     /// is recorded absent by its ID; `None` for an IRI under the skolem base the dictionary does not hold.
-    fn find_iri(&mut self, iri: NamedNodeRef<'_>) -> Result<Option<SystemId>, ChangesetError> {
+    pub(crate) fn find_iri(
+        &mut self,
+        iri: NamedNodeRef<'_>,
+    ) -> Result<Option<SystemId>, ChangesetError> {
         Ok(self
             .find_term(rdf::TYPE, iri.into())?
             .and_then(|e| e.as_id()))

@@ -3,7 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_tool_bdd::TestResult;
+use ultragraphdb_store_posting::ListSource;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_store::{Entry, ListCache};
 
 use crate::utils::helpers::{
@@ -367,7 +368,7 @@ fn test_a_scan_returns_stored_and_written_keys_of_its_range_and_records_it() -> 
     request
         .get_from_delta(&keys[4])
         .add_posting(set_uid(1), false);
-    let found = request.scan(keys[1].clone(), Some(keys[4].clone()))?;
+    let found = keys_of(&mut request, keys[1].clone(), Some(keys[4].clone()))?;
     // keys[0] lies before the range and keys[4], written, at its end, which is exclusive.
     assert_eq!(
         found,
@@ -388,7 +389,7 @@ fn test_a_scan_without_an_end_runs_to_the_last_key() -> TestResult {
     commit(&lists, &a, &[set_uid(1)])?;
     commit(&lists, &b, &[set_uid(1)])?;
     let mut request = lists.request(lists.applied_ts());
-    assert_eq!(request.scan(b.clone(), None)?, vec![b.clone()]);
+    assert_eq!(keys_of(&mut request, b.clone(), None)?, vec![b.clone()]);
     assert_eq!(
         request.ranges().collect::<Vec<_>>(),
         vec![(b.as_slice(), None)]
@@ -404,7 +405,7 @@ fn test_an_empty_range_finds_nothing_and_is_recorded() -> TestResult {
     let a = key("empty", 1);
     commit(&lists, &a, &[set_uid(1)])?;
     let mut request = lists.request(lists.applied_ts());
-    assert!(request.scan(a.clone(), Some(a.clone()))?.is_empty());
+    assert!(keys_of(&mut request, a.clone(), Some(a.clone()))?.is_empty());
     assert_eq!(request.ranges().count(), 1);
     Ok(())
 }
@@ -417,7 +418,7 @@ fn test_a_scan_reads_the_store_at_the_read_timestamp() -> TestResult {
     commit(&lists, &a, &[set_uid(1)])?;
     let mut request = lists.request(lists.applied_ts());
     commit(&lists, &b, &[set_uid(1)])?;
-    let found = request.scan(key("later", 0), None)?;
+    let found = keys_of(&mut request, key("later", 0), None)?;
     assert_eq!(found, vec![a]);
     Ok(())
 }
@@ -434,33 +435,164 @@ fn test_a_list_written_and_cancelled_out_is_not_found() -> TestResult {
     let list = request.get_from_delta(&cancelled);
     list.add_posting(set_uid(7), true);
     list.add_posting(del_uid(7), true);
-    assert_eq!(request.scan(key("cancel", 0), None)?, vec![held]);
+    assert_eq!(keys_of(&mut request, key("cancel", 0), None)?, vec![held]);
     Ok(())
 }
 
-/// A range recorded by the caller's own scan is reported with the request's scans, each range once, in order.
+/// A range the caller records is reported with the request's scans, each range once; a range another reaches extends that
+/// one, and a range past it stands apart.
 #[test]
-fn test_a_recorded_range_is_reported_once_with_the_scans() -> TestResult {
+fn test_a_recorded_range_merges_with_the_one_reaching_it() -> TestResult {
     let lists = new_lists();
     let mut request = lists.request(lists.applied_ts());
-    request.record_range(b"\x10b".to_vec(), Some(b"\x10c".to_vec()));
-    request.record_range(b"\x10a".to_vec(), None);
-    request.record_range(b"\x10b".to_vec(), Some(b"\x10c".to_vec()));
-    let _scanned: Vec<Vec<u8>> = request.scan(b"\x10a".to_vec(), Some(b"\x10b".to_vec()))?;
+    let (a, b, c, d, e) = (
+        b"\x10a".to_vec(),
+        b"\x10b".to_vec(),
+        b"\x10c".to_vec(),
+        b"\x10d".to_vec(),
+        b"\x10e".to_vec(),
+    );
+    request.record_range(a.clone(), Some(b.clone()));
+    request.record_range(a.clone(), Some(b.clone()));
+    assert_eq!(request.range_count(), 1, "one range, recorded twice");
+    request.record_range(b.clone(), Some(c.clone()));
+    request.record_range(d.clone(), Some(e.clone()));
     assert_eq!(
         request.ranges().collect::<Vec<_>>(),
         vec![
-            (b"\x10a".as_slice(), None),
-            (b"\x10a".as_slice(), Some(b"\x10b".as_slice())),
-            (b"\x10b".as_slice(), Some(b"\x10c".as_slice())),
+            (a.as_slice(), Some(c.as_slice())),
+            (d.as_slice(), Some(e.as_slice())),
         ]
     );
+    assert_eq!(request.range_bytes(), a.len() + c.len() + d.len() + e.len());
+    request.record_range(c.clone(), None);
     assert_eq!(
-        request.read_keys().count(),
-        0,
-        "recording a range reads no list"
+        request.ranges().collect::<Vec<_>>(),
+        vec![(a.as_slice(), None), (d.as_slice(), Some(e.as_slice())),],
+        "a range reaching the last key takes the one it reaches into only by its own start"
     );
     Ok(())
+}
+
+/// The keys `request` walks in the range, every one a row.
+fn keys_of<S, C>(
+    request: &mut ultragraphdb_store_posting::Request<'_, S, C>,
+    start: Vec<u8>,
+    end: Option<Vec<u8>>,
+) -> Result<Vec<Vec<u8>>, ultragraphdb_store_posting::PostingError>
+where
+    S: ultragraphdb_traits_store::Store,
+    C: ListCache<Value = ultragraphdb_store_posting::CachedList>,
+{
+    let mut keys = Vec::new();
+    let _exhausted = request.span(start, end, None, |key, _| {
+        keys.push(key.to_vec());
+        Ok::<bool, ultragraphdb_store_posting::PostingError>(true)
+    })?;
+    Ok(keys)
+}
+
+/// A span at a limit gives that many rows, covers what it returned and no more, and the next from where it ended extends the
+/// one range; nothing is held and no list is read whole, and a list the request emptied gives no row.
+#[test]
+fn test_a_span_covers_what_it_returned_and_holds_nothing() -> TestResult {
+    let lists = new_lists();
+    let keys: Vec<Vec<u8>> = (1..=4).map(|n| key("span", n)).collect();
+    for k in &keys {
+        commit(&lists, k, &[set_uid(1)])?;
+    }
+    let mut request = lists.request(lists.applied_ts());
+    let last = keys.last().context("a last key")?.clone();
+    let first = keys.first().context("a first key")?.clone();
+    let limit = std::num::NonZeroUsize::MIN;
+    let mut seen = Vec::new();
+    let mut from = first.clone();
+    let mut spans = 0;
+    loop {
+        spans += 1;
+        let next = request.span(from.clone(), Some(last.clone()), Some(limit), |key, _| {
+            seen.push(key.to_vec());
+            Ok::<bool, ultragraphdb_store_posting::PostingError>(true)
+        })?;
+        let Some(resume) = next else {
+            break;
+        };
+        let mut covered = seen.last().context("a row")?.clone();
+        covered.push(0);
+        assert_eq!(resume, covered, "the span ends just past its last row");
+        assert_eq!(
+            request.ranges().collect::<Vec<_>>(),
+            vec![(first.as_slice(), Some(covered.as_slice()))],
+            "what it returned, in one range"
+        );
+        from = resume;
+    }
+    assert_eq!(seen, keys[..3].to_vec());
+    assert!(spans > 1, "the limit stopped it");
+    assert_eq!(
+        request.ranges().collect::<Vec<_>>(),
+        vec![(first.as_slice(), Some(last.as_slice()))],
+        "the range ended, so it covers through its past key"
+    );
+    assert_eq!(request.held_count(), 0);
+    assert_eq!(request.read_keys().count(), 0);
+    Ok(())
+}
+
+/// A span reads a list as the request sees it, changing nothing: a held list with its writes, a list written blind with the
+/// store beneath its delta, and any other from the store.
+#[test]
+fn test_a_span_reads_the_requests_writes_over_the_store() -> TestResult {
+    let lists = new_lists();
+    let (held, blind, other) = (key("over", 1), key("over", 2), key("over", 3));
+    let (fresh, stored) = (key("over", 4), 1);
+    for k in [&held, &blind, &other] {
+        commit(&lists, k, &[set_uid(stored)])?;
+    }
+    let mut request = lists.request(lists.applied_ts());
+    let ts = request.read_ts();
+    request.get(&held)?.add_posting(del_uid(stored), false);
+    request
+        .get_from_delta(&blind)
+        .add_posting(set_uid(2), false);
+    request
+        .get_from_delta(&fresh)
+        .add_posting(set_uid(3), false);
+    let held_before = request.held_count();
+    let (reads_before, mut rows) = (request.read_keys().count(), Vec::new());
+    let _exhausted = request.span(key("over", 0), None, None, |k, source| {
+        let uids = source.with_list(k, ts, |list| uids_of(list, ts))??;
+        rows.push((k.to_vec(), uids));
+        Ok::<bool, ultragraphdb_store_posting::PostingError>(true)
+    })?;
+    let mut expected = vec![
+        (held, vec![]),
+        (blind, vec![set_uid(stored).uid(), set_uid(2).uid()]),
+        (other, vec![set_uid(stored).uid()]),
+        (fresh, vec![set_uid(3).uid()]),
+    ];
+    expected.sort();
+    assert_eq!(rows, expected, "in key order");
+    assert_eq!(request.held_count(), held_before, "nothing newly held");
+    assert_eq!(
+        request.read_keys().count(),
+        reads_before,
+        "nothing newly read whole"
+    );
+    Ok(())
+}
+
+/// The uids `list` holds at `ts`.
+fn uids_of(
+    list: &ultragraphdb_store_posting::List,
+    ts: u64,
+) -> Result<Vec<u128>, ultragraphdb_store_posting::PostingError> {
+    let mut uids = Vec::new();
+    list.iterate(ts, 0, |posting| {
+        uids.push(posting.uid());
+        Ok::<_, ultragraphdb_store_posting::PostingError>(std::ops::ControlFlow::Continue(()))
+    })?;
+    Ok(uids)
 }
 
 /// Absorbing a fork takes its tested statements and ranges, and a list either read whole stays read whole.

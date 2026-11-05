@@ -74,6 +74,7 @@ pub use crate::types::marked_reference::MarkedReference;
 pub use crate::types::operation::Operation;
 pub use crate::types::operation_link::OperationLink;
 pub use crate::types::operation_outcome::OperationOutcome;
+pub use crate::types::read_counts::ReadCounts;
 pub use crate::types::reads::Reads;
 pub use crate::types::record_writes::RecordWrites;
 pub use crate::types::registering::Registering;

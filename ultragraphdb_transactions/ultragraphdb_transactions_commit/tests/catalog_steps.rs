@@ -20,8 +20,8 @@ use ultragraphdb_transactions_txn::{Prepared, TxnBuffers};
 
 use crate::Steps;
 use crate::utils::fixture::{
-    Applier, Driver, NS, applier, applier_over, begin, catalog_proposal, ex, id_of, insert_literal,
-    open_wal, prepare, setup, sim_store, term_version, version, write,
+    Applier, Driver, NS, applier, applier_over, begin, catalog_proposal, ex, id_of, insert,
+    insert_literal, open_wal, prepare, setup, sim_store, term_version, version, write,
 };
 
 fn unbounded() -> RoundBounds {
@@ -547,5 +547,46 @@ fn validated_against_new(w: &mut Steps) -> TestResult {
             (3, version(50, 2))
         ]
     );
+    Ok(())
+}
+
+// Quad reads: a read through compute is a read of its transaction.
+
+#[when(
+    "transaction T1 scans a declared predicate's value index through compute, transaction T2 commits a value of it, and T1 commits a write"
+)]
+fn index_range(w: &mut Steps) -> TestResult {
+    let applier = applier()?;
+    let mut driver = driver_at(&applier, 0)?;
+    let declaring = CatalogContents::new(
+        NS,
+        2,
+        vec![Declaration::Predicate(
+            PredicateDeclaration::new(ex("name")).with_tokenizers(vec!["exact".into()]),
+        )],
+    );
+    commit_version(&w.source, &declaring, 2)?;
+    driver.close_with(1, vec![announced(2)], Vec::new())?;
+    driver.submit(1, catalog_proposal(&applier, &declaring)?)?;
+    driver.sync()?;
+    let mut reader = begin(&applier)?;
+    let request = ultragraphdb_store_quads::KernelScan::new(
+        Keyspace::ValueIndex,
+        NS,
+        Vec::new(),
+        reader.read_version(),
+        std::num::NonZeroUsize::MIN,
+    );
+    let mut rows = Vec::new();
+    let next = reader.scan_into(&request, 0, &mut rows)?;
+    assert_eq!((rows.len(), next), (0, None), "no value yet");
+    let mut writer = begin(&applier)?;
+    write(&mut writer, vec![insert_literal("a", "name", "Ann")])?;
+    write(&mut reader, vec![insert("x", "seen", "y")])?;
+    driver.submit(2, prepare(writer)?)?;
+    driver.submit(3, prepare(reader)?)?;
+    driver.sync()?;
+    driver.sync()?;
+    w.replies = driver.replies.iter().skip(1).cloned().collect();
     Ok(())
 }

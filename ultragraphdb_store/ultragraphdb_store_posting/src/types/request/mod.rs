@@ -15,16 +15,21 @@ mod request_drop;
 
 use std::collections::btree_map::Entry as MapEntry;
 use std::collections::{BTreeMap, BTreeSet};
+use std::num::NonZeroUsize;
+use std::ops::Bound;
 
 use ultragraphdb_core_codec::PostingList;
-use ultragraphdb_traits_store::{Entry, ListCache, Scan, Store, StoreSnapshot, VersionlessEntry};
+use ultragraphdb_traits_store::{Entry, ListCache, Scan, Store, VersionlessEntry};
 
 use crate::errors::posting_error::PostingError;
+use crate::traits::list_source::ListSource;
 use crate::types::cached_list::CachedList;
 use crate::types::list::List;
 use crate::types::lists::Lists;
 use crate::types::stacked_layers::StackedLayers;
+use crate::types::walk_end::WalkEnd;
 use crate::types::writes::Writes;
+use crate::utils::walk_lists::walk_lists;
 
 /// A list a request holds, whether it was built without a store read, and whether the request read it whole rather
 /// than only to test one statement.
@@ -49,6 +54,8 @@ pub struct Request<'a, S, C> {
     tested: BTreeSet<(Vec<u8>, Vec<u8>)>,
     /// The key ranges the request scanned, each from its start, inclusive, to its end, exclusive, or to the last key.
     ranges: BTreeSet<(Vec<u8>, Option<Vec<u8>>)>,
+    /// The bytes of `ranges`, kept as they change.
+    range_bytes: usize,
     stacked: StackedLayers,
     entries: Vec<Entry>,
     versioned: Vec<Entry>,
@@ -70,6 +77,7 @@ where
             held: BTreeMap::new(),
             tested: BTreeSet::new(),
             ranges: BTreeSet::new(),
+            range_bytes: 0,
             stacked,
             entries: Vec::new(),
             versioned: Vec::new(),
@@ -157,34 +165,91 @@ where
             .map(|(k, o)| (k.as_slice(), o.as_slice()))
     }
 
-    /// The keys of the lists in the range from `start`, inclusive, to `end`, exclusive, or to the last key when `end`
-    /// is `None`, in key order: those the store holds at the request's read timestamp and those the request wrote. The
-    /// range is recorded as scanned.
-    pub fn scan(
+    /// Walks the lists in the range from `start`, inclusive, to `end`, exclusive, or to the last key when `end` is `None`, in
+    /// key order: those the store holds at the request's read timestamp and those the request wrote, each given to `visit`, which
+    /// says whether it made a row, at most `limit` rows. Nothing is held and no list is read whole, so a scan of a million lists
+    /// costs the request one range and no memory. What it covered is recorded as scanned: the whole range, or, stopped at the
+    /// limit, what it returned. A span touching the one before extends it. The key a next span begins at when stopped; `None`
+    /// when the range is exhausted.
+    ///
+    /// # Errors
+    ///
+    /// The read gate's and the store's errors; whatever `visit` fails with. Nothing is recorded.
+    pub fn span<E, V>(
         &mut self,
         start: Vec<u8>,
         end: Option<Vec<u8>>,
-    ) -> Result<Vec<Vec<u8>>, PostingError> {
+        limit: Option<NonZeroUsize>,
+        visit: V,
+    ) -> Result<Option<Vec<u8>>, E>
+    where
+        E: From<PostingError>,
+        V: FnMut(&[u8], &Self) -> Result<bool, E>,
+    {
         self.lists.gate(self.read_ts)?;
-        let snapshot = self.lists.store().snapshot(self.read_ts)?;
+        let snapshot = self
+            .lists
+            .store()
+            .snapshot(self.read_ts)
+            .map_err(PostingError::from)?;
         let range = Scan::range(start.clone(), end.clone());
-        let mut keys = BTreeSet::new();
-        for item in snapshot.scan(&range) {
-            let _new_key: bool = keys.insert(item?.key().to_vec());
+        match walk_lists(&snapshot, &range, &*self, limit, visit)? {
+            WalkEnd::Exhausted => {
+                self.record_range(start, end);
+                Ok(None)
+            }
+            WalkEnd::Stopped { mut last, .. } => {
+                last.push(0);
+                self.record_range(start, Some(last.clone()));
+                Ok(Some(last))
+            }
         }
-        keys.extend(
-            self.written_keys()
-                .filter(|k| range.selects(k))
-                .map(<[u8]>::to_vec),
-        );
-        let _new_range: bool = self.ranges.insert((start, end));
-        Ok(keys.into_iter().collect())
     }
 
     /// Records the range from `start`, inclusive, to `end`, exclusive, or to the last key when `end` is `None`, as
-    /// scanned: what a scan the caller makes through the store itself, such as a skip scan, reports.
+    /// scanned: what a scan the caller makes through the store itself, such as a skip scan, reports. A range the one before
+    /// it reaches extends that one, so a long scan holds one range however many spans it took.
     pub fn record_range(&mut self, start: Vec<u8>, end: Option<Vec<u8>>) {
-        let _new_range: bool = self.ranges.insert((start, end));
+        let first_at_start = (start.clone(), None);
+        let before = self
+            .ranges
+            .range(&first_at_start..)
+            .next()
+            .filter(|(from, _)| *from == start)
+            .or_else(|| self.ranges.range(..&first_at_start).next_back())
+            .filter(|(_, reach)| reach.as_ref().is_none_or(|reach| *reach >= start))
+            .cloned();
+        let range = match before {
+            Some(previous) => {
+                let _removed: bool = self.ranges.remove(&previous);
+                self.range_bytes -= range_size(&previous);
+                let reach = match (previous.1, end) {
+                    (Some(a), Some(b)) => Some(a.max(b)),
+                    (_, _) => None,
+                };
+                (previous.0, reach)
+            }
+            None => (start, end),
+        };
+        let size = range_size(&range);
+        if self.ranges.insert(range) {
+            self.range_bytes += size;
+        }
+    }
+
+    /// The bytes of the key ranges the request scanned, counted as they are recorded, so asking costs nothing per range.
+    pub fn range_bytes(&self) -> usize {
+        self.range_bytes
+    }
+
+    /// How many key ranges the request scanned.
+    pub fn range_count(&self) -> usize {
+        self.ranges.len()
+    }
+
+    /// How many lists the request holds: what a scan leaves unchanged.
+    pub fn held_count(&self) -> usize {
+        self.held.len()
     }
 
     /// The key ranges the request scanned, each from its start, inclusive, to its end, exclusive, or to the last key
@@ -297,6 +362,7 @@ where
         }
         self.tested.append(&mut other.tested);
         self.ranges.append(&mut other.ranges);
+        self.range_bytes = self.ranges.iter().map(range_size).sum();
         self.entries.append(&mut other.entries);
         self.versioned.append(&mut other.versioned);
         self.versionless.append(&mut other.versionless);
@@ -383,6 +449,54 @@ where
         };
         held.whole |= whole;
         Ok(&mut held.list)
+    }
+}
+
+/// The bytes a recorded range holds.
+fn range_size((start, end): &(Vec<u8>, Option<Vec<u8>>)) -> usize {
+    start.len() + end.as_ref().map_or(0, Vec::len)
+}
+
+impl<S, C> ListSource for Request<'_, S, C>
+where
+    S: Store,
+    C: ListCache<Value = CachedList>,
+{
+    /// The keys the request wrote in the range.
+    fn added_keys<'a>(
+        &'a self,
+        start: &'a [u8],
+        end: Option<&'a [u8]>,
+    ) -> impl Iterator<Item = &'a [u8]> {
+        let upper = end.map_or(Bound::Unbounded, Bound::Excluded);
+        self.held
+            .range::<[u8], _>((Bound::Included(start), upper))
+            .filter(|(_, held)| {
+                held.list
+                    .delta()
+                    .is_some_and(|delta| !delta.postings().is_empty())
+            })
+            .map(|(key, _)| key.as_slice())
+    }
+
+    /// A held list as held; a list written blind from the store with its delta on top; any other from the store. The
+    /// request's own timestamp reads its writes, so `version` is the request's read timestamp.
+    fn with_list<R>(
+        &self,
+        key: &[u8],
+        version: u64,
+        read: impl FnOnce(&List) -> R,
+    ) -> Result<R, PostingError> {
+        match self.held.get(key) {
+            Some(held) if !held.blind => Ok(read(&held.list)),
+            Some(held) => {
+                let written = held.list.delta().cloned();
+                let list = read_list(self.lists, &self.stacked, key, version)?
+                    .with_scratch(version, written);
+                Ok(read(&list))
+            }
+            None => Ok(read(&read_list(self.lists, &self.stacked, key, version)?)),
+        }
     }
 }
 

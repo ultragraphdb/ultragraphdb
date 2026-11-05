@@ -5,7 +5,10 @@
 
 use std::num::NonZeroUsize;
 
-use ultragraphdb_core_keys::Keyspace;
+use ultragraphdb_core_keys::{Keyspace, key_prefix};
+use ultragraphdb_traits_store::Scan;
+
+use crate::errors::quad_error::QuadError;
 
 /// A request of the read kernel ([`crate::QuadStore::scan`]): the lists of `keyspace` in `namespace` whose keys,
 /// without their versions, lie from `from`, inclusive, to `to`, exclusive, or to the end of the namespace's keyspace,
@@ -74,5 +77,32 @@ impl KernelScan {
     /// The most lists the scan returns.
     pub fn limit(&self) -> NonZeroUsize {
         self.limit
+    }
+
+    /// Refuses a keyspace holding no lists.
+    ///
+    /// # Errors
+    ///
+    /// [`QuadError::corrupted`] naming the keyspace's prefix.
+    pub fn check_keyspace(&self) -> Result<(), QuadError> {
+        if self.keyspace.is_list() {
+            return Ok(());
+        }
+        Err(QuadError::corrupted(
+            &key_prefix(self.keyspace, false, self.namespace, None, None),
+            "the read kernel reads lists, and the keyspace holds none",
+        ))
+    }
+
+    /// The range within the namespace's keyspace, a bound outside it clamped to it: its first key, inclusive, and the key it
+    /// ends before.
+    pub fn bounds(&self) -> (Vec<u8>, Option<Vec<u8>>) {
+        let whole = Scan::prefix(key_prefix(self.keyspace, false, self.namespace, None, None));
+        let start = whole.start().max(self.from()).to_vec();
+        let end = match (whole.end(), self.end()) {
+            (Some(a), Some(b)) => Some(a.min(b).to_vec()),
+            (a, b) => a.or(b).map(<[u8]>::to_vec),
+        };
+        (start, end)
     }
 }

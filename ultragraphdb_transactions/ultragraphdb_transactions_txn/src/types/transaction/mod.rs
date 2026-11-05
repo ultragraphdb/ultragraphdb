@@ -4,6 +4,7 @@
  */
 
 mod transaction_partition;
+mod transaction_scan;
 
 use oxrdf::{GraphNameRef, NamedNodeRef, NamedOrBlankNodeRef, Term};
 use ultragraphdb_cluster_placement::{PartitionId, PlacementMap};

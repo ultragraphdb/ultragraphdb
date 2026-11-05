@@ -5,23 +5,24 @@
 
 mod execution_partition;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use oxrdf::{GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNodeRef, Term};
 use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::Region;
 use ultragraphdb_core_mapping::Changes;
-use ultragraphdb_store_posting::CachedList;
+use ultragraphdb_store_posting::{CachedList, ListSource};
 use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{ListCache, Store};
 
-use ultragraphdb_store_quads::WriteTerms;
+use ultragraphdb_store_quads::{KernelRow, KernelScan, QuadError, WriteTerms, list_objects};
 
 use crate::errors::changeset_error::ChangesetError;
 use crate::types::changeset_core::reads_of;
 use crate::types::changeset_write::ChangesetWrite;
 use crate::types::executed::Executed;
 use crate::types::marked_reference::MarkedReference;
+use crate::types::read_counts::ReadCounts;
 use crate::utils::mark_keys::mark_entry;
 use crate::utils::referrer_candidates::referrer_candidates;
 
@@ -108,6 +109,97 @@ where
         out: &mut Vec<Term>,
     ) -> Result<(), ChangesetError> {
         self.write.objects_into(graph, subject, predicate, out)
+    }
+
+    /// The read kernel over this execution's writes: the lists `scan` names, at the execution's read timestamp with its own
+    /// uncommitted writes over them, in key order, at most its limit of them, appended to `out`, by the walk a plain read takes.
+    /// Nothing is held. What it covered is recorded as a range scanned: to its past key when the range ended, found nothing
+    /// included, and to just past the last row when stopped at the limit. The key a next scan begins at when stopped.
+    ///
+    /// # Errors
+    ///
+    /// The store's error; corruption of a list; a keyspace holding no lists. Nothing is recorded.
+    pub fn scan(
+        &mut self,
+        scan: &KernelScan,
+        out: &mut Vec<KernelRow>,
+    ) -> Result<Option<Vec<u8>>, ChangesetError> {
+        scan.check_keyspace()?;
+        let read_ts = self.read_ts;
+        let (start, end) = scan.bounds();
+        self.write
+            .request()
+            .span(start, end, Some(scan.limit()), |key, request| {
+                let objects =
+                    request.with_list(key, read_ts, |list| list_objects(key, list, read_ts))??;
+                let row = !objects.is_empty();
+                if row {
+                    out.push(KernelRow::new(key.to_vec(), objects));
+                }
+                Ok::<bool, ChangesetError>(row)
+            })
+    }
+
+    /// The ID `iri` has as this execution's reads name it: got or created, the same ID any concurrent writer of the IRI takes,
+    /// one created recorded as an absent term; `None`, recording nothing, for an IRI under the skolem base the dictionary does
+    /// not hold, which no read can hold.
+    ///
+    /// # Errors
+    ///
+    /// Refusals of creating an ID; the store's error.
+    pub fn find_iri(&mut self, iri: NamedNodeRef<'_>) -> Result<Option<SystemId>, ChangesetError> {
+        self.write.find_iri(iri)
+    }
+
+    /// The value of each of `keys` in the dictionary as this execution sees it, into `out`, cleared first: the entries its
+    /// terms would write over those the store holds, so a term it created is found.
+    ///
+    /// # Errors
+    ///
+    /// The store's error.
+    pub fn dictionary_into(
+        &mut self,
+        keys: &[&[u8]],
+        out: &mut Vec<Option<Vec<u8>>>,
+    ) -> Result<(), ChangesetError> {
+        out.clear();
+        let own: BTreeMap<Vec<u8>, Vec<u8>> = self.write.terms().entries().into_iter().collect();
+        let store = self.write.quads().store();
+        for key in keys {
+            out.push(match own.get(*key) {
+                Some(value) => Some(value.clone()),
+                None => store.get_versionless(key).map_err(QuadError::from)?,
+            });
+        }
+        Ok(())
+    }
+
+    /// What this execution's reads come to so far. Marks are counted as read whole whether or not the request read them too,
+    /// so this may run above what the read set takes, never below.
+    pub fn read_counts(&mut self) -> ReadCounts {
+        let absent = self.write.terms().absent().count();
+        let request = self.write.request();
+        let tested: Vec<(usize, usize)> =
+            request.tested().map(|(k, o)| (k.len(), o.len())).collect();
+        let (mut key_bytes, mut lists) = (request.range_bytes(), self.marks_read.len());
+        for key in request.read_keys() {
+            key_bytes += key.len();
+            lists += 1;
+        }
+        key_bytes += self.marks_read.iter().map(Vec::len).sum::<usize>();
+        key_bytes += tested.iter().map(|(k, o)| k + o).sum::<usize>();
+        ReadCounts::new(
+            key_bytes,
+            lists,
+            tested.len(),
+            request.range_count(),
+            absent,
+        )
+    }
+
+    /// How many lists this execution holds: what a scan leaves unchanged.
+    pub fn held_lists(&mut self) -> usize {
+        self.write.request().held_count()
     }
 
     /// Removes predicate `uid`'s declaration, named `iri`, with the indexes it declares: it behaves as the default

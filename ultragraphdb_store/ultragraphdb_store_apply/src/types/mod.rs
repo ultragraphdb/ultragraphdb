@@ -25,6 +25,7 @@ pub(crate) mod operation_link;
 pub(crate) mod operation_outcome;
 pub(crate) mod overlay_txn;
 pub(crate) mod predicate_prefix;
+pub(crate) mod read_counts;
 pub(crate) mod reads;
 pub(crate) mod rebuild;
 pub(crate) mod record_writes;

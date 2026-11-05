@@ -35,8 +35,9 @@ const POOL: usize = 8;
 /// | statement `(k, o)` tested | same key | same key and object | contains `k` |
 /// | range scanned, or the catalog range | key inside | list key inside | overlaps |
 ///
-/// The kinds are checked in the order list, statement, range, absent term, catalog, each against points and
-/// statements; a conflict with a written range is reported as [`ConflictKind::Drop`] after them.
+/// The kinds are checked in the order list, statement, absent term, range, catalog, each against points and
+/// statements, the more precise reason first: a read of a term nobody holds records both its absence and the range of its
+/// list; a conflict with a written range is reported as [`ConflictKind::Drop`] after them.
 ///
 /// **Pruning and memory.** [`ConflictHistory::prune`] raises the floor and drops every run whose newest version is at
 /// or below it, each in constant time, its buffers kept for reuse; a merge leaves out the entries at or below the
@@ -118,11 +119,11 @@ impl ConflictHistory {
         if above().any(|run| run.statements_written(read_set.statements(), rv)) {
             return Some(ConflictKind::Statement);
         }
-        if above().any(|run| run.ranges_written(read_set.ranges(), rv)) {
-            return Some(ConflictKind::Range);
-        }
         if above().any(|run| run.keys_written(read_set.absent(), rv)) {
             return Some(ConflictKind::AbsentTerm);
+        }
+        if above().any(|run| run.ranges_written(read_set.ranges(), rv)) {
+            return Some(ConflictKind::Range);
         }
         above()
             .any(|run| run.ranges_over(read_set, rv))

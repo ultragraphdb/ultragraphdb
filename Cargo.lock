@@ -3780,6 +3780,7 @@ dependencies = [
  "ultragraphdb_protocol_wire",
  "ultragraphdb_store_apply",
  "ultragraphdb_store_posting",
+ "ultragraphdb_store_quads",
  "ultragraphdb_store_sim",
  "ultragraphdb_tool_bdd",
  "ultragraphdb_traits_blocks",

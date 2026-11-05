@@ -21,7 +21,7 @@ mod partition_counts;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
-use std::num::NonZeroU64;
+use std::num::{NonZeroU64, NonZeroUsize};
 use std::pin::pin;
 use std::task::{Context as TaskContext, Poll, Waker};
 
@@ -33,12 +33,12 @@ use ultragraphdb_cluster_partition::{
 use ultragraphdb_cluster_placement::{NodeId, PartitionId, PlacementMap};
 use ultragraphdb_cluster_sequencer::Close;
 use ultragraphdb_core_ids::{BucketGroup, Epoch, SystemId, Version};
-use ultragraphdb_core_keys::{Graph, QuadKey};
+use ultragraphdb_core_keys::{Graph, Keyspace, QuadKey};
 use ultragraphdb_core_mapping::{Change, Changeset, RandomSource};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_apply::{ChangesetApplier, ChangesetError};
 use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig};
-use ultragraphdb_store_quads::{QuadStore, iri_bucket};
+use ultragraphdb_store_quads::{KernelRow, KernelScan, QuadStore, iri_bucket};
 use ultragraphdb_store_sim::{
     FaultConfig, Seed, SimClock, SimListCache, SimRng, SimStore, SteppedExecutor, Stream,
 };
@@ -48,7 +48,7 @@ use ultragraphdb_transactions_commit::{
     CloseRequest, CommitErrorEnum, Pipeline, Replay, RoundBounds, Sessions,
 };
 use ultragraphdb_transactions_log::{SimStorage, Wal, WalConfig};
-use ultragraphdb_transactions_txn::{TxnError, TxnErrorEnum};
+use ultragraphdb_transactions_txn::{Mode, TxnBuffers, TxnError, TxnErrorEnum, TxnLimits};
 
 use crate::types::changeset_workload::injected;
 use crate::types::partition_workload::edge_model::{Edge, EdgeModel};
@@ -76,7 +76,8 @@ const NAMES_PER_PARTITION: usize = 4;
 const TICKETS_PER_START: u64 = 1 << 32;
 /// How many polls a simulated log's future takes at most.
 const POLLS_MAX: u32 = 1_000_000;
-/// How many recoveries in a row one crash may take before the run stops, each interrupted by a fault of its own.
+/// How many recoveries in a row one crash may take before the run stops, each interrupted by a fault of its own, which a
+/// clean one follows well before this.
 const RECOVERIES_MAX: usize = 64;
 
 /// A write under way: the edge it changes, whether it inserts it, and the latest close delivered when it was taken.
@@ -384,7 +385,9 @@ impl PartitionWorkload {
         };
         node.part = part;
         node.starts += 1;
-        node.host = Some(host_of(node, log, mailbox, delivered)?);
+        // As the replay above reads: a read failing here refuses the start, which a real role reports and restarts from.
+        let store = node.store.clone();
+        node.host = Some(store.unfaulted_reads(|| host_of(node, log, mailbox, delivered))?);
         node.last_version = part.applier().quads().lists().applied_ts();
         let in_doubt: Vec<Pending> = std::mem::take(&mut node.pending).into_values().collect();
         for pending in in_doubt {
@@ -449,6 +452,7 @@ impl PartitionWorkload {
         let earlier = Epoch::new(self.rng.between(1, closed.get().max(1)))?;
         for at in [closed, earlier] {
             unfaulted(&stores, || self.check_reverse_reads(at))?;
+            unfaulted(&stores, || self.check_scans(at))?;
         }
         Ok(())
     }
@@ -553,6 +557,88 @@ impl PartitionWorkload {
             }
         }
         Ok(())
+    }
+
+    /// Every partition's forward lists read at `at`, a closed epoch, by a transaction's scan, frame by frame, answer what the
+    /// reference model holds of its subjects, and leave the transaction one range and no list.
+    fn check_scans(&mut self, at: Epoch) -> TestResult {
+        let top = ((at.get() + 1) << 22) - 1;
+        let frame = NonZeroUsize::new(usize::try_from(at.get() % 7 + 1)?).context("a limit")?;
+        for at_node in 0..self.nodes.len() {
+            let node = self.nodes.get(at_node).context("the node")?;
+            let part = node.part;
+            if node.host.as_ref().is_none_or(|host| host.delivered() < at) {
+                continue;
+            }
+            let mut txn = part.begin(
+                NS,
+                Mode::ReadOnly,
+                top.min(part.applier().quads().lists().applied_ts()),
+                self.now(),
+                TxnLimits::default(),
+                TxnBuffers::new(),
+            )?;
+            let version = txn.read_version();
+            let (mut from, mut found) = (Vec::new(), BTreeSet::new());
+            loop {
+                let scan = KernelScan::new(Keyspace::Forward, NS, from, version, frame);
+                let mut rows = Vec::new();
+                let next = txn.scan_into(&scan, self.now(), &mut rows)?;
+                for row in &rows {
+                    found.extend(self.edges_of(part, row)?);
+                }
+                let Some(resume) = next else {
+                    break;
+                };
+                from = resume;
+            }
+            let expected: BTreeSet<Edge> = self
+                .model
+                .held_edges_at(version)
+                .filter(|(subject, _, _)| {
+                    self.home_of(subject)
+                        .is_ok_and(|home| std::ptr::eq(home, part))
+                })
+                .cloned()
+                .collect();
+            self.counts.scans += 1;
+            if found != expected {
+                return Err(self.failure(
+                    "scan_complete",
+                    format!("partition at {at:?}: {found:?}, the model {expected:?}"),
+                ));
+            }
+            if txn.held_lists() != 0 {
+                return Err(self.failure("scan_holds_nothing", "a scan held a list"));
+            }
+        }
+        Ok(())
+    }
+
+    /// The edges `row` of `part`'s forward lists holds, by name.
+    fn edges_of(&self, part: &Part, row: &KernelRow) -> TestResult<Vec<Edge>> {
+        let (parsed, _) = QuadKey::parse(row.key())?;
+        let QuadKey::Forward {
+            subject, predicate, ..
+        } = parsed
+        else {
+            return Err(TestError::new("a row of the forward lists"));
+        };
+        let quads = part.applier().quads();
+        let name = |id: SystemId| -> TestResult<String> {
+            let (iri, _) = quads.iri_of(NS, id)?;
+            iri.strip_prefix("http://ex.org/")
+                .map(ToString::to_string)
+                .context("a workload name")
+        };
+        let (s, p) = (name(subject)?, name(predicate)?);
+        row.objects()
+            .iter()
+            .map(|(object, _)| {
+                let id = object.as_id().context("an edge's object")?;
+                Ok((s.clone(), p.clone(), name(id)?))
+            })
+            .collect()
     }
 
     /// The names of the subjects a reverse read of `object` through `predicate` at `at` returns.

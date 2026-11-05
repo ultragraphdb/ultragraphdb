@@ -3,13 +3,11 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use std::ops::ControlFlow;
-
 use oxrdf::{NamedNode, Term};
 use ultragraphdb_core_ids::{SystemId, TypePrefix};
 use ultragraphdb_core_keys::{Graph, QuadKey};
 use ultragraphdb_core_terms::{EncodedTerm, Hash128};
-use ultragraphdb_store_posting::{BIT_COMPLETE_POSTING, CachedList, PostingError};
+use ultragraphdb_store_posting::{BIT_COMPLETE_POSTING, CachedList};
 use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{ListCache, Store, StoreSnapshot};
 
@@ -19,7 +17,7 @@ use crate::types::quad_store::QuadStore;
 use crate::types::statement_record::StatementRecord;
 use crate::types::statistics::Statistics;
 use crate::utils::dictionary_keys::{id_key, literal_key};
-use crate::utils::postings::posting_object;
+use crate::utils::list_objects::list_objects;
 use crate::utils::skolem::{is_skolem, skolem_blank_node};
 
 impl<S, C, B> QuadStore<S, C, B>
@@ -82,16 +80,7 @@ where
         read_ts: u64,
     ) -> Result<Vec<(EncodedTerm, Vec<SystemId>)>, QuadError> {
         let list = self.lists().read(key, read_ts)?;
-        let mut objects = Vec::new();
-        list.iterate(read_ts, 0, |p| {
-            match posting_object(key, p) {
-                Ok(object) => objects.push((object, p.statement_ids().to_vec())),
-                Err(e) => return Err(PostingErrorOr::Quad(e)),
-            }
-            Ok(ControlFlow::Continue(()))
-        })
-        .map_err(PostingErrorOr::into_quad)?;
-        Ok(objects)
+        list_objects(key, &list, read_ts)
     }
 
     /// The terms the list of `key` holds at `read_ts`, decoded through the dictionary: a missing entry is corruption
@@ -170,26 +159,5 @@ where
             .get_at(&key, read_ts)?
             .map(|item| StatementRecord::decode(&key, item.value()))
             .transpose()
-    }
-}
-
-/// A list iteration's error: the posting crate's, or the quad store's own reading a posting.
-enum PostingErrorOr {
-    Posting(PostingError),
-    Quad(QuadError),
-}
-
-impl From<PostingError> for PostingErrorOr {
-    fn from(e: PostingError) -> Self {
-        Self::Posting(e)
-    }
-}
-
-impl PostingErrorOr {
-    fn into_quad(self) -> QuadError {
-        match self {
-            Self::Posting(e) => e.into(),
-            Self::Quad(e) => e,
-        }
     }
 }

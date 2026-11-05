@@ -17,4 +17,5 @@ pub mod rollup_output;
 pub(crate) mod rollup_queues;
 pub(crate) mod stacked_layers;
 pub mod timestamps;
+pub(crate) mod walk_end;
 pub mod writes;

@@ -18,6 +18,8 @@ pub struct PartitionCounts {
     pub reverse_reads: u64,
     /// Reverse reads that returned at least one subject.
     pub reverse_rows: u64,
+    /// Transactions' scans compared with the reference model.
+    pub scans: u64,
     /// In-doubt writes a recovery found applied.
     pub in_doubt_applied: u64,
 }

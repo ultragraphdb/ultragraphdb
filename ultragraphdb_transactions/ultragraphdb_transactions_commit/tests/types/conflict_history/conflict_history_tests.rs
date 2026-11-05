@@ -166,6 +166,22 @@ fn test_no_write_conflicts_through_the_catalog_keyspace() -> TestResult {
     Ok(())
 }
 
+/// A read of a term nobody holds records its absence and the range of its list: the absence is the reason reported.
+#[test]
+fn test_an_absent_term_is_reported_before_a_range() -> TestResult {
+    let key = term_key(2);
+    let reads = Reads {
+        absent: vec![2],
+        ranges: vec![(key.clone(), None)],
+        ..Reads::default()
+    };
+    assert_eq!(
+        after(&Writes::term(2), &reads)?,
+        Some(ConflictKind::AbsentTerm)
+    );
+    Ok(())
+}
+
 #[test]
 fn test_kinds_are_reported_in_order_and_ranges_last() -> TestResult {
     let reads = Reads {

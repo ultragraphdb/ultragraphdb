@@ -90,11 +90,11 @@ impl Model {
         if rs.statements().any(|(k, o)| statement_hit(k, o)) {
             return Some(ConflictKind::Statement);
         }
-        if rs.ranges().any(|(s, e)| range_hit(s, e)) {
-            return Some(ConflictKind::Range);
-        }
         if rs.absent().any(key_hit) {
             return Some(ConflictKind::AbsentTerm);
+        }
+        if rs.ranges().any(|(s, e)| range_hit(s, e)) {
+            return Some(ConflictKind::Range);
         }
         let dropped = above.iter().any(|w| {
             w.ranges.iter().any(|(ws, we)| {

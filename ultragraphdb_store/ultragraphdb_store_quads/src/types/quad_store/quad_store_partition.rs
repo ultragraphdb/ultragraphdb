@@ -6,17 +6,18 @@
 use std::num::NonZeroU64;
 
 use ultragraphdb_core_ids::{BucketGroup, SystemId};
-use ultragraphdb_core_keys::{Graph, QuadKey, key_prefix};
+use ultragraphdb_core_keys::{Graph, QuadKey};
 use ultragraphdb_core_terms::EncodedTerm;
-use ultragraphdb_store_posting::CachedList;
+use ultragraphdb_store_posting::{CachedList, ListSource, WalkEnd, walk_lists};
 use ultragraphdb_traits_blocks::BlockSource;
-use ultragraphdb_traits_store::{ListCache, Scan, Store, StoreSnapshot};
+use ultragraphdb_traits_store::{ListCache, Scan, Store};
 
 use crate::errors::quad_error::QuadError;
 use crate::types::kernel_row::KernelRow;
 use crate::types::kernel_scan::KernelScan;
 use crate::types::quad_store::QuadStore;
 use crate::types::referrer_set::ReferrerSet;
+use crate::utils::list_objects::list_objects;
 use crate::utils::postings::list_holds;
 
 /// The reads a partition answers beside its quad reads (partitions, quad-reads): referrer sets and marks, its own
@@ -170,8 +171,8 @@ where
         Ok(u64::try_from(subjects.len()).unwrap_or(u64::MAX))
     }
 
-    /// The read kernel: the lists `scan` names, read as of its version, in key order, at most its limit of them,
-    /// appended to `out`. A list holding nothing at the version gives no row. The key a next scan resumes from, the
+    /// The read kernel for a plain read, the walk ([`walk_lists`]) over the store's lists, a source adding no key: the lists
+    /// `scan` names, read as of its version, in key order, at most its limit of them, appended to `out`. A list holding nothing at the version gives no row. The key a next scan resumes from, the
     /// first list of the range not read, as its `from`; or `None` when the range is exhausted.
     ///
     /// # Errors
@@ -182,36 +183,29 @@ where
         scan: &KernelScan,
         out: &mut Vec<KernelRow>,
     ) -> Result<Option<Vec<u8>>, QuadError> {
-        let keyspace = scan.keyspace();
-        let prefix = key_prefix(keyspace, false, scan.namespace(), None, None);
-        if !keyspace.is_list() {
-            return Err(QuadError::corrupted(
-                &prefix,
-                "the read kernel reads lists, and the keyspace holds none",
-            ));
-        }
-        // The range within the namespace's keyspace: a bound outside it is clamped to it.
-        let whole = Scan::prefix(prefix);
-        let start = whole.start().max(scan.from()).to_vec();
-        let end = match (whole.end(), scan.end()) {
-            (Some(a), Some(b)) => Some(a.min(b).to_vec()),
-            (a, b) => a.or(b).map(<[u8]>::to_vec),
-        };
-        let limit = scan.limit().get();
-        let mut rows = 0usize;
-        let snapshot = self.store().snapshot(scan.version())?;
-        for item in snapshot.scan(&Scan::range(start, end)) {
-            let item = item?;
-            if rows == limit {
-                return Ok(Some(item.key().to_vec()));
-            }
-            let objects = self.objects(item.key(), scan.version())?;
-            if !objects.is_empty() {
-                out.push(KernelRow::new(item.key().to_vec(), objects));
-                rows += 1;
-            }
-        }
-        Ok(None)
+        scan.check_keyspace()?;
+        let (start, end) = scan.bounds();
+        let version = scan.version();
+        let snapshot = self.store().snapshot(version)?;
+        let walked = walk_lists(
+            &snapshot,
+            &Scan::range(start, end),
+            self.lists(),
+            Some(scan.limit()),
+            |key, lists| {
+                let objects =
+                    lists.with_list(key, version, |list| list_objects(key, list, version))??;
+                let row = !objects.is_empty();
+                if row {
+                    out.push(KernelRow::new(key.to_vec(), objects));
+                }
+                Ok::<bool, QuadError>(row)
+            },
+        )?;
+        Ok(match walked {
+            WalkEnd::Exhausted => None,
+            WalkEnd::Stopped { next, .. } => Some(next),
+        })
     }
 
     /// Whether `object`'s object-predicates list in `graph` of `namespace` names `predicate` as of `version`.

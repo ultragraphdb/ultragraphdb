@@ -15,7 +15,9 @@ use ultragraphdb_error_store::StoreError;
 use ultragraphdb_traits_store::{ListCache, Store};
 
 use crate::errors::posting_error::PostingError;
+use crate::traits::list_source::ListSource;
 use crate::types::cached_list::CachedList;
+use crate::types::list::List;
 use crate::types::lists::state::State;
 use crate::types::lists_config::ListsConfig;
 use crate::types::rollup_queues::RollupQueues;
@@ -190,5 +192,29 @@ where
         } else {
             Ok(())
         }
+    }
+}
+
+impl<S, C> ListSource for Lists<S, C>
+where
+    S: Store,
+    C: ListCache<Value = CachedList>,
+{
+    /// A plain read adds no key.
+    fn added_keys<'a>(
+        &'a self,
+        _start: &'a [u8],
+        _end: Option<&'a [u8]>,
+    ) -> impl Iterator<Item = &'a [u8]> {
+        std::iter::empty()
+    }
+
+    fn with_list<R>(
+        &self,
+        key: &[u8],
+        version: u64,
+        read: impl FnOnce(&List) -> R,
+    ) -> Result<R, PostingError> {
+        Ok(read(&self.read(key, version)?))
     }
 }

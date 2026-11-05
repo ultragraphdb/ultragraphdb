@@ -37,10 +37,12 @@
 //! ```
 
 mod errors;
+mod traits;
 mod types;
 mod utils;
 
 pub use crate::errors::posting_error::{PostingError, PostingErrorEnum};
+pub use crate::traits::list_source::ListSource;
 pub use crate::types::batch::Batch;
 pub use crate::types::cache_miss::CacheMiss;
 pub use crate::types::cached_list::CachedList;
@@ -54,6 +56,7 @@ pub use crate::types::request::Request;
 pub use crate::types::rollup_output::{RollupOutput, bin_split, should_split};
 pub use crate::types::rollup_queues::{ROLLUP_BATCH, ROLLUP_DEDUP_SECS, ROLLUP_QUEUE};
 pub use crate::types::timestamps::Timestamps;
+pub use crate::types::walk_end::WalkEnd;
 pub use crate::types::writes::Writes;
 pub use crate::utils::constants::{
     BIT_COMPLETE_POSTING, BIT_DELTA_POSTING, BIT_EMPTY_POSTING, BIT_SCHEMA_POSTING, BLOCK_SIZE,
@@ -64,3 +67,4 @@ pub use crate::utils::posting_codec::{marshal, unmarshal_complete, unmarshal_del
 pub use crate::utils::postings::{
     delete_all_posting, has_delete_all, is_plist_empty, length_delta,
 };
+pub use crate::utils::walk_lists::walk_lists;

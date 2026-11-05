@@ -37,5 +37,6 @@ pub use crate::types::statement_record::StatementRecord;
 pub use crate::types::statistics::{SKETCH_REGISTERS, Statistics};
 pub use crate::types::write_terms::{WriteTerms, namespace_base};
 pub use crate::utils::dictionary_keys::{CONTRACT_KEY, id_key, literal_key, term_key};
+pub use crate::utils::list_objects::list_objects;
 pub use crate::utils::postings::{object_posting, posting_object};
 pub use crate::utils::skolem::{iri_bucket, skolem_blank_node};

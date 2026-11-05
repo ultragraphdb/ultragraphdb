@@ -40,6 +40,7 @@ use ultragraphdb_transactions_txn::{MAX_WRITE_SET, Prepared, TxnBuffers, TxnErro
 mod catalog_steps;
 /// The single-store partitions scenarios' steps and the replay of a partition's references and registrations.
 mod partition_steps;
+mod scan_steps;
 
 /// The unit tests' fixture and doubles, shared by path.
 pub mod utils {
@@ -69,6 +70,7 @@ struct Steps {
     expected_ids: Vec<SystemId>,
     retry_refused: bool,
     refusal: Option<TxnError>,
+    refusal_after: Option<TxnError>,
     versions: Vec<u64>,
     /// The statements of a predicate held, by the predicate's statistics.
     statements: Vec<i64>,

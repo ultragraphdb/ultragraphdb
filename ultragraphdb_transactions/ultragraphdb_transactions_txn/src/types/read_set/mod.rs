@@ -13,9 +13,9 @@ use crate::types::span::Span;
 use crate::types::txn_limits::MAX_FRAME;
 
 /// The bytes a key in a table accounts for besides its own: its span.
-const SPAN_BYTES: usize = 8;
+pub(crate) const SPAN_BYTES: usize = 8;
 /// A term key's length: its tag and a system ID's 16 bytes.
-const TERM_KEY: usize = 1 + SystemId::BYTES;
+pub(crate) const TERM_KEY: usize = 1 + SystemId::BYTES;
 
 /// What a read-write transaction read, the read set the commit step validates it by (transactions, "What a
 /// transaction's reads record and what conflicts with them"): the lists it read whole, the statements it tested (a list
