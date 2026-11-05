@@ -1,0 +1,38 @@
+AGENTS.md
+  h_080fb89ca1f0c4 212
+"openspec/changes/archive/2026-11-01-stage-5-transactions-and-binary-protocol/ zero-copy-binary-protocol.md"
+  h_080fb89ca1f0c4 539
+openspec/changes/archive/2026-11-01-stage-5-transactions-and-binary-protocol/notes/group-11.md
+  h_080fb89ca1f0c4 288
+openspec/changes/archive/2026-11-01-stage-5-transactions-and-binary-protocol/notes/group-9c.md
+  h_080fb89ca1f0c4 5
+openspec/changes/archive/2026-11-01-stage-5-transactions-and-binary-protocol/specs/wire-protocol/spec.md
+  h_080fb89ca1f0c4 221
+openspec/changes/archive/2026-11-01-stage-5-transactions-and-binary-protocol/tasks.md
+  h_080fb89ca1f0c4 126
+openspec/changes/stage-5-5-three-role-refactor/notes/protocol-review.md
+  h_080fb89ca1f0c4 3
+openspec/changes/stage-5-5-three-role-refactor/tasks.md
+  h_080fb89ca1f0c4 122
+openspec/notes/backlog.md
+  h_080fb89ca1f0c4 308
+openspec/notes/security.md
+  h_080fb89ca1f0c4 3,354
+openspec/specs/wire-protocol/spec.md
+  h_080fb89ca1f0c4 225
+specification/PROTOCOL.md
+  h_080fb89ca1f0c4 6,12
+ultragraphdb_protocol/README.md
+  h_080fb89ca1f0c4 14-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cfe27ff39cb95b382b142fb7895de78bc26ac4f9",
+  "prompts": {},
+  "humans": {
+    "h_080fb89ca1f0c4": {
+      "author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
