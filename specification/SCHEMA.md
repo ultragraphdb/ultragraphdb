@@ -324,11 +324,13 @@ checked against its range at write; a larger integer is refused (`UGS1011`).
 ### 5.2 Optionality, requiredness and defaults
 
 `T Optional` after a field's type makes the value optional; without it the value is required and must be present when
-the instance commits (`UGS1005`). A field may carry a constant default, `= literal`, whose literal must be of the
-field's type (`UGS0207`), with an enum member written bare; a required field with a default takes it when a write
-omits the value; a default on an `Optional` field is refused (`UGS0209`), since an absent optional value means
-absence. There are no nulls: an absent optional value reads as `null` in the GQL view, as absence in the RDF view and as
-`None` in UQL.
+the instance commits (`UGS1005`). A collection attribute, `List` or `Set`, is present when it holds at least one member
+and absent otherwise, as the RDF view's one triple per member has it: a required collection means at least one member,
+and there is no present-but-empty collection. A field may carry a constant default, `= literal`, whose literal must be
+of the field's type (`UGS0207`), with an enum member written bare; a required field with a default takes it when a write
+omits the value; a default on an `Optional` field is refused (`UGS0209`), since an absent optional value means absence.
+There are no nulls: an absent optional value reads as `null` in the GQL view, as absence in the RDF view and as `None`
+in UQL.
 
 ### 5.3 Enums and `@values`
 
@@ -937,7 +939,9 @@ What each counts: live instances, unless the row says otherwise. Where it is che
 type, `@append_only` also refuses retraction (`UGS1013`), so its instances never leave the live slice and its reads are
 monotonic. An `@append_only` relation may not
 lose instances through a participant's deletion: each participant type must be `@append_only` or `@bitemporal`, or the
-relation must declare `restrict` on that role (`UGS0601`).
+relation must declare `restrict` on that role (`UGS0601`). A retraction of a participant never writes it: the
+instance of a relation that is not `@bitemporal` is live while every participant of it is live (section 8.4, rule 6),
+so it leaves the default read with the retracted participant and stays as written.
 
 ### 8.4 Bitemporal statements
 
@@ -972,6 +976,12 @@ abstract statement Asserted : Statement @bitemporal(valid: valid) {
 6. **`@on_retract(role: restrict | restrict open | cascade)`** replaces `@on_delete`: `restrict` refuses a retraction
    while live instances name the participant in that role, `restrict open` while open ones do, and `cascade` retracts
    them in the same commit. The default is `cascade`. An insert naming a retracted participant is refused (`UGS1019`).
+   The cascade reaches `@bitemporal` relations alone, the ones with an `asserted` to close. A relation that is not
+   `@bitemporal`, an `@append_only` provenance link or a mutable one, is not written by a retraction: its instance is
+   **live while every participant of it is live**, derived from the participants' `asserted` intervals and never
+   stored on it, so it leaves the default read with the retracted participant and returns under `with retracted`
+   beside it, and `UGS1019` keeps a new one from naming the participant afterwards. An `@append_only` relation is
+   therefore never written by a cascade, which is what `UGS0601` admits a `@bitemporal` participant for.
 7. **`@retracts(role)`** on a relation type: inserting an instance retracts its participant in that role in the same
    commit, so a correction is one statement; the participant must be live (`UGS1019`).
 8. **`@ends(role)`** on a relation type with a valid interval: inserting an instance closes the valid interval of its
@@ -1056,6 +1066,7 @@ refusal number and the instance. The refusals:
 | `UGS1033` | CrossDomain | names a participant in another domain graph |
 | `UGS1034` | IncompleteInstance | leaves an instance assembled from triples incomplete: a reifier without its triple, a role triple without its instance, a type without its required roles |
 | `UGS1035` | Succession | inserts an `@ends` instance without a valid start, or whose participant in that role is not live, has no valid interval, or has one that begins after the instance's valid start or ends before it |
+| `UGS1036` | AttributeCardinality | writes a second value to a single-valued attribute of one instance |
 
 ### 8.8 Legal purge
 
@@ -1439,7 +1450,7 @@ either encoding (section 6.4).
 | `fn` | Not in the view |
 | `graph` | A named graph |
 | Bridge | A triple in the domain graph whose object is an IRI of the shared graph |
-| `@bitemporal` | `asserted_start`, `asserted_end` literals of `xsd:dateTimeStamp` on the instance or its reifier |
+| `@bitemporal` | `asserted_start`, `asserted_end` literals of `xsd:dateTimeStamp` on the instance or its reifier, and `live`, an `xsd:boolean` that is `asserted_end`'s absence (section 8.4), `true` on every instance a default read binds |
 | Catalog type as participant | The class IRI as an individual, as OWL 2 punning allows |
 | `Geo` | A `geo:geoJSONLiteral`; `@uncertainty` as `geo:hasMetricSpatialAccuracy` |
 | `Measure` | The literal of section 5.8; a fixed-unit attribute's property carries `qudt:unit` |
@@ -1455,9 +1466,9 @@ checks, `sh:class` and `sh:or` for roles and unions, and `sh:sparql` for keys an
 
 | UGS construct | GQL |
 |---|---|
-| Entity type | A node type whose nodes carry the labels of the type and all supertypes; properties as section 5.1 |
+| Entity type | A node type whose nodes carry the labels of the type and all supertypes; properties as section 5.1, and the read-only property `type`, the concrete type's name as a `STRING`, answered from the prefix on every node and edge |
 | Statement type | A label on nodes and relation nodes alike |
-| Edge-encoded relation | An edge type from the anchor's label to the other's, directed; properties for the attributes; a `@symmetric` relation an undirected edge type. A relation whose instances fill roles is presented as a relation node with one edge per role, since a GQL edge cannot be an endpoint: the view follows the encoding and never decides it |
+| Edge-encoded relation | An edge type from the anchor's label to the other's, directed; properties for the attributes; a `@symmetric` relation an undirected edge type. A type whose instances carry a reifier (section 11.1) is presented twice, as one element with one identity: the edge, and a **relation node** with the type's labels, the same properties, and two derived, read-only role edges `{Relation}_{role}` from it to the participants, the shape a node-encoded relation has, so that a relation can name the instance, since a GQL edge cannot be an endpoint. The edge and the node answer one `ELEMENT_ID`, the reifier IRI, and a write through either is a write to the instance. A type without a reifier has no node presentation: the view follows the compiler's reifier decision and never makes one |
 | Node-encoded relation | A node type for the relation and one edge type per role, labelled with the role and, for a specialized role, the super role too; `rdf:type` and the labels are answered from the reifier's or node's prefix alike |
 | Navigation name of a node-encoded relation | A derived, directed, read-only edge type from the participant that gains the name to the participant the name reaches, with no properties and no element id, answered by the query core from the two role edges |
 | Union role | A label expression `A\|B\|C` |
@@ -1781,6 +1792,8 @@ counterparty.
 | A subrelation's anchor | A subrelation may declare its own `@colocate`; inherited constraints anchored elsewhere become non-anchor constraints for that kind, which the report states (the exercise's G1): DeepBrain's `Hierarchy` and `LiveUnit` need it |
 | A keyed relation's home | Its key's bucket, as an entity's, and no `@colocate`: one rule for where an instance lives, derivable from its IRI (the exercise's G2) |
 | Index writes in the report | Counted per write operation (the exercise's G4) |
+| Relation node of an edge-encoded relation | Decided 2026-11-05: an edge-encoded relation whose instances carry a reifier is presented in the GQL view also as a relation node with derived role edges, one element with the edge and one `ELEMENT_ID`, so a relation can name it, as `AssertedBy` names every relation of Gen5; the counterpart of the RDF view's reifier term beside its triple. Chosen over a node-only presentation, which leaves the store unchanged and turns every hop of Gen5 into three atoms or a propertyless navigation edge, losing the envelope on the hop |
+| Retraction and non-bitemporal relations | Decided 2026-11-05: a retraction cascades to `@bitemporal` relations alone; a relation without an `asserted`, an `@append_only` link above all, is live while every participant of it is live, derived and never written, so provenance of a retracted statement stays as written and returns under `with retracted`. Chosen over writing the link, which `UGS1013` forbids, and over leaving it in the live view, which would show an edge to a node the view does not show |
 | Navigation edges | A node-encoded relation's navigation names are derived one-hop edges in both views, read-only, so a quantified edge or a property path walks a relation node as it walks an edge; what makes DeepBrain's tree walks expressible in the query cores (`QUERY-GQL-CORE.md`, `QUERY-SPARQL-CORE.md`, 2026-11-05) |
 | Tenant and namespace | Decided 2026-11-05: a tenant isolates, with nothing read, written or named across tenants; a namespace organises inside a tenant, one `schema` with its graphs, as a PostgreSQL schema inside a database. The engine's u64 is the tenant; the UGS declaration of a vocabulary base is `prefix`, since `namespace` now names the unit |
 | `rdf:type` of declared types | Answered from the type prefix; no stored quad |

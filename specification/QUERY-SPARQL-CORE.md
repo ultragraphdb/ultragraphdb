@@ -70,18 +70,19 @@ state visible that the view does not name:
 | **Navigation property** `?a {base}nav ?b` of a node-encoded relation | A derived triple, one per instance, from the participant that gains the navigation name to the participant the name reaches: `?u db:parents ?p` stands for `?r db:SubOrganizationOf_unit ?u . ?r db:SubOrganizationOf_parent ?p`. Read-only; published as `owl:propertyChainAxiom`; it exists so that a property path walks a relation node in one step, as it walks an edge |
 | A keyless entity, a relation node, a reifier | An IRI (`SCHEMA.md` section 7.3); a blank node in the view is an ungoverned one under the skolem base, as the mapping contract presents it |
 
-A predicate, class or graph a query names must be one the schema declares or the view derives (`SPQ0202`,
-`SPQ0203`); a predicate no type declares matches nothing, and the planner refuses it instead, since a misspelt IRI is
+A predicate, class or graph a query names must be one the schema declares or the view derives (`SPQ0202`, `SPQ0203`); on
+a closed graph a predicate no type declares matches nothing, and the planner refuses it instead, since a misspelt IRI is
 otherwise an empty answer. Undeclared data under `@open` is reachable under its own predicates and the class
 `{base}Resource`.
 
 ## 3. Lexical structure
 
-`Query §19.8` as narrowed here. Source is UTF-8, at most 1 MiB, nesting bounded at 64 (`SPQ0001`).
+`Query §19.8` as narrowed here. Source is UTF-8, bounded by the protocol's query section, `max_frame` less 512 bytes,
+which `PROTOCOL.md` section 7.4 refuses before the core sees it; nesting is bounded at 64 (`SPQ0001`).
 
 | Token | Form |
 |---|---|
-| IRI | `<…>` absolute, or a prefixed name `prefix:local` with `PREFIX` declared or the tenant's vocabulary prefixes (`SCHEMA.md` section 6.1) implied; a relative IRI is refused (`SPQ0003`) since no base is set |
+| IRI | `<…>` absolute, or a prefixed name `prefix:local` with `PREFIX` declared, the tenant's vocabulary prefixes (`SCHEMA.md` section 6.1) implied, and `rdf:`, `rdfs:`, `xsd:`, `geo:` and `ugdb:` implied under their standard namespaces, `ugdb:` section 9's; a relative IRI is refused (`SPQ0003`) since no base is set |
 | Variable | `?name` or `$name` |
 | Parameter | A variable the prepared statement names as a parameter (section 10); it is bound before evaluation and never projected unbound |
 | Literal | `"…"` or `'…'` with SPARQL's escapes, `"…"@lang`, `"…"^^<datatype>`; integers, decimals, doubles, `true`, `false` as `Query §19.8`; a literal that is not valid for its datatype is refused (`SPQ0003`) where the datatype is one of section 5.1's |
@@ -105,16 +106,17 @@ triple         = subject predicate_list ;
 predicate_list = path object_list { ";" path object_list } ;
 object_list    = object { "," object } ;
 subject        = var | iri | blank | triple_term ;
-object         = var | iri | blank | literal | triple_term ;
+object         = var | iri | blank | literal | triple_term | collection ;
+collection     = "(" { object } ")" ;
 triple_term    = "<<(" subject iri object ")>>" ;
 path           = seq { "|" seq } ;
 seq            = step { "/" step } ;
-step           = [ "^" ] iri [ "+" | "*" | "?" ] | "(" path ")" [ "+" | "*" | "?" ] ;
+step           = [ "^" ] ( iri | "a" ) [ "+" | "*" | "?" ] | "(" path ")" [ "+" | "*" | "?" ] ;
 graph_block    = "GRAPH" iri group ;
 subselect      = "{" select "}" ;
 filter         = "FILTER" ( "(" expr ")" | "NOT" "EXISTS" "{" triple "}" | call ) ;
 modifiers      = [ "GROUP" "BY" group_key { group_key } ] [ "ORDER" "BY" order_key { order_key } ]
-                 [ "LIMIT" int ] [ "OFFSET" int ] ;
+                 ( [ "LIMIT" int ] [ "OFFSET" int ] | "OFFSET" int "LIMIT" int ) ;
 group_key      = var | "(" expr [ "AS" var ] ")" ;
 order_key      = [ "ASC" | "DESC" ] "(" expr ")" | var ;
 
@@ -138,7 +140,10 @@ quad_data      = "{" { ground_triples | "GRAPH" iri "{" ground_triples "}" } "}"
 quad_pattern   = "{" { triples | "GRAPH" iri "{" triples "}" } "}" ;
 ```
 
-`ground_triples` are `triples` whose terms are IRIs, literals and blank nodes, no variables. A `modify` holds
+`ground_triples` are `triples` whose terms are IRIs, literals, blank nodes and parameters (section 10), no other
+variables. `a` is `rdf:type`, as `Query §19.8` has it. A collection stands only as a property function's object list
+(section 9); elsewhere it is outside the core (section 11, `collection`). `LIMIT` and `OFFSET` come in either order,
+as `Query §19.8`'s `LimitOffsetClauses` admits. A `modify` holds
 `DELETE`, `INSERT` or both. A request is one query or one update; a sequence of updates separated by `;` is outside
 the core (section 11): the transaction sequences requests.
 
@@ -176,7 +181,8 @@ query.
 ### 5.3 Static checks
 
 Every IRI a pattern uses as a predicate or class is resolved against the tenant's catalog before evaluation
-(`SPQ0202`, `SPQ0203`); a predicate declared as a property is refused in a position where its object must be a node
+(`SPQ0202`, `SPQ0203`), except on a graph whose schema is `@open`, where an undeclared predicate is admitted and its
+object typed as any term; a predicate declared as a property is refused in a position where its object must be a node
 and the reverse (`SPQ0301`); a literal compared with an attribute of an incompatible datatype is refused at prepare
 time (`SPQ0301`) where the attribute's type is known from the predicate, so a misspelt datatype is found before the
 query runs. A variable projected that no pattern binds is refused (`SPQ0206`). The result's column datatypes are the
@@ -197,6 +203,12 @@ This is simple entailment over the view: an `rdf:type` pattern matches the insta
 supertype, since the view holds a triple for each; a navigation property's triple matches each relation instance
 once; no other inference is made.
 
+The view holds **live** instances alone (section 1; `SCHEMA.md` section 8.4, rule 4): no triple of the view
+names a deleted or retracted instance, as subject or object, so a retracted membership never matches
+`?m a db:MemberOf`, a provenance link of a retracted statement is not answered, and `live` is `true` wherever a
+query binds it, until UQL's `with retracted` reads. A read-only transaction at a named read version sees
+the instances live at that version.
+
 ### 6.2 Property paths [core]
 
 A path is an alternative of sequences of steps, each step a predicate IRI, its inverse `^p`, or either under `+`,
@@ -209,7 +221,8 @@ predicate, so `db:parents+` walks the organisation tree.
 
 ### 6.3 `FILTER NOT EXISTS`
 
-`FILTER NOT EXISTS { s p o }` with one triple pattern whose subject is bound by the enclosing group **[core]**
+`FILTER NOT EXISTS { s p o }` with one triple pattern whose subject is a term or a variable bound by the enclosing
+group **[core]**
 (`SPQ0401` otherwise) keeps a solution when no triple matches under that solution: the absence of a property, which
 DeepBrain's "open" and "live" reads need. A general `NOT EXISTS`, `EXISTS` and `MINUS` are outside the core.
 
@@ -272,10 +285,13 @@ Ground triples, in the default graph or a `GRAPH` block, each a declared predica
   IRI must be the one the schema mints for the key (`SPQ0601` otherwise, naming the expected IRI), or a blank node,
   which the engine replaces by the minted IRI, a handle for a keyless type.
 - An attribute triple writes the attribute; a `Set` attribute one member per triple; an interval's two bounds; a
-  literal of the wrong datatype is refused (`UGS1011`).
-- `?a db:nav ?b` with a declared navigation name of an edge-encoded relation creates its instance; attributes of it
-  go on its reifier, `_:r rdf:reifies <<( a db:nav b )>>` and `_:r db:attr v`, which the engine binds to the reifier
-  it allocates; a navigation property of a node-encoded relation is refused (`SPQ0602`).
+  literal of the wrong datatype is refused (`UGS1011`); a second value for a single-valued attribute that holds one
+  is refused (`UGS1036`), never a replacement, which `DELETE … INSERT … WHERE` is (section 8.3).
+- `?a db:nav ?b` with a declared navigation name of an edge-encoded relation creates its instance, written under
+  either navigation name, the inverse normalised to the anchor's triple; attributes of it go on its reifier,
+  `_:r rdf:reifies <<( a db:nav b )>>` and `_:r db:attr v`, which the engine binds to the reifier it allocates; on a
+  `@multi` relation every navigation triple written creates one instance, the reifier the only name telling the
+  instances of one triple apart; a navigation property of a node-encoded relation is refused (`SPQ0602`).
 - A node-encoded relation instance is a blank node or handle IRI typed with the relation's class, with one role
   triple per role and its attributes; validated whole at commit (`UGS1015` for a missing required role).
 - A `@set` relation's existing combination resolves to the existing instance.
@@ -290,8 +306,9 @@ Ground triples that must exist:
   `@on_retract` applying.
 - An attribute triple clears an optional attribute or one member of a `Set`; a required attribute is refused
   (`UGS1005`); on a `@bitemporal` type the change is a revision.
-- A navigation triple of an edge-encoded relation deletes the instance; a role triple of a required role is refused
-  (`UGS1015`), the relation's `rdf:type` triple deletes the instance.
+- A navigation triple of an edge-encoded relation deletes the instance; on a `@multi` relation the bare triple names
+  no one instance and is refused (`SPQ0603`), the reifier's `rdf:type` triple deleting the instance it names. A role
+  triple of a required role is refused (`UGS1015`), the relation's `rdf:type` triple deletes the instance.
 - A triple that does not exist is no error, as `Update §3.1.2` has it; the statement writes nothing for it.
 
 ### 8.3 `DELETE … INSERT … WHERE`
@@ -357,7 +374,7 @@ A refusal names a code, a location, a reason and, where one exists, a fix.
 
 | Code | Condition |
 |---|---|
-| `SPQ0001` | The request past its size or nesting bound |
+| `SPQ0001` | The request past its nesting bound |
 | `SPQ0002` | A token the lexer does not know |
 | `SPQ0003` | A malformed or relative IRI, or a literal invalid for a datatype of section 5.1 |
 | `SPQ0004` | A token the grammar does not expect; the message names what was expected |
@@ -374,6 +391,7 @@ A refusal names a code, a location, a reason and, where one exists, a fix.
 | `SPQ0502` | A projected variable neither grouped nor aggregated |
 | `SPQ0601` | An `INSERT DATA` subject IRI that is not the one the schema mints for its key |
 | `SPQ0602` | An insert of a navigation property of a node-encoded relation |
+| `SPQ0603` | A `DELETE DATA` navigation triple of a `@multi` relation, which names no one instance |
 | `SPQ0701` | A property function pattern that is not the first of its group |
 | `SPQ0702` | A property function over an attribute without the index it needs, or an argument of the wrong type |
 | `SPQ0801` | An update in a read-only transaction |
@@ -389,7 +407,8 @@ A schema refusal at commit reaches the client with its `UGS1xxx` number and the 
 | `OPTIONAL` | `optional` | Full conformance |
 | `UNION`, `MINUS`, `EXISTS`, general `NOT EXISTS` | `union`, `minus`, `exists` | Full conformance |
 | `BIND`, `VALUES` | `bind`, `values` | Full conformance; parameters stand in for `VALUES` |
-| Negated property sets, a path with a variable predicate, `{n,m}` paths | `property path` | Full conformance |
+| Negated property sets, a path with a variable predicate | `property path` | Full conformance |
+| An RDF collection outside a property function's object list | `collection` | Full conformance |
 | `CONSTRUCT`, `DESCRIBE`, `ASK` | `query form` | Full conformance |
 | `FROM`, `FROM NAMED`, `GRAPH ?g` | `dataset clause` | The dataset is the tenant's; `GRAPH ?g` full conformance |
 | `HAVING`, `SAMPLE`, `GROUP_CONCAT`, `REDUCED` | `aggregate` | Full conformance |
@@ -401,19 +420,19 @@ A schema refusal at commit reaches the client with its `UGS1xxx` number and the 
 
 ## 12. Conformance: the oracles
 
-1. **The W3C SPARQL 1.1 test suite** (`w3c/rdf-tests`): every query and update evaluation test whose query and data
-   lie inside the core runs as a result test, the data loaded as `@open` data on a schema that declares nothing, the
+1. **The W3C SPARQL 1.1 test suite** (`w3c/rdf-tests`): every query and update evaluation test whose query and data lie
+   inside the core runs as a result test, the data loaded as `@open` data on a schema that declares nothing, the
    expected solutions compared as bags with unbound as unbound; every test outside the core runs as a refusal test
-   naming the feature. The selection is a manifest in the corpus, one line per test, reviewed by hand once.
-2. **spareval** is the reference evaluator for core queries over the same data where the W3C suite has no case:
-   the harness runs a query through Oxigraph's `spareval` on the view's quads and through the core, and compares the
-   bags.
-3. **Differential, against GQL.** Every scenario of section 13 and every MGQL query of `QUERY-GQL-CORE.md` section
-   12 is written in both cores over one dataset, and the answers are compared row by row under this correspondence:
-   a GQL node is the IRI SPARQL binds; a GQL edge is the reifier IRI; a GQL property is the literal; GQL `NULL` is
-   unbound; a GQL quantified edge with `DISTINCT` is a `+`, `*` or `{m,n}`-bounded path; a GQL `COUNT(DISTINCT x)`
-   is `COUNT(DISTINCT ?x)`; a GQL `IS NULL` is `FILTER NOT EXISTS`; three-valued `UNKNOWN` and SPARQL's error both
-   fail the filter.
+   naming the feature. The selection is a manifest in the corpus, one line per test, reviewed by hand once. 2.
+   **spareval** is the reference evaluator for core queries over the same data where the W3C suite has no case: the
+   harness runs a query through Oxigraph's `spareval` on the view's quads and through the core, and compares the bags.
+   3. **Differential, against GQL.** Every scenario of section 13 and every MGQL query of `QUERY-GQL-CORE.md` section 12
+   is written in both cores over one dataset, and the answers are compared row by row under this correspondence: a GQL
+   node is the IRI SPARQL binds; a GQL edge is the reifier IRI; a GQL property is the literal; GQL `NULL` is unbound; a
+   GQL quantified edge `+`, `*` or `?` with `DISTINCT` is the path operator of the same name, and a bounded GQL `{m,n}`,
+   which SPARQL 1.1 has no path for, runs in a differential scenario over data whose longest chain is within the bound,
+   where `{1,n}` is `+` and `{0,n}` is `*`; a GQL `COUNT(DISTINCT x)` is `COUNT(DISTINCT ?x)`; a GQL `IS NULL` is
+   `FILTER NOT EXISTS`; three-valued `UNKNOWN` and SPARQL's error both fail the filter.
 
 ## 13. DeepBrain in the core
 
@@ -433,7 +452,7 @@ INSERT {
       db:MemberOf_member <https://example.org/deep_brain#Node/AGENT%3Aada> ;
       db:MemberOf_collection <https://example.org/deep_brain#Node/AGENT%3Aacme> ;
       db:valid_start "2026-01-01T00:00:00Z"^^xsd:dateTimeStamp ;
-      db:method "imported" ; db:confidence 0.98 ;
+      db:method "import" ; db:confidence 0.98e0 ;
       db:asserted_by <https://example.org/deep_brain#Node/SRC%3Ahr> .
 }
 WHERE { FILTER NOT EXISTS { <https://example.org/deep_brain#Node/AGENT%3Aada> a db:Person } }
@@ -447,8 +466,8 @@ percent-encoded, or writes as blank nodes with `db:id` and lets the engine mint.
 property; a count per unit:
 
 ```
-SELECT ?label ?rank ?since WHERE {
-  ?p db:id $id ; db:label ?label ; db:rank ?rank ; db:asserted_start ?since }
+SELECT ?rank ?since WHERE {
+  ?p db:id $id ; db:rank ?rank ; db:asserted_start ?since }
 
 SELECT ?member ?rank WHERE {
   ?u db:id $unit . ?m db:MemberOf_collection ?u ; db:MemberOf_member ?x ; db:rank ?rank . ?x db:id ?member .
@@ -464,7 +483,8 @@ GROUP BY ?unit
 ```
 
 What the graph held at an epoch, DeepBrain's `believed at`, is a read-only transaction at a named read version
-(`PROTOCOL.md` section 6.2) over the same queries, until UQL names it in the query.
+(`PROTOCOL.md` section 6.2) over the same queries, within the versions the partitions retain and refused as
+`PROTOCOL.md` section 9.4 states past them, until UQL names it in the query.
 
 **Update.** A re-ranking, a revision on the bitemporal membership; a label change on an organisation:
 
@@ -484,8 +504,10 @@ DELETE { ?p a db:Person } WHERE { ?p db:id "AGENT:ada" }
 ```
 
 The first closes the membership's `asserted`; the second retracts Ada and, by `@on_retract`'s default `cascade`, every
-relation naming her, `MemberOf`'s `restrict open` refusing an organisation's retraction while open memberships name
-it (`UGS1020`).
+bitemporal relation naming her. Her provenance links are not written: `AssertedBy` is `@append_only` and not
+bitemporal, so each instance is live while its participants are and leaves the view with her, answered again at an
+earlier read version (`SCHEMA.md` section 8.4, rule 6). `MemberOf`'s `restrict open` refuses an organisation's
+retraction while open memberships name it (`UGS1020`).
 
 **Retrieve.** The nearest concepts to an embedding with their schemes; the claims a text query matches:
 
@@ -511,7 +533,8 @@ shapes `SCHEMA.md` section 11.2 publishes are what a SPARQL client reads for the
 - **`SCHEMA.md`.** Section 11.2's RDF view gains the navigation property of section 2 for node-encoded relations, a
   derived `owl:propertyChainAxiom` over the two role properties, read-only; and states that `rdf:reifies` with a triple
   term is how a reifier is reached. Section 8.4's revision rule is what an attribute change on a bitemporal instance
-  relies on.
+  relies on. Carried 2026-11-05: `live` in section 11.2's view, `UGS1036` for a second value written to a single-valued
+  attribute, and section 8.4's rule 6 for an append-only link naming a retracted participant.
 - **`mapping-contract`.** The RDF view presents a reifier through `rdf:reifies` and a triple term, as RDF 1.2 writes
   it, beside the annotation it already defines.
 - **`quad-reads`.** A path step with a bound subject is a forward read; `^p` and a bound object a reverse read; a
@@ -525,7 +548,8 @@ shapes `SCHEMA.md` section 11.2 publishes are what a SPARQL client reads for the
 | Reifiers | RDF 1.2's `rdf:reifies` with a triple term, the one construct beyond SPARQL 1.1 in the core, since edge properties are otherwise unreachable; the data model is the RDF 1.2 Concepts Candidate Recommendation, the written form the frozen draft syntax of section 1 |
 | SPARQL 1.2 | Not followed. The core is SPARQL 1.1, a Recommendation since 2013. SPARQL 1.2 Query and Update are Working Drafts, revised monthly through October 2026, with the Working Group chartered to April 2027 and no implementation report; building on a draft binds the core to text that moves. Decided 2026-11-05: reviewed again in mid or late 2027, against the Recommendation if one exists by then |
 | Navigation properties | Derived one-step properties for node-encoded relations, so a property path walks a relation node as it walks an edge; read-only |
-| Property paths | Alternatives, sequences, inverse, `+`, `*` and `?` with set semantics by frontier expansion; nothing else until full conformance |
+| Property paths | Alternatives, sequences, inverse, `+`, `*` and `?` with set semantics by frontier expansion; nothing else until full conformance. SPARQL 1.1 has no bounded `{m,n}` path, so a bounded GQL quantifier has no counterpart here |
+| Writes to `@multi` relations | Decided 2026-11-05: every navigation triple inserted creates one instance; a bare navigation triple under `DELETE DATA` names no one instance and is refused, the reifier's type triple deleting one |
 | `NOT EXISTS` | One triple pattern with a bound subject: the absence read, recorded in the read set |
 | Retrieval | Property functions `ugdb:nearest` and `ugdb:search`, first in their group |
 | Insert-where-absent | `INSERT … WHERE { FILTER NOT EXISTS { … } }`, one request, the absence validated at commit |

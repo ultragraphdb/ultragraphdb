@@ -62,12 +62,13 @@ the view does not name:
 
 | In the view | From the schema |
 |---|---|
-| Node, with labels | An entity, or a node-encoded relation instance; its labels are its concrete type and every supertype, statement types included; `rdf:type` is never a property |
+| Node, with labels | An entity, or a node-encoded relation instance; its labels are its concrete type and every supertype, statement types included; the labels answer the type set and the read-only property `type` the concrete type's name as a `STRING`, on every node and edge, answered from the prefix |
 | Edge, with a type | An edge-encoded relation instance: its type is the navigation name declared on the relation's anchor role, from the anchor to the other participant. A `@symmetric` relation's edge is undirected; every other edge is directed |
-| Edge, with a role type | A role edge of a node-encoded relation instance: from the relation node to the participant, typed `{Relation}_{role}`, and for a specialized role also the super role's type |
+| **Relation node** of an edge-encoded relation | For an edge-encoded relation whose instances carry a reifier (`SCHEMA.md` section 11.1: attributes, `@multi`, or a role of any relation naming the type), the same instance also as a node, with the relation's labels and the same properties as the edge, and two derived, read-only role edges `{Relation}_{role}` from it to the participants, as a node-encoded relation has. It exists so that a relation can name the instance, as `AssertedBy` names every relation of Gen5, since an edge cannot be an endpoint. The edge and the node are one element: one `ELEMENT_ID`, one instance under `SET` and `DELETE` (section 8), and a variable bound to the edge stands at a node position (section 6.2). A relation without a reifier has no node presentation |
+| Edge, with a role type | A role edge of a node-encoded relation instance, or a derived one of a relation node above: from the relation node to the participant, typed `{Relation}_{role}`, and for a specialized role also the super role's type |
 | **Navigation edge** | For a node-encoded relation, a derived, directed edge typed by a navigation name of the relation, from the participant that gains the name to the participant of the other role the name reaches; `(u)-[:parents]->(p)` stands for `(u)<-[:SubOrganizationOf_unit]-(:SubOrganizationOf)-[:SubOrganizationOf_parent]->(p)`. It is read-only, has no properties and no element id, and exists so that a walk through a relation node is one hop, as it is through an edge-encoded relation |
-| Property | An attribute, under its name; an absent optional attribute is `NULL`; an interval attribute is a record with the fields `start`, `end`, `start_precision`, `end_precision`; a bitemporal instance has the read-only properties `asserted`, a record as an interval's, and `live` |
-| Element id | The instance's IRI (`SCHEMA.md` section 7.3), returned by `ELEMENT_ID` as a string; an edge's is its reifier IRI, a navigation edge has none |
+| Property | An attribute, under its name; an absent optional attribute is `NULL`; an interval attribute is a record with the fields `start`, `end`, `start_precision`, `end_precision`; every instance has the read-only property `type` (above), a bitemporal one also `asserted`, a record as an interval's, and `live` |
+| Element id | The instance's IRI (`SCHEMA.md` section 7.3), returned by `ELEMENT_ID` as a string; an edge's is its reifier IRI, the string its relation node answers too, since the two are one element **[choice]**; a navigation edge and a derived role edge have none, and `ELEMENT_ID` of an edge of a relation without a reifier is refused (`GQL0301`) **[core]**, such an instance having no identity but its ends |
 
 A label, edge type or property a query names must be declared on the working graph's schema (`GQL0202`, `GQL0203`,
 `GQL0204`): the graph is closed, as MGQL's closed graphs are, and the type system of section 5 refines every variable
@@ -75,8 +76,9 @@ by the schema. Undeclared data under `@open` is reachable by its label `Resource
 
 ## 3. Lexical structure
 
-ISO §21 as narrowed here. Source is UTF-8, at most 1 MiB (`GQL0001`), nesting of parentheses, brackets and braces
-bounded at 64 (`GQL0001`).
+ISO §21 as narrowed here. Source is UTF-8, bounded by the protocol's query section, `max_frame` less 512 bytes, which
+`PROTOCOL.md` section 7.4 refuses before the core sees it; nesting of parentheses, brackets and braces is bounded at
+64 (`GQL0001`).
 
 | Token | Form |
 |---|---|
@@ -116,7 +118,7 @@ set_item       = variable "." property "=" expr ;
 remove         = "REMOVE" variable "." property { "," variable "." property } ;
 delete         = [ "DETACH" | "NODETACH" ] "DELETE" variable { "," variable } ;
 return         = "RETURN" [ "DISTINCT" ] ( "*" | projection { "," projection } )
-                 [ "GROUP" "BY" expr { "," expr } ] [ order ] [ offset ] [ limit ] ;
+                 [ "GROUP" "BY" variable { "," variable } ] [ order ] [ offset ] [ limit ] ;
 projection     = expr [ "AS" identifier ] ;
 order          = "ORDER" "BY" sort_key { "," sort_key } ;
 sort_key       = expr [ "ASC" | "ASCENDING" | "DESC" | "DESCENDING" ] [ "NULLS" ( "FIRST" | "LAST" ) ] ;
@@ -148,13 +150,13 @@ or_expr        = and_expr { "OR" and_expr } ;
 and_expr       = not_expr { "AND" not_expr } ;
 not_expr       = [ "NOT" ] test_expr ;
 test_expr      = cmp_expr [ "IS" [ "NOT" ] ( "NULL" | "TRUE" | "FALSE" | "UNKNOWN" ) ] ;
-cmp_expr       = sum_expr [ ( "=" | "<>" | "<" | "<=" | ">" | ">=" ) sum_expr
-               | "IN" "[" [ expr { "," expr } ] "]" ] ;
+cmp_expr       = sum_expr [ ( "=" | "<>" | "<" | "<=" | ">" | ">=" ) sum_expr ] ;
 sum_expr       = mul_expr { ( "+" | "-" ) mul_expr } ;
-mul_expr       = unary { ( "*" | "/" | "%" ) unary } ;
+mul_expr       = unary { ( "*" | "/" ) unary } ;
 unary          = [ "-" ] primary ;
 primary        = literal | parameter | variable { "." property } | "(" expr ")"
-               | aggregate | function ;
+               | aggregate | function | record_ctor ;
+record_ctor    = "{" [ identifier ":" expr { "," identifier ":" expr } ] "}" ;
 aggregate      = "COUNT" "(" "*" ")"
                | ( "COUNT" | "SUM" | "AVG" | "MIN" | "MAX" ) "(" [ "DISTINCT" ] expr ")" ;
 function       = "ELEMENT_ID" "(" variable ")" ;
@@ -180,9 +182,9 @@ query:
 | `DECIMAL(p, s)` | `Decimal(p, s)` | Numeric, exact |
 | `STRING` | `String`, `Text`, `Iri`, enums, `Unit`, `QuantityKind`, catalog-type values, `Geo` as GeoJSON | By Unicode code point; an enum member compares as its name; a `Text`'s language tag is not a value in the core |
 | `BYTES` | `Bytes` | Equality only |
-| `DATE`, `ZONED DATETIME`, `LOCAL DATETIME`, `ZONED TIME`, `DURATION` | The temporal types | A `DATE` with a `DATE`, a `ZONED DATETIME` with a `ZONED DATETIME` in UTC, a `LOCAL DATETIME` with a `LOCAL DATETIME`; `DURATION` equality only; across kinds no comparison (`UNKNOWN`) |
-| `RECORD` | `Interval<T>`, `record`, `Measure<K>` and `Measure`, `asserted` | Field access by `.`; equality field by field; no order |
-| `LIST<T>` | `List<T>`, `Set<T>`, `Vector` | Equality element by element; no order; `IN` tests membership |
+| `DATE`, `ZONED DATETIME`, `LOCAL DATETIME`, `ZONED TIME`, `DURATION` | The temporal types | A `DATE` with a `DATE`, a `ZONED DATETIME` with a `ZONED DATETIME` in UTC, a `LOCAL DATETIME` with a `LOCAL DATETIME`, a `ZONED TIME` with a `ZONED TIME` in UTC; `DURATION` equality only; across kinds no comparison (`UNKNOWN`) |
+| `RECORD` | `Interval<T>`, `record`, `Measure<K>` and `Measure`, `asserted` | Field access by `.`; equality field by field; no order; written by a record constructor `{start: ZONED DATETIME '…'}` whose fields are the record type's, missing optional fields absent |
+| `LIST<T>` | `List<T>`, `Set<T>`, `Vector` | Equality element by element; no order; a list value reaches a query as a parameter or a property; ISO's list value constructor `[…]` is outside the core **[core]** (section 11) |
 | Node, edge | Instances | Equality by identity; no order |
 
 A numeric comparison across integer, decimal and float widths compares the values, exactly for integers and
@@ -194,12 +196,12 @@ the implementation; no comparison raises an error.
 
 ### 5.2 Null
 
-`NULL` is the absent value: an optional attribute not set, an unmatched `?` edge, a property asked of a value that
-has none, an aggregate over no value. Every operator propagates null as Kleene three-valued logic: a comparison or
+`NULL` is the absent value: an optional attribute not set, a property asked of a value that has none, an aggregate
+over no value. Every operator propagates null as Kleene three-valued logic: a comparison or
 arithmetic with a null operand is `UNKNOWN` or `NULL`; `AND`, `OR` and `NOT` as MGQL's `Kleene`; `IS NULL`, `IS NOT
 NULL`, `IS TRUE`, `IS FALSE`, `IS UNKNOWN` are the only tests that turn null into `TRUE` or `FALSE`. A `WHERE` or
 `FILTER` keeps a record only when its predicate is `TRUE`. Two nulls are not equal (`=` is `UNKNOWN`), and are equal
-for `DISTINCT`, grouping and `IN` **[choice]**, as ISO §4.15.5 and §14.11 have it.
+for `DISTINCT` and grouping **[choice]**, as ISO §4.15.5 and §14.11 have it.
 
 ### 5.3 Static typing
 
@@ -224,6 +226,11 @@ joined on their shared variables (MGQL's `bindingTableJoin`); a variable bound i
 a constant the pattern must agree with. A `WHERE` on the `MATCH` filters the table. The match mode and path mode
 cannot be written (section 11).
 
+A pattern binds **live** instances alone (section 1; `SCHEMA.md` section 8.4, rule 4): a deleted or retracted
+instance, and every edge, role edge and navigation edge of one, is not in the working graph, so a retracted
+membership never satisfies `(m:MemberOf)` and `live` is `TRUE` on every instance a query binds, until UQL's `with
+retracted` reads. A read-only transaction at a named read version binds the instances live at that version.
+
 ### 6.2 Atoms
 
 | Atom | Matches |
@@ -241,28 +248,44 @@ a node-encoded relation (section 2), and a label expression over edge types reso
 it; a role type's specialized and super names both match the role edge. The anonymous atoms of a pattern are given
 fresh names, as MGQL's renaming does, and never appear in a result.
 
+A **derived edge**, a navigation edge or a relation node's role edge (section 2), is bound only by an edge pattern
+whose label expression names its type as an identifier: `-[e]->` with no type, `%` and a complement bind stored
+edges alone, so one instance is never counted as an edge and again as the edges derived from it.
+
+A variable bound to an edge of a relation whose instances carry a reifier may stand at a **node position** in a
+later pattern, clause or statement, where it binds the instance's relation node (section 2):
+`(a)-[e:is_about]->(b), (e)-[:asserted_by]->(s)` **[choice]**. ISO types a variable as a node or an edge; the ISO
+form of the same question is a join, `MATCH (r:IsAbout) WHERE ELEMENT_ID(r) = ELEMENT_ID(e)`, which the core answers
+without a lookup, since the identity is in the edge. An edge variable of a relation without a reifier at a node
+position is `GQL0207`.
+
 ### 6.3 Quantified edges
 
 An edge pattern may carry a quantifier: `{m,n}` with `0 ≤ m ≤ n`, `{m,}` with no upper bound, `{m}`, `*` for `{0,}`,
 `+` for `{1,}`, `?` for `{0,1}`. It stands for a chain of `m` to `n` edges of that pattern, each hop's intermediate
 node unconstrained, in the pattern's direction.
 
-**Semantics [core].** The core answers a quantified edge by **reachability**: for each binding of the left node, the
-distinct nodes reachable by a chain within the bounds, one record per distinct end node, computed by a frontier
-expansion that deduplicates nodes per hop and so terminates on cycles and unbounded quantifiers. Under ISO's WALK mode
-the same pattern yields one record per walk, so to keep the core's results equal to ISO's wherever the core accepts a
-query, a statement holding a quantified edge, other than `?`, SHALL project with `DISTINCT`, and every aggregate in it
-SHALL be `DISTINCT` (`GQL0401` names the fix); a `COUNT(*)` over such a statement is refused the same way. No variable
-may be declared on a quantified edge or inside it (`GQL0402`): group variables, the lists MGQL types with `List`, are
-path variables' business, outside the core. `?` is MGQL's optional edge: a zero-hop record binding the two node atoms
-to one node with the edge variable `NULL`, beside every one-hop record. `{0,n}` and `*` include the zero-hop record,
-which binds the end to the start.
+**Semantics [core].** The core answers a quantified edge `{m,n}` by **reachability**: for each binding of the left node,
+the distinct nodes that end some chain of `m` to `n` edges of the pattern, one record per distinct end node. The
+algorithm: level `F₀` is the left node; level `Fᵢ₊₁` is the set of nodes one edge of the pattern from a node of `Fᵢ`;
+the levels `Fₘ` to `Fₙ` are unioned into the answer. Below level `m` every level is a set of its own, never pruned by
+the answer, so `{3,3}` from `a` over `a→b`, `b→a`, `a→c` answers `{b, c}`; from level `m` on, a node already in the
+answer is not expanded again, since every chain through it is already answered, which bounds the work by the nodes
+reachable and terminates on cycles under `{m,}`. Under ISO's WALK mode the same pattern yields one record per walk, a
+bag that is infinite on a cycle under an unbounded quantifier; so that the core's answer equals ISO's bag projected with
+`DISTINCT` wherever that bag is finite, a statement holding a quantified edge, other than `?`, SHALL project with
+`DISTINCT`, and every aggregate in it SHALL be `DISTINCT` (`GQL0401` names the fix); a `COUNT(*)` over such a statement
+is refused the same way. Where ISO's bag is infinite the core answers the finite set and ISO does not answer. No
+variable may be declared on a quantified edge or inside it (`GQL0402`): group variables, the lists MGQL types with
+`List`, are path variables' business, outside the core. `?` is MGQL's optional edge: a zero-hop record binding the two
+node atoms to one node and no edge, beside every one-hop record; no variable stands on it (`GQL0402`). `{0,n}` and `*`
+include the zero-hop record, which binds the end to the start.
 
 ### 6.4 Property maps and parameters
 
-A property map's values are literals and parameters; an expression over variables in a map is outside the core
-(`GQL0403`). A parameter is typed by the prepared statement, and a property compared with a parameter of another
-type is refused when prepared (`GQL0301`).
+A property map's values are literals, parameters and record constructors over them (section 5.1); an expression over
+variables in a map is outside the core (`GQL0403`). A parameter is typed by the prepared statement, and a property
+compared with a parameter of another type is refused when prepared (`GQL0301`).
 
 ## 7. Statements and their semantics
 
@@ -276,16 +299,17 @@ statement without `RETURN` that ends a request returns the empty table with no c
 
 ### 7.2 Projection
 
-`RETURN e1 AS a1, …`: each projection evaluates its expression per record; an unaliased projection takes its text as
-its column name; a variable alone keeps its name; `RETURN *` projects every variable in scope, in the order they were
-bound. Column names are unique (`GQL0501`). `DISTINCT` removes duplicate records, nulls equal.
+`RETURN e1 AS a1, …`: each projection evaluates its expression per record; an unaliased projection takes its text as its
+column name **[choice]**, where ISO leaves the name to the implementation; a variable alone keeps its name; `RETURN *`
+projects every variable in scope, in the order they were bound. Column names are unique (`GQL0501`). `DISTINCT` removes
+duplicate records, nulls equal.
 
 ### 7.3 Aggregation and grouping
 
-An aggregate in a projection groups the table. The grouping keys are the `GROUP BY` expressions when given, each of
-which must appear as a projection; without `GROUP BY`, every projection that holds no aggregate is a key, ISO §14.11's
-implicit grouping; a projection mixing an aggregate with a non-aggregated variable is refused (`GQL0502`). With no key
-and an aggregate, the table is one group, one record even over no input. Per group:
+An aggregate in a projection groups the table. The grouping keys are the `GROUP BY` variables when given, ISO §14.11's
+binding variable references, each of which must appear as a projection; without `GROUP BY`, every projection that holds
+no aggregate is a key, ISO §14.11's implicit grouping; a projection mixing an aggregate with a non-aggregated variable
+is refused (`GQL0502`). With no key and an aggregate, the table is one group, one record even over no input. Per group:
 
 | Aggregate | Value |
 |---|---|
@@ -338,9 +362,14 @@ section 11.3 states.
   supertype's label beside the concrete one is allowed and redundant), with the property map's attributes; the key
   attributes must be present (`UGS1006`); the IRI is minted from the key, or a handle for a keyless type, and the
   node variable is bound to it for the rest of the statement.
-- An edge `-[:T {…}]->` from a bound or inserted node to another creates an instance of the edge-encoded relation
-  whose anchor navigation name is `T`, in the anchor's direction (`GQL0602` for a navigation edge of section 2, a
-  role type or the wrong direction); its property map's attributes are the instance's.
+- An edge `-[:T {…}]->` from a bound or inserted node to another creates an instance of the edge-encoded relation whose
+  anchor navigation name is `T`, in the anchor's direction (`GQL0602` for a navigation edge of section 2, a role edge of
+  a relation node of an edge-encoded relation, or the wrong direction; a role edge of a node-encoded relation is
+  inserted with its node, below); its property map's attributes are the instance's. A `@symmetric` relation is inserted
+  with a directed insert edge in either direction and stored from the lower ID (`SCHEMA.md` section 6.4), and matched by
+  `~[:T]~`. A relation whose instances carry a reifier is inserted as its edge alone, never as a relation node with role
+  edges (`GQL0602`); the edge variable then stands at a node position for the relations naming the instance, in the same
+  statement, `INSERT (a)-[e:is_about]->(b), (e)-[:asserted_by]->(src)`.
 - A node-encoded relation instance is inserted as its node with the relation's label and its attributes, and one
   role edge per role, `-[:MemberOf_member]->(p)`, in the same statement or transaction; the instance is validated
   whole at commit (`UGS1015` for a missing required role).
@@ -354,16 +383,17 @@ section 11.3 states.
 `@bitemporal` type each is a **revision**: a new version of the instance, the old one readable at its epochs
 (`SCHEMA.md` section 8.4). A key or `@immutable` attribute, a required attribute under `REMOVE`, an `@append_only`
 instance and a derived name are refused (`UGS1007`, `UGS1012`, `UGS1005`, `UGS1013`, `UGS1029`). `SET` on an edge
-variable writes the relation instance's attribute; on a navigation edge it is refused (`GQL0603`).
+variable writes the relation instance's attribute, as `SET` on its relation node does; on a navigation edge or a
+derived role edge it is refused (`GQL0603`).
 
 ### 8.3 `DELETE` and `DETACH DELETE`
 
-`DELETE n` deletes the instance `n` is bound to: an edge or relation node is deleted with the relations over it; an
-entity with live relations naming it is refused (`GQL0604`) unless `DETACH DELETE`, which applies each relation's
-`@on_delete` action, `cascade` by default and `restrict` refusing (`UGS1020`), as `SCHEMA.md` section 8.5 states.
-`NODETACH DELETE` is `DELETE`. On a `@bitemporal` type a delete is a **retraction** (`SCHEMA.md` section 8.4): the
-instance stays readable through `believed at` reads, and `DETACH` applies `@on_retract`. A navigation edge cannot be
-deleted (`GQL0603`); the relation node can.
+`DELETE n` deletes the instance `n` is bound to: an edge, through either of its presentations, or a relation node is
+deleted with the relations over it; an entity with live relations naming it is refused (`GQL0604`) unless `DETACH
+DELETE`, which applies each relation's `@on_delete` action, `cascade` by default and `restrict` refusing (`UGS1020`), as
+`SCHEMA.md` section 8.5 states. `NODETACH DELETE` is `DELETE`. On a `@bitemporal` type a delete is a **retraction**
+(`SCHEMA.md` section 8.4): the instance stays readable through `believed at` reads, and `DETACH` applies `@on_retract`.
+A navigation edge or a derived role edge cannot be deleted (`GQL0603`); the relation node can.
 
 ### 8.4 Order within a statement
 
@@ -377,7 +407,7 @@ The two retrieval operators the plan places outside the standard languages are p
 
 | Procedure | Arguments | Yields |
 |---|---|---|
-| `vector.search(label, property, vector, k)` | A label as a string, an attribute of `Vector` type declared with `@index(ann)` on it, a `LIST<FLOAT64>` of the index's dimension, `k ≥ 1` | `node`, the nearest `k` instances by the index's metric, and `score`, the similarity, best first |
+| `vector.search(label, property, vector, k)` | A label as a string, an attribute of `Vector` type declared with `@index(ann)` on it, a `LIST<FLOAT32>` parameter of the index's dimension (section 11, no list constructor in the core), rounded to bfloat16 for a `Vector<BF16>` index, `k ≥ 1` | `node`, the nearest `k` instances by the index's metric, and `score`, the similarity, best first |
 | `text.search(label, property, query, k)` | A label, a `Text` attribute with `@index(fulltext)`, a query string, `k ≥ 1` | `node` and `score`, BM25, best first |
 
 `CALL … YIELD node, score` begins a statement; `MATCH`, `FILTER`, writes and `RETURN` follow over the yielded
@@ -408,7 +438,10 @@ projection's filtered search, is the full-conformance stage's; in the core the p
 - **Partitions.** A read-only query reads across partitions at its snapshot; a read-write query's reads and writes
   stay in its transaction's partition in this stage and a request reaching another is refused as `PROTOCOL.md`
   section 11.11 has it, until stage 8 sequences it. The planner routes a pattern as the quad-reads specification
-  states: a bound node asks its home, an unbound subject fans out.
+  states: a bound node asks its home, an unbound subject fans out. A node atom whose property map holds its type's
+  key, a variable bound by an earlier statement, and a variable a `WHERE` conjunct of its `MATCH` fixes by
+  `ELEMENT_ID(v) = $p` or `= 'iri'` are bound nodes, point lookups by IRI, which is what keeps a read-write statement
+  in its transaction's partition; a label alone scans.
 
 ## 11. Diagnostics and the feature register
 
@@ -419,7 +452,7 @@ A refusal names a code, a location in the query text, a reason and, where one ex
 
 | Code | Condition |
 |---|---|
-| `GQL0001` | The query past its size or nesting bound |
+| `GQL0001` | The query past its nesting bound |
 | `GQL0002` | A reserved word as an identifier, or a token the lexer does not know |
 | `GQL0003` | A malformed literal |
 | `GQL0004` | A token the grammar does not expect; the message names what was expected |
@@ -430,17 +463,17 @@ A refusal names a code, a location in the query text, a reason and, where one ex
 | `GQL0204` | A property no type the variable may hold declares; the message names the types that declare it |
 | `GQL0205` | A label expression no concrete type satisfies |
 | `GQL0206` | An unbound variable |
-| `GQL0207` | A variable bound twice as different kinds, a node and an edge |
+| `GQL0207` | A variable bound twice as different kinds, a node and an edge, other than an edge variable of a relation with a reifier at a node position (section 6.2) |
 | `GQL0301` | An operator, function or comparison applied to types it does not take; a parameter of another type than its use |
 | `GQL0401` | A quantified edge in a statement that does not project `DISTINCT` or aggregate `DISTINCT` |
 | `GQL0402` | A variable on or inside a quantified edge |
-| `GQL0403` | A property map value that is not a literal or parameter |
+| `GQL0403` | A property map value that is not a literal, a parameter or a record constructor of those |
 | `GQL0501` | Two projections with one name |
 | `GQL0502` | A projection mixing an aggregate with a non-aggregated variable, or a `GROUP BY` key that is not projected |
 | `GQL0503` | A variable of a statement before `NEXT` that was not returned |
 | `GQL0601` | An inserted node with no concrete type or two |
-| `GQL0602` | An inserted edge that is a navigation edge, a role type, or against the anchor's direction |
-| `GQL0603` | `SET`, `REMOVE` or `DELETE` on a navigation edge |
+| `GQL0602` | An inserted edge that is a navigation edge, a role edge of an edge-encoded relation's relation node, or against the anchor's direction |
+| `GQL0603` | `SET`, `REMOVE` or `DELETE` on a navigation edge or a derived role edge |
 | `GQL0604` | `DELETE` of an entity that live relations name, without `DETACH` |
 | `GQL0701` | An unknown procedure |
 | `GQL0702` | A procedure argument of the wrong type, or naming an attribute without the index it needs |
@@ -470,19 +503,20 @@ full-conformance stage grows into the complete one:
 | `SESSION` and `TRANSACTION` statements | `session statement` | The protocol's Begin and Commit; no stage |
 | String, list, temporal and mathematical functions beyond section 4 | `function` | Full conformance |
 | `CASE`, `COALESCE`, `EXISTS`, subqueries | `expression` | Full conformance |
+| List value constructors `[…]`, the `RECORD` keyword before a record constructor | `list` | Full conformance; a list reaches the core as a parameter |
 | Undirected `INSERT` edges, `MERGE` | `merge` | Not adopted: `MATCH` then `INSERT` in one transaction, as the plan decides |
 
 ## 12. Conformance: the oracles
 
 Three oracles, all run by `make test`:
 
-1. **MGQL.** The read fragment's results are compared with the mechanised evaluator's. A harness encodes each MGQL
-   test and example query (`Test.lean`, `Examples/`, the six LDBC queries of `LDBCBench.lean`) as GQL text and its
-   graph as UGS data on a schema of one label per MGQL node schema, runs it through the core, and compares binding
-   tables as bags. MGQL evaluates under Cypher's `TRAIL` and `DIFFERENT EDGES`, so the comparison filters the core's
-   table by MGQL's `Record.isTrail`, which on every MGQL graph without a repeated edge leaves it unchanged; a query of
-   MGQL's fragment outside the core, a composite query or a group-referenced quantifier, is a refusal test instead.
-   The six LDBC queries in the core's syntax:
+1. **MGQL.** The read fragment's results are compared with the mechanised evaluator's. A harness encodes each MGQL test
+   and example query (`Test.lean`, `Examples/`, the six LDBC queries of `LDBCBench.lean`) as GQL text and its graph as
+   UGS data on a schema of one label per MGQL node schema, runs it through the core, and compares binding tables as
+   bags. MGQL evaluates under Cypher's `TRAIL` and `DIFFERENT EDGES`, so the comparison first drops from the core's
+   table every record binding one edge to two edge variables, MGQL's `Record.isTrail`; on a test graph where no pattern
+   can bind an edge twice the filter drops nothing; a query of MGQL's fragment outside the core, a composite query or a
+   group-referenced quantifier, is a refusal test instead. The six LDBC queries in the core's syntax:
 
    ```
    MATCH (n:Person {id: $personId})-[:IS_LOCATED_IN]->(p:City)
@@ -510,6 +544,10 @@ Three oracles, all run by `make test`:
    `QUERY-SPARQL-CORE.md` section 12 states.
 3. **The openCypher TCK** runs at the full-conformance stage; in the core, the scenarios of its features inside the
    core run as refusal or result tests, each feature named.
+4. **Corpus cases for the core's own choices**, in the conformance corpus beside the schema's: the join on
+   `ELEMENT_ID` between an edge and its relation node returns the instance once; an untyped edge pattern binds no
+   derived edge; a retracted participant hides the relations naming it, append-only links included, and a read at an
+   earlier version returns them; `{3,3}` over `a→b`, `b→a`, `a→c` from `a` answers `{b, c}`.
 
 ## 13. DeepBrain in the core
 
@@ -524,10 +562,19 @@ INSERT (ada:Person {id: 'AGENT:ada', personal_name: 'Ada', inferred: FALSE, rank
 INSERT (acme:Company {id: 'AGENT:acme', label: 'Acme', inferred: FALSE, rank: 'normal'})
 INSERT (src:Source {id: 'SRC:hr', label: 'HR system', source_type: 'system', inferred: FALSE, rank: 'normal'})
 INSERT (ada)-[:asserted_by]->(src), (acme)-[:asserted_by]->(src)
-INSERT (m:MemberOf {valid: {start: ZONED DATETIME '2026-01-01T00:00:00Z'}, method: 'imported',
+INSERT (m:MemberOf {valid: {start: ZONED DATETIME '2026-01-01T00:00:00Z'}, method: 'import',
                     confidence: 0.98, inferred: FALSE, rank: 'normal'})
        -[:MemberOf_member]->(ada), (m)-[:MemberOf_collection]->(acme), (m)-[:asserted_by]->(src)
 RETURN ELEMENT_ID(m) AS membership
+```
+
+An edge-encoded relation with its provenance is one `INSERT`, the edge variable standing at a node position for the
+link that names it (section 6.2):
+
+```
+MATCH (ada:Person {id: 'AGENT:ada'}), (acme:Company {id: 'AGENT:acme'}), (src:Source {id: 'SRC:hr'})
+INSERT (ada)-[e:depends_on {confidence: 0.9, inferred: FALSE, rank: 'normal'}]->(acme), (e)-[:asserted_by]->(src)
+RETURN ELEMENT_ID(e) AS dependency
 ```
 
 `rank` and `inferred` may be omitted, since the schema defaults them. The membership's handle IRI comes back and
@@ -538,7 +585,7 @@ schema's `@acyclic`, `@no_overlap` and `UniquePreferred` checks run at commit.
 `InUnit`, through the navigation edge `units` of `SubOrganizationOf`; a count per unit:
 
 ```
-MATCH (p:Node {id: $id}) RETURN p.label, p.rank, p.asserted.start AS since
+MATCH (p:Node {id: $id}) RETURN p.rank, p.asserted.start AS since
 
 MATCH (u:Organization {id: $unit})<-[:MemberOf_collection]-(m:MemberOf)-[:MemberOf_member]->(x)
 WHERE m.valid.end IS NULL
@@ -553,7 +600,14 @@ RETURN DISTINCT d.id AS unit, COUNT(DISTINCT m) AS open_memberships
 ```
 
 The last two project `DISTINCT` because they quantify (section 6.3). A read of every kind of relation from a
-statement, `out(is Governs)` in UQL, is `MATCH (s:Node {id: $id})<-[:Governs_governed]-(g:Governs)`.
+statement, `out(is Governs)` in UQL, is `MATCH (s:Node {id: $id})<-[g:governs]-(r)`: `Governs` is edge-encoded, its
+edge typed by the anchor's navigation name. Who asserted a relation goes through its relation node, by the edge
+variable at a node position (section 6.2):
+
+```
+MATCH (i:Information {id: $id})-[e:about]->(t), (e)-[:asserted_by]->(s)
+RETURN t.id AS topic, e.confidence AS confidence, s.id AS source
+```
 
 **Update.** A re-ranking and a confidence change are revisions of the bitemporal membership; a label change on a
 mutable attribute of an organisation likewise:
@@ -577,14 +631,16 @@ MATCH (p:Person {id: 'AGENT:ada'}) DETACH DELETE p
 ```
 
 The first closes the membership's `asserted`; the second retracts Ada and, by `@on_retract`'s default `cascade`,
-every relation naming her, while `MemberOf`'s `restrict open` on the collection side refuses a retraction of an
-organisation with open memberships (`UGS1020`).
+every bitemporal relation naming her. Her provenance links are not written: `AssertedBy` is `@append_only` and not
+bitemporal, so each instance is live while its participants are and leaves the live view with her, readable under
+`with retracted` (`SCHEMA.md` section 8.4, rule 6). `MemberOf`'s `restrict open` on the collection side refuses a
+retraction of an organisation with open memberships (`UGS1020`).
 
 **Retrieve.** The nearest concepts to an embedding, and the claims a text query matches:
 
 ```
 CALL vector.search('Concept', 'embedding', $q, 8) YIELD node, score
-MATCH (node)-[:in_scheme]->(s:Scheme) RETURN node.id, node.label, s.label, score
+MATCH (node)-[:scheme]->(s:Scheme) RETURN node.id, node.label, s.label, score
 
 CALL text.search('Claim', 'statement', $q, 8) YIELD node, score
 RETURN node.id, node.statement, score
@@ -601,11 +657,14 @@ role if any", and `UNION` across kinds.
 - **`PROTOCOL.md`.** Carried as of 2026-11-05: Query (section 7.4 there) carries the language, the text and named
   parameters on a stream of its own and answers Result frames; Prepare and Execute take a text with typed parameters
   and answer named, typed columns (section 8.1); Result batches carry column names, the monotonic flag and null as
-  `ABSENT`, lists and records as `rdf:JSON` literals (section 9.1); an update answers its counts; code 29 carries a
+  `ABSENT`, lists and records as `rdf:JSON` literals (section 9.1); a SPARQL update answers its counts and a GQL
+  statement without `RETURN` the empty table; code 29 carries a
   refused query's diagnostic and code 7 a schema rule's refusal at commit (section 9.4).
 - **`SCHEMA.md`.** Section 11.3's GQL view gains the navigation edge of section 2, derived from a node-encoded
   relation's role quads, read-only, and section 11.2's RDF view its counterpart, a derived property; section 8.4's
-  revision rule is what `SET` on a bitemporal instance relies on.
+  revision rule is what `SET` on a bitemporal instance relies on. Carried 2026-11-05: the relation node of an
+  edge-encoded relation with a reifier, section 2, in section 11.3, and the read-only `type` property; section 8.4's
+  rule 6 there is what the Delete scenario of section 13 relies on for an append-only link.
 - **`quad-reads`.** A pattern with a bound node and an edge type is a forward read of that node's lists; a reverse
   navigation is a reverse read through the referrer set; the planner's choice of direction is the dual-engine plan's.
 
@@ -614,8 +673,11 @@ role if any", and `UNION` across kinds.
 | Question | Decision |
 |---|---|
 | Match and path modes | ISO's defaults, `REPEATABLE ELEMENTS` and `WALK`, which are SPARQL's basic graph pattern semantics, so one question answers alike in both cores; written modes are the full-conformance stage's |
-| Quantified edges | Reachability, one record per distinct end node, and the statement must project or aggregate `DISTINCT`, so the core's answer equals ISO's walk semantics wherever the core accepts the query, and terminates where ISO's would not |
+| Quantified edges | Reachability, one record per distinct end node, and the statement must project or aggregate `DISTINCT`, so the core's answer equals ISO's walk bag under `DISTINCT` wherever that bag is finite, and is answered where ISO's is not; levels below the lower bound are kept apart, so `{m,n}` with `m > 1` is exact |
+| Extensions beyond ISO | None. `IN`, `%` and `GROUP BY` over expressions were dropped 2026-11-05, checked against the ISO reference grammar: no `IN` predicate, `MOD()` and not `%`, grouping by binding variable references. The record constructor is ISO's `{ field: value }`; its `RECORD` keyword and the list constructor are narrowed out **[core]**; an unaliased projection's column name is a **[choice]** |
+| `type` property | A read-only `type` on every node and edge, the concrete type's name, since ISO's `IS LABELED` filters and returns nothing and the labels give the set, not the name (2026-11-05) |
 | Navigation edges | A node-encoded relation's navigation names are derived one-hop edges in the view, so a walk through relation nodes is one hop as through edges; read-only, with no properties |
+| Relation node | Decided 2026-11-05: an edge-encoded relation whose instances carry a reifier is presented also as a relation node with derived role edges, one element with the edge, one `ELEMENT_ID`, so a relation can name it, the counterpart of the RDF view's reifier term; an edge variable stands at a node position **[choice]**, the ISO form being a join on `ELEMENT_ID`. Chosen over node-only, which leaves the store unchanged and turns every hop of Gen5 into three atoms or a propertyless navigation edge. A derived edge is bound only by its named type, so no instance is counted twice |
 | Incomparable values | `UNKNOWN`, never an error, as MGQL answers; integer overflow and division by zero are errors |
 | Null ordering | Last ascending, first descending by default; `NULLS FIRST` and `NULLS LAST` override |
 | Grouping | `GROUP BY` explicit, or implicit over the non-aggregated projections |
