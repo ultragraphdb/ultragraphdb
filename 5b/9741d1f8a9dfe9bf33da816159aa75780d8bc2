@@ -1,0 +1,113 @@
+openspec/changes/stage-5-5-three-role-refactor/design.md
+  s_6c9dcf457e80d9::t_4ed6c0f3c6e798 15,67-68,74,125,128,136,141-159,162,168-169,186,209-213,222,243,318,334,337-338,373-374,416-441,459,462-463,572
+openspec/changes/stage-5-5-three-role-refactor/notes/group-1.md
+  s_6c9dcf457e80d9::t_1c4be2c7e4b57b 38,44,80,97,99,102,128
+openspec/changes/stage-5-5-three-role-refactor/notes/group-2.md
+  s_6c9dcf457e80d9::t_b0509b82c4e1e7 74,98,342
+openspec/changes/stage-5-5-three-role-refactor/notes/group-3-posting-hnsw.md
+  s_6c9dcf457e80d9::t_d522a5292adb5f 31
+openspec/changes/stage-5-5-three-role-refactor/notes/group-3-quads-apply.md
+  s_6c9dcf457e80d9::t_a09f1cec18501b 43,49,159
+openspec/changes/stage-5-5-three-role-refactor/notes/group-3.md
+  s_6c9dcf457e80d9::t_e72e2b7d7464e0 80
+openspec/changes/stage-5-5-three-role-refactor/notes/group-4-log.md
+  s_6c9dcf457e80d9::t_df2b5404e32204 38
+openspec/changes/stage-5-5-three-role-refactor/notes/group-4-txn.md
+  s_6c9dcf457e80d9::t_0a5a034c0ad44a 37,102,179
+openspec/changes/stage-5-5-three-role-refactor/notes/group-4-wire.md
+  s_6c9dcf457e80d9::t_bd0adc1acdd0a9 58-59,74,76,99,106
+openspec/changes/stage-5-5-three-role-refactor/notes/group-5.md
+  s_6c9dcf457e80d9::t_4be729c01044b9 14-15,39,209,211-213
+openspec/changes/stage-5-5-three-role-refactor/notes/group-6-catalog.md
+  s_6c9dcf457e80d9::t_455453d79add9a 35,40,42-43,105,151
+openspec/changes/stage-5-5-three-role-refactor/notes/group-6-metadata.md
+  s_6c9dcf457e80d9::t_c6483604f52812 34,38,40
+openspec/changes/stage-5-5-three-role-refactor/notes/group-7.md
+  s_6c9dcf457e80d9::t_1c1306a1582743 123,181,295,299-300,321,354,388,404
+openspec/changes/stage-5-5-three-role-refactor/notes/group-8-wire-roles-512.md
+  s_6c9dcf457e80d9::t_d2ecfd38ee76e6 54,56-57
+openspec/changes/stage-5-5-three-role-refactor/notes/group-8-wire-roles-519.md
+  s_6c9dcf457e80d9::t_0c7f2ca80fb542 17,32-33,57,59-60
+openspec/changes/stage-5-5-three-role-refactor/notes/group-8-wire-roles-525.md
+  s_6c9dcf457e80d9::t_aa6746ea32e1e3 47,49-50,68
+openspec/changes/stage-5-5-three-role-refactor/notes/group-9.md
+  s_6c9dcf457e80d9::t_38f408de56d29f 110-111,159,161
+openspec/changes/stage-5-5-three-role-refactor/proposal.md
+  s_6c9dcf457e80d9::t_2da0e76abef5b2 17,30-33,35,77,104,119
+openspec/changes/stage-5-5-three-role-refactor/specs/catalog/spec.md
+  s_6c9dcf457e80d9::t_3e2141881fea44 3-22,28
+openspec/changes/stage-5-5-three-role-refactor/specs/changesets/spec.md
+  s_6c9dcf457e80d9::t_0163118224430f 4
+openspec/changes/stage-5-5-three-role-refactor/specs/client-endpoint/spec.md
+  s_6c9dcf457e80d9::t_616dbd1a81fde3 51-52,62-66,70-79,90-123,125-131,137-138,141-167,172-174,180-183,191-281
+openspec/changes/stage-5-5-three-role-refactor/specs/commit-rounds/spec.md
+  s_6c9dcf457e80d9::t_9cbcddaaad12db 31-32,45,50-51,55,60
+openspec/changes/stage-5-5-three-role-refactor/specs/config-service/spec.md
+  s_6c9dcf457e80d9::t_3425fe8b15b743 61,197-208
+openspec/changes/stage-5-5-three-role-refactor/specs/index-maintenance/spec.md
+  s_6c9dcf457e80d9::t_df783c37ea40b7 9-10,27
+openspec/changes/stage-5-5-three-role-refactor/specs/key-encoding/spec.md
+  s_6c9dcf457e80d9::t_ab274d55d66cba 4,6,12,14,25,27,31-32
+openspec/changes/stage-5-5-three-role-refactor/specs/kv-store/spec.md
+  s_6c9dcf457e80d9::t_48435a2f475a77 1-89
+openspec/changes/stage-5-5-three-role-refactor/specs/metadata-group/spec.md
+  s_6c9dcf457e80d9::t_543fe02adc71fd 19,25-26,29-32,41,43-44,50-59,79-81,89-90,93-94,120-124,129-130,151-155,171-195
+openspec/changes/stage-5-5-three-role-refactor/specs/partitions/spec.md
+  s_6c9dcf457e80d9::t_efa9dc8c1c56c7 51-52,62-66,86,157-160,163,167,170-171,185-186,191,195-196,220
+openspec/changes/stage-5-5-three-role-refactor/specs/quad-reads/spec.md
+  s_6c9dcf457e80d9::t_3ec06ed75033fc 6-8,10-25,34,38-40,46-78,89-98,105-106,179,183,196,206-209,218-253,273-284,338-374,404-409,427-444,447-458,470,476-510,521-522,528-529,559-637
+openspec/changes/stage-5-5-three-role-refactor/specs/quad-storage/spec.md
+  s_6c9dcf457e80d9::t_fc582e5ef828aa 13-15,22-29,40,56,93-100,104-105,110-125
+openspec/changes/stage-5-5-three-role-refactor/specs/schema-changes/spec.md
+  s_6c9dcf457e80d9::t_b430f750d40c87 1-5,10,44,89-102,117,120-147,150-152
+openspec/changes/stage-5-5-three-role-refactor/specs/schema-storage/spec.md
+  s_6c9dcf457e80d9::t_1283d866b9c0a7 13,39,45,51
+openspec/changes/stage-5-5-three-role-refactor/specs/system-identity/spec.md
+  s_6c9dcf457e80d9::t_5f88a624a44be1 29,31,37,40,50-51,54-61,108-109
+openspec/changes/stage-5-5-three-role-refactor/specs/term-dictionary/spec.md
+  s_6c9dcf457e80d9::t_b260f7e30d1bb7 17,38-40,53-57,61-62,66-69,81,95,98,100,135-138,177-186
+openspec/changes/stage-5-5-three-role-refactor/specs/transactions/spec.md
+  s_6c9dcf457e80d9::t_1d8b6b36633243 57,60,101-104,110-113,132-144,178-212,217-219,249-253,260,324-377,379-380,382-388,403-424
+openspec/changes/stage-5-5-three-role-refactor/specs/vector-index/spec.md
+  s_6c9dcf457e80d9::t_f216970c323bbe 30-37
+openspec/changes/stage-5-5-three-role-refactor/specs/wire-protocol/spec.md
+  s_6c9dcf457e80d9::t_5a6f2bc0266be3 25-49,88-103,108,111-115,118-123,126,129-134,145-157,159-162,168-178,194-230,233-257,266-278,333-388,397-398,421-427,432-511
+openspec/changes/stage-5-5-three-role-refactor/specs/write-ahead-log/spec.md
+  s_6c9dcf457e80d9::t_c2c1d7ab4df4d2 58
+openspec/changes/stage-5-5-three-role-refactor/tasks.md
+  s_6c9dcf457e80d9::t_159ced2450a21c 33-34,43,67,74-75,89-90,123,125,130-133,135,142-143,165
+specification/PROTOCOL.md
+  s_6c9dcf457e80d9::t_1cdd9e36a1a360 38,364,596,611,621,651-652,665,725-726,873-874,929,1002,1018-1023,1126,1129,1139,1145,1148,1157-1158,1237,1425-1428,1433-1435,1517-1519,1678-1681,1691-1694,1705,1737-1739,1856-1859,1866-1874,1876-1877,1886-1889,1927-1928,2003,2519-2520,2697,2726,2759
+specification/QUERY-SPARQL-CORE.md
+  s_d18ff34562952d::t_dfaa6f53a6744b 4,42,525-526
+specification/SCHEMA.md
+  s_6c9dcf457e80d9::t_602b6b963f8765 1613-1615
+specification/SECURITY.md
+  s_6c9dcf457e80d9::t_a70740b5e4d0d9 190,214,230
+specification/QUERY-GQL-CORE.md
+  s_6c9dcf457e80d9::t_828895564e4fcc 14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5b9741d1f8a9dfe9bf33da816159aa75780d8bc2",
+  "prompts": {},
+  "sessions": {
+    "s_6c9dcf457e80d9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9e223492-f4c5-4f68-93b3-4ec87d773715",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    },
+    "s_d18ff34562952d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b263ae46-8b16-46b4-81c5-522c712b251f",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
