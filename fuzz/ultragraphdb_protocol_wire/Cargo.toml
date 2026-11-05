@@ -83,7 +83,8 @@ test = false
 doc = false
 bench = false
 
-# Structure-aware: bodies of every kind built from arbitrary fields, then their bodies mutated.
+# Structure-aware: bodies of every kind built from arbitrary fields, then their bodies, sections and command headers
+# mutated.
 [[bin]]
 name = "body_fields"
 path = "fuzz_targets/body_fields.rs"
@@ -96,6 +97,14 @@ bench = false
 [[bin]]
 name = "term_table"
 path = "fuzz_targets/term_table.rs"
+test = false
+doc = false
+bench = false
+
+# Any bytes as a list's value of object records: refused, or encoded again to the same bytes.
+[[bin]]
+name = "object_records"
+path = "fuzz_targets/object_records.rs"
 test = false
 doc = false
 bench = false

@@ -4,10 +4,17 @@
  */
 
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
-use ultragraphdb_protocol_wire::{BodyView, EntriesEnd, EntriesView, MAX_EPOCH};
+use ultragraphdb_protocol_wire::{
+    BodyBuilder, BodyView, Entries, EntriesEnd, EntriesView, MAX_EPOCH,
+};
 use ultragraphdb_tool_bdd::TestResult;
 
-use crate::utils::golden_bodies::{frame_of, put, view_any, with_command_header, with_section};
+use crate::types::entries::entries_tests::{
+    EPOCH, LIST_A, LIST_B, golden_entries_continued, golden_entries_continues,
+};
+use crate::utils::golden_bodies::{
+    body_data, frame_of, put, reframe, view_any, with_command_header, with_section,
+};
 use crate::utils::golden_roles::{golden_role, role_bytes};
 use crate::utils::term_records::refusal;
 
@@ -40,6 +47,23 @@ fn field(field: &'static str, value: u64) -> ProtocolErrorEnum {
     }
 }
 
+/// `bytes` with one byte more at the end of its body.
+fn with_trailing_byte(bytes: &[u8]) -> Vec<u8> {
+    let mut data = body_data(bytes).to_vec();
+    data.push(0);
+    reframe(bytes, &data)
+}
+
+/// The refusal `CountMismatch` `"entries"` of `count` entries against the `entries` field's `expected`.
+fn count_refused(count: u64, expected: u64) -> ProtocolErrorEnum {
+    ProtocolErrorEnum::CountMismatch {
+        command: 525,
+        field: "entries",
+        count,
+        expected,
+    }
+}
+
 #[test]
 fn test_the_golden_entries_read_in_place() -> TestResult {
     let bytes = golden()?;
@@ -65,8 +89,118 @@ fn test_the_golden_entries_read_in_place() -> TestResult {
 }
 
 #[test]
+fn test_the_golden_frames_across_a_list_read_back_to_their_bodies() -> TestResult {
+    let first = role_bytes(&golden_role("entries_continues")?)?;
+    let view = EntriesView::from_frame(&frame_of(&first)?)?;
+    assert!(view.continues());
+    assert_eq!(view.end(), EntriesEnd::More);
+    assert_eq!((view.range(), view.epoch()), (0, EPOCH));
+    let keys: Vec<&[u8]> = view.entries().iter().map(|entry| entry.key()).collect();
+    assert_eq!(keys, [LIST_A, LIST_B]);
+    assert_eq!(view.to_body()?, golden_entries_continues());
+    assert_eq!(view_any(&first)?, Ok(()));
+    let second = role_bytes(&golden_role("entries_continued")?)?;
+    let next = EntriesView::from_frame(&frame_of(&second)?)?;
+    assert!(!next.continues());
+    assert_eq!(next.end(), EntriesEnd::Ended);
+    assert_eq!(next.to_body()?, golden_entries_continued());
+    assert_eq!(view_any(&second)?, Ok(()));
+    Ok(())
+}
+
+#[test]
+fn test_continues_is_a_boolean() -> TestResult {
+    let first = role_bytes(&golden_role("entries_continues")?)?;
+    for value in [2u8, 255] {
+        let bytes = with_command_header(&first, |h| h[9] = value);
+        assert_eq!(
+            refusal::<EntriesView>(&bytes)?,
+            field("continues", value.into())
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn test_continues_is_0_when_end_is_not_0() -> TestResult {
+    let first = role_bytes(&golden_role("entries_continues")?)?;
+    for end in [EntriesEnd::Ended, EntriesEnd::Limit] {
+        let bytes = with_command_header(&first, |h| h[8] = end.number());
+        assert_eq!(refusal::<EntriesView>(&bytes)?, field("continues", 1));
+    }
+    Ok(())
+}
+
+#[test]
+fn test_the_order_is_unused_bytes_end_continues_epoch() -> TestResult {
+    let bytes = with_command_header(&golden()?, |h| {
+        h[10] = 1;
+        h[8] = 3;
+        h[9] = 2;
+        put(h, 16, MAX_EPOCH + 1, 8);
+    });
+    assert_eq!(
+        refusal::<EntriesView>(&bytes)?,
+        ProtocolErrorEnum::ReservedNotZero { offset: 128 + 10 }
+    );
+    let end = with_command_header(&bytes, |h| h[10] = 0);
+    assert_eq!(refusal::<EntriesView>(&end)?, field("end", 3));
+    let continues = with_command_header(&end, |h| h[8] = 0);
+    assert_eq!(refusal::<EntriesView>(&continues)?, field("continues", 2));
+    let epoch = with_command_header(&continues, |h| h[9] = 1);
+    assert_eq!(
+        refusal::<EntriesView>(&epoch)?,
+        field("epoch", MAX_EPOCH + 1)
+    );
+    Ok(())
+}
+
+/// `continues` 0 when `end` is not 0 is part of the `continues` clause, before `epoch`.
+#[test]
+fn test_continues_with_an_end_comes_before_the_epoch() -> TestResult {
+    let first = role_bytes(&golden_role("entries_continues")?)?;
+    let bytes = with_command_header(&first, |h| {
+        h[8] = EntriesEnd::Ended.number();
+        put(h, 16, MAX_EPOCH + 1, 8);
+    });
+    assert_eq!(refusal::<EntriesView>(&bytes)?, field("continues", 1));
+    Ok(())
+}
+
+/// The sections come after the header's rules and before the entries.
+#[test]
+fn test_the_sections_lie_between_the_header_and_the_entries() -> TestResult {
+    let trailing = with_trailing_byte(&golden()?);
+    let whole = body_data(&golden()?).len();
+    assert_eq!(
+        refusal::<EntriesView>(&trailing)?,
+        ProtocolErrorEnum::TrailingBytes {
+            command: 525,
+            end: whole,
+            len: whole + 1
+        }
+    );
+    let bad_epoch = with_command_header(&trailing, |h| put(h, 16, MAX_EPOCH + 1, 8));
+    assert_eq!(
+        refusal::<EntriesView>(&bad_epoch)?,
+        field("epoch", MAX_EPOCH + 1)
+    );
+    let removal = with_entries(&[entry(b"a", None)], 1)?;
+    let holding_it = body_data(&removal).len();
+    assert_eq!(
+        refusal::<EntriesView>(&with_trailing_byte(&removal))?,
+        ProtocolErrorEnum::TrailingBytes {
+            command: 525,
+            end: holding_it,
+            len: holding_it + 1
+        }
+    );
+    Ok(())
+}
+
+#[test]
 fn test_unused_header_bytes_are_refused() -> TestResult {
-    for at in [9usize, 15, 24, 127] {
+    for at in [10usize, 15, 24, 127] {
         let bytes = with_command_header(&golden()?, |h| h[at] = 1);
         assert_eq!(
             refusal::<EntriesView>(&bytes)?,
@@ -152,6 +286,20 @@ fn test_a_removal_is_refused_naming_its_entry() -> TestResult {
 }
 
 #[test]
+fn test_every_value_present_comes_before_the_keys_order() -> TestResult {
+    let bytes = with_entries(
+        &[
+            entry(b"b", Some(b"1")),
+            entry(b"a", Some(b"2")),
+            entry(b"c", None),
+        ],
+        3,
+    )?;
+    assert_eq!(refusal::<EntriesView>(&bytes)?, field("entry", 2));
+    Ok(())
+}
+
+#[test]
 fn test_keys_ascend_byte_by_byte() -> TestResult {
     for keys in [
         [&b"a"[..], &b"a"[..]],
@@ -190,12 +338,7 @@ fn test_the_count_names_the_entries() -> TestResult {
         let bytes = with_command_header(&golden()?, |h| put(h, 0, count.into(), 4));
         assert_eq!(
             refusal::<EntriesView>(&bytes)?,
-            ProtocolErrorEnum::CountMismatch {
-                command: 525,
-                field: "entries",
-                count: 3,
-                expected: count.into()
-            }
+            count_refused(3, count.into())
         );
     }
     let empty = with_entries(&[], 0)?;
@@ -205,5 +348,56 @@ fn test_the_count_names_the_entries() -> TestResult {
             .is_empty()
     );
     assert_eq!(view_any(&empty)?, Ok(()));
+    Ok(())
+}
+
+#[test]
+fn test_continues_needs_an_entry() -> TestResult {
+    let continuing = with_command_header(&with_entries(&[], 0)?, |h| {
+        h[8] = EntriesEnd::More.number();
+        h[9] = 1;
+    });
+    assert_eq!(refusal::<EntriesView>(&continuing)?, field("continues", 1));
+    Ok(())
+}
+
+/// A builder given nothing writes what it was given, and the view refuses the frame.
+#[test]
+fn test_a_continuing_builder_given_no_entry_builds_a_frame_the_view_refuses() -> TestResult {
+    let bytes = Entries::continuing(0, EPOCH).frame(golden_role("entries")?.header())?;
+    assert_eq!(refusal::<EntriesView>(&bytes)?, field("continues", 1));
+    Ok(())
+}
+
+/// An entry being wanted is the last check of all, after the count.
+#[test]
+fn test_continues_needing_an_entry_comes_after_the_count() -> TestResult {
+    let continuing = with_command_header(&with_entries(&[], 1)?, |h| {
+        h[8] = EntriesEnd::More.number();
+        h[9] = 1;
+    });
+    assert_eq!(refusal::<EntriesView>(&continuing)?, count_refused(0, 1));
+    Ok(())
+}
+
+/// The count is the last check of a frame's entries: a wrong one comes after every entry's own rule.
+#[test]
+fn test_the_count_comes_after_the_entries() -> TestResult {
+    let removal = [entry(b"a", Some(b"1")), entry(b"b", None)];
+    let wrong_count = removal.len() as u32 + 1;
+    assert_eq!(
+        refusal::<EntriesView>(&with_entries(&removal, wrong_count)?)?,
+        field("entry", 1)
+    );
+    let unordered = [entry(b"b", Some(b"1")), entry(b"a", Some(b"2"))];
+    assert_eq!(
+        refusal::<EntriesView>(&with_entries(&unordered, wrong_count)?)?,
+        field("entry order", 1)
+    );
+    let mended = [entry(b"a", Some(b"1")), entry(b"b", Some(b"2"))];
+    assert_eq!(
+        refusal::<EntriesView>(&with_entries(&mended, wrong_count)?)?,
+        count_refused(mended.len() as u64, wrong_count.into())
+    );
     Ok(())
 }

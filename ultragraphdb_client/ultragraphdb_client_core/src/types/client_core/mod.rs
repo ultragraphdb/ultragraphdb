@@ -372,7 +372,8 @@ impl<L: Login> ClientCore<L> {
         }
     }
 
-    /// A session the application kept from an earlier client, identified by `number`, its next commit `next_request`.
+    /// A session the application kept from an earlier client, identified by `number`, its next commit `next_request`, at
+    /// least 1: a request numbered 0 through a session is a frame the server refuses (`PROTOCOL.md` §6.3).
     pub fn resume_session(&mut self, number: u128, next_request: u64) -> Session {
         let _replaced: Option<SessionState> = self.sessions.insert(
             number,

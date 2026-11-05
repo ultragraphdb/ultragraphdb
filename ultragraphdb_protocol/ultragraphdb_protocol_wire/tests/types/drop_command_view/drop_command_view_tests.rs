@@ -90,6 +90,56 @@ fn test_unused_bytes_kind_and_namespace_are_checked_in_order() -> TestResult {
     Ok(())
 }
 
+fn request_refused(value: u64) -> ProtocolErrorEnum {
+    ProtocolErrorEnum::FieldValue {
+        command: 19,
+        field: "request",
+        value,
+    }
+}
+
+#[test]
+fn test_a_session_with_request_0_is_refused() -> TestResult {
+    assert_eq!(refused(|h| h[32..40].fill(0))?, request_refused(0));
+    Ok(())
+}
+
+#[test]
+fn test_no_session_with_a_request_is_refused() -> TestResult {
+    let bytes = golden("drop")?.bytes()?;
+    let request = DropCommandView::from_frame(&frame_of(&bytes)?)?.request();
+    assert_eq!(refused(|h| h[16..32].fill(0))?, request_refused(request));
+    Ok(())
+}
+
+#[test]
+fn test_no_session_with_request_0_is_read() -> TestResult {
+    let bytes = with_command_header(&golden("drop")?.bytes()?, |h| h[16..40].fill(0));
+    let view = DropCommandView::from_frame(&frame_of(&bytes)?)?;
+    assert_eq!((view.session(), view.request()), ([0; 16], 0));
+    Ok(())
+}
+
+/// `request` comes after the unused bytes and before `kind`.
+#[test]
+fn test_the_request_lies_between_the_unused_bytes_and_the_kind() -> TestResult {
+    assert_eq!(
+        refused(|h| {
+            h[1] = 1;
+            h[32..40].fill(0);
+        })?,
+        ProtocolErrorEnum::ReservedNotZero { offset: 128 + 1 }
+    );
+    assert_eq!(
+        refused(|h| {
+            h[32..40].fill(0);
+            h[0] = 9;
+        })?,
+        request_refused(0)
+    );
+    Ok(())
+}
+
 #[test]
 fn test_a_predicate_and_a_graph_name_one_iri_and_the_others_none() -> TestResult {
     // A namespace's data drop under the golden graph drop's term table: one term too many.

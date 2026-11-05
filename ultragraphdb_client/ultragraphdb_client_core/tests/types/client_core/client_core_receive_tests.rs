@@ -45,33 +45,17 @@ fn layout_refused(error: &ClientError) -> bool {
     ))
 }
 
-/// A frame of a client's command on stream 0 is no frame of the connection's own: it is dropped, and the connection
-/// goes on.
+/// Stream 0 of the side that dialled carries Welcome, Authenticate and Error alone (`PROTOCOL.md` §2.5): any other
+/// command, a role command's or a client request's, closes the connection, naming the command (§2.6).
 #[test]
-fn test_a_request_command_on_stream_zero_is_dropped() -> TestResult {
-    let mut h = Harness::ready(server())?;
-    for command in [
-        Command::Register,
-        Command::Begin,
-        Command::Commit,
-        Command::Credit,
-        Command::Cancel,
-        Command::Result,
-        Command::Drop,
-    ] {
-        let frame = raw(command, 0, &[])?;
-        let frame = h.numbered(&frame)?;
-        assert_eq!(h.deliver(&frame)?, Ok(()), "{command:?}");
-        assert!(h.core.is_ready(), "{command:?}");
-    }
-    Ok(())
-}
-
-/// A role command on stream 0 is no frame a server sends a client (`PROTOCOL.md` §2.5): the connection is closed,
-/// naming the command.
-#[test]
-fn test_a_role_command_on_stream_zero_closes_the_connection() -> TestResult {
-    for command in Command::ALL.into_iter().filter(|c| c.is_role()) {
+fn test_a_command_other_than_the_connections_own_on_stream_zero_closes_the_connection() -> TestResult
+{
+    let others = || {
+        Command::ALL
+            .into_iter()
+            .filter(|command| !matches!(command, Command::Authenticate | Command::Error))
+    };
+    for command in others() {
         let mut h = Harness::ready(server())?;
         let frame = raw(command, 0, &[])?;
         let frame = h.numbered(&frame)?;
@@ -84,8 +68,24 @@ fn test_a_role_command_on_stream_zero_closes_the_connection() -> TestResult {
         );
         assert!(!h.core.is_connected(), "{command:?}");
     }
-    // Every one of the 19 role commands was tried.
-    assert_eq!(Command::ALL.iter().filter(|c| c.is_role()).count(), 19);
+    // The writes in one frame and every role command are among those tried.
+    assert!(others().any(|c| c == Command::DirectWrite));
+    assert!(others().any(|c| c == Command::ConditionalWrite));
+    assert_eq!(others().filter(|c| c.is_role()).count(), 19);
+    Ok(())
+}
+
+/// A Welcome comes once, as the answer to the Hello: a later one closes the connection, naming the command.
+#[test]
+fn test_a_later_welcome_on_stream_zero_closes_the_connection() -> TestResult {
+    let mut h = Harness::ready(server())?;
+    let frame = raw(Command::Welcome, 0, &[])?;
+    let frame = h.numbered(&frame)?;
+    let refused = h.deliver(&frame)?.err().context("a refusal")?;
+    let expected =
+        ClientError::protocol(ProtocolError::command_not_served(Command::Welcome.number()));
+    assert_eq!(refused.to_string(), expected.to_string());
+    assert!(!h.core.is_ready());
     Ok(())
 }
 

@@ -54,6 +54,10 @@ pub enum Command {
     Authenticate,
     /// A predicate, a graph, a namespace's data, a namespace or every namespace dropped.
     Drop,
+    /// A changeset committed as one transaction in one frame.
+    DirectWrite,
+    /// Commit-time operations, with any changes, committed as one transaction in one frame.
+    ConditionalWrite,
     /// Role command 512: a storage or compute process registers with the frontend: its kind, role address and partitions.
     Join,
     /// Role command 513: the roles that joined: each storage partition's process address and each compute process's.
@@ -96,7 +100,7 @@ pub enum Command {
 
 impl Command {
     /// Every command, in the order of its number.
-    pub const ALL: [Command; 38] = [
+    pub const ALL: [Command; 40] = [
         Command::Hello,
         Command::Welcome,
         Command::Register,
@@ -116,6 +120,8 @@ impl Command {
         Command::Round,
         Command::Authenticate,
         Command::Drop,
+        Command::DirectWrite,
+        Command::ConditionalWrite,
         Command::Join,
         Command::Members,
         Command::Subscribe,
@@ -159,6 +165,8 @@ impl Command {
             Command::Round => 17,
             Command::Authenticate => 18,
             Command::Drop => 19,
+            Command::DirectWrite => 20,
+            Command::ConditionalWrite => 21,
             Command::Join => 512,
             Command::Members => 513,
             Command::Subscribe => 514,
@@ -204,6 +212,8 @@ impl Command {
             17 => Ok(Command::Round),
             18 => Ok(Command::Authenticate),
             19 => Ok(Command::Drop),
+            20 => Ok(Command::DirectWrite),
+            21 => Ok(Command::ConditionalWrite),
             512 => Ok(Command::Join),
             513 => Ok(Command::Members),
             514 => Ok(Command::Subscribe),

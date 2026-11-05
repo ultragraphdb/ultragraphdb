@@ -14,6 +14,7 @@ use crate::types::key_values::KeyValues;
 pub struct EntriesView<'a> {
     range: u32,
     end: EntriesEnd,
+    continues: bool,
     epoch: u64,
     entries: KeyValues<'a>,
 }
@@ -27,6 +28,11 @@ impl<'a> EntriesView<'a> {
     /// How the range ended.
     pub fn end(&self) -> EntriesEnd {
         self.end
+    }
+
+    /// Whether the batch's last entry's value continues in the next frame; only with [`EntriesEnd::More`] and an entry.
+    pub fn continues(&self) -> bool {
+        self.continues
     }
 
     /// The epoch of the version the range was read at.

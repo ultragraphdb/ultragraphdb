@@ -42,6 +42,25 @@ fn commits(h: &Harness) -> Vec<(u128, u64)> {
         .collect()
 }
 
+/// A session's request numbers start at 1, the protocol's refusal of 0 with a session (`PROTOCOL.md` §6.3) never reached,
+/// through a whole transaction and the drop after it.
+#[test]
+fn test_a_whole_transaction_through_a_session_numbers_its_requests_from_1() -> TestResult {
+    let mut h = Harness::ready(server())?;
+    let s = session(&mut h)?;
+    let first = h.core.next_request(s).context("a session")?;
+    assert_eq!(first, 1);
+    let tx = begin(&mut h)?;
+    let committing = h.core.commit(tx, s, h.now)?;
+    assert_eq!(committed(h.settle(committing)?)?.request(), first);
+    assert_eq!(commits(&h), vec![(s.number(), first)]);
+    let dropping = h
+        .core
+        .drop_command(ultragraphdb_protocol_wire::DropCommand::all(), s, h.now)?;
+    assert_eq!(dropped(h.settle(dropping)?)?.request(), first + 1);
+    Ok(())
+}
+
 #[test]
 fn test_a_commit_answers_its_version_and_results_and_advances_the_session() -> TestResult {
     let mut h = Harness::ready(server())?;

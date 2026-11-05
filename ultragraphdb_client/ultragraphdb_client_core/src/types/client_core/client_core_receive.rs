@@ -134,7 +134,8 @@ impl<L: Login> ClientCore<L> {
         Ok(exchange)
     }
 
-    /// A frame on stream 0: the server's next Authenticate of the exchange or its renewal, or its closing Error.
+    /// A frame on stream 0: the server's next Authenticate of the exchange or its renewal, or its closing Error; any
+    /// other command, a later Welcome among them, is refused as [`ProtocolError::command_not_served`].
     fn connection_frame(&mut self, frame: &ReceivedFrame, now: Instant) -> Result<(), ClientError> {
         let view = match frame.view() {
             Ok(view) => view,
@@ -150,7 +151,9 @@ impl<L: Login> ClientCore<L> {
                 }
             }
             Command::Authenticate => self.authenticate(&view, now),
-            Command::Hello
+            // Past the handshake, no other command is a frame a server sends the side that dialled on stream 0: a Welcome
+            // comes once, as the answer to the Hello (`PROTOCOL.md` §2.5). The connection is closed (§2.6).
+            other @ (Command::Hello
             | Command::Welcome
             | Command::Register
             | Command::Begin
@@ -166,9 +169,10 @@ impl<L: Login> ClientCore<L> {
             | Command::Credit
             | Command::Cancel
             | Command::Round
-            | Command::Drop => Ok(()),
-            // A role command is no frame a server sends a client (`PROTOCOL.md` §2.5): the connection is closed.
-            role @ (Command::Join
+            | Command::Drop
+            | Command::DirectWrite
+            | Command::ConditionalWrite
+            | Command::Join
             | Command::Members
             | Command::Subscribe
             | Command::EpochClose
@@ -187,7 +191,7 @@ impl<L: Login> ClientCore<L> {
             | Command::Closed
             | Command::DefaultEntry
             | Command::Report) => self.fatal(ClientError::protocol(
-                ProtocolError::command_not_served(role.number()),
+                ProtocolError::command_not_served(other.number()),
             )),
         }
     }

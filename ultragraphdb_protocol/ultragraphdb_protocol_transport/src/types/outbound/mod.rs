@@ -9,9 +9,12 @@ use ultragraphdb_protocol_wire::{Command, FLAG_LAST, Header, HeaderView};
 
 use crate::errors::transport_error::TransportError;
 
-/// Whether `frame`, whose header `push` read, is a Result frame, the frames credit meters.
-fn is_result(frame: &[u8]) -> bool {
-    HeaderView::new(frame).is_ok_and(|h| h.command() == Command::Result.number())
+/// Whether `frame`, whose header `push` read, is a Result or an Entries frame, the frames credit meters
+/// (`PROTOCOL.md` §11.3).
+fn is_metered(frame: &[u8]) -> bool {
+    HeaderView::new(frame).is_ok_and(|h| {
+        h.command() == Command::Result.number() || h.command() == Command::Entries.number()
+    })
 }
 
 /// Whether `frame` is its stream's last.
@@ -28,7 +31,7 @@ enum Role {
     Read(u64),
 }
 
-/// One open stream: its role, its credit for Result frames and the frames waiting to be sent.
+/// One open stream: its role, its credit for Result and Entries frames and the frames waiting to be sent.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 struct StreamState {
     role: Role,
@@ -38,9 +41,9 @@ struct StreamState {
 
 /// Every frame a server sends on one connection, scheduled across its streams and numbered as it leaves: the
 /// connection's own frames on stream 0, and the refusals of streams never opened, go first, in the order pushed; each
-/// stream's frames leave in the order pushed, streams take turns, a Result frame leaves only while its stream holds
-/// credit, and a stream closes once a frame flagged [`ultragraphdb_protocol_wire::FLAG_LAST`] has left or it is
-/// cancelled. A transaction's reads close with it. Each frame leaves stamped with its `sequence`, from 1. A step
+/// stream's frames leave in the order pushed, streams take turns, a Result or an Entries frame leaves only while its
+/// stream holds credit, and a stream closes once a frame flagged [`ultragraphdb_protocol_wire::FLAG_LAST`] has left or
+/// it is cancelled. A transaction's reads close with it. Each frame leaves stamped with its `sequence`, from 1. A step
 /// function over its inputs: nothing here waits.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Outbound {
@@ -166,7 +169,7 @@ impl Outbound {
         Ok(())
     }
 
-    /// Grants `stream` credit for `frames` more Result frames; ignored for a stream not open.
+    /// Grants `stream` credit for `frames` more Result or Entries frames; ignored for a stream not open.
     pub fn grant(&mut self, stream: u64, frames: u32) {
         if let Some(state) = self.streams.get_mut(&stream) {
             state.credit = state.credit.saturating_add(frames);
@@ -200,7 +203,7 @@ impl Outbound {
             state
                 .queue
                 .front()
-                .is_some_and(|frame| !is_result(frame) || state.credit > 0)
+                .is_some_and(|frame| !is_metered(frame) || state.credit > 0)
         };
         let stream = self
             .streams
@@ -210,8 +213,8 @@ impl Outbound {
             .map(|(stream, _)| *stream)?;
         let state = self.streams.get_mut(&stream)?;
         let frame = state.queue.pop_front()?;
-        if is_result(&frame) {
-            // `sendable` took a Result only while the stream held credit.
+        if is_metered(&frame) {
+            // `sendable` took a metered frame only while the stream held credit.
             debug_assert!(state.credit > 0);
             state.credit = state.credit.saturating_sub(1);
         }

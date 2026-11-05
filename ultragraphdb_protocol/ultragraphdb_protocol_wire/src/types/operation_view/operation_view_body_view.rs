@@ -11,7 +11,7 @@ use crate::types::frame_view::FrameView;
 use crate::types::operation::Operation;
 use crate::types::operation_view::OperationView;
 use crate::types::term_table_view::TermTableView;
-use crate::utils::constants::ABSENT;
+use crate::utils::commit_operation_layout::OperationFields;
 use crate::utils::sections::Sections;
 use crate::utils::sections::expect_command;
 use crate::utils::sections::{as_u32, u32s};
@@ -25,27 +25,8 @@ impl<'a> BodyView<'a> for OperationView<'a> {
         let command = Self::COMMAND.number();
         let header = expect_command(frame, Self::COMMAND)?;
         header.unused_zero(&[(0, 1), (8, 24)])?;
-        let kind = header.u8_at(0);
-        // The delta is an i64 carried in the u64 field's bits, two's complement.
-        let delta = header.u64_at(8).cast_signed();
-        let properties = header.u32_at(16);
-        let links = header.u32_at(20);
-        if !(1..=4).contains(&kind) {
-            return Err(ProtocolError::field_value(command, "kind", kind.into()));
-        }
-        if delta != 0 && kind != 4 {
-            return Err(ProtocolError::field_value(command, "delta", delta as u64));
-        }
-        if properties != 0 && kind > 2 {
-            return Err(ProtocolError::field_value(
-                command,
-                "properties",
-                properties.into(),
-            ));
-        }
-        if links != 0 && kind != 2 {
-            return Err(ProtocolError::field_value(command, "links", links.into()));
-        }
+        let fields = OperationFields::read(header.0);
+        fields.check(command)?;
         let sections = Sections::<3>::read(command, frame.body(), 0)?;
         let terms = TermTableView::read(
             command,
@@ -55,11 +36,7 @@ impl<'a> BodyView<'a> for OperationView<'a> {
             sections.get(2),
         )?;
         let args = u32s(command, 0, sections.get(0))?;
-        let expected = match kind {
-            1 | 2 => 3 + 2 * u64::from(properties) + 3 * u64::from(links),
-            3 => 5,
-            _ => 3,
-        };
+        let expected = fields.arg_count();
         if args.len() as u64 != expected {
             return Err(ProtocolError::count_mismatch(
                 command,
@@ -68,12 +45,9 @@ impl<'a> BodyView<'a> for OperationView<'a> {
                 expected,
             ));
         }
-        check_args(command, kind, properties, &args, as_u32(terms.len()))?;
+        fields.check_args(command, (0, 0), &args, as_u32(terms.len()))?;
         Ok(Self {
-            kind,
-            delta,
-            properties,
-            links,
+            fields,
             args,
             terms,
         })
@@ -82,33 +56,4 @@ impl<'a> BodyView<'a> for OperationView<'a> {
     fn to_body(&self) -> Result<Operation, ProtocolError> {
         Ok(Operation::new(self.terms.to_table(), self.operation()))
     }
-}
-
-/// Refuses an argument of `args` that is neither a link direction of 0 or 1 nor an index below `limit` into the
-/// term table; the first argument may also be [`ABSENT`].
-fn check_args(
-    command: u16,
-    kind: u8,
-    properties: u32,
-    args: &[u32],
-    limit: u32,
-) -> Result<(), ProtocolError> {
-    let link_start = 3 + 2 * properties as usize;
-    for (at, arg) in args.iter().enumerate() {
-        let direction = kind == 2 && at >= link_start && (at - link_start) % 3 == 2;
-        if direction {
-            if *arg > 1 {
-                return Err(ProtocolError::field_value(
-                    command,
-                    "link direction",
-                    (*arg).into(),
-                ));
-            }
-        } else if !(at == 0 && *arg == ABSENT) && *arg >= limit {
-            return Err(ProtocolError::index_out_of_range(
-                command, 0, at, *arg, limit,
-            ));
-        }
-    }
-    Ok(())
 }

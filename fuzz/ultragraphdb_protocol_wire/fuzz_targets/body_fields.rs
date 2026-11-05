@@ -4,24 +4,30 @@
  */
 
 //! Structure-aware: bodies of every kind, their term tables included, built from arbitrary fields within each
-//! builder's rules, which must validate and read back to what was built; then arbitrary mutations of the body, the frame rebuilt around it so the body's checks are reached, which
-//! never panic.
+//! builder's rules, which must validate and read back to what was built; then arbitrary mutations of the body, of one
+//! section with the body laid out again around it and of the command header, the frame rebuilt around them so the body's
+//! checks are reached, which never panic. A DirectWrite, ConditionalWrite, Scan or Entries the mutations leave acceptable
+//! builds the same frame, byte for byte, and holds what its view promises.
 
 #![no_main]
 
+use std::fmt::Debug;
 use std::num::NonZeroU32;
 
 use arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
 use ultragraphdb_core_ids::{Epoch, SessionToken};
+use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_wire::{
     Authenticate, AuthenticateView, BodyBuilder, BodyView, ColumnType, Command, Commit,
-    CommitOperation, CommitView, Credit, CreditView, Direction, DropCommand, DropCommandView,
-    ErrorCode, ErrorReply, ErrorReplyView, Execute, ExecuteView, FrameView, Header, Hello,
-    HelloView, Link, MAX_FRAME_FLOOR, MAX_FRAME_SIZE, Operation, OperationResult, OperationView,
-    PatternSlot, Prepare, PrepareView, QuadPattern, Read, ReadView, RequestTerm, ResultBatch,
-    ResultTerm, ResultView, RoundBody, RoundView, TermTable, Welcome, WelcomeView, Write,
-    WriteChange, WriteSetRecord, WriteView,
+    CommitOperation, CommitView, ConditionalWrite, ConditionalWriteView, Credit, CreditView,
+    DirectWrite, DirectWriteView, Direction, DropCommand, DropCommandView, Entries, EntriesEnd,
+    EntriesView, ErrorCode, ErrorReply, ErrorReplyView, Execute, ExecuteView, FrameView, Header,
+    Hello, HelloView, Link, MAX_EPOCH, MAX_FRAME_FLOOR, MAX_FRAME_SIZE, Operation, OperationResult,
+    OperationView, PatternSlot, Prepare, PrepareView, QuadPattern, Read, ReadView, RequestTerm,
+    ResultBatch, ResultTerm, ResultView, RoundBody, RoundView, Scan, ScanAt, ScanRange, ScanView,
+    StatementTarget, TermTable, Welcome, WelcomeView, Write, WriteChange, WriteSetRecord,
+    WriteView,
 };
 
 const CLUSTER: u64 = 0x0123_4567_89AB_CDEF;
@@ -41,6 +47,24 @@ enum Slot {
     Unbound,
     Bound(u16),
     Parameter,
+}
+
+/// A commit-time operation's fields, as [`commit_operation`] reads them.
+#[derive(Debug, Arbitrary)]
+struct OperationFields {
+    kind: u8,
+    args: [u16; 4],
+    delta: i64,
+    links: Vec<(u16, bool)>,
+}
+
+/// A change's fields, as [`change`] reads them.
+#[derive(Debug, Arbitrary)]
+struct ChangeFields {
+    kind: u8,
+    subject: u16,
+    predicate: u16,
+    object: u16,
 }
 
 #[derive(Debug, Arbitrary)]
@@ -110,12 +134,7 @@ enum Body {
     Write {
         changes: Vec<(u8, u16, u16, u16)>,
     },
-    Operation {
-        kind: u8,
-        args: [u16; 4],
-        delta: i64,
-        links: Vec<(u16, bool)>,
-    },
+    Operation(OperationFields),
     /// A cell's odd value names a blank node, an even one an IRI; the last column, the reifier column, holds blank
     /// nodes alone.
     Result {
@@ -126,14 +145,87 @@ enum Body {
         decisions: Vec<Option<(u8, u64)>>,
         keys: Vec<Vec<u8>>,
     },
+    DirectWrite {
+        session: [u8; 16],
+        request: u64,
+        namespace: u64,
+        token: Option<u64>,
+        changes: Vec<ChangeFields>,
+    },
+    ConditionalWrite {
+        session: [u8; 16],
+        request: u64,
+        namespace: u64,
+        token: Option<u64>,
+        changes: Vec<ChangeFields>,
+        operations: Vec<OperationFields>,
+    },
+    Scan {
+        at: u8,
+        read_version: u64,
+        epoch: u64,
+        principal: u64,
+        /// `None` for a Scan naming no transaction.
+        transaction: Option<[u8; 16]>,
+        limit: u32,
+        ranges: Vec<(u32, Vec<u8>, Vec<u8>)>,
+        iris: Vec<String>,
+    },
+    Entries {
+        range: u32,
+        end: u8,
+        continues: bool,
+        epoch: u64,
+        entries: Vec<(Vec<u8>, Vec<u8>)>,
+    },
 }
 
 #[derive(Debug, Arbitrary)]
 enum Mutation {
-    Flip { at: u16, bit: u8 },
-    Truncate { len: u16 },
-    Append { byte: u8 },
-    Set { at: u16, value: u32 },
+    Flip {
+        at: u16,
+        bit: u8,
+    },
+    Truncate {
+        len: u16,
+    },
+    Append {
+        byte: u8,
+    },
+    Set {
+        at: u16,
+        value: u32,
+    },
+    /// A byte of the command header, `at % 128`, set to a value.
+    CommandHeader {
+        at: u8,
+        value: u8,
+    },
+    /// One section of a body laid out in sections alone changed, and the body laid out again around it, so a rule of the
+    /// section's contents is reached past the section table's.
+    Section {
+        index: u8,
+        change: SectionChange,
+    },
+}
+
+#[derive(Debug, Arbitrary)]
+enum SectionChange {
+    Clear,
+    Truncate {
+        len: u16,
+    },
+    Append {
+        byte: u8,
+    },
+    Set {
+        at: u16,
+        value: u8,
+    },
+    /// The u32 at a byte, `at` modulo the section's length, set to all ones: an absent arg's or value's mark.
+    Absent {
+        at: u16,
+    },
 }
 
 #[derive(Debug, Arbitrary)]
@@ -186,6 +278,277 @@ fn slot(s: &Slot, parameters: &mut u32, terms: u32) -> PatternSlot {
             PatternSlot::Parameter(*parameters - 1)
         }
     }
+}
+
+/// The change `fields` name, of each kind a change takes, over the term indices `t` gives.
+fn change(fields: &ChangeFields, t: &impl Fn(u16) -> u32) -> WriteChange {
+    let (subject, predicate, object) = (t(fields.subject), t(fields.predicate), t(fields.object));
+    let graph = (fields.kind & 8 != 0).then_some(object);
+    let statement = if fields.kind & 16 != 0 {
+        StatementTarget::Triple {
+            graph,
+            subject,
+            predicate,
+            object,
+        }
+    } else {
+        StatementTarget::Reifier {
+            graph,
+            reifier: subject,
+        }
+    };
+    match fields.kind % 8 {
+        0 | 1 => WriteChange::Insert {
+            graph,
+            subject,
+            predicate,
+            object,
+        },
+        2 => WriteChange::Delete {
+            graph,
+            subject,
+            predicate,
+            object,
+        },
+        3 => WriteChange::InsertEdge {
+            graph,
+            subject,
+            predicate,
+            object,
+            properties: vec![(predicate, object)],
+        },
+        4 => WriteChange::DeleteStatement {
+            graph,
+            reifier: subject,
+        },
+        5 => WriteChange::DeletePattern {
+            graph,
+            subject,
+            predicate,
+        },
+        6 => WriteChange::SetProperty {
+            statement,
+            predicate,
+            value: object,
+        },
+        _ => WriteChange::DeleteProperty {
+            statement,
+            predicate,
+            value: (fields.kind & 32 != 0).then_some(object),
+        },
+    }
+}
+
+/// The operation `fields` name, of each kind, over the term indices `t` gives.
+fn commit_operation(fields: &OperationFields, t: &impl Fn(u16) -> u32) -> CommitOperation {
+    let [a, b, c, d] = fields.args;
+    match fields.kind % 4 {
+        0 => CommitOperation::InsertIfAbsent {
+            graph: None,
+            predicate: t(a),
+            value: t(b),
+            properties: vec![(t(c), t(d))],
+        },
+        1 => CommitOperation::UpsertAndLink {
+            graph: None,
+            predicate: t(a),
+            value: t(b),
+            properties: vec![],
+            links: fields
+                .links
+                .iter()
+                .map(|(x, from)| {
+                    if *from {
+                        Link::from_node(t(*x), t(*x))
+                    } else {
+                        Link::to_node(t(*x), t(*x))
+                    }
+                })
+                .collect(),
+        },
+        2 => CommitOperation::CompareAndSet {
+            graph: Some(t(a)),
+            subject: t(b),
+            predicate: t(c),
+            expected: t(d),
+            new: t(a),
+        },
+        _ => CommitOperation::CounterAdd {
+            graph: None,
+            subject: t(a),
+            predicate: t(b),
+            delta: fields.delta,
+        },
+    }
+}
+
+/// `session` and `request` as a command header takes them: request 0 with no session, at least 1 with one.
+fn session_of(session: [u8; 16], request: u64) -> ([u8; 16], u64) {
+    (
+        session,
+        if session == [0; 16] {
+            0
+        } else {
+            request.max(1)
+        },
+    )
+}
+
+/// The Scan the fields make: the choice's version and epoch, each range's partition at least 1 and its keys ordered, a
+/// transaction's `at` 1 and epoch 0, its ranges of one partition and its table of the IRIs, at most one per range. `None`
+/// with no range left.
+fn scan(
+    at: u8,
+    read_version: u64,
+    epoch: u64,
+    principal: u64,
+    transaction: [u8; 16],
+    limit: u32,
+    ranges: &[(u32, Vec<u8>, Vec<u8>)],
+    iris: &[String],
+) -> Option<Scan> {
+    let named = transaction != [0; 16];
+    let at = if named {
+        ScanAt::ReadVersion
+    } else {
+        ScanAt::from_number(1 + at % 4)?
+    };
+    let read_version = if matches!(at, ScanAt::ReadVersion | ScanAt::Named) {
+        read_version
+    } else {
+        0
+    };
+    let epoch = if at == ScanAt::Named || named {
+        0
+    } else {
+        epoch % (MAX_EPOCH + 1)
+    };
+    let kept: Vec<_> = ranges
+        .iter()
+        .filter(|(_, first, past)| !first.is_empty() && (past.is_empty() || past > first))
+        .collect();
+    let first_partition = kept.first()?.0.max(1);
+    let mut table = TermTable::new();
+    if named {
+        iris.iter().take(kept.len()).for_each(|iri| {
+            let _ = table.intern(RequestTerm::Iri(iri.clone()));
+        });
+    }
+    let mut built =
+        Scan::new(at, read_version, epoch, principal, transaction, limit).with_terms(table);
+    for (partition, first, past) in kept {
+        let partition = if named {
+            first_partition
+        } else {
+            (*partition).max(1)
+        };
+        built.push_range(ScanRange::new(partition, first, past));
+    }
+    Some(built)
+}
+
+/// The Entries the fields make: their keys ascending and each once, a batch that continues having `end` 0 and an entry.
+fn entries_of(
+    range: u32,
+    end: u8,
+    continues: bool,
+    epoch: u64,
+    entries: &[(Vec<u8>, Vec<u8>)],
+) -> Option<Entries> {
+    if continues && entries.is_empty() {
+        return None;
+    }
+    let epoch = epoch % (MAX_EPOCH + 1);
+    let mut built = if continues {
+        Entries::continuing(range, epoch)
+    } else {
+        Entries::new(range, EntriesEnd::from_number(end % 3)?, epoch)
+    };
+    let mut sorted: Vec<_> = entries.iter().collect();
+    sorted.sort_by(|a, b| a.0.cmp(&b.0));
+    sorted.dedup_by(|a, b| a.0 == b.0);
+    sorted
+        .iter()
+        .for_each(|(key, value)| built.push(key, value));
+    Some(built)
+}
+
+/// `body`, read from the frame `accepted` its view accepted, builds that frame, byte for byte, which `read` takes back to
+/// the same body.
+fn reads_back<B: BodyBuilder + PartialEq + Debug>(
+    body: B,
+    accepted: &[u8],
+    read: impl Fn(&FrameView<'_>) -> Result<B, ProtocolError>,
+) {
+    let Ok(bytes) = body.frame(Header::new(CLUSTER, Command::Abort)) else {
+        return;
+    };
+    assert_eq!(bytes, accepted, "{:?} has one encoding", B::COMMAND);
+    let frame = FrameView::validate(&bytes, CLUSTER, MAX_FRAME_SIZE).expect("a built frame");
+    assert_eq!(read(&frame).expect("a built body reads"), body);
+}
+
+/// The number of sections of `command`'s body, for a command whose body is its sections alone.
+fn sections_of(command: Command) -> Option<usize> {
+    match command {
+        Command::DirectWrite => Some(6),
+        Command::ConditionalWrite => Some(7),
+        Command::Scan => Some(4),
+        Command::Entries => Some(1),
+        _ => None,
+    }
+}
+
+/// `body`'s `n` sections, `None` when its section table does not hold them.
+fn split_sections(body: &[u8], n: usize) -> Option<Vec<Vec<u8>>> {
+    let u32_at = |at: usize| -> Option<usize> {
+        Some(u32::from_le_bytes(body.get(at..at + 4)?.try_into().ok()?) as usize)
+    };
+    (0..n)
+        .map(|i| {
+            let (offset, len) = (u32_at(8 * i)?, u32_at(8 * i + 4)?);
+            Some(body.get(offset..offset.checked_add(len)?)?.to_vec())
+        })
+        .collect()
+}
+
+/// The body of `sections`: the table of each one's offset and length, each at the end of the one before rounded up to 8.
+fn join_sections(sections: &[Vec<u8>]) -> Vec<u8> {
+    let mut body = vec![0; 8 * sections.len()];
+    for (i, section) in sections.iter().enumerate() {
+        body.resize(body.len().next_multiple_of(8), 0);
+        let (offset, len) = (body.len() as u32, section.len() as u32);
+        body[8 * i..8 * i + 4].copy_from_slice(&offset.to_le_bytes());
+        body[8 * i + 4..8 * i + 8].copy_from_slice(&len.to_le_bytes());
+        body.extend_from_slice(section);
+    }
+    body
+}
+
+/// `body` of `command` with section `index` changed; as it was for a command or a table this cannot lay out.
+fn change_section(body: &mut Vec<u8>, command: Command, index: u8, change: &SectionChange) {
+    let Some(mut sections) = sections_of(command).and_then(|n| split_sections(body, n)) else {
+        return;
+    };
+    let count = sections.len();
+    let section = &mut sections[usize::from(index) % count];
+    match change {
+        SectionChange::Clear => section.clear(),
+        SectionChange::Truncate { len } => section.truncate(usize::from(*len)),
+        SectionChange::Append { byte } => section.push(*byte),
+        SectionChange::Set { at, value } => {
+            if let Some(byte) = section.get_mut(usize::from(*at)) {
+                *byte = *value;
+            }
+        }
+        SectionChange::Absent { at } => {
+            let start = usize::from(*at).checked_rem(section.len()).unwrap_or(0);
+            if let Some(slot) = section.get_mut(start..start + 4) {
+                slot.fill(0xFF);
+            }
+        }
+    }
+    *body = join_sections(&sections);
 }
 
 /// A check that a built frame's view reads back what was built.
@@ -258,9 +621,10 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
         } => {
             // A request names commit version 0, no token and no results; a reply a version of an epoch 1 to
             // 2^42 - 1, that epoch's token and its results, each node by its IRI in the term table (PROTOCOL.md 6.3).
-            let mut commit = Commit::new(*session, *request, *version);
+            let (session, request) = session_of(*session, *request);
+            let mut commit = Commit::new(session, request, *version);
             if *version != 0 {
-                commit = commit.with_token(token_of(*version, *request)?);
+                commit = commit.with_token(token_of(*version, request)?);
                 for (u, c) in results {
                     if *c {
                         commit.push_node_result(&format!("http://ex.org/n{u}"), true);
@@ -433,50 +797,8 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
                 }),
             )
         }
-        Body::Operation {
-            kind,
-            args: [a, b, c, d],
-            delta,
-            links,
-        } => {
-            let operation = match kind % 4 {
-                0 => CommitOperation::InsertIfAbsent {
-                    graph: None,
-                    predicate: t(*a),
-                    value: t(*b),
-                    properties: vec![(t(*c), t(*d))],
-                },
-                1 => CommitOperation::UpsertAndLink {
-                    graph: None,
-                    predicate: t(*a),
-                    value: t(*b),
-                    properties: vec![],
-                    links: links
-                        .iter()
-                        .map(|(x, from)| {
-                            if *from {
-                                Link::from_node(t(*x), t(*x))
-                            } else {
-                                Link::to_node(t(*x), t(*x))
-                            }
-                        })
-                        .collect(),
-                },
-                2 => CommitOperation::CompareAndSet {
-                    graph: Some(t(*a)),
-                    subject: t(*b),
-                    predicate: t(*c),
-                    expected: t(*d),
-                    new: t(*a),
-                },
-                _ => CommitOperation::CounterAdd {
-                    graph: None,
-                    subject: t(*a),
-                    predicate: t(*b),
-                    delta: *delta,
-                },
-            };
-            let op = Operation::new(terms, operation);
+        Body::Operation(fields) => {
+            let op = Operation::new(terms, commit_operation(fields, &t));
             let frame = op.frame(header).ok()?;
             (
                 frame,
@@ -561,6 +883,7 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
             request,
             version,
         } => {
+            let (session, request) = session_of(*session, *request);
             let command = match kind % 5 {
                 0 => DropCommand::predicate(*namespace, target.clone()),
                 1 => DropCommand::graph(*namespace, target.clone()),
@@ -568,13 +891,13 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
                 3 => DropCommand::whole_namespace(*namespace),
                 _ => DropCommand::all(),
             }
-            .with_session(*session, *request)
+            .with_session(session, request)
             .with_commit_version(*version);
             // A reply names its commit version and that epoch's token (PROTOCOL.md 6.5).
             let command = if *version == 0 {
                 command
             } else {
-                command.with_token(token_of(*version, *request)?)
+                command.with_token(token_of(*version, request)?)
             };
             let frame = command.frame(header).ok()?;
             (
@@ -618,6 +941,119 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
                 }),
             )
         }
+        Body::DirectWrite {
+            session,
+            request,
+            namespace,
+            token,
+            changes,
+        } => {
+            // A DirectWrite holds at least one change (PROTOCOL.md 6.6).
+            if changes.is_empty() {
+                return None;
+            }
+            let changes = changes.iter().map(|fields| change(fields, &t)).collect();
+            let (session, request) = session_of(*session, *request);
+            let mut write =
+                DirectWrite::new(*namespace, terms, changes).with_session(session, request);
+            if let Some(token) = token.and_then(|version| token_of(version, request)) {
+                write = write.with_token(token);
+            }
+            let frame = write.frame(header).ok()?;
+            (
+                frame,
+                Box::new(move |f| {
+                    assert_eq!(
+                        DirectWriteView::from_frame(f).unwrap().to_body().unwrap(),
+                        write
+                    )
+                }),
+            )
+        }
+        Body::ConditionalWrite {
+            session,
+            request,
+            namespace,
+            token,
+            changes,
+            operations,
+        } => {
+            // A ConditionalWrite holds at least one operation (PROTOCOL.md 6.7).
+            if operations.is_empty() {
+                return None;
+            }
+            let changes = changes.iter().map(|fields| change(fields, &t)).collect();
+            let operations = operations
+                .iter()
+                .map(|fields| commit_operation(fields, &t))
+                .collect();
+            let (session, request) = session_of(*session, *request);
+            let mut write = ConditionalWrite::new(*namespace, terms, changes, operations)
+                .with_session(session, request);
+            if let Some(token) = token.and_then(|version| token_of(version, request)) {
+                write = write.with_token(token);
+            }
+            let frame = write.frame(header).ok()?;
+            (
+                frame,
+                Box::new(move |f| {
+                    assert_eq!(
+                        ConditionalWriteView::from_frame(f)
+                            .unwrap()
+                            .to_body()
+                            .unwrap(),
+                        write
+                    )
+                }),
+            )
+        }
+        Body::Scan {
+            at,
+            read_version,
+            epoch,
+            principal,
+            transaction,
+            limit,
+            ranges,
+            iris,
+        } => {
+            let built = scan(
+                *at,
+                *read_version,
+                *epoch,
+                *principal,
+                transaction.unwrap_or([0; 16]),
+                *limit,
+                ranges,
+                iris,
+            )?;
+            let frame = built.frame(header).ok()?;
+            (
+                frame,
+                Box::new(move |f| {
+                    assert_eq!(ScanView::from_frame(f).unwrap().to_body().unwrap(), built)
+                }),
+            )
+        }
+        Body::Entries {
+            range,
+            end,
+            continues,
+            epoch,
+            entries,
+        } => {
+            let built = entries_of(*range, *end, *continues, *epoch, entries)?;
+            let frame = built.frame(header).ok()?;
+            (
+                frame,
+                Box::new(move |f| {
+                    assert_eq!(
+                        EntriesView::from_frame(f).unwrap().to_body().unwrap(),
+                        built
+                    )
+                }),
+            )
+        }
     })
 }
 
@@ -631,6 +1067,7 @@ fuzz_target!(|input: Input| {
     check(&view);
     let command = view.command();
     let mut body = view.body().to_vec();
+    let mut command_header = *view.header().command_header();
     for mutation in &input.mutations {
         match mutation {
             Mutation::Flip { at, bit } => {
@@ -645,10 +1082,16 @@ fuzz_target!(|input: Input| {
                     slot.copy_from_slice(&value.to_le_bytes());
                 }
             }
+            Mutation::CommandHeader { at, value } => {
+                command_header[usize::from(*at) % command_header.len()] = *value;
+            }
+            Mutation::Section { index, change } => {
+                change_section(&mut body, command, *index, change);
+            }
         }
     }
     let Ok(mutated) = Header::new(CLUSTER, command)
-        .with_command_header(*view.header().command_header())
+        .with_command_header(command_header)
         .encode_frame(&body)
     else {
         return;
@@ -664,6 +1107,10 @@ fuzz_target!(|input: Input| {
             .and_then(|v| v.to_body())
             .map(drop),
         Command::Commit => CommitView::from_frame(&frame)
+            .map(|v| {
+                assert_eq!(v.session() == [0; 16], v.request() == 0);
+                v
+            })
             .and_then(|v| v.to_body())
             .map(drop),
         Command::Credit => CreditView::from_frame(&frame)
@@ -697,8 +1144,54 @@ fuzz_target!(|input: Input| {
             .and_then(|v| v.to_body())
             .map(drop),
         Command::Drop => DropCommandView::from_frame(&frame)
+            .map(|v| {
+                assert_eq!(v.session() == [0; 16], v.request() == 0);
+                v
+            })
             .and_then(|v| v.to_body())
             .map(drop),
+        Command::DirectWrite => DirectWriteView::from_frame(&frame)
+            .map(|v| {
+                assert_eq!(v.session() == [0; 16], v.request() == 0);
+                v
+            })
+            .and_then(|v| v.to_body())
+            .map(|body| {
+                reads_back(body, &mutated, |f| {
+                    DirectWriteView::from_frame(f)?.to_body()
+                })
+            }),
+        Command::ConditionalWrite => ConditionalWriteView::from_frame(&frame)
+            .map(|v| {
+                assert_eq!(v.session() == [0; 16], v.request() == 0);
+                v
+            })
+            .and_then(|v| v.to_body())
+            .map(|body| {
+                reads_back(body, &mutated, |f| {
+                    ConditionalWriteView::from_frame(f)?.to_body()
+                })
+            }),
+        Command::Scan => ScanView::from_frame(&frame)
+            .map(|v| {
+                if v.transaction() != [0; 16] {
+                    assert_eq!((v.at(), v.epoch()), (ScanAt::ReadVersion, 0));
+                    assert!(v.terms().len() <= v.range_count());
+                }
+                v
+            })
+            .and_then(|v| v.to_body())
+            .map(|body| reads_back(body, &mutated, |f| ScanView::from_frame(f)?.to_body())),
+        Command::Entries => EntriesView::from_frame(&frame)
+            .map(|v| {
+                if v.continues() {
+                    assert_eq!(v.end(), EntriesEnd::More);
+                    assert!(!v.entries().is_empty());
+                }
+                v
+            })
+            .and_then(|v| v.to_body())
+            .map(|body| reads_back(body, &mutated, |f| EntriesView::from_frame(f)?.to_body())),
         _ => Ok(()),
     };
 });

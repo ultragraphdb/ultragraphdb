@@ -7,6 +7,7 @@ mod scan_view_body_view;
 
 use crate::types::scan_at::ScanAt;
 use crate::types::scan_range::ScanRange;
+use crate::types::term_table_view::TermTableView;
 use crate::utils::constants::SCAN_RANGE_SIZE;
 use crate::utils::le::bytes_at;
 
@@ -21,6 +22,7 @@ pub struct ScanView<'a> {
     limit: u32,
     ranges: &'a [u8],
     keys: &'a [u8],
+    terms: TermTableView<'a>,
 }
 
 impl<'a> ScanView<'a> {
@@ -77,5 +79,10 @@ impl<'a> ScanView<'a> {
     /// The ranges, in order.
     pub fn ranges(&self) -> impl Iterator<Item = ScanRange<'a>> + '_ {
         (0..self.range_count()).filter_map(|i| self.range(i))
+    }
+
+    /// The term table of the IRIs the read names, at most as many terms as ranges; empty with no transaction.
+    pub fn terms(&self) -> TermTableView<'a> {
+        self.terms
     }
 }

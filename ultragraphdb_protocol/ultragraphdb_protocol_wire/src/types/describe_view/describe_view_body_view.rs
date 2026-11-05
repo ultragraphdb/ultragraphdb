@@ -12,7 +12,7 @@ use crate::types::describe::Describe;
 use crate::types::describe_view::DescribeView;
 use crate::types::frame_view::FrameView;
 use crate::types::string_list::StringList;
-use crate::utils::changes::{check_records, decode_declaration};
+use crate::utils::changes::{RecordKinds, check_records, decode_declaration};
 use crate::utils::sections::Sections;
 use crate::utils::sections::expect_command;
 use crate::utils::sections::{as_u32, u32s};
@@ -42,7 +42,15 @@ impl<'a> BodyView<'a> for DescribeView<'a> {
         let relationship_types = names(3)?;
         let property_keys = names(4)?;
         let args = u32s(command, 6, sections.get(6))?;
-        check_records(command, (5, 6), sections.get(5), &args, 0, &strings, true)?;
+        check_records(
+            command,
+            (5, 6),
+            sections.get(5),
+            &args,
+            0,
+            &strings,
+            RecordKinds::Declarations,
+        )?;
         Ok(Self {
             namespace: header.u64_at(0),
             read_version: header.u64_at(8),

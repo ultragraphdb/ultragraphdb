@@ -39,7 +39,9 @@ impl Endpoint {
             ),
             Self::Partition => matches!(
                 command,
-                Command::Bind
+                Command::DirectWrite
+                    | Command::ConditionalWrite
+                    | Command::Bind
                     | Command::Write
                     | Command::Operation
                     | Command::Commit

@@ -34,7 +34,7 @@ Pure state machines hold a connection's state:
 |---|---|
 | `Framer` | Assembles frames from a byte stream, pull-style: `want` tells the shell how many bytes the frame's pooled buffer must hold, and `advance` returns the next `FrameStep`. It verifies the 256-byte header before trusting its `size`, then takes the rest of the frame into the same buffer. The shell reads straight into the frame's final buffer, by an owned-buffer read (io_uring) or a `&mut [u8]` read, with no copy |
 | `ClientHandshake`, `ServerHandshake`, `HandshakeAnswer` | Run the handshake: the client sends Hello on stream 0; the server answers with a Welcome at a protocol in the Hello's range, or refuses |
-| `Outbound` | Schedules a connection's outgoing frames across its streams: credit for Result frames, cancellation, a stream's end |
+| `Outbound` | Schedules a connection's outgoing frames across its streams: credit for Result and Entries frames, cancellation, a stream's end |
 | `BufferPool`, `PooledBuffer`, `ReceivedFrame` | Pool the buffers that frames are read into; a received frame stays in its buffer until viewed |
 | `SimNetwork`, `SimStream`, `NetworkFaults`, `NetworkStats` | Simulate the network: seeded links drop, delay, duplicate and split messages; a shell adapts them to its runtime's reader and writer traits |
 

@@ -43,6 +43,10 @@ Feature: Wire protocol: the header, checksums and validation
     When a frame with a valid checksum names an unknown command
     Then the connection is closed with an error naming the command, and the server keeps serving other connections
 
+  Scenario: A replica command number is refused in this stage
+    When a frame carries command number 300
+    Then that number is refused as an unknown command
+
   Scenario: A retired number is refused
     When a frame carries a retired command's number
     Then it is refused as an unknown command

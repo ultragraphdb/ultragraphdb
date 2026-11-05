@@ -146,7 +146,7 @@ rule's text in its message (section 9.4).
 | 1 | `ShortHeader` | The frame holds at least 256 bytes |
 | 2 | `HeaderChecksum` | `checksum` equals XXH3-64 of bytes 8 to 255 |
 | 3 | `UnknownCommand` | `command` is a number of section 3 |
-| 3 | `CommandNotServed` (the command's number) | A connection's receiver. The side that accepted the connection: a request is one its endpoint serves, the client endpoint no role command (512–767) and a role endpoint the commands section 11.12 lists for it. The side that dialled: a frame on stream 0 is Welcome, Authenticate or Error, and a frame on another stream answers a request it sent on that stream, by a command section 3 lists in the request's "Answered by", or Error |
+| 3 | `CommandNotServed` (the command's number) | A connection's receiver. The side that accepted the connection: a request is one its endpoint serves, the client endpoint no role command (512–767) and a role endpoint the commands section 11.12 lists for it. The side that dialled: a frame on stream 0 is Welcome, which comes once, as the answer to its Hello, so a later one is refused; Authenticate; or Error; and a frame on another stream answers a request it sent on that stream, by a command section 3 lists in the request's "Answered by", or Error |
 | 4 | `ReservedNotZero` (offset of the first nonzero byte) | Bytes 66 to 127 are zero |
 | 5 | `WrongCluster` | `cluster` is the receiver's cluster |
 | 6 | `FieldValue` (`"flags"`, then `"view"`, then `"replica"`) | `flags` bits 1 to 7 are zero; in a client's frame and a role's, `view` and `replica` are 0 |
@@ -291,7 +291,7 @@ A sender interns: each distinct string appears once, at its first use, in the or
 
 ### 4.4 Request term table
 
-Every RDF term a request names (Read, Write, Operation, Prepare, Execute, Drop) is a u32 index into the request's
+Every RDF term a request names (Read, Write, DirectWrite, ConditionalWrite, Operation, Prepare, Execute, Drop) is a u32 index into the request's
 term table, as are the value an OperationFailed Error reports (section 9.4), the nodes a Commit reply names (section
 6.3), the terms a resume key holds (section 11.8) and the terms role commands carry by their text (section 13): two
 sections, `records` and `text`.
@@ -389,7 +389,7 @@ A pattern has one encoding.
 
 ### 4.6 Change records
 
-Write (section 7.2) and Describe (section 8.3) carry changes and declarations as records over an args section. A
+Write (section 7.2), DirectWrite (section 6.6), ConditionalWrite (section 6.7) and Describe (section 8.3) carry changes and declarations as records over an args section. A
 record is 16 bytes:
 
 | Record offset | Width | Field | Type |
@@ -429,7 +429,7 @@ order:
 
 | Step | Refusal | Rule |
 |---|---|---|
-| 1 | `FieldValue` (`"change kind"`) | `kind` is 1 to 10 in a Write, 8 to 10 in a Describe |
+| 1 | `FieldValue` (`"change kind"`) | `kind` is 1 to 10 in a Write, DirectWrite or ConditionalWrite, 8 to 10 in a Describe |
 | 2 | `FieldValue` (`"declaration order"`) | Describe only: `kind` is at least the record before's |
 | 3 | `FieldValue` (`"flags"`) | only the kind's flag bits are set; for kind 8, bits 0–1 are not 3 |
 | 4 | `FieldValue` (`"change record"`) | bytes 2–3 are zero |
@@ -508,7 +508,7 @@ The server's answer to Hello: the protocol chosen, its limits, and how the conne
 | 4 | 4 | `release` | u32 | the server's release |
 | 8 | 4 | `max_frame` | u32 | the largest frame the server takes, 524,288 to 1,048,576 (`FieldValue` `"max_frame"`) |
 | 12 | 4 | `max_streams` | u32 | the streams a connection holds in flight, at least 1 (`FieldValue` `"max_streams"`) |
-| 16 | 4 | `initial_credit` | u32 | the Result frames each result stream may send before a Credit |
+| 16 | 4 | `initial_credit` | u32 | the Result or Entries frames each stream answering a read may send before a Credit |
 | 20 | 4 | `max_write_set` | u32 | the largest write set a transaction commits, in bytes: its write-set record rounded up to 8 bytes and the dictionary entries it adds to its round (section 11.9) |
 | 24 | 4 | `transaction_ms` | u32 | the longest a read-write transaction lives, in milliseconds (section 11.9) |
 
@@ -603,7 +603,7 @@ term table, never by its system ID.
 | Command header | Width | Field | Type | Rule |
 |---|---|---|---|---|
 | 0 | 16 | `session` | session (section 1) | |
-| 16 | 8 | `request` | u64 | |
+| 16 | 8 | `request` | u64 | at least 1 with a session, 0 with none (`FieldValue` `"request"`) |
 | 24 | 8 | `commit_version` | u64 | |
 | 32 | 24 | `token` | session token (section 4.8) | zero in a request; in a reply, a token whose `epoch` is `commit_version >> 22` (`FieldValue` `"token"`) |
 
@@ -620,7 +620,7 @@ term table, never by its system ID.
 | 12 | 1 | `created` | u8 boolean: whether the operation created the node; 0 for compare-and-set and counter add |
 | 13 | 3 | zero | 0 |
 
-Order: unused bytes 56–127 zero; `token` (section 4.8, then its rule above); sections; the term table, every entry of
+Order: unused bytes 56–127 zero; `request`; `token` (section 4.8, then its rule above); sections; the term table, every entry of
 kind 1 (`FieldValue` `"node term"`); in a request, sections 0 to 2 empty (`CountMismatch` `"results"`); section 0 a
 whole number of 16-byte results (`SectionLength`); each result in order: bytes 13–15 zero (`PaddingNotZero` at the body
 offset), `created ≤ 1` (`FieldValue` `"created"`), `node` `ABSENT` or below the term table's length (`IndexOutOfRange`,
@@ -656,7 +656,7 @@ its read version below the drop's version, aborts with Conflict, kind Drop.
 | 0 | the term table's records (section 4.4): one IRI, the predicate's for kind 1 and the graph's for kind 2; none for kinds 3 to 5 |
 | 1 | the term table's text |
 
-Order: unused bytes 1–7 and 72–127 zero; `kind`; `namespace`; `token` (section 4.8, then its rule above); sections;
+Order: unused bytes 1–7 and 72–127 zero; `request`; `kind`; `namespace`; `token` (section 4.8, then its rule above); sections;
 the term table; one entry for drop kinds 1 and 2, none for 3 to 5 (`CountMismatch` `"drop terms"`); the entry of kind
 1, an IRI (`FieldValue` `"drop term"`, the entry's kind).
 
@@ -679,7 +679,7 @@ when a connection is lost is in doubt.
 | Command header | Width | Field | Type | Rule |
 |---|---|---|---|---|
 | 0 | 16 | `session` | session (section 1) | all zero for none |
-| 16 | 8 | `request` | u64 | as Commit's; 0 with no session (`FieldValue` `"request"`) |
+| 16 | 8 | `request` | u64 | as Commit's: at least 1 with a session, 0 with none (`FieldValue` `"request"`) |
 | 24 | 8 | `namespace` | u64 | the namespace it acts in |
 | 32 | 24 | `token` | session token (section 4.8) | the token the client holds, which raises the commit's epoch as a Begin's does; zero for none |
 
@@ -689,12 +689,14 @@ when a connection is lost is in doubt.
 | 1 | the args, u32s |
 | 2 | the term table's records |
 | 3 | the term table's text |
-| 4 | the names: string list `ends` (section 4.3) |
-| 5 | the names: string list `text` |
+| 4 | the names: string list `ends` (section 4.3), empty |
+| 5 | the names: string list `text`, empty |
 
-Order: unused bytes 56–127 zero; `request`; `token` as section 4.8 says; sections; the term table (2, 3); the names (4, 5); the args
+Order: unused bytes 56–127 zero; `request`; `token` as section 4.8 says; sections; the term table (2, 3); the names (4, 5), a string list
+holding no name, since only a declaration names one (`CountMismatch` `"names"`, the names' count against 0); the args
 a whole number of u32s (`SectionLength`, section 1); section 0 not empty (`CountMismatch` `"changes"`); the records. A record of kinds 8
-to 10, a declaration, is refused with `FieldValue` `"record"`: it commits through the metadata group (section 11.13).
+to 10, a declaration, is refused with `FieldValue` `"record"`, after its `kind` and before anything else of it: it commits through the
+metadata group (section 11.13). So no frame holds what its records do not use, and a receiver rebuilds it byte for byte; the term table's order stays the sender's convention (section 4.7).
 
 A write to a predicate the catalog in effect declares unique is conditional on the value being free, so a DirectWrite holding one is
 refused with code 7 (Refused), `detail` the term's index, the message naming the predicate and ConditionalWrite. The frame declares the
@@ -727,9 +729,11 @@ with code 8 (OperationFailed) and the value found, and is not retried.
 | 1 | the args: the change records', then each operation's in order, as the kind's Count in section 7.3 says |
 | 6 | the operations, 24 bytes each, the layout of Operation's command header bytes 0 to 23 (section 7.3), at least one |
 
-Order: as DirectWrite's, except that section 6 is a whole number of 24-byte operations (`SectionLength`, section 6) and not empty
-(`CountMismatch` `"operations"`), checked before the records; the records, then the operations, consuming the args exactly (`FieldValue`
-`"args_start"`).
+Order: as DirectWrite's, except that section 0 may be empty, and that section 6 is a whole number of 24-byte operations (`SectionLength`, section 6) and not empty
+(`CountMismatch` `"operations"`), checked before the records; the records, then the operations, consuming the args exactly. Each
+operation in order, by section 7.3's Order: bytes 1–7 zero (`PaddingNotZero` at the body offset); `kind`; `delta`; `properties`; `links`; its
+count, and each arg, an arg's `IndexOutOfRange` naming section 1, where this command's args are. A record running past the args is section 4.6's `CountMismatch` `"args"`. An operation running past them, or args left
+after the last operation, is `FieldValue` `"args_start"`, the index of the arg where that operation or those args begin.
 
 ## 7. Bodies of data requests
 
@@ -1294,11 +1298,11 @@ DirectWrite, it is two independent requests, and a commit between them is a lost
 
 Each read's stream starts with the Welcome's `initial_credit`. The server sends a Result frame on a stream only while
 the stream's credit is above 0, and each Result frame it sends spends 1. A Credit frame on the stream adds `frames`
-(saturating at 2³² − 1). Only Result frames spend credit; an Error and every other frame leave it. The server ignores
+(saturating at 2³² − 1). Only Result and Entries frames spend credit; an Error and every other frame leave it. The server ignores
 Credit for a stream that is not open. The Rust client's credit is automatic: its shells grant credit as the read's
 batches are consumed, when the count reaches 0 and the caller waits for a batch, and offer no manual grant; its core
 grants at least one frame, so it sends no Credit of zero frames, which a receiver refuses (section 9.2). On a role
-connection, credit holds the same way for Result and Entries frames, each connection's streams on their own.
+connection, credit holds the same way for Entries frames as for Result frames, each connection's streams on their own.
 
 ### 11.4 Cancel and disconnection
 
@@ -2263,7 +2267,7 @@ system IDs.
 |---|---|
 | 0 | ranges, 24 bytes each |
 | 1 | the ranges' keys, back to back: each range's first key, then its past key |
-| 2 | with `transaction` not zero, the IRIs the read names: a request term table's records (section 4.4); empty otherwise |
+| 2 | with `transaction` not zero, the IRIs the read names: a request term table's records (section 4.4), interned in the order of the ranges naming them; empty otherwise |
 | 3 | that term table's text |
 
 | Range offset | Width | Field | Type |
@@ -2319,10 +2323,11 @@ transaction's reads record*: a key inside the range, a statement whose list key 
 with it, written above the transaction's read version, aborts the commit. Every list a commit writes counts, forward,
 reverse, predicate lists and indexes alike.
 
-Order: unused bytes 1–7 and 52–127 zero; `at`; `read_version` 0 for `at` 2 and 3; `epoch` an epoch, and 0 for `at` 4
-(`FieldValue` `"epoch"`); sections; section 0 a whole number of 24-byte ranges (`SectionLength`) and not empty
-(`CountMismatch` `"ranges"`, 0 against 1); sections 2 and 3 empty when `transaction` is zero (`CountMismatch` `"terms"`),
-otherwise a term table (section 4.4) of at most as many terms as ranges (`CountMismatch` `"terms"`); each range in order: bytes 4–7 zero (`PaddingNotZero` at the body offset),
+Order: unused bytes 1–7 and 52–127 zero; `at`, and 1 when `transaction` is not zero (`FieldValue` `"at"`); `read_version` 0 for `at` 2 and 3; `epoch` an epoch, and 0 for `at` 4
+and when `transaction` is not zero (`FieldValue` `"epoch"`); sections; section 0 a whole number of 24-byte ranges (`SectionLength`) and not empty
+(`CountMismatch` `"ranges"`, 0 against 1); sections 2 and 3 empty when `transaction` is zero (`CountMismatch` `"terms"`, their bytes against 0),
+otherwise a term table (section 4.4), then at most as many terms as ranges (`CountMismatch` `"terms"`, the terms against the ranges), then every entry of kind 1
+(`FieldValue` `"scan term"`, the entry's index); each range in order: bytes 4–7 zero (`PaddingNotZero` at the body offset),
 `partition` at least 1, the same in every range when `transaction` is not zero (`FieldValue` `"partition"`, the
 partition), `first` and `past` where the keys before end and `first_len` at least 1 (`FieldValue` `"range"`, the
 range's index), both keys within section 1 (`IndexOutOfRange`, section 0, the range's index, the past key's end,
@@ -2343,7 +2348,7 @@ Entries frames spend credit as Result frames do (section 11.3).
 | 0 | 4 | `entries` | u32 | the batch's entry count |
 | 4 | 4 | `range` | u32 | the range's index in the Scan, from 0 |
 | 8 | 1 | `end` | u8 | 0 more of the range follows; 1 the range ended; 2 the range stopped at the Scan's `limit` (`FieldValue` `"end"`) |
-| 9 | 1 | `continues` | u8 | 1 the batch's last entry's value continues in the next frame; 0 otherwise (`FieldValue` `"continues"`) |
+| 9 | 1 | `continues` | u8 | 1 the batch's last entry's value continues in the next frame, which needs a last entry; 0 otherwise (`FieldValue` `"continues"`) |
 | 16 | 8 | `epoch` | epoch (section 1) | the epoch of the version the range was read at, which `at` 3 and `at` 2 choose; 0 when the partition has closed no epoch and read at the version bound of none (`FieldValue` `"epoch"`) |
 
 | Section | Contents |
@@ -2366,13 +2371,21 @@ records. The value is the records of every such frame in order. The partition ke
 after it, reading the same version; a frame stops at the receiver's `max_frame`, so a large list takes many frames and no
 turn of the partition holds more than one.
 
-Order: unused bytes 10–15 and 24–127 zero; `end`; `continues`, 0 when `end` is not 0; `epoch` at most 2⁴² − 1; sections; each entry inside the section
+An object record running past the value is refused with `EntryOutOfBounds` (section 0, the record's index, its offset in the value).
+
+Order: unused bytes 10–15 and 24–127 zero; `end`; `continues` 0 or 1, 0 when `end` is not 0; `epoch` at most 2⁴² − 1; sections; each entry inside the section
 (`EntryOutOfBounds`) with zero padding (`PaddingNotZero`); every value present (`FieldValue` `"entry"`, the entry's
 index); each key above the one before, compared byte by byte, within the batch (`FieldValue` `"entry order"`, the
-entry's index); the count equals `entries` (`CountMismatch` `"entries"`). The receiver also refuses a batch's first
-key at or below the last key of the range's previous batch, or, after a frame with `continues` 1, one not equal to it
-(`FieldValue` `"entry order"`, 0). The receiver refuses a `range` that is not the previous frame's, or one above
-it after a frame with `end` not 0, or one not below its Scan's range count (`FieldValue` `"range"`), as a stream error.
+entry's index); the count equals `entries` (`CountMismatch` `"entries"`); at least one entry when `continues` is 1 (`FieldValue` `"continues"`, 1).
+
+The receiver, the side that dialled, compares each frame with those before it, and refuses in this order, closing the connection as section 2.6 has a client do, since a partition answering so cannot be trusted with the connection's other streams:
+
+1. In a frame naming the previous frame's range: a first key at or below the last key the range has sent, or, after a frame with
+   `continues` 1, no entry or a first key not equal to that last key (`FieldValue` `"entry order"`, 0). So a value promised to continue cannot stop.
+2. A `range` that is not the one expected: 0 in the first frame; the previous frame's after `end` 0; one above it after `end` not 0; and below its
+   Scan's range count (`FieldValue` `"range"`, the frame's range).
+3. `LAST` on any frame but the last range's with `end` not 0, or its absence from that frame (`FieldValue` `"end"`, the frame's range). So an
+   answer ending early cannot read as whole.
 
 ### 13.15 Reference (526)
 

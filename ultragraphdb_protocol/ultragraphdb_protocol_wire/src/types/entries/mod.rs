@@ -15,15 +15,22 @@ use crate::types::entries_end::EntriesEnd;
 /// | 0 | `entries` | u32: the batch's entry count |
 /// | 4 | `range` | u32: the range's index in its Scan |
 /// | 8 | `end` | u8, an [`EntriesEnd`] |
+/// | 9 | `continues` | u8: 1 the batch's last entry's value continues in the next frame, which needs a last entry; 0 otherwise, and whenever `end` is not 0 |
 /// | 16 | `epoch` | u64: the epoch of the version the range was read at |
 ///
 /// | Section | Contents |
 /// |---|---|
 /// | 0 | the entries, in the key-value layout of a write-set record, every value present |
+///
+/// A value is what the keyspace holds at the version: the stored bytes in the dictionary and the referrer sets, and in a
+/// keyspace of lists the list's objects as object records ([`crate::ObjectRecords`]). A list larger than a frame
+/// continues across frames: a frame with `continues` 1 ends between two records, and the next frame's first entry has
+/// the same key and the next records.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entries {
     range: u32,
     end: EntriesEnd,
+    continues: bool,
     epoch: u64,
     entries: Vec<(Vec<u8>, Vec<u8>)>,
 }
@@ -34,8 +41,19 @@ impl Entries {
         Self {
             range,
             end,
+            continues: false,
             epoch,
             entries: Vec::new(),
+        }
+    }
+
+    /// A batch of range `range` read at `epoch` whose last entry's value continues in the next frame, with no entries
+    /// yet, of which it needs one: as every builder, it writes what it is given, and the view refuses a frame holding
+    /// none. More of the range follows.
+    pub fn continuing(range: u32, epoch: u64) -> Self {
+        Self {
+            continues: true,
+            ..Self::new(range, EntriesEnd::More, epoch)
         }
     }
 
@@ -52,6 +70,11 @@ impl Entries {
     /// How the range ended.
     pub fn end(&self) -> EntriesEnd {
         self.end
+    }
+
+    /// Whether the batch's last entry's value continues in the next frame.
+    pub fn continues(&self) -> bool {
+        self.continues
     }
 
     /// The epoch of the version the range was read at.

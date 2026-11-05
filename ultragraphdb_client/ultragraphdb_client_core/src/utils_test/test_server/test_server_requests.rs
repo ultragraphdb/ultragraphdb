@@ -93,6 +93,8 @@ impl TestServer {
             Command::Hello
             | Command::Welcome
             | Command::Write
+            | Command::DirectWrite
+            | Command::ConditionalWrite
             | Command::Result
             | Command::Credit
             | Command::Cancel

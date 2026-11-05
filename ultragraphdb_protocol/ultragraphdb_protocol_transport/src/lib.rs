@@ -11,8 +11,8 @@
 //! cluster before its `size` is trusted, then the rest of the frame into the same buffer, so bytes land where the
 //! frame stays; the [`ReceivedFrame`] is viewed in place. [`ClientHandshake`] and [`ServerHandshake`] decide Hello
 //! and Welcome: the protocol chosen, the limits, the refusals. [`Outbound`] schedules a server's frames across a
-//! connection's streams and numbers each as it leaves: replies go out as they are pushed, Result frames only while
-//! their stream holds credit, and a cancelled stream sends nothing more. [`ServerConnection`] is a server's whole
+//! connection's streams and numbers each as it leaves: replies go out as they are pushed, Result and Entries frames
+//! only while their stream holds credit, and a cancelled stream sends nothing more. [`ServerConnection`] is a server's whole
 //! connection: the handshake, the Authenticate exchange through an [`Authenticator`], re-authentication, the
 //! deadlines, and the stream rules, handing requests to the server's session as [`Inbound`];
 //! [`ClientAuthentication`] is a client's side of the exchange through a [`ClientMechanism`], which a client's

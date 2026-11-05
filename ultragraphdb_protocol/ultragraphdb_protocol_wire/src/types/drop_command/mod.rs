@@ -18,7 +18,7 @@ use crate::types::drop_kind::DropKind;
 /// | 0 | `kind` | u8, a [`DropKind`] |
 /// | 8 | `namespace` | u64: the namespace of kinds 1 to 4; 0 for kind 5 |
 /// | 16 | `session` | 16 bytes; all zero for none |
-/// | 32 | `request` | u64 |
+/// | 32 | `request` | u64; at least 1 with a session, 0 with none |
 /// | 40 | `commit_version` | u64, 0 in a request |
 /// | 48 | `token` | session token, 24 bytes; zero in a request |
 ///
@@ -75,8 +75,8 @@ impl DropCommand {
         Self::new(DropKind::All, 0, None)
     }
 
-    /// The drop through `session` with the next `request` number of the session's counter; a session all zero
-    /// commits without exactly-once.
+    /// The drop through `session` with the next `request` number of the session's counter, from 1; a session all zero
+    /// commits without exactly-once, with `request` 0.
     pub fn with_session(mut self, session: [u8; 16], request: u64) -> Self {
         self.session = session;
         self.request = request;

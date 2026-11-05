@@ -6,6 +6,7 @@
 pub mod changes;
 pub mod checksum;
 pub mod command_header;
+pub mod commit_operation_layout;
 pub mod constants;
 pub mod fields;
 pub mod key_value_writer;
@@ -17,3 +18,4 @@ pub mod string_writer;
 pub mod term_kind;
 pub mod token;
 pub mod whole_records;
+pub mod write_frame;

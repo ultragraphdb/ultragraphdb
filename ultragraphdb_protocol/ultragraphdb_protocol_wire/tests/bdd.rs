@@ -241,7 +241,7 @@ fn cluster_named(w: &mut Steps) {
 #[when("a frame with a valid checksum names an unknown command")]
 fn unknown_command(w: &mut Steps) -> TestResult {
     let mut bytes = CREDIT.bytes()?;
-    put(&mut bytes, 54, 20, 2);
+    put(&mut bytes, 54, 22, 2);
     reseal(&mut bytes);
     assert_eq!(HeaderView::new(&bytes)?.checksum(), xxh3_64(&bytes[8..256]));
     w.refusals = FrameView::validate(&bytes, SERVER, MAX_FRAME_SIZE)
@@ -260,10 +260,10 @@ fn command_named(w: &mut Steps) -> TestResult {
     assert_eq!(
         w.refusals,
         vec![ProtocolError(ProtocolErrorEnum::UnknownCommand {
-            command: 20
+            command: 22
         })]
     );
-    assert_eq!(w.refusals[0].to_string(), "unknown command 20");
+    assert_eq!(w.refusals[0].to_string(), "unknown command 22");
     let other = FrameView::validate(&w.frames[0], SERVER, MAX_FRAME_SIZE)
         .context("another frame is served")?;
     assert_eq!(other.command(), Command::Read);
@@ -279,7 +279,7 @@ fn retired_number(w: &mut Steps) -> TestResult {
     let numbers: Vec<u16> = RETIRED_COMMANDS
         .iter()
         .copied()
-        .chain((0..=u16::MAX).filter(|n| !(1..=19).contains(n) && !(512..=530).contains(n)))
+        .chain((0..=u16::MAX).filter(|n| !(1..=21).contains(n) && !(512..=530).contains(n)))
         .collect();
     let golden = CREDIT.bytes()?;
     w.refusals = numbers
@@ -297,9 +297,37 @@ fn retired_number(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
+#[when("a frame carries command number 300")]
+fn replica_number(w: &mut Steps) -> TestResult {
+    let number: u16 = 300;
+    let mut bytes = CREDIT.bytes()?;
+    put(&mut bytes, 54, number.into(), 2);
+    reseal(&mut bytes);
+    w.refusals = vec![
+        FrameView::validate(&bytes, SERVER, MAX_FRAME_SIZE)
+            .err()
+            .context("a replica command's number is refused")?,
+    ];
+    w.checksums = vec![(number.into(), 0)];
+    Ok(())
+}
+
+#[then("that number is refused as an unknown command")]
+fn replica_refused(w: &mut Steps) -> TestResult {
+    let refusal = w.refusals.first().context("a refusal")?;
+    let (number, _) = w.checksums.first().context("the number")?;
+    assert_eq!(
+        refusal.0,
+        ProtocolErrorEnum::UnknownCommand {
+            command: *number as u16
+        }
+    );
+    Ok(())
+}
+
 #[then("it is refused as an unknown command")]
 fn refused_unknown(w: &mut Steps) {
-    assert_eq!(w.refusals.len(), 65_536 - 38);
+    assert_eq!(w.refusals.len(), 65_536 - Command::ALL.len());
     for (refusal, (number, _)) in w.refusals.iter().zip(&w.checksums) {
         assert_eq!(
             refusal.0,

@@ -52,10 +52,13 @@ pub const ROLES: &[GoldenBody] = &[
     GoldenBody { name: "recall", command: 522, stream: 29, flags: 0, sequence: 1, size: 256, checksum: 0xea53_0560_8cb4_ae1c, checksum_body: 0x2d06_8005_38d3_94c2 },
     GoldenBody { name: "compute_read", command: 523, stream: 31, flags: 0, sequence: 1, size: 411, checksum: 0x3c93_c9ec_a9a7_2a2b, checksum_body: 0x1bc2_c9b8_8c66_c5da },
     GoldenBody { name: "compute_read_rw", command: 523, stream: 33, flags: 0, sequence: 1, size: 448, checksum: 0x2f89_0a6a_c7ec_7e35, checksum_body: 0xdf8a_a61c_bc3e_bd74 },
-    GoldenBody { name: "scan", command: 524, stream: 35, flags: 0, sequence: 1, size: 330, checksum: 0x1bdf_d0c0_0d59_c820, checksum_body: 0x2373_563a_9429_7f17 },
-    GoldenBody { name: "scan_transaction", command: 524, stream: 37, flags: 0, sequence: 1, size: 305, checksum: 0x5adc_fb45_e12d_510c, checksum_body: 0x653e_e7fa_f4a5_7d86 },
+    GoldenBody { name: "scan", command: 524, stream: 35, flags: 0, sequence: 1, size: 352, checksum: 0xf7d3_6d2f_ce8a_1895, checksum_body: 0x1d13_9a1f_84ac_9299 },
+    GoldenBody { name: "scan_transaction", command: 524, stream: 37, flags: 0, sequence: 1, size: 328, checksum: 0xcd8b_0c82_459d_f67e, checksum_body: 0x3298_b6ed_95c9_3831 },
+    GoldenBody { name: "scan_transaction_terms", command: 524, stream: 39, flags: 0, sequence: 1, size: 662, checksum: 0x41bb_b61e_d237_e5f1, checksum_body: 0xdb72_d7b0_ae0a_32fd },
     // 525–530
     GoldenBody { name: "entries", command: 525, stream: 23, flags: 1, sequence: 1, size: 320, checksum: 0xf14d_18ee_c2d2_25b7, checksum_body: 0x4a84_7334_1c38_740e },
+    GoldenBody { name: "entries_continues", command: 525, stream: 41, flags: 0, sequence: 1, size: 376, checksum: 0x6a08_87d8_45c5_8e79, checksum_body: 0xbd5f_35bf_4f61_a812 },
+    GoldenBody { name: "entries_continued", command: 525, stream: 41, flags: 1, sequence: 2, size: 336, checksum: 0xbd08_1347_0b4f_6e21, checksum_body: 0x7b22_e7ca_14b9_76ee },
     GoldenBody { name: "reference", command: 526, stream: 25, flags: 0, sequence: 1, size: 583, checksum: 0xbc03_5dbb_9e5d_174d, checksum_body: 0x408e_102e_872f_b824 },
     GoldenBody { name: "reference_reply", command: 526, stream: 25, flags: 0, sequence: 1, size: 583, checksum: 0xa963_6282_5603_b62c, checksum_body: 0xd4b8_121b_8373_3d21 },
     GoldenBody { name: "close_request", command: 527, stream: 27, flags: 1, sequence: 1, size: 256, checksum: 0x997f_7e12_6cbb_af4d, checksum_body: 0x2d06_8005_38d3_94c2 },
@@ -140,6 +143,8 @@ pub fn rebuild_role(frame: &FrameView<'_>) -> Result<Vec<u8>, ProtocolError> {
         | Command::Error
         | Command::Round
         | Command::Authenticate
-        | Command::Drop => Err(ProtocolError::wrong_command(512, command.number())),
+        | Command::Drop
+        | Command::DirectWrite
+        | Command::ConditionalWrite => Err(ProtocolError::wrong_command(512, command.number())),
     }
 }

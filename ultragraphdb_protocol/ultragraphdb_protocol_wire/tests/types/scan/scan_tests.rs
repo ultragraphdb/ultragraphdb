@@ -3,7 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_protocol_wire::{BodyBuilder, Scan, ScanAt, ScanRange};
+use ultragraphdb_core_terms::Hash128;
+use ultragraphdb_protocol_wire::{BodyBuilder, Scan, ScanAt, ScanRange, TermTable};
 use ultragraphdb_tool_bdd::TestResult;
 
 use crate::types::bind::bind_tests::{TRANSACTION, WATERMARK};
@@ -30,6 +31,77 @@ pub fn golden_scan_transaction() -> Scan {
     let mut scan = Scan::new(ScanAt::ReadVersion, WATERMARK, 0, 9, TRANSACTION, 0);
     scan.push_range(ScanRange::new(3, b"\x30key", b"\x30key\x00"));
     scan
+}
+
+/// The IRIs the golden transaction's Scan names, in its term table's order.
+pub const IRIS: [&str; 2] = ["http://ex.org/a", "http://ex.org/b"];
+
+/// The store's dictionary key of `iri` in namespace 5, the golden Bind's: keyspace byte 0x1B, the namespace big-endian,
+/// kind 1, the IRI's 128-bit hash.
+pub fn dictionary_key(iri: &str) -> Vec<u8> {
+    let mut key = vec![0x1B];
+    key.extend_from_slice(&5u64.to_be_bytes());
+    key.push(1);
+    key.extend_from_slice(Hash128::of(iri.as_bytes()).as_bytes());
+    key
+}
+
+/// `key` and the key past it, the range holding it alone.
+fn holding(key: &[u8]) -> (Vec<u8>, Vec<u8>) {
+    let past = [key, &[0]].concat();
+    (key.to_vec(), past)
+}
+
+/// The golden transaction's Scan naming [`IRIS`]: partition 3, a range holding each IRI's dictionary key alone, in the
+/// table's order, then one holding a forward list's key.
+pub fn golden_scan_terms() -> Scan {
+    let mut terms = TermTable::new();
+    let mut scan = Scan::new(ScanAt::ReadVersion, WATERMARK, 0, 9, TRANSACTION, 0);
+    for iri in IRIS {
+        let _index: u32 = terms.iri(iri);
+        let (first, past) = holding(&dictionary_key(iri));
+        scan.push_range(ScanRange::new(3, &first, &past));
+    }
+    let id = |sequence: u64, bucket: u32| {
+        [
+            &1u16.to_be_bytes()[..],
+            &sequence.to_be_bytes()[..],
+            &bucket.to_be_bytes()[1..],
+            &[0; 3][..],
+        ]
+        .concat()
+    };
+    let forward = [
+        &[0x10][..],
+        &5u64.to_be_bytes()[..],
+        &[0; 16][..],
+        &id(7, 0x2A_0001)[..],
+        &id(8, 0x2A_0002)[..],
+    ]
+    .concat();
+    let (first, past) = holding(&forward);
+    scan.push_range(ScanRange::new(3, &first, &past));
+    scan.with_terms(terms)
+}
+
+#[test]
+fn test_a_scan_names_no_term_until_given_a_table() -> TestResult {
+    let mut terms = TermTable::new();
+    let _index: u32 = terms.iri(IRIS[0]);
+    let scan = Scan::new(ScanAt::ReadVersion, WATERMARK, 0, 9, TRANSACTION, 0);
+    assert!(scan.terms().is_empty());
+    assert_eq!(scan.with_terms(terms.clone()).terms(), &terms);
+    Ok(())
+}
+
+#[test]
+fn test_a_scan_naming_iris_builds_the_golden_frame() -> TestResult {
+    let golden = golden_role("scan_transaction_terms")?;
+    assert_eq!(
+        golden_scan_terms().frame(golden.header())?,
+        role_bytes(&golden)?
+    );
+    Ok(())
 }
 
 #[test]

@@ -36,6 +36,8 @@ fn sections_of(command: u16) -> usize {
         17 => 4,
         18 => 2,
         19 => 2,
+        20 => 6,
+        21 => 7,
         _ => unreachable!("no such command"),
     }
 }
@@ -60,6 +62,7 @@ fn used(command: u16) -> Vec<(usize, usize)> {
         17 => vec![(0, 40)],
         18 => vec![(0, 5), (8, 24)],
         19 => vec![(0, 1), (8, 72)],
+        20 | 21 => vec![(0, 56)],
         _ => unreachable!("no such command"),
     }
 }
@@ -411,7 +414,7 @@ fn test_a_frame_relabelled_as_every_other_command_never_panics() -> TestResult {
     // it or read it, never panic.
     for body in BODIES {
         let bytes = body.bytes()?;
-        for command in 1..=19u16 {
+        for command in 1..=21u16 {
             let _read_or_refused: Result<(), ProtocolError> =
                 view_any(&with_command(&bytes, command))?;
         }

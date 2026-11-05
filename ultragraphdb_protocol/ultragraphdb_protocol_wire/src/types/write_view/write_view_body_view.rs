@@ -12,7 +12,7 @@ use crate::types::string_list::StringList;
 use crate::types::term_table_view::TermTableView;
 use crate::types::write::Write;
 use crate::types::write_view::WriteView;
-use crate::utils::changes::check_records;
+use crate::utils::changes::{RecordKinds, check_records};
 use crate::utils::sections::Sections;
 use crate::utils::sections::expect_command;
 use crate::utils::sections::u32s;
@@ -43,7 +43,7 @@ impl<'a> BodyView<'a> for WriteView<'a> {
             &args,
             terms.len(),
             &names,
-            false,
+            RecordKinds::Every,
         )?;
         Ok(Self {
             records: sections.get(0),

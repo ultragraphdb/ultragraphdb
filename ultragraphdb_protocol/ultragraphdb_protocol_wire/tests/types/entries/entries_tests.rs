@@ -3,10 +3,106 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_protocol_wire::{BodyBuilder, Entries, EntriesEnd};
+use ultragraphdb_protocol_wire::{BodyBuilder, Entries, EntriesEnd, ObjectRecordsBuilder};
 use ultragraphdb_tool_bdd::TestResult;
 
 use crate::utils::golden_roles::{golden_role, role_bytes};
+
+/// An object of the golden lists: its encoding and the statement IDs it is held under.
+pub type Object = (Vec<u8>, Vec<[u8; 16]>);
+
+/// The key of the list the golden frames hold whole.
+pub const LIST_A: &[u8] = b"\x10list-a";
+/// The key of the list the golden frames hold across two frames.
+pub const LIST_B: &[u8] = b"\x10list-b";
+/// The epoch the golden lists were read at.
+pub const EPOCH: u64 = 0x1234;
+
+/// A system ID's 16 big-endian bytes.
+fn id(prefix: u16, sequence: u64, bucket: u32) -> [u8; 16] {
+    let mut out = [0; 16];
+    out[..2].copy_from_slice(&prefix.to_be_bytes());
+    out[2..10].copy_from_slice(&sequence.to_be_bytes());
+    out[10..13].copy_from_slice(&bucket.to_be_bytes()[1..]);
+    out
+}
+
+/// The objects of [`LIST_A`].
+pub fn list_a() -> Vec<Object> {
+    vec![(id(1, 21, 0x00_0A01).to_vec(), Vec::new())]
+}
+
+/// The objects of [`LIST_B`] in the first frame.
+pub fn list_b_first() -> Vec<Object> {
+    vec![(
+        id(1, 22, 0x00_0A02).to_vec(),
+        vec![id(2, 31, 0x00_0B01), id(2, 32, 0x00_0B02)],
+    )]
+}
+
+/// The objects of [`LIST_B`] in the second frame.
+pub fn list_b_rest() -> Vec<Object> {
+    vec![
+        (b"\x30abc".to_vec(), Vec::new()),
+        (id(1, 23, 0x00_0A03).to_vec(), vec![id(2, 33, 0x00_0B03)]),
+    ]
+}
+
+/// The value holding `objects`.
+pub fn value_of(objects: &[Object]) -> Vec<u8> {
+    let mut value = ObjectRecordsBuilder::new();
+    objects
+        .iter()
+        .for_each(|(encoding, statements)| value.push(encoding, statements));
+    value.value().to_vec()
+}
+
+/// The golden frame ending between two object records: range 0, [`LIST_A`] whole and [`LIST_B`]'s first object.
+pub fn golden_entries_continues() -> Entries {
+    let mut entries = Entries::continuing(0, EPOCH);
+    entries.push(LIST_A, &value_of(&list_a()));
+    entries.push(LIST_B, &value_of(&list_b_first()));
+    entries
+}
+
+/// The golden frame after it: [`LIST_B`] again with its next objects, ending the range.
+pub fn golden_entries_continued() -> Entries {
+    let mut entries = Entries::new(0, EntriesEnd::Ended, EPOCH);
+    entries.push(LIST_B, &value_of(&list_b_rest()));
+    entries
+}
+
+#[test]
+fn test_the_golden_frames_across_a_list_are_built_byte_for_byte() -> TestResult {
+    for (name, built) in [
+        ("entries_continues", golden_entries_continues()),
+        ("entries_continued", golden_entries_continued()),
+    ] {
+        let golden = golden_role(name)?;
+        assert_eq!(built.frame(golden.header())?, role_bytes(&golden)?);
+    }
+    Ok(())
+}
+
+#[test]
+fn test_a_continuing_batch_has_end_0_and_says_so_at_byte_9() {
+    let entries = Entries::continuing(7, EPOCH);
+    assert!(entries.continues());
+    assert_eq!(entries.end(), EntriesEnd::More);
+    assert_eq!((entries.range(), entries.epoch()), (7, EPOCH));
+    let header = entries.command_header();
+    assert_eq!(header[8], EntriesEnd::More.number());
+    assert_eq!(header[9], 1);
+}
+
+#[test]
+fn test_a_batch_continues_only_when_built_to() {
+    for end in [EntriesEnd::More, EntriesEnd::Ended, EntriesEnd::Limit] {
+        let entries = Entries::new(0, end, 0);
+        assert!(!entries.continues());
+        assert_eq!(entries.command_header()[9], 0);
+    }
+}
 
 #[test]
 fn test_the_golden_entries_are_built_byte_for_byte() -> TestResult {

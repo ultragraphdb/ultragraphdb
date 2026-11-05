@@ -12,9 +12,9 @@ use std::fs;
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_wire::{
     AbortView, AuthenticateView, BeginView, BodyBuilder, BodyView, CancelView, Command, CommitView,
-    CreditView, DescribeView, DropCommandView, ErrorReplyView, ExecuteView, FrameView, Header,
-    HelloView, MAX_FRAME_SIZE, OperationView, PrepareView, ReadView, RegisterView, ResultView,
-    RoundView, WelcomeView, WriteView,
+    ConditionalWriteView, CreditView, DescribeView, DirectWriteView, DropCommandView,
+    ErrorReplyView, ExecuteView, FrameView, Header, HelloView, MAX_FRAME_SIZE, OperationView,
+    PrepareView, ReadView, RegisterView, ResultView, RoundView, WelcomeView, WriteView,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -47,7 +47,7 @@ pub struct GoldenBody {
 /// The golden frames, one per row: the header fields `generate_bodies.py` built each with, and the size and
 /// checksums it printed.
 #[rustfmt::skip]
-pub const BODIES: [GoldenBody; 31] = [
+pub const BODIES: [GoldenBody; 34] = [
     GoldenBody { name: "hello", command: 1, stream: 0, flags: 0, sequence: 1, size: 279, checksum: 0x13cb_a202_760d_70b3, checksum_body: 0x3354_a6ce_4aa5_d7a6 },
     GoldenBody { name: "welcome", command: 2, stream: 0, flags: 0, sequence: 1, size: 317, checksum: 0x4561_84ae_8da6_048f, checksum_body: 0x7bc2_2fd5_5be2_26d0 },
     GoldenBody { name: "welcome_no_auth", command: 2, stream: 0, flags: 0, sequence: 1, size: 296, checksum: 0xb417_f160_aa24_f995, checksum_body: 0xf789_a351_5d20_daef },
@@ -78,6 +78,9 @@ pub const BODIES: [GoldenBody; 31] = [
     GoldenBody { name: "error_operation", command: 16, stream: 7, flags: 1, sequence: 1, size: 348, checksum: 0x2e88_d89f_9888_6cf3, checksum_body: 0x2897_5799_bf0a_e6df },
     GoldenBody { name: "drop", command: 19, stream: 19, flags: 0, sequence: 1, size: 311, checksum: 0x1639_a7c2_9032_656a, checksum_body: 0xabf6_85b8_5add_94f2 },
     GoldenBody { name: "drop_reply", command: 19, stream: 19, flags: 1, sequence: 1, size: 311, checksum: 0x5eca_8303_eb50_2956, checksum_body: 0xabf6_85b8_5add_94f2 },
+    GoldenBody { name: "direct_write", command: 20, stream: 21, flags: 0, sequence: 1, size: 816, checksum: 0x212c_ee57_ff2f_e1ea, checksum_body: 0xd477_9448_2f1f_a31d },
+    GoldenBody { name: "conditional_write", command: 21, stream: 23, flags: 0, sequence: 1, size: 1_160, checksum: 0xb280_d563_ea97_e8be, checksum_body: 0xb121_49ff_c0b7_9217 },
+    GoldenBody { name: "conditional_write_operation_only", command: 21, stream: 25, flags: 0, sequence: 1, size: 448, checksum: 0xeec2_d1a6_f624_39f6, checksum_body: 0x7699_41f1_2690_5a19 },
     GoldenBody { name: "round", command: 17, stream: 0, flags: 0, sequence: 3, size: 5_520, checksum: 0x9516_930d_4ee7_72f5, checksum_body: 0xf685_3c79_e1db_4579 },
 ];
 
@@ -283,6 +286,8 @@ fn rebuild(bytes: &[u8]) -> Result<(Command, Vec<u8>), ProtocolError> {
         Command::Round => through::<RoundView>(&frame),
         Command::Authenticate => through::<AuthenticateView>(&frame),
         Command::Drop => through::<DropCommandView>(&frame),
+        Command::DirectWrite => through::<DirectWriteView>(&frame),
+        Command::ConditionalWrite => through::<ConditionalWriteView>(&frame),
         Command::Join
         | Command::Members
         | Command::Subscribe

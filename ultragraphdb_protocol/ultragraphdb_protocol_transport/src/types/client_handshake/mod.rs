@@ -88,6 +88,8 @@ impl ClientHandshake {
             | Command::Round
             | Command::Authenticate
             | Command::Drop
+            | Command::DirectWrite
+            | Command::ConditionalWrite
             | Command::Join
             | Command::Members
             | Command::Subscribe

@@ -309,14 +309,35 @@ def scan_ranges(ranges):
     return [records, keys]
 
 
+# Sections 2 and 3, the term table, are empty with no transaction.
 golden("scan", 524, command_header([(0, bytes([1])), (8, le((30 << 22) | 0x3FFFFF, 8)), (16, le(30, 8)),
                                     (24, le(9, 8)), (48, le(1000, 4))]),
-       sections(scan_ranges([(3, b"\x10abc", b"\x10abd"), (4, b"\x20k", b"")])), stream=35)
+       sections(scan_ranges([(3, b"\x10abc", b"\x10abd"), (4, b"\x20k", b"")]) + [b"", b""]), stream=35)
 # A read-write transaction's Scan: at 1 at the Bind's version, epoch 0, the transaction's identity, no limit, one
-# range of partition 3 holding the one key 0x30 "key" (past key 0x30 "key" 0x00).
+# range of partition 3 holding the one key 0x30 "key" (past key 0x30 "key" 0x00), naming no IRI.
 golden("scan_transaction", 524, command_header([(0, bytes([1])), (8, le(WATERMARK, 8)), (24, le(9, 8)),
                                                 (32, TRANSACTION)]),
-       sections(scan_ranges([(3, b"\x30key", b"\x30key\x00")])), stream=37)
+       sections(scan_ranges([(3, b"\x30key", b"\x30key\x00")]) + [b"", b""]), stream=37)
+# The same transaction's Scan naming two IRIs: its first ranges hold each IRI's dictionary key alone, in the table's
+# order (keyspace byte 0x1B, the namespace big-endian, kind 1, SHA-256 of the IRI truncated to 16 bytes), and a third
+# holds the one forward list of a predicate and subject of the default graph (keyspace byte 0x10, the namespace, 16
+# zero bytes, the predicate's and subject's system IDs).
+def holding(key):
+    return (3, key, key + b"\0")
+
+
+def dictionary_key(text):
+    return b"\x1b" + (5).to_bytes(8, "big") + b"\x01" + sha16(text)
+
+
+terms = Terms()
+terms.add(iri(f"{EX}a"))
+terms.add(iri(f"{EX}b"))
+forward_key = b"\x10" + (5).to_bytes(8, "big") + bytes(16) + sid(1, 7, 0x2A0001) + sid(1, 8, 0x2A0002)
+golden("scan_transaction_terms", 524, command_header([(0, bytes([1])), (8, le(WATERMARK, 8)), (24, le(9, 8)),
+                                                      (32, TRANSACTION)]),
+       sections(scan_ranges([holding(dictionary_key(f"{EX}a")), holding(dictionary_key(f"{EX}b")),
+                             holding(forward_key)]) + terms.sections()), stream=39)
 
 # --- end 519 to 524 ---
 
@@ -326,6 +347,21 @@ golden("scan_transaction", 524, command_header([(0, bytes([1])), (8, le(WATERMAR
 golden("entries", 525, command_header([(0, le(3, 4)), (4, le(2, 4)), (8, bytes([1])), (16, le(0x1234, 8))]),
        sections([kv([(b"\x10key-a", b"value-a"), (b"\x10key-b", b""), (b"\x10key-b\x00", b"v")])]),
        stream=23, flags=1)
+# A list larger than a frame: range 0, read at epoch 0x1234, in two frames. Each value is object records back to back:
+# encoding_len u32, statements u32, the encoding, 16 bytes per statement ID. The first frame, end 0 and continues 1,
+# holds list-a whole and list-b's first object, under two statement IDs. The second, end 1 and LAST, opens with list-b
+# again, the key repeated: its next objects, an encoding of 4 bytes with no statement ID and an ID under one.
+def object_record(encoding, statements=()):
+    return le(len(encoding), 4) + le(len(statements), 4) + encoding + b"".join(statements)
+
+
+golden("entries_continues", 525, command_header([(0, le(2, 4)), (9, bytes([1])), (16, le(0x1234, 8))]),
+       sections([kv([(b"\x10list-a", object_record(sid(1, 21, 0x000A01))),
+                     (b"\x10list-b", object_record(sid(1, 22, 0x000A02), [sid(2, 31, 0x000B01), sid(2, 32, 0x000B02)]))])]),
+       stream=41)
+golden("entries_continued", 525, command_header([(0, le(1, 4)), (8, bytes([1])), (16, le(0x1234, 8))]),
+       sections([kv([(b"\x10list-b", object_record(b"\x30abc") + object_record(sid(1, 23, 0x000A03), [sid(2, 33, 0x000B03)]))])]),
+       stream=41, flags=1, sequence=2)
 
 # 526 Reference: registration records of 48 bytes (partition u32, group u32, iri u32, outcome u16, 2 zero bytes,
 # generation u64, close u64, entity 16 bytes), the term table of the IRIs named by text, kind 1 each. Registration 0

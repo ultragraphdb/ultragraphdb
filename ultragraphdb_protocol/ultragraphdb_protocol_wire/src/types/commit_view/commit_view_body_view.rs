@@ -12,7 +12,7 @@ use crate::types::commit_view::CommitView;
 use crate::types::frame_view::FrameView;
 use crate::types::term_table::kind;
 use crate::types::term_table_view::TermTableView;
-use crate::utils::fields::identity;
+use crate::utils::fields::{identity, session_request};
 use crate::utils::results::check_results;
 use crate::utils::sections::Sections;
 use crate::utils::sections::expect_command;
@@ -24,13 +24,15 @@ impl<'a> BodyView<'a> for CommitView<'a> {
 
     type Body = Commit;
 
-    /// Checks, in `PROTOCOL.md` §6.3's order: unused bytes 56–127 zero; the token, zero in a request (`commit_version`
-    /// 0) and in a reply a token of epoch `commit_version >> 22`; the sections; the term table, every entry an IRI; in
-    /// a request, every section empty; the results.
+    /// Checks, in `PROTOCOL.md` §6.3's order: unused bytes 56–127 zero; `request` at least 1 with a session, 0 with none;
+    /// the token, zero in a request (`commit_version` 0) and in a reply a token of epoch `commit_version >> 22`; the
+    /// sections; the term table, every entry an IRI; in a request, every section empty; the results.
     fn from_frame(frame: &FrameView<'a>) -> Result<Self, ProtocolError> {
         let command = Self::COMMAND.number();
         let header = expect_command(frame, Self::COMMAND)?;
         header.unused_zero(&[(0, 56)])?;
+        let session = identity(header.0, 0);
+        let request = session_request(command, session, header.u64_at(16))?;
         let commit_version = header.u64_at(24);
         let token = token::commit_token(command, header, 32, commit_version)?;
         let reply = commit_version != 0;
@@ -58,14 +60,14 @@ impl<'a> BodyView<'a> for CommitView<'a> {
             return Err(ProtocolError::count_mismatch(
                 command,
                 "results",
-                (results.len() / 16 + nodes.len()) as u64,
+                (results.len().div_ceil(16) + nodes.len()) as u64,
                 0,
             ));
         }
         check_results(command, 0, sections.offset(0), results, Some(nodes.len()))?;
         Ok(Self {
-            session: identity(header.0, 0),
-            request: header.u64_at(16),
+            session,
+            request,
             commit_version,
             token,
             results,

@@ -7,9 +7,9 @@ use ultragraphdb_error_protocol::{ProtocolError, ProtocolErrorEnum};
 use ultragraphdb_protocol_wire::{Command, REPLICA_COMMANDS, ROLE_COMMANDS};
 
 /// The registry as assigned on 2026-10-27, in the order of the design note's body table, with Authenticate and Drop
-/// added on 2026-10-30, and the role commands 512 to 530 of `PROTOCOL.md` §3 on 2026-11-03. These numbers are never
-/// reused; a change here is a protocol break.
-const REGISTRY: [(Command, u16); 38] = [
+/// added on 2026-10-30, the role commands 512 to 530 of `PROTOCOL.md` §3 on 2026-11-03, and DirectWrite and
+/// ConditionalWrite on 2026-11-05. These numbers are never reused; a change here is a protocol break.
+const REGISTRY: [(Command, u16); 40] = [
     (Command::Hello, 1),
     (Command::Welcome, 2),
     (Command::Register, 3),
@@ -29,6 +29,8 @@ const REGISTRY: [(Command, u16); 38] = [
     (Command::Round, 17),
     (Command::Authenticate, 18),
     (Command::Drop, 19),
+    (Command::DirectWrite, 20),
+    (Command::ConditionalWrite, 21),
     (Command::Join, 512),
     (Command::Members, 513),
     (Command::Subscribe, 514),
@@ -71,7 +73,7 @@ fn test_exactly_the_registry_is_known() {
     let known: Vec<u16> = (0..=u16::MAX)
         .filter(|n| Command::from_number(*n).is_ok())
         .collect();
-    let assigned: Vec<u16> = (1..=19).chain(512..=530).collect();
+    let assigned: Vec<u16> = (1..=21).chain(512..=530).collect();
     assert_eq!(known, assigned);
     for number in (0..=u16::MAX).filter(|n| !assigned.contains(n)) {
         assert_eq!(
@@ -83,7 +85,7 @@ fn test_exactly_the_registry_is_known() {
 
 #[test]
 fn test_unassigned_numbers_are_unknown_commands() {
-    for number in [0, 20, 255, 531, 767, 1_000, u16::MAX] {
+    for number in [0, 22, 255, 531, 767, 1_000, u16::MAX] {
         assert_eq!(
             Command::from_number(number),
             Err(ProtocolError(ProtocolErrorEnum::UnknownCommand {

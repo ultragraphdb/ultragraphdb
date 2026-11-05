@@ -1,0 +1,105 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+ */
+
+mod direct_write_body_builder;
+
+use ultragraphdb_core_ids::SessionToken;
+
+use crate::types::term_table::TermTable;
+use crate::types::write_change::WriteChange;
+use crate::utils::write_frame::WriteHeader;
+
+/// A changeset committed as one transaction in one frame, on a stream of its own (`PROTOCOL.md` §6.6): unconditional
+/// writes, answered by a Commit or an Error, which ends the stream. Its changes take the layout of a Write's, and a
+/// receiver refuses a declaration among them. Each frame has one encoding, which a receiver rebuilds byte for byte.
+///
+/// | Command header | Field | Type |
+/// |---|---|---|
+/// | 0 | `session` | 16 bytes; all zero for none |
+/// | 16 | `request` | u64; at least 1 with a session, 0 with none |
+/// | 24 | `namespace` | u64 |
+/// | 32 | `token` | session token, 24 bytes; zero for none |
+///
+/// | Section | Contents |
+/// |---|---|
+/// | 0 | the change records, 16 bytes each, in order, at least one |
+/// | 1 | the args, u32s |
+/// | 2 | the term table's records |
+/// | 3 | the term table's text |
+/// | 4 | the names: ends, empty |
+/// | 5 | the names: text, empty |
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DirectWrite {
+    header: WriteHeader,
+    terms: TermTable,
+    changes: Vec<WriteChange>,
+}
+
+impl DirectWrite {
+    /// A DirectWrite of `changes` naming `terms` in `namespace`, through no session, holding no token.
+    pub fn new(namespace: u64, terms: TermTable, changes: Vec<WriteChange>) -> Self {
+        Self::from_parts(WriteHeader::new(namespace), terms, changes)
+    }
+
+    /// The write through `session` with the next `request` number of the session's counter, from 1; a session all zero
+    /// commits without exactly-once, with `request` 0.
+    pub fn with_session(mut self, session: [u8; 16], request: u64) -> Self {
+        self.header.session = session;
+        self.header.request = request;
+        self
+    }
+
+    /// The write carrying the session token the client holds, which raises the commit's epoch as a Begin's does.
+    pub fn with_token(mut self, token: SessionToken) -> Self {
+        self.header.token = Some(token);
+        self
+    }
+
+    /// The client's session; all zero for none.
+    pub fn session(&self) -> [u8; 16] {
+        self.header.session
+    }
+
+    /// The request's number within its session.
+    pub fn request(&self) -> u64 {
+        self.header.request
+    }
+
+    /// The namespace it acts in.
+    pub fn namespace(&self) -> u64 {
+        self.header.namespace
+    }
+
+    /// The session token the client holds; `None` for none.
+    pub fn token(&self) -> Option<&SessionToken> {
+        self.header.token.as_ref()
+    }
+
+    /// The term table.
+    pub fn terms(&self) -> &TermTable {
+        &self.terms
+    }
+
+    /// The changes, in order.
+    pub fn changes(&self) -> &[WriteChange] {
+        &self.changes
+    }
+
+    pub(crate) fn header(&self) -> &WriteHeader {
+        &self.header
+    }
+
+    pub(crate) fn from_parts(
+        header: WriteHeader,
+        terms: TermTable,
+        changes: Vec<WriteChange>,
+    ) -> Self {
+        Self {
+            header,
+            terms,
+            changes,
+        }
+    }
+}

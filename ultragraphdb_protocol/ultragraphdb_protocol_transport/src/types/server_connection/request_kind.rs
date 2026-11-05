@@ -14,7 +14,8 @@ pub(crate) enum RequestKind {
     Cancel,
     /// Begin or Bind, which opens a transaction's stream.
     Begin,
-    /// Register, Prepare, Describe, Drop or a role command, each opening a stream of its own.
+    /// Register, Prepare, Describe, Drop, DirectWrite, ConditionalWrite or a role command, each opening a stream of its
+    /// own.
     Open,
     /// Read or Execute, opening a stream for the transaction it names.
     Read,
@@ -40,6 +41,8 @@ impl RequestKind {
             | Command::Prepare
             | Command::Describe
             | Command::Drop
+            | Command::DirectWrite
+            | Command::ConditionalWrite
             | Command::Join
             | Command::Members
             | Command::Subscribe

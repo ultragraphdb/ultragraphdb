@@ -12,9 +12,11 @@ use ultragraphdb_protocol_transport::{
 };
 use ultragraphdb_protocol_wire::{
     Abort, Authenticate, AuthenticateView, Begin, BodyBuilder, BodyView, Cancel, Command, Commit,
-    CommitOperation, Credit, Describe, DropCommand, ErrorCode, ErrorReply, ErrorReplyView, Execute,
-    FLAG_LAST, FrameView, Header, HeaderView, Hello, MAX_FRAME_SIZE, Operation, PatternSlot,
-    Prepare, QuadPattern, Read, Register, ResultBatch, TermTable, Welcome, WelcomeView, Write,
+    CommitOperation, ConditionalWrite, Credit, Describe, DirectWrite, DropCommand, Entries,
+    EntriesEnd, ErrorCode, ErrorReply, ErrorReplyView, Execute, FLAG_LAST, FrameView, Header,
+    HeaderView, Hello, MAX_FRAME_SIZE, Operation, PatternSlot, Prepare, QuadPattern, Read,
+    Register, ResultBatch, Scan, ScanAt, ScanRange, TermTable, Welcome, WelcomeView, Write,
+    WriteChange,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -1674,6 +1676,149 @@ fn test_a_role_command_opens_a_stream_of_its_own() -> TestResult {
             code: Some(ErrorCode::Protocol)
         }
     );
+    Ok(())
+}
+
+/// `body`, a write in one frame, on stream 1 of a new connection at `endpoint`: it opens a stream of its own, needing no
+/// Begin or Bind and holding no transaction; a second request on that stream closes the connection; its reply ends the
+/// stream; and its retry goes on a new stream, a request of its own.
+fn a_write_in_one_frame_opens_a_stream_of_its_own<B: BodyBuilder>(
+    endpoint: Endpoint,
+    body: &B,
+) -> TestResult {
+    let now = start();
+    let mut peer = Peer::default();
+    let mut connection = serving(&mut peer, now)?.with_endpoint(endpoint);
+    request(&mut connection, &mut peer, 1, body, now)?;
+    assert!(!connection.outbound().is_transaction(1));
+    let reply = Commit::new([0; 16], 0, 0).frame(
+        Header::new(CLUSTER, Command::Commit)
+            .with_stream(1)
+            .with_flags(FLAG_LAST),
+    )?;
+    connection.outbound().push(1, reply)?;
+    drain(&mut connection)?;
+    assert_eq!(connection.outbound().open_streams(), 0);
+    request(&mut connection, &mut peer, 3, body, now)?;
+    assert_eq!(
+        connection.receive(&peer.send(3, body)?, now)?,
+        Inbound::Closing {
+            code: Some(ErrorCode::Protocol)
+        }
+    );
+    Ok(())
+}
+
+/// One DirectWrite inserting a statement.
+fn direct_write() -> DirectWrite {
+    let mut terms = TermTable::new();
+    let (subject, predicate) = (terms.iri("http://ex.org/a"), terms.iri("http://ex.org/n"));
+    DirectWrite::new(
+        0,
+        terms,
+        vec![WriteChange::Insert {
+            graph: None,
+            subject,
+            predicate,
+            object: subject,
+        }],
+    )
+}
+
+/// One ConditionalWrite adding to a counter.
+fn conditional_write() -> ConditionalWrite {
+    let mut terms = TermTable::new();
+    let (subject, predicate) = (terms.iri("http://ex.org/c"), terms.iri("http://ex.org/n"));
+    ConditionalWrite::new(
+        0,
+        terms,
+        Vec::new(),
+        vec![CommitOperation::CounterAdd {
+            graph: None,
+            subject,
+            predicate,
+            delta: 1,
+        }],
+    )
+}
+
+#[test]
+fn test_a_direct_write_opens_a_stream_of_its_own_at_either_endpoint() -> TestResult {
+    a_write_in_one_frame_opens_a_stream_of_its_own(Endpoint::Client, &direct_write())?;
+    a_write_in_one_frame_opens_a_stream_of_its_own(Endpoint::Partition, &direct_write())
+}
+
+#[test]
+fn test_a_conditional_write_opens_a_stream_of_its_own_at_either_endpoint() -> TestResult {
+    a_write_in_one_frame_opens_a_stream_of_its_own(Endpoint::Client, &conditional_write())?;
+    a_write_in_one_frame_opens_a_stream_of_its_own(Endpoint::Partition, &conditional_write())
+}
+
+/// A write in one frame is a new request: on a transaction's open stream it closes the connection, as on any open stream.
+#[test]
+fn test_a_write_in_one_frame_on_a_transactions_stream_closes_the_connection() -> TestResult {
+    for command in [Command::DirectWrite, Command::ConditionalWrite] {
+        let now = start();
+        let mut peer = Peer::default();
+        let mut connection = serving(&mut peer, now)?;
+        request(&mut connection, &mut peer, 1, &Begin::new(0, 0, false), now)?;
+        assert_eq!(
+            connection.receive(&peer.command(1, command)?, now)?,
+            Inbound::Closing {
+                code: Some(ErrorCode::Protocol)
+            },
+            "{command:?}"
+        );
+    }
+    Ok(())
+}
+
+/// A partition answers a Scan with no more Entries frames than compute's credit allows; a Credit on the stream lets the
+/// next ones leave (`PROTOCOL.md` §11.3, §13.14).
+#[test]
+fn test_a_partitions_entries_frames_wait_for_computes_credit() -> TestResult {
+    let now = start();
+    let mut peer = Peer::default();
+    let mut connection = serving(&mut peer, now)?.with_endpoint(Endpoint::Partition);
+    let mut scan = Scan::new(ScanAt::Latest, 0, 0, 1, [0; 16], 0);
+    scan.push_range(ScanRange::new(1, b"a", b""));
+    request(&mut connection, &mut peer, 1, &scan, now)?;
+    let credit = connection.outbound().credit(1).context("an open stream")?;
+    let batches = credit + 1;
+    for range in 0..batches {
+        let frame = Entries::new(range, EntriesEnd::Ended, 0).frame(
+            Header::new(CLUSTER, Command::Entries)
+                .with_stream(1)
+                .with_flags(if range + 1 == batches { FLAG_LAST } else { 0 }),
+        )?;
+        connection.outbound().push(1, frame)?;
+    }
+    let frames = |sent: Frames| sent.iter().filter(|frame| frame.0 == 1).count();
+    assert_eq!(frames(sent(&mut connection)?), credit as usize);
+    assert_eq!(connection.outbound().credit(1), Some(0));
+    assert_eq!(
+        connection.receive(&peer.send(1, &Credit::new(1))?, now)?,
+        Inbound::Handled
+    );
+    assert_eq!(frames(sent(&mut connection)?), 1);
+    assert!(!connection.outbound().is_open(1));
+    Ok(())
+}
+
+/// The frontend's role address and a compute process's serve neither write: each closes the connection.
+#[test]
+fn test_no_other_role_endpoint_takes_a_write_in_one_frame() -> TestResult {
+    for endpoint in [Endpoint::Frontend, Endpoint::Compute] {
+        for command in [Command::DirectWrite, Command::ConditionalWrite] {
+            assert_eq!(
+                taken_at(endpoint, command)?,
+                Inbound::Closing {
+                    code: Some(ErrorCode::Protocol)
+                },
+                "{endpoint:?} refuses {command:?}"
+            );
+        }
+    }
     Ok(())
 }
 

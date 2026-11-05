@@ -11,10 +11,13 @@ use crate::types::frame_view::FrameView;
 use crate::types::scan::Scan;
 use crate::types::scan_at::ScanAt;
 use crate::types::scan_view::ScanView;
+use crate::types::term_table::kind;
+use crate::types::term_table_view::TermTableView;
 use crate::utils::constants::SCAN_RANGE_SIZE;
 use crate::utils::fields::{epoch, identity};
 use crate::utils::le::bytes_at;
 use crate::utils::sections::{Sections, as_u32, expect_command, records};
+use crate::utils::term_kind::term_kind;
 
 /// The u32 at `at` of a range's record.
 fn field(record: &[u8], at: usize) -> usize {
@@ -75,11 +78,56 @@ fn check_range(
     Ok(())
 }
 
+/// Sections 2 and 3 of `sections`, in `PROTOCOL.md` §13.13's order: empty with no `transaction`, otherwise a term table
+/// of at most `ranges` terms ([`ProtocolError::count_mismatch`] `"terms"`, the sections' bytes against 0 or the terms
+/// against the ranges), every entry of kind 1 ([`ProtocolError::field_value`] `"scan term"`, the entry's index).
+fn term_table<'a>(
+    command: u16,
+    transaction: [u8; 16],
+    sections: &Sections<'a, 4>,
+    ranges: usize,
+) -> Result<TermTableView<'a>, ProtocolError> {
+    let (records, text) = (sections.get(2), sections.get(3));
+    if transaction == [0; 16] && !(records.is_empty() && text.is_empty()) {
+        let bytes = records.len().saturating_add(text.len());
+        return Err(ProtocolError::count_mismatch(
+            command,
+            "terms",
+            bytes as u64,
+            0,
+        ));
+    }
+    let terms = TermTableView::read(command, (2, 3), sections.offset(2), records, text)?;
+    if terms.len() > ranges {
+        return Err(ProtocolError::count_mismatch(
+            command,
+            "terms",
+            terms.len() as u64,
+            ranges as u64,
+        ));
+    }
+    let kinds = (0..terms.len()).filter_map(|i| terms.get(as_u32(i)));
+    if let Some(index) = kinds
+        .map(|term| term_kind(&term))
+        .position(|k| k != kind::IRI)
+    {
+        return Err(ProtocolError::field_value(
+            command,
+            "scan term",
+            index as u64,
+        ));
+    }
+    Ok(terms)
+}
+
 impl<'a> BodyView<'a> for ScanView<'a> {
     const COMMAND: Command = Command::Scan;
 
     type Body = Scan;
 
+    /// Checks, in `PROTOCOL.md` §13.13's order: unused bytes 1–7 and 52–127 zero; `at`, and 1 when `transaction` is not
+    /// zero; `read_version` 0 for `at` 2 and 3; `epoch` an epoch, and 0 for `at` 4 and when `transaction` is not zero; the
+    /// sections; the ranges whole and not empty; the term table; each range; section 1 ending with the last key.
     fn from_frame(frame: &FrameView<'a>) -> Result<Self, ProtocolError> {
         let command = Self::COMMAND.number();
         let header = expect_command(frame, Self::COMMAND)?;
@@ -90,6 +138,11 @@ impl<'a> BodyView<'a> for ScanView<'a> {
             "at",
             number.into(),
         ))?;
+        let transaction = identity(header.0, 32);
+        let named = transaction != [0; 16];
+        if named && at != ScanAt::ReadVersion {
+            return Err(ProtocolError::field_value(command, "at", number.into()));
+        }
         let read_version = header.u64_at(8);
         if !at.names_version() && read_version != 0 {
             return Err(ProtocolError::field_value(
@@ -99,16 +152,21 @@ impl<'a> BodyView<'a> for ScanView<'a> {
             ));
         }
         let wait = epoch(command, "epoch", header.u64_at(16), true)?;
-        if at == ScanAt::Named && wait != 0 {
+        if (at == ScanAt::Named || named) && wait != 0 {
             return Err(ProtocolError::field_value(command, "epoch", wait));
         }
-        let transaction = identity(header.0, 32);
-        let sections = Sections::<2>::read(command, frame.body(), 0)?;
+        let sections = Sections::<4>::read(command, frame.body(), 0)?;
         let (ranges, keys) = (sections.get(0), sections.get(1));
         let chunks = records(command, 0, ranges, SCAN_RANGE_SIZE)?;
         if ranges.is_empty() {
             return Err(ProtocolError::count_mismatch(command, "ranges", 0, 1));
         }
+        let terms = term_table(
+            command,
+            transaction,
+            &sections,
+            ranges.len() / SCAN_RANGE_SIZE,
+        )?;
         let mut cursor = Cursor {
             end: 0,
             partition: None,
@@ -116,7 +174,7 @@ impl<'a> BodyView<'a> for ScanView<'a> {
         for (index, record) in chunks.enumerate() {
             let at_offset = sections.offset(0) + index * SCAN_RANGE_SIZE;
             check_range(command, index, (record, at_offset), keys, &mut cursor)?;
-            if transaction != [0; 16] && cursor.partition.is_none() {
+            if named && cursor.partition.is_none() {
                 cursor.partition = Some(bytes_at(record, 0).map_or(0, u32::from_le_bytes));
             }
         }
@@ -137,6 +195,7 @@ impl<'a> BodyView<'a> for ScanView<'a> {
             limit: header.u32_at(48),
             ranges,
             keys,
+            terms,
         })
     }
 
@@ -148,7 +207,8 @@ impl<'a> BodyView<'a> for ScanView<'a> {
             self.principal,
             self.transaction,
             self.limit,
-        );
+        )
+        .with_terms(self.terms.to_table());
         self.ranges().for_each(|range| scan.push_range(range));
         Ok(scan)
     }

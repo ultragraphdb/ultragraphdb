@@ -19,7 +19,7 @@ use crate::types::term_table::TermTable;
 /// | Command header | Field | Type |
 /// |---|---|---|
 /// | 0 | `session` | 16 bytes; all zero for none |
-/// | 16 | `request` | u64 |
+/// | 16 | `request` | u64; at least 1 with a session, 0 with none |
 /// | 24 | `commit_version` | u64 |
 /// | 32 | `token` | session token, 24 bytes; zero in a request |
 ///

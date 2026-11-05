@@ -178,6 +178,8 @@ fn run<A: Authenticator>(
                     | Command::Prepare
                     | Command::Describe
                     | Command::Drop
+                    | Command::DirectWrite
+                    | Command::ConditionalWrite
                     | Command::Commit => {
                         connection
                             .refuse(stream, &ErrorReply::new(ErrorCode::Refused, "fuzz"))

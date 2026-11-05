@@ -67,3 +67,51 @@ Feature: Wire protocol: bodies, statements, describe, result batches and the con
   Scenario: A triple term nested deeper than the maximum is refused
     When a request's term table holds a triple term nested 33 deep
     Then the frame is refused with an error naming the entry and its depth
+
+  Scenario: A malformed write is refused
+    When a DirectWrite holds no change, or a ConditionalWrite no operation
+    Then it is refused with `CountMismatch`, naming `changes` or `operations`
+
+  Scenario: A write in one frame holds what it uses
+    When a DirectWrite or ConditionalWrite holds a name, or names a request number that does not fit its session
+    Then it is refused with `CountMismatch` naming `names`, or `FieldValue` naming `request`
+
+  Scenario: A client may not send a role command
+    When a client connection sends a block-lease command
+    Then the frame is refused with a protocol error naming the command, and nothing is leased
+
+  Scenario: A Scan naming a transaction names its IRIs by their text
+    When a Scan names a transaction and the IRIs its first ranges look up
+    Then the view reads each IRI's text from the Scan's term table, borrowed from the frame
+
+  Scenario: A Scan naming no transaction holds no term table
+    When a Scan with `transaction` zero holds a term
+    Then it is refused with `CountMismatch` naming `terms`
+
+  Scenario: A Scan's term table holds at most as many terms as ranges
+    When a Scan's term table holds more terms than the Scan has ranges
+    Then it is refused with `CountMismatch` naming `terms`
+
+  Scenario: A Scan naming a transaction reads as the transaction does
+    When a Scan names a transaction with `at` not 1, a nonzero `epoch`, or a term that is not an IRI
+    Then it is refused with `FieldValue` naming `at`, `epoch` or `scan term`
+
+  Scenario: A list larger than a frame continues across frames
+    When a list's object records span two Entries frames, the first with `continues` 1
+    Then the second's first entry holds the same key, and the records of both are the list's, in order
+
+  Scenario: A frame whose value continues has end 0 and an entry
+    When a frame holds `continues` 1 with `end` not 0, or with no entry
+    Then it is refused with `FieldValue` naming `continues`
+
+  Scenario: A continued value cannot stop
+    When the frame after one with `continues` 1 holds no entry, or a first key that is not the same
+    Then the receiver refuses it with `FieldValue` naming `entry order`
+
+  Scenario: An answer ending early cannot read as whole
+    When a frame carries `LAST` before the last range has ended, or the last range ends with no `LAST`
+    Then the receiver refuses it with `FieldValue` naming `end`
+
+  Scenario: An object record past its value is refused
+    When an object record's encoding or statement IDs run past the value
+    Then the reader refuses it with `EntryOutOfBounds`

@@ -8,7 +8,7 @@ use ultragraphdb_protocol_wire::{BodyView, CommitView, OperationResult};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::types::commit::commit_tests::{golden_commit, session};
-use crate::utils::golden_bodies::{frame_of, golden, put, reframe, with_command_header};
+use crate::utils::golden_bodies::{frame_of, golden, put, reframe, view_any, with_command_header};
 
 /// The golden reply's body: the table (24 bytes), the results at 24 (48 bytes), the term record at 72, the text at 96.
 const RESULTS: usize = 24;
@@ -51,6 +51,55 @@ fn test_the_golden_request_reads_empty() -> TestResult {
     let view = CommitView::from_frame(&frame_of(&bytes)?)?;
     assert_eq!((view.commit_version(), view.token()), (0, None));
     assert_eq!((view.result_count(), view.nodes().len()), (0, 0));
+    Ok(())
+}
+
+fn request_refused(value: u64) -> ProtocolErrorEnum {
+    ProtocolErrorEnum::FieldValue {
+        command: 5,
+        field: "request",
+        value,
+    }
+}
+
+#[test]
+fn test_a_session_with_request_0_is_refused() -> TestResult {
+    for name in ["commit", "commit_request"] {
+        let bytes = with_command_header(&golden(name)?.bytes()?, |h| h[16..24].fill(0));
+        assert_eq!(refusal(&bytes)?, request_refused(0), "{name}");
+    }
+    Ok(())
+}
+
+#[test]
+fn test_no_session_with_a_request_is_refused() -> TestResult {
+    let golden_request = golden("commit_request")?;
+    let bytes = with_command_header(&golden_request.bytes()?, |h| h[..16].fill(0));
+    let request = CommitView::from_frame(&frame_of(&golden_request.bytes()?)?)?.request();
+    assert_eq!(refusal(&bytes)?, request_refused(request));
+    Ok(())
+}
+
+#[test]
+fn test_no_session_with_request_0_is_read() -> TestResult {
+    let bytes = with_command_header(&golden("commit_request")?.bytes()?, |h| h[..24].fill(0));
+    let view = CommitView::from_frame(&frame_of(&bytes)?)?;
+    assert_eq!((view.session(), view.request()), ([0; 16], 0));
+    assert_eq!(view_any(&bytes)?, Ok(()));
+    Ok(())
+}
+
+/// `request` comes after the unused bytes and before the token.
+#[test]
+fn test_the_request_lies_between_the_unused_bytes_and_the_token() -> TestResult {
+    let no_request = with_command_header(&golden("commit")?.bytes()?, |h| h[16..24].fill(0));
+    let unused = with_command_header(&no_request, |h| h[56] = 1);
+    assert_eq!(
+        refusal(&unused)?,
+        ProtocolErrorEnum::ReservedNotZero { offset: 128 + 56 }
+    );
+    let token = with_command_header(&no_request, |h| h[32..36].fill(0));
+    assert_eq!(refusal(&token)?, request_refused(0));
     Ok(())
 }
 

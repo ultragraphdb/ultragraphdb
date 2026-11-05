@@ -58,6 +58,18 @@ const COUNT_INDEX: u8 = 1 << 4;
 const VECTOR_INDEX: u8 = 1 << 5;
 const ABSTRACT: u8 = 1;
 
+/// Which record kinds a body takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RecordKinds {
+    /// Kinds 1 to 10: a Write.
+    Every,
+    /// Kinds 8 to 10, in the order predicates, entity types, relations, `extra` a Describe's: a Describe.
+    Declarations,
+    /// Kinds 1 to 7; a declaration refused as [`ProtocolError::field_value`] `"record"`: a DirectWrite or a
+    /// ConditionalWrite.
+    Changes,
+}
+
 /// Records being written, with their args and names.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ChangeWriter {
@@ -409,14 +421,15 @@ impl Run<'_> {
 }
 
 impl Record {
-    /// Refused unless the kind is known (a declaration when `declarations_only`, none before `last_kind`), and the
-    /// flags, zero bytes and `extra` are as the kind defines.
+    /// Refused unless the kind is known and `kinds` takes it (a Describe's none before `last_kind`), and the flags,
+    /// zero bytes and `extra` are as the kind defines.
     fn check_fields(
         self,
         command: u16,
-        declarations_only: bool,
+        kinds: RecordKinds,
         last_kind: u8,
     ) -> Result<(), ProtocolError> {
+        let declarations_only = kinds == RecordKinds::Declarations;
         let known = if declarations_only {
             (PREDICATE..=RELATION).contains(&self.kind)
         } else {
@@ -426,6 +439,13 @@ impl Record {
             return Err(ProtocolError::field_value(
                 command,
                 "change kind",
+                self.kind.into(),
+            ));
+        }
+        if kinds == RecordKinds::Changes && self.kind >= PREDICATE {
+            return Err(ProtocolError::field_value(
+                command,
+                "record",
                 self.kind.into(),
             ));
         }
@@ -463,9 +483,9 @@ impl Record {
     }
 }
 
-/// The records of a body checked: whole records, kinds known (only declarations when `declarations_only`, in the
-/// order predicates, entity types, relations), flags and zero bytes as the kind defines, args contiguous and consumed
-/// exactly, each term index below `terms` and each name index in `names`. `sections` are the records' and the args'.
+/// The records of a body checked: whole records, each of the kinds `kinds` takes, flags and zero bytes as the kind
+/// defines, args contiguous and consumed exactly, each term index below `terms` and each name index in `names`.
+/// `sections` are the records' and the args'.
 pub(crate) fn check_records(
     command: u16,
     sections: (usize, usize),
@@ -473,8 +493,31 @@ pub(crate) fn check_records(
     args: &[u32],
     terms: usize,
     names: &StringList<'_>,
-    declarations_only: bool,
+    kinds: RecordKinds,
 ) -> Result<(), ProtocolError> {
+    let next = consume_records(command, sections, records, args, terms, names, kinds)?;
+    if next != args.len() {
+        return Err(ProtocolError::count_mismatch(
+            command,
+            "args",
+            args.len() as u64,
+            next as u64,
+        ));
+    }
+    Ok(())
+}
+
+/// The records of a body checked as [`check_records`] checks them, any args after theirs left to the caller; the number
+/// of args they consumed.
+pub(crate) fn consume_records(
+    command: u16,
+    sections: (usize, usize),
+    records: &[u8],
+    args: &[u32],
+    terms: usize,
+    names: &StringList<'_>,
+    kinds: RecordKinds,
+) -> Result<usize, ProtocolError> {
     let count = whole_records(command, sections.0, records, CHANGE_RECORD_SIZE)?.len();
     let mut next = 0usize;
     let mut last_kind = 0u8;
@@ -482,7 +525,7 @@ pub(crate) fn check_records(
         let Some(r) = record_at(records, index) else {
             break;
         };
-        r.check_fields(command, declarations_only, last_kind)?;
+        r.check_fields(command, kinds, last_kind)?;
         last_kind = r.kind;
         if r.start as usize != next {
             return Err(ProtocolError::field_value(
@@ -506,15 +549,7 @@ pub(crate) fn check_records(
         .check(r.kind, r.flags)?;
         next = end;
     }
-    if next != args.len() {
-        return Err(ProtocolError::count_mismatch(
-            command,
-            "args",
-            args.len() as u64,
-            next as u64,
-        ));
-    }
-    Ok(())
+    Ok(next)
 }
 
 /// The args of checked record `index`, and the record.

@@ -34,7 +34,7 @@ impl<C: Connect, L: Login> Client<C, L> {
         }
     }
 
-    /// A session kept from an earlier client, its next commit numbered `next_request`.
+    /// A session kept from an earlier client, its next commit numbered `next_request`, at least 1.
     pub fn resume_session(&mut self, number: u128, next_request: u64) -> Session {
         self.core.resume_session(number, next_request)
     }

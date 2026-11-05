@@ -17,11 +17,11 @@ use std::time::Duration;
 use ultragraphdb_cluster_placement::{NodeId, PlacementMap};
 use ultragraphdb_common_role::RoleClient;
 use ultragraphdb_common_service::{Bootstrap, RoleKind as ServiceKind, fetch_settings};
-use ultragraphdb_core_ids::Epoch;
+use ultragraphdb_core_ids::{BucketGroup, Epoch};
 use ultragraphdb_protocol_transport::Address;
 use ultragraphdb_protocol_wire::{
-    Bind, BindKind, BodyView, Command, Commit, CommitView, ErrorReplyView, RoleKind, TermTable,
-    Write, WriteChange,
+    Bind, BindKind, BodyView, Command, Commit, CommitView, ErrorReplyView, Reference,
+    ReferenceRegistration, ReferenceView, RoleKind, TermTable, Write, WriteChange,
 };
 use ultragraphdb_store_quads::iri_bucket;
 use ultragraphdb_tests::{
@@ -49,6 +49,7 @@ fn services() -> TestResult<ServiceUtil> {
 
 #[derive(Debug, Default, World)]
 struct Steps {
+    registered: Option<ReferenceRegistration>,
     code: Option<u8>,
     config_pid: u32,
     exited: Option<ExitStatus>,
@@ -199,15 +200,25 @@ fn edge_write(subject: &str, object: &str) -> Write {
     )
 }
 
-/// Commits `write` in a transaction bound to `partition` at `address`: its commit version.
+/// Commits `write` in a transaction bound to `partition` at `address`, through no session: its commit version.
 async fn commit_at(address: &str, partition: u32, write: &Write) -> TestResult<u64> {
+    commit_through(address, partition, write, Commit::new([0; 16], 0, 0)).await
+}
+
+/// Commits `write` in a transaction bound to `partition` at `address` by the Commit `commit`: its commit version.
+async fn commit_through(
+    address: &str,
+    partition: u32,
+    write: &Write,
+    commit: Commit,
+) -> TestResult<u64> {
     let target = Address::parse(address)?;
     let mut client = RoleClient::dial(&target, CLUSTER, "frontend", SECRET).await?;
     let bind = Bind::new(partition, BindKind::Transaction, NAMESPACE, 0, 1, [7; 16]);
     drop(client.request(&bind).await?);
     let stream = client.last_stream();
     client.send_on(stream, write).await?;
-    client.send_on(stream, &Commit::new([0; 16], 0, 0)).await?;
+    client.send_on(stream, &commit).await?;
     let answer = client.next_frame().await?;
     let view = answer.view()?;
     if view.command() == Command::Error {
@@ -298,9 +309,56 @@ fn on_either(w: &mut Steps) -> TestResult {
             let write = edge_write(&subject, &subject);
             let version = commit_at(address, partition, &write).await?;
             assert!(version > 0, "partition {partition}");
+            // A whole transaction through a session passes as one through none does.
+            let session = Commit::new(u128::from(partition).to_be_bytes(), 1, 0);
+            let through = commit_through(address, partition, &write, session).await?;
+            assert!(through > version, "partition {partition}");
         }
         Ok::<(), TestError>(())
     })?;
+    w.roles = None;
+    Ok(())
+}
+
+#[when(
+    "a partition of one storage process registers a reference to an entity homed in another storage process"
+)]
+fn registers(w: &mut Steps) -> TestResult {
+    two_processes(w)?;
+    let subject = subject_of(3, 4, NAMESPACE)?;
+    let group = BucketGroup::of(iri_bucket(NAMESPACE, &subject).context("a bucket")?);
+    let target = Address::parse("tcp://127.0.0.1:17300")?;
+    let mut reference = Reference::request().in_namespace(NAMESPACE);
+    let _index = reference.register_iri(3, Some(group), &subject, 0);
+    let registered = Runtime::new()?.block_on(async {
+        let mut client = RoleClient::dial(&target, CLUSTER, "storage", SECRET).await?;
+        // A repeat names the older generation, so it changes nothing: it only asks until a close has reached the home.
+        for _ in 0..START_SECONDS * 20 {
+            let reply = client.request(&reference).await?;
+            let view = reply.view()?;
+            let answer = ReferenceView::from_frame(&view)?;
+            assert!(answer.is_reply());
+            let registration = answer.registration(0).context("the registration's reply")?;
+            if registration.close() > 0 {
+                return Ok(registration);
+            }
+            compio::time::sleep(Duration::from_millis(50)).await;
+        }
+        Err(TestError::new("no close reached the home"))
+    })?;
+    w.registered = Some(registered);
+    Ok(())
+}
+
+#[then(
+    "it sends a registration role command to that process, and receives the entity's ID, the member's generation and the home's latest delivered close in the reply"
+)]
+fn registered_reply(w: &mut Steps) -> TestResult {
+    let registered = w.registered.context("a reply")?;
+    assert_eq!(registered.outcome(), 0);
+    assert!(registered.entity().is_some(), "the entity's ID");
+    assert_eq!(registered.generation(), 1, "a member's first generation");
+    assert!(registered.close() > 0, "the home's latest delivered close");
     w.roles = None;
     Ok(())
 }

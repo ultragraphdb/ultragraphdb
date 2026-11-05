@@ -18,23 +18,30 @@ use ultragraphdb_core_mapping::{
     RelationDeclaration, TypeDeclaration,
 };
 use ultragraphdb_core_terms::EncodedTerm;
-use ultragraphdb_error_protocol::ProtocolErrorEnum;
+use ultragraphdb_error_protocol::{ProtocolError, ProtocolErrorEnum};
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, BodyView, ColumnType, Command, CommitOperation, DeclaredEntityType, DeclaredKind,
-    DeclaredPredicate, DeclaredRelation, Describe, DescribeView, ErrorCode, Execute, ExecuteView,
-    FrameView, Header, MAX_FRAME_SIZE, Operation, OperationView, PatternSlot, Prepare, PrepareView,
-    QuadPattern, Read, ReadView, RequestTerm, RequestTermView, ResultBatch, ResultTerm, ResultView,
-    StatementCache, StatementError, TermTable, Write, WriteChange, WriteView,
+    BodyBuilder, BodyView, ColumnType, Command, CommitOperation, ConditionalWrite,
+    ConditionalWriteView, DeclaredEntityType, DeclaredKind, DeclaredPredicate, DeclaredRelation,
+    Describe, DescribeView, DirectWrite, DirectWriteView, Entries, EntriesEnd, EntriesSequence,
+    EntriesView, ErrorCode, Execute, ExecuteView, FLAG_LAST, FrameView, Header, MAX_FRAME_SIZE,
+    ObjectRecords, ObjectRecordsBuilder, Operation, OperationView, PatternSlot, Prepare,
+    PrepareView, QuadPattern, Read, ReadView, RequestTerm, RequestTermView, ResultBatch,
+    ResultTerm, ResultView, ScanView, StatementCache, StatementError, TermTable, Write,
+    WriteChange, WriteView,
 };
 use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig};
 use ultragraphdb_store_quads::{DataDictionary, QuadStore};
 use ultragraphdb_store_sim::{FaultConfig, Seed, SimClock, SimListCache, SimStore, Stream};
-use ultragraphdb_tool_bdd::{Context, TestResult};
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_traits_blocks::TestBlockSource;
 use ultragraphdb_traits_store::{PersistMode, Store, WriteBatch};
 
 use crate::Steps;
-use crate::utils::golden_bodies::{BODIES, CLUSTER, body_data, golden, reframe, view_any};
+use crate::utils::golden_bodies::{
+    BODIES, CLUSTER, body_data, golden, reframe, split_sections, view_any, with_command_header,
+    with_section,
+};
+use crate::utils::golden_roles::{golden_role, role_bytes};
 
 fn ex(name: &str) -> NamedNode {
     NamedNode::new_unchecked(format!("http://ex.org/{name}"))
@@ -762,4 +769,415 @@ fn kept_by_its_lexical_form(w: &mut Steps) {
         ultragraphdb_core_terms::Hash128::of(lexical.as_bytes()).as_bytes()
     );
     assert_eq!(text.as_deref(), Some(lexical));
+}
+
+// A write commits in one frame.
+
+/// The refusal of a frame through the view `V`; none when it reads.
+fn view_refusal<'a, V: BodyView<'a>>(
+    frame: &FrameView<'a>,
+) -> Option<ultragraphdb_error_protocol::ProtocolError> {
+    V::from_frame(frame).err()
+}
+
+#[when("a DirectWrite holds no change, or a ConditionalWrite no operation")]
+fn a_malformed_write(w: &mut Steps) -> TestResult {
+    let header = Header::new(CLUSTER, Command::Abort);
+    let direct = DirectWrite::new(0, TermTable::new(), Vec::new()).frame(header.clone())?;
+    let conditional =
+        ConditionalWrite::new(0, TermTable::new(), Vec::new(), Vec::new()).frame(header)?;
+    w.refusals = [
+        view_refusal::<DirectWriteView>(&FrameView::validate(&direct, CLUSTER, MAX_FRAME_SIZE)?),
+        view_refusal::<ConditionalWriteView>(&FrameView::validate(
+            &conditional,
+            CLUSTER,
+            MAX_FRAME_SIZE,
+        )?),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    Ok(())
+}
+
+#[then("it is refused with `CountMismatch`, naming `changes` or `operations`")]
+fn refused_naming_what_it_lacks(w: &mut Steps) {
+    let refusal = |command: Command, field: &'static str| ProtocolErrorEnum::CountMismatch {
+        command: command.number(),
+        field,
+        count: 0,
+        expected: 1,
+    };
+    assert_eq!(
+        w.refusals.iter().map(|e| e.0.clone()).collect::<Vec<_>>(),
+        vec![
+            refusal(Command::DirectWrite, "changes"),
+            refusal(Command::ConditionalWrite, "operations"),
+        ]
+    );
+}
+
+#[when(
+    "a DirectWrite or ConditionalWrite holds a name, or names a request number that does not fit its session"
+)]
+fn a_write_of_two_encodings(w: &mut Steps) -> TestResult {
+    let name = b"http://ex.org/name";
+    let frames = [
+        (golden("direct_write")?.bytes()?, 6),
+        (golden("conditional_write")?.bytes()?, 7),
+    ];
+    w.refusals = Vec::new();
+    for (bytes, sections) in &frames {
+        let named = with_section(bytes, *sections, 5, |text| text.extend_from_slice(name));
+        let named = with_section(&named, *sections, 4, |ends| {
+            ends.extend_from_slice(&u32::try_from(name.len()).unwrap_or(0).to_le_bytes());
+        });
+        let request_0 = with_command_header(bytes, |h| h[16..24].fill(0));
+        let no_session = with_command_header(bytes, |h| h[..16].fill(0));
+        for frame in [named, request_0, no_session] {
+            w.refusals.extend(view_any(&frame)?.err());
+        }
+    }
+    Ok(())
+}
+
+#[then("it is refused with `CountMismatch` naming `names`, or `FieldValue` naming `request`")]
+fn refused_naming_names_or_request(w: &mut Steps) -> TestResult {
+    let direct_bytes = golden("direct_write")?.bytes()?;
+    let conditional_bytes = golden("conditional_write")?.bytes()?;
+    let direct_request = DirectWriteView::from_frame(&FrameView::validate(
+        &direct_bytes,
+        CLUSTER,
+        MAX_FRAME_SIZE,
+    )?)?
+    .request();
+    let conditional_request = ConditionalWriteView::from_frame(&FrameView::validate(
+        &conditional_bytes,
+        CLUSTER,
+        MAX_FRAME_SIZE,
+    )?)?
+    .request();
+    let names = |command: Command| ProtocolErrorEnum::CountMismatch {
+        command: command.number(),
+        field: "names",
+        count: 1,
+        expected: 0,
+    };
+    let request = |command: Command, value: u64| ProtocolErrorEnum::FieldValue {
+        command: command.number(),
+        field: "request",
+        value,
+    };
+    let (direct, conditional) = (Command::DirectWrite, Command::ConditionalWrite);
+    assert_eq!(
+        w.refusals.iter().map(|e| e.0.clone()).collect::<Vec<_>>(),
+        vec![
+            names(direct),
+            request(direct, 0),
+            request(direct, direct_request),
+            names(conditional),
+            request(conditional, 0),
+            request(conditional, conditional_request),
+        ]
+    );
+    Ok(())
+}
+
+// Roles exchange role commands.
+
+/// The golden role frame `name`.
+fn role_frame(name: &str) -> TestResult<Vec<u8>> {
+    role_bytes(&golden_role(name)?)
+}
+
+/// The refusal of a frame through the view `V`, which must refuse it.
+fn role_refusal<'a, V: BodyView<'a>>(bytes: &'a [u8]) -> TestResult<ProtocolErrorEnum> {
+    let frame = FrameView::validate(bytes, CLUSTER, MAX_FRAME_SIZE)?;
+    Ok(V::from_frame(&frame).err().context("a refusal")?.0)
+}
+
+/// The refusals of the frames `frames`, in order, by a sequence of a Scan of `ranges` ranges.
+fn sequence_refusals(frames: &[Vec<u8>], ranges: u32) -> TestResult<Vec<ProtocolError>> {
+    let mut sequence = EntriesSequence::new(ranges);
+    let mut refusals = Vec::new();
+    for bytes in frames {
+        let frame = FrameView::validate(bytes, CLUSTER, MAX_FRAME_SIZE)?;
+        refusals.extend(sequence.accept(&frame).err());
+    }
+    Ok(refusals)
+}
+
+#[when("a client connection sends a block-lease command")]
+fn a_client_sends_a_lease(w: &mut Steps) -> TestResult {
+    let lease = role_frame("lease")?;
+    let frame = FrameView::validate_client(&lease, CLUSTER, MAX_FRAME_SIZE)?;
+    w.refusals = frame
+        .command()
+        .on_client_connection()
+        .err()
+        .into_iter()
+        .collect();
+    Ok(())
+}
+
+#[then("the frame is refused with a protocol error naming the command, and nothing is leased")]
+fn refused_naming_the_command(w: &mut Steps) {
+    assert_eq!(
+        w.refusals.iter().map(|e| e.0.clone()).collect::<Vec<_>>(),
+        vec![ProtocolErrorEnum::CommandNotServed {
+            command: Command::Lease.number()
+        }]
+    );
+}
+
+#[when("a Scan names a transaction and the IRIs its first ranges look up")]
+fn a_scan_naming_iris(w: &mut Steps) -> TestResult {
+    w.bytes = role_frame("scan_transaction_terms")?;
+    Ok(())
+}
+
+#[then("the view reads each IRI's text from the Scan's term table, borrowed from the frame")]
+fn the_view_reads_each_iri(w: &mut Steps) -> TestResult {
+    let frame = FrameView::validate(&w.bytes, CLUSTER, MAX_FRAME_SIZE)?;
+    let view = ScanView::from_frame(&frame)?;
+    let terms = view.terms();
+    assert_eq!(terms.len(), 2);
+    assert!(view.range_count() >= terms.len());
+    for index in 0..2 {
+        let Some(RequestTermView::Iri(iri)) = terms.get(index) else {
+            return Err(TestError::new("an IRI entry"));
+        };
+        let start = w.bytes.as_ptr_range();
+        assert!(start.contains(&iri.as_ptr()), "borrowed from the frame");
+    }
+    assert_eq!(view_any(&w.bytes)?, Ok(()));
+    Ok(())
+}
+
+#[when("a Scan with `transaction` zero holds a term")]
+fn a_scan_of_no_transaction_with_a_term(w: &mut Steps) -> TestResult {
+    let scan = role_frame("scan")?;
+    let named = role_frame("scan_transaction_terms")?;
+    let records = split_sections(body_data(&named), 0, 4)
+        .into_iter()
+        .nth(2)
+        .context("the term table's records")?;
+    w.bytes = with_section(&scan, 4, 2, |section| *section = records);
+    Ok(())
+}
+
+#[when("a Scan's term table holds more terms than the Scan has ranges")]
+fn a_scan_of_more_terms_than_ranges(w: &mut Steps) -> TestResult {
+    let named = role_frame("scan_transaction_terms")?;
+    w.bytes = with_section(&named, 4, 0, |ranges| ranges.truncate(24));
+    Ok(())
+}
+
+#[then("it is refused with `CountMismatch` naming `terms`")]
+fn refused_naming_terms(w: &mut Steps) -> TestResult {
+    assert!(matches!(
+        role_refusal::<ScanView>(&w.bytes)?,
+        ProtocolErrorEnum::CountMismatch { field: "terms", .. }
+    ));
+    Ok(())
+}
+
+#[when(
+    "a Scan names a transaction with `at` not 1, a nonzero `epoch`, or a term that is not an IRI"
+)]
+fn a_scan_read_otherwise(w: &mut Steps) -> TestResult {
+    let named = role_frame("scan_transaction_terms")?;
+    w.frames = vec![
+        with_command_header(&named, |h| h[0] = 2),
+        with_command_header(&named, |h| h[16] = 1),
+        // The second entry's kind byte a blank node's, which lays out as an IRI's does.
+        with_section(&named, 4, 2, |records| records[24] = 2),
+    ];
+    Ok(())
+}
+
+#[then("it is refused with `FieldValue` naming `at`, `epoch` or `scan term`")]
+fn refused_naming_at_epoch_or_term(w: &mut Steps) -> TestResult {
+    let mut fields = Vec::new();
+    for bytes in &w.frames {
+        if let ProtocolErrorEnum::FieldValue { field, .. } = role_refusal::<ScanView>(bytes)? {
+            fields.push(field);
+        }
+    }
+    assert_eq!(fields, ["at", "epoch", "scan term"]);
+    Ok(())
+}
+
+#[when("a list's object records span two Entries frames, the first with `continues` 1")]
+fn a_list_across_two_frames(w: &mut Steps) -> TestResult {
+    w.frames = vec![
+        role_frame("entries_continues")?,
+        role_frame("entries_continued")?,
+    ];
+    Ok(())
+}
+
+#[then(
+    "the second's first entry holds the same key, and the records of both are the list's, in order"
+)]
+fn the_receiver_takes_both(w: &mut Steps) -> TestResult {
+    let (first, second) = (
+        w.frames.first().context("the first frame")?,
+        w.frames.last().context("the second frame")?,
+    );
+    let (first_frame, second_frame) = (
+        FrameView::validate(first, CLUSTER, MAX_FRAME_SIZE)?,
+        FrameView::validate(second, CLUSTER, MAX_FRAME_SIZE)?,
+    );
+    let mut sequence = EntriesSequence::new(1);
+    let continued = sequence.accept(&first_frame)?;
+    let opened = sequence.accept(&second_frame)?;
+    assert!(continued.continues());
+    let last = continued.entries().iter().last().context("a last entry")?;
+    let next = opened.entries().iter().next().context("a first entry")?;
+    assert_eq!(last.key(), next.key());
+    let (head, tail) = (
+        last.value().context("the value's head")?,
+        next.value().context("the value's tail")?,
+    );
+    let list = [head, tail].concat();
+    let whole = ObjectRecords::read(&list)?;
+    let (first_part, second_part) = (ObjectRecords::read(head)?, ObjectRecords::read(tail)?);
+    let in_order: Vec<_> = first_part.iter().chain(second_part.iter()).collect();
+    assert_eq!(in_order, whole.iter().collect::<Vec<_>>());
+    // Each record's encoding and statement IDs, laid out again, are the list's bytes.
+    let mut rebuilt = ObjectRecordsBuilder::new();
+    for record in &in_order {
+        let statements: Vec<[u8; 16]> = record.statement_ids().collect();
+        rebuilt.push(record.encoding(), &statements);
+    }
+    assert_eq!(rebuilt.value(), list.as_slice());
+    Ok(())
+}
+
+#[when("a frame holds `continues` 1 with `end` not 0, or with no entry")]
+fn a_continuing_frame_that_cannot(w: &mut Steps) -> TestResult {
+    let header = Header::new(CLUSTER, Command::Abort);
+    w.frames = vec![
+        with_command_header(&role_frame("entries_continues")?, |h| h[8] = 1),
+        Entries::continuing(0, 0).frame(header)?,
+    ];
+    Ok(())
+}
+
+#[then("it is refused with `FieldValue` naming `continues`")]
+fn refused_naming_continues(w: &mut Steps) -> TestResult {
+    assert_eq!(w.frames.len(), 2);
+    for bytes in &w.frames {
+        assert!(matches!(
+            role_refusal::<EntriesView>(bytes)?,
+            ProtocolErrorEnum::FieldValue {
+                field: "continues",
+                value: 1,
+                ..
+            }
+        ));
+    }
+    Ok(())
+}
+
+#[when(
+    "the frame after one with `continues` 1 holds no entry, or a first key that is not the same"
+)]
+fn a_continuation_that_stops(w: &mut Steps) -> TestResult {
+    let header = Header::new(CLUSTER, Command::Abort);
+    let continues = role_frame("entries_continues")?;
+    let empty = Entries::new(0, EntriesEnd::More, 0).frame(header.clone())?;
+    let mut other = Entries::new(0, EntriesEnd::More, 0);
+    other.push(b"\x10list-c", b"");
+    w.refusals = Vec::new();
+    for next in [empty, other.frame(header)?] {
+        let refused = sequence_refusals(&[continues.clone(), next], 1)?;
+        w.refusals.extend(refused);
+    }
+    Ok(())
+}
+
+#[then("the receiver refuses it with `FieldValue` naming `entry order`")]
+fn refused_naming_entry_order(w: &mut Steps) {
+    assert_eq!(w.refusals.len(), 2);
+    for refusal in &w.refusals {
+        assert!(matches!(
+            refusal.0,
+            ProtocolErrorEnum::FieldValue {
+                field: "entry order",
+                value: 0,
+                ..
+            }
+        ));
+    }
+}
+
+#[when(
+    "a frame carries `LAST` before the last range has ended, or the last range ends with no `LAST`"
+)]
+fn an_answer_ending_early(w: &mut Steps) -> TestResult {
+    let header = Header::new(CLUSTER, Command::Abort);
+    let ended = Entries::new(0, EntriesEnd::Ended, 0);
+    let flagged = ended.frame(header.clone().with_flags(FLAG_LAST))?;
+    let bare = ended.frame(header)?;
+    w.refusals = sequence_refusals(&[flagged], 2)?;
+    w.refusals.extend(sequence_refusals(&[bare], 1)?);
+    Ok(())
+}
+
+#[then("the receiver refuses it with `FieldValue` naming `end`")]
+fn refused_naming_end(w: &mut Steps) {
+    assert_eq!(w.refusals.len(), 2);
+    for refusal in &w.refusals {
+        assert!(matches!(
+            refusal.0,
+            ProtocolErrorEnum::FieldValue {
+                field: "end",
+                value: 0,
+                ..
+            }
+        ));
+    }
+}
+
+#[when("an object record's encoding or statement IDs run past the value")]
+fn a_value_ending_inside_a_record(w: &mut Steps) -> TestResult {
+    let bytes = role_frame("entries_continued")?;
+    let frame = FrameView::validate(&bytes, CLUSTER, MAX_FRAME_SIZE)?;
+    let view = EntriesView::from_frame(&frame)?;
+    let value = view
+        .entries()
+        .iter()
+        .next()
+        .and_then(|entry| entry.value())
+        .context("a value")?;
+    // The first record's encoding cut short, and the last record's statement ID.
+    w.frames = vec![
+        value.get(..10).context("a prefix")?.to_vec(),
+        value
+            .get(..value.len().saturating_sub(1))
+            .context("a prefix")?
+            .to_vec(),
+    ];
+    Ok(())
+}
+
+#[then("the reader refuses it with `EntryOutOfBounds`")]
+fn refused_naming_the_record(w: &mut Steps) -> TestResult {
+    let entries: Vec<_> = w
+        .frames
+        .iter()
+        .map(|value| ObjectRecords::read(value).err().map(|e| e.0))
+        .collect();
+    assert_eq!(entries.len(), 2);
+    assert!(matches!(
+        entries.first(),
+        Some(Some(ProtocolErrorEnum::EntryOutOfBounds { entry: 0, .. }))
+    ));
+    assert!(matches!(
+        entries.last(),
+        Some(Some(ProtocolErrorEnum::EntryOutOfBounds { entry: 1, .. }))
+    ));
+    Ok(())
 }

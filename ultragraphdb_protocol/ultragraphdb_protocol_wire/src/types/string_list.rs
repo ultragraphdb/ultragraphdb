@@ -16,6 +16,12 @@ pub struct StringList<'a> {
 }
 
 impl<'a> StringList<'a> {
+    /// The list holding no string.
+    pub(crate) const EMPTY: Self = Self {
+        ends: &[],
+        text: "",
+    };
+
     /// The list of `ends` and `text`, sections `sections.0` and `sections.1` of a body of `command`, checked in order:
     /// `ends` whole u32s ([`ProtocolError::section_length`]); each end at least the one before and at most the text's
     /// length ([`ProtocolError::index_out_of_range`]); the last end the text's length ([`ProtocolError::count_mismatch`]);

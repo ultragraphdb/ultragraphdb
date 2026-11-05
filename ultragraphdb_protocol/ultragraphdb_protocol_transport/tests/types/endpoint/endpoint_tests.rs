@@ -46,6 +46,8 @@ fn test_each_role_endpoint_serves_its_row_of_the_table() {
     assert_eq!(served(Endpoint::Compute), [Command::ComputeRead]);
     let partition = served(Endpoint::Partition);
     for command in [
+        Command::DirectWrite,
+        Command::ConditionalWrite,
         Command::Bind,
         Command::Write,
         Command::Operation,
@@ -59,7 +61,19 @@ fn test_each_role_endpoint_serves_its_row_of_the_table() {
     ] {
         assert!(partition.contains(&command), "{command:?}");
     }
-    assert_eq!(partition.len(), 10);
+    assert_eq!(partition.len(), 12);
+}
+
+/// The client endpoint and a partition's role address take DirectWrite and ConditionalWrite, the frontend relaying them,
+/// and no other endpoint does.
+#[test]
+fn test_a_write_in_one_frame_is_served_by_the_client_endpoint_and_a_partition() {
+    for command in [Command::DirectWrite, Command::ConditionalWrite] {
+        assert!(Endpoint::Client.serves(command), "{command:?}");
+        assert!(Endpoint::Partition.serves(command), "{command:?}");
+        assert!(!Endpoint::Frontend.serves(command), "{command:?}");
+        assert!(!Endpoint::Compute.serves(command), "{command:?}");
+    }
 }
 
 /// Challenge and Verify are served by no endpoint in this stage.

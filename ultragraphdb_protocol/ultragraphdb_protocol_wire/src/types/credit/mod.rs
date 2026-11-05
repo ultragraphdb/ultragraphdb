@@ -5,7 +5,7 @@
 
 mod credit_body_builder;
 
-/// More credit for the frame's result stream: `frames` more Result frames may be sent.
+/// More credit for the frame's result stream: `frames` more Result or Entries frames may be sent (`PROTOCOL.md` §11.3).
 ///
 /// | Command header | Field | Type |
 /// |---|---|---|

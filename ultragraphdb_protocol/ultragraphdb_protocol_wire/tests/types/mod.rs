@@ -68,6 +68,10 @@ mod compute_read;
 #[cfg(test)]
 mod compute_read_view;
 #[cfg(test)]
+pub mod conditional_write;
+#[cfg(test)]
+mod conditional_write_view;
+#[cfg(test)]
 mod conflict_kind;
 #[cfg(test)]
 mod credit;
@@ -90,15 +94,21 @@ pub mod describe;
 #[cfg(test)]
 mod describe_view;
 #[cfg(test)]
+pub mod direct_write;
+#[cfg(test)]
+pub mod direct_write_view;
+#[cfg(test)]
 pub mod drop_command;
 #[cfg(test)]
 mod drop_command_view;
 #[cfg(test)]
 mod drop_kind;
 #[cfg(test)]
-mod entries;
+pub mod entries;
 #[cfg(test)]
 mod entries_end;
+#[cfg(test)]
+mod entries_sequence;
 #[cfg(test)]
 mod entries_view;
 #[cfg(test)]
@@ -145,6 +155,12 @@ pub mod members;
 mod members_view;
 #[cfg(test)]
 mod namespace_run;
+#[cfg(test)]
+mod object_record;
+#[cfg(test)]
+mod object_records;
+#[cfg(test)]
+mod object_records_builder;
 #[cfg(test)]
 pub mod operation;
 #[cfg(test)]

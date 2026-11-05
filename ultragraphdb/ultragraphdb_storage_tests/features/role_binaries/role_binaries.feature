@@ -16,6 +16,10 @@ Feature: The storage binary as a process
     When one storage process claims partitions 1 and 2 and another claims 3 and 4
     Then both join, Members names each partition's address, and a write reaches its partition on either process
 
+  Scenario: A registration is a role command
+    When a partition of one storage process registers a reference to an entity homed in another storage process
+    Then it sends a registration role command to that process, and receives the entity's ID, the member's generation and the home's latest delivered close in the reply
+
   Scenario: A reference crosses storage processes
     When a write in one storage process names an entity homed in the other
     Then the home registers it by a Reference, and the write commits

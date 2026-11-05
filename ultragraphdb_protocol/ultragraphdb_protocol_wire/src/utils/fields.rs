@@ -46,6 +46,18 @@ pub(crate) fn at_least_one(
     Ok(value)
 }
 
+/// `request`, the number of a commit through `session`: at least 1 with a session, 0 with none (`PROTOCOL.md` §6.3).
+pub(crate) fn session_request(
+    command: u16,
+    session: [u8; 16],
+    request: u64,
+) -> Result<u64, ProtocolError> {
+    if (session == [0; 16]) != (request == 0) {
+        return Err(ProtocolError::field_value(command, "request", request));
+    }
+    Ok(request)
+}
+
 /// The 16 bytes at `at` of `header`, a session's or a transaction's identity, read as they are.
 pub(crate) fn identity(header: &[u8], at: usize) -> [u8; 16] {
     bytes_at(header, at).unwrap_or([0; 16])

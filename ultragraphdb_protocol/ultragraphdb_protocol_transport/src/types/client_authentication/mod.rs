@@ -86,6 +86,8 @@ impl<M: ClientMechanism> ClientAuthentication<M> {
             | Command::Cancel
             | Command::Round
             | Command::Drop
+            | Command::DirectWrite
+            | Command::ConditionalWrite
             | Command::Join
             | Command::Members
             | Command::Subscribe

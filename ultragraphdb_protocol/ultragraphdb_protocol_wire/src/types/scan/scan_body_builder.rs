@@ -34,6 +34,7 @@ impl BodyBuilder for Scan {
             keys.extend_from_slice(range.first());
             keys.extend_from_slice(range.past());
         }
-        write_sections(&[], &[&records, &keys])
+        let (term_records, text) = self.terms().sections();
+        write_sections(&[], &[&records, &keys, &term_records, &text])
     }
 }

@@ -6,8 +6,8 @@
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::{Outbound, TransportError};
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, Command, Commit, FLAG_LAST, FrameView, Header, HeaderView, MAX_FRAME_SIZE,
-    ResultBatch,
+    BodyBuilder, Command, Commit, Entries, EntriesEnd, FLAG_LAST, FrameView, Header, HeaderView,
+    MAX_FRAME_SIZE, ResultBatch,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -17,6 +17,15 @@ fn result(stream: u64, tag: u32, last: bool) -> TestResult<Vec<u8>> {
     // The column count tags the frame, so tests tell frames apart.
     Ok(ResultBatch::new(tag).frame(
         Header::new(CLUSTER, Command::Result)
+            .with_stream(stream)
+            .with_flags(if last { FLAG_LAST } else { 0 }),
+    )?)
+}
+
+fn entries(stream: u64, range: u32, last: bool) -> TestResult<Vec<u8>> {
+    // The range tags the frame, so tests tell frames apart.
+    Ok(Entries::new(range, EntriesEnd::Ended, 0).frame(
+        Header::new(CLUSTER, Command::Entries)
             .with_stream(stream)
             .with_flags(if last { FLAG_LAST } else { 0 }),
     )?)
@@ -94,6 +103,43 @@ fn test_a_frame_for_a_stream_not_open_is_refused() -> TestResult {
         TransportError::protocol(ProtocolError::short_header(10))
     );
     assert_eq!(outbound.queued(3), 0);
+    Ok(())
+}
+
+/// `PROTOCOL.md` §11.3 and §13.14: on a role connection Entries frames spend credit as Result frames do.
+#[test]
+fn test_entries_frames_leave_only_while_their_stream_holds_credit() -> TestResult {
+    let mut outbound = Outbound::new(4, 0);
+    outbound.open(5)?;
+    for range in 0..3 {
+        outbound.push(5, entries(5, range, range == 2)?)?;
+    }
+    assert_eq!(next(&mut outbound)?, None);
+    assert_eq!(outbound.credit(5), Some(0));
+    outbound.grant(5, 2);
+    assert_eq!(
+        drain(&mut outbound)?,
+        vec![(5, entries(5, 0, false)?), (5, entries(5, 1, false)?)]
+    );
+    assert_eq!(outbound.credit(5), Some(0));
+    assert_eq!(outbound.queued(5), 1);
+    outbound.grant(5, 10);
+    assert_eq!(drain(&mut outbound)?, vec![(5, entries(5, 2, true)?)]);
+    assert!(!outbound.is_open(5));
+    Ok(())
+}
+
+/// One stream's Result and Entries frames draw on one count.
+#[test]
+fn test_result_and_entries_frames_spend_one_credit() -> TestResult {
+    let mut outbound = Outbound::new(4, 2);
+    outbound.open(5)?;
+    outbound.push(5, result(5, 0, false)?)?;
+    outbound.push(5, entries(5, 0, false)?)?;
+    outbound.push(5, entries(5, 1, false)?)?;
+    assert_eq!(drain(&mut outbound)?.len(), 2);
+    assert_eq!(outbound.credit(5), Some(0));
+    assert_eq!(outbound.queued(5), 1);
     Ok(())
 }
 

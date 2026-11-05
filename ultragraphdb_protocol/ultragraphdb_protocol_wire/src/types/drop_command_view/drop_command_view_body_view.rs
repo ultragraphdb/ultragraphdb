@@ -14,7 +14,7 @@ use crate::types::frame_view::FrameView;
 use crate::types::request_term_view::RequestTermView;
 use crate::types::term_table::kind;
 use crate::types::term_table_view::TermTableView;
-use crate::utils::fields::identity;
+use crate::utils::fields::{identity, session_request};
 use crate::utils::sections::Sections;
 use crate::utils::sections::expect_command;
 use crate::utils::token;
@@ -24,10 +24,14 @@ impl<'a> BodyView<'a> for DropCommandView<'a> {
 
     type Body = DropCommand;
 
+    /// Checks, in `PROTOCOL.md` §6.5's order: unused bytes 1–7 and 72–127 zero; `request` at least 1 with a session, 0
+    /// with none; `kind`; `namespace`; the token; the sections; the term table and its entry.
     fn from_frame(frame: &FrameView<'a>) -> Result<Self, ProtocolError> {
         let command = Self::COMMAND.number();
         let header = expect_command(frame, Self::COMMAND)?;
         header.unused_zero(&[(0, 1), (8, 72)])?;
+        let session = identity(header.0, 16);
+        let request = session_request(command, session, header.u64_at(32))?;
         let number = header.u8_at(0);
         let drop_kind = DropKind::from_number(number).ok_or(ProtocolError::field_value(
             command,
@@ -79,8 +83,8 @@ impl<'a> BodyView<'a> for DropCommandView<'a> {
             kind: drop_kind,
             namespace,
             target,
-            session: identity(header.0, 16),
-            request: header.u64_at(32),
+            session,
+            request,
             commit_version,
             token,
         })

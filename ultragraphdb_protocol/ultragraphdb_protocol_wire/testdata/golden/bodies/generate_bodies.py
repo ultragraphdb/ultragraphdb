@@ -408,6 +408,52 @@ for name, commit_version, tok in [("drop", 0, bytes(24)), ("drop_reply", (31 << 
            stream=19, flags=1 if commit_version else 0)
 
 
+# 20 DirectWrite (section 6.6): through the session's request 9 in namespace 3, the token of partition 2's commit at
+# position 41 in epoch 30, on a stream of its own: an insert, an edge with one property and a delete in a graph, each
+# args following the last; no names.
+terms, strings = Terms(), Strings()
+records, args = b"", []
+change(1, 0, [ABSENT, A, KNOWS, B])
+change(2, 0, [ABSENT, A, KNOWS, iri(f"{EX}c"), iri(f"{EX}since"), lit("2020", f"{XSD}gYear")])
+change(3, 0, [iri(f"{EX}g"), blank("b1"), iri(f"{EX}nick"), lang("x", "en")])
+golden("direct_write", 20, command_header([(0, SESSION), (16, le(9, 8)), (24, le(3, 8)), (32, token(2, 41, 30))]),
+       sections([records, u32s(args)] + terms.sections() + strings.sections()), stream=21)
+
+
+def operation_fields(kind, delta=0, properties=0, links=0):
+    """An operation's 24 bytes (section 7.3): kind, 7 zero bytes, delta i64, properties u32, links u32."""
+    return bytes([kind]) + bytes(7) + le(delta, 8, signed=True) + le(properties, 4) + le(links, 4)
+
+
+def operation(fields, items):
+    """Operation `fields` in section 6 and its `items` in the args after those before it, each a term or itself."""
+    global operations
+    operations += fields
+    args.extend(terms.add(item) if isinstance(item, tuple) else item for item in items)
+
+
+# 21 ConditionalWrite (section 6.7): through the session's request 10 in namespace 3, the token of partition 2's commit
+# at position 42 in epoch 31, on a stream of its own: one insert, then one operation of each kind, an upsert-and-link's
+# link with the node as its object; the args the insert's, then each operation's in order.
+terms, strings = Terms(), Strings()
+records, args, operations = b"", [], b""
+change(1, 0, [ABSENT, A, KNOWS, B])
+operation(operation_fields(1, properties=1), [ABSENT, iri(f"{EX}epi.id"), lit("y"), iri(f"{EX}label"), lit("second")])
+operation(operation_fields(2, properties=1, links=1),
+          [iri(f"{EX}g"), iri(f"{EX}epi.id"), lit("x"), iri(f"{EX}label"), lit("first"), iri(f"{EX}HAS_ENTITY"),
+           iri(f"{EX}m1"), 1])
+operation(operation_fields(3), [ABSENT, A, iri(f"{EX}state"), lit("old"), lit("new")])
+operation(operation_fields(4, delta=-5), [ABSENT, iri(f"{EX}counters"), iri(f"{EX}next-id")])
+golden("conditional_write", 21, command_header([(0, SESSION), (16, le(10, 8)), (24, le(3, 8)), (32, token(2, 42, 31))]),
+       sections([records, u32s(args)] + terms.sections() + strings.sections() + [operations]), stream=23)
+# Through no session, holding no token, no change: section 0 empty and one counter add in namespace 4.
+terms, strings = Terms(), Strings()
+records, args, operations = b"", [], b""
+operation(operation_fields(4, delta=1), [ABSENT, iri(f"{EX}counters"), iri(f"{EX}next-id")])
+golden("conditional_write_operation_only", 21, command_header([(24, le(4, 8))]),
+       sections([records, u32s(args)] + terms.sections() + strings.sections() + [operations]), stream=25)
+
+
 # 17 Round (section 12.1): position 3, its header's sequence, its parent, incarnation 1, first version (7 << 22) | 100,
 # five entries, derivation 1; the second aborted with a conflict on a list (detail 1). Four write-set records (section
 # 12.2): a transaction of namespace 3 at catalog 11, a home's registration, a build's start in namespace 4 at catalog 12,
@@ -468,7 +514,7 @@ golden("round", 17, round_ch, round_body, sequence=3)
 out = Path(sys.argv[1])
 for name, (data, size, checksum, checksum_body) in GOLDEN.items():
     (out / f"{name}.frame").write_bytes(data)
-    print(f"{name:18} size {size:6}  checksum {checksum:#018x}  checksum_body {checksum_body:#018x}")
+    print(f"{name:32} size {size:6}  checksum {checksum:#018x}  checksum_body {checksum_body:#018x}")
 print(f"describe_reply schema id {SCHEMA_ID:#018x}")
 print(f"write terms {WRITE_TERMS}")
 print(f"round first version {FIRST_VERSION}; records {[len(r) for r in records]} bytes at {rec_offsets} within "
