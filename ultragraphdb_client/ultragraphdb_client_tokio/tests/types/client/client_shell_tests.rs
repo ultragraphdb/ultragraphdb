@@ -804,3 +804,143 @@ fn test_a_frame_cut_by_a_deadline_reads_on_from_where_it_stood() -> TestResult {
     })?;
     Ok(())
 }
+
+/// A stream over the simulated network whose writes, once `allowance` is set, take that many bytes more and then nothing
+/// until it is cleared: a send buffer that fills in the middle of a frame.
+#[derive(Debug)]
+struct Trickling {
+    inner: TokioSimStream,
+    allowance: Rc<std::cell::Cell<Option<usize>>>,
+}
+
+impl AsyncRead for Trickling {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_read(cx, buf)
+    }
+}
+
+impl AsyncWrite for Trickling {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        let Some(left) = self.allowance.get() else {
+            return Pin::new(&mut self.inner).poll_write(cx, buf);
+        };
+        if left == 0 {
+            return Poll::Pending;
+        }
+        let part = buf.get(..left.min(buf.len())).unwrap_or(buf);
+        let written = Pin::new(&mut self.inner).poll_write(cx, part);
+        if let Poll::Ready(Ok(wrote)) = written {
+            self.allowance.set(Some(left.saturating_sub(wrote)));
+        }
+        written
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
+/// Connections over the simulated network whose writes trickle as `allowance` says.
+struct TrickleConnect {
+    sim: SimConnect,
+    allowance: Rc<std::cell::Cell<Option<usize>>>,
+}
+
+impl Connect for TrickleConnect {
+    type Stream = Trickling;
+
+    async fn connect(&mut self) -> io::Result<Trickling> {
+        Ok(Trickling {
+            inner: self.sim.connect().await?,
+            allowance: Rc::clone(&self.allowance),
+        })
+    }
+}
+
+/// A caller's future dropped while a frame is half written leaves the rest of it for the next call, so the frame after it
+/// follows it whole and the connection serves both.
+#[test]
+fn test_a_frame_cut_by_a_dropped_future_is_written_whole_by_the_next_call() -> TestResult {
+    let rt = runtime()?;
+    let scripted = server();
+    let sim = SimConnect::new(SimNetwork::new(3, NetworkFaults::none()));
+    let accepted = Rc::clone(&sim.accepted);
+    let allowance = Rc::new(std::cell::Cell::new(None));
+    let connector = TrickleConnect {
+        sim,
+        allowance: Rc::clone(&allowance),
+    };
+    LocalSet::new().block_on(&rt, async {
+        let _server = tokio::task::spawn_local(serve_sim(Rc::clone(&scripted), accepted));
+        let mut client = Client::new(connector, config(), Anonymous, 8);
+        client.connect().await?;
+        allowance.set(Some(10));
+        let cut = tokio::time::timeout(Duration::from_millis(50), client.register()).await;
+        assert!(
+            cut.is_err(),
+            "the Register's frame waits on the full buffer"
+        );
+        allowance.set(None);
+        let registered = tokio::time::timeout(Duration::from_secs(5), client.register())
+            .await
+            .map_err(|_| TestError::new("the second Register was not answered within 5 s"))?;
+        let _session = registered?;
+        assert!(client.core().is_ready(), "the connection serves on");
+        Ok::<(), TestError>(())
+    })?;
+    Ok(())
+}
+
+/// A read whose frame waits in the socket behind another read's, while the caller held a batch past the read timeout, is
+/// not taken for a silent one: the frames already arrived are read before the deadline is taken, and both reads read on.
+#[test]
+fn test_a_read_whose_frame_waits_behind_anothers_is_not_timed_out() -> TestResult {
+    let rt = runtime()?;
+    let results = 3;
+    let scripted = Rc::new(std::cell::RefCell::new(server_of(1).with_results(results)));
+    let connector = SimConnect::new(SimNetwork::new(3, NetworkFaults::none()));
+    let accepted = Rc::clone(&connector.accepted);
+    LocalSet::new().block_on(&rt, async {
+        let _server = tokio::task::spawn_local(serve_sim(Rc::clone(&scripted), accepted));
+        let mut client = Client::new(connector, config(), Anonymous, 8);
+        let begin = ultragraphdb_protocol_wire::Begin::new(0, 0, true).with_deadline_ms(1);
+        let reader = client.begin_with(begin, None).await?;
+        let first = client.read(&reader, &read(&reader)).await?;
+        // Two batches of the first read, so its credit brings the third ahead of the second read's first.
+        for _ in 0..2 {
+            client
+                .next_batch(&first, |_| ())
+                .await?
+                .context("a batch of the first read")?;
+        }
+        let second = client.read(&reader, &read(&reader)).await?;
+        // The caller holds its batch past the read timeout's floor of 30 s, driving nothing; the clock is the test's.
+        tokio::time::pause();
+        tokio::time::sleep(Duration::from_secs(31)).await;
+        assert_eq!(
+            batches(&mut client, &first).await?,
+            1,
+            "the first read's last"
+        );
+        assert_eq!(
+            batches(&mut client, &second).await?,
+            results as usize,
+            "the second read, its frame read before the deadline was taken"
+        );
+        assert!(client.core().is_ready());
+        Ok::<(), TestError>(())
+    })?;
+    Ok(())
+}

@@ -37,7 +37,7 @@ Feature: The term dictionary
 
   Scenario: A blank node's skolem IRI names its bucket and nothing else
     When partition 1, owning the first 21,846 buckets of tenant 0's run, mints a blank node with its random source seeded to a recorded value
-    Then the skolem IRI is the tenant's skolem base, `.well-known/genid/`, 6 hexadecimal digits naming one of those buckets, `-` and 26 hexadecimal digits; the node's ID carries that bucket; and the same seed mints the same IRI
+    Then the skolem IRI is the tenant's skolem base, ending `/tenant/0/`, `.well-known/genid/`, 6 hexadecimal digits naming one of those buckets, `-` and 26 hexadecimal digits; the node's ID carries that bucket; and the same seed mints the same IRI
 
   Scenario: An aborted creator leaves the IRI usable
     When a transaction creates `<new>` and aborts, and a later transaction writes `<new>`

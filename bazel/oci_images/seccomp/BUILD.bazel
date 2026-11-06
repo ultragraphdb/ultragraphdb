@@ -1,4 +1,4 @@
-# The seccomp profile the role images ship with: Docker's default profile, moby/profiles seccomp/v0.3.0
+# The seccomp profile the roles run under, held here since a runtime reads a profile from its host: Docker's default profile, moby/profiles seccomp/v0.3.0
 # (commit 4b8214fc4971e06172938a1f1554ccff6647ee80), with one rule added after its first, allowing io_uring_setup,
 # io_uring_enter and io_uring_register. Run a role with `--security-opt seccomp=<path to ultragraphdb.json>`.
 exports_files(

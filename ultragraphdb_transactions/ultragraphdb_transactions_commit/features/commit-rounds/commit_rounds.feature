@@ -70,19 +70,19 @@ Feature: Commit rounds
     Then the round closes, and the next transaction is stamped with epoch 11 in a new round
 
   Scenario: Concurrent first writes of a predicate both commit
-    When two transactions of `tenant` read before either commits, the first writes `<a> <score> 12` and the second `<b> <score> "high"`, and `score` was not declared
+    When two transactions of `t1` read before either commits, the first writes `<a> <score> 12` and the second `<b> <score> "high"`, and `score` was not declared
     Then both commit, and the metadata group holds `score`'s default entry once
 
   Scenario: A write after a build's start in the same round aborts
-    When a version of `tenant` starting an index build of `p` takes effect at epoch 40, and a transaction executed against the version before it writes `p` in `tenant` and commits at epoch 40
+    When a version of `t1` starting an index build of `p` takes effect at epoch 40, and a transaction executed against the version before it writes `p` in `t1` and commits at epoch 40
     Then the transaction aborts with a conflict naming the catalog, and its retry is indexed by the build
 
   Scenario: A write executed against an old catalog aborts
-    When a transaction executes against catalog version 2 of `tenant`, and commits at an epoch from which version 3 is in effect
+    When a transaction executes against catalog version 2 of `t1`, and commits at an epoch from which version 3 is in effect
     Then the transaction aborts with a conflict naming the catalog, and its retry is checked against version 3
 
   Scenario: Two builds taking effect at one epoch take two rounds
-    When versions 3 and 4 of `tenant` both take effect at epoch 40, each starting an index build
+    When versions 3 and 4 of `t1` both take effect at epoch 40, each starting an index build
     Then the build of version 3 begins in one round and that of version 4 in a later round, and no transaction aborts for either
 
   Scenario: A crash during a build runs the backfill again

@@ -60,6 +60,19 @@ async fn register_once_free(client: &mut Client) -> TestResult<[u8; 16]> {
     ))
 }
 
+/// A connection once the frontend holds none, within [`TRIES`]: a dial refused past the bound of one is made again.
+async fn dial_once_free(stage: &Stage) -> TestResult<Client> {
+    for _ in 0..TRIES {
+        match stage.ann().await {
+            Ok(client) => return Ok(client),
+            Err(_) => pause(2).await,
+        }
+    }
+    Err(TestError::new(
+        "the frontend did not end the closed connection",
+    ))
+}
+
 /// Commits through `session` once its commit in flight has ended, within [`TRIES`]: a Commit refused with code 14 is sent again.
 async fn commit_once_free(client: &mut Client, stage: &Stage, session: [u8; 16]) -> TestResult {
     for _ in 0..TRIES {
@@ -118,8 +131,10 @@ fn answer_commit(partition: &RoleDouble, session: [u8; 16]) -> TestResult {
     "the registry holds `sessions_max` sessions, the oldest has a Commit at its partition unanswered, its client's connection closes, and another session is registered"
 )]
 fn a_session_with_a_commit_in_flight_is_not_evicted(w: &mut Steps) -> TestResult {
+    // One connection at a time: the second is let in only once the first's has ended, its session dropped with it.
     let options = Options {
         sessions: 2,
+        connections: 1,
         ..Options::default()
     };
     run(w, options, |stage| async move {
@@ -131,9 +146,7 @@ fn a_session_with_a_commit_in_flight_is_not_evicted(w: &mut Steps) -> TestResult
         let _held = commit_through(&mut first, &stage, oldest).await?;
         until("the Commit", || partition.count(Command::Commit) == 1).await?;
         drop(first);
-        // The frontend reads the close and ends the connection's session; nothing a client can see says when.
-        pause(50).await;
-        let mut second = stage.ann().await?;
+        let mut second = dial_once_free(&stage).await?;
         let _third = second.register().await?;
         let evicted = refused_through(&mut second, &stage, next).await?;
         assert_eq!(evicted, Some(ErrorCode::SessionEvicted), "the next oldest");

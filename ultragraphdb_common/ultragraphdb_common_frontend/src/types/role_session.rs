@@ -209,10 +209,20 @@ impl Session for RoleSession {
             let close = match self.shared.owner.next_close(after).await {
                 Ok(close) => close,
                 Err(refusal) => {
-                    // A subscriber too far behind for the closes held has nothing left to read here.
+                    // A subscriber too far behind for the closes held has nothing left to read here, and is told so on its
+                    // stream, which this ends (`PROTOCOL.md` §13.3).
                     tracing::warn!(after, message = refusal.message(), "a subscription ended");
                     self.subscription = None;
-                    continue;
+                    let header = Header::new(self.shared.cluster.id(), Command::Error)
+                        .with_stream(stream)
+                        .with_flags(FLAG_LAST);
+                    match refusal.frame(header) {
+                        Ok(frame) => return (stream, frame),
+                        Err(error) => {
+                            tracing::error!(%error, "a subscription's end could not be framed");
+                            continue;
+                        }
+                    }
                 }
             };
             let cluster = self.shared.cluster.id();

@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use crate::types::compute_core::ReadTimes;
+use crate::types::read_times::ReadTimes;
 
 /// `scan_stall_ms` when compute's settings name none, 30,000 ms (`PROTOCOL.md` §11.9).
 const SCAN_STALL_MS: u64 = 30_000;

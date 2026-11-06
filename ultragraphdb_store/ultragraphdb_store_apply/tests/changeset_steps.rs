@@ -1177,13 +1177,15 @@ fn gains_property_and_id(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the dictionary holds a skolem IRI `…/.well-known/genid/{bucket}-{random}` for it, whose bucket is `<a>`'s, mapping to the statement ID and back, and a write naming that IRI as the reifier adds properties to the statement"
+    "the dictionary holds a skolem IRI `…/tenant/{n}/.well-known/genid/{bucket}-{random}` for it, whose bucket is `<a>`'s, mapping to the statement ID and back, and a write naming that IRI as the reifier adds properties to the statement"
 )]
 fn reifier_is_skolem(w: &mut Steps) -> TestResult {
     let a = cs(w)?;
     let id = w.statement.context("a statement ID")?;
     let (reifier, blank) = a.quads().iri_of(TENANT, id)?;
     assert!(!blank, "a reifier is no blank node");
+    let path = format!("/tenant/{TENANT}/.well-known/genid/");
+    assert!(reifier.contains(&path), "{reifier}");
     let tail = reifier
         .strip_prefix(&format!(
             "{}.well-known/genid/",

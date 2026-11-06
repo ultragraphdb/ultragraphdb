@@ -9,7 +9,8 @@ use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_protocol_wire::{EntriesView, ObjectRecord, ObjectRecords};
 use ultragraphdb_store_quads::StatementRecord;
 
-use super::{RowFilter, Skip};
+use super::row_filter::RowFilter;
+use super::skip::Skip;
 use crate::types::page::Page;
 use crate::types::read_fault::ReadFault;
 

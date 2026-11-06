@@ -9,11 +9,12 @@ use ultragraphdb_protocol_wire::{
 };
 
 use super::{PartitionRows, RANGES_PER_SCAN};
+use crate::types::graph_slot::GraphSlot;
 use crate::types::names::Names;
-use crate::types::page::RowView;
 use crate::types::read_fault::ReadFault;
-use crate::types::read_request::{GraphSlot, ReadRequest};
+use crate::types::read_request::ReadRequest;
 use crate::types::row_terms::{RowIds, id_term, reifier_term, request_term, result_term};
+use crate::types::row_view::RowView;
 use crate::types::scan_stream::ScanStream;
 use crate::types::wanted_names::WantedNames;
 use crate::utils::keys::{hex, past_alone};

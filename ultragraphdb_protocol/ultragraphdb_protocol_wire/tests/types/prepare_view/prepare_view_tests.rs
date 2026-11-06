@@ -200,6 +200,34 @@ fn test_a_pattern_is_of_language_0_and_names_nothing() -> TestResult {
     Ok(())
 }
 
+/// §8.1's order: a pattern's names are refused after the pattern and before sections 5 and 6 are read as a string list;
+/// a text's UTF-8 before its names.
+#[test]
+fn test_names_are_checked_after_the_pattern_or_the_text() -> TestResult {
+    let bytes = golden("prepare")?.bytes()?;
+    let text_only = with_section(&bytes, 7, 6, |text| text.push(b'n'));
+    assert_eq!(
+        refused(&text_only)?,
+        ProtocolErrorEnum::CountMismatch {
+            command: 10,
+            field: "names",
+            count: 1,
+            expected: 0
+        }
+    );
+    let broken_pattern = with_section(&bytes, 7, 0, |pattern| pattern.push(0));
+    let both = with_section(&broken_pattern, 7, 6, |text| text.push(b'n'));
+    assert_eq!(refused(&both)?, refused(&broken_pattern)?);
+    let not_utf8 = with_section(&text_bytes("prepare_text")?, 7, 0, |text| text[0] = 0xFF);
+    let short_ends = with_section(&not_utf8, 7, 5, |ends| ends.truncate(3));
+    assert_eq!(refused(&short_ends)?, refused(&not_utf8)?);
+    assert!(matches!(
+        refused(&not_utf8)?,
+        ProtocolErrorEnum::NotUtf8 { section: 0, .. }
+    ));
+    Ok(())
+}
+
 #[test]
 fn test_the_language_is_0_to_2_after_the_unused_bytes() -> TestResult {
     let bytes = golden("prepare")?.bytes()?;

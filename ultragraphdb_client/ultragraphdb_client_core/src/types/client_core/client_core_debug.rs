@@ -18,6 +18,10 @@ impl<L: Login> fmt::Debug for ClientCore<L> {
             .field("principal", &self.principal)
             .field("generation", &self.generation)
             .field("streams", &self.streams.len())
+            .field(
+                "remembered_reads",
+                &(self.lost_reads.len() + self.kept_reads.len()),
+            )
             .field("pending", &self.pending.len())
             .field("sessions", &self.sessions)
             .finish()

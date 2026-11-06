@@ -335,6 +335,49 @@ fn test_a_frame_on_a_stream_that_ended_is_dropped() -> TestResult {
     Ok(())
 }
 
+/// The endpoint's rule (`PROTOCOL.md` §2.5 step 3) comes before the late rule: a role command, or a frame no client
+/// sends, on a stream that ended closes the connection as it does on a fresh number.
+#[test]
+fn test_a_frame_the_endpoint_refuses_on_a_stream_that_ended_closes_the_connection() -> TestResult {
+    let now = start();
+    for command in [Command::Scan, Command::Result] {
+        let mut peer = Peer::default();
+        let mut connection = serving(&mut peer, now)?;
+        request(&mut connection, &mut peer, 1, &Begin::new(0, 0, false), now)?;
+        connection.refuse(1, &ErrorReply::new(ErrorCode::Refused, "ended"))?;
+        drain(&mut connection)?;
+        assert_eq!(
+            connection.receive(&peer.command(1, command)?, now)?,
+            Inbound::Closing {
+                code: Some(ErrorCode::Protocol)
+            },
+            "{command:?}"
+        );
+        assert!(connection.is_closing(), "{command:?}");
+    }
+    Ok(())
+}
+
+/// A Credit or a Cancel opens no stream (`PROTOCOL.md` §11.2), so a request on a lower number that was never opened is
+/// still a request.
+#[test]
+fn test_a_credit_or_cancel_on_a_stream_never_opened_leaves_lower_numbers_new() -> TestResult {
+    let now = start();
+    let mut peer = Peer::default();
+    let mut connection = serving(&mut peer, now)?;
+    request(&mut connection, &mut peer, 1, &Begin::new(0, 0, false), now)?;
+    assert_eq!(
+        connection.receive(&peer.send(7, &Credit::new(1))?, now)?,
+        Inbound::Handled
+    );
+    assert_eq!(
+        connection.receive(&peer.send(9, &Cancel)?, now)?,
+        Inbound::Handled
+    );
+    request(&mut connection, &mut peer, 4, &Begin::new(0, 0, false), now)?;
+    Ok(())
+}
+
 #[test]
 fn test_a_connection_past_the_bound_is_refused_in_place_of_its_welcome() -> TestResult {
     let now = start();

@@ -6,67 +6,10 @@
 use std::collections::{BTreeSet, VecDeque};
 use std::time::Instant;
 
-use ultragraphdb_core_ids::Bucket;
 use ultragraphdb_protocol_wire::{Declared, ErrorReply, ReadLevel};
 
-use crate::types::role_link::RoleLink;
-
-/// Where a read-write transaction stands with its partition.
-#[derive(Debug)]
-pub(crate) enum BindState {
-    /// Nothing has bound it.
-    None,
-    /// Its Bind is sent and unanswered.
-    Binding {
-        link: RoleLink,
-        stream: u64,
-        partition: u32,
-    },
-    /// Its partition answered, naming the version it reads at.
-    Bound {
-        link: RoleLink,
-        stream: u64,
-        partition: u32,
-        read_version: u64,
-    },
-}
-
-/// Where a request of a transaction goes, as its subjects say.
-#[derive(Debug, Clone)]
-pub(crate) enum Destination {
-    /// It names these subjects' buckets, in order.
-    Named(Vec<Bucket>),
-    /// It names only new blank nodes: a partition in turn, which draws them from its own buckets.
-    InTurn,
-    /// It claims a value, naming no subject but new blank nodes: the claim's partition, once known.
-    Claim(Claim),
-    /// It names no subject: the partition owning the tenant's whole run.
-    Run,
-}
-
-/// A value an operation claims, as its bucket is computed: the predicate's system ID, which the frontend learns from its home, and
-/// the value's encoding.
-#[derive(Debug, Clone)]
-pub(crate) struct Claim {
-    pub predicate: String,
-    pub value: Vec<u8>,
-}
-
-/// A request of a transaction the frontend has not sent yet.
-#[derive(Debug)]
-pub(crate) enum Queued {
-    /// A Write or Operation, its frame whole.
-    Write {
-        frame: Vec<u8>,
-        destination: Destination,
-        /// The bytes it counts toward `held_bytes`, when a read held it back.
-        behind: u64,
-    },
-    /// A read, by its stream.
-    Read(u64),
-    /// A Commit, its frame whole, through this session.
-    Commit { frame: Vec<u8>, session: u128 },
-}
+use crate::types::bind_state::BindState;
+use crate::types::queued::Queued;
 
 /// A transaction the connection holds open, by the stream of its Begin.
 #[derive(Debug)]
@@ -128,4 +71,16 @@ pub(crate) struct ClientTransaction {
     pub declared: Vec<Declared>,
     /// Whether it changed or read data.
     pub touched: bool,
+}
+
+impl ClientTransaction {
+    /// Whether its Commit has been taken, queued, relayed or declaring: what decides it, so a later Write, Operation or Commit on
+    /// its stream is late (`PROTOCOL.md` §11.2).
+    pub fn commit_taken(&self) -> bool {
+        self.commit_out.is_some()
+            || self
+                .queue
+                .iter()
+                .any(|queued| matches!(queued, Queued::Commit { .. }))
+    }
 }

@@ -67,6 +67,8 @@ struct Steps {
     running: Option<(ServiceUtil, u32)>,
     sockets: PathBuf,
     containers: images::Containers,
+    /// The files a refusal is to name.
+    files: Vec<String>,
 }
 
 /// A scenario that failed midway still stops what it started, so the next finds its ports free.
@@ -286,6 +288,8 @@ fn storage_fails(w: &mut Steps) -> TestResult {
 #[then("the supervisor stops the frontend and compute and exits with code 74")]
 fn stopped_on_74(w: &mut Steps) -> TestResult {
     exit_is(w.exited, &w.log, 74)?;
+    // The process that ended was reaped, so its ID may be another's by now: it is sent no signal.
+    assert!(!w.log.contains("a signal found no process"), "{}", w.log);
     in_order(
         &w.log,
         &[
@@ -412,10 +416,14 @@ fn stopped_on_0(w: &mut Steps) -> TestResult {
 #[when("the supervisor receives SIGTERM while the frontend waits for its partition")]
 fn terminated_in_the_start(w: &mut Steps) -> TestResult {
     write_profile(w)?;
-    // Storage holds a secret of its own, which the frontend refuses, so the start waits on it until its deadline.
-    let settings = w.root.join("profile").join("storage.toml");
+    // The frontend refuses every Lease of storage's block size, so storage leases nothing and the start waits on it until its
+    // deadline.
+    let settings = w.root.join("profile").join("frontend.toml");
     let text = std::fs::read_to_string(&settings)?;
-    std::fs::write(&settings, text.replace("role.secret", "other.secret"))?;
+    std::fs::write(
+        &settings,
+        text.replace("[metadata]\n", "[metadata]\nblock_size_max = 1\n"),
+    )?;
     start_supervisor(w, on_profile(w))?;
     until_answering(FRONTEND_OBSERVABILITY, "/health")?;
     until_answering(STORAGE_OBSERVABILITY, "/health")?;
@@ -669,6 +677,43 @@ fn broken_file(w: &mut Steps) -> TestResult {
 fn names_data_dir(w: &mut Steps) -> TestResult {
     exit_is(w.exited, &w.log, 78)?;
     assert!(w.log.contains("storage.data_dir"), "{}", w.log);
+    assert!(!w.log.contains("started instance=frontend"), "{}", w.log);
+    Ok(())
+}
+
+#[when(
+    "the supervisor starts on a target whose storage file names another `role_secret_file` than its frontend's"
+)]
+fn two_role_secrets(w: &mut Steps) -> TestResult {
+    write_profile(w)?;
+    let settings = w.root.join("profile").join("storage.toml");
+    let text = std::fs::read_to_string(&settings)?;
+    let named = text
+        .lines()
+        .find(|line| line.starts_with("role_secret_file"))
+        .context("storage's role secret file")?
+        .to_string();
+    let other = named.replacen("role.secret", "role-secret", 1);
+    std::fs::write(&settings, text.replacen(&named, &other, 1))?;
+    w.files = vec![
+        quoted(&named).context("the frontend's file")?,
+        quoted(&other).context("storage's file")?,
+    ];
+    start_supervisor(w, on_profile(w))?;
+    until_exit(w)
+}
+
+/// The quoted value of a setting's line.
+fn quoted(line: &str) -> Option<String> {
+    line.split('"').nth(1).map(str::to_string)
+}
+
+#[then("it exits with code 78, the error naming both files, and started no role")]
+fn names_both_secrets(w: &mut Steps) -> TestResult {
+    exit_is(w.exited, &w.log, 78)?;
+    for file in &w.files {
+        assert!(w.log.contains(file.as_str()), "{file}: {}", w.log);
+    }
     assert!(!w.log.contains("started instance=frontend"), "{}", w.log);
     Ok(())
 }

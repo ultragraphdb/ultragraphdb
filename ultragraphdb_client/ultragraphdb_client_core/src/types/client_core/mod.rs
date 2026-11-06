@@ -8,7 +8,9 @@ mod client_core_receive;
 mod client_core_requests;
 mod client_core_results;
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
 
 use ultragraphdb_core_ids::SessionToken;
@@ -25,11 +27,12 @@ use crate::types::pending::Pending;
 use crate::types::pending_state::PendingState;
 use crate::types::reply::Reply;
 use crate::types::resend::Resend;
+use crate::types::result_stream::handle_held;
 use crate::types::session::Session;
 use crate::types::session_state::SessionState;
 use crate::types::stream_state::StreamState;
 
-/// The least a read's timeout runs, the default `scan_stall_ms`: a hung compute process is answered with code 17 by the
+/// The least a read's timeout runs, the most `scan_stall_ms` holds: a hung compute process is answered with code 17 by the
 /// deadline plus that (`PROTOCOL.md` §11.11), so the server speaks first.
 const READ_TIMEOUT_MIN: Duration = Duration::from_secs(30);
 
@@ -77,12 +80,12 @@ pub struct ClientCore<L: Login> {
     generation: u64,
     next_stream: u64,
     streams: BTreeMap<u64, StreamState>,
-    done_reads: BTreeSet<u64>,
-    /// The reads cut short by a lost connection, by generation and stream, each with what its requests answered.
-    lost_reads: BTreeMap<(u64, u64), ClientError>,
+    /// The reads cut short by a lost connection, by generation and stream, each with what its requests answered, until its
+    /// handle reads that or is dropped.
+    lost_reads: BTreeMap<(u64, u64), (Arc<AtomicBool>, ClientError)>,
     /// The reads whose last frame had arrived when their connection was lost, by generation and stream: read on to
-    /// their end.
-    kept_reads: BTreeMap<(u64, u64), VecDeque<ReceivedFrame>>,
+    /// their end, or let go once their handle is dropped.
+    kept_reads: BTreeMap<(u64, u64), (Arc<AtomicBool>, VecDeque<ReceivedFrame>)>,
     pending: BTreeMap<u64, PendingState>,
     next_pending: u64,
     sessions: BTreeMap<u128, SessionState>,
@@ -109,7 +112,6 @@ impl<L: Login> ClientCore<L> {
             generation: 0,
             next_stream: 1,
             streams: BTreeMap::new(),
-            done_reads: BTreeSet::new(),
             lost_reads: BTreeMap::new(),
             kept_reads: BTreeMap::new(),
             pending: BTreeMap::new(),
@@ -141,7 +143,6 @@ impl<L: Login> ClientCore<L> {
         self.generation += 1;
         self.next_stream = 1;
         self.sent = 0;
-        self.done_reads.clear();
         self.clock = Some((now, unix_micros));
         self.outbox.push_back(hello);
         self.link = Link::Handshake(handshake);
@@ -369,14 +370,21 @@ impl<L: Login> ClientCore<L> {
     /// not fit beside what the open reads may hold and the frames kept from a lost connection, one buffer left to read
     /// into. So credit and the buffers agree: every frame the server may send without the caller finds a buffer, and a
     /// read not yet polled never takes the one a reply needs.
-    fn reserve_buffers(&self, more: u32) -> Result<(), ClientError> {
+    fn reserve_buffers(&mut self, more: u32) -> Result<(), ClientError> {
+        self.forget_dropped_reads();
         let open: usize = self.streams.values().map(|s| s.buffers as usize).sum();
-        let kept: usize = self.kept_reads.values().map(VecDeque::len).sum();
+        let kept: usize = self.kept_reads.values().map(|(_, inbox)| inbox.len()).sum();
         let room = self.config.buffers().saturating_sub(1);
         if open.saturating_add(kept).saturating_add(more as usize) > room {
             return Err(ClientError::buffer_limit(self.config.buffers()));
         }
         Ok(())
+    }
+
+    /// What a lost connection kept of each read whose handle is gone, which nothing can ask for now.
+    fn forget_dropped_reads(&mut self) {
+        self.lost_reads.retain(|_, (handle, _)| handle_held(handle));
+        self.kept_reads.retain(|_, (handle, _)| handle_held(handle));
     }
 
     /// The reads of the transaction of `stream` end with it.
@@ -433,8 +441,11 @@ impl<L: Login> ClientCore<L> {
     /// A session the application kept from an earlier client, identified by `number`, its next request `next_request`.
     /// Refused as [`ClientError::request`] for a session of `number` 0, which names none, or a request of 0, which a session
     /// cannot send (`PROTOCOL.md` §6.3), and for a session this client holds with a request in flight or in doubt, which
-    /// the number would overwrite. A stale number is accepted here: a partition refuses it with code 13, and the session's
-    /// counter moves above that refusal's `detail`.
+    /// the number would overwrite. `next_request` is one above the session's last committed request (`PROTOCOL.md` §11.5),
+    /// and the client cannot check it: a number below a partition's last is refused there with code 13, and the session's
+    /// counter moves above that refusal's `detail`; a one-frame write or Drop numbered at the last committed request is answered
+    /// with that request's stored reply (§6.6), which reads as this request's success. An application saves the number after
+    /// a request before it sends that request, so a crash between the two leaves a number above the last.
     pub fn resume_session(
         &mut self,
         number: u128,
@@ -499,14 +510,18 @@ impl<L: Login> ClientCore<L> {
             if !state.results {
                 continue;
             }
-            if state.ended() {
-                let _replaced: Option<VecDeque<ReceivedFrame>> =
-                    self.kept_reads.insert((generation, id), state.inbox);
+            let ended = state.ended();
+            let Some(handle) = state.handle.filter(handle_held) else {
+                continue;
+            };
+            let key = (generation, id);
+            if ended {
+                let _replaced = self.kept_reads.insert(key, (handle, state.inbox));
             } else {
-                let _replaced: Option<ClientError> =
-                    self.lost_reads.insert((generation, id), reason.clone());
+                let _replaced = self.lost_reads.insert(key, (handle, reason.clone()));
             }
         }
+        self.forget_dropped_reads();
         self.outbox.clear();
         let attempts = self.config.commit_attempts();
         let sent_frames = self.sent;

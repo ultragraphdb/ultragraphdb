@@ -3,17 +3,27 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
 /// The result of a Read or an Execute, arriving as Result frames on its transaction's stream, the last flagged; read
-/// batch by batch through [`crate::ClientCore::next_batch`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// batch by batch through [`crate::ClientCore::next_batch`]. The handle holds what the core need not: that its read was read
+/// to its end, and, by being held, that what a lost connection kept for the read may still be asked for. Its clones are one
+/// handle.
+#[derive(Debug, Clone)]
 pub struct ResultStream {
     stream: u64,
     generation: u64,
+    read_to_end: Arc<AtomicBool>,
 }
 
 impl ResultStream {
     pub(crate) fn new(stream: u64, generation: u64) -> Self {
-        Self { stream, generation }
+        Self {
+            stream,
+            generation,
+            read_to_end: Arc::new(AtomicBool::new(false)),
+        }
     }
 
     /// The stream the results arrive on.
@@ -25,4 +35,32 @@ impl ResultStream {
     pub(crate) fn generation(&self) -> u64 {
         self.generation
     }
+
+    /// What the core keeps of the handle: [`handle_held`] of it says whether the handle is still held.
+    pub(crate) fn tracker(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.read_to_end)
+    }
+
+    /// Notes that the read was read to its end.
+    pub(crate) fn mark_read_to_end(&self) {
+        self.read_to_end.store(true, Ordering::Relaxed);
+    }
+
+    /// Whether the read was read to its end.
+    pub(crate) fn is_read_to_end(&self) -> bool {
+        self.read_to_end.load(Ordering::Relaxed)
+    }
+}
+
+impl PartialEq for ResultStream {
+    fn eq(&self, other: &Self) -> bool {
+        (self.stream, self.generation) == (other.stream, other.generation)
+    }
+}
+
+impl Eq for ResultStream {}
+
+/// Whether a handle `tracker` came from, or a clone of it, is still held: the core's own reference aside.
+pub(crate) fn handle_held(tracker: &Arc<AtomicBool>) -> bool {
+    Arc::strong_count(tracker) > 1
 }

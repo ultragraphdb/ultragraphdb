@@ -428,15 +428,10 @@ impl<A: Authenticator> ServerConnection<A> {
         );
     }
 
-    /// A request on `stream`, by the stream rules of `PROTOCOL.md` §11.2.
+    /// A request on `stream`, by the endpoint's rule of `PROTOCOL.md` §2.5 step 3, then the stream rules of §11.2.
     fn request(&mut self, stream: u64, view: &FrameView<'_>) -> Result<Inbound, TransportError> {
         let command = view.command();
         let open = self.outbound.is_open(stream);
-        // A frame on a number the connection has opened, on a stream no longer open, crossed that stream's end.
-        if !open && stream <= self.highest_stream {
-            return Ok(Inbound::Handled);
-        }
-        self.highest_stream = self.highest_stream.max(stream);
         let kind = if self.endpoint.only_bound(command) {
             RequestKind::InTransaction
         } else {
@@ -448,6 +443,16 @@ impl<A: Authenticator> ServerConnection<A> {
         );
         if endpoints_rule && !self.endpoint.serves(command) {
             return self.refuse_connection(&ProtocolError::command_not_served(command.number()));
+        }
+        let opens = !matches!(kind, RequestKind::Credit | RequestKind::Cancel);
+        // A frame the endpoint takes, on a number the connection has opened and on a stream no longer open, crossed that
+        // stream's end; one no client sends closes the connection whatever its stream.
+        if !open && stream <= self.highest_stream && kind != RequestKind::Unexpected {
+            return Ok(Inbound::Handled);
+        }
+        // A Credit or a Cancel opens no stream, so it leaves the highest number the connection opened.
+        if opens {
+            self.highest_stream = self.highest_stream.max(stream);
         }
         self.request_of(kind, stream, view, open)
     }

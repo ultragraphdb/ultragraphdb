@@ -4,12 +4,12 @@
  */
 
 mod compute_core_lookups;
+mod dial_under_way;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::rc::Rc;
-use std::time::Duration;
 
 use futures::channel::oneshot;
 use ultragraphdb_cluster_placement::{NodeId, PlacementMap};
@@ -20,43 +20,11 @@ use ultragraphdb_protocol_wire::{
     BodyView, ErrorReply, Members, MembersView, Placement, PlacementView, RoleKind,
 };
 
+use self::dial_under_way::DialUnderWay;
 use crate::types::link::Link;
+use crate::types::read_times::ReadTimes;
 use crate::utils::bounded::bounded;
 use crate::utils::refusals::unavailable;
-
-/// The times a read keeps its versions by.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ReadTimes {
-    scan_stall: Duration,
-    read_retain: Duration,
-}
-
-impl ReadTimes {
-    /// `storage.scan_stall_ms` and `storage.read_retain_ms`.
-    #[must_use]
-    pub fn new(scan_stall: Duration, read_retain: Duration) -> Self {
-        Self {
-            scan_stall,
-            read_retain,
-        }
-    }
-
-    /// How long after a read begins it starts holding its versions, well within what a partition retains between Scans.
-    pub(crate) fn pin_after(&self) -> Duration {
-        self.read_retain / 4
-    }
-
-    /// How often a held version's Scan takes a frame, well within what a partition waits on a stream.
-    pub(crate) fn pin_every(&self) -> Duration {
-        self.scan_stall / 3
-    }
-
-    /// How long a peer may leave compute's request unanswered past any deadline the request names: twice `scan_stall_ms`, since a
-    /// partition refuses a Scan with no frame able to leave once that has passed. A peer silent past it is hung.
-    pub(crate) fn answer_wait(&self) -> Duration {
-        self.scan_stall.saturating_mul(2)
-    }
-}
 
 /// Who else waits on a partition's dial under way.
 type DialWaiters = Vec<oneshot::Sender<Result<Rc<Link>, ErrorReply>>>;
@@ -73,18 +41,6 @@ pub struct ComputeCore {
     addresses: RefCell<HashMap<u32, Address>>,
     links: RefCell<HashMap<u32, Rc<Link>>>,
     dialling: RefCell<HashMap<u32, DialWaiters>>,
-}
-
-/// A dial under way: dropped, whoever waits on it dials for itself.
-struct DialUnderWay<'a> {
-    core: &'a ComputeCore,
-    partition: u32,
-}
-
-impl Drop for DialUnderWay<'_> {
-    fn drop(&mut self) {
-        drop(self.core.dialling.borrow_mut().remove(&self.partition));
-    }
 }
 
 impl ComputeCore {

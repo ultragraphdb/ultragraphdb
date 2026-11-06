@@ -18,6 +18,7 @@ use std::net::IpAddr;
 use std::time::Instant;
 
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
+use ultragraphdb_common_role::OpenFrame;
 use ultragraphdb_protocol_wire::{
     BodyBuilder, Command, ErrorReply, FLAG_LAST, Header, HeaderView, MAX_FRAME_FLOOR,
     StatementCache,
@@ -25,12 +26,14 @@ use ultragraphdb_protocol_wire::{
 
 use crate::traits::authorizer::Authorizer;
 use crate::types::asked_credentials::AskedCredentials;
+use crate::types::claim::Claim;
 use crate::types::client_read::ClientRead;
-use crate::types::client_transaction::{Claim, ClientTransaction};
+use crate::types::client_transaction::ClientTransaction;
 use crate::types::endpoint_core::EndpointCore;
 use crate::types::owner_handle::DropStep;
-use crate::types::role_link::{RoleLink, RouteSink};
+use crate::types::role_link::RoleLink;
 use crate::types::route_key::RouteKey;
+use crate::types::route_sink::RouteSink;
 use crate::types::session_event::SessionEvent;
 
 /// A DirectWrite or a ConditionalWrite on its way to its partition.
@@ -99,6 +102,8 @@ pub struct ClientSession<A> {
     events_in: UnboundedSender<SessionEvent>,
     events: UnboundedReceiver<SessionEvent>,
     out: VecDeque<(u64, Vec<u8>)>,
+    /// What it holds of the endpoint's open requests: one for each request relayed and not yet answered, and each frame queued.
+    counted: Vec<OpenFrame>,
 }
 
 impl<A: Authorizer + Clone> ClientSession<A> {
@@ -124,7 +129,29 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             events_in,
             events,
             out: VecDeque::new(),
+            counted: Vec::new(),
         }
+    }
+
+    /// Counts in the endpoint's open requests, which a stop waits on, what this connection took and has not yet answered on the
+    /// wire: each read, one-frame write, Drop and retried Commit, each transaction whose Commit it took, and each frame queued.
+    /// A frame [`ultragraphdb_common_role::Session::next_push`] hands out stays counted until the next call, after its flush.
+    fn recount(&mut self) {
+        let open = self.reads.len()
+            + self.one_frames.len()
+            + self.drops.len()
+            + self.recalls.len()
+            + self
+                .transactions
+                .values()
+                .filter(|txn| txn.commit_taken())
+                .count()
+            + self.out.len();
+        self.counted.truncate(open);
+        let more = open.saturating_sub(self.counted.len());
+        let core = &self.core;
+        self.counted
+            .extend(std::iter::repeat_with(|| core.open().enter()).take(more));
     }
 
     fn cluster(&self) -> u64 {

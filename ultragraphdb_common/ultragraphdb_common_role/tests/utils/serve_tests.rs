@@ -21,9 +21,9 @@ use ultragraphdb_protocol_transport::{
     Address, Endpoint, ReceivedFrame, TransportError, TransportErrorEnum,
 };
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, BodyView, Command, Credit, DEFAULT_INITIAL_CREDIT, Entries, EntriesEnd,
-    EntriesView, ErrorCode, ErrorReply, FLAG_LAST, Header, Held, Join, MAX_FRAME_FLOOR, Members,
-    Scan, ScanAt, ScanRange,
+    BodyBuilder, BodyView, CloseRequest, Command, Credit, DEFAULT_INITIAL_CREDIT, Entries,
+    EntriesEnd, EntriesView, ErrorCode, ErrorReply, FLAG_LAST, Header, Held, Join, MAX_FRAME_FLOOR,
+    Members, Scan, ScanAt, ScanRange,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -277,6 +277,23 @@ fn test_a_reply_its_request_does_not_list_is_refused() -> TestResult {
             TransportErrorEnum::Protocol {
                 error: ProtocolError::command_not_served(Command::Held.number())
             }
+        );
+        Ok(())
+    })
+}
+
+/// A CloseRequest's stream ends with it, a refusal included (`PROTOCOL.md` §13.16): the refusal is dropped, so the reply
+/// read next is the next request's.
+#[test]
+fn test_a_refused_close_request_is_answered_by_nothing() -> TestResult {
+    Runtime::new()?.block_on(async {
+        let address = serving(&free_tcp()?, Endpoint::Frontend).await?;
+        let mut client = RoleClient::dial(&address, CLUSTER, "storage", PASSWORD).await?;
+        client.send_only(&CloseRequest::new(1, 1)).await?;
+        let reply = client.request(&Members::new()).await?;
+        assert_eq!(
+            (reply.command(), reply.stream()),
+            (Command::Members.number(), 2)
         );
         Ok(())
     })

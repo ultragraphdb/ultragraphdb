@@ -138,10 +138,7 @@ impl TestServer {
 
     /// A DirectWrite `view` on `stream`, refused with Error 1 when it breaks a rule, as a declaration in it does.
     fn direct_write(&mut self, stream: u64, view: &FrameView<'_>) {
-        match DirectWriteView::from_frame(view).and_then(|write| {
-            write.check_from_client()?;
-            Ok(write)
-        }) {
+        match DirectWriteView::from_client_frame(view) {
             Ok(write) => {
                 let session = u128::from_be_bytes(write.session());
                 self.one_frame(stream, session, write.request(), 0);
@@ -152,10 +149,7 @@ impl TestServer {
 
     /// A ConditionalWrite `view` on `stream`, each operation answered with the node it created.
     fn conditional_write(&mut self, stream: u64, view: &FrameView<'_>) {
-        match ConditionalWriteView::from_frame(view).and_then(|write| {
-            write.check_from_client()?;
-            Ok(write)
-        }) {
+        match ConditionalWriteView::from_client_frame(view) {
             Ok(write) => {
                 let session = u128::from_be_bytes(write.session());
                 let operations = u32::try_from(write.operation_count()).unwrap_or(u32::MAX);

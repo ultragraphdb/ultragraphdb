@@ -256,13 +256,13 @@ fn span_after_cancel(w: &mut Steps) -> TestResult {
         let mut client = compute_client(scene.info).await?;
         client.send_only(&read).await?;
         let stream = client.last_stream();
-        until(|| log.scans().len() >= 2).await;
+        until("two Scans seen", || log.scans().len() >= 2).await?;
         assert_eq!(log.scans().len(), 2, "the list's Scan held");
         // The Cancel a Commit sends; compute's own Cancel of its Scan then follows the Scan held on the same connection.
         client.send_on(stream, &Cancel).await?;
         log.go_on();
         // The partition reads its connection's frames in order, so the Scan has run once compute's Cancel has gone on after it.
-        until(|| log.cancels() >= 1).await;
+        until("a Cancel seen", || log.cancels() >= 1).await?;
         assert_eq!(log.cancels(), 1, "compute's Cancel of its Scan");
         scene
             .commit(1, &insert_of(None, &a, KNOWS, &iri(&b))?)

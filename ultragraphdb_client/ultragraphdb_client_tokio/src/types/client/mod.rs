@@ -130,6 +130,9 @@ pub struct Client<C: Connect, L: Login> {
     stream: Option<C::Stream>,
     /// The frame being read, in its buffer, its bytes taken out to be read into.
     incoming: Option<(PooledBuffer, Vec<u8>)>,
+    /// The frame being written, and how many of its bytes have left: a write cut at any `.await` goes on from there, so no
+    /// other frame follows a part of one.
+    outgoing: Option<(Vec<u8>, usize)>,
     failure: Option<ClientError>,
 }
 
@@ -148,6 +151,7 @@ impl<C: Connect, L: Login> Client<C, L> {
             framer,
             stream: None,
             incoming: None,
+            outgoing: None,
             failure: None,
         }
     }
@@ -190,6 +194,7 @@ impl<C: Connect, L: Login> Client<C, L> {
         };
         self.stream = Some(stream);
         discard(&mut self.incoming);
+        self.outgoing = None;
         self.framer = Framer::new(self.core.config().cluster(), MAX_FRAME_SIZE);
         self.core.connect(now(), unix_micros())
     }
@@ -197,33 +202,85 @@ impl<C: Connect, L: Login> Client<C, L> {
     /// Shuts the connection down, if any.
     async fn shut(&mut self) {
         discard(&mut self.incoming);
+        self.outgoing = None;
         if let Some(mut stream) = self.stream.take() {
             // The connection is given up, so a failed shutdown, or one the peer does not take within the timeout, is dropped.
             drop(tokio::time::timeout(self.core.config().timeout(), stream.shutdown()).await);
         }
     }
 
-    /// Writes every frame the core queued, each within the timeout; a failure is the connection's, and the shell's answer
-    /// when nothing else is. A peer that takes no frame within the timeout has stopped reading, and the write times out.
+    /// Writes the frame cut short, if any, then every frame the core queued, each within the timeout; a failure is the
+    /// connection's, and the shell's answer when nothing else is. A peer that takes no frame within the timeout has stopped
+    /// reading, and the write times out. Each write counts the bytes that left, so a future dropped mid-frame leaves the
+    /// rest for the next call.
     async fn flush(&mut self) {
         let timeout = self.core.config().timeout();
-        while let Some(frame) = self.core.transmit() {
-            let Some(stream) = self.stream.as_mut() else {
+        // Ends: each turn writes one frame whole, or gives the connection up, and the core's queue is finite.
+        loop {
+            if self.outgoing.is_none() {
+                let Some(frame) = self.core.transmit() else {
+                    return;
+                };
+                self.outgoing = Some((frame, 0));
+            }
+            let (Some(stream), Some((frame, at))) = (self.stream.as_mut(), self.outgoing.as_mut())
+            else {
                 return;
             };
             let writing = async {
-                stream.write_all(&frame).await?;
+                // Ends: each turn writes at least one byte, or fails.
+                while let Some(rest) = frame.get(*at..).filter(|rest| !rest.is_empty()) {
+                    let wrote = stream.write(rest).await?;
+                    if wrote == 0 {
+                        return Err(std::io::ErrorKind::WriteZero.into());
+                    }
+                    *at += wrote;
+                }
                 stream.flush().await
             };
             let written = tokio::time::timeout(timeout, writing)
                 .await
                 .unwrap_or_else(|_| Err(std::io::ErrorKind::TimedOut.into()));
+            self.outgoing = None;
             if let Err(error) = written {
                 let error = TransportError::io(&error);
                 self.core.disconnected(error.clone(), now());
                 self.failure = Some(ClientError::transport(error));
                 self.stream = None;
                 return;
+            }
+        }
+    }
+
+    /// Hands the core `frame`, read on the connection.
+    fn take_frame(&mut self, frame: ReceivedFrame) {
+        if let Err(error) = self.core.receive(frame, now()) {
+            self.failure = Some(error);
+        }
+        if let Some(welcome) = self.core.welcome() {
+            self.framer.set_protocol(welcome.protocol());
+        }
+    }
+
+    /// The frames that have already arrived, read before a deadline that passed while no call drove the connection is
+    /// taken, so a read whose frame waits in the socket is not taken for a silent one; at most the pool's buffers, so a
+    /// deadline due is not put off by frames that keep coming.
+    async fn take_arrived(&mut self) {
+        for _ in 0..self.core.config().buffers() {
+            let Some(stream) = self.stream.as_mut() else {
+                return;
+            };
+            let read = read_frame(stream, &mut self.framer, &self.pool, &mut self.incoming);
+            // A timeout of no time polls the read once: a frame already in the socket is read, a frame in part stays.
+            match tokio::time::timeout(std::time::Duration::ZERO, read).await {
+                Ok(Ok(frame)) => self.take_frame(frame),
+                Ok(Err(error)) => {
+                    self.core.disconnected(error.clone(), now());
+                    self.failure = Some(ClientError::transport(error));
+                    self.stream = None;
+                    return;
+                }
+                Err(_) => return,
             }
         }
     }
@@ -280,17 +337,12 @@ impl<C: Connect, L: Login> Client<C, L> {
             let read = read_frame(stream, &mut self.framer, &self.pool, &mut self.incoming);
             match tokio::time::timeout_at(deadline.into(), read).await {
                 Ok(Ok(frame)) => {
-                    if let Err(error) = self.core.receive(frame, now()) {
-                        self.failure = Some(error);
-                    }
-                    if let Some(welcome) = self.core.welcome() {
-                        self.framer.set_protocol(welcome.protocol());
-                    }
-                    // A deadline passed by the time the frame was read is taken once it is: a resend or a renewal due goes
-                    // out, and a timeout counts from the frame's progress.
-                    let read_at = now();
-                    if self.core.next_deadline().is_some_and(|due| due <= read_at) {
-                        self.core.handle_timeout(read_at);
+                    self.take_frame(frame);
+                    // A deadline passed by the time the frame was read is taken once the frames already arrived are: a resend
+                    // or a renewal due goes out, and a timeout counts from the frames' progress.
+                    if self.core.next_deadline().is_some_and(|due| due <= now()) {
+                        self.take_arrived().await;
+                        self.core.handle_timeout(now());
                         if !self.core.is_connected() {
                             self.shut().await;
                         }

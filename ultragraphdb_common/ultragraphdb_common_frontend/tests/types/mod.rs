@@ -10,4 +10,6 @@ mod client_session_tests;
 mod membership_tests;
 #[cfg(test)]
 mod owner_tests;
+#[cfg(test)]
+mod role_session_tests;
 mod tenant_gate_tests;

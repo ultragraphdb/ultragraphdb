@@ -140,7 +140,7 @@ fn test_every_request_the_client_sends_is_its_golden_frame() -> TestResult {
     check(&mut h, "read", stream.stream())?;
     h.core.grant(&stream, frames(2)?, h.now)?;
     check(&mut h, "credit", stream.stream())?;
-    h.core.cancel(stream);
+    h.core.cancel(stream.clone());
     check(&mut h, "cancel", stream.stream())?;
     prepare_describe_execute(&mut h, &reader)?;
     assert_eq!(sent.len(), 8);

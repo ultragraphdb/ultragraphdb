@@ -550,18 +550,33 @@ fn test_the_checks_run_in_the_protocols_order() -> TestResult {
     Ok(())
 }
 
-/// The relayed frame differs from the client's by the principal alone; only the client endpoint holds it to 0.
+/// The relayed frame differs from the client's by the principal alone; only the client endpoint holds it to 0, after the
+/// token and before the sections (`PROTOCOL.md` §6.6).
 #[test]
 fn test_a_principal_is_read_and_refused_from_a_client() -> TestResult {
     let sent = golden_bytes()?;
-    let sent_view = DirectWriteView::from_frame(&frame_of(&sent)?)?;
+    let sent_view = DirectWriteView::from_client_frame(&frame_of(&sent)?)?;
     assert_eq!(sent_view.principal(), 0);
-    sent_view.check_from_client()?;
     let relayed = with_command_header(&sent, |h| put(h, 56, 9, 8));
     let view = DirectWriteView::from_frame(&frame_of(&relayed)?)?;
     assert_eq!(view.principal(), 9);
     assert_eq!(
-        view.check_from_client().err().context("a refusal")?.0,
+        DirectWriteView::from_client_frame(&frame_of(&relayed)?)
+            .err()
+            .context("a refusal")?
+            .0,
+        field_value("principal", 9)
+    );
+    let short_ends = with_section(&relayed, 6, 4, |ends| ends.extend_from_slice(&[0; 3]));
+    assert!(
+        DirectWriteView::from_frame(&frame_of(&short_ends)?).is_err(),
+        "section 4 breaks a rule"
+    );
+    assert_eq!(
+        DirectWriteView::from_client_frame(&frame_of(&short_ends)?)
+            .err()
+            .context("a refusal")?
+            .0,
         field_value("principal", 9)
     );
     assert_eq!(view.to_body()?.principal(), 9);

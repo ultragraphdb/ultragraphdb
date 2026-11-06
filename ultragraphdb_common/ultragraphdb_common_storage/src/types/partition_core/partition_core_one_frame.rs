@@ -107,8 +107,10 @@ impl PartitionCore<'_> {
             return built(&reply, last(self.cluster, key.1, Command::Commit)).map(Started::Stored);
         }
         self.bind_one_frame(key, one)?;
+        // A run refused after its execution opened ends it, so nothing stays held for a frame already answered.
         self.step_one_frame(key, one, OneFrameAt::Changes)
             .map(Started::Step)
+            .inspect_err(|_| self.host.abort_bound(key))
     }
 
     /// Opens the execution a run holds, at the watermark, and checks what a request named direct may not hold.

@@ -31,6 +31,9 @@ pub const PLAYED_FRONTEND_ADDRESS: &str = "127.0.0.1:17095";
 /// The close it delivers first: a subscriber holding none expects close 1.
 pub const OUT_OF_ORDER_EPOCH: u64 = 5;
 
+/// What it says ending a subscription.
+pub const TRIMMED: &str = "the close after 0 is no longer held";
+
 /// The sequence the next lease starts at, so no two connections' blocks overlap.
 static NEXT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
@@ -38,9 +41,11 @@ static NEXT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 const POLL: Duration = Duration::from_millis(20);
 
 /// One connection at the played frontend.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct PlayedFrontend {
     subscribed: Option<u64>,
+    /// Whether a subscription is ended with the refusal of a close no longer held, in place of a close.
+    ending: bool,
 }
 
 /// `body` as the reply on `stream`.
@@ -125,8 +130,16 @@ impl Session for PlayedFrontend {
         let Some(stream) = self.subscribed.take() else {
             return std::future::pending().await;
         };
-        let close = EpochClose::new(OUT_OF_ORDER_EPOCH, 1)
-            .frame(Header::new(CLUSTER, Command::EpochClose).with_stream(stream));
+        let close = if self.ending {
+            ErrorReply::new(ErrorCode::Protocol, TRIMMED).frame(
+                Header::new(CLUSTER, Command::Error)
+                    .with_stream(stream)
+                    .with_flags(FLAG_LAST),
+            )
+        } else {
+            EpochClose::new(OUT_OF_ORDER_EPOCH, 1)
+                .frame(Header::new(CLUSTER, Command::EpochClose).with_stream(stream))
+        };
         match close {
             Ok(frame) => (stream, frame),
             Err(_) => std::future::pending().await,
@@ -134,8 +147,8 @@ impl Session for PlayedFrontend {
     }
 }
 
-/// Plays a frontend on this runtime.
-pub async fn play_frontend() -> TestResult {
+/// Plays a frontend on this runtime, its subscriptions delivering a close out of order, or with `ending` ended by a refusal.
+pub async fn play_frontend(ending: bool) -> TestResult {
     let file = std::env::temp_dir().join(format!("played-frontend-{}", std::process::id()));
     std::fs::write(&file, SECRET)?;
     let held: RoleCredentials = RoleSecret::read(&file.display().to_string())?.credentials()?;
@@ -146,7 +159,11 @@ pub async fn play_frontend() -> TestResult {
         while let Ok(carrier) = listener.accept().await {
             let (server, held) = (server.clone(), held.clone());
             spawn(async move {
-                serve_connection(carrier, &server, held, PlayedFrontend::default()).await;
+                let session = PlayedFrontend {
+                    subscribed: None,
+                    ending,
+                };
+                serve_connection(carrier, &server, held, session).await;
             })
             .detach();
         }

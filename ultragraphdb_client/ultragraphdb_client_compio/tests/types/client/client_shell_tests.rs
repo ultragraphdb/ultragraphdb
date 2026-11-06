@@ -661,3 +661,159 @@ fn test_a_write_the_peer_never_takes_times_out() -> TestResult {
     })?;
     Ok(())
 }
+
+/// A stream over the simulated network whose writes, once `allowance` is set, take that many bytes more and then nothing
+/// until it is cleared: a send buffer that fills in the middle of a frame.
+#[derive(Debug)]
+struct Trickling {
+    inner: ultragraphdb_protocol_transport_compio::CompioSimStream,
+    allowance: Rc<std::cell::Cell<Option<usize>>>,
+}
+
+impl compio::io::AsyncRead for Trickling {
+    async fn read<B: compio::buf::IoBufMut>(&mut self, buf: B) -> compio::BufResult<usize, B> {
+        self.inner.read(buf).await
+    }
+}
+
+impl compio::io::AsyncWrite for Trickling {
+    async fn write<T: compio::buf::IoBuf>(&mut self, buf: T) -> compio::BufResult<usize, T> {
+        // Ends: the test clears the allowance within its own bound.
+        while self.allowance.get() == Some(0) {
+            compio::time::sleep(Duration::from_millis(1)).await;
+        }
+        let Some(left) = self.allowance.get() else {
+            return self.inner.write(buf).await;
+        };
+        let part = left.min(compio::buf::IoBuf::buf_len(&buf));
+        let compio::BufResult(wrote, cut) = self
+            .inner
+            .write(compio::buf::IoBuf::slice(buf, ..part))
+            .await;
+        if let Ok(wrote) = &wrote {
+            self.allowance.set(Some(left.saturating_sub(*wrote)));
+        }
+        compio::BufResult(wrote, compio::buf::IntoInner::into_inner(cut))
+    }
+
+    async fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush().await
+    }
+
+    async fn shutdown(&mut self) -> io::Result<()> {
+        self.inner.shutdown().await
+    }
+}
+
+impl compio::io::util::Splittable for Trickling {
+    type ReadHalf = Self;
+    type WriteHalf = Self;
+
+    fn split(self) -> (Self, Self) {
+        let (read, write) = self.inner.split();
+        let allowance = Rc::clone(&self.allowance);
+        (
+            Self {
+                inner: read,
+                allowance: Rc::clone(&allowance),
+            },
+            Self {
+                inner: write,
+                allowance,
+            },
+        )
+    }
+}
+
+/// Connections over the simulated network whose writes trickle as `allowance` says.
+struct TrickleConnect {
+    sim: SimConnect,
+    allowance: Rc<std::cell::Cell<Option<usize>>>,
+}
+
+impl Connect for TrickleConnect {
+    type Stream = Trickling;
+
+    async fn connect(&mut self) -> io::Result<Trickling> {
+        Ok(Trickling {
+            inner: self.sim.connect().await?,
+            allowance: Rc::clone(&self.allowance),
+        })
+    }
+}
+
+/// A caller's future dropped while a frame is half written leaves the rest of it for the next call, so the frame after it
+/// follows it whole and the connection serves both.
+#[test]
+fn test_a_frame_cut_by_a_dropped_future_is_written_whole_by_the_next_call() -> TestResult {
+    let rt = compio::runtime::Runtime::new().context("a runtime")?;
+    let scripted = server();
+    let sim = SimConnect::new(SimNetwork::new(3, NetworkFaults::none()));
+    let accepted = Rc::clone(&sim.accepted);
+    let allowance = Rc::new(std::cell::Cell::new(None));
+    let connector = TrickleConnect {
+        sim,
+        allowance: Rc::clone(&allowance),
+    };
+    rt.block_on(async {
+        let _server = compio::runtime::spawn(serve_sim(Rc::clone(&scripted), accepted));
+        let mut client = Client::new(connector, config(), Anonymous, 8);
+        client.connect().await?;
+        allowance.set(Some(10));
+        let cut = compio::time::timeout(Duration::from_millis(50), client.register()).await;
+        assert!(
+            cut.is_err(),
+            "the Register's frame waits on the full buffer"
+        );
+        allowance.set(None);
+        let registered = compio::time::timeout(Duration::from_secs(5), client.register())
+            .await
+            .map_err(|_| TestError::new("the second Register was not answered within 5 s"))?;
+        let _session = registered?;
+        assert!(client.core().is_ready(), "the connection serves on");
+        Ok::<(), TestError>(())
+    })?;
+    Ok(())
+}
+
+/// A read whose frame waits in the socket behind another read's, while the caller held a batch past the read timeout, is
+/// not taken for a silent one: the frames already arrived are read before the deadline is taken, and both reads read on. Its
+/// 31 s are the floor of the read timeout, on a clock compio does not let a test move.
+#[test]
+fn test_a_read_whose_frame_waits_behind_anothers_is_not_timed_out() -> TestResult {
+    let rt = compio::runtime::Runtime::new().context("a runtime")?;
+    let results = 3;
+    let scripted = Rc::new(std::cell::RefCell::new(server_of(1).with_results(results)));
+    let connector = SimConnect::new(SimNetwork::new(3, NetworkFaults::none()));
+    let accepted = Rc::clone(&connector.accepted);
+    rt.block_on(async {
+        let _server = compio::runtime::spawn(serve_sim(Rc::clone(&scripted), accepted));
+        let mut client = Client::new(connector, config(), Anonymous, 8);
+        let begin = ultragraphdb_protocol_wire::Begin::new(0, 0, true).with_deadline_ms(1);
+        let reader = client.begin_with(begin, None).await?;
+        let first = client.read(&reader, &read(&reader)).await?;
+        // Two batches of the first read, so its credit brings the third ahead of the second read's first.
+        for _ in 0..2 {
+            client
+                .next_batch(&first, |_| ())
+                .await?
+                .context("a batch of the first read")?;
+        }
+        let second = client.read(&reader, &read(&reader)).await?;
+        // The caller holds its batch past the read timeout's floor of 30 s, driving nothing.
+        compio::time::sleep(Duration::from_secs(31)).await;
+        assert_eq!(
+            batches(&mut client, &first).await?,
+            1,
+            "the first read's last"
+        );
+        assert_eq!(
+            batches(&mut client, &second).await?,
+            results as usize,
+            "the second read, its frame read before the deadline was taken"
+        );
+        assert!(client.core().is_ready());
+        Ok::<(), TestError>(())
+    })?;
+    Ok(())
+}

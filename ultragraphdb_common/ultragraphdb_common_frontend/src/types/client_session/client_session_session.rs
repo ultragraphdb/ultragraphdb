@@ -13,7 +13,7 @@ use ultragraphdb_protocol_wire::{ErrorCode, ErrorReply};
 
 use super::{ClientSession, now};
 use crate::traits::authorizer::Authorizer;
-use crate::types::client_transaction::BindState;
+use crate::types::bind_state::BindState;
 use crate::types::commit_hold::CommitHold;
 use crate::types::link_event::LinkEvent;
 use crate::types::route_key::RouteKey;
@@ -86,16 +86,19 @@ impl<A: Authorizer + Clone> Session for ClientSession<A> {
     }
 
     async fn answer(&mut self, stream: u64, frame: ReceivedFrame) -> Answer {
-        match self.request(stream, frame).await {
+        let answer = match self.request(stream, frame).await {
             Ok(answer) => answer,
             Err(refusal) => Answer::Refuse(refusal),
-        }
+        };
+        self.recount();
+        answer
     }
 
     /// Takes what reaches the session from outside, one event at a time, and its timers; a wait dropped for a request that arrived
     /// first loses nothing, since an event is taken whole.
     async fn next_push(&mut self) -> (u64, Vec<u8>) {
         loop {
+            self.recount();
             if let Some(pushed) = self.out.pop_front() {
                 return pushed;
             }

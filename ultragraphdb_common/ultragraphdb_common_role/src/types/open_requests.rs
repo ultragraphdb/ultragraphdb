@@ -42,8 +42,10 @@ impl OpenRequests {
         self.stopping.is_stopping()
     }
 
-    /// Counts one more, until what this returns is dropped.
-    pub(crate) fn enter(&self) -> OpenFrame {
+    /// Counts one more, until what this returns is dropped: a frame a connection has taken, or a request a session has relayed
+    /// and not yet answered.
+    #[must_use]
+    pub fn enter(&self) -> OpenFrame {
         OpenFrame::new(Arc::clone(&self.open))
     }
 }

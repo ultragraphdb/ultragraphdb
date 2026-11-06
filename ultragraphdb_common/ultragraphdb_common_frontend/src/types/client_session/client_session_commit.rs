@@ -13,9 +13,11 @@ use ultragraphdb_protocol_wire::{
 use super::client_session_bind::{command_of, error_of};
 use super::{ClientSession, Recalling};
 use crate::traits::authorizer::Authorizer;
-use crate::types::client_transaction::{BindState, ClientTransaction, Queued};
+use crate::types::bind_state::BindState;
+use crate::types::client_transaction::ClientTransaction;
 use crate::types::commit_hold::CommitHold;
 use crate::types::link_event::LinkEvent;
+use crate::types::queued::Queued;
 use crate::types::route_key::RouteKey;
 use crate::types::session_event::SessionEvent;
 

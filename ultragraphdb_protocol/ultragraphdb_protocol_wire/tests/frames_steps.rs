@@ -164,9 +164,13 @@ fn client_principal(w: &mut Steps) -> TestResult {
     let bytes = golden("direct_write_relayed")?.bytes()?;
     let view = DirectWriteView::from_frame(&frame_of(&bytes)?)?;
     assert_eq!(view.principal(), 9);
-    w.refusals = vec![view.check_from_client().err().context("a refusal")?];
+    w.refusals = vec![
+        DirectWriteView::from_client_frame(&frame_of(&bytes)?)
+            .err()
+            .context("a refusal")?,
+    ];
     let sent = golden("direct_write")?.bytes()?;
-    DirectWriteView::from_frame(&frame_of(&sent)?)?.check_from_client()?;
+    let _sent = DirectWriteView::from_client_frame(&frame_of(&sent)?)?;
     Ok(())
 }
 

@@ -199,7 +199,7 @@ fn test_a_malformed_refusal_of_a_request_closes_the_connection() -> TestResult {
     Ok(())
 }
 
-/// A Drop's reply naming another session than the one it was sent through is no answer of it.
+/// A Drop's reply naming another session than the one it was sent through is no answer of it, which stays in doubt.
 #[test]
 fn test_a_drop_reply_of_another_session_is_a_mismatch() -> TestResult {
     let mut h = Harness::ready(server())?;
@@ -225,7 +225,11 @@ fn test_a_drop_reply_of_another_session_is_a_mismatch() -> TestResult {
     h.deliver(&reply)??;
     assert_eq!(
         h.core.take_reply(p).context("an answer")?,
-        Err(ClientError::reply_mismatch("session", s.number(), other))
+        Err(ClientError::in_doubt(
+            s.number(),
+            1,
+            Some(ClientError::reply_mismatch("session", s.number(), other))
+        ))
     );
     assert_eq!(h.core.next_request(s), Some(1), "no drop was answered");
     Ok(())

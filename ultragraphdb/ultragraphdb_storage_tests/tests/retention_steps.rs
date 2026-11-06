@@ -23,7 +23,7 @@ use crate::scan_ranges_steps::{commit_later, committed_and_closed, scan_at};
 use ultragraphdb_protocol_wire::EntriesSequence;
 
 /// The `read_retain_ms` these scenarios set.
-const RETAIN_MS: u64 = 200;
+pub(crate) const RETAIN_MS: u64 = 200;
 
 /// How long a test waits for the discard version to pass a version, in looks a tenth of the retention apart.
 const LOOKS: u32 = 200;
@@ -50,7 +50,7 @@ async fn read_at(
 }
 
 /// Scans at `version` until a read of it is refused: that refusal.
-async fn refused_once_discarded(
+pub(crate) async fn refused_once_discarded(
     client: &mut RoleClient,
     version: u64,
     epoch: u64,

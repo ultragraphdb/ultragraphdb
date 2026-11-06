@@ -1391,7 +1391,7 @@ fn one_claim_wins(w: &mut Steps) -> TestResult {
 // ---------------------------------------------------------------------------------------------------------------------
 
 #[when(
-    "`friend` has an exact count index, two subjects in partition 1 and one in partition 2 hold `friend` to `<b>`, and a read looks up the objects of reverse count 3"
+    "`friend` has an exact count index, two subjects in partition 1 and one in partition 2 hold `friend` to `<b>`, and compute's API looks up the objects of reverse count 3"
 )]
 fn friends_of_b(w: &mut Steps) -> TestResult {
     let mut cluster = Cluster::even(2)?;

@@ -5,7 +5,7 @@
 Feature: A read through compute is a read of its transaction
 
   Scenario: A read sees its transaction's own write
-    When a transaction writes `<a> <knows> <b>`, and the same transaction reads `<a> <knows> ?o` before committing
+    When a transaction writes `<a> <knows> <b>`, the write is answered, and the same transaction reads `<a> <knows> ?o` before committing
     Then the read returns `<b>`, and a read by any other transaction does not
 
   Scenario: A read sees its transaction's new term and its emptied list

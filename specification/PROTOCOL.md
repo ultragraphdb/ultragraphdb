@@ -188,7 +188,7 @@ A client refusing a frame from the server closes the connection.
 | 3 | Register | both | empty | Register |
 | 4 | Begin | both | empty | Begin, or Error |
 | 5 | Commit | both | sections | Commit, or Error |
-| 6 | Abort | client → server | empty | nothing |
+| 6 | Abort | client → server, and frontend → storage on a Bind stream | empty | nothing |
 | 7 | Read | client → server | sections | Result frames, or Error |
 | 8 | Write | client → server, and frontend → storage on a Bind stream | sections | to a client, nothing, and a refusal is an Error; on a Bind stream, Held, or Error |
 | 9 | Operation | client → server, and frontend → storage on a Bind stream | sections | to a client, nothing, and its result comes with the Commit reply; on a Bind stream, Held, or Error |
@@ -1127,7 +1127,7 @@ Order: unused bytes 2–7 and 16–127 zero; `code`; sections; the term table (1
 | 4 | PastLimit | yes | the limit in milliseconds | The transaction lived past its limit, the Welcome's `transaction_ms`; when a read was holding a write back then, the message names that read's stream and says it had no credit |
 | 5 | Busy | yes | 0 | The commit queue is full; or the partition's epoch is full and its close request has gone unanswered for `close_request_ms`, the sequencer counting as unreachable until the close arrives (section 11.12) |
 | 6 | TooLarge | no | the limit in bytes; for statement IDs, their bound | A write set exceeds the Welcome's `max_write_set`, as sent or as its commit-time operations leave it (section 11.9); a transaction's reads exceed what its read set holds; a write would pass `statements_per_object_max`; a Commit reply's frame would pass the floor of `max_frame` (section 11.9); one entry's first object record or value is too large for an otherwise empty frame (section 13.14); a row or resume key is too large for an otherwise empty Result frame, or an Execute's ComputeRead for a frame (section 13.12); or a Describe's answer does not fit a frame (section 8.3) |
-| 7 | Refused | no | 0; for a term's rule, the term's index; for a declaration, its record's index; for a catalog version past its cap, the cap; for an unknown tenant, the tenant; for a Lease, the maximum; for a Catalog, the version; for a schema rule at commit, the UGS refusal number (`SCHEMA.md` section 8.7) | The catalog refused a write, a term broke the server's rules (section 4.4), or a declaration was refused: a vector index in this stage, a transaction mixing declarations with other changes, a type change the data contradicts, or a catalog version past what one Catalog frame holds, a Commit's or an Install's (sections 8.4, 11.13); a request named a tenant the metadata group does not hold (section 11.10); or a role's request was refused: a Lease past `block_size_max`, a Catalog of a version never held, a CloseRequest past the last epoch; or a schema rule refused the transaction at commit, the message naming the instance and the rule; or the frontend does not serve the command in this stage (section 11.2) |
+| 7 | Refused | no | 0; for a term's rule, the term's index; for a declaration, its record's index; for a catalog version past its cap, the cap; for an unknown tenant, the tenant; for a Lease, the maximum; for a Catalog, the version; for a schema rule at commit, the UGS refusal number (`SCHEMA.md` section 8.7) | The catalog refused a write, a term broke the server's rules (section 4.4), or a declaration was refused: a vector index in this stage, a transaction mixing declarations with other changes, a type change the data contradicts, or a catalog version past what one Catalog frame holds, a Commit's or an Install's (sections 8.4, 11.13); a request named a tenant the metadata group does not hold (section 11.10); or a role's request was refused: a Lease past `block_size_max`, a Catalog of a version never held; or a schema rule refused the transaction at commit, the message naming the instance and the rule; or the frontend does not serve the command in this stage (section 11.2) |
 | 8 | OperationFailed | no | 0 | A compare-and-set did not hold; sections 1 and 2 hold the value found |
 | 9 | StaleStatement | no | the statement | The statement's schema id no longer matches its tenant's |
 | 10 | UnknownStatement | no | the statement | The connection holds no statement of this id in the transaction's tenant: never prepared there, or evicted |
@@ -1420,7 +1420,8 @@ ends the connection: an Error of code 22 (CredentialExpired) on stream 0, then t
 
 A Write, Operation or Abort on a new stream, and a Commit through no session on a new stream, is refused with Error 1
 (Protocol) on that stream, the message naming the command. A Write, Operation or Commit on a read-only transaction's
-stream is refused the same way, ending the transaction. On a role endpoint, a Write, Operation, Commit or Abort on a stream
+stream is refused the same way, ending the transaction. A Write, Operation or Commit on a transaction's stream after its
+Commit is late, and the frontend drops it: the Commit decides the transaction, and its reply ends the stream. On a role endpoint, a Write, Operation, Commit or Abort on a stream
 no Bind of kind 1 opened, and a Drop on one no Bind of kind 2 opened, is refused with Error 1 the same way.
 
 In this stage the frontend refuses an Install, a Query and a Prepare of `language` 1 or 2 with code 7 (Refused) on the request's
@@ -1434,7 +1435,8 @@ writes): a client that wants a read's every row reads it to its `LAST` first, as
 it ends. A write behind an open read waits for that read's `LAST`, and a read behind that write waits for the write, and only the
 client's Credit drains the open read: a client reads an open read to its `LAST`, or cancels it, before it waits on a later read
 behind a write. When the transaction ends by an Error on its stream, the frontend answers each read still open with that Error,
-which a client that has already seen the transaction's Error drops as late. The Rust client sends no Write, Operation or
+which a client that has already seen the transaction's Error drops as late, and a read naming the transaction that
+arrives before that Error has left with the same Error. The Rust client sends no Write, Operation or
 Commit in a read-only transaction (Begin `mode` 1).
 
 ### 11.2a Request types
@@ -1663,7 +1665,7 @@ stream, ending the transaction.
 | Connections the frontend holds at once | 4,096 |
 | Sessions in the metadata group's registry (`sessions_max`), and so in each partition's table | 4,096 |
 | A transaction's deadline, `deadline_ms` 0 | the Welcome's `transaction_ms` |
-| `scan_stall_ms`, how long a partition keeps a Scan with no frame able to leave (section 13.13) | 30,000 ms |
+| `scan_stall_ms`, how long a partition keeps a Scan with no frame able to leave (section 13.13) | 30,000 ms, and at most that: a client's read timeout, which no Welcome adjusts, leaves it room (section 11.11) |
 | `read_retain_ms`, how long a closed epoch stays readable between a read-only transaction's Scans | 60,000 ms |
 | `held_bytes`, the Write and Operation frames a connection's reads hold back | 4,194,304 bytes |
 | `statements_per_object_max`, the statement IDs one object of a list holds | 16,000 |
@@ -1737,7 +1739,7 @@ longer retaining it with code 3 (TooOld). A read still waiting for a close at it
 code 24 (TimedOut), `detail` the partition it waited on, and returns no row, since compute sends no Result until every
 partition it asks has closed the read's epoch. A read's silence within its transaction's deadline is that wait, and a hung
 compute process answers code 17 by the deadline plus `scan_stall_ms` (section 11.12), so the Rust client's timeout for a read
-runs from the later of its last progress and the Begin's deadline, is at least 30 s, the default `scan_stall_ms`, and does not
+runs from the later of its last progress and the Begin's deadline, is at least 30 s, the most `scan_stall_ms` holds, and does not
 run for a stream whose credit is spent.
 
 A read's answer streams under credit, so it can fail after rows have left. Only a stream ending in `LAST` is an answer: a
@@ -2307,7 +2309,9 @@ closes. EpochClose frames spend no credit.
 | 0 | 8 | `from` | epoch (section 1) | the last epoch whose close the subscriber holds; 0 for none |
 
 No sections. Order: unused bytes 8–127 zero; `from` at most 2⁴² − 1 (`FieldValue` `"from"`); sections. A `from` above
-the latest epoch the sequencer closed is refused with Error 1 (Protocol), the message naming both epochs. A connection holds one
+the latest epoch the sequencer closed is refused with Error 1 (Protocol), the message naming both epochs. A subscription
+whose next close the sequencer no longer holds, at its Subscribe or at a later close, is ended with Error 1 on its stream,
+the message naming the close it asked for: no frame can carry what is gone, and a storage process told so stops, as it does for a frontend lost past its deadline, since asking again finds the same. A connection holds one
 subscription: a second Subscribe while one is open is refused with Error 1 on its stream.
 
 ### 13.4 EpochClose (515)
@@ -2574,7 +2578,8 @@ for a named read version a partition does not hold; Error 1 (Protocol) for a res
 | 3 | the client's resume key (section 11.8) |
 
 Order: unused bytes 7 and 72–127 zero; `mode`; `level`; `named` 0 or 1, and 1 only with `mode` 1 and `level` 0
-(`FieldValue` `"named"`, the byte); `epoch`; `partition` and `transaction` both not zero for `mode` 0, and
+(`FieldValue` `"named"`, the byte); `read_version` 0, a version or a version bound (section 1) (`FieldValue`
+`"read_version"`); `epoch`; `partition` and `transaction` both not zero for `mode` 0, and
 `transaction` zero for `mode` 1 (`FieldValue` `"transaction"`, the mode); `max_frame`; `credit`; sections; the term table;
 the pattern.
 
@@ -2850,9 +2855,9 @@ naming a partition the role address does not serve is answered with outcome 26.
 
 A partition whose open epoch's sequence would run out asks the sequencer to close that epoch now (section 11.12,
 *Epochs*). The sequencer closes it once `epoch_ms_min` has passed since the previous close, and the close, arriving on
-the partition's Subscribe stream, is the answer; no frame answers on the request's stream, which ends with it. A
-request naming an epoch already closed changes nothing. A close past the largest 42-bit epoch is refused with code 7
-(Refused), the message naming the limit.
+the partition's Subscribe stream, is the answer; no frame answers on the request's stream, which ends with it, a
+refusal included. A request naming an epoch already closed changes nothing. The frontend drops, unanswered, a request it
+refuses: one naming an epoch above the open one, one breaking a body's rule, and one arriving while it stops.
 
 | Command header | Width | Field | Type | Rule |
 |---|---|---|---|---|

@@ -11,16 +11,9 @@ use ultragraphdb_protocol_wire::{
 };
 use xxhash_rust::xxh3::xxh3_64;
 
+use crate::types::graph_slot::GraphSlot;
 use crate::utils::clock::now;
 use crate::utils::refusals::term_refused;
-
-/// A read's graph position.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum GraphSlot {
-    Unbound,
-    Default,
-    Named(String),
-}
 
 /// A ComputeRead, its frame given back: what the read needs of it for as long as it runs.
 #[derive(Debug)]

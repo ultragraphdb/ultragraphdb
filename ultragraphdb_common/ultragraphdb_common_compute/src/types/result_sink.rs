@@ -9,14 +9,7 @@ use ultragraphdb_protocol_wire::{
     BodyBuilder, Command, ErrorCode, ErrorReply, FLAG_LAST, Header, ResultBatch, ResultTerm,
 };
 
-/// What a read's task hands its connection's session.
-#[derive(Debug)]
-pub(crate) enum Pushed {
-    /// A frame of the read's stream.
-    Frame(u64, Vec<u8>),
-    /// The read ended.
-    Ended(u64),
-}
+use crate::types::pushed::Pushed;
 
 /// Where a read's Result batches go: each built within the read's `max_frame`, one at a time, the next only once the one before
 /// has left and the stream holds credit (`PROTOCOL.md` §13.12).

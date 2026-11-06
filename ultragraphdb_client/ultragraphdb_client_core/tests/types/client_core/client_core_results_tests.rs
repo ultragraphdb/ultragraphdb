@@ -175,7 +175,7 @@ fn test_cancel_ends_the_stream_and_its_later_frames_are_dropped() -> TestResult 
         first.is_some()
     })?;
     assert_eq!(first, Some(2));
-    h.core.cancel(stream);
+    h.core.cancel(stream.clone());
     let other = begin(&mut h)?;
     assert_eq!(
         h.core
@@ -431,7 +431,7 @@ fn test_cancelling_a_read_keeps_its_transaction() -> TestResult {
             Ok(BatchPoll::Batch(()))
         )
     })?;
-    h.core.cancel(stream);
+    h.core.cancel(stream.clone());
     let p = h.core.commit(tx, session, h.now)?;
     assert!(matches!(h.settle(p)?, Ok(Reply::Committed(_))));
     assert_eq!(
@@ -536,7 +536,7 @@ fn test_a_late_frame_of_a_cancelled_read_is_dropped() -> TestResult {
     let tx = begin(&mut h)?;
     let stream = h.core.read(&tx, &read(&tx), h.now)?;
     while h.core.transmit().is_some() {}
-    h.core.cancel(stream);
+    h.core.cancel(stream.clone());
     let late = forged(&mut h, stream.stream(), 1, 0)?;
     h.deliver(&late)??;
     assert!(h.core.is_ready(), "the connection stays");
@@ -868,7 +868,7 @@ fn test_a_read_whose_end_has_arrived_takes_no_credit_or_cancel() -> TestResult {
         while h.step()? {}
         h.core.grant(&stream, frames(2)?, h.now)?;
         assert_eq!(h.core.transmit(), None, "no Credit");
-        h.core.cancel(stream);
+        h.core.cancel(stream.clone());
         assert_eq!(h.core.transmit(), None, "no Cancel");
     }
     Ok(())
@@ -1110,5 +1110,67 @@ fn test_frames_kept_from_a_lost_connection_hold_their_buffers() -> TestResult {
     assert_eq!(drain(&mut h, &kept)?.len(), results as usize);
     let next = h.core.read(&again, &read(&again), h.now)?;
     assert_eq!(drain(&mut h, &next)?.len(), results as usize);
+    Ok(())
+}
+
+/// A kept or lost read's handle dropped lets go of what the core kept for it: nothing can ask for those frames, so a new read
+/// has their buffers, and the core remembers no read once its handle is gone.
+#[test]
+fn test_a_dropped_handle_lets_go_of_what_its_lost_read_kept() -> TestResult {
+    let results = 3;
+    // As in the test above: 6 buffers hold one read beside the one to read into.
+    let mut h = Harness::with(
+        config().with_buffers(6),
+        server().with_results(results),
+        NetworkFaults::none(),
+        1,
+        Anonymous,
+    );
+    h.connect()?;
+    h.until(|h| h.core.is_ready())?;
+    let first = begin(&mut h)?;
+    let kept = h.core.read(&first, &read(&first), h.now)?;
+    while h.step()? {}
+    h.core.disconnected(TransportError::closed(), h.now);
+    drop(kept);
+    h.connect()?;
+    h.until(|h| h.core.is_ready())?;
+    let again = begin(&mut h)?;
+    let next = h.core.read(&again, &read(&again), h.now)?;
+    assert_eq!(drain(&mut h, &next)?.len(), results as usize);
+    assert!(
+        format!("{:?}", h.core).contains("remembered_reads: 0"),
+        "{:?}",
+        h.core
+    );
+    Ok(())
+}
+
+/// A connection remembers nothing of a read it served to its end: the handle holds that, so it answers `Done` again, and a
+/// long-lived connection's memory does not grow with the reads it serves.
+#[test]
+fn test_a_read_at_its_end_is_remembered_by_its_handle_alone() -> TestResult {
+    let results = 2;
+    let mut h = Harness::with(
+        config(),
+        server().with_results(results),
+        NetworkFaults::none(),
+        1,
+        Anonymous,
+    );
+    h.connect()?;
+    h.until(|h| h.core.is_ready())?;
+    let tx = begin(&mut h)?;
+    let stream = h.core.read(&tx, &read(&tx), h.now)?;
+    assert_eq!(drain(&mut h, &stream)?.len(), results as usize);
+    assert!(matches!(
+        h.core.next_batch(&stream, h.now, |_| ()),
+        Ok(BatchPoll::Done)
+    ));
+    assert!(
+        format!("{:?}", h.core).contains("remembered_reads: 0"),
+        "{:?}",
+        h.core
+    );
     Ok(())
 }

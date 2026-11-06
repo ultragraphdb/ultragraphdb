@@ -59,10 +59,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         let statement = asked.statement();
         let transaction = asked.transaction();
         let Some(txn) = self.transactions.get(&transaction) else {
-            return Err(ErrorReply::new(
-                ErrorCode::Protocol,
-                format!("no transaction is open on stream {transaction}"),
-            ));
+            return self.not_open(stream, transaction);
         };
         if let Some(refusal) = txn.ended.clone() {
             return Err(refusal);

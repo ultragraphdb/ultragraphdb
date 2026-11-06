@@ -18,7 +18,7 @@ use ultragraphdb_protocol_transport::{Address, Endpoint, ReceivedFrame, Transpor
 use ultragraphdb_protocol_wire::{
     BodyBuilder, Command, ErrorCode, ErrorReply, FLAG_LAST, Header, Members,
 };
-use ultragraphdb_tool_bdd::{Context, TestResult};
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 const CLUSTER: u64 = 7;
 const PASSWORD: &str = "s3cret";
@@ -102,11 +102,22 @@ async fn dial(address: &Address) -> TestResult<RoleClient> {
     Ok(RoleClient::dial(address, CLUSTER, "storage", PASSWORD).await?)
 }
 
-/// The connection's frames of its own are written before its client reads them, so what it counts for them may still be falling.
-async fn until_none_open(open: &OpenRequests) {
-    while open.count() > 0 {
+/// Waits until `holds`, a step apart for at most 5 s, or fails naming what it waited for.
+async fn until(what: &str, holds: impl Fn() -> bool) -> TestResult {
+    for _ in 0..1_000 {
+        if holds() {
+            return Ok(());
+        }
         compio::time::sleep(STEP).await;
     }
+    Err(TestError::new(format!(
+        "{what} did not come to hold within 5 s"
+    )))
+}
+
+/// The connection's frames of its own are written before its client reads them, so what it counts for them may still be falling.
+async fn until_none_open(open: &OpenRequests) -> TestResult {
+    until("no request open", || open.count() == 0).await
 }
 
 /// A request open when a stop comes reaches its client, and the stop waits for it with the listener closed.
@@ -121,11 +132,9 @@ fn test_a_stop_closes_the_listener_and_finishes_the_open_request() -> TestResult
             session,
         } = serving().await?;
         let mut client = dial(&address).await?;
-        until_none_open(&open).await;
+        until_none_open(&open).await?;
         let replied = spawn(async move { client.request(&Members::new()).await.map(drop) });
-        while !session.entered.get() {
-            compio::time::sleep(STEP).await;
-        }
+        until("the request at its session", || session.entered.get()).await?;
         assert_eq!(open.count(), 1, "the request is open");
         stopping.set();
         let finished = Rc::new(Cell::new(None));
@@ -137,9 +146,7 @@ fn test_a_stop_closes_the_listener_and_finishes_the_open_request() -> TestResult
         assert_eq!(finished.get(), None, "the stop waits on the open request");
         session.release.set(true);
         replied.await.context("the request's task")??;
-        while finished.get().is_none() {
-            compio::time::sleep(STEP).await;
-        }
+        until("the stop's end", || finished.get().is_some()).await?;
         assert_eq!(finished.get(), Some(0));
         Ok(())
     })
@@ -157,11 +164,9 @@ fn test_a_stop_gives_up_at_its_limit() -> TestResult {
             ..
         } = serving().await?;
         let mut client = dial(&address).await?;
-        until_none_open(&open).await;
+        until_none_open(&open).await?;
         let asked = spawn(async move { client.request(&Members::new()).await.map(drop) });
-        while !session.entered.get() {
-            compio::time::sleep(STEP).await;
-        }
+        until("the request at its session", || session.entered.get()).await?;
         assert_eq!(finish_open(vec![accepting], &open, STEP * 4).await, 1);
         drop(asked);
         Ok(())

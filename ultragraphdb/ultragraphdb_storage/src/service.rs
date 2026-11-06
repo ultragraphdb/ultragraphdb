@@ -36,8 +36,9 @@ use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_transport::{Address, Endpoint, TransportError};
 use ultragraphdb_protocol_transport_compio::Listener;
 use ultragraphdb_protocol_wire::{
-    BodyView, Catalog, CatalogView, CloseRequest as CloseRequestBody, EpochCloseView, Join, Lease,
-    LeaseView, Placement, PlacementView, Subscribe,
+    BodyView, Catalog, CatalogView, CloseRequest as CloseRequestBody, Command, DefaultEntry,
+    EpochCloseView, ErrorCode, ErrorReplyView, Join, Lease, LeaseView, Placement, PlacementView,
+    Subscribe,
 };
 use ultragraphdb_store_apply::ChangesetApplier;
 use ultragraphdb_store_kv::{Durability, FjallStore, MokaListCache, ThreadExecutor};
@@ -663,6 +664,13 @@ async fn deliver_closes(
 ) {
     while !stopping.is_stopping() {
         let read = client.next_frame().await;
+        // Asking again finds the same: the frontend no longer holds the close this partition needs (`PROTOCOL.md` §13.3).
+        if let Some(ended) = read.as_ref().ok().and_then(subscription_end) {
+            drop(lost.send(RoleError::unavailable(format!(
+                "the frontend ended this process's subscription: {ended}"
+            ))));
+            return;
+        }
         let close = read.and_then(|frame| close_of(&frame));
         match close {
             Ok(close) => {
@@ -716,6 +724,14 @@ async fn deliver_closes(
             }
         }
     }
+}
+
+/// What the frontend said, when `frame` is the Error 1 ending the subscription; a frontend refusing as it stops is joined again.
+fn subscription_end(frame: &ultragraphdb_protocol_transport::ReceivedFrame) -> Option<String> {
+    let view = frame.view().ok()?;
+    (view.command() == Command::Error).then_some(())?;
+    let refused = ErrorReplyView::from_frame(&view).ok()?;
+    (refused.code() == ErrorCode::Protocol).then(|| refused.message().to_string())
 }
 
 /// The close `frame` carries. A close always fits one frame (`PROTOCOL.md` §13.4 allows more, this frontend sends one).
@@ -834,6 +850,11 @@ async fn frontend_requests(
                         open.send_only(&CloseRequestBody::new(own.get(), epoch.get()))
                             .await
                     }
+                    Asked::Frontend(FrontendAsk::DefaultEntry(entry)) => {
+                        let record =
+                            DefaultEntry::request(entry.tenant(), entry.predicate().to_string());
+                        open.request(&record).await.map(drop)
+                    }
                 };
                 client = result.is_ok().then_some(open);
                 result
@@ -841,7 +862,8 @@ async fn frontend_requests(
             Err(error) => Err(error),
         };
         if let Err(error) = done {
-            // A lease is asked again as the next block is taken, and a close request again as the commit step holds on.
+            // A lease is asked again as the next block is taken, a close request again as the commit step holds on, and a
+            // default entry again by the next recovery (`PROTOCOL.md` §11.12).
             tracing::warn!(%error, "a request to the frontend failed");
         }
     }

@@ -267,10 +267,11 @@ fn mint_blank(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "the skolem IRI is the tenant's skolem base, `.well-known/genid/`, 6 hexadecimal digits naming one of those buckets, `-` and 26 hexadecimal digits; the node's ID carries that bucket; and the same seed mints the same IRI"
+    "the skolem IRI is the tenant's skolem base, ending `/tenant/0/`, `.well-known/genid/`, 6 hexadecimal digits naming one of those buckets, `-` and 26 hexadecimal digits; the node's ID carries that bucket; and the same seed mints the same IRI"
 )]
 fn skolem_names_bucket(w: &mut Steps) -> TestResult {
     let skolem = w.texts.first().context("a skolem IRI")?;
+    assert!(skolem.contains("/tenant/0/.well-known/genid/"), "{skolem}");
     let tail = skolem
         .strip_prefix(&format!("{}.well-known/genid/", tenant_base(0)))
         .context("the skolem base and the genid path")?;

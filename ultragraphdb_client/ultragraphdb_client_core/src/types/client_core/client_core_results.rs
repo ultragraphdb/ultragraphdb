@@ -3,7 +3,6 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use std::collections::VecDeque;
 use std::num::NonZeroU32;
 use std::time::Instant;
 
@@ -73,18 +72,18 @@ impl<L: Login> ClientCore<L> {
     ) -> Result<BatchPoll<T>, ClientError> {
         let id = stream.stream();
         let key = (stream.generation(), id);
-        if let Some(lost) = self.lost_reads.remove(&key) {
+        if let Some((_, lost)) = self.lost_reads.remove(&key) {
             return Err(lost);
         }
-        if let Some(inbox) = self.kept_reads.get_mut(&key) {
+        if let Some((_, inbox)) = self.kept_reads.get_mut(&key) {
             let Some(frame) = inbox.pop_front() else {
-                let _drained: Option<VecDeque<ReceivedFrame>> = self.kept_reads.remove(&key);
+                let _drained = self.kept_reads.remove(&key);
                 return Ok(BatchPoll::Done);
             };
             return match arrived(&frame, read) {
                 Arrived::Batch(value, _) => Ok(BatchPoll::Batch(value)),
                 Arrived::Refused(error) | Arrived::Broken(error) => {
-                    let _drained: Option<VecDeque<ReceivedFrame>> = self.kept_reads.remove(&key);
+                    let _drained = self.kept_reads.remove(&key);
                     Err(error)
                 }
             };
@@ -93,7 +92,7 @@ impl<L: Login> ClientCore<L> {
             return Err(ClientError::stream_finished(id));
         }
         let Some(state) = self.streams.get_mut(&id) else {
-            if self.done_reads.contains(&id) {
+            if stream.is_read_to_end() {
                 return Ok(BatchPoll::Done);
             }
             return Err(ClientError::stream_finished(id));
@@ -116,7 +115,7 @@ impl<L: Login> ClientCore<L> {
             Arrived::Batch(value, last) => {
                 if last {
                     let _ended: Option<StreamState> = self.streams.remove(&id);
-                    let _first_end: bool = self.done_reads.insert(id);
+                    stream.mark_read_to_end();
                 } else {
                     state.with_caller = true;
                 }
@@ -176,11 +175,13 @@ impl<L: Login> ClientCore<L> {
     /// its connection is forgotten, and one whose end has arrived sends no Cancel, since its stream has ended.
     pub fn cancel(&mut self, stream: ResultStream) {
         let id = stream.stream();
-        let key = (stream.generation(), id);
+        let generation = stream.generation();
+        drop(stream);
+        let key = (generation, id);
         if self.lost_reads.remove(&key).is_some() || self.kept_reads.remove(&key).is_some() {
             return;
         }
-        if stream.generation() != self.generation {
+        if generation != self.generation {
             return;
         }
         let Some(state) = self.streams.remove(&id) else {

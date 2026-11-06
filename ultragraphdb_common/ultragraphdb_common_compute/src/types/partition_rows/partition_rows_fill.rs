@@ -8,10 +8,14 @@ use std::collections::VecDeque;
 use ultragraphdb_core_keys::{QuadKey, key_prefix};
 use ultragraphdb_protocol_wire::{EntriesEnd, ErrorCode, ErrorReply, ScanRange};
 
+use super::graphs::Graphs;
+use super::open_scan::OpenScan;
 use super::partition_rows_frames::{predicates_of, take_rows};
 use super::partition_rows_plan::listed_after;
-use super::{Graphs, OpenScan, PartitionRows, RANGES_PER_SCAN, Reading, Skip};
-use crate::types::access::RangeSpec;
+use super::reading::Reading;
+use super::skip::Skip;
+use super::{PartitionRows, RANGES_PER_SCAN};
+use crate::types::range_spec::RangeSpec;
 use crate::types::scan_stream::ScanStream;
 use crate::utils::keys::{past_alone, prefix_end};
 use crate::utils::refusals::unavailable;

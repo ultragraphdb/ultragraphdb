@@ -19,3 +19,4 @@ pub mod term_kind;
 pub mod token;
 pub mod whole_records;
 pub mod write_frame;
+pub mod write_sections;

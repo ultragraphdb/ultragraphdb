@@ -41,8 +41,8 @@ Feature: The storage binary as a process
     Then it exits with code 78 and an error naming the setting and the bound
 
   Scenario: A pinned role reports what it holds
-    When a role starts with `pin_cores = true`
-    Then it logs what became of its binding, and serves requests
+    When a role starts with `pin_cores = true` on a platform that allows binding
+    Then it logs each runtime's CPU, read back from the operating system, each within the permitted set
 
   Scenario: A missing required setting stops the start
     When the storage binary receives settings with no `storage.data_dir`
@@ -51,6 +51,10 @@ Feature: The storage binary as a process
   Scenario: A platform refusing to pin still serves
     When a role starts with `pin_cores = true` where binding is unavailable
     Then it logs that it runs unpinned, and serves requests
+
+  Scenario: A subscription past the closes held exits with its code
+    When the frontend ends a storage process's subscription, the close it asks for being no longer held
+    Then the process shuts down through its ordinary path, and it exits with code 69 naming what the frontend said
 
   Scenario: An invariant violation exits with its code
     When a storage partition detects an invariant violation in a release build

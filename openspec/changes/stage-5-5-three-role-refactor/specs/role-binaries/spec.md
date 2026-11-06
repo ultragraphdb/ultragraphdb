@@ -35,7 +35,7 @@ carriers, and no role SHALL ask which carrier it runs on.
 The supervisor SHALL start the config service and wait for its `/ready`, then start the frontend and wait for its `/health`, then start storage and wait for its `/ready`, then
 start compute and wait for its `/ready`, and then wait for the frontend's `/ready`, since the frontend is ready only once
 a storage partition answers it. Storage and compute SHALL retry joining until their deadline, so neither needs the
-frontend's recovery to have ended. The supervisor SHALL restart no role on its own; SHALL draw the config service's two keys at random at the development image's first start, keeping them in its data directory, and the bootstrap administrator's password before the cluster's first start alone, since the frontend reads it once and the operator then removes it; SHALL forward SIGTERM and SIGINT; SHALL stop the roles in the shutdown order; and SHALL exit
+frontend's recovery to have ended. The supervisor SHALL restart no role on its own; SHALL draw the config service's two keys at random at the development image's first start, keeping them in its data directory, and the bootstrap administrator's password before the cluster's first start alone, since the frontend reads it once and the operator then removes it; SHALL refuse with code 78 a target whose instances name more than one `role_secret_file`, since the roles of one container share one role secret; SHALL forward SIGTERM and SIGINT; SHALL stop the roles in the shutdown order; and SHALL exit
 with the exit code of the first role that failed, 128 plus the signal's number for a role a signal killed, or 0 after a
 clean shutdown.
 
@@ -55,6 +55,10 @@ clean shutdown.
 #### Scenario: SIGTERM shuts down in order
 - **WHEN** the supervisor receives SIGTERM
 - **THEN** the frontend stops accepting work first, compute drains next, storage flushes last, and the supervisor exits 0
+
+#### Scenario: Two role secret files in one container are refused
+- **WHEN** the supervisor starts on a target whose storage file names another `role_secret_file` than its frontend's
+- **THEN** it exits with code 78, the error naming both files, and started no role
 
 #### Scenario: A bootstrap password removed after the first start stays removed
 - **WHEN** the development container has started, the bootstrap administrator's password file is removed, and the container
@@ -136,8 +140,8 @@ replica, laid out as on a cluster node.
 
 ### Requirement: io_uring where allowed, polling where not
 Each role SHALL use io_uring when the kernel allows it and SHALL fall back to compio's polling driver when io_uring
-system calls are refused, logging which it uses at start. The role images SHALL ship a seccomp profile that allows
-`io_uring_setup`, `io_uring_enter` and `io_uring_register` beside the container runtime's defaults.
+system calls are refused, logging which it uses at start. The repository SHALL ship, at `bazel/oci_images/seccomp/ultragraphdb.json`, a seccomp profile that allows
+`io_uring_setup`, `io_uring_enter` and `io_uring_register` beside the container runtime's defaults; a runtime reads a profile from its host, so no image holds it.
 
 #### Scenario: A refused io_uring falls back
 - **WHEN** a role starts under Docker's default seccomp profile
@@ -158,6 +162,10 @@ each binary's help and stable:
 | 70 | `EX_SOFTWARE` | an invariant violation |
 | 74 | `EX_IOERR` | a failed store or log: the component stopped on an operating error |
 | 78 | `EX_CONFIG` | a configuration error: an unknown, malformed, missing or out-of-bounds setting, or an unreadable secret or certificate file |
+
+#### Scenario: A subscription past the closes held exits with its code
+- **WHEN** the frontend ends a storage process's subscription, the close it asks for being no longer held
+- **THEN** the process shuts down through its ordinary path, and it exits with code 69 naming what the frontend said
 
 #### Scenario: An invariant violation exits with its code
 - **WHEN** a storage partition detects an invariant violation in a release build

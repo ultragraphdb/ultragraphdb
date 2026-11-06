@@ -33,6 +33,7 @@ use ultragraphdb_protocol_wire::{
 };
 use ultragraphdb_store_kv::{FjallStore, MokaListCache, ThreadExecutor};
 use ultragraphdb_store_posting::CachedList;
+use ultragraphdb_traits_catalog::DefaultEntry;
 use ultragraphdb_traits_store::Store;
 use ultragraphdb_transactions_log::{CompioStorage, Wal};
 
@@ -65,10 +66,12 @@ const TICK: std::time::Duration = std::time::Duration::from_millis(1);
 pub const SCAN_STALL_MS_DEFAULT: u64 = 30_000;
 
 /// What the core asks of the frontend, on a connection of its own.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FrontendAsk {
     /// The close of an epoch.
     Close(Epoch),
+    /// The record of a predicate's default entry, after a first write of it or a replay of one (`PROTOCOL.md` §11.12).
+    DefaultEntry(DefaultEntry),
 }
 
 /// What a parked request does once its transaction's references are answered.
@@ -405,6 +408,10 @@ impl<'a> PartitionCore<'a> {
         if let Some(epoch) = self.host.take_close_request() {
             // A frontend link gone is reported by the subscription.
             drop(self.asks.unbounded_send(FrontendAsk::Close(epoch)));
+        }
+        for entry in self.host.partition().applier().take_default_entries() {
+            // A frontend link gone is reported by the subscription, and the recovery after it asks again.
+            drop(self.asks.unbounded_send(FrontendAsk::DefaultEntry(entry)));
         }
         self.resume_ready();
         self.hand_out();

@@ -480,7 +480,9 @@ The frontend SHALL refuse a Write, Operation or Abort on a new stream, and a Com
 with Error 1 (Protocol) on that stream, the message naming the command; and a Write, Operation or Commit on a read-only
 transaction's stream the same way, ending the transaction. A frame on a stream number at or below the highest the
 connection opened, on a stream no longer open, is late, and a server SHALL drop it, a Commit and a Drop included. A
-dialling side SHALL take a frame on a stream it has ended, numbered below the next stream it will open, through the
+Write, Operation or Commit on a transaction's stream after its Commit is late, and the frontend SHALL drop it, the Commit
+deciding the transaction. A read naming a transaction whose Error has not yet left SHALL be answered with that Error, as the
+transaction's reads still open are. A dialling side SHALL take a frame on a stream it has ended, numbered below the next stream it will open, through the
 frame's checks and then drop it, whatever its command, and SHALL refuse a stream at or above that number as answering no
 request.
 
@@ -495,6 +497,15 @@ request.
 #### Scenario: A Commit crossing its stream's Error is late
 - **WHEN** a client's Commit crosses the Error that ended its transaction's stream
 - **THEN** the server drops the Commit, and the connection stays open
+
+#### Scenario: A request behind its transaction's Commit is late
+- **WHEN** a client sends a Write and a second Commit on its transaction's stream after the Commit the frontend relayed,
+  and the partition then answers that Commit
+- **THEN** the server drops both, and the client receives the Commit's reply
+
+#### Scenario: A read crossing its transaction's Error takes that Error
+- **WHEN** a client's Read crosses the Error that ended its transaction's stream
+- **THEN** the read is answered with that Error, as the transaction's reads still open are
 
 #### Scenario: A late frame reaches the client
 - **WHEN** a Result frame arrives for a read the client has cancelled
@@ -529,7 +540,7 @@ write; the whole transaction on a new Begin for codes 2, 3, 4, 18, 26, and 5 on 
 
 ### Requirement: The client's timeout leaves a read its deadline
 The Rust client's timeout for a read SHALL run from the later of its last progress and the Begin's deadline, SHALL be at
-least 30 s, the default `scan_stall_ms`, and SHALL not run for a stream whose credit is spent, since a read's silence
+least 30 s, the most `scan_stall_ms` holds, and SHALL not run for a stream whose credit is spent, since a read's silence
 within its transaction's deadline is a wait for a close and a hung compute process is answered with code 17 by the
 deadline plus `scan_stall_ms`.
 

@@ -36,7 +36,8 @@ pub use crate::types::tenant_gate::TenantGate;
 pub use crate::utils::iri_place::{IriPlace, iri_place};
 pub use crate::utils::owner_thread::{OwnerThread, start_owner};
 #[cfg(feature = "test-utils")]
+pub use crate::utils_test::double_frame::DoubleFrame;
+#[cfg(feature = "test-utils")]
 pub use crate::utils_test::role_double::{
-    DoubleFrame, RoleDouble, batch_frame, empty_batch, last_frame, partition_answer, refusal_of,
-    view_of,
+    RoleDouble, batch_frame, empty_batch, last_frame, partition_answer, refusal_of, view_of,
 };

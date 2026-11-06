@@ -468,6 +468,28 @@ fn stall_entry(w: &mut Steps) {
     );
 }
 
+#[when("`ci_storage_1.toml` sets `storage.scan_stall_ms = 30001`")]
+fn long_stall(w: &mut Steps) {
+    let target = with(
+        valid(),
+        "storage_1",
+        "[storage]\npartition_first = 1\npartition_count = 2\nrole_address = \"tcp://10.0.0.2:7000\"\nscan_stall_ms = 30001\n",
+    );
+    w.defects = check_target(&target, None);
+}
+
+#[then("the entry names `storage.scan_stall_ms`, the value 30001 and the bound it must meet")]
+fn long_stall_entry(w: &mut Steps) {
+    says(
+        w,
+        &[
+            "setting storage.scan_stall_ms",
+            "it holds 30001",
+            "at most 30000",
+        ],
+    );
+}
+
 #[when("`ci_frontend.toml` sets `storage.scan_stall_ms = 0`")]
 fn zero_frontend_stall(w: &mut Steps) {
     let frontend = format!("{FRONTEND}[storage]\nscan_stall_ms = 0\n");

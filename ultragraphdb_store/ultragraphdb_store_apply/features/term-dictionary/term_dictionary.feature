@@ -10,7 +10,7 @@ Feature: The term dictionary under changesets
 
   Scenario: A statement ID's reifier is a skolem IRI
     When `<a> <knows> <b>` gains the property `<since> 2020` and so receives a statement ID
-    Then the dictionary holds a skolem IRI `…/.well-known/genid/{bucket}-{random}` for it, whose bucket is `<a>`'s, mapping to the statement ID and back, and a write naming that IRI as the reifier adds properties to the statement
+    Then the dictionary holds a skolem IRI `…/tenant/{n}/.well-known/genid/{bucket}-{random}` for it, whose bucket is `<a>`'s, mapping to the statement ID and back, and a write naming that IRI as the reifier adds properties to the statement
 
   Scenario: Two creators share one ID
     When two transactions in `<new>`'s home read before either commits, both write `<new> <p> "x"`, not held, and both send their commit

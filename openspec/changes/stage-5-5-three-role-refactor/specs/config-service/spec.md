@@ -58,7 +58,7 @@ first. It SHALL check:
 | Names | an instance's name does not begin with a role's name, or an instance file has no instance of the target |
 | Roles | the target has no frontend, more than one, or no storage instance |
 | Required | a role's required setting is absent from an instance |
-| Bounds | a value is outside its domain type's bound, by that type's own constructor, or `scan_stall_ms`, `read_retain_ms` or `held_bytes` is 0 |
+| Bounds | a value is outside its domain type's bound, by that type's own constructor, or `scan_stall_ms`, `read_retain_ms` or `held_bytes` is 0, or `scan_stall_ms` is above 30,000, the floor of the client's read timeout |
 | Relations | `epoch_ms_min` is above `epoch_ms_max`, or `close_request_ms` is below twice `epoch_ms_max` |
 | Identity | two instances name different `cluster.id` values |
 | Frontend | an instance's `cluster.frontend_address` differs from the frontend's `frontend.role_address` in its scheme, its port or a Unix path; a host may differ, since a Service's name reaches a pod that binds its own |
@@ -193,6 +193,10 @@ never be printed.
 #### Scenario: A Scan's stall of no time is refused
 - **WHEN** `ci_storage_1.toml` sets `storage.scan_stall_ms = 0`
 - **THEN** the entry names `storage.scan_stall_ms`, the value 0 and the bound it must meet
+
+#### Scenario: A stall past the client's read timeout is refused
+- **WHEN** `ci_storage_1.toml` sets `storage.scan_stall_ms = 30001`
+- **THEN** the entry names `storage.scan_stall_ms`, the value 30001 and the bound it must meet
 
 #### Scenario: A hung compute's stall of no time is refused
 - **WHEN** `ci_frontend.toml` sets `storage.scan_stall_ms = 0`

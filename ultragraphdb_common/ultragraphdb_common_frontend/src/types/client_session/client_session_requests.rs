@@ -15,7 +15,8 @@ use ultragraphdb_protocol_wire::{
 
 use super::{ClientSession, now};
 use crate::traits::authorizer::Authorizer;
-use crate::types::client_transaction::{BindState, ClientTransaction};
+use crate::types::bind_state::BindState;
+use crate::types::client_transaction::ClientTransaction;
 use crate::types::gate_scope::GateScope;
 use crate::types::tenant_facts::TenantFacts;
 
@@ -65,6 +66,18 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             return Ok(Answer::Open);
         }
         let command = view.command();
+        // A Commit decides its transaction, and its reply ends the stream: a Write, Operation or Commit after it is late
+        // (`PROTOCOL.md` §11.2), and taking it would end a transaction the partition still decides.
+        if (command == Command::Write
+            || command == Command::Operation
+            || command == Command::Commit)
+            && self
+                .transactions
+                .get(&stream)
+                .is_some_and(ClientTransaction::commit_taken)
+        {
+            return Ok(Answer::Open);
+        }
         if command == Command::Register {
             return self.register(stream).await;
         }

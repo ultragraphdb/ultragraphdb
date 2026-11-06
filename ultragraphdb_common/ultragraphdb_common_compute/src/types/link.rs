@@ -6,15 +6,17 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use compio::runtime::spawn;
 use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
+use futures::channel::oneshot;
 use ultragraphdb_common_role::{RoleClient, RoleReader, RoleWriter};
 use ultragraphdb_protocol_transport::{BufferPool, ReceivedFrame};
 use ultragraphdb_protocol_wire::{BodyBuilder, ErrorReply, Header, HeaderView, MAX_FRAME_SIZE};
 
+use crate::utils::clock::now;
 use crate::utils::refusals::unavailable;
 
 /// A link's frame buffers at a time: the reader goes on past this one from a new pool while a frame is held, so a read that does
@@ -34,6 +36,10 @@ pub(crate) struct Link {
     streams: RefCell<HashMap<u64, UnboundedSender<ReceivedFrame>>>,
     next_stream: Cell<u64>,
     closed: Cell<bool>,
+    /// Ends the reader at a close, so the connection's read half, and with it the socket, goes with the link.
+    closing: RefCell<Option<oneshot::Sender<()>>>,
+    /// When the partition last sent a frame on the connection.
+    heard: Cell<Instant>,
 }
 
 impl Link {
@@ -46,6 +52,7 @@ impl Link {
     ) -> Rc<Self> {
         let (reader, writer, _welcome) = client.split();
         let (out, sending) = unbounded();
+        let (closing, closed) = oneshot::channel();
         let link = Rc::new(Self {
             partition,
             cluster,
@@ -54,9 +61,11 @@ impl Link {
             streams: RefCell::default(),
             next_stream: Cell::new(1),
             closed: Cell::new(false),
+            closing: RefCell::new(Some(closing)),
+            heard: Cell::new(now()),
         });
         spawn(write_frames(writer, sending)).detach();
-        spawn(read_frames(reader, Rc::clone(&link))).detach();
+        spawn(read_frames(reader, Rc::clone(&link), closed)).detach();
         link
     }
 
@@ -112,13 +121,36 @@ impl Link {
         ))
     }
 
-    /// Closes the connection, for `why`: every stream on it ends.
+    /// Closes the connection, for `why`: every stream on it ends, and its reader with it.
     pub(crate) fn close(&self, why: &dyn std::fmt::Display) {
         if !self.closed.replace(true) {
             tracing::warn!(partition = self.partition, %why, "a partition's connection closes");
         }
         self.out.close_channel();
         self.streams.borrow_mut().clear();
+        if let Some(closing) = self.closing.borrow_mut().take() {
+            // A reader gone has nothing left to end.
+            let _ended = closing.send(());
+        }
+    }
+
+    /// Watches a request asked at `asked` and given up before its answer, as a read cancelled while it waits: a connection that
+    /// has sent no frame by `asked` and `wait` is hung, as the request's own wait would have found, and closes
+    /// (`PROTOCOL.md` §11.12, *Errors*).
+    pub(crate) fn watch(self: &Rc<Self>, asked: Instant, wait: Duration) {
+        let link = Rc::clone(self);
+        spawn(async move {
+            let due = asked.checked_add(wait).unwrap_or(asked);
+            compio::time::sleep(due.saturating_duration_since(now())).await;
+            if !link.is_closed() && link.heard.get() < asked {
+                let why = format!(
+                    "partition {} sent no frame within {wait:?} of a request given up",
+                    link.partition
+                );
+                link.close(&why);
+            }
+        })
+        .detach();
     }
 
     /// Hands `frame` to its stream's holder; a frame of a stream gone had no one to go to.
@@ -140,18 +172,26 @@ async fn write_frames(mut writer: RoleWriter, mut sending: UnboundedReceiver<Vec
     writer.shutdown().await;
 }
 
-/// Reads every frame of the connection and hands each to its stream's holder, until the connection closes or a frame breaks its
-/// place on it.
-async fn read_frames(mut reader: RoleReader, link: Rc<Link>) {
+/// Reads every frame of the connection and hands each to its stream's holder, until the connection closes, a frame breaks its
+/// place on it, or the link closes (`closed`). A frame's holder takes its turn before the reader takes a new pool, so a read
+/// consuming as frames come reuses the one buffer.
+async fn read_frames(mut reader: RoleReader, link: Rc<Link>, mut closed: oneshot::Receiver<()>) {
     let mut pool = BufferPool::new(LINK_BUFFERS, MAX_FRAME_SIZE);
     loop {
         if pool.available() == 0 {
+            yield_once().await;
+        }
+        if pool.available() == 0 {
             pool = BufferPool::new(LINK_BUFFERS, MAX_FRAME_SIZE);
         }
-        let frame = match reader.next_frame_in(&pool).await {
-            Ok(frame) => frame,
-            Err(error) => return link.close(&error),
+        let read = std::pin::pin!(reader.next_frame_in(&pool));
+        let frame = match futures::future::select(read, &mut closed).await {
+            futures::future::Either::Left((Ok(frame), _)) => frame,
+            futures::future::Either::Left((Err(error), _)) => return link.close(&error),
+            // The link closed: its reader ends, and the connection with it.
+            futures::future::Either::Right(_) => return,
         };
+        link.heard.set(now());
         if let Err(rule) = frame.check_order() {
             return link.close(&rule);
         }
@@ -161,4 +201,18 @@ async fn read_frames(mut reader: RoleReader, link: Rc<Link>) {
         }
         link.deliver(stream, frame);
     }
+}
+
+/// Lets every other task of the core run once, waiting on nothing.
+async fn yield_once() {
+    let mut yielded = false;
+    std::future::poll_fn(|cx| {
+        if yielded {
+            return std::task::Poll::Ready(());
+        }
+        yielded = true;
+        cx.waker().wake_by_ref();
+        std::task::Poll::Pending
+    })
+    .await;
 }

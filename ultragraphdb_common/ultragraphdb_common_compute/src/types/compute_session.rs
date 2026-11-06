@@ -6,30 +6,26 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use compio::runtime::{JoinHandle, spawn};
+use compio::runtime::spawn;
 use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
-use ultragraphdb_common_role::{Answer, Session};
+use ultragraphdb_common_role::{Answer, OpenRequests, Session};
 use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{BodyView, ComputeReadView, ErrorReply};
 
 use crate::types::compute_core::ComputeCore;
+use crate::types::open_read::OpenRead;
+use crate::types::pushed::Pushed;
 use crate::types::read_request::ReadRequest;
-use crate::types::result_sink::{Pushed, ResultSink};
+use crate::types::result_sink::ResultSink;
 use crate::utils::run_read::run_read;
-
-/// A read under way on a connection: its task, whose end cancels what it holds, and the signal of room for its next batch.
-#[derive(Debug)]
-struct OpenRead {
-    _task: JoinHandle<()>,
-    room: UnboundedSender<()>,
-}
 
 /// One frontend's connection at compute's role address: each ComputeRead runs as a task on this core, its batches pushed on the
 /// read's stream, every Credit counted by the connection, a Cancel or the connection's end dropping the task.
 #[derive(Debug)]
 pub struct ComputeSession {
     core: Rc<ComputeCore>,
+    open: OpenRequests,
     reads: HashMap<u64, OpenRead>,
     pushes: UnboundedSender<Pushed>,
     pushed: UnboundedReceiver<Pushed>,
@@ -42,10 +38,18 @@ impl ComputeSession {
         let (pushes, pushed) = unbounded();
         Self {
             core,
+            open: OpenRequests::default(),
             reads: HashMap::new(),
             pushes,
             pushed,
         }
+    }
+
+    /// The session counting each read until it ends among `open`, which a stop waits on.
+    #[must_use]
+    pub fn with_open(mut self, open: OpenRequests) -> Self {
+        self.open = open;
+        self
     }
 }
 
@@ -77,7 +81,12 @@ impl Session for ComputeSession {
             sink,
             self.pushes.clone(),
         ));
-        let _new = self.reads.insert(stream, OpenRead { _task: task, room });
+        let open_read = OpenRead {
+            _task: task,
+            room,
+            _open: self.open.enter(),
+        };
+        let _new = self.reads.insert(stream, open_read);
         Answer::Open
     }
 

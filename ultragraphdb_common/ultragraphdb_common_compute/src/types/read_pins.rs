@@ -8,16 +8,9 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use compio::runtime::{JoinHandle, spawn};
-use ultragraphdb_core_keys::{Keyspace, key_prefix};
-use ultragraphdb_protocol_wire::{Scan, ScanAt, ScanRange};
 
 use crate::types::link::Link;
-use crate::types::scan_stream::ScanStream;
-use crate::utils::keys::past_alone;
-
-/// The empty ranges of a Scan holding a version: each answers one small frame, and a frame leaves per grant, so the Scan stays
-/// open for as many grants as it holds ranges.
-const PIN_RANGES: usize = 512;
+use crate::types::pin_target::PinTarget;
 
 /// The versions a read has chosen, one per partition: what keeps them readable across a read that outlasts `read_retain_ms`
 /// (`PROTOCOL.md` §11.9, quad-reads "A partition retains what a read may still read"). A short read never opens a Scan for them.
@@ -25,15 +18,6 @@ const PIN_RANGES: usize = 512;
 pub(crate) struct ReadPins {
     targets: RefCell<Vec<PinTarget>>,
     taken: Cell<u64>,
-}
-
-/// A version to keep.
-#[derive(Debug)]
-struct PinTarget {
-    link: Rc<Link>,
-    tenant: u64,
-    principal: u64,
-    version: u64,
 }
 
 impl ReadPins {
@@ -86,25 +70,5 @@ impl ReadPins {
                 return;
             }
         }
-    }
-}
-
-impl PinTarget {
-    fn open(&self) -> Result<ScanStream, ultragraphdb_protocol_wire::ErrorReply> {
-        let first = key_prefix(Keyspace::Referrers, false, self.tenant, None, None);
-        let past = past_alone(&first);
-        let mut scan = Scan::new(
-            ScanAt::ReadVersion,
-            self.version,
-            0,
-            self.principal,
-            [0; 16],
-            1,
-            0,
-        );
-        (0..PIN_RANGES).for_each(|_| {
-            scan.push_range(ScanRange::new(self.link.partition(), &first, &past));
-        });
-        ScanStream::open(&self.link, &scan)
     }
 }

@@ -15,15 +15,16 @@ use crate::types::read_level::ReadLevel;
 use crate::types::term_table_view::TermTableView;
 use crate::utils::command_header::CommandHeader;
 use crate::utils::constants::{MAX_FRAME_FLOOR, MAX_FRAME_SIZE};
-use crate::utils::fields::{boolean, epoch, identity};
+use crate::utils::fields::{boolean, epoch, identity, version};
 use crate::utils::sections::{Sections, expect_command};
 
 /// The transaction's fields of a ComputeRead's command header, checked in `PROTOCOL.md` §13.12's order after its
-/// unused bytes: `mode`, `level`, `named`, `epoch`, then `partition` and `transaction` against the mode.
+/// unused bytes: `mode`, `level`, `named`, `read_version`, `epoch`, then `partition` and `transaction` against the mode.
 struct Transaction {
     read_only: bool,
     level: ReadLevel,
     named: bool,
+    read_version: u64,
     epoch: u64,
     transaction: [u8; 16],
 }
@@ -45,6 +46,7 @@ fn transaction(command: u16, header: CommandHeader<'_>) -> Result<Transaction, P
     if named && !(read_only && level == ReadLevel::Snapshot) {
         return Err(ProtocolError::field_value(command, "named", byte.into()));
     }
+    let read_version = version(command, "read_version", header.u64_at(16))?;
     let wait = epoch(command, "epoch", header.u64_at(24), true)?;
     let transaction = identity(header.0, 40);
     let bound = header.u32_at(0) != 0 && transaction != [0; 16];
@@ -59,6 +61,7 @@ fn transaction(command: u16, header: CommandHeader<'_>) -> Result<Transaction, P
         read_only,
         level,
         named,
+        read_version,
         epoch: wait,
         transaction,
     })
@@ -107,7 +110,7 @@ impl<'a> BodyView<'a> for ComputeReadView<'a> {
             level: fields.level,
             named: fields.named,
             tenant: header.u64_at(8),
-            read_version: header.u64_at(16),
+            read_version: fields.read_version,
             epoch: fields.epoch,
             principal: header.u64_at(32),
             transaction: fields.transaction,

@@ -102,10 +102,10 @@ fn rebuild(bytes: &[u8]) -> Result<(Command, Vec<u8>), ProtocolError> {
             let _ = QueryView::from_frame(&frame).map(|v| v.check_text(MAX_FRAME_FLOOR as u32));
         }
         Command::DirectWrite => {
-            let _ = DirectWriteView::from_frame(&frame).map(|v| v.check_from_client());
+            let _ = DirectWriteView::from_client_frame(&frame);
         }
         Command::ConditionalWrite => {
-            let _ = ConditionalWriteView::from_frame(&frame).map(|v| v.check_from_client());
+            let _ = ConditionalWriteView::from_client_frame(&frame);
         }
         _ => {}
     }

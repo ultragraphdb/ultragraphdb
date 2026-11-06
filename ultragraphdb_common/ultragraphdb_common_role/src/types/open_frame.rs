@@ -6,9 +6,10 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// One frame of [`crate::OpenRequests`]'s count, whichever way its connection goes on from here.
+/// One request of [`crate::OpenRequests`]'s count, held until it is answered on the wire, whichever way its connection goes on
+/// from here.
 #[derive(Debug)]
-pub(crate) struct OpenFrame(Arc<AtomicUsize>);
+pub struct OpenFrame(Arc<AtomicUsize>);
 
 impl OpenFrame {
     /// Counts one more in `open`, until this is dropped.

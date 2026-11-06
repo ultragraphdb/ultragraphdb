@@ -16,14 +16,15 @@ use crate::scene::{KNOWS, NAME, Pattern, Scene, answer_on, compute_client, iri, 
 use crate::tap::ScanSeen;
 use crate::{Steps, four};
 
-/// Waits, within a time no scenario takes, for `holds`.
-pub async fn until(holds: impl Fn() -> bool) {
+/// Waits, within a time no scenario takes, for `holds`, failing with `what` it waited for.
+pub async fn until(what: &str, holds: impl Fn() -> bool) -> TestResult {
     for _ in 0..3_000 {
         if holds() {
-            return;
+            return Ok(());
         }
         compio::time::sleep(std::time::Duration::from_millis(1)).await;
     }
+    Err(TestError::new(format!("{what} did not come to hold")))
 }
 
 /// Whether `scan` reads the dictionary alone.
@@ -349,9 +350,10 @@ fn one_version(w: &mut Steps) -> TestResult {
         scene.info.log.pause_after(1);
         let reading = scene.answer(&read);
         let committing = async {
-            until(|| scene.info.log.scans().len() >= 2).await;
+            let reached = until("two Scans seen", || scene.info.log.scans().len() >= 2).await;
             let landed = scene.insert(&a, KNOWS, &iri(&a)).await;
             scene.info.log.go_on();
+            reached?;
             landed
         };
         let (answer, landed) = futures::join!(reading.fuse(), committing.fuse());
@@ -400,13 +402,17 @@ fn waits_for_close(w: &mut Steps) -> TestResult {
         let read = scene.snapshot_at(&Pattern::of(None, Some(NAME), None), epoch)?;
         let reading = scene.answer(&read);
         let releasing = async {
-            until(|| scene.info.log.partitions() == [1, 2, 3, 4]).await;
+            let reached = until("every partition reached", || {
+                scene.info.log.partitions() == [1, 2, 3, 4]
+            })
+            .await;
             compio::time::sleep(std::time::Duration::from_millis(30)).await;
             let scans = scene.info.log.scans();
             scene.info.clock.release(2);
-            scans
+            reached.map(|()| scans)
         };
         let (answer, scans) = futures::join!(reading.fuse(), releasing.fuse());
+        let scans = scans?;
         w.answers = vec![answer?];
         w.scans = scans;
         Ok(())

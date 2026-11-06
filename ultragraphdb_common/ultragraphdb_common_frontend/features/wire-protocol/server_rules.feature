@@ -67,3 +67,11 @@ Feature: The server's rules of a request
   Scenario: A Commit crossing its stream's Error is late
     When a client's Commit crosses the Error that ended its transaction's stream
     Then the server drops the Commit, and the connection stays open
+
+  Scenario: A request behind its transaction's Commit is late
+    When a client sends a Write and a second Commit on its transaction's stream after the Commit the frontend relayed, and the partition then answers that Commit
+    Then the server drops both, and the client receives the Commit's reply
+
+  Scenario: A read crossing its transaction's Error takes that Error
+    When a client's Read crosses the Error that ended its transaction's stream
+    Then the read is answered with that Error, as the transaction's reads still open are

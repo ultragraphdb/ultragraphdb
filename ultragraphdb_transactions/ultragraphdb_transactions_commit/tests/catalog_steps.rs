@@ -101,7 +101,7 @@ fn listed(
 const TERM: u8 = 0x01;
 const EXACT: u8 = 0x02;
 
-#[when("versions 3 and 4 of `tenant` both take effect at epoch 40, each starting an index build")]
+#[when("versions 3 and 4 of `t1` both take effect at epoch 40, each starting an index build")]
 fn two_builds(w: &mut Steps) -> TestResult {
     let applier = applier()?;
     applier.sequence_builds();

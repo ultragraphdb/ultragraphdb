@@ -680,7 +680,7 @@ fn next_round_in_epoch_11(w: &mut Steps) {
 }
 
 #[when(
-    "two transactions of `tenant` read before either commits, the first writes `<a> <score> 12` and the second `<b> <score> \"high\"`, and `score` was not declared"
+    "two transactions of `t1` read before either commits, the first writes `<a> <score> 12` and the second `<b> <score> \"high\"`, and `score` was not declared"
 )]
 fn first_writes(w: &mut Steps) -> TestResult {
     let applier = applier()?;
@@ -767,7 +767,7 @@ fn reply_to(replies: &[Reply], ticket: u64) -> TestResult<&Reply> {
 }
 
 #[when(
-    "a version of `tenant` starting an index build of `p` takes effect at epoch 40, and a transaction executed against the version before it writes `p` in `tenant` and commits at epoch 40"
+    "a version of `t1` starting an index build of `p` takes effect at epoch 40, and a transaction executed against the version before it writes `p` in `t1` and commits at epoch 40"
 )]
 fn build_then_write(w: &mut Steps) -> TestResult {
     let applier = applier()?;
@@ -853,7 +853,7 @@ fn later_aborts(w: &mut Steps) -> TestResult {
 }
 
 #[when(
-    "a transaction executes against catalog version 2 of `tenant`, and commits at an epoch from which version 3 is in effect"
+    "a transaction executes against catalog version 2 of `t1`, and commits at an epoch from which version 3 is in effect"
 )]
 fn old_catalog(w: &mut Steps) -> TestResult {
     let applier = applier()?;

@@ -64,6 +64,10 @@ Feature: Validating settings before anything serves them
     When `ci_storage_1.toml` sets `storage.scan_stall_ms = 0`
     Then the entry names `storage.scan_stall_ms`, the value 0 and the bound it must meet
 
+  Scenario: A stall past the client's read timeout is refused
+    When `ci_storage_1.toml` sets `storage.scan_stall_ms = 30001`
+    Then the entry names `storage.scan_stall_ms`, the value 30001 and the bound it must meet
+
   Scenario: A hung compute's stall of no time is refused
     When `ci_frontend.toml` sets `storage.scan_stall_ms = 0`
     Then the entry names `storage.scan_stall_ms`, the value 0 and the bound it must meet

@@ -17,8 +17,11 @@ use ultragraphdb_protocol_wire::{
 use super::client_session_bind::command_of;
 use super::{ClientSession, now};
 use crate::traits::authorizer::Authorizer;
-use crate::types::client_transaction::{BindState, Claim, Destination, Queued};
+use crate::types::bind_state::BindState;
+use crate::types::claim::Claim;
+use crate::types::destination::Destination;
 use crate::types::link_event::LinkEvent;
+use crate::types::queued::Queued;
 use crate::types::route_key::RouteKey;
 use crate::utils::iri_place::{IriPlace, iri_place};
 use crate::utils::term_rules::{check_change, check_operation, check_table};

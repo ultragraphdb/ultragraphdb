@@ -243,3 +243,61 @@ fn record_conflict(w: &mut Steps) -> TestResult {
     })?;
     Ok(())
 }
+
+#[when(
+    "two transactions of `t1` read before either commits, the first writes `<a> <score> 12` and the second `<b> <score> \"high\"`, and `score` was not declared"
+)]
+fn first_writes(w: &mut Steps) -> TestResult {
+    let [a, b, score, unread, unwritten] =
+        ["a", "b", "score", "unread", "unwritten"].map(|name| w.iri(name));
+    let twelve = RequestTerm::Literal {
+        lexical: "12".to_string(),
+        datatype: Some("http://www.w3.org/2001/XMLSchema#integer".to_string()),
+    };
+    let pattern = Pattern::of(Some(&unread), Some(&unwritten));
+    w.answers = in_shared(w, async |client| {
+        let (first, second) = (
+            client.begin(TENANT, false).await?,
+            client.begin(TENANT, false).await?,
+        );
+        let answers = vec![
+            read_whole(client, &first, &pattern).await?,
+            read_whole(client, &second, &pattern).await?,
+        ];
+        client
+            .write(&first, &write_of(&a, &score, &twelve)?)
+            .await?;
+        client
+            .write(&second, &write_of(&b, &score, &string("high"))?)
+            .await?;
+        let _first = client.commit(first, None).await?;
+        let _second = client.commit(second, None).await?;
+        Ok(answers)
+    })?;
+    Ok(())
+}
+
+#[then("both commit, and the metadata group holds `score`'s default entry once")]
+fn one_default_entry(w: &mut Steps) -> TestResult {
+    let score = w.iri("score");
+    let found = in_shared(w, async |client| {
+        // A partition asks after its commit, holding no write for it, so the record comes shortly after the reply.
+        for _ in 0..500 {
+            let described = client.describe(TENANT).await?;
+            let held = described
+                .property_keys()
+                .iter()
+                .filter(|key| **key == score)
+                .count();
+            if held > 0 {
+                return Ok(held);
+            }
+            compio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        Err(TestError::new(format!(
+            "Describe did not come to name {score} within 5 s"
+        )))
+    })?;
+    assert_eq!(found, 1, "{}", w.over());
+    Ok(())
+}

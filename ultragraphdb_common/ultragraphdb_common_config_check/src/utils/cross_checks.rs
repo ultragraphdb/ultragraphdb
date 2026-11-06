@@ -267,6 +267,10 @@ fn bounds(checking: &mut Checking<'_>, instance: &Instance, config: &ServiceConf
     }
 }
 
+/// The most `scan_stall_ms` holds: a client's read timeout, which no Welcome adjusts, runs at least this long past a read's
+/// deadline, so a hung compute process is answered before its client gives the connection up (`PROTOCOL.md` §11.11).
+const SCAN_STALL_MS_MAX: u64 = 30_000;
+
 /// The settings a value of 0 leaves with no time or room to act: a Scan's stall, a storage process's retention and the
 /// bytes a frontend's reads hold back. A frontend bounds a hung compute process by its own `scan_stall_ms`.
 fn no_time_bounds(checking: &mut Checking<'_>, instance: &Instance, config: &ServiceConfig) {
@@ -297,6 +301,18 @@ fn no_time_bounds(checking: &mut Checking<'_>, instance: &Instance, config: &Ser
             setting,
             "it holds 0".to_string(),
             "it must be at least 1",
+        );
+    }
+    if let Some(stall) = config
+        .storage()
+        .scan_stall_ms()
+        .filter(|stall| (storage || frontend) && *stall > SCAN_STALL_MS_MAX)
+    {
+        checking.report(
+            instance.name(),
+            "storage.scan_stall_ms",
+            format!("it holds {stall}"),
+            format!("it must be at most {SCAN_STALL_MS_MAX}, the floor of a client's read timeout (PROTOCOL.md section 11.9)"),
         );
     }
 }

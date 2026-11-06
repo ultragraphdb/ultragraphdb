@@ -212,7 +212,7 @@ fn cancel(w: &mut Steps) -> TestResult {
         );
         first
     })?;
-    h.core.cancel(sa);
+    h.core.cancel(sa.clone());
     w.harness = Some(h);
     w.stream = Some(sa);
     w.other = Some(sb);
@@ -223,8 +223,8 @@ fn cancel(w: &mut Steps) -> TestResult {
 fn cancelled(w: &mut Steps) -> TestResult {
     let h = w.harness.as_mut().context("a harness")?;
     let (sa, sb) = (
-        w.stream.context("a stream")?,
-        w.other.context("another stream")?,
+        w.stream.clone().context("a stream")?,
+        w.other.clone().context("another stream")?,
     );
     assert_eq!(rest(h, &sb)?, 6);
     assert_eq!(
@@ -500,7 +500,7 @@ fn cancel_a_read(w: &mut Steps) -> TestResult {
             Ok(BatchPoll::Batch(()))
         )
     })?;
-    h.core.cancel(stream);
+    h.core.cancel(stream.clone());
     let p = h.core.commit(tx, session, h.now)?;
     w.refusal = Some(matches!(h.settle(p)?, Ok(Reply::Committed(_))));
     w.harness = Some(h);
@@ -512,7 +512,7 @@ fn cancel_a_read(w: &mut Steps) -> TestResult {
 fn read_cancelled(w: &mut Steps) -> TestResult {
     assert_eq!(w.refusal, Some(true), "the commit succeeds");
     let h = w.harness.as_mut().context("a harness")?;
-    let stream = w.stream.context("a stream")?;
+    let stream = w.stream.clone().context("a stream")?;
     assert_eq!(
         h.core
             .next_batch(&stream, h.now, |_| ())
@@ -543,7 +543,7 @@ fn commit_with_a_read_open(w: &mut Steps) -> TestResult {
 fn read_ended(w: &mut Steps) -> TestResult {
     assert_eq!(w.refusal, Some(true), "the commit's reply arrived");
     let h = w.harness.as_mut().context("a harness")?;
-    let stream = w.stream.context("a stream")?;
+    let stream = w.stream.clone().context("a stream")?;
     assert_eq!(
         h.core
             .next_batch(&stream, h.now, |_| ())

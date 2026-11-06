@@ -29,6 +29,9 @@ type Writer<C> = Connection<<<C as Connect>::Stream as SplitStream>::Write>;
 /// A frame being read on a task of its own, which hands back the receiving half with what it read.
 type Reading<C> = JoinHandle<(Reader<C>, Result<ReceivedFrame, TransportError>)>;
 
+/// A frame being written on a task of its own, which hands back the sending half with how the write went.
+type Writing<C> = JoinHandle<(Writer<C>, Result<(), TransportError>)>;
+
 /// How long a read has before a deadline already passed when the wait begins is taken: a frame that arrived while no call
 /// drove the connection is read first, its task given its turns on the runtime, so the core never takes a server that
 /// answered for a silent one.
@@ -74,7 +77,9 @@ fn unix_micros() -> u64 {
 ///
 /// Each frame is read on a task of its own on the runtime the client runs on, so no read is ever cut: a deadline of
 /// the core's passing, or a caller dropping one of this client's futures at an `.await`, leaves the read going on, and
-/// the next call takes its frame, read before any deadline that passed meanwhile is taken. Only a real timeout, a failure or a close gives the connection up: a busy commit's
+/// the next call takes its frame, read before any deadline that passed meanwhile is taken. Each frame is written on a task of
+/// its own too, so a caller's future dropped mid-frame leaves the write going on, and the next frame follows it whole. Only a
+/// real timeout, a failure or a close gives the connection up: a busy commit's
 /// resend and a credential's renewal go out on the sending half while a read is out. The core's requests stay as they
 /// stand and answer on the next call, a commit's among them. The core opens a read only while the pool holds what its
 /// credit can bring, and a full pool reads nothing until a frame gives its buffer back.
@@ -83,7 +88,11 @@ pub struct Client<C: Connect, L: Login> {
     connector: C,
     core: ClientCore<L>,
     pool: BufferPool,
+    /// The sending half while no frame is being written on it.
     writer: Option<Writer<C>>,
+    /// The frame being written, on its task: a caller dropping a future mid-frame leaves it going on, so no other frame
+    /// follows a part of one.
+    writing: Option<Writing<C>>,
     /// The receiving half while no frame is being read on it.
     reader: Option<Reader<C>>,
     /// The frame being read, on its task.
@@ -103,6 +112,7 @@ impl<C: Connect, L: Login> Client<C, L> {
             pool: BufferPool::new(config.buffers(), MAX_FRAME_SIZE),
             core: ClientCore::new(config, login),
             writer: None,
+            writing: None,
             reader: None,
             reading: None,
             failure: None,
@@ -131,7 +141,7 @@ impl<C: Connect, L: Login> Client<C, L> {
 
     /// A connection, opened if there is none or the core gave the last up.
     async fn ready(&mut self) -> Result<(), ClientError> {
-        if self.core.is_ready() && self.writer.is_some() {
+        if self.core.is_ready() && (self.writer.is_some() || self.writing.is_some()) {
             return Ok(());
         }
         self.connect().await
@@ -157,6 +167,7 @@ impl<C: Connect, L: Login> Client<C, L> {
     async fn shut(&mut self) {
         self.reading = None;
         self.reader = None;
+        self.writing = None;
         if let Some(mut writer) = self.writer.take() {
             let _shut: Result<(), compio::time::Elapsed> =
                 compio::time::timeout(self.core.config().timeout(), writer.shutdown()).await;
@@ -167,26 +178,48 @@ impl<C: Connect, L: Login> Client<C, L> {
     fn drop_connection(&mut self) {
         self.reading = None;
         self.reader = None;
+        self.writing = None;
         self.writer = None;
     }
 
-    /// Writes every frame the core queued, each within the timeout; a failure is the connection's, and the shell's answer
-    /// when nothing else is. A peer that takes no frame within the timeout has stopped reading, and the write times out.
+    /// Writes the frame being written, if any, then every frame the core queued, each on a task of its own and within the
+    /// timeout; a failure is the connection's, and the shell's answer when nothing else is. A peer that takes no frame within
+    /// the timeout has stopped reading, and the write times out.
     async fn flush(&mut self) {
         let timeout = self.core.config().timeout();
-        while let Some(frame) = self.core.transmit() {
-            let Some(writer) = self.writer.as_mut() else {
+        // Ends: each turn writes one frame whole, or gives the connection up, and the core's queue is finite.
+        loop {
+            if self.writing.is_none() {
+                let Some(mut writer) = self.writer.take() else {
+                    return;
+                };
+                let Some(frame) = self.core.transmit() else {
+                    self.writer = Some(writer);
+                    return;
+                };
+                self.writing = Some(compio::runtime::spawn(async move {
+                    let written = writer.write_frame(frame).await.map(|_sent| ());
+                    (writer, written)
+                }));
+            }
+            let Some(writing) = self.writing.as_mut() else {
                 return;
             };
-            let written = compio::time::timeout(timeout, writer.write_frame(frame))
-                .await
-                .unwrap_or_else(|_| Err(TransportError::io(&std::io::ErrorKind::TimedOut.into())));
-            if let Err(error) = written {
-                self.core.disconnected(error.clone(), now());
-                self.failure = Some(ClientError::transport(error));
-                self.drop_connection();
-                return;
-            }
+            let written = compio::time::timeout(timeout, writing).await;
+            self.writing = None;
+            let failed = match written {
+                Ok(Ok((writer, Ok(())))) => {
+                    self.writer = Some(writer);
+                    continue;
+                }
+                Ok(Ok((_, Err(error)))) => error,
+                Ok(Err(ended)) => TransportError::io(&std::io::Error::from(ended)),
+                Err(_) => TransportError::io(&std::io::ErrorKind::TimedOut.into()),
+            };
+            self.core.disconnected(failed.clone(), now());
+            self.failure = Some(ClientError::transport(failed));
+            self.drop_connection();
+            return;
         }
     }
 
@@ -249,11 +282,11 @@ impl<C: Connect, L: Login> Client<C, L> {
                 Some(read) => {
                     self.reading = None;
                     self.take_read(read);
-                    // A deadline passed by the time the frame was read is taken once it is: a resend or a renewal due goes
-                    // out, and a timeout counts from the frame's progress.
-                    let read_at = now();
-                    if self.core.next_deadline().is_some_and(|due| due <= read_at) {
-                        self.core.handle_timeout(read_at);
+                    // A deadline passed by the time the frame was read is taken once the frames already arrived are: a resend
+                    // or a renewal due goes out, and a timeout counts from the frames' progress.
+                    if self.core.next_deadline().is_some_and(|due| due <= now()) {
+                        self.take_arrived().await;
+                        self.core.handle_timeout(now());
                         if !self.core.is_connected() {
                             self.shut().await;
                         }
@@ -268,6 +301,23 @@ impl<C: Connect, L: Login> Client<C, L> {
                     }
                 }
             }
+        }
+    }
+
+    /// The frames that have already arrived, each given [`READ_TURN`], read before a deadline that passed while no call drove
+    /// the connection is taken, so a read whose frame waits in the socket is not taken for a silent one; at most the pool's
+    /// buffers, so a deadline due is not put off by frames that keep coming.
+    async fn take_arrived(&mut self) {
+        for _ in 0..self.core.config().buffers() {
+            let until = now().checked_add(READ_TURN).unwrap_or_else(now);
+            let Some(reading) = self.read_out() else {
+                return;
+            };
+            let Some(read) = read_by(reading, until).await else {
+                return;
+            };
+            self.reading = None;
+            self.take_read(read);
         }
     }
 

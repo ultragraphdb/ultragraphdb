@@ -121,14 +121,16 @@ impl<'a> BodyView<'a> for PrepareView<'a> {
             sections.get(1),
             sections.get(2),
         )?;
-        let names = StringList::read(command, (5, 6), sections.get(5), sections.get(6))?;
         let (pattern, query) = if language == Language::Pattern {
             let pattern = QuadPattern::read(command, 0, sections.get(0), terms.len(), true)?;
-            if !names.is_empty() {
+            let (ends, names_text) = (sections.get(5), sections.get(6));
+            if !ends.is_empty() || !names_text.is_empty() {
+                // The names `ends` holds, at least one where only the text does.
+                let held = ends.len().div_ceil(4).max(1);
                 return Err(ProtocolError::count_mismatch(
                     command,
                     "names",
-                    names.len() as u64,
+                    held as u64,
                     0,
                 ));
             }
@@ -136,6 +138,7 @@ impl<'a> BodyView<'a> for PrepareView<'a> {
         } else {
             (None, text(command, 0, sections.get(0))?)
         };
+        let names = StringList::read(command, (5, 6), sections.get(5), sections.get(6))?;
         let parameter_types = column_types(command, language, sections.get(3))?;
         let result_types = column_types(command, language, sections.get(4))?;
         match &pattern {

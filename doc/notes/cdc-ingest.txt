@@ -1,0 +1,7 @@
+Filament is an open-source (Apache 2.0) data movement engine by Galaxy for replication, ingestion, and change data capture
+
+It replicates and ingests data from databases, HTTP APIs, event streams, and object storage into warehouses, lakes, and databases. It supports full loads, incremental replication, and change data capture (CDC).
+
+https://github.com/galaxy-io/filament
+
+https://filament.getgalaxy.io/pages/guides/get-started/introduction

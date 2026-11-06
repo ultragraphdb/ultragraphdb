@@ -7,7 +7,8 @@ use ultragraphdb_error_protocol::ProtocolError;
 use xxhash_rust::xxh3::xxh3_64;
 
 use crate::types::command::Command;
-use crate::types::resume_key::{RESUME_FIXED, ResumeRow};
+use crate::types::resume_key::RESUME_FIXED;
+use crate::types::resume_row::ResumeRow;
 use crate::types::term_table_view::TermTableView;
 use crate::utils::constants::ABSENT;
 use crate::utils::le::bytes_at;

@@ -12,8 +12,8 @@ use ultragraphdb_common_compute::{
     ComputeCore, ComputeSession, CoreListener, ReadTimes, read_times_of,
 };
 use ultragraphdb_common_role::{
-    COMPUTE_WELCOME_CREDIT, ROLE_ITERATIONS, RoleClient, RoleCluster, RoleCredentials, Server,
-    frontend_address, retry_until, serve_connection,
+    COMPUTE_WELCOME_CREDIT, OpenRequests, ROLE_ITERATIONS, RoleClient, RoleCluster,
+    RoleCredentials, Server, finish_open, frontend_address, retry_until, serve_connection,
 };
 use ultragraphdb_common_service::{Readiness, RoleKind, RoleStart, Stopping, core_runtime};
 use ultragraphdb_common_service_config::ServiceConfig;
@@ -23,6 +23,9 @@ use ultragraphdb_protocol_wire::{BodyView, Join, Members, MembersView};
 
 /// How often the role looks at its peers and whether it was told to stop, and dials a peer it lost.
 const POLL: Duration = Duration::from_millis(100);
+
+/// How long a stop waits on the reads under way: within the 60 s a stopping role has, as the frontend's.
+const FINISH_LIMIT: Duration = Duration::from_secs(50);
 
 /// How many times per `cluster.join_deadline_ms` compute asks each peer whether it still answers.
 const ASKS_PER_DEADLINE: u32 = 2;
@@ -74,13 +77,18 @@ async fn join_as(
     let cluster = RoleCluster::read(start)?;
     let frontend = frontend_address(start)?;
     let listener = CoreListener::bind(own)?;
+    // Every core's reads, counted until each ends: a stop refuses new ones and drains these (role-binaries "Readiness, health and
+    // shutdown").
+    let open = OpenRequests::new(stopping.clone());
     let serving = CoreServing {
         cluster: cluster.clone(),
         frontend: frontend.clone(),
         credentials: cluster.secret().credentials()?,
         server: Server::new(cluster.id(), "role", endpoint)?
             .with_welcome(|welcome| welcome.with_initial_credit(COMPUTE_WELCOME_CREDIT))
-            .with_iterations(ROLE_ITERATIONS),
+            .with_iterations(ROLE_ITERATIONS)
+            .with_open(open.clone()),
+        open: open.clone(),
         times: read_times_of(
             start.config().storage().scan_stall_ms(),
             start.config().storage().read_retain_ms(),
@@ -100,7 +108,14 @@ async fn join_as(
     let peers = std::iter::once(frontend.clone())
         .chain(partitions)
         .collect();
-    hold_peers(peers, &cluster, stopping).await
+    hold_peers(peers, &cluster, stopping).await?;
+    let _left = finish_open(
+        Vec::<compio::runtime::JoinHandle<()>>::new(),
+        &open,
+        FINISH_LIMIT,
+    )
+    .await;
+    Ok(())
 }
 
 /// What each core accepts and reads with.
@@ -110,6 +125,7 @@ struct CoreServing {
     frontend: Address,
     credentials: RoleCredentials,
     server: Server,
+    open: OpenRequests,
     times: ReadTimes,
 }
 
@@ -156,7 +172,7 @@ async fn accept_on_core(listener: CoreListener, serving: CoreServing) {
         match listener.accept().await {
             Ok(carrier) => {
                 let (server, credentials) = (serving.server.clone(), serving.credentials.clone());
-                let session = ComputeSession::new(core.clone());
+                let session = ComputeSession::new(core.clone()).with_open(serving.open.clone());
                 spawn(async move {
                     serve_connection(carrier, &server, credentials, session).await;
                 })

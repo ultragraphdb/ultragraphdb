@@ -7,14 +7,13 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use compio::runtime::{JoinHandle, spawn};
-use futures::StreamExt;
-use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
+use futures::channel::mpsc::unbounded;
 use ultragraphdb_common_role::{
-    Answer, ROLE_ITERATIONS, RoleClient, RoleCluster, Server, Session, serve_connection,
+    Answer, ROLE_ITERATIONS, RoleClient, RoleCluster, Server, serve_connection,
 };
 use ultragraphdb_core_ids::{SessionToken, Version};
 use ultragraphdb_error_role::RoleError;
-use ultragraphdb_protocol_transport::{Address, Endpoint, ReceivedFrame};
+use ultragraphdb_protocol_transport::{Address, Endpoint};
 use ultragraphdb_protocol_transport_compio::Listener;
 use ultragraphdb_protocol_wire::{
     Bind, BindView, BodyBuilder, BodyView, Command, Commit, CommitView, ConditionalWriteView,
@@ -22,40 +21,8 @@ use ultragraphdb_protocol_wire::{
     Header, Held, Join, MAX_FRAME_SIZE, Monotonic, ResultBatch, TermTable,
 };
 
-/// A frame a double took, or what it was told: a Cancel or a Credit stands for what the connection told its session.
-#[derive(Debug, Clone)]
-pub struct DoubleFrame {
-    stream: u64,
-    command: Command,
-    bytes: Vec<u8>,
-    pushes: UnboundedSender<(u64, Vec<u8>)>,
-}
-
-impl DoubleFrame {
-    /// The stream it arrived on.
-    #[must_use]
-    pub fn stream(&self) -> u64 {
-        self.stream
-    }
-
-    /// Its command.
-    #[must_use]
-    pub fn command(&self) -> Command {
-        self.command
-    }
-
-    /// Its bytes; empty for what the connection told.
-    #[must_use]
-    pub fn bytes(&self) -> &[u8] {
-        &self.bytes
-    }
-
-    /// Sends `frame` back on this frame's stream.
-    pub fn answer_with(&self, frame: Vec<u8>) {
-        // A connection gone has no one to tell.
-        drop(self.pushes.unbounded_send((self.stream, frame)));
-    }
-}
+use crate::utils_test::double_frame::DoubleFrame;
+use crate::utils_test::double_session::DoubleSession;
 
 /// A role a test plays: it accepts what a role's endpoint takes, keeps every frame, and answers as `script` says. Reads against
 /// compute and writes against storage run over these, so a scenario decides what the frontend hears, when.
@@ -159,7 +126,7 @@ impl RoleDouble {
         self.seen
             .borrow()
             .iter()
-            .filter(|frame| frame.command == command)
+            .filter(|frame| frame.command() == command)
             .cloned()
             .collect()
     }
@@ -170,7 +137,7 @@ impl RoleDouble {
         self.seen
             .borrow()
             .iter()
-            .map(|frame| frame.command)
+            .map(DoubleFrame::command)
             .filter(|command| !leaving_out.contains(command))
             .collect()
     }
@@ -191,52 +158,6 @@ impl RoleDouble {
     #[must_use]
     pub fn cluster(&self) -> u64 {
         self.cluster
-    }
-}
-
-struct DoubleSession<F> {
-    seen: Rc<RefCell<Vec<DoubleFrame>>>,
-    script: Rc<F>,
-    pushes: UnboundedSender<(u64, Vec<u8>)>,
-    pushed: UnboundedReceiver<(u64, Vec<u8>)>,
-}
-
-impl<F> DoubleSession<F> {
-    fn note(&self, stream: u64, command: Command, bytes: Vec<u8>) -> DoubleFrame {
-        let frame = DoubleFrame {
-            stream,
-            command,
-            bytes,
-            pushes: self.pushes.clone(),
-        };
-        self.seen.borrow_mut().push(frame.clone());
-        frame
-    }
-}
-
-impl<F: Fn(&DoubleFrame) -> Answer> Session for DoubleSession<F> {
-    async fn answer(&mut self, stream: u64, frame: ReceivedFrame) -> Answer {
-        let Ok(view) = frame.view() else {
-            return Answer::Refuse(ErrorReply::new(ErrorCode::Protocol, "a frame refused"));
-        };
-        let noted = self.note(stream, view.command(), frame.bytes().to_vec());
-        (self.script)(&noted)
-    }
-
-    async fn next_push(&mut self) -> (u64, Vec<u8>) {
-        match self.pushed.next().await {
-            Some(pushed) => pushed,
-            // This session holds a sender, so its channel never ends while it waits here.
-            None => std::future::pending().await,
-        }
-    }
-
-    fn cancelled(&mut self, stream: u64) {
-        let _noted = self.note(stream, Command::Cancel, Vec::new());
-    }
-
-    fn credited(&mut self, stream: u64, _frames: u32) {
-        let _noted = self.note(stream, Command::Credit, Vec::new());
     }
 }
 

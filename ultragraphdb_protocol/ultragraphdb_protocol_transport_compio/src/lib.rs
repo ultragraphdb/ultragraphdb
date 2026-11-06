@@ -14,6 +14,8 @@ mod types;
 
 pub use crate::types::carrier::Carrier;
 pub use crate::types::compio_sim_stream::CompioSimStream;
-pub use crate::types::compio_tls_stream::{CompioTlsStream, TlsReadHalf, TlsWriteHalf};
+pub use crate::types::compio_tls_stream::CompioTlsStream;
 pub use crate::types::connection::Connection;
 pub use crate::types::listener::Listener;
+pub use crate::types::tls_read_half::TlsReadHalf;
+pub use crate::types::tls_write_half::TlsWriteHalf;

@@ -16,7 +16,9 @@ mod scan_ranges_steps;
 use compio::runtime::Runtime;
 use cucumber::{World, then, when};
 use futures::FutureExt;
-use played_frontend::{OUT_OF_ORDER_EPOCH, PLAYED_FRONTEND_ADDRESS, exit_of, play_frontend};
+use played_frontend::{
+    OUT_OF_ORDER_EPOCH, PLAYED_FRONTEND_ADDRESS, TRIMMED, exit_of, play_frontend,
+};
 use service_utils::{ServiceUtil, WaitStrategy};
 use sha2::{Digest, Sha256};
 use std::path::Path;
@@ -553,7 +555,7 @@ fn names_the_bound(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[when("a role starts with `pin_cores = true`")]
+#[when("a role starts with `pin_cores = true` on a platform that allows binding")]
 fn pinned(w: &mut Steps) -> TestResult {
     let mut variables = storage_holding()?;
     variables.push(("runtime.pin_cores".to_string(), "true".to_string()));
@@ -565,19 +567,45 @@ fn pinned(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-/// Only Linux can read a binding back here: macOS binds nothing, and a container may refuse. Each says so, and serves.
-#[then("it logs what became of its binding, and serves requests")]
-fn logs_the_binding(w: &mut Steps) {
-    let expected: &[&str] = if cfg!(target_os = "linux") {
-        &["pinned to CPU", "unpinned: asked for CPU"]
-    } else {
-        &["unpinned: this platform cannot bind"]
-    };
+/// Linux binds and reads each binding back: every runtime's line names a CPU of the set this test process, the role's parent, is
+/// permitted, one runtime for the role and one per partition. macOS binds nothing, so no platform here allows binding, and its
+/// line says so; the read-back is Linux's to check.
+#[then(
+    "it logs each runtime's CPU, read back from the operating system, each within the permitted set"
+)]
+fn logs_the_binding(w: &mut Steps) -> TestResult {
+    if !cfg!(target_os = "linux") {
+        assert!(
+            w.log.contains("unpinned: this platform cannot bind"),
+            "{}",
+            w.log
+        );
+        return Ok(());
+    }
+    let permitted = ultragraphdb_common_service::allowed_in_status(&std::fs::read_to_string(
+        "/proc/self/status",
+    )?)
+    .context("the permitted CPUs")?;
+    assert!(!w.log.contains("unpinned"), "{}", w.log);
+    let cpus: Vec<usize> = w
+        .log
+        .split("pinned to CPU ")
+        .skip(1)
+        .map(|rest| {
+            let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+            digits.parse::<usize>()
+        })
+        .collect::<Result<_, _>>()?;
     assert!(
-        expected.iter().any(|line| w.log.contains(line)),
-        "{}",
+        cpus.len() >= 2,
+        "the role's runtime and a partition's: {}",
         w.log
     );
+    assert!(
+        cpus.iter().all(|cpu| permitted.contains(cpu)),
+        "{cpus:?} of {permitted:?}"
+    );
+    Ok(())
 }
 
 #[when("a role starts with `pin_cores = true` where binding is unavailable")]
@@ -607,6 +635,29 @@ fn logs_unpinned(w: &mut Steps) {
 
 #[when("a storage partition detects an invariant violation in a release build")]
 fn close_out_of_order(w: &mut Steps) -> TestResult {
+    on_played_frontend(w, false)
+}
+
+#[when(
+    "the frontend ends a storage process's subscription, the close it asks for being no longer held"
+)]
+fn subscription_ended(w: &mut Steps) -> TestResult {
+    on_played_frontend(w, true)
+}
+
+#[then(
+    "the process shuts down through its ordinary path, and it exits with code 69 naming what the frontend said"
+)]
+fn exits_on_the_end(w: &mut Steps) -> TestResult {
+    assert!(w.exited.is_some(), "it runs on:\n{}", w.log);
+    exit_is(w.exited, &w.log, 69)?;
+    assert!(w.log.contains(TRIMMED), "{}", w.log);
+    assert!(w.log.contains("stopping role=storage"), "{}", w.log);
+    Ok(())
+}
+
+/// A storage process over the played frontend, until it exits; `ending` as [`play_frontend`] takes it.
+fn on_played_frontend(w: &mut Steps, ending: bool) -> TestResult {
     let log = scratch("storage-invariant.log");
     let settings = with(
         storage_holding()?,
@@ -615,7 +666,7 @@ fn close_out_of_order(w: &mut Steps) -> TestResult {
     );
     let util = services()?;
     Runtime::new()?.block_on(async {
-        play_frontend().await?;
+        play_frontend(ending).await?;
         let pid = util.start_service_from_config(role(
             STORAGE_BINARY,
             &settings,

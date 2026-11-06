@@ -3,108 +3,41 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+mod gate;
+mod graphs;
+mod open_scan;
 mod partition_rows_fill;
 mod partition_rows_frames;
 mod partition_rows_plan;
 mod partition_rows_terms;
+mod reading;
+mod row_filter;
+mod skip;
 
-use std::cell::Cell;
 use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 
 use ultragraphdb_core_ids::SystemId;
-use ultragraphdb_core_keys::{Graph, Keyspace};
-use ultragraphdb_core_terms::EncodedTerm;
+use ultragraphdb_core_keys::Graph;
 use ultragraphdb_protocol_wire::{ErrorReply, Scan, ScanRange, TermTable};
 use ultragraphdb_store_quads::term_key;
 
-use self::partition_rows_frames::FrameTail;
-use crate::types::access::{Access, RangeSpec};
+use self::gate::Gate;
+use self::graphs::Graphs;
+use self::open_scan::OpenScan;
+use self::row_filter::RowFilter;
+use self::skip::Skip;
+use crate::types::access::Access;
 use crate::types::link::Link;
 use crate::types::names::Names;
 use crate::types::page::Page;
+use crate::types::range_spec::RangeSpec;
 use crate::types::read_at::ReadAt;
-use crate::types::read_pins::ReadPins;
-use crate::types::read_request::ReadRequest;
+use crate::types::read_shared::ReadShared;
 use crate::types::resume_at::ResumeAt;
-use crate::types::scan_stream::{ScanFacts, ScanStream};
+use crate::types::scan_facts::ScanFacts;
+use crate::types::scan_stream::ScanStream;
 use crate::utils::keys::past_alone;
-
-/// What every partition of one read shares of it.
-#[derive(Debug)]
-pub(crate) struct ReadShared {
-    pub(crate) read: ReadRequest,
-    /// The rows the read still wants, 0 for no limit: how far a Scan need go.
-    pub(crate) remaining: Cell<u32>,
-    pub(crate) pins: Rc<ReadPins>,
-}
-
-/// The graphs a partition's read goes through.
-#[derive(Debug)]
-enum Graphs {
-    /// This graph alone, then none.
-    One(Graph),
-    /// Walked by Scans of limit 1 from this key of the keyspace.
-    Walk { keyspace: Keyspace, from: Vec<u8> },
-    /// None left.
-    Done,
-}
-
-/// What the Scan under way reads.
-#[derive(Debug)]
-enum Reading {
-    /// Rows, into the page.
-    Rows,
-    /// A predicates' list, into the keys read next.
-    Predicates(Vec<SystemId>),
-}
-
-/// The Scan under way.
-#[derive(Debug)]
-struct OpenScan {
-    stream: ScanStream,
-    reading: Reading,
-    /// The Scan's ranges not ended yet, the first the one under way.
-    ranges: VecDeque<RangeSpec>,
-    /// The range under way's last key and that key's last object, and whether a next frame continues that key's list.
-    last: Option<FrameTail>,
-    continues: bool,
-    /// Whether a frame of the Scan has given a key past `from`.
-    gave: bool,
-    /// The key and object a Scan resumed in a list goes on from, which the read returned already.
-    from: Option<FrameTail>,
-}
-
-/// What a read drops of the list or record it resumes in: the row it stopped after and those before it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Skip {
-    /// In the list of `key`, the object `encoding`: whole with no `statement`, else its statements at or below that ID.
-    Object {
-        key: Vec<u8>,
-        encoding: Vec<u8>,
-        statement: Option<SystemId>,
-    },
-    /// In a statement's record, the properties up to and including this one.
-    Property {
-        predicate: SystemId,
-        value: EncodedTerm,
-    },
-}
-
-/// What only some of a list's or record's objects are read for: a bound object beside a list's key, or a bound predicate and
-/// object in a statement's record.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct RowFilter {
-    pub(crate) object: Option<Vec<u8>>,
-    pub(crate) property: Option<SystemId>,
-}
-
-/// A dictionary Scan under way, for the terms of one partition.
-#[derive(Debug)]
-pub(crate) struct Gate {
-    stream: Option<ScanStream>,
-    terms: Vec<(Vec<u8>, String)>,
-}
 
 /// One partition's part of a read: the Scans of the version its first chose, the page of rows the merge drains, and the names of
 /// those rows, read before the merge sees them.

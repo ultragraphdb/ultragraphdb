@@ -336,22 +336,44 @@ where
                 session.credited(stream, frames);
             }
         }
-        Inbound::Request { stream, .. } if open.is_stopping() => machine.refuse(
-            stream,
-            &ErrorReply::new(ErrorCode::Unavailable, "this process is stopping"),
-        )?,
-        Inbound::Request { stream, .. } => match session.answer(stream, received).await {
+        // A CloseRequest's stream ends with it, a refusal included (`PROTOCOL.md` §13.16), so its refusal is dropped.
+        Inbound::Request { stream, command } if open.is_stopping() => {
+            let refusal = ErrorReply::new(ErrorCode::Unavailable, "this process is stopping");
+            refuse(machine, stream, command, &refusal)?;
+        }
+        Inbound::Request { stream, command } => match session.answer(stream, received).await {
             Answer::Reply(reply) => machine.outbound().push(stream, reply)?,
             Answer::Open => {}
             Answer::Done => {
                 let _ended = machine.outbound().cancel(stream);
             }
-            Answer::Refuse(refusal) => machine.refuse(stream, &refusal)?,
+            Answer::Refuse(refusal) => refuse(machine, stream, command, &refusal)?,
         },
         Inbound::Cancelled { stream, .. } => session.cancelled(stream),
         Inbound::Refused { .. } | Inbound::Closing { .. } => {}
     }
     Ok(())
+}
+
+/// `refusal` of the `command` on `stream`: sent on the stream, or for a CloseRequest, which no frame answers, logged and its
+/// stream ended.
+fn refuse<A: Authenticator>(
+    machine: &mut ServerConnection<A>,
+    stream: u64,
+    command: Command,
+    refusal: &ErrorReply,
+) -> Result<(), TransportError> {
+    if command == Command::CloseRequest {
+        tracing::warn!(
+            stream,
+            code = refusal.code().number(),
+            message = refusal.message(),
+            "a CloseRequest was refused"
+        );
+        let _ended = machine.outbound().cancel(stream);
+        return Ok(());
+    }
+    machine.refuse(stream, refusal)
 }
 
 /// Writes every frame the machine lets go, then tells the session of each stream with room for its next frame, and of each

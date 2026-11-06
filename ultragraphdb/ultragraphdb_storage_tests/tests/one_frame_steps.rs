@@ -8,12 +8,12 @@
 
 use cucumber::{then, when};
 use ultragraphdb_common_role::RoleClient;
-use ultragraphdb_core_ids::SessionToken;
+use ultragraphdb_core_ids::{SessionToken, Version};
 use ultragraphdb_protocol_transport::Address;
 use ultragraphdb_protocol_wire::{
-    Begin, Bind, BindKind, BodyView, Commit, CommitOperation, CommitView, ConditionalWrite,
-    Declared, DeclaredPredicate, DirectWrite, DropCommand, EntriesSequence, ErrorCode, RequestTerm,
-    ScanAt, TermTable, Write, WriteChange,
+    Begin, Bind, BindKind, BindView, BodyView, Commit, CommitOperation, CommitView,
+    ConditionalWrite, Declared, DeclaredPredicate, DirectWrite, DropCommand, EntriesSequence,
+    ErrorCode, RequestTerm, ScanAt, TermTable, Write, WriteChange,
 };
 use ultragraphdb_tests::{
     CLIENT_ADDRESS, CLUSTER, FRONTEND_BINARY, FRONTEND_OBSERVABILITY, answering, frontend_holding,
@@ -22,9 +22,11 @@ use ultragraphdb_tests::{
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::read_kernel_steps::{
-    Frame, PARTITION, PRINCIPAL, alone, answer, dial, forward_key, id_of, next_frame,
-    one_partition, plain, run,
+    Frame, PARTITION, PRINCIPAL, alone, answer, bind_of, dial, forward_key, id_of, next_frame,
+    one_partition, partition_holding, plain, run,
 };
+use crate::retention_steps::{RETAIN_MS, refused_once_discarded};
+use crate::scan_ranges_steps::committed_and_closed;
 use crate::{PREDICATE, Steps, TENANT, commit_at, edge_write, subject_of};
 
 const SESSION: [u8; 16] = [7; 16];
@@ -117,12 +119,46 @@ async fn declared_unique() -> TestResult<RoleClient> {
     Err(TestError::new("the version never reached the partition"))
 }
 
+/// A DirectWrite whose insert puts a literal in the predicate slot, which the wire passes and the partition refuses once it has
+/// opened the write's execution.
+fn literal_predicate(subject: &str) -> TestResult<DirectWrite> {
+    let mut terms = TermTable::new();
+    let change = WriteChange::Insert {
+        graph: None,
+        subject: terms.iri(subject),
+        predicate: terms.intern(RequestTerm::Literal {
+            lexical: "knows".to_string(),
+            datatype: None,
+        })?,
+        object: terms.iri("http://ex.org/b"),
+    };
+    Ok(DirectWrite::new(TENANT, terms, vec![change]).with_principal(PRINCIPAL))
+}
+
+/// The partition's watermark: the read version of a Bind, which is then aborted.
+async fn watermark(client: &mut RoleClient) -> TestResult<u64> {
+    let reply = client.request(&bind_of(61, PRINCIPAL)).await?;
+    let read = BindView::from_frame(&reply.view()?)?.read_version();
+    drop(reply);
+    let stream = client.last_stream();
+    client
+        .send_on(stream, &ultragraphdb_protocol_wire::Abort)
+        .await?;
+    Ok(read)
+}
+
 #[when("a client sends a DirectWrite inserting `<a> <knows> <b>` through its session")]
 fn insert_in_one_request(w: &mut Steps) -> TestResult {
-    one_partition(w, None)?;
+    partition_holding(w, &[("storage.read_retain_ms", &RETAIN_MS.to_string())])?;
     let subject = subject_of(1, 1, TENANT)?;
     run(async {
         let mut client = dial().await?;
+        let _closed = committed_and_closed(&mut client).await?;
+        // A one-frame write refused after its execution opened holds nothing either: its watermark goes as any version.
+        let read = watermark(&mut client).await?;
+        client.send_only(&literal_predicate(&subject)?).await?;
+        let malformed = committed(&mut client).await?.err().context("a refusal")?;
+        assert_eq!(malformed.0, ErrorCode::Protocol, "{}", malformed.1);
         let write = direct(&subject, "http://ex.org/b").with_session(SESSION, 1);
         client.send_only(&write).await?;
         let (version, token, _) = committed(&mut client)
@@ -141,6 +177,16 @@ fn insert_in_one_request(w: &mut Steps) -> TestResult {
                 .sum::<usize>(),
             1
         );
+        let epoch = Version::from_u64(read).epoch().get();
+        w.kernel.refused = vec![refused_once_discarded(&mut client, read, epoch).await?];
+        w.kernel.numbers = vec![version];
+        let past = refused_once_discarded(
+            &mut client,
+            version,
+            Version::from_u64(version).epoch().get(),
+        )
+        .await?;
+        w.kernel.refused.push(past);
         Ok(())
     })
 }
@@ -148,8 +194,22 @@ fn insert_in_one_request(w: &mut Steps) -> TestResult {
 #[then(
     "the reply carries the commit version and session token, `<a> <knows> <b>` is held, and the partition holds no open transaction for it at any point after the reply"
 )]
-fn committed_in_one_request(w: &mut Steps) {
+fn committed_in_one_request(w: &mut Steps) -> TestResult {
+    // Nothing holds the discard version down: the versions it read at go once the retention passes.
+    let codes: Vec<ErrorCode> = w
+        .kernel
+        .refused
+        .iter()
+        .map(|refused| refused.code)
+        .collect();
+    assert_eq!(
+        codes,
+        [ErrorCode::TooOld, ErrorCode::TooOld],
+        "{:?}",
+        w.kernel.refused
+    );
     w.roles = None;
+    Ok(())
 }
 
 #[when(

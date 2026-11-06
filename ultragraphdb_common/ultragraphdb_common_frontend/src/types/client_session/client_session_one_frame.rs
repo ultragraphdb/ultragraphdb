@@ -16,7 +16,7 @@ use super::client_session_requests::check_token;
 use super::client_session_writes::{changes_destination, operation_destination};
 use super::{ClientSession, DropRelay, OneFrame};
 use crate::traits::authorizer::Authorizer;
-use crate::types::client_transaction::Destination;
+use crate::types::destination::Destination;
 use crate::types::link_event::LinkEvent;
 use crate::types::owner_handle::DropStep;
 use crate::types::route_key::RouteKey;
@@ -49,10 +49,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         if view.command() == Command::DirectWrite {
             return self.direct_write(stream, view, bytes).await;
         }
-        let write =
-            ConditionalWriteView::from_frame(view).map_err(|rule| ErrorReply::protocol(&rule))?;
-        write
-            .check_from_client()
+        let write = ConditionalWriteView::from_client_frame(view)
             .map_err(|rule| ErrorReply::protocol(&rule))?;
         let facts = OneFrameFacts {
             session: write.session(),
@@ -92,10 +89,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         bytes: &[u8],
     ) -> Result<Answer, ErrorReply> {
         let write =
-            DirectWriteView::from_frame(view).map_err(|rule| ErrorReply::protocol(&rule))?;
-        write
-            .check_from_client()
-            .map_err(|rule| ErrorReply::protocol(&rule))?;
+            DirectWriteView::from_client_frame(view).map_err(|rule| ErrorReply::protocol(&rule))?;
         let facts = OneFrameFacts {
             session: write.session(),
             request: write.request(),

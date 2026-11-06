@@ -427,7 +427,7 @@ fn test_a_drop_in_flight_keeps_its_session_busy() -> TestResult {
     Ok(())
 }
 
-/// A Drop's reply naming another request than the one sent is no answer of it.
+/// A Drop's reply naming another request than the one sent is no answer of it, which stays in doubt.
 #[test]
 fn test_a_drop_reply_of_another_request_is_a_mismatch() -> TestResult {
     use ultragraphdb_protocol_wire::{BodyBuilder, Command, DropCommand, FLAG_LAST, Header};
@@ -458,16 +458,18 @@ fn test_a_drop_reply_of_another_request_is_a_mismatch() -> TestResult {
             .err()
             .context("an error")?
             .0,
-        ClientErrorEnum::ReplyMismatch {
-            field: "request",
-            expected: 1,
-            found: 2
-        }
+        ClientErrorEnum::InDoubt {
+            session: s.number(),
+            request: 1,
+            cause: Some(Box::new(ClientError::reply_mismatch("request", 1u64, 2u64))),
+        },
+        "a reply of another request leaves its own in doubt"
     );
     Ok(())
 }
 
-/// A commit reply naming another session, or a reply of another command, is no answer of the commit.
+/// A commit reply naming another session is no answer of the commit, which stays in doubt with its number until a resend
+/// resolves it.
 #[test]
 fn test_a_commit_reply_of_another_session_is_a_mismatch() -> TestResult {
     use ultragraphdb_client_core::TestServer;
@@ -496,13 +498,27 @@ fn test_a_commit_reply_of_another_session_is_a_mismatch() -> TestResult {
             .err()
             .context("an error")?
             .0,
-        ClientErrorEnum::ReplyMismatch {
-            field: "session",
-            expected: s.number(),
-            found: other,
-        }
+        ClientErrorEnum::InDoubt {
+            session: s.number(),
+            request: 1,
+            cause: Some(Box::new(ClientError::reply_mismatch(
+                "session",
+                s.number(),
+                other
+            ))),
+        },
+        "a reply naming another session leaves the commit in doubt"
     );
     assert_eq!(h.core.next_request(s), Some(1), "no commit was answered");
+    let refused = h
+        .core
+        .resume_session(s.number(), 2)
+        .err()
+        .context("a refusal")?;
+    assert!(
+        matches!(refused.0, ClientErrorEnum::InDoubt { request: 1, .. }),
+        "the session holds request 1 in doubt until a resend resolves it: {refused}"
+    );
     assert!(h.core.is_ready(), "a mismatch keeps the connection");
     Ok(())
 }

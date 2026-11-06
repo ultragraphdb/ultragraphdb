@@ -6,6 +6,8 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use crate::types::held_connection::HeldConnection;
+
 /// How many connections a [`crate::Server`] holds, against the most it allows (`PROTOCOL.md` §11.9). Shared by an `Arc` of an
 /// atomic: each connection counts for itself across every core.
 #[derive(Debug, Clone)]
@@ -34,38 +36,10 @@ impl ConnectionBound {
     #[must_use]
     pub fn enter(&self) -> HeldConnection {
         let before = self.held.fetch_add(1, Ordering::AcqRel);
-        HeldConnection {
-            held: Arc::clone(&self.held),
-            limit: self.limit,
-            within: (before as u64) < self.limit,
-        }
-    }
-}
-
-/// One connection of a [`ConnectionBound`]'s count.
-#[derive(Debug)]
-pub struct HeldConnection {
-    held: Arc<AtomicUsize>,
-    limit: u64,
-    within: bool,
-}
-
-impl HeldConnection {
-    /// Whether the connection lies within the bound.
-    #[must_use]
-    pub fn within(&self) -> bool {
-        self.within
-    }
-
-    /// The bound.
-    #[must_use]
-    pub fn limit(&self) -> u64 {
-        self.limit
-    }
-}
-
-impl Drop for HeldConnection {
-    fn drop(&mut self) {
-        let _before = self.held.fetch_sub(1, Ordering::AcqRel);
+        HeldConnection::new(
+            Arc::clone(&self.held),
+            self.limit,
+            (before as u64) < self.limit,
+        )
     }
 }

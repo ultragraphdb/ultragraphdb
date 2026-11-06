@@ -4,6 +4,8 @@
  */
 
 use std::collections::VecDeque;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::time::Instant;
 
 use ultragraphdb_protocol_transport::ReceivedFrame;
@@ -29,6 +31,8 @@ pub(crate) struct StreamState {
     pub deadline: Option<Instant>,
     /// Whether the caller holds the read's last batch: it waits on its caller until it asks for the next one.
     pub with_caller: bool,
+    /// What the core keeps of a read's handle ([`crate::ResultStream`]).
+    pub handle: Option<Arc<AtomicBool>>,
 }
 
 impl StreamState {

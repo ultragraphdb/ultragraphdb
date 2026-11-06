@@ -309,6 +309,7 @@ impl Supervised<'_> {
             .await
             .map_err(Interrupt::Refused)?;
         let every = instances(&files);
+        one_role_secret(&every).map_err(Interrupt::Refused)?;
         for config in every.iter().filter_map(Instance::config) {
             let secrets = [
                 config.cluster().role_secret_file(),
@@ -480,15 +481,37 @@ impl Supervised<'_> {
     }
 }
 
-/// Sends `signal` to `process`. One already gone has nothing to hear, and its status says how it went.
-fn tell(process: &Process, signal: Signal) {
+/// Refused with code 78 when `every` names more than one `[cluster] role_secret_file`, naming two of them: the roles of one
+/// container share one filesystem and one cluster, and a secret drawn per file would refuse every role connection.
+fn one_role_secret(every: &[Instance]) -> Result<(), RoleError> {
+    let mut named = every.iter().filter_map(|instance| {
+        let file = instance.config()?.cluster().role_secret_file()?;
+        Some((instance.name(), file))
+    });
+    let Some((first, file)) = named.next() else {
+        return Ok(());
+    };
+    match named.find(|(_, other)| *other != file) {
+        Some((second, other)) => Err(RoleError::configuration(format!(
+            "{first} names `cluster.role_secret_file` {file} and {second} names {other}: the roles of one container share one role secret, so every instance names one file"
+        ))),
+        None => Ok(()),
+    }
+}
+
+/// Sends `signal` to `process`. One already gone has nothing to hear: once its status is read, it is reaped, and its process
+/// ID may be another process's, so it is sent nothing.
+fn tell(process: &mut Process, signal: Signal) {
+    if matches!(process.child.try_wait(), Ok(Some(_))) {
+        return;
+    }
     let pid = i32::try_from(process.child.id())
         .ok()
         .and_then(Pid::from_raw);
     if let Some(pid) = pid
         && let Err(error) = kill_process(pid, signal)
     {
-        tracing::debug!(instance = %process.name, %error, "a signal found no process");
+        tracing::warn!(instance = %process.name, %error, "a signal found no process");
     }
 }
 

@@ -10,7 +10,7 @@ use ultragraphdb_protocol_wire::{ErrorCode, ErrorReply};
 use super::ClientSession;
 use crate::traits::authorizer::Authorizer;
 use crate::types::client_read::ClientRead;
-use crate::types::client_transaction::Queued;
+use crate::types::queued::Queued;
 
 impl<A: Authorizer + Clone> ClientSession<A> {
     /// When a compute process counts as hung under `read`: the later of its deadline and its last frame, by `scan_stall`; `None`

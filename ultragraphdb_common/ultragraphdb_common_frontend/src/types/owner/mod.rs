@@ -57,6 +57,8 @@ pub struct Owner<M: OrderedLog, S: OrderedLog> {
     /// The sessions with a commit in flight, each with whether it may record the session in a partition's table, which keeps a
     /// full registry from evicting it.
     in_flight: BTreeMap<u128, bool>,
+    /// Each tenant's schema id, by the catalog version it was computed of: only a new version changes it (`PROTOCOL.md` §11.7).
+    schema_ids: BTreeMap<u64, (u64, u64)>,
     closes_since_snapshot: u32,
     snapshots: Option<PathBuf>,
 }
@@ -131,6 +133,7 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
             closes_waited: Vec::new(),
             versions_waited: Vec::new(),
             in_flight: BTreeMap::new(),
+            schema_ids: BTreeMap::new(),
             closes_since_snapshot: 0,
             snapshots,
         };

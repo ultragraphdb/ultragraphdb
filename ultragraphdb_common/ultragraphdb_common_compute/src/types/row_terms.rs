@@ -12,7 +12,7 @@ use ultragraphdb_protocol_wire::{Direction, RequestTerm, ResultTerm};
 use ultragraphdb_store_quads::is_skolem;
 
 use crate::types::names::Names;
-use crate::types::page::RowView;
+use crate::types::row_view::RowView;
 
 /// The system IDs and object a row of a list names, by its keyspace: a forward list's object is its record, a reverse list's its
 /// key.

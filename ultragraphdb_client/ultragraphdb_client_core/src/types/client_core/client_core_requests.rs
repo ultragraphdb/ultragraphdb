@@ -255,6 +255,7 @@ impl<L: Login> ClientCore<L> {
             .streams
             .get(&transaction.stream())
             .and_then(|state| state.deadline);
+        let handle = ResultStream::new(stream, self.generation);
         if let Some(state) = self.streams.get_mut(&stream) {
             state.results = true;
             state.credit = credit;
@@ -262,10 +263,11 @@ impl<L: Login> ClientCore<L> {
             state.of = Some(transaction.stream());
             state.progress = Some(now);
             state.deadline = deadline;
+            state.handle = Some(handle.tracker());
         }
         self.outbox.push_back(frame);
         self.last_progress = Some(now);
-        Ok(ResultStream::new(stream, self.generation))
+        Ok(handle)
     }
 
     /// Reads `read`'s quad pattern in `transaction`: a result stream of its own, naming the transaction, with the

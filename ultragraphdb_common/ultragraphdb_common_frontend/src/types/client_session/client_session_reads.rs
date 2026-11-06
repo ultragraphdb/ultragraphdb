@@ -13,9 +13,10 @@ use ultragraphdb_protocol_wire::{
 use super::client_session_bind::{command_of, error_of};
 use super::{ClientSession, now};
 use crate::traits::authorizer::Authorizer;
+use crate::types::bind_state::BindState;
 use crate::types::client_read::ClientRead;
-use crate::types::client_transaction::{BindState, Queued};
 use crate::types::link_event::LinkEvent;
+use crate::types::queued::Queued;
 use crate::types::route_key::RouteKey;
 use crate::utils::iri_place::{IriPlace, iri_place};
 use crate::utils::term_rules::{binds_nobody, check_pattern, check_table};
@@ -89,10 +90,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         body: Vec<u8>,
     ) -> Result<Answer, ErrorReply> {
         let Some(txn) = self.transactions.get(&transaction) else {
-            return Err(ErrorReply::new(
-                ErrorCode::Protocol,
-                format!("no transaction is open on stream {transaction}"),
-            ));
+            return self.not_open(stream, transaction);
         };
         if let Some(refusal) = txn.ended.clone() {
             return Err(refusal);
@@ -138,6 +136,44 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             open.queue.push_back(Queued::Read(stream));
         }
         self.pump(transaction);
+        Ok(Answer::Open)
+    }
+
+    /// A read on `stream` naming `transaction`, which holds no transaction open. When the transaction's end still waits to leave,
+    /// the client sent the read before it could see that end: the read is answered with the transaction's Error, as a read still
+    /// open is, or with Error 1 when a Commit's reply ends it (`PROTOCOL.md` §11.2), queued ahead of that end, since a read's stream
+    /// closes with its transaction's. Otherwise Error 1, at once.
+    pub(super) fn not_open(&mut self, stream: u64, transaction: u64) -> Result<Answer, ErrorReply> {
+        let not_open = ErrorReply::new(
+            ErrorCode::Protocol,
+            format!("no transaction is open on stream {transaction}"),
+        );
+        let Some(at) = self.out.iter().position(|(on, frame)| {
+            *on == transaction
+                && HeaderView::new(frame).is_ok_and(|header| header.flags() & FLAG_LAST != 0)
+        }) else {
+            return Err(not_open);
+        };
+        let ended = self
+            .out
+            .get(at)
+            .filter(|(_, frame)| command_of(frame) == Some(Command::Error))
+            .map(|(_, frame)| frame.clone());
+        let answer = match ended {
+            Some(mut error) => {
+                drop(Header::stamp_stream(&mut error, stream));
+                error
+            }
+            None => {
+                let header = Header::new(self.cluster(), Command::Error)
+                    .with_stream(stream)
+                    .with_flags(FLAG_LAST);
+                not_open
+                    .frame(header)
+                    .map_err(|rule| ErrorReply::protocol(&rule))?
+            }
+        };
+        self.out.insert(at, (stream, answer));
         Ok(Answer::Open)
     }
 

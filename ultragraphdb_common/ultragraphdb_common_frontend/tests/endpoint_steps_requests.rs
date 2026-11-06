@@ -1980,6 +1980,226 @@ fn a_commit_crossing_its_stream_s_error_is_late_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
 }
 
+#[when(
+    "a client sends a Write and a second Commit on its transaction's stream after the Commit the frontend relayed, and the partition then answers that Commit"
+)]
+fn a_request_behind_its_transaction_s_commit_is_late(w: &mut Steps) -> TestResult {
+    let options = Options::default();
+    run(w, options, |stage| async move {
+        let _whole = &stage;
+        let partition = stage
+            .partition_with(1, |frame| {
+                if frame.command() == Command::Commit {
+                    return Answer::Open;
+                }
+                partition_answer(frame, CLUSTER, BIND_VERSION)
+            })
+            .await?;
+        let mut client = stage.ann().await?;
+        let session = client.register().await?;
+        let transaction = client.begin(0).await?;
+        client.write(transaction, &stage.on(1)?).await?;
+        client.on(transaction, &Commit::new(session, 1, 0)).await?;
+        until("the Commit", || partition.count(Command::Commit) == 1).await?;
+        client.write(transaction, &stage.on(1)?).await?;
+        client.on(transaction, &Commit::new(session, 1, 0)).await?;
+        // A request on a new stream is taken after both, on the same connection.
+        let _later = client.register().await?;
+        let held = partition
+            .frames(Command::Commit)
+            .first()
+            .cloned()
+            .context("the Commit relayed")?;
+        held.answer_with(last_frame(
+            CLUSTER,
+            held.stream(),
+            &Commit::new(session, 1, BIND_VERSION),
+        )?);
+        let got = client.got(transaction).await?;
+        assert_eq!(
+            got.command,
+            Command::Commit,
+            "{:?}: {}",
+            got.code,
+            got.message
+        );
+        assert_eq!(
+            partition.count(Command::Write),
+            1,
+            "the late Write was dropped"
+        );
+        assert_eq!(
+            partition.count(Command::Commit),
+            1,
+            "the late Commit was dropped"
+        );
+        Ok(())
+    })
+}
+
+#[then("the server drops both, and the client receives the Commit's reply")]
+fn a_request_behind_its_transaction_s_commit_is_late_held(w: &mut Steps) {
+    assert!(w.ran, "the scenario ran");
+}
+
+/// Where a DirectWrite's command header holds `principal` (`PROTOCOL.md` §6.6).
+const PRINCIPAL_AT: usize = 56;
+
+/// A DirectWrite of `stage`'s partition 1, through no session.
+fn direct_write_of(stage: &Stage) -> TestResult<DirectWrite> {
+    let mut terms = TermTable::new();
+    let change = insert_into(&mut terms, &stage.on(1)?);
+    Ok(DirectWrite::new(0, terms, vec![change]))
+}
+
+/// The command header and the body of `frame`.
+fn header_and_body(frame: &[u8]) -> TestResult<(Vec<u8>, Vec<u8>)> {
+    let view = view_frame(frame)?;
+    Ok((
+        view.header().command_header().to_vec(),
+        view.body().to_vec(),
+    ))
+}
+
+#[when("a client authenticated as principal 9 sends a DirectWrite through the frontend")]
+fn a_direct_write_is_relayed_with_its_principal(w: &mut Steps) -> TestResult {
+    let options = Options::default();
+    run(w, options, |stage| async move {
+        let _whole = &stage;
+        let partition = stage.partition(1).await?;
+        // The principal the frontend holds for `ann`, in place of the scenario's 9.
+        let (principal, _) = stage
+            .owner
+            .verifier("ann".to_string())
+            .await
+            .context("ann's principal")?;
+        let mut client = stage.ann().await?;
+        let write = direct_write_of(&stage)?;
+        let sent = write.frame(Header::new(CLUSTER, Command::DirectWrite))?;
+        let stream = client.send(&write).await?;
+        assert_eq!(client.got(stream).await?.command, Command::Commit);
+        let relayed = partition
+            .frames(Command::DirectWrite)
+            .first()
+            .cloned()
+            .context("the DirectWrite at its partition")?;
+        let (sent_header, sent_body) = header_and_body(&sent)?;
+        let (relayed_header, relayed_body) = header_and_body(relayed.bytes())?;
+        assert_eq!(relayed_body, sent_body, "the body, byte for byte");
+        let filled = relayed_header
+            .get(PRINCIPAL_AT..PRINCIPAL_AT + 8)
+            .context("the principal's bytes")?;
+        assert_eq!(
+            filled,
+            principal.to_le_bytes(),
+            "the connection's principal"
+        );
+        let unchanged = |header: &[u8]| -> Vec<u8> {
+            header
+                .iter()
+                .enumerate()
+                .filter(|(at, _)| !(PRINCIPAL_AT..PRINCIPAL_AT + 8).contains(at))
+                .map(|(_, byte)| *byte)
+                .collect()
+        };
+        assert_eq!(
+            unchanged(&relayed_header),
+            unchanged(&sent_header),
+            "every other command-header byte"
+        );
+        Ok(())
+    })
+}
+
+/// The write-set record's principal is the partition's to write: storage's suites bind that half.
+#[then(
+    "the frame the partition receives holds the client's body byte for byte and its command header but for `principal` 9, its write-set record names principal 9, and the client receives a Commit"
+)]
+fn a_direct_write_is_relayed_with_its_principal_held(w: &mut Steps) {
+    assert!(w.ran, "the scenario ran");
+}
+
+#[when("a client's DirectWrite holds a `principal` above 0")]
+fn a_client_naming_a_principal_is_refused(w: &mut Steps) -> TestResult {
+    let options = Options::default();
+    run(w, options, |stage| async move {
+        let _whole = &stage;
+        let partition = stage.partition(1).await?;
+        let mut client = stage.ann().await?;
+        let stream = client
+            .send(&direct_write_of(&stage)?.with_principal(5))
+            .await?;
+        let refused = client.got(stream).await?;
+        assert_eq!(
+            refused.code,
+            Some(ErrorCode::Protocol),
+            "{}",
+            refused.message
+        );
+        assert!(refused.message.contains("principal"), "{}", refused.message);
+        // A Register after it on the same connection is taken after it: by its answer the write would have been relayed.
+        let _session = client.register().await?;
+        assert_eq!(
+            partition.count(Command::DirectWrite),
+            0,
+            "no partition sees it"
+        );
+        Ok(())
+    })
+}
+
+#[then(
+    "it is refused at the client endpoint with `FieldValue` naming `principal`, and no partition sees it"
+)]
+fn a_client_naming_a_principal_is_refused_held(w: &mut Steps) {
+    assert!(w.ran, "the scenario ran");
+}
+
+#[when("a client's Read crosses the Error that ended its transaction's stream")]
+fn a_read_crossing_its_transaction_s_error_takes_that_error(w: &mut Steps) -> TestResult {
+    let options = Options {
+        limits: EndpointLimits::new(1_024, Duration::from_secs(30)),
+        ..Options::default()
+    };
+    run(w, options, |stage| async move {
+        let _whole = &stage;
+        let subject = stage.on(1)?;
+        let _partition = stage.partition(1).await?;
+        let compute = stage.compute_with(|_| Answer::Open).await?;
+        let mut client = stage.ann().await?;
+        let transaction = client.begin(0).await?;
+        let _open = client.read(transaction, &subject).await?;
+        until("the read", || compute.count(Command::ComputeRead) == 1).await?;
+        let frame = write_of(&subject)
+            .frame(Header::new(CLUSTER, Command::Write))?
+            .len();
+        let mut sent = frame;
+        while sent <= 1_024 {
+            client.write(transaction, &subject).await?;
+            sent += frame;
+        }
+        // The Write past `held_bytes` ends the transaction, and the Read leaves right behind it.
+        client.write(transaction, &subject).await?;
+        let crossing = client.read(transaction, &subject).await?;
+        let ended = client.got(transaction).await?;
+        assert_eq!(
+            ended.code,
+            Some(ErrorCode::StreamLimit),
+            "{}",
+            ended.message
+        );
+        let answered = client.got(crossing).await?;
+        assert_eq!(answered.code, ended.code, "{}", answered.message);
+        assert_eq!(answered.message, ended.message);
+        Ok(())
+    })
+}
+
+#[then("the read is answered with that Error, as the transaction's reads still open are")]
+fn a_read_crossing_its_transaction_s_error_takes_that_error_held(w: &mut Steps) {
+    assert!(w.ran, "the scenario ran");
+}
+
 #[when("a frontend starts on a metadata group holding no tenant")]
 fn the_first_start_creates_tenant_0(w: &mut Steps) -> TestResult {
     let options = Options {

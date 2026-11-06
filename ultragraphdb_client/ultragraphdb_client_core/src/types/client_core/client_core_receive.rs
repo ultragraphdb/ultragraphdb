@@ -383,6 +383,9 @@ impl<L: Login> ClientCore<L> {
             Some(code) if pending.retried && leaves_in_doubt(&pending.expect, code) => {
                 pending.mark_in_doubt(request, state, outcome.err());
             }
+            // A reply naming another commit says nothing of this one, which stays in doubt: only its stored reply or a
+            // refusal saying it wrote nothing resolves it (`PROTOCOL.md` §11.5).
+            None if is_mismatch(&outcome) => pending.mark_in_doubt(request, state, outcome.err()),
             Some(_) | None => {
                 if let Some(state) = state {
                     state.in_flight = false;
@@ -476,6 +479,14 @@ fn refused_code(outcome: &Result<Reply, ClientError>) -> Option<ErrorCode> {
         Err(ClientError(ClientErrorEnum::Refused { code, .. })) => Some(*code),
         Ok(_) | Err(_) => None,
     }
+}
+
+/// Whether `outcome` is a reply naming another request than the one it answers.
+fn is_mismatch(outcome: &Result<Reply, ClientError>) -> bool {
+    matches!(
+        outcome,
+        Err(ClientError(ClientErrorEnum::ReplyMismatch { .. }))
+    )
 }
 
 /// The `detail` of a refusal; 0 for any other error.

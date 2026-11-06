@@ -21,14 +21,17 @@ use ultragraphdb_store_quads::{ReferrerMember, ReferrerSet, iri_bucket};
 
 use crate::types::compute_core::ComputeCore;
 use crate::types::frontier::Frontier;
-use crate::types::partition_rows::{PartitionRows, ReadShared, terms_of};
+use crate::types::link::Link;
+use crate::types::partition_rows::{PartitionRows, terms_of};
+use crate::types::pushed::Pushed;
 use crate::types::read_at::ReadAt;
 use crate::types::read_pins::ReadPins;
 use crate::types::read_request::ReadRequest;
 use crate::types::read_route::ReadRoute;
-use crate::types::result_sink::{Pushed, ResultSink};
-use crate::types::resume_at::{ResumeAt, ResumeTerms};
-use crate::utils::bounded::bounded;
+use crate::types::read_shared::ReadShared;
+use crate::types::result_sink::ResultSink;
+use crate::types::resume_at::ResumeAt;
+use crate::types::resume_terms::ResumeTerms;
 use crate::utils::literals::{datatype_named, encoding_of};
 use crate::utils::refusals::{resume_refused, unavailable};
 
@@ -150,7 +153,8 @@ async fn opened_parts(
     }
 }
 
-/// How a read of `partitions` first reads each: past a Closed of each for a monotonic-fast read reaching several.
+/// How a read of `partitions` first reads each: past a Closed of each for a monotonic-fast read reaching several, every Closed
+/// sent before any answer is awaited, so the read waits on the slowest partition rather than on all of them in turn.
 async fn first_at(
     core: &Rc<ComputeCore>,
     shared: &Rc<ReadShared>,
@@ -160,25 +164,49 @@ async fn first_at(
     if !(read.read_only && read.level == ReadLevel::MonotonicFast && partitions.len() > 1) {
         return Ok(ReadAt::of(read));
     }
-    let mut lowest = u64::MAX;
-    for partition in partitions {
-        lowest = lowest.min(closed_epoch(core, *partition).await?);
-    }
+    let closed = futures::future::try_join_all(
+        partitions
+            .iter()
+            .map(|partition| closed_epoch(core, *partition)),
+    )
+    .await?;
+    let lowest = closed.into_iter().min().unwrap_or(u64::MAX);
     Ok(ReadAt::at_epoch(lowest.max(read.epoch)))
 }
 
-/// The latest epoch `partition` has closed.
+/// A stream of a link asked one question, forgotten however its wait ends, a read cancelled meanwhile included.
+struct Asked {
+    link: Rc<Link>,
+    stream: u64,
+}
+
+impl Drop for Asked {
+    fn drop(&mut self) {
+        self.link.forget(self.stream);
+    }
+}
+
+/// The latest epoch `partition` has closed. A partition silent past [`Link::answer_wait`] is hung, and its connection closes.
 async fn closed_epoch(core: &Rc<ComputeCore>, partition: u32) -> Result<u64, ErrorReply> {
     use futures::StreamExt;
 
     let link = core.link(partition).await?;
     let (stream, mut frames) = link.open_stream()?;
+    let asked = Asked {
+        link: Rc::clone(&link),
+        stream,
+    };
     link.send(stream, &Closed::request(&[partition]))?;
-    let answered = async { frames.next().await.ok_or_else(|| link.closed_under_read()) };
-    let what = || format!("partition {partition}'s answer to a Closed");
-    let frame = bounded(link.answer_wait(), what, answered).await;
-    link.forget(stream);
-    let frame = frame?;
+    let Ok(next) = compio::time::timeout(link.answer_wait(), frames.next()).await else {
+        let why = format!(
+            "partition {partition}'s answer to a Closed did not come within {:?}",
+            link.answer_wait()
+        );
+        link.close(&why);
+        return Err(unavailable(why));
+    };
+    drop(asked);
+    let frame = next.ok_or_else(|| link.closed_under_read())?;
     let view = frame.view().map_err(|rule| {
         link.close(&rule);
         link.closed_under_read()
@@ -417,14 +445,13 @@ async fn merge(
             _ => Ordering::Equal,
         }
     };
+    // Every partition's first page is read at once, so the read waits on the slowest rather than on each in turn.
+    let _filled = futures::future::try_join_all(parts.iter_mut().map(PartitionRows::fill)).await?;
     let mut frontier = Frontier::with_capacity(parts.len());
     for at in 0..parts.len() {
-        if let Some(part) = parts.get_mut(at) {
-            part.fill().await?;
-            if part.page().has_row() {
-                let held = &parts;
-                frontier.push(at, |a, b| order(held, a, b));
-            }
+        if parts.get(at).is_some_and(|part| part.page().has_row()) {
+            let held = &parts;
+            frontier.push(at, |a, b| order(held, a, b));
         }
     }
     let mut sent = 0u32;

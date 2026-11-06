@@ -149,6 +149,8 @@ The admin key also changes settings, and only an administrator holds it. A key c
 
 A role's admin listener, at `[admin] address`, restarts it at a revision on the admin key. A role holds only that key's SHA-256 digest in
 `[admin] key_sha256`, so no role can present the key, and a compromised role cannot change any setting or load any other role's revision.
+The development container is the one exception: its supervisor, config service and roles run as one user over one data directory, so any
+of its processes can read both keys' files, and the container is one trust boundary.
 Each listener takes TLS or `plaintext = true` by the endpoint's rule, and compares keys in constant time.
 
 ### Running without authentication

@@ -111,18 +111,40 @@ fn test_only_a_read_only_snapshot_names_its_version() -> TestResult {
     let named = with_command_header(&read, |h| {
         h[5] = 0;
         h[6] = 1;
-        put(h, 16, 77, 8);
+        put(h, 16, 78, 8);
     });
     let view = ComputeReadView::from_frame(&frame_of(&named)?)?;
     assert_eq!(
         (view.named(), view.level(), view.read_version()),
-        (true, ReadLevel::Snapshot, 77)
+        (true, ReadLevel::Snapshot, 78)
     );
     let body = view.to_body()?;
     assert_eq!(
         (body.named(), body.level(), body.read_version()),
-        (true, ReadLevel::Snapshot, 77)
+        (true, ReadLevel::Snapshot, 78)
     );
+    Ok(())
+}
+
+/// `read_version` is a version or a version bound (`PROTOCOL.md` §1), checked after `named` and before `epoch`.
+#[test]
+fn test_the_read_version_is_a_version_before_the_epoch() -> TestResult {
+    let rw = bytes("compute_read_rw")?;
+    let odd = (5u64 << 22) | 3;
+    let bad = with_command_header(&rw, |h| {
+        put(h, 16, odd, 8);
+        put(h, 24, MAX_EPOCH + 1, 8);
+    });
+    assert_eq!(refused(&bad)?, field("read_version", odd));
+    let bad_named = with_command_header(&bad, |h| h[6] = 1);
+    assert_eq!(refused(&bad_named)?, field("named", 1));
+    for held in [(5u64 << 22) | 2, (5u64 << 22) | 0x3F_FFFF] {
+        let good = with_command_header(&rw, |h| put(h, 16, held, 8));
+        assert_eq!(
+            ComputeReadView::from_frame(&frame_of(&good)?)?.read_version(),
+            held
+        );
+    }
     Ok(())
 }
 

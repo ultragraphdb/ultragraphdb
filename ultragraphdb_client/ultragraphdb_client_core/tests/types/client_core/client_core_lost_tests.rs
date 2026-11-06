@@ -295,7 +295,7 @@ fn test_a_cancelled_read_is_not_lost_with_its_connection() -> TestResult {
     let mut c = Conn::new()?;
     let tx = c.begin(true)?;
     let stream = c.read(&tx)?;
-    c.core.cancel(stream);
+    c.core.cancel(stream.clone());
     c.core.disconnected(TransportError::closed(), start());
     assert_eq!(
         c.batch(&stream).err().context("an error")?,
@@ -396,7 +396,7 @@ fn test_a_kept_or_lost_read_cancelled_is_forgotten() -> TestResult {
         c.result(&stream, kept)?;
         c.core.disconnected(TransportError::closed(), start());
         c.connect()?;
-        c.core.cancel(stream);
+        c.core.cancel(stream.clone());
         assert_eq!(c.core.transmit(), None, "kept {kept}: no Cancel");
         assert_eq!(
             c.batch(&stream),
@@ -414,14 +414,14 @@ fn test_a_read_of_an_earlier_connection_cancelled_sends_nothing() -> TestResult 
     let mut c = Conn::new()?;
     let tx = c.begin(true)?;
     let stream = c.read(&tx)?;
-    c.core.cancel(stream);
+    c.core.cancel(stream.clone());
     let _cancel: u64 = c.stream()?;
     c.core.disconnected(TransportError::closed(), start());
     c.connect()?;
     let again = c.begin(true)?;
     let renewed = c.read(&again)?;
     assert_eq!(renewed.stream(), stream.stream(), "the same number again");
-    c.core.cancel(stream);
+    c.core.cancel(stream.clone());
     assert_eq!(c.core.transmit(), None, "no Cancel for the earlier read");
     c.result(&renewed, true)?;
     assert_eq!(c.batch(&renewed), Ok(BatchPoll::Batch(3)));

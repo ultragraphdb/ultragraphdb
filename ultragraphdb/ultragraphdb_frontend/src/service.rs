@@ -93,7 +93,8 @@ pub(crate) async fn frontend_role(
             links,
             TenantGate::new(EveryAuthenticated),
             endpoint_limits(config),
-        );
+        )
+        .with_open(open.clone());
         let clients =
             client_server(cluster.id(), config.endpoint(), unknown_secret)?.with_open(open.clone());
         let listener = listen(address).await?;

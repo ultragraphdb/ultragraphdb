@@ -125,7 +125,7 @@ fn second_is(replies: &[Reply], kind: ConflictKind) -> TestResult {
 }
 
 #[when(
-    "a transaction writes `<a> <knows> <b>`, and the same transaction reads `<a> <knows> ?o` before committing"
+    "a transaction writes `<a> <knows> <b>`, the write is answered, and the same transaction reads `<a> <knows> ?o` before committing"
 )]
 fn reads_own_write(w: &mut Steps) -> TestResult {
     let applier = applier()?;

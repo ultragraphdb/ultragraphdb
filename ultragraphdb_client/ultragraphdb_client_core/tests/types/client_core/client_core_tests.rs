@@ -364,7 +364,7 @@ fn test_a_repeated_reply_is_refused_after_its_first_is_taken() -> TestResult {
     Ok(())
 }
 
-/// A commit reply naming another request than the one sent is no answer of it.
+/// A commit reply naming another request than the one sent is no answer of it, which stays in doubt.
 #[test]
 fn test_a_commit_reply_of_another_request_is_a_mismatch() -> TestResult {
     let mut h = Harness::ready(server())?;
@@ -396,10 +396,10 @@ fn test_a_commit_reply_of_another_request_is_a_mismatch() -> TestResult {
                 .err()
                 .context("an error")?
                 .0,
-            ClientErrorEnum::ReplyMismatch {
-                field,
-                expected: 1,
-                found: 2
+            ClientErrorEnum::InDoubt {
+                session: session.number(),
+                request: 1,
+                cause: Some(Box::new(ClientError::reply_mismatch(field, 1u64, 2u64))),
             }
         );
     }

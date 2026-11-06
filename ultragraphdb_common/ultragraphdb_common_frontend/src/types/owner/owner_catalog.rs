@@ -40,11 +40,18 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
     }
 
     /// `tenant`'s schema id, of its latest catalog version, as the connection's principal sees it: this stage's every principal
-    /// sees it whole.
-    pub(super) fn schema_id(&self, tenant: u64) -> Result<u64, ErrorReply> {
+    /// sees it whole. Computed once per version, which alone changes it, and kept per tenant.
+    pub(super) fn schema_id(&mut self, tenant: u64) -> Result<u64, ErrorReply> {
         let current = self.metadata.state().current_version(Tenant::new(tenant));
+        if let Some((version, id)) = self.schema_ids.get(&tenant)
+            && *version == current
+        {
+            return Ok(*id);
+        }
         let declarations = self.contents(tenant, current)?;
-        Ok(describe_of(tenant, 0, &declarations, std::iter::empty()).schema_id())
+        let id = describe_of(tenant, 0, &declarations, std::iter::empty()).schema_id();
+        let _replaced = self.schema_ids.insert(tenant, (current, id));
+        Ok(id)
     }
 
     /// What `tenant`'s catalog declares in effect at the latest close, and the default entries the group records.
