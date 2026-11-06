@@ -286,6 +286,7 @@ fn no_time_bounds(checking: &mut Checking<'_>, instance: &Instance, config: &Ser
             "storage.read_retain_ms",
             config.storage().read_retain_ms(),
         ),
+        (storage, "storage.held_bytes", config.storage().held_bytes()),
         (
             frontend,
             "endpoint.held_bytes",
@@ -347,6 +348,16 @@ fn metadata_bounds(checking: &mut Checking<'_>, name: &str, config: &ServiceConf
             name,
             "metadata.snapshot_rounds",
             format!("it holds {rounds}"),
+            error.to_string(),
+        );
+    }
+    if let Some(ms) = table.catalog_check_ms()
+        && let Err(error) = base.with_catalog_check_ms(ms)
+    {
+        checking.report(
+            name,
+            "metadata.catalog_check_ms",
+            format!("it holds {ms}"),
             error.to_string(),
         );
     }

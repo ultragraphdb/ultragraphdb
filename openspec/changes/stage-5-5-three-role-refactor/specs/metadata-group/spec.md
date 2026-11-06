@@ -194,3 +194,20 @@ Error 1 (Protocol), the message naming the tenant.
 #### Scenario: A Bind naming an unknown tenant is refused
 - **WHEN** a Bind names tenant 9, for which the partition's placement map lists no run
 - **THEN** the partition refuses it with Error 1, the message naming tenant 9, and holds no transaction
+
+### Requirement: The metadata group holds a tightening's check
+The metadata group SHALL hold a version that tightens a predicate as being checked from its offer, each partition's report durably,
+until every partition the placement map gives the tenant at the version's effective epoch has passed it or a restoring version
+withdraws it, the withdrawal one command with that version's offer. A report of a version not being checked, and a report repeated,
+SHALL change nothing. A partition's report of a version it found nothing to refuse in SHALL read as passed whether the version
+tightens anything or not. The version before one being checked SHALL be retained while the check runs.
+
+#### Scenario: A check ends at its last partition's report
+- **WHEN** a version being checked is assigned its epoch over two partitions, and each reports its check passed
+- **THEN** it is being checked until the second report, a client reads the version before it until then, and a report repeated
+  appends nothing
+
+#### Scenario: A withdrawal is one command with the restoring version
+- **WHEN** a partition reports the data refuses a version being checked, the group offers the version restoring it, and the group
+  restarts
+- **THEN** the recovered state holds the first withdrawn and the second pending, and neither is being checked

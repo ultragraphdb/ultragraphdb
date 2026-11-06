@@ -593,3 +593,107 @@ fn index_range(w: &mut Steps) -> TestResult {
     w.replies = driver.replies.iter().skip(1).cloned().collect();
     Ok(())
 }
+
+/// A driver of catalog version 2 of `tenant`, its latest delivered close 38.
+fn driver_at_2(applier: &Applier) -> TestResult<Driver<'_>> {
+    applier.load_catalog(&CatalogContents::new(TENANT, 2, Vec::new()))?;
+    let mut driver = Driver::new(applier, unbounded());
+    driver.step = CommitStep::new(unbounded(), applier.quads().lists().applied_ts())
+        .with_delivered(Epoch::new(38).context("the epoch")?)
+        .with_catalog(&[announced(2)]);
+    Ok(driver)
+}
+
+#[when(
+    "a transaction executed against catalog version 2 commits behind the round taking version 3 effect, before the close announcing version 3 is delivered"
+)]
+fn behind_the_round(w: &mut Steps) -> TestResult {
+    let applier = applier()?;
+    let mut driver = driver_at_2(&applier)?;
+    let mut against_2 = begin(&applier)?;
+    write(&mut against_2, vec![insert("a", "p", "b")])?;
+    let against_2 = prepare(against_2)?;
+    let three = CatalogContents::new(TENANT, 3, Vec::new());
+    driver.submit(1, catalog_proposal(&applier, &three)?)?;
+    driver.submit(2, against_2)?;
+    driver.sync()?;
+    driver.sync()?;
+    let mut against_3 = begin(&applier)?;
+    write(&mut against_3, vec![insert("c", "p", "d")])?;
+    driver.submit(3, prepare(against_3)?)?;
+    driver.sync()?;
+    driver.sync()?;
+    w.replies = driver.replies.clone();
+    Ok(())
+}
+
+#[then(
+    "it aborts with a conflict of kind Catalog, and a transaction executed against version 3 commits"
+)]
+fn behind_the_round_aborts(w: &mut Steps) -> TestResult {
+    let outcome = |ticket| {
+        w.replies
+            .iter()
+            .find(|reply| reply.ticket() == ticket)
+            .map(|reply| reply.outcome().clone())
+            .context("its reply")
+    };
+    assert!(outcome(1)?.is_ok(), "the version's round commits");
+    assert_eq!(
+        outcome(2)?,
+        Err(ultragraphdb_transactions_commit::CommitError::conflict(
+            ultragraphdb_protocol_wire::ConflictKind::Catalog
+        ))
+    );
+    assert!(outcome(3)?.is_ok(), "{:?}", outcome(3));
+    Ok(())
+}
+
+#[when(
+    "a transaction with a commit-time operation, executed against catalog version 2, commits once version 3 is in effect"
+)]
+fn operation_behind(w: &mut Steps) -> TestResult {
+    let applier = applier()?;
+    let counter = "next-id";
+    let _version: u64 = setup(&applier, vec![insert_literal("counters", counter, "5")])?;
+    let mut driver = driver_at_2(&applier)?;
+    let mut against_2 = begin(&applier)?;
+    against_2
+        .operate(
+            ultragraphdb_store_apply::Operation::CounterAdd {
+                graph: oxrdf::GraphName::DefaultGraph,
+                subject: ex("counters").into(),
+                predicate: ex(counter),
+                delta: 1,
+            },
+            0,
+        )
+        .context("asked")?;
+    let against_2 = prepare(against_2)?;
+    driver.close_with(39, vec![announced(3)], Vec::new())?;
+    driver.submit(1, against_2)?;
+    driver.sync()?;
+    w.replies = driver.replies.clone();
+    w.terms = vec![ultragraphdb_tool_bdd::Context::context(
+        crate::utils::fixture::held(&applier, "counters", counter),
+        "the counter reads",
+    )?];
+    Ok(())
+}
+
+#[then("it aborts with a conflict of kind Catalog, and its operation runs not at all")]
+fn operation_behind_aborts(w: &mut Steps) -> TestResult {
+    let reply = w.replies.first().context("its reply")?;
+    assert_eq!(
+        reply.outcome(),
+        &Err(ultragraphdb_transactions_commit::CommitError::conflict(
+            ultragraphdb_protocol_wire::ConflictKind::Catalog
+        ))
+    );
+    let held = w.terms.first().context("the counter")?;
+    assert_eq!(
+        held,
+        &vec![oxrdf::Term::from(oxrdf::Literal::new_simple_literal("5"))]
+    );
+    Ok(())
+}

@@ -60,7 +60,8 @@ impl EndpointTable {
         self.connections_max
     }
 
-    /// `held_bytes`: the most bytes of Write and Operation frames a connection's reads hold back.
+    /// `held_bytes`: the most bytes of Write and Operation frames a connection's reads hold back, and the bytes on its way to a role at
+    /// which a connection stops being read.
     pub fn held_bytes(&self) -> Option<u64> {
         self.held_bytes
     }

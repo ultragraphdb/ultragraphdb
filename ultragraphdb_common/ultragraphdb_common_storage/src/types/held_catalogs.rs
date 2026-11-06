@@ -21,6 +21,14 @@ impl HeldCatalogs {
             .versions
             .insert((version.tenant(), version.version()), version);
     }
+
+    /// The versions of `tenant` taking effect at or before `epoch`, in order.
+    pub fn up_to(&self, tenant: u64, epoch: u64) -> impl Iterator<Item = &HeldVersion> {
+        self.versions
+            .range((tenant, 0)..=(tenant, u64::MAX))
+            .map(|(_, held)| held)
+            .filter(move |held| held.effective() <= epoch)
+    }
 }
 
 impl CatalogSource for HeldCatalogs {

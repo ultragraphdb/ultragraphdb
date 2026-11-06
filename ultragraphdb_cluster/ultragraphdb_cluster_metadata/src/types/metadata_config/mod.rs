@@ -8,7 +8,8 @@ use ultragraphdb_error_cluster::ClusterError;
 /// The metadata group's settings: the largest sequence block a partition may lease, `block_size_max`; the most
 /// sessions the registry holds, `sessions_max`, past which it evicts the least recently registered; and the rounds
 /// between two snapshots, `snapshot_rounds`, after which [`MetadataGroup::snapshot_due`](crate::MetadataGroup) says
-/// a snapshot is due and the log is trimmed below it.
+/// a snapshot is due and the log is trimmed below it; and how long its host waits for each partition's report of a
+/// tightening's check, `catalog_check_ms` (`PROTOCOL.md` §11.13).
 ///
 /// A setting changed between two starts changes only the commands decided after the restart: every command records
 /// its decision (a lease its block, a registration the sessions it evicts), so replay never reads the settings.
@@ -17,6 +18,7 @@ pub struct MetadataConfig {
     block_size_max: u64,
     sessions_max: u32,
     snapshot_rounds: u32,
+    catalog_check_ms: u64,
 }
 
 impl MetadataConfig {
@@ -38,6 +40,12 @@ impl MetadataConfig {
     /// The largest `snapshot_rounds`, 1,048,576.
     pub const SNAPSHOT_ROUNDS_MAX: u32 = 1 << 20;
 
+    /// `catalog_check_ms` unless set otherwise, 8,000 ms: the client's default timeout, 10 s, leaves it room.
+    pub const CATALOG_CHECK_MS: u64 = 8_000;
+
+    /// The largest `catalog_check_ms`, 600,000 ms.
+    pub const CATALOG_CHECK_MS_MAX: u64 = 600_000;
+
     /// The settings with every value at its default.
     #[must_use]
     pub fn new() -> Self {
@@ -45,6 +53,7 @@ impl MetadataConfig {
             block_size_max: Self::BLOCK_SIZE_MAX,
             sessions_max: Self::SESSIONS_MAX,
             snapshot_rounds: Self::SNAPSHOT_ROUNDS,
+            catalog_check_ms: Self::CATALOG_CHECK_MS,
         }
     }
 
@@ -100,6 +109,24 @@ impl MetadataConfig {
         })
     }
 
+    /// The settings waiting `catalog_check_ms` for each partition's report of a tightening's check.
+    ///
+    /// # Errors
+    ///
+    /// [`ClusterError::setting_below`] when `catalog_check_ms` is 0 and [`ClusterError::setting_above`] when it is
+    /// above [`MetadataConfig::CATALOG_CHECK_MS_MAX`].
+    pub fn with_catalog_check_ms(self, catalog_check_ms: u64) -> Result<Self, ClusterError> {
+        let catalog_check_ms = bounded(
+            "catalog_check_ms",
+            catalog_check_ms,
+            Self::CATALOG_CHECK_MS_MAX,
+        )?;
+        Ok(Self {
+            catalog_check_ms,
+            ..self
+        })
+    }
+
     /// The most sequences one lease takes.
     #[must_use]
     pub fn block_size_max(&self) -> u64 {
@@ -116,6 +143,12 @@ impl MetadataConfig {
     #[must_use]
     pub fn snapshot_rounds(&self) -> u32 {
         self.snapshot_rounds
+    }
+
+    /// How long its host waits for each partition's report of a tightening's check, in milliseconds.
+    #[must_use]
+    pub fn catalog_check_ms(&self) -> u64 {
+        self.catalog_check_ms
     }
 }
 

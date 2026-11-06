@@ -120,26 +120,39 @@ fn start_on_free_port() -> TestResult<RoleStart> {
     )?)
 }
 
-/// A role whose work sets its readiness to `ready` and ends, leaving the service serving.
+/// A role whose work sets its readiness to `ready`, says it listens when `listens` says so, and ends, leaving the service
+/// serving.
 fn role_ready(
     ready: bool,
+    listens: bool,
 ) -> impl FnOnce(RoleStart, Readiness, Stopping) -> std::future::Ready<Result<(), RoleError>> {
     move |_start, readiness, _stopping| {
         readiness.set(ready);
+        if listens {
+            readiness.set_listening();
+        }
         std::future::ready(Ok(()))
     }
 }
 
-/// The role `kind`, ready as `ready` says, serving `start` on this runtime until the flag it returns is set.
+/// The role `kind`, ready as `ready` says and listening as `listens` says, serving `start` on this runtime until the flag it returns is set.
 fn serving(
     kind: RoleKind,
     start: &RoleStart,
     ready: bool,
+    listens: bool,
 ) -> (Arc<AtomicBool>, JoinHandle<Result<ServiceEnd, RoleError>>) {
     let stop = Arc::new(AtomicBool::new(false));
     let (owned, flag) = (start.clone(), Arc::clone(&stop));
     let task = spawn(async move {
-        serve_service(kind, &owned, CpuBinding::NotAsked, &flag, role_ready(ready)).await
+        serve_service(
+            kind,
+            &owned,
+            CpuBinding::NotAsked,
+            &flag,
+            role_ready(ready, listens),
+        )
+        .await
     });
     (stop, task)
 }
@@ -192,20 +205,22 @@ fn status(text: &str) -> Option<&str> {
 fn test_a_role_answers_until_it_is_stopped() -> TestResult {
     let runtime = Runtime::new()?;
     runtime.block_on(async {
-        for (kind, ready, answers) in [
-            (RoleKind::Storage, true, "200"),
-            (RoleKind::Frontend, false, "503"),
-            (RoleKind::Compute, false, "503"),
+        // A frontend's `/health` waits for the role to say it has bound its addresses; every other role's answers at once.
+        for (kind, ready, listens, healthy, answers) in [
+            (RoleKind::Storage, true, false, "200", "200"),
+            (RoleKind::Frontend, false, false, "503", "503"),
+            (RoleKind::Frontend, false, true, "200", "503"),
+            (RoleKind::Compute, false, false, "200", "503"),
         ] {
             let start = start_on_free_port()?;
-            let (stop, task) = serving(kind, &start, ready);
+            let (stop, task) = serving(kind, &start, ready, listens);
             let health = exchange(&start, &[HEALTH]).await?;
-            assert_eq!(status(&health), Some("200"), "{kind}");
+            assert_eq!(status(&health), Some(healthy), "{kind}");
             let answered = exchange(&start, &[READY]).await?;
             assert_eq!(status(&answered), Some(answers), "{kind}");
             let (first, last) = HEALTH.split_at(7);
             let pieces = exchange(&start, &[first, last]).await?;
-            assert_eq!(status(&pieces), Some("200"), "a request in two writes");
+            assert_eq!(status(&pieces), Some(healthy), "a request in two writes");
             assert!(!task.is_finished(), "a role serves until it is stopped");
             stopped(&stop, task).await?;
         }
@@ -219,7 +234,7 @@ fn test_a_truncated_request_is_answered_and_closed() -> TestResult {
     let runtime = Runtime::new()?;
     runtime.block_on(async {
         let start = start_on_free_port()?;
-        let (stop, task) = serving(RoleKind::Storage, &start, true);
+        let (stop, task) = serving(RoleKind::Storage, &start, true, false);
         let mut stream = connect(&start).await?;
         let BufResult(written, _) = stream.write_all(b"GET /hea".to_vec()).await;
         written?;
@@ -247,7 +262,7 @@ fn test_an_address_taken_is_unavailable() -> TestResult {
             &start,
             CpuBinding::NotAsked,
             &stop,
-            role_ready(true),
+            role_ready(true, false),
         ))
         .err()
         .context("a refusal")?;

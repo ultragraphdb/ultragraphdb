@@ -3,9 +3,12 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::str::FromStr;
+
+use oxrdf::{BaseDirection, Term};
 use ultragraphdb_cluster_partition::{PartitionError, PartitionErrorEnum};
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
-use ultragraphdb_protocol_wire::{ErrorCode, ErrorReply};
+use ultragraphdb_protocol_wire::{Direction, ErrorCode, ErrorReply, RequestTerm};
 use ultragraphdb_store_apply::{ChangesetError, ChangesetErrorEnum};
 use ultragraphdb_store_posting::{PostingError, PostingErrorEnum};
 use ultragraphdb_store_quads::{QuadError, QuadErrorEnum};
@@ -34,7 +37,57 @@ pub fn error_reply(error: &PartitionError) -> ErrorReply {
         PartitionErrorEnum::Txn(refusal) => txn_code(refusal),
         PartitionErrorEnum::Commit(refusal) => commit_code(refusal),
     };
-    ErrorReply::new(code, message).with_detail(detail)
+    let reply = ErrorReply::new(code, message).with_detail(detail);
+    match found_value(error) {
+        Some(value) => reply.with_value(value),
+        None => reply,
+    }
+}
+
+/// The value a failed compare-and-set found, as the Error frame's sections 1 and 2 hold it (`PROTOCOL.md` §9.4): the commit
+/// step and the store state it as an N-Triples term. `None` when the predicate held none, or for any other refusal.
+fn found_value(error: &PartitionError) -> Option<RequestTerm> {
+    let found = match &error.0 {
+        PartitionErrorEnum::Commit(refusal) => refusal.found(),
+        PartitionErrorEnum::Changeset(ChangesetError(ChangesetErrorEnum::OperationFailed {
+            found,
+        })) => found.as_deref(),
+        PartitionErrorEnum::WrongPartition { .. }
+        | PartitionErrorEnum::CrossPartition { .. }
+        | PartitionErrorEnum::TimedOut { .. }
+        | PartitionErrorEnum::Refused { .. }
+        | PartitionErrorEnum::TransactionHeld { .. }
+        | PartitionErrorEnum::Changeset(_)
+        | PartitionErrorEnum::Quad(_)
+        | PartitionErrorEnum::Pipeline(_)
+        | PartitionErrorEnum::Txn(_) => None,
+    }?;
+    match Term::from_str(found).ok()? {
+        Term::NamedNode(node) => Some(RequestTerm::Iri(node.into_string())),
+        Term::BlankNode(node) => Some(RequestTerm::BlankNode(node.into_string())),
+        Term::Literal(literal) => Some(literal_term(&literal)),
+        Term::Triple(_) => None,
+    }
+}
+
+/// A literal as a request names it: a plain string with no datatype's IRI, a language-tagged one by its tag.
+fn literal_term(literal: &oxrdf::Literal) -> RequestTerm {
+    let lexical = literal.value().to_string();
+    if let Some(language) = literal.language() {
+        return RequestTerm::LanguageLiteral {
+            lexical,
+            language: language.to_string(),
+            direction: literal.direction().map(|direction| match direction {
+                BaseDirection::Ltr => Direction::Ltr,
+                BaseDirection::Rtl => Direction::Rtl,
+            }),
+        };
+    }
+    let datatype = literal.datatype();
+    RequestTerm::Literal {
+        lexical,
+        datatype: (datatype != oxrdf::vocab::xsd::STRING).then(|| datatype.as_str().to_string()),
+    }
 }
 
 fn txn_code(error: &TxnError) -> (ErrorCode, u64) {

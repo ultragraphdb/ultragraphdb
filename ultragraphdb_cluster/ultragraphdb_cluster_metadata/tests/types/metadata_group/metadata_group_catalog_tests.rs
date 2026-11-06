@@ -3,13 +3,17 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_cluster_metadata::{CatalogCheck, MetadataConfig};
 use ultragraphdb_core_ids::{Epoch, Tenant};
 use ultragraphdb_error_cluster::ClusterError;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_catalog::DefaultEntry;
 use ultragraphdb_traits_log::Position;
+use ultragraphdb_transactions_log::SimStorage;
 
-use crate::utils::harness::{epoch, fresh, learn_through, pid, sync, tenant};
+use crate::utils::harness::{
+    Group, crash_and_recover, epoch, fresh, learn_through, node, pid, sync, tenant,
+};
 
 #[test]
 fn test_an_offer_numbers_the_version_after_its_predecessor() -> TestResult {
@@ -128,5 +132,145 @@ fn test_a_report_is_recorded() -> TestResult {
     assert_eq!(position.get(), 1);
     sync(&mut group)?;
     assert_eq!(group.state().untrimmed(pid(3)?), Some(epoch(17)?));
+    Ok(())
+}
+
+/// A group of two partitions holding version 1 of `tenant`, being checked, its epoch assigned.
+fn being_checked() -> TestResult<(SimStorage, Group)> {
+    let (storage, mut group) = fresh()?;
+    let _init = group.init_placement(2, node())?;
+    let _offered = group.offer_checked(tenant(), 0, b"tight")?;
+    sync(&mut group)?;
+    learn_through(&mut group, 1)?;
+    Ok((storage, group))
+}
+
+fn check_of(group: &Group, version: u64) -> TestResult<CatalogCheck> {
+    Ok(group
+        .state()
+        .version_record(tenant(), version)
+        .context("the version")?
+        .check()
+        .clone())
+}
+
+#[test]
+fn test_a_report_before_the_epoch_is_assigned_appends_nothing() -> TestResult {
+    let (_storage, mut group) = fresh()?;
+    let _init = group.init_placement(1, node())?;
+    let _offered = group.offer_checked(tenant(), 0, b"tight")?;
+    sync(&mut group)?;
+    assert_eq!(group.report_check(tenant(), 1, pid(1)?, false)?, None);
+    assert_eq!(group.state().checked_version(tenant()), Some(1));
+    Ok(())
+}
+
+#[test]
+fn test_a_report_of_a_version_not_checked_appends_nothing() -> TestResult {
+    let (_storage, mut group) = fresh()?;
+    let _offered = group.offer_catalog(tenant(), 0, b"plain")?;
+    sync(&mut group)?;
+    learn_through(&mut group, 1)?;
+    assert_eq!(group.report_check(tenant(), 1, pid(1)?, false)?, None);
+    assert_eq!(group.report_check(tenant(), 2, pid(1)?, true)?, None);
+    assert_eq!(check_of(&group, 1)?, CatalogCheck::Settled);
+    Ok(())
+}
+
+#[test]
+fn test_a_refusal_stands_against_a_later_pass() -> TestResult {
+    let (_storage, mut group) = being_checked()?;
+    assert!(group.report_check(tenant(), 1, pid(1)?, true)?.is_some());
+    assert_eq!(group.report_check(tenant(), 1, pid(2)?, false)?, None);
+    sync(&mut group)?;
+    assert!(
+        matches!(
+            check_of(&group, 1)?,
+            CatalogCheck::Checking { refused: true, .. }
+        ),
+        "{:?}",
+        check_of(&group, 1)?
+    );
+    Ok(())
+}
+
+#[test]
+fn test_a_restoring_version_needs_one_being_checked() -> TestResult {
+    let (_storage, mut group) = fresh()?;
+    let _offered = group.offer_catalog(tenant(), 0, b"plain")?;
+    sync(&mut group)?;
+    let refusal = group
+        .offer_restoring(tenant(), 1, 1, b"back")
+        .err()
+        .context("a refusal")?;
+    assert_eq!(
+        refusal.0,
+        ClusterError::contradicts("a restoring version withdraws one being checked").0
+    );
+    assert_eq!(group.state().current_version(tenant()), 1);
+    Ok(())
+}
+
+#[test]
+fn test_what_a_client_reads_skips_a_withdrawn_version_and_stops_at_one_checked() -> TestResult {
+    let (_storage, mut group) = fresh()?;
+    let _init = group.init_placement(1, node())?;
+    let _first = group.offer_catalog(tenant(), 0, b"first")?;
+    sync(&mut group)?;
+    learn_through(&mut group, 1)?;
+    let _tight = group.offer_checked(tenant(), 1, b"tight")?;
+    let _built = group.offer_catalog(tenant(), 2, b"dropped from it")?;
+    sync(&mut group)?;
+    learn_through(&mut group, 3)?;
+    let at = epoch(4)?;
+    let read = |of: &Group| of.state().settled_at(tenant(), at).map(|r| r.version());
+    assert_eq!(read(&group), Some(1), "one checked hides those after it");
+    let _restoring = group.offer_restoring(tenant(), 3, 2, b"back")?;
+    sync(&mut group)?;
+    assert_eq!(read(&group), Some(3), "the withdrawn one is left out");
+    assert_eq!(check_of(&group, 2)?, CatalogCheck::Withdrawn);
+    Ok(())
+}
+
+#[test]
+fn test_a_version_before_one_being_checked_is_not_released() -> TestResult {
+    let (_storage, mut group) = fresh()?;
+    let _init = group.init_placement(1, node())?;
+    let _first = group.offer_catalog(tenant(), 0, b"first")?;
+    let _second = group.offer_catalog(tenant(), 1, b"second")?;
+    sync(&mut group)?;
+    learn_through(&mut group, 1)?;
+    let _tight = group.offer_checked(tenant(), 2, b"tight")?;
+    sync(&mut group)?;
+    learn_through(&mut group, 3)?;
+    let _reported = group.report_untrimmed(pid(1)?, epoch(100)?)?;
+    sync(&mut group)?;
+    let held: Vec<u64> = group
+        .state()
+        .versions(tenant())
+        .iter()
+        .map(|r| r.version())
+        .collect();
+    assert_eq!(
+        held,
+        vec![2, 3],
+        "the one below what restores goes, not that"
+    );
+    Ok(())
+}
+
+#[test]
+fn test_a_snapshot_keeps_a_check_as_it_stands() -> TestResult {
+    let (storage, mut group) = being_checked()?;
+    let _passed = group.report_check(tenant(), 1, pid(1)?, false)?;
+    sync(&mut group)?;
+    let snapshot = group.snapshot();
+    let mut bytes = Vec::new();
+    snapshot.encode(&mut bytes);
+    let decoded = ultragraphdb_cluster_metadata::MetadataSnapshot::decode(&bytes)?;
+    assert_eq!(decoded, snapshot);
+    let recovered = crash_and_recover(&storage, MetadataConfig::new(), Some(decoded))?;
+    assert_eq!(recovered.state(), group.state());
+    assert_eq!(recovered.state().checked_version(tenant()), Some(1));
     Ok(())
 }

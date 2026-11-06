@@ -273,7 +273,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         let sink = self
             .sink(RouteKey::Read { read, attempt })
             .with_credit(state.credit);
-        let opened = link.open(frame, sink);
+        let opened = link.open(self.counted(frame), sink);
         if let Some(sent) = self.reads.get_mut(&read) {
             sent.attempt = attempt;
             sent.route = Some((link, opened));
@@ -554,7 +554,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         }
         state.credit = state.credit.saturating_add(frames);
         if let Some((link, stream)) = &state.route {
-            link.credit(*stream, frames);
+            link.credit(*stream, frames, &self.on_way);
         }
     }
 

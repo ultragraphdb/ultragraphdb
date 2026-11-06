@@ -9,7 +9,7 @@ use std::rc::Rc;
 use compio::runtime::{JoinHandle, spawn};
 use futures::channel::mpsc::unbounded;
 use ultragraphdb_common_role::{
-    Answer, ROLE_ITERATIONS, RoleClient, RoleCluster, Server, serve_connection,
+    Answer, ParkedBytes, ROLE_ITERATIONS, RoleClient, RoleCluster, Server, serve_connection,
 };
 use ultragraphdb_core_ids::{SessionToken, Version};
 use ultragraphdb_error_role::RoleError;
@@ -33,6 +33,7 @@ pub struct RoleDouble {
     seen: Rc<RefCell<Vec<DoubleFrame>>>,
     connections: Rc<RefCell<Vec<JoinHandle<()>>>>,
     accepting: Rc<RefCell<Option<JoinHandle<()>>>>,
+    reading: ParkedBytes,
 }
 
 impl RoleDouble {
@@ -67,6 +68,7 @@ impl RoleDouble {
             seen: Rc::default(),
             connections: Rc::default(),
             accepting: Rc::default(),
+            reading: ParkedBytes::new(1),
         };
         let held = double.clone();
         let script = Rc::new(script);
@@ -79,6 +81,7 @@ impl RoleDouble {
                     script: Rc::clone(&script),
                     pushes,
                     pushed,
+                    reading: held.reading.clone(),
                 };
                 let task = spawn(async move {
                     serve_connection(carrier, &server, credentials, session).await;
@@ -162,6 +165,16 @@ impl RoleDouble {
     pub fn close(&self) {
         *self.accepting.borrow_mut() = None;
         self.connections.borrow_mut().clear();
+    }
+
+    /// Stops reading its one connection past the frame it is reading now, and goes on sending what it answers.
+    pub fn stop_reading(&self) {
+        self.reading.hold(1);
+    }
+
+    /// Reads its connection again.
+    pub fn read_again(&self) {
+        self.reading.release(1);
     }
 
     /// The cluster it serves.

@@ -16,3 +16,15 @@ fn test_readiness_is_shared_and_starts_false() {
     role.set(false);
     assert!(!responder.is_ready());
 }
+
+/// A binding role listens only once it says so, and a clone sees it, as the responder sees the role.
+#[test]
+fn test_a_binding_readiness_listens_once_set() {
+    let role = Readiness::binding();
+    let responder = role.clone();
+    assert!(!responder.is_listening());
+    assert!(!responder.is_ready());
+    role.set_listening();
+    assert!(responder.is_listening());
+    assert!(!responder.is_ready());
+}

@@ -20,21 +20,48 @@ use crate::utils::parse_head::parse_head;
 const READ_BYTES: usize = 16 * 1024;
 
 /// Answers the one request `stream` carries by `service`, then closes. A request past its limits, or malformed, or one a
-/// peer leaves unfinished, gets its refusal; a stream that fails ends with nothing, since no one is left to tell.
+/// peer leaves unfinished, gets its refusal, and that peer may still be sending: closing over bytes not read resets the
+/// connection, which fails the peer's next write and can destroy the refusal on its way. So a refusal is followed by
+/// [`drain`], up to the limits' time, before the close. A stream that fails ends with nothing, since no one is left to tell.
 pub async fn serve_http<S, H>(mut stream: S, limits: &HttpLimits, service: &H)
 where
     S: AsyncRead + AsyncWrite,
     H: HttpService,
 {
     let read = compio::time::timeout(limits.time(), read_request(&mut stream, limits)).await;
-    let response = match read {
-        Ok(Ok(request)) => service.call(request).await,
-        Ok(Err(status)) => HttpResponse::new(status),
-        Err(_) => HttpResponse::new(408),
+    let (response, refused) = match read {
+        Ok(Ok(request)) => (service.call(request).await, false),
+        Ok(Err(status)) => (HttpResponse::new(status), true),
+        Err(_) => (HttpResponse::new(408), true),
     };
     let written = compio::time::timeout(limits.time(), write_response(&mut stream, response)).await;
-    if let Ok(Err(error)) = written {
+    if let Ok(Err(error)) = &written {
         tracing::debug!(%error, "a response was not written");
+    }
+    if refused && matches!(written, Ok(Ok(()))) {
+        // The time running out ends the drain as the bytes do: the close then resets what is still arriving.
+        if compio::time::timeout(limits.time(), drain(&mut stream))
+            .await
+            .is_err()
+        {
+            tracing::debug!("a refused peer was still connected when its time ran out");
+        }
+    }
+}
+
+/// Reads what `stream` still sends and discards it, into one buffer, until the peer ends or [`HttpLimits::DRAIN_MAX`]
+/// bytes have passed. The sending side is shut by then, so the peer holds its answer and the end of it.
+async fn drain<S: AsyncRead>(stream: &mut S) {
+    let mut buffer = Vec::with_capacity(READ_BYTES);
+    let mut drained = 0;
+    while drained < HttpLimits::DRAIN_MAX {
+        buffer.clear();
+        let BufResult(read, returned) = stream.read(buffer).await;
+        buffer = returned;
+        match read {
+            Ok(count) if count > 0 => drained += count,
+            Ok(_) | Err(_) => return,
+        }
     }
 }
 

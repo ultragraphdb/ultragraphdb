@@ -8,6 +8,7 @@ use ultragraphdb_core_ids::{Epoch, Tenant, TypePrefix};
 use ultragraphdb_error_cluster::ClusterError;
 use ultragraphdb_protocol_scram::ScramVerifier;
 
+use crate::types::catalog_check::CatalogCheck;
 use crate::types::catalog_record::CatalogRecord;
 use crate::types::metadata_command::MetadataCommand;
 use crate::types::metadata_state::MetadataState;
@@ -56,6 +57,10 @@ impl MetadataState {
     ///   stays pending, or a placement version announced other than the oldest pending. An eviction carried that is not
     ///   pending changes nothing.
     /// - [`MetadataCommand::ReportUntrimmed`]: none; an epoch below the partition's last report changes nothing.
+    /// - [`MetadataCommand::OfferChecked`]: as [`MetadataCommand::OfferCatalog`].
+    /// - [`MetadataCommand::OfferRestoring`]: as [`MetadataCommand::OfferCatalog`]; [`ClusterError::contradicts`] when the
+    ///   version it withdraws is not being checked.
+    /// - [`MetadataCommand::ReportCheck`]: none; a report of a version not being checked changes nothing.
     /// - [`MetadataCommand::CreateTenant`]: [`ClusterError::contradicts`] for a tenant the group holds;
     ///   [`ClusterError::full`] at [`MetadataState::TENANTS_MAX`].
     /// - [`MetadataCommand::DrawSecret`]: [`ClusterError::contradicts`] once a secret was drawn.
@@ -67,7 +72,27 @@ impl MetadataState {
                 tenant,
                 predecessor,
                 bytes,
-            } => self.offer(*tenant, *predecessor, bytes),
+            } => self.offer(*tenant, *predecessor, bytes, CatalogCheck::Settled),
+            MetadataCommand::OfferChecked {
+                tenant,
+                predecessor,
+                bytes,
+            } => self.offer(*tenant, *predecessor, bytes, CatalogCheck::begun()),
+            MetadataCommand::OfferRestoring {
+                tenant,
+                predecessor,
+                restores,
+                bytes,
+            } => self.offer_restoring(*tenant, *predecessor, *restores, bytes),
+            MetadataCommand::ReportCheck {
+                tenant,
+                version,
+                partition,
+                refused,
+            } => {
+                self.report_check(*tenant, *version, *partition, *refused);
+                Ok(())
+            }
             MetadataCommand::RecordDefault {
                 tenant,
                 predicate,
@@ -137,6 +162,7 @@ impl MetadataState {
         tenant: Tenant,
         predecessor: u64,
         bytes: &[u8],
+        check: CatalogCheck,
     ) -> Result<(), ClusterError> {
         within(
             "bytes of a catalog version",
@@ -168,10 +194,83 @@ impl MetadataState {
         // The latest version is below u64::MAX: 2^64 − 1 versions are never committed in one tenant.
         let version = current.saturating_add(1);
         catalog.current = version;
+        if check != CatalogCheck::Settled {
+            let _new: bool = self.checking.insert((tenant, version));
+        }
         catalog
             .versions
-            .push_back(CatalogRecord::new(tenant, version, None, bytes.to_vec()));
+            .push_back(CatalogRecord::new(tenant, version, None, bytes.to_vec()).with_check(check));
         Ok(())
+    }
+
+    /// Commits `bytes` as the pending version of `tenant` after `predecessor`, withdrawing version `restores`, which is
+    /// being checked.
+    fn offer_restoring(
+        &mut self,
+        tenant: Tenant,
+        predecessor: u64,
+        restores: u64,
+        bytes: &[u8],
+    ) -> Result<(), ClusterError> {
+        holds(
+            self.checking.contains(&(tenant, restores)),
+            "a restoring version withdraws one being checked",
+        )?;
+        self.offer(tenant, predecessor, bytes, CatalogCheck::Settled)?;
+        let _was: bool = self.checking.remove(&(tenant, restores));
+        if let Some(record) = self.record_mut(tenant, restores) {
+            record.set_check(CatalogCheck::Withdrawn);
+        }
+        Ok(())
+    }
+
+    /// Records `partition`'s report on version `version` of `tenant`, which changes nothing once the version is no longer
+    /// being checked or before its epoch is assigned: the version stands once every partition holding the tenant at its
+    /// epoch has passed it and none refused it.
+    fn report_check(
+        &mut self,
+        tenant: Tenant,
+        version: u64,
+        partition: PartitionId,
+        refused: bool,
+    ) {
+        let effective = self
+            .version_record(tenant, version)
+            .and_then(CatalogRecord::effective);
+        let Some(effective) = effective else {
+            return;
+        };
+        let holders = self.holders(tenant, effective);
+        let Some(record) = self.record_mut(tenant, version) else {
+            return;
+        };
+        let CatalogCheck::Checking {
+            mut passed,
+            refused: was_refused,
+        } = record.check().clone()
+        else {
+            return;
+        };
+        let refused = was_refused || refused;
+        if !refused {
+            let _new: bool = passed.insert(partition);
+        }
+        let settled = !refused && holders.iter().all(|holder| passed.contains(holder));
+        if settled {
+            record.set_check(CatalogCheck::Settled);
+            let _was: bool = self.checking.remove(&(tenant, version));
+        } else {
+            record.set_check(CatalogCheck::Checking { passed, refused });
+        }
+    }
+
+    /// Version `version` of `tenant`, to change.
+    fn record_mut(&mut self, tenant: Tenant, version: u64) -> Option<&mut CatalogRecord> {
+        self.catalogs
+            .get_mut(&tenant)?
+            .versions
+            .iter_mut()
+            .find(|record| record.version() == version)
     }
 
     /// The versions pending across every tenant.
@@ -522,7 +621,13 @@ impl MetadataState {
                 .versions
                 .iter()
                 .rposition(|v| v.effective().is_some_and(|e| e <= floor));
-            for _ in 0..in_effect.unwrap_or(0) {
+            // A version being checked may yet be restored from the one before it.
+            let restorable = catalog
+                .versions
+                .iter()
+                .position(|v| matches!(v.check(), CatalogCheck::Checking { .. }))
+                .map_or(usize::MAX, |at| at.saturating_sub(1));
+            for _ in 0..in_effect.unwrap_or(0).min(restorable) {
                 if let Some(released) = catalog.versions.pop_front() {
                     catalog.released = released.version();
                 }

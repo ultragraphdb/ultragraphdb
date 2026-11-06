@@ -18,7 +18,7 @@ use std::net::IpAddr;
 use std::time::Instant;
 
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
-use ultragraphdb_common_role::OpenFrame;
+use ultragraphdb_common_role::{OpenFrame, ParkedBytes};
 use ultragraphdb_protocol_wire::{
     BodyBuilder, Command, ErrorReply, FLAG_LAST, Header, HeaderView, MAX_FRAME_FLOOR,
     StatementCache,
@@ -29,6 +29,7 @@ use crate::types::asked_credentials::AskedCredentials;
 use crate::types::claim::Claim;
 use crate::types::client_read::ClientRead;
 use crate::types::client_transaction::ClientTransaction;
+use crate::types::counted_frame::CountedFrame;
 use crate::types::endpoint_core::EndpointCore;
 use crate::types::owner_handle::DropStep;
 use crate::types::role_link::RoleLink;
@@ -39,7 +40,8 @@ use crate::types::session_event::SessionEvent;
 /// A DirectWrite or a ConditionalWrite on its way to its partition.
 #[derive(Debug)]
 struct OneFrame {
-    frame: Vec<u8>,
+    /// Its frame, whole for a resend and counted on its way, until it is answered or passes its limit having left.
+    frame: CountedFrame,
     tenant: u64,
     session: u128,
     /// Whether it has had its one resend, after a refusal naming another owner.
@@ -48,6 +50,8 @@ struct OneFrame {
     forced: Option<u32>,
     attempt: u32,
     route: Option<(RoleLink, u64)>,
+    /// When it passes `transaction_ms`, until it has.
+    limit: Option<Instant>,
 }
 
 /// A Drop on its way to its partition.
@@ -99,6 +103,8 @@ pub struct ClientSession<A> {
     recalls: BTreeMap<u64, Recalling>,
     claims: BTreeMap<u64, Claim>,
     held: u64,
+    /// What the connection has on its way to a role, whose bound stops its reads (`PROTOCOL.md` §11.12, *Frames on their way*).
+    on_way: ParkedBytes,
     events_in: UnboundedSender<SessionEvent>,
     events: UnboundedReceiver<SessionEvent>,
     out: VecDeque<(u64, Vec<u8>)>,
@@ -110,6 +116,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
     /// A session on `core`, filling `credentials` for the connection's machine, the connection's peer `peer`.
     pub fn new(core: EndpointCore<A>, credentials: AskedCredentials, peer: Option<IpAddr>) -> Self {
         let statements = StatementCache::new(core.limits().statements());
+        let bound = usize::try_from(core.limits().held_bytes()).unwrap_or(usize::MAX);
         let (events_in, events) = unbounded();
         Self {
             core,
@@ -126,6 +133,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             recalls: BTreeMap::new(),
             claims: BTreeMap::new(),
             held: 0,
+            on_way: ParkedBytes::new(bound),
             events_in,
             events,
             out: VecDeque::new(),
@@ -156,6 +164,11 @@ impl<A: Authorizer + Clone> ClientSession<A> {
 
     fn cluster(&self) -> u64 {
         self.core.links().cluster()
+    }
+
+    /// `frame`, counted on its way.
+    fn counted(&self, frame: Vec<u8>) -> CountedFrame {
+        CountedFrame::new(frame, &self.on_way)
     }
 
     fn sink(&self, key: RouteKey) -> RouteSink {

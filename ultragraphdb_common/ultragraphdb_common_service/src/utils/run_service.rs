@@ -170,7 +170,11 @@ where
     if let Some(bootstrap) = start.bootstrap() {
         serve_admin(start.config(), bootstrap, Rc::clone(&load)).await?;
     }
-    let readiness = Readiness::default();
+    // A frontend binds its role and client addresses from its start, so its `/health` waits for them.
+    let readiness = match kind {
+        RoleKind::Frontend => Readiness::binding(),
+        RoleKind::Compute | RoleKind::Storage => Readiness::default(),
+    };
     let address = start.observability();
     let listener = TcpListener::from_std(bind_tcp(&address.to_string()).await?)
         .map_err(|error| RoleError::unavailable(format!("listening at {address}: {error}")))?;

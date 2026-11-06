@@ -4,3 +4,4 @@
  */
 
 mod iri_place_tests;
+mod term_rules_tests;

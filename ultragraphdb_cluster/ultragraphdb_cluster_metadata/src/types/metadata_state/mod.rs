@@ -27,6 +27,8 @@ use crate::types::principal::Principal;
 ///   [`CatalogRecord`]; a version is pending until a learned close assigns it the epoch after that close. The versions
 ///   superseded before every partition's untrimmed log begins are released. Beside them, the default-entry records by
 ///   (tenant, predicate).
+///   A version tightening a predicate is being checked until every partition holding its tenant at its effective epoch
+///   passed it or a restoring version withdraws it ([`CatalogCheck`](crate::CatalogCheck)).
 /// - **Sequence blocks.** The next sequence of every type that has leased a block; a type absent starts at 1.
 /// - **Placement.** The placement map, once initialised, its layouts each applying from the epoch the close announcing
 ///   it gave; the placement versions pending, in order, each numbered one above the last (the initial map is version
@@ -39,6 +41,9 @@ pub struct MetadataState {
     pub(crate) tenants: BTreeSet<Tenant>,
     pub(crate) unknown_secret: Option<[u8; 32]>,
     pub(crate) catalogs: BTreeMap<Tenant, TenantCatalog>,
+    /// The versions being checked, each a [`CatalogCheck::Checking`](crate::CatalogCheck) record of `catalogs`: what the
+    /// frontend's every turn walks.
+    pub(crate) checking: BTreeSet<(Tenant, u64)>,
     pub(crate) defaults: BTreeMap<(Tenant, String), Vec<u8>>,
     pub(crate) high_water: BTreeMap<u16, u64>,
     pub(crate) placement: Option<PlacementMap>,
@@ -94,6 +99,7 @@ impl MetadataState {
             tenants: BTreeSet::new(),
             unknown_secret: None,
             catalogs: BTreeMap::new(),
+            checking: BTreeSet::new(),
             defaults: BTreeMap::new(),
             high_water: BTreeMap::new(),
             placement: None,

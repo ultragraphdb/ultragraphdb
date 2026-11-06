@@ -56,6 +56,11 @@ impl HomeScript {
         script
     }
 
+    /// Refuses every registration with `outcome` from now on.
+    pub fn refuse_with(&self, outcome: u16) {
+        self.refusing.set(Some(outcome));
+    }
+
     /// Holds every answer from now on, counting what reaches the home from none.
     pub fn hold(&self) {
         self.asked.set(0);

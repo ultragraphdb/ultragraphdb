@@ -33,12 +33,12 @@ use ultragraphdb_core_catalog::CatalogContents;
 use ultragraphdb_core_ids::{Epoch, Tenant, TypePrefix, Version};
 use ultragraphdb_core_mapping::RandomSource;
 use ultragraphdb_error_role::RoleError;
-use ultragraphdb_protocol_transport::{Address, Endpoint, TransportError};
+use ultragraphdb_protocol_transport::{Address, Endpoint, TransportError, TransportErrorEnum};
 use ultragraphdb_protocol_transport_compio::Listener;
 use ultragraphdb_protocol_wire::{
     BodyView, Catalog, CatalogView, CloseRequest as CloseRequestBody, Command, DefaultEntry,
     EpochCloseView, ErrorCode, ErrorReplyView, Join, Lease, LeaseView, Placement, PlacementView,
-    Subscribe,
+    Report, Subscribe,
 };
 use ultragraphdb_store_apply::ChangesetApplier;
 use ultragraphdb_store_kv::{Durability, FjallStore, MokaListCache, ThreadExecutor};
@@ -57,6 +57,9 @@ const BLOCK_SIZE: u64 = 1 << 16;
 const BLOCKS_AHEAD: usize = 2;
 
 const POLL: std::time::Duration = std::time::Duration::from_millis(20);
+
+/// How long a report left unanswered waits before it is sent again.
+const REPORT_AGAIN: std::time::Duration = std::time::Duration::from_millis(100);
 
 /// The replica a partition's directory: one per partition until stage 8's replication.
 const REPLICA: u32 = 1;
@@ -266,21 +269,23 @@ async fn serve_core(
     let (mut log, _) = Wal::open(CompioStorage, dir.join("wal"), config)
         .await
         .map_err(|error| RoleError::io(format!("the partition {} log: {error}", own.get())))?;
-    let held = held_versions(&start.frontend, cluster, &name, &tenants).await?;
-    let replay = Replay::run_with_catalog(
-        own.get(),
-        partition.applier(),
-        &mut log,
-        Sessions::DEFAULT_CAPACITY,
-        &held,
-    )
-    .await
-    .map_err(|error| RoleError::io(format!("the partition {} replay: {error}", own.get())))?;
-    tracing::info!(partition = own.get(), rounds = replay.rounds(), "recovered");
-    let delivered = last_close(replay.applied());
+    // A frontend that is not there yet, or stops under the start, is asked again until the join deadline, as joining is.
+    let Some(held) = retry_until(cluster, &name, &stopping, || {
+        held_versions(&start.frontend, cluster, &name, &tenants)
+    })
+    .await?
+    else {
+        return Ok(());
+    };
+    let applied = replayed(&partition, &mut log, &held, &tenants).await?;
+    let delivered = last_close(applied);
+    let (in_effect, asked) = (
+        versions_held(&partition, &tenants)?,
+        close_request(&start.config)?,
+    );
     let pipeline = Pipeline::new(partition.applier(), log, bounds)
         .map_err(|error| RoleError::io(format!("the pipeline: {error}")))?
-        .with_partition(own.get(), delivered, close_request(&start.config)?, &[])
+        .with_partition(own.get(), delivered, asked, &in_effect)
         .bound(own, partition.placement());
     let (remote_tx, remote) = std::sync::mpsc::channel();
     let mailbox = mailbox.with_remote(remote_tx);
@@ -305,6 +310,68 @@ async fn serve_core(
         .join()
         .map_err(|_| RoleError::software("a partition's discard thread panicked"))?;
     outcome
+}
+
+/// `partition`'s catalog versions loaded and its log replayed over them: the version it applied through.
+async fn replayed(
+    partition: &StoragePartition,
+    log: &mut Wal<CompioStorage>,
+    held: &HeldCatalogs,
+    tenants: &[u64],
+) -> Result<u64, RoleError> {
+    let own = partition.id();
+    load_catalogs(partition.applier(), held, tenants)?;
+    let replay = Replay::run_with_catalog(
+        own.get(),
+        partition.applier(),
+        log,
+        Sessions::DEFAULT_CAPACITY,
+        held,
+    )
+    .await
+    .map_err(|error| RoleError::io(format!("the partition {} replay: {error}", own.get())))?;
+    tracing::info!(partition = own.get(), rounds = replay.rounds(), "recovered");
+    Ok(replay.applied())
+}
+
+/// Loads into `applier` the catalog versions of `tenants` in effect at its store's applied epoch, each below the rounds a replay runs:
+/// a version whose round lies below the log's checkpoint is taken effect by nothing else. One naming what the dictionary does not
+/// hold never took effect here, and neither did those after it.
+fn load_catalogs(
+    applier: &ChangesetApplier<FjallStore, MokaListCache<CachedList>, ThreadExecutor, RefillBlocks>,
+    held: &HeldCatalogs,
+    tenants: &[u64],
+) -> Result<(), RoleError> {
+    let applied = Version::from_u64(applier.quads().lists().applied_ts())
+        .epoch()
+        .get();
+    for tenant in tenants {
+        for version in held.up_to(*tenant, applied) {
+            let contents = CatalogContents::decode(*tenant, version.version(), version.contents())
+                .map_err(|error| RoleError::software(format!("a catalog version: {error}")))?;
+            if let Err(error) = applier.load_catalog(&contents) {
+                tracing::warn!(%error, version = version.version(), "a catalog version did not take effect here");
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Each of `tenants`' catalog versions `partition` holds in effect once it replayed, which its commit step starts from.
+fn versions_held(
+    partition: &StoragePartition,
+    tenants: &[u64],
+) -> Result<Vec<CatalogVersion>, RoleError> {
+    tenants
+        .iter()
+        .map(|tenant| {
+            let catalog = partition.applier().catalog(*tenant).map_err(|error| {
+                RoleError::software(format!("the catalog of tenant {tenant}: {error}"))
+            })?;
+            Ok(CatalogVersion::new(Tenant::new(*tenant), catalog.version()))
+        })
+        .collect()
 }
 
 /// A thread raising the discard version of `partition` as `raised` says: the store's write of it syncs, which no read of the core
@@ -510,6 +577,9 @@ fn accept_connections(
     core: UnboundedSender<CoreMessage>,
 ) -> Result<(), RoleError> {
     let credentials: RoleCredentials = start.cluster.secret().credentials()?;
+    let held = start.config.storage().held_bytes();
+    let held_bytes = held.unwrap_or(StorageTable::HELD_BYTES_DEFAULT);
+    let held_bytes = usize::try_from(held_bytes).unwrap_or(usize::MAX);
     let server = Server::new(start.cluster.id(), "storage", Endpoint::Partition)?
         .with_welcome(|welcome| welcome.with_initial_credit(PARTITION_INITIAL_CREDIT))
         .with_iterations(ROLE_ITERATIONS);
@@ -519,7 +589,7 @@ fn accept_connections(
             match listener.accept().await {
                 Ok(carrier) => {
                     connection += 1;
-                    let session = StorageSession::new(connection, core.clone());
+                    let session = StorageSession::new(connection, core.clone(), held_bytes);
                     let (server, credentials) = (server.clone(), credentials.clone());
                     spawn(async move {
                         serve_connection(carrier, &server, credentials, session).await;
@@ -534,26 +604,31 @@ fn accept_connections(
     Ok(())
 }
 
-/// Every catalog version of `tenants` the frontend holds with an effective epoch, for a replayed record naming one.
+/// Every catalog version of `tenants` the frontend holds with an effective epoch, for a replayed record naming one. A tenant's
+/// versions end at the first it never held, which the group refuses with code 7; any other failure fails the whole read, so a
+/// connection lost part way gives no partial set.
 async fn held_versions(
     frontend: &Address,
     cluster: &RoleCluster,
     name: &str,
     tenants: &[u64],
-) -> Result<HeldCatalogs, RoleError> {
-    let unavailable = |error: &dyn std::fmt::Display| {
-        RoleError::unavailable(format!("the catalog versions: {error}"))
-    };
+) -> Result<HeldCatalogs, TransportError> {
     let mut held = HeldCatalogs::default();
-    let mut client = RoleClient::dial(frontend, cluster.id(), name, cluster.secret().password())
-        .await
-        .map_err(|error| unavailable(&error))?;
+    let mut client =
+        RoleClient::dial(frontend, cluster.id(), name, cluster.secret().password()).await?;
     for tenant in tenants {
         let mut version = 1;
-        // Ends at the first version the tenant never held, which the group refuses; a version number only rises.
-        while let Ok(reply) = client.request(&Catalog::request(*tenant, version)).await {
-            let view = reply.view().map_err(|error| unavailable(&error))?;
-            let answer = CatalogView::from_frame(&view).map_err(|error| unavailable(&error))?;
+        loop {
+            let reply = match client.request(&Catalog::request(*tenant, version)).await {
+                Ok(reply) => reply,
+                Err(TransportError(TransportErrorEnum::Refused {
+                    code: ErrorCode::Refused,
+                    ..
+                })) => break,
+                Err(error) => return Err(error),
+            };
+            let view = reply.view().map_err(TransportError::protocol)?;
+            let answer = CatalogView::from_frame(&view).map_err(TransportError::protocol)?;
             if answer.epoch() != 0 {
                 held.hold(HeldVersion::new(
                     *tenant,
@@ -830,6 +905,14 @@ async fn frontend_requests(
         let Some(asked) = next else {
             return;
         };
+        let asked = match asked {
+            Asked::Frontend(FrontendAsk::Report(report)) => {
+                spawn(send_report(peers.clone(), report)).detach();
+                continue;
+            }
+            Asked::Lease(_)
+            | Asked::Frontend(FrontendAsk::Close(_) | FrontendAsk::DefaultEntry(_)) => asked,
+        };
         let held = match client.take() {
             Some(open) => Ok(open),
             None => {
@@ -855,6 +938,8 @@ async fn frontend_requests(
                             DefaultEntry::request(entry.tenant(), entry.predicate().to_string());
                         open.request(&record).await.map(drop)
                     }
+                    // Taken above, each on a connection of its own.
+                    Asked::Frontend(FrontendAsk::Report(_)) => Ok(()),
                 };
                 client = result.is_ok().then_some(open);
                 result
@@ -865,6 +950,33 @@ async fn frontend_requests(
             // A lease is asked again as the next block is taken, a close request again as the commit step holds on, and a
             // default entry again by the next recovery (`PROTOCOL.md` §11.12).
             tracing::warn!(%error, "a request to the frontend failed");
+        }
+    }
+}
+
+/// Sends `report` until the frontend answers it, on a connection of its own so a wait for the frontend holds no lease, or until the
+/// role's deadline, past which the frontend's own wait for it has ended (`PROTOCOL.md` §13.19).
+async fn send_report(peers: Peers, report: Report) {
+    let due = now() + peers.cluster().deadline();
+    loop {
+        let dialled = RoleClient::dial(
+            peers.frontend(),
+            peers.cluster().id(),
+            peers.name(),
+            peers.cluster().secret().password(),
+        )
+        .await;
+        let answered = match dialled {
+            Ok(mut client) => client.request(&report).await.map(drop),
+            Err(error) => Err(error),
+        };
+        match answered {
+            Ok(()) => return,
+            Err(error) if now() >= due => {
+                tracing::warn!(%error, version = report.version(), "a catalog version's report went unanswered");
+                return;
+            }
+            Err(_) => compio::time::sleep(REPORT_AGAIN).await,
         }
     }
 }

@@ -34,7 +34,7 @@ use ultragraphdb_protocol_wire::{
     DeclaredKind, DeclaredPredicate, DefaultEntry, Describe, DescribeView, DirectWrite,
     DropCommand, ErrorCode, ErrorReply, Execute, FLAG_LAST, Header, Held, Hello, Join,
     MAX_FRAME_FLOOR, MAX_FRAME_SIZE, Operation, PatternSlot, Prepare, PrepareView, QuadPattern,
-    Read, ReadLevel, ReferenceView, RequestTerm, RequestTermView, ResultBatch, ResultView,
+    Read, ReadLevel, ReferenceView, Report, RequestTerm, RequestTermView, ResultBatch, ResultView,
     TenantRun, TermTable, Write, WriteChange, xxh3_64,
 };
 use ultragraphdb_store_sim::LogCapture;
@@ -158,6 +158,41 @@ pub(crate) async fn declare(client: &mut Client, predicate: DeclaredPredicate) -
     client.commit(transaction).await?;
     assert_eq!(client.got(transaction).await?.command, Command::Commit);
     Ok(())
+}
+
+/// Commits `predicate`'s declaration, which tightens it, the played partition 1 reporting its check passed: answered after it.
+pub(crate) async fn declare_checked(
+    stage: &Stage,
+    client: &mut Client,
+    predicate: DeclaredPredicate,
+) -> TestResult {
+    let transaction = client.begin(0).await?;
+    client.on(transaction, &declaring(predicate)).await?;
+    client.commit(transaction).await?;
+    let version = until_assigned(stage).await?;
+    let mut storage = RoleClient::dial(
+        &stage.role,
+        CLUSTER,
+        "storage",
+        stage.cluster.secret().password(),
+    )
+    .await?;
+    drop(storage.request(&Report::passed(1, 0, version)).await?);
+    assert_eq!(client.got(transaction).await?.command, Command::Commit);
+    Ok(())
+}
+
+/// The latest catalog version of tenant 0, once its epoch is assigned.
+async fn until_assigned(stage: &Stage) -> TestResult<u64> {
+    for _ in 0..2_500 {
+        if let Ok(held) = stage.owner.catalog(0, 0).await
+            && held.epoch() != 0
+        {
+            return Ok(held.version());
+        }
+        pause(2).await;
+    }
+    Err(TestError::new("no catalog version was assigned its epoch"))
 }
 
 /// A Prepare in `tenant` of a pattern binding the predicate `predicate` and taking its object as its parameter.
@@ -1653,7 +1688,8 @@ fn describe_answers_from_the_metadata_group(w: &mut Steps) -> TestResult {
         let partition = stage.partition(1).await?;
         let (name, score) = ("http://ex.org/name", "http://ex.org/score");
         let mut client = stage.ann().await?;
-        declare(
+        declare_checked(
+            &stage,
             &mut client,
             DeclaredPredicate::new(name)
                 .with_kind(DeclaredKind::Property)

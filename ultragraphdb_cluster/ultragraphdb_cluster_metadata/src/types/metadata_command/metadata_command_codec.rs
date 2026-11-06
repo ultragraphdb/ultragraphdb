@@ -13,10 +13,10 @@ use crate::types::metadata_state::MetadataState;
 use crate::types::reader::Reader;
 
 /// What a command's kind byte must be.
-const KIND: &str = "a kind byte, 1 to 15";
+const KIND: &str = "a kind byte, 1 to 18";
 
 impl MetadataCommand {
-    /// Appends the command's encoding to `out`, big-endian throughout: its kind byte, 1 to 15 in declaration order, then
+    /// Appends the command's encoding to `out`, big-endian throughout: its kind byte, 1 to 18 as [`MetadataCommand::encode`]'s match gives it, then
     /// its fields in order. A tenant, an epoch, a sequence and a version number take 8 bytes, a type prefix 2, a
     /// partition, a node, a bucket and a partition count 4, a session 16, a principal's identity 8, a flag 1 (0 or 1);
     /// bytes and text take their length (4 bytes for a catalog version and an entry, 2 for a predicate, 1 for a name and
@@ -82,6 +82,9 @@ impl MetadataCommand {
             | Self::DrawSecret { .. }
             | Self::Chunk { .. }
             | Self::Commit { .. } => self.encode_rest(out),
+            Self::OfferChecked { .. } | Self::OfferRestoring { .. } | Self::ReportCheck { .. } => {
+                self.encode_check(out);
+            }
         }
     }
 
@@ -149,12 +152,68 @@ impl MetadataCommand {
             | Self::LeaseBlock { .. }
             | Self::InitPlacement { .. }
             | Self::ChangePlacement { .. }
+            | Self::OfferChecked { .. }
+            | Self::OfferRestoring { .. }
+            | Self::ReportCheck { .. }
             // encode writes these itself and never passes them here.
             | Self::SetLeader { .. } => {}
         }
     }
 
-    /// The command's kind byte, 1 to 15 in declaration order.
+    /// The encodings of a tightening's commands, after their kind byte.
+    fn encode_check(&self, out: &mut Vec<u8>) {
+        match self {
+            Self::OfferChecked {
+                tenant,
+                predecessor,
+                bytes,
+            } => {
+                put_u64(out, tenant.get());
+                put_u64(out, *predecessor);
+                put_len_u32(out, bytes);
+            }
+            Self::OfferRestoring {
+                tenant,
+                predecessor,
+                restores,
+                bytes,
+            } => {
+                put_u64(out, tenant.get());
+                put_u64(out, *predecessor);
+                put_u64(out, *restores);
+                put_len_u32(out, bytes);
+            }
+            Self::ReportCheck {
+                tenant,
+                version,
+                partition,
+                refused,
+            } => {
+                put_u64(out, tenant.get());
+                put_u64(out, *version);
+                put_u32(out, partition.get());
+                out.push(u8::from(*refused));
+            }
+            Self::OfferCatalog { .. }
+            | Self::RecordDefault { .. }
+            | Self::LeaseBlock { .. }
+            | Self::InitPlacement { .. }
+            | Self::ChangePlacement { .. }
+            | Self::SetLeader { .. }
+            | Self::CreatePrincipal { .. }
+            | Self::RemovePrincipal { .. }
+            | Self::RegisterSession { .. }
+            | Self::LearnClose { .. }
+            | Self::ReportUntrimmed { .. }
+            | Self::CreateTenant { .. }
+            | Self::DrawSecret { .. }
+            | Self::Chunk { .. }
+            // encode passes the other three here alone.
+            | Self::Commit { .. } => {}
+        }
+    }
+
+    /// The command's kind byte, 1 to 18.
     fn kind(&self) -> u8 {
         match self {
             Self::OfferCatalog { .. } => 1,
@@ -172,6 +231,9 @@ impl MetadataCommand {
             Self::Commit { .. } => 13,
             Self::CreateTenant { .. } => 14,
             Self::DrawSecret { .. } => 15,
+            Self::OfferChecked { .. } => 16,
+            Self::OfferRestoring { .. } => 17,
+            Self::ReportCheck { .. } => 18,
         }
     }
 
@@ -244,6 +306,9 @@ impl MetadataCommand {
             15 => Self::DrawSecret {
                 secret: read_secret(&mut reader)?,
             },
+            16 => read_checked(&mut reader)?,
+            17 => read_restoring(&mut reader)?,
+            18 => read_report(&mut reader)?,
             _unknown => return Err(ClusterError::malformed(KIND, 0)),
         };
         reader.finish("the end of the command")?;
@@ -352,6 +417,43 @@ fn read_sessions(
 ) -> Result<Vec<u128>, ClusterError> {
     let count = Reader::bounded(reader.u32(what)? as usize, what, max)?;
     (0..count).map(|_| reader.u128("a session")).collect()
+}
+
+/// An OfferChecked's fields.
+fn read_checked(reader: &mut Reader<'_>) -> Result<MetadataCommand, ClusterError> {
+    Ok(MetadataCommand::OfferChecked {
+        tenant: Tenant::new(reader.u64("a tenant")?),
+        predecessor: reader.u64("a predecessor")?,
+        bytes: read_len_u32(
+            reader,
+            "bytes of a catalog version",
+            MetadataCommand::CATALOG_BYTES_MAX,
+        )?,
+    })
+}
+
+/// An OfferRestoring's fields.
+fn read_restoring(reader: &mut Reader<'_>) -> Result<MetadataCommand, ClusterError> {
+    Ok(MetadataCommand::OfferRestoring {
+        tenant: Tenant::new(reader.u64("a tenant")?),
+        predecessor: reader.u64("a predecessor")?,
+        restores: reader.u64("the version withdrawn")?,
+        bytes: read_len_u32(
+            reader,
+            "bytes of a catalog version",
+            MetadataCommand::CATALOG_BYTES_MAX,
+        )?,
+    })
+}
+
+/// A ReportCheck's fields.
+fn read_report(reader: &mut Reader<'_>) -> Result<MetadataCommand, ClusterError> {
+    Ok(MetadataCommand::ReportCheck {
+        tenant: Tenant::new(reader.u64("a tenant")?),
+        version: reader.u64("a version")?,
+        partition: read_partition(reader)?,
+        refused: reader.flag()?,
+    })
 }
 
 /// A RecordDefault's fields.

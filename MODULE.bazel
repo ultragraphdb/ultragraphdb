@@ -100,6 +100,13 @@ crate.annotation(
     crate = "cucumber",
     rustc_env = {"CARGO_MANIFEST_DIR": "."},
 )
+
+# A verifier and a login each take 600,000 iterations of PBKDF2 (`SECURITY.md`), and SHA-256's compression is compiled here, not
+# where a caller's generics are: at a fastbuild's opt-level 0 a login takes a second. `-c opt` builds it at 3 regardless.
+crate.annotation(
+    crate = "sha2",
+    rustc_flags = ["-Copt-level=3"],
+)
 use_repo(crate, "crates")
 
 ###############################################################################

@@ -5,7 +5,7 @@
 
 use futures::channel::mpsc::UnboundedSender;
 use futures::channel::oneshot;
-use ultragraphdb_common_role::Answer;
+use ultragraphdb_common_role::{Answer, ParkedBytes};
 use ultragraphdb_core_catalog::CatalogContents;
 use ultragraphdb_protocol_transport::ReceivedFrame;
 
@@ -15,6 +15,13 @@ pub type Pushes = UnboundedSender<(u64, Vec<u8>)>;
 /// What a connection hands its core's task.
 #[derive(Debug)]
 pub enum CoreMessage {
+    /// A connection opened, ahead of its first request: what it counts its parked frames in (`PROTOCOL.md` §11.12).
+    Opened {
+        /// The connection.
+        connection: u64,
+        /// Where its parked frames are counted.
+        parked: ParkedBytes,
+    },
     /// A request of `connection` on `stream`, its frame whole, answered on `done`.
     Request {
         /// The connection.

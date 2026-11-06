@@ -204,7 +204,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
                         stream,
                         partition: *partition,
                     });
-                    let _stream = link.open(frame, sink);
+                    let _stream = link.open(self.counted(frame), sink);
                 }
                 Err(_) => {
                     recalling.unanswered -= 1;

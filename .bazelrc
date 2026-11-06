@@ -25,9 +25,8 @@ build --keep_going
 build --jobs=auto
 build --show_timestamps
 
-# Standard test ergonomics: show failing logs and retry known flaky tests once.
+# Show failing logs. A test runs once: a failure on any run is a failure, since a test that fails intermittently is a race to find.
 test --test_output=errors
-test --flaky_test_attempts=2
 
 # Allow developers to extend configuration locally (ignored in version control).
 try-import %workspace%/.bazelrc.local

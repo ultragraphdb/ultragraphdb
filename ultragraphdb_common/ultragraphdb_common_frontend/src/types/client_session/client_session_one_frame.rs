@@ -3,6 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::time::Duration;
+
 use compio::runtime::spawn;
 use ultragraphdb_common_role::Answer;
 use ultragraphdb_core_ids::SessionToken;
@@ -14,8 +16,9 @@ use ultragraphdb_protocol_wire::{
 use super::client_session_bind::{command_of, cross_partition, error_of};
 use super::client_session_requests::check_token;
 use super::client_session_writes::{changes_destination, operation_destination};
-use super::{ClientSession, DropRelay, OneFrame};
+use super::{ClientSession, DropRelay, OneFrame, now};
 use crate::traits::authorizer::Authorizer;
+use crate::types::counted_frame::CountedFrame;
 use crate::types::destination::Destination;
 use crate::types::link_event::LinkEvent;
 use crate::types::owner_handle::DropStep;
@@ -164,6 +167,8 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             PRINCIPAL_AT,
             &self.principal.to_le_bytes(),
         ));
+        let limit = Duration::from_millis(u64::from(self.core.limits().transaction_ms()));
+        let frame = self.counted(frame);
         let _none = self.one_frames.insert(
             stream,
             OneFrame {
@@ -174,6 +179,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
                 forced: None,
                 attempt: 0,
                 route: None,
+                limit: Some(now() + limit),
             },
         );
         match self.place_one_frame(destination, facts) {
@@ -244,10 +250,11 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         };
         one.attempt += 1;
         let attempt = one.attempt;
-        let mut frame = one.frame.clone();
+        let mut frame = one.frame.bytes().to_vec();
         drop(Header::stamp_stream(&mut frame, link.next_stream()));
         let sink = self.sink(RouteKey::OneFrame { stream, attempt });
-        let opened = link.open(frame, sink);
+        // Counted as the frame it keeps for a resend.
+        let opened = link.open(CountedFrame::uncounted(frame), sink);
         if let Some(sent) = self.one_frames.get_mut(&stream) {
             sent.route = Some((link, opened));
         }
@@ -295,6 +302,28 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         if let Some(partition) = self.one_frames.get(&stream).and_then(|one| one.forced) {
             self.send_one_frame(stream, partition);
         }
+    }
+
+    /// The one-frame write of `stream` passed `transaction_ms`: one none of which has left is taken back and answered code 4, having
+    /// reached no partition. One that has left stays with its partition, which answers it, and the frame it kept for a resend goes,
+    /// so what stands on a role's answer stops holding the connection's reads (`PROTOCOL.md` §11.12, *Frames on their way*).
+    pub(super) fn one_frame_past_limit(&mut self, stream: u64) {
+        let Some(one) = self.one_frames.get_mut(&stream) else {
+            return;
+        };
+        one.limit = None;
+        let unsent = one
+            .route
+            .as_ref()
+            .is_none_or(|(link, relayed)| link.take_back(*relayed));
+        if !unsent {
+            one.frame = CountedFrame::uncounted(Vec::new());
+            one.resent = true;
+            return;
+        }
+        let refusal = self.past_limit(stream);
+        self.one_frame_answered(stream);
+        self.push_error(stream, &refusal);
     }
 
     /// The one-frame write of `stream` is over: its session may commit again.
@@ -349,7 +378,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             .frame(header)
             .map_err(|rule| ErrorReply::protocol(&rule))?;
         let sink = self.sink(RouteKey::Drop { stream });
-        let opened = link.open(frame, sink);
+        let opened = link.open(self.counted(frame), sink);
         let step = match asked.kind() {
             DropKind::Predicate => asked
                 .target()
@@ -389,7 +418,9 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             if let Some(dropping) = self.drops.get_mut(&stream) {
                 let mut relayed = dropping.frame.clone();
                 drop(Header::stamp_stream(&mut relayed, dropping.stream));
-                dropping.link.send(relayed);
+                dropping
+                    .link
+                    .send(dropping.stream, CountedFrame::uncounted(relayed));
                 dropping.sent = true;
             }
         } else if command == Some(Command::Drop) {

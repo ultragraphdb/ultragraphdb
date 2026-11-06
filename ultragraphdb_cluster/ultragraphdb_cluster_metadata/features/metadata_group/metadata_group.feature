@@ -106,3 +106,13 @@ Feature: The metadata group
     Scenario: The tenants survive recovery
       When the group holds tenant 0, a snapshot is taken, and the group is killed and restarted
       Then the group holds tenant 0 at the same log position, from the snapshot and the commands after it
+
+  Rule: The metadata group holds a tightening's check
+
+    Scenario: A check ends at its last partition's report
+      When a version being checked is assigned its epoch over two partitions, and each reports its check passed
+      Then it is being checked until the second report, a client reads the version before it until then, and a report repeated appends nothing
+
+    Scenario: A withdrawal is one command with the restoring version
+      When a partition reports the data refuses a version being checked, the group offers the version restoring it, and the group restarts
+      Then the recovered state holds the first withdrawn and the second pending, and neither is being checked

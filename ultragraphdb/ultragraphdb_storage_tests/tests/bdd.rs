@@ -7,6 +7,7 @@
 //! at their declared ports.
 
 mod one_frame_steps;
+mod parked_steps;
 mod played_frontend;
 mod played_home;
 mod read_kernel_steps;
@@ -68,6 +69,7 @@ struct Steps {
     graph: String,
     kernel: read_kernel_steps::KernelSteps,
     log: String,
+    parked: parked_steps::ParkedSteps,
     pid: u32,
     roles: Option<ServiceUtil>,
     status: u16,
@@ -299,9 +301,21 @@ fn one_process_of_two(w: &mut Steps) -> TestResult {
 /// The config service holding a frontend over 4 partitions and two storage processes hosting 1 and 2, and 3 and 4; then the
 /// frontend and the storage processes whose first partitions are `firsts`.
 fn start_processes(w: &mut Steps, firsts: &[u32]) -> TestResult {
+    processes_holding(w, firsts, &[])
+}
+
+/// As [`start_processes`], both storage processes holding `held` beside their own settings.
+fn processes_holding(w: &mut Steps, firsts: &[u32], held: &[(&str, &str)]) -> TestResult {
     let util = services()?;
     let settings = with(frontend_holding()?, "cluster.partition_count", "4");
-    let (first, second) = (storage_of(1, 2, 17_200)?, storage_of(3, 2, 17_300)?);
+    let holding = |own: Vec<(String, String)>| {
+        held.iter()
+            .fold(own, |all, (setting, value)| with(all, setting, value))
+    };
+    let (first, second) = (
+        holding(storage_of(1, 2, 17_200)?),
+        holding(storage_of(3, 2, 17_300)?),
+    );
     let _service: u32 = start_config_service(
         &util,
         &[
@@ -325,7 +339,7 @@ fn start_processes(w: &mut Steps, firsts: &[u32]) -> TestResult {
             &scratch(&format!("storage-{at}")),
             ready,
         );
-        let _storage: u32 = util.start_service_from_config(start)?;
+        w.pid = util.start_service_from_config(start)?;
     }
     w.roles = Some(util);
     w.frontend = format!("tcp://{}", FRONTEND_ROLE_ADDRESS);

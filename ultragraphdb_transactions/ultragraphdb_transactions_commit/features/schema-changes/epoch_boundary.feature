@@ -19,3 +19,11 @@ Feature: A schema change takes effect at an epoch boundary, partition by partiti
   Scenario: A partition holds the version before it stamps its epoch
     When an index is added while epoch 48 is the latest close, and a partition's latest delivered close is 48
     Then the partition's commits carry epoch 49 until the close of 49, carrying the new version, is delivered to it, and its first commit at epoch 50 is validated against the new version
+
+  Scenario: A commit behind a version's round is validated against it
+    When a transaction executed against catalog version 2 commits behind the round taking version 3 effect, before the close announcing version 3 is delivered
+    Then it aborts with a conflict of kind Catalog, and a transaction executed against version 3 commits
+
+  Scenario: A commit-time operation against an earlier version aborts
+    When a transaction with a commit-time operation, executed against catalog version 2, commits once version 3 is in effect
+    Then it aborts with a conflict of kind Catalog, and its operation runs not at all

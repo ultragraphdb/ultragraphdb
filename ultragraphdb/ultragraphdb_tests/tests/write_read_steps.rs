@@ -13,16 +13,15 @@ use cucumber::{then, when};
 use ultragraphdb_client_compio::ReadLevel;
 use ultragraphdb_common_role::RoleClient;
 use ultragraphdb_protocol_transport::Address;
-use ultragraphdb_protocol_wire::{
-    BodyView, EntriesView, Placement, PlacementView, Scan, ScanAt, ScanRange,
-};
-use ultragraphdb_store_quads::{iri_bucket, term_key};
-use ultragraphdb_tests::{CLUSTER, FRONTEND_BINARY, SECRET, scratch};
+use ultragraphdb_protocol_wire::{BodyView, EntriesView, Scan, ScanAt, ScanRange};
+use ultragraphdb_store_quads::term_key;
+use ultragraphdb_tests::{CLUSTER, SECRET};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::Steps;
 use crate::client_reads::{Pattern, TENANT, direct_of, iri, read_whole, write_of};
-use crate::cluster::{Cluster, client, shared_client, start_own};
+use crate::cluster::{client, iri_of_partition, placement_ranges, shared_client, start_own};
+use crate::shells::{pause, with_client};
 
 const B: &str = "http://ex.org/b";
 const KNOWS: &str = "http://ex.org/knows";
@@ -35,9 +34,6 @@ const SNAPSHOTS: u32 = 250;
 
 /// The partitions of the routing scenario's cluster.
 const PARTITIONS: u32 = 2;
-
-/// How many IRIs the routing scenario tries for one of a partition's buckets, each bucket as likely as another.
-const IRIS_TRIED: u32 = 10_000;
 
 /// What one write of the routing scenario did.
 #[derive(Debug, Clone)]
@@ -56,42 +52,6 @@ async fn bounded<T>(what: &str, probe: impl Future<Output = TestResult<T>>) -> T
     compio::time::timeout(PROBE, probe)
         .await
         .map_err(|_| TestError::new(format!("{what} did not answer within {PROBE:?}")))?
-}
-
-/// The ranges of the frontend's placement map, as the frontend's own Placement answers them: first bucket, past bucket and partition.
-async fn placement_ranges(cluster: &Cluster) -> TestResult<Vec<(u32, u32, u32)>> {
-    bounded("the frontend's Placement", placed_ranges(cluster)).await
-}
-
-async fn placed_ranges(cluster: &Cluster) -> TestResult<Vec<(u32, u32, u32)>> {
-    let mut frontend = RoleClient::dial(
-        &Address::parse(&cluster.frontend)?,
-        CLUSTER,
-        "storage",
-        SECRET,
-    )
-    .await?;
-    let placed = frontend.request(&Placement::request(0)).await?;
-    let view = placed.view()?;
-    let map = PlacementView::from_frame(&view)?;
-    Ok((0..map.range_count())
-        .filter_map(|index| map.range(index))
-        .map(|range| (range.start(), range.end(), range.partition()))
-        .collect())
-}
-
-/// An IRI whose bucket `ranges` give to `partition`.
-fn iri_of_partition(ranges: &[(u32, u32, u32)], partition: u32) -> TestResult<String> {
-    (0..IRIS_TRIED)
-        .map(|at| format!("http://ex.org/routed{at}"))
-        .find(|iri| {
-            iri_bucket(TENANT, iri).is_some_and(|bucket| {
-                ranges.iter().any(|(start, end, holder)| {
-                    *holder == partition && *start <= bucket.get() && bucket.get() < *end
-                })
-            })
-        })
-        .context("an IRI of the partition")
 }
 
 /// Whether partition `partition` at `address` holds `iri` in its dictionary, read as the frontend reads it.
@@ -119,19 +79,19 @@ async fn scanned_term(address: &str, partition: u32, iri: &str) -> TestResult<bo
 )]
 fn writes_one_per_partition(w: &mut Steps) -> TestResult {
     let cluster = start_own(w.carrier, PARTITIONS)?;
+    let ranges = placement_ranges(&cluster.frontend)?;
     let routed = Runtime::new()?.block_on(async {
-        let ranges = placement_ranges(&cluster).await?;
         let mut client = client(&cluster.client).await?;
         let mut routed = Vec::new();
         for partition in 1..=PARTITIONS {
-            let subject = iri_of_partition(&ranges, partition)?;
+            let subject = iri_of_partition(&ranges, "http://ex.org/routed", partition)?;
             let transaction = client.begin(TENANT, false).await?;
             client
                 .write(&transaction, &write_of(&subject, KNOWS, &iri(B))?)
                 .await?;
             let committed = client.commit(transaction, None).await?;
             // The frontend logs a first request a partition refused as another's, which storage's correction would hide.
-            let log = std::fs::read_to_string(scratch(FRONTEND_BINARY))?;
+            let log = cluster.frontend_log()?;
             if log.contains(RESENT) {
                 return Err(TestError::new(format!(
                     "the Write of {subject} went first to a partition not owning its bucket: {log}"
@@ -172,9 +132,8 @@ fn reached_each_owner(w: &mut Steps) {
 )]
 fn one_frame_then_read(w: &mut Steps) -> TestResult {
     let [a, b, knows] = ["a", "b", "knows"].map(|name| w.iri(name));
-    let address = shared_client(w.carrier)?;
-    w.answers = Runtime::new()?.block_on(async {
-        let mut client = client(&address).await?;
+    let at = shared_client(w.carrier)?;
+    w.answers = with_client(&at, async |client| {
         let _written = client
             .direct_write(direct_of(&a, &knows, &iri(&b))?, None)
             .await?;
@@ -188,14 +147,14 @@ fn one_frame_then_read(w: &mut Steps) -> TestResult {
                 )));
             }
             let pattern = Pattern::of(Some(&a), Some(&knows));
-            let answer = read_whole(&mut client, &reader, &pattern).await?;
+            let answer = read_whole(client, &reader, &pattern).await?;
             client.abort(reader).await?;
             let seen = !answer.rows.is_empty();
             answers.push(answer);
             if seen {
                 return Ok(answers);
             }
-            compio::time::sleep(Duration::from_millis(20)).await;
+            pause(Duration::from_millis(20)).await;
         }
         Err(TestError::new(format!(
             "no snapshot of {SNAPSHOTS} read the write"

@@ -3,30 +3,33 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::collections::VecDeque;
+
 use futures::channel::oneshot;
 use ultragraphdb_cluster_partition::{BoundKey, BoundStep, PartitionError};
-use ultragraphdb_common_role::Answer;
+use ultragraphdb_common_role::{Answer, ParkedBytes};
 use ultragraphdb_core_ids::Epoch;
 use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{
     BindKind, BindView, BodyBuilder, BodyView, Command, CommitView, ErrorCode, ErrorReply,
-    FLAG_LAST, FrameView, Header, Held, OperationView, ReferenceView, WriteView,
+    FLAG_LAST, FrameView, Header, Held, MAX_FRAME_SIZE, OperationView, ReferenceView, WriteView,
 };
 use ultragraphdb_transactions_txn::{FrameChanges, FrameTerms};
 
 use crate::types::core_message::{CoreMessage, Pushes};
-use crate::types::partition_core::{Committing, Parked, ParkedWork, PartitionCore};
+use crate::types::parked_frame::ParkedFrame;
+use crate::types::partition_core::partition_core_one_frame::ONE_FRAME_ATTEMPTS;
+use crate::types::partition_core::{Committing, Parked, ParkedWork, PartitionCore, RequestStep};
 use crate::utils::error_reply::error_reply;
 use crate::utils::operation_of::operation_of;
 
 /// The write `frame` carries, its terms lent by the frame: what `run` makes of its changes.
 fn with_changes<T>(
-    frame: &ReceivedFrame,
+    view: &FrameView<'_>,
     tenant: u64,
     run: impl FnOnce(&FrameChanges<'_>) -> Result<T, PartitionError>,
 ) -> Result<T, ErrorReply> {
-    let view = frame.view().map_err(|rule| ErrorReply::protocol(&rule))?;
-    let write = WriteView::from_frame(&view).map_err(|rule| ErrorReply::protocol(&rule))?;
+    let write = WriteView::from_frame(view).map_err(|rule| ErrorReply::protocol(&rule))?;
     let terms = FrameTerms::of(write.terms()).map_err(|rule| ErrorReply::protocol(&rule))?;
     let changes =
         FrameChanges::new(tenant, &write, &terms).map_err(|rule| ErrorReply::protocol(&rule))?;
@@ -44,7 +47,10 @@ impl PartitionCore<'_> {
                 done,
                 pushes,
                 max_frame,
-            } => self.request((connection, stream), frame, done, pushes, max_frame),
+            } => self.request((connection, stream), &frame, done, pushes, max_frame),
+            CoreMessage::Opened { connection, parked } => {
+                let _none = self.connections.insert(connection, parked);
+            }
             CoreMessage::Cancelled { connection, stream } => {
                 let key = (connection, stream);
                 self.host.abort_bound(key);
@@ -61,52 +67,97 @@ impl PartitionCore<'_> {
                 self.bound_tenant.retain(|(of, _), _| *of != connection);
                 self.drop_streams.retain(|(of, _), _| *of != connection);
                 self.parked.retain(|(of, _), _| *of != connection);
+                let _closed = self.connections.remove(&connection);
                 self.close_scans(connection);
             }
         }
     }
 
-    /// A request of `key`, in its turn: one of a Write, an Operation or a Commit behind a read's wait on its home waits for that
-    /// reply (`PROTOCOL.md` §13.13), and any other is taken now.
+    /// A request of `key`, as it arrives: behind its stream's parked request it waits its turn, copied, and an Abort ends what it would
+    /// wait behind (`PROTOCOL.md` §11.12). Any other runs now, and parks, copied, should it wait on a home, so the connection reads on.
     fn request(
         &mut self,
         key: BoundKey,
-        frame: ReceivedFrame,
+        frame: &ReceivedFrame,
         done: oneshot::Sender<Answer>,
         pushes: Pushes,
         max_frame: u32,
     ) {
-        let command = frame.command();
-        let is_write = command == Command::Write.number();
-        let is_operation = command == Command::Operation.number();
-        if is_write || is_operation || command == Command::Commit.number() {
+        if frame.command() != Command::Abort.number() && self.parked.contains_key(&key) {
+            let behind = self.copied(key.0, frame.bytes());
+            if let Some(parked) = self.parked.get_mut(&key) {
+                parked.behind.push_back(behind);
+            }
+            drop(done.send(Answer::Open));
+            return;
+        }
+        let step = match frame.view() {
+            Ok(view) => self.step(key, &view, &pushes, max_frame),
+            Err(rule) => RequestStep::Answered(Answer::Refuse(ErrorReply::protocol(&rule))),
+        };
+        let answer = match step {
+            RequestStep::Answered(answer) => answer,
+            RequestStep::Parks { tenant, work } => {
+                let parked = Parked {
+                    frame: self.copied(key.0, frame.bytes()),
+                    tenant,
+                    work,
+                    pushes,
+                    max_frame,
+                    behind: VecDeque::new(),
+                };
+                let _none = self.parked.insert(key, parked);
+                Answer::Open
+            }
+            RequestStep::InCommit(ticket) => {
+                let held = frame.bytes().to_vec();
+                self.committing_one_frame(key, held, ONE_FRAME_ATTEMPTS, ticket, pushes);
+                Answer::Open
+            }
+        };
+        // An asker gone has no one to tell.
+        drop(done.send(answer));
+    }
+
+    /// A copy of `bytes`, counted against `connection`, which every session announces ahead of its first request.
+    fn copied(&self, connection: u64, bytes: &[u8]) -> ParkedFrame {
+        let parked = self
+            .connections
+            .get(&connection)
+            .cloned()
+            .unwrap_or_else(|| ParkedBytes::new(usize::MAX));
+        ParkedFrame::copy(bytes, parked)
+    }
+
+    /// What a request of `key` comes to in its turn: one of a Write, an Operation or a Commit behind a read's wait on its home waits for
+    /// that reply (`PROTOCOL.md` §13.13), and any other is taken now.
+    fn step(
+        &mut self,
+        key: BoundKey,
+        view: &FrameView<'_>,
+        pushes: &Pushes,
+        max_frame: u32,
+    ) -> RequestStep {
+        let command = view.command();
+        let is_write = command == Command::Write;
+        let is_operation = command == Command::Operation;
+        if is_write || is_operation || command == Command::Commit {
             let tenant = self.bound_tenant.get(&key).map(|(tenant, _)| *tenant);
             if let Some(tenant) = tenant.filter(|_| self.host.read_waits(key)) {
-                let work = ParkedWork::Turn { pushes, max_frame };
-                let _none = self.parked.insert(
-                    key,
-                    Parked {
-                        frame,
-                        done,
-                        tenant,
-                        work,
-                    },
-                );
-                return;
+                return RequestStep::Parks {
+                    tenant,
+                    work: ParkedWork::Turn,
+                };
             }
         }
         if is_write {
-            self.write(key, frame, done);
+            self.write(key, view)
         } else if is_operation {
-            self.operate(key, frame, done);
-        } else if command == Command::DirectWrite.number()
-            || command == Command::ConditionalWrite.number()
-        {
-            self.one_frame(key, frame, done, pushes);
+            self.operate(key, view)
+        } else if command == Command::DirectWrite || command == Command::ConditionalWrite {
+            self.one_frame(key, view)
         } else {
-            let answered = self.answer(key, &frame, &pushes, max_frame);
-            // An asker gone has no one to tell.
-            drop(done.send(answered));
+            RequestStep::Answered(self.answer(key, view, pushes, max_frame))
         }
     }
 
@@ -121,53 +172,40 @@ impl PartitionCore<'_> {
         }
     }
 
-    /// A Write of the transaction `key`: its references asked, and it holds the frame until they are answered.
-    fn write(&mut self, key: BoundKey, frame: ReceivedFrame, done: oneshot::Sender<Answer>) {
+    /// A Write of the transaction `key`: its references asked, and it parks until they are answered.
+    fn write(&mut self, key: BoundKey, view: &FrameView<'_>) -> RequestStep {
         let tenant = match self.tenant_of(key, "Write") {
             Ok(tenant) => tenant,
-            Err(refusal) => {
-                drop(done.send(Answer::Refuse(refusal)));
-                return;
-            }
+            Err(refusal) => return RequestStep::Answered(Answer::Refuse(refusal)),
         };
         let now = self.now_us();
         let host = &mut self.host;
-        match with_changes(&frame, tenant, |changes| {
-            host.write_bound(key, changes, now)
-        }) {
-            Ok(BoundStep::Done) => drop(done.send(self.held(key.1))),
-            Ok(BoundStep::Waiting) => {
-                let _none = self.parked.insert(
-                    key,
-                    Parked {
-                        frame,
-                        done,
-                        tenant,
-                        work: ParkedWork::Write,
-                    },
-                );
-            }
-            Err(refusal) => {
-                let _ended = self.bound_tenant.remove(&key);
-                self.host.abort_bound(key);
-                drop(done.send(Answer::Refuse(refusal)));
-            }
+        match with_changes(view, tenant, |changes| host.write_bound(key, changes, now)) {
+            Ok(BoundStep::Done) => RequestStep::Answered(self.held(key.1)),
+            Ok(BoundStep::Waiting) => RequestStep::Parks {
+                tenant,
+                work: ParkedWork::Write,
+            },
+            Err(refusal) => RequestStep::Answered(self.ended_by(key, refusal)),
         }
     }
 
+    /// Ends the transaction `key` as `refusal` says.
+    fn ended_by(&mut self, key: BoundKey, refusal: ErrorReply) -> Answer {
+        let _ended = self.bound_tenant.remove(&key);
+        self.host.abort_bound(key);
+        Answer::Refuse(refusal)
+    }
+
     /// An Operation of the transaction `key`.
-    fn operate(&mut self, key: BoundKey, frame: ReceivedFrame, done: oneshot::Sender<Answer>) {
+    fn operate(&mut self, key: BoundKey, view: &FrameView<'_>) -> RequestStep {
         let tenant = match self.tenant_of(key, "Operation") {
             Ok(tenant) => tenant,
-            Err(refusal) => {
-                drop(done.send(Answer::Refuse(refusal)));
-                return;
-            }
+            Err(refusal) => return RequestStep::Answered(Answer::Refuse(refusal)),
         };
         let read = (|| {
-            let view = frame.view().map_err(|rule| ErrorReply::protocol(&rule))?;
             let operation =
-                OperationView::from_frame(&view).map_err(|rule| ErrorReply::protocol(&rule))?;
+                OperationView::from_frame(view).map_err(|rule| ErrorReply::protocol(&rule))?;
             let terms =
                 FrameTerms::of(operation.terms()).map_err(|rule| ErrorReply::protocol(&rule))?;
             operation_of(&operation.operation(), operation.terms(), &terms)
@@ -180,23 +218,12 @@ impl PartitionCore<'_> {
                 .map_err(|refusal| error_reply(&refusal))
         });
         match step {
-            Ok(BoundStep::Done) => drop(done.send(self.held(key.1))),
-            Ok(BoundStep::Waiting) => {
-                let _none = self.parked.insert(
-                    key,
-                    Parked {
-                        frame,
-                        done,
-                        tenant,
-                        work: ParkedWork::Operation,
-                    },
-                );
-            }
-            Err(refusal) => {
-                let _ended = self.bound_tenant.remove(&key);
-                self.host.abort_bound(key);
-                drop(done.send(Answer::Refuse(refusal)));
-            }
+            Ok(BoundStep::Done) => RequestStep::Answered(self.held(key.1)),
+            Ok(BoundStep::Waiting) => RequestStep::Parks {
+                tenant,
+                work: ParkedWork::Operation,
+            },
+            Err(refusal) => RequestStep::Answered(self.ended_by(key, refusal)),
         }
     }
 
@@ -222,91 +249,90 @@ impl PartitionCore<'_> {
         }
     }
 
-    /// The parked request of `key`, whose references were answered, on its way: a request behind a read's wait waits on while another
-    /// read of its transaction asks.
-    fn resume_parked(&mut self, key: BoundKey, parked: Parked) {
-        let Parked {
-            frame,
-            done,
-            tenant,
-            work,
-        } = parked;
-        let answer = match work {
-            ParkedWork::Turn { pushes, max_frame } if !self.host.read_waits(key) => {
-                self.request(key, frame, done, pushes, max_frame);
-                return;
+    /// The parked request of `key`, whose references were answered, on its way, and each frame behind it in its turn, every answer
+    /// pushed: one parking again takes the rest with it, and an answer ending the stream, or a Commit, which decides the
+    /// transaction, drops them.
+    fn resume_parked(&mut self, key: BoundKey, mut parked: Parked) {
+        loop {
+            match self.resumed_step(key, &parked) {
+                RequestStep::Parks { tenant, work } => {
+                    parked.tenant = tenant;
+                    parked.work = work;
+                    let _none = self.parked.insert(key, parked);
+                    return;
+                }
+                RequestStep::InCommit(ticket) => {
+                    let held = parked.frame.into_bytes();
+                    self.committing_one_frame(key, held, ONE_FRAME_ATTEMPTS, ticket, parked.pushes);
+                    return;
+                }
+                RequestStep::Answered(Answer::Reply(reply)) => {
+                    // A connection gone has no one to tell.
+                    drop(parked.pushes.unbounded_send((key.1, reply)));
+                }
+                RequestStep::Answered(Answer::Refuse(refusal)) => {
+                    self.push_error(key.1, &refusal, &parked.pushes);
+                    return;
+                }
+                RequestStep::Answered(Answer::Open | Answer::Done) => return,
             }
-            work @ ParkedWork::Turn { .. } => {
-                let _none = self.parked.insert(
-                    key,
-                    Parked {
-                        frame,
-                        done,
-                        tenant,
-                        work,
-                    },
-                );
+            let Some(next) = parked.behind.pop_front() else {
                 return;
-            }
+            };
+            parked.frame = next;
+            parked.work = ParkedWork::Turn;
+        }
+    }
+
+    /// What the parked `parked` of `key` comes to, read again from its copy, whose checksums the connection's machine checked.
+    fn resumed_step(&mut self, key: BoundKey, parked: &Parked) -> RequestStep {
+        let view = match FrameView::validate(parked.frame.bytes(), self.cluster, MAX_FRAME_SIZE) {
+            Ok(view) => view,
+            Err(rule) => return RequestStep::Answered(Answer::Refuse(ErrorReply::protocol(&rule))),
+        };
+        match parked.work {
+            ParkedWork::Turn => self.step(key, &view, &parked.pushes, parked.max_frame),
             ParkedWork::Write => {
                 let now = self.now_us();
                 let host = &mut self.host;
-                with_changes(&frame, tenant, |changes| {
+                let written = with_changes(&view, parked.tenant, |changes| {
                     host.resume_write(key, changes, now)
-                })
+                });
+                match written {
+                    Ok(()) => RequestStep::Answered(self.held(key.1)),
+                    Err(refusal) => RequestStep::Answered(self.ended_by(key, refusal)),
+                }
             }
-            ParkedWork::Operation => Ok(()),
-            ParkedWork::OneFrame { at, pushes } => {
-                let resumed = Parked {
-                    frame,
-                    done,
-                    tenant,
-                    work: ParkedWork::Operation,
-                };
-                self.resume_one_frame(key, resumed, at, pushes);
-                return;
-            }
-        };
-        let reply = match answer {
-            Ok(()) => self.held(key.1),
-            Err(refusal) => {
-                let _ended = self.bound_tenant.remove(&key);
-                self.host.abort_bound(key);
-                Answer::Refuse(refusal)
-            }
-        };
-        drop(done.send(reply));
+            ParkedWork::Operation => RequestStep::Answered(self.held(key.1)),
+            ParkedWork::OneFrame { at } => self.resume_one_frame(key, &view, at),
+        }
     }
 
     /// Any request that is not a write: answered now, or later through `pushes`.
     fn answer(
         &mut self,
         key: BoundKey,
-        frame: &ReceivedFrame,
+        view: &FrameView<'_>,
         pushes: &Pushes,
         max_frame: u32,
     ) -> Answer {
-        let view = match frame.view() {
-            Ok(view) => view,
-            Err(rule) => return Answer::Refuse(ErrorReply::protocol(&rule)),
-        };
         let command = view.command();
         let answered = if command == Command::Bind {
-            self.bind(key, &view, pushes)
+            self.bind(key, view, pushes)
         } else if command == Command::Commit {
-            self.commit(key, &view, pushes)
+            self.commit(key, view, pushes)
         } else if command == Command::Abort {
             self.abort(key)
         } else if command == Command::Drop {
-            self.drop_on(key, &view, pushes)
+            self.drop_on(key, view, pushes)
         } else if command == Command::Reference {
-            self.reference(key, &view, pushes)
+            self.reference(key, view, pushes)
         } else if command == Command::Scan {
-            self.scan(key, &view, pushes, max_frame)
+            self.scan(key, view, pushes, max_frame)
         } else if command == Command::Closed {
-            self.closed_epochs(key.1, &view)
+            self.closed_epochs(key.1, view)
         } else if command == Command::Recall {
-            self.recall(key.1, &view)
+            self.recall(key.1, view)
         } else {
             Err(ErrorReply::new(
                 ErrorCode::Unavailable,
@@ -375,6 +401,7 @@ impl PartitionCore<'_> {
     /// An Abort of the transaction `key`.
     fn abort(&mut self, key: BoundKey) -> Result<Answer, ErrorReply> {
         let _tenant = self.tenant_of(key, "Abort")?;
+        let _parked = self.parked.remove(&key);
         self.host.abort_bound(key);
         let _ended = self.bound_tenant.remove(&key);
         Ok(Answer::Done)

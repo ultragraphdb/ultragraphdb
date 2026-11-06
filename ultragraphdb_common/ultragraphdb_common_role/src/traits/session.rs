@@ -8,6 +8,8 @@ use std::future::Future;
 use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::ErrorReply;
 
+use crate::types::parked_bytes::ParkedBytes;
+
 /// What a [`Session`] made of a request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Answer {
@@ -37,8 +39,17 @@ pub trait Session {
     fn authentication_refused(&mut self) {}
 
     /// The answer to the request `frame` on `stream`. The frame is the session's until it is dropped: a session may hand
-    /// it on whole, and the connection reads no further frame until this ends.
+    /// it on whole, and the connection reads no further frame until this ends, so a request waiting on something beyond the
+    /// session's own turn answers [`Answer::Open`], its frame copied and counted in [`Session::parked`] and its answer pushed.
     fn answer(&mut self, stream: u64, frame: ReceivedFrame) -> impl Future<Output = Answer>;
+
+    /// What this session holds past [`Session::answer`], at whose bound the connection stops reading and goes on sending
+    /// (`PROTOCOL.md` §11.12): asked once, as the connection starts. A partition's holds its parked frames, a client connection's what
+    /// it has on its way to a role. `None` for a session that holds nothing so: a compute process's and the frontend's role address,
+    /// each of whose waits is that of its own request.
+    fn parked(&self) -> Option<ParkedBytes> {
+        None
+    }
 
     /// The next frame this session sends unasked, and its stream. Dropped whenever a request arrives first, so it loses
     /// nothing when dropped; pending for a session with nothing to send.

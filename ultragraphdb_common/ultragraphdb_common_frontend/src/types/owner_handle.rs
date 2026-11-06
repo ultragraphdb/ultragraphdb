@@ -13,6 +13,7 @@ use ultragraphdb_protocol_wire::{
 
 use crate::types::asked::Asked;
 pub use crate::types::asked::DropStep;
+use crate::types::report_asked::ReportAsked;
 use crate::types::tenant_facts::TenantFacts;
 
 /// An endpoint core's way to the owner: every question goes by message, and nothing the owner decides is kept here.
@@ -232,11 +233,13 @@ impl OwnerHandle {
     }
 
     /// A catalog version of `declared` built on `built_on`, committed as pending: the first version of its effective epoch, once
-    /// the epoch is assigned.
+    /// the epoch is assigned and, for a version tightening a predicate, every partition holding the tenant has passed its check.
     ///
     /// # Errors
     ///
-    /// Code 2 of kind Catalog for a version built on one no longer current; code 7, `detail` 523,000, for one past its cap.
+    /// Code 2 of kind Catalog for a version built on one no longer current or on one being checked; code 7, `detail` 523,000,
+    /// for one past its cap; code 7 for declarations tightening and loosening at once, and for a change the data refuses;
+    /// code 24 for a partition silent past `catalog_check_ms`.
     pub async fn declare(
         &self,
         tenant: u64,
@@ -250,6 +253,16 @@ impl OwnerHandle {
             reply,
         })
         .await
+    }
+
+    /// A partition's report on a catalog version, once the metadata group holds it (`PROTOCOL.md` §13.19).
+    ///
+    /// # Errors
+    ///
+    /// Code 17 when the owner stopped.
+    pub async fn report(&self, report: ReportAsked) -> Result<(), ErrorReply> {
+        self.ask_or_refuse(|reply| Asked::Report { report, reply })
+            .await
     }
 
     /// The catalog version a Drop calls for, pending and durable; none where it would change nothing.

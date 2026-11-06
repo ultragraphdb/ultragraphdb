@@ -95,7 +95,10 @@ it can be.
 - **THEN** it logs that it runs unpinned, and serves requests
 
 ### Requirement: Readiness, health and shutdown
-Each role SHALL serve `/health`, answering once it holds its settings (config-service), and `/ready`, answering once its dependencies are
+Each role SHALL serve `/health`, answering once it holds its settings (config-service) and has bound every listener it serves from its
+start, so that `/health` answering says a connection to such an address is accepted: the frontend its role and client addresses. Until
+then `/health` SHALL answer 503. Storage binds its partitions' addresses once they have recovered, with `/ready`, so its `/health`
+answers while it recovers and a peer dialling it meanwhile is refused at once. Each role SHALL also serve `/ready`, answering once its dependencies are
 reachable: the frontend once its metadata group and sequencer have recovered and a storage partition answers, storage
 once its partitions have recovered their logs, compute once a frontend and a storage process answer. On SIGTERM the
 frontend SHALL stop accepting connections and finish its open requests, compute SHALL drain, and storage SHALL apply
@@ -201,6 +204,10 @@ listener until then, so a role started at once may find its port taken for some 
 #### Scenario: A port held a moment is taken
 - **WHEN** a role starts at a TCP address another process holds, which lets it go within the bound
 - **THEN** the role logs each retry naming the address, binds it, and answers `/health`
+
+#### Scenario: The frontend's /health answers once its listeners are bound
+- **WHEN** the frontend starts while another process holds its role address, which lets it go within the bound
+- **THEN** `/health` answers 503 while the address is held, and once it answers 200 a role connection to the address is accepted at once
 
 #### Scenario: A port held past the bound ends the start
 - **WHEN** a role starts at a TCP address another process holds past the bound

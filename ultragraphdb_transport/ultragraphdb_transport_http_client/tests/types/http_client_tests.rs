@@ -171,3 +171,63 @@ fn test_a_client_never_prints_its_key() -> TestResult {
     );
     Ok(())
 }
+
+/// A service refusing a body it will not read answers a client still writing: the client reads the status, in clear text
+/// and over TLS, and no failed write stands in for it.
+#[test]
+fn test_a_refusal_arrives_while_a_body_is_being_written() -> TestResult {
+    let pki = TestPki::new()?;
+    let body = vec![b'x'; HttpLimits::DRAIN_MAX / 2];
+    Runtime::new()?.block_on(async {
+        let plain = serving(None).await?;
+        let in_clear = client(&format!("http://127.0.0.1:{plain}"), None, KEY)?
+            .request("POST", "/", &body)
+            .await?;
+        assert_eq!(in_clear.status(), 413);
+        let secure = serving(Some(pki.acceptor()?)).await?;
+        let trust = TlsTrust::from_pem("test", pki.ca_pem().as_bytes())?;
+        let over_tls = client(&format!("https://localhost:{secure}"), Some(trust), KEY)?
+            .request("POST", "/", &body)
+            .await?;
+        assert_eq!(over_tls.status(), 413);
+        Ok(())
+    })
+}
+
+/// A peer that answers and closes over a body it never read fails the client's write; the answer waiting behind that
+/// failure is the reply, and a peer that answers nothing leaves the failure itself to be told.
+#[test]
+fn test_a_reply_behind_a_failed_write_is_read() -> TestResult {
+    use compio::BufResult;
+    use compio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+    let body = vec![b'x'; 2 * HttpLimits::DRAIN_MAX];
+    Runtime::new()?.block_on(async {
+        for answer in [
+            "HTTP/1.1 413 Content Too Large\r\nContent-Length: 0\r\n\r\n",
+            "",
+        ] {
+            let listener = TcpListener::bind("127.0.0.1:0").await?;
+            let address = listener.local_addr()?;
+            spawn(async move {
+                if let Ok((mut stream, _)) = listener.accept().await {
+                    let BufResult(_, _) = stream.read(Vec::with_capacity(1024)).await;
+                    if !answer.is_empty() {
+                        let BufResult(_, _) = stream.write_all(answer.as_bytes().to_vec()).await;
+                    }
+                    drop(stream.shutdown().await);
+                }
+            })
+            .detach();
+            let url = format!("http://{address}");
+            let reached = client(&url, None, KEY)?.request("POST", "/", &body).await;
+            if answer.is_empty() {
+                let refused = reached.err().context("a refusal")?;
+                assert!(refused.is_unreachable(), "{refused}");
+                assert!(refused.to_string().contains(&url), "{refused}");
+            } else {
+                assert_eq!(reached?.status(), 413);
+            }
+        }
+        Ok(())
+    })
+}

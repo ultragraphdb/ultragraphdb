@@ -277,3 +277,29 @@ fn test_a_relation_declared_directly_with_more_roles_than_the_encoding_holds_is_
     );
     Ok(())
 }
+
+#[test]
+fn test_a_declaration_held_by_name_governs_until_a_new_version_says_it_again() -> TestResult {
+    let iri = NamedNode::new("http://ex.org/name")?;
+    let mut catalog = Catalog::new(1);
+    let declared = PredicateDeclaration::new(iri.clone()).with_kind(PredicateKind::Property);
+    catalog.hold_unresolved(declared.clone())?;
+    assert_eq!(catalog.unresolved(iri.as_str()), Some(&declared));
+    let uid = id(1)?;
+    assert_eq!(catalog.predicate(uid), None, "no ID resolves it here");
+    assert_eq!(catalog.predicate_or_default(uid, &iri).as_ref(), &declared);
+    let given = catalog.with_initial(id(2)?);
+    assert_eq!(given.tenant(), 1);
+    assert_eq!(given.unresolved(iri.as_str()), Some(&declared));
+    assert!(given.predicate(id(2)?).is_some());
+    let mut emptied = given.emptied();
+    assert_eq!(emptied.predicates().count(), 0);
+    assert_eq!(emptied.unresolved(iri.as_str()), Some(&declared));
+    emptied.clear_unresolved();
+    assert_eq!(emptied.unresolved(iri.as_str()), None);
+    assert_eq!(
+        emptied.predicate_or_default(uid, &iri).as_ref(),
+        &PredicateDeclaration::new(iri)
+    );
+    Ok(())
+}

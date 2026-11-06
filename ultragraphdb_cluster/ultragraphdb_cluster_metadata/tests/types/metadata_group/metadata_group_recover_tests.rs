@@ -181,7 +181,7 @@ fn test_a_round_that_is_no_command_is_refused() -> TestResult {
     .context("a refusal")?;
     assert_eq!(
         refusal.0,
-        ClusterError::malformed("a kind byte, 1 to 15", 0).0
+        ClusterError::malformed("a kind byte, 1 to 18", 0).0
     );
     Ok(())
 }

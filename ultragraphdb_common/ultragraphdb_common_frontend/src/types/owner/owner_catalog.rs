@@ -4,10 +4,11 @@
  */
 
 use futures::channel::oneshot::Sender;
-use ultragraphdb_cluster_metadata::{CatalogRecord, MetadataCommand};
+use ultragraphdb_cluster_metadata::{CatalogCheck, CatalogRecord, MetadataCommand};
 use ultragraphdb_core_catalog::CatalogContents;
 use ultragraphdb_core_ids::{Tenant, Version};
 use ultragraphdb_core_mapping::Declaration;
+use ultragraphdb_error_cluster::{ClusterError, ClusterErrorEnum};
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_wire::{Declared, Describe, ErrorCode, ErrorReply};
 use ultragraphdb_traits_catalog::DefaultEntry;
@@ -16,7 +17,7 @@ use ultragraphdb_traits_log::OrderedLog;
 use crate::types::asked::DropStep;
 use crate::types::owner::owner_answer::refused_or_stop;
 use crate::types::owner::{Durable, Owner};
-use crate::utils::declarations::{describe_of, merged, version_bytes};
+use crate::utils::declarations::{describe_of, merged, tightens, version_bytes};
 
 /// The kind a Catalog conflict names (`PROTOCOL.md` §9.4).
 const CONFLICT_CATALOG: u64 = 5;
@@ -29,7 +30,11 @@ pub(crate) const CATALOG_CAP: usize = MetadataCommand::CATALOG_BYTES_MAX;
 
 impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
     /// The declarations of `tenant`'s version `version`, none for version 0.
-    fn contents(&self, tenant: u64, version: u64) -> Result<Vec<Declaration>, ErrorReply> {
+    pub(super) fn contents(
+        &self,
+        tenant: u64,
+        version: u64,
+    ) -> Result<Vec<Declaration>, ErrorReply> {
         if version == 0 {
             return Ok(Vec::new());
         }
@@ -54,15 +59,13 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
         Ok(id)
     }
 
-    /// What `tenant`'s catalog declares in effect at the latest close, and the default entries the group records.
+    /// What `tenant`'s catalog declares in effect at the latest close, no version being checked or withdrawn among it, and the
+    /// default entries the group records.
     pub(super) fn describe(&self, tenant: u64) -> Result<Describe, ErrorReply> {
         let state = self.metadata.state();
         let held = Tenant::new(tenant);
         let closed = self.sequencer.last_closed();
-        let in_effect = state
-            .catalog_at(held, closed)
-            .map_err(|error| ErrorReply::new(ErrorCode::Unavailable, error.to_string()))?;
-        let declarations = match in_effect {
+        let declarations = match state.settled_at(held, closed) {
             Some(record) => decoded(tenant, record.version(), Some(record.bytes()))?,
             None => Vec::new(),
         };
@@ -75,7 +78,8 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
         ))
     }
 
-    /// A catalog version of `declared`, built on `built_on`, offered as pending: its answer waits for its effective epoch.
+    /// A catalog version of `declared`, built on `built_on`, offered as pending: its answer waits for its effective epoch and, when
+    /// it tightens a predicate, for every partition's check.
     pub(super) fn declare(
         &mut self,
         tenant: u64,
@@ -88,43 +92,53 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
             drop(reply.send(Err(stale(built_on, current))));
             return Ok(());
         }
-        let bytes = self
-            .contents(tenant, current)
-            .and_then(|held| merged(held, declared))
-            .and_then(|next| version_bytes(tenant, current + 1, next));
-        let bytes = match bytes {
-            Ok(bytes) => bytes,
+        if let Some(checked) = self.metadata.state().checked_version(Tenant::new(tenant)) {
+            drop(reply.send(Err(being_checked(checked))));
+            return Ok(());
+        }
+        let (tightening, bytes) = match self.version_of(tenant, current, declared) {
+            Ok(built) => built,
             Err(refusal) => {
                 drop(reply.send(Err(refusal)));
                 return Ok(());
             }
         };
-        match self
-            .metadata
-            .offer_catalog(Tenant::new(tenant), current, &bytes)
-        {
-            Ok((version, _position)) => {
-                self.versions_waited
-                    .push((Tenant::new(tenant), version, reply));
-            }
-            Err(refused) => drop(reply.send(Err(refused_or_stop(&refused)?))),
+        let held = Tenant::new(tenant);
+        let offered = if tightening {
+            self.metadata.offer_checked(held, current, &bytes)
+        } else {
+            self.metadata.offer_catalog(held, current, &bytes)
+        };
+        match offered {
+            Ok((version, _position)) => self.versions_waited.push((held, version, reply)),
+            Err(refused) => drop(reply.send(Err(offer_refused(&refused, built_on)?))),
         }
         Ok(())
     }
 
-    /// Answers each declaring Commit whose version an epoch was assigned: the epoch's first version.
+    /// Whether `declared` tightens a predicate of `tenant`'s version `current`, and the bytes of the version it builds on it.
+    fn version_of(
+        &self,
+        tenant: u64,
+        current: u64,
+        declared: &[Declared],
+    ) -> Result<(bool, Vec<u8>), ErrorReply> {
+        let held = self.contents(tenant, current)?;
+        let tightening = tightens(&held, declared)?;
+        let next = merged(held, declared)?;
+        Ok((tightening, version_bytes(tenant, current + 1, next)?))
+    }
+
+    /// Answers each declaring Commit whose version stands: its epoch assigned and no check left, the epoch's first version.
     pub(super) fn answer_versions(&mut self) {
         let state = self.metadata.state();
         let waited = std::mem::take(&mut self.versions_waited);
         self.versions_waited = waited
             .into_iter()
             .filter_map(|(tenant, version, reply)| {
-                let versions = state.versions(tenant);
-                let effective = versions
-                    .iter()
-                    .find(|record| record.version() == version)
-                    .and_then(|record| record.effective());
-                match effective {
+                let record = state.version_record(tenant, version);
+                let settled = record.is_some_and(|r| *r.check() == CatalogCheck::Settled);
+                match record.and_then(|r| r.effective()).filter(|_| settled) {
                     Some(epoch) => {
                         // An asker gone has no one to tell; the version stands.
                         drop(reply.send(Ok(epoch.get() << SEQUENCE_BITS)));
@@ -219,6 +233,24 @@ fn decoded(
     CatalogContents::decode(tenant, version, bytes)
         .map(|contents| contents.declarations().to_vec())
         .map_err(|error| ErrorReply::new(ErrorCode::Unavailable, error.to_string()))
+}
+
+/// The refusal of a version built on `checked`, which its partitions are still checking (`PROTOCOL.md` §11.13).
+fn being_checked(checked: u64) -> ErrorReply {
+    ErrorReply::new(
+        ErrorCode::Conflict,
+        format!("catalog version {checked} is being checked, and its Commit is not answered"),
+    )
+    .with_detail(CONFLICT_CATALOG)
+}
+
+/// What a declaring Commit hears of an offer the group refused: a version an offer of this turn got ahead of is stale, and a
+/// failed log stops the owner.
+fn offer_refused(refused: &ClusterError, built_on: u64) -> Result<ErrorReply, RoleError> {
+    if let ClusterErrorEnum::StaleCatalog { current, .. } = refused.0 {
+        return Ok(stale(built_on, current));
+    }
+    refused_or_stop(refused)
 }
 
 fn stale(built_on: u64, current: u64) -> ErrorReply {

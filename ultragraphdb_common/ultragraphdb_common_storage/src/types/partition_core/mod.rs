@@ -7,9 +7,10 @@ pub(crate) mod partition_core_frames;
 mod partition_core_one_frame;
 mod partition_core_reads;
 mod partition_core_remote;
+mod partition_core_versions;
 
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::future::poll_fn;
 use std::rc::Rc;
 use std::sync::mpsc::{Receiver, Sender};
@@ -18,19 +19,20 @@ use std::time::Instant;
 
 use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
-use futures::channel::oneshot;
 use ultragraphdb_cluster_partition::{
     BoundKey, Partition, PartitionHost, PartitionMessage, RemoteMessage,
 };
 use ultragraphdb_cluster_placement::PartitionId;
-use ultragraphdb_common_role::{Answer, RoleClient, RoleCluster};
+use ultragraphdb_common_role::{Answer, ParkedBytes, RoleClient, RoleCluster};
 use ultragraphdb_core_catalog::CatalogContents;
 use ultragraphdb_core_ids::Epoch;
 use ultragraphdb_error_role::RoleError;
-use ultragraphdb_protocol_transport::{Address, ReceivedFrame};
+use ultragraphdb_protocol_transport::Address;
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, Command, DropCommand, ErrorReply, FLAG_LAST, Header, Reference, TermTable,
+    BodyBuilder, Command, DropCommand, ErrorCode, ErrorReply, FLAG_LAST, Header, Reference, Report,
+    TermTable,
 };
+use ultragraphdb_store_apply::ChangesetError;
 use ultragraphdb_store_kv::{FjallStore, MokaListCache, ThreadExecutor};
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_traits_catalog::DefaultEntry;
@@ -39,6 +41,7 @@ use ultragraphdb_transactions_log::{CompioStorage, Wal};
 
 use crate::types::core_message::{CoreMessage, Pushes};
 use crate::types::open_scan::OpenScan;
+use crate::types::parked_frame::ParkedFrame;
 use crate::types::refill_blocks::RefillBlocks;
 use crate::types::retention::Retention;
 use crate::types::scan_board::ScanBoard;
@@ -72,19 +75,32 @@ pub enum FrontendAsk {
     Close(Epoch),
     /// The record of a predicate's default entry, after a first write of it or a replay of one (`PROTOCOL.md` §11.12).
     DefaultEntry(DefaultEntry),
+    /// A catalog version's outcome here, durable: sent until answered (`PROTOCOL.md` §13.19).
+    Report(Report),
 }
 
 /// What a parked request does once its transaction's references are answered.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 enum ParkedWork {
     /// A Write's references are answered: its changes run from the frame it held.
     Write,
     /// An Operation's references are answered, and the host applied it.
     Operation,
-    /// A request that waited behind a read's references takes its turn from the start.
-    Turn { pushes: Pushes, max_frame: u32 },
+    /// A request that waited behind a read's references or its stream's parked request takes its turn from the start.
+    Turn,
     /// A one-frame write's references are answered, and it goes on from `at`.
-    OneFrame { at: OneFrameAt, pushes: Pushes },
+    OneFrame { at: OneFrameAt },
+}
+
+/// What a request came to.
+#[derive(Debug)]
+enum RequestStep {
+    /// Its answer.
+    Answered(Answer),
+    /// It waits on a home, going on as `work`, in `tenant`, from the frame it holds.
+    Parks { tenant: u64, work: ParkedWork },
+    /// A one-frame write in the commit step, under this ticket.
+    InCommit(u64),
 }
 
 /// Where a one-frame write goes on from.
@@ -106,13 +122,16 @@ struct OneFrameRetry {
     attempts: u32,
 }
 
-/// A request waiting for its transaction's references' answers, its frame held, which a write's changes borrow.
+/// A request waiting for its transaction's references' answers, a copy of its frame held, which a write's changes borrow, and the
+/// frames behind it on its stream in their order. Its answer goes out through `pushes`.
 #[derive(Debug)]
 struct Parked {
-    frame: ReceivedFrame,
-    done: oneshot::Sender<Answer>,
+    frame: ParkedFrame,
     tenant: u64,
     work: ParkedWork,
+    pushes: Pushes,
+    max_frame: u32,
+    behind: VecDeque<ParkedFrame>,
 }
 
 /// A Reference a home is answering, one registration at a time.
@@ -206,12 +225,16 @@ pub struct PartitionCore<'a> {
     drop_streams: BTreeMap<BoundKey, (u64, u64)>,
     /// The tenants the placement map lists a run for, the only ones a Bind may name.
     tenants: BTreeSet<u64>,
+    /// Where each open connection counts what it holds parked, read only as a frame parks.
+    connections: BTreeMap<u64, ParkedBytes>,
     parked: BTreeMap<BoundKey, Parked>,
     home_askings: BTreeMap<u64, HomeAsking>,
     next_asking: u64,
     committing: BTreeMap<u64, Committing>,
-    /// The catalog versions in the commit step, by ticket, each run again when a commit aborted it.
-    installing: BTreeMap<u64, CatalogContents>,
+    /// The catalog version in the commit step, by ticket, with what the data refused of it, run again when a commit aborted it.
+    installing: BTreeMap<u64, (CatalogContents, Vec<ChangesetError>)>,
+    /// The catalog versions waiting for it, or for a build's end, in the order the closes announced them.
+    versions: VecDeque<CatalogContents>,
     /// The Scans it answers, and those with a frame to build, in turn.
     scans: ScanBoard<OpenScan<'a>>,
     scan_stall_ms: u64,
@@ -334,11 +357,13 @@ impl<'a> PartitionCore<'a> {
             bound_tenant: BTreeMap::new(),
             drop_streams: BTreeMap::new(),
             tenants: parts.tenants,
+            connections: BTreeMap::new(),
             parked: BTreeMap::new(),
             home_askings: BTreeMap::new(),
             next_asking: 1,
             committing: BTreeMap::new(),
             installing: BTreeMap::new(),
+            versions: VecDeque::new(),
             scans: ScanBoard::default(),
             scan_stall_ms: parts.scan_stall_ms,
             retention: parts.retention,
@@ -376,11 +401,14 @@ impl<'a> PartitionCore<'a> {
             }
             self.turn().await?;
         }
+        self.tell_parked_stopping();
         let keys: Vec<BoundKey> = self.bound_tenant.keys().copied().collect();
         for key in keys {
             self.host.abort_bound(key);
         }
         self.turn().await?;
+        // What was told above reaches a connection that gets to run; the rest learn it from the connection's close.
+        yield_once().await;
         self.host
             .partition()
             .applier()
@@ -415,6 +443,7 @@ impl<'a> PartitionCore<'a> {
         }
         self.resume_ready();
         self.hand_out();
+        self.next_version();
         self.serve_scans();
         self.raise_discard(now);
         Ok(())
@@ -441,10 +470,19 @@ impl<'a> PartitionCore<'a> {
         self.tell_ended(key, &error_reply(&error.into()));
     }
 
-    /// Tells the holder of `key` its transaction ended with `reply`: the request it waits on, or else its stream.
+    /// Answers each parked request that the partition stops: nothing parked has reached the commit step (`PROTOCOL.md` §11.12).
+    fn tell_parked_stopping(&mut self) {
+        let reply = ErrorReply::new(ErrorCode::Unavailable, "the partition stopped");
+        for ((_, stream), parked) in std::mem::take(&mut self.parked) {
+            self.push_error(stream, &reply, &parked.pushes);
+        }
+    }
+
+    /// Tells the holder of `key` its transaction ended with `reply`: on the stream of the request it waits on, dropping what is
+    /// behind that, or else on its own.
     fn tell_ended(&mut self, key: BoundKey, reply: &ErrorReply) {
         if let Some(parked) = self.parked.remove(&key) {
-            drop(parked.done.send(Answer::Refuse(reply.clone())));
+            self.push_error(key.1, reply, &parked.pushes);
             let _ended = self.bound_tenant.remove(&key);
             return;
         }
@@ -468,10 +506,8 @@ impl<'a> PartitionCore<'a> {
     fn hand_out(&mut self) {
         let no_terms = TermTable::new();
         for outcome in self.host.take_outcomes() {
-            if let Some(contents) = self.installing.remove(&outcome.ticket()) {
-                if outcome.outcome().is_err() {
-                    self.install(contents);
-                }
+            if let Some((contents, refusals)) = self.installing.remove(&outcome.ticket()) {
+                self.version_decided(contents, &refusals, outcome.outcome().is_ok());
                 continue;
             }
             let Some(mut committing) = self.committing.remove(&outcome.ticket()) else {

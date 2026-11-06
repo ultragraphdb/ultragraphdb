@@ -14,6 +14,7 @@ use super::ClientSession;
 use crate::traits::authorizer::Authorizer;
 use crate::types::bind_state::BindState;
 use crate::types::claim::Claim;
+use crate::types::counted_frame::CountedFrame;
 use crate::types::destination::Destination;
 use crate::types::link_event::LinkEvent;
 use crate::types::queued::Queued;
@@ -218,7 +219,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             return;
         };
         let sink = self.sink(key);
-        let stream = link.open(frame, sink);
+        let stream = link.open(self.counted(frame), sink);
         if let Some(binding) = self.transactions.get_mut(&transaction) {
             binding.bind = BindState::Binding {
                 link,
@@ -383,7 +384,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         if let BindState::Bound { link, stream, .. } = &txn.bind {
             let mut frame = frame;
             drop(Header::stamp_stream(&mut frame, *stream));
-            link.send(frame);
+            link.send(*stream, CountedFrame::uncounted(frame));
         }
     }
 

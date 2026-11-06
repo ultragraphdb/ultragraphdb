@@ -6,7 +6,7 @@
 use ultragraphdb_cluster_partition::PartitionError;
 use ultragraphdb_common_storage::{error_reply, registration_outcome, scan_refusal};
 use ultragraphdb_error_store::StoreError;
-use ultragraphdb_protocol_wire::{ConflictKind, ErrorCode};
+use ultragraphdb_protocol_wire::{ConflictKind, ErrorCode, RequestTerm};
 use ultragraphdb_store_apply::ChangesetError;
 use ultragraphdb_store_posting::PostingError;
 use ultragraphdb_store_quads::QuadError;
@@ -16,6 +16,44 @@ use ultragraphdb_transactions_txn::TxnError;
 fn said(error: &PartitionError) -> (ErrorCode, u64) {
     let reply = error_reply(error);
     (reply.code(), reply.detail())
+}
+
+/// A failed compare-and-set says what it found in the frame's value (`PROTOCOL.md` §9.4), by kind of term, and nothing when
+/// the predicate held none.
+#[test]
+fn test_a_failed_compare_and_set_carries_the_value_found() {
+    let found = |text: Option<&str>| {
+        let refused = CommitError::operation_failed(text.map(str::to_string));
+        error_reply(&refused.into()).value().cloned()
+    };
+    assert_eq!(
+        found(Some("\"done\"")),
+        Some(RequestTerm::Literal {
+            lexical: "done".to_string(),
+            datatype: None,
+        })
+    );
+    let integer = "http://www.w3.org/2001/XMLSchema#integer";
+    assert_eq!(
+        found(Some(&format!("\"5\"^^<{integer}>"))),
+        Some(RequestTerm::Literal {
+            lexical: "5".to_string(),
+            datatype: Some(integer.to_string()),
+        })
+    );
+    assert_eq!(
+        found(Some("\"chat\"@fr")),
+        Some(RequestTerm::LanguageLiteral {
+            lexical: "chat".to_string(),
+            language: "fr".to_string(),
+            direction: None,
+        })
+    );
+    assert_eq!(
+        found(Some("<http://ex.org/a>")),
+        Some(RequestTerm::Iri("http://ex.org/a".to_string()))
+    );
+    assert_eq!(found(None), None);
 }
 
 /// A read past the read set's room states the limit in bytes.

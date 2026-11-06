@@ -13,10 +13,12 @@ use ultragraphdb_protocol_transport::{Address, ReceivedFrame};
 use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, CatalogAnnouncement, CatalogView, CloseRequestView, Command,
     DefaultEntry, DefaultEntryView, EpochClose, ErrorCode, ErrorReply, FLAG_LAST, FrameView,
-    Header, Join, JoinView, Lease, LeaseView, MembersView, PlacementView, RoleKind, SubscribeView,
+    Header, Join, JoinView, Lease, LeaseView, MembersView, PlacementView, ReportKind, ReportView,
+    RequestTermView, RoleKind, SubscribeView,
 };
 
 use crate::types::owner_handle::OwnerHandle;
+use crate::types::report_asked::ReportAsked;
 use crate::types::role_links::RoleLinks;
 
 /// How long a failed connection back waits before the next.
@@ -158,6 +160,22 @@ impl RoleSession {
         built(&reply, self.header(stream, Command::DefaultEntry))
     }
 
+    /// A partition's report on a catalog version, answered with its fields once the group holds it (`PROTOCOL.md` §13.19).
+    async fn report(&self, stream: u64, frame: &FrameView<'_>) -> Result<Answer, ErrorReply> {
+        let asked = ReportView::from_frame(frame).map_err(|rule| ErrorReply::protocol(&rule))?;
+        let body = asked
+            .to_body()
+            .map_err(|rule| ErrorReply::protocol(&rule))?;
+        let report = ReportAsked {
+            tenant: asked.tenant(),
+            version: asked.version(),
+            partition: asked.partition(),
+            refused: refusal_of(&asked),
+        };
+        self.shared.owner.report(report).await?;
+        built(&body, self.header(stream, Command::Report))
+    }
+
     async fn close_request(&self, frame: &FrameView<'_>) -> Result<Answer, ErrorReply> {
         let asked =
             CloseRequestView::from_frame(frame).map_err(|rule| ErrorReply::protocol(&rule))?;
@@ -190,6 +208,8 @@ impl Session for RoleSession {
             self.close_request(frame).await
         } else if command == Command::DefaultEntry {
             self.default_entry(stream, frame).await
+        } else if command == Command::Report {
+            self.report(stream, frame).await
         } else {
             Err(ErrorReply::new(
                 ErrorCode::Unavailable,
@@ -242,6 +262,25 @@ impl Session for RoleSession {
     fn cancelled(&mut self, stream: u64) {
         if self.subscription.is_some_and(|(held, _)| held == stream) {
             self.subscription = None;
+        }
+    }
+}
+
+/// What `report` says the data refused: its predicate and the term at fault as text; a failed build names its predicate.
+fn refusal_of(report: &ReportView<'_>) -> Option<(String, String)> {
+    let predicate = report.predicate().unwrap_or_default().to_string();
+    match report.kind() {
+        ReportKind::Passed => None,
+        ReportKind::BuildFailed => Some((predicate, "its index build".to_string())),
+        ReportKind::Refused => {
+            let at_fault = report.at_fault().map(|term| match term {
+                RequestTermView::Iri(iri) => iri.to_string(),
+                RequestTermView::BlankNode(label) => format!("_:{label}"),
+                RequestTermView::Literal { lexical, .. }
+                | RequestTermView::LanguageLiteral { lexical, .. } => format!("\"{lexical}\""),
+                RequestTermView::Triple { .. } => "a triple term".to_string(),
+            });
+            Some((predicate, at_fault.unwrap_or_default()))
         }
     }
 }

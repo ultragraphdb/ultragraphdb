@@ -8,8 +8,8 @@ use std::str::FromStr;
 use oxilangtag::LanguageTag;
 use oxrdf::NamedNodeRef;
 use oxsdatatypes::{
-    Boolean, Date, DateTime, DayTimeDuration, Decimal, Double, Duration, Float, GDay, GMonth,
-    GMonthDay, GYear, GYearMonth, Integer, Time, YearMonthDuration,
+    Boolean, Date, DateTime, DayTimeDuration, Double, Duration, Float, GDay, GMonth, GMonthDay,
+    GYear, GYearMonth, Time, YearMonthDuration,
 };
 use ultragraphdb_core_terms::{KnownDatatype, parse_vector};
 use ultragraphdb_protocol_wire::{
@@ -76,11 +76,27 @@ fn parses<T: FromStr>(lexical: &str) -> bool {
     lexical.parse::<T>().is_ok()
 }
 
+/// Whether `lexical` is in `xsd:integer`'s lexical space, `[+-]?[0-9]+`, whatever its size: an integer no payload holds is kept
+/// by its lexical form (`PROTOCOL.md` §10.2).
+fn is_integer(lexical: &str) -> bool {
+    let digits = lexical.strip_prefix(['+', '-']).unwrap_or(lexical);
+    !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+/// Whether `lexical` is in `xsd:decimal`'s lexical space, `[+-]?([0-9]+(\\.[0-9]*)?|\\.[0-9]+)`, whatever its size and fraction: a
+/// decimal no payload holds is kept by its lexical form (`PROTOCOL.md` §10.2).
+fn is_decimal(lexical: &str) -> bool {
+    let unsigned = lexical.strip_prefix(['+', '-']).unwrap_or(lexical);
+    let (whole, fraction) = unsigned.split_once('.').unwrap_or((unsigned, ""));
+    let digits = |part: &str| part.bytes().all(|byte| byte.is_ascii_digit());
+    digits(whole) && digits(fraction) && !(whole.is_empty() && fraction.is_empty())
+}
+
 /// Whether `lexical` is valid for `known`. A datatype the XSD parser has no type for, a tokenizer's own, takes any form.
 fn valid_lexical(known: KnownDatatype, lexical: &str) -> bool {
     match known {
         KnownDatatype::Boolean => parses::<Boolean>(lexical),
-        KnownDatatype::Decimal => parses::<Decimal>(lexical),
+        KnownDatatype::Decimal => is_decimal(lexical),
         KnownDatatype::Double => parses::<Double>(lexical),
         KnownDatatype::Float => parses::<Float>(lexical),
         KnownDatatype::DateTime => parses::<DateTime>(lexical),
@@ -107,7 +123,7 @@ fn valid_lexical(known: KnownDatatype, lexical: &str) -> bool {
         | KnownDatatype::UnsignedLong
         | KnownDatatype::UnsignedInt
         | KnownDatatype::UnsignedShort
-        | KnownDatatype::UnsignedByte => parses::<Integer>(lexical),
+        | KnownDatatype::UnsignedByte => is_integer(lexical),
         KnownDatatype::Float32Vector => parse_vector(lexical).is_ok(),
         KnownDatatype::GeoJsonLiteral | KnownDatatype::WktLiteral | KnownDatatype::AnyUri => true,
     }

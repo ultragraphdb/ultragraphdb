@@ -254,6 +254,25 @@ The frontend SHALL bound the Write and Operation frames it holds for a connectio
 - **WHEN** a read holds Writes back, and the client grants the read credit
 - **THEN** the frontend reads the Credit and relays it, the read reaches its `LAST`, and the held Writes are then sent
 
+### Requirement: The frontend bounds what a connection has on its way to a role
+The frontend SHALL count, per client connection, what it keeps for that connection on the way to a role, as `PROTOCOL.md` §11.12,
+*Frames on their way*, lists it, against `held_bytes`. Once the count reaches the bound it SHALL stop reading that connection until
+the count falls below it, SHALL go on sending what it answers, and SHALL refuse nothing for the bound. A transaction's limit SHALL end
+what a stopped partition holds back and take back what it queued, and a one-frame write still unsent at `transaction_ms` SHALL be
+taken back and answered code 4.
+
+#### Scenario: A client past its bound stops being read until its partition reads again
+- **WHEN** `held_bytes` is 4,096, partition 1 stops reading, a client pipelines Writes for partition 1 on four streams past the bound while its Commit on partition 2 waits for its reply, and sends a Begin behind them
+- **THEN** the frontend counts at most the bound and one frame for it, reads no further frame of it, and sends it the reply of its Commit, another client commits on partition 2, and when partition 1 reads again the Begin is answered, each stream's Writes reach partition 1 in the order sent, and each Commit is answered
+
+#### Scenario: A transaction's limit ends what a stopped partition holds back
+- **WHEN** `held_bytes` is 4,096, a partition stops reading, and a client pipelines Writes for it past the bound and passes `transaction_ms`, a Begin behind them
+- **THEN** each transaction is answered code 4, the frontend counts nothing for the client, and the Begin is answered while the partition still reads nothing
+
+#### Scenario: What never left is taken back
+- **WHEN** a partition stops reading with its socket full, a client's one-frame writes wait behind it past `transaction_ms`, and another client binds and aborts behind them
+- **THEN** each one-frame write that never left is answered code 4, the frontend counts nothing for the client, and when the partition reads again it sees none of those, no Bind and no Cancel, and answers the ones that left
+
 ### Requirement: The frontend times a read-write transaction
 The frontend SHALL time a read-write transaction from its Begin's arrival. Past `transaction_ms`, unless its Commit has
 already been relayed, it SHALL cancel the Bind stream, if any, and answer code 4 (PastLimit), `detail` the limit, on the

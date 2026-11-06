@@ -7,7 +7,7 @@ use ultragraphdb_cluster_sequencer::Close;
 use ultragraphdb_core_ids::{SessionToken, Version};
 use ultragraphdb_protocol_wire::{
     ABSENT, BodyBuilder, ChunkLayout, Commit, ConflictKind, HEADER_SIZE, MAX_FRAME_FLOOR,
-    OperationResult, RecordKind, RequestTerm, TermTable, WriteSetRecordView,
+    OperationResult, RecordKind, RecordOperation, RequestTerm, TermTable, WriteSetRecordView,
 };
 use ultragraphdb_traits_store::VersionlessEntry;
 
@@ -223,9 +223,7 @@ impl<P: Proposal> CommitStep<P> {
             Some(true) => {}
         }
         for version in close.catalog() {
-            let tenant = version.tenant().get();
-            self.catalog.retain(|(n, _)| *n != tenant);
-            self.catalog.push((tenant, version.version()));
+            self.catalog_takes_effect(version.tenant().get(), version.version());
         }
         self.sessions.purge(close.evictions());
         self.asked_us = None;
@@ -596,6 +594,10 @@ impl<P: Proposal> CommitStep<P> {
         if let Err(refusal) = self.validate(proposal, &record) {
             return Decided::Refused(refusal);
         }
+        let takes_effect = match record.operation(0) {
+            Some(RecordOperation::CatalogTakesEffect(version)) => Some((record.tenant(), version)),
+            Some(_) | None => None,
+        };
         let decided = if proposal.has_operations() {
             self.operate(proposal, apply, operator, fits)
         } else {
@@ -608,6 +610,10 @@ impl<P: Proposal> CommitStep<P> {
             }
         };
         if let Decided::Admitted(version, results) = &decided {
+            if let Some((tenant, taken)) = takes_effect {
+                // What executed against the version before lands behind its check no more than behind its close.
+                self.catalog_takes_effect(tenant, taken);
+            }
             operator.admitted(proposal);
             if session != 0 {
                 self.sessions.begin(session);
@@ -624,6 +630,16 @@ impl<P: Proposal> CommitStep<P> {
             }
         }
         decided
+    }
+
+    /// `tenant`'s catalog version `version` is in effect from here on, an earlier one no longer: a close and the round taking it
+    /// effect each say so, in either order.
+    fn catalog_takes_effect(&mut self, tenant: u64, version: u64) {
+        let held = self.catalog_version(tenant);
+        if version > held {
+            self.catalog.retain(|(n, _)| *n != tenant);
+            self.catalog.push((tenant, version));
+        }
     }
 
     /// The resolver's checks of `proposal`, the catalog version's placed after the reads' and before a drop's.

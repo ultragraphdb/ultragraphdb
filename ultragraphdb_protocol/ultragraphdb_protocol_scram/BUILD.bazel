@@ -14,6 +14,9 @@ rust_library(
     aliases = aliases(),
     crate_root = "src/lib.rs",
     lint_config = lint_config(),
+    # A verifier and a login take 600,000 iterations of PBKDF2, and HMAC's generics are compiled here: every process test logs in
+    # many times. SHA-256's compression is `sha2`'s, optimised by its annotation in MODULE.bazel. `-c opt` builds this at 3 regardless.
+    rustc_flags = ["-Copt-level=3"],
     tags = ["ultragraphdb_protocol_scram"],
     visibility = ["//visibility:public"],
     deps = all_crate_deps(normal = True),

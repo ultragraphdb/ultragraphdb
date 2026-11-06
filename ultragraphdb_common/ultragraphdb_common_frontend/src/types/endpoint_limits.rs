@@ -23,8 +23,8 @@ impl EndpointLimits {
     /// (`PROTOCOL.md` §11.9).
     pub const REFUSAL_INTERVAL_DEFAULT: Duration = Duration::from_secs(900);
 
-    /// The limits of a connection holding back `held_bytes` of writes behind its reads, taking a compute process for hung after
-    /// `scan_stall`, each the protocol's default else (`PROTOCOL.md` §11.9).
+    /// The limits of a connection holding back `held_bytes` of writes behind its reads, and stopped being read at `held_bytes` on
+    /// its way to a role, taking a compute process for hung after `scan_stall`, each the protocol's default else (`PROTOCOL.md` §11.9).
     #[must_use]
     pub fn new(held_bytes: u64, scan_stall: Duration) -> Self {
         Self {
@@ -64,7 +64,8 @@ impl EndpointLimits {
         self.refusal_interval
     }
 
-    /// The bytes of Write and Operation frames a connection's reads hold back.
+    /// The bytes of Write and Operation frames a connection's reads hold back, and the bytes on its way to a role at which it stops
+    /// being read.
     #[must_use]
     pub fn held_bytes(&self) -> u64 {
         self.held_bytes

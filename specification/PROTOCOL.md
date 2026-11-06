@@ -1125,10 +1125,10 @@ Order: unused bytes 2–7 and 16–127 zero; `code`; sections; the term table (1
 | 1 | Protocol | no | 0; 1 when a Scan named a transaction the partition does not hold | A frame broke a validation rule: a connection error, after which the server closes the connection, or a stream error, which ends the request's stream (section 2.6). The message is the rule's text |
 | 2 | Conflict | yes | the conflict kind below | A transaction's read conflicted with a commit ordered before it |
 | 3 | TooOld | yes | 0 | The read version is below what validation still holds, or below what the partition retains (section 11.9) |
-| 4 | PastLimit | yes | the limit in milliseconds | The transaction lived past its limit, the Welcome's `transaction_ms`; when a read was holding a write back then, the message names that read's stream and says it had no credit |
+| 4 | PastLimit | yes | the limit in milliseconds | The transaction lived past its limit, the Welcome's `transaction_ms`, or a one-frame write waited that long unsent at the frontend (section 11.12, *Frames on their way*); when a read was holding a write back then, the message names that read's stream and says it had no credit |
 | 5 | Busy | yes | 0 | The commit queue is full; or the partition's epoch is full and its close request has gone unanswered for `close_request_ms`, the sequencer counting as unreachable until the close arrives (section 11.12) |
 | 6 | TooLarge | no | the limit in bytes; for statement IDs, their bound | A write set exceeds the Welcome's `max_write_set`, as sent or as its commit-time operations leave it (section 11.9); a transaction's reads exceed what its read set holds; a write would pass `statements_per_object_max`; a Commit reply's frame would pass the floor of `max_frame` (section 11.9); one entry's first object record or value is too large for an otherwise empty frame (section 13.14); a row or resume key is too large for an otherwise empty Result frame, or an Execute's ComputeRead for a frame (section 13.12); or a Describe's answer does not fit a frame (section 8.3) |
-| 7 | Refused | no | 0; for a term's rule, the term's index; for a declaration, its record's index; for a catalog version past its cap, the cap; for an unknown tenant, the tenant; for a Lease, the maximum; for a Catalog, the version; for a schema rule at commit, the UGS refusal number (`SCHEMA.md` section 8.7) | The catalog refused a write, a term broke the server's rules (section 4.4), or a declaration was refused: a vector index in this stage, a transaction mixing declarations with other changes, a type change the data contradicts, or a catalog version past what one Catalog frame holds, a Commit's or an Install's (sections 8.4, 11.13); a request named a tenant the metadata group does not hold (section 11.10); or a role's request was refused: a Lease past `block_size_max`, a Catalog of a version never held; or a schema rule refused the transaction at commit, the message naming the instance and the rule; or the frontend does not serve the command in this stage (section 11.2) |
+| 7 | Refused | no | 0; for a term's rule, the term's index; for a declaration, its record's index, or its index among the transaction's declarations for ones tightening and loosening at once; for a catalog version past its cap, the cap; for an unknown tenant, the tenant; for a Lease, the maximum; for a Catalog, the version; for a schema rule at commit, the UGS refusal number (`SCHEMA.md` section 8.7) | The catalog refused a write, a term broke the server's rules (section 4.4), or a declaration was refused: a vector index in this stage, a transaction mixing declarations with other changes, declarations tightening and loosening at once, a type change the data contradicts, or a catalog version past what one Catalog frame holds, a Commit's or an Install's (sections 8.4, 11.13); a request named a tenant the metadata group does not hold (section 11.10); or a role's request was refused: a Lease past `block_size_max`, a Catalog of a version never held; or a schema rule refused the transaction at commit, the message naming the instance and the rule; or the frontend does not serve the command in this stage (section 11.2) |
 | 8 | OperationFailed | no | 0 | A compare-and-set did not hold; sections 1 and 2 hold the value found |
 | 9 | StaleStatement | no | the statement | The statement's schema id no longer matches its tenant's |
 | 10 | UnknownStatement | no | the statement | The connection holds no statement of this id in the transaction's tenant: never prepared there, or evicted |
@@ -1145,7 +1145,7 @@ Order: unused bytes 2–7 and 16–127 zero; `code`; sections; the term table (1
 | 21 | PermissionDenied | no | the action below | The connection's principal may not do what the request asks, by the tenant gate (section 11.10) or a check at the store; the request is refused, and a transaction's request ends the transaction |
 | 22 | CredentialExpired | no | 0 | The connection's credential expired before a new authentication; the server closes the connection |
 | 23 | CrossPartition | no | the transaction's partition in bits 0–31, or for an operation bound to none the lowest partition it reaches; the lowest other partition it reaches in bits 32–63 | Cross-partition work, refused in this stage: a read-write transaction reaching a second partition, a first request or one-frame write whose subjects spread over partitions, or a Drop reaching several; it aborts and writes nothing, and the message names every partition it reaches (sections 11.11, 11.13) |
-| 24 | TimedOut | yes | the partition waited on | A read waited past its transaction's deadline for a partition to close the epoch it reads at, the message naming the partition and the epoch, and returns no row; or a Scan of it stayed past `scan_stall_ms` with no frame able to leave, the message saying so, and rows already sent are no answer (sections 11.11, 13.13) |
+| 24 | TimedOut | yes | the partition waited on | A read waited past its transaction's deadline for a partition to close the epoch it reads at, the message naming the partition and the epoch, and returns no row; or a Scan of it stayed past `scan_stall_ms` with no frame able to leave, the message saying so, and rows already sent are no answer (sections 11.11, 13.13); or a declaring Commit waited past `catalog_check_ms` for a partition's check, the change withdrawn and nothing in doubt (section 11.13) |
 | 25 | LevelRefused | no | as code 23's | A read-only transaction at level 1 (latest) whose read reaches another partition than the one its first read bound it to, or more than one; the message names the level and the partitions (section 11.11) |
 | 26 | WrongPartition | yes, after refreshing the placement map | the bucket in bits 0–23, bits 24–31 zero, the partition owning it in bits 32–63; all 0 for a registration refused at a home, whose owner the registrant does not know | A key outside the receiving partition's bucket ranges, from a sender whose placement map is stale; a later subject of a request whose first lies inside them is code 23 (section 11.12). Between roles; a client receives it when the owner refuses the frontend's one resend too, or from a registration refused at a home (section 13.15), and runs its transaction again after a delay (section 11.12) |
 | 27 | AheadOfWatermark | no | the watermark | A read version is above the visibility watermark of the partition answering, in an epoch that partition has not closed: refused at once when the client named it; the message names the version and the watermark (sections 6.2, 13.13) |
@@ -1156,7 +1156,7 @@ Retryable says the same work can succeed if run again, and the code says what ru
 one-frame write, and code 5 on a Drop or one-frame write: the same request, same session and request number, on a new stream
 after a delay; code 14 on a Register: the Register, after a delay. Codes 2, 3, 4, 18, 26, and 5 on a Commit: the whole transaction on a new Begin, since its stream has ended or
 its read version is fixed. Code 24: the read, in the same transaction or a new one; past the deadline a read of an unclosed
-epoch is refused again at once, so a new wait takes a new Begin. Code 17 on a read: the read, in the same transaction or a new
+epoch is refused again at once, so a new wait takes a new Begin; a declaring Commit's, the whole transaction on a new Begin. Code 17 on a read: the read, in the same transaction or a new
 one, which another compute process or the restarted role may answer. A read that already gave rows runs again from its start or
 from a resume key, and its earlier rows are discarded. Code numbers are never reused. A receiver refuses an Error
 of code 26 with any of bits 24 to 31 of its `detail` set (`FieldValue` `"detail"`).
@@ -1658,7 +1658,8 @@ connection past the frontend's bound is refused before its Welcome with code 15 
 11.1); a stream past `max_streams` with code 15 on that stream. A connection's pending requests are its open streams,
 so `max_streams` bounds them too, and the Write and Operation frames the frontend holds for a connection (section 11.12,
 *Reads*) are bounded by `held_bytes`; one past it is refused with code 15 (Limit), `detail` the bound, on its transaction's
-stream, ending the transaction.
+stream, ending the transaction. What a connection has on its way to a role meets the same number and stops that connection's reads,
+refusing nothing (section 11.12, *Frames on their way*).
 
 | Limit | Default |
 |---|---|
@@ -1674,7 +1675,7 @@ stream, ending the transaction.
 | A transaction's deadline, `deadline_ms` 0 | the Welcome's `transaction_ms` |
 | `scan_stall_ms`, how long a partition keeps a Scan with no frame able to leave (section 13.13) | 30,000 ms, and at most that: a client's read timeout, which no Welcome adjusts, leaves it room (section 11.11) |
 | `read_retain_ms`, how long a closed epoch stays readable between a read-only transaction's Scans | 60,000 ms |
-| `held_bytes`, the Write and Operation frames a connection's reads hold back | 4,194,304 bytes |
+| `held_bytes`, the Write and Operation frames a connection's reads hold back at the frontend and what a client connection has on its way to a role (`endpoint.held_bytes`, each counted apart), and the frames a connection holds parked at a partition (`storage.held_bytes`, section 11.12) | 4,194,304 bytes |
 | `statements_per_object_max`, the statement IDs one object of a list holds | 16,000 |
 | What a transaction's read set holds | 1,048,576 bytes |
 | A Commit reply's frame | 524,288 bytes, the floor of `max_frame` |
@@ -1684,6 +1685,7 @@ stream, ending the transaction.
 | `epoch_ms_max`, the most between two closes | required, `epoch_ms_min` to 10,000 ms |
 | `close_request_ms`, how long a close request goes unanswered before commits are refused (section 11.12) | required, 1 to 60,000 ms, at least twice `epoch_ms_max` |
 | `block_size_max`, the largest sequence block a Lease takes | 1,048,576 sequences |
+| `catalog_check_ms`, how long the frontend waits for each partition's report of a tightening's check (section 11.13) | 8,000 ms, 1 to 600,000: the client's default timeout, 10 s, leaves it room; a client raising this raises its own timeout too |
 | Statements per connection | 256 |
 | Idle limit, a connection sending no frame | 600 s |
 | Authentication timeout, from Welcome to the final Authenticate | 60 s |
@@ -1869,6 +1871,51 @@ returns the same ID and changes nothing, and concurrent registrants receive one 
 partition holding its mark of `(o, g)` sends none. The frontend registers a unique predicate's IRI the same way, naming
 no group, to learn the system ID a claimed value's bucket is computed from.
 
+**Parked requests.** A role connection keeps moving while a request on it waits on a home. A partition parks a Write, Operation,
+DirectWrite or ConditionalWrite waiting on its registrations' answers, and a Write, Operation or Commit behind a read of its
+transaction waiting on a home (section 13.13): it copies the frame out of the connection's receive buffer, reads the connection's
+next frame, and sends the request's answer on its stream once it has one. A frame arriving on a stream with a request parked is
+parked behind it and taken in its order, so a stream's requests take effect and are answered in the order they were sent, a Commit
+behind the writes before it. A Cancel or an Abort on the stream ends the transaction at once, with what it parked. An Error on the
+stream drops what is parked behind it, and a frame that crosses that Error on the wire is late. A connection that closes abandons
+what it parked, its transactions aborting (section 11.4), and a partition that stops answers each parked request with code 17 or
+closes the connection, which a frontend answers as code 17; nothing parked has reached the commit step.
+
+The bytes a connection holds parked are bounded by `storage.held_bytes` (section 11.9). Once they reach it, the partition stops
+reading that connection until they fall below it, and goes on sending what it answers. The bound refuses nothing: a frame read is
+parked whole, so a connection holds at most `held_bytes` and one frame, and a refusal would end a client's transaction with a limit
+the client did not pass. Stopping cannot deadlock, because nothing that releases a parked frame travels on a connection that can
+stop. A parked frame is released by a home's reply or by its transaction's limit, `transaction_ms`. A home answers a Reference from
+its own log, asking no other partition (section 13.15), and a partition sends its registrations on connections of their own, which
+carry Reference alone and so park nothing and never stop. So when partition A's write waits on B's Reference and B's write waits on
+A's, each home answers whatever either partition holds parked, with both frontends' connections stopped. A Scan and its Credit
+travel on compute's connection, which parks nothing either. What waits on a stopped connection, a frontend's own Reference, a Cancel
+or a Commit, waits at most for the limit of what is parked ahead of it.
+
+**Frames on their way.** A frontend's role connection is one queue its client connections share, first in, first out, and a frame
+leaves it as the role reads. What a client connection has on its way to a role is counted per client connection, against
+`endpoint.held_bytes` (section 11.9): a Write or Operation no read holds back, from its arrival until it leaves the queue, and a
+transaction's first until it is answered, since a refusal resends it; a DirectWrite or ConditionalWrite until it is answered or passes
+`transaction_ms`; a Bind, ComputeRead, Reference, Recall or Credit until it leaves the queue. A Commit, a Drop and a Cancel are not
+counted: each stream sends one, and `max_streams` bounds them. Once the count reaches the bound, the frontend stops reading that
+client connection until it falls below it, and goes on sending what it answers, so a partition that stops reading reaches the client
+whose writes it holds. The bound refuses nothing: a frame read is counted whole, so a connection counts at most `held_bytes` and one
+frame, and a refusal would end a transaction with a limit its client did not pass.
+
+Stopping cannot deadlock, because nothing that lowers the count travels on the connection that stopped. A partition's answer sends
+the next write, and a transaction's limit, whose timer runs while the connection is stopped, ends it and takes back what it queued. A
+stream whose opening frame has not left is taken back whole and sends no Cancel; the partition sees a gap in the stream numbers, which
+it takes. A Write behind a read is not counted, since the Credit draining that read arrives on this socket; the same number refuses it
+instead (section 11.9). A Credit, Cancel, Abort or Commit a client sent behind what stopped its connection waits at most for
+the limit of the transactions counted ahead of it. A one-frame write still in the queue at `transaction_ms` from its arrival is taken
+back and answered code 4, having reached no partition. One that has left stays with its partition, which answers it, and is no longer
+counted.
+
+A client's count is its own. A client at its bound holds up no other client's reads, and the frames of others on a queue it shares
+wait behind at most its bound. A stalled partition stops only the clients whose counts its frames fill, and each of those, having one
+socket, stops whatever else it asks until its count falls. A client slow to read its answers holds up no queue, since a role connection
+hands each answer to its session by message. So the frontend holds at most its connections times `held_bytes` of these frames.
+
 **Writes.** The frontend binds a read-write transaction before its first request that reaches a partition's state, by the first
 row that fits:
 
@@ -1988,9 +2035,12 @@ does not declare asks the metadata group to record the predicate's default entry
 after the commit and holding no write for it; on recovery it asks again for every undeclared predicate its replayed
 rounds wrote. At a catalog version's effective epoch, each partition holding the tenant checks a type change the
 version makes against its data, holding its commits of that epoch until the check completes, and starts the index
-builds the version declares. It reports each check's outcome, and each build that fails, to the metadata group with
-Report (section 13.19), which the frontend answers once the group holds the report; a partition sends again a report
-left unanswered when its connection closed.
+builds the version declares; a version arriving while a build runs waits for the build's end, and the versions after it
+behind it. Once the round taking a version effect is durable the partition reports the outcome of every version it took
+effect, tightening or not, and each build that fails, to the metadata group with Report (section 13.19), which the
+frontend answers once the group holds the report; a partition sends again a report left unanswered when its connection
+closed. A partition starting over a log past a version's epoch loads the version in effect at its applied epoch before it
+replays, and a close delivered again takes its versions effect again, checked again.
 
 **Errors.** A role answers a refusal with Error, its codes those of section 9.4; code 26 passes between roles, and
 reaches a client only as *Writes* states. A role or partition stopped on an invariant violation answers code 17
@@ -2036,14 +2086,53 @@ effect at the round's epoch.
   records the assignment in its durable close record and announces it with that close (section 11.12, *Epochs*); the
   metadata group learns the epoch from that close, and a version pending when the frontend crashes is assigned at the
   next close after recovery. Rounds of epoch `c + 2` and later are validated against the version, earlier ones
-  against the version before. The Commit reply answers once the epoch is assigned and, for a type change, once every
-  partition holding the tenant has passed its check at that epoch: `commit_version` the first version of the
-  effective epoch, `(c + 2) << 22`, the token zero, and no results. A check the data contradicts in any partition
-  refuses the Commit with code 7, the message naming the predicate and the subject or object at fault, and the metadata
-  group commits a version restoring the previous declaration, so the refused change alters no data.
+  against the version before. The Commit reply answers once the epoch is assigned and, for a version that tightens a
+  predicate, once every partition holding the tenant at that epoch has passed its check: `commit_version` the first
+  version of the effective epoch, `(c + 2) << 22`, the token zero, and no results. A check the data contradicts in any
+  partition refuses the Commit with code 7, `detail` 0, the message naming the predicate and the subject or object at
+  fault, and the metadata group commits a version restoring the previous declaration, so the refused change alters no
+  data.
+- **A tightening's check.** A version tightens a predicate when, against the version it is built on or the default
+  entry, the predicate becomes single-valued, becomes an edge or a property from another kind, or takes a datatype
+  constraint other than the one it held; it loosens a predicate when it makes it multi-valued from single-valued, of
+  another kind from an edge or a property, or changes or removes a datatype constraint it held. An edge becoming a
+  property does both. A transaction's declarations that tighten one predicate or aspect and loosen another are refused at
+  the Commit with code 7, `detail` the index among them of the first that loosens, the message naming its predicate, and
+  the catalog is unchanged: what a loosening lets in during the check would contradict the version restoring it. The
+  client commits the loosening, then the tightening. The check runs as follows.
+  - *The wait.* The frontend's metadata group holds the version as being checked from its offer, and each partition's
+    report (section 13.19) durably. The frontend waits `catalog_check_ms` (section 11.9) from the close that assigned
+    the epoch, for a report from every partition the placement map gives the tenant at that epoch. A partition with
+    none of the predicate's data reports that the check passed.
+  - *Every partition passed.* The version stands, and the Commit is answered as *Its epoch* states.
+  - *A partition refused.* The group withdraws the version, and the Commit is refused as *Its epoch* states.
+  - *A partition silent past the wait.* A partition that reports nothing within `catalog_check_ms`, whether stopped,
+    unreachable or still scanning, withdraws the version the same way: the Commit is refused with code 24 (TimedOut),
+    `detail` the lowest partition silent, the message naming it and the version. The change did not happen, so nothing
+    is in doubt, and the client runs its transaction again on a new Begin. A partition that fails during its check and
+    restarts is delivered the close again and checks again, and its report counts when it arrives within the wait.
+  - *The restoring version.* Withdrawing is one command with the offer of the next version, built on the current one:
+    each declaration the withdrawn version changed and no later version has changed since returns to what the version
+    before it held, or goes when that version held none. It is durable before the Commit's refusal, and takes effect
+    as a version does. It loosens what the withdrawn version tightened, so no check runs on it and no data refuses it.
+    A report of a version no longer being checked is answered and changes nothing.
+  - *While a version is checked.* Another version built on it is refused with code 2, kind 5, the message naming the
+    version being checked, and the client runs its transaction again once the Commit before it is answered; a Drop's
+    version (*Drops*) is still built. Describe reports the latest version in effect at the latest close before any
+    being checked, leaving out one withdrawn, so a client never reads a declaration a check may yet withdraw.
+  - *Writes.* A partition validates writes against the version from the round that takes it effect in that partition,
+    a predicate it refused keeping the previous declaration until the restoring version arrives. A write it refuses
+    meanwhile wrote nothing and is true of that version whether or not the version is later withdrawn; a client runs it
+    again. So no write the version forbids lands in a partition after its check.
+  - *A frontend that stops.* The check is the metadata group's, so a restarted frontend takes it up and waits
+    `catalog_check_ms` anew, the partitions sending again each report left unanswered. The client's connection closes
+    under the Commit, which leaves it in doubt as a lost reply does, the one way a tightening's outcome is left in doubt:
+    Describe shows what took effect once the check ended, and until then a transaction built on the version is
+    refused as above. A client whose connection closes changes nothing about the check.
 - **Transactions against a version.** A read-write transaction that executed against another catalog version than the
-  one in effect at its commit epoch aborts with code 2, kind 5 (Catalog), and its retry executes against the version in
-  effect. A prepared statement's schema id changes with each version (section 11.7).
+  one in effect at its commit epoch, or than the last its partition's rounds took effect, its commit-time operations
+  included, aborts with code 2, kind 5 (Catalog), and its retry executes against the version in effect. A prepared
+  statement's schema id changes with each version (section 11.7).
 - **Default entries.** A write of a predicate the version in effect does not declare is validated with the default
   entry: kind either, multi-valued, no datatype constraint and no index. Its partition asks the metadata group to
   record that entry (section 11.12), keyed by the tenant and the predicate and belonging to no namespace, a command that
@@ -2933,8 +3022,11 @@ its request; the frontend, which receives the request, also refuses a request wh
 
 A partition reports to the metadata group what it found at a catalog version's effective epoch (section 11.12,
 *Default entries, checks and builds*): a type change's check, passed or refused by the data, or an index build that
-failed. The frontend answers once the metadata group holds the report, with every field as sent; a partition sends
-again a report left unanswered when its connection closed, and a repeated report changes nothing.
+failed. A version it refused no declaration of is reported as passed, whether or not it tightens anything, so the partition
+need not know which versions the frontend waits on. The frontend answers once the metadata group holds the report, with
+every field as sent; the group records a report only of a version being checked (section 11.13). A partition sends
+again a report left unanswered when its connection closed, and a repeated report changes nothing, the first of a
+partition standing.
 
 | Command header | Width | Field | Type | Rule |
 |---|---|---|---|---|

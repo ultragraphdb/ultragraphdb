@@ -16,6 +16,7 @@ pub use crate::traits::session::{Answer, Session};
 pub use crate::types::connection_bound::ConnectionBound;
 pub use crate::types::open_frame::OpenFrame;
 pub use crate::types::open_requests::OpenRequests;
+pub use crate::types::parked_bytes::ParkedBytes;
 pub use crate::types::role_client::RoleClient;
 pub use crate::types::role_cluster::RoleCluster;
 pub use crate::types::role_credentials::RoleCredentials;

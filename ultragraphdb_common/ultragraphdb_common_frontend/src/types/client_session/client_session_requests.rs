@@ -94,7 +94,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             return self.query(stream, &view);
         }
         if command == Command::Write || command == Command::Operation {
-            return self.write(stream, &view, frame.bytes()).await;
+            return self.write(stream, &view, frame.bytes());
         }
         if command == Command::Commit {
             return self.commit(stream, &view, frame.bytes()).await;

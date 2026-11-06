@@ -61,6 +61,7 @@ pub(crate) struct Steps {
     pub(crate) refused: Option<String>,
     pub(crate) answered: role_read_steps::Answered,
     pub(crate) ids: Vec<Vec<u8>>,
+    status: u16,
 }
 
 /// A client's refusal as it reads it, logging in as `name` with `password`.
@@ -106,7 +107,7 @@ fn frontend_alone(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-/// The frontend's role address, dialled as storage holding the cluster's secret.
+/// The frontend's role address, dialled as storage holding the cluster's secret: `/health` answering says it is bound.
 async fn as_storage() -> TestResult<RoleClient> {
     let target = Address::parse(&format!("tcp://{}", FRONTEND_ROLE_ADDRESS))?;
     Ok(RoleClient::dial(&target, CLUSTER, "storage", SECRET).await?)
@@ -292,6 +293,45 @@ fn port_held_a_moment(w: &mut Steps) -> TestResult {
 fn took_the_port(w: &mut Steps) -> TestResult {
     assert_eq!(http_status(FRONTEND_OBSERVABILITY, "/health")?, 200);
     assert!(retries_of(&w.log, FRONTEND_OBSERVABILITY) > 0, "{}", w.log);
+    Ok(())
+}
+
+#[when(
+    "the frontend starts while another process holds its role address, which lets it go within the bound"
+)]
+fn role_port_held_a_moment(w: &mut Steps) -> TestResult {
+    let log = scratch("frontend-role-port-a-moment.log");
+    let held = std::net::TcpListener::bind(FRONTEND_ROLE_ADDRESS)?;
+    let _pid = start_frontend(w, &frontend_holding()?, &log)?;
+    let mut retried = false;
+    for _ in 0..START_SECONDS * 100 {
+        w.log = std::fs::read_to_string(&log).unwrap_or_default();
+        retried = retries_of(&w.log, FRONTEND_ROLE_ADDRESS) > 0;
+        if retried {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        retried,
+        "a retry of the role address in the log, {START_SECONDS} s on: {}",
+        w.log
+    );
+    // The observability address is bound, the role address is not.
+    w.status = http_status(FRONTEND_OBSERVABILITY, "/health")?;
+    drop(held);
+    until_answering(FRONTEND_OBSERVABILITY, "/health")?;
+    w.log = std::fs::read_to_string(&log)?;
+    Ok(())
+}
+
+#[then(
+    "`/health` answers 503 while the address is held, and once it answers 200 a role connection to the address is accepted at once"
+)]
+fn health_after_binding(w: &mut Steps) -> TestResult {
+    assert_eq!(w.status, 503, "{}", w.log);
+    let _connected = Runtime::new()?.block_on(as_storage())?;
+    w.roles = None;
     Ok(())
 }
 

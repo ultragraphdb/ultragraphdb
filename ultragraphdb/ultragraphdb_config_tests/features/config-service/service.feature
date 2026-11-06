@@ -80,6 +80,10 @@ Feature: The config service and its CLI as processes
     When a request's declared body is larger than the bound
     Then it is refused with status 413 before its body is read, and nothing is stored
 
+  Scenario: A refusal reaches a client still sending
+    When a client goes on sending a body after the refusal of its declared size has arrived
+    Then each of its writes is taken, it reads status 413 and then the end of the connection, and nothing is stored
+
   Scenario: The health answers need no key
     When a request asks for `/health` and `/ready` with no key
     Then both answer 200

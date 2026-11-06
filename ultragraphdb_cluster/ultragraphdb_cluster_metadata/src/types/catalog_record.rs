@@ -5,14 +5,18 @@
 
 use ultragraphdb_core_ids::{Epoch, Tenant};
 
+use crate::types::catalog_check::CatalogCheck;
+
 /// One version of a tenant's catalog as the metadata group holds it: its tenant, its number, counted from 1 in
-/// the tenant, the epoch it takes effect at once the sequencer has announced it, `None` while it is pending, and its
-/// bytes in `ultragraphdb_core_catalog`'s encoding, which the group does not read.
+/// the tenant, the epoch it takes effect at once the sequencer has announced it, `None` while it is pending, where it
+/// stands against the partitions' checks, and its bytes in `ultragraphdb_core_catalog`'s encoding, which the group does
+/// not read.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CatalogRecord {
     tenant: Tenant,
     version: u64,
     effective: Option<Epoch>,
+    check: CatalogCheck,
     bytes: Vec<u8>,
 }
 
@@ -24,8 +28,16 @@ impl CatalogRecord {
             tenant,
             version,
             effective,
+            check: CatalogCheck::Settled,
             bytes,
         }
+    }
+
+    /// The record standing at `check` against the partitions' checks.
+    #[must_use]
+    pub fn with_check(mut self, check: CatalogCheck) -> Self {
+        self.check = check;
+        self
     }
 
     /// The tenant whose catalog it is.
@@ -46,6 +58,12 @@ impl CatalogRecord {
         self.effective
     }
 
+    /// Where the version stands against the partitions' checks.
+    #[must_use]
+    pub fn check(&self) -> &CatalogCheck {
+        &self.check
+    }
+
     /// The version's bytes, in `ultragraphdb_core_catalog`'s encoding.
     #[must_use]
     pub fn bytes(&self) -> &[u8] {
@@ -55,5 +73,10 @@ impl CatalogRecord {
     /// Assigns the epoch the version takes effect at.
     pub(crate) fn take_effect(&mut self, epoch: Epoch) {
         self.effective = Some(epoch);
+    }
+
+    /// Sets where the version stands against the partitions' checks.
+    pub(crate) fn set_check(&mut self, check: CatalogCheck) {
+        self.check = check;
     }
 }

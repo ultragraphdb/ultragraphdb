@@ -137,8 +137,7 @@ where
     pub(crate) fn initial(&mut self) -> Result<(), ChangesetError> {
         if self.catalog.predicates().next().is_none() {
             let rdf_type = self.iri(rdf::TYPE)?;
-            let version = self.catalog.version();
-            self.catalog = Catalog::initial(self.tenant(), rdf_type).with_version(version);
+            self.catalog = std::mem::take(&mut self.catalog).with_initial(rdf_type);
             self.gave_initial = true;
             let key = catalog_key(self.tenant(), PREDICATE, rdf_type);
             let _removed: Option<SystemId> = self.defaults.remove(&key);
@@ -216,8 +215,7 @@ where
         // A write netting to nothing, no declaration among it, leaves the catalog as its replay does, which derives nothing: the
         // initial catalog its undone changes executed under is taken back.
         if self.gave_initial && !self.catalog_changed && net.is_empty() && self.records.is_empty() {
-            let version = self.catalog.version();
-            self.catalog = Catalog::new(self.tenant()).with_version(version);
+            self.catalog = std::mem::take(&mut self.catalog).emptied();
             self.gave_initial = false;
         }
         self.net = net;
@@ -386,6 +384,9 @@ where
         }
         if let Some(declared) = self.catalog.predicate(uid) {
             return Ok(declared.clone());
+        }
+        if let Some(held) = self.catalog.unresolved(predicate.as_str()) {
+            return Ok(held.clone());
         }
         let default = PredicateDeclaration::new(predicate.into_owned());
         if !self.deriving {

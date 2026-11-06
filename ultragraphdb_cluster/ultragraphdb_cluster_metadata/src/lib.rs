@@ -42,6 +42,7 @@
 
 mod types;
 
+pub use crate::types::catalog_check::CatalogCheck;
 pub use crate::types::catalog_record::CatalogRecord;
 pub use crate::types::leased_blocks::LeasedBlocks;
 pub use crate::types::metadata_command::MetadataCommand;

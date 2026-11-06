@@ -115,6 +115,7 @@ impl Raw<'_> {
                 }
                 put_count(out, data.len());
                 out.extend_from_slice(data);
+                out.push(0);
             }
         }
     }
@@ -163,7 +164,7 @@ fn test_tenants_rise() {
         next: 1,
         ..Raw::default()
     };
-    assert!(refuses(&twice, "a tenant after the one before it", 70));
+    assert!(refuses(&twice, "a tenant after the one before it", 71));
 }
 
 #[test]
@@ -195,18 +196,18 @@ fn test_versions_rise_and_their_epochs_never_fall() {
     );
     assert_eq!(refused(&ok), None);
     let twice = versions(vec![(1, Some(3), b""), (1, Some(3), b"")], 1);
-    assert!(refuses(&twice, "a version after the one before it", 70));
+    assert!(refuses(&twice, "a version after the one before it", 71));
     let falling = versions(vec![(1, Some(3), b""), (2, Some(2), b"")], 2);
     assert!(refuses(
         &falling,
         "an effective epoch at or after the one before it",
-        79
+        80
     ));
     let after_pending = versions(vec![(1, None, b""), (2, Some(2), b"")], 2);
     assert!(refuses(
         &after_pending,
         "an effective epoch at or after the one before it",
-        71
+        72
     ));
     let latest = versions(vec![(1, Some(3), b"")], 2);
     assert!(refuses(

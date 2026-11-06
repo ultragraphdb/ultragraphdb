@@ -11,7 +11,7 @@ use std::ops::ControlFlow;
 use oxrdf::{GraphNameRef, NamedNode, NamedNodeRef, NamedOrBlankNodeRef, Term};
 use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::{Keyspace, Region};
-use ultragraphdb_core_mapping::Changes;
+use ultragraphdb_core_mapping::{Changes, Declaration};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_traits_blocks::BlockSource;
@@ -281,6 +281,19 @@ where
         iri: &NamedNode,
     ) -> Result<(), ChangesetError> {
         self.write.undeclare(uid, iri)
+    }
+
+    /// Holds `declaration` by its name, whose ID another partition gives.
+    pub(crate) fn hold_unresolved(
+        &mut self,
+        declaration: &Declaration,
+    ) -> Result<(), ChangesetError> {
+        self.write.hold_unresolved(declaration)
+    }
+
+    /// Forgets the declarations held by name.
+    pub(crate) fn clear_unresolved(&mut self) {
+        self.write.clear_unresolved();
     }
 
     /// Removes entity type or relation `uid`'s declaration, of entry kind `kind`, as a catalog version that no longer

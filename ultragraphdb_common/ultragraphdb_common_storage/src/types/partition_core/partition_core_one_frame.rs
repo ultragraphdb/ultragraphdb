@@ -3,13 +3,10 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use futures::channel::oneshot;
 use oxrdf::{GraphNameRef, NamedNodeRef};
 use ultragraphdb_cluster_partition::{BoundKey, BoundStep, PartitionError};
 use ultragraphdb_common_role::Answer;
-use ultragraphdb_core_catalog::CatalogContents;
 use ultragraphdb_core_ids::SessionToken;
-use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, Command, DropCommand, DropCommandView, DropKind, ErrorCode, ErrorReply,
     FrameView, MAX_FRAME_SIZE, RequestTermView, WriteChange,
@@ -22,7 +19,7 @@ use crate::types::core_message::Pushes;
 use crate::types::one_frame_view::OneFrameView;
 use crate::types::partition_core::partition_core_frames::{built, last};
 use crate::types::partition_core::{
-    Committing, OneFrameAt, OneFrameRetry, Parked, ParkedWork, PartitionCore,
+    Committing, OneFrameAt, OneFrameRetry, ParkedWork, PartitionCore, RequestStep,
 };
 use crate::utils::commit_body::commit_body;
 use crate::utils::error_reply::error_reply;
@@ -30,7 +27,7 @@ use crate::utils::operation_of::operation_of;
 
 /// How many times a one-frame write runs again on a conflict over what it tested, before code 2 reaches its client (`PROTOCOL.md`
 /// §6.6): each run reads a newer watermark, so only as many as this many commits landing in its way refuse it.
-const ONE_FRAME_ATTEMPTS: u32 = 8;
+pub(super) const ONE_FRAME_ATTEMPTS: u32 = 8;
 
 /// What a run of a one-frame write came to.
 #[derive(Clone, Copy)]
@@ -51,43 +48,16 @@ fn identity_of((connection, stream): BoundKey) -> [u8; 16] {
 }
 
 impl PartitionCore<'_> {
-    /// Installs the catalog version `contents` in a round of its own. Its execution reads, so a commit landing first aborts it, and it
-    /// runs again against the data that commit left.
-    pub(super) fn install(&mut self, contents: CatalogContents) {
-        let now = self.now_us();
-        match self.host.install_catalog(&contents, now) {
-            Ok((ticket, refusals)) => {
-                for refusal in refusals {
-                    tracing::warn!(%refusal, version = contents.version(), "the data refuses a declaration");
-                }
-                let _none = self.installing.insert(ticket, contents);
-            }
-            Err(error) => {
-                tracing::error!(%error, version = contents.version(), "a catalog version could not be installed");
-            }
-        }
-    }
-
     /// A DirectWrite or ConditionalWrite: a resend answered from the session table, else executed from its frame in one turn, its
     /// references' wait apart (`PROTOCOL.md` §6.6).
-    pub(super) fn one_frame(
-        &mut self,
-        key: BoundKey,
-        frame: ReceivedFrame,
-        done: oneshot::Sender<Answer>,
-        pushes: Pushes,
-    ) {
-        let step = frame
-            .view()
+    pub(super) fn one_frame(&mut self, key: BoundKey, view: &FrameView<'_>) -> RequestStep {
+        let step = OneFrameView::of(view)
             .map_err(|rule| protocol(&rule))
-            .and_then(|view| {
-                let one = OneFrameView::of(&view).map_err(|rule| protocol(&rule))?;
-                self.start_one_frame(key, &one)
-            });
+            .and_then(|one| self.start_one_frame(key, &one));
         match step {
-            Ok(Started::Stored(answer)) => drop(done.send(answer)),
-            Ok(Started::Step(step)) => self.after_one_frame(key, frame, done, pushes, step),
-            Err(refusal) => drop(done.send(Answer::Refuse(refusal))),
+            Ok(Started::Stored(answer)) => RequestStep::Answered(answer),
+            Ok(Started::Step(step)) => step.into(),
+            Err(refusal) => RequestStep::Answered(Answer::Refuse(refusal)),
         }
     }
 
@@ -144,6 +114,7 @@ impl PartitionCore<'_> {
             catalog
                 .predicates()
                 .any(|(_, held)| held.unique() && held.predicate().as_str() == iri)
+                || catalog.unresolved(iri).is_some_and(|held| held.unique())
         };
         let inserted = (0..one.change_count())
             .filter_map(|index| one.change(index))
@@ -231,46 +202,16 @@ impl PartitionCore<'_> {
             .map_err(|refusal| error_reply(&refusal))
     }
 
-    /// What follows a run: the frame parked for its references, or held for a conflict's next run.
-    fn after_one_frame(
-        &mut self,
-        key: BoundKey,
-        frame: ReceivedFrame,
-        done: oneshot::Sender<Answer>,
-        pushes: Pushes,
-        step: OneFrameStep,
-    ) {
-        match step {
-            OneFrameStep::Waiting(at) => {
-                // A one-frame write's tenant is its frame's, so the slot of a Write's stays unused.
-                let _none = self.parked.insert(
-                    key,
-                    Parked {
-                        frame,
-                        done,
-                        tenant: 0,
-                        work: ParkedWork::OneFrame { at, pushes },
-                    },
-                );
-            }
-            OneFrameStep::InCommit(ticket) => {
-                let attempts = ONE_FRAME_ATTEMPTS;
-                self.committing_one_frame(key, frame.bytes(), attempts, ticket, pushes);
-                drop(done.send(Answer::Open));
-            }
-        }
-    }
-
     /// A run in the commit step under `ticket`, its frame kept for the conflict that runs it again.
-    fn committing_one_frame(
+    pub(super) fn committing_one_frame(
         &mut self,
         key: BoundKey,
-        bytes: &[u8],
+        bytes: Vec<u8>,
         attempts: u32,
         ticket: u64,
         pushes: Pushes,
     ) {
-        let (session, request) = FrameView::validate(bytes, self.cluster, MAX_FRAME_SIZE)
+        let (session, request) = FrameView::validate(&bytes, self.cluster, MAX_FRAME_SIZE)
             .ok()
             .and_then(|view| {
                 OneFrameView::of(&view)
@@ -287,7 +228,7 @@ impl PartitionCore<'_> {
                 pushes,
                 retry: Some(OneFrameRetry {
                     connection: key.0,
-                    frame: bytes.to_vec(),
+                    frame: bytes,
                     attempts: attempts.saturating_sub(1),
                 }),
                 dropped: None,
@@ -299,23 +240,17 @@ impl PartitionCore<'_> {
     pub(super) fn resume_one_frame(
         &mut self,
         key: BoundKey,
-        parked: Parked,
+        view: &FrameView<'_>,
         at: OneFrameAt,
-        pushes: Pushes,
-    ) {
-        let Parked { frame, done, .. } = parked;
-        let step = frame
-            .view()
+    ) -> RequestStep {
+        let step = OneFrameView::of(view)
             .map_err(|rule| protocol(&rule))
-            .and_then(|view| {
-                let one = OneFrameView::of(&view).map_err(|rule| protocol(&rule))?;
-                self.step_one_frame(key, &one, at)
-            });
+            .and_then(|one| self.step_one_frame(key, &one, at));
         match step {
-            Ok(step) => self.after_one_frame(key, frame, done, pushes, step),
+            Ok(step) => step.into(),
             Err(refusal) => {
                 self.host.abort_bound(key);
-                drop(done.send(Answer::Refuse(refusal)));
+                RequestStep::Answered(Answer::Refuse(refusal))
             }
         }
     }
@@ -347,7 +282,7 @@ impl PartitionCore<'_> {
         match ran {
             Ok(OneFrameStep::InCommit(ticket)) => {
                 let pushes = committing.pushes.clone();
-                self.committing_one_frame(key, &frame, attempts, ticket, pushes);
+                self.committing_one_frame(key, frame, attempts, ticket, pushes);
                 true
             }
             Ok(OneFrameStep::Waiting(_)) => {
@@ -422,6 +357,19 @@ impl PartitionCore<'_> {
         token: Option<&SessionToken>,
     ) -> Result<Vec<u8>, ultragraphdb_error_protocol::ProtocolError> {
         dropped_reply(body, version, token).frame(last(self.cluster, stream, Command::Drop))
+    }
+}
+
+impl From<OneFrameStep> for RequestStep {
+    fn from(step: OneFrameStep) -> Self {
+        match step {
+            // A one-frame write's tenant is its frame's, so the slot of a Write's stays unused.
+            OneFrameStep::Waiting(at) => Self::Parks {
+                tenant: 0,
+                work: ParkedWork::OneFrame { at },
+            },
+            OneFrameStep::InCommit(ticket) => Self::InCommit(ticket),
+        }
     }
 }
 

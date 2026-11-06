@@ -197,6 +197,13 @@ impl Session for PlayedConnection {
         if command == Command::CloseRequest {
             return Answer::Done;
         }
+        if command == Command::Catalog {
+            // The played frontend holds no catalog version, so it refuses each as the group refuses one a tenant never held.
+            return Answer::Refuse(ErrorReply::new(
+                ErrorCode::Refused,
+                "the played frontend holds no catalog version",
+            ));
+        }
         Answer::Refuse(ErrorReply::new(
             ErrorCode::Unavailable,
             format!("command {} is not played", command.number()),

@@ -29,10 +29,16 @@ ultragraphdb_tool_bdd = { workspace = true }
 [dev-dependencies]
 cucumber = { workspace = true }
 futures = { workspace = true }
+tokio = { workspace = true, features = ["net", "io-util", "time", "rt"] }
 ultragraphdb_client_compio = { workspace = true }
+ultragraphdb_client_tokio = { workspace = true }
+ultragraphdb_core_ids = { workspace = true }
+ultragraphdb_core_terms = { workspace = true }
+ultragraphdb_error_protocol = { workspace = true }
 ultragraphdb_protocol_scram = { workspace = true }
 ultragraphdb_protocol_transport_compio = { workspace = true }
 ultragraphdb_store_quads = { workspace = true }
+ultragraphdb_transport_tls = { workspace = true, features = ["test-utils"] }
 
 [[test]]
 name = "bdd"

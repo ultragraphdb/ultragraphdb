@@ -5,6 +5,7 @@
 
 mod owner_answer;
 pub(crate) mod owner_catalog;
+mod owner_check;
 mod owner_turn;
 
 use std::collections::BTreeMap;
@@ -39,10 +40,15 @@ enum Durable {
     Registered(Sender<Result<(), ErrorReply>>),
     /// A default entry's record, and whether it was held already.
     Recorded(bool, Sender<Result<bool, ErrorReply>>),
+    /// A restoring version, and the refusal of the declaring Commit waiting on what it withdraws, if one still is.
+    Restored(Option<(VersionSender, ErrorReply)>),
 }
 
+/// Where a declaring Commit's answer goes.
+type VersionSender = Sender<Result<u64, ErrorReply>>;
+
 /// A declaring Commit waiting on a catalog version's effective epoch: its tenant, the version and where to answer.
-type VersionWaiter = (Tenant, u64, Sender<Result<u64, ErrorReply>>);
+type VersionWaiter = (Tenant, u64, VersionSender);
 
 /// The one owner of the metadata group, the sequencer and who joined: everything an endpoint core asks is decided here,
 /// generic over the log so replication replaces it in stage 8.
@@ -54,6 +60,11 @@ pub struct Owner<M: OrderedLog, S: OrderedLog> {
     closes_waited: Vec<(Epoch, Sender<Result<Close, ErrorReply>>)>,
     /// The catalog versions a declaring Commit waits on the effective epoch of.
     versions_waited: Vec<VersionWaiter>,
+    /// What the data refused of each version being checked, its predicate and the term at fault: the first partition's
+    /// word, which the Commit's refusal names. A restart forgets it with the Commit that would hear it.
+    check_refusals: BTreeMap<(Tenant, u64), (String, String)>,
+    /// When each version being checked, its epoch assigned, stops waiting for its partitions.
+    check_deadlines: BTreeMap<(Tenant, u64), u64>,
     /// The sessions with a commit in flight, each with whether it may record the session in a partition's table, which keeps a
     /// full registry from evicting it.
     in_flight: BTreeMap<u128, bool>,
@@ -132,6 +143,8 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
             durable: Vec::new(),
             closes_waited: Vec::new(),
             versions_waited: Vec::new(),
+            check_refusals: BTreeMap::new(),
+            check_deadlines: BTreeMap::new(),
             in_flight: BTreeMap::new(),
             schema_ids: BTreeMap::new(),
             closes_since_snapshot: 0,

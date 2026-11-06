@@ -9,6 +9,7 @@ pub mod entries_fill;
 pub mod held_catalogs;
 pub(crate) mod one_frame_view;
 pub(crate) mod open_scan;
+pub(crate) mod parked_frame;
 pub mod partition_core;
 pub mod refill_blocks;
 pub mod retention;

@@ -11,6 +11,7 @@ use ultragraphdb_protocol_wire::{
     Catalog, Declared, Describe, ErrorReply, Join, Members, Placement,
 };
 
+use crate::types::report_asked::ReportAsked;
 use crate::types::tenant_facts::TenantFacts;
 
 /// The catalog version a Drop calls for (`PROTOCOL.md` §11.13).
@@ -177,6 +178,13 @@ pub enum Asked {
         tenant: u64,
         /// What the Drop removed.
         step: DropStep,
+        /// Its answer.
+        reply: Sender<Result<(), ErrorReply>>,
+    },
+    /// A partition's report on a catalog version, answered once the group holds it.
+    Report {
+        /// The report.
+        report: ReportAsked,
         /// Its answer.
         reply: Sender<Result<(), ErrorReply>>,
     },

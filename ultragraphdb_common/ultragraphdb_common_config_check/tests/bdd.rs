@@ -515,6 +515,24 @@ fn retention_entry(w: &mut Steps) {
     );
 }
 
+#[when("`ci_storage_1.toml` sets `storage.held_bytes = 0`")]
+fn zero_parked_bytes(w: &mut Steps) {
+    let target = with(
+        valid(),
+        "storage_1",
+        "[storage]\npartition_first = 1\npartition_count = 2\nrole_address = \"tcp://10.0.0.2:7000\"\nheld_bytes = 0\n",
+    );
+    w.defects = check_target(&target, None);
+}
+
+#[then("the entry names `storage.held_bytes`, the value 0 and the bound it must meet")]
+fn parked_bytes_entry(w: &mut Steps) {
+    says(
+        w,
+        &["setting storage.held_bytes", "it holds 0", "at least 1"],
+    );
+}
+
 #[when("`ci_frontend.toml` sets `endpoint.held_bytes = 0`")]
 fn zero_held_bytes(w: &mut Steps) {
     let frontend = format!("{FRONTEND}[endpoint]\nplaintext = true\nheld_bytes = 0\n");

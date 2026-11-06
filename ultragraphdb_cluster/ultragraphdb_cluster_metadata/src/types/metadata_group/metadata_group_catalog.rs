@@ -9,6 +9,8 @@ use ultragraphdb_error_cluster::ClusterError;
 use ultragraphdb_traits_catalog::DefaultEntry;
 use ultragraphdb_traits_log::{OrderedLog, Position};
 
+use crate::types::catalog_check::CatalogCheck;
+use crate::types::catalog_record::CatalogRecord;
 use crate::types::metadata_command::MetadataCommand;
 use crate::types::metadata_group::MetadataGroup;
 
@@ -35,6 +37,84 @@ impl<L: OrderedLog> MetadataGroup<L> {
         })?;
         // The offer was taken, so its predecessor is below the largest version.
         Ok((predecessor + 1, position))
+    }
+
+    /// Commits `bytes` as [`offer_catalog`](Self::offer_catalog) does, a version tightening a predicate: it is being checked
+    /// from here (`PROTOCOL.md` §11.13).
+    ///
+    /// # Errors
+    ///
+    /// As [`offer_catalog`](Self::offer_catalog). Nothing is appended on a refusal.
+    pub fn offer_checked(
+        &mut self,
+        tenant: Tenant,
+        predecessor: u64,
+        bytes: &[u8],
+    ) -> Result<(u64, Position), ClusterError> {
+        let position = self.append(MetadataCommand::OfferChecked {
+            tenant,
+            predecessor,
+            bytes: bytes.to_vec(),
+        })?;
+        Ok((predecessor + 1, position))
+    }
+
+    /// Commits `bytes` as [`offer_catalog`](Self::offer_catalog) does, a version restoring what version `restores` changed,
+    /// withdrawing it in the one command.
+    ///
+    /// # Errors
+    ///
+    /// As [`offer_catalog`](Self::offer_catalog); [`ClusterError::contradicts`] when `restores` is not being checked.
+    /// Nothing is appended on a refusal.
+    pub fn offer_restoring(
+        &mut self,
+        tenant: Tenant,
+        predecessor: u64,
+        restores: u64,
+        bytes: &[u8],
+    ) -> Result<(u64, Position), ClusterError> {
+        let position = self.append(MetadataCommand::OfferRestoring {
+            tenant,
+            predecessor,
+            restores,
+            bytes: bytes.to_vec(),
+        })?;
+        Ok((predecessor + 1, position))
+    }
+
+    /// Records `partition`'s report on version `version` of `tenant`; returns the position it was appended at, or `None` when
+    /// it would change nothing: a repeated report, one of a version no longer being checked, or one before the version's
+    /// epoch is assigned, which a partition delivered its close cannot send.
+    ///
+    /// # Errors
+    ///
+    /// [`ClusterError::log`] when the log refuses the round.
+    pub fn report_check(
+        &mut self,
+        tenant: Tenant,
+        version: u64,
+        partition: PartitionId,
+        refused: bool,
+    ) -> Result<Option<Position>, ClusterError> {
+        let record = self.head.version_record(tenant, version);
+        let Some(CatalogCheck::Checking {
+            passed,
+            refused: already,
+        }) = record.map(CatalogRecord::check)
+        else {
+            return Ok(None);
+        };
+        let repeated = *already || (!refused && passed.contains(&partition));
+        if repeated || record.and_then(CatalogRecord::effective).is_none() {
+            return Ok(None);
+        }
+        self.append(MetadataCommand::ReportCheck {
+            tenant,
+            version,
+            partition,
+            refused,
+        })
+        .map(Some)
     }
 
     /// Creates `tenant`; returns the position it was appended at, or `None` for a tenant the group holds, which changes nothing,

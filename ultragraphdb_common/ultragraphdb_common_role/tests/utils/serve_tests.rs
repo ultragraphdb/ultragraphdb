@@ -12,8 +12,8 @@ use std::time::Duration;
 
 use compio::runtime::{Runtime, spawn};
 use ultragraphdb_common_role::{
-    Answer, ROLE_ITERATIONS, RoleClient, RoleCredentials, RoleSecret, Server, Session, listen,
-    serve_connection,
+    Answer, ParkedBytes, ROLE_ITERATIONS, RoleClient, RoleCredentials, RoleSecret, Server, Session,
+    listen, serve_connection,
 };
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_error_role::RoleError;
@@ -21,11 +21,11 @@ use ultragraphdb_protocol_transport::{
     Address, Endpoint, ReceivedFrame, TransportError, TransportErrorEnum,
 };
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, BodyView, CloseRequest, Command, Credit, DEFAULT_INITIAL_CREDIT, Entries,
+    BodyBuilder, BodyView, CloseRequest, Closed, Command, Credit, DEFAULT_INITIAL_CREDIT, Entries,
     EntriesEnd, EntriesView, ErrorCode, ErrorReply, FLAG_LAST, Header, Held, Join, MAX_FRAME_FLOOR,
     Members, Scan, ScanAt, ScanRange,
 };
-use ultragraphdb_tool_bdd::{Context, TestResult};
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 const CLUSTER: u64 = 7;
 const PASSWORD: &str = "s3cret";
@@ -203,6 +203,99 @@ fn test_a_session_producing_on_ready_stops_where_the_readers_credit_stops() -> T
             assert_eq!(built.get(), range + 1, "one frame per grant");
         }
         Ok(())
+    })
+}
+
+/// Holds each request's bytes in `parked`, answers it with nothing, and pushes one Held, on the first request's stream, once the
+/// test lets go of a byte.
+#[derive(Debug)]
+struct Parking {
+    parked: ParkedBytes,
+    taken: Rc<Cell<u32>>,
+    first: Option<u64>,
+    push: Rc<Cell<bool>>,
+}
+
+impl Session for Parking {
+    async fn answer(&mut self, stream: u64, frame: ReceivedFrame) -> Answer {
+        self.parked.hold(frame.bytes().len());
+        self.taken.set(self.taken.get() + 1);
+        let _first = self.first.get_or_insert(stream);
+        Answer::Open
+    }
+
+    fn parked(&self) -> Option<ParkedBytes> {
+        Some(self.parked.clone())
+    }
+
+    async fn next_push(&mut self) -> (u64, Vec<u8>) {
+        loop {
+            if self.push.replace(false)
+                && let Some(stream) = self.first
+                && let Ok(frame) =
+                    Held.frame(Header::new(CLUSTER, Command::Held).with_stream(stream))
+            {
+                return (stream, frame);
+            }
+            compio::time::sleep(Duration::from_millis(1)).await;
+        }
+    }
+}
+
+/// Waits, at most a second, until `taken` counts `requests`.
+async fn until_taken(taken: &Rc<Cell<u32>>, requests: u32) -> TestResult {
+    for _ in 0..1_000 {
+        if taken.get() == requests {
+            return Ok(());
+        }
+        compio::time::sleep(Duration::from_millis(1)).await;
+    }
+    Err(TestError::new(format!(
+        "the connection took {} requests of {requests} within a second",
+        taken.get()
+    )))
+}
+
+/// A connection whose parked bytes stand at their bound takes no further frame and goes on sending what its session pushes; once they
+/// fall below it the frame waiting in the socket is read.
+#[test]
+fn test_a_connection_at_its_parked_bound_reads_nothing_and_goes_on_sending() -> TestResult {
+    Runtime::new()?.block_on(async {
+        let parked = ParkedBytes::new(1);
+        let taken = Rc::new(Cell::new(0));
+        let push = Rc::new(Cell::new(false));
+        let listener = listen(&free_tcp()?).await?;
+        let address = listener.local_address()?;
+        let server =
+            Server::new(CLUSTER, "test", Endpoint::Partition)?.with_iterations(ROLE_ITERATIONS);
+        let held = credentials()?;
+        let session = Parking {
+            parked: parked.clone(),
+            taken: Rc::clone(&taken),
+            first: None,
+            push: Rc::clone(&push),
+        };
+        spawn(async move {
+            if let Ok(carrier) = listener.accept().await {
+                serve_connection(carrier, &server, held, session).await;
+            }
+        })
+        .detach();
+        let mut client = RoleClient::dial(&address, CLUSTER, "compute", PASSWORD).await?;
+        client.send_only(&Closed::request(&[1])).await?;
+        let first = client.last_stream();
+        until_taken(&taken, 1).await?;
+        client.send_only(&Closed::request(&[1])).await?;
+        compio::time::sleep(Duration::from_millis(20)).await;
+        assert_eq!(taken.get(), 1, "the bound holds the second back");
+        push.set(true);
+        let pushed = compio::time::timeout(Duration::from_secs(5), client.next_frame())
+            .await
+            .context("a push while the connection reads nothing")??;
+        assert_eq!(pushed.view()?.header().stream(), first);
+        assert_eq!(taken.get(), 1, "a push reads nothing");
+        parked.release(parked.count());
+        until_taken(&taken, 2).await
     })
 }
 

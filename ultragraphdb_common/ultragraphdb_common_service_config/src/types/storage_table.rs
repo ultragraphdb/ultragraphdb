@@ -16,11 +16,15 @@ pub struct StorageTable {
     close_request_ms: Option<u64>,
     scan_stall_ms: Option<u64>,
     read_retain_ms: Option<u64>,
+    held_bytes: Option<u64>,
 }
 
 impl StorageTable {
     /// `read_retain_ms` when the table names none: 60,000 ms (`PROTOCOL.md` §11.9).
     pub const READ_RETAIN_MS_DEFAULT: u64 = 60_000;
+
+    /// `held_bytes` when the table names none: 4,194,304 bytes (`PROTOCOL.md` §11.9).
+    pub const HELD_BYTES_DEFAULT: u64 = 4_194_304;
 
     pub(crate) fn read(reader: &mut SettingsReader) -> Result<Self, ServiceConfigError> {
         Ok(Self {
@@ -31,6 +35,7 @@ impl StorageTable {
             close_request_ms: reader.u64("storage", "close_request_ms")?,
             scan_stall_ms: reader.u64("storage", "scan_stall_ms")?,
             read_retain_ms: reader.u64("storage", "read_retain_ms")?,
+            held_bytes: reader.u64("storage", "held_bytes")?,
         })
     }
 
@@ -68,5 +73,10 @@ impl StorageTable {
     /// milliseconds.
     pub fn read_retain_ms(&self) -> Option<u64> {
         self.read_retain_ms
+    }
+
+    /// `held_bytes`: the most bytes of frames a connection holds parked before the partition stops reading it.
+    pub fn held_bytes(&self) -> Option<u64> {
+        self.held_bytes
     }
 }

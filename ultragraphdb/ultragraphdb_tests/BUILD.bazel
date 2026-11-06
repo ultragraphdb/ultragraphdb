@@ -21,12 +21,14 @@ rust_library(
 
 # Whole clusters as processes: each is copied into the sandbox, and the test starts it, its dependencies first. No
 # container is involved, so Bazel caches the result. The ports are declared and fixed, so `exclusive` keeps any other test
-# from running beside this one; it stays sandboxed.
+# from running beside this one; it stays sandboxed. The golden bodies are the conversations the client's conformance suite
+# plays, here sent to the real binaries.
 rust_test(
     name = "bdd",
     srcs = glob(["tests/**/*.rs"]),
     crate_root = "tests/bdd.rs",
     data = glob(["features/**/*.feature"]) + [
+        "//ultragraphdb_protocol/ultragraphdb_protocol_wire:golden_bodies",
         ":copy_config",
         ":copy_compute",
         ":copy_frontend",

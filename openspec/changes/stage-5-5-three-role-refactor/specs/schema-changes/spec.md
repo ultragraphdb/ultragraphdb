@@ -75,6 +75,70 @@ predicate holds an object when one of its forward lists holds it at the start of
 - **THEN** the check at the effective epoch fails naming `nick` and `a`, the change's reply is that error, and `nick`
   stays multi-valued
 
+### Requirement: A tightening is checked before it is acknowledged
+A declaring Commit that tightens a predicate SHALL be answered only once every partition holding the tenant at the catalog
+version's effective epoch has reported its check passed, and the frontend SHALL wait `catalog_check_ms` for the reports, durable
+in the metadata group. A partition's refusal SHALL refuse the Commit with code 7 naming the predicate and the subject or object at
+fault; a partition silent past the wait SHALL refuse it with code 24, `detail` that partition, naming the partition and the version.
+Each SHALL withdraw the version in one command with the offer of the version restoring the previous declaration, durable before the
+refusal. Describe SHALL report no version being checked or withdrawn. A version built on one being checked SHALL be refused with code
+2, kind 5. Declarations tightening one predicate or aspect and loosening another SHALL be refused at the Commit with code 7, `detail`
+the index of the first that loosens, the catalog unchanged. A frontend that stops SHALL take the check up again from the metadata
+group.
+
+#### Scenario: A tightening the data contradicts is refused and restored
+- **WHEN** `a` holds two objects of `nick` and a client commits a declaration of `nick` single-valued
+- **THEN** the Commit is refused with code 7 naming `nick` and `a`, the metadata group holds a version restoring the previous
+  declaration, and no Describe reports `nick` single-valued
+
+#### Scenario: A tightening the data bears out is acknowledged after the check
+- **WHEN** a client commits a declaration of `nick` single-valued over two partitions holding `a` with one object of it, and one has
+  reported its check passed
+- **THEN** the Commit stays unanswered and Describe reports `nick` as before until the other reports, and then the Commit answers the
+  first version of the effective epoch and Describe reports `nick` single-valued
+
+#### Scenario: A partition silent past the wait withdraws the tightening
+- **WHEN** a client commits a declaration of `nick` single-valued, and a partition holding the tenant reports nothing within
+  `catalog_check_ms`
+- **THEN** the Commit is refused with code 24, `detail` that partition, naming it and the version, the metadata group holds a version
+  restoring the previous declaration, and a report arriving later changes nothing
+
+#### Scenario: A version built on one being checked is refused
+- **WHEN** a client commits a declaration of `nick` single-valued, and before any partition reports a second transaction begun on that
+  version commits a declaration of `age`
+- **THEN** the second Commit is refused with code 2, kind 5, naming the version being checked, and once the first is answered a third
+  transaction's declaration of `age` commits
+
+#### Scenario: Declarations tightening and loosening at once are refused at the Commit
+- **WHEN** `friend` is declared an edge, and a client commits a declaration of `friend` a property
+- **THEN** the Commit is refused with code 7, `detail` its declaration's index, naming `friend`, and the catalog is unchanged
+
+#### Scenario: A restarted frontend finishes the check it held
+- **WHEN** a client commits a declaration of `nick` single-valued, the frontend stops before any partition reports, and after its
+  restart a partition reports that the data refuses it
+- **THEN** the metadata group holds a version restoring the previous declaration, and no Describe reports `nick` single-valued
+
+#### Scenario: A Drop during a check stands against the restoring version
+- **WHEN** a client commits a declaration of `nick` and of `age` single-valued, a Drop of `nick` builds its version before any partition
+  reports, and a partition reports that the data refuses the first
+- **THEN** the latest version holds neither `nick` nor `age` single-valued, and `nick` declared by no version after the Drop's
+
+#### Scenario: A partition holding no term of a predicate writes it under its declaration
+- **WHEN** a client's declaration of a new `name` a property is acknowledged over two partitions, and a client writes an IRI object of
+  `name` to a subject of each
+- **THEN** each write is refused
+
+#### Scenario: A write the tightening forbids is refused once the check passed
+- **WHEN** a client's declaration of `name` a property is acknowledged, `a` holding a literal of it, the storage process restarts, and
+  a client writes `<a> <name> <b>`
+- **THEN** the write is refused, and `a` holds its literal alone
+
+#### Scenario: A tightening passes every partition's check through the binaries
+- **WHEN** `a` and `b`, one in each of two partitions, each hold one object of `nick`, and a client commits a declaration of `nick`
+  single-valued
+- **THEN** both partitions have reported when the Commit answers the first version of the effective epoch, and Describe reports `nick`
+  single-valued
+
 ### Requirement: A failed rebuild restores the previous schema and its indexes
 A rebuild that fails in a partition SHALL leave every index the previous declaration names complete in that partition
 and report the failure to the metadata group, which SHALL commit a version restoring the previous declaration; until
@@ -165,6 +229,15 @@ commits a round of the assigned epoch before it holds the new version.
 - **WHEN** an index is added while epoch 48 is the latest close, over two partitions, and the sequencer closes epoch 49
 - **THEN** the change takes effect at epoch 50, and in both partitions rounds of epoch 49 maintain no entries of the
   index and rounds of epoch 50 do
+
+#### Scenario: A commit behind a version's round is validated against it
+- **WHEN** a transaction executed against catalog version 2 commits behind the round taking version 3 effect, before the close
+  announcing version 3 is delivered
+- **THEN** it aborts with a conflict of kind Catalog, and a transaction executed against version 3 commits
+
+#### Scenario: A commit-time operation against an earlier version aborts
+- **WHEN** a transaction with a commit-time operation, executed against catalog version 2, commits once version 3 is in effect
+- **THEN** it aborts with a conflict of kind Catalog, and its operation runs not at all
 
 #### Scenario: A partition holds the version before it stamps its epoch
 - **WHEN** an index is added while epoch 48 is the latest close, and a partition's latest delivered close is 48

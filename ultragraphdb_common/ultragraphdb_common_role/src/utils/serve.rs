@@ -27,6 +27,7 @@ use ultragraphdb_protocol_wire::{
 use crate::traits::session::{Answer, Session};
 use crate::types::connection_bound::ConnectionBound;
 use crate::types::open_requests::OpenRequests;
+use crate::types::parked_bytes::ParkedBytes;
 
 const PROTOCOL: u16 = 1;
 const RELEASE: u32 = 1;
@@ -206,8 +207,9 @@ where
     A: Authenticator,
     H: Session,
 {
+    let parked = session.parked();
     while !machine.is_closing() {
-        let frame = next_frame(reader, writer, machine, pool, session).await?;
+        let frame = next_frame(reader, writer, machine, pool, session, parked.as_ref()).await?;
         // A frame stays open until what it asks is on the wire, past the flush below: that is what a stop waits for.
         let _open = open.enter();
         match frame {
@@ -226,13 +228,15 @@ where
 }
 
 /// The frame read next, sending what the session pushes meanwhile; the read stays pinned across those sends, so a frame
-/// is never cut short. `None` once a deadline passed and the connection's machine has taken it.
+/// is never cut short, and starts only once `parked` has room, which only a frame taken can use up. `None` once a deadline passed
+/// and the connection's machine has taken it.
 async fn next_frame<R, W, A, H>(
     reader: &mut Connection<R>,
     writer: &mut Connection<W>,
     machine: &mut ServerConnection<A>,
     pool: &BufferPool,
     session: &mut H,
+    parked: Option<&ParkedBytes>,
 ) -> Result<Option<Result<ReceivedFrame, TransportError>>, TransportError>
 where
     R: AsyncRead,
@@ -240,7 +244,12 @@ where
     A: Authenticator,
     H: Session,
 {
-    let mut read = pin!(reader.read_frame(pool));
+    let mut read = pin!(async {
+        if let Some(parked) = parked {
+            parked.room().await;
+        }
+        reader.read_frame(pool).await
+    });
     loop {
         let wait = machine
             .next_deadline()

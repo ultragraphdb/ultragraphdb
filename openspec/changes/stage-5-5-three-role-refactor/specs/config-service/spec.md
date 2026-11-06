@@ -210,6 +210,10 @@ never be printed.
 - **WHEN** `ci_frontend.toml` sets `endpoint.held_bytes = 0`
 - **THEN** the entry names `endpoint.held_bytes`, the value 0 and the bound it must meet
 
+#### Scenario: A parked-bytes bound of nothing is refused
+- **WHEN** `ci_storage_1.toml` sets `storage.held_bytes = 0`
+- **THEN** the entry names `storage.held_bytes`, the value 0 and the bound it must meet
+
 #### Scenario: A misspelled setting is named where it stands
 - **WHEN** `ci_storage.toml` holds `partiton_count = 4` under `[storage]`
 - **THEN** the entry names the file, the line, `storage.partiton_count`, and says no such setting exists
@@ -234,7 +238,7 @@ or too short SHALL stop the start with code 78. The API SHALL be:
 
 A revision's files SHALL travel as a sequence of a name, a space, the file's length in decimal, a line break, the file's bytes
 and a line break. A revision replaces the whole set, so a file left out is removed. A request SHALL take at most 5 s and hold at
-most 512 KiB, which a revision fits in one round of the log, and one past either bound SHALL be refused without reading further. The
+most 512 KiB, which a revision fits in one round of the log, and one past either bound SHALL be refused without keeping more of it. A client may still be sending when it is refused, and closing over unread bytes resets the connection, which destroys the refusal on its way. So after any refusal given before a request's body is whole, for its size, its head or its framing, or for its time, the service SHALL shut its sending side, then read and discard what still arrives until the client ends, or until 16 MiB or 5 s more have passed, and only then close. The
 service SHALL serve `/health` and `/ready` as the roles do, without a key. It SHALL serve no secret's value: settings name
 secret files, and each role reads its own.
 
@@ -277,6 +281,10 @@ secret files, and each role reads its own.
 #### Scenario: An oversized request is refused
 - **WHEN** a request's declared body is larger than the bound
 - **THEN** it is refused with status 413 before its body is read, and nothing is stored
+
+#### Scenario: A refusal reaches a client still sending
+- **WHEN** a client goes on sending a body after the refusal of its declared size has arrived
+- **THEN** each of its writes is taken, it reads status 413 and then the end of the connection, and nothing is stored
 
 ### Requirement: A role starts from five bootstrap variables
 Every role SHALL take exactly these from its environment, and SHALL refuse any other variable beginning `ULTRAGRAPHDB_`,

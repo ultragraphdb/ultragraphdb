@@ -51,6 +51,8 @@ rust_test(
         "tests/endpoint_steps.rs",
         "tests/endpoint_steps_requests.rs",
         "tests/endpoint_steps_sessions.rs",
+        "tests/on_way_steps.rs",
+        "tests/tightening_steps.rs",
     ],
     crate_root = "tests/bdd.rs",
     data = glob(["features/**/*.feature"]),

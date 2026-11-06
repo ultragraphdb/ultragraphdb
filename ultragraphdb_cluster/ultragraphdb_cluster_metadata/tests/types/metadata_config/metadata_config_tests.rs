@@ -122,3 +122,37 @@ fn test_one_past_the_maximum_is_refused_naming_it() -> TestResult {
     );
     Ok(())
 }
+
+#[test]
+fn test_catalog_check_ms_holds_within_its_bounds() -> TestResult {
+    let config = MetadataConfig::new();
+    assert_eq!(config.catalog_check_ms(), MetadataConfig::CATALOG_CHECK_MS);
+    let longest = config.with_catalog_check_ms(MetadataConfig::CATALOG_CHECK_MS_MAX)?;
+    assert_eq!(
+        longest.catalog_check_ms(),
+        MetadataConfig::CATALOG_CHECK_MS_MAX
+    );
+    assert_eq!(config.with_catalog_check_ms(1)?.catalog_check_ms(), 1);
+    assert_eq!(
+        config.with_catalog_check_ms(0).err().context("refused")?.0,
+        ClusterErrorEnum::SettingBelow {
+            setting: "catalog_check_ms",
+            value: 0,
+            minimum: 1,
+            bound: "its minimum",
+        }
+    );
+    assert_eq!(
+        config
+            .with_catalog_check_ms(MetadataConfig::CATALOG_CHECK_MS_MAX + 1)
+            .err()
+            .context("refused")?
+            .0,
+        ClusterErrorEnum::SettingAbove {
+            setting: "catalog_check_ms",
+            value: MetadataConfig::CATALOG_CHECK_MS_MAX + 1,
+            maximum: MetadataConfig::CATALOG_CHECK_MS_MAX,
+        }
+    );
+    Ok(())
+}

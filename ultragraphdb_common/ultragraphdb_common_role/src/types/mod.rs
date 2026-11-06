@@ -7,6 +7,7 @@ pub mod connection_bound;
 pub mod held_connection;
 pub mod open_frame;
 pub mod open_requests;
+pub mod parked_bytes;
 pub mod role_client;
 pub mod role_cluster;
 pub mod role_credentials;

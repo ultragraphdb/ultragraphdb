@@ -7,6 +7,7 @@ use ultragraphdb_cluster_placement::{PartitionId, PlacementMap};
 use ultragraphdb_core_ids::{Epoch, Tenant, TypePrefix};
 use ultragraphdb_error_cluster::ClusterError;
 
+use crate::types::catalog_check::CatalogCheck;
 use crate::types::catalog_record::CatalogRecord;
 use crate::types::metadata_state::MetadataState;
 
@@ -66,6 +67,61 @@ impl MetadataState {
             return Err(ClusterError::catalog_released(tenant.get(), epoch.get()));
         }
         Ok(in_effect)
+    }
+
+    /// The version of `tenant`'s catalog a client may read at `epoch`: the latest in effect at it before any being checked,
+    /// leaving out one withdrawn, `None` when no such version is held (`PROTOCOL.md` §11.13).
+    #[must_use]
+    pub fn settled_at(&self, tenant: Tenant, epoch: Epoch) -> Option<&CatalogRecord> {
+        let catalog = self.catalogs.get(&tenant)?;
+        let mut settled = None;
+        for record in &catalog.versions {
+            if record.effective().is_none_or(|effective| effective > epoch) {
+                break;
+            }
+            match record.check() {
+                CatalogCheck::Settled => settled = Some(record),
+                CatalogCheck::Checking { .. } => break,
+                CatalogCheck::Withdrawn => {}
+            }
+        }
+        settled
+    }
+
+    /// The versions being checked, by tenant and number, in order.
+    pub fn checking(&self) -> impl Iterator<Item = (Tenant, u64)> + '_ {
+        self.checking.iter().copied()
+    }
+
+    /// The oldest version of `tenant` being checked, `None` when none is.
+    #[must_use]
+    pub fn checked_version(&self, tenant: Tenant) -> Option<u64> {
+        self.checking
+            .range((tenant, 0)..)
+            .next()
+            .filter(|(of, _)| *of == tenant)
+            .map(|(_, version)| *version)
+    }
+
+    /// Version `version` of `tenant`'s catalog, `None` when it is released or was never committed.
+    #[must_use]
+    pub fn version_record(&self, tenant: Tenant, version: u64) -> Option<&CatalogRecord> {
+        self.catalogs
+            .get(&tenant)?
+            .versions
+            .iter()
+            .find(|record| record.version() == version)
+    }
+
+    /// The partitions holding `tenant` at `epoch`, in order, each of which a check waits on.
+    #[must_use]
+    pub fn holders(&self, tenant: Tenant, epoch: Epoch) -> Vec<PartitionId> {
+        self.placement.as_ref().map_or_else(Vec::new, |map| {
+            map.holders_of_run(tenant, epoch)
+                .into_iter()
+                .map(|(partition, _)| partition)
+                .collect()
+        })
     }
 
     /// The versions of `tenant`'s catalog retained, in order, pending ones last: those a partition loads before it

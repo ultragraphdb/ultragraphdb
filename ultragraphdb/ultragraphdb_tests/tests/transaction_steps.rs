@@ -6,7 +6,6 @@
 //! A read-write transaction's reads through the real frontend, compute and storage: its own writes, and what its commit
 //! validates. Every scenario names IRIs of its own in the cluster its run shares.
 
-use compio::runtime::Runtime;
 use cucumber::{then, when};
 use ultragraphdb_client_compio::Transaction;
 use ultragraphdb_protocol_wire::RequestTerm;
@@ -17,27 +16,26 @@ use crate::client_reads::{
     Pattern, TENANT, commit_a_write, direct_of, edge_of, iri, property_of, read, read_whole,
     string, write_of,
 };
-use crate::cluster::{TestClient, client, shared_client};
+use crate::cluster::shared_client;
+use crate::shells::{TestClient, pause, with_client};
 
 /// Conflict kind Range (`PROTOCOL.md` §9.4).
-const KIND_RANGE: u64 = 3;
+pub(crate) const KIND_RANGE: u64 = 3;
 /// Conflict kind AbsentTerm.
-const KIND_ABSENT_TERM: u64 = 4;
+pub(crate) const KIND_ABSENT_TERM: u64 = 4;
+/// Conflict kind Drop.
+pub(crate) const KIND_DROP: u64 = 6;
 
 /// Runs `scene` with a client of the cluster `w`'s run shares.
-fn in_shared<T>(
+pub(crate) fn in_shared<T>(
     w: &Steps,
     scene: impl AsyncFnOnce(&mut TestClient) -> TestResult<T>,
 ) -> TestResult<T> {
-    let address = shared_client(w.carrier)?;
-    Runtime::new()?.block_on(async {
-        let mut client = client(&address).await?;
-        scene(&mut client).await
-    })
+    with_client(&shared_client(w.carrier)?, scene)
 }
 
 /// Commits `subject` `predicate` `object` in one frame, as another transaction does.
-async fn committed(
+pub(crate) async fn committed(
     client: &mut TestClient,
     subject: &str,
     predicate: &str,
@@ -50,7 +48,7 @@ async fn committed(
 }
 
 /// A read finding nothing, or the failure naming what it found.
-fn nothing(found: &crate::client_reads::Answer) -> TestResult {
+pub(crate) fn nothing(found: &crate::client_reads::Answer) -> TestResult {
     if found.rows.is_empty() {
         Ok(())
     } else {
@@ -292,7 +290,7 @@ fn one_default_entry(w: &mut Steps) -> TestResult {
             if held > 0 {
                 return Ok(held);
             }
-            compio::time::sleep(std::time::Duration::from_millis(10)).await;
+            pause(std::time::Duration::from_millis(10)).await;
         }
         Err(TestError::new(format!(
             "Describe did not come to name {score} within 5 s"

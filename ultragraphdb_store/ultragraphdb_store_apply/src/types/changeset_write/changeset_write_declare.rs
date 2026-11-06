@@ -94,6 +94,23 @@ where
         Ok(())
     }
 
+    /// Holds `declaration` by its name, whose ID another partition gives: this partition holds none of its data, so nothing
+    /// here contradicts it. A type or a relation is no write's concern here.
+    pub(crate) fn hold_unresolved(
+        &mut self,
+        declaration: &Declaration,
+    ) -> Result<(), ChangesetError> {
+        match declaration {
+            Declaration::Predicate(held) => Ok(self.catalog.hold_unresolved(held.clone())?),
+            Declaration::EntityType(_) | Declaration::Relation(_) => Ok(()),
+        }
+    }
+
+    /// Forgets the declarations held by name, as a new version's taking effect does.
+    pub(crate) fn clear_unresolved(&mut self) {
+        self.catalog.clear_unresolved();
+    }
+
     /// Removes predicate `uid`'s declaration, named `iri`: declared the default first, which checks nothing against the
     /// data and removes every index the declaration names, then left out of the catalog.
     pub(crate) fn undeclare(

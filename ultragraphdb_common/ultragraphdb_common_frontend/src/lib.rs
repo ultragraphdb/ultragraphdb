@@ -29,12 +29,14 @@ pub use crate::types::owner::Owner;
 pub use crate::types::owner_handle::DropStep;
 pub use crate::types::owner_handle::OwnerHandle;
 pub use crate::types::owner_start::OwnerStart;
+pub use crate::types::report_asked::ReportAsked;
 pub use crate::types::role_links::RoleLinks;
 pub use crate::types::role_session::{RoleSession, RoleShared};
 pub use crate::types::tenant_facts::TenantFacts;
 pub use crate::types::tenant_gate::TenantGate;
 pub use crate::utils::iri_place::{IriPlace, iri_place};
 pub use crate::utils::owner_thread::{OwnerThread, start_owner};
+pub use crate::utils::term_rules::check_table;
 #[cfg(feature = "test-utils")]
 pub use crate::utils_test::double_frame::DoubleFrame;
 #[cfg(feature = "test-utils")]

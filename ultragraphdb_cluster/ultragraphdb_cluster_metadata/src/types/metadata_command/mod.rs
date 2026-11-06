@@ -134,6 +134,40 @@ pub enum MetadataCommand {
         /// The XXH3-64 of the command's encoding.
         checksum: u64,
     },
+    /// A new version of `tenant`'s catalog as [`MetadataCommand::OfferCatalog`] commits one, tightening a predicate: it is
+    /// being checked from here until every partition holding the tenant passed it or a restoring version withdraws it
+    /// (`PROTOCOL.md` §11.13).
+    OfferChecked {
+        /// The tenant whose catalog it is.
+        tenant: Tenant,
+        /// The version it is built on, 0 for the first.
+        predecessor: u64,
+        /// The version's bytes, in `ultragraphdb_core_catalog`'s encoding.
+        bytes: Vec<u8>,
+    },
+    /// A new version of `tenant`'s catalog as [`MetadataCommand::OfferCatalog`] commits one, restoring what version
+    /// `restores` changed, which this withdraws in one command, so a crash leaves both or neither.
+    OfferRestoring {
+        /// The tenant whose catalog it is.
+        tenant: Tenant,
+        /// The version it is built on.
+        predecessor: u64,
+        /// The version withdrawn, being checked.
+        restores: u64,
+        /// The version's bytes, in `ultragraphdb_core_catalog`'s encoding.
+        bytes: Vec<u8>,
+    },
+    /// `partition`'s report on version `version` of `tenant`'s catalog: its check passed, or the data refused it.
+    ReportCheck {
+        /// The tenant.
+        tenant: Tenant,
+        /// The version reported on.
+        version: u64,
+        /// The reporting partition.
+        partition: PartitionId,
+        /// Whether the data refused the version.
+        refused: bool,
+    },
     /// The tenant `tenant` created: the group holds its catalog, its run and its grants from here on (`PROTOCOL.md` §11.13).
     CreateTenant {
         /// The tenant.

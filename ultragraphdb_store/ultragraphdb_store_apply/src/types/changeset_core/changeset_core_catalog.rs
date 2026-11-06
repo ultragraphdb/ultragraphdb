@@ -15,13 +15,13 @@ use oxrdf::vocab::rdf;
 use ultragraphdb_core_catalog::{
     Catalog, CatalogContents, ENTITY_TYPE, RELATION, encode_declaration,
 };
-use ultragraphdb_core_ids::SystemId;
+use ultragraphdb_core_ids::{Bucket, CanonicalKey, SystemId, Tenant, TypePrefix};
 use ultragraphdb_core_keys::{Keyspace, QuadKey, key_prefix};
 use ultragraphdb_core_mapping::{Change, Changeset, Declaration, PredicateDeclaration};
 use ultragraphdb_error_store::StoreError;
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_store_posting::Writes;
-use ultragraphdb_store_quads::{QuadWrite, WriteTerms};
+use ultragraphdb_store_quads::{QuadError, QuadErrorEnum, QuadWrite, WriteTerms};
 use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_catalog::DefaultEntry;
 use ultragraphdb_traits_store::{ListCache, Scan, Store, StoreSnapshot, VersionlessEntry};
@@ -61,6 +61,14 @@ fn refuses_declaration(error: &ChangesetError) -> bool {
     }
 }
 
+/// Whether `error` says a declaration names an IRI another partition gives the ID of, which this partition does not hold.
+fn names_anothers(error: &ChangesetError) -> bool {
+    if let ChangesetErrorEnum::Quad(quad) = &error.0 {
+        return matches!(quad.0, QuadErrorEnum::NotOwned { .. });
+    }
+    false
+}
+
 impl<S, C, B> ChangesetCore<S, C, B>
 where
     S: Store,
@@ -82,12 +90,24 @@ where
                 .into()
             })
         };
+        let anothers = |iri: &NamedNode| -> Result<bool, ChangesetError> {
+            let key = CanonicalKey::iri(iri.as_str()).map_err(QuadError::from)?;
+            let bucket = Bucket::derive(Tenant::new(tenant), TypePrefix::RESOURCE, &key);
+            Ok(!self.quads.owned().owns(bucket)
+                && self.quads.id_of(tenant, iri.as_str())?.is_none())
+        };
         let mut catalog = match self.quads.id_of(tenant, rdf::TYPE.as_str())? {
             Some(rdf_type) => Catalog::initial(tenant, rdf_type),
             None => Catalog::new(tenant),
         };
         for declaration in contents.declarations() {
             let (uid, parent) = match declaration {
+                Declaration::Predicate(p) if anothers(p.predicate())? => {
+                    catalog.hold_unresolved(p.clone())?;
+                    continue;
+                }
+                Declaration::EntityType(t) if anothers(t.iri())? => continue,
+                Declaration::Relation(r) if anothers(r.iri())? => continue,
                 Declaration::Predicate(p) => (id_of(p.predicate())?, None),
                 Declaration::EntityType(t) => (id_of(t.iri())?, t.parent().map(id_of).transpose()?),
                 Declaration::Relation(r) => (id_of(r.iri())?, None),
@@ -187,11 +207,15 @@ where
     ) -> Result<Vec<ChangesetError>, ChangesetError> {
         let tenant = contents.tenant();
         let mut refusals = Vec::new();
+        execution.clear_unresolved();
         for declaration in contents.declarations() {
             let changeset = Changeset::new(tenant).with(Change::Declare(declaration.clone()));
             match execution.apply(&changeset) {
                 Ok(()) => {}
                 Err(refused) if refuses_declaration(&refused) => refusals.push(refused),
+                Err(anothers) if names_anothers(&anothers) => {
+                    execution.hold_unresolved(declaration)?;
+                }
                 Err(failed) => return Err(failed),
             }
         }

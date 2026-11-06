@@ -18,7 +18,7 @@ use std::fmt;
 
 use cucumber::{World, then, when};
 use ultragraphdb_cluster_metadata::{
-    LeasedBlocks, MetadataCommand, MetadataConfig, MetadataSnapshot, MetadataState,
+    CatalogCheck, LeasedBlocks, MetadataCommand, MetadataConfig, MetadataSnapshot, MetadataState,
 };
 use ultragraphdb_cluster_placement::{BucketRange, PartitionId, TenantRun};
 use ultragraphdb_cluster_sequencer::Close;
@@ -1245,6 +1245,74 @@ fn holds_version_before_50(w: &mut Steps) -> TestResult {
             latest: 49
         }
     );
+    Ok(())
+}
+
+/// A group of two partitions holding version 1 of the tenant, being checked, its epoch assigned.
+fn group_being_checked(w: &mut Steps) -> TestResult<Group> {
+    let (storage, mut group) = fresh_with(MetadataConfig::new())?;
+    let _init = group.init_placement(2, node())?;
+    let _offered = group.offer_checked(tenant(), 0, b"tight")?;
+    sync(&mut group)?;
+    learn_through(&mut group, 1)?;
+    w.storage = Some(storage);
+    Ok(group)
+}
+
+#[when(
+    "a version being checked is assigned its epoch over two partitions, and each reports its check passed"
+)]
+fn each_passes(w: &mut Steps) -> TestResult {
+    let mut group = group_being_checked(w)?;
+    assert!(group.report_check(tenant(), 1, pid(1)?, false)?.is_some());
+    sync(&mut group)?;
+    assert_eq!(group.state().checked_version(tenant()), Some(1));
+    let at = epoch(2)?;
+    assert_eq!(group.state().settled_at(tenant(), at), None);
+    assert_eq!(group.report_check(tenant(), 1, pid(1)?, false)?, None);
+    assert!(group.report_check(tenant(), 1, pid(2)?, false)?.is_some());
+    sync(&mut group)?;
+    w.group = Some(group);
+    Ok(())
+}
+
+#[then(
+    "it is being checked until the second report, a client reads the version before it until then, and a report repeated appends nothing"
+)]
+fn check_ended(w: &mut Steps) -> TestResult {
+    let group = w.group.as_mut().context("a group")?;
+    assert_eq!(group.state().checked_version(tenant()), None);
+    let at = epoch(2)?;
+    let read = group.state().settled_at(tenant(), at).map(|r| r.version());
+    assert_eq!(read, Some(1));
+    assert_eq!(group.report_check(tenant(), 1, pid(1)?, false)?, None);
+    Ok(())
+}
+
+#[when(
+    "a partition reports the data refuses a version being checked, the group offers the version restoring it, and the group restarts"
+)]
+fn withdrawn_and_restarted(w: &mut Steps) -> TestResult {
+    let mut group = group_being_checked(w)?;
+    assert!(group.report_check(tenant(), 1, pid(2)?, true)?.is_some());
+    let (restoring, _position) = group.offer_restoring(tenant(), 1, 1, b"back")?;
+    assert_eq!(restoring, 2);
+    sync(&mut group)?;
+    let storage = w.storage.as_ref().context("the storage")?;
+    w.group = Some(crash_and_recover(storage, MetadataConfig::new(), None)?);
+    Ok(())
+}
+
+#[then(
+    "the recovered state holds the first withdrawn and the second pending, and neither is being checked"
+)]
+fn withdrawal_recovered(w: &mut Steps) -> TestResult {
+    let group = w.group.as_ref().context("a group")?;
+    let state = group.state();
+    let first = state.version_record(tenant(), 1).context("the first")?;
+    assert_eq!(*first.check(), CatalogCheck::Withdrawn);
+    assert_eq!(state.pending_versions(), vec![(tenant(), 2)]);
+    assert_eq!(state.checked_version(tenant()), None);
     Ok(())
 }
 

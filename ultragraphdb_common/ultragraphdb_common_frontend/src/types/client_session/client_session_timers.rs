@@ -32,10 +32,11 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             .filter(|txn| txn.commit_out.is_none() && txn.ended.is_none())
             .filter_map(|txn| txn.limit);
         let hung = self.reads.values().filter_map(|read| self.hung_at(read));
-        limits.chain(hung).min()
+        let one_frames = self.one_frames.values().filter_map(|one| one.limit);
+        limits.chain(hung).chain(one_frames).min()
     }
 
-    /// Whatever is due at `at`: a read-write transaction past its limit, a hung compute process.
+    /// Whatever is due at `at`: a read-write transaction or a one-frame write past its limit, a hung compute process.
     pub(super) fn timers(&mut self, at: Instant) {
         let past: Vec<u64> = self
             .transactions
@@ -64,10 +65,19 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             );
             self.read_cancelled_answering(read, &refusal);
         }
+        let unanswered: Vec<u64> = self
+            .one_frames
+            .iter()
+            .filter(|(_, one)| one.limit.is_some_and(|limit| limit <= at))
+            .map(|(stream, _)| *stream)
+            .collect();
+        for stream in unanswered {
+            self.one_frame_past_limit(stream);
+        }
     }
 
     /// Code 4, its message naming a read holding a write back with no credit (`PROTOCOL.md` §9.4).
-    fn past_limit(&self, transaction: u64) -> ErrorReply {
+    pub(super) fn past_limit(&self, transaction: u64) -> ErrorReply {
         let limit = self.core.limits().transaction_ms();
         let holding = self.transactions.get(&transaction).and_then(|txn| {
             let write_behind = txn

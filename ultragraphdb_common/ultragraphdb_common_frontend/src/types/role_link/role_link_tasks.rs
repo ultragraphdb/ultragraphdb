@@ -3,12 +3,12 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::future::poll_fn;
+use std::task::Poll;
 use std::time::Duration;
 
 use compio::runtime::spawn;
 use compio::time::timeout;
-use futures::StreamExt;
-use futures::channel::mpsc::UnboundedReceiver;
 use ultragraphdb_common_role::{RoleClient, RoleReader, RoleWriter};
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::{Address, ReceivedFrame};
@@ -20,7 +20,6 @@ use crate::types::role_link::RoleLink;
 /// Dials within `dial_ms` milliseconds, then runs the link; a dial that fails or passes its bound closes it, telling every stream.
 pub(super) fn spawn_dialled(
     link: RoleLink,
-    outgoing: UnboundedReceiver<Vec<u8>>,
     address: Address,
     name: String,
     password: String,
@@ -34,7 +33,7 @@ pub(super) fn spawn_dialled(
         )
         .await
         {
-            Ok(Ok(client)) => run(link, outgoing, client).await,
+            Ok(Ok(client)) => run(link, client).await,
             Ok(Err(error)) => {
                 tracing::debug!(address = %address, %error, "a role connection could not be opened");
                 closed(&link);
@@ -49,20 +48,20 @@ pub(super) fn spawn_dialled(
 }
 
 /// Runs the link over a connection already dialled.
-pub(super) fn spawn_over(link: RoleLink, outgoing: UnboundedReceiver<Vec<u8>>, client: RoleClient) {
-    spawn(run(link, outgoing, client)).detach();
+pub(super) fn spawn_over(link: RoleLink, client: RoleClient) {
+    spawn(run(link, client)).detach();
 }
 
 /// Writes on one task and reads on another, until either finds the connection closed.
-async fn run(link: RoleLink, outgoing: UnboundedReceiver<Vec<u8>>, client: RoleClient) {
+async fn run(link: RoleLink, client: RoleClient) {
     let (reader, writer, welcome) = client.split();
     link.max_frame.set(welcome.max_frame());
-    spawn(write(link.clone(), outgoing, writer)).detach();
+    spawn(write(link.clone(), writer)).detach();
     read(link, reader).await;
 }
 
-async fn write(link: RoleLink, mut outgoing: UnboundedReceiver<Vec<u8>>, mut writer: RoleWriter) {
-    while let Some(frame) = outgoing.next().await {
+async fn write(link: RoleLink, mut writer: RoleWriter) {
+    while let Some(frame) = next_outgoing(&link).await {
         if let Err(error) = writer.send(frame).await {
             tracing::debug!(%error, "a role connection's write failed");
             closed(&link);
@@ -70,6 +69,22 @@ async fn write(link: RoleLink, mut outgoing: UnboundedReceiver<Vec<u8>>, mut wri
         }
     }
     writer.shutdown().await;
+}
+
+/// The next frame to leave, which is no longer counted, once there is one; `None` once the connection closed.
+async fn next_outgoing(link: &RoleLink) -> Option<Vec<u8>> {
+    poll_fn(|cx| {
+        let mut routes = link.routes.borrow_mut();
+        if let Some(waiting) = routes.outgoing.pop_front() {
+            return Poll::Ready(Some(waiting.frame.into_bytes()));
+        }
+        if routes.closed {
+            return Poll::Ready(None);
+        }
+        routes.writer = Some(cx.waker().clone());
+        Poll::Pending
+    })
+    .await
 }
 
 async fn read(link: RoleLink, mut reader: RoleReader) {
@@ -122,13 +137,18 @@ fn deliver(link: &RoleLink, frame: &ReceivedFrame) -> Result<(), String> {
     Ok(())
 }
 
-/// Marks the connection closed, and tells each stream on it; the write task, its channel closed, shuts the connection down.
+/// Marks the connection closed, lets go of what waits to leave and tells each stream on it; the write task, finding it closed, shuts
+/// the connection down.
 fn closed(link: &RoleLink) {
-    link.outgoing.close_channel();
     let mut routes = link.routes.borrow_mut();
     routes.closed = true;
+    routes.outgoing.clear();
+    let writer = routes.writer.take();
     let sinks: Vec<_> = routes.open.drain().map(|(_, sink)| sink).collect();
     drop(routes);
+    if let Some(writer) = writer {
+        writer.wake();
+    }
     for sink in sinks {
         sink.tell(LinkEvent::Closed);
     }

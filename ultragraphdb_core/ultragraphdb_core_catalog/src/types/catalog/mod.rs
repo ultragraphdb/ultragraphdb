@@ -25,12 +25,15 @@ use crate::utils::tokenizer_datatypes::tokenizer_takes;
 /// The declarations of one tenant, by the ID of the predicate, entity type or relation each declares: what both
 /// engines, index maintenance and the write checks read. A predicate it does not declare behaves as
 /// [`PredicateDeclaration::new`], kind either, multi-valued, no datatype constraint, values not unique, no index.
-/// A write works on a copy and the copy replaces the catalog when the write commits.
+/// A write works on a copy and the copy replaces the catalog when the write commits. A predicate declared here whose ID the
+/// partition's dictionary does not hold, its bucket another partition's, is held by its IRI until a write resolves it: the
+/// partition holds none of its data, and what it writes of it is written under the declaration.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Catalog {
     tenant: u64,
     version: u64,
     predicates: BTreeMap<SystemId, PredicateDeclaration>,
+    unresolved: BTreeMap<String, PredicateDeclaration>,
     types: BTreeMap<SystemId, TypeDeclaration>,
     relations: BTreeMap<SystemId, RelationDeclaration>,
 }
@@ -52,6 +55,28 @@ impl Catalog {
             PredicateDeclaration::new(rdf::TYPE.into_owned()).with_kind(PredicateKind::Edge),
         );
         catalog
+    }
+
+    /// The catalog with `rdf:type`, whose ID is `rdf_type`, declared an edge, as [`Catalog::initial`] gives it, keeping what it
+    /// holds by name.
+    #[must_use]
+    pub fn with_initial(mut self, rdf_type: SystemId) -> Self {
+        let _none: Option<PredicateDeclaration> = self.predicates.insert(
+            rdf_type,
+            PredicateDeclaration::new(rdf::TYPE.into_owned()).with_kind(PredicateKind::Edge),
+        );
+        self
+    }
+
+    /// The catalog with nothing declared by ID, keeping its version and what it holds by name.
+    #[must_use]
+    pub fn emptied(self) -> Self {
+        Self {
+            tenant: self.tenant,
+            version: self.version,
+            unresolved: self.unresolved,
+            ..Self::default()
+        }
     }
 
     /// The tenant the catalog is of.
@@ -81,10 +106,36 @@ impl Catalog {
         uid: SystemId,
         iri: &NamedNode,
     ) -> Cow<'_, PredicateDeclaration> {
-        match self.predicates.get(&uid) {
+        match self
+            .predicates
+            .get(&uid)
+            .or_else(|| self.unresolved.get(iri.as_str()))
+        {
             Some(declared) => Cow::Borrowed(declared),
             None => Cow::Owned(PredicateDeclaration::new(iri.clone())),
         }
+    }
+
+    /// The declaration of the predicate named `iri` whose ID no dictionary here held when it was declared, if there is one.
+    pub fn unresolved(&self, iri: &str) -> Option<&PredicateDeclaration> {
+        self.unresolved.get(iri)
+    }
+
+    /// Holds `declaration` by its IRI, its ID another partition's to give. Refused, changing nothing, as
+    /// [`Catalog::check_predicate`] refuses.
+    pub fn hold_unresolved(
+        &mut self,
+        declaration: PredicateDeclaration,
+    ) -> Result<(), CatalogError> {
+        Self::check_predicate(&declaration)?;
+        let iri = declaration.predicate().as_str().to_string();
+        let _replaced: Option<PredicateDeclaration> = self.unresolved.insert(iri, declaration);
+        Ok(())
+    }
+
+    /// Forgets what [`Catalog::hold_unresolved`] held: a new version says it again.
+    pub fn clear_unresolved(&mut self) {
+        self.unresolved.clear();
     }
 
     /// Every predicate declared, by ID.

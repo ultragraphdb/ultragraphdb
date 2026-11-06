@@ -65,6 +65,7 @@ fn small_bytes() -> Vec<u8> {
     out.extend_from_slice(&6_u64.to_be_bytes()); // at epoch 6
     out.extend_from_slice(&2_u32.to_be_bytes()); // its bytes' length
     out.extend_from_slice(b"ab");
+    out.push(0); // settled
     out.extend_from_slice(&0_u32.to_be_bytes()); // no default entry
     out.extend_from_slice(&1_u32.to_be_bytes()); // one high-water mark
     out.extend_from_slice(&1_u16.to_be_bytes()); // Resource
@@ -283,14 +284,14 @@ fn test_values_out_of_order_or_range_are_refused() -> TestResult {
         refusal(&latest)?,
         ClusterError::malformed("a tenant's latest version, its last retained", 29).0
     );
-    // The high-water mark's prefix (offset 80) as 0.
+    // The high-water mark's prefix (offset 81) as 0.
     let mut prefix = small_bytes();
-    if let Some(byte) = prefix.get_mut(81) {
+    if let Some(byte) = prefix.get_mut(82) {
         *byte = 0;
     }
     assert_eq!(
         refusal(&prefix)?,
-        ClusterError::malformed("a type prefix from 1", 80).0
+        ClusterError::malformed("a type prefix from 1", 81).0
     );
     // The learned close (offset 9) past 42 bits.
     let mut learned = small_bytes();
@@ -483,5 +484,67 @@ fn test_the_fuzz_seeds_are_the_encoders() -> TestResult {
     seeds.sort();
     expected.sort();
     assert_eq!(seeds, expected);
+    Ok(())
+}
+
+#[test]
+fn test_a_versions_check_round_trips_and_a_wrong_one_is_refused() -> TestResult {
+    let mut state = MetadataState::new();
+    state.apply(&MetadataCommand::InitPlacement {
+        partitions: 2,
+        leader: NodeId::new(1),
+    })?;
+    state.apply(&MetadataCommand::OfferChecked {
+        tenant: Tenant::new(2),
+        predecessor: 0,
+        bytes: b"ab".to_vec(),
+    })?;
+    state.apply(&MetadataCommand::OfferChecked {
+        tenant: Tenant::new(3),
+        predecessor: 0,
+        bytes: b"cd".to_vec(),
+    })?;
+    state.apply(&MetadataCommand::LearnClose {
+        placement: 0,
+        epoch: Epoch::new(5)?,
+        versions: vec![(Tenant::new(2), 1), (Tenant::new(3), 1)],
+        evictions: Vec::new(),
+    })?;
+    state.apply(&MetadataCommand::ReportCheck {
+        tenant: Tenant::new(2),
+        version: 1,
+        partition: PartitionId::new(1)?,
+        refused: false,
+    })?;
+    state.apply(&MetadataCommand::OfferRestoring {
+        tenant: Tenant::new(3),
+        predecessor: 1,
+        restores: 1,
+        bytes: b"ef".to_vec(),
+    })?;
+    let snapshot = MetadataSnapshot::new(Position::new(6), state);
+    let bytes = encoded(&snapshot);
+    assert_eq!(MetadataSnapshot::decode(&bytes)?, snapshot);
+    assert_eq!(
+        MetadataSnapshot::decode(&bytes)?
+            .state()
+            .checking()
+            .collect::<Vec<_>>(),
+        vec![(Tenant::new(2), 1)],
+        "a check still running is found again"
+    );
+    let mut wrong = small_bytes();
+    let at = wrong
+        .windows(2)
+        .position(|pair| pair == b"ab")
+        .context("the version's bytes")?
+        + 2;
+    if let Some(byte) = wrong.get_mut(at) {
+        *byte = 3;
+    }
+    assert_eq!(
+        refusal(&wrong)?,
+        ClusterError::malformed("a version's check, 0 to 2", at).0
+    );
     Ok(())
 }

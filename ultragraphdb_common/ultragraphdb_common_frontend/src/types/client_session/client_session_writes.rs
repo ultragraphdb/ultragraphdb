@@ -3,7 +3,6 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use futures::StreamExt;
 use oxrdf::{Literal, NamedNode};
 use ultragraphdb_common_role::Answer;
 use ultragraphdb_core_ids::{Bucket, Tenant};
@@ -14,11 +13,12 @@ use ultragraphdb_protocol_wire::{
     StatementTarget, TermTableView, WriteChange, WriteView,
 };
 
+use super::ClientSession;
 use super::client_session_bind::command_of;
-use super::{ClientSession, now};
 use crate::traits::authorizer::Authorizer;
 use crate::types::bind_state::BindState;
 use crate::types::claim::Claim;
+use crate::types::counted_frame::CountedFrame;
 use crate::types::destination::Destination;
 use crate::types::link_event::LinkEvent;
 use crate::types::queued::Queued;
@@ -167,8 +167,8 @@ fn claim_of(table: &TermTableView<'_>, predicate: u32, value: u32) -> Option<Cla
 
 impl<A: Authorizer + Clone> ClientSession<A> {
     /// A Write or an Operation on `stream`: refused by its terms and its transaction's rules, or kept in order, a read's held
-    /// bytes bounded and otherwise held in step with the partition's answers.
-    pub(super) async fn write(
+    /// bytes bounded and otherwise counted on its way, whose bound stops the connection's reads.
+    pub(super) fn write(
         &mut self,
         stream: u64,
         view: &FrameView<'_>,
@@ -206,7 +206,6 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             return Ok(Answer::Open);
         }
         self.pump(stream);
-        self.drain_unheld(stream).await;
         Ok(Answer::Open)
     }
 
@@ -323,53 +322,17 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             );
         }
         self.held += behind;
+        let frame = if behind_read {
+            CountedFrame::uncounted(frame)
+        } else {
+            CountedFrame::new(frame, &self.on_way)
+        };
         txn.queue.push_back(Queued::Write {
             frame,
             destination,
             behind,
         });
         None
-    }
-
-    /// Lets the partition's answers in while what no read holds back passes `held_bytes`, so a client writing faster than its
-    /// partition answers waits instead of growing this connection's memory. No client's Credit is needed for those answers.
-    async fn drain_unheld(&mut self, stream: u64) {
-        let limit = self.core.limits().held_bytes();
-        loop {
-            let unheld: u64 = self.transactions.get(&stream).map_or(0, |txn| {
-                txn.queue
-                    .iter()
-                    .map(|queued| match queued {
-                        Queued::Write {
-                            frame, behind: 0, ..
-                        } => frame.len() as u64,
-                        Queued::Write { .. } | Queued::Read(_) | Queued::Commit { .. } => 0,
-                    })
-                    .sum()
-            });
-            if unheld <= limit {
-                return;
-            }
-            // The session's own timers run meanwhile, so a partition that answers nothing ends the transaction with code 4.
-            let wait = self
-                .next_deadline()
-                .map(|deadline| deadline.saturating_duration_since(now()));
-            let event = match wait {
-                Some(wait) => match compio::time::timeout(wait, self.events.next()).await {
-                    Ok(Some(event)) => Some(event),
-                    Ok(None) => return,
-                    Err(_) => None,
-                },
-                None => match self.events.next().await {
-                    Some(event) => Some(event),
-                    None => return,
-                },
-            };
-            match event {
-                Some(event) => self.event(event),
-                None => self.timers(now()),
-            }
-        }
     }
 
     /// Sends the Write or Operation at the queue's front on the Bind stream; its first keeps its frame until it is answered.
@@ -384,15 +347,27 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             return;
         };
         self.held = self.held.saturating_sub(behind);
+        // What a read held back counts on its way from here on.
+        if behind > 0 {
+            frame = CountedFrame::new(frame.into_bytes(), &self.on_way);
+        }
         let first = !txn.first_sent;
         txn.first_sent = true;
         txn.first_open = first;
-        if let BindState::Bound { link, stream, .. } = &txn.bind {
-            // A frame built by this connection's peer holds its header, or the framer refused it.
-            drop(Header::stamp_stream(&mut frame, *stream));
-            link.send(frame.clone());
+        let BindState::Bound { link, stream, .. } = &txn.bind else {
+            txn.write_out = Some(frame);
+            return;
+        };
+        // A frame built by this connection's peer holds its header, or the framer refused it.
+        drop(Header::stamp_stream(frame.bytes_mut(), *stream));
+        if first {
+            // Counted as the frame it keeps for a resend.
+            link.send(*stream, CountedFrame::uncounted(frame.bytes().to_vec()));
+            txn.write_out = Some(frame);
+        } else {
+            link.send(*stream, frame);
+            txn.write_out = Some(CountedFrame::uncounted(Vec::new()));
         }
-        txn.write_out = Some(if first { frame } else { Vec::new() });
     }
 
     /// Asks the predicate's home for its system ID, what a claim's bucket is computed from.
@@ -421,7 +396,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             txn.awaiting_claim = true;
         }
         let sink = self.sink(RouteKey::Claim { stream });
-        let _stream = link.open(frame, sink);
+        let _stream = link.open(self.counted(frame), sink);
         self.keep_claim(stream, claim.clone());
     }
 

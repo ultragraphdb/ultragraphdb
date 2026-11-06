@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+pub mod catalog_check;
 pub mod catalog_record;
 pub mod leased_blocks;
 pub mod metadata_command;

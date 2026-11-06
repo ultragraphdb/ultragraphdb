@@ -3,12 +3,14 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::collections::VecDeque;
+
 use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use futures::channel::oneshot;
-use ultragraphdb_common_role::{Answer, Session};
+use ultragraphdb_common_role::{Answer, ParkedBytes, Session};
 use ultragraphdb_protocol_transport::ReceivedFrame;
-use ultragraphdb_protocol_wire::{ErrorCode, ErrorReply, MAX_FRAME_FLOOR};
+use ultragraphdb_protocol_wire::{ErrorCode, ErrorReply, FLAG_LAST, HeaderView, MAX_FRAME_FLOOR};
 
 use crate::types::core_message::{CoreMessage, Pushes};
 
@@ -19,21 +21,45 @@ pub struct StorageSession {
     core: UnboundedSender<CoreMessage>,
     pushes: Pushes,
     pushed: UnboundedReceiver<(u64, Vec<u8>)>,
+    /// Pushes taken off their channel by a look at what waits to leave, in order and ahead of the channel's.
+    looked_at: VecDeque<(u64, Vec<u8>)>,
+    parked: ParkedBytes,
     max_frame: u32,
 }
 
 impl StorageSession {
-    /// The session of `connection`, handing its requests to `core`.
+    /// The session of `connection`, handing its requests to `core`, which holds up to `held_bytes` of its frames parked before
+    /// the connection stops reading.
     #[must_use]
-    pub fn new(connection: u64, core: UnboundedSender<CoreMessage>) -> Self {
+    pub fn new(connection: u64, core: UnboundedSender<CoreMessage>, held_bytes: usize) -> Self {
         let (pushes, pushed) = unbounded();
+        let parked = ParkedBytes::new(held_bytes);
+        // A core gone holds nothing to park.
+        drop(core.unbounded_send(CoreMessage::Opened {
+            connection,
+            parked: parked.clone(),
+        }));
         Self {
             connection,
             core,
             pushes,
             pushed,
+            looked_at: VecDeque::new(),
+            parked,
             max_frame: MAX_FRAME_FLOOR as u32,
         }
+    }
+
+    /// Whether a frame ending `stream` waits to leave: a refusal of a request that crossed it on the wire says only that the
+    /// transaction has gone, and the frame says why.
+    fn ending(&mut self, stream: u64) -> bool {
+        while let Ok(pushed) = self.pushed.try_recv() {
+            self.looked_at.push_back(pushed);
+        }
+        self.looked_at.iter().any(|(on, frame)| {
+            *on == stream
+                && HeaderView::new(frame).is_ok_and(|header| header.flags() & FLAG_LAST != 0)
+        })
     }
 }
 
@@ -57,10 +83,22 @@ impl Session for StorageSession {
         if handed.is_err() {
             return stopped();
         }
-        answer.await.unwrap_or_else(|_| stopped())
+        match answer.await.unwrap_or_else(|_| stopped()) {
+            Answer::Refuse(_) if self.ending(stream) => Answer::Open,
+            answered @ (Answer::Reply(_) | Answer::Open | Answer::Done | Answer::Refuse(_)) => {
+                answered
+            }
+        }
+    }
+
+    fn parked(&self) -> Option<ParkedBytes> {
+        Some(self.parked.clone())
     }
 
     async fn next_push(&mut self) -> (u64, Vec<u8>) {
+        if let Some(pushed) = self.looked_at.pop_front() {
+            return pushed;
+        }
         match self.pushed.next().await {
             Some(pushed) => pushed,
             // This session holds a sender, so its channel never ends while it waits here.

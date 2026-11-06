@@ -141,6 +141,9 @@ impl<L: OrderedLog> MetadataGroup<L> {
             | MetadataCommand::RegisterSession { .. }
             | MetadataCommand::LearnClose { .. }
             | MetadataCommand::ReportUntrimmed { .. }
+            | MetadataCommand::OfferChecked { .. }
+            | MetadataCommand::OfferRestoring { .. }
+            | MetadataCommand::ReportCheck { .. }
             | MetadataCommand::CreateTenant { .. }
             | MetadataCommand::DrawSecret { .. }) => {
                 // A run of chunks no commit followed is no command: it is discarded.

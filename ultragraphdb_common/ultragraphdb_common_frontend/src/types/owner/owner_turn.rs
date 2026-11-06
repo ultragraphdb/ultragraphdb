@@ -53,21 +53,10 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
     /// One turn: the answers the asks of this turn wait for, then the close due at `now`, durable in the sequencer's log
     /// before the group learns it.
     async fn turn(&mut self, now: ClockReading) -> Result<(), RoleError> {
-        if !self.durable.is_empty() {
-            let _durable = self
-                .metadata
-                .sync()
-                .await
-                .map_err(|error| stopped(&error))?;
-            for answer in self.durable.drain(..) {
-                // An asker gone has no one to tell; what it asked for is durable all the same.
-                match answer {
-                    Durable::Lease(start, reply) => drop(reply.send(Ok(start))),
-                    Durable::Registered(reply) => drop(reply.send(Ok(()))),
-                    Durable::Recorded(found, reply) => drop(reply.send(Ok(found))),
-                }
-            }
-        }
+        self.answer_durable().await?;
+        // A report just durable may end a check, whose restoring version takes the next sync.
+        self.run_checks(now.monotonic_us())?;
+        self.answer_durable().await?;
         let state = self.metadata.state();
         let versions: Vec<(Tenant, u64)> = state
             .pending_versions()
@@ -101,6 +90,29 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
         self.answer_versions();
         self.closes_since_snapshot += 1;
         self.store_snapshots().await
+    }
+
+    /// Syncs the metadata group, when this turn appended what an answer waits for, and hands those answers out.
+    async fn answer_durable(&mut self) -> Result<(), RoleError> {
+        if self.durable.is_empty() {
+            return Ok(());
+        }
+        let _durable = self
+            .metadata
+            .sync()
+            .await
+            .map_err(|error| stopped(&error))?;
+        for answer in self.durable.drain(..) {
+            // An asker gone has no one to tell; what it asked for is durable all the same.
+            match answer {
+                Durable::Lease(start, reply) => drop(reply.send(Ok(start))),
+                Durable::Registered(reply) => drop(reply.send(Ok(()))),
+                Durable::Recorded(found, reply) => drop(reply.send(Ok(found))),
+                Durable::Restored(Some((reply, refusal))) => drop(reply.send(Err(refusal))),
+                Durable::Restored(None) => {}
+            }
+        }
+        Ok(())
     }
 
     /// Learns every durable close the group has not, oldest first, durable before it returns.

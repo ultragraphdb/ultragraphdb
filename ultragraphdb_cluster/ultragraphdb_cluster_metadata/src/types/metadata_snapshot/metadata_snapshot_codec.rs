@@ -10,6 +10,7 @@ use ultragraphdb_core_ids::Tenant;
 use ultragraphdb_error_cluster::{ClusterError, ClusterErrorEnum};
 use ultragraphdb_traits_log::Position;
 
+use crate::types::catalog_check::CatalogCheck;
 use crate::types::catalog_record::CatalogRecord;
 use crate::types::metadata_command::MetadataCommand;
 use crate::types::metadata_command::metadata_command_codec::{
@@ -41,7 +42,8 @@ impl MetadataSnapshot {
     /// Appends the snapshot's encoding to `out`, big-endian throughout, fields as [`crate::MetadataCommand::encode`]
     /// writes them: the format byte 1 and the position as 8 bytes; the last learned close as 8; the catalogs' count and
     /// per tenant its number, its latest and highest released versions and its retained versions' count, then per
-    /// version its number, a flag and, when set, its effective epoch, and its bytes; the default-entry records' count
+    /// version its number, a flag and, when set, its effective epoch, its bytes and where it stands against the partitions' checks
+    /// (0 settled, 2 withdrawn, or 1 and whether refused and the partitions that passed it); the default-entry records' count
     /// and each tenant, predicate and entry; the high-water marks' count and each prefix and next sequence; a flag
     /// and, when set, the placement map's length as 4 bytes and its own encoding; the reports' count and each partition
     /// and epoch; the next principal's identity, the principals' count and each identity, name, verifier and
@@ -136,7 +138,25 @@ fn encode_catalogs(state: &MetadataState, out: &mut Vec<u8>) {
                 None => out.push(0),
             }
             put_len_u32(out, record.bytes());
+            encode_check(record.check(), out);
         }
+    }
+}
+
+/// Where a version stands against the partitions' checks: 0 settled, 2 withdrawn, or 1 checking, with whether the data
+/// refused it and the partitions that passed it, in order.
+fn encode_check(check: &CatalogCheck, out: &mut Vec<u8>) {
+    match check {
+        CatalogCheck::Settled => out.push(0),
+        CatalogCheck::Checking { passed, refused } => {
+            out.push(1);
+            out.push(u8::from(*refused));
+            put_count(out, passed.len());
+            for partition in passed {
+                put_u32(out, partition.get());
+            }
+        }
+        CatalogCheck::Withdrawn => out.push(2),
     }
 }
 
@@ -300,6 +320,9 @@ fn decode_catalogs(reader: &mut Reader<'_>, state: &mut MetadataState) -> Result
         };
         for _ in 0..versions {
             let record = read_record(reader, tenant, &catalog)?;
+            if matches!(record.check(), CatalogCheck::Checking { .. }) {
+                let _new: bool = state.checking.insert((tenant, record.version()));
+            }
             catalog.versions.push_back(record);
         }
         let last = catalog.versions.back().map(CatalogRecord::version);
@@ -342,7 +365,31 @@ fn read_record(
         "bytes of a catalog version",
         MetadataCommand::CATALOG_BYTES_MAX,
     )?;
-    Ok(CatalogRecord::new(tenant, version, effective, bytes))
+    let verdict = read_check(reader)?;
+    Ok(CatalogRecord::new(tenant, version, effective, bytes).with_check(verdict))
+}
+
+/// Where a version stands against the partitions' checks, its partitions rising.
+fn read_check(reader: &mut Reader<'_>) -> Result<CatalogCheck, ClusterError> {
+    let at = reader.offset();
+    match reader.u8("a version's check")? {
+        0 => Ok(CatalogCheck::Settled),
+        2 => Ok(CatalogCheck::Withdrawn),
+        1 => {
+            let refused = reader.flag()?;
+            let reported = count(reader, "partitions of a check", REPORTS_MAX)?;
+            let mut passed = BTreeSet::new();
+            for _ in 0..reported {
+                let partition_at = reader.offset();
+                let partition = read_partition(reader)?;
+                let rises = passed.last().is_none_or(|last| *last < partition);
+                check(rises, "a partition after the one before it", partition_at)?;
+                let _new: bool = passed.insert(partition);
+            }
+            Ok(CatalogCheck::Checking { passed, refused })
+        }
+        _unknown => Err(ClusterError::malformed("a version's check, 0 to 2", at)),
+    }
 }
 
 /// The default entries, the high-water marks, the placement map and the reports, each table in its order.

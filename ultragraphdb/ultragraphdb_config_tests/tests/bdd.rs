@@ -6,6 +6,8 @@
 //! The config service and its CLI as processes, end to end and with no container, bound to `features/`. One scenario runs at
 //! a time: the service listens at a fixed port.
 
+use std::io::{Read, Write};
+use std::net::{Shutdown, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Output};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -700,6 +702,44 @@ fn oversized(w: &mut Steps) -> TestResult {
 #[then("it is refused with status 413 before its body is read, and nothing is stored")]
 fn refused_oversized(w: &mut Steps) -> TestResult {
     assert_eq!(w.reply.as_ref().context("a reply")?.status(), 413);
+    says(&targets_list()?, &["ci latest 1"]);
+    Ok(())
+}
+
+/// The client a script is: a socket that writes on, here after it has read the refusal.
+#[when("a client goes on sending a body after the refusal of its declared size has arrived")]
+fn still_sending(w: &mut Steps) -> TestResult {
+    prepare(w)?;
+    let _pid = start_serving(w)?;
+    let piece = vec![b'x'; 64 * 1024];
+    let declared = 512 * 1024 + 1;
+    let head = format!(
+        "POST /v1/targets/ci/revisions?base=1 HTTP/1.1\r\nHost: {ADDRESS}\r\nAuthorization: Bearer {ADMIN_KEY}\r\nContent-Length: {declared}\r\nConnection: close\r\n\r\n"
+    );
+    let mut stream = TcpStream::connect(ADDRESS)?;
+    stream.set_read_timeout(Some(Duration::from_secs(START_SECONDS)))?;
+    stream.write_all(&[head.as_bytes(), &piece].concat())?;
+    let mut answer = vec![0; 1024];
+    let first = stream.read(&mut answer)?;
+    answer.truncate(first);
+    // Long enough for a close behind the refusal to have reached this socket, as a reset, by the next write or the one after.
+    for turn in 0..4 {
+        std::thread::sleep(Duration::from_millis(10));
+        stream
+            .write_all(&piece)
+            .map_err(|error| TestError::new(format!("write {turn} after the refusal: {error}")))?;
+    }
+    stream.shutdown(Shutdown::Write)?;
+    let _rest: usize = stream.read_to_end(&mut answer)?;
+    w.log = String::from_utf8(answer)?;
+    Ok(())
+}
+
+#[then(
+    "each of its writes is taken, it reads status 413 and then the end of the connection, and nothing is stored"
+)]
+fn refusal_arrived(w: &mut Steps) -> TestResult {
+    assert!(w.log.starts_with("HTTP/1.1 413"), "{}", w.log);
     says(&targets_list()?, &["ci latest 1"]);
     Ok(())
 }

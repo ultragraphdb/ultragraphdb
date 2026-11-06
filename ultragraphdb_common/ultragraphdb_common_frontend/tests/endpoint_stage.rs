@@ -6,8 +6,10 @@
 //! A frontend's two listeners on one test thread, its owner on its own, the other roles played by doubles and the client over raw
 //! frames: what a scenario decides, it decides, and what it asserts, it reads from the frames each side saw.
 
+use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
@@ -22,8 +24,8 @@ use ultragraphdb_common_frontend::{
     start_owner,
 };
 use ultragraphdb_common_role::{
-    Answer, ConnectionBound, ROLE_ITERATIONS, RoleClient, RoleCluster, RoleSecret, Server,
-    serve_connection,
+    Answer, ConnectionBound, ParkedBytes, ROLE_ITERATIONS, RoleClient, RoleCluster, RoleSecret,
+    Server, Session, serve_connection,
 };
 use ultragraphdb_common_service::Readiness;
 use ultragraphdb_common_service_config::ServiceConfig;
@@ -70,6 +72,7 @@ pub(crate) struct Options {
     pub sessions: u32,
     pub directory: Option<PathBuf>,
     pub older_map: bool,
+    pub check_ms: u64,
 }
 
 impl Default for Options {
@@ -82,9 +85,13 @@ impl Default for Options {
             sessions: 8,
             directory: None,
             older_map: false,
+            check_ms: MetadataConfig::CATALOG_CHECK_MS,
         }
     }
 }
+
+/// What each client connection has on its way to a role, in the order they connected.
+type Counts = Rc<RefCell<Vec<Option<ParkedBytes>>>>;
 
 /// The frontend under a scenario.
 pub(crate) struct Stage {
@@ -94,6 +101,7 @@ pub(crate) struct Stage {
     pub client: Address,
     pub links: RoleLinks,
     pub map: PlacementMap,
+    counts: Counts,
     directory: PathBuf,
     thread: Option<OwnerThread>,
     tasks: Vec<JoinHandle<()>>,
@@ -120,7 +128,9 @@ impl Stage {
         let cluster = cluster_of(&directory)?;
         let verifier = ScramVerifier::derive("pw", b"salt", 4_096)?;
         let start = OwnerStart::new(
-            MetadataConfig::new().with_sessions_max(options.sessions)?,
+            MetadataConfig::new()
+                .with_sessions_max(options.sessions)?
+                .with_catalog_check_ms(options.check_ms)?,
             SequencerConfig::new(1, 5)?,
             options.partitions,
         )
@@ -157,7 +167,9 @@ impl Stage {
             TenantGate::new(authorizer),
             options.limits,
         );
-        let accepting_clients = accept_clients(client, unknown, options.connections, core)?;
+        let counts = Counts::default();
+        let accepting_clients =
+            accept_clients(client, unknown, options.connections, core, counts.clone())?;
         Ok(Self {
             owner,
             cluster,
@@ -165,6 +177,7 @@ impl Stage {
             client: client_address,
             links,
             map,
+            counts,
             directory: held,
             thread: Some(thread),
             tasks: vec![accepting_roles, accepting_clients],
@@ -189,6 +202,15 @@ impl Stage {
     /// The directory it keeps its logs in.
     pub(crate) fn directory(&self) -> Option<PathBuf> {
         Some(self.directory.clone())
+    }
+
+    /// The bytes the client connection that connected `at`th has on its way to a role.
+    pub(crate) fn on_way(&self, at: usize) -> usize {
+        self.counts
+            .borrow()
+            .get(at)
+            .and_then(Option::as_ref)
+            .map_or(0, ParkedBytes::count)
     }
 
     /// `ann`'s connection.
@@ -520,6 +542,7 @@ fn accept_clients<A>(
     unknown: [u8; 32],
     connections: u64,
     core: EndpointCore<A>,
+    counts: Counts,
 ) -> TestResult<JoinHandle<()>>
 where
     A: Authorizer + Clone + 'static,
@@ -532,6 +555,7 @@ where
             let server = clients.clone();
             let credentials = AskedCredentials::default();
             let session = ClientSession::new(core.clone(), credentials.clone(), carrier.peer_ip());
+            counts.borrow_mut().push(session.parked());
             spawn(async move {
                 serve_connection(carrier, &server, credentials, session).await;
             })

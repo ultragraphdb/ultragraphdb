@@ -15,6 +15,7 @@ rust_test(
     srcs = [
         "tests/bdd.rs",
         "tests/one_frame_steps.rs",
+        "tests/parked_steps.rs",
         "tests/played_frontend.rs",
         "tests/played_home.rs",
         "tests/read_kernel_steps.rs",

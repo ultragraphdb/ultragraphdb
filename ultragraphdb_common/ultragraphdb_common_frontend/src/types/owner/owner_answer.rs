@@ -90,6 +90,7 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
                 predicate,
                 reply,
             } => self.record_default(tenant, &predicate, reply)?,
+            Asked::Report { report, reply } => self.report(report, reply)?,
         }
         Ok(())
     }

@@ -28,6 +28,10 @@ Feature: The frontend binary as a process
     When a role starts at a TCP address another process holds, which lets it go within the bound
     Then the role logs each retry naming the address, binds it, and answers `/health`
 
+  Scenario: The frontend's /health answers once its listeners are bound
+    When the frontend starts while another process holds its role address, which lets it go within the bound
+    Then `/health` answers 503 while the address is held, and once it answers 200 a role connection to the address is accepted at once
+
   Scenario: A port held past the bound ends the start
     When a role starts at a TCP address another process holds past the bound
     Then it exits with code 69 after a retry logged per 50 ms of the bound, the error naming the address

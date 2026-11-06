@@ -77,6 +77,7 @@ pub(crate) async fn frontend_role(
     if let Some(map) = handle.map().await {
         links.set_map(map);
     }
+    let listening = readiness.clone();
     let shared = RoleShared::new(cluster.clone(), handle.clone(), links.clone(), readiness);
     let mut accepting = vec![spawn(accept_roles(
         listen(role_address).await?,
@@ -101,6 +102,7 @@ pub(crate) async fn frontend_role(
         let listener = listen(address).await?;
         accepting.push(spawn(accept_clients(listener, clients, core, security)));
     }
+    listening.set_listening();
     // What the owner made durable it answered for, so a stop leaves nothing to flush but the answers on their way.
     while !stopping.is_stopping() {
         match stopped.try_recv() {
@@ -187,6 +189,11 @@ fn owner_start(config: &ServiceConfig) -> Result<OwnerStart, RoleError> {
     if let Some(rounds) = table.snapshot_rounds() {
         metadata = metadata
             .with_snapshot_rounds(rounds)
+            .map_err(|error| refused(&error))?;
+    }
+    if let Some(ms) = table.catalog_check_ms() {
+        metadata = metadata
+            .with_catalog_check_ms(ms)
             .map_err(|error| refused(&error))?;
     }
     let owner = OwnerStart::new(metadata, sequencer, partition_count);

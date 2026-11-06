@@ -154,11 +154,12 @@ impl HttpClient {
         .into_bytes();
         message.extend_from_slice(body);
         let BufResult(written, _) = stream.write_all(message).await;
-        written.map_err(|error| unreachable(error.to_string()))?;
-        stream
-            .flush()
-            .await
-            .map_err(|error| unreachable(error.to_string()))?;
+        // A server may answer before it has read what it was sent, and close, which fails this write with its answer waiting
+        // behind the failure. So the failure decides only when no reply follows.
+        let failed = match written {
+            Ok(_) => stream.flush().await.err(),
+            Err(error) => Some(error),
+        };
         let mut received = Vec::with_capacity(READ_BYTES);
         loop {
             match parse_reply(&received, BODY_MAX) {
@@ -176,12 +177,19 @@ impl HttpClient {
             match read {
                 Ok(count) if count > 0 => received.extend_from_slice(&chunk),
                 Ok(_) => {
-                    return Err(HttpClientError(HttpClientErrorEnum::Malformed {
-                        url: url.to_string(),
-                        reason: "the reply ended early".to_string(),
-                    }));
+                    return Err(failed.map_or_else(
+                        || {
+                            HttpClientError(HttpClientErrorEnum::Malformed {
+                                url: url.to_string(),
+                                reason: "the reply ended early".to_string(),
+                            })
+                        },
+                        |error| unreachable(error.to_string()),
+                    ));
                 }
-                Err(error) => return Err(unreachable(error.to_string())),
+                Err(error) => {
+                    return Err(unreachable(failed.unwrap_or(error).to_string()));
+                }
             }
         }
     }

@@ -193,9 +193,72 @@ fn test_encoding_appends_to_the_buffer() -> TestResult {
 
 #[test]
 fn test_empty_and_unknown_kinds_are_refused() -> TestResult {
-    assert_eq!(refusal(&[])?, malformed("a kind byte, 1 to 15", 0));
-    assert_eq!(refusal(&[0])?, malformed("a kind byte, 1 to 15", 0));
-    assert_eq!(refusal(&[16])?, malformed("a kind byte, 1 to 15", 0));
+    assert_eq!(refusal(&[])?, malformed("a kind byte, 1 to 18", 0));
+    assert_eq!(refusal(&[0])?, malformed("a kind byte, 1 to 18", 0));
+    assert_eq!(refusal(&[19])?, malformed("a kind byte, 1 to 18", 0));
+    Ok(())
+}
+
+/// A tightening's commands and their encodings, written by hand.
+fn check_commands() -> TestResult<Vec<(MetadataCommand, Vec<u8>)>> {
+    // OfferChecked: kind 16, tenant 3, predecessor 2, length 2, "v3".
+    let mut checked = vec![
+        16, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 2,
+    ];
+    checked.extend_from_slice(b"v3");
+    // OfferRestoring: kind 17, tenant 3, predecessor 4, withdrawing 3, length 2, "v5".
+    let mut restoring = vec![
+        17, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 2,
+    ];
+    restoring.extend_from_slice(b"v5");
+    // ReportCheck: kind 18, tenant 3, version 4, partition 6, refused.
+    let report = vec![
+        18, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 6, 1,
+    ];
+    Ok(vec![
+        (
+            MetadataCommand::OfferChecked {
+                tenant: Tenant::new(3),
+                predecessor: 2,
+                bytes: b"v3".to_vec(),
+            },
+            checked,
+        ),
+        (
+            MetadataCommand::OfferRestoring {
+                tenant: Tenant::new(3),
+                predecessor: 4,
+                restores: 3,
+                bytes: b"v5".to_vec(),
+            },
+            restoring,
+        ),
+        (
+            MetadataCommand::ReportCheck {
+                tenant: Tenant::new(3),
+                version: 4,
+                partition: PartitionId::new(6)?,
+                refused: true,
+            },
+            report,
+        ),
+    ])
+}
+
+#[test]
+fn test_a_tightenings_commands_encode_as_written_by_hand() -> TestResult {
+    for (command, bytes) in check_commands()? {
+        assert_eq!(encoded(&command), bytes, "{command:?}");
+        assert_eq!(MetadataCommand::decode(&bytes)?, command);
+        for cut in 0..bytes.len() {
+            let prefix = bytes.get(..cut).context("a prefix")?;
+            let refused = refusal(prefix)?;
+            assert!(
+                matches!(refused, ClusterErrorEnum::Malformed { offset, .. } if offset <= cut),
+                "{command:?} cut at {cut}: {refused:?}"
+            );
+        }
+    }
     Ok(())
 }
 

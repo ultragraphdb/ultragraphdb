@@ -162,6 +162,9 @@ fn perform(group: &mut Group, command: &MetadataCommand) -> Result<(), ClusterEr
         MetadataCommand::CreateTenant { tenant } => group.create_tenant(*tenant).map(drop),
         MetadataCommand::DrawSecret { secret } => group.draw_secret(*secret).map(drop),
         MetadataCommand::ChangePlacement { .. }
+        | MetadataCommand::OfferChecked { .. }
+        | MetadataCommand::OfferRestoring { .. }
+        | MetadataCommand::ReportCheck { .. }
         | MetadataCommand::SetLeader { .. }
         | MetadataCommand::RemovePrincipal { .. }
         | MetadataCommand::ReportUntrimmed { .. }

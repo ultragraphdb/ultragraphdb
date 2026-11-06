@@ -9,6 +9,7 @@ use std::time::Instant;
 use ultragraphdb_protocol_wire::{Declared, ErrorReply, ReadLevel};
 
 use crate::types::bind_state::BindState;
+use crate::types::counted_frame::CountedFrame;
 use crate::types::queued::Queued;
 
 /// A transaction the connection holds open, by the stream of its Begin.
@@ -47,7 +48,7 @@ pub(crate) struct ClientTransaction {
     pub claimed: Option<u32>,
     pub queue: VecDeque<Queued>,
     /// The Write on the Bind stream not yet answered by Held, whole while it is the first request, whose refusal resends it.
-    pub write_out: Option<Vec<u8>>,
+    pub write_out: Option<CountedFrame>,
     /// Whether nothing has answered its first request yet, so no later one may be sent.
     pub first_open: bool,
     /// Whether a request has reached a partition or compute.

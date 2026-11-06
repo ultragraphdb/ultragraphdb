@@ -6,7 +6,7 @@
 use std::time::Duration;
 
 use futures::StreamExt;
-use ultragraphdb_common_role::{Answer, Session};
+use ultragraphdb_common_role::{Answer, ParkedBytes, Session};
 use ultragraphdb_protocol_scram::{MECHANISM, ScramServer, ScramVerifier};
 use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{ErrorCode, ErrorReply};
@@ -85,6 +85,10 @@ impl<A: Authorizer + Clone> Session for ClientSession<A> {
         self.max_frame = max_frame;
     }
 
+    fn parked(&self) -> Option<ParkedBytes> {
+        Some(self.on_way.clone())
+    }
+
     async fn answer(&mut self, stream: u64, frame: ReceivedFrame) -> Answer {
         let answer = match self.request(stream, frame).await {
             Ok(answer) => answer,
@@ -134,7 +138,9 @@ impl<A: Authorizer + Clone> Session for ClientSession<A> {
                         CommitHold::new(self.core.owner_weak(), one.session),
                     );
                 }
-                Some((link, relayed)) => link.forget(*relayed),
+                Some((link, relayed)) => {
+                    let _unopened = link.forget(*relayed);
+                }
                 None if one.session != 0 => self.core.owner().commit_ended(one.session),
                 None => {}
             }
@@ -220,7 +226,9 @@ impl<A> Drop for ClientSession<A> {
                         CommitHold::new(self.core.owner_weak(), one.session),
                     );
                 }
-                Some((link, stream)) => link.forget(*stream),
+                Some((link, stream)) => {
+                    let _unopened = link.forget(*stream);
+                }
                 None if one.session != 0 => owner.commit_ended(one.session),
                 None => {}
             }

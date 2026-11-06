@@ -5,20 +5,40 @@
 
 //! What a scenario's client writes and reads, in the wire's types, and a read's rows as a test compares them.
 
-use ultragraphdb_client_compio::{ClientError, ClientErrorEnum, Transaction};
+use ultragraphdb_client_compio::{
+    ClientError, ClientErrorEnum, Committed, ResultStream, Transaction,
+};
+use ultragraphdb_core_terms::{TermView, Text};
+use ultragraphdb_protocol_transport::TransportErrorEnum;
 use ultragraphdb_protocol_wire::{
-    DirectWrite, ErrorCode, PatternSlot, QuadPattern, Read, RequestTerm, ResultView,
-    StatementTarget, TermTable, Write, WriteChange,
+    DirectWrite, ErrorCode, PatternSlot, QuadPattern, Read, RequestTerm, ResultTermView,
+    ResultView, StatementTarget, TermTable, Write, WriteChange,
 };
 use ultragraphdb_tool_bdd::{TestError, TestResult};
 
-use crate::cluster::TestClient;
+use crate::shells::TestClient;
 
 /// The tenant the frontend's first start creates, the one every scenario writes in.
 pub(crate) const TENANT: u64 = 0;
 
 /// What a transaction writes besides what it read, so its commit is checked.
-const OTHER: &str = "http://ex.org/other";
+pub(crate) const OTHER: &str = "http://ex.org/other";
+
+/// A language-free typed literal.
+pub(crate) fn typed(lexical: &str, datatype: &str) -> RequestTerm {
+    RequestTerm::Literal {
+        lexical: lexical.to_string(),
+        datatype: Some(datatype.to_string()),
+    }
+}
+
+/// An `xsd:integer` literal.
+pub(crate) fn integer(value: i64) -> RequestTerm {
+    typed(
+        &value.to_string(),
+        "http://www.w3.org/2001/XMLSchema#integer",
+    )
+}
 
 /// An IRI as a term.
 pub(crate) fn iri(text: &str) -> RequestTerm {
@@ -96,10 +116,23 @@ pub(crate) fn property_of(reifier: &str, key: &str, value: &str) -> TestResult<D
     Ok(DirectWrite::new(TENANT, table, vec![change]))
 }
 
-/// A quad pattern of the default graph, each position bound to the IRI given or unbound.
+/// The graph position of a pattern.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) enum GraphAt {
+    /// The default graph.
+    #[default]
+    Default,
+    /// Any graph: the position is unbound, and a column of the rows.
+    Any,
+    /// The graph of this IRI.
+    Named(String),
+}
+
+/// A quad pattern, its graph the default unless said, each other position bound to the term given or unbound.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Pattern {
-    pub(crate) subject: Option<String>,
+    pub(crate) graph: GraphAt,
+    pub(crate) subject: Option<RequestTerm>,
     pub(crate) predicate: Option<String>,
     pub(crate) object: Option<RequestTerm>,
 }
@@ -108,10 +141,23 @@ impl Pattern {
     /// The pattern binding `subject` and `predicate` where given, its object unbound.
     pub(crate) fn of(subject: Option<&str>, predicate: Option<&str>) -> Self {
         Self {
-            subject: subject.map(str::to_string),
+            graph: GraphAt::Default,
+            subject: subject.map(iri),
             predicate: predicate.map(str::to_string),
             object: None,
         }
+    }
+
+    /// The pattern with its graph position `graph`.
+    pub(crate) fn in_graph(mut self, graph: GraphAt) -> Self {
+        self.graph = graph;
+        self
+    }
+
+    /// The pattern with its subject bound to `subject`, whatever kind of term it is.
+    pub(crate) fn with_subject(mut self, subject: RequestTerm) -> Self {
+        self.subject = Some(subject);
+        self
     }
 
     /// The pattern with its object bound to `object`.
@@ -121,20 +167,33 @@ impl Pattern {
     }
 
     /// The Read of the pattern in `transaction`, at most `limit` rows from `resume`.
-    fn read(&self, transaction: &Transaction, limit: u32, resume: Vec<u8>) -> TestResult<Read> {
+    pub(crate) fn read(
+        &self,
+        transaction: &Transaction,
+        limit: u32,
+        resume: Vec<u8>,
+    ) -> TestResult<Read> {
         let mut terms = TermTable::new();
-        let mut bound = |text: &Option<String>| {
-            text.as_ref().map_or(PatternSlot::Unbound, |text| {
-                PatternSlot::Bound(terms.iri(text))
-            })
+        let graph = match &self.graph {
+            GraphAt::Default => PatternSlot::DefaultGraph,
+            GraphAt::Any => PatternSlot::Unbound,
+            GraphAt::Named(text) => PatternSlot::Bound(terms.iri(text)),
         };
-        let subject = bound(&self.subject);
-        let predicate = bound(&self.predicate);
+        let subject = match &self.subject {
+            Some(term) => PatternSlot::Bound(terms.intern(term.clone())?),
+            None => PatternSlot::Unbound,
+        };
+        let predicate = self
+            .predicate
+            .as_ref()
+            .map_or(PatternSlot::Unbound, |text| {
+                PatternSlot::Bound(terms.iri(text))
+            });
         let object = match &self.object {
             Some(term) => PatternSlot::Bound(terms.intern(term.clone())?),
             None => PatternSlot::Unbound,
         };
-        let pattern = QuadPattern::new(PatternSlot::DefaultGraph, subject, predicate, object);
+        let pattern = QuadPattern::new(graph, subject, predicate, object);
         Ok(Read::new(
             transaction.stream(),
             limit,
@@ -162,8 +221,23 @@ impl Answer {
     }
 }
 
+/// What a cell's term says: its text, or the lexical form an inline string carries by value.
+pub(crate) fn text_of(term: &ResultTermView<'_>) -> String {
+    term.text()
+        .map(str::to_string)
+        .or_else(|| {
+            let encoded = term.term()?;
+            if let TermView::String(Text::Inline(inline)) = encoded.view().ok()? {
+                Some(inline.to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_default()
+}
+
 /// The rows of `batch`, and its resume key.
-fn batch_of(batch: &ResultView<'_>) -> (Vec<Vec<String>>, Vec<u8>) {
+pub(crate) fn batch_of(batch: &ResultView<'_>) -> (Vec<Vec<String>>, Vec<u8>) {
     let rows = (0..batch.rows())
         .map(|row| {
             (0..batch.columns())
@@ -171,9 +245,8 @@ fn batch_of(batch: &ResultView<'_>) -> (Vec<Vec<String>>, Vec<u8>) {
                     batch
                         .cell(column, row)
                         .and_then(|cell| batch.term(cell))
-                        .and_then(|term| term.text())
+                        .map(|term| text_of(&term))
                         .unwrap_or_default()
-                        .to_string()
                 })
                 .collect()
         })
@@ -191,8 +264,13 @@ pub(crate) async fn read(
     let stream = client
         .read(transaction, &pattern.read(transaction, limit, resume)?)
         .await?;
+    drain(client, &stream).await
+}
+
+/// Drains the read `stream` to its `LAST`.
+pub(crate) async fn drain(client: &mut TestClient, stream: &ResultStream) -> TestResult<Answer> {
     let mut answer = Answer::default();
-    while let Some((rows, key)) = client.next_batch(&stream, batch_of).await? {
+    while let Some((rows, key)) = client.next_batch(stream, batch_of).await? {
         answer.rows.extend(rows);
         answer.resume = key;
     }
@@ -206,6 +284,72 @@ pub(crate) async fn read_whole(
     pattern: &Pattern,
 ) -> TestResult<Answer> {
     read(client, transaction, pattern, (0, Vec::new())).await
+}
+
+/// What a scene saw, for its `then` step to judge: the answers of its reads, the refusals it was given and the commits it made,
+/// each in the order they came, and anything else as text.
+#[derive(Debug, Default)]
+pub(crate) struct Seen {
+    pub(crate) answers: Vec<Answer>,
+    pub(crate) refusals: Vec<ClientError>,
+    pub(crate) commits: Vec<Committed>,
+    pub(crate) facts: Vec<String>,
+}
+
+/// The code, detail and message of a refusal on a stream; a failure naming anything else.
+pub(crate) fn refusal_of(error: &ClientError) -> TestResult<(ErrorCode, u64, String)> {
+    if let ClientErrorEnum::Refused {
+        code,
+        detail,
+        message,
+        ..
+    } = &error.0
+    {
+        Ok((*code, *detail, message.clone()))
+    } else {
+        Err(TestError::new(format!(
+            "a refusal on a stream: {:?}",
+            error.0
+        )))
+    }
+}
+
+/// The code of the Error that closed the connection or refused its handshake.
+pub(crate) fn closing_code(error: &ClientError) -> Option<ErrorCode> {
+    if let ClientErrorEnum::Closed { code, .. } = &error.0 {
+        return Some(*code);
+    }
+    if let ClientErrorEnum::Transport { error } = &error.0
+        && let TransportErrorEnum::Refused { code, .. } = &error.0
+    {
+        return Some(*code);
+    }
+    if let ClientErrorEnum::ConnectionLost { cause: Some(cause) } = &error.0 {
+        return closing_code(cause);
+    }
+    None
+}
+
+/// That `answer` failed with a refusal of `code`, whose detail and message it returns.
+pub(crate) fn refused_with<T: std::fmt::Debug>(
+    answer: Result<T, ClientError>,
+    code: ErrorCode,
+) -> TestResult<(u64, String)> {
+    match answer {
+        Ok(value) => Err(TestError::new(format!(
+            "code {code:?} expected, answered {value:?}"
+        ))),
+        Err(error) => {
+            let (found, detail, message) = refusal_of(&error)?;
+            if found == code {
+                Ok((detail, message))
+            } else {
+                Err(TestError::new(format!(
+                    "code {code:?} expected, refused {error:?}"
+                )))
+            }
+        }
+    }
 }
 
 /// Writes something `first` did not read, then commits it: the conflict kind refusing the commit, `None` for a commit that

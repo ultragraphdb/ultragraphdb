@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
-use ultragraphdb_common_role::{Answer, Session};
+use ultragraphdb_common_role::{Answer, ParkedBytes, Session};
 use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{Command, ErrorCode, ErrorReply};
 
@@ -20,6 +20,7 @@ pub(crate) struct DoubleSession<F> {
     pub script: Rc<F>,
     pub pushes: UnboundedSender<(u64, Vec<u8>)>,
     pub pushed: UnboundedReceiver<(u64, Vec<u8>)>,
+    pub reading: ParkedBytes,
 }
 
 impl<F> DoubleSession<F> {
@@ -37,6 +38,10 @@ impl<F: Fn(&DoubleFrame) -> Answer> Session for DoubleSession<F> {
         };
         let noted = self.note(stream, view.command(), frame.bytes().to_vec());
         (self.script)(&noted)
+    }
+
+    fn parked(&self) -> Option<ParkedBytes> {
+        Some(self.reading.clone())
     }
 
     async fn next_push(&mut self) -> (u64, Vec<u8>) {
