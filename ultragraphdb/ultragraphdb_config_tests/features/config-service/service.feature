@@ -135,3 +135,11 @@ Feature: The config service and its CLI as processes
   Scenario: A restore of a service that is down says so
     When a restore names a URL where nothing answers
     Then it exits with code 69 naming the URL
+
+  Scenario: The config service ends with the process it names
+    When a config service starts with `ULTRAGRAPHDB_PARENT_PID` naming a process that is not its parent
+    Then it stops as on SIGTERM and exits with code 0
+
+  Scenario: The config service takes a port held a moment
+    When a config service starts at an address another process holds, which lets it go within the bound
+    Then it logs each retry naming the address, binds it, and answers `/health`

@@ -98,6 +98,10 @@ Feature: Quad reads through compute
       When a read with limit 2 matches 5 rows and is resumed twice
       Then the three answers return rows 1–2, 3–4 and 5, the last with no resume key
 
+    Scenario: A resumed read may find nothing
+      When a read with limit 1 and its graph unbound matches one row and is resumed
+      Then the first answer holds the row and a resume key, and the second answers one batch flagged `LAST` with no row and no key
+
     Scenario: A resume key with another pattern is refused
       When a resume key from one read is used with a different pattern
       Then the read is refused with an error naming the resume key
@@ -241,6 +245,14 @@ Feature: Quad reads through compute
     Scenario: A read past the retention keeps its version
       When a read of two graphs stalls on its client's credit past `read_retain_ms`, and goes on
       Then the read reaches `LAST`, and no Scan of it is refused with code 3
+
+    Scenario: A late read keeps its version between Scans
+      When a read at snapshot level has its dictionary Scan answered, and its list Scan arrives past `read_retain_ms` while later epochs close
+      Then the read reaches `LAST` with its row, and no Scan of it is refused with code 3
+
+    Scenario: A read at latest level holds no version at first
+      When a read at latest level and a read at snapshot level each answer within a quarter of `read_retain_ms`
+      Then the read at snapshot level opened one Scan holding its version, and the read at latest level none
 
     Scenario: A pin refused holds up no other
       When a lookup outlasts its retention over three partitions, and one partition refuses its pin

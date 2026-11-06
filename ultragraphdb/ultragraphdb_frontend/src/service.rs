@@ -72,7 +72,8 @@ pub(crate) async fn frontend_role(
     let roles = Server::new(cluster.id(), "frontend", Endpoint::Frontend)?
         .with_iterations(ROLE_ITERATIONS)
         .with_open(open.clone());
-    let links = RoleLinks::new(cluster.clone(), "frontend".to_string());
+    let links = RoleLinks::new(cluster.clone(), "frontend".to_string())
+        .with_dial_ms(endpoint_limits(config).transaction_ms());
     if let Some(map) = handle.map().await {
         links.set_map(map);
     }

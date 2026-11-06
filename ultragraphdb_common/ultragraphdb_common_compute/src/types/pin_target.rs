@@ -12,10 +12,6 @@ use crate::types::link::Link;
 use crate::types::scan_stream::ScanStream;
 use crate::utils::keys::past_alone;
 
-/// The empty ranges of a Scan holding a version: each answers one small frame, and a frame leaves per grant, so the Scan stays
-/// open for as many grants as it holds ranges.
-const PIN_RANGES: usize = 512;
-
 /// A version to keep.
 #[derive(Debug)]
 pub(super) struct PinTarget {
@@ -26,6 +22,11 @@ pub(super) struct PinTarget {
 }
 
 impl PinTarget {
+    /// The empty ranges of a Scan holding a version: each answers one small frame, and a frame leaves per grant, so the Scan stays
+    /// open for as many grants as it holds ranges, 160 s at the default `scan_stall_ms`. Few, since a Scan at once goes with most
+    /// reads, each range a key's copy on the wire and at the partition, and a read outlasting it opens another.
+    pub(crate) const FRAMES: usize = 16;
+
     pub(crate) fn open(&self) -> Result<ScanStream, ultragraphdb_protocol_wire::ErrorReply> {
         let first = key_prefix(Keyspace::Referrers, false, self.tenant, None, None);
         let past = past_alone(&first);
@@ -38,7 +39,7 @@ impl PinTarget {
             1,
             0,
         );
-        (0..PIN_RANGES).for_each(|_| {
+        (0..Self::FRAMES).for_each(|_| {
             scan.push_range(ScanRange::new(self.link.partition(), &first, &past));
         });
         ScanStream::open(&self.link, &scan)

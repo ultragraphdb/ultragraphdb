@@ -8,7 +8,6 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
 
-use compio::runtime::spawn;
 use futures::channel::mpsc::UnboundedSender;
 use ultragraphdb_cluster_placement::PlacementMap;
 use ultragraphdb_core_ids::{Epoch, SystemId};
@@ -29,6 +28,7 @@ use crate::types::read_pins::ReadPins;
 use crate::types::read_request::ReadRequest;
 use crate::types::read_route::ReadRoute;
 use crate::types::read_shared::ReadShared;
+use crate::types::read_times::ReadTimes;
 use crate::types::result_sink::ResultSink;
 use crate::types::resume_at::ResumeAt;
 use crate::types::resume_terms::ResumeTerms;
@@ -67,18 +67,11 @@ async fn answer(
     let map = core.placement().await?;
     let route = ReadRoute::of(&read, &map)?;
     let limit = read.limit;
+    let pins = pins_of(&read, core.times());
     let shared = Rc::new(ReadShared {
         read,
         remaining: Cell::new(limit),
-        pins: Rc::default(),
-    });
-    // Dropped with the read, which cancels every Scan it holds.
-    let _pins = (shared.read.read_only).then(|| {
-        spawn(ReadPins::hold(
-            Rc::clone(&shared.pins),
-            core.times().pin_after(),
-            core.times().pin_every(),
-        ))
+        pins,
     });
     let Opened { mut parts, reached } = opened_parts(core, &shared, &map, &route).await?;
     if let Some(terms) = &resume {
@@ -96,6 +89,19 @@ async fn answer(
         },
     );
     merge(&shared, parts, sink).await
+}
+
+/// What holds `read`'s versions: at once for a version the client or its transaction chose before the read began, a while on for one
+/// a read at latest or monotonic-fast chooses as it begins, and nothing for a read-write transaction's, which its Bind holds.
+fn pins_of(read: &ReadRequest, times: ReadTimes) -> ReadPins {
+    if !read.read_only {
+        return ReadPins::default();
+    }
+    if read.named || read.level == ReadLevel::Snapshot {
+        ReadPins::at_once(times)
+    } else {
+        ReadPins::delayed(times)
+    }
 }
 
 /// The epoch a batch names: the snapshot's at level 0, the read's at level 2, 0 for every other read.
@@ -431,7 +437,7 @@ async fn ids_at_homes(
 }
 
 /// Merges the partitions' rows in key order into batches, up to the read's limit, and ends the stream: with a resume key when
-/// the limit stopped it with a row left.
+/// the limit stopped it where a row may be left.
 async fn merge(
     shared: &Rc<ReadShared>,
     mut parts: Vec<PartitionRows>,
@@ -481,9 +487,7 @@ async fn merge(
         };
         part.advance();
         if let Some(key) = key {
-            let mut more = !frontier.streams().is_empty();
-            more = more || part.has_more().await?;
-            if more {
+            if !frontier.streams().is_empty() || part.may_hold_more() {
                 resume = key;
             }
             break;

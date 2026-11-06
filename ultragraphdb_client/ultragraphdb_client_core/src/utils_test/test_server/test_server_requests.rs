@@ -216,6 +216,9 @@ impl TestServer {
     /// A read on `stream` in the transaction of stream `transaction`: at once when the transaction's token names no epoch
     /// past the closed one, or waiting on it until its deadline.
     fn answer_read(&mut self, stream: u64, transaction: u64) {
+        if std::mem::take(&mut self.past_credit) {
+            self.frame_past_credit(stream, transaction);
+        }
         let open = self.transactions.get(&transaction).copied();
         let epoch = open.and_then(|t| t.epoch);
         match (epoch, self.closed, open.and_then(|t| t.deadline)) {
@@ -231,8 +234,27 @@ impl TestServer {
         }
     }
 
-    /// A Register on `stream`, answered with a session of the server's numbering, from 9 up.
+    /// A Result frame naming the read on `stream`, queued on the stream of its `transaction`, whose credit it spends, so the
+    /// connection sends it past the read's.
+    fn frame_past_credit(&mut self, stream: u64, transaction: u64) {
+        let batch = ResultBatch::new(2).with_read_at(0, 1);
+        let Ok(frame) = batch.frame(self.header(Command::Result, stream, 0)) else {
+            return;
+        };
+        if let Some(connection) = self.connection.as_mut() {
+            // A transaction's stream gone takes no frame, and the read's answer stays within its credit.
+            drop(connection.outbound().push(transaction, frame));
+        }
+    }
+
+    /// A Register on `stream`, answered with a session of the server's numbering, from 9 up; refused with code 14 while
+    /// [`TestServer::answer_busy_registers`] scripts it.
     fn register(&mut self, stream: u64) {
+        if self.busy_registers > 0 {
+            self.busy_registers -= 1;
+            let message = "the registry holds no session it may evict";
+            return self.error(stream, ErrorCode::SessionBusy, 0, message);
+        }
         let session = self.sessions.len() as u128 + 9;
         let _fresh: Option<SessionRecord> = self.sessions.insert(session, SessionRecord::default());
         self.reply(stream, &Register::new(session.to_be_bytes()), FLAG_LAST);

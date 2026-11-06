@@ -8,8 +8,8 @@ Feature: Requests are routed through the three binaries
   Rule: Requests are routed to the partitions and compute that serve them
 
     Scenario: A write reaches its partition
-      When a client writes `<http://ex.org/a> <http://ex.org/knows> <http://ex.org/b>`
-      Then the frontend sends it to the partition owning the bucket of `http://ex.org/a`, and the commit's reply reaches the client
+      When a client writes one statement per partition, each subject an IRI of that partition's buckets
+      Then the frontend sends each Write first to the partition owning its subject's bucket, and each commit's reply reaches the client
 
     Scenario: A one-frame write is read at the default level
       When a client writes `<a> <knows> <b>` in one frame, and reads `<a> <knows> ?o` in read-only transactions at the default level

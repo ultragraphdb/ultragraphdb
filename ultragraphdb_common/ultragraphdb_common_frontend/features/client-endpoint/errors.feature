@@ -19,3 +19,7 @@ Feature: Errors reach the client through the error table
   Scenario: A transaction's first refusal is the one its client sees
     When a client sends a Write the frontend refuses and, before reading its answer, a second Write of the same transaction
     Then the client receives the first Write's refusal on the transaction's stream, and nothing after it
+
+  Scenario: A role connection's dial past its bound closes it
+    When the frontend dials a role address whose peer accepts and says nothing, carrying a request
+    Then past `transaction_ms` the connection is closed, the request is told so, and the log names the address and the bound

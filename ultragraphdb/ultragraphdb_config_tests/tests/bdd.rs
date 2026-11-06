@@ -49,6 +49,8 @@ struct Steps {
     reply: Option<HttpReply>,
     output: Option<Output>,
     graph: String,
+    /// What a start's environment holds.
+    environment: Vec<(String, String)>,
 }
 
 /// A valid target's files, as they are named on disk with the key each is declared by.
@@ -112,7 +114,7 @@ fn start(w: &mut Steps, wait_strategy: WaitStrategy) -> TestResult<u32> {
     let config = ServiceStartConfig::builder()
         .program(SERVICE)
         .program_args(vec!["--config", settings])
-        .env_vars(Vec::new())
+        .env_vars(w.environment.clone())
         .clear_env(true)
         .stderr_file(&args.log)
         .wait_strategy(wait_strategy)
@@ -239,7 +241,7 @@ fn second_process(w: &mut Steps) -> TestResult {
     let config = ServiceStartConfig::builder()
         .program(SERVICE)
         .program_args(vec!["--config", settings])
-        .env_vars(Vec::new())
+        .env_vars(w.environment.clone())
         .clear_env(true)
         .stderr_file(&log)
         .wait_strategy(WaitStrategy::NoWait)
@@ -1062,6 +1064,71 @@ fn restore_unreachable(w: &mut Steps) -> TestResult {
     let (text, code) = cli_text(w)?;
     assert_eq!(code, 69, "{text}");
     says(&text, &[&w.graph]);
+    Ok(())
+}
+
+#[when(
+    "a config service starts with `ULTRAGRAPHDB_PARENT_PID` naming a process that is not its parent"
+)]
+fn parent_gone(w: &mut Steps) -> TestResult {
+    prepare(w)?;
+    // No process holds the largest identity, so it is no parent of the service's.
+    w.environment
+        .push(("ULTRAGRAPHDB_PARENT_PID".to_string(), u32::MAX.to_string()));
+    start_refused(w)
+}
+
+#[then("it stops as on SIGTERM and exits with code 0")]
+fn stopped_with_its_parent(w: &mut Steps) -> TestResult {
+    let status = w.exited.context("an exit")?;
+    assert_eq!(status.code(), Some(0), "{}", w.log);
+    Ok(())
+}
+
+#[when(
+    "a config service starts at an address another process holds, which lets it go within the bound"
+)]
+fn port_held_a_moment(w: &mut Steps) -> TestResult {
+    prepare(w)?;
+    let held = std::net::TcpListener::bind(ADDRESS)?;
+    let _pid = start(w, WaitStrategy::NoWait)?;
+    let log = service(w).log;
+    let mut retried = false;
+    for _ in 0..START_SECONDS * 100 {
+        retried = std::fs::read_to_string(&log).is_ok_and(|text| text.contains("in use"));
+        if retried {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    drop(held);
+    assert!(
+        retried,
+        "a retry in the log, {START_SECONDS} s on: {:?}",
+        std::fs::read_to_string(&log)
+    );
+    Ok(())
+}
+
+#[then("it logs each retry naming the address, binds it, and answers `/health`")]
+fn took_the_port(w: &mut Steps) -> TestResult {
+    let mut status = None;
+    for _ in 0..START_SECONDS * 20 {
+        status = ask(READ_KEY, "GET", "/health", b"")
+            .ok()
+            .map(|reply| reply.status());
+        if status == Some(200) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert_eq!(status, Some(200), "{ADDRESS}/health");
+    let log = std::fs::read_to_string(service(w).log)?;
+    assert!(
+        log.lines()
+            .any(|line| line.contains("in use") && line.contains(ADDRESS)),
+        "{log}"
+    );
     Ok(())
 }
 

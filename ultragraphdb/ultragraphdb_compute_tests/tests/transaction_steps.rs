@@ -250,19 +250,19 @@ fn span_after_cancel(w: &mut Steps) -> TestResult {
         let mut first = scene.begin(1, 1).await?;
         let log = &scene.info.log;
         log.clear();
-        // The dictionary's Scan goes on; the Scan of `<a>`'s list, the one more span, waits at the tap.
-        log.pause_after(1);
+        // The dictionary's Scan goes on; the Scan of `<a>`'s list, the one more span, waits at the tap for compute's Cancel of it.
+        log.pause_until_next_frame(1);
         let read = first.read(&scene, &Pattern::of(Some(&a), Some(KNOWS), None), 0)?;
         let mut client = compute_client(scene.info).await?;
         client.send_only(&read).await?;
         let stream = client.last_stream();
         until("two Scans seen", || log.scans().len() >= 2).await?;
         assert_eq!(log.scans().len(), 2, "the list's Scan held");
-        // The Cancel a Commit sends; compute's own Cancel of its Scan then follows the Scan held on the same connection.
+        // The Cancel a Commit sends; compute's own Cancel of its Scan lets the Scan held go on, then follows it on the same connection.
         client.send_on(stream, &Cancel).await?;
-        log.go_on();
         // The partition reads its connection's frames in order, so the Scan has run once compute's Cancel has gone on after it.
         until("a Cancel seen", || log.cancels() >= 1).await?;
+        log.go_on();
         assert_eq!(log.cancels(), 1, "compute's Cancel of its Scan");
         scene
             .commit(1, &insert_of(None, &a, KNOWS, &iri(&b))?)
@@ -347,6 +347,35 @@ fn stopped_at_limit(w: &mut Steps) -> TestResult {
 #[then("T1 commits")]
 fn t1_commits(w: &mut Steps) {
     assert_eq!(w.outcome, Some(true));
+}
+
+#[when(
+    "T1 reads `<a> <name> ?o` with limit 1 and its graph unbound, `<a>` holding it in two graphs, T2 commits an insert into the graph T1's read did not reach, and T1 commits a write"
+)]
+fn stopped_before_a_graph(w: &mut Steps) -> TestResult {
+    let scene = Scene::new(solo());
+    run(async {
+        let a = scene.iri_in(1, "a")?;
+        let (g1, g2) = (scene.iri_in(1, "g1")?, scene.iri_in(1, "g2")?);
+        for graph in [&g1, &g2] {
+            let write = insert_of(Some(graph.as_str()), &a, NAME, &string("x"))?;
+            scene.commit(1, &write).await?;
+        }
+        let mut first = scene.begin(1, 1).await?;
+        let pattern = Pattern::of(Some(&a), Some(NAME), None).any_graph();
+        let page = scene.answer(&first.read(&scene, &pattern, 1)?).await?;
+        page.whole()?;
+        assert!(!page.resume().is_empty(), "the second graph may hold rows");
+        let unread = if page.column(0).first() == Some(&g1) {
+            &g2
+        } else {
+            &g1
+        };
+        let past = insert_of(Some(unread.as_str()), &a, NAME, &string("past"))?;
+        scene.commit(1, &past).await?;
+        w.outcome = Some(commit_a_write(&scene, &mut first).await?.is_none());
+        Ok(())
+    })
 }
 
 #[when(

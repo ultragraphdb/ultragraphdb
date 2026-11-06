@@ -45,6 +45,16 @@ fn test_a_tcp_carrier_keeps_alive_on_either_side() -> TestResult {
 }
 
 #[test]
+fn test_a_tcp_carrier_sends_each_frame_at_once_on_either_side() -> TestResult {
+    compio::runtime::Runtime::new()?.block_on(async {
+        let (_listener, accepted, dialled) = pair(&Address::any_port("127.0.0.1")?).await?;
+        assert!(accepted.is_no_delay()?, "accepted");
+        assert!(dialled.is_no_delay()?, "dialled");
+        Ok(())
+    })
+}
+
+#[test]
 fn test_a_tcp_address_carries_bytes_both_ways() -> TestResult {
     compio::runtime::Runtime::new()?.block_on(async {
         let (listener, accepted, dialled) = pair(&Address::any_port("127.0.0.1")?).await?;

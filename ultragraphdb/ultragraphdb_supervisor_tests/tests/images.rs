@@ -32,6 +32,9 @@ const IN_DOCKER: &str = "ULTRAGRAPHDB_IMAGE_TESTS";
 /// The longest a Docker command may take: a load of the development image is the slowest, a few seconds.
 const DOCKER_SECONDS: u64 = 120;
 
+/// Longer than a role takes to look at its parent, a tenth of a second.
+const ROLE_LOOKS: Duration = Duration::from_millis(500);
+
 /// The user every role image and the development image run as, the glibc base's `nonroot`.
 const NONROOT: &str = "65532";
 
@@ -723,6 +726,24 @@ pub(crate) fn start_three_hosts(c: &mut Containers) -> TestResult {
     }
     assert_eq!(http_status(&published(&frontend, "8081")?, "/ready")?, 200);
     c.endpoint = published(&frontend, ENDPOINT_PORT)?;
+    Ok(())
+}
+
+/// The supervisor stood at PID 1 and named itself to everything it started, which each role reads as its parent: past the time a
+/// role takes to look, none stopped, and a write and a read still succeed.
+pub(crate) fn roles_run_on_under_pid_1(c: &Containers) -> TestResult {
+    for instance in ["config", "frontend", "storage", "compute"] {
+        let named = c.log.lines().any(|line| {
+            line.contains(&format!("started instance={instance} "))
+                && line.trim_end().ends_with(" parent=1")
+        });
+        assert!(named, "{instance} told of process 1:\n{}", c.log);
+    }
+    std::thread::sleep(ROLE_LOOKS);
+    assert_eq!(objects(&write_and_read(c)?), [OBJECT], "{}", c.log);
+    let container = c.started.last().context("the development container")?;
+    let log = logs(container)?;
+    assert!(!log.contains("stopping"), "a role stopped:\n{log}");
     Ok(())
 }
 

@@ -66,7 +66,8 @@ pub fn encode_round(
             | ProtocolErrorEnum::FieldValue { .. }
             | ProtocolErrorEnum::DuplicateTerm { .. }
             | ProtocolErrorEnum::TermTooDeep { .. }
-            | ProtocolErrorEnum::Record { .. } => {
+            | ProtocolErrorEnum::Record { .. }
+            | ProtocolErrorEnum::PastCredit { .. } => {
                 LogError::too_large(HEADER_SIZE + round.body().len(), 0)
             }
         })?;

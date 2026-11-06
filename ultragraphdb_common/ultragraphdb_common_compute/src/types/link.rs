@@ -13,8 +13,11 @@ use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use futures::channel::oneshot;
 use ultragraphdb_common_role::{RoleClient, RoleReader, RoleWriter};
+use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::{BufferPool, ReceivedFrame};
-use ultragraphdb_protocol_wire::{BodyBuilder, ErrorReply, Header, HeaderView, MAX_FRAME_SIZE};
+use ultragraphdb_protocol_wire::{
+    BodyBuilder, Command, Credit, ErrorReply, Header, HeaderView, MAX_FRAME_SIZE,
+};
 
 use crate::utils::clock::now;
 use crate::utils::refusals::unavailable;
@@ -33,13 +36,22 @@ pub(crate) struct Link {
     /// How long the partition may leave a request unanswered past its deadline before compute takes it for hung.
     answer_wait: Duration,
     out: UnboundedSender<Vec<u8>>,
-    streams: RefCell<HashMap<u64, UnboundedSender<ReceivedFrame>>>,
+    /// The credit each stream starts with, the partition's Welcome's.
+    initial_credit: u32,
+    streams: RefCell<HashMap<u64, OpenStream>>,
     next_stream: Cell<u64>,
     closed: Cell<bool>,
     /// Ends the reader at a close, so the connection's read half, and with it the socket, goes with the link.
     closing: RefCell<Option<oneshot::Sender<()>>>,
     /// When the partition last sent a frame on the connection.
     heard: Cell<Instant>,
+}
+
+/// One stream's holder, and the Entries frames it may yet receive (`PROTOCOL.md` §11.3).
+#[derive(Debug)]
+struct OpenStream {
+    frames: UnboundedSender<ReceivedFrame>,
+    credit: u32,
 }
 
 impl Link {
@@ -50,7 +62,7 @@ impl Link {
         answer_wait: Duration,
         client: RoleClient,
     ) -> Rc<Self> {
-        let (reader, writer, _welcome) = client.split();
+        let (reader, writer, welcome) = client.split();
         let (out, sending) = unbounded();
         let (closing, closed) = oneshot::channel();
         let link = Rc::new(Self {
@@ -58,6 +70,7 @@ impl Link {
             cluster,
             answer_wait,
             out,
+            initial_credit: welcome.initial_credit(),
             streams: RefCell::default(),
             next_stream: Cell::new(1),
             closed: Cell::new(false),
@@ -94,7 +107,11 @@ impl Link {
         let stream = self.next_stream.get();
         self.next_stream.set(stream.saturating_add(1));
         let (frames, arriving) = unbounded();
-        let _new = self.streams.borrow_mut().insert(stream, frames);
+        let open = OpenStream {
+            frames,
+            credit: self.initial_credit,
+        };
+        let _new = self.streams.borrow_mut().insert(stream, open);
         Ok((stream, arriving))
     }
 
@@ -106,6 +123,14 @@ impl Link {
         self.out
             .unbounded_send(frame)
             .map_err(|_| self.closed_under_read())
+    }
+
+    /// Grants `stream` one more Entries frame.
+    pub(crate) fn grant(&self, stream: u64) -> Result<(), ErrorReply> {
+        if let Some(open) = self.streams.borrow_mut().get_mut(&stream) {
+            open.credit = open.credit.saturating_add(1);
+        }
+        self.send(stream, &Credit::new(1))
     }
 
     /// `stream` no longer wants its frames.
@@ -153,12 +178,23 @@ impl Link {
         .detach();
     }
 
-    /// Hands `frame` to its stream's holder; a frame of a stream gone had no one to go to.
-    fn deliver(&self, stream: u64, frame: ReceivedFrame) {
-        if let Some(holder) = self.streams.borrow().get(&stream) {
+    /// Hands `frame` to its stream's holder; a frame of a stream gone had no one to go to. An Entries frame past its stream's credit
+    /// is refused, naming the stream.
+    fn deliver(&self, stream: u64, frame: ReceivedFrame) -> Result<(), ProtocolError> {
+        // The header alone, which the framer verified: the body's checksums are the holder's to check, once.
+        let metered = HeaderView::new(frame.bytes())
+            .is_ok_and(|header| header.command() == Command::Entries.number());
+        if let Some(open) = self.streams.borrow_mut().get_mut(&stream) {
+            if metered {
+                open.credit = open
+                    .credit
+                    .checked_sub(1)
+                    .ok_or_else(|| ProtocolError::past_credit(stream))?;
+            }
             // A holder gone is a read that ended meanwhile.
-            drop(holder.unbounded_send(frame));
+            drop(open.frames.unbounded_send(frame));
         }
+        Ok(())
     }
 }
 
@@ -199,7 +235,9 @@ async fn read_frames(mut reader: RoleReader, link: Rc<Link>, mut closed: oneshot
         if stream == 0 {
             return link.close(&"the partition ended the connection");
         }
-        link.deliver(stream, frame);
+        if let Err(rule) = link.deliver(stream, frame) {
+            return link.close(&rule);
+        }
     }
 }
 

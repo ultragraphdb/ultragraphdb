@@ -69,7 +69,8 @@ The frontend SHALL convert a request's terms, find each subject's bucket and par
 a write to its partition's storage process and a read to compute; a reply SHALL reach the client on the request's
 stream. The frontend SHALL check every subject a first request or a one-frame write names by an IRI or a skolem IRI against its
 map, and SHALL refuse one whose subjects spread over partitions with code 23 before any Bind or relay. A partition's refusal naming
-another owner SHALL make the frontend refresh its placement map and resend once. Until a transaction's first request is answered,
+another owner SHALL make the frontend refresh its placement map and resend once; code 26 of `detail` 0 names no owner, and the frontend
+SHALL answer it to the client. Until a transaction's first request is answered,
 the frontend SHALL send none of its later requests to a partition or to compute, keeping them, and on code 26 SHALL send them after
 the resend, in order; a first read SHALL count as answered, for this rule alone, at its first frame or its Error. When compute
 answers a first read with code 23, the frontend SHALL cancel the Bind stream and refresh its map: if the refreshed map moves the
@@ -79,13 +80,17 @@ relay code 23 on the read's stream, drop the writes it holds, cancel the transac
 next request on the transaction's stream, which ends it.
 
 #### Scenario: A write reaches its partition
-- **WHEN** a client writes `<http://ex.org/a> <http://ex.org/knows> <http://ex.org/b>`
-- **THEN** the frontend sends it to the partition owning the bucket of `http://ex.org/a`, and the commit's reply reaches
+- **WHEN** a client writes one statement per partition, each subject an IRI of that partition's buckets
+- **THEN** the frontend sends each Write first to the partition owning its subject's bucket, and each commit's reply reaches
   the client
 
 #### Scenario: A stale placement map is corrected
 - **WHEN** a partition refuses a write naming its new owner
 - **THEN** the frontend refreshes its map, resends the write to the owner once, and the client receives the owner's reply
+
+#### Scenario: A home's code 26 reaches the client
+- **WHEN** a partition answers a client's first Write with code 26 of `detail` 0, a home having refused its registration
+- **THEN** the client receives code 26 on the transaction's stream, and the frontend binds no other partition
 
 #### Scenario: Later requests wait for the first
 - **WHEN** a client sends two Writes of a new transaction without waiting, and the partition refuses the first with code
@@ -172,6 +177,8 @@ role's errors to a code; an operating error SHALL keep the connection open, and 
 answer `Unavailable` to every request it affects. When a role connection closes under a request, whether the peer went or a frame
 was refused, the side that dialled SHALL answer each read and request it carried with code 17, except a read none of whose frames
 reached the client, which the frontend SHALL send to the next compute process, and compute SHALL send no Scan again for such a read.
+The frontend's dial of a role connection, TCP connect, Hello and SCRAM exchange together, SHALL take at most `transaction_ms`; a dial
+past that bound SHALL fail the connection as a closed one does, its log naming the address and the bound.
 
 #### Scenario: A partition's invariant violation answers Unavailable
 - **WHEN** a partition stops on an invariant violation and a client writes to it
@@ -180,6 +187,10 @@ reached the client, which the frontend SHALL send to the next compute process, a
 #### Scenario: A role connection closing under a request answers code 17
 - **WHEN** the connection between the frontend and a storage process closes under a Write and a Commit
 - **THEN** the client receives code 17 for each, the Commit is in doubt, and requests to other partitions still succeed
+
+#### Scenario: A role connection's dial past its bound closes it
+- **WHEN** the frontend dials a role address whose peer accepts and says nothing, carrying a request
+- **THEN** past `transaction_ms` the connection is closed, the request is told so, and the log names the address and the bound
 
 ### Requirement: Vector-index declarations wait for stage 8
 In this stage the frontend SHALL refuse a declaration of a vector index with an error naming the predicate and stating

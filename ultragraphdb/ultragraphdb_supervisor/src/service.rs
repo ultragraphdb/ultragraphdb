@@ -15,6 +15,7 @@ use std::time::Duration;
 use compio::runtime::Runtime;
 use rustix::process::{Pid, Signal, kill_process};
 use ultragraphdb_common_config_check::{Instance, TargetFiles, check_config_service, instances};
+use ultragraphdb_common_service::{PARENT_PID, stop_with_parent};
 use ultragraphdb_common_service_config::{EndpointSecurity, ServiceConfig};
 use ultragraphdb_common_telemetry::{LogFormat, TelemetryConfig, init};
 use ultragraphdb_error_role::RoleError;
@@ -48,8 +49,10 @@ const HELP: &str = "ultragraphdb_supervisor --config <file>
 
 Runs the development container: the config service, the frontend, storage and compute, each its own process, started in that
 order, each waited on over HTTP. It restarts nothing. SIGTERM and SIGINT stop them in the shutdown order: the frontend, compute,
-storage, the config service. SIGHUP and SIGQUIT do the same, as SIGTERM, since a closed terminal reaches the supervisor alone. A
-supervisor killed outright stops nothing, and what it started goes on holding its ports and directories: stop those by hand.
+storage, the config service. SIGHUP and SIGQUIT do the same, as SIGTERM, since a closed terminal reaches the supervisor alone.
+ULTRAGRAPHDB_PARENT_PID names a process to end with: once it is not this one's parent, the supervisor stops as on SIGTERM. The
+supervisor sets the variable to its own process for everything it starts, so killed outright it takes each of them with it, each
+stopping as on SIGTERM; at PID 1 its death ends the container.
 
 <file> is the config service's own settings file, over clear text, as the shipped profiles name it. The binaries stand beside this
 one. The config service's two keys and the role secret are drawn at random where the settings name them, if nothing is there,
@@ -153,6 +156,7 @@ pub(crate) fn run_supervisor(args: &[String]) -> Result<u8, RoleError> {
     let _telemetry = init(&TelemetryConfig::new("info", LogFormat::Plain))
         .map_err(|error| RoleError::unavailable(format!("telemetry: {error}")))?;
     let signals = Signals::new()?;
+    stop_with_parent(&signals.term)?;
     draw_secret(&start.read_key_file)?;
     draw_secret(&start.admin_key_file)?;
     let runtime =
@@ -364,7 +368,9 @@ impl Supervised<'_> {
 
     /// Starts the binary of `role` beside this one, in a process group of its own, so a terminal's Ctrl-C reaches the supervisor
     /// alone and the roles still stop in order. Its output goes where the supervisor's does. What this process's environment holds
-    /// for a role's own bootstrap is left out, since a role refuses a variable it does not take.
+    /// for a role's own bootstrap is left out, since a role refuses a variable it does not take. It names this process as the one
+    /// to end with, so a supervisor killed outright orphans nothing; at PID 1 that names process 1, which stays its parent until
+    /// the container ends.
     fn spawn(
         &mut self,
         name: &str,
@@ -380,6 +386,7 @@ impl Supervised<'_> {
             .env_clear()
             .envs(inherited)
             .envs(variables.iter().map(|(variable, value)| (*variable, value)))
+            .env(PARENT_PID, std::process::id().to_string())
             .process_group(0)
             .spawn()
             .map_err(|error| {
@@ -388,7 +395,7 @@ impl Supervised<'_> {
                     program.display()
                 )))
             })?;
-        tracing::info!(instance = %name, pid = child.id(), "started");
+        tracing::info!(instance = %name, pid = child.id(), parent = std::process::id(), "started");
         self.processes.push(Process {
             name: name.to_string(),
             role,

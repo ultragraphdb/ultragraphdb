@@ -103,3 +103,11 @@ Feature: The supervisor starts, stops and reports the roles
   Scenario: Each binary's help names the exit codes
     When each of the four binaries is asked for its help
     Then each exits 0 and lists the codes 0, 69, 70, 74 and 78, and the supervisor's the code of a role a signal killed
+
+  Scenario: A killed supervisor orphans no role
+    When the supervisor is killed by SIGKILL while every role runs
+    Then the config service and the three roles each stop as on SIGTERM and free their ports
+
+  Scenario: The supervisor ends with the process it names
+    When the supervisor starts with `ULTRAGRAPHDB_PARENT_PID` naming a process that is not its parent
+    Then it stops what it started and exits with code 0

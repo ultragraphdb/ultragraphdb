@@ -12,8 +12,8 @@ use std::time::Duration;
 
 use cucumber::{then, when};
 use ultragraphdb_common_frontend::{
-    DoubleFrame, EndpointLimits, EveryAuthenticated, GateScope, TenantGate, empty_batch,
-    last_frame, partition_answer,
+    DoubleFrame, EndpointLimits, EveryAuthenticated, GateScope, TenantGate, batch_frame,
+    empty_batch, last_frame, partition_answer,
 };
 use ultragraphdb_common_role::{Answer, RoleClient};
 use ultragraphdb_protocol_transport::BufferPool;
@@ -243,28 +243,35 @@ fn an_unknown_name_keeps_one_salt_across_a_restart_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
 }
 
-#[when("a client writes `<http://ex.org/a> <http://ex.org/knows> <http://ex.org/b>`")]
+#[when(
+    "a client writes one statement per partition, each subject an IRI of that partition's buckets"
+)]
 fn a_write_reaches_its_partition(w: &mut Steps) -> TestResult {
-    let options = Options::default();
+    let options = Options {
+        partitions: 2,
+        ..Options::default()
+    };
     run(w, options, |stage| async move {
         let _whole = &stage;
-        let partition = stage.partition(1).await?;
-        let subject = "http://ex.org/a";
+        let partitions = [stage.partition(1).await?, stage.partition(2).await?];
         let mut client = stage.ann().await?;
-        let transaction = client.begin(0).await?;
-        client.write(transaction, subject).await?;
-        client.commit(transaction).await?;
-        assert_eq!(client.got(transaction).await?.command, Command::Commit);
-        assert_eq!(
-            partition.commands(&[]),
-            [Command::Bind, Command::Write, Command::Commit]
-        );
+        for (at, partition) in (1..).zip(&partitions) {
+            let subject = stage.on(at)?;
+            let transaction = client.begin(0).await?;
+            client.write(transaction, &subject).await?;
+            client.commit(transaction).await?;
+            assert_eq!(client.got(transaction).await?.command, Command::Commit);
+            assert_eq!(
+                partition.commands(&[]),
+                [Command::Bind, Command::Write, Command::Commit]
+            );
+        }
         Ok(())
     })
 }
 
 #[then(
-    "the frontend sends it to the partition owning the bucket of `http://ex.org/a`, and the commit's reply reaches the client"
+    "the frontend sends each Write first to the partition owning its subject's bucket, and each commit's reply reaches the client"
 )]
 fn a_write_reaches_its_partition_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
@@ -307,6 +314,45 @@ fn a_stale_placement_map_is_corrected(w: &mut Steps) -> TestResult {
     "the frontend refreshes its map, resends the write to the owner once, and the client receives the owner's reply"
 )]
 fn a_stale_placement_map_is_corrected_held(w: &mut Steps) {
+    assert!(w.ran, "the scenario ran");
+}
+
+#[when(
+    "a partition answers a client's first Write with code 26 of `detail` 0, a home having refused its registration"
+)]
+fn a_homes_code_26_reaches_the_client(w: &mut Steps) -> TestResult {
+    let options = Options {
+        partitions: 2,
+        ..Options::default()
+    };
+    run(w, options, |stage| async move {
+        let _whole = &stage;
+        let subject = stage.on(1)?;
+        let bound = stage
+            .partition_with(1, |frame| wrong_owner(frame, 0, 0))
+            .await?;
+        let other = stage.partition(2).await?;
+        let mut client = stage.ann().await?;
+        let transaction = client.begin(0).await?;
+        client.write(transaction, &subject).await?;
+        assert_eq!(
+            client.refused(transaction).await?,
+            (ErrorCode::WrongPartition, 0)
+        );
+        assert_eq!(bound.count(Command::Write), 1, "sent once");
+        assert_eq!(
+            other.commands(&[]),
+            [] as [Command; 0],
+            "no other partition"
+        );
+        Ok(())
+    })
+}
+
+#[then(
+    "the client receives code 26 on the transaction's stream, and the frontend binds no other partition"
+)]
+fn a_homes_code_26_reaches_the_client_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
 }
 
@@ -699,6 +745,66 @@ fn a_read_is_never_resent_after_a_frame(w: &mut Steps) -> TestResult {
     "the read is refused with code 17, no other compute process receives it, and the client's connection stays open"
 )]
 fn a_read_is_never_resent_after_a_frame_held(w: &mut Steps) {
+    assert!(w.ran, "the scenario ran");
+}
+
+#[when(
+    "a compute process sends a ComputeRead's stream a Result frame with the stream's credit spent, the frames its credit and a Credit allowed having reached the client and a second read being open on the connection"
+)]
+fn a_result_frame_past_its_credit_closes_the_role_connection(w: &mut Steps) -> TestResult {
+    let options = Options {
+        limits: Options::default().limits.with_initial_credit(1),
+        ..Options::default()
+    };
+    run(w, options, |stage| async move {
+        let _whole = &stage;
+        let breaking = stage.compute_with(|_| Answer::Open).await?;
+        let mut client = stage.ann().await?;
+        let transaction = client.begin_read_only(ReadLevel::Snapshot).await?;
+        let first = client.read(transaction, OBJECT).await?;
+        let second = client.read(transaction, OBJECT).await?;
+        until("both reads", || breaking.count(Command::ComputeRead) == 2).await?;
+        let other = stage.compute().await?;
+        answer_frame(&breaking, 0, &empty_batch(4, 1), false)?;
+        assert_eq!(client.got(first).await?.command, Command::Result);
+        client.on(first, &Credit::new(1)).await?;
+        until("the Credit relayed", || {
+            breaking.count(Command::Credit) == 1
+        })
+        .await?;
+        answer_frame(&breaking, 0, &empty_batch(4, 1), false)?;
+        assert_eq!(client.got(first).await?.command, Command::Result);
+        // The second read's credit lets this frame leave, and its header names the first read, whose credit is spent.
+        let reads = breaking.frames(Command::ComputeRead);
+        let (named, spending) = (
+            reads.first().context("the first read")?,
+            reads.get(1).context("the second read")?,
+        );
+        spending.answer_with(batch_frame(
+            CLUSTER,
+            named.stream(),
+            &empty_batch(4, 1),
+            false,
+        )?);
+        assert_eq!(client.refused(first).await?.0, ErrorCode::Unavailable);
+        assert_eq!(
+            client.got(second).await?.command,
+            Command::Result,
+            "its rows"
+        );
+        assert_eq!(other.count(Command::ComputeRead), 1);
+        until("the role connection's end", || {
+            breaking.connections_ended() == 1
+        })
+        .await?;
+        Ok(())
+    })
+}
+
+#[then(
+    "the frontend closes the role connection, answers the first read code 17, and sends the second to the other compute process"
+)]
+fn a_result_frame_past_its_credit_closes_the_role_connection_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
 }
 

@@ -31,6 +31,8 @@ pub mod utils {
 mod in_doubt_steps;
 #[path = "bdd_steps/read_steps.rs"]
 mod read_steps;
+#[path = "bdd_steps/register_steps.rs"]
+mod register_steps;
 #[path = "bdd_steps/request_types_steps.rs"]
 mod request_types_steps;
 #[path = "bdd_steps/session_steps.rs"]
@@ -56,6 +58,7 @@ pub(crate) struct Steps {
     outcome: Vec<u64>,
     refusal: Option<bool>,
     terms: usize,
+    waited: Duration,
 }
 
 impl std::fmt::Debug for Steps {

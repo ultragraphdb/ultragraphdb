@@ -11,7 +11,7 @@ use ultragraphdb_cluster_placement::{PartitionId, PlacementMap, TenantRun};
 use ultragraphdb_common_role::{RoleClient, RoleCluster};
 use ultragraphdb_core_ids::{Bucket, Tenant};
 use ultragraphdb_protocol_transport::Address;
-use ultragraphdb_protocol_wire::{Join, RoleKind};
+use ultragraphdb_protocol_wire::{DEFAULT_TRANSACTION_MS, Join, RoleKind};
 
 use crate::types::role_link::RoleLink;
 
@@ -31,6 +31,7 @@ struct Held {
 pub struct RoleLinks {
     cluster: RoleCluster,
     name: String,
+    dial_ms: u32,
     held: Rc<RefCell<Held>>,
 }
 
@@ -41,8 +42,16 @@ impl RoleLinks {
         Self {
             cluster,
             name,
+            dial_ms: DEFAULT_TRANSACTION_MS,
             held: Rc::default(),
         }
+    }
+
+    /// What this core knows, with a dial bounded at `dial_ms` milliseconds, the Welcome's `transaction_ms`.
+    #[must_use]
+    pub fn with_dial_ms(mut self, dial_ms: u32) -> Self {
+        self.dial_ms = dial_ms;
+        self
     }
 
     /// The cluster's identity.
@@ -95,6 +104,7 @@ impl RoleLinks {
             self.cluster(),
             self.name.clone(),
             self.cluster.secret().password().to_string(),
+            self.dial_ms,
         );
         let _replaced = held.open.insert(address.to_string(), link.clone());
         Some(link)

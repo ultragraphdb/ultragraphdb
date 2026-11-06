@@ -24,7 +24,6 @@ use crate::Steps;
 use crate::client_reads::{Pattern, TENANT, direct_of, iri, read_whole, write_of};
 use crate::cluster::{Cluster, client, shared_client, start_own};
 
-const A: &str = "http://ex.org/a";
 const B: &str = "http://ex.org/b";
 const KNOWS: &str = "http://ex.org/knows";
 
@@ -33,6 +32,21 @@ const RESENT: &str = "a first request refused as another partition's is resent t
 
 /// How many read-only transactions a read of a fresh write takes at most, each at a newer snapshot.
 const SNAPSHOTS: u32 = 250;
+
+/// The partitions of the routing scenario's cluster.
+const PARTITIONS: u32 = 2;
+
+/// How many IRIs the routing scenario tries for one of a partition's buckets, each bucket as likely as another.
+const IRIS_TRIED: u32 = 10_000;
+
+/// What one write of the routing scenario did.
+#[derive(Debug, Clone)]
+pub(crate) struct Routed {
+    partition: u32,
+    version: u64,
+    /// Whether each partition, the first first, holds the write's subject.
+    held: Vec<bool>,
+}
 
 /// How long a role takes at most to answer a probe of these steps.
 const PROBE: Duration = Duration::from_secs(10);
@@ -44,12 +58,12 @@ async fn bounded<T>(what: &str, probe: impl Future<Output = TestResult<T>>) -> T
         .map_err(|_| TestError::new(format!("{what} did not answer within {PROBE:?}")))?
 }
 
-/// The partition the frontend's placement map gives `iri`'s bucket, as the frontend's own Placement answers it.
-async fn owner_of(cluster: &Cluster, iri: &str) -> TestResult<u32> {
-    bounded("the frontend's Placement", placement_owner(cluster, iri)).await
+/// The ranges of the frontend's placement map, as the frontend's own Placement answers them: first bucket, past bucket and partition.
+async fn placement_ranges(cluster: &Cluster) -> TestResult<Vec<(u32, u32, u32)>> {
+    bounded("the frontend's Placement", placed_ranges(cluster)).await
 }
 
-async fn placement_owner(cluster: &Cluster, iri: &str) -> TestResult<u32> {
+async fn placed_ranges(cluster: &Cluster) -> TestResult<Vec<(u32, u32, u32)>> {
     let mut frontend = RoleClient::dial(
         &Address::parse(&cluster.frontend)?,
         CLUSTER,
@@ -60,12 +74,24 @@ async fn placement_owner(cluster: &Cluster, iri: &str) -> TestResult<u32> {
     let placed = frontend.request(&Placement::request(0)).await?;
     let view = placed.view()?;
     let map = PlacementView::from_frame(&view)?;
-    let bucket = iri_bucket(TENANT, iri).context("a bucket")?.get();
-    (0..map.range_count())
+    Ok((0..map.range_count())
         .filter_map(|index| map.range(index))
-        .find(|range| range.start() <= bucket && bucket < range.end())
-        .map(|range| range.partition())
-        .context("the bucket's range")
+        .map(|range| (range.start(), range.end(), range.partition()))
+        .collect())
+}
+
+/// An IRI whose bucket `ranges` give to `partition`.
+fn iri_of_partition(ranges: &[(u32, u32, u32)], partition: u32) -> TestResult<String> {
+    (0..IRIS_TRIED)
+        .map(|at| format!("http://ex.org/routed{at}"))
+        .find(|iri| {
+            iri_bucket(TENANT, iri).is_some_and(|bucket| {
+                ranges.iter().any(|(start, end, holder)| {
+                    *holder == partition && *start <= bucket.get() && bucket.get() < *end
+                })
+            })
+        })
+        .context("an IRI of the partition")
 }
 
 /// Whether partition `partition` at `address` holds `iri` in its dictionary, read as the frontend reads it.
@@ -88,44 +114,56 @@ async fn scanned_term(address: &str, partition: u32, iri: &str) -> TestResult<bo
     Ok(entries.entries().iter().next().is_some())
 }
 
-#[when("a client writes `<http://ex.org/a> <http://ex.org/knows> <http://ex.org/b>`")]
-fn writes_a(w: &mut Steps) -> TestResult {
-    let cluster = start_own(w.carrier, 2)?;
-    let (version, owner, held) = Runtime::new()?.block_on(async {
+#[when(
+    "a client writes one statement per partition, each subject an IRI of that partition's buckets"
+)]
+fn writes_one_per_partition(w: &mut Steps) -> TestResult {
+    let cluster = start_own(w.carrier, PARTITIONS)?;
+    let routed = Runtime::new()?.block_on(async {
+        let ranges = placement_ranges(&cluster).await?;
         let mut client = client(&cluster.client).await?;
-        let transaction = client.begin(TENANT, false).await?;
-        client
-            .write(&transaction, &write_of(A, KNOWS, &iri(B))?)
-            .await?;
-        let committed = client.commit(transaction, None).await?;
-        // The frontend logs a first request a partition refused as another's, which storage's correction would hide.
-        let log = std::fs::read_to_string(scratch(FRONTEND_BINARY))?;
-        if log.contains(RESENT) {
-            return Err(TestError::new(format!(
-                "the Write went first to a partition not owning its bucket: {log}"
-            )));
+        let mut routed = Vec::new();
+        for partition in 1..=PARTITIONS {
+            let subject = iri_of_partition(&ranges, partition)?;
+            let transaction = client.begin(TENANT, false).await?;
+            client
+                .write(&transaction, &write_of(&subject, KNOWS, &iri(B))?)
+                .await?;
+            let committed = client.commit(transaction, None).await?;
+            // The frontend logs a first request a partition refused as another's, which storage's correction would hide.
+            let log = std::fs::read_to_string(scratch(FRONTEND_BINARY))?;
+            if log.contains(RESENT) {
+                return Err(TestError::new(format!(
+                    "the Write of {subject} went first to a partition not owning its bucket: {log}"
+                )));
+            }
+            let mut held = Vec::new();
+            for (at, address) in (1..).zip(&cluster.partitions) {
+                held.push(holds_term(address, at, &subject).await?);
+            }
+            routed.push(Routed {
+                partition,
+                version: committed.version(),
+                held,
+            });
         }
-        let owner = owner_of(&cluster, A).await?;
-        let mut held = Vec::new();
-        for (at, address) in (1..).zip(&cluster.partitions) {
-            held.push(holds_term(address, at, A).await?);
-        }
-        TestResult::Ok((committed.version(), owner, held))
+        TestResult::Ok(routed)
     })?;
     w.cluster = Some(cluster);
-    w.version = version;
-    w.owner = owner;
-    w.held = held;
+    w.routed = routed;
     Ok(())
 }
 
 #[then(
-    "the frontend sends it to the partition owning the bucket of `http://ex.org/a`, and the commit's reply reaches the client"
+    "the frontend sends each Write first to the partition owning its subject's bucket, and each commit's reply reaches the client"
 )]
-fn reached_owner(w: &mut Steps) {
-    assert!(w.version > 0, "a commit version: {}", w.over());
-    let expected: Vec<bool> = (1..).take(w.held.len()).map(|at| at == w.owner).collect();
-    assert_eq!(w.held, expected, "{}", w.over());
+fn reached_each_owner(w: &mut Steps) {
+    assert_eq!(w.routed.len() as u32, PARTITIONS, "{}", w.over());
+    for routed in &w.routed {
+        assert!(routed.version > 0, "a commit version: {}", w.over());
+        let expected: Vec<bool> = (1..=PARTITIONS).map(|at| at == routed.partition).collect();
+        assert_eq!(routed.held, expected, "{routed:?} {}", w.over());
+    }
     w.cluster = None;
 }
 

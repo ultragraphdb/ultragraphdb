@@ -76,7 +76,7 @@ async fn join_as(
 ) -> Result<(), RoleError> {
     let cluster = RoleCluster::read(start)?;
     let frontend = frontend_address(start)?;
-    let listener = CoreListener::bind(own)?;
+    let listener = CoreListener::bind(own).await?;
     // Every core's reads, counted until each ends: a stop refuses new ones and drains these (role-binaries "Readiness, health and
     // shutdown").
     let open = OpenRequests::new(stopping.clone());

@@ -26,5 +26,6 @@ pub use crate::types::retention::Retention;
 pub use crate::types::scan_board::ScanBoard;
 pub use crate::types::scan_key::ScanKey;
 pub use crate::types::storage_session::StorageSession;
+pub use crate::types::turn_budget::{TURN_BYTES, TurnBudget};
 pub use crate::utils::error_reply::{error_reply, registration_outcome, scan_refusal};
 pub use crate::utils::scan_version::{scan_named, scan_version};

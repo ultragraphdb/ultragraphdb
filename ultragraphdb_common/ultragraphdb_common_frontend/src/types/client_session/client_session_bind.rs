@@ -299,7 +299,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
     }
 
     /// A partition's Error on the Bind stream. A first request refused naming another owner is resent there once, what followed
-    /// it kept; anything else is the client's.
+    /// it kept; anything else is the client's, a code 26 naming no owner among it, a home's refusal of a registration.
     fn bind_refused(&mut self, transaction: u64, frame: &[u8]) {
         let Some(refusal) = error_of(self.cluster(), frame) else {
             let refusal = self.unavailable();
@@ -307,7 +307,10 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             return;
         };
         let resend = self.transactions.get(&transaction).is_some_and(|txn| {
-            refusal.code() == ErrorCode::WrongPartition && txn.first_open && !txn.resent
+            refusal.code() == ErrorCode::WrongPartition
+                && refusal.detail() >> 32 != 0
+                && txn.first_open
+                && !txn.resent
         });
         if !resend {
             self.end_transaction(transaction, &refusal);

@@ -35,7 +35,8 @@ use crate::utils_test::test_server::test_transaction::{
 /// a statement for Prepare, and a commit from its session table, which answers a retry from its record.
 ///
 /// A test injects a fault by name before the request it hits: [`TestServer::drop_after_next_commit`],
-/// [`TestServer::lose_next_commit`], [`TestServer::answer_busy_retries`], [`TestServer::lose_next_retries`],
+/// [`TestServer::lose_next_commit`], [`TestServer::answer_busy_retries`], [`TestServer::answer_busy_registers`],
+/// [`TestServer::send_past_credit`], [`TestServer::lose_next_retries`],
 /// [`TestServer::evict`], [`TestServer::refuse_next_commit`], [`TestServer::apply_and_refuse_next_commit`],
 /// [`TestServer::refuse_next_read_after`]. Reads wait on a token's epoch under [`TestServer::with_closed_epoch`], until
 /// [`TestServer::close_epoch`] or their transaction's deadline. Sessions and the commits applied outlive a connection;
@@ -57,6 +58,8 @@ pub struct TestServer {
     drop_after_commit: bool,
     lose_commit: bool,
     busy_retries: u32,
+    busy_registers: u32,
+    past_credit: bool,
     lost_retries: u32,
     answers: VecDeque<ScriptedAnswer>,
     read_refusal: Option<ScriptedRead>,
@@ -91,6 +94,8 @@ impl TestServer {
             drop_after_commit: false,
             lose_commit: false,
             busy_retries: 0,
+            busy_registers: 0,
+            past_credit: false,
             lost_retries: 0,
             answers: VecDeque::new(),
             read_refusal: None,
@@ -227,6 +232,18 @@ impl TestServer {
     /// retry is while its original is still in the commit step.
     pub fn answer_busy_retries(&mut self, retries: u32) {
         self.busy_retries = retries;
+    }
+
+    /// The next `registers` Registers are refused with code 14 (SessionBusy), as a full registry refuses one that holds no
+    /// session it may evict.
+    pub fn answer_busy_registers(&mut self, registers: u32) {
+        self.busy_registers = registers;
+    }
+
+    /// The next read's answer takes one frame more than its stream's credit: that frame spends the credit of the read's
+    /// transaction's stream, and its header names the read's.
+    pub fn send_past_credit(&mut self) {
+        self.past_credit = true;
     }
 
     /// The next `retries` retried commits, on streams of their own, are lost with the connection before they are

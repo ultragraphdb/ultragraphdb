@@ -116,6 +116,22 @@ fn test_requests_before_the_welcome_are_refused_as_not_connected() -> TestResult
     Ok(())
 }
 
+/// A Register waiting to be sent again finds the connection's one stream taken: what stopped its resend is its answer.
+#[test]
+fn test_a_register_that_cannot_be_sent_again_answers_why() -> TestResult {
+    let streams = 1;
+    let mut scripted = TestServer::new(CLUSTER, welcome().with_max_streams(streams));
+    scripted.answer_busy_registers(1);
+    let mut h = Harness::ready(scripted)?;
+    let p = h.core.register(h.now)?;
+    while h.step()? {}
+    assert!(h.core.take_reply(p).is_none(), "it waits to be sent again");
+    let _taken = h.core.begin(0, true, h.now)?;
+    let answer = h.settle(p)?.err().context("its answer")?;
+    assert_eq!(answer.0, ClientErrorEnum::StreamLimit { limit: streams });
+    Ok(())
+}
+
 #[test]
 fn test_register_and_begin_answer_a_session_and_a_snapshot() -> TestResult {
     let mut h = Harness::ready(server())?;

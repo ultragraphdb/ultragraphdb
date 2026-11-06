@@ -138,7 +138,9 @@ impl<L: Login> ClientCore<L> {
         self.send_request(stream, frame, pending, now)
     }
 
-    /// Registers a session (D9), answered [`crate::Reply::Registered`].
+    /// Registers a session (D9), answered [`crate::Reply::Registered`]. A refusal with code 14, a full registry with no
+    /// session it may evict, sends the Register again after [`crate::ClientConfig::retry_delay`], the attempts
+    /// [`crate::ClientConfig::commit_attempts`], and the last such refusal is then its answer.
     pub fn register(&mut self, now: Instant) -> Result<Pending, ClientError> {
         self.request(&Register::new([0; 16]), Expect::Register, now)
     }

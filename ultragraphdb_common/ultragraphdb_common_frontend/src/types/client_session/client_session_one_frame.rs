@@ -274,6 +274,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         if command_of(&frame) == Some(Command::Error)
             && let Some(refusal) = error_of(self.cluster(), &frame)
             && refusal.code() == ErrorCode::WrongPartition
+            && refusal.detail() >> 32 != 0
             && let Some(one) = self.one_frames.get_mut(&stream)
             && !one.resent
         {

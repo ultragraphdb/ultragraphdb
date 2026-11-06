@@ -174,11 +174,14 @@ fn test_a_wrong_partition_states_its_bucket_and_owner() {
     );
 }
 
-/// A home's outcome ends its registrant's transaction with code 17 for a failed store, and with code 7 otherwise.
+/// A home's outcome ends its registrant's transaction with code 17 for a failed store, with code 26 of `detail` 0 for a bucket the
+/// home does not own, and with code 7 otherwise.
 #[test]
 fn test_a_homes_outcome_becomes_its_code() {
     let failed = PartitionError::refused(ErrorCode::Unavailable.number());
     assert_eq!(said(&failed), (ErrorCode::Unavailable, 0));
+    let elsewhere = PartitionError::refused(ErrorCode::WrongPartition.number());
+    assert_eq!(said(&elsewhere), (ErrorCode::WrongPartition, 0));
     let refused = PartitionError::refused(ErrorCode::Refused.number());
     assert_eq!(said(&refused), (ErrorCode::Refused, 0));
 }

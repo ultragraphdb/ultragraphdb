@@ -58,14 +58,12 @@ struct Steps {
     committed: bool,
     compute: String,
     frontend: String,
-    held: Vec<bool>,
     kind: Option<u64>,
-    owner: u32,
     roles: Option<ServiceUtil>,
+    routed: Vec<write_read_steps::Routed>,
     scenario: u32,
     sockets: Vec<PathBuf>,
     storage: String,
-    version: u64,
 }
 
 impl Steps {

@@ -138,7 +138,8 @@ impl Stage {
         .await?;
         let unknown = thread.unknown_secret();
         let owner = thread.handle().clone();
-        let links = RoleLinks::new(cluster.clone(), "frontend".to_string());
+        let links = RoleLinks::new(cluster.clone(), "frontend".to_string())
+            .with_dial_ms(options.limits.transaction_ms());
         let map = owner.map().await.context("a placement map")?;
         if options.older_map {
             links.set_map(PlacementMap::even(1, NodeId::new(1))?);

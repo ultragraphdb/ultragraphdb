@@ -15,6 +15,14 @@ Feature: Quad reads: storage's read kernel
       When a reverse list holds more objects than one frame carries, and compute scans it
       Then the answer takes several frames, each ending between two objects, and compute reads every object once, in the list's order
 
+    Scenario: A large list's frames stay within a turn
+      When a Scan reads a list holding more bytes than a turn builds, the receiver's `max_frame` larger than that
+      Then every Entries frame holds no more than a turn builds, and the list arrives whole
+
+    Scenario: A commit goes on beside Scans taking every turn's budget
+      When many Scans of one partition read large lists with credit to spare, and a client commits a write
+      Then the commit is answered while the Scans go on, and each Scan reaches `LAST`
+
     Scenario: A keyspace outside the kernel's is refused
       When a Scan names a range of the marks keyspace
       Then it is refused with a protocol error naming the keyspace

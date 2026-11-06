@@ -11,12 +11,11 @@ use std::time::Duration;
 use compio::runtime::{Runtime, spawn};
 use ultragraphdb_common_config::{CONFIG_LOG_CLUSTER, ConfigApi, ConfigStore, store_owner};
 use ultragraphdb_common_config_check::{Defect, TargetFiles, check_central, check_config_service};
-use ultragraphdb_common_service::stop_flag;
+use ultragraphdb_common_service::{listen, stop_flag, stop_with_parent};
 use ultragraphdb_common_service_config::{EndpointSecurity, ServiceConfig};
 use ultragraphdb_common_telemetry::{LogFormat, TelemetryConfig, init};
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_transport::Address;
-use ultragraphdb_protocol_transport_compio::Listener;
 use ultragraphdb_transactions_log::{CompioStorage, Wal, WalConfig};
 use ultragraphdb_transport_http_server::{BearerKey, HttpLimits, serve_listener};
 use ultragraphdb_transport_tls::{CertificateChainFile, PrivateKeyFile, TlsAcceptor};
@@ -41,7 +40,8 @@ struct ServiceStart {
 }
 
 /// Runs the config service named by `args`, the program's name left out: `--config <file>`. Everything is read and
-/// validated before anything is stored or served, and it runs until SIGTERM or SIGINT.
+/// validated before anything is stored or served, and it runs until SIGTERM or SIGINT, or until the process its environment
+/// names in `ULTRAGRAPHDB_PARENT_PID` is no longer its parent.
 ///
 /// # Errors
 ///
@@ -53,6 +53,7 @@ pub(crate) fn run_config_service(args: &[String]) -> Result<(), RoleError> {
     let _telemetry = init(&TelemetryConfig::new("info", LogFormat::Plain))
         .map_err(|error| RoleError::unavailable(format!("telemetry: {error}")))?;
     let stop = stop_flag()?;
+    stop_with_parent(&stop)?;
     let runtime =
         Runtime::new().map_err(|error| RoleError::unavailable(format!("the runtime: {error}")))?;
     runtime.block_on(serve(start, &stop))
@@ -153,7 +154,7 @@ fn lock(directory: &Path) -> Result<File, RoleError> {
     match file.try_lock() {
         Ok(()) => Ok(file),
         Err(TryLockError::WouldBlock) => Err(RoleError::unavailable(format!(
-            "another process holds the data directory {}: stop it, or name another data_dir. A supervisor killed outright leaves its config service running",
+            "another process holds the data directory {}: stop it, or name another data_dir",
             directory.display()
         ))),
         Err(TryLockError::Error(error)) => Err(unavailable(&error)),
@@ -209,9 +210,7 @@ async fn serve(start: ServiceStart, stop: &AtomicBool) -> Result<(), RoleError> 
             })?,
         ),
     };
-    let listener = Listener::bind(&start.address).await.map_err(|error| {
-        RoleError::unavailable(format!("listening at {}: {error}", start.address))
-    })?;
+    let listener = listen(&start.address.to_string()).await?;
     let (handle, owner) = store_owner(store);
     spawn(owner).detach();
     let api = ConfigApi::new(handle, start.read_key, start.admin_key);

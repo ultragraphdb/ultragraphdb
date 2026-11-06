@@ -39,10 +39,17 @@ pub struct RoleLink {
 
 impl RoleLink {
     /// The link to `address`, dialled as `name` holding `password` on a task of the core, what it is sent meanwhile kept in order.
+    /// A dial past `dial_ms` milliseconds closes it.
     #[must_use]
-    pub fn dial(address: Address, cluster: u64, name: String, password: String) -> Self {
+    pub fn dial(
+        address: Address,
+        cluster: u64,
+        name: String,
+        password: String,
+        dial_ms: u32,
+    ) -> Self {
         let (link, outgoing) = Self::parts(cluster);
-        role_link_tasks::spawn_dialled(link.clone(), outgoing, address, name, password);
+        role_link_tasks::spawn_dialled(link.clone(), outgoing, address, name, password, dial_ms);
         link
     }
 
@@ -123,8 +130,11 @@ impl RoleLink {
         }
     }
 
-    /// Grants `stream` credit for `frames` more frames.
+    /// Grants `stream` credit for `frames` more frames, counted here before they can be spent.
     pub fn credit(&self, stream: u64, frames: u32) {
+        if let Some(sink) = self.routes.borrow_mut().open.get_mut(&stream) {
+            sink.grant_credit(frames);
+        }
         if let Ok(frame) = Credit::new(frames).frame(self.header(Command::Credit, stream)) {
             self.send(frame);
         }

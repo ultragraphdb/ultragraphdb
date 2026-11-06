@@ -6,12 +6,14 @@
 //! The read kernel through real frames: a real storage process beside a real frontend, a Scan's answer decoded with
 //! `EntriesSequence`, `EntriesView` and `ObjectRecords`, so a test reads as compute will.
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use compio::runtime::Runtime;
 use cucumber::{then, when};
 use ultragraphdb_cluster_placement::{NodeId, PlacementMap};
 use ultragraphdb_common_role::{PARTITION_INITIAL_CREDIT, RoleClient};
+use ultragraphdb_common_storage::TURN_BYTES;
 use ultragraphdb_core_ids::{BucketGroup, Epoch, SystemId, Version};
 use ultragraphdb_core_keys::{Graph, Keyspace, QuadKey, key_prefix};
 use ultragraphdb_core_mapping::Names;
@@ -386,8 +388,8 @@ const SUBJECTS_PER_COMMIT: u64 = 2_000;
 /// The hub every subject holds the predicate to.
 const HUB: &str = "http://ex.org/hub";
 
-#[when("a reverse list holds more objects than one frame carries, and compute scans it")]
-fn hub_scanned(w: &mut Steps) -> TestResult {
+/// A partition holding a reverse list of more objects than a frame of the floor carries: how many.
+fn hub_held(w: &mut Steps) -> TestResult<u64> {
     one_partition(w, None)?;
     let sample = SystemId::decode(&[0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0])?;
     let record = 8 + object_of(sample).len() as u64;
@@ -399,18 +401,27 @@ fn hub_scanned(w: &mut Steps) -> TestResult {
         }
         Ok::<_, TestError>(())
     })?;
+    Ok(objects)
+}
+
+/// The hub's reverse list as `client` keys it.
+async fn hub_key(client: &mut RoleClient) -> TestResult<Vec<u8>> {
+    Ok(QuadKey::Reverse {
+        tenant: TENANT,
+        graph: Graph::Default,
+        predicate: id_of(client, PREDICATE).await?,
+        object: EncodedTerm::id(id_of(client, HUB).await?),
+    }
+    .to_bytes())
+}
+
+/// Scans the hub's list on a connection taking frames of `max_frame`: its frames and how many objects it holds.
+fn hub_read_through(w: &mut Steps, objects: u64, max_frame: u32) -> TestResult {
     let batches = run(async {
         let target = Address::parse(&address())?;
         let mut client =
-            RoleClient::dial_taking(&target, CLUSTER, "compute", SECRET, MAX_FRAME_FLOOR as u32)
-                .await?;
-        let key = QuadKey::Reverse {
-            tenant: TENANT,
-            graph: Graph::Default,
-            predicate: id_of(&mut client, PREDICATE).await?,
-            object: EncodedTerm::id(id_of(&mut client, HUB).await?),
-        }
-        .to_bytes();
+            RoleClient::dial_taking(&target, CLUSTER, "compute", SECRET, max_frame).await?;
+        let key = hub_key(&mut client).await?;
         let scan = plain(ScanAt::Latest, 0, 0, 0, &[alone(key)]);
         let (batches, refused) = answer(&mut client, &scan, true).await?;
         assert!(refused.is_none(), "{refused:?}");
@@ -419,6 +430,101 @@ fn hub_scanned(w: &mut Steps) -> TestResult {
     w.kernel.batches = batches;
     w.kernel.numbers = vec![objects];
     Ok(())
+}
+
+#[when("a reverse list holds more objects than one frame carries, and compute scans it")]
+fn hub_scanned(w: &mut Steps) -> TestResult {
+    let objects = hub_held(w)?;
+    hub_read_through(w, objects, MAX_FRAME_FLOOR as u32)
+}
+
+#[when(
+    "a Scan reads a list holding more bytes than a turn builds, the receiver's `max_frame` larger than that"
+)]
+fn hub_past_a_turn(w: &mut Steps) -> TestResult {
+    let objects = hub_held(w)?;
+    const { assert!(MAX_FRAME_FLOOR > TURN_BYTES, "the list outgrows a turn") };
+    hub_read_through(w, objects, MAX_FRAME_SIZE as u32)
+}
+
+#[then("every Entries frame holds no more than a turn builds, and the list arrives whole")]
+fn within_a_turn(w: &mut Steps) -> TestResult {
+    let batches = &w.kernel.batches;
+    let mut objects = 0u64;
+    for batch in batches {
+        assert!(batch.size <= TURN_BYTES, "a frame of {} bytes", batch.size);
+        let (_, value) = batch.entries.first().context("the frame's entry")?;
+        objects += objects_of(value)?.len() as u64;
+    }
+    assert_eq!(Some(&objects), w.kernel.numbers.first());
+    w.roles = None;
+    Ok(())
+}
+
+/// The Scans the commit goes on beside.
+const SCANS_BESIDE: usize = 8;
+
+/// How long the commit may take beside them: a turn costs it far less, and this bounds a commit no turn lets through.
+const COMMIT_BESIDE: Duration = Duration::from_secs(5);
+
+#[when(
+    "many Scans of one partition read large lists with credit to spare, and a client commits a write"
+)]
+fn commit_beside_scans(w: &mut Steps) -> TestResult {
+    let objects = hub_held(w)?;
+    run(async {
+        let target = Address::parse(&address())?;
+        let mut client =
+            RoleClient::dial_taking(&target, CLUSTER, "compute", SECRET, MAX_FRAME_SIZE as u32)
+                .await?;
+        let scan = plain(
+            ScanAt::Latest,
+            0,
+            0,
+            0,
+            &[alone(hub_key(&mut client).await?)],
+        );
+        let mut open = HashMap::with_capacity(SCANS_BESIDE);
+        for _ in 0..SCANS_BESIDE {
+            client.send_only(&scan).await?;
+            let stream = client.last_stream();
+            client.send_on(stream, &Credit::new(u32::MAX / 2)).await?;
+            let _new = open.insert(stream, EntriesSequence::new(scan.ranges()));
+        }
+        let write = hub_write(
+            objects.div_ceil(SUBJECTS_PER_COMMIT),
+            objects + SUBJECTS_PER_COMMIT,
+        );
+        let at = address();
+        let committing = commit_at(&at, PARTITION, &write);
+        let committed = compio::time::timeout(COMMIT_BESIDE, committing).await;
+        let _version: u64 = committed.map_err(|_| {
+            TestError::new(format!(
+                "the commit beside the Scans within {COMMIT_BESIDE:?}"
+            ))
+        })??;
+        while !open.is_empty() {
+            let frame = compio::time::timeout(COMMIT_BESIDE, client.next_frame())
+                .await
+                .map_err(|_| TestError::new("a Scan beside the commit went silent"))??;
+            let stream = frame.view()?.header().stream();
+            let sequence = open.get_mut(&stream).context("a Scan open")?;
+            let Frame::Entries(batch) = decoded(&frame, sequence)? else {
+                return Err(TestError::new(
+                    "a frame beside the commit's other than Entries",
+                ));
+            };
+            if batch.last {
+                let _ended = open.remove(&stream);
+            }
+        }
+        Ok::<_, TestError>(())
+    })
+}
+
+#[then("the commit is answered while the Scans go on, and each Scan reaches `LAST`")]
+fn commit_answered_beside(w: &mut Steps) {
+    w.roles = None;
 }
 
 /// The edges of batch `batch` of `objects` subjects to [`HUB`].

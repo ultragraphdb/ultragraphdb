@@ -23,6 +23,7 @@ use crate::types::scan_bound::ScanBound;
 use crate::types::scan_key::ScanKey;
 use crate::types::scan_read::ScanRead;
 use crate::types::scan_state::ScanState;
+use crate::types::turn_budget::TurnBudget;
 use crate::utils::commit_body::commit_body;
 use crate::utils::error_reply::{error_reply, scan_refusal};
 use crate::utils::scan_check::{check_bound, scan_reads, scan_terms};
@@ -34,14 +35,6 @@ enum FrameRefusal {
     Scan(ErrorReply),
     /// The Scan's transaction ended with it, so its Bind stream says so too.
     Transaction(BoundKey, ErrorReply),
-}
-
-/// What a turn found a Scan past.
-enum Due {
-    /// Its wait ended.
-    Start,
-    /// It is refused.
-    Refuse(ErrorReply),
 }
 
 fn as_unheld(identity: [u8; 16]) -> ErrorReply {
@@ -130,6 +123,7 @@ impl<'a> PartitionCore<'a> {
         now: u64,
     ) -> Result<Answer, ErrorReply> {
         if let Some(bound) = open.bound {
+            self.scans.join_transaction(bound.key, key);
             match self.host.read_terms_bound(bound.key, &open.terms, now) {
                 Ok(BoundStep::Done) => {}
                 Ok(BoundStep::Waiting) => {
@@ -145,7 +139,12 @@ impl<'a> PartitionCore<'a> {
             }
         }
         if waits {
+            let (epoch, state) = (open.epoch, open.state);
             self.scans.open(key, open);
+            self.scans.wait_for_epoch(key, epoch);
+            if let ScanState::Epoch { deadline_us } = state {
+                self.scans.set_timer(key, deadline_us);
+            }
             return Ok(Answer::Open);
         }
         self.choose_version(&mut open)?;
@@ -178,49 +177,50 @@ impl<'a> PartitionCore<'a> {
         self.scans.has_turns()
     }
 
-    /// One turn of the Scans: those whose wait ended or that stalled dealt with, then one frame in total for the whole partition,
-    /// the Scans taking turns, so no turn holds more than one.
+    /// One turn of the Scans: those of a transaction that ended refused, those whose wait ended or that stalled dealt with, each found
+    /// by what it waited on, then at most one frame per Scan in turn, within the turn's budget (`PROTOCOL.md` §13.14). A Scan its budget
+    /// leaves keeps its place at the front for the next turn.
     pub(super) fn serve_scans(&mut self) {
+        for bound in self.host.take_bound_ended() {
+            for key in self.scans.end_transaction(bound) {
+                let identity = self.scans.get(key).and_then(|scan| scan.bound);
+                if let Some(identity) = identity {
+                    self.refuse_scan(key, &as_unheld(identity.identity));
+                }
+            }
+        }
         if self.scans.is_empty() {
             return;
         }
         let now = self.now_us();
-        let overdue: Vec<(ScanKey, Due)> = self
-            .scans
-            .iter()
-            .filter_map(|(key, scan)| self.due(scan, now).map(|due| (*key, due)))
-            .collect();
-        for (key, due) in overdue {
-            match due {
-                Due::Start => self.start_scan(key),
-                Due::Refuse(reply) => self.refuse_scan(key, &reply),
-            }
+        let closed = self.host.closed().get();
+        while let Some(key) = self.scans.next_closed(closed) {
+            self.start_scan(key);
         }
-        self.next_frame(now);
+        while let Some(key) = self.scans.next_due(now) {
+            self.past_its_time(key);
+        }
+        let mut budget = TurnBudget::default();
+        for _ in 0..self.scans.turns_waiting() {
+            if budget.is_spent() {
+                return;
+            }
+            self.next_frame(now, &mut budget);
+        }
     }
 
-    /// What `scan` is past at `now`, if anything.
-    fn due(&self, scan: &OpenScan<'a>, now: u64) -> Option<Due> {
-        if let Some(bound) = scan.bound
-            && self.host.bound_read(&bound.identity).map(|read| read.key()) != Some(bound.key)
-        {
-            return Some(Due::Refuse(as_unheld(bound.identity)));
-        }
-        match scan.state {
-            ScanState::Epoch { deadline_us } => {
-                if self.host.closed().get() >= scan.epoch {
-                    Some(Due::Start)
-                } else if now >= deadline_us {
-                    Some(Due::Refuse(self.not_closed(scan.epoch)))
-                } else {
-                    None
-                }
-            }
-            ScanState::Parked { since_us } => (now.saturating_sub(since_us)
-                > self.scan_stall_ms.saturating_mul(1_000))
-            .then(|| Due::Refuse(self.stalled())),
-            ScanState::References | ScanState::Queued => None,
-        }
+    /// The Scan `key`, whose time has passed, is refused: as waiting on its epoch, or as stalled.
+    fn past_its_time(&mut self, key: ScanKey) {
+        let Some(scan) = self.scans.get(key) else {
+            return;
+        };
+        let reply = match scan.state {
+            ScanState::Epoch { .. } => self.not_closed(scan.epoch),
+            ScanState::Parked { .. } => self.stalled(),
+            // Set only in the states above, and let go of on leaving them.
+            ScanState::References | ScanState::Queued => return,
+        };
+        self.refuse_scan(key, &reply);
     }
 
     fn not_closed(&self, epoch: u64) -> ErrorReply {
@@ -295,11 +295,13 @@ impl<'a> PartitionCore<'a> {
 
     fn waiting_on(&self, bound: BoundKey) -> Vec<ScanKey> {
         self.scans
-            .iter()
-            .filter(|(_, scan)| {
-                scan.state == ScanState::References && scan.bound.map(|b| b.key) == Some(bound)
+            .of_transaction(bound)
+            .into_iter()
+            .filter(|key| {
+                self.scans
+                    .get(*key)
+                    .is_some_and(|scan| scan.state == ScanState::References)
             })
-            .map(|(key, _)| *key)
             .collect()
     }
 
@@ -309,6 +311,7 @@ impl<'a> PartitionCore<'a> {
             && matches!(scan.state, ScanState::Parked { .. })
         {
             scan.state = ScanState::Queued;
+            self.scans.clear_timer(key);
             self.scans.give_turn(key);
         }
     }
@@ -320,7 +323,14 @@ impl<'a> PartitionCore<'a> {
             && let ScanState::Parked { since_us } = &mut scan.state
         {
             *since_us = now;
+            self.scans
+                .set_timer(key, now.saturating_add(self.stall_us()));
         }
+    }
+
+    /// How long a Scan with no frame able to leave is kept.
+    fn stall_us(&self) -> u64 {
+        self.scan_stall_ms.saturating_mul(1_000)
     }
 
     /// Lets go of the Scan `key`, which its reader cancelled.
@@ -333,14 +343,15 @@ impl<'a> PartitionCore<'a> {
         self.scans.close(connection);
     }
 
-    /// Builds the next queued Scan's next frame, and hands it to its connection.
-    fn next_frame(&mut self, now: u64) {
+    /// Builds the next queued Scan's next frame within what `budget` leaves, and hands it to its connection.
+    fn next_frame(&mut self, now: u64, budget: &mut TurnBudget) {
         let Some((key, mut scan)) = self.scans.take_turn() else {
             return;
         };
-        match self.fill_frame(&mut scan, now) {
+        match self.fill_frame(&mut scan, now, budget.fill_to()) {
             // Nothing to send yet: the Scan goes on at its next turn.
             Ok(None) => {
+                budget.spend_idle_page();
                 self.scans.open(key, scan);
                 self.scans.give_turn(key);
             }
@@ -353,8 +364,11 @@ impl<'a> PartitionCore<'a> {
                     header
                 };
                 match entries.frame(header) {
-                    // A connection gone says so by its Closed.
-                    Ok(frame) => drop(scan.pushes.unbounded_send((key.1, frame))),
+                    Ok(frame) => {
+                        budget.spend_frame(frame.len());
+                        // A connection gone says so by its Closed.
+                        drop(scan.pushes.unbounded_send((key.1, frame)));
+                    }
                     Err(rule) => {
                         self.push_error(key.1, &ErrorReply::protocol(&rule), &scan.pushes);
                         return;
@@ -363,6 +377,8 @@ impl<'a> PartitionCore<'a> {
                 if !done {
                     scan.state = ScanState::Parked { since_us: now };
                     self.scans.open(key, scan);
+                    self.scans
+                        .set_timer(key, now.saturating_add(self.stall_us()));
                 }
             }
             Err(FrameRefusal::Scan(reply)) => self.push_error(key.1, &reply, &scan.pushes),
@@ -379,6 +395,7 @@ impl<'a> PartitionCore<'a> {
         &mut self,
         scan: &mut OpenScan<'a>,
         now: u64,
+        fill_to: usize,
     ) -> Result<Option<Entries>, FrameRefusal> {
         let Some(read) = scan.ranges.get(scan.range).cloned() else {
             return Err(FrameRefusal::Scan(ErrorReply::new(
@@ -387,7 +404,8 @@ impl<'a> PartitionCore<'a> {
             )));
         };
         let range = u32::try_from(scan.range).unwrap_or(u32::MAX);
-        let mut fill = EntriesFill::new(range, (scan.read_epoch, scan.named), scan.max_frame);
+        let mut fill = EntriesFill::new(range, (scan.read_epoch, scan.named), scan.max_frame)
+            .filling_to(fill_to);
         if read.keyspace == Keyspace::Dictionary {
             return self.fill_run(scan, fill, now).map(Some);
         }

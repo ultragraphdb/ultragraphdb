@@ -19,7 +19,7 @@ use std::rc::Rc;
 
 use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::Graph;
-use ultragraphdb_protocol_wire::{ErrorReply, Scan, ScanRange, TermTable};
+use ultragraphdb_protocol_wire::{ErrorReply, Scan, ScanAt, ScanRange, TermTable};
 use ultragraphdb_store_quads::term_key;
 
 use self::gate::Gate;
@@ -139,7 +139,8 @@ impl PartitionRows {
         if self.chosen.is_none() {
             self.chosen = Some((facts.version, facts.epoch));
             let read = &self.shared.read;
-            if read.read_only {
+            // A named read's referrer set, read at the latest version for what it holds alone, is no version the read reads.
+            if read.read_only && !(read.named && self.first.at == ScanAt::Latest) {
                 self.shared
                     .pins
                     .add(&self.link, read.tenant, read.principal, facts.version);

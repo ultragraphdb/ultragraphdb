@@ -10,8 +10,8 @@ use futures::StreamExt;
 use futures::channel::mpsc::UnboundedReceiver;
 use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{
-    BodyView, Cancel, Command, Credit, EntriesSequence, EntriesView, ErrorReply, ErrorReplyView,
-    FLAG_LAST, Scan,
+    BodyView, Cancel, Command, EntriesSequence, EntriesView, ErrorReply, ErrorReplyView, FLAG_LAST,
+    Scan,
 };
 
 use crate::types::link::Link;
@@ -67,7 +67,7 @@ impl ScanStream {
         read: impl FnOnce(&EntriesView<'_>) -> Result<T, ReadFault>,
     ) -> Result<(ScanFacts, T), ErrorReply> {
         if self.took {
-            self.link.send(self.stream, &Credit::new(1))?;
+            self.link.grant(self.stream)?;
         }
         self.took = true;
         let asked = now();

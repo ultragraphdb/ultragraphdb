@@ -18,6 +18,7 @@ use std::process::ExitStatus;
 use std::time::Duration;
 use ultragraphdb_client_compio::{Client, ClientConfig, TcpConnector};
 use ultragraphdb_common_role::RoleClient;
+use ultragraphdb_common_service::BIND_RETRIES;
 use ultragraphdb_protocol_scram::{ScramLogin, system_nonce};
 use ultragraphdb_protocol_transport::Address;
 use ultragraphdb_protocol_wire::{
@@ -26,13 +27,17 @@ use ultragraphdb_protocol_wire::{
 use ultragraphdb_tests::{
     CLIENT_ADDRESS, CLUSTER, COMPUTE_BINARY, DOUBLE_ADDRESS, FRONTEND_BINARY,
     FRONTEND_OBSERVABILITY, FRONTEND_ROLE_ADDRESS, PARENT_PID, SECRET, START_SECONDS,
-    STORAGE_BINARY, answering, bootstrap, exit_is, frontend_holding, process, render_settings,
-    role, scratch, served_by_double, start_double, until_ports_free, with,
+    STORAGE_BINARY, answering, bootstrap, exit_is, frontend_holding, http_status, process,
+    render_settings, role, scratch, served_by_double, start_double, until_answering,
+    until_ports_free, with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 /// Where the sandbox holds the binaries, relative to the test's working directory: `copy_file` writes them to this package.
 const ROOT_PATH: &str = "ultragraphdb/ultragraphdb_frontend_tests";
+
+/// An address in TEST-NET-3, which no host's interface holds (RFC 5737).
+const NO_INTERFACE: &str = "203.0.113.1:18099";
 
 /// The addresses a role of these scenarios holds beyond those every suite declares: none.
 const OWN_ADDRESSES: [(&str, &str); 0] = [];
@@ -228,6 +233,110 @@ fn parent_gone(w: &mut Steps) -> TestResult {
 #[then("it stops as on SIGTERM and exits with code 0")]
 fn stopped_with_its_parent(w: &mut Steps) -> TestResult {
     exit_is(w.exited, &w.log, 0)
+}
+
+/// Starts a frontend on `settings`, served by the double, its log in `log`.
+fn start_frontend(
+    w: &mut Steps,
+    settings: &[(String, String)],
+    log: &std::path::Path,
+) -> TestResult<u32> {
+    let util = services()?;
+    let pid =
+        util.start_service_from_config(role(FRONTEND_BINARY, settings, log, WaitStrategy::NoWait))?;
+    w.roles = Some(util);
+    Ok(pid)
+}
+
+/// The frontend `pid` of `w`, its exit and log held once it ends.
+fn until_frontend_exits(w: &mut Steps, pid: u32, log: &std::path::Path) -> TestResult {
+    let util = w.roles.as_ref().context("the frontend")?;
+    w.exited = Some(util.wait_for_exit(pid, Duration::from_secs(START_SECONDS))?);
+    w.log = std::fs::read_to_string(log)?;
+    Ok(())
+}
+
+/// How many of `log`'s lines are a retry of `address`.
+fn retries_of(log: &str, address: &str) -> usize {
+    log.lines()
+        .filter(|line| line.contains("in use") && line.contains(address))
+        .count()
+}
+
+#[when("a role starts at a TCP address another process holds, which lets it go within the bound")]
+fn port_held_a_moment(w: &mut Steps) -> TestResult {
+    let log = scratch("frontend-port-a-moment.log");
+    let held = std::net::TcpListener::bind(FRONTEND_OBSERVABILITY)?;
+    let _pid = start_frontend(w, &frontend_holding()?, &log)?;
+    let mut retried = false;
+    for _ in 0..START_SECONDS * 100 {
+        w.log = std::fs::read_to_string(&log).unwrap_or_default();
+        retried = retries_of(&w.log, FRONTEND_OBSERVABILITY) > 0;
+        if retried {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    drop(held);
+    assert!(
+        retried,
+        "a retry in the log, {START_SECONDS} s on: {}",
+        w.log
+    );
+    until_answering(FRONTEND_OBSERVABILITY, "/health")?;
+    w.log = std::fs::read_to_string(&log)?;
+    Ok(())
+}
+
+#[then("the role logs each retry naming the address, binds it, and answers `/health`")]
+fn took_the_port(w: &mut Steps) -> TestResult {
+    assert_eq!(http_status(FRONTEND_OBSERVABILITY, "/health")?, 200);
+    assert!(retries_of(&w.log, FRONTEND_OBSERVABILITY) > 0, "{}", w.log);
+    Ok(())
+}
+
+#[when("a role starts at a TCP address another process holds past the bound")]
+fn port_held_past_the_bound(w: &mut Steps) -> TestResult {
+    let log = scratch("frontend-port-held.log");
+    let held = std::net::TcpListener::bind(FRONTEND_ROLE_ADDRESS)?;
+    let pid = start_frontend(w, &frontend_holding()?, &log)?;
+    until_frontend_exits(w, pid, &log)?;
+    drop(held);
+    Ok(())
+}
+
+#[then(
+    "it exits with code 69 after a retry logged per 50 ms of the bound, the error naming the address"
+)]
+fn past_the_bound(w: &mut Steps) -> TestResult {
+    exit_is(w.exited, &w.log, 69)?;
+    assert_eq!(
+        retries_of(&w.log, FRONTEND_ROLE_ADDRESS),
+        BIND_RETRIES as usize + 1,
+        "a line per retry, and the error: {}",
+        w.log
+    );
+    Ok(())
+}
+
+#[when("a role starts at a TCP address no interface of its host holds")]
+fn no_such_interface(w: &mut Steps) -> TestResult {
+    let log = scratch("frontend-no-interface.log");
+    let settings = with(
+        frontend_holding()?,
+        "observability.address",
+        &format!("tcp://{NO_INTERFACE}"),
+    );
+    let pid = start_frontend(w, &settings, &log)?;
+    until_frontend_exits(w, pid, &log)
+}
+
+#[then("it exits with code 69 at once, the error naming the address, with no retry logged")]
+fn at_once(w: &mut Steps) -> TestResult {
+    exit_is(w.exited, &w.log, 69)?;
+    assert!(w.log.contains(NO_INTERFACE), "{}", w.log);
+    assert_eq!(retries_of(&w.log, NO_INTERFACE), 0, "{}", w.log);
+    Ok(())
 }
 
 fn main() -> TestResult {

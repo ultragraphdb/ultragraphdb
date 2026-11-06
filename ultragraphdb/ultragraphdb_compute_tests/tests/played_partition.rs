@@ -320,11 +320,6 @@ impl Session for PartitionConnection {
                 ));
             }
         };
-        *self
-            .tables
-            .asked
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner) += 1;
         let ranges: Vec<PlayedRange> = scan
             .ranges()
             .map(|range| PlayedRange {
@@ -333,6 +328,18 @@ impl Session for PartitionConnection {
                 after: range.after().to_vec(),
             })
             .collect();
+        // A Scan that only holds a version, several of one key, is none of what the read asks.
+        let holds_a_version = ranges.len() > 1
+            && ranges
+                .first()
+                .is_some_and(|first| ranges.iter().all(|range| range.first == first.first));
+        if !holds_a_version {
+            *self
+                .tables
+                .asked
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner) += 1;
+        }
         let script = ranges
             .first()
             .map_or(Script::Table, |range| self.tables.script_of(&range.first));

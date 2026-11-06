@@ -8,7 +8,7 @@ use std::time::Duration;
 use ultragraphdb_protocol_wire::{Hello, MAX_FRAME_SIZE, PROTOCOL_VERSION};
 
 /// What a client is: the cluster it connects to, its name and release, the protocols it speaks, how long it waits
-/// for an answer, how often it retries a commit through its session, how far apart, the credit it grants a result
+/// for an answer, how often it retries a commit through its session or a busy Register, how far apart, the credit it grants a result
 /// stream at a time, how long before its credential expires it authenticates again, and the frame buffers it reads into.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientConfig {
@@ -26,8 +26,8 @@ pub struct ClientConfig {
 }
 
 impl ClientConfig {
-    /// A client of `cluster`: release 0, protocols 1 to this crate's, a 10 s timeout, a commit tried at most 8
-    /// times 50 ms apart, credit of 4 frames, re-authentication 60 s before the credential expires, 64 frame buffers.
+    /// A client of `cluster`: release 0, protocols 1 to this crate's, a 10 s timeout, a commit or a busy Register tried at
+    /// most 8 times 50 ms apart, credit of 4 frames, re-authentication 60 s before the credential expires, 64 frame buffers.
     #[must_use]
     pub fn new(cluster: u64, name: impl Into<String>) -> Self {
         Self {
@@ -68,15 +68,15 @@ impl ClientConfig {
         self
     }
 
-    /// The most times a commit is sent, the first included, at least 1; a failed attempt to reconnect while it waits
-    /// to be sent again counts as one.
+    /// The most times a commit or a busy Register is sent, the first included, at least 1; a failed attempt to reconnect
+    /// while a commit waits to be sent again counts as one.
     #[must_use]
     pub fn with_commit_attempts(mut self, attempts: u32) -> Self {
         self.commit_attempts = attempts.max(1);
         self
     }
 
-    /// How long a commit waits before it is sent again after its session answered busy, and how long the shell waits
+    /// How long a commit or a Register waits before it is sent again after a busy answer, and how long the shell waits
     /// between attempts to reconnect for a commit waiting to be sent again.
     #[must_use]
     pub fn with_retry_delay(mut self, delay: Duration) -> Self {
@@ -132,13 +132,13 @@ impl ClientConfig {
         self.timeout
     }
 
-    /// The most times a commit is sent, the first included.
+    /// The most times a commit or a busy Register is sent, the first included.
     #[must_use]
     pub fn commit_attempts(&self) -> u32 {
         self.commit_attempts
     }
 
-    /// How long a commit waits before it is sent again after a busy answer.
+    /// How long a commit or a Register waits before it is sent again after a busy answer.
     #[must_use]
     pub fn retry_delay(&self) -> Duration {
         self.retry_delay

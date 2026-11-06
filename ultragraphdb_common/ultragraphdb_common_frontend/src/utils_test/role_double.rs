@@ -148,6 +148,16 @@ impl RoleDouble {
         self.frames(command).len()
     }
 
+    /// How many of the connections it accepted have ended.
+    #[must_use]
+    pub fn connections_ended(&self) -> usize {
+        self.connections
+            .borrow()
+            .iter()
+            .filter(|connection| connection.is_finished())
+            .count()
+    }
+
     /// Closes every connection and stops listening, as a process gone does.
     pub fn close(&self) {
         *self.accepting.borrow_mut() = None;

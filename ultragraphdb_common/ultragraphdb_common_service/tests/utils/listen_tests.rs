@@ -5,9 +5,10 @@
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::Duration;
 
-use compio::runtime::Runtime;
-use ultragraphdb_common_service::listen;
+use compio::runtime::{Runtime, spawn};
+use ultragraphdb_common_service::{BIND_RETRIES, listen};
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -53,11 +54,45 @@ fn test_a_file_at_a_sockets_path_says_to_remove_it() -> TestResult {
     Ok(())
 }
 
-/// A port in use may free itself, so it is no configuration error.
+/// A port in use may free itself, so it is no configuration error: past its retries the refusal names the port and what to do.
 #[test]
 fn test_a_tcp_port_in_use_is_unavailable() -> TestResult {
     let held = std::net::TcpListener::bind("127.0.0.1:0")?;
-    let error = refused(&format!("tcp://{}", held.local_addr()?))?;
+    let address = held.local_addr()?;
+    let error = refused(&format!("tcp://{address}"))?;
     assert_eq!(error.exit_code(), RoleError::EX_UNAVAILABLE, "{error}");
+    let said = error.to_string();
+    assert!(said.contains(&address.to_string()), "{said}");
+    assert!(said.contains(&BIND_RETRIES.to_string()), "{said}");
+    assert!(said.contains("stop it"), "{said}");
+    Ok(())
+}
+
+/// A port a killed process holds a moment longer is taken once it lets go.
+#[test]
+fn test_a_port_freed_within_the_bound_is_taken() -> TestResult {
+    let held = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let address = held.local_addr()?;
+    let listener = Runtime::new()?.block_on(async {
+        spawn(async move {
+            compio::time::sleep(Duration::from_millis(120)).await;
+            drop(held);
+        })
+        .detach();
+        listen(&format!("tcp://{address}")).await
+    })?;
+    assert_eq!(listener.local_address()?.target(), address.to_string());
+    Ok(())
+}
+
+/// What no wait can mend ends the start at once, naming the address: no interface of this host holds this one (RFC 5737).
+#[test]
+fn test_a_bind_error_other_than_a_port_in_use_is_unavailable() -> TestResult {
+    let address = "203.0.113.1:18099";
+    let error = refused(&format!("tcp://{address}"))?;
+    assert_eq!(error.exit_code(), RoleError::EX_UNAVAILABLE, "{error}");
+    let said = error.to_string();
+    assert!(said.contains(address), "{said}");
+    assert!(!said.contains("retries"), "{said}");
     Ok(())
 }

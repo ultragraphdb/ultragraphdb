@@ -192,7 +192,7 @@ fn section_cases() -> [(ProtocolError, ProtocolErrorEnum); 6] {
 }
 
 /// The constructors of terms, field values and a round's records, each with the variant it builds.
-fn content_cases() -> [(ProtocolError, ProtocolErrorEnum); 5] {
+fn content_cases() -> [(ProtocolError, ProtocolErrorEnum); 6] {
     [
         (
             ProtocolError::bad_term(8, 3, 9),
@@ -238,6 +238,10 @@ fn content_cases() -> [(ProtocolError, ProtocolErrorEnum); 5] {
                     offset: 9,
                 }),
             },
+        ),
+        (
+            ProtocolError::past_credit(7),
+            ProtocolErrorEnum::PastCredit { stream: 7 },
         ),
     ]
 }

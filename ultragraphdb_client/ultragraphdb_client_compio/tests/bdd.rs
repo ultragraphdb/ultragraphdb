@@ -13,16 +13,17 @@ use compio::net::TcpListener;
 use compio::runtime::{Runtime, spawn};
 use cucumber::{World, then, when};
 use ultragraphdb_client_compio::{
-    Anonymous, Client, ClientError, TcpConnector, TlsConnector, TlsDial, TlsError, TlsTrust,
-    Transaction,
+    Anonymous, Client, ClientError, ClientErrorEnum, TcpConnector, TlsConnector, TlsDial, TlsError,
+    TlsTrust, Transaction,
 };
 use ultragraphdb_client_core::{TEST_NAME, TEST_PASSWORD, TEST_PRINCIPAL, TestServer};
+use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_scram::{MECHANISM, ScramLogin, system_nonce};
 use ultragraphdb_protocol_transport::{NetworkFaults, SimNetwork};
 use ultragraphdb_protocol_transport_compio::CompioTlsStream;
 use ultragraphdb_protocol_wire::{
-    BodyView, Command, CreditView, FrameView, HeaderView, MAX_FRAME_SIZE, PatternSlot, QuadPattern,
-    Read, TermTable, Write, WriteChange,
+    BodyView, Command, CreditView, ErrorCode, FrameView, HeaderView, MAX_FRAME_SIZE, PatternSlot,
+    QuadPattern, Read, TermTable, Write, WriteChange,
 };
 use ultragraphdb_tool_bdd::{Context as _, TestError, TestResult};
 use ultragraphdb_transport_tls::{TestPki, TlsErrorEnum};
@@ -44,6 +45,10 @@ struct Steps {
     principal: Option<u64>,
     written: bool,
     acceptor: Option<Result<(), TlsError>>,
+    connected: bool,
+    ready: bool,
+    named: u64,
+    refusal: Option<ClientError>,
 }
 
 fn runtime() -> TestResult<Runtime> {
@@ -236,6 +241,133 @@ fn refused_as_tls(w: &mut Steps) -> TestResult {
     );
     let server = w.server.as_ref().context("a server")?.borrow();
     assert!(server.received().is_empty(), "no frame was read");
+    Ok(())
+}
+
+/// A server scripted by `script`, and what `client` makes of it through a shell of `attempts` commit attempts.
+fn over_a_shell<T>(
+    w: &mut Steps,
+    script: impl FnOnce(&mut TestServer),
+    attempts: u32,
+    client: impl AsyncFnOnce(&mut Client<SimConnect, Anonymous>) -> T,
+) -> TestResult<T> {
+    let scripted = Rc::new(RefCell::new(
+        TestServer::new(CLUSTER, welcome()).with_results(3),
+    ));
+    script(&mut scripted.borrow_mut());
+    let connector = SimConnect::new(SimNetwork::new(1, NetworkFaults::none()));
+    let accepted = Rc::clone(&connector.accepted);
+    let answer = runtime()?.block_on(async {
+        let _server = spawn(serve_sim(Rc::clone(&scripted), accepted));
+        let settings = config().with_commit_attempts(attempts);
+        let mut shell = Client::new(connector, settings, Anonymous, 8);
+        let answer = client(&mut shell).await;
+        w.connected = shell.core().is_connected();
+        w.ready = shell.core().is_ready();
+        shell.close().await;
+        answer
+    });
+    w.server = Some(scripted);
+    Ok(answer)
+}
+
+/// The Registers the server took.
+fn registers(w: &Steps) -> TestResult<usize> {
+    let server = w.server.as_ref().context("a server")?.borrow();
+    Ok(server
+        .received()
+        .iter()
+        .filter(|f| {
+            HeaderView::new(f).is_ok_and(|header| header.command() == Command::Register.number())
+        })
+        .count())
+}
+
+#[when(
+    "a client of 4 commit attempts registers, and a full registry answers its first two Registers code 14"
+)]
+fn busy_twice(w: &mut Steps) -> TestResult {
+    let answer = over_a_shell(
+        w,
+        |server| server.answer_busy_registers(2),
+        4,
+        async |client| client.register().await,
+    )?;
+    w.client = Some(answer.map(|_session| ()));
+    Ok(())
+}
+
+#[then("the client sends the Register three times, each on a new stream, and returns the session")]
+fn sent_three_times(w: &mut Steps) -> TestResult {
+    assert_eq!(registers(w)?, 3, "the Register's sends");
+    let answer = w.client.take().context("the client's answer")?;
+    assert!(answer.is_ok(), "{answer:?}");
+    Ok(())
+}
+
+#[when(
+    "a client of 3 commit attempts registers, and a full registry answers every Register code 14"
+)]
+fn busy_always(w: &mut Steps) -> TestResult {
+    let answer = over_a_shell(
+        w,
+        |server| server.answer_busy_registers(u32::MAX),
+        3,
+        async |client| client.register().await,
+    )?;
+    w.client = Some(answer.map(|_session| ()));
+    Ok(())
+}
+
+#[then(
+    "the client sends the Register three times and returns code 14, and the connection stays open"
+)]
+fn busy_returned(w: &mut Steps) -> TestResult {
+    assert_eq!(registers(w)?, 3, "its attempts");
+    let refusal = w.client.take().context("the client's answer")?.err();
+    let refusal = refusal.context("a refusal")?;
+    assert!(
+        matches!(
+            refusal.0,
+            ClientErrorEnum::Refused {
+                code: ErrorCode::SessionBusy,
+                ..
+            }
+        ),
+        "{refusal:?}"
+    );
+    assert!(w.ready, "the connection stays open");
+    Ok(())
+}
+
+#[when("a server sends a read's stream a Result frame with the stream's credit spent")]
+fn past_credit(w: &mut Steps) -> TestResult {
+    let answer = over_a_shell(w, TestServer::send_past_credit, 4, async |client| {
+        let tx = client.begin(0, true).await?;
+        let stream = client.read(&tx, &read(&tx)).await?;
+        // The read's frames arrive while the client waits on this request, its credit not yet granted again.
+        let refusal = client.begin(0, true).await.err();
+        Ok::<_, ClientError>((stream.stream(), refusal))
+    })?;
+    let (named, refusal) = answer?;
+    w.named = named;
+    w.refusal = refusal;
+    Ok(())
+}
+
+#[then("the client refuses it as `PastCredit`, naming the stream, and closes the connection")]
+fn past_credit_refused(w: &mut Steps) -> TestResult {
+    let refusal = w.refusal.take().context("the refusal")?;
+    let ClientErrorEnum::ConnectionLost { cause: Some(cause) } = &refusal.0 else {
+        return Err(TestError::new(format!(
+            "the refusal as the cause: {refusal:?}"
+        )));
+    };
+    assert_eq!(
+        cause.0,
+        ClientError::protocol(ProtocolError::past_credit(w.named)).0
+    );
+    assert!(!w.connected, "the connection is closed");
     Ok(())
 }
 

@@ -23,7 +23,7 @@ use ultragraphdb_transport_http_server::{BearerKey, HttpLimits, serve_http, serv
 use ultragraphdb_transport_tls::{CertificateChainFile, PrivateKeyFile, TlsAcceptor};
 
 use crate::types::admin_service::AdminService;
-use crate::types::bootstrap::{Bootstrap, REVISION};
+use crate::types::bootstrap::{Bootstrap, PARENT_PID, REVISION, parsed};
 use crate::types::cpu_binding::CpuBinding;
 use crate::types::health_service::HealthService;
 use crate::types::readiness::Readiness;
@@ -33,7 +33,7 @@ use crate::types::service_end::ServiceEnd;
 use crate::types::stopping::Stopping;
 use crate::utils::cpu_list::allowed_in_status;
 use crate::utils::fetch_settings::fetch_settings;
-use crate::utils::listen::listen;
+use crate::utils::listen::{bind_tcp, listen};
 
 /// How often the role looks at whether a signal arrived: the flag is all a handler may safely set.
 const SIGNAL_POLL: Duration = Duration::from_millis(20);
@@ -172,8 +172,7 @@ where
     }
     let readiness = Readiness::default();
     let address = start.observability();
-    let listener = TcpListener::bind(address)
-        .await
+    let listener = TcpListener::from_std(bind_tcp(&address.to_string()).await?)
         .map_err(|error| RoleError::unavailable(format!("listening at {address}: {error}")))?;
     tracing::info!(role = %kind, %address, running = %start.identity(), "{cpu}");
     spawn(accept(
@@ -242,6 +241,21 @@ pub fn stop_flag() -> Result<Arc<AtomicBool>, RoleError> {
             .map_err(|error| RoleError::unavailable(format!("signal {signal}: {error}")))?;
     }
     Ok(stop)
+}
+
+/// Sets `stop`, as SIGTERM does, once the process this one's environment names in [`PARENT_PID`], if any, is no longer its parent.
+/// What the config service and the supervisor call, which read no [`Bootstrap`].
+///
+/// # Errors
+///
+/// [`RoleError::configuration`] when the variable holds no process's identity; [`RoleError::unavailable`] when the thread watching
+/// cannot start.
+pub fn stop_with_parent(stop: &Arc<AtomicBool>) -> Result<(), RoleError> {
+    let named = std::env::var_os(PARENT_PID).map(|value| value.to_string_lossy().into_owned());
+    match parsed(named, PARENT_PID, "a process's identity")? {
+        Some(parent) => watch_parent(parent, Arc::clone(stop)),
+        None => Ok(()),
+    }
 }
 
 /// Sets `stop`, as SIGTERM does, once `parent` is no longer this process's parent: the process that started it ended, and the

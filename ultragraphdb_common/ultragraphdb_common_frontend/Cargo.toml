@@ -55,6 +55,7 @@ ultragraphdb_protocol_wire = { workspace = true }
 [dev-dependencies]
 cucumber = { workspace = true }
 ultragraphdb_common_frontend = { path = ".", features = ["test-utils"] }
+ultragraphdb_store_sim = { workspace = true }
 ultragraphdb_tool_bdd = { workspace = true }
 ultragraphdb_transport_tls = { workspace = true, features = ["test-utils"] }
 

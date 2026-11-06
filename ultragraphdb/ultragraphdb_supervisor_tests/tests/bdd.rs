@@ -21,8 +21,8 @@ use service_utils::{ServiceStartConfig, ServiceUtil, WaitStrategy};
 use sha2::{Digest, Sha256};
 use ultragraphdb_tests::{
     ADMIN_KEY, CLIENT_ADDRESS, COMPUTE_BINARY, COMPUTE_OBSERVABILITY, CONFIG_ADDRESS,
-    CONFIG_BINARY, FRONTEND_BINARY, FRONTEND_OBSERVABILITY, START_SECONDS, STORAGE_BINARY,
-    STORAGE_OBSERVABILITY, exit_is, http_status, scratch, until_answering,
+    CONFIG_BINARY, FRONTEND_BINARY, FRONTEND_OBSERVABILITY, PARENT_PID, START_SECONDS,
+    STORAGE_BINARY, STORAGE_OBSERVABILITY, exit_is, http_status, scratch, until_answering,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transport_http_client::{HttpClient, HttpUrl};
@@ -139,10 +139,13 @@ fn start_supervisor(w: &mut Steps, args: Vec<String>) -> TestResult {
     w.log_file = scratch(&format!("supervisor-{at}.log"));
     // The arguments live as long as the test, as `ServiceStartConfig` asks: a test process is short.
     let args: &'static [String] = args.leak();
+    // The supervisor ends with the test process, which Bazel may kill before any drop stops it, and everything it started ends
+    // with it. A scenario's own value comes after, and the last of a name is what a process holds.
+    let parent = (PARENT_PID.to_string(), std::process::id().to_string());
     let config = ServiceStartConfig::builder()
         .program(SUPERVISOR_BINARY)
         .program_args(args.iter().map(String::as_str).collect())
-        .env_vars(w.environment.clone())
+        .env_vars([vec![parent], w.environment.clone()].concat())
         .clear_env(true)
         .stderr_file(&w.log_file)
         .wait_strategy(WaitStrategy::NoWait)
@@ -959,6 +962,115 @@ fn under_shipped_seccomp(w: &mut Steps) -> TestResult {
 #[then("it starts on io_uring and logs that it does")]
 fn on_io_uring(w: &mut Steps) -> TestResult {
     images::on_driver(&w.containers, "io_uring", "polling")
+}
+
+/// Whether the process `pid` still runs, as `kill -0` says.
+fn runs(pid: u32) -> TestResult<bool> {
+    let asked = Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .output()?;
+    Ok(asked.status.success())
+}
+
+/// Waits for each of `started` to end by itself, each named with its process's identity. Past the bound whatever still runs is
+/// killed, so the next scenario finds its ports free, and named as the failure.
+fn until_ended(started: &[(&str, u32)]) -> TestResult {
+    for _ in 0..START_SECONDS * 20 {
+        let mut left = false;
+        for (_, pid) in started {
+            left = left || runs(*pid)?;
+        }
+        if !left {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let mut running = Vec::new();
+    for (instance, pid) in started {
+        if runs(*pid)? {
+            signal(*pid, "KILL")?;
+            running.push(*instance);
+        }
+    }
+    Err(TestError::new(format!(
+        "{running:?} still ran {START_SECONDS} s after the supervisor was killed"
+    )))
+}
+
+#[when("the supervisor is killed by SIGKILL while every role runs")]
+fn supervisor_killed(w: &mut Steps) -> TestResult {
+    write_profile(w)?;
+    start_to_ready(w)?;
+    let mut started = Vec::new();
+    for instance in ["config", "frontend", "storage", "compute"] {
+        started.push((instance, pid_of(w, instance)?));
+    }
+    let (_, pid) = w.running.as_ref().context("a running supervisor")?;
+    signal(*pid, "KILL")?;
+    until_exit(w)?;
+    until_ended(&started)?;
+    read_log(w)
+}
+
+#[then("the config service and the three roles each stop as on SIGTERM and free their ports")]
+fn none_orphaned(w: &mut Steps) -> TestResult {
+    for role in ["frontend", "storage", "compute"] {
+        assert!(
+            w.log.contains(&format!("stopping role={role}")),
+            "{role} stopped by no stop of its own:\n{}",
+            w.log
+        );
+    }
+    let service_stopped = w
+        .log
+        .lines()
+        .any(|line| line.trim_end().ends_with(" stopping"));
+    assert!(
+        service_stopped,
+        "the config service stopped by no stop of its own:\n{}",
+        w.log
+    );
+    for address in [
+        FRONTEND_OBSERVABILITY,
+        COMPUTE_OBSERVABILITY,
+        STORAGE_OBSERVABILITY,
+        CONFIG_ADDRESS,
+        CLIENT_ADDRESS,
+    ] {
+        drop(std::net::TcpListener::bind(address).context(address)?);
+    }
+    Ok(())
+}
+
+#[when(
+    "the supervisor starts with `ULTRAGRAPHDB_PARENT_PID` naming a process that is not its parent"
+)]
+fn supervisor_parent_gone(w: &mut Steps) -> TestResult {
+    write_profile(w)?;
+    // No process holds the largest identity, so it is no parent of the supervisor's.
+    w.environment
+        .push((PARENT_PID.to_string(), u32::MAX.to_string()));
+    start_supervisor(w, on_profile(w))?;
+    until_exit(w)
+}
+
+#[then("it stops what it started and exits with code 0")]
+fn stopped_with_its_parent(w: &mut Steps) -> TestResult {
+    exit_is(w.exited, &w.log, 0)?;
+    assert!(!w.log.contains(EVERY_ROLE_READY), "{}", w.log);
+    Ok(())
+}
+
+#[when("the development image starts, the supervisor at PID 1")]
+fn development_at_pid_1(w: &mut Steps) -> TestResult {
+    images::start_development(&mut w.containers, images::Seccomp::Default)
+}
+
+#[then(
+    "the supervisor names process 1 to each role it starts, and every role reaches readiness and stays there"
+)]
+fn role_under_pid_1(w: &mut Steps) -> TestResult {
+    images::roles_run_on_under_pid_1(&w.containers)
 }
 
 /// `bdd` runs every feature but those tagged `@image`; `image_bdd` runs those and the ones tagged `@docker`, in Docker, and

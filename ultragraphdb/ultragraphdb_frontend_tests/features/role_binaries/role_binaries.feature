@@ -23,3 +23,15 @@ Feature: The frontend binary as a process
   Scenario: A frontend without its role address stops the start
     When the frontend binary receives settings with no `frontend.role_address`
     Then it exits with code 78 and an error naming `frontend.role_address`
+
+  Scenario: A port held a moment is taken
+    When a role starts at a TCP address another process holds, which lets it go within the bound
+    Then the role logs each retry naming the address, binds it, and answers `/health`
+
+  Scenario: A port held past the bound ends the start
+    When a role starts at a TCP address another process holds past the bound
+    Then it exits with code 69 after a retry logged per 50 ms of the bound, the error naming the address
+
+  Scenario: Any other bind error ends the start at once
+    When a role starts at a TCP address no interface of its host holds
+    Then it exits with code 69 at once, the error naming the address, with no retry logged

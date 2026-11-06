@@ -19,9 +19,9 @@ const CA_FILE: &str = "ULTRAGRAPHDB_CONFIG_CA_FILE";
 /// role restarted by its supervisor returns to the active revision.
 pub(crate) const REVISION: &str = "ULTRAGRAPHDB_CONFIG_REVISION";
 
-/// The process a role ends with, as a test harness starting it sets: once it is no longer the role's parent, the role stops
-/// as on SIGTERM, so its ports are free for the next run.
-const PARENT: &str = "ULTRAGRAPHDB_PARENT_PID";
+/// The process a binary ends with, as a test harness or the supervisor starting it sets: once it is no longer the binary's parent,
+/// the binary stops as on SIGTERM, so whatever a killed process started frees its ports.
+pub const PARENT_PID: &str = "ULTRAGRAPHDB_PARENT_PID";
 
 /// What a role's environment says: which service to ask, as what. Nothing else about a role comes from its environment.
 #[derive(Debug, Clone)]
@@ -56,7 +56,7 @@ impl Bootstrap {
                 KEY_FILE => key_file = Some(value),
                 CA_FILE => ca_file = Some(value),
                 REVISION => revision = Some(value),
-                PARENT => parent = Some(value),
+                PARENT_PID => parent = Some(value),
                 other if other.starts_with("ULTRAGRAPHDB_") => {
                     return Err(RoleError::configuration(format!(
                         "the variable {other} is not one a role takes: a role takes {URL}, {TARGET}, {INSTANCE}, {KEY_FILE} and {CA_FILE}, and every setting comes from the config service"
@@ -70,7 +70,7 @@ impl Bootstrap {
                 .ok_or_else(|| RoleError::configuration(format!("the variable {name} is required")))
         };
         let revision = parsed(revision, REVISION, "a revision's number")?;
-        let parent = parsed(parent, PARENT, "a process's identity")?;
+        let parent = parsed(parent, PARENT_PID, "a process's identity")?;
         let url = required(url, URL)?;
         let target = required(target, TARGET)?;
         let instance = required(instance, INSTANCE)?;
@@ -111,7 +111,7 @@ impl Bootstrap {
         })
     }
 
-    /// The process the role ends with, when a test harness named one.
+    /// The process the role ends with, when whoever started it named one.
     #[must_use]
     pub fn parent(&self) -> Option<u32> {
         self.parent
@@ -143,7 +143,7 @@ impl Bootstrap {
 }
 
 /// The number `value` holds, the variable `name`'s, refused as not `what` when it holds none.
-fn parsed<T: std::str::FromStr>(
+pub(crate) fn parsed<T: std::str::FromStr>(
     value: Option<String>,
     name: &str,
     what: &str,

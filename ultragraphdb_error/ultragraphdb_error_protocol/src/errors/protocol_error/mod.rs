@@ -266,6 +266,11 @@ pub enum ProtocolErrorEnum {
         /// Why the record was refused.
         cause: Box<ProtocolErrorEnum>,
     },
+    /// A Result or Entries frame arrived on `stream` with the stream's credit spent (`PROTOCOL.md` §11.3).
+    PastCredit {
+        /// The stream the frame arrived on.
+        stream: u64,
+    },
 }
 
 /// Why a frame of the binary protocol was refused. Each variant names the validation rule a frame failed and the
@@ -493,5 +498,10 @@ impl ProtocolError {
             index,
             cause: Box::new(cause.0),
         })
+    }
+
+    /// A Result or Entries frame on `stream`, past the stream's credit.
+    pub fn past_credit(stream: u64) -> Self {
+        Self(ProtocolErrorEnum::PastCredit { stream })
     }
 }

@@ -34,6 +34,10 @@ Feature: Quad reads of a transaction through compute
       When T1 reads with limit 1 a range holding `<a>` and `<z>`, T2 commits an insert past `<a>` that T1's read did not reach, and T1 commits without resuming
       Then T1 commits
 
+    Scenario: A limit stopping before a graph leaves that graph unread
+      When T1 reads `<a> <name> ?o` with limit 1 and its graph unbound, `<a>` holding it in two graphs, T2 commits an insert into the graph T1's read did not reach, and T1 commits a write
+      Then T1 commits
+
     Scenario: Resuming records the rest
       When T1 reads with limit 1, resumes to the range's end, T2 commits an insert into the resumed part, and T1 commits a write
       Then T1 aborts with a conflict of kind Range

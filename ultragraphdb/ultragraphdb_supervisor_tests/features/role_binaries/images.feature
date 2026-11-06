@@ -21,3 +21,7 @@ Feature: The role-binaries scenarios that need an image
   Scenario: The seccomp profile enables io_uring
     When a role starts under the shipped seccomp profile
     Then it starts on io_uring and logs that it does
+
+  Scenario: A role whose parent is PID 1 runs on
+    When the development image starts, the supervisor at PID 1
+    Then the supervisor names process 1 to each role it starts, and every role reaches readiness and stays there

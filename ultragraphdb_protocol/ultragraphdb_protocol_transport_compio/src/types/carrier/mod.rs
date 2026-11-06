@@ -25,7 +25,7 @@ pub enum Carrier {
 }
 
 impl Carrier {
-    /// Dials `address` over the carrier its scheme names, with TCP keepalive on (`PROTOCOL.md` §11.4).
+    /// Dials `address` over the carrier its scheme names, with TCP keepalive on and each frame leaving at once (`PROTOCOL.md` §11.4).
     ///
     /// # Errors
     ///
@@ -38,6 +38,7 @@ impl Carrier {
         };
         let carrier = opened.map_err(|e| TransportError::io(&e))?;
         carrier.keep_alive()?;
+        carrier.no_delay()?;
         Ok(carrier)
     }
 
@@ -66,6 +67,31 @@ impl Carrier {
             Self::Tcp(stream) => SockRef::from(stream)
                 .keepalive()
                 .map_err(|e| TransportError::io(&e)),
+            Self::Unix(_) => Ok(false),
+        }
+    }
+
+    /// Has each frame leave as it is written (`PROTOCOL.md` §11.4): Nagle's algorithm would hold it behind an unacknowledged one,
+    /// and a peer with nothing to send acknowledges only when its delayed-ACK timer fires, tens of milliseconds on.
+    ///
+    /// # Errors
+    ///
+    /// [`TransportError::io`] when the socket refuses the option.
+    pub fn no_delay(&self) -> Result<(), TransportError> {
+        match self {
+            Self::Tcp(stream) => stream.set_nodelay(true).map_err(|e| TransportError::io(&e)),
+            Self::Unix(_) => Ok(()),
+        }
+    }
+
+    /// Whether a frame written leaves at once, TCP's `TCP_NODELAY`; a Unix-domain socket holds nothing back and has no such option.
+    ///
+    /// # Errors
+    ///
+    /// [`TransportError::io`] when the socket cannot say.
+    pub fn is_no_delay(&self) -> Result<bool, TransportError> {
+        match self {
+            Self::Tcp(stream) => stream.nodelay().map_err(|e| TransportError::io(&e)),
             Self::Unix(_) => Ok(false),
         }
     }

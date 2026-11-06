@@ -5,30 +5,73 @@
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use compio::runtime::{JoinHandle, spawn};
 
 use crate::types::link::Link;
 use crate::types::pin_target::PinTarget;
+use crate::types::read_times::ReadTimes;
+use crate::types::scan_stream::ScanStream;
+use crate::utils::clock::now;
 
 /// The versions a read has chosen, one per partition: what keeps them readable across a read that outlasts `read_retain_ms`
-/// (`PROTOCOL.md` §11.9, quad-reads "A partition retains what a read may still read"). A short read never opens a Scan for them.
+/// (`PROTOCOL.md` §11.9, quad-reads "A partition retains what a read may still read"). Dropped with its read, which drops the task
+/// keeping each and so cancels each Scan. By default those of a read-write transaction, whose Bind holds its version, which adds none.
 #[derive(Debug, Default)]
 pub(crate) struct ReadPins {
-    targets: RefCell<Vec<PinTarget>>,
-    taken: Cell<u64>,
+    /// When a version chosen begins to be held; `None` for at once.
+    from: Option<Instant>,
+    every: Duration,
+    taken: Rc<Cell<u64>>,
+    /// What keeps each partition's version, named by the partition and the version.
+    keeping: RefCell<Vec<(u32, u64, JoinHandle<()>)>>,
 }
 
 impl ReadPins {
-    /// `version` of the partition of `link` is what the read reads there.
+    /// The pins of a read whose version was chosen before it began: each held from the frame that first says it, so a next Scan of
+    /// a read that starts late in the retention finds it held.
+    pub(crate) fn at_once(times: ReadTimes) -> Self {
+        Self {
+            from: None,
+            every: times.pin_every(),
+            taken: Rc::default(),
+            keeping: RefCell::default(),
+        }
+    }
+
+    /// The pins of a read that chooses its version as it begins: at that version's newest, it stays in the retention for as long
+    /// as a short read lasts, which then opens no Scan for it.
+    pub(crate) fn delayed(times: ReadTimes) -> Self {
+        Self {
+            from: now().checked_add(times.pin_after()),
+            ..Self::at_once(times)
+        }
+    }
+
+    /// `version` of the partition of `link` is what the read reads there. It is held already when the read chose it before.
     pub(crate) fn add(&self, link: &Rc<Link>, tenant: u64, principal: u64, version: u64) {
-        self.targets.borrow_mut().push(PinTarget {
+        let partition = link.partition();
+        let mut keeping = self.keeping.borrow_mut();
+        if keeping
+            .iter()
+            .any(|(held, chosen, _)| *held == partition && *chosen == version)
+        {
+            return;
+        }
+        let target = PinTarget {
             link: Rc::clone(link),
             tenant,
             principal,
             version,
-        });
+        };
+        // Sent before anything that follows on the link, so a Scan after this frame finds the version held or says what became of it.
+        let opened = self.from.is_none().then(|| target.open());
+        let wait = self
+            .from
+            .map_or(Duration::ZERO, |from| from.saturating_duration_since(now()));
+        let kept = Self::keep(target, opened, wait, self.every, Rc::clone(&self.taken));
+        keeping.push((partition, version, spawn(kept)));
     }
 
     /// The read took another frame: it has not stopped.
@@ -36,37 +79,36 @@ impl ReadPins {
         self.taken.set(self.taken.get().wrapping_add(1));
     }
 
-    /// Holds every version the read has chosen once `after` has passed, each by a task of its own, so a pin that is refused or
-    /// waits holds up no other, for as long as the task running this lives: a read ending drops the tasks, which cancels each Scan.
-    pub(crate) async fn hold(pins: Rc<Self>, after: Duration, every: Duration) {
-        compio::time::sleep(after).await;
-        let mut keeping: Vec<JoinHandle<()>> = Vec::new();
+    /// Takes a frame of a Scan of `target`'s version per `every`, from `wait` on, by a task of its own, so a pin that is refused or
+    /// waits holds up no other. A pin refused holds nothing more: the read goes on, and a next Scan says what became of its version.
+    /// A pin about to run out has the next opened first, while the read goes on taking frames, so a version held stays held; a reader
+    /// that stopped holds its version no longer than one pin's grants.
+    async fn keep(
+        target: PinTarget,
+        opened: Option<Result<ScanStream, ultragraphdb_protocol_wire::ErrorReply>>,
+        wait: Duration,
+        every: Duration,
+        taken: Rc<Cell<u64>>,
+    ) {
+        compio::time::sleep(wait).await;
+        let mut opened = opened.unwrap_or_else(|| target.open());
         loop {
-            let chosen = pins.targets.borrow().len();
-            let new = keeping.len()..chosen;
-            keeping.extend(new.map(|at| spawn(Self::keep(Rc::clone(&pins), at, every))));
-            compio::time::sleep(every).await;
-        }
-    }
-
-    /// Takes a frame of a Scan of version `at` per `every`. A pin refused holds nothing more: the read goes on, and a next Scan says
-    /// what became of its version. A pin run out is opened again while the read goes on taking frames, so a reader that stopped
-    /// holds its version no longer than one pin's grants.
-    async fn keep(pins: Rc<Self>, at: usize, every: Duration) {
-        loop {
-            let opened = pins.targets.borrow().get(at).map(PinTarget::open);
-            let Some(Ok(mut pin)) = opened else {
+            let Ok(mut pin) = opened else {
                 return;
             };
-            let taken = pins.taken.get();
-            loop {
+            let seen = taken.get();
+            for _ in 1..PinTarget::FRAMES {
                 match pin.next(|_| Ok(())).await {
-                    Ok((facts, ())) if facts.last => break,
                     Ok(_) => compio::time::sleep(every).await,
                     Err(_) => return,
                 }
             }
-            if pins.taken.get() == taken {
+            if taken.get() == seen {
+                return;
+            }
+            opened = target.open();
+            // The last frame lets its version go, and the partition may discard past it on the same turn.
+            if pin.next(|_| Ok(())).await.is_err() {
                 return;
             }
         }

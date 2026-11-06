@@ -34,7 +34,8 @@ impl Listener {
         bound.map_err(|e| TransportError::io(&e))
     }
 
-    /// The next connection, a carrier of the listener's kind, with TCP keepalive on (`PROTOCOL.md` §11.4).
+    /// The next connection, a carrier of the listener's kind, with TCP keepalive on and each frame leaving at once (`PROTOCOL.md`
+    /// §11.4).
     ///
     /// # Errors
     ///
@@ -52,6 +53,7 @@ impl Listener {
         };
         let carrier = accepted.map_err(|e| TransportError::io(&e))?;
         carrier.keep_alive()?;
+        carrier.no_delay()?;
         Ok(carrier)
     }
 

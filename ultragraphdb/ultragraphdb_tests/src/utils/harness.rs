@@ -382,7 +382,8 @@ fn ports_free() -> TestResult {
 /// Waits up to [`START_SECONDS`] until no process holds an address a role of these tests declares, nor one of `own`, the
 /// suite's own, each named with what declares it. A role a scenario killed is reaped before the kernel tears down the
 /// io_uring ring it ran on, and an accept in flight on that ring holds its listener until then, so the next scenario's role
-/// would exit naming its own address. The double's address is left out: the double holds it for the whole run.
+/// retries that bind, and a step dialling the address once `/health` answers finds nothing yet listening. The double's address is
+/// left out: the double holds it for the whole run.
 ///
 /// # Errors
 ///

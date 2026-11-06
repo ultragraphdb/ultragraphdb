@@ -197,6 +197,7 @@ where
             .bound
             .remove(&key)
             .ok_or_else(|| PartitionError::from(TxnError::ended()))?;
+        self.bound_ended.push(key);
         let _named = self.identities.remove(&bound.identity);
         let ticket = self.ticket();
         self.last_ticket = ticket;
@@ -224,6 +225,7 @@ where
             .bound
             .remove(&key)
             .ok_or_else(|| PartitionError::from(TxnError::ended()))?;
+        self.bound_ended.push(key);
         let _named = self.identities.remove(&bound.identity);
         let ticket = self.ticket();
         self.last_ticket = ticket;
@@ -304,6 +306,7 @@ where
     /// released at once, so the next writer of its term creates its own.
     pub fn abort_bound(&mut self, key: BoundKey) {
         if let Some(bound) = self.bound.remove(&key) {
+            self.bound_ended.push(key);
             let _named = self.identities.remove(&bound.identity);
             let buffers = bound.txn.abort();
             self.pipeline.buffers_mut().push(buffers);
@@ -364,6 +367,11 @@ where
     /// The ticket the transaction `key` asks its current references under.
     pub fn bound_ticket(&self, key: BoundKey) -> Option<u64> {
         self.bound.get(&key).map(|bound| bound.ticket)
+    }
+
+    /// The bound transactions that ended since the last call, whatever ended them: what their Scans are refused by.
+    pub fn take_bound_ended(&mut self) -> Vec<BoundKey> {
+        std::mem::take(&mut self.bound_ended)
     }
 
     /// The bound transactions a home's refusal or a failed adoption ended since the last call, each with why. A request

@@ -135,7 +135,8 @@ of the same partition SHALL register that group. Concurrent registrants SHALL al
 abort for the race. A home SHALL answer outcome 7 for a skolem IRI its dictionary does not hold, which ends a write's
 transaction with code 7 and reads as no entry for a Scan (quad-reads), and outcome 17 for a store that failed under the
 registration, which ends the registrant's transaction with code 17 in either case, so a failed store never reads as a
-skolem IRI nobody holds. A predicate or graph IRI another partition owns SHALL be got or created at its home before the
+skolem IRI nobody holds, and outcome 26 for a bucket it does not own, which ends the registrant's transaction with code 26 in
+either case, `detail` 0, so the client runs it again on a new Begin. A predicate or graph IRI another partition owns SHALL be got or created at its home before the
 partition first uses it, by a registration that adds no referrer-set member, since nothing reads predicates or graphs
 back through a referrer set, and its entries in both directions SHALL be copied into the partition's dictionary;
 referrer sets concern IRIs and blank nodes in the object position only. A partition MAY cache other partitions'

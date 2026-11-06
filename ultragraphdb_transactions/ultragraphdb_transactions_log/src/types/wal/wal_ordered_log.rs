@@ -79,7 +79,8 @@ impl<S: DurableStorage> Wal<S> {
                 | ProtocolErrorEnum::FieldValue { .. }
                 | ProtocolErrorEnum::DuplicateTerm { .. }
                 | ProtocolErrorEnum::TermTooDeep { .. }
-                | ProtocolErrorEnum::Record { .. } => corrupt(),
+                | ProtocolErrorEnum::Record { .. }
+                | ProtocolErrorEnum::PastCredit { .. } => corrupt(),
             },
         )?;
         if view.header().checksum() != entry.checksum {

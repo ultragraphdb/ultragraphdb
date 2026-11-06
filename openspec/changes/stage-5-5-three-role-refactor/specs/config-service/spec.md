@@ -290,7 +290,7 @@ naming it, with code 78:
 | `ULTRAGRAPHDB_CONFIG_KEY_FILE` | the file holding the read key | yes |
 | `ULTRAGRAPHDB_CONFIG_CA_FILE` | the certificates that verify an `https` service | with `https` |
 
-A role executing itself to load a revision SHALL set `ULTRAGRAPHDB_CONFIG_REVISION` on itself, which nothing else sets and a start takes in place of the active revision. A role started with `ULTRAGRAPHDB_PARENT_PID`, which a test harness sets to its own process, SHALL stop as on SIGTERM once that process is no longer its parent, so a role whose test was killed ends and frees its ports. A role SHALL ask the service for its instance's active revision, retrying an unreachable service until 60 s have passed,
+A role executing itself to load a revision SHALL set `ULTRAGRAPHDB_CONFIG_REVISION` on itself, which nothing else sets and a start takes in place of the active revision. A role or a config service started with `ULTRAGRAPHDB_PARENT_PID`, which a test harness and the supervisor each set to their own process, SHALL stop as on SIGTERM once that process is no longer its parent, so what a killed process started ends and frees its ports. A role SHALL ask the service for its instance's active revision, retrying an unreachable service until 60 s have passed,
 then exit with code 69 and an error naming the URL, the target, the instance and the last failure. It SHALL NOT retry a
 refusal: a key refused, or a target or instance unknown, SHALL exit with code 78 at once, since waiting mends neither. It
 SHALL parse what it receives by `ServiceConfig`, whose tables and keys it holds, and check that the settings its role
@@ -320,6 +320,14 @@ settings, since its addresses are among them, so its log and its exit code are t
 #### Scenario: A role ends with the process it names
 - **WHEN** a role starts with `ULTRAGRAPHDB_PARENT_PID` naming a process that is not its parent
 - **THEN** it stops as on SIGTERM and exits with code 0
+
+#### Scenario: The config service ends with the process it names
+- **WHEN** a config service starts with `ULTRAGRAPHDB_PARENT_PID` naming a process that is not its parent
+- **THEN** it stops as on SIGTERM and exits with code 0
+
+#### Scenario: The config service takes a port held a moment
+- **WHEN** a config service starts at an address another process holds, which lets it go within the bound
+- **THEN** it logs each retry naming the address, binds it, and answers `/health`
 
 #### Scenario: A new instance takes what the others hold
 - **WHEN** a new storage process of a newer release starts during a rolling update, the settings unchanged

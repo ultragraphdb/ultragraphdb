@@ -4,17 +4,20 @@
  */
 
 //! What compute dials in place of a partition: every byte goes on to the real partition, and what compute asks and the first
-//! version each Scan answered is written down, so a scenario reads the Scans a real read sent.
+//! version each Scan answered is written down, so a scenario reads the Scans a real read sent. A Scan that only holds a version is
+//! written down apart, with its frames and its Cancel: what a scenario asserts of a read is what the read itself asks.
 
+use std::collections::HashSet;
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use ultragraphdb_core_keys::{Keyspace, key_prefix};
 use ultragraphdb_protocol_wire::{
-    BodyView, Command, EntriesView, FrameView, HEADER_SIZE, HeaderView, MAX_FRAME_SIZE, ScanAt,
-    ScanView,
+    BodyBuilder, BodyView, Command, Credit, EntriesView, FrameView, HEADER_SIZE, Header,
+    HeaderView, MAX_FRAME_SIZE, ScanAt, ScanView,
 };
 use ultragraphdb_tests::CLUSTER;
 use ultragraphdb_tool_bdd::TestResult;
@@ -27,6 +30,7 @@ const PAUSE_MAX_MS: u32 = 5_000;
 pub struct ScanSeen {
     pub partition: u32,
     pub connection: usize,
+    pub stream: u64,
     pub at: ScanAt,
     pub read_version: u64,
     pub epoch: u64,
@@ -48,8 +52,13 @@ pub struct TapLog {
     scans: Mutex<Vec<ScanSeen>>,
     versions: Mutex<Vec<(u32, u64)>>,
     pause_after: AtomicUsize,
+    until_next_frame: AtomicBool,
     connections: AtomicUsize,
     cancels: AtomicUsize,
+    pins: Mutex<Vec<u64>>,
+    pin_streams: Mutex<HashSet<(usize, u64)>>,
+    overgrant_lists: AtomicUsize,
+    ended: Mutex<HashSet<usize>>,
 }
 
 impl TapLog {
@@ -57,8 +66,38 @@ impl TapLog {
     pub fn clear(&self) {
         self.scans_held().clear();
         self.versions_held().clear();
-        self.pause_after.store(0, Ordering::Release);
+        self.go_on();
         self.cancels.store(0, Ordering::Release);
+        self.pins_held().clear();
+        self.overgrant_lists.store(0, Ordering::Release);
+    }
+
+    fn pins_held(&self) -> std::sync::MutexGuard<'_, Vec<u64>> {
+        self.pins.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn pin_streams_held(&self) -> std::sync::MutexGuard<'_, HashSet<(usize, u64)>> {
+        self.pin_streams
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Whether compute's side of `connection` has closed.
+    pub fn has_ended(&self, connection: usize) -> bool {
+        self.ended
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(&connection)
+    }
+
+    /// The versions of the Scans that only hold one, in the order they went.
+    pub fn pins(&self) -> Vec<u64> {
+        self.pins_held().clone()
+    }
+
+    /// Grants the partition `frames` frames compute never granted on the stream of each Scan of a list, past the Scans now seen.
+    pub fn overgrant_lists(&self, frames: usize) {
+        self.overgrant_lists.store(frames, Ordering::Release);
     }
 
     fn scans_held(&self) -> std::sync::MutexGuard<'_, Vec<ScanSeen>> {
@@ -105,9 +144,17 @@ impl TapLog {
         self.cancels.load(Ordering::Acquire)
     }
 
+    /// Holds back each Scan past the first `scans` until compute has sent its next frame on the connection, which then goes on
+    /// right behind the Scan: compute's Cancel of a Scan it holds reaches the partition after that Scan, whatever the two take.
+    pub fn pause_until_next_frame(&self, scans: usize) {
+        self.until_next_frame.store(true, Ordering::Release);
+        self.pause_after(scans);
+    }
+
     /// Lets the Scans held back go.
     pub fn go_on(&self) {
         self.pause_after.store(0, Ordering::Release);
+        self.until_next_frame.store(false, Ordering::Release);
     }
 }
 
@@ -121,21 +168,43 @@ fn read_frame(from: &mut TcpStream) -> Option<Vec<u8>> {
     Some(frame)
 }
 
-/// Writes down what `frame`, from compute, asks.
-fn saw_request(log: &TapLog, partition: u32, connection: usize, frame: &[u8]) {
-    let Ok(view) = FrameView::validate_client(frame, CLUSTER, MAX_FRAME_SIZE) else {
-        return;
+/// Whether `ranges` are a Scan holding a version: several of one key of the referrer sets' tenant prefix, which no set stands at.
+fn holds_a_version(ranges: &[RangeSeen]) -> bool {
+    let Some(first) = ranges.first() else {
+        return false;
     };
-    if view.command() == Command::Cancel {
+    ranges.len() > 1
+        && first.first.first().copied() == Some(Keyspace::Referrers.byte())
+        && first.first.len() == key_prefix(Keyspace::Referrers, false, 0, None, None).len()
+        && ranges.iter().all(|range| range == first)
+}
+
+/// Whether compute has sent `compute` anything past the frame just read; a millisecond's wait when it has not.
+fn frame_behind(compute: &TcpStream) -> bool {
+    drop(compute.set_read_timeout(Some(Duration::from_millis(1))));
+    let behind = compute.peek(&mut [0u8]).is_ok_and(|read| read > 0);
+    drop(compute.set_read_timeout(None));
+    behind
+}
+
+/// Writes down what `frame`, from compute, asks: what the tap asks of the partition on its own, when anything.
+fn saw_request(
+    log: &TapLog,
+    partition: u32,
+    (connection, compute): (usize, &TcpStream),
+    frame: &[u8],
+) -> Option<Vec<u8>> {
+    let view = FrameView::validate_client(frame, CLUSTER, MAX_FRAME_SIZE).ok()?;
+    let stream = view.header().stream();
+    if view.command() == Command::Cancel && !log.pin_streams_held().contains(&(connection, stream))
+    {
         let _before = log.cancels.fetch_add(1, Ordering::AcqRel);
     }
     if view.command() != Command::Scan {
-        return;
+        return None;
     }
-    let Ok(scan) = ScanView::from_frame(&view) else {
-        return;
-    };
-    let ranges = scan
+    let scan = ScanView::from_frame(&view).ok()?;
+    let ranges: Vec<RangeSeen> = scan
         .ranges()
         .map(|range| RangeSeen {
             first: range.first().to_vec(),
@@ -143,9 +212,16 @@ fn saw_request(log: &TapLog, partition: u32, connection: usize, frame: &[u8]) {
             after: range.after().to_vec(),
         })
         .collect();
+    if holds_a_version(&ranges) {
+        let _new = log.pin_streams_held().insert((connection, stream));
+        log.pins_held().push(scan.read_version());
+        return None;
+    }
+    let grant = overgrant(log, stream, &ranges);
     let seen = ScanSeen {
         partition,
         connection,
+        stream,
         at: scan.at(),
         read_version: scan.read_version(),
         epoch: scan.epoch(),
@@ -164,17 +240,40 @@ fn saw_request(log: &TapLog, partition: u32, connection: usize, frame: &[u8]) {
             if log.pause_after.load(Ordering::Acquire) == 0 {
                 break;
             }
-            std::thread::sleep(Duration::from_millis(1));
+            if !log.until_next_frame.load(Ordering::Acquire) {
+                std::thread::sleep(Duration::from_millis(1));
+            } else if frame_behind(compute) {
+                break;
+            }
         }
     }
+    grant
 }
 
-/// Writes down the version `frame`, from the partition, names.
-fn saw_reply(log: &TapLog, partition: u32, frame: &[u8]) {
+/// The Credit compute never sent, for a Scan of a list while a scenario asks for one.
+fn overgrant(log: &TapLog, stream: u64, ranges: &[RangeSeen]) -> Option<Vec<u8>> {
+    let frames = log.overgrant_lists.load(Ordering::Acquire);
+    let list = ranges
+        .first()?
+        .first
+        .first()
+        .is_some_and(|keyspace| *keyspace == Keyspace::Forward.byte());
+    if frames == 0 || !list {
+        return None;
+    }
+    Credit::new(u32::try_from(frames).ok()?)
+        .frame(Header::new(CLUSTER, Command::Credit).with_stream(stream))
+        .ok()
+}
+
+/// Writes down the version `frame`, from the partition, names, unless a Scan holding a version sent it.
+fn saw_reply(log: &TapLog, partition: u32, connection: usize, frame: &[u8]) {
     let Ok(view) = FrameView::validate(frame, CLUSTER, MAX_FRAME_SIZE) else {
         return;
     };
+    let stream = view.header().stream();
     if view.command() == Command::Entries
+        && !log.pin_streams_held().contains(&(connection, stream))
         && let Ok(entries) = EntriesView::from_frame(&view)
     {
         log.versions_held().push((partition, entries.version()));
@@ -186,12 +285,27 @@ fn relay(
     mut from: TcpStream,
     mut to: TcpStream,
     log: &TapLog,
-    mut saw: impl FnMut(&TapLog, &[u8]),
+    mut saw: impl FnMut(&TapLog, &[u8]) -> Option<Vec<u8>>,
 ) {
-    while let Some(frame) = read_frame(&mut from) {
-        saw(log, &frame);
-        if to.write_all(&frame).is_err() {
+    // The frames the tap added on its own: each frame after them takes its place in the sender's order one further on.
+    let mut added = 0u128;
+    while let Some(mut frame) = read_frame(&mut from) {
+        let also = saw(log, &frame);
+        let Ok(sequence) = HeaderView::new(&frame).map(|header| header.sequence()) else {
             break;
+        };
+        if Header::stamp_sequence(&mut frame, sequence + added).is_err()
+            || to.write_all(&frame).is_err()
+        {
+            break;
+        }
+        if let Some(mut also) = also {
+            added += 1;
+            if Header::stamp_sequence(&mut also, sequence + added).is_err()
+                || to.write_all(&also).is_err()
+            {
+                break;
+            }
         }
     }
     drop(from.shutdown(Shutdown::Both));
@@ -213,9 +327,11 @@ pub fn tap(port: u32, partition: u32, target: u32, log: &Arc<TapLog>) -> TestRes
                 continue;
             };
             let connection = log.connections.fetch_add(1, Ordering::AcqRel);
-            let (Ok(compute_back), Ok(partition_back)) =
-                (stream.try_clone(), partition_side.try_clone())
-            else {
+            let (Ok(compute_back), Ok(compute_seen), Ok(partition_back)) = (
+                stream.try_clone(),
+                stream.try_clone(),
+                partition_side.try_clone(),
+            ) else {
                 continue;
             };
             drop(stream.set_nodelay(true));
@@ -223,13 +339,19 @@ pub fn tap(port: u32, partition: u32, target: u32, log: &Arc<TapLog>) -> TestRes
             let up = Arc::clone(&log);
             drop(std::thread::spawn(move || {
                 relay(stream, partition_side, &up, |seen, frame| {
-                    saw_request(seen, partition, connection, frame);
+                    saw_request(seen, partition, (connection, &compute_seen), frame)
                 });
+                let _new = up
+                    .ended
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .insert(connection);
             }));
             let down = Arc::clone(&log);
             drop(std::thread::spawn(move || {
                 relay(partition_back, compute_back, &down, |seen, frame| {
-                    saw_reply(seen, partition, frame);
+                    saw_reply(seen, partition, connection, frame);
+                    None
                 });
             }));
         }

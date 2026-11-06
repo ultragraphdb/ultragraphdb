@@ -22,7 +22,7 @@ use ultragraphdb_tests::{CLUSTER, SECRET, holding, render_settings};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::played_partition::{PlayedTables, Script};
-use crate::scene::{FLOOR, KNOWS, NAME, Pattern, Scene, run};
+use crate::scene::{FLOOR, KNOWS, NAME, Pattern, Scene, answer_on, compute_client, run};
 use crate::{Steps, played, played_tables};
 
 /// The tag of an `xsd:string` held by hash (`PROTOCOL.md` §10.1).
@@ -348,18 +348,18 @@ fn hung_partition(w: &mut Steps) -> TestResult {
     let tables = played_tables(1)?;
     let dialled = tables.connections();
     tables.script(term_key(scene.tenant, &subject), Script::Silent);
-    run(async {
-        let pattern = Pattern::of(Some(&subject), Some(KNOWS), None);
-        let read = scene.read_of(&pattern, true, ReadLevel::Latest)?;
-        w.answers = vec![scene.answer(&read).await?];
-        Ok(())
-    })?;
-    // The next read dials the partition again, over a connection of its own.
     let other = scene.iri_in(1, "after")?;
     run(async {
-        let pattern = Pattern::of(Some(&other), Some(KNOWS), None);
-        let read = scene.read_of(&pattern, true, ReadLevel::Latest)?;
-        w.answers.push(scene.answer(&read).await?);
+        // One connection, so one compute core: each core holds a connection of its own to the partition, and this one's has closed.
+        let mut client = compute_client(scene.info).await?;
+        let read_of = |iri: &str| {
+            let pattern = Pattern::of(Some(iri), Some(KNOWS), None);
+            scene.read_of(&pattern, true, ReadLevel::Latest)
+        };
+        w.answers = vec![answer_on(&mut client, &read_of(&subject)?).await?];
+        // The next read dials the partition again, over a connection of its own.
+        w.answers
+            .push(answer_on(&mut client, &read_of(&other)?).await?);
         Ok(())
     })?;
     w.numbers = vec![u64::from(tables.connections() > dialled)];

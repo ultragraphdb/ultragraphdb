@@ -73,6 +73,8 @@ where
     bound_ready: Vec<BoundKey>,
     /// The bound transactions a home's refusal or a failed adoption ended since the last look, each with why.
     bound_refused: Vec<(BoundKey, PartitionError)>,
+    /// The bound transactions that ended since the last look.
+    bound_ended: Vec<BoundKey>,
 }
 
 impl<'a, L, S, C, E, B> PartitionHost<'a, L, S, C, E, B>
@@ -106,6 +108,7 @@ where
             identities: BTreeMap::new(),
             bound_ready: Vec::new(),
             bound_refused: Vec::new(),
+            bound_ended: Vec::new(),
         }
     }
 

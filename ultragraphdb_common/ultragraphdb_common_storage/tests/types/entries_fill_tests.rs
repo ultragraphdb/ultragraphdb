@@ -150,3 +150,22 @@ fn test_a_run_names_its_ranges_through_its_last() {
     );
     assert_eq!((entries.epoch(), entries.version()), at());
 }
+
+/// A frame holding something stops at what its turn may yet build, and one holding nothing takes a first record up to `max_frame`, so
+/// a turn nearly spent still moves its Scan on.
+#[test]
+fn test_a_frame_stops_at_its_turn_and_takes_a_first_record() -> TestResult {
+    let whole = frame_of(1)?;
+    let two = frame_of(2)?;
+    let (first, _) = object(1)?;
+    let (second, _) = object(2)?;
+    let mut smaller = EntriesFill::new(0, at(), MAX_FRAME_SIZE).filling_to(whole - 1);
+    assert!(smaller.offer_object(KEY, &first, &[]).is_continue());
+    assert!(smaller.offer_object(KEY, &second, &[]).is_break());
+    let mut holds_two = EntriesFill::new(0, at(), MAX_FRAME_SIZE).filling_to(two);
+    assert!(holds_two.offer_object(KEY, &first, &[]).is_continue());
+    assert!(holds_two.offer_object(KEY, &second, &[]).is_continue());
+    let mut past_max = EntriesFill::new(0, at(), whole - 1).filling_to(1);
+    assert!(past_max.offer_object(KEY, &first, &[]).is_break());
+    Ok(())
+}

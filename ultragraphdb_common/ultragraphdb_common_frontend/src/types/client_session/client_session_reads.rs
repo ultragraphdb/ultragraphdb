@@ -270,7 +270,9 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             }
         };
         let attempt = state.attempt + 1;
-        let sink = self.sink(RouteKey::Read { read, attempt });
+        let sink = self
+            .sink(RouteKey::Read { read, attempt })
+            .with_credit(state.credit);
         let opened = link.open(frame, sink);
         if let Some(sent) = self.reads.get_mut(&read) {
             sent.attempt = attempt;

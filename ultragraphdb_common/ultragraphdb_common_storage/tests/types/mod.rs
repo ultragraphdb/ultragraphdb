@@ -11,3 +11,5 @@ mod entries_fill_tests;
 mod retention_tests;
 #[cfg(test)]
 mod scan_board_tests;
+#[cfg(test)]
+mod turn_budget_tests;

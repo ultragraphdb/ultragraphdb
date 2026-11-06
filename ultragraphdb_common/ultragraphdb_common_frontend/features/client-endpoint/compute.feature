@@ -20,6 +20,10 @@ Feature: Reads are spread over the compute processes
     When a compute process's connection closes after one frame of a read reached the client
     Then the read is refused with code 17, no other compute process receives it, and the client's connection stays open
 
+  Scenario: A Result frame past its credit closes the frontend's role connection
+    When a compute process sends a ComputeRead's stream a Result frame with the stream's credit spent, the frames its credit and a Credit allowed having reached the client and a second read being open on the connection
+    Then the frontend closes the role connection, answers the first read code 17, and sends the second to the other compute process
+
   Scenario: A hung compute process answers code 17
     When a compute process accepts a read of `deadline_ms` 50 and sends nothing, `scan_stall_ms` is 100, and the read's stream holds credit
     Then the frontend cancels the ComputeRead and answers the read with code 17 once 150 ms have passed, and no other compute process receives it

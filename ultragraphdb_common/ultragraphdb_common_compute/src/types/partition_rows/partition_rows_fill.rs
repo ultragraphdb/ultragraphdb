@@ -49,17 +49,14 @@ impl PartitionRows {
         }
     }
 
-    /// Whether a row of this partition is left past the merge's last, reading no further than it must: a range stopped at its
-    /// limit has a key left, unless only a bound object's filter could tell, which reads on as a next row would.
-    pub(crate) async fn has_more(&mut self) -> Result<bool, ErrorReply> {
-        if self.page.has_row() {
-            return Ok(true);
-        }
-        if self.left.is_some() && self.filter.object.is_none() {
-            return Ok(true);
-        }
-        self.fill().await?;
-        Ok(self.page.has_row())
+    /// Whether a row of this partition may be left past the merge's last, by what it has read alone: reading on to tell would record
+    /// a span the read's rows never reached, against a read-write transaction's commit (`PROTOCOL.md` §9.1).
+    pub(crate) fn may_hold_more(&self) -> bool {
+        self.page.has_row()
+            || self.left.is_some()
+            || self.open.is_some()
+            || !self.pending.is_empty()
+            || !matches!(self.graphs, Graphs::Done)
     }
 
     /// The next graph's ranges to come; false with no graph left.

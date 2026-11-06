@@ -6,7 +6,6 @@
 use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
 
-use compio::runtime::{JoinHandle, spawn};
 use ultragraphdb_core_ids::{Epoch, SystemId, Tenant};
 use ultragraphdb_core_keys::{CountDirection, Graph, QuadKey};
 use ultragraphdb_protocol_wire::{ErrorReply, ObjectRecords, Scan, ScanAt, ScanRange};
@@ -24,13 +23,6 @@ use crate::utils::refusals::unavailable;
 /// The one-key ranges a lookup's Scan of names holds at most.
 const NAMES_PER_SCAN: usize = 4_096;
 
-/// What keeps a lookup's versions past `read_retain_ms`: dropped with the lookup, which cancels each pin's Scan.
-#[derive(Debug)]
-struct LookupPins {
-    pins: Rc<ReadPins>,
-    _holding: JoinHandle<()>,
-}
-
 /// A lookup's one partition, its version chosen by the first Scan.
 #[derive(Debug)]
 struct LookupPartition {
@@ -39,27 +31,12 @@ struct LookupPartition {
 }
 
 impl ComputeCore {
-    /// The Scans keeping a lookup's versions.
-    fn lookup_pins(&self) -> LookupPins {
-        let pins: Rc<ReadPins> = Rc::default();
-        let times = self.times();
-        let holding = spawn(ReadPins::hold(
-            Rc::clone(&pins),
-            times.pin_after(),
-            times.pin_every(),
-        ));
-        LookupPins {
-            pins,
-            _holding: holding,
-        }
-    }
-
     /// The partitions holding `tenant`'s run, asked at `at`: each past a dictionary Scan at the epoch, so no list Scan waits on
     /// another's close, its version held by `pins`. `iri`'s ID per partition, `None` where that partition holds no statement of it.
     async fn lookup_partitions(
         self: &Rc<Self>,
         tenant: u64,
-        (at, pins): (LookupAt, &LookupPins),
+        (at, pins): (LookupAt, &ReadPins),
         iri: &str,
     ) -> Result<Vec<(LookupPartition, Option<SystemId>)>, ErrorReply> {
         let map = self.placement().await?;
@@ -101,7 +78,7 @@ impl ComputeCore {
                         })
                 })
                 .await?;
-            pins.pins.add(&link, tenant, 0, facts.version);
+            pins.add(&link, tenant, 0, facts.version);
             parts.push((
                 LookupPartition {
                     link,
@@ -202,7 +179,7 @@ impl ComputeCore {
         predicate: &str,
         (tokenizer, token): (u8, &[u8]),
     ) -> Result<Vec<String>, ErrorReply> {
-        let pins = self.lookup_pins();
+        let pins = ReadPins::at_once(self.times());
         let mut named: BTreeMap<SystemId, String> = BTreeMap::new();
         for (part, id) in self
             .lookup_partitions(tenant, (at, &pins), predicate)
@@ -247,7 +224,7 @@ impl ComputeCore {
         predicate: &str,
         count: u64,
     ) -> Result<Vec<String>, ErrorReply> {
-        let pins = self.lookup_pins();
+        let pins = ReadPins::at_once(self.times());
         let mut sums: BTreeMap<SystemId, (u64, usize)> = BTreeMap::new();
         let parts = self
             .lookup_partitions(tenant, (at, &pins), predicate)

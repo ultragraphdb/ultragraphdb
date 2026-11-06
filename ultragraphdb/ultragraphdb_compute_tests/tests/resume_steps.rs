@@ -15,7 +15,7 @@ use ultragraphdb_protocol_wire::{
 use ultragraphdb_tests::CLUSTER;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
-use crate::read_steps::edge_with;
+use crate::read_steps::{edge_with, until};
 use crate::scene::{
     KNOWS, NAME, Pattern, Scene, Transaction, compute_client, iri, next_of, run, string,
 };
@@ -113,6 +113,42 @@ fn three_pages(w: &mut Steps) -> TestResult {
     seen.sort();
     seen.dedup();
     assert_eq!(seen.len(), 5, "no row repeated or skipped: {seen:?}");
+    Ok(())
+}
+
+#[when("a read with limit 1 and its graph unbound matches one row and is resumed")]
+fn resumed_to_nothing(w: &mut Steps) -> TestResult {
+    let scene = Scene::new(four());
+    run(async {
+        let a = listed(&scene, 1).await?;
+        let read = scene
+            .snapshot(&Pattern::of(Some(&a), Some(NAME), None).any_graph())?
+            .with_limit(1);
+        let first = scene.answer(&read).await?;
+        let second = scene.answer(&resumed(&read, first.resume())).await?;
+        w.answers = vec![first, second];
+        Ok(())
+    })
+}
+
+#[then(
+    "the first answer holds the row and a resume key, and the second answers one batch flagged `LAST` with no row and no key"
+)]
+fn found_nothing(w: &mut Steps) -> TestResult {
+    let (first, second) = (
+        w.answers.first().context("the first answer")?,
+        w.answers.get(1).context("the second answer")?,
+    );
+    first.whole()?;
+    assert_eq!(first.rows().len(), 1);
+    assert!(
+        !first.resume().is_empty(),
+        "the graphs not walked may hold rows"
+    );
+    second.whole()?;
+    assert_eq!(second.batches.len(), 1);
+    assert!(second.rows().is_empty());
+    assert!(second.resume().is_empty());
     Ok(())
 }
 
@@ -605,6 +641,74 @@ pub(crate) fn property_write(reifier: &str, predicate: &str, value: &str) -> Tes
 /// The same read with `key` in its resume section and no limit, which runs on to the range's end.
 pub(crate) fn resumed_all(read: &ComputeRead, key: Vec<u8>) -> ComputeRead {
     resumed(read, key).with_limit(0)
+}
+
+/// How long a late read's list Scan is held back: past what the brief cluster retains, within what it lets a Scan stall.
+const HELD_PAST_RETENTION: std::time::Duration = std::time::Duration::from_millis(200);
+
+#[when(
+    "a read at snapshot level has its dictionary Scan answered, and its list Scan arrives past `read_retain_ms` while later epochs close"
+)]
+fn late_list_scan(w: &mut Steps) -> TestResult {
+    let scene = Scene::new(brief());
+    run(async {
+        let a = scene.iri_in(1, "a")?;
+        scene.insert(&a, NAME, &string("kept")).await?;
+        let read = scene.snapshot(&Pattern::of(Some(&a), Some(NAME), None))?;
+        scene.info.log.pause_after(1);
+        let reading = scene.answer(&read);
+        let moving_on = async {
+            until("the list's Scan seen", || scene.info.log.scans().len() >= 2).await?;
+            // Each commit moves the watermark past the version, and each close the discard version towards it.
+            for _ in 0..4 {
+                compio::time::sleep(HELD_PAST_RETENTION / 4).await;
+                scene.insert(&a, KNOWS, &string("later")).await?;
+            }
+            scene.info.log.go_on();
+            Ok::<(), TestError>(())
+        };
+        let (answer, moved) = futures::join!(reading, moving_on);
+        moved?;
+        w.answers = vec![answer?];
+        Ok(())
+    })
+}
+
+#[then("the read reaches `LAST` with its row, and no Scan of it is refused with code 3")]
+fn late_read_answered(w: &mut Steps) -> TestResult {
+    let answer = w.answer()?;
+    answer.whole()?;
+    assert_eq!(answer.rows().len(), 1);
+    Ok(())
+}
+
+#[when(
+    "a read at latest level and a read at snapshot level each answer within a quarter of `read_retain_ms`"
+)]
+fn short_reads(w: &mut Steps) -> TestResult {
+    let scene = Scene::new(four());
+    run(async {
+        let a = scene.iri_in(1, "a")?;
+        scene.insert(&a, NAME, &string("x")).await?;
+        let pattern = Pattern::of(Some(&a), Some(NAME), None);
+        scene.info.log.clear();
+        let latest = scene.read_of(&pattern, true, ReadLevel::Latest)?;
+        scene.answer(&latest).await?.whole()?;
+        let at_latest = scene.info.log.pins().len() as u64;
+        let snapshot = scene.snapshot(&pattern)?;
+        scene.answer(&snapshot).await?.whole()?;
+        let at_snapshot = scene.info.log.pins();
+        assert_eq!(at_snapshot, vec![snapshot.read_version()]);
+        w.numbers = vec![at_latest, at_snapshot.len() as u64];
+        Ok(())
+    })
+}
+
+#[then(
+    "the read at snapshot level opened one Scan holding its version, and the read at latest level none"
+)]
+fn pins_by_level(w: &mut Steps) {
+    assert_eq!(w.numbers, vec![0, 1]);
 }
 
 #[when("a read of two graphs stalls on its client's credit past `read_retain_ms`, and goes on")]

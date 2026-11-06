@@ -64,8 +64,9 @@ impl<L: Login> ClientCore<L> {
     /// side does not serve among them, a frame on a stream at or above the next it will open or by a command its request's
     /// "Answered by" does not list, when the handshake or an exchange fails ([`ClientError::transport`]), and when the
     /// server closes with an Error frame on stream 0 ([`ClientError::closed`]); a request waiting on the connection then
-    /// fails with [`ClientError::connection_lost`], the refusal its cause. A frame of a stream this side has ended is late,
-    /// whatever its command: it is checked and dropped.
+    /// fails with [`ClientError::connection_lost`], the refusal its cause. A Result past its stream's credit is refused as
+    /// [`ProtocolError::past_credit`], which gives the connection up too (`PROTOCOL.md` §11.3). A frame of a stream this
+    /// side has ended is late, whatever its command: it is checked and dropped.
     pub fn receive(&mut self, frame: ReceivedFrame, now: Instant) -> Result<(), ClientError> {
         self.last_progress = Some(now);
         if matches!(self.link, Link::Down) {
@@ -83,7 +84,11 @@ impl<L: Login> ClientCore<L> {
                 }
                 if let Some(state) = self.streams.get_mut(&stream) {
                     if frame.command() == Command::Result.number() {
-                        state.credit = state.credit.saturating_sub(1);
+                        let Some(left) = state.credit.checked_sub(1) else {
+                            return self
+                                .fatal(ClientError::protocol(ProtocolError::past_credit(stream)));
+                        };
+                        state.credit = left;
                     }
                     state.progress = Some(now);
                     state.inbox.push_back(frame);
@@ -310,10 +315,29 @@ impl<L: Login> ClientCore<L> {
         let commit = self.pending.get(&id).and_then(PendingState::commit);
         if let Some(request) = commit {
             self.settle_commit(id, request, outcome, now);
+        } else if expect == Expect::Register {
+            self.settle_register(id, outcome, now);
         } else if let Some(pending) = self.pending.get_mut(&id) {
             pending.outcome = Some(outcome);
         }
         Ok(())
+    }
+
+    /// What the answer `outcome` of a Register settles: code 14 sends it again after the retry delay while it has a commit's
+    /// attempts left, and then is its answer, as any other answer is (`PROTOCOL.md` §9.4, §11.3).
+    fn settle_register(&mut self, id: u64, outcome: Result<Reply, ClientError>, now: Instant) {
+        let attempts = self.config.commit_attempts();
+        let delay = self.config.retry_delay();
+        let Some(pending) = self.pending.get_mut(&id) else {
+            return;
+        };
+        pending.stream = None;
+        pending.tries = pending.tries.saturating_add(1);
+        if refused_code(&outcome) == Some(ErrorCode::SessionBusy) && pending.tries < attempts {
+            pending.resend_at = Some(now.checked_add(delay).unwrap_or(now));
+        } else {
+            pending.outcome = Some(outcome);
+        }
     }
 
     /// What the answer `outcome` of a commit, a drop or a one-frame write settles, by `PROTOCOL.md` §11.5. Through no session

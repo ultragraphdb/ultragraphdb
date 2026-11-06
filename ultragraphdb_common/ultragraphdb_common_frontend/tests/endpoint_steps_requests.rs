@@ -37,6 +37,7 @@ use ultragraphdb_protocol_wire::{
     Read, ReadLevel, ReferenceView, RequestTerm, RequestTermView, ResultBatch, ResultView,
     TenantRun, TermTable, Write, WriteChange, xxh3_64,
 };
+use ultragraphdb_store_sim::LogCapture;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::Steps;
@@ -47,6 +48,9 @@ use crate::endpoint_stage::{
 
 /// The longest a scenario runs before it counts as hung.
 const SCENARIO: Duration = Duration::from_secs(30);
+
+/// The dial bound of the scenario with a silent peer, its `transaction_ms`.
+const DIAL_MS: u32 = 400;
 
 /// A `When`'s exchange, on a stage of `options` and a runtime of its own.
 pub(crate) fn run<F, Fut>(w: &mut Steps, options: Options, scenario: F) -> TestResult
@@ -2508,5 +2512,51 @@ fn transactions_naming_only_new_blank_nodes_bind_in_turn(w: &mut Steps) -> TestR
     "the frontend binds them to partitions 1, 2 and 3 in turn, and each blank node's bucket is one its partition owns"
 )]
 fn transactions_naming_only_new_blank_nodes_bind_in_turn_held(w: &mut Steps) {
+    assert!(w.ran, "the scenario ran");
+}
+
+#[when("the frontend dials a role address whose peer accepts and says nothing, carrying a request")]
+fn a_dial_past_its_bound_closes_the_connection(w: &mut Steps) -> TestResult {
+    let silent = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let address = silent.local_addr()?.to_string();
+    let joined = Join::compute(format!("tcp://{address}"));
+    let options = Options {
+        limits: Options::default().limits.with_transaction_ms(DIAL_MS),
+        ..Options::default()
+    };
+    let capture = LogCapture::new();
+    capture.capture(|| {
+        run(w, options, |stage| async move {
+            let _whole = &stage;
+            let peer = compio::net::TcpListener::from_std(silent)?;
+            let _accepting = compio::runtime::spawn(async move {
+                let mut held = Vec::new();
+                while let Ok(accepted) = peer.accept().await {
+                    held.push(accepted);
+                }
+            });
+            stage.links.joined(&joined);
+            let mut client = stage.ann().await?;
+            let transaction = client.begin_read_only(ReadLevel::Snapshot).await?;
+            let read = client.read(transaction, OBJECT).await?;
+            client.silent(read, u64::from(DIAL_MS / 2)).await?;
+            assert_eq!(client.refused(read).await?.0, ErrorCode::Unavailable);
+            let _open = client.begin_read_only(ReadLevel::Snapshot).await?;
+            Ok(())
+        })
+    })?;
+    let said: Vec<String> = capture.events().iter().map(ToString::to_string).collect();
+    assert!(
+        said.iter()
+            .any(|line| line.contains(&address) && line.contains(&format!("{DIAL_MS} ms"))),
+        "the address and the bound in the log: {said:?}"
+    );
+    Ok(())
+}
+
+#[then(
+    "past `transaction_ms` the connection is closed, the request is told so, and the log names the address and the bound"
+)]
+fn a_dial_past_its_bound_closes_the_connection_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
 }

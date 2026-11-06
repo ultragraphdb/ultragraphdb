@@ -15,11 +15,13 @@ const RECORD_LENGTHS: usize = 8;
 const STATEMENT_ID: usize = 16;
 
 /// One Entries frame being filled up to the receiver's `max_frame` (`PROTOCOL.md` §13.14): what a page offers is taken while
-/// the frame it would build fits, by exact sizes, and refused once it would not.
+/// the frame it would build fits, by exact sizes, and refused once it would not. A frame holding something also stops at what its
+/// turn may yet build.
 #[derive(Debug)]
 pub struct EntriesFill {
     entries: Entries,
     max_frame: usize,
+    fill_to: usize,
     key: Option<Vec<u8>>,
     value: ObjectRecordsBuilder,
 }
@@ -32,9 +34,23 @@ impl EntriesFill {
         Self {
             entries: Entries::new(range, EntriesEnd::More, epoch).with_version(version),
             max_frame,
+            fill_to: max_frame,
             key: None,
             value: ObjectRecordsBuilder::new(),
         }
+    }
+
+    /// The frame stopping at `bytes`, within `max_frame`, once it holds something: a first record larger still is taken, up to
+    /// `max_frame`.
+    #[must_use]
+    pub fn filling_to(mut self, bytes: usize) -> Self {
+        self.fill_to = bytes.min(self.max_frame);
+        self
+    }
+
+    /// Whether a frame of `size` bytes is one to build.
+    fn fits(&self, size: usize) -> bool {
+        size <= self.fill_to || (self.is_empty() && size <= self.max_frame)
     }
 
     /// Takes the object `object` of the list `key`, held under `statements`, unless the frame has no room for its record.
@@ -50,7 +66,7 @@ impl EntriesFill {
         let encoding = object.as_bytes();
         let record = RECORD_LENGTHS + encoding.len() + STATEMENT_ID * statements.len();
         let held = self.value.value().len();
-        if self.entries.frame_size_with(key.len(), held + record) > self.max_frame {
+        if !self.fits(self.entries.frame_size_with(key.len(), held + record)) {
             return ControlFlow::Break(());
         }
         if self.key.is_none() {
@@ -64,7 +80,7 @@ impl EntriesFill {
     /// Takes the stored `value` of `key` whole, unless the frame has no room for it.
     pub fn offer_value(&mut self, key: &[u8], value: &[u8]) -> ControlFlow<()> {
         self.close_key();
-        if self.entries.frame_size_with(key.len(), value.len()) > self.max_frame {
+        if !self.fits(self.entries.frame_size_with(key.len(), value.len())) {
             return ControlFlow::Break(());
         }
         self.entries.push(key, value);

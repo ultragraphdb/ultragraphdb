@@ -199,7 +199,7 @@ statement holds a statement ID, by its reifier's skolem IRI in the reifier colum
 literal SHALL be encoded by value only when its payload holds the value exactly. A row whose pattern binds a subject that
 is a reifier SHALL name one property of the statement. A read that matches nothing SHALL
 answer one batch flagged last, with no rows. Only a stream's last batch SHALL hold a resume key, and only when its read stopped
-at its limit with rows remaining; a receiver SHALL refuse one on any other batch with `FieldValue` naming `resume key`, and a
+at its limit where rows may remain; a receiver SHALL refuse one on any other batch with `FieldValue` naming `resume key`, and a
 term whose `text` or `annotation` is not a string index where the protocol's table names one and `ABSENT` elsewhere with
 `FieldValue` naming `term text`, the term's index.
 
@@ -445,6 +445,39 @@ manual grant; the core SHALL grant no credit of zero frames, refused on the wire
 #### Scenario: A long read flows without a manual grant
 - **WHEN** a client reads 10,000 rows through a shell with an initial credit of 4 frames
 - **THEN** every row arrives, credit being granted as batches are consumed, and no grant of zero frames is sent
+
+### Requirement: A frame past its stream's credit is refused
+Every receiver of Result or Entries frames, always the side that dialled, SHALL refuse a frame past its stream's credit as a
+protocol violation, code 1 (Protocol) by the rule `PastCredit` naming the stream, and SHALL close the connection, sending no
+Error, which only the side that accepted sends.
+
+#### Scenario: A Result frame past its credit closes the client's connection
+- **WHEN** a server sends a read's stream a Result frame with the stream's credit spent
+- **THEN** the client refuses it as `PastCredit`, naming the stream, and closes the connection
+
+#### Scenario: A Result frame past its credit closes the frontend's role connection
+- **WHEN** a compute process sends a ComputeRead's stream a Result frame with the stream's credit spent, the frames its credit and a Credit allowed having reached the client and a second read being open on the connection
+- **THEN** the frontend closes the role connection, answers the first read code 17, and sends the second to the other compute process
+
+#### Scenario: An Entries frame past its credit closes compute's role connection
+- **WHEN** a partition sends a Scan's stream an Entries frame with the stream's credit spent
+- **THEN** compute refuses it as `PastCredit`, naming the stream, and closes the role connection
+
+### Requirement: The Rust client retries a busy Register
+The Rust client SHALL send a Register answered code 14 again itself, on a new stream after its retry delay and within its commit
+attempts, and SHALL then return that code 14. Both shells SHALL behave alike.
+
+#### Scenario: A Register answered busy is sent again
+- **WHEN** a client of 4 commit attempts registers, and a full registry answers its first two Registers code 14
+- **THEN** the client sends the Register three times, each on a new stream, and returns the session
+
+#### Scenario: A Register busy past its attempts returns code 14
+- **WHEN** a client of 3 commit attempts registers, and a full registry answers every Register code 14
+- **THEN** the client sends the Register three times and returns code 14, and the connection stays open
+
+#### Scenario: A connection lost under a Register's wait ends it
+- **WHEN** a Register answered code 14 waits for its next send, and the connection is lost
+- **THEN** the client returns the lost connection, and sends the Register on no later connection
 
 ### Requirement: A commit in flight is in doubt once sent
 When a connection is lost or closed with a commit in flight, the client SHALL answer `ConnectionLost` if the commit's

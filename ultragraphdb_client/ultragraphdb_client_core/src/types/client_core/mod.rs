@@ -18,7 +18,7 @@ use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::{
     ClientAuthentication, ClientHandshake, Login, ReceivedFrame, TransportError,
 };
-use ultragraphdb_protocol_wire::{BodyBuilder, Command, Commit, Header, Welcome};
+use ultragraphdb_protocol_wire::{BodyBuilder, Command, Commit, Header, Register, Welcome};
 
 use crate::errors::client_error::{ClientError, ClientErrorEnum};
 use crate::types::client_config::ClientConfig;
@@ -491,7 +491,8 @@ impl<L: Login> ClientCore<L> {
         self.sessions.get(&session.number()).map(|s| s.next_request)
     }
 
-    /// The connection is gone: streams and queued frames with it; each request waiting fails with `reason`. A commit whose
+    /// The connection is gone: streams and queued frames with it; each request waiting fails with `reason`, a Register waiting
+    /// to be sent again among them. A commit whose
     /// frame never left on any connection fails as lost; one through no session whose frame left has an unknown outcome; any
     /// other is retried on the next connection while it has attempts left, else it is in doubt, an attempt being used when
     /// its frame left on the connection lost, or when the connection was lost in its handshake. A read whose last frame
@@ -527,9 +528,7 @@ impl<L: Login> ClientCore<L> {
         let sent_frames = self.sent;
         for pending in self.pending.values_mut().filter(|p| p.outcome.is_none()) {
             let Some(request) = pending.commit() else {
-                if pending.stream.is_some() {
-                    pending.outcome = Some(Err(reason.clone()));
-                }
+                pending.outcome = Some(Err(reason.clone()));
                 continue;
             };
             let sent = pending.stream.is_some()
@@ -616,8 +615,8 @@ impl<L: Login> ClientCore<L> {
         Pending::new(id)
     }
 
-    /// The frame sending commit `id` again on `stream`: a Commit naming its session and request, or the Drop or one-frame
-    /// write as its first frame held it.
+    /// The frame sending request `id` again on `stream`: a Commit naming its session and request, the Drop or one-frame write
+    /// as its first frame held it, or a Register.
     fn resend_frame(&self, id: u64, stream: u64) -> Result<Vec<u8>, ClientError> {
         let Some(pending) = self.pending.get(&id) else {
             return Err(ClientError::stream_finished(stream));
@@ -626,17 +625,17 @@ impl<L: Login> ClientCore<L> {
             (Resend::Drop(command), _) => self.frame(command.as_ref(), stream),
             (Resend::Direct(write), _) => self.frame(write.as_ref(), stream),
             (Resend::Conditional(write), _) => self.frame(write.as_ref(), stream),
-            (Resend::Commit, commit) => {
-                let (session, request) = commit.unwrap_or((0, 0));
+            (Resend::Commit, Some((session, request))) => {
                 self.frame(&Commit::new(session.to_be_bytes(), request, 0), stream)
             }
+            (Resend::Commit, None) => self.frame(&Register::new([0; 16]), stream),
         }
     }
 
-    /// Sends commit `id` again, through its session with its request number, on a stream of its own: the retry the
-    /// server answers from its session table if the commit was applied.
+    /// Sends request `id` again on a stream of its own: a commit through its session with its request number, the retry the
+    /// server answers from its session table if the commit was applied, or a Register answered busy.
     fn send_commit(&mut self, id: u64, now: Instant) {
-        let Some(request) = self.pending.get(&id).and_then(PendingState::commit) else {
+        let Some(request) = self.pending.get(&id).map(PendingState::commit) else {
             return;
         };
         let opened = self.open_stream();
@@ -665,7 +664,12 @@ impl<L: Login> ClientCore<L> {
             }
             Err(cause) => {
                 // A retry or a resolve: the commit was sent before and may have been applied, so it is in doubt, the
-                // caller resolves it, and the session's next commit does not reuse its request number.
+                // caller resolves it, and the session's next commit does not reuse its request number. A Register was
+                // refused, so what stopped its resend is its answer.
+                let Some(request) = request else {
+                    pending.outcome = Some(Err(cause));
+                    return;
+                };
                 let state = self.sessions.get_mut(&request.0);
                 pending.mark_in_doubt(request, state, Some(cause));
             }

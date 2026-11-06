@@ -58,10 +58,13 @@ fn txn_code(error: &TxnError) -> (ErrorCode, u64) {
 }
 
 /// What a home's outcome ends its registrant's transaction with: code 17 for a store that failed at the home, so no failed store
-/// reads as a skolem IRI nobody holds, and otherwise code 7 (`PROTOCOL.md` §13.15).
+/// reads as a skolem IRI nobody holds; code 26 for a bucket the home does not own, `detail` 0 since the registrant does not know
+/// the owner; and otherwise code 7 (`PROTOCOL.md` §13.15).
 fn outcome_code(outcome: u16) -> (ErrorCode, u64) {
     if outcome == ErrorCode::Unavailable.number() {
         (ErrorCode::Unavailable, 0)
+    } else if outcome == ErrorCode::WrongPartition.number() {
+        (ErrorCode::WrongPartition, 0)
     } else {
         (ErrorCode::Refused, 0)
     }

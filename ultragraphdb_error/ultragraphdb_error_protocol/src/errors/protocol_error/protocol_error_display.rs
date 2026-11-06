@@ -41,6 +41,9 @@ impl fmt::Display for ProtocolError {
             e @ E::DuplicateTerm { .. } => duplicate_term(e, f),
             e @ E::TermTooDeep { .. } => term_too_deep(e, f),
             e @ E::Record { .. } => record(e, f),
+            E::PastCredit { stream } => {
+                write!(f, "a frame on stream {stream} past the stream's credit")
+            }
         }
     }
 }

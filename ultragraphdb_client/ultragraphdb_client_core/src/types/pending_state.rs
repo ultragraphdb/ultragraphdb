@@ -49,10 +49,11 @@ impl Expect {
     }
 }
 
-/// A request in flight: its stream, `None` while a commit waits to be sent again; the connection's sequence its frame
-/// leaves with, which tells whether it has left; what it waits for; its answer once arrived; for a commit, a drop or a
-/// one-frame write, whether its frame ever left on any connection, the times it was lost or answered busy, when it is
-/// sent again after such an answer, whether it was sent again, on a stream of its own, and what sends it again.
+/// A request in flight: its stream, `None` while a commit or a Register waits to be sent again; the connection's sequence its
+/// frame leaves with, which tells whether it has left; what it waits for; its answer once arrived; for a commit, a drop or a
+/// one-frame write, whether its frame ever left on any connection, and for these and a Register, the times it was lost or
+/// answered busy, when it is sent again after such an answer, whether it was sent again, on a stream of its own, and what
+/// sends it again.
 #[derive(Debug)]
 pub(crate) struct PendingState {
     pub stream: Option<u64>,

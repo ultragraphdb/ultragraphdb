@@ -16,17 +16,18 @@ use ultragraphdb_common_service::{RoleIdentity, RoleStart};
 use ultragraphdb_core_ids::{SystemId, Tenant, TypePrefix};
 use ultragraphdb_core_keys::{CountDirection, Graph, Keyspace, QuadKey, key_prefix};
 use ultragraphdb_core_terms::{EncodedTerm, Hash128};
+use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::Address;
 use ultragraphdb_protocol_wire::{
-    ErrorCode, ErrorReply, ObjectRecordsBuilder, ReadLevel, StatementTarget, TermTable, Write,
-    WriteChange,
+    Credit, ErrorCode, ErrorReply, ObjectRecordsBuilder, ReadLevel, StatementTarget, TermTable,
+    Write, WriteChange,
 };
 use ultragraphdb_store_quads::{id_key, term_key};
-use ultragraphdb_tests::{CLUSTER, SECRET, holding, render_settings};
+use ultragraphdb_tests::{CLUSTER, SECRET, holding, render_settings, scratch};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::played_partition::{PlayedTables, Script};
-use crate::read_steps::edge_with;
+use crate::read_steps::{edge_with, reads, until};
 use crate::resume_steps::{large_list, resumed};
 use crate::scene::{
     FLOOR, KNOWS, NAME, Pattern, Scene, answer_on, compute_client, iri, next_batch, run, string,
@@ -440,8 +441,8 @@ fn no_more_credit(w: &mut Steps) -> TestResult {
 #[then("the partition sent no more than a few frames of them")]
 fn few_frames(w: &mut Steps) -> TestResult {
     let frames = *w.numbers.first().context("the frames")?;
-    // The terms', the list's and those of about a Result frame's names: 6,400,000 bytes of text would take at least 7 more.
-    assert!(frames <= 5, "{frames} frames");
+    // The terms', the list's and those of about a Result frame's names, at a turn's 256 KiB: 6,400,000 bytes of text would take 25.
+    assert!(frames <= 12, "{frames} frames");
     Ok(())
 }
 
@@ -502,11 +503,85 @@ fn one_connection(w: &mut Steps) {
     assert_eq!(w.numbers, vec![1, 1, 1]);
 }
 
+/// More objects of a list than an Entries frame holds, held by hash.
+const ROWS_PAST_A_FRAME: u32 = 12_000;
+
+/// How long the frame past its credit has to reach compute, before the client lets the read go on.
+const PAST_CREDIT_ARRIVES: Duration = Duration::from_millis(20);
+
+#[when("a partition sends a Scan's stream an Entries frame with the stream's credit spent")]
+fn past_credit(w: &mut Steps) -> TestResult {
+    let scene = Scene::new(four());
+    run(async {
+        // Held by hash, so one frame of the list holds far more rows than a Result frame's worth of their texts.
+        let a = large_list(&scene, ROWS_PAST_A_FRAME, 1_000).await?;
+        let read = scene
+            .snapshot(&Pattern::of(Some(&a), Some(NAME), None))?
+            .with_client_limits(FLOOR, 1);
+        let mut client = compute_client(scene.info).await?;
+        // The partition goes on past compute's grants, while compute drains the list's first frame at the client's credit.
+        scene.info.log.overgrant_lists(64);
+        client.send_only(&read).await?;
+        let stream = client.last_stream();
+        let mut answer = crate::scene::ReadAnswer::default();
+        loop {
+            match crate::scene::next_of(&mut client).await? {
+                Ok(batch) => {
+                    let last = batch.last;
+                    answer.batches.push(batch);
+                    if last {
+                        break;
+                    }
+                }
+                Err(refused) => {
+                    answer.refused = Some(refused);
+                    break;
+                }
+            }
+            compio::time::sleep(PAST_CREDIT_ARRIVES).await;
+            client.send_on(stream, &Credit::new(1)).await?;
+        }
+        let scans = scene.info.log.scans();
+        let list = scans
+            .iter()
+            .find(|scan| reads(scan, Keyspace::Forward))
+            .context("the list's Scan")?;
+        let connection = list.connection;
+        w.numbers = vec![list.stream];
+        until("the role connection's end", || {
+            scene.info.log.has_ended(connection)
+        })
+        .await?;
+        let after = scene.iri_in(1, "after")?;
+        let again = scene.snapshot(&Pattern::of(Some(&after), Some(NAME), None))?;
+        w.answers = vec![answer, scene.answer(&again).await?];
+        Ok(())
+    })?;
+    w.scene = Some(scene);
+    Ok(())
+}
+
+#[then("compute refuses it as `PastCredit`, naming the stream, and closes the role connection")]
+fn past_credit_closes(w: &mut Steps) -> TestResult {
+    let (answer, after) = (
+        w.answers.first().context("the read")?,
+        w.answers.get(1).context("the next read")?,
+    );
+    assert_eq!(answer.refusal()?.code, ErrorCode::Unavailable);
+    after.whole()?;
+    let stream = *w.numbers.first().context("the list's stream")?;
+    let said = ProtocolError::past_credit(stream).to_string();
+    let base = w.scene()?.info.base;
+    let log = std::fs::read_to_string(scratch(&format!("compute-{base}.log")))?;
+    assert!(log.contains(&said), "`{said}` in compute's log: {log}");
+    Ok(())
+}
+
 /// The `scan_stall_ms` of the lookup whose pin is refused.
 const PIN_STALL_MS: u64 = 120;
 
 /// How long the slow partition takes to answer that lookup's list.
-const PIN_DELAY: Duration = Duration::from_millis(200);
+const PIN_DELAY: Duration = Duration::from_millis(160);
 
 #[when("a lookup outlasts its retention over three partitions, and one partition refuses its pin")]
 fn pin_refused(w: &mut Steps) -> TestResult {

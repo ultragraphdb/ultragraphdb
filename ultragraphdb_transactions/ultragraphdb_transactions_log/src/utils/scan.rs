@@ -120,7 +120,8 @@ fn check_body(bytes: &[u8], round: &ScannedRound, checksum_body: u64) -> Result<
             | ProtocolErrorEnum::FieldValue { .. }
             | ProtocolErrorEnum::DuplicateTerm { .. }
             | ProtocolErrorEnum::TermTooDeep { .. }
-            | ProtocolErrorEnum::Record { .. } => Damage::ChunkTable {
+            | ProtocolErrorEnum::Record { .. }
+            | ProtocolErrorEnum::PastCredit { .. } => Damage::ChunkTable {
                 position: round.position(),
             },
         })

@@ -22,7 +22,8 @@ impl ReadTimes {
         }
     }
 
-    /// How long after a read begins it starts holding its versions, well within what a partition retains between Scans.
+    /// How long after a read begins it starts holding a version it chose as it began, well within what a partition retains between
+    /// Scans.
     pub(crate) fn pin_after(&self) -> Duration {
         self.read_retain / 4
     }

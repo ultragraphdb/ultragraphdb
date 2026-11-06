@@ -5,12 +5,16 @@ Feature: Requests are routed to the partitions and compute that serve them
   openspec/changes/stage-5-5-three-role-refactor/specs/client-endpoint/spec.md
 
   Scenario: A write reaches its partition
-    When a client writes `<http://ex.org/a> <http://ex.org/knows> <http://ex.org/b>`
-    Then the frontend sends it to the partition owning the bucket of `http://ex.org/a`, and the commit's reply reaches the client
+    When a client writes one statement per partition, each subject an IRI of that partition's buckets
+    Then the frontend sends each Write first to the partition owning its subject's bucket, and each commit's reply reaches the client
 
   Scenario: A stale placement map is corrected
     When a partition refuses a write naming its new owner
     Then the frontend refreshes its map, resends the write to the owner once, and the client receives the owner's reply
+
+  Scenario: A home's code 26 reaches the client
+    When a partition answers a client's first Write with code 26 of `detail` 0, a home having refused its registration
+    Then the client receives code 26 on the transaction's stream, and the frontend binds no other partition
 
   Scenario: Later requests wait for the first
     When a client sends two Writes of a new transaction without waiting, and the partition refuses the first with code 26

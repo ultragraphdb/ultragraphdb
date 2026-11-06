@@ -27,6 +27,7 @@ service_utils = { workspace = true }
 ultragraphdb_client_compio = { workspace = true }
 ultragraphdb_common_frontend = { workspace = true, features = ["test-utils"] }
 ultragraphdb_common_role = { workspace = true }
+ultragraphdb_common_service = { workspace = true }
 ultragraphdb_protocol_scram = { workspace = true }
 ultragraphdb_protocol_transport = { workspace = true }
 ultragraphdb_protocol_transport_compio = { workspace = true }

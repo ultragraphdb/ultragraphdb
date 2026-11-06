@@ -99,7 +99,9 @@ absence. An answer at a closed epoch SHALL wait until the partition has closed t
 Scan whose epoch has not closed by its deadline, or with no frame able to leave for `scan_stall_ms`, SHALL be refused naming
 the partition. The partition SHALL build a stream's next frame once the one before has left, so a stalled stream holds at
 most one frame in its memory and the list that frame stopped inside, which it SHALL read once however many frames it takes.
-No turn of the partition SHALL read more than a bounded number of keys holding nothing. A Scan SHALL read one version, chosen
+A turn of the partition SHALL build at most one frame per Scan, round-robin, within a budget of bytes per turn chosen so that a
+commit waiting on the turn waits less than one sync of its log, and a frame holding a record or value SHALL stop at what its turn may
+yet build. No turn of the partition SHALL read more than a bounded number of keys holding nothing. A Scan SHALL read one version, chosen
 once. Only a stream ending in `LAST` SHALL be an answer. A Scan naming a transaction SHALL end with that transaction.
 A foreign term SHALL read by the partition's copy of its entries, or by its home's answer when it holds none; an unheld skolem
 IRI SHALL answer no entry wherever it is homed, a home's outcome 7 saying so, and the transaction goes on; any other refusal
@@ -186,6 +188,14 @@ decode what the entries hold and SHALL name every term by its text in what it re
 #### Scenario: A stalled Scan leaves another running
 - **WHEN** one Scan of a connection holds no credit and another takes its credit as it reads
 - **THEN** the second reaches `LAST` while the first takes no more frames
+
+#### Scenario: A large list's frames stay within a turn
+- **WHEN** a Scan reads a list holding more bytes than a turn builds, the receiver's `max_frame` larger than that
+- **THEN** every Entries frame holds no more than a turn builds, and the list arrives whole
+
+#### Scenario: A commit goes on beside Scans taking every turn's budget
+- **WHEN** many Scans of one partition read large lists with credit to spare, and a client commits a write
+- **THEN** the commit is answered while the Scans go on, and each Scan reaches `LAST`
 
 #### Scenario: A range of emptied lists takes many turns
 - **WHEN** a range holds more emptied lists than a turn reads, and a list holding an object after them
@@ -325,6 +335,11 @@ and send nothing further when it has already answered the read.
   reach, and T1 commits without resuming
 - **THEN** T1 commits
 
+#### Scenario: A limit stopping before a graph leaves that graph unread
+- **WHEN** T1 reads `<a> <name> ?o` with limit 1 and its graph unbound, `<a>` holding it in two graphs, T2 commits an insert
+  into the graph T1's read did not reach, and T1 commits a write
+- **THEN** T1 commits
+
 #### Scenario: Resuming records the rest
 - **WHEN** T1 reads with limit 1, resumes to the range's end, T2 commits an insert into the resumed part, and T1 commits a
   write
@@ -444,8 +459,9 @@ with one, its reifier's skolem IRI (term-dictionary, "IRIs and blank nodes get s
 - **THEN** T1 aborts with a conflict of kind Range
 
 ### Requirement: Resume keys continue their own read
-A read stopping at its limit with rows remaining SHALL return a resume key in its stream's last batch, and no other
-batch SHALL hold one. The key SHALL continue that read alone, after its last row: an XXH3-checksummed token compute
+A read stopping at its limit where rows may remain SHALL return a resume key in its stream's last batch, and no other
+batch SHALL hold one; compute and the partition SHALL read no further to tell, so a resumed read may answer an empty last batch
+with no key. The key SHALL continue that read alone, after its last row: an XXH3-checksummed token compute
 alone writes and decodes, holding the hash of the read's pattern, its `scope` and the last row's terms in their text
 form, never a store key. `scope` SHALL bind the key to its transaction: for a read-write transaction, XXH3-64 of its
 identity; for a read-only one, the version it reads at, 0 at levels 1 and 2, so a read-only transaction at snapshot
@@ -460,6 +476,11 @@ SHALL restart. A read matching nothing SHALL return no rows and no resume key.
 #### Scenario: A read resumes where it stopped
 - **WHEN** a read with limit 2 matches 5 rows and is resumed twice
 - **THEN** the three answers return rows 1–2, 3–4 and 5, the last with no resume key
+
+#### Scenario: A resumed read may find nothing
+- **WHEN** a read with limit 1 and its graph unbound matches one row and is resumed
+- **THEN** the first answer holds the row and a resume key, and the second answers one batch flagged `LAST` with no row and no
+  key
 
 #### Scenario: A resume key with another pattern is refused
 - **WHEN** a resume key from one read is used with a different pattern
@@ -611,12 +632,24 @@ of an epoch closed more than `read_retain_ms` ago, default 60,000 ms, and never 
 an open Scan or a read-write transaction holds. A read below the discard version SHALL be refused with code 3 (TooOld). A read-only
 transaction's deadline bounds only its reads' waits. An open Scan SHALL keep its version for as long as it stays open; between
 Scans a version SHALL stay only until a later epoch has been closed for more than `read_retain_ms`, so compute SHALL keep a Scan
-of each partition open across a read that may outlast that, and a next Scan past it SHALL be refused with code 3.
+of each partition open across a read that may outlast that, and a next Scan past it SHALL be refused with code 3. Compute SHALL open
+that Scan at the read's first frame from the partition when the read's version was chosen before it began, one the client or the
+transaction named, since such a read may begin late in the retention, and `read_retain_ms / 4` after a read at latest level or
+monotonic-fast began, since a short read then opens no Scan for it.
 
 #### Scenario: A reader coming back within the retention keeps its version
 - **WHEN** a read-only transaction at snapshot level reads at epoch 20, epochs close for 30 s with `read_retain_ms`
   60,000, and it reads again
 - **THEN** the second read answers at epoch 20's version bound
+
+#### Scenario: A late read keeps its version between Scans
+- **WHEN** a read at snapshot level has its dictionary Scan answered, and its list Scan arrives past `read_retain_ms` while
+  later epochs close
+- **THEN** the read reaches `LAST` with its row, and no Scan of it is refused with code 3
+
+#### Scenario: A read at latest level holds no version at first
+- **WHEN** a read at latest level and a read at snapshot level each answer within a quarter of `read_retain_ms`
+- **THEN** the read at snapshot level opened one Scan holding its version, and the read at latest level none
 
 #### Scenario: A reader coming back past the retention is refused
 - **WHEN** a read-only transaction at snapshot level reads at epoch 20, the partition raises its discard version past

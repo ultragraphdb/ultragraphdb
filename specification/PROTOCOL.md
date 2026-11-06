@@ -1037,8 +1037,9 @@ the statement holds a statement ID, by its reifier's skolem IRI in the reifier c
 (`0x02`, section 10.2); a statement without a statement ID has `ABSENT` there. No row carries a statement ID: parallel
 edges of one quad are told apart by their reifiers. Rows come in the store's key order, one object's by ascending
 statement ID. The stream's last batch carries the header flag `LAST`. Only that batch holds a resume key, and only when
-its read stopped at `limit` with rows remaining; section 6 of every other batch is empty. A read that fails after rows
-restarts, or resumes from the last key of a limited read. A read that matches nothing
+its read stopped at `limit` where rows may remain: a partition reads no further to tell, since that would widen what a read-write
+transaction's commit validates, so a resumed read may answer one batch flagged `LAST` with `rows` 0 and no resume key. Section 6 of
+every other batch is empty. A read that fails after rows restarts, or resumes from the last key of a limited read. A read that matches nothing
 answers one batch flagged `LAST`, `rows` 0 and `columns` the unbound slots and one more.
 
 | Command header | Width | Field | Type | Rule |
@@ -1146,7 +1147,7 @@ Order: unused bytes 2–7 and 16–127 zero; `code`; sections; the term table (1
 | 23 | CrossPartition | no | the transaction's partition in bits 0–31, or for an operation bound to none the lowest partition it reaches; the lowest other partition it reaches in bits 32–63 | Cross-partition work, refused in this stage: a read-write transaction reaching a second partition, a first request or one-frame write whose subjects spread over partitions, or a Drop reaching several; it aborts and writes nothing, and the message names every partition it reaches (sections 11.11, 11.13) |
 | 24 | TimedOut | yes | the partition waited on | A read waited past its transaction's deadline for a partition to close the epoch it reads at, the message naming the partition and the epoch, and returns no row; or a Scan of it stayed past `scan_stall_ms` with no frame able to leave, the message saying so, and rows already sent are no answer (sections 11.11, 13.13) |
 | 25 | LevelRefused | no | as code 23's | A read-only transaction at level 1 (latest) whose read reaches another partition than the one its first read bound it to, or more than one; the message names the level and the partitions (section 11.11) |
-| 26 | WrongPartition | yes, after refreshing the placement map | the bucket in bits 0–23, bits 24–31 zero, the partition owning it in bits 32–63 | A key outside the receiving partition's bucket ranges, from a sender whose placement map is stale; a later subject of a request whose first lies inside them is code 23 (section 11.12). Between roles; a client receives it only when the owner refuses the frontend's one resend too, and runs its transaction again after a delay (section 11.12) |
+| 26 | WrongPartition | yes, after refreshing the placement map | the bucket in bits 0–23, bits 24–31 zero, the partition owning it in bits 32–63; all 0 for a registration refused at a home, whose owner the registrant does not know | A key outside the receiving partition's bucket ranges, from a sender whose placement map is stale; a later subject of a request whose first lies inside them is code 23 (section 11.12). Between roles; a client receives it when the owner refuses the frontend's one resend too, or from a registration refused at a home (section 13.15), and runs its transaction again after a delay (section 11.12) |
 | 27 | AheadOfWatermark | no | the watermark | A read version is above the visibility watermark of the partition answering, in an epoch that partition has not closed: refused at once when the client named it; the message names the version and the watermark (sections 6.2, 13.13) |
 | 28 | SchemaRefused | no | the count of diagnostics | An Install's sources were refused: the message holds the diagnostics of `SCHEMA.md` section 10.4, each with its code and location, and nothing was installed |
 | 29 | QueryRefused | no | the diagnostic's number, with the language in bits 16–23: 1 GQL, 2 SPARQL | A query or prepared text was refused: the message begins with the diagnostic's code (`QUERY-GQL-CORE.md` section 11, `QUERY-SPARQL-CORE.md` section 11) and its `line:column`, then the reason and the fix; a feature outside the core is named |
@@ -1460,13 +1461,17 @@ DirectWrite, it is two independent requests, and a commit between them is a lost
 Each read's stream starts with the Welcome's `initial_credit`. The server sends a Result frame on a stream only while
 the stream's credit is above 0, and each Result frame it sends spends 1. A Credit frame on the stream adds `frames`
 (saturating at 2³² − 1). Only Result and Entries frames spend credit; an Error and every other frame leave it. The server ignores
-Credit for a stream that is not open. The Rust client's credit is automatic: its shells grant credit as the read's
+Credit for a stream that is not open. A receiver of Result or Entries frames, always the side that dialled, refuses a frame past
+its stream's credit as a protocol violation, code 1 (Protocol) by the rule `PastCredit` naming the stream, and closes the
+connection, sending no Error, which only the side that accepted sends (sections 2.6, 3).
+The Rust client's credit is automatic: its shells grant credit as the read's
 batches are consumed, when the count reaches 0 and the caller waits for a batch, and offer no manual grant; its core
 grants at least one frame, so it sends no Credit of zero frames, which a receiver refuses (section 9.2). Its credit and its
 frame buffers agree: it sends a read only while its buffers hold, beside what its other reads may bring, every frame the
 read's credit and a refusal can bring, one buffer left to read into, and refuses one past them before it is sent, so a read
 not yet consumed never takes the buffer a reply needs; a client whose buffers are all held reads nothing until one is given
-back, which holds the server back and loses no connection. On a role
+back, which holds the server back and loses no connection. It sends a Register answered code 14 again itself, on a new stream
+after the retry delay and within the attempts of a commit's resend, and then returns that code 14 (sections 9.4, 11.5). On a role
 connection, credit holds the same way for Entries frames as for Result frames, each connection's streams on their own, and a
 ComputeRead's stream starts with its `credit` in place of the Welcome's (section 13.12).
 
@@ -1481,6 +1486,8 @@ ComputeRead's stream starts with its `credit` in place of the Welcome's (section
   proceed, and its sessions, which belong to its principal, carry over to the principal's next connection.
 - The server keeps TCP keepalive on, and closes a connection that sends no frame for its idle limit (section 11.9).
   The protocol has no ping command.
+- A role sets `TCP_NODELAY` on every TCP connection it dials or accepts, so a frame leaves as it is written: a frame held
+  behind an unacknowledged one, a Cancel or a Scan's next Entries, would wait on the peer's delayed acknowledgement.
 
 ### 11.5 Sessions and exactly-once commits
 
@@ -1693,7 +1700,9 @@ more than `read_retain_ms` ago, and never past its visibility watermark or a ver
 with code 3 (TooOld). A deadline bounds a read's wait, and a read-only transaction has no other limit on its life. An open Scan keeps
 its version for as long as it stays open. Between Scans a version stays only until a later epoch has been closed for more than
 `read_retain_ms`, so compute keeps a Scan of each partition open across a read that may outlast that, and a next Scan past it is
-refused with code 3.
+refused with code 3. Compute opens that Scan at the read's first frame from the partition when the read's version was chosen before
+it began, one the client or the transaction named, since such a read may begin late in the retention; at latest and monotonic-fast it
+opens it `read_retain_ms / 4` after the read began, so a short read opens none.
 
 ### 11.10 Authorization
 
@@ -1783,7 +1792,8 @@ iterations, since the principals live in the frontend, which is itself a peer. I
 `principal` 0 and `expires` 0: a role connection acts for no principal, and each role command acting for a client
 names the client's principal in its own fields. A refusal is code 19, as on the client endpoint, and the refused role
 retries until its deadline. The client endpoint authenticates against the metadata group's principals alone, so the
-role secret opens no client session: it is refused there as a wrong password is.
+role secret opens no client session: it is refused there as a wrong password is. The frontend's dial of a role, its connect,
+Hello and exchange together, takes at most `transaction_ms`; past that it fails as a closed connection does.
 
 A role endpoint's Welcome announces `max_frame` 1,048,576 and `max_streams` 4,294,967,295, and a role's Hello `max_frame`
 1,048,576: what a role connection carries is already bounded by the frontend's bounds on its clients' connections, streams and
@@ -1886,7 +1896,8 @@ frontend checks every subject the first request names by an IRI or a skolem IRI 
 over partitions is refused with code 23 on the transaction's stream, `detail` as for an operation bound to none, binding nothing,
 and the transaction ends. A partition refuses a first request whose first subject lies outside its bucket ranges with code 26
 (WrongPartition), naming the bucket and its owner; the frontend refreshes its placement map, then binds to the owner and resends
-once, and when the owner refuses with code 26 too, the frontend answers the client code 26 on the transaction's stream. A partition
+once, and when the owner refuses with code 26 too, the frontend answers the client code 26 on the transaction's stream. Code 26 of
+`detail` 0 names no owner and is a home's refusal of a registration (section 13.15), so the frontend answers it to the client at once. A partition
 refuses one whose first subject lies inside its ranges and a later one outside with code 23. Until the transaction's first request is
 answered, the frontend sends none of its later requests to a partition or to compute, keeping them, and on code 26 sends them
 after the resend, in order. A first read counts as answered, for this rule alone, at its first frame or its Error, since its
@@ -2773,7 +2784,10 @@ A list larger than a frame continues across frames, as a hub's reverse list does
 two object records, and has `end` 0; the next frame's first entry has the same key, and its value is the next object
 records. The value is the records of every such frame in order. The partition keeps the last object it sent and the list it
 reads, resuming after that object at the same version, so a list is read once however many frames it takes; a frame stops at
-the receiver's `max_frame`, so a large list takes many frames and no turn of the partition holds more than one. A turn also
+the receiver's `max_frame`, or once it holds a record or value at what its turn may yet build, so a large list takes many frames. A
+turn of the partition builds at most one frame per Scan, the Scans taking turns round-robin, within a budget of bytes per turn the
+partition chooses so that a commit waiting on the turn waits less than one sync of its log, and a Scan the budget leaves waits for the
+next turn. A turn also
 reads at most 256 keys holding nothing at the version, so a range of emptied lists takes many turns, and a turn that found no
 entry sends no frame. The partition builds a stream's next frame once the one before has left, so a reader's stalled stream
 holds at most one frame in memory and the list that frame stopped inside. A frame always takes at least one object record or one value of
@@ -2838,7 +2852,9 @@ renews the member at one generation above the one named; one naming an older gen
 answered with the current generation. The registrant commits a transaction referencing the entity only once close `c`
 has been delivered to it. A write's registration refused with outcome 7 ends its transaction with code 7, the forged IRI
 of section 4.4; a Scan's reads outcome 7 as no entry (section 13.13). Outcome 17 ends the registrant's transaction with
-code 17 in either case, so a failed store never reads as a skolem IRI nobody holds.
+code 17 in either case, so a failed store never reads as a skolem IRI nobody holds. Outcome 26 ends the registrant's transaction
+with code 26 in either case, `detail` 0, since the entity's owner is one the registrant's map does not know: the client runs the
+transaction again on a new Begin (section 9.4).
 
 Order: unused bytes 1–7 and 16–127 zero; `reply`; sections; the term table, every entry of kind 1 (`FieldValue`
 `"reference term"`, the entry's kind); section 0 not empty and a whole number of 48-byte registrations

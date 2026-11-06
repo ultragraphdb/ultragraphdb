@@ -35,7 +35,7 @@ carriers, and no role SHALL ask which carrier it runs on.
 The supervisor SHALL start the config service and wait for its `/ready`, then start the frontend and wait for its `/health`, then start storage and wait for its `/ready`, then
 start compute and wait for its `/ready`, and then wait for the frontend's `/ready`, since the frontend is ready only once
 a storage partition answers it. Storage and compute SHALL retry joining until their deadline, so neither needs the
-frontend's recovery to have ended. The supervisor SHALL restart no role on its own; SHALL draw the config service's two keys at random at the development image's first start, keeping them in its data directory, and the bootstrap administrator's password before the cluster's first start alone, since the frontend reads it once and the operator then removes it; SHALL refuse with code 78 a target whose instances name more than one `role_secret_file`, since the roles of one container share one role secret; SHALL forward SIGTERM and SIGINT; SHALL stop the roles in the shutdown order; and SHALL exit
+frontend's recovery to have ended. The supervisor SHALL restart no role on its own; SHALL draw the config service's two keys at random at the development image's first start, keeping them in its data directory, and the bootstrap administrator's password before the cluster's first start alone, since the frontend reads it once and the operator then removes it; SHALL refuse with code 78 a target whose instances name more than one `role_secret_file`, since the roles of one container share one role secret; SHALL forward SIGTERM and SIGINT; SHALL stop the roles in the shutdown order; SHALL set `ULTRAGRAPHDB_PARENT_PID` to its own process for everything it starts, the config service included, so killed outright it orphans nothing, and a supervisor at PID 1 has no parent to lose, its death ending the container; SHALL itself stop as on SIGTERM once the process its own `ULTRAGRAPHDB_PARENT_PID` names is no longer its parent; and SHALL exit
 with the exit code of the first role that failed, 128 plus the signal's number for a role a signal killed, or 0 after a
 clean shutdown.
 
@@ -64,6 +64,18 @@ clean shutdown.
 - **WHEN** the development container has started, the bootstrap administrator's password file is removed, and the container
   starts again over the same data directory
 - **THEN** no file stands at the password's path, and the restart reached readiness
+
+#### Scenario: A killed supervisor orphans no role
+- **WHEN** the supervisor is killed by SIGKILL while every role runs
+- **THEN** the config service and the three roles each stop as on SIGTERM and free their ports
+
+#### Scenario: The supervisor ends with the process it names
+- **WHEN** the supervisor starts with `ULTRAGRAPHDB_PARENT_PID` naming a process that is not its parent
+- **THEN** it stops what it started and exits with code 0
+
+#### Scenario: A role whose parent is PID 1 runs on
+- **WHEN** the development image starts, the supervisor at PID 1
+- **THEN** the supervisor names process 1 to each role it starts, and every role reaches readiness and stays there
 
 ### Requirement: Each role runs one runtime per core
 Each role SHALL run one compio runtime per core it uses, a storage partition on its own, sharing no mutable state with
@@ -178,6 +190,25 @@ each binary's help and stable:
 #### Scenario: A lost dependency exits with its code
 - **WHEN** compute loses its storage process, which does not return within compute's deadline
 - **THEN** compute shuts down through its ordinary path and exits with code 69
+
+### Requirement: A role takes a port a killed process leaves held
+Each role and the config service SHALL retry the bind of a TCP address refused with `EADDRINUSE` every 50 ms for up to 5 s, logging
+each retry and naming the address, and past that SHALL exit with code 69, the error naming the address and what to do. Any other bind error SHALL end the start
+at once, as a Unix socket's refusal does: a role replaces a socket left behind, so nothing frees such a path by waiting.
+A killed process is reaped before the kernel tears down the io_uring ring it ran on, and an accept in flight on that ring holds its
+listener until then, so a role started at once may find its port taken for some milliseconds.
+
+#### Scenario: A port held a moment is taken
+- **WHEN** a role starts at a TCP address another process holds, which lets it go within the bound
+- **THEN** the role logs each retry naming the address, binds it, and answers `/health`
+
+#### Scenario: A port held past the bound ends the start
+- **WHEN** a role starts at a TCP address another process holds past the bound
+- **THEN** it exits with code 69 after a retry logged per 50 ms of the bound, the error naming the address
+
+#### Scenario: Any other bind error ends the start at once
+- **WHEN** a role starts at a TCP address no interface of its host holds
+- **THEN** it exits with code 69 at once, the error naming the address, with no retry logged
 
 ### Requirement: Roles authenticate each other with the cluster's role secret
 Every role SHALL read the cluster's role secret at start from the file its `[cluster] role_secret_file` setting names, a

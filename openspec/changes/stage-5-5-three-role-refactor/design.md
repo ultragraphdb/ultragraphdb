@@ -396,10 +396,11 @@ dictionary the transaction's source is its `WriteTerms`.
 Credit reaches the core as a message, so the core keeps one built frame per stream outside it. `Outbound` knows when a stream
 has room: a non-`LAST` Entries or Result frame pushed flags its stream, and `take_ready` reports each flagged stream whose
 queue is empty and whose credit is above 0. The serve loop passes those to `Session::ready` after every flush, a Credit's
-included, and `StorageSession` hands the core `CoreMessage::Ready`, which requeues the stream's Scan. Each turn builds one frame
-for the whole partition, the open Scans taking turns on a `ScanBoard`, whose turns end with their Scans, so a stalled reader
-holds one frame's memory and no reader starves another, and while a Scan is queued the core's loop yields to its connections'
-tasks instead of sleeping its tick. A frame leaving is what restarts `scan_stall_ms`: Ready says so, and `take_left`, which
+included, and `StorageSession` hands the core `CoreMessage::Ready`, which requeues the stream's Scan. Each turn builds at most one
+frame per Scan within `TURN_BYTES`, the open Scans taking turns on a `ScanBoard`, whose turns end with their Scans, so a stalled reader
+holds one frame's memory, no reader starves another and no turn starves a commit, and while a Scan is queued the core's loop yields to
+its connections' tasks instead of sleeping its tick. The board finds a Scan by what it waits on, a time, an epoch's close or its
+transaction's end, so a turn costs what is ready and not what is open. A frame leaving is what restarts `scan_stall_ms`: Ready says so, and `take_left`, which
 `CoreMessage::Left` carries, says so of a frame that spent its stream's last credit, since no Ready follows it. A Scan parked
 past it is refused and its `ReadPin` dropped, so a reader that stopped holds a version for no longer than that, and one that
 keeps taking frames keeps its version. A list crossing frames is read once: the first pause inside it keeps it in the Scan, an

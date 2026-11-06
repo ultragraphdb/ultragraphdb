@@ -6,6 +6,7 @@
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::os::unix::net::UnixListener;
 
+use ultragraphdb_common_service::bind_tcp;
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_transport::{Address, Scheme};
 use ultragraphdb_protocol_transport_compio::Listener;
@@ -30,14 +31,12 @@ impl CoreListener {
     /// # Errors
     ///
     /// [`RoleError::configuration`] for an address that does not parse or a socket that cannot be made at its path;
-    /// [`RoleError::unavailable`] when a TCP address cannot be listened at.
-    pub fn bind(text: &str) -> Result<Self, RoleError> {
+    /// [`RoleError::unavailable`] when a TCP address cannot be listened at, within [`bind_tcp`]'s retries.
+    pub async fn bind(text: &str) -> Result<Self, RoleError> {
         let address = Address::parse(text)
             .map_err(|error| RoleError::configuration(format!("the address {text}: {error}")))?;
         match address.scheme() {
-            Scheme::Tcp => std::net::TcpListener::bind(address.target())
-                .map(Self::Tcp)
-                .map_err(|error| RoleError::unavailable(format!("listening at {text}: {error}"))),
+            Scheme::Tcp => bind_tcp(address.target()).await.map(Self::Tcp),
             Scheme::Unix => bind_unix(text, address.target()).map(Self::Unix),
         }
     }
