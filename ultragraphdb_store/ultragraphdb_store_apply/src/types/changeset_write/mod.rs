@@ -57,8 +57,10 @@ pub(crate) struct ChangesetWrite<'a, S, C, B> {
     catalog: Catalog,
     /// The keys of `entries` that are a predicate's implicit default entry and no declaration's, with the predicate.
     defaults: BTreeMap<Vec<u8>, SystemId>,
-    /// Whether the write changes the catalog: a declaration, or the tenant's initial catalog.
+    /// Whether a declaration of the write changes the catalog.
     catalog_changed: bool,
+    /// Whether the write gave the tenant its initial catalog, a change of the catalog as a declaration is.
+    gave_initial: bool,
     /// The statement records the write has written, or removed, by graph and ID.
     records: BTreeMap<(Graph, SystemId), Option<StatementRecord>>,
     /// The predicate whose indexes are built and the declaration its writes are applied under.
@@ -97,6 +99,7 @@ where
             catalog,
             defaults: BTreeMap::new(),
             catalog_changed: false,
+            gave_initial: false,
             records: BTreeMap::new(),
             maintained: None,
             vector_built: None,
@@ -136,7 +139,9 @@ where
             let rdf_type = self.iri(rdf::TYPE)?;
             let version = self.catalog.version();
             self.catalog = Catalog::initial(self.tenant(), rdf_type).with_version(version);
-            self.add_entry(&catalog_key(self.tenant(), PREDICATE, rdf_type));
+            self.gave_initial = true;
+            let key = catalog_key(self.tenant(), PREDICATE, rdf_type);
+            let _removed: Option<SystemId> = self.defaults.remove(&key);
         }
         Ok(())
     }
@@ -208,6 +213,13 @@ where
         let net = self.net_writes()?;
         self.write.discard_lists();
         self.derive(&net)?;
+        // A write netting to nothing, no declaration among it, leaves the catalog as its replay does, which derives nothing: the
+        // initial catalog its undone changes executed under is taken back.
+        if self.gave_initial && !self.catalog_changed && net.is_empty() && self.records.is_empty() {
+            let version = self.catalog.version();
+            self.catalog = Catalog::new(self.tenant()).with_version(version);
+            self.gave_initial = false;
+        }
         self.net = net;
         Ok(())
     }
@@ -239,7 +251,7 @@ where
             request,
             terms,
             catalog: self.catalog,
-            catalog_changed: self.catalog_changed,
+            catalog_changed: self.catalog_changed || self.gave_initial,
             default_ids: self.defaults.values().copied().collect(),
             defaults: self.defaults.into_keys().collect(),
             pending: self.pending,
@@ -284,7 +296,7 @@ where
         &self.unique
     }
 
-    /// Records a catalog change under its key: a declaration's, or the tenant's initial catalog's.
+    /// Records a declaration's catalog change under its key.
     fn add_entry(&mut self, key: &[u8]) {
         self.catalog_changed = true;
         let _removed: Option<SystemId> = self.defaults.remove(key);

@@ -27,6 +27,7 @@ pub struct ClientConfig {
 impl ClientConfig {
     /// A client of `cluster`: release 0, protocols 1 to this crate's, a 10 s timeout, a commit tried at most 8
     /// times 50 ms apart, credit of 4 frames, re-authentication 60 s before the credential expires.
+    #[must_use]
     pub fn new(cluster: u64, name: impl Into<String>) -> Self {
         Self {
             cluster,
@@ -43,19 +44,23 @@ impl ClientConfig {
     }
 
     /// The client release the Hello names.
+    #[must_use]
     pub fn with_release(mut self, release: u32) -> Self {
         self.release = release;
         self
     }
 
     /// The protocol versions the client speaks, `min` to `max`.
+    #[must_use]
     pub fn with_protocols(mut self, min: u16, max: u16) -> Self {
         self.protocol_min = min;
         self.protocol_max = max;
         self
     }
 
-    /// How long the client waits for anything it expects before it gives the connection up.
+    /// How long the client waits for anything it expects before it gives the connection up. A read waits at least 30 s,
+    /// from the later of its last progress and its transaction's deadline, and not while its credit is spent.
+    #[must_use]
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
         self
@@ -63,6 +68,7 @@ impl ClientConfig {
 
     /// The most times a commit is sent, the first included, at least 1; a failed attempt to reconnect while it waits
     /// to be sent again counts as one.
+    #[must_use]
     pub fn with_commit_attempts(mut self, attempts: u32) -> Self {
         self.commit_attempts = attempts.max(1);
         self
@@ -70,12 +76,14 @@ impl ClientConfig {
 
     /// How long a commit waits before it is sent again after its session answered busy, and how long the shell waits
     /// between attempts to reconnect for a commit waiting to be sent again.
+    #[must_use]
     pub fn with_retry_delay(mut self, delay: Duration) -> Self {
         self.retry_delay = delay;
         self
     }
 
     /// The Result frames a stream is granted each time its credit runs out, at least 1.
+    #[must_use]
     pub fn with_credit(mut self, frames: u32) -> Self {
         self.credit = frames.max(1);
         self
@@ -83,52 +91,62 @@ impl ClientConfig {
 
     /// How long before its credential expires the client authenticates again; at most half the credential's
     /// remaining life, so a short-lived credential is renewed in time.
+    #[must_use]
     pub fn with_renewal_margin(mut self, margin: Duration) -> Self {
         self.renewal_margin = margin;
         self
     }
 
     /// The cluster the client connects to.
+    #[must_use]
     pub fn cluster(&self) -> u64 {
         self.cluster
     }
 
     /// The client name the Hello carries.
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
     /// The client release the Hello names.
+    #[must_use]
     pub fn release(&self) -> u32 {
         self.release
     }
 
     /// How long the client waits for anything it expects.
+    #[must_use]
     pub fn timeout(&self) -> Duration {
         self.timeout
     }
 
     /// The most times a commit is sent, the first included.
+    #[must_use]
     pub fn commit_attempts(&self) -> u32 {
         self.commit_attempts
     }
 
     /// How long a commit waits before it is sent again after a busy answer.
+    #[must_use]
     pub fn retry_delay(&self) -> Duration {
         self.retry_delay
     }
 
     /// The Result frames a stream is granted at a time.
+    #[must_use]
     pub fn credit(&self) -> u32 {
         self.credit
     }
 
     /// How long before its credential expires the client authenticates again.
+    #[must_use]
     pub fn renewal_margin(&self) -> Duration {
         self.renewal_margin
     }
 
     /// The Hello this client opens a connection with.
+    #[must_use]
     pub fn hello(&self) -> Hello {
         Hello::new(
             self.protocol_min,

@@ -193,9 +193,9 @@ fn test_encoding_appends_to_the_buffer() -> TestResult {
 
 #[test]
 fn test_empty_and_unknown_kinds_are_refused() -> TestResult {
-    assert_eq!(refusal(&[])?, malformed("a kind byte, 1 to 13", 0));
-    assert_eq!(refusal(&[0])?, malformed("a kind byte, 1 to 13", 0));
-    assert_eq!(refusal(&[14])?, malformed("a kind byte, 1 to 13", 0));
+    assert_eq!(refusal(&[])?, malformed("a kind byte, 1 to 15", 0));
+    assert_eq!(refusal(&[0])?, malformed("a kind byte, 1 to 15", 0));
+    assert_eq!(refusal(&[16])?, malformed("a kind byte, 1 to 15", 0));
     Ok(())
 }
 

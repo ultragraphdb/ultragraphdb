@@ -284,3 +284,134 @@ fn test_a_malformed_reply_of_the_right_command_closes_the_connection() -> TestRe
     );
     Ok(())
 }
+
+/// Before the handshake's end, the side that dialled takes a Welcome or an Error on stream 0, and nothing on another
+/// stream: anything else is refused by its command at step 3 (`PROTOCOL.md` §2.5), which no later check precedes.
+#[test]
+fn test_the_handshake_refuses_what_it_does_not_serve_by_its_command() -> TestResult {
+    use ultragraphdb_protocol_wire::{BodyBuilder as _, Welcome};
+    let welcome = Welcome::new(1, 0, "s")
+        .with_max_frame(1 << 20)
+        .with_max_streams(8)
+        .with_initial_credit(1);
+    let on_stream_one = welcome.frame(Header::new(CLUSTER, Command::Welcome).with_stream(1))?;
+    let register = raw(Command::Register, 0, &[])?;
+    let error_on_stream_one = raw(Command::Error, 1, &[])?;
+    for (frame, command) in [
+        (on_stream_one, Command::Welcome),
+        (register, Command::Register),
+        (error_on_stream_one, Command::Error),
+    ] {
+        let mut h = Harness::new(server());
+        h.connect()?;
+        let frame = crate::types::client_core::client_core_conformance_tests::numbered(&frame, 1);
+        assert_eq!(
+            h.deliver(&frame)?,
+            Err(ClientError::protocol(ProtocolError::command_not_served(
+                command.number()
+            ))),
+            "{command:?}"
+        );
+        assert!(!h.core.is_connected(), "{command:?}");
+    }
+    Ok(())
+}
+
+/// A frame on a stream at or above the next the client will open is refused whatever its command, before its chunks.
+#[test]
+fn test_a_stream_not_yet_opened_is_refused_before_its_chunks() -> TestResult {
+    let mut h = Harness::ready(server())?;
+    let frame = flipped(raw(Command::Error, 1, b"chunk")?);
+    let frame = h.numbered(&frame)?;
+    assert_eq!(
+        h.deliver(&frame)?,
+        Err(ClientError::protocol(ProtocolError::command_not_served(
+            Command::Error.number()
+        )))
+    );
+    Ok(())
+}
+
+/// An open transaction's stream, with no request waiting, takes an Error alone.
+#[test]
+fn test_an_idle_transactions_stream_takes_only_an_error() -> TestResult {
+    let mut h = Harness::ready(server())?;
+    let p = h.core.begin(0, false, h.now)?;
+    let tx = begun(h.settle(p)?)?;
+    let frame = raw(Command::Result, tx.stream(), &[])?;
+    let frame = h.numbered(&frame)?;
+    assert_eq!(
+        h.deliver(&frame)?,
+        Err(ClientError::protocol(ProtocolError::command_not_served(
+            Command::Result.number()
+        )))
+    );
+    assert!(!h.core.is_connected());
+    Ok(())
+}
+
+/// A late frame takes steps 4 to 15: whatever its command, it is dropped, unless it breaks a rule, which closes the
+/// connection.
+#[test]
+fn test_a_late_frame_is_checked_and_then_dropped_whatever_its_command() -> TestResult {
+    for command in [
+        Command::Result,
+        Command::Commit,
+        Command::Entries,
+        Command::Welcome,
+    ] {
+        let mut h = Harness::ready(server())?;
+        let p = h.core.register(h.now)?;
+        let _session = registered(h.settle(p)?)?;
+        // The Register took stream 1 and ended it.
+        let frame = raw(command, 1, &[])?;
+        let frame = h.numbered(&frame)?;
+        assert_eq!(h.deliver(&frame)?, Ok(()), "{command:?}");
+        assert!(h.core.is_ready(), "{command:?}");
+    }
+    let mut h = Harness::ready(server())?;
+    let p = h.core.register(h.now)?;
+    let _session = registered(h.settle(p)?)?;
+    let frame = flipped(raw(Command::Result, 1, b"chunk")?);
+    let frame = h.numbered(&frame)?;
+    let refused = h.deliver(&frame)?.err().context("refused")?;
+    assert!(chunk_refused(&refused), "{refused:?}");
+    assert!(!h.core.is_connected());
+    Ok(())
+}
+
+/// A frame behind a read's `LAST`, or behind a transaction's refusal, falls on a stream that has ended, so it is late.
+#[test]
+fn test_a_frame_behind_a_streams_end_is_late() -> TestResult {
+    let mut h = Harness::ready(server())?;
+    let p = h.core.begin(0, true, h.now)?;
+    let tx = begun(h.settle(p)?)?;
+    let read = crate::types::client_core::client_core_results_tests::read(&tx);
+    let stream = h.core.read(&tx, &read, h.now)?;
+    while h.step()? {}
+    let frame = raw(Command::Begin, stream.stream(), &[])?;
+    let frame = h.numbered(&frame)?;
+    assert_eq!(
+        h.deliver(&frame)?,
+        Ok(()),
+        "the read's LAST is in its inbox"
+    );
+    assert!(h.core.is_ready());
+    let mut other = Harness::ready(server())?;
+    let beginning = other.core.begin(0, false, other.now)?;
+    let writer = begun(other.settle(beginning)?)?;
+    let refusal = ErrorReply::new(ErrorCode::Refused, "no").frame(
+        Header::new(CLUSTER, Command::Error)
+            .with_stream(writer.stream())
+            .with_flags(FLAG_LAST),
+    )?;
+    let first = other.numbered(&refusal)?;
+    other.deliver(&first)??;
+    let second = other.numbered(&refusal)?;
+    assert_eq!(
+        other.deliver(&second)?,
+        Ok(()),
+        "the transaction's stream has ended"
+    );
+    Ok(())
+}

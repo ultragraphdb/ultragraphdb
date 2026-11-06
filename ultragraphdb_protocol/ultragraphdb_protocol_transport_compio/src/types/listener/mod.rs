@@ -34,11 +34,11 @@ impl Listener {
         bound.map_err(|e| TransportError::io(&e))
     }
 
-    /// The next connection, a carrier of the listener's kind.
+    /// The next connection, a carrier of the listener's kind, with TCP keepalive on (`PROTOCOL.md` §11.4).
     ///
     /// # Errors
     ///
-    /// [`TransportError::io`] when accepting fails.
+    /// [`TransportError::io`] when accepting fails or the socket refuses the option.
     pub async fn accept(&self) -> Result<Carrier, TransportError> {
         let accepted = match self {
             Self::Tcp(listener) => listener
@@ -50,7 +50,9 @@ impl Listener {
                 .await
                 .map(|(stream, _)| Carrier::Unix(stream)),
         };
-        accepted.map_err(|e| TransportError::io(&e))
+        let carrier = accepted.map_err(|e| TransportError::io(&e))?;
+        carrier.keep_alive()?;
+        Ok(carrier)
     }
 
     /// The address the listener holds: a TCP listener's with its port, the one the system chose for port 0.

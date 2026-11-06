@@ -108,3 +108,11 @@ path = "fuzz_targets/object_records.rs"
 test = false
 doc = false
 bench = false
+
+# Any bytes as a resume key: refused, or encoded again to the same bytes.
+[[bin]]
+name = "resume_key"
+path = "fuzz_targets/resume_key.rs"
+test = false
+doc = false
+bench = false

@@ -98,17 +98,23 @@ fn quad_code(error: &QuadError) -> (ErrorCode, u64) {
     (ErrorCode::Refused, 0)
 }
 
+/// Code 3 for a read below what the list answers; code 17 for a store that failed or a list that fails its decode, which reads
+/// as corruption and never as a refused request (`PROTOCOL.md` §13.13); otherwise code 7.
 fn posting_code(error: &PostingError) -> (ErrorCode, u64) {
-    if let PostingErrorEnum::Store(store) = &error.0 {
-        return store_code(store);
+    match &error.0 {
+        PostingErrorEnum::Store(store) => store_code(store),
+        PostingErrorEnum::TsTooOld | PostingErrorEnum::ReadBelowMinTs { .. } => {
+            (ErrorCode::TooOld, 0)
+        }
+        PostingErrorEnum::InvalidKey
+        | PostingErrorEnum::SchemaPosting { .. }
+        | PostingErrorEnum::UnexpectedMeta { .. }
+        | PostingErrorEnum::MissingPart { .. } => (ErrorCode::Unavailable, 0),
+        PostingErrorEnum::NotAList { .. }
+        | PostingErrorEnum::DeleteBelowMinTs { .. }
+        | PostingErrorEnum::HighPriorityOp
+        | PostingErrorEnum::StaleVersion { .. } => (ErrorCode::Refused, 0),
     }
-    if matches!(
-        &error.0,
-        PostingErrorEnum::TsTooOld | PostingErrorEnum::ReadBelowMinTs { .. }
-    ) {
-        return (ErrorCode::TooOld, 0);
-    }
-    (ErrorCode::Refused, 0)
 }
 
 /// Code 3 for a read below the discard version, code 17 for a store that failed under the request (`PROTOCOL.md` §§9.4, 13.13),
@@ -210,10 +216,19 @@ fn quad_key(error: &QuadError) -> Option<&[u8]> {
 }
 
 fn posting_key(error: &PostingError) -> Option<&[u8]> {
-    if let PostingErrorEnum::Store(store) = &error.0 {
-        return store_key(store);
+    match &error.0 {
+        PostingErrorEnum::Store(store) => store_key(store),
+        PostingErrorEnum::SchemaPosting { key }
+        | PostingErrorEnum::UnexpectedMeta { key, .. }
+        | PostingErrorEnum::MissingPart { key } => Some(key),
+        PostingErrorEnum::NotAList { .. }
+        | PostingErrorEnum::InvalidKey
+        | PostingErrorEnum::TsTooOld
+        | PostingErrorEnum::ReadBelowMinTs { .. }
+        | PostingErrorEnum::DeleteBelowMinTs { .. }
+        | PostingErrorEnum::HighPriorityOp
+        | PostingErrorEnum::StaleVersion { .. } => None,
     }
-    None
 }
 
 /// The key `error` names, when it names one.

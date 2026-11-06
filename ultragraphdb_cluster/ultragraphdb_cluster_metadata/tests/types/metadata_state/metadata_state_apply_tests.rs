@@ -75,7 +75,7 @@ fn test_versions_chain_from_1_per_tenant() -> TestResult {
         state.pending_versions(),
         vec![(tenant(1), 1), (tenant(1), 2), (tenant(2), 1)]
     );
-    assert_eq!(state.tenants(), vec![tenant(1), tenant(2)]);
+    assert!(state.tenants().is_empty(), "an offer creates no tenant");
     Ok(())
 }
 
@@ -1095,5 +1095,30 @@ fn test_a_removal_past_the_evictions_awaiting_a_close_is_refused() -> TestResult
         refused(&mut state, &removal("ann", &[1_000_000]))?,
         ClusterError::full("session evictions awaiting a close", 65_536).0
     );
+    Ok(())
+}
+
+#[test]
+fn test_a_tenant_is_created_once() -> TestResult {
+    let mut state = MetadataState::new();
+    state.apply(&MetadataCommand::CreateTenant { tenant: tenant(7) })?;
+    state.apply(&MetadataCommand::CreateTenant { tenant: tenant(8) })?;
+    assert_eq!(state.tenants(), vec![tenant(7), tenant(8)]);
+    assert!(state.holds_tenant(tenant(7)));
+    assert!(!state.holds_tenant(tenant(9)));
+    let again = state.apply(&MetadataCommand::CreateTenant { tenant: tenant(7) });
+    assert!(again.is_err(), "a tenant the group holds");
+    Ok(())
+}
+
+#[test]
+fn test_the_secret_is_drawn_once() -> TestResult {
+    let mut state = MetadataState::new();
+    assert_eq!(state.unknown_secret(), None);
+    state.apply(&MetadataCommand::DrawSecret { secret: [7; 32] })?;
+    assert_eq!(state.unknown_secret(), Some(&[7; 32]));
+    let again = state.apply(&MetadataCommand::DrawSecret { secret: [8; 32] });
+    assert!(again.is_err(), "a secret was drawn");
+    assert_eq!(state.unknown_secret(), Some(&[7; 32]));
     Ok(())
 }

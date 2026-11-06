@@ -5,15 +5,17 @@
 
 use std::collections::BTreeSet;
 
+use ultragraphdb_core_catalog::CatalogContents;
 use ultragraphdb_core_ids::{Epoch, SessionToken, Version};
 use ultragraphdb_core_mapping::Changes;
-use ultragraphdb_store_apply::Operation;
+use ultragraphdb_store_apply::{ChangesetError, DropRequest, Operation};
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_store_quads::is_skolem;
 use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_log::OrderedLog;
 use ultragraphdb_traits_store::{Executor, ListCache, Store};
-use ultragraphdb_transactions_txn::{Commit, Mode, TxnError};
+use ultragraphdb_transactions_commit::StoredReply;
+use ultragraphdb_transactions_txn::{Commit, Mode, Prepared, TxnError};
 
 use crate::errors::partition_error::PartitionError;
 use crate::types::answer::Answer;
@@ -203,6 +205,99 @@ where
             Commit::ReadOnly(buffers) => self.pipeline.buffers_mut().push(buffers),
         }
         Ok(ticket)
+    }
+
+    /// Commits the one-frame write held as `key`, as request `request` of `session`: as [`PartitionHost::commit_bound`], and its
+    /// resend reaches the session table as the first did (`PROTOCOL.md` §6.6).
+    ///
+    /// # Errors
+    ///
+    /// As [`PartitionHost::commit_bound`].
+    pub fn commit_one_frame(
+        &mut self,
+        key: BoundKey,
+        session: u128,
+        request: u64,
+        now_us: u64,
+    ) -> Result<u64, PartitionError> {
+        let bound = self
+            .bound
+            .remove(&key)
+            .ok_or_else(|| PartitionError::from(TxnError::ended()))?;
+        let _named = self.identities.remove(&bound.identity);
+        let ticket = self.ticket();
+        self.last_ticket = ticket;
+        match bound.txn.commit(session, request, &[], now_us)? {
+            Commit::ReadWrite(prepared) => {
+                self.pipeline
+                    .commit(ticket, prepared.with_one_frame(), now_us)?;
+            }
+            Commit::ReadOnly(buffers) => self.pipeline.buffers_mut().push(buffers),
+        }
+        Ok(ticket)
+    }
+
+    /// The session table's word on a one-frame write or a Drop of `session` numbered `request`: the stored reply of a resend, or
+    /// `None` for a request to run.
+    ///
+    /// # Errors
+    ///
+    /// Code 14 for a request in the commit step, code 13 below the session's last, code 5 for a full table.
+    pub fn resend_of(
+        &self,
+        session: u128,
+        request: u64,
+    ) -> Result<Option<StoredReply>, PartitionError> {
+        self.pipeline
+            .check_one_frame(session, request)
+            .map_err(PartitionError::from)
+    }
+
+    /// Commits the Drop `drop` of `tenant` by `principal` as request `request` of `session`: the ticket its outcome comes under.
+    ///
+    /// # Errors
+    ///
+    /// [`PartitionError::cross_partition`] for a Drop reaching another partition; the store's refusal of it; the pipeline's
+    /// error, which stops it.
+    pub fn commit_drop(
+        &mut self,
+        (tenant, principal): (u64, u64),
+        drop: DropRequest<'_>,
+        (session, request): (u128, u64),
+        now_us: u64,
+    ) -> Result<u64, PartitionError> {
+        let epoch = self.pipeline.delivered();
+        self.partition.check_drop(Some(tenant), epoch)?;
+        let buffers = self.pipeline.buffers_mut().pop().unwrap_or_default();
+        let prepared = Prepared::drop(
+            self.partition.applier(),
+            tenant,
+            drop,
+            session,
+            request,
+            principal,
+            buffers,
+        )?;
+        let ticket = self.ticket();
+        self.last_ticket = ticket;
+        self.pipeline.commit(ticket, prepared, now_us)?;
+        Ok(ticket)
+    }
+
+    /// Hands the catalog version `contents` to the commit step: the ticket its outcome comes under, and the declarations the data
+    /// refuses.
+    ///
+    /// # Errors
+    ///
+    /// The pipeline's refusal: a build running, which the version waits for, or a failure, which stops it.
+    pub fn install_catalog(
+        &mut self,
+        contents: &CatalogContents,
+        now_us: u64,
+    ) -> Result<(u64, Vec<ChangesetError>), PartitionError> {
+        let ticket = self.ticket();
+        let refusals = self.pipeline.install(ticket, contents, now_us)?;
+        Ok((ticket, refusals))
     }
 
     /// Aborts the transaction `key`, when it is open, and lets go of what it held: a dictionary entry it created is

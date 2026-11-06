@@ -217,6 +217,35 @@ fn state_equal_after_recovery(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
+#[when("the group holds tenant 0, a snapshot is taken, and the group is killed and restarted")]
+fn tenants_over_a_snapshot(w: &mut Steps) -> TestResult {
+    w.start()?;
+    let group = w.group()?;
+    let _created = group.create_tenant(Tenant::new(0))?;
+    let _drawn = group.draw_secret([9; 32])?;
+    sync(group)?;
+    let snapshot = group.snapshot();
+    let mut stored = Vec::new();
+    snapshot.encode(&mut stored);
+    block_on(group.trim(&snapshot))??;
+    w.snapshot = Some(MetadataSnapshot::decode(&stored)?);
+    w.remember()?;
+    w.restart()
+}
+
+#[then(
+    "the group holds tenant 0 at the same log position, from the snapshot and the commands after it"
+)]
+fn tenants_recovered(w: &mut Steps) -> TestResult {
+    let (state, position) = w.before.clone().context("the state before the kill")?;
+    let group = w.group()?;
+    assert_eq!(group.applied(), position);
+    assert_eq!(group.state(), &state);
+    assert_eq!(group.state().tenants(), vec![Tenant::new(0)]);
+    assert_eq!(group.state().unknown_secret(), Some(&[9; 32]));
+    Ok(())
+}
+
 #[when("a snapshot is taken at position 100 and 20 more commands are applied before a restart")]
 fn snapshot_at_100(w: &mut Steps) -> TestResult {
     w.start()?;

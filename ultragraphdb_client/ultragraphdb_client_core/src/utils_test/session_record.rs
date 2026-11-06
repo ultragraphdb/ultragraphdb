@@ -3,13 +3,15 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_ids::SessionToken;
 use ultragraphdb_protocol_wire::OperationResult;
 
-/// A session's entry in the test server's table: its last committed request and that reply's commit version and
-/// operation results, which a retry of the request is answered with.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// What the session table holds of a session: its last committed request, and that request's version, token and
+/// results, which a retry is answered from.
+#[derive(Debug, Clone, Default)]
 pub(crate) struct SessionRecord {
     pub last: u64,
     pub version: u64,
+    pub token: Option<SessionToken>,
     pub results: Vec<OperationResult>,
 }

@@ -6,12 +6,12 @@
 use std::collections::BTreeMap;
 use std::num::NonZeroUsize;
 
-use ultragraphdb_cluster_placement::{PartitionId, TenantRun};
-use ultragraphdb_core_ids::{Bucket, Epoch, SystemId, Tenant, Version};
+use ultragraphdb_cluster_placement::PartitionId;
+use ultragraphdb_core_ids::{Epoch, SystemId, Tenant, Version};
 use ultragraphdb_core_keys::{CountDirection, Graph, Keyspace, QuadKey};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_posting::CachedList;
-use ultragraphdb_store_quads::{KernelScan, QuadError};
+use ultragraphdb_store_quads::{KernelScan, QuadError, ReferrerMember};
 use ultragraphdb_traits_blocks::BlockSource;
 use ultragraphdb_traits_store::{Executor, ListCache, Store};
 
@@ -99,25 +99,14 @@ where
         query: &ReverseQuery,
     ) -> Result<Vec<&'p Partition<S, C, E, B>>, PartitionError> {
         let epoch = query.epoch();
-        let home = self.closed_partition(query.home(), epoch, query.object().bucket())?;
+        let home = self.closed_partition(query.home(), epoch, query.object().bucket().get())?;
         let set = home.applier().quads().referrers(
             query.tenant(),
             query.object(),
             read_version(home, epoch),
         )?;
-        let mut asked = Vec::new();
-        let mut holders = Vec::new();
-        for member in set.at(epoch) {
-            holders.clear();
-            home.placement()
-                .group_partitions(member.group(), epoch, &mut holders);
-            for holder in &holders {
-                asked.push((*holder, member.group().first_bucket()));
-            }
-        }
-        asked.sort();
-        asked.dedup_by_key(|(holder, _)| *holder);
-        asked
+        home.placement()
+            .holders_of_groups(set.at(epoch).map(ReferrerMember::group), epoch)
             .into_iter()
             .map(|(holder, bucket)| self.closed_partition(holder, epoch, bucket))
             .collect()
@@ -128,12 +117,12 @@ where
         &self,
         id: PartitionId,
         epoch: Epoch,
-        bucket: Bucket,
+        bucket: u32,
     ) -> Result<&'p Partition<S, C, E, B>, PartitionError> {
         let at = self.partitions.iter().position(|p| p.id() == id);
         let Some((at, partition)) = at.and_then(|at| Some((at, self.partitions.get(at).copied()?)))
         else {
-            return Err(PartitionError::wrong_partition(bucket.get(), id.get()));
+            return Err(PartitionError::wrong_partition(bucket, id.get()));
         };
         match self.closed.get(at) {
             Some(closed) if *closed < epoch => Err(PartitionError::timed_out(id.get())),
@@ -237,20 +226,11 @@ where
         tenant: u64,
         epoch: Epoch,
     ) -> Result<Vec<&'p Partition<S, C, E, B>>, PartitionError> {
-        let run = TenantRun::of(Tenant::new(tenant)).range();
         let Some(any) = self.partitions.first().copied() else {
             return Ok(Vec::new());
         };
-        let mut holders: Vec<(PartitionId, Bucket)> = Vec::new();
-        for (range, owner) in any.placement().ranges_at(epoch) {
-            if range.start() < run.end() && run.start() < range.end() {
-                let first = Bucket::new(range.start().max(run.start())).map_err(QuadError::from)?;
-                holders.push((owner, first));
-            }
-        }
-        holders.sort();
-        holders.dedup_by_key(|(owner, _)| *owner);
-        holders
+        any.placement()
+            .holders_of_run(Tenant::new(tenant), epoch)
             .into_iter()
             .map(|(owner, first)| self.closed_partition(owner, epoch, first))
             .collect()

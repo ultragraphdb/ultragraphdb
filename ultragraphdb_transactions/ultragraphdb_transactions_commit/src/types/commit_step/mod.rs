@@ -113,6 +113,8 @@ pub struct CommitStep<P> {
     asked_us: Option<u64>,
     /// The commits held for a close until their session token's epoch is open.
     held: VecDeque<CommitRequest<P>>,
+    /// Since when commits have been held with no close delivered, on the step's clock; `None` when none is held.
+    held_us: Option<u64>,
     /// Each tenant's catalog version in effect at the open epoch, by tenant.
     catalog: Vec<(u64, u64)>,
     /// The reason a close out of order stopped the step.
@@ -160,6 +162,7 @@ impl<P: Proposal> CommitStep<P> {
             close_request: CloseRequest::default(),
             asked_us: None,
             held: VecDeque::new(),
+            held_us: None,
             catalog: Vec::new(),
             fault: None,
             resolver: Resolver::new(previous),

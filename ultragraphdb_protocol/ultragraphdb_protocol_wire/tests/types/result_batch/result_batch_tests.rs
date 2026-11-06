@@ -195,3 +195,32 @@ fn test_a_querys_row_holds_any_term_in_its_last_column() -> TestResult {
     );
     Ok(())
 }
+
+#[test]
+fn test_a_frame_stays_within_what_the_size_with_a_row_says() -> TestResult {
+    use ultragraphdb_protocol_wire::{Command, Header};
+
+    let terms: Vec<ResultTerm> = (0..200)
+        .map(|at| ResultTerm::iri(format!("http://ex.org/term/{at}")))
+        .collect();
+    let mut batch = ResultBatch::new(2);
+    for term in &terms {
+        let row = [Some(term), None];
+        let promised = batch.frame_size_with(&row, 16);
+        batch.push_row(&row)?;
+        let held = batch
+            .clone()
+            .with_resume(vec![7; 16])
+            .frame(Header::new(1, Command::Result).with_stream(1))?;
+        assert!(held.len() <= promised, "{} above {promised}", held.len());
+    }
+    // A term the batch holds takes a cell and no more.
+    let first = terms.first().context("a term")?;
+    let again = [Some(first), None];
+    let more = batch.frame_size_with(&again, 0) - batch.frame_size_with(&[], 0);
+    assert!(
+        more <= 8 + 64,
+        "two cells, and a chunk's checksum at most: {more}"
+    );
+    Ok(())
+}

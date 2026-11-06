@@ -37,6 +37,35 @@ impl<L: OrderedLog> MetadataGroup<L> {
         Ok((predecessor + 1, position))
     }
 
+    /// Creates `tenant`; returns the position it was appended at, or `None` for a tenant the group holds, which changes nothing,
+    /// so a restart creates none.
+    ///
+    /// # Errors
+    ///
+    /// The refusals of [`MetadataState::apply`](crate::MetadataState::apply) for
+    /// [`MetadataCommand::CreateTenant`](crate::MetadataCommand::CreateTenant); [`ClusterError::log`].
+    pub fn create_tenant(&mut self, tenant: Tenant) -> Result<Option<Position>, ClusterError> {
+        if self.head.holds_tenant(tenant) {
+            return Ok(None);
+        }
+        self.append(MetadataCommand::CreateTenant { tenant })
+            .map(Some)
+    }
+
+    /// Holds `secret`, what an unknown name's verifier derives from; returns the position it was appended at, or `None` once a
+    /// secret was drawn, which is kept, so a restart answers one name with one salt.
+    ///
+    /// # Errors
+    ///
+    /// [`ClusterError::log`] when the log refuses the round.
+    pub fn draw_secret(&mut self, secret: [u8; 32]) -> Result<Option<Position>, ClusterError> {
+        if self.head.unknown_secret().is_some() {
+            return Ok(None);
+        }
+        self.append(MetadataCommand::DrawSecret { secret })
+            .map(Some)
+    }
+
     /// Records `entry`, the default entry a first write of an undeclared predicate asks for, keyed by its tenant and
     /// predicate; returns the position it was appended at, or `None` when a record of that key exists, which is kept
     /// and nothing is appended. It creates no catalog version, so it stales no prepared statement.

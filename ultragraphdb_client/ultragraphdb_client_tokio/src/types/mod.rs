@@ -5,4 +5,6 @@
 
 pub mod client;
 pub mod tcp_connector;
+pub mod tls_dial;
 pub mod tokio_sim_stream;
+pub mod tokio_tls_stream;

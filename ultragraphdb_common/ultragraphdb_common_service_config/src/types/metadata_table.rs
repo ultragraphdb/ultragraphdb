@@ -12,6 +12,7 @@ pub struct MetadataTable {
     block_size_max: Option<u64>,
     sessions_max: Option<u32>,
     snapshot_rounds: Option<u32>,
+    bootstrap_secret_file: Option<String>,
 }
 
 impl MetadataTable {
@@ -20,6 +21,7 @@ impl MetadataTable {
             block_size_max: reader.u64("metadata", "block_size_max")?,
             sessions_max: reader.u32("metadata", "sessions_max")?,
             snapshot_rounds: reader.u32("metadata", "snapshot_rounds")?,
+            bootstrap_secret_file: reader.string("metadata", "bootstrap_secret_file")?,
         })
     }
 
@@ -36,5 +38,10 @@ impl MetadataTable {
     /// `snapshot_rounds`: the rounds between two snapshots.
     pub fn snapshot_rounds(&self) -> Option<u32> {
         self.snapshot_rounds
+    }
+
+    /// `bootstrap_secret_file`: the file holding the bootstrap administrator's password, read at the cluster's first start.
+    pub fn bootstrap_secret_file(&self) -> Option<&str> {
+        self.bootstrap_secret_file.as_deref()
     }
 }

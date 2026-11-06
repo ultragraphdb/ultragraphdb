@@ -1,5 +1,36 @@
 ## MODIFIED Requirements
 
+### Requirement: Connections authenticate
+A server requiring authentication SHALL say so in its Welcome and list the SASL mechanisms it accepts. The client SHALL
+authenticate by an Authenticate exchange on stream 0 before its first request, and the server's final Authenticate
+SHALL name the principal the connection acts for and when its credential expires. A failed exchange SHALL be refused
+with code 19, saying nothing of what failed, which closes the connection. A request before the exchange completes SHALL be
+refused with code 20 on the request's stream, the connection staying open for authentication, and an exchange not complete
+within the authentication timeout with code 20 on stream 0, which closes the connection. Before its credential expires, a
+connection SHALL be able to authenticate again on stream 0 as the same principal while its other streams go on; a
+credential that expires first SHALL close the connection with code 22, aborting its open transactions and keeping its
+sessions. A server running without authentication SHALL say so in its Welcome, and its connections SHALL act for the
+anonymous principal without an exchange (`../../../specification/SECURITY.md`).
+
+#### Scenario: A client authenticates with SCRAM-SHA-256
+- **WHEN** a server requiring authentication lists `SCRAM-SHA-256` and a client completes the exchange with the
+  principal's password
+- **THEN** the server's final Authenticate names the principal, and the client's requests are served
+
+#### Scenario: A wrong password is refused without saying why
+- **WHEN** a client's SCRAM proof does not verify, once for a principal that exists and once for a name no principal
+  holds
+- **THEN** each is refused with code 19 on stream 0 and the connection closed, and the two Error frames are the same
+  bytes
+
+#### Scenario: A request before authentication is refused on its stream
+- **WHEN** a client sends Begin after Welcome and before the final Authenticate
+- **THEN** the server answers code 20 on the request's stream and the connection stays open
+
+#### Scenario: An unfinished authentication times out
+- **WHEN** a client sends Hello and then nothing for longer than the authentication timeout
+- **THEN** the server answers code 20 on stream 0 and closes the connection
+
 ### Requirement: Commands keep their numbers
 A command's number SHALL never be reused for another meaning; a retired command's number SHALL stay reserved; the range
 256–511 SHALL be reserved for stage 8's replica commands, and the range 512–767 SHALL hold the role commands, which
@@ -423,7 +454,8 @@ in-doubt commit by resending it with the same request number, which the partitio
 "Exactly-once commits through sessions"): the stored reply says it committed and code 18 that it did not; code 14 says it is
 undecided and code 17 that a partition could not be asked, so it stays in doubt and the client resends after a delay; codes 12
 and 13 leave it unknown for good, and after 13 the counter moves above `detail`. A resent one-frame write or Drop has no code 18:
-a Commit or Drop reply says it committed, codes 12, 13, 14 and 17 read as above, and any other refusal says it did not. A commit
+a Commit or Drop reply says it committed, codes 12, 13, 14 and 17 read as above, codes 21 and 23, which the frontend gives
+before any partition's table decides, leave it in doubt, and any other refusal says it did not. A commit
 through no session, a declaration's among them, SHALL have no resend: a lost reply or code 17 reports its outcome as unknown.
 
 #### Scenario: An unsent commit is lost, a sent one in doubt

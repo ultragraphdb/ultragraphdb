@@ -16,11 +16,11 @@ use ultragraphdb_cluster_placement::{NodeId, PlacementMap};
 use ultragraphdb_common_role::{
     Answer, ROLE_ITERATIONS, RoleCredentials, RoleSecret, Server, Session, listen, serve_connection,
 };
-use ultragraphdb_core_ids::Epoch;
+use ultragraphdb_core_ids::{Epoch, Tenant};
 use ultragraphdb_protocol_transport::{Endpoint, ReceivedFrame};
 use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, BucketRange, Command, EpochClose, ErrorCode, ErrorReply, FLAG_LAST,
-    Header, Join, JoinView, Lease, LeaseView, Placement, PreferredLeader,
+    Header, Join, JoinView, Lease, LeaseView, Placement, PreferredLeader, TenantRun,
 };
 use ultragraphdb_tests::{CLUSTER, SECRET, START_SECONDS};
 use ultragraphdb_tool_bdd::TestResult;
@@ -58,6 +58,7 @@ fn built<B: BodyBuilder>(body: &B, stream: u64, command: Command) -> Answer {
 fn placement() -> TestResult<Placement> {
     let map = PlacementMap::even(1, NodeId::new(1))?;
     let mut reply = Placement::reply(0, 0, 1, 0);
+    reply.push_run(TenantRun::new(0, Tenant::new(0).bucket_bits()));
     for (range, partition) in map.ranges_at(Epoch::ZERO) {
         reply.push_range(BucketRange::new(
             range.start(),

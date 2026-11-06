@@ -134,6 +134,17 @@ pub enum MetadataCommand {
         /// The XXH3-64 of the command's encoding.
         checksum: u64,
     },
+    /// The tenant `tenant` created: the group holds its catalog, its run and its grants from here on (`PROTOCOL.md` §11.13).
+    CreateTenant {
+        /// The tenant.
+        tenant: Tenant,
+    },
+    /// The secret an unknown name's verifier derives from, drawn once at the cluster's first start, so every core and restart
+    /// answers one name with one salt (`SECURITY.md`).
+    DrawSecret {
+        /// The secret.
+        secret: [u8; 32],
+    },
 }
 
 impl MetadataCommand {

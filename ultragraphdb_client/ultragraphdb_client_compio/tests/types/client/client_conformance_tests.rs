@@ -290,7 +290,7 @@ async fn golden_commit(
     }
     // Commit: through the session and request the golden Commit answers, its version and results read from it.
     let reply = decoded("commit", |f| CommitView::from_frame(f)?.to_body())?;
-    let resumed = client.resume_session(u128::from_be_bytes(reply.session()), reply.request());
+    let resumed = client.resume_session(u128::from_be_bytes(reply.session()), reply.request())?;
     let committed = client.commit(writer, resumed).await?;
     assert_eq!(
         (committed.version(), committed.request()),
@@ -313,7 +313,7 @@ async fn golden_refusals_and_drop(
         ErrorReplyView::from_frame(f)?.to_body()
     })?;
     let tx = client.begin(0, false).await?;
-    let session = client.resume_session(104, 1);
+    let session = client.resume_session(104, 1)?;
     let conflict = client.commit(tx, session).await.err().context("an error")?;
     assert!(
         matches!(
@@ -329,7 +329,7 @@ async fn golden_refusals_and_drop(
     );
     assert!(conflict.retryable(), "a conflict is retryable");
     let operation_tx = client.begin(0, false).await?;
-    let operation_session = client.resume_session(105, 1);
+    let operation_session = client.resume_session(105, 1)?;
     let failed = client
         .commit(operation_tx, operation_session)
         .await
@@ -600,7 +600,7 @@ async fn ask(
         }
         "drop_reply" => {
             server.borrow_mut().push(last);
-            let session = client.resume_session(u128::from(session), 1);
+            let session = client.resume_session(u128::from(session), 1)?;
             let command = DropCommand::graph(3, "http://ex.org/g");
             (ok(client.drop_command(command, session).await), None)
         }
@@ -635,7 +635,7 @@ async fn ask(
                 Ok(tx) => tx,
                 Err(error) => return Ok((Err(error), None)),
             };
-            let session = client.resume_session(u128::from(session), 1);
+            let session = client.resume_session(u128::from(session), 1)?;
             (ok(client.commit(tx, session).await), None)
         }
     })
@@ -717,19 +717,15 @@ fn test_every_damaged_golden_reply_through_the_shell_is_refused_with_the_connect
                 assert!(stream_id.is_none_or(|id| id == on), "the read's stream");
                 let bad = as_sent(&good, on, sequence, flip, cut);
                 let error = answer.err().context("a damaged frame read as a value")?;
-                let expected = match (damage(&bad)?, kind) {
-                    (Damage::Passes, _) => {
-                        passing += 1;
-                        continue;
-                    }
-                    (_, Kind::Retried) => ClientError::retries_exhausted(u128::from(session), 1, 1),
-                    (Damage::Framer(refusal), _) => lost(refusal),
-                    (Damage::Rule(rule), Kind::Plain) => {
-                        ClientError::connection_lost(Some(ClientError::protocol(rule)))
-                    }
-                    (Damage::Rule(rule), Kind::Batch) => ClientError::protocol(rule),
+                let Some(expected) = expected_refusal(damage(&bad)?, kind, session) else {
+                    passing += 1;
+                    continue;
                 };
-                assert_eq!(error, expected, "{name}: flip {flip:?}, cut {cut:?}");
+                assert_eq!(
+                    without_cause(error),
+                    expected,
+                    "{name}: flip {flip:?}, cut {cut:?}"
+                );
             }
         }
         client.close().await;
@@ -806,6 +802,30 @@ async fn cut_by_the_framer(
     Ok(())
 }
 
+/// What a reply so damaged answers its request of `kind`, through `session`; `None` for damage that passes.
+fn expected_refusal(found: Damage, kind: Kind, session: u64) -> Option<ClientError> {
+    Some(match (found, kind) {
+        (Damage::Passes, _) => return None,
+        (_, Kind::Retried) => ClientError::in_doubt(u128::from(session), 1, None),
+        (Damage::Framer(refusal), _) => lost(refusal),
+        (Damage::Rule(rule), Kind::Plain) => {
+            ClientError::connection_lost(Some(ClientError::protocol(rule)))
+        }
+        (Damage::Rule(rule), Kind::Batch) => ClientError::protocol(rule),
+    })
+}
+
+/// `error` as a commit's in doubt with nothing said of why: a damaged reply and a closed connection each leave one.
+fn without_cause(error: ClientError) -> ClientError {
+    if let ClientErrorEnum::InDoubt {
+        session, request, ..
+    } = error.0
+    {
+        return ClientError::in_doubt(session, request, None);
+    }
+    error
+}
+
 /// A read cut short by a rule of its own frame: byte 400 lies in the body, so the second batch passes the framer and
 /// breaks a rule, and the read fails with it.
 async fn cut_by_a_rule(
@@ -866,12 +886,12 @@ fn test_a_read_cut_short_through_the_shell_fails_as_lost_with_its_cause() -> Tes
         );
         cut_by_the_framer(&mut client, &script).await?;
         cut_by_a_rule(&mut client, &script).await?;
-        // A Register answered by the golden Describe reply with a body byte flipped, numbered 2 on stream 1.
+        // A Register answered by the golden Error with a body byte flipped, numbered 2 on stream 1.
         script
             .borrow_mut()
-            .push(Step::any().reply(golden("describe_reply")?).damaged(400));
-        let mut bad = numbered(&restream(&golden("describe_reply")?, 1), 2);
-        bad[400] ^= 1;
+            .push(Step::any().reply(golden("error")?).damaged(256));
+        let mut bad = numbered(&restream(&golden("error")?, 1), 2);
+        bad[256] ^= 1;
         let rule = damage(&bad)?.rule().context("a rule refuses the body")?;
         assert_eq!(
             client.register().await.err().context("an error")?,

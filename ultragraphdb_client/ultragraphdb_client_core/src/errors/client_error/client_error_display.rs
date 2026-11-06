@@ -24,11 +24,9 @@ impl fmt::Display for ClientError {
                 write!(f, "the server closed the connection ({code:?}): {message}")
             }
             ClientErrorEnum::TimedOut => write!(f, "no answer within the timeout"),
-            ClientErrorEnum::ConnectionLost { cause: None } => {
-                write!(f, "the request's connection was lost")
-            }
-            ClientErrorEnum::ConnectionLost { cause: Some(cause) } => {
-                write!(f, "the request's connection was lost: {cause}")
+            ClientErrorEnum::ConnectionLost { cause } => {
+                write!(f, "the request's connection was lost")?;
+                cause.iter().try_for_each(|cause| write!(f, ": {cause}"))
             }
             ClientErrorEnum::NotConnected => write!(f, "no connection is ready"),
             ClientErrorEnum::Request { error } => write!(f, "the request cannot be sent: {error}"),
@@ -40,20 +38,17 @@ impl fmt::Display for ClientError {
                 f,
                 "a reply names {field} {found} where {expected} was asked"
             ),
-            ClientErrorEnum::RetriesExhausted {
-                session,
-                request,
-                attempts,
-            } => write!(
-                f,
-                "commit {request} of session {session} unanswered after {attempts} attempts: in doubt"
-            ),
             ClientErrorEnum::OutcomeUnknown { session, request } => write!(
                 f,
-                "commit {request} of session {session}: the session was evicted, its outcome is unknown"
+                "commit {request} of session {session}: its outcome is unknown, and it is not retried"
             ),
-            ClientErrorEnum::InDoubt { session, request } => {
-                write!(f, "session {session} has commit {request} in doubt")
+            ClientErrorEnum::InDoubt {
+                session,
+                request,
+                cause,
+            } => {
+                write!(f, "session {session} has commit {request} in doubt")?;
+                cause.iter().try_for_each(|cause| write!(f, ": {cause}"))
             }
             ClientErrorEnum::NotInDoubt { session } => {
                 write!(f, "session {session} has no commit in doubt")

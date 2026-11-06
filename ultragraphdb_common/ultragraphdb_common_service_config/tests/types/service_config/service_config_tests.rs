@@ -24,6 +24,7 @@ tls_key_file = "/key"
 plaintext = false
 connections_max = 13
 held_bytes = 24
+refusal_interval_ms = 25
 [frontend]
 role_address = "tcp://f:4"
 data_dir = "/f"
@@ -71,6 +72,7 @@ fn test_every_setting_reaches_its_field() -> TestResult {
     assert_eq!(c.endpoint().plaintext(), Some(false));
     assert_eq!(c.endpoint().connections_max(), Some(13));
     assert_eq!(c.endpoint().held_bytes(), Some(24));
+    assert_eq!(c.endpoint().refusal_interval_ms(), Some(25));
     assert_eq!(c.frontend().role_address(), Some("tcp://f:4"));
     assert_eq!(c.frontend().data_dir(), Some("/f"));
     assert_eq!(c.metadata().block_size_max(), Some(14));

@@ -28,6 +28,7 @@ ultragraphdb_common_service_config = { workspace = true }
 ultragraphdb_error_role = { workspace = true }
 ultragraphdb_protocol_transport = { workspace = true }
 ultragraphdb_protocol_transport_compio = { workspace = true }
+ultragraphdb_transport_tls = { workspace = true }
 mimalloc = { workspace = true }
 ultragraphdb_common_service = { workspace = true }
 ultragraphdb_common_frontend = { workspace = true }

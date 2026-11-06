@@ -4,6 +4,7 @@
  */
 
 pub(crate) mod partition_core_frames;
+mod partition_core_one_frame;
 mod partition_core_reads;
 mod partition_core_remote;
 
@@ -23,11 +24,12 @@ use ultragraphdb_cluster_partition::{
 };
 use ultragraphdb_cluster_placement::PartitionId;
 use ultragraphdb_common_role::{Answer, RoleClient, RoleCluster};
+use ultragraphdb_core_catalog::CatalogContents;
 use ultragraphdb_core_ids::Epoch;
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_transport::{Address, ReceivedFrame};
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, Command, ErrorReply, FLAG_LAST, Header, Reference, TermTable,
+    BodyBuilder, Command, DropCommand, ErrorReply, FLAG_LAST, Header, Reference, TermTable,
 };
 use ultragraphdb_store_kv::{FjallStore, MokaListCache, ThreadExecutor};
 use ultragraphdb_store_posting::CachedList;
@@ -78,6 +80,27 @@ enum ParkedWork {
     Operation,
     /// A request that waited behind a read's references takes its turn from the start.
     Turn { pushes: Pushes, max_frame: u32 },
+    /// A one-frame write's references are answered, and it goes on from `at`.
+    OneFrame { at: OneFrameAt, pushes: Pushes },
+}
+
+/// Where a one-frame write goes on from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OneFrameAt {
+    /// Its changes, from the start.
+    Changes,
+    /// Its changes, their references answered.
+    ChangesHeard,
+    /// The operation of this index, those before it held.
+    Operation(usize),
+}
+
+/// What runs a one-frame write again on a conflict over what it tested.
+#[derive(Debug)]
+struct OneFrameRetry {
+    connection: u64,
+    frame: Vec<u8>,
+    attempts: u32,
 }
 
 /// A request waiting for its transaction's references' answers, its frame held, which a write's changes borrow.
@@ -105,6 +128,10 @@ struct Committing {
     session: u128,
     request: u64,
     pushes: Pushes,
+    /// A one-frame write's next run.
+    retry: Option<OneFrameRetry>,
+    /// A Drop's request, which its reply is built from.
+    dropped: Option<DropCommand>,
 }
 
 /// What the core's connections to others share: the address of each partition, and the connections it has open.
@@ -172,12 +199,16 @@ pub struct PartitionCore<'a> {
     asks: UnboundedSender<FrontendAsk>,
     peers: Peers,
     bound_tenant: BTreeMap<BoundKey, (u64, Pushes)>,
-    /// The streams a Bind of kind 2 opened, each waiting for its Drop.
-    drop_streams: BTreeSet<BoundKey>,
+    /// The streams a Bind of kind 2 opened, each waiting for its Drop, with the tenant and the principal it named.
+    drop_streams: BTreeMap<BoundKey, (u64, u64)>,
+    /// The tenants the placement map lists a run for, the only ones a Bind may name.
+    tenants: BTreeSet<u64>,
     parked: BTreeMap<BoundKey, Parked>,
     home_askings: BTreeMap<u64, HomeAsking>,
     next_asking: u64,
     committing: BTreeMap<u64, Committing>,
+    /// The catalog versions in the commit step, by ticket, each run again when a commit aborted it.
+    installing: BTreeMap<u64, CatalogContents>,
     /// The Scans it answers, and those with a frame to build, in turn.
     scans: ScanBoard<OpenScan<'a>>,
     scan_stall_ms: u64,
@@ -239,6 +270,7 @@ pub struct CoreParts<'a> {
     peers: Peers,
     scan_stall_ms: u64,
     retention: Retention,
+    tenants: BTreeSet<u64>,
 }
 
 impl<'a> CoreParts<'a> {
@@ -263,7 +295,15 @@ impl<'a> CoreParts<'a> {
             peers,
             scan_stall_ms: SCAN_STALL_MS_DEFAULT,
             retention,
+            tenants: BTreeSet::new(),
         }
+    }
+
+    /// The core taking Binds of `tenants`, those the placement map's runs list.
+    #[must_use]
+    pub fn with_tenants(mut self, tenants: impl IntoIterator<Item = u64>) -> Self {
+        self.tenants = tenants.into_iter().collect();
+        self
     }
 
     /// The core keeping a Scan with no frame able to leave for `ms` milliseconds.
@@ -289,11 +329,13 @@ impl<'a> PartitionCore<'a> {
             asks: parts.channels.asks,
             peers: parts.peers,
             bound_tenant: BTreeMap::new(),
-            drop_streams: BTreeSet::new(),
+            drop_streams: BTreeMap::new(),
+            tenants: parts.tenants,
             parked: BTreeMap::new(),
             home_askings: BTreeMap::new(),
             next_asking: 1,
             committing: BTreeMap::new(),
+            installing: BTreeMap::new(),
             scans: ScanBoard::default(),
             scan_stall_ms: parts.scan_stall_ms,
             retention: parts.retention,
@@ -415,15 +457,27 @@ impl<'a> PartitionCore<'a> {
         }
     }
 
-    /// Each commit's reply, durable now, to who asked.
+    /// Each commit's reply, durable now, to who asked. A one-frame write's conflict over what it tested runs it again instead.
     fn hand_out(&mut self) {
         let no_terms = TermTable::new();
         for outcome in self.host.take_outcomes() {
-            let Some(committing) = self.committing.remove(&outcome.ticket()) else {
+            if let Some(contents) = self.installing.remove(&outcome.ticket()) {
+                if outcome.outcome().is_err() {
+                    self.install(contents);
+                }
+                continue;
+            }
+            let Some(mut committing) = self.committing.remove(&outcome.ticket()) else {
                 continue;
             };
+            if let Err(refusal) = outcome.outcome()
+                && self.retry_one_frame(&mut committing, refusal)
+            {
+                continue;
+            }
+            let stream = committing.stream;
             let header = Header::new(self.cluster, Command::Commit)
-                .with_stream(committing.stream)
+                .with_stream(stream)
                 .with_flags(FLAG_LAST);
             let frame = match outcome.outcome() {
                 Ok(version) => {
@@ -431,24 +485,27 @@ impl<'a> PartitionCore<'a> {
                         outcome.reply().map_or((None, &[][..], &no_terms), |reply| {
                             (reply.token(), reply.results(), reply.terms())
                         });
-                    commit_body(
-                        (committing.session, committing.request),
-                        *version,
-                        token,
-                        results,
-                        terms,
-                    )
-                    .frame(header)
+                    match committing.dropped.take() {
+                        Some(body) => self.dropped_frame(stream, body, *version, token),
+                        None => commit_body(
+                            (committing.session, committing.request),
+                            *version,
+                            token,
+                            results,
+                            terms,
+                        )
+                        .frame(header),
+                    }
                 }
                 Err(refusal) => error_reply(refusal).frame(
                     Header::new(self.cluster, Command::Error)
-                        .with_stream(committing.stream)
+                        .with_stream(stream)
                         .with_flags(FLAG_LAST),
                 ),
             };
             match frame {
                 // A connection gone has no one to tell; what committed stays committed.
-                Ok(frame) => drop(committing.pushes.unbounded_send((committing.stream, frame))),
+                Ok(frame) => drop(committing.pushes.unbounded_send((stream, frame))),
                 Err(error) => tracing::error!(%error, "a commit's reply could not be framed"),
             }
         }

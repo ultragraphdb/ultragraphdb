@@ -20,11 +20,12 @@ use ultragraphdb_protocol_transport::{
 };
 use ultragraphdb_protocol_transport_compio::Connection;
 use ultragraphdb_protocol_wire::{
-    AuthenticateView, BodyView, Command, ErrorCode, ErrorReply, MAX_FRAME_SIZE, ROLE_MAX_STREAMS,
-    Welcome,
+    AuthenticateView, BodyView, Command, CreditView, ErrorCode, ErrorReply, MAX_FRAME_SIZE,
+    ROLE_MAX_STREAMS, Welcome,
 };
 
 use crate::traits::session::{Answer, Session};
+use crate::types::connection_bound::ConnectionBound;
 use crate::types::open_requests::OpenRequests;
 
 const PROTOCOL: u16 = 1;
@@ -48,6 +49,8 @@ pub struct Server {
     unknown: [u8; 32],
     iterations: u32,
     open: OpenRequests,
+    bound: Option<ConnectionBound>,
+    welcome: fn(Welcome) -> Welcome,
 }
 
 impl Server {
@@ -67,7 +70,38 @@ impl Server {
             unknown,
             iterations: DEFAULT_ITERATIONS,
             open: OpenRequests::default(),
+            bound: None,
+            welcome: |welcome| welcome,
         })
+    }
+
+    /// The server answering unknown names with verifiers derived from `secret`, the one the metadata group holds, so every
+    /// core and restart answers one name with one salt.
+    #[must_use]
+    pub fn with_unknown_secret(mut self, secret: [u8; 32]) -> Self {
+        self.unknown = secret;
+        self
+    }
+
+    /// The server holding at most what `bound` allows: a connection past it is refused in place of its Welcome.
+    #[must_use]
+    pub fn with_bound(mut self, bound: ConnectionBound) -> Self {
+        self.bound = Some(bound);
+        self
+    }
+
+    /// The bound of connections it holds, if it has one: what a transport layered beneath the protocol, TLS, counts its
+    /// handshakes against before a connection reaches [`serve_connection`].
+    #[must_use]
+    pub fn bound(&self) -> Option<&ConnectionBound> {
+        self.bound.as_ref()
+    }
+
+    /// The server's Welcome as `welcome` makes it of the default limits.
+    #[must_use]
+    pub fn with_welcome(mut self, welcome: fn(Welcome) -> Welcome) -> Self {
+        self.welcome = welcome;
+        self
     }
 
     /// The server answering unknown names with verifiers of `iterations`, the count its credentials hold.
@@ -98,7 +132,8 @@ impl Server {
             .with_iterations(self.iterations);
         // The default limits are a client's. A role connection carries what the frontend already bounded on its clients'
         // connections, so a role endpoint announces the protocol's largest frame and its most streams (`PROTOCOL.md` §11.12).
-        let limits = Welcome::new(PROTOCOL, RELEASE, self.name).with_mechanisms([MECHANISM]);
+        let limits =
+            (self.welcome)(Welcome::new(PROTOCOL, RELEASE, self.name)).with_mechanisms([MECHANISM]);
         let welcome = if self.endpoint == Endpoint::Client {
             limits
         } else {
@@ -128,9 +163,15 @@ where
     C: Credentials + Clone,
     H: Session,
 {
-    let Some(mut machine) = server.machine(credentials, now()) else {
+    let Some(machine) = server.machine(credentials, now()) else {
         tracing::warn!("no nonce could be drawn for a connection");
         return;
+    };
+    // Held until the connection ends, whichever way it goes on from here.
+    let held = server.bound.as_ref().map(ConnectionBound::enter);
+    let mut machine = match &held {
+        Some(entered) if !entered.within() => machine.past_connection_bound(entered.limit()),
+        Some(_) | None => machine,
     };
     let (reader, writer) = stream.split();
     let mut reader = Connection::new(reader, Framer::from_client(server.cluster, MAX_FRAME_SIZE));
@@ -270,6 +311,14 @@ where
     {
         session.authenticating(message.message()).await;
     }
+    let credit = received.view().ok().and_then(|view| {
+        (view.command() == Command::Credit)
+            .then(|| {
+                let frames = CreditView::from_frame(&view).ok()?.frames();
+                Some((view.header().stream(), frames))
+            })
+            .flatten()
+    });
     match machine.receive(&received, now())? {
         Inbound::Welcomed {
             protocol,
@@ -277,6 +326,15 @@ where
         } => {
             reader.framer_mut().set_protocol(protocol);
             session.welcomed(max_frame);
+        }
+        Inbound::Authenticated { principal } => session.authenticated(principal),
+        Inbound::Closing {
+            code: Some(ErrorCode::AuthenticationFailed),
+        } => session.authentication_refused(),
+        Inbound::Handled => {
+            if let Some((stream, frames)) = credit {
+                session.credited(stream, frames);
+            }
         }
         Inbound::Request { stream, .. } if open.is_stopping() => machine.refuse(
             stream,
@@ -291,10 +349,7 @@ where
             Answer::Refuse(refusal) => machine.refuse(stream, &refusal)?,
         },
         Inbound::Cancelled { stream, .. } => session.cancelled(stream),
-        Inbound::Handled
-        | Inbound::Authenticated { .. }
-        | Inbound::Refused { .. }
-        | Inbound::Closing { .. } => {}
+        Inbound::Refused { .. } | Inbound::Closing { .. } => {}
     }
     Ok(())
 }

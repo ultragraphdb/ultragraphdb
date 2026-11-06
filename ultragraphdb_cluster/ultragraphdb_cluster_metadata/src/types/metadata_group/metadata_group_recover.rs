@@ -140,7 +140,9 @@ impl<L: OrderedLog> MetadataGroup<L> {
             | MetadataCommand::RemovePrincipal { .. }
             | MetadataCommand::RegisterSession { .. }
             | MetadataCommand::LearnClose { .. }
-            | MetadataCommand::ReportUntrimmed { .. }) => {
+            | MetadataCommand::ReportUntrimmed { .. }
+            | MetadataCommand::CreateTenant { .. }
+            | MetadataCommand::DrawSecret { .. }) => {
                 // A run of chunks no commit followed is no command: it is discarded.
                 chunks.clear();
                 command

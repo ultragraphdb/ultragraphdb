@@ -9,7 +9,7 @@ mod metadata_state_catalog;
 mod metadata_state_catalog_source;
 mod metadata_state_credentials;
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use ultragraphdb_cluster_placement::{BucketRange, PartitionId, PlacementMap};
 use ultragraphdb_core_ids::{Epoch, Tenant};
@@ -21,6 +21,8 @@ use crate::types::principal::Principal;
 /// commands give equal states. [`MetadataState::apply`] is the step function; the queries read it. Control plane:
 /// every table is bounded, by the group's settings or by the limits below.
 ///
+/// - **Tenants.** Those created, each the unit of isolation, with no command removing one in this stage.
+/// - **The unknown-name secret.** Drawn once at the first start, what an unknown name's verifier derives from.
 /// - **Catalog versions.** Per tenant, the latest version's number and the versions retained, in order, each a
 ///   [`CatalogRecord`]; a version is pending until a learned close assigns it the epoch after that close. The versions
 ///   superseded before every partition's untrimmed log begins are released. Beside them, the default-entry records by
@@ -34,6 +36,8 @@ use crate::types::principal::Principal;
 ///   has carried yet.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MetadataState {
+    pub(crate) tenants: BTreeSet<Tenant>,
+    pub(crate) unknown_secret: Option<[u8; 32]>,
     pub(crate) catalogs: BTreeMap<Tenant, TenantCatalog>,
     pub(crate) defaults: BTreeMap<(Tenant, String), Vec<u8>>,
     pub(crate) high_water: BTreeMap<u16, u64>,
@@ -74,6 +78,9 @@ impl MetadataState {
     /// The most default-entry records held, 1,048,576.
     pub const DEFAULTS_MAX: usize = 1 << 20;
 
+    /// The most tenants held, 2^20, as many as a snapshot's catalogs.
+    pub const TENANTS_MAX: usize = 1 << 20;
+
     /// The most principals held, 65,536.
     pub const PRINCIPALS_MAX: usize = 1 << 16;
 
@@ -84,6 +91,8 @@ impl MetadataState {
     #[must_use]
     pub fn new() -> Self {
         Self {
+            tenants: BTreeSet::new(),
+            unknown_secret: None,
             catalogs: BTreeMap::new(),
             defaults: BTreeMap::new(),
             high_water: BTreeMap::new(),

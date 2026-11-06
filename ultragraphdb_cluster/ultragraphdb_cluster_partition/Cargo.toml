@@ -22,6 +22,7 @@ workspace = true
 oxrdf = { workspace = true }
 ultragraphdb_cluster_placement = { workspace = true }
 ultragraphdb_cluster_sequencer = { workspace = true }
+ultragraphdb_core_catalog = { workspace = true }
 ultragraphdb_core_ids = { workspace = true }
 ultragraphdb_core_keys = { workspace = true }
 ultragraphdb_core_mapping = { workspace = true }

@@ -417,7 +417,7 @@ fn resumed_ranges(w: &mut Steps) -> TestResult {
         let mut scan = Scan::new(ScanAt::Latest, 0, 0, PRINCIPAL, NO_TRANSACTION, 0, 0);
         scan.push_range(ScanRange::new(PARTITION, &first, &past).with_after(m));
         scan.push_range(ScanRange::new(PARTITION, &first, &past).with_after(n.as_bytes()));
-        let (answered, refused) = answer(&mut client, &scan, false).await?;
+        let (answered, refused) = answer(&mut client, &scan, true).await?;
         assert!(refused.is_none(), "{refused:?}");
         w.kernel.bytes = vec![a.to_vec(), m.to_vec(), z.to_vec()];
         w.kernel.batches = answered;

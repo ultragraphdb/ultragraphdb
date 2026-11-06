@@ -12,12 +12,10 @@ use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::task::LocalSet;
 
-use ultragraphdb_client_tokio::{
-    Anonymous, Client, ClientError, ClientErrorEnum, Connect, TokioSimStream,
-};
+use ultragraphdb_client_tokio::{Anonymous, Client, ClientError, Connect, TokioSimStream};
 use ultragraphdb_protocol_transport::{NetworkFaults, SimNetwork, TransportError};
 
-use crate::utils::serve::{SimConnect, config, serve_sim, server};
+use crate::utils::serve::{SimConnect, config, in_doubt, serve_sim, server};
 use ultragraphdb_tool_bdd::{Context as _, TestError, TestResult};
 
 fn runtime() -> TestResult<tokio::runtime::Runtime> {
@@ -295,14 +293,7 @@ fn test_refused_reconnects_are_bounded_by_the_commit_attempts() -> TestResult {
         let tx = client.begin(0, false).await?;
         scripted.borrow_mut().drop_after_next_commit();
         let exhausted = client.commit(tx, session).await.err().context("an error")?;
-        assert_eq!(
-            exhausted.0,
-            ClientErrorEnum::RetriesExhausted {
-                session: session.number(),
-                request: 1,
-                attempts: 4
-            }
-        );
+        assert_eq!(in_doubt(&exhausted), Some((session.number(), 1)));
         // The first connection, then three refused: the send lost with its connection and three failed attempts.
         assert_eq!(made.get(), 4);
         assert_eq!(scripted.borrow().applied(), 1, "the first send was applied");

@@ -16,13 +16,15 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use compio::io::{AsyncRead, AsyncWrite};
 use ultragraphdb_client_compio::Connect;
-use ultragraphdb_client_core::{ClientConfig, TestServer};
+use ultragraphdb_client_core::{ClientConfig, ClientError, ClientErrorEnum, TestServer};
 use ultragraphdb_protocol_transport::{BufferPool, Framer, SimNetwork, SimStream};
 use ultragraphdb_protocol_transport_compio::{CompioSimStream, Connection};
 use ultragraphdb_protocol_wire::{MAX_FRAME_SIZE, Welcome};
 
+/// The cluster the client and the test server name.
 pub const CLUSTER: u64 = 0x0123_4567_89AB_CDEF;
 
+/// The client's configuration in the tests: a 2 s timeout, a commit retried 5 ms apart, a credit of 2 frames.
 pub fn config() -> ClientConfig {
     ClientConfig::new(CLUSTER, "ultragraph-test")
         .with_timeout(Duration::from_secs(2))
@@ -30,6 +32,7 @@ pub fn config() -> ClientConfig {
         .with_credit(2)
 }
 
+/// The Welcome of the tests' server: frames up to 1 MiB, 64 streams, an initial credit of 1 frame.
 pub fn welcome() -> Welcome {
     Welcome::new(1, 0, "test")
         .with_max_frame(1 << 20)
@@ -37,6 +40,7 @@ pub fn welcome() -> Welcome {
         .with_initial_credit(1)
 }
 
+/// The test server of [`welcome`], shared with the task serving it.
 pub fn server() -> Rc<RefCell<TestServer>> {
     Rc::new(RefCell::new(TestServer::new(CLUSTER, welcome())))
 }
@@ -94,11 +98,14 @@ async fn yield_now() {
 /// Connections over the simulated network: each connect makes one and leaves its server end to be accepted.
 #[derive(Debug, Clone)]
 pub struct SimConnect {
+    /// The network the connections are made on.
     pub network: SimNetwork,
+    /// The server ends of the connections made, waiting to be served.
     pub accepted: Rc<RefCell<VecDeque<SimStream>>>,
 }
 
 impl SimConnect {
+    /// Connections over `network`.
     pub fn new(network: SimNetwork) -> Self {
         Self {
             network,
@@ -129,4 +136,15 @@ pub async fn serve_sim(
             None => yield_now().await,
         }
     }
+}
+
+/// The session and request of an error saying a commit is in doubt.
+pub fn in_doubt(error: &ClientError) -> Option<(u128, u64)> {
+    if let ClientErrorEnum::InDoubt {
+        session, request, ..
+    } = &error.0
+    {
+        return Some((*session, *request));
+    }
+    None
 }

@@ -1539,8 +1539,8 @@ ComputeRead's stream starts with its `credit` in place of the Welcome's (section
   session by the in-doubt resend above. The stored reply says it committed and code 18 that it did not. Code 14 says it
   is undecided, and code 17 that a partition could not be asked: it stays in doubt and the client resends after a delay.
   Codes 12 and 13 leave it unknown for good; after 13 the counter moves above `detail`. A resent one-frame write or Drop
-  has no code 18: a Commit or Drop reply says it committed, codes 12, 13, 14 and 17 read as above, and any other refusal
-  says it did not.
+  has no code 18: a Commit or Drop reply says it committed, codes 12, 13, 14 and 17 read as above, codes 21 and 23, which
+  the frontend gives before any partition's table decides, leave it in doubt, and any other refusal says it did not.
 
 ### 11.6 Commit-time operations
 
@@ -1606,8 +1606,9 @@ Compute checks, in order: the checksum; the body layout (section 4.1); section 0
 `"resume row"`); the term table (section 4.4); each index below the table's length, `ABSENT` only for the graph and the
 reifier (`IndexOutOfRange`); the pattern hash; the `scope`. It resolves the last row's terms to the store's keys again and
 continues after that row in every partition the read reaches. In the resumed object's record compute drops the statements
-at or below the last row's statement ID, and the whole object when the last row has no reifier; in a statement's record it
-drops the properties up to and including the last row's.
+at or below the last row's statement ID, and the whole object when the last row has no reifier. A statement's record gives its
+properties in the order of predicate ID, then value encoding, and compute drops those up to and including the last row's in that
+order, so a property removed since is passed all the same.
 
 ### 11.9 Limits
 
@@ -1774,7 +1775,8 @@ role secret opens no client session: it is refused there as a wrong password is.
 A role endpoint's Welcome announces `max_frame` 1,048,576 and `max_streams` 4,294,967,295, and a role's Hello `max_frame`
 1,048,576: what a role connection carries is already bounded by the frontend's bounds on its clients' connections, streams and
 frames, a relayed frame takes any size a client's may, and a role's stream refusal would reach a client as a limit it did not
-pass.
+pass. A partition's Welcome announces `initial_credit` 1: a reader asks for each Scan frame as it wants it, so an open Scan holds one
+frame at the reader.
 
 A role connection has no idle limit (section 11.9): the side that dialled sends nothing between requests while it reads a
 Subscribe's closes.
@@ -1939,7 +1941,7 @@ the term's first. It chooses the partitions a read asks by its bound positions:
 |---|---|
 | A bound subject that is a reifier's skolem IRI | the partition its bucket names, for the statement's record in the statements keyspace, one row per property matching the pattern, with `ABSENT` in the reifier column |
 | A bound subject | the subject's partition alone |
-| An unbound subject and a bound IRI or blank-node object, a reverse read | first the object's home, for its referrer set at the read's epoch `e`, once the home has closed `e`; then the partitions the set's bucket groups resolve to through the placement map in effect at `e`, for their reverse or object-predicates entries of the object at `e`, batched per address, each once it has closed `e`. A partition the set does not name is not asked. A reverse list's records hold their statement IDs as a forward list's do, so this read takes no further Scan for them |
+| An unbound subject and a bound IRI or blank-node object, a reverse read | first the object's home, for its referrer set at the read's epoch `e`, once the home has closed `e`, or, at a named version of epoch `e`, its set at the home's latest applied version (`at` 2, waiting for nothing), since a set only grows and an edge at that version may have its member above it in the home's own order; then the partitions the set's bucket groups resolve to through the placement map in effect at `e`, for their reverse or object-predicates entries of the object at `e`, batched per address, each once it has closed `e`. A partition the set does not name is not asked. A reverse list's records hold their statement IDs as a forward list's do, so this read takes no further Scan for them |
 | An unbound subject and a bound vector object | every partition holding a bucket of the tenant's run, for the forward lists of the predicate, or of every predicate when it is unbound, compute keeping the objects equal to the vector's encoding, since no reverse key names a vector |
 | Any other, a bound literal object among them | every partition holding a bucket of the tenant's run, batched per address |
 
@@ -1948,7 +1950,9 @@ reaching the same partitions, a reverse count being the sum of the partitions' c
 stage.
 
 It merges the partitions' entries in key order, through a merge scan when the frontier is large, into Result batches
-that name every term by its text, with resume keys of its own (section 11.8). Compute sends a read's list Scans only once each
+that name every term by its text, with resume keys of its own (section 11.8). It grants a Scan credit as the merge drains that
+partition, so a list Scan that gave keys and then stalled (section 13.13) waited its turn: compute goes on with a new Scan at the
+same version from where it stopped, and only a Scan that stalled before giving a key refuses the read with code 24. Compute sends a read's list Scans only once each
 partition it asks has closed the read's epoch, which a dictionary Scan at that epoch shows; a read with no term to resolve
 there asks any one-key dictionary range for it. So a list Scan never parks on another partition's close. Before a monotonic-fast read reaching
 several partitions, it asks them their latest closed epochs with Closed (section 13.17). A read-write transaction's
@@ -1971,7 +1975,9 @@ The frontend passes every other code a role answers to the client unchanged, on 
 closes under a request, whether the peer went or a frame was refused, the side that dialled answers each read and request it
 carried with code 17, except a read none of whose frames reached the client, which the frontend sends to the next compute
 process (*Reads*), and compute sends no Scan again for such a read: the read ended in a refusal, and what it sent before is
-no answer (section 11.11).
+no answer (section 11.11). A partition that leaves a request of compute's unanswered past the time the request waits on an epoch
+(`deadline_ms`) and twice `scan_stall_ms` beyond is hung, since it refuses any Scan it holds that long: compute closes the
+connection, which ends what it carried so, and dials again for the next read.
 
 ### 11.13 Declarations, drops and the catalog
 

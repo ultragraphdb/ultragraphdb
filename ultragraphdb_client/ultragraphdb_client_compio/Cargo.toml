@@ -22,6 +22,7 @@ workspace = true
 ultragraphdb_client_core = { workspace = true }
 ultragraphdb_protocol_transport = { workspace = true }
 ultragraphdb_protocol_wire = { workspace = true }
+ultragraphdb_transport_tls = { workspace = true }
 ultragraphdb_protocol_transport_compio = { workspace = true }
 compio = { workspace = true }
 
@@ -30,8 +31,16 @@ ultragraphdb_client_core = { workspace = true, features = ["test-utils"] }
 ultragraphdb_error_protocol = { workspace = true }
 ultragraphdb_protocol_scram = { workspace = true }
 ultragraphdb_tool_bdd = { workspace = true }
+ultragraphdb_transport_tls = { workspace = true, features = ["test-utils"] }
+cucumber = { workspace = true }
+futures = { workspace = true }
 xxhash-rust = { workspace = true }
 
 [[test]]
 name = "unit"
 path = "tests/mod.rs"
+
+[[test]]
+name = "bdd"
+path = "tests/bdd.rs"
+harness = false

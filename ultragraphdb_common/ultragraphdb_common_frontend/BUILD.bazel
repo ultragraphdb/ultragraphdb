@@ -12,6 +12,7 @@ rust_library(
     name = "ultragraphdb_common_frontend",
     srcs = glob(["src/**/*.rs"]),
     aliases = aliases(),
+    crate_features = ["test-utils"],
     crate_root = "src/lib.rs",
     lint_config = lint_config(),
     tags = ["ultragraphdb_common_frontend"],
@@ -44,7 +45,12 @@ rust_test(
 # cucumber runs its own main: the libtest harness is off, and the feature files are runfiles.
 rust_test(
     name = "bdd",
-    srcs = ["tests/bdd.rs"],
+    srcs = [
+        "tests/bdd.rs",
+        "tests/endpoint_stage.rs",
+        "tests/endpoint_steps.rs",
+        "tests/endpoint_steps_requests.rs",
+    ],
     crate_root = "tests/bdd.rs",
     data = glob(["features/**/*.feature"]),
     tags = ["bdd-test"],

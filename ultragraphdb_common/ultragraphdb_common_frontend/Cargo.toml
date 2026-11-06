@@ -19,9 +19,21 @@ autotests = false
 [lints]
 workspace = true
 
+[features]
+default = []
+test-utils = []
+
 [dependencies]
 compio = { workspace = true }
 futures = { workspace = true }
+getrandom = { workspace = true }
+oxilangtag = { workspace = true }
+oxrdf = { workspace = true }
+oxsdatatypes = { workspace = true }
+ultragraphdb_core_catalog = { workspace = true }
+ultragraphdb_core_mapping = { workspace = true }
+ultragraphdb_core_terms = { workspace = true }
+ultragraphdb_traits_catalog = { workspace = true }
 ultragraphdb_cluster_metadata = { workspace = true }
 ultragraphdb_cluster_placement = { workspace = true }
 ultragraphdb_cluster_sequencer = { workspace = true }
@@ -37,11 +49,14 @@ ultragraphdb_error_role = { workspace = true }
 ultragraphdb_protocol_scram = { workspace = true }
 ultragraphdb_common_role = { workspace = true }
 ultragraphdb_protocol_transport = { workspace = true }
+ultragraphdb_protocol_transport_compio = { workspace = true }
 ultragraphdb_protocol_wire = { workspace = true }
 
 [dev-dependencies]
 cucumber = { workspace = true }
+ultragraphdb_common_frontend = { path = ".", features = ["test-utils"] }
 ultragraphdb_tool_bdd = { workspace = true }
+ultragraphdb_transport_tls = { workspace = true, features = ["test-utils"] }
 
 [[test]]
 name = "unit"

@@ -449,3 +449,105 @@ fn test_a_refused_write_is_the_answer_of_the_next_request() -> TestResult {
     assert!(h.core.is_ready());
     Ok(())
 }
+
+/// A read at the server's mercy times out from the later of its progress and its deadline, by at least 30 s whatever the
+/// client's timeout; a request's reply keeps the client's timeout.
+#[test]
+fn test_a_reads_timeout_runs_from_its_deadline_by_at_least_thirty_seconds() -> TestResult {
+    use std::time::Instant;
+    let floor = Duration::from_secs(30);
+    let mut h = Harness::ready(server())?;
+    h.blackhole = false;
+    let p = h.core.begin_with(
+        ultragraphdb_protocol_wire::Begin::new(0, 0, true).with_deadline_ms(40_000),
+        None,
+        h.now,
+    )?;
+    let tx = begun(h.settle(p)?)?;
+    let begun_at: Instant = h.now;
+    h.blackhole = true;
+    let read = crate::types::client_core::client_core_results_tests::read(&tx);
+    let stream = h.core.read(&tx, &read, h.now)?;
+    while h.step()? {}
+    assert_eq!(
+        h.core.next_deadline(),
+        Some(begun_at + Duration::from_secs(40) + floor),
+        "the deadline, then the floor"
+    );
+    h.now = begun_at + Duration::from_secs(69);
+    h.core.handle_timeout(h.now);
+    assert!(h.core.is_ready());
+    h.now = begun_at + Duration::from_secs(70);
+    h.core.handle_timeout(h.now);
+    assert!(!h.core.is_connected());
+    assert_eq!(
+        h.core.next_batch(&stream, h.now, |_| ()).err(),
+        Some(ClientError::timed_out())
+    );
+    Ok(())
+}
+
+/// A deadline of 0 is the Welcome's `transaction_ms`, and a client's timeout above the floor is the client's.
+#[test]
+fn test_a_deadline_of_none_is_the_welcomes_and_a_longer_timeout_is_kept() -> TestResult {
+    let transaction = Duration::from_millis(welcome().transaction_ms().into());
+    let timeout = Duration::from_secs(50);
+    let mut h = Harness::with(
+        config().with_timeout(timeout),
+        server(),
+        NetworkFaults::none(),
+        1,
+        Anonymous,
+    );
+    h.connect()?;
+    h.until(|h| h.core.is_ready())?;
+    let p = h.core.begin(0, true, h.now)?;
+    let tx = begun(h.settle(p)?)?;
+    let at = h.now;
+    h.blackhole = true;
+    let read = crate::types::client_core::client_core_results_tests::read(&tx);
+    let _stream = h.core.read(&tx, &read, h.now)?;
+    while h.step()? {}
+    assert_eq!(h.core.next_deadline(), Some(at + transaction + timeout));
+    Ok(())
+}
+
+/// A read's progress moves its timeout: a frame arriving restarts it, past the deadline.
+#[test]
+fn test_a_reads_progress_moves_its_timeout() -> TestResult {
+    let mut h = Harness::ready(server().with_results(9))?;
+    let p = h.core.begin_with(
+        ultragraphdb_protocol_wire::Begin::new(0, 0, true).with_deadline_ms(10),
+        None,
+        h.now,
+    )?;
+    let tx = begun(h.settle(p)?)?;
+    let read = crate::types::client_core::client_core_results_tests::read(&tx);
+    let stream = h.core.read(&tx, &read, h.now)?;
+    h.now += Duration::from_secs(25);
+    while h.step()? {}
+    // The Welcome's four frames arrived; one read leaves three, and credit is spent, so nothing runs.
+    assert!(h.core.next_batch(&stream, h.now, |_| ()).is_ok());
+    assert_eq!(h.core.next_deadline(), None);
+    Ok(())
+}
+
+/// A timeout past what an `Instant` holds never fires, nor does a credential's expiry past it fall due: neither panics.
+#[test]
+fn test_a_timeout_or_an_expiry_past_an_instant_sets_no_deadline() -> TestResult {
+    let mut h = Harness::with(
+        config().with_timeout(Duration::MAX),
+        server(),
+        NetworkFaults::none(),
+        1,
+        Anonymous,
+    );
+    h.connect()?;
+    assert_eq!(h.core.next_deadline(), None);
+    h.until(|h| h.core.is_ready())?;
+    let p = h.core.register(h.now)?;
+    assert_eq!(h.core.next_deadline(), None);
+    h.core.handle_timeout(h.now + Duration::from_secs(3600));
+    assert!(h.core.take_reply(p).is_none());
+    Ok(())
+}

@@ -41,6 +41,7 @@ async fn read_frame<S: AsyncRead + Unpin>(
 ) -> Result<ReceivedFrame, TransportError> {
     let mut buffer = pool.acquire()?;
     framer.reset();
+    // Ends: the framer asks for the header and then the frame's size, and a read of no bytes ends the frame.
     loop {
         let mut bytes = buffer.take();
         while bytes.len() < framer.want() {
@@ -77,6 +78,11 @@ async fn read_frame<S: AsyncRead + Unpin>(
 /// frames as the transport's framer asks into a pool of frame buffers reused across connections, and gives the core
 /// the time and its timeouts. It authenticates through its [`Login`]; a framer is made afresh for each connection,
 /// whose frames are numbered from 1. Every operation of the protocol is the core's.
+///
+/// A caller dropping one of this client's futures at an `.await` leaves the core whole: its requests stay as they
+/// stand and answer on the next call, a commit's among them. A read of the connection cut inside a frame leaves the
+/// stream between frames no more, and the next read refuses what it finds, which gives the connection up and retries
+/// a commit waiting on the next, as the protocol's own loss does.
 #[derive(Debug)]
 pub struct Client<C: Connect, L: Login> {
     connector: C,
@@ -90,6 +96,7 @@ pub struct Client<C: Connect, L: Login> {
 impl<C: Connect, L: Login> Client<C, L> {
     /// A client configured by `config`, authenticating through `login`, connecting through `connector` when first
     /// asked; its pool holds `buffers` frame buffers of 1 MiB, the most frames it holds at once.
+    #[must_use]
     pub fn new(connector: C, config: ClientConfig, login: L, buffers: usize) -> Self {
         let framer = Framer::new(config.cluster(), MAX_FRAME_SIZE);
         Self {
@@ -103,6 +110,7 @@ impl<C: Connect, L: Login> Client<C, L> {
     }
 
     /// The core, for what the shell does not wrap.
+    #[must_use]
     pub fn core(&self) -> &ClientCore<L> {
         &self.core
     }
@@ -178,6 +186,8 @@ impl<C: Connect, L: Login> Client<C, L> {
         &mut self,
         mut done: impl FnMut(&mut ClientCore<L>) -> bool,
     ) -> Result<(), ClientError> {
+        // Event loop: it ends when `done` holds or the core has nothing left to wait for, each turn a write, a read or a
+        // timeout, every wait bounded by the core's next deadline and every reconnect by a commit's attempts.
         loop {
             if done(&mut self.core) {
                 self.flush().await;
@@ -192,7 +202,7 @@ impl<C: Connect, L: Login> Client<C, L> {
                 if let Err(error) = self.open().await {
                     // The failed attempt counts against the waiting commits' attempts; the next waits the retry delay
                     // on the runtime's timer, so the loop yields and an outer timeout can cancel it.
-                    self.core.connect_failed();
+                    self.core.connect_failed(&error);
                     self.failure = Some(error);
                     if self.core.needs_connection() {
                         tokio::time::sleep(self.core.config().retry_delay()).await;

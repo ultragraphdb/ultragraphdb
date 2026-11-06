@@ -3,6 +3,9 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use crate::types::refused_request::RefusedRequest;
+use crate::types::runs_again::RunsAgain;
+
 /// Why a request was refused, the Error frame's `code`. A code's number is never reused for another meaning.
 ///
 /// | Number | Code | Retryable | `detail` |
@@ -154,9 +157,10 @@ impl ErrorCode {
             .copied()
     }
 
-    /// Whether a client retries the request: conflict, too old, past the limit and busy; a busy session after a delay;
-    /// a request not committed by running its transaction again; a read timed out; a wrong partition after the
-    /// placement map is refreshed.
+    /// Whether a client retries the request whatever kind it is: conflict, too old, past the limit and busy; a busy
+    /// session after a delay; a request not committed by running its transaction again; a read timed out; a wrong
+    /// partition after the placement map is refreshed. Code 17 depends on its request, so what runs again is
+    /// [`ErrorCode::runs_again`]'s to say.
     pub fn retryable(self) -> bool {
         matches!(
             self,
@@ -169,5 +173,50 @@ impl ErrorCode {
                 | ErrorCode::TimedOut
                 | ErrorCode::WrongPartition
         )
+    }
+
+    /// What runs again when `request`, the kind of request this code refused, is retried (`PROTOCOL.md` §9.4): `None`
+    /// for a refusal running it again cannot mend.
+    pub fn runs_again(self, request: RefusedRequest) -> Option<RunsAgain> {
+        match self {
+            ErrorCode::Conflict
+            | ErrorCode::TooOld
+            | ErrorCode::PastLimit
+            | ErrorCode::NotCommitted
+            | ErrorCode::WrongPartition => Some(RunsAgain::Transaction),
+            ErrorCode::Busy => Some(match request {
+                RefusedRequest::OneFrame => RunsAgain::Request,
+                RefusedRequest::Read | RefusedRequest::Commit | RefusedRequest::Other => {
+                    RunsAgain::Transaction
+                }
+            }),
+            ErrorCode::SessionBusy => Some(RunsAgain::Request),
+            ErrorCode::TimedOut => Some(RunsAgain::Read),
+            ErrorCode::Unavailable => match request {
+                RefusedRequest::Read => Some(RunsAgain::Read),
+                RefusedRequest::Commit | RefusedRequest::OneFrame => Some(RunsAgain::InDoubt),
+                RefusedRequest::Other => None,
+            },
+            ErrorCode::Protocol
+            | ErrorCode::Refused
+            | ErrorCode::OperationFailed
+            | ErrorCode::StaleStatement
+            | ErrorCode::UnknownStatement
+            | ErrorCode::Parameters
+            | ErrorCode::SessionEvicted
+            | ErrorCode::RequestOutOfOrder
+            | ErrorCode::TooLarge
+            | ErrorCode::StreamLimit
+            | ErrorCode::ProtocolVersion
+            | ErrorCode::AuthenticationFailed
+            | ErrorCode::Unauthenticated
+            | ErrorCode::PermissionDenied
+            | ErrorCode::CredentialExpired
+            | ErrorCode::CrossPartition
+            | ErrorCode::LevelRefused
+            | ErrorCode::AheadOfWatermark
+            | ErrorCode::SchemaRefused
+            | ErrorCode::QueryRefused => None,
+        }
     }
 }

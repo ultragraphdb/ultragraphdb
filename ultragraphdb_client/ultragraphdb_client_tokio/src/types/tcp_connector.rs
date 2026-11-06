@@ -20,6 +20,7 @@ pub struct TcpConnector {
 
 impl TcpConnector {
     /// Connections to `address`, `tcp_nodelay` on.
+    #[must_use]
     pub fn new(address: SocketAddr) -> Self {
         Self {
             address,
@@ -29,17 +30,20 @@ impl TcpConnector {
 
     /// Whether each connection sets `TCP_NODELAY`, disabling Nagle's algorithm: `true`, the default, or `false` to
     /// clear it, leaving Nagle's algorithm on.
+    #[must_use]
     pub fn with_tcp_nodelay(mut self, tcp_nodelay: bool) -> Self {
         self.tcp_nodelay = tcp_nodelay;
         self
     }
 
     /// Whether each connection sets `TCP_NODELAY`.
+    #[must_use]
     pub fn tcp_nodelay(&self) -> bool {
         self.tcp_nodelay
     }
 
     /// The address connected to.
+    #[must_use]
     pub fn address(&self) -> SocketAddr {
         self.address
     }

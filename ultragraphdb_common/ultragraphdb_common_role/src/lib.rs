@@ -13,11 +13,14 @@ mod types;
 mod utils;
 
 pub use crate::traits::session::{Answer, Session};
+pub use crate::types::connection_bound::ConnectionBound;
 pub use crate::types::open_requests::OpenRequests;
-pub use crate::types::role_client::RoleClient;
+pub use crate::types::role_client::{RoleClient, RoleReader, RoleWriter};
 pub use crate::types::role_cluster::RoleCluster;
 pub use crate::types::role_credentials::RoleCredentials;
-pub use crate::types::role_secret::{ROLE_ITERATIONS, RoleSecret};
+pub use crate::types::role_secret::{
+    COMPUTE_WELCOME_CREDIT, PARTITION_INITIAL_CREDIT, ROLE_ITERATIONS, RoleSecret,
+};
 pub use crate::utils::finish_open::finish_open;
 pub use crate::utils::joining_role::{frontend_address, retry_until};
 pub use crate::utils::serve::{Server, serve_connection};

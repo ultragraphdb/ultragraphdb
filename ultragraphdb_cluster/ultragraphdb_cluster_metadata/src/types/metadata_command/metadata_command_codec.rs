@@ -13,10 +13,10 @@ use crate::types::metadata_state::MetadataState;
 use crate::types::reader::Reader;
 
 /// What a command's kind byte must be.
-const KIND: &str = "a kind byte, 1 to 13";
+const KIND: &str = "a kind byte, 1 to 15";
 
 impl MetadataCommand {
-    /// Appends the command's encoding to `out`, big-endian throughout: its kind byte, 1 to 13 in declaration order, then
+    /// Appends the command's encoding to `out`, big-endian throughout: its kind byte, 1 to 15 in declaration order, then
     /// its fields in order. A tenant, an epoch, a sequence and a version number take 8 bytes, a type prefix 2, a
     /// partition, a node, a bucket and a partition count 4, a session 16, a principal's identity 8, a flag 1 (0 or 1);
     /// bytes and text take their length (4 bytes for a catalog version and an entry, 2 for a predicate, 1 for a name and
@@ -78,6 +78,8 @@ impl MetadataCommand {
             | Self::RegisterSession { .. }
             | Self::LearnClose { .. }
             | Self::ReportUntrimmed { .. }
+            | Self::CreateTenant { .. }
+            | Self::DrawSecret { .. }
             | Self::Chunk { .. }
             | Self::Commit { .. } => self.encode_rest(out),
         }
@@ -140,6 +142,8 @@ impl MetadataCommand {
                 put_u64(out, *length);
                 put_u64(out, *checksum);
             }
+            Self::CreateTenant { tenant } => put_u64(out, tenant.get()),
+            Self::DrawSecret { secret } => out.extend_from_slice(secret),
             Self::OfferCatalog { .. }
             | Self::RecordDefault { .. }
             | Self::LeaseBlock { .. }
@@ -150,7 +154,7 @@ impl MetadataCommand {
         }
     }
 
-    /// The command's kind byte, 1 to 13 in declaration order.
+    /// The command's kind byte, 1 to 15 in declaration order.
     fn kind(&self) -> u8 {
         match self {
             Self::OfferCatalog { .. } => 1,
@@ -166,6 +170,8 @@ impl MetadataCommand {
             Self::ReportUntrimmed { .. } => 11,
             Self::Chunk { .. } => 12,
             Self::Commit { .. } => 13,
+            Self::CreateTenant { .. } => 14,
+            Self::DrawSecret { .. } => 15,
         }
     }
 
@@ -231,6 +237,12 @@ impl MetadataCommand {
             13 => Self::Commit {
                 length: reader.u64("a command's length")?,
                 checksum: reader.u64("a command's checksum")?,
+            },
+            14 => Self::CreateTenant {
+                tenant: Tenant::new(reader.u64("a tenant")?),
+            },
+            15 => Self::DrawSecret {
+                secret: read_secret(&mut reader)?,
             },
             _unknown => return Err(ClusterError::malformed(KIND, 0)),
         };
@@ -303,6 +315,13 @@ pub(crate) fn read_partition(reader: &mut Reader<'_>) -> Result<PartitionId, Clu
     let at = reader.offset();
     PartitionId::new(reader.u32("a partition from 1")?)
         .map_err(|_| ClusterError::malformed("a partition from 1", at))
+}
+
+/// The 32 bytes of the secret an unknown name's verifier derives from.
+pub(crate) fn read_secret(reader: &mut Reader<'_>) -> Result<[u8; 32], ClusterError> {
+    let mut secret = [0; 32];
+    secret.copy_from_slice(reader.bytes(32, "a secret of 32 bytes")?);
+    Ok(secret)
 }
 
 /// A principal's name after its length as 1 byte.

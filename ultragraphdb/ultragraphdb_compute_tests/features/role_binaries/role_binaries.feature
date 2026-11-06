@@ -20,9 +20,9 @@ Feature: The compute binary as a process
     When compute has joined a frontend no partition has joined
     Then its `/health` answers, its `/ready` does not, and it turns ready once a partition joins
 
-  Scenario: Compute hosts no command yet
+  Scenario: Compute serves reads alone
     When a role asks compute for a command it does not host
-    Then the connection authenticates and the command is refused as not hosted
+    Then the connection authenticates and the command is refused as not served
 
   Scenario: Compute refuses a role with another secret
     When a role asks compute with a different role secret

@@ -17,6 +17,7 @@ impl ResultStream {
     }
 
     /// The stream the results arrive on.
+    #[must_use]
     pub fn stream(&self) -> u64 {
         self.stream
     }

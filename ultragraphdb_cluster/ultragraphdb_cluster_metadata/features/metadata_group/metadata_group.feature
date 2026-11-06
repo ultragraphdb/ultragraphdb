@@ -102,3 +102,7 @@ Feature: The metadata group
     Scenario: A full registry evicts the oldest session
       When the registry holds `sessions_max` sessions and one more is registered
       Then the least recently registered session is evicted, and a commit through it is refused as evicted
+
+    Scenario: The tenants survive recovery
+      When the group holds tenant 0, a snapshot is taken, and the group is killed and restarted
+      Then the group holds tenant 0 at the same log position, from the snapshot and the commands after it

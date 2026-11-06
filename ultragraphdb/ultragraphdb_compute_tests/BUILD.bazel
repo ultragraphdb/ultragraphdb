@@ -19,7 +19,7 @@ genquery(
 # stays sandboxed.
 rust_test(
     name = "bdd",
-    srcs = ["tests/bdd.rs"],
+    srcs = glob(["tests/**/*.rs"]),
     crate_root = "tests/bdd.rs",
     data = glob(["features/**/*.feature"]) + [
         ":copy_frontend",

@@ -63,6 +63,8 @@ pub struct ServerConnection<A: Authenticator> {
     opened: Instant,
     last_frame: Instant,
     expires: Option<Instant>,
+    highest_stream: u64,
+    refused_at_hello: Option<u64>,
 }
 
 impl<A: Authenticator> ServerConnection<A> {
@@ -85,6 +87,8 @@ impl<A: Authenticator> ServerConnection<A> {
             opened: now,
             last_frame: now,
             expires: None,
+            highest_stream: 0,
+            refused_at_hello: None,
         }
     }
 
@@ -93,6 +97,13 @@ impl<A: Authenticator> ServerConnection<A> {
     pub fn with_limits(mut self, authentication: Duration, idle: Duration) -> Self {
         self.authentication_timeout = authentication;
         self.idle_limit = idle;
+        self
+    }
+
+    /// The connection past its endpoint's bound of `limit` connections: its Hello is answered with an Error of code 15,
+    /// `detail` the bound, in place of the Welcome, and it closes (`PROTOCOL.md` §11.1).
+    pub fn past_connection_bound(mut self, limit: u64) -> Self {
+        self.refused_at_hello = Some(limit);
         self
     }
 
@@ -146,7 +157,8 @@ impl<A: Authenticator> ServerConnection<A> {
             );
         }
         if self.phase == Phase::Authenticating {
-            return self.close(
+            return self.refuse_with(
+                stream,
                 ErrorCode::Unauthenticated,
                 "a request before the connection authenticated",
             );
@@ -288,6 +300,15 @@ impl<A: Authenticator> ServerConnection<A> {
         let (answer, outcome) = ServerHandshake::new(self.cluster, self.server.clone())
             .receive(frame)
             .into_parts();
+        if let (Some(limit), Ok(_)) = (self.refused_at_hello, &outcome) {
+            return self.close_with(
+                &ErrorReply::new(
+                    ErrorCode::StreamLimit,
+                    format!("the endpoint holds as many connections as it allows, {limit}"),
+                )
+                .with_detail(limit),
+            );
+        }
         if let Some(answer) = answer {
             let queued = self.outbound.push_connection(answer);
             debug_assert!(queued.is_ok(), "a built frame holds a header: {queued:?}");
@@ -411,8 +432,11 @@ impl<A: Authenticator> ServerConnection<A> {
     fn request(&mut self, stream: u64, view: &FrameView<'_>) -> Result<Inbound, TransportError> {
         let command = view.command();
         let open = self.outbound.is_open(stream);
-        let transaction = self.outbound.is_transaction(stream);
-        let request = Inbound::Request { stream, command };
+        // A frame on a number the connection has opened, on a stream no longer open, crossed that stream's end.
+        if !open && stream <= self.highest_stream {
+            return Ok(Inbound::Handled);
+        }
+        self.highest_stream = self.highest_stream.max(stream);
         let kind = if self.endpoint.only_bound(command) {
             RequestKind::InTransaction
         } else {
@@ -425,6 +449,20 @@ impl<A: Authenticator> ServerConnection<A> {
         if endpoints_rule && !self.endpoint.serves(command) {
             return self.refuse_connection(&ProtocolError::command_not_served(command.number()));
         }
+        self.request_of(kind, stream, view, open)
+    }
+
+    /// A request of `kind` on `stream`, which the endpoint serves.
+    fn request_of(
+        &mut self,
+        kind: RequestKind,
+        stream: u64,
+        view: &FrameView<'_>,
+        open: bool,
+    ) -> Result<Inbound, TransportError> {
+        let command = view.command();
+        let transaction = self.outbound.is_transaction(stream);
+        let request = Inbound::Request { stream, command };
         match kind {
             RequestKind::Credit => self.credit(stream, view),
             RequestKind::Cancel => {
@@ -608,10 +646,16 @@ impl<A: Authenticator> ServerConnection<A> {
     /// The connection's last frame, an Error of `code` on stream 0, queued; the connection closes, with no last frame
     /// and [`TransportError::frame_not_built`] naming the Error command when it cannot be built.
     fn close(&mut self, code: ErrorCode, message: &str) -> Result<Inbound, TransportError> {
+        self.close_with(&ErrorReply::new(code, message))
+    }
+
+    /// The connection's last frame, `error` on stream 0, queued; the connection closes, as [`Self::close`] says.
+    fn close_with(&mut self, error: &ErrorReply) -> Result<Inbound, TransportError> {
         self.phase = Phase::Closing;
         self.exchange = None;
+        let code = error.code();
         let header = Header::new(self.cluster, Command::Error).with_flags(FLAG_LAST);
-        let frame = ErrorReply::new(code, message)
+        let frame = error
             .frame(header)
             .map_err(|e| TransportError::frame_not_built(Command::Error.number(), e))?;
         let queued = self.outbound.push_connection(frame);

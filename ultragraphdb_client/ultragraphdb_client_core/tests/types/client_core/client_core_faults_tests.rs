@@ -57,7 +57,7 @@ fn workload(faults: NetworkFaults, seed: u64, commits: u64) -> TestResult<(u64, 
         };
         match h.settle(committing)? {
             Ok(Reply::Committed(c)) => acknowledged.push(c.request()),
-            Err(e) if matches!(e.0, ClientErrorEnum::RetriesExhausted { .. }) => {
+            Err(e) if matches!(e.0, ClientErrorEnum::InDoubt { .. }) => {
                 if let Ok(resolving) = h.core.resolve(s, h.now)
                     && let Ok(Reply::Committed(c)) = h.settle(resolving)?
                 {

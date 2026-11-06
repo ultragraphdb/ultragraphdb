@@ -10,11 +10,26 @@ use std::collections::HashMap;
 use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::traits::body_builder::BodyBuilder;
+use crate::types::chunk_layout::ChunkLayout;
 use crate::types::command::Command;
 use crate::types::monotonic::Monotonic;
 use crate::types::result_term::ResultTerm;
-use crate::utils::constants::ABSENT;
+use crate::utils::constants::{ABSENT, HEADER_SIZE};
 use crate::utils::sections::as_u32;
+
+/// The section table of a batch's nine sections and the padding of up to 7 bytes before each.
+const SECTIONS_OVERHEAD: usize = 72 + 9 * 7;
+
+/// What a term takes beside its bytes: its offset, its text's and annotation's string indices, and their strings' two ends.
+const TERM_OVERHEAD: usize = 4 + 8 + 8;
+
+/// The bytes `term` takes in a batch beside [`TERM_OVERHEAD`]: its encoding, its text and its annotation.
+fn term_size(term: &ResultTerm) -> usize {
+    term.encoding()
+        .len()
+        .saturating_add(term.text().map_or(0, str::len))
+        .saturating_add(term.annotation().map_or(0, str::len))
+}
 
 /// A columnar, dictionary-encoded result batch: per column a u32 cell per row indexing the batch's term table,
 /// [`crate::ABSENT`] for unbound; the term table holding each distinct term of the batch once, in
@@ -50,6 +65,7 @@ pub struct ResultBatch {
     cells: Vec<u32>,
     terms: Vec<ResultTerm>,
     index: HashMap<Vec<u8>, u32>,
+    term_bytes: usize,
     resume: Vec<u8>,
     epoch: u64,
     partition: u32,
@@ -66,6 +82,7 @@ impl ResultBatch {
             cells: Vec::new(),
             terms: Vec::new(),
             index: HashMap::new(),
+            term_bytes: 0,
             resume: Vec::new(),
             epoch: 0,
             partition: 0,
@@ -159,6 +176,7 @@ impl ResultBatch {
                         None => {
                             let index = as_u32(self.terms.len());
                             let _absent: Option<u32> = self.index.insert(encoding, index);
+                            self.term_bytes = self.term_bytes.saturating_add(term_size(term));
                             self.terms.push((*term).clone());
                             index
                         }
@@ -206,6 +224,30 @@ impl ResultBatch {
     /// The resume key a limited read continues from; empty for none.
     pub fn resume(&self) -> &[u8] {
         &self.resume
+    }
+
+    /// At most the bytes of the frame this batch would be, holding `row` too and the resume key of `resume` bytes, computed with
+    /// no body built: a string two terms share counts twice, so a sender cuts a batch within its `max_frame` as it fills.
+    pub fn frame_size_with(&self, row: &[Option<&ResultTerm>], resume: usize) -> usize {
+        let mut counted: Vec<Vec<u8>> = Vec::new();
+        let mut terms = self.terms.len();
+        let mut bytes = self.term_bytes;
+        for term in row.iter().copied().flatten() {
+            let encoding = term.encoding();
+            if !self.index.contains_key(&encoding) && !counted.contains(&encoding) {
+                terms = terms.saturating_add(1);
+                bytes = bytes.saturating_add(term_size(term));
+                counted.push(encoding);
+            }
+        }
+        let rows = self.rows as usize + usize::from(!row.is_empty());
+        let cells = rows.saturating_mul(self.columns as usize);
+        let data = SECTIONS_OVERHEAD
+            .saturating_add(cells.saturating_mul(4))
+            .saturating_add(terms.saturating_mul(TERM_OVERHEAD))
+            .saturating_add(bytes)
+            .saturating_add(resume);
+        HEADER_SIZE.saturating_add(ChunkLayout::of_data(data).body_len())
     }
 
     /// The bytes the batch's body takes, before its chunk table, so a sender cuts batches below the maximum frame.

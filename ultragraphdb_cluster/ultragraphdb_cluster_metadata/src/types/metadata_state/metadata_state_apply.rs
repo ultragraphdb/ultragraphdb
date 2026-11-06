@@ -56,6 +56,9 @@ impl MetadataState {
     ///   stays pending, or a placement version announced other than the oldest pending. An eviction carried that is not
     ///   pending changes nothing.
     /// - [`MetadataCommand::ReportUntrimmed`]: none; an epoch below the partition's last report changes nothing.
+    /// - [`MetadataCommand::CreateTenant`]: [`ClusterError::contradicts`] for a tenant the group holds;
+    ///   [`ClusterError::full`] at [`MetadataState::TENANTS_MAX`].
+    /// - [`MetadataCommand::DrawSecret`]: [`ClusterError::contradicts`] once a secret was drawn.
     /// - [`MetadataCommand::Chunk`] and [`MetadataCommand::Commit`]: [`ClusterError::contradicts`]; they frame a large
     ///   command in the log, and the group applies the command they hold.
     pub fn apply(&mut self, command: &MetadataCommand) -> Result<(), ClusterError> {
@@ -102,11 +105,30 @@ impl MetadataState {
                 self.report_untrimmed(*partition, *epoch);
                 Ok(())
             }
+            MetadataCommand::CreateTenant { tenant } => self.create_tenant(*tenant),
+            MetadataCommand::DrawSecret { secret } => self.draw_secret(secret),
             // The log's framing of a large command, which the group reassembles before it applies the command.
             MetadataCommand::Chunk { .. } | MetadataCommand::Commit { .. } => Err(
                 ClusterError::contradicts("a whole command, not a chunk of one or its commit"),
             ),
         }
+    }
+
+    /// Holds `tenant` from here on.
+    fn create_tenant(&mut self, tenant: Tenant) -> Result<(), ClusterError> {
+        holds(!self.tenants.contains(&tenant), "a tenant not yet created")?;
+        if self.tenants.len() >= Self::TENANTS_MAX {
+            return Err(ClusterError::full("tenants", Self::TENANTS_MAX));
+        }
+        let _new: bool = self.tenants.insert(tenant);
+        Ok(())
+    }
+
+    /// Holds `secret` from here on.
+    fn draw_secret(&mut self, secret: &[u8; 32]) -> Result<(), ClusterError> {
+        holds(self.unknown_secret.is_none(), "a secret not yet drawn")?;
+        self.unknown_secret = Some(*secret);
+        Ok(())
     }
 
     /// Commits `bytes` as the pending version of `tenant` after `predecessor`.

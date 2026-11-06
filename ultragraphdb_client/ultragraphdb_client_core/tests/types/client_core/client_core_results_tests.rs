@@ -15,7 +15,7 @@ use ultragraphdb_protocol_wire::{
 };
 
 use crate::utils::harness::{
-    CLUSTER, Harness, RELEASE, begun, config, prepared, registered, server,
+    CLUSTER, Harness, RELEASE, begun, config, frames, prepared, registered, server,
 };
 use ultragraphdb_tool_bdd::{Context as _, TestError, TestResult};
 
@@ -33,7 +33,7 @@ fn begin_writing(h: &mut Harness) -> TestResult<(Session, Transaction)> {
 }
 
 /// A read of `tx`, naming it.
-fn read(tx: &Transaction) -> Read {
+pub fn read(tx: &Transaction) -> Read {
     let mut terms = TermTable::new();
     let a = terms.iri("http://ex.org/a");
     Read::new(
@@ -148,7 +148,11 @@ fn test_the_client_grants_its_window_once_the_welcomes_credit_is_spent() -> Test
     assert_eq!(drain(&mut h, &stream)?.len(), 3);
     assert_eq!(credits(&h), vec![2]);
     assert_eq!(
-        h.core.grant(&stream, 1).err().context("an error")?.0,
+        h.core
+            .grant(&stream, frames(1)?, h.now)
+            .err()
+            .context("an error")?
+            .0,
         ClientErrorEnum::StreamFinished {
             stream: stream.stream()
         },
@@ -643,7 +647,7 @@ fn test_a_grant_sends_a_credit_of_the_frames_asked_for() -> TestResult {
     let mut h = Harness::ready(server().with_results(3))?;
     let tx = begin(&mut h)?;
     let stream = h.core.read(&tx, &read(&tx), h.now)?;
-    h.core.grant(&stream, 7)?;
+    h.core.grant(&stream, frames(7)?, h.now)?;
     while h.step()? {}
     assert_eq!(credits(&h), vec![7]);
     assert_eq!(drain(&mut h, &stream)?.len(), 3);
@@ -656,29 +660,37 @@ fn test_a_grant_sends_a_credit_of_the_frames_asked_for() -> TestResult {
 }
 
 /// PROTOCOL.md section 9.2: a Credit grants at least 1 frame, so a grant of none is no request the client sends.
+/// A frame on a read's stream by a command its "Answered by" does not list is refused when it arrives, naming the command.
 #[test]
-fn test_a_grant_of_no_frames_is_refused_before_it_is_sent() -> TestResult {
-    let mut h = Harness::ready(server().with_results(3))?;
+fn test_a_frame_of_another_command_on_a_read_gives_the_connection_up() -> TestResult {
+    use ultragraphdb_error_protocol::ProtocolError;
+    use ultragraphdb_protocol_wire::{Begin, BodyBuilder, FLAG_LAST};
+    let mut h = Harness::ready(server())?;
     let tx = begin(&mut h)?;
     let stream = h.core.read(&tx, &read(&tx), h.now)?;
-    while h.step()? {}
+    while h.core.transmit().is_some() {}
+    let frame = Begin::new(0, 6, true).frame(
+        Header::new(CLUSTER, Command::Begin)
+            .with_stream(stream.stream())
+            .with_flags(FLAG_LAST),
+    )?;
+    let frame = h.numbered(&frame)?;
     assert_eq!(
-        h.core.grant(&stream, 0).err().context("an error")?.0,
-        ClientErrorEnum::Request {
-            error: ultragraphdb_error_protocol::ProtocolError::field_value(14, "frames", 0)
-        }
+        h.deliver(&frame)?,
+        Err(ultragraphdb_client_core::ClientError::protocol(
+            ProtocolError::command_not_served(Command::Begin.number())
+        ))
     );
-    assert_eq!(h.core.transmit(), None, "no Credit queued");
-    assert_eq!(drain(&mut h, &stream)?.len(), 3, "the read goes on");
+    assert!(!h.core.is_connected());
     Ok(())
 }
 
-/// A frame on a read's stream that is no Result, an Error whose body breaks its layout, or a Result whose chunk does
-/// not verify gives the connection up with the rule it broke, and the read with it.
+/// An Error whose body breaks its layout, or a Result whose chunk does not verify, gives the connection up with the rule
+/// it broke when it is read, and the read with it.
 #[test]
 fn test_a_broken_frame_on_a_read_gives_the_connection_up() -> TestResult {
-    use ultragraphdb_protocol_wire::{Begin, BodyBuilder, FLAG_LAST};
-    for case in 0..3 {
+    use ultragraphdb_protocol_wire::FLAG_LAST;
+    for case in 1..3 {
         let mut h = Harness::ready(server())?;
         let tx = begin(&mut h)?;
         let stream = h.core.read(&tx, &read(&tx), h.now)?;
@@ -687,7 +699,6 @@ fn test_a_broken_frame_on_a_read_gives_the_connection_up() -> TestResult {
             .with_stream(stream.stream())
             .with_flags(FLAG_LAST);
         let frame = match case {
-            0 => Begin::new(0, 6, true).frame(header.with_command(Command::Begin))?,
             1 => header
                 .with_command(Command::Error)
                 .encode_frame(&[0xFF; 3])?,
@@ -842,4 +853,48 @@ fn test_a_read_too_large_frees_its_stream() -> TestResult {
         "the refused read's stream number is not reused"
     );
     Ok(())
+}
+
+/// A read whose end has arrived has ended, though its caller has not read it: no Credit and no Cancel goes out for it.
+#[test]
+fn test_a_read_whose_end_has_arrived_takes_no_credit_or_cancel() -> TestResult {
+    for refused in [false, true] {
+        let mut h = Harness::ready(server())?;
+        if refused {
+            h.server.refuse_next_read_after(1, ErrorCode::TimedOut, 1);
+        }
+        let tx = begin(&mut h)?;
+        let stream = h.core.read(&tx, &read(&tx), h.now)?;
+        while h.step()? {}
+        h.core.grant(&stream, frames(2)?, h.now)?;
+        assert_eq!(h.core.transmit(), None, "no Credit");
+        h.core.cancel(stream);
+        assert_eq!(h.core.transmit(), None, "no Cancel");
+    }
+    Ok(())
+}
+
+/// A manual grant adds to the stream's credit, for a read that is still open.
+#[test]
+fn test_a_grant_on_an_open_read_goes_out() -> TestResult {
+    let mut h = Harness::ready(server().with_results(9))?;
+    let tx = begin(&mut h)?;
+    let stream = h.core.read(&tx, &read(&tx), h.now)?;
+    while h.step()? {}
+    h.core.grant(&stream, frames(1)?, h.now)?;
+    assert_eq!(credits_on(&mut h)?, 1);
+    Ok(())
+}
+
+/// The Credit frames the core has queued.
+fn credits_on(h: &mut Harness) -> TestResult<usize> {
+    let mut count = 0;
+    while let Some(frame) = h.core.transmit() {
+        if ultragraphdb_protocol_wire::HeaderView::new(&frame)?.command()
+            == Command::Credit.number()
+        {
+            count += 1;
+        }
+    }
+    Ok(count)
 }

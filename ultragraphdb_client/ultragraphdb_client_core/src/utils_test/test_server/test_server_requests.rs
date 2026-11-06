@@ -3,15 +3,20 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::time::Duration;
+
+use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{
-    Begin, BeginView, BodyBuilder, BodyView, ColumnType, Command, CommitView, Describe,
-    DropCommandView, ErrorCode, ErrorReply, ExecuteView, FLAG_LAST, FrameView, Header, PatternSlot,
-    Prepare, PrepareView, QuadPattern, ReadLevel, Register, ResultBatch, ResultTerm, Welcome,
+    Begin, BeginView, BodyBuilder, BodyView, ColumnType, Command, CommitView, ConditionalWriteView,
+    Describe, DirectWriteView, DropCommandView, ErrorCode, ErrorReply, ExecuteView, FLAG_LAST,
+    FrameView, Header, PatternSlot, Prepare, PrepareView, QuadPattern, ReadLevel, ReadView,
+    Register, ResultBatch, ResultTerm, Welcome,
 };
 
 use crate::utils_test::session_record::SessionRecord;
 use crate::utils_test::test_server::TestServer;
+use crate::utils_test::test_server::test_transaction::{TestTransaction, WaitingRead};
 
 impl TestServer {
     /// The header of the server's frame of `command` on `stream`, at the connection's protocol.
@@ -58,14 +63,18 @@ impl TestServer {
             Command::Register => self.register(stream),
             Command::Begin => self.begin(stream, &view),
             Command::Operation => {
-                if let Some(operations) = self.transactions.get_mut(&stream) {
-                    *operations += 1;
+                if let Some(transaction) = self.transactions.get_mut(&stream) {
+                    transaction.operations += 1;
                 }
             }
-            Command::Read => self.results(stream),
+            Command::Read => {
+                if let Ok(read) = ReadView::from_frame(&view) {
+                    self.answer_read(stream, read.transaction());
+                }
+            }
             Command::Execute => {
                 if let Ok(execute) = ExecuteView::from_frame(&view) {
-                    self.execute(stream, execute.statement());
+                    self.execute(stream, execute.statement(), execute.transaction());
                 }
             }
             Command::Prepare => self.prepare(stream, &view),
@@ -80,13 +89,13 @@ impl TestServer {
                 }
             }
             Command::Abort => {
-                let _aborted: Option<u32> = self.transactions.remove(&stream);
+                let _aborted: Option<TestTransaction> = self.transactions.remove(&stream);
             }
+            Command::DirectWrite => self.direct_write(stream, &view),
+            Command::ConditionalWrite => self.conditional_write(stream, &view),
             Command::Hello
             | Command::Welcome
             | Command::Write
-            | Command::DirectWrite
-            | Command::ConditionalWrite
             | Command::Query
             | Command::Install
             | Command::Result
@@ -127,6 +136,43 @@ impl TestServer {
         }
     }
 
+    /// A DirectWrite `view` on `stream`, refused with Error 1 when it breaks a rule, as a declaration in it does.
+    fn direct_write(&mut self, stream: u64, view: &FrameView<'_>) {
+        match DirectWriteView::from_frame(view).and_then(|write| {
+            write.check_from_client()?;
+            Ok(write)
+        }) {
+            Ok(write) => {
+                let session = u128::from_be_bytes(write.session());
+                self.one_frame(stream, session, write.request(), 0);
+            }
+            Err(rule) => self.protocol_refusal(stream, &rule),
+        }
+    }
+
+    /// A ConditionalWrite `view` on `stream`, each operation answered with the node it created.
+    fn conditional_write(&mut self, stream: u64, view: &FrameView<'_>) {
+        match ConditionalWriteView::from_frame(view).and_then(|write| {
+            write.check_from_client()?;
+            Ok(write)
+        }) {
+            Ok(write) => {
+                let session = u128::from_be_bytes(write.session());
+                let operations = u32::try_from(write.operation_count()).unwrap_or(u32::MAX);
+                self.one_frame(stream, session, write.request(), operations);
+            }
+            Err(rule) => self.protocol_refusal(stream, &rule),
+        }
+    }
+
+    /// Error 1 on `stream`, its message the rule's text.
+    fn protocol_refusal(&mut self, stream: u64, rule: &ProtocolError) {
+        if let Some(connection) = self.connection.as_mut() {
+            // A rule's short text is always built.
+            drop(connection.refuse(stream, &ErrorReply::protocol(rule)));
+        }
+    }
+
     /// A Prepare `view` on `stream`, answered with the next statement id, prepared against the current schema id,
     /// its result types those of the pattern's unbound slots.
     fn prepare(&mut self, stream: u64, view: &FrameView<'_>) {
@@ -160,7 +206,7 @@ impl TestServer {
 
     /// Statement `statement` executed on `stream`: refused when unknown or prepared against another schema id,
     /// answered as a read otherwise.
-    fn execute(&mut self, stream: u64, statement: u64) {
+    fn execute(&mut self, stream: u64, statement: u64, transaction: u64) {
         match self.statements.get(&statement).copied() {
             None => self.error(stream, ErrorCode::UnknownStatement, statement, "unknown"),
             Some(schema) if schema != self.schema => self.error(
@@ -169,7 +215,25 @@ impl TestServer {
                 statement,
                 "stale statement",
             ),
-            Some(_) => self.results(stream),
+            Some(_) => self.answer_read(stream, transaction),
+        }
+    }
+
+    /// A read on `stream` in the transaction of stream `transaction`: at once when the transaction's token names no epoch
+    /// past the closed one, or waiting on it until its deadline.
+    fn answer_read(&mut self, stream: u64, transaction: u64) {
+        let open = self.transactions.get(&transaction).copied();
+        let epoch = open.and_then(|t| t.epoch);
+        match (epoch, self.closed, open.and_then(|t| t.deadline)) {
+            (Some(epoch), Some(closed), Some(deadline)) if epoch > closed => {
+                self.waiting.push(WaitingRead {
+                    stream,
+                    epoch,
+                    deadline,
+                });
+            }
+            (Some(epoch), _, _) => self.results_at(stream, epoch),
+            (None, closed, _) => self.results_at(stream, closed.unwrap_or(0)),
         }
     }
 
@@ -186,7 +250,20 @@ impl TestServer {
         let Ok(begin) = BeginView::from_frame(view) else {
             return;
         };
-        let _replaced: Option<u32> = self.transactions.insert(stream, 0);
+        let deadline_ms = match begin.deadline_ms() {
+            0 => self.welcome.transaction_ms(),
+            ms => ms,
+        };
+        let _replaced: Option<TestTransaction> = self.transactions.insert(
+            stream,
+            TestTransaction {
+                operations: 0,
+                epoch: begin.token().map(|token| token.epoch().get()),
+                deadline: self
+                    .now
+                    .and_then(|now| now.checked_add(Duration::from_millis(deadline_ms.into()))),
+            },
+        );
         let snapshot = begin.read_only() && begin.level() == ReadLevel::Snapshot;
         let read_version = if snapshot { self.version } else { 0 };
         let body = Begin::new(begin.tenant(), read_version, begin.read_only())
@@ -199,20 +276,24 @@ impl TestServer {
         self.reply(stream, &body, 0);
     }
 
-    /// The server's Result frames on `stream`: one column and the reifier column, two rows naming the same IRI and no
+    /// The server's Result frames on `stream`, read at `epoch`: one column and the reifier column, two rows naming the same IRI and no
     /// reifier, the last frame flagged; with no frames configured, one flagged batch of no rows, a read that matches
     /// nothing.
-    fn results(&mut self, stream: u64) {
+    pub(super) fn results_at(&mut self, stream: u64, epoch: u64) {
         let term = ResultTerm::iri("http://ex.org/same");
-        let results = self.results;
-        if results == 0 {
-            return self.reply(stream, &ResultBatch::new(2), FLAG_LAST);
+        let refusal = self.read_refusal.take();
+        let results = refusal.map_or(self.results, |r| r.batches);
+        if results == 0 && refusal.is_none() {
+            let batch = ResultBatch::new(2).with_read_at(epoch, 1);
+            return self.reply(stream, &batch, FLAG_LAST);
         }
         for i in 0..results {
-            // Only a stream's last batch holds a resume key.
-            let last = i + 1 == results;
+            // Only a stream's last batch holds a resume key, and a refused read has no last batch.
+            let last = refusal.is_none() && i + 1 == results;
             let resume = if last { vec![i as u8] } else { Vec::new() };
-            let mut batch = ResultBatch::new(2).with_resume(resume);
+            let mut batch = ResultBatch::new(2)
+                .with_resume(resume)
+                .with_read_at(epoch, 1);
             let rows = batch
                 .push_row(&[Some(&term), None])
                 .and_then(|()| batch.push_row(&[Some(&term), None]));
@@ -226,6 +307,9 @@ impl TestServer {
 
             let flags = if last { FLAG_LAST } else { 0 };
             self.reply(stream, &batch, flags);
+        }
+        if let Some(refusal) = refusal {
+            self.error(stream, refusal.code, refusal.detail, "scripted");
         }
     }
 }

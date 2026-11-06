@@ -20,6 +20,8 @@ mod client_core_lost_tests;
 #[cfg(test)]
 mod client_core_receive_tests;
 #[cfg(test)]
+mod client_core_requests_tests;
+#[cfg(test)]
 mod client_core_results_tests;
 #[cfg(test)]
 mod client_core_tests;

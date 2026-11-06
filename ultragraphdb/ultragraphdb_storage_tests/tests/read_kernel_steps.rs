@@ -11,7 +11,7 @@ use std::time::Duration;
 use compio::runtime::Runtime;
 use cucumber::{then, when};
 use ultragraphdb_cluster_placement::{NodeId, PlacementMap};
-use ultragraphdb_common_role::RoleClient;
+use ultragraphdb_common_role::{PARTITION_INITIAL_CREDIT, RoleClient};
 use ultragraphdb_core_ids::{BucketGroup, Epoch, SystemId, Version};
 use ultragraphdb_core_keys::{Graph, Keyspace, QuadKey, key_prefix};
 use ultragraphdb_core_mapping::Names;
@@ -19,7 +19,7 @@ use ultragraphdb_core_terms::{EncodedTerm, Hash128};
 use ultragraphdb_protocol_transport::{Address, ReceivedFrame};
 use ultragraphdb_protocol_wire::{
     Abort, Bind, BindKind, BindView, BodyView, Closed, ClosedView, Command, Commit, CommitView,
-    Credit, DEFAULT_INITIAL_CREDIT, EntriesEnd, EntriesSequence, ErrorCode, ErrorReplyView,
+    Credit, DETAIL_TRANSACTION_NOT_HELD, EntriesEnd, EntriesSequence, ErrorCode, ErrorReplyView,
     FLAG_LAST, MAX_FRAME_FLOOR, MAX_FRAME_SIZE, ObjectRecords, Recall, Reference, ReferenceView,
     RequestTerm, Scan, ScanAt, ScanRange, TermTable, Write, WriteChange,
 };
@@ -333,10 +333,10 @@ fn dictionary_and_referrers(w: &mut Steps) -> TestResult {
         .to_bytes();
         let ranges = [alone(term_key(TENANT, b)), alone(set.clone())];
         let now = plain(ScanAt::Latest, 0, 0, 0, &ranges);
-        let (latest, _) = answer(&mut client, &now, false).await?;
+        let (latest, _) = answer(&mut client, &now, true).await?;
         let before = Version::bound_of(Epoch::ZERO);
         let earlier = plain(ScanAt::Named, before, 0, 0, &ranges);
-        let (older, _) = answer(&mut client, &earlier, false).await?;
+        let (older, _) = answer(&mut client, &earlier, true).await?;
         Ok::<_, TestError>((entity, group, set, latest, older))
     })?;
     let (entity, member, set, latest, older) = outcome;
@@ -608,13 +608,13 @@ const STALL_MS: u64 = 1_000;
 #[when("a Scan's answer takes more frames than the stream's credit, and the reader grants no more")]
 fn no_credit(w: &mut Steps) -> TestResult {
     one_partition(w, Some(&STALL_MS.to_string()))?;
-    let count = DEFAULT_INITIAL_CREDIT + 2;
+    let count = PARTITION_INITIAL_CREDIT + 2;
     let scan = plain(ScanAt::Latest, 0, 0, 0, &list_ranges(count));
     run(async {
         let mut client = dial().await?;
         client.send_only(&scan).await?;
         let mut sequence = EntriesSequence::new(scan.ranges());
-        for _ in 0..DEFAULT_INITIAL_CREDIT {
+        for _ in 0..PARTITION_INITIAL_CREDIT {
             if let Frame::Entries(batch) = next_frame(&mut client, &mut sequence).await? {
                 w.kernel.batches.push(batch);
             }
@@ -634,7 +634,7 @@ fn no_credit(w: &mut Steps) -> TestResult {
     "it receives as many frames as its credit, and the Scan is refused with code 24 (TimedOut), naming the partition, once `scan_stall_ms` has passed"
 )]
 fn stalled(w: &mut Steps) -> TestResult {
-    assert_eq!(w.kernel.batches.len(), DEFAULT_INITIAL_CREDIT as usize);
+    assert_eq!(w.kernel.batches.len(), PARTITION_INITIAL_CREDIT as usize);
     let refused = w.kernel.refused.first().context("the refusal")?;
     assert_eq!(refused.code, ErrorCode::TimedOut, "{refused:?}");
     assert_eq!(refused.detail, u64::from(PARTITION));
@@ -652,7 +652,7 @@ fn stalled(w: &mut Steps) -> TestResult {
 )]
 fn with_credit(w: &mut Steps) -> TestResult {
     one_partition(w, None)?;
-    let count = DEFAULT_INITIAL_CREDIT * 3;
+    let count = PARTITION_INITIAL_CREDIT * 3;
     let scan = plain(ScanAt::Latest, 0, 0, 0, &list_ranges(count));
     let (batches, refused) = run(async { answer(&mut dial().await?, &scan, true).await })?;
     assert!(refused.is_none(), "{refused:?}");
@@ -775,14 +775,14 @@ fn across_a_close(w: &mut Steps) -> TestResult {
         let key = forward_key(&mut client, &subject).await?;
         let kept = id_of(&mut client, "http://ex.org/o1").await?;
         // The credit stops the answer after these, before its last range.
-        let mut ranges = list_ranges(DEFAULT_INITIAL_CREDIT);
+        let mut ranges = list_ranges(PARTITION_INITIAL_CREDIT);
         ranges.push(alone(key));
         let scan = plain(ScanAt::LatestClosed, 0, 0, 0, &ranges);
         client.send_only(&scan).await?;
         let stream = client.last_stream();
         let mut sequence = EntriesSequence::new(scan.ranges());
         let mut batches = Vec::new();
-        for _ in 0..DEFAULT_INITIAL_CREDIT {
+        for _ in 0..PARTITION_INITIAL_CREDIT {
             if let Frame::Entries(batch) = next_frame(&mut client, &mut sequence).await? {
                 batches.push(batch);
             }
@@ -814,7 +814,7 @@ fn across_a_close(w: &mut Steps) -> TestResult {
 #[then("both ranges read the version chosen first, and every frame names its epoch")]
 fn one_version(w: &mut Steps) -> TestResult {
     let chosen = w.kernel.numbers.first().context("the epoch")?;
-    assert_eq!(w.kernel.batches.len() as u32, DEFAULT_INITIAL_CREDIT + 1);
+    assert_eq!(w.kernel.batches.len() as u32, PARTITION_INITIAL_CREDIT + 1);
     assert!(
         w.kernel.batches.iter().all(|batch| batch.epoch == *chosen),
         "{:?}",
@@ -885,9 +885,12 @@ fn no_room(w: &mut Steps) -> TestResult {
         if let Frame::Refused(refused) = next_frame(&mut client, &mut sequence).await? {
             refusals.push(refused);
         }
-        client
-            .send_on(bind_stream, &Commit::new([0; 16], 0, 0))
-            .await?;
+        // The Bind stream has ended, so a frame on it is late; the transaction's next request is a Scan naming it.
+        let mut next = of_transaction(3, read, PRINCIPAL);
+        for (first, past) in &long_ranges(1, 1) {
+            next.push_range(ScanRange::new(PARTITION, first, past));
+        }
+        client.send_only(&next).await?;
         if let Frame::Refused(refused) = next_frame(&mut client, &mut sequence).await? {
             refusals.push(refused);
         }
@@ -912,6 +915,7 @@ fn both_streams(w: &mut Steps) -> TestResult {
         assert_eq!(refused.detail, MAX_FRAME_SIZE as u64, "the limit in bytes");
     }
     assert_eq!(next.code, ErrorCode::Protocol, "{next:?}");
+    assert_eq!(next.detail, DETAIL_TRANSACTION_NOT_HELD, "{next:?}");
     w.roles = None;
     Ok(())
 }
@@ -1003,7 +1007,7 @@ fn exact_limits(w: &mut Steps) -> TestResult {
             let dictionary = alone(term_key(TENANT, "http://ex.org/l1"));
             scan.push_range(ScanRange::new(PARTITION, &first, b""));
             scan.push_range(ScanRange::new(PARTITION, &dictionary.0, &dictionary.1));
-            let (batches, refused) = answer(&mut client, &scan, false).await?;
+            let (batches, refused) = answer(&mut client, &scan, true).await?;
             assert!(refused.is_none(), "{refused:?}");
             w.kernel.batches.extend(batches);
         }
@@ -1461,7 +1465,7 @@ fn too_large_named(w: &mut Steps) -> TestResult {
 #[when("one Scan of a connection holds no credit and another takes its credit as it reads")]
 fn two_scans_open(w: &mut Steps) -> TestResult {
     one_partition(w, None)?;
-    let (stopped, running) = (DEFAULT_INITIAL_CREDIT + 1, DEFAULT_INITIAL_CREDIT * 3);
+    let (stopped, running) = (PARTITION_INITIAL_CREDIT + 1, PARTITION_INITIAL_CREDIT * 3);
     run(async {
         let mut client = dial().await?;
         let idle = plain(ScanAt::Latest, 0, 0, 0, &list_ranges(stopped));
@@ -1509,7 +1513,7 @@ fn other_ran(w: &mut Steps) -> TestResult {
     assert_eq!(of(*read).count() as u64, *running);
     assert!(of(*read).next_back().is_some_and(|batch| batch.last));
     assert!(
-        of(*idle).count() <= DEFAULT_INITIAL_CREDIT as usize,
+        of(*idle).count() <= PARTITION_INITIAL_CREDIT as usize,
         "its credit bounds it"
     );
     assert!(of(*idle).all(|batch| !batch.last), "it never ended");
@@ -1594,7 +1598,7 @@ fn emptied_answer(w: &mut Steps) -> TestResult {
 #[when("a Scan of a transaction waits for credit, and the transaction aborts")]
 fn aborted_under_scan(w: &mut Steps) -> TestResult {
     one_partition(w, None)?;
-    let count = DEFAULT_INITIAL_CREDIT + 1;
+    let count = PARTITION_INITIAL_CREDIT + 1;
     run(async {
         let mut client = dial().await?;
         let reply = client.request(&bind_of(21, PRINCIPAL)).await?;
@@ -1608,7 +1612,7 @@ fn aborted_under_scan(w: &mut Steps) -> TestResult {
         client.send_only(&scan).await?;
         let scan_stream = client.last_stream();
         let mut sequence = EntriesSequence::new(scan.ranges());
-        for _ in 0..DEFAULT_INITIAL_CREDIT {
+        for _ in 0..PARTITION_INITIAL_CREDIT {
             if let Frame::Entries(batch) = next_frame(&mut client, &mut sequence).await? {
                 w.kernel.batches.push(batch);
             }
@@ -1624,7 +1628,7 @@ fn aborted_under_scan(w: &mut Steps) -> TestResult {
 
 #[then("the Scan is refused at once with Error 1, `detail` 1, as one the partition does not hold")]
 fn ended_with_it(w: &mut Steps) -> TestResult {
-    assert_eq!(w.kernel.batches.len(), DEFAULT_INITIAL_CREDIT as usize);
+    assert_eq!(w.kernel.batches.len(), PARTITION_INITIAL_CREDIT as usize);
     let refused = w.kernel.refused.first().context("the refusal")?;
     protocol_naming(refused, "does not hold");
     assert_eq!(refused.detail, 1, "{refused:?}");

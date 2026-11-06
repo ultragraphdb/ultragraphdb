@@ -22,6 +22,16 @@ pub struct RoleCluster {
 }
 
 impl RoleCluster {
+    /// The cluster `id`, whose roles hold `secret` and retry joining for `deadline`.
+    #[must_use]
+    pub fn new(id: u64, secret: RoleSecret, deadline: Duration) -> Self {
+        Self {
+            id,
+            secret,
+            deadline,
+        }
+    }
+
     /// The cluster `start`'s `[cluster]` table names, its role secret read.
     ///
     /// # Errors

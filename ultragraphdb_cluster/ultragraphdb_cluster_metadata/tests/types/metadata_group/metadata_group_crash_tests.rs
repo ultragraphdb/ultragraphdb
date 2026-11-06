@@ -159,6 +159,8 @@ fn perform(group: &mut Group, command: &MetadataCommand) -> Result<(), ClusterEr
             let entry = DefaultEntry::new(tenant.get(), predicate.clone(), entry.clone());
             group.record_default_entry(&entry).map(drop)
         }
+        MetadataCommand::CreateTenant { tenant } => group.create_tenant(*tenant).map(drop),
+        MetadataCommand::DrawSecret { secret } => group.draw_secret(*secret).map(drop),
         MetadataCommand::ChangePlacement { .. }
         | MetadataCommand::SetLeader { .. }
         | MetadataCommand::RemovePrincipal { .. }

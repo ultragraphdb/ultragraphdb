@@ -16,6 +16,7 @@ impl Session {
     }
 
     /// The session's identity, as the server's Register gave it.
+    #[must_use]
     pub fn number(&self) -> u128 {
         self.number
     }

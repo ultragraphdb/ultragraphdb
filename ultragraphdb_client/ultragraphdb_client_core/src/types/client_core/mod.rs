@@ -11,20 +11,27 @@ mod client_core_results;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::time::{Duration, Instant};
 
+use ultragraphdb_core_ids::SessionToken;
+use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::{
     ClientAuthentication, ClientHandshake, Login, ReceivedFrame, TransportError,
 };
-use ultragraphdb_protocol_wire::{BodyBuilder, Commit, FLAG_LAST, Header, HeaderView, Welcome};
+use ultragraphdb_protocol_wire::{BodyBuilder, Command, Commit, Header, Welcome};
 
-use crate::errors::client_error::ClientError;
+use crate::errors::client_error::{ClientError, ClientErrorEnum};
 use crate::types::client_config::ClientConfig;
 use crate::types::link::Link;
 use crate::types::pending::Pending;
 use crate::types::pending_state::PendingState;
 use crate::types::reply::Reply;
+use crate::types::resend::Resend;
 use crate::types::session::Session;
 use crate::types::session_state::SessionState;
 use crate::types::stream_state::StreamState;
+
+/// The least a read's timeout runs, the default `scan_stall_ms`: a hung compute process is answered with code 17 by the
+/// deadline plus that (`PROTOCOL.md` §11.11), so the server speaks first.
+const READ_TIMEOUT_MIN: Duration = Duration::from_secs(30);
 
 /// The client, sans-I/O: every rule of the protocol a client follows, and no I/O and no clock. It authenticates
 /// through its [`Login`], [`ultragraphdb_protocol_transport::Anonymous`] for a server asking for none.
@@ -41,6 +48,22 @@ use crate::types::stream_state::StreamState;
 /// its Begin, writes and operations, and its Commit or Abort go on its stream, each read and execute on a stream of
 /// its own naming the transaction; when the transaction ends, its reads end with it. Write, Operation and Abort have
 /// no reply; a refusal of one ends the transaction's stream and is the answer of its next request.
+///
+/// A request declares its type by the call that sends it: a read-only transaction ([`ClientCore::begin_with`] and
+/// [`ClientCore::read`]), a [`ClientCore::direct_write`], a [`ClientCore::conditional_write`], or a read-write transaction.
+/// Only a read whose stream reached `LAST` is an answer: read one to its end, or cancel it, before waiting on a later read
+/// behind a write, since that write waits for the open read's `LAST` and only this client's Credit drains it, and read one
+/// to its end before a Commit or an Abort, which ends the reads still open (`PROTOCOL.md` §11.2). A read refused after rows
+/// has given no answer, whatever batches it handed over, and nothing of it is resent.
+///
+/// A session has one request counter, for commits, drops and one-frame writes alike. A request whose frame never left on
+/// any connection is lost ([`ClientError::connection_lost`]); once it left, or when answered code 17, it is in doubt
+/// ([`ClientError::in_doubt`]) until a resend through the session, with the same number, says what became of it. A request
+/// through no session has no resend: its lost reply or its code 17 is an unknown outcome
+/// ([`ClientError::outcome_unknown`]).
+///
+/// The core is the client's data plane: it holds no thread and no lock, and every queue it keeps is bounded by what the
+/// Welcome allows, the streams and their credit, so a caller that stops reading stops the server.
 pub struct ClientCore<L: Login> {
     config: ClientConfig,
     login: L,
@@ -71,6 +94,7 @@ pub struct ClientCore<L: Login> {
 
 impl<L: Login> ClientCore<L> {
     /// A client configured by `config`, authenticating through `login`, not connected.
+    #[must_use]
     pub fn new(config: ClientConfig, login: L) -> Self {
         Self {
             config,
@@ -98,6 +122,7 @@ impl<L: Login> ClientCore<L> {
     }
 
     /// The configuration the client was made with.
+    #[must_use]
     pub fn config(&self) -> &ClientConfig {
         &self.config
     }
@@ -126,18 +151,21 @@ impl<L: Login> ClientCore<L> {
 
     /// The principal the connection acts for, once authenticated; `None` before, and for a connection to a server
     /// asking for no authentication.
+    #[must_use]
     pub fn principal(&self) -> Option<u64> {
         self.principal
     }
 
     /// When the connection's credential expires, microseconds of Unix time, as the server's final Authenticate
     /// stated; `None` for a credential that never expires, or before one.
+    #[must_use]
     pub fn expires(&self) -> Option<u64> {
         (self.expires != 0).then_some(self.expires)
     }
 
     /// The server's Welcome, once it arrived: through the Authenticate exchange and after it. A shell's framer
     /// reads every later frame at its `protocol`.
+    #[must_use]
     pub fn welcome(&self) -> Option<&Welcome> {
         match &self.link {
             Link::Authenticating(welcome, _) | Link::Up(welcome) => Some(welcome),
@@ -146,11 +174,13 @@ impl<L: Login> ClientCore<L> {
     }
 
     /// Whether the connection is welcomed, so requests can be sent.
+    #[must_use]
     pub fn is_ready(&self) -> bool {
         matches!(self.link, Link::Up(_))
     }
 
     /// Whether a connection is open or being opened.
+    #[must_use]
     pub fn is_connected(&self) -> bool {
         !matches!(self.link, Link::Down)
     }
@@ -158,11 +188,13 @@ impl<L: Login> ClientCore<L> {
     /// Whether the last connection was lost before its handshake ended: a server that accepts connections and fails
     /// their handshakes. The shell waits [`ClientConfig::retry_delay`] before connecting again, as after a connection
     /// it could not make, so the retries of a commit waiting yield and an outer timeout can end them.
+    #[must_use]
     pub fn handshake_lost(&self) -> bool {
         self.handshake_lost
     }
 
     /// Whether the shell connects now: a commit waits to be sent again on a new connection.
+    #[must_use]
     pub fn needs_connection(&self) -> bool {
         matches!(self.link, Link::Down)
             && self
@@ -172,10 +204,12 @@ impl<L: Login> ClientCore<L> {
     }
 
     /// The next frame to write, whole, numbered as it leaves: the connection's next sequence.
+    #[must_use]
     pub fn transmit(&mut self) -> Option<Vec<u8>> {
         let mut frame = self.outbox.pop_front()?;
         self.sent = self.sent.saturating_add(1);
-        // Every frame the core queues was built whole, header first, so the stamp holds.
+        // Exception (Ultra rule 7): a stamp fails only for a frame shorter than its header, and every frame the core
+        // queues was built whole, header first, so no error is dropped here that can occur.
         Header::stamp_sequence(&mut frame, self.sent).ok()?;
         Some(frame)
     }
@@ -190,12 +224,12 @@ impl<L: Login> ClientCore<L> {
         self.lose(&ClientError::connection_lost(cause));
     }
 
-    /// The shell's attempt to open a connection failed while a commit waits to be sent again: the attempt counts as
-    /// one of the commit's [`ClientConfig::commit_attempts`], as a send lost with its connection does, so an
-    /// unreachable server ends the retries. A commit whose attempts are spent answers
-    /// [`ClientError::retries_exhausted`] and its session is in doubt until [`ClientCore::resolve`]. The shell waits
-    /// [`ClientConfig::retry_delay`] before its next attempt.
-    pub fn connect_failed(&mut self) {
+    /// The shell's attempt to open a connection failed with `cause` while a commit waits to be sent again: the attempt
+    /// counts as one of the commit's [`ClientConfig::commit_attempts`], as a send lost with its connection does, so an
+    /// unreachable server ends the retries. A commit whose attempts are spent answers [`ClientError::in_doubt`], `cause`
+    /// its cause, and its session is in doubt until [`ClientCore::resolve`]. The shell waits [`ClientConfig::retry_delay`]
+    /// before its next attempt.
+    pub fn connect_failed(&mut self, cause: &ClientError) {
         if !matches!(self.link, Link::Down) {
             return;
         }
@@ -205,44 +239,51 @@ impl<L: Login> ClientCore<L> {
             .values_mut()
             .filter(|p| p.outcome.is_none() && p.stream.is_none() && p.resend_at.is_none())
         {
-            let Some((session, request)) = pending.commit() else {
+            let Some(request) = pending.commit() else {
                 continue;
             };
-            pending.tries += 1;
+            pending.tries = pending.tries.saturating_add(1);
             if pending.tries >= attempts {
-                pending.outcome = Some(Err(ClientError::retries_exhausted(
-                    session,
-                    request,
-                    pending.tries,
-                )));
-                if let Some(state) = self.sessions.get_mut(&session) {
-                    state.in_flight = false;
-                    state.in_doubt = Some(request);
-                }
+                let state = self.sessions.get_mut(&request.0);
+                pending.mark_in_doubt(request, state, Some(cause.clone()));
             }
         }
     }
 
-    /// Whether the core waits for the server: a handshake, an Authenticate exchange, a request's reply, or a result's
-    /// next frame.
+    /// Whether the core waits for the server, a read apart: a handshake, an Authenticate exchange or a request's reply.
     fn awaiting(&self) -> bool {
         matches!(self.link, Link::Handshake(_) | Link::Authenticating(..))
             || self.renewal.is_some()
-            || (self.is_ready()
-                && (self.pending.values().any(PendingState::in_flight)
-                    || self
-                        .streams
-                        .values()
-                        .any(|s| s.results && s.inbox.is_empty())))
+            || (self.is_ready() && self.pending.values().any(PendingState::in_flight))
     }
 
-    /// When the shell calls [`ClientCore::handle_timeout`] at the latest: the timeout of what the core waits for, a
-    /// busy commit's next send, or the credential's renewal; `None` when nothing is awaited or due.
-    pub fn next_deadline(&self) -> Option<Instant> {
-        let timeout = self
-            .last_progress
+    /// When the first read waiting on the server times out: from the later of its last progress and its transaction's
+    /// deadline, since its silence within the deadline is a wait for a close, by at least [`READ_TIMEOUT_MIN`]. A read
+    /// with a frame to read or no credit left waits on its caller, and runs no timeout.
+    fn read_timeout(&self) -> Option<Instant> {
+        let timeout = self.config.timeout().max(READ_TIMEOUT_MIN);
+        self.streams
+            .values()
+            .filter(|s| s.results && s.inbox.is_empty() && s.credit > 0 && !s.with_caller)
+            .filter_map(|s| {
+                let from = [s.progress, s.deadline].into_iter().flatten().max()?;
+                from.checked_add(timeout)
+            })
+            .min()
+    }
+
+    /// When what the core waits for times out; a timeout past what an `Instant` holds never does.
+    fn wait_timeout(&self) -> Option<Instant> {
+        self.last_progress
             .filter(|_| self.awaiting())
-            .map(|at| at + self.config.timeout());
+            .and_then(|at| at.checked_add(self.config.timeout()))
+    }
+
+    /// When the shell calls [`ClientCore::handle_timeout`] at the latest: the timeout of what the core waits for or of a
+    /// read waiting on the server, a busy commit's next send, or the credential's renewal; `None` when nothing is awaited
+    /// or due.
+    #[must_use]
+    pub fn next_deadline(&self) -> Option<Instant> {
         let resend = self
             .pending
             .values()
@@ -253,7 +294,10 @@ impl<L: Login> ClientCore<L> {
         let renew = self
             .renew_at
             .filter(|_| self.is_ready() && self.renewal.is_none());
-        [timeout, resend, renew].into_iter().flatten().min()
+        [self.wait_timeout(), self.read_timeout(), resend, renew]
+            .into_iter()
+            .flatten()
+            .min()
     }
 
     /// The time is `now`: a busy commit due is sent again, a credential due for renewal is renewed by a new exchange
@@ -274,11 +318,11 @@ impl<L: Login> ClientCore<L> {
                 self.renew(now);
             }
         }
-        if self.awaiting()
-            && self
-                .last_progress
-                .is_some_and(|at| now >= at + self.config.timeout())
-        {
+        let timed_out = [self.wait_timeout(), self.read_timeout()]
+            .into_iter()
+            .flatten()
+            .any(|at| at <= now);
+        if timed_out {
             self.lose(&ClientError::timed_out());
         }
     }
@@ -303,11 +347,14 @@ impl<L: Login> ClientCore<L> {
     /// the configured margin before it, at most half its remaining life.
     fn schedule_renewal(&mut self, expires: u64, now: Instant) {
         self.expires = expires;
-        self.renew_at = (expires != 0).then(|| {
-            let remaining = Duration::from_micros(expires.saturating_sub(self.unix_at(now)));
-            let lead = self.config.renewal_margin().min(remaining / 2);
-            now + (remaining - lead)
-        });
+        self.renew_at = (expires != 0)
+            .then(|| {
+                let remaining = Duration::from_micros(expires.saturating_sub(self.unix_at(now)));
+                let lead = self.config.renewal_margin().min(remaining / 2);
+                // An expiry past what an `Instant` holds never falls due.
+                now.checked_add(remaining - lead)
+            })
+            .flatten();
     }
 
     /// The wall clock at `now`, microseconds of Unix time, from the clocks the connection was opened at.
@@ -333,33 +380,29 @@ impl<L: Login> ClientCore<L> {
             .with_protocol(welcome.protocol());
         let frame = body.frame(header).map_err(ClientError::request)?;
         if frame.len() > welcome.max_frame() as usize {
-            return Err(ClientError::request(
-                ultragraphdb_error_protocol::ProtocolError::frame_too_large(
-                    frame.len(),
-                    welcome.max_frame() as usize,
-                ),
-            ));
+            return Err(ClientError::request(ProtocolError::frame_too_large(
+                frame.len(),
+                welcome.max_frame() as usize,
+            )));
         }
         Ok(frame)
     }
 
     /// Closes the connection on the client's side, and the shell shuts it down: requests waiting and reads not yet
-    /// ended fail with [`ClientError::connection_lost`], no cause, and a commit not yet answered is in doubt ([`ClientError::in_doubt`]), its
-    /// session resolved before it commits again.
+    /// ended fail with [`ClientError::connection_lost`], no cause, a commit whose frame never left among them, and a commit
+    /// whose frame left is in doubt ([`ClientError::in_doubt`]), its session resolved before it commits again.
     pub fn close(&mut self) {
         self.lose(&ClientError::connection_lost(None));
         for pending in self.pending.values_mut().filter(|p| p.outcome.is_none()) {
-            if let Some((session, request)) = pending.commit() {
-                pending.outcome = Some(Err(ClientError::in_doubt(session, request)));
-                if let Some(state) = self.sessions.get_mut(&session) {
-                    state.in_flight = false;
-                    state.in_doubt = Some(request);
-                }
+            if let Some(request) = pending.commit() {
+                let state = self.sessions.get_mut(&request.0);
+                pending.mark_in_doubt(request, state, None);
             }
         }
     }
 
     /// The answer of `pending`, once arrived, given once.
+    #[must_use]
     pub fn take_reply(&mut self, pending: Pending) -> Option<Result<Reply, ClientError>> {
         let arrived = self
             .pending
@@ -372,31 +415,62 @@ impl<L: Login> ClientCore<L> {
         }
     }
 
-    /// A session the application kept from an earlier client, identified by `number`, its next commit `next_request`, at
-    /// least 1: a request numbered 0 through a session is a frame the server refuses (`PROTOCOL.md` §6.3).
-    pub fn resume_session(&mut self, number: u128, next_request: u64) -> Session {
-        let _replaced: Option<SessionState> = self.sessions.insert(
-            number,
-            SessionState {
-                next_request,
-                in_flight: false,
-                in_doubt: None,
-            },
-        );
-        Session::new(number)
+    /// A session the application kept from an earlier client, identified by `number`, its next request `next_request`.
+    /// Refused as [`ClientError::request`] for a session of `number` 0, which names none, or a request of 0, which a session
+    /// cannot send (`PROTOCOL.md` §6.3), and for a session this client holds with a request in flight or in doubt, which
+    /// the number would overwrite. A stale number is accepted here: a partition refuses it with code 13, and the session's
+    /// counter moves above that refusal's `detail`.
+    pub fn resume_session(
+        &mut self,
+        number: u128,
+        next_request: u64,
+    ) -> Result<Session, ClientError> {
+        let commit = Command::Commit.number();
+        if number == 0 {
+            return Err(ClientError::request(ProtocolError::field_value(
+                commit, "session", 0,
+            )));
+        }
+        if next_request == 0 {
+            return Err(ClientError::request(ProtocolError::field_value(
+                commit, "request", 0,
+            )));
+        }
+        if let Some(held) = self.sessions.get(&number) {
+            if let Some((request, _)) = &held.in_doubt {
+                return Err(ClientError::in_doubt(number, *request, None));
+            }
+            if held.in_flight {
+                return Err(ClientError::session_busy(number));
+            }
+        }
+        let state = self
+            .sessions
+            .entry(number)
+            .or_insert_with(|| SessionState::new(next_request));
+        state.next_request = next_request;
+        Ok(Session::new(number))
+    }
+
+    /// The token of the highest epoch among `session`'s commits, one-frame writes and resolved resends; `None` for a
+    /// session the client does not hold, or one no reply has given a token.
+    #[must_use]
+    pub fn session_token(&self, session: Session) -> Option<&SessionToken> {
+        self.sessions.get(&session.number())?.token.as_ref()
     }
 
     /// The request number `session`'s next commit carries; `None` for a session the client does not hold.
+    #[must_use]
     pub fn next_request(&self, session: Session) -> Option<u64> {
         self.sessions.get(&session.number()).map(|s| s.next_request)
     }
 
-    /// The connection is gone: streams and queued frames with it; each request waiting fails with `reason`, and
-    /// each commit is retried on the next connection while it has attempts left, else it is in doubt. A commit uses an
-    /// attempt only when its frame left on the connection lost; one still queued, or waiting for a connection or out a
-    /// busy answer's delay, keeps its attempts. A read whose last frame had arrived is kept, to be read to its end; any
-    /// other read is cut short and answers `reason`, its transaction aborted with its connection (`PROTOCOL.md`
-    /// §11.4), so nothing of it is retried.
+    /// The connection is gone: streams and queued frames with it; each request waiting fails with `reason`. A commit whose
+    /// frame never left on any connection fails as lost; one through no session whose frame left has an unknown outcome; any
+    /// other is retried on the next connection while it has attempts left, else it is in doubt, an attempt being used only
+    /// when its frame left on the connection lost. A read whose last frame had arrived is kept, to be read to its end; any
+    /// other read is cut short and answers `reason`, its transaction aborted with its connection (`PROTOCOL.md` §11.4), so
+    /// nothing of it is retried.
     fn lose(&mut self, reason: &ClientError) {
         self.handshake_lost = matches!(self.link, Link::Handshake(_) | Link::Authenticating(..));
         self.link = Link::Down;
@@ -409,10 +483,7 @@ impl<L: Login> ClientCore<L> {
             if !state.results {
                 continue;
             }
-            let ended = state.inbox.back().is_some_and(|frame| {
-                HeaderView::new(frame.bytes()).is_ok_and(|h| h.flags() & FLAG_LAST != 0)
-            });
-            if ended {
+            if state.ended() {
                 let _replaced: Option<VecDeque<ReceivedFrame>> =
                     self.kept_reads.insert((generation, id), state.inbox);
             } else {
@@ -422,36 +493,34 @@ impl<L: Login> ClientCore<L> {
         }
         self.outbox.clear();
         let attempts = self.config.commit_attempts();
+        let sent_frames = self.sent;
         for pending in self.pending.values_mut().filter(|p| p.outcome.is_none()) {
-            match pending.commit() {
-                None => {
-                    if pending.stream.is_some() {
-                        pending.outcome = Some(Err(reason.clone()));
-                    }
+            let Some(request) = pending.commit() else {
+                if pending.stream.is_some() {
+                    pending.outcome = Some(Err(reason.clone()));
                 }
-                Some((session, request)) => {
-                    let sent = pending.stream.is_some()
-                        && pending
-                            .sequence
-                            .is_some_and(|sequence| sequence <= self.sent);
-                    pending.stream = None;
-                    pending.sequence = None;
-                    pending.resend_at = None;
-                    if !sent {
-                        continue;
-                    }
-                    pending.tries += 1;
-                    if pending.tries >= attempts {
-                        pending.outcome = Some(Err(ClientError::retries_exhausted(
-                            session,
-                            request,
-                            pending.tries,
-                        )));
-                        if let Some(state) = self.sessions.get_mut(&session) {
-                            state.in_flight = false;
-                            state.in_doubt = Some(request);
-                        }
-                    }
+                continue;
+            };
+            let sent = pending.stream.is_some()
+                && pending
+                    .sequence
+                    .is_some_and(|sequence| sequence <= sent_frames);
+            pending.stream = None;
+            pending.sequence = None;
+            pending.resend_at = None;
+            pending.ever_sent |= sent;
+            let state = self.sessions.get_mut(&request.0);
+            if !pending.ever_sent {
+                pending.outcome = Some(Err(as_lost(reason)));
+                if let Some(state) = state {
+                    state.in_flight = false;
+                }
+            } else if request.0 == 0 {
+                pending.outcome = Some(Err(ClientError::outcome_unknown(request.0, request.1)));
+            } else if sent {
+                pending.tries = pending.tries.saturating_add(1);
+                if pending.tries >= attempts {
+                    pending.mark_in_doubt(request, state, Some(reason.clone()));
                 }
             }
         }
@@ -468,12 +537,10 @@ impl<L: Login> ClientCore<L> {
             .with_stream(stream);
         let frame = body.frame(header).map_err(ClientError::request)?;
         if frame.len() > welcome.max_frame() as usize {
-            return Err(ClientError::request(
-                ultragraphdb_error_protocol::ProtocolError::frame_too_large(
-                    frame.len(),
-                    welcome.max_frame() as usize,
-                ),
-            ));
+            return Err(ClientError::request(ProtocolError::frame_too_large(
+                frame.len(),
+                welcome.max_frame() as usize,
+            )));
         }
         Ok(frame)
     }
@@ -487,6 +554,10 @@ impl<L: Login> ClientCore<L> {
             return Err(ClientError::stream_limit(welcome.max_streams()));
         }
         let stream = self.next_stream;
+        debug_assert!(
+            !self.streams.contains_key(&stream),
+            "a number is never reused"
+        );
         self.next_stream += 1;
         let _replaced: Option<StreamState> = self.streams.insert(stream, StreamState::default());
         Ok(stream)
@@ -512,25 +583,42 @@ impl<L: Login> ClientCore<L> {
         Pending::new(id)
     }
 
+    /// The frame sending commit `id` again on `stream`: a Commit naming its session and request, or the Drop or one-frame
+    /// write as its first frame held it.
+    fn resend_frame(&self, id: u64, stream: u64) -> Result<Vec<u8>, ClientError> {
+        let Some(pending) = self.pending.get(&id) else {
+            return Err(ClientError::stream_finished(stream));
+        };
+        match (&pending.resend, pending.commit()) {
+            (Resend::Drop(command), _) => self.frame(command.as_ref(), stream),
+            (Resend::Direct(write), _) => self.frame(write.as_ref(), stream),
+            (Resend::Conditional(write), _) => self.frame(write.as_ref(), stream),
+            (Resend::Commit, commit) => {
+                let (session, request) = commit.unwrap_or((0, 0));
+                self.frame(&Commit::new(session.to_be_bytes(), request, 0), stream)
+            }
+        }
+    }
+
     /// Sends commit `id` again, through its session with its request number, on a stream of its own: the retry the
     /// server answers from its session table if the commit was applied.
     fn send_commit(&mut self, id: u64, now: Instant) {
-        let Some((session, request)) = self.pending.get(&id).and_then(PendingState::commit) else {
+        let Some(request) = self.pending.get(&id).and_then(PendingState::commit) else {
             return;
         };
-        let drop = self.pending.get(&id).and_then(|p| p.drop.clone());
-        let sent = self.open_stream().and_then(|stream| {
-            match &drop {
-                Some(command) => self.frame(command, stream),
-                None => self.frame(&Commit::new(session.to_be_bytes(), request, 0), stream),
+        let opened = self.open_stream();
+        let framed = opened.and_then(|stream| {
+            let frame = self.resend_frame(id, stream);
+            if frame.is_err() {
+                let _ended: Option<StreamState> = self.streams.remove(&stream);
             }
-            .map(|frame| (stream, frame))
+            frame.map(|frame| (stream, frame))
         });
         let sequence = self.next_sequence();
         let Some(pending) = self.pending.get_mut(&id) else {
             return;
         };
-        match sent {
+        match framed {
             Ok((stream, frame)) => {
                 pending.stream = Some(stream);
                 pending.sequence = Some(sequence);
@@ -542,14 +630,11 @@ impl<L: Login> ClientCore<L> {
                 self.outbox.push_back(frame);
                 self.last_progress = Some(now);
             }
-            Err(_) => {
+            Err(cause) => {
                 // A retry or a resolve: the commit was sent before and may have been applied, so it is in doubt, the
                 // caller resolves it, and the session's next commit does not reuse its request number.
-                pending.outcome = Some(Err(ClientError::in_doubt(session, request)));
-                if let Some(state) = self.sessions.get_mut(&session) {
-                    state.in_flight = false;
-                    state.in_doubt = Some(request);
-                }
+                let state = self.sessions.get_mut(&request.0);
+                pending.mark_in_doubt(request, state, Some(cause));
             }
         }
     }
@@ -575,5 +660,15 @@ impl<L: Login> ClientCore<L> {
         for id in waiting {
             self.send_commit(id, now);
         }
+    }
+}
+
+/// `reason` as a request lost with its connection answers it: [`ClientError::connection_lost`], whatever gave it up its
+/// cause.
+fn as_lost(reason: &ClientError) -> ClientError {
+    if matches!(reason.0, ClientErrorEnum::ConnectionLost { .. }) {
+        reason.clone()
+    } else {
+        ClientError::connection_lost(Some(reason.clone()))
     }
 }

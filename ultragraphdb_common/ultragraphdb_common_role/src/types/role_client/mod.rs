@@ -3,6 +3,9 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+mod role_client_split;
+
+pub use role_client_split::{RoleReader, RoleWriter};
 use ultragraphdb_protocol_scram::{ScramClient, system_nonce};
 use ultragraphdb_protocol_transport::{
     Address, AuthenticationStep, BufferPool, ClientAuthentication, Framer, ReceivedFrame,

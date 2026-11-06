@@ -53,12 +53,13 @@ impl PartitionCore<'_> {
                 let _parked = self.parked.remove(&key);
                 self.cancel_scan(key);
             }
+            CoreMessage::Catalog(contents) => self.install(contents),
             CoreMessage::Ready { connection, stream } => self.scan_room((connection, stream)),
             CoreMessage::Left { connection, stream } => self.scan_left((connection, stream)),
             CoreMessage::Closed { connection } => {
                 self.host.abort_connection(connection);
                 self.bound_tenant.retain(|(of, _), _| *of != connection);
-                self.drop_streams.retain(|(of, _)| *of != connection);
+                self.drop_streams.retain(|(of, _), _| *of != connection);
                 self.parked.retain(|(of, _), _| *of != connection);
                 self.close_scans(connection);
             }
@@ -98,6 +99,10 @@ impl PartitionCore<'_> {
             self.write(key, frame, done);
         } else if is_operation {
             self.operate(key, frame, done);
+        } else if command == Command::DirectWrite.number()
+            || command == Command::ConditionalWrite.number()
+        {
+            self.one_frame(key, frame, done, pushes);
         } else {
             let answered = self.answer(key, &frame, &pushes, max_frame);
             // An asker gone has no one to tell.
@@ -251,6 +256,16 @@ impl PartitionCore<'_> {
                 })
             }
             ParkedWork::Operation => Ok(()),
+            ParkedWork::OneFrame { at, pushes } => {
+                let resumed = Parked {
+                    frame,
+                    done,
+                    tenant,
+                    work: ParkedWork::Operation,
+                };
+                self.resume_one_frame(key, resumed, at, pushes);
+                return;
+            }
         };
         let reply = match answer {
             Ok(()) => self.held(key.1),
@@ -283,7 +298,7 @@ impl PartitionCore<'_> {
         } else if command == Command::Abort {
             self.abort(key)
         } else if command == Command::Drop {
-            self.drop_on(key)
+            self.drop_on(key, &view, pushes)
         } else if command == Command::Reference {
             self.reference(key, &view, pushes)
         } else if command == Command::Scan {
@@ -319,8 +334,19 @@ impl PartitionCore<'_> {
             ));
         }
         let header = Header::new(self.cluster, Command::Bind).with_stream(key.1);
+        if !self.tenants.contains(&bind.tenant()) {
+            return Err(ErrorReply::new(
+                ErrorCode::Protocol,
+                format!(
+                    "this partition's placement map lists no run for tenant {}",
+                    bind.tenant()
+                ),
+            ));
+        }
         if bind.kind() == BindKind::Drop {
-            let _new = self.drop_streams.insert(key);
+            let _new = self
+                .drop_streams
+                .insert(key, (bind.tenant(), bind.principal()));
             let reply = bind.to_body().map_err(|rule| ErrorReply::protocol(&rule))?;
             return built(&reply, header);
         }
@@ -354,13 +380,15 @@ impl PartitionCore<'_> {
         Ok(Answer::Done)
     }
 
-    /// A Drop on `key`: on a stream a Bind of kind 1 opened it ends that transaction, and hosting one is the endpoint's task.
-    fn drop_on(&mut self, key: BoundKey) -> Result<Answer, ErrorReply> {
-        if self.drop_streams.remove(&key) {
-            return Err(ErrorReply::new(
-                ErrorCode::Unavailable,
-                "a Drop is not hosted here yet",
-            ));
+    /// A Drop on `key`: on a stream a Bind of kind 2 opened it runs; on one a Bind of kind 1 opened it ends that transaction.
+    fn drop_on(
+        &mut self,
+        key: BoundKey,
+        view: &FrameView<'_>,
+        pushes: &Pushes,
+    ) -> Result<Answer, ErrorReply> {
+        if let Some(bound) = self.drop_streams.remove(&key) {
+            return self.drop_bound(key, bound, view, pushes);
         }
         self.host.abort_bound(key);
         let _ended = self.bound_tenant.remove(&key);
@@ -389,6 +417,8 @@ impl PartitionCore<'_> {
                 session,
                 request: commit.request(),
                 pushes: pushes.clone(),
+                retry: None,
+                dropped: None,
             },
         );
         Ok(Answer::Open)

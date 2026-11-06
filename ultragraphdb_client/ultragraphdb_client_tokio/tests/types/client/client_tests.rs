@@ -279,7 +279,7 @@ fn test_the_tcp_clients_futures_are_send() -> TestResult {
         2,
     );
     let tx = unreachable_transaction()?;
-    let session = client.resume_session(1, 1);
+    let session = client.resume_session(1, 1)?;
     send(&client.register());
     send(&client.commit(tx, session));
     send(&client.next_batch(&result_stream()?, |v| v.rows()));

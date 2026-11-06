@@ -4,23 +4,26 @@
  */
 
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::time::Duration;
 
 use compio::runtime::spawn;
 use ultragraphdb_cluster_metadata::MetadataConfig;
 use ultragraphdb_cluster_sequencer::SequencerConfig;
 use ultragraphdb_common_frontend::{
-    AskedCredentials, ClientSession, OwnerHandle, OwnerStart, RoleSession, RoleShared, start_owner,
+    AskedCredentials, ClientSession, EndpointCore, EndpointLimits, EveryAuthenticated, OwnerStart,
+    RoleLinks, RoleSession, RoleShared, TenantGate, start_owner,
 };
 use ultragraphdb_common_role::{
-    OpenRequests, ROLE_ITERATIONS, RoleCluster, RoleCredentials, Server, finish_open, listen,
-    serve_connection,
+    ConnectionBound, OpenRequests, ROLE_ITERATIONS, RoleCluster, RoleCredentials, Server,
+    finish_open, listen, serve_connection,
 };
 use ultragraphdb_common_service::{Readiness, RoleStart, Stopping};
-use ultragraphdb_common_service_config::{EndpointSecurity, ServiceConfig};
+use ultragraphdb_common_service_config::{EndpointSecurity, EndpointTable, ServiceConfig};
 use ultragraphdb_error_role::RoleError;
-use ultragraphdb_protocol_transport::Endpoint;
-use ultragraphdb_protocol_transport_compio::Listener;
+use ultragraphdb_protocol_transport::{AUTHENTICATION_TIMEOUT, Endpoint};
+use ultragraphdb_protocol_transport_compio::{CompioTlsStream, Listener};
+use ultragraphdb_transport_tls::{CertificateChainFile, PrivateKeyFile, TlsAcceptor};
 
 /// How often the role looks at whether its owner stopped or the service was told to.
 const OWNER_POLL: Duration = Duration::from_millis(20);
@@ -28,15 +31,22 @@ const OWNER_POLL: Duration = Duration::from_millis(20);
 /// How long a stop waits on the open requests: within the 60 s a stopping role has, so a peer reading no answer costs no failure.
 const FINISH_LIMIT: Duration = Duration::from_secs(50);
 
+/// How long a compute process goes unanswering before the frontend takes it for hung, when `[storage] scan_stall_ms` does not say
+/// (`PROTOCOL.md` §11.9).
+const SCAN_STALL_MS_DEFAULT: u64 = 30_000;
+
+/// The connections the endpoint holds when `[endpoint] connections_max` does not say (`PROTOCOL.md` §11.9).
+const CONNECTIONS_MAX_DEFAULT: u32 = 4_096;
+
 /// The frontend role: it recovers its owner, then listens at `[frontend] role_address` for the roles joining and at
-/// `[endpoint] address`, when set, for clients. It is ready once it has connected back to a partition, and runs until
-/// its owner stops or the service does, when it stops accepting connections and finishes its open requests.
+/// `[endpoint] address`, when set, for clients, over TLS 1.3 or clear text as the table says. It is ready once it has connected
+/// back to a partition, and runs until its owner stops or the service does, when it stops accepting connections and finishes its
+/// open requests.
 ///
 /// # Errors
 ///
-/// [`RoleError::configuration`] for a setting absent or out of its bounds, a refused role secret, or a client endpoint
-/// asking for TLS, which this build's endpoint does not terminate; [`RoleError::unavailable`] when it cannot listen;
-/// what recovery refused or the owner stopped with.
+/// [`RoleError::configuration`] for a setting absent or out of its bounds, a refused role secret, or a client endpoint deciding
+/// neither TLS nor clear text; [`RoleError::unavailable`] when it cannot listen; what recovery refused or the owner stopped with.
 pub(crate) async fn frontend_role(
     start: RoleStart,
     readiness: Readiness,
@@ -56,12 +66,17 @@ pub(crate) async fn frontend_role(
         Vec::new(),
     )
     .await?;
+    let unknown_secret = owner.unknown_secret();
     let (handle, mut stopped) = owner.into_parts();
     let open = OpenRequests::new(stopping.clone());
     let roles = Server::new(cluster.id(), "frontend", Endpoint::Frontend)?
         .with_iterations(ROLE_ITERATIONS)
         .with_open(open.clone());
-    let shared = RoleShared::new(cluster.clone(), handle.clone(), readiness);
+    let links = RoleLinks::new(cluster.clone(), "frontend".to_string());
+    if let Some(map) = handle.map().await {
+        links.set_map(map);
+    }
+    let shared = RoleShared::new(cluster.clone(), handle.clone(), links.clone(), readiness);
     let mut accepting = vec![spawn(accept_roles(
         listen(role_address).await?,
         roles,
@@ -69,25 +84,20 @@ pub(crate) async fn frontend_role(
         shared,
     ))];
     if let Some(address) = config.endpoint().address() {
-        match config
+        let security = config
             .endpoint()
             .security()
-            .map_err(|error| RoleError::configuration(error.to_string()))?
-        {
-            EndpointSecurity::Plaintext => {}
-            EndpointSecurity::Tls { .. } => {
-                return Err(RoleError::configuration(
-                    "the client endpoint serves clear text in this build; endpoint.plaintext must be true",
-                ));
-            }
-        }
-        let clients =
-            Server::new(cluster.id(), "frontend", Endpoint::Client)?.with_open(open.clone());
-        accepting.push(spawn(accept_clients(
-            listen(address).await?,
-            clients,
+            .map_err(|error| RoleError::configuration(error.to_string()))?;
+        let core = EndpointCore::new(
             handle,
-        )));
+            links,
+            TenantGate::new(EveryAuthenticated),
+            endpoint_limits(config),
+        );
+        let clients =
+            client_server(cluster.id(), config.endpoint(), unknown_secret)?.with_open(open.clone());
+        let listener = listen(address).await?;
+        accepting.push(spawn(accept_clients(listener, clients, core, security)));
     }
     // What the owner made durable it answered for, so a stop leaves nothing to flush but the answers on their way.
     while !stopping.is_stopping() {
@@ -103,6 +113,38 @@ pub(crate) async fn frontend_role(
     }
     let _left = finish_open(accepting, &open, FINISH_LIMIT).await;
     Ok(())
+}
+
+/// What bounds a client connection, as the settings say.
+fn endpoint_limits(config: &ServiceConfig) -> EndpointLimits {
+    let held = config
+        .endpoint()
+        .held_bytes()
+        .unwrap_or(EndpointTable::HELD_BYTES_DEFAULT);
+    let stall = config
+        .storage()
+        .scan_stall_ms()
+        .unwrap_or(SCAN_STALL_MS_DEFAULT);
+    let limits = EndpointLimits::new(held, Duration::from_millis(stall));
+    match config.endpoint().refusal_interval_ms() {
+        Some(interval) => limits.with_refusal_interval(Duration::from_millis(interval)),
+        None => limits,
+    }
+}
+
+/// The server clients connect to, answering unknown names from the secret the metadata group holds, and past its bound of connections
+/// with the limit error.
+fn client_server(
+    cluster: u64,
+    endpoint: &EndpointTable,
+    unknown_secret: [u8; 32],
+) -> Result<Server, RoleError> {
+    let bound = endpoint
+        .connections_max()
+        .unwrap_or(CONNECTIONS_MAX_DEFAULT);
+    Ok(Server::new(cluster, "frontend", Endpoint::Client)?
+        .with_unknown_secret(unknown_secret)
+        .with_bound(ConnectionBound::new(u64::from(bound))))
 }
 
 fn required<'a>(value: Option<&'a str>, setting: &str) -> Result<&'a str, RoleError> {
@@ -145,7 +187,11 @@ fn owner_start(config: &ServiceConfig) -> Result<OwnerStart, RoleError> {
             .with_snapshot_rounds(rounds)
             .map_err(|error| refused(&error))?;
     }
-    Ok(OwnerStart::new(metadata, sequencer, partition_count))
+    let owner = OwnerStart::new(metadata, sequencer, partition_count);
+    Ok(match table.bootstrap_secret_file() {
+        Some(file) => owner.with_bootstrap_file(file),
+        None => owner,
+    })
 }
 
 async fn accept_roles(
@@ -169,15 +215,63 @@ async fn accept_roles(
     }
 }
 
-async fn accept_clients(listener: Listener, server: Server, owner: OwnerHandle) {
+async fn accept_clients(
+    listener: Listener,
+    server: Server,
+    core: EndpointCore<EveryAuthenticated>,
+    security: EndpointSecurity,
+) {
+    let acceptor = match &security {
+        EndpointSecurity::Plaintext => None,
+        EndpointSecurity::Tls {
+            cert_file,
+            key_file,
+        } => {
+            let chain = CertificateChainFile::new(cert_file);
+            let key = PrivateKeyFile::new(key_file);
+            match TlsAcceptor::from_pem_files(&chain, &key) {
+                Ok(acceptor) => Some(Rc::new(acceptor)),
+                Err(error) => {
+                    tracing::error!(%error, "the endpoint's certificate could not be read");
+                    return;
+                }
+            }
+        }
+    };
     loop {
         match listener.accept().await {
             Ok(carrier) => {
                 let server = server.clone();
                 let credentials = AskedCredentials::default();
-                let session = ClientSession::new(owner.clone(), credentials.clone());
+                let session =
+                    ClientSession::new(core.clone(), credentials.clone(), carrier.peer_ip());
+                let acceptor = acceptor.clone();
                 spawn(async move {
-                    serve_connection(carrier, &server, credentials, session).await;
+                    let Some(acceptor) = acceptor else {
+                        return serve_connection(carrier, &server, credentials, session).await;
+                    };
+                    // A handshake counts against the bound and ends by the authentication timeout, as an unauthenticated
+                    // connection does (`PROTOCOL.md` §11.9): a peer that sends nothing holds no descriptor past it.
+                    let handshaking = server.bound().map(ConnectionBound::enter);
+                    if handshaking.as_ref().is_some_and(|held| !held.within()) {
+                        return tracing::debug!(
+                            "a TLS handshake past the connection bound was dropped"
+                        );
+                    }
+                    let accepted = compio::time::timeout(
+                        AUTHENTICATION_TIMEOUT,
+                        CompioTlsStream::accept(&acceptor, carrier),
+                    )
+                    .await;
+                    drop(handshaking);
+                    match accepted {
+                        Ok(Ok(stream)) => {
+                            serve_connection(stream, &server, credentials, session).await;
+                        }
+                        // A clear-text Hello reaching this endpoint fails here, and no frame is read.
+                        Ok(Err(error)) => tracing::debug!(%error, "a TLS handshake failed"),
+                        Err(_) => tracing::debug!("a TLS handshake did not end in time"),
+                    }
                 })
                 .detach();
             }

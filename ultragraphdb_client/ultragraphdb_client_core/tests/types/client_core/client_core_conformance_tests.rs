@@ -14,6 +14,7 @@ use ultragraphdb_client_core::{
     BatchPoll, ClientConfig, ClientCore, ClientError, ClientErrorEnum, Pending, Reply,
     ResultStream, Transaction,
 };
+use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::{
     Anonymous, BufferPool, Framer, ReceivedFrame, TransportError, TransportErrorEnum,
 };
@@ -24,8 +25,8 @@ use ultragraphdb_protocol_wire::{
 };
 
 use crate::utils::harness::{
-    CLUSTER, Harness, UNIX, begun, committed, described, frame_through, prepared, registered,
-    server, start,
+    CLUSTER, Harness, UNIX, begun, committed, described, frame_through, frames, prepared,
+    registered, server, start,
 };
 use ultragraphdb_tool_bdd::{Context as _, TestResult};
 
@@ -93,7 +94,8 @@ const SNAPSHOT: u64 = 6;
 
 #[test]
 fn test_every_request_the_client_sends_is_its_golden_frame() -> TestResult {
-    let mut h = Harness::ready(server())?;
+    // More frames than the Welcome's credit, so the read is open for its Credit and its Cancel.
+    let mut h = Harness::ready(server().with_results(9))?;
     assert_eq!(h.server.received()[0], golden("hello")?, "the Hello");
     // The golden Read and Execute name the transaction of stream 5: four sessions take streams 1 to 4.
     for _ in 0..4 {
@@ -136,7 +138,7 @@ fn test_every_request_the_client_sends_is_its_golden_frame() -> TestResult {
     )?;
     assert_eq!(reader.stream(), 5);
     check(&mut h, "read", stream.stream())?;
-    h.core.grant(&stream, 2)?;
+    h.core.grant(&stream, frames(2)?, h.now)?;
     check(&mut h, "credit", stream.stream())?;
     h.core.cancel(stream);
     check(&mut h, "cancel", stream.stream())?;
@@ -347,7 +349,7 @@ fn test_golden_commits_results_and_errors_are_read_as_their_values() -> TestResu
     let reply = view::<CommitView>(&FrameView::validate(&reply_bytes, CLUSTER, MAX_FRAME_SIZE)?)?;
     let session = d
         .core
-        .resume_session(u128::from_be_bytes(reply.session()), reply.request());
+        .resume_session(u128::from_be_bytes(reply.session()), reply.request())?;
     let tx = begin_direct(&mut d, &pool, now, 1, false)?;
     let p = d.core.commit(tx, session, now)?;
     d.deliver(&pool, &restream(&golden("commit")?, 1))??;
@@ -427,7 +429,7 @@ fn golden_errors_are_read(d: &mut Direct, pool: &BufferPool, now: Instant) -> Te
         let reply = view::<ErrorReplyView>(&FrameView::validate(&bytes, CLUSTER, MAX_FRAME_SIZE)?)?;
         let (code, detail, value) = (reply.code(), reply.detail(), reply.value().cloned());
         let tx = begin_direct(d, pool, now, stream, false)?;
-        let session = d.core.resume_session(u128::from(100 + stream), 1);
+        let session = d.core.resume_session(u128::from(100 + stream), 1)?;
         let p = d.core.commit(tx, session, now)?;
         d.deliver(pool, &restream(&golden(name)?, stream))??;
         let error = d
@@ -468,19 +470,7 @@ fn test_every_damaged_golden_reply_is_refused_with_the_connections_rule() -> Tes
             bad[at] ^= 1 << (at % 8);
             cases += 1;
             let mut d = Direct::new(&pool)?;
-            let p = match name {
-                "register" => d.core.register(now)?,
-                "prepare_reply" => d.core.prepare(
-                    &view::<PrepareView>(&FrameView::validate(
-                        &golden("prepare")?,
-                        CLUSTER,
-                        MAX_FRAME_SIZE,
-                    )?)?,
-                    now,
-                )?,
-                "describe_reply" => d.core.describe(0, now)?,
-                _ => d.core.begin(0, true, now)?,
-            };
+            let p = waiting_for(&mut d, name, now)?;
             let frame = match d.frame(&pool, &bad) {
                 Ok(frame) => frame,
                 Err(error) => {
@@ -491,7 +481,7 @@ fn test_every_damaged_golden_reply_is_refused_with_the_connections_rule() -> Tes
                     continue;
                 }
             };
-            let expected = FrameView::validate(&bad, CLUSTER, MAX_FRAME_SIZE).err();
+            let expected = refusal_of(name, &bad)?;
             match d.core.receive(frame, now) {
                 Err(error) => {
                     if let Some(rule) = expected {
@@ -516,6 +506,33 @@ fn test_every_damaged_golden_reply_is_refused_with_the_connections_rule() -> Tes
     }
     assert!(cases > 2_000, "{cases}");
     Ok(())
+}
+
+/// The request the golden reply `name` answers, on the connection's first stream; a Begin for any other.
+fn waiting_for(d: &mut Direct, name: &str, now: Instant) -> TestResult<Pending> {
+    Ok(match name {
+        "register" => d.core.register(now)?,
+        "prepare_reply" => d.core.prepare(
+            &view::<PrepareView>(&FrameView::validate(
+                &golden("prepare")?,
+                CLUSTER,
+                MAX_FRAME_SIZE,
+            )?)?,
+            now,
+        )?,
+        "describe_reply" => d.core.describe(0, now)?,
+        _ => d.core.begin(0, true, now)?,
+    })
+}
+
+/// The rule a damaged golden reply `name` breaks, if any: a Begin waits on the stream, so a Commit or a Result is no
+/// answer of it, whatever its body holds, and is refused at step 3, before its chunks.
+fn refusal_of(name: &str, bad: &[u8]) -> TestResult<Option<ProtocolError>> {
+    if ["commit", "result"].contains(&name) {
+        let command = ultragraphdb_protocol_wire::HeaderView::new(bad)?.command();
+        return Ok(Some(ProtocolError::command_not_served(command)));
+    }
+    Ok(FrameView::validate(bad, CLUSTER, MAX_FRAME_SIZE).err())
 }
 
 /// Every truncation of golden reply `good`, named `name`, refused by the framer.

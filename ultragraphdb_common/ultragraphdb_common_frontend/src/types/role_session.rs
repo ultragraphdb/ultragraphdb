@@ -3,9 +3,6 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::rc::Rc;
 use std::time::Instant;
 
 use compio::runtime::spawn;
@@ -14,12 +11,13 @@ use ultragraphdb_common_role::{Answer, RoleClient, RoleCluster, Session};
 use ultragraphdb_common_service::{Readiness, RoleKind as ServiceRole};
 use ultragraphdb_protocol_transport::{Address, ReceivedFrame};
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, BodyView, CatalogAnnouncement, CatalogView, CloseRequestView, Command, EpochClose,
-    ErrorCode, ErrorReply, FLAG_LAST, FrameView, Header, Join, JoinView, Lease, LeaseView,
-    MembersView, PlacementView, RoleKind, SubscribeView,
+    BodyBuilder, BodyView, CatalogAnnouncement, CatalogView, CloseRequestView, Command,
+    DefaultEntry, DefaultEntryView, EpochClose, ErrorCode, ErrorReply, FLAG_LAST, FrameView,
+    Header, Join, JoinView, Lease, LeaseView, MembersView, PlacementView, RoleKind, SubscribeView,
 };
 
 use crate::types::owner_handle::OwnerHandle;
+use crate::types::role_links::RoleLinks;
 
 /// How long a failed connection back waits before the next.
 const RETRY: std::time::Duration = std::time::Duration::from_millis(100);
@@ -29,17 +27,22 @@ const RETRY: std::time::Duration = std::time::Duration::from_millis(100);
 pub struct RoleShared {
     cluster: RoleCluster,
     owner: OwnerHandle,
-    peers: Rc<RefCell<HashMap<String, RoleClient>>>,
+    links: RoleLinks,
     readiness: Readiness,
 }
 
 impl RoleShared {
     /// What the core's role connections share.
-    pub fn new(cluster: RoleCluster, owner: OwnerHandle, readiness: Readiness) -> Self {
+    pub fn new(
+        cluster: RoleCluster,
+        owner: OwnerHandle,
+        links: RoleLinks,
+        readiness: Readiness,
+    ) -> Self {
         Self {
             cluster,
             owner,
-            peers: Rc::default(),
+            links,
             readiness,
         }
     }
@@ -71,6 +74,7 @@ impl RoleSession {
         let view = JoinView::from_frame(frame).map_err(|rule| ErrorReply::protocol(&rule))?;
         let join = joined(&view);
         self.shared.owner.join(join.clone()).await?;
+        self.shared.links.joined(&join);
         spawn(connect_back(
             self.shared.clone(),
             join.address().to_string(),
@@ -133,6 +137,27 @@ impl RoleSession {
         Ok(Answer::Open)
     }
 
+    /// A partition's first write of a predicate no version declares, recorded durably (`PROTOCOL.md` §13.18).
+    async fn default_entry(
+        &self,
+        stream: u64,
+        frame: &FrameView<'_>,
+    ) -> Result<Answer, ErrorReply> {
+        let asked =
+            DefaultEntryView::from_frame(frame).map_err(|rule| ErrorReply::protocol(&rule))?;
+        asked
+            .check_request()
+            .map_err(|rule| ErrorReply::protocol(&rule))?;
+        let predicate = asked.predicate().to_string();
+        let found = self
+            .shared
+            .owner
+            .record_default(asked.tenant(), predicate.clone())
+            .await?;
+        let reply = DefaultEntry::request(asked.tenant(), predicate).with_found(found);
+        built(&reply, self.header(stream, Command::DefaultEntry))
+    }
+
     async fn close_request(&self, frame: &FrameView<'_>) -> Result<Answer, ErrorReply> {
         let asked =
             CloseRequestView::from_frame(frame).map_err(|rule| ErrorReply::protocol(&rule))?;
@@ -163,6 +188,8 @@ impl Session for RoleSession {
             self.subscribe(stream, frame).await
         } else if command == Command::CloseRequest {
             self.close_request(frame).await
+        } else if command == Command::DefaultEntry {
+            self.default_entry(stream, frame).await
         } else {
             Err(ErrorReply::new(
                 ErrorCode::Unavailable,
@@ -277,7 +304,7 @@ async fn connect_back(shared: RoleShared, text: String, kind: RoleKind) {
         let secret = shared.cluster.secret().password();
         match RoleClient::dial(&address, shared.cluster.id(), &name, secret).await {
             Ok(client) => {
-                let _replaced = shared.peers.borrow_mut().insert(text, client);
+                shared.links.connected(text, client);
                 if kind == RoleKind::Storage {
                     shared.readiness.set(true);
                 }

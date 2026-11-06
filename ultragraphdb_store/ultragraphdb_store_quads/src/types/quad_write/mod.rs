@@ -21,7 +21,7 @@ use crate::types::quad_store::QuadStore;
 use crate::types::statement_record::StatementRecord;
 use crate::types::statistics::Statistics;
 use crate::types::write_terms::WriteTerms;
-use crate::utils::postings::{list_holds, object_posting, posting_object};
+use crate::utils::postings::{held_object, list_holds, object_posting, posting_object};
 
 /// The statement IDs one object of a list holds, in a forward and a reverse list alike (`PROTOCOL.md` §11.9): what keeps a
 /// key's object record inside a frame at the floor of `max_frame`.
@@ -244,17 +244,13 @@ where
         object: &EncodedTerm,
     ) -> Result<Option<Vec<SystemId>>, QuadError> {
         let forward = self.forward(graph, predicate, subject);
+        let fingerprint = self.quads.fingerprint();
         let list = if self.terms.is_fresh(subject) {
-            self.request.get_from_delta(&forward).clone()
+            self.request.get_from_delta(&forward)
         } else {
-            self.request
-                .get_tested(&forward, object.as_bytes())?
-                .clone()
+            self.request.get_tested(&forward, object.as_bytes())?
         };
-        Ok(read_list(&list, &forward)?
-            .into_iter()
-            .find(|(o, _)| o == object)
-            .map(|(_, ids)| ids))
+        Ok(held_object(list, object, fingerprint)?)
     }
 
     /// Deletes `subject predicate object` from `graph` when it is held: whether it was, and the statement IDs its

@@ -77,6 +77,8 @@ fn small_bytes() -> Vec<u8> {
     out.extend_from_slice(&0_u32.to_be_bytes()); // no eviction pending
     out.extend_from_slice(&0_u64.to_be_bytes()); // the initial map's placement version
     out.extend_from_slice(&0_u32.to_be_bytes()); // no placement version pending
+    out.extend_from_slice(&0_u32.to_be_bytes()); // no tenant
+    out.push(0); // no unknown-name secret
     out
 }
 
@@ -183,7 +185,10 @@ fn test_an_empty_state_round_trips() -> TestResult {
     let bytes = encoded(&snapshot);
     // Format, position, learned, 4 empty tables, no map, no report, next principal, 3 empty tables, the last placement
     // version and none pending.
-    assert_eq!(bytes.len(), 1 + 8 + 8 + 4 * 3 + 1 + 4 + 8 + 4 * 3 + 8 + 4);
+    assert_eq!(
+        bytes.len(),
+        1 + 8 + 8 + 4 * 3 + 1 + 4 + 8 + 4 * 3 + 8 + 4 + 4 + 1
+    );
     assert_eq!(MetadataSnapshot::decode(&bytes)?, snapshot);
     Ok(())
 }

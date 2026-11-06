@@ -78,10 +78,30 @@ impl MetadataState {
             .unwrap_or_default()
     }
 
-    /// The tenants holding a catalog version, in order.
+    /// The tenants the group holds, in order, each created by a command of its own.
     #[must_use]
     pub fn tenants(&self) -> Vec<Tenant> {
-        self.catalogs.keys().copied().collect()
+        self.tenants.iter().copied().collect()
+    }
+
+    /// Whether the group holds `tenant`.
+    #[must_use]
+    pub fn holds_tenant(&self, tenant: Tenant) -> bool {
+        self.tenants.contains(&tenant)
+    }
+
+    /// The default-entry records of `tenant`, by predicate, in order.
+    pub fn default_entries(&self, tenant: Tenant) -> impl Iterator<Item = (&str, &[u8])> {
+        self.defaults
+            .range((tenant, String::new())..)
+            .take_while(move |((of, _), _)| *of == tenant)
+            .map(|((_, predicate), entry)| (predicate.as_str(), entry.as_slice()))
+    }
+
+    /// The secret an unknown name's verifier derives from, `None` before the first start drew it.
+    #[must_use]
+    pub fn unknown_secret(&self) -> Option<&[u8; 32]> {
+        self.unknown_secret.as_ref()
     }
 
     /// The default entry recorded for `predicate` in `tenant`, `None` when none is.

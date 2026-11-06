@@ -16,6 +16,7 @@ mod utils;
 pub use crate::types::core_ends::CoreEnds;
 pub use crate::types::core_message::CoreMessage;
 pub use crate::types::entries_fill::EntriesFill;
+pub use crate::types::held_catalogs::HeldCatalogs;
 pub use crate::types::partition_core::{
     CoreChannels, CoreParts, FrontendAsk, PartitionCore, Peers, SCAN_STALL_MS_DEFAULT, StorageHost,
     StoragePartition,

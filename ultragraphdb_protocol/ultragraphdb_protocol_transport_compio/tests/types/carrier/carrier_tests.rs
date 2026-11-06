@@ -35,6 +35,16 @@ async fn round_trip(mut near: Carrier, mut far: Carrier) -> TestResult {
 }
 
 #[test]
+fn test_a_tcp_carrier_keeps_alive_on_either_side() -> TestResult {
+    compio::runtime::Runtime::new()?.block_on(async {
+        let (_listener, accepted, dialled) = pair(&Address::any_port("127.0.0.1")?).await?;
+        assert!(accepted.is_kept_alive()?, "accepted");
+        assert!(dialled.is_kept_alive()?, "dialled");
+        Ok(())
+    })
+}
+
+#[test]
 fn test_a_tcp_address_carries_bytes_both_ways() -> TestResult {
     compio::runtime::Runtime::new()?.block_on(async {
         let (listener, accepted, dialled) = pair(&Address::any_port("127.0.0.1")?).await?;

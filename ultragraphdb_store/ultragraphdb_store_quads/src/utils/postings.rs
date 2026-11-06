@@ -34,6 +34,28 @@ pub fn object_posting(
         .with_statement_ids(statement_ids.to_vec())
 }
 
+/// The statement IDs `list` holds `object` under at its own read timestamp, `None` when it holds no posting of it: a seek
+/// to the uid [`object_posting`] gives the object, reading no other object's posting.
+pub(crate) fn held_object(
+    list: &List,
+    object: &EncodedTerm,
+    fingerprint: fn(&[u8]) -> u64,
+) -> Result<Option<Vec<SystemId>>, PostingError> {
+    let read_ts = list.mutation().read_ts();
+    let found = match object.as_id() {
+        Some(id) => list.find_posting_matching(read_ts, id.to_u128(), |p| {
+            p.posting_type() == PostingType::Ref
+        })?,
+        None => {
+            let uid = u128::from(fingerprint(object.as_bytes()));
+            list.find_posting_matching(read_ts, uid, |p| {
+                p.posting_type() == PostingType::Value && p.value() == object.as_bytes()
+            })?
+        }
+    };
+    Ok(found.map(|p| p.statement_ids().to_vec()))
+}
+
 /// Where a list of `keyspace` resumes for a reader naming the object `encoding` (`PROTOCOL.md` §13.13): at the identity
 /// [`object_posting`] gives that object, read itself when the list holds it, a literal's value part of it only where the
 /// keyspace compares values.

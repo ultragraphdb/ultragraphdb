@@ -32,7 +32,10 @@ rust_test(
     name = "ultragraphdb_client_core_tests",
     srcs = glob(
         ["tests/**/*.rs"],
-        exclude = ["tests/bdd.rs"],
+        exclude = [
+            "tests/bdd.rs",
+            "tests/bdd_steps/**",
+        ],
     ),
     crate_root = "tests/mod.rs",
     data = ["//ultragraphdb_protocol/ultragraphdb_protocol_wire:golden_bodies"],
@@ -51,7 +54,7 @@ rust_test(
     srcs = [
         "tests/bdd.rs",
         "tests/utils/harness.rs",
-    ],
+    ] + glob(["tests/bdd_steps/*.rs"]),
     crate_root = "tests/bdd.rs",
     data = glob(["features/**/*.feature"]),
     tags = ["bdd-test"],

@@ -4,11 +4,16 @@
  */
 
 use futures::channel::{mpsc, oneshot};
+use ultragraphdb_cluster_placement::PlacementMap;
 use ultragraphdb_cluster_sequencer::Close;
 use ultragraphdb_protocol_scram::ScramVerifier;
-use ultragraphdb_protocol_wire::{Catalog, ErrorCode, ErrorReply, Join, Members, Placement};
+use ultragraphdb_protocol_wire::{
+    Catalog, Declared, Describe, ErrorCode, ErrorReply, Join, Members, Placement,
+};
 
 use crate::types::asked::Asked;
+pub use crate::types::asked::DropStep;
+use crate::types::tenant_facts::TenantFacts;
 
 /// An endpoint core's way to the owner: every question goes by message, and nothing the owner decides is kept here.
 ///
@@ -139,6 +144,118 @@ impl OwnerHandle {
         self.ask_or_refuse(|reply| Asked::RegisterSession {
             session,
             principal,
+            reply,
+        })
+        .await
+    }
+
+    /// The owner check of a commit through `session` by `principal`, which holds the session in flight until
+    /// [`OwnerHandle::commit_ended`].
+    ///
+    /// # Errors
+    ///
+    /// As [`OwnerHandle::check_session`], and code 14 when a commit of the session is in flight.
+    pub async fn begin_commit(&self, session: u128, principal: u64) -> Result<(), ErrorReply> {
+        self.ask_or_refuse(|reply| Asked::BeginCommit {
+            session,
+            principal,
+            reply,
+        })
+        .await
+    }
+
+    /// The commit in flight through `session` was answered, or given up. An owner stopped holds none in flight.
+    pub fn commit_ended(&self, session: u128) {
+        drop(self.inbox.unbounded_send(Asked::CommitEnded { session }));
+    }
+
+    /// Whether the registry holds `session`; an owner stopped holds nothing.
+    pub async fn session_held(&self, session: u128) -> bool {
+        self.ask(|reply| Asked::SessionHeld { session, reply })
+            .await
+            .unwrap_or(false)
+    }
+
+    /// What a request naming `tenant` needs to know.
+    ///
+    /// # Errors
+    ///
+    /// Unavailable when the owner stopped.
+    pub async fn tenant_facts(&self, tenant: u64) -> Result<TenantFacts, ErrorReply> {
+        self.ask(|reply| Asked::TenantFacts { tenant, reply })
+            .await
+            .ok_or_else(stopped)
+    }
+
+    /// The placement map; `None` while the group holds none or the owner stopped.
+    pub async fn map(&self) -> Option<PlacementMap> {
+        self.ask(|reply| Asked::Map { reply }).await.flatten()
+    }
+
+    /// `tenant`'s schema id, of its latest catalog version.
+    ///
+    /// # Errors
+    ///
+    /// Unavailable when the owner stopped, or a held version does not decode.
+    pub async fn schema_id(&self, tenant: u64) -> Result<u64, ErrorReply> {
+        self.ask_or_refuse(|reply| Asked::SchemaId { tenant, reply })
+            .await
+    }
+
+    /// What `tenant`'s catalog declares in effect at the latest close, and its metadata records.
+    ///
+    /// # Errors
+    ///
+    /// Unavailable when the owner stopped, or a held version does not decode.
+    pub async fn describe(&self, tenant: u64) -> Result<Describe, ErrorReply> {
+        self.ask_or_refuse(|reply| Asked::Describe { tenant, reply })
+            .await
+    }
+
+    /// A catalog version of `declared` built on `built_on`, committed as pending: the first version of its effective epoch, once
+    /// the epoch is assigned.
+    ///
+    /// # Errors
+    ///
+    /// Code 2 of kind Catalog for a version built on one no longer current; code 7, `detail` 523,000, for one past its cap.
+    pub async fn declare(
+        &self,
+        tenant: u64,
+        built_on: u64,
+        declared: Vec<Declared>,
+    ) -> Result<u64, ErrorReply> {
+        self.ask_or_refuse(|reply| Asked::Declare {
+            tenant,
+            built_on,
+            declared,
+            reply,
+        })
+        .await
+    }
+
+    /// The catalog version a Drop calls for, pending and durable; none where it would change nothing.
+    ///
+    /// # Errors
+    ///
+    /// Code 7 naming what refused it, or unavailable when the owner stopped.
+    pub async fn drop_catalog(&self, tenant: u64, step: DropStep) -> Result<(), ErrorReply> {
+        self.ask_or_refuse(|reply| Asked::DropCatalog {
+            tenant,
+            step,
+            reply,
+        })
+        .await
+    }
+
+    /// The default entry of `predicate`, recorded durably: whether it was held already.
+    ///
+    /// # Errors
+    ///
+    /// Code 7 naming what refused it, or unavailable when the owner stopped.
+    pub async fn record_default(&self, tenant: u64, predicate: String) -> Result<bool, ErrorReply> {
+        self.ask_or_refuse(|reply| Asked::RecordDefault {
+            tenant,
+            predicate,
             reply,
         })
         .await

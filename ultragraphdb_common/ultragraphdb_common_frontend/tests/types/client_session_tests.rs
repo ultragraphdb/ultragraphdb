@@ -4,14 +4,18 @@
  */
 
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use compio::runtime::{Runtime, spawn};
 use ultragraphdb_cluster_metadata::MetadataConfig;
 use ultragraphdb_cluster_sequencer::SequencerConfig;
 use ultragraphdb_common_frontend::{
-    AskedCredentials, ClientSession, OwnerHandle, OwnerStart, start_owner,
+    AskedCredentials, AuthThrottle, ClientSession, EndpointCore, EndpointLimits,
+    EveryAuthenticated, OwnerHandle, OwnerStart, RoleLinks, TenantGate, start_owner,
 };
-use ultragraphdb_common_role::{RoleClient, Server, listen, serve_connection};
+use ultragraphdb_common_role::{
+    RoleClient, RoleCluster, RoleSecret, Server, listen, serve_connection,
+};
 use ultragraphdb_common_service_config::ServiceConfig;
 use ultragraphdb_protocol_scram::{Credentials, ScramVerifier};
 use ultragraphdb_protocol_transport::{Address, Endpoint, TransportErrorEnum};
@@ -27,23 +31,46 @@ fn directory(name: &str) -> PathBuf {
 
 /// A client endpoint over `owner` at a free port; its address.
 async fn endpoint(owner: OwnerHandle) -> TestResult<Address> {
+    let limits = EndpointLimits::new(1 << 22, Duration::from_secs(30));
+    Ok(endpoint_within(owner, limits).await?.0)
+}
+
+/// A client endpoint over `owner` of `limits` at a free port; its address and its throttle.
+async fn endpoint_within(
+    owner: OwnerHandle,
+    limits: EndpointLimits,
+) -> TestResult<(Address, AuthThrottle)> {
     let port = std::net::TcpListener::bind("127.0.0.1:0")?
         .local_addr()?
         .port();
     let listener = listen(&format!("tcp://127.0.0.1:{port}")).await?;
     let address = listener.local_address()?;
     let server = Server::new(CLUSTER, "test", Endpoint::Client)?.with_iterations(ITERATIONS);
+    let file = directory(&format!("secret-{port}"));
+    std::fs::write(&file, "a role secret")?;
+    let cluster = RoleCluster::new(
+        CLUSTER,
+        RoleSecret::read(&file.display().to_string())?,
+        Duration::from_secs(1),
+    );
+    let core = EndpointCore::new(
+        owner,
+        RoleLinks::new(cluster, "frontend".to_string()),
+        TenantGate::new(EveryAuthenticated),
+        limits,
+    );
+    let throttle = core.throttle().clone();
     spawn(async move {
         while let Ok(carrier) = listener.accept().await {
             let credentials = AskedCredentials::default();
-            let session = ClientSession::new(owner.clone(), credentials.clone());
+            let session = ClientSession::new(core.clone(), credentials.clone(), None);
             let server = server.clone();
             spawn(async move { serve_connection(carrier, &server, credentials, session).await })
                 .detach();
         }
     })
     .detach();
-    Ok(address)
+    Ok((address, throttle))
 }
 
 /// A principal the owner holds authenticates on the client endpoint by the verifier it asks the owner for; a wrong
@@ -116,4 +143,54 @@ fn test_an_answer_serves_its_own_name_once() -> TestResult {
     credentials.answered("alice".to_string(), None);
     assert!(credentials.lookup("alice").is_none());
     Ok(())
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a point in time the throttle compares with, which no simulation replays"
+)]
+fn instant() -> Instant {
+    Instant::now()
+}
+
+/// A principal past its failures is refused with its right password until its interval ends, as any failure is, and then serves.
+#[test]
+fn test_a_principal_past_its_failures_is_refused_until_its_interval_ends() -> TestResult {
+    let data = directory("refused");
+    if data.exists() {
+        std::fs::remove_dir_all(&data)?;
+    }
+    let interval = Duration::from_millis(300);
+    Runtime::new()?.block_on(async {
+        let start = OwnerStart::new(MetadataConfig::new(), SequencerConfig::new(1, 50)?, 1);
+        let principals = vec![(
+            "alice".to_string(),
+            ScramVerifier::derive("pw", b"alice's salt", ITERATIONS)?,
+        )];
+        let owner = start_owner(ServiceConfig::default(), CLUSTER, data, start, principals).await?;
+        let limits =
+            EndpointLimits::new(1 << 22, Duration::from_secs(30)).with_refusal_interval(interval);
+        let (address, throttle) = endpoint_within(owner.handle().clone(), limits).await?;
+        let failed_at = instant();
+        for _ in 0..100 {
+            throttle.name_failed("alice", failed_at);
+        }
+        let refused = RoleClient::dial(&address, CLUSTER, "alice", "pw")
+            .await
+            .err()
+            .context("a refusal")?;
+        assert!(
+            matches!(
+                &refused.0,
+                TransportErrorEnum::Refused {
+                    code: ErrorCode::AuthenticationFailed,
+                    ..
+                }
+            ),
+            "{refused}"
+        );
+        compio::time::sleep(interval).await;
+        let _alice = RoleClient::dial(&address, CLUSTER, "alice", "pw").await?;
+        Ok(())
+    })
 }

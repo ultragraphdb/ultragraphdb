@@ -950,6 +950,22 @@ async fn begin_before_auth(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
+#[then("the server answers code 20 on the request's stream and the connection stays open")]
+fn unauthenticated_on_its_stream(w: &mut Steps) -> TestResult {
+    assert_eq!(
+        w.inbound,
+        vec![Inbound::Refused {
+            stream: 1,
+            code: ErrorCode::Unauthenticated
+        }]
+    );
+    assert_eq!(
+        w.errors.iter().map(|e| (e.0, e.1)).collect::<Vec<_>>(),
+        vec![(1, ErrorCode::Unauthenticated)]
+    );
+    Ok(())
+}
+
 #[then("the server answers code 20 on stream 0 and closes the connection")]
 fn unauthenticated(w: &mut Steps) -> TestResult {
     assert_eq!(

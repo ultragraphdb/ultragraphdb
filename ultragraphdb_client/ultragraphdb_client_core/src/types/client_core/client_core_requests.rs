@@ -5,16 +5,19 @@
 
 use std::time::Instant;
 
+use ultragraphdb_core_ids::SessionToken;
+use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::Login;
 use ultragraphdb_protocol_wire::{
-    Abort, Begin, BodyBuilder, Commit, Describe, DropCommand, Execute, Operation, Prepare, Read,
-    Register, Write,
+    Abort, Begin, BodyBuilder, Command, Commit, ConditionalWrite, Describe, DirectWrite,
+    DropCommand, Execute, Operation, Prepare, Read, Register, Write,
 };
 
 use crate::errors::client_error::ClientError;
 use crate::types::client_core::ClientCore;
 use crate::types::pending::Pending;
 use crate::types::pending_state::{Expect, PendingState};
+use crate::types::resend::Resend;
 use crate::types::result_stream::ResultStream;
 use crate::types::session::Session;
 use crate::types::stream_state::StreamState;
@@ -53,21 +56,17 @@ impl<L: Login> ClientCore<L> {
         Ok(())
     }
 
-    /// A request of one reply on a new stream.
-    fn request<B: BodyBuilder>(
+    /// `body`'s frame on a new stream, refused with no stream left open when it cannot be built.
+    fn new_stream_frame<B: BodyBuilder>(
         &mut self,
         body: &B,
-        expect: Expect,
-        now: Instant,
-    ) -> Result<Pending, ClientError> {
+    ) -> Result<(u64, Vec<u8>), ClientError> {
         if !self.is_ready() {
             return Err(ClientError::not_connected());
         }
         let stream = self.open_stream()?;
         match self.frame(body, stream) {
-            Ok(frame) => {
-                Ok(self.send_request(stream, frame, PendingState::new(Some(stream), expect), now))
-            }
+            Ok(frame) => Ok((stream, frame)),
             Err(error) => {
                 let _ended: Option<StreamState> = self.streams.remove(&stream);
                 Err(error)
@@ -75,12 +74,77 @@ impl<L: Login> ClientCore<L> {
         }
     }
 
+    /// A request of one reply on a new stream.
+    fn request<B: BodyBuilder>(
+        &mut self,
+        body: &B,
+        expect: Expect,
+        now: Instant,
+    ) -> Result<Pending, ClientError> {
+        let (stream, frame) = self.new_stream_frame(body)?;
+        Ok(self.send_request(stream, frame, PendingState::new(Some(stream), expect), now))
+    }
+
+    /// The number the next commit, drop or one-frame write of `session` takes, by the session's one counter, refused while
+    /// the session has a request in doubt or in flight; through no session, session and request 0.
+    fn next_number(&self, session: Option<Session>) -> Result<(u128, u64), ClientError> {
+        let Some(session) = session else {
+            return Ok((0, 0));
+        };
+        let number = session.number();
+        let state = self
+            .sessions
+            .get(&number)
+            .ok_or(ClientError::unknown_session(number))?;
+        if let Some((request, _)) = &state.in_doubt {
+            return Err(ClientError::in_doubt(number, *request, None));
+        }
+        if state.in_flight {
+            return Err(ClientError::session_busy(number));
+        }
+        Ok((number, state.next_request))
+    }
+
+    /// The token a request carries through `session`, given `own`, the one the caller set on it: the one of the higher
+    /// epoch; a session whose replies gave none leaves `own` as it is.
+    fn carried_token(&self, session: u128, own: Option<&SessionToken>) -> Option<SessionToken> {
+        let held = self.sessions.get(&session)?.token.as_ref()?;
+        (own.is_none_or(|own| held.epoch() > own.epoch())).then(|| held.clone())
+    }
+
+    /// A commit, a drop or a one-frame write on `stream`, waiting as `expect`, its session's counter taken until it is
+    /// answered, with what sends it again.
+    fn send_counted(
+        &mut self,
+        stream: u64,
+        frame: Vec<u8>,
+        (expect, resend): (Expect, Resend),
+        now: Instant,
+    ) -> Pending {
+        let mut pending = PendingState::new(Some(stream), expect);
+        if let Some((session, request)) = pending.commit() {
+            debug_assert_eq!(
+                session == 0,
+                request == 0,
+                "a number through a session alone"
+            );
+        }
+        if let Some((session, _)) = pending.commit()
+            && let Some(state) = self.sessions.get_mut(&session)
+        {
+            state.in_flight = true;
+        }
+        pending.resend = resend;
+        self.send_request(stream, frame, pending, now)
+    }
+
     /// Registers a session (D9), answered [`crate::Reply::Registered`].
     pub fn register(&mut self, now: Instant) -> Result<Pending, ClientError> {
         self.request(&Register::new([0; 16]), Expect::Register, now)
     }
 
-    /// Begins a transaction in `tenant` on a new stream, answered [`crate::Reply::Begun`] with its snapshot.
+    /// Begins a transaction in `tenant` on a new stream, at the default level and deadline and carrying no token, answered
+    /// [`crate::Reply::Begun`] with its snapshot.
     pub fn begin(
         &mut self,
         tenant: u64,
@@ -88,6 +152,29 @@ impl<L: Login> ClientCore<L> {
         now: Instant,
     ) -> Result<Pending, ClientError> {
         self.request(&Begin::new(tenant, 0, read_only), Expect::Begin, now)
+    }
+
+    /// Begins the transaction `begin` names, its level, deadline, read version and tenant, on a new stream, answered
+    /// [`crate::Reply::Begun`]; through a session it carries the session's token, or `begin`'s own when that is of a higher
+    /// epoch.
+    pub fn begin_with(
+        &mut self,
+        begin: Begin,
+        session: impl Into<Option<Session>>,
+        now: Instant,
+    ) -> Result<Pending, ClientError> {
+        let session: Option<Session> = session.into();
+        let begin = match session {
+            Some(session) if !self.sessions.contains_key(&session.number()) => {
+                return Err(ClientError::unknown_session(session.number()));
+            }
+            Some(session) => match self.carried_token(session.number(), begin.token()) {
+                Some(token) => begin.with_token(token),
+                None => begin,
+            },
+            None => begin,
+        };
+        self.request(&begin, Expect::Begin, now)
     }
 
     /// Prepares `prepare`'s statement, answered [`crate::Reply::Prepared`].
@@ -160,10 +247,16 @@ impl<L: Login> ClientCore<L> {
             }
         };
         let credit = self.welcome().map_or(0, |w| w.initial_credit());
+        let deadline = self
+            .streams
+            .get(&transaction.stream())
+            .and_then(|state| state.deadline);
         if let Some(state) = self.streams.get_mut(&stream) {
             state.results = true;
             state.credit = credit;
             state.of = Some(transaction.stream());
+            state.progress = Some(now);
+            state.deadline = deadline;
         }
         self.outbox.push_back(frame);
         self.last_progress = Some(now);
@@ -195,42 +288,21 @@ impl<L: Login> ClientCore<L> {
     /// Commits `transaction` through `session`, with the session's next request number, answered
     /// [`crate::Reply::Committed`]. Lost with its connection, it is sent again through the session, with the same
     /// session and request number, on the next connection, at most [`crate::ClientConfig::commit_attempts`] times in
-    /// all; then it is in doubt ([`ClientError::retries_exhausted`]) until [`ClientCore::resolve`].
+    /// all; then it is in doubt ([`ClientError::in_doubt`]) until [`ClientCore::resolve`]. Through no session, the path a
+    /// transaction of declarations takes (`PROTOCOL.md` §11.13), it has no resend, and a lost reply or a code 17 is an unknown
+    /// outcome. It ends the reads still open: read one to its `LAST` first when its every row is wanted.
     pub fn commit(
         &mut self,
         transaction: Transaction,
-        session: Session,
+        session: impl Into<Option<Session>>,
         now: Instant,
     ) -> Result<Pending, ClientError> {
-        let state = *self
-            .sessions
-            .get(&session.number())
-            .ok_or(ClientError::unknown_session(session.number()))?;
-        if let Some(request) = state.in_doubt {
-            return Err(ClientError::in_doubt(session.number(), request));
-        }
-        if state.in_flight {
-            return Err(ClientError::session_busy(session.number()));
-        }
+        let (session, request) = self.next_number(session.into())?;
         self.transaction_stream(&transaction, true)?;
-        let request = state.next_request;
-        let frame = self.frame(
-            &Commit::new(session.number().to_be_bytes(), request, 0),
-            transaction.stream(),
-        )?;
-        if let Some(session_state) = self.sessions.get_mut(&session.number()) {
-            session_state.in_flight = true;
-        }
-        let expect = Expect::Commit {
-            session: session.number(),
-            request,
-        };
-        Ok(self.send_request(
-            transaction.stream(),
-            frame,
-            PendingState::new(Some(transaction.stream()), expect),
-            now,
-        ))
+        let stream = transaction.stream();
+        let frame = self.frame(&Commit::new(session.to_be_bytes(), request, 0), stream)?;
+        let expect = Expect::Commit { session, request };
+        Ok(self.send_counted(stream, frame, (expect, Resend::Commit), now))
     }
 
     /// Drops what `command` names through `session`, with the session's next request number, on a stream of its own,
@@ -239,66 +311,116 @@ impl<L: Login> ClientCore<L> {
     pub fn drop_command(
         &mut self,
         command: DropCommand,
-        session: Session,
+        session: impl Into<Option<Session>>,
         now: Instant,
     ) -> Result<Pending, ClientError> {
-        let state = *self
-            .sessions
-            .get(&session.number())
-            .ok_or(ClientError::unknown_session(session.number()))?;
-        if let Some(request) = state.in_doubt {
-            return Err(ClientError::in_doubt(session.number(), request));
-        }
-        if state.in_flight {
-            return Err(ClientError::session_busy(session.number()));
-        }
-        if !self.is_ready() {
-            return Err(ClientError::not_connected());
-        }
-        let request = state.next_request;
-        let command = command.with_session(session.number().to_be_bytes(), request);
-        let stream = self.open_stream()?;
-        let frame = match self.frame(&command, stream) {
-            Ok(frame) => frame,
-            Err(error) => {
-                let _ended: Option<StreamState> = self.streams.remove(&stream);
-                return Err(error);
-            }
-        };
-        if let Some(session_state) = self.sessions.get_mut(&session.number()) {
-            session_state.in_flight = true;
-        }
-        let mut pending = PendingState::new(
-            Some(stream),
-            Expect::Drop {
-                session: session.number(),
-                request,
-            },
-        );
-        pending.drop = Some(command);
-        Ok(self.send_request(stream, frame, pending, now))
+        let (session, request) = self.next_number(session.into())?;
+        let command = command.with_session(session.to_be_bytes(), request);
+        let (stream, frame) = self.new_stream_frame(&command)?;
+        let expect = Expect::Drop { session, request };
+        Ok(self.send_counted(
+            stream,
+            frame,
+            (expect, Resend::Drop(Box::new(command))),
+            now,
+        ))
     }
 
-    /// Resolves `session`'s commit in doubt: its request sent again through the session, answered from the server's
-    /// record as [`crate::Reply::Committed`] if it was applied, or refused if it was not, after which its request
-    /// number is the session's next again.
+    /// Writes `write` in one frame, unconditional changes committed as one transaction on a stream of their own, no
+    /// Begin and no open transaction, answered [`crate::Reply::Committed`]; through `session` it takes the session's next
+    /// request number and carries its token, under the same rules as a commit. A write computed from an earlier read is a
+    /// [`ClientCore::conditional_write`] or a read-write transaction: sent as a read and then this, a commit between them
+    /// is a lost update the server cannot see (`PROTOCOL.md` §11.2a).
+    pub fn direct_write(
+        &mut self,
+        write: DirectWrite,
+        session: impl Into<Option<Session>>,
+        now: Instant,
+    ) -> Result<Pending, ClientError> {
+        if write.principal() != 0 {
+            return Err(ClientError::request(ProtocolError::field_value(
+                Command::DirectWrite.number(),
+                "principal",
+                write.principal(),
+            )));
+        }
+        let (session, request) = self.next_number(session.into())?;
+        let token = self.carried_token(session, write.token());
+        let write = write.with_session(session.to_be_bytes(), request);
+        let write = match token {
+            Some(token) => write.with_token(token),
+            None => write,
+        };
+        let (stream, frame) = self.new_stream_frame(&write)?;
+        let expect = Expect::Write { session, request };
+        let resend = Resend::Direct(Box::new(write));
+        Ok(self.send_counted(stream, frame, (expect, resend), now))
+    }
+
+    /// Writes `write` in one frame, its commit-time operations decided in commit order and their outcome in the reply, as
+    /// [`ClientCore::direct_write`] does: a failed condition is an answer, refused with code 8 and the value found, and is
+    /// not retried.
+    pub fn conditional_write(
+        &mut self,
+        write: ConditionalWrite,
+        session: impl Into<Option<Session>>,
+        now: Instant,
+    ) -> Result<Pending, ClientError> {
+        if write.principal() != 0 {
+            return Err(ClientError::request(ProtocolError::field_value(
+                Command::ConditionalWrite.number(),
+                "principal",
+                write.principal(),
+            )));
+        }
+        let (session, request) = self.next_number(session.into())?;
+        let token = self.carried_token(session, write.token());
+        let write = write.with_session(session.to_be_bytes(), request);
+        let write = match token {
+            Some(token) => write.with_token(token),
+            None => write,
+        };
+        let (stream, frame) = self.new_stream_frame(&write)?;
+        let expect = Expect::Write { session, request };
+        let resend = Resend::Conditional(Box::new(write));
+        Ok(self.send_counted(stream, frame, (expect, resend), now))
+    }
+
+    /// Resolves `session`'s request in doubt by sending it again with its number, as `PROTOCOL.md` §11.5 has it: a Commit on
+    /// a stream of its own with no transaction, a Drop or a one-frame write as its first frame held it. Its reply says it
+    /// committed, and moves the counter; a Commit's code 18, or a Drop's or a one-frame write's refusal other than codes 12,
+    /// 13, 14 and 17, says it did not, and its number is the session's next again; codes 14 and 17 send it again after the
+    /// retry delay, and leave it in doubt once its attempts are spent; codes 12 and 13 leave its outcome unknown for good.
     pub fn resolve(&mut self, session: Session, now: Instant) -> Result<Pending, ClientError> {
+        let number = session.number();
         let state = self
             .sessions
-            .get_mut(&session.number())
-            .ok_or(ClientError::unknown_session(session.number()))?;
-        let Some(request) = state.in_doubt.take() else {
-            return Err(ClientError::not_in_doubt(session.number()));
+            .get_mut(&number)
+            .ok_or(ClientError::unknown_session(number))?;
+        let Some((request, resend)) = state.in_doubt.take() else {
+            return Err(ClientError::not_in_doubt(number));
         };
         state.in_flight = true;
         let id = self.next_pending;
         self.next_pending += 1;
-        let expect = Expect::Commit {
-            session: session.number(),
-            request,
+        let expect = match &resend {
+            Resend::Commit => Expect::Commit {
+                session: number,
+                request,
+            },
+            Resend::Drop(_) => Expect::Drop {
+                session: number,
+                request,
+            },
+            Resend::Direct(_) | Resend::Conditional(_) => Expect::Write {
+                session: number,
+                request,
+            },
         };
-        let _replaced: Option<PendingState> =
-            self.pending.insert(id, PendingState::new(None, expect));
+        let mut pending = PendingState::new(None, expect);
+        pending.ever_sent = true;
+        pending.resend = resend;
+        let _replaced: Option<PendingState> = self.pending.insert(id, pending);
 
         if self.is_ready() {
             self.send_commit(id, now);

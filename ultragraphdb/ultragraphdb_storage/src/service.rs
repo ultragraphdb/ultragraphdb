@@ -19,29 +19,32 @@ use ultragraphdb_cluster_partition::{
 use ultragraphdb_cluster_placement::{NodeId, PartitionId, PlacementMap};
 use ultragraphdb_cluster_sequencer::{CatalogVersion, Close};
 use ultragraphdb_common_role::{
-    ROLE_ITERATIONS, RoleClient, RoleCluster, RoleCredentials, Server, frontend_address, listen,
-    retry_until, serve_connection,
+    PARTITION_INITIAL_CREDIT, ROLE_ITERATIONS, RoleClient, RoleCluster, RoleCredentials, Server,
+    frontend_address, listen, retry_until, serve_connection,
 };
 use ultragraphdb_common_service::{Readiness, RoleKind, RoleStart, Stopping, core_runtime};
 use ultragraphdb_common_service_config::{ServiceConfig, StorageTable, partition_address};
 use ultragraphdb_common_storage::{
-    CoreChannels, CoreEnds, CoreMessage, CoreParts, FrontendAsk, PartitionCore, Peers,
-    RefillBlocks, Retention, SCAN_STALL_MS_DEFAULT, StorageHost, StoragePartition, StorageSession,
+    CoreChannels, CoreEnds, CoreMessage, CoreParts, FrontendAsk, HeldCatalogs, PartitionCore,
+    Peers, RefillBlocks, Retention, SCAN_STALL_MS_DEFAULT, StorageHost, StoragePartition,
+    StorageSession,
 };
+use ultragraphdb_core_catalog::CatalogContents;
 use ultragraphdb_core_ids::{Epoch, Tenant, TypePrefix, Version};
 use ultragraphdb_core_mapping::RandomSource;
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_transport::{Address, Endpoint, TransportError};
 use ultragraphdb_protocol_transport_compio::Listener;
 use ultragraphdb_protocol_wire::{
-    BodyView, CloseRequest as CloseRequestBody, EpochCloseView, Join, Lease, LeaseView, Placement,
-    PlacementView, Subscribe,
+    BodyView, Catalog, CatalogView, CloseRequest as CloseRequestBody, EpochCloseView, Join, Lease,
+    LeaseView, Placement, PlacementView, Subscribe,
 };
 use ultragraphdb_store_apply::ChangesetApplier;
 use ultragraphdb_store_kv::{Durability, FjallStore, MokaListCache, ThreadExecutor};
 use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig};
 use ultragraphdb_store_quads::QuadStore;
 use ultragraphdb_traits_blocks::SequenceBlock;
+use ultragraphdb_traits_catalog::HeldVersion;
 use ultragraphdb_transactions_commit::{CloseRequest, Pipeline, Replay, RoundBounds, Sessions};
 use ultragraphdb_transactions_log::{CompioStorage, Wal, WalConfig};
 
@@ -237,7 +240,7 @@ async fn serve_core(
 ) -> Result<(), RoleError> {
     let name = RoleKind::Storage.to_string();
     let cluster = &start.cluster;
-    let Some(placement) = retry_until(cluster, &name, &stopping, || {
+    let Some((placement, tenants)) = retry_until(cluster, &name, &stopping, || {
         placement_of(&start.frontend, cluster, &name)
     })
     .await?
@@ -262,11 +265,13 @@ async fn serve_core(
     let (mut log, _) = Wal::open(CompioStorage, dir.join("wal"), config)
         .await
         .map_err(|error| RoleError::io(format!("the partition {} log: {error}", own.get())))?;
-    let replay = Replay::run_in(
+    let held = held_versions(&start.frontend, cluster, &name, &tenants).await?;
+    let replay = Replay::run_with_catalog(
         own.get(),
         partition.applier(),
         &mut log,
         Sessions::DEFAULT_CAPACITY,
+        &held,
     )
     .await
     .map_err(|error| RoleError::io(format!("the partition {} replay: {error}", own.get())))?;
@@ -291,6 +296,7 @@ async fn serve_core(
         delivered,
         joined,
         discards,
+        tenants,
     };
     let outcome = serve_partition(&start, served, &stopping).await;
     // The core is gone, and its sender with it, so the thread ends past the write it may be in.
@@ -335,6 +341,7 @@ struct Serving<'a> {
     delivered: Epoch,
     joined: oneshot::Sender<()>,
     discards: std::sync::mpsc::Sender<u64>,
+    tenants: Vec<u64>,
 }
 
 /// Listens at the partition's address, leases its first blocks, joins the frontend and subscribes to its closes, then runs
@@ -350,7 +357,7 @@ async fn serve_partition(
     let address =
         partition_address(&start.base, start.first, own.get()).map_err(RoleError::configuration)?;
     let (to_core, inbox) = unbounded();
-    accept_connections(listen(&address).await?, start, to_core)?;
+    accept_connections(listen(&address).await?, start, to_core.clone())?;
     let (asks_tx, asks) = unbounded();
     let (closes_tx, closes) = std::sync::mpsc::channel();
     let (answers_tx, answers) = unbounded();
@@ -382,13 +389,13 @@ async fn serve_partition(
     };
     // A role gone before its core was ready has nothing left to run for.
     let _told: Result<(), ()> = serving.joined.send(());
-    let (lost_tx, mut lost) = oneshot::channel();
+    let (lost_tx, lost) = oneshot::channel();
     spawn(deliver_closes(
         subscription,
         peers.clone(),
         join,
         serving.delivered,
-        closes_tx,
+        (closes_tx, to_core),
         lost_tx,
         stopping.clone(),
     ))
@@ -401,8 +408,22 @@ async fn serve_partition(
         asks_tx,
         serving.discards,
     );
-    let core = PartitionCore::new(core_parts(start, serving.host, channels, peers));
-    let mut running = std::pin::pin!(core.run(stopping));
+    let core = PartitionCore::new(core_parts(
+        start,
+        serving.host,
+        channels,
+        peers,
+        serving.tenants,
+    ));
+    until_lost(core.run(stopping), lost).await
+}
+
+/// What `running` stops with, or the failure `lost` tells of first.
+async fn until_lost(
+    running: impl Future<Output = Result<(), RoleError>>,
+    mut lost: oneshot::Receiver<RoleError>,
+) -> Result<(), RoleError> {
+    let mut running = std::pin::pin!(running);
     std::future::poll_fn(|cx| {
         if let std::task::Poll::Ready(Ok(failure)) = std::pin::Pin::new(&mut lost).poll(cx) {
             return std::task::Poll::Ready(Err(failure));
@@ -418,6 +439,7 @@ fn core_parts<'a>(
     host: StorageHost<'a>,
     channels: CoreChannels,
     peers: Peers,
+    tenants: Vec<u64>,
 ) -> CoreParts<'a> {
     let table = start.config.storage();
     let retain = table
@@ -433,6 +455,7 @@ fn core_parts<'a>(
         Retention::new(retain),
     )
     .with_scan_stall_ms(table.scan_stall_ms().unwrap_or(SCAN_STALL_MS_DEFAULT))
+    .with_tenants(tenants)
 }
 
 /// The latest close certainly delivered before the version `applied`: a commit is stamped one above the close before it.
@@ -487,6 +510,7 @@ fn accept_connections(
 ) -> Result<(), RoleError> {
     let credentials: RoleCredentials = start.cluster.secret().credentials()?;
     let server = Server::new(start.cluster.id(), "storage", Endpoint::Partition)?
+        .with_welcome(|welcome| welcome.with_initial_credit(PARTITION_INITIAL_CREDIT))
         .with_iterations(ROLE_ITERATIONS);
     spawn(async move {
         let mut connection = 0u64;
@@ -509,12 +533,69 @@ fn accept_connections(
     Ok(())
 }
 
-/// The map the frontend holds, checked against the even map this stage holds fixed.
+/// Every catalog version of `tenants` the frontend holds with an effective epoch, for a replayed record naming one.
+async fn held_versions(
+    frontend: &Address,
+    cluster: &RoleCluster,
+    name: &str,
+    tenants: &[u64],
+) -> Result<HeldCatalogs, RoleError> {
+    let unavailable = |error: &dyn std::fmt::Display| {
+        RoleError::unavailable(format!("the catalog versions: {error}"))
+    };
+    let mut held = HeldCatalogs::default();
+    let mut client = RoleClient::dial(frontend, cluster.id(), name, cluster.secret().password())
+        .await
+        .map_err(|error| unavailable(&error))?;
+    for tenant in tenants {
+        let mut version = 1;
+        // Ends at the first version the tenant never held, which the group refuses; a version number only rises.
+        while let Ok(reply) = client.request(&Catalog::request(*tenant, version)).await {
+            let view = reply.view().map_err(|error| unavailable(&error))?;
+            let answer = CatalogView::from_frame(&view).map_err(|error| unavailable(&error))?;
+            if answer.epoch() != 0 {
+                held.hold(HeldVersion::new(
+                    *tenant,
+                    version,
+                    answer.epoch(),
+                    answer.bytes().to_vec(),
+                ));
+            }
+            drop(reply);
+            version += 1;
+        }
+    }
+    Ok(held)
+}
+
+/// The catalog version `version` announces, read from the frontend: what its close's delivery waits for.
+async fn announced_catalog(
+    peers: &Peers,
+    version: &CatalogVersion,
+) -> Result<CatalogContents, TransportError> {
+    let mut client = RoleClient::dial(
+        peers.frontend(),
+        peers.cluster().id(),
+        peers.name(),
+        peers.cluster().secret().password(),
+    )
+    .await?;
+    let tenant = version.tenant().get();
+    let reply = client
+        .request(&Catalog::request(tenant, version.version()))
+        .await?;
+    let view = reply.view().map_err(TransportError::protocol)?;
+    let answer = CatalogView::from_frame(&view).map_err(TransportError::protocol)?;
+    CatalogContents::decode(tenant, version.version(), answer.bytes())
+        .map_err(|error| TransportError::authentication(error.to_string()))
+}
+
+/// The map the frontend holds, checked against the even map this stage holds fixed, and the tenants its runs list.
 async fn placement_of(
     frontend: &Address,
     cluster: &RoleCluster,
     name: &str,
-) -> Result<PlacementMap, TransportError> {
+) -> Result<(PlacementMap, Vec<u64>), TransportError> {
     let mut client =
         RoleClient::dial(frontend, cluster.id(), name, cluster.secret().password()).await?;
     let reply = client.request(&Placement::request(0)).await?;
@@ -541,7 +622,11 @@ async fn placement_of(
             "the frontend's placement is not the even map this stage holds",
         ));
     }
-    Ok(map)
+    let tenants = (0..placed.run_count())
+        .filter_map(|index| placed.run(index))
+        .map(|run| run.tenant())
+        .collect();
+    Ok((map, tenants))
 }
 
 /// Joins for this partition and subscribes from `from`: the connection the closes arrive on.
@@ -569,7 +654,10 @@ async fn deliver_closes(
     peers: Peers,
     join: Join,
     mut after: Epoch,
-    closes: std::sync::mpsc::Sender<PartitionMessage>,
+    (closes, to_core): (
+        std::sync::mpsc::Sender<PartitionMessage>,
+        UnboundedSender<CoreMessage>,
+    ),
     lost: oneshot::Sender<RoleError>,
     stopping: Stopping,
 ) {
@@ -586,6 +674,23 @@ async fn deliver_closes(
                         after.get()
                     ))));
                     return;
+                }
+                // A close is delivered once the process holds every catalog version it announces (`PROTOCOL.md` §11.12).
+                let mut fetched = Vec::new();
+                for version in close.catalog() {
+                    match announced_catalog(&peers, version).await {
+                        Ok(contents) => fetched.push(contents),
+                        Err(error) => {
+                            drop(lost.send(RoleError::unavailable(format!(
+                                "a catalog version a close announces: {error}"
+                            ))));
+                            return;
+                        }
+                    }
+                }
+                for contents in fetched {
+                    // A core gone holds nothing to install.
+                    drop(to_core.unbounded_send(CoreMessage::Catalog(contents)));
                 }
                 after = close.epoch();
                 // A core gone holds nothing to deliver to.

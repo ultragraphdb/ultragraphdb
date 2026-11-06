@@ -11,7 +11,7 @@ use ultragraphdb_protocol_wire::{
 
 use crate::types::client_core::client_core_tests::counter;
 use crate::utils::harness::{
-    CLUSTER, Harness, begun, committed, config, dropped, registered, server,
+    CLUSTER, Harness, begun, committed, config, dropped, in_doubt, registered, server,
 };
 use ultragraphdb_tool_bdd::{Context as _, TestResult};
 
@@ -174,14 +174,7 @@ fn test_retries_are_bounded_and_leave_the_session_in_doubt_until_resolved() -> T
     h.server.lose_next_retries(2);
     let p = h.core.commit(tx, s, h.now)?;
     let answer = h.settle(p)?.err().context("an error")?;
-    assert_eq!(
-        answer.0,
-        ClientErrorEnum::RetriesExhausted {
-            session: 9,
-            request: 1,
-            attempts: 3
-        }
-    );
+    assert_eq!(in_doubt(&answer), Some((9, 1)));
     assert_eq!(
         commits(&h),
         vec![(9, 1); 3],
@@ -198,15 +191,8 @@ fn test_retries_are_bounded_and_leave_the_session_in_doubt_until_resolved() -> T
     h.until(|h| h.core.is_ready())?;
     let next_tx = begin(&mut h)?;
     assert_eq!(
-        h.core
-            .commit(next_tx, s, h.now)
-            .err()
-            .context("an error")?
-            .0,
-        ClientErrorEnum::InDoubt {
-            session: 9,
-            request: 1
-        }
+        in_doubt(&h.core.commit(next_tx, s, h.now).err().context("an error")?),
+        Some((9, 1))
     );
     let resolving = h.core.resolve(s, h.now)?;
     let c = committed(h.settle(resolving)?)?;
@@ -220,7 +206,8 @@ fn test_retries_are_bounded_and_leave_the_session_in_doubt_until_resolved() -> T
 fn test_a_refused_commit_is_not_retried_and_keeps_its_request_number() -> TestResult {
     let mut h = Harness::ready(server())?;
     let _session: Session = session(&mut h)?;
-    let resumed = h.core.resume_session(9, 5);
+    let resumed = h.core.resume_session(9, 5)?;
+    h.server.refuse_next_commit(ErrorCode::Refused, 0);
     let p = {
         let t = begin(&mut h)?;
         h.core.commit(t, resumed, h.now)
@@ -230,8 +217,7 @@ fn test_a_refused_commit_is_not_retried_and_keeps_its_request_number() -> TestRe
         matches!(
             error.0,
             ClientErrorEnum::Refused {
-                code: ErrorCode::RequestOutOfOrder,
-                detail: 1,
+                code: ErrorCode::Refused,
                 ..
             }
         ),
@@ -240,7 +226,7 @@ fn test_a_refused_commit_is_not_retried_and_keeps_its_request_number() -> TestRe
     assert!(!error.retryable());
     assert_eq!(h.core.next_request(resumed), Some(5));
     assert_eq!(commits(&h), vec![(9, 5)]);
-    let unknown = h.core.resume_session(4, 1);
+    let unknown = h.core.resume_session(4, 1)?;
     let committing = {
         let t = begin(&mut h)?;
         h.core.commit(t, unknown, h.now)
@@ -483,58 +469,70 @@ fn test_a_drop_reply_of_another_request_is_a_mismatch() -> TestResult {
 
 /// A commit reply naming another session, or a reply of another command, is no answer of the commit.
 #[test]
-fn test_a_commit_reply_of_another_session_or_command_is_a_mismatch() -> TestResult {
+fn test_a_commit_reply_of_another_session_is_a_mismatch() -> TestResult {
     use ultragraphdb_client_core::TestServer;
-    use ultragraphdb_protocol_wire::{BodyBuilder, Command, Commit, FLAG_LAST, Header, Register};
-    for other_command in [false, true] {
-        let mut h = Harness::ready(server())?;
-        let s = session(&mut h)?;
-        let tx = begin(&mut h)?;
-        let p = h.core.commit(tx, s, h.now)?;
-        while h.core.transmit().is_some() {}
-        // A session the client does not hold: the one after its own.
-        let other = s.number() + 1;
-        let header = |command| {
-            Header::new(CLUSTER, command)
+    use ultragraphdb_protocol_wire::{BodyBuilder, Command, Commit, FLAG_LAST, Header};
+    let mut h = Harness::ready(server())?;
+    let s = session(&mut h)?;
+    let tx = begin(&mut h)?;
+    let p = h.core.commit(tx, s, h.now)?;
+    while h.core.transmit().is_some() {}
+    // A session the client does not hold: the one after its own.
+    let other = s.number() + 1;
+    let version = h.server.version();
+    let reply = Commit::new(other.to_be_bytes(), 1, version)
+        .with_token(TestServer::token(version))
+        .frame(
+            Header::new(CLUSTER, Command::Commit)
                 .with_stream(tx.stream())
-                .with_flags(FLAG_LAST)
-        };
-        let (reply, expected) = if other_command {
-            (
-                Register::new(other.to_be_bytes()).frame(header(Command::Register))?,
-                ClientErrorEnum::ReplyMismatch {
-                    field: "command",
-                    expected: Command::Commit.number().into(),
-                    found: Command::Register.number().into(),
-                },
-            )
-        } else {
-            let version = h.server.version();
-            (
-                Commit::new(other.to_be_bytes(), 1, version)
-                    .with_token(TestServer::token(version))
-                    .frame(header(Command::Commit))?,
-                ClientErrorEnum::ReplyMismatch {
-                    field: "session",
-                    expected: s.number(),
-                    found: other,
-                },
-            )
-        };
-        let reply = h.numbered(&reply)?;
-        h.deliver(&reply)??;
-        assert_eq!(
-            h.core
-                .take_reply(p)
-                .context("an answer")?
-                .err()
-                .context("an error")?
-                .0,
-            expected
-        );
-        assert_eq!(h.core.next_request(s), Some(1), "no commit was answered");
-        assert!(h.core.is_ready(), "a mismatch keeps the connection");
-    }
+                .with_flags(FLAG_LAST),
+        )?;
+    let reply = h.numbered(&reply)?;
+    h.deliver(&reply)??;
+    assert_eq!(
+        h.core
+            .take_reply(p)
+            .context("an answer")?
+            .err()
+            .context("an error")?
+            .0,
+        ClientErrorEnum::ReplyMismatch {
+            field: "session",
+            expected: s.number(),
+            found: other,
+        }
+    );
+    assert_eq!(h.core.next_request(s), Some(1), "no commit was answered");
+    assert!(h.core.is_ready(), "a mismatch keeps the connection");
+    Ok(())
+}
+
+/// A frame on a commit's stream by a command its "Answered by" does not list closes the connection, naming the command;
+/// the commit, its frame having left, waits to be sent again.
+#[test]
+fn test_a_commit_answered_by_another_command_closes_the_connection() -> TestResult {
+    use ultragraphdb_error_protocol::ProtocolError;
+    use ultragraphdb_protocol_wire::{BodyBuilder, Command, FLAG_LAST, Header, Register};
+    let mut h = Harness::ready(server())?;
+    let s = session(&mut h)?;
+    let tx = begin(&mut h)?;
+    let p = h.core.commit(tx, s, h.now)?;
+    while h.core.transmit().is_some() {}
+    let reply = Register::new(s.number().to_be_bytes()).frame(
+        Header::new(CLUSTER, Command::Register)
+            .with_stream(tx.stream())
+            .with_flags(FLAG_LAST),
+    )?;
+    let reply = h.numbered(&reply)?;
+    assert_eq!(
+        h.deliver(&reply)?,
+        Err(ClientError::protocol(ProtocolError::command_not_served(
+            Command::Register.number()
+        )))
+    );
+    assert!(!h.core.is_connected());
+    assert_eq!(h.core.take_reply(p), None);
+    assert!(h.core.needs_connection());
     Ok(())
 }
 
@@ -559,29 +557,15 @@ fn test_busy_answers_past_the_attempts_leave_the_commit_in_doubt() -> TestResult
     let p = h.core.commit(tx, s, h.now)?;
     let answer = h.settle(p)?.err().context("an error")?;
     // Attempt 1 lost with its connection, attempts 2 to 4 answered busy.
-    assert_eq!(
-        answer.0,
-        ClientErrorEnum::RetriesExhausted {
-            session: 9,
-            request: 1,
-            attempts: 4
-        }
-    );
+    assert_eq!(in_doubt(&answer), Some((9, 1)));
     assert_eq!(commits(&h), vec![(9, 1); 4]);
     // The retry on the new connection goes at once; each after a busy answer waits the configured 10 ms.
     assert_eq!(h.now - start, std::time::Duration::from_millis(20));
     assert_eq!(h.server.applied(), 1, "the first attempt was applied");
     let next_tx = begin(&mut h)?;
     assert_eq!(
-        h.core
-            .commit(next_tx, s, h.now)
-            .err()
-            .context("an error")?
-            .0,
-        ClientErrorEnum::InDoubt {
-            session: 9,
-            request: 1
-        }
+        in_doubt(&h.core.commit(next_tx, s, h.now).err().context("an error")?),
+        Some((9, 1))
     );
     let resolving = h.core.resolve(s, h.now)?;
     let c = committed(h.settle(resolving)?)?;
@@ -598,7 +582,7 @@ fn test_only_a_session_in_doubt_is_resolved() -> TestResult {
         h.core.resolve(s, h.now).err().context("an error")?.0,
         ClientErrorEnum::NotInDoubt { session: 9 }
     );
-    let unknown = h.core.resume_session(4, 1);
+    let unknown = h.core.resume_session(4, 1)?;
     let tx = begin(&mut h)?;
     let p = h.core.commit(tx, unknown, h.now)?;
     let _refused: ClientError = h.settle(p)?.err().context("an error")?;
@@ -642,16 +626,14 @@ fn test_a_commit_unanswered_at_close_is_in_doubt_until_resolved() -> TestResult 
         "a commit in doubt waits for no connection"
     );
     assert_eq!(
-        h.core
-            .take_reply(p)
-            .context("an answer")?
-            .err()
-            .context("an error")?
-            .0,
-        ClientErrorEnum::InDoubt {
-            session: 9,
-            request: 1
-        }
+        in_doubt(
+            &h.core
+                .take_reply(p)
+                .context("an answer")?
+                .err()
+                .context("an error")?
+        ),
+        Some((9, 1))
     );
     assert_eq!(
         h.core
@@ -663,26 +645,21 @@ fn test_a_commit_unanswered_at_close_is_in_doubt_until_resolved() -> TestResult 
         ClientErrorEnum::ConnectionLost { cause: None }
     );
     assert_eq!(
-        h.core
-            .drop_command(
-                ultragraphdb_protocol_wire::DropCommand::whole_tenant(0),
-                s,
-                h.now
-            )
-            .err()
-            .context("an error")?
-            .0,
-        ClientErrorEnum::InDoubt {
-            session: 9,
-            request: 1
-        }
+        in_doubt(
+            &h.core
+                .drop_command(
+                    ultragraphdb_protocol_wire::DropCommand::whole_tenant(0),
+                    s,
+                    h.now
+                )
+                .err()
+                .context("an error")?
+        ),
+        Some((9, 1))
     );
     assert_eq!(
-        h.core.commit(reader, s, h.now).err().context("an error")?.0,
-        ClientErrorEnum::InDoubt {
-            session: 9,
-            request: 1
-        }
+        in_doubt(&h.core.commit(reader, s, h.now).err().context("an error")?),
+        Some((9, 1))
     );
     h.blackhole = false;
     // Resolved before a connection, it is sent once one is ready.
@@ -700,7 +677,7 @@ fn test_a_commit_unanswered_at_close_is_in_doubt_until_resolved() -> TestResult 
 fn test_a_transaction_awaiting_its_commit_takes_no_other_request() -> TestResult {
     let mut h = Harness::ready(server())?;
     let s = session(&mut h)?;
-    let other = h.core.resume_session(20, 1);
+    let other = h.core.resume_session(20, 1)?;
     let tx = begin(&mut h)?;
     let p = h.core.commit(tx, s, h.now)?;
     let stream = tx.stream();
@@ -738,7 +715,8 @@ fn test_a_refused_drop_keeps_its_request_number() -> TestResult {
     use ultragraphdb_protocol_wire::DropCommand;
     let mut h = Harness::ready(server())?;
     let _session: Session = session(&mut h)?;
-    let resumed = h.core.resume_session(9, 5);
+    let resumed = h.core.resume_session(9, 5)?;
+    h.server.refuse_next_commit(ErrorCode::Refused, 0);
     let p = h
         .core
         .drop_command(DropCommand::whole_tenant(0), resumed, h.now)?;
@@ -747,8 +725,7 @@ fn test_a_refused_drop_keeps_its_request_number() -> TestResult {
         matches!(
             error.0,
             ClientErrorEnum::Refused {
-                code: ErrorCode::RequestOutOfOrder,
-                detail: 1,
+                code: ErrorCode::Refused,
                 ..
             }
         ),
@@ -757,7 +734,7 @@ fn test_a_refused_drop_keeps_its_request_number() -> TestResult {
     assert_eq!(h.core.next_request(resumed), Some(5));
     assert_eq!(h.server.applied(), 0);
     // A first drop through an evicted session is refused as such, and forgets the session.
-    let evicted = h.core.resume_session(4, 1);
+    let evicted = h.core.resume_session(4, 1)?;
     let committing = h
         .core
         .drop_command(DropCommand::whole_tenant(0), evicted, h.now)?;
@@ -843,9 +820,9 @@ fn test_a_loss_in_the_retrys_handshake_consumes_no_attempt() -> TestResult {
     Ok(())
 }
 
-/// The commit's frame still queued when the connection is lost: one attempt, and it is still to be made.
+/// The commit's frame still queued when the connection is lost, never sent on any connection: lost with it.
 #[test]
-fn test_a_loss_with_the_commit_still_queued_consumes_no_attempt() -> TestResult {
+fn test_a_commit_never_sent_answers_connection_lost() -> TestResult {
     let mut h = Harness::with(
         config().with_commit_attempts(1),
         server(),
@@ -859,30 +836,45 @@ fn test_a_loss_with_the_commit_still_queued_consumes_no_attempt() -> TestResult 
     let tx = begin(&mut h)?;
     let p = h.core.commit(tx, s, h.now)?;
     h.core.disconnected(TransportError::closed(), h.now);
-    assert_eq!(h.core.take_reply(p), None, "not answered");
-    assert!(
-        h.core.needs_connection(),
-        "the commit waits for a connection"
-    );
-    // Its retry finds no transaction and nothing committed: code 18 (PROTOCOL.md section 11.5).
-    let error = h.settle(p)?.err().context("an error")?;
-    assert!(
-        matches!(
-            error.0,
-            ClientErrorEnum::Refused {
-                code: ErrorCode::NotCommitted,
-                detail: 1,
-                ..
-            }
-        ),
-        "{error:?}"
-    );
     assert_eq!(
-        commits(&h),
-        vec![(9, 1)],
-        "only the retry reached the server"
+        h.core.take_reply(p),
+        Some(Err(ClientError::connection_lost(None))),
+        "its transaction went with its connection, and its frame never left"
     );
+    assert!(!h.core.needs_connection(), "nothing waits for a connection");
+    assert_eq!(h.core.next_request(s), Some(1), "the number stays");
+    assert_eq!(commits(&h), Vec::new());
     assert_eq!(h.server.applied(), 0);
+    Ok(())
+}
+
+/// A commit sent, lost, and queued again when the next connection is lost too: that loss used no attempt, since the
+/// frame never left on it, and it waits to be sent on the next, the first send having left.
+#[test]
+fn test_a_retry_still_queued_at_a_loss_consumes_no_attempt() -> TestResult {
+    let mut h = Harness::with(
+        config().with_commit_attempts(2),
+        server(),
+        Default::default(),
+        1,
+        Anonymous,
+    );
+    h.connect()?;
+    h.until(|h| h.core.is_ready())?;
+    let s = session(&mut h)?;
+    let tx = begin(&mut h)?;
+    h.server.drop_after_next_commit();
+    let p = h.core.commit(tx, s, h.now)?;
+    h.until(|h| commits(h).len() == 1 && !h.core.is_connected())?;
+    assert!(h.core.needs_connection());
+    h.connect()?;
+    // The Welcome taken, the retry queued, and the connection lost before it left.
+    h.until(|h| h.core.is_ready())?;
+    h.core.disconnected(TransportError::closed(), h.now);
+    assert_eq!(h.core.take_reply(p), None, "not answered");
+    assert!(h.core.needs_connection(), "the attempt is still to be made");
+    assert!(matches!(h.settle(p)?, Ok(Reply::Committed(_))));
+    assert_eq!(h.server.applied(), 1);
     Ok(())
 }
 
@@ -938,17 +930,14 @@ fn test_a_loss_after_a_commit_is_sent_consumes_an_attempt() -> TestResult {
     );
     h.core.disconnected(TransportError::closed(), h.now);
     assert_eq!(
-        h.core
-            .take_reply(p)
-            .context("an answer")?
-            .err()
-            .context("an error")?
-            .0,
-        ClientErrorEnum::RetriesExhausted {
-            session: 9,
-            request: 1,
-            attempts: 1
-        }
+        in_doubt(
+            &h.core
+                .take_reply(p)
+                .context("an answer")?
+                .err()
+                .context("an error")?
+        ),
+        Some((9, 1))
     );
     assert!(!h.core.needs_connection());
 
@@ -967,12 +956,8 @@ fn test_a_loss_after_a_commit_is_sent_consumes_an_attempt() -> TestResult {
     harness.server.drop_after_next_commit();
     let committing = harness.core.commit(next_tx, session, harness.now)?;
     assert_eq!(
-        harness.settle(committing)?.err().context("an error")?.0,
-        ClientErrorEnum::RetriesExhausted {
-            session: 9,
-            request: 1,
-            attempts: 1
-        }
+        in_doubt(&harness.settle(committing)?.err().context("an error")?),
+        Some((9, 1))
     );
     assert_eq!(commits(&harness), vec![(9, 1)]);
     assert_eq!(harness.server.applied(), 1);
@@ -1016,20 +1001,13 @@ fn test_a_retry_refused_at_the_stream_limit_leaves_the_commit_in_doubt() -> Test
     let next_tx = begun(h.core.take_reply(beginning).context("the Begin's answer")?)?;
     // The earlier send may have been applied: the caller resolves the commit.
     assert_eq!(
-        h.settle(p)?,
-        Err(ultragraphdb_client_core::ClientError::in_doubt(9, 1))
+        in_doubt(&h.settle(p)?.err().context("in doubt")?),
+        Some((9, 1))
     );
     assert_eq!(h.server.applied(), 1, "the first send was applied");
     assert_eq!(
-        h.core
-            .commit(next_tx, s, h.now)
-            .err()
-            .context("an error")?
-            .0,
-        ClientErrorEnum::InDoubt {
-            session: 9,
-            request: 1
-        }
+        in_doubt(&h.core.commit(next_tx, s, h.now).err().context("an error")?),
+        Some((9, 1))
     );
     h.core.abort(next_tx)?;
     let resolving = h.core.resolve(s, h.now)?;
@@ -1050,12 +1028,8 @@ fn test_a_resolve_refused_at_the_stream_limit_keeps_the_commit_in_doubt() -> Tes
     h.server.lose_next_retries(1);
     let p = h.core.commit(tx, s, h.now)?;
     assert_eq!(
-        h.settle(p)?.err().context("an error")?.0,
-        ClientErrorEnum::RetriesExhausted {
-            session: 9,
-            request: 1,
-            attempts: 2
-        }
+        in_doubt(&h.settle(p)?.err().context("an error")?),
+        Some((9, 1))
     );
     // The last retry was lost with its connection: a new one.
     h.connect()?;
@@ -1063,27 +1037,18 @@ fn test_a_resolve_refused_at_the_stream_limit_keeps_the_commit_in_doubt() -> Tes
     let next_tx = begin(&mut h)?;
     let resolving = h.core.resolve(s, h.now)?;
     assert_eq!(
-        h.core
-            .take_reply(resolving)
-            .context("answered at once")?
-            .err()
-            .context("an error")?
-            .0,
-        ClientErrorEnum::InDoubt {
-            session: 9,
-            request: 1
-        }
+        in_doubt(
+            &h.core
+                .take_reply(resolving)
+                .context("answered at once")?
+                .err()
+                .context("an error")?
+        ),
+        Some((9, 1))
     );
     assert_eq!(
-        h.core
-            .commit(next_tx, s, h.now)
-            .err()
-            .context("an error")?
-            .0,
-        ClientErrorEnum::InDoubt {
-            session: 9,
-            request: 1
-        }
+        in_doubt(&h.core.commit(next_tx, s, h.now).err().context("an error")?),
+        Some((9, 1))
     );
     // Once the stream is free, a resolve settles it from the server's record.
     h.core.abort(next_tx)?;
@@ -1119,32 +1084,29 @@ fn test_a_failed_connect_counts_as_one_of_the_commits_attempts() -> TestResult {
         "the connection was lost after its handshake"
     );
     // Attempt 1 was sent and lost with its connection; attempt 2 is a connection that could not be made.
-    h.core.connect_failed();
+    h.core.connect_failed(&ClientError::not_connected());
     assert!(h.core.needs_connection(), "one attempt left");
     assert_eq!(h.core.take_reply(p), None);
-    h.core.connect_failed();
+    h.core.connect_failed(&ClientError::not_connected());
     assert!(!h.core.needs_connection(), "the attempts are spent");
     assert_eq!(
-        h.core.take_reply(p),
-        Some(Err(
-            ultragraphdb_client_core::ClientError::retries_exhausted(9, 1, 3)
-        ))
+        in_doubt(
+            &h.core
+                .take_reply(p)
+                .context("an answer")?
+                .err()
+                .context("in doubt")?
+        ),
+        Some((9, 1))
     );
-    h.core.connect_failed();
+    h.core.connect_failed(&ClientError::not_connected());
     assert_eq!(h.core.next_request(s), Some(1));
     h.connect()?;
     h.until(|h| h.core.is_ready())?;
     let next_tx = begin(&mut h)?;
     assert_eq!(
-        h.core
-            .commit(next_tx, s, h.now)
-            .err()
-            .context("an error")?
-            .0,
-        ClientErrorEnum::InDoubt {
-            session: 9,
-            request: 1
-        }
+        in_doubt(&h.core.commit(next_tx, s, h.now).err().context("an error")?),
+        Some((9, 1))
     );
     let resolving = h.core.resolve(s, h.now)?;
     let c = committed(h.settle(resolving)?)?;
@@ -1170,8 +1132,8 @@ fn test_a_failed_connect_with_no_commit_waiting_uses_no_attempt() -> TestResult 
     let tx = begin(&mut h)?;
     let p = h.core.commit(tx, s, h.now)?;
     // Connected, the commit in flight: not a commit waiting for a connection.
-    h.core.connect_failed();
-    h.core.connect_failed();
+    h.core.connect_failed(&ClientError::not_connected());
+    h.core.connect_failed(&ClientError::not_connected());
     let c = committed(h.settle(p)?)?;
     assert_eq!(c.request(), 1);
     assert_eq!(h.core.next_request(s), Some(2));

@@ -9,11 +9,9 @@
 use std::time::Duration;
 
 use cucumber::{then, when};
-use ultragraphdb_common_role::RoleClient;
+use ultragraphdb_common_role::{PARTITION_INITIAL_CREDIT, RoleClient};
 use ultragraphdb_core_ids::{Epoch, Version};
-use ultragraphdb_protocol_wire::{
-    BindView, BodyView, Credit, DEFAULT_INITIAL_CREDIT, ErrorCode, ScanAt, ScanRange,
-};
+use ultragraphdb_protocol_wire::{BindView, BodyView, Credit, ErrorCode, ScanAt, ScanRange};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::Steps;
@@ -126,13 +124,13 @@ fn read_too_old(w: &mut Steps) -> TestResult {
 async fn long_scan(client: &mut RoleClient) -> TestResult<(u64, u64, Vec<Result<u64, Refused>>)> {
     let epoch = committed_and_closed(client).await?;
     let version = Version::bound_of(Epoch::new(epoch)?);
-    let ranges = list_ranges(DEFAULT_INITIAL_CREDIT + 1);
+    let ranges = list_ranges(PARTITION_INITIAL_CREDIT + 1);
     let scan = plain(ScanAt::ReadVersion, version, epoch, 30_000, &ranges);
     client.send_only(&scan).await?;
     let stream = client.last_stream();
     let mut sequence = EntriesSequence::new(scan.ranges());
     let mut versions = Vec::new();
-    for _ in 0..DEFAULT_INITIAL_CREDIT {
+    for _ in 0..PARTITION_INITIAL_CREDIT {
         if let Frame::Entries(batch) = next_frame(client, &mut sequence).await? {
             versions.push(Ok(batch.version));
         }
@@ -178,7 +176,7 @@ fn open_scan(w: &mut Steps) -> TestResult {
 fn scan_held(w: &mut Steps) -> TestResult {
     assert!(w.kernel.refused.is_empty(), "{:?}", w.kernel.refused);
     let (version, read) = w.kernel.numbers.split_first().context("the version")?;
-    assert_eq!(read.len() as u32, DEFAULT_INITIAL_CREDIT + 2);
+    assert_eq!(read.len() as u32, PARTITION_INITIAL_CREDIT + 2);
     assert!(read.iter().all(|at| at == version), "{read:?}");
     w.roles = None;
     Ok(())

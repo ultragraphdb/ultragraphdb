@@ -4,9 +4,23 @@
  */
 
 use futures::channel::oneshot::Sender;
+use ultragraphdb_cluster_placement::PlacementMap;
 use ultragraphdb_cluster_sequencer::Close;
 use ultragraphdb_protocol_scram::ScramVerifier;
-use ultragraphdb_protocol_wire::{Catalog, ErrorReply, Join, Members, Placement};
+use ultragraphdb_protocol_wire::{
+    Catalog, Declared, Describe, ErrorReply, Join, Members, Placement,
+};
+
+use crate::types::tenant_facts::TenantFacts;
+
+/// The catalog version a Drop calls for (`PROTOCOL.md` §11.13).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DropStep {
+    /// A predicate's declaration removed.
+    Predicate(String),
+    /// The catalog set to the initial catalog.
+    Everything,
+}
 
 /// What an endpoint core asks the owner, each with where its answer goes.
 #[derive(Debug)]
@@ -95,5 +109,81 @@ pub enum Asked {
         principal: u64,
         /// Its answer.
         reply: Sender<Result<(), ErrorReply>>,
+    },
+    /// The owner check of a commit, which holds the session in flight until [`Asked::CommitEnded`].
+    BeginCommit {
+        /// The session.
+        session: u128,
+        /// The connection's principal.
+        principal: u64,
+        /// Its answer.
+        reply: Sender<Result<(), ErrorReply>>,
+    },
+    /// The commit in flight through `session` was answered, or given up.
+    CommitEnded {
+        /// The session.
+        session: u128,
+    },
+    /// Whether the registry holds `session`.
+    SessionHeld {
+        /// The session.
+        session: u128,
+        /// Its answer.
+        reply: Sender<bool>,
+    },
+    /// What a request naming `tenant` needs to know.
+    TenantFacts {
+        /// The tenant.
+        tenant: u64,
+        /// Its answer.
+        reply: Sender<TenantFacts>,
+    },
+    /// The placement map.
+    Map {
+        /// Its answer; `None` while the group holds none.
+        reply: Sender<Option<PlacementMap>>,
+    },
+    /// `tenant`'s schema id.
+    SchemaId {
+        /// The tenant.
+        tenant: u64,
+        /// Its answer.
+        reply: Sender<Result<u64, ErrorReply>>,
+    },
+    /// What `tenant`'s catalog declares and its metadata records.
+    Describe {
+        /// The tenant.
+        tenant: u64,
+        /// Its answer.
+        reply: Sender<Result<Describe, ErrorReply>>,
+    },
+    /// A catalog version of `declared` built on `built_on`, answered with its effective epoch's first version.
+    Declare {
+        /// The tenant.
+        tenant: u64,
+        /// The version it builds on.
+        built_on: u64,
+        /// What it declares.
+        declared: Vec<Declared>,
+        /// Its answer.
+        reply: Sender<Result<u64, ErrorReply>>,
+    },
+    /// The catalog version a Drop calls for, pending and durable, or none where it would change nothing.
+    DropCatalog {
+        /// The tenant.
+        tenant: u64,
+        /// What the Drop removed.
+        step: DropStep,
+        /// Its answer.
+        reply: Sender<Result<(), ErrorReply>>,
+    },
+    /// The default entry of `predicate`, recorded durably, and whether it was held already.
+    RecordDefault {
+        /// The tenant.
+        tenant: u64,
+        /// The predicate's IRI.
+        predicate: String,
+        /// Its answer.
+        reply: Sender<Result<bool, ErrorReply>>,
     },
 }

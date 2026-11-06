@@ -5,6 +5,8 @@
 
 mod compute_read_view_body_view;
 
+use xxhash_rust::xxh3::xxh3_64;
+
 use crate::types::quad_pattern::QuadPattern;
 use crate::types::read_level::ReadLevel;
 use crate::types::term_table_view::TermTableView;
@@ -28,9 +30,15 @@ pub struct ComputeReadView<'a> {
     terms: TermTableView<'a>,
     pattern: QuadPattern,
     resume: &'a [u8],
+    pattern_sections: &'a [u8],
 }
 
 impl<'a> ComputeReadView<'a> {
+    /// The pattern's hash a resume key holds: XXH3-64, seed 0, of the body's sections 0 to 2 (`PROTOCOL.md` §11.8).
+    pub fn pattern_hash(&self) -> u64 {
+        xxh3_64(self.pattern_sections)
+    }
+
     /// The transaction's partition; 0 for none.
     pub fn partition(&self) -> u32 {
         self.partition

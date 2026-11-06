@@ -15,8 +15,11 @@ mod types;
 pub use crate::traits::connect::Connect;
 pub use crate::types::client::Client;
 pub use crate::types::tcp_connector::TcpConnector;
+pub use crate::types::tls_dial::TlsDial;
 pub use ultragraphdb_client_core::{
     BatchPoll, ClientConfig, ClientError, ClientErrorEnum, Committed, Reply, ResultStream, Session,
     Statement, Transaction,
 };
 pub use ultragraphdb_protocol_transport::{Anonymous, Login};
+pub use ultragraphdb_protocol_wire::{ReadLevel, RefusedRequest, RunsAgain};
+pub use ultragraphdb_transport_tls::{TlsConnector, TlsError, TlsTrust};

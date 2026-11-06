@@ -3,9 +3,11 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+mod auth_throttle_tests;
 #[cfg(test)]
 mod client_session_tests;
 #[cfg(test)]
 mod membership_tests;
 #[cfg(test)]
 mod owner_tests;
+mod tenant_gate_tests;

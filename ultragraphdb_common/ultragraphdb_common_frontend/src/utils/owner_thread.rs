@@ -26,6 +26,7 @@ const OWNER_CORE: usize = 1;
 pub struct OwnerThread {
     handle: OwnerHandle,
     stopped: oneshot::Receiver<Result<(), RoleError>>,
+    unknown_secret: [u8; 32],
 }
 
 impl OwnerThread {
@@ -35,13 +36,21 @@ impl OwnerThread {
         &self.handle
     }
 
+    /// The secret an unknown name's verifier derives from, which the metadata group holds durably.
+    #[must_use]
+    pub fn unknown_secret(&self) -> [u8; 32] {
+        self.unknown_secret
+    }
+
     /// Waits for the owner to stop: at a failure, or once every handle is gone, this one with it.
     ///
     /// # Errors
     ///
     /// What the owner stopped with.
     pub async fn stopped(self) -> Result<(), RoleError> {
-        let Self { handle, stopped } = self;
+        let Self {
+            handle, stopped, ..
+        } = self;
         drop(handle);
         stopped.await.unwrap_or_else(|_| {
             Err(RoleError::software(
@@ -116,7 +125,7 @@ pub async fn start_owner(
                     match opened {
                         Ok(owner) => {
                             // A role gone before its owner recovered has nothing left to run for.
-                            drop(recovered.send(Ok(())));
+                            drop(recovered.send(Ok(owner.unknown_secret().unwrap_or_default())));
                             owner.run(received, move || clock.read()).await
                         }
                         Err(error) => {
@@ -130,7 +139,7 @@ pub async fn start_owner(
             drop(stop.send(outcome));
         });
     let _thread = spawned.map_err(|error| RoleError::unavailable(format!("the owner: {error}")))?;
-    recovery.await.unwrap_or_else(|_| {
+    let unknown_secret = recovery.await.unwrap_or_else(|_| {
         Err(RoleError::software(
             "the owner's thread ended without a word",
         ))
@@ -138,6 +147,7 @@ pub async fn start_owner(
     Ok(OwnerThread {
         handle: OwnerHandle::new(inbox),
         stopped,
+        unknown_secret,
     })
 }
 
@@ -177,6 +187,9 @@ async fn open(
     .await?;
     for (name, verifier) in principals {
         owner.create_principal_once(&name, verifier).await?;
+    }
+    for tenant in start.tenants() {
+        owner.create_tenant_once(*tenant).await?;
     }
     Ok(owner)
 }

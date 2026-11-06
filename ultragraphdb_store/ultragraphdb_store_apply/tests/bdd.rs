@@ -30,6 +30,7 @@ mod vector_steps;
 
 #[derive(Debug, Default, World)]
 struct Steps {
+    neighbour: Option<catalog_change_steps::Neighbour>,
     keys: Vec<Vec<u8>>,
     flags: Vec<bool>,
     schemas: Vec<String>,

@@ -5,3 +5,4 @@
 
 pub mod client;
 pub mod tcp_connector;
+pub mod tls_dial;

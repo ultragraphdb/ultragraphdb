@@ -9,7 +9,7 @@ Feature: Wire protocol: the Rust client
   through views. It retries a commit only through its session, so a retry never commits twice: a commit refused as
   not committed (code 18) runs its transaction again, a busy session (code 14) is retried after a delay, and a retry
   refused as evicted (code 12) reports an unknown outcome and is not retried. Here the client's sans-I/O core runs
-  against the test server over the simulated network; the end-to-end runs against the node are task 10.1's.
+  against the test server over the simulated network; the end-to-end runs against the node are task 10.4's.
 
   Scenario: The client retries a lost reply through its session
     When the connection drops after a commit is sent and the client reconnects and retries

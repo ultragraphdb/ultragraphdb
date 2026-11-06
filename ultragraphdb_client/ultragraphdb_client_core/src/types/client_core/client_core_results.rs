@@ -4,11 +4,13 @@
  */
 
 use std::collections::VecDeque;
+use std::num::NonZeroU32;
 use std::time::Instant;
 
-use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::{Login, ReceivedFrame};
-use ultragraphdb_protocol_wire::{BodyView, Cancel, Command, Credit, FLAG_LAST, ResultView};
+use ultragraphdb_protocol_wire::{
+    BodyView, Cancel, Command, Credit, FLAG_LAST, RefusedRequest, ResultView,
+};
 
 use crate::errors::client_error::ClientError;
 use crate::types::batch_poll::BatchPoll;
@@ -34,7 +36,7 @@ fn arrived<T>(frame: &ReceivedFrame, read: impl FnOnce(&ResultView<'_>) -> T) ->
         Err(error) => return Arrived::Broken(ClientError::protocol(error)),
     };
     if view.command() == Command::Error {
-        return match refusal(&view) {
+        return match refusal(&view, RefusedRequest::Read) {
             Ok(refused) => Arrived::Refused(refused),
             Err(error) => Arrived::Broken(error),
         };
@@ -55,7 +57,9 @@ impl<L: Login> ClientCore<L> {
     /// pooled buffer, and its value is the batch's; nothing is copied or decoded beyond what `read` asks for.
     /// [`BatchPoll::Done`] after the last, which ends the read's stream; [`BatchPoll::Wait`] while none has arrived,
     /// granting the stream [`crate::ClientConfig::credit`] more frames when its credit is spent. A refusal on the
-    /// stream is its error and ends it, keeping the connection and the transaction; a frame breaking a rule gives the
+    /// stream is its error and ends it, keeping the connection and the transaction: only a stream ending in `LAST` is an
+    /// answer, so the batches it handed over count for nothing, and no Credit or Cancel goes out for it and nothing of it is
+    /// resent; a frame breaking a rule gives the
     /// connection up ([`ClientError::protocol`]). A read cut short by its connection's loss, before its last frame
     /// arrived, answers what the connection's requests answered, once: [`ClientError::connection_lost`] with its cause,
     /// or [`ClientError::timed_out`]; it is not retried, as its transaction was aborted with the connection
@@ -95,12 +99,16 @@ impl<L: Login> ClientCore<L> {
             return Err(ClientError::stream_finished(id));
         };
         let Some(frame) = state.inbox.pop_front() else {
+            // The read waits on the server from here: what its caller spent on the batch before counts as no silence.
+            if std::mem::take(&mut state.with_caller) {
+                state.progress = Some(now);
+            }
             if state.credit == 0 {
                 state.credit = self.config.credit();
+                state.progress = Some(now);
                 let credit = Credit::new(self.config.credit());
                 let frame = self.frame(&credit, id)?;
                 self.outbox.push_back(frame);
-                self.last_progress = Some(now);
             }
             return Ok(BatchPoll::Wait);
         };
@@ -109,6 +117,8 @@ impl<L: Login> ClientCore<L> {
                 if last {
                     let _ended: Option<StreamState> = self.streams.remove(&id);
                     let _first_end: bool = self.done_reads.insert(id);
+                } else {
+                    state.with_caller = true;
                 }
                 Ok(BatchPoll::Batch(value))
             }
@@ -124,39 +134,48 @@ impl<L: Login> ClientCore<L> {
         }
     }
 
-    /// Grants `stream` credit for `frames` more Result frames, beyond what [`ClientCore::next_batch`] grants; refused
-    /// as [`ClientError::request`] for no frames, which a Credit cannot carry (`PROTOCOL.md` §9.2).
-    pub fn grant(&mut self, stream: &ResultStream, frames: u32) -> Result<(), ClientError> {
+    /// Grants `stream` credit for `frames` more Result frames at `now`, beyond what [`ClientCore::next_batch`] grants; no
+    /// shell offers it, since a shell's credit is automatic (`PROTOCOL.md` §11.3). A read whose end has arrived takes no
+    /// Credit, since its stream has ended.
+    pub fn grant(
+        &mut self,
+        stream: &ResultStream,
+        frames: NonZeroU32,
+        now: Instant,
+    ) -> Result<(), ClientError> {
         let id = stream.stream();
         let open = stream.generation() == self.generation
             && self.streams.get(&id).is_some_and(|s| s.results);
         if !open {
             return Err(ClientError::stream_finished(id));
         }
-        if frames == 0 {
-            return Err(ClientError::request(ProtocolError::field_value(
-                Command::Credit.number(),
-                "frames",
-                0,
-            )));
+        if self.streams.get(&id).is_some_and(StreamState::ended) {
+            return Ok(());
         }
-        let frame = self.frame(&Credit::new(frames), id)?;
+        let frame = self.frame(&Credit::new(frames.get()), id)?;
         if let Some(state) = self.streams.get_mut(&id) {
-            state.credit = state.credit.saturating_add(frames);
+            state.credit = state.credit.saturating_add(frames.get());
+            state.progress = Some(now);
         }
         self.outbox.push_back(frame);
         Ok(())
     }
 
     /// Cancels `stream`, a read: no further frame of it is read, and its transaction goes on. A read lost or kept with
-    /// its connection is forgotten.
+    /// its connection is forgotten, and one whose end has arrived sends no Cancel, since its stream has ended.
     pub fn cancel(&mut self, stream: ResultStream) {
         let id = stream.stream();
         let key = (stream.generation(), id);
         if self.lost_reads.remove(&key).is_some() || self.kept_reads.remove(&key).is_some() {
             return;
         }
-        if stream.generation() != self.generation || self.streams.remove(&id).is_none() {
+        if stream.generation() != self.generation {
+            return;
+        }
+        let Some(state) = self.streams.remove(&id) else {
+            return;
+        };
+        if state.ended() {
             return;
         }
         if let Ok(frame) = self.frame(&Cancel, id) {

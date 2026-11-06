@@ -142,6 +142,26 @@ fn test_a_failed_store_is_unavailable_through_every_layer() {
 
 /// A wrong partition states its bucket in bits 0 to 23 and its owner in bits 32 to 63, and a home's reply says it with outcome 26.
 #[test]
+fn test_a_list_failing_its_posting_decode_is_unavailable_and_names_its_key() {
+    let key = b"list".to_vec();
+    for failure in [
+        PostingError::unexpected_meta(1, key.clone()),
+        PostingError::missing_part(key.clone()),
+    ] {
+        let refusal = PartitionError::from(QuadError::from(failure));
+        assert_eq!(error_reply(&refusal).code(), ErrorCode::Unavailable);
+        assert!(
+            scan_refusal(b"at", &refusal).message().contains(
+                &key.iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect::<String>()
+            ),
+            "{refusal}"
+        );
+    }
+}
+
+#[test]
 fn test_a_wrong_partition_states_its_bucket_and_owner() {
     let refusal = PartitionError::wrong_partition(30_000, 2);
     assert_eq!(

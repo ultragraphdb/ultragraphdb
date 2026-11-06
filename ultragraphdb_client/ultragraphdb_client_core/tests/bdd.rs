@@ -10,8 +10,8 @@ use cucumber::{World, then, when};
 use std::time::Duration;
 
 use ultragraphdb_client_core::{
-    BatchPoll, ClientErrorEnum, Reply, ResultStream, Session, TEST_PRINCIPAL, TestServer,
-    Transaction,
+    BatchPoll, ClientError, ClientErrorEnum, Committed, Reply, ResultStream, Session,
+    TEST_PRINCIPAL, TestServer, Transaction,
 };
 use ultragraphdb_protocol_transport::{Anonymous, Login, NetworkFaults};
 use ultragraphdb_protocol_wire::{
@@ -26,6 +26,16 @@ pub mod utils {
     pub mod harness;
 }
 
+/// The steps of the scenarios of the client's requests and outcomes, a file per feature.
+#[path = "bdd_steps/in_doubt_steps.rs"]
+mod in_doubt_steps;
+#[path = "bdd_steps/read_steps.rs"]
+mod read_steps;
+#[path = "bdd_steps/request_types_steps.rs"]
+mod request_types_steps;
+#[path = "bdd_steps/session_steps.rs"]
+mod session_steps;
+
 use crate::utils::harness::{
     CLUSTER, Harness, RELEASE, begun, committed, config, prepared, registered, scram_welcome,
     server,
@@ -33,7 +43,11 @@ use crate::utils::harness::{
 use ultragraphdb_tool_bdd::{Context as _, TestResult};
 
 #[derive(Default, World)]
-struct Steps {
+pub(crate) struct Steps {
+    errors: Vec<ClientError>,
+    answers: Vec<Committed>,
+    numbers: Vec<u64>,
+    outcomes: Vec<Result<(), ClientError>>,
     harness: Option<Harness>,
     transaction: Option<Transaction>,
     session: Option<Session>,
@@ -52,18 +66,18 @@ impl std::fmt::Debug for Steps {
     }
 }
 
-fn begin(h: &mut Harness, read_only: bool) -> TestResult<Transaction> {
+pub(crate) fn begin(h: &mut Harness, read_only: bool) -> TestResult<Transaction> {
     let p = h.core.begin(0, read_only, h.now)?;
     begun(h.settle(p)?)
 }
 
-fn session(h: &mut Harness) -> TestResult<Session> {
+pub(crate) fn session(h: &mut Harness) -> TestResult<Session> {
     let p = h.core.register(h.now)?;
     registered(h.settle(p)?)
 }
 
 /// A read of `tx`, naming it.
-fn read(tx: &Transaction) -> Read {
+pub(crate) fn read(tx: &Transaction) -> Read {
     let mut terms = TermTable::new();
     let a = terms.iri("http://ex.org/a");
     Read::new(
@@ -90,7 +104,7 @@ fn batches(h: &mut Harness, stream: &ResultStream) -> usize {
 }
 
 /// Every remaining batch of \`stream\` until its last, each read as it arrives.
-fn rest<L: Login>(h: &mut Harness<L>, stream: &ResultStream) -> TestResult<usize> {
+pub(crate) fn rest<L: Login>(h: &mut Harness<L>, stream: &ResultStream) -> TestResult<usize> {
     let mut read = 0;
     h.until(|h| {
         loop {
@@ -328,7 +342,7 @@ fn once(w: &mut Steps) -> TestResult {
 }
 
 /// Every Commit frame the server received: its session and request.
-fn commits(h: &Harness) -> Vec<(u128, u64)> {
+pub(crate) fn commits(h: &Harness) -> Vec<(u128, u64)> {
     h.server
         .received()
         .iter()

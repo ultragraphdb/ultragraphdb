@@ -3,10 +3,12 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use futures::channel::oneshot::Sender;
 use ultragraphdb_cluster_placement::{PartitionId, TenantRun as PlacedRun};
 use ultragraphdb_core_ids::{Epoch, Tenant, TypePrefix};
 use ultragraphdb_error_cluster::{ClusterError, ClusterErrorEnum};
 use ultragraphdb_error_role::RoleError;
+use ultragraphdb_protocol_scram::ScramVerifier;
 use ultragraphdb_protocol_wire::{
     BucketRange, Catalog, ErrorCode, ErrorReply, Placement, PreferredLeader, TenantRun,
 };
@@ -14,6 +16,7 @@ use ultragraphdb_traits_log::OrderedLog;
 
 use crate::types::asked::Asked;
 use crate::types::owner::{Durable, Owner, stopped};
+use crate::types::tenant_facts::TenantFacts;
 
 /// The `detail` of code 21 for a write another principal's session may not make (`PROTOCOL.md` §11.3).
 const ACTION_WRITE: u64 = 2;
@@ -37,62 +40,146 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
                 partition,
                 size,
                 reply,
-            } => {
-                let Ok(prefix) = TypePrefix::new(prefix) else {
-                    let refusal = ErrorReply::new(ErrorCode::Protocol, "a Lease of type prefix 0");
-                    drop(reply.send(Err(refusal)));
-                    return Ok(());
-                };
-                match self.lease(prefix, partition, size) {
-                    Ok(start) => self.durable.push(Durable::Lease(start, reply)),
-                    Err(refused) => drop(reply.send(Err(refused_or_stop(&refused)?))),
-                }
-            }
-            Asked::CloseRequest { epoch, reply } => {
-                let answer = match Epoch::new(epoch) {
-                    Ok(epoch) => self
-                        .sequencer
-                        .request_close(epoch)
-                        .map_err(|error| refused(&error)),
-                    Err(error) => Err(ErrorReply::new(ErrorCode::Protocol, error.to_string())),
-                };
-                drop(reply.send(answer));
-            }
-            Asked::Subscribe { from, reply } => {
-                let last = self.sequencer.last_closed().get();
-                drop(reply.send(if from > last {
-                    Err(ErrorReply::new(
-                        ErrorCode::Protocol,
-                        format!("a Subscribe from epoch {from}, above the latest close {last}"),
-                    ))
-                } else {
-                    Ok(())
-                }));
-            }
+            } => self.asked_lease(prefix, partition, size, reply)?,
+            Asked::CloseRequest { epoch, reply } => drop(reply.send(self.close_request(epoch))),
+            Asked::Subscribe { from, reply } => drop(reply.send(self.subscribe(from))),
             Asked::NextClose { after, reply } => self.next_close(after, reply),
-            Asked::Verifier { name, reply } => {
-                let held = self
-                    .metadata
-                    .state()
-                    .principal(&name)
-                    .map(|principal| (principal.id(), principal.verifier().clone()));
-                drop(reply.send(held));
-            }
+            Asked::Verifier { name, reply } => drop(reply.send(self.verifier(&name))),
             Asked::RegisterSession {
                 session,
                 principal,
                 reply,
-            } => match self.register(session, principal) {
-                Ok(()) => self.durable.push(Durable::Registered(reply)),
-                Err(refused) => drop(reply.send(Err(refused_or_stop(&refused)?))),
-            },
+            } => self.asked_register(session, principal, reply)?,
             Asked::CheckSession {
                 session,
                 principal,
                 reply,
             } => drop(reply.send(self.check(session, principal))),
+            Asked::BeginCommit {
+                session,
+                principal,
+                reply,
+            } => drop(reply.send(self.begin_commit(session, principal))),
+            Asked::CommitEnded { session } => {
+                let _was = self.in_flight.remove(&session);
+            }
+            Asked::SessionHeld { session, reply } => {
+                let held = self.metadata.state().session_principal(session).is_ok();
+                let _unheard: Result<(), bool> = reply.send(held);
+            }
+            Asked::TenantFacts { tenant, reply } => drop(reply.send(self.tenant_facts(tenant))),
+            Asked::Map { reply } => {
+                drop(reply.send(self.metadata.state().placement().cloned()));
+            }
+            Asked::SchemaId { tenant, reply } => drop(reply.send(self.schema_id(tenant))),
+            Asked::Describe { tenant, reply } => drop(reply.send(self.describe(tenant))),
+            Asked::Declare {
+                tenant,
+                built_on,
+                declared,
+                reply,
+            } => self.declare(tenant, built_on, &declared, reply)?,
+            Asked::DropCatalog {
+                tenant,
+                step,
+                reply,
+            } => self.drop_catalog(tenant, &step, reply)?,
+            Asked::RecordDefault {
+                tenant,
+                predicate,
+                reply,
+            } => self.record_default(tenant, &predicate, reply)?,
         }
         Ok(())
+    }
+
+    /// A Lease, kept for the turn's sync: of type prefix 0 refused now.
+    fn asked_lease(
+        &mut self,
+        prefix: u16,
+        partition: u32,
+        size: u64,
+        reply: Sender<Result<u64, ErrorReply>>,
+    ) -> Result<(), RoleError> {
+        let Ok(prefix) = TypePrefix::new(prefix) else {
+            let refusal = ErrorReply::new(ErrorCode::Protocol, "a Lease of type prefix 0");
+            drop(reply.send(Err(refusal)));
+            return Ok(());
+        };
+        match self.lease(prefix, partition, size) {
+            Ok(start) => self.durable.push(Durable::Lease(start, reply)),
+            Err(refused) => drop(reply.send(Err(refused_or_stop(&refused)?))),
+        }
+        Ok(())
+    }
+
+    /// The sequencer told to close `epoch` early.
+    fn close_request(&mut self, epoch: u64) -> Result<(), ErrorReply> {
+        match Epoch::new(epoch) {
+            Ok(epoch) => self
+                .sequencer
+                .request_close(epoch)
+                .map_err(|error| refused(&error)),
+            Err(error) => Err(ErrorReply::new(ErrorCode::Protocol, error.to_string())),
+        }
+    }
+
+    /// A Subscribe from `from`, refused above the latest close.
+    fn subscribe(&self, from: u64) -> Result<(), ErrorReply> {
+        let last = self.sequencer.last_closed().get();
+        if from > last {
+            return Err(ErrorReply::new(
+                ErrorCode::Protocol,
+                format!("a Subscribe from epoch {from}, above the latest close {last}"),
+            ));
+        }
+        Ok(())
+    }
+
+    /// The identity and verifier of the principal `name`.
+    fn verifier(&self, name: &str) -> Option<(u64, ScramVerifier)> {
+        self.metadata
+            .state()
+            .principal(name)
+            .map(|principal| (principal.id(), principal.verifier().clone()))
+    }
+
+    /// A session's registration, kept for the turn's sync.
+    fn asked_register(
+        &mut self,
+        session: u128,
+        principal: u64,
+        reply: Sender<Result<(), ErrorReply>>,
+    ) -> Result<(), RoleError> {
+        match self.register(session, principal) {
+            Ok(()) => self.durable.push(Durable::Registered(reply)),
+            Err(refused) => drop(reply.send(Err(refused_or_stop(&refused)?))),
+        }
+        Ok(())
+    }
+
+    /// The owner check of a commit, one in flight per session (`PROTOCOL.md` §11.5).
+    fn begin_commit(&mut self, session: u128, principal: u64) -> Result<(), ErrorReply> {
+        self.check(session, principal)?;
+        if !self.in_flight.insert(session) {
+            return Err(ErrorReply::new(
+                ErrorCode::SessionBusy,
+                "the session has a commit in flight",
+            ));
+        }
+        Ok(())
+    }
+
+    fn tenant_facts(&self, tenant: u64) -> TenantFacts {
+        let state = self.metadata.state();
+        let held = Tenant::new(tenant);
+        let last_closed = self.sequencer.last_closed().get();
+        TenantFacts::new(
+            state.holds_tenant(held),
+            last_closed.saturating_add(1),
+            last_closed,
+            state.current_version(held),
+        )
     }
 
     fn lease(
@@ -231,7 +318,7 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
 }
 
 /// The refusal an asker hears of `error`; a failed log stops the owner instead.
-fn refused_or_stop(error: &ClusterError) -> Result<ErrorReply, RoleError> {
+pub(super) fn refused_or_stop(error: &ClusterError) -> Result<ErrorReply, RoleError> {
     if matches!(error.0, ClusterErrorEnum::Log(_)) {
         return Err(stopped(error));
     }

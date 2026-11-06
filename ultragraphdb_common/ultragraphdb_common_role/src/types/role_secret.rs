@@ -14,6 +14,13 @@ use crate::types::role_credentials::RoleCredentials;
 /// count guards nothing a client's password needs it for, and every role connection pays it.
 pub const ROLE_ITERATIONS: u32 = 4_096;
 
+/// The credit a Scan's stream starts with, which a partition's Welcome states (`PROTOCOL.md` §11.12): a reader asks for each frame as
+/// it wants it, so an open Scan holds one frame at the reader and one list at the partition.
+pub const PARTITION_INITIAL_CREDIT: u32 = 1;
+
+/// What compute's Welcome states: a ComputeRead's stream starts with its own `credit` in place of it (`PROTOCOL.md` §11.3).
+pub const COMPUTE_WELCOME_CREDIT: u32 = 16;
+
 /// The cluster's role secret, as a role reads it at start. Its `Debug` holds the file it came from, never the secret.
 #[derive(Clone)]
 pub struct RoleSecret {

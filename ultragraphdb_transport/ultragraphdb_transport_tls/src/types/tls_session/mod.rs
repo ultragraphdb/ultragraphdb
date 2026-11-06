@@ -27,8 +27,11 @@ pub struct TlsSession {
 
 impl TlsSession {
     /// The session of `connection`, with `host` its peer: the name a client verifies, empty on the accepting side.
-    pub(crate) fn new(connection: Connection, host: String) -> Self {
+    pub(crate) fn new(mut connection: Connection, host: String) -> Self {
         debug_assert!(connection.is_handshaking());
+        // No limit of rustls's own: a limit makes `send` fail past 64 KiB, a frame reaches 1 MiB, and a carrier writes
+        // what a `send` queued before the next, which is what bounds it.
+        connection.set_buffer_limit(None);
         Self {
             connection,
             host,

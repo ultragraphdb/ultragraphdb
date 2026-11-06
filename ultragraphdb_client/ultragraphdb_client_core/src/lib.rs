@@ -34,3 +34,4 @@ pub use crate::types::transaction::Transaction;
 pub use crate::utils_test::test_principals::{TEST_NAME, TEST_PASSWORD, TEST_PRINCIPAL};
 #[cfg(feature = "test-utils")]
 pub use crate::utils_test::test_server::TestServer;
+pub use ultragraphdb_protocol_wire::{RefusedRequest, RunsAgain};

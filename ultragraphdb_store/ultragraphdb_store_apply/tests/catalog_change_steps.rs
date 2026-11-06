@@ -550,6 +550,45 @@ fn tenant_three_initial(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
+/// What a tenant held before its neighbour's drop: its keys by keyspace, and its catalog.
+pub(crate) type Neighbour = ((Vec<Vec<u8>>, Vec<Vec<u8>>), Arc<Catalog>);
+
+#[when(
+    "tenants 7 and 8 share a bucket run, each holds statements in one partition, and everything in tenant 7 is dropped"
+)]
+fn neighbour_dropped(w: &mut Steps) -> TestResult {
+    let a = cs(w)?;
+    for tenant in [7, 8] {
+        let write = Changeset::new(tenant).with(insert("<a> <name> \"Both\"")?);
+        let _applied: Applied = a.apply(&write).context("the tenant is written")?;
+    }
+    let held = (tenant_keys(&a, 8), a.catalog(8).context("the catalog")?);
+    let _dropped_at: u64 = a.drop_tenant(7).context("the tenant drops")?;
+    w.neighbour = Some(held);
+    Ok(())
+}
+
+#[then(
+    "tenant 7 holds no quad key, its catalog is the initial catalog, and every statement and the catalog of tenant 8 are unchanged"
+)]
+fn neighbour_kept(w: &mut Steps) -> TestResult {
+    let a = cs(w)?;
+    let (keys, quads) = tenant_keys(&a, 7);
+    assert!(keys.is_empty() && quads.is_empty(), "{quads:?}");
+    let rdf_type = a
+        .quads()
+        .id_of(7, rdf::TYPE.as_str())
+        .context("the dictionary reads")?
+        .context("rdf:type has a UID in tenant 7")?;
+    let catalog = a.catalog(7).context("the catalog")?;
+    let initial = Catalog::initial(7, rdf_type).with_version(catalog.version());
+    assert_eq!(*catalog, initial);
+    let (held, held_catalog) = w.neighbour.take().context("what tenant 8 held")?;
+    assert_eq!(tenant_keys(&a, 8), held);
+    assert_eq!(*a.catalog(8).context("the catalog")?, *held_catalog);
+    Ok(())
+}
+
 #[when("a tenant whose lists are split has its data dropped")]
 fn split_data_dropped(w: &mut Steps) -> TestResult {
     let cache = SimListCache::new(1024, Seed::new(1).stream(Stream::Cache));

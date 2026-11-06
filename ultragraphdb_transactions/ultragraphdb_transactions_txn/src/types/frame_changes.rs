@@ -182,15 +182,28 @@ impl<'a> FrameChanges<'a> {
         write: &WriteView<'a>,
         terms: &'a FrameTerms,
     ) -> Result<Self, ProtocolError> {
-        let reader = Reader {
-            table: write.terms(),
-            terms,
-        };
-        let changes = (0..write.len())
+        Self::of_records(tenant, write.terms(), terms, write.len(), |index| {
+            write.change(index)
+        })
+    }
+
+    /// The changes of a frame holding `count` records, each `change` gives, whose terms are `table`'s, as a one-frame write's
+    /// are, over `terms`, what [`FrameTerms::of`] made of `table`.
+    ///
+    /// # Errors
+    ///
+    /// As [`FrameChanges::new`] refuses.
+    pub fn of_records(
+        tenant: u64,
+        table: &TermTableView<'a>,
+        terms: &'a FrameTerms,
+        count: usize,
+        change: impl Fn(usize) -> Option<WriteChange>,
+    ) -> Result<Self, ProtocolError> {
+        let reader = Reader { table, terms };
+        let changes = (0..count)
             .map(|index| {
-                let change = write
-                    .change(index)
-                    .ok_or_else(|| refused("change", index as u32))?;
+                let change = change(index).ok_or_else(|| refused("change", index as u32))?;
                 reader.change(change)
             })
             .collect::<Result<Vec<_>, _>>()?;

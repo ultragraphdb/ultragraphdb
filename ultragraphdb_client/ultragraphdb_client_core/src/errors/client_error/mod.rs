@@ -8,7 +8,7 @@ mod client_error_error;
 
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::TransportError;
-use ultragraphdb_protocol_wire::{ErrorCode, RequestTerm};
+use ultragraphdb_protocol_wire::{ErrorCode, RefusedRequest, RequestTerm, RunsAgain};
 
 /// Why a client operation failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,6 +25,8 @@ pub enum ClientErrorEnum {
     },
     /// The server refused the request on its stream, by the command's own rules; the connection stays open.
     Refused {
+        /// The kind of request refused, which decides what its code runs again.
+        request: RefusedRequest,
         /// The refusal's error code.
         code: ErrorCode,
         /// The code's detail word, as the Error frame carries it.
@@ -67,30 +69,25 @@ pub enum ClientErrorEnum {
         /// The reply's value.
         found: u128,
     },
-    /// The commit of request `request` of session `session` was retried `attempts` times without an answer: whether
-    /// it was applied is unknown until the session is resolved.
-    RetriesExhausted {
-        /// The session the commit was sent through.
-        session: u128,
-        /// The commit's request number in the session.
-        request: u64,
-        /// How many times the commit was sent.
-        attempts: u32,
-    },
-    /// The retry of request `request` of session `session` was refused as evicted (code 12): whether the commit was
-    /// applied is unknown, and it is not retried. The session is gone from the client as from the server.
+    /// Whether request `request` of session `session` was applied is unknown for good, and it is not retried: its resend
+    /// was refused as evicted (code 12), the session gone from the client as from the server, or as out of order (code
+    /// 13), the session's counter moved above the partition's last; or it went through no session, `session` and
+    /// `request` 0, and lost its reply or was answered code 17.
     OutcomeUnknown {
         /// The evicted session.
         session: u128,
         /// The request number of the retried commit.
         request: u64,
     },
-    /// Session `session` has the commit of `request` in doubt; it is resolved before it commits again.
+    /// Session `session` has the commit of `request` in doubt: it was sent, or answered code 17, and may have been
+    /// applied. The session resolves it by a resend, with the same request number, before it commits again.
     InDoubt {
         /// The session with the commit in doubt.
         session: u128,
         /// The request number of the commit in doubt.
         request: u64,
+        /// What left it in doubt, if anything said: the refusal, or why a retry could not be sent.
+        cause: Option<Box<ClientError>>,
     },
     /// Session `session` has no commit in doubt to resolve.
     NotInDoubt {
@@ -142,11 +139,13 @@ pub struct ClientError(pub ClientErrorEnum);
 
 impl ClientError {
     /// A [`ClientErrorEnum::Transport`] failure of the connection.
+    #[must_use]
     pub fn transport(error: TransportError) -> Self {
         Self(ClientErrorEnum::Transport { error })
     }
 
     /// A [`ClientErrorEnum::Protocol`] violation by a frame the server sent.
+    #[must_use]
     pub fn protocol(error: ProtocolError) -> Self {
         Self(ClientErrorEnum::Protocol { error })
     }
@@ -159,6 +158,7 @@ impl ClientError {
         value: Option<RequestTerm>,
     ) -> Self {
         Self(ClientErrorEnum::Refused {
+            request: RefusedRequest::Other,
             code,
             detail,
             message: message.into(),
@@ -167,6 +167,7 @@ impl ClientError {
     }
 
     /// A [`ClientErrorEnum::Closed`] connection, closed by the server's Error frame.
+    #[must_use]
     pub fn closed(code: ErrorCode, message: impl Into<String>) -> Self {
         Self(ClientErrorEnum::Closed {
             code,
@@ -175,11 +176,13 @@ impl ClientError {
     }
 
     /// A [`ClientErrorEnum::TimedOut`] connection.
+    #[must_use]
     pub fn timed_out() -> Self {
         Self(ClientErrorEnum::TimedOut)
     }
 
     /// A [`ClientErrorEnum::ConnectionLost`] request, with what gave its connection up.
+    #[must_use]
     pub fn connection_lost(cause: Option<ClientError>) -> Self {
         Self(ClientErrorEnum::ConnectionLost {
             cause: cause.map(Box::new),
@@ -187,11 +190,13 @@ impl ClientError {
     }
 
     /// A request refused as [`ClientErrorEnum::NotConnected`].
+    #[must_use]
     pub fn not_connected() -> Self {
         Self(ClientErrorEnum::NotConnected)
     }
 
     /// A [`ClientErrorEnum::Request`] that could not be built.
+    #[must_use]
     pub fn request(error: ProtocolError) -> Self {
         Self(ClientErrorEnum::Request { error })
     }
@@ -209,73 +214,100 @@ impl ClientError {
         })
     }
 
-    /// A commit whose retries ran out: [`ClientErrorEnum::RetriesExhausted`].
-    pub fn retries_exhausted(session: u128, request: u64, attempts: u32) -> Self {
-        Self(ClientErrorEnum::RetriesExhausted {
-            session,
-            request,
-            attempts,
-        })
-    }
-
-    /// A retried commit refused as evicted: [`ClientErrorEnum::OutcomeUnknown`].
+    /// A commit whose outcome is unknown for good: [`ClientErrorEnum::OutcomeUnknown`].
+    #[must_use]
     pub fn outcome_unknown(session: u128, request: u64) -> Self {
         Self(ClientErrorEnum::OutcomeUnknown { session, request })
     }
 
-    /// A commit refused while another is [`ClientErrorEnum::InDoubt`].
-    pub fn in_doubt(session: u128, request: u64) -> Self {
-        Self(ClientErrorEnum::InDoubt { session, request })
+    /// A commit [`ClientErrorEnum::InDoubt`], or one refused while another is, with what left it so.
+    #[must_use]
+    pub fn in_doubt(session: u128, request: u64, cause: Option<ClientError>) -> Self {
+        Self(ClientErrorEnum::InDoubt {
+            session,
+            request,
+            cause: cause.map(Box::new),
+        })
     }
 
     /// A resolve refused as [`ClientErrorEnum::NotInDoubt`].
+    #[must_use]
     pub fn not_in_doubt(session: u128) -> Self {
         Self(ClientErrorEnum::NotInDoubt { session })
     }
 
     /// A commit refused as [`ClientErrorEnum::SessionBusy`].
+    #[must_use]
     pub fn session_busy(session: u128) -> Self {
         Self(ClientErrorEnum::SessionBusy { session })
     }
 
     /// A request through an [`ClientErrorEnum::UnknownSession`].
+    #[must_use]
     pub fn unknown_session(session: u128) -> Self {
         Self(ClientErrorEnum::UnknownSession { session })
     }
 
     /// A write refused as [`ClientErrorEnum::ReadOnly`].
+    #[must_use]
     pub fn read_only(stream: u64) -> Self {
         Self(ClientErrorEnum::ReadOnly { stream })
     }
 
     /// A request on a stream refused as [`ClientErrorEnum::StreamFinished`].
+    #[must_use]
     pub fn stream_finished(stream: u64) -> Self {
         Self(ClientErrorEnum::StreamFinished { stream })
     }
 
     /// A request on a stream refused as [`ClientErrorEnum::StreamBusy`].
+    #[must_use]
     pub fn stream_busy(stream: u64) -> Self {
         Self(ClientErrorEnum::StreamBusy { stream })
     }
 
     /// A new stream refused at the [`ClientErrorEnum::StreamLimit`].
+    #[must_use]
     pub fn stream_limit(limit: u32) -> Self {
         Self(ClientErrorEnum::StreamLimit { limit })
     }
 
     /// A read or execute refused as a [`ClientErrorEnum::TransactionMismatch`].
+    #[must_use]
     pub fn transaction_mismatch(stream: u64, named: u64) -> Self {
         Self(ClientErrorEnum::TransactionMismatch { stream, named })
     }
 
-    /// Whether the application retries the operation, exactly where the wire says so: a refusal whose code is
-    /// retryable ([`ErrorCode::retryable`]: conflict, too old, past the limit, busy).
+    /// The [`ClientErrorEnum::Refused`] request of the kind `kind` names; any other error unchanged.
+    #[must_use]
+    pub fn of_request(mut self, kind: RefusedRequest) -> Self {
+        if let ClientErrorEnum::Refused { request, .. } = &mut self.0 {
+            *request = kind;
+        }
+        self
+    }
+
+    /// What runs again, exactly where the wire says so: for a refusal its code's answer for its request
+    /// ([`ErrorCode::runs_again`]), for a commit in doubt [`RunsAgain::InDoubt`], and for any other error nothing.
+    #[must_use]
+    pub fn runs_again(&self) -> Option<RunsAgain> {
+        if let ClientErrorEnum::Refused { request, code, .. } = &self.0 {
+            return code.runs_again(*request);
+        }
+        matches!(&self.0, ClientErrorEnum::InDoubt { .. }).then_some(RunsAgain::InDoubt)
+    }
+
+    /// Whether the application runs something again, as [`ClientError::runs_again`] names it; a commit in doubt runs
+    /// nothing until it is resolved.
+    #[must_use]
     pub fn retryable(&self) -> bool {
-        matches!(&self.0, ClientErrorEnum::Refused { code, .. } if code.retryable())
+        self.runs_again()
+            .is_some_and(|runs| runs != RunsAgain::InDoubt)
     }
 
     /// Whether a prepared statement was refused as stale: its tenant's catalog changed, and preparing it again
     /// succeeds.
+    #[must_use]
     pub fn is_stale(&self) -> bool {
         matches!(
             &self.0,
@@ -287,6 +319,7 @@ impl ClientError {
     }
 
     /// Whether the connection is gone with this error, or the error came of its loss, so the next request reconnects.
+    #[must_use]
     pub fn closes_connection(&self) -> bool {
         matches!(
             &self.0,

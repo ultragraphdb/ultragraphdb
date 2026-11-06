@@ -291,21 +291,65 @@ fn test_a_failed_exchange_closes_with_code_19_saying_nothing_of_why() -> TestRes
 }
 
 #[test]
-fn test_a_request_before_authentication_closes_with_code_20() -> TestResult {
+fn test_a_request_before_authentication_is_refused_on_its_stream() -> TestResult {
     let now = start();
     let mut peer = Peer::default();
     let mut connection = welcomed(&[TEST], &mut peer, now)?;
     assert_eq!(
         connection.receive(&peer.send(1, &Begin::new(0, 0, false))?, now)?,
-        Inbound::Closing {
-            code: Some(ErrorCode::Unauthenticated)
+        Inbound::Refused {
+            stream: 1,
+            code: ErrorCode::Unauthenticated
         }
     );
     let out = sent(&mut connection)?;
     assert_eq!(
         (out[0].0, error(&out[0].3)?.0),
-        (0, ErrorCode::Unauthenticated)
+        (1, ErrorCode::Unauthenticated)
     );
+    assert!(!connection.is_closing(), "it stays open for authentication");
+    Ok(())
+}
+
+#[test]
+fn test_a_frame_on_a_stream_that_ended_is_dropped() -> TestResult {
+    let now = start();
+    let mut peer = Peer::default();
+    let mut connection = welcomed(&[], &mut peer, now)?;
+    assert_eq!(
+        connection.receive(&peer.send(1, &Begin::new(0, 0, false))?, now)?,
+        Inbound::Request {
+            stream: 1,
+            command: Command::Begin
+        }
+    );
+    connection.refuse(1, &ErrorReply::new(ErrorCode::Refused, "ended"))?;
+    let _out = sent(&mut connection)?;
+    let late = Commit::new([0; 16], 0, 0);
+    assert_eq!(
+        connection.receive(&peer.send(1, &late)?, now)?,
+        Inbound::Handled
+    );
+    assert!(!connection.is_closing(), "a late frame closes nothing");
+    assert_eq!(sent(&mut connection)?.len(), 0, "nothing answers it");
+    Ok(())
+}
+
+#[test]
+fn test_a_connection_past_the_bound_is_refused_in_place_of_its_welcome() -> TestResult {
+    let now = start();
+    let mut peer = Peer::default();
+    let mut connection = connection(&[], now).past_connection_bound(2);
+    assert_eq!(
+        connection.receive(&peer.send(0, &hello())?, now)?,
+        Inbound::Closing {
+            code: Some(ErrorCode::StreamLimit)
+        }
+    );
+    let out = sent(&mut connection)?;
+    let (code, detail) = error(&out[0].3)?;
+    assert_eq!((out[0].0, code, detail), (0, ErrorCode::StreamLimit, 2));
+    assert!(connection.is_closing());
     Ok(())
 }
 
@@ -1990,11 +2034,11 @@ fn test_a_bind_opens_the_stream_a_partition_takes_a_transaction_on() -> TestResu
             "{command:?}"
         );
     }
-    for command in [Command::Commit, Command::Drop] {
+    for (stream, command) in [(3, Command::Commit), (5, Command::Drop)] {
         assert_eq!(
-            connection.receive(&peer.command(3, command)?, now)?,
+            connection.receive(&peer.command(stream, command)?, now)?,
             Inbound::Refused {
-                stream: 3,
+                stream,
                 code: ErrorCode::Protocol
             },
             "{command:?} without a Bind"

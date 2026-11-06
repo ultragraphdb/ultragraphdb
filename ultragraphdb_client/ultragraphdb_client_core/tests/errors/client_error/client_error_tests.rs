@@ -8,8 +8,8 @@ use std::error::Error;
 use ultragraphdb_client_core::{ClientError, ClientErrorEnum};
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::TransportError;
-use ultragraphdb_protocol_wire::{ErrorCode, RequestTerm};
-use ultragraphdb_tool_bdd::{Context as _, TestResult};
+use ultragraphdb_protocol_wire::{ErrorCode, RefusedRequest, RequestTerm, RunsAgain};
+use ultragraphdb_tool_bdd::TestResult;
 
 fn every() -> Vec<ClientError> {
     vec![
@@ -29,9 +29,8 @@ fn every() -> Vec<ClientError> {
         ClientError::not_connected(),
         ClientError::request(ProtocolError::frame_too_large(9, 8)),
         ClientError::reply_mismatch("session", 1u64, 2u64),
-        ClientError::retries_exhausted(9, 7, 8),
         ClientError::outcome_unknown(9, 7),
-        ClientError::in_doubt(9, 7),
+        ClientError::in_doubt(9, 7, Some(ClientError::timed_out())),
         ClientError::not_in_doubt(9),
         ClientError::session_busy(9),
         ClientError::unknown_session(9),
@@ -49,8 +48,8 @@ fn test_each_constructor_builds_its_variant() -> TestResult {
         .into_iter()
         .map(|e| std::mem::discriminant(&e.0))
         .collect();
-    // ClientErrorEnum's 20 variants, each once.
-    assert_eq!(kinds.len(), 20);
+    // ClientErrorEnum's 19 variants, each once.
+    assert_eq!(kinds.len(), 19);
     assert!(
         kinds
             .iter()
@@ -61,18 +60,11 @@ fn test_each_constructor_builds_its_variant() -> TestResult {
     assert_eq!(
         ClientError::refused(ErrorCode::Busy, 0, "m", None).0,
         ClientErrorEnum::Refused {
+            request: RefusedRequest::Other,
             code: ErrorCode::Busy,
             detail: 0,
             message: "m".into(),
             value: None
-        }
-    );
-    assert_eq!(
-        ClientError::retries_exhausted(1, 2, 3).0,
-        ClientErrorEnum::RetriesExhausted {
-            session: 1,
-            request: 2,
-            attempts: 3
         }
     );
     assert_eq!(
@@ -98,18 +90,56 @@ fn test_each_constructor_builds_its_variant() -> TestResult {
         }
     );
     assert_eq!(
-        ClientError::in_doubt(9, 7).0,
+        ClientError::in_doubt(9, 7, None).0,
         ClientErrorEnum::InDoubt {
             session: 9,
-            request: 7
+            request: 7,
+            cause: None
         }
     );
     Ok(())
 }
 
+/// A refusal runs again what its code says for its request, and a commit in doubt runs nothing until it is resolved.
+#[test]
+fn test_what_runs_again_is_the_codes_answer_for_its_request() {
+    let kinds = [
+        RefusedRequest::Read,
+        RefusedRequest::Commit,
+        RefusedRequest::OneFrame,
+        RefusedRequest::Other,
+    ];
+    for code in ErrorCode::ALL {
+        for kind in kinds {
+            let refused = ClientError::refused(code, 0, "", None).of_request(kind);
+            assert_eq!(
+                refused.runs_again(),
+                code.runs_again(kind),
+                "{code:?} {kind:?}"
+            );
+            assert_eq!(
+                refused.retryable(),
+                code.runs_again(kind)
+                    .is_some_and(|runs| runs != RunsAgain::InDoubt),
+                "{code:?} {kind:?}"
+            );
+        }
+    }
+    let doubt = ClientError::in_doubt(9, 7, None);
+    assert_eq!(doubt.runs_again(), Some(RunsAgain::InDoubt));
+    assert!(!doubt.retryable());
+    assert_eq!(ClientError::timed_out().runs_again(), None);
+    assert_eq!(
+        ClientError::timed_out().of_request(RefusedRequest::Read),
+        ClientError::timed_out(),
+        "only a refusal names its request"
+    );
+}
+
 #[test]
 fn test_retryable_exactly_where_the_wire_says() -> TestResult {
     for code in ErrorCode::ALL {
+        // Code 17 is no retry of a request of no kind.
         assert_eq!(
             ClientError::refused(code, 0, "", None).retryable(),
             code.retryable(),
@@ -136,7 +166,7 @@ fn test_stale_and_closing_are_named() -> TestResult {
         closing,
         vec![
             true, true, false, true, true, true, false, false, false, false, false, false, false,
-            false, false, false, false, false, false, false
+            false, false, false, false, false, false
         ]
     );
     assert!(
@@ -163,9 +193,8 @@ fn test_each_names_its_values() -> TestResult {
             "no connection is ready",
             "the request cannot be sent: frame of 9 bytes exceeds the 8-byte limit",
             "a reply names session 2 where 1 was asked",
-            "commit 7 of session 9 unanswered after 8 attempts: in doubt",
-            "commit 7 of session 9: the session was evicted, its outcome is unknown",
-            "session 9 has commit 7 in doubt",
+            "commit 7 of session 9: its outcome is unknown, and it is not retried",
+            "session 9 has commit 7 in doubt: no answer within the timeout",
             "session 9 has no commit in doubt",
             "session 9 already has a commit in flight",
             "no session 9",
@@ -176,16 +205,18 @@ fn test_each_names_its_values() -> TestResult {
             "a request names the transaction of stream 3, asked of stream 5's",
         ]
     );
-    // Only a lost connection with a cause has a source: every other variant has none.
+    // Only a lost connection and a commit in doubt with a cause have a source: every other variant has none.
     let sources: Vec<bool> = every().iter().map(|e| e.source().is_some()).collect();
-    let lost = every()
+    let caused: Vec<bool> = every()
         .iter()
-        .position(|e| matches!(e.0, ClientErrorEnum::ConnectionLost { .. }))
-        .context("a lost connection")?;
-    assert_eq!(
-        sources,
-        (0..every().len()).map(|i| i == lost).collect::<Vec<_>>()
-    );
+        .map(|e| {
+            matches!(
+                e.0,
+                ClientErrorEnum::ConnectionLost { .. } | ClientErrorEnum::InDoubt { .. }
+            )
+        })
+        .collect();
+    assert_eq!(sources, caused);
     Ok(())
 }
 

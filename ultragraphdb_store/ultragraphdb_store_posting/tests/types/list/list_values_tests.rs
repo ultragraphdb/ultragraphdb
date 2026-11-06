@@ -3,12 +3,13 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_core_codec::Posting;
-use ultragraphdb_store_posting::List;
+use ultragraphdb_core_codec::{Posting, PostingType};
+use ultragraphdb_store_posting::{List, SET};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::utils::helpers::{
-    add, del_uid, delete_all, id, key, new_store, rid, roll_up, set_uid, set_value, with_facet,
+    add, del_uid, del_value, delete_all, id, key, new_store, rid, roll_up, set_uid, set_value,
+    with_facet,
 };
 
 #[test]
@@ -72,6 +73,53 @@ fn test_a_posting_is_found_in_the_deltas_or_else_in_the_immutable_layer() -> Tes
     l.commit_mutation(6);
     assert_eq!(l.find_posting(6, rid(4))?, None);
     assert_eq!(l.find_posting(5, rid(4))?.map(|p| p.uid()), Some(rid(4)));
+    Ok(())
+}
+
+#[test]
+fn test_a_posting_matching_is_found_by_its_uid_and_its_pick_in_either_layer() -> TestResult {
+    let store = new_store();
+    let mut l = List::empty(key("match", 1));
+    let zero = Posting::default()
+        .with_uid(0)
+        .with_value(b"zero".to_vec())
+        .with_posting_type(PostingType::Value)
+        .with_op(SET);
+    add(&mut l, 1, &zero);
+    add(&mut l, 1, &set_uid(2));
+    add(&mut l, 1, &set_value("a"));
+    add(&mut l, 1, &set_uid(6));
+    l.commit_mutation(2);
+    let (mut l, _) = roll_up(&store, &l, u64::MAX, 2000)?;
+    let a = set_value("a");
+    let value_is = |value: &'static [u8]| move |p: &Posting| p.value() == value;
+    // The immutable layer: the uid's posting that the pick takes, key 0 among them, and none the pick refuses.
+    let of_a = l.find_posting_matching(2, a.uid(), value_is(b"a"))?;
+    assert_eq!(of_a.map(|p| p.value().to_vec()), Some(b"a".to_vec()));
+    assert_eq!(l.find_posting_matching(2, a.uid(), value_is(b"b"))?, None);
+    let of_zero = l.find_posting_matching(2, 0, value_is(b"zero"))?;
+    assert_eq!(of_zero.map(|p| p.uid()), Some(0), "key 0");
+    let of_two = l.find_posting_matching(2, rid(2), |_| true)?;
+    assert_eq!(of_two.map(|p| p.uid()), Some(rid(2)));
+    assert_eq!(
+        l.find_posting_matching(2, rid(3), |_| true)?,
+        None,
+        "between two uids"
+    );
+    assert_eq!(
+        l.find_posting_matching(2, rid(7), |_| true)?,
+        None,
+        "above the last uid"
+    );
+    // A delta's delete of the value hides it; a delta's set is found there.
+    add(&mut l, 3, &del_value("a"));
+    add(&mut l, 3, &set_uid(8));
+    l.commit_mutation(4);
+    assert_eq!(l.find_posting_matching(4, a.uid(), value_is(b"a"))?, None);
+    let below = l.find_posting_matching(3, a.uid(), value_is(b"a"))?;
+    assert!(below.is_some(), "below the delete");
+    let of_eight = l.find_posting_matching(4, rid(8), |_| true)?;
+    assert_eq!(of_eight.map(|p| p.uid()), Some(rid(8)));
     Ok(())
 }
 

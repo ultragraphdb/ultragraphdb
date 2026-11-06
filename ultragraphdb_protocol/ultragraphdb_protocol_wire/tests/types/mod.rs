@@ -238,6 +238,8 @@ mod result_term_view;
 #[cfg(test)]
 mod result_view;
 #[cfg(test)]
+mod resume_key;
+#[cfg(test)]
 mod role_kind;
 #[cfg(test)]
 pub mod round_body;

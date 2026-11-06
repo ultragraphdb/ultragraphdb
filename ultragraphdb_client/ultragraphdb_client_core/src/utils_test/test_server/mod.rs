@@ -9,8 +9,9 @@
 
 mod test_server_commit;
 mod test_server_requests;
+mod test_transaction;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -19,10 +20,13 @@ use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::{
     BufferPool, FrameStep, Framer, Inbound, ReceivedFrame, ServerConnection, TransportErrorEnum,
 };
-use ultragraphdb_protocol_wire::{MAX_FRAME_SIZE, Welcome};
+use ultragraphdb_protocol_wire::{ErrorCode, MAX_FRAME_SIZE, RequestTerm, Welcome};
 
 use crate::utils_test::session_record::SessionRecord;
 use crate::utils_test::test_authenticator::TestAuthenticator;
+use crate::utils_test::test_server::test_transaction::{
+    ScriptedAnswer, ScriptedRead, TestTransaction, WaitingRead,
+};
 
 /// A minimal server for the client's tests, sans-I/O as the client is. Each connection is a [`ServerConnection`],
 /// which holds the handshake, the Authenticate exchange and its renewals by SCRAM-SHA-256 when the Welcome lists it,
@@ -32,8 +36,10 @@ use crate::utils_test::test_authenticator::TestAuthenticator;
 ///
 /// A test injects a fault by name before the request it hits: [`TestServer::drop_after_next_commit`],
 /// [`TestServer::lose_next_commit`], [`TestServer::answer_busy_retries`], [`TestServer::lose_next_retries`],
-/// [`TestServer::evict`]. Sessions and the
-/// commits applied outlive a connection; transactions and statements, which belong to it, do not.
+/// [`TestServer::evict`], [`TestServer::refuse_next_commit`], [`TestServer::apply_and_refuse_next_commit`],
+/// [`TestServer::refuse_next_read_after`]. Reads wait on a token's epoch under [`TestServer::with_closed_epoch`], until
+/// [`TestServer::close_epoch`] or their transaction's deadline. Sessions and the commits applied outlive a connection;
+/// transactions and statements, which belong to it, do not.
 #[derive(Debug)]
 pub struct TestServer {
     cluster: u64,
@@ -43,6 +49,8 @@ pub struct TestServer {
     connection: Option<ServerConnection<TestAuthenticator>>,
     framer: Framer,
     pool: BufferPool,
+    // Shared with the connection's authenticator, which reads the server's wall clock; an atomic, since a credential's
+    // expiry is read behind the transport's `Authenticator`, which takes no time.
     clock: Arc<AtomicU64>,
     origin: Option<(Instant, u64)>,
     schema: u64,
@@ -50,8 +58,14 @@ pub struct TestServer {
     lose_commit: bool,
     busy_retries: u32,
     lost_retries: u32,
+    answers: VecDeque<ScriptedAnswer>,
+    read_refusal: Option<ScriptedRead>,
+    closed: Option<u64>,
+    waiting: Vec<WaitingRead>,
+    position: Option<u64>,
+    now: Option<Instant>,
     sessions: BTreeMap<u128, SessionRecord>,
-    transactions: BTreeMap<u64, u32>,
+    transactions: BTreeMap<u64, TestTransaction>,
     statements: BTreeMap<u64, u64>,
     received: Vec<Vec<u8>>,
     applied: u64,
@@ -78,6 +92,12 @@ impl TestServer {
             lose_commit: false,
             busy_retries: 0,
             lost_retries: 0,
+            answers: VecDeque::new(),
+            read_refusal: None,
+            closed: None,
+            waiting: Vec::new(),
+            position: None,
+            now: None,
             sessions: BTreeMap::new(),
             transactions: BTreeMap::new(),
             statements: BTreeMap::new(),
@@ -102,6 +122,76 @@ impl TestServer {
         self
     }
 
+    /// The server having closed epochs up to `epoch`, so a read whose transaction carries a token of a later one waits
+    /// until [`TestServer::close_epoch`] or its deadline; with none named, every epoch counts as closed.
+    pub fn with_closed_epoch(mut self, epoch: u64) -> Self {
+        self.closed = Some(epoch);
+        self
+    }
+
+    /// Epochs up to `epoch` close: each read waiting on one is answered, at its epoch.
+    pub fn close_epoch(&mut self, epoch: u64) {
+        self.closed = Some(epoch);
+        let (ready, waiting) = std::mem::take(&mut self.waiting)
+            .into_iter()
+            .partition(|read| read.epoch <= epoch);
+        self.waiting = waiting;
+        for read in ready as Vec<WaitingRead> {
+            self.results_at(read.stream, read.epoch);
+        }
+    }
+
+    /// The next commits apply in `epoch`: their versions and tokens name it.
+    pub fn set_epoch(&mut self, epoch: u64) {
+        self.version = (epoch << 22) | 998;
+    }
+
+    /// The next commit's round is at `position` in the partition's log, as its token names it.
+    pub fn set_position(&mut self, position: u64) {
+        self.position = Some(position);
+    }
+
+    /// The next Commit, Drop, DirectWrite or ConditionalWrite, whatever else would answer it, is refused with `code` and
+    /// `detail`, applying nothing; each call scripts one more, in order.
+    pub fn refuse_next_commit(&mut self, code: ErrorCode, detail: u64) {
+        self.answers.push_back(ScriptedAnswer {
+            code,
+            detail,
+            apply: false,
+            value: None,
+        });
+    }
+
+    /// The next Commit, Drop, DirectWrite or ConditionalWrite is applied, and its reply lost to a refusal of `code`: the
+    /// partition holds it, as a role connection closing under it leaves it with code 17.
+    pub fn apply_and_refuse_next_commit(&mut self, code: ErrorCode, detail: u64) {
+        self.answers.push_back(ScriptedAnswer {
+            code,
+            detail,
+            apply: true,
+            value: None,
+        });
+    }
+
+    /// The next ConditionalWrite's condition does not hold: refused with code 8 and `found`, the value found.
+    pub fn fail_next_condition(&mut self, found: RequestTerm) {
+        self.answers.push_back(ScriptedAnswer {
+            code: ErrorCode::OperationFailed,
+            detail: 0,
+            apply: false,
+            value: Some(found),
+        });
+    }
+
+    /// The next read sends `batches` Result frames, none flagged, and is then refused with `code` and `detail`.
+    pub fn refuse_next_read_after(&mut self, batches: u32, code: ErrorCode, detail: u64) {
+        self.read_refusal = Some(ScriptedRead {
+            batches,
+            code,
+            detail,
+        });
+    }
+
     /// A new connection at `now`, when the server's wall clock reads `unix_micros`: the handshake again, no
     /// transaction, statement or queued frame kept.
     pub fn connection(&mut self, now: Instant, unix_micros: u64) {
@@ -118,6 +208,7 @@ impl TestServer {
         ));
         self.transactions.clear();
         self.statements.clear();
+        self.waiting.clear();
     }
 
     /// The next commit in a transaction, or the next Drop, is applied, and the connection dropped before its reply: a
@@ -181,6 +272,12 @@ impl TestServer {
         self.version
     }
 
+    /// The transactions the connection holds open.
+    #[must_use]
+    pub fn open_transactions(&self) -> usize {
+        self.transactions.len()
+    }
+
     /// The commits applied, each once.
     pub fn applied(&self) -> u64 {
         self.applied
@@ -210,12 +307,26 @@ impl TestServer {
     /// When the connection's next deadline passes: its authentication timeout, its credential's expiry, its idle
     /// limit.
     pub fn next_deadline(&self) -> Option<Instant> {
-        self.connection.as_ref()?.next_deadline()
+        let read = self.waiting.iter().map(|read| read.deadline).min();
+        let connection = self.connection.as_ref()?.next_deadline();
+        [read, connection].into_iter().flatten().min()
     }
 
     /// The time is `now`: a deadline passed closes the connection.
     pub fn handle_timeout(&mut self, now: Instant) {
         self.tick(now);
+        let (past, waiting) = std::mem::take(&mut self.waiting)
+            .into_iter()
+            .partition(|read| read.deadline <= now);
+        self.waiting = waiting;
+        for read in past as Vec<WaitingRead> {
+            self.error(
+                read.stream,
+                ErrorCode::TimedOut,
+                1,
+                "a read waited past its transaction's deadline for its epoch",
+            );
+        }
         let closed = self.connection.as_mut().map(|c| c.handle_timeout(now));
         match closed {
             Some(Ok(Some(Inbound::Closing { .. }))) => self.transactions.clear(),
@@ -258,7 +369,7 @@ impl TestServer {
                 transaction: true,
             }
             | Inbound::Refused { stream, .. } => {
-                let _ended: Option<u32> = self.transactions.remove(&stream);
+                let _ended: Option<TestTransaction> = self.transactions.remove(&stream);
             }
             Inbound::Closing { .. } => self.transactions.clear(),
             Inbound::Handled | Inbound::Authenticated { .. } | Inbound::Cancelled { .. } => {}
@@ -274,6 +385,7 @@ impl TestServer {
 
     /// The server's wall clock at `now`, from the connection's origin.
     fn tick(&mut self, now: Instant) {
+        self.now = Some(now);
         if let Some((at, unix)) = self.origin {
             let since = now.saturating_duration_since(at).as_micros() as u64;
             self.clock

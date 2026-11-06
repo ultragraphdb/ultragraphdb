@@ -726,6 +726,47 @@ fn test_a_commit_with_an_epoch_floor_waits_for_the_close_before_it() -> TestResu
     Ok(())
 }
 
+/// A commit held for its epoch floor waits on the sequencer's closes, so with none delivered for `close_request_ms` it is
+/// refused busy, retryable, as a full epoch's commits are, and a close delivered meanwhile restarts the wait of what stays
+/// held: no commit waits on a close without a bound.
+#[test]
+fn test_a_commit_held_for_its_floor_and_given_no_close_for_close_request_ms_is_refused_busy()
+-> TestResult {
+    let setting = CloseRequest::new(500, 250).context("the setting")?;
+    let mut step = step(0, 9)?.with_close_request(setting);
+    let held_at = 1_000;
+    let floor = writer(1)?.with_epoch_floor(Epoch::new(12)?);
+    let _held = commit(&mut step, 1, floor, held_at);
+    assert_eq!(step.held(), 1);
+    let mut out = run(
+        &mut step,
+        Input::Close(close(10, Vec::new(), Vec::new())?),
+        held_at + 400_000,
+    );
+    assert_eq!(out.append(), None, "epoch 11 is open: still held");
+    out = run(&mut step, Input::Tick, held_at + 899_999);
+    assert!(out.replies().is_empty(), "the close restarted the wait");
+    assert_eq!(step.held(), 1);
+    out = run(&mut step, Input::Tick, held_at + 900_000);
+    let refusal = out
+        .replies()
+        .first()
+        .and_then(|r| r.outcome().clone().err())
+        .context("refused")?;
+    assert_eq!(refusal.code(), ultragraphdb_protocol_wire::ErrorCode::Busy);
+    assert!(refusal.is_retryable());
+    assert_eq!(out.released().len(), 1);
+    assert_eq!(out.append(), None);
+    assert_eq!(step.held(), 0);
+    // The sequencer is not unreachable: a commit arriving next goes on in the open epoch.
+    out = commit(&mut step, 2, writer(2)?, held_at + 900_001);
+    assert_eq!(
+        out.append().map(|(r, _)| r.first_version()),
+        Some(version(11, 0))
+    );
+    Ok(())
+}
+
 #[test]
 fn test_a_floor_at_or_below_the_open_epoch_holds_nothing() -> TestResult {
     let mut step = step(0, 9)?;

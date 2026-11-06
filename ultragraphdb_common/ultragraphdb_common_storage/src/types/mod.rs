@@ -6,6 +6,8 @@
 pub mod core_ends;
 pub mod core_message;
 pub mod entries_fill;
+pub mod held_catalogs;
+pub(crate) mod one_frame_view;
 pub(crate) mod open_scan;
 pub mod partition_core;
 pub mod refill_blocks;

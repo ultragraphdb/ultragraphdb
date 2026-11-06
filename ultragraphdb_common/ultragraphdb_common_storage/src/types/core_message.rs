@@ -6,6 +6,7 @@
 use futures::channel::mpsc::UnboundedSender;
 use futures::channel::oneshot;
 use ultragraphdb_common_role::Answer;
+use ultragraphdb_core_catalog::CatalogContents;
 use ultragraphdb_protocol_transport::ReceivedFrame;
 
 /// Where a connection's unasked frames go: each frame and its stream.
@@ -50,6 +51,8 @@ pub enum CoreMessage {
         /// The stream.
         stream: u64,
     },
+    /// A catalog version a close announced, whose round goes before that close is delivered (`PROTOCOL.md` §11.12).
+    Catalog(CatalogContents),
     /// `connection` closed.
     Closed {
         /// The connection.

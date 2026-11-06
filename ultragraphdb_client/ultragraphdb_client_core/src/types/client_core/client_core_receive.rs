@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::{
@@ -11,14 +11,14 @@ use ultragraphdb_protocol_transport::{
 };
 use ultragraphdb_protocol_wire::{
     AuthenticateView, BeginView, BodyView, Command, CommitView, DescribeView, DropCommandView,
-    ErrorCode, ErrorReplyView, FrameView, PrepareView, RegisterView, Welcome,
+    ErrorCode, ErrorReplyView, FrameView, PrepareView, RefusedRequest, RegisterView, Welcome,
 };
 
 use crate::errors::client_error::{ClientError, ClientErrorEnum};
 use crate::types::client_core::ClientCore;
 use crate::types::committed::Committed;
 use crate::types::link::Link;
-use crate::types::pending_state::Expect;
+use crate::types::pending_state::{Expect, PendingState};
 use crate::types::reply::Reply;
 use crate::types::session::Session;
 use crate::types::session_state::SessionState;
@@ -26,74 +26,138 @@ use crate::types::statement::Statement;
 use crate::types::stream_state::StreamState;
 use crate::types::transaction::Transaction;
 
-/// A refusal read from an Error frame.
-pub(crate) fn refusal(view: &FrameView<'_>) -> Result<ClientError, ClientError> {
+/// Where a frame the connection took belongs (`PROTOCOL.md` §2.5, step 3).
+enum Place {
+    /// Stream 0: a Welcome, an Authenticate or the server's closing Error.
+    Connection,
+    /// The reply of the request waiting on the stream, or its refusal.
+    Reply(u64),
+    /// A read's Result frame or its refusal.
+    Read,
+    /// The refusal of a request with no reply, on a transaction's stream.
+    Refusal,
+    /// A frame of a stream this side has ended: checked and dropped.
+    Late,
+}
+
+/// A refusal of a request of the kind `request` names, read from an Error frame.
+pub(crate) fn refusal(
+    view: &FrameView<'_>,
+    request: RefusedRequest,
+) -> Result<ClientError, ClientError> {
     let error = ErrorReplyView::from_frame(view).map_err(ClientError::protocol)?;
     Ok(ClientError::refused(
         error.code(),
         error.detail(),
         error.message(),
         error.value().map(|value| value.to_term()),
-    ))
+    )
+    .of_request(request))
 }
 
 impl<L: Login> ClientCore<L> {
-    /// A frame the shell read, whole, at `now`, taken only at its place on the connection (`PROTOCOL.md` §2.5 steps
-    /// 13 and 14), then routed to its stream and read in place through its view; a result's frame waits in its
-    /// stream's inbox, its chunks checked when it is read. Stream 0 carries the Welcome, the Authenticate exchange and
-    /// its renewals, and the server's closing Error. Refused, and the connection given up, when it breaks a
-    /// validation rule ([`ClientError::protocol`]), when the handshake or an exchange fails
-    /// ([`ClientError::transport`]), and when the server closes with an Error frame on stream 0
-    /// ([`ClientError::closed`]); a request waiting on the connection then fails with
-    /// [`ClientError::connection_lost`], the refusal its cause. A frame of a stream no longer open is late and is
-    /// dropped.
+    /// A frame the shell read, whole, at `now`, checked in `PROTOCOL.md` §2.5's order, the framer having checked its
+    /// header: its command at its place (step 3), its chunks, its sequence and its protocol (steps 9 to 14), then routed to
+    /// its stream and read in place through its view; a result's frame waits in its stream's inbox, its chunks checked when
+    /// it is read. Stream 0 carries the Welcome, the Authenticate exchange and its renewals, and the server's closing Error.
+    /// Refused, and the connection given up, when it breaks a validation rule ([`ClientError::protocol`]), a command this
+    /// side does not serve among them, a frame on a stream at or above the next it will open or by a command its request's
+    /// "Answered by" does not list, when the handshake or an exchange fails ([`ClientError::transport`]), and when the
+    /// server closes with an Error frame on stream 0 ([`ClientError::closed`]); a request waiting on the connection then
+    /// fails with [`ClientError::connection_lost`], the refusal its cause. A frame of a stream this side has ended is late,
+    /// whatever its command: it is checked and dropped.
     pub fn receive(&mut self, frame: ReceivedFrame, now: Instant) -> Result<(), ClientError> {
         self.last_progress = Some(now);
         if matches!(self.link, Link::Down) {
             return Ok(());
         }
-        if let Err(rule) = frame.check_order() {
-            return self.fatal(ClientError::protocol(rule));
-        }
-        if let Link::Handshake(handshake) = &self.link {
-            return match handshake.receive(frame.bytes()) {
-                Ok(welcome) => self.welcomed(welcome, now),
-                Err(error) => self.fatal(ClientError::transport(error)),
-            };
-        }
-        let stream = frame.stream();
-        if stream == 0 {
-            return self.connection_frame(&frame, now);
-        }
-        let Some(state) = self.streams.get_mut(&stream) else {
-            return Ok(());
+        let place = match self.place(&frame) {
+            Ok(place) => place,
+            Err(rule) => return self.fatal(ClientError::protocol(rule)),
         };
+        let stream = frame.stream();
+        match place {
+            Place::Read => {
+                if let Err(rule) = frame.check_order() {
+                    return self.fatal(ClientError::protocol(rule));
+                }
+                if let Some(state) = self.streams.get_mut(&stream) {
+                    if frame.command() == Command::Result.number() {
+                        state.credit = state.credit.saturating_sub(1);
+                    }
+                    state.progress = Some(now);
+                    state.inbox.push_back(frame);
+                }
+                Ok(())
+            }
+            Place::Connection => self.connection_frame(&frame, now),
+            Place::Reply(id) => self.answer(id, stream, &frame, now),
+            Place::Refusal => self.stream_refused(stream, &frame),
+            Place::Late => match frame.view() {
+                Ok(_late) => Ok(()),
+                Err(rule) => self.fatal(ClientError::protocol(rule)),
+            },
+        }
+    }
+
+    /// Where `frame` belongs, or [`ProtocolError::command_not_served`] for a frame this side does not serve there: on
+    /// stream 0, a Welcome before the handshake's end, then an Authenticate, or an Error; on another stream, a stream below
+    /// the next this side will open, by a command its request's "Answered by" lists, or an Error.
+    fn place(&self, frame: &ReceivedFrame) -> Result<Place, ProtocolError> {
+        let stream = frame.stream();
+        let not_served = ProtocolError::command_not_served(frame.command());
+        let command = Command::from_number(frame.command())?;
+        if stream == 0 {
+            let own = match &self.link {
+                Link::Handshake(_) => Command::Welcome,
+                Link::Down | Link::Authenticating(..) | Link::Up(_) => Command::Authenticate,
+            };
+            return (command == own || command == Command::Error)
+                .then_some(Place::Connection)
+                .ok_or(not_served);
+        }
+        if stream >= self.next_stream {
+            return Err(not_served);
+        }
+        let Some(state) = self.streams.get(&stream) else {
+            return Ok(Place::Late);
+        };
+        if state.failed.is_some() || state.ended() {
+            return Ok(Place::Late);
+        }
         if let Some(id) = state.pending {
-            return self.answer(id, stream, &frame, now);
+            let wanted = self.pending.get(&id).map(|p| p.expect.answered_by());
+            return (command == Command::Error || wanted == Some(command))
+                .then_some(Place::Reply(id))
+                .ok_or(not_served);
         }
         if state.results {
-            if frame.command() == Command::Result.number() {
-                state.credit = state.credit.saturating_sub(1);
-            }
-            state.inbox.push_back(frame);
-            return Ok(());
+            return (command == Command::Error || command == Command::Result)
+                .then_some(Place::Read)
+                .ok_or(not_served);
         }
-        if frame.command() == Command::Error.number() {
-            let view = match frame.view() {
-                Ok(view) => view,
-                Err(error) => return self.fatal(ClientError::protocol(error)),
-            };
-            match refusal(&view) {
-                Ok(error) => {
-                    if let Some(refused) = self.streams.get_mut(&stream) {
-                        refused.failed = Some(error);
-                    }
-                    self.end_reads(stream);
+        (command == Command::Error)
+            .then_some(Place::Refusal)
+            .ok_or(not_served)
+    }
+
+    /// An Error on a transaction's stream with no request waiting: the refusal of a request with no reply, which ends the
+    /// transaction and its reads and is the answer of its next request.
+    fn stream_refused(&mut self, stream: u64, frame: &ReceivedFrame) -> Result<(), ClientError> {
+        let view = match frame.view() {
+            Ok(view) => view,
+            Err(error) => return self.fatal(ClientError::protocol(error)),
+        };
+        match refusal(&view, RefusedRequest::Other) {
+            Ok(error) => {
+                if let Some(refused) = self.streams.get_mut(&stream) {
+                    refused.failed = Some(error);
                 }
-                Err(error) => return self.fatal(error),
+                self.end_reads(stream);
+                Ok(())
             }
+            Err(error) => self.fatal(error),
         }
-        Ok(())
     }
 
     /// The server's Welcome: the connection is up, or its Authenticate exchange begins by a mechanism the login
@@ -134,68 +198,27 @@ impl<L: Login> ClientCore<L> {
         Ok(exchange)
     }
 
-    /// A frame on stream 0: the server's next Authenticate of the exchange or its renewal, or its closing Error; any
-    /// other command, a later Welcome among them, is refused as [`ProtocolError::command_not_served`].
+    /// A frame on stream 0, its command one [`ClientCore::place`] found served there: the server's Welcome, its next
+    /// Authenticate of the exchange or its renewal, or its closing Error.
     fn connection_frame(&mut self, frame: &ReceivedFrame, now: Instant) -> Result<(), ClientError> {
         let view = match frame.view() {
             Ok(view) => view,
             Err(error) => return self.fatal(ClientError::protocol(error)),
         };
-        match view.command() {
-            Command::Error => {
-                let closed = ErrorReplyView::from_frame(&view)
-                    .map(|e| ClientError::closed(e.code(), e.message()));
-                match closed {
-                    Ok(error) => self.fatal(error),
-                    Err(error) => self.fatal(ClientError::protocol(error)),
-                }
-            }
-            Command::Authenticate => self.authenticate(&view, now),
-            // Past the handshake, no other command is a frame a server sends the side that dialled on stream 0: a Welcome
-            // comes once, as the answer to the Hello (`PROTOCOL.md` §2.5). The connection is closed (§2.6).
-            other @ (Command::Hello
-            | Command::Welcome
-            | Command::Register
-            | Command::Begin
-            | Command::Commit
-            | Command::Abort
-            | Command::Read
-            | Command::Write
-            | Command::Operation
-            | Command::Prepare
-            | Command::Execute
-            | Command::Describe
-            | Command::Result
-            | Command::Credit
-            | Command::Cancel
-            | Command::Round
-            | Command::Drop
-            | Command::DirectWrite
-            | Command::ConditionalWrite
-            | Command::Query
-            | Command::Install
-            | Command::Join
-            | Command::Members
-            | Command::Subscribe
-            | Command::EpochClose
-            | Command::Lease
-            | Command::Placement
-            | Command::Catalog
-            | Command::Challenge
-            | Command::Verify
-            | Command::Bind
-            | Command::Recall
-            | Command::ComputeRead
-            | Command::Scan
-            | Command::Entries
-            | Command::Reference
-            | Command::CloseRequest
-            | Command::Closed
-            | Command::DefaultEntry
-            | Command::Report
-            | Command::Held) => self.fatal(ClientError::protocol(
-                ProtocolError::command_not_served(other.number()),
-            )),
+        if let Link::Handshake(handshake) = &self.link {
+            return match handshake.receive(frame.bytes()) {
+                Ok(welcome) => self.welcomed(welcome, now),
+                Err(error) => self.fatal(ClientError::transport(error)),
+            };
+        }
+        if view.command() == Command::Authenticate {
+            return self.authenticate(&view, now);
+        }
+        let closed =
+            ErrorReplyView::from_frame(&view).map(|e| ClientError::closed(e.code(), e.message()));
+        match closed {
+            Ok(error) => self.fatal(error),
+            Err(error) => self.fatal(ClientError::protocol(error)),
         }
     }
 
@@ -250,7 +273,7 @@ impl<L: Login> ClientCore<L> {
         Err(error)
     }
 
-    /// The reply of request `id` waiting on `stream`.
+    /// The reply of request `id` waiting on `stream`, by a command [`ClientCore::place`] found it answered by.
     fn answer(
         &mut self,
         id: u64,
@@ -266,12 +289,12 @@ impl<L: Login> ClientCore<L> {
             Err(error) => return self.fatal(ClientError::protocol(error)),
         };
         let outcome = if view.command() == Command::Error {
-            match refusal(&view) {
+            match refusal(&view, expect.refused_request()) {
                 Ok(error) => Err(error),
                 Err(error) => return self.fatal(error),
             }
         } else {
-            match self.decode(expect, stream, &view) {
+            match self.decode(expect, stream, &view, now) {
                 Ok(outcome) => outcome,
                 Err(error) => return self.fatal(error),
             }
@@ -284,125 +307,121 @@ impl<L: Login> ClientCore<L> {
             let _ended: Option<StreamState> = self.streams.remove(&stream);
             self.end_reads(stream);
         }
-        if let Expect::Commit { session, request } | Expect::Drop { session, request } = expect {
-            return {
-                self.settle_commit(id, session, request, outcome, now);
-                Ok(())
-            };
-        }
-        if let Some(pending) = self.pending.get_mut(&id) {
+        let commit = self.pending.get(&id).and_then(PendingState::commit);
+        if let Some(request) = commit {
+            self.settle_commit(id, request, outcome, now);
+        } else if let Some(pending) = self.pending.get_mut(&id) {
             pending.outcome = Some(outcome);
         }
         Ok(())
     }
 
-    /// A commit's answer: committed, the session advances; busy, it is sent again after the retry delay while it has
-    /// attempts left; a retry refused as evicted has an unknown outcome and is not retried, and an evicted session is
-    /// forgotten; refused otherwise, the session keeps its request number.
+    /// What the answer `outcome` of a commit, a drop or a one-frame write settles, by `PROTOCOL.md` §11.5. Through no session
+    /// there is no resend, so code 17 is an unknown outcome. Through a session: a reply moves its counter and keeps its
+    /// token; code 14 is sent again after the retry delay while it has attempts left, as is code 17 on a resend, and a first
+    /// code 17 is in doubt at once, each in doubt once its attempts are spent; code 12 forgets the session and code 13 moves
+    /// its counter above `detail`, each an unknown outcome on a resend; a resent Commit's code 18 did not commit, its other
+    /// refusals leave it in doubt, as codes 21 and 23 leave any resend; any other refusal says the request wrote nothing, and
+    /// its number stays.
     fn settle_commit(
         &mut self,
         id: u64,
-        session: u128,
-        request: u64,
+        request: (u128, u64),
         outcome: Result<Reply, ClientError>,
         now: Instant,
     ) {
         let attempts = self.config.commit_attempts();
+        let delay = self.config.retry_delay();
         let Some(pending) = self.pending.get_mut(&id) else {
             return;
         };
         pending.stream = None;
-        let code = match &outcome {
-            Err(ClientError(ClientErrorEnum::Refused { code, .. })) => Some(*code),
-            _ => None,
-        };
-        if code == Some(ErrorCode::SessionBusy) {
-            pending.tries += 1;
-            if pending.tries < attempts {
-                pending.resend_at = Some(now + self.config.retry_delay());
-                return;
-            }
-            pending.outcome = Some(Err(ClientError::retries_exhausted(
-                session,
-                request,
-                pending.tries,
-            )));
-            if let Some(state) = self.sessions.get_mut(&session) {
-                state.in_flight = false;
-                state.in_doubt = Some(request);
-            }
-            return;
-        }
-        if code == Some(ErrorCode::SessionEvicted) {
-            pending.outcome = Some(if pending.retried {
-                Err(ClientError::outcome_unknown(session, request))
+        pending.ever_sent = true;
+        let (session, number) = request;
+        if session == 0 {
+            let unavailable = refused_code(&outcome) == Some(ErrorCode::Unavailable);
+            pending.outcome = Some(if unavailable {
+                Err(ClientError::outcome_unknown(session, number))
             } else {
                 outcome
             });
-            let _forgotten: Option<SessionState> = self.sessions.remove(&session);
             return;
         }
-        if let Some(state) = self.sessions.get_mut(&session) {
-            state.in_flight = false;
-            if outcome.is_ok() {
-                state.next_request = request + 1;
+        let state = self.sessions.get_mut(&session);
+        match refused_code(&outcome) {
+            Some(code)
+                if code == ErrorCode::SessionBusy
+                    || (code == ErrorCode::Unavailable && pending.retried) =>
+            {
+                pending.tries = pending.tries.saturating_add(1);
+                if pending.tries < attempts {
+                    pending.resend_at = Some(now.checked_add(delay).unwrap_or(now));
+                } else {
+                    pending.mark_in_doubt(request, state, outcome.err());
+                }
+            }
+            Some(ErrorCode::Unavailable) => pending.mark_in_doubt(request, state, outcome.err()),
+            Some(ErrorCode::SessionEvicted) => {
+                pending.outcome = Some(if pending.retried {
+                    Err(ClientError::outcome_unknown(session, number))
+                } else {
+                    outcome
+                });
+                let _forgotten: Option<SessionState> = self.sessions.remove(&session);
+            }
+            Some(ErrorCode::RequestOutOfOrder) => {
+                if let (Some(state), Err(error)) = (state, &outcome) {
+                    state.in_flight = false;
+                    state.next_request = refused_detail(error).saturating_add(1);
+                }
+                pending.outcome = Some(if pending.retried {
+                    Err(ClientError::outcome_unknown(session, number))
+                } else {
+                    outcome
+                });
+            }
+            Some(code) if pending.retried && leaves_in_doubt(&pending.expect, code) => {
+                pending.mark_in_doubt(request, state, outcome.err());
+            }
+            Some(_) | None => {
+                if let Some(state) = state {
+                    state.in_flight = false;
+                    if let Ok(Reply::Committed(answer) | Reply::Dropped(answer)) = &outcome {
+                        state.next_request = state.next_request.max(number.saturating_add(1));
+                        state.keep_token(answer.token());
+                    }
+                }
+                pending.outcome = Some(outcome);
             }
         }
-        pending.outcome = Some(outcome);
     }
 
-    /// The reply `view` decoded for what its request expects; a reply of another command or naming another commit
-    /// is [`ClientError::reply_mismatch`], an answer of the request, and a reply breaking a rule is the caller's error.
+    /// The reply `view` decoded for what its request expects, a command [`ClientCore::place`] found it answered by; a reply
+    /// naming another commit is [`ClientError::reply_mismatch`], an answer of the request, and a reply breaking a rule is
+    /// the caller's error.
     fn decode(
         &mut self,
         expect: Expect,
         stream: u64,
         view: &FrameView<'_>,
+        now: Instant,
     ) -> Result<Result<Reply, ClientError>, ClientError> {
-        let command = view.command();
-        let wanted = match expect {
-            Expect::Register => Command::Register,
-            Expect::Begin => Command::Begin,
-            Expect::Commit { .. } => Command::Commit,
-            Expect::Drop { .. } => Command::Drop,
-            Expect::Prepare => Command::Prepare,
-            Expect::Describe => Command::Describe,
-        };
-        if command != wanted {
-            return Ok(Err(ClientError::reply_mismatch(
-                "command",
-                wanted.number(),
-                command.number(),
-            )));
-        }
         Ok(match expect {
             Expect::Register => {
                 let number = RegisterView::from_frame(view)
                     .map_err(ClientError::protocol)?
                     .session();
                 let number = u128::from_be_bytes(number);
-                let _registered: &mut SessionState =
-                    self.sessions.entry(number).or_insert(SessionState {
-                        next_request: 1,
-                        in_flight: false,
-                        in_doubt: None,
-                    });
+                let _registered: &mut SessionState = self
+                    .sessions
+                    .entry(number)
+                    .or_insert_with(|| SessionState::new(1));
                 Ok(Reply::Registered(Session::new(number)))
             }
-            Expect::Begin => {
-                let begin = BeginView::from_frame(view).map_err(ClientError::protocol)?;
-                if let Some(state) = self.streams.get_mut(&stream) {
-                    state.transaction = Some(begin.read_only());
-                }
-                Ok(Reply::Begun(Transaction::new(
-                    stream,
-                    self.generation,
-                    begin.tenant(),
-                    begin.read_version(),
-                    begin.read_only(),
-                )))
+            Expect::Begin => self.begun(stream, view, now)?,
+            Expect::Commit { session, request } | Expect::Write { session, request } => {
+                committed(view, session, request)?
             }
-            Expect::Commit { session, request } => committed(view, session, request)?,
             Expect::Drop { session, request } => dropped(view, session, request)?,
             Expect::Prepare => {
                 let prepare = PrepareView::from_frame(view).map_err(ClientError::protocol)?;
@@ -421,6 +440,50 @@ impl<L: Login> ClientCore<L> {
                 Ok(Reply::Described(describe))
             }
         })
+    }
+
+    /// A Begin's reply on `stream`: its transaction, its reads' deadline running from here, later than the server's, which
+    /// runs from the Begin's arrival, by the Welcome's `transaction_ms` when it named none.
+    fn begun(
+        &mut self,
+        stream: u64,
+        view: &FrameView<'_>,
+        now: Instant,
+    ) -> Result<Result<Reply, ClientError>, ClientError> {
+        let begin = BeginView::from_frame(view).map_err(ClientError::protocol)?;
+        let deadline_ms = match begin.deadline_ms() {
+            0 => self.welcome().map_or(0, Welcome::transaction_ms),
+            named => named,
+        };
+        if let Some(state) = self.streams.get_mut(&stream) {
+            state.transaction = Some(begin.read_only());
+            state.deadline = now.checked_add(Duration::from_millis(deadline_ms.into()));
+        }
+        Ok(Ok(Reply::Begun(Transaction::new(
+            stream,
+            self.generation,
+            begin.tenant(),
+            begin.read_version(),
+            begin.level(),
+            begin.read_only(),
+        ))))
+    }
+}
+
+/// The code of a refusal.
+fn refused_code(outcome: &Result<Reply, ClientError>) -> Option<ErrorCode> {
+    match outcome {
+        Err(ClientError(ClientErrorEnum::Refused { code, .. })) => Some(*code),
+        Ok(_) | Err(_) => None,
+    }
+}
+
+/// The `detail` of a refusal; 0 for any other error.
+fn refused_detail(error: &ClientError) -> u64 {
+    if let ClientErrorEnum::Refused { detail, .. } = &error.0 {
+        *detail
+    } else {
+        0
     }
 }
 
@@ -448,11 +511,14 @@ fn committed(
         let results = (0..commit.result_count())
             .filter_map(|i| commit.result(i))
             .collect();
-        Ok(Reply::Committed(Committed::new(
-            commit.commit_version(),
-            request,
-            results,
-        )))
+        let nodes = (0..commit.result_count())
+            .map(|i| commit.node(i).map(str::to_string))
+            .collect();
+        Ok(Reply::Committed(
+            Committed::new(commit.commit_version(), request)
+                .with_token(commit.token().cloned())
+                .with_results(results, nodes),
+        ))
     })
 }
 
@@ -477,10 +543,17 @@ fn dropped(
             drop.request(),
         ))
     } else {
-        Ok(Reply::Dropped(Committed::new(
-            drop.commit_version(),
-            request,
-            Vec::new(),
-        )))
+        Ok(Reply::Dropped(
+            Committed::new(drop.commit_version(), request).with_token(drop.token().cloned()),
+        ))
     })
+}
+
+/// Whether a resend's refusal `code` says nothing of the first send: any but code 18 for a Commit, and codes 21 and 23 for any
+/// resend, which the frontend's own checks give before a partition's table decides (`PROTOCOL.md` §11.5).
+fn leaves_in_doubt(expect: &Expect, code: ErrorCode) -> bool {
+    matches!(
+        code,
+        ErrorCode::PermissionDenied | ErrorCode::CrossPartition
+    ) || matches!(expect, Expect::Commit { .. }) && code != ErrorCode::NotCommitted
 }

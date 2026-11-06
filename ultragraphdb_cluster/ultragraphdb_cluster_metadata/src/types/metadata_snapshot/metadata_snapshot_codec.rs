@@ -14,7 +14,7 @@ use crate::types::catalog_record::CatalogRecord;
 use crate::types::metadata_command::MetadataCommand;
 use crate::types::metadata_command::metadata_command_codec::{
     put_count, put_len_u8, put_len_u32, put_u32, put_u64, read_epoch, read_len_u32, read_name,
-    read_partition, read_prefix, read_verifier,
+    read_partition, read_prefix, read_secret, read_verifier,
 };
 use crate::types::metadata_config::MetadataConfig;
 use crate::types::metadata_snapshot::MetadataSnapshot;
@@ -47,8 +47,8 @@ impl MetadataSnapshot {
     /// and epoch; the next principal's identity, the principals' count and each identity, name, verifier and
     /// administrator flag; the sessions' count and each session and principal in registration order; the pending
     /// evictions' count and each session; the last placement version's number as 8 bytes, the pending placement
-    /// versions' count and each version's number, its ranges' count and each range's first bucket, end and partition.
-    /// Every table is written in its order, so a state has one encoding.
+    /// versions' count and each version's number, its ranges' count and each range's first bucket, end and partition; the
+    /// tenants' count and each tenant; a flag and, when set, the unknown-name secret's 32 bytes. Every table is written in its order, so a state has one encoding.
     pub fn encode(&self, out: &mut Vec<u8>) {
         let state = self.state();
         out.push(FORMAT);
@@ -58,6 +58,7 @@ impl MetadataSnapshot {
         encode_tables(state, out);
         encode_access(state, out);
         encode_placement_pending(state, out);
+        encode_tenants(state, out);
     }
 
     /// The snapshot `bytes` encode, exactly as [`MetadataSnapshot::encode`] writes it.
@@ -80,9 +81,41 @@ impl MetadataSnapshot {
         decode_tables(&mut reader, &mut state)?;
         decode_access(&mut reader, &mut state)?;
         decode_placement_pending(&mut reader, &mut state)?;
+        decode_tenants(&mut reader, &mut state)?;
         reader.finish("the end of the snapshot")?;
         Ok(Self::new(position, state))
     }
+}
+
+/// The tenants and the unknown-name secret.
+fn encode_tenants(state: &MetadataState, out: &mut Vec<u8>) {
+    put_count(out, state.tenants.len());
+    for tenant in &state.tenants {
+        put_u64(out, tenant.get());
+    }
+    match &state.unknown_secret {
+        Some(secret) => {
+            out.push(1);
+            out.extend_from_slice(secret);
+        }
+        None => out.push(0),
+    }
+}
+
+/// What [`encode_tenants`] wrote.
+fn decode_tenants(reader: &mut Reader<'_>, state: &mut MetadataState) -> Result<(), ClusterError> {
+    let tenants = count(reader, "tenants", MetadataState::TENANTS_MAX)?;
+    for _ in 0..tenants {
+        let at = reader.offset();
+        let tenant = Tenant::new(reader.u64("a tenant")?);
+        let after = state.tenants.last().is_none_or(|last| *last < tenant);
+        check(after, "a tenant after the one before it", at)?;
+        let _new: bool = state.tenants.insert(tenant);
+    }
+    if reader.flag()? {
+        state.unknown_secret = Some(read_secret(reader)?);
+    }
+    Ok(())
 }
 
 /// The catalogs: per tenant its versions.

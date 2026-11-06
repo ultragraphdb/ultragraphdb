@@ -9,12 +9,13 @@
 //! defect fails rather than hangs.
 
 use std::collections::VecDeque;
+use std::num::NonZeroU32;
 use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
 
 use ultragraphdb_client_core::{
-    ClientConfig, ClientCore, ClientError, Committed, Pending, Reply, Session, Statement,
-    TEST_NAME, TEST_PASSWORD, TestServer, Transaction,
+    ClientConfig, ClientCore, ClientError, ClientErrorEnum, Committed, Pending, Reply, Session,
+    Statement, TEST_NAME, TEST_PASSWORD, TestServer, Transaction,
 };
 use ultragraphdb_protocol_scram::{MECHANISM, ScramError, ScramLogin};
 use ultragraphdb_protocol_transport::{
@@ -328,8 +329,8 @@ impl<L: Login> Harness<L> {
         Ok(moved)
     }
 
-    /// Rounds until `done` holds: when nothing moves, time moves to the core's next deadline, or the server's when
-    /// the core has none, and a core that has lost its connection is connected again.
+    /// Rounds until `done` holds: when nothing moves, time moves to the earlier of the core's next deadline and the
+    /// server's, and a core that has lost its connection is connected again.
     pub fn until(&mut self, mut done: impl FnMut(&mut Self) -> bool) -> TestResult {
         let mut steps = 0;
         loop {
@@ -345,8 +346,8 @@ impl<L: Login> Harness<L> {
                 continue;
             }
             if !self.step()? {
-                let Some(deadline) = self.core.next_deadline().or(self.server.next_deadline())
-                else {
+                let due = [self.core.next_deadline(), self.server.next_deadline()];
+                let Some(deadline) = due.into_iter().flatten().min() else {
                     if done(self) {
                         return Ok(());
                     }
@@ -368,6 +369,22 @@ impl<L: Login> Harness<L> {
         })?;
         answer.context("an answer")
     }
+}
+
+/// The session and request of an error saying a commit is in doubt.
+pub fn in_doubt(error: &ClientError) -> Option<(u128, u64)> {
+    if let ClientErrorEnum::InDoubt {
+        session, request, ..
+    } = &error.0
+    {
+        return Some((*session, *request));
+    }
+    None
+}
+
+/// `frames`, at least 1, as the core's grant takes it.
+pub fn frames(frames: u32) -> TestResult<NonZeroU32> {
+    NonZeroU32::new(frames).context("a grant of frames")
 }
 
 /// The session of a Register's `reply`.

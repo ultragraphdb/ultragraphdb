@@ -18,7 +18,7 @@ use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::{Anonymous, BufferPool, Framer, TransportError};
 use ultragraphdb_protocol_wire::{
     Begin, BodyBuilder, Command, ErrorCode, ErrorReply, FrameView, Header, MAX_FRAME_SIZE,
-    PatternSlot, QuadPattern, Read, TermTable,
+    PatternSlot, QuadPattern, Read, ResultBatch, TermTable,
 };
 
 use crate::types::client_core::client_core_conformance_tests::{
@@ -192,11 +192,10 @@ fn test_a_truncated_frame_is_the_cause_of_every_loss() -> TestResult {
 #[test]
 fn test_the_rule_a_frame_broke_is_the_cause_of_every_loss() -> TestResult {
     let (mut c, stream, p) = reading()?;
-    // The golden Describe reply on the Register's stream (3: the transaction's 1 and the read's 2 before it), a body
-    // byte flipped: its chunk no longer verifies, a rule of the frame's, past the framer's header checks.
-    let mut bad = numbered(&restream(&golden("describe_reply")?, 3), c.sent + 1);
-
-    bad[400] ^= 1;
+    // The golden Error on the Register's stream (3: the transaction's 1 and the read's 2 before it), a body byte flipped:
+    // its chunk no longer verifies, a rule of the frame's, past the framer's header checks.
+    let mut bad = numbered(&restream(&golden("error")?, 3), c.sent + 1);
+    bad[256] ^= 1;
     let rule = FrameView::validate(&bad, CLUSTER, MAX_FRAME_SIZE)
         .err()
         .context("refused by a rule")?;
@@ -344,12 +343,10 @@ fn test_a_kept_read_ending_in_a_refusal_answers_it_after_the_loss() -> TestResul
     assert_eq!(c.batch(&stream), Ok(BatchPoll::Batch(3)));
     assert_eq!(
         c.batch(&stream),
-        Err(ClientError::refused(
-            ErrorCode::OperationFailed,
-            4,
-            "the read failed",
-            None
-        ))
+        Err(
+            ClientError::refused(ErrorCode::OperationFailed, 4, "the read failed", None)
+                .of_request(ultragraphdb_protocol_wire::RefusedRequest::Read)
+        )
     );
     assert_eq!(
         c.batch(&stream),
@@ -364,12 +361,13 @@ fn test_a_kept_read_ending_in_a_broken_frame_answers_its_rule_after_the_loss() -
     let mut c = Conn::new()?;
     let tx = c.begin(true)?;
     let stream = c.read(&tx)?;
-    // A Begin's body on the read's stream, flagged last: no Result.
-    let broken = Begin::new(0, 6, true).frame(
-        Header::new(CLUSTER, Command::Begin)
+    // A Result flagged last, a body byte flipped: its chunk is checked when it is read.
+    let mut broken = ResultBatch::new(2).frame(
+        Header::new(CLUSTER, Command::Result)
             .with_stream(stream.stream())
             .with_flags(ultragraphdb_protocol_wire::FLAG_LAST),
     )?;
+    broken[300] ^= 1;
     c.deliver(&broken)??;
     c.core.disconnected(TransportError::closed(), start());
     let refused = c.batch(&stream).err().context("an error")?;

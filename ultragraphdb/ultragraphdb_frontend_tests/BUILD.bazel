@@ -19,10 +19,16 @@ genquery(
 # stays sandboxed.
 rust_test(
     name = "bdd",
-    srcs = ["tests/bdd.rs"],
+    srcs = [
+        "tests/bdd.rs",
+        "tests/endpoint_steps.rs",
+        "tests/role_read_steps.rs",
+    ],
     crate_root = "tests/bdd.rs",
     data = glob(["features/**/*.feature"]) + [
+        ":copy_compute",
         ":copy_frontend",
+        ":copy_storage",
         ":frontend_deps",
     ],
     tags = [
@@ -38,5 +44,21 @@ copy_file(
     name = "copy_frontend",
     src = "//ultragraphdb/ultragraphdb_frontend:ultragraphdb_frontend",
     out = "ultragraphdb_frontend",
+    is_executable = True,
+)
+
+# Copy the compute binary into the sandbox.
+copy_file(
+    name = "copy_compute",
+    src = "//ultragraphdb/ultragraphdb_compute:ultragraphdb_compute",
+    out = "ultragraphdb_compute",
+    is_executable = True,
+)
+
+# Copy the storage binary into the sandbox.
+copy_file(
+    name = "copy_storage",
+    src = "//ultragraphdb/ultragraphdb_storage:ultragraphdb_storage",
+    out = "ultragraphdb_storage",
     is_executable = True,
 )

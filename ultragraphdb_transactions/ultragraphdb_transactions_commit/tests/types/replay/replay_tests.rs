@@ -550,6 +550,46 @@ fn test_a_versions_removals_replay_as_the_first_apply_made_them() -> TestResult 
     Ok(())
 }
 
+/// Commits `before` and then a transaction writing a statement and removing it, and replays what they logged: the catalog of
+/// the first apply and of the replay.
+fn catalogs_of_a_net_nothing(
+    before: Vec<Change>,
+) -> TestResult<(
+    std::sync::Arc<ultragraphdb_core_catalog::Catalog>,
+    std::sync::Arc<ultragraphdb_core_catalog::Catalog>,
+)> {
+    let original = applier()?;
+    let (_storage, log) = wal()?;
+    let mut pipe: Pipe<'_> = Pipeline::new(&original, log, unbounded())?;
+    if !before.is_empty() {
+        let _reply: Reply = commit(&mut pipe, &original, 1, before)?;
+    }
+    let undone = vec![
+        insert_literal("s", "name", "v"),
+        delete_literal("s", "name", "v"),
+    ];
+    let _reply: Reply = commit(&mut pipe, &original, 2, undone)?;
+    let mut written = pipe.into_log();
+    let replica = applier_over(sim_store())?;
+    let _replayed: Replay = replay(&replica, &mut written)?;
+    Ok((original.catalog(TENANT)?, replica.catalog(TENANT)?))
+}
+
+#[test]
+fn test_writes_netting_to_nothing_give_a_tenant_no_catalog_on_first_apply_or_replay() -> TestResult
+{
+    let (first, replayed) = catalogs_of_a_net_nothing(Vec::new())?;
+    assert_eq!(*first, *replayed);
+    Ok(())
+}
+
+#[test]
+fn test_writes_netting_to_nothing_add_no_default_entry_on_first_apply_or_replay() -> TestResult {
+    let (first, replayed) = catalogs_of_a_net_nothing(vec![insert("a", "knows", "b")])?;
+    assert_eq!(*first, *replayed);
+    Ok(())
+}
+
 /// `one_round_log` with a second round committing `record` alone at (1, 2): the log and the position of that round, 2.
 fn log_with(record: Vec<u8>) -> TestResult<(ultragraphdb_transactions_log::SimStorage, Log)> {
     log_of(|body| body.commit(record), 1)

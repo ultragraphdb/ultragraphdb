@@ -43,25 +43,7 @@ impl Raw<'_> {
         let mut out = vec![1];
         out.extend_from_slice(&9_u64.to_be_bytes());
         out.extend_from_slice(&4_u64.to_be_bytes());
-        put_count(&mut out, self.catalogs.len());
-        for (tenant, current, released, versions) in &self.catalogs {
-            for value in [tenant, current, released] {
-                out.extend_from_slice(&value.to_be_bytes());
-            }
-            put_count(&mut out, versions.len());
-            for (version, effective, data) in versions {
-                out.extend_from_slice(&version.to_be_bytes());
-                match effective {
-                    Some(epoch) => {
-                        out.push(1);
-                        out.extend_from_slice(&epoch.to_be_bytes());
-                    }
-                    None => out.push(0),
-                }
-                put_count(&mut out, data.len());
-                out.extend_from_slice(data);
-            }
-        }
+        self.catalogs_section(&mut out);
         put_count(&mut out, self.defaults.len());
         for (tenant, predicate) in &self.defaults {
             out.extend_from_slice(&tenant.to_be_bytes());
@@ -109,7 +91,32 @@ impl Raw<'_> {
         }
         put_count(&mut out, 0);
         self.placement_tail(&mut out);
+        put_count(&mut out, 0);
+        out.push(0);
         out
+    }
+
+    /// Each tenant's catalog versions.
+    fn catalogs_section(&self, out: &mut Vec<u8>) {
+        put_count(out, self.catalogs.len());
+        for (tenant, current, released, versions) in &self.catalogs {
+            for value in [tenant, current, released] {
+                out.extend_from_slice(&value.to_be_bytes());
+            }
+            put_count(out, versions.len());
+            for (version, effective, data) in versions {
+                out.extend_from_slice(&version.to_be_bytes());
+                match effective {
+                    Some(epoch) => {
+                        out.push(1);
+                        out.extend_from_slice(&epoch.to_be_bytes());
+                    }
+                    None => out.push(0),
+                }
+                put_count(out, data.len());
+                out.extend_from_slice(data);
+            }
+        }
     }
 
     /// The last placement version's number and the pending placement versions.

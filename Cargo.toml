@@ -48,6 +48,7 @@ ultragraphdb_cluster_placement = { path = "ultragraphdb_cluster/ultragraphdb_clu
 ultragraphdb_cluster_sequencer = { path = "ultragraphdb_cluster/ultragraphdb_cluster_sequencer" }
 ## Common
 ultragraphdb_common_role = { path = "ultragraphdb_common/ultragraphdb_common_role" }
+ultragraphdb_common_compute = { path = "ultragraphdb_common/ultragraphdb_common_compute" }
 ultragraphdb_common_config = { path = "ultragraphdb_common/ultragraphdb_common_config" }
 ultragraphdb_common_config_check = { path = "ultragraphdb_common/ultragraphdb_common_config_check" }
 ultragraphdb_common_frontend = { path = "ultragraphdb_common/ultragraphdb_common_frontend" }
@@ -148,6 +149,7 @@ compio = { version = "0.19", default-features = false, features = ["runtime", "i
 mimalloc = { version = "0.1", features = ["local_dynamic_tls"] }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 rustix = { version = "1.1", default-features = false, features = ["fs", "process"] }
+socket2 = "0.6"
 rustls = { version = "0.23", default-features = false, features = ["ring", "tls12", "std"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rcgen = { version = "0.14", default-features = false, features = ["pem", "ring"] }

@@ -78,8 +78,8 @@ fn client(
         .frame(Header::new(CLUSTER, Command::Welcome))
         .ok()?;
     core.receive(server.frame(pool, &welcome)?, now).ok()?;
-    let session = core.resume_session(9, 7);
-    let dropping = core.resume_session(10, 3);
+    let session = core.resume_session(9, 7).ok()?;
+    let dropping = core.resume_session(10, 3).ok()?;
     let mut begun = Vec::new();
     for i in 0..20u64 {
         let pending = match i % 5 {

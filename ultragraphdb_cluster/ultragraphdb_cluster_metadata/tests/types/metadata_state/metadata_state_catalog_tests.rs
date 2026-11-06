@@ -115,7 +115,7 @@ fn test_the_versions_retained_pending_last() -> TestResult {
     assert_eq!(state.current_version(Tenant::new(1)), 3);
     assert_eq!(state.pending_versions(), vec![(Tenant::new(1), 3)]);
     assert!(state.versions(Tenant::new(2)).is_empty());
-    assert_eq!(state.tenants(), vec![Tenant::new(1)]);
+    assert!(state.tenants().is_empty(), "a version creates no tenant");
     Ok(())
 }
 

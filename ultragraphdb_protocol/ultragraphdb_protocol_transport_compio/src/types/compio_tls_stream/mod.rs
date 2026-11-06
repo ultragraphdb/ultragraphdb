@@ -5,12 +5,14 @@
 
 mod compio_tls_stream_async_read;
 mod compio_tls_stream_async_write;
+mod compio_tls_stream_splittable;
 
 use std::io;
 
 use compio::BufResult;
 use compio::buf::{IntoInner, IoBuf};
 use compio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+pub use compio_tls_stream_splittable::{TlsReadHalf, TlsWriteHalf};
 use ultragraphdb_transport_tls::{
     HANDSHAKE_TURNS_MAX, RECORD_SIZE_MAX, TlsAcceptor, TlsConnector, TlsError, TlsSession,
 };

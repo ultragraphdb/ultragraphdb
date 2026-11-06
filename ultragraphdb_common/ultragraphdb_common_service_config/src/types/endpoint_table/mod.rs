@@ -16,6 +16,7 @@ pub struct EndpointTable {
     plaintext: Option<bool>,
     connections_max: Option<u32>,
     held_bytes: Option<u64>,
+    refusal_interval_ms: Option<u64>,
 }
 
 impl EndpointTable {
@@ -30,6 +31,7 @@ impl EndpointTable {
             plaintext: reader.boolean("endpoint", "plaintext")?,
             connections_max: reader.u32("endpoint", "connections_max")?,
             held_bytes: reader.u64("endpoint", "held_bytes")?,
+            refusal_interval_ms: reader.u64("endpoint", "refusal_interval_ms")?,
         })
     }
 
@@ -61,6 +63,11 @@ impl EndpointTable {
     /// `held_bytes`: the most bytes of Write and Operation frames a connection's reads hold back.
     pub fn held_bytes(&self) -> Option<u64> {
         self.held_bytes
+    }
+
+    /// `refusal_interval_ms`: how long a principal past its failed authentications is refused.
+    pub fn refusal_interval_ms(&self) -> Option<u64> {
+        self.refusal_interval_ms
     }
 
     /// How the endpoint speaks. Clear text is only ever chosen by name, so an endpoint deciding nothing does not start.

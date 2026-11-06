@@ -8,14 +8,18 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use compio::runtime::spawn;
-use ultragraphdb_common_role::{
-    Answer, ROLE_ITERATIONS, RoleClient, RoleCluster, RoleCredentials, Server, Session,
-    frontend_address, listen, retry_until, serve_connection,
+use ultragraphdb_common_compute::{
+    ComputeCore, ComputeSession, CoreListener, ReadTimes, read_times_of,
 };
-use ultragraphdb_common_service::{Readiness, RoleKind, RoleStart, Stopping};
+use ultragraphdb_common_role::{
+    COMPUTE_WELCOME_CREDIT, ROLE_ITERATIONS, RoleClient, RoleCluster, RoleCredentials, Server,
+    frontend_address, retry_until, serve_connection,
+};
+use ultragraphdb_common_service::{Readiness, RoleKind, RoleStart, Stopping, core_runtime};
+use ultragraphdb_common_service_config::ServiceConfig;
 use ultragraphdb_error_role::RoleError;
-use ultragraphdb_protocol_transport::{Address, Endpoint, ReceivedFrame, TransportError};
-use ultragraphdb_protocol_wire::{BodyView, ErrorCode, ErrorReply, Join, Members, MembersView};
+use ultragraphdb_protocol_transport::{Address, Endpoint, TransportError};
+use ultragraphdb_protocol_wire::{BodyView, Join, Members, MembersView};
 
 /// How often the role looks at its peers and whether it was told to stop, and dials a peer it lost.
 const POLL: Duration = Duration::from_millis(100);
@@ -23,9 +27,9 @@ const POLL: Duration = Duration::from_millis(100);
 /// How many times per `cluster.join_deadline_ms` compute asks each peer whether it still answers.
 const ASKS_PER_DEADLINE: u32 = 2;
 
-/// The compute role's connections: it listens at `[compute] role_address`, joins the frontend, and is ready once the
-/// members it reads name a partition to read from. It then asks the frontend and each of those partitions whether they answer, and
-/// a peer that does not, by the deadline, ends it.
+/// The compute role: one runtime per core, each accepting at `[compute] role_address` and running what arrives on it wholly
+/// there. It joins the frontend and is ready once the members it reads name a partition that answers. It then asks the frontend
+/// and each of those partitions whether they answer, and a peer that does not, by the deadline, ends it.
 ///
 /// # Errors
 ///
@@ -69,24 +73,21 @@ async fn join_as(
 ) -> Result<(), RoleError> {
     let cluster = RoleCluster::read(start)?;
     let frontend = frontend_address(start)?;
-    let credentials: RoleCredentials = cluster.secret().credentials()?;
-    let server = Server::new(cluster.id(), "role", endpoint)?.with_iterations(ROLE_ITERATIONS);
-    let listener = listen(own).await?;
-    spawn(async move {
-        loop {
-            match listener.accept().await {
-                Ok(carrier) => {
-                    let (server, credentials) = (server.clone(), credentials.clone());
-                    spawn(async move {
-                        serve_connection(carrier, &server, credentials, NotHosted).await;
-                    })
-                    .detach();
-                }
-                Err(error) => tracing::warn!(%error, "a role connection was not accepted"),
-            }
-        }
-    })
-    .detach();
+    let listener = CoreListener::bind(own)?;
+    let serving = CoreServing {
+        cluster: cluster.clone(),
+        frontend: frontend.clone(),
+        credentials: cluster.secret().credentials()?,
+        server: Server::new(cluster.id(), "role", endpoint)?
+            .with_welcome(|welcome| welcome.with_initial_credit(COMPUTE_WELCOME_CREDIT))
+            .with_iterations(ROLE_ITERATIONS),
+        times: read_times_of(
+            start.config().storage().scan_stall_ms(),
+            start.config().storage().read_retain_ms(),
+        ),
+    };
+    start_cores(start.config(), &listener, &serving)?;
+    spawn(accept_on_core(listener, serving)).detach();
     let name = kind.to_string();
     let joined = retry_until(&cluster, &kind.to_string(), stopping, || {
         attempt(&frontend, &cluster, &name, join)
@@ -100,6 +101,70 @@ async fn join_as(
         .chain(partitions)
         .collect();
     hold_peers(peers, &cluster, stopping).await
+}
+
+/// What each core accepts and reads with.
+#[derive(Debug, Clone)]
+struct CoreServing {
+    cluster: RoleCluster,
+    frontend: Address,
+    credentials: RoleCredentials,
+    server: Server,
+    times: ReadTimes,
+}
+
+/// A thread and a runtime for every core but this one, each serving a handle of `listener`.
+fn start_cores(
+    config: &ServiceConfig,
+    listener: &CoreListener,
+    serving: &CoreServing,
+) -> Result<(), RoleError> {
+    let cores = std::thread::available_parallelism().map_or(1, usize::from);
+    for core in 1..cores {
+        let (config, listener, serving) = (config.clone(), listener.another()?, serving.clone());
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a core is a real thread, which no simulation replays"
+        )]
+        let spawned = std::thread::Builder::new()
+            .name(format!("compute-{core}"))
+            .spawn(move || {
+                let served = core_runtime(&config, core).map(|(runtime, _cpu)| {
+                    runtime.block_on(accept_on_core(listener, serving));
+                });
+                if let Err(error) = served {
+                    tracing::error!(core, %error, "a core did not start");
+                }
+            });
+        drop(spawned.map_err(|error| RoleError::unavailable(format!("a core's thread: {error}")))?);
+    }
+    Ok(())
+}
+
+/// Accepts on this core, whose connections and reads stay on it.
+async fn accept_on_core(listener: CoreListener, serving: CoreServing) {
+    let listener = match listener.on_this_core() {
+        Ok(listener) => listener,
+        Err(error) => {
+            tracing::error!(%error, "a core does not listen");
+            return;
+        }
+    };
+    let name = RoleKind::Compute.to_string();
+    let core = ComputeCore::new(serving.cluster, serving.frontend, serving.times, &name);
+    loop {
+        match listener.accept().await {
+            Ok(carrier) => {
+                let (server, credentials) = (serving.server.clone(), serving.credentials.clone());
+                let session = ComputeSession::new(core.clone());
+                spawn(async move {
+                    serve_connection(carrier, &server, credentials, session).await;
+                })
+                .detach();
+            }
+            Err(error) => tracing::warn!(%error, "a role connection was not accepted"),
+        }
+    }
 }
 
 /// Asks each of `peers` until the service stops or one is lost past the deadline.
@@ -195,23 +260,11 @@ async fn attempt(
         .filter_map(|member| members.address(member.address() as usize))
         .map(Address::parse)
         .collect::<Result<Vec<_>, _>>()?;
-    if partitions.is_empty() {
+    let Some(first) = partitions.first() else {
         return Err(TransportError::authentication(
             "no partition has joined yet",
         ));
-    }
+    };
+    drop(RoleClient::dial(first, cluster.id(), name, cluster.secret().password()).await?);
     Ok(partitions)
-}
-
-/// A role connection to a role that hosts nothing yet: it authenticates, and refuses every request.
-#[derive(Debug, Clone, Copy)]
-struct NotHosted;
-
-impl Session for NotHosted {
-    async fn answer(&mut self, _stream: u64, frame: ReceivedFrame) -> Answer {
-        Answer::Refuse(ErrorReply::new(
-            ErrorCode::Unavailable,
-            format!("command {} is not hosted here yet", frame.command()),
-        ))
-    }
 }

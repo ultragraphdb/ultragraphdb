@@ -5,6 +5,10 @@
 
 //! The frontend owner's scenarios, bound to `features/`: the owner on its own thread over real logs, asked from this one.
 
+mod endpoint_stage;
+mod endpoint_steps;
+mod endpoint_steps_requests;
+
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
@@ -35,6 +39,7 @@ struct Steps {
     evicted: Vec<[u8; 16]>,
     leases: Vec<u64>,
     served: bool,
+    ran: bool,
 }
 
 /// A refusal the scenario did not expect, as the test's error.
@@ -198,25 +203,6 @@ async fn evict(running: &OwnerThread) -> TestResult<u64> {
         .await
         .map_err(|refusal| reason(&refusal))?;
     Ok(alice)
-}
-
-#[when("a session is evicted from the full registry and its client sends its next request")]
-fn evicted(w: &mut Steps) -> TestResult {
-    let directory = fresh()?;
-    Runtime::new()?.block_on(async {
-        let running = owner(&directory, 1).await?;
-        let alice = evict(&running).await?;
-        w.refused = running.handle().check_session(SESSION, alice).await.err();
-        running.stopped().await?;
-        Ok(())
-    })
-}
-
-#[then("the frontend refuses the request with an error saying the session was evicted")]
-fn says_evicted(w: &mut Steps) -> TestResult {
-    let message = refused_with(w, ErrorCode::SessionEvicted)?;
-    assert!(message.contains("evicted"), "{message}");
-    Ok(())
 }
 
 #[when(

@@ -64,6 +64,7 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
                 match answer {
                     Durable::Lease(start, reply) => drop(reply.send(Ok(start))),
                     Durable::Registered(reply) => drop(reply.send(Ok(()))),
+                    Durable::Recorded(found, reply) => drop(reply.send(Ok(found))),
                 }
             }
         }
@@ -97,6 +98,7 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
             .map_err(|error| stopped(&error))?;
         self.learn_missed().await?;
         self.answer_closes();
+        self.answer_versions();
         self.closes_since_snapshot += 1;
         self.store_snapshots().await
     }

@@ -6,18 +6,29 @@
 //! The compute binary as a process, bound to `features/`, with no container. One scenario runs at a time: the binaries listen
 //! at their declared ports.
 
-use compio::runtime::Runtime;
+mod access_steps;
+mod batch_steps;
+mod cluster;
+mod level_steps;
+mod lookup_steps;
+mod played_frontend;
+mod played_partition;
+mod read_steps;
+mod resume_steps;
+mod robust_steps;
+mod scene;
+mod tap;
+mod transaction_steps;
+
 use cucumber::{World, then, when};
 use service_utils::{ServiceUtil, WaitStrategy};
 use std::path::Path;
 use std::process::{Command, ExitStatus};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use ultragraphdb_common_role::RoleClient;
 use ultragraphdb_protocol_transport::Address;
-use ultragraphdb_protocol_wire::{
-    ComputeRead, DEFAULT_INITIAL_CREDIT, MAX_FRAME_SIZE, PatternSlot, QuadPattern, ReadLevel,
-    TermTable,
-};
+use ultragraphdb_protocol_wire::{Scan, ScanAt, ScanRange};
 use ultragraphdb_tests::{
     CLUSTER, COMPUTE_BINARY, COMPUTE_OBSERVABILITY, COMPUTE_ROLE_ADDRESS, DOUBLE_ADDRESS,
     FRONTEND_BINARY, FRONTEND_OBSERVABILITY, SECRET, START_SECONDS, STORAGE_BINARY,
@@ -26,6 +37,18 @@ use ultragraphdb_tests::{
     served_by_double, start_double, storage_holding, until_answering, with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
+
+use crate::cluster::{ClusterInfo, start_cluster};
+use crate::played_frontend::{EpochClock, Played, play};
+use crate::played_partition::{PlayedTables, play_partition};
+use crate::scene::{ReadAnswer, Scene};
+use crate::tap::{ScanSeen, TapLog};
+
+/// The partitions a test plays.
+const PARTITIONS_PLAYED: u32 = 3;
+
+/// The `scan_stall_ms` the compute process over the played partitions keeps: short, so a partition that hung fails its read soon.
+pub const PLAYED_SCAN_STALL_MS: &str = "500";
 
 /// Where the sandbox holds the binaries, relative to the test's working directory: `copy_file` writes them to this package.
 const ROOT_PATH: &str = "ultragraphdb/ultragraphdb_compute_tests";
@@ -37,12 +60,83 @@ fn services() -> TestResult<ServiceUtil> {
     )?)
 }
 
+/// The cluster of four partitions most scenarios read, a tenant of its own each.
+static FOUR: OnceLock<ClusterInfo> = OnceLock::new();
+/// The cluster of one partition, which owns every tenant's whole run.
+static SOLO: OnceLock<ClusterInfo> = OnceLock::new();
+/// The cluster retaining what it reads for a moment and stalling a Scan soon.
+static BRIEF: OnceLock<ClusterInfo> = OnceLock::new();
+/// The cluster whose partitions the test plays.
+static PLAYED: OnceLock<ClusterInfo> = OnceLock::new();
+/// The tables of the played partitions.
+static TABLES: OnceLock<Vec<Arc<PlayedTables>>> = OnceLock::new();
+
+fn held(cluster: &'static OnceLock<ClusterInfo>) -> &'static ClusterInfo {
+    match cluster.get() {
+        Some(info) => info,
+        None => std::process::abort(),
+    }
+}
+
+/// The cluster of four partitions.
+fn four() -> &'static ClusterInfo {
+    held(&FOUR)
+}
+
+/// The cluster of one partition.
+fn solo() -> &'static ClusterInfo {
+    held(&SOLO)
+}
+
+/// The cluster of a short retention and a short stall.
+fn brief() -> &'static ClusterInfo {
+    held(&BRIEF)
+}
+
+/// The cluster of played partitions.
+fn played() -> &'static ClusterInfo {
+    held(&PLAYED)
+}
+
+/// The tables of played partition `partition`.
+fn played_tables(partition: u32) -> TestResult<&'static PlayedTables> {
+    TABLES
+        .get()
+        .and_then(|tables| tables.get(partition as usize - 1))
+        .map(Arc::as_ref)
+        .context("the played partition")
+}
+
 #[derive(Debug, Default, World)]
 struct Steps {
     exited: Option<ExitStatus>,
     graph: String,
     log: String,
     roles: Option<ServiceUtil>,
+    scene: Option<Scene>,
+    answers: Vec<ReadAnswer>,
+    scans: Vec<ScanSeen>,
+    connections: Vec<Vec<usize>>,
+    iris: Vec<String>,
+    texts: Vec<String>,
+    keys: Vec<Vec<u8>>,
+    graph_keys: Vec<Vec<u8>>,
+    numbers: Vec<u64>,
+    hash: u64,
+    kind: Option<u64>,
+    outcome: Option<bool>,
+}
+
+impl Steps {
+    /// The scenario's scene.
+    fn scene(&self) -> TestResult<&Scene> {
+        self.scene.as_ref().context("the scenario's scene")
+    }
+
+    /// The read a scenario made first.
+    fn answer(&self) -> TestResult<&ReadAnswer> {
+        self.answers.first().context("an answer")
+    }
 }
 
 #[when("a role is running and receives SIGTERM")]
@@ -152,27 +246,14 @@ fn ready_after_a_partition(w: &mut Steps) -> TestResult {
 fn asks_compute(w: &mut Steps) -> TestResult {
     let util = services()?;
     compute_joining(&util)?;
-    w.log = Runtime::new()?.block_on(async {
+    w.log = crate::scene::run(async {
         let target = Address::parse(&format!("tcp://{COMPUTE_ROLE_ADDRESS}"))?;
         let mut client = RoleClient::dial(&target, CLUSTER, "frontend", SECRET).await?;
-        let mut terms = TermTable::new();
-        let predicate = terms.iri("http://ex.org/p");
-        let pattern = QuadPattern::new(
-            PatternSlot::Unbound,
-            PatternSlot::Unbound,
-            PatternSlot::Bound(predicate),
-            PatternSlot::Unbound,
-        );
-        let read = ComputeRead::new(
-            1,
-            true,
-            ReadLevel::MonotonicFast,
-            terms,
-            pattern,
-            Vec::new(),
-        )
-        .with_client_limits(MAX_FRAME_SIZE as u32, DEFAULT_INITIAL_CREDIT);
-        let refused = client.request(&read).await.err();
+        let mut scan = Scan::new(ScanAt::Latest, 0, 0, 1, [0; 16], 0, 0);
+        let first = [0x1B_u8; 9];
+        let past = [first.as_slice(), &[0]].concat();
+        scan.push_range(ScanRange::new(1, &first, &past));
+        let refused = client.request(&scan).await.err();
         let refused = refused.context("a refusal")?;
         Ok::<String, TestError>(refused.to_string())
     })?;
@@ -180,9 +261,9 @@ fn asks_compute(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[then("the connection authenticates and the command is refused as not hosted")]
-fn not_hosted(w: &mut Steps) {
-    assert!(w.log.contains("not hosted"), "{}", w.log);
+#[then("the connection authenticates and the command is refused as not served")]
+fn not_served(w: &mut Steps) {
+    assert!(w.log.contains("524"), "{}", w.log);
     w.roles = None;
 }
 
@@ -190,7 +271,7 @@ fn not_hosted(w: &mut Steps) {
 fn wrong_secret_at_compute(w: &mut Steps) -> TestResult {
     let util = services()?;
     compute_joining(&util)?;
-    w.log = Runtime::new()?.block_on(async {
+    w.log = crate::scene::run(async {
         let target = Address::parse(&format!("tcp://{COMPUTE_ROLE_ADDRESS}"))?;
         let refused = RoleClient::dial(&target, CLUSTER, "frontend", "another secret")
             .await
@@ -275,13 +356,82 @@ fn lost_storage(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
+/// A compute process over `PARTITIONS_PLAYED` partitions the test plays.
+fn start_played_cluster(util: &ServiceUtil, base: u32) -> TestResult<(ClusterInfo, u32)> {
+    let clock = EpochClock::new();
+    let mut tables = Vec::new();
+    let mut listed = Vec::new();
+    for partition in 1..=PARTITIONS_PLAYED {
+        let port = base + 10 + partition - 1;
+        tables.push(play_partition(port)?);
+        listed.push((partition, format!("tcp://127.0.0.1:{port}")));
+    }
+    drop(TABLES.set(tables));
+    play(
+        base + 1,
+        Played {
+            partitions: PARTITIONS_PLAYED,
+            clock: Arc::clone(&clock),
+            listed,
+        },
+    )?;
+    let compute = crate::cluster::start_compute(
+        util,
+        base,
+        &[("storage.scan_stall_ms", PLAYED_SCAN_STALL_MS)],
+    )?;
+    let info = ClusterInfo {
+        partitions: PARTITIONS_PLAYED,
+        base,
+        clock,
+        log: Arc::new(TapLog::default()),
+    };
+    Ok((info, compute))
+}
+
+/// Starts the clusters every read scenario shares: their processes' pids.
+fn start_clusters(util: &ServiceUtil) -> TestResult<Vec<u32>> {
+    let mut pids = Vec::new();
+    let (of_four, started_four) = start_cluster(util, 17_400, 4, &[])?;
+    drop(FOUR.set(of_four));
+    pids.extend(started_four);
+    let (of_one, started_one) = start_cluster(util, 17_500, 1, &[])?;
+    drop(SOLO.set(of_one));
+    pids.extend(started_one);
+    let (of_brief, started_brief) = start_cluster(
+        util,
+        17_600,
+        1,
+        &[
+            ("storage.read_retain_ms", "50"),
+            ("storage.scan_stall_ms", "300"),
+        ],
+    )?;
+    drop(BRIEF.set(of_brief));
+    pids.extend(started_brief);
+    let (of_played, compute) = start_played_cluster(util, 17_700)?;
+    drop(PLAYED.set(of_played));
+    pids.push(compute);
+    Ok(pids)
+}
+
 fn main() -> TestResult {
     start_double()?;
-    futures::executor::block_on(
+    let util = services()?;
+    let pids = start_clusters(&util)?;
+    let summary = futures::executor::block_on(
         Steps::cucumber()
             .max_concurrent_scenarios(1)
             .fail_on_skipped()
-            .run_and_exit(ultragraphdb_tool_bdd::features_dir()?),
+            .run(ultragraphdb_tool_bdd::features_dir()?),
     );
+    for pid in pids {
+        drop(util.stop_service(pid));
+    }
+    if cucumber::writer::Stats::execution_has_failed(&summary)
+        || cucumber::writer::Stats::hook_errors(&summary) > 0
+    {
+        std::process::exit(1);
+    }
     Ok(())
 }

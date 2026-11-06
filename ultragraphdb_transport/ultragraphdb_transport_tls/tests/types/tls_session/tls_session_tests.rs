@@ -8,7 +8,7 @@ use std::net::{TcpListener, TcpStream};
 use rustls::ProtocolVersion;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transport_tls::{
-    Plaintext, TestLink, TestPipe, TestPki, TlsError, TlsErrorEnum, TlsSession,
+    Plaintext, RECORD_SIZE_MAX, TestLink, TestPipe, TestPki, TlsError, TlsErrorEnum, TlsSession,
 };
 
 /// A client session trusting `pki` for `localhost`, and its acceptor's server session.
@@ -308,5 +308,31 @@ fn test_a_send_on_a_live_session_is_taken_before_and_after_the_handshake() -> Te
     client.send(b" late")?;
     shuttle(&mut client, &mut server, 1)?;
     assert_eq!(drain(&mut server), b"early late");
+    Ok(())
+}
+
+/// A frame reaches 1 MiB, past rustls's default limit of 64 KiB on what a session holds to write, and goes whole.
+#[test]
+fn test_a_send_of_a_whole_frame_crosses_whole() -> TestResult {
+    let pki = TestPki::new()?;
+    let (mut client, mut server) = sessions(&pki)?;
+    shuttle(&mut client, &mut server, 3)?;
+    let frame = vec![7u8; 1 << 20];
+    client.send(&frame)?;
+    let mut buf = vec![0u8; RECORD_SIZE_MAX];
+    let mut received = Vec::with_capacity(frame.len());
+    // Ends: each turn carries at least a byte of a finite frame, a record's worth at most, as a carrier reads it.
+    for _ in 0..frame.len() {
+        let sent = client.transmit(&mut buf);
+        if sent == 0 {
+            break;
+        }
+        server.receive(buf.get(..sent).context("within the buffer")?)?;
+        let mut plain = vec![0u8; 1 << 15];
+        while let Plaintext::Read(n) = server.read(&mut plain) {
+            received.extend_from_slice(plain.get(..n).context("within the buffer")?);
+        }
+    }
+    assert_eq!(received, frame);
     Ok(())
 }

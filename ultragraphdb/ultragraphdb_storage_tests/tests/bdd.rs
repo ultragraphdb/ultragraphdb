@@ -6,6 +6,7 @@
 //! The storage binary as a process, bound to `features/`, with no container. One scenario runs at a time: the binaries listen
 //! at their declared ports.
 
+mod one_frame_steps;
 mod played_frontend;
 mod played_home;
 mod read_kernel_steps;
@@ -76,7 +77,7 @@ const SHORT_DEADLINE_MS: &str = "800";
 /// The address a loadable role's admin listener holds.
 const ADMIN_ADDRESS: &str = "127.0.0.1:18090";
 
-const TENANT: u64 = 1;
+const TENANT: u64 = 0;
 const PREDICATE: &str = "http://ex.org/p";
 
 /// Runs the storage binary on the settings `text` to its exit.

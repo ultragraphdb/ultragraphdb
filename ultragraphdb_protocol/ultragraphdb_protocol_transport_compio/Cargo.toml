@@ -23,6 +23,7 @@ ultragraphdb_protocol_transport = { workspace = true }
 ultragraphdb_protocol_wire = { workspace = true }
 ultragraphdb_transport_tls = { workspace = true }
 compio = { workspace = true }
+socket2 = { workspace = true }
 
 [dev-dependencies]
 ultragraphdb_error_protocol = { workspace = true }

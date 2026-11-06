@@ -41,6 +41,52 @@ impl List {
         })
     }
 
+    /// The posting of `uid` at `read_ts` that `pick` accepts, from the deltas or the immutable layer, reading no posting of
+    /// another uid: [`List::find_posting`] for a list holding several postings of one uid, as a quad list holds literals
+    /// whose fingerprints collide. Sorting nothing, it costs a pass over the deltas and a seek.
+    ///
+    /// # Errors
+    ///
+    /// The immutable layer's, when a part does not read.
+    pub fn find_posting_matching(
+        &self,
+        read_ts: u64,
+        uid: u128,
+        pick: impl Fn(&Posting) -> bool,
+    ) -> Result<Option<Posting>, PostingError> {
+        let (search_further, found) = self.mutation.find_posting_where(read_ts, uid, &pick);
+        if let Some(p) = found {
+            return Ok(Some(p.clone()));
+        }
+        if !search_further {
+            return Ok(None);
+        }
+        // Iteration starts after its argument, and at the first key for 0, so the seek lands at or before `uid`.
+        let mut pitr = PIterator::seek(self, uid.saturating_sub(1), 0)?;
+        // Ends: each turn moves the iterator on, or returns.
+        while pitr.valid() {
+            let posting = pitr.posting();
+            let at = match posting {
+                PPosting::Found(p) => p.uid(),
+                PPosting::Uid(at) => at,
+            };
+            if at > uid {
+                return Ok(None);
+            }
+            if at == uid {
+                let held = match posting {
+                    PPosting::Found(p) => p.clone(),
+                    PPosting::Uid(_) => uid_posting(uid),
+                };
+                if pick(&held) {
+                    return Ok(Some(held));
+                }
+            }
+            pitr.next();
+        }
+        Ok(None)
+    }
+
     /// The list's length at `read_ts` without iterating it: what the deltas add, plus the immutable layer's uids
     /// unless a delete-all hides them: Dgraph's `GetLength`.
     pub fn get_length(&self, read_ts: u64) -> Result<i64, PostingError> {

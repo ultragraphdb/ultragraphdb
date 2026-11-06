@@ -6,6 +6,9 @@
 //! The frontend binary as a process, bound to `features/`, with no container. One scenario runs at a time: it listens at its
 //! declared ports.
 
+mod endpoint_steps;
+mod role_read_steps;
+
 use compio::runtime::Runtime;
 use cucumber::{World, then, when};
 use service_utils::{ServiceUtil, WaitStrategy};
@@ -20,27 +23,34 @@ use ultragraphdb_protocol_wire::{
     BodyView, EpochCloseView, Lease, LeaseView, Placement, PlacementView, Subscribe,
 };
 use ultragraphdb_tests::{
-    CLIENT_ADDRESS, CLUSTER, FRONTEND_BINARY, FRONTEND_OBSERVABILITY, FRONTEND_ROLE_ADDRESS,
-    SECRET, START_SECONDS, answering, exit_is, frontend_holding, role, scratch, start_double,
+    CLIENT_ADDRESS, CLUSTER, COMPUTE_BINARY, FRONTEND_BINARY, FRONTEND_OBSERVABILITY,
+    FRONTEND_ROLE_ADDRESS, SECRET, START_SECONDS, STORAGE_BINARY, answering, exit_is,
+    frontend_holding, role, scratch, start_double,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 /// Where the sandbox holds the binaries, relative to the test's working directory: `copy_file` writes them to this package.
 const ROOT_PATH: &str = "ultragraphdb/ultragraphdb_frontend_tests";
 
-fn services() -> TestResult<ServiceUtil> {
-    Ok(ServiceUtil::new(ROOT_PATH, vec![FRONTEND_BINARY])?)
+pub(crate) fn services() -> TestResult<ServiceUtil> {
+    Ok(ServiceUtil::new(
+        ROOT_PATH,
+        vec![FRONTEND_BINARY, COMPUTE_BINARY, STORAGE_BINARY],
+    )?)
 }
 
 #[derive(Debug, Default, World)]
-struct Steps {
+pub(crate) struct Steps {
     epochs: Vec<u64>,
-    exited: Option<ExitStatus>,
+    pub(crate) exited: Option<ExitStatus>,
     graph: String,
     leased: Option<(u64, u64)>,
-    log: String,
+    pub(crate) log: String,
     ranges: usize,
-    roles: Option<ServiceUtil>,
+    pub(crate) roles: Option<ServiceUtil>,
+    pub(crate) refused: Option<String>,
+    pub(crate) answered: role_read_steps::Answered,
+    pub(crate) ids: Vec<Vec<u8>>,
 }
 
 /// A client's refusal as it reads it, logging in as `name` with `password`.

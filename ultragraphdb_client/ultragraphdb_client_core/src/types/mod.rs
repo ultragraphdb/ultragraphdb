@@ -11,6 +11,7 @@ pub mod link;
 pub mod pending;
 pub mod pending_state;
 pub mod reply;
+pub mod resend;
 pub mod result_stream;
 pub mod session;
 pub mod session_state;

@@ -73,3 +73,7 @@ Feature: Catalog changes, rebuilds and drops
   Scenario: Dropping a tenant's data leaves no split part
     When a tenant whose lists are split has its data dropped
     Then no key of any quad keyspace of the tenant remains, split or not, and its catalog is unchanged
+
+  Scenario: A tenant's drop leaves a tenant sharing its run
+    When tenants 7 and 8 share a bucket run, each holds statements in one partition, and everything in tenant 7 is dropped
+    Then tenant 7 holds no quad key, its catalog is the initial catalog, and every statement and the catalog of tenant 8 are unchanged

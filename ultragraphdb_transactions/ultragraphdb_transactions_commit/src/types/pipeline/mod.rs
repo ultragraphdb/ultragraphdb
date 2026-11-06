@@ -257,6 +257,23 @@ where
         self.step.retry(session, request)
     }
 
+    /// What the session table says of a one-frame write or a Drop numbered `request` of `session`, before anything of it runs:
+    /// `Some` the stored reply of a resend of the session's last request, `None` a request to decide.
+    ///
+    /// # Errors
+    ///
+    /// As [`crate::Sessions::check_one_frame`] refuses.
+    pub fn check_one_frame(
+        &self,
+        session: u128,
+        request: u64,
+    ) -> Result<Option<StoredReply>, CommitError> {
+        self.step
+            .sessions()
+            .check_one_frame(session, request)
+            .map(|stored| stored.cloned())
+    }
+
     /// Syncs the round appended and not yet synced, if any, at `now_us`: once durable, it is applied and its replies
     /// handed out, and the next round closes over the requests waiting.
     ///

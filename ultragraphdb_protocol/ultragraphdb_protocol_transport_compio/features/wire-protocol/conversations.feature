@@ -70,9 +70,9 @@ Feature: Wire protocol: handshake, authentication, streams, credit and cancellat
     When a client's SCRAM proof does not verify, once for a principal that exists and once for a name no principal holds
     Then each is refused with code 19 on stream 0 and the connection closed, and the two Error frames are the same bytes
 
-  Scenario: A request before authentication closes the connection
+  Scenario: A request before authentication is refused on its stream
     When a client sends Begin after Welcome and before the final Authenticate
-    Then the server answers code 20 on stream 0 and closes the connection
+    Then the server answers code 20 on the request's stream and the connection stays open
 
   Scenario: An unfinished authentication times out
     When a client sends Hello and then nothing for longer than the authentication timeout

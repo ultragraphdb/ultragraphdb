@@ -24,9 +24,16 @@ compio = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }
 service_utils = { workspace = true }
+ultragraphdb_cluster_placement = { workspace = true }
+ultragraphdb_common_compute = { workspace = true }
 ultragraphdb_common_role = { workspace = true }
+ultragraphdb_common_service = { workspace = true }
+ultragraphdb_core_ids = { workspace = true }
+ultragraphdb_core_keys = { workspace = true }
+ultragraphdb_core_terms = { workspace = true }
 ultragraphdb_protocol_transport = { workspace = true }
 ultragraphdb_protocol_wire = { workspace = true }
+ultragraphdb_store_quads = { workspace = true }
 ultragraphdb_tests = { workspace = true }
 ultragraphdb_tool_bdd = { workspace = true }
 

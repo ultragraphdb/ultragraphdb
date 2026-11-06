@@ -137,6 +137,7 @@ impl<P: Proposal> CommitStep<P> {
         match entry {
             Waiting::Commit(request) if self.waits(request.proposal()) => {
                 self.held.push_back(request);
+                let _since = self.held_us.get_or_insert(now_us);
             }
             entry @ (Waiting::Commit(_) | Waiting::Registration { .. }) => {
                 self.waiting.push_back(entry);
@@ -168,12 +169,23 @@ impl<P: Proposal> CommitStep<P> {
 
     /// Refuses busy every entry waiting for the close the step asked for, and every commit held for its token or its
     /// epoch floor, which wait for later closes of the same sequencer, once the request has gone unanswered for
-    /// `close_request_ms`.
+    /// `close_request_ms`; and the held commits alone once they have waited that long with no close delivered.
     pub(crate) fn expire(&mut self, now_us: u64, out: &mut StepOutput<P>) {
+        let busy = CommitError::busy(self.queue);
         if !self.unreachable(now_us) || !self.stamp.is_full() {
+            let stale = self
+                .held_us
+                .is_some_and(|since| now_us.saturating_sub(since) >= self.close_request.micros());
+            if stale {
+                self.held_us = None;
+                // Each turn takes one commit off the held queue.
+                while let Some(request) = self.held.pop_front() {
+                    refuse(Waiting::Commit(request), busy.clone(), out);
+                }
+            }
             return;
         }
-        let busy = CommitError::busy(self.queue);
+        self.held_us = None;
         // Each turn takes one entry off the queue.
         while let Some(entry) = self.waiting.pop_front() {
             refuse(entry, busy.clone(), out);
@@ -225,6 +237,8 @@ impl<P: Proposal> CommitStep<P> {
                 self.waiting.push_back(Waiting::Commit(request));
             }
         }
+        // A close delivered: what stays held waits anew for the next.
+        self.held_us = (!self.held.is_empty()).then_some(now_us);
         if self.stamp.open().is_none() {
             self.stop(out);
         } else if self.in_flight.is_none() && !self.waiting.is_empty() {

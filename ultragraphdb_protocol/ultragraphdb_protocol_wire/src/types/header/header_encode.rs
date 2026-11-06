@@ -11,6 +11,12 @@ use crate::types::header::Header;
 use crate::utils::checksum::xxh3_64;
 use crate::utils::constants::{HEADER_SIZE, MAX_FRAME_SIZE};
 
+/// Where a header holds its `stream`.
+const STREAM_OFFSET: usize = 56;
+
+/// Where a header's command header begins.
+const COMMAND_HEADER_OFFSET: usize = 128;
+
 impl Header {
     /// The header's 256 bytes with `size` and `checksum_body` as given, and `checksum` computed over bytes 8 to 256.
     pub fn encode(&self, size: u32, checksum_body: u64) -> [u8; HEADER_SIZE] {
@@ -52,6 +58,40 @@ impl Header {
             .skip(8)
             .zip(sequence.to_le_bytes())
             .for_each(|(out, byte)| *out = byte);
+        checksum.copy_from_slice(&xxh3_64(tail).to_le_bytes());
+        Ok(())
+    }
+
+    /// Writes `stream` into the header of `frame`, a whole frame, and recomputes its `checksum`: a frame a role relays keeps its
+    /// body and takes the stream of the connection it goes out on. Refused as [`ProtocolError::short_header`] for fewer than
+    /// 256 bytes.
+    pub fn stamp_stream(frame: &mut [u8], stream: u64) -> Result<(), ProtocolError> {
+        Self::stamp(frame, STREAM_OFFSET, &stream.to_le_bytes())
+    }
+
+    /// Writes `bytes` into the command header of `frame`, a whole frame, at `offset` from the command header's start, and
+    /// recomputes its `checksum`: what a relay fills in, a one-frame write's `principal`. Refused as
+    /// [`ProtocolError::short_header`] for fewer than 256 bytes; bytes past the header are not written.
+    pub fn stamp_command_bytes(
+        frame: &mut [u8],
+        offset: usize,
+        bytes: &[u8],
+    ) -> Result<(), ProtocolError> {
+        Self::stamp(frame, COMMAND_HEADER_OFFSET + offset, bytes)
+    }
+
+    /// Writes `bytes` at `at` in the header of `frame` and recomputes its `checksum`.
+    fn stamp(frame: &mut [u8], at: usize, bytes: &[u8]) -> Result<(), ProtocolError> {
+        let len = frame.len();
+        let header = frame
+            .get_mut(..HEADER_SIZE)
+            .ok_or(ProtocolError::short_header(len))?;
+        header
+            .iter_mut()
+            .skip(at)
+            .zip(bytes)
+            .for_each(|(out, byte)| *out = *byte);
+        let (checksum, tail) = header.split_at_mut(8);
         checksum.copy_from_slice(&xxh3_64(tail).to_le_bytes());
         Ok(())
     }

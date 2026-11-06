@@ -38,9 +38,6 @@ use crate::utils::harness::{
 };
 use ultragraphdb_tool_bdd::{Context as _, TestResult};
 
-/// A stream no request opens: a frame on it is late and dropped once taken, so it shows only whether the frame before
-/// it was taken at its place.
-const PROBE: u64 = 1_000;
 /// The wall clock the connections open at: 2026-12-31T00:00:00Z, a day before the golden credential's expiry of
 /// 1,798,761,600,000,000 µs (2027-01-01T00:00:00Z, `generate_bodies.py`'s Authenticate step 3).
 const UNIX: u64 = 1_798_675_200_000_000;
@@ -152,6 +149,25 @@ fn rule(first: u128, arrivals: &[u128]) -> (usize, Option<ProtocolError>) {
     (arrivals.len(), None)
 }
 
+/// The refusal of the arrival a sequence refuses: a second copy of a Welcome, or of a Begin's reply on a stream that now
+/// waits on nothing, is refused by its command, at step 3, before its sequence.
+fn refused_at_its_place(
+    frame: &[u8],
+    second_copy: bool,
+    order: Option<ProtocolError>,
+) -> TestResult<Option<ProtocolError>> {
+    let command = ultragraphdb_protocol_wire::HeaderView::new(frame)?.command();
+    let by_command =
+        second_copy && [Command::Welcome.number(), Command::Begin.number()].contains(&command);
+    Ok(order.map(|order| {
+        if by_command {
+            ProtocolError::command_not_served(command)
+        } else {
+            order
+        }
+    }))
+}
+
 /// What the client waits for when the golden frame crosses.
 enum Wait {
     /// A reply; `retried` for a commit or a drop, which a lost connection sends again rather than fails.
@@ -182,6 +198,9 @@ struct Peer<L: Login> {
     pool: BufferPool,
     sent: u128,
     now: Instant,
+    /// A stream the client has ended: a frame on it is late and dropped once taken, so it shows only whether the frame
+    /// before it was taken at its place. On stream 0, before any request, there is none.
+    probe: Option<u64>,
 }
 
 impl Peer<Anonymous> {
@@ -191,6 +210,16 @@ impl Peer<Anonymous> {
         peer.direct(&golden("welcome_no_auth")?)?;
         assert!(peer.core.is_ready());
         Ok(peer)
+    }
+
+    /// A stream ended by a Register answered, for the frames behind a golden frame to go on.
+    fn with_probe(mut self) -> TestResult<Self> {
+        let p = self.core.register(self.now)?;
+        let stream = self.request_stream()?;
+        self.direct(&restream(&golden("register")?, stream))?;
+        let _answer: Result<Reply, ClientError> = self.core.take_reply(p).context("an answer")?;
+        self.probe = Some(stream);
+        Ok(self)
     }
 }
 
@@ -209,6 +238,7 @@ impl<L: Login> Peer<L> {
             pool: BufferPool::new(8, 1 << 20),
             sent: 0,
             now,
+            probe: None,
         })
     }
 
@@ -254,19 +284,20 @@ impl<L: Login> Peer<L> {
         let network = SimNetwork::new(seed, faults);
         let (client, server) = network.connect();
         let at = self.sent + 1;
-        let sent = [
-            numbered(frame, at),
-            numbered(&restream(frame, PROBE), at + 1),
-        ];
+        let mut sent = vec![numbered(frame, at)];
+        if let Some(probe) = self.probe {
+            sent.push(numbered(&restream(frame, probe), at + 1));
+        }
         let arrivals: Vec<u128> = sent
             .iter()
-            .zip([at, at + 1])
+            .zip(at..)
             .flat_map(|(copy, sequence)| {
                 std::iter::repeat_n(sequence, send(&network, &server, copy.clone()))
             })
             .collect();
-        self.sent += 2;
+        self.sent += sent.len() as u128;
         let (taken, refusal) = rule(at, &arrivals);
+        let refusal = refused_at_its_place(frame, arrivals.get(taken) == Some(&at), refusal)?;
         let mut delivered = false;
         for (i, &sequence) in arrivals.iter().enumerate() {
             let received = arrive(&client, &mut self.framer, &self.pool)?
@@ -307,7 +338,7 @@ impl<L: Login> Peer<L> {
             self.lost(wait, ClientError::connection_lost(Some(rule)))?;
         } else {
             tally.lost += 1;
-            self.now += config().timeout();
+            self.now = self.core.next_deadline().context("a timeout runs")?;
             self.core.handle_timeout(self.now);
             self.lost(wait, ClientError::timed_out())?;
         }
@@ -393,7 +424,7 @@ fn commit(peer: &mut Peer<Anonymous>) -> TestResult<(Wait, u64)> {
     let reply = golden_read("commit", |f| CommitView::from_frame(f)?.to_body())?;
     let session = peer
         .core
-        .resume_session(u128::from_be_bytes(reply.session()), reply.request());
+        .resume_session(u128::from_be_bytes(reply.session()), reply.request())?;
     let tx = peer.begin(false)?;
     let p = peer.core.commit(tx, session, peer.now)?;
     let stream = peer.request_stream()?;
@@ -580,7 +611,7 @@ fn drop_and_result_cases() -> Vec<Case> {
                     .to_string();
                 let session = peer
                     .core
-                    .resume_session(u128::from_be_bytes(request.session()), request.request());
+                    .resume_session(u128::from_be_bytes(request.session()), request.request())?;
                 let p = peer.core.drop_command(
                     DropCommand::graph(request.tenant(), graph),
                     session,
@@ -677,7 +708,7 @@ fn test_every_golden_reply_under_every_fault_is_read_or_refused_by_the_connectio
         let mut tally = Tally::default();
         for case in cases() {
             for seed in 1..=SEEDS {
-                let mut peer = Peer::welcomed()?;
+                let mut peer = Peer::welcomed()?.with_probe()?;
                 let (wait, stream) = (case.setup)(&mut peer)?;
                 let frame = restream(&golden(case.name)?, stream);
                 peer.cross(faults, seed, &frame, &wait, case.check, &mut tally)?;
@@ -836,7 +867,7 @@ fn test_the_drop_the_client_sends_is_its_golden_frame() -> TestResult {
     let session = peer.core.resume_session(
         u128::from_be_bytes(golden_drop.session()),
         golden_drop.request(),
-    );
+    )?;
     let _pending: Pending = peer.core.drop_command(
         DropCommand::graph(golden_drop.tenant(), graph),
         session,

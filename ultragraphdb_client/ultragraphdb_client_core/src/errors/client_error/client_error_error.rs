@@ -6,11 +6,15 @@
 use crate::errors::client_error::{ClientError, ClientErrorEnum};
 
 impl std::error::Error for ClientError {
-    /// What gave a lost connection up, for [`ClientErrorEnum::ConnectionLost`] with a cause.
+    /// What gave a lost connection up, or left a commit in doubt, for an error with a cause.
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match &self.0 {
-            ClientErrorEnum::ConnectionLost { cause: Some(cause) } => Some(cause.as_ref()),
+            ClientErrorEnum::ConnectionLost { cause: Some(cause) }
+            | ClientErrorEnum::InDoubt {
+                cause: Some(cause), ..
+            } => Some(cause.as_ref()),
             ClientErrorEnum::ConnectionLost { cause: None }
+            | ClientErrorEnum::InDoubt { cause: None, .. }
             | ClientErrorEnum::Transport { .. }
             | ClientErrorEnum::Protocol { .. }
             | ClientErrorEnum::Refused { .. }
@@ -19,9 +23,7 @@ impl std::error::Error for ClientError {
             | ClientErrorEnum::NotConnected
             | ClientErrorEnum::Request { .. }
             | ClientErrorEnum::ReplyMismatch { .. }
-            | ClientErrorEnum::RetriesExhausted { .. }
             | ClientErrorEnum::OutcomeUnknown { .. }
-            | ClientErrorEnum::InDoubt { .. }
             | ClientErrorEnum::NotInDoubt { .. }
             | ClientErrorEnum::SessionBusy { .. }
             | ClientErrorEnum::UnknownSession { .. }

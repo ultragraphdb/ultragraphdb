@@ -118,6 +118,10 @@ impl<'a> BodyView<'a> for ComputeReadView<'a> {
             terms,
             pattern,
             resume: sections.get(3),
+            pattern_sections: frame
+                .body()
+                .get(sections.offset(0)..sections.offset(2).saturating_add(sections.get(2).len()))
+                .unwrap_or_default(),
         })
     }
 

@@ -30,6 +30,12 @@ pub trait Session {
         std::future::ready(())
     }
 
+    /// The connection authenticated, or authenticated again, as `principal`.
+    fn authenticated(&mut self, _principal: u64) {}
+
+    /// The connection's authentication was refused, which closes it.
+    fn authentication_refused(&mut self) {}
+
     /// The answer to the request `frame` on `stream`. The frame is the session's until it is dropped: a session may hand
     /// it on whole, and the connection reads no further frame until this ends.
     fn answer(&mut self, stream: u64, frame: ReceivedFrame) -> impl Future<Output = Answer>;
@@ -42,6 +48,9 @@ pub trait Session {
 
     /// The peer cancelled `stream`.
     fn cancelled(&mut self, _stream: u64) {}
+
+    /// The peer granted the open `stream` credit for `frames` more frames, which the connection has counted.
+    fn credited(&mut self, _stream: u64, _frames: u32) {}
 
     /// The peer's Hello was answered, stating `max_frame`, the largest frame it takes.
     fn welcomed(&mut self, _max_frame: u32) {}

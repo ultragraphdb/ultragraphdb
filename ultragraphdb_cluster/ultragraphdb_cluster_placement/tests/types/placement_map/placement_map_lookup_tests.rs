@@ -3,8 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_cluster_placement::{BucketRange, NodeId, PartitionId, PlacementMap};
-use ultragraphdb_core_ids::{Bucket, BucketGroup, Epoch};
+use ultragraphdb_cluster_placement::{BucketRange, NodeId, PartitionId, PlacementMap, TenantRun};
+use ultragraphdb_core_ids::{Bucket, BucketGroup, Epoch, Tenant};
 use ultragraphdb_tool_bdd::TestResult;
 
 use crate::utils::reference_model::{END, owner};
@@ -165,5 +165,67 @@ fn test_ranges_at_covers_every_bucket_once_in_order() -> TestResult {
     assert_eq!(next, END);
     // Neighbours differ: 0..100 on 4, 100..130 on 2, 130..160 on 4, 160.. on 1.
     assert_eq!(ranges.len(), 4);
+    Ok(())
+}
+
+#[test]
+fn test_holders_of_groups_are_ascending_each_once_with_the_lowest_groups_first_bucket() -> TestResult
+{
+    // Group 0 lies in partition 2 and group 1 in partition 1; group 2 in partition 2 again.
+    let buckets = BucketGroup::BUCKETS;
+    let mut map = PlacementMap::even(1, NodeId::new(1))?;
+    map.change(
+        at(1)?,
+        &[
+            assign(0, buckets, 2)?,
+            assign(buckets, 2 * buckets, 1)?,
+            assign(2 * buckets, END, 2)?,
+        ],
+    )?;
+    let groups = [
+        BucketGroup::new(2)?,
+        BucketGroup::new(0)?,
+        BucketGroup::new(1)?,
+    ];
+    let holders = map.holders_of_groups(groups, at(1)?);
+    let expected = vec![(pid(1)?, buckets), (pid(2)?, 0)];
+    assert_eq!(holders, expected);
+    assert_eq!(map.holders_of_groups([], at(1)?), Vec::new());
+    Ok(())
+}
+
+#[test]
+fn test_holders_of_a_group_follow_the_layout_at_the_epoch() -> TestResult {
+    let group = BucketGroup::new(0)?;
+    let mut map = PlacementMap::even(1, NodeId::new(1))?;
+    map.change(at(5)?, &[assign(0, END, 2)?])?;
+    assert_eq!(map.holders_of_groups([group], at(4)?), vec![(pid(1)?, 0)]);
+    assert_eq!(map.holders_of_groups([group], at(5)?), vec![(pid(2)?, 0)]);
+    Ok(())
+}
+
+#[test]
+fn test_holders_of_a_run_name_every_partition_of_the_even_split() -> TestResult {
+    let tenant = Tenant::new(7);
+    let run = TenantRun::of(tenant).range();
+    let map = PlacementMap::even(3, NodeId::new(1))?;
+    let holders = map.holders_of_run(tenant, at(0)?);
+    let partitions: Vec<u32> = holders.iter().map(|(holder, _)| holder.get()).collect();
+    assert_eq!(partitions, [1, 2, 3]);
+    for (holder, first) in holders {
+        assert!(run.start() <= first && first < run.end(), "{first}");
+        assert_eq!(partition_of(&map, first, 0)?, holder.get());
+    }
+    Ok(())
+}
+
+#[test]
+fn test_holders_of_a_run_held_by_one_partition_name_it_alone() -> TestResult {
+    let tenant = Tenant::new(7);
+    let holders = PlacementMap::even(1, NodeId::new(1))?.holders_of_run(tenant, at(0)?);
+    assert_eq!(
+        holders,
+        vec![(pid(1)?, TenantRun::of(tenant).range().start())]
+    );
     Ok(())
 }
