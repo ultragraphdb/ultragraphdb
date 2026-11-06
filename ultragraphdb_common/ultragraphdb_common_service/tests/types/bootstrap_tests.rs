@@ -11,6 +11,7 @@ const TARGET: &str = "ULTRAGRAPHDB_CONFIG_TARGET";
 const INSTANCE: &str = "ULTRAGRAPHDB_CONFIG_INSTANCE";
 const KEY_FILE: &str = "ULTRAGRAPHDB_CONFIG_KEY_FILE";
 const CA_FILE: &str = "ULTRAGRAPHDB_CONFIG_CA_FILE";
+const PARENT: &str = "ULTRAGRAPHDB_PARENT_PID";
 
 /// A file holding a read key, named for `test`, so tests beside it hold their own.
 fn key_file(test: &str) -> TestResult<String> {
@@ -50,6 +51,13 @@ fn test_the_five_variables_name_the_service_and_the_instance() -> TestResult {
     assert_eq!(read.target(), "ci");
     assert_eq!(read.instance(), "storage_1");
     assert_eq!(read.revision(), None);
+    assert_eq!(read.parent(), None);
+    let pid = std::process::id();
+    let harnessed = with(variables(&key), PARENT, &pid.to_string());
+    assert_eq!(
+        Bootstrap::read(RoleKind::Storage, harnessed)?.parent(),
+        Some(pid)
+    );
     let loading = with(variables(&key), "ULTRAGRAPHDB_CONFIG_REVISION", "8");
     assert_eq!(
         Bootstrap::read(RoleKind::Storage, loading)?.revision(),
@@ -73,6 +81,7 @@ fn test_the_five_variables_name_the_service_and_the_instance() -> TestResult {
 fn test_what_a_role_cannot_use_is_refused_by_name() -> TestResult {
     let key = key_file("refuses")?;
     let all = || variables(&key);
+    let past_any_process = (u64::from(u32::MAX) + 1).to_string();
     let cases = [
         (without(all(), URL), URL),
         (without(all(), TARGET), TARGET),
@@ -100,6 +109,8 @@ fn test_what_a_role_cannot_use_is_refused_by_name() -> TestResult {
             with(all(), "ULTRAGRAPHDB_CONFIG_REVISION", "latest"),
             "ULTRAGRAPHDB_CONFIG_REVISION",
         ),
+        (with(all(), PARENT, "the test"), PARENT),
+        (with(all(), PARENT, &past_any_process), PARENT),
     ];
     for (set, named) in cases {
         let refused = Bootstrap::read(RoleKind::Storage, set)

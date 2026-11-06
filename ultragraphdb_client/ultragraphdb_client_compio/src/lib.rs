@@ -13,6 +13,7 @@ mod traits;
 mod types;
 
 pub use crate::traits::connect::Connect;
+pub use crate::traits::split_stream::SplitStream;
 pub use crate::types::client::Client;
 pub use crate::types::tcp_connector::TcpConnector;
 pub use crate::types::tls_dial::TlsDial;

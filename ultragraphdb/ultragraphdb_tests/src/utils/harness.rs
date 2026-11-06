@@ -21,7 +21,11 @@ use ultragraphdb_protocol_wire::{BodyView, Members, MembersView, RoleKind};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::utils::http_status::http_status;
-use crate::utils::one_host::{CLUSTER, frontend_on_one_host, render_settings, storage_on_one_host};
+use crate::utils::one_host::{
+    CLIENT_ADDRESS, CLUSTER, COMPUTE_OBSERVABILITY, COMPUTE_ROLE_ADDRESS, FRONTEND_OBSERVABILITY,
+    FRONTEND_ROLE_ADDRESS, STORAGE_OBSERVABILITY, STORAGE_ROLE_ADDRESS, frontend_on_one_host,
+    render_settings, storage_on_one_host,
+};
 
 /// How long a role has to answer its first probe, or to exit. A start takes milliseconds; the margin is for a loaded machine.
 pub const START_SECONDS: u64 = 20;
@@ -30,6 +34,9 @@ pub const START_SECONDS: u64 = 20;
 pub const SECRET: &str = "the cluster's role secret";
 
 static DIRECTORIES: AtomicU32 = AtomicU32::new(0);
+
+/// The variable naming the process a role ends with: the test process that starts it.
+pub const PARENT_PID: &str = "ULTRAGRAPHDB_PARENT_PID";
 
 /// The address the config service listens at, in a scenario starting it.
 pub const CONFIG_ADDRESS: &str = "127.0.0.1:17090";
@@ -91,9 +98,12 @@ pub fn process(
     log: &Path,
     wait_strategy: WaitStrategy,
 ) -> ServiceStartConfig {
+    // The role ends with the test process, which Bazel may kill before any drop stops the role, so a killed run leaves no port
+    // held. A scenario's own value comes after, and the last of a name is what a process holds.
+    let parent = (PARENT_PID.to_string(), std::process::id().to_string());
     ServiceStartConfig::builder()
         .program(program)
-        .env_vars(variables)
+        .env_vars([vec![parent], variables].concat())
         .clear_env(true)
         .stderr_file(log)
         .wait_strategy(wait_strategy)
@@ -157,6 +167,15 @@ pub fn config_folder(
     instances: &[(&str, &[(String, String)])],
     security: &str,
 ) -> TestResult<PathBuf> {
+    config_folder_at(CONFIG_ADDRESS, instances, security)
+}
+
+/// As [`config_folder`], for a config service listening at `address`.
+pub fn config_folder_at(
+    address: &str,
+    instances: &[(&str, &[(String, String)])],
+    security: &str,
+) -> TestResult<PathBuf> {
     let folder = scratch(&format!(
         "config-{}",
         DIRECTORIES.fetch_add(1, Ordering::Relaxed)
@@ -174,7 +193,7 @@ pub fn config_folder(
     std::fs::write(
         &own,
         format!(
-            "[config]\naddress = \"tcp://{CONFIG_ADDRESS}\"\n{security}\ndata_dir = \"{}\"\nread_key_file = \"{}\"\nadmin_key_file = \"{}\"\ntargets_file = \"{}\"\n",
+            "[config]\naddress = \"tcp://{address}\"\n{security}\ndata_dir = \"{}\"\nread_key_file = \"{}\"\nadmin_key_file = \"{}\"\ntargets_file = \"{}\"\n",
             folder.join("data").display(),
             key_file().display(),
             folder.join("admin.key").display(),
@@ -203,8 +222,17 @@ pub fn start_config_service(
     util: &ServiceUtil,
     instances: &[(&str, &[(String, String)])],
 ) -> TestResult<u32> {
-    let own = config_folder(instances, "plaintext = true")?;
-    let wait = answering(CONFIG_ADDRESS, "/health");
+    start_config_service_at(util, CONFIG_ADDRESS, instances)
+}
+
+/// As [`start_config_service`], the service listening at `address`.
+pub fn start_config_service_at(
+    util: &ServiceUtil,
+    address: &str,
+    instances: &[(&str, &[(String, String)])],
+) -> TestResult<u32> {
+    let own = config_folder_at(address, instances, "plaintext = true")?;
+    let wait = answering(address, "/health");
     Ok(util.start_service_from_config(config_process(&own, wait))?)
 }
 
@@ -327,12 +355,75 @@ fn answer_double(mut stream: TcpStream) -> std::io::Result<()> {
     stream.write_all(&answer)
 }
 
+/// Every address a process of these tests declares, and what declares it.
+const DECLARED: [(&str, &str); 9] = [
+    (CONFIG_ADDRESS, "the config service"),
+    (DOUBLE_ADDRESS, "the config double"),
+    (CLIENT_ADDRESS, "the frontend's client endpoint"),
+    (FRONTEND_ROLE_ADDRESS, "the frontend's role endpoint"),
+    (FRONTEND_OBSERVABILITY, "the frontend's observability"),
+    (COMPUTE_ROLE_ADDRESS, "compute's role endpoint"),
+    (COMPUTE_OBSERVABILITY, "compute's observability"),
+    (STORAGE_ROLE_ADDRESS, "storage's role endpoint"),
+    (STORAGE_OBSERVABILITY, "storage's observability"),
+];
+
+/// That no process holds an address these tests declare, before any is started: a process an earlier run left behind is
+/// named by the port it holds, where a role started now would only exit naming its own address. The first address taken
+/// fails, naming its port and what declares it.
+fn ports_free() -> TestResult {
+    first_taken(&DECLARED).map_or(Ok(()), |taken| {
+        Err(TestError::new(format!(
+            "{taken}: a process of an earlier run may still hold it"
+        )))
+    })
+}
+
+/// Waits up to [`START_SECONDS`] until no process holds an address a role of these tests declares, nor one of `own`, the
+/// suite's own, each named with what declares it. A role a scenario killed is reaped before the kernel tears down the
+/// io_uring ring it ran on, and an accept in flight on that ring holds its listener until then, so the next scenario's role
+/// would exit naming its own address. The double's address is left out: the double holds it for the whole run.
+///
+/// # Errors
+///
+/// When an address is still held at the end, naming its port and what declares it.
+pub fn until_ports_free(own: &[(&str, &str)]) -> TestResult {
+    let addresses: Vec<(&str, &str)> = DECLARED
+        .iter()
+        .filter(|(address, _)| *address != DOUBLE_ADDRESS)
+        .chain(own)
+        .copied()
+        .collect();
+    for _ in 0..START_SECONDS * 20 {
+        if first_taken(&addresses).is_none() {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    first_taken(&addresses).map_or(Ok(()), |taken| {
+        Err(TestError::new(format!(
+            "{taken}, {START_SECONDS} s after the scenario before ended its processes"
+        )))
+    })
+}
+
+/// The first of `addresses` a process holds, as its port, what declares it, the address and the bind's error.
+fn first_taken(addresses: &[(&str, &str)]) -> Option<String> {
+    addresses.iter().find_map(|(address, declared)| {
+        TcpListener::bind(address).err().map(|error| {
+            let port = address.rsplit(':').next().unwrap_or(address);
+            format!("port {port}, {declared} at {address}, is taken ({error})")
+        })
+    })
+}
+
 /// Starts the double, for the life of the test process.
 #[expect(
     clippy::disallowed_methods,
     reason = "the double answers beside the scenarios, on a thread of the test's own"
 )]
 pub fn start_double() -> TestResult {
+    ports_free()?;
     std::fs::create_dir_all(double_directory())?;
     let listener = TcpListener::bind(DOUBLE_ADDRESS)?;
     drop(std::thread::spawn(move || {

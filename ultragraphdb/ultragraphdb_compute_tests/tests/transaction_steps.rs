@@ -7,13 +7,18 @@
 
 use cucumber::{then, when};
 use ultragraphdb_core_keys::Keyspace;
-use ultragraphdb_protocol_wire::{ErrorCode, TermTable, Write, WriteChange};
+use ultragraphdb_protocol_wire::{Cancel, ErrorCode, TermTable, Write, WriteChange};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
-use crate::read_steps::{edge_with, reads};
+use crate::read_steps::{edge_with, reads, until};
 use crate::resume_steps::property_write;
-use crate::scene::{KNOWS, NAME, Pattern, Scene, Transaction, insert_of, iri, run, string};
+use crate::scene::{
+    KNOWS, NAME, Pattern, Scene, Transaction, compute_client, insert_of, iri, run, string,
+};
 use crate::{Steps, solo};
+
+/// How long a stream stays silent for a scenario to take it as ended.
+const SILENCE: std::time::Duration = std::time::Duration::from_millis(200);
 
 /// Conflict kind Range (`PROTOCOL.md` §9.4).
 const KIND_RANGE: u64 = 3;
@@ -223,6 +228,57 @@ fn range_insert(w: &mut Steps) -> TestResult {
         w.kind = commit_a_write(&scene, &mut first).await?;
         Ok(())
     })
+}
+
+#[when(
+    "a Commit cancels a read whose Scan records one more span before the Cancel reaches the partition, and another transaction wrote into that span"
+)]
+fn span_after_cancel(w: &mut Steps) -> TestResult {
+    let scene = Scene::new(solo());
+    run(async {
+        let (a, b, c) = (
+            scene.iri_in(1, "a")?,
+            scene.iri_in(1, "b")?,
+            scene.iri_in(1, "c")?,
+        );
+        scene
+            .commit(1, &insert_of(None, &a, NAME, &string("y"))?)
+            .await?;
+        scene
+            .commit(1, &insert_of(None, &c, KNOWS, &iri(&b))?)
+            .await?;
+        let mut first = scene.begin(1, 1).await?;
+        let log = &scene.info.log;
+        log.clear();
+        // The dictionary's Scan goes on; the Scan of `<a>`'s list, the one more span, waits at the tap.
+        log.pause_after(1);
+        let read = first.read(&scene, &Pattern::of(Some(&a), Some(KNOWS), None), 0)?;
+        let mut client = compute_client(scene.info).await?;
+        client.send_only(&read).await?;
+        let stream = client.last_stream();
+        until(|| log.scans().len() >= 2).await;
+        assert_eq!(log.scans().len(), 2, "the list's Scan held");
+        // The Cancel a Commit sends; compute's own Cancel of its Scan then follows the Scan held on the same connection.
+        client.send_on(stream, &Cancel).await?;
+        log.go_on();
+        // The partition reads its connection's frames in order, so the Scan has run once compute's Cancel has gone on after it.
+        until(|| log.cancels() >= 1).await;
+        assert_eq!(log.cancels(), 1, "compute's Cancel of its Scan");
+        scene
+            .commit(1, &insert_of(None, &a, KNOWS, &iri(&b))?)
+            .await?;
+        w.kind = commit_a_write(&scene, &mut first).await?;
+        let late = compio::time::timeout(SILENCE, client.next_frame()).await;
+        assert!(late.is_err(), "a frame reached the client after its Cancel");
+        Ok(())
+    })
+}
+
+#[then(
+    "the commit aborts with a conflict of kind Range, and no frame of that span reached the client"
+)]
+fn aborts_range_unseen(w: &mut Steps) {
+    assert_eq!(w.kind, Some(KIND_RANGE));
 }
 
 #[then("T1 aborts with a conflict of kind Range")]

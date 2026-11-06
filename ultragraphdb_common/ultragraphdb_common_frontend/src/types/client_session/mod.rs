@@ -19,7 +19,8 @@ use std::time::Instant;
 
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, Command, ErrorReply, FLAG_LAST, Header, MAX_FRAME_FLOOR, StatementCache,
+    BodyBuilder, Command, ErrorReply, FLAG_LAST, Header, HeaderView, MAX_FRAME_FLOOR,
+    StatementCache,
 };
 
 use crate::traits::authorizer::Authorizer;
@@ -58,6 +59,8 @@ struct DropRelay {
     reply: Option<Vec<u8>>,
     link: RoleLink,
     stream: u64,
+    /// Whether the Drop itself has left on its Bind stream, after the Bind's answer.
+    sent: bool,
 }
 
 /// A retried Commit asked of every partition, and what they answered so far (`PROTOCOL.md` §11.5).
@@ -148,6 +151,14 @@ impl<A: Authorizer + Clone> ClientSession<A> {
                 tracing::error!(%error, stream, "a reply could not be framed");
             }
         }
+    }
+
+    /// Whether a frame ending `stream`, flagged `LAST`, waits to leave.
+    fn ending(&self, stream: u64) -> bool {
+        self.out.iter().any(|(on, frame)| {
+            *on == stream
+                && HeaderView::new(frame).is_ok_and(|header| header.flags() & FLAG_LAST != 0)
+        })
     }
 
     /// Queues `error` on the client's `stream`, which it ends.

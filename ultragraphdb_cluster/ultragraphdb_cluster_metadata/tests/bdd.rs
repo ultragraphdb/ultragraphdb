@@ -849,7 +849,7 @@ fn removes_dave(w: &mut Steps) -> TestResult {
     let _carol = group.create_principal("carol", verifier("carol's own password", 6)?, false)?;
     let registered = [(51, "dave"), (52, "carol"), (53, "dave")];
     for (session, principal) in registered {
-        let (evicted, _) = group.register_session(session, principal)?;
+        let (evicted, _) = group.register_session(session, principal, |_| false)?;
         assert!(evicted.is_empty());
     }
     sync(group)?;
@@ -901,7 +901,7 @@ fn session_then_restart(w: &mut Steps) -> TestResult {
     let _bob = group.create_principal("bob", verifier("bob's own password", 4)?, false)?;
     let _alice = group.create_principal("alice", verifier("alice's own password", 5)?, false)?;
     let session = 0x0123_4567_89ab_cdef_0123_4567_89ab_cdef;
-    let (evicted, _) = group.register_session(session, "alice")?;
+    let (evicted, _) = group.register_session(session, "alice", |_| false)?;
     assert!(evicted.is_empty());
     sync(group)?;
     w.sessions.push(session);
@@ -927,10 +927,10 @@ fn one_past_sessions_max(w: &mut Steps) -> TestResult {
     let group = w.group()?;
     let _carol = group.create_principal("carol", verifier("carol's own password", 6)?, false)?;
     for session in [11, 22, 33] {
-        let (evicted, _) = group.register_session(session, "carol")?;
+        let (evicted, _) = group.register_session(session, "carol", |_| false)?;
         assert!(evicted.is_empty());
     }
-    let (evicted, _) = group.register_session(44, "carol")?;
+    let (evicted, _) = group.register_session(44, "carol", |_| false)?;
     sync(group)?;
     w.evicted = evicted;
     Ok(())

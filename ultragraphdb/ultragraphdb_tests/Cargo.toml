@@ -29,6 +29,10 @@ ultragraphdb_tool_bdd = { workspace = true }
 [dev-dependencies]
 cucumber = { workspace = true }
 futures = { workspace = true }
+ultragraphdb_client_compio = { workspace = true }
+ultragraphdb_protocol_scram = { workspace = true }
+ultragraphdb_protocol_transport_compio = { workspace = true }
+ultragraphdb_store_quads = { workspace = true }
 
 [[test]]
 name = "bdd"

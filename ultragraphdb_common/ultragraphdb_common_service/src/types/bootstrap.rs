@@ -19,6 +19,10 @@ const CA_FILE: &str = "ULTRAGRAPHDB_CONFIG_CA_FILE";
 /// role restarted by its supervisor returns to the active revision.
 pub(crate) const REVISION: &str = "ULTRAGRAPHDB_CONFIG_REVISION";
 
+/// The process a role ends with, as a test harness starting it sets: once it is no longer the role's parent, the role stops
+/// as on SIGTERM, so its ports are free for the next run.
+const PARENT: &str = "ULTRAGRAPHDB_PARENT_PID";
+
 /// What a role's environment says: which service to ask, as what. Nothing else about a role comes from its environment.
 #[derive(Debug, Clone)]
 pub struct Bootstrap {
@@ -26,6 +30,7 @@ pub struct Bootstrap {
     target: String,
     instance: String,
     revision: Option<u64>,
+    parent: Option<u32>,
 }
 
 impl Bootstrap {
@@ -42,7 +47,7 @@ impl Bootstrap {
     ) -> Result<Self, RoleError> {
         let (mut url, mut target, mut instance, mut key_file, mut ca_file) =
             (None, None, None, None, None);
-        let mut revision = None;
+        let (mut revision, mut parent) = (None, None);
         for (name, value) in variables {
             match name.as_str() {
                 URL => url = Some(value),
@@ -51,6 +56,7 @@ impl Bootstrap {
                 KEY_FILE => key_file = Some(value),
                 CA_FILE => ca_file = Some(value),
                 REVISION => revision = Some(value),
+                PARENT => parent = Some(value),
                 other if other.starts_with("ULTRAGRAPHDB_") => {
                     return Err(RoleError::configuration(format!(
                         "the variable {other} is not one a role takes: a role takes {URL}, {TARGET}, {INSTANCE}, {KEY_FILE} and {CA_FILE}, and every setting comes from the config service"
@@ -63,15 +69,8 @@ impl Bootstrap {
             value
                 .ok_or_else(|| RoleError::configuration(format!("the variable {name} is required")))
         };
-        let revision = revision
-            .map(|number| {
-                number.parse().map_err(|_| {
-                    RoleError::configuration(format!(
-                        "the variable {REVISION} holds {number}, which is not a revision's number"
-                    ))
-                })
-            })
-            .transpose()?;
+        let revision = parsed(revision, REVISION, "a revision's number")?;
+        let parent = parsed(parent, PARENT, "a process's identity")?;
         let url = required(url, URL)?;
         let target = required(target, TARGET)?;
         let instance = required(instance, INSTANCE)?;
@@ -108,7 +107,14 @@ impl Bootstrap {
             target,
             instance,
             revision,
+            parent,
         })
+    }
+
+    /// The process the role ends with, when a test harness named one.
+    #[must_use]
+    pub fn parent(&self) -> Option<u32> {
+        self.parent
     }
 
     /// The revision a load named, which a start takes in place of the active one.
@@ -134,4 +140,21 @@ impl Bootstrap {
     pub fn instance(&self) -> &str {
         &self.instance
     }
+}
+
+/// The number `value` holds, the variable `name`'s, refused as not `what` when it holds none.
+fn parsed<T: std::str::FromStr>(
+    value: Option<String>,
+    name: &str,
+    what: &str,
+) -> Result<Option<T>, RoleError> {
+    value
+        .map(|number| {
+            number.parse().map_err(|_| {
+                RoleError::configuration(format!(
+                    "the variable {name} holds {number}, which is not {what}"
+                ))
+            })
+        })
+        .transpose()
 }

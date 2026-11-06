@@ -361,18 +361,30 @@ impl Client {
         }
     }
 
+    /// The frames already read on `stream` and not yet taken, in their order.
+    pub(crate) fn taken(&mut self, stream: u64) -> Vec<Got> {
+        let (taken, kept): (VecDeque<_>, VecDeque<_>) = std::mem::take(&mut self.early)
+            .into_iter()
+            .partition(|(on, _)| *on == stream);
+        self.early = kept;
+        taken.into_iter().map(|(_, got)| got).collect()
+    }
+
     /// The Error next on `stream`: its code and detail.
     pub(crate) async fn refused(&mut self, stream: u64) -> TestResult<(ErrorCode, u64)> {
         let got = self.got(stream).await?;
         Ok((got.code.context("an Error")?, got.detail))
     }
 
-    /// That nothing comes on `stream` within `ms`.
+    /// That nothing comes on `stream` within `ms`: a frame on it fails, and so does a connection that fails meanwhile, since what
+    /// it would have carried is unknown.
     pub(crate) async fn silent(&mut self, stream: u64, ms: u64) -> TestResult {
         let waited = compio::time::timeout(Duration::from_millis(ms), self.got(stream)).await;
         match waited {
             Err(_) => Ok(()),
-            Ok(Err(_)) => Ok(()),
+            Ok(Err(error)) => Err(TestError::new(format!(
+                "the connection failed while stream {stream} was to stay silent: {error}"
+            ))),
             Ok(Ok(got)) => Err(TestError::new(format!(
                 "{:?} came on stream {stream}",
                 got.command

@@ -40,9 +40,11 @@ def scratch_multiarch_img(name, binary, **kwargs):
     """
     entrypoint_path = "/" + binary.split(":")[-1].split("/")[-1]
 
+    # The binary alone: a Rust binary reads no runfiles, so its runfiles tree would only be a second copy of it.
     image_layer(
         name = name + "_layer",
         srcs = {entrypoint_path: binary},
+        include_runfiles = False,
     )
 
     # Manual: the base holds Linux images only, so the manifest builds through the index's platform
@@ -75,9 +77,11 @@ def glibc_multiarch_img(name, binary, **kwargs):
     """
     entrypoint_path = "/" + binary.split(":")[-1].split("/")[-1]
 
+    # The binary alone: a Rust binary reads no runfiles, so its runfiles tree would only be a second copy of it.
     image_layer(
         name = name + "_layer",
         srcs = {entrypoint_path: binary},
+        include_runfiles = False,
     )
 
     # Manual: the base holds Linux images only, so the manifest builds through the index's platform

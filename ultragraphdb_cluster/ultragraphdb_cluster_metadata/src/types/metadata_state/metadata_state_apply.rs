@@ -354,7 +354,8 @@ impl MetadataState {
         Ok(())
     }
 
-    /// Registers `session` for `principal`, evicting `evicts`, the oldest sessions.
+    /// Registers `session` for `principal`, evicting `evicts`: held sessions, oldest first, the oldest with no commit in
+    /// flight when the command was decided, which only the frontend knew.
     fn register_session(
         &mut self,
         session: u128,
@@ -378,15 +379,28 @@ impl MetadataState {
                 Self::EVICTIONS_PENDING_MAX,
             ));
         }
-        let oldest = self
-            .sessions
-            .iter()
-            .map(|(held, _)| held)
-            .take(evicts.len());
-        let named = evicts.len() <= self.sessions.len() && oldest.eq(evicts.iter());
-        holds(named, "a registration evicts the oldest sessions")?;
-        for _ in evicts {
-            if let Some((evicted, _)) = self.sessions.pop_front() {
+        // Each found after the one before: a session skipped for its commit in flight lies between, so the scan from the
+        // front reaches past at most those.
+        let mut at = Vec::with_capacity(evicts.len());
+        let mut from = 0;
+        for evicted in evicts {
+            let found = self
+                .sessions
+                .iter()
+                .skip(from)
+                .position(|(held, _)| held == evicted)
+                .map(|offset| from + offset);
+            holds(
+                found.is_some(),
+                "a registration evicts held sessions, oldest first",
+            )?;
+            if let Some(found) = found {
+                at.push(found);
+                from = found + 1;
+            }
+        }
+        for found in at.into_iter().rev() {
+            if let Some((evicted, _)) = self.sessions.remove(found) {
                 let _owner: Option<u64> = self.owners.remove(&evicted);
             }
         }

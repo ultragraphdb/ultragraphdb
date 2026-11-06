@@ -58,8 +58,9 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
             Asked::BeginCommit {
                 session,
                 principal,
+                writes,
                 reply,
-            } => drop(reply.send(self.begin_commit(session, principal))),
+            } => drop(reply.send(self.begin_commit(session, principal, writes))),
             Asked::CommitEnded { session } => {
                 let _was = self.in_flight.remove(&session);
             }
@@ -153,20 +154,32 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
     ) -> Result<(), RoleError> {
         match self.register(session, principal) {
             Ok(()) => self.durable.push(Durable::Registered(reply)),
+            // No session the registry may evict yet: every other one has a commit in flight, or a close is still to carry the
+            // evictions awaiting it. Either passes, so the client registers again after a delay (`PROTOCOL.md` §11.5).
+            Err(refused) if matches!(refused.0, ClusterErrorEnum::Full { .. }) => {
+                let busy = ErrorReply::new(ErrorCode::SessionBusy, refused.to_string());
+                drop(reply.send(Err(busy)));
+            }
             Err(refused) => drop(reply.send(Err(refused_or_stop(&refused)?))),
         }
         Ok(())
     }
 
     /// The owner check of a commit, one in flight per session (`PROTOCOL.md` §11.5).
-    fn begin_commit(&mut self, session: u128, principal: u64) -> Result<(), ErrorReply> {
+    fn begin_commit(
+        &mut self,
+        session: u128,
+        principal: u64,
+        writes: bool,
+    ) -> Result<(), ErrorReply> {
         self.check(session, principal)?;
-        if !self.in_flight.insert(session) {
+        if self.in_flight.contains_key(&session) {
             return Err(ErrorReply::new(
                 ErrorCode::SessionBusy,
                 "the session has a commit in flight",
             ));
         }
+        let _absent = self.in_flight.insert(session, writes);
         Ok(())
     }
 
@@ -201,21 +214,31 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
             .principal_by_id(principal)
             .map(|held| held.name().to_string())
             .ok_or_else(|| ClusterError::unknown_principal(&principal.to_string()))?;
-        let _registered = self.metadata.register_session(session, &name)?;
+        let in_flight = &self.in_flight;
+        let _registered = self
+            .metadata
+            .register_session(session, &name, |held| in_flight.get(&held) == Some(&true))?;
         Ok(())
     }
 
+    /// The owner check: `session` held by the registry, its eviction appended or not, and `principal`'s.
     fn check(&self, session: u128, principal: u64) -> Result<(), ErrorReply> {
+        let evicted = || {
+            ErrorReply::new(
+                ErrorCode::SessionEvicted,
+                "the registry evicted this session, or never registered it",
+            )
+        };
         let held = self
             .metadata
             .state()
             .session_principal(session)
-            .map_err(|_| {
-                ErrorReply::new(
-                    ErrorCode::SessionEvicted,
-                    "the registry evicted this session, or never registered it",
-                )
-            })?;
+            .map_err(|_| evicted())?;
+        // A registration of this turn may evict it before its sync, and the close carrying that eviction could then reach the
+        // partition before a commit checked here.
+        if !self.metadata.holds_session(session) {
+            return Err(evicted());
+        }
         if held == principal {
             return Ok(());
         }

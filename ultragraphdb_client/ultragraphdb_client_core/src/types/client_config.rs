@@ -9,7 +9,7 @@ use ultragraphdb_protocol_wire::{Hello, MAX_FRAME_SIZE, PROTOCOL_VERSION};
 
 /// What a client is: the cluster it connects to, its name and release, the protocols it speaks, how long it waits
 /// for an answer, how often it retries a commit through its session, how far apart, the credit it grants a result
-/// stream at a time, and how long before its credential expires it authenticates again.
+/// stream at a time, how long before its credential expires it authenticates again, and the frame buffers it reads into.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientConfig {
     cluster: u64,
@@ -22,11 +22,12 @@ pub struct ClientConfig {
     retry_delay: Duration,
     credit: u32,
     renewal_margin: Duration,
+    buffers: usize,
 }
 
 impl ClientConfig {
     /// A client of `cluster`: release 0, protocols 1 to this crate's, a 10 s timeout, a commit tried at most 8
-    /// times 50 ms apart, credit of 4 frames, re-authentication 60 s before the credential expires.
+    /// times 50 ms apart, credit of 4 frames, re-authentication 60 s before the credential expires, 64 frame buffers.
     #[must_use]
     pub fn new(cluster: u64, name: impl Into<String>) -> Self {
         Self {
@@ -40,6 +41,7 @@ impl ClientConfig {
             retry_delay: Duration::from_millis(50),
             credit: 4,
             renewal_margin: Duration::from_secs(60),
+            buffers: 64,
         }
     }
 
@@ -97,6 +99,15 @@ impl ClientConfig {
         self
     }
 
+    /// The frame buffers the client reads into, at least 2: one takes the frame being read, and the rest hold what the
+    /// open reads' credit and refusals can bring, so the client opens a read only while they hold it. A shell sets it to
+    /// its pool's.
+    #[must_use]
+    pub fn with_buffers(mut self, buffers: usize) -> Self {
+        self.buffers = buffers.max(2);
+        self
+    }
+
     /// The cluster the client connects to.
     #[must_use]
     pub fn cluster(&self) -> u64 {
@@ -143,6 +154,12 @@ impl ClientConfig {
     #[must_use]
     pub fn renewal_margin(&self) -> Duration {
         self.renewal_margin
+    }
+
+    /// The frame buffers the client reads into.
+    #[must_use]
+    pub fn buffers(&self) -> usize {
+        self.buffers
     }
 
     /// The Hello this client opens a connection with.

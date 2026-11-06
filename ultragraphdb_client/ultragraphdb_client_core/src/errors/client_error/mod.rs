@@ -124,6 +124,12 @@ pub enum ClientErrorEnum {
         /// The streams Welcome allows.
         limit: u32,
     },
+    /// A read or execute refused before it was sent: the client's `buffers` frame buffers hold what its open reads' credit
+    /// and refusals can bring, and this read's would not fit beside them.
+    BufferLimit {
+        /// The frame buffers the client reads into.
+        buffers: usize,
+    },
     /// A read or execute names the transaction of stream `named`, and was asked of the transaction of `stream`.
     TransactionMismatch {
         /// The stream of the transaction the request was asked of.
@@ -270,6 +276,12 @@ impl ClientError {
     #[must_use]
     pub fn stream_limit(limit: u32) -> Self {
         Self(ClientErrorEnum::StreamLimit { limit })
+    }
+
+    /// A read or a grant refused at the [`ClientErrorEnum::BufferLimit`].
+    #[must_use]
+    pub fn buffer_limit(buffers: usize) -> Self {
+        Self(ClientErrorEnum::BufferLimit { buffers })
     }
 
     /// A read or execute refused as a [`ClientErrorEnum::TransactionMismatch`].

@@ -46,3 +46,57 @@ fn test_a_pool_of_no_buffers_is_always_exhausted() -> TestResult {
     );
     Ok(())
 }
+
+/// A waker counting its wakes.
+struct Counted(std::sync::atomic::AtomicUsize);
+
+impl std::task::Wake for Counted {
+    fn wake(self: std::sync::Arc<Self>) {
+        self.wake_by_ref();
+    }
+
+    fn wake_by_ref(self: &std::sync::Arc<Self>) {
+        let _woken = self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// A full pool is backpressure: waiting for a buffer is pending while every buffer is in use, the buffer given back wakes
+/// the waiter once, and the wait then takes it.
+#[test]
+fn test_waiting_for_a_buffer_ends_when_one_is_given_back() -> TestResult {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::task::{Context as TaskContext, Poll, Waker};
+    let pool = BufferPool::new(1, 64);
+    let free = std::pin::pin!(pool.acquire_waiting());
+    let counted = Arc::new(Counted(AtomicUsize::new(0)));
+    let waker = Waker::from(Arc::clone(&counted));
+    let mut cx = TaskContext::from_waker(&waker);
+    let Poll::Ready(held) = free.poll(&mut cx) else {
+        return Err(ultragraphdb_tool_bdd::TestError::new(
+            "a free buffer is taken at once",
+        ));
+    };
+    let mut waiting = std::pin::pin!(pool.acquire_waiting());
+    assert!(
+        waiting.as_mut().poll(&mut cx).is_pending(),
+        "no buffer is free"
+    );
+    assert!(
+        waiting.as_mut().poll(&mut cx).is_pending(),
+        "polled again, still none"
+    );
+    assert_eq!(counted.0.load(Ordering::Relaxed), 0);
+    drop(held);
+    assert_eq!(counted.0.load(Ordering::Relaxed), 1, "woken once");
+    let Poll::Ready(taken) = waiting.as_mut().poll(&mut cx) else {
+        return Err(ultragraphdb_tool_bdd::TestError::new(
+            "the buffer given back is taken",
+        ));
+    };
+    assert!(taken.is_empty());
+    assert_eq!(pool.available(), 0);
+    drop(taken);
+    assert_eq!(pool.available(), 1);
+    Ok(())
+}

@@ -116,6 +116,9 @@ pub enum Asked {
         session: u128,
         /// The connection's principal.
         principal: u64,
+        /// Whether what it starts may record the session in a partition's table, as a Commit, a Drop and a one-frame write
+        /// do and a Recall does not: a full registry evicts no such session.
+        writes: bool,
         /// Its answer.
         reply: Sender<Result<(), ErrorReply>>,
     },

@@ -4,12 +4,20 @@
  */
 
 //! Whole clusters as processes, every role started through the config service, bound to `features/`, with no container. One
-//! scenario runs at a time: the binaries listen at their declared ports.
+//! scenario runs at a time: the binaries listen at their declared ports. The features tagged `both_carriers` run twice, over
+//! TCP and then with every address a Unix socket.
+
+mod client_reads;
+mod cluster;
+mod transaction_steps;
+mod write_read_steps;
 
 use cucumber::{World, then, when};
 use service_utils::ServiceUtil;
 use std::os::unix::fs::PermissionsExt;
+use std::path::Path;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use ultragraphdb_protocol_wire::RoleKind;
 use ultragraphdb_tests::{
     COMPUTE_BINARY, COMPUTE_OBSERVABILITY, COMPUTE_ROLE_ADDRESS, CONFIG_BINARY, FRONTEND_BINARY,
@@ -23,7 +31,7 @@ use ultragraphdb_tool_bdd::TestResult;
 /// Where the sandbox holds the binaries, relative to the test's working directory: `copy_file` writes them to this package.
 const ROOT_PATH: &str = "ultragraphdb/ultragraphdb_tests";
 
-fn services() -> TestResult<ServiceUtil> {
+pub(crate) fn services() -> TestResult<ServiceUtil> {
     Ok(ServiceUtil::new(
         ROOT_PATH,
         vec![
@@ -35,13 +43,55 @@ fn services() -> TestResult<ServiceUtil> {
     )?)
 }
 
+/// Whether this run's clusters take Unix sockets, as the second run's do.
+static OVER_UNIX: AtomicBool = AtomicBool::new(false);
+
+/// The scenarios begun so far, which number each scenario's IRIs in the cluster its run shares.
+static SCENARIOS: AtomicU32 = AtomicU32::new(0);
+
 #[derive(Debug, Default, World)]
+#[world(init = Self::new)]
 struct Steps {
+    answers: Vec<client_reads::Answer>,
+    carrier: cluster::Carriers,
+    cluster: Option<cluster::Cluster>,
+    committed: bool,
     compute: String,
     frontend: String,
+    held: Vec<bool>,
+    kind: Option<u64>,
+    owner: u32,
     roles: Option<ServiceUtil>,
+    scenario: u32,
     sockets: Vec<PathBuf>,
     storage: String,
+    version: u64,
+}
+
+impl Steps {
+    /// A scenario's world over this run's carrier, its IRIs numbered apart from every other scenario's.
+    fn new() -> Self {
+        let carrier = if OVER_UNIX.load(Ordering::Relaxed) {
+            cluster::Carriers::Unix
+        } else {
+            cluster::Carriers::Tcp
+        };
+        Self {
+            carrier,
+            scenario: SCENARIOS.fetch_add(1, Ordering::Relaxed),
+            ..Self::default()
+        }
+    }
+
+    /// The IRI `http://ex.org/<scenario>/<name>` of this scenario alone.
+    fn iri(&self, name: &str) -> String {
+        format!("http://ex.org/{}/{name}", self.scenario)
+    }
+
+    /// The carrier a failure happened over.
+    fn over(&self) -> String {
+        format!("over {:?}", self.carrier)
+    }
 }
 
 /// Starts the frontend, storage and compute in the order their readiness needs, on the settings given.
@@ -156,12 +206,31 @@ fn private_sockets(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-fn main() -> TestResult {
-    futures::executor::block_on(
+/// Runs the features over `carrier`, every one or those tagged `both_carriers` alone, beside the cluster the run shares:
+/// whether any failed.
+fn run_over(features: &Path, carrier: cluster::Carriers, every: bool) -> TestResult<bool> {
+    OVER_UNIX.store(carrier == cluster::Carriers::Unix, Ordering::Relaxed);
+    let shared = cluster::start_shared(carrier)?;
+    let summary = futures::executor::block_on(
         Steps::cucumber()
             .max_concurrent_scenarios(1)
             .fail_on_skipped()
-            .run_and_exit(ultragraphdb_tool_bdd::features_dir()?),
+            .filter_run(features, move |feature, _, _| {
+                every || feature.tags.iter().any(|tag| tag == "both_carriers")
+            }),
     );
+    drop(shared);
+    Ok(cucumber::writer::Stats::execution_has_failed(&summary)
+        || cucumber::writer::Stats::hook_errors(&summary) > 0)
+}
+
+fn main() -> TestResult {
+    let features = ultragraphdb_tool_bdd::features_dir()?;
+    let over_tcp = run_over(&features, cluster::Carriers::Tcp, true)?;
+    println!("Again, every address a Unix socket:");
+    let over_unix = run_over(&features, cluster::Carriers::Unix, false)?;
+    if over_tcp || over_unix {
+        std::process::exit(1);
+    }
     Ok(())
 }

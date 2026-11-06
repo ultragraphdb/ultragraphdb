@@ -4,6 +4,7 @@
 #
 
 load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_img//img:load.bzl", "image_load")
 load("@rules_img//img:push.bzl", "image_push")
 load("//bazel:binary.bzl", "static_binary")
 load("//bazel/container:img.bzl", "scratch_multiarch_img", "sha256_tag")
@@ -28,6 +29,26 @@ scratch_multiarch_img(
 sha256_tag(
     name = "ultragraphdb_config_tag",
     image = ":ultragraphdb_config_multiarch",
+)
+
+# Loads the image into the local Docker daemon: `bazel run -c opt :load -- --platform linux/arm64`.
+image_load(
+    name = "load",
+    image = ":ultragraphdb_config_multiarch",
+    registry = "docker.io",
+    repository = "hansenmarvin/ultragraphdb_config",
+    tag = "dev",
+    visibility = ["//visibility:public"],
+)
+
+# Loads the image under the tag the image scenarios use, so a test run leaves the `dev` tag a developer loads alone.
+image_load(
+    name = "test_load",
+    image = ":ultragraphdb_config_multiarch",
+    registry = "docker.io",
+    repository = "hansenmarvin/ultragraphdb_config",
+    tag = "image-test",
+    visibility = ["//visibility:public"],
 )
 
 # `bazel build` only produces the pusher; `bazel run -c opt` publishes. Credentials come from the Docker configuration.

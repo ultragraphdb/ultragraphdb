@@ -156,7 +156,8 @@ whose evictions would pass the pending evictions' bound SHALL be refused, the pr
 ### Requirement: The metadata group registers sessions
 The metadata group SHALL record each session the frontend registers, its 128-bit identity and its principal, as one
 command, and SHALL answer a session's principal to the frontend's owner check. A registration SHALL be durable before it
-is answered. The registry SHALL hold at most `sessions_max` sessions, evicting the least recently registered, SHALL evict a
+is answered. The registry SHALL hold at most `sessions_max` sessions, evicting the least recently registered with no
+commit in flight, as the frontend names them (transactions, "Exactly-once commits through sessions"), SHALL evict a
 removed principal's sessions with its removal, and SHALL be the only place a session is evicted; the sequencer SHALL carry each eviction to every partition with its next close,
 recorded in its durable close record, so each partition purges the session's entry from its table. A session already
 registered SHALL be refused, naming it.

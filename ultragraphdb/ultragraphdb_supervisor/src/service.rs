@@ -52,7 +52,8 @@ storage, the config service. SIGHUP and SIGQUIT do the same, as SIGTERM, since a
 supervisor killed outright stops nothing, and what it started goes on holding its ports and directories: stop those by hand.
 
 <file> is the config service's own settings file, over clear text, as the shipped profiles name it. The binaries stand beside this
-one. The config service's two keys and the role secret are drawn at random where the settings name them, if nothing is there.
+one. The config service's two keys and the role secret are drawn at random where the settings name them, if nothing is there,
+and the bootstrap administrator's password too before the cluster's first start, which reads it once.
 
 Exit codes:
   128 plus the signal's number  a role a signal killed
@@ -224,6 +225,13 @@ fn tcp_host_port(address: &str) -> Option<String> {
     address.strip_prefix("tcp://").map(str::to_string)
 }
 
+/// Whether the frontend holding `data_dir` has yet to create the cluster: its metadata group's log, `meta/` under it, is not
+/// there. The bootstrap administrator's password is read at that start alone, and the operator removes it afterwards, so it is
+/// drawn before that start and never again.
+fn first_start(data_dir: Option<&str>) -> bool {
+    data_dir.is_none_or(|directory| !Path::new(directory).join("meta").exists())
+}
+
 /// Draws the secret `file` holds when nothing is there; what is there is kept, so a restart holds what the first start drew. The
 /// secret appears at `file` whole, by a rename: a draw cut short leaves its temporary name, which the next draw writes over.
 fn draw_secret(file: &str) -> Result<(), RoleError> {
@@ -301,11 +309,15 @@ impl Supervised<'_> {
             .await
             .map_err(Interrupt::Refused)?;
         let every = instances(&files);
-        for instance in &every {
-            let secret = instance
-                .config()
-                .and_then(|config| config.cluster().role_secret_file());
-            if let Some(file) = secret {
+        for config in every.iter().filter_map(Instance::config) {
+            let secrets = [
+                config.cluster().role_secret_file(),
+                config
+                    .metadata()
+                    .bootstrap_secret_file()
+                    .filter(|_| first_start(config.frontend().data_dir())),
+            ];
+            for file in secrets.into_iter().flatten() {
                 draw_secret(file).map_err(Interrupt::Refused)?;
             }
         }

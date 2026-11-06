@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
+# Run by `bdd` on this host and by `image_bdd` in the development image under Docker's default profile.
+@docker
 Feature: io_uring where allowed, polling where not
   openspec/changes/stage-5-5-three-role-refactor/specs/role-binaries/spec.md
 

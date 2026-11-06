@@ -145,6 +145,27 @@ impl<S: AsyncRead + AsyncWrite> Authenticated<S> {
         .map_err(|_| TestError::new("no frame came"))??)
     }
 
+    /// That no frame comes within `ms`, or the stream and command of the one that did.
+    pub(crate) async fn silent_for(&mut self, ms: u64) -> TestResult {
+        let waited = compio::time::timeout(
+            Duration::from_millis(ms),
+            self.connection.read_frame(&self.pool),
+        )
+        .await;
+        match waited {
+            Err(_) => Ok(()),
+            Ok(read) => {
+                let frame = read?;
+                let view = frame.view()?;
+                Err(TestError::new(format!(
+                    "{:?} came on stream {}",
+                    view.command(),
+                    view.header().stream()
+                )))
+            }
+        }
+    }
+
     /// Sends `body` on `stream`, and reads the command of what answers it.
     pub(crate) async fn asked<B: BodyBuilder>(
         &mut self,

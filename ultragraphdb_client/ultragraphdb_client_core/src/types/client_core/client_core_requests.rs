@@ -223,7 +223,9 @@ impl<L: Login> ClientCore<L> {
     }
 
     /// A result stream of `body`, naming the transaction of stream `named`, on a stream of its own beside
-    /// `transaction`'s, with the Welcome's initial credit.
+    /// `transaction`'s, with the Welcome's initial credit, holding as many of the client's frame buffers as the larger of
+    /// that and its own credit, and a refusal, can fill; refused as [`ClientError::buffer_limit`] before it is sent when
+    /// they do not fit.
     fn results<B: BodyBuilder>(
         &mut self,
         transaction: &Transaction,
@@ -238,6 +240,9 @@ impl<L: Login> ClientCore<L> {
             ));
         }
         self.transaction_stream(transaction, false)?;
+        let credit = self.welcome().map_or(0, |w| w.initial_credit());
+        let buffers = credit.max(self.config.credit()).saturating_add(1);
+        self.reserve_buffers(buffers)?;
         let stream = self.open_stream()?;
         let frame = match self.frame(body, stream) {
             Ok(frame) => frame,
@@ -246,7 +251,6 @@ impl<L: Login> ClientCore<L> {
                 return Err(error);
             }
         };
-        let credit = self.welcome().map_or(0, |w| w.initial_credit());
         let deadline = self
             .streams
             .get(&transaction.stream())
@@ -254,6 +258,7 @@ impl<L: Login> ClientCore<L> {
         if let Some(state) = self.streams.get_mut(&stream) {
             state.results = true;
             state.credit = credit;
+            state.buffers = buffers;
             state.of = Some(transaction.stream());
             state.progress = Some(now);
             state.deadline = deadline;
@@ -264,7 +269,9 @@ impl<L: Login> ClientCore<L> {
     }
 
     /// Reads `read`'s quad pattern in `transaction`: a result stream of its own, naming the transaction, with the
-    /// Welcome's initial credit; refused as [`ClientError::transaction_mismatch`] when `read` names another.
+    /// Welcome's initial credit; refused as [`ClientError::transaction_mismatch`] when `read` names another, and as
+    /// [`ClientError::buffer_limit`] while the client's frame buffers hold what its open reads may bring and this one's
+    /// would not fit: one of them is read to its end or cancelled first.
     pub fn read(
         &mut self,
         transaction: &Transaction,

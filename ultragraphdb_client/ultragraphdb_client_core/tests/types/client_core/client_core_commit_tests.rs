@@ -780,12 +780,13 @@ fn test_a_drop_before_a_connection_is_refused_as_not_connected() -> TestResult {
     Ok(())
 }
 
-/// A connection lost before a commit's frame left the client does not use one of the commit's attempts. Here the retry's
-/// connection fails in its handshake: two attempts suffice, the first send and the retry.
+/// A connection lost in its handshake while a commit waits to be sent again counts as one of the commit's attempts, as a
+/// connection not made does. Here the retry's connection fails in its handshake: three attempts are the first send, the
+/// lost handshake and the retry.
 #[test]
-fn test_a_loss_in_the_retrys_handshake_consumes_no_attempt() -> TestResult {
+fn test_a_loss_in_the_retrys_handshake_uses_one_of_its_attempts() -> TestResult {
     let mut h = Harness::with(
-        config().with_commit_attempts(2),
+        config().with_commit_attempts(3),
         server(),
         Default::default(),
         1,
@@ -805,7 +806,7 @@ fn test_a_loss_in_the_retrys_handshake_consumes_no_attempt() -> TestResult {
     assert_eq!(
         h.core.take_reply(p),
         None,
-        "the failed handshake used no attempt"
+        "the failed handshake used the second attempt, and one is left"
     );
     assert!(
         h.core.needs_connection(),
@@ -818,6 +819,83 @@ fn test_a_loss_in_the_retrys_handshake_consumes_no_attempt() -> TestResult {
     assert_eq!(commits(&h), vec![(9, 1); 2]);
     assert_eq!(h.server.applied(), 1);
     Ok(())
+}
+
+/// A connection whose handshake `code` refuses: 15 in place of the Welcome, or 19 to the Authenticate exchange after it.
+fn refuse_handshake<L: ultragraphdb_protocol_transport::Login>(
+    h: &mut Harness<L>,
+    code: ErrorCode,
+) -> TestResult {
+    use ultragraphdb_protocol_wire::{BodyBuilder, Command, ErrorReply, FLAG_LAST, Header};
+    h.connect()?;
+    if code == ErrorCode::AuthenticationFailed {
+        let welcome =
+            crate::utils::harness::scram_welcome().frame(Header::new(CLUSTER, Command::Welcome))?;
+        let welcome = h.numbered(&welcome)?;
+        h.deliver(&welcome)??;
+    }
+    let refusal = ErrorReply::new(code, "refused")
+        .frame(Header::new(CLUSTER, Command::Error).with_flags(FLAG_LAST))?;
+    let refusal = h.numbered(&refusal)?;
+    assert!(h.deliver(&refusal)?.is_err(), "the handshake is refused");
+    assert!(!h.core.is_connected());
+    Ok(())
+}
+
+/// A commit waiting to be sent again while every handshake is refused: each refused connection uses one of its three
+/// attempts, the first send the first, and once they are spent it is in doubt, the refusal its cause.
+fn refused_handshakes<L: ultragraphdb_protocol_transport::Login>(
+    mut h: Harness<L>,
+    code: ErrorCode,
+) -> TestResult {
+    h.connect()?;
+    h.until(|h| h.core.is_ready())?;
+    let registering = h.core.register(h.now)?;
+    let s = registered(h.settle(registering)?)?;
+    let beginning = h.core.begin(0, false, h.now)?;
+    let tx = begun(h.settle(beginning)?)?;
+    h.server.drop_after_next_commit();
+    let p = h.core.commit(tx, s, h.now)?;
+    h.until(|h| h.core.needs_connection())?;
+    refuse_handshake(&mut h, code)?;
+    assert_eq!(h.core.take_reply(p), None, "one attempt is left");
+    assert!(h.core.needs_connection() && h.core.handshake_lost());
+    refuse_handshake(&mut h, code)?;
+    let doubt = h
+        .core
+        .take_reply(p)
+        .context("an answer")?
+        .err()
+        .context("in doubt")?;
+    assert_eq!(in_doubt(&doubt), Some((s.number(), 1)));
+    assert!(
+        matches!(&doubt.0, ClientErrorEnum::InDoubt { cause: Some(_), .. }),
+        "{doubt:?}"
+    );
+    assert!(!h.core.needs_connection(), "the attempts are spent");
+    Ok(())
+}
+
+/// Handshakes refused with code 15 or 19 on stream 0 end a waiting commit's retries within its attempts.
+#[test]
+fn test_handshakes_refused_again_and_again_leave_the_waiting_commit_in_doubt() -> TestResult {
+    let config = config().with_commit_attempts(3);
+    refused_handshakes(
+        Harness::with(config.clone(), server(), Default::default(), 1, Anonymous),
+        ErrorCode::StreamLimit,
+    )?;
+    let scram =
+        ultragraphdb_client_core::TestServer::new(CLUSTER, crate::utils::harness::scram_welcome());
+    refused_handshakes(
+        Harness::with(
+            config,
+            scram,
+            Default::default(),
+            1,
+            crate::utils::harness::login()?,
+        ),
+        ErrorCode::AuthenticationFailed,
+    )
 }
 
 /// The commit's frame still queued when the connection is lost, never sent on any connection: lost with it.

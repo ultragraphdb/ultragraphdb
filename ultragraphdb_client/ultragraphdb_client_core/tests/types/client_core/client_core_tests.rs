@@ -512,23 +512,46 @@ fn test_a_deadline_of_none_is_the_welcomes_and_a_longer_timeout_is_kept() -> Tes
     Ok(())
 }
 
-/// A read's progress moves its timeout: a frame arriving restarts it, past the deadline.
+/// A read's progress moves its timeout: with none, it runs from the deadline; a frame arriving past the deadline and taken
+/// restarts it from then, by the floor. The frame waiting to be taken runs none.
 #[test]
 fn test_a_reads_progress_moves_its_timeout() -> TestResult {
-    let mut h = Harness::ready(server().with_results(9))?;
-    let p = h.core.begin_with(
-        ultragraphdb_protocol_wire::Begin::new(0, 0, true).with_deadline_ms(10),
-        None,
-        h.now,
-    )?;
+    let floor = Duration::from_secs(30);
+    let one_frame = TestServer::new(CLUSTER, welcome().with_initial_credit(1)).with_results(3);
+    let mut h = Harness::ready(one_frame)?;
+    let begin = ultragraphdb_protocol_wire::Begin::new(0, 0, true).with_deadline_ms(10);
+    let p = h.core.begin_with(begin.clone(), None, h.now)?;
     let tx = begun(h.settle(p)?)?;
+    let deadline = h.now + Duration::from_millis(begin.deadline_ms().into());
     let read = crate::types::client_core::client_core_results_tests::read(&tx);
     let stream = h.core.read(&tx, &read, h.now)?;
+    assert_eq!(
+        h.core.next_deadline(),
+        Some(deadline + floor),
+        "no progress yet: from the deadline"
+    );
+    // The read reaches the server, and its one frame of credit arrives, 25 s on: past the deadline.
     h.now += Duration::from_secs(25);
+    let arrived = h.now;
     while h.step()? {}
-    // The Welcome's four frames arrived; one read leaves three, and credit is spent, so nothing runs.
-    assert!(h.core.next_batch(&stream, h.now, |_| ()).is_ok());
-    assert_eq!(h.core.next_deadline(), None);
+    assert_eq!(
+        h.core.next_deadline(),
+        None,
+        "a frame to take runs no timeout"
+    );
+    assert_eq!(
+        h.core.next_batch(&stream, h.now, |_| ())?,
+        ultragraphdb_client_core::BatchPoll::Batch(())
+    );
+    assert_eq!(
+        h.core.next_batch(&stream, h.now, |_| ())?,
+        ultragraphdb_client_core::BatchPoll::Wait
+    );
+    assert_eq!(
+        h.core.next_deadline(),
+        Some(arrived + floor),
+        "the frame's progress restarts it, past the deadline"
+    );
     Ok(())
 }
 

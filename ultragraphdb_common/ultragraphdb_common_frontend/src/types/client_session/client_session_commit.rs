@@ -14,6 +14,7 @@ use super::client_session_bind::{command_of, error_of};
 use super::{ClientSession, Recalling};
 use crate::traits::authorizer::Authorizer;
 use crate::types::client_transaction::{BindState, ClientTransaction, Queued};
+use crate::types::commit_hold::CommitHold;
 use crate::types::link_event::LinkEvent;
 use crate::types::route_key::RouteKey;
 use crate::types::session_event::SessionEvent;
@@ -125,14 +126,13 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         self.push(transaction, frame);
     }
 
-    /// An Abort, or a Cancel on the transaction's stream: its reads end, its held writes are dropped, and its partition lets go.
+    /// An Abort, or a Cancel on the transaction's stream: its reads end, its held writes are dropped, and its partition lets go,
+    /// unless its Commit has reached the partition, which then decides it.
     pub(super) fn abort(&mut self, transaction: u64) {
         self.end_reads(transaction);
         let Some(txn) = self.transactions.remove(&transaction) else {
             return;
         };
-        // A Commit relayed meanwhile proceeds; its outcome is what a retry through the session learns (`PROTOCOL.md` §11.4).
-        self.release_session(&txn);
         let behind: u64 = txn
             .queue
             .iter()
@@ -143,11 +143,24 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             .sum();
         self.held = self.held.saturating_sub(behind);
         match &txn.bind {
+            BindState::Binding { link, stream, .. } | BindState::Bound { link, stream, .. }
+                if txn.commit_out.is_some() =>
+            {
+                // A Commit relayed meanwhile proceeds, its session in flight until its partition answers it; its outcome is
+                // what a retry through the session learns (`PROTOCOL.md` §11.4, §11.5).
+                if txn.session_held != 0 {
+                    link.hold(
+                        *stream,
+                        CommitHold::new(self.core.owner_weak(), txn.session_held),
+                    );
+                }
+            }
             BindState::Binding { link, stream, .. } | BindState::Bound { link, stream, .. } => {
+                self.release_session(&txn);
                 // Cancelling a Bind stream aborts its transaction there (`PROTOCOL.md` §13.10).
                 link.cancel(*stream);
             }
-            BindState::None => {}
+            BindState::None => self.release_session(&txn),
         }
     }
 
@@ -166,7 +179,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         }
         self.core
             .owner()
-            .begin_commit(session, self.principal)
+            .begin_recall(session, self.principal)
             .await?;
         let partitions = self.core.links().every_partition();
         let mut recalling = Recalling {

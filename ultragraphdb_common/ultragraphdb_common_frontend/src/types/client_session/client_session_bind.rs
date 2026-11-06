@@ -311,6 +311,12 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             return;
         }
         let owner = (refusal.detail() >> 32) as u32;
+        // A frontend's map behind its partitions' is what an operator watches a move by.
+        tracing::info!(
+            transaction,
+            owner,
+            "a first request refused as another partition's is resent to its owner"
+        );
         if let Some(txn) = self.transactions.get_mut(&transaction) {
             txn.resent = true;
             txn.forced = Some(owner);

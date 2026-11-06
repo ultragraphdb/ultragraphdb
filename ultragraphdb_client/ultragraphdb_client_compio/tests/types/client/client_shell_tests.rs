@@ -35,6 +35,7 @@ fn test_close_gives_the_connection_up() -> TestResult {
 }
 
 /// A stream whose every write fails with `BrokenPipe`, and which reads as ended.
+#[derive(Debug)]
 struct Broken;
 
 impl compio::io::AsyncRead for Broken {
@@ -54,6 +55,16 @@ impl compio::io::AsyncWrite for Broken {
 
     async fn shutdown(&mut self) -> io::Result<()> {
         Ok(())
+    }
+}
+
+/// Both halves of a [`Broken`] stream are broken alike.
+impl compio::io::util::Splittable for Broken {
+    type ReadHalf = Self;
+    type WriteHalf = Self;
+
+    fn split(self) -> (Self, Self) {
+        (Self, Self)
     }
 }
 
@@ -279,8 +290,7 @@ impl Connect for Hangup {
 }
 
 /// A server that accepts connections and hangs up every handshake: the shell waits the retry delay before each
-/// reconnect, so the retries yield and an outer timeout ends them, and a connection lost in its handshake uses none of
-/// the commit's attempts, two of which would otherwise be spent at once.
+/// reconnect, so the retries of a commit with attempts to spare yield and an outer timeout ends them.
 #[test]
 fn test_reconnects_after_handshakes_hung_up_wait_the_retry_delay() -> TestResult {
     let rt = compio::runtime::Runtime::new().context("a runtime")?;
@@ -295,7 +305,7 @@ fn test_reconnects_after_handshakes_hung_up_wait_the_retry_delay() -> TestResult
     rt.block_on(async {
         let _server = compio::runtime::spawn(serve_sim(Rc::clone(&scripted), accepted));
         let config = config()
-            .with_commit_attempts(2)
+            .with_commit_attempts(u32::MAX)
             .with_retry_delay(Duration::from_millis(5));
         let mut client = Client::new(connector, config, Anonymous, 8);
         let session = client.register().await?;
@@ -314,6 +324,339 @@ fn test_reconnects_after_handshakes_hung_up_wait_the_retry_delay() -> TestResult
             "{connections} connections asked for"
         );
         assert_eq!(scripted.borrow().applied(), 1, "the first send was applied");
+        Ok::<(), TestError>(())
+    })?;
+    Ok(())
+}
+
+/// Each handshake hung up while a commit waits to be sent again uses one of its attempts, as a connection not made does,
+/// so the retries end with the commit in doubt: the first send and three lost handshakes are its four attempts.
+#[test]
+fn test_handshakes_hung_up_end_a_commits_retries_within_its_attempts() -> TestResult {
+    let rt = compio::runtime::Runtime::new().context("a runtime")?;
+    let scripted = server();
+    let inner = SimConnect::new(SimNetwork::new(3, NetworkFaults::none()));
+    let accepted = Rc::clone(&inner.accepted);
+    let connector = Hangup {
+        inner,
+        made: Rc::new(std::cell::Cell::new(0)),
+    };
+    let made = Rc::clone(&connector.made);
+    rt.block_on(async {
+        let _server = compio::runtime::spawn(serve_sim(Rc::clone(&scripted), accepted));
+        let config = config()
+            .with_commit_attempts(4)
+            .with_retry_delay(Duration::from_millis(5));
+        let mut client = Client::new(connector, config, Anonymous, 8);
+        let session = client.register().await?;
+        let tx = client.begin(0, false).await?;
+        scripted.borrow_mut().drop_after_next_commit();
+        let exhausted = compio::time::timeout(Duration::from_secs(2), client.commit(tx, session))
+            .await
+            .context("the retries end within their attempts")?
+            .err()
+            .context("in doubt")?;
+        assert_eq!(in_doubt(&exhausted), Some((session.number(), 1)));
+        // The first connection, then three hung up: the send lost with its connection and three lost handshakes.
+        assert_eq!(made.get(), 4);
+        assert_eq!(scripted.borrow().applied(), 1, "the first send was applied");
+        Ok::<(), TestError>(())
+    })?;
+    Ok(())
+}
+
+/// A one-frame write of one statement.
+fn insert() -> ultragraphdb_protocol_wire::DirectWrite {
+    let mut terms = ultragraphdb_protocol_wire::TermTable::new();
+    let a = terms.iri("http://ex.org/a");
+    ultragraphdb_protocol_wire::DirectWrite::new(
+        0,
+        terms,
+        vec![ultragraphdb_protocol_wire::WriteChange::Insert {
+            graph: None,
+            subject: a,
+            predicate: a,
+            object: a,
+        }],
+    )
+}
+
+/// A read of `tx`, naming it.
+fn read(tx: &ultragraphdb_client_compio::Transaction) -> ultragraphdb_protocol_wire::Read {
+    use ultragraphdb_protocol_wire::{PatternSlot, QuadPattern, Read, TermTable};
+    let mut terms = TermTable::new();
+    let a = terms.iri("http://ex.org/a");
+    Read::new(
+        tx.stream(),
+        0,
+        terms,
+        QuadPattern::new(
+            PatternSlot::Unbound,
+            PatternSlot::Bound(a),
+            PatternSlot::Unbound,
+            PatternSlot::Unbound,
+        ),
+        Vec::new(),
+    )
+}
+
+/// The batches of `stream`, read to its end.
+async fn batches<C: Connect, L: ultragraphdb_client_compio::Login>(
+    client: &mut Client<C, L>,
+    stream: &ultragraphdb_client_compio::ResultStream,
+) -> TestResult<usize> {
+    let mut count = 0;
+    while client.next_batch(stream, |_| ()).await?.is_some() {
+        count += 1;
+    }
+    Ok(count)
+}
+
+/// A deadline that is no timeout, a busy write's resend, leaves the connection be: the resend goes on the same connection
+/// while a read is out, and a read open beside it reads on to its end.
+#[test]
+fn test_a_busy_resend_keeps_the_connection_and_its_reads() -> TestResult {
+    let rt = compio::runtime::Runtime::new().context("a runtime")?;
+    let results = 3;
+    let scripted = Rc::new(std::cell::RefCell::new(server_of(1).with_results(results)));
+    scripted
+        .borrow_mut()
+        .refuse_next_commit(ultragraphdb_protocol_wire::ErrorCode::SessionBusy, 0);
+    let connector = SimConnect::new(SimNetwork::new(3, NetworkFaults::none()));
+    let accepted = Rc::clone(&connector.accepted);
+    rt.block_on(async {
+        let _server = compio::runtime::spawn(serve_sim(Rc::clone(&scripted), accepted));
+        let mut client = Client::new(connector, config(), Anonymous, 8);
+        let session = client.register().await?;
+        let reader = client.begin(0, true).await?;
+        let stream = client.read(&reader, &read(&reader)).await?;
+        let written = client.direct_write(insert(), session).await?;
+        assert_eq!(written.request(), 1);
+        assert_eq!(scripted.borrow().applied(), 1, "the resend applied it");
+        assert_eq!(batches(&mut client, &stream).await?, results as usize);
+        assert!(client.core().is_ready());
+        Ok::<(), TestError>(())
+    })?;
+    Ok(())
+}
+
+/// The test server, its Welcome granting `credit` frames to a read.
+fn server_of(credit: u32) -> ultragraphdb_client_core::TestServer {
+    ultragraphdb_client_core::TestServer::new(
+        crate::utils::serve::CLUSTER,
+        crate::utils::serve::welcome().with_initial_credit(credit),
+    )
+}
+
+/// A read not yet polled never costs the connection: the client opens a read only while its buffers hold every frame the
+/// read's credit and a refusal can bring, so a second read past them is refused before it is sent, and a request answered
+/// while the first read's frames wait finds a buffer free; the first read then reads on to its end. Here a read reserves
+/// the Welcome's 4 frames and a refusal, and 6 buffers keep one to read into.
+#[test]
+fn test_a_read_not_yet_polled_never_costs_the_connection() -> TestResult {
+    let rt = compio::runtime::Runtime::new().context("a runtime")?;
+    let results = 6;
+    let scripted = Rc::new(std::cell::RefCell::new(server_of(4).with_results(results)));
+    let connector = SimConnect::new(SimNetwork::new(3, NetworkFaults::none()));
+    let accepted = Rc::clone(&connector.accepted);
+    rt.block_on(async {
+        let _server = compio::runtime::spawn(serve_sim(Rc::clone(&scripted), accepted));
+        let buffers = 6;
+        let mut client = Client::new(connector, config(), Anonymous, buffers);
+        let reader = client.begin(0, true).await?;
+        let first = client.read(&reader, &read(&reader)).await?;
+        let second = client.read(&reader, &read(&reader)).await;
+        assert_eq!(second.err(), Some(ClientError::buffer_limit(buffers)));
+        let session = client.register().await?;
+        let written = client.direct_write(insert(), session).await?;
+        assert_eq!(written.request(), 1);
+        assert_eq!(batches(&mut client, &first).await?, results as usize);
+        assert!(client.core().is_ready());
+        Ok::<(), TestError>(())
+    })?;
+    Ok(())
+}
+
+/// A credential's renewal, a deadline that is no timeout, goes out on the open connection while a read is out, and the
+/// read goes on: its batches all arrive on the connection the renewal kept.
+#[test]
+fn test_a_renewal_keeps_the_connection_and_its_reads() -> TestResult {
+    use ultragraphdb_client_core::{TEST_NAME, TEST_PASSWORD, TEST_PRINCIPAL};
+    use ultragraphdb_protocol_scram::{MECHANISM, ScramLogin, system_nonce};
+    let rt = compio::runtime::Runtime::new().context("a runtime")?;
+    let results = 3;
+    // Renewed at half its life.
+    let life = Duration::from_millis(400);
+    let scripted = Rc::new(std::cell::RefCell::new(
+        ultragraphdb_client_core::TestServer::new(
+            crate::utils::serve::CLUSTER,
+            crate::utils::serve::welcome().with_mechanisms([MECHANISM]),
+        )
+        .with_credential_life(life)
+        .with_results(results),
+    ));
+    let connector = SimConnect::new(SimNetwork::new(3, NetworkFaults::none()));
+    let accepted = Rc::clone(&connector.accepted);
+    rt.block_on(async {
+        let _server = compio::runtime::spawn(serve_sim(Rc::clone(&scripted), accepted));
+        let login = ScramLogin::new(TEST_NAME, TEST_PASSWORD, system_nonce)?;
+        let mut client = Client::new(connector, config(), login, 8);
+        client.connect().await?;
+        let first = client.core().expires().context("an expiry")?;
+        let reader = client.begin(0, true).await?;
+        // The renewal falls due before the read is sent, so it goes out while the read's first frame is awaited.
+        compio::time::sleep(life / 2).await;
+        let stream = client.read(&reader, &read(&reader)).await?;
+        assert_eq!(batches(&mut client, &stream).await?, results as usize);
+        // The exchange's last frame comes before the answer to a request sent after it.
+        let _session = client.register().await?;
+        let renewed = client.core().expires().context("an expiry")?;
+        assert!(renewed > first, "the credential was renewed");
+        assert_eq!(client.core().principal(), Some(TEST_PRINCIPAL));
+        assert!(client.core().is_ready());
+        Ok::<(), TestError>(())
+    })?;
+    Ok(())
+}
+
+/// A frame that arrived while no call drove the connection is read before a deadline that passed meanwhile is taken: a
+/// Register is sent and its future dropped, a read takes its first batch, and the caller then waits past the timeout
+/// before asking for the next, the server having answered everything at once. The read goes on, on the same connection.
+#[test]
+fn test_a_frame_waiting_is_read_before_a_deadline_passed() -> TestResult {
+    use futures::FutureExt as _;
+    let rt = compio::runtime::Runtime::new().context("a runtime")?;
+    let results = 3;
+    let scripted = Rc::new(std::cell::RefCell::new(server_of(4).with_results(results)));
+    let connector = SimConnect::new(SimNetwork::new(3, NetworkFaults::none()));
+    let accepted = Rc::clone(&connector.accepted);
+    let timeout = Duration::from_millis(100);
+    rt.block_on(async {
+        let _server = compio::runtime::spawn(serve_sim(Rc::clone(&scripted), accepted));
+        let mut client = Client::new(connector, config().with_timeout(timeout), Anonymous, 8);
+        let reader = client.begin(0, true).await?;
+        let stream = client.read(&reader, &read(&reader)).await?;
+        let sent = scripted.borrow().received().len();
+        // Sent, and dropped at its first wait: its reply is awaited, which runs the timeout.
+        assert!(
+            client.register().now_or_never().is_none(),
+            "the Register waits"
+        );
+        assert!(
+            client.next_batch(&stream, |_| ()).await?.is_some(),
+            "the first batch"
+        );
+        assert!(
+            scripted.borrow().received().len() > sent,
+            "the Register was sent"
+        );
+        compio::time::sleep(timeout * 2).await;
+        let mut rest = 0;
+        while client.next_batch(&stream, |_| ()).await?.is_some() {
+            rest += 1;
+        }
+        assert_eq!(rest + 1, results as usize);
+        assert!(client.core().is_ready());
+        Ok::<(), TestError>(())
+    })?;
+    Ok(())
+}
+
+/// A stream over the simulated network whose writes stop being taken once `stalled` is set, as a peer that stopped
+/// reading leaves them; its halves stall together.
+#[derive(Debug)]
+struct Stalling {
+    inner: ultragraphdb_protocol_transport_compio::CompioSimStream,
+    stalled: Rc<std::cell::Cell<bool>>,
+}
+
+impl compio::io::AsyncRead for Stalling {
+    async fn read<B: compio::buf::IoBufMut>(&mut self, buf: B) -> compio::BufResult<usize, B> {
+        self.inner.read(buf).await
+    }
+}
+
+impl compio::io::AsyncWrite for Stalling {
+    async fn write<T: compio::buf::IoBuf>(&mut self, buf: T) -> compio::BufResult<usize, T> {
+        if self.stalled.get() {
+            std::future::pending::<()>().await;
+        }
+        self.inner.write(buf).await
+    }
+
+    async fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush().await
+    }
+
+    async fn shutdown(&mut self) -> io::Result<()> {
+        if self.stalled.get() {
+            std::future::pending::<()>().await;
+        }
+        self.inner.shutdown().await
+    }
+}
+
+impl compio::io::util::Splittable for Stalling {
+    type ReadHalf = Self;
+    type WriteHalf = Self;
+
+    fn split(self) -> (Self, Self) {
+        let (read, write) = self.inner.split();
+        let stalled = Rc::clone(&self.stalled);
+        (
+            Self {
+                inner: read,
+                stalled: Rc::clone(&stalled),
+            },
+            Self {
+                inner: write,
+                stalled,
+            },
+        )
+    }
+}
+
+/// Connections over the simulated network whose writes stall once `stalled` is set.
+struct StallConnect {
+    sim: SimConnect,
+    stalled: Rc<std::cell::Cell<bool>>,
+}
+
+impl Connect for StallConnect {
+    type Stream = Stalling;
+
+    async fn connect(&mut self) -> io::Result<Stalling> {
+        Ok(Stalling {
+            inner: self.sim.connect().await?,
+            stalled: Rc::clone(&self.stalled),
+        })
+    }
+}
+
+/// A peer that stops taking frames bounds a request by the timeout: the write blocked on it times out, the connection is
+/// given up, and the request fails, its shutdown bounded the same way.
+#[test]
+fn test_a_write_the_peer_never_takes_times_out() -> TestResult {
+    let rt = compio::runtime::Runtime::new().context("a runtime")?;
+    let scripted = server();
+    let sim = SimConnect::new(SimNetwork::new(3, NetworkFaults::none()));
+    let accepted = Rc::clone(&sim.accepted);
+    let stalled = Rc::new(std::cell::Cell::new(false));
+    let connector = StallConnect {
+        sim,
+        stalled: Rc::clone(&stalled),
+    };
+    let timeout = Duration::from_millis(100);
+    rt.block_on(async {
+        let _server = compio::runtime::spawn(serve_sim(Rc::clone(&scripted), accepted));
+        let mut client = Client::new(connector, config().with_timeout(timeout), Anonymous, 8);
+        client.connect().await?;
+        stalled.set(true);
+        let begun = compio::time::timeout(timeout * 10, client.begin(0, true))
+            .await
+            .map_err(|_| TestError::new("the Begin's write was not bounded by the timeout"))?;
+        assert!(begun.is_err(), "the Begin fails with its connection");
+        assert!(!client.core().is_connected());
         Ok::<(), TestError>(())
     })?;
     Ok(())

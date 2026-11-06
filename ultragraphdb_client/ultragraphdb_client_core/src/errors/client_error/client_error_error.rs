@@ -31,6 +31,7 @@ impl std::error::Error for ClientError {
             | ClientErrorEnum::StreamFinished { .. }
             | ClientErrorEnum::StreamBusy { .. }
             | ClientErrorEnum::StreamLimit { .. }
+            | ClientErrorEnum::BufferLimit { .. }
             | ClientErrorEnum::TransactionMismatch { .. } => None,
         }
     }

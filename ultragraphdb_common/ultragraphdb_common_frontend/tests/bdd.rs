@@ -8,6 +8,7 @@
 mod endpoint_stage;
 mod endpoint_steps;
 mod endpoint_steps_requests;
+mod endpoint_steps_sessions;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};

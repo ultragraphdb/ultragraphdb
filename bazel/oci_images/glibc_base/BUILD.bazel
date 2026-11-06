@@ -1,5 +1,6 @@
 load("@rules_apko//apko:defs.bzl", "apko_image", "apko_lock")
 load("@rules_img//img:convert.bzl", "image_index_from_oci_layout")
+load("@rules_img//img:load.bzl", "image_load")
 load("@rules_img//img:media_types.bzl", "GZIP_LAYER")
 
 # Resolves apko.yaml's packages to exact versions and checksums in apko.lock.json: run it to update the base.
@@ -27,5 +28,26 @@ image_index_from_oci_layout(
         "linux/amd64",
         "linux/arm64",
     ],
+    visibility = ["//visibility:public"],
+)
+
+# Loads the base into the local Docker daemon, which the image scenarios compare a role image's layers against:
+# `bazel run :load -- --platform linux/arm64`.
+image_load(
+    name = "load",
+    image = ":glibc_base_index",
+    registry = "docker.io",
+    repository = "hansenmarvin/ultragraphdb_glibc_base",
+    tag = "dev",
+    visibility = ["//visibility:public"],
+)
+
+# Loads the image under the tag the image scenarios use, so a test run leaves the `dev` tag a developer loads alone.
+image_load(
+    name = "test_load",
+    image = ":glibc_base_index",
+    registry = "docker.io",
+    repository = "hansenmarvin/ultragraphdb_glibc_base",
+    tag = "image-test",
     visibility = ["//visibility:public"],
 )

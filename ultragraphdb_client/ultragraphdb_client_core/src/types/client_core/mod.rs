@@ -187,7 +187,8 @@ impl<L: Login> ClientCore<L> {
 
     /// Whether the last connection was lost before its handshake ended: a server that accepts connections and fails
     /// their handshakes. The shell waits [`ClientConfig::retry_delay`] before connecting again, as after a connection
-    /// it could not make, so the retries of a commit waiting yield and an outer timeout can end them.
+    /// it could not make, so the retries of a commit waiting yield and an outer timeout can end them; each such loss uses
+    /// one of a waiting commit's [`ClientConfig::commit_attempts`], as a connection not made does.
     #[must_use]
     pub fn handshake_lost(&self) -> bool {
         self.handshake_lost
@@ -364,6 +365,20 @@ impl<L: Login> ClientCore<L> {
         })
     }
 
+    /// Takes `more` of the client's frame buffers for its reads, refused as [`ClientError::buffer_limit`] when they would
+    /// not fit beside what the open reads may hold and the frames kept from a lost connection, one buffer left to read
+    /// into. So credit and the buffers agree: every frame the server may send without the caller finds a buffer, and a
+    /// read not yet polled never takes the one a reply needs.
+    fn reserve_buffers(&self, more: u32) -> Result<(), ClientError> {
+        let open: usize = self.streams.values().map(|s| s.buffers as usize).sum();
+        let kept: usize = self.kept_reads.values().map(VecDeque::len).sum();
+        let room = self.config.buffers().saturating_sub(1);
+        if open.saturating_add(kept).saturating_add(more as usize) > room {
+            return Err(ClientError::buffer_limit(self.config.buffers()));
+        }
+        Ok(())
+    }
+
     /// The reads of the transaction of `stream` end with it.
     fn end_reads(&mut self, stream: u64) {
         self.streams.retain(|_, state| state.of != Some(stream));
@@ -467,12 +482,13 @@ impl<L: Login> ClientCore<L> {
 
     /// The connection is gone: streams and queued frames with it; each request waiting fails with `reason`. A commit whose
     /// frame never left on any connection fails as lost; one through no session whose frame left has an unknown outcome; any
-    /// other is retried on the next connection while it has attempts left, else it is in doubt, an attempt being used only
-    /// when its frame left on the connection lost. A read whose last frame had arrived is kept, to be read to its end; any
-    /// other read is cut short and answers `reason`, its transaction aborted with its connection (`PROTOCOL.md` §11.4), so
-    /// nothing of it is retried.
+    /// other is retried on the next connection while it has attempts left, else it is in doubt, an attempt being used when
+    /// its frame left on the connection lost, or when the connection was lost in its handshake. A read whose last frame
+    /// had arrived is kept, to be read to its end; any other read is cut short and answers `reason`, its transaction
+    /// aborted with its connection (`PROTOCOL.md` §11.4), so nothing of it is retried.
     fn lose(&mut self, reason: &ClientError) {
         self.handshake_lost = matches!(self.link, Link::Handshake(_) | Link::Authenticating(..));
+        let handshake_lost = self.handshake_lost;
         self.link = Link::Down;
         self.renewal = None;
         self.principal = None;
@@ -517,7 +533,9 @@ impl<L: Login> ClientCore<L> {
                 }
             } else if request.0 == 0 {
                 pending.outcome = Some(Err(ClientError::outcome_unknown(request.0, request.1)));
-            } else if sent {
+            } else if sent || handshake_lost {
+                // A send lost with its connection uses an attempt, and so does a connection lost in its handshake while
+                // the commit waits for it, as one not made does: a server refusing every handshake ends the retries.
                 pending.tries = pending.tries.saturating_add(1);
                 if pending.tries >= attempts {
                     pending.mark_in_doubt(request, state, Some(reason.clone()));

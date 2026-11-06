@@ -138,7 +138,7 @@ fn perform(group: &mut Group, command: &MetadataCommand) -> Result<(), ClusterEr
             .create_principal(name, verifier.clone(), *administrator)
             .map(drop),
         MetadataCommand::RegisterSession { session, .. } => {
-            group.register_session(*session, "p2").map(drop)
+            group.register_session(*session, "p2", |_| false).map(drop)
         }
         MetadataCommand::LearnClose {
             epoch,

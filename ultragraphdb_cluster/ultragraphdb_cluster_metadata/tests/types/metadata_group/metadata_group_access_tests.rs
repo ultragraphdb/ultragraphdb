@@ -4,7 +4,7 @@
  */
 
 use ultragraphdb_cluster_metadata::MetadataConfig;
-use ultragraphdb_error_cluster::ClusterError;
+use ultragraphdb_error_cluster::{ClusterError, ClusterErrorEnum};
 use ultragraphdb_protocol_scram::{MIN_ITERATIONS, ScramVerifier};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_log::Position;
@@ -155,23 +155,29 @@ fn test_removing_principals() -> TestResult {
 #[test]
 fn test_sessions_register_and_evict_the_oldest_past_sessions_max() -> TestResult {
     let (_storage, mut group) = fresh_with(MetadataConfig::new().with_sessions_max(2)?)?;
-    let unknown = group.register_session(1, "ann").err().context("refused")?;
+    let unknown = group
+        .register_session(1, "ann", |_| false)
+        .err()
+        .context("refused")?;
     assert_eq!(unknown.0, ClusterError::unknown_principal("ann").0);
     let _: (u64, Position) =
         group.create_principal("ann", verifier("ann's password!", 1)?, false)?;
-    assert!(group.register_session(1, "ann")?.0.is_empty());
-    let twice = group.register_session(1, "ann").err().context("refused")?;
+    assert!(group.register_session(1, "ann", |_| false)?.0.is_empty());
+    let twice = group
+        .register_session(1, "ann", |_| false)
+        .err()
+        .context("refused")?;
     assert_eq!(twice.0, ClusterError::session_exists(1).0);
-    assert!(group.register_session(2, "ann")?.0.is_empty());
-    let (third, _) = group.register_session(3, "ann")?;
+    assert!(group.register_session(2, "ann", |_| false)?.0.is_empty());
+    let (third, _) = group.register_session(3, "ann", |_| false)?;
     assert_eq!(third, vec![1]);
-    let (fourth, _) = group.register_session(4, "ann")?;
+    let (fourth, _) = group.register_session(4, "ann", |_| false)?;
     assert_eq!(fourth, vec![2]);
     sync(&mut group)?;
     assert_eq!(group.state().sessions(), 2);
     assert_eq!(group.state().pending_evictions(), vec![1, 2]);
     // An evicted session may register again, as a new one.
-    let (again, _) = group.register_session(1, "ann")?;
+    let (again, _) = group.register_session(1, "ann", |_| false)?;
     assert_eq!(again, vec![3]);
     // The next close carries the evictions to the partitions.
     sync(&mut group)?;
@@ -181,17 +187,66 @@ fn test_sessions_register_and_evict_the_oldest_past_sessions_max() -> TestResult
 }
 
 #[test]
+fn test_a_registration_evicts_the_oldest_session_free_of_a_commit_in_flight() -> TestResult {
+    let config = MetadataConfig::new().with_sessions_max(2)?;
+    let (storage, mut group) = fresh_with(config)?;
+    let _: (u64, Position) =
+        group.create_principal("ann", verifier("ann's password!", 1)?, false)?;
+    for session in [1, 2] {
+        let _: (Vec<u128>, Position) = group.register_session(session, "ann", |_| false)?;
+    }
+    sync(&mut group)?;
+    let (evicted, _) = group.register_session(3, "ann", |session| session == 1)?;
+    assert_eq!(evicted, vec![2]);
+    // Appended and not yet durable: the state still holds the session the registration evicts, and the group says it does not.
+    assert!(group.state().session_principal(2).is_ok());
+    assert!(!group.holds_session(2) && group.holds_session(1) && group.holds_session(3));
+    sync(&mut group)?;
+    let recovered = crate::utils::harness::crash_and_recover(&storage, config, None)?;
+    for state in [group.state(), recovered.state()] {
+        assert_eq!(state.sessions(), 2);
+        assert!(state.session_principal(1).is_ok() && state.session_principal(3).is_ok());
+        assert!(state.session_principal(2).is_err());
+        assert_eq!(state.pending_evictions(), vec![2]);
+    }
+    Ok(())
+}
+
+#[test]
+fn test_a_full_registry_of_commits_in_flight_refuses_a_registration() -> TestResult {
+    let (_storage, mut group) = fresh_with(MetadataConfig::new().with_sessions_max(2)?)?;
+    let _: (u64, Position) =
+        group.create_principal("ann", verifier("ann's password!", 1)?, false)?;
+    for session in [1, 2] {
+        let _: (Vec<u128>, Position) = group.register_session(session, "ann", |_| false)?;
+    }
+    sync(&mut group)?;
+    let refused = group
+        .register_session(3, "ann", |_| true)
+        .err()
+        .context("refused")?;
+    assert!(matches!(
+        refused.0,
+        ClusterErrorEnum::Full { capacity: 2, .. }
+    ));
+    assert!(group.holds_session(1) && group.holds_session(2) && !group.holds_session(3));
+    let (evicted, _) = group.register_session(3, "ann", |session| session == 1)?;
+    assert_eq!(evicted, vec![2]);
+    Ok(())
+}
+
+#[test]
 fn test_a_registry_past_a_lowered_sessions_max_evicts_down_to_it() -> TestResult {
     let (storage, mut group) = fresh_with(MetadataConfig::new().with_sessions_max(4)?)?;
     let _: (u64, Position) =
         group.create_principal("ann", verifier("ann's password!", 1)?, false)?;
     for session in 1..=4 {
-        let _: (Vec<u128>, Position) = group.register_session(session, "ann")?;
+        let _: (Vec<u128>, Position) = group.register_session(session, "ann", |_| false)?;
     }
     sync(&mut group)?;
     let config = MetadataConfig::new().with_sessions_max(2)?;
     let mut lowered = crate::utils::harness::crash_and_recover(&storage, config, None)?;
-    let (evicted, _) = lowered.register_session(5, "ann")?;
+    let (evicted, _) = lowered.register_session(5, "ann", |_| false)?;
     assert_eq!(evicted, vec![1, 2, 3]);
     sync(&mut lowered)?;
     assert_eq!(lowered.state().sessions(), 2);
@@ -227,7 +282,7 @@ fn test_removing_a_principal_evicts_its_sessions_and_replays() -> TestResult {
     let _: (u64, Position) =
         group.create_principal("ann", verifier("ann's password!", 2)?, false)?;
     for (session, principal) in [(10, "ann"), (20, "root"), (30, "ann")] {
-        let (evicted, _) = group.register_session(session, principal)?;
+        let (evicted, _) = group.register_session(session, principal, |_| false)?;
         assert!(evicted.is_empty());
     }
     // The last administrator stays, and so do its sessions.

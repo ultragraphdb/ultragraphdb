@@ -9,11 +9,12 @@
 mod utils;
 
 pub use crate::utils::harness::{
-    ADMIN_KEY, CONFIG_ADDRESS, CONFIG_BINARY, DOUBLE_ADDRESS, DOUBLE_REVISION, READ_KEY, SECRET,
-    START_SECONDS, TARGET, answering, bootstrap, config_folder, config_process, exit_is,
-    fresh_data, frontend_holding, holding, key_file, members_at, process, role, role_of_service,
-    scratch, served_by_double, start_config_service, start_double, storage_holding,
-    until_answering, with,
+    ADMIN_KEY, CONFIG_ADDRESS, CONFIG_BINARY, DOUBLE_ADDRESS, DOUBLE_REVISION, PARENT_PID,
+    READ_KEY, SECRET, START_SECONDS, TARGET, answering, bootstrap, config_folder, config_folder_at,
+    config_process, exit_is, fresh_data, frontend_holding, holding, key_file, members_at, process,
+    role, role_of_service, scratch, served_by_double, start_config_service,
+    start_config_service_at, start_double, storage_holding, until_answering, until_ports_free,
+    with,
 };
 pub use crate::utils::http_status::{http_body, http_status};
 pub use crate::utils::one_host::{

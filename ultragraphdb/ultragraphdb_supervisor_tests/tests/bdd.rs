@@ -5,6 +5,9 @@
 
 //! The supervisor as a process, bound to `features/`, with no container: the shipped `dev` profile with its paths and ports
 //! moved into the test's own, run by the real binaries. One scenario runs at a time: the binaries listen at their declared ports.
+//! The `image_bdd` target runs the scenarios tagged `@image` and `@docker` in Docker instead, through `images`.
+
+mod images;
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -63,6 +66,7 @@ struct Steps {
     root: PathBuf,
     running: Option<(ServiceUtil, u32)>,
     sockets: PathBuf,
+    containers: images::Containers,
 }
 
 /// A scenario that failed midway still stops what it started, so the next finds its ports free.
@@ -541,6 +545,31 @@ fn secrets_drawn(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
+/// Where the development profile keeps the bootstrap administrator's password, under the data directory.
+const BOOTSTRAP_SECRET: &str = "config/bootstrap.secret";
+
+#[when(
+    "the development container has started, the bootstrap administrator's password file is removed, and the container starts again over the same data directory"
+)]
+fn bootstrap_removed(w: &mut Steps) -> TestResult {
+    write_profile(w)?;
+    start_to_ready(w)?;
+    let password = w.root.join("data").join(BOOTSTRAP_SECRET);
+    assert!(password.is_file(), "the first start drew the password");
+    let (util, pid) = w.running.take().context("a running supervisor")?;
+    exit_is(Some(util.stop_service(pid)?), "the first stop", 0)?;
+    std::fs::remove_file(&password)?;
+    start_to_ready(w)
+}
+
+#[then("no file stands at the password's path, and the restart reached readiness")]
+fn bootstrap_stays_removed(w: &mut Steps) -> TestResult {
+    let password = w.root.join("data").join(BOOTSTRAP_SECRET);
+    assert!(!password.exists(), "{} was drawn again", password.display());
+    assert_eq!(http_status(FRONTEND_OBSERVABILITY, "/ready")?, 200);
+    Ok(())
+}
+
 #[when("the supervisor cannot finish writing the admin key it draws")]
 fn draw_cut_short(w: &mut Steps) -> TestResult {
     write_profile(w)?;
@@ -812,17 +841,28 @@ fn help_names_codes(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
+/// In Docker, the development image under the runtime's own profile; on this host, the supervised roles.
 #[when("a role starts under Docker's default seccomp profile")]
 fn under_default_seccomp(w: &mut Steps) -> TestResult {
+    if images::in_docker() {
+        return images::start_development(&mut w.containers, images::Seccomp::Default);
+    }
     write_profile(w)?;
     start_to_ready(w)?;
     read_log(w)
 }
 
-/// io_uring exists on Linux alone, so everywhere else this is the refusal itself. On Linux with io_uring allowed the same role
-/// says it runs on io_uring; task 11.4 runs this under Docker's profile.
+/// In Docker, every role on the polling driver and a write and a read through the frontend. On this host io_uring exists on
+/// Linux alone, so everywhere else this is the refusal itself, and on Linux with io_uring allowed the same role says it runs
+/// on io_uring.
 #[then("it starts on the polling driver, logs that it does, and serves requests")]
 fn on_polling(w: &mut Steps) -> TestResult {
+    if images::in_docker() {
+        images::on_driver(&w.containers, "polling", "io_uring")?;
+        let rows = images::write_and_read(&w.containers)?;
+        assert!(!rows.is_empty(), "{}", w.containers.log);
+        return Ok(());
+    }
     let polling = w.log.contains("on the polling driver");
     let allowed = cfg!(target_os = "linux") && w.log.contains("on the io_uring driver");
     assert!(polling || allowed, "{}", w.log);
@@ -830,14 +870,75 @@ fn on_polling(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
+#[when("the storage image is built")]
+fn storage_image_built(w: &mut Steps) -> TestResult {
+    images::storage_image(&mut w.containers)
+}
+
+#[then(
+    "it holds the storage binary as its entrypoint on the glibc base, for amd64 and arm64, runs as user 65532, and holds no shell and no other role's binary"
+)]
+fn storage_image_alone(w: &mut Steps) -> TestResult {
+    images::storage_image_holds_its_binary(&w.containers)
+}
+
+#[when("the development image starts with its default profile")]
+fn development_started(w: &mut Steps) -> TestResult {
+    images::start_development(&mut w.containers, images::Seccomp::Default)
+}
+
+#[then(
+    "the frontend and compute connect through `unix:///run/ultragraph/<role>.sock`, each partition through `unix:///run/ultragraph/storage-p<partition>.sock`, and a write and a read through the frontend succeed"
+)]
+fn development_unix(w: &mut Steps) -> TestResult {
+    images::development_over_unix(&w.containers)
+}
+
+#[when("the three roles run in three containers configured with `tcp://` addresses")]
+fn three_hosts(w: &mut Steps) -> TestResult {
+    images::start_three_hosts(&mut w.containers)
+}
+
+#[then(
+    "the same write and read succeed, and the read's rows are byte-identical to the Unix-socket run's"
+)]
+fn same_rows(w: &mut Steps) -> TestResult {
+    images::same_rows_over_both(&mut w.containers)
+}
+
+#[when("a role starts under the shipped seccomp profile")]
+fn under_shipped_seccomp(w: &mut Steps) -> TestResult {
+    images::start_development(&mut w.containers, images::Seccomp::Shipped)
+}
+
+#[then("it starts on io_uring and logs that it does")]
+fn on_io_uring(w: &mut Steps) -> TestResult {
+    images::on_driver(&w.containers, "io_uring", "polling")
+}
+
+/// `bdd` runs every feature but those tagged `@image`; `image_bdd` runs those and the ones tagged `@docker`, in Docker, and
+/// says so plainly when no daemon answers, as scrith's container tests skip.
 fn main() -> TestResult {
+    let in_docker = images::in_docker();
+    if in_docker && !images::docker_answers() {
+        println!("SKIPPED: no Docker daemon answered `docker version`, so no image scenario ran");
+        return Ok(());
+    }
     futures::executor::block_on(
         Steps::cucumber()
             .max_concurrent_scenarios(1)
             .fail_on_skipped()
-            .filter_run_and_exit(ultragraphdb_tool_bdd::features_dir()?, |feature, _, _| {
-                !feature.tags.iter().any(|tag| tag == "image")
-            }),
+            .filter_run_and_exit(
+                ultragraphdb_tool_bdd::features_dir()?,
+                move |feature, _, _| {
+                    let tagged = |name: &str| feature.tags.iter().any(|tag| tag == name);
+                    if in_docker {
+                        tagged("image") || tagged("docker")
+                    } else {
+                        !tagged("image")
+                    }
+                },
+            ),
     );
     Ok(())
 }

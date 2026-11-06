@@ -12,8 +12,8 @@ use ultragraphdb_protocol_wire::{Command, FLAG_LAST};
 use crate::errors::client_error::ClientError;
 
 /// One open stream of the connection: the request waiting on it for its one reply, the transaction it carries, the
-/// result being read on it with its frames arrived and its credit, the transaction a read's stream runs in, the refusal
-/// it ended with, a read's last progress, and the transaction's reads' deadline.
+/// result being read on it with its frames arrived, its credit and the frame buffers it may hold, the transaction a read's
+/// stream runs in, the refusal it ended with, a read's last progress, and the transaction's reads' deadline.
 #[derive(Debug, Default)]
 pub(crate) struct StreamState {
     pub pending: Option<u64>,
@@ -21,6 +21,8 @@ pub(crate) struct StreamState {
     pub results: bool,
     pub inbox: VecDeque<ReceivedFrame>,
     pub credit: u32,
+    /// The frame buffers a read holds or may be sent without its caller: its frames arrived, its credit and a refusal.
+    pub buffers: u32,
     pub of: Option<u64>,
     pub failed: Option<ClientError>,
     pub progress: Option<Instant>,

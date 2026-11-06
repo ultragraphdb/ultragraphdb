@@ -11,6 +11,7 @@ mod role_read_steps;
 
 use compio::runtime::Runtime;
 use cucumber::{World, then, when};
+use futures::FutureExt;
 use service_utils::{ServiceUtil, WaitStrategy};
 use std::path::Path;
 use std::process::ExitStatus;
@@ -23,14 +24,18 @@ use ultragraphdb_protocol_wire::{
     BodyView, EpochCloseView, Lease, LeaseView, Placement, PlacementView, Subscribe,
 };
 use ultragraphdb_tests::{
-    CLIENT_ADDRESS, CLUSTER, COMPUTE_BINARY, FRONTEND_BINARY, FRONTEND_OBSERVABILITY,
-    FRONTEND_ROLE_ADDRESS, SECRET, START_SECONDS, STORAGE_BINARY, answering, exit_is,
-    frontend_holding, role, scratch, start_double,
+    CLIENT_ADDRESS, CLUSTER, COMPUTE_BINARY, DOUBLE_ADDRESS, FRONTEND_BINARY,
+    FRONTEND_OBSERVABILITY, FRONTEND_ROLE_ADDRESS, PARENT_PID, SECRET, START_SECONDS,
+    STORAGE_BINARY, answering, bootstrap, exit_is, frontend_holding, process, render_settings,
+    role, scratch, served_by_double, start_double, until_ports_free, with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 /// Where the sandbox holds the binaries, relative to the test's working directory: `copy_file` writes them to this package.
 const ROOT_PATH: &str = "ultragraphdb/ultragraphdb_frontend_tests";
+
+/// The addresses a role of these scenarios holds beyond those every suite declares: none.
+const OWN_ADDRESSES: [(&str, &str); 0] = [];
 
 pub(crate) fn services() -> TestResult<ServiceUtil> {
     Ok(ServiceUtil::new(
@@ -198,11 +203,45 @@ fn names_frontend_address(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
+#[when("a role starts with `ULTRAGRAPHDB_PARENT_PID` naming a process that is not its parent")]
+fn parent_gone(w: &mut Steps) -> TestResult {
+    let log = scratch("frontend-parent.log");
+    let instance = served_by_double(FRONTEND_BINARY, &render_settings(&frontend_holding()?));
+    // No process holds the largest identity, so it is no parent of the role's.
+    let named = with(
+        bootstrap(DOUBLE_ADDRESS, &instance),
+        PARENT_PID,
+        &u32::MAX.to_string(),
+    );
+    let util = services()?;
+    let pid = util.start_service_from_config(process(
+        FRONTEND_BINARY,
+        named,
+        &log,
+        WaitStrategy::NoWait,
+    ))?;
+    w.exited = Some(util.wait_for_exit(pid, Duration::from_secs(START_SECONDS))?);
+    w.log = std::fs::read_to_string(&log)?;
+    Ok(())
+}
+
+#[then("it stops as on SIGTERM and exits with code 0")]
+fn stopped_with_its_parent(w: &mut Steps) -> TestResult {
+    exit_is(w.exited, &w.log, 0)
+}
+
 fn main() -> TestResult {
     start_double()?;
     futures::executor::block_on(
         Steps::cucumber()
             .max_concurrent_scenarios(1)
+            .before(|_, _, _, _| {
+                async {
+                    let freed = until_ports_free(&OWN_ADDRESSES);
+                    assert!(freed.is_ok(), "{freed:?}");
+                }
+                .boxed_local()
+            })
             .fail_on_skipped()
             .run_and_exit(ultragraphdb_tool_bdd::features_dir()?),
     );

@@ -109,20 +109,23 @@ impl<L: OrderedLog> MetadataGroup<L> {
         Ok((evicts, position))
     }
 
-    /// Registers `session` for the principal `principal`, evicting the least recently registered sessions when the
-    /// registry holds `sessions_max`, at most 4,096 at once; returns the sessions evicted, which the sequencer's next
-    /// close carries, and the position it was appended at. The registration is answered once a sync makes that position
-    /// durable.
+    /// Registers `session` for the principal `principal`, evicting the least recently registered sessions for which
+    /// `in_flight` is false when the registry holds `sessions_max`, at most 4,096 at once, so a session whose commit the
+    /// frontend has checked and not seen answered stays registered; returns the sessions evicted, oldest first, which the
+    /// sequencer's next close carries, and the position it was appended at. The registration is answered once a sync makes
+    /// that position durable.
     ///
     /// # Errors
     ///
     /// [`ClusterError::unknown_principal`] naming `principal`; [`ClusterError::session_exists`] naming `session`;
-    /// [`ClusterError::full`] when the evictions awaiting a close would pass
+    /// [`ClusterError::full`] naming `sessions_max` when too few sessions are free of a commit in flight to make room, or
+    /// when the evictions awaiting a close would pass
     /// [`MetadataState::EVICTIONS_PENDING_MAX`](crate::MetadataState::EVICTIONS_PENDING_MAX); [`ClusterError::log`].
     pub fn register_session(
         &mut self,
         session: u128,
         principal: &str,
+        in_flight: impl Fn(u128) -> bool,
     ) -> Result<(Vec<u128>, Position), ClusterError> {
         let id = self
             .head
@@ -130,19 +133,36 @@ impl<L: OrderedLog> MetadataGroup<L> {
             .map(|held| held.id())
             .ok_or_else(|| ClusterError::unknown_principal(principal))?;
         let max = self.config.sessions_max() as usize;
-        let over = (self.head.sessions() + 1).saturating_sub(max);
+        let over = (self.head.sessions() + 1)
+            .saturating_sub(max)
+            .min(MetadataCommand::EVICTIONS_MAX);
         let evicts: Vec<u128> = self
             .head
             .sessions
             .iter()
-            .take(over.min(MetadataCommand::EVICTIONS_MAX))
             .map(|(held, _)| *held)
+            .filter(|held| !in_flight(*held))
+            .take(over)
             .collect();
+        if evicts.len() < over {
+            return Err(ClusterError::full(
+                "the session registry, its other sessions each with a commit in flight,",
+                max,
+            ));
+        }
         let position = self.append(MetadataCommand::RegisterSession {
             session,
             principal: id,
             evicts: evicts.clone(),
         })?;
         Ok((evicts, position))
+    }
+
+    /// Whether every command appended, durable or not, leaves `session` registered: a registration appended and not yet
+    /// durable may have evicted it, which [`state`](Self::state) does not show until the sync, and a commit through it
+    /// passing the frontend's owner check then would reach its partition after the eviction.
+    #[must_use]
+    pub fn holds_session(&self, session: u128) -> bool {
+        self.head.session_principal(session).is_ok()
     }
 }

@@ -10,7 +10,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use ultragraphdb_client_core::{ClientConfig, ClientCore, ClientError, Pending, Reply};
 use ultragraphdb_protocol_transport::{
-    BufferPool, FrameStep, Framer, Login, ReceivedFrame, TransportError,
+    BufferPool, FrameStep, Framer, Login, PooledBuffer, ReceivedFrame, TransportError,
 };
 use ultragraphdb_protocol_wire::MAX_FRAME_SIZE;
 
@@ -32,44 +32,80 @@ fn unix_micros() -> u64 {
         .map_or(0, |since| since.as_micros() as u64)
 }
 
+/// Reads into `bytes` until it holds `want` bytes: `false` when the peer closed first. What a read took stays in `bytes`
+/// whatever happens to the future, since `read_buf` either fills or takes nothing.
+async fn fill<S: AsyncRead + Unpin>(
+    stream: &mut S,
+    bytes: &mut Vec<u8>,
+    want: usize,
+) -> std::io::Result<bool> {
+    // Ends: each turn reads at least one byte toward `want`, or returns.
+    while bytes.len() < want {
+        let room = (want - bytes.len()) as u64;
+        match (&mut *stream).take(room).read_buf(bytes).await {
+            Ok(0) => return Ok(false),
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(true)
+}
+
 /// The next frame of `stream`, read as `framer` asks into a buffer of `pool`: `read_buf` fills the buffer's spare
-/// capacity, the pool's, so the bytes land where the frame stays.
+/// capacity, the pool's, so the bytes land where the frame stays. The frame being read is `incoming`, its buffer and the
+/// bytes taken out of it, kept by the caller: a read cut at any `.await` loses nothing, and the next call goes on from
+/// where it stood. With no buffer free it waits for one, reading nothing, so a full pool holds the server back.
 async fn read_frame<S: AsyncRead + Unpin>(
     stream: &mut S,
     framer: &mut Framer,
     pool: &BufferPool,
+    incoming: &mut Option<(PooledBuffer, Vec<u8>)>,
 ) -> Result<ReceivedFrame, TransportError> {
-    let mut buffer = pool.acquire()?;
-    framer.reset();
     // Ends: the framer asks for the header and then the frame's size, and a read of no bytes ends the frame.
     loop {
-        let mut bytes = buffer.take();
-        while bytes.len() < framer.want() {
-            let room = (framer.want() - bytes.len()) as u64;
-            match (&mut *stream).take(room).read_buf(&mut bytes).await {
-                Ok(0) => {
-                    let received = bytes.len();
-                    buffer.restore(bytes);
-                    return Err(framer.closed(received));
-                }
-                Ok(_) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-                Err(error) => {
-                    buffer.restore(bytes);
-                    framer.reset();
-                    return Err(TransportError::io(&error));
-                }
+        let (_, into) = match incoming {
+            Some(held) => held,
+            None => {
+                let mut buffer = pool.acquire_waiting().await;
+                framer.reset();
+                let taken = buffer.take();
+                incoming.insert((buffer, taken))
+            }
+        };
+        let filled = fill(stream, into, framer.want()).await;
+        // Nothing awaits between here and the frame's next fill, so its buffer is taken out and put back whole.
+        let Some((mut buffer, read)) = incoming.take() else {
+            continue;
+        };
+        let received = read.len();
+        buffer.restore(read);
+        match filled {
+            Ok(true) => {}
+            Ok(false) => return Err(framer.closed(received)),
+            Err(error) => {
+                framer.reset();
+                return Err(TransportError::io(&error));
             }
         }
-        buffer.restore(bytes);
         match framer.advance(&buffer) {
-            Ok(FrameStep::Read(_)) => {}
+            Ok(FrameStep::Read(_)) => {
+                let more = buffer.take();
+                *incoming = Some((buffer, more));
+            }
             Ok(FrameStep::Frame) => return Ok(framer.finish(buffer)),
             Err(refusal) => {
                 framer.reset();
                 return Err(refusal);
             }
         }
+    }
+}
+
+/// The frame `incoming` held, given up with its connection: its bytes put back, so the pool takes back its buffer whole.
+fn discard(incoming: &mut Option<(PooledBuffer, Vec<u8>)>) {
+    if let Some((mut buffer, bytes)) = incoming.take() {
+        buffer.restore(bytes);
     }
 }
 
@@ -80,9 +116,11 @@ async fn read_frame<S: AsyncRead + Unpin>(
 /// whose frames are numbered from 1. Every operation of the protocol is the core's.
 ///
 /// A caller dropping one of this client's futures at an `.await` leaves the core whole: its requests stay as they
-/// stand and answer on the next call, a commit's among them. A read of the connection cut inside a frame leaves the
-/// stream between frames no more, and the next read refuses what it finds, which gives the connection up and retries
-/// a commit waiting on the next, as the protocol's own loss does.
+/// stand and answer on the next call, a commit's among them. A frame read in part when its future is dropped, or when a
+/// deadline of the core's passes, stays as far as it was read, and the next read goes on from there, so only a real
+/// timeout, a failure or a close gives the connection up: a busy commit's resend and a credential's renewal go out on it
+/// while its reads go on. The core opens a read only while the pool holds what its credit can bring, and a full pool
+/// reads nothing until a frame gives its buffer back.
 #[derive(Debug)]
 pub struct Client<C: Connect, L: Login> {
     connector: C,
@@ -90,21 +128,26 @@ pub struct Client<C: Connect, L: Login> {
     pool: BufferPool,
     framer: Framer,
     stream: Option<C::Stream>,
+    /// The frame being read, in its buffer, its bytes taken out to be read into.
+    incoming: Option<(PooledBuffer, Vec<u8>)>,
     failure: Option<ClientError>,
 }
 
 impl<C: Connect, L: Login> Client<C, L> {
     /// A client configured by `config`, authenticating through `login`, connecting through `connector` when first
-    /// asked; its pool holds `buffers` frame buffers of 1 MiB, the most frames it holds at once.
+    /// asked; its pool holds `buffers` frame buffers of 1 MiB, at least 2, the most frames it holds at once, which the
+    /// core's [`ClientConfig::with_buffers`] is set to.
     #[must_use]
     pub fn new(connector: C, config: ClientConfig, login: L, buffers: usize) -> Self {
+        let config = config.with_buffers(buffers);
         let framer = Framer::new(config.cluster(), MAX_FRAME_SIZE);
         Self {
             connector,
+            pool: BufferPool::new(config.buffers(), MAX_FRAME_SIZE),
             core: ClientCore::new(config, login),
-            pool: BufferPool::new(buffers.max(2), MAX_FRAME_SIZE),
             framer,
             stream: None,
+            incoming: None,
             failure: None,
         }
     }
@@ -146,28 +189,35 @@ impl<C: Connect, L: Login> Client<C, L> {
             Err(_) => return Err(ClientError::timed_out()),
         };
         self.stream = Some(stream);
+        discard(&mut self.incoming);
         self.framer = Framer::new(self.core.config().cluster(), MAX_FRAME_SIZE);
         self.core.connect(now(), unix_micros())
     }
 
     /// Shuts the connection down, if any.
     async fn shut(&mut self) {
+        discard(&mut self.incoming);
         if let Some(mut stream) = self.stream.take() {
-            // The connection is given up, so a failed shutdown is dropped.
-            drop(stream.shutdown().await);
+            // The connection is given up, so a failed shutdown, or one the peer does not take within the timeout, is dropped.
+            drop(tokio::time::timeout(self.core.config().timeout(), stream.shutdown()).await);
         }
     }
 
-    /// Writes every frame the core queued; a failure is the connection's, and the shell's answer when nothing else is.
+    /// Writes every frame the core queued, each within the timeout; a failure is the connection's, and the shell's answer
+    /// when nothing else is. A peer that takes no frame within the timeout has stopped reading, and the write times out.
     async fn flush(&mut self) {
+        let timeout = self.core.config().timeout();
         while let Some(frame) = self.core.transmit() {
             let Some(stream) = self.stream.as_mut() else {
                 return;
             };
-            let written = match stream.write_all(&frame).await {
-                Ok(()) => stream.flush().await,
-                Err(error) => Err(error),
+            let writing = async {
+                stream.write_all(&frame).await?;
+                stream.flush().await
             };
+            let written = tokio::time::timeout(timeout, writing)
+                .await
+                .unwrap_or_else(|_| Err(std::io::ErrorKind::TimedOut.into()));
             if let Err(error) = written {
                 let error = TransportError::io(&error);
                 self.core.disconnected(error.clone(), now());
@@ -227,7 +277,7 @@ impl<C: Connect, L: Login> Client<C, L> {
                 self.core.handle_timeout(deadline);
                 continue;
             };
-            let read = read_frame(stream, &mut self.framer, &self.pool);
+            let read = read_frame(stream, &mut self.framer, &self.pool, &mut self.incoming);
             match tokio::time::timeout_at(deadline.into(), read).await {
                 Ok(Ok(frame)) => {
                     if let Err(error) = self.core.receive(frame, now()) {
@@ -236,6 +286,15 @@ impl<C: Connect, L: Login> Client<C, L> {
                     if let Some(welcome) = self.core.welcome() {
                         self.framer.set_protocol(welcome.protocol());
                     }
+                    // A deadline passed by the time the frame was read is taken once it is: a resend or a renewal due goes
+                    // out, and a timeout counts from the frame's progress.
+                    let read_at = now();
+                    if self.core.next_deadline().is_some_and(|due| due <= read_at) {
+                        self.core.handle_timeout(read_at);
+                        if !self.core.is_connected() {
+                            self.shut().await;
+                        }
+                    }
                 }
                 Ok(Err(error)) => {
                     self.core.disconnected(error.clone(), now());
@@ -243,13 +302,12 @@ impl<C: Connect, L: Login> Client<C, L> {
                     self.stream = None;
                 }
                 Err(_) => {
-                    // The read was cut where it stood, possibly inside a frame, so the stream cannot be read on: a
-                    // connection the core still holds is given up, and a commit waiting is retried on the next.
+                    // A deadline passed: the frame being read stays as far as it was read, and the next turn reads on.
+                    // The core decides what the deadline was; only a real timeout gives the connection up.
                     self.core.handle_timeout(now());
-                    if self.core.is_connected() {
-                        self.core.disconnected(TransportError::closed(), now());
+                    if !self.core.is_connected() {
+                        self.shut().await;
                     }
-                    self.shut().await;
                 }
             }
         }

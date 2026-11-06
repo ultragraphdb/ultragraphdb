@@ -3,8 +3,14 @@
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 #
 
+load("@aspect_bazel_lib//lib:tar.bzl", "tar")
 load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_img//img:image.bzl", "image_index", "image_manifest")
+load("@rules_img//img:layer.bzl", "file_metadata", "image_layer", "layer_from_tar")
+load("@rules_img//img:load.bzl", "image_load")
+load("@rules_img//img:push.bzl", "image_push")
 load("//bazel:binary.bzl", "static_binary")
+load("//bazel/container:img.bzl", "GLIBC_BASE", "GNU_PLATFORMS", "sha256_tag")
 
 # No library: `main` and `service`, the start, the watch and the stop of what the development container runs.
 static_binary(
@@ -13,4 +19,112 @@ static_binary(
     tags = ["supervisor_binary"],
     visibility = ["//visibility:public"],
     deps = all_crate_deps(normal = True),
+)
+
+# The development image: the supervisor, the config service and the three roles in one directory, since the supervisor
+# starts the binaries standing beside it.
+image_layer(
+    name = "development_binaries_layer",
+    srcs = {
+        "/ultragraphdb_compute": "//ultragraphdb/ultragraphdb_compute",
+        "/ultragraphdb_config": "//ultragraphdb/ultragraphdb_config",
+        "/ultragraphdb_frontend": "//ultragraphdb/ultragraphdb_frontend",
+        "/ultragraphdb_storage": "//ultragraphdb/ultragraphdb_storage",
+        "/ultragraphdb_supervisor": ":ultragraphdb_supervisor",
+    },
+    include_runfiles = False,
+)
+
+# The shipped profiles under /etc/ultragraphdb/profiles/, where their central files name them, as the package lays them, owned by root and readable by all.
+image_layer(
+    name = "development_profiles_layer",
+    srcs = {
+        "/etc/ultragraphdb/": "//ultragraphdb/ultragraphdb_config:profiles",
+    },
+    default_metadata = file_metadata(
+        gid = 0,
+        mode = "0644",
+        uid = 0,
+    ),
+    multi_file_layout = "package_relative",
+)
+
+# `/data` and `/run/ultragraph`, the two directories the roles write, which neither the supervisor nor `listen` creates:
+# owned by the image's user, 65532, and writable by it alone. A tar, since a layer sets no directory's owner.
+tar(
+    name = "development_directories",
+    srcs = [],
+    mtree = [
+        "./data uid=65532 gid=65532 mode=0700 time=0 type=dir",
+        "./run uid=0 gid=0 mode=0755 time=0 type=dir",
+        "./run/ultragraph uid=65532 gid=65532 mode=0700 time=0 type=dir",
+    ],
+)
+
+layer_from_tar(
+    name = "development_directories_layer",
+    src = ":development_directories",
+)
+
+# Manual: the base holds Linux images only, so the manifest builds through the index's platform transition. Runs as the
+# base's nonroot user, on the `dev` profile, the client endpoint at 7080.
+image_manifest(
+    name = "development_manifest",
+    base = GLIBC_BASE,
+    cmd = [
+        "--config",
+        "/etc/ultragraphdb/profiles/dev.toml",
+    ],
+    entrypoint = ["/ultragraphdb_supervisor"],
+    layers = [
+        ":development_binaries_layer",
+        ":development_profiles_layer",
+        ":development_directories_layer",
+    ],
+    tags = ["manual"],
+    user = "65532",
+)
+
+# Build for amd64 and arm64 with `-c opt`.
+image_index(
+    name = "development_multiarch",
+    manifests = [":development_manifest"],
+    platforms = GNU_PLATFORMS,
+    visibility = ["//visibility:public"],
+)
+
+# A tag naming the image by its own content.
+sha256_tag(
+    name = "development_tag",
+    image = ":development_multiarch",
+)
+
+# Loads the image into the local Docker daemon: `bazel run -c opt :development_load -- --platform linux/arm64`.
+image_load(
+    name = "development_load",
+    image = ":development_multiarch",
+    registry = "docker.io",
+    repository = "hansenmarvin/ultragraphdb_development",
+    tag = "dev",
+    visibility = ["//visibility:public"],
+)
+
+# Loads the image under the tag the image scenarios use, so a test run leaves the `dev` tag a developer loads alone.
+image_load(
+    name = "development_test_load",
+    image = ":development_multiarch",
+    registry = "docker.io",
+    repository = "hansenmarvin/ultragraphdb_development",
+    tag = "image-test",
+    visibility = ["//visibility:public"],
+)
+
+# `bazel build` only produces the pusher; `bazel run -c opt` publishes. Credentials come from the Docker configuration.
+image_push(
+    name = "push",
+    image = ":development_multiarch",
+    registry = "index.docker.io",
+    repository = "hansenmarvin/ultragraphdb_development",
+    tag_file = ":development_tag",
+    visibility = ["//visibility:public"],
 )

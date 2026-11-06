@@ -56,6 +56,10 @@ Feature: The supervisor starts, stops and reports the roles
     When the development container starts, stops and starts again over one data directory
     Then the config service's two keys and the role secret stand in its data directory at mode 0600, each at least 32 bytes and differing, and the restart kept them and reached readiness
 
+  Scenario: A bootstrap password removed after the first start stays removed
+    When the development container has started, the bootstrap administrator's password file is removed, and the container starts again over the same data directory
+    Then no file stands at the password's path, and the restart reached readiness
+
   Scenario: A draw that cannot finish leaves nothing a later start takes for the secret
     When the supervisor cannot finish writing the admin key it draws
     Then it exits with code 74 with no file at the key's path, and the next start draws it and reaches readiness

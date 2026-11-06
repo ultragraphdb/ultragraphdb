@@ -50,3 +50,28 @@ fn test_a_read_waits_for_the_peer_to_write() -> TestResult {
     }
     Ok(())
 }
+
+/// A simulated stream splits as a socket does: a read pending on one half holds up no write on the other, and each half
+/// speaks for the same end.
+#[test]
+fn test_its_halves_read_and_write_the_same_end_at_once() -> TestResult {
+    use compio::io::util::Splittable;
+    use std::future::Future;
+    use std::pin::pin;
+    use std::task::{Context, Waker};
+    let network = SimNetwork::new(1, NetworkFaults::none());
+    let (client, mut server) = connect(&network);
+    let (mut read_half, mut write_half) = client.split();
+    let mut read = pin!(read_half.read(Vec::with_capacity(8)));
+    let mut cx = Context::from_waker(Waker::noop());
+    assert!(read.as_mut().poll(&mut cx).is_pending());
+    let compio::BufResult(written, _) = ready(write_half.write(b"up".to_vec()));
+    assert_eq!(written?, 2);
+    let compio::BufResult(got, up) = ready(server.read(Vec::with_capacity(8)));
+    assert_eq!((got?, up), (2, b"up".to_vec()));
+    let compio::BufResult(answered, _) = ready(server.write(b"down".to_vec()));
+    assert_eq!(answered?, 4);
+    let compio::BufResult(n, down) = ready(read);
+    assert_eq!((n?, down), (4, b"down".to_vec()));
+    Ok(())
+}

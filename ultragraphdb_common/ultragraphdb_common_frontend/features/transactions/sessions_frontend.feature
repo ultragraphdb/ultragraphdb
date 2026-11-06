@@ -59,3 +59,15 @@ Feature: Exactly-once commits, the frontend's side
   Scenario: A transaction ending before its Commit is relayed lets the session go
     When a Commit through a session waits behind a Write its partition refuses, and the client then commits through that session again
     Then the second Commit is answered, not refused as busy
+
+  Scenario: A session with a commit in flight is not evicted
+    When the registry holds `sessions_max` sessions, the oldest has a Commit at its partition unanswered, its client's connection closes, and another session is registered
+    Then the registry evicts the next oldest session instead, and the oldest only once its partition has answered the Commit
+
+  Scenario: A full registry of commits in flight refuses a Register as busy
+    When the registry holds `sessions_max` sessions, each with a commit in flight, and a client registers another
+    Then the Register is refused with code 14, nothing is evicted, and a Register after a commit is answered is served
+
+  Scenario: A Cancel after a commit reaches its partition holds its session from eviction
+    When the registry holds `sessions_max` sessions, one with a Commit and one with a one-frame write at its partition unanswered, their client cancels both streams, and registers another session
+    Then the Register is refused with code 14, evicting neither, and a Register once the partition has answered both is served

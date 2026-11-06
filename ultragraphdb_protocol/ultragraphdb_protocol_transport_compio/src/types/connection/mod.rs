@@ -83,13 +83,14 @@ impl<S> Connection<S> {
 
 impl<S: AsyncRead> Connection<S> {
     /// The next frame, read into a buffer of `pool` as the [`Framer`] asks: its header, verified for the
-    /// connection's cluster so its `size` is trusted, then the rest of the frame into the same buffer. Refused as
-    /// [`TransportError::closed`] when the peer closed before the frame's first byte, [`TransportError::truncated`]
-    /// when it closed inside the frame, [`TransportError::protocol`] when the header breaks a rule or the frame is
-    /// larger than the pool's buffers (`ProtocolError::frame_too_large` naming their capacity),
-    /// [`TransportError::pool_exhausted`] with no buffer free, or [`TransportError::io`].
+    /// connection's cluster so its `size` is trusted, then the rest of the frame into the same buffer. With no buffer
+    /// free it waits for one to be given back, reading nothing meanwhile, so a full pool holds the peer back and loses
+    /// nothing; the caller bounds that wait as it bounds the read. Refused as [`TransportError::closed`] when the peer
+    /// closed before the frame's first byte, [`TransportError::truncated`] when it closed inside the frame,
+    /// [`TransportError::protocol`] when the header breaks a rule or the frame is larger than the pool's buffers
+    /// (`ProtocolError::frame_too_large` naming their capacity), or [`TransportError::io`].
     pub async fn read_frame(&mut self, pool: &BufferPool) -> Result<ReceivedFrame, TransportError> {
-        let mut buffer = pool.acquire()?;
+        let mut buffer = pool.acquire_waiting().await;
         self.framer.reset();
         for _ in 0..FILLS_PER_FRAME {
             let mut bytes = buffer.take();

@@ -136,7 +136,8 @@ impl<L: Login> ClientCore<L> {
 
     /// Grants `stream` credit for `frames` more Result frames at `now`, beyond what [`ClientCore::next_batch`] grants; no
     /// shell offers it, since a shell's credit is automatic (`PROTOCOL.md` §11.3). A read whose end has arrived takes no
-    /// Credit, since its stream has ended.
+    /// Credit, since its stream has ended. Credit past what the read's frame buffers hold takes more of them, refused as
+    /// [`ClientError::buffer_limit`] when the client has none left.
     pub fn grant(
         &mut self,
         stream: &ResultStream,
@@ -152,9 +153,19 @@ impl<L: Login> ClientCore<L> {
         if self.streams.get(&id).is_some_and(StreamState::ended) {
             return Ok(());
         }
+        let needed = self.streams.get(&id).map_or(0, |s| {
+            u32::try_from(s.inbox.len())
+                .unwrap_or(u32::MAX)
+                .saturating_add(s.credit)
+                .saturating_add(frames.get())
+                .saturating_add(1)
+        });
+        let held = self.streams.get(&id).map_or(0, |s| s.buffers);
+        self.reserve_buffers(needed.saturating_sub(held))?;
         let frame = self.frame(&Credit::new(frames.get()), id)?;
         if let Some(state) = self.streams.get_mut(&id) {
             state.credit = state.credit.saturating_add(frames.get());
+            state.buffers = state.buffers.max(needed);
             state.progress = Some(now);
         }
         self.outbox.push_back(frame);

@@ -44,6 +44,10 @@ Feature: The frontend keeps a transaction's order
     When a transaction at latest level sends two reads, and the first is refused before any Result
     Then the second goes out as the transaction's first read and binds it
 
+  Scenario: Concurrent monotonic-fast reads take the highest epoch answered
+    When a monotonic-fast transaction's read answered at epoch 12 and another at epoch 9, and a third is sent after both
+    Then the third read's floor is 12
+
   Scenario: An Execute too large for compute's frame is refused
     When an Execute's parameters, bound into the pattern, make a ComputeRead larger than a frame within compute's Welcome
     Then the frontend refuses it with code 6, `detail` that `max_frame`, and no compute process receives it

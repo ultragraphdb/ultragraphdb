@@ -4,3 +4,4 @@
  */
 
 pub mod connect;
+pub mod split_stream;

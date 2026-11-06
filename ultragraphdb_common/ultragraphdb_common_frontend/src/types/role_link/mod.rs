@@ -14,21 +14,28 @@ use ultragraphdb_common_role::RoleClient;
 use ultragraphdb_protocol_transport::Address;
 use ultragraphdb_protocol_wire::{BodyBuilder, Cancel, Command, Credit, Header, MAX_FRAME_SIZE};
 
+use crate::types::commit_hold::CommitHold;
 use crate::types::link_event::LinkEvent;
 use crate::types::route_key::RouteKey;
 use crate::types::session_event::SessionEvent;
 
-/// Where a stream's frames go: its session's events, under the name the session knows it by.
+/// Where a stream's frames go: its session's events, under the name the session knows it by, and the commit its stream holds
+/// in flight once that session is gone.
 #[derive(Debug, Clone)]
 pub struct RouteSink {
     events: UnboundedSender<SessionEvent>,
     key: RouteKey,
+    hold: Option<Rc<CommitHold>>,
 }
 
 impl RouteSink {
     /// The sink of `key` in the session reading `events`.
     pub fn new(events: UnboundedSender<SessionEvent>, key: RouteKey) -> Self {
-        Self { events, key }
+        Self {
+            events,
+            key,
+            hold: None,
+        }
     }
 
     /// Tells the session `event`; a session gone has no one to tell.
@@ -149,6 +156,14 @@ impl RoleLink {
     pub fn credit(&self, stream: u64, frames: u32) {
         if let Ok(frame) = Credit::new(frames).frame(self.header(Command::Credit, stream)) {
             self.send(frame);
+        }
+    }
+
+    /// Keeps `hold` with `stream` until the stream ends, by its last frame or the connection's close; a stream already ended
+    /// lets it go at once.
+    pub(crate) fn hold(&self, stream: u64, hold: CommitHold) {
+        if let Some(sink) = self.routes.borrow_mut().open.get_mut(&stream) {
+            sink.hold = Some(Rc::new(hold));
         }
     }
 

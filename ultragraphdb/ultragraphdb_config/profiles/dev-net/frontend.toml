@@ -10,6 +10,8 @@ plaintext = true
 [frontend]
 role_address = "tcp://127.0.0.1:7081"
 data_dir = "/data"
+[metadata]
+bootstrap_secret_file = "/data/config/bootstrap.secret"
 [sequencer]
 epoch_ms_min = 2
 epoch_ms_max = 10

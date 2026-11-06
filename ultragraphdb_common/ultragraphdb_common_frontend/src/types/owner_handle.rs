@@ -135,11 +135,13 @@ impl OwnerHandle {
             .flatten()
     }
 
-    /// Registers `session` for `principal`, answered once durable.
+    /// Registers `session` for `principal`, answered once durable. A full registry evicts its oldest session with no commit in
+    /// flight.
     ///
     /// # Errors
     ///
-    /// Code 7 naming what refused it, or unavailable when the owner stopped.
+    /// Code 14 when the full registry holds no session it may evict yet, every other one with a commit in flight; code 7 naming
+    /// what else refused it, or unavailable when the owner stopped.
     pub async fn register_session(&self, session: u128, principal: u64) -> Result<(), ErrorReply> {
         self.ask_or_refuse(|reply| Asked::RegisterSession {
             session,
@@ -159,6 +161,23 @@ impl OwnerHandle {
         self.ask_or_refuse(|reply| Asked::BeginCommit {
             session,
             principal,
+            writes: true,
+            reply,
+        })
+        .await
+    }
+
+    /// The owner check of a retried Commit's Recall, held in flight as [`OwnerHandle::begin_commit`] holds a commit. A Recall
+    /// records nothing in a partition's table, so a full registry may evict its session meanwhile (`PROTOCOL.md` §11.5).
+    ///
+    /// # Errors
+    ///
+    /// As [`OwnerHandle::begin_commit`].
+    pub async fn begin_recall(&self, session: u128, principal: u64) -> Result<(), ErrorReply> {
+        self.ask_or_refuse(|reply| Asked::BeginCommit {
+            session,
+            principal,
+            writes: false,
             reply,
         })
         .await

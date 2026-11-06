@@ -12,7 +12,7 @@ load("@rules_rs//rs:rust_test.bzl", "rust_test")
 # other test from running beside this one; it stays sandboxed.
 rust_test(
     name = "bdd",
-    srcs = ["tests/bdd.rs"],
+    srcs = glob(["tests/**/*.rs"]),
     crate_root = "tests/bdd.rs",
     data = glob(["features/**/*.feature"]) + [
         ":copy_compute",
@@ -25,6 +25,35 @@ rust_test(
     ],
     tags = [
         "exclusive",
+        "integration_test",
+    ],
+    use_libtest_harness = False,
+    deps = all_crate_deps(normal_dev = True),
+)
+
+# The same scenarios' `@image` and `@docker` features in Docker: each image loaded for the daemon's platform by its load
+# target, run on the shipped profiles under the runtime's default seccomp profile and the shipped one. It reaches the daemon
+# through its socket as scrith's container tests do, stays sandboxed, and says it skipped where no daemon answers. Each
+# container publishes its ports at ports the daemon picks, but the cores are shared, so `exclusive` runs it alone.
+rust_test(
+    name = "image_bdd",
+    srcs = glob(["tests/**/*.rs"]),
+    crate_root = "tests/bdd.rs",
+    data = glob(["features/**/*.feature"]) + [
+        "//bazel/oci_images/glibc_base:test_load",
+        "//bazel/oci_images/seccomp:ultragraphdb.json",
+        "//ultragraphdb/ultragraphdb_compute:test_load",
+        "//ultragraphdb/ultragraphdb_config:test_load",
+        "//ultragraphdb/ultragraphdb_config:profiles",
+        "//ultragraphdb/ultragraphdb_frontend:test_load",
+        "//ultragraphdb/ultragraphdb_storage:test_load",
+        "//ultragraphdb/ultragraphdb_storage:ultragraphdb_storage_multiarch",
+        "//ultragraphdb/ultragraphdb_supervisor:development_test_load",
+    ],
+    env = {"ULTRAGRAPHDB_IMAGE_TESTS": "1"},
+    tags = [
+        "exclusive",
+        "image_test",
         "integration_test",
     ],
     use_libtest_harness = False,

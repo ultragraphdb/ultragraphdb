@@ -3,7 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! A client's reads through the real frontend, compute and storage: what a result names its terms by.
+//! A client's reads through the real frontend, compute and storage: what a result names its terms by, and the order a
+//! transaction's requests keep.
 
 use std::time::Duration;
 
@@ -15,7 +16,7 @@ use ultragraphdb_protocol_transport_compio::Carrier;
 use ultragraphdb_protocol_wire::{
     Begin, BodyBuilder, BodyView, Command, DirectWrite, EntriesView, FLAG_LAST, Header,
     PatternSlot, QuadPattern, Read, RequestTerm, ResultView, Scan, ScanAt, ScanRange, TermTable,
-    WriteChange,
+    Write, WriteChange,
 };
 use ultragraphdb_store_quads::{iri_bucket, term_key};
 use ultragraphdb_tests::{
@@ -337,4 +338,127 @@ fn statement_named(w: &mut Steps) -> TestResult {
     no_system_id(w);
     w.roles = None;
     Ok(())
+}
+
+/// A Write of `<subject> <knows> <b>` on the stream of the transaction `transaction`.
+fn write_frame(transaction: u64, subject: &str) -> TestResult<Vec<u8>> {
+    let mut terms = TermTable::new();
+    let change = WriteChange::Insert {
+        graph: None,
+        subject: terms.iri(subject),
+        predicate: terms.iri(KNOWS),
+        object: terms.iri(B),
+    };
+    let header = Header::new(CLUSTER, Command::Write).with_stream(transaction);
+    Ok(Write::new(terms, vec![change]).frame(header)?)
+}
+
+/// A read of `<knows>` in the transaction `transaction`, on `stream`.
+fn read_frame(transaction: u64, stream: u64) -> TestResult<Vec<u8>> {
+    let mut terms = TermTable::new();
+    let pattern = QuadPattern::new(
+        PatternSlot::Unbound,
+        PatternSlot::Unbound,
+        PatternSlot::Bound(terms.iri(KNOWS)),
+        PatternSlot::Unbound,
+    );
+    let read = Read::new(transaction, 16, terms, pattern, Vec::new());
+    Ok(read.frame(Header::new(CLUSTER, Command::Read).with_stream(stream))?)
+}
+
+/// The rows of the read on `stream`, read to its last frame; a frame on another stream first fails, naming it.
+async fn read_through(client: &mut Authenticated<Carrier>, stream: u64) -> TestResult<Answered> {
+    let mut answered = Answered::default();
+    loop {
+        let frame = client.next().await?;
+        let view = frame.view()?;
+        if view.header().stream() != stream {
+            return Err(TestError::new(format!(
+                "{:?} came on stream {} before the read on {stream} ended",
+                view.command(),
+                view.header().stream()
+            )));
+        }
+        if frame_ends(&frame, &mut answered)? {
+            return Ok(answered);
+        }
+    }
+}
+
+/// A read-write transaction of tenant 0 begun on `stream`.
+async fn begun(client: &mut Authenticated<Carrier>, stream: u64) -> TestResult {
+    let answer = client.asked(stream, &Begin::new(TENANT, 0, false)).await?;
+    if answer == Command::Begin {
+        return Ok(());
+    }
+    Err(TestError::new(format!("the Begin answered {answer:?}")))
+}
+
+#[when(
+    "a client sends a write and then a read of its transaction on another stream, without waiting for the write's reply"
+)]
+fn write_then_read(w: &mut Steps) -> TestResult {
+    started(w)?;
+    w.answered = Runtime::new()?.block_on(async {
+        let mut client = connected().await?;
+        begun(&mut client, 1).await?;
+        // A first read answered to its `LAST` first, so the first request's rule holds back nothing after it: the read below
+        // waits on the write's Held alone.
+        client.send(read_frame(1, 3)?).await?;
+        let before = read_through(&mut client, 3).await?;
+        assert!(!before.names(A), "{:?}", before.cells);
+        client.send(write_frame(1, A)?).await?;
+        client.send(read_frame(1, 5)?).await?;
+        read_through(&mut client, 5).await
+    })?;
+    Ok(())
+}
+
+#[then(
+    "the frontend sends the read to compute only after the write is answered, and the read returns the write"
+)]
+fn read_returns_the_write(w: &mut Steps) {
+    assert!(w.answered.names(A), "{:?}", w.answered.cells);
+    w.roles = None;
+}
+
+#[when(
+    "a read of a transaction has reached its `LAST`, and the transaction then ends with an Error"
+)]
+fn read_then_error(w: &mut Steps) -> TestResult {
+    started(w)?;
+    Runtime::new()?.block_on(async {
+        let mut client = connected().await?;
+        begun(&mut client, 1).await?;
+        client.send(read_frame(1, 3)?).await?;
+        let _rows = read_through(&mut client, 3).await?;
+        let mut terms = TermTable::new();
+        let change = WriteChange::Insert {
+            graph: None,
+            subject: terms.intern(RequestTerm::Literal {
+                lexical: "x".to_string(),
+                datatype: None,
+            })?,
+            predicate: terms.iri(KNOWS),
+            object: terms.iri(B),
+        };
+        let header = Header::new(CLUSTER, Command::Write).with_stream(1);
+        client
+            .send(Write::new(terms, vec![change]).frame(header)?)
+            .await?;
+        let ended = client.next().await?;
+        let view = ended.view()?;
+        assert_eq!(
+            (view.command(), view.header().stream()),
+            (Command::Error, 1),
+            "the transaction's end"
+        );
+        drop(ended);
+        client.silent_for(50).await
+    })
+}
+
+#[then("the frontend sends nothing further on that read's stream")]
+fn nothing_further(w: &mut Steps) {
+    w.roles = None;
 }

@@ -22,8 +22,8 @@
 //!   epoch.
 //! - **Principals**, each a [`Principal`] holding its SCRAM-SHA-256 verifier, the first created from the bootstrap
 //!   secret file; the state answers a SCRAM server's lookups as its `Credentials`.
-//! - **Sessions**, registered with their principal and bounded by `sessions_max`, the oldest evicted; each eviction is
-//!   carried to the partitions by the sequencer's next close.
+//! - **Sessions**, registered with their principal and bounded by `sessions_max`, the oldest with no commit in flight
+//!   evicted; each eviction is carried to the partitions by the sequencer's next close.
 //!
 //! ```
 //! use ultragraphdb_cluster_metadata::{MetadataCommand, MetadataState};

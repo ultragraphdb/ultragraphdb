@@ -15,6 +15,7 @@ mod scan_ranges_steps;
 
 use compio::runtime::Runtime;
 use cucumber::{World, then, when};
+use futures::FutureExt;
 use played_frontend::{OUT_OF_ORDER_EPOCH, PLAYED_FRONTEND_ADDRESS, exit_of, play_frontend};
 use service_utils::{ServiceUtil, WaitStrategy};
 use sha2::{Digest, Sha256};
@@ -39,7 +40,7 @@ use ultragraphdb_tests::{
     bootstrap, config_folder, config_process, exit_is, fresh_data, frontend_holding, holding,
     http_body, http_status, members_at, process, render_settings, role, role_of_service, scratch,
     served_by_double, start_config_service, start_double, storage_holding, storage_on_one_host,
-    until_answering, with,
+    until_answering, until_ports_free, with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transport_http_client::{HttpClient, HttpReply, HttpUrl};
@@ -76,6 +77,27 @@ const SHORT_DEADLINE_MS: &str = "800";
 
 /// The address a loadable role's admin listener holds.
 const ADMIN_ADDRESS: &str = "127.0.0.1:18090";
+
+/// The addresses a role of these scenarios holds beyond those every suite declares, and what holds each.
+const OWN_ADDRESSES: [(&str, &str); 5] = [
+    (ADMIN_ADDRESS, "a loadable role's admin listener"),
+    (
+        "127.0.0.1:17200",
+        "the role endpoint of the storage process hosting partitions 1 and 2",
+    ),
+    (
+        "127.0.0.1:17300",
+        "the role endpoint of the storage process hosting partitions 3 and 4",
+    ),
+    (
+        "127.0.0.1:18101",
+        "the observability of the storage process hosting partitions 1 and 2",
+    ),
+    (
+        "127.0.0.1:18103",
+        "the observability of the storage process hosting partitions 3 and 4",
+    ),
+];
 
 const TENANT: u64 = 0;
 const PREDICATE: &str = "http://ex.org/p";
@@ -1079,6 +1101,13 @@ fn main() -> TestResult {
     futures::executor::block_on(
         Steps::cucumber()
             .max_concurrent_scenarios(1)
+            .before(|_, _, _, _| {
+                async {
+                    let freed = until_ports_free(&OWN_ADDRESSES);
+                    assert!(freed.is_ok(), "{freed:?}");
+                }
+                .boxed_local()
+            })
             .fail_on_skipped()
             .run_and_exit(ultragraphdb_tool_bdd::features_dir()?),
     );

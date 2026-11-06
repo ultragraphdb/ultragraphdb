@@ -471,28 +471,19 @@ fn test_a_session_registers_once_for_a_principal_that_exists() -> TestResult {
         ClusterError::session_exists(10).0
     );
     state.apply(&register(20, 1, &[]))?;
-    // Evictions name the oldest sessions, in registration order.
-    assert_eq!(
-        refused(&mut state, &register(30, 1, &[20]))?,
-        contradicts("a registration evicts the oldest sessions")
-    );
-    assert_eq!(
-        refused(&mut state, &register(30, 1, &[10, 99]))?,
-        contradicts("a registration evicts the oldest sessions")
-    );
-    // More evictions than sessions held.
-    assert_eq!(
-        refused(&mut state, &register(30, 1, &[10, 20, 99]))?,
-        contradicts("a registration evicts the oldest sessions")
-    );
-    state.apply(&register(30, 1, &[10]))?;
+    // Evictions name held sessions, oldest first: the frontend skips one with a commit in flight.
+    let rule = contradicts("a registration evicts held sessions, oldest first");
+    for evicts in [&[20, 10][..], &[10, 10], &[10, 99], &[10, 20, 99]] {
+        assert_eq!(refused(&mut state, &register(30, 1, evicts))?, rule);
+    }
+    state.apply(&register(30, 1, &[20]))?;
     assert_eq!(state.sessions(), 2);
-    assert_eq!(state.pending_evictions(), vec![10]);
+    assert_eq!(state.pending_evictions(), vec![20]);
     assert_eq!(
-        state.session_principal(10).err().context("evicted")?.0,
-        ClusterError::session_evicted(10).0
+        state.session_principal(20).err().context("evicted")?.0,
+        ClusterError::session_evicted(20).0
     );
-    assert_eq!(state.session_principal(20)?, 1);
+    assert_eq!(state.session_principal(10)?, 1);
     Ok(())
 }
 

@@ -1134,7 +1134,7 @@ Order: unused bytes 2–7 and 16–127 zero; `code`; sections; the term table (1
 | 11 | Parameters | no | the statement; 0 for a parameter type | The parameters do not fit the statement |
 | 12 | SessionEvicted | no | 0 | The metadata group's registry evicted the session, or never registered it; the frontend's owner check refuses the request before any partition sees it, and a retried commit refused so has an unknown outcome (section 11.5) |
 | 13 | RequestOutOfOrder | no | the last request number the partition holds for the session | A commit's request number is below the session's last in the partition it reaches, or, on an open transaction's stream, at or below it |
-| 14 | SessionBusy | yes, after a delay | 0 | The session has a commit in flight, or a retried commit is still in a partition's commit step |
+| 14 | SessionBusy | yes, after a delay | 0 | The session has a commit in flight, or a retried commit is still in a partition's commit step; or a full registry holds no session it may evict for a Register (section 11.5) |
 | 15 | Limit | no | the limit | A bound is reached: past the frontend's connections, an Error on stream 0 in place of the Welcome, then the close; past the Welcome's `max_streams`, on the new stream; past `held_bytes`, on the transaction's stream, ending the transaction (section 11.9) |
 | 16 | ProtocolVersion | no | the server's highest protocol | No protocol both sides speak; the server closes the connection |
 | 17 | Unavailable | on a read, yes, the read again from its start or a resume key; no otherwise; on a Commit, Drop, DirectWrite or ConditionalWrite it leaves the request in doubt (section 11.5) | 0 | The role or partition the request reaches stopped on an invariant violation, refuses writes after a failed log sync, until it restarts, or its role connection closed under the request (section 11.12); no compute process answers a read, or a hung one sent it nothing (section 11.12); a read found a list naming a dictionary entry its partition lacks (section 13.12); or a store failed under a Scan or a home's registration (sections 13.13, 13.15); requests reaching other partitions are served |
@@ -1153,7 +1153,7 @@ Order: unused bytes 2–7 and 16–127 zero; `code`; sections; the term table (1
 
 Retryable says the same work can succeed if run again, and the code says what runs again. Code 14 on a Commit, Drop or
 one-frame write, and code 5 on a Drop or one-frame write: the same request, same session and request number, on a new stream
-after a delay. Codes 2, 3, 4, 18, 26, and 5 on a Commit: the whole transaction on a new Begin, since its stream has ended or
+after a delay; code 14 on a Register: the Register, after a delay. Codes 2, 3, 4, 18, 26, and 5 on a Commit: the whole transaction on a new Begin, since its stream has ended or
 its read version is fixed. Code 24: the read, in the same transaction or a new one; past the deadline a read of an unclosed
 epoch is refused again at once, so a new wait takes a new Begin. Code 17 on a read: the read, in the same transaction or a new
 one, which another compute process or the restarted role may answer. A read that already gave rows runs again from its start or
@@ -1460,7 +1460,11 @@ the stream's credit is above 0, and each Result frame it sends spends 1. A Credi
 (saturating at 2³² − 1). Only Result and Entries frames spend credit; an Error and every other frame leave it. The server ignores
 Credit for a stream that is not open. The Rust client's credit is automatic: its shells grant credit as the read's
 batches are consumed, when the count reaches 0 and the caller waits for a batch, and offer no manual grant; its core
-grants at least one frame, so it sends no Credit of zero frames, which a receiver refuses (section 9.2). On a role
+grants at least one frame, so it sends no Credit of zero frames, which a receiver refuses (section 9.2). Its credit and its
+frame buffers agree: it sends a read only while its buffers hold, beside what its other reads may bring, every frame the
+read's credit and a refusal can bring, one buffer left to read into, and refuses one past them before it is sent, so a read
+not yet consumed never takes the buffer a reply needs; a client whose buffers are all held reads nothing until one is given
+back, which holds the server back and loses no connection. On a role
 connection, credit holds the same way for Entries frames as for Result frames, each connection's streams on their own, and a
 ComputeRead's stream starts with its `credit` in place of the Welcome's (section 13.12).
 
@@ -1524,17 +1528,24 @@ ComputeRead's stream starts with its `credit` in place of the Welcome's (section
 - The registry and the tables are durable: a session's registration is durable in the metadata group before Register
   answers, and each committed request with its reply is in its partition's round with the commit (section 12.2), so
   replay rebuilds a table exactly as it rebuilds the commit.
-- The registry holds at most `sessions_max` sessions, evicts the least recently registered, and is the only place a
-  session is evicted. The sequencer carries each eviction to every partition with its next close (section 13.4), and a
-  partition purges the session's entry once that close is delivered to it, so a table holds at most `sessions_max`
-  entries. The frontend's owner check refuses every request of an evicted session with code 12, so no partition takes
+- The registry holds at most `sessions_max` sessions, evicts the least recently registered session with no commit in
+  flight, and is the only place a session is evicted. A Commit, Drop or one-frame write is in flight from the owner check
+  until it ends before reaching a partition, its partition answers it, or the role connection carrying it closes, whether
+  or not the client's connection stays open, so a session the owner check passed is never evicted before its request has
+  reached its partition; a Recall records nothing in a table and holds no session from eviction. When a full registry
+  holds no session it may evict, the frontend refuses Register with code 14 (SessionBusy), evicting nothing, and the
+  client registers again after a delay. The sequencer carries each eviction to every partition with its next close
+  (section 13.4), and a partition purges the session's entry once that close is delivered to it, so a table holds at most
+  `sessions_max` entries. The frontend's owner check refuses every request of an evicted session with code 12, so no partition takes
   an evicted session for one committing there first. A retry refused with code 12 has an unknown outcome: the client
   reports it as unknown and does not retry.
 - A commit through no session, `session` all zero and `request` 0, commits without exactly-once: a lost reply, or code
   17, leaves its outcome unknown.
 - **A commit in flight is in doubt once sent.** When the connection is lost or closed before a commit's reply, the Rust
   client answers `ConnectionLost` if the commit's frame was never sent on any connection, and `InDoubt` if it was sent,
-  on any attempt; a retry that exhausts its attempts answers `InDoubt` too; a Commit, Drop or one-frame write answered
+  on any attempt; a retry that exhausts its attempts answers `InDoubt` too, a connection not made, or lost before its
+  handshake ended, using one of the attempts of every commit waiting for it, so a server refusing every handshake, with
+  code 15 or 19, ends the retries; a Commit, Drop or one-frame write answered
   code 17 is in doubt the same way, since the partition may hold it. The client resolves an in-doubt commit through its
   session by the in-doubt resend above. The stored reply says it committed and code 18 that it did not. Code 14 says it
   is undecided, and code 17 that a partition could not be asked: it stays in doubt and the client resends after a delay.

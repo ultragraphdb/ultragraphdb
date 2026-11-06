@@ -38,6 +38,9 @@ use crate::utils::listen::listen;
 /// How often the role looks at whether a signal arrived: the flag is all a handler may safely set.
 const SIGNAL_POLL: Duration = Duration::from_millis(20);
 
+/// How often a role named a parent to end with looks at whether it still has it.
+const PARENT_POLL: Duration = Duration::from_millis(100);
+
 /// How long a connection has to finish its request, so a silent one holds nothing.
 const REQUEST_TIME: Duration = Duration::from_secs(5);
 
@@ -88,6 +91,9 @@ where
     let telemetry = init(&TelemetryConfig::new("info", LogFormat::Plain))
         .map_err(|error| RoleError::unavailable(format!("telemetry: {error}")))?;
     let stop = stop_flag()?;
+    if let Some(parent) = bootstrap.parent() {
+        watch_parent(parent, Arc::clone(&stop))?;
+    }
     // Nothing listens before this: the role's addresses are among the settings it fetches.
     let fetching =
         Runtime::new().map_err(|error| RoleError::unavailable(format!("the runtime: {error}")))?;
@@ -119,6 +125,7 @@ The {kind} role. It takes no arguments: its environment names the config service
   ULTRAGRAPHDB_CONFIG_INSTANCE  this instance's name: {kind}, or {kind} followed by _ and a label
   ULTRAGRAPHDB_CONFIG_KEY_FILE  the file holding the read key
   ULTRAGRAPHDB_CONFIG_CA_FILE   the certificates that verify an https service
+  ULTRAGRAPHDB_PARENT_PID       a process to end with: once it is not this one's parent, the role stops as on SIGTERM
 
 Exit codes:
 {}",
@@ -235,6 +242,30 @@ pub fn stop_flag() -> Result<Arc<AtomicBool>, RoleError> {
             .map_err(|error| RoleError::unavailable(format!("signal {signal}: {error}")))?;
     }
     Ok(stop)
+}
+
+/// Sets `stop`, as SIGTERM does, once `parent` is no longer this process's parent: the process that started it ended, and the
+/// role went to another. The process's parent is all it reads, which macOS and Linux alike report.
+///
+/// # Errors
+///
+/// [`RoleError::unavailable`] when the thread watching cannot start.
+fn watch_parent(parent: u32, stop: Arc<AtomicBool>) -> Result<(), RoleError> {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a role's own thread, which no simulation replays"
+    )]
+    let spawned = std::thread::Builder::new()
+        .name("parent".to_string())
+        .spawn(move || {
+            while std::os::unix::process::parent_id() == parent && !stop.load(Ordering::Acquire) {
+                std::thread::sleep(PARENT_POLL);
+            }
+            stop.store(true, Ordering::Release);
+        });
+    spawned
+        .map(drop)
+        .map_err(|error| RoleError::unavailable(format!("watching the parent process: {error}")))
 }
 
 /// A runtime for the calling thread, the role's `core`th, from 0, and what became of its binding: to the `core`th CPU it

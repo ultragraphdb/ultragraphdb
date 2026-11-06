@@ -201,20 +201,23 @@ fn test_the_body_of_a_refused_header_stays_unread() -> TestResult {
     Ok(())
 }
 
+/// A full pool is backpressure: a read with no buffer free waits, and the buffer given back takes the next frame.
 #[test]
-fn test_no_free_buffer_or_a_frame_past_its_capacity_is_refused() -> TestResult {
+fn test_no_free_buffer_waits_and_a_frame_past_its_capacity_is_refused() -> TestResult {
     {
         let (_n, mut client, mut server) = pair(NetworkFaults::none());
         let one = BufferPool::new(1, MAX_FRAME_SIZE);
         assert_eq!(ready(client.write_frame(credit(1)?))?, credit(1)?);
         assert_eq!(ready(client.write_frame(credit(2)?))?, credit(2)?);
         let held = ready(server.read_frame(&one))?;
-        assert_eq!(
-            failure(ready(server.read_frame(&one)), "a read with no buffer free")?,
-            TransportError::pool_exhausted(1)
+        let mut waiting = std::pin::pin!(server.read_frame(&one));
+        let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+        assert!(
+            waiting.as_mut().poll(&mut cx).is_pending(),
+            "a read with no buffer free waits"
         );
         drop(held);
-        assert_eq!(ready(server.read_frame(&one))?.stream(), 2);
+        assert_eq!(ready(waiting)?.stream(), 2);
     }
     {
         let (_n, mut client, mut server) = pair(NetworkFaults::none());

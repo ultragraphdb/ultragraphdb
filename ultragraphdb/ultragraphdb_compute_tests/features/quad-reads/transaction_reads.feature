@@ -42,6 +42,10 @@ Feature: Quad reads of a transaction through compute
       When a transaction's reads leave no room for a span
       Then the read is refused with `TooLarge`, no entry of that span reaches the client, and the transaction's next request is refused
 
+    Scenario: A span recorded after a Cancel only widens the commit's check
+      When a Commit cancels a read whose Scan records one more span before the Cancel reaches the partition, and another transaction wrote into that span
+      Then the commit aborts with a conflict of kind Range, and no frame of that span reached the client
+
     Scenario: A statement's record read conflicts with a property written
       When T1 reads the properties of the reifier `r` through compute, T2 sets a property through `r` and commits, and T1 commits a write
       Then T1 aborts with a conflict of kind Range

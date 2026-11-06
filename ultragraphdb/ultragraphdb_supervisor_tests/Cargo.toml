@@ -12,7 +12,7 @@ readme.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "The supervisor binary as a process, end to end, with no container"
+description = "The supervisor binary as a process, end to end, and the images in Docker"
 publish.workspace = true
 autotests = false
 
@@ -23,8 +23,12 @@ workspace = true
 compio = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }
+serde_json = { workspace = true }
 service_utils = { workspace = true }
 sha2 = { workspace = true }
+ultragraphdb_client_compio = { workspace = true }
+ultragraphdb_protocol_scram = { workspace = true }
+ultragraphdb_protocol_wire = { workspace = true }
 ultragraphdb_tests = { workspace = true }
 ultragraphdb_tool_bdd = { workspace = true }
 ultragraphdb_transport_http_client = { workspace = true }

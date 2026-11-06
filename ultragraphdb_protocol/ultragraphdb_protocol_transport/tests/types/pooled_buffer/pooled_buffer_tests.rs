@@ -61,3 +61,17 @@ fn test_a_buffer_holding_bytes_counts_them_and_is_not_empty() -> TestResult {
     assert!(!buffer.is_empty());
     Ok(())
 }
+
+/// A buffer whose vector was taken out and never put back, as an owned-buffer read cancelled in flight keeps it, comes
+/// back to its pool whole: the next buffer taken holds the pool's capacity, so no later fill reallocates.
+#[test]
+fn test_a_buffer_lost_with_its_read_comes_back_whole() -> TestResult {
+    let capacity = 4_096;
+    let pool = BufferPool::new(1, capacity);
+    let mut buffer = pool.acquire()?;
+    drop(buffer.take());
+    drop(buffer);
+    let mut again = pool.acquire()?;
+    assert!(again.take().capacity() >= capacity, "the pool's capacity");
+    Ok(())
+}

@@ -59,6 +59,11 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         frame: ReceivedFrame,
     ) -> Result<Answer, ErrorReply> {
         let view = frame.view().map_err(|rule| protocol(&rule))?;
+        // The session ended this stream, and its end waits to leave: the client sent this before it could read that end, which
+        // is its answer, so this is late (`PROTOCOL.md` §11.2) and refusing it would put another answer first.
+        if self.ending(stream) {
+            return Ok(Answer::Open);
+        }
         let command = view.command();
         if command == Command::Register {
             return self.register(stream).await;

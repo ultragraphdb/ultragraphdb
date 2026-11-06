@@ -372,6 +372,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
                 reply: None,
                 link,
                 stream: opened,
+                sent: false,
             },
         );
         Ok(Answer::Open)
@@ -390,10 +391,11 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         };
         let command = command_of(&frame);
         if command == Some(Command::Bind) {
-            if let Some(dropping) = self.drops.get(&stream) {
+            if let Some(dropping) = self.drops.get_mut(&stream) {
                 let mut relayed = dropping.frame.clone();
                 drop(Header::stamp_stream(&mut relayed, dropping.stream));
                 dropping.link.send(relayed);
+                dropping.sent = true;
             }
         } else if command == Some(Command::Drop) {
             self.drop_replied(stream, frame);

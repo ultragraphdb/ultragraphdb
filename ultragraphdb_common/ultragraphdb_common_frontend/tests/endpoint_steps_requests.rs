@@ -392,13 +392,20 @@ fn a_commit_takes_the_writes_held_behind_a_read(w: &mut Steps) -> TestResult {
         until("the read", || compute.count(Command::ComputeRead) == 1).await?;
         client.write(transaction, &subject).await?;
         client.commit(transaction).await?;
+        // Compute answers the read as the Commit arrives, as a process that has not yet read the Cancel does: a frame the
+        // frontend took before the Commit may reach the client before the Commit's reply, and none may after it. None is the
+        // read's last, which would end it before the Commit cancels it.
+        for _ in 0..3 {
+            answer_frame(&compute, 0, &empty_batch(4, 1), false)?;
+        }
         assert_eq!(client.got(transaction).await?.command, Command::Commit);
+        let _before = client.taken(read);
         until("the Cancel", || compute.count(Command::Cancel) == 1).await?;
         assert_eq!(
             partition.commands(&[]),
             [Command::Bind, Command::Write, Command::Commit]
         );
-        client.silent(read, 20).await?;
+        client.silent(read, 50).await?;
         Ok(())
     })
 }

@@ -7,18 +7,24 @@ mod pooled_buffer_drop;
 
 use std::sync::{Arc, Mutex};
 
-use crate::types::buffer_pool::{PoolState, lock};
+use crate::types::buffer_pool::PoolState;
 
 /// A buffer taken from a [`crate::BufferPool`], given back to it when dropped.
 #[derive(Debug)]
 pub struct PooledBuffer {
     bytes: Vec<u8>,
+    /// The pool's capacity, which the vector given back holds.
+    capacity: usize,
     pool: Arc<Mutex<PoolState>>,
 }
 
 impl PooledBuffer {
-    pub(crate) fn new(bytes: Vec<u8>, pool: Arc<Mutex<PoolState>>) -> Self {
-        Self { bytes, pool }
+    pub(crate) fn new(bytes: Vec<u8>, capacity: usize, pool: Arc<Mutex<PoolState>>) -> Self {
+        Self {
+            bytes,
+            capacity,
+            pool,
+        }
     }
 
     /// The bytes read into it.
@@ -38,7 +44,7 @@ impl PooledBuffer {
 
     /// Its capacity, the pool's.
     pub fn capacity(&self) -> usize {
-        lock(&self.pool).capacity
+        self.capacity
     }
 
     /// The vector, taken out for a shell to read into: an owned-buffer read (io_uring) fills it and hands it back, a

@@ -38,6 +38,7 @@ fn every() -> Vec<ClientError> {
         ClientError::stream_finished(5),
         ClientError::stream_busy(5),
         ClientError::stream_limit(64),
+        ClientError::buffer_limit(8),
         ClientError::transaction_mismatch(5, 3),
     ]
 }
@@ -48,8 +49,8 @@ fn test_each_constructor_builds_its_variant() -> TestResult {
         .into_iter()
         .map(|e| std::mem::discriminant(&e.0))
         .collect();
-    // ClientErrorEnum's 19 variants, each once.
-    assert_eq!(kinds.len(), 19);
+    // ClientErrorEnum's 20 variants, each once.
+    assert_eq!(kinds.len(), 20);
     assert!(
         kinds
             .iter()
@@ -88,6 +89,10 @@ fn test_each_constructor_builds_its_variant() -> TestResult {
             expected: 1,
             found: 2
         }
+    );
+    assert_eq!(
+        ClientError::buffer_limit(8).0,
+        ClientErrorEnum::BufferLimit { buffers: 8 }
     );
     assert_eq!(
         ClientError::in_doubt(9, 7, None).0,
@@ -166,7 +171,7 @@ fn test_stale_and_closing_are_named() -> TestResult {
         closing,
         vec![
             true, true, false, true, true, true, false, false, false, false, false, false, false,
-            false, false, false, false, false, false
+            false, false, false, false, false, false, false
         ]
     );
     assert!(
@@ -202,6 +207,7 @@ fn test_each_names_its_values() -> TestResult {
             "stream 5 is not open",
             "stream 5 still waits for its answer",
             "the connection holds 64 streams, as many as allowed",
+            "the client's 8 frame buffers hold its open reads: one is read to its end or cancelled first",
             "a request names the transaction of stream 3, asked of stream 5's",
         ]
     );

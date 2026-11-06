@@ -68,6 +68,10 @@ impl fmt::Display for ClientError {
                 f,
                 "the connection holds {limit} streams, as many as allowed"
             ),
+            ClientErrorEnum::BufferLimit { buffers } => write!(
+                f,
+                "the client's {buffers} frame buffers hold its open reads: one is read to its end or cancelled first"
+            ),
             ClientErrorEnum::TransactionMismatch { stream, named } => write!(
                 f,
                 "a request names the transaction of stream {named}, asked of stream {stream}'s"

@@ -29,14 +29,13 @@ carriers, and no role SHALL ask which carrier it runs on.
 
 #### Scenario: The same frames cross TCP
 - **WHEN** the three roles run in three containers configured with `tcp://` addresses
-- **THEN** the same write and read succeed, and the frames each role exchanges are byte-identical to the Unix-socket
-  run's, apart from the transport's own framing
+- **THEN** the same write and read succeed, and the read's rows are byte-identical to the Unix-socket run's
 
 ### Requirement: The supervisor starts, stops and reports the roles
 The supervisor SHALL start the config service and wait for its `/ready`, then start the frontend and wait for its `/health`, then start storage and wait for its `/ready`, then
 start compute and wait for its `/ready`, and then wait for the frontend's `/ready`, since the frontend is ready only once
 a storage partition answers it. Storage and compute SHALL retry joining until their deadline, so neither needs the
-frontend's recovery to have ended. The supervisor SHALL restart no role on its own; SHALL draw the config service's two keys at random at the development image's first start, keeping them in its data directory; SHALL forward SIGTERM and SIGINT; SHALL stop the roles in the shutdown order; and SHALL exit
+frontend's recovery to have ended. The supervisor SHALL restart no role on its own; SHALL draw the config service's two keys at random at the development image's first start, keeping them in its data directory, and the bootstrap administrator's password before the cluster's first start alone, since the frontend reads it once and the operator then removes it; SHALL forward SIGTERM and SIGINT; SHALL stop the roles in the shutdown order; and SHALL exit
 with the exit code of the first role that failed, 128 plus the signal's number for a role a signal killed, or 0 after a
 clean shutdown.
 
@@ -56,6 +55,11 @@ clean shutdown.
 #### Scenario: SIGTERM shuts down in order
 - **WHEN** the supervisor receives SIGTERM
 - **THEN** the frontend stops accepting work first, compute drains next, storage flushes last, and the supervisor exits 0
+
+#### Scenario: A bootstrap password removed after the first start stays removed
+- **WHEN** the development container has started, the bootstrap administrator's password file is removed, and the container
+  starts again over the same data directory
+- **THEN** no file stands at the password's path, and the restart reached readiness
 
 ### Requirement: Each role runs one runtime per core
 Each role SHALL run one compio runtime per core it uses, a storage partition on its own, sharing no mutable state with

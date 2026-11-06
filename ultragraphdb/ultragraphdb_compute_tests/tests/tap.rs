@@ -49,6 +49,7 @@ pub struct TapLog {
     versions: Mutex<Vec<(u32, u64)>>,
     pause_after: AtomicUsize,
     connections: AtomicUsize,
+    cancels: AtomicUsize,
 }
 
 impl TapLog {
@@ -57,6 +58,7 @@ impl TapLog {
         self.scans_held().clear();
         self.versions_held().clear();
         self.pause_after.store(0, Ordering::Release);
+        self.cancels.store(0, Ordering::Release);
     }
 
     fn scans_held(&self) -> std::sync::MutexGuard<'_, Vec<ScanSeen>> {
@@ -98,6 +100,11 @@ impl TapLog {
         self.pause_after.store(scans, Ordering::Release);
     }
 
+    /// The Cancels compute sent, each written down as it goes on to its partition, after every frame before it.
+    pub fn cancels(&self) -> usize {
+        self.cancels.load(Ordering::Acquire)
+    }
+
     /// Lets the Scans held back go.
     pub fn go_on(&self) {
         self.pause_after.store(0, Ordering::Release);
@@ -119,6 +126,9 @@ fn saw_request(log: &TapLog, partition: u32, connection: usize, frame: &[u8]) {
     let Ok(view) = FrameView::validate_client(frame, CLUSTER, MAX_FRAME_SIZE) else {
         return;
     };
+    if view.command() == Command::Cancel {
+        let _before = log.cancels.fetch_add(1, Ordering::AcqRel);
+    }
     if view.command() != Command::Scan {
         return;
     }

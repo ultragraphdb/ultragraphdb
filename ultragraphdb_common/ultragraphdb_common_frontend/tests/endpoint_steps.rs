@@ -21,16 +21,16 @@ use ultragraphdb_protocol_transport::Framer;
 use ultragraphdb_protocol_transport_compio::{Carrier, Connection};
 use ultragraphdb_protocol_wire::{
     Action, Begin, BodyBuilder, BodyView, Command, Commit, CommitOperation, CommitView,
-    ConditionalWrite, Credit, DeclaredPredicate, Describe, DirectWrite, DropCommand, ErrorCode,
-    ErrorReply, ErrorReplyView, Header, Hello, Install, Language, MAX_FRAME_SIZE, Prepare, Query,
-    ReadLevel, TermTable, Write,
+    ComputeReadView, ConditionalWrite, Credit, DeclaredPredicate, Describe, DirectWrite,
+    DropCommand, ErrorCode, ErrorReply, ErrorReplyView, Header, Hello, Install, Language,
+    MAX_FRAME_SIZE, Prepare, Query, ReadLevel, RequestTerm, TermTable, Write, WriteChange,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::Steps;
 use crate::endpoint_stage::{
-    BIND_VERSION, CLUSTER, OBJECT, Options, Stage, empty_answer, fresh, insert_into, pause,
-    read_of, until, view_frame, write_of,
+    BIND_VERSION, CLUSTER, OBJECT, Options, PREDICATE, Stage, empty_answer, fresh, insert_into,
+    pause, read_of, until, view_frame, write_of,
 };
 use crate::endpoint_steps_requests::{
     Deny, answer_frame, answer_with, bucket_of, challenge, cross_refusal, declaring,
@@ -1468,5 +1468,98 @@ fn a_resent_empty_commit_answers_not_committed(w: &mut Steps) -> TestResult {
 
 #[then("every partition answers 18, and the client receives code 18")]
 fn a_resent_empty_commit_answers_not_committed_held(w: &mut Steps) {
+    assert!(w.ran, "the scenario ran");
+}
+
+#[when(
+    "a client sends a Write the frontend refuses and, before reading its answer, a second Write of the same transaction"
+)]
+fn a_transactions_first_refusal_is_the_one_its_client_sees(w: &mut Steps) -> TestResult {
+    let options = Options::default();
+    run(w, options, |stage| async move {
+        let _whole = &stage;
+        let _partition = stage.partition(1).await?;
+        let mut client = stage.ann().await?;
+        let transaction = client.begin(0).await?;
+        let mut terms = TermTable::new();
+        let literal = terms.intern(RequestTerm::Literal {
+            lexical: "x".to_string(),
+            datatype: None,
+        })?;
+        let change = WriteChange::Insert {
+            graph: None,
+            subject: literal,
+            predicate: terms.iri(PREDICATE),
+            object: terms.iri(OBJECT),
+        };
+        client
+            .on(transaction, &Write::new(terms, vec![change]))
+            .await?;
+        client.write(transaction, &stage.on(1)?).await?;
+        let got = client.got(transaction).await?;
+        assert_eq!(
+            (got.code, got.detail),
+            (Some(ErrorCode::Refused), u64::from(literal)),
+            "{}",
+            got.message
+        );
+        client.silent(transaction, 50).await?;
+        Ok(())
+    })
+}
+
+#[then(
+    "the client receives the first Write's refusal on the transaction's stream, and nothing after it"
+)]
+fn a_transactions_first_refusal_is_the_one_its_client_sees_held(w: &mut Steps) {
+    assert!(w.ran, "the scenario ran");
+}
+
+#[when(
+    "a monotonic-fast transaction's read answered at epoch 12 and another at epoch 9, and a third is sent after both"
+)]
+fn concurrent_monotonic_fast_reads_take_the_highest_epoch_answered(w: &mut Steps) -> TestResult {
+    let options = Options::default();
+    run(w, options, |stage| async move {
+        let _whole = &stage;
+        let subject = stage.on(1)?;
+        let compute = stage.compute_with(|_| Answer::Open).await?;
+        let mut client = stage.ann().await?;
+        let transaction = client.begin_read_only(ReadLevel::MonotonicFast).await?;
+        let first = client.read(transaction, &subject).await?;
+        let second = client.read(transaction, &subject).await?;
+        until("both reads", || compute.count(Command::ComputeRead) == 2).await?;
+        let answered = [(0, 12), (1, 9)];
+        for (index, epoch) in answered {
+            answer_frame(
+                &compute,
+                index,
+                &empty_batch(4, 1).with_read_at(epoch, 1),
+                true,
+            )?;
+        }
+        for read in [first, second] {
+            assert_eq!(client.got(read).await?.command, Command::Result);
+        }
+        let _third = client.read(transaction, &subject).await?;
+        until("the third read", || {
+            compute.count(Command::ComputeRead) == 3
+        })
+        .await?;
+        let reads = compute.frames(Command::ComputeRead);
+        let third = reads.get(2).context("the third ComputeRead")?;
+        let view = view_frame(third.bytes())?;
+        let highest = answered.iter().map(|(_, epoch)| *epoch).max();
+        assert_eq!(
+            Some(ComputeReadView::from_frame(&view)?.epoch()),
+            highest,
+            "the third read's floor"
+        );
+        Ok(())
+    })
+}
+
+#[then("the third read's floor is 12")]
+fn concurrent_monotonic_fast_reads_take_the_highest_epoch_answered_held(w: &mut Steps) {
     assert!(w.ran, "the scenario ran");
 }

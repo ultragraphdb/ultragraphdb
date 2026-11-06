@@ -9,6 +9,7 @@ around it. Everything here is built by Bazel, from sources and pinned inputs, wi
 | `bazel/container/img.bzl`                    | `scratch_multiarch_img`, `glibc_multiarch_img`, `sha256_tag`, and the platform lists |
 | `bazel/oci_images/scrach_base/`              | The scratch base image: CA bundle and the `nobody` user, nothing else               |
 | `bazel/oci_images/glibc_base/`               | The glibc base image, built from Wolfi packages by apko                             |
+| `bazel/oci_images/seccomp/`                  | The seccomp profile the role images ship with: Docker's default plus io_uring       |
 | `//:release` (root `BUILD.bazel`)            | The `config_setting` that is true under `-c opt`                                    |
 
 ## Which image a binary ships in
@@ -16,6 +17,7 @@ around it. Everything here is built by Bazel, from sources and pinned inputs, wi
 | Binary                                   | Linked against            | Image                   | Base                 |
 |------------------------------------------|---------------------------|-------------------------|----------------------|
 | The server's roles                       | glibc, with mimalloc      | `glibc_multiarch_img`   | `glibc_base` (Wolfi) |
+| The development image: the supervisor, the config service and the three roles | glibc | `development_multiarch` in `//ultragraphdb/ultragraphdb_supervisor` | `glibc_base` (Wolfi) |
 | Tools, benchmarks, anything else         | musl, statically          | `scratch_multiarch_img` | `scrach_base`        |
 
 The server ships on glibc because musl with mimalloc measured about 18% slower per core (D7,
@@ -131,7 +133,9 @@ docker run --rm --security-opt seccomp=unconfined ultragraphdb/wal_bench:glibc -
 
 A binary that does I/O through compio uses io_uring on Linux, and Docker's default seccomp profile refuses its system
 calls: without `--security-opt seccomp=unconfined` the run above stops at its first I/O with
-`Operation not permitted (os error 1)`.
+`Operation not permitted (os error 1)`. The roles probe the ring at start instead and fall back to compio's polling driver,
+logging which they run on; `--security-opt seccomp=bazel/oci_images/seccomp/ultragraphdb.json` keeps the rest of Docker's
+default profile and allows io_uring.
 
 ### Tag it by content
 
@@ -235,6 +239,34 @@ bazel run //bazel/oci_images/glibc_base:lock
 ```
 
 then review and commit the changed `apko.lock.json`.
+
+## The seccomp profile: `//bazel/oci_images/seccomp`
+
+`ultragraphdb.json` is Docker's default profile, `seccomp/v0.3.0` of `github.com/moby/profiles` (commit
+`4b8214fc4971e06172938a1f1554ccff6647ee80`), with one rule added after its first, allowing `io_uring_setup`, `io_uring_enter`
+and `io_uring_register`. Docker's own default refuses those three, so a role under it runs on the polling driver. To take a
+newer default, copy `seccomp/default.json` of the new tag and add the same rule after its first.
+
+## The role images and the development image
+
+Each role's package, `//ultragraphdb/ultragraphdb_frontend`, `_compute` and `_storage`, declares `<role>_multiarch`, its
+`<role>_tag`, `push` and `load`; `//ultragraphdb/ultragraphdb_config` declares the config service's scratch image the same
+way. `//ultragraphdb/ultragraphdb_supervisor` declares the development image, `development_multiarch`, with
+`development_tag`, `push` and `development_load`: the supervisor, the config service and the three roles at `/`, where the
+supervisor finds the binaries beside it, the shipped profiles under `/etc/ultragraphdb/profiles/`, and `/data` and
+`/run/ultragraph` owned by 65532 at mode 0700. It runs `ultragraphdb_supervisor --config /etc/ultragraphdb/profiles/dev.toml`
+as 65532, the client endpoint at 7080. The supervisor draws the config service's keys, the role secret and the bootstrap
+administrator's password under `/data/config/` at the first start; the password is `bootstrap.secret`:
+
+```bash
+bazel run -c opt //ultragraphdb/ultragraphdb_supervisor:development_load -- --platform linux/arm64
+docker run -d --name ultragraphdb -p 7080:7080 -v ultragraphdb:/data \
+    --security-opt seccomp=bazel/oci_images/seccomp/ultragraphdb.json hansenmarvin/ultragraphdb_development:dev
+docker cp ultragraphdb:/data/config/bootstrap.secret .
+```
+
+A load target loads every platform of its index unless `--platform` names one, and Docker's own store takes one platform
+at a time. `//ultragraphdb/ultragraphdb_supervisor_tests:image_bdd` runs the `@image` scenarios against these images.
 
 ## Checking an image
 

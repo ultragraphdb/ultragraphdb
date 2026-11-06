@@ -13,6 +13,8 @@ use ultragraphdb_protocol_wire::{ErrorCode, ErrorReply};
 
 use super::{ClientSession, now};
 use crate::traits::authorizer::Authorizer;
+use crate::types::client_transaction::BindState;
+use crate::types::commit_hold::CommitHold;
 use crate::types::link_event::LinkEvent;
 use crate::types::route_key::RouteKey;
 use crate::types::session_event::SessionEvent;
@@ -119,12 +121,20 @@ impl<A: Authorizer + Clone> Session for ClientSession<A> {
             self.abort(stream);
         } else if self.reads.contains_key(&stream) {
             self.read_cancelled(stream);
-        } else if let Some(one) = self.one_frames.get(&stream) {
-            // Whether it committed is its resend's to learn: a Cancel never undoes one, and lets its session go.
-            if let Some((link, relayed)) = &one.route {
-                link.forget(*relayed);
+        } else if let Some(one) = self.one_frames.remove(&stream) {
+            // Whether it committed is its resend's to learn: a Cancel never undoes one, and its session stays in flight until
+            // its partition answers it (`PROTOCOL.md` §11.4, §11.5).
+            match &one.route {
+                Some((link, relayed)) if one.session != 0 => {
+                    link.hold(
+                        *relayed,
+                        CommitHold::new(self.core.owner_weak(), one.session),
+                    );
+                }
+                Some((link, relayed)) => link.forget(*relayed),
+                None if one.session != 0 => self.core.owner().commit_ended(one.session),
+                None => {}
             }
-            self.one_frame_answered(stream);
         }
     }
 
@@ -168,23 +178,30 @@ impl<A: Authorizer + Clone> ClientSession<A> {
 }
 
 impl<A> Drop for ClientSession<A> {
-    /// A connection that closes aborts its open transactions: their Bind streams and reads cancelled. Its commits already in the
-    /// commit step proceed.
+    /// A connection that closes aborts its open transactions: their Bind streams and reads cancelled. Its commits already relayed
+    /// proceed, each session held in flight until its partition's stream ends, so a full registry does not evict it first.
     fn drop(&mut self) {
+        let owner = self.core.owner();
         for transaction in self.transactions.values() {
-            if transaction.commit_out.is_none() {
-                match &transaction.bind {
-                    crate::types::client_transaction::BindState::Bound { link, stream, .. }
-                    | crate::types::client_transaction::BindState::Binding {
-                        link, stream, ..
-                    } => {
-                        link.cancel(*stream);
-                    }
-                    crate::types::client_transaction::BindState::None => {}
+            let route = match &transaction.bind {
+                BindState::Bound { link, stream, .. } | BindState::Binding { link, stream, .. } => {
+                    Some((link, *stream))
                 }
+                BindState::None => None,
+            };
+            match (route, transaction.commit_out.is_some()) {
+                (Some((link, stream)), true) if transaction.session_held != 0 => {
+                    link.hold(
+                        stream,
+                        CommitHold::new(self.core.owner_weak(), transaction.session_held),
+                    );
+                    continue;
+                }
+                (Some((link, stream)), false) => link.cancel(stream),
+                (Some(_) | None, _) => {}
             }
             if transaction.session_held != 0 {
-                self.core.owner().commit_ended(transaction.session_held);
+                owner.commit_ended(transaction.session_held);
             }
         }
         for read in self.reads.values() {
@@ -193,22 +210,34 @@ impl<A> Drop for ClientSession<A> {
             }
         }
         for one in self.one_frames.values() {
-            if let Some((link, stream)) = &one.route {
-                link.forget(*stream);
-            }
-            if one.session != 0 {
-                self.core.owner().commit_ended(one.session);
+            match &one.route {
+                Some((link, stream)) if one.session != 0 => {
+                    link.hold(
+                        *stream,
+                        CommitHold::new(self.core.owner_weak(), one.session),
+                    );
+                }
+                Some((link, stream)) => link.forget(*stream),
+                None if one.session != 0 => owner.commit_ended(one.session),
+                None => {}
             }
         }
         for dropping in self.drops.values() {
+            if dropping.sent && dropping.session != 0 {
+                dropping.link.hold(
+                    dropping.stream,
+                    CommitHold::new(self.core.owner_weak(), dropping.session),
+                );
+                continue;
+            }
             // Its Bind stream is let go at the partition, as a transaction's is.
             dropping.link.cancel(dropping.stream);
             if dropping.session != 0 {
-                self.core.owner().commit_ended(dropping.session);
+                owner.commit_ended(dropping.session);
             }
         }
         for recall in self.recalls.values() {
-            self.core.owner().commit_ended(recall.session);
+            owner.commit_ended(recall.session);
         }
     }
 }

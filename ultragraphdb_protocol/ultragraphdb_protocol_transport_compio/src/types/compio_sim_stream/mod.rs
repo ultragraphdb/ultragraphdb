@@ -5,6 +5,7 @@
 
 mod compio_sim_stream_async_read;
 mod compio_sim_stream_async_write;
+mod compio_sim_stream_splittable;
 
 use ultragraphdb_protocol_transport::SimStream;
 

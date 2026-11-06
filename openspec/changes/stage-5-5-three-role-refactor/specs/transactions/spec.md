@@ -143,7 +143,11 @@ in its commit step, code 13 below its last, and otherwise it commits. A request 
 partition may hold it: the client keeps its request number and resolves it by the resend before the session commits again. A
 new request refused with code 13 SHALL move the client's counter above `detail`. A session SHALL have at most one commit in flight. A request of a session the
 registry has evicted SHALL be refused by the frontend's owner check with an error saying so, so a partition never takes
-an evicted session for one committing there for the first time.
+an evicted session for one committing there for the first time. A full registry SHALL evict its oldest session with no
+Commit, Drop or one-frame write in flight, which is from the owner check until the request ends before reaching a
+partition, its partition answers it, or its role connection closes, whether or not its client stays connected, so a
+session that passed the owner check is never evicted before its request reaches its partition; a Recall holds no session
+from eviction. A Register finding no session the full registry may evict SHALL be refused with code 14, evicting nothing.
 
 #### Scenario: A retried commit commits once
 - **WHEN** a client commits request 7 of its session, loses the reply, and sends request 7 again
@@ -158,6 +162,22 @@ an evicted session for one committing there for the first time.
 #### Scenario: An evicted session is told so
 - **WHEN** a session is evicted from the full registry and its client sends its next request
 - **THEN** the frontend refuses the request with an error saying the session was evicted, and no partition sees it
+
+#### Scenario: A session with a commit in flight is not evicted
+- **WHEN** the registry holds `sessions_max` sessions, the oldest has a Commit at its partition unanswered, its client's
+  connection closes, and another session is registered
+- **THEN** the registry evicts the next oldest session instead, and the oldest only once its partition has answered the
+  Commit
+
+#### Scenario: A full registry of commits in flight refuses a Register as busy
+- **WHEN** the registry holds `sessions_max` sessions, each with a commit in flight, and a client registers another
+- **THEN** the Register is refused with code 14, nothing is evicted, and a Register after a commit is answered is served
+
+#### Scenario: A Cancel after a commit reaches its partition holds its session from eviction
+- **WHEN** the registry holds `sessions_max` sessions, one with a Commit and one with a one-frame write at its partition
+  unanswered, their client cancels both streams, and registers another session
+- **THEN** the Register is refused with code 14, evicting neither, and a Register once the partition has answered both is
+  served
 
 #### Scenario: A partition purges an entry only after the registry's eviction
 - **WHEN** a session has committed in partition 1, and the registry evicts it

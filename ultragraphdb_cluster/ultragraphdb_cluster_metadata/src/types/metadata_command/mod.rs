@@ -92,7 +92,7 @@ pub enum MetadataCommand {
         evicts: Vec<u128>,
     },
     /// The session `session` registered for the principal `principal`, evicting `evicts`, the least recently
-    /// registered sessions, when the registry holds `sessions_max`.
+    /// registered sessions with no commit in flight, when the registry holds `sessions_max`.
     RegisterSession {
         /// The session's 128-bit identity.
         session: u128,

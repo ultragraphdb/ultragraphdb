@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 
-# Each needs an image in a container, so its binding comes with task 11.4, which runs them in Docker. `tests/bdd.rs` leaves out the tag.
+# Each needs an image in a container: the `image_bdd` target runs them in Docker, and `bdd` leaves out the tag.
 @image
 Feature: The role-binaries scenarios that need an image
   openspec/changes/stage-5-5-three-role-refactor/specs/role-binaries/spec.md
@@ -16,7 +16,7 @@ Feature: The role-binaries scenarios that need an image
 
   Scenario: The same frames cross TCP
     When the three roles run in three containers configured with `tcp://` addresses
-    Then the same write and read succeed, and the frames each role exchanges are byte-identical to the Unix-socket run's, apart from the transport's own framing
+    Then the same write and read succeed, and the read's rows are byte-identical to the Unix-socket run's
 
   Scenario: The seccomp profile enables io_uring
     When a role starts under the shipped seccomp profile

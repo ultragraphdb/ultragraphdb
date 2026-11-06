@@ -9,6 +9,7 @@ pub mod auth_throttle;
 pub(crate) mod client_read;
 pub mod client_session;
 pub(crate) mod client_transaction;
+pub(crate) mod commit_hold;
 pub mod endpoint_core;
 pub mod endpoint_limits;
 pub mod every_authenticated;

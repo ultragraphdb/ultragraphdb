@@ -7,7 +7,7 @@ mod owner_answer;
 pub(crate) mod owner_catalog;
 mod owner_turn;
 
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::path::PathBuf;
 
@@ -54,8 +54,9 @@ pub struct Owner<M: OrderedLog, S: OrderedLog> {
     closes_waited: Vec<(Epoch, Sender<Result<Close, ErrorReply>>)>,
     /// The catalog versions a declaring Commit waits on the effective epoch of.
     versions_waited: Vec<VersionWaiter>,
-    /// The sessions with a commit in flight.
-    in_flight: BTreeSet<u128>,
+    /// The sessions with a commit in flight, each with whether it may record the session in a partition's table, which keeps a
+    /// full registry from evicting it.
+    in_flight: BTreeMap<u128, bool>,
     closes_since_snapshot: u32,
     snapshots: Option<PathBuf>,
 }
@@ -129,7 +130,7 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
             durable: Vec::new(),
             closes_waited: Vec::new(),
             versions_waited: Vec::new(),
-            in_flight: BTreeSet::new(),
+            in_flight: BTreeMap::new(),
             closes_since_snapshot: 0,
             snapshots,
         };

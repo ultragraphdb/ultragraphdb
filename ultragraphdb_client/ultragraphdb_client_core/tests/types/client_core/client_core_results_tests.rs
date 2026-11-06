@@ -7,7 +7,7 @@ use ultragraphdb_client_core::{
     BatchPoll, ClientErrorEnum, Reply, ResultStream, Session, TestServer, Transaction,
 };
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
-use ultragraphdb_protocol_transport::{Anonymous, NetworkFaults};
+use ultragraphdb_protocol_transport::{Anonymous, NetworkFaults, TransportError};
 use ultragraphdb_protocol_wire::{
     ABSENT, BodyView, ColumnType, Command, CreditView, ErrorCode, Execute, FrameView, Header,
     HeaderView, MAX_FRAME_SIZE, PatternSlot, Prepare, QuadPattern, Read, ReadView, TermTable,
@@ -897,4 +897,218 @@ fn credits_on(h: &mut Harness) -> TestResult<usize> {
         }
     }
     Ok(count)
+}
+
+/// The client's half of a resume key across a reconnect (`PROTOCOL.md` §11.8): the key of a read's last batch, opaque to the
+/// client, goes back byte for byte in the resume section of the same read on the next connection, in a read-only
+/// transaction at level 0 naming the version the first Begin answered.
+#[test]
+fn test_a_resume_key_continues_its_read_on_the_next_connection() -> TestResult {
+    use ultragraphdb_protocol_wire::{Begin, BeginView, ReadLevel};
+    let mut h = Harness::ready(server().with_results(2))?;
+    let first = begin(&mut h)?;
+    assert_eq!(first.level(), ReadLevel::Snapshot);
+    let version = first.read_version();
+    let paged = read(&first);
+    let stream = h.core.read(&first, &paged, h.now)?;
+    let mut key = Vec::new();
+    h.until(|h| {
+        loop {
+            match h
+                .core
+                .next_batch(&stream, h.now, |view| view.resume().to_vec())
+            {
+                Ok(BatchPoll::Batch(resume)) => key = resume,
+                Ok(BatchPoll::Wait) => return false,
+                Ok(BatchPoll::Done) | Err(_) => return true,
+            }
+        }
+    })?;
+    assert!(!key.is_empty(), "the last batch holds a resume key");
+    // The connection is lost, its transaction with it; the read continues in a read-only one naming the version.
+    h.core.disconnected(TransportError::closed(), h.now);
+    h.connect()?;
+    h.until(|h| h.core.is_ready())?;
+    let p = h
+        .core
+        .begin_with(Begin::new(first.tenant(), version, true), None, h.now)?;
+    let again = begun(h.settle(p)?)?;
+    assert_eq!(again.read_version(), version);
+    let resumed = Read::new(
+        again.stream(),
+        paged.limit(),
+        paged.terms().clone(),
+        *paged.pattern(),
+        key.clone(),
+    );
+    let continued = h.core.read(&again, &resumed, h.now)?;
+    assert_eq!(drain(&mut h, &continued)?.len(), 2);
+    let sent: Vec<(Vec<u8>, QuadPattern)> = h
+        .server
+        .received()
+        .iter()
+        .filter_map(|f| {
+            let view = FrameView::validate(f, CLUSTER, MAX_FRAME_SIZE).ok()?;
+            let read = ReadView::from_frame(&view).ok()?;
+            Some((read.resume().to_vec(), *read.pattern()))
+        })
+        .collect();
+    assert_eq!(
+        sent,
+        vec![(Vec::new(), *paged.pattern()), (key, *paged.pattern())],
+        "the same pattern, the key byte for byte"
+    );
+    let versions: Vec<(bool, u64)> = h
+        .server
+        .received()
+        .iter()
+        .filter_map(|f| {
+            let view = FrameView::validate(f, CLUSTER, MAX_FRAME_SIZE).ok()?;
+            let begin = BeginView::from_frame(&view).ok()?;
+            Some((begin.read_only(), begin.read_version()))
+        })
+        .collect();
+    assert_eq!(
+        versions.last(),
+        Some(&(true, version)),
+        "the version the first Begin answered"
+    );
+    Ok(())
+}
+
+/// Credit and the client's buffers agree: a read is sent only while the buffers hold every frame its credit and a refusal
+/// can bring beside the other reads', so a read the buffers cannot hold is refused before it is sent, and once a read ends its
+/// buffers take the next. Here a read reserves the Welcome's 4 frames and a refusal, and 6 buffers keep one to read into.
+#[test]
+fn test_a_read_past_the_clients_buffers_is_refused_before_it_is_sent() -> TestResult {
+    let buffers = 6;
+    let mut h = Harness::with(
+        config().with_buffers(buffers),
+        server().with_results(3),
+        NetworkFaults::none(),
+        1,
+        Anonymous,
+    );
+    h.connect()?;
+    h.until(|h| h.core.is_ready())?;
+    let tx = begin(&mut h)?;
+    let first = h.core.read(&tx, &read(&tx), h.now)?;
+    let sent = h.server.received().len();
+    while h.step()? {}
+    let refused = h
+        .core
+        .read(&tx, &read(&tx), h.now)
+        .err()
+        .context("an error")?;
+    assert_eq!(
+        refused,
+        ultragraphdb_client_core::ClientError::buffer_limit(buffers)
+    );
+    assert!(!refused.closes_connection());
+    assert_eq!(h.core.transmit(), None, "nothing of it is sent");
+    assert_eq!(h.server.received().len(), sent + 1, "the first read alone");
+    assert_eq!(drain(&mut h, &first)?.len(), 3);
+    let next = h.core.read(&tx, &read(&tx), h.now)?;
+    assert_eq!(
+        drain(&mut h, &next)?.len(),
+        3,
+        "the ended read's buffers hold the next"
+    );
+    assert!(h.core.is_ready());
+    Ok(())
+}
+
+/// A manual grant beyond what a read's buffers hold takes more of them, and is refused when the client has none left.
+#[test]
+fn test_a_grant_past_the_clients_buffers_is_refused() -> TestResult {
+    for (buffers, granted) in [(6, false), (7, true)] {
+        let mut h = Harness::with(
+            config().with_buffers(buffers),
+            server().with_results(9),
+            NetworkFaults::none(),
+            1,
+            Anonymous,
+        );
+        h.connect()?;
+        h.until(|h| h.core.is_ready())?;
+        let tx = begin(&mut h)?;
+        let stream = h.core.read(&tx, &read(&tx), h.now)?;
+        while h.step()? {}
+        let grant = h.core.grant(&stream, frames(1)?, h.now);
+        if granted {
+            grant?;
+            assert_eq!(credits_on(&mut h)?, 1);
+        } else {
+            assert_eq!(
+                grant.err(),
+                Some(ultragraphdb_client_core::ClientError::buffer_limit(buffers))
+            );
+            assert_eq!(credits_on(&mut h)?, 0);
+        }
+    }
+    Ok(())
+}
+
+/// A read reserves the larger of the Welcome's initial credit and the configured credit, plus one for a refusal: here 6
+/// configured above the Welcome's 4, so 7 buffers, which 8 hold beside the one left to read into and 7 do not.
+#[test]
+fn test_a_read_reserves_the_larger_credit_and_a_refusal() -> TestResult {
+    let credit: u32 = 6;
+    let reserved = usize::try_from(credit + 1)?;
+    for (buffers, held) in [(reserved, false), (reserved + 1, true)] {
+        let mut h = Harness::with(
+            config().with_credit(credit).with_buffers(buffers),
+            server().with_results(1),
+            NetworkFaults::none(),
+            1,
+            Anonymous,
+        );
+        h.connect()?;
+        h.until(|h| h.core.is_ready())?;
+        let tx = begin(&mut h)?;
+        let opened = h.core.read(&tx, &read(&tx), h.now);
+        if held {
+            assert!(opened.is_ok(), "{buffers} buffers hold the read");
+        } else {
+            assert_eq!(
+                opened.err(),
+                Some(ultragraphdb_client_core::ClientError::buffer_limit(buffers))
+            );
+        }
+    }
+    Ok(())
+}
+
+/// The frames kept from a lost connection hold their buffers until the caller reads them: a read the buffers hold only
+/// without them is refused, and is sent once they are read.
+#[test]
+fn test_frames_kept_from_a_lost_connection_hold_their_buffers() -> TestResult {
+    let results = 3;
+    // A read reserves the Welcome's 4 frames and a refusal; 6 buffers hold one read beside the one to read into.
+    let buffers = 6;
+    let mut h = Harness::with(
+        config().with_buffers(buffers),
+        server().with_results(results),
+        NetworkFaults::none(),
+        1,
+        Anonymous,
+    );
+    h.connect()?;
+    h.until(|h| h.core.is_ready())?;
+    let first = begin(&mut h)?;
+    let kept = h.core.read(&first, &read(&first), h.now)?;
+    while h.step()? {}
+    h.core.disconnected(TransportError::closed(), h.now);
+    h.connect()?;
+    h.until(|h| h.core.is_ready())?;
+    let again = begin(&mut h)?;
+    assert_eq!(
+        h.core.read(&again, &read(&again), h.now).err(),
+        Some(ultragraphdb_client_core::ClientError::buffer_limit(buffers)),
+        "the kept frames and the read's reservation exceed the buffers"
+    );
+    assert_eq!(drain(&mut h, &kept)?.len(), results as usize);
+    let next = h.core.read(&again, &read(&again), h.now)?;
+    assert_eq!(drain(&mut h, &next)?.len(), results as usize);
+    Ok(())
 }
