@@ -75,7 +75,7 @@ retired name of a renamed item resolves during the migration's deprecation windo
 attributes and roles. A query denotes a function from `G` to a value of its result type:
 
 - A root selector `T(…)` denotes the elements whose label is a concrete type at or below `T` and that satisfy its
-  filters: a supertype is the variant of its concrete subtypes (`SCHEMA-APG.md`, section 11).
+  filters: a supertype is the variant of its concrete subtypes (`SCHEMA-APG.md`, section 13.1).
 - A shape denotes a function from an element to a record whose fields are the shape's fields (section 5).
 - Result types are **label-free** (`SCHEMA-APG.md`, definition 3.2): an element enters a result only through the
   fields its shape projects, among them `iri`, never as a reference or an internal ID. A result is therefore a closed
@@ -764,9 +764,9 @@ insert AssertedBy { statement: c, asserter: Source(id = "SRC:backfill") }
   client session's deduplicated request; `explain` as a request that compiles and classifies without executing.
 - **`SCHEMA.md`.** Section 4's expression grammar names this file as its extension for queries, as it does; section
   5.11's `edge` as a field with a shape inside a binary navigation's shape.
-- **`SCHEMA-APG.md`.** Part 2's list collection, which `List` result types and set-valued roles read; part 3's views,
-  which the differential correspondence of section 19 relies on; the Lean model's named layer, for section 19's
-  fourth check.
+- **`SCHEMA-APG.md`.** Carried 2026-11-08: part 2's collections, which `List` result types and set-valued roles read
+  (section 12 there), and part 3's views, which the differential correspondence of section 19 relies on (sections 17
+  and 18 there). Still asked: the Lean model's named layer, for section 19's fourth check.
 - **`QUERY-GQL-CORE.md`, `QUERY-SPARQL-CORE.md`.** The differential correspondence of section 19, from UQL's side.
 
 ## 22. Decisions

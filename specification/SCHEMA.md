@@ -1425,8 +1425,9 @@ The views present one algebraic property graph (`SCHEMA-APG.md`, section 10). Th
 published with SHACL shapes that are cross-checked against the common core of SHACL, ShEx and PG-Schema (Ahmetaj et al.,
 2025). The GQL view is a graph of a generated, closed graph type, conforming under ISO GQL's closed graph types and
 PG-Schema's STRICT, closed semantics, as MGQL checks conformance for the GQL core. Part 3 of `SCHEMA-APG.md` defines
-each view as a functor of the algebraic property graph and proves the GQL view's conformance; this section states the
-views it will define.
+each view as a function of the algebraic property graph (sections 17 and 18 there), proves the RDF view's round trip
+and the GQL view's conformance, and states the test oracle both are checked by (section 19 there); this section states
+the views it defines.
 
 ### 11.1 Relation encodings
 
@@ -1850,7 +1851,7 @@ counterparty.
 | Conformance corpus | Built once the language is final for DeepBrain's current target; the proposal is section E of `openspec/notes/UltraGraphDB Schema Feedback.md` |
 | Multiple inheritance | None; union roles cover overlapping participant sets |
 | A standalone compiler binary | None; the server compiles, in CI through the development container |
-| Formal semantics | Decided 2026-11-08: an algebraic property graph is the foundation, the GQL view a closed graph type read with PG-Schema's STRICT, closed semantics, constraints with PG-Keys' semantics, and the RDF view RDF 1.2 with reifiers and SHACL (`SCHEMA-APG.md`, sections 10 and 13). Chosen over PG-Schema as the foundation, whose edges join two nodes and never an edge, whose types are structural rather than nominal, and which has no schema mappings |
+| Formal semantics | Decided 2026-11-08: an algebraic property graph is the foundation, the GQL view a closed graph type read with PG-Schema's STRICT, closed semantics, constraints with PG-Keys' semantics, and the RDF view RDF 1.2 with reifiers and SHACL (`SCHEMA-APG.md`, sections 10 and 21). Chosen over PG-Schema as the foundation, whose edges join two nodes and never an edge, whose types are structural rather than nominal, and which has no schema mappings |
 | GQL view's node types | Decided 2026-11-08: one node type per concrete type with its exact label set, supertypes as labels only, since a closed supertype admits no subtype's node |
 
 ## 18. Sources

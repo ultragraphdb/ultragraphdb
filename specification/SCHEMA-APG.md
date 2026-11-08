@@ -1,6 +1,6 @@
 # Algebraic property graphs
 
-* Status: first draft, 2026-11-08. Part 1 of a formal semantics for UGS (`openspec/notes/backlog.md`, item 18).
+* Status: first draft, 2026-11-08. The formal semantics of UGS (`openspec/notes/backlog.md`, item 18), in three parts.
 
 This file defines the algebraic property graph (APG) model of Shinavier, Wisnesky and Meyers, the model the formal
 semantics of UGS is built on: a schema of labels whose types are records and variants over primitive types and labels,
@@ -8,9 +8,10 @@ a graph of elements each carrying one value of its label's type, the homomorphis
 schema mappings that carry a graph from one schema to another. It states the definitions in the named form CQL
 implements, proves that form equivalent to the paper's binary one, and adds the results UltraGraphDB relies on.
 
-Part 2 extends the model with collections, for UGS's set-valued attributes and roles. Part 3 maps a UGS catalog onto
-the model and defines the RDF view and the GQL view as functors of one APG, the mapping contract's definition and the
-test oracle the query cores are checked against.
+Part 1, sections 1 to 11, is the model. Part 2, section 12, extends it with collections, for UGS's list and set
+attributes and its set-valued roles. Part 3, sections 13 to 19, maps a UGS catalog onto the model, its labels, types,
+constraints, names, graphs and history, and defines the RDF view and the GQL view as functions of one APG: the mapping
+contract's definition, and the test oracle the engine and the query cores are checked against.
 
 The model is the foundation of four layers (section 10): the APG model itself; the GQL view, described by a closed
 graph type with PG-Schema's semantics; keys and other constraints with PG-Keys' semantics; and the RDF view with
@@ -28,11 +29,19 @@ RDF 1.2 reifiers and SHACL shapes.
 8. Equivalent formulations
 9. Schema mappings and Δ
 10. The model and the views
-11. What the next parts add
-12. The Lean model
-13. Decisions
-14. Open questions
-15. Sources
+11. UGS constructs in the model
+12. Collections (part 2)
+13. The schema of a catalog (part 3)
+14. Constraints
+15. Identity, graphs and time
+16. Selections and key lookups
+17. The RDF view
+18. The GQL view
+19. The test oracle
+20. The Lean model
+21. Decisions
+22. Open questions
+23. Sources
 
 ## 1. Conventions
 
@@ -289,7 +298,7 @@ distributivity requires.
 - The mapping terms of section 8.3 need it: a `case` whose branches read the argument `x` is an arrow
   `τ × (A + B) → C`, which factors through `τ × A + τ × B` only when the first canonical map is invertible.
 - More schema mappings exist (section 9).
-- The paper notes that distributivity complicates term rewriting (paper §5.2); section 14 asks which procedure decides
+- The paper notes that distributivity complicates term rewriting (paper §5.2); section 22 asks which procedure decides
   equality.
 
 ### 8.3 Mapping terms
@@ -431,30 +440,448 @@ tree in one graph; `@unique` is an `EXCLUSIVE` key; a required attribute or role
 `SINGLETON`. Each is checked as the emptiness of its violation query, as PG-Keys checks it (PG-Keys, section 4.5). A
 role assigned by key lookup in a migration reaches at most one element because the key is exclusive.
 
-## 11. What the next parts add
+## 11. UGS constructs in the model
 
-| UGS construct | Where it is modelled |
+Every construct of `SCHEMA.md` has its place in the model, defined in the section named:
+
+| UGS construct | In the model | Section |
+|---|---|---|
+| Entity type, attribute, optional attribute | A label whose type is the record of its fields, own and inherited; an optional field `optional t` | 13.2 |
+| Default | A write-time rule: the stored value of an omitted field is its default | 13.2 |
+| Enum | `enum`, a variant of units | 13.2 |
+| Interval, measure, record attribute | A record of primitive types | 13.2 |
+| Catalog type as a value or participant | An enumeration of the concrete type names it admits | 13.2, 13.3 |
+| Single inheritance, abstract types, type tests | One label per concrete type; a supertype is the variant of its concrete subtypes | 13.1 |
+| Relation instance with identity, n-ary, with attributes | A hyperedge label: the record of its single-valued roles and attributes | 13.3 |
+| Union-typed role, a role typed by a supertype | A variant over the concrete labels it admits | 13.3 |
+| Relation over a relation | A field typed by a relation's label, a meta-edge | 13.3 |
+| `@set`, `@multi` | Identity for every element; `@set` a key on the roles | 13.3, 14.2 |
+| List and set attributes | `list t` and `set t` over label-free types | 12.2 |
+| Set-valued role | Reification: one element of a role label per participant | 12.3 |
+| `@symmetric` relation | A record of two fields read in either order | 12.4 |
+| Value entity, `@independent` | A label keyed by its value | 13.4 |
+| `@open` data and `Resource` | The label `Resource`, and undeclared triples as elements whose objects are values | 13.4 |
+| Derived names, folds, functions | Queries over the APG, outside its schema | 13.5 |
+| Keys, `@unique`, cardinality, checks, `@acyclic`, `@no_overlap`, `@limit` | State constraints | 14.2 |
+| Type fixed, keys and `@immutable` unchanged, `@append_only`, delete and retraction actions | Transition constraints | 14.3 |
+| Instance IRIs, an edge-encoded relation without a reifier | The naming `ι`, partial: such an edge is named by its triple | 15.1 |
+| Named graphs, shared graphs, bridges | One APG per graph; a working graph as the union of a domain graph and its shared graphs | 15.2 |
+| Bitemporal versions, `asserted`, `live` | States indexed by commit, and their slices | 15.3 |
+| A node's labels in the GQL view | The exact label set of the concrete type and its supertypes | 10, 18 |
+
+## 12. Collections (part 2)
+
+### 12.1 The decision
+
+UGS has collections of two kinds: collections of **values**, its `List` and `Set` attributes, and collections of
+**references**, its set-valued roles. Drafted 2026-11-08, for review: collections of values enter the types as
+`list t` and `set t` over label-free types; collections of references are reified, one element per member.
+
+- UGS's collections of values never hold a reference: a `List` or `Set` holds scalars, enums, `Iri`, measures,
+  intervals or records, and an `Iri` is a value (`SCHEMA.md` sections 5.1 and 5.4).
+- Over a label-free type, values do not depend on the elements (proposition 12.2), so the two constructors enter `F_S`
+  as constants: `F_S` stays polynomial, and the theory `C_S`, `Δ` and every proposition of part 1 hold unchanged.
+- A collection of references would put the finite subsets of `E(l)` into `F_S`, which is then not polynomial, and
+  `Δ`'s mapping terms would need comprehensions over collection monads (paper §6.2; Grust). Reification keeps both
+  out.
+- Both choices follow the store and the views. A `List` is one literal; a `Set` is one triple per member; a set-valued
+  role is one role triple per participant (`SCHEMA.md` sections 5.1 and 11.1), each the RDF view of one reified
+  element.
+
+### 12.2 Collections of values
+
+**Definition 12.1 (collection types).** Definition 3.2 gains two constructors:
+
+```
+list t     for a label-free t without a collection in it      a finite sequence
+set t      for t a primitive type or an enum                  a finite set
+```
+
+as UGS admits them: a `List` of a scalar, enum, record, `Iri`, measure or interval and no nested collection, and a
+`Set` of what compares as a scalar (`SCHEMA.md` section 5.4, `UGS0205`). Their values are
+
+```
+V_E(list t) = the finite sequences of V_E(t)
+V_E(set t)  = the finite subsets of V_E(t)
+```
+
+two lists equal element by element and two sets extensionally, and `V_h(list t) = V_h(set t) = id`.
+
+**Proposition 12.2 (here).** For a label-free `t`, `V_E(t) = V_∅(t)` for every family `E`, and `V_h(t) = id` for every
+`h`. *Proof.* Induction on `t`: no `lbl l` leaf occurs, and every other constructor's values are built from its
+arguments' alone.
+
+**Corollary 12.3 (here).** With collections, `F_S(E)(l) = V_E(σ(l))` remains a polynomial functor, each label-free
+subterm of `σ(l)` contributing a constant, and propositions 5.3, 6.3, 6.6, 7.2, 8.1 and 8.4 hold with unchanged
+proofs. In `C_S` the collection types are further primitive types of an extended typeside: `P*` is the least set
+holding `P` and `list t` and `set t` for every admitted `t` over `P*`, and the collection operations are typeside
+functions:
+
+| Type | Functions |
 |---|---|
-| Entity type, attribute, optional attribute, default | A label whose type is a record of primitive fields, `optional` for an optional one; a default is part 3's |
-| Enum | `enum`, a variant of units |
-| Relation instance with identity, n-ary, with attributes | A hyperedge label: a record of its roles' labels and its attributes |
-| Union-typed role, a role typed by a supertype | A variant over the concrete labels it admits |
-| Relation over a relation | A field typed by a relation's label, a meta-edge |
-| `@multi` | Identity: two elements may carry equal values |
-| Interval, measure, record attribute | A record of primitives |
-| Set attribute, set-valued role, `@symmetric` relation | Part 2: a collection constructor, or reification as elements; a symmetric relation's participants are a set of two |
-| List attribute | Part 2, with the inductive types of paper §6.2 |
-| Keys, `@unique`, cardinality bounds, checks | Part 3: none is equational, so each is a constraint on the APGs of a schema |
-| Single inheritance | Part 3: each element carries one label, its concrete type's; a supertype is the variant of its concrete subtypes |
-| Derived closures and folds | Part 3: a transitive closure is no arrow of `C_S`, so it is a query over the APG |
-| Bitemporal versions, `asserted` | Part 3 |
-| Named graphs, shared graphs, bridges | Part 3: a graph is an APG on its schema, and a bridge a field typed by a shared graph's label |
-| `@open` data and `Resource` | Part 3: the label `Resource`, whose value holds undeclared attributes, with part 2's collections |
-| Value entity, `@independent` | Part 3: a label keyed by its value |
-| A node's labels in the GQL view | Section 10: the exact label set of the concrete type and every supertype |
-| An edge-encoded relation without a reifier | Part 3: its element's identity is its triple, which a relation without `@multi` keeps unique |
+| `list t` | `nil`, `cons`, `append`, `length`, `at`, giving `optional t` |
+| `set t` | `empty`, `insert`, `union`, `member`, giving `enum false true`, and `size` |
 
-## 12. The Lean model
+A mapping term reads and builds collections through these functions. It does not map a term over a collection's
+members, which is a higher-order operation the typeside does not hold (section 22).
+
+UQL's result types are label-free types of this grammar, a list of records among them (`QUERY-ULTRA-QL.md` section 5).
+
+### 12.3 Collections of references
+
+**Definition 12.4 (role label).** For a relation label `R` with a set-valued role `r` whose participants have the type
+`U`, the schema has the **role label** `R_r`, and `σ(R)` has no field `r`:
+
+```
+σ(R_r) = rec { instance ↦ lbl R, participant ↦ ⟦U⟧ }
+```
+
+with `⟦U⟧` the role's participant type of section 13.3. Each participant of `r` in an instance is one element of
+`R_r`, whose value names the instance and the participant.
+
+Two constraints of section 14.2 complete the role: no two elements of `R_r` carry one value, as a set has no duplicate
+member; and every element of `R` has at least one element of `R_r`, as a set-valued role holds one participant or more
+(`UGS1016`). An element of a role label has no IRI: the pair of its instance and its participant names it (section
+15.1).
+
+### 12.4 Symmetric relations
+
+**Definition 12.5.** A `@symmetric` relation's label has the type of a binary relation, a record whose two role fields
+`a` and `b` have one participant type, and its elements are read **up to the swap** of `a` and `b`:
+
+- its navigation name, which both roles share, reaches the participant in the other field from either one;
+- a `@set` symmetric relation's key is the unordered pair of its participants (section 14.2);
+- the views present it without a direction (sections 17, 18).
+
+The model fixes neither order of a value's two participants. The store fixes one, the order of the participants' IDs
+(`SCHEMA.md` section 6.4), which no view and no query observes.
+
+## 13. The schema of a catalog (part 3)
+
+A catalog version `K` of a tenant denotes an APG schema `S(K) = (L, σ)` with constraints `C(K)` (section 14). This
+section defines `S(K)`.
+
+### 13.1 Labels and inheritance
+
+`L` holds one label for each concrete entity type, each concrete relation type, each attribute type declared
+`@independent`, each role label of section 12.3, and `Resource` and `Undeclared` where `@open` admits undeclared data
+(section 13.4), each qualified by its namespace. An abstract type is no label.
+
+For a type `T`, `conc(T)` is the set of concrete types at or below `T`, `T` itself included when it is concrete, and
+
+```
+⟦T⟧ = lbl T                                  when conc(T) = {T}
+⟦T⟧ = var { C ↦ lbl C  |  C ∈ conc(T) }      otherwise
+```
+
+A concrete type's fields are its own and every supertype's. A specialized role holds its participant in one field,
+under its own name; the super role's name reads it, in the views (`SCHEMA.md` section 11.2) and in queries.
+
+**Proposition 13.1 (here).** Every element carries one label, its concrete type, and `is T` holds of an element exactly
+when its label is in `conc(T)`, which the prefix-range check of `SCHEMA.md` section 7.1 decides. *Proof.* An instance
+has one concrete type, fixed for life (section 14.3), and its labels in the views are derived from it (section 18).
+
+### 13.2 Attributes
+
+An attribute's UGS type `T` translates to `⟦T⟧`; an optional attribute to `optional ⟦T⟧`:
+
+| UGS type | `⟦T⟧` |
+|---|---|
+| `Bool`, the integer and float types, `Decimal(p, s)`, `String`, `Text`, `Bytes`, `Date`, `Time`, `DateTime`, `LocalDateTime`, `Duration`, `Iri`, `Vector<…>`, `Geo`, `Unit`, `QuantityKind`, `Measure<K, u>` | A primitive type of the typeside, with `SCHEMA.md` section 5.1's values; a fixed-unit measure is its number in the unit |
+| `enum E { m₁, … }` | `enum m₁ …` |
+| `record N { f: T, … }` | `rec { f ↦ ⟦T⟧, … }`, an optional field `optional ⟦T⟧` |
+| `Interval<T>` | `rec { start ↦ ⟦T⟧, end ↦ optional ⟦T⟧, start_precision ↦ prim Precision, end_precision ↦ optional (prim Precision) }` |
+| `Measure<K>`, `Measure` | `rec { value ↦ prim Float64, unit ↦ prim Unit }` |
+| `List<T>`, `Set<T>` | `list ⟦T⟧`, `set ⟦T⟧` (section 12.2) |
+| `schema.EntityType<T>`, `schema.RelationType<T>` as a value | `enum` of the names of `conc(T)`: a catalog type is a value here, never a reference |
+| A named attribute type `@independent` | `lbl V`, a reference to its value entity (section 13.4) |
+
+`σ(T)` of a concrete entity type is the record of its fields under their names; an `@bitemporal` type's has the field
+`asserted ↦ rec { start ↦ prim DateTime, end ↦ optional (prim DateTime) }` too, which the engine writes (section 15.3).
+A default is a write-time rule: a field omitted at insert is stored with its default, so the model holds the default
+as the value.
+
+### 13.3 Relations
+
+For a concrete relation type `R`:
+
+```
+σ(R) = rec { r ↦ ⟦U_r⟧              for each required, single-valued role r,
+             r ↦ optional ⟦U_r⟧     for each optional role r,
+             a ↦ ⟦T_a⟧              for each attribute a, as section 13.2 }
+```
+
+where `U_r` is the role's participant union `A | B | …` and `⟦U_r⟧` the variant over `conc(A) ∪ conc(B) ∪ …`, or
+`lbl C` when that set is the one type `C`. A set-valued role has its role label instead (section 12.3).
+
+- **Relations over relations.** A role whose union admits a relation type, directly or through a statement type
+  covering it, references that relation's elements: the paper's meta-edge (definition 4.2).
+- **Catalog types as participants.** A role typed `schema.EntityType<T>` is a value field, the enumeration of section
+  13.2.
+- **Identity.** Every element of `R` has identity, so a `@multi` relation's two instances between the same participants
+  are two elements with equal values; a `@set` relation, the default, admits at most one live element per combination
+  of participants, a key of section 14.2.
+- **Navigation names.** A navigation name is no field. The navigation from a participant `p` along role `r` reaches
+  the elements `{ e ∈ E(R) | e.r = p }`, or those of `R_r` naming `p`, and its cardinality bounds their number (section
+  14.2).
+- **Encodings.** Whether `R` is edge- or node-encoded (`SCHEMA.md` section 11.1) is the store's and the views' matter;
+  the model has one form for both.
+
+### 13.4 Value entities and undeclared data
+
+**Value entities.** An attribute type declared `@independent` is a concrete label `V` with `σ(V) = rec { value ↦ ⟦t⟧ }`
+and the key `value` (section 14.2), so equal values share one element; an attribute of that type is the field
+`lbl V`, and "which other instances hold this value" is the inverse of that reference.
+
+**Undeclared data.** Where `@open` admits undeclared data, the schema has the labels
+
+```
+σ(Resource)   = 1
+σ(Undeclared) = rec { subject ↦ ⟦any⟧, predicate ↦ prim Iri, object ↦ prim Term }
+```
+
+with `⟦any⟧` the variant over every label of `L` but the role labels and `Undeclared`, and `prim Term` the RDF terms,
+IRIs, blank nodes and literals, as values. A subject of no declared type is an element of `Resource`; each undeclared
+triple, on a `Resource` or on an instance of a type declared `@open`, is an element of `Undeclared`. An undeclared
+triple's object is a value, never a reference: an ungoverned link names an IRI and makes no claim that an element
+carries it, as RDF's open world has it. A tenant without a schema has no APG; its data is the quads `PROTOCOL.md`
+section 11.13 governs.
+
+### 13.5 Derived names and functions
+
+A derivation `derive T.n = body` (`SCHEMA.md` section 6.8) is no field of `σ(T)`. It denotes a function
+`d_n(G, e)` of an APG `G` and an element `e` of a label in `conc(T)`, computed by its body: navigation steps forward
+and inverse, filters, a bound `+` or `{m, n}` read as reachability, `exists`, and a fold over the elements a path
+reaches in its order. `@materialized` stores a cache that must equal `d_n` at every state; `@virtual` computes it when
+read. A function (`SCHEMA.md` section 6.9) is a function of `G` and its parameters likewise. A transitive closure is no
+arrow of `C_S`, so derivations and functions are queries over the APG, and a schema mapping's terms do not call them
+(section 22).
+
+## 14. Constraints
+
+### 14.1 Form
+
+`C(K)` holds two kinds of constraint. A **state constraint** is a predicate on one APG `G` on `S(K)`, the graph at a
+read point, read as the slice of section 15.3. A **transition constraint** is a predicate on a pair `(G, G')` of
+consecutive states, the APGs before and after one commit. The data is valid when every state satisfies the state
+constraints and every commit the transition constraints. Each constraint has a violation query, which returns the
+elements that break it, and holds when the query returns nothing, as PG-Keys validates (PG-Keys, section 4.5); the
+refusal it raises is `SCHEMA.md` section 8.7's.
+
+### 14.2 State constraints
+
+In the table, `E_g(T)` is `⋃ { E_g(C) | C ∈ conc(T) }` within one graph `g`, and `e.f` the field `f` of `e`'s value:
+
+| UGS | The constraint on `G` | PG-Keys or PG-Schema form |
+|---|---|---|
+| `@key(k₁, …)` on a tree `T` | `e ↦ (e.k₁, …)` is injective on `E_g(T)` | `IDENTIFIER`: `EXCLUSIVE`, with `MANDATORY` and `SINGLETON` holding by type, since key fields are required and single-valued |
+| `@unique a` | `e ↦ e.a` is injective on the elements where `a` is present | `EXCLUSIVE` |
+| Required, single-valued attribute or role | Holds by type: the field is present once in every value | `MANDATORY`, `SINGLETON`, discharged by typing |
+| Set-valued role, non-empty | Every `e ∈ E(R)` is named by at least one element of `R_r` | `MANDATORY` |
+| `@set` | `e ↦ (e.r₁, …)` over the single-valued roles, with each set-valued role's participants, is injective on the live elements of `E(R)`; for a `@symmetric` relation the pair is unordered | `EXCLUSIVE` |
+| Role label | `e ↦ (e.instance, e.participant)` is injective on `E(R_r)` | `EXCLUSIVE` |
+| Participation `?`, `+`, `{m, n}` | For every participant `p` of the role's types, the number of elements reaching `p` through the role lies in the bounds | PG-Schema's `COUNT m..n` |
+| `@check`, `@range`, `@pattern`, `@values` | A predicate on each element's value | `MANDATORY` with a condition |
+| `@acyclic`, `max_depth` | The references from the contained role to the container role, over the live elements and, under `@acyclic(open)`, the open ones, form no cycle, and no chain longer than `max_depth` | UGS's own |
+| `@no_overlap(per: P)` | Elements agreeing on the roles `P` have pairwise disjoint valid intervals | UGS's own |
+| `@limit(agg per G where c) op v` | The aggregate over each group's elements satisfying `c` compares to `v` by `op` | UGS's own |
+| Bridges, domain graphs | A reference from a domain graph's element lands in that graph or in a shared graph its schema imports (section 15.2) | UGS's own |
+
+Datatypes, enum members, units of a measure's kind and vector dimensions hold by typing, since each value lies in
+`V_E` of its field's type: `PV` of a primitive type holds exactly the values `SCHEMA.md` section 5.1 admits.
+
+### 14.3 Transition constraints
+
+For a commit from `G` to `G'`, and an element `e` of `G`:
+
+| UGS | The constraint on `(G, G')` |
+|---|---|
+| Type fixed for life | `e`, if in `G'`, carries the label it carries in `G` (`UGS1004`) |
+| Key immutable, `@immutable` | `e`'s key fields and `@immutable` fields are equal in `G` and `G'` (`UGS1007`, `UGS1012`) |
+| `@append_only` | `e` is in `G'` with an equal value (`UGS1013`); only a legal purge removes it |
+| `@bitemporal` | A change of `e`'s value is a revision: `e` stays, with a new version (section 15.3); `e` leaves the live slice only by retraction, and the store only by purge |
+| `@on_delete` | When `e` is deleted, every element whose field references `e` through a role with `cascade` is deleted, with `restrict` refuses the commit (`UGS1020`), and with `orphan` has that optional field set absent; `G'` is referentially closed (proposition 6.6) |
+| `@on_retract` | When `e` is retracted, every `@bitemporal` element referencing it through a role with `cascade` is retracted, with `restrict` refuses while it is live, and with `restrict open` refuses while it is open (`SCHEMA.md` section 8.4, rule 6) |
+| `@retracts(r)`, `@ends(r)` | An element inserted into `G'` retracts, or closes the valid interval of, its participant in `r` in the same commit |
+| Live participants | An element inserted into `G'` references no element that is retracted or deleted (`UGS1019`) |
+
+## 15. Identity, graphs and time
+
+### 15.1 Names
+
+`ι`, the **naming**, sends an element to its IRI (`SCHEMA.md` section 7.3): minted from the key for a keyed element,
+from the value for a value entity, the handle drawn at creation for a keyless one, and the reifier for an element of
+an edge-encoded relation whose type allocates one. `ι` is partial and injective where defined:
+
+- an element of an edge-encoded relation without a reifier has no IRI; its triple, the IRIs of its anchor and its other
+  participant under the anchor's navigation name, names it, and is unique because such a relation is no `@multi`
+  relation, which allocates a reifier, and so has at most one live element per pair (section 14.2);
+- an element of a role label has no IRI; the pair of its instance and its participant names it.
+
+A homomorphism `h : G → G'` **preserves names** when `ι'(h(e)) = ι(e)` wherever `ι` is defined. System IDs implement
+element identity in the store and are no part of the model.
+
+### 15.2 Graphs
+
+Each graph `g` of a namespace holds an APG `G_g` on `S(K)`, with elements of the labels its schema declares. Domain
+graphs are disjoint, and an element of a domain graph references only elements of its own graph or of the shared
+graphs its schema imports (`UGS1033`); a shared graph's elements reference only elements of shared graphs.
+
+**Proposition 15.1 (here).** The union of a domain graph's APG and the APGs of the shared graphs its schema imports,
+transitively, is an APG on `S(K)`: the working graph a query reads (`QUERY-ULTRA-QL.md` section 2). *Proof.* Element
+sets are disjoint, and every reference of an element in the union lands in the union, by the rule above.
+
+### 15.3 States and slices
+
+The database's history is a sequence of **states** `G_0, G_1, …`, one APG per commit, each with every element ever
+written and not purged; a commit is a transition of section 14.3, and a read point reads one state (`QUERY-ULTRA-QL.md`
+section 11.1). An element of a `@bitemporal` label carries in a state its **versions**, one per revision, each with the
+transaction-time interval in which it was the element's value; its `asserted` field is the union of those intervals.
+
+| Slice of a state | Elements | Each with |
+|---|---|---|
+| **Live**, the default read | Every element present and not retracted; an element of a relation that is not `@bitemporal` only while every participant of it is live (`SCHEMA.md` section 8.4, rule 6) | Its newest version |
+| **Believed at** `t` | Every `@bitemporal` element whose `asserted` contains `t`'s epoch, and every element that is not `@bitemporal` and present, while every participant of it is in the slice | The version current at `t` |
+| **With retracted** | Every element present | Its newest version |
+
+A slice is read as an APG only when it is referentially closed, so its **closure** is read: the slice with every element
+its elements reference, transitively, each referenced element that is not in the slice taken with its newest version
+and read with `live` false.
+
+**Proposition 15.2 (here).** When no role of the schema carries `@on_retract(… restrict open)`, and every participant
+type of a `@bitemporal` relation is `@bitemporal` or `@append_only`, the live slice of every state and the believed
+slice at every instant are referentially closed, and equal their closures. *Proof.* By induction over commits. An insert
+references only live elements (`UGS1019`). A retraction cascades to the `@bitemporal` elements referencing the retracted
+one or is refused while they are live, and an element of a relation that is not `@bitemporal` leaves the slice with its
+participant by definition. A revision keeps the element's identity, so a reference to it stays valid. The believed slice
+follows the same steps read at `t`.
+
+Under `restrict open`, a retraction proceeds while elements that are live but no longer open reference the retracted
+participant, and nothing in `SCHEMA.md` section 8.4 retracts them: Gen5's `MemberOf` and `SubOrganizationOf` keep
+their closed memberships and closed units this way. The live slice then references a retracted element, and its
+closure reads that element with `live` false. Likewise, `SCHEMA.md` section 8.5 applies `@on_delete` to the relations
+naming a deleted entity, and a `@bitemporal` relation takes `@on_retract` instead (`UGS0514`), so what a deletion of a
+participant that is neither `@bitemporal` nor `@append_only` does to a `@bitemporal` relation naming it is unstated.
+Gen5's relations name statements alone, which are `@bitemporal`, so the second case does not arise there; the first
+does, for `MemberOf` and `SubOrganizationOf`. Section 22 asks `SCHEMA.md` to state both rules.
+
+## 16. Selections and key lookups
+
+Two operations stand beside `Δ` where a migration (`SCHEMA-EVOLUTION.md` section 2) or a query needs them.
+
+**Definition 16.1 (selection).** For an APG `G`, a set of labels and a Boolean mapping term `p` on each label's values,
+the selection `G|p` keeps the elements of those labels whose values satisfy `p` and every element of the other labels.
+It is **defined** when `G|p` is referentially closed: no kept element references a dropped one. Then `G|p` is an APG,
+and its inclusion into `G` is an injective homomorphism that preserves names. Otherwise it is undefined, and an
+operation applying it fails naming a kept element and the dropped element it references, as a migration's run fails
+(`SCHEMA-EVOLUTION.md`, `UGS2202`).
+
+**Definition 16.2 (key lookup).** For a key `k` of a type tree `T` in a graph `g`, `lookup_k` sends a key value `v` to
+the element of `E_g(T)` whose key is `v`, as `optional ⟦T⟧`, absent when none has it. It is defined on the APGs
+satisfying the key's exclusivity (section 14.2), which makes the element unique. A lookup reads every element of the
+tree, so it is no arrow of `C_S`; a mapping term extended with lookups is evaluated on valid APGs only.
+
+**Proposition 16.3 (here).** `SCHEMA-EVOLUTION.md`'s non-merging fragment denotes, for a source APG `G` satisfying the
+source's constraints, the target APG `(Δ_Φ G)|p`: `Δ` along label and variant-of-label images, with mapping terms that
+may look up keys, followed by the selection of the maps' `where` predicates. It is defined exactly when the selection
+is, and each target element has one origin (proposition 9.5). *Proof.* Definitions 9.2, 16.1 and 16.2, with
+proposition 9.5 for the images.
+
+## 17. The RDF view
+
+**Definition 17.1 (`R`).** For a valid APG `G` on `S(K)` with its naming `ι`, the RDF view `R(G)` is the set of quads,
+each in the named graph of the element it comes from, generated as follows; `{base}` is the namespace's vocabulary base
+and `lit(v)` the literal of `v` under `SCHEMA.md` section 5.1's datatype.
+
+| From | Quads |
+|---|---|
+| An element `e` of label `l` with `ι(e)` defined | `ι(e) rdf:type C` for `l` and each of its supertypes and statement types |
+| A primitive field `a` with value `v` | `ι(e) {base}a lit(v)`; none when an optional field is absent |
+| A `set` field | One quad per member |
+| A `list` or `rec` field | One quad whose object is an `rdf:JSON` literal |
+| An interval field | `{a}_start`, `{a}_end` and the precision literals |
+| A measure with its unit on the value | One `ugdb:measure` literal |
+| A catalog type as a value | The class IRI, as OWL 2 punning allows |
+| A field referencing a value entity `w` | `ι(e) {base}a ι(w)` |
+| `asserted` | `asserted_start`, `asserted_end` and `live` |
+| An element of a node-encoded relation `R` | `ι(e) {base}R_r ι(p)` for each role field `r` holding `p` |
+| An element of an edge-encoded relation `R` | `ι(anchor) {base}nav ι(other)`, `nav` the anchor role's navigation name; with a reifier, also `ι(e) rdf:reifies <<( ι(anchor) {base}nav ι(other) )>>` and `e`'s attribute quads on `ι(e)`; for a `@symmetric` relation, the quad in both directions, as the view answers both |
+| An element of a role label `R_r` | `ι(instance) {base}R_r ι(participant)` |
+| An element of `Undeclared` | `ι(subject) predicate object` |
+
+The view's derived properties, an inverse navigation name and a node-encoded relation's navigation property, and a
+super role's triple are answered by the query core from these quads (`SCHEMA.md` section 11.2) and are no part of
+`R(G)`.
+
+**Proposition 17.2 (monotone; here).** For an injective homomorphism `h : G → G'` that preserves names,
+`R(G) ⊆ R(G')`. So `R` is a functor from valid APGs on `S(K)` with such homomorphisms to datasets ordered by inclusion,
+and adding elements only adds quads, which the monotonic reads of the RDF view rest on. *Proof.* Every quad of
+definition 17.1 is generated by one element from its value and the names of the elements it references, which `h`
+preserves.
+
+**Proposition 17.3 (round trip; here).** On valid APGs on `S(K)`, `R` is injective up to naming: a partial function
+`R⁻¹` on `R`'s image gives `R⁻¹(R(G)) = G`, each element identified by its IRI, its triple or its pair (section 15.1).
+*Proof.* The element named by an IRI is recovered with its label from its type quads, as the most specific of them,
+unique because an element's types form one chain of supertypes. Its fields are recovered from the quads under its IRI: a
+label's fields have distinct names, so distinct predicates; an optional field's absence is a missing quad; a set's
+members are its quads, without duplicates; a list or record is one literal. An element of an edge-encoded relation is
+recovered from its reifier where it has one, else from its triple, unique by section 15.1, and a `@symmetric` relation's
+two quads give one element. A role label's elements are its role quads; a role quad belongs to a set-valued role, so to
+a role label, exactly when the relation's declaration makes that role set-valued.
+
+**Corollary 17.4.** The SHACL shapes `SCHEMA.md` section 11.2 publishes hold on `R(G)` for every valid `G`, since each
+shape restates a typing rule or a state constraint of section 14.2 over the quads of definition 17.1.
+
+## 18. The GQL view
+
+**Definition 18.1 (`P`).** For a valid APG `G` on `S(K)`, the GQL view `P(G)` is the property graph of PG-Schema's
+definition 3.1 and MGQL's `PropertyGraph`, with:
+
+| Part of `P(G)` | From |
+|---|---|
+| A node | Each element of an entity label, a value-entity label or `Resource`; each element of a node-encoded relation label, as its relation node; each element of an edge-encoded relation label whose type allocates a reifier, as its relation node, beside its edge (`SCHEMA.md` section 11.3) |
+| A stored edge | Each element of an edge-encoded relation label, from its anchor's node to its other participant's, undirected when the relation is `@symmetric`; each role field of a node-encoded relation's element and each element of a role label, from the relation node to the participant's node, with the role's name and, for a specialized role, the super role's |
+| A derived, read-only edge | The two role edges of a relation node of an edge-encoded relation; a binary node-encoded relation's navigation edge, from the participant gaining the name to the one it reaches |
+| Labels | For a node or edge from an element of label `l`, the exact set of `l`, its supertypes and the statement types covering it |
+| Properties | Each primitive field; a `list` or `set` field as `LIST`, a record, interval or measure as `RECORD`; `type`, the label's name; `asserted` and `live` on a `@bitemporal` element; an absent optional field absent |
+| Element id | `ι` of the element; none for a derived edge, a role edge, or an edge without a reifier |
+
+The **graph type** `Γ(S(K))` is closed: a node type per label presented as a node, with the exact label set of the
+label and its supertypes and the property types of its primitive fields; an edge type per edge-encoded relation, per
+role edge and per navigation edge, its endpoints a triple for each pair of concrete labels its roles admit.
+
+**Proposition 18.2 (conformance; here).** For every valid APG `G` on `S(K)`, `P(G)` conforms to `Γ(S(K))` under
+PG-Schema's strict, closed semantics (PG-Schema, definition 4.2), and so to the closed graph schema MGQL's
+`graphConformsSchema` checks. *Proof.* A node or edge from an element of label `l` carries exactly the label set of
+`l`'s node or edge type, and the properties of `σ(l)`'s primitive fields, of the types `Γ` lists. An edge's endpoints
+are elements whose labels its role's type admits, by the typing of the field it comes from, and `Γ` lists a triple for
+each admitted pair; derived edges are built from fields in the same way.
+
+**Proposition 18.3 (monotone; here).** For an injective homomorphism that preserves names, `P(G)` is a subgraph of
+`P(G')`. *Proof.* As proposition 17.2.
+
+**Proposition 18.4 (one graph, two views; here).** On valid APGs, `P(G) = P(R⁻¹(R(G)))`: the GQL view is determined by
+the RDF view. A GQL node corresponds to the IRI of its element, a stored edge to its reifier's IRI or its triple, and
+a property to the literal of the same field, the correspondence `QUERY-SPARQL-CORE.md` section 12 states for the
+differential tests. *Proof.* Proposition 17.3.
+
+## 19. The test oracle
+
+Definitions 17.1 and 18.1 are the mapping contract between the RDF view and the GQL view, and propositions 17.3 and
+18.2 its properties. The oracle checks the engine against them:
+
+1. **Generate.** Valid APGs on a schema, the Gen5 schema and the conformance corpus's among them, are generated by the
+   Lean model's executable named layer (section 20), respecting the constraints of section 14.2.
+2. **Write.** Each APG is written through the engine, by SPARQL updates, GQL inserts or UQL mutations in turn.
+3. **Read and compare.** The engine's RDF view, every quad of the dataset, must equal `R(G)`, and `R⁻¹` of it must equal
+   `G`; the engine's GQL view, every node and edge with labels and properties, must equal `P(G)` up to element ids that
+   `ι` fixes, and must conform to `Γ(S(K))` under MGQL's checker.
+4. **Query.** Queries in the overlap of the two cores run on the engine and on the reference evaluators, spareval over
+   `R(G)` and MGQL over `P(G)`, and their answers are compared under the correspondence of proposition 18.4.
+
+A failure names the side that diverged: the engine's write path, one view, or a query core.
+
+## 20. The Lean model
 
 Decided 2026-11-08: the Lean model of this file sits in `lean/`, beside `PlacementModel` and `RoundModel`, under the
 repository's toolchain, Lean 4.14, without Mathlib, and takes a binary core with a named layer over it.
@@ -490,11 +917,14 @@ The model takes a **binary core with a named layer over it**:
 - Proposition 3.3 is proved between them, values and terms both, which carries every core result to the named layer.
   Part 3 reads the named layer, where each field's name gives its predicate and property key.
 - A view that needs a declaration order keeps it beside the type, outside the record.
+- Part 2's `set t` takes, without Mathlib's finite sets, a list without duplicates in the order of a decidable order on
+  values, so one set is one term, as one record is.
+- Part 3's views, `R` and `P`, are executable functions on the named layer, which section 19's oracle runs.
 
 The translation theorem is the model's one substantial proof: it must hold naturally in `E`, and for terms as well as
 values, or the core's results do not transfer.
 
-## 13. Decisions
+## 21. Decisions
 
 | Question | Decision |
 |---|---|
@@ -503,19 +933,32 @@ values, or the core's results do not transfer.
 | Constraint semantics | PG-Keys for keys, uniqueness, presence and single values; PG-Schema's proposed `COUNT` for participation bounds; UGS's own for the rest (section 10) |
 | RDF view | RDF 1.2 with reifiers and SHACL shapes, cross-checked against the common core of SHACL, ShEx and PG-Schema (section 10) |
 | Distributivity | `C_S` is distributive (section 8.2) |
-| Lean model | In `lean/`, a binary core with a named layer, proposition 3.3 proved between them (section 12) |
+| Lean model | In `lean/`, a binary core with a named layer, proposition 3.3 proved between them (section 20) |
+| Collections | Drafted 2026-11-08, for review: collections of values as `list t` and `set t` over label-free types; set-valued roles reified as role labels; a symmetric relation read up to swap (section 12) |
+| A catalog's schema | Drafted 2026-11-08: one label per concrete type, `@independent` attribute type and role label; a supertype as the variant of its concrete subtypes; navigation names as inverse references, never fields (section 13) |
+| Constraints | Drafted 2026-11-08: state constraints on one APG and transition constraints on a commit, each held when its violation query returns nothing (section 14) |
+| History | Drafted 2026-11-08: a state per commit, read through its live, believed or full slice, closed under references (section 15.3) |
+| The views | Drafted 2026-11-08: `R` and `P` of definitions 17.1 and 18.1 are the mapping contract; `R` round-trips, and `P` conforms to the generated graph type (sections 17 to 19) |
 
-## 14. Open questions
+## 22. Open questions
 
 - With `C_S` distributive and without function types, which procedure decides equality of mapping terms, as checking
   a migration against a declared equation needs? Scherer's procedure decides the lambda calculus with sums and the
   empty type, function types included: does the distributive theory without them embed conservatively in it, so that
   the procedure decides it, or does UltraGraphDB need a normaliser of its own, and at what cost for a catalog's size?
 - Are a label's images restricted to types whose primitive types have finitely many values (proposition 9.4)?
-- Which of the products, coproducts, equalizers and coequalizers of APGs that CQL's `apg` package builds belong to the
-  model? Part 3 needs equalizers for a migration's `where`; colimits would integrate two schemas.
+- Do colimits of APGs, which CQL's `apg` package builds, belong to the model, to integrate two schemas? A migration's
+  `where` is the selection of section 16 and needs none.
+- Which rule does `SCHEMA.md` section 8.4 state for the live instances that are no longer open when `restrict open`
+  admits their participant's retraction: do they stay live, as section 15.3's closure reads them, or are they retracted
+  with it? And what does deleting a participant that is neither `@bitemporal` nor `@append_only` do to a `@bitemporal`
+  relation naming it?
+- Does a mapping term map a term over a collection's members, which needs a higher-order typeside function or a
+  comprehension, so that a migration can rewrite a list's or set's members?
+- May a schema mapping's terms call derivations and functions, which are queries rather than arrows of `C_S`, as
+  section 16 lets them look up keys?
 
-## 15. Sources
+## 23. Sources
 
 - J. Shinavier, R. Wisnesky, J. G. Meyers, *Algebraic Property Graphs*, arXiv:1909.04881v3, 2022: the schema and the
   APG (§3), the single-set form (§3.1), the element kinds (§4.2), coalgebras and models (§5), user-defined functions

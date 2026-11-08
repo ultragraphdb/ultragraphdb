@@ -84,9 +84,10 @@ UltraGraphDB admits the **non-merging fragment**:
   discrete op-fibration; in the algebraic property graph it is `Δ` along a variant of labels.
 - **An image is a function of its origin and the source snapshot.** Its attributes and roles are mapping terms over
   the origin (`SCHEMA-APG.md`, definition 8.5), read at one snapshot epoch.
-- **Two steps beyond `Δ`.** A map's `where` is a selection, an equalizer of homomorphisms; a role assigned by key
-  lookup searches a label's elements by key and reaches at most one, because a key is exclusive under PG-Keys'
-  semantics (`SCHEMA-APG.md`, section 10). Part 3 of `SCHEMA-APG.md` defines both.
+- **Two steps beyond `Δ`.** A map's `where` is a selection, defined when what it keeps references nothing it drops
+  (`SCHEMA-APG.md`, definition 16.1); a role assigned by key lookup searches a label's elements by key and reaches at
+  most one, because a key is exclusive under PG-Keys' semantics (definition 16.2). Proposition 16.3 there states the
+  fragment's semantics.
 
 Within the fragment a migration is a union of selections, renamings and per-instance computations. Spivak and Wisnesky
 show that Δ, and Σ along a discrete op-fibration, compile to selection, projection, union and key generation
@@ -377,8 +378,8 @@ A migration rewrites what the database owns and publishes what it cannot rewrite
 
 ## 11. What this specification asks of the others
 
-- **`SCHEMA-APG.md`.** Part 3 defines a selection as an equalizer of homomorphisms and a key lookup under PG-Keys'
-  semantics, the two steps of section 2 beyond `Δ`.
+- **`SCHEMA-APG.md`.** Carried 2026-11-08: the selection and the key lookup, the two steps of section 2 beyond `Δ`,
+  and the fragment's semantics (section 16 there).
 - **`SCHEMA.md`.** Section 7.2's bucket and claim hash, and section 7.3's keyed IRI, read the declaring type's key space
   (section 4.1 here); section 7.3's routing admits retired names in handle IRIs; section 4.3's birth IRI rule and
   `UGS1037`; section 13.2 points a destructive change at a migration as its alternative to deprecate and drop; section
