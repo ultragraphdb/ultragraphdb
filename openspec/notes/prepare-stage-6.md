@@ -20,7 +20,7 @@ Stage 6 is done when:
    - **update:** Install of a new version takes effect at its epoch under `SCHEMA.md` section 13's rules: additive and
      loosening changes online, a tightening after its validation scan, a destructive change only by deprecate and
      drop, a version not built on the current one refused (`UGS2001`);
-   - **delete:** a schema's namespace is removed from its tenant as gap G1 (section 2) settles.
+   - **delete:** an Install with an empty source removes a schema's namespace from its tenant (G1, section 2).
 2. **The provisional DeepBrain schema loads and is applied.** Gen5's `DeepBrainSchema.ugs` with its module
    `ServiceRadarExtension.ugs` installs into a tenant with no error, its report holding exactly the warnings and
    notes the corpus expects (`UGS0902` for constructs that execute in a later stage, `UGS0903` to `UGS0906` for
@@ -31,41 +31,40 @@ Stage 6 is done when:
 
 ## 2. First: two specification gaps that block success
 
-Neither criterion of section 1 can be met against the specification as it stands. Both gaps are closed in
-`SCHEMA.md` and `PROTOCOL.md` as stage 6's first work (tasks 0.1 and 0.2), before the change set is written and
-before any group that depends on them starts. Each needs the user's decision; each carries a recommendation.
+Neither criterion of section 1 can be met against the specification as it stands. Both gaps are decided below, and
+closed in `SCHEMA.md` and `PROTOCOL.md` as stage 6's first work (tasks 0.1 and 0.2), before the change set is written
+and before any group that depends on them starts.
 
 **G1. No operation deletes a namespace.** `SCHEMA.md` and `PROTOCOL.md` install and replace sources by name, and Drop
 removes data (kinds 1 predicate, 2 graph, 3 a tenant's data, 4 everything in a tenant), but nothing removes a schema
 or module, and with it its namespace, from a tenant while keeping the tenant. Success criterion 1's delete has no
 operation to call.
-- *Recommendation:* an Install that names a source with an empty text removes that schema or module and its
-  namespace. Removal is a destructive change under `SCHEMA.md` section 13.2: refused while a graph of the namespace
-  holds live instances, another catalog entry references its items, or another module imports it (`UGS2009`), so data
-  is dropped first by Drop of kind 2, graph by graph, and importers are removed before what they import. A removed
+- *Resolution, decided 2026-11-08:* an Install that names a source with an empty text removes that schema or module and
+  its namespace. Removal is a destructive change under `SCHEMA.md` section 13.2: refused while a graph of the namespace
+  holds live instances, another catalog entry references its items, or another module imports it (`UGS2009`), so data is
+  dropped first by Drop of kind 2, graph by graph, and importers are removed before what they import. A removed
   namespace's type prefixes retire and are never reissued, and its names become retired names (`SCHEMA.md` section
   10.2), so no later schema reuses an identity the store has seen. One DDL path then covers create, update and delete,
   the `declare` action already gates it, and no new command or frame is needed.
-- *Alternative:* a Drop kind 5, namespace, removing the schema with its data in one operation. It needs a new kind,
-  its `drop` permission checked against `declare`, and a cascade over every graph; it puts a DDL effect on a data
-  command, which the one-DDL rule argues against.
+- *Why not a Drop kind 5, namespace,* removing the schema with its data in one operation: it needs a new kind, its
+  `drop` permission checked against `declare`, and a cascade over every graph, and it puts a DDL effect on a data
+  command, which the one-DDL rule rules out.
 - *Amends:* `SCHEMA.md` section 10.1 (phase 8 reads a removal), section 13.2 (the removal row) and the `UGS2009`
-  text; `PROTOCOL.md` section 8.4 (an empty source text, the report's removal entry); `SECURITY.md` only if the
-  alternative is chosen.
+  text; `PROTOCOL.md` section 8.4 (an empty source text, the report's removal entry).
 
 **G2. Gen5's `@index(ann)` is refused before stage 8.** `PROTOCOL.md` section 11.13 refuses a vector index declared
 through a Write before stage 8, with code 7, and `SCHEMA.md` section 14 places `@index(ann)`, `quantization` and
 `Vector<BF16>` storage at stage 8. Read together, they refuse Gen5's Install, whose `attribute Embedding =
 Vector<BF16, 768> @index(ann, metric: cosine, quantization: int8)` is one line of 972, so success criterion 2 fails on
 it.
-- *Recommendation:* `SCHEMA.md` section 14's general rule for later-stage constructs applies to UGS: the Install
-  accepts `@index(ann)`, compiles and records it in the catalog version, reports it as declared but unenforced
+- *Resolution, decided 2026-11-08:* `SCHEMA.md` section 14's general rule for later-stage constructs applies to UGS: the
+  Install accepts `@index(ann)`, compiles and records it in the catalog version, reports it as declared but unenforced
   (`UGS0902`), and builds no index. A write of a `Vector<BF16>` value is refused until stage 8 with the later-stage
   refusal the frontend uses today; Gen5's `embedding` attributes are optional, so its instances write without them.
   Stage 8 then builds the index from the recorded declaration with no schema change. Section 11.13's refusal stays,
   restricted to the Write path's declarations in ungoverned tenants.
-- *Alternative:* strip the line from the vendored copy of Gen5. It makes the test pass by testing a different schema,
-  and every stage-8 construct a later schema declares would meet the same wall.
+- *Why not strip the line from the vendored copy of Gen5:* the test would pass by testing a different schema, and every
+  stage-8 construct a later schema declares would meet the same wall.
 - *Amends:* `SCHEMA.md` section 14's `@index(ann)` row and the `UGS0902` text; `PROTOCOL.md` section 11.13's sentence
   on vector indexes.
 
@@ -153,7 +152,7 @@ group's last step, `make test` as the gate, and a commit by the user after each 
 ### Group A. The APG model and the oracle → `lean/ApgModel`, before stage 6
 
 Written now, beside stage 5.5's last mutation passes: it needs `SCHEMA-APG.md` alone, shares no crate with stage 5.5,
-and checks the rows of `SCHEMA-APG.md` section 21 still marked drafted before the change set is written to them. As
+and checks the decisions of `SCHEMA-APG.md` section 21 before the change set is written to them. As
 stage 5.5's group 6b: built by `lake` outside Bazel on the toolchain of `lean/lean-toolchain`, its scenarios Lean
 theorems named after them, no Gherkin and no `bdd` target, done when `lake build ApgModel` is green with no `sorry`,
 the library added to `lean/lakefile.lean` beside `RoundModel` and `PlacementModel`.
@@ -171,22 +170,22 @@ the library added to `lean/lakefile.lean` beside `RoundModel` and `PlacementMode
     and never run `lake`, so the targets stay hermetic.
 - **A.4** Each proposition the engine must keep restated as a property group 9's test checks on every committed
   instance set, proposition 17.3's round trip first, listed in the group's notes, as stage 5.5's 6b.4 did.
-- **A.5** A finding against `SCHEMA-APG.md` fixed in the specification first; the drafted rows of its section 21
-  confirmed or changed before task 0.3 writes the capability specifications.
+- **A.5** A finding against `SCHEMA-APG.md` fixed in the specification first, its section 21's decisions among it,
+  before task 0.3 writes the capability specifications.
 - **A.6** After group 4, as a task of stage 6: `SCHEMA-APG.md` part 3's catalog translation modelled over a catalog
   structure `ultragraphdb_core_ugs_compile` exports, so the step from UGS to the APG schema joins the oracle, and A.3's
   hand-written schemas checked against it.
 
 ### Group 0. Specification and corpus first
 
-- **0.1 G1, namespace removal.** The user's decision recorded; `SCHEMA.md` sections 10.1 and 13.2, the `UGS2009`
-  text and `PROTOCOL.md` section 8.4 amended as section 2 states; the removal's scenarios written: removal of an empty
-  namespace, refusal while a graph holds live instances, refusal while a module imports it, retired prefixes never
-  reissued, a retired name refused where a new declaration would reuse it.
-- **0.2 G2, `@index(ann)` declared and unenforced.** The user's decision recorded; `SCHEMA.md` section 14's row, the
-  `UGS0902` text and `PROTOCOL.md` section 11.13 amended as section 2 states; the scenarios written: Gen5's
-  `Embedding` declaration accepted with its note, no index built, a `Vector<BF16>` write refused, a Write-path vector
-  index declaration in an ungoverned tenant still refused with code 7.
+- **0.1 G1, namespace removal.** `SCHEMA.md` sections 10.1 and 13.2, the `UGS2009` text and `PROTOCOL.md` section 8.4
+  amended as section 2 states; the removal's scenarios written: removal of an empty namespace, refusal while a graph
+  holds live instances, refusal while a module imports it, retired prefixes never reissued, a retired name refused where
+  a new declaration would reuse it.
+- **0.2 G2, `@index(ann)` declared and unenforced.** `SCHEMA.md` section 14's row, the `UGS0902` text and `PROTOCOL.md`
+  section 11.13 amended as section 2 states; the scenarios written: Gen5's `Embedding` declaration accepted with its
+  note, no index built, a `Vector<BF16>` write refused, a Write-path vector index declaration in an ungoverned tenant
+  still refused with code 7.
 - **0.3** The change's capability specifications written from `SCHEMA.md` (D1), each requirement with its scenarios;
   the scenario of every diagnostic number taken from the corpus below.
 - **0.4** The UGS conformance corpus, a folder of sources and expectations independent of the compiler:
@@ -267,7 +266,7 @@ Phases 2 to 7 of `SCHEMA.md` section 10.1, each refusing with its range:
   partition holding the tenant's data, the generalisation of task 9.5.8's Report, a contradiction refusing the reply
   and restoring the previous definition; deprecate and finalize for destructive changes; a relocation refused until
   stage 8.
-- **Removal** as G1 settles: the namespace's live data, references and importers checked on every partition holding
+- **Removal** (G1): the namespace's live data, references and importers checked on every partition holding
   the tenant's data before the version without it takes effect; its prefixes retired; its names retired.
 - **Describe:** the record kinds and the sources, filtered by what the principal may read, continuation frames, the
   schema id; prepared statements staled by a changed schema id (`PROTOCOL.md` section 11.7).

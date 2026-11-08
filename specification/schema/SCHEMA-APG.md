@@ -479,8 +479,8 @@ Every construct of `SCHEMA.md` has its place in the model, defined in the sectio
 ### 12.1 The decision
 
 UGS has collections of two kinds: collections of **values**, its `List` and `Set` attributes, and collections of
-**references**, its set-valued roles. Drafted 2026-11-08, for review: collections of values enter the types as
-`list t` and `set t` over label-free types; collections of references are reified, one element per member.
+**references**, its set-valued roles. Collections of values enter the types as `list t` and `set t` over label-free
+types; collections of references are reified, one element per member.
 
 - UGS's collections of values never hold a reference: a `List` or `Set` holds scalars, enums, `Iri`, measures,
   intervals or records, and an `Iri` is a value (`SCHEMA.md` sections 5.1 and 5.4).
@@ -989,7 +989,7 @@ values, or the core's results do not transfer.
 | RDF view | RDF 1.2 with reifiers and SHACL shapes, cross-checked against the common core of SHACL, ShEx and PG-Schema (section 10) |
 | Distributivity | `C_S` is distributive (section 8.2) |
 | Lean model | In `../../lean`, a binary core with a named layer, proposition 3.3 proved between them (section 20) |
-| Collections | Drafted 2026-11-08, for review: collections of values as `list t` and `set t` over label-free types; set-valued roles reified as role labels; a symmetric relation read up to swap (section 12) |
+| Collections | Decided 2026-11-08: collections of values as `list t` and `set t` over label-free types; set-valued roles reified as role labels; a symmetric relation read up to swap (section 12) |
 | `map` and `filter` | Decided 2026-11-08: over collections of values, with a body that reads the member alone (definition 12.4) |
 | Finite images | Decided 2026-11-08: every primitive type in a label's image has finitely many values (section 9) |
 | Extended mapping terms | Decided 2026-11-08: a mapping's terms may read its valid source, by key lookups, inverse navigations, derivations, folds and functions; such a mapping is no functor, and its report says so (definition 16.3) |
@@ -999,10 +999,10 @@ values, or the core's results do not transfer.
 | `restrict open` | Decided 2026-11-08: refuses a retraction while open instances name the participant, and retracts the live instances that are no longer open with it (`SCHEMA.md` section 8.4, rule 6) |
 | Participants of `@bitemporal` relations | Decided 2026-11-08: `@bitemporal` or `@append_only` types alone (`UGS0602`), so the live and believed slices are closed under references (proposition 15.2) |
 | Equality of mapping terms | Decided 2026-11-08: no decision procedure until a feature needs one, since UGS declares no path equations and type-checking a mapping needs no equality; normal forms decide the fragment without variants, and two mappings are compared by evaluation on the generated APGs of section 19 |
-| A catalog's schema | Drafted 2026-11-08: one label per concrete type and role label; a supertype as the variant of its concrete subtypes; navigation names as inverse references, never fields (section 13) |
-| Constraints | Drafted 2026-11-08: state constraints on one APG and transition constraints on a commit, each held when its violation query returns nothing (section 14) |
-| History | Drafted 2026-11-08: a state per commit, read through its live, believed or full slice, closed under references (section 15.3) |
-| The views | Drafted 2026-11-08: `R` and `P` of definitions 17.1 and 18.1 are the mapping contract; `R` round-trips, and `P` conforms to the generated graph type (sections 17 to 19) |
+| A catalog's schema | Decided 2026-11-08: one label per concrete type and role label; a supertype as the variant of its concrete subtypes; navigation names as inverse references, never fields (section 13) |
+| Constraints | Decided 2026-11-08: state constraints on one APG and transition constraints on a commit, each held when its violation query returns nothing (section 14) |
+| History | Decided 2026-11-08: a state per commit, read through its live, believed or full slice, closed under references (section 15.3) |
+| The views | Decided 2026-11-08: `R` and `P` of definitions 17.1 and 18.1 are the mapping contract; `R` round-trips, and `P` conforms to the generated graph type (sections 17 to 19) |
 
 ## 22. Open questions
 

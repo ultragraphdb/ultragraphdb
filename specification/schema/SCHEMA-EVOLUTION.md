@@ -467,9 +467,9 @@ A migration rewrites what the database owns and publishes what it cannot rewrite
 | History | Decided 2026-11-08: the live slice migrates; bitemporal history stays read-only in the source version |
 | Stage | Decided 2026-11-08: stage 9.5, after conformance, so stage 8's cluster carries a migration that changes placement |
 | IRIs | Decided 2026-11-08: fixed at birth; a keyed IRI names its key space, which outlives renames, and a handle states its bucket, so every IRI routes without a lookup |
-| Fragment | Drafted: `Δ` along label and variant-of-label images (`SCHEMA-APG.md`, proposition 9.5), with extended mapping terms, `map` and `filter` over collections, and selections; every image with one origin; no joins, no merging (proposition 16.4 there) |
-| Where the mapping is written | Drafted: a `migration` source installed with the target's schema source |
-| `asserted` of an image | Drafted: the origin's start, so the time a statement was first believed survives |
+| Fragment | Decided 2026-11-08: `Δ` along label and variant-of-label images (`SCHEMA-APG.md`, proposition 9.5), with extended mapping terms, `map` and `filter` over collections, and selections; every image with one origin; no joins, no merging (proposition 16.4 there) |
+| Where the mapping is written | Decided 2026-11-08: a `migration` source installed with the target's schema source |
+| `asserted` of an image | Decided 2026-11-08: the origin's start, so the time a statement was first believed survives |
 | Π | Decided 2026-11-08: not adopted; a many-to-many relation between independent instances is written after the cutover by a pipeline |
 | Unnesting | Decided 2026-11-08: `unnest`, one image per member of a collection of values, each with one origin (section 3.2) |
 | History across a cutover | Decided 2026-11-08: `as of` reads the source in its schema; `believed at` reads the target's history through the stored migration, joined to the present by IRI (section 7) |

@@ -457,7 +457,7 @@ follows the deprecate-then-drop path and is refused while live instances referen
 ### 5.11 Built-in fields
 
 Every instance carries fields the engine answers, which no declaration may take as an attribute, navigation name,
-derived name or function (`UGS0404`):
+derived name or function (`UGS0404`), nor a relation as a role (`UGS0417`):
 
 | Field | On | Value |
 |---|---|---|
@@ -570,7 +570,8 @@ relation Supply : Agreement @append_only {
 ```
 
 **Roles.** A relation has at least two roles, own or inherited (`UGS0401`). Each role declares a name unique among the
-relation's roles and attributes (`UGS0417`), a participant, and either a navigation name with a cardinality or `_`.
+relation's roles and attributes and differing from every built-in field of section 5.11 (`UGS0417`), a participant,
+and either a navigation name with a cardinality or `_`.
 
 | Participant form | Meaning |
 |---|---|
@@ -644,12 +645,14 @@ nested member is refused (`UGS0402`).
 | `@range(min, max)` | An ordered scalar or a `Measure` (`UGS0212`) | Two literals of the type, `min ≤ max`; either may be the identifier `open`; for a `Measure` a number as section 5.8 reads it | `min ≤ value ≤ max` |
 | `@values(…)` | A scalar | Literals of the type | Section 5.3 |
 | `@check(expr)` | An attribute, a record field, or a type (its instance); may repeat | A deterministic Boolean expression over the instance's own fields and its participants' immutable fields and types (`UGS0226`, `UGS0225`) | Holds at every commit of the instance (`UGS1010`) |
-| `@maps_to(curie \| iri)` | An attribute, type, role or navigation name | A CURIE of an imported prefix and a local part as SPARQL 1.1's `PN_LOCAL`, or an IRI literal (`UGS0803`) | Section 11.1 |
+| `@maps_to(curie \| iri)` | An attribute, type, role, navigation name, quantity kind or unit | A CURIE of an imported prefix and a local part as SPARQL 1.1's `PN_LOCAL`, or an IRI literal (`UGS0803`) | Section 11.1 |
 | `@iri(string)` | An attribute | An absolute IRI | The attribute's own predicate IRI in place of `{base}{attribute}` (section 10.2) |
 
 An index kind that does not fit the field's type is refused: `range` needs an ordered scalar, `Date`, `Time`,
 `DateTime`, `LocalDateTime`, `Duration`, an enum or `Measure` (`UGS0526`); `fulltext` needs `Text` (`UGS0525`);
-`interval` needs `Interval` (`UGS0522`); `geo` needs `Geo` (`UGS0523`); `ann` needs `Vector` (`UGS0524`).
+`interval` needs `Interval` (`UGS0522`); `geo` needs `Geo` (`UGS0523`); `ann` needs `Vector` (`UGS0524`). An index on a
+`Set<T>` indexes each member, one entry per member as the RDF view holds one triple per member, and fits the field when
+it fits `T`.
 
 ### 6.7 Type annotations
 
@@ -1264,8 +1267,9 @@ bytes; every field present; a decoder refuses any other byte sequence, so a vers
 share the predicate `{base}name`. Every type declaring the name must declare it with the same type and the same
 `@index`, `@immutable` and `@maps_to` (`UGS0215`), unless `@iri` on one gives it a predicate of its own, after which
 the agreement rule applies per predicate; requiredness, defaults and value checks are per declaring
-type. An attribute carrying `@key` or `@unique` is declared by one type tree only (`UGS0216`), so the
-predicate's `unique` flag is exactly the tree's rule. A subtype's inherited attribute is the same predicate.
+type. A predicate carrying `@key` or `@unique` is declared by one type tree only (`UGS0216`), so the predicate's
+`unique` flag is exactly the tree's rule; a declaration that `@iri` gives a predicate of its own is outside another
+tree's claim, as Gen5's `Teloid.action_identifier` is outside `Action`'s. A subtype's inherited attribute is the same predicate.
 
 The catalog's existing kinds 8, 9 and 10 (`../binary_protocol/PROTOCOL.md` section 4.6) are derived from the Predicate, Type and Role
 entries: an entity type's kind-9 record carries its parent and abstract flag; a relation's kind-10 record carries its
@@ -1345,7 +1349,7 @@ A schema with any error is refused. Warnings and notes accompany a successful in
 | `UGS0213` | error | A subtype redeclaring an inherited attribute with another type |
 | `UGS0214` | error | A subtype or module loosening an inherited constraint |
 | `UGS0215` | error | One attribute name declared by two types with different types or index, immutability or mapping annotations, without `@iri` splitting them |
-| `UGS0216` | error | A `@key` or `@unique` attribute name declared by a second type tree |
+| `UGS0216` | error | A `@key` or `@unique` attribute's predicate declared by a second type tree |
 | `UGS0218` | error | A `Measure` naming a unit of another quantity kind |
 | `UGS0221` | error | A duplicate enum member |
 | `UGS0222` | error | A duplicate record field |
@@ -1375,7 +1379,7 @@ A schema with any error is refused. Warnings and notes accompany a successful in
 | `UGS0411` | error | A cardinality, `restrict` or `@limit` on a `_` side |
 | `UGS0412` | error | `schema.EntityType<T>` or `schema.RelationType<T>` with `T` of the wrong kind |
 | `UGS0413` | error | A navigation name on a role naming a catalog type |
-| `UGS0417` | error | A role named as another role or attribute of the relation |
+| `UGS0417` | error | A role named as another role or attribute of the relation, or as a built-in field of section 5.11 |
 | `UGS0501` | error | `orphan` on a required role |
 | `UGS0502` | error | A cardinality `{m, n}` with `m > n` or `n = 0` |
 | `UGS0503` | error | `@acyclic` on a relation that is not binary, or whose roles' types share no supertype |
@@ -1474,7 +1478,7 @@ either encoding (section 6.4).
 | Catalog type as participant | The class IRI as an individual, as OWL 2 punning allows |
 | `Geo` | A `geo:geoJSONLiteral` |
 | `Measure` | The literal of section 5.8; a fixed-unit attribute's property carries `qudt:unit` |
-| `@maps_to(ext:term)` | `owl:equivalentClass` or `owl:equivalentProperty` to the external term, in the vocabulary document |
+| `@maps_to(ext:term)` | `owl:equivalentClass` or `owl:equivalentProperty` to the external term, in the vocabulary document; on a quantity kind or a unit, an individual, `skos:exactMatch` |
 | `///` documentation | `rdfs:comment` |
 
 The view is published as a vocabulary document per schema and as SHACL shapes: one `sh:NodeShape` per concrete type
@@ -1856,6 +1860,7 @@ counterparty.
 | Graphs | Decided 2026-11-08: a graph is a named instance of a schema, and a relation reaches every graph of the schemas its roles name, one rule within and across namespaces |
 | Derivations | Decided 2026-11-08: paths, closures and computed values; an aggregate over a path is a function, computed when read |
 | A position's uncertainty | Decided 2026-11-08: an attribute of its own, which a query adds to its radius; whether a position certainly lies in a region is DeepCausality's reasoning, as counterfactuals are |
+| Set indexes, role names, predicate claims, unit mappings | Decided 2026-11-08: an index on a `Set<T>` indexes each member; a role takes no built-in field's name (`UGS0417`); `UGS0216` holds per predicate, so `@iri` takes a declaration outside another tree's claim; `@maps_to` on a quantity kind or a unit is `skos:exactMatch` |
 | Claims of history-keeping types | Decided 2026-11-08: a retracted instance keeps its key's and its values' claims, so an IRI names one instance for all time and no identity is reissued, as deep_brain's `IdAllocator` requires (section 7.2) |
 | Conformance corpus | Built once the language is final for DeepBrain's current target; the proposal is section E of `openspec/notes/UltraGraphDB Schema Feedback.md` |
 | Multiple inheritance | None; union roles cover overlapping participant sets |
