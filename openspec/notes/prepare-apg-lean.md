@@ -184,7 +184,8 @@ names the sections of `SCHEMA-APG.md` it transcribes, and each theorem's the pro
 
 | Module | Holds | `SCHEMA-APG.md` |
 |---|---|---|
-| `schema/ApgModel/Typeside.lean` | The typeside structure; the oracle's concrete typeside (L6) | 2 |
+| `schema/ApgModel/Typeside.lean` | The typeside structure, definition 2.1 | 2 |
+| `schema/ApgModel/Core/FinSet.lean` | Finite sets as lists up to their members, extensional | 12.1 |
 | `schema/ApgModel/Core/Ty.lean` | Binary types with `list` and `set`, `lbls`, label-free, finite types | 3, 12.1 |
 | `schema/ApgModel/Core/Value.lean` | `V`, its action on families, functoriality, label-free independence | 5, 12.2 |
 | `schema/ApgModel/Core/Apg.lean` | APGs in both forms, the element graph, referential integrity | 6 |
@@ -192,7 +193,7 @@ names the sections of `SCHEMA-APG.md` it transcribes, and each theorem's the pro
 | `schema/ApgModel/Core/Term.lean` | Mapping terms, evaluation, `map` and `filter` | 8.3, 12.4 |
 | `schema/ApgModel/Core/Model.lean` | Proposition 8.4 in the generator form (L4) | 8.2 |
 | `schema/ApgModel/Core/Delta.lean` | Schema mappings, `Φ̂`, `ι`, `Δ`, propositions 9.3 to 9.5 | 9 |
-| `schema/ApgModel/Named/Ty.lean` | Named types with strictly increasing field names, decidable equality by hand | 3.2 |
+| `schema/ApgModel/Named/Ty.lean` | Field names, named types with strictly increasing field names, decidable equality by hand, the element kinds | 3.1, 3.2, 4.2 |
 | `schema/ApgModel/Named/Translate.lean` | Proposition 3.3, values and terms | 3.3 |
 | `schema/ApgModel/Named/Apg.lean` | Value terms, `check`, finite single-set APGs, the embedding into the core | 5.4, 5.5, 6.2 |
 | `schema/ApgModel/Named/Collections.lean` | Role labels, symmetric relations, unnest | 12.3 to 12.5 |
@@ -203,7 +204,7 @@ names the sections of `SCHEMA-APG.md` it transcribes, and each theorem's the pro
 | `schema/ApgModel/Migration.lean` | Selection, key lookup, extended terms, the fragment, coproducts, proposition 16.6 | 16 |
 | `schema/ApgModel/Views/Rdf.lean` | `R`, its inverse, propositions 17.2 and 17.3, the SHACL lemmas | 17 |
 | `schema/ApgModel/Views/Gql.lean` | `P` as MGQL's graph, `Γ`, propositions 18.2 to 18.4 | 18 |
-| `schema/ApgModel/Oracle/Generate.lean`, `Oracle/NQuads.lean`, `Oracle/Main.lean` | The generator of valid APGs, the N-Quads exporter and parser, `apg_oracle` | 19 |
+| `schema/ApgModel/Oracle/Typeside.lean`, `Oracle/Generate.lean`, `Oracle/NQuads.lean`, `Oracle/Main.lean` | The oracle's concrete typeside (L6), the generator of valid APGs, the N-Quads exporter and parser, `apg_oracle` | 2, 19 |
 | `schema/ApgModel/Theorems.lean` | The index of every result, with the Rust check each feeds | all |
 
 ## 6. Every statement and its proof
@@ -213,7 +214,8 @@ main work.
 
 | Statement | Lean | Proof | Size |
 |---|---|---|---|
-| Definitions 2.1, 3.1, 3.2, 4.1, 4.2 | `Typeside`, `Ty`, `Schema`, the element kinds as predicates | Definitions | S |
+| Definitions 2.1, 3.2, 4.1 | `Typeside`, `Core.Ty`, `Core.Schema`, with definition 12.1's admitted collections as `Ty.Admitted` | Definitions | S |
+| Definitions 3.1, 4.2 | `Named.Name`, the element kinds as predicates on named types | Definitions | S |
 | Proposition 3.3, values | `Named.toBinary`, `valueEquiv : V E t ≃ V E ⌜t⌝`, natural in `E` | Induction on the named type with the associativity and unit equivalences of `×` and `+`; nested induction over sorted field lists | L |
 | Proposition 3.3, terms | `termTranslate`, `eval_translate` | Induction on the term, part 1 at each constructor | L |
 | Definitions 5.1, 5.2 | `V`, `V.map` | Recursion on `Ty` | S |
@@ -260,8 +262,8 @@ Each wave's modules depend only on earlier waves; a wave ends with `lake build` 
 
 | Wave | Modules | Needs | Ends with |
 |---|---|---|---|
-| L0 | Spike and setup | | `lakefile.lean` holding `ApgModel` with `srcDir := "schema"`, `apg_oracle` and MGQL (L11); a spike settling the nested named type's recursion under Lean 4.14 and whether core Lean 4.14 provides `List.Nodup` and `List.Pairwise`, defined locally otherwise |
-| L1 | `Typeside`, `Core/Ty`, `Core/Value` | L0 | propositions 5.3 and 12.2 |
+| L0 | Spike and setup | | `lakefile.lean` holding `ApgModel` with `srcDir := "schema"` and MGQL (L11) in `lake-manifest.json`; the spike's findings below |
+| L1 | `Typeside`, `Core/Ty`, `Core/FinSet`, `Core/Value` | L0 | propositions 5.3 and 12.2 |
 | L2 | `Core/Apg`, `Core/Hom`, `Core/Term` | L1 | propositions 6.3, 6.6, 7.2, 8.1, 8.7; definition 12.4's laws |
 | L3 | `Core/Delta`, `Core/Model` | L2 | propositions 8.4, 9.3, 9.4, 9.5 |
 | L4 | `Named/Ty`, `Named/Translate` | L1, beside L2 and L3 | proposition 3.3 |
@@ -272,6 +274,16 @@ Each wave's modules depend only on earlier waves; a wave ends with `lake build` 
 | L9 | `Views/Gql` | L7 | propositions 18.2 to 18.4, for stage 7 |
 | L10 | `Theorems`, the axiom audit, the Coq comparison recorded | all | section 1's criteria |
 
+**What L0 settled**, under Lean 4.14 without Batteries or Mathlib:
+- structural recursion runs through a type nested in `List (Name × NTy)`, a type-valued function such as `V` included,
+  so the named type stays nested; its constructors are `record` and `variant`, since `rec` is the recursor's name;
+- `deriving DecidableEq` does not apply to the nested type, whose decidable equality is written by hand in L4;
+- core Lean provides `List.Nodup`, `List.Pairwise` and the `List.map` lemmas the model uses;
+- a finite set as a quotient of lists by their members (`Core.FinSet`) carries `map` and its laws with no axiom beyond
+  `propext` and `Quot.sound`.
+
+The `lean_exe apg_oracle` enters `lakefile.lean` with its root, `Oracle/Main.lean`, in wave L7.
+
 Stage 6 needs the oracle first, so the path L0, L1, L2, L4, L5, L6, L7 comes before L3, L8 and L9, which no stage 6
 group waits on. In `prepare-stage-6.md`'s terms: tasks A.1 and A.2 are waves L1 to L4, A.3 is L5 to L7, A.4 the
 properties of L7 that group 9's test checks, A.5 the findings each wave reports, and A.6 replaces L6's hand-written
@@ -279,10 +291,9 @@ catalogs once stage 6's group 4 exports them.
 
 ## 8. Risks
 
-- **Proposition 3.3 is the one substantial proof.** The named type nests through `List (Name × Ty)`, so its recursion
-  is mutual or well-founded on size, and Lean 4.14 derives no `DecidableEq` for it. Wave L0's spike settles the
-  recursion scheme before L4 begins; if structural recursion through the nesting fails, the named type is flattened
-  to an explicit mutual inductive of types and field lists.
+- **Proposition 3.3 is the one substantial proof.** The named type nests through `List (Name × Ty)`; Lean 4.14 recurses
+  structurally through the nesting, as wave L0's spike showed, and derives no `DecidableEq` for it, which L4 writes by
+  hand. The translation's naturality in `E`, for terms as well as values, is where the effort lies.
 - **Equalities of types.** `V E (subst τ t)` and `V (delta E) t` are equal types; a proof using the equality casts
   values. `iotaEquiv` is defined by recursion as an equivalence instead, so no cast enters a statement.
 - **Proposition 15.2's model.** The history model restates part of `SCHEMA.md` section 8.4 operationally; a mismatch

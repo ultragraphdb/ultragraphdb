@@ -1,5 +1,15 @@
 {"version": "1.1.0",
  "packagesDir": ".lake/packages",
- "packages": [],
+ "packages":
+ [{"url": "https://github.com/marvin-hansen/mgql.git",
+   "type": "git",
+   "subDir": null,
+   "scope": "",
+   "rev": "4ce4878ab928834b014fb117c1fc041805620505",
+   "name": "mgql",
+   "manifestFile": "lake-manifest.json",
+   "inputRev": "4ce4878ab928834b014fb117c1fc041805620505",
+   "inherited": false,
+   "configFile": "lakefile.lean"}],
  "name": "ultragraphdb",
  "lakeDir": ".lake"}
