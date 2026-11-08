@@ -1,0 +1,24 @@
+openspec/notes/prepare-apg-lean.md
+  s_d18ff34562952d::t_4909af11e19c3a 1-275
+  s_d18ff34562952d::t_a23acd0a67d287 276-293
+openspec/notes/prepare-stage-6.md
+  s_d18ff34562952d::t_bda76c80ba85c5 152,158-159
+specification/schema/SCHEMA-APG.md
+  s_d18ff34562952d::t_aaa6738a1b4e49 547-548,678-679,683-687,773-776,841-844,900,922-923,944-946,995
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2800cbc788643323ac4bbcfb359f087a0adf486c",
+  "prompts": {},
+  "sessions": {
+    "s_d18ff34562952d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b263ae46-8b16-46b4-81c5-522c712b251f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
