@@ -240,7 +240,7 @@ main work.
 | Definition 12.4 | `Tm.map`, `Tm.filter`, `Tm.mapSet`, `Tm.filterSet`, `Tm.DerefFree`; `eval_map_id`, `eval_map_map` and their set forms | Through `Tm.subst`, with `eval_rename` and `eval_subst`; sets through `FinSet.map`'s laws | M |
 | Definitions 12.5, 12.6, 12.7 | `roleLabelType`, `symNav`, `symNav_symm`, `unnest`, `unnest_origin` | Case analysis on a binary element's two participants; recursion over the elements | M |
 | Section 13; proposition 13.1 | `Catalog`, `conc`, `schema`, `ranges`, `inRanges_compress`, `inRanges_iff_isSub`, `is_iff_inRanges` | A tree of types; prefixes injective; ranges as the compression of the sorted prefix set | M |
-| Section 14.2 | `keyViolations`, `uniqueViolations`, `nonEmptyViolations`, `setViolations`, `roleLabelViolations`, `participationViolations`, `checkViolations`, `acyclicViolations` with `maxDepthViolations`, `noOverlapViolations`, `limitViolations`; a `_nil_iff` per row | Three generic queries, `injViolations`, `violators` and `cycleViolations`, each proved once; cycles by the pigeonhole over walks; `@limit`'s group selection as the conjuncts over participant types | M |
+| Section 14.2 | `keyViolations`, `uniqueViolations`, `nonEmptyViolations`, `setViolations`, `roleLabelViolations`, `participationViolations`, `checkViolations`, `acyclicViolations` with `maxDepthViolations`, `noOverlapViolations`, `limitViolations` with `limitGroupViolations`; a `_nil_iff` per row | Three generic queries, `injViolations`, `violators` and `cycleViolations`, each proved once; cycles by the pigeonhole over walks; `@limit`'s group selection as the conjuncts over participant types | M |
 | Section 14.3 | `State` and its predicates `LabelFixed`, `FieldsFixed`, `AppendOnly`, `Bitemporal`, `OnDeleteHolds`, `OnRetractHolds`, `RetractsHolds`, `EndsHolds`, `LiveParticipants` | Definitions, used by section 15 | S |
 | Section 15.1 | `Naming`, `naming_injective`, `edge_named_by_triple` | The edge case from `@set` exclusivity | M |
 | Proposition 15.1 | `union_closed` | Disjoint element sets; closure by construction | S |
@@ -328,9 +328,9 @@ The `lean_exe apg_oracle` enters `lakefile.lean` with its root, `Oracle/Main.lea
   by heterogeneous equality, so no cast appears in a statement;
 - the identity and composite mappings give isomorphisms of APGs (`delta_id`, `delta_comp`) built with `Iso.ofHom`,
   a homomorphism whose components have inverse functions;
-- proposition 9.4 is proved for images without a collection; a `list` in an image makes `Δ` infinite whatever the
-  primitive types, which the specification's finite-images rule does not exclude (a finding for `SCHEMA-APG.md`
-  section 9, under A.5);
+- proposition 9.4 is proved for images without a `list`, a set of a finite type enumerated by its sublists
+  (`FinSet.enumerable`); a `list` in an image makes `Δ` infinite whatever the primitive types, so `SCHEMA-APG.md`
+  section 9's finite-images rule excludes it (decided 2026-11-08);
 - example 9.6 is checked by the kernel, the identity term of `AssertedBy` type-checking against `Φ̂(σ'(AssertedBy))`
   as the specification states.
 
@@ -348,11 +348,13 @@ The `lean_exe apg_oracle` enters `lakefile.lean` with its root, `Oracle/Main.lea
 - value terms compare by decidable equality, given the primitives'; a set compares as written, so the oracle writes a
   set's members in one order without repetitions, and `@set` compares a set-valued role's participants as sets;
 - the aviation and Gen5-subset catalogs of decision L8 need the oracle's typeside, decision L6, and come with wave L7;
-- findings for A.5: section 14.2 names liveness for `@set` and `@acyclic` and includes retracted elements for `@key`
-  and `@unique`, and leaves open whether retracted elements count for participation, non-empty set-valued roles,
-  `@check` and `@limit`, which the model counts; it leaves open whether `max_depth` counts references or elements, the
-  model counting references; and it leaves open whether `@limit` selects a participant no element reaches, whose
-  group is empty, the model selecting it.
+- liveness follows `SCHEMA.md` section 8.4, rule 5: `@set`, participation, `@limit`, `@no_overlap` and `@acyclic`
+  read the live elements, `@key`, `@unique`, `@check` and non-empty set-valued roles every element a state holds; a
+  participation or `@limit` lower bound asks only live participants (decided 2026-11-08);
+- `max_depth n` admits chains of at most `n` references (decided 2026-11-08);
+- `@limit` takes two forms: a lower bound names one `per` role and no `type` (`UGS0529`, decided 2026-11-08) and
+  selects every live participant, one no element reaches included (`limitViolations`); an upper bound groups the
+  elements by their participants and, under `type`, their concrete type (`limitGroupViolations`).
 
 Stage 6 needs the oracle first, so the path L0, L1, L2, L4, L5, L6, L7 comes before L3, L8 and L9, which no stage 6
 group waits on. In `prepare-stage-6.md`'s terms: tasks A.1 and A.2 are waves L1 to L4, A.3 is L5 to L7, A.4 the

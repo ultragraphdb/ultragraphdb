@@ -17,7 +17,7 @@ typing:
 - `pairViolations` returns each element in conflict with another; `injViolations` specialises it to a projection
   that must be injective where defined. `@key`, `@unique`, `@set`, role labels and `@no_overlap` are its instances.
 - `violators` returns each candidate failing a test: every set-valued role non-empty, participation bounds, `@check`
-  and `@limit`.
+  and `@limit`, per participant for a lower bound and per group its elements reach for an upper one.
 - `cycleViolations` and `depthViolations` walk the references from a contained role to its container role:
   `@acyclic` and `max_depth`. A walk of as many references as there are vertices repeats a vertex (`pigeonhole`), so
   the bounded search finds every cycle.
@@ -459,21 +459,26 @@ theorem nonEmptyViolations_nil_iff (R Rr : L) :
   rw [nonEmptyViolations, violators_nil_iff]
   simp only [List.any_eq_true, decide_eq_true_eq]
 
-/-- The number of elements of the labels `src` reaching `p` through their field `r`. -/
-def reaching (src : List L) (r : Name) (p : Nat) : Nat :=
-  ((ofLabels G src).filter fun y => p ∈ fieldRefs y.2.2 r).length
+/-- The number of live elements of the labels `src` reaching `p` through their field `r`. -/
+def reaching (live : Nat → Bool) (src : List L) (r : Name) (p : Nat) : Nat :=
+  ((ofLabels G src).filter fun y => live y.1 && p ∈ fieldRefs y.2.2 r).length
 
-/-- Participation `?`, `+`, `{m, n}` of the role `r` of `src`, its participant types' concrete types `ls`: the
-participants reached by fewer than `lo` or more than `hi` elements. A set-valued role's count is its role label's,
-`src` being `[R_r]` and `r` its participant field. -/
-def participationViolations (src : List L) (r : Name) (ls : List L) (lo : Nat) (hi : Option Nat) : List Nat :=
-  violators (ofLabels G ls) fun x => decide (lo ≤ reaching G src r x.1) && hi.all (reaching G src r x.1 ≤ ·)
+/-- Participation `?`, `+`, `{m, n}` of the role `r` of `src`, its participant types' concrete types `ls`: the live
+participants reached by fewer than `lo` or more than `hi` live elements. A set-valued role's count is its role
+label's, `src` being `[R_r]` and `r` its participant field. -/
+def participationViolations (live : Nat → Bool) (src : List L) (r : Name) (ls : List L) (lo : Nat) (hi : Option Nat) :
+    List Nat :=
+  violators ((ofLabels G ls).filter fun x => live x.1) fun x =>
+    decide (lo ≤ reaching G live src r x.1) && hi.all (reaching G live src r x.1 ≤ ·)
 
 omit [DecidableEq T.P] [∀ p, DecidableEq (T.PV p)] in
-theorem participationViolations_nil_iff (src : List L) (r : Name) (ls : List L) (lo : Nat) (hi : Option Nat) :
-    participationViolations G src r ls lo hi = [] ↔
-      ∀ x ∈ ofLabels G ls, lo ≤ reaching G src r x.1 ∧ ∀ h ∈ hi, reaching G src r x.1 ≤ h := by
+theorem participationViolations_nil_iff (live : Nat → Bool) (src : List L) (r : Name) (ls : List L) (lo : Nat)
+    (hi : Option Nat) :
+    participationViolations G live src r ls lo hi = [] ↔
+      ∀ x ∈ ofLabels G ls, live x.1 = true →
+        lo ≤ reaching G live src r x.1 ∧ ∀ h ∈ hi, reaching G live src r x.1 ≤ h := by
   rw [participationViolations, violators_nil_iff]
+  simp only [List.mem_filter]
   cases hi with
   | none => simp
   | some b => simp [Option.all]
@@ -549,24 +554,59 @@ theorem noOverlapViolations_nil_iff {I : Type} (live : Nat → Bool) (R : L) (pe
     · left
       exact hper
 
-/-- The elements of `R` satisfying `c` that reach the participant `p` through the role `per`. -/
-def groupOf (R : L) (per : Name) (c : VTerm T → Bool) (p : Nat) : List (Nat × L × VTerm T) :=
-  (ofLabels G [R]).filter fun y => p ∈ fieldRefs y.2.2 per && c y.2.2
+/-- The live elements of the labels `rs` satisfying `c` that reach the participant `p` through the role `per`. -/
+def groupOf (live : Nat → Bool) (rs : List L) (per : Name) (c : VTerm T → Bool) (p : Nat) :
+    List (Nat × L × VTerm T) :=
+  (ofLabels G rs).filter fun y => live y.1 && p ∈ fieldRefs y.2.2 per && c y.2.2
 
-/-- `@limit(agg per P where c) op v` on `R`: the participants of the types `ls` selected by the conjuncts of `c` that
-read only their types (`select`), whose group's aggregate fails the comparison `holds`. -/
-def limitViolations {A : Type} (R : L) (per : Name) (ls : List L) (select : VTerm T → Bool) (c : VTerm T → Bool)
-    (agg : List (Nat × L × VTerm T) → A) (holds : A → Bool) : List Nat :=
-  violators ((ofLabels G ls).filter fun x => select x.2.2) fun x => holds (agg (groupOf G R per c x.1))
+/-- `@limit(agg per r where c) op v` with one `per` role and no `type`, the form a lower bound takes (`UGS0529`), on
+the relation whose concrete types are `rs`: the live participants of the types `ls` selected by the conjuncts of `c`
+that read only their types (`select`), whose group's aggregate fails the comparison `holds`, a group no element
+reaches included. -/
+def limitViolations {A : Type} (live : Nat → Bool) (rs : List L) (per : Name) (ls : List L) (select : VTerm T → Bool)
+    (c : VTerm T → Bool) (agg : List (Nat × L × VTerm T) → A) (holds : A → Bool) : List Nat :=
+  violators ((ofLabels G ls).filter fun x => live x.1 && select x.2.2) fun x =>
+    holds (agg (groupOf G live rs per c x.1))
 
 omit [DecidableEq T.P] [∀ p, DecidableEq (T.PV p)] in
-theorem limitViolations_nil_iff {A : Type} (R : L) (per : Name) (ls : List L) (select : VTerm T → Bool)
-    (c : VTerm T → Bool) (agg : List (Nat × L × VTerm T) → A) (holds : A → Bool) :
-    limitViolations G R per ls select c agg holds = [] ↔
-      ∀ x ∈ ofLabels G ls, select x.2.2 = true → holds (agg (groupOf G R per c x.1)) = true := by
+theorem limitViolations_nil_iff {A : Type} (live : Nat → Bool) (rs : List L) (per : Name) (ls : List L)
+    (select : VTerm T → Bool) (c : VTerm T → Bool) (agg : List (Nat × L × VTerm T) → A) (holds : A → Bool) :
+    limitViolations G live rs per ls select c agg holds = [] ↔
+      ∀ x ∈ ofLabels G ls, live x.1 = true → select x.2.2 = true →
+        holds (agg (groupOf G live rs per c x.1)) = true := by
   rw [limitViolations, violators_nil_iff]
-  simp only [List.mem_filter]
-  exact ⟨fun h x hx hs => h x ⟨hx, hs⟩, fun h x ⟨hx, hs⟩ => h x hx hs⟩
+  simp only [List.mem_filter, Bool.and_eq_true]
+  exact ⟨fun h x hx hl hs => h x ⟨hx, hl, hs⟩, fun h x ⟨hx, hl, hs⟩ => h x hx hl hs⟩
+
+/-- An element's group under `per (roles [, type])`: its participants in the roles and, under `type`, its concrete
+type. -/
+def groupKey (per : List Name) (byType : Bool) (x : Nat × L × VTerm T) : List (List Nat) × Option L :=
+  (per.map (fieldRefs x.2.2), if byType then some x.2.1 else none)
+
+/-- The live elements of the labels `rs` satisfying `c` in the group `k`. -/
+def groupMembers (live : Nat → Bool) (rs : List L) (per : List Name) (byType : Bool) (c : VTerm T → Bool)
+    (k : List (List Nat) × Option L) : List (Nat × L × VTerm T) :=
+  (ofLabels G rs).filter fun y => live y.1 && c y.2.2 && decide (groupKey per byType y = k)
+
+/-- `@limit(agg per (roles [, type]) where c) op v` on the relation whose concrete types are `rs`, its groups the ones
+its elements reach, which is every group an upper bound can fail: the live elements satisfying `c` whose group, selected
+by the conjuncts of `c` over its participants' types (`select`), has an aggregate failing the comparison `holds`. -/
+def limitGroupViolations {A : Type} (live : Nat → Bool) (rs : List L) (per : List Name) (byType : Bool)
+    (select : Nat × L × VTerm T → Bool) (c : VTerm T → Bool) (agg : List (Nat × L × VTerm T) → A)
+    (holds : A → Bool) : List Nat :=
+  violators ((ofLabels G rs).filter fun x => live x.1 && c x.2.2 && select x) fun x =>
+    holds (agg (groupMembers G live rs per byType c (groupKey per byType x)))
+
+omit [DecidableEq T.P] [∀ p, DecidableEq (T.PV p)] in
+theorem limitGroupViolations_nil_iff {A : Type} (live : Nat → Bool) (rs : List L) (per : List Name) (byType : Bool)
+    (select : Nat × L × VTerm T → Bool) (c : VTerm T → Bool) (agg : List (Nat × L × VTerm T) → A)
+    (holds : A → Bool) :
+    limitGroupViolations G live rs per byType select c agg holds = [] ↔
+      ∀ x ∈ ofLabels G rs, live x.1 = true → c x.2.2 = true → select x = true →
+        holds (agg (groupMembers G live rs per byType c (groupKey per byType x))) = true := by
+  rw [limitGroupViolations, violators_nil_iff]
+  simp only [List.mem_filter, Bool.and_eq_true]
+  exact ⟨fun h x hx hl hc hs => h x ⟨hx, ⟨hl, hc⟩, hs⟩, fun h x ⟨hx, ⟨hl, hc⟩, hs⟩ => h x hx hl hc hs⟩
 
 end Rows
 

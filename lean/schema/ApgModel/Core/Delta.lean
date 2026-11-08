@@ -16,7 +16,7 @@ A mapping `Φ : S → S'` gives each label `l` of `S` an image type `τ_l` over 
 
 - `Δ_Φ` is a functor, acting on a homomorphism by `V_h(τ_l)` (`deltaHom`, `deltaHom_id`, `deltaHom_comp`); the first
   half of proposition 9.3, resting on evaluation commuting with homomorphisms (`Tm.eval_hom`).
-- Over a finite APG whose images hold no collection and only finite primitive types, every label of `Δ_Φ(G')` has
+- Over a finite APG whose images hold no list and only finite primitive types, every label of `Δ_Φ(G')` has
   finitely many elements (`delta_finite`), proposition 9.4.
 - Under a label image `lbl l'` an element of `Δ_Φ(G')(l)` is an element of `l'` (`delta_label_image`), and under a
   variant of labels it is one element of one of them, its origin (`delta_one_origin`), proposition 9.5.
@@ -241,6 +241,36 @@ def Ty.PrimsSatisfy {P L : Type} (Q : P → Prop) : Ty P L → Prop
   | .sum a b | .prod a b => a.PrimsSatisfy Q ∧ b.PrimsSatisfy Q
   | .list t | .set t => t.PrimsSatisfy Q
 
+/-- A type in which no list occurs. -/
+def Ty.ListFree {P L : Type} : Ty P L → Prop
+  | .zero | .one | .prim _ | .lbl _ => True
+  | .sum a b | .prod a b => a.ListFree ∧ b.ListFree
+  | .list _ => False
+  | .set t => t.ListFree
+
+/-- The sublists of a list, each member kept or dropped. -/
+def sublists {α : Type} : List α → List (List α)
+  | [] => [[]]
+  | a :: as => (sublists as).map (a :: ·) ++ sublists as
+
+theorem filter_mem_sublists {α : Type} (p : α → Bool) : (l : List α) → l.filter p ∈ sublists l
+  | [] => List.mem_singleton.mpr rfl
+  | a :: as => by
+    rw [List.filter_cons, sublists]
+    split
+    · exact List.mem_append_left _ (List.mem_map_of_mem _ (filter_mem_sublists p as))
+    · exact List.mem_append_right _ (filter_mem_sublists p as)
+
+/-- The finite sets of a finite type are finitely many: each is the set of a sublist of the enumeration. -/
+theorem FinSet.enumerable {α : Type} (h : Enumerable α) : Enumerable (FinSet α) := by
+  obtain ⟨l, hl⟩ := h
+  refine ⟨(sublists l).map FinSet.ofList, fun s => ?_⟩
+  induction s using Quot.ind with
+  | mk xs =>
+    classical
+    refine List.mem_map.mpr ⟨l.filter fun a => decide (a ∈ xs), filter_mem_sublists _ l, Quot.sound fun x => ?_⟩
+    simp [List.mem_filter, hl x]
+
 /-- The pairs of two lists. -/
 def prodList {α β : Type} : List α → List β → List (α × β)
   | [], _ => []
@@ -254,9 +284,9 @@ theorem mem_prodList {α β : Type} {a : α} {b : β} : {as : List α} → {bs :
     · exact Or.inl ⟨b, hb, rfl⟩
     · exact Or.inr (mem_prodList ha hb)
 
-/-- Over finite element sets, a type without collections whose primitive types are finite has finitely many values. -/
+/-- Over finite element sets, a type without lists whose primitive types are finite has finitely many values. -/
 theorem V_enumerable {E : L → Type} (hE : ∀ l, Enumerable (E l)) (t : Ty T.P L)
-    (hp : t.PrimsSatisfy fun p => Enumerable (T.PV p)) (hc : t.CollectionFree) : Enumerable (V T E t) := by
+    (hp : t.PrimsSatisfy fun p => Enumerable (T.PV p)) (hc : t.ListFree) : Enumerable (V T E t) := by
   induction t with
   | zero => exact ⟨[], fun x => nomatch x⟩
   | one => exact ⟨[()], fun x => List.mem_singleton.mpr rfl⟩
@@ -274,12 +304,12 @@ theorem V_enumerable {E : L → Type} (hE : ∀ l, Enumerable (E l)) (t : Ty T.P
     obtain ⟨lb, hlb⟩ := ihb hp.2 hc.2
     exact ⟨prodList la lb, fun ⟨x, y⟩ => mem_prodList (hla x) (hlb y)⟩
   | list _ _ => exact hc.elim
-  | set _ _ => exact hc.elim
+  | set t ih => exact FinSet.enumerable (ih hp hc)
 
-/-- Proposition 9.4: if `G'` is finite and every image `τ_l` holds no collection and only primitive types with
-finitely many values, every label of `Δ_Φ(G')` has finitely many elements. -/
+/-- Proposition 9.4: if `G'` is finite and every image `τ_l` holds no list and only primitive types with finitely
+many values, every label of `Δ_Φ(G')` has finitely many elements. -/
 theorem Mapping.delta_finite (Φ : Mapping S S') (G' : Apg S') (hG : ∀ l', Enumerable (G'.E l'))
-    (hp : ∀ l, (Φ.τ l).PrimsSatisfy fun p => Enumerable (T.PV p)) (hc : ∀ l, (Φ.τ l).CollectionFree) (l : L) :
+    (hp : ∀ l, (Φ.τ l).PrimsSatisfy fun p => Enumerable (T.PV p)) (hc : ∀ l, (Φ.τ l).ListFree) (l : L) :
     Enumerable ((Φ.delta G').E l) :=
   V_enumerable hG (Φ.τ l) (hp l) (hc l)
 

@@ -212,12 +212,24 @@ theorem catalog_schema : catalog.schema.σ "MemberOf" = .record [
     ("role", NTy.enum ["contractor", "employee"])] := by decide
 
 /-- Every person is a member of something: participation `+` of `MemberOf.member`. -/
-theorem apg_members : Catalog.participationViolations apg [.memberOf] "member" [.person] 1 none = [] := by decide
+theorem apg_members :
+    Catalog.participationViolations apg (fun _ => true) [.memberOf] "member" [.person] 1 none = [] := by
+  decide
 
 /-- Nothing is asserted twice per person: participation `?` of `AssertedBy.statement` on persons holds, and
 `{2, 2}` fails at Ada. -/
-theorem apg_assertions : Catalog.participationViolations apg [.assertedBy] "statement" [.person] 0 (some 1) = [] ∧
-    Catalog.participationViolations apg [.assertedBy] "statement" [.person] 2 (some 2) = [1] := by decide
+theorem apg_assertions :
+    Catalog.participationViolations apg (fun _ => true) [.assertedBy] "statement" [.person] 0 (some 1) = [] ∧
+      Catalog.participationViolations apg (fun _ => true) [.assertedBy] "statement" [.person] 2 (some 2) = [1] := by
+  decide
+
+/-- With the provenance `a2` retracted, Ada has no live assertion: participation `+` of `AssertedBy.statement` fails at
+her, and an upper bound of one assertion per asserter, a group its elements reach, holds. -/
+theorem apg_live_assertions :
+    Catalog.participationViolations apg (fun e => e != 6) [.assertedBy] "statement" [.person] 1 none = [1] ∧
+      Catalog.limitGroupViolations apg (fun e => e != 6) [.assertedBy] ["asserter"] false (fun _ => true)
+        (fun _ => true) List.length (· ≤ 1) = [] := by
+  decide
 
 /-- A containment cycle is found, and a chain is not one. -/
 theorem cycles : Catalog.cycleViolations [(1, 2), (2, 1)] ≠ [] ∧ Catalog.cycleViolations [(1, 2), (2, 3)] = [] ∧
