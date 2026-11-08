@@ -1,0 +1,35 @@
+lean/lakefile.lean
+  s_d18ff34562952d::t_ccc9c5837723d1 17-20
+  s_d18ff34562952d::t_d66c33f433262a 32-39
+lean/schema/ApgModel/Core/Ty.lean
+  s_d18ff34562952d::t_664a64768c8d88 1-113
+lean/schema/ApgModel.lean
+  s_d18ff34562952d::t_b6bdbb7a8ad8fc 1-20
+lean/schema/ApgModel/Core/FinSet.lean
+  s_d18ff34562952d::t_098d43850a1a9b 1-70
+lean/schema/ApgModel/Core/Value.lean
+  s_d18ff34562952d::t_1ebd4628229d04 48
+  s_d18ff34562952d::t_ef090f2d8243af 1-47,49-184
+lean/schema/ApgModel/Typeside.lean
+  s_d18ff34562952d::t_6fc8c27f21004f 1-38
+lean/lake-manifest.json
+  s_d18ff34562952d::t_b0edee17decd9e 3-13
+openspec/notes/prepare-apg-lean.md
+  s_d18ff34562952d::t_76f7163f7c7b42 187-188,196,207,217-218,265-266,277-286,294-296
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cd27f9d8223e590336c53f1af611be8205dacc0d",
+  "prompts": {},
+  "sessions": {
+    "s_d18ff34562952d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b263ae46-8b16-46b4-81c5-522c712b251f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
