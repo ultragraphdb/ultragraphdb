@@ -4,6 +4,7 @@
 -/
 import ApgModel.Oracle.Gen5
 import ApgModel.Views.RdfInverse
+import ApgModel.Views.Gql
 
 /-!
 # The oracle's checks
@@ -11,7 +12,9 @@ import ApgModel.Views.RdfInverse
 What `apg_oracle` checks of every instance set before it writes the set's file (`SCHEMA-APG.md` section 19): the set is
 a valid APG; its constraints hold; `R⁻¹(R(G))` holds exactly its elements, each under its identity (proposition 17.3,
 here computed); and the file's N-Quads read back as `R(G)` quad for quad (decision L5). A failed check names the set
-and what failed, and no file is written.
+and what failed, and no file is written. Beside them it checks the GQL view: every type's property names are
+distinct, and `P(G)` projected onto MGQL's property graphs conforms to `Γ(S(K))` projected likewise under MGQL's own
+`graphConformsSchema` (`SCHEMA-APG.md` section 18).
 -/
 
 namespace ApgModel.Oracle
@@ -38,6 +41,23 @@ partial def admitted : VTerm typeside → Bool
   | .record fs => fs.all fun f => admitted f.2
   | .inj _ v => admitted v
   | .list vs | .set vs => vs.all admitted
+
+/-- MGQL's sorts of the oracle's primitives: integers as `int`, strings, IRIs, units and quantity kinds as `string`,
+Booleans as `bool`; the others have no MGQL sort. -/
+def mgqlSorts : MgqlSorts typeside where
+  sort
+    | .bool => some .bool
+    | .int _ => some .int
+    | .string | .iri | .unit | .quantityKind => some .string
+    | _ => none
+  prim
+    | .bool, b => .bool b
+    | .int _, x => .int x
+    | .string, x | .iri, x | .unit, x | .quantityKind, x | .geo, x => .string x
+    | _, _ => .bool false
+  coh := by
+    intro p b a h
+    cases p <;> simp at h <;> subst h <;> rfl
 
 /-- A schema of the corpus: its catalog, bases, view, set order and instance sets, and the constraint queries its sets
 must pass, each named. -/
@@ -77,7 +97,11 @@ def Corpus.failures (C : Corpus) (n : Nat) : List String :=
   (match readNQuads C.catalog C.bases (exportView C.catalog C.view C.bases G) with
     | some P =>
       if P.length == Q.length && (P.zip Q).all fun (a, b) => quadEq a b then [] else ["N-Quads read back differ"]
-    | none => ["N-Quads do not read back"])
+    | none => ["N-Quads do not read back"]) ++
+  (if C.catalog.types.all fun c => decide (((gPropTypes C.catalog c.name).map Prod.fst).Nodup) then []
+    else ["property names collide"]) ++
+  (if MGQL.graphConformsSchema (mgqlGraph C.catalog mgqlSorts (gql C.catalog ι G)) (mgqlType C.catalog mgqlSorts)
+    then [] else ["P(G) does not conform under MGQL"])
 
 /-! ## The aviation corpus -/
 

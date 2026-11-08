@@ -173,8 +173,8 @@ Decided 2026-11-08, each as recommended.
 
 **L11. MGQL as a dependency.**
 - *Decided:* `lean/lakefile.lean` requires MGQL from `github.com/marvin-hansen/mgql` at a pinned commit, today
-  `4ce4878`. `P(G)` is built as MGQL's `PropertyGraph`, `Γ(S(K))` as its `GraphSchemaFull`, and proposition 18.2 is
-  `graphConformsSchema (P G) (Γ S) = true`. The same dependency serves stage 7's differential queries through MGQL's
+  `4ce4878`. `P(G)` and `Γ(S(K))` are projected onto MGQL's `PropertyGraph` and `GraphSchemaFull`, and proposition
+  18.2 includes `graphConformsSchema` holding of the projections (wave L9). The same dependency serves stage 7's differential queries through MGQL's
   evaluator. `RoundModel` and `PlacementModel` do not import it.
 
 ## 5. Layout
@@ -261,8 +261,8 @@ main work.
 | Definition 17.1; proposition 17.2 | `templates`, `Tmpl.inst`, `rdf`, `templates_mapRefs`, `Tmpl.inst_mono`, `rdf_monotone` | Each quad from one element's template, natural in its references, named by a naming monotone in its definedness | M |
 | Proposition 17.3 | `rdfInv`, `RoundTrip`, `rdf_round_trip` | Attribution of each own predicate to its subject; label from the chain of type quads; each slot by inverting the check against its type; elements by IRI, triple or pair | L |
 | Corollary 17.4 | `shacl_min_count`, `shacl_max_count`, `shacl_datatype`, `shacl_in`, `shacl_class`, `shacl_class_edge` | From the shapes of an element's own quads that proposition 17.3's proof establishes (L10) | M |
-| Definition 18.1 | `gql : PropertyGraph`, `graphType : GraphSchemaFull` | Built as MGQL's types (L11) | M |
-| Proposition 18.2 | `gql_conforms : graphConformsSchema (gql G) (graphType S) = true` | Every node's and edge's label set and properties by construction; endpoints by field typing | L |
+| Definition 18.1 | `gql`, `gqlOf`, `gNodeTmpl`, `gEdgeTmpls`, `gType`; `mgqlGraph`, `mgqlType` | Templates as the RDF view's; MGQL's types as the projection (L11) | M |
+| Proposition 18.2 | `gql_conforms`, `mgql_conforms : graphConformsSchema (mgqlGraph (gql G)) (mgqlType K) = true` | Every node's and edge's label set and properties by construction; endpoints by field typing (`EdgeShape`) | L |
 | Proposition 18.3 | `gql_monotone` | As 17.2 | S |
 | Proposition 18.4 | `gql_of_rdf` | From proposition 17.3 | S |
 | Section 19 | `generate`, `exportNQuads`, `parseNQuads`, `parse_export` checked by `#eval` | Executable; not proofs | M |
@@ -343,6 +343,23 @@ folder as its one argument, and L7c runs it into a scratch folder whose files Le
   section 9's finite-images rule excludes it (decided 2026-11-08);
 - example 9.6 is checked by the kernel, the identity term of `AssertedBy` type-checking against `Φ̂(σ'(AssertedBy))`
   as the specification states.
+
+**What L9 settled:**
+- MGQL's property graphs carry `int`, `string` and `bool` properties, every one required, so `P(G)` itself, with optional
+  properties, every primitive type of the typeside and `LIST` and `RECORD` values, has no MGQL form: proposition 18.2
+  holds of `P(G)` under PG-Schema's strict, closed semantics, stated in the model (`NodeConforms`, `EdgeConforms`), and
+  of its projection onto MGQL's sorts under `graphConformsSchema` (`mgql_conforms`, decided 2026-11-08); a typeside
+  names each primitive type's MGQL sort (`MgqlSorts`), and the oracle's maps integers, strings and Booleans;
+- a property's type is its field's named type, checked by the APG's own check; GQL's `STRING` for an enumeration or a
+  catalog type is their lexical presentation;
+- every role edge, stored or derived, is labelled `{Relation}_{role}`, the relation the type declaring the role, and for
+  a specialized role the super role's too (`SCHEMA.md` section 11.3, decided 2026-11-08);
+- as in the RDF view, an element contributes templates named when the view is taken, so proposition 18.3 renames a
+  property's references, which leaves an attribute's value as it is, and proposition 18.4 follows from proposition
+  17.3, each element under its identity's IRI;
+- the MGQL proof needs every type's property names distinct (`PropNamesUnique`, `UGS0802`) and reads each node from the
+  first with its id, one element's IRI by the naming's injectivity; the oracle checks both on every set, and the
+  projection carries every edge of the corpus.
 
 **What L8 settled:**
 - a state holds every element with its versions, newest first, and its `asserted` interval; a commit is one step at

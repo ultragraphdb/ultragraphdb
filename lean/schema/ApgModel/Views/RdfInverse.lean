@@ -61,6 +61,41 @@ def ident (ι : Nat → Option String) (x : Nat × Name × VTerm T) : Option Ide
     | [i], [p] => (ι i).bind fun s => (ι p).map fun t => .pair x.2.1 s t
     | _, _ => none
 
+/-- An element of a type not named by its triple is named by its IRI. -/
+theorem ident_iri {ι : Nat → Option String} {x : Nat × Name × VTerm T} {c : CType T} (hc : K.find x.2.1 = some c)
+    (htn : tripleNamed K x.2.1 = false) {i : Ident} (h : ident K ι x = some i) : ∃ s, ι x.1 = some s ∧ i = .iri s := by
+  simp only [ident, hc, htn, Bool.false_eq_true, if_false, Option.map_eq_some'] at h
+  obtain ⟨s, hs, rfl⟩ := h
+  exact ⟨s, hs, rfl⟩
+
+/-- An element of a relation named by its triple: the triple of its anchor and other participant. -/
+theorem ident_triple {ι : Nat → Option String} {x : Nat × Name × VTerm T} {c : CType T}
+    (hc : K.find x.2.1 = some c) (htn : tripleNamed K x.2.1 = true) {i : Ident} (h : ident K ι x = some i) :
+    ∃ a o n pa po s t, K.anchorRole x.2.1 = some a ∧ K.otherRole x.2.1 = some o ∧ K.navOf x.2.1 a = some n ∧
+      fieldRefs x.2.2 a = [pa] ∧ fieldRefs x.2.2 o = [po] ∧ ι pa = some s ∧ ι po = some t ∧ i = .triple s n t := by
+  simp only [ident, hc, htn, if_true] at h
+  obtain ⟨a, ha, h⟩ := Option.bind_eq_some.mp h
+  obtain ⟨o, ho, h⟩ := Option.bind_eq_some.mp h
+  obtain ⟨n, hn, h⟩ := Option.bind_eq_some.mp h
+  split at h
+  · next pa po hfa hfo =>
+    obtain ⟨s, hs, h⟩ := Option.bind_eq_some.mp h
+    obtain ⟨t, ht, rfl⟩ := Option.map_eq_some'.mp h
+    exact ⟨a, o, n, pa, po, s, t, ha, ho, hn, hfa, hfo, hs, ht, rfl⟩
+  · cases h
+
+/-- An element of a role label: the pair of its instance and participant. -/
+theorem ident_pair {ι : Nat → Option String} {x : Nat × Name × VTerm T} (hn : K.find x.2.1 = none) {i : Ident}
+    (h : ident K ι x = some i) : ∃ pi pp s t, fieldRefs x.2.2 "instance" = [pi] ∧
+      fieldRefs x.2.2 "participant" = [pp] ∧ ι pi = some s ∧ ι pp = some t ∧ i = .pair x.2.1 s t := by
+  simp only [ident, hn] at h
+  split at h
+  · next pi pp hfi hfp =>
+    obtain ⟨s, hs, h⟩ := Option.bind_eq_some.mp h
+    obtain ⟨t, ht, rfl⟩ := Option.map_eq_some'.mp h
+    exact ⟨pi, pp, s, t, hfi, hfp, hs, ht, rfl⟩
+  · cases h
+
 /-! ## Reading quads -/
 
 /-- The objects of the quads with subject `s` and predicate `p`, in order. -/
