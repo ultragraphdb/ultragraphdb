@@ -46,6 +46,7 @@ where
     }
 
     /// The reads over `partitions`, wherever each is held.
+    #[must_use]
     pub fn over(partitions: Vec<&'p Partition<S, C, E, B>>) -> Self {
         Self {
             partitions,
@@ -55,6 +56,7 @@ where
 
     /// The reads with `closed`, the latest epoch each partition has closed, by position: a read asking a partition
     /// that has not closed its epoch fails naming it, as a snapshot read does at its deadline.
+    #[must_use]
     pub fn with_closed(mut self, closed: Vec<Epoch>) -> Self {
         self.closed = closed;
         self

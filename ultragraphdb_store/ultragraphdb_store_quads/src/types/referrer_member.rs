@@ -19,6 +19,7 @@ pub struct ReferrerMember {
 
 impl ReferrerMember {
     /// The member for `group`, added at `epoch`, at `generation`.
+    #[must_use]
     pub fn new(group: BucketGroup, epoch: Epoch, generation: NonZeroU64) -> Self {
         Self {
             group,
@@ -28,16 +29,19 @@ impl ReferrerMember {
     }
 
     /// The bucket group.
+    #[must_use]
     pub fn group(&self) -> BucketGroup {
         self.group
     }
 
     /// The epoch the member was added at.
+    #[must_use]
     pub fn epoch(&self) -> Epoch {
         self.epoch
     }
 
     /// The member's generation.
+    #[must_use]
     pub fn generation(&self) -> NonZeroU64 {
         self.generation
     }

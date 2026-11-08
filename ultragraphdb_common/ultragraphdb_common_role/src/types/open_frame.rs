@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// One request of [`crate::OpenRequests`]'s count, held until it is answered on the wire, whichever way its connection goes on
-/// from here.
+/// from here. [`crate::OpenRequests`] says why its ordering suffices.
 #[derive(Debug)]
 pub struct OpenFrame(Arc<AtomicUsize>);
 

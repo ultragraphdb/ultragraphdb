@@ -102,3 +102,23 @@ fn test_a_bind_error_other_than_a_port_in_use_is_unavailable() -> TestResult {
     assert!(!said.contains("retries"), "{said}");
     Ok(())
 }
+
+/// A Unix socket is made at mode 0600, and the socket a process before this one left behind is replaced.
+#[test]
+fn test_a_unix_socket_is_private_and_a_stale_one_replaced() -> TestResult {
+    use std::os::unix::fs::{FileTypeExt, PermissionsExt};
+    let path = place()?.join("role.sock");
+    let text = format!("unix://{}", path.display());
+    let runtime = Runtime::new()?;
+    for _ in 0..2 {
+        // The first listen makes the socket; the second finds it left behind by the first, dropped.
+        let listener = runtime
+            .block_on(compio::time::timeout(LISTEN_WAIT, listen(&text)))
+            .map_err(|_| TestError::new(format!("listening at {text} within {LISTEN_WAIT:?}")))??;
+        let made = std::fs::symlink_metadata(&path)?;
+        assert!(made.file_type().is_socket());
+        assert_eq!(made.permissions().mode() & 0o777, 0o600);
+        drop(listener);
+    }
+    Ok(())
+}

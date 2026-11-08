@@ -16,6 +16,7 @@ pub struct RegisterView<'a> {
 
 impl<'a> RegisterView<'a> {
     /// The session; all zero in a request.
+    #[must_use]
     pub fn session(&self) -> [u8; 16] {
         self.session
     }

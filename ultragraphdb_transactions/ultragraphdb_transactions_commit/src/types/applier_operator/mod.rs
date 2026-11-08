@@ -38,6 +38,7 @@ impl<'a, S, C, E, B> ApplierOperator<'a, S, C, E, B> {
 
     /// The operator of `partition`, which owns the buckets `placement` gives it: a claim of a value whose bucket another
     /// partition owns is refused, cross-partition.
+    #[must_use]
     pub fn bound(self, partition: PartitionId, placement: &'a PlacementMap) -> Self {
         Self {
             binding: Some((partition, placement)),
@@ -46,6 +47,7 @@ impl<'a, S, C, E, B> ApplierOperator<'a, S, C, E, B> {
     }
 
     /// The changeset applier the operations read and write through.
+    #[must_use]
     pub fn applier(&self) -> &'a ChangesetApplier<S, C, E, B> {
         self.applier
     }

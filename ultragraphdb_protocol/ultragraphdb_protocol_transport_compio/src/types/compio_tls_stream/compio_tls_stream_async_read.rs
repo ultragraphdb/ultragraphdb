@@ -14,7 +14,9 @@ use super::CompioTlsStream;
 
 impl<S: AsyncRead + AsyncWrite> AsyncRead for CompioTlsStream<S> {
     /// The peer's plaintext, reading records from the stream until some arrives: 0 once the peer sent its
-    /// `close_notify`, `UnexpectedEof` when the stream closed without it.
+    /// `close_notify`, `UnexpectedEof` when the stream closed without it. A future dropped at a wait leaves what
+    /// `CompioTlsStream::write_records` or `CompioTlsStream::read_records` says; plaintext is taken from the session
+    /// only when it is copied into `buf` in the same poll.
     async fn read<B: IoBufMut>(&mut self, mut buf: B) -> BufResult<usize, B> {
         // A compio read fills the buffer from its start, as the reader of a byte slice below does.
         let room = buf.buf_capacity();

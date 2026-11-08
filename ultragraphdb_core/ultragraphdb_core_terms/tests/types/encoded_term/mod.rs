@@ -9,3 +9,5 @@ mod encoded_term_cmp_tests;
 mod encoded_term_encode_tests;
 #[cfg(test)]
 mod encoded_term_tests;
+#[cfg(test)]
+mod encoded_term_view_tests;

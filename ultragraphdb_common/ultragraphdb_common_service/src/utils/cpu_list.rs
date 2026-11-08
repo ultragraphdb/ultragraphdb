@@ -18,6 +18,7 @@ pub fn parse_cpu_list(list: &str) -> Option<BTreeSet<usize>> {
         if first > last || last >= CPUS_MAX {
             return None;
         }
+        // The kernel's `first-last` names both ends, and `last` is below `CPUS_MAX`, so the closed range is the list's own.
         cpus.extend(first..=last);
     }
     Some(cpus)

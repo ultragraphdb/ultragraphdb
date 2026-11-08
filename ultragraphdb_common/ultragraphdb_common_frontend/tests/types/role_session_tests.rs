@@ -17,17 +17,22 @@ use ultragraphdb_common_role::{
 };
 use ultragraphdb_common_service::Readiness;
 use ultragraphdb_common_service_config::ServiceConfig;
-use ultragraphdb_protocol_transport::Address;
-use ultragraphdb_protocol_transport::Endpoint;
+use ultragraphdb_protocol_scram::ScramVerifier;
+use ultragraphdb_protocol_transport::{Address, Endpoint, TransportError, TransportErrorEnum};
 use ultragraphdb_protocol_transport_compio::Listener;
 use ultragraphdb_protocol_wire::{
-    BodyView, Cancel, Command, EpochCloseView, ErrorCode, ErrorReplyView, Join, Members,
-    MembersView, Subscribe,
+    BodyView, Cancel, Catalog, CloseRequest, Closed, Command, Declared, DeclaredPredicate,
+    EpochCloseView, ErrorCode, ErrorReplyView, Join, Lease, Members, MembersView, Placement,
+    Report, ReportView, RequestTerm, Subscribe,
 };
 use ultragraphdb_store_sim::LogCapture;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
+use ultragraphdb_transactions_log::{FaultMode, SimStorage};
+
+use super::owner::{EPOCH_US, TestClock, ended, recovered, running, starting};
 
 const CLUSTER: u64 = 7;
+const PREDICATE: &str = "http://ex.org/p";
 
 fn directory(name: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!("role-session-{name}-{}", std::process::id()))
@@ -321,4 +326,237 @@ fn test_a_role_refusing_past_the_deadline_is_given_up() -> TestResult {
     })?;
     assert!(!readiness.is_ready());
     Ok(())
+}
+
+/// What a refused request was refused with.
+fn refusal_code(refused: &TransportError) -> Option<ErrorCode> {
+    if let TransportErrorEnum::Refused { code, .. } = &refused.0 {
+        Some(*code)
+    } else {
+        None
+    }
+}
+
+/// A session served where a partition's commands arrive hosts none of them: a Closed request there is refused as
+/// unavailable.
+async fn refused_where_partitions_arrive(cluster: &RoleCluster, handle: OwnerHandle) -> TestResult {
+    let links = RoleLinks::new(cluster.clone(), "frontend".to_string());
+    let shared = RoleShared::new(cluster.clone(), handle, links, Readiness::default());
+    let listener = listen(&format!("tcp://127.0.0.1:{}", free_port()?)).await?;
+    let elsewhere = listener.local_address()?;
+    serve_roles(listener, Endpoint::Partition, shared, cluster)?;
+    let password = cluster.secret().password();
+    let mut frontend = RoleClient::dial(&elsewhere, CLUSTER, "frontend", password).await?;
+    let refused = frontend
+        .request(&Closed::request(&[1]))
+        .await
+        .err()
+        .context("a refusal")?;
+    assert_eq!(
+        refusal_code(&refused),
+        Some(ErrorCode::Unavailable),
+        "{refused}"
+    );
+    Ok(())
+}
+
+/// Lease, Placement and Catalog are answered from the owner, a CloseRequest is taken with no answer, and the role endpoint
+/// refuses a Members request holding members, a second subscription on one connection and a command it does not host.
+#[test]
+fn test_the_role_commands_are_answered_from_the_owner() -> TestResult {
+    let data = directory("commands");
+    Runtime::new()?.block_on(async {
+        let owner = owner_under(&data).await?;
+        let handle = owner.handle().clone();
+        let cluster = cluster_under(&data)?;
+        let address = role_endpoint(handle.clone(), &cluster, Readiness::default()).await?;
+        let password = cluster.secret().password();
+        let mut storage = RoleClient::dial(&address, CLUSTER, "storage", password).await?;
+        // A frame holds the connection's one buffer until it is dropped, so each answer is read and dropped in turn.
+        let leased = storage
+            .request(&Lease::request(1, 1, 8))
+            .await?
+            .view()?
+            .command();
+        assert_eq!(leased, Command::Lease);
+        let placed = storage
+            .request(&Placement::request(0))
+            .await?
+            .view()?
+            .command();
+        assert_eq!(placed, Command::Placement);
+        let _version = handle
+            .declare(
+                0,
+                0,
+                vec![Declared::Predicate(DeclaredPredicate::new(PREDICATE))],
+            )
+            .await
+            .map_err(|refusal| TestError::new(refusal.message().to_string()))?;
+        let catalog = storage
+            .request(&Catalog::request(0, 0))
+            .await?
+            .view()?
+            .command();
+        assert_eq!(catalog, Command::Catalog);
+        storage.send_only(&CloseRequest::new(1, 1)).await?;
+        // A Join at an address that does not parse is held, and nothing connects back to it.
+        let unparsed = Join::compute("tcp://a host with no port");
+        let joined = storage.request(&unparsed).await?.view()?.command();
+        assert_eq!(joined, Command::Join);
+        let mut holding = Members::new();
+        holding.push_compute("tcp://127.0.0.1:1");
+        let holding_refused = storage.request(&holding).await.err().context("a refusal")?;
+        assert_eq!(
+            refusal_code(&holding_refused),
+            Some(ErrorCode::Protocol),
+            "{holding_refused}"
+        );
+        refused_where_partitions_arrive(&cluster, handle.clone()).await?;
+        storage.send_only(&Subscribe::new(0)).await?;
+        storage.send_only(&Subscribe::new(0)).await?;
+        let again = storage.last_stream();
+        for _ in 0..1_000 {
+            let frame = compio::time::timeout(Duration::from_secs(5), storage.next_frame())
+                .await
+                .map_err(|_| TestError::new("nothing came on the second subscription"))??;
+            let view = frame.view()?;
+            if view.header().stream() == again {
+                assert_eq!(view.command(), Command::Error);
+                assert_eq!(
+                    ErrorReplyView::from_frame(&view)?.code(),
+                    ErrorCode::Protocol
+                );
+                return Ok(());
+            }
+        }
+        Err(TestError::new("the second subscription was not refused"))
+    })
+}
+
+/// A report of each kind reaches the owner and is answered with its fields: a failed build, and a refusal naming a blank node or
+/// a literal at fault.
+#[test]
+fn test_a_report_of_each_kind_is_answered() -> TestResult {
+    let data = directory("reports");
+    Runtime::new()?.block_on(async {
+        let owner = owner_under(&data).await?;
+        let cluster = cluster_under(&data)?;
+        let address = role_endpoint(owner.handle().clone(), &cluster, Readiness::default()).await?;
+        let password = cluster.secret().password();
+        let mut storage = RoleClient::dial(&address, CLUSTER, "storage", password).await?;
+        let blank = RequestTerm::BlankNode("b".to_string());
+        let literal = RequestTerm::Literal {
+            lexical: "a value".to_string(),
+            datatype: None,
+        };
+        let reports = vec![
+            Report::build_failed(1, 0, 1, PREDICATE),
+            Report::refused(1, 0, 1, PREDICATE, blank)?,
+            Report::refused(1, 0, 1, PREDICATE, literal)?,
+        ];
+        for report in &reports {
+            let kind = ReportView::from_frame(&storage.request(report).await?.view()?)?.kind();
+            assert_eq!(kind, report.kind());
+        }
+        Ok(())
+    })
+}
+
+/// The closes a subscription takes carry the catalog versions they announce and the sessions they evict.
+#[test]
+fn test_a_subscription_takes_announcements_and_evictions() -> TestResult {
+    let data = directory("announced");
+    if data.exists() {
+        std::fs::remove_dir_all(&data)?;
+    }
+    std::fs::create_dir_all(&data)?;
+    Runtime::new()?.block_on(async {
+        let start = OwnerStart::new(
+            MetadataConfig::new().with_sessions_max(1)?,
+            SequencerConfig::new(1, 50)?,
+            1,
+        );
+        let verifier = ScramVerifier::derive("pw", b"salt", 4_096)?;
+        let owner = start_owner(
+            ServiceConfig::default(),
+            CLUSTER,
+            data.clone(),
+            start,
+            vec![("ann".to_string(), verifier)],
+        )
+        .await?;
+        let handle = owner.handle().clone();
+        let cluster = cluster_under(&data)?;
+        let address = role_endpoint(handle.clone(), &cluster, Readiness::default()).await?;
+        let password = cluster.secret().password();
+        let mut storage = RoleClient::dial(&address, CLUSTER, "storage", password).await?;
+        storage.send_only(&Subscribe::new(0)).await?;
+        let heard = |refusal: ultragraphdb_protocol_wire::ErrorReply| {
+            TestError::new(refusal.message().to_string())
+        };
+        let ann = handle.verifier("ann".to_string()).await.context("ann")?.0;
+        handle.register_session(1, ann).await.map_err(heard)?;
+        handle.register_session(2, ann).await.map_err(heard)?;
+        let _version = handle
+            .declare(
+                0,
+                0,
+                vec![Declared::Predicate(DeclaredPredicate::new(PREDICATE))],
+            )
+            .await
+            .map_err(heard)?;
+        let (mut announced, mut evicted) = (false, false);
+        for _ in 0..1_000 {
+            let frame = compio::time::timeout(Duration::from_secs(5), storage.next_frame())
+                .await
+                .map_err(|_| TestError::new("no close came"))??;
+            let view = frame.view()?;
+            let close = EpochCloseView::from_frame(&view)?;
+            announced |= close.announcement_count() > 0;
+            evicted |= close.eviction(0) == Some(1u128.to_be_bytes());
+            if announced && evicted {
+                return Ok(());
+            }
+        }
+        Err(TestError::new(format!(
+            "announced {announced}, evicted {evicted}"
+        )))
+    })
+}
+
+/// A Members request after the owner stopped is refused as unavailable.
+#[test]
+fn test_members_after_the_owner_stopped_is_unavailable() -> TestResult {
+    let data = directory("owner-stopped");
+    if data.exists() {
+        std::fs::remove_dir_all(&data)?;
+    }
+    std::fs::create_dir_all(&data)?;
+    let clock = TestClock::new();
+    let storage = SimStorage::new(13);
+    Runtime::new()?.block_on(async {
+        let owner = recovered(&storage, &starting(MetadataConfig::new())?, &clock).await?;
+        let (handle, run) = running(owner, &clock);
+        let cluster = cluster_under(&data)?;
+        let address = role_endpoint(handle.clone(), &cluster, Readiness::default()).await?;
+        // The next operation is the write of the next close's round, which stops the owner.
+        storage.fail_at(storage.trace().len(), FaultMode::Before);
+        clock.advance(EPOCH_US);
+        assert!(ended(run).await?.is_err(), "the owner stopped");
+        let password = cluster.secret().password();
+        let mut compute = RoleClient::dial(&address, CLUSTER, "compute", password).await?;
+        let refused = compute
+            .request(&Members::new())
+            .await
+            .err()
+            .context("a refusal")?;
+        assert_eq!(
+            refusal_code(&refused),
+            Some(ErrorCode::Unavailable),
+            "{refused}"
+        );
+        drop(handle);
+        Ok(())
+    })
 }

@@ -13,7 +13,7 @@
 
 use libfuzzer_sys::fuzz_target;
 use ultragraphdb_store_hnsw::{
-    add_dead_node, bytes_to_id, decode_id_matrix, encode_id_matrix, parse_edges,
+    HnswErrorEnum, add_dead_node, bytes_to_id, decode_id_matrix, encode_id_matrix, parse_edges,
 };
 
 fuzz_target!(|data: &[u8]| {
@@ -47,8 +47,8 @@ fuzz_target!(|data: &[u8]| {
         Err(refused) => {
             let named = text.replace(['\n', '\t'], " ");
             assert_eq!(
-                refused.to_string(),
-                format!("Cannot convert {} to uint slice", named.trim()),
+                refused.0,
+                HnswErrorEnum::MalformedDeadList(named.trim().to_string()),
                 "a refusal names the text"
             );
         }

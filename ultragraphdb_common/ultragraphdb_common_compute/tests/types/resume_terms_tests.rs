@@ -68,3 +68,49 @@ fn test_a_resume_key_of_an_unheld_term_is_refused() -> TestResult {
         Ok(())
     })
 }
+
+/// A resume key whose row names its graph by a literal, or its object by a blank node, names no row a read answers: it is refused
+/// with Error 1.
+#[test]
+fn test_a_resume_key_of_a_term_no_row_names_is_refused() -> TestResult {
+    use ultragraphdb_protocol_wire::RequestTerm;
+
+    run(async {
+        let played = Played::start(1, read_times_of(None, None)).await?;
+        let rows = short_rows(2);
+        let _ids = hold_rows(played.partition(1)?, &rows)?;
+        let pattern = Pattern::of(None, Some(P), None);
+        let read = snapshot(&pattern)?;
+        let (subject, object) = rows.first().context("a row")?;
+        let keys = [
+            (
+                Some(RequestTerm::Literal {
+                    lexical: "a graph".to_string(),
+                    datatype: None,
+                }),
+                RequestTerm::Iri(object.clone()),
+            ),
+            (None, RequestTerm::BlankNode("b".to_string())),
+        ];
+        for (graph, last) in keys {
+            let mut table = TermTable::new();
+            let graph = graph.map(|term| table.intern(term)).transpose()?;
+            let (s, p) = (table.iri(subject), table.iri(P));
+            let o = table.intern(last)?;
+            let resume = ResumeKey::new(
+                pattern_hash(&read)?,
+                read.read_version(),
+                table,
+                ResumeRow::new(graph, s, p, o, None),
+            )
+            .encode();
+            let resumed = read_of(&pattern, true, ReadLevel::Snapshot, resume)?
+                .with_read_version(read.read_version())
+                .with_epoch(read.epoch());
+            let mut client = played.client().await?;
+            let answered = answer_on(&mut client, &resumed).await?;
+            assert_eq!(answered.refusal()?.code, ErrorCode::Protocol);
+        }
+        Ok(())
+    })
+}

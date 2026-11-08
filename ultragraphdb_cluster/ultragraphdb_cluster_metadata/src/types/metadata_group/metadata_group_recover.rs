@@ -32,6 +32,9 @@ impl<L: OrderedLog> MetadataGroup<L> {
     /// name them or they hold no command, or a round's command does not apply to the state before it;
     /// [`ClusterError::malformed`] and [`ClusterError::too_many`] when a round's body is no command;
     /// [`ClusterError::log`] when the log cannot be read.
+    ///
+    /// Recovery only reads the log: a future dropped at any read drops `log` and the state rebuilt so far, and leaves
+    /// the log as it found it.
     pub async fn recover(
         log: L,
         config: MetadataConfig,
@@ -67,7 +70,9 @@ impl<L: OrderedLog> MetadataGroup<L> {
     }
 
     /// Replays every durable round after the applied position, in order, reassembling the chunks of a large command
-    /// until its commit; chunks no commit follows, before another command or at the log's end, are discarded.
+    /// until its commit; chunks no commit follows, before another command or at the log's end, are discarded. A future
+    /// dropped at a read leaves the rounds replayed so far applied, in a group its only caller,
+    /// [`recover`](Self::recover), drops with it.
     async fn replay(&mut self) -> Result<(), ClusterError> {
         let committed = self.log.committed();
         let mut last = self.applied;
@@ -109,6 +114,7 @@ impl<L: OrderedLog> MetadataGroup<L> {
                 if offset == 0 {
                     chunks.clear();
                 }
+                // A `usize` length into a `u64`, lossless on every target the node builds for.
                 if offset != chunks.len() as u64 {
                     return Err(diverged("a chunk at the end of the chunks before it"));
                 }
@@ -120,7 +126,7 @@ impl<L: OrderedLog> MetadataGroup<L> {
             }
             MetadataCommand::Commit { length, checksum } => {
                 let whole = !chunks.is_empty()
-                    && length == chunks.len() as u64
+                    && length == chunks.len() as u64 // lossless, as above
                     && checksum == xxh3_64(chunks);
                 if !whole {
                     return Err(diverged("a commit naming the chunks before it"));

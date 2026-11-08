@@ -84,7 +84,8 @@ pub struct ClientCore<L: Login> {
     /// handle reads that or is dropped.
     lost_reads: BTreeMap<(u64, u64), (Arc<AtomicBool>, ClientError)>,
     /// The reads whose last frame had arrived when their connection was lost, by generation and stream: read on to
-    /// their end, or let go once their handle is dropped.
+    /// their end, or let go once their handle is dropped. Each frame kept holds one of the client's frame buffers and
+    /// counts against [`ClientConfig::buffers`] in `reserve_buffers`, which bounds the frames kept.
     kept_reads: BTreeMap<(u64, u64), (Arc<AtomicBool>, VecDeque<ReceivedFrame>)>,
     pending: BTreeMap<u64, PendingState>,
     next_pending: u64,
@@ -372,9 +373,11 @@ impl<L: Login> ClientCore<L> {
     /// read not yet polled never takes the one a reply needs.
     fn reserve_buffers(&mut self, more: u32) -> Result<(), ClientError> {
         self.forget_dropped_reads();
+        // Lossless: a `usize` is at least 32 bits.
         let open: usize = self.streams.values().map(|s| s.buffers as usize).sum();
         let kept: usize = self.kept_reads.values().map(|(_, inbox)| inbox.len()).sum();
         let room = self.config.buffers().saturating_sub(1);
+        // Lossless: a `usize` is at least 32 bits.
         if open.saturating_add(kept).saturating_add(more as usize) > room {
             return Err(ClientError::buffer_limit(self.config.buffers()));
         }
@@ -405,7 +408,7 @@ impl<L: Login> ClientCore<L> {
         if frame.len() > welcome.max_frame() as usize {
             return Err(ClientError::request(ProtocolError::frame_too_large(
                 frame.len(),
-                welcome.max_frame() as usize,
+                welcome.max_frame() as usize, // lossless: a `usize` is at least 32 bits
             )));
         }
         Ok(frame)
@@ -439,13 +442,17 @@ impl<L: Login> ClientCore<L> {
     }
 
     /// A session the application kept from an earlier client, identified by `number`, its next request `next_request`.
-    /// Refused as [`ClientError::request`] for a session of `number` 0, which names none, or a request of 0, which a session
-    /// cannot send (`PROTOCOL.md` §6.3), and for a session this client holds with a request in flight or in doubt, which
-    /// the number would overwrite. `next_request` is one above the session's last committed request (`PROTOCOL.md` §11.5),
-    /// and the client cannot check it: a number below a partition's last is refused there with code 13, and the session's
-    /// counter moves above that refusal's `detail`; a one-frame write or Drop numbered at the last committed request is answered
-    /// with that request's stored reply (§6.6), which reads as this request's success. An application saves the number after
-    /// a request before it sends that request, so a crash between the two leaves a number above the last.
+    /// `next_request` is one above the session's last committed request (`PROTOCOL.md` §11.5), and the client cannot
+    /// check it: a number below a partition's last is refused there with code 13, and the session's counter moves above
+    /// that refusal's `detail`; a one-frame write or Drop numbered at the last committed request is answered with that
+    /// request's stored reply (§6.6), which reads as this request's success. An application saves the number after a
+    /// request before it sends that request, so a crash between the two leaves a number above the last.
+    ///
+    /// # Errors
+    ///
+    /// [`ClientError::request`] for a session of `number` 0, which names none, or a request of 0, which a session
+    /// cannot send (`PROTOCOL.md` §6.3); [`ClientError::in_doubt`] or [`ClientError::session_busy`] for a session this
+    /// client holds with a request in doubt or in flight, which the number would overwrite.
     pub fn resume_session(
         &mut self,
         number: u128,
@@ -571,7 +578,7 @@ impl<L: Login> ClientCore<L> {
         if frame.len() > welcome.max_frame() as usize {
             return Err(ClientError::request(ProtocolError::frame_too_large(
                 frame.len(),
-                welcome.max_frame() as usize,
+                welcome.max_frame() as usize, // lossless: a `usize` is at least 32 bits
             )));
         }
         Ok(frame)

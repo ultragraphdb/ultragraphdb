@@ -43,8 +43,12 @@ impl<'a> BodyView<'a> for ConditionalWriteView<'a> {
 }
 
 impl<'a> ConditionalWriteView<'a> {
-    /// A ConditionalWrite the client endpoint received: as [`BodyView::from_frame`] reads it, with `principal` 0,
-    /// refused after the token and before the sections as [`ProtocolError::field_value`] (`"principal"`).
+    /// A ConditionalWrite the client endpoint received: as [`BodyView::from_frame`] reads it, with `principal` 0.
+    ///
+    /// # Errors
+    ///
+    /// [`BodyView::from_frame`]'s refusals, and [`ProtocolError::field_value`] (`"principal"`) for a `principal` other
+    /// than 0, after the token and before the sections.
     pub fn from_client_frame(frame: &FrameView<'a>) -> Result<Self, ProtocolError> {
         Self::read(frame, true)
     }

@@ -8,4 +8,4 @@ mod finish_open_tests;
 #[cfg(test)]
 mod joining_role_tests;
 #[cfg(test)]
-mod serve_tests;
+pub(crate) mod serve_tests;

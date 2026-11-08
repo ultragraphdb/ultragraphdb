@@ -57,11 +57,12 @@ impl<'a> BodyView<'a> for ResultView<'a> {
         }
         let strings = StringList::read(command, (4, 5), sections.get(4), sections.get(5))?;
         let column_names = StringList::read(command, (7, 8), sections.get(7), sections.get(8))?;
+        // Lossless: a `usize` is at least 32 bits.
         if !column_names.is_empty() && column_names.len() != columns as usize {
             return Err(ProtocolError::count_mismatch(
                 command,
                 "column names",
-                column_names.len() as u64,
+                column_names.len() as u64, // lossless: a `usize` is at most 64 bits
                 columns.into(),
             ));
         }
@@ -80,7 +81,7 @@ impl<'a> BodyView<'a> for ResultView<'a> {
             return Err(ProtocolError::field_value(
                 command,
                 "resume key",
-                resume.len() as u64,
+                resume.len() as u64, // lossless: a `usize` is at most 64 bits
             ));
         }
         Ok(Self {
@@ -105,13 +106,13 @@ impl<'a> BodyView<'a> for ResultView<'a> {
             .map(|i| {
                 let view = self
                     .term(i)
-                    .ok_or(ProtocolError::bad_term(command, 2, i as usize))?;
+                    .ok_or(ProtocolError::bad_term(command, 2, i as usize))?; // lossless: a `usize` is at least 32 bits
                 if let Some((hash, blank_node)) = named_hash(view.encoding()) {
                     return Ok(ResultTerm::named(hash, blank_node, view.text()));
                 }
                 let term = view
                     .term()
-                    .ok_or(ProtocolError::bad_term(command, 2, i as usize))?;
+                    .ok_or(ProtocolError::bad_term(command, 2, i as usize))?; // lossless: a `usize` is at least 32 bits
                 let mut owned = ResultTerm::new(term);
                 if let Some(text) = view.text() {
                     owned = owned.with_text(text);
@@ -157,6 +158,7 @@ fn check_term_texts(
     encodings: &[u8],
 ) -> Result<(), ProtocolError> {
     for (index, start) in offsets.iter().enumerate() {
+        // Lossless: a `usize` is at least 32 bits.
         let tag = encodings.get(*start as usize).copied().unwrap_or_default();
         let (text, annotation) = names_text(tag);
         let held = |at: usize| u32_at(texts, at).is_some_and(|string| string != ABSENT);
@@ -164,7 +166,7 @@ fn check_term_texts(
             return Err(ProtocolError::field_value(
                 command,
                 "term text",
-                index as u64,
+                index as u64, // lossless: a `usize` is at most 64 bits
             ));
         }
     }
@@ -179,11 +181,12 @@ fn check_cells(
     limit: u32,
 ) -> Result<(), ProtocolError> {
     let cells = u32s(command, 0, section)?;
+    // Lossless: a `usize` is at most 64 bits.
     if cells.len() as u64 != expected {
         return Err(ProtocolError::count_mismatch(
             command,
             "cells",
-            cells.len() as u64,
+            cells.len() as u64, // lossless: a `usize` is at most 64 bits
             expected,
         ));
     }
@@ -205,15 +208,15 @@ fn check_encodings(command: u16, offsets: &[u32], encodings: &[u8]) -> Result<()
         return Err(ProtocolError::count_mismatch(
             command,
             "term encodings",
-            encodings.len() as u64,
+            encodings.len() as u64, // lossless: a `usize` is at most 64 bits
             0,
         ));
     }
     for (at, start) in offsets.iter().enumerate() {
-        let start = *start as usize;
+        let start = *start as usize; // lossless: a `usize` is at least 32 bits
         let end = offsets
             .get(at + 1)
-            .map_or(encodings.len(), |end| *end as usize);
+            .map_or(encodings.len(), |end| *end as usize); // lossless: a `usize` is at least 32 bits
         let whole =
             (at > 0 || start == 0) && encodings.get(start..end).is_some_and(result_encoding_whole);
         if !whole {

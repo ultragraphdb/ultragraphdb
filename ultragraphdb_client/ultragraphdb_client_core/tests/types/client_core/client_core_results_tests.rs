@@ -1174,3 +1174,48 @@ fn test_a_read_at_its_end_is_remembered_by_its_handle_alone() -> TestResult {
     );
     Ok(())
 }
+
+/// A read cancelled once read to its end sends nothing: its stream has ended.
+#[test]
+fn test_a_read_read_to_its_end_and_cancelled_sends_nothing() -> TestResult {
+    let mut h = Harness::ready(server().with_results(1))?;
+    let tx = begin(&mut h)?;
+    let stream = h.core.read(&tx, &read(&tx), h.now)?;
+    assert_eq!(drain(&mut h, &stream)?.len(), 1);
+    h.core.cancel(stream);
+    assert_eq!(h.core.transmit(), None, "no Cancel");
+    assert!(h.core.is_ready());
+    Ok(())
+}
+
+/// A Result of more columns than a quad pattern binds breaks the rules of a pattern's batch: the batch is that rule's
+/// error, and the connection is given up.
+#[test]
+fn test_a_result_breaking_its_patterns_rules_gives_the_connection_up() -> TestResult {
+    use ultragraphdb_protocol_wire::{BodyBuilder, FLAG_LAST, PATTERN_COLUMNS_MAX, ResultBatch};
+    let mut h = Harness::ready(server())?;
+    let tx = begin(&mut h)?;
+    let stream = h.core.read(&tx, &read(&tx), h.now)?;
+    while h.core.transmit().is_some() {}
+    let batch = ResultBatch::new(PATTERN_COLUMNS_MAX + 1);
+    let frame = batch.frame(
+        Header::new(CLUSTER, Command::Result)
+            .with_stream(stream.stream())
+            .with_flags(FLAG_LAST),
+    )?;
+    let frame = h.numbered(&frame)?;
+    h.deliver(&frame)??;
+    let broken = h.core.next_batch(&stream, h.now, |_| ()).err();
+    assert!(
+        matches!(
+            broken.as_ref().map(|e| &e.0),
+            Some(ClientErrorEnum::Protocol { error }) if matches!(
+                error.0,
+                ProtocolErrorEnum::FieldValue { .. }
+            )
+        ),
+        "{broken:?}"
+    );
+    assert!(!h.core.is_connected(), "the connection is given up");
+    Ok(())
+}

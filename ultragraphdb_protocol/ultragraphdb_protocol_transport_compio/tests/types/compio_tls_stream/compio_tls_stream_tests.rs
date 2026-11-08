@@ -402,6 +402,18 @@ fn test_a_read_with_no_room_takes_nothing() -> TestResult {
 }
 
 #[test]
+fn test_a_read_dropped_while_it_waits_leaves_the_stream_readable() -> TestResult {
+    let pki = TestPki::new()?;
+    let (mut server, mut client, _, _) = faulty_pair(&pki)?;
+    // Nothing is in flight, so the read waits on the stream holding the stream's buffer, and is dropped there.
+    let waiting = futures::FutureExt::now_or_never(client.read(Vec::with_capacity(8)));
+    assert!(waiting.is_none(), "a read with nothing in flight waits");
+    ready(send(&mut server, b"hi"))?;
+    assert_eq!(ready(receive(&mut client, 2))?, b"hi");
+    Ok(())
+}
+
+#[test]
 fn test_a_stream_closed_without_close_notify_reads_as_unexpected_eof() -> TestResult {
     let pki = TestPki::new()?;
     let (server, mut client, _, _) = faulty_pair(&pki)?;

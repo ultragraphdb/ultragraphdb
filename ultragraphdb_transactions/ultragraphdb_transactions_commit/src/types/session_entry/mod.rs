@@ -38,12 +38,14 @@ impl SessionEntry {
     pub const KEY_PREFIX: &'static [u8] = b"\xffultragraphdb/session/";
 
     /// The entry of a session whose last committed request in the partition is `request`, answered with `reply`.
+    #[must_use]
     pub fn new(request: u64, reply: StoredReply) -> Self {
         Self { request, reply }
     }
 
     /// The key of session `session`'s entry: the prefix, then its identity's 16 big-endian bytes, so keys sort by
     /// identity.
+    #[must_use]
     pub fn key(session: u128) -> Vec<u8> {
         let mut key = Vec::with_capacity(Self::KEY_PREFIX.len() + 16);
         key.extend_from_slice(Self::KEY_PREFIX);
@@ -57,11 +59,13 @@ impl SessionEntry {
     }
 
     /// That request's stored reply.
+    #[must_use]
     pub fn reply(&self) -> &StoredReply {
         &self.reply
     }
 
     /// The reply, taken out of the entry.
+    #[must_use]
     pub fn into_reply(self) -> StoredReply {
         self.reply
     }
@@ -88,6 +92,7 @@ impl SessionEntry {
             bytes.extend_from_slice(&result.encode());
         }
         for node in nodes {
+            // A node's IRI is at most a frame long, far below u32.
             bytes.extend_from_slice(&(node.len() as u32).to_le_bytes());
             bytes.extend_from_slice(node.as_bytes());
         }
@@ -101,7 +106,8 @@ impl SessionEntry {
     ///
     /// [`StoreError::corrupted`] naming `key` for bytes shorter than the fixed part, a padding byte not zero, a request
     /// 0, a version 0 or an odd one, an epoch past 2^42 − 1, results or a term table not filling the rest exactly, a
-    /// result that does not read, or a result naming a node the term table does not hold.
+    /// node text the term table already holds, a result that does not read, or a result naming a node the term table
+    /// does not hold.
     pub fn decode(key: &[u8], bytes: &[u8]) -> Result<Self, StoreError> {
         let corrupted = |reason: &str| StoreError::corrupted(key.to_vec(), reason.to_string());
         let Some((fixed, rest)) = bytes.split_first_chunk::<FIXED>() else {
@@ -136,6 +142,7 @@ impl SessionEntry {
         }
         let epoch = Epoch::new(epoch)
             .map_err(|_| corrupted("a session entry whose epoch is past 2^42 − 1"))?;
+        // Lossless: a `usize` holds 32 bits on every target the repository builds for.
         let (results, terms) =
             decode_results(rest, results as usize, nodes as usize).map_err(corrupted)?;
         let token = SessionToken::new(partition, position, epoch);
@@ -161,8 +168,8 @@ fn node_texts(terms: &TermTable) -> Vec<&str> {
         .collect()
 }
 
-/// The `results` results and `nodes` node texts `bytes` hold, filling it exactly, each result naming a node the table
-/// holds; the reason for anything else.
+/// The `results` results and `nodes` distinct node texts `bytes` hold, filling it exactly, each result naming a node the
+/// table holds; the reason for anything else.
 fn decode_results(
     bytes: &[u8],
     results: usize,
@@ -181,11 +188,17 @@ fn decode_results(
         let Some((len, tail)) = rest.split_first_chunk::<4>() else {
             return Err(FILL);
         };
+        // Lossless: a `usize` holds 32 bits on every target the repository builds for.
         let Some((text, tail)) = tail.split_at_checked(u32::from_le_bytes(*len) as usize) else {
             return Err(FILL);
         };
         let text = std::str::from_utf8(text).map_err(|_| "a session entry's node is not UTF-8")?;
+        // The table holds each text once, so a text it already holds adds no node and is refused.
+        let held = terms.len();
         let _index: u32 = terms.iri(text);
+        if terms.len() == held {
+            return Err("a session entry names a node twice");
+        }
         rest = tail;
     }
     if !rest.is_empty() {
@@ -222,6 +235,7 @@ fn decode_result(bytes: &[u8; RESULT], nodes: usize) -> Result<OperationResult, 
         return Err("a session entry's result has padding or a created above 1");
     }
     let value = i64::from_le_bytes([v0, v1, v2, v3, v4, v5, v6, v7]);
+    // The `usize` casts of a node are lossless: a `usize` holds 32 bits on every target the repository builds for.
     match u32::from_le_bytes([n0, n1, n2, n3]) {
         ABSENT if created == 0 && value != 0 => Ok(OperationResult::counter(value)),
         ABSENT if created == 0 => Ok(OperationResult::compare_and_set()),

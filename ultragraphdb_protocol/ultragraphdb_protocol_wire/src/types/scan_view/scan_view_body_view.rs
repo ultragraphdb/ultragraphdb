@@ -22,7 +22,7 @@ use crate::utils::term_kind::term_kind;
 
 /// The u32 at `at` of a range's record.
 fn field(record: &[u8], at: usize) -> usize {
-    bytes_at(record, at).map_or(0, u32::from_le_bytes) as usize
+    bytes_at(record, at).map_or(0, u32::from_le_bytes) as usize // lossless: a `usize` is at least 32 bits
 }
 
 /// What the ranges checked so far leave the next: the end of the keys they hold, and the partition every range names
@@ -51,7 +51,7 @@ fn check_range(
     }
     let (first, first_len) = (field(record, 8), field(record, 12));
     let (past, past_len) = (field(record, 16), field(record, 20));
-    let range = || ProtocolError::field_value(command, "range", index as u64);
+    let range = || ProtocolError::field_value(command, "range", index as u64); // lossless: a `usize` is at most 64 bits
     if first != cursor.end || first_len == 0 || Some(past) != first.checked_add(first_len) {
         return Err(range());
     }
@@ -89,7 +89,7 @@ fn term_table<'a>(
         return Err(ProtocolError::count_mismatch(
             command,
             "terms",
-            bytes as u64,
+            bytes as u64, // lossless: a `usize` is at most 64 bits
             0,
         ));
     }
@@ -98,6 +98,7 @@ fn term_table<'a>(
         return Err(ProtocolError::count_mismatch(
             command,
             "terms",
+            // The casts are lossless: a `usize` is at most 64 bits.
             terms.len() as u64,
             ranges as u64,
         ));
@@ -110,7 +111,7 @@ fn term_table<'a>(
         return Err(ProtocolError::field_value(
             command,
             "scan term",
-            index as u64,
+            index as u64, // lossless: a `usize` is at most 64 bits
         ));
     }
     Ok(terms)
@@ -199,6 +200,7 @@ impl<'a> BodyView<'a> for ScanView<'a> {
             return Err(ProtocolError::count_mismatch(
                 command,
                 "range keys",
+                // The casts are lossless: a `usize` is at most 64 bits.
                 keys.len() as u64,
                 cursor.end as u64,
             ));

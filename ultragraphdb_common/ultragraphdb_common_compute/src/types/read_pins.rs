@@ -23,6 +23,8 @@ pub(crate) struct ReadPins {
     /// When a version chosen begins to be held; `None` for at once.
     from: Option<Instant>,
     every: Duration,
+    /// The frames the read has taken, shared by an `Rc` with each pin's task on the read's one core, which compares it
+    /// across its grants to see whether the read goes on.
     taken: Rc<Cell<u64>>,
     /// What keeps each partition's version, named by the partition and the version.
     keeping: RefCell<Vec<(u32, u64, JoinHandle<()>)>>,
@@ -83,6 +85,8 @@ impl ReadPins {
     /// waits holds up no other. A pin refused holds nothing more: the read goes on, and a next Scan says what became of its version.
     /// A pin about to run out has the next opened first, while the read goes on taking frames, so a version held stays held; a reader
     /// that stopped holds its version no longer than one pin's grants.
+    /// A dropped future, as its pins drop with their read, cancels each pin's Scan as its stream drops, which lets the
+    /// version go.
     async fn keep(
         target: PinTarget,
         opened: Option<Result<ScanStream, ultragraphdb_protocol_wire::ErrorReply>>,

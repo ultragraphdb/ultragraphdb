@@ -77,6 +77,8 @@ impl FullTag {
         let mut b = self.gen_core_bytes();
         if !extra.is_empty() {
             // The variants move to the core's end and the extensions with them, as Go's int arithmetic moves them.
+            // The core is at most MAX_CORE_SIZE bytes, so the u8 cast is lossless; the u16 cast truncates as Go's
+            // uint16 conversion does.
             let core_len = b.len();
             b.push(b'-');
             b.extend_from_slice(extra.as_bytes());

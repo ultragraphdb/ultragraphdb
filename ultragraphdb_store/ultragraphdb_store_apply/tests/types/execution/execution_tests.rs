@@ -844,3 +844,36 @@ fn test_an_execution_reads_the_dictionary_with_its_own_terms_over_the_store() ->
     );
     Ok(())
 }
+
+/// A page of the referrer sets reads what the store holds, an execution keeping no referrer set of its own, and records its
+/// span.
+#[test]
+fn test_a_page_of_the_referrer_sets_reads_the_stored_sets_and_records_its_span() -> TestResult {
+    let applier = changesets()?;
+    let at = commit(&applier, "<s> <knows> <hub>")?;
+    let key = QuadKey::Referrers {
+        tenant: TENANT,
+        entity: uid(&applier, "hub")?,
+    }
+    .to_bytes();
+    let stored = applier
+        .quads()
+        .store()
+        .get_at(&key, at)?
+        .context("the hub's referrer set")?
+        .value()
+        .to_vec();
+    let mut execution = applier.begin(TENANT, at).context("begun")?;
+    let scan = KernelScan::new(
+        Keyspace::Referrers,
+        TENANT,
+        Vec::new(),
+        at,
+        NonZeroUsize::MIN,
+    );
+    let (read, page) = statements_read(&mut execution, &scan)?;
+    assert_eq!(read, vec![(key, stored)]);
+    assert_eq!(page.end(), &PageEnd::Exhausted);
+    assert_eq!(execution.scanned_ranges(), vec![scan.bounds()]);
+    Ok(())
+}

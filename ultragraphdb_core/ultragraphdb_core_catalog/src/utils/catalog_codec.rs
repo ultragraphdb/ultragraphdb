@@ -34,9 +34,10 @@ pub fn kind_of(declaration: &Declaration) -> u8 {
     }
 }
 
-/// The longest list a declaration's encoding holds, its count being a u16.
+/// The longest list a declaration's encoding holds, its count being a u16. The cast widens.
 pub(crate) const LIST_MAX: usize = u16::MAX as usize;
-/// The longest string a declaration's encoding holds, its length being a u32.
+/// The longest string a declaration's encoding holds, its length being a u32. The cast is lossless: a `usize` holds
+/// 32 bits on every target the repository builds for.
 pub(crate) const STRING_MAX: usize = u32::MAX as usize;
 
 /// Whether every string and list of `declaration` fits the encoding: [`encode`] writes a declaration that does

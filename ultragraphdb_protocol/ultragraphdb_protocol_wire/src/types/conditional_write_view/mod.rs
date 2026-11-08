@@ -26,16 +26,19 @@ pub struct ConditionalWriteView<'a> {
 
 impl<'a> ConditionalWriteView<'a> {
     /// The principal the frontend filled; 0 from a client.
+    #[must_use]
     pub fn principal(&self) -> u64 {
         self.header.principal
     }
 
     /// The client's session; all zero for none.
+    #[must_use]
     pub fn session(&self) -> [u8; 16] {
         self.header.session
     }
 
     /// The request's number within its session.
+    #[must_use]
     pub fn request(&self) -> u64 {
         self.header.request
     }
@@ -46,31 +49,37 @@ impl<'a> ConditionalWriteView<'a> {
     }
 
     /// The session token the client holds; `None` for none.
+    #[must_use]
     pub fn token(&self) -> Option<&SessionToken> {
         self.header.token.as_ref()
     }
 
     /// The term table.
+    #[must_use]
     pub fn terms(&self) -> &TermTableView<'a> {
         &self.sections.terms
     }
 
     /// The number of changes.
+    #[must_use]
     pub fn change_count(&self) -> usize {
         self.sections.len()
     }
 
     /// Change `index`, `None` past the last.
+    #[must_use]
     pub fn change(&self, index: usize) -> Option<WriteChange> {
         self.sections.change(index)
     }
 
     /// The number of operations, at least one.
+    #[must_use]
     pub fn operation_count(&self) -> usize {
         self.starts.len()
     }
 
     /// Operation `index`, `None` past the last.
+    #[must_use]
     pub fn operation(&self, index: usize) -> Option<CommitOperation> {
         let fields = record_at::<OPERATION_FIELDS_SIZE>(self.operations, index)?;
         let args = self.sections.args.get(*self.starts.get(index)?..)?;

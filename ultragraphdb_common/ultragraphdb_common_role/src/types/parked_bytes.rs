@@ -61,7 +61,8 @@ impl ParkedBytes {
         self.shared.bytes.get()
     }
 
-    /// Waits until the bytes held stand below the bound. One connection waits at a time.
+    /// Waits until the bytes held stand below the bound. One connection waits at a time. A dropped future leaves its waker
+    /// registered, and the next release wakes a task no longer waiting, which costs that task one poll.
     pub async fn room(&self) {
         poll_fn(|cx| {
             if self.count() < self.shared.bound {

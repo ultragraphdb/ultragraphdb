@@ -22,11 +22,13 @@ impl SequencerTable {
     }
 
     /// `epoch_ms_min`: the shortest epoch, in milliseconds.
+    #[must_use]
     pub fn epoch_ms_min(&self) -> Option<u64> {
         self.epoch_ms_min
     }
 
     /// `epoch_ms_max`: the longest epoch, in milliseconds.
+    #[must_use]
     pub fn epoch_ms_max(&self) -> Option<u64> {
         self.epoch_ms_max
     }

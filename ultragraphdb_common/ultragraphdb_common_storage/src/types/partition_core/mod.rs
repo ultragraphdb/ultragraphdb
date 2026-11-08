@@ -24,13 +24,14 @@ use ultragraphdb_cluster_partition::{
 };
 use ultragraphdb_cluster_placement::PartitionId;
 use ultragraphdb_common_role::{Answer, ParkedBytes, RoleClient, RoleCluster};
+use ultragraphdb_common_service::InboxTurn;
 use ultragraphdb_core_catalog::CatalogContents;
 use ultragraphdb_core_ids::Epoch;
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_transport::Address;
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, Command, DropCommand, ErrorCode, ErrorReply, FLAG_LAST, Header, Reference, Report,
-    TermTable,
+    BodyBuilder, Command, DropCommand, ErrorCode, ErrorReply, FLAG_LAST, HEADER_SIZE, Header,
+    Reference, Report, TermTable,
 };
 use ultragraphdb_store_apply::ChangesetError;
 use ultragraphdb_store_kv::{FjallStore, MokaListCache, ThreadExecutor};
@@ -45,6 +46,7 @@ use crate::types::parked_frame::ParkedFrame;
 use crate::types::refill_blocks::RefillBlocks;
 use crate::types::retention::Retention;
 use crate::types::scan_board::ScanBoard;
+use crate::types::turn_budget::TURN_BYTES;
 use crate::utils::commit_body::commit_body;
 use crate::utils::error_reply::error_reply;
 
@@ -64,6 +66,13 @@ pub type StorageHost<'a> = PartitionHost<
 
 /// How long the core waits for a message before it looks at its timers and at what other partitions of the process sent.
 const TICK: std::time::Duration = std::time::Duration::from_millis(1);
+
+/// The waiting messages one turn takes of its inbox after the one it waited for, the rest waiting for the next turn: 1,024, the
+/// most requests of the smallest size, a header alone, that [`TURN_BYTES`] holds. A turn of the smallest requests so takes in
+/// what it may build of Scans' frames, and the commits and Scans waiting on the turn wait for that much of its connections'
+/// work; a larger request counts as one, its bytes bounded by its connection's `max_frame` and held bytes. One sync a turn, at
+/// the 2,188 a second the Shard-per-Core note measures, so admits two million requests a second, past what a core serves.
+const MESSAGES_PER_TURN_MAX: usize = TURN_BYTES / HEADER_SIZE;
 
 /// How long a partition keeps a Scan with no frame able to leave, by default (`PROTOCOL.md` §11.9), in milliseconds.
 pub const SCAN_STALL_MS_DEFAULT: u64 = 30_000;
@@ -233,7 +242,8 @@ pub struct PartitionCore<'a> {
     committing: BTreeMap<u64, Committing>,
     /// The catalog version in the commit step, by ticket, with what the data refused of it, run again when a commit aborted it.
     installing: BTreeMap<u64, (CatalogContents, Vec<ChangesetError>)>,
-    /// The catalog versions waiting for it, or for a build's end, in the order the closes announced them.
+    /// The catalog versions waiting for it, or for a build's end, in the order the closes announced them: one for each close
+    /// announcing a catalog change, which administration makes, so its length is the changes not yet installed.
     versions: VecDeque<CatalogContents>,
     /// The Scans it answers, and those with a frame to build, in turn.
     scans: ScanBoard<OpenScan<'a>>,
@@ -251,7 +261,8 @@ impl std::fmt::Debug for PartitionCore<'_> {
     }
 }
 
-/// The channels a core is reached by and reaches others through.
+/// The channels a core is reached by and reaches others through. Its connections bound `inbox`, as
+/// [`crate::StorageSession`] says: one request each at a time and a note per stream.
 #[derive(Debug)]
 pub struct CoreChannels {
     inbox: UnboundedReceiver<CoreMessage>,
@@ -342,6 +353,7 @@ impl<'a> CoreParts<'a> {
 
 impl<'a> PartitionCore<'a> {
     /// The core of `parts`.
+    #[must_use]
     pub fn new(parts: CoreParts<'a>) -> Self {
         Self {
             host: parts.host,
@@ -382,6 +394,11 @@ impl<'a> PartitionCore<'a> {
 
     /// Serves until `stopping` says otherwise, then ends what is open and syncs what its log holds through its store.
     ///
+    /// A dropped future drops the core without its stop: a request waiting for its first answer is refused by its session
+    /// as the partition stopped, a stream already open hears nothing more until its connection closes, a round under sync
+    /// is neither applied nor handed out, as [`PartitionHost::turn`] says, and the store is not synced, so the next start
+    /// recovers from the log.
+    ///
     /// # Errors
     ///
     /// [`RoleError::io`] when the pipeline stops on its log or store.
@@ -396,7 +413,9 @@ impl<'a> PartitionCore<'a> {
             } else if let Ok(Some(first)) = compio::time::timeout(TICK, self.inbox.next()).await {
                 self.take(first);
             }
-            while let Ok(next) = self.inbox.try_recv() {
+            // At most MESSAGES_PER_TURN_MAX, the rest waiting for the next turn (Ultra rule 2).
+            let mut taking = InboxTurn::new(MESSAGES_PER_TURN_MAX);
+            while let Some(next) = taking.receive(|| self.inbox.try_recv()) {
                 self.take(next);
             }
             self.turn().await?;
@@ -418,7 +437,8 @@ impl<'a> PartitionCore<'a> {
             .map_err(|error| RoleError::io(format!("the store: {error}")))
     }
 
-    /// One turn of the host, and what that made durable handed on.
+    /// One turn of the host, and what that made durable handed on. A future dropped at the host's turn leaves the core fit
+    /// only to be dropped, as [`PartitionCore::run`] says.
     async fn turn(&mut self) -> Result<(), RoleError> {
         while let Ok(message) = self.closes.try_recv() {
             // A close the subscription brought, to the partition's own mailbox.
@@ -555,7 +575,7 @@ impl<'a> PartitionCore<'a> {
     }
 }
 
-/// Lets every other task of the core's runtime run once, waiting on nothing.
+/// Lets every other task of the core's runtime run once, waiting on nothing. A dropped future leaves nothing.
 async fn yield_once() {
     let mut yielded = false;
     poll_fn(|cx| {

@@ -78,22 +78,26 @@ pub struct PartitionError(pub PartitionErrorEnum);
 
 impl PartitionError {
     /// [`PartitionErrorEnum::WrongPartition`] for `bucket`, owned by `owner`.
+    #[must_use]
     pub fn wrong_partition(bucket: u32, owner: u32) -> Self {
         Self(PartitionErrorEnum::WrongPartition { bucket, owner })
     }
 
     /// [`PartitionErrorEnum::CrossPartition`] for a request of `partition` reaching `other`.
+    #[must_use]
     pub fn cross_partition(partition: u32, other: u32) -> Self {
         Self(PartitionErrorEnum::CrossPartition { partition, other })
     }
 
     /// [`PartitionErrorEnum::TimedOut`] waiting on `partition`.
+    #[must_use]
     pub fn timed_out(partition: u32) -> Self {
         Self(PartitionErrorEnum::TimedOut { partition })
     }
 
     /// Whether a home's refusal says its dictionary does not hold the skolem IRI it was asked: its dictionary's own refusal, or
     /// from another process the outcome a registration of one carries (`PROTOCOL.md` §13.15).
+    #[must_use]
     pub fn holds_no_skolem(&self) -> bool {
         matches!(&self.0, PartitionErrorEnum::Refused { outcome } if *outcome == ErrorCode::Refused.number())
             || matches!(
@@ -105,11 +109,13 @@ impl PartitionError {
     }
 
     /// [`PartitionErrorEnum::Refused`] with `outcome`.
+    #[must_use]
     pub fn refused(outcome: u16) -> Self {
         Self(PartitionErrorEnum::Refused { outcome })
     }
 
     /// [`PartitionErrorEnum::TransactionHeld`] for `identity`.
+    #[must_use]
     pub fn transaction_held(identity: [u8; 16]) -> Self {
         Self(PartitionErrorEnum::TransactionHeld { identity })
     }

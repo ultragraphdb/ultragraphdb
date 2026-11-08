@@ -88,6 +88,7 @@ impl PartitionCore<'_> {
             if let Some(parked) = self.parked.get_mut(&key) {
                 parked.behind.push_back(behind);
             }
+            // An asker gone has no one to tell.
             drop(done.send(Answer::Open));
             return;
         }
@@ -104,6 +105,8 @@ impl PartitionCore<'_> {
                     work,
                     pushes,
                     max_frame,
+                    // Each request behind is a copy counted in its connection's parked bytes, whose bound stops the
+                    // connection's reads, so that bound limits its length.
                     behind: VecDeque::new(),
                 };
                 let _none = self.parked.insert(key, parked);

@@ -262,3 +262,29 @@ fn test_a_record_of_another_tenant_is_finished_against_that_tenant_s_catalog() -
     assert!(a.quads().store().rebuild_records()?.is_empty());
     Ok(())
 }
+
+/// A build left by a crash of a predicate declaring a datatype is built again under the interim declaration keeping it:
+/// the version's declaration, datatype and all, holds once the build ends, and its indexes are complete.
+#[test]
+fn test_a_build_of_a_predicate_with_a_datatype_is_built_again_at_open() -> TestResult {
+    const BEFORE: &str = "`xsd:string` with `term`";
+    const AFTER: &str = "`xsd:string` with `term` and `exact`";
+    let a = changesets()?;
+    declare(&a, "name", BEFORE)?;
+    write(&a, &["<a> <name> \"big apple\""])?;
+    let _applied: Applied = declared(&a, "name", AFTER)?.context("the declaration applies")?;
+    assert_eq!(a.quads().store().rebuild_records()?.len(), 1);
+    let restarted = restarted(a, TENANT, AFTER)?;
+    assert_eq!(
+        restarted
+            .catalog(TENANT)?
+            .predicate(uid(&restarted, "name")?),
+        Some(&declaration("name", AFTER)?)
+    );
+    assert_eq!(
+        indexed(&restarted, "name", &exact_token("big apple"))?,
+        vec![uid(&restarted, "a")?]
+    );
+    assert!(restarted.quads().store().rebuild_records()?.is_empty());
+    Ok(())
+}

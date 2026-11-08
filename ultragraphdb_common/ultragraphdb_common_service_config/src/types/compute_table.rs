@@ -20,6 +20,7 @@ impl ComputeTable {
     }
 
     /// `role_address`: the address the frontend reaches it at.
+    #[must_use]
     pub fn role_address(&self) -> Option<&str> {
         self.role_address.as_deref()
     }

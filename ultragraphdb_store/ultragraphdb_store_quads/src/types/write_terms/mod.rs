@@ -71,6 +71,7 @@ impl WriteTerms {
     }
 
     /// Whether `id` was created by this write, so that no list keyed by it holds anything.
+    #[must_use]
     pub fn is_fresh(&self, id: SystemId) -> bool {
         self.fresh.contains(&id)
     }
@@ -95,6 +96,7 @@ impl WriteTerms {
     }
 
     /// Whether the write resolved `iri` already: its own, taken from the dictionary, or copied from its home.
+    #[must_use]
     pub fn knows(&self, iri: &str) -> bool {
         self.ids.contains_key(iri)
     }
@@ -135,6 +137,12 @@ impl WriteTerms {
 
     /// The ID of the blank node labelled `label` in this write: one new ID per label, named by a skolem IRI drawn as
     /// [`QuadStore`]'s random source draws it.
+    ///
+    /// # Errors
+    ///
+    /// [`QuadError::no_owned_bucket`] when the tenant's run owns no bucket; [`QuadError::skolem_draws`] past the
+    /// draws of a free skolem IRI; [`QuadError::no_sequence`] or [`QuadError::pending_full`] creating its ID; the
+    /// store's error.
     pub fn blank<S, C, B>(
         &mut self,
         quads: &QuadStore<S, C, B>,
@@ -157,6 +165,10 @@ impl WriteTerms {
     }
 
     /// The ID of an IRI or blank-node subject.
+    ///
+    /// # Errors
+    ///
+    /// As [`WriteTerms::iri`] for an IRI and [`WriteTerms::blank`] for a blank node.
     pub fn node<S, C, B>(
         &mut self,
         quads: &QuadStore<S, C, B>,
@@ -174,6 +186,10 @@ impl WriteTerms {
     }
 
     /// The graph a graph name names: the default graph, or a named graph by its ID.
+    ///
+    /// # Errors
+    ///
+    /// As [`WriteTerms::node`] for a named graph.
     pub fn graph<S, C, B>(
         &mut self,
         quads: &QuadStore<S, C, B>,
@@ -192,6 +208,10 @@ impl WriteTerms {
     }
 
     /// The ID of a predicate.
+    ///
+    /// # Errors
+    ///
+    /// As [`WriteTerms::iri`].
     pub fn predicate<S, C, B>(
         &mut self,
         quads: &QuadStore<S, C, B>,
@@ -207,6 +227,11 @@ impl WriteTerms {
 
     /// The encoding of an object, a literal's datatype IRI resolved as any IRI. A triple term is no object a write
     /// stores.
+    ///
+    /// # Errors
+    ///
+    /// As [`WriteTerms::node`] for an IRI, a blank node or a literal's datatype; [`MappingError::unsupported_object`]
+    /// for a triple term; a literal's encoding refusal.
     pub fn term<S, C, B>(
         &mut self,
         quads: &QuadStore<S, C, B>,
@@ -235,6 +260,11 @@ impl WriteTerms {
     /// The encoding `term` has, as a delete or a read resolves it: an IRI as [`WriteTerms::iri`] resolves it; `None`
     /// for a blank node this write did not name and for an IRI under the skolem base the dictionary does not hold,
     /// which no statement can hold.
+    ///
+    /// # Errors
+    ///
+    /// As [`WriteTerms::iri`] for an IRI or a literal's datatype; [`MappingError::unsupported_object`] for a triple
+    /// term; a literal's encoding refusal; the store's error looking a skolem IRI up.
     pub fn find<S, C, B>(
         &mut self,
         quads: &QuadStore<S, C, B>,
@@ -265,6 +295,11 @@ impl WriteTerms {
 
     /// A new statement ID of `subject`: a `Statement` ID in the subject's bucket, named by a new reifier, a skolem IRI
     /// of that bucket whose dictionary entries the write's commit writes.
+    ///
+    /// # Errors
+    ///
+    /// [`QuadError::skolem_draws`] past the draws of a free reifier; [`QuadError::no_sequence`] or
+    /// [`QuadError::pending_full`] creating its ID; the store's error.
     pub fn statement<S, C, B>(
         &mut self,
         quads: &QuadStore<S, C, B>,
@@ -287,6 +322,10 @@ impl WriteTerms {
 
     /// The statement ID the reifier `reifier` names, among the write's own reifiers or in the dictionary; `None` when
     /// it names none or names an ID that is no statement's.
+    ///
+    /// # Errors
+    ///
+    /// The store's error looking the reifier up in the dictionary.
     pub fn reifier<S, C, B>(
         &mut self,
         quads: &QuadStore<S, C, B>,
@@ -353,6 +392,7 @@ impl WriteTerms {
     }
 
     /// The text `id` names among the terms the write wrote or inherited, and whether it skolemizes a blank node.
+    #[must_use]
     pub fn pending_iri(&self, id: SystemId) -> Option<(&str, bool)> {
         let text = self
             .written

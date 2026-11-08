@@ -36,26 +36,31 @@ impl ConfigTable {
     }
 
     /// `address`: where the service listens.
+    #[must_use]
     pub fn address(&self) -> Option<&str> {
         self.address.as_deref()
     }
 
     /// `data_dir`: the directory holding its log.
+    #[must_use]
     pub fn data_dir(&self) -> Option<&str> {
         self.data_dir.as_deref()
     }
 
     /// `read_key_file`: the file holding the read key.
+    #[must_use]
     pub fn read_key_file(&self) -> Option<&str> {
         self.read_key_file.as_deref()
     }
 
     /// `admin_key_file`: the file holding the admin key.
+    #[must_use]
     pub fn admin_key_file(&self) -> Option<&str> {
         self.admin_key_file.as_deref()
     }
 
     /// `targets_file`: the central file declaring every settings file.
+    #[must_use]
     pub fn targets_file(&self) -> Option<&str> {
         self.targets_file.as_deref()
     }

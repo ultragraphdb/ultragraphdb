@@ -18,7 +18,7 @@ use ultragraphdb_common_role::{
     ConnectionBound, OpenRequests, ROLE_ITERATIONS, RoleCluster, RoleCredentials, Server,
     finish_open, listen, serve_connection,
 };
-use ultragraphdb_common_service::{Readiness, RoleStart, Stopping};
+use ultragraphdb_common_service::{AcceptPace, Readiness, RoleStart, Stopping};
 use ultragraphdb_common_service_config::{EndpointSecurity, EndpointTable, ServiceConfig};
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_transport::{AUTHENTICATION_TIMEOUT, Endpoint};
@@ -47,6 +47,10 @@ const CONNECTIONS_MAX_DEFAULT: u32 = 4_096;
 ///
 /// [`RoleError::configuration`] for a setting absent or out of its bounds, a refused role secret, or a client endpoint deciding
 /// neither TLS nor clear text; [`RoleError::unavailable`] when it cannot listen; what recovery refused or the owner stopped with.
+///
+/// A future dropped at the owner's start or at a listen leaves the owner, once started, running on its thread; one
+/// dropped at its wait or in the drain leaves the accepting tasks and the requests still open running until their
+/// runtime ends.
 pub(crate) async fn frontend_role(
     start: RoleStart,
     readiness: Readiness,
@@ -157,6 +161,7 @@ fn required<'a>(value: Option<&'a str>, setting: &str) -> Result<&'a str, RoleEr
 
 /// What the settings say the owner is, each bound the state machines' own.
 fn owner_start(config: &ServiceConfig) -> Result<OwnerStart, RoleError> {
+    // A closure takes no type parameter, so it takes each error as a trait object (Ultra rules 1 and 9).
     let refused = |error: &dyn std::fmt::Display| RoleError::configuration(error.to_string());
     let partition_count = config
         .cluster()
@@ -203,27 +208,29 @@ fn owner_start(config: &ServiceConfig) -> Result<OwnerStart, RoleError> {
     })
 }
 
+/// Accepts the roles joining, each connection served in a task of its own. A future dropped at an accept, as its
+/// runtime's end drops it, takes no connection half-way.
 async fn accept_roles(
     listener: Listener,
     server: Server,
     credentials: RoleCredentials,
     shared: RoleShared,
 ) {
+    let mut pace = AcceptPace::default();
+    // An event loop: it accepts for as long as its runtime runs, which ends with the service (Ultra rule 2).
     loop {
-        match listener.accept().await {
-            Ok(carrier) => {
-                let (server, credentials) = (server.clone(), credentials.clone());
-                let session = RoleSession::new(shared.clone());
-                spawn(async move {
-                    serve_connection(carrier, &server, credentials, session).await;
-                })
-                .detach();
-            }
-            Err(error) => tracing::warn!(%error, "a role connection was not accepted"),
-        }
+        let carrier = pace.accept("role", || listener.accept()).await;
+        let (server, credentials) = (server.clone(), credentials.clone());
+        let session = RoleSession::new(shared.clone());
+        spawn(async move {
+            serve_connection(carrier, &server, credentials, session).await;
+        })
+        .detach();
     }
 }
 
+/// Accepts clients, each connection served, its TLS handshake included, in a task of its own. A future dropped at an
+/// accept, as its runtime's end drops it, takes no connection half-way.
 async fn accept_clients(
     listener: Listener,
     server: Server,
@@ -247,44 +254,39 @@ async fn accept_clients(
             }
         }
     };
+    let mut pace = AcceptPace::default();
+    // An event loop: it accepts for as long as its runtime runs, which ends with the service (Ultra rule 2).
     loop {
-        match listener.accept().await {
-            Ok(carrier) => {
-                let server = server.clone();
-                let credentials = AskedCredentials::default();
-                let session =
-                    ClientSession::new(core.clone(), credentials.clone(), carrier.peer_ip());
-                let acceptor = acceptor.clone();
-                spawn(async move {
-                    let Some(acceptor) = acceptor else {
-                        return serve_connection(carrier, &server, credentials, session).await;
-                    };
-                    // A handshake counts against the bound and ends by the authentication timeout, as an unauthenticated
-                    // connection does (`PROTOCOL.md` §11.9): a peer that sends nothing holds no descriptor past it.
-                    let handshaking = server.bound().map(ConnectionBound::enter);
-                    if handshaking.as_ref().is_some_and(|held| !held.within()) {
-                        return tracing::debug!(
-                            "a TLS handshake past the connection bound was dropped"
-                        );
-                    }
-                    let accepted = compio::time::timeout(
-                        AUTHENTICATION_TIMEOUT,
-                        CompioTlsStream::accept(&acceptor, carrier),
-                    )
-                    .await;
-                    drop(handshaking);
-                    match accepted {
-                        Ok(Ok(stream)) => {
-                            serve_connection(stream, &server, credentials, session).await;
-                        }
-                        // A clear-text Hello reaching this endpoint fails here, and no frame is read.
-                        Ok(Err(error)) => tracing::debug!(%error, "a TLS handshake failed"),
-                        Err(_) => tracing::debug!("a TLS handshake did not end in time"),
-                    }
-                })
-                .detach();
+        let carrier = pace.accept("client", || listener.accept()).await;
+        let server = server.clone();
+        let credentials = AskedCredentials::default();
+        let session = ClientSession::new(core.clone(), credentials.clone(), carrier.peer_ip());
+        let acceptor = acceptor.clone();
+        spawn(async move {
+            let Some(acceptor) = acceptor else {
+                return serve_connection(carrier, &server, credentials, session).await;
+            };
+            // A handshake counts against the bound and ends by the authentication timeout, as an unauthenticated
+            // connection does (`PROTOCOL.md` §11.9): a peer that sends nothing holds no descriptor past it.
+            let handshaking = server.bound().map(ConnectionBound::enter);
+            if handshaking.as_ref().is_some_and(|held| !held.within()) {
+                return tracing::debug!("a TLS handshake past the connection bound was dropped");
             }
-            Err(error) => tracing::warn!(%error, "a client connection was not accepted"),
-        }
+            let accepted = compio::time::timeout(
+                AUTHENTICATION_TIMEOUT,
+                CompioTlsStream::accept(&acceptor, carrier),
+            )
+            .await;
+            drop(handshaking);
+            match accepted {
+                Ok(Ok(stream)) => {
+                    serve_connection(stream, &server, credentials, session).await;
+                }
+                // A clear-text Hello reaching this endpoint fails here, and no frame is read.
+                Ok(Err(error)) => tracing::debug!(%error, "a TLS handshake failed"),
+                Err(_) => tracing::debug!("a TLS handshake did not end in time"),
+            }
+        })
+        .detach();
     }
 }

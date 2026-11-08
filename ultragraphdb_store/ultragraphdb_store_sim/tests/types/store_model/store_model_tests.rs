@@ -1764,3 +1764,43 @@ fn test_a_many_key_read_refused_as_corrupted_answers_for_its_key() -> TestResult
     }
     Ok(())
 }
+
+/// A scan ending in a failure that names no key, as a poisoned store's does, breaks the read invariant naming no key.
+#[test]
+fn test_a_scan_failing_without_a_key_breaks_the_read_invariant() -> TestResult {
+    let mut model = StoreModel::new();
+    model.observe(&[OpRecord::SnapshotOpened { id: 0, read_ts: 1 }])?;
+    let poisoned = StoreError::poisoned();
+    let scanned = OpRecord::Scanned {
+        id: 0,
+        scan: Scan::prefix(Vec::new()),
+        items: vec![Err(poisoned.clone())],
+    };
+    let breach = model.observe(&[scanned]).err().context("an error")?;
+    assert_eq!(breach.invariant(), Invariant::ReadsAtOrBelowTimestamp);
+    assert!(breach.detail().ends_with(&poisoned.to_string()));
+    Ok(())
+}
+
+/// A read through a snapshot the model does not hold, as one a recovery forgot while its handle stayed open, is compared
+/// with nothing: a scan and a many-key read alike pass whatever they answer.
+#[test]
+fn test_a_read_through_a_snapshot_the_model_does_not_hold_is_not_compared() -> TestResult {
+    let mut model = StoreModel::new();
+    let stray = Item::new(b"a".to_vec(), 1, 0x04, false, vec![1]);
+    model
+        .observe(&[
+            OpRecord::Scanned {
+                id: 7,
+                scan: Scan::prefix(Vec::new()),
+                items: vec![Ok(stray.clone())],
+            },
+            OpRecord::ReadMany {
+                id: 7,
+                keys: vec![b"a".to_vec()],
+                result: Ok(vec![Some(stray)]),
+            },
+        ])
+        .context("reads through an unknown snapshot pass")?;
+    Ok(())
+}

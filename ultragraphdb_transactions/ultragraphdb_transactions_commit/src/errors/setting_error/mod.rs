@@ -30,11 +30,13 @@ pub enum SettingErrorEnum {
 
 impl SettingError {
     /// The [`SettingErrorEnum::CloseRequestRange`] reason.
+    #[must_use]
     pub fn close_request_range(value: u64) -> Self {
         Self(SettingErrorEnum::CloseRequestRange { value })
     }
 
     /// The [`SettingErrorEnum::CloseRequestBelowEpochs`] reason.
+    #[must_use]
     pub fn close_request_below_epochs(value: u64, epoch_ms_max: u64) -> Self {
         Self(SettingErrorEnum::CloseRequestBelowEpochs {
             value,

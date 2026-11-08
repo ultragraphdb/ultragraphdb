@@ -112,11 +112,12 @@ fn read_decisions(
     transactions: u32,
 ) -> Result<(Vec<Decision>, u32), ProtocolError> {
     let decision_bytes = records(command, 0, sections.get(0), DECISION_SIZE)?;
+    // Lossless: a `usize` is at most 64 bits.
     if decision_bytes.len() as u64 != u64::from(transactions) {
         return Err(ProtocolError::count_mismatch(
             command,
             "decisions",
-            decision_bytes.len() as u64,
+            decision_bytes.len() as u64, // lossless: a `usize` is at most 64 bits
             transactions.into(),
         ));
     }
@@ -192,11 +193,12 @@ fn read_records<'a>(
     committed: u32,
 ) -> Result<Vec<WriteSetRecordView<'a>>, ProtocolError> {
     let table = records(command, 1, sections.get(1), RECORD_ENTRY_SIZE)?;
+    // Lossless: a `usize` is at most 64 bits.
     if table.len() as u64 != u64::from(committed) {
         return Err(ProtocolError::count_mismatch(
             command,
             "records",
-            table.len() as u64,
+            table.len() as u64, // lossless: a `usize` is at most 64 bits
             committed.into(),
         ));
     }
@@ -208,6 +210,7 @@ fn read_records<'a>(
     for (index, entry) in table.enumerate() {
         let offset = bytes_at(entry, 0).map_or(0, u32::from_le_bytes);
         let len = bytes_at(entry, 4).map_or(0, u32::from_le_bytes);
+        // The casts are lossless: a `usize` is at least 32 bits.
         let start = offset as usize;
         let stop = start.saturating_add(len as usize);
         if stop > data.len() {
@@ -294,7 +297,7 @@ fn read_dictionary<'a>(
             return Err(ProtocolError::field_value(
                 command,
                 "dictionary order",
-                index as u64,
+                index as u64, // lossless: a `usize` is at most 64 bits
             ));
         }
         previous = Some(entry.key());

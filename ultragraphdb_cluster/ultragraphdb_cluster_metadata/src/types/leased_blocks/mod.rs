@@ -19,7 +19,8 @@ use ultragraphdb_traits_blocks::SequenceBlock;
 /// falls to none. Its clones share one queue, as the store and its host share one partition.
 #[derive(Debug, Clone, Default)]
 pub struct LeasedBlocks {
-    // Shared: the store leases from the clone it holds, and its host supplies through another.
+    // Shared: the store leases from the clone it holds, and its host supplies through another. Each type's queue holds
+    // at most `HELD_MAX` blocks.
     blocks: Arc<Mutex<BTreeMap<u16, VecDeque<SequenceBlock>>>>,
 }
 

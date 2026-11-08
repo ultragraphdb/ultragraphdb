@@ -52,36 +52,43 @@ pub struct ScramError(pub ScramErrorEnum);
 
 impl ScramError {
     /// A [`ScramErrorEnum::Malformed`] naming `part`.
+    #[must_use]
     pub fn malformed(part: &'static str) -> Self {
         Self(ScramErrorEnum::Malformed { part })
     }
 
     /// A [`ScramErrorEnum::ChannelBinding`].
+    #[must_use]
     pub fn channel_binding() -> Self {
         Self(ScramErrorEnum::ChannelBinding)
     }
 
     /// A [`ScramErrorEnum::Prepare`].
+    #[must_use]
     pub fn prepare() -> Self {
         Self(ScramErrorEnum::Prepare)
     }
 
     /// A [`ScramErrorEnum::Iterations`] of `iterations`.
+    #[must_use]
     pub fn iterations(iterations: u32) -> Self {
         Self(ScramErrorEnum::Iterations { iterations })
     }
 
     /// A [`ScramErrorEnum::Nonce`].
+    #[must_use]
     pub fn nonce() -> Self {
         Self(ScramErrorEnum::Nonce)
     }
 
     /// A [`ScramErrorEnum::Proof`].
+    #[must_use]
     pub fn proof() -> Self {
         Self(ScramErrorEnum::Proof)
     }
 
     /// A [`ScramErrorEnum::ServerSignature`].
+    #[must_use]
     pub fn server_signature() -> Self {
         Self(ScramErrorEnum::ServerSignature)
     }
@@ -94,6 +101,7 @@ impl ScramError {
     }
 
     /// A [`ScramErrorEnum::OutOfStep`].
+    #[must_use]
     pub fn out_of_step() -> Self {
         Self(ScramErrorEnum::OutOfStep)
     }

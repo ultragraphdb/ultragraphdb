@@ -66,7 +66,8 @@ const TENANT: u64 = 0;
 const IDLE: Duration = Duration::from_micros(50);
 
 /// What the partitions share with the sequencer's stand-in: how many have not ended their writes, and the last close,
-/// 0 until it is sent.
+/// 0 until it is sent. `AcqRel` on a change, `Release` on the close's store and `Acquire` on its load suffice: a
+/// partition that reads the close sees what the stand-in wrote before it.
 #[derive(Debug)]
 struct Shared {
     writers: AtomicUsize,
@@ -262,7 +263,8 @@ fn serve(worker: Worker, mailbox: PartitionMailbox) -> Result<Stats, BenchError>
 }
 
 /// Offers the partition's commits at its rate, up to its commits or the run's length, then serves the others until the
-/// last close is delivered.
+/// last close is delivered. Its thread's `block_on` runs it to its end; a future dropped at an await would drop the
+/// partition's host and log with it, the log as its last sync left it.
 async fn write_loop(mut worker: Worker, mailbox: PartitionMailbox) -> Result<Stats, BenchError> {
     let part = Arc::clone(&worker.part);
     let config = WalConfig::new(CLUSTER, false);
@@ -346,7 +348,7 @@ fn count(
     }
     stats.committed += 1;
     if outcome.registrations() > 0 {
-        stats.registrations += outcome.registrations() as u64;
+        stats.registrations += outcome.registrations() as u64; // a `usize` count, lossless
         stats.waits_us.push(outcome.waited_us());
     }
     stats.kept.extend(commit);
@@ -476,6 +478,8 @@ fn report(
     verified: Option<u64>,
 ) -> Result<String, BenchError> {
     let secs = elapsed.as_secs_f64();
+    // A `usize` count into a `u64`, lossless; each `as f64` below turns a count into a figure of the report: exact
+    // below 2^53, rounded past it, which a rate printed to a few digits can take.
     let relations = |s: &Stats| s.committed * args.relations() as u64;
     let mut partitions = Vec::with_capacity(parts.len());
     let mut total_bytes = 0u64;

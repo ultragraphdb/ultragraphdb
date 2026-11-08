@@ -45,12 +45,13 @@ fn test_close_gives_the_connection_up() -> TestResult {
     Ok(())
 }
 
-/// A simulated stream whose first read fails with `fault`, and every write with `write_fault` when set, the rest served
-/// by the stream.
+/// A simulated stream whose first read fails with `fault`, and every write with `write_fault` when set, or takes no byte
+/// when `write_nothing` is, the rest served by the stream.
 struct Faulty {
     stream: TokioSimStream,
     fault: Option<io::ErrorKind>,
     write_fault: Option<io::ErrorKind>,
+    write_nothing: bool,
 }
 
 impl AsyncRead for Faulty {
@@ -75,6 +76,9 @@ impl AsyncWrite for Faulty {
         if let Some(kind) = self.write_fault {
             return Poll::Ready(Err(kind.into()));
         }
+        if self.write_nothing {
+            return Poll::Ready(Ok(0));
+        }
         Pin::new(&mut self.stream).poll_write(cx, buf)
     }
 
@@ -88,11 +92,12 @@ impl AsyncWrite for Faulty {
 }
 
 /// Connections over the simulated network whose first connection's first read fails with `fault`, and whose writes
-/// all fail with `write_fault`.
+/// all fail with `write_fault`, or take no byte with `write_nothing`.
 struct FaultyConnect {
     inner: SimConnect,
     fault: Option<io::ErrorKind>,
     write_fault: Option<io::ErrorKind>,
+    write_nothing: bool,
 }
 
 impl Connect for FaultyConnect {
@@ -104,6 +109,7 @@ impl Connect for FaultyConnect {
             stream,
             fault: self.fault.take(),
             write_fault: self.write_fault,
+            write_nothing: self.write_nothing,
         })
     }
 }
@@ -118,6 +124,16 @@ fn connect_with_faults(
     fault: Option<io::ErrorKind>,
     write_fault: Option<io::ErrorKind>,
 ) -> TestResult<Result<(), ClientError>> {
+    connect_over(fault, write_fault, false)
+}
+
+/// `client.connect()` over a connection whose first read fails with `fault`, whose writes fail with `write_fault`, and
+/// take no byte with `write_nothing`.
+fn connect_over(
+    fault: Option<io::ErrorKind>,
+    write_fault: Option<io::ErrorKind>,
+    write_nothing: bool,
+) -> TestResult<Result<(), ClientError>> {
     let rt = runtime()?;
     let scripted = server();
     let inner = SimConnect::new(SimNetwork::new(3, NetworkFaults::none()));
@@ -126,6 +142,7 @@ fn connect_with_faults(
         inner,
         fault,
         write_fault,
+        write_nothing,
     };
     Ok(LocalSet::new().block_on(&rt, async {
         let _server: tokio::task::JoinHandle<()> =
@@ -151,6 +168,18 @@ fn test_a_failed_read_fails_the_connection_with_its_error() -> TestResult {
         connect_with_fault(io::ErrorKind::ConnectionReset)?,
         Err(ClientError::transport(TransportError::io(
             &io::ErrorKind::ConnectionReset.into()
+        )))
+    );
+    Ok(())
+}
+
+#[test]
+fn test_a_write_taking_no_byte_fails_the_connection() -> TestResult {
+    // A stream that takes no byte of the Hello will take none of it: the connection fails as a short write.
+    assert_eq!(
+        connect_over(None, None, true)?,
+        Err(ClientError::transport(TransportError::io(
+            &io::ErrorKind::WriteZero.into()
         )))
     );
     Ok(())
@@ -1032,6 +1061,140 @@ fn test_a_renewal_due_goes_out_with_the_call_whose_frame_was_waiting() -> TestRe
             authenticates(&scripted.borrow()) > logged_in,
             "the renewal's first message went out within the call"
         );
+        Ok::<(), TestError>(())
+    })?;
+    Ok(())
+}
+
+/// A stream over the simulated network whose reads, once `armed` is set, fail with `ConnectionReset` where they would
+/// wait: a connection that breaks once the frames already arrived are read.
+#[derive(Debug)]
+struct Breaking {
+    inner: TokioSimStream,
+    armed: Rc<std::cell::Cell<bool>>,
+}
+
+impl AsyncRead for Breaking {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let read = Pin::new(&mut self.inner).poll_read(cx, buf);
+        if read.is_pending() && self.armed.get() {
+            return Poll::Ready(Err(io::ErrorKind::ConnectionReset.into()));
+        }
+        read
+    }
+}
+
+impl AsyncWrite for Breaking {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.inner).poll_write(cx, buf)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
+/// Connections over the simulated network whose reads break once `armed` is set.
+struct BreakConnect {
+    sim: SimConnect,
+    armed: Rc<std::cell::Cell<bool>>,
+}
+
+impl Connect for BreakConnect {
+    type Stream = Breaking;
+
+    async fn connect(&mut self) -> io::Result<Breaking> {
+        Ok(Breaking {
+            inner: self.sim.connect().await?,
+            armed: Rc::clone(&self.armed),
+        })
+    }
+}
+
+/// A connection that fails while the frames already arrived are read, before a deadline due is taken, is given up with
+/// its failure: the read whose last frame arrived reads it, and the read still waiting fails with the connection's error.
+#[test]
+fn test_a_connection_failing_while_arrived_frames_are_read_is_given_up() -> TestResult {
+    let rt = runtime()?;
+    let results = 3;
+    let scripted = Rc::new(std::cell::RefCell::new(server_of(1).with_results(results)));
+    let sim = SimConnect::new(SimNetwork::new(3, NetworkFaults::none()));
+    let accepted = Rc::clone(&sim.accepted);
+    let armed = Rc::new(std::cell::Cell::new(false));
+    let connector = BreakConnect {
+        sim,
+        armed: Rc::clone(&armed),
+    };
+    LocalSet::new().block_on(&rt, async {
+        let _server = tokio::task::spawn_local(serve_sim(Rc::clone(&scripted), accepted));
+        let mut client = Client::new(connector, config(), Anonymous, 8);
+        let begin = ultragraphdb_protocol_wire::Begin::new(0, 0, true).with_deadline_ms(1);
+        let reader = client.begin_with(begin, None).await?;
+        let first = client.read(&reader, &read(&reader)).await?;
+        // Two batches of the first read, so its credit brings the third ahead of the second read's first.
+        for _ in 0..2 {
+            client
+                .next_batch(&first, |_| ())
+                .await?
+                .context("a batch of the first read")?;
+        }
+        let second = client.read(&reader, &read(&reader)).await?;
+        // The second read's timeout falls due while nothing drives the connection; the clock is the test's.
+        tokio::time::pause();
+        tokio::time::sleep(Duration::from_secs(31)).await;
+        armed.set(true);
+        assert_eq!(
+            batches(&mut client, &first).await?,
+            1,
+            "the first read's last"
+        );
+        assert!(
+            !client.core().is_connected(),
+            "the read past the frames arrived failed the connection"
+        );
+        let lost = client.next_batch(&second, |_| ()).await;
+        assert_eq!(
+            lost.err(),
+            Some(ClientError::connection_lost(Some(ClientError::transport(
+                TransportError::io(&io::ErrorKind::ConnectionReset.into())
+            ))))
+        );
+        Ok::<(), TestError>(())
+    })?;
+    Ok(())
+}
+
+/// A timeout past what an `Instant` holds never times out: the client waits for the server as long as it takes, and
+/// connects and registers.
+#[test]
+fn test_a_timeout_past_an_instant_waits_for_the_server() -> TestResult {
+    let rt = runtime()?;
+    let scripted = server();
+    let connector = SimConnect::new(SimNetwork::new(3, NetworkFaults::none()));
+    let accepted = Rc::clone(&connector.accepted);
+    LocalSet::new().block_on(&rt, async {
+        let _server = tokio::task::spawn_local(serve_sim(Rc::clone(&scripted), accepted));
+        let mut client = Client::new(
+            connector,
+            config().with_timeout(Duration::MAX),
+            Anonymous,
+            8,
+        );
+        client.connect().await?;
+        assert!(client.core().is_ready());
+        let _session = client.register().await?;
         Ok::<(), TestError>(())
     })?;
     Ok(())

@@ -487,6 +487,25 @@ fn test_the_fuzz_seeds_are_the_encoders() -> TestResult {
     Ok(())
 }
 
+/// Each committed case of the fuzz target `snapshot_decode`, through the target's rule: a snapshot accepted encodes back
+/// to its bytes, and one refused is malformed at an offset within them or a count past its limit.
+#[test]
+fn test_the_snapshot_fuzz_regressions_decode_or_are_refused() -> TestResult {
+    let cases = ultragraphdb_tool_bdd::fuzz_regressions("snapshot_decode")?;
+    assert!(!cases.is_empty(), "the committed cases");
+    for (name, bytes) in cases {
+        match MetadataSnapshot::decode(&bytes) {
+            Ok(snapshot) => assert_eq!(encoded(&snapshot), bytes, "{name}"),
+            Err(error) => assert!(
+                matches!(&error.0, ClusterErrorEnum::Malformed { offset, .. } if *offset <= bytes.len())
+                    || matches!(&error.0, ClusterErrorEnum::TooMany { .. }),
+                "{name}: {error}"
+            ),
+        }
+    }
+    Ok(())
+}
+
 #[test]
 fn test_a_versions_check_round_trips_and_a_wrong_one_is_refused() -> TestResult {
     let mut state = MetadataState::new();

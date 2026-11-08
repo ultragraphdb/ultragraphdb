@@ -15,16 +15,19 @@ pub struct ChallengeView<'a> {
 
 impl<'a> ChallengeView<'a> {
     /// The principal's name.
+    #[must_use]
     pub fn name(&self) -> &'a str {
         self.name
     }
 
     /// The iteration count; 0 in a request.
+    #[must_use]
     pub fn iterations(&self) -> u32 {
         self.iterations
     }
 
     /// The salt; empty in a request.
+    #[must_use]
     pub fn salt(&self) -> &'a [u8] {
         self.salt
     }

@@ -97,20 +97,23 @@ impl ResultBatch {
     /// node.
     pub fn push_row(&mut self, row: &[Option<&ResultTerm>]) -> Result<(), ProtocolError> {
         // A row of the wrong width is refused by its width first, as `push_cells` checks it.
-        if row.len() == self.columns as usize
+        if row.len() == self.columns as usize // lossless: a `usize` is at least 32 bits
             && let Some(Some(reifier)) = row.last()
             && !reifier.is_blank_node()
         {
             return Err(ProtocolError::field_value(
                 Command::Result.number(),
                 "reifier",
-                row.len() as u64 - 1,
+                row.len() as u64 - 1, // lossless: a `usize` is at most 64 bits
             ));
         }
         self.push_cells(row)
     }
 
-    /// Appends a row of a query's batch, a term or `None` (null) per column. Refused as
+    /// Appends a row of a query's batch, a term or `None` (null) per column.
+    ///
+    /// # Errors
+    ///
     /// [`ProtocolError::count_mismatch`] (`"row"`) when the row's length is not the batch's column count.
     pub fn push_query_row(&mut self, row: &[Option<&ResultTerm>]) -> Result<(), ProtocolError> {
         self.push_cells(row)
@@ -131,16 +134,19 @@ impl ResultBatch {
     }
 
     /// What the rows read as.
+    #[must_use]
     pub fn monotonic(&self) -> Monotonic {
         self.monotonic
     }
 
     /// The column names; empty on every batch but a query's first.
+    #[must_use]
     pub fn column_names(&self) -> &[String] {
         &self.column_names
     }
 
     /// The batch read at `epoch` in `partition`, 0 for none and for several.
+    #[must_use]
     pub fn with_read_at(mut self, epoch: u64, partition: u32) -> Self {
         self.epoch = epoch;
         self.partition = partition;
@@ -148,11 +154,13 @@ impl ResultBatch {
     }
 
     /// The epoch the rows were read at; 0 where none applies.
+    #[must_use]
     pub fn epoch(&self) -> u64 {
         self.epoch
     }
 
     /// The partition the read reached alone; 0 for several.
+    #[must_use]
     pub fn partition(&self) -> u32 {
         self.partition
     }
@@ -228,6 +236,7 @@ impl ResultBatch {
 
     /// At most the bytes of the frame this batch would be, holding `row` too and the resume key of `resume` bytes, computed with
     /// no body built: a string two terms share counts twice, so a sender cuts a batch within its `max_frame` as it fills.
+    #[must_use]
     pub fn frame_size_with(&self, row: &[Option<&ResultTerm>], resume: usize) -> usize {
         let mut counted: Vec<Vec<u8>> = Vec::new();
         let mut terms = self.terms.len();
@@ -240,6 +249,7 @@ impl ResultBatch {
                 counted.push(encoding);
             }
         }
+        // The casts are lossless: a `usize` is at least 32 bits.
         let rows = self.rows as usize + usize::from(!row.is_empty());
         let cells = rows.saturating_mul(self.columns as usize);
         let data = SECTIONS_OVERHEAD

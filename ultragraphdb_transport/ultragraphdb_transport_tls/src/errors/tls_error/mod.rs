@@ -58,41 +58,49 @@ pub enum TlsErrorEnum {
 
 impl TlsError {
     /// [`TlsErrorEnum::TrustStoreUnreadable`] of `path` for `reason`.
+    #[must_use]
     pub fn trust_store_unreadable(path: String, reason: String) -> Self {
         Self(TlsErrorEnum::TrustStoreUnreadable { path, reason })
     }
 
     /// [`TlsErrorEnum::TrustStoreEmpty`] of `source`.
+    #[must_use]
     pub fn trust_store_empty(source: String) -> Self {
         Self(TlsErrorEnum::TrustStoreEmpty(source))
     }
 
     /// [`TlsErrorEnum::InvalidServerName`] of `host`.
+    #[must_use]
     pub fn invalid_server_name(host: String) -> Self {
         Self(TlsErrorEnum::InvalidServerName(host))
     }
 
     /// [`TlsErrorEnum::HandshakeFailed`] with `host` for `reason`.
+    #[must_use]
     pub fn handshake_failed(host: String, reason: String) -> Self {
         Self(TlsErrorEnum::HandshakeFailed { host, reason })
     }
 
     /// [`TlsErrorEnum::CertificateUnreadable`] of `path` for `reason`.
+    #[must_use]
     pub fn certificate_unreadable(path: String, reason: String) -> Self {
         Self(TlsErrorEnum::CertificateUnreadable { path, reason })
     }
 
     /// [`TlsErrorEnum::CertificateEmpty`] of `path`.
+    #[must_use]
     pub fn certificate_empty(path: String) -> Self {
         Self(TlsErrorEnum::CertificateEmpty(path))
     }
 
     /// [`TlsErrorEnum::KeyMismatch`] of the key from `source`.
+    #[must_use]
     pub fn key_mismatch(source: String) -> Self {
         Self(TlsErrorEnum::KeyMismatch(source))
     }
 
     /// [`TlsErrorEnum::RecordRefused`] with `host` for `reason`.
+    #[must_use]
     pub fn record_refused(host: String, reason: String) -> Self {
         Self(TlsErrorEnum::RecordRefused { host, reason })
     }

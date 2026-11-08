@@ -22,6 +22,10 @@ pub trait LocalCache {
 
     /// The ID of the first entry under `prefix`, in key order, whose value passes `filter`; `None` when none passes,
     /// where Dgraph returns the uid 0.
+    ///
+    /// # Errors
+    ///
+    /// The store's error when a read under `prefix` fails.
     fn find(
         &self,
         prefix: &[u8],

@@ -26,11 +26,13 @@ impl CatalogAnnouncement {
     }
 
     /// The catalog version.
+    #[must_use]
     pub fn version(&self) -> u64 {
         self.version
     }
 
     /// The announcement's 16 bytes.
+    #[must_use]
     pub fn encode(&self) -> [u8; CatalogAnnouncement::SIZE] {
         let mut out = [0u8; CatalogAnnouncement::SIZE];
         out.iter_mut()

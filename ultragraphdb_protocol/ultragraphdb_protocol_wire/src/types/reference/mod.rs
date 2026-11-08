@@ -33,11 +33,13 @@ pub struct Reference {
 
 impl Reference {
     /// A request with no registrations yet.
+    #[must_use]
     pub fn request() -> Self {
         Self::default()
     }
 
     /// The body of `registrations` over `terms`, the request or, with `reply`, the home's reply.
+    #[must_use]
     pub fn new(reply: bool, registrations: Vec<ReferenceRegistration>, terms: TermTable) -> Self {
         Self {
             tenant: 0,
@@ -103,6 +105,7 @@ impl Reference {
 
     /// The home's reply to this request: every registration as sent, until [`Reference::accept`] or
     /// [`Reference::refuse`] fills it.
+    #[must_use]
     pub fn into_reply(self) -> Self {
         Self {
             reply: true,
@@ -129,21 +132,25 @@ impl Reference {
     }
 
     /// Whether this is the home's reply.
+    #[must_use]
     pub fn is_reply(&self) -> bool {
         self.reply
     }
 
     /// The registrations, in order.
+    #[must_use]
     pub fn registrations(&self) -> &[ReferenceRegistration] {
         &self.registrations
     }
 
     /// The term table of the IRIs the registrations name.
+    #[must_use]
     pub fn terms(&self) -> &TermTable {
         &self.terms
     }
 
     /// The IRI registration `index` names the entity by; `None` when its system ID names it or past the last.
+    #[must_use]
     pub fn iri(&self, index: usize) -> Option<&str> {
         match self.terms.get(self.registrations.get(index)?.iri()?)? {
             RequestTerm::Iri(iri) => Some(iri),

@@ -143,6 +143,8 @@ pub(crate) fn result_term(tenant: u64, term: &EncodedTerm, names: &Names) -> Opt
                     Some(iri.to_string()),
                 )
             }
+            // The store names a datatype by its ID; a hash names one in a Result's encoding alone.
+            Datatype::Hashed(_) => return None,
         },
         TermView::Boolean(_)
         | TermView::Integer(_)

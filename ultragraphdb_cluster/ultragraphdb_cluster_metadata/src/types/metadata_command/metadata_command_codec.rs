@@ -357,6 +357,7 @@ pub(crate) fn read_len_u32(
     what: &'static str,
     max: usize,
 ) -> Result<Vec<u8>, ClusterError> {
+    // A `u32`, which a `usize` of 32 bits or more holds whole on every target the node builds for.
     let len = Reader::bounded(reader.u32(what)? as usize, what, max)?;
     Ok(reader.bytes(len, what)?.to_vec())
 }
@@ -415,6 +416,7 @@ fn read_sessions(
     what: &'static str,
     max: usize,
 ) -> Result<Vec<u128>, ClusterError> {
+    // A `u32`, which a `usize` of 32 bits or more holds whole on every target the node builds for.
     let count = Reader::bounded(reader.u32(what)? as usize, what, max)?;
     (0..count).map(|_| reader.u128("a session")).collect()
 }
@@ -482,7 +484,7 @@ fn read_default(reader: &mut Reader<'_>) -> Result<MetadataCommand, ClusterError
 fn read_change(reader: &mut Reader<'_>) -> Result<MetadataCommand, ClusterError> {
     let what = "ranges of a placement change";
     let count = Reader::bounded(
-        reader.u32(what)? as usize,
+        reader.u32(what)? as usize, // a `u32`, lossless
         what,
         MetadataCommand::ASSIGNMENTS_MAX,
     )?;
@@ -513,7 +515,7 @@ fn read_close(reader: &mut Reader<'_>) -> Result<MetadataCommand, ClusterError> 
     let epoch = read_epoch(reader)?;
     let what = "catalog versions in a close";
     let count = Reader::bounded(
-        reader.u32(what)? as usize,
+        reader.u32(what)? as usize, // a `u32`, lossless
         what,
         MetadataCommand::VERSIONS_MAX,
     )?;

@@ -88,11 +88,11 @@ impl<'a> PartitionCore<'a> {
         let reads_after = reads.first().and_then(|read| read.after.clone());
         let open = OpenScan {
             pushes: pushes.clone(),
-            max_frame: (max_frame as usize).min(MAX_FRAME_SIZE),
+            max_frame: (max_frame as usize).min(MAX_FRAME_SIZE), // lossless: a `usize` is at least 32 bits
             at: scan.at(),
             read_version: scan.read_version(),
             epoch: scan.epoch(),
-            limit: NonZeroUsize::new(scan.limit() as usize),
+            limit: NonZeroUsize::new(scan.limit() as usize), // a `u32`, lossless
             bound,
             from: reads
                 .first()
@@ -603,5 +603,5 @@ fn too_large(max_frame: usize) -> ErrorReply {
         ErrorCode::TooLarge,
         format!("an entry is too large for a frame of {max_frame} bytes"),
     )
-    .with_detail(max_frame as u64)
+    .with_detail(max_frame as u64) // lossless: a `usize` is at most 64 bits
 }

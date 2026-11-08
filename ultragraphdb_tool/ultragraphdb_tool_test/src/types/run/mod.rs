@@ -32,21 +32,25 @@ impl Run {
     }
 
     /// How many records were replayed on fjall.
+    #[must_use]
     pub fn replayed(&self) -> usize {
         self.replayed
     }
 
     /// How many entries prefix drops wrote, fenced on both stores.
+    #[must_use]
     pub fn fenced(&self) -> usize {
         self.fenced
     }
 
     /// How many times fjall was reopened after a crash between steps.
+    #[must_use]
     pub fn recoveries(&self) -> usize {
         self.recoveries
     }
 
     /// How many versionless reads were replayed, and how many of them found a value.
+    #[must_use]
     pub fn versionless_reads(&self) -> (usize, usize) {
         self.versionless_reads
     }

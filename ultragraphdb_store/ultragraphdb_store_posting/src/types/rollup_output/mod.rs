@@ -49,6 +49,7 @@ impl RollupOutput {
     }
 
     /// The parts of a split list by start uid.
+    #[must_use]
     pub fn parts(&self) -> &BTreeMap<u128, PostingList> {
         &self.parts
     }
@@ -71,6 +72,7 @@ impl RollupOutput {
     }
 
     /// The start uids of the parts, ascending: the parts are the record of the splits.
+    #[must_use]
     pub fn splits(&self) -> Vec<u128> {
         self.parts.keys().copied().collect()
     }

@@ -25,6 +25,10 @@ impl DataDictionary {
     /// What the tenant holds at `read_ts`: the catalog's declarations at that snapshot, exact; the statistics of
     /// each graph and predicate, exact at it; and the last pass's shapes, each declared predicate on the entity types
     /// it is declared on set as declared.
+    ///
+    /// # Errors
+    ///
+    /// The store's error; corruption of a catalog entry, a statistics key or entry, or a dictionary entry.
     pub fn describe<S, C, B>(
         &self,
         quads: &QuadStore<S, C, B>,

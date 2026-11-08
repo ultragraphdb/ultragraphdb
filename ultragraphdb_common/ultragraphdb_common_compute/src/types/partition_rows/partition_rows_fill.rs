@@ -23,6 +23,8 @@ use crate::utils::refusals::unavailable;
 impl PartitionRows {
     /// Reads on until the page holds a row or the partition has no more: the next frame of the Scan under way, the next Scan of
     /// the ranges to come, the next graph's. Past it the page's next row has its names.
+    /// A future dropped at a frame drops the Scan under way, taken out to be read, so a partition whose fill was
+    /// dropped is read no further: `merge` ends the read with the error that dropped it.
     pub(crate) async fn fill(&mut self) -> Result<(), ErrorReply> {
         loop {
             if self.page.has_row() {
@@ -60,6 +62,7 @@ impl PartitionRows {
     }
 
     /// The next graph's ranges to come; false with no graph left.
+    /// A future dropped in a walk cancels the walk's Scan as its stream drops.
     async fn next_graph(&mut self) -> Result<bool, ErrorReply> {
         let Some(access) = self.access.clone() else {
             return Ok(false);
@@ -108,6 +111,7 @@ impl PartitionRows {
 
     /// A Scan of limit 1 from `from` finding the next graph by its first key, cancelled past its first frame: the graph, and the
     /// key just past it, where the walk goes on.
+    /// A dropped future cancels the Scan as its stream drops.
     async fn walk(
         &mut self,
         keyspace: ultragraphdb_core_keys::Keyspace,
@@ -116,6 +120,8 @@ impl PartitionRows {
         let mut scan = self.scan(1);
         scan.push_range(ScanRange::new(self.partition(), from, &[]));
         let mut stream = ScanStream::open(&self.link, &scan)?;
+        // Each turn takes one frame of the Scan, awaited within the stream's stall bound; the frame the partition marks
+        // last ends it at the latest (Ultra rule 2).
         loop {
             let (facts, key) = stream
                 .next(|view| {
@@ -155,7 +161,7 @@ impl PartitionRows {
         let wanted = if remaining == 0 {
             RANGES_PER_SCAN
         } else {
-            (remaining as usize).min(RANGES_PER_SCAN)
+            (remaining as usize).min(RANGES_PER_SCAN) // a `u32`, lossless
         };
         let count = if alone { wanted } else { 1 };
         let limit = if alone { 0 } else { remaining };
@@ -197,6 +203,7 @@ impl PartitionRows {
 
     /// Takes the next frame of the Scan under way. A Scan stalled behind the merge, which grants a partition credit only as it drains
     /// that partition, goes on by a new Scan of the version from where it stopped, so a partition waiting its turn fails no read.
+    /// A future dropped at the frame drops the Scan, taken out of `open`, and cancels it.
     async fn next_frame(&mut self) -> Result<(), ErrorReply> {
         let Some(mut open) = self.open.take() else {
             return Ok(());

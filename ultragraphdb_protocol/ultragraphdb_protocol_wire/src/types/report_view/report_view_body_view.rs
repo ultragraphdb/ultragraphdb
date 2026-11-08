@@ -49,6 +49,7 @@ impl<'a> BodyView<'a> for ReportView<'a> {
             return Err(ProtocolError::count_mismatch(
                 command,
                 "report terms",
+                // The casts are lossless: a `usize` is at most 64 bits.
                 terms.len() as u64,
                 most as u64,
             ));

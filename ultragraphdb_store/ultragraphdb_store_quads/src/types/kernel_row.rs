@@ -18,6 +18,7 @@ pub struct KernelRow {
 
 impl KernelRow {
     /// The row of the list `key` holding `objects`.
+    #[must_use]
     pub fn new(key: Vec<u8>, objects: Vec<(EncodedTerm, Vec<SystemId>)>) -> Self {
         Self { key, objects }
     }
@@ -40,11 +41,13 @@ impl KernelRow {
     }
 
     /// The list's key, without its version.
+    #[must_use]
     pub fn key(&self) -> &[u8] {
         &self.key
     }
 
     /// The list's objects at the scan's version.
+    #[must_use]
     pub fn objects(&self) -> &[(EncodedTerm, Vec<SystemId>)] {
         &self.objects
     }

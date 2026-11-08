@@ -48,18 +48,21 @@ impl Begin {
     }
 
     /// The transaction at `level`.
+    #[must_use]
     pub fn with_level(mut self, level: ReadLevel) -> Self {
         self.level = level;
         self
     }
 
     /// The transaction's deadline, `deadline_ms` from the Begin's arrival; 0 for the Welcome's `transaction_ms`.
+    #[must_use]
     pub fn with_deadline_ms(mut self, deadline_ms: u32) -> Self {
         self.deadline_ms = deadline_ms;
         self
     }
 
     /// The transaction carrying the session token `token`.
+    #[must_use]
     pub fn with_token(mut self, token: SessionToken) -> Self {
         self.token = Some(token);
         self
@@ -81,16 +84,19 @@ impl Begin {
     }
 
     /// The level of the transaction's reads.
+    #[must_use]
     pub fn level(&self) -> ReadLevel {
         self.level
     }
 
     /// The deadline in milliseconds; 0 for the Welcome's `transaction_ms`.
+    #[must_use]
     pub fn deadline_ms(&self) -> u32 {
         self.deadline_ms
     }
 
     /// The session token the client holds.
+    #[must_use]
     pub fn token(&self) -> Option<&SessionToken> {
         self.token.as_ref()
     }

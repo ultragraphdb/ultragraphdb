@@ -217,6 +217,11 @@ term whose `text` or `annotation` is not a string index where the protocol's tab
 - **THEN** its term carries tag `0x31`, a known datatype's code and the hash of its lexical form, and the batch's text
   holds the lexical form unchanged
 
+#### Scenario: A literal of another datatype names its datatype by hash
+- **WHEN** a Result's terms hold a literal of a datatype no code names, one of tag `0x32` and one of tag `0x33`
+- **THEN** a client reads each back with its datatype by the hash of its IRI, the IRI the term's annotation, and the
+  lexical form inline or as the term's text
+
 #### Scenario: A statement with properties is named by its reifier
 - **WHEN** a read returns `<a> <knows> <b>` in `<g1>`, which carries the property `<since> 2020`
 - **THEN** the row names the statement by `<a>`, `<knows>`, `<b>` and `<g1>` and by its reifier's skolem IRI, and the

@@ -41,7 +41,7 @@ impl<'a> BodyView<'a> for InstallView<'a> {
             return Err(ProtocolError::count_mismatch(
                 command,
                 "report",
-                report.len() as u64,
+                report.len() as u64, // lossless: a `usize` is at most 64 bits
                 0,
             ));
         }
@@ -52,6 +52,7 @@ impl<'a> BodyView<'a> for InstallView<'a> {
             return Err(ProtocolError::count_mismatch(
                 command,
                 "sources",
+                // The casts are lossless: a `usize` is at most 64 bits.
                 count as u64,
                 expected as u64,
             ));
@@ -64,7 +65,7 @@ impl<'a> BodyView<'a> for InstallView<'a> {
             return Err(ProtocolError::field_value(
                 command,
                 "source name",
-                name.len() as u64,
+                name.len() as u64, // lossless: a `usize` is at most 64 bits
             ));
         }
         Ok(Self {

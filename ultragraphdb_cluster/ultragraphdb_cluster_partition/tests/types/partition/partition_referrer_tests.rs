@@ -633,3 +633,173 @@ fn test_an_operations_subject_routes_as_a_writes_first_subject() -> TestResult {
     part.check_operation_subject(TENANT, &counter(ex(&own).into()), cluster.closed())?;
     Ok(())
 }
+
+/// Every kind of change naming a subject routes by it, a statement named by its triple by the triple's subject: one
+/// partition 1 owns is refused at partition 2 naming its owner; a change naming no subject, or a blank one, routes
+/// nothing, and neither does an operation naming no subject or a blank one.
+#[test]
+fn test_every_subject_a_change_or_an_operation_names_routes_it() -> TestResult {
+    use crate::utils::cluster::{TENANT, ex};
+    use oxrdf::{BlankNode, GraphName, Literal};
+    use ultragraphdb_cluster_partition::PartitionErrorEnum;
+    use ultragraphdb_core_mapping::Change;
+    use ultragraphdb_store_apply::Operation;
+    let cluster = Cluster::even(2)?;
+    let a = cluster.name_in(1, "a")?;
+    let local = cluster.name_in(1, "p")?;
+    let foreign = Foreign::of(&cluster)?;
+    let mut cases = statement_cases(&a, &local, &foreign);
+    cases.extend(property_cases(&a, &local, &foreign));
+    let part = cluster.part(2)?;
+    for (change, _, _) in cases {
+        let names_subject = !matches!(change, Change::DeleteStatement { .. });
+        let routed = part.check_first_subject(&changeset(vec![change.clone()]), cluster.closed());
+        match routed {
+            Err(refused) => assert!(
+                names_subject
+                    && matches!(
+                        refused.0,
+                        PartitionErrorEnum::WrongPartition { owner: 1, .. }
+                    ),
+                "{change:?}: {refused:?}"
+            ),
+            Ok(()) => assert!(!names_subject, "{change:?}"),
+        }
+    }
+    let blank = BlankNode::new("n").context("a label")?;
+    let unnamed = Change::Insert {
+        graph: GraphName::DefaultGraph,
+        subject: blank.clone().into(),
+        predicate: ex(&local),
+        object: Literal::new_simple_literal("x").into(),
+    };
+    part.check_first_subject(&changeset(vec![unnamed]), cluster.closed())?;
+    for operation in [
+        Operation::CounterAdd {
+            graph: GraphName::DefaultGraph,
+            subject: blank.into(),
+            predicate: ex(&local),
+            delta: 1,
+        },
+        Operation::InsertIfAbsent {
+            graph: GraphName::DefaultGraph,
+            predicate: ex(&local),
+            value: ex(&a).into(),
+            properties: Vec::new(),
+        },
+    ] {
+        part.check_operation_subject(TENANT, &operation, cluster.closed())?;
+    }
+    Ok(())
+}
+
+/// A declaration among a write's changes names nothing to register: the write's references are its other changes'.
+#[test]
+fn test_a_declaration_among_a_writes_changes_registers_nothing() -> TestResult {
+    use crate::utils::cluster::ex;
+    use ultragraphdb_core_mapping::{Change, Declaration, PredicateDeclaration};
+    let cluster = Cluster::even(2)?;
+    let (a, knows, b) = (
+        cluster.name_in(1, "a")?,
+        cluster.name_in(1, "knows")?,
+        cluster.name_in(2, "b")?,
+    );
+    let declared = cluster.name_in(2, "q")?;
+    let declaration = Change::Declare(Declaration::Predicate(PredicateDeclaration::new(ex(
+        &declared,
+    ))));
+    let with = references_of(&cluster, 1, vec![declaration, insert(&a, &knows, &b)])?;
+    let without = references_of(&cluster, 1, vec![insert(&a, &knows, &b)])?;
+    assert_eq!(with, without);
+    Ok(())
+}
+
+/// A link of an upsert to a blank node names nothing to register or refuse: only its predicate registers.
+#[test]
+fn test_an_upserts_link_to_a_blank_node_registers_only_its_predicate() -> TestResult {
+    use crate::utils::cluster::{TENANT, ex};
+    use oxrdf::{BlankNode, GraphName};
+    use ultragraphdb_store_apply::{Operation, OperationLink};
+    let cluster = Cluster::even(2)?;
+    let own = cluster.name_in(1, "o")?;
+    let linking = cluster.name_in(2, "l")?;
+    let blank = BlankNode::new("n").context("a label")?;
+    let upsert = Operation::UpsertAndLink {
+        graph: GraphName::DefaultGraph,
+        predicate: ex(&own),
+        value: ex(&own).into(),
+        properties: Vec::new(),
+        links: vec![OperationLink::to_node(ex(&linking), blank.into())],
+    };
+    let part = cluster.part(1)?;
+    let mut txn = begin(part)?;
+    let mut refs = Vec::new();
+    part.operation_references(&mut txn, TENANT, &upsert, cluster.closed(), 0, &mut refs)?;
+    let _buffers = txn.abort();
+    let iris: Vec<&str> = refs.iter().map(|r| r.iri()).collect();
+    assert_eq!(iris, vec![ex(&linking).as_str()]);
+    Ok(())
+}
+
+/// A store failing under the dictionary read of a foreign predicate ends an edge's and a compare-and-set's references with
+/// its error. They are asked at `rdf:type`'s home, which reads nothing for it.
+#[test]
+fn test_a_store_failing_under_a_statements_predicate_fails_its_references() -> TestResult {
+    use crate::utils::cluster::{TENANT, ex};
+    use oxrdf::vocab::rdf;
+    use oxrdf::{GraphName, Literal};
+    use ultragraphdb_cluster_partition::PartitionErrorEnum;
+    use ultragraphdb_core_mapping::Change;
+    use ultragraphdb_store_apply::Operation;
+    use ultragraphdb_store_quads::iri_bucket;
+    use ultragraphdb_store_sim::Fault;
+    let cluster = Cluster::even(2)?;
+    let typed = iri_bucket(TENANT, rdf::TYPE.as_str()).context("rdf:type's bucket")?;
+    let here = cluster
+        .part(1)?
+        .placement()
+        .partition_of(typed, cluster.closed())
+        .get();
+    let other = 3 - here;
+    let (a, c) = (cluster.name_in(here, "a")?, cluster.name_in(here, "c")?);
+    let foreign = cluster.name_in(other, "q")?;
+    let edge = Change::InsertEdge {
+        graph: GraphName::DefaultGraph,
+        subject: ex(&a).into(),
+        predicate: ex(&foreign),
+        object: ex(&c).into(),
+        properties: Vec::new(),
+    };
+    let swap = Operation::CompareAndSet {
+        graph: GraphName::DefaultGraph,
+        subject: ex(&a).into(),
+        predicate: ex(&foreign),
+        expected: Literal::new_simple_literal("x").into(),
+        new: Literal::new_simple_literal("y").into(),
+    };
+    let part = cluster.part(here)?;
+    let store = part.applier().quads().store();
+    let mut txn = begin(part)?;
+    let mut refs = Vec::new();
+    store.inject(Fault::FailNextRead);
+    let edge_refs = part.references(
+        &mut txn,
+        &changeset(vec![edge]),
+        cluster.closed(),
+        0,
+        &mut refs,
+    );
+    assert!(
+        matches!(&edge_refs, Err(e) if matches!(e.0, PartitionErrorEnum::Quad(_))),
+        "{edge_refs:?}"
+    );
+    store.inject(Fault::FailNextRead);
+    let swap_refs =
+        part.operation_references(&mut txn, TENANT, &swap, cluster.closed(), 0, &mut refs);
+    assert!(
+        matches!(&swap_refs, Err(e) if matches!(e.0, PartitionErrorEnum::Quad(_))),
+        "{swap_refs:?}"
+    );
+    let _buffers = txn.abort();
+    Ok(())
+}

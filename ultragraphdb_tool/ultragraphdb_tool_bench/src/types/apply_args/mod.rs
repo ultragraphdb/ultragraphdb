@@ -47,6 +47,7 @@ impl ApplyArgs {
     }
 
     /// The run with its apply steps capped at `max_batch` commits, or uncapped for `None`.
+    #[must_use]
     pub fn with_max_batch(self, max_batch: Option<usize>) -> Self {
         Self { max_batch, ..self }
     }

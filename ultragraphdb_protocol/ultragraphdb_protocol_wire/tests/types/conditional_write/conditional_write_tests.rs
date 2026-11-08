@@ -5,12 +5,13 @@
 
 use ultragraphdb_core_ids::{Epoch, SessionToken};
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, CommitOperation, ConditionalWrite, Link, RequestTerm, TermTable, WriteChange,
+    BodyBuilder, BodyView, CommitOperation, ConditionalWrite, ConditionalWriteView, Link,
+    RequestTerm, TermTable, WriteChange,
 };
 use ultragraphdb_tool_bdd::TestResult;
 
 use crate::types::commit::commit_tests::session;
-use crate::utils::golden_bodies::golden;
+use crate::utils::golden_bodies::{frame_of, golden};
 
 const EX: &str = "http://ex.org/";
 
@@ -149,4 +150,17 @@ fn test_a_new_conditional_write_goes_through_no_session_and_holds_no_token() {
     assert_eq!(write.session(), [0; 16]);
     assert_eq!(write.request(), 0);
     assert_eq!(write.token(), None);
+}
+
+/// A write the frontend relays carries its principal in the frame, which reads back as the same write.
+#[test]
+fn test_a_relayed_conditional_write_carries_its_principal() -> TestResult {
+    let principal = 9;
+    let relayed = golden_conditional_write()?.with_principal(principal);
+    assert_eq!(relayed.principal(), principal);
+    let bytes = relayed.frame(golden("conditional_write")?.header())?;
+    let view = ConditionalWriteView::from_frame(&frame_of(&bytes)?)?;
+    assert_eq!(view.principal(), principal);
+    assert_eq!(view.to_body()?, relayed);
+    Ok(())
 }

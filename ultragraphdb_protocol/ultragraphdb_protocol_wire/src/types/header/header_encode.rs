@@ -62,16 +62,23 @@ impl Header {
         Ok(())
     }
 
-    /// Writes `stream` into the header of `frame`, a whole frame, and recomputes its `checksum`: a frame a role relays keeps its
-    /// body and takes the stream of the connection it goes out on. Refused as [`ProtocolError::short_header`] for fewer than
-    /// 256 bytes.
+    /// Writes `stream` into the header of `frame`, a whole frame, and recomputes its `checksum`: a frame a role relays
+    /// keeps its body and takes the stream of the connection it goes out on.
+    ///
+    /// # Errors
+    ///
+    /// [`ProtocolError::short_header`] for a frame of fewer than 256 bytes.
     pub fn stamp_stream(frame: &mut [u8], stream: u64) -> Result<(), ProtocolError> {
         Self::stamp(frame, STREAM_OFFSET, &stream.to_le_bytes())
     }
 
-    /// Writes `bytes` into the command header of `frame`, a whole frame, at `offset` from the command header's start, and
-    /// recomputes its `checksum`: what a relay fills in, a one-frame write's `principal`. Refused as
-    /// [`ProtocolError::short_header`] for fewer than 256 bytes; bytes past the header are not written.
+    /// Writes `bytes` into the command header of `frame`, a whole frame, at `offset` from the command header's start,
+    /// and recomputes its `checksum`: what a relay fills in, a one-frame write's `principal`. Bytes past the header are
+    /// not written.
+    ///
+    /// # Errors
+    ///
+    /// [`ProtocolError::short_header`] for a frame of fewer than 256 bytes.
     pub fn stamp_command_bytes(
         frame: &mut [u8],
         offset: usize,

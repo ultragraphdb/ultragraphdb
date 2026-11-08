@@ -100,6 +100,7 @@ impl QuadError {
     }
 
     /// [`QuadErrorEnum::NoSequence`] for the type `prefix`.
+    #[must_use]
     pub fn no_sequence(prefix: TypePrefix) -> Self {
         Self(QuadErrorEnum::NoSequence {
             prefix: prefix.get(),
@@ -107,6 +108,7 @@ impl QuadError {
     }
 
     /// [`QuadErrorEnum::PendingFull`] at `capacity`.
+    #[must_use]
     pub fn pending_full(capacity: usize) -> Self {
         Self(QuadErrorEnum::PendingFull { capacity })
     }
@@ -125,6 +127,7 @@ impl QuadError {
     }
 
     /// [`QuadErrorEnum::SkolemDraws`] after `draws` draws.
+    #[must_use]
     pub fn skolem_draws(draws: usize) -> Self {
         Self(QuadErrorEnum::SkolemDraws { draws })
     }

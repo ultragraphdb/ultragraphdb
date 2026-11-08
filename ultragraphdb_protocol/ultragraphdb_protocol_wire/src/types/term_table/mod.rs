@@ -91,6 +91,7 @@ impl TermTable {
                 } => {
                     let mut deepest = 0;
                     for part in [*subject, *predicate, *object] {
+                        // Lossless: a `usize` is at least 32 bits.
                         let depth = self.depths.get(part as usize).ok_or(
                             ProtocolError::index_out_of_range(0, 0, at, part, as_u32(at)),
                         )?;
@@ -154,7 +155,8 @@ impl TermTable {
     }
 
     /// The index of term `index` of `from`, interned with the parts of a triple term before it, a triple's subject's
-    /// parts first, then its predicate's, then its object's; `None` when `from` has no such term.
+    /// parts first, then its predicate's, then its object's; `None` when `from` has no such term, or when this table
+    /// refuses one of the terms it interns.
     ///
     /// The walk keeps an explicit stack and imports each entry of `from` once, so a triple naming one part twice at
     /// every level of [`MAX_TERM_DEPTH`] costs one step per entry, not one per path. Each entry is pushed once per

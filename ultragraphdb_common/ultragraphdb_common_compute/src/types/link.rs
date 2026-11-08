@@ -35,6 +35,8 @@ pub(crate) struct Link {
     cluster: u64,
     /// How long the partition may leave a request unanswered past its deadline before compute takes it for hung.
     answer_wait: Duration,
+    /// The frames for the writer, which takes each as it comes: per stream a request, a Credit for each frame its holder
+    /// took and a Cancel, so the streams open on the link, each a read's on this core, bound what waits.
     out: UnboundedSender<Vec<u8>>,
     /// The credit each stream starts with, the partition's Welcome's.
     initial_credit: u32,
@@ -50,6 +52,8 @@ pub(crate) struct Link {
 /// One stream's holder, and the Entries frames it may yet receive (`PROTOCOL.md` §11.3).
 #[derive(Debug)]
 struct OpenStream {
+    /// Its Entries frames are bounded by `credit`, one past it closing the link; any other command is the stream's one
+    /// answer or its end, as the protocol has the peer send it.
     frames: UnboundedSender<ReceivedFrame>,
     credit: u32,
 }
@@ -147,7 +151,7 @@ impl Link {
     }
 
     /// Closes the connection, for `why`: every stream on it ends, and its reader with it.
-    pub(crate) fn close(&self, why: &dyn std::fmt::Display) {
+    pub(crate) fn close(&self, why: &(impl std::fmt::Display + ?Sized)) {
         if !self.closed.replace(true) {
             tracing::warn!(partition = self.partition, %why, "a partition's connection closes");
         }
@@ -199,6 +203,7 @@ impl Link {
 }
 
 /// Writes each frame `sending` holds, in order, until the link closes, then shuts the connection's sending side.
+/// A dropped future, as at the runtime's end, may cut the frame being written.
 async fn write_frames(mut writer: RoleWriter, mut sending: UnboundedReceiver<Vec<u8>>) {
     while let Some(frame) = sending.next().await {
         if writer.send(frame).await.is_err() {
@@ -211,6 +216,7 @@ async fn write_frames(mut writer: RoleWriter, mut sending: UnboundedReceiver<Vec
 /// Reads every frame of the connection and hands each to its stream's holder, until the connection closes, a frame breaks its
 /// place on it, or the link closes (`closed`). A frame's holder takes its turn before the reader takes a new pool, so a read
 /// consuming as frames come reuses the one buffer.
+/// A dropped future, as at the runtime's end, drops the reader with a frame read in part.
 async fn read_frames(mut reader: RoleReader, link: Rc<Link>, mut closed: oneshot::Receiver<()>) {
     let mut pool = BufferPool::new(LINK_BUFFERS, MAX_FRAME_SIZE);
     loop {
@@ -242,6 +248,7 @@ async fn read_frames(mut reader: RoleReader, link: Rc<Link>, mut closed: oneshot
 }
 
 /// Lets every other task of the core run once, waiting on nothing.
+/// A dropped future leaves nothing.
 async fn yield_once() {
     let mut yielded = false;
     std::future::poll_fn(|cx| {

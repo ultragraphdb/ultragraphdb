@@ -178,6 +178,16 @@ pub fn subject_predicates(subject: &Term) -> Vec<u8> {
     .to_bytes()
 }
 
+/// The key of `object`'s predicates' list in the default graph.
+pub fn object_predicates(object: &Term) -> Vec<u8> {
+    QuadKey::ObjectPredicates {
+        tenant: TENANT,
+        graph: Graph::Default,
+        object: object.id_term(),
+    }
+    .to_bytes()
+}
+
 /// One subject's list of one predicate, its objects in the list's order.
 #[derive(Debug, Clone)]
 pub struct OneList {

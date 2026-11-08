@@ -36,6 +36,8 @@ use crate::utils::literals::{datatype_named, encoding_of};
 use crate::utils::refusals::{resume_refused, unavailable};
 
 /// Runs one read on this core to its end: its stream's last frame is its last batch or its refusal.
+/// It runs as the read's task, which a Cancel or its connection's end drops: dropped, it pushes nothing more, and each
+/// Scan it holds is cancelled as its stream drops, its pins with them.
 pub(crate) async fn run_read(
     core: Rc<ComputeCore>,
     read: ReadRequest,
@@ -58,6 +60,7 @@ pub(crate) async fn run_read(
 }
 
 /// The read's answer: its partitions' Scans, then its batches, once each has closed the read's epoch.
+/// A dropped future cancels each Scan it holds as its stream drops.
 async fn answer(
     core: &Rc<ComputeCore>,
     read: ReadRequest,
@@ -140,6 +143,7 @@ struct Opened {
 }
 
 /// The read's partitions, each past its dictionary Scan: a partition's terms resolved and its epoch closed.
+/// A dropped future cancels each Scan it holds as its stream drops.
 async fn opened_parts(
     core: &Rc<ComputeCore>,
     shared: &Rc<ReadShared>,
@@ -161,6 +165,7 @@ async fn opened_parts(
 
 /// How a read of `partitions` first reads each: past a Closed of each for a monotonic-fast read reaching several, every Closed
 /// sent before any answer is awaited, so the read waits on the slowest partition rather than on all of them in turn.
+/// A dropped future forgets each Closed it asked, by its `Asked`.
 async fn first_at(
     core: &Rc<ComputeCore>,
     shared: &Rc<ReadShared>,
@@ -193,6 +198,7 @@ impl Drop for Asked {
 }
 
 /// The latest epoch `partition` has closed. A partition silent past [`Link::answer_wait`] is hung, and its connection closes.
+/// A dropped future forgets its stream, by its `Asked`.
 async fn closed_epoch(core: &Rc<ComputeCore>, partition: u32) -> Result<u64, ErrorReply> {
     use futures::StreamExt;
 
@@ -231,6 +237,7 @@ async fn closed_epoch(core: &Rc<ComputeCore>, partition: u32) -> Result<u64, Err
 
 /// Sends every partition's dictionary Scan, then waits for each, so none's list Scan waits on another's close. `held` are
 /// partitions already past theirs.
+/// A dropped future cancels each gate's Scan as its stream drops.
 async fn gated_parts(
     core: &Rc<ComputeCore>,
     shared: &Rc<ReadShared>,
@@ -260,6 +267,7 @@ async fn gated_parts(
 
 /// A reverse read's partitions: the object's home, for its referrer set at the read's epoch, then the partitions the set names,
 /// each past its own dictionary Scan at that epoch (`PROTOCOL.md` §11.12).
+/// A dropped future cancels each Scan it holds as its stream drops.
 async fn reverse_parts(
     core: &Rc<ComputeCore>,
     shared: &Rc<ReadShared>,
@@ -345,6 +353,7 @@ fn member_at(read: &ReadRequest, epoch: u64) -> ReadAt {
 
 /// The IDs of the resume key's terms: read at each term's home, since one ID must key several partitions, or, in a read-write
 /// transaction, at its partition, which takes them from their homes itself.
+/// A dropped future cancels each Scan it holds as its stream drops.
 async fn resume_at(
     core: &Rc<ComputeCore>,
     shared: &Rc<ReadShared>,
@@ -402,6 +411,7 @@ async fn resume_at(
 }
 
 /// The IDs `named` have at their homes: each home asked in one Scan of one-key ranges.
+/// A dropped future cancels each Scan it holds as its stream drops.
 async fn ids_at_homes(
     core: &Rc<ComputeCore>,
     shared: &Rc<ReadShared>,
@@ -438,6 +448,7 @@ async fn ids_at_homes(
 
 /// Merges the partitions' rows in key order into batches, up to the read's limit, and ends the stream: with a resume key when
 /// the limit stopped it where a row may be left.
+/// A dropped future cancels each partition's Scan as its stream drops, and the batches sent stay sent.
 async fn merge(
     shared: &Rc<ReadShared>,
     mut parts: Vec<PartitionRows>,
@@ -462,6 +473,8 @@ async fn merge(
     }
     let mut sent = 0u32;
     let mut resume = Vec::new();
+    // Each turn sends one row and advances its partition's page: no partition holding a row, or the read's limit, ends
+    // it (Ultra rule 2).
     loop {
         let popped = {
             let held = &parts;

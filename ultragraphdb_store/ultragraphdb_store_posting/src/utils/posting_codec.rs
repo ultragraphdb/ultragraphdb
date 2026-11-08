@@ -113,6 +113,7 @@ fn checked_uids(key: &[u8], pack: &UidPack) -> Result<Vec<u128>, PostingError> {
             "a block holds no uid or more than the block size",
         ));
     }
+    // Lossless: a block's count is a u32, and a `usize` holds 32 bits on every target the repository builds for.
     let mut uids = Vec::with_capacity(pack.blocks().iter().map(|b| b.count() as usize).sum());
     let mut decoder = Decoder::new(pack);
     // Ends: each turn moves the decoder to the next of the pack's blocks.

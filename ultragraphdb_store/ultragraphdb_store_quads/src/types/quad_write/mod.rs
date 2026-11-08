@@ -110,6 +110,7 @@ where
     }
 
     /// The quad store the write writes to.
+    #[must_use]
     pub fn quads(&self) -> &'a QuadStore<S, C, B> {
         self.quads
     }
@@ -130,6 +131,7 @@ where
     }
 
     /// Whether `id` was created by this write, so that no list keyed by it holds anything.
+    #[must_use]
     pub fn is_fresh(&self, id: SystemId) -> bool {
         self.terms.is_fresh(id)
     }
@@ -210,6 +212,10 @@ where
 
     /// The objects of `subject`'s `predicate` in `graph` as the write's snapshot holds them, each with its statement
     /// IDs: without the write's own writes, and recorded as read nowhere. A subject the write created holds none.
+    ///
+    /// # Errors
+    ///
+    /// The store's error; corruption of the list.
     pub fn snapshot_objects(
         &self,
         graph: Graph,
@@ -352,6 +358,10 @@ where
     /// Whether `subject`'s subject-predicates list in `graph` names `predicate`, as the write sees it: the list read
     /// whole and recorded, so a commit giving the subject a predicate since conflicts (partitions, "Absence is proven by
     /// a node's predicate lists").
+    ///
+    /// # Errors
+    ///
+    /// The store's error; corruption of the list.
     pub fn names_predicate(
         &mut self,
         graph: Graph,
@@ -369,6 +379,10 @@ where
 
     /// Whether `object`'s object-predicates list in `graph` names `predicate`, as the write sees it: the list read
     /// whole and recorded.
+    ///
+    /// # Errors
+    ///
+    /// The store's error; corruption of the list.
     pub fn points_with(
         &mut self,
         graph: Graph,
@@ -386,6 +400,10 @@ where
 
     /// The IDs the list of `key` holds as the write sees it, in ID order: the list read whole and recorded, as a lookup
     /// reads a value-index list.
+    ///
+    /// # Errors
+    ///
+    /// The store's error; corruption of the list; [`QuadError::corrupted`] for a posting naming no system ID.
     pub fn ids(&mut self, key: &[u8]) -> Result<Vec<SystemId>, QuadError> {
         let list = self.request.get(key)?;
         let mut ids = Vec::new();
@@ -423,6 +441,10 @@ where
     }
 
     /// The record of statement `id` in `graph` at the write's read timestamp.
+    ///
+    /// # Errors
+    ///
+    /// The store's error; a stored record [`StatementRecord::decode`] refuses.
     pub fn statement(
         &self,
         graph: Graph,
@@ -433,6 +455,10 @@ where
     }
 
     /// A new statement ID of `subject`, named by a new reifier, as [`WriteTerms::statement`] gives it.
+    ///
+    /// # Errors
+    ///
+    /// As [`WriteTerms::statement`].
     pub fn next_statement_id(&mut self, subject: SystemId) -> Result<SystemId, QuadError> {
         let quads = self.quads;
         self.terms.statement(quads, subject)

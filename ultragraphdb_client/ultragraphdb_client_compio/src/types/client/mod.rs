@@ -38,6 +38,7 @@ type Writing<C> = JoinHandle<(Writer<C>, Result<(), TransportError>)>;
 const READ_TURN: Duration = Duration::from_millis(10);
 
 /// What `reading` read by `until`, `None` past it; the read is asked first, so a frame read is taken whatever the time.
+/// A future dropped at its wait leaves `reading` as it was, its read going on.
 async fn read_by<F: Future + Unpin>(reading: &mut F, until: Instant) -> Option<F::Output> {
     let mut timer = pin!(compio::time::sleep_until(until));
     poll_fn(|cx| {
@@ -47,6 +48,18 @@ async fn read_by<F: Future + Unpin>(reading: &mut F, until: Instant) -> Option<F
         timer.as_mut().poll(cx).map(|()| None)
     })
     .await
+}
+
+/// `future`'s output, or [`compio::time::Elapsed`] once `timeout` has passed; a timeout past what an `Instant` holds
+/// never does. A future dropped at its wait drops `future` where it stood, which leaves what `future` leaves.
+async fn within<F: Future>(
+    timeout: Duration,
+    future: F,
+) -> Result<F::Output, compio::time::Elapsed> {
+    match now().checked_add(timeout) {
+        Some(deadline) => compio::time::timeout_at(deadline, future).await,
+        None => Ok(future.await),
+    }
 }
 
 /// The time, as the core is told it: the shell is where the client reads the clock, and the core is given it.
@@ -150,7 +163,7 @@ impl<C: Connect, L: Login> Client<C, L> {
     async fn open(&mut self) -> Result<(), ClientError> {
         self.shut().await;
         let timeout = self.core.config().timeout();
-        let stream = match compio::time::timeout(timeout, self.connector.connect()).await {
+        let stream = match within(timeout, self.connector.connect()).await {
             Ok(Ok(stream)) => stream,
             Ok(Err(error)) => return Err(ClientError::transport(TransportError::io(&error))),
             Err(_) => return Err(ClientError::timed_out()),
@@ -170,7 +183,7 @@ impl<C: Connect, L: Login> Client<C, L> {
         self.writing = None;
         if let Some(mut writer) = self.writer.take() {
             let _shut: Result<(), compio::time::Elapsed> =
-                compio::time::timeout(self.core.config().timeout(), writer.shutdown()).await;
+                within(self.core.config().timeout(), writer.shutdown()).await;
         }
     }
 
@@ -205,7 +218,7 @@ impl<C: Connect, L: Login> Client<C, L> {
             let Some(writing) = self.writing.as_mut() else {
                 return;
             };
-            let written = compio::time::timeout(timeout, writing).await;
+            let written = within(timeout, writing).await;
             self.writing = None;
             let failed = match written {
                 Ok(Ok((writer, Ok(())))) => {
@@ -262,23 +275,32 @@ impl<C: Connect, L: Login> Client<C, L> {
             if !self.core.is_connected() {
                 self.shut().await;
             }
-            let Some(deadline) = self.core.next_deadline() else {
-                return Err(self
-                    .failure
-                    .take()
-                    .unwrap_or_else(ClientError::not_connected));
-            };
+            let deadline = self.core.next_deadline();
             let Some(reading) = self.read_out() else {
+                let Some(deadline) = deadline else {
+                    return Err(self
+                        .failure
+                        .take()
+                        .unwrap_or_else(ClientError::not_connected));
+                };
                 self.core.handle_timeout(deadline);
                 continue;
             };
-            let at = now();
-            let until = if deadline > at {
-                deadline
-            } else {
-                at.checked_add(READ_TURN).unwrap_or(deadline)
+            let read = match deadline {
+                Some(deadline) => {
+                    let at = now();
+                    let until = if deadline > at {
+                        deadline
+                    } else {
+                        at.checked_add(READ_TURN).unwrap_or(deadline)
+                    };
+                    read_by(reading, until).await
+                }
+                // A connection with no deadline has a timeout past what an `Instant` holds: the read waits as long as
+                // the server takes.
+                None => Some(reading.await),
             };
-            match read_by(reading, until).await {
+            match read {
                 Some(read) => {
                     self.reading = None;
                     self.take_read(read);
@@ -306,7 +328,8 @@ impl<C: Connect, L: Login> Client<C, L> {
 
     /// The frames that have already arrived, each given [`READ_TURN`], read before a deadline that passed while no call drove
     /// the connection is taken, so a read whose frame waits in the socket is not taken for a silent one; at most the pool's
-    /// buffers, so a deadline due is not put off by frames that keep coming.
+    /// buffers, so a deadline due is not put off by frames that keep coming. A future dropped at a read's wait leaves
+    /// that read going on its task, in `reading`, for the next call to take.
     async fn take_arrived(&mut self) {
         for _ in 0..self.core.config().buffers() {
             let until = now().checked_add(READ_TURN).unwrap_or_else(now);

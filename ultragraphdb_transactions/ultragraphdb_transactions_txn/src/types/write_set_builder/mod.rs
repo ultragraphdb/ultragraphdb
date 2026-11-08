@@ -76,6 +76,7 @@ impl<'e> WriteSetBuilder<'e> {
 
     /// The builder writing `catalog`, the catalog version of the tenant the transaction executed against; 0 by
     /// default.
+    #[must_use]
     pub fn with_catalog(self, catalog: u64) -> Self {
         Self { catalog, ..self }
     }
@@ -167,6 +168,7 @@ impl<'e> WriteSetBuilder<'e> {
     ) -> Result<usize, TxnError> {
         out.clear();
         record.encode_into(out);
+        // Lossless: a `usize` holds 32 bits on every target the repository builds for.
         let limit = limit.min(u32::MAX as usize);
         if out.len() > limit {
             let size = out.len();
@@ -178,6 +180,7 @@ impl<'e> WriteSetBuilder<'e> {
 
     /// The bytes the dictionary entries `executed` creates take in its round's dictionary section, each 8 bytes of
     /// lengths, its key and its value, padded to 8: what the transaction's write set adds to its record.
+    #[must_use]
     pub fn dictionary_len(executed: &Executed) -> usize {
         let dictionary = Keyspace::Dictionary.byte();
         executed
@@ -249,6 +252,7 @@ impl WriteSetBuilder<'_> {
         let writes = executed.writes();
         for (key, delta) in writes.deltas() {
             if self.by_objects(key, delta) {
+                // `by_objects` held that every posting names its object, so the filter drops none.
                 for object in delta
                     .postings()
                     .iter()

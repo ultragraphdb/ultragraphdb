@@ -87,51 +87,61 @@ impl PartitionArgs {
     }
 
     /// How many partitions the run hosts.
+    #[must_use]
     pub fn partitions(&self) -> u32 {
         self.partitions
     }
 
     /// The run's directory.
+    #[must_use]
     pub fn dir(&self) -> &Path {
         &self.dir
     }
 
     /// Each partition's offered rate, in commits a second.
+    #[must_use]
     pub fn rate(&self) -> u64 {
         self.rate
     }
 
     /// The relations per commit.
+    #[must_use]
     pub fn relations(&self) -> usize {
         self.relations
     }
 
     /// The run's length in seconds, unless it runs to [`PartitionArgs::commits`].
+    #[must_use]
     pub fn seconds(&self) -> u64 {
         self.seconds
     }
 
     /// Each partition's commits; 0 leaves the run to its length.
+    #[must_use]
     pub fn commits(&self) -> u64 {
         self.commits
     }
 
     /// The share of edges pointing at entities other partitions own, in percent.
+    #[must_use]
     pub fn cross_percent(&self) -> u8 {
         self.cross_percent
     }
 
     /// The seed each partition's generator is seeded from.
+    #[must_use]
     pub fn seed(&self) -> u64 {
         self.seed
     }
 
     /// Each store's posting cache's size in MiB.
+    #[must_use]
     pub fn cache_mb(&self) -> u64 {
         self.cache_mb
     }
 
     /// Whether the run's reverse reads are compared with the same commits on one partition.
+    #[must_use]
     pub fn verify(&self) -> bool {
         self.verify
     }

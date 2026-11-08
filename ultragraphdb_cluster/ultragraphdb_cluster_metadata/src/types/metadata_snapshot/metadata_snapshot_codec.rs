@@ -36,6 +36,7 @@ const PREFIXES_MAX: usize = 1 << 16;
 const PLACEMENT_BYTES_MAX: usize = 1 << 31;
 
 /// The most partitions reporting, the placement map's.
+/// The cast of 1,024 is lossless.
 const REPORTS_MAX: usize = PlacementMap::PARTITIONS_MAX as usize;
 
 impl MetadataSnapshot {
@@ -252,13 +253,13 @@ fn decode_placement_pending(
     )?;
     let first = state
         .placement_version
-        .checked_sub(pending as u64)
-        .map(|before| before + 1);
+        .checked_sub(pending as u64) // at most `PLACEMENT_PENDING_MAX`, lossless
+        .and_then(|before| before.checked_add(1));
     for index in 0..pending {
         let version_at = reader.offset();
         let version = reader.u64("a placement version")?;
         check(
-            first.map(|first| first + index as u64) == Some(version),
+            first.map(|first| first + index as u64) == Some(version), // below `pending`, lossless
             "a placement version one above the one before, the last the last committed",
             version_at,
         )?;
@@ -283,6 +284,7 @@ fn decode_placement_pending(
 
 /// A count at the reader, refused past `max` as `what`.
 fn count(reader: &mut Reader<'_>, what: &'static str, max: usize) -> Result<usize, ClusterError> {
+    // A `u32`, which a `usize` of 32 bits or more holds whole on every target the node builds for.
     Reader::bounded(reader.u32(what)? as usize, what, max)
 }
 
@@ -488,7 +490,7 @@ fn decode_access(reader: &mut Reader<'_>, state: &mut MetadataState) -> Result<(
         let _absent: Option<Principal> = state.principals.insert(name, principal);
     }
     let what = "sessions";
-    let sessions = count(reader, what, MetadataConfig::SESSIONS_MAX_MAX as usize)?;
+    let sessions = count(reader, what, MetadataConfig::SESSIONS_MAX_MAX as usize)?; // 2^20, lossless
     for _ in 0..sessions {
         let at = reader.offset();
         let session = reader.u128("a session")?;

@@ -16,6 +16,8 @@ mod conflict_history;
 #[cfg(test)]
 mod epoch_stamp;
 #[cfg(test)]
+mod no_operations;
+#[cfg(test)]
 mod pipeline;
 #[cfg(test)]
 mod replay;

@@ -50,3 +50,10 @@ fn test_the_same_path_under_another_base_is_ordinary() {
     let iri = "https://example.org/tenant/0/.well-known/genid/00abcd-0123456789abcdef0123456789";
     assert!(matches!(iri_place(0, iri), IriPlace::Ordinary(_)));
 }
+
+/// An IRI under a tenant's base whose path holds no skolem label is an ordinary IRI.
+#[test]
+fn test_a_tenant_s_iri_outside_its_skolem_path_is_ordinary() {
+    let iri = format!("{SYSTEM_VOCABULARY}tenant/0/types/a");
+    assert!(matches!(iri_place(0, &iri), IriPlace::Ordinary(_)));
+}

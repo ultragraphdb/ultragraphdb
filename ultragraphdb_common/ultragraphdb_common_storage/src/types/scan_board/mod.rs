@@ -19,6 +19,8 @@ use crate::types::scan_key::ScanKey;
 #[derive(Debug)]
 pub struct ScanBoard<T> {
     open: BTreeMap<ScanKey, Slot<T>>,
+    /// At most one turn an open Scan, given when it is queued and gone when taken or ended, so the open Scans, at most each
+    /// connection's `max_streams`, bound its length.
     turns: VecDeque<ScanKey>,
     timers: BTreeSet<(u64, ScanKey)>,
     epochs: BTreeSet<(u64, ScanKey)>,
@@ -68,6 +70,7 @@ impl<T> ScanBoard<T> {
     }
 
     /// How many Scans wait for their turn.
+    #[must_use]
     pub fn turns_waiting(&self) -> usize {
         self.turns.len()
     }
@@ -84,6 +87,7 @@ impl<T> ScanBoard<T> {
     pub fn close(&mut self, connection: u64) {
         let of_connection: Vec<ScanKey> = self
             .open
+            // Every key of `connection`: closed, since a half-open range cannot name the last stream, `u64::MAX`.
             .range((connection, 0)..=(connection, u64::MAX))
             .map(|(key, _)| *key)
             .collect();
@@ -96,6 +100,7 @@ impl<T> ScanBoard<T> {
     }
 
     /// The Scan `key`, when it is open.
+    #[must_use]
     pub fn get(&self, key: ScanKey) -> Option<&T> {
         self.open.get(&key).map(|slot| &slot.scan)
     }
@@ -106,11 +111,13 @@ impl<T> ScanBoard<T> {
     }
 
     /// Whether no Scan is open.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.open.is_empty()
     }
 
     /// Whether a Scan waits for its turn.
+    #[must_use]
     pub fn has_turns(&self) -> bool {
         !self.turns.is_empty()
     }
@@ -174,6 +181,7 @@ impl<T> ScanBoard<T> {
     }
 
     /// The open Scans of `transaction`.
+    #[must_use]
     pub fn of_transaction(&self, transaction: BoundKey) -> Vec<ScanKey> {
         self.named_by(transaction)
             .filter(|key| self.open.contains_key(key))
@@ -193,6 +201,7 @@ impl<T> ScanBoard<T> {
     }
 
     fn named_by(&self, transaction: BoundKey) -> impl Iterator<Item = ScanKey> + '_ {
+        // Every Scan of `transaction`: closed, since a half-open range cannot name the last key, `u64::MAX` twice.
         self.transactions
             .range((transaction, (0, 0))..=(transaction, (u64::MAX, u64::MAX)))
             .map(|(_, key)| *key)

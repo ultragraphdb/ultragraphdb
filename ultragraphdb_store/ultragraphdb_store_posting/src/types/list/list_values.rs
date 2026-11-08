@@ -21,6 +21,10 @@ use crate::types::p_iterator::{PIterator, PPosting};
 
 impl List {
     /// The posting of `uid` at `read_ts`, from the deltas or the immutable layer: Dgraph's `FindPosting`.
+    ///
+    /// # Errors
+    ///
+    /// [`PostingError::read_below_min_ts`] or a missing part, as [`List::iterate`], when the immutable layer is read.
     pub fn find_posting(&self, read_ts: u64, uid: u128) -> Result<Option<Posting>, PostingError> {
         let (search_further, found) = self.mutation.find_posting(read_ts, uid);
         if let Some(p) = found {

@@ -16,6 +16,7 @@ pub enum ReportKind {
 
 impl ReportKind {
     /// The byte.
+    #[must_use]
     pub fn number(self) -> u8 {
         match self {
             ReportKind::Passed => 1,
@@ -25,6 +26,7 @@ impl ReportKind {
     }
 
     /// The kind the byte `number` names; `None` for 0 and past 3.
+    #[must_use]
     pub fn from_number(number: u8) -> Option<Self> {
         match number {
             1 => Some(ReportKind::Passed),

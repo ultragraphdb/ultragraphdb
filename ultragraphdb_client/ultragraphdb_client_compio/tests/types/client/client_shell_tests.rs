@@ -985,3 +985,27 @@ fn test_a_resend_due_within_a_read_turn_goes_out_at_its_deadline() -> TestResult
     })?;
     Ok(())
 }
+
+/// A timeout past what an `Instant` holds never times out: the client waits for the server as long as it takes, and
+/// connects and registers.
+#[test]
+fn test_a_timeout_past_an_instant_waits_for_the_server() -> TestResult {
+    let rt = compio::runtime::Runtime::new().context("a runtime")?;
+    let scripted = server();
+    let connector = SimConnect::new(SimNetwork::new(3, NetworkFaults::none()));
+    let accepted = Rc::clone(&connector.accepted);
+    rt.block_on(async {
+        let _server = compio::runtime::spawn(serve_sim(Rc::clone(&scripted), accepted));
+        let mut client = Client::new(
+            connector,
+            config().with_timeout(Duration::MAX),
+            Anonymous,
+            8,
+        );
+        client.connect().await?;
+        assert!(client.core().is_ready());
+        let _session = client.register().await?;
+        Ok::<(), TestError>(())
+    })?;
+    Ok(())
+}

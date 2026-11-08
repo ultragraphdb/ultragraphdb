@@ -28,41 +28,49 @@ pub struct ScanView<'a> {
 
 impl<'a> ScanView<'a> {
     /// The version each range is read at.
+    #[must_use]
     pub fn at(&self) -> ScanAt {
         self.at
     }
 
     /// The version named; 0 where `at` names none.
+    #[must_use]
     pub fn read_version(&self) -> u64 {
         self.read_version
     }
 
     /// The epoch the partition closes before it answers; 0 for none.
+    #[must_use]
     pub fn epoch(&self) -> u64 {
         self.epoch
     }
 
     /// The client's principal.
+    #[must_use]
     pub fn principal(&self) -> u64 {
         self.principal
     }
 
     /// The read-write transaction's identity; all zero for none.
+    #[must_use]
     pub fn transaction(&self) -> [u8; 16] {
         self.transaction
     }
 
     /// The most entries per range; 0 for no limit.
+    #[must_use]
     pub fn limit(&self) -> u32 {
         self.limit
     }
 
     /// How long the partition waits for the close of [`ScanView::epoch`], in milliseconds; 0 when that is 0.
+    #[must_use]
     pub fn deadline_ms(&self) -> u32 {
         self.deadline_ms
     }
 
     /// The number of ranges, at least 1.
+    #[must_use]
     pub fn range_count(&self) -> usize {
         self.ranges.len() / SCAN_RANGE_SIZE
     }
@@ -73,6 +81,7 @@ impl<'a> ScanView<'a> {
             .ranges
             .get(index.checked_mul(SCAN_RANGE_SIZE)?..)?
             .get(..SCAN_RANGE_SIZE)?;
+        // Lossless: a `usize` is at least 32 bits.
         let field = |at| bytes_at(record, at).map(|b| u32::from_le_bytes(b) as usize);
         let (first, past) = (field(8)?, field(16)?);
         let after = past.checked_add(field(20)?)?;
@@ -90,6 +99,7 @@ impl<'a> ScanView<'a> {
     }
 
     /// The term table of the IRIs the read names, at most as many terms as ranges; empty with no transaction.
+    #[must_use]
     pub fn terms(&self) -> TermTableView<'a> {
         self.terms
     }

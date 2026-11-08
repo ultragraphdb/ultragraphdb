@@ -86,7 +86,8 @@ impl OperationFields {
             return Err(ProtocolError::field_value(
                 command,
                 "delta",
-                self.delta as u64,
+                // The field's eight bytes as the refusal names a value: the delta's two's complement bits.
+                self.delta.cast_unsigned(),
             ));
         }
         if self.properties != 0 && self.kind > 2 {
@@ -124,7 +125,7 @@ impl OperationFields {
         args: &[u32],
         limit: u32,
     ) -> Result<(), ProtocolError> {
-        let link_start = 3 + 2 * self.properties as usize;
+        let link_start = 3 + 2 * self.properties as usize; // lossless: a `usize` is at least 32 bits
         for (at, arg) in args.iter().enumerate() {
             let direction = self.kind == 2 && at >= link_start && (at - link_start) % 3 == 2;
             if direction {
@@ -153,7 +154,7 @@ impl OperationFields {
         let arg = |i: usize| args.get(i).copied().unwrap_or(0);
         let graph = (arg(0) != ABSENT).then(|| arg(0));
         let pairs = |from: usize, n: u32| -> Vec<(u32, u32)> {
-            (0..n as usize)
+            (0..n as usize) // lossless: a `usize` is at least 32 bits
                 .map(|k| (arg(from + 2 * k), arg(from + 2 * k + 1)))
                 .collect()
         };
@@ -165,6 +166,7 @@ impl OperationFields {
                 properties: pairs(3, self.properties),
             },
             2 => {
+                // The casts are lossless: a `usize` is at least 32 bits.
                 let start = 3 + 2 * self.properties as usize;
                 let links = (0..self.links as usize)
                     .map(|k| {
@@ -277,7 +279,7 @@ pub(crate) fn consume_operations(
             return Err(ProtocolError::field_value(
                 command,
                 "args_start",
-                next as u64,
+                next as u64, // lossless: a `usize` is at most 64 bits
             ));
         };
         fields.check_args(command, (args_section, next), run, limit)?;
@@ -288,7 +290,7 @@ pub(crate) fn consume_operations(
         return Err(ProtocolError::field_value(
             command,
             "args_start",
-            next as u64,
+            next as u64, // lossless: a `usize` is at most 64 bits
         ));
     }
     Ok(starts)

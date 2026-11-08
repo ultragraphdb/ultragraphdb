@@ -174,7 +174,7 @@ impl TestServer {
             let Some(pattern) = body.pattern().copied() else {
                 return self.error(stream, ErrorCode::Refused, 0, "a text is not served");
             };
-            let id = self.statements.len() as u64 + 1;
+            let id = self.statements.len() as u64 + 1; // lossless: a `usize` is at most 64 bits
             let _replaced: Option<u64> = self.statements.insert(id, self.schema);
             let types = pattern
                 .slots()
@@ -255,7 +255,7 @@ impl TestServer {
             let message = "the registry holds no session it may evict";
             return self.error(stream, ErrorCode::SessionBusy, 0, message);
         }
-        let session = self.sessions.len() as u128 + 9;
+        let session = self.sessions.len() as u128 + 9; // lossless: a `usize` is at most 64 bits
         let _fresh: Option<SessionRecord> = self.sessions.insert(session, SessionRecord::default());
         self.reply(stream, &Register::new(session.to_be_bytes()), FLAG_LAST);
     }
@@ -306,6 +306,8 @@ impl TestServer {
         for i in 0..results {
             // Only a stream's last batch holds a resume key, and a refused read has no last batch.
             let last = refusal.is_none() && i + 1 == results;
+            // The key's one byte is the batch's index modulo 256, truncated on purpose: a client takes a resume key as
+            // opaque bytes.
             let resume = if last { vec![i as u8] } else { Vec::new() };
             let mut batch = ResultBatch::new(2)
                 .with_resume(resume)

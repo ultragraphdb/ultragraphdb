@@ -858,3 +858,163 @@ fn test_a_reference_with_its_mark_and_copied_entry_replays_the_same_keys() -> Te
     );
     Ok(())
 }
+
+/// A build the first apply undid replays as an undo: the replica starts the build the version names and undoes it at the
+/// round of its end, so its catalog is the first apply's and no key of the undone index remains.
+#[test]
+fn test_an_undone_build_replays_as_its_undo() -> TestResult {
+    use ultragraphdb_core_catalog::CatalogContents;
+    use ultragraphdb_core_keys::Keyspace;
+    use ultragraphdb_core_mapping::{Declaration, PredicateDeclaration};
+    use ultragraphdb_traits_catalog::{HeldVersion, TestCatalogSource};
+    let ex = crate::utils::fixture::ex;
+    let original = applier()?;
+    let (_storage, log) = wal()?;
+    let mut pipe: Pipe<'_> = Pipeline::new(&original, log, unbounded())?;
+    let _r1 = commit(
+        &mut pipe,
+        &original,
+        1,
+        vec![insert_literal("a", "name", "big apple")],
+    )?;
+    let group = TestCatalogSource::new();
+    let two = CatalogContents::new(
+        TENANT,
+        2,
+        vec![Declaration::Predicate(
+            PredicateDeclaration::new(ex("name")).with_tokenizers(vec!["exact".into()]),
+        )],
+    );
+    group.commit(HeldVersion::new(TENANT, 2, 1, two.encode()?));
+    let refusals = pipe.install(2, &two, 0)?;
+    assert!(refusals.is_empty(), "{refusals:?}");
+    block_on(pipe.sync(0))?;
+    assert!(original.rebuilding());
+    // The build's first scan fails: a read, no failed write, so the build is undone.
+    original
+        .quads()
+        .store()
+        .inject(ultragraphdb_store_sim::Fault::FailNextScanAfter(0));
+    original.executor().run_until_idle();
+    pipe.poll_builds(0)?;
+    block_on(pipe.sync(0))?;
+    assert!(!original.rebuilding(), "undone");
+    let undone = original.catalog(TENANT)?;
+    let mut written = pipe.into_log();
+    let replica = applier_over(sim_store())?;
+    replica.sequence_builds();
+    let _replayed = block_on(Replay::run_with_catalog(
+        0,
+        &replica,
+        &mut written,
+        Sessions::DEFAULT_CAPACITY,
+        &group,
+    ))?;
+    replica.executor().run_until_idle();
+    assert!(!replica.rebuilding());
+    assert_eq!(*replica.catalog(TENANT)?, *undone);
+    let index = Keyspace::ValueIndex.byte();
+    assert!(
+        replica
+            .quads()
+            .store()
+            .contents()
+            .keys()
+            .keys()
+            .all(|k| k.first() != Some(&index)),
+        "no index key remains"
+    );
+    Ok(())
+}
+
+/// A log reading its rounds back one position further than they were written: a log breaking its own order.
+struct ShiftedLog(Log);
+
+impl OrderedLog for ShiftedLog {
+    fn append(
+        &mut self,
+        round: RoundRef<'_>,
+    ) -> Result<ultragraphdb_traits_log::DurabilityTicket, ultragraphdb_error_log::LogError> {
+        self.0.append(round)
+    }
+
+    fn poll_ticket(
+        &self,
+        ticket: ultragraphdb_traits_log::DurabilityTicket,
+    ) -> std::task::Poll<Result<(), ultragraphdb_error_log::LogError>> {
+        self.0.poll_ticket(ticket)
+    }
+
+    fn sync(&mut self) -> impl Future<Output = Result<Position, ultragraphdb_error_log::LogError>> {
+        self.0.sync()
+    }
+
+    fn committed(&self) -> Position {
+        self.0.committed()
+    }
+
+    fn tail(&self) -> (Position, u64) {
+        self.0.tail()
+    }
+
+    async fn read(
+        &mut self,
+        from: Position,
+        max_bytes: u32,
+    ) -> Result<Vec<ultragraphdb_traits_log::Round>, ultragraphdb_error_log::LogError> {
+        let rounds = self.0.read(from, max_bytes).await?;
+        Ok(rounds
+            .into_iter()
+            .map(|r| {
+                ultragraphdb_traits_log::Round::new(
+                    Position::new(r.position().get() + 1),
+                    r.parent(),
+                    r.checksum(),
+                    r.first_version(),
+                    r.transactions(),
+                    r.derivation(),
+                    r.body().to_vec(),
+                )
+            })
+            .collect())
+    }
+
+    fn trim_through(
+        &mut self,
+        position: Position,
+    ) -> impl Future<Output = Result<(), ultragraphdb_error_log::LogError>> {
+        self.0.trim_through(position)
+    }
+
+    fn checkpoint(&self) -> Position {
+        self.0.checkpoint()
+    }
+
+    fn seal(&mut self) -> Result<Position, ultragraphdb_error_log::LogError> {
+        self.0.seal()
+    }
+
+    fn next_event(&mut self) -> Option<ultragraphdb_traits_log::LogEvent> {
+        self.0.next_event()
+    }
+}
+
+/// A log whose rounds read back past the position asked for refuses recovery naming the first position missing.
+#[test]
+fn test_a_log_reading_past_the_position_asked_refuses_recovery_naming_the_gap() -> TestResult {
+    let (_storage, log) = one_round_log()?;
+    let mut shifted = ShiftedLog(log);
+    let replica = applier_over(sim_store())?;
+    let refused = block_on(Replay::run(
+        &replica,
+        &mut shifted,
+        Sessions::DEFAULT_CAPACITY,
+    ))
+    .refused("refused")?;
+    assert_eq!(
+        refused,
+        ultragraphdb_transactions_commit::RecoveryError::gap(1)
+    );
+    assert_eq!(position(&replica)?, 0, "nothing replayed");
+    Ok(())
+}

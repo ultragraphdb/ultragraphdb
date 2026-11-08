@@ -8,9 +8,13 @@ use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use compio::runtime::{Runtime, spawn};
+use tracing::field::{Field, Visit};
+use tracing::span::{Attributes, Id, Record};
+use tracing::{Event, Level, Metadata, Subscriber};
 use ultragraphdb_common_role::{
     Answer, ConnectionBound, ParkedBytes, ROLE_ITERATIONS, RoleClient, RoleCredentials, RoleSecret,
     Server, Session, listen, serve_connection,
@@ -21,14 +25,14 @@ use ultragraphdb_protocol_transport::{
     Address, Endpoint, ReceivedFrame, TransportError, TransportErrorEnum,
 };
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, BodyView, CloseRequest, Closed, Command, Credit, DEFAULT_INITIAL_CREDIT, Entries,
-    EntriesEnd, EntriesView, ErrorCode, ErrorReply, FLAG_LAST, Header, Held, Join, MAX_FRAME_FLOOR,
-    Members, Scan, ScanAt, ScanRange,
+    BodyBuilder, BodyView, Cancel, CloseRequest, Closed, Command, Credit, DEFAULT_INITIAL_CREDIT,
+    Entries, EntriesEnd, EntriesView, ErrorCode, ErrorReply, FLAG_LAST, Header, Held, Join,
+    MAX_FRAME_FLOOR, MAX_FRAME_SIZE, Members, Scan, ScanAt, ScanRange,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
-const CLUSTER: u64 = 7;
-const PASSWORD: &str = "s3cret";
+pub(crate) const CLUSTER: u64 = 7;
+pub(crate) const PASSWORD: &str = "s3cret";
 
 static FILES: AtomicU32 = AtomicU32::new(0);
 
@@ -36,7 +40,7 @@ static FILES: AtomicU32 = AtomicU32::new(0);
 const TEST_TIME: Duration = Duration::from_secs(10);
 
 /// Runs `test` on a runtime of its own, failing it past [`TEST_TIME`].
-fn bounded(test: impl Future<Output = TestResult>) -> TestResult {
+pub(crate) fn bounded(test: impl Future<Output = TestResult>) -> TestResult {
     Runtime::new()?.block_on(async {
         compio::time::timeout(TEST_TIME, test)
             .await
@@ -56,6 +60,9 @@ fn credentials() -> TestResult<RoleCredentials> {
     Ok(RoleSecret::read(&file.display().to_string())?.credentials()?)
 }
 
+/// What [`Listing`] refuses with.
+const REFUSED: &str = "no";
+
 /// Answers a Members with no member, and refuses what else its endpoint serves as unavailable.
 #[derive(Debug, Clone, Copy)]
 struct Listing;
@@ -63,7 +70,7 @@ struct Listing;
 impl Session for Listing {
     async fn answer(&mut self, stream: u64, frame: ReceivedFrame) -> Answer {
         if frame.command() != Command::Members.number() {
-            return Answer::Refuse(ErrorReply::new(ErrorCode::Unavailable, "no"));
+            return Answer::Refuse(ErrorReply::new(ErrorCode::Unavailable, REFUSED));
         }
         let header = Header::new(CLUSTER, Command::Members)
             .with_stream(stream)
@@ -76,7 +83,7 @@ impl Session for Listing {
 }
 
 /// A server at `endpoint` listening at `text`; the address it holds.
-async fn serving(text: &str, endpoint: Endpoint) -> TestResult<Address> {
+pub(crate) async fn serving(text: &str, endpoint: Endpoint) -> TestResult<Address> {
     let listener = listen(text).await?;
     let address = listener.local_address()?;
     let server = Server::new(CLUSTER, "test", endpoint)?.with_iterations(ROLE_ITERATIONS);
@@ -91,7 +98,7 @@ async fn serving(text: &str, endpoint: Endpoint) -> TestResult<Address> {
     Ok(address)
 }
 
-fn refused_with(error: &TransportError) -> Option<ErrorCode> {
+pub(crate) fn refused_with(error: &TransportError) -> Option<ErrorCode> {
     if let TransportErrorEnum::Refused { code, .. } = &error.0 {
         Some(*code)
     } else {
@@ -312,7 +319,7 @@ fn test_a_connection_at_its_parked_bound_reads_nothing_and_goes_on_sending() -> 
 }
 
 /// A TCP address of this host that was free a moment ago.
-fn free_tcp() -> TestResult<String> {
+pub(crate) fn free_tcp() -> TestResult<String> {
     let port = std::net::TcpListener::bind("127.0.0.1:0")?
         .local_addr()?
         .port();
@@ -387,21 +394,88 @@ fn test_a_reply_its_request_does_not_list_is_refused() -> TestResult {
     })
 }
 
+/// Each field of every event logged at WARN, by name, as text.
+#[derive(Debug, Clone, Default)]
+struct Warnings(Arc<Mutex<Vec<(String, String)>>>);
+
+/// The fields of one event, appended to a list.
+struct Fields<'a>(&'a mut Vec<(String, String)>);
+
+impl Visit for Fields<'_> {
+    fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+        self.0
+            .push((field.name().to_string(), format!("{value:?}")));
+    }
+
+    fn record_str(&mut self, field: &Field, value: &str) {
+        self.0.push((field.name().to_string(), value.to_string()));
+    }
+}
+
+impl Subscriber for Warnings {
+    fn enabled(&self, metadata: &Metadata<'_>) -> bool {
+        *metadata.level() == Level::WARN
+    }
+
+    fn new_span(&self, _span: &Attributes<'_>) -> Id {
+        Id::from_u64(1)
+    }
+
+    fn record(&self, _span: &Id, _values: &Record<'_>) {}
+
+    fn record_follows_from(&self, _span: &Id, _follows: &Id) {}
+
+    fn event(&self, event: &Event<'_>) {
+        if let Ok(mut held) = self.0.lock() {
+            event.record(&mut Fields(&mut held));
+        }
+    }
+
+    fn enter(&self, _span: &Id) {}
+
+    fn exit(&self, _span: &Id) {}
+}
+
 /// A CloseRequest's stream ends with it, a refusal included (`PROTOCOL.md` §13.16): the refusal is dropped, so the reply
-/// read next is the next request's.
+/// read next is the next request's, and logged as a warning naming its code and its reason in a field of its own, apart from
+/// the event's message.
 #[test]
 fn test_a_refused_close_request_is_answered_by_nothing() -> TestResult {
-    bounded(async {
-        let address = serving(&free_tcp()?, Endpoint::Frontend).await?;
-        let mut client = RoleClient::dial(&address, CLUSTER, "storage", PASSWORD).await?;
-        client.send_only(&CloseRequest::new(1, 1)).await?;
-        let reply = client.request(&Members::new()).await?;
-        assert_eq!(
-            (reply.command(), reply.stream()),
-            (Command::Members.number(), 2)
-        );
-        Ok(())
-    })
+    let warnings = Warnings::default();
+    tracing::subscriber::with_default(warnings.clone(), || {
+        bounded(async {
+            let address = serving(&free_tcp()?, Endpoint::Frontend).await?;
+            let mut client = RoleClient::dial(&address, CLUSTER, "storage", PASSWORD).await?;
+            client.send_only(&CloseRequest::new(1, 1)).await?;
+            let reply = client.request(&Members::new()).await?;
+            assert_eq!(
+                (reply.command(), reply.stream()),
+                (Command::Members.number(), 2)
+            );
+            Ok(())
+        })
+    })?;
+    let held = warnings
+        .0
+        .lock()
+        .map_err(|_| TestError::new("a test holding the warnings failed"))?;
+    let field = |name: &str| {
+        held.iter()
+            .find(|(held, _)| held == name)
+            .map(|(_, value)| value.clone())
+    };
+    assert_eq!(
+        field("code"),
+        Some(ErrorCode::Unavailable.number().to_string())
+    );
+    assert_eq!(field("reason").as_deref(), Some(REFUSED));
+    // One field named `message` alone: the event's own, which a formatter writes as the line's text.
+    assert_eq!(
+        held.iter().filter(|(name, _)| name == "message").count(),
+        1,
+        "{held:?}"
+    );
+    Ok(())
 }
 
 /// A wrong secret and an unknown name are refused alike, and a command the endpoint does not serve by its rule.
@@ -625,5 +699,161 @@ fn test_a_split_client_writes_requests_and_shuts_down() -> TestResult {
         writer.shutdown().await;
         assert!(reader.next_frame().await.is_err(), "the connection ended");
         Ok(())
+    })
+}
+
+/// A client endpoint announces the Welcome its server makes; a role endpoint the protocol's largest frame in place of it.
+#[test]
+fn test_a_client_endpoint_announces_its_welcome_as_made() -> TestResult {
+    bounded(async {
+        let floor = MAX_FRAME_FLOOR as u32;
+        for (endpoint, max_frame) in [
+            (Endpoint::Client, floor),
+            (Endpoint::Partition, MAX_FRAME_SIZE as u32),
+        ] {
+            let listener = listen(&free_tcp()?).await?;
+            let address = listener.local_address()?;
+            let server = Server::new(CLUSTER, "test", endpoint)?
+                .with_iterations(ROLE_ITERATIONS)
+                .with_welcome(|welcome| welcome.with_max_frame(MAX_FRAME_FLOOR as u32));
+            let held = credentials()?;
+            spawn(async move {
+                if let Ok(carrier) = listener.accept().await {
+                    serve_connection(carrier, &server, held, Listing).await;
+                }
+            })
+            .detach();
+            let client = RoleClient::dial(&address, CLUSTER, "compute", PASSWORD).await?;
+            assert_eq!(client.welcome().max_frame(), max_frame, "{endpoint:?}");
+        }
+        Ok(())
+    })
+}
+
+/// A server answering unknown names from the metadata group's secret still refuses them as it refuses a wrong secret.
+#[test]
+fn test_an_unknown_name_is_refused_under_the_groups_secret() -> TestResult {
+    bounded(async {
+        let listener = listen(&free_tcp()?).await?;
+        let address = listener.local_address()?;
+        let server = Server::new(CLUSTER, "test", Endpoint::Frontend)?
+            .with_iterations(ROLE_ITERATIONS)
+            .with_unknown_secret([7; 32]);
+        let held = credentials()?;
+        spawn(async move {
+            if let Ok(carrier) = listener.accept().await {
+                serve_connection(carrier, &server, held, Listing).await;
+            }
+        })
+        .detach();
+        let refused = RoleClient::dial(&address, CLUSTER, "intruder", PASSWORD)
+            .await
+            .err()
+            .context("a refusal")?;
+        assert_eq!(
+            refused_with(&refused),
+            Some(ErrorCode::AuthenticationFailed),
+            "{refused}"
+        );
+        Ok(())
+    })
+}
+
+/// A frame the test hands a session to push, and its stream.
+type Pushed = Rc<RefCell<Option<(u64, Vec<u8>)>>>;
+
+/// Leaves every hook but its answers and pushes at the default: replies to its first Scan with one Entries frame of more
+/// to come, ends every later Scan with nothing, refuses a Closed as unavailable, and pushes what the test puts in `push`.
+#[derive(Debug)]
+struct Defaulted {
+    scans: u32,
+    push: Pushed,
+}
+
+impl Session for Defaulted {
+    async fn answer(&mut self, stream: u64, frame: ReceivedFrame) -> Answer {
+        if frame.command() == Command::Closed.number() {
+            return Answer::Refuse(ErrorReply::new(ErrorCode::Unavailable, "a probe"));
+        }
+        self.scans += 1;
+        if self.scans > 1 {
+            return Answer::Done;
+        }
+        let header = Header::new(CLUSTER, Command::Entries).with_stream(stream);
+        Entries::new(0, EntriesEnd::More, 0)
+            .frame(header)
+            .map_or_else(
+                |rule| Answer::Refuse(ErrorReply::protocol(&rule)),
+                Answer::Reply,
+            )
+    }
+
+    async fn next_push(&mut self) -> (u64, Vec<u8>) {
+        loop {
+            if let Some(pushed) = self.push.borrow_mut().take() {
+                return pushed;
+            }
+            compio::time::sleep(Duration::from_millis(1)).await;
+        }
+    }
+}
+
+/// The refusal of a Closed, once every frame sent before it has been taken: the frame read next is that refusal, and not a
+/// frame of another stream.
+async fn probed(client: &mut RoleClient) -> TestResult {
+    let refused = client
+        .request(&Closed::request(&[1]))
+        .await
+        .err()
+        .context("a refusal")?;
+    assert_eq!(
+        refused_with(&refused),
+        Some(ErrorCode::Unavailable),
+        "{refused}"
+    );
+    Ok(())
+}
+
+/// A session needs no hook beyond its answers: a stream it leaves open runs on its credit and ends at the peer's Cancel,
+/// after which a push to it goes nowhere, and a stream it answers as done sends nothing.
+#[test]
+fn test_a_session_at_its_defaults_ends_cancelled_and_done_streams() -> TestResult {
+    bounded(async {
+        let listener = listen(&free_tcp()?).await?;
+        let address = listener.local_address()?;
+        let server = Server::new(CLUSTER, "test", Endpoint::Partition)?
+            .with_iterations(ROLE_ITERATIONS)
+            .with_welcome(|welcome| welcome.with_initial_credit(1));
+        let held = credentials()?;
+        let push: Pushed = Rc::new(RefCell::new(None));
+        let session = Defaulted {
+            scans: 0,
+            push: Rc::clone(&push),
+        };
+        spawn(async move {
+            if let Ok(carrier) = listener.accept().await {
+                serve_connection(carrier, &server, held, session).await;
+            }
+        })
+        .detach();
+        let mut client = RoleClient::dial(&address, CLUSTER, "compute", PASSWORD).await?;
+        let mut scan = Scan::new(ScanAt::Latest, 0, 0, 1, [0; 16], 0, 0);
+        scan.push_range(ScanRange::new(1, b"a", b""));
+        client.send_only(&scan).await?;
+        let stream = client.last_stream();
+        assert_eq!(next_entries(&mut client).await?, (0, false));
+        client.send_on(stream, &Credit::new(1)).await?;
+        client.send_on(stream, &Cancel).await?;
+        probed(&mut client).await?;
+        let header = Header::new(CLUSTER, Command::Entries).with_stream(stream);
+        let late = Entries::new(1, EntriesEnd::Ended, 0).frame(header.with_flags(FLAG_LAST))?;
+        *push.borrow_mut() = Some((stream, late));
+        while push.borrow().is_some() {
+            compio::time::sleep(Duration::from_millis(1)).await;
+        }
+        client.send_only(&scan).await?;
+        // Each answer read next is the probe's own: nothing came on the cancelled stream, nor on the one done.
+        probed(&mut client).await?;
+        probed(&mut client).await
     })
 }

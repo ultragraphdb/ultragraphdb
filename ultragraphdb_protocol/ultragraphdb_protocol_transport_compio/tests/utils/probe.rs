@@ -4,9 +4,10 @@
  */
 
 //! A simulated stream that counts what is asked of it: the bytes written, the flushes and the shutdowns, its two halves
-//! counting together.
+//! counting together; and that fails its reads or writes, or reads bytes no TLS peer sends, when the test switches it to.
 
 use std::cell::Cell;
+use std::io::ErrorKind;
 use std::rc::Rc;
 
 use compio::BufResult;
@@ -32,7 +33,16 @@ pub struct Probed {
     pub flushes: Cell<u32>,
     /// The shutdowns.
     pub shutdowns: Cell<u32>,
+    /// Reads fail with `ConnectionReset`.
+    pub fail_reads: Cell<bool>,
+    /// Writes and flushes fail with `BrokenPipe`.
+    pub fail_writes: Cell<bool>,
+    /// Reads give [`GARBAGE`], which is no TLS record.
+    pub garbage: Cell<bool>,
 }
+
+/// A record header of content type 0xFF, which TLS does not define.
+pub const GARBAGE: [u8; 5] = [0xFF, 0x03, 0x03, 0x00, 0x01];
 
 /// A simulated stream counting into `probed`.
 #[derive(Debug)]
@@ -50,12 +60,22 @@ impl Probe {
 
 impl AsyncRead for Probe {
     async fn read<B: IoBufMut>(&mut self, buf: B) -> BufResult<usize, B> {
+        if self.probed.fail_reads.get() {
+            return BufResult(Err(ErrorKind::ConnectionReset.into()), buf);
+        }
+        if self.probed.garbage.get() {
+            let mut source: &[u8] = &GARBAGE;
+            return source.read(buf).await;
+        }
         self.inner.read(buf).await
     }
 }
 
 impl AsyncWrite for Probe {
     async fn write<T: IoBuf>(&mut self, buf: T) -> BufResult<usize, T> {
+        if self.probed.fail_writes.get() {
+            return BufResult(Err(ErrorKind::BrokenPipe.into()), buf);
+        }
         let BufResult(written, buf) = self.inner.write(buf).await;
         if let Ok(n) = written {
             self.probed.written.set(self.probed.written.get() + n);
@@ -65,6 +85,9 @@ impl AsyncWrite for Probe {
 
     async fn flush(&mut self) -> std::io::Result<()> {
         self.probed.flushes.set(self.probed.flushes.get() + 1);
+        if self.probed.fail_writes.get() {
+            return Err(ErrorKind::BrokenPipe.into());
+        }
         self.inner.flush().await
     }
 

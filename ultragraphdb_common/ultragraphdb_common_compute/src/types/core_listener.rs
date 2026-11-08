@@ -28,6 +28,8 @@ impl CoreListener {
     /// Listens at the role address `text`, a Unix socket a process before this one left behind replaced, a new one set to mode
     /// 0600.
     ///
+    /// A future dropped at the TCP address's retries leaves nothing bound.
+    ///
     /// # Errors
     ///
     /// [`RoleError::configuration`] for an address that does not parse or a socket that cannot be made at its path;
@@ -72,6 +74,7 @@ impl CoreListener {
 
 /// A Unix socket at `path`, of the address `text`.
 fn bind_unix(text: &str, path: &str) -> Result<UnixListener, RoleError> {
+    // A closure takes no type parameter, so it takes each error as a trait object (Ultra rules 1 and 9).
     let refused = |why: &dyn std::fmt::Display| {
         RoleError::configuration(format!(
             "listening at {text}: {why}. The directory of {path} must exist and be writable by this process's user, and no file stand there"

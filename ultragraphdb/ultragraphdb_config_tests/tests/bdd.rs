@@ -9,7 +9,7 @@
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus, Output};
+use std::process::{Command, ExitStatus, Output, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
@@ -937,14 +937,92 @@ fn download_none_active(w: &mut Steps) -> TestResult {
 
 /// Runs the CLI's restore with `token` into `folder` of this scenario, holding its output.
 fn restore(w: &mut Steps, url: &str, token: &str) -> TestResult {
+    restore_with(w, url, token, &[], &[])
+}
+
+/// As [`restore`], with `more` arguments after the folder and `environment` set.
+fn restore_with(
+    w: &mut Steps,
+    url: &str,
+    token: &str,
+    more: &[&str],
+    environment: &[(&str, &str)],
+) -> TestResult {
     let folder = w.folder.join("restored");
     w.output = Some(
         Command::new(Path::new(ROOT_PATH).join(CLI))
             .args(["restore", url, token])
             .arg(&folder)
+            .args(more)
             .env_clear()
+            .envs(environment.iter().copied())
             .output()?,
     );
+    Ok(())
+}
+
+/// The connection a restore opens to `listener`, waited for within the start's bound.
+fn accepted(listener: &std::net::TcpListener) -> TestResult<TcpStream> {
+    for _ in 0..START_SECONDS * 100 {
+        match listener.accept() {
+            Ok((stream, _)) => return Ok(stream),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Err(TestError::new("the restore never connected"))
+}
+
+/// A restore of a server standing in for a config service, run while this thread answers its connections in order, one reply
+/// each, a status and a body; the stand-in's URL is held in `graph`.
+fn restore_from_stand_in(w: &mut Steps, replies: Vec<(u16, Vec<u8>)>) -> TestResult {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+    listener.set_nonblocking(true)?;
+    w.graph = format!("http://{}", listener.local_addr()?);
+    let restoring = Command::new(Path::new(ROOT_PATH).join(CLI))
+        .args(["restore", &w.graph, ADMIN_KEY])
+        .arg(w.folder.join("restored"))
+        .env_clear()
+        .stdout(Stdio::piped())
+        .spawn()?;
+    for (status, body) in replies {
+        let mut stream = accepted(&listener)?;
+        stream.set_nonblocking(false)?;
+        // A request's head, read to its end within a bound: the restore sends no body.
+        let mut head = Vec::new();
+        let mut chunk = [0; 1024];
+        while !head.windows(4).any(|window| window == b"\r\n\r\n") && head.len() < 16 * 1024 {
+            let count = stream.read(&mut chunk)?;
+            if count == 0 {
+                break;
+            }
+            head.extend_from_slice(chunk.get(..count).context("the bytes read")?);
+        }
+        let reply = format!(
+            "HTTP/1.1 {status} Stand-in\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        stream.write_all(reply.as_bytes())?;
+        stream.write_all(&body)?;
+        stream.shutdown(Shutdown::Write)?;
+    }
+    w.output = Some(restoring.wait_with_output()?);
+    Ok(())
+}
+
+/// The listing a stand-in answers for target `ci` at `revision`, active at `revision`.
+fn listing_of(revision: &str) -> Vec<u8> {
+    format!("ci latest {revision} active {revision}\n").into_bytes()
+}
+
+/// That the restore's output says `words`, with `code`, and wrote no folder.
+fn restore_refused_with(w: &Steps, code: i32, words: &[&str]) -> TestResult {
+    let (text, exited) = cli_text(w)?;
+    assert_eq!(exited, code, "{text}");
+    says(&text, words);
+    assert!(!w.folder.join("restored").exists());
     Ok(())
 }
 
@@ -1104,6 +1182,153 @@ fn restore_unreachable(w: &mut Steps) -> TestResult {
     let (text, code) = cli_text(w)?;
     assert_eq!(code, 69, "{text}");
     says(&text, &[&w.graph]);
+    Ok(())
+}
+
+/// A listing line naming no target, as a stand-in answers it.
+const NO_TARGET: &str = "no target is named here";
+/// A revision that is no number.
+const WORDED_REVISION: &str = "two";
+/// The status and body of a stand-in failing.
+const FAILED_STATUS: u16 = 500;
+const FAILED_SAID: &str = "the stand-in failed";
+/// A trust file that does not exist.
+const NO_TRUST_FILE: &str = "/nonexistent/ultragraphdb/trust.pem";
+
+#[when("a service's one target is retired and a restore is run")]
+fn restore_all_retired(w: &mut Steps) -> TestResult {
+    prepare(w)?;
+    let _pid = start_serving(w)?;
+    assert_eq!(
+        ask(ADMIN_KEY, "DELETE", "/v1/targets/ci", b"")?.status(),
+        200
+    );
+    restore(w, &format!("http://{ADDRESS}"), ADMIN_KEY)
+}
+
+#[then(
+    "it exits with code 78 saying the service holds no target but retired ones, and no folder appears"
+)]
+fn restore_nothing_held(w: &mut Steps) -> TestResult {
+    restore_refused_with(w, 78, &["holds no target but retired ones", ADDRESS])
+}
+
+#[when("a restore reads a listing holding a line that names no target")]
+fn restore_listing_wrong(w: &mut Steps) -> TestResult {
+    prepare(w)?;
+    restore_from_stand_in(w, vec![(200, format!("{NO_TARGET}\n").into_bytes())])
+}
+
+#[then("it exits with code 78 naming the URL and the line, and no folder appears")]
+fn restore_listing_refused(w: &mut Steps) -> TestResult {
+    let url = w.graph.clone();
+    restore_refused_with(w, 78, &[&url, NO_TARGET])
+}
+
+#[when("a restore reads a listing naming revision `two` of target `ci`")]
+fn restore_revision_worded(w: &mut Steps) -> TestResult {
+    prepare(w)?;
+    restore_from_stand_in(w, vec![(200, listing_of(WORDED_REVISION))])
+}
+
+#[then("it exits with code 78 naming `two` as the revision, and no folder appears")]
+fn restore_revision_refused(w: &mut Steps) -> TestResult {
+    restore_refused_with(w, 78, &[&format!("{WORDED_REVISION} as a revision")])
+}
+
+#[when("a restore's listing is answered with status 500")]
+fn restore_failed_status(w: &mut Steps) -> TestResult {
+    prepare(w)?;
+    restore_from_stand_in(w, vec![(FAILED_STATUS, FAILED_SAID.as_bytes().to_vec())])
+}
+
+#[then(
+    "it exits with code 78 naming the URL, the status and what the server said, and no folder appears"
+)]
+fn restore_status_refused(w: &mut Steps) -> TestResult {
+    let url = w.graph.clone();
+    restore_refused_with(
+        w,
+        78,
+        &[&url, &format!("status {FAILED_STATUS}"), FAILED_SAID],
+    )
+}
+
+#[when("a restore reads a revision of target `ci` whose `storage` lacks `data_dir`")]
+fn restore_refused_settings(w: &mut Steps) -> TestResult {
+    prepare(w)?;
+    let revision = bundle(&STORAGE.replace("data_dir = \"/data\"\n", ""), COMPUTE);
+    restore_from_stand_in(w, vec![(200, listing_of("1")), (200, revision)])
+}
+
+#[then("it exits with code 78 naming the central file it wrote and `storage.data_dir`")]
+fn restore_settings_refused(w: &mut Steps) -> TestResult {
+    let (text, code) = cli_text(w)?;
+    assert_eq!(code, 78, "{text}");
+    let central = w.folder.join("restored").join("targets.toml");
+    says(
+        &text,
+        &[
+            &central.display().to_string(),
+            "this release refuses it",
+            "storage.data_dir",
+        ],
+    );
+    assert!(central.is_file());
+    Ok(())
+}
+
+#[when("a restore names an `https` URL and `--ca-file` naming no file")]
+fn restore_trust_named(w: &mut Steps) -> TestResult {
+    prepare(w)?;
+    restore_with(
+        w,
+        &format!("https://{ADDRESS}"),
+        ADMIN_KEY,
+        &["--ca-file", NO_TRUST_FILE],
+        &[],
+    )
+}
+
+#[when("a restore names an `https` URL with `SSL_CERT_FILE` naming no file")]
+fn restore_trust_system(w: &mut Steps) -> TestResult {
+    prepare(w)?;
+    restore_with(
+        w,
+        &format!("https://{ADDRESS}"),
+        ADMIN_KEY,
+        &[],
+        &[("SSL_CERT_FILE", NO_TRUST_FILE)],
+    )
+}
+
+#[then("it exits with code 78 naming the trust file, and no folder appears")]
+fn restore_trust_refused(w: &mut Steps) -> TestResult {
+    restore_refused_with(w, 78, &[NO_TRUST_FILE])
+}
+
+#[when("an administrator runs `ultragraphdb_config_cli` with no argument")]
+fn cli_bare(w: &mut Steps) -> TestResult {
+    w.output = Some(
+        Command::new(Path::new(ROOT_PATH).join(CLI))
+            .env_clear()
+            .output()?,
+    );
+    Ok(())
+}
+
+#[then("it prints both forms of its command line and exits with code 64")]
+fn cli_usage(w: &mut Steps) -> TestResult {
+    let (text, code) = cli_text(w)?;
+    assert_eq!(code, 64, "{text}");
+    says(
+        &text,
+        &[
+            "usage:",
+            &format!("{CLI} <central file>"),
+            &format!("{CLI} restore <url>"),
+        ],
+    );
     Ok(())
 }
 

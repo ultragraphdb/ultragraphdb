@@ -14,14 +14,17 @@ use ultragraphdb_protocol_wire::{ErrorCode, ErrorReply, FLAG_LAST, HeaderView, M
 
 use crate::types::core_message::{CoreMessage, Pushes};
 
-/// One connection at a partition's role address: every request goes to its core's task, which owns the partition.
+/// One connection at a partition's role address: every request goes to its core's task, which owns the partition. What it
+/// sends the core is bounded by the connection: one request at a time, whose answer it waits for before reading the next
+/// frame, and one note of a stream's room, end, cancel or of its own close per stream or connection.
 #[derive(Debug)]
 pub struct StorageSession {
     connection: u64,
     core: UnboundedSender<CoreMessage>,
     pushes: Pushes,
     pushed: UnboundedReceiver<(u64, Vec<u8>)>,
-    /// Pushes taken off their channel by a look at what waits to leave, in order and ahead of the channel's.
+    /// Pushes taken off their channel by a look at what waits to leave, in order and ahead of the channel's, so the
+    /// channel's bound is its bound too.
     looked_at: VecDeque<(u64, Vec<u8>)>,
     parked: ParkedBytes,
     max_frame: u32,
@@ -32,6 +35,9 @@ impl StorageSession {
     /// the connection stops reading.
     #[must_use]
     pub fn new(connection: u64, core: UnboundedSender<CoreMessage>, held_bytes: usize) -> Self {
+        // The core pushes at most one frame a stream before that frame has left: a Scan's next waits for its Ready, and a
+        // request left open is answered by one frame. The connection's streams, at most its Welcome's `max_streams`, so
+        // bound the channel's length.
         let (pushes, pushed) = unbounded();
         let parked = ParkedBytes::new(held_bytes);
         // A core gone holds nothing to park.
@@ -46,7 +52,7 @@ impl StorageSession {
             pushed,
             looked_at: VecDeque::new(),
             parked,
-            max_frame: MAX_FRAME_FLOOR as u32,
+            max_frame: MAX_FRAME_FLOOR as u32, // 2^19, lossless
         }
     }
 
@@ -64,6 +70,7 @@ impl StorageSession {
 }
 
 impl Session for StorageSession {
+    /// A future dropped at the answer leaves the request with the core, which runs it and finds its answer's receiver gone.
     async fn answer(&mut self, stream: u64, frame: ReceivedFrame) -> Answer {
         let (done, answer) = oneshot::channel();
         let handed = self.core.unbounded_send(CoreMessage::Request {
@@ -95,6 +102,7 @@ impl Session for StorageSession {
         Some(self.parked.clone())
     }
 
+    /// A future dropped at its wait leaves the channel as it was, and the next call takes what came meanwhile.
     async fn next_push(&mut self) -> (u64, Vec<u8>) {
         if let Some(pushed) = self.looked_at.pop_front() {
             return pushed;

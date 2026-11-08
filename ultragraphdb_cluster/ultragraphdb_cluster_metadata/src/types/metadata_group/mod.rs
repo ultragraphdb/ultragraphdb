@@ -88,6 +88,9 @@ impl<L: OrderedLog> MetadataGroup<L> {
     /// [`ClusterError::log`] carrying the log's refusal; a failed sync poisons the log, so every later append fails;
     /// the refusal of [`MetadataState::apply`](crate::MetadataState::apply) when a durable command does not apply as it
     /// did when decided, a bug.
+    ///
+    /// A future dropped at the log's sync leaves the staged commands staged and the state reads answer from unchanged;
+    /// a later `sync` applies them.
     pub async fn sync(&mut self) -> Result<Position, ClusterError> {
         let durable = self.log.sync().await?;
         // Each staged command became durable in log order; the staged are bounded by the log's capacity.
@@ -143,7 +146,7 @@ impl<L: OrderedLog> MetadataGroup<L> {
             }
             .encode(&mut round);
             let _chunk: Position = append_body(&mut self.log, &round)?;
-            // At most COMMAND_BYTES_MAX, so the offset cannot overflow.
+            // At most COMMAND_BYTES_MAX, so the cast is lossless and the offset cannot overflow.
             offset += piece.len() as u64;
         }
         round.clear();

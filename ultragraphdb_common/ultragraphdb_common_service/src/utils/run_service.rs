@@ -22,6 +22,7 @@ use ultragraphdb_error_role::RoleError;
 use ultragraphdb_transport_http_server::{BearerKey, HttpLimits, serve_http, serve_listener};
 use ultragraphdb_transport_tls::{CertificateChainFile, PrivateKeyFile, TlsAcceptor};
 
+use crate::types::accept_pace::AcceptPace;
 use crate::types::admin_service::AdminService;
 use crate::types::bootstrap::{Bootstrap, PARENT_PID, REVISION, parsed};
 use crate::types::cpu_binding::CpuBinding;
@@ -136,6 +137,7 @@ Exit codes:
 /// Executes this binary again in this process, so a supervisor sees no exit, starting at `revision`: what comes back is why it
 /// could not. Every descriptor this process holds closes on the execution.
 fn restart_at(revision: u64) -> RoleError {
+    // A closure takes no type parameter, so it takes each error as a trait object (Ultra rules 1 and 9).
     let failed = |why: &dyn std::fmt::Display| {
         RoleError::unavailable(format!("restarting at revision {revision}: {why}"))
     };
@@ -151,6 +153,9 @@ fn restart_at(revision: u64) -> RoleError {
 
 /// Serves `/health` and `/ready` for the role `kind`, and `/admin/load-config` when its settings name that listener, and runs
 /// `role`, which sets its readiness, until `stop` is set, a load is taken, or `role` fails.
+///
+/// A future dropped while it binds its listeners leaves those already bound serving on their detached tasks; one dropped
+/// once `role` has started leaves `role` running on its task as well, never told to stop: each ends with the runtime.
 ///
 /// # Errors
 ///
@@ -191,6 +196,8 @@ where
     let outcome = Rc::clone(&ended);
     spawn(async move { outcome.set(Some(working.await)) }).detach();
     let mut served = false;
+    // An event loop: the stop signal, a load the admin endpoint asked for, or the role's failure ends it (Ultra
+    // rule 2). An `Acquire` load of `stop` suffices: the flag orders no other memory.
     while !stop.load(Ordering::Acquire) && load.get().is_none() {
         match ended.take() {
             Some(Err(error)) => return Err(error),
@@ -222,6 +229,7 @@ where
 }
 
 /// The code the process exits with after `outcome`, its refusal printed where an operator reads it.
+#[must_use]
 pub fn exit_status(outcome: Result<(), RoleError>) -> ExitCode {
     match outcome {
         Ok(()) => ExitCode::SUCCESS,
@@ -276,6 +284,8 @@ fn watch_parent(parent: u32, stop: Arc<AtomicBool>) -> Result<(), RoleError> {
     let spawned = std::thread::Builder::new()
         .name("parent".to_string())
         .spawn(move || {
+            // Polls until the parent is gone or the service stops: a parent's death sends this process no signal
+            // (Ultra rule 2). Its `Release` store pairs with the service's `Acquire` loads of `stop`.
             while std::os::unix::process::parent_id() == parent && !stop.load(Ordering::Acquire) {
                 std::thread::sleep(PARENT_POLL);
             }
@@ -350,21 +360,21 @@ pub fn binding(
     }
 }
 
-/// Answers every connection on its own task; a failed accept costs that connection alone.
+/// Answers every connection on its own task; a failed accept costs that connection alone, and failures in a row pause as
+/// [`AcceptPace`] says. A dropped future stops accepting, and the connections accepted go on, each on its task.
 async fn accept(listener: TcpListener, service: HealthService) {
     let limits = HttpLimits::new(0, REQUEST_TIME);
+    let mut pace = AcceptPace::default();
+    // An event loop: it accepts for as long as its runtime runs, which ends with the service (Ultra rule 2).
     loop {
-        match listener.accept().await {
-            Ok((stream, _peer)) => {
-                let service = service.clone();
-                spawn(async move { serve_http(stream, &limits, &service).await }).detach();
-            }
-            Err(error) => tracing::warn!(%error, "a health connection was not accepted"),
-        }
+        let (stream, _peer) = pace.accept("health", || listener.accept()).await;
+        let service = service.clone();
+        spawn(async move { serve_http(stream, &limits, &service).await }).detach();
     }
 }
 
-/// Listens at `[admin] address`, when the settings name it, for a load.
+/// Listens at `[admin] address`, when the settings name it, for a load. A future dropped at its listen leaves nothing
+/// serving, since the listener is spawned only once bound, and at most a socket file that the next listen replaces.
 async fn serve_admin(
     config: &ServiceConfig,
     bootstrap: &Bootstrap,
@@ -374,6 +384,7 @@ async fn serve_admin(
     let Some(address) = table.address() else {
         return Ok(());
     };
+    // A closure takes no type parameter, so it takes each error as a trait object (Ultra rules 1 and 9).
     let refused = |error: &dyn std::fmt::Display| RoleError::configuration(error.to_string());
     let digest = table
         .key_sha256()

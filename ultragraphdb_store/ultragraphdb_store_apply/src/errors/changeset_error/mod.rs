@@ -126,6 +126,7 @@ pub struct ChangesetError(pub ChangesetErrorEnum);
 
 impl ChangesetError {
     /// A literal of `predicate` that cannot be encoded, for `error`.
+    #[must_use]
     pub fn literal(predicate: &str, error: TermError) -> Self {
         Self(ChangesetErrorEnum::Literal {
             predicate: predicate.to_string(),
@@ -134,6 +135,7 @@ impl ChangesetError {
     }
 
     /// A unique `predicate`'s `value` that `holder` already holds.
+    #[must_use]
     pub fn unique(predicate: &str, value: String, holder: String) -> Self {
         Self(ChangesetErrorEnum::Unique {
             predicate: predicate.to_string(),
@@ -143,6 +145,7 @@ impl ChangesetError {
     }
 
     /// A declaration of `predicate` that `subject`'s data contradicts, as `reason` states.
+    #[must_use]
     pub fn contradicted(predicate: &str, subject: String, reason: &str) -> Self {
         Self(ChangesetErrorEnum::Contradicted {
             predicate: predicate.to_string(),
@@ -152,6 +155,7 @@ impl ChangesetError {
     }
 
     /// A declaration of `predicate` refused while a build runs.
+    #[must_use]
     pub fn rebuilding(predicate: &str) -> Self {
         Self(ChangesetErrorEnum::Rebuilding {
             predicate: predicate.to_string(),
@@ -159,6 +163,7 @@ impl ChangesetError {
     }
 
     /// Vector index options `factory` refuses, for `error`.
+    #[must_use]
     pub fn vector_option(factory: &str, error: String) -> Self {
         Self(ChangesetErrorEnum::VectorOption {
             factory: factory.to_string(),
@@ -167,16 +172,19 @@ impl ChangesetError {
     }
 
     /// A statement past `limit`, `statements_per_object_max`, the statement IDs one object holds.
+    #[must_use]
     pub fn statements_per_object(limit: usize) -> Self {
         Self(ChangesetErrorEnum::StatementsPerObject { limit })
     }
 
     /// A failed compare-and-set or counter add, `found` the value held.
+    #[must_use]
     pub fn operation_failed(found: Option<String>) -> Self {
         Self(ChangesetErrorEnum::OperationFailed { found })
     }
 
     /// An insert-if-absent or upsert-and-link on `predicate`, which is not declared unique.
+    #[must_use]
     pub fn not_unique(predicate: &str) -> Self {
         Self(ChangesetErrorEnum::NotUnique {
             predicate: predicate.to_string(),
@@ -184,6 +192,7 @@ impl ChangesetError {
     }
 
     /// A vector of dimension `written` for `predicate`, whose index declares `declared`.
+    #[must_use]
     pub fn dimension(predicate: &str, declared: usize, written: usize) -> Self {
         Self(ChangesetErrorEnum::Dimension {
             predicate: predicate.to_string(),
@@ -193,6 +202,7 @@ impl ChangesetError {
     }
 
     /// A vector index on `predicate` declared without its dimension.
+    #[must_use]
     pub fn no_dimension(predicate: &str) -> Self {
         Self(ChangesetErrorEnum::NoDimension {
             predicate: predicate.to_string(),
@@ -200,6 +210,7 @@ impl ChangesetError {
     }
 
     /// A vector search or index pass on `predicate`, which declares no vector index.
+    #[must_use]
     pub fn no_vector_index(predicate: &str) -> Self {
         Self(ChangesetErrorEnum::NoVectorIndex {
             predicate: predicate.to_string(),
@@ -207,6 +218,7 @@ impl ChangesetError {
     }
 
     /// An index lookup of `predicate` by `tokenizer`, an index the catalog does not declare on it.
+    #[must_use]
     pub fn no_index(predicate: &str, tokenizer: &str) -> Self {
         Self(ChangesetErrorEnum::NoIndex {
             predicate: predicate.to_string(),

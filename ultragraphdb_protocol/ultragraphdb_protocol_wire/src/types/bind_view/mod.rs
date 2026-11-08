@@ -24,11 +24,13 @@ pub struct BindView<'a> {
 
 impl BindView<'_> {
     /// The partition bound to.
+    #[must_use]
     pub fn partition(&self) -> u32 {
         self.partition
     }
 
     /// What is bound.
+    #[must_use]
     pub fn kind(&self) -> BindKind {
         self.kind
     }
@@ -39,21 +41,25 @@ impl BindView<'_> {
     }
 
     /// The version the transaction reads at; 0 as sent and for a Drop.
+    #[must_use]
     pub fn read_version(&self) -> u64 {
         self.read_version
     }
 
     /// The client's token's epoch; 0 for none.
+    #[must_use]
     pub fn epoch(&self) -> u64 {
         self.epoch
     }
 
     /// The client's principal.
+    #[must_use]
     pub fn principal(&self) -> u64 {
         self.principal
     }
 
     /// The transaction's identity.
+    #[must_use]
     pub fn transaction(&self) -> [u8; 16] {
         self.transaction
     }

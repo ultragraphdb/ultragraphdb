@@ -57,6 +57,7 @@ pub(crate) mod tag {
 
 /// The length of an IRI's or a blank node's encoding: the tag and the ID's 16 bytes.
 const ID_LEN: usize = 1 + SystemId::BYTES;
+const _: () = assert!(ID_LEN <= 255, "an inline encoding's length is a u8");
 
 /// The longest lexical form or language tag held inline; a longer one is hashed.
 pub const INLINE_MAX: usize = 15;
@@ -79,6 +80,7 @@ enum Repr {
 
 impl EncodedTerm {
     /// The encoding of the IRI or blank node `id` names: the tag and the ID's 16 big-endian bytes.
+    #[must_use]
     pub fn id(id: SystemId) -> Self {
         let mut bytes = [0u8; ENCODED_MAX];
         let (tag_byte, rest) = bytes.split_at_mut(1);
@@ -87,7 +89,7 @@ impl EncodedTerm {
             *payload = id.to_be_bytes();
         }
         Self(Repr::Inline {
-            len: ID_LEN as u8,
+            len: ID_LEN as u8, // lossless: ID_LEN is at most 255, asserted beside it
             bytes,
         })
     }
@@ -220,6 +222,7 @@ impl EncodedTerm {
     }
 
     /// The system ID it names, when it encodes an IRI or a blank node whose ID is valid.
+    #[must_use]
     pub fn as_id(&self) -> Option<SystemId> {
         match self.as_bytes().split_first() {
             Some((&tag::ID, payload)) => SystemId::decode(payload).ok(),

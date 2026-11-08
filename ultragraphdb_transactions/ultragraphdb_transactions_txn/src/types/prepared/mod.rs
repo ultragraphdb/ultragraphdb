@@ -95,6 +95,7 @@ impl Prepared {
     }
 
     /// Whether the proposal is a frame holding what it does ([`Prepared::with_one_frame`]).
+    #[must_use]
     pub fn is_one_frame(&self) -> bool {
         self.one_frame
     }
@@ -244,6 +245,7 @@ impl Prepared {
     }
 
     /// The session token the transaction carries, `None` for none.
+    #[must_use]
     pub fn token(&self) -> Option<&SessionToken> {
         self.token.as_ref()
     }
@@ -251,6 +253,7 @@ impl Prepared {
     /// The epoch the transaction's commit may be stamped at, at the earliest: one above the latest close a home's reply
     /// to one of its registrations named (partitions, "A registration's epoch is at most the epoch of every write
     /// referencing it"); `None` for a transaction that relied on no reply.
+    #[must_use]
     pub fn epoch_floor(&self) -> Option<Epoch> {
         self.epoch_floor
     }

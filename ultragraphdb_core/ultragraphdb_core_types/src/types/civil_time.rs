@@ -19,6 +19,7 @@ pub struct CivilTime {
 
 impl CivilTime {
     /// The civil time of the given year, month, day, hour, minute, second and nanosecond.
+    #[must_use]
     pub const fn new(
         year: i64,
         month: i64,

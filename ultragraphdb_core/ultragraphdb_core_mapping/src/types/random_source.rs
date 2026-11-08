@@ -18,6 +18,7 @@ pub struct RandomSource {
 
 impl RandomSource {
     /// The source seeded with `seed`.
+    #[must_use]
     pub fn new(seed: u64) -> Self {
         Self { state: seed }
     }
@@ -51,6 +52,8 @@ impl RandomSource {
         let threshold = bound.wrapping_neg() % bound;
         for _ in 0..BELOW_DRAWS_MAX {
             let product = u128::from(self.next_u64()) * u128::from(bound);
+            // The first cast keeps the product's low 64 bits, the truncation Lemire's method reads; the second takes
+            // the high 64 bits, which the shift leaves below 2^64, so it loses nothing.
             if (product as u64) >= threshold {
                 let value = (product >> 64) as u64;
                 debug_assert!(value < bound, "a draw lies below its bound");

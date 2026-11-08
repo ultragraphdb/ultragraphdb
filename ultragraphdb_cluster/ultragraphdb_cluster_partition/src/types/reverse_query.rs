@@ -21,6 +21,7 @@ pub struct ReverseQuery {
 
 impl ReverseQuery {
     /// The reverse read of `object`, homed in `home`, through `predicate` in `graph` of `tenant` at `epoch`.
+    #[must_use]
     pub fn new(
         home: PartitionId,
         tenant: u64,
@@ -40,31 +41,37 @@ impl ReverseQuery {
     }
 
     /// The object's home.
+    #[must_use]
     pub fn home(&self) -> PartitionId {
         self.home
     }
 
     /// The tenant.
+    #[must_use]
     pub fn tenant(&self) -> u64 {
         self.tenant
     }
 
     /// The graph.
+    #[must_use]
     pub fn graph(&self) -> Graph {
         self.graph
     }
 
     /// The predicate.
+    #[must_use]
     pub fn predicate(&self) -> SystemId {
         self.predicate
     }
 
     /// The object.
+    #[must_use]
     pub fn object(&self) -> SystemId {
         self.object
     }
 
     /// The closed epoch the read is at.
+    #[must_use]
     pub fn epoch(&self) -> Epoch {
         self.epoch
     }

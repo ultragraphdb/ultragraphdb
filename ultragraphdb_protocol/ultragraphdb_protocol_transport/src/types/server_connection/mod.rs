@@ -102,12 +102,14 @@ impl<A: Authenticator> ServerConnection<A> {
 
     /// The connection past its endpoint's bound of `limit` connections: its Hello is answered with an Error of code 15,
     /// `detail` the bound, in place of the Welcome, and it closes (`PROTOCOL.md` §11.1).
+    #[must_use]
     pub fn past_connection_bound(mut self, limit: u64) -> Self {
         self.refused_at_hello = Some(limit);
         self
     }
 
     /// The connection taking the requests `endpoint` serves, [`Endpoint::Client`]'s by default.
+    #[must_use]
     pub fn with_endpoint(mut self, endpoint: Endpoint) -> Self {
         self.endpoint = endpoint;
         self
@@ -318,7 +320,7 @@ impl<A: Authenticator> ServerConnection<A> {
                 let protocol = welcome.protocol();
                 // The handshake took this frame as a Hello, so its view reads; the floor is what every client takes.
                 let max_frame = HelloView::from_frame(view)
-                    .map_or(MAX_FRAME_FLOOR as u32, |hello| hello.max_frame());
+                    .map_or(MAX_FRAME_FLOOR as u32, |hello| hello.max_frame()); // 2^19, lossless
                 if welcome.authenticates() {
                     self.phase = Phase::Authenticating;
                     self.opened = now;

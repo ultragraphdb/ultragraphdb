@@ -25,7 +25,7 @@ pub fn skip_whitespace(rest: &str) -> &str {
 
 /// The run of characters `is_in` takes at the start of `rest`, and what follows it. Each half is computed from
 /// `rest` alone, so neither indexes nor splits it.
-pub fn split_run(rest: &str, is_in: fn(char) -> bool) -> (&str, &str) {
+pub fn split_run(rest: &str, is_in: impl Fn(char) -> bool) -> (&str, &str) {
     let run = rest.split(|c: char| !is_in(c)).next().unwrap_or_default();
     (run, rest.trim_start_matches(is_in))
 }

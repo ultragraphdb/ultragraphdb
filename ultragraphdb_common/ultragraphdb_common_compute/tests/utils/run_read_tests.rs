@@ -214,7 +214,14 @@ const SPREAD: u32 = 2;
 
 /// A cluster of two partitions, a tenant whose run both hold, and the two partitions.
 async fn spread() -> TestResult<(PlayedCluster, u64, [u32; 2])> {
-    let cluster = PlayedCluster::start(SPREAD, read_times_of(None, None)).await?;
+    spread_by(read_times_of(None, None)).await
+}
+
+/// [`spread`], compute reading by `times`.
+async fn spread_by(
+    times: ultragraphdb_common_compute::ReadTimes,
+) -> TestResult<(PlayedCluster, u64, [u32; 2])> {
+    let cluster = PlayedCluster::start(SPREAD, times).await?;
     let tenant = tenant_over(SPREAD, 2)?;
     let map = crate::played_reads::played_data::placement(SPREAD)?;
     let holders: Vec<u32> = map
@@ -455,6 +462,150 @@ fn test_a_monotonic_fast_read_leaves_no_stream_on_its_links() -> TestResult {
             (2, 0),
             "two links, holding no stream"
         );
+        Ok(())
+    })
+}
+
+/// A resume key continues the read it came from alone: one carried to another pattern, or to a read of another version, is
+/// refused with Error 1 before any partition is asked (`PROTOCOL.md` §11.8).
+#[test]
+fn test_a_resume_key_of_another_pattern_or_version_is_refused() -> TestResult {
+    run(async {
+        let (cluster, tenant) = one_list().await?;
+        let pattern = Pattern::of(Some(SUBJECT), Some(PREDICATE), None);
+        let first = answer(&cluster, &snapshot(&pattern, tenant)?.with_limit(1)).await?;
+        let key = first.resume();
+        assert!(!key.is_empty(), "a row is left");
+        let asked = cluster.partition(1)?.read_scans().len();
+        let other = Pattern::of(Some(SUBJECT), None, None);
+        let at = |of: &Pattern, epoch: u64| -> TestResult<ComputeRead> {
+            let (terms, slots) = of.table()?;
+            Ok(
+                ComputeRead::new(tenant, true, ReadLevel::Snapshot, terms, slots, key.clone())
+                    .with_principal(1)
+                    .with_deadline_ms(crate::played_reads::read_answer::DEADLINE_MS)
+                    .with_client_limits(ultragraphdb_protocol_wire::MAX_FRAME_SIZE as u32, 4)
+                    .with_read_version(Version::bound_of(Epoch::new(epoch)?))
+                    .with_epoch(epoch),
+            )
+        };
+        for read in [at(&other, SNAPSHOT)?, at(&pattern, SNAPSHOT - 1)?] {
+            let refused = answer(&cluster, &read).await?;
+            assert_eq!(
+                refused.refusal()?.code,
+                ultragraphdb_protocol_wire::ErrorCode::Protocol
+            );
+        }
+        assert_eq!(
+            cluster.partition(1)?.read_scans().len(),
+            asked,
+            "no partition asked"
+        );
+        Ok(())
+    })
+}
+
+/// A monotonic-fast read over partitions, its partitions dialled by a read before it, is refused when one fails the Closed it is
+/// asked: one silent past the answer bound with code 17, its connection closed; one refusing with its own refusal; one answering
+/// with a frame that is no Closed, or whose body does not read, with code 17, its connection closed.
+#[test]
+fn test_a_closed_failed_refuses_a_monotonic_fast_read() -> TestResult {
+    use ultragraphdb_protocol_wire::ErrorCode;
+
+    use crate::played_reads::played_partition::ClosedAnswer;
+
+    run(async {
+        let refused = ClosedAnswer::Refuse(ErrorCode::TooOld, 7);
+        let answers = [
+            (ClosedAnswer::Silent, ErrorCode::Unavailable),
+            (refused, ErrorCode::TooOld),
+            (ClosedAnswer::NotClosed, ErrorCode::Unavailable),
+            (ClosedAnswer::Corrupt, ErrorCode::Unavailable),
+        ];
+        for (closed, code) in answers {
+            // A partition silent past 1 s is hung: well past a dial on a loaded host, which a first read makes before the Closed.
+            let (cluster, tenant, pair) = spread_by(read_times_of(Some(500), None)).await?;
+            let pattern = Pattern::of(None, Some(PREDICATE), None);
+            answer(&cluster, &snapshot(&pattern, tenant)?)
+                .await?
+                .ended()?;
+            let failing = cluster.partition(pair[0])?;
+            failing.answer_closed_with(closed);
+            let read = pattern.read(tenant, true, ReadLevel::MonotonicFast)?;
+            let answered = answer(&cluster, &read).await?;
+            let refusal = answered.refusal()?;
+            assert_eq!(refusal.code, code, "{closed:?}: {refusal:?}");
+            if closed == refused {
+                assert_eq!(refusal.detail, 7, "the partition's own detail");
+            }
+            assert!(failing.closed_asked() >= 1);
+        }
+        Ok(())
+    })
+}
+
+/// A reverse read at a named version reads the home's referrer set at the latest version, one at monotonic-fast level reads each
+/// member at the epoch the home answered, and both answer the member's row; an object its home does not name answers no row,
+/// asking no member (`PROTOCOL.md` §11.12).
+#[test]
+fn test_a_reverse_read_named_or_monotonic_fast_reads_its_members() -> TestResult {
+    run(async {
+        let (cluster, tenant, pair) = spread().await?;
+        let object = iri_at(SPREAD, tenant, pair[0], "object-")?;
+        let (home, member) = (cluster.partition(pair[0])?, cluster.partition(pair[1])?);
+        let bucket = bucket_at(SPREAD, tenant, pair[1])?;
+        let (subject, predicate, object_id) = (
+            id_in(bucket, 1)?,
+            id_in(bucket, 2)?,
+            id_in(bucket_at(SPREAD, tenant, pair[0])?, 3)?,
+        );
+        name(home, tenant, &object, object_id);
+        name(home, tenant, PREDICATE, predicate);
+        name(member, tenant, PREDICATE, predicate);
+        name(member, tenant, SUBJECT, subject);
+        member.put(
+            reverse_key(tenant, predicate, &EncodedTerm::id(object_id)),
+            ids_list(&[subject]),
+        );
+        let (key, value) = referrers_of(tenant, object_id, bucket)?;
+        home.put(key, value);
+        let pattern = Pattern::of(None, Some(PREDICATE), Some(iri(&object)));
+        let version = Version::bound_of(Epoch::new(SNAPSHOT)?);
+        let named = pattern
+            .read(tenant, true, ReadLevel::Snapshot)?
+            .with_named_version(version)
+            .with_epoch(SNAPSHOT);
+        let latest_sets = |part: &crate::played_reads::played_partition::PlayedPartition| {
+            part.read_scans()
+                .iter()
+                .filter(|scan| scan.at == ScanAt::Latest)
+                .count()
+        };
+        let before = latest_sets(home);
+        assert_eq!(answer(&cluster, &named).await?.column(0), [SUBJECT]);
+        assert!(
+            latest_sets(home) > before,
+            "the set read at the latest version"
+        );
+        let fast = pattern.read(tenant, true, ReadLevel::MonotonicFast)?;
+        let asked = member.read_scans().len();
+        assert_eq!(answer(&cluster, &fast).await?.column(0), [SUBJECT]);
+        let first = member
+            .read_scans()
+            .get(asked)
+            .map(|scan| (scan.at, scan.epoch));
+        assert_eq!(
+            first.map(|(_, epoch)| epoch),
+            Some(PLAYED_EPOCH),
+            "at the epoch the home answered"
+        );
+        let unnamed = iri_at(SPREAD, tenant, pair[0], "unnamed-")?;
+        let before_none = member.read_scans().len();
+        let none = Pattern::of(None, Some(PREDICATE), Some(iri(&unnamed)));
+        let answered = answer(&cluster, &snapshot(&none, tenant)?).await?;
+        answered.ended()?;
+        assert!(answered.rows().is_empty());
+        assert_eq!(member.read_scans().len(), before_none, "no member asked");
         Ok(())
     })
 }

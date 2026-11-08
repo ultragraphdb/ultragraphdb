@@ -91,6 +91,19 @@ pub enum Script {
     Silent,
 }
 
+/// How a played partition answers a Closed other than with its closed epoch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClosedAnswer {
+    /// Takes it and sends nothing, the connection open.
+    Silent,
+    /// Refuses it with this code and detail.
+    Refuse(ErrorCode, u64),
+    /// Answers with a frame of another command.
+    NotClosed,
+    /// Answers with a Closed whose body breaks its checksum.
+    Corrupt,
+}
+
 /// One played partition: its table, its scripts and what it took, shared by its connections and the test.
 #[derive(Debug)]
 pub struct PlayedPartition {
@@ -99,6 +112,7 @@ pub struct PlayedPartition {
     scripts: RefCell<Vec<(Vec<u8>, Script)>>,
     scans: RefCell<Vec<ScanSeen>>,
     closed_epoch: Cell<u64>,
+    closed_answer: Cell<Option<ClosedAnswer>>,
     closed_asked: Cell<u32>,
     cancels: Cell<u32>,
     connections: Cell<u32>,
@@ -113,6 +127,7 @@ impl PlayedPartition {
             scripts: RefCell::default(),
             scans: RefCell::default(),
             closed_epoch: Cell::new(PLAYED_EPOCH),
+            closed_answer: Cell::new(None),
             closed_asked: Cell::new(0),
             cancels: Cell::new(0),
             connections: Cell::new(0),
@@ -147,6 +162,11 @@ impl PlayedPartition {
             .filter(|scan| !scan.holds_a_version())
             .cloned()
             .collect()
+    }
+
+    /// Every Closed is answered as `answer` says.
+    pub fn answer_closed_with(&self, answer: ClosedAnswer) {
+        self.closed_answer.set(Some(answer));
     }
 
     /// How many Closed it answered.
@@ -322,7 +342,28 @@ impl PartitionConnection {
             partition,
             self.played.closed_epoch.get(),
         )]);
-        match frame_of(self.cluster, &reply, stream, true) {
+        let built = match self.played.closed_answer.get() {
+            None => frame_of(self.cluster, &reply, stream, true),
+            Some(ClosedAnswer::Silent) => return Answer::Open,
+            Some(ClosedAnswer::Refuse(code, detail)) => {
+                return Answer::Refuse(
+                    ErrorReply::new(code, "a played refusal of a Closed").with_detail(detail),
+                );
+            }
+            Some(ClosedAnswer::NotClosed) => {
+                let other = Entries::new(0, EntriesEnd::Ended, PLAYED_EPOCH);
+                frame_of(self.cluster, &other, stream, true)
+            }
+            Some(ClosedAnswer::Corrupt) => {
+                frame_of(self.cluster, &reply, stream, true).map(|mut frame| {
+                    if let Some(last) = frame.last_mut() {
+                        *last ^= 0xFF;
+                    }
+                    frame
+                })
+            }
+        };
+        match built {
             Ok(replied) => Answer::Reply(replied),
             Err(refusal) => Answer::Refuse(refusal),
         }

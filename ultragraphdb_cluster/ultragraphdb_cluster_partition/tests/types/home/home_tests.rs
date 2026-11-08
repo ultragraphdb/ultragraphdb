@@ -6,10 +6,16 @@
 use std::num::NonZeroU64;
 
 use ultragraphdb_cluster_partition::{Home, PartitionError, Reference};
-use ultragraphdb_core_ids::{BucketGroup, Version};
+use ultragraphdb_cluster_placement::{NodeId, PlacementMap};
+use ultragraphdb_core_ids::{BucketGroup, Epoch, Version};
+use ultragraphdb_protocol_wire::ErrorCode;
 use ultragraphdb_tool_bdd::{Context, TestResult};
+use ultragraphdb_transactions_commit::{CloseRequest, CommitError, Pipeline, RoundBounds};
+use ultragraphdb_transactions_log::{FaultMode, SimStorage, Wal, WalConfig};
 
-use crate::utils::cluster::{Cluster, TENANT, ex, group, pid};
+use crate::utils::cluster::{
+    Cluster, Part, Pipe, TENANT, block_on, epoch, ex, group, insert, node, pid,
+};
 
 /// A reference to `<name>`, homed in `home`, from `group`, having seen `named`, by its IRI.
 fn reference(home: u32, name: &str, group: BucketGroup, named: u64) -> TestResult<Reference> {
@@ -162,4 +168,100 @@ fn test_settling_leaves_replies_the_home_does_not_wait_on() {
     home.settle(&mut replies, &mut out);
     assert_eq!(replies.len(), 1);
     assert!(out.is_empty());
+}
+
+/// A registration by ID at a partition holding that ID as its copy of another partition's entity is refused naming the
+/// bucket's owner.
+#[test]
+fn test_a_registration_by_id_of_a_copied_entity_names_its_owner() -> TestResult {
+    let mut cluster = Cluster::even(2)?;
+    let (a, knows) = (cluster.name_in(1, "a")?, cluster.name_in(1, "knows")?);
+    let b = cluster.name_in(2, "b")?;
+    let _version: u64 = cluster.write(1, vec![insert(&a, &knows, &b)])?.version()?;
+    let copied = cluster
+        .id_at(1, &b)?
+        .context("partition 1 holds b's ID as a copy")?;
+    let by_id = Reference::new(
+        pid(1)?,
+        TENANT,
+        ex(&b).as_str().to_string(),
+        Some(copied),
+        Some(group(&a)?),
+        0,
+    );
+    let error = cluster.register(&by_id).err().context("a refusal")?;
+    let expected = PartitionError::wrong_partition(copied.bucket().get(), 2);
+    assert!(error.to_string().contains(&expected.to_string()), "{error}");
+    Ok(())
+}
+
+/// Partition 1 of one over the even map.
+fn alone() -> TestResult<Part> {
+    let placement = PlacementMap::even(1, NodeId::new(1))?;
+    node(pid(1)?, &placement, epoch(1)?)
+}
+
+/// `part`'s pipeline over a log on `storage`, `delivered` the latest close delivered to it.
+fn pipe_of<'a>(part: &'a Part, storage: &SimStorage, delivered: Epoch) -> TestResult<Pipe<'a>> {
+    let (log, _) = block_on(Wal::open(storage.clone(), "/wal", WalConfig::new(1, true)))?
+        .context("the log opens")?;
+    Ok(
+        Pipeline::new(part.applier(), log, RoundBounds::new(u32::MAX, u32::MAX))?
+            .with_partition(1, delivered, CloseRequest::default(), &[])
+            .bound(part.id(), part.placement()),
+    )
+}
+
+/// A registration whose entry the log cannot make durable is answered with the pipeline's refusal, under its ticket.
+#[test]
+fn test_a_registration_whose_entry_fails_to_sync_is_refused() -> TestResult {
+    let storage = SimStorage::new(1);
+    let part = alone()?;
+    let mut pipe = pipe_of(&part, &storage, epoch(1)?)?;
+    let names = Cluster::even(1)?;
+    let reference = reference(
+        1,
+        &names.name_in(1, "b")?,
+        group(&names.name_in(1, "a")?)?,
+        0,
+    )?;
+    let mut home = Home::new();
+    let ticket = 7;
+    assert!(
+        home.accept(&part, &mut pipe, ticket, &reference, 0)?
+            .is_none()
+    );
+    storage.fail_at(storage.trace().len(), FaultMode::Before);
+    assert!(block_on(pipe.sync(0))?.is_err(), "the sync fails");
+    let mut settled = Vec::new();
+    home.settle(pipe.replies_mut(), &mut settled);
+    assert_eq!(
+        settled,
+        vec![(
+            ticket,
+            Err(PartitionError::from(CommitError::unavailable()))
+        )]
+    );
+    Ok(())
+}
+
+/// A registration at a home whose latest close is the last epoch, which no close follows, is refused busy at once.
+#[test]
+fn test_a_registration_past_the_last_epoch_is_refused_busy() -> TestResult {
+    let storage = SimStorage::new(1);
+    let part = alone()?;
+    let mut pipe = pipe_of(&part, &storage, Epoch::MAX)?;
+    let names = Cluster::even(1)?;
+    let reference = reference(
+        1,
+        &names.name_in(1, "b")?,
+        group(&names.name_in(1, "a")?)?,
+        0,
+    )?;
+    let refused = Home::new().accept(&part, &mut pipe, 1, &reference, 0);
+    assert_eq!(
+        refused,
+        Err(PartitionError::refused(ErrorCode::Busy.number()))
+    );
+    Ok(())
 }

@@ -21,6 +21,7 @@ impl<'a, S, C> ReadPin<'a, S, C> {
     }
 
     /// The version kept readable.
+    #[must_use]
     pub fn version(&self) -> u64 {
         self.version
     }

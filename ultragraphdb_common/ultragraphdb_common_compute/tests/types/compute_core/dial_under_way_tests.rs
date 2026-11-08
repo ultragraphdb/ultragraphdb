@@ -50,3 +50,47 @@ fn test_a_read_cancelled_while_its_core_dials_leaves_the_next_to_dial() -> TestR
         Ok(())
     })
 }
+
+/// A read waiting on a dial that the dialling read gave up dials for itself, and reads.
+#[test]
+fn test_a_read_waiting_on_a_dial_given_up_dials_for_itself() -> TestResult {
+    use crate::played::played_read::answer_of;
+
+    run(async {
+        let played = PlayedCluster::start(1, quiet_times()).await?;
+        let list = OneList::new("subject", "predicate", 2)?;
+        list.hold_in(played.partition(1)?);
+        let bound = Bound {
+            subject: Some(list.subject.iri.clone()),
+            predicate: Some(list.predicate.iri.clone()),
+            object: None,
+        };
+        played.frontend().delay_members(HELD);
+        let mut dialling = played.client().await?;
+        let stream = send(&mut dialling, &snapshot_of(&bound)?).await?;
+        let asked = async {
+            while played.frontend().members_asked() == 0 {
+                compio::time::sleep(Duration::from_millis(5)).await;
+            }
+        };
+        compio::time::timeout(HELD * 2, asked)
+            .await
+            .map_err(|_| TestError::new("compute never asked the frontend for the members"))?;
+        let mut waiting = played.client().await?;
+        let waiting_stream = send(&mut waiting, &snapshot_of(&bound)?).await?;
+        // The second read reaches the dial under way and waits on it.
+        compio::time::sleep(HELD / 5).await;
+        cancel(&mut dialling, stream).await?;
+        played.frontend().delay_members(Duration::ZERO);
+        let answer = compio::time::timeout(HELD * 4, answer_of(&mut waiting, waiting_stream))
+            .await
+            .map_err(|_| TestError::new("the waiting read did not end"))??;
+        assert_eq!(answer.answered()?.column(0), list.object_iris());
+        assert_eq!(
+            played.frontend().members_asked(),
+            2,
+            "the waiting read asked anew"
+        );
+        Ok(())
+    })
+}

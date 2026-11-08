@@ -39,6 +39,7 @@ pub struct PartitionShape {
 
 impl PartitionShape {
     /// The generator of `partition` of `placement`, seeded from `seed`; `None` when the map names no partition's hubs.
+    #[must_use]
     pub fn new(
         seed: u64,
         partition: PartitionId,
@@ -101,7 +102,8 @@ impl PartitionShape {
             } else {
                 &self.own_hubs
             };
-            // A hub of each partition is found before the first commit, unless the search above ran out.
+            // A hub of each partition is found before the first commit, unless the search above ran out. The length's cast
+            // into a `u64` is lossless.
             let at = usize::try_from(hub_draw % hubs.len().max(1) as u64).unwrap_or(0);
             let hub = hubs
                 .get(at)

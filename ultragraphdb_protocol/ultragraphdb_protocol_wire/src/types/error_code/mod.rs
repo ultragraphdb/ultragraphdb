@@ -177,6 +177,7 @@ impl ErrorCode {
 
     /// What runs again when `request`, the kind of request this code refused, is retried (`PROTOCOL.md` §9.4): `None`
     /// for a refusal running it again cannot mend.
+    #[must_use]
     pub fn runs_again(self, request: RefusedRequest) -> Option<RunsAgain> {
         match self {
             ErrorCode::Conflict

@@ -129,6 +129,7 @@ impl TestServer {
 
     /// The server having closed epochs up to `epoch`, so a read whose transaction carries a token of a later one waits
     /// until [`TestServer::close_epoch`] or its deadline; with none named, every epoch counts as closed.
+    #[must_use]
     pub fn with_closed_epoch(mut self, epoch: u64) -> Self {
         self.closed = Some(epoch);
         self
@@ -279,12 +280,14 @@ impl TestServer {
 
     /// The token the server sends with a commit or a drop answered at `version`, as its replies carry it: what a
     /// test building a reply by hand gives it.
+    #[must_use]
     pub fn token(version: u64) -> ultragraphdb_core_ids::SessionToken {
         test_server_commit::token(version)
     }
 
     /// The version of the last commit applied, or before any the version the server's snapshots read at: what a
     /// Commit, a Drop or a read-only Begin answers, so a test reads it here rather than assuming a number.
+    #[must_use]
     pub fn version(&self) -> u64 {
         self.version
     }
@@ -417,6 +420,7 @@ impl TestServer {
         loop {
             let want = self.framer.want();
             if want > bytes.len() {
+                // The framer wants a header's 256 bytes or a frame's `size`, a `u32`, so the cast is lossless.
                 return Err(ProtocolError::length_mismatch(want as u32, bytes.len()));
             }
             let mut data = buffer.take();

@@ -16,6 +16,7 @@ pub struct SubscribeView<'a> {
 
 impl<'a> SubscribeView<'a> {
     /// The last epoch whose close the subscriber holds; 0 for none.
+    #[must_use]
     pub fn from(&self) -> u64 {
         self.from
     }

@@ -94,6 +94,7 @@ impl ResultTerm {
     }
 
     /// The literal or vector in the store's encoding; `None` for an IRI or a blank node, which a result names by hash.
+    #[must_use]
     pub fn term(&self) -> Option<&EncodedTerm> {
         match &self.payload {
             Payload::Literal(term) => Some(term),
@@ -102,6 +103,7 @@ impl ResultTerm {
     }
 
     /// The hash an IRI or a blank node is named by; `None` for a literal or a vector.
+    #[must_use]
     pub fn hash(&self) -> Option<Hash128> {
         match &self.payload {
             Payload::Iri(hash) | Payload::BlankNode(hash) => Some(*hash),

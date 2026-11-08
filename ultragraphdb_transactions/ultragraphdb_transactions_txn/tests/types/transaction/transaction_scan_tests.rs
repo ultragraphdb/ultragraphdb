@@ -13,8 +13,9 @@ use ultragraphdb_core_keys::{DEFAULT_GRAPH, Keyspace, QuadKey};
 use ultragraphdb_core_mapping::{Change, Changeset};
 use ultragraphdb_protocol_wire::ErrorCode;
 use ultragraphdb_store_quads::{KernelRow, KernelScan, PageEnd};
+use ultragraphdb_store_sim::Fault;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
-use ultragraphdb_transactions_txn::{Mode, TxnError, TxnLimits};
+use ultragraphdb_transactions_txn::{Mode, TxnError, TxnErrorEnum, TxnLimits};
 
 use crate::utils::fixture::{
     Applier, SECOND, TENANT, Txn, applier, begin, begin_with, changeset, ex, insert, prepared,
@@ -410,5 +411,37 @@ fn test_a_transaction_knows_holds_and_reads_the_dictionary_as_its_reads_left_the
     assert!(txn.is_ended());
     assert!(!txn.knows_iri(ex("held").as_str()), "ended");
     assert_eq!(txn.held_lists(), 0, "ended");
+    Ok(())
+}
+
+/// A store failing under an IRI's resolution or a dictionary read ends the transaction with the store's error.
+#[test]
+fn test_a_store_failing_under_a_dictionary_read_ends_the_transaction() -> TestResult {
+    for dictionary in [false, true] {
+        let applier = applier()?;
+        store(&applier, vec![insert("a", "knows", "b")])?;
+        let mut txn = begin(&applier, Mode::ReadWrite)?;
+        applier.quads().lists().store().inject(Fault::FailNextRead);
+        let iri = ex("a");
+        let failed = if dictionary {
+            let key = QuadKey::Dictionary {
+                tenant: TENANT,
+                entry: ultragraphdb_core_keys::DictionaryEntry::Term(
+                    ultragraphdb_core_terms::Hash128::of(iri.as_str().as_bytes()),
+                ),
+            }
+            .to_bytes();
+            let mut out = Vec::new();
+            txn.dictionary_into(&[key.as_slice()], 0, &mut out).err()
+        } else {
+            txn.resolve_iri(iri.as_ref(), 0).err()
+        }
+        .context("the read fails")?;
+        assert!(
+            matches!(failed, TxnError(TxnErrorEnum::Changeset(_))),
+            "{failed:?}"
+        );
+        assert!(txn.is_ended());
+    }
     Ok(())
 }

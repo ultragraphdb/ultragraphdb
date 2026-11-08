@@ -10,6 +10,10 @@ mod open_requests_tests;
 #[cfg(test)]
 mod parked_bytes_tests;
 #[cfg(test)]
+mod role_client_tests;
+#[cfg(test)]
 mod role_cluster_tests;
+#[cfg(test)]
+mod role_reader_tests;
 #[cfg(test)]
 mod role_secret_tests;

@@ -28,7 +28,7 @@ use ultragraphdb_common_storage::{
     CoreChannels, CoreMessage, CoreParts, FrontendAsk, PartitionCore, Peers, RefillBlocks,
     Retention, StoragePartition, StorageSession,
 };
-use ultragraphdb_core_ids::{Epoch, TypePrefix};
+use ultragraphdb_core_ids::{Epoch, TypePrefix, Version};
 use ultragraphdb_core_mapping::RandomSource;
 use ultragraphdb_protocol_transport::{Address, Endpoint};
 use ultragraphdb_store_apply::ChangesetApplier;
@@ -62,11 +62,13 @@ const HELD_BYTES: usize = 1 << 20;
 /// The sequences of the one block of each type leased: more than a test allocates.
 const BLOCK: u64 = 1 << 16;
 
-/// How long the rig's core keeps a Scan with no frame able to leave, in milliseconds, and the tenants it takes Binds of.
+/// How long the rig's core keeps a Scan with no frame able to leave, in milliseconds, the tenants it takes Binds of, and whether
+/// its store applied the last sequence of its open epoch, epoch 1, before the core starts: its open epoch full.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct RigSetup {
     pub(crate) stall_ms: u64,
     pub(crate) tenant: u64,
+    pub(crate) full: bool,
 }
 
 impl Default for RigSetup {
@@ -74,6 +76,7 @@ impl Default for RigSetup {
         Self {
             stall_ms: 30_000,
             tenant: TENANT,
+            full: false,
         }
     }
 }
@@ -138,6 +141,14 @@ pub(crate) fn with_core_then(
         let (wanted, _wants) = unbounded();
         let blocks = RefillBlocks::new(leased()?, wanted);
         let partition = open_partition(dir.path(), id, &placement, blocks)?;
+        if setup.full {
+            let applier = partition.applier();
+            let nothing = applier
+                .begin(setup.tenant, applier.quads().lists().applied_ts())?
+                .finish()?;
+            let last = Version::commit(Epoch::ZERO.next()?, Version::COMMIT_SEQUENCE_MAX)?;
+            let _applied = applier.apply_round(vec![(last.to_u64(), nothing)])?;
+        }
         let config = WalConfig::new(CLUSTER, false);
         let (log, _) = Wal::open(CompioStorage, dir.path().join("wal"), config).await?;
         let pipeline = Pipeline::new(partition.applier(), log, RoundBounds::new(1 << 20, 1 << 10))?

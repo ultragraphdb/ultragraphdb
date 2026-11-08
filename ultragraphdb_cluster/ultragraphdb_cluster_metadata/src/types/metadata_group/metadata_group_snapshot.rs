@@ -31,6 +31,10 @@ impl<L: OrderedLog> MetadataGroup<L> {
     ///
     /// [`ClusterError::log`] when the log refuses the trim: a position past its committed one, or a failure, which
     /// poisons it.
+    ///
+    /// A future dropped at the log's trim leaves the group's snapshot position where it was, so
+    /// [`snapshot_due`](Self::snapshot_due) counts from the older one; a later `trim` with the same snapshot is safe,
+    /// since a trim at or below the log's checkpoint changes nothing.
     pub async fn trim(&mut self, snapshot: &MetadataSnapshot) -> Result<(), ClusterError> {
         self.log.trim_through(snapshot.position()).await?;
         self.snapshot_at = self.snapshot_at.max(snapshot.position());

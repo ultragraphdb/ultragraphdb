@@ -52,3 +52,41 @@ fn test_merged_settings_render_canonically() -> TestResult {
     );
     Ok(())
 }
+
+/// A line feed and a carriage return render by their short escapes, and read back as themselves.
+#[test]
+fn test_line_breaks_render_by_their_short_escapes() -> TestResult {
+    let mut target = TargetFiles::new("ci");
+    let written = "[frontend]\ndata_dir = \"a\\nb\\rc\"\n";
+    target.insert("frontend", "frontend.toml", written.as_bytes().to_vec());
+    let all = instances(&target);
+    let frontend = all.first().context("the frontend")?;
+    assert_eq!(frontend.rendered(), written);
+    assert_eq!(
+        frontend
+            .config()
+            .context("its settings")?
+            .frontend()
+            .data_dir(),
+        Some("a\nb\rc")
+    );
+    Ok(())
+}
+
+/// An instance one of whose layers is not TOML has no merged settings, though the other layer renders.
+#[test]
+fn test_a_layer_that_is_not_toml_leaves_no_settings() -> TestResult {
+    let mut target = TargetFiles::new("ci");
+    target.insert("storage", "storage.toml", b"[storage\n".to_vec());
+    target.insert(
+        "storage_1",
+        "storage_1.toml",
+        b"[storage]\npartition_first = 1\n".to_vec(),
+    );
+    let all = instances(&target);
+    let storage = all.first().context("storage_1")?;
+    assert_eq!(storage.name(), "storage_1");
+    assert_eq!(storage.rendered(), "[storage]\npartition_first = 1\n");
+    assert!(storage.config().is_none());
+    Ok(())
+}

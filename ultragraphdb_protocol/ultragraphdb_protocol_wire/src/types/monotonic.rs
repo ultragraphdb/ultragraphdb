@@ -17,6 +17,7 @@ pub enum Monotonic {
 
 impl Monotonic {
     /// The byte.
+    #[must_use]
     pub fn number(self) -> u8 {
         match self {
             Monotonic::Snapshot => 0,
@@ -26,6 +27,7 @@ impl Monotonic {
     }
 
     /// The value the byte `number` names; `None` past 2.
+    #[must_use]
     pub fn from_number(number: u8) -> Option<Self> {
         match number {
             0 => Some(Monotonic::Snapshot),

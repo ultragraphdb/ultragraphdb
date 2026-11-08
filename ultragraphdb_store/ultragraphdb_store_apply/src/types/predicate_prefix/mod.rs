@@ -74,6 +74,10 @@ impl PredicatePrefix {
     }
 
     /// The graphs some version of a key under the prefix is stored in, in order.
+    ///
+    /// # Errors
+    ///
+    /// The snapshot's error.
     pub fn graphs<S: StoreSnapshot>(&self, snapshot: &S) -> Result<Vec<Graph>, StoreError> {
         Ok(self.graphs_read(snapshot)?.0)
     }

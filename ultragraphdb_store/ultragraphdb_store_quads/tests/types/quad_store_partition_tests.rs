@@ -769,6 +769,25 @@ fn test_a_values_page_over_its_own_values_reads_them_over_the_store() -> TestRes
     Ok(())
 }
 
+/// A value of a page's own past every key the store holds is read after them.
+#[test]
+fn test_a_values_page_over_its_own_values_reads_one_past_the_store_last() -> TestResult {
+    let (store, held, version) = statement_store()?;
+    let (last, _) = held.last().context("a key held")?;
+    let mut past = last.clone();
+    past.push(0);
+    let value = b"late".to_vec();
+    let own = BTreeMap::from([(past.clone(), Some(value.clone()))]);
+    let mut read = Vec::new();
+    let page = store.values_page_over(&statement_scan(version)?, &own, |k, v| {
+        read.push((k.to_vec(), v.to_vec()));
+        ControlFlow::Continue(())
+    })?;
+    assert_eq!(read.last(), Some(&(past, value)));
+    assert_eq!(page.rows(), held.len() + 1);
+    Ok(())
+}
+
 #[test]
 fn test_a_page_refuses_the_statements() -> TestResult {
     let store = quads()?;
@@ -783,7 +802,8 @@ fn test_a_page_refuses_the_statements() -> TestResult {
 }
 
 /// A Scan's `after` names an object by its encoding: an ID by its 128 bits, a literal by its fingerprint and, where the keyspace
-/// compares values, its encoding; bytes that are not one whole encoding are refused.
+/// compares values, its encoding; bytes that are not one whole encoding are refused, an ID's tag holding no valid system ID
+/// among them.
 #[test]
 fn test_a_resume_at_an_object_takes_the_identity_of_its_posting() -> TestResult {
     let store = quads()?;
@@ -807,10 +827,14 @@ fn test_a_resume_at_an_object_takes_the_identity_of_its_posting() -> TestResult 
         PostingIdentity::new(fingerprint, Vec::new()).included()
     );
     let whole = EncodedTerm::id(id);
+    // An ID's tag and 16 bytes whose last reserved bit is set, which name no system ID.
+    let reserved = [&whole.as_bytes()[..SystemId::BYTES], &[1][..]].concat();
+    assert!(SystemId::decode(&reserved[1..]).is_err());
     for malformed in [
         &[][..],
         &whole.as_bytes()[..3],
         &[whole.as_bytes(), &[0][..]].concat()[..],
+        &reserved[..],
     ] {
         assert!(
             store.resume_at(Keyspace::Forward, malformed).is_err(),

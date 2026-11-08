@@ -28,7 +28,8 @@ pub struct ConfigStore<L> {
 }
 
 impl<L: OrderedLog> ConfigStore<L> {
-    /// The store over `log`, its state rebuilt by replaying every durable round.
+    /// The store over `log`, its state rebuilt by replaying every durable round. A future dropped at a read drops `log`
+    /// with it, and leaves the log as it was.
     ///
     /// # Errors
     ///
@@ -38,6 +39,7 @@ impl<L: OrderedLog> ConfigStore<L> {
         let mut state = ConfigState::default();
         let committed = log.committed();
         let mut last = Position::ZERO;
+        // Each turn reads past `last` or refuses an empty read, so the loop ends at `committed` (Ultra rule 2).
         while last < committed {
             let rounds = log.read(Position::new(last.get() + 1), READ_BYTES).await?;
             if rounds.is_empty() {

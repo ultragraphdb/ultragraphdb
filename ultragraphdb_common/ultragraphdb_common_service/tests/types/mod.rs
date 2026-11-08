@@ -4,11 +4,17 @@
  */
 
 #[cfg(test)]
+mod accept_pace_tests;
+#[cfg(test)]
+mod admin_service_tests;
+#[cfg(test)]
 mod bootstrap_tests;
 #[cfg(test)]
 mod cpu_binding_tests;
 #[cfg(test)]
 mod health_service_tests;
+#[cfg(test)]
+mod inbox_turn_tests;
 #[cfg(test)]
 mod readiness;
 #[cfg(test)]

@@ -34,6 +34,7 @@ impl AdminService {
 }
 
 impl HttpService for AdminService {
+    /// A future dropped at its fetch leaves the load as it was: the revision is set only once the fetch has answered.
     async fn call(&self, request: HttpRequest) -> HttpResponse {
         if (request.method(), request.path()) != ("POST", "/admin/load-config") {
             return text(

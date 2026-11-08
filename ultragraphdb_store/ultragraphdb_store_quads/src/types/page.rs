@@ -20,6 +20,7 @@ pub struct Page {
 
 impl Page {
     /// The page ending with `end`, having completed `rows` rows.
+    #[must_use]
     pub fn new(end: PageEnd, rows: usize) -> Self {
         Self {
             end,
@@ -29,27 +30,32 @@ impl Page {
     }
 
     /// The page holding `held`, the list of the key it paused inside.
+    #[must_use]
     pub fn with_held(mut self, held: Option<Arc<List>>) -> Self {
         self.held = held;
         self
     }
 
     /// How the page ended.
+    #[must_use]
     pub fn end(&self) -> &PageEnd {
         &self.end
     }
 
     /// How the page ended, taken.
+    #[must_use]
     pub fn into_end(self) -> PageEnd {
         self.end
     }
 
     /// How the page ended, and the list of the key it paused inside, for the next page to read on ([`crate::KernelScan::holding`]).
+    #[must_use]
     pub fn into_parts(self) -> (PageEnd, Option<Arc<List>>) {
         (self.end, self.held)
     }
 
     /// The rows the page completed.
+    #[must_use]
     pub fn rows(&self) -> usize {
         self.rows
     }

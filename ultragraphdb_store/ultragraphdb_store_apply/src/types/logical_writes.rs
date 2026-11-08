@@ -24,6 +24,7 @@ pub struct LogicalWrites {
 
 impl LogicalWrites {
     /// The writes `inserted`, `removed` and `records` hold.
+    #[must_use]
     pub fn new(
         inserted: Vec<LogicalQuad>,
         removed: Vec<LogicalQuad>,
@@ -38,32 +39,38 @@ impl LogicalWrites {
     }
 
     /// The writes with section 4's `marks`, in the record's order.
+    #[must_use]
     pub fn with_marks(mut self, marks: Vec<MarkedReference>) -> Self {
         self.marks = marks;
         self
     }
 
     /// Whether the writes hold no statement and no statement record, whatever marks they hold.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.inserted.is_empty() && self.removed.is_empty() && self.records.is_empty()
     }
 
     /// The registrations relied on as a referrer, each written as its mark.
+    #[must_use]
     pub fn marks(&self) -> &[MarkedReference] {
         &self.marks
     }
 
     /// The statements inserted.
+    #[must_use]
     pub fn inserted(&self) -> &[LogicalQuad] {
         &self.inserted
     }
 
     /// The statements removed.
+    #[must_use]
     pub fn removed(&self) -> &[LogicalQuad] {
         &self.removed
     }
 
     /// The statement records written, `None` for a removal.
+    #[must_use]
     pub fn records(&self) -> &[(Graph, SystemId, Option<Vec<u8>>)] {
         &self.records
     }

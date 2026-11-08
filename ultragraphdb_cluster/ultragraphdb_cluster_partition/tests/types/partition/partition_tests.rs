@@ -169,3 +169,28 @@ fn test_ranges_touching_a_run_are_not_of_it() -> TestResult {
     );
     Ok(())
 }
+
+/// A transaction asked to read above the partition's watermark is refused at once, naming both.
+#[test]
+fn test_a_begin_above_the_watermark_is_refused() -> TestResult {
+    use ultragraphdb_transactions_txn::{Mode, TxnBuffers, TxnLimits};
+    let cluster = Cluster::even(1)?;
+    let part = cluster.part(1)?;
+    let watermark = part.applier().quads().lists().applied_ts();
+    let refused = part
+        .begin(
+            TENANT,
+            Mode::ReadWrite,
+            watermark + 1,
+            0,
+            TxnLimits::default(),
+            TxnBuffers::new(),
+        )
+        .err()
+        .context("a refusal")?;
+    assert_eq!(
+        refused,
+        PartitionError::from(TxnError::read_above_watermark(watermark + 1, watermark))
+    );
+    Ok(())
+}

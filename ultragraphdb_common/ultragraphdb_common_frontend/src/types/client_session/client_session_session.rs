@@ -22,6 +22,8 @@ use crate::types::session_event::SessionEvent;
 impl<A: Authorizer + Clone> Session for ClientSession<A> {
     /// Asks the owner for the name's verifier by message, first waiting out the failures of its address and its name. A name
     /// refused holds no verifier here, so its exchange fails as any other does and says nothing of why.
+    /// A future dropped at its delay or at the owner's answer leaves the credentials unanswered, which fails the
+    /// exchange.
     async fn authenticating(&mut self, first: &[u8]) {
         let name = ScramServer::name_in(first).ok();
         let throttle = self.core.throttle();
@@ -89,6 +91,7 @@ impl<A: Authorizer + Clone> Session for ClientSession<A> {
         Some(self.on_way.clone())
     }
 
+    /// A dropped future leaves what [`ClientSession`] says.
     async fn answer(&mut self, stream: u64, frame: ReceivedFrame) -> Answer {
         let answer = match self.request(stream, frame).await {
             Ok(answer) => answer,

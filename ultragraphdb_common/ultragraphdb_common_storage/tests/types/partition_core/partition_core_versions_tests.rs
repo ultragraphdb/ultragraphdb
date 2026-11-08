@@ -113,3 +113,127 @@ fn test_an_aborted_version_runs_again_ahead_of_the_next() -> TestResult {
         Ok(())
     })
 }
+
+/// Commits the inserts `changes`, `(subject, predicate, object)` terms, through a connection of `core`.
+async fn written(
+    core: &crate::types::partition_core::core_rig::Rig,
+    changes: &[(RequestTerm, &str, &str)],
+) -> TestResult {
+    use crate::types::partition_core::core_writes::one_frame;
+    use ultragraphdb_protocol_wire::{DirectWrite, TermTable, WriteChange};
+    let mut terms = TermTable::new();
+    let changes = changes
+        .iter()
+        .map(|(subject, predicate, object)| {
+            Ok(WriteChange::Insert {
+                graph: None,
+                subject: terms.intern(subject.clone())?,
+                predicate: terms.iri(&ex(predicate)),
+                object: terms.iri(&ex(object)),
+            })
+        })
+        .collect::<TestResult<Vec<_>>>()?;
+    let write = DirectWrite::new(TENANT, terms, changes)
+        .with_principal(crate::types::partition_core::core_rig::PRINCIPAL);
+    let mut client = core.dial().await?;
+    let _committed = one_frame(&mut client, &write)
+        .await?
+        .map_err(|refusal| ultragraphdb_tool_bdd::TestError::new(format!("{refusal:?}")))?;
+    Ok(())
+}
+
+/// A version the data contradicts is reported refused naming the predicate and the subject at fault: an IRI, or a blank
+/// node, each as the term it is.
+#[test]
+fn test_a_contradicted_version_names_the_subject_at_fault() -> TestResult {
+    let iri = RequestTerm::Iri(ex("s"));
+    let blank = RequestTerm::BlankNode("b".to_string());
+    for (subject, is_blank) in [(iri, false), (blank, true)] {
+        let name = format!("versions-contradicted-{is_blank}");
+        with_core(&name, RigSetup::default(), async |mut core| {
+            written(
+                &core,
+                &[(subject.clone(), "q", "o1"), (subject.clone(), "q", "o2")],
+            )
+            .await?;
+            core.inbox.unbounded_send(single_q(1)?)?;
+            let report = core.report().await?;
+            let at_fault = report.terms().get(1).cloned();
+            if is_blank {
+                assert!(
+                    matches!(at_fault, Some(RequestTerm::BlankNode(_))),
+                    "{report:?}"
+                );
+            } else {
+                let expected =
+                    Report::refused(PARTITION, TENANT, 1, &ex("q"), RequestTerm::Iri(ex("s")))?;
+                assert_eq!(report, expected);
+            }
+            Ok(())
+        })?;
+    }
+    Ok(())
+}
+
+/// A version starting a second build is reported refused naming the predicate whose build waits.
+#[test]
+fn test_a_second_build_of_a_version_is_reported_by_its_predicate() -> TestResult {
+    with_core(
+        "versions-second-build",
+        RigSetup::default(),
+        async |mut core| {
+            let subject = RequestTerm::Iri(ex("s"));
+            written(&core, &[(subject.clone(), "q", "o"), (subject, "r", "o")]).await?;
+            let counted = |name: &str| -> TestResult<Declaration> {
+                Ok(Declaration::Predicate(
+                    PredicateDeclaration::new(NamedNode::new(ex(name))?).with_count_index(true),
+                ))
+            };
+            core.inbox
+                .unbounded_send(version(1, vec![counted("q")?, counted("r")?]))?;
+            let expected =
+                Report::refused(PARTITION, TENANT, 1, &ex("r"), RequestTerm::Iri(ex("r")))?;
+            assert_eq!(core.report().await?, expected);
+            Ok(())
+        },
+    )
+}
+
+/// A version whose first declaration is an entity type or a relation, refused naming neither a predicate nor a subject, is
+/// reported by that declaration's name.
+#[test]
+fn test_a_version_is_reported_by_a_first_type_or_relation() -> TestResult {
+    use ultragraphdb_core_mapping::{RelationDeclaration, TypeDeclaration};
+    let entity =
+        Declaration::EntityType(TypeDeclaration::new(NamedNode::new(ex("T"))?, None, false));
+    let relation = Declaration::Relation(RelationDeclaration::new(
+        NamedNode::new(ex("R"))?,
+        vec![NamedNode::new(ex("role"))?],
+    ));
+    for (first, name) in [(entity, "T"), (relation, "R")] {
+        with_core(
+            &format!("versions-first-{name}"),
+            RigSetup::default(),
+            async |mut core| {
+                // A vector index declared without its dimension, which no partition can build.
+                let unusable = PredicateDeclaration::new(NamedNode::new(ex("v"))?)
+                    .with_vector_index(VectorIndexSpec::new("hnsw", Vec::new()));
+                core.inbox.unbounded_send(version(
+                    1,
+                    vec![first.clone(), Declaration::Predicate(unusable)],
+                ))?;
+                let named = ex(name);
+                let expected = Report::refused(
+                    PARTITION,
+                    TENANT,
+                    1,
+                    &named,
+                    RequestTerm::Iri(named.clone()),
+                )?;
+                assert_eq!(core.report().await?, expected);
+                Ok(())
+            },
+        )?;
+    }
+    Ok(())
+}

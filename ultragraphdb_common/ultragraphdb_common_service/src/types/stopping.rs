@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// Whether the service was told to stop, which a role still working reads between its steps.
 ///
 /// Shared by an `Arc` of an atomic: the service's core sets it once, and a role's cores read it (Ultra rule 9).
+/// `Release` on the store and `Acquire` on the load suffice: a reader seeing it set sees what the setter wrote before.
 #[derive(Debug, Clone, Default)]
 pub struct Stopping(Arc<AtomicBool>);
 

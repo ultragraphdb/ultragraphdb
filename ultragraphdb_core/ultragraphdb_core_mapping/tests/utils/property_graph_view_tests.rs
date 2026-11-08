@@ -4,10 +4,10 @@
  */
 
 use oxrdf::vocab::rdf;
-use oxrdf::{BlankNode, GraphName, Literal, NamedNode, NamedOrBlankNode, Term};
+use oxrdf::{BlankNode, GraphName, Literal, NamedNode, NamedOrBlankNode, Term, Triple};
 use ultragraphdb_core_mapping::{
     CanonicalDataset, Cardinality, Change, Changeset, Names, PgEdge, PgNode, PgValue,
-    PropertyGraph, property_graph_to_changeset, property_graph_view,
+    PropertyGraph, Statement, property_graph_to_changeset, property_graph_view,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -184,6 +184,29 @@ fn test_a_property_graph_writes_as_labels_values_and_edges_of_their_own() -> Tes
                 properties: vec![(iri("since"), Literal::from(2020).into())],
             },
         ]
+    );
+    Ok(())
+}
+
+/// A dataset refuses a triple-term object, so the statement is built directly: it makes no edge, and its subject is a
+/// node.
+#[test]
+fn test_a_triple_term_object_is_no_edge_and_its_subject_is_a_node() -> TestResult {
+    let g = GraphName::DefaultGraph;
+    let inner = Triple::new(iri("a"), iri("knows"), iri("b"));
+    let statement = Statement::new(
+        g.clone(),
+        iri("r").into(),
+        iri("about"),
+        Term::Triple(Box::new(inner)),
+    );
+    let pg = property_graph_view([&statement], &g, &Names::new("http://ex.org/")?, |_| {
+        Cardinality::Multi
+    });
+    assert!(pg.edges().is_empty());
+    assert_eq!(
+        pg.nodes().map(PgNode::id).collect::<Vec<_>>(),
+        vec![&NamedOrBlankNode::from(iri("r"))]
     );
     Ok(())
 }

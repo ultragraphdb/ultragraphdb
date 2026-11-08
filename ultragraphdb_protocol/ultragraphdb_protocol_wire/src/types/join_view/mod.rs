@@ -18,21 +18,25 @@ pub struct JoinView<'a> {
 
 impl<'a> JoinView<'a> {
     /// The role's kind: compute or storage.
+    #[must_use]
     pub fn kind(&self) -> RoleKind {
         self.kind
     }
 
     /// The role's role address.
+    #[must_use]
     pub fn address(&self) -> &'a str {
         self.address
     }
 
     /// The number of partitions it hosts.
+    #[must_use]
     pub fn partition_count(&self) -> usize {
         record_count::<4>(self.partitions)
     }
 
     /// Partition `index`; `None` past the last.
+    #[must_use]
     pub fn partition(&self, index: usize) -> Option<u32> {
         record_at::<4>(self.partitions, index).map(|p| u32::from_le_bytes(*p))
     }

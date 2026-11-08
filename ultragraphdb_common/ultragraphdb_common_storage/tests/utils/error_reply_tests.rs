@@ -6,11 +6,11 @@
 use ultragraphdb_cluster_partition::PartitionError;
 use ultragraphdb_common_storage::{error_reply, registration_outcome, scan_refusal};
 use ultragraphdb_error_store::StoreError;
-use ultragraphdb_protocol_wire::{ConflictKind, ErrorCode, RequestTerm};
+use ultragraphdb_protocol_wire::{ConflictKind, Direction, ErrorCode, RequestTerm};
 use ultragraphdb_store_apply::ChangesetError;
 use ultragraphdb_store_posting::PostingError;
 use ultragraphdb_store_quads::QuadError;
-use ultragraphdb_transactions_commit::CommitError;
+use ultragraphdb_transactions_commit::{CommitError, PipelineError};
 use ultragraphdb_transactions_txn::TxnError;
 
 fn said(error: &PartitionError) -> (ErrorCode, u64) {
@@ -269,6 +269,138 @@ fn test_a_cross_partition_refusal_states_both_partitions() {
             said(refusal),
             (ErrorCode::CrossPartition, detail),
             "{refusal}"
+        );
+    }
+}
+
+/// Each refusal's code and detail as `PROTOCOL.md` §13 states them, for the kinds the other tests leave out.
+#[test]
+fn test_every_other_refusal_takes_its_code() {
+    let stored = || StoreError::read_failed(b"k".to_vec(), "a checksum".to_string());
+    let cases: Vec<(PartitionError, (ErrorCode, u64))> = vec![
+        (PartitionError::timed_out(4), (ErrorCode::TimedOut, 4)),
+        (
+            PipelineError::sessions(stored()).into(),
+            (ErrorCode::Unavailable, 0),
+        ),
+        (
+            TxnError::read_above_watermark(9, 7).into(),
+            (ErrorCode::AheadOfWatermark, 7),
+        ),
+        (
+            TxnError::write_set_too_large(9_000, 1_024).into(),
+            (ErrorCode::TooLarge, 1_024),
+        ),
+        (TxnError::read_only().into(), (ErrorCode::Refused, 0)),
+        (TxnError::tenant(1, 2).into(), (ErrorCode::Refused, 0)),
+        (TxnError::declaration().into(), (ErrorCode::Refused, 0)),
+        (
+            ChangesetError::from(PostingError::ts_too_old()).into(),
+            (ErrorCode::TooOld, 0),
+        ),
+        (
+            ChangesetError::from(PostingError::not_a_list(b"k")).into(),
+            (ErrorCode::Refused, 0),
+        ),
+        (
+            ChangesetError::rebuilding("http://ex.org/p").into(),
+            (ErrorCode::Refused, 0),
+        ),
+        (
+            QuadError::corrupted(b"k", "a key").into(),
+            (ErrorCode::Unavailable, 0),
+        ),
+        (
+            QuadError::from(PostingError::invalid_key()).into(),
+            (ErrorCode::Unavailable, 0),
+        ),
+        (QuadError::pending_full(8).into(), (ErrorCode::Refused, 0)),
+        (CommitError::too_old(3, 5).into(), (ErrorCode::TooOld, 0)),
+        (CommitError::busy(8).into(), (ErrorCode::Busy, 0)),
+        (
+            CommitError::refused("no".to_string()).into(),
+            (ErrorCode::Refused, 0),
+        ),
+        (CommitError::unsealed().into(), (ErrorCode::Unavailable, 0)),
+    ];
+    for (refusal, want) in &cases {
+        assert_eq!(said(refusal), *want, "{refusal}");
+    }
+}
+
+/// A changeset's failed compare-and-set says what it found as a commit's does, a blank node by its label and a literal
+/// with its base direction; a triple term found is no value a request names.
+#[test]
+fn test_a_changeset_s_failed_compare_and_set_carries_the_value_found() {
+    let found = |text: &str| {
+        let refused = ChangesetError::operation_failed(Some(text.to_string()));
+        error_reply(&refused.into()).value().cloned()
+    };
+    assert_eq!(
+        found("_:b1"),
+        Some(RequestTerm::BlankNode("b1".to_string()))
+    );
+    for (text, direction) in [
+        ("\"chat\"@fr--ltr", Direction::Ltr),
+        ("\"chat\"@ar--rtl", Direction::Rtl),
+    ] {
+        assert!(
+            matches!(
+                found(text),
+                Some(RequestTerm::LanguageLiteral { direction: Some(said), .. }) if said == direction
+            ),
+            "{text}"
+        );
+    }
+    assert_eq!(
+        found("<<( <http://ex.org/a> <http://ex.org/p> <http://ex.org/b> )>>"),
+        None
+    );
+}
+
+/// A Scan's refusal names the key a failure names through a changeset and a list, a corrupted quad's key, and where the
+/// read stood for a failure that names none.
+#[test]
+fn test_a_scans_refusal_names_the_key_through_every_carrier() {
+    let key = b"k".to_vec();
+    let hex = |bytes: &[u8]| bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    let at = [0xAB_u8, 0x01];
+    let failed = || StoreError::read_failed(key.clone(), "a checksum".to_string());
+    let named: Vec<PartitionError> = vec![
+        ChangesetError::from(failed()).into(),
+        ChangesetError::from(PostingError::store(failed())).into(),
+        ChangesetError::from(PostingError::schema_posting(key.clone())).into(),
+        ChangesetError::from(QuadError::from(failed())).into(),
+        QuadError::corrupted(&key, "a key").into(),
+        TxnError::changeset(ChangesetError::from(PostingError::missing_part(
+            key.clone(),
+        )))
+        .into(),
+    ];
+    for refusal in &named {
+        let reply = scan_refusal(&at, refusal);
+        assert!(
+            reply
+                .message()
+                .contains(&format!("at the key {}:", hex(&key))),
+            "{refusal}: {}",
+            reply.message()
+        );
+    }
+    let unnamed: Vec<PartitionError> = vec![
+        ChangesetError::from(PostingError::invalid_key()).into(),
+        ChangesetError::from(StoreError::poisoned()).into(),
+        QuadError::from(StoreError::write_failed("a disk".to_string())).into(),
+        PipelineError::sessions(failed()).into(),
+    ];
+    for refusal in &unnamed {
+        let reply = scan_refusal(&at, refusal);
+        assert!(
+            reply
+                .message()
+                .contains(&format!("at the key {}:", hex(&at))),
+            "{refusal}: {}",
+            reply.message()
         );
     }
 }

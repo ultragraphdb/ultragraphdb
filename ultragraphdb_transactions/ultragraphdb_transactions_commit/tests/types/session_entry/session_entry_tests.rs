@@ -119,6 +119,23 @@ fn test_the_fuzz_seeds_are_the_suites_entries() -> TestResult {
     Ok(())
 }
 
+/// Each committed case of the fuzz target `session_entry`, through the target's rule: an entry accepted has one
+/// encoding, its bytes, and anything else is refused as corrupted.
+#[test]
+fn test_the_session_entry_fuzz_regressions_have_one_encoding_or_are_refused() -> TestResult {
+    let cases = ultragraphdb_tool_bdd::fuzz_regressions("session_entry")?;
+    assert!(!cases.is_empty(), "the committed cases");
+    for (name, bytes) in cases {
+        match SessionEntry::decode(&SessionEntry::key(5), &bytes) {
+            Ok(entry) => assert_eq!(entry.encode(), bytes, "{name}"),
+            Err(_) => {
+                let _reason: String = refusal(&bytes).context(&name)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The reason `bytes` are refused with, naming the key.
 fn refusal(bytes: &[u8]) -> TestResult<String> {
     let key = SessionEntry::key(5);
@@ -195,6 +212,10 @@ fn test_every_malformed_entry_is_refused_as_corrupted() -> TestResult {
         refusal(&with(84, &[0xFF]))?,
         "a session entry's node is not UTF-8"
     );
+    // The golden entry's node named a second time, the node count raised to two.
+    let mut twice = with(44, &2u32.to_le_bytes());
+    twice.extend_from_slice(&good[80..]);
+    assert_eq!(refusal(&twice)?, "a session entry names a node twice");
     Ok(())
 }
 

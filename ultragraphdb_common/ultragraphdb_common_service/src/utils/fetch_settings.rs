@@ -20,6 +20,9 @@ const RETRY: Duration = Duration::from_millis(200);
 /// `stop` is set while waiting. An unreachable service is asked again until `patience` has passed. A refusal is not, since
 /// waiting mends neither a key refused nor a target or instance unknown.
 ///
+/// A future dropped at a fetch or at its pause leaves nothing behind: each fetch is one request on a connection of its
+/// own, closed with it, and the settings exist only as this function's answer.
+///
 /// # Errors
 ///
 /// [`RoleError::unavailable`] naming the URL, the target, the instance and the last failure, past `patience`;
@@ -30,6 +33,7 @@ pub async fn fetch_settings(
     stop: &AtomicBool,
 ) -> Result<Option<RoleStart>, RoleError> {
     let due = now() + patience;
+    // An `Acquire` load of `stop` suffices: the flag orders no other memory.
     while !stop.load(Ordering::Acquire) {
         match fetch_once(bootstrap, bootstrap.revision()).await {
             Ok(start) => return Ok(Some(start)),
@@ -50,6 +54,7 @@ pub async fn fetch_settings(
 }
 
 /// One asking for the instance's settings at `revision`, the active one when it is `None`, checked as a start checks them.
+/// A future dropped at its request closes that request's connection and leaves nothing else.
 pub(crate) async fn fetch_once(
     bootstrap: &Bootstrap,
     revision: Option<u64>,

@@ -84,13 +84,13 @@ impl PlacementMap {
 
 /// `count`, at most a layout count's limit, as its 2-byte field.
 fn count_u16(count: usize) -> u16 {
-    debug_assert!(count <= PlacementMap::LAYOUTS_MAX as usize);
+    debug_assert!(count <= PlacementMap::LAYOUTS_MAX as usize); // 256, lossless
     u16::try_from(count).unwrap_or(u16::MAX)
 }
 
 /// `count`, at most a range or leader count's limit, as its 4-byte field.
 fn count_u32(count: usize) -> u32 {
-    debug_assert!(count <= PlacementMap::RANGES_MAX as usize);
+    debug_assert!(count <= PlacementMap::RANGES_MAX as usize); // 262,144, lossless
     u32::try_from(count).unwrap_or(u32::MAX)
 }
 
@@ -130,7 +130,7 @@ fn read_layout(reader: &mut Reader<'_>, before: Option<Epoch>) -> Result<Layout,
             count_at,
         ));
     }
-    let mut layout = Layout::with_capacity(from, count as usize);
+    let mut layout = Layout::with_capacity(from, count as usize); // at most `RANGES_MAX`, lossless
     for index in 0..count {
         read_run(reader, &mut layout, index)?;
     }
@@ -171,8 +171,9 @@ fn read_run(reader: &mut Reader<'_>, layout: &mut Layout, index: u32) -> Result<
             partition_at,
         ));
     }
-    debug_assert_eq!(layout.runs.len(), index as usize);
+    debug_assert_eq!(layout.runs.len(), index as usize); // below `RANGES_MAX`, lossless
     layout.push_run(start, partition);
+    // `PARTITIONS_MAX` is 1,024, so its cast is lossless.
     if layout.partitions.len() > PlacementMap::PARTITIONS_MAX as usize {
         return Err(ClusterError::malformed(
             "at most 1024 partitions in a layout",

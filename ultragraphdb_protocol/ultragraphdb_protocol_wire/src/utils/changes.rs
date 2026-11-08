@@ -500,6 +500,7 @@ pub(crate) fn check_records(
         return Err(ProtocolError::count_mismatch(
             command,
             "args",
+            // The casts are lossless: a `usize` is at most 64 bits.
             args.len() as u64,
             next as u64,
         ));
@@ -536,6 +537,7 @@ pub(crate) fn consume_records(
         }
         let end = next.saturating_add(r.len as usize);
         let run = args.get(next..end).ok_or_else(|| {
+            // Lossless: a `usize` is at most 64 bits.
             ProtocolError::count_mismatch(command, "args", args.len() as u64, end as u64)
         })?;
         Run {
@@ -683,7 +685,7 @@ pub(crate) fn decode_declaration(
             let at = at + 1 + domains;
             if r.flags & VECTOR_INDEX != 0 {
                 let factory = name(at)?;
-                let option_count = *a.get(at + 1)? as usize;
+                let option_count = *a.get(at + 1)? as usize; // lossless: a `usize` is at least 32 bits
                 let pairs = list(at + 2, 2 * option_count)?;
                 let options = pairs
                     .as_chunks::<2>()

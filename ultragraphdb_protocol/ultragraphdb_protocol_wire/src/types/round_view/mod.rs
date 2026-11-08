@@ -41,6 +41,7 @@ impl<'a> RoundView<'a> {
     }
 
     /// The dictionary entries the round creates, in ascending key order.
+    #[must_use]
     pub fn dictionary(&self) -> KeyValues<'a> {
         self.dictionary
     }

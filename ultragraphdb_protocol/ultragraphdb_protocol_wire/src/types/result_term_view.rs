@@ -51,8 +51,9 @@ impl<'a> ResultTermView<'a> {
         self.encoding
     }
 
-    /// The literal or vector in the store's encoding, read from its encoding, which the batch's check proved whole; a
-    /// client reads it through [`EncodedTerm::view`]. `None` for an IRI or a blank node, named by its hash.
+    /// The literal or vector in a Result's encoding, the store's but for a datatype no code names, which it names by
+    /// the hash of its IRI (`PROTOCOL.md` §10.1); read from its encoding, which the batch's check proved whole. A client
+    /// reads it through [`EncodedTerm::result_view`]. `None` for an IRI or a blank node, named by its hash.
     pub fn term(&self) -> Option<EncodedTerm> {
         match self.hash() {
             Some(_) => None,
@@ -62,6 +63,7 @@ impl<'a> ResultTermView<'a> {
 
     /// The hash of an IRI's text or a blank node's skolem IRI, which [`ResultTermView::text`] holds; `None` for a
     /// literal or a vector.
+    #[must_use]
     pub fn hash(&self) -> Option<Hash128> {
         named_hash(self.encoding).map(|(hash, _)| hash)
     }

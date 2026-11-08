@@ -138,3 +138,110 @@ fn test_a_reverse_count_lookup_sums_every_partition_of_the_run() -> TestResult {
         Ok(())
     })
 }
+
+/// A partition whose dictionary does not name the predicate holds no list of it and adds nothing, and a partition answering a
+/// list a key per frame is read to its last frame.
+#[test]
+fn test_a_lookup_skips_a_partition_not_naming_its_predicate() -> TestResult {
+    run(async {
+        let (partitions, [first, second]) = spread_over_two()?;
+        let cluster = ApartCluster::start(partitions).await?;
+        let predicate = id(960)?;
+        let subject = id(961)?;
+        let one = cluster.partition(first)?;
+        one.frame_per_key();
+        name(one, NAME, predicate);
+        name(one, "http://ex.org/s", subject);
+        let indexed = QuadKey::ValueIndex {
+            tenant: TENANT,
+            graph: Graph::Default,
+            predicate,
+            tokenizer: TOKEN.0,
+            token: TOKEN.1.to_vec(),
+        };
+        one.put(indexed.to_bytes(), list_of(&[subject]));
+        let counted = QuadKey::CountIndex {
+            tenant: TENANT,
+            graph: Graph::Default,
+            predicate,
+            direction: CountDirection::Reverse,
+            count: 1,
+        };
+        one.put(counted.to_bytes(), list_of(&[subject]));
+        let core = cluster.core(times(Duration::from_secs(1)));
+        let at = LookupAt::new(1, 1_000);
+        let found = core
+            .value_index(TENANT, at, NAME, TOKEN)
+            .await
+            .map_err(|reply| refused(&reply))?;
+        assert_eq!(found, ["http://ex.org/s"]);
+        let summed = core
+            .reverse_counted(TENANT, at, NAME, 1)
+            .await
+            .map_err(|reply| refused(&reply))?;
+        assert_eq!(summed, ["http://ex.org/s"]);
+        assert!(
+            cluster.partition(second)?.connections() > 0,
+            "the other partition was asked"
+        );
+        Ok(())
+    })
+}
+
+/// What a partition holds that does not read refuses the lookup with code 17, naming it: a term's entry holding no ID, an ID's
+/// entry holding no text, an index list naming an object by no ID.
+#[test]
+fn test_a_lookup_of_what_does_not_read_is_refused() -> TestResult {
+    use ultragraphdb_core_terms::EncodedTerm;
+    use ultragraphdb_protocol_wire::{ErrorCode, ObjectRecordsBuilder};
+    use ultragraphdb_store_quads::{id_key, term_key};
+
+    run(async {
+        let predicate = id(970)?;
+        let subject = id(971)?;
+        let indexed = QuadKey::ValueIndex {
+            tenant: TENANT,
+            graph: Graph::Default,
+            predicate,
+            tokenizer: TOKEN.0,
+            token: TOKEN.1.to_vec(),
+        }
+        .to_bytes();
+        let mut literal = ObjectRecordsBuilder::new();
+        let object =
+            EncodedTerm::literal(oxrdf::Literal::new_simple_literal("x").as_ref(), |_| {
+                Err::<SystemId, _>(ultragraphdb_core_terms::TermError::malformed(
+                    Vec::new(),
+                    "no datatype by ID",
+                ))
+            })?
+            .into_term();
+        literal.push(object.as_bytes(), &[]);
+        let broken: [(Vec<u8>, Vec<u8>, &str); 3] = [
+            (term_key(TENANT, NAME), vec![1, 2, 3], "holds no ID"),
+            (id_key(TENANT, subject), vec![0xFF, 0xFE], "holds no text"),
+            (
+                indexed.clone(),
+                literal.value().to_vec(),
+                "naming no system ID",
+            ),
+        ];
+        for (key, value, why) in broken {
+            let cluster = ApartCluster::start(1).await?;
+            let one = cluster.partition(1)?;
+            name(one, NAME, predicate);
+            name(one, "http://ex.org/s", subject);
+            one.put(indexed.clone(), list_of(&[subject]));
+            one.put(key, value);
+            let core = cluster.core(times(Duration::from_secs(1)));
+            let refusal = core
+                .value_index(TENANT, LookupAt::new(1, 1_000), NAME, TOKEN)
+                .await
+                .err()
+                .context("the lookup's refusal")?;
+            assert_eq!(refusal.code(), ErrorCode::Unavailable);
+            assert!(refusal.message().contains(why), "{}", refusal.message());
+        }
+        Ok(())
+    })
+}

@@ -31,6 +31,7 @@ impl TestDir {
     }
 
     /// The directory's path.
+    #[must_use]
     pub fn path(&self) -> &Path {
         &self.0
     }

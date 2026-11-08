@@ -20,6 +20,7 @@ impl ObservabilityTable {
     }
 
     /// `address`: the address it listens at.
+    #[must_use]
     pub fn address(&self) -> Option<&str> {
         self.address.as_deref()
     }

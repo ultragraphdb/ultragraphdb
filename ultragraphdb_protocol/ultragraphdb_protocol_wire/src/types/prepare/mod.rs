@@ -135,6 +135,7 @@ impl Prepare {
     }
 
     /// What the statement is written in.
+    #[must_use]
     pub fn language(&self) -> Language {
         self.language
     }
@@ -145,6 +146,7 @@ impl Prepare {
     }
 
     /// The quad pattern; `None` for a text.
+    #[must_use]
     pub fn pattern(&self) -> Option<&QuadPattern> {
         match &self.source {
             Source::Pattern(pattern) => Some(pattern),
@@ -153,6 +155,7 @@ impl Prepare {
     }
 
     /// The query text; `None` for a pattern.
+    #[must_use]
     pub fn text(&self) -> Option<&str> {
         match &self.source {
             Source::Pattern(_) => None,
@@ -172,6 +175,7 @@ impl Prepare {
     }
 
     /// For a text, the parameter names, then in a reply the result column names; empty for a pattern.
+    #[must_use]
     pub fn names(&self) -> &[String] {
         &self.names
     }

@@ -644,3 +644,124 @@ fn test_a_request_of_the_welcomes_largest_frame_is_sent() -> TestResult {
     assert_eq!(h.core.transmit().context("the Write")?.len(), MAX);
     Ok(())
 }
+
+/// An insert-if-absent of `http://ex.org/x`, its node created.
+fn claim() -> ultragraphdb_protocol_wire::ConditionalWrite {
+    let mut terms = TermTable::new();
+    let predicate = terms.iri("http://ex.org/id");
+    let value = terms.iri("http://ex.org/x");
+    ultragraphdb_protocol_wire::ConditionalWrite::new(
+        0,
+        terms,
+        Vec::new(),
+        vec![CommitOperation::InsertIfAbsent {
+            graph: None,
+            predicate,
+            value,
+            properties: Vec::new(),
+        }],
+    )
+}
+
+/// The frames of `command` the server received.
+fn received_of(h: &Harness, command: Command) -> usize {
+    h.server
+        .received()
+        .iter()
+        .filter(|f| HeaderView::new(f).is_ok_and(|header| header.command() == command.number()))
+        .count()
+}
+
+/// A ConditionalWrite answered busy is sent again whole after the retry delay, and commits once.
+#[test]
+fn test_a_conditional_write_answered_busy_is_sent_again_whole() -> TestResult {
+    let mut h = Harness::ready(server())?;
+    let registering = h.core.register(h.now)?;
+    let session = registered(h.settle(registering)?)?;
+    h.server.refuse_next_commit(ErrorCode::SessionBusy, 0);
+    let writing = h.core.conditional_write(claim(), session, h.now)?;
+    let reply = h.settle(writing)?;
+    let committed = crate::utils::harness::committed(reply)?;
+    assert_eq!(committed.request(), 1);
+    assert_eq!(received_of(&h, Command::ConditionalWrite), 2, "sent again");
+    assert_eq!(h.server.applied(), 1, "applied once");
+    Ok(())
+}
+
+/// A one-frame write lost with its connection, larger than the next connection's Welcome allows, cannot be sent again: it
+/// was sent before and may have been applied, so it is in doubt, the frame's size its cause.
+#[test]
+fn test_a_write_too_large_to_be_sent_again_on_the_next_connection_is_in_doubt() -> TestResult {
+    const SMALLER: u32 = 524_288;
+    let mut h = Harness::ready(server())?;
+    let registering = h.core.register(h.now)?;
+    let session = registered(h.settle(registering)?)?;
+    let mut terms = TermTable::new();
+    let big = terms.iri(&"x".repeat(SMALLER as usize));
+    let write = ultragraphdb_protocol_wire::DirectWrite::new(
+        0,
+        terms,
+        vec![ultragraphdb_protocol_wire::WriteChange::Insert {
+            graph: None,
+            subject: big,
+            predicate: big,
+            object: big,
+        }],
+    );
+    h.server.drop_after_next_commit();
+    let writing = h.core.direct_write(write, session, h.now)?;
+    h.until(|h| !h.core.is_connected())?;
+    assert_eq!(
+        h.server.applied(),
+        1,
+        "applied before the connection dropped"
+    );
+    // The next connection's server allows frames of half the size.
+    h.server = TestServer::new(CLUSTER, welcome().with_max_frame(SMALLER));
+    let error = h.settle(writing)?.err().context("an error")?;
+    let ClientErrorEnum::InDoubt {
+        session: s,
+        request,
+        cause,
+    } = error.0
+    else {
+        return Err(ultragraphdb_tool_bdd::TestError::new(format!("{error:?}")));
+    };
+    let (in_doubt, cause) = ((s, request), cause);
+    assert_eq!(in_doubt, (session.number(), 1));
+    assert!(
+        matches!(
+            cause.as_deref().map(|c| &c.0),
+            Some(ClientErrorEnum::Request { error: rule }) if matches!(
+                rule.0,
+                ProtocolErrorEnum::FrameTooLarge { limit, .. } if limit == SMALLER as usize
+            )
+        ),
+        "{cause:?}"
+    );
+    assert!(h.core.is_ready(), "the new connection serves on");
+    Ok(())
+}
+
+/// A commit whose frame had not left when its connection timed out is lost, not in doubt: its answer is the connection's
+/// loss, the timeout its cause, and its session takes its next request.
+#[test]
+fn test_a_commit_not_yet_sent_when_its_connection_times_out_is_lost() -> TestResult {
+    let mut h = Harness::ready(server())?;
+    let registering = h.core.register(h.now)?;
+    let session = registered(h.settle(registering)?)?;
+    let beginning = h.core.begin(0, false, h.now)?;
+    let tx = begun(h.settle(beginning)?)?;
+    let committing = h.core.commit(tx, session, h.now)?;
+    let due = h.core.next_deadline().context("the commit's timeout")?;
+    h.core.handle_timeout(due);
+    assert!(!h.core.is_connected());
+    assert_eq!(
+        h.core.take_reply(committing),
+        Some(Err(ClientError::connection_lost(Some(
+            ClientError::timed_out()
+        ))))
+    );
+    assert_eq!(h.core.next_request(session), Some(1), "the number stays");
+    Ok(())
+}

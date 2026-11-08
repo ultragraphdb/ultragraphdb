@@ -38,6 +38,11 @@ impl<S: DurableStorage> Wal<S> {
 
     /// Records `position`, a committed round above the checkpoint, as the checkpoint, then removes the segments whose
     /// rounds all lie at or below it, short of the segment the next round is written to.
+    ///
+    /// A future dropped at the superblock's write leaves the superblock in memory as it was, and on disk as a crash
+    /// at that step leaves it. One dropped while segments are recycled leaves the checkpoint moved: the segment being
+    /// recycled stays on disk as a segment, out of the log's files, for the next open to recycle, and the segments not
+    /// reached yet and the index entries of all of them wait for the next trim.
     pub(crate) async fn checkpoint_at(&mut self, position: Position) -> Result<(), LogError> {
         let Some(checksum) = self
             .index

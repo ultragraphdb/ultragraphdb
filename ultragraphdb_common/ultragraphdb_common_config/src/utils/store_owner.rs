@@ -16,12 +16,14 @@ const WAITING: usize = 64;
 
 /// A handle to `store` and the task owning it, which runs until every handle is gone. One command runs at a time, so a
 /// revision's check of the latest and its append are one step. A caller gone before the answer loses nothing but the answer.
+/// The owner awaits each command to its end, so no write of the store is dropped at its sync.
 pub fn store_owner<L: OrderedLog>(
     mut store: ConfigStore<L>,
 ) -> (ConfigHandle, impl Future<Output = ()>) {
     let (commands, mut waiting) = mpsc::channel(WAITING);
     let owner = async move {
         while let Some(command) = waiting.next().await {
+            // A caller gone before its answer loses only the answer, so each reply's send drops its `Result`.
             match command {
                 ConfigCommand::Targets(reply) => drop(reply.send(store.targets())),
                 ConfigCommand::Instance {

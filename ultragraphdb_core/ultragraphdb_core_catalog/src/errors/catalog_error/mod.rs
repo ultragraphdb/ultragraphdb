@@ -112,6 +112,7 @@ pub struct CatalogError(pub CatalogErrorEnum);
 
 impl CatalogError {
     /// A [`CatalogErrorEnum::LiteralOnEdge`] naming what it refused.
+    #[must_use]
     pub fn literal_on_edge(predicate: &str, object: String) -> Self {
         Self(CatalogErrorEnum::LiteralOnEdge {
             predicate: predicate.to_string(),
@@ -120,6 +121,7 @@ impl CatalogError {
     }
 
     /// A [`CatalogErrorEnum::ResourceOnProperty`] naming what it refused.
+    #[must_use]
     pub fn resource_on_property(predicate: &str, object: String) -> Self {
         Self(CatalogErrorEnum::ResourceOnProperty {
             predicate: predicate.to_string(),
@@ -128,6 +130,7 @@ impl CatalogError {
     }
 
     /// A [`CatalogErrorEnum::DatatypeMismatch`] naming what it refused.
+    #[must_use]
     pub fn datatype_mismatch(predicate: &str, expected: &str, found: &str) -> Self {
         Self(CatalogErrorEnum::DatatypeMismatch {
             predicate: predicate.to_string(),
@@ -137,6 +140,7 @@ impl CatalogError {
     }
 
     /// A [`CatalogErrorEnum::UnknownTokenizer`] naming what it refused.
+    #[must_use]
     pub fn unknown_tokenizer(predicate: &str, tokenizer: &str) -> Self {
         Self(CatalogErrorEnum::UnknownTokenizer {
             predicate: predicate.to_string(),
@@ -145,6 +149,7 @@ impl CatalogError {
     }
 
     /// A [`CatalogErrorEnum::TokenizerDatatype`] naming what it refused.
+    #[must_use]
     pub fn tokenizer_datatype(predicate: &str, tokenizer: &str, datatype: &str) -> Self {
         Self(CatalogErrorEnum::TokenizerDatatype {
             predicate: predicate.to_string(),
@@ -154,6 +159,7 @@ impl CatalogError {
     }
 
     /// A [`CatalogErrorEnum::UnknownVectorIndex`] naming what it refused.
+    #[must_use]
     pub fn unknown_vector_index(predicate: &str, factory: &str) -> Self {
         Self(CatalogErrorEnum::UnknownVectorIndex {
             predicate: predicate.to_string(),
@@ -162,6 +168,7 @@ impl CatalogError {
     }
 
     /// A [`CatalogErrorEnum::SecondParent`] naming what it refused.
+    #[must_use]
     pub fn second_parent(entity_type: &str, parent: &str, other: &str) -> Self {
         Self(CatalogErrorEnum::SecondParent {
             entity_type: entity_type.to_string(),
@@ -171,6 +178,7 @@ impl CatalogError {
     }
 
     /// A [`CatalogErrorEnum::ParentDropped`] naming the type and the parent it has.
+    #[must_use]
     pub fn parent_dropped(entity_type: &str, parent: &str) -> Self {
         Self(CatalogErrorEnum::ParentDropped {
             entity_type: entity_type.to_string(),
@@ -179,6 +187,7 @@ impl CatalogError {
     }
 
     /// A [`CatalogErrorEnum::ParentCycle`] naming what it refused.
+    #[must_use]
     pub fn parent_cycle(entity_type: &str, parent: &str) -> Self {
         Self(CatalogErrorEnum::ParentCycle {
             entity_type: entity_type.to_string(),
@@ -197,6 +206,7 @@ impl CatalogError {
     }
 
     /// A [`CatalogErrorEnum::TooLarge`]: `what` of the declaration of `iri` holds `len`, past `max`.
+    #[must_use]
     pub fn too_large(iri: &str, what: &'static str, len: usize, max: usize) -> Self {
         Self(CatalogErrorEnum::TooLarge {
             iri: iri.to_string(),

@@ -43,6 +43,7 @@ pub enum RecordOperation {
 
 impl RecordOperation {
     /// The operation's code: 1 to 4, 6 or 7; 5 is unassigned.
+    #[must_use]
     pub fn code(&self) -> u16 {
         match self {
             RecordOperation::DropPredicate(_) => 1,
@@ -56,6 +57,7 @@ impl RecordOperation {
 
     /// The operation's 16-byte argument: a system ID, big-endian; a catalog version, a little-endian u64, then for a
     /// build's completion its outcome's byte, and zero bytes; or zero.
+    #[must_use]
     pub fn argument(&self) -> [u8; 16] {
         match self {
             RecordOperation::DropPredicate(id) | RecordOperation::DropGraph(id) => id.to_be_bytes(),
@@ -115,6 +117,7 @@ impl RecordOperation {
     }
 
     /// Whether the operation is a drop, codes 1 to 4, the last record of its round.
+    #[must_use]
     pub fn is_drop(&self) -> bool {
         !matches!(
             self,
@@ -123,6 +126,7 @@ impl RecordOperation {
     }
 
     /// The operation's 24 bytes.
+    #[must_use]
     pub fn encode(&self) -> [u8; RECORD_OPERATION_SIZE] {
         let fields = self
             .code()

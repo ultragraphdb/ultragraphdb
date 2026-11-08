@@ -24,6 +24,7 @@ pub struct Recall {
 
 impl Recall {
     /// The recall of `session`'s reply to `request` from `partition`.
+    #[must_use]
     pub fn new(partition: u32, session: [u8; 16], request: u64) -> Self {
         Self {
             partition,
@@ -33,16 +34,19 @@ impl Recall {
     }
 
     /// The partition asked.
+    #[must_use]
     pub fn partition(&self) -> u32 {
         self.partition
     }
 
     /// The session.
+    #[must_use]
     pub fn session(&self) -> [u8; 16] {
         self.session
     }
 
     /// The request number whose reply is recalled.
+    #[must_use]
     pub fn request(&self) -> u64 {
         self.request
     }

@@ -101,6 +101,7 @@ fn txn_code(error: &TxnError) -> (ErrorCode, u64) {
         ),
         TxnErrorEnum::PastLimit { limit_ms } => (ErrorCode::PastLimit, *limit_ms),
         TxnErrorEnum::Ended => (ErrorCode::Protocol, 0),
+        // Lossless: a `usize` is at most 64 bits.
         TxnErrorEnum::WriteSetTooLarge { limit, .. }
         | TxnErrorEnum::ReadSetTooLarge { limit, .. } => (ErrorCode::TooLarge, *limit as u64),
         TxnErrorEnum::Changeset(refusal) => changeset_code(refusal),
@@ -130,7 +131,7 @@ fn changeset_code(error: &ChangesetError) -> (ErrorCode, u64) {
         return quad_code(quad);
     }
     if let ChangesetErrorEnum::StatementsPerObject { limit } = &error.0 {
-        return (ErrorCode::TooLarge, *limit as u64);
+        return (ErrorCode::TooLarge, *limit as u64); // lossless: a `usize` is at most 64 bits
     }
     if let ChangesetErrorEnum::Posting(posting) = &error.0 {
         return posting_code(posting);
@@ -195,7 +196,7 @@ fn commit_code(error: &CommitError) -> (ErrorCode, u64) {
         CommitErrorEnum::Conflict { kind } => (ErrorCode::Conflict, kind.number()),
         CommitErrorEnum::TooOld { .. } => (ErrorCode::TooOld, 0),
         CommitErrorEnum::TooLarge { limit, .. } | CommitErrorEnum::ReplyTooLarge { limit, .. } => {
-            (ErrorCode::TooLarge, *limit as u64)
+            (ErrorCode::TooLarge, *limit as u64) // lossless: a `usize` is at most 64 bits
         }
         CommitErrorEnum::Busy { .. } => (ErrorCode::Busy, 0),
         CommitErrorEnum::RequestOutOfOrder { last, .. } => (ErrorCode::RequestOutOfOrder, *last),

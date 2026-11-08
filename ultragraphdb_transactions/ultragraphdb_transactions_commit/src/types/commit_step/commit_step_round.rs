@@ -349,6 +349,7 @@ impl<P: Proposal> CommitStep<P> {
         if self.decided.is_empty() {
             return;
         }
+        // Lossless: a round decides at most `bounds.transactions()`, a u32, and its sources are among its decisions.
         let record = RoundRecord::new(first, self.decided.len() as u32, self.sources.len() as u32);
         debug_assert_eq!(
             self.sources.len(),
@@ -374,6 +375,7 @@ impl<P: Proposal> CommitStep<P> {
     /// its decisions within their count, each deciding as it is taken.
     fn gather<O: Operator<P>>(&mut self, out: &mut StepOutput<P>, operator: &mut O) {
         let (mut count, mut padded, mut dictionary) = (0usize, 0usize, 0usize);
+        // Lossless: a `usize` holds 32 bits on every target the repository builds for.
         let limit = self.bounds.bytes() as usize;
         // Each turn takes the entry at the queue's head into the round or sets it aside, or ends the round, so it ends
         // within the entries waiting.
@@ -755,6 +757,8 @@ impl<P: Proposal> CommitStep<P> {
         }
         body.resize(at_dictionary, 0);
         for (key, value) in &self.dictionary {
+            // A round's frame, its dictionary entries included, is at most `bounds.bytes()`, a u32, so each length
+            // fits.
             body.extend_from_slice(&(key.len() as u32).to_le_bytes());
             body.extend_from_slice(&(value.len() as u32).to_le_bytes());
             body.extend_from_slice(key);

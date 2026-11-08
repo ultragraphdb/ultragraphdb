@@ -28,6 +28,7 @@ impl TenantRun {
     }
 
     /// The run, the top 8 bits of the tenant's buckets.
+    #[must_use]
     pub fn run(&self) -> u8 {
         self.run
     }

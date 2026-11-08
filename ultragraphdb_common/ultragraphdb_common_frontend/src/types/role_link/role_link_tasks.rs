@@ -53,6 +53,7 @@ pub(super) fn spawn_over(link: RoleLink, client: RoleClient) {
 }
 
 /// Writes on one task and reads on another, until either finds the connection closed.
+/// A future dropped at the runtime's end drops the reader with a frame read in part.
 async fn run(link: RoleLink, client: RoleClient) {
     let (reader, writer, welcome) = client.split();
     link.max_frame.set(welcome.max_frame());
@@ -60,7 +61,10 @@ async fn run(link: RoleLink, client: RoleClient) {
     read(link, reader).await;
 }
 
+/// Writes each frame the link lets go until the link closes or a write fails, then shuts the sending side. A future
+/// dropped at the runtime's end may cut the frame being written.
 async fn write(link: RoleLink, mut writer: RoleWriter) {
+    // An event loop: the link's close, which ends its outgoing frames, or a failed write ends it (Ultra rule 2).
     while let Some(frame) = next_outgoing(&link).await {
         if let Err(error) = writer.send(frame).await {
             tracing::debug!(%error, "a role connection's write failed");
@@ -72,6 +76,7 @@ async fn write(link: RoleLink, mut writer: RoleWriter) {
 }
 
 /// The next frame to leave, which is no longer counted, once there is one; `None` once the connection closed.
+/// A dropped future leaves the frame queued and its waker registered, which the next frame wakes for nothing.
 async fn next_outgoing(link: &RoleLink) -> Option<Vec<u8>> {
     poll_fn(|cx| {
         let mut routes = link.routes.borrow_mut();
@@ -87,7 +92,10 @@ async fn next_outgoing(link: &RoleLink) -> Option<Vec<u8>> {
     .await
 }
 
+/// Hands every frame read to its stream's session until the connection ends or a frame is refused. A future dropped at
+/// the runtime's end drops the reader with a frame read in part.
 async fn read(link: RoleLink, mut reader: RoleReader) {
+    // An event loop: the connection's end or a frame the link refuses ends it (Ultra rule 2).
     loop {
         let frame = match reader.next_frame().await {
             Ok(frame) => frame,

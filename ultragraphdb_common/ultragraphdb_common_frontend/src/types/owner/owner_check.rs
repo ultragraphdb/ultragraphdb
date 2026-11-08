@@ -27,6 +27,7 @@ enum Withdrawal {
 impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
     /// A partition's report on a catalog version, answered once the group holds it; of a version not being checked it changes
     /// nothing (`PROTOCOL.md` §13.19).
+    /// An asker gone has no one to tell, so each reply's failed send is dropped.
     pub(super) fn report(
         &mut self,
         report: ReportAsked,

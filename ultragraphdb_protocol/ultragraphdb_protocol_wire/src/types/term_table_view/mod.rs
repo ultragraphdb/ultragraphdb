@@ -79,7 +79,7 @@ impl Entry {
         let mut deepest = 0;
         for part in [first, first_len, second] {
             let depth = depths
-                .get(part as usize)
+                .get(part as usize) // lossless: a `usize` is at least 32 bits
                 .ok_or(ProtocolError::index_out_of_range(
                     self.command,
                     self.record_section,
@@ -121,6 +121,7 @@ impl Entry {
         let [first, first_len, second, second_len] = fields;
         let limit = text.len();
         let span = |start: u32, len: u32| -> Result<(usize, usize), ProtocolError> {
+            // The casts are lossless: a `usize` is at least 32 bits.
             let start = start as usize;
             let end = start.saturating_add(len as usize);
             if end > limit {
@@ -134,6 +135,7 @@ impl Entry {
             }
             Ok((start, end))
         };
+        // Lossless: a `usize` is at least 32 bits.
         if first as usize != position {
             return Err(ProtocolError::field_value(
                 self.command,
@@ -142,6 +144,7 @@ impl Entry {
             ));
         }
         let (a, a_end) = span(first, first_len)?;
+        // Lossless: a `usize` is at least 32 bits.
         if second as usize != a_end {
             return Err(ProtocolError::field_value(
                 self.command,

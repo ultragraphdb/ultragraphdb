@@ -70,6 +70,7 @@ impl ComputeCore {
     }
 
     /// A connection to the frontend.
+    /// A dropped future leaves no connection.
     async fn dial_frontend(&self) -> Result<RoleClient, TransportError> {
         RoleClient::dial(
             &self.frontend,
@@ -81,6 +82,7 @@ impl ComputeCore {
     }
 
     /// The placement map, which this stage fixes once formed, so a process holds it for its lifetime (`PROTOCOL.md` §11.12).
+    /// A dropped future leaves the map unfetched, and the next caller fetches it.
     pub(crate) async fn placement(&self) -> Result<Rc<PlacementMap>, ErrorReply> {
         if let Some(map) = self.placement.borrow().as_ref() {
             return Ok(Rc::clone(map));
@@ -101,6 +103,8 @@ impl ComputeCore {
         Ok(map)
     }
 
+    /// The placement map the frontend answers, checked against the even map this stage holds. A dropped future drops
+    /// its connection to the frontend.
     async fn fetch_placement(&self) -> Result<PlacementMap, TransportError> {
         let mut client = self.dial_frontend().await?;
         let reply = client.request(&Placement::request(0)).await?;
@@ -132,6 +136,7 @@ impl ComputeCore {
     }
 
     /// Where `partition` listens, asking the frontend's Members when it is not yet known.
+    /// A dropped future leaves the addresses as they were.
     async fn address_of(&self, partition: u32) -> Result<Address, ErrorReply> {
         if let Some(address) = self.addresses.borrow().get(&partition) {
             return Ok(address.clone());
@@ -158,6 +163,8 @@ impl ComputeCore {
             })
     }
 
+    /// Notes where each storage partition listens, from the frontend's Members. The addresses change only once the
+    /// reply is in, so a dropped future changes none.
     async fn fetch_members(&self) -> Result<(), TransportError> {
         let mut client = self.dial_frontend().await?;
         let reply = client.request(&Members::new()).await?;
@@ -166,6 +173,7 @@ impl ComputeCore {
         let mut addresses = self.addresses.borrow_mut();
         for member in (0..members.len()).filter_map(|index| members.member(index)) {
             if member.kind() == RoleKind::Storage
+                // A `u32`, lossless.
                 && let Some(text) = members.address(member.address() as usize)
             {
                 let _old = addresses.insert(member.partition(), Address::parse(text)?);
@@ -176,6 +184,8 @@ impl ComputeCore {
 
     /// The core's one connection to `partition`, dialled when it has none or the one it had closed, concurrent reads sharing one
     /// dial.
+    /// A future dropped while it waits on another's dial leaves that dial going on; one dropped while it dials ends the
+    /// dial as [`ComputeCore::dial_for_all`] says.
     pub(crate) async fn link(&self, partition: u32) -> Result<Rc<Link>, ErrorReply> {
         loop {
             let held = self.links.borrow().get(&partition).cloned();
@@ -204,6 +214,8 @@ impl ComputeCore {
     }
 
     /// Dials `partition`, the connection or its refusal answering everyone who waited on it.
+    /// A dropped future drops its `DialUnderWay`, which ends the dial for those waiting on it: each looks again, and
+    /// the next dials.
     async fn dial_for_all(&self, partition: u32) -> Result<Rc<Link>, ErrorReply> {
         let under_way = DialUnderWay {
             core: self,
@@ -223,6 +235,7 @@ impl ComputeCore {
     }
 
     /// A new connection to `partition`.
+    /// A dropped future leaves no connection, and the addresses as they were.
     async fn dial(&self, partition: u32) -> Result<Rc<Link>, ErrorReply> {
         let address = self.address_of(partition).await?;
         let dialled = async {

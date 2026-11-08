@@ -23,7 +23,10 @@ pub struct PartitionMailbox {
 }
 
 impl PartitionMailbox {
-    /// One mailbox per partition of `ids`, in order, each with a sender to all.
+    /// One mailbox per partition of `ids`, in order, each with a sender to all. An inbox has no capacity of its own:
+    /// what bounds it is the writes parked at its peers, each sending one batch a second until its read-write limit
+    /// ends it, the answers to the registrations the partition sent, and the sequencer's closes.
+    #[must_use]
     pub fn mesh(ids: &[PartitionId]) -> Vec<Self> {
         let (senders, inboxes): (Vec<_>, Vec<_>) = ids.iter().map(|_| channel()).unzip();
         let peers: BTreeMap<PartitionId, Sender<PartitionMessage>> =
@@ -48,11 +51,13 @@ impl PartitionMailbox {
     }
 
     /// The partition the mailbox belongs to.
+    #[must_use]
     pub fn id(&self) -> PartitionId {
         self.id
     }
 
     /// A sender to partition `to`, `None` for one outside the mesh.
+    #[must_use]
     pub fn sender(&self, to: PartitionId) -> Option<Sender<PartitionMessage>> {
         self.peers.get(&to).cloned()
     }

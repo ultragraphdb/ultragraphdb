@@ -18,13 +18,15 @@ const SOCKET_MODE: u32 = 0o600;
 /// How long a role waits between two asks for a TCP port in use.
 const BIND_RETRY: Duration = Duration::from_millis(50);
 
-/// How many times a role asks again for a TCP port in use: 5 s of [`BIND_RETRY`]. A killed process holds its ports until the kernel
+/// How many times a role asks again for a TCP port in use: 5 s of `BIND_RETRY`. A killed process holds its ports until the kernel
 /// tears down its io_uring ring, measured at no more than 15 ms past its reaping (`notes/group-11.md`).
 pub const BIND_RETRIES: u32 = 100;
 
 /// Binds the TCP address `address`, `host:port`. A port in use is asked for again every 50 ms for up to 5 s, each retry logged:
 /// a process killed moments ago holds its ports until the kernel has torn down its io_uring ring. Every role binds its TCP addresses
 /// here.
+///
+/// A future dropped at its pause between retries leaves nothing bound.
 ///
 /// # Errors
 ///
@@ -56,6 +58,9 @@ pub async fn bind_tcp(address: &str) -> Result<TcpListener, RoleError> {
 /// Listens at the role address `text`. A Unix socket a process before this one left behind is replaced, and the new one
 /// is set to mode 0600; a TCP address takes [`bind_tcp`]'s retries.
 ///
+/// A future dropped at its bind leaves nothing listening, and at most a socket file at the path, which the next `listen`
+/// at that path replaces.
+///
 /// # Errors
 ///
 /// [`RoleError::configuration`] for an address that does not parse or a Unix socket that cannot be made at its path, which says
@@ -70,6 +75,7 @@ pub async fn listen(text: &str) -> Result<Listener, RoleError> {
             .map_err(|error| RoleError::unavailable(format!("listening at {text}: {error}")))?;
         return Ok(Listener::Tcp(listener));
     };
+    // A closure takes no type parameter, so it takes each error as a trait object (Ultra rules 1 and 9).
     let unavailable = |why: &dyn std::fmt::Display| cannot_listen(text, path, why);
     let stale = std::fs::symlink_metadata(path).is_ok_and(|file| file.file_type().is_socket());
     if stale {
@@ -85,7 +91,7 @@ pub async fn listen(text: &str) -> Result<Listener, RoleError> {
 
 /// Why `text`, a Unix socket at `path`, cannot be listened at: its path is the deployment's to lay out, so this is a configuration
 /// error saying how.
-fn cannot_listen(text: &str, path: &Path, why: &dyn std::fmt::Display) -> RoleError {
+fn cannot_listen(text: &str, path: &Path, why: &(impl std::fmt::Display + ?Sized)) -> RoleError {
     use std::os::unix::fs::FileTypeExt;
 
     let stands = std::fs::symlink_metadata(path).is_ok_and(|file| !file.file_type().is_socket());

@@ -26,21 +26,25 @@ impl BoundRead {
     }
 
     /// The connection and stream that bound it.
+    #[must_use]
     pub fn key(&self) -> BoundKey {
         self.key
     }
 
     /// The version it reads at.
+    #[must_use]
     pub fn read_version(&self) -> u64 {
         self.read_version
     }
 
     /// The principal it acts for.
+    #[must_use]
     pub fn principal(&self) -> u64 {
         self.principal
     }
 
     /// The tenant it reads and writes.
+    #[must_use]
     pub fn tenant(&self) -> u64 {
         self.tenant
     }

@@ -8,7 +8,9 @@ use ultragraphdb_protocol_transport::TransportError;
 use ultragraphdb_protocol_transport_compio::{Carrier, Connection};
 use ultragraphdb_protocol_wire::Header;
 
-/// The sending half of a [`crate::RoleClient`], which numbers its frames after those the dial sent.
+/// The sending half of a [`crate::RoleClient`], which numbers its frames after those the dial sent. A send dropped at its
+/// `.await` may leave a frame written in part, so the half whose send was dropped is given up; a shutdown dropped leaves
+/// the sending side open until the half is dropped.
 #[derive(Debug)]
 pub struct RoleWriter {
     connection: Connection<<Carrier as Splittable>::WriteHalf>,

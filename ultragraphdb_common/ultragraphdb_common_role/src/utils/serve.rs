@@ -139,7 +139,7 @@ impl Server {
             limits
         } else {
             limits
-                .with_max_frame(MAX_FRAME_SIZE as u32)
+                .with_max_frame(MAX_FRAME_SIZE as u32) // 2^20, lossless
                 .with_max_streams(ROLE_MAX_STREAMS)
         };
         let connection = ServerConnection::new(self.cluster, welcome, authenticator, at)
@@ -156,6 +156,10 @@ impl Server {
 /// Serves one connection until it closes: its handshake, its authentication against `credentials` and its endpoint's
 /// rules in the connection's machine, and what those pass on in `session`. A failing stream ends the connection, which
 /// holds nothing of anyone else's.
+///
+/// A dropped future ends the connection as a failing stream does, without its shutdown: a frame read or written in part is
+/// cut, `session` is dropped with what it holds, and the connection's place under the server's bound and its open
+/// request are let go.
 pub async fn serve_connection<S, C, H>(stream: S, server: &Server, credentials: C, mut session: H)
 where
     S: Splittable,
@@ -193,6 +197,8 @@ where
     writer.shutdown().await;
 }
 
+/// The connection's event loop. A dropped future lets go of the frame in hand and its open request, and leaves the
+/// connection to its end, as [`serve_connection`] says.
 async fn run<R, W, A, H>(
     reader: &mut Connection<R>,
     writer: &mut Connection<W>,
@@ -208,6 +214,7 @@ where
     H: Session,
 {
     let parked = session.parked();
+    // An event loop: the connection machine's close or a transport error ends it (Ultra rule 2).
     while !machine.is_closing() {
         let frame = next_frame(reader, writer, machine, pool, session, parked.as_ref()).await?;
         // A frame stays open until what it asks is on the wire, past the flush below: that is what a stop waits for.
@@ -229,7 +236,8 @@ where
 
 /// The frame read next, sending what the session pushes meanwhile; the read stays pinned across those sends, so a frame
 /// is never cut short, and starts only once `parked` has room, which only a frame taken can use up. `None` once a deadline passed
-/// and the connection's machine has taken it.
+/// and the connection's machine has taken it. A dropped future drops the pinned read with it, cutting a frame read in part,
+/// and may cut a pushed frame being written: the connection ends with it.
 async fn next_frame<R, W, A, H>(
     reader: &mut Connection<R>,
     writer: &mut Connection<W>,
@@ -300,7 +308,8 @@ enum Event {
     Deadline,
 }
 
-/// `received` taken by the machine, and a request it hands on answered.
+/// `received` taken by the machine, and a request it hands on answered. A future dropped at the session's `.await` drops
+/// `received` unanswered, and leaves what the session's own future leaves.
 async fn take<R, A, H>(
     reader: &mut Connection<R>,
     machine: &mut ServerConnection<A>,
@@ -376,7 +385,7 @@ fn refuse<A: Authenticator>(
         tracing::warn!(
             stream,
             code = refusal.code().number(),
-            message = refusal.message(),
+            reason = refusal.message(),
             "a CloseRequest was refused"
         );
         let _ended = machine.outbound().cancel(stream);
@@ -386,7 +395,8 @@ fn refuse<A: Authenticator>(
 }
 
 /// Writes every frame the machine lets go, then tells the session of each stream with room for its next frame, and of each
-/// whose frame left with none.
+/// whose frame left with none. A future dropped at a write may cut that frame, which the machine has let go already: the
+/// connection ends with it.
 async fn flush<W, A, H>(
     writer: &mut Connection<W>,
     machine: &mut ServerConnection<A>,

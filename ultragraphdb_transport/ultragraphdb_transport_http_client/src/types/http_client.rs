@@ -77,7 +77,9 @@ impl HttpClient {
         &self.url
     }
 
-    /// Sends `method` of `target` with `body`, and reads the whole reply.
+    /// Sends `method` of `target` with `body`, and reads the whole reply, over a connection of its own. A future
+    /// dropped at any `.await` closes that connection: the request has reached the service in whole, in part or not at
+    /// all, and its reply is not read.
     ///
     /// # Errors
     ///
@@ -98,6 +100,8 @@ impl HttpClient {
         }
     }
 
+    /// The exchange over a new connection, in clear text or TLS as the URL says; a future dropped at any `.await`
+    /// closes the connection, as [`HttpClient::request`] says.
     async fn exchange(
         &self,
         method: &str,
@@ -130,7 +134,8 @@ impl HttpClient {
         self.over(stream, method, target, body).await
     }
 
-    /// The exchange over `stream`.
+    /// The exchange over `stream`, which the future owns: one dropped at any `.await` closes it, as
+    /// [`HttpClient::request`] says.
     async fn over<S: AsyncRead + AsyncWrite>(
         &self,
         mut stream: S,
@@ -161,6 +166,8 @@ impl HttpClient {
             Err(error) => Some(error),
         };
         let mut received = Vec::with_capacity(READ_BYTES);
+        // Ends: each turn reads at least one byte or returns, and `parse_reply` refuses a head past its bound and a
+        // body past `BODY_MAX`.
         loop {
             match parse_reply(&received, BODY_MAX) {
                 ParsedReply::Complete(reply) => return Ok(reply),

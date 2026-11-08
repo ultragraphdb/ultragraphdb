@@ -126,3 +126,108 @@ fn test_a_resume_at_an_id_takes_its_postings_identity() -> TestResult {
         Ok(())
     })
 }
+
+/// A Scan of keyspace `keyspace` from its start at `version`, a page of at most 16.
+fn scan_of(keyspace: Keyspace, version: u64) -> TestResult<ultragraphdb_store_quads::KernelScan> {
+    let limit = std::num::NonZeroUsize::new(16).context("a limit")?;
+    Ok(ultragraphdb_store_quads::KernelScan::new(
+        keyspace,
+        TENANT,
+        Vec::new(),
+        version,
+        limit,
+    ))
+}
+
+/// A host pages its lists and its values at a version with no transaction: a committed object is one row of the forward
+/// lists, and a keyspace of no values is refused.
+#[test]
+fn test_a_host_pages_lists_and_values_unbound() -> TestResult {
+    use std::ops::ControlFlow;
+    let cluster = Cluster::even(1)?;
+    let (a, knows) = (cluster.name_in(1, "a")?, cluster.name_in(1, "knows")?);
+    on_hosts(1, |hosts| {
+        let _ticket = first(hosts)?.submit(changeset(vec![insert_literal(&a, &knows, "v")]), 0)?;
+        let _ended = turn_all(hosts, 3, 0)?;
+        let host = first(hosts)?;
+        let version = host.watermark();
+        let mut objects = 0;
+        let _page = host.page(&scan_of(Keyspace::Forward, version)?, |_, _, ids| {
+            objects += ids.len().max(1);
+            ControlFlow::Continue(())
+        })?;
+        assert_eq!(objects, 1);
+        let mut values = 0;
+        let _values_page = host.values_page(&scan_of(Keyspace::Statements, version)?, |_, _| {
+            values += 1;
+            ControlFlow::Continue(())
+        })?;
+        assert_eq!(values, 0, "no statement was written");
+        let refused = host.values_page(&scan_of(Keyspace::Forward, version)?, |_, _| {
+            ControlFlow::Continue(())
+        });
+        assert!(refused.is_err());
+        Ok(())
+    })
+}
+
+/// A bound transaction's page, values page or dictionary read that its transaction refuses ends the transaction.
+#[test]
+fn test_a_refused_bound_read_ends_the_transaction() -> TestResult {
+    use std::ops::ControlFlow;
+    let cluster = Cluster::even(1)?;
+    on_hosts(1, |hosts| {
+        let host = first(hosts)?;
+        let (paged, valued, looked) = ((1, 1), (1, 2), (1, 3));
+        for (key, identity) in [(paged, 1), (valued, 2), (looked, 3)] {
+            let _read = host.bind(key, [identity; 16], (TENANT, 1, Epoch::ZERO), 0)?;
+        }
+        let version = host.watermark();
+        let of_marks = scan_of(Keyspace::Marks, version)?;
+        assert!(
+            host.page_bound(paged, &of_marks, 0, |_, _, _| ControlFlow::Continue(()))
+                .is_err()
+        );
+        let of_lists = scan_of(Keyspace::Forward, version)?;
+        assert!(
+            host.values_page_bound(valued, &of_lists, 0, |_, _| ControlFlow::Continue(()))
+                .is_err()
+        );
+        let late = 3_600 * 1_000_000;
+        let key = term_key(
+            TENANT,
+            crate::utils::cluster::ex(&cluster.name_in(1, "a")?).as_str(),
+        );
+        assert!(host.dictionary_bound(looked, &key, late).is_err());
+        for identity in [1, 2, 3] {
+            assert!(host.bound_read(&[identity; 16]).is_none(), "{identity}");
+        }
+        Ok(())
+    })
+}
+
+/// A store failing under the dictionary read of a term homed elsewhere ends the bound read naming it, and the transaction.
+#[test]
+fn test_a_store_failing_under_a_read_terms_lookup_ends_the_transaction() -> TestResult {
+    use ultragraphdb_cluster_partition::PartitionErrorEnum;
+    use ultragraphdb_store_sim::Fault;
+    let cluster = Cluster::even(2)?;
+    let foreign = ex(&cluster.name_in(2, "q")?);
+    on_hosts(2, |hosts| {
+        let host = first(hosts)?;
+        let key = (1, 1);
+        let _read = host.bind(key, [1; 16], (TENANT, 1, Epoch::ZERO), 0)?;
+        host.partition()
+            .applier()
+            .quads()
+            .store()
+            .inject(Fault::FailNextRead);
+        let refused = host.read_terms_bound(key, &[foreign], 0);
+        assert!(
+            matches!(&refused, Err(e) if matches!(e.0, PartitionErrorEnum::Quad(_))),
+            "{refused:?}"
+        );
+        assert!(host.bound_read(&[1; 16]).is_none(), "the refusal ended it");
+        Ok(())
+    })
+}

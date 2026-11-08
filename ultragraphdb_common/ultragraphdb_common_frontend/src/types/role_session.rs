@@ -35,6 +35,7 @@ pub struct RoleShared {
 
 impl RoleShared {
     /// What the core's role connections share.
+    #[must_use]
     pub fn new(
         cluster: RoleCluster,
         owner: OwnerHandle,
@@ -50,7 +51,8 @@ impl RoleShared {
     }
 }
 
-/// One role connection at the frontend's role address.
+/// One role connection at the frontend's role address. Each request it answers awaits the owner alone, as
+/// [`OwnerHandle`] says, and the connection awaits each answer to its end, so only the runtime's end drops one.
 #[derive(Debug)]
 pub struct RoleSession {
     shared: RoleShared,
@@ -59,6 +61,7 @@ pub struct RoleSession {
 
 impl RoleSession {
     /// A session over what the core shares.
+    #[must_use]
     pub fn new(shared: RoleShared) -> Self {
         Self {
             shared,
@@ -185,6 +188,7 @@ impl RoleSession {
 }
 
 impl Session for RoleSession {
+    /// A dropped future leaves what [`RoleSession`] says.
     async fn answer(&mut self, stream: u64, received: ReceivedFrame) -> Answer {
         let view = match received.view() {
             Ok(view) => view,
@@ -231,7 +235,7 @@ impl Session for RoleSession {
                 Err(refusal) => {
                     // A subscriber too far behind for the closes held has nothing left to read here, and is told so on its
                     // stream, which this ends (`PROTOCOL.md` §13.3).
-                    tracing::warn!(after, message = refusal.message(), "a subscription ended");
+                    tracing::warn!(after, reason = refusal.message(), "a subscription ended");
                     self.subscription = None;
                     let header = Header::new(self.shared.cluster.id(), Command::Error)
                         .with_stream(stream)
@@ -342,6 +346,7 @@ fn now() -> Instant {
 
 /// Connects back to the role that joined at `text`, retrying until the deadline; the first partition reached makes the
 /// frontend ready. A connection a later Join of the address brings replaces this one.
+/// Spawned detached: a future dropped at the runtime's end leaves no connection back.
 async fn connect_back(shared: RoleShared, text: String, kind: RoleKind) {
     let Ok(address) = Address::parse(&text) else {
         tracing::warn!(address = %text, "a role joined at an address that does not parse");

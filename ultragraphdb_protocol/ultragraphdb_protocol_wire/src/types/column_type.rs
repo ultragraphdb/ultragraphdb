@@ -59,6 +59,7 @@ impl ColumnType {
         ColumnType::ALL
             .iter()
             .position(|t| *t == self)
+            // `i` is below the 13 types of `ALL`, so the cast is lossless and the number at most 13.
             .map_or(0, |i| i as u8 + 1)
     }
 
@@ -70,6 +71,7 @@ impl ColumnType {
     }
 
     /// Whether a quad pattern's parameter or result column takes the type: 1 or 2.
+    #[must_use]
     pub fn in_pattern(self) -> bool {
         matches!(self, ColumnType::Node | ColumnType::Term)
     }

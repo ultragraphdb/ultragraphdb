@@ -218,9 +218,9 @@ impl<A: Authorizer + Clone> ClientSession<A> {
                 let (session, request) = placed.split_at_mut(16);
                 session.copy_from_slice(&facts.session);
                 request.copy_from_slice(&facts.request.to_le_bytes());
-                let at = xxh3_64(&placed) % owners.len().max(1) as u64;
+                let at = xxh3_64(&placed) % owners.len().max(1) as u64; // lossless: a `usize` is at most 64 bits
                 owners
-                    .get(at as usize)
+                    .get(at as usize) // below `owners.len()`, a `usize`, lossless
                     .copied()
                     .map(Some)
                     .ok_or_else(|| self.unavailable())
@@ -286,7 +286,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             && !one.resent
         {
             one.resent = true;
-            one.forced = Some((refusal.detail() >> 32) as u32);
+            one.forced = Some((refusal.detail() >> 32) as u32); // a `u64`'s high half, lossless
             one.route = None;
             self.refresh_map(stream);
             return;

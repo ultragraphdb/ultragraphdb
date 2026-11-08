@@ -21,8 +21,12 @@ const READ_BYTES: usize = 16 * 1024;
 
 /// Answers the one request `stream` carries by `service`, then closes. A request past its limits, or malformed, or one a
 /// peer leaves unfinished, gets its refusal, and that peer may still be sending: closing over bytes not read resets the
-/// connection, which fails the peer's next write and can destroy the refusal on its way. So a refusal is followed by
-/// [`drain`], up to the limits' time, before the close. A stream that fails ends with nothing, since no one is left to tell.
+/// connection, which fails the peer's next write and can destroy the refusal on its way. So a refusal is followed by a
+/// drain of what the peer still sends, up to the limits' time, before the close. A stream that fails ends with nothing,
+/// since no one is left to tell.
+///
+/// The future owns `stream`: one dropped at any `.await` closes it with the response written in whole, in part or not
+/// at all, and drops `service`'s call where it stood, which leaves what the service's own future leaves.
 pub async fn serve_http<S, H>(mut stream: S, limits: &HttpLimits, service: &H)
 where
     S: AsyncRead + AsyncWrite,
@@ -50,7 +54,8 @@ where
 }
 
 /// Reads what `stream` still sends and discards it, into one buffer, until the peer ends or [`HttpLimits::DRAIN_MAX`]
-/// bytes have passed. The sending side is shut by then, so the peer holds its answer and the end of it.
+/// bytes have passed. The sending side is shut by then, so the peer holds its answer and the end of it. A future
+/// dropped at its read leaves nothing, since what it reads is discarded either way.
 async fn drain<S: AsyncRead>(stream: &mut S) {
     let mut buffer = Vec::with_capacity(READ_BYTES);
     let mut drained = 0;
@@ -65,7 +70,8 @@ async fn drain<S: AsyncRead>(stream: &mut S) {
     }
 }
 
-/// The request on `stream`, read until it is whole, or the status refusing it.
+/// The request on `stream`, read until it is whole, or the status refusing it. A future dropped at a read loses the
+/// request's bytes read so far, and the stream holds the rest.
 async fn read_request<S: AsyncRead>(
     stream: &mut S,
     limits: &HttpLimits,
@@ -88,6 +94,8 @@ async fn read_request<S: AsyncRead>(
     Err(413)
 }
 
+/// Writes `response` whole, flushes it and shuts the sending side. A future dropped at a write leaves the response
+/// written in whole, in part or not at all, and the sending side open.
 async fn write_response<S: AsyncWrite>(
     stream: &mut S,
     response: HttpResponse,
@@ -106,6 +114,9 @@ async fn write_response<S: AsyncWrite>(
 
 /// Answers every connection of `listener`, each on its own task, through `tls` when it is given, and in clear text
 /// when the settings asked for that. A failed accept or handshake costs that connection alone.
+///
+/// The accept loop is an event loop: it ends only when its caller drops this future, which stops accepting; the
+/// connections already accepted go on, each on its detached task, within `limits`' time.
 pub async fn serve_listener<H>(
     listener: Listener,
     tls: Option<TlsAcceptor>,

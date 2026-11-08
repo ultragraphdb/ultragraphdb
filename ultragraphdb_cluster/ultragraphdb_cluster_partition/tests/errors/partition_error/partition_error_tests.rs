@@ -91,3 +91,14 @@ fn test_the_applier_pipeline_and_commit_step_errors_are_wrapped() {
     assert_eq!(from_step.to_string(), refusal.to_string());
     assert!(from_step.source().is_some());
 }
+
+/// A Bind repeating an identity names the transaction by its 32 hexadecimal digits.
+#[test]
+fn test_a_held_transaction_names_its_identity() {
+    let identity = [0xab; 16];
+    let error = PartitionError::transaction_held(identity);
+    assert_eq!(error.0, PartitionErrorEnum::TransactionHeld { identity });
+    let hex = format!("{:032x}", u128::from_be_bytes(identity));
+    assert!(error.to_string().contains(&hex), "{error}");
+    assert!(error.source().is_none());
+}

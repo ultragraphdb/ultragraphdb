@@ -19,6 +19,7 @@ pub struct Answer {
 
 impl Answer {
     /// The answer naming `entity`, `generation` and `close`.
+    #[must_use]
     pub fn new(entity: SystemId, generation: Option<NonZeroU64>, close: Epoch) -> Self {
         Self {
             entity,
@@ -28,16 +29,19 @@ impl Answer {
     }
 
     /// The entity's ID.
+    #[must_use]
     pub fn entity(&self) -> SystemId {
         self.entity
     }
 
     /// The member's generation; `None` for a registration naming no bucket group.
+    #[must_use]
     pub fn generation(&self) -> Option<NonZeroU64> {
         self.generation
     }
 
     /// The latest close delivered to the home.
+    #[must_use]
     pub fn close(&self) -> Epoch {
         self.close
     }

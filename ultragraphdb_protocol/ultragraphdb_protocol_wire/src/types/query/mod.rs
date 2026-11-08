@@ -79,36 +79,43 @@ impl Query {
     }
 
     /// The stream number of the Begin of the transaction the query runs in.
+    #[must_use]
     pub fn transaction(&self) -> u64 {
         self.transaction
     }
 
     /// The language of its text.
+    #[must_use]
     pub fn language(&self) -> Language {
         self.language
     }
 
     /// The most rows returned; 0 for no limit.
+    #[must_use]
     pub fn limit(&self) -> u32 {
         self.limit
     }
 
     /// The query text.
+    #[must_use]
     pub fn text(&self) -> &str {
         &self.text
     }
 
     /// The parameters, each a name and its term's index, in order.
+    #[must_use]
     pub fn parameters(&self) -> &[(String, u32)] {
         &self.parameters
     }
 
     /// The request's term table.
+    #[must_use]
     pub fn terms(&self) -> &TermTable {
         &self.terms
     }
 
     /// The resume key: where a previous result of the same request ended; empty to start.
+    #[must_use]
     pub fn resume(&self) -> &[u8] {
         &self.resume
     }

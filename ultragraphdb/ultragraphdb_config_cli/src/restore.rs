@@ -67,6 +67,7 @@ fn said(reply: &HttpReply) -> String {
 }
 
 fn client(restore: Restore<'_>) -> Result<HttpClient, Failure> {
+    // A closure takes no type parameter, so it takes each error as a trait object (Ultra rules 1 and 9).
     let refused = |what: &dyn std::fmt::Display| failure(EX_CONFIG, what.to_string());
     let url = HttpUrl::parse(restore.url).map_err(|error| refused(&error))?;
     let trust = match (url.is_secure(), restore.ca_file) {
@@ -78,6 +79,8 @@ fn client(restore: Restore<'_>) -> Result<HttpClient, Failure> {
 }
 
 /// Asks `method` of `path`: the reply, 200 alone being one.
+///
+/// A future dropped at the request drops the connection with it; a GET changes nothing on the service.
 async fn asked(client: &HttpClient, path: &str, what: &str) -> Result<HttpReply, Failure> {
     let url = client.url().as_str();
     let reply = client.request("GET", path, b"").await.map_err(|error| {

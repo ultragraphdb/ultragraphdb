@@ -345,6 +345,8 @@ fn report(args: &ApplyArgs, stats: &[BatchStat], f: &RunFigures) -> String {
     let batch_nanos: u64 = stats.iter().map(|s| s.nanos).sum();
     let write_nanos: u64 = stats.iter().map(|s| s.write_nanos).sum();
     let cpu_json = |c: Option<f64>| opt_json(c.map(|c| format!("{c:.2}")));
+    // Each `as f64` below turns a count into a figure of the report: exact below 2^53, rounded past it, which a rate
+    // printed to a few digits can take.
     format!(
         concat!(
             "{{\"run\":\"apply\",\"offered_commits_per_s\":{},\"relations_per_commit\":{},\"durability\":\"{:?}\",",
@@ -407,16 +409,16 @@ fn stall_json(stats: &[BatchStat]) -> String {
     let mut per_entry: Vec<u64> = calls
         .iter()
         .filter(|c| !c.under_pressure() && c.entries() > 0)
-        .map(|c| c.nanos() / c.entries() as u64)
+        .map(|c| c.nanos() / c.entries() as u64) // a `usize` count into a `u64`, lossless
         .collect();
     let baseline = Summary::of(&mut per_entry).p50();
     let pressured: Vec<&&WriteCall> = calls.iter().filter(|c| c.under_pressure()).collect();
     let excess_nanos: u64 = pressured
         .iter()
-        .map(|c| c.nanos().saturating_sub(baseline * c.entries() as u64))
+        .map(|c| c.nanos().saturating_sub(baseline * c.entries() as u64)) // lossless, as above
         .sum();
-    let max_l0 = calls.iter().map(|c| c.l0_tables()).max().unwrap_or(0);
-    let max_sealed = calls
+    let l0_tables_max = calls.iter().map(|c| c.l0_tables()).max().unwrap_or(0);
+    let sealed_memtables_max = calls
         .iter()
         .map(|c| c.sealed_memtables())
         .max()
@@ -429,8 +431,8 @@ fn stall_json(stats: &[BatchStat]) -> String {
         baseline,
         pressured.len(),
         excess_nanos as f64 / 1e6,
-        max_l0,
-        max_sealed,
+        l0_tables_max,
+        sealed_memtables_max,
     )
 }
 

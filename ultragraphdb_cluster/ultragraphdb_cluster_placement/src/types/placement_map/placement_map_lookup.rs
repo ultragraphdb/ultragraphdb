@@ -25,7 +25,7 @@ impl PlacementMap {
         let layout = self.layout_at(epoch);
         let range = BucketRange::of_group(group);
         let first = layout.run_of(range.start());
-        // A group's 64 buckets lie in at most 64 runs.
+        // A group's 64 buckets lie in at most 64 runs; `BUCKETS` is 64, so its cast is lossless.
         for index in first..first + BucketGroup::BUCKETS as usize {
             if index > first && layout.end_of(index - 1) >= range.end() {
                 break;

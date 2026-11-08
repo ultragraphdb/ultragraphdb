@@ -94,6 +94,10 @@ where
     /// until it ends, under the record's number. A record whose indexes the catalog declares none of is removed. What a
     /// partition does once it has loaded its catalogs, before it serves: the number of the record of the build started
     /// again, at most one, since one build runs at a time; a later record is finished by dropping alone.
+    ///
+    /// # Errors
+    ///
+    /// The store's error.
     pub fn finish_records(&self) -> Result<Option<u64>, ChangesetError> {
         let records = self.quads.store().rebuild_records()?;
         let mut started = None;

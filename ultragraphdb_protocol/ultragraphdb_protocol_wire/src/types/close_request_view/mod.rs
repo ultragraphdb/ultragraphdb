@@ -17,11 +17,13 @@ pub struct CloseRequestView<'a> {
 
 impl CloseRequestView<'_> {
     /// The asking partition.
+    #[must_use]
     pub fn partition(&self) -> u32 {
         self.partition
     }
 
     /// The partition's open epoch.
+    #[must_use]
     pub fn epoch(&self) -> u64 {
         self.epoch
     }

@@ -28,26 +28,31 @@ impl MetadataTable {
     }
 
     /// `block_size_max`: the largest sequence block a partition may lease.
+    #[must_use]
     pub fn block_size_max(&self) -> Option<u64> {
         self.block_size_max
     }
 
     /// `sessions_max`: the most sessions the registry holds.
+    #[must_use]
     pub fn sessions_max(&self) -> Option<u32> {
         self.sessions_max
     }
 
     /// `snapshot_rounds`: the rounds between two snapshots.
+    #[must_use]
     pub fn snapshot_rounds(&self) -> Option<u32> {
         self.snapshot_rounds
     }
 
     /// `catalog_check_ms`: how long the frontend waits for each partition's report of a tightening's check.
+    #[must_use]
     pub fn catalog_check_ms(&self) -> Option<u64> {
         self.catalog_check_ms
     }
 
     /// `bootstrap_secret_file`: the file holding the bootstrap administrator's password, read at the cluster's first start.
+    #[must_use]
     pub fn bootstrap_secret_file(&self) -> Option<&str> {
         self.bootstrap_secret_file.as_deref()
     }

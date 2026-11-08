@@ -45,3 +45,13 @@ fn test_each_status_has_its_reason() {
         );
     }
 }
+
+/// A status the control plane does not answer with is named by the word `Status`.
+#[test]
+fn test_a_status_without_a_reason_is_named_by_the_word() {
+    assert!(
+        HttpResponse::new(299)
+            .head()
+            .starts_with("HTTP/1.1 299 Status\r\n")
+    );
+}

@@ -46,7 +46,8 @@ impl CoreEnds {
         failure.map_or(Ok(clean), Err)
     }
 
-    /// Waits for every thread still running to end, each past its flush.
+    /// Waits for every thread still running to end, each past its flush. A dropped future lets go of the receivers left,
+    /// and the threads run on to their ends unheard.
     ///
     /// # Errors
     ///

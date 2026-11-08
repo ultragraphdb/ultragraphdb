@@ -14,6 +14,9 @@ use crate::types::config_store::ConfigStore;
 /// The transaction count and derivation a round of this log carries, which only the commit path reads.
 const DERIVATION: std::num::NonZeroU32 = std::num::NonZeroU32::MIN;
 
+/// Each write appends its round and applies it once the log's sync says it is durable: a future dropped at the sync leaves
+/// the round appended and the state without it, so a store whose write was dropped is not used again, and its next start
+/// recovers the round if it became durable. [`crate::store_owner`] awaits each write to its end.
 impl<L: OrderedLog> ConfigStore<L> {
     /// Adds `body`'s files as `target`'s next revision, edited from `base`, 0 beginning a target; the active revision stays
     /// as it was. The number it took is returned once it is durable.
@@ -123,7 +126,8 @@ impl<L: OrderedLog> ConfigStore<L> {
         Ok(differing)
     }
 
-    /// Appends `record`, waits until it is durable, and only then applies it.
+    /// Appends `record`, waits until it is durable, and only then applies it. A future dropped at the sync leaves the round
+    /// appended and not applied.
     async fn commit(&mut self, record: ConfigRecord<'_>) -> Result<(), ConfigError> {
         let (tail, parent) = self.log.tail();
         let position = tail.next().ok_or_else(|| LogError::exhausted(tail.get()))?;

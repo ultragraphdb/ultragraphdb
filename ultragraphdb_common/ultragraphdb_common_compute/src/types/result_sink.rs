@@ -37,7 +37,7 @@ impl ResultSink {
         Self {
             cluster,
             stream,
-            max_frame: max_frame as usize,
+            max_frame: max_frame as usize, // lossless: a `usize` is at least 32 bits
             columns,
             read_at: (0, 0),
             batch: ResultBatch::new(columns),
@@ -65,10 +65,12 @@ impl ResultSink {
                 self.max_frame
             ),
         )
-        .with_detail(self.max_frame as u64)
+        .with_detail(self.max_frame as u64) // lossless: a `usize` is at most 64 bits
     }
 
     /// Adds `row` to the batch, sending the batch first when the row does not fit beside it.
+    /// A future dropped while it waits for room leaves the batch sent, and the room it waited for stays for the next
+    /// wait.
     pub(crate) async fn push_row(&mut self, row: &[Option<&ResultTerm>]) -> Result<(), ErrorReply> {
         if self.batch.frame_size_with(row, 0) > self.max_frame {
             if self.batch.rows() > 0 {
@@ -98,6 +100,7 @@ impl ResultSink {
     }
 
     /// Ends the read's stream with what is held and `resume`, alone in a last batch of `rows` 0 when it does not fit beside it.
+    /// A future dropped while it waits for room leaves the batch sent.
     pub(crate) async fn finish(mut self, resume: Vec<u8>) -> Result<(), ErrorReply> {
         if self.batch.frame_size_with(&[], resume.len()) > self.max_frame {
             let any_rows = self.batch.rows() > 0;
@@ -121,6 +124,7 @@ impl ResultSink {
     }
 
     /// Sends the batch held, and waits for room for the next unless it was the stream's last.
+    /// A future dropped at its wait leaves the batch sent, and the room it waited for stays for the next wait.
     async fn send_batch(&mut self, last: bool, resume: Vec<u8>) -> Result<(), ErrorReply> {
         let next = self.empty_batch();
         let batch = std::mem::replace(&mut self.batch, next).with_resume(resume);

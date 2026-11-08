@@ -24,11 +24,13 @@ impl<'a> ObjectRecord<'a> {
     }
 
     /// The object as the store's keys encode it, a system ID for an IRI or blank node.
+    #[must_use]
     pub fn encoding(&self) -> &'a [u8] {
         self.encoding
     }
 
     /// The number of statement IDs the object is held under.
+    #[must_use]
     pub fn statement_count(&self) -> usize {
         self.statement_ids.len() / STATEMENT_ID_SIZE
     }

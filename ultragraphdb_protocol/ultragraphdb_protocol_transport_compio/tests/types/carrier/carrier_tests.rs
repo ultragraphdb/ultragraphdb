@@ -4,6 +4,7 @@
  */
 
 use compio::io::AsyncWrite;
+use compio::io::util::Splittable;
 use ultragraphdb_protocol_transport::{Address, BufferPool, Framer, Scheme, TransportErrorEnum};
 use ultragraphdb_protocol_transport_compio::{Carrier, Connection, Listener};
 use ultragraphdb_protocol_wire::{Hello, MAX_FRAME_SIZE, Welcome};
@@ -32,6 +33,29 @@ async fn round_trip(mut near: Carrier, mut far: Carrier) -> TestResult {
     near.shutdown().await.context("a shutdown")?;
     assert_eq!(read_once(&mut far).await?, 0);
     Ok(())
+}
+
+/// Bytes cross both ways between two carriers each split into halves: what one's write half sends, the other's read
+/// half reads.
+async fn split_round_trip(near: Carrier, far: Carrier) -> TestResult {
+    let (mut near_read, mut near_write) = near.split();
+    let (mut far_read, mut far_write) = far.split();
+    send(&mut near_write, b"ping").await?;
+    assert_eq!(receive(&mut far_read, 4).await?, b"ping");
+    send(&mut far_write, b"pong").await?;
+    assert_eq!(receive(&mut near_read, 4).await?, b"pong");
+    Ok(())
+}
+
+#[test]
+fn test_a_split_carrier_carries_bytes_both_ways_over_tcp_and_unix() -> TestResult {
+    compio::runtime::Runtime::new()?.block_on(async {
+        let (_tcp, tcp_accepted, tcp_dialled) = pair(&Address::any_port("127.0.0.1")?).await?;
+        split_round_trip(tcp_dialled, tcp_accepted).await?;
+        let dir = SocketDir::new()?;
+        let (_unix, unix_accepted, unix_dialled) = pair(&dir.address("s.sock")?).await?;
+        split_round_trip(unix_dialled, unix_accepted).await
+    })
 }
 
 #[test]

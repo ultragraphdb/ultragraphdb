@@ -25,6 +25,7 @@ pub struct Members {
 
 impl Members {
     /// A request, or a reply with no member yet.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -41,16 +42,19 @@ impl Members {
     }
 
     /// The number of members.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.members.len()
     }
 
     /// Whether there is no member: a request, or an empty reply.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.members.is_empty()
     }
 
     /// Member `index`: its kind, its partition (0 for compute) and its address; `None` past the last.
+    #[must_use]
     pub fn get(&self, index: usize) -> Option<(RoleKind, u32, &str)> {
         self.members
             .get(index)

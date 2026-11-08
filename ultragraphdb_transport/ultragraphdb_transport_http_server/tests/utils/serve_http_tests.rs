@@ -15,11 +15,12 @@ use compio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use compio::net::{TcpListener, TcpStream};
 use compio::runtime::{Runtime, spawn};
 use ultragraphdb_protocol_transport::Address;
-use ultragraphdb_protocol_transport_compio::Listener;
+use ultragraphdb_protocol_transport_compio::{CompioTlsStream, Listener};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transport_http_server::{
     HttpLimits, HttpRequest, HttpResponse, HttpService, serve_http, serve_listener,
 };
+use ultragraphdb_transport_tls::TestPki;
 
 /// The bytes one read of a reply asks for.
 const READ_BYTES: usize = 4 * 1024;
@@ -313,7 +314,7 @@ const UPLOAD: usize = 4 * 1024 * 1024;
 
 /// A peer in memory: `head`, then `body` bytes of `x` (without end when `None`), each read giving at most `step` bytes and
 /// never crossing from the head into the body; then its end. It counts the body bytes the server read, notes a read
-/// after its end, and keeps what the server wrote.
+/// after its end, and keeps what the server wrote, or refuses every write when `write_fails`.
 struct Peer {
     head: Vec<u8>,
     head_read: usize,
@@ -323,6 +324,7 @@ struct Peer {
     ended: bool,
     read_past_end: bool,
     written: Vec<u8>,
+    write_fails: bool,
 }
 
 impl Peer {
@@ -336,6 +338,7 @@ impl Peer {
             ended: false,
             read_past_end: false,
             written: Vec::new(),
+            write_fails: false,
         }
     }
 
@@ -386,6 +389,9 @@ impl AsyncRead for Peer {
 
 impl AsyncWrite for Peer {
     async fn write<T: IoBuf>(&mut self, buf: T) -> BufResult<usize, T> {
+        if self.write_fails {
+            return BufResult(Err(std::io::ErrorKind::BrokenPipe.into()), buf);
+        }
         self.written.extend_from_slice(buf.as_init());
         let len = buf.as_init().len();
         BufResult(Ok(len), buf)
@@ -441,6 +447,21 @@ fn test_a_drain_stops_at_its_bytes() -> TestResult {
         "{} bytes read",
         peer.body_read
     );
+    Ok(())
+}
+
+/// A refused peer whose connection takes no write is left: nothing reaches it, and its upload is not drained.
+#[test]
+fn test_a_peer_taking_no_write_is_left_undrained() -> TestResult {
+    let mut peer = Peer::new(
+        b"POST / HTTP/1.1\r\nContent-Length: 9\r\n\r\n",
+        Some(UPLOAD),
+        PEER_READ,
+    );
+    peer.write_fails = true;
+    let (peer, written) = served(peer, HttpLimits::new(8, WAIT))?;
+    assert!(written.is_empty(), "{written}");
+    assert_eq!(peer.body_read, 0);
     Ok(())
 }
 
@@ -516,6 +537,60 @@ fn test_a_listener_answers_every_connection() -> TestResult {
             let text = answer(&mut stream).await?;
             assert!(text.starts_with("HTTP/1.1 200"), "{text}");
         }
+        Ok(())
+    })
+}
+
+/// How long a TLS listener's tests give a connection: a loopback handshake takes far less, and a silent client is closed
+/// well within [`WAIT`].
+const TLS_TIME: Duration = Duration::from_millis(500);
+
+/// A listener over TLS answers a verified client; a client whose handshake fails and one that never finishes its
+/// handshake cost their own connections alone, the silent one closed at the connection's time.
+#[test]
+fn test_a_tls_listener_answers_past_failed_handshakes() -> TestResult {
+    Runtime::new()?.block_on(async {
+        let pki = TestPki::new()?;
+        let listener = Listener::bind(&Address::any_port("127.0.0.1")?).await?;
+        let address = listener.local_address()?;
+        let target = address.host_port().context("a TCP address")?.to_string();
+        spawn(serve_listener(
+            listener,
+            Some(pki.acceptor()?),
+            HttpLimits::new(0, TLS_TIME),
+            Fine,
+        ))
+        .detach();
+        let mut clear = within("a connection", TcpStream::connect(&target)).await??;
+        let BufResult(written, _) = clear
+            .write_all(b"GET /health HTTP/1.1\r\n\r\n".to_vec())
+            .await;
+        written?;
+        let refused = answer(&mut clear).await;
+        assert!(
+            !refused
+                .as_ref()
+                .is_ok_and(|text| text.starts_with("HTTP/1.1")),
+            "{refused:?}"
+        );
+        let mut silent = within("a connection", TcpStream::connect(&target)).await??;
+        let BufResult(read, _) =
+            within("the silent close", silent.read(Vec::with_capacity(1))).await?;
+        assert_eq!(read.unwrap_or_default(), 0, "the silent client is closed");
+        let carrier = within("a connection", TcpStream::connect(&target)).await??;
+        let mut tls = within(
+            "a handshake",
+            CompioTlsStream::connect(&pki.connector()?, carrier, "localhost"),
+        )
+        .await??;
+        let BufResult(sent, _) = tls
+            .write_all(b"GET /health HTTP/1.1\r\n\r\n".to_vec())
+            .await;
+        sent?;
+        let BufResult(answered, bytes) = within("the answer", tls.read_to_end(Vec::new())).await?;
+        let _count: usize = answered?;
+        let text = String::from_utf8(bytes)?;
+        assert!(text.starts_with("HTTP/1.1 200"), "{text}");
         Ok(())
     })
 }

@@ -14,6 +14,7 @@ use crate::types::sequencer_snapshot::{Part, SequencerSnapshot, first_disorder};
 const FORMAT: u8 = 1;
 
 /// The most records of either part, the most the settings can retain, 2^32 − 1.
+/// The cast is lossless on every target the node builds for, whose `usize` holds 32 bits or more.
 const RECORDS_MAX: usize = u32::MAX as usize;
 
 impl SequencerSnapshot {
@@ -55,6 +56,7 @@ impl SequencerSnapshot {
             return Err(ClusterError::malformed("the format byte 1", 0));
         }
         let position = Position::new(reader.u64("a snapshot's position")?);
+        // Each count and length below is a `u32`, held whole by a `usize` of 32 bits or more.
         let closes_count = reader.u32("the closes' count")? as usize;
         let mut closes = Vec::new();
         let mut close_at = Vec::new();
@@ -66,7 +68,7 @@ impl SequencerSnapshot {
             };
             closes.push(close);
         }
-        let transactions_count = reader.u32("the transactions' count")? as usize;
+        let transactions_count = reader.u32("the transactions' count")? as usize; // a `u32`, lossless
         let mut transactions = Vec::new();
         let mut transaction_at = Vec::new();
         for _ in 0..transactions_count.min(RECORDS_MAX) {
@@ -106,7 +108,7 @@ fn put_framed(out: &mut Vec<u8>, record: &[u8]) {
 
 /// The record framed at the reader, with the offset its bytes begin at.
 fn read_framed(reader: &mut Reader<'_>) -> Result<(usize, SequencerRecord), ClusterError> {
-    let len = reader.u32("a record's length")? as usize;
+    let len = reader.u32("a record's length")? as usize; // a `u32`, lossless
     let at = reader.offset();
     let body = reader.bytes(len, "a record")?;
     let record = SequencerRecord::decode(body).map_err(|refusal| {

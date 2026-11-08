@@ -33,6 +33,7 @@ impl Reply {
     }
 
     /// The reply with `token`, a commit's session token.
+    #[must_use]
     pub fn with_token(self, token: SessionToken) -> Self {
         Self {
             token: Some(token),
@@ -42,12 +43,14 @@ impl Reply {
 
     /// The session token of a commit through a session: its partition, its round's log position and its version's
     /// epoch; `None` for a commit through no session and for a refusal.
+    #[must_use]
     pub fn token(&self) -> Option<&SessionToken> {
         self.token.as_ref()
     }
 
     /// The reply with `results`, the commit-time operations' results in the order the transaction asked them, naming
     /// their nodes in `terms`.
+    #[must_use]
     pub fn with_results(self, results: Vec<OperationResult>, terms: TermTable) -> Self {
         Self {
             results,
@@ -57,6 +60,7 @@ impl Reply {
     }
 
     /// The reply's term table: the nodes the results name, by their IRI or skolem IRI.
+    #[must_use]
     pub fn terms(&self) -> &TermTable {
         &self.terms
     }

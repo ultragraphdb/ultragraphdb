@@ -138,6 +138,11 @@ where
     /// The list of `key` as the request's snapshot holds it: at its read timestamp with the writes of the requests
     /// before it in its batch beneath, without the request's own writes, and recorded as read nowhere. What a write
     /// comparing its net effect with its snapshot reads.
+    ///
+    /// # Errors
+    ///
+    /// The error [`Lists::read`] gives, for a list the request does not hold: the store's, or a stored list's
+    /// corruption.
     pub fn snapshot(&self, key: &[u8]) -> Result<List, PostingError> {
         match self.held.get(key) {
             Some(held) if !held.blind => {
@@ -241,16 +246,19 @@ where
     }
 
     /// The bytes of the key ranges the request scanned, counted as they are recorded, so asking costs nothing per range.
+    #[must_use]
     pub fn range_bytes(&self) -> usize {
         self.range_bytes
     }
 
     /// How many key ranges the request scanned.
+    #[must_use]
     pub fn range_count(&self) -> usize {
         self.ranges.len()
     }
 
     /// How many lists the request holds: what a scan leaves unchanged.
+    #[must_use]
     pub fn held_count(&self) -> usize {
         self.held.len()
     }

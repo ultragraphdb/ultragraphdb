@@ -116,6 +116,11 @@ impl Inner {
     }
 
     /// Drops `temporary` and what it holds.
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::poisoned`] while the store is poisoned or down; [`StoreError::unknown_temporary`] for a temporary
+    /// it does not hold.
     pub fn drop_temporary(&mut self, temporary: &Temporary) -> Result<(), StoreError> {
         self.refuse_unless_open("drop_temporary")?;
         self.maybe_slow();

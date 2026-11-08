@@ -32,7 +32,10 @@ impl<W> TlsWriteHalf<W> {
 }
 
 impl<W: AsyncWrite> TlsWriteHalf<W> {
-    /// Writes every record the session has to the stream, and flushes it. No borrow of the session is held across a wait.
+    /// Writes every record the session has to the stream, and flushes it. No borrow of the session is held across a
+    /// wait. A future dropped at a write leaves the records not yet taken queued in the session, and loses those taken
+    /// for that write with `outgoing`, written in whole, in part or not at all, which fails the peer's next record; the
+    /// next write allocates `outgoing` again. One dropped at the flush has written every record.
     async fn write_records(&mut self) -> io::Result<()> {
         // Ends: each turn writes at least one byte the session queued, and a turn adds no record of its own.
         while self.session.borrow().wants_write() {
@@ -48,7 +51,9 @@ impl<W: AsyncWrite> TlsWriteHalf<W> {
 }
 
 impl<W: AsyncWrite> AsyncWrite for TlsWriteHalf<W> {
-    /// Sends `buf` whole as records, written to the stream before this returns.
+    /// Sends `buf` whole as records, written to the stream before this returns. The session takes `buf` before the
+    /// first `.await`, so a future dropped at a write has queued it as records, which leave as
+    /// `TlsWriteHalf::write_records` says.
     async fn write<T: IoBuf>(&mut self, buf: T) -> BufResult<usize, T> {
         let len = buf.as_init().len();
         let sent = self.session.borrow_mut().send(buf.as_init());
@@ -61,12 +66,15 @@ impl<W: AsyncWrite> AsyncWrite for TlsWriteHalf<W> {
         }
     }
 
-    /// Writes every record waiting and flushes the stream.
+    /// Writes every record waiting and flushes the stream; a future dropped at a wait leaves what
+    /// `TlsWriteHalf::write_records` says.
     async fn flush(&mut self) -> io::Result<()> {
         self.write_records().await
     }
 
-    /// Sends the session's `close_notify` and shuts the stream's sending side.
+    /// Sends the session's `close_notify` and shuts the stream's sending side. A future dropped at a write leaves the
+    /// session closed and its records as `TlsWriteHalf::write_records` says; one dropped at the shutdown has sent the
+    /// `close_notify`, and the sending side may be open still.
     async fn shutdown(&mut self) -> io::Result<()> {
         self.session.borrow_mut().close();
         self.write_records().await?;

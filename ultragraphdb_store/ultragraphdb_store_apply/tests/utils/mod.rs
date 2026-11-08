@@ -8,4 +8,6 @@ pub mod changesets;
 #[cfg(test)]
 pub mod partitions;
 #[cfg(test)]
+mod referrer_candidates_tests;
+#[cfg(test)]
 mod token_values_tests;

@@ -15,7 +15,9 @@ use ultragraphdb_common_role::{
     COMPUTE_WELCOME_CREDIT, OpenRequests, ROLE_ITERATIONS, RoleClient, RoleCluster,
     RoleCredentials, Server, finish_open, frontend_address, retry_until, serve_connection,
 };
-use ultragraphdb_common_service::{Readiness, RoleKind, RoleStart, Stopping, core_runtime};
+use ultragraphdb_common_service::{
+    AcceptPace, Readiness, RoleKind, RoleStart, Stopping, core_runtime,
+};
 use ultragraphdb_common_service_config::ServiceConfig;
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_transport::{Address, Endpoint, TransportError};
@@ -38,6 +40,8 @@ const ASKS_PER_DEADLINE: u32 = 2;
 ///
 /// [`RoleError::configuration`] for a setting absent or a refused role secret; [`RoleError::unavailable`] when it
 /// cannot listen, has not joined by its deadline, or lost a peer past it.
+///
+/// A future dropped at its await leaves what `join_as` leaves.
 pub(crate) async fn compute_role(
     start: RoleStart,
     readiness: Readiness,
@@ -65,6 +69,9 @@ fn required<'a>(value: Option<&'a str>, setting: &str) -> Result<&'a str, RoleEr
     value.ok_or_else(|| RoleError::configuration(format!("the setting {setting} is required")))
 }
 
+/// Joins as `kind` at `own`, serves on every core, holds the peers until the service stops, then drains the reads still
+/// open. A future dropped at any await leaves the cores accepting, their tasks detached on their own runtimes, and
+/// readiness as it was set; dropped in the drain, it leaves the reads still open to their runtimes' end.
 async fn join_as(
     kind: RoleKind,
     endpoint: Endpoint,
@@ -158,6 +165,9 @@ fn start_cores(
 }
 
 /// Accepts on this core, whose connections and reads stay on it.
+///
+/// A future dropped at an accept, as its runtime's end drops it, takes no connection half-way: each one accepted runs
+/// in a task of its own.
 async fn accept_on_core(listener: CoreListener, serving: CoreServing) {
     let listener = match listener.on_this_core() {
         Ok(listener) => listener,
@@ -168,22 +178,23 @@ async fn accept_on_core(listener: CoreListener, serving: CoreServing) {
     };
     let name = RoleKind::Compute.to_string();
     let core = ComputeCore::new(serving.cluster, serving.frontend, serving.times, &name);
+    let mut pace = AcceptPace::default();
+    // An event loop: it accepts for as long as its runtime runs, which ends with the service (Ultra rule 2).
     loop {
-        match listener.accept().await {
-            Ok(carrier) => {
-                let (server, credentials) = (serving.server.clone(), serving.credentials.clone());
-                let session = ComputeSession::new(core.clone()).with_open(serving.open.clone());
-                spawn(async move {
-                    serve_connection(carrier, &server, credentials, session).await;
-                })
-                .detach();
-            }
-            Err(error) => tracing::warn!(%error, "a role connection was not accepted"),
-        }
+        let carrier = pace.accept("role", || listener.accept()).await;
+        let (server, credentials) = (serving.server.clone(), serving.credentials.clone());
+        let session = ComputeSession::new(core.clone()).with_open(serving.open.clone());
+        spawn(async move {
+            serve_connection(carrier, &server, credentials, session).await;
+        })
+        .detach();
     }
 }
 
 /// Asks each of `peers` until the service stops or one is lost past the deadline.
+///
+/// A future dropped at its wait leaves the peers' tasks asking until the service stops, a peer lost then reported to no
+/// one.
 async fn hold_peers(
     peers: Vec<Address>,
     cluster: &RoleCluster,
@@ -200,6 +211,7 @@ async fn hold_peers(
         })
         .detach();
     }
+    // An event loop: the service's stop or a peer lost ends it (Ultra rule 2).
     while !stopping.is_stopping() {
         if let Some(failure) = lost.take() {
             return Err(failure);
@@ -212,6 +224,8 @@ async fn hold_peers(
 /// Asks whether `peer` answers, for as long as it does. A held connection cannot tell: a peer stopped or its host gone closes
 /// nothing, a role connection has no idle limit and the protocol no ping (`PROTOCOL.md` §11.4, §11.12), so a read would wait
 /// forever. A dial is a question it must answer, by its Welcome and its proof of the secret.
+///
+/// A future dropped at a dial or a wait holds nothing: the dial's half-made connection is dropped with it.
 async fn hold(peer: &Address, cluster: &RoleCluster, stopping: &Stopping) -> Result<(), RoleError> {
     let every = (cluster.deadline() / ASKS_PER_DEADLINE).max(POLL);
     while answers(peer, cluster, stopping).await? {
@@ -222,6 +236,8 @@ async fn hold(peer: &Address, cluster: &RoleCluster, stopping: &Stopping) -> Res
 
 /// Dials `peer` until it answers, each dial limited to the time left before the deadline, past which it is lost; false once the
 /// service stops.
+///
+/// A future dropped at a dial or a wait holds nothing: the dial's half-made connection is dropped with it.
 async fn answers(
     peer: &Address,
     cluster: &RoleCluster,
@@ -258,6 +274,9 @@ fn now() -> Instant {
 }
 
 /// One attempt: dial, authenticate, Join, read the Members until a partition has joined: where those partitions listen.
+///
+/// A future dropped at an await drops the connection it dialled; a Join the frontend took stays taken, and the next
+/// attempt joins again.
 async fn attempt(
     frontend: &Address,
     cluster: &RoleCluster,
@@ -273,6 +292,7 @@ async fn attempt(
     let partitions = (0..members.len())
         .filter_map(|index| members.member(index))
         .filter(|member| member.partition() > 0)
+        // A `u32` index into a `usize`, lossless on every target the node builds for.
         .filter_map(|member| members.address(member.address() as usize))
         .map(Address::parse)
         .collect::<Result<Vec<_>, _>>()?;

@@ -198,6 +198,23 @@ fn test_problems_lists_every_refusal() {
     assert!(!ServiceConfig::problems(b"[broken\n").is_empty());
 }
 
+/// A value refused while the problems are listed is recorded, and the reading goes on: the refusal `parse` stops at is
+/// among them, beside the value read after it.
+#[test]
+fn test_problems_record_a_refused_value_and_go_on() -> TestResult {
+    let out_of_range = b"[storage]\npartition_count = 4294967296\n";
+    let wrong_type = b"[sequencer]\nepoch_ms_min = \"short\"\n";
+    let both = [out_of_range.as_slice(), wrong_type.as_slice()].concat();
+    let refused = |bytes: &[u8]| match ServiceConfig::parse(bytes) {
+        Ok(config) => Err(TestError::new(format!("accepted as {config:?}"))),
+        Err(error) => Ok(error),
+    };
+    let problems = ServiceConfig::problems(&both);
+    assert!(problems.contains(&refused(out_of_range)?), "{problems:?}");
+    assert!(problems.contains(&refused(wrong_type)?), "{problems:?}");
+    Ok(())
+}
+
 /// The service's own table and a role's admin table read back what they hold, and follow the endpoint's security rule.
 #[test]
 fn test_the_config_and_admin_tables_read_their_settings() -> TestResult {

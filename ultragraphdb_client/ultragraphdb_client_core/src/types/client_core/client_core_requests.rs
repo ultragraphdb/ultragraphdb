@@ -159,6 +159,12 @@ impl<L: Login> ClientCore<L> {
     /// Begins the transaction `begin` names, its level, deadline, read version and tenant, on a new stream, answered
     /// [`crate::Reply::Begun`]; through a session it carries the session's token, or `begin`'s own when that is of a higher
     /// epoch.
+    ///
+    /// # Errors
+    ///
+    /// [`ClientError::unknown_session`] for a session this client does not hold; [`ClientError::not_connected`] before
+    /// the Welcome; [`ClientError::stream_limit`] while the connection holds as many streams as the Welcome allows;
+    /// [`ClientError::request`] for a frame that cannot be built or is larger than the largest frame.
     pub fn begin_with(
         &mut self,
         begin: Begin,
@@ -342,6 +348,14 @@ impl<L: Login> ClientCore<L> {
     /// request number and carries its token, under the same rules as a commit. A write computed from an earlier read is a
     /// [`ClientCore::conditional_write`] or a read-write transaction: sent as a read and then this, a commit between them
     /// is a lost update the server cannot see (`PROTOCOL.md` §11.2a).
+    ///
+    /// # Errors
+    ///
+    /// [`ClientError::request`] for a `principal` other than 0; [`ClientError::unknown_session`] for a session this
+    /// client does not hold, [`ClientError::in_doubt`] for one with a request in doubt, [`ClientError::session_busy`]
+    /// for one with a request in flight; [`ClientError::not_connected`] before the Welcome;
+    /// [`ClientError::stream_limit`] while the connection holds as many streams as the Welcome allows;
+    /// [`ClientError::request`] for a frame that cannot be built or is larger than the largest frame.
     pub fn direct_write(
         &mut self,
         write: DirectWrite,
@@ -371,6 +385,15 @@ impl<L: Login> ClientCore<L> {
     /// Writes `write` in one frame, its commit-time operations decided in commit order and their outcome in the reply, as
     /// [`ClientCore::direct_write`] does: a failed condition is an answer, refused with code 8 and the value found, and is
     /// not retried.
+    ///
+    /// # Errors
+    ///
+    /// As [`ClientCore::direct_write`] refuses: [`ClientError::request`] for a `principal` other than 0;
+    /// [`ClientError::unknown_session`] for a session this client does not hold, [`ClientError::in_doubt`] for one
+    /// with a request in doubt, [`ClientError::session_busy`] for one with a request in flight;
+    /// [`ClientError::not_connected`] before the Welcome; [`ClientError::stream_limit`] while the connection holds as
+    /// many streams as the Welcome allows; [`ClientError::request`] for a frame that cannot be built or is larger than
+    /// the largest frame.
     pub fn conditional_write(
         &mut self,
         write: ConditionalWrite,

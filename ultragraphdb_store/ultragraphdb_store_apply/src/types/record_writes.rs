@@ -36,6 +36,7 @@ impl<'r> RecordWrites<'r> {
     }
 
     /// The writes with section 4's `marks`, in the record's order.
+    #[must_use]
     pub fn with_marks(mut self, marks: Vec<MarkedReference>) -> Self {
         self.marks = marks;
         self

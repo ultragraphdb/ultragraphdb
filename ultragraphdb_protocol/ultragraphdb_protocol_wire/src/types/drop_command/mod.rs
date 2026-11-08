@@ -72,6 +72,7 @@ impl DropCommand {
 
     /// The drop through `session` with the next `request` number of the session's counter, from 1; a session all zero
     /// commits without exactly-once, with `request` 0.
+    #[must_use]
     pub fn with_session(mut self, session: [u8; 16], request: u64) -> Self {
         self.session = session;
         self.request = request;
@@ -100,17 +101,20 @@ impl DropCommand {
     }
 
     /// The reply's session token.
+    #[must_use]
     pub fn with_token(mut self, token: SessionToken) -> Self {
         self.token = Some(token);
         self
     }
 
     /// The drop's session token; `None` in a request.
+    #[must_use]
     pub fn token(&self) -> Option<&SessionToken> {
         self.token.as_ref()
     }
 
     /// The client's session; all zero for none.
+    #[must_use]
     pub fn session(&self) -> [u8; 16] {
         self.session
     }

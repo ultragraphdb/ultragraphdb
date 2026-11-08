@@ -22,6 +22,7 @@ impl Member {
     pub const SIZE: usize = 12;
 
     /// The member of `kind` hosting `partition` (0 for compute) at the string `address`.
+    #[must_use]
     pub fn new(kind: RoleKind, partition: u32, address: u32) -> Self {
         Self {
             kind,
@@ -31,21 +32,25 @@ impl Member {
     }
 
     /// The member's kind.
+    #[must_use]
     pub fn kind(&self) -> RoleKind {
         self.kind
     }
 
     /// The partition a storage member hosts; 0 for compute.
+    #[must_use]
     pub fn partition(&self) -> u32 {
         self.partition
     }
 
     /// The role address's index in the string list.
+    #[must_use]
     pub fn address(&self) -> u32 {
         self.address
     }
 
     /// The member's 12 bytes.
+    #[must_use]
     pub fn encode(&self) -> [u8; Member::SIZE] {
         let fields = [self.kind.number(), 0, 0, 0]
             .into_iter()

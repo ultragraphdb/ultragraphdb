@@ -86,7 +86,7 @@ fn dates_without_tz() -> Vec<(&'static str, DateTime)> {
     ]
 }
 
-const INVALID_DATES: [&str; 22] = [
+const INVALID_DATES: [&str; 27] = [
     "abcd",
     "12345",
     "123456",
@@ -109,6 +109,11 @@ const INVALID_DATES: [&str; 22] = [
     "201",
     "2018-011",
     "2018-01-011",
+    "2020-01-ab",
+    "2020-01-02Tab:04:05",
+    "2020-01-02T15:04:ab",
+    "2020-01-02 15:04:05 +ab00 MST",
+    "2020-01-02 15:04:05 x0700 MST",
 ];
 
 #[test]

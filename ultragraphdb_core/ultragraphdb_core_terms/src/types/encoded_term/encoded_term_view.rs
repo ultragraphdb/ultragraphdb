@@ -20,66 +20,86 @@ use crate::types::vector_view::VectorView;
 use ultragraphdb_core_ids::SystemId;
 
 impl EncodedTerm {
-    /// What the encoding holds, read without the dictionary. Refused when an inline part is not UTF-8 or a known
-    /// datatype's code is unknown.
+    /// What the encoding holds as the store keeps it, read without the dictionary: a datatype no code names, tags
+    /// `0x32` and `0x33`, by its IRI's system ID. Refused when an inline part is not UTF-8, a known datatype's code is
+    /// unknown or an ID is no valid system ID.
     pub fn view(&self) -> Result<TermView<'_>, TermError> {
-        let bytes = self.as_bytes();
-        let body = bytes.get(1..).unwrap_or_default();
-        let inline = |at: usize| inline(bytes, at);
-        let hash = |at: usize| hash_at(bytes, at);
-        let first = || {
-            body.first()
-                .copied()
-                .ok_or_else(|| TermError::truncated(bytes.to_vec()))
-        };
-        let known =
-            |code: u8| KnownDatatype::from_code(code).ok_or(TermError::unknown_datatype(code));
-        Ok(match bytes.first().copied().unwrap_or_default() {
-            tag::ID => TermView::Id(id_at(bytes, 0)?),
-            tag::BOOLEAN => TermView::Boolean(Boolean::from(first()? != 0)),
-            tag::INTEGER => TermView::Integer(Integer::from_be_bytes(fixed_at(bytes, 0)?)),
-            tag::DECIMAL => TermView::Decimal(Decimal::from_be_bytes(fixed_at(bytes, 0)?)),
-            tag::DOUBLE => TermView::Double(Double::from_be_bytes(fixed_at(bytes, 0)?)),
-            tag::FLOAT => TermView::Float(Float::from_be_bytes(fixed_at(bytes, 0)?)),
-            tag::DATE_TIME => TermView::DateTime(DateTime::from_be_bytes(fixed_at(bytes, 0)?)),
-            tag::TIME => TermView::Time(Time::from_be_bytes(fixed_at(bytes, 0)?)),
-            tag::DATE => TermView::Date(Date::from_be_bytes(fixed_at(bytes, 0)?)),
-            tag::G_YEAR_MONTH => {
-                TermView::GYearMonth(GYearMonth::from_be_bytes(fixed_at(bytes, 0)?))
-            }
-            tag::G_YEAR => TermView::GYear(GYear::from_be_bytes(fixed_at(bytes, 0)?)),
-            tag::G_MONTH_DAY => TermView::GMonthDay(GMonthDay::from_be_bytes(fixed_at(bytes, 0)?)),
-            tag::G_DAY => TermView::GDay(GDay::from_be_bytes(fixed_at(bytes, 0)?)),
-            tag::G_MONTH => TermView::GMonth(GMonth::from_be_bytes(fixed_at(bytes, 0)?)),
-            tag::DURATION => TermView::Duration(Duration::from_be_bytes(fixed_at(bytes, 0)?)),
-            tag::YEAR_MONTH_DURATION => {
-                TermView::YearMonthDuration(YearMonthDuration::from_be_bytes(fixed_at(bytes, 0)?))
-            }
-            tag::DAY_TIME_DURATION => {
-                TermView::DayTimeDuration(DayTimeDuration::from_be_bytes(fixed_at(bytes, 0)?))
-            }
-            tag::SMALL_STRING => TermView::String(Text::Inline(inline(0)?.0)),
-            tag::BIG_STRING => TermView::String(Text::Hashed(hash(0)?)),
-            tag::SMALL_KNOWN => TermView::Typed {
-                datatype: Datatype::Known(known(first()?)?),
-                lexical: Text::Inline(inline(1)?.0),
-            },
-            tag::BIG_KNOWN => TermView::Typed {
-                datatype: Datatype::Known(known(first()?)?),
-                lexical: Text::Hashed(hash(1)?),
-            },
-            tag::SMALL_TYPED => TermView::Typed {
-                datatype: Datatype::Id(id_at(bytes, 0)?),
-                lexical: Text::Inline(inline(16)?.0),
-            },
-            tag::BIG_TYPED => TermView::Typed {
-                datatype: Datatype::Id(id_at(bytes, 0)?),
-                lexical: Text::Hashed(hash(16)?),
-            },
-            tag::VECTOR => TermView::Vector(VectorView::new(body.get(2..).unwrap_or_default())),
-            _ => lang_string(bytes)?,
-        })
+        read_view(self.as_bytes(), |bytes| id_at(bytes, 0).map(Datatype::Id))
     }
+
+    /// What the encoding holds as a Result holds it (`PROTOCOL.md` §10.1), read as [`EncodedTerm::view`] reads the
+    /// store's but for one difference: a datatype no code names, tags `0x32` and `0x33`, by the hash of its IRI
+    /// ([`Datatype::Hashed`]), whose text the Result's annotation holds. Refused as [`EncodedTerm::view`] refuses, and
+    /// for tag `0x01`, an IRI or a blank node, which a Result names by its hash and no view reads.
+    pub fn result_view(&self) -> Result<TermView<'_>, TermError> {
+        let bytes = self.as_bytes();
+        if bytes.first() == Some(&tag::ID) {
+            return Err(TermError::malformed(
+                bytes.to_vec(),
+                "an IRI or a blank node, which a Result names by its hash",
+            ));
+        }
+        read_view(bytes, |bytes| hash_at(bytes, 0).map(Datatype::Hashed))
+    }
+}
+
+/// What `bytes`, one encoding, hold, a datatype no code names read by `other_datatype` from the bytes.
+fn read_view(
+    bytes: &[u8],
+    other_datatype: impl Fn(&[u8]) -> Result<Datatype, TermError>,
+) -> Result<TermView<'_>, TermError> {
+    let body = bytes.get(1..).unwrap_or_default();
+    let inline = |at: usize| inline(bytes, at);
+    let hash = |at: usize| hash_at(bytes, at);
+    let first = || {
+        body.first()
+            .copied()
+            .ok_or_else(|| TermError::truncated(bytes.to_vec()))
+    };
+    let known = |code: u8| KnownDatatype::from_code(code).ok_or(TermError::unknown_datatype(code));
+    Ok(match bytes.first().copied().unwrap_or_default() {
+        tag::ID => TermView::Id(id_at(bytes, 0)?),
+        tag::BOOLEAN => TermView::Boolean(Boolean::from(first()? != 0)),
+        tag::INTEGER => TermView::Integer(Integer::from_be_bytes(fixed_at(bytes, 0)?)),
+        tag::DECIMAL => TermView::Decimal(Decimal::from_be_bytes(fixed_at(bytes, 0)?)),
+        tag::DOUBLE => TermView::Double(Double::from_be_bytes(fixed_at(bytes, 0)?)),
+        tag::FLOAT => TermView::Float(Float::from_be_bytes(fixed_at(bytes, 0)?)),
+        tag::DATE_TIME => TermView::DateTime(DateTime::from_be_bytes(fixed_at(bytes, 0)?)),
+        tag::TIME => TermView::Time(Time::from_be_bytes(fixed_at(bytes, 0)?)),
+        tag::DATE => TermView::Date(Date::from_be_bytes(fixed_at(bytes, 0)?)),
+        tag::G_YEAR_MONTH => TermView::GYearMonth(GYearMonth::from_be_bytes(fixed_at(bytes, 0)?)),
+        tag::G_YEAR => TermView::GYear(GYear::from_be_bytes(fixed_at(bytes, 0)?)),
+        tag::G_MONTH_DAY => TermView::GMonthDay(GMonthDay::from_be_bytes(fixed_at(bytes, 0)?)),
+        tag::G_DAY => TermView::GDay(GDay::from_be_bytes(fixed_at(bytes, 0)?)),
+        tag::G_MONTH => TermView::GMonth(GMonth::from_be_bytes(fixed_at(bytes, 0)?)),
+        tag::DURATION => TermView::Duration(Duration::from_be_bytes(fixed_at(bytes, 0)?)),
+        tag::YEAR_MONTH_DURATION => {
+            TermView::YearMonthDuration(YearMonthDuration::from_be_bytes(fixed_at(bytes, 0)?))
+        }
+        tag::DAY_TIME_DURATION => {
+            TermView::DayTimeDuration(DayTimeDuration::from_be_bytes(fixed_at(bytes, 0)?))
+        }
+        tag::SMALL_STRING => TermView::String(Text::Inline(inline(0)?.0)),
+        tag::BIG_STRING => TermView::String(Text::Hashed(hash(0)?)),
+        tag::SMALL_KNOWN => TermView::Typed {
+            datatype: Datatype::Known(known(first()?)?),
+            lexical: Text::Inline(inline(1)?.0),
+        },
+        tag::BIG_KNOWN => TermView::Typed {
+            datatype: Datatype::Known(known(first()?)?),
+            lexical: Text::Hashed(hash(1)?),
+        },
+        tag::SMALL_TYPED => TermView::Typed {
+            datatype: other_datatype(bytes)?,
+            lexical: Text::Inline(inline(16)?.0),
+        },
+        tag::BIG_TYPED => TermView::Typed {
+            datatype: other_datatype(bytes)?,
+            lexical: Text::Hashed(hash(16)?),
+        },
+        tag::VECTOR => TermView::Vector(VectorView::new(body.get(2..).unwrap_or_default())),
+        _ => lang_string(bytes)?,
+    })
 }
 
 /// The system ID at `at` in the body of `bytes`, refused when its 16 bytes are no valid ID.

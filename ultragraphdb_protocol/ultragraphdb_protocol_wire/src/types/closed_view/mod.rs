@@ -23,16 +23,19 @@ pub struct ClosedView<'a> {
 
 impl<'a> ClosedView<'a> {
     /// The number of partitions.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.partitions.len() / PARTITION_SIZE
     }
 
     /// Whether the body names no partition; a checked body names at least one.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.partitions.is_empty()
     }
 
     /// Partition `index`, `None` past the last.
+    #[must_use]
     pub fn partition(&self, index: usize) -> Option<ClosedPartition> {
         let at = index.checked_mul(PARTITION_SIZE)?;
         bytes_at(self.partitions, at).map(|bytes| ClosedPartition::decode(&bytes))
@@ -44,8 +47,11 @@ impl<'a> ClosedView<'a> {
         (0..view.len()).filter_map(move |index| view.partition(index))
     }
 
-    /// The body as the request the storage process receives: refused as [`ProtocolError::field_value`] (`"epoch"`,
-    /// the epoch) at the first partition whose epoch is not 0.
+    /// The body as the request the storage process receives.
+    ///
+    /// # Errors
+    ///
+    /// [`ProtocolError::field_value`] (`"epoch"`, the epoch) at the first partition whose epoch is not 0.
     pub fn check_request(&self) -> Result<(), ProtocolError> {
         match self.partitions().find(|partition| partition.epoch() != 0) {
             Some(partition) => Err(ProtocolError::field_value(

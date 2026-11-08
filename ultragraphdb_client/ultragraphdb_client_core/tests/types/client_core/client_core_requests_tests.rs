@@ -708,3 +708,18 @@ fn test_a_begin_through_a_session_not_held_is_refused() -> TestResult {
     assert_eq!(h.core.transmit(), None, "nothing is sent");
     Ok(())
 }
+
+/// A transaction handed by another client names a stream of this one only by chance: on a stream holding no
+/// transaction it is refused as finished.
+#[test]
+fn test_a_transaction_of_another_client_is_finished() -> TestResult {
+    let mut other = Harness::ready(server())?;
+    let tx = begin(&mut other)?;
+    let mut h = Harness::ready(server())?;
+    let _registering = h.core.register(h.now)?;
+    assert_eq!(
+        h.core.abort(tx).err(),
+        Some(ClientError::stream_finished(tx.stream()))
+    );
+    Ok(())
+}

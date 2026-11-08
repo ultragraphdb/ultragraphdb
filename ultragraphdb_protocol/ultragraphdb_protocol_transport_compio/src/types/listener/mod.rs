@@ -20,7 +20,8 @@ pub enum Listener {
 
 impl Listener {
     /// Listens at `address`. A Unix address's socket file is created here, and binding fails if a file is at its
-    /// path already.
+    /// path already. A future dropped at its bind leaves nothing listening, and for a Unix address at most the socket
+    /// file at its path.
     ///
     /// # Errors
     ///
@@ -34,8 +35,9 @@ impl Listener {
         bound.map_err(|e| TransportError::io(&e))
     }
 
-    /// The next connection, a carrier of the listener's kind, with TCP keepalive on and each frame leaving at once (`PROTOCOL.md`
-    /// §11.4).
+    /// The next connection, a carrier of the listener's kind, with TCP keepalive on and each frame leaving at once
+    /// (`PROTOCOL.md` §11.4). A future dropped at its accept leaves the listener as it was, and closes a connection
+    /// accepted for it as it was dropped.
     ///
     /// # Errors
     ///

@@ -15,6 +15,7 @@ pub enum BuildOutcome {
 
 impl BuildOutcome {
     /// The outcome's byte, 1 or 2.
+    #[must_use]
     pub fn byte(self) -> u8 {
         match self {
             BuildOutcome::Swap => 1,
@@ -23,6 +24,7 @@ impl BuildOutcome {
     }
 
     /// The outcome of `byte`; `None` for a byte naming none.
+    #[must_use]
     pub fn from_byte(byte: u8) -> Option<Self> {
         match byte {
             1 => Some(BuildOutcome::Swap),

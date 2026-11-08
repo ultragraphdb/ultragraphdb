@@ -38,6 +38,7 @@ pub struct ResumeKey {
 
 impl ResumeKey {
     /// The key continuing the read of hash `pattern` in `scope` after `row`, whose terms `terms` holds.
+    #[must_use]
     pub fn new(pattern: u64, scope: u64, terms: TermTable, row: ResumeRow) -> Self {
         Self {
             pattern,
@@ -48,6 +49,7 @@ impl ResumeKey {
     }
 
     /// The key's bytes.
+    #[must_use]
     pub fn encode(&self) -> Vec<u8> {
         let row = [
             self.row.graph().unwrap_or(ABSENT),

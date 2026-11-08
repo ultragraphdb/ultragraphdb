@@ -110,11 +110,13 @@ pub enum CommitErrorEnum {
 
 impl CommitError {
     /// The [`CommitErrorEnum::Conflict`] reason.
+    #[must_use]
     pub fn conflict(kind: ConflictKind) -> Self {
         Self(CommitErrorEnum::Conflict { kind })
     }
 
     /// The [`CommitErrorEnum::TooOld`] reason.
+    #[must_use]
     pub fn too_old(read_version: u64, floor: u64) -> Self {
         Self(CommitErrorEnum::TooOld {
             read_version,
@@ -123,66 +125,79 @@ impl CommitError {
     }
 
     /// The [`CommitErrorEnum::TooLarge`] reason.
+    #[must_use]
     pub fn too_large(size: usize, limit: usize) -> Self {
         Self(CommitErrorEnum::TooLarge { size, limit })
     }
 
     /// The [`CommitErrorEnum::ReplyTooLarge`] reason.
+    #[must_use]
     pub fn reply_too_large(size: usize, limit: usize) -> Self {
         Self(CommitErrorEnum::ReplyTooLarge { size, limit })
     }
 
     /// The [`CommitErrorEnum::Malformed`] reason.
+    #[must_use]
     pub fn malformed(cause: ProtocolError) -> Self {
         Self(CommitErrorEnum::Malformed { cause })
     }
 
     /// The [`CommitErrorEnum::Unsealed`] reason.
+    #[must_use]
     pub fn unsealed() -> Self {
         Self(CommitErrorEnum::Unsealed)
     }
 
     /// The [`CommitErrorEnum::Unavailable`] reason.
+    #[must_use]
     pub fn unavailable() -> Self {
         Self(CommitErrorEnum::Unavailable)
     }
 
     /// The [`CommitErrorEnum::Busy`] reason.
+    #[must_use]
     pub fn busy(limit: usize) -> Self {
         Self(CommitErrorEnum::Busy { limit })
     }
 
     /// The [`CommitErrorEnum::CloseOutOfOrder`] reason.
+    #[must_use]
     pub fn close_out_of_order(delivered: u64, close: u64) -> Self {
         Self(CommitErrorEnum::CloseOutOfOrder { delivered, close })
     }
 
     /// The [`CommitErrorEnum::RequestOutOfOrder`] reason.
+    #[must_use]
     pub fn request_out_of_order(last: u64) -> Self {
         Self(CommitErrorEnum::RequestOutOfOrder { last })
     }
 
     /// The [`CommitErrorEnum::SessionBusy`] reason.
+    #[must_use]
     pub fn session_busy(session: u128) -> Self {
         Self(CommitErrorEnum::SessionBusy { session })
     }
 
     /// The [`CommitErrorEnum::NotCommitted`] reason.
+    #[must_use]
     pub fn not_committed(request: u64) -> Self {
         Self(CommitErrorEnum::NotCommitted { request })
     }
 
     /// The [`CommitErrorEnum::OperationFailed`] reason.
+    #[must_use]
     pub fn operation_failed(found: Option<String>) -> Self {
         Self(CommitErrorEnum::OperationFailed { found })
     }
 
     /// The [`CommitErrorEnum::Refused`] reason.
+    #[must_use]
     pub fn refused(reason: String) -> Self {
         Self(CommitErrorEnum::Refused { reason })
     }
 
     /// The [`CommitErrorEnum::CrossPartition`] reason.
+    #[must_use]
     pub fn cross_partition(partition: u32, other: u32) -> Self {
         Self(CommitErrorEnum::CrossPartition { partition, other })
     }
@@ -239,7 +254,7 @@ impl CommitError {
         match self.0 {
             CommitErrorEnum::Conflict { kind } => kind.number(),
             CommitErrorEnum::TooLarge { limit, .. }
-            | CommitErrorEnum::ReplyTooLarge { limit, .. } => limit as u64,
+            | CommitErrorEnum::ReplyTooLarge { limit, .. } => limit as u64, // lossless: a `usize` is at most 64 bits
             CommitErrorEnum::RequestOutOfOrder { last } => last,
             CommitErrorEnum::NotCommitted { request } => request,
             CommitErrorEnum::CrossPartition { partition, other } => {

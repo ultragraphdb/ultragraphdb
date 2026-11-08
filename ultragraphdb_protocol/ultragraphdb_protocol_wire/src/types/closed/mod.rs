@@ -21,11 +21,13 @@ pub struct Closed {
 
 impl Closed {
     /// The body of `partitions`, ascending: the request with every epoch 0, or the reply with them filled.
+    #[must_use]
     pub fn new(partitions: Vec<ClosedPartition>) -> Self {
         Self { partitions }
     }
 
     /// The request for `partitions`, ascending, every epoch 0.
+    #[must_use]
     pub fn request(partitions: &[u32]) -> Self {
         Self::new(
             partitions
@@ -36,6 +38,7 @@ impl Closed {
     }
 
     /// The partitions, in order.
+    #[must_use]
     pub fn partitions(&self) -> &[ClosedPartition] {
         &self.partitions
     }

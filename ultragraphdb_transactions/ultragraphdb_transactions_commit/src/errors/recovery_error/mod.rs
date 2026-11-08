@@ -91,36 +91,43 @@ pub enum RecoveryErrorEnum {
 
 impl RecoveryError {
     /// The [`RecoveryErrorEnum::Log`] reason.
+    #[must_use]
     pub fn log(cause: LogError) -> Self {
         Self(RecoveryErrorEnum::Log { cause })
     }
 
     /// The [`RecoveryErrorEnum::Round`] reason.
+    #[must_use]
     pub fn round(position: u64, cause: ProtocolError) -> Self {
         Self(RecoveryErrorEnum::Round { position, cause })
     }
 
     /// The [`RecoveryErrorEnum::Apply`] reason.
+    #[must_use]
     pub fn apply(position: u64, cause: ChangesetError) -> Self {
         Self(RecoveryErrorEnum::Apply { position, cause })
     }
 
     /// The [`RecoveryErrorEnum::Sessions`] reason.
+    #[must_use]
     pub fn sessions(cause: StoreError) -> Self {
         Self(RecoveryErrorEnum::Sessions { cause })
     }
 
     /// The [`RecoveryErrorEnum::StoreNotInLog`] reason.
+    #[must_use]
     pub fn store_not_in_log(position: u64) -> Self {
         Self(RecoveryErrorEnum::StoreNotInLog { position })
     }
 
     /// The [`RecoveryErrorEnum::Gap`] reason.
+    #[must_use]
     pub fn gap(position: u64) -> Self {
         Self(RecoveryErrorEnum::Gap { position })
     }
 
     /// The [`RecoveryErrorEnum::BehindCheckpoint`] reason.
+    #[must_use]
     pub fn behind_checkpoint(applied: u64, checkpoint: u64) -> Self {
         Self(RecoveryErrorEnum::BehindCheckpoint {
             applied,
@@ -129,6 +136,7 @@ impl RecoveryError {
     }
 
     /// The [`RecoveryErrorEnum::Derivation`] reason.
+    #[must_use]
     pub fn derivation(position: u64, derivation: u32) -> Self {
         Self(RecoveryErrorEnum::Derivation {
             position,
@@ -147,6 +155,7 @@ impl RecoveryError {
     }
 
     /// The [`RecoveryErrorEnum::AppliedPosition`] reason.
+    #[must_use]
     pub fn applied_position(cause: StoreError) -> Self {
         Self(RecoveryErrorEnum::AppliedPosition { cause })
     }

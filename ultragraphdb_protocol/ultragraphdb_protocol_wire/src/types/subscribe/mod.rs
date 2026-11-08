@@ -20,11 +20,13 @@ pub struct Subscribe {
 
 impl Subscribe {
     /// A subscription to the closes after epoch `from`.
+    #[must_use]
     pub fn new(from: u64) -> Self {
         Self { from }
     }
 
     /// The last epoch whose close the subscriber holds; 0 for none.
+    #[must_use]
     pub fn from(&self) -> u64 {
         self.from
     }

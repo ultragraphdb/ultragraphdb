@@ -322,3 +322,22 @@ fn test_a_replys_refusing_outcomes_are_7_17_and_26() -> TestResult {
     }
     Ok(())
 }
+
+#[test]
+fn test_a_torn_term_record_is_refused() -> TestResult {
+    let golden_bytes = golden("reference")?;
+    let mut whole = 0;
+    let torn = with_section(&golden_bytes, 3, 1, |records| {
+        whole = records.len();
+        records.truncate(whole.saturating_sub(1));
+    });
+    assert!(whole > 0, "the golden request holds a term");
+    assert!(
+        matches!(
+            refusal::<ReferenceView>(&torn)?,
+            ProtocolErrorEnum::SectionLength { command: 526, section: 1, len, .. } if len == whole - 1
+        ),
+        "a record short of its size"
+    );
+    Ok(())
+}

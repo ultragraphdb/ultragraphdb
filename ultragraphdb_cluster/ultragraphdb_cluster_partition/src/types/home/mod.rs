@@ -43,6 +43,7 @@ pub struct Home {
 
 impl Home {
     /// A home with no registration in flight.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }

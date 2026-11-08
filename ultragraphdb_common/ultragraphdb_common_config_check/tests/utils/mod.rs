@@ -4,6 +4,8 @@
  */
 
 #[cfg(test)]
+mod check_central_tests;
+#[cfg(test)]
 mod check_target_tests;
 #[cfg(test)]
 mod cross_checks_tests;

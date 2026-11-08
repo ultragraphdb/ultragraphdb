@@ -35,6 +35,7 @@ impl PgEdge {
     }
 
     /// The edge named by the reifier `reifier`.
+    #[must_use]
     pub fn with_reifier(mut self, reifier: NamedNode) -> Self {
         self.reifier = Some(reifier);
         self
@@ -48,12 +49,14 @@ impl PgEdge {
     }
 
     /// The edge without its reifier, as it is written before storage allocates its statement ID.
+    #[must_use]
     pub fn without_reifier(mut self) -> Self {
         self.reifier = None;
         self
     }
 
     /// The reifier, when the edge has a statement ID.
+    #[must_use]
     pub fn reifier(&self) -> Option<&NamedNode> {
         self.reifier.as_ref()
     }

@@ -99,6 +99,9 @@ impl<L: OrderedLog> Sequencer<L> {
     /// # Errors
     ///
     /// [`ClusterError::log`] carrying the log's refusal; a failed sync poisons the log, so every later append fails.
+    ///
+    /// A future dropped at the log's sync leaves the sequencer as it was: no close is counted durable or delivered
+    /// until a later `sync` returns.
     pub async fn sync(&mut self) -> Result<Position, ClusterError> {
         let durable = self.log.sync().await?;
         self.durable = durable;
@@ -121,6 +124,7 @@ impl<L: OrderedLog> Sequencer<L> {
 
     /// Drops the oldest closes past the number retained; called once every close held is durable.
     fn trim_closes(&mut self) {
+        // The setting is a `u32`, which a `usize` of 32 bits or more holds whole on every target the node builds for.
         let retained = self.config.closes_retained().get() as usize;
         while self.closes.len() > retained {
             let _dropped: Option<Close> = self.closes.pop_front();

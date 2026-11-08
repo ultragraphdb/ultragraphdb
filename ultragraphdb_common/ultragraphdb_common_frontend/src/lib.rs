@@ -36,9 +36,11 @@ pub use crate::types::tenant_facts::TenantFacts;
 pub use crate::types::tenant_gate::TenantGate;
 pub use crate::utils::iri_place::{IriPlace, iri_place};
 pub use crate::utils::owner_thread::{OwnerThread, start_owner};
-pub use crate::utils::term_rules::check_table;
+pub use crate::utils::term_rules::{check_change, check_operation, check_table};
 #[cfg(feature = "test-utils")]
 pub use crate::utils_test::double_frame::DoubleFrame;
+#[cfg(feature = "test-utils")]
+pub use crate::utils_test::owner_run::owner_run;
 #[cfg(feature = "test-utils")]
 pub use crate::utils_test::role_double::{
     RoleDouble, batch_frame, empty_batch, last_frame, partition_answer, refusal_of, view_of,

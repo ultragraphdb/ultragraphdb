@@ -23,6 +23,7 @@ fn proof<'a>(
     bytes: &'a [u8],
 ) -> Result<&'a [u8; PROOF_SIZE], ProtocolError> {
     bytes.try_into().map_err(|_| {
+        // Lossless: a `usize` is at most 64 bits.
         ProtocolError::count_mismatch(command, field, bytes.len() as u64, PROOF_SIZE as u64)
     })
 }
@@ -54,7 +55,7 @@ impl<'a> BodyView<'a> for VerifyView<'a> {
             return Err(ProtocolError::count_mismatch(
                 command,
                 "signature",
-                signed.len() as u64,
+                signed.len() as u64, // lossless: a `usize` is at most 64 bits
                 0,
             ));
         };

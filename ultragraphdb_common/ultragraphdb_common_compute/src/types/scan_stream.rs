@@ -62,6 +62,8 @@ impl ScanStream {
     /// The next frame, granting the credit the frame before it spent, read by `read` while its buffer lasts. A refusal of the
     /// partition's comes back as it was sent. A frame compute refuses closes the connection, and the read takes code 17; what the
     /// store holds that `read` cannot read takes this read alone, with code 17.
+    /// A future dropped at its wait leaves the frame to come to the next call, which grants one more credit, so the
+    /// partition may send one frame ahead; dropping the stream cancels its Scan.
     pub(crate) async fn next<T>(
         &mut self,
         read: impl FnOnce(&EntriesView<'_>) -> Result<T, ReadFault>,

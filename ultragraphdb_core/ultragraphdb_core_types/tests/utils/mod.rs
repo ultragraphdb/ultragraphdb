@@ -27,3 +27,5 @@ mod scalar_types_tests;
 mod sort_tests;
 #[cfg(test)]
 mod value_tests;
+#[cfg(test)]
+mod xy_tests;

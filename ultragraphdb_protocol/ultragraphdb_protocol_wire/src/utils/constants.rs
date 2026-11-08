@@ -5,6 +5,11 @@
 
 use std::ops::RangeInclusive;
 
+// A `usize` is 32 to 64 bits wide on every target the crate builds for, so a `u32` field widens into a `usize` and a
+// `usize` length into a `u64` field without loss, which every such `as` cast in the crate relies on.
+const _: () = assert!(usize::BITS >= 32);
+const _: () = assert!(usize::BITS <= 64);
+
 /// The header's length, in front of every frame: client frames, log records and replica frames.
 pub const HEADER_SIZE: usize = 256;
 

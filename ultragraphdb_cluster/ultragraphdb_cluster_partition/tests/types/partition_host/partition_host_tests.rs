@@ -618,3 +618,43 @@ fn test_a_registration_from_another_process_is_answered_to_the_shell() -> TestRe
     assert!(answer.is_ok(), "{answer:?}");
     Ok(())
 }
+
+/// A home whose pipeline stopped under a registration's round takes the next registration and answers neither: the
+/// writes asking wait.
+#[test]
+fn test_a_home_whose_pipeline_stopped_answers_no_registration() -> TestResult {
+    use ultragraphdb_store_sim::Fault;
+    let (a, knows, b) = names()?;
+    on_hosts(2, |hosts| {
+        hosts
+            .get(1)
+            .context("partition 2")?
+            .partition()
+            .applier()
+            .quads()
+            .store()
+            .inject(Fault::FailNextBatch);
+        let write = changeset(vec![insert(&a, &knows, &b)]);
+        let mut failed = Vec::new();
+        for _ in 0..2 {
+            let _ticket = hosts
+                .first_mut()
+                .context("partition 1")?
+                .submit(write.clone(), 0)?;
+            for host in hosts.iter_mut() {
+                if let Err(error) = crate::utils::cluster::block_on(host.turn(0))? {
+                    failed.push(error);
+                }
+            }
+        }
+        let home = hosts.get(1).context("partition 2")?;
+        assert!(home.is_stopped());
+        assert_eq!(failed.len(), 1, "the failed round's turn alone: {failed:?}");
+        assert_eq!(
+            hosts.first().context("partition 1")?.parked(),
+            2,
+            "both writes wait"
+        );
+        Ok(())
+    })
+}

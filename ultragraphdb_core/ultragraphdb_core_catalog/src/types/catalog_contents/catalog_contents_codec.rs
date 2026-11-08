@@ -53,6 +53,7 @@ impl CatalogContents {
                 "",
                 "declarations",
                 self.declarations.len(),
+                // Lossless: a `usize` holds 32 bits on every target the repository builds for.
                 u32::MAX as usize,
             )
         })?;
@@ -66,6 +67,7 @@ impl CatalogContents {
             check_lengths(declaration)?;
             let entry = encode(declaration);
             let len = u32::try_from(entry.len()).map_err(|_| {
+                // Lossless: a `usize` holds 32 bits on every target the repository builds for.
                 CatalogError::too_large("", "declaration bytes", entry.len(), u32::MAX as usize)
             })?;
             w.extend_from_slice(&len.to_be_bytes());

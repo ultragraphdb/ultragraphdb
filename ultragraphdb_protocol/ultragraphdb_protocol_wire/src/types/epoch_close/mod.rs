@@ -35,6 +35,7 @@ pub struct EpochClose {
 
 impl EpochClose {
     /// The close of `epoch` at `time`, with no announcement or eviction yet, and no frame following.
+    #[must_use]
     pub fn new(epoch: u64, time: u64) -> Self {
         Self {
             epoch,
@@ -47,12 +48,14 @@ impl EpochClose {
     }
 
     /// The close with another frame of it following.
+    #[must_use]
     pub fn with_more(mut self) -> Self {
         self.more = true;
         self
     }
 
     /// The close announcing placement version `version`, 0 for none.
+    #[must_use]
     pub fn with_placement(mut self, version: u64) -> Self {
         self.placement = version;
         self
@@ -69,31 +72,37 @@ impl EpochClose {
     }
 
     /// The epoch closed.
+    #[must_use]
     pub fn epoch(&self) -> u64 {
         self.epoch
     }
 
     /// The close's time, in microseconds of Unix time.
+    #[must_use]
     pub fn time(&self) -> u64 {
         self.time
     }
 
     /// Whether another frame of this close follows.
+    #[must_use]
     pub fn more(&self) -> bool {
         self.more
     }
 
     /// The placement version the close announces, 0 for none.
+    #[must_use]
     pub fn placement(&self) -> u64 {
         self.placement
     }
 
     /// The catalog announcements.
+    #[must_use]
     pub fn announcements(&self) -> &[CatalogAnnouncement] {
         &self.announcements
     }
 
     /// The evicted sessions.
+    #[must_use]
     pub fn evictions(&self) -> &[[u8; 16]] {
         &self.evictions
     }

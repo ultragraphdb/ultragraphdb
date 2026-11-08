@@ -97,6 +97,7 @@ impl List {
     }
 
     /// The start uid of each part, empty for a list that is not split: Dgraph's `PartSplits`.
+    #[must_use]
     pub fn part_splits(&self) -> Vec<u128> {
         self.plist.splits().to_vec()
     }

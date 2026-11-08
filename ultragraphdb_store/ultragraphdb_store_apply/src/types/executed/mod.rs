@@ -119,6 +119,7 @@ impl Executed {
     /// on its snapshot inserted, once per statement ID it added, each one removed, each ID removed from an object left held, and each
     /// statement record written, by graph and statement ID. Its keys were derived from these by the derivation
     /// [`crate::ChangesetApplier::prepare_logical`] runs, so a replay of these writes derives every key and value again.
+    #[must_use]
     pub fn logical(&self) -> LogicalWrites {
         let records = self
             .writes
@@ -194,12 +195,14 @@ impl Executed {
 
     /// The number of the catalog version it installs, a version taking effect in the partition, `None` for any other
     /// execution: its record is the build start naming that version.
+    #[must_use]
     pub fn catalog_version(&self) -> Option<u64> {
         self.catalog_version
     }
 
     /// The catalog version of the build this execution ends, `None` for any other execution: the version its tenant's
     /// catalog holds, the one that started the build, since a later version waits for the build's end.
+    #[must_use]
     pub fn build_version(&self) -> Option<u64> {
         self.build_end.map(|_| self.catalog.version())
     }
@@ -212,6 +215,7 @@ impl Executed {
 
     /// The registrations the execution relied on as a referrer, in the order marked: its commit writes each mark and
     /// its record lists each (write-set record section 4).
+    #[must_use]
     pub fn marks(&self) -> &[MarkedReference] {
         &self.marks
     }

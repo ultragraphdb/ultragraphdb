@@ -41,7 +41,7 @@ async fn fill<S: AsyncRead + Unpin>(
 ) -> std::io::Result<bool> {
     // Ends: each turn reads at least one byte toward `want`, or returns.
     while bytes.len() < want {
-        let room = (want - bytes.len()) as u64;
+        let room = (want - bytes.len()) as u64; // lossless: a `usize` is at most 64 bits
         match (&mut *stream).take(room).read_buf(bytes).await {
             Ok(0) => return Ok(false),
             Ok(_) => {}
@@ -264,7 +264,8 @@ impl<C: Connect, L: Login> Client<C, L> {
 
     /// The frames that have already arrived, read before a deadline that passed while no call drove the connection is
     /// taken, so a read whose frame waits in the socket is not taken for a silent one; at most the pool's buffers, so a
-    /// deadline due is not put off by frames that keep coming.
+    /// deadline due is not put off by frames that keep coming. A future dropped at a read leaves the frame's bytes read
+    /// so far in `incoming`, where the next read goes on from.
     async fn take_arrived(&mut self) {
         for _ in 0..self.core.config().buffers() {
             let Some(stream) = self.stream.as_mut() else {
@@ -324,18 +325,25 @@ impl<C: Connect, L: Login> Client<C, L> {
             if !self.core.is_connected() {
                 self.shut().await;
             }
-            let Some(deadline) = self.core.next_deadline() else {
-                return Err(self
-                    .failure
-                    .take()
-                    .unwrap_or_else(ClientError::not_connected));
-            };
+            let deadline = self.core.next_deadline();
             let Some(stream) = self.stream.as_mut() else {
+                let Some(deadline) = deadline else {
+                    return Err(self
+                        .failure
+                        .take()
+                        .unwrap_or_else(ClientError::not_connected));
+                };
                 self.core.handle_timeout(deadline);
                 continue;
             };
             let read = read_frame(stream, &mut self.framer, &self.pool, &mut self.incoming);
-            match tokio::time::timeout_at(deadline.into(), read).await {
+            // A connection with no deadline has a timeout past what an `Instant` holds: the read waits as long as the
+            // server takes.
+            let read = match deadline {
+                Some(deadline) => tokio::time::timeout_at(deadline.into(), read).await,
+                None => Ok(read.await),
+            };
+            match read {
                 Ok(Ok(frame)) => {
                     self.take_frame(frame);
                     // A deadline passed by the time the frame was read is taken once the frames already arrived are: a resend

@@ -85,3 +85,24 @@ fn test_a_folder_holding_files_is_refused() -> TestResult {
     );
     Ok(())
 }
+
+/// A folder that cannot be made is refused naming the path that could not be written.
+#[test]
+fn test_a_folder_that_cannot_be_made_is_refused() -> TestResult {
+    let at = folder();
+    std::fs::create_dir_all(&at)?;
+    // A file stands where the folder would be made, so nothing beneath it can be.
+    let file = at.join("a_file");
+    std::fs::write(&file, b"")?;
+    let refused = write_central(&file.join("under"), &[target("ci", "storage")])
+        .err()
+        .context("a refusal")?;
+    let blocked = file.join("under").join("ci");
+    assert!(
+        refused
+            .to_string()
+            .contains(&format!("{} cannot be written: ", blocked.display())),
+        "{refused}"
+    );
+    Ok(())
+}

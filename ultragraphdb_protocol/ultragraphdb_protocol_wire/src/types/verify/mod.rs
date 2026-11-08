@@ -46,37 +46,44 @@ impl Verify {
 
     /// The reply of a proof that holds: the `principal` and the `signature` the frontend sends in its
     /// server-final-message.
+    #[must_use]
     pub fn with_verified(mut self, principal: u64, signature: [u8; 32]) -> Self {
         self.verified = Some((principal, signature));
         self
     }
 
     /// The principal's name.
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
     /// The SCRAM AuthMessage.
+    #[must_use]
     pub fn auth_message(&self) -> &str {
         &self.auth_message
     }
 
     /// The ClientProof.
+    #[must_use]
     pub fn proof(&self) -> &[u8; 32] {
         &self.proof
     }
 
     /// Whether the proof holds.
+    #[must_use]
     pub fn verified(&self) -> bool {
         self.verified.is_some()
     }
 
     /// The principal of a verified reply; 0 otherwise.
+    #[must_use]
     pub fn principal(&self) -> u64 {
         self.verified.map_or(0, |(principal, _)| principal)
     }
 
     /// The ServerSignature of a verified reply.
+    #[must_use]
     pub fn signature(&self) -> Option<&[u8; 32]> {
         self.verified.as_ref().map(|(_, signature)| signature)
     }

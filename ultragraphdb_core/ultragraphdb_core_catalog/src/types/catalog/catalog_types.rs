@@ -45,7 +45,7 @@ impl Catalog {
             // assembled from stored entries could, and is refused as one.
             let parent_name = declaration.parent().map_or("", |p| p.as_str());
             let mut at = Some(parent_uid);
-            for _ in 0..=self.types.len() {
+            for _ in 0..self.types.len() + 1 {
                 let Some(ancestor) = at else {
                     break;
                 };
@@ -79,6 +79,7 @@ impl Catalog {
     /// Each declared type's number in a preorder walk of the type hierarchy, from 1: each type before its children,
     /// roots and siblings in ID order, which is the order their IRIs were first named. A type's descendants then hold
     /// the numbers right after its own, as the ID type bits will.
+    #[must_use]
     pub fn preorder(&self) -> BTreeMap<SystemId, u32> {
         let mut children: BTreeMap<Option<SystemId>, Vec<SystemId>> = BTreeMap::new();
         for uid in self.types.keys() {

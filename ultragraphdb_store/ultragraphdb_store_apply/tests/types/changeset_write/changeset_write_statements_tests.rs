@@ -380,3 +380,77 @@ fn test_both_postings_follow_the_statement_ids() -> TestResult {
     );
     Ok(())
 }
+
+/// A statement named by a triple in a named graph that holds none is refused naming the triple and its graph.
+#[test]
+fn test_a_triple_a_named_graph_does_not_hold_is_refused_naming_its_graph() -> TestResult {
+    let a = changesets()?;
+    write_changes(
+        &a,
+        vec![insert_edge("<a> <knows> <b> <g1>", &[("since", "2020")])?],
+    )?;
+    let text = statement("<a> <knows> <c> <g1>")?;
+    let named = format!(
+        "{} {} {} {}",
+        text.subject, text.predicate, text.object, text.graph
+    );
+    let refused = apply(
+        &a,
+        vec![Change::SetProperty {
+            statement: by_triple("<a> <knows> <c> <g1>")?,
+            predicate: ex("weight"),
+            value: term("1")?,
+        }],
+    )
+    .err()
+    .context("refused")?;
+    assert_eq!(
+        refused.0,
+        ChangesetErrorEnum::Mapping(ultragraphdb_core_mapping::MappingError::no_such_statement(
+            named
+        ))
+    );
+    Ok(())
+}
+
+/// A statement record whose predicate names a blank node, which no write produces, is removed by the deletion of its
+/// statement, which finds no predicate's list to remove its object from.
+#[test]
+fn test_deleting_a_statement_whose_record_names_a_blank_predicate_removes_the_record() -> TestResult
+{
+    use ultragraphdb_store_apply::{Applied, LogicalWrites};
+    let a = changesets()?;
+    write_changes(
+        &a,
+        vec![insert_edge("<a> <knows> <b>", &[("since", "2020")])?],
+    )?;
+    write_changes(&a, vec![insert("_:x <likes> <c>")?])?;
+    let blank = *crate::utils::changesets::reverse(&a, "likes", "c")?
+        .first()
+        .context("the blank subject")?;
+    let id = postings(&a, "a", "knows")?[0].1[0];
+    let damaged = StatementRecord::new(
+        uid(&a, "a")?,
+        blank,
+        EncodedTerm::id(uid(&a, "b")?),
+        Vec::new(),
+    );
+    let records = vec![(DEFAULT_GRAPH, id, Some(damaged.encode()))];
+    let replayed = a.prepare_logical(
+        TENANT,
+        &LogicalWrites::new(Vec::new(), Vec::new(), records),
+        &[],
+    )?;
+    let version = a.quads().lists().next_version();
+    let _applied: Vec<Applied> = a.apply_round(vec![(version, replayed)])?;
+    assert_eq!(record(&a, DEFAULT_GRAPH, id)?, Some(damaged));
+    write_changes(
+        &a,
+        vec![Change::DeleteStatement {
+            graph: GraphName::DefaultGraph,
+            reifier: reifier(&a, id)?,
+        }],
+    )?;
+    assert_eq!(record(&a, DEFAULT_GRAPH, id)?, None);
+    Ok(())
+}

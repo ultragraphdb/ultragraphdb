@@ -352,6 +352,8 @@ fn parse_u_attributes(scan: &mut Scanner, mut end: usize) -> usize {
     let attr_start = end;
     scan.advance();
     let mut last: Vec<u8> = Vec::new();
+    // Each `advance` moves past one token and leaves a length of 0 past the tag's last, so each loop here turns at
+    // most once per token of the tag; the restart runs once, ending the outer loop.
     while scan.token_len() > 2 {
         if scan.token() >= last.as_slice() {
             // Attributes are unsorted. Start over from scratch.
@@ -382,6 +384,8 @@ fn parse_u_keys(scan: &mut Scanner, mut end: usize) -> usize {
     // to the maximum of 8 letters.
     let attr_end = end;
     let mut last: Vec<u8> = Vec::new();
+    // Each `advance` moves past one token and leaves a length of 0 past the tag's last, so each loop here turns at
+    // most once per token of the tag; the restart runs once, ending the outer loop.
     while scan.token_len() == 2 {
         let key = scan.token().to_vec();
         end = scan.end;

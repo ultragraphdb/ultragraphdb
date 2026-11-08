@@ -67,51 +67,61 @@ pub enum StoreErrorEnum {
 
 impl StoreError {
     /// A read below the discard timestamp.
+    #[must_use]
     pub fn ts_too_old() -> Self {
         Self(StoreErrorEnum::TsTooOld)
     }
 
     /// A write whose key of `size` bytes is longer than `limit`; `head` holds the key's first 1,024 bytes.
+    #[must_use]
     pub fn key_too_large(size: usize, limit: usize, head: Vec<u8>) -> Self {
         Self(StoreErrorEnum::KeyTooLarge { size, limit, head })
     }
 
     /// A read of `key` failed, for `reason`.
+    #[must_use]
     pub fn read_failed(key: Vec<u8>, reason: String) -> Self {
         Self(StoreErrorEnum::ReadFailed { key, reason })
     }
 
     /// The stored value of `key` cannot be decoded, for `reason`.
+    #[must_use]
     pub fn corrupted(key: Vec<u8>, reason: String) -> Self {
         Self(StoreErrorEnum::Corrupted { key, reason })
     }
 
     /// A write failed, for `reason`; the store is poisoned from then on.
+    #[must_use]
     pub fn write_failed(reason: String) -> Self {
         Self(StoreErrorEnum::WriteFailed(reason))
     }
 
     /// A write refused because an earlier one failed.
+    #[must_use]
     pub fn poisoned() -> Self {
         Self(StoreErrorEnum::Poisoned)
     }
 
     /// The store could not be opened, for `reason`.
+    #[must_use]
     pub fn open_failed(reason: String) -> Self {
         Self(StoreErrorEnum::OpenFailed(reason))
     }
 
     /// The store does not offer `operation`.
+    #[must_use]
     pub fn unsupported(operation: &'static str) -> Self {
         Self(StoreErrorEnum::Unsupported(operation))
     }
 
     /// No temporary keyspace numbered `id` exists.
+    #[must_use]
     pub fn unknown_temporary(id: u64) -> Self {
         Self(StoreErrorEnum::UnknownTemporary(id))
     }
 
     /// A versionless write whose key is empty.
+    #[must_use]
     pub fn empty_key() -> Self {
         Self(StoreErrorEnum::EmptyKey)
     }

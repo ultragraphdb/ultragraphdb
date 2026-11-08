@@ -278,3 +278,39 @@ fn test_a_partition_asked_twice_at_one_version_is_held_once() -> TestResult {
         Ok(())
     })
 }
+
+/// A partition refusing the Scan that holds a read's version holds nothing for it: the read goes on and answers its rows.
+#[test]
+fn test_a_pin_refused_holds_nothing_and_the_read_goes_on() -> TestResult {
+    use ultragraphdb_core_keys::{Keyspace, key_prefix};
+    use ultragraphdb_protocol_wire::ErrorCode;
+
+    use crate::played_reads::played_cluster::PlayedCluster as ReadsCluster;
+    use crate::played_reads::played_data::{first_bucket, place, tenant_over};
+    use crate::played_reads::played_partition::Script;
+    use crate::played_reads::read_answer::{Pattern as ReadsPattern, answer_on as reads_answer};
+
+    const S: &str = "http://ex.org/s";
+    const OBJECTS: [&str; 2] = ["http://ex.org/o1", "http://ex.org/o2"];
+    crate::played_reads::played_cluster::run(async {
+        let cluster = ReadsCluster::start(1, read_times_of(None, None)).await?;
+        let tenant = tenant_over(1, 1)?;
+        let part = cluster.partition(1)?;
+        let _placed = place(part, tenant, (first_bucket(tenant), 1), (S, P), &OBJECTS)?;
+        // A pin's ranges start at the tenant's referrer sets, which this read reads none of.
+        let pins = key_prefix(Keyspace::Referrers, false, tenant, None, None);
+        part.script(pins, Script::Refuse(ErrorCode::TooOld, 0));
+        let read = ReadsPattern::of(Some(S), Some(P), None)
+            .read(tenant, true, ReadLevel::Snapshot)?
+            .with_read_version(version()?)
+            .with_epoch(crate::utils::played_cluster::EPOCH);
+        let answer = reads_answer(&mut cluster.client().await?, &read).await?;
+        answer.ended()?;
+        assert_eq!(answer.column(0), OBJECTS);
+        assert!(
+            part.scans().iter().any(|scan| scan.holds_a_version()),
+            "a pin was asked"
+        );
+        Ok(())
+    })
+}

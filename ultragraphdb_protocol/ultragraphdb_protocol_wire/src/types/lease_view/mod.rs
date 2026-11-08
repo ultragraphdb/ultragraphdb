@@ -20,31 +20,37 @@ pub struct LeaseView<'a> {
 
 impl<'a> LeaseView<'a> {
     /// The type prefix.
+    #[must_use]
     pub fn type_prefix(&self) -> u16 {
         self.type_prefix
     }
 
     /// The leasing partition.
+    #[must_use]
     pub fn partition(&self) -> u32 {
         self.partition
     }
 
     /// The sequences asked for.
+    #[must_use]
     pub fn size(&self) -> u64 {
         self.size
     }
 
     /// The block's first sequence; 0 in a request.
+    #[must_use]
     pub fn start(&self) -> u64 {
         self.start
     }
 
     /// One past the block's last sequence; 0 in a request.
+    #[must_use]
     pub fn end(&self) -> u64 {
         self.end
     }
 
     /// Whether the body is a request: `start` and `end` both 0.
+    #[must_use]
     pub fn is_request(&self) -> bool {
         self.start == 0 && self.end == 0
     }

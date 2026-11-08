@@ -15,7 +15,11 @@ use crate::errors::mapping_error::MappingError;
 pub struct StatementId(SystemId);
 
 impl StatementId {
-    /// The statement ID `id`, refused with [`MappingError::not_a_statement_id`] when it is not of the `Statement` type.
+    /// The statement ID `id`.
+    ///
+    /// # Errors
+    ///
+    /// [`MappingError::not_a_statement_id`] when `id` is not of the `Statement` type.
     pub fn new(id: SystemId) -> Result<Self, MappingError> {
         if id.type_prefix() == TypePrefix::STATEMENT {
             Ok(Self(id))
@@ -25,6 +29,7 @@ impl StatementId {
     }
 
     /// The system ID.
+    #[must_use]
     pub fn id(&self) -> SystemId {
         self.0
     }

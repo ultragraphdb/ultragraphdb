@@ -47,16 +47,21 @@ pub struct MetadataState {
     pub(crate) defaults: BTreeMap<(Tenant, String), Vec<u8>>,
     pub(crate) high_water: BTreeMap<u16, u64>,
     pub(crate) placement: Option<PlacementMap>,
-    /// The placement versions no learned close has announced, oldest first, each its number and its layout.
+    /// The placement versions no learned close has announced, oldest first, each its number and its layout: at most
+    /// [`MetadataState::PLACEMENT_PENDING_MAX`].
     pub(crate) placement_pending: VecDeque<(u64, Vec<(BucketRange, PartitionId)>)>,
     /// The number of the last placement version committed, 0 for the initial map.
     pub(crate) placement_version: u64,
     pub(crate) untrimmed: BTreeMap<PartitionId, Epoch>,
     pub(crate) principals: BTreeMap<String, Principal>,
     pub(crate) next_principal: u64,
+    /// The sessions registered, oldest first, with their principals: at most the settings' `sessions_max`, since a
+    /// registration past it evicts the oldest or is refused.
     pub(crate) sessions: VecDeque<(u128, u64)>,
     /// The sessions of `sessions` by identity, with their principals: the owner check's index.
     pub(crate) owners: BTreeMap<u128, u64>,
+    /// The sessions evicted that no learned close has carried yet, oldest first: at most
+    /// [`MetadataState::EVICTIONS_PENDING_MAX`].
     pub(crate) evictions: VecDeque<u128>,
     pub(crate) learned: Epoch,
 }
@@ -67,6 +72,7 @@ pub struct MetadataState {
 pub(crate) struct TenantCatalog {
     pub(crate) current: u64,
     pub(crate) released: u64,
+    /// At most [`MetadataState::RETAINED_MAX`].
     pub(crate) versions: VecDeque<CatalogRecord>,
 }
 

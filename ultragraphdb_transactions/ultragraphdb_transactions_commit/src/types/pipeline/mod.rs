@@ -78,7 +78,8 @@ pub struct Pipeline<'a, L, S, C, E, B> {
     /// The close the step asked the sequencer for, not yet handed out.
     close_request: Option<Epoch>,
     /// What each registration handed to the step and not yet applied or released leaves, under its ticket, in the order
-    /// handed over.
+    /// handed over. Each leaves once the step applies or dismisses its registration, so it holds at most the entries
+    /// the step holds: its queue, set by [`Pipeline::with_queue`], and its round in flight.
     registrations: VecDeque<(u64, Executed)>,
 }
 

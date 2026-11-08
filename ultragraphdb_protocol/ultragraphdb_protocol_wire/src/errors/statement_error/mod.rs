@@ -66,11 +66,13 @@ pub struct StatementError(pub StatementErrorEnum);
 
 impl StatementError {
     /// The connection holds no statement `statement`.
+    #[must_use]
     pub fn unknown(statement: u64) -> Self {
         Self(StatementErrorEnum::Unknown { statement })
     }
 
     /// Statement `statement` was prepared against schema id `prepared`; its tenant's is now `current`.
+    #[must_use]
     pub fn stale(statement: u64, prepared: u64, current: u64) -> Self {
         Self(StatementErrorEnum::Stale {
             statement,
@@ -80,6 +82,7 @@ impl StatementError {
     }
 
     /// Statement `statement` takes `expected` parameters; the execution bound `found`.
+    #[must_use]
     pub fn parameters(statement: u64, expected: usize, found: usize) -> Self {
         Self(StatementErrorEnum::Parameters {
             statement,
@@ -89,6 +92,7 @@ impl StatementError {
     }
 
     /// Parameter `parameter` is declared `declared`, which its slot, of type `slot`, does not take.
+    #[must_use]
     pub fn parameter_type(parameter: usize, declared: ColumnType, slot: ColumnType) -> Self {
         Self(StatementErrorEnum::ParameterType {
             parameter,
@@ -98,6 +102,7 @@ impl StatementError {
     }
 
     /// Parameter `parameter` of statement `statement` is bound to a term that is not a node at a slot taking one.
+    #[must_use]
     pub fn not_a_node(statement: u64, parameter: usize) -> Self {
         Self(StatementErrorEnum::NotANode {
             statement,
@@ -106,6 +111,7 @@ impl StatementError {
     }
 
     /// The Prepare holds a query text, of `language`, which a cache of quad patterns does not take.
+    #[must_use]
     pub fn not_a_pattern(language: u8) -> Self {
         Self(StatementErrorEnum::NotAPattern { language })
     }

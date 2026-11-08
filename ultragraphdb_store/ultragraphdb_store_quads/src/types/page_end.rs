@@ -35,6 +35,7 @@ pub enum PageEnd {
 
 impl PageEnd {
     /// The key a next scan of the range begins at; `None` when the range is exhausted.
+    #[must_use]
     pub fn resume_from(self) -> Option<Vec<u8>> {
         match self {
             Self::Exhausted => None,

@@ -20,6 +20,7 @@ pub struct ScanRange<'a> {
 
 impl<'a> ScanRange<'a> {
     /// The range of `partition` from `first` to `past`, resuming at no object.
+    #[must_use]
     pub fn new(partition: u32, first: &'a [u8], past: &'a [u8]) -> Self {
         Self {
             partition,
@@ -37,28 +38,33 @@ impl<'a> ScanRange<'a> {
     }
 
     /// The partition read, the one the role address serves.
+    #[must_use]
     pub fn partition(&self) -> u32 {
         self.partition
     }
 
     /// The range's first key, inclusive.
+    #[must_use]
     pub fn first(&self) -> &'a [u8] {
         self.first
     }
 
     /// The key past the range's last, exclusive; empty for the end of the first key's tenant in its keyspace.
+    #[must_use]
     pub fn past(&self) -> &'a [u8] {
         self.past
     }
 
     /// The object encoding the range's first list resumes at, that object included when the list holds it; empty for
     /// none.
+    #[must_use]
     pub fn after(&self) -> &'a [u8] {
         self.after
     }
 
     /// The range's 24-byte record, its first key at offset `at` of the keys' section, its past key and its `after` right
     /// after: `partition` u32, `after_len` u32, `first` u32, `first_len` u32, `past` u32, `past_len` u32.
+    #[must_use]
     pub fn encode(&self, at: u32) -> [u8; SCAN_RANGE_SIZE] {
         let first_len = as_u32(self.first.len());
         let fields = [

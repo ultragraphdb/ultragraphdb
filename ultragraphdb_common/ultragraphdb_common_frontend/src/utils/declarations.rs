@@ -155,7 +155,7 @@ pub(crate) fn tightens(held: &[Declaration], declared: &[Declared]) -> Result<bo
                 "these declarations tighten one thing and loosen <{predicate}>, which a check of the first could not undo: commit the loosening, then the tightening"
             ),
         )
-        .with_detail(index as u64)),
+        .with_detail(index as u64)), // lossless: a `usize` is at most 64 bits
         Some(_) | None => Ok(tightening),
     }
 }
@@ -209,7 +209,7 @@ pub(crate) fn version_bytes(
                 bytes.len()
             ),
         )
-        .with_detail(CATALOG_CAP as u64));
+        .with_detail(CATALOG_CAP as u64)); // lossless: a `usize` is at most 64 bits
     }
     Ok(bytes)
 }

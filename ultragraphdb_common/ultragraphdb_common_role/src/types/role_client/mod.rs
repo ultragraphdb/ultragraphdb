@@ -25,6 +25,10 @@ const EXCHANGE_STEPS: usize = 2;
 
 /// The side of a role connection that dialled: past [`RoleClient::dial`], which authenticates before anything else is
 /// sent, so a role refused by its peer has no connection to send a role command on.
+///
+/// Each of its futures reads or writes the connection at its `.await`s: one dropped there cuts the frame in hand, the bytes
+/// read so far lost or a frame written in part, so a client whose future was dropped is given up, and a dial dropped
+/// leaves no client at all.
 #[derive(Debug)]
 pub struct RoleClient {
     connection: Connection<Carrier>,
@@ -49,6 +53,7 @@ impl RoleClient {
         name: &str,
         password: &str,
     ) -> Result<Self, TransportError> {
+        // `MAX_FRAME_SIZE` is 2^20, so the cast is lossless.
         Self::dial_taking(address, cluster, name, password, MAX_FRAME_SIZE as u32).await
     }
 
@@ -66,7 +71,7 @@ impl RoleClient {
         max_frame: u32,
     ) -> Result<Self, TransportError> {
         let carrier = Carrier::connect(address).await?;
-        let taken = max_frame as usize;
+        let taken = max_frame as usize; // lossless: a `usize` is at least 32 bits
         let mut client = Self {
             connection: Connection::new(carrier, Framer::new(cluster, taken)),
             pool: BufferPool::new(1, taken),
@@ -166,6 +171,7 @@ impl RoleClient {
     }
 
     async fn authenticate(&mut self, name: &str, password: &str) -> Result<(), TransportError> {
+        // A closure takes no type parameter, so it takes each error as a trait object (Ultra rules 1 and 9).
         let failed =
             |error: &dyn std::fmt::Display| TransportError::authentication(error.to_string());
         let nonce = system_nonce().map_err(|error| failed(&error))?;

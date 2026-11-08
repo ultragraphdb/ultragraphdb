@@ -281,6 +281,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             .header(stream, Command::Describe)
             .with_flags(ultragraphdb_protocol_wire::FLAG_LAST);
         let frame = answer.frame(header).map_err(|_| self.past_frame())?;
+        // Lossless: a `usize` is at most 64 bits.
         if frame.len() as u64 > u64::from(self.max_frame) {
             return Err(self.past_frame());
         }

@@ -239,6 +239,7 @@ fn fmt_e(buf: &mut String, prec: i64, d: &Decimal) {
             d.mant[i..m].iter().for_each(|&c| buf.push(c as char));
             i = m;
         }
+        // Pads with zeros to `prec` digits: `i` rises by one a turn, and the loop ends past `prec`.
         while go_int(i) <= prec {
             buf.push('0');
             i += 1;

@@ -16,6 +16,7 @@ pub struct PostingIdentity {
 
 impl PostingIdentity {
     /// The identity of a posting keyed `uid` holding `value`, empty for a reference.
+    #[must_use]
     pub fn new(uid: u128, value: Vec<u8>) -> Self {
         Self {
             uid,
@@ -25,22 +26,26 @@ impl PostingIdentity {
     }
 
     /// The same identity, an iteration resuming at it reading the posting itself when the list holds it.
+    #[must_use]
     pub fn included(mut self) -> Self {
         self.included = true;
         self
     }
 
     /// Whether an iteration resuming at this identity reads the posting itself.
+    #[must_use]
     pub fn is_included(&self) -> bool {
         self.included
     }
 
     /// The posting's uid.
+    #[must_use]
     pub fn uid(&self) -> u128 {
         self.uid
     }
 
     /// The posting's value, empty for a reference and in a list that does not compare values.
+    #[must_use]
     pub fn value(&self) -> &[u8] {
         &self.value
     }

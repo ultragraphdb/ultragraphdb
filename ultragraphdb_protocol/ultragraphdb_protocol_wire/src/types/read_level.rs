@@ -16,6 +16,7 @@ pub enum ReadLevel {
 
 impl ReadLevel {
     /// The level's byte.
+    #[must_use]
     pub fn number(self) -> u8 {
         match self {
             ReadLevel::Snapshot => 0,
@@ -25,6 +26,7 @@ impl ReadLevel {
     }
 
     /// The level of byte `number`; `None` above 2.
+    #[must_use]
     pub fn from_number(number: u8) -> Option<ReadLevel> {
         match number {
             0 => Some(ReadLevel::Snapshot),

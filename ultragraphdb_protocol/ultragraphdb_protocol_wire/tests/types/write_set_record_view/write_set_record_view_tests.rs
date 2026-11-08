@@ -5,9 +5,10 @@
 
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
 use ultragraphdb_protocol_wire::{
-    ABSENT, OperationResult, RecordEntry, RecordKind, RecordOperation, WriteSetRecordView,
+    ABSENT, OperationResult, RECORD_FIXED_SIZE, RECORD_REGISTRATION_SIZE, RECORD_SECTIONS,
+    RecordEntry, RecordKind, RecordOperation, WriteSetRecordView,
 };
-use ultragraphdb_tool_bdd::{Context, TestResult};
+use ultragraphdb_tool_bdd::{Context, TestResult, fuzz_regressions};
 
 use crate::types::write_set_record::write_set_record_tests::{
     SESSION, record0, record1, record2, record3, registration, sid,
@@ -599,5 +600,36 @@ fn test_each_kind_holds_its_sections() -> TestResult {
         secs[11] = transaction[11].clone();
     })?;
     assert_eq!(refusal(&build_terms)?, records_sections(1, 0));
+    Ok(())
+}
+
+/// Each committed case of the fuzz target `write_set_record`: a record the view accepts encodes to its own bytes and
+/// counts the registrations its section 4 holds.
+#[test]
+fn test_the_write_set_record_fuzz_regressions_replay() -> TestResult {
+    let cases = fuzz_regressions("write_set_record")?;
+    assert!(!cases.is_empty(), "the committed cases");
+    for (name, data) in &cases {
+        if let Ok(view) = WriteSetRecordView::new(data) {
+            assert_eq!(&view.to_record().encode(), data, "{name}");
+            let registrations = split_sections(data, RECORD_FIXED_SIZE, RECORD_SECTIONS)[4].len();
+            assert_eq!(
+                view.registration_count(),
+                registrations / RECORD_REGISTRATION_SIZE,
+                "{name}"
+            );
+        }
+    }
+    // The first finding, a registration record of no registration, every section empty, which the target took for a
+    // malformed record: `PROTOCOL.md` section 12.2 records so an entity the home got or created for a registration
+    // naming no bucket group.
+    let (_, none) = cases
+        .iter()
+        .find(|(name, _)| name == "registration_of_no_registration")
+        .context("the registration case")?;
+    let view = WriteSetRecordView::new(none)?;
+    assert_eq!(Some(view.kind()), RecordKind::from_code(none[0]));
+    assert_eq!(view.kind(), RecordKind::Registration);
+    assert_eq!(view.registration(0), None);
     Ok(())
 }

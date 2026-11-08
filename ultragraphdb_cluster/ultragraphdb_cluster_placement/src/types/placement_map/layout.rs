@@ -52,6 +52,11 @@ impl Layout {
 
     /// The layout from `from` that `assignments` give, in any order: refused naming the first bucket left
     /// unassigned or assigned twice, then past the limits of runs and partitions.
+    ///
+    /// # Errors
+    ///
+    /// [`ClusterError::unassigned`] or [`ClusterError::assigned_twice`] naming the first bucket `assignments` leave
+    /// unassigned or assign twice; [`ClusterError::too_many`] as [`Layout::check_limits`] refuses.
     pub fn from_assignments(
         from: Epoch,
         assignments: &[(BucketRange, PartitionId)],
@@ -82,7 +87,13 @@ impl Layout {
     }
 
     /// Refuses a layout past [`PlacementMap::RANGES_MAX`] runs or [`PlacementMap::PARTITIONS_MAX`] partitions.
+    ///
+    /// # Errors
+    ///
+    /// [`ClusterError::too_many`] past [`PlacementMap::RANGES_MAX`] runs, then past [`PlacementMap::PARTITIONS_MAX`]
+    /// partitions.
     pub fn check_limits(&self) -> Result<(), ClusterError> {
+        // Both limits are `u32`s, which a `usize` of 32 bits or more holds whole on every target the node builds for.
         let ranges_max = PlacementMap::RANGES_MAX as usize;
         if self.runs.len() > ranges_max {
             return Err(ClusterError::too_many(

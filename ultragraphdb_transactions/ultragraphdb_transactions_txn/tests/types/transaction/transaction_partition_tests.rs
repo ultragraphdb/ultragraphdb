@@ -22,6 +22,7 @@ use ultragraphdb_core_keys::QuadKey;
 use ultragraphdb_core_mapping::{Change, Declaration, PredicateDeclaration};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_protocol_wire::{RecordRegistration, WriteSetRecordView};
+use ultragraphdb_store_sim::Fault;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transactions_txn::{Mode, TxnError, TxnErrorEnum, TxnLimits};
 
@@ -692,5 +693,101 @@ fn test_ranges_touching_the_run_do_not_spread_it() -> TestResult {
         subjects(&mut beside, "knows", "b").err(),
         Some(TxnError::cross_partition(2, 1))
     );
+    Ok(())
+}
+
+// --- A store failing under a partition's read -------------------------------------------------------------------------
+
+/// `read` on a transaction over a store whose next read and next scan fail: its error, the transaction then ended.
+fn failing<T: std::fmt::Debug>(
+    what: &str,
+    read: impl FnOnce(&mut Txn<'_>) -> Result<T, TxnError>,
+) -> TestResult<TxnError> {
+    let applier = applier()?;
+    store(&applier, vec![insert("x", "knows", "b")])?;
+    let mut txn = begin(&applier, Mode::ReadWrite)?;
+    let lists = applier.quads().lists();
+    lists.store().inject(Fault::FailNextRead);
+    lists.store().inject(Fault::FailNextScanAfter(0));
+    let failed = read(&mut txn).err().context(what)?;
+    assert!(txn.is_ended(), "{failed}");
+    Ok(failed)
+}
+
+#[test]
+fn test_a_store_failing_under_a_partition_read_ends_the_transaction() -> TestResult {
+    let (entity, g) = (foreign_id(40)?, group(7)?);
+    let refusals = [
+        failing("subjects", |txn| subjects(txn, "knows", "b"))?,
+        failing("read_mark", |txn| txn.read_mark(entity, g, 0))?,
+        failing("node_id", |txn| txn.node_id(ex("x").as_ref().into(), 0))?,
+    ];
+    for refused in refusals {
+        assert!(
+            matches!(refused, TxnError(TxnErrorEnum::Changeset(_))),
+            "{refused:?}"
+        );
+    }
+    Ok(())
+}
+
+/// A lookup by an index the catalog does not declare is refused, ending the transaction.
+#[test]
+fn test_a_lookup_by_an_undeclared_index_ends_the_transaction() -> TestResult {
+    let applier = applier()?;
+    store(&applier, vec![insert_literal("x", "name", "ada")])?;
+    let mut txn = begin(&applier, Mode::ReadWrite)?;
+    let refused = lookup(&mut txn, "name", "ada").err().context("a refusal")?;
+    assert!(
+        matches!(refused, TxnError(TxnErrorEnum::Changeset(_))),
+        "{refused:?}"
+    );
+    assert!(txn.is_ended());
+    Ok(())
+}
+
+/// A blank node's label is given one ID for every change naming it.
+#[test]
+fn test_a_blank_node_keeps_its_id() -> TestResult {
+    let applier = applier()?;
+    let mut txn = begin(&applier, Mode::ReadWrite)?;
+    let node = oxrdf::BlankNode::new("n").context("a label")?;
+    let first = txn.node_id(node.as_ref().into(), 0)?;
+    assert_eq!(txn.node_id(node.as_ref().into(), 0)?, first);
+    Ok(())
+}
+
+/// A bound transaction writes an edge with properties whose subject its partition owns, and reads back a blank node it
+/// wrote by its label, which is its partition's own.
+#[test]
+fn test_a_bound_transaction_writes_an_edge_and_reads_its_blank_node() -> TestResult {
+    let applier = applier()?;
+    let one = placement(1)?;
+    let mut txn = begin(&applier, Mode::ReadWrite)?.bind(partition(1)?, &one);
+    let node = oxrdf::BlankNode::new("n").context("a label")?;
+    let edge = Change::InsertEdge {
+        graph: GraphName::DefaultGraph,
+        subject: ex("a").into(),
+        predicate: ex("knows"),
+        object: ex("b").into(),
+        properties: vec![(ex("since"), Literal::new_simple_literal("2026").into())],
+    };
+    let blank = Change::Insert {
+        graph: GraphName::DefaultGraph,
+        subject: node.clone().into(),
+        predicate: ex("knows"),
+        object: ex("b").into(),
+    };
+    txn.write(&changeset(vec![edge, blank]), 0)?;
+    let mut out = Vec::new();
+    let knows = ex("knows");
+    txn.objects_into(
+        GraphName::DefaultGraph.as_ref(),
+        node.as_ref().into(),
+        knows.as_ref(),
+        0,
+        &mut out,
+    )?;
+    assert_eq!(out, vec![Term::from(ex("b"))]);
     Ok(())
 }

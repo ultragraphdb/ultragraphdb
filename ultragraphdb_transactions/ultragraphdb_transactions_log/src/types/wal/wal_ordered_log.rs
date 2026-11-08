@@ -135,6 +135,7 @@ impl<S: DurableStorage> OrderedLog for Wal<S> {
         let size = self.config.segment_size();
         let padded_len = frame.len() as u64;
         if padded_len > size {
+            // Lossless: a `usize` is 64 bits on every target the repository builds for.
             return Err(LogError::too_large(frame.len(), size as usize));
         }
         let (mut segment, mut offset) = self.cursor;
@@ -245,7 +246,7 @@ impl<S: DurableStorage> OrderedLog for Wal<S> {
     /// Records `position` and its round's checksum as the checkpoint in the superblock, then removes every segment
     /// whose rounds all lie at or below it, short of the segment the next round is written to. A position at or below
     /// the checkpoint changes nothing; one past the committed position is [`LogError::position_mismatch`]. A failure
-    /// poisons the log.
+    /// poisons the log. A future dropped at its wait leaves what `checkpoint_at`'s leaves, the log not poisoned.
     async fn trim_through(&mut self, position: Position) -> Result<(), LogError> {
         self.refuse_if_poisoned()?;
         if position > self.committed.0 {

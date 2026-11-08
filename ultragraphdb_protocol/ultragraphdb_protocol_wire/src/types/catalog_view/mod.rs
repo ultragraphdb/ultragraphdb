@@ -22,26 +22,31 @@ impl<'a> CatalogView<'a> {
     }
 
     /// The catalog version; 0 in a request for the current one.
+    #[must_use]
     pub fn version(&self) -> u64 {
         self.version
     }
 
     /// The epoch from which the version applies; 0 while pending, and in a request.
+    #[must_use]
     pub fn epoch(&self) -> u64 {
         self.epoch
     }
 
     /// The metadata group's log position; 0 in a request.
+    #[must_use]
     pub fn position(&self) -> u64 {
         self.position
     }
 
     /// Whether the body is a request: `position` 0.
+    #[must_use]
     pub fn is_request(&self) -> bool {
         self.position == 0
     }
 
     /// The version's bytes; empty in a request.
+    #[must_use]
     pub fn bytes(&self) -> &'a [u8] {
         self.bytes
     }

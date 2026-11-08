@@ -135,8 +135,13 @@ impl<L: Login> ClientCore<L> {
 
     /// Grants `stream` credit for `frames` more Result frames at `now`, beyond what [`ClientCore::next_batch`] grants; no
     /// shell offers it, since a shell's credit is automatic (`PROTOCOL.md` §11.3). A read whose end has arrived takes no
-    /// Credit, since its stream has ended. Credit past what the read's frame buffers hold takes more of them, refused as
-    /// [`ClientError::buffer_limit`] when the client has none left.
+    /// Credit, since its stream has ended. Credit past what the read's frame buffers hold takes more of them.
+    ///
+    /// # Errors
+    ///
+    /// [`ClientError::stream_finished`] for a stream of an earlier connection or one whose results are not open;
+    /// [`ClientError::buffer_limit`] when the client has no frame buffer left for the credit; [`ClientError::request`]
+    /// for a Credit frame that cannot be built.
     pub fn grant(
         &mut self,
         stream: &ResultStream,

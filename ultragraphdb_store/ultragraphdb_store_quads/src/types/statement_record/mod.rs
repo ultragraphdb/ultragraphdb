@@ -40,11 +40,13 @@ impl StatementRecord {
     }
 
     /// The statement's subject.
+    #[must_use]
     pub fn subject(&self) -> SystemId {
         self.subject
     }
 
     /// The statement's predicate.
+    #[must_use]
     pub fn predicate(&self) -> SystemId {
         self.predicate
     }
@@ -55,6 +57,7 @@ impl StatementRecord {
     }
 
     /// The statement's properties, each a predicate's ID and a value.
+    #[must_use]
     pub fn properties(&self) -> &[(SystemId, EncodedTerm)] {
         &self.properties
     }

@@ -18,6 +18,7 @@ use crate::types::session_event::SessionEvent;
 pub struct RouteSink {
     events: UnboundedSender<SessionEvent>,
     key: RouteKey,
+    /// Shared by an `Rc` among the sink's clones on its core's one thread, so the hold ends with the last of them.
     hold: Option<Rc<CommitHold>>,
     credit: Option<u32>,
 }

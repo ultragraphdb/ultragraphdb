@@ -144,6 +144,7 @@ fn read_transaction(reader: &mut Reader<'_>) -> Result<SequencedTransaction, Clu
                 .map_err(|_| ClusterError::malformed("a partition from 1", at))?,
         );
     }
+    // A `u32` length, held whole by a `usize` of 32 bits or more, as on every target the node builds for.
     let len = reader.u32("a transaction's body length")? as usize;
     if len > SequencedTransaction::BODY_BYTES_MAX {
         return Err(ClusterError::too_many(

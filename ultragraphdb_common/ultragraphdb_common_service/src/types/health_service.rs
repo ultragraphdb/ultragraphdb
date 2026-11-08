@@ -43,6 +43,7 @@ impl HealthService {
 }
 
 impl HttpService for HealthService {
+    /// The answer is computed without an `.await`, so a dropped future leaves nothing.
     async fn call(&self, request: HttpRequest) -> HttpResponse {
         self.answer(request.method(), request.path())
     }

@@ -43,6 +43,9 @@ pub fn frontend_address(start: &RoleStart) -> Result<Address, RoleError> {
 
 /// Runs `attempt` until it succeeds, until the service stops, which gives `None`, or until the cluster's deadline.
 ///
+/// A future dropped at an attempt drops that attempt's future, leaving what it leaves; one dropped at a pause leaves
+/// nothing.
+///
 /// # Errors
 ///
 /// [`RoleError::unavailable`] naming `role`, the attempts made and the last refusal, past the deadline.

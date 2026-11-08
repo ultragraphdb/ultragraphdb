@@ -7,7 +7,11 @@
 
 use std::path::PathBuf;
 
-use ultragraphdb_common_config::{CONFIG_LOG_CLUSTER, ConfigError, ConfigErrorEnum, ConfigStore};
+use std::num::NonZeroU32;
+
+use ultragraphdb_common_config::{
+    CONFIG_LOG_CLUSTER, ConfigError, ConfigErrorEnum, ConfigRecord, ConfigStore,
+};
 use ultragraphdb_common_config_check::TargetFiles;
 use ultragraphdb_error_log::LogError;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
@@ -139,5 +143,122 @@ fn test_a_log_reading_nothing_diverges_at_its_first_round() -> TestResult {
         .err()
         .context("a refusal")?;
     assert_eq!(refused, ConfigError::replay_diverged(1, "a durable round"));
+    Ok(())
+}
+
+/// Appends `record` to `log` as the store does, durable once this returns.
+fn append(log: &mut Wal<SimStorage>, record: &ConfigRecord<'_>) -> TestResult {
+    let (tail, parent) = log.tail();
+    let position = tail.next().context("a next position")?;
+    let body = record.encode();
+    let _ticket = log.append(RoundRef::new(
+        position,
+        parent,
+        0,
+        1,
+        NonZeroU32::MIN,
+        &body,
+    ))?;
+    let _synced = block_on(log.sync())??;
+    Ok(())
+}
+
+/// Recovery refuses a record that does not follow from the state before it, naming the record's position: a revision
+/// skipping a number, the activation of a revision not stored, the retirement of a target that does not exist.
+#[test]
+fn test_a_record_not_following_its_state_diverges_at_its_position() -> TestResult {
+    let files = bundle(7);
+    let records = [
+        ConfigRecord::Revision {
+            target: "ci",
+            number: 2,
+            activate: false,
+            files: &files,
+        },
+        ConfigRecord::Activate {
+            target: "ci",
+            number: 1,
+        },
+        ConfigRecord::Retire { target: "ci" },
+    ];
+    for (seed, record) in (6..).zip(records) {
+        let storage = SimStorage::new(seed);
+        let mut log = open_log(&storage)?;
+        append(&mut log, &record)?;
+        let position = log.committed().get();
+        let refused = block_on(ConfigStore::recover(log))?
+            .err()
+            .context("a refusal")?;
+        assert!(
+            matches!(refused.0, ConfigErrorEnum::ReplayDiverged { position: at, .. } if at == position),
+            "{record:?}: {refused}"
+        );
+        assert!(
+            refused.to_string().contains(&position.to_string()),
+            "{refused}"
+        );
+    }
+    Ok(())
+}
+
+/// Only a target's active revision is checked: a target holding revisions and none active has no defect, while an active
+/// revision whose files no longer read as a target is one defect naming its revision.
+#[test]
+fn test_only_an_active_revision_has_defects() -> TestResult {
+    let storage = SimStorage::new(9);
+    let mut store = block_on(ConfigStore::recover(open_log(&storage)?))??;
+    assert_eq!(block_on(store.add_revision("ci", 0, &bundle(7)))??, 1);
+    assert!(store.active_defects().is_empty());
+    drop(store);
+    let mut log = open_log(&storage)?;
+    append(
+        &mut log,
+        &ConfigRecord::Revision {
+            target: "broken",
+            number: 1,
+            activate: true,
+            files: b"not a bundle",
+        },
+    )?;
+    let recovered = block_on(ConfigStore::recover(log))??;
+    let defects = recovered.active_defects();
+    let refused = TargetFiles::from_bundle("broken", b"not a bundle")
+        .err()
+        .context("a refused bundle")?;
+    assert_eq!(defects, vec![(*refused).of_revision(1)]);
+    Ok(())
+}
+
+/// Activating a revision that changes what the active one fixes is refused, and retiring a target that does not exist
+/// names it.
+#[test]
+fn test_an_activation_and_a_retirement_are_refused_for_their_reasons() -> TestResult {
+    let mut store = active_store(&SimStorage::new(10))?;
+    let mut log = open_log(&SimStorage::new(11))?;
+    let first = bundle(7);
+    let second = bundle(8);
+    for (number, files) in [(1, &first), (2, &second)] {
+        append(
+            &mut log,
+            &ConfigRecord::Revision {
+                target: "ci",
+                number,
+                activate: number == 1,
+                files,
+            },
+        )?;
+    }
+    let mut two = block_on(ConfigStore::recover(log))??;
+    let refused = block_on(two.activate("ci", 2))?
+        .err()
+        .context("a refusal")?;
+    assert!(
+        matches!(&refused.0, ConfigErrorEnum::Refused { defects } if defects.iter().any(|d| d.setting() == Some("cluster.id"))),
+        "{refused}"
+    );
+    assert_eq!(
+        block_on(store.retire("nobody"))?,
+        Err(ConfigError::unknown_target("nobody"))
+    );
     Ok(())
 }

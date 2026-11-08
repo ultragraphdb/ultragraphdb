@@ -76,11 +76,13 @@ impl<'a> ResultView<'a> {
     }
 
     /// The epoch the rows were read at; 0 where none applies.
+    #[must_use]
     pub fn epoch(&self) -> u64 {
         self.epoch
     }
 
     /// The partition the read reached alone; 0 for several.
+    #[must_use]
     pub fn partition(&self) -> u32 {
         self.partition
     }
@@ -91,19 +93,25 @@ impl<'a> ResultView<'a> {
     }
 
     /// What the rows read as.
+    #[must_use]
     pub fn monotonic(&self) -> Monotonic {
         self.monotonic
     }
 
     /// The column names: one per column on a query's first batch, empty on every other batch and on a pattern's.
+    #[must_use]
     pub fn column_names(&self) -> StringList<'a> {
         self.column_names
     }
 
-    /// The rules a receiver that asked a quad pattern holds its batch to (`PROTOCOL.md` §9.1), which a batch's bytes alone
-    /// do not tell from a query's: `columns` 1 to [`PATTERN_COLUMNS_MAX`] ([`ProtocolError::field_value`] `"columns"`); each
-    /// cell of the reifier column, the last, [`ABSENT`] or a term of tag `0x02` ([`ProtocolError::field_value`] `"reifier"`,
-    /// the row).
+    /// The rules a receiver that asked a quad pattern holds its batch to (`PROTOCOL.md` §9.1), which a batch's bytes
+    /// alone do not tell from a query's: `columns` 1 to [`PATTERN_COLUMNS_MAX`]; each cell of the reifier column, the
+    /// last, [`ABSENT`] or a term of tag `0x02`.
+    ///
+    /// # Errors
+    ///
+    /// [`ProtocolError::field_value`] `"columns"` for a column count outside the range; [`ProtocolError::field_value`]
+    /// `"reifier"`, naming the row, for a reifier cell neither [`ABSENT`] nor of tag `0x02`.
     pub fn check_pattern(&self) -> Result<(), ProtocolError> {
         let command = Command::Result.number();
         if !(1..=PATTERN_COLUMNS_MAX).contains(&self.columns) {

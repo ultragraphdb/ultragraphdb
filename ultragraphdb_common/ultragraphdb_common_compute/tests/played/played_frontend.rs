@@ -4,7 +4,7 @@
  */
 
 //! A frontend the test plays at an address of its own on the test's runtime: it answers compute's Placement with the bucket
-//! ranges it is given and its Members with the played partitions' addresses, the Members after a delay the test may set.
+//! ranges it is given and its Members with the played partitions' addresses, each after a delay the test may set.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -41,8 +41,10 @@ pub struct PlayedFrontend {
     address: String,
     ranges: Rc<[(u32, u32, u32)]>,
     storage: Rc<RefCell<Vec<(u32, String)>>>,
+    compute: Rc<RefCell<Vec<String>>>,
     members_delay: Rc<Cell<Duration>>,
     members_asked: Rc<Cell<u32>>,
+    placement_delay: Rc<Cell<Duration>>,
 }
 
 impl PlayedFrontend {
@@ -57,8 +59,10 @@ impl PlayedFrontend {
             address,
             ranges: Rc::from(ranges),
             storage: Rc::default(),
+            compute: Rc::default(),
             members_delay: Rc::default(),
             members_asked: Rc::default(),
+            placement_delay: Rc::default(),
         };
         let serving = played.clone();
         spawn(async move {
@@ -89,9 +93,19 @@ impl PlayedFrontend {
             .push((partition, address.to_string()));
     }
 
+    /// Lists a compute process at `address`.
+    pub fn list_compute(&self, address: &str) {
+        self.compute.borrow_mut().push(address.to_string());
+    }
+
     /// Answers each Members `delay` after it arrives.
     pub fn delay_members(&self, delay: Duration) {
         self.members_delay.set(delay);
+    }
+
+    /// Answers each Placement `delay` after it arrives.
+    pub fn delay_placement(&self, delay: Duration) {
+        self.placement_delay.set(delay);
     }
 
     /// How many Members it was asked.
@@ -119,6 +133,9 @@ impl PlayedFrontend {
 
     fn members(&self) -> Members {
         let mut members = Members::new();
+        for address in self.compute.borrow().iter() {
+            members.push_compute(address.clone());
+        }
         for (partition, address) in self.storage.borrow().iter() {
             members.push_storage(*partition, address.clone());
         }
@@ -152,6 +169,7 @@ impl Session for FrontendSession {
         let cluster = view.header().cluster();
         let command = view.command();
         if command == Command::Placement {
+            compio::time::sleep(self.played.placement_delay.get()).await;
             return reply(&self.played.placement(), cluster, stream);
         }
         if command == Command::Members {

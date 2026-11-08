@@ -28,6 +28,10 @@ where
 {
     /// The execution deriving `writes` in `tenant`, reading `dictionary` as its own, as
     /// [`crate::ChangesetApplier::prepare_logical`] makes it.
+    ///
+    /// # Errors
+    ///
+    /// The errors [`crate::ChangesetApplier::prepare_logical`] names.
     pub fn prepare_logical(
         &self,
         tenant: u64,

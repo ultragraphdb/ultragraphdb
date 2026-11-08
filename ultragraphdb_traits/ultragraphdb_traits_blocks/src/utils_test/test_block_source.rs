@@ -36,6 +36,7 @@ struct State {
 
 impl TestBlockSource {
     /// A reachable source whose counted blocks hold `block_len` sequences each.
+    #[must_use]
     pub fn new(block_len: NonZeroU64) -> Self {
         let state = State {
             block_len,
@@ -50,6 +51,7 @@ impl TestBlockSource {
     }
 
     /// The source handing out exactly `blocks` of `prefix`, in order, and then no block of it.
+    #[must_use]
     pub fn with_blocks(self, prefix: TypePrefix, blocks: Vec<SequenceBlock>) -> Self {
         let _replaced: Option<VecDeque<SequenceBlock>> =
             self.lock().scripted.insert(prefix.get(), blocks.into());
@@ -62,6 +64,7 @@ impl TestBlockSource {
     }
 
     /// Every block of `prefix` leased so far, by any clone, in lease order.
+    #[must_use]
     pub fn leased(&self, prefix: TypePrefix) -> Vec<SequenceBlock> {
         self.lock()
             .leased

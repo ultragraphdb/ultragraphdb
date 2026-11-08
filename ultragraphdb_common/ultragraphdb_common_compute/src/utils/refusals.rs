@@ -21,6 +21,6 @@ pub(crate) fn term_refused(index: u32, rule: &str) -> ErrorReply {
 }
 
 /// Error 1 naming the resume key.
-pub(crate) fn resume_refused(why: &dyn std::fmt::Display) -> ErrorReply {
+pub(crate) fn resume_refused(why: &(impl std::fmt::Display + ?Sized)) -> ErrorReply {
     ErrorReply::new(ErrorCode::Protocol, format!("the resume key: {why}"))
 }

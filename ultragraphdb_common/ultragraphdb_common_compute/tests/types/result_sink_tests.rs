@@ -341,3 +341,51 @@ fn test_a_resume_key_fills_its_last_batch_to_exactly_the_clients_frame() -> Test
         Ok(())
     })
 }
+
+/// A row whose terms come to more than the protocol's largest frame builds no frame at all: the read is refused with code 6, as
+/// a row too large for the client's frame is.
+#[test]
+fn test_a_row_past_the_largest_frame_refuses_the_read() -> TestResult {
+    run(async {
+        let (subject, object) = (long_iri(0, 600_000), long_iri(1, 600_000));
+        let read = snapshot(&Pattern::of(None, Some(P), None))?;
+        let (_played, answered) = answer(
+            |partition| hold(partition, &subject, std::slice::from_ref(&object), 10).map(|_| ()),
+            &read,
+        )
+        .await?;
+        assert!(answered.batches.is_empty(), "{:?}", shape(&answered));
+        let refused = answered.refusal()?;
+        assert_eq!(refused.code, ErrorCode::TooLarge);
+        Ok(())
+    })
+}
+
+/// A read waiting for its client's credit when the client's connection closes ends: it holds nothing open.
+#[test]
+fn test_a_read_waiting_for_credit_ends_with_its_connection() -> TestResult {
+    run(async {
+        let played = Played::start(1, read_times_of(None, None)).await?;
+        let objects: Vec<String> = (0..4).map(|i| long_iri(i, 200_000)).collect();
+        hold_rows(played.partition(1)?, &objects)?;
+        let mut client = played.client().await?;
+        let read = snapshot(&Pattern::of(None, Some(P), None))?
+            .with_client_limits(MAX_FRAME_FLOOR as u32, 1);
+        client.send_only(&read).await?;
+        let first = next_of(&mut client)
+            .await?
+            .ok()
+            .context("the first batch")?;
+        assert!(!first.last);
+        compio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(played.open_reads(), 1, "the read waits for credit");
+        drop(client);
+        within(Duration::from_secs(5), "the read's end", async {
+            while played.open_reads() > 0 {
+                compio::time::sleep(Duration::from_millis(5)).await;
+            }
+            Ok(())
+        })
+        .await
+    })
+}

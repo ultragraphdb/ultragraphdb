@@ -64,6 +64,7 @@ fn frame_at(bytes: &[u8], offset: usize, cluster: u64) -> Found {
             if fields.position() == 0 || header.sequence() != u128::from(fields.position()) {
                 return Found::NotARound;
             }
+            // Lossless: a `usize` is at most 64 bits, and `size` was read from a u32.
             Found::Frame {
                 round: ScannedRound::new(fields, view.checksum(), offset as u64, size as u32),
                 incarnation: fields.incarnation(),
@@ -234,6 +235,7 @@ pub fn scan_segment(bytes: &[u8], start: &ScanStart) -> Result<SegmentScan, LogE
                     return Ok(SegmentScan::new(rounds, offset as u64, None));
                 }
             }
+            // The offset casts below are lossless: a `usize` is at most 64 bits.
             Step::Clean => return Ok(SegmentScan::new(rounds, offset as u64, None)),
             Step::Damaged(damage) => {
                 return Ok(SegmentScan::new(rounds, offset as u64, Some(damage)));

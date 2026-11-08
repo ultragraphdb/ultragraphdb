@@ -60,6 +60,7 @@ pub struct MappingError(pub MappingErrorEnum);
 
 impl MappingError {
     /// A [`MappingErrorEnum::ContractVersion`] for the `stored` and `implemented` versions.
+    #[must_use]
     pub fn contract_version(stored: (u16, u16), implemented: (u16, u16)) -> Self {
         Self(MappingErrorEnum::ContractVersion {
             stored,
@@ -68,6 +69,7 @@ impl MappingError {
     }
 
     /// A [`MappingErrorEnum::BadContractVersion`] for `bytes`.
+    #[must_use]
     pub fn bad_contract_version(bytes: &[u8]) -> Self {
         Self(MappingErrorEnum::BadContractVersion {
             bytes: bytes.to_vec(),
@@ -75,26 +77,31 @@ impl MappingError {
     }
 
     /// A [`MappingErrorEnum::NoSuchStatement`] for `statement`.
+    #[must_use]
     pub fn no_such_statement(statement: String) -> Self {
         Self(MappingErrorEnum::NoSuchStatement { statement })
     }
 
     /// A [`MappingErrorEnum::AmbiguousStatement`] for `statement`.
+    #[must_use]
     pub fn ambiguous_statement(statement: String) -> Self {
         Self(MappingErrorEnum::AmbiguousStatement { statement })
     }
 
     /// A [`MappingErrorEnum::UnsupportedObject`] for `object`.
+    #[must_use]
     pub fn unsupported_object(object: String) -> Self {
         Self(MappingErrorEnum::UnsupportedObject { object })
     }
 
     /// A [`MappingErrorEnum::InvalidBase`] for `base`, saying why.
+    #[must_use]
     pub fn invalid_base(base: String, reason: &'static str) -> Self {
         Self(MappingErrorEnum::InvalidBase { base, reason })
     }
 
     /// A [`MappingErrorEnum::NotAStatementId`] for `id`.
+    #[must_use]
     pub fn not_a_statement_id(id: SystemId) -> Self {
         Self(MappingErrorEnum::NotAStatementId { id })
     }

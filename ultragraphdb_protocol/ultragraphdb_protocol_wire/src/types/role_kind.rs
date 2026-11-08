@@ -22,6 +22,7 @@ pub enum RoleKind {
 
 impl RoleKind {
     /// The kind's number, 1 to 3.
+    #[must_use]
     pub fn number(self) -> u8 {
         match self {
             RoleKind::Frontend => 1,
@@ -31,6 +32,7 @@ impl RoleKind {
     }
 
     /// The kind numbered `number`; `None` for a number no kind has.
+    #[must_use]
     pub fn from_number(number: u8) -> Option<RoleKind> {
         match number {
             1 => Some(RoleKind::Frontend),

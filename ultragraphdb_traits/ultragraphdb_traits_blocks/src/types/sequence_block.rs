@@ -15,6 +15,7 @@ pub struct SequenceBlock {
 
 impl SequenceBlock {
     /// The block `start..end`, or `None` when `start` is 0 or not below `end`.
+    #[must_use]
     pub fn new(start: u64, end: u64) -> Option<Self> {
         let block = Self {
             start: Sequence::new(start).ok()?,
@@ -24,16 +25,19 @@ impl SequenceBlock {
     }
 
     /// The block's first sequence.
+    #[must_use]
     pub fn start(self) -> Sequence {
         self.start
     }
 
     /// The sequence after the block's last.
+    #[must_use]
     pub fn end(self) -> u64 {
         self.end
     }
 
     /// How many sequences the block holds, at least 1.
+    #[must_use]
     pub fn count(self) -> u64 {
         debug_assert!(self.start.get() < self.end, "a block holds a sequence");
         // No underflow: a block's start lies below its end.
@@ -41,6 +45,7 @@ impl SequenceBlock {
     }
 
     /// Whether `sequence` lies in the block.
+    #[must_use]
     pub fn contains(self, sequence: Sequence) -> bool {
         self.start <= sequence && sequence.get() < self.end
     }

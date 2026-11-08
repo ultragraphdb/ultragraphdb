@@ -33,6 +33,7 @@ pub const START_SECONDS: u64 = 20;
 /// The role secret every role of a scenario holds.
 pub const SECRET: &str = "the cluster's role secret";
 
+// `Relaxed` suffices: the counter only keeps names apart, and the changes to one atomic fall in one order.
 static DIRECTORIES: AtomicU32 = AtomicU32::new(0);
 
 /// The variable naming the process a role ends with: the test process that starts it.
@@ -163,6 +164,10 @@ pub fn role_of_service(
 
 /// Writes target `TARGET` of `instances`, each a key and its settings, and a central file declaring them: the service's own
 /// settings file, whose `[config]` table ends in `security`.
+///
+/// # Errors
+///
+/// When a file of the folder cannot be written.
 pub fn config_folder(
     instances: &[(&str, &[(String, String)])],
     security: &str,
@@ -171,6 +176,10 @@ pub fn config_folder(
 }
 
 /// As [`config_folder`], for a config service listening at `address`.
+///
+/// # Errors
+///
+/// When a file of the folder cannot be written.
 pub fn config_folder_at(
     address: &str,
     instances: &[(&str, &[(String, String)])],
@@ -218,6 +227,10 @@ pub fn config_process(own: &Path, wait_strategy: WaitStrategy) -> ServiceStartCo
 }
 
 /// Starts the config service over clear text, holding `instances`, and waits until it answers: its pid.
+///
+/// # Errors
+///
+/// When the folder cannot be written, or the service does not start and answer `/health` within `START_SECONDS`.
 pub fn start_config_service(
     util: &ServiceUtil,
     instances: &[(&str, &[(String, String)])],
@@ -226,6 +239,10 @@ pub fn start_config_service(
 }
 
 /// As [`start_config_service`], the service listening at `address`.
+///
+/// # Errors
+///
+/// When the folder cannot be written, or the service does not start and answer `/health` within `START_SECONDS`.
 pub fn start_config_service_at(
     util: &ServiceUtil,
     address: &str,
@@ -259,6 +276,10 @@ pub fn fresh_data() -> String {
 }
 
 /// A storage process's settings, with a role secret and a data directory of its own.
+///
+/// # Errors
+///
+/// When the role secret file cannot be written.
 pub fn storage_holding() -> TestResult<Vec<(String, String)>> {
     Ok(with(
         holding(storage_on_one_host(), SECRET)?,
@@ -268,6 +289,10 @@ pub fn storage_holding() -> TestResult<Vec<(String, String)>> {
 }
 
 /// The frontend's settings, with a role secret and a data directory of its own.
+///
+/// # Errors
+///
+/// When the role secret file cannot be written.
 pub fn frontend_holding() -> TestResult<Vec<(String, String)>> {
     let directory = scratch(&format!(
         "frontend-{}",
@@ -281,6 +306,10 @@ pub fn frontend_holding() -> TestResult<Vec<(String, String)>> {
 }
 
 /// `settings` with a role secret file holding `secret`.
+///
+/// # Errors
+///
+/// When the role secret file cannot be written.
 pub fn holding(settings: Vec<(String, String)>, secret: &str) -> TestResult<Vec<(String, String)>> {
     let file = scratch(&format!("role-secret-{}", secret.len()));
     std::fs::write(&file, secret)?;
@@ -292,6 +321,10 @@ pub fn holding(settings: Vec<(String, String)>, secret: &str) -> TestResult<Vec<
 }
 
 /// Waits for `address` to answer `path` with success, for a role whose readiness comes after its start.
+///
+/// # Errors
+///
+/// When `address` has not answered `path` with success within `START_SECONDS`.
 pub fn until_answering(address: &str, path: &str) -> TestResult {
     for _ in 0..START_SECONDS * 20 {
         // A role not yet listening is a role not yet answering.
@@ -304,6 +337,11 @@ pub fn until_answering(address: &str, path: &str) -> TestResult {
 }
 
 /// What the frontend at `address` lists: each member's kind, partition and address.
+///
+/// # Errors
+///
+/// When the runtime cannot start, the frontend refuses the dial or the request, or its answer is no Members or names a
+/// member without its address.
 pub fn members_at(address: &str) -> TestResult<Vec<(RoleKind, u32, String)>> {
     Runtime::new()?.block_on(async {
         let target = Address::parse(address)?;
@@ -315,6 +353,7 @@ pub fn members_at(address: &str) -> TestResult<Vec<(RoleKind, u32, String)>> {
             .map(|index| {
                 let member = members.member(index).context("a member")?;
                 let held = members
+                    // A `u32` index into a `usize`, lossless on every target the tests build for.
                     .address(member.address() as usize)
                     .context("its address")?;
                 Ok((member.kind(), member.partition(), held.to_string()))
@@ -327,6 +366,7 @@ pub fn members_at(address: &str) -> TestResult<Vec<(RoleKind, u32, String)>> {
 fn answer_double(mut stream: TcpStream) -> std::io::Result<()> {
     let mut held = Vec::new();
     let mut chunk = [0; 1024];
+    // Reads until the request's head ends or the peer closes; a test's request is one short head (Ultra rule 2).
     while !held.windows(4).any(|end| end == b"\r\n\r\n") {
         let read = stream.read(&mut chunk)?;
         if read == 0 {
@@ -419,6 +459,10 @@ fn first_taken(addresses: &[(&str, &str)]) -> Option<String> {
 }
 
 /// Starts the double, for the life of the test process.
+///
+/// # Errors
+///
+/// When an address the tests declare is taken, the double's directory cannot be made, or its address cannot be bound.
 #[expect(
     clippy::disallowed_methods,
     reason = "the double answers beside the scenarios, on a thread of the test's own"

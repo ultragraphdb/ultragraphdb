@@ -26,10 +26,23 @@ with VSR (`openspec/notes/UltraGraphDB Distribution Architecture.md`, and for th
 into one container (`openspec/notes/UltraGraphDB Single-Container Deployment.md`). Stages 4 to 10 replace DQL with
 SPARQL and GQL; UltraQL follows stage 10. What the next stages must specify is tracked in `openspec/notes/backlog.md`.
 
-- **5.5 Refactor for the three-role cluster.** The seams the cluster needs before UGS and clustering build on them: the
-  128-bit system ID with its type prefix and bucket; the placement function; the commit step as one replica group's
-  state machine, its rounds stamped with epochs; the metadata group's state machine with one replica, the catalog's
-  home; the stage-5 crates sorted into the roles; the transport's in-process carrier.
+- **5.5 Refactor for the three-role cluster.** The formats later stages store and build on, and the three roles as
+  running binaries. Every entity and statement takes a 128-bit system ID of type prefix, sequence and bucket
+  (`ultragraphdb_core_ids`); a version is a 42-bit epoch and a 22-bit sequence; a log round is a logical record; the
+  stage-5 crates run on these formats. The sequencer closes epochs, and the metadata group holds tenants, catalog
+  versions, sequence blocks, the placement map, principals and sessions, each a state machine over the ordered log
+  with one replica (`ultragraphdb_cluster/`). A storage process hosts partitions over bucket ranges, each with its own
+  log, commit step and store and the one owner of every fact its subjects write: a reference to another partition's
+  entity registers at the entity's home, and a reverse read fans out through the home's referrer set, complete at a
+  closed epoch as `lean/PlacementModel` proves. A read-write transaction stays within one partition. The frontend
+  (the client endpoint, authentication, the metadata group and the sequencer), compute (quad-pattern reads over
+  storage's read kernel) and storage are binaries under `ultragraphdb/`, joined by the role commands 512–767 over TCP
+  or Unix-domain sockets and authenticated by the cluster's role secret, each with its image on the Wolfi glibc base;
+  the supervisor runs them in the development image, and the config service holds every role's settings as numbered
+  revisions, validated whole, with a CLI that runs the same checks. The Rust client runs against the three binaries
+  with session tokens, the level, token and deadline a transaction names on Begin, commits in doubt and TLS 1.3, and
+  `wal_bench` runs N partitions in one process. The stage closes once its measurements, the development container end
+  to end and the final test run are recorded.
 - **6 UGS.** The schema language, specified in `specification/schema/SCHEMA.md` and prepared in
   `openspec/notes/prepare-stage-6.md`. Stage 6 builds what `SCHEMA.md` section 14 assigns it: the modelling core, local
   constraints, bitemporal statements, units, geometry, indexes and the RDF view, with the protocol's Install and

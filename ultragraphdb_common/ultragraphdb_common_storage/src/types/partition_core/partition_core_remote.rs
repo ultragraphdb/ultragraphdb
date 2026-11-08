@@ -157,13 +157,17 @@ impl PartitionCore<'_> {
 }
 
 /// Sends `batch` of the write `write` to the home `home` in another process, and hands its answers to the partition's
-/// own mailbox. A failure is dropped: the host sends unanswered registrations again, and they are idempotent.
+/// own mailbox. A failure is dropped: the host sends unanswered registrations again, and they are idempotent. A dropped
+/// future leaves what [`exchange`] says.
 async fn register(peers: Peers, home: PartitionId, write: u64, batch: Vec<(usize, Registration)>) {
     if let Err(error) = exchange(&peers, home, write, &batch).await {
         tracing::warn!(home = home.get(), %error, "a registration waits for its next sending");
     }
 }
 
+/// One Reference request of `batch` to `home`, each answer handed to the partition's mailbox. A future dropped at a request
+/// drops the client it took out of `peers`, so no connection cut inside a frame is used again; answers already handed on
+/// stay, and the host sends the rest again.
 async fn exchange(
     peers: &Peers,
     home: PartitionId,
@@ -220,7 +224,8 @@ async fn exchange(
     Ok(())
 }
 
-/// The connection open to `address`, taken from what the core holds, or dialled.
+/// The connection open to `address`, taken from what the core holds, or dialled. A future dropped at its dial leaves no
+/// connection.
 async fn client_of(peers: &Peers, address: &str) -> Result<RoleClient, TransportError> {
     let open = peers.open.borrow_mut().remove(address);
     if let Some(client) = open {
@@ -236,7 +241,8 @@ async fn client_of(peers: &Peers, address: &str) -> Result<RoleClient, Transport
     .await
 }
 
-/// Where `partition` listens, asked of the frontend when the core does not know.
+/// Where `partition` listens, asked of the frontend when the core does not know. A future dropped at its dial or request
+/// drops that connection to the frontend, and the addresses known stay as they were.
 async fn address_of(peers: &Peers, partition: u32) -> Result<String, TransportError> {
     if let Some(known) = peers.addresses.borrow().get(&partition) {
         return Ok(known.clone());

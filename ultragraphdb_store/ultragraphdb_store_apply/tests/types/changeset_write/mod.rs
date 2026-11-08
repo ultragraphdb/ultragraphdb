@@ -10,6 +10,10 @@ mod changeset_write_declare_tests;
 #[cfg(test)]
 mod changeset_write_index_tests;
 #[cfg(test)]
+mod changeset_write_logical_tests;
+#[cfg(test)]
+mod changeset_write_read_tests;
+#[cfg(test)]
 mod changeset_write_statements_tests;
 #[cfg(test)]
 mod changeset_write_triples_tests;

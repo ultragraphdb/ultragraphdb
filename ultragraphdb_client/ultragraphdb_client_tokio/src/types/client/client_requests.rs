@@ -45,8 +45,11 @@ impl<C: Connect, L: Login> Client<C, L> {
         }
     }
 
-    /// A session kept from an earlier client, its next request numbered `next_request`; refused for a number that does
-    /// not fit it, as [`ultragraphdb_client_core::ClientCore::resume_session`] says.
+    /// A session kept from an earlier client, its next request numbered `next_request`.
+    ///
+    /// # Errors
+    ///
+    /// What [`ultragraphdb_client_core::ClientCore::resume_session`] refuses: a number that does not fit the session.
     pub fn resume_session(
         &mut self,
         number: u128,
@@ -69,6 +72,15 @@ impl<C: Connect, L: Login> Client<C, L> {
 
     /// Begins the transaction `begin` names, its level, deadline, read version and tenant; through a session it carries
     /// the session's token, or `begin`'s own when that is of a higher epoch.
+    ///
+    /// A future dropped while the connection opens leaves no request; one dropped later leaves the request with the
+    /// core, as [`Client`] says: sent, it goes on to its answer, which the core holds and no later call takes.
+    ///
+    /// # Errors
+    ///
+    /// [`ClientError::transport`] or [`ClientError::timed_out`] when no connection opens, or the handshake's error;
+    /// what [`ultragraphdb_client_core::ClientCore::begin_with`] refuses; [`ClientError::refused`] when the server
+    /// refuses the Begin; [`ClientError::connection_lost`] when the connection ends before the answer.
     pub async fn begin_with(
         &mut self,
         begin: Begin,
@@ -132,6 +144,16 @@ impl<C: Connect, L: Login> Client<C, L> {
     /// Writes `write` in one frame, unconditional changes committed as one transaction with no Begin, under the same request
     /// counter and in-doubt rules as a commit. A write computed from an earlier read is a [`Client::conditional_write`] or a
     /// read-write transaction: sent as a read and then this, a commit between them is a lost update the server cannot see.
+    ///
+    /// A future dropped while the connection opens leaves no request; one dropped later leaves the request with the
+    /// core, as [`Client`] says: sent, it goes on to its answer, which the core holds and no later call takes.
+    ///
+    /// # Errors
+    ///
+    /// [`ClientError::transport`] or [`ClientError::timed_out`] when no connection opens, or the handshake's error;
+    /// what [`ultragraphdb_client_core::ClientCore::direct_write`] refuses; [`ClientError::refused`] when the server
+    /// refuses the write; once its frame has left without an answer, [`ClientError::in_doubt`] through a session and
+    /// [`ClientError::outcome_unknown`] through none, and [`ClientError::connection_lost`] before it left.
     pub async fn direct_write(
         &mut self,
         write: DirectWrite,
@@ -145,6 +167,16 @@ impl<C: Connect, L: Login> Client<C, L> {
 
     /// Writes `write` in one frame, its commit-time operations decided in commit order and their outcome in the reply: a
     /// failed condition is an answer, refused with code 8 and the value found, and is not retried.
+    ///
+    /// A future dropped while the connection opens leaves no request; one dropped later leaves the request with the
+    /// core, as [`Client`] says: sent, it goes on to its answer, which the core holds and no later call takes.
+    ///
+    /// # Errors
+    ///
+    /// [`ClientError::transport`] or [`ClientError::timed_out`] when no connection opens, or the handshake's error;
+    /// what [`ultragraphdb_client_core::ClientCore::conditional_write`] refuses; [`ClientError::refused`] when the
+    /// server refuses the write; once its frame has left without an answer, [`ClientError::in_doubt`] through a session
+    /// and [`ClientError::outcome_unknown`] through none, and [`ClientError::connection_lost`] before it left.
     pub async fn conditional_write(
         &mut self,
         write: ConditionalWrite,

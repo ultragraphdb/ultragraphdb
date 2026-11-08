@@ -22,6 +22,7 @@ pub struct RecordRegistration {
 
 impl RecordRegistration {
     /// The registration of `entity` for the bucket group `group` at `generation`.
+    #[must_use]
     pub fn new(entity: SystemId, group: BucketGroup, generation: NonZeroU64) -> Self {
         Self {
             entity,
@@ -31,21 +32,25 @@ impl RecordRegistration {
     }
 
     /// The entity's system ID.
+    #[must_use]
     pub fn entity(&self) -> SystemId {
         self.entity
     }
 
     /// The bucket group.
+    #[must_use]
     pub fn group(&self) -> BucketGroup {
         self.group
     }
 
     /// The generation, at least 1.
+    #[must_use]
     pub fn generation(&self) -> u64 {
         self.generation.get()
     }
 
     /// The registration's 32 bytes.
+    #[must_use]
     pub fn encode(&self) -> [u8; RECORD_REGISTRATION_SIZE] {
         let fields = self
             .entity

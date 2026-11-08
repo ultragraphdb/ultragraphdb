@@ -49,7 +49,7 @@ impl<'a> BodyView<'a> for MembersView<'a> {
                 return Err(ProtocolError::field_value(
                     command,
                     "member order",
-                    i as u64,
+                    i as u64, // lossless: a `usize` is at most 64 bits
                 ));
             }
             previous = Some(member);
@@ -76,6 +76,7 @@ impl<'a> BodyView<'a> for MembersView<'a> {
 fn in_order(addresses: &StringList<'_>, before: Member, member: Member) -> bool {
     match (before.kind(), member.kind()) {
         (RoleKind::Compute, RoleKind::Compute) => {
+            // Lossless: a `usize` is at least 32 bits.
             addresses.get(before.address() as usize) < addresses.get(member.address() as usize)
         }
         (RoleKind::Storage, RoleKind::Storage) => before.partition() < member.partition(),

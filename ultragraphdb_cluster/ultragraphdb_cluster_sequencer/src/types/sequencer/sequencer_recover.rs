@@ -35,6 +35,9 @@ impl<L: OrderedLog> Sequencer<L> {
     /// round contradicts the ones before it (a close not one after the
     /// last, a close time below the last, a transaction not in the epoch after the last close, a round's version not
     /// its record's epoch); [`ClusterError::full`] when the log holds more transactions than the settings retain.
+    ///
+    /// Recovery only reads the log: a future dropped at any read drops `log` and the state rebuilt so far, and leaves
+    /// the log as it found it.
     pub async fn recover(
         log: L,
         config: SequencerConfig,
@@ -52,6 +55,9 @@ impl<L: OrderedLog> Sequencer<L> {
     /// [`ClusterError::snapshot_behind`] when the snapshot, or position 0 without one, lies below the log's checkpoint;
     /// [`ClusterError::replay_diverged`] when the snapshot lies past the log's committed position; the refusals of
     /// [`recover`](Self::recover) for the rounds after it.
+    ///
+    /// Recovery only reads the log: a future dropped at any read drops `log` and the state rebuilt so far, and leaves
+    /// the log as it found it.
     pub async fn recover_from(
         log: L,
         config: SequencerConfig,
@@ -89,7 +95,8 @@ impl<L: OrderedLog> Sequencer<L> {
     }
 
     /// Replays every durable round after the durable position, the snapshot's, in order, then counts every record held
-    /// as durable.
+    /// as durable. A future dropped at a read leaves the rounds replayed so far held, in a sequencer its only caller,
+    /// [`recover_from`](Self::recover_from), drops with it.
     async fn replay(&mut self) -> Result<(), ClusterError> {
         let committed = self.log.committed();
         let mut next = Position::new(self.durable.get() + 1);
@@ -146,6 +153,7 @@ impl<L: OrderedLog> Sequencer<L> {
                         "a transaction in the epoch after the last close",
                     ));
                 }
+                // The setting is a `u32`, which a `usize` of 32 bits or more holds whole on every target the node builds for.
                 let capacity = self.config.transactions_retained().get() as usize;
                 if self.transactions.len() >= capacity {
                     return Err(ClusterError::full("multi-partition transactions", capacity));

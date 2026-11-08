@@ -55,31 +55,37 @@ pub enum TermErrorEnum {
 
 impl TermError {
     /// A [`TermErrorEnum::Truncated`] for `bytes`.
+    #[must_use]
     pub fn truncated(bytes: Vec<u8>) -> Self {
         Self(TermErrorEnum::Truncated { bytes })
     }
 
     /// A [`TermErrorEnum::UnknownTag`] for `tag`.
+    #[must_use]
     pub fn unknown_tag(tag: u8) -> Self {
         Self(TermErrorEnum::UnknownTag { tag })
     }
 
     /// A [`TermErrorEnum::UnknownDatatype`] for `code`.
+    #[must_use]
     pub fn unknown_datatype(code: u8) -> Self {
         Self(TermErrorEnum::UnknownDatatype { code })
     }
 
     /// A [`TermErrorEnum::Malformed`] for `bytes`, saying why.
+    #[must_use]
     pub fn malformed(bytes: Vec<u8>, reason: &'static str) -> Self {
         Self(TermErrorEnum::Malformed { bytes, reason })
     }
 
     /// A [`TermErrorEnum::InvalidVector`] for `lexical`, saying why.
+    #[must_use]
     pub fn invalid_vector(lexical: String, reason: &'static str) -> Self {
         Self(TermErrorEnum::InvalidVector { lexical, reason })
     }
 
     /// A [`TermErrorEnum::NotALiteral`] for `id`.
+    #[must_use]
     pub fn not_a_literal(id: SystemId) -> Self {
         Self(TermErrorEnum::NotALiteral { id })
     }

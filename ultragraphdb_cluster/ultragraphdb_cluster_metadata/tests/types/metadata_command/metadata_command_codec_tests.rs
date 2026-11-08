@@ -105,6 +105,26 @@ fn test_every_kind_round_trips() -> TestResult {
     Ok(())
 }
 
+/// A tenant's creation and a drawn secret, which `every_kind` and the fuzz seeds leave out, read back as written, and
+/// a byte short of either is refused.
+#[test]
+fn test_a_tenant_and_a_secret_round_trip() -> TestResult {
+    for command in [
+        MetadataCommand::CreateTenant {
+            tenant: Tenant::new(5),
+        },
+        MetadataCommand::DrawSecret { secret: [7; 32] },
+    ] {
+        let bytes = encoded(&command);
+        assert_eq!(MetadataCommand::decode(&bytes)?, command);
+        let short = bytes
+            .get(..bytes.len().saturating_sub(1))
+            .context("a byte short")?;
+        assert!(MetadataCommand::decode(short).is_err(), "{command:?}");
+    }
+    Ok(())
+}
+
 #[test]
 fn test_the_kind_bytes_count_from_1_in_declaration_order() -> TestResult {
     let kinds: Vec<u8> = every_kind()?

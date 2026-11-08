@@ -29,6 +29,7 @@ impl ListOptions {
     }
 
     /// Only the uids above `after_uid`.
+    #[must_use]
     pub fn after(mut self, after_uid: u128) -> Self {
         self.after_uid = after_uid;
         self
@@ -52,6 +53,7 @@ impl ListOptions {
     }
 
     /// The uid after which the uids start.
+    #[must_use]
     pub fn after_uid(&self) -> u128 {
         self.after_uid
     }

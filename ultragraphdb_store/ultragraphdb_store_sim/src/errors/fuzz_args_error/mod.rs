@@ -28,26 +28,31 @@ pub enum FuzzArgsErrorEnum {
 
 impl FuzzArgsError {
     /// The argument `value` at `position` is no whole number a `u64` holds.
+    #[must_use]
     pub fn not_a_number(position: usize, value: String) -> Self {
         Self(FuzzArgsErrorEnum::NotANumber(position, value))
     }
 
     /// The argument `value` at `position` follows the last of the three positions.
+    #[must_use]
     pub fn too_many(position: usize, value: String) -> Self {
         Self(FuzzArgsErrorEnum::TooMany(position, value))
     }
 
     /// The seed count is 0.
+    #[must_use]
     pub fn no_seeds() -> Self {
         Self(FuzzArgsErrorEnum::NoSeeds)
     }
 
     /// `seeds` seeds from `first` run past `u64::MAX`.
+    #[must_use]
     pub fn past_last_seed(first: u64, seeds: u64) -> Self {
         Self(FuzzArgsErrorEnum::PastLastSeed(first, seeds))
     }
 
     /// The flag `value` is not `--versionless-reads`.
+    #[must_use]
     pub fn unknown_flag(value: String) -> Self {
         Self(FuzzArgsErrorEnum::UnknownFlag(value))
     }

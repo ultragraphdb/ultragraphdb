@@ -58,6 +58,7 @@ impl Reads {
 
     /// The terms found absent, by ID in ID order: no statement of the term in the store. No dictionary key is among
     /// them.
+    #[must_use]
     pub fn absent(&self) -> &[SystemId] {
         &self.absent
     }

@@ -44,6 +44,7 @@ pub(crate) fn check_operations(
             return Err(ProtocolError::padding_not_zero(command, start + 2 + j));
         }
         if RecordOperation::from_parts(code, argument).is_none() {
+            // Lossless: a `usize` is at most 64 bits.
             return Err(ProtocolError::field_value(command, "argument", at as u64));
         }
     }
@@ -90,7 +91,7 @@ pub(crate) fn check_registrations(
         Some(at) => Err(ProtocolError::field_value(
             command,
             "registration",
-            at as u64,
+            at as u64, // lossless: a `usize` is at most 64 bits
         )),
         None => Ok(()),
     }

@@ -7,9 +7,12 @@
 
 use std::num::NonZeroUsize;
 
-use ultragraphdb_store_posting::{PostingError, WalkBounds, WalkEnd, WalkStep, walk_lists};
+use ultragraphdb_error_store::StoreError;
+use ultragraphdb_store_posting::{
+    PostingError, PostingErrorEnum, WalkBounds, WalkEnd, WalkStep, walk_lists,
+};
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
-use ultragraphdb_traits_store::{Scan, Store};
+use ultragraphdb_traits_store::{Item, Scan, Store, StoreSnapshot};
 
 use crate::utils::helpers::{TestLists, commit, del_uid, key, new_lists, set_uid};
 
@@ -208,5 +211,63 @@ fn test_past_its_rows_a_walk_stops_looking_at_the_bound() -> TestResult {
     let unbounded = WalkBounds::rows(Some(NonZeroUsize::MIN));
     let (whole, _) = walked_within(&lists, &keys, unbounded, &[WalkStep::Row])?;
     assert_eq!(whole, WalkEnd::Exhausted, "with no bound it reads them all");
+    Ok(())
+}
+
+/// A snapshot whose every scan fails at its first item with `failure`; its other reads are `inner`'s.
+struct FailingScan<T> {
+    inner: T,
+    failure: StoreError,
+}
+
+impl<T: StoreSnapshot> StoreSnapshot for FailingScan<T> {
+    type Scan = std::vec::IntoIter<Result<Item, StoreError>>;
+
+    fn read_ts(&self) -> u64 {
+        self.inner.read_ts()
+    }
+
+    fn get(&self, key: &[u8]) -> Result<Option<Item>, StoreError> {
+        self.inner.get(key)
+    }
+
+    fn get_many<K: AsRef<[u8]>>(&self, keys: &[K]) -> Result<Vec<Option<Item>>, StoreError> {
+        self.inner.get_many(keys)
+    }
+
+    fn scan(&self, _scan: &Scan) -> Self::Scan {
+        vec![Err(self.failure.clone())].into_iter()
+    }
+
+    fn get_versionless(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StoreError> {
+        self.inner.get_versionless(key)
+    }
+}
+
+/// A scan the store fails ends the walk with the store's error, before any key is visited.
+#[test]
+fn test_a_failed_scan_ends_the_walk_with_the_store_s_error() -> TestResult {
+    let (lists, keys) = held(1)?;
+    let version = lists.applied_ts();
+    let failure = StoreError::read_failed(keys.concat(), "a fault".into());
+    let snapshot = FailingScan {
+        inner: lists.store().snapshot(version)?,
+        failure: failure.clone(),
+    };
+    let mut visited = 0usize;
+    let walked = walk_lists(
+        &snapshot,
+        &Scan::prefix(Vec::new()),
+        &lists,
+        version,
+        WalkBounds::rows(None),
+        |_, _| {
+            visited += 1;
+            Ok::<_, PostingError>(WalkStep::Row)
+        },
+    );
+    let error = walked.err().context("an error")?;
+    assert_eq!(error.0, PostingErrorEnum::Store(failure));
+    assert_eq!(visited, 0);
     Ok(())
 }

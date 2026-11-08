@@ -182,6 +182,9 @@ fn test_refusals_ending_make_room_in_a_full_name_table() {
             throttle.name_failed(&guess, now);
         }
     }
+    // While every refusal runs, a new name goes uncounted.
+    throttle.name_failed(NAME, now);
+    assert_eq!(throttle.name_delay(NAME), Duration::ZERO);
     let ended = now + INTERVAL;
     throttle.name_failed(NAME, ended);
     assert_eq!(throttle.name_delay(NAME), AuthThrottle::delay_after(1));

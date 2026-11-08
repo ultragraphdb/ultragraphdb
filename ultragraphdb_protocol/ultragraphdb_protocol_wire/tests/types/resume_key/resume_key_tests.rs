@@ -100,15 +100,48 @@ fn test_a_key_shorter_than_its_checksum_is_refused() {
 #[test]
 fn test_a_last_row_of_another_length_is_refused() -> TestResult {
     let bytes = key()?;
-    // Section 0's length, behind the checksum, in the section table after the fixed part.
-    let mut shorter = bytes.clone();
+    // Section 0's length, behind the checksum, in the section table after the fixed part. Four bytes more take in the
+    // padding before section 1, which still starts where the sections' rule puts it, so the row's own rule refuses.
+    let mut longer = bytes.clone();
     let len_at = FIXED + 4;
-    let len = (RESUME_ROW as u32 - 4).to_le_bytes();
-    shorter
+    let longer_row = RESUME_ROW + 4;
+    longer
         .get_mut(len_at..len_at + 4)
         .context("the section's length")?
-        .copy_from_slice(&len);
-    assert!(ResumeKeyView::read(&checksummed(shorter)?).is_err());
+        .copy_from_slice(&(longer_row as u32).to_le_bytes());
+    let refused = ResumeKeyView::read(&checksummed(longer)?)
+        .err()
+        .context("a refusal")?;
+    assert!(
+        matches!(
+            refused.0,
+            ProtocolErrorEnum::CountMismatch { field, count, expected, .. }
+                if field == "resume row" && count == longer_row as u64 && expected == RESUME_ROW as u64
+        ),
+        "{refused:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn test_a_term_table_that_does_not_read_is_refused() -> TestResult {
+    let mut bytes = key()?;
+    // Section 1, the term records, from its offset in the section table; its first record's kind byte made one no term has.
+    let offset_at = FIXED + 8;
+    let records_at = u32::from_le_bytes(
+        bytes
+            .get(offset_at..offset_at + 4)
+            .context("section 1's offset")?
+            .try_into()?,
+    ) as usize;
+    *bytes.get_mut(records_at).context("the first kind byte")? = 0xFF;
+    let refused = ResumeKeyView::read(&checksummed(bytes)?)
+        .err()
+        .context("a refusal")?;
+    assert!(
+        !matches!(refused.0, ProtocolErrorEnum::FieldValue { field, .. } if field == "resume key"),
+        "the checksum holds, so the table refuses: {refused:?}"
+    );
     Ok(())
 }
 

@@ -277,7 +277,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
         }
         for (index, change) in changes.iter().enumerate() {
             let WriteChange::Declare(declared) = change else {
-                return Err(declaring_refused(index as u64, "a change of data"));
+                return Err(declaring_refused(index as u64, "a change of data")); // lossless: a `usize` is at most 64 bits
             };
             if let Declared::Predicate(predicate) = declared
                 && predicate.vector_index().is_some()
@@ -289,7 +289,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
                         predicate.predicate()
                     ),
                 )
-                .with_detail(index as u64));
+                .with_detail(index as u64)); // lossless: a `usize` is at most 64 bits
             }
             txn.declared.push(declared.clone());
         }
@@ -311,7 +311,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
                 .queue
                 .iter()
                 .any(|queued| matches!(queued, Queued::Read(_)));
-        let behind = if behind_read { frame.len() as u64 } else { 0 };
+        let behind = if behind_read { frame.len() as u64 } else { 0 }; // lossless: a `usize` is at most 64 bits
         if self.held.saturating_add(behind) > limit {
             return Some(
                 ErrorReply::new(

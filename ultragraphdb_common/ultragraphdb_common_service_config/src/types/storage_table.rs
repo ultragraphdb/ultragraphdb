@@ -40,42 +40,50 @@ impl StorageTable {
     }
 
     /// `partition_first`: the first partition it claims.
+    #[must_use]
     pub fn partition_first(&self) -> Option<u32> {
         self.partition_first
     }
 
     /// `partition_count`: how many partitions it claims from the first.
+    #[must_use]
     pub fn partition_count(&self) -> Option<u32> {
         self.partition_count
     }
 
     /// `role_address`: the address its partitions' role addresses derive from.
+    #[must_use]
     pub fn role_address(&self) -> Option<&str> {
         self.role_address.as_deref()
     }
 
     /// `data_dir`: the directory of its partitions' logs and stores.
+    #[must_use]
     pub fn data_dir(&self) -> Option<&str> {
         self.data_dir.as_deref()
     }
 
     /// `close_request_ms`: how long a close request goes unanswered before the partition answers `Busy`, in milliseconds.
+    #[must_use]
     pub fn close_request_ms(&self) -> Option<u64> {
         self.close_request_ms
     }
 
     /// `scan_stall_ms`: how long a partition keeps a Scan with no frame able to leave, in milliseconds.
+    #[must_use]
     pub fn scan_stall_ms(&self) -> Option<u64> {
         self.scan_stall_ms
     }
 
     /// `read_retain_ms`: how long a closed epoch stays readable between a read-only transaction's Scans, in
     /// milliseconds.
+    #[must_use]
     pub fn read_retain_ms(&self) -> Option<u64> {
         self.read_retain_ms
     }
 
     /// `held_bytes`: the most bytes of frames a connection holds parked before the partition stops reading it.
+    #[must_use]
     pub fn held_bytes(&self) -> Option<u64> {
         self.held_bytes
     }

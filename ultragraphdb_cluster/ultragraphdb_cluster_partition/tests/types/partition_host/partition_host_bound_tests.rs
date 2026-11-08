@@ -318,3 +318,157 @@ fn test_a_full_epoch_asks_for_its_close_once() -> TestResult {
         Ok(())
     })
 }
+
+/// A counter on a bound transaction's own subject, naming nothing the partition does not hold, is done at once; one whose
+/// subject another partition owns is refused, ending the transaction; one whose predicate is homed on another partition and
+/// not yet held waits for its home's answer, and is then ready.
+#[test]
+fn test_a_bound_operation_is_done_refused_or_waits_for_its_references() -> TestResult {
+    use crate::utils::cluster::ex;
+    use oxrdf::GraphName;
+    use ultragraphdb_store_apply::Operation;
+    let cluster = Cluster::even(2)?;
+    let (a, knows) = (cluster.name_in(1, "a")?, cluster.name_in(1, "knows")?);
+    let (b, elsewhere) = (cluster.name_in(2, "b")?, cluster.name_in(2, "p")?);
+    let counter = |subject: &str, predicate: &str| Operation::CounterAdd {
+        graph: GraphName::DefaultGraph,
+        subject: ex(subject).into(),
+        predicate: ex(predicate),
+        delta: 1,
+    };
+    on_hosts(2, |hosts| {
+        let _held = first(hosts)?.submit(changeset(vec![insert_literal(&a, &knows, "v")]), 0)?;
+        let _ended = turn_all(hosts, 4, 0)?;
+        let (own, foreign, waiting) = ((1, 1), (1, 2), (1, 3));
+        for (key, identity) in [(own, 1), (foreign, 2), (waiting, 3)] {
+            let _read = first(hosts)?.bind(key, [identity; 16], (TENANT, 1, Epoch::ZERO), 0)?;
+        }
+        let late = (1, 4);
+        let _read = first(hosts)?.bind(late, [4; 16], (TENANT, 1, Epoch::ZERO), 0)?;
+        let host = first(hosts)?;
+        assert_eq!(
+            host.operate_bound(own, counter(&a, &knows), 0)?,
+            BoundStep::Done
+        );
+        assert_eq!(
+            host.operate_bound(own, counter(&a, &knows), 0)?,
+            BoundStep::Done,
+            "a second"
+        );
+        let past_limit = 3_600 * 1_000_000;
+        assert!(
+            host.operate_bound(late, counter(&a, &knows), past_limit)
+                .is_err()
+        );
+        assert!(
+            host.bound_read(&[4; 16]).is_none(),
+            "past its limit it ended"
+        );
+        assert!(host.operate_bound(foreign, counter(&b, &knows), 0).is_err());
+        assert!(host.bound_read(&[2; 16]).is_none(), "the refusal ended it");
+        let step = host.operate_bound(waiting, counter(&a, &elsewhere), 0)?;
+        assert_eq!(step, BoundStep::Waiting);
+        let _answered = turn_all(hosts, 4, 0)?;
+        assert_eq!(first(hosts)?.take_bound_ready(), vec![waiting]);
+        Ok(())
+    })
+}
+
+/// A Drop whose predicate the store fails to read is refused with the store's error, under no ticket.
+#[test]
+fn test_a_drop_the_store_fails_under_is_refused() -> TestResult {
+    use ultragraphdb_cluster_partition::PartitionErrorEnum;
+    use ultragraphdb_store_sim::Fault;
+    let (_, knows, _) = names(1)?;
+    on_hosts(1, |hosts| {
+        let host = first(hosts)?;
+        let before = host.last_ticket();
+        host.partition()
+            .applier()
+            .quads()
+            .store()
+            .inject(Fault::FailNextRead);
+        let predicate = crate::utils::cluster::ex(&knows);
+        let refused = host.commit_drop(
+            (TENANT, 1),
+            DropRequest::Predicate(predicate.as_ref()),
+            (7, 1),
+            0,
+        );
+        assert!(
+            matches!(&refused, Err(e) if matches!(e.0, PartitionErrorEnum::Txn(_))),
+            "{refused:?}"
+        );
+        assert_eq!(host.last_ticket(), before, "no ticket taken");
+        Ok(())
+    })
+}
+
+/// A refusal answering a registration a bound transaction did not ask, at an index past its references, still ends the
+/// transaction, which is named refused with it.
+#[test]
+fn test_a_refusal_at_an_index_past_the_references_ends_the_transaction() -> TestResult {
+    use ultragraphdb_cluster_partition::PartitionError;
+    use ultragraphdb_protocol_wire::ErrorCode;
+    let (a, knows, b) = names(2)?;
+    let b = b.context("a name of partition 2")?;
+    on_hosts(2, |hosts| {
+        let host = first(hosts)?;
+        let key = (1, 1);
+        let _read = host.bind(key, [1; 16], (TENANT, 1, Epoch::ZERO), 0)?;
+        let step = host.write_bound(key, &changeset(vec![insert(&a, &knows, &b)]), 0)?;
+        assert_eq!(step, BoundStep::Waiting);
+        let asked = host.bound_ticket(key).context("its ticket")?;
+        let refusal = PartitionError::refused(ErrorCode::Busy.number());
+        host.mailbox()
+            .sender(pid(1)?)
+            .context("a sender")?
+            .send(PartitionMessage::Answered {
+                write: asked,
+                index: usize::MAX,
+                answer: Err(refusal.clone()),
+            })?;
+        block_on(host.turn(0))??;
+        assert_eq!(host.take_bound_refused(), vec![(key, refusal)]);
+        assert!(host.bound_read(&[1; 16]).is_none(), "the refusal ended it");
+        Ok(())
+    })
+}
+
+/// A bound operation waiting for its references whose transaction is past its limit when they are answered is refused
+/// then, ending the transaction.
+#[test]
+fn test_a_bound_operation_past_its_limit_at_its_answer_is_refused() -> TestResult {
+    use crate::utils::cluster::ex;
+    use oxrdf::GraphName;
+    use ultragraphdb_store_apply::Operation;
+    let cluster = Cluster::even(2)?;
+    let (a, knows) = (cluster.name_in(1, "a")?, cluster.name_in(1, "knows")?);
+    let elsewhere = cluster.name_in(2, "p")?;
+    let counter = Operation::CounterAdd {
+        graph: GraphName::DefaultGraph,
+        subject: ex(&a).into(),
+        predicate: ex(&elsewhere),
+        delta: 1,
+    };
+    on_hosts(2, |hosts| {
+        let _held = first(hosts)?.submit(changeset(vec![insert_literal(&a, &knows, "v")]), 0)?;
+        let _ended = turn_all(hosts, 4, 0)?;
+        let key = (1, 1);
+        let host = first(hosts)?;
+        let _read = host.bind(key, [1; 16], (TENANT, 1, Epoch::ZERO), 0)?;
+        assert_eq!(host.operate_bound(key, counter, 0)?, BoundStep::Waiting);
+        let limit_us = host.bound_limit_ms() * 1_000;
+        let _answered = turn_all(hosts, 4, limit_us + 1)?;
+        let late = first(hosts)?;
+        let refused: Vec<BoundKey> = late
+            .take_bound_refused()
+            .into_iter()
+            .map(|(refused, _)| refused)
+            .collect();
+        assert_eq!(refused, vec![key]);
+        assert!(late.take_bound_ready().is_empty());
+        assert!(late.bound_read(&[1; 16]).is_none(), "the refusal ended it");
+        Ok(())
+    })
+}

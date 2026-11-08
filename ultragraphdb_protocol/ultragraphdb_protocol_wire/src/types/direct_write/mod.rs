@@ -46,6 +46,7 @@ impl DirectWrite {
 
     /// The write through `session` with the next `request` number of the session's counter, from 1; a session all zero
     /// commits without exactly-once, with `request` 0.
+    #[must_use]
     pub fn with_session(mut self, session: [u8; 16], request: u64) -> Self {
         self.header.session = session;
         self.header.request = request;
@@ -53,6 +54,7 @@ impl DirectWrite {
     }
 
     /// The write carrying the session token the client holds, which raises the commit's epoch as a Begin's does.
+    #[must_use]
     pub fn with_token(mut self, token: SessionToken) -> Self {
         self.header.token = Some(token);
         self
@@ -66,16 +68,19 @@ impl DirectWrite {
     }
 
     /// The principal the frontend filled; 0 from a client.
+    #[must_use]
     pub fn principal(&self) -> u64 {
         self.header.principal
     }
 
     /// The client's session; all zero for none.
+    #[must_use]
     pub fn session(&self) -> [u8; 16] {
         self.header.session
     }
 
     /// The request's number within its session.
+    #[must_use]
     pub fn request(&self) -> u64 {
         self.header.request
     }
@@ -86,16 +91,19 @@ impl DirectWrite {
     }
 
     /// The session token the client holds; `None` for none.
+    #[must_use]
     pub fn token(&self) -> Option<&SessionToken> {
         self.header.token.as_ref()
     }
 
     /// The term table.
+    #[must_use]
     pub fn terms(&self) -> &TermTable {
         &self.terms
     }
 
     /// The changes, in order.
+    #[must_use]
     pub fn changes(&self) -> &[WriteChange] {
         &self.changes
     }

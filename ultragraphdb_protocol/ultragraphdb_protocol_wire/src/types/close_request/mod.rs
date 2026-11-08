@@ -22,16 +22,19 @@ pub struct CloseRequest {
 
 impl CloseRequest {
     /// `partition`'s request to close its open `epoch`.
+    #[must_use]
     pub fn new(partition: u32, epoch: u64) -> Self {
         Self { partition, epoch }
     }
 
     /// The asking partition.
+    #[must_use]
     pub fn partition(&self) -> u32 {
         self.partition
     }
 
     /// The partition's open epoch.
+    #[must_use]
     pub fn epoch(&self) -> u64 {
         self.epoch
     }

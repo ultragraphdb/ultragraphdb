@@ -91,3 +91,17 @@ fn test_credentials_know_the_roles_alone() -> TestResult {
     assert_ne!(one.salt(), other.salt());
     Ok(())
 }
+
+/// A secret SASLprep refuses, holding a control character, is read, and refused as the configuration's fault once a verifier
+/// is derived from it, naming the file.
+#[test]
+fn test_a_secret_saslprep_refuses_has_no_credentials() -> TestResult {
+    let file = holding("prohibited", "s3\u{7}cret".as_bytes())?;
+    let refused = read(&file)?.credentials().err().context("a refusal")?;
+    assert_eq!(refused.exit_code(), RoleError::EX_CONFIG);
+    assert!(
+        refused.to_string().contains(&file.display().to_string()),
+        "{refused}"
+    );
+    Ok(())
+}

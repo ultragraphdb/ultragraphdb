@@ -51,16 +51,19 @@ impl OptionsError {
     }
 
     /// The option is not among the allowed options; `msg` is Dgraph's message.
+    #[must_use]
     pub fn not_allowed(msg: String) -> Self {
         Self(OptionsErrorEnum::NotAllowed(msg))
     }
 
     /// The option's text does not parse as its type; `msg` is Dgraph's message.
+    #[must_use]
     pub fn parse(msg: String) -> Self {
         Self(OptionsErrorEnum::Parse(msg))
     }
 
     /// A stored value is not of the type asked for; `msg` is Dgraph's message.
+    #[must_use]
     pub fn type_mismatch(msg: String) -> Self {
         Self(OptionsErrorEnum::Type(msg))
     }

@@ -49,6 +49,7 @@ impl<'a> BodyView<'a> for EntriesView<'a> {
         let sections = Sections::<1>::read(command, frame.body(), 0)?;
         let entries = KeyValues::read(command, 0, sections.offset(0), sections.get(0))?;
         if let Some(index) = entries.iter().position(|entry| entry.value().is_none()) {
+            // Lossless: a `usize` is at most 64 bits.
             return Err(ProtocolError::field_value(command, "entry", index as u64));
         }
         let mut previous: Option<&[u8]> = None;
@@ -57,17 +58,18 @@ impl<'a> BodyView<'a> for EntriesView<'a> {
                 return Err(ProtocolError::field_value(
                     command,
                     "entry order",
-                    index as u64,
+                    index as u64, // lossless: a `usize` is at most 64 bits
                 ));
             }
             previous = Some(entry.key());
         }
         let count = header.u32_at(0);
+        // Lossless: a `usize` is at least 32 bits.
         if entries.len() != count as usize {
             return Err(ProtocolError::count_mismatch(
                 command,
                 "entries",
-                entries.len() as u64,
+                entries.len() as u64, // lossless: a `usize` is at most 64 bits
                 count.into(),
             ));
         }

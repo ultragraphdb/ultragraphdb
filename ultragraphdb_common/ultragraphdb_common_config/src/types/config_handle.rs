@@ -16,7 +16,9 @@ pub struct ConfigHandle {
 }
 
 impl ConfigHandle {
-    /// Asks the owner what `command`, given its reply's sender, asks: `None` when the owner has stopped.
+    /// Asks the owner what `command`, given its reply's sender, asks: `None` when the owner has stopped. A future dropped
+    /// while the command waits for room asks nothing; one dropped at the answer leaves the command to run, a change
+    /// committed included, and its answer lost.
     pub(crate) async fn ask<T>(
         &self,
         command: impl FnOnce(oneshot::Sender<T>) -> ConfigCommand,

@@ -62,7 +62,7 @@ fn read_fixed(command: u16, fixed: &[u8]) -> Result<Fixed, ProtocolError> {
         _ => u64_at(at) != 0,
     };
     if let Some(at) = zero.iter().find(|at| set(**at)) {
-        return Err(ProtocolError::field_value(command, "record", *at as u64));
+        return Err(ProtocolError::field_value(command, "record", *at as u64)); // lossless: a `usize` is at most 64 bits
     }
     Ok(Fixed {
         kind,
@@ -90,6 +90,7 @@ fn read_tables<'a>(
         table(8)?,
     ];
     let [inserted, removed, _, points, statements, ranges] = tables;
+    // Lossless: a `usize` is at most 64 bits.
     let length = |value: Option<&[u8]>| value.map_or(u64::from(ABSENT), |v| v.len() as u64);
     for entries in [inserted, removed] {
         if let Some(e) = entries
@@ -238,6 +239,7 @@ impl<'a> WriteSetRecordView<'a> {
     }
 
     /// The record's kind.
+    #[must_use]
     pub fn kind(&self) -> RecordKind {
         self.kind
     }
@@ -248,6 +250,7 @@ impl<'a> WriteSetRecordView<'a> {
     }
 
     /// The tenant's catalog version the entry was validated against; 0 for a registration.
+    #[must_use]
     pub fn catalog(&self) -> u64 {
         self.catalog
     }
@@ -258,6 +261,7 @@ impl<'a> WriteSetRecordView<'a> {
     }
 
     /// The session committing through the transaction; zero for none.
+    #[must_use]
     pub fn session(&self) -> [u8; 16] {
         self.session
     }
@@ -273,36 +277,43 @@ impl<'a> WriteSetRecordView<'a> {
     }
 
     /// The statements inserted: each key a quad, its value the statement ID or empty.
+    #[must_use]
     pub fn inserted(&self) -> KeyValues<'a> {
         self.tables[0]
     }
 
     /// The statements removed: each key a quad, its value the statement ID or empty.
+    #[must_use]
     pub fn removed(&self) -> KeyValues<'a> {
         self.tables[1]
     }
 
     /// The statement records: each key a graph and a statement ID, its value the record or a removal.
+    #[must_use]
     pub fn statement_records(&self) -> KeyValues<'a> {
         self.tables[2]
     }
 
     /// The number of operations.
+    #[must_use]
     pub fn operation_count(&self) -> usize {
         self.operations.len() / RECORD_OPERATION_SIZE
     }
 
     /// Operation `index`; `None` past the last.
+    #[must_use]
     pub fn operation(&self, index: usize) -> Option<RecordOperation> {
         operation_at(self.operations, index)
     }
 
     /// The number of registrations.
+    #[must_use]
     pub fn registration_count(&self) -> usize {
         self.registrations.len() / RECORD_REGISTRATION_SIZE
     }
 
     /// Registration `index`; `None` past the last.
+    #[must_use]
     pub fn registration(&self, index: usize) -> Option<RecordRegistration> {
         registration_at(self.registrations, index)
     }
@@ -338,6 +349,7 @@ impl<'a> WriteSetRecordView<'a> {
     }
 
     /// The results' term table: each node by its IRI or skolem IRI.
+    #[must_use]
     pub fn result_terms(&self) -> TermTableView<'a> {
         self.result_terms
     }
@@ -397,7 +409,7 @@ impl<'a> WriteSetRecordView<'a> {
             10 => self.result_terms.len(),
             _ => self.text_len,
         };
-        count as u64
+        count as u64 // lossless: a `usize` is at most 64 bits
     }
 
     /// The sections the record's kind holds (`PROTOCOL.md` §12.2): a transaction's writes and no operation, a Drop's

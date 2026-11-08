@@ -15,11 +15,11 @@ use ultragraphdb_protocol_wire::{
     DropCommand, DropCommandView, ErrorCode, ErrorReply, FrameView, MAX_FRAME_SIZE, TermTable,
     WriteChange,
 };
-use ultragraphdb_tool_bdd::{TestError, TestResult};
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::types::partition_core::played_cores::{
     CLUSTER, Connection, Driver, PRINCIPAL, TENANT, answered, bind, error_in, refusal_of, reply_of,
-    served,
+    served, served_at,
 };
 
 /// How many DirectWrites a test sends at most while a catalog version reaches the partition.
@@ -333,6 +333,235 @@ fn test_a_drop_names_its_binds_tenant() -> TestResult {
             refused.message(),
             format!("a Drop of tenant {other} on a stream bound to tenant {TENANT}")
         );
+        Ok(())
+    })
+}
+
+/// The commit version of the Commit `frame`, or a failure naming the refusal it is.
+fn version_in(frame: &[u8]) -> TestResult<u64> {
+    if let Some(refusal) = error_in(frame)? {
+        return Err(TestError::new(refusal.message()));
+    }
+    let view = FrameView::validate(frame, CLUSTER, MAX_FRAME_SIZE)?;
+    Ok(CommitView::from_frame(&view)?.commit_version())
+}
+
+/// A DirectWrite sent again under its session and request is answered from the session table at once, with the version it
+/// committed at: it is not run again.
+#[test]
+fn test_a_resent_direct_write_is_answered_from_the_session_table() -> TestResult {
+    served(1, async |driver| {
+        let mut connection = driver.connect(1, 1 << 20)?;
+        let write = direct(&driver, 1, ([6; 16], 1))?;
+        assert_eq!(driver.ask(&connection, 3, &write).await?, Answer::Open);
+        let (_, frame) = connection.pushed("the Commit").await?;
+        let version = version_in(&frame)?;
+        let again = reply_of(driver.ask(&connection, 5, &write).await?)?;
+        assert_eq!(version_in(&again)?, version);
+        Ok(())
+    })
+}
+
+/// A DirectWrite of two inserts: the first from an IRI partition 1 owns to one `partition` owns, the second from an IRI
+/// `later` owns.
+fn two_inserts(driver: &Driver, partition: u32, later: u32) -> TestResult<DirectWrite> {
+    let mut terms = TermTable::new();
+    let knows = driver.owned_by(1, "knows")?;
+    let changes = vec![
+        insert(
+            &mut terms,
+            &driver.owned_by(1, "first-s")?,
+            &knows,
+            &driver.owned_by(partition, "first-o")?,
+        ),
+        insert(
+            &mut terms,
+            &driver.owned_by(later, "later-s")?,
+            &knows,
+            &driver.owned_by(1, "later-o")?,
+        ),
+    ];
+    Ok(DirectWrite::new(TENANT, terms, changes).with_principal(PRINCIPAL))
+}
+
+/// A DirectWrite whose first subject another partition owns is refused as a stale route, code 26, at once.
+#[test]
+fn test_a_direct_writes_first_subject_routes_it() -> TestResult {
+    served(2, async |driver| {
+        let connection = driver.connect(1, 1 << 20)?;
+        let mut terms = TermTable::new();
+        let change = insert(
+            &mut terms,
+            &driver.owned_by(2, "s")?,
+            &driver.owned_by(1, "knows")?,
+            &driver.owned_by(1, "o")?,
+        );
+        let write = DirectWrite::new(TENANT, terms, vec![change]).with_principal(PRINCIPAL);
+        let refused = refusal_of(driver.ask(&connection, 3, &write).await?)?;
+        assert_eq!(
+            refused.code(),
+            ErrorCode::WrongPartition,
+            "{}",
+            refused.message()
+        );
+        Ok(())
+    })
+}
+
+/// A DirectWrite parked on its home that its execution refuses once answered, a later subject another partition's, is
+/// refused on its stream.
+#[test]
+fn test_a_parked_direct_write_refused_once_answered_is_told_so() -> TestResult {
+    served(2, async |mut driver| {
+        let mut connection = driver.connect(1, 1 << 20)?;
+        let write = two_inserts(&driver, 2, 2)?;
+        assert_eq!(driver.ask(&connection, 3, &write).await?, Answer::Open);
+        driver.release_homes();
+        let (stream, frame) = connection.pushed("the refusal").await?;
+        let refused = error_in(&frame)?.context("an Error")?;
+        assert_eq!(
+            (stream, refused.code()),
+            (3, ErrorCode::CrossPartition),
+            "{}",
+            refused.message()
+        );
+        Ok(())
+    })
+}
+
+/// A Drop of a predicate, of a graph, and of the whole tenant each commits in its own round; a Drop through no session
+/// answers with no token, and one naming no IRI is refused saying so.
+#[test]
+fn test_each_kind_of_drop_commits_and_a_malformed_one_is_refused() -> TestResult {
+    served(1, async |driver| {
+        let mut connection = driver.connect(1, 1 << 20)?;
+        let drops = [
+            DropCommand::predicate(TENANT, driver.owned_by(1, "p")?),
+            DropCommand::graph(TENANT, driver.owned_by(1, "g")?),
+            DropCommand::whole_tenant(TENANT),
+        ];
+        for (stream, drop) in (3..).step_by(2).zip(drops) {
+            let _bound = reply_of(
+                driver
+                    .ask(&connection, stream, &bind(BindKind::Drop, 1))
+                    .await?,
+            )?;
+            assert_eq!(driver.ask(&connection, stream, &drop).await?, Answer::Open);
+            let (on, frame) = connection.pushed("the Drop's reply").await?;
+            assert_eq!(on, stream);
+            let view = FrameView::validate(&frame, CLUSTER, MAX_FRAME_SIZE)?;
+            assert_eq!(view.command(), Command::Drop, "{:?}", error_in(&frame)?);
+            let reply = DropCommandView::from_frame(&view)?;
+            assert_eq!(reply.kind(), drop.kind());
+            assert!(reply.token().is_none(), "through no session");
+        }
+        let _bound = reply_of(
+            driver
+                .ask(&connection, 11, &bind(BindKind::Drop, 1))
+                .await?,
+        )?;
+        let malformed = DropCommand::predicate(TENANT, "no iri");
+        let refused = refusal_of(driver.ask(&connection, 11, &malformed).await?)?;
+        assert_eq!(refused.code(), ErrorCode::Refused);
+        assert!(
+            refused
+                .message()
+                .starts_with("the Drop's IRI no iri is not one"),
+            "{}",
+            refused.message()
+        );
+        Ok(())
+    })
+}
+
+/// A Drop sent again under its session and request is answered from the session table at once, with the version it
+/// committed at.
+#[test]
+fn test_a_resent_drop_is_answered_from_the_session_table() -> TestResult {
+    served(1, async |driver| {
+        let mut connection = driver.connect(1, 1 << 20)?;
+        let drop = DropCommand::tenant_data(TENANT).with_session([5; 16], 3);
+        let _bound = reply_of(driver.ask(&connection, 3, &bind(BindKind::Drop, 1)).await?)?;
+        assert_eq!(driver.ask(&connection, 3, &drop).await?, Answer::Open);
+        let (_, first) = connection.pushed("the Drop's reply").await?;
+        let _again = reply_of(driver.ask(&connection, 5, &bind(BindKind::Drop, 1)).await?)?;
+        let resent = reply_of(driver.ask(&connection, 5, &drop).await?)?;
+        let mut versions = Vec::new();
+        for reply in [first, resent] {
+            let view = FrameView::validate(&reply, CLUSTER, MAX_FRAME_SIZE)?;
+            assert_eq!(view.command(), Command::Drop, "{:?}", error_in(&reply)?);
+            versions.push(DropCommandView::from_frame(&view)?.commit_version());
+        }
+        assert_eq!(versions.first(), versions.get(1));
+        Ok(())
+    })
+}
+
+/// A DirectWrite parked on its home whose commit conflicts with one landing first inserting the same edge, run again: its
+/// stream's outcome. `unique`, when given, is declared unique once the other has landed, and inserted by the parked write
+/// too. Partition 2 is tested, which homes the IRI a tenant's first write names, so the write landing first waits on no
+/// home.
+async fn run_again(driver: &mut Driver, unique: Option<&str>) -> TestResult<ErrorReply> {
+    let mut connection = driver.connect(1, 1 << 20)?;
+    let (subject, knows) = (driver.owned_by(2, "s")?, driver.owned_by(2, "knows")?);
+    let shared = driver.owned_by(2, "o")?;
+    let mut terms = TermTable::new();
+    let mut changes = vec![
+        insert(&mut terms, &subject, &knows, &shared),
+        insert(&mut terms, &subject, &knows, &driver.owned_by(1, "o")?),
+    ];
+    if let Some(unique) = unique {
+        changes.push(insert(&mut terms, &subject, unique, "http://ex.org/v"));
+    }
+    let parked = DirectWrite::new(TENANT, terms, changes).with_principal(PRINCIPAL);
+    assert_eq!(
+        driver.ask(&connection, 3, &parked).await?,
+        Answer::Open,
+        "it parks"
+    );
+    let mut first_terms = TermTable::new();
+    let first = insert(&mut first_terms, &subject, &knows, &shared);
+    let landing = DirectWrite::new(TENANT, first_terms, vec![first]).with_principal(PRINCIPAL);
+    assert_eq!(driver.ask(&connection, 5, &landing).await?, Answer::Open);
+    let (stream, frame) = connection.pushed("the first Commit").await?;
+    assert_eq!(stream, 5);
+    let _version = version_in(&frame)?;
+    if let Some(unique) = unique {
+        let declared = PredicateDeclaration::new(NamedNode::new(unique)?).with_unique(true);
+        let contents = CatalogContents::new(TENANT, 1, vec![Declaration::Predicate(declared)]);
+        driver.tell(CoreMessage::Catalog(contents))?;
+        // What the frontend is asked before the report: the default entries of the predicates the writes created.
+        while !matches!(
+            driver.asked("the catalog version's report").await?,
+            FrontendAsk::Report(_)
+        ) {}
+    }
+    driver.release_homes();
+    let (on, outcome) = connection.pushed("the parked write's outcome").await?;
+    assert_eq!(on, 3);
+    error_in(&outcome)?.context("a refusal")
+}
+
+/// A one-frame write whose commit conflicts is run again, and a run that would wait on its home again leaves the conflict to
+/// its client.
+#[test]
+fn test_a_run_again_waiting_on_its_home_leaves_the_conflict_to_its_client() -> TestResult {
+    served_at(2, 2, async |mut driver| {
+        let refused = run_again(&mut driver, None).await?;
+        assert_eq!(refused.code(), ErrorCode::Conflict, "{}", refused.message());
+        Ok(())
+    })
+}
+
+/// A one-frame write whose commit conflicts is run again, and a run refused, its predicate declared unique since, is told on
+/// its stream.
+#[test]
+fn test_a_run_again_refused_is_told_on_its_stream() -> TestResult {
+    const UNIQUE: &str = "http://ex.org/id";
+    served_at(2, 2, async |mut driver| {
+        let refused = run_again(&mut driver, Some(UNIQUE)).await?;
+        assert_eq!(refused.code(), ErrorCode::Refused, "{}", refused.message());
+        assert!(refused.message().contains(UNIQUE), "{}", refused.message());
         Ok(())
     })
 }

@@ -21,11 +21,13 @@ impl CatalogExecution {
     }
 
     /// The declarations the data contradicts, each naming its predicate and the subject or object at fault.
+    #[must_use]
     pub fn refusals(&self) -> &[ChangesetError] {
         &self.refusals
     }
 
     /// The execution, for the commit step to apply in a round of its own.
+    #[must_use]
     pub fn into_executed(self) -> Executed {
         self.executed
     }

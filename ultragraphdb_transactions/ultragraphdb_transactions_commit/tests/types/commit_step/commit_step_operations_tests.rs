@@ -58,12 +58,13 @@ impl Proposal for OpProposal {
 
 /// An operator by script: an operation writes the conflict point `key` and returns a result naming the node
 /// `http://ex.org/n{uid}`, created, or is refused when `refuse` holds; `padding` bytes of commit record are added to the
-/// record it leaves.
+/// record it leaves, which is `garbled` bytes that no record reads when those are given.
 #[derive(Debug, Default)]
 struct Script {
     key: Vec<u8>,
     uid: u64,
     refuse: bool,
+    garbled: Option<Vec<u8>>,
     padding: usize,
     rounds: usize,
     admitted: usize,
@@ -92,6 +93,9 @@ impl Operator<OpProposal> for Script {
         self.seen.push(unapplied.count());
         if self.refuse {
             return Err(CommitError::operation_failed(Some("\"done\"".to_string())));
+        }
+        if let Some(garbled) = &self.garbled {
+            return Ok(garbled.clone());
         }
         results.push(OperationResult::for_node(0, true));
         let mut record = WriteSetRecord::transaction(0);
@@ -217,6 +221,56 @@ fn test_a_refused_operation_takes_no_version_and_adds_nothing_to_the_history() -
     );
     sync(&mut step, &mut out, &mut script);
     assert_eq!(out.replies()[0].outcome(), &Ok(version(1, 4)));
+    Ok(())
+}
+
+/// Operations leaving a record that does not read are refused malformed, naming why it does not, and what they left is
+/// let go; the round goes on with the next transaction.
+#[test]
+fn test_an_operation_leaving_a_record_that_does_not_read_is_refused_malformed() -> TestResult {
+    use ultragraphdb_protocol_wire::WriteSetRecordView;
+    let garbled = vec![0xFF; 3];
+    let cause = WriteSetRecordView::new(&garbled)
+        .err()
+        .context("three bytes are no record")?;
+    let mut step = Step::new(unbounded(), 0);
+    let mut out = Out::new();
+    let mut script = Script {
+        key: b"op".to_vec(),
+        garbled: Some(garbled),
+        ..Script::default()
+    };
+    let mut answered = Vec::new();
+    commit(
+        &mut step,
+        &mut out,
+        1,
+        asking(&Writes::point(b"b"))?,
+        &mut script,
+    );
+    answered.extend(out.replies().iter().cloned());
+    commit(
+        &mut step,
+        &mut out,
+        2,
+        plain(0, &Reads::default(), &Writes::point(b"c"))?,
+        &mut script,
+    );
+    answered.extend(out.replies().iter().cloned());
+    for _ in 0..2 {
+        sync(&mut step, &mut out, &mut script);
+        answered.extend(out.replies().iter().cloned());
+    }
+    let outcome = |t: u64| {
+        answered
+            .iter()
+            .find(|r| r.ticket() == t)
+            .map(|r| r.outcome().clone())
+            .context("answered")
+    };
+    assert_eq!(outcome(1)?, Err(CommitError::malformed(cause)));
+    assert!(outcome(2)?.is_ok());
+    assert_eq!(script.discarded, 1, "what the operations left is let go");
     Ok(())
 }
 

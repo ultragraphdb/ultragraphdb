@@ -6,6 +6,7 @@
 use futures::StreamExt;
 use futures::channel::mpsc::UnboundedReceiver;
 use ultragraphdb_cluster_sequencer::{CatalogVersion, ClockReading, Close};
+use ultragraphdb_common_service::InboxTurn;
 use ultragraphdb_core_ids::Tenant;
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_wire::{ErrorCode, ErrorReply};
@@ -13,13 +14,18 @@ use ultragraphdb_traits_log::OrderedLog;
 
 use crate::types::asked::Asked;
 use crate::types::owner::{
-    CLOSES_PER_SNAPSHOT, Durable, METADATA_SNAPSHOT, Owner, SEQUENCER_SNAPSHOT, stopped,
+    ASKS_PER_TURN_MAX, CLOSES_PER_SNAPSHOT, Durable, METADATA_SNAPSHOT, Owner, SEQUENCER_SNAPSHOT,
+    stopped,
 };
 use crate::utils::snapshot_file;
 
 impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
-    /// Runs the owner until every [`crate::OwnerHandle`] is gone: each turn takes whatever has been asked, then answers
-    /// what its sync made durable and closes an epoch that is due, by `clock`.
+    /// Runs the owner until every [`crate::OwnerHandle`] is gone: each turn takes what has been asked, at most
+    /// `ASKS_PER_TURN_MAX` past the ask it waited for, then answers what its sync made durable and closes an epoch that is
+    /// due, by `clock`.
+    ///
+    /// A dropped future drops the owner: every ask waiting on it is answered as the owner stopped, what its logs hold
+    /// unsynced is durable or lost as the process's end leaves it, and the next start recovers from what is durable.
     ///
     /// # Errors
     ///
@@ -42,7 +48,9 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
                     return Ok(());
                 };
                 self.take(first)?;
-                while let Ok(next) = inbox.try_recv() {
+                // At most ASKS_PER_TURN_MAX, the rest waiting for the next turn (Ultra rule 2).
+                let mut taking = InboxTurn::new(ASKS_PER_TURN_MAX);
+                while let Some(next) = taking.receive(|| inbox.try_recv()) {
                     self.take(next)?;
                 }
             }
@@ -52,6 +60,8 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
 
     /// One turn: the answers the asks of this turn wait for, then the close due at `now`, durable in the sequencer's log
     /// before the group learns it.
+    /// A future dropped at a sync leaves its answers unsent and the owner fit only to be dropped, as [`Owner::run`]
+    /// says.
     async fn turn(&mut self, now: ClockReading) -> Result<(), RoleError> {
         self.answer_durable().await?;
         // A report just durable may end a check, whose restoring version takes the next sync.
@@ -93,6 +103,7 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
     }
 
     /// Syncs the metadata group, when this turn appended what an answer waits for, and hands those answers out.
+    /// A future dropped at the sync leaves the answers waiting, handed out after the next sync.
     async fn answer_durable(&mut self) -> Result<(), RoleError> {
         if self.durable.is_empty() {
             return Ok(());
@@ -116,6 +127,8 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
     }
 
     /// Learns every durable close the group has not, oldest first, durable before it returns.
+    /// A future dropped at the sync leaves the closes learned appended, durable at the group's next sync; a start
+    /// learns again any the group lost.
     pub(super) async fn learn_missed(&mut self) -> Result<(), RoleError> {
         let mut learned = false;
         let mut after = self.metadata.state().last_learned();
@@ -165,6 +178,7 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
                 }
                 Ok(None) => Some((after, reply)),
                 Err(error) => {
+                    // A subscriber gone has no one to tell.
                     drop(reply.send(Err(ErrorReply::new(ErrorCode::Protocol, error.to_string()))));
                     None
                 }
@@ -173,6 +187,8 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
     }
 
     /// The snapshots due, each durable before its log is trimmed through it.
+    /// A future dropped at a trim leaves the snapshot stored and its log trimmed in part or not at all, which recovery
+    /// reads past.
     async fn store_snapshots(&mut self) -> Result<(), RoleError> {
         let Some(directory) = self.snapshots.clone() else {
             return Ok(());

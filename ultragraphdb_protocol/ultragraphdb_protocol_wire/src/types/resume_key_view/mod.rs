@@ -29,6 +29,7 @@ fn position(
     if absent && index == ABSENT {
         return Ok(None);
     }
+    // Lossless: a `usize` is at least 32 bits.
     if index as usize >= terms {
         return Err(ProtocolError::index_out_of_range(
             command,
@@ -52,8 +53,12 @@ pub struct ResumeKeyView<'a> {
 }
 
 impl<'a> ResumeKeyView<'a> {
-    /// The key `bytes`, in order: its checksum ([`ProtocolError::field_value`] `"resume key"`); the body layout; section 0
-    /// of 20 bytes ([`ProtocolError::count_mismatch`] `"resume row"`); the term table; each index below the table's length,
+    /// The key `bytes`, checked once.
+    ///
+    /// # Errors
+    ///
+    /// In order: its checksum ([`ProtocolError::field_value`] `"resume key"`); the body layout; section 0 of 20 bytes
+    /// ([`ProtocolError::count_mismatch`] `"resume row"`); the term table; each index below the table's length,
     /// `ABSENT` only for the graph and the reifier ([`ProtocolError::index_out_of_range`]).
     pub fn read(bytes: &'a [u8]) -> Result<Self, ProtocolError> {
         let command = Command::ComputeRead.number();
@@ -67,6 +72,7 @@ impl<'a> ResumeKeyView<'a> {
             return Err(ProtocolError::count_mismatch(
                 command,
                 "resume row",
+                // The casts are lossless: a `usize` is at most 64 bits.
                 row.len() as u64,
                 RESUME_ROW as u64,
             ));
@@ -97,21 +103,25 @@ impl<'a> ResumeKeyView<'a> {
     }
 
     /// The pattern's hash.
+    #[must_use]
     pub fn pattern(&self) -> u64 {
         self.pattern
     }
 
     /// What binds the key to its transaction.
+    #[must_use]
     pub fn scope(&self) -> u64 {
         self.scope
     }
 
     /// The key's term table.
+    #[must_use]
     pub fn terms(&self) -> &TermTableView<'a> {
         &self.terms
     }
 
     /// The last row.
+    #[must_use]
     pub fn row(&self) -> ResumeRow {
         self.row
     }

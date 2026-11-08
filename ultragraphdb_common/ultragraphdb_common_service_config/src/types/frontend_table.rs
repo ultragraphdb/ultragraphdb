@@ -22,11 +22,13 @@ impl FrontendTable {
     }
 
     /// `role_address`: the address roles reach it at.
+    #[must_use]
     pub fn role_address(&self) -> Option<&str> {
         self.role_address.as_deref()
     }
 
     /// `data_dir`: the directory of its metadata group's and sequencer's logs.
+    #[must_use]
     pub fn data_dir(&self) -> Option<&str> {
         self.data_dir.as_deref()
     }

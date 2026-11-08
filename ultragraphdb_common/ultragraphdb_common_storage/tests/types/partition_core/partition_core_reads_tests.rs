@@ -757,3 +757,400 @@ fn test_a_dictionary_run_larger_than_a_frame_takes_frames() -> TestResult {
         Err(TestError::new("the run never ended"))
     })
 }
+
+/// A DirectWrite inserting `<s> <p>` to each of `objects`.
+fn objects_of_s(objects: &[RequestTerm]) -> TestResult<DirectWrite> {
+    let mut terms = TermTable::new();
+    let (subject, predicate) = (terms.iri(&ex("s")), terms.iri(&ex("p")));
+    let changes = objects
+        .iter()
+        .map(|object| {
+            Ok(WriteChange::Insert {
+                graph: None,
+                subject,
+                predicate,
+                object: terms.intern(object.clone())?,
+            })
+        })
+        .collect::<TestResult<Vec<_>>>()?;
+    Ok(DirectWrite::new(TENANT, terms, changes).with_principal(PRINCIPAL))
+}
+
+/// A list whose objects take more than a frame is answered in frames within it, each holding the list's key, until the last.
+#[test]
+fn test_a_list_larger_than_a_frame_continues_in_the_next() -> TestResult {
+    with_core("reads-long-list", RigSetup::default(), async |core| {
+        let mut client = core.dial().await?;
+        let objects: Vec<RequestTerm> = (0..SUBJECTS)
+            .map(|at| RequestTerm::Iri(ex(&format!("o{at}"))))
+            .collect();
+        let _version = commit(&mut client, &objects_of_s(&objects)?).await?;
+        let mut direct = Direct::open(&core.inbox, DIRECT, SMALL)?;
+        let answer = direct
+            .request(1, &plain(ScanAt::Latest, 0, 0, &[forward()]))
+            .await?;
+        assert!(matches!(answer, Answer::Open), "{answer:?}");
+        let mut keys = Vec::new();
+        for _ in 0..SUBJECTS {
+            let (_, frame) = direct.pushed().await?;
+            let pushed = entries_of(&frame)?;
+            keys.extend(pushed.entries.iter().map(|(key, _)| key.clone()));
+            if pushed.last {
+                keys.dedup();
+                assert_eq!(keys.len(), 1, "one list's key, in every frame");
+                return Ok(());
+            }
+            direct.ready(1)?;
+        }
+        Err(TestError::new("the list never ended"))
+    })
+}
+
+/// An object record, a vector's, and a term read from the dictionary by its ID, each larger than the reader's frames, are
+/// refused as too large, `detail` the frame's bound.
+#[test]
+fn test_an_entry_larger_than_a_frame_is_refused() -> TestResult {
+    with_core("reads-too-large", RigSetup::default(), async |core| {
+        let mut client = core.dial().await?;
+        let long = "x".repeat(SMALL as usize + 1);
+        // A vector is held whole in its object record: one of more elements than a frame holds floats.
+        let elements = SMALL as usize / std::mem::size_of::<f32>() + 1;
+        let literal = RequestTerm::Literal {
+            lexical: ultragraphdb_core_terms::format_vector((0..elements).map(|at| at as f32)),
+            datatype: Some(ultragraphdb_core_terms::FLOAT32_VECTOR.to_string()),
+        };
+        let _version = commit(&mut client, &objects_of_s(&[literal])?).await?;
+        let _named = commit(&mut client, &edges(TENANT, &[("s2", "p", &long)])).await?;
+        let (found, refused) = scanned(
+            &mut client,
+            &plain(ScanAt::Latest, 0, 0, &[alone(term_key(TENANT, &ex(&long)))]),
+        )
+        .await?;
+        assert!(refused.is_none(), "{refused:?}");
+        let (_, id) = found
+            .iter()
+            .flat_map(|batch| batch.entries.iter())
+            .next()
+            .context("the long IRI's ID")?;
+        let id = SystemId::from_u128(u128::from_be_bytes(
+            id.as_slice()
+                .try_into()
+                .map_err(|_| TestError::new("an ID's 16 bytes"))?,
+        ))?;
+        let mut direct = Direct::open(&core.inbox, DIRECT, SMALL)?;
+        let by_id = alone(ultragraphdb_store_quads::id_key(TENANT, id));
+        for (stream, range) in [(1, forward()), (3, by_id)] {
+            let answer = direct
+                .request(stream, &plain(ScanAt::Latest, 0, 0, &[range]))
+                .await?;
+            assert!(matches!(answer, Answer::Open), "{answer:?}");
+            // The frames of what fits come first; the entry too large ends the Scan.
+            let told = loop {
+                let (on, frame) = direct.pushed().await?;
+                assert_eq!(on, stream);
+                if viewed(&frame)?.command() == Command::Error {
+                    break error_of(&frame)?;
+                }
+                assert!(
+                    !entries_of(&frame)?.last,
+                    "the Scan ended without the entry"
+                );
+                direct.ready(stream)?;
+            };
+            assert_eq!(
+                (told.0, told.1),
+                (ErrorCode::TooLarge, u64::from(SMALL)),
+                "{}",
+                told.2
+            );
+        }
+        Ok(())
+    })
+}
+
+/// A Scan waiting for its epoch at a version past that epoch's bound is refused once the epoch closes, the version above the
+/// partition's watermark: code 27, `detail` the watermark.
+#[test]
+fn test_a_scan_ahead_of_the_watermark_is_refused_once_its_epoch_closes() -> TestResult {
+    with_core("reads-ahead", RigSetup::default(), async |core| {
+        let mut direct = Direct::open(&core.inbox, DIRECT, LARGE)?;
+        let ahead = ultragraphdb_core_ids::Version::bound_of(Epoch::new(5)?);
+        let mut scan = Scan::new(ScanAt::ReadVersion, ahead, 1, PRINCIPAL, [0; 16], 0, 9_000);
+        let (first, past) = forward();
+        scan.push_range(ScanRange::new(PARTITION, &first, &past));
+        let answer = direct.request(1, &scan).await?;
+        assert!(matches!(answer, Answer::Open), "{answer:?}");
+        let close = Close::new(Epoch::new(1)?, 0, Vec::new(), Vec::new())?;
+        core.closes.send(PartitionMessage::Close(close))?;
+        let (_, frame) = direct.pushed().await?;
+        let (code, _, message) = error_of(&frame)?;
+        assert_eq!(code, ErrorCode::AheadOfWatermark, "{message}");
+        Ok(())
+    })
+}
+
+/// More Scans ready at once than one turn's budget frames are all answered, those past it at the next turn.
+#[test]
+fn test_scans_past_one_turns_budget_are_answered_at_the_next() -> TestResult {
+    use ultragraphdb_common_storage::TurnBudget;
+    // How many of the smallest frames one turn's budget takes.
+    let mut budget = TurnBudget::default();
+    let mut per_turn = 0;
+    while !budget.is_spent() {
+        budget.spend_frame(0);
+        per_turn += 1;
+    }
+    with_core("reads-budget", RigSetup::default(), async |core| {
+        let scans = per_turn + 4;
+        // A connection apiece: each holds the frames it sent until the core takes them.
+        let mut directs = (0..scans)
+            .map(|at| Direct::open(&core.inbox, DIRECT + at as u64, LARGE))
+            .collect::<TestResult<Vec<_>>>()?;
+        let answers = directs
+            .iter_mut()
+            .map(|direct| direct.send(1, &plain(ScanAt::Latest, 0, 0, &[forward()])))
+            .collect::<TestResult<Vec<_>>>()?;
+        for answer in answers {
+            let answer = compio::time::timeout(crate::types::partition_core::core_rig::DUE, answer)
+                .await
+                .context("an answer")??;
+            assert!(matches!(answer, Answer::Open), "{answer:?}");
+        }
+        for direct in &mut directs {
+            let (_, frame) = direct.pushed().await?;
+            assert!(entries_of(&frame)?.last);
+        }
+        Ok(())
+    })
+}
+
+/// A Scan of transaction `identity` read at `read`, of the played tenant, looking up each of `iris` in the dictionary of
+/// partition 1, then reading each of `more`.
+fn of_played_transaction(
+    identity: u8,
+    read: u64,
+    iris: &[&str],
+    more: &[(Vec<u8>, Vec<u8>)],
+) -> Scan {
+    use crate::types::partition_core::played_cores;
+    let mut terms = TermTable::new();
+    let mut scan = Scan::new(
+        ScanAt::ReadVersion,
+        read,
+        0,
+        played_cores::PRINCIPAL,
+        [identity; 16],
+        0,
+        0,
+    );
+    for iri in iris {
+        let _at = terms.iri(iri);
+        let (first, past) = alone(term_key(played_cores::TENANT, iri));
+        scan.push_range(ScanRange::new(PARTITION, &first, &past));
+    }
+    for (first, past) in more {
+        scan.push_range(ScanRange::new(PARTITION, first, past));
+    }
+    scan.with_terms(terms)
+}
+
+/// Binds transaction `identity` on `connection`'s stream 1: its read version.
+async fn bound_on(
+    driver: &crate::types::partition_core::played_cores::Driver,
+    connection: &crate::types::partition_core::played_cores::Connection,
+    identity: u8,
+) -> TestResult<u64> {
+    use crate::types::partition_core::played_cores;
+    let bind = played_cores::bind(BindKind::Transaction, identity);
+    let bound = played_cores::reply_of(driver.ask(connection, 1, &bind).await?)?;
+    Ok(BindView::from_frame(&viewed_as_played(&bound)?)?.read_version())
+}
+
+/// A Scan of a transaction whose Write waits on its home is refused: a read follows the writes before it.
+#[test]
+fn test_a_scan_of_a_transaction_whose_write_waits_is_refused() -> TestResult {
+    use crate::types::partition_core::played_cores;
+    played_cores::served(2, async |driver| {
+        let connection = driver.connect(DIRECT, 1 << 20)?;
+        let read = bound_on(&driver, &connection, 4).await?;
+        let mut terms = TermTable::new();
+        let change = WriteChange::Insert {
+            graph: None,
+            subject: terms.iri(&driver.owned_by(1, "s")?),
+            predicate: terms.iri(&driver.owned_by(1, "knows")?),
+            object: terms.iri(&driver.owned_by(2, "o")?),
+        };
+        let parked = driver
+            .ask(
+                &connection,
+                1,
+                &ultragraphdb_protocol_wire::Write::new(terms, vec![change]),
+            )
+            .await?;
+        assert!(
+            matches!(parked, Answer::Open),
+            "the Write parks: {parked:?}"
+        );
+        let scan = of_played_transaction(4, read, &[&driver.owned_by(1, "r")?], &[]);
+        let refused = played_cores::refusal_of(driver.ask(&connection, 2, &scan).await?)?;
+        assert_eq!(refused.code(), ErrorCode::Protocol);
+        assert!(
+            refused
+                .message()
+                .starts_with("a Scan of a transaction whose write waits on its home"),
+            "{}",
+            refused.message()
+        );
+        Ok(())
+    })
+}
+
+/// Two Scans of a transaction, each naming another IRI whose home has not answered: the second waits on the first's asking,
+/// asks its own once that is answered, and both are answered.
+#[test]
+fn test_a_scan_waiting_behind_another_asks_its_own_terms_in_turn() -> TestResult {
+    use crate::types::partition_core::played_cores;
+    played_cores::served(2, async |mut driver| {
+        let mut connection = driver.connect(DIRECT, 1 << 20)?;
+        let read = bound_on(&driver, &connection, 6).await?;
+        let mut answers = Vec::new();
+        for (stream, at) in [(2, "x"), (3, "y")] {
+            let scan = of_played_transaction(6, read, &[&driver.owned_by(2, at)?], &[]);
+            answers.push(driver.send(&connection, stream, &scan)?);
+        }
+        for answer in answers {
+            let answer = played_cores::answered(answer).await?;
+            assert!(matches!(answer, Answer::Open), "{answer:?}");
+        }
+        driver.release_homes();
+        let mut ended = Vec::new();
+        for _ in 0..2 {
+            let (stream, frame) = connection.pushed("a Scan's frame").await?;
+            let view = played_cores_view(&frame)?;
+            assert_eq!(view.command(), Command::Entries);
+            ended.push(stream);
+        }
+        ended.sort_unstable();
+        assert_eq!(ended, vec![2, 3]);
+        Ok(())
+    })
+}
+
+/// A Scan of a transaction reading a dictionary range past its terms reads it as the transaction sees the dictionary: a term's
+/// ID it created is found there.
+#[test]
+fn test_a_transactions_dictionary_range_past_its_terms_is_read_as_it_sees_it() -> TestResult {
+    use crate::types::partition_core::played_cores;
+    played_cores::served(1, async |driver| {
+        let mut connection = driver.connect(DIRECT, 1 << 20)?;
+        let read = bound_on(&driver, &connection, 7).await?;
+        let named = driver.owned_by(1, "named")?;
+        let scan = of_played_transaction(
+            7,
+            read,
+            &[&named],
+            &[alone(term_key(played_cores::TENANT, &named))],
+        );
+        let answer = driver.ask(&connection, 2, &scan).await?;
+        assert!(matches!(answer, Answer::Open), "{answer:?}");
+        let mut values = Vec::new();
+        loop {
+            let (_, frame) = connection.pushed("the Scan's frames").await?;
+            let view = played_cores_view(&frame)?;
+            assert_eq!(
+                view.command(),
+                Command::Entries,
+                "{:?}",
+                played_cores::error_in(&frame)
+            );
+            let entries = EntriesView::from_frame(&view)?;
+            values.extend(
+                entries
+                    .entries()
+                    .iter()
+                    .map(|entry| entry.value().unwrap_or_default().to_vec()),
+            );
+            if view.header().flags() & FLAG_LAST != 0 {
+                break;
+            }
+            driver.tell(ultragraphdb_common_storage::CoreMessage::Ready {
+                connection: DIRECT,
+                stream: 2,
+            })?;
+        }
+        assert_eq!(
+            values.len(),
+            2,
+            "the term's ID by its term and by its range"
+        );
+        assert_eq!(values.first(), values.get(1));
+        Ok(())
+    })
+}
+
+/// A transaction whose Scans resolved more new terms than its read set holds is refused at its next page of lists, that
+/// Scan's stream and its Bind's each told the read set is too large.
+#[test]
+fn test_a_page_past_the_read_sets_room_ends_the_transaction() -> TestResult {
+    use crate::types::partition_core::played_cores;
+    use ultragraphdb_transactions_txn::TxnLimits;
+    // Each new term is recorded by its 16-byte ID and a span: more than 24 bytes of the read set's room.
+    let terms = TxnLimits::default().max_read_set() / 24;
+    let per_scan = 6_000;
+    played_cores::served(1, async |driver| {
+        let mut connection = driver.connect(DIRECT, 1 << 20)?;
+        let read = bound_on(&driver, &connection, 9).await?;
+        let iris: Vec<String> = (0..terms)
+            .map(|at| format!("http://ex.org/n{at}"))
+            .collect();
+        for (at, batch) in iris.chunks(per_scan).enumerate() {
+            let stream = 3 + 2 * at as u64;
+            let named: Vec<&str> = batch.iter().map(String::as_str).collect();
+            let scan = of_played_transaction(9, read, &named, &[]);
+            let answer = driver.ask(&connection, stream, &scan).await?;
+            assert!(matches!(answer, Answer::Open), "{answer:?}");
+            loop {
+                let (on, frame) = connection.pushed("a dictionary frame").await?;
+                assert_eq!(on, stream);
+                let view = played_cores_view(&frame)?;
+                assert_eq!(
+                    view.command(),
+                    Command::Entries,
+                    "{:?}",
+                    played_cores::error_in(&frame)
+                );
+                if view.header().flags() & FLAG_LAST != 0 {
+                    break;
+                }
+                driver.tell(ultragraphdb_common_storage::CoreMessage::Ready {
+                    connection: DIRECT,
+                    stream,
+                })?;
+            }
+        }
+        let (first, _) = forward_of(played_cores::TENANT);
+        let lists = of_played_transaction(9, read, &[], &[(first, Vec::new())]);
+        let answer = driver.ask(&connection, 1_001, &lists).await?;
+        assert!(matches!(answer, Answer::Open), "{answer:?}");
+        let mut told = Vec::new();
+        for _ in 0..2 {
+            let (stream, frame) = connection.pushed("the read set's refusal").await?;
+            let refused = played_cores::error_in(&frame)?.context("an Error")?;
+            told.push((stream, refused.code()));
+        }
+        told.sort_unstable();
+        assert_eq!(
+            told,
+            [(1, ErrorCode::TooLarge), (1_001, ErrorCode::TooLarge)]
+        );
+        Ok(())
+    })
+}
+
+/// `tenant`'s whole forward keyspace, as one range.
+fn forward_of(tenant: u64) -> (Vec<u8>, Vec<u8>) {
+    (
+        key_prefix(Keyspace::Forward, false, tenant, None, None),
+        Vec::new(),
+    )
+}

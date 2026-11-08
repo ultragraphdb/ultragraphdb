@@ -278,6 +278,7 @@ where
             .take_while(|(key, _)| end.as_ref().is_none_or(|end| *key < end))
             .peekable();
         let (mut rows, mut last) = (0usize, None::<Vec<u8>>);
+        // Ends: each turn takes the next entry of `held` and `written`, both finite, or returns.
         while let Some((key, value)) = next_value(&mut held, &mut written)? {
             let Some(value) = value else {
                 continue;

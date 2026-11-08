@@ -283,3 +283,17 @@ fn test_a_snapshot_keeps_a_check_as_it_stands() -> TestResult {
     assert_eq!(recovered.state().checked_version(tenant()), Some(1));
     Ok(())
 }
+
+/// A tenant the group holds and a secret once drawn change nothing when asked again, so a restart appends neither.
+#[test]
+fn test_a_tenant_held_and_a_secret_drawn_are_appended_once() -> TestResult {
+    let (_storage, mut group) = fresh()?;
+    let (created, drawn, redrawn) = (Tenant::new(8), [3; 32], [4; 32]);
+    assert!(group.create_tenant(created)?.is_some());
+    assert!(group.draw_secret(drawn)?.is_some());
+    sync(&mut group)?;
+    assert_eq!(group.create_tenant(created)?, None);
+    assert_eq!(group.draw_secret(redrawn)?, None);
+    assert_eq!(group.state().unknown_secret(), Some(&drawn));
+    Ok(())
+}

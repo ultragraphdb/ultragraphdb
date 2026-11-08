@@ -32,6 +32,7 @@ impl<L: OrderedLog> Sequencer<L> {
     ) -> Result<(Epoch, Position), ClusterError> {
         let last = self.last_appended();
         let epoch = Epoch::new(last + 1).map_err(|_| ClusterError::epoch_limit(last))?;
+        // The setting is a `u32`, which a `usize` of 32 bits or more holds whole on every target the node builds for.
         let capacity = self.config.transactions_retained().get() as usize;
         if self.transactions.len() >= capacity {
             return Err(ClusterError::full("multi-partition transactions", capacity));

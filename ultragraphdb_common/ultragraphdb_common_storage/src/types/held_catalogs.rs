@@ -25,6 +25,7 @@ impl HeldCatalogs {
     /// The versions of `tenant` taking effect at or before `epoch`, in order.
     pub fn up_to(&self, tenant: u64, epoch: u64) -> impl Iterator<Item = &HeldVersion> {
         self.versions
+            // Every version of `tenant`: closed, since a half-open range cannot name the last epoch, `u64::MAX`.
             .range((tenant, 0)..=(tenant, u64::MAX))
             .map(|(_, held)| held)
             .filter(move |held| held.effective() <= epoch)
@@ -37,6 +38,7 @@ impl CatalogSource for HeldCatalogs {
     fn version_at(&self, tenant: u64, epoch: u64) -> Result<Option<HeldVersion>, Infallible> {
         Ok(self
             .versions
+            // Every version of `tenant`: closed, since a half-open range cannot name the last epoch, `u64::MAX`.
             .range((tenant, 0)..=(tenant, u64::MAX))
             .rev()
             .map(|(_, held)| held)

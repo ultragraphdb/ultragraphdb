@@ -21,8 +21,10 @@ use ultragraphdb_transport_tls::{
 /// when it is opened, by [`CompioTlsStream::connect`] or [`CompioTlsStream::accept`], before the caller reads or
 /// writes a byte. The session's code is the one a blocking socket drives (`ultragraphdb_transport_tls::TlsStream`).
 ///
-/// A read or a write dropped at an `.await` leaves the session whole: records not yet written stay queued in it, and
-/// bytes read but not yet given to it are lost, which fails the session's next record, as a cut connection would.
+/// A read or a write dropped at an `.await` leaves the session whole: records not yet handed to a write stay queued in
+/// it. What the dropped `.await` held is lost: bytes read but not yet given to the session, or records handed to a
+/// write that reached the stream in whole, in part or not at all, which fails the next record, as a cut connection
+/// would.
 #[derive(Debug)]
 pub struct CompioTlsStream<S> {
     session: TlsSession,
@@ -36,7 +38,8 @@ pub struct CompioTlsStream<S> {
 }
 
 impl<S: AsyncRead + AsyncWrite> CompioTlsStream<S> {
-    /// `stream` as a client connection verified by `connector` for `host`, its handshake completed.
+    /// `stream` as a client connection verified by `connector` for `host`, its handshake completed. A future dropped
+    /// during the handshake drops `stream` and the session with it, and leaves nothing.
     ///
     /// # Errors
     ///
@@ -50,7 +53,8 @@ impl<S: AsyncRead + AsyncWrite> CompioTlsStream<S> {
         Self::handshake(connector.session(host)?, stream).await
     }
 
-    /// `stream` as a server connection of `acceptor`, TLS 1.3 only, its handshake completed.
+    /// `stream` as a server connection of `acceptor`, TLS 1.3 only, its handshake completed. A future dropped during
+    /// the handshake drops `stream` and the session with it, and leaves nothing.
     ///
     /// # Errors
     ///
@@ -61,7 +65,8 @@ impl<S: AsyncRead + AsyncWrite> CompioTlsStream<S> {
     }
 
     /// `session` over `stream`, its handshake completed: each turn sends what the session has, the last flight
-    /// included, then reads once.
+    /// included, then reads once. The future owns the stream and the session, so dropping it at any `.await` leaves
+    /// nothing.
     async fn handshake(session: TlsSession, stream: S) -> Result<Self, TlsError> {
         let mut tls = Self {
             session,
@@ -101,7 +106,8 @@ impl<S: AsyncRead + AsyncWrite> CompioTlsStream<S> {
         TlsError::handshake_failed(self.session.host().to_string(), reason)
     }
 
-    /// Reads once from the stream into `incoming`, which holds what was read: 0 bytes once the stream closed.
+    /// Reads once from the stream into `incoming`, which holds what was read: 0 bytes once the stream closed. A future
+    /// dropped at its read loses `incoming` with the bytes read into it; the next read allocates it again.
     async fn read_stream(&mut self) -> io::Result<usize> {
         let mut incoming = std::mem::take(&mut self.incoming);
         incoming.clear();
@@ -113,7 +119,8 @@ impl<S: AsyncRead + AsyncWrite> CompioTlsStream<S> {
         read
     }
 
-    /// Reads once from the stream into the session: 0 bytes tell it the stream closed.
+    /// Reads once from the stream into the session: 0 bytes tell it the stream closed. A future dropped at its read
+    /// gives the session nothing, and the bytes read are lost, as `Self::read_stream` says.
     pub(crate) async fn read_records(&mut self) -> io::Result<()> {
         let _read: usize = self.read_stream().await?;
         self.session
@@ -121,7 +128,10 @@ impl<S: AsyncRead + AsyncWrite> CompioTlsStream<S> {
             .map_err(|e| io::Error::other(e.to_string()))
     }
 
-    /// Writes every record the session has to the stream, and flushes it.
+    /// Writes every record the session has to the stream, and flushes it. A future dropped at a write leaves the
+    /// records not yet taken queued in the session, and loses those taken for that write with `outgoing`, written in
+    /// whole, in part or not at all; the next write allocates `outgoing` again. One dropped at the flush has written
+    /// every record.
     pub(crate) async fn write_records(&mut self) -> io::Result<()> {
         // Ends: each turn writes at least one byte the session queued, and the session queues nothing meanwhile.
         while self.session.wants_write() {

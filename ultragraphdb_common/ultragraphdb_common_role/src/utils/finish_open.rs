@@ -14,7 +14,8 @@ const POLL: Duration = Duration::from_millis(5);
 
 /// The first half of a role's stop: cancelling `accepting`, the tasks accepting its connections, closes their listeners, and `open`
 /// then has until `limit` to finish, its answers written. A peer reading no answer holds a stop no longer than `limit`. Returns how
-/// many are still open by then, which end with the process.
+/// many are still open by then, which end with the process. A future dropped at a pause has cancelled `accepting`
+/// already, and leaves the requests still open going on.
 pub async fn finish_open<T>(
     accepting: Vec<JoinHandle<T>>,
     open: &OpenRequests,

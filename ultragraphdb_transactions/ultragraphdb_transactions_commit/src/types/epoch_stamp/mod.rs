@@ -19,6 +19,7 @@ pub struct EpochStamp {
 
 impl EpochStamp {
     /// The stamp of a partition whose latest delivered close is `delivered`, before any entry of its open epoch.
+    #[must_use]
     pub fn new(delivered: Epoch) -> Self {
         Self {
             delivered,
@@ -29,6 +30,7 @@ impl EpochStamp {
 
     /// The stamp of a partition whose latest delivered close is `delivered` and whose newest version stamped is `last`,
     /// as recovery finds them: the open epoch's next sequence follows `last` when `last` is of the open epoch.
+    #[must_use]
     pub fn after(delivered: Epoch, last: Version) -> Self {
         Self {
             delivered,
@@ -73,26 +75,31 @@ impl EpochStamp {
     }
 
     /// The version the next admitted entry would take, taking nothing; `None` as [`EpochStamp::take`] gives none.
+    #[must_use]
     pub fn peek(&self) -> Option<Version> {
         Version::commit(self.open()?, self.next?).ok()
     }
 
     /// The latest close delivered.
+    #[must_use]
     pub fn delivered(&self) -> Epoch {
         self.delivered
     }
 
     /// The open epoch, one above the latest close delivered; `None` past the last epoch.
+    #[must_use]
     pub fn open(&self) -> Option<Epoch> {
         self.delivered.next().ok()
     }
 
     /// Whether the open epoch's sequences are spent, so no entry takes a version until the next close.
+    #[must_use]
     pub fn is_full(&self) -> bool {
         self.next.is_none()
     }
 
     /// The newest version stamped, `None` before the first.
+    #[must_use]
     pub fn last(&self) -> Option<Version> {
         self.last
     }

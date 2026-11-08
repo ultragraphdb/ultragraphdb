@@ -26,6 +26,7 @@ pub enum InvariantErrorEnum {
 
 impl InvariantError {
     /// The invariant `name` does not hold.
+    #[must_use]
     pub fn violated(name: &'static str) -> Self {
         Self(InvariantErrorEnum::Violated { name })
     }

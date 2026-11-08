@@ -3,11 +3,13 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+pub mod accept_pace;
 pub mod admin_service;
 pub mod bootstrap;
 pub mod cpu_binding;
 pub mod fetch_failure;
 pub mod health_service;
+pub mod inbox_turn;
 pub mod readiness;
 pub mod role_identity;
 pub mod role_kind;

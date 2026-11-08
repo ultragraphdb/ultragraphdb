@@ -77,56 +77,67 @@ impl ServiceConfig {
     }
 
     /// The `[admin]` table.
+    #[must_use]
     pub fn admin(&self) -> &AdminTable {
         &self.admin
     }
 
     /// The `[config]` table.
+    #[must_use]
     pub fn config(&self) -> &ConfigTable {
         &self.config
     }
 
     /// The `[cluster]` table.
+    #[must_use]
     pub fn cluster(&self) -> &ClusterTable {
         &self.cluster
     }
 
     /// The `[compute]` table.
+    #[must_use]
     pub fn compute(&self) -> &ComputeTable {
         &self.compute
     }
 
     /// The `[endpoint]` table.
+    #[must_use]
     pub fn endpoint(&self) -> &EndpointTable {
         &self.endpoint
     }
 
     /// The `[frontend]` table.
+    #[must_use]
     pub fn frontend(&self) -> &FrontendTable {
         &self.frontend
     }
 
     /// The `[metadata]` table.
+    #[must_use]
     pub fn metadata(&self) -> &MetadataTable {
         &self.metadata
     }
 
     /// The `[observability]` table.
+    #[must_use]
     pub fn observability(&self) -> &ObservabilityTable {
         &self.observability
     }
 
     /// The `[runtime]` table.
+    #[must_use]
     pub fn runtime(&self) -> &RuntimeTable {
         &self.runtime
     }
 
     /// The `[sequencer]` table.
+    #[must_use]
     pub fn sequencer(&self) -> &SequencerTable {
         &self.sequencer
     }
 
     /// The `[storage]` table.
+    #[must_use]
     pub fn storage(&self) -> &StorageTable {
         &self.storage
     }

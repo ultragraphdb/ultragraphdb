@@ -33,7 +33,7 @@ struct NameFailures {
 
 /// Repeated failed authentications, on one core, by source address and by name: each failure doubles what the next attempt
 /// waits, and a success forgets them. An address's owes nothing to the name tried, so it tells a prober nothing of it; a name's
-/// count holds for a name no principal holds, so it tells nothing either. A name past [`NAME_FAILURES_MAX`] is refused from every
+/// count holds for a name no principal holds, so it tells nothing either. A name past `NAME_FAILURES_MAX` is refused from every
 /// source until its interval ends on its own (`SECURITY.md`).
 #[derive(Debug, Clone)]
 pub struct AuthThrottle {
@@ -96,6 +96,7 @@ impl AuthThrottle {
     }
 
     /// Whether `name` is refused at `now`, from every source; a refusal whose interval ended forgets its failures.
+    #[must_use]
     pub fn name_refused(&self, name: &str, now: Instant) -> bool {
         let mut names = self.names.borrow_mut();
         match names.get(name).and_then(|held| held.refused_until) {

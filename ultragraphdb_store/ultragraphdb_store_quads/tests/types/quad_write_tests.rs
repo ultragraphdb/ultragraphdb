@@ -547,3 +547,31 @@ fn test_ids_read_a_list_of_ids_whole_in_id_order() -> TestResult {
     assert!(w.ids(b"\x11 no such list")?.is_empty());
     Ok(())
 }
+
+/// The snapshot's objects leave out the write's own writes, a subject the write created holds none in it, and
+/// discarding the lists leaves the write seeing its snapshot again, through the store it writes to.
+#[test]
+fn test_the_snapshots_objects_leave_out_the_writes_own() -> TestResult {
+    let store = quads()?;
+    write(&store, 0, &[quad("a", "knows", ex("b"))])?;
+    let (mut w, s, p, b) = resolved(&store, "a", "knows", "b")?;
+    assert!(std::ptr::eq(w.quads(), &store));
+    let held = w.snapshot_objects(D, s, p)?;
+    assert!(held.iter().any(|(object, _)| object == &b));
+    w.insert(D, s, p, &literal("c")?, &[], "x");
+    assert_eq!(
+        w.snapshot_objects(D, s, p)?,
+        held,
+        "the insert is the write's own"
+    );
+    assert_eq!(w.objects(D, s, p)?.len(), held.len() + 1);
+    w.discard_lists();
+    assert_eq!(w.objects(D, s, p)?, held);
+    let created = {
+        let (terms, quads) = w.terms();
+        terms.iri(quads, ex("new").as_str())?
+    };
+    assert!(w.is_fresh(created));
+    assert!(w.snapshot_objects(D, created, p)?.is_empty());
+    Ok(())
+}

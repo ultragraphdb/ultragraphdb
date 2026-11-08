@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// they are bound, so `/health` answering says a connection to its addresses is accepted; every other role starts
 /// listening ([`Readiness::default`]). Shared by an `Arc` of atomics: the responder's core reads what a role's other core
 /// sets, once at start and once at shutdown, so this is control plane and no request's path touches it (Ultra rule 9).
+/// `Release` on a store and `Acquire` on a load suffice: a reader seeing a flag set sees what the setter wrote before.
 #[derive(Debug, Clone)]
 pub struct Readiness {
     ready: Arc<AtomicBool>,
@@ -31,6 +32,7 @@ impl Readiness {
     }
 
     /// Whether the role is ready.
+    #[must_use]
     pub fn is_ready(&self) -> bool {
         self.ready.load(Ordering::Acquire)
     }
@@ -41,6 +43,7 @@ impl Readiness {
     }
 
     /// Whether the role has bound the addresses it serves from its start.
+    #[must_use]
     pub fn is_listening(&self) -> bool {
         self.listening.load(Ordering::Acquire)
     }

@@ -35,7 +35,8 @@ pub struct TokioTlsStream<S> {
 }
 
 impl<S: AsyncRead + AsyncWrite + Unpin> TokioTlsStream<S> {
-    /// `stream` as a client connection verified by `connector` for `host`, its handshake completed.
+    /// `stream` as a client connection verified by `connector` for `host`, its handshake completed. A future dropped
+    /// during the handshake drops `stream` and the session with it, and leaves nothing.
     ///
     /// # Errors
     ///
@@ -49,7 +50,8 @@ impl<S: AsyncRead + AsyncWrite + Unpin> TokioTlsStream<S> {
         Self::handshake(connector.session(host)?, stream).await
     }
 
-    /// `stream` as a server connection of `acceptor`, TLS 1.3 only, its handshake completed.
+    /// `stream` as a server connection of `acceptor`, TLS 1.3 only, its handshake completed. A future dropped during
+    /// the handshake drops `stream` and the session with it, and leaves nothing.
     ///
     /// # Errors
     ///
@@ -60,7 +62,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> TokioTlsStream<S> {
     }
 
     /// `session` over `stream`, its handshake completed: each turn sends what the session has, the last flight included,
-    /// then reads once.
+    /// then reads once. The future owns the stream and the session, so dropping it at any `.await` leaves nothing.
     async fn handshake(session: TlsSession, stream: S) -> Result<Self, TlsError> {
         let mut tls = Self {
             session,

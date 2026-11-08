@@ -76,6 +76,7 @@ struct Start {
 
 /// Whether a signal to stop arrived, shared with the handlers, which may do nothing else (Ultra rule 9). `term` covers SIGHUP and
 /// SIGQUIT too: each roles' process group is its own, so those reach the supervisor alone, and dying of one would orphan them.
+/// An `Acquire` load suffices: a flag orders no other memory, and the handler's store is seen by the next look.
 #[derive(Debug)]
 struct Signals {
     term: Arc<AtomicBool>,
@@ -243,6 +244,7 @@ fn draw_secret(file: &str) -> Result<(), RoleError> {
     if path.exists() {
         return Ok(());
     }
+    // A closure takes no type parameter, so it takes each error as a trait object (Ultra rules 1 and 9).
     let failed = |error: &dyn std::fmt::Display| {
         RoleError::io(format!(
             "the secret {file} cannot be written: {error}. Its directory must be writable by this process's user, as a volume at the data directory is"
@@ -275,6 +277,9 @@ fn draw_secret(file: &str) -> Result<(), RoleError> {
 }
 
 /// Starts everything, watches it, stops it: the code the supervisor exits with.
+///
+/// Its thread's `block_on` runs it to its end; a future dropped at an await would drop every child's handle without
+/// stopping or reaping it, each role then ending with this process, which it watches.
 async fn supervise(start: &Start, signals: &Signals) -> Result<u8, RoleError> {
     let mut supervised = Supervised {
         start,
@@ -304,6 +309,8 @@ impl Supervised<'_> {
     /// The start order: the config service; the frontend, once it holds its settings; storage; compute; then the frontend's
     /// readiness, which a storage partition answering it decides. No role waits on one waiting on it, since storage and compute
     /// retry their joins until their own deadlines.
+    ///
+    /// A future dropped at a wait leaves the roles started so far running, each held in `processes`.
     async fn start_all(&mut self) -> Result<(), Interrupt> {
         let settings = ["--config".to_string(), self.start.file.clone()];
         self.spawn(CONFIG, CONFIG, &settings, &[])?;
@@ -427,6 +434,8 @@ impl Supervised<'_> {
 
     /// Waits for `address` to answer `path` with success, for as long as that takes: a role's own deadlines end a role that cannot
     /// get there, and a recovery takes the time it takes. Every 10 s the log says what is awaited.
+    ///
+    /// A future dropped at a request or a wait holds nothing but the request's connection, dropped with it.
     async fn until_answering(
         &mut self,
         name: &str,
@@ -460,6 +469,7 @@ impl Supervised<'_> {
     }
 
     /// Waits until a signal arrives or a process ends. It restarts nothing.
+    /// A future dropped at its wait holds nothing.
     async fn watch(&mut self) -> Interrupt {
         loop {
             if let Err(interrupt) = self.interrupted() {
@@ -470,6 +480,9 @@ impl Supervised<'_> {
     }
 
     /// Stops what still runs, in the shutdown order: the code to exit with, the first failure's, `first` if one came before.
+    ///
+    /// A future dropped at a wait leaves the roles of the stage under way told to stop and the later stages' untold,
+    /// every child still held.
     async fn stop_all(&mut self, mut first: Option<u8>) -> u8 {
         let forward = self.signals.to_forward();
         for role in STOP_ORDER {
@@ -524,6 +537,8 @@ fn tell(process: &mut Process, signal: Signal) {
 
 /// Waits for `process`, told `signal`, to end, past its limit killing it: the code that reports it. A role that had no handler yet
 /// when the signal came, the signal being what ended it, stopped as asked.
+///
+/// A future dropped at a wait leaves `process` told and running, its handle still held.
 async fn until_stopped(process: &mut Process, signal: Signal) -> u8 {
     for _ in 0..STOP_POLLS {
         match process.child.try_wait() {
@@ -573,8 +588,11 @@ fn observability(target: &str, instance: &Instance) -> Result<String, RoleError>
 }
 
 /// The one target holding an active revision, with its files at that revision: the service is the authority once it holds them.
+///
+/// A future dropped at a request drops its connection; a GET changes nothing on the service.
 async fn active_target(start: &Start) -> Result<(String, TargetFiles), RoleError> {
     let client = |key_file: &str| {
+        // A closure takes no type parameter, so it takes each error as a trait object (Ultra rules 1 and 9).
         let refused = |error: &dyn std::fmt::Display| {
             RoleError::configuration(format!("the key file {key_file}: {error}"))
         };
@@ -631,6 +649,8 @@ fn not_one_target(start: &Start, active: &[&str], held: &[&str]) -> RoleError {
 }
 
 /// The body of what the config service answers to `GET path`.
+///
+/// A future dropped at the request drops its connection; a GET changes nothing on the service.
 async fn asked(client: &HttpClient, path: &str) -> Result<Vec<u8>, RoleError> {
     let reply = client
         .request("GET", path, b"")

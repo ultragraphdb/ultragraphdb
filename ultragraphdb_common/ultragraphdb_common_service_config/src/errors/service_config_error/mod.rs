@@ -58,6 +58,7 @@ impl ServiceConfigError {
     }
 
     /// The refusal of `value` in `table.key`, whose field holds at most `max`.
+    #[must_use]
     pub fn out_of_range(table: &str, key: &str, value: i64, max: u64) -> Self {
         Self(ServiceConfigErrorEnum::OutOfRange {
             setting: format!("{table}.{key}"),
@@ -67,6 +68,7 @@ impl ServiceConfigError {
     }
 
     /// The refusal of a start lacking `table.key`, which the role requires.
+    #[must_use]
     pub fn missing(table: &str, key: &str) -> Self {
         Self(ServiceConfigErrorEnum::Missing {
             setting: format!("{table}.{key}"),

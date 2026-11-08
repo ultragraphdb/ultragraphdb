@@ -16,6 +16,7 @@ pub enum RecordKind {
 
 impl RecordKind {
     /// The kind's byte: 1, 2 or 3.
+    #[must_use]
     pub fn code(self) -> u8 {
         match self {
             RecordKind::Transaction => 1,
@@ -25,6 +26,7 @@ impl RecordKind {
     }
 
     /// The kind of `code`; `None` for a byte naming none.
+    #[must_use]
     pub fn from_code(code: u8) -> Option<Self> {
         match code {
             1 => Some(RecordKind::Transaction),

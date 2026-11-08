@@ -49,8 +49,12 @@ impl Report {
     }
 
     /// `partition`'s report that its data refused `version`'s change of `predicate`, `at_fault` the subject or
-    /// object at fault. Refused as [`ProtocolError::bad_term`] when `at_fault` is a triple term, which the report
-    /// cannot name, or a literal the term table refuses.
+    /// object at fault.
+    ///
+    /// # Errors
+    ///
+    /// [`ProtocolError::bad_term`] when `at_fault` is a triple term, which the report cannot name, or a literal the
+    /// term table refuses.
     pub fn refused(
         partition: u32,
         tenant: u64,
@@ -77,11 +81,13 @@ impl Report {
     }
 
     /// The reporting partition.
+    #[must_use]
     pub fn partition(&self) -> u32 {
         self.partition
     }
 
     /// What the report says.
+    #[must_use]
     pub fn kind(&self) -> ReportKind {
         self.kind
     }
@@ -92,11 +98,13 @@ impl Report {
     }
 
     /// The catalog version reported on.
+    #[must_use]
     pub fn version(&self) -> u64 {
         self.version
     }
 
     /// The term table: the predicate, and for a refusal the term at fault.
+    #[must_use]
     pub fn terms(&self) -> &TermTable {
         &self.terms
     }

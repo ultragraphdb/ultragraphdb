@@ -93,7 +93,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             pattern,
             asked.resume().to_vec(),
         )
-        .with_client_limits(MAX_FRAME_FLOOR as u32, 1);
+        .with_client_limits(MAX_FRAME_FLOOR as u32, 1); // 2^19, lossless
         let frame = body
             .frame(Header::new(self.cluster(), Command::ComputeRead).with_stream(stream))
             .map_err(|_| too_large())?;
@@ -118,5 +118,5 @@ fn too_large() -> ErrorReply {
         ErrorCode::TooLarge,
         "the Execute's ComputeRead, its parameters bound, does not fit a frame",
     )
-    .with_detail(MAX_FRAME_SIZE as u64)
+    .with_detail(MAX_FRAME_SIZE as u64) // 2^20, lossless
 }

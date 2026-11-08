@@ -26,6 +26,7 @@ pub struct ScannedRound {
 impl ScannedRound {
     /// The round whose command header reads `header`, with its frame's `checksum`, its frame of `size` bytes at
     /// `offset`.
+    #[must_use]
     pub fn new(header: RoundHeader, checksum: u64, offset: u64, size: u32) -> Self {
         Self {
             position: Position::new(header.position()),
@@ -65,6 +66,7 @@ impl ScannedRound {
     }
 
     /// The version of the derivation that turns the round's quads into keys.
+    #[must_use]
     pub fn derivation(&self) -> NonZeroU32 {
         self.derivation
     }

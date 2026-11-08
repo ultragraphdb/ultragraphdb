@@ -32,6 +32,14 @@ pub trait OrderedLog {
     /// Stages `round` and returns its ticket, which completes once the round is durable. Accepted only on the
     /// primary, at the position after the tail, with the tail's checksum as its parent, and when the round fits;
     /// otherwise refused before anything is written.
+    ///
+    /// # Errors
+    ///
+    /// [`LogError::not_primary`] off the primary; [`LogError::poisoned`] after a failed write or sync;
+    /// [`LogError::sealed`] once the log is sealed; [`LogError::exhausted`] when the tail is the last position;
+    /// [`LogError::position_mismatch`] unless the round is at the position after the tail;
+    /// [`LogError::parent_mismatch`] unless its parent is the tail's checksum; [`LogError::too_large`] or
+    /// [`LogError::busy`] when the round does not fit.
     fn append(&mut self, round: RoundRef<'_>) -> Result<DurabilityTicket, LogError>;
 
     /// Where `ticket`'s round stands: `Ready(Ok(()))` once it is durable, which is when

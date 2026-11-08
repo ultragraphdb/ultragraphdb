@@ -97,8 +97,13 @@ impl Outbound {
         self.open_as(stream, Role::Read(transaction))
     }
 
-    /// Opens `stream` as [`Outbound::open`] does, starting with `credit` in place of the Welcome's, as a ComputeRead names
-    /// (`PROTOCOL.md` §11.3); refused as [`Outbound::open`] refuses.
+    /// Opens `stream` as [`Outbound::open`] does, starting with `credit` in place of the Welcome's, as a ComputeRead
+    /// names (`PROTOCOL.md` §11.3).
+    ///
+    /// # Errors
+    ///
+    /// As [`Outbound::open`] refuses: [`TransportError::stream_zero`], [`TransportError::stream_open`], or
+    /// [`TransportError::stream_limit`] when as many streams as allowed are open.
     pub fn open_with_credit(&mut self, stream: u64, credit: u32) -> Result<(), TransportError> {
         self.open_as(stream, Role::Request)?;
         if let Some(state) = self.streams.get_mut(&stream) {

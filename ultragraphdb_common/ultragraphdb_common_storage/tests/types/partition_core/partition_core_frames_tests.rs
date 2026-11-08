@@ -8,8 +8,9 @@
 use ultragraphdb_common_role::Answer;
 use ultragraphdb_common_storage::CoreMessage;
 use ultragraphdb_protocol_wire::{
-    Abort, Bind, BindKind, BindView, BodyView, Command, Commit, CommitView, DropCommand, ErrorCode,
-    FrameView, Lease, MAX_FRAME_SIZE, Scan, ScanAt, ScanRange, TermTable, Write, WriteChange,
+    Abort, Bind, BindKind, BindView, BodyView, Command, Commit, CommitOperation, CommitView,
+    DropCommand, ErrorCode, FrameView, Lease, MAX_FRAME_SIZE, Operation, Scan, ScanAt, ScanRange,
+    TermTable, Write, WriteChange,
 };
 use ultragraphdb_store_quads::term_key;
 use ultragraphdb_tool_bdd::{Context, TestResult};
@@ -332,6 +333,367 @@ fn test_a_commit_waits_behind_its_reads_home() -> TestResult {
             }
         }
         assert_eq!(on_three, [Command::Commit]);
+        Ok(())
+    })
+}
+
+/// An Operation in a bound transaction is held as a Write is, and its result comes back with the Commit, pushed once
+/// durable.
+#[test]
+fn test_a_transactions_operation_is_held_and_its_result_committed() -> TestResult {
+    served(1, async |driver| {
+        let mut connection = driver.connect(1, 1 << 20)?;
+        let _bound = reply_of(
+            driver
+                .ask(&connection, 3, &bind(BindKind::Transaction, 1))
+                .await?,
+        )?;
+        let mut terms = TermTable::new();
+        let operation = CommitOperation::CounterAdd {
+            graph: None,
+            subject: terms.iri(&driver.owned_by(1, "counter")?),
+            predicate: terms.iri(&driver.owned_by(1, "count")?),
+            delta: 2,
+        };
+        let held = reply_of(
+            driver
+                .ask(&connection, 3, &Operation::new(terms, operation))
+                .await?,
+        )?;
+        assert_eq!(command_of(&held)?, Command::Held);
+        let commit = Commit::new([9; 16], 1, 0);
+        assert_eq!(driver.ask(&connection, 3, &commit).await?, Answer::Open);
+        let (stream, frame) = connection.pushed("the Commit's reply").await?;
+        assert_eq!(stream, 3);
+        let reply = FrameView::validate(&frame, CLUSTER, MAX_FRAME_SIZE)?;
+        assert_eq!(reply.command(), Command::Commit, "{:?}", error_in(&frame));
+        let committed = CommitView::from_frame(&reply)?;
+        assert_eq!(committed.result_count(), 1);
+        Ok(())
+    })
+}
+
+/// `frame` with its last byte changed: its header holds, its body's checksum fails.
+fn corrupted(mut frame: Vec<u8>) -> TestResult<Vec<u8>> {
+    let last = frame.last_mut().context("a frame's bytes")?;
+    *last ^= 0xFF;
+    Ok(frame)
+}
+
+/// A request whose body fails its checksum is refused as a protocol error, and one waiting behind a parked Write is refused
+/// in its turn, once the Write is held, on its stream.
+#[test]
+fn test_a_request_failing_its_checksum_is_refused_now_or_in_its_turn() -> TestResult {
+    use crate::types::partition_core::played_cores::framed;
+    served(2, async |mut driver| {
+        let mut connection = driver.connect(1, 1 << 20)?;
+        let commit = corrupted(framed(&Commit::new([1; 16], 1, 0), 3)?)?;
+        let refused =
+            refusal_of(answered(driver.send_frame(&connection, 3, commit.clone())?).await?)?;
+        assert_eq!(refused.code(), ErrorCode::Protocol, "{}", refused.message());
+        let _bound = reply_of(
+            driver
+                .ask(&connection, 3, &bind(BindKind::Transaction, 1))
+                .await?,
+        )?;
+        let write = driver.send(&connection, 3, &edge(&driver, 2, "parked")?)?;
+        assert_eq!(answered(write).await?, Answer::Open, "the Write parks");
+        let behind = driver.send_frame(&connection, 3, commit)?;
+        assert_eq!(answered(behind).await?, Answer::Open, "it waits behind");
+        driver.release_homes();
+        let (_, held) = connection.pushed("the Write's Held").await?;
+        assert_eq!(command_of(&held)?, Command::Held, "{:?}", error_in(&held)?);
+        let (stream, frame) = connection.pushed("the refusal in its turn").await?;
+        let in_turn = error_in(&frame)?.context("an Error")?;
+        assert_eq!((stream, in_turn.code()), (3, ErrorCode::Protocol));
+        Ok(())
+    })
+}
+
+/// A Write its transaction refuses, its first subject another partition's, ends the transaction: what follows on its stream
+/// finds no Bind.
+#[test]
+fn test_a_refused_write_ends_its_transaction() -> TestResult {
+    served(2, async |driver| {
+        let connection = driver.connect(1, 1 << 20)?;
+        let _bound = reply_of(
+            driver
+                .ask(&connection, 3, &bind(BindKind::Transaction, 1))
+                .await?,
+        )?;
+        let mut terms = TermTable::new();
+        let change = WriteChange::Insert {
+            graph: None,
+            subject: terms.iri(&driver.owned_by(2, "elsewhere-s")?),
+            predicate: terms.iri(&driver.owned_by(1, "knows")?),
+            object: terms.iri(&driver.owned_by(1, "elsewhere-o")?),
+        };
+        let refused = refusal_of(
+            driver
+                .ask(&connection, 3, &Write::new(terms, vec![change]))
+                .await?,
+        )?;
+        assert_eq!(
+            refused.code(),
+            ErrorCode::WrongPartition,
+            "{}",
+            refused.message()
+        );
+        let ended = refusal_of(driver.ask(&connection, 3, &Abort).await?)?;
+        assert_eq!(
+            ended.message(),
+            "Abort on a stream no Bind of kind 1 opened"
+        );
+        Ok(())
+    })
+}
+
+/// A counter on `subject`'s `predicate`, its terms in `terms`.
+fn counter(terms: &mut TermTable, subject: &str, predicate: &str) -> CommitOperation {
+    CommitOperation::CounterAdd {
+        graph: None,
+        subject: terms.iri(subject),
+        predicate: terms.iri(predicate),
+        delta: 1,
+    }
+}
+
+/// An Operation on a stream no Bind opened is refused naming the kind; one its transaction refuses, its predicate a
+/// literal, ends the transaction.
+#[test]
+fn test_an_operation_needs_its_bind_and_a_refused_one_ends_it() -> TestResult {
+    served(1, async |driver| {
+        let connection = driver.connect(1, 1 << 20)?;
+        let mut terms = TermTable::new();
+        let operation = counter(
+            &mut terms,
+            &driver.owned_by(1, "c")?,
+            &driver.owned_by(1, "n")?,
+        );
+        let unbound = refusal_of(
+            driver
+                .ask(&connection, 3, &Operation::new(terms, operation))
+                .await?,
+        )?;
+        assert_eq!(
+            (unbound.code(), unbound.message()),
+            (
+                ErrorCode::Protocol,
+                "Operation on a stream no Bind of kind 1 opened"
+            )
+        );
+        let _bound = reply_of(
+            driver
+                .ask(&connection, 5, &bind(BindKind::Transaction, 1))
+                .await?,
+        )?;
+        let mut literal_terms = TermTable::new();
+        let literal = literal_terms.intern(ultragraphdb_protocol_wire::RequestTerm::Literal {
+            lexical: "x".to_string(),
+            datatype: None,
+        })?;
+        let literal_predicate = CommitOperation::CounterAdd {
+            graph: None,
+            subject: literal_terms.iri(&driver.owned_by(1, "c")?),
+            predicate: literal,
+            delta: 1,
+        };
+        let refused = refusal_of(
+            driver
+                .ask(
+                    &connection,
+                    5,
+                    &Operation::new(literal_terms, literal_predicate),
+                )
+                .await?,
+        )?;
+        assert_eq!(refused.code(), ErrorCode::Protocol, "{}", refused.message());
+        let ended = refusal_of(driver.ask(&connection, 5, &Abort).await?)?;
+        assert_eq!(
+            ended.message(),
+            "Abort on a stream no Bind of kind 1 opened"
+        );
+        Ok(())
+    })
+}
+
+/// An Operation naming a predicate homed on another partition parks until its home answers, and is then held.
+#[test]
+fn test_an_operation_waiting_on_its_home_is_held_once_answered() -> TestResult {
+    served(2, async |mut driver| {
+        let mut connection = driver.connect(1, 1 << 20)?;
+        let _bound = reply_of(
+            driver
+                .ask(&connection, 3, &bind(BindKind::Transaction, 1))
+                .await?,
+        )?;
+        let mut terms = TermTable::new();
+        let operation = counter(
+            &mut terms,
+            &driver.owned_by(1, "c")?,
+            &driver.owned_by(2, "n")?,
+        );
+        assert_eq!(
+            driver
+                .ask(&connection, 3, &Operation::new(terms, operation))
+                .await?,
+            Answer::Open,
+            "it parks"
+        );
+        driver.release_homes();
+        let (stream, held) = connection.pushed("the Operation's Held").await?;
+        assert_eq!(
+            (stream, command_of(&held)?),
+            (3, Command::Held),
+            "{:?}",
+            error_in(&held)?
+        );
+        Ok(())
+    })
+}
+
+/// A Write waiting behind its transaction's read that names another partition's entity parks again in its turn, and is
+/// held once that home answers too. Partition 2 is tested, which homes the IRI a tenant's first write names.
+#[test]
+fn test_a_write_behind_a_read_parks_again_on_its_own_home() -> TestResult {
+    served_at(2, 2, async |mut driver| {
+        let mut connection = driver.connect(1, 1 << 20)?;
+        let bind = Bind::new(2, BindKind::Transaction, TENANT, 0, PRINCIPAL, [7; 16]);
+        let bound = reply_of(driver.ask(&connection, 3, &bind).await?)?;
+        let read = BindView::from_frame(&FrameView::validate(&bound, CLUSTER, MAX_FRAME_SIZE)?)?
+            .read_version();
+        let scan = term_scan(7, read, &driver.owned_by(1, "read")?);
+        assert_eq!(driver.ask(&connection, 5, &scan).await?, Answer::Open);
+        let mut terms = TermTable::new();
+        let change = WriteChange::Insert {
+            graph: None,
+            subject: terms.iri(&driver.owned_by(2, "again-s")?),
+            predicate: terms.iri(&driver.owned_by(2, "knows")?),
+            object: terms.iri(&driver.owned_by(1, "again-o")?),
+        };
+        let write = Write::new(terms, vec![change]);
+        assert_eq!(driver.ask(&connection, 3, &write).await?, Answer::Open);
+        driver.release_homes();
+        let mut on_three = Vec::new();
+        for what in ["the read's answer", "the Write's Held"] {
+            let (stream, frame) = connection.pushed(what).await?;
+            if stream == 3 {
+                on_three.push(command_of(&frame)?);
+            }
+        }
+        assert_eq!(on_three, [Command::Held]);
+        Ok(())
+    })
+}
+
+/// A parked Write its transaction refuses once its references are answered, a later subject another partition's, ends the
+/// transaction on its stream.
+#[test]
+fn test_a_parked_write_refused_once_answered_ends_its_transaction() -> TestResult {
+    served(2, async |mut driver| {
+        let mut connection = driver.connect(1, 1 << 20)?;
+        let _bound = reply_of(
+            driver
+                .ask(&connection, 3, &bind(BindKind::Transaction, 1))
+                .await?,
+        )?;
+        let mut terms = TermTable::new();
+        let knows = terms.iri(&driver.owned_by(1, "knows")?);
+        let changes = vec![
+            WriteChange::Insert {
+                graph: None,
+                subject: terms.iri(&driver.owned_by(1, "first-s")?),
+                predicate: knows,
+                object: terms.iri(&driver.owned_by(2, "first-o")?),
+            },
+            WriteChange::Insert {
+                graph: None,
+                subject: terms.iri(&driver.owned_by(2, "later-s")?),
+                predicate: knows,
+                object: terms.iri(&driver.owned_by(1, "later-o")?),
+            },
+        ];
+        assert_eq!(
+            driver
+                .ask(&connection, 3, &Write::new(terms, changes))
+                .await?,
+            Answer::Open,
+            "the Write parks"
+        );
+        driver.release_homes();
+        let (stream, frame) = connection.pushed("the Write's refusal").await?;
+        let refused = error_in(&frame)?.context("an Error")?;
+        assert_eq!(
+            (stream, refused.code()),
+            (3, ErrorCode::CrossPartition),
+            "{}",
+            refused.message()
+        );
+        Ok(())
+    })
+}
+
+/// A Drop on a stream a Bind of kind 1 opened is refused naming kind 2, and ends that transaction.
+#[test]
+fn test_a_drop_on_a_transactions_stream_ends_it() -> TestResult {
+    served(1, async |driver| {
+        let connection = driver.connect(1, 1 << 20)?;
+        let _bound = reply_of(
+            driver
+                .ask(&connection, 3, &bind(BindKind::Transaction, 1))
+                .await?,
+        )?;
+        let drop = DropCommand::tenant_data(TENANT);
+        let refused = refusal_of(driver.ask(&connection, 3, &drop).await?)?;
+        assert_eq!(
+            (refused.code(), refused.message()),
+            (
+                ErrorCode::Protocol,
+                "Drop on a stream no Bind of kind 2 opened"
+            )
+        );
+        let ended = refusal_of(driver.ask(&connection, 3, &Abort).await?)?;
+        assert_eq!(
+            ended.message(),
+            "Abort on a stream no Bind of kind 1 opened"
+        );
+        Ok(())
+    })
+}
+
+/// A Commit of a request below the last its session committed is refused by the commit step, its stream told so, the
+/// refusal not run again.
+#[test]
+fn test_a_commit_its_round_refuses_is_told_on_its_stream() -> TestResult {
+    served(1, async |driver| {
+        let mut connection = driver.connect(1, 1 << 20)?;
+        let mut codes = Vec::new();
+        for (stream, identity, request) in [(3, 1, 2), (5, 2, 1)] {
+            let _bound = reply_of(
+                driver
+                    .ask(&connection, stream, &bind(BindKind::Transaction, identity))
+                    .await?,
+            )?;
+            let held = reply_of(
+                driver
+                    .ask(
+                        &connection,
+                        stream,
+                        &edge(&driver, 1, &format!("c{identity}"))?,
+                    )
+                    .await?,
+            )?;
+            assert_eq!(command_of(&held)?, Command::Held);
+            let commit = Commit::new([4; 16], request, 0);
+            assert_eq!(
+                driver.ask(&connection, stream, &commit).await?,
+                Answer::Open
+            );
+            let (on, frame) = connection.pushed("the Commit's outcome").await?;
+            assert_eq!(on, stream);
+            codes.push(error_in(&frame)?.map(|refused| refused.code()));
+        }
+        assert_eq!(codes, [None, Some(ErrorCode::RequestOutOfOrder)]);
         Ok(())
     })
 }

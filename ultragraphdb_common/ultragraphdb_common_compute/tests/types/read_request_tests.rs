@@ -12,7 +12,10 @@ use ultragraphdb_common_compute::read_times_of;
 use ultragraphdb_core_ids::{Bucket, BucketGroup, Epoch, Version};
 use ultragraphdb_core_keys::QuadKey;
 use ultragraphdb_core_terms::EncodedTerm;
-use ultragraphdb_protocol_wire::{ReadLevel, ResumeKeyView};
+use ultragraphdb_protocol_wire::{
+    ComputeRead, ErrorCode, MAX_FRAME_SIZE, PatternSlot, QuadPattern, ReadLevel, RequestTerm,
+    ResumeKeyView, TermTable,
+};
 use ultragraphdb_store_quads::{ReferrerSet, term_key};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -240,6 +243,56 @@ fn test_a_scan_waits_for_its_epoch_within_the_reads_deadline() -> TestResult {
         );
         for scan in scans.iter().filter(|scan| scan.epoch == 0) {
             assert_eq!(scan.deadline_ms, 0);
+        }
+        Ok(())
+    })
+}
+
+/// A slot bound to a term of a kind it cannot hold is refused, the refusal's detail that term's index (`PROTOCOL.md` §4.4): a
+/// literal in the graph, subject or predicate slot, a blank node in the object slot.
+#[test]
+fn test_a_slot_bound_to_a_term_it_cannot_hold_is_refused_naming_the_term() -> TestResult {
+    run(async {
+        let (cluster, tenant, _placed) = one_list().await?;
+        let literal = RequestTerm::Literal {
+            lexical: "x".to_string(),
+            datatype: None,
+        };
+        let blank = RequestTerm::BlankNode("b".to_string());
+        // The slot holding the wrong term: 0 the graph, 1 the subject, 2 the predicate, 3 the object.
+        for slot in 0..4 {
+            let mut terms = TermTable::new();
+            let wrong = terms.intern(if slot == 3 {
+                blank.clone()
+            } else {
+                literal.clone()
+            })?;
+            let at = |this| {
+                if this == slot {
+                    PatternSlot::Bound(wrong)
+                } else {
+                    PatternSlot::Unbound
+                }
+            };
+            let graph = if slot == 0 {
+                PatternSlot::Bound(wrong)
+            } else {
+                PatternSlot::DefaultGraph
+            };
+            let pattern = QuadPattern::new(graph, at(1), at(2), at(3));
+            let read =
+                ComputeRead::new(tenant, true, ReadLevel::Latest, terms, pattern, Vec::new())
+                    .with_principal(1)
+                    .with_deadline_ms(DEADLINE_MS)
+                    .with_client_limits(MAX_FRAME_SIZE as u32, 4);
+            let answer = answer_on(&mut cluster.client().await?, &read).await?;
+            let refused = answer.refusal()?;
+            assert_eq!(
+                (refused.code, refused.detail),
+                (ErrorCode::Refused, u64::from(wrong)),
+                "slot {slot}: {}",
+                refused.message
+            );
         }
         Ok(())
     })

@@ -3009,7 +3009,9 @@ The keys follow each other with no gap: range 0's first key starts at 0, each ke
 `after` counting as one of them, and section 1 ends with the last. A range with an `after` reads its first key's list from that
 object on in the list's order, the object itself included when the list holds it, and the keys beyond whole, so a read resumed in a
 list (section 11.8) costs its page and one object record and not the list's prefix; an `after` that is not one whole object
-encoding is refused with Error 1 (Protocol), the message naming the range; only a range of a keyspace of lists has one, others
+encoding is refused with Error 1 (Protocol), the message naming the range. An `after` is in the store's encoding, which
+names an IRI or a blank node by its system ID: one of tag `0x01` whose 16 bytes are no valid system ID (section 1) is no
+whole object encoding. Only a range of a keyspace of lists has one, others
 refused with Error 1 (Protocol), the message naming the range. A Scan chooses its version once, when any wait for `epoch` has ended, and every range of it
 reads that version. With `at` 1 and 4, a `read_version` at or below the version bound of an epoch the partition has closed,
 or of epoch 0, reads what the partition applied at or below that version, since every round of such an epoch is applied, so

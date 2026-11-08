@@ -7,7 +7,8 @@ use compio::io::util::Splittable;
 use ultragraphdb_protocol_transport::{BufferPool, ReceivedFrame, TransportError};
 use ultragraphdb_protocol_transport_compio::{Carrier, Connection};
 
-/// The receiving half of a [`crate::RoleClient`], whose read pending holds up no write.
+/// The receiving half of a [`crate::RoleClient`], whose read pending holds up no write. A read dropped at its `.await` cuts
+/// the frame in hand, its bytes read so far lost, so the half whose read was dropped is given up.
 #[derive(Debug)]
 pub struct RoleReader {
     connection: Connection<<Carrier as Splittable>::ReadHalf>,

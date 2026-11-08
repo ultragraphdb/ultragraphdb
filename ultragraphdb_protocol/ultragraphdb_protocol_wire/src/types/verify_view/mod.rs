@@ -18,31 +18,37 @@ pub struct VerifyView<'a> {
 
 impl<'a> VerifyView<'a> {
     /// The principal's name.
+    #[must_use]
     pub fn name(&self) -> &'a str {
         self.name
     }
 
     /// The SCRAM AuthMessage.
+    #[must_use]
     pub fn auth_message(&self) -> &'a str {
         self.auth_message
     }
 
     /// The ClientProof.
+    #[must_use]
     pub fn proof(&self) -> &'a [u8; 32] {
         self.proof
     }
 
     /// Whether the proof holds.
+    #[must_use]
     pub fn verified(&self) -> bool {
         self.verified
     }
 
     /// The principal of a verified reply; 0 otherwise.
+    #[must_use]
     pub fn principal(&self) -> u64 {
         self.principal
     }
 
     /// The ServerSignature of a verified reply.
+    #[must_use]
     pub fn signature(&self) -> Option<&'a [u8; 32]> {
         self.signature
     }

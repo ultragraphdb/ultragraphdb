@@ -18,6 +18,8 @@ pub struct Retention {
     raise_every_us: u64,
     next_raise_us: u64,
     latest: u64,
+    /// The epochs closed within the retention and one raise's interval, each newer than the last, which an epoch's length
+    /// bounds.
     closes: VecDeque<(Epoch, u64)>,
 }
 

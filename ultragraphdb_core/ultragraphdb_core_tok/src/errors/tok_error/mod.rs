@@ -64,6 +64,7 @@ impl TokError {
     }
 
     /// A [`TokErrorEnum::Geo`] error wrapping the geo index's refusal.
+    #[must_use]
     pub fn geo(value: TypesError) -> Self {
         Self(TokErrorEnum::Geo(value))
     }
@@ -79,11 +80,13 @@ impl TokError {
     }
 
     /// A [`TokErrorEnum::Options`] error wrapping the refused option.
+    #[must_use]
     pub fn options(value: OptionsError) -> Self {
         Self(TokErrorEnum::Options(value))
     }
 
     /// A [`TokErrorEnum::ShortFloat`] error: `len` bytes given for a float of `bits` bits.
+    #[must_use]
     pub fn short_float(len: usize, bits: usize) -> Self {
         Self(TokErrorEnum::ShortFloat { len, bits })
     }

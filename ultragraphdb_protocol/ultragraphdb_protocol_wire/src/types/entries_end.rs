@@ -16,6 +16,7 @@ pub enum EntriesEnd {
 
 impl EntriesEnd {
     /// The byte.
+    #[must_use]
     pub fn number(self) -> u8 {
         match self {
             EntriesEnd::More => 0,
@@ -25,6 +26,7 @@ impl EntriesEnd {
     }
 
     /// The end the byte `number` names; `None` past 2.
+    #[must_use]
     pub fn from_number(number: u8) -> Option<Self> {
         match number {
             0 => Some(EntriesEnd::More),

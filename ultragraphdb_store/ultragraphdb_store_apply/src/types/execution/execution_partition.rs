@@ -134,6 +134,7 @@ where
     /// Every value of a unique predicate the execution's changesets wrote by a plain write, with the predicate's ID,
     /// as the bucket derivation hashes it (system-identity, "The bucket comes from the tenant and the key"):
     /// `(predicate, value's term encoding)`, in the order written.
+    #[must_use]
     pub fn unique_writes(&self) -> &[(SystemId, Vec<u8>)] {
         self.write.unique_writes()
     }

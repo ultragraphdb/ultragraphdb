@@ -89,21 +89,25 @@ pub enum HnswErrorEnum {
 
 impl HnswError {
     /// A read of the posting lists that failed with `error`.
+    #[must_use]
     pub fn posting(error: PostingError) -> Self {
         Self(HnswErrorEnum::Posting(error))
     }
 
     /// An option whose value is of another type, as `error` states.
+    #[must_use]
     pub fn options(error: OptionsError) -> Self {
         Self(HnswErrorEnum::Options(error))
     }
 
     /// A key that holds no value.
+    #[must_use]
     pub fn no_value() -> Self {
         Self(HnswErrorEnum::NoValue)
     }
 
     /// No key under a prefix that passes the filter.
+    #[must_use]
     pub fn key_not_found() -> Self {
         Self(HnswErrorEnum::KeyNotFound)
     }
@@ -128,11 +132,13 @@ impl HnswError {
     }
 
     /// A distance `func_name` between vectors of different lengths.
+    #[must_use]
     pub fn different_lengths(func_name: &'static str) -> Self {
         Self(HnswErrorEnum::DifferentLengths(func_name))
     }
 
     /// A metric option that holds a value of another type than `go_type`.
+    #[must_use]
     pub fn cannot_cast(go_type: &'static str) -> Self {
         Self(HnswErrorEnum::CannotCast(go_type))
     }
@@ -143,21 +149,25 @@ impl HnswError {
     }
 
     /// An index of float width `bits` whose vectors' type is `expected` bits wide.
+    #[must_use]
     pub fn float_bits(bits: usize, expected: usize) -> Self {
         Self(HnswErrorEnum::FloatBits { bits, expected })
     }
 
     /// The option `name` holding `value`, below 1.
+    #[must_use]
     pub fn invalid_parameter(name: &'static str, value: i64) -> Self {
         Self(HnswErrorEnum::InvalidParameter { name, value })
     }
 
     /// The lists of node `uid`, holding `levels` levels, without the level `level` read.
+    #[must_use]
     pub fn level_missing(uid: SystemId, level: usize, levels: usize) -> Self {
         Self(HnswErrorEnum::LevelMissing { uid, level, levels })
     }
 
     /// A layer search that kept no neighbour.
+    #[must_use]
     pub fn no_neighbour() -> Self {
         Self(HnswErrorEnum::NoNeighbour)
     }

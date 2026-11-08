@@ -30,21 +30,25 @@ impl AdminTable {
     }
 
     /// `address`: where the listener is.
+    #[must_use]
     pub fn address(&self) -> Option<&str> {
         self.address.as_deref()
     }
 
     /// `tls_cert_file`: the certificate chain's file.
+    #[must_use]
     pub fn tls_cert_file(&self) -> Option<&str> {
         self.tls_cert_file.as_deref()
     }
 
     /// `tls_key_file`: the private key's file.
+    #[must_use]
     pub fn tls_key_file(&self) -> Option<&str> {
         self.tls_key_file.as_deref()
     }
 
     /// `key_sha256`: the SHA-256 digest of the admin key, 64 hexadecimal digits.
+    #[must_use]
     pub fn key_sha256(&self) -> Option<&str> {
         self.key_sha256.as_deref()
     }

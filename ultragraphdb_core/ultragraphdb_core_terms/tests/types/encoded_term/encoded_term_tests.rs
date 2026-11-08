@@ -539,15 +539,24 @@ fn test_check_refuses_a_duration_whose_parts_differ_in_sign() -> TestResult {
 }
 
 /// Each committed case of the fuzz target `encoded_term`, through the target's steps: the whole-encoding check, and
-/// for an encoding it accepts the reader and the literal, which return a value or an error and never panic.
+/// for an encoding it accepts the reader, which opens it or refuses an ID that is no valid system ID, and the literal,
+/// which return a value or an error and never panic.
 #[test]
 fn test_the_encoded_term_fuzz_regressions_replay_without_a_panic() -> TestResult {
     let cases = ultragraphdb_tool_bdd::fuzz_regressions("encoded_term")?;
     assert!(!cases.is_empty(), "the committed cases");
+    let invalid_id =
+        |data: &[u8]| TermError::malformed(data.to_vec(), "an ID that is no valid system ID");
     for (name, data) in &cases {
         if EncodedTerm::check(data).is_ok() {
             let term = EncodedTerm::from_bytes(data).context(name)?;
-            let view = term.view().context(name)?;
+            let view = match term.view() {
+                Ok(view) => view,
+                Err(refusal) => {
+                    assert_eq!(refusal, invalid_id(data), "{name}");
+                    continue;
+                }
+            };
             // A literal or an error, either of which passes: the replay asks only that nothing panics.
             let _literal: Result<Literal, TermError> = view.to_literal(
                 |id| Err::<_, TermError>(TermError::not_a_literal(id)),
@@ -582,6 +591,18 @@ fn test_the_encoded_term_fuzz_regressions_replay_without_a_panic() -> TestResult
             timezone.clone(),
             "a timezone offset beyond 14 hours"
         ))
+    );
+    // The third, an ID's tag and 16 bytes that are no valid system ID: whole by section 10.1, where a Result puts a
+    // hash there, and refused by the store's reader, which takes them as an ID.
+    let (_, id) = cases
+        .iter()
+        .find(|(name, _)| name == "id_of_nonzero_reserved_bits")
+        .context("the ID case")?;
+    assert!(SystemId::decode(id.get(1..).context("the ID's bytes")?).is_err());
+    assert_eq!(EncodedTerm::check(id), Ok(()));
+    assert_eq!(
+        EncodedTerm::from_bytes(id)?.view().err(),
+        Some(invalid_id(id))
     );
     Ok(())
 }

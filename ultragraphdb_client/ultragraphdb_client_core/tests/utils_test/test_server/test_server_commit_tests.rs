@@ -99,3 +99,31 @@ fn test_the_server_counts_its_open_transactions() -> TestResult {
     assert_eq!(h.server.open_transactions(), 0);
     Ok(())
 }
+
+/// A transaction's commit through no session, lost before the commit step, applies nothing and drops the connection: its
+/// outcome is unknown to the client, which has no session to resend it through.
+#[test]
+fn test_a_commit_through_no_session_lost_applies_nothing() -> TestResult {
+    let mut h = Harness::ready(server())?;
+    let tx = begin(&mut h)?;
+    h.server.lose_next_commit();
+    let p = h.core.commit(tx, None, h.now)?;
+    assert_eq!(h.settle(p)?.err(), Some(ClientError::outcome_unknown(0, 0)));
+    assert_eq!(h.server.applied(), 0);
+    Ok(())
+}
+
+/// A one-frame write through a session the server does not hold is refused with code 12, applying nothing.
+#[test]
+fn test_a_one_frame_write_of_a_session_not_held_is_refused_as_evicted() -> TestResult {
+    let mut h = Harness::ready(server())?;
+    let s = session(&mut h)?;
+    h.server.evict(s.number());
+    let writing = h.core.direct_write(insert(), s, h.now)?;
+    assert_eq!(
+        refusal(h.settle(writing)?),
+        Some((ErrorCode::SessionEvicted, 0))
+    );
+    assert_eq!(h.server.applied(), 0);
+    Ok(())
+}

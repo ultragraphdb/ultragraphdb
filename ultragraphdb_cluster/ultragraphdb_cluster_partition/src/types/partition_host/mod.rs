@@ -232,6 +232,10 @@ where
     /// # Errors
     ///
     /// The pipeline's error, after which it is stopped and recovery is the only next step.
+    ///
+    /// A future dropped at a sync leaves the messages taken handled and the round under sync neither applied nor
+    /// handed out, while the pipeline no longer counts it unsynced: a host whose turn is dropped is fit only to be
+    /// dropped, as every caller's is, each turn running in the task that owns its host.
     pub async fn turn(&mut self, now_us: u64) -> Result<(), PartitionError> {
         // Ends when the mailbox is empty: a message taken is gone, and what a turn sends goes to other partitions' or
         // waits for the next turn.

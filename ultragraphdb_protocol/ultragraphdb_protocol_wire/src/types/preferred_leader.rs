@@ -16,21 +16,25 @@ impl PreferredLeader {
     pub const SIZE: usize = 8;
 
     /// `partition`'s preferred leader, `replica`.
+    #[must_use]
     pub fn new(partition: u32, replica: u32) -> Self {
         Self { partition, replica }
     }
 
     /// The partition.
+    #[must_use]
     pub fn partition(&self) -> u32 {
         self.partition
     }
 
     /// The preferred leader's replica.
+    #[must_use]
     pub fn replica(&self) -> u32 {
         self.replica
     }
 
     /// The leader's 8 bytes.
+    #[must_use]
     pub fn encode(&self) -> [u8; PreferredLeader::SIZE] {
         let [p0, p1, p2, p3] = self.partition.to_le_bytes();
         let [r0, r1, r2, r3] = self.replica.to_le_bytes();

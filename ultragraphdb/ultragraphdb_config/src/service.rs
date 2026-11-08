@@ -138,6 +138,7 @@ fn read_targets(central: &Path) -> Result<Vec<TargetFiles>, RoleError> {
 
 /// Holds `directory` for this process's life.
 fn lock(directory: &Path) -> Result<File, RoleError> {
+    // A closure takes no type parameter, so it takes each error as a trait object (Ultra rules 1 and 9).
     let unavailable = |error: &dyn std::fmt::Display| {
         RoleError::io(format!(
             "the data directory {}: {error}",
@@ -161,8 +162,13 @@ fn lock(directory: &Path) -> Result<File, RoleError> {
     }
 }
 
+/// Serves the config API from the store under `start`'s data directory until `stop` is set. Its thread's `block_on`
+/// runs it to its end; a future dropped at the log's open, its recovery or its seeding would drop the store and the
+/// data directory's lock with it, the log as its last durable write left it, and one dropped at its wait would leave
+/// the store's owner and the listener serving until their runtime ends.
 async fn serve(start: ServiceStart, stop: &AtomicBool) -> Result<(), RoleError> {
     let _lock = lock(&start.data_dir)?;
+    // A closure takes no type parameter, so it takes each error as a trait object (Ultra rules 1 and 9).
     let failed = |what: &str, error: &dyn std::fmt::Display| {
         RoleError::io(format!(
             "{what} under {}: {error}",
@@ -222,6 +228,8 @@ async fn serve(start: ServiceStart, stop: &AtomicBool) -> Result<(), RoleError> 
     ))
     .detach();
     tracing::info!(address = %start.address, "serving");
+    // Waits for the stop signal, which ends the service (Ultra rule 2). An `Acquire` load of `stop` suffices: the
+    // flag orders no other memory.
     while !stop.load(Ordering::Acquire) {
         compio::time::sleep(SIGNAL_POLL).await;
     }

@@ -177,6 +177,7 @@ where
 
     /// The epoch the transaction's commit may be stamped at, at the earliest: one above the latest close a home's reply
     /// named, `None` before any reply.
+    #[must_use]
     pub fn epoch_floor(&self) -> Option<Epoch> {
         self.floor
     }

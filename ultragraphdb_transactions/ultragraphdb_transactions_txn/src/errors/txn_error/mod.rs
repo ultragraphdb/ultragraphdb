@@ -82,26 +82,31 @@ pub struct TxnError(pub TxnErrorEnum);
 
 impl TxnError {
     /// A request naming read version `version`, above the watermark `watermark`.
+    #[must_use]
     pub fn read_above_watermark(version: u64, watermark: u64) -> Self {
         Self(TxnErrorEnum::ReadAboveWatermark { version, watermark })
     }
 
     /// The transaction lived past its limit of `limit_ms` milliseconds.
+    #[must_use]
     pub fn past_limit(limit_ms: u64) -> Self {
         Self(TxnErrorEnum::PastLimit { limit_ms })
     }
 
     /// A write-set record of `size` bytes, past `limit`.
+    #[must_use]
     pub fn write_set_too_large(size: usize, limit: usize) -> Self {
         Self(TxnErrorEnum::WriteSetTooLarge { size, limit })
     }
 
     /// A read set of `size` bytes, past `limit`.
+    #[must_use]
     pub fn read_set_too_large(size: usize, limit: usize) -> Self {
         Self(TxnErrorEnum::ReadSetTooLarge { size, limit })
     }
 
     /// A write in a read-only transaction.
+    #[must_use]
     pub fn read_only() -> Self {
         Self(TxnErrorEnum::ReadOnly)
     }
@@ -115,21 +120,25 @@ impl TxnError {
     }
 
     /// A request of a transaction already ended.
+    #[must_use]
     pub fn ended() -> Self {
         Self(TxnErrorEnum::Ended)
     }
 
     /// The changeset's refusal or the store's failure, `error`.
+    #[must_use]
     pub fn changeset(error: ChangesetError) -> Self {
         Self(TxnErrorEnum::Changeset(error))
     }
 
     /// A write reaching `other`'s state in a transaction bound to `partition`.
+    #[must_use]
     pub fn cross_partition(partition: u32, other: u32) -> Self {
         Self(TxnErrorEnum::CrossPartition { partition, other })
     }
 
     /// A changeset holding a declaration, refused in a data transaction.
+    #[must_use]
     pub fn declaration() -> Self {
         Self(TxnErrorEnum::Declaration)
     }
@@ -138,6 +147,7 @@ impl TxnError {
     /// [`ErrorCode::TooLarge`] for a read or write set past its limit or an object past its statement bound,
     /// [`ErrorCode::CrossPartition`] for a write another partition owns, and [`ErrorCode::Refused`] for every other refusal, a
     /// declaration's among them.
+    #[must_use]
     pub fn code(&self) -> ErrorCode {
         match &self.0 {
             TxnErrorEnum::PastLimit { .. } => ErrorCode::PastLimit,

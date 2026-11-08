@@ -140,6 +140,38 @@ Feature: The config service and its CLI as processes
     When a restore names a URL where nothing answers
     Then it exits with code 69 naming the URL
 
+  Scenario: A restore of a service holding retired targets alone writes nothing
+    When a service's one target is retired and a restore is run
+    Then it exits with code 78 saying the service holds no target but retired ones, and no folder appears
+
+  Scenario: A restore refuses a listing line that names no target
+    When a restore reads a listing holding a line that names no target
+    Then it exits with code 78 naming the URL and the line, and no folder appears
+
+  Scenario: A restore refuses a listing naming a revision that is no number
+    When a restore reads a listing naming revision `two` of target `ci`
+    Then it exits with code 78 naming `two` as the revision, and no folder appears
+
+  Scenario: A restore refuses a status the service answers with no success
+    When a restore's listing is answered with status 500
+    Then it exits with code 78 naming the URL, the status and what the server said, and no folder appears
+
+  Scenario: A restore refuses settings this release refuses
+    When a restore reads a revision of target `ci` whose `storage` lacks `data_dir`
+    Then it exits with code 78 naming the central file it wrote and `storage.data_dir`
+
+  Scenario: A restore over TLS reads the trust file it names
+    When a restore names an `https` URL and `--ca-file` naming no file
+    Then it exits with code 78 naming the trust file, and no folder appears
+
+  Scenario: A restore over TLS reads the system's trust file
+    When a restore names an `https` URL with `SSL_CERT_FILE` naming no file
+    Then it exits with code 78 naming the trust file, and no folder appears
+
+  Scenario: The CLI states its usage
+    When an administrator runs `ultragraphdb_config_cli` with no argument
+    Then it prints both forms of its command line and exits with code 64
+
   Scenario: The config service ends with the process it names
     When a config service starts with `ULTRAGRAPHDB_PARENT_PID` naming a process that is not its parent
     Then it stops as on SIGTERM and exits with code 0

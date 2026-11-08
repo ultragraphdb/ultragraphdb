@@ -159,6 +159,8 @@ impl Table {
                 let (r, _) = first_rune(s);
                 let nfkd = nfkd_decomposition(r).unwrap_or_default();
                 let mut b = nfkd.as_bytes();
+                // The recursion is one level deep: a rune of an NFKD decomposition decomposes to itself, so the table
+                // gives it no `Decompose` element. Each turn consumes at least one byte of the decomposition.
                 while !b.is_empty() {
                     let p = self.append_next(w, b);
                     b = &b[p..];

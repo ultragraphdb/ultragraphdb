@@ -72,3 +72,19 @@ fn test_a_long_head_within_its_bound_is_read() -> TestResult {
     assert_eq!(reply.header("x-long"), Some(header.as_str()));
     Ok(())
 }
+
+/// A head ending past its 16 KiB bound is refused, though its end is there, and so is a status line without a status.
+#[test]
+fn test_a_head_ending_past_its_bound_or_without_a_status_is_refused() {
+    let past = format!(
+        "HTTP/1.1 200 OK\r\nX-Long: {}\r\n\r\n",
+        "a".repeat(16 * 1024)
+    );
+    for wrong in [past.as_bytes(), b"HTTP/1.1\r\n\r\n"] {
+        assert!(
+            matches!(parse_reply(wrong, 8), ParsedReply::Malformed(_)),
+            "{}",
+            String::from_utf8_lossy(wrong)
+        );
+    }
+}

@@ -33,6 +33,7 @@ pub enum WalkEnd {
 impl WalkEnd {
     /// The key just past what the walk covered, where a stopped, paused or yielded walk's span ends: its last key followed by a
     /// zero byte, or where a yielded walk goes on. `None` when the range is exhausted or the walk gave nothing.
+    #[must_use]
     pub fn past_last(&self) -> Option<Vec<u8>> {
         match self {
             Self::Exhausted | Self::Paused { last: None, .. } => None,

@@ -14,6 +14,7 @@ pub enum BindKind {
 
 impl BindKind {
     /// The kind's byte.
+    #[must_use]
     pub fn number(self) -> u8 {
         match self {
             BindKind::Transaction => 1,
@@ -22,6 +23,7 @@ impl BindKind {
     }
 
     /// The kind of byte `number`; `None` for any byte but 1 and 2.
+    #[must_use]
     pub fn from_number(number: u8) -> Option<BindKind> {
         match number {
             1 => Some(BindKind::Transaction),

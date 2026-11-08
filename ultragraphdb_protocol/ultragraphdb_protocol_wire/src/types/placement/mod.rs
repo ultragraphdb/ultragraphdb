@@ -37,12 +37,14 @@ pub struct Placement {
 
 impl Placement {
     /// A request for the map in effect at `epoch`, 0 for the latest.
+    #[must_use]
     pub fn request(epoch: u64) -> Self {
         Self::reply(0, epoch, 0, 0)
     }
 
     /// A reply naming the map read at `position` for `epoch`, applying from `from` until `until`, with no range, run
     /// or leader yet.
+    #[must_use]
     pub fn reply(position: u64, epoch: u64, from: u64, until: u64) -> Self {
         Self {
             position,
@@ -71,26 +73,31 @@ impl Placement {
     }
 
     /// The metadata group's log position; 0 in a request.
+    #[must_use]
     pub fn position(&self) -> u64 {
         self.position
     }
 
     /// The epoch the map is asked for; 0 for the latest.
+    #[must_use]
     pub fn epoch(&self) -> u64 {
         self.epoch
     }
 
     /// The epoch from which the map applies; 0 in a request.
+    #[must_use]
     pub fn from(&self) -> u64 {
         self.from
     }
 
     /// The epoch from which the next change applies; 0 for none.
+    #[must_use]
     pub fn until(&self) -> u64 {
         self.until
     }
 
     /// The bucket ranges.
+    #[must_use]
     pub fn ranges(&self) -> &[BucketRange] {
         &self.ranges
     }
@@ -101,6 +108,7 @@ impl Placement {
     }
 
     /// The preferred leaders.
+    #[must_use]
     pub fn leaders(&self) -> &[PreferredLeader] {
         &self.leaders
     }

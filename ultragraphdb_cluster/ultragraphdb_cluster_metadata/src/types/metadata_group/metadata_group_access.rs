@@ -132,6 +132,7 @@ impl<L: OrderedLog> MetadataGroup<L> {
             .principal(principal)
             .map(|held| held.id())
             .ok_or_else(|| ClusterError::unknown_principal(principal))?;
+        // The setting is at most `SESSIONS_MAX_MAX`, 2^20, so the cast is lossless.
         let max = self.config.sessions_max() as usize;
         let over = (self.head.sessions() + 1)
             .saturating_sub(max)

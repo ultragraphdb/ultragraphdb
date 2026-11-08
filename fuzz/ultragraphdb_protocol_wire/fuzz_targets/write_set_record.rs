@@ -26,7 +26,9 @@ fuzz_target!(|data: &[u8]| {
             }
         }
         RecordKind::Registration => {
-            assert_eq!(view.registration_count(), 1);
+            // One registration, or none for an entity the home got or created for a registration naming no bucket
+            // group (`PROTOCOL.md` §12.2).
+            assert!(view.registration_count() <= 1);
             assert_eq!(view.catalog(), 0);
         }
         RecordKind::Build => {

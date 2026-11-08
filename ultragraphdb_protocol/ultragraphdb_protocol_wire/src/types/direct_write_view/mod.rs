@@ -21,16 +21,19 @@ pub struct DirectWriteView<'a> {
 
 impl<'a> DirectWriteView<'a> {
     /// The principal the frontend filled; 0 from a client.
+    #[must_use]
     pub fn principal(&self) -> u64 {
         self.header.principal
     }
 
     /// The client's session; all zero for none.
+    #[must_use]
     pub fn session(&self) -> [u8; 16] {
         self.header.session
     }
 
     /// The request's number within its session.
+    #[must_use]
     pub fn request(&self) -> u64 {
         self.header.request
     }
@@ -41,26 +44,31 @@ impl<'a> DirectWriteView<'a> {
     }
 
     /// The session token the client holds; `None` for none.
+    #[must_use]
     pub fn token(&self) -> Option<&SessionToken> {
         self.header.token.as_ref()
     }
 
     /// The term table.
+    #[must_use]
     pub fn terms(&self) -> &TermTableView<'a> {
         &self.sections.terms
     }
 
     /// The number of changes, at least one.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.sections.len()
     }
 
     /// Whether the view holds no change: false for every accepted frame, which holds at least one.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.sections.len() == 0
     }
 
     /// Change `index`, `None` past the last.
+    #[must_use]
     pub fn change(&self, index: usize) -> Option<WriteChange> {
         self.sections.change(index)
     }

@@ -70,10 +70,10 @@ struct Update {
 /// of `max_frame`, is refused as too large when it is decided, taking no version, and one whose operations leave a
 /// write set that a fresh round holds but its own round has no room for waits for the next round, decided again there
 /// first. The round's transactions are decided in round order ([`Resolver`]), each admitted one taking the next version
-/// of the [`Sequencer`], whose clock is read once per round; the body, every decision and the record of each committed
-/// transaction, is written into the output's buffer in `ultragraphdb_protocol_wire`'s `RoundBody` layout. A round is
-/// acknowledged as a unit: its replies, aborts included, go out once its sync has completed and its apply is handed
-/// over.
+/// of the [`ultragraphdb_cluster_sequencer::Sequencer`], whose clock is read once per round; the body, every decision
+/// and the record of each committed transaction, is written into the output's buffer in `ultragraphdb_protocol_wire`'s
+/// `RoundBody` layout. A round is acknowledged as a unit: its replies, aborts included, go out once its sync has
+/// completed and its apply is handed over.
 ///
 /// **The commit queue** holds the requests waiting, at most [`CommitStep::with_queue`]'s limit: a commit arriving to
 /// a full queue is refused busy, retryable, and released.
@@ -88,7 +88,7 @@ struct Update {
 /// last is answered with that commit's stored reply, its version and its operations' results, and commits nothing (its
 /// proposal released), and one below the last is refused as out of order ([`Sessions::check_one_frame`]). A resend sent
 /// while a request of its session is in flight is therefore refused busy, not answered. A registration
-/// ([`Input::Register`]) takes a commit version in its round, which numbers the session, its record a write-set record
+/// ([`Input::Registration`]) takes a commit version in its round, which numbers the session, its record a write-set record
 /// of that session, request 0 and no writes. The table takes each round's registrations and committed requests once the
 /// round is applied, the oldest session evicted when full, and hands the entries they changed to the round's apply
 /// ([`StepOutput::system`]), so the store holds the table as of every round it applied.
@@ -111,7 +111,8 @@ pub struct CommitStep<P> {
     close_request: CloseRequest,
     /// When the close of the full open epoch was asked for, on the step's clock; `None` when none is asked.
     asked_us: Option<u64>,
-    /// The commits held for a close until their session token's epoch is open.
+    /// The commits held for a close until their session token's epoch is open. With `waiting` and `deferred` it holds
+    /// at most `queue` entries, past which a commit is refused busy.
     held: VecDeque<CommitRequest<P>>,
     /// Since when commits have been held with no close delivered, on the step's clock; `None` when none is held.
     held_us: Option<u64>,
@@ -188,6 +189,7 @@ impl<P: Proposal> CommitStep<P> {
 
     /// The step with `delivered` the latest close delivered to its partition, as the partition's subscription stands
     /// when it opens.
+    #[must_use]
     pub fn with_delivered(self, delivered: Epoch) -> Self {
         let last = self
             .stamp
@@ -200,11 +202,13 @@ impl<P: Proposal> CommitStep<P> {
     }
 
     /// The step deciding for partition `partition`, which its session tokens name; 0 by default.
+    #[must_use]
     pub fn with_partition(self, partition: u32) -> Self {
         Self { partition, ..self }
     }
 
     /// The step whose log's tail is at `tail`, so its next round takes position `tail + 1`; 0 by default.
+    #[must_use]
     pub fn with_tail(self, tail: u64) -> Self {
         Self {
             position: tail,
@@ -214,6 +218,7 @@ impl<P: Proposal> CommitStep<P> {
 
     /// The step waiting `close_request` for a close it asked for before refusing held and new commits busy; 60,000 ms
     /// by default.
+    #[must_use]
     pub fn with_close_request(self, close_request: CloseRequest) -> Self {
         Self {
             close_request,
@@ -223,6 +228,7 @@ impl<P: Proposal> CommitStep<P> {
 
     /// The step holding `versions`, each tenant's catalog version in effect at its open epoch, as the metadata
     /// group's versions stand when the partition opens; a tenant not named is at version 0.
+    #[must_use]
     pub fn with_catalog(self, versions: &[CatalogVersion]) -> Self {
         let mut catalog: Vec<(u64, u64)> = versions
             .iter()
@@ -333,22 +339,26 @@ impl<P: Proposal> CommitStep<P> {
     }
 
     /// The newest version handed over to apply: the visibility watermark once the caller has applied it.
+    #[must_use]
     pub fn watermark(&self) -> u64 {
         self.watermark
     }
 
     /// The latest close delivered to the partition.
+    #[must_use]
     pub fn delivered(&self) -> Epoch {
         self.stamp.delivered()
     }
 
     /// The partition's open epoch, one above its latest delivered close; `None` past the last epoch.
+    #[must_use]
     pub fn open(&self) -> Option<Epoch> {
         self.stamp.open()
     }
 
     /// The newest epoch the partition has closed: its close delivered and every round stamped at or below it applied.
     /// A snapshot read at an epoch waits until the partition has closed it.
+    #[must_use]
     pub fn closed(&self) -> Epoch {
         let delivered = self.stamp.delivered();
         match self.in_flight {
@@ -368,6 +378,7 @@ impl<P: Proposal> CommitStep<P> {
     }
 
     /// The log's tail: the position of the last round closed.
+    #[must_use]
     pub fn tail(&self) -> u64 {
         self.position
     }
@@ -388,6 +399,7 @@ impl<P: Proposal> CommitStep<P> {
     }
 
     /// The number of commits held for a close.
+    #[must_use]
     pub fn held(&self) -> usize {
         let full = if self.stamp.is_full() {
             self.waiting.len()
@@ -418,6 +430,7 @@ impl<P: Proposal> CommitStep<P> {
     }
 
     /// The close out of order that stopped the step, as the reason it names; `None` otherwise.
+    #[must_use]
     pub fn fault(&self) -> Option<&CommitError> {
         self.fault.as_ref()
     }

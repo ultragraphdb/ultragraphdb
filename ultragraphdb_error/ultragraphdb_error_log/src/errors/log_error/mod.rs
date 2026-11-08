@@ -138,36 +138,43 @@ pub struct LogError(pub LogErrorEnum);
 
 impl LogError {
     /// This replica is not the primary.
+    #[must_use]
     pub fn not_primary() -> Self {
         Self(LogErrorEnum::NotPrimary)
     }
 
     /// The log holds `segments` segments, its capacity.
+    #[must_use]
     pub fn busy(segments: u64) -> Self {
         Self(LogErrorEnum::Busy { segments })
     }
 
     /// The log was sealed at `position`.
+    #[must_use]
     pub fn sealed(position: u64) -> Self {
         Self(LogErrorEnum::Sealed { position })
     }
 
     /// The log holds a round at `position`, the last position a round can take.
+    #[must_use]
     pub fn exhausted(position: u64) -> Self {
         Self(LogErrorEnum::Exhausted { position })
     }
 
     /// The round at `position` was replaced before it became durable.
+    #[must_use]
     pub fn truncated(position: u64) -> Self {
         Self(LogErrorEnum::Truncated { position })
     }
 
     /// A position the operation does not take: `found`, where `expected` is the one it takes or its nearest bound.
+    #[must_use]
     pub fn position_mismatch(expected: u64, found: u64) -> Self {
         Self(LogErrorEnum::PositionMismatch { expected, found })
     }
 
     /// The round at `position` names `found` as its parent, not `expected`.
+    #[must_use]
     pub fn parent_mismatch(position: u64, expected: u64, found: u64) -> Self {
         Self(LogErrorEnum::ParentMismatch {
             position,
@@ -177,11 +184,13 @@ impl LogError {
     }
 
     /// A round of `size` bytes is larger than `limit`.
+    #[must_use]
     pub fn too_large(size: usize, limit: usize) -> Self {
         Self(LogErrorEnum::TooLarge { size, limit })
     }
 
     /// The round at `position`, at byte `offset` of segment `segment`, is damaged before its body.
+    #[must_use]
     pub fn corrupt(position: u64, segment: u64, offset: u64) -> Self {
         Self(LogErrorEnum::Corrupt {
             position,
@@ -191,6 +200,7 @@ impl LogError {
     }
 
     /// Chunk `chunk`, body bytes `start` to `end`, of the round at `position` does not match its leaf.
+    #[must_use]
     pub fn corrupt_chunk(
         position: u64,
         segment: u64,
@@ -210,11 +220,13 @@ impl LogError {
     }
 
     /// Superblock copy `copy` holds bytes that do not verify.
+    #[must_use]
     pub fn superblock_unreadable(copy: char) -> Self {
         Self(LogErrorEnum::SuperblockUnreadable { copy })
     }
 
     /// The log's `what` is `found`, not `expected`.
+    #[must_use]
     pub fn diverged(what: &'static str, expected: u64, found: u64) -> Self {
         Self(LogErrorEnum::Diverged {
             what,
@@ -233,6 +245,7 @@ impl LogError {
     }
 
     /// A write or sync failed earlier; the log refuses every operation until reopened.
+    #[must_use]
     pub fn poisoned() -> Self {
         Self(LogErrorEnum::Poisoned)
     }

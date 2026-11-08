@@ -24,17 +24,22 @@ impl<'a> DefaultEntryView<'a> {
     }
 
     /// Whether the record already existed; false in a request.
+    #[must_use]
     pub fn found(&self) -> bool {
         self.found
     }
 
     /// The predicate's IRI, borrowed from the frame.
+    #[must_use]
     pub fn predicate(&self) -> &'a str {
         self.predicate
     }
 
-    /// The body as the request the frontend receives: refused as [`ProtocolError::field_value`] (`"found"`, 1) when
-    /// `found` is set.
+    /// The body as the request the frontend receives.
+    ///
+    /// # Errors
+    ///
+    /// [`ProtocolError::field_value`] (`"found"`, 1) when `found` is set.
     pub fn check_request(&self) -> Result<(), ProtocolError> {
         if self.found {
             return Err(ProtocolError::field_value(

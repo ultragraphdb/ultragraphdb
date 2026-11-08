@@ -39,6 +39,8 @@ pub struct RoleDouble {
 impl RoleDouble {
     /// A double of `cluster` listening on a port of its own, answering by `script`.
     ///
+    /// A future dropped at its bind leaves nothing listening.
+    ///
     /// # Errors
     ///
     /// What listening or the role secret refuses.
@@ -50,6 +52,7 @@ impl RoleDouble {
     where
         F: Fn(&DoubleFrame) -> Answer + 'static,
     {
+        // A closure takes no type parameter, so it takes each error as a trait object (Ultra rules 1 and 9).
         let refused = |error: &dyn std::fmt::Display| RoleError::unavailable(error.to_string());
         let any = Address::any_port("127.0.0.1").map_err(|error| refused(&error))?;
         let listener = Listener::bind(&any)
@@ -73,8 +76,10 @@ impl RoleDouble {
         let held = double.clone();
         let script = Rc::new(script);
         let accepting = spawn(async move {
+            // An event loop: the double's drop, which drops this task, or a failed accept ends it (Ultra rule 2).
             while let Ok(carrier) = listener.accept().await {
                 let (server, credentials) = (server.clone(), credentials.clone());
+                // What a test's script pushes, which the test bounds.
                 let (pushes, pushed) = unbounded();
                 let session = DoubleSession {
                     seen: Rc::clone(&held.seen),
@@ -94,6 +99,8 @@ impl RoleDouble {
     }
 
     /// Joins the frontend at `frontend` as what `join` says, on a connection that stays open as long as the double.
+    ///
+    /// A dropped future drops its connection, and a Join the frontend took stands.
     ///
     /// # Errors
     ///

@@ -99,12 +99,14 @@ impl<P> StepOutput<P> {
 
     /// The log position of the round closed by this step, which its replies' session tokens name: the one after the
     /// log's tail; `None` when none closed.
+    #[must_use]
     pub fn position(&self) -> Option<Position> {
         self.append.map(|_| Position::new(self.position))
     }
 
     /// The round to append as the log takes it, at its position ([`StepOutput::position`]) after the round whose
     /// checksum is `parent`, through the derivation version `derivation`.
+    #[must_use]
     pub fn round_ref(&self, parent: u64, derivation: NonZeroU32) -> Option<RoundRef<'_>> {
         let position = self.position()?;
         self.append.map(|record| {
@@ -121,6 +123,7 @@ impl<P> StepOutput<P> {
 
     /// The epoch to ask the sequencer to close now: the open epoch, which filled in this step, its commits held until
     /// the close is delivered; `None` otherwise.
+    #[must_use]
     pub fn close_request(&self) -> Option<Epoch> {
         self.close_request
     }
@@ -158,11 +161,13 @@ impl<P> StepOutput<P> {
 
     /// The applied round's registrations, each its ticket and commit version, in round order: what each one's home
     /// left applies at that version with the round.
+    #[must_use]
     pub fn registered(&self) -> &[(u64, u64)] {
         &self.registered
     }
 
     /// The tickets of the registrations this step will not apply: refused, or dropped with a round that failed.
+    #[must_use]
     pub fn dismissed(&self) -> &[u64] {
         &self.dismissed
     }

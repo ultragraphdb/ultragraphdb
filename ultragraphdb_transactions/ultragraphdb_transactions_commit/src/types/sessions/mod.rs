@@ -69,6 +69,7 @@ impl Sessions {
 
     /// The table holding at most `capacity` sessions, at least one, or the sessions it holds when more: none is evicted
     /// here, and a session it does not hold is refused while it holds `capacity` or more.
+    #[must_use]
     pub fn bounded(self, capacity: usize) -> Self {
         Self {
             capacity: capacity.max(self.table.len()).max(1),
@@ -197,6 +198,7 @@ impl Sessions {
     }
 
     /// The last committed request of `session` and its version, `None` for a session not held.
+    #[must_use]
     pub fn last(&self, session: u128) -> Option<(u64, u64)> {
         self.table
             .get(&session)

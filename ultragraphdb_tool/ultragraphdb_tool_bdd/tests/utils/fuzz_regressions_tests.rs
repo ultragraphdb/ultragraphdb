@@ -92,3 +92,17 @@ fn test_an_unreadable_case_fails_naming_it() -> TestResult {
     assert!(e.reason().contains("unreadable_case"), "{e}");
     Ok(())
 }
+
+#[test]
+fn test_an_unlistable_directory_fails_naming_it() -> TestResult {
+    let dir = scratch_dir("unlistable")?;
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o000))?;
+    let replayed = fuzz_regressions_in(&dir);
+    // Listable again, so a later run clears it.
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))?;
+    let Err(e) = replayed else {
+        return Err(TestError::new("an unlistable directory fails the replay"));
+    };
+    assert!(e.reason().contains(&dir.display().to_string()), "{e}");
+    Ok(())
+}

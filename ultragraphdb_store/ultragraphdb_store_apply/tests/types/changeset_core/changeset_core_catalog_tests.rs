@@ -530,3 +530,86 @@ fn test_a_version_taking_effect_holds_another_partitions_predicate_until_the_nex
     assert_eq!(a.catalog(TENANT)?.unresolved(ex("foreign").as_str()), None);
     Ok(())
 }
+
+/// A version taking effect holds the predicate `<foreign>` names by name and leaves out the entity type and the relation of
+/// that name, which no write here names; it declares those whose IDs this partition holds, and refuses nothing.
+#[test]
+fn test_a_version_taking_effect_leaves_out_another_partitions_type_and_relation() -> TestResult {
+    let a = crate::utils::partitions::owning_all_but("foreign")?;
+    write(&a, &["<x> <knows> <Person>", "<x> <knows> <Marriage>"])?;
+    let refusals = take_effect(&a, &naming_another_partitions(2)?)?;
+    assert!(refusals.is_empty(), "{refusals:?}");
+    let catalog = a.catalog(TENANT)?;
+    assert_eq!(
+        catalog.unresolved(ex("foreign").as_str()),
+        Some(&declaration("foreign", "a property with `exact`")?)
+    );
+    let types: Vec<&str> = catalog
+        .entity_types()
+        .map(|(_, t)| t.iri().as_str())
+        .collect();
+    assert_eq!(types, vec![ex("Person").as_str()]);
+    let relations: Vec<&str> = catalog.relations().map(|(_, r)| r.iri().as_str()).collect();
+    assert_eq!(relations, vec![ex("Marriage").as_str()]);
+    Ok(())
+}
+
+/// A write naming a predicate held by name, by the ID its home gave, writes it as the held declaration states: the value
+/// index of its `exact` tokenizer.
+#[test]
+fn test_a_write_naming_a_held_predicate_by_its_given_id_follows_its_declaration() -> TestResult {
+    use ultragraphdb_core_ids::{Sequence, SystemId, TypePrefix};
+    use ultragraphdb_core_keys::{DEFAULT_GRAPH, QuadKey};
+    let a = crate::utils::partitions::owning_all_but("foreign")?;
+    write(&a, &["<x> <knows> <y>"])?;
+    let _refusals = take_effect(&a, &version(2, &[("foreign", "a property with `exact`")])?)?;
+    let given = SystemId::new(
+        TypePrefix::RESOURCE,
+        crate::utils::partitions::bucket_of("foreign")?,
+        Sequence::new(77)?,
+    );
+    let mut e = a.begin(TENANT, a.quads().lists().applied_ts())?;
+    e.adopt(ex("foreign").as_str(), given);
+    e.apply(&crate::utils::changesets::changeset(vec![
+        crate::utils::changesets::insert("<x> <foreign> \"held\"")?,
+    ]))?;
+    let executed = e.finish()?;
+    let (tokenizer, token) = crate::utils::changesets::exact_token("held");
+    let index = QuadKey::ValueIndex {
+        tenant: TENANT,
+        graph: DEFAULT_GRAPH,
+        predicate: given,
+        tokenizer,
+        token,
+    }
+    .to_bytes();
+    assert!(
+        executed.writes().deltas().iter().any(|(k, _)| *k == index),
+        "the held declaration's index is written"
+    );
+    a.release(&executed);
+    Ok(())
+}
+
+/// A key under the tenant's statistics prefix that is no statistics key, which no write produces, is passed over: the
+/// default entries sent are those of the statistics keys.
+#[test]
+fn test_a_statistics_key_that_does_not_parse_is_passed_over() -> TestResult {
+    use ultragraphdb_core_keys::key_prefix;
+    use ultragraphdb_traits_store::{Entry, PersistMode, Store, WriteBatch};
+    let a = changesets()?;
+    write(&a, &["<a> <knows> <b>"])?;
+    let sent = a.reconcile_defaults(TENANT)?;
+    let mut damaged = key_prefix(Keyspace::Statistics, false, TENANT, None, None);
+    damaged.push(0xFF);
+    let mut batch = WriteBatch::new();
+    batch.push(Entry::put(
+        damaged,
+        a.quads().lists().applied_ts(),
+        0,
+        vec![0],
+    ));
+    a.quads().store().apply(batch, PersistMode::Buffer)?;
+    assert_eq!(a.reconcile_defaults(TENANT)?, sent);
+    Ok(())
+}

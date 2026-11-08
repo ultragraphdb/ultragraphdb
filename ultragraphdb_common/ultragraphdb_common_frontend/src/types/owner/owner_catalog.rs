@@ -80,6 +80,7 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
 
     /// A catalog version of `declared`, built on `built_on`, offered as pending: its answer waits for its effective epoch and, when
     /// it tightens a predicate, for every partition's check.
+    /// An asker gone has no one to tell, so each reply's failed send is dropped.
     pub(super) fn declare(
         &mut self,
         tenant: u64,
@@ -151,6 +152,7 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
     }
 
     /// The catalog version a Drop calls for, pending and durable; a version that would change nothing is not built.
+    /// An asker gone has no one to tell, so each reply's failed send is dropped.
     pub(super) fn drop_catalog(
         &mut self,
         tenant: u64,
@@ -195,6 +197,7 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
     }
 
     /// The default entry of `predicate`, durable before its answer.
+    /// An asker gone has no one to tell, so each reply's failed send is dropped.
     pub(super) fn record_default(
         &mut self,
         tenant: u64,

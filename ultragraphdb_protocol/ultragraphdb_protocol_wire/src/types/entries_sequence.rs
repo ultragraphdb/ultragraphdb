@@ -61,7 +61,11 @@ impl EntriesSequence {
     }
 
     /// `frame` read as an Entries frame, checked against the frames before it and the Scan's ranges, and taken as the
-    /// previous frame; its view. After the frame's own refusals, in the protocol's order: in a frame naming the previous
+    /// previous frame; its view.
+    ///
+    /// # Errors
+    ///
+    /// After the frame's own refusals, in the protocol's order: in a frame naming the previous
     /// frame's range, a first key at or below the last key the range has sent, or, after a frame with `continues` 1, no
     /// entry or a first key not equal to it ([`ProtocolError::field_value`] `"entry order"`, 0); a `range` other than the
     /// one the previous frame leads to, range 0 for the first frame, a `through` not below the Scan's range count, or a run
@@ -90,6 +94,7 @@ impl EntriesSequence {
         }
         self.check_range(&view)?;
         let ends_answer =
+            // Lossless: a `usize` is at least 32 bits.
             view.through() as usize + 1 == self.bounds.len() && view.end() != EntriesEnd::More;
         if (frame.header().flags() & FLAG_LAST != 0) != ends_answer {
             return Err(ProtocolError::field_value(command, "end", range.into()));
@@ -160,7 +165,7 @@ impl EntriesSequence {
             Some(index) => Err(ProtocolError::field_value(
                 Command::Entries.number(),
                 "entry order",
-                index as u64,
+                index as u64, // lossless: a `usize` is at most 64 bits
             )),
             None => Ok(()),
         }
@@ -168,7 +173,7 @@ impl EntriesSequence {
 
     /// The indices of the Scan's ranges from `range` through `through`; `None` past the last.
     fn run(&self, range: u32, through: u32) -> Option<RangeInclusive<usize>> {
-        let (range, through) = (range as usize, through as usize);
+        let (range, through) = (range as usize, through as usize); // lossless: a `usize` is at least 32 bits
         (range <= through && through < self.bounds.len()).then_some(range..=through)
     }
 

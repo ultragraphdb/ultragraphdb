@@ -31,6 +31,7 @@ pub struct Install {
 
 impl Install {
     /// A request installing `sources`, each a name and its text, in `tenant`, built on the catalog version `version`.
+    #[must_use]
     pub fn new(tenant: u64, version: u64, sources: Vec<(String, String)>) -> Self {
         Self {
             tenant,
@@ -51,26 +52,31 @@ impl Install {
     }
 
     /// The tenant.
+    #[must_use]
     pub fn tenant(&self) -> u64 {
         self.tenant
     }
 
     /// In a request, the version the sources build on; in a reply, the version installed.
+    #[must_use]
     pub fn version(&self) -> u64 {
         self.version
     }
 
     /// In a reply, the epoch the version takes effect at; 0 in a request.
+    #[must_use]
     pub fn epoch(&self) -> u64 {
         self.epoch
     }
 
     /// The sources, each a name and its text.
+    #[must_use]
     pub fn sources(&self) -> &[(String, String)] {
         &self.sources
     }
 
     /// The compilation report; empty in a request.
+    #[must_use]
     pub fn report(&self) -> &str {
         &self.report
     }

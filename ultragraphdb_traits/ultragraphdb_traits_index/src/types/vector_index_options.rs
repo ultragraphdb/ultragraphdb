@@ -15,11 +15,13 @@ use crate::traits::float::Float;
 pub type SearchFilter<T> = fn(query: &[T], result: &[T], id: SystemId) -> bool;
 
 /// Dgraph's `AcceptAll`.
+#[must_use]
 pub fn accept_all<T: Float>(_: &[T], _: &[T], _: SystemId) -> bool {
     true
 }
 
 /// Dgraph's `AcceptNone`.
+#[must_use]
 pub fn accept_none<T: Float>(_: &[T], _: &[T], _: SystemId) -> bool {
     false
 }

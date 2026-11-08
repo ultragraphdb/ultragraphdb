@@ -55,9 +55,12 @@ where
     E: Executor,
 {
     /// The applier of `lists`' store, its sequences leased from `blocks` and its names drawn from `random`, its builds
-    /// on `executor`, its vector index's level draws seeded by `seed`. Refused when the store was written under another
-    /// mapping contract. A rebuild record a crash left is finished by [`ChangesetApplier::recover_builds`], once the
-    /// catalogs are loaded.
+    /// on `executor`, its vector index's level draws seeded by `seed`. A rebuild record a crash left is finished by
+    /// [`ChangesetApplier::recover_builds`], once the catalogs are loaded.
+    ///
+    /// # Errors
+    ///
+    /// The error [`QuadStore::open`] gives: the store written under another mapping contract, or the store's error.
     pub fn new(
         lists: Lists<S, C>,
         blocks: B,
@@ -69,6 +72,10 @@ where
     }
 
     /// The applier of `quads`, as [`ChangesetApplier::new`] makes it.
+    ///
+    /// # Errors
+    ///
+    /// Every call returns `Ok`, the store being open already; the `Result` keeps [`ChangesetApplier::new`]'s shape.
     pub fn over(quads: QuadStore<S, C, B>, executor: E, seed: u64) -> Result<Self, ChangesetError> {
         let core = ChangesetCore::new(quads, seed);
         Ok(Self {

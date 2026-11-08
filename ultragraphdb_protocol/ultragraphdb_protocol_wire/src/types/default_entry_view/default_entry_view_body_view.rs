@@ -38,7 +38,7 @@ impl<'a> BodyView<'a> for DefaultEntryView<'a> {
             return Err(ProtocolError::count_mismatch(
                 command,
                 "default entry",
-                terms.len() as u64,
+                terms.len() as u64, // lossless: a `usize` is at most 64 bits
                 1,
             ));
         }

@@ -14,6 +14,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub struct ResultStream {
     stream: u64,
     generation: u64,
+    // Shared (Ultra rule 9): the core keeps a clone and counts the `Arc`'s holders to know whether the handle is still
+    // held ([`handle_held`]); the flag is an atomic so the handle is `Send` and `Sync`. Relaxed suffices: the flag
+    // orders no other memory.
     read_to_end: Arc<AtomicBool>,
 }
 

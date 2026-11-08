@@ -46,6 +46,7 @@ impl BigFloat {
         Some(match (&self.form, &y.form) {
             (Form::Finite { mant: a, exp: ea }, Form::Finite { mant: b, exp: eb }) => {
                 // Shift the dividend so the quotient has at least prec + 2 bits; the remainder is the sticky bit.
+                // The shift is at least 0, so its cast loses no sign, and an i64 fits a 64-bit usize.
                 let shift = (i64::from(prec) + 2 + go_int(b.bit_len()) - go_int(a.bit_len())).max(0)
                     as usize;
                 let (q, r) = (a << shift).div_rem(b);

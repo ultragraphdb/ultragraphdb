@@ -16,6 +16,7 @@ pub struct VectorQuery<'q> {
 
 impl<'q> VectorQuery<'q> {
     /// The query for at most `k` nodes nearest `vector`, searched as `options` ask.
+    #[must_use]
     pub fn new(vector: &'q [f32], k: usize, options: &'q VectorIndexOptions<f32>) -> Self {
         Self { vector, k, options }
     }

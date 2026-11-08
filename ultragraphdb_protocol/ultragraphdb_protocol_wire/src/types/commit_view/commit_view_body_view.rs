@@ -60,7 +60,7 @@ impl<'a> BodyView<'a> for CommitView<'a> {
             return Err(ProtocolError::count_mismatch(
                 command,
                 "results",
-                (results.len().div_ceil(16) + nodes.len()) as u64,
+                (results.len().div_ceil(16) + nodes.len()) as u64, // lossless: a `usize` is at most 64 bits
                 0,
             ));
         }

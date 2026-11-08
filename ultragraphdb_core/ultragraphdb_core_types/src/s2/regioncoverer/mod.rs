@@ -194,7 +194,8 @@ impl<'r, R: Region> Coverer<'r, R> {
     }
 
     /// Populates the children of the candidate by expanding the given number of levels from
-    /// the given cell. Returns the number of children that were marked "terminal".
+    /// the given cell. Returns the number of children that were marked "terminal". Each call recurses with one level
+    /// fewer, and the levels start at most at the coverer's `level_mod`, clamped to 3, so it recurses at most 3 deep.
     fn expand_children(&self, cand: &mut Candidate, cell: Cell, num_levels: i64) -> i64 {
         let num_levels = num_levels - 1;
         let mut num_terminals = 0;

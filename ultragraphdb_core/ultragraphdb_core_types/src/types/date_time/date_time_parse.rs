@@ -427,6 +427,7 @@ impl<'a> Fields<'a> {
         if mi > 60 {
             self.range_err = "time zone offset minute";
         }
+        // Lossless: `getnum` reads two digits each, so the offset is at most 359,940 seconds.
         let off = ((hr * 60 + mi) * 60) as i32;
         match sign {
             b"+" => self.zone_offset = Some(off),
@@ -488,6 +489,7 @@ impl<'a> Fields<'a> {
         if !self.zone_name.is_empty() {
             let mut offset = 0;
             if self.zone_name.len() > 3 && &self.zone_name[..3] == b"GMT" {
+                // Lossless: `parse_signed_offset` admitted the hours only within 23 of zero.
                 offset = atoi(&self.zone_name[3..]).unwrap_or(0) as i32 * 3600;
             }
             return Ok(t.with_zone(Zone::Fixed(offset)));

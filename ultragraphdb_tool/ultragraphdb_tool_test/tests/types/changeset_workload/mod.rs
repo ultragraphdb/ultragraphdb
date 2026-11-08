@@ -4,4 +4,6 @@
  */
 
 #[cfg(test)]
+mod changeset_workload_checks_tests;
+#[cfg(test)]
 mod changeset_workload_tests;

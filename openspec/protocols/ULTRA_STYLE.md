@@ -114,29 +114,26 @@ pure. A good function is an inverted hourglass: few parameters, a simple return 
 
 *Check:* `clippy::too_many_lines` with `too-many-lines-threshold = 70` in `clippy.toml`.
 
-### 5. Assertions: two per function, paired, in both spaces
+### 5. A bug stops the component through a returned invariant error
 
-Every function checks what it relies on: its arguments, its preconditions, its postconditions and the invariants of
-the state it changes, at an average of at least two checks per function. A check is one of three kinds, by what a
-failure means (see *Invariants and errors*):
+A function checks the invariants whose violation would corrupt what is stored or sent, each as a returned error:
+`invariant(holds, name)?` gives an `InvariantError` naming the invariant, which the crate's error carries up and which
+stops the component (see *Invariants and errors*). Relationships of constants and type sizes are checked at compile
+time: `const _: () = assert!(HEADER_SIZE % 8 == 0);`. Any other check a function relies on is a `debug_assert!`, run by
+every test, simulation and fuzz target and compiled out of a release build. Code under `src/` holds no run-time
+`assert!`, `assert_eq!` or `assert_ne!`: one would stop the whole process in production for a fault that a returned
+error confines to its component. The invariants a function relies on decide how many checks it holds; what the types
+already prove, a variant matched exhaustively, a length the type bounds, a value owned, needs no check of its own. A
+compound check is split so a failure names the condition, and a check is side-effect free.
 
-- **Compile time**, for relationships of constants and type sizes: `const _: () = assert!(HEADER_SIZE % 8 == 0);`.
-- **Release**, for every invariant whose violation would corrupt what is stored or sent: an ordinary check returning
-  an invariant error, through `invariant(holds, name)?`.
-- **Debug**, for checks too costly for release: `debug_assert!`, run by every test, simulation and fuzz target.
+*Why:* Rust's types and exhaustive matching prove much of what a C or Zig program asserts at run time, so what is left
+to check is the invariant the types cannot hold. In production a returned error keeps `src/` free of panics (rule 7)
+and stops the component before it writes anything more, while the node goes on through its ordinary shutdown path. In
+development a `debug_assert!`, and `invariant`'s own, panics at the fault, so a test, a simulation seed or a fuzz input
+that breaks a check fails at once with a stack.
 
-Checks are **paired**: a property is checked on two paths, as a record is checked before it is written to the log and
-again when it is read back. Checks cover the **positive and the negative space**: what must hold and what must not,
-because bugs live where data crosses between them. A compound check is split, `debug_assert!(a); debug_assert!(b);`,
-so a failure names the condition; an implication is `if a { debug_assert!(b); }`. A check is side-effect free, and one
-that can never fail, such as `debug_assert!(true)`, does not count.
-
-*Why:* tests find a defect per 10 to 100 lines (Holzmann), and assertions catch defects tests never reach; they turn a
-correctness bug into a stopped component, and they multiply what the simulator and the fuzzers find, since a fuzzer
-sees only what fails loudly.
-
-*Check:* review, which counts the density; the phase-3 audit (`tdd-protocol.md`) plants defects that the checks must
-catch; mutation testing removes checks and expects a test to fail.
+*Check:* review; mutation testing removes a check and expects a test to fail; the fuzzers and the simulator fail on an
+invariant error.
 
 ### 6. Every value lives in the smallest scope, once
 

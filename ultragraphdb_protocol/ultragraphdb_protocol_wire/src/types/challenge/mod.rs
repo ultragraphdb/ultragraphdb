@@ -34,6 +34,7 @@ impl Challenge {
     }
 
     /// The reply: the principal's `iterations` and `salt`.
+    #[must_use]
     pub fn with_salt(mut self, iterations: u32, salt: Vec<u8>) -> Self {
         self.iterations = iterations;
         self.salt = salt;
@@ -41,16 +42,19 @@ impl Challenge {
     }
 
     /// The principal's name.
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
     /// The iteration count; 0 in a request.
+    #[must_use]
     pub fn iterations(&self) -> u32 {
         self.iterations
     }
 
     /// The salt; empty in a request.
+    #[must_use]
     pub fn salt(&self) -> &[u8] {
         &self.salt
     }

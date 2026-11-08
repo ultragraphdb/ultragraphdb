@@ -76,6 +76,10 @@ where
     B: BlockSource,
 {
     /// Installs `contents` as its tenant's catalog, as [`crate::ChangesetApplier::load_catalog`] does.
+    ///
+    /// # Errors
+    ///
+    /// The errors [`crate::ChangesetApplier::load_catalog`] names.
     pub fn load_catalog(&self, contents: &CatalogContents) -> Result<(), ChangesetError> {
         let tenant = contents.tenant();
         let id_of = |iri: &NamedNode| -> Result<SystemId, ChangesetError> {
@@ -166,6 +170,10 @@ where
     }
 
     /// The round installing `contents`, as [`crate::ChangesetApplier::execute_catalog`] executes it.
+    ///
+    /// # Errors
+    ///
+    /// The errors [`crate::ChangesetApplier::execute_catalog`] names.
     pub fn execute_catalog(
         &self,
         contents: &CatalogContents,

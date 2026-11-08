@@ -187,3 +187,38 @@ fn test_an_open_scan_is_held_and_changed_in_place() -> TestResult {
     assert_eq!(board.get_mut(B), None, "not open");
     Ok(())
 }
+
+/// A Scan opened again under its name lets go of what the Scan before it waited on.
+#[test]
+fn test_a_scan_opened_again_leaves_the_waits_before_it() {
+    let mut board = ScanBoard::default();
+    board.open(A, "a");
+    board.set_timer(A, 10);
+    board.wait_for_epoch(A, 10);
+    board.open(A, "again");
+    assert_eq!(board.next_due(u64::MAX), None);
+    assert_eq!(board.next_closed(u64::MAX), None);
+    assert_eq!(board.get(A), Some(&"again"));
+}
+
+/// A Scan's epoch wait, set again, waits on the latest epoch alone.
+#[test]
+fn test_an_epoch_wait_set_again_waits_on_the_latest() {
+    let mut board = ScanBoard::default();
+    board.open(A, "a");
+    board.wait_for_epoch(A, 7);
+    board.wait_for_epoch(A, 9);
+    assert_eq!(board.next_closed(8), None);
+    assert_eq!(board.next_closed(9), Some(A));
+    assert_eq!(board.next_closed(u64::MAX), None);
+}
+
+/// A time or an epoch set for a Scan not open is no wait.
+#[test]
+fn test_a_wait_on_a_scan_not_open_is_none() {
+    let mut board = ScanBoard::<&str>::default();
+    board.set_timer(A, 10);
+    board.wait_for_epoch(A, 10);
+    assert_eq!(board.next_due(u64::MAX), None);
+    assert_eq!(board.next_closed(u64::MAX), None);
+}

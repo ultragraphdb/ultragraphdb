@@ -140,6 +140,7 @@ where
 
     /// The transaction executing against `catalog`, its tenant's catalog version, which its record names; by default
     /// the version the partition held installed when the transaction began.
+    #[must_use]
     pub fn with_catalog(mut self, catalog: u64) -> Self {
         self.catalog = catalog;
         self
@@ -147,6 +148,7 @@ where
 
     /// The transaction carrying `token`, its session's token: its commit is held until the token's epoch may be
     /// stamped.
+    #[must_use]
     pub fn with_token(mut self, token: SessionToken) -> Self {
         self.token = Some(token);
         self
@@ -154,22 +156,26 @@ where
 
     /// The transaction bound to `partition`, the owner of the buckets `placement` gives it at the transaction's read
     /// epoch: a write of a subject another partition owns aborts it, cross-partition. Unbound, every write is taken.
+    #[must_use]
     pub fn bind(mut self, partition: PartitionId, placement: &'a PlacementMap) -> Self {
         self.binding = Some((partition, placement));
         self
     }
 
     /// The catalog version the transaction executes against.
+    #[must_use]
     pub fn catalog(&self) -> u64 {
         self.catalog
     }
 
     /// The session token the transaction carries.
+    #[must_use]
     pub fn token(&self) -> Option<&SessionToken> {
         self.token.as_ref()
     }
 
     /// The transaction acting for `principal`, which its write-set record names; 0, without authentication, by default.
+    #[must_use]
     pub fn with_principal(mut self, principal: u64) -> Self {
         self.principal = principal;
         self
@@ -320,6 +326,7 @@ where
             return Err(TxnError::ended());
         }
         if past(now_us.saturating_sub(self.began_us), limit) {
+            // The cast truncates only past 2^64 ms, some 584 million years, beyond any limit a setting holds.
             return Err(TxnError::past_limit(limit.as_millis() as u64));
         }
         if self.mode == Mode::ReadOnly {
@@ -413,6 +420,7 @@ where
         let limit = self.limit();
         if self.execution.is_some() && past(now_us.saturating_sub(self.began_us), limit) {
             self.end();
+            // The cast truncates only past 2^64 ms, some 584 million years, beyond any limit a setting holds.
             return Err(TxnError::past_limit(limit.as_millis() as u64));
         }
         self.execution.as_mut().ok_or_else(TxnError::ended)
@@ -501,6 +509,7 @@ where
 
     /// Aborts the transaction, writing nothing and releasing what its execution held: its buffers, for the worker's
     /// next transaction.
+    #[must_use]
     pub fn abort(mut self) -> TxnBuffers {
         self.end();
         std::mem::take(&mut self.buffers)

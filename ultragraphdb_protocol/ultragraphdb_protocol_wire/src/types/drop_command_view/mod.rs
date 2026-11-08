@@ -38,11 +38,13 @@ impl<'a> DropCommandView<'a> {
     }
 
     /// The drop's session token; `None` in a request.
+    #[must_use]
     pub fn token(&self) -> Option<&SessionToken> {
         self.token.as_ref()
     }
 
     /// The client's session; all zero for none.
+    #[must_use]
     pub fn session(&self) -> [u8; 16] {
         self.session
     }

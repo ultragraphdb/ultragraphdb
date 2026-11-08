@@ -32,6 +32,7 @@ impl<F> DoubleSession<F> {
 }
 
 impl<F: Fn(&DoubleFrame) -> Answer> Session for DoubleSession<F> {
+    /// It holds no `.await`, so a dropped future leaves nothing.
     async fn answer(&mut self, stream: u64, frame: ReceivedFrame) -> Answer {
         let Ok(view) = frame.view() else {
             return Answer::Refuse(ErrorReply::new(ErrorCode::Protocol, "a frame refused"));
@@ -44,6 +45,7 @@ impl<F: Fn(&DoubleFrame) -> Answer> Session for DoubleSession<F> {
         Some(self.reading.clone())
     }
 
+    /// A future dropped at its wait leaves the channel as it was, and the next call takes what came meanwhile.
     async fn next_push(&mut self) -> (u64, Vec<u8>) {
         match self.pushed.next().await {
             Some(pushed) => pushed,

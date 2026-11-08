@@ -362,7 +362,7 @@ impl MetadataState {
         if self.placement_pending.len() >= map.layouts_free() {
             return Err(ClusterError::full(
                 "placement layouts",
-                PlacementMap::LAYOUTS_MAX as usize,
+                PlacementMap::LAYOUTS_MAX as usize, // 256, lossless
             ));
         }
         PlacementMap::check_layout(assignments)?;

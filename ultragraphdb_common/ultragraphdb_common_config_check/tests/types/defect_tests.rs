@@ -28,3 +28,16 @@ fn test_an_entry_reads_complete() {
         "a.toml: f; r"
     );
 }
+
+/// A defect standing in a stored revision names it after its target.
+#[test]
+fn test_an_entry_names_its_revision() {
+    let revision = 4;
+    let stored = Defect::new("found", "required")
+        .of_target("ci")
+        .of_revision(revision);
+    assert_eq!(
+        stored.to_string(),
+        format!("target ci, revision {revision}, found; required")
+    );
+}

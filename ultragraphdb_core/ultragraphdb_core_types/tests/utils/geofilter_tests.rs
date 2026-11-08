@@ -13,7 +13,7 @@ use ultragraphdb_core_types::{
 };
 
 use crate::utils::s2index_tests::load_polygon;
-use ultragraphdb_tool_bdd::{Context, TestResult};
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 /// Dgraph's test helper `queryTokens`: the GeoJSON text parsed as geo, then `queryTokensGeo`.
 fn query_tokens(
@@ -398,6 +398,54 @@ fn test_geo_inputs_dgraph_panics_on_are_refused() -> TestResult {
     let (_, q) = query_tokens_geo(QueryType::Intersects, &load_polygon("zip.json")?, 0.0)?;
     for g in [no_rings, empty, nan, poly(&ring)?] {
         assert!(!q.matches_filter(&g), "{g:?}");
+    }
+    Ok(())
+}
+
+/// A line string, a multipoint or a multi-line string with one line.
+fn non_areal() -> TestResult<Vec<Geometry>> {
+    let line = vec![vec![-122.0, 37.0], vec![-123.0, 38.0]];
+    Ok(vec![
+        Geometry::line_string(Layout::XY, &line)?,
+        Geometry::multi_point(Layout::XY, &[Some(vec![-122.0, 37.0])])?,
+        Geometry::multi_line_string(Layout::XY, &[line])?,
+    ])
+}
+
+#[test]
+fn test_a_geometry_with_no_area_cannot_be_queried_with() -> TestResult {
+    for g in non_areal()? {
+        for qt in [
+            QueryType::Within,
+            QueryType::Contains,
+            QueryType::Intersects,
+        ] {
+            let Err(e) = query_tokens_geo(qt, &g, 0.0) else {
+                return Err(TestError::new(format!(
+                    "{qt:?} queries with {:?}",
+                    g.kind()
+                )));
+            };
+            assert_eq!(
+                e.to_string(),
+                format!(
+                    "Cannot query using a geometry of type {}",
+                    g.kind().go_type()
+                )
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn test_a_geometry_with_no_area_is_neither_within_nor_intersecting() -> TestResult {
+    let square = poly(&SQUARE)?;
+    for qt in [QueryType::Within, QueryType::Intersects] {
+        let (_, qd) = query_tokens_geo(qt, &square, 0.0)?;
+        for g in non_areal()? {
+            assert!(!qd.matches_filter(&g), "{qt:?} {:?}", g.kind());
+        }
     }
     Ok(())
 }

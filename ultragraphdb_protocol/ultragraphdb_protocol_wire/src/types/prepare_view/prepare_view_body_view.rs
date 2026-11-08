@@ -48,6 +48,7 @@ fn check_pattern_types(
         return Err(ProtocolError::count_mismatch(
             command,
             "parameter types",
+            // The casts are lossless: a `usize` is at most 64 bits.
             parameter_types.len() as u64,
             pattern.parameters() as u64,
         ));
@@ -63,6 +64,7 @@ fn check_pattern_types(
         return Err(ProtocolError::count_mismatch(
             command,
             "result types",
+            // The casts are lossless: a `usize` is at most 64 bits.
             result_types.len() as u64,
             columns as u64,
         ));
@@ -82,6 +84,7 @@ fn check_text_types(
         return Err(ProtocolError::count_mismatch(
             command,
             "parameter types",
+            // The casts are lossless: a `usize` is at most 64 bits.
             parameters as u64,
             names as u64,
         ));
@@ -91,6 +94,7 @@ fn check_text_types(
         return Err(ProtocolError::count_mismatch(
             command,
             "names",
+            // The casts are lossless: a `usize` is at most 64 bits.
             names as u64,
             named as u64,
         ));
@@ -130,7 +134,7 @@ impl<'a> BodyView<'a> for PrepareView<'a> {
                 return Err(ProtocolError::count_mismatch(
                     command,
                     "names",
-                    held as u64,
+                    held as u64, // lossless: a `usize` is at most 64 bits
                     0,
                 ));
             }

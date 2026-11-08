@@ -64,6 +64,8 @@ impl BufferPool {
 
     /// A free buffer, empty, once one is: while every buffer is in use the wait lasts until one is given back, the
     /// backpressure of a reader whose frames are all held. The caller bounds the wait, as it bounds the read it is for.
+    /// A future dropped at its wait takes no buffer, and its waker stays registered until the next buffer given back
+    /// wakes it, once.
     pub async fn acquire_waiting(&self) -> PooledBuffer {
         poll_fn(|cx| {
             let mut state = lock(&self.state);

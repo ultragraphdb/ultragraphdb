@@ -50,31 +50,37 @@ impl LanguageError {
     }
 
     /// A [`LanguageErrorEnum::Syntax`] error: the tag is not well-formed BCP 47.
+    #[must_use]
     pub fn syntax() -> Self {
         Self(LanguageErrorEnum::Syntax)
     }
 
     /// A [`LanguageErrorEnum::DuplicateKey`] error: a `-u` extension has the same key twice with different values.
+    #[must_use]
     pub fn duplicate_key() -> Self {
         Self(LanguageErrorEnum::DuplicateKey)
     }
 
     /// A [`LanguageErrorEnum::Value`] error: a well-formed but unknown subtag, `value`.
+    #[must_use]
     pub fn value(value: Vec<u8>) -> Self {
         Self(LanguageErrorEnum::Value(value))
     }
 
     /// A [`LanguageErrorEnum::PrivateUse`] error: a key was set on a private-use tag.
+    #[must_use]
     pub fn private_use() -> Self {
         Self(LanguageErrorEnum::PrivateUse)
     }
 
     /// A [`LanguageErrorEnum::InvalidArguments`] error: a key or type of the wrong length was set.
+    #[must_use]
     pub fn invalid_arguments() -> Self {
         Self(LanguageErrorEnum::InvalidArguments)
     }
 
     /// A [`LanguageErrorEnum::MissingLikelyTagsData`] error: no likely subtags are known for the tag.
+    #[must_use]
     pub fn missing_likely_tags_data() -> Self {
         Self(LanguageErrorEnum::MissingLikelyTagsData)
     }

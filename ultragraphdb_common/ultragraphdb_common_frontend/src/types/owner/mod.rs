@@ -33,6 +33,14 @@ const LEADER: u32 = 1;
 /// The closes between two of the sequencer's snapshots, which let its log be trimmed.
 const CLOSES_PER_SNAPSHOT: u32 = 4_096;
 
+/// The waiting asks one turn takes after the one it waited for, the rest waiting for the next turn: 1,024. An ask stands for a
+/// frame an endpoint core read, of at least a header's 256 bytes, so this is the most asks of the smallest frames a partition's
+/// turn budgets bytes for, 256 KiB (`ultragraphdb_common_storage`'s `TURN_BYTES`), and the owner's turn and a partition's take
+/// their inboxes alike. The asks a turn takes share its one sync of the metadata group, so at the 2,188 syncs a second the
+/// Shard-per-Core note measures the owner answers two million asks a second, while an epoch falling due waits behind at most
+/// these 1,024 decisions in memory.
+const ASKS_PER_TURN_MAX: usize = 1_024;
+
 /// An answer that waits for the metadata group's next sync.
 #[derive(Debug)]
 enum Durable {
@@ -88,6 +96,9 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
     /// the logs' rounds after them. A metadata group holding no placement forms an even map over the configured
     /// partitions, durable before this returns; one holding a map keeps it. A close the sequencer's log holds and the
     /// group never learned, since the process stopped between the two syncs, is learned here.
+    ///
+    /// A future dropped at a log's recovery drops both logs as they were read; one dropped at a sync leaves what it appended
+    /// durable or lost as the process's end leaves it, and the next recovery reads what is durable.
     ///
     /// # Errors
     ///
@@ -156,6 +167,9 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
 
     /// Creates `tenant` when the group does not hold it, durable before this returns.
     ///
+    /// A future dropped at the sync leaves the command appended, durable at the group's next sync or lost with the
+    /// process.
+    ///
     /// # Errors
     ///
     /// [`RoleError::software`] naming the refusal, or [`RoleError::io`] for a failed log.
@@ -183,6 +197,9 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
 
     /// Creates the principal `name` holding `verifier` when the group does not hold it, durable before this returns.
     ///
+    /// A future dropped at the sync leaves the command appended, durable at the group's next sync or lost with the
+    /// process.
+    ///
     /// # Errors
     ///
     /// [`RoleError::software`] naming the refusal, or [`RoleError::io`] for a failed log.
@@ -209,6 +226,8 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
 
 /// The cluster's first start: tenant 0, created by a command of the group, the secret an unknown name's verifier derives from, and
 /// the bootstrap administrator from the secret file the settings name, each durable before any role serves.
+/// A future dropped at the sync leaves the commands appended, durable at the group's next sync or lost with the
+/// process.
 async fn first_start<L: OrderedLog>(
     metadata: &mut MetadataGroup<L>,
     start: &OwnerStart,

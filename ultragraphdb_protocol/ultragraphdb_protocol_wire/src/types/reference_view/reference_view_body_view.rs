@@ -96,6 +96,7 @@ fn check_registration(
     {
         return Err(ProtocolError::padding_not_zero(command, at + 14 + zero));
     }
+    // Lossless: a `usize` is at most 64 bits.
     let refused = ProtocolError::field_value(command, "registration", index as u64);
     let bytes: [u8; REGISTRATION_SIZE] = record.try_into().map_err(|_| refused.clone())?;
     let registration = ReferenceRegistration::decode(&bytes).ok_or_else(|| refused.clone())?;
@@ -112,7 +113,7 @@ fn fields_hold(reply: bool, registration: &ReferenceRegistration, terms: usize) 
     let names_iri = registration.iri().is_some();
     let one_way = names_iri == registration.entity().is_none();
     let common = registration.partition() >= 1
-        && registration.iri().is_none_or(|iri| (iri as usize) < terms)
+        && registration.iri().is_none_or(|iri| (iri as usize) < terms) // lossless: a `usize` is at least 32 bits
         && registration.close() <= MAX_EPOCH
         && (registration.group().is_some() || registration.generation() == 0);
     let directed = match (reply, registration.outcome()) {

@@ -173,6 +173,11 @@ impl List {
     }
 
     /// Whether no posting lies above `after_uid` at `read_ts`: Dgraph's `IsEmpty`.
+    ///
+    /// # Errors
+    ///
+    /// [`PostingError::read_below_min_ts`] when `read_ts` is below the list's complete version, or a missing part, as
+    /// [`List::iterate`].
     pub fn is_empty(&self, read_ts: u64, after_uid: u128) -> Result<bool, PostingError> {
         let mut count = 0usize;
         self.iterate(read_ts, after_uid, |_| {
@@ -184,6 +189,7 @@ impl List {
 
     /// The number of postings above `after_uid` at `read_ts`, counted by iterating: Dgraph's `Length`, which
     /// returns -1 where the iteration fails.
+    #[must_use]
     pub fn length(&self, read_ts: u64, after_uid: u128) -> i64 {
         let mut count = 0i64;
         let result = self.iterate(read_ts, after_uid, |_| {

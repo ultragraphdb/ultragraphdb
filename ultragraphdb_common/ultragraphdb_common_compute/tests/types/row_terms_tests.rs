@@ -191,3 +191,108 @@ fn test_a_resume_key_names_a_literal_by_its_lexical_form() -> TestResult {
         Ok(())
     })
 }
+
+/// `pattern` read at latest level in `tenant`, from `resume`.
+fn resumed(
+    pattern: &Pattern,
+    tenant: u64,
+    resume: Vec<u8>,
+) -> TestResult<ultragraphdb_protocol_wire::ComputeRead> {
+    let (terms, slots) = pattern.table()?;
+    Ok(ultragraphdb_protocol_wire::ComputeRead::new(
+        tenant,
+        true,
+        ReadLevel::Latest,
+        terms,
+        slots,
+        resume,
+    )
+    .with_principal(1)
+    .with_deadline_ms(crate::played_reads::read_answer::DEADLINE_MS)
+    .with_client_limits(ultragraphdb_protocol_wire::MAX_FRAME_SIZE as u32, 4))
+}
+
+/// In the store's order: a string, the language strings `tagged` and one of each direction, a known datatype's literal not in its
+/// canonical form, and two of `datatype`, held by ID, so every kind but the last stands as a resume key's row.
+fn every_kind(tagged: &Literal, datatype: &str) -> [Literal; 7] {
+    let directed = |direction| {
+        Literal::new_directional_language_tagged_literal_unchecked(
+            "a directed text",
+            "en",
+            direction,
+        )
+    };
+    [
+        Literal::new_simple_literal("after"),
+        tagged.clone(),
+        directed(oxrdf::BaseDirection::Ltr),
+        directed(oxrdf::BaseDirection::Rtl),
+        typed("007", "http://www.w3.org/2001/XMLSchema#integer"),
+        typed("v", datatype),
+        typed("w", datatype),
+    ]
+}
+
+/// A language-tagged literal held by hash comes back by its texts, and a resume key naming a language string of any direction, a
+/// known datatype's literal or one whose datatype the store names by ID continues the read after its row (`PROTOCOL.md` §10.3,
+/// §11.8).
+#[test]
+fn test_a_read_resumed_at_a_tagged_or_typed_literal_goes_on_after_it() -> TestResult {
+    run(async {
+        let (cluster, tenant, predicate) = cluster().await?;
+        let part = cluster.partition(1)?;
+        let bucket = first_bucket(tenant);
+        let subject = id_in(bucket, 1)?;
+        let datatype = id_in(bucket, 40)?;
+        let datatype_iri = "http://ex.org/datatype";
+        name(part, tenant, SUBJECT, subject);
+        name(part, tenant, datatype_iri, datatype);
+        let tagged = Literal::new_language_tagged_literal_unchecked(
+            "a language-tagged text longer than fifteen bytes",
+            "en-x-private-tagging",
+        );
+        let literals = every_kind(&tagged, datatype_iri);
+        let mut list = Vec::new();
+        for literal in &literals {
+            let named = (literal.datatype().as_str() == datatype_iri).then_some(datatype);
+            list.push((literal_held(part, tenant, literal, named)?, Vec::new()));
+        }
+        // The list in the store's order of encodings, as a list holds its objects.
+        list.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
+        part.put(forward_key(tenant, predicate, subject), list_of(&list));
+        let pattern = Pattern::of(Some(SUBJECT), Some(PREDICATE), None);
+        let whole = answer_on(
+            &mut cluster.client().await?,
+            &pattern.read(tenant, true, ReadLevel::Latest)?,
+        )
+        .await?;
+        let every = cells(&whole, 0)?;
+        assert_eq!(every.len(), literals.len());
+        let tagged_cell = every
+            .iter()
+            .find(|cell| cell.text == tagged.value())
+            .context("the tagged literal's cell, by its text")?;
+        assert_eq!(tagged_cell.annotation.as_deref(), tagged.language());
+        for limit in 1..literals.len() {
+            let first = answer_on(
+                &mut cluster.client().await?,
+                &pattern
+                    .read(tenant, true, ReadLevel::Latest)?
+                    .with_limit(limit as u32),
+            )
+            .await?;
+            let rest = answer_on(
+                &mut cluster.client().await?,
+                &resumed(&pattern, tenant, first.resume())?,
+            )
+            .await?;
+            rest.ended()?;
+            assert_eq!(
+                cells(&rest, 0)?,
+                every.get(limit..).context("the rows after the key's")?,
+                "resumed after row {limit}"
+            );
+        }
+        Ok(())
+    })
+}

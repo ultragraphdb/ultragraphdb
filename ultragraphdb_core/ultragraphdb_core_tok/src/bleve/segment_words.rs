@@ -136,7 +136,9 @@ fn segment_words(data: &[u8]) -> Result<Option<Found>, &'static str> {
 }
 
 /// The transition of state `cs` on the byte `c`: the state's single keys are searched first, then its ranges, and
-/// past both the state's default transition is taken.
+/// past both the state's default transition is taken. Each search halves its span per turn, so it ends within the
+/// logarithm of the state's key count. `keys` and `trans` start at unsigned offsets and only grow, and `mid` lies at or
+/// above `keys`, so their `usize` casts lose no sign; `S_INDICIES` holds no negative entry, so neither does its cast.
 fn transition(cs: usize, c: u8) -> usize {
     let mut keys = i64::from(S_KEY_OFFSETS[cs]);
     let mut trans = i64::from(S_INDEX_OFFSETS[cs]);

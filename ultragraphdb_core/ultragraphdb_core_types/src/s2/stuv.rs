@@ -23,7 +23,7 @@ pub(crate) fn si_ti_to_st(si: u32) -> f64 {
     if u64::from(si) > MAX_SI_TI {
         return 1.0;
     }
-    f64::from(si) / MAX_SI_TI as f64
+    f64::from(si) / MAX_SI_TI as f64 // exact: MAX_SI_TI is 2^31
 }
 
 /// Converts the s- or t-value to the corresponding u- or v-value. This is a non-linear

@@ -306,3 +306,59 @@ fn test_a_partition_refusing_a_list_scan_refuses_the_read() -> TestResult {
         Ok(())
     })
 }
+
+/// A Scan its limit stopped at keys that gave no row, as a forward list holding another vector gives none, goes on from the key
+/// past its last: the read finds its one row further on.
+#[test]
+fn test_a_scan_stopped_by_its_limit_short_of_a_row_goes_on() -> TestResult {
+    use ultragraphdb_core_terms::{FLOAT32_VECTOR, format_vector};
+    use ultragraphdb_protocol_wire::RequestTerm;
+
+    use crate::played::played_cluster::{PlayedCluster, quiet_times};
+    use crate::played::played_data::{Term, forward, literal, records};
+    use crate::played::played_read::{Bound, read, snapshot_of};
+
+    crate::played::played_cluster::run(async {
+        let played = PlayedCluster::start(1, quiet_times()).await?;
+        let partition = played.partition(1)?;
+        let predicate = Term::resource("http://example.org/p", 1)?;
+        predicate.name_in(partition);
+        let (other, held) = (
+            format_vector([3.0].into_iter()),
+            format_vector([1.0, 2.5].into_iter()),
+        );
+        let mut subjects = Vec::new();
+        // The first subject's list holds another vector, the second's the one read.
+        for (sequence, lexical) in [(2, &other), (3, &held)] {
+            let subject = Term::resource(&format!("http://example.org/s{sequence}"), sequence)?;
+            subject.name_in(partition);
+            let value = literal(lexical, Some(FLOAT32_VECTOR))?;
+            partition.put(
+                forward(&predicate, &subject),
+                records(&[(value.as_bytes().to_vec(), Vec::new())]),
+            );
+            subjects.push(subject);
+        }
+        let bound = Bound {
+            subject: None,
+            predicate: Some(predicate.iri.clone()),
+            object: Some(RequestTerm::Literal {
+                lexical: held,
+                datatype: Some(FLOAT32_VECTOR.to_string()),
+            }),
+        };
+        let mut client = played.client().await?;
+        let answer = read(&mut client, &snapshot_of(&bound)?.with_limit(1))
+            .await?
+            .answered()?;
+        let second = subjects.get(1).context("a second subject")?;
+        assert_eq!(answer.column(0), vec![Some(second.iri.clone())]);
+        let limited = partition
+            .scans()
+            .iter()
+            .filter(|scan| scan.limit == 1)
+            .count();
+        assert!(limited >= 2, "a second Scan went on: {limited}");
+        Ok(())
+    })
+}

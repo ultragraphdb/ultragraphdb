@@ -25,6 +25,7 @@ pub struct Reference {
 impl Reference {
     /// The reference to `iri` in `tenant`, homed in `home`, known by `entity` if the partition holds its ID, from
     /// `group`, having seen generation `named`.
+    #[must_use]
     pub fn new(
         home: PartitionId,
         tenant: u64,
@@ -44,26 +45,31 @@ impl Reference {
     }
 
     /// The entity's home.
+    #[must_use]
     pub fn home(&self) -> PartitionId {
         self.home
     }
 
     /// The tenant.
+    #[must_use]
     pub fn tenant(&self) -> u64 {
         self.tenant
     }
 
     /// The entity's IRI.
+    #[must_use]
     pub fn iri(&self) -> &str {
         &self.iri
     }
 
     /// The entity's ID, if the partition holds it.
+    #[must_use]
     pub fn entity(&self) -> Option<SystemId> {
         self.entity
     }
 
     /// The entity as the registration names it: by its ID when the partition holds it, by its IRI otherwise.
+    #[must_use]
     pub fn entity_ref(&self) -> EntityRef<'_> {
         match self.entity {
             Some(id) => EntityRef::Id(id),
@@ -72,11 +78,13 @@ impl Reference {
     }
 
     /// The subject bucket group referring to the entity; `None` for a predicate or graph.
+    #[must_use]
     pub fn group(&self) -> Option<BucketGroup> {
         self.group
     }
 
     /// The generation the partition last saw for the member, 0 for none.
+    #[must_use]
     pub fn named(&self) -> u64 {
         self.named
     }

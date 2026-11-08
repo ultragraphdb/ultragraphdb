@@ -45,11 +45,13 @@ impl CloseRequest {
     }
 
     /// The milliseconds.
+    #[must_use]
     pub fn ms(&self) -> u64 {
         self.ms
     }
 
     /// The same in microseconds, the commit step's clock.
+    #[must_use]
     pub fn micros(&self) -> u64 {
         // At most 60,000 ms, so the product stays far below u64.
         self.ms.saturating_mul(1_000)

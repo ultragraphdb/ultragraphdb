@@ -39,6 +39,10 @@ impl<L: OrderedLog> Sequencer<L> {
     ///
     /// [`ClusterError::log`] when the log refuses the trim: a position past its committed one, or a failure, which
     /// poisons it.
+    ///
+    /// A future dropped at the log's trim leaves the sequencer unchanged and the log's checkpoint at the snapshot's
+    /// position or still before it; a later `trim` with the same snapshot is safe either way, since a trim at or
+    /// below the checkpoint changes nothing.
     pub async fn trim(&mut self, snapshot: &SequencerSnapshot) -> Result<(), ClusterError> {
         self.log.trim_through(snapshot.position()).await?;
         Ok(())

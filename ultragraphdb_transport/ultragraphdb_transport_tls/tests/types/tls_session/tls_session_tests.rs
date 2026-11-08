@@ -336,3 +336,45 @@ fn test_a_send_of_a_whole_frame_crosses_whole() -> TestResult {
     assert_eq!(received, frame);
     Ok(())
 }
+
+/// rustls holds 16 KiB of plaintext the application has not read; records carrying more, taken in one call, are
+/// refused as records past the handshake. So a carrier hands a session at most [`RECORD_SIZE_MAX`] bytes at a time and
+/// reads the plaintext out in between.
+#[test]
+fn test_records_past_the_unread_plaintext_a_session_holds_are_refused() -> TestResult {
+    let pki = TestPki::new()?;
+    let (mut client, mut server) = sessions(&pki)?;
+    shuttle(&mut client, &mut server, 3)?;
+    server.send(&vec![b'x'; 4 * RECORD_SIZE_MAX])?;
+    let mut records = Vec::new();
+    let mut buf = vec![0u8; RECORD_SIZE_MAX];
+    loop {
+        let n = server.transmit(&mut buf);
+        if n == 0 {
+            break;
+        }
+        records.extend_from_slice(buf.get(..n).context("within the buffer")?);
+    }
+    let Err(error) = client.receive(&records) else {
+        return Err(TestError::new(
+            "a session took more plaintext than it holds",
+        ));
+    };
+    assert!(
+        matches!(&error.0, TlsErrorEnum::RecordRefused { host, .. } if host == client.host()),
+        "{error:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn test_a_read_into_no_room_is_pending() -> TestResult {
+    let pki = TestPki::new()?;
+    let (mut client, mut server) = sessions(&pki)?;
+    shuttle(&mut client, &mut server, 3)?;
+    server.send(b"waiting")?;
+    shuttle(&mut client, &mut server, 1)?;
+    assert_eq!(client.read(&mut []), Plaintext::Pending);
+    assert_eq!(drain(&mut client), b"waiting");
+    Ok(())
+}

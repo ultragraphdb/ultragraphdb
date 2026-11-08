@@ -5,8 +5,8 @@
 
 //! What every role does on its role connections (`PROTOCOL.md` §11.12): reading the cluster's settings and the role
 //! secret, verifying a peer locally against it, dialling and authenticating a peer as [`RoleClient`], and serving what
-//! its endpoint takes through [`serve_connection`]. Storage and compute both join the frontend, which
-//! [`compute_role`] does, and storage's own crate through [`retry_until`].
+//! its endpoint takes through [`serve_connection`]. Storage and compute both join the frontend their settings name,
+//! [`frontend_address`], through [`retry_until`].
 
 mod traits;
 mod types;

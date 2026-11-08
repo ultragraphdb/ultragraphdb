@@ -106,6 +106,7 @@ impl PartitionRows {
     /// of the rows the read may still return, given up once it has held about a Result frame's worth of text. So a read holds the
     /// names of the rows it is about to return, whatever a frame's rows name and however little its limit asks. A name the
     /// dictionary answers no entry for refuses the read, naming the list.
+    /// A dropped future cancels the names' Scan as its stream drops, and the names read so far stay.
     pub(super) async fn name_ahead(&mut self) -> Result<(), ErrorReply> {
         if self.page.next_is_named() {
             return Ok(());
@@ -113,7 +114,7 @@ impl PartitionRows {
         self.names.shed();
         let room = match self.shared.remaining.get() {
             0 => usize::MAX,
-            left => left as usize,
+            left => left as usize, // a `u32`, lossless
         };
         let mut wanted = WantedNames::default();
         let mut rows = 0usize;
@@ -148,6 +149,7 @@ impl PartitionRows {
     }
 
     /// Reads the texts of `wanted`, as far as the page's next row's and [`NAME_BYTES`] take it.
+    /// A dropped future cancels the Scan as its stream drops, and the names read so far stay.
     async fn read_names(&mut self, wanted: &WantedNames) -> Result<(), ErrorReply> {
         let mut scan = self.scan(0);
         for key in wanted.keys() {
@@ -155,6 +157,8 @@ impl PartitionRows {
         }
         let mut stream = ScanStream::open(&self.link, &scan)?;
         let mut bytes = 0usize;
+        // Each turn takes one frame of the Scan, awaited within the stream's stall bound; the frame the partition marks
+        // last ends it at the latest (Ultra rule 2).
         loop {
             let names = &mut self.names;
             let (facts, ()) = stream

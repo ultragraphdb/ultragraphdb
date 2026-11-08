@@ -41,6 +41,7 @@ pub struct Commit {
 impl Commit {
     /// A commit of `session`'s request `request`: the request when `commit_version` is zero, else the reply, whose
     /// token and results [`Commit::with_token`], [`Commit::push_result`] and [`Commit::push_node_result`] add.
+    #[must_use]
     pub fn new(session: [u8; 16], request: u64, commit_version: u64) -> Self {
         Self {
             session,
@@ -53,6 +54,7 @@ impl Commit {
     }
 
     /// The reply carrying the commit's session token.
+    #[must_use]
     pub fn with_token(mut self, token: SessionToken) -> Self {
         self.token = Some(token);
         self
@@ -71,6 +73,7 @@ impl Commit {
     }
 
     /// The client's session; all zero for none.
+    #[must_use]
     pub fn session(&self) -> [u8; 16] {
         self.session
     }
@@ -86,6 +89,7 @@ impl Commit {
     }
 
     /// The commit's session token; `None` in a request.
+    #[must_use]
     pub fn token(&self) -> Option<&SessionToken> {
         self.token.as_ref()
     }
@@ -96,6 +100,7 @@ impl Commit {
     }
 
     /// The IRI or skolem IRI of the node result `index` names; `None` for a result naming none or past the last.
+    #[must_use]
     pub fn node(&self, index: usize) -> Option<&str> {
         let node = self.results.get(index)?.node()?;
         if let RequestTerm::Iri(iri) = self.nodes.get(node)? {

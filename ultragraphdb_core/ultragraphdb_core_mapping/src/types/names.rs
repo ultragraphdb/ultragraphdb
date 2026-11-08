@@ -74,6 +74,7 @@ impl Names {
     /// without an IRI or a statement's reifier, as RDF 1.1 recommends for skolem IRIs: the bucket in 6 lowercase
     /// hexadecimal digits and the low 104 bits of `random` in 26, both zero-padded. It holds no part of a system ID
     /// beyond its bucket.
+    #[must_use]
     pub fn skolem_iri(&self, bucket: Bucket, random: u128) -> NamedNode {
         let random = random & ((1 << RANDOM_BITS) - 1);
         let iri = format!("{}{GENID}{:06x}-{random:026x}", self.base, bucket.get());
@@ -92,6 +93,7 @@ impl Names {
 
     /// The bucket a skolem IRI under this base states, when `iri` is one: the base, `.well-known/genid/`, 6 lowercase
     /// hexadecimal digits, `-` and 26 more, and nothing else.
+    #[must_use]
     pub fn skolem_bucket(&self, iri: &str) -> Option<Bucket> {
         let tail = iri.strip_prefix(self.base.as_str())?.strip_prefix(GENID)?;
         let (bucket, random) = tail.split_once('-')?;

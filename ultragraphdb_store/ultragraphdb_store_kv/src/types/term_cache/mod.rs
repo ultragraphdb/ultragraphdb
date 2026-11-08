@@ -15,7 +15,9 @@ use moka::sync::Cache;
 pub(crate) struct TermCache {
     cache: Cache<Vec<u8>, Vec<u8>, RandomState>,
     // An atomic (Ultra rule 9): readers on any thread compare it before and after a read; writers move it on under
-    // the store's writer lock.
+    // the store's writer lock. SeqCst, deliberately: a reader fills the cache and then loads the generation, a writer
+    // moves the generation on and then invalidates, and only one total order guarantees that the reader sees the new
+    // generation or the writer's invalidation removes the filled value.
     generation: AtomicU64,
 }
 

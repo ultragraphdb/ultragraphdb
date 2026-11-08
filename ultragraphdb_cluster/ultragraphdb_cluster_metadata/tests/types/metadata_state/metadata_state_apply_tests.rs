@@ -1113,3 +1113,50 @@ fn test_the_secret_is_drawn_once() -> TestResult {
     assert_eq!(state.unknown_secret(), Some(&[7; 32]));
     Ok(())
 }
+
+#[test]
+fn test_at_most_1048576_tenants_are_held() -> TestResult {
+    let mut state = MetadataState::new();
+    let held = u64::try_from(MetadataState::TENANTS_MAX)?;
+    for number in 1..=held {
+        state.apply(&MetadataCommand::CreateTenant {
+            tenant: tenant(number),
+        })?;
+    }
+    let refusal = state
+        .apply(&MetadataCommand::CreateTenant {
+            tenant: tenant(held + 1),
+        })
+        .err()
+        .context("a refusal")?;
+    assert_eq!(
+        refusal.0,
+        ClusterError::full("tenants", MetadataState::TENANTS_MAX).0
+    );
+    assert!(!state.holds_tenant(tenant(held + 1)));
+    Ok(())
+}
+
+/// A report on a version no partition checks changes nothing: one the state does not hold, and one in effect that was
+/// never a tightening.
+#[test]
+fn test_a_report_on_a_version_not_being_checked_changes_nothing() -> TestResult {
+    let report = |version| -> TestResult<MetadataCommand> {
+        Ok(MetadataCommand::ReportCheck {
+            tenant: tenant(1),
+            version,
+            partition: PartitionId::new(1)?,
+            refused: false,
+        })
+    };
+    let mut state = MetadataState::new();
+    let empty = state.clone();
+    state.apply(&report(1)?)?;
+    assert_eq!(state, empty, "a version not held");
+    state.apply(&offer(1, 0, b"a"))?;
+    state.apply(&close(39, &[(1, 1)], &[])?)?;
+    let in_effect = state.clone();
+    state.apply(&report(1)?)?;
+    assert_eq!(state, in_effect, "a version not being checked");
+    Ok(())
+}

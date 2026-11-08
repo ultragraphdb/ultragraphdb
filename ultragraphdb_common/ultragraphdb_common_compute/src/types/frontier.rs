@@ -26,6 +26,7 @@ impl Frontier {
     pub fn push(&mut self, stream: usize, order: impl Fn(usize, usize) -> Ordering) {
         self.heap.push(stream);
         let mut at = self.heap.len().saturating_sub(1);
+        // Each turn moves the entry one level up, so the loop ends within the heap's depth (Ultra rule 2).
         while at > 0 {
             let parent = (at - 1) / 2;
             if !self.less(at, parent, &order) {
@@ -43,6 +44,7 @@ impl Frontier {
         }
         let top = self.heap.swap_remove(0);
         let mut at = 0;
+        // Each turn moves the entry one level down, so the loop ends within the heap's depth (Ultra rule 2).
         loop {
             let (left, right) = (2 * at + 1, 2 * at + 2);
             let mut lowest = at;

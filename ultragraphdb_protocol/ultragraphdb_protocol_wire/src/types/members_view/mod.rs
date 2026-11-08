@@ -18,27 +18,32 @@ pub struct MembersView<'a> {
 
 impl<'a> MembersView<'a> {
     /// The number of members.
+    #[must_use]
     pub fn len(&self) -> usize {
         record_count::<{ Member::SIZE }>(self.members)
     }
 
     /// Whether there is no member: a request, or an empty reply.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.members.is_empty()
     }
 
     /// Member `index`; `None` past the last.
+    #[must_use]
     pub fn member(&self, index: usize) -> Option<Member> {
         let bytes = record_at::<{ Member::SIZE }>(self.members, index)?;
         Member::decode(0, 0, bytes).ok()
     }
 
     /// Member `index`'s role address; `None` past the last.
+    #[must_use]
     pub fn address(&self, index: usize) -> Option<&'a str> {
-        self.addresses.get(self.member(index)?.address() as usize)
+        self.addresses.get(self.member(index)?.address() as usize) // lossless: a `usize` is at least 32 bits
     }
 
     /// The body's string list of addresses.
+    #[must_use]
     pub fn addresses(&self) -> StringList<'a> {
         self.addresses
     }

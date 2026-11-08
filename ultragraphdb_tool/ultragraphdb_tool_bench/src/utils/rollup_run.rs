@@ -89,6 +89,8 @@ pub fn run_rollup(args: &RollupArgs) -> Result<String, BenchError> {
     let closed = DirSizes::of(args.dir(), &data_path)?;
 
     let relations = commits * args.relations() as u64;
+    // Each `as f64` below turns a count into a figure of the report: exact below 2^53, rounded past it, which a rate
+    // printed to a few digits can take.
     Ok(format!(
         concat!(
             "{{\"run\":\"rollup\",\"hubs\":{},\"versions_target\":{},\"relations_per_commit\":{},",

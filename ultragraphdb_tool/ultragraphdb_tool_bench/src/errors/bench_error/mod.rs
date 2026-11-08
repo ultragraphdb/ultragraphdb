@@ -36,31 +36,37 @@ pub enum BenchErrorEnum {
 
 impl BenchError {
     /// The arguments name no run it can make, for `reason`.
+    #[must_use]
     pub fn usage(reason: String) -> Self {
         Self(BenchErrorEnum::Usage(reason))
     }
 
     /// The applier refused an operation with `error`.
+    #[must_use]
     pub fn apply(error: ChangesetError) -> Self {
         Self(BenchErrorEnum::Apply(error))
     }
 
     /// The store refused an operation with `error`.
+    #[must_use]
     pub fn store(error: StoreError) -> Self {
         Self(BenchErrorEnum::Store(error))
     }
 
     /// A file of the run could not be read or written, for `reason`.
+    #[must_use]
     pub fn io(reason: String) -> Self {
         Self(BenchErrorEnum::Io(reason))
     }
 
     /// The commit pipeline, a transaction or the write-ahead log refused an operation, as its text `reason`.
+    #[must_use]
     pub fn commit(reason: String) -> Self {
         Self(BenchErrorEnum::Commit(reason))
     }
 
     /// A declaration's index build had not ended after `waited_ms` milliseconds.
+    #[must_use]
     pub fn build_stuck(waited_ms: u64) -> Self {
         Self(BenchErrorEnum::BuildStuck { waited_ms })
     }

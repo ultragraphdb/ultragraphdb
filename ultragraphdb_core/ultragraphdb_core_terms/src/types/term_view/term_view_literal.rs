@@ -17,7 +17,8 @@ use crate::utils::vector::format_vector;
 
 impl TermView<'_> {
     /// The literal this view holds, exactly as it was encoded: `datatype_iri` gives the IRI of a datatype named by
-    /// its system ID, and `string` the string a hash names. Refused for an ID, which names an IRI or a blank node.
+    /// its system ID, and `string` the string a hash names, a datatype's IRI a Result names by hash among them.
+    /// Refused for an ID, which names an IRI or a blank node, and for a datatype by hash whose string is no IRI.
     pub fn to_literal<E: From<TermError>>(
         &self,
         datatype_iri: impl FnOnce(SystemId) -> Result<NamedNode, E>,
@@ -66,6 +67,16 @@ impl TermView<'_> {
                 match datatype {
                     Datatype::Known(k) => typed(lexical, known_iri(*k)),
                     Datatype::Id(id) => Literal::new_typed_literal(lexical, datatype_iri(*id)?),
+                    Datatype::Hashed(hash) => {
+                        let iri = text(&Text::Hashed(*hash))?;
+                        let named = NamedNodeRef::new(&iri).map_err(|_| {
+                            TermError::malformed(
+                                iri.as_bytes().to_vec(),
+                                "a datatype that is no IRI",
+                            )
+                        })?;
+                        Literal::new_typed_literal(lexical, named)
+                    }
                 }
             }
             TermView::Vector(elements) => typed(

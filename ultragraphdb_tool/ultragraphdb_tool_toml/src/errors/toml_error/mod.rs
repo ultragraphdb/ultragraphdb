@@ -80,16 +80,19 @@ pub struct TomlError(pub TomlErrorEnum);
 
 impl TomlError {
     /// Line `line` uses `feature`, outside the subset.
+    #[must_use]
     pub fn unsupported(feature: TomlFeature, line: usize) -> Self {
         Self(TomlErrorEnum::Unsupported { feature, line })
     }
 
     /// Line `line` breaks a rule of TOML 1.0, for `reason`.
+    #[must_use]
     pub fn invalid(reason: TomlInvalid, line: usize) -> Self {
         Self(TomlErrorEnum::Invalid { reason, line })
     }
 
     /// The document passes `limit`, whose bound is `max`.
+    #[must_use]
     pub fn limit(limit: TomlLimit, max: usize) -> Self {
         Self(TomlErrorEnum::Limit { limit, max })
     }

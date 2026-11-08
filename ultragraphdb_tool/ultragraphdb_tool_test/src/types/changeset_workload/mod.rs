@@ -175,6 +175,7 @@ pub struct ChangesetWorkload {
 
 impl ChangesetWorkload {
     /// The faults of a run: every class but corruption, which a posting list cannot always detect.
+    #[must_use]
     pub fn faults() -> FaultConfig {
         FaultConfig::mixed().with_corruption(0)
     }
@@ -211,14 +212,22 @@ impl ChangesetWorkload {
         seed: Seed,
         steps: u64,
     ) -> Result<(RunOutcome, ChangesetWorkload), Violation> {
-        let mut w = Self {
-            model: Some(CanonicalDataset::new()),
-            replay: true,
-            ..Self::default()
-        };
+        let mut w = Self::replaying();
         let outcome = Simulation::new(seed, FaultConfig::none())
             .run(steps, 2, |ctx, event| w.step(ctx, event))?;
         Ok((outcome, w))
+    }
+
+    /// A workload checked against the canonical model whose every round is replayed into a replica and compared with it
+    /// ([`REPLAY_AGREES`]), for a caller driving [`ChangesetWorkload::step`] itself, as
+    /// [`ChangesetWorkload::run_replayed`] does.
+    #[must_use]
+    pub fn replaying() -> Self {
+        Self {
+            model: Some(CanonicalDataset::new()),
+            replay: true,
+            ..Self::default()
+        }
     }
 
     fn applier(&mut self, ctx: &SimContext) -> Result<Arc<SimChangesets>, ChangesetError> {

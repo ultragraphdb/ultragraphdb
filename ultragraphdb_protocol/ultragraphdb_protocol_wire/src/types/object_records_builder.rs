@@ -14,6 +14,7 @@ pub struct ObjectRecordsBuilder {
 
 impl ObjectRecordsBuilder {
     /// A value of no records.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -31,6 +32,7 @@ impl ObjectRecordsBuilder {
     }
 
     /// The records so far, the value [`crate::Entries::push`] takes.
+    #[must_use]
     pub fn value(&self) -> &[u8] {
         &self.value
     }

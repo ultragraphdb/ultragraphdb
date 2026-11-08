@@ -65,6 +65,8 @@ pub(crate) fn quick_select<D: SortData>(data: &mut D, low: usize, high: usize, k
     // Go's int arithmetic on indices, which are at most isize::MAX.
     let (mut low, mut high) = (low.cast_signed(), high.cast_signed());
     let k = k.cast_signed();
+    // Past the first check `0 <= low < high`, so the `usize` casts lose no sign. Each turn moves `low` above or `high`
+    // below the pivot, which lies between them, so the span narrows and the loop ends.
     loop {
         if low >= high {
             return;

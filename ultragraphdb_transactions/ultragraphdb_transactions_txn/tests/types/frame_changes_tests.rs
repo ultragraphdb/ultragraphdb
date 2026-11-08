@@ -3,13 +3,13 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use oxrdf::{TermRef, vocab::rdf};
-use ultragraphdb_core_mapping::{ChangeRef, Changes};
+use oxrdf::{BaseDirection, GraphNameRef, NamedOrBlankNodeRef, TermRef, vocab::rdf};
+use ultragraphdb_core_mapping::{ChangeRef, Changes, StatementView};
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, BodyView, Command, Direction, FrameView, Header, MAX_FRAME_SIZE, RequestTerm,
-    TermTable, Write, WriteChange, WriteView,
+    BodyBuilder, BodyView, Command, Declared, DeclaredPredicate, Direction, FrameView, Header,
+    MAX_FRAME_SIZE, RequestTerm, StatementTarget, TermTable, Write, WriteChange, WriteView,
 };
-use ultragraphdb_tool_bdd::{Context, TestResult};
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transactions_txn::{FrameChanges, FrameTerms};
 
 const CLUSTER: u64 = 7;
@@ -164,5 +164,209 @@ fn test_a_triple_term_is_held_and_checked() -> TestResult {
         })
     })?;
     assert_eq!(held, Ok(true));
+    Ok(())
+}
+
+/// The changes the Write of `changes` over `table` reads as, owned so they outlive the frame: each one's `Debug`.
+fn read_as(table: TermTable, changes: Vec<WriteChange>) -> TestResult<Vec<String>> {
+    reading(table, changes, |read| {
+        read.map(|frame| {
+            frame
+                .changes()
+                .map(|change| format!("{change:?}"))
+                .collect::<Vec<_>>()
+        })
+    })?
+    .map_err(TestError::new)
+}
+
+/// A language-tagged literal whose tag RDF already holds lowercase is borrowed as sent, its direction with it; an
+/// uppercase tag without a direction is lowered too.
+#[test]
+fn test_a_language_literal_reads_with_its_tag_and_direction() -> TestResult {
+    let mut table = TermTable::new();
+    let a = table.iri(IRI);
+    let mut literals = Vec::new();
+    for (language, direction) in [("en", None), ("en", Some(Direction::Ltr)), ("EN", None)] {
+        literals.push(table.intern(RequestTerm::LanguageLiteral {
+            lexical: "x".to_string(),
+            language: language.to_string(),
+            direction,
+        })?);
+    }
+    let changes = literals
+        .iter()
+        .map(|literal| insert(a, a, *literal))
+        .collect();
+    let read = reading(table, changes, |read| {
+        read.map(|frame| {
+            frame
+                .changes()
+                .filter_map(|change| {
+                    if let ChangeRef::Insert {
+                        object: TermRef::Literal(literal),
+                        ..
+                    } = change
+                    {
+                        Some((literal.language().map(str::to_string), literal.direction()))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+    })?
+    .map_err(TestError::new)?;
+    let en = Some("en".to_string());
+    assert_eq!(
+        read,
+        [
+            (en.clone(), None),
+            (en.clone(), Some(BaseDirection::Ltr)),
+            (en, None)
+        ]
+    );
+    Ok(())
+}
+
+/// A triple term's subject may be a blank node; a literal subject or a predicate that is no IRI is refused.
+#[test]
+fn test_a_triple_term_s_subject_and_predicate_are_checked() -> TestResult {
+    let mut table = TermTable::new();
+    let a = table.iri(IRI);
+    let blank = table.intern(RequestTerm::BlankNode("b0".to_string()))?;
+    let literal = table.intern(RequestTerm::Literal {
+        lexical: "x".to_string(),
+        datatype: None,
+    })?;
+    let held = table.intern(RequestTerm::Triple {
+        subject: blank,
+        predicate: a,
+        object: a,
+    })?;
+    assert_eq!(read_as(table.clone(), vec![insert(a, a, held)])?.len(), 1);
+    for (subject, predicate) in [(literal, a), (a, literal)] {
+        let mut table = table.clone();
+        let triple = table.intern(RequestTerm::Triple {
+            subject,
+            predicate,
+            object: a,
+        })?;
+        let refused = reading(table, vec![insert(a, a, triple)], |read| read.err())?;
+        assert!(refused.context("a refusal")?.contains("term"));
+    }
+    Ok(())
+}
+
+/// A triple term the terms passed over was never held, so reading it is refused naming the term.
+#[test]
+fn test_a_triple_term_not_held_is_refused() -> TestResult {
+    let mut table = TermTable::new();
+    let a = table.iri(IRI);
+    let triple = table.intern(RequestTerm::Triple {
+        subject: a,
+        predicate: a,
+        object: a,
+    })?;
+    let frame = Write::new(table, vec![insert(a, a, triple)])
+        .frame(Header::new(CLUSTER, Command::Write).with_stream(1))?;
+    let view = FrameView::validate(&frame, CLUSTER, MAX_FRAME_SIZE)?;
+    let write = WriteView::from_frame(&view)?;
+    let none = FrameTerms::default();
+    let refused = FrameChanges::new(9, &write, &none)
+        .err()
+        .context("a refusal")?;
+    assert!(refused.to_string().contains("term"), "{refused}");
+    Ok(())
+}
+
+/// Every kind of change but a declaration reads its terms in their places: a blank graph, a statement by its reifier or
+/// by its quad, a property's value or none.
+#[test]
+fn test_every_change_reads_its_terms() -> TestResult {
+    let mut table = TermTable::new();
+    let a = table.iri(IRI);
+    let graph = table.intern(RequestTerm::BlankNode("g".to_string()))?;
+    let by_reifier = StatementTarget::Reifier {
+        graph: Some(graph),
+        reifier: a,
+    };
+    let by_quad = StatementTarget::Triple {
+        graph: None,
+        subject: a,
+        predicate: a,
+        object: a,
+    };
+    let changes = vec![
+        WriteChange::DeletePattern {
+            graph: Some(graph),
+            subject: a,
+            predicate: a,
+        },
+        WriteChange::SetProperty {
+            statement: by_reifier,
+            predicate: a,
+            value: a,
+        },
+        WriteChange::DeleteProperty {
+            statement: by_quad,
+            predicate: a,
+            value: None,
+        },
+        WriteChange::DeleteProperty {
+            statement: by_reifier,
+            predicate: a,
+            value: Some(a),
+        },
+    ];
+    let count = changes.len();
+    let read = reading(table, changes, |read| {
+        read.map(|frame| {
+            frame
+                .changes()
+                .map(|change| reads_in_place(&change))
+                .collect::<Vec<_>>()
+        })
+    })?
+    .map_err(TestError::new)?;
+    assert_eq!(read, vec![true; count]);
+    Ok(())
+}
+
+/// Whether `change` reads its terms in the places [`test_every_change_reads_its_terms`] writes them.
+fn reads_in_place(change: &ChangeRef<'_>) -> bool {
+    matches!(
+        change,
+        ChangeRef::DeletePattern {
+            graph: GraphNameRef::BlankNode(_),
+            ..
+        } | ChangeRef::SetProperty {
+            statement: StatementView::Reifier {
+                graph: GraphNameRef::BlankNode(_),
+                ..
+            },
+            ..
+        } | ChangeRef::DeleteProperty {
+            statement: StatementView::Triple {
+                subject: NamedOrBlankNodeRef::NamedNode(_),
+                ..
+            },
+            value: None,
+            ..
+        } | ChangeRef::DeleteProperty {
+            statement: StatementView::Reifier { .. },
+            value: Some(_),
+            ..
+        }
+    )
+}
+
+/// A declaration commits through the metadata group, so a Write carrying one is refused naming it.
+#[test]
+fn test_a_declaration_is_refused() -> TestResult {
+    let table = TermTable::new();
+    let declared = WriteChange::Declare(Declared::Predicate(DeclaredPredicate::new(IRI)));
+    let refused = reading(table, vec![declared], |read| read.err())?;
+    assert!(refused.context("a refusal")?.contains("declaration"));
     Ok(())
 }

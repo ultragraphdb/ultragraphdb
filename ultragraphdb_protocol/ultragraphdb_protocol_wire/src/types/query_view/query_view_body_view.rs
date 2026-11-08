@@ -45,6 +45,7 @@ impl<'a> BodyView<'a> for QueryView<'a> {
             return Err(ProtocolError::count_mismatch(
                 command,
                 "parameters",
+                // The casts are lossless: a `usize` is at most 64 bits.
                 values.len() as u64,
                 names.len() as u64,
             ));

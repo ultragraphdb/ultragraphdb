@@ -254,13 +254,18 @@ impl Command {
 
     /// Whether this is a role command, numbered in [`crate::ROLE_COMMANDS`]: one roles exchange on role connections,
     /// which a client endpoint refuses.
+    #[must_use]
     pub fn is_role(self) -> bool {
         ROLE_COMMANDS.contains(&self.number())
     }
 
-    /// The command as a client connection takes it: refused as [`ProtocolError::command_not_served`], naming its
-    /// number, when it is a role command (`PROTOCOL.md` §2.5, step 3). The client endpoint applies it to every request,
-    /// and a client to every frame the server sends.
+    /// The command as a client connection takes it. The client endpoint applies it to every request, and a client to
+    /// every frame the server sends.
+    ///
+    /// # Errors
+    ///
+    /// [`ProtocolError::command_not_served`], naming its number, when it is a role command (`PROTOCOL.md` §2.5, step
+    /// 3).
     pub fn on_client_connection(self) -> Result<Command, ProtocolError> {
         if self.is_role() {
             return Err(ProtocolError::command_not_served(self.number()));
@@ -271,6 +276,7 @@ impl Command {
     /// Whether `answer` is a command `PROTOCOL.md` §3 lists in this request's "Answered by": a Write's or an Operation's
     /// Held is its answer on a Bind stream, the one stream a role sends them on. An Error answers any request and is
     /// [`Command::answering`]'s to take.
+    #[must_use]
     pub fn answered_by(self, answer: Command) -> bool {
         match self {
             Command::Hello => answer == Command::Welcome,
@@ -318,8 +324,11 @@ impl Command {
     }
 
     /// The frame's command as the side that dialled takes it on the stream of `request`: an Error, or a command
-    /// [`Command::answered_by`] lists; refused as [`ProtocolError::command_not_served`], naming its number, otherwise
-    /// (`PROTOCOL.md` §2.5, step 3).
+    /// [`Command::answered_by`] lists.
+    ///
+    /// # Errors
+    ///
+    /// [`ProtocolError::command_not_served`], naming its number, for any other command (`PROTOCOL.md` §2.5, step 3).
     pub fn answering(self, request: Command) -> Result<Command, ProtocolError> {
         if self == Command::Error || request.answered_by(self) {
             return Ok(self);

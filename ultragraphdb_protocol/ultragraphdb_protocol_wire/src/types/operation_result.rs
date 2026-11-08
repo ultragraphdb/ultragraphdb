@@ -20,6 +20,7 @@ pub struct OperationResult {
 impl OperationResult {
     /// The result of an insert-if-absent or upsert-and-link: the node at index `node` of the reply's term table, and
     /// whether the operation created it.
+    #[must_use]
     pub fn for_node(node: u32, created: bool) -> Self {
         Self {
             value: 0,
@@ -38,16 +39,19 @@ impl OperationResult {
     }
 
     /// The result of a compare-and-set that held: no value, no node.
+    #[must_use]
     pub fn compare_and_set() -> Self {
         Self::counter(0)
     }
 
     /// A counter add's new value; 0 for the other kinds.
+    #[must_use]
     pub fn value(&self) -> i64 {
         self.value
     }
 
     /// The index in the reply's term table of the node found or created; `None` for compare-and-set and counter add.
+    #[must_use]
     pub fn node(&self) -> Option<u32> {
         (self.node != ABSENT).then_some(self.node)
     }
@@ -58,6 +62,7 @@ impl OperationResult {
     }
 
     /// The result's 16 bytes.
+    #[must_use]
     pub fn encode(&self) -> [u8; OPERATION_RESULT_SIZE] {
         let [v0, v1, v2, v3, v4, v5, v6, v7] = self.value.to_le_bytes();
         let [n0, n1, n2, n3] = self.node.to_le_bytes();

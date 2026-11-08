@@ -54,26 +54,31 @@ pub enum PipelineErrorEnum {
 
 impl PipelineError {
     /// The [`PipelineErrorEnum::Log`] reason.
+    #[must_use]
     pub fn log(cause: LogError) -> Self {
         Self(PipelineErrorEnum::Log { cause })
     }
 
     /// The [`PipelineErrorEnum::Apply`] reason.
+    #[must_use]
     pub fn apply(cause: ChangesetError) -> Self {
         Self(PipelineErrorEnum::Apply { cause })
     }
 
     /// The [`PipelineErrorEnum::Sessions`] reason.
+    #[must_use]
     pub fn sessions(cause: StoreError) -> Self {
         Self(PipelineErrorEnum::Sessions { cause })
     }
 
     /// The [`PipelineErrorEnum::BuildEnd`] reason.
+    #[must_use]
     pub fn build_end(cause: TxnError) -> Self {
         Self(PipelineErrorEnum::BuildEnd { cause })
     }
 
     /// The [`PipelineErrorEnum::CatalogVersion`] reason.
+    #[must_use]
     pub fn catalog_version(version: u64, cause: TxnError) -> Self {
         Self(PipelineErrorEnum::CatalogVersion { version, cause })
     }

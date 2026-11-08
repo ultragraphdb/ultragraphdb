@@ -86,6 +86,10 @@ struct Recalling {
 /// another connection reads: its requests arrive by [`ultragraphdb_common_role::Session::answer`], and everything else, each
 /// role's frames and each owner's answer that does not wait, by message, so one request's wait holds up no other. Whatever it
 /// sends goes out in the order its transaction's rules need, through [`ultragraphdb_common_role::Session::next_push`].
+///
+/// A request's future awaits the owner and nothing else, past its authentication's delay, and its connection awaits it to
+/// its end, so only the runtime's end drops one: a future dropped at the owner's answer leaves what it asked with the
+/// owner, a commit's session held in flight included, and the runtime's end takes the owner with it.
 #[derive(Debug)]
 pub struct ClientSession<A> {
     core: EndpointCore<A>,
@@ -107,6 +111,9 @@ pub struct ClientSession<A> {
     on_way: ParkedBytes,
     events_in: UnboundedSender<SessionEvent>,
     events: UnboundedReceiver<SessionEvent>,
+    /// The frames for the client, in the order they leave. A read's are metered by the credit the client granted it, as
+    /// the role link meters what compute sends, and every other stream's are its answers and its end, so the session's
+    /// streams and their credit bound its length.
     out: VecDeque<(u64, Vec<u8>)>,
     /// What it holds of the endpoint's open requests: one for each request relayed and not yet answered, and each frame queued.
     counted: Vec<OpenFrame>,
@@ -117,6 +124,8 @@ impl<A: Authorizer + Clone> ClientSession<A> {
     pub fn new(core: EndpointCore<A>, credentials: AskedCredentials, peer: Option<IpAddr>) -> Self {
         let statements = StatementCache::new(core.limits().statements());
         let bound = usize::try_from(core.limits().held_bytes()).unwrap_or(usize::MAX);
+        // A role's frames reach it metered as `out`'s are, and the owner's answers one for each request asked: the
+        // session's streams and their credit bound the channel's length.
         let (events_in, events) = unbounded();
         Self {
             core,
@@ -124,7 +133,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             asked_name: None,
             peer,
             principal: 0,
-            max_frame: MAX_FRAME_FLOOR as u32,
+            max_frame: MAX_FRAME_FLOOR as u32, // 2^19, lossless
             statements,
             transactions: BTreeMap::new(),
             reads: BTreeMap::new(),

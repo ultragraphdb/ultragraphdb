@@ -19,6 +19,7 @@ pub struct MarkedReference {
 
 impl MarkedReference {
     /// The reference to `entity` from `group` at `generation`.
+    #[must_use]
     pub fn new(entity: SystemId, group: BucketGroup, generation: NonZeroU64) -> Self {
         Self {
             entity,
@@ -28,16 +29,19 @@ impl MarkedReference {
     }
 
     /// The entity.
+    #[must_use]
     pub fn entity(&self) -> SystemId {
         self.entity
     }
 
     /// The subject bucket group.
+    #[must_use]
     pub fn group(&self) -> BucketGroup {
         self.group
     }
 
     /// The generation the home's reply named.
+    #[must_use]
     pub fn generation(&self) -> NonZeroU64 {
         self.generation
     }

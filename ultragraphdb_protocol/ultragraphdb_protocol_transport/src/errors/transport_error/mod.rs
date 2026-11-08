@@ -101,11 +101,13 @@ pub struct TransportError(pub TransportErrorEnum);
 
 impl TransportError {
     /// A [`TransportErrorEnum::Protocol`] for `error`.
+    #[must_use]
     pub fn protocol(error: ProtocolError) -> Self {
         Self(TransportErrorEnum::Protocol { error })
     }
 
     /// A [`TransportErrorEnum::Io`] for the stream's `error`.
+    #[must_use]
     pub fn io(error: &io::Error) -> Self {
         Self(TransportErrorEnum::Io {
             kind: error.kind(),
@@ -114,36 +116,43 @@ impl TransportError {
     }
 
     /// A [`TransportErrorEnum::Closed`].
+    #[must_use]
     pub fn closed() -> Self {
         Self(TransportErrorEnum::Closed)
     }
 
     /// A [`TransportErrorEnum::Truncated`] `received` bytes into a frame of `expected`.
+    #[must_use]
     pub fn truncated(received: usize, expected: usize) -> Self {
         Self(TransportErrorEnum::Truncated { received, expected })
     }
 
     /// A [`TransportErrorEnum::PoolExhausted`] for a pool of `buffers`.
+    #[must_use]
     pub fn pool_exhausted(buffers: usize) -> Self {
         Self(TransportErrorEnum::PoolExhausted { buffers })
     }
 
     /// A [`TransportErrorEnum::StreamZero`].
+    #[must_use]
     pub fn stream_zero() -> Self {
         Self(TransportErrorEnum::StreamZero)
     }
 
     /// A [`TransportErrorEnum::StreamOpen`] for `stream`.
+    #[must_use]
     pub fn stream_open(stream: u64) -> Self {
         Self(TransportErrorEnum::StreamOpen { stream })
     }
 
     /// A [`TransportErrorEnum::StreamLimit`] at `limit`.
+    #[must_use]
     pub fn stream_limit(limit: u32) -> Self {
         Self(TransportErrorEnum::StreamLimit { limit })
     }
 
     /// A [`TransportErrorEnum::UnknownStream`] for `stream`.
+    #[must_use]
     pub fn unknown_stream(stream: u64) -> Self {
         Self(TransportErrorEnum::UnknownStream { stream })
     }
@@ -157,16 +166,19 @@ impl TransportError {
     }
 
     /// A [`TransportErrorEnum::UnexpectedCommand`]: `found` where `expected` was due.
+    #[must_use]
     pub fn unexpected_command(expected: u16, found: u16) -> Self {
         Self(TransportErrorEnum::UnexpectedCommand { expected, found })
     }
 
     /// A [`TransportErrorEnum::FrameNotBuilt`]: the frame of `command` could not be built, as `error` says.
+    #[must_use]
     pub fn frame_not_built(command: u16, error: ProtocolError) -> Self {
         Self(TransportErrorEnum::FrameNotBuilt { command, error })
     }
 
     /// A [`TransportErrorEnum::Address`] of `address`, breaking `rule`.
+    #[must_use]
     pub fn address(address: &str, rule: AddressRule) -> Self {
         Self(TransportErrorEnum::Address {
             address: address.to_string(),

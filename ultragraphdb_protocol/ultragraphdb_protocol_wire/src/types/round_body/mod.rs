@@ -47,6 +47,7 @@ pub struct RoundBody {
 impl RoundBody {
     /// An empty round at `position` of the log of `incarnation`, after the round whose checksum is `parent`, its first
     /// commit version `first_version`, its quads turned into keys by `derivation`.
+    #[must_use]
     pub fn new(
         position: u64,
         parent: u64,
@@ -106,6 +107,7 @@ impl RoundBody {
     }
 
     /// The dictionary entries the round creates, in ascending key order.
+    #[must_use]
     pub fn dictionary(&self) -> &BTreeMap<Vec<u8>, Vec<u8>> {
         &self.dictionary
     }

@@ -22,7 +22,9 @@ use ultragraphdb_common_role::{
     PARTITION_INITIAL_CREDIT, ROLE_ITERATIONS, RoleClient, RoleCluster, RoleCredentials, Server,
     frontend_address, listen, retry_until, serve_connection,
 };
-use ultragraphdb_common_service::{Readiness, RoleKind, RoleStart, Stopping, core_runtime};
+use ultragraphdb_common_service::{
+    AcceptPace, Readiness, RoleKind, RoleStart, Stopping, core_runtime,
+};
 use ultragraphdb_common_service_config::{ServiceConfig, StorageTable, partition_address};
 use ultragraphdb_common_storage::{
     CoreChannels, CoreEnds, CoreMessage, CoreParts, FrontendAsk, HeldCatalogs, PartitionCore,
@@ -79,6 +81,7 @@ fn now() -> Instant {
 fn first_ticket() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
+        // Microseconds since 1970 fit a `u64` until the year 586,912, so the cast loses nothing.
         .map_or(1, |since| since.as_micros() as u64)
 }
 
@@ -103,6 +106,9 @@ struct CoreStart {
 /// [`RoleError::configuration`] for a setting absent or out of its bounds or a refused role secret;
 /// [`RoleError::unavailable`] when a thread cannot start or the frontend does not take the role by its deadline;
 /// [`RoleError::io`] for a failed store or log.
+///
+/// A future dropped at any await leaves the partitions' threads running, each ending at the service's stop, which no
+/// one then waits for.
 pub(crate) async fn storage_role(
     start: RoleStart,
     readiness: Readiness,
@@ -168,6 +174,7 @@ pub(crate) async fn storage_role(
     }
     readiness.set(true);
     tracing::info!(partitions = count, "ready");
+    // An event loop: the service's stop or a core's end ends it (Ultra rule 2).
     while !stopping.is_stopping() {
         if let Err(failure) = ended.look() {
             return stop_the_rest(failure, ended, &stopping).await;
@@ -179,6 +186,8 @@ pub(crate) async fn storage_role(
 
 /// A partition failed, so the process shuts down through its ordinary path: every other partition flushes what its log holds, and
 /// the process exits with the failure's code.
+///
+/// A future dropped while it waits leaves the stop set and the partitions flushing on their threads, unwaited.
 async fn stop_the_rest(
     failure: RoleError,
     ended: CoreEnds,
@@ -193,6 +202,9 @@ async fn stop_the_rest(
 }
 
 /// Whether the core behind `is_ready` became ready; false once the service stops first. A core ending first ends this.
+///
+/// A future dropped at its wait holds nothing: a core then telling its readiness finds no one, which it takes as a role
+/// gone.
 async fn wait_or_end(
     mut is_ready: oneshot::Receiver<()>,
     ended: &mut CoreEnds,
@@ -236,6 +248,9 @@ fn spawn_core(
 }
 
 /// A partition's whole life on its core: the map it asks for, its store and log recovered, then its service.
+///
+/// Its thread's `block_on` runs it to its end; a future dropped at an await would drop the partition, its log, as its
+/// last sync left it, and the discard thread's sender.
 async fn serve_core(
     start: CoreStart,
     mailbox: PartitionMailbox,
@@ -259,9 +274,13 @@ async fn serve_core(
     std::fs::create_dir_all(&dir)
         .map_err(|error| RoleError::io(format!("the data directory {}: {error}", dir.display())))?;
     let leased = LeasedBlocks::new();
+    // One want per lease the store asks for, which it asks at each allocation while it holds no block ahead: the
+    // frontend's task drains them as it runs, and nothing bounds them while it waits on the frontend.
     let (wanted, wants) = unbounded();
     let blocks = RefillBlocks::new(leased.clone(), wanted);
     let partition = Arc::new(open_partition(&dir.join("store"), own, &placement, blocks)?);
+    // At most one ask per core turn that raises the bound, each pass of the discard thread draining every ask: it holds
+    // the turns of one synced write.
     let (discards, raised) = std::sync::mpsc::channel();
     let discarding = spawn_discards(own, Arc::clone(&partition), raised)?;
     let config = WalConfig::new(cluster.id(), false);
@@ -287,6 +306,9 @@ async fn serve_core(
         .map_err(|error| RoleError::io(format!("the pipeline: {error}")))?
         .with_partition(own.get(), delivered, asked, &in_effect)
         .bound(own, partition.placement());
+    // What the mailbox hands beyond the process, bounded as a mailbox's inbox is (`PartitionMailbox::mesh`): the writes
+    // parked here, each a batch a second until its limit, and the answers to the Registrations taken; the core drains it
+    // each turn.
     let (remote_tx, remote) = std::sync::mpsc::channel();
     let mailbox = mailbox.with_remote(remote_tx);
     let self_sender = mailbox
@@ -313,6 +335,9 @@ async fn serve_core(
 }
 
 /// `partition`'s catalog versions loaded and its log replayed over them: the version it applied through.
+///
+/// A future dropped at the replay leaves the store holding the rounds applied so far, which a recovery replays again
+/// from the log.
 async fn replayed(
     partition: &StoragePartition,
     log: &mut Wal<CompioStorage>,
@@ -388,6 +413,7 @@ fn spawn_discards(
     let spawned = std::thread::Builder::new()
         .name(format!("discard-{}", id.get()))
         .spawn(move || {
+            // Ends once every sender is gone, which is the partition stopping (Ultra rule 2).
             while let Ok(first) = raised.recv() {
                 let latest = raised.try_iter().last().unwrap_or(first);
                 let lists = partition.applier().quads().lists();
@@ -414,6 +440,10 @@ struct Serving<'a> {
 
 /// Listens at the partition's address, leases its first blocks, joins the frontend and subscribes to its closes, then runs
 /// the partition's core until the service stops or the frontend stays away past the deadline.
+///
+/// A future dropped at any await leaves the tasks it spawned, the accept loop, the answers' forwarding, the frontend's
+/// requests and the closes' delivery, running until their runtime ends; one dropped while the core runs drops the core
+/// and its host.
 async fn serve_partition(
     start: &CoreStart,
     serving: Serving<'_>,
@@ -424,10 +454,16 @@ async fn serve_partition(
     let name = RoleKind::Storage.to_string();
     let address =
         partition_address(&start.base, start.first, own.get()).map_err(RoleError::configuration)?;
+    // Each connection's requests within its credit and its `held_bytes` of frames parked, its few messages of opening,
+    // ending and cancelling, and the catalog versions a close announces.
     let (to_core, inbox) = unbounded();
     accept_connections(listen(&address).await?, start, to_core.clone())?;
+    // Each ask comes from an epoch or a catalog event, not from a request: a close request per epoch the commit step
+    // holds on, a default entry per declaration taking effect, a report per catalog version.
     let (asks_tx, asks) = unbounded();
+    // A close per epoch, which the core drains each turn.
     let (closes_tx, closes) = std::sync::mpsc::channel();
+    // One answer per registration this partition asked of another process, forwarded as it arrives.
     let (answers_tx, answers) = unbounded();
     let peers = Peers::new(
         cluster.clone(),
@@ -487,6 +523,8 @@ async fn serve_partition(
 }
 
 /// What `running` stops with, or the failure `lost` tells of first.
+///
+/// A future dropped at its wait drops `running` with it.
 async fn until_lost(
     running: impl Future<Output = Result<(), RoleError>>,
     mut lost: oneshot::Receiver<RoleError>,
@@ -546,6 +584,7 @@ fn open_partition(
     placement: &PlacementMap,
     blocks: RefillBlocks,
 ) -> Result<StoragePartition, RoleError> {
+    // A closure takes no type parameter, so it takes each error as a trait object (Ultra rules 1 and 9).
     let failed = |what: &str, why: &dyn std::fmt::Display| RoleError::io(format!("{what}: {why}"));
     let owned =
         Partition::<FjallStore, MokaListCache<CachedList>, ThreadExecutor, RefillBlocks>::owned(
@@ -585,19 +624,17 @@ fn accept_connections(
         .with_iterations(ROLE_ITERATIONS);
     spawn(async move {
         let mut connection = 0u64;
+        let mut pace = AcceptPace::default();
+        // An event loop: it accepts for as long as its runtime runs, which ends with the service (Ultra rule 2).
         loop {
-            match listener.accept().await {
-                Ok(carrier) => {
-                    connection += 1;
-                    let session = StorageSession::new(connection, core.clone(), held_bytes);
-                    let (server, credentials) = (server.clone(), credentials.clone());
-                    spawn(async move {
-                        serve_connection(carrier, &server, credentials, session).await;
-                    })
-                    .detach();
-                }
-                Err(error) => tracing::warn!(%error, "a role connection was not accepted"),
-            }
+            let carrier = pace.accept("role", || listener.accept()).await;
+            connection += 1;
+            let session = StorageSession::new(connection, core.clone(), held_bytes);
+            let (server, credentials) = (server.clone(), credentials.clone());
+            spawn(async move {
+                serve_connection(carrier, &server, credentials, session).await;
+            })
+            .detach();
         }
     })
     .detach();
@@ -607,6 +644,9 @@ fn accept_connections(
 /// Every catalog version of `tenants` the frontend holds with an effective epoch, for a replayed record naming one. A tenant's
 /// versions end at the first it never held, which the group refuses with code 7; any other failure fails the whole read, so a
 /// connection lost part way gives no partial set.
+///
+/// A future dropped at a dial or a request drops the connection and the versions read so far: the read is whole or
+/// nothing.
 async fn held_versions(
     frontend: &Address,
     cluster: &RoleCluster,
@@ -645,6 +685,8 @@ async fn held_versions(
 }
 
 /// The catalog version `version` announces, read from the frontend: what its close's delivery waits for.
+///
+/// A future dropped at a dial or the request drops the connection; a read changes nothing on the frontend.
 async fn announced_catalog(
     peers: &Peers,
     version: &CatalogVersion,
@@ -667,6 +709,8 @@ async fn announced_catalog(
 }
 
 /// The map the frontend holds, checked against the even map this stage holds fixed, and the tenants its runs list.
+///
+/// A future dropped at a dial or the request drops the connection; a read changes nothing on the frontend.
 async fn placement_of(
     frontend: &Address,
     cluster: &RoleCluster,
@@ -706,6 +750,9 @@ async fn placement_of(
 }
 
 /// Joins for this partition and subscribes from `from`: the connection the closes arrive on.
+///
+/// A future dropped past the Join leaves the frontend holding this partition joined, which the next attempt joins
+/// again; the subscription is dropped with its connection.
 async fn joined_subscription(
     peers: &Peers,
     join: &Join,
@@ -725,6 +772,9 @@ async fn joined_subscription(
 
 /// Hands each close the subscription brings to the partition's mailbox, joining and subscribing again when the frontend
 /// goes away, from the last close it holds, until the deadline; past it, `lost` ends the core.
+///
+/// A future dropped at a read, a catalog version's fetch or a rejoin leaves the closes handed on so far delivered and
+/// the one under way undelivered, its catalog versions dropped; `lost` dropped with it ends nothing.
 async fn deliver_closes(
     mut client: RoleClient,
     peers: Peers,
@@ -831,10 +881,13 @@ fn close_of(
 }
 
 /// Forwards what a registration's task learned to the partition's mailbox, whose senders are not on this runtime's type.
+///
+/// A future dropped at its wait drops the answers still queued; each asker sends its registration again a second later.
 async fn forward_answers(
     mut answers: UnboundedReceiver<PartitionMessage>,
     own: std::sync::mpsc::Sender<PartitionMessage>,
 ) {
+    // Ends once every sender of `answers` is gone (Ultra rule 2).
     while let Some(answer) = answers.next().await {
         // A mailbox gone is a partition stopping.
         drop(own.send(answer));
@@ -842,6 +895,9 @@ async fn forward_answers(
 }
 
 /// Leases until `prefix` is held ahead of need, retrying until the deadline.
+///
+/// A future dropped at a dial or a lease leaves the blocks supplied so far held; a block the frontend granted whose
+/// reply was not read goes unused, its sequences skipped.
 async fn top_up(
     peers: &Peers,
     leased: &LeasedBlocks,
@@ -864,6 +920,8 @@ async fn top_up(
     Ok(())
 }
 
+/// Leases blocks of `prefix` on `client` until [`BLOCKS_AHEAD`] are held. A future dropped at a lease leaves the blocks
+/// supplied so far held; a block the frontend granted whose reply was not read goes unused, its sequences skipped.
 async fn lease_ahead(
     client: &mut RoleClient,
     leased: &LeasedBlocks,
@@ -886,6 +944,9 @@ async fn lease_ahead(
 }
 
 /// What the core asks of the frontend, in turn on one connection: leases ahead of need, and closes it asks for.
+///
+/// A future dropped at its wait or a request drops the connection and what it was asking, which the core asks again: a
+/// lease at its next allocation, a close request as the commit step holds on, a default entry by the next recovery.
 async fn frontend_requests(
     peers: Peers,
     leased: LeasedBlocks,
@@ -894,6 +955,7 @@ async fn frontend_requests(
     mut asks: UnboundedReceiver<FrontendAsk>,
 ) {
     let mut client: Option<RoleClient> = None;
+    // An event loop: either channel's end, which is the core stopping, ends it (Ultra rule 2).
     loop {
         let next = std::future::poll_fn(|cx| {
             if let std::task::Poll::Ready(want) = wants.poll_next_unpin(cx) {
@@ -956,6 +1018,8 @@ async fn frontend_requests(
 
 /// Sends `report` until the frontend answers it, on a connection of its own so a wait for the frontend holds no lease, or until the
 /// role's deadline, past which the frontend's own wait for it has ended (`PROTOCOL.md` §13.19).
+///
+/// A future dropped at a dial, the request or a wait drops the report, which the close delivered again checks again.
 async fn send_report(peers: Peers, report: Report) {
     let due = now() + peers.cluster().deadline();
     loop {

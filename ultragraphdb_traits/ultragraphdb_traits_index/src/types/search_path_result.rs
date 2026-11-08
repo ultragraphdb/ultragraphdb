@@ -25,6 +25,7 @@ impl SearchPathResult {
     }
 
     /// The nearest neighbors, in order, after filtering.
+    #[must_use]
     pub fn neighbors(&self) -> &[SystemId] {
         &self.neighbors
     }
@@ -35,6 +36,7 @@ impl SearchPathResult {
     }
 
     /// The path from the search's start to the nearest neighbor.
+    #[must_use]
     pub fn path(&self) -> &[SystemId] {
         &self.path
     }

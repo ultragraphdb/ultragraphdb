@@ -14,10 +14,12 @@ use compio::BufResult;
 use compio::io::{AsyncReadExt, AsyncWriteExt};
 use compio::net::{TcpListener, TcpStream};
 use compio::runtime::{Runtime, spawn};
-use ultragraphdb_common_config::{CONFIG_LOG_CLUSTER, ConfigApi, ConfigStore, store_owner};
+use ultragraphdb_common_config::{
+    CONFIG_LOG_CLUSTER, ConfigApi, ConfigError, ConfigStore, store_owner,
+};
 use ultragraphdb_common_config_check::TargetFiles;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
-use ultragraphdb_transactions_log::{SimStorage, Wal, WalConfig};
+use ultragraphdb_transactions_log::{FaultMode, SimStorage, Wal, WalConfig};
 use ultragraphdb_transport_http_server::{BearerKey, HttpLimits, serve_http};
 
 const READ_KEY: &str = "read-key-0123456789abcdef01234567";
@@ -29,11 +31,11 @@ const STORAGE: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\nfr
 /// How long a client waits on an answer: far past what a loopback takes.
 const WAIT: Duration = Duration::from_secs(5);
 
-/// A key file holding `key`, in a folder no other test names.
-fn key(name: &str, key: &str) -> TestResult<BearerKey> {
+/// A key file holding `key`, in a folder `label` names, which no other test names.
+fn key(label: &str, name: &str, key: &str) -> TestResult<BearerKey> {
     let folder = std::env::var_os("TEST_TMPDIR")
         .map_or_else(std::env::temp_dir, PathBuf::from)
-        .join(format!("config-api-{}", std::process::id()));
+        .join(format!("config-api-{}-{label}", std::process::id()));
     std::fs::create_dir_all(&folder)?;
     let file = folder.join(name);
     std::fs::write(&file, key)?;
@@ -48,12 +50,26 @@ fn bundle() -> Vec<u8> {
 }
 
 /// The API served at a loopback address on this runtime, its store empty.
-async fn serving() -> TestResult<SocketAddr> {
+async fn serving(label: &str) -> TestResult<SocketAddr> {
+    serving_over(label, SimStorage::new(9), true).await
+}
+
+/// The API served at a loopback address on this runtime, its empty store over `storage`, its key files in a folder
+/// `label` names; its owner runs when `owned` and has ended otherwise.
+async fn serving_over(label: &str, storage: SimStorage, owned: bool) -> TestResult<SocketAddr> {
     let config = WalConfig::new(CONFIG_LOG_CLUSTER, false);
-    let (log, _) = Wal::open(SimStorage::new(9), PathBuf::from("/wal"), config).await?;
+    let (log, _) = Wal::open(storage, PathBuf::from("/wal"), config).await?;
     let (handle, owner) = store_owner(ConfigStore::recover(log).await?);
-    spawn(owner).detach();
-    let api = ConfigApi::new(handle, key("read", READ_KEY)?, key("admin", ADMIN_KEY)?);
+    if owned {
+        spawn(owner).detach();
+    } else {
+        drop(owner);
+    }
+    let api = ConfigApi::new(
+        handle,
+        key(label, "read", READ_KEY)?,
+        key(label, "admin", ADMIN_KEY)?,
+    );
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let address = listener.local_addr()?;
     spawn(async move {
@@ -164,8 +180,151 @@ async fn routes(at: SocketAddr) -> TestResult {
 #[test]
 fn test_the_api_answers_each_request() -> TestResult {
     Runtime::new()?.block_on(async {
-        let at = serving().await?;
+        let at = serving("answers").await?;
         keys(at).await?;
         routes(at).await
+    })
+}
+
+/// The answer to a refusal: its status and the error's text on a line.
+fn refused(status: u16, error: &ConfigError) -> (u16, Vec<u8>) {
+    (status, format!("{error}\n").into_bytes())
+}
+
+/// Each refusal of the store is answered with its status and the error's text.
+async fn refusals(at: SocketAddr) -> TestResult {
+    let admin = Some(ADMIN_KEY);
+    let storage = "/v1/targets/ci/instances/storage";
+    let unknown = ConfigError::unknown_target("ci");
+    assert_eq!(
+        ask(at, "GET", storage, admin, b"").await?,
+        refused(404, &unknown)
+    );
+    let add = "/v1/targets/ci/revisions?base=0";
+    assert_eq!(ask(at, "POST", add, admin, &bundle()).await?.0, 201);
+    let inactive = ConfigError::no_active_revision("ci");
+    for path in [storage, "/v1/targets/ci/download"] {
+        assert_eq!(
+            ask(at, "GET", path, admin, b"").await?,
+            refused(404, &inactive),
+            "{path}"
+        );
+    }
+    let absent = ConfigError::unknown_revision("ci", 9);
+    for path in [
+        "/v1/targets/ci/revisions/9/instances/storage",
+        "/v1/targets/ci/revisions/9",
+    ] {
+        assert_eq!(
+            ask(at, "GET", path, admin, b"").await?,
+            refused(404, &absent),
+            "{path}"
+        );
+    }
+    assert_eq!(
+        ask(at, "PUT", "/v1/targets/ci/active", admin, b"9").await?,
+        refused(404, &absent)
+    );
+    let nobody = "/v1/targets/ci/revisions/1/instances/nobody";
+    assert_eq!(
+        ask(at, "GET", nobody, admin, b"").await?,
+        refused(404, &ConfigError::unknown_instance("ci", 1, "nobody"))
+    );
+    assert_eq!(
+        ask(at, "POST", add, admin, &bundle()).await?,
+        refused(409, &ConfigError::stale("ci", 0, 1))
+    );
+    let broken = "/v1/targets/ci/revisions?base=1";
+    assert_eq!(
+        ask(at, "POST", broken, admin, b"not a bundle").await?.0,
+        422
+    );
+    assert_eq!(
+        ask(at, "DELETE", "/v1/targets/nobody", admin, b"").await?,
+        refused(404, &ConfigError::unknown_target("nobody"))
+    );
+    assert_eq!(
+        ask(at, "DELETE", "/v1/targets/ci", admin, b"").await?.0,
+        200
+    );
+    assert_eq!(
+        ask(at, "GET", storage, admin, b"").await?,
+        refused(404, &ConfigError::retired("ci"))
+    );
+    Ok(())
+}
+
+/// A request the API cannot read is answered 400, one it does not serve 404.
+async fn malformed(at: SocketAddr) -> TestResult {
+    let admin = Some(ADMIN_KEY);
+    for (method, path, body) in [
+        (
+            "GET",
+            "/v1/targets/ci/revisions/x/instances/storage",
+            b"".as_slice(),
+        ),
+        ("GET", "/v1/targets/ci/revisions/x", b""),
+        ("POST", "/v1/targets/ci/revisions", b""),
+        ("PUT", "/v1/targets/ci/active", b"x"),
+    ] {
+        assert_eq!(
+            ask(at, method, path, admin, body).await?.0,
+            400,
+            "{method} {path}"
+        );
+    }
+    assert_eq!(ask(at, "GET", "/v1/nothing", admin, b"").await?.0, 404);
+    Ok(())
+}
+
+/// The API refuses each request it cannot serve with that request's status and text.
+#[test]
+fn test_the_api_refuses_each_request_for_its_reason() -> TestResult {
+    Runtime::new()?.block_on(async {
+        let at = serving("refuses").await?;
+        refusals(at).await?;
+        malformed(at).await
+    })
+}
+
+/// A change the log fails to make durable is answered 503, the store unavailable.
+#[test]
+fn test_a_failed_log_is_answered_unavailable() -> TestResult {
+    Runtime::new()?.block_on(async {
+        let storage = SimStorage::new(10);
+        let at = serving_over("failed", storage.clone(), true).await?;
+        let admin = Some(ADMIN_KEY);
+        let add = "/v1/targets/ci/revisions?base=0";
+        assert_eq!(ask(at, "POST", add, admin, &bundle()).await?.0, 201);
+        storage.fail_at(storage.trace().len(), FaultMode::Before);
+        let retire = ask(at, "DELETE", "/v1/targets/ci", admin, b"").await?;
+        assert_eq!(retire.0, 503, "{}", String::from_utf8_lossy(&retire.1));
+        Ok(())
+    })
+}
+
+/// Every request reaching the store is answered 503 once the store's owner has ended.
+#[test]
+fn test_a_stopped_store_answers_unavailable() -> TestResult {
+    Runtime::new()?.block_on(async {
+        let at = serving_over("stopped", SimStorage::new(11), false).await?;
+        let admin = Some(ADMIN_KEY);
+        let bundle = bundle();
+        for (method, path, body) in [
+            ("GET", "/v1/targets", b"".as_slice()),
+            ("GET", "/v1/targets/ci/instances/storage", b""),
+            ("GET", "/v1/targets/ci/revisions/1", b""),
+            ("GET", "/v1/targets/ci/download", b""),
+            ("POST", "/v1/targets/ci/revisions?base=0", &bundle),
+            ("PUT", "/v1/targets/ci/active", b"1"),
+            ("DELETE", "/v1/targets/ci", b""),
+        ] {
+            assert_eq!(
+                ask(at, method, path, admin, body).await?.0,
+                503,
+                "{method} {path}"
+            );
+        }
+        Ok(())
     })
 }

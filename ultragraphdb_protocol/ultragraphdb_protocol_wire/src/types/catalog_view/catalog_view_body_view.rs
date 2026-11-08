@@ -38,7 +38,7 @@ impl<'a> BodyView<'a> for CatalogView<'a> {
             return Err(ProtocolError::count_mismatch(
                 command,
                 "catalog",
-                bytes.len() as u64,
+                bytes.len() as u64, // lossless: a `usize` is at most 64 bits
                 0,
             ));
         }

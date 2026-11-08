@@ -25,7 +25,8 @@ pub enum Carrier {
 }
 
 impl Carrier {
-    /// Dials `address` over the carrier its scheme names, with TCP keepalive on and each frame leaving at once (`PROTOCOL.md` §11.4).
+    /// Dials `address` over the carrier its scheme names, with TCP keepalive on and each frame leaving at once
+    /// (`PROTOCOL.md` §11.4). A future dropped while it dials closes the socket it opened, and leaves nothing.
     ///
     /// # Errors
     ///

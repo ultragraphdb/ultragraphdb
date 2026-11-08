@@ -63,6 +63,7 @@ impl<'a> RoundRef<'a> {
     }
 
     /// The version of the derivation that turns the round's quads into keys.
+    #[must_use]
     pub fn derivation(&self) -> NonZeroU32 {
         self.derivation
     }

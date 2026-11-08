@@ -18,6 +18,7 @@ pub enum ScanAt {
 
 impl ScanAt {
     /// The choice's byte.
+    #[must_use]
     pub fn number(self) -> u8 {
         match self {
             ScanAt::ReadVersion => 1,
@@ -28,6 +29,7 @@ impl ScanAt {
     }
 
     /// The choice of byte `number`; `None` for any byte but 1 to 4.
+    #[must_use]
     pub fn from_number(number: u8) -> Option<ScanAt> {
         match number {
             1 => Some(ScanAt::ReadVersion),
@@ -39,6 +41,7 @@ impl ScanAt {
     }
 
     /// Whether the Scan names a version in `read_version`: [`ScanAt::ReadVersion`] and [`ScanAt::Named`].
+    #[must_use]
     pub fn names_version(self) -> bool {
         matches!(self, ScanAt::ReadVersion | ScanAt::Named)
     }

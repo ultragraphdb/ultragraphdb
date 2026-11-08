@@ -49,16 +49,19 @@ impl VectorKeys {
     }
 
     /// The graph the index belongs to.
+    #[must_use]
     pub fn graph(&self) -> Graph {
         self.graph
     }
 
     /// The predicate the index indexes.
+    #[must_use]
     pub fn predicate(&self) -> SystemId {
         self.predicate
     }
 
     /// The forward list of `node`, which holds its vector.
+    #[must_use]
     pub fn vector(&self, node: SystemId) -> Vec<u8> {
         QuadKey::Forward {
             tenant: self.tenant,
@@ -81,6 +84,7 @@ impl VectorKeys {
     }
 
     /// The key of `node`'s neighbour lists, every level's in one matrix.
+    #[must_use]
     pub fn neighbours(&self, node: SystemId) -> Vec<u8> {
         self.list(NEIGHBOUR_LIST, node)
     }
@@ -111,6 +115,7 @@ impl VectorKeys {
     }
 
     /// The node `key` names, when it is a node's forward list of the index's predicate.
+    #[must_use]
     pub fn node_of(&self, key: &[u8]) -> Option<SystemId> {
         match QuadKey::parse(key) {
             Ok((

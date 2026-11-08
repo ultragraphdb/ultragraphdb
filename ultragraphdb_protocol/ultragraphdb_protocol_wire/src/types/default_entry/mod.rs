@@ -36,6 +36,7 @@ impl DefaultEntry {
     }
 
     /// The reply: `found` whether the record already existed.
+    #[must_use]
     pub fn with_found(mut self, found: bool) -> Self {
         self.found = found;
         self
@@ -47,11 +48,13 @@ impl DefaultEntry {
     }
 
     /// Whether the record already existed; false in a request.
+    #[must_use]
     pub fn found(&self) -> bool {
         self.found
     }
 
     /// The predicate's IRI.
+    #[must_use]
     pub fn predicate(&self) -> &str {
         &self.predicate
     }

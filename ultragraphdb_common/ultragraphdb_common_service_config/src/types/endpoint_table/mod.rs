@@ -36,37 +36,44 @@ impl EndpointTable {
     }
 
     /// `address`: the address clients connect to.
+    #[must_use]
     pub fn address(&self) -> Option<&str> {
         self.address.as_deref()
     }
 
     /// `tls_cert_file`: the certificate chain's file.
+    #[must_use]
     pub fn tls_cert_file(&self) -> Option<&str> {
         self.tls_cert_file.as_deref()
     }
 
     /// `tls_key_file`: the private key's file.
+    #[must_use]
     pub fn tls_key_file(&self) -> Option<&str> {
         self.tls_key_file.as_deref()
     }
 
     /// `plaintext`: whether the endpoint speaks clear text.
+    #[must_use]
     pub fn plaintext(&self) -> Option<bool> {
         self.plaintext
     }
 
     /// `connections_max`: the most connections the endpoint holds.
+    #[must_use]
     pub fn connections_max(&self) -> Option<u32> {
         self.connections_max
     }
 
     /// `held_bytes`: the most bytes of Write and Operation frames a connection's reads hold back, and the bytes on its way to a role at
     /// which a connection stops being read.
+    #[must_use]
     pub fn held_bytes(&self) -> Option<u64> {
         self.held_bytes
     }
 
     /// `refusal_interval_ms`: how long a principal past its failed authentications is refused.
+    #[must_use]
     pub fn refusal_interval_ms(&self) -> Option<u64> {
         self.refusal_interval_ms
     }

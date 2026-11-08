@@ -41,7 +41,9 @@ impl<R> TlsReadHalf<R> {
 
 impl<R: AsyncRead> AsyncRead for TlsReadHalf<R> {
     /// The peer's plaintext, reading records from the stream until some arrives: 0 once the peer sent its `close_notify`,
-    /// `UnexpectedEof` when the stream closed without it.
+    /// `UnexpectedEof` when the stream closed without it. A future dropped at its read gives the session nothing and
+    /// loses `incoming` with the bytes read into it, which fails the session's next record, and the next read allocates
+    /// `incoming` again; plaintext is taken from the session only when it is copied into `buf` in the same poll.
     async fn read<B: IoBufMut>(&mut self, mut buf: B) -> BufResult<usize, B> {
         let room = buf.buf_capacity();
         if room == 0 {

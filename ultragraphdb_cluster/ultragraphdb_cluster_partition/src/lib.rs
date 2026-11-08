@@ -5,7 +5,8 @@
 
 //! A partition of a storage process (partitions): its bucket ranges, its applier over its own store, its routing, and
 //! P24's one owner per fact between partitions — registration of references at an entity's home, the home's referrer
-//! sets, and reverse reads through them at a closed epoch.
+//! sets, and reverse reads through them at a closed epoch. The partition is data plane: it writes the partition's log
+//! and store.
 
 mod errors;
 mod types;

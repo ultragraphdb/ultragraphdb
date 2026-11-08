@@ -132,3 +132,65 @@ fn test_the_servers_clock_follows_the_time_it_is_handed() -> TestResult {
     );
     Ok(())
 }
+
+/// A Welcome the server cannot build, its name past the largest frame, leaves the Hello unanswered: the server drops the
+/// connection without a last frame.
+#[test]
+fn test_a_welcome_that_cannot_be_built_drops_the_connection() -> TestResult {
+    let now = start();
+    let welcome = crate::utils::harness::welcome();
+    let unbuildable = ultragraphdb_protocol_wire::Welcome::new(
+        welcome.protocol(),
+        welcome.release(),
+        "s".repeat(MAX_FRAME_SIZE),
+    );
+    let mut server = ultragraphdb_client_core::TestServer::new(CLUSTER, unbuildable);
+    server.connection(now, UNIX);
+    server.receive(&hello(CLUSTER)?, now);
+    assert!(server.dropped());
+    assert_eq!(server.transmit(), None, "no frame left");
+    Ok(())
+}
+
+/// A Read naming a transaction the connection does not hold open is refused on its own stream with code 1, and the
+/// connection serves on.
+#[test]
+fn test_a_read_of_a_transaction_not_open_is_refused_on_its_stream() -> TestResult {
+    use ultragraphdb_protocol_wire::{
+        BodyBuilder, Header, PatternSlot, QuadPattern, Read, TermTable,
+    };
+
+    use crate::utils::harness::{Harness, RELEASE, welcome};
+
+    let mut h = Harness::ready(server())?;
+    let (stream, transaction) = (9, 7);
+    let mut terms = TermTable::new();
+    let a = terms.iri("http://ex.org/a");
+    let read = Read::new(
+        transaction,
+        0,
+        terms,
+        QuadPattern::new(
+            PatternSlot::Unbound,
+            PatternSlot::Bound(a),
+            PatternSlot::Unbound,
+            PatternSlot::Unbound,
+        ),
+        Vec::new(),
+    );
+    let mut frame = read.frame(
+        Header::new(CLUSTER, Command::Read)
+            .with_release(RELEASE)
+            .with_protocol(welcome().protocol())
+            .with_stream(stream),
+    )?;
+    let sequence = h.server.received().len() as u128 + 1;
+    ultragraphdb_protocol_wire::Header::stamp_sequence(&mut frame, sequence)?;
+    h.server.receive(&frame, h.now);
+    let error = h.server.transmit().context("the refusal")?;
+    let (refused, code, _) = refusal(&error)?;
+    assert_eq!((refused, code), (stream, ErrorCode::Protocol));
+    assert!(!h.server.is_closing(), "the connection serves on");
+    assert_eq!(h.server.open_transactions(), 0);
+    Ok(())
+}

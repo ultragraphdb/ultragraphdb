@@ -100,6 +100,7 @@ pub fn insert_layer(max_levels: usize, rand_float: f64) -> usize {
 
 /// Dgraph's `BytesToUint64`: the node an entry point names, its system ID's 16 big-endian bytes; `None` unless
 /// `bytes` are exactly 16 bytes of a valid ID, where Go panics on fewer and reads the first 8 of more.
+#[must_use]
 pub fn bytes_to_id(bytes: &[u8]) -> Option<SystemId> {
     SystemId::decode(bytes).ok()
 }

@@ -262,3 +262,41 @@ fn test_a_reply_ending_early_is_malformed() -> TestResult {
         Ok(())
     })
 }
+
+/// A client names the URL it was made for.
+#[test]
+fn test_a_client_names_its_url() -> TestResult {
+    let url = HttpUrl::parse("http://h:1")?;
+    let made = HttpClient::new(url.clone(), None, KEY.to_string())?;
+    assert_eq!(made.url(), &url);
+    Ok(())
+}
+
+/// A peer that accepts and never answers is timed out, which waiting may mend, naming the URL: the exchange's 5 s.
+#[test]
+fn test_a_silent_peer_is_timed_out() -> TestResult {
+    Runtime::new()?.block_on(async {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        spawn(async move {
+            // Held, unread and unanswered, until the runtime ends.
+            let held = listener.accept().await;
+            std::future::pending::<()>().await;
+            drop(held);
+        })
+        .detach();
+        let url = format!("http://{address}");
+        let refused = client(&url, None, KEY)?
+            .request("GET", "/", b"")
+            .await
+            .err()
+            .context("a refusal")?;
+        assert!(
+            matches!(refused.0, HttpClientErrorEnum::TimedOut { .. }),
+            "{refused}"
+        );
+        assert!(refused.is_unreachable());
+        assert!(refused.to_string().contains(&url), "{refused}");
+        Ok(())
+    })
+}

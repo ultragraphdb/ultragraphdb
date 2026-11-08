@@ -14,6 +14,8 @@ use crate::types::open_frame::OpenFrame;
 /// wire. Once the service is stopping, a connection refuses each new request as unavailable.
 ///
 /// Shared by an `Arc` of an atomic: each connection counts for itself, and whoever stops reads the sum (Ultra rule 9).
+/// The count orders no other memory, so `AcqRel` on each change and `Acquire` on a read suffice, as any ordering would:
+/// the changes to one atomic fall in one order.
 #[derive(Debug, Clone, Default)]
 pub struct OpenRequests {
     open: Arc<AtomicUsize>,

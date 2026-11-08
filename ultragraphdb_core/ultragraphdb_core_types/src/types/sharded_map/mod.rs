@@ -59,6 +59,7 @@ impl ShardedMap {
 
     /// Dgraph's `Set`.
     pub fn set(&mut self, key: u64, value: Val) {
+        // Lossless both ways: NUM_SHARDS is 30, and the remainder is below it.
         let _replaced: Option<Val> =
             self.shards[(key % NUM_SHARDS as u64) as usize].insert(key, value);
     }

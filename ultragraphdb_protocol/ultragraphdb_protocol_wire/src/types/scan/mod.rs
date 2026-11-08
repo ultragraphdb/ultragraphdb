@@ -57,6 +57,7 @@ impl Scan {
     /// A Scan reading `at` `read_version` (0 where `at` names none), once `epoch` has closed, for `principal`, in
     /// `transaction` (all zero for none), at most `limit` entries per range, waiting at most `deadline_ms` for that close
     /// (0 when `epoch` is 0); no range and no term yet.
+    #[must_use]
     pub fn new(
         at: ScanAt,
         read_version: u64,
@@ -97,36 +98,43 @@ impl Scan {
     }
 
     /// The version each range is read at.
+    #[must_use]
     pub fn at(&self) -> ScanAt {
         self.at
     }
 
     /// The version named; 0 where `at` names none.
+    #[must_use]
     pub fn read_version(&self) -> u64 {
         self.read_version
     }
 
     /// The epoch the partition closes before it answers; 0 for none.
+    #[must_use]
     pub fn epoch(&self) -> u64 {
         self.epoch
     }
 
     /// The client's principal.
+    #[must_use]
     pub fn principal(&self) -> u64 {
         self.principal
     }
 
     /// The read-write transaction's identity; all zero for none.
+    #[must_use]
     pub fn transaction(&self) -> [u8; 16] {
         self.transaction
     }
 
     /// The most entries per range; 0 for no limit.
+    #[must_use]
     pub fn limit(&self) -> u32 {
         self.limit
     }
 
     /// How long the partition waits for the close of the epoch, in milliseconds; 0 when the epoch is 0.
+    #[must_use]
     pub fn deadline_ms(&self) -> u32 {
         self.deadline_ms
     }
@@ -139,6 +147,7 @@ impl Scan {
     }
 
     /// The term table of the IRIs the read names.
+    #[must_use]
     pub fn terms(&self) -> &TermTable {
         &self.terms
     }

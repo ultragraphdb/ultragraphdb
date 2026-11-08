@@ -237,3 +237,131 @@ fn test_a_read_resumed_in_a_predicates_list_asks_from_where_it_stopped() -> Test
         Ok(())
     })
 }
+
+/// A bound term the partition's dictionary does not name means it holds no statement of it: it answers no row, whether
+/// the predicate or the object is the term.
+#[test]
+fn test_a_bound_term_the_partition_does_not_name_answers_no_row() -> TestResult {
+    run(async {
+        let played = PlayedCluster::start(1, quiet_times()).await?;
+        let list = OneList::new("subject", "predicate", 1)?;
+        list.hold_in(played.partition(1)?);
+        let unnamed = Term::resource("http://example.org/unnamed", 9)?;
+        for bound in [
+            Bound {
+                subject: Some(list.subject.iri.clone()),
+                predicate: Some(unnamed.iri.clone()),
+                object: None,
+            },
+            Bound {
+                subject: Some(list.subject.iri.clone()),
+                predicate: Some(list.predicate.iri.clone()),
+                object: Some(RequestTerm::Iri(unnamed.iri.clone())),
+            },
+        ] {
+            let mut client = played.client().await?;
+            let answer = read(&mut client, &snapshot_of(&bound)?).await?.answered()?;
+            assert!(answer.texts().is_empty(), "{bound:?}");
+        }
+        Ok(())
+    })
+}
+
+/// Has `part` hold, in `tenant`'s named graph `g`, `<s> <p>` listing `objects`, every IRI named, the IDs in the run's first bucket.
+fn hold_in_graph(
+    part: &crate::played_reads::played_partition::PlayedPartition,
+    tenant: u64,
+    (s, p, g): (&str, &str, &str),
+    objects: &[&str],
+) -> TestResult {
+    use ultragraphdb_core_keys::{Graph, QuadKey};
+
+    use crate::played_reads::played_data::{first_bucket, id_in, ids_list, name};
+
+    let bucket = first_bucket(tenant);
+    let (subject, predicate, graph) = (id_in(bucket, 1)?, id_in(bucket, 2)?, id_in(bucket, 3)?);
+    name(part, tenant, s, subject);
+    name(part, tenant, p, predicate);
+    name(part, tenant, g, graph);
+    let mut ids = Vec::new();
+    for (sequence, object) in (10..).zip(objects) {
+        let id = id_in(bucket, sequence)?;
+        name(part, tenant, object, id);
+        ids.push(id);
+    }
+    let forward = QuadKey::Forward {
+        tenant,
+        graph: Graph::Named(graph),
+        predicate,
+        subject,
+    };
+    part.put(forward.to_bytes(), ids_list(&ids));
+    Ok(())
+}
+
+/// A named graph, bound or walked: a bound graph the partition names reads its lists there, one it does not name answers no row,
+/// and a read stopped by its limit in a named graph resumes in that graph, bound or walked (`PROTOCOL.md` §11.8, §11.12).
+#[test]
+fn test_a_read_in_a_named_graph_resumes_in_that_graph() -> TestResult {
+    use ultragraphdb_common_compute::read_times_of;
+    use ultragraphdb_protocol_wire::{ComputeRead, MAX_FRAME_SIZE, ReadLevel};
+
+    use crate::played_reads::played_cluster::PlayedCluster as ReadsCluster;
+    use crate::played_reads::played_data::tenant_over;
+    use crate::played_reads::read_answer::{DEADLINE_MS, Pattern, answer_on};
+
+    const S: &str = "http://ex.org/s";
+    const P: &str = "http://ex.org/p";
+    const G: &str = "http://ex.org/g";
+    const OBJECTS: [&str; 3] = ["http://ex.org/o1", "http://ex.org/o2", "http://ex.org/o3"];
+    crate::played_reads::played_cluster::run(async {
+        let cluster = ReadsCluster::start(1, read_times_of(None, None)).await?;
+        let tenant = tenant_over(1, 1)?;
+        let part = cluster.partition(1)?;
+        hold_in_graph(part, tenant, (S, P, G), &OBJECTS)?;
+        let read = |pattern: &Pattern, resume: Vec<u8>| -> TestResult<ComputeRead> {
+            let (terms, slots) = pattern.table()?;
+            Ok(
+                ComputeRead::new(tenant, true, ReadLevel::Latest, terms, slots, resume)
+                    .with_principal(1)
+                    .with_deadline_ms(DEADLINE_MS)
+                    .with_client_limits(MAX_FRAME_SIZE as u32, 4),
+            )
+        };
+        let in_graph = |slot: Option<Option<String>>| {
+            let mut pattern = Pattern::of(Some(S), Some(P), None);
+            pattern.graph = slot;
+            pattern
+        };
+        let absent = in_graph(Some(Some("http://ex.org/absent".to_string())));
+        let none = answer_on(&mut cluster.client().await?, &read(&absent, Vec::new())?).await?;
+        none.ended()?;
+        assert!(
+            none.rows().is_empty(),
+            "a graph the partition does not name"
+        );
+        // Bound, the object is the row's first cell; walked, the graph is and the object second.
+        for (pattern, column) in [
+            (in_graph(Some(Some(G.to_string()))), 0),
+            (in_graph(None), 1),
+        ] {
+            let first = answer_on(
+                &mut cluster.client().await?,
+                &read(&pattern, Vec::new())?.with_limit(1),
+            )
+            .await?;
+            assert_eq!(first.column(column), OBJECTS[..1]);
+            let rest = answer_on(
+                &mut cluster.client().await?,
+                &read(&pattern, first.resume())?,
+            )
+            .await?;
+            rest.ended()?;
+            assert_eq!(rest.column(column), OBJECTS[1..]);
+            if column == 1 {
+                assert_eq!(rest.column(0), [G; 2], "each row names its graph");
+            }
+        }
+        Ok(())
+    })
+}

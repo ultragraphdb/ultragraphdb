@@ -56,6 +56,7 @@ where
 
     /// The buckets `placement` gives partition `id` at `epoch`, which its quad store owns; `None` for a layout whose
     /// ranges are not sorted and disjoint, which a placement map never holds.
+    #[must_use]
     pub fn owned(id: PartitionId, placement: &PlacementMap, epoch: Epoch) -> Option<OwnedBuckets> {
         let ranges = placement
             .ranges_at(epoch)

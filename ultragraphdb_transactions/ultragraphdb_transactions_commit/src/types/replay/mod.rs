@@ -46,7 +46,7 @@ impl Replay {
     /// versions through the derivation it names: each committed record's quads, statement records and drop with every
     /// key they derive, a build's end, the round's dictionary entries, and the session table's entries its committed
     /// requests leave, with their stored replies, on a table of `capacity` sessions. Replaying a round the store holds
-    /// writes what it holds.
+    /// writes what it holds. A future dropped leaves what [`Replay::run_with_catalog`]'s leaves.
     ///
     /// # Errors
     ///
@@ -71,7 +71,7 @@ impl Replay {
     }
 
     /// Replays `log` as [`Replay::run`] does, for partition `partition`, which the session tokens of the stored replies
-    /// it rebuilds name.
+    /// it rebuilds name. A future dropped leaves what [`Replay::run_with_catalog`]'s leaves.
     ///
     /// # Errors
     ///
@@ -100,6 +100,10 @@ impl Replay {
     /// at its store's applied epoch first ([`ChangesetApplier::load_catalog`]), and finishes the rebuild records a
     /// crash left after ([`ChangesetApplier::recover_builds`]). The default-entry records the replayed rounds ask for
     /// are the applier's to take ([`ChangesetApplier::take_default_entries`]), sent again to the group.
+    ///
+    /// Its one wait is the log's read. A future dropped there leaves each round replayed before it applied whole, its
+    /// session entries and the store's applied position in its batch, so a later run resumes after it; a build such a
+    /// round started again goes on in the applier, and the default entries it asked for stay the applier's to take.
     ///
     /// # Errors
     ///

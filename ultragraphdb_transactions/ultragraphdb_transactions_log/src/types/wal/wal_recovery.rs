@@ -93,7 +93,7 @@ impl<S: DurableStorage> Wal<S> {
         // The chain moves on only into a segment that exists, one index up each time, so it crosses at most every
         // segment opened.
         let segments = self.files.len();
-        for _ in 0..=segments {
+        for _ in 0..segments + 1 {
             self.index_rounds(segment, &scan);
             if let Some(last) = scan.rounds().last()
                 && let Some(next) = last.position().next()
@@ -134,6 +134,7 @@ impl<S: DurableStorage> Wal<S> {
             };
             return Ok((stop, start));
         }
+        // Lossless: a `usize` is at most 64 bits.
         Err(LogError::diverged(
             "the segments the chain crosses",
             segments as u64,

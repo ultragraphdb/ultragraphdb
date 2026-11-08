@@ -7,13 +7,13 @@
 //! ID its partition's dictionary gives its datatype; a vector by no reverse key.
 
 use oxrdf::vocab::xsd;
-use oxrdf::{Literal, NamedNode};
+use oxrdf::{BaseDirection, Literal, NamedNode};
 use ultragraphdb_common_compute::read_times_of;
 use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_keys::{Graph, Keyspace, QuadKey};
 use ultragraphdb_core_terms::{EncodedTerm, FLOAT32_VECTOR, TermError};
-use ultragraphdb_protocol_wire::RequestTerm;
-use ultragraphdb_tool_bdd::TestResult;
+use ultragraphdb_protocol_wire::{Direction, RequestTerm};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::utils::played_answers::{Pattern, answer_on, snapshot};
 use crate::utils::played_cluster::{Played, TENANT, id, list_of, run};
@@ -39,6 +39,14 @@ fn term_of(literal: &Literal) -> RequestTerm {
 /// The rows of `<s> <p> ?o`'s reverse, `?s <p> literal`, over one partition holding `<s> <p> literal` and the datatype's term, and
 /// the keys of the lists it was asked.
 async fn read_literal(literal: &Literal) -> TestResult<(Vec<Vec<Option<String>>>, Vec<Vec<u8>>)> {
+    read_literal_as(literal, term_of(literal)).await
+}
+
+/// [`read_literal`], the pattern naming `literal` as `term`.
+async fn read_literal_as(
+    literal: &Literal,
+    term: RequestTerm,
+) -> TestResult<(Vec<Vec<Option<String>>>, Vec<Vec<u8>>)> {
     let played = Played::start(1, read_times_of(None, None)).await?;
     let partition = played.partition(1)?;
     let (s, p, datatype) = (id(1)?, id(2)?, id(3)?);
@@ -47,7 +55,7 @@ async fn read_literal(literal: &Literal) -> TestResult<(Vec<Vec<Option<String>>>
     partition.term(DATATYPE, datatype);
     partition.quads(Graph::Default, s, p, &[encoded(literal, datatype)?]);
     let mut client = played.client().await?;
-    let read = snapshot(&Pattern::of(None, Some(P), Some(term_of(literal))))?;
+    let read = snapshot(&Pattern::of(None, Some(P), Some(term)))?;
     let rows = answer_on(&mut client, &read).await?.whole()?;
     let lists = partition
         .scans()
@@ -81,6 +89,33 @@ fn test_a_plain_literal_object_reads_its_reverse_list() -> TestResult {
             object: encoded(&literal, id(3)?)?,
         };
         assert_eq!(lists, vec![reverse.to_bytes()]);
+        Ok(())
+    })
+}
+
+/// A language-tagged literal, with no base direction or either, is keyed by value: its reverse list holds its subject.
+#[test]
+fn test_a_language_tagged_literal_object_reads_its_rows() -> TestResult {
+    run(async {
+        for (literal, direction) in [
+            (Literal::new_language_tagged_literal("chat", "fr")?, None),
+            (
+                Literal::new_directional_language_tagged_literal("chat", "fr", BaseDirection::Ltr)?,
+                Some(Direction::Ltr),
+            ),
+            (
+                Literal::new_directional_language_tagged_literal("chat", "ar", BaseDirection::Rtl)?,
+                Some(Direction::Rtl),
+            ),
+        ] {
+            let term = RequestTerm::LanguageLiteral {
+                lexical: literal.value().to_string(),
+                language: literal.language().context("a language")?.to_string(),
+                direction,
+            };
+            let (rows, _) = read_literal_as(&literal, term).await?;
+            assert_eq!(rows, the_subject(), "{literal}");
+        }
         Ok(())
     })
 }
@@ -136,6 +171,22 @@ fn test_a_vector_object_reads_the_forward_lists() -> TestResult {
         let read = snapshot(&Pattern::of(None, Some(P), Some(term_of(&vector))))?;
         let rows = answer_on(&mut client, &read).await?.whole()?;
         assert_eq!(rows, the_subject());
+        Ok(())
+    })
+}
+
+/// A literal of a datatype the partition's dictionary does not name keys no list there: the partition answers no row.
+#[test]
+fn test_a_literal_of_a_datatype_the_partition_does_not_name_answers_no_row() -> TestResult {
+    run(async {
+        let held = Literal::new_typed_literal("x", NamedNode::new(DATATYPE)?);
+        let term = RequestTerm::Literal {
+            lexical: "x".to_string(),
+            datatype: Some("http://ex.org/unnamed-datatype".to_string()),
+        };
+        let (rows, lists) = read_literal_as(&held, term).await?;
+        assert!(rows.is_empty());
+        assert!(lists.is_empty(), "no list asked: {lists:?}");
         Ok(())
     })
 }

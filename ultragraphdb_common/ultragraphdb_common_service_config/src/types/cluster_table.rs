@@ -28,26 +28,31 @@ impl ClusterTable {
     }
 
     /// `id`: the cluster's identity, which every frame's header names.
+    #[must_use]
     pub fn id(&self) -> Option<u64> {
         self.id
     }
 
     /// `role_secret_file`: the file holding the secret roles authenticate each other with.
+    #[must_use]
     pub fn role_secret_file(&self) -> Option<&str> {
         self.role_secret_file.as_deref()
     }
 
     /// `frontend_address`: the frontend's role address, which storage and compute join at.
+    #[must_use]
     pub fn frontend_address(&self) -> Option<&str> {
         self.frontend_address.as_deref()
     }
 
     /// `partition_count`: the partitions the frontend forms the placement over.
+    #[must_use]
     pub fn partition_count(&self) -> Option<u32> {
         self.partition_count
     }
 
     /// `join_deadline_ms`: how long storage and compute retry joining, and the frontend connecting back.
+    #[must_use]
     pub fn join_deadline_ms(&self) -> Option<u64> {
         self.join_deadline_ms
     }

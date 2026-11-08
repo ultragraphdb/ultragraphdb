@@ -42,7 +42,7 @@ impl<'a> WriteSections<'a> {
             return Err(ProtocolError::count_mismatch(
                 command,
                 "names",
-                names.len() as u64,
+                names.len() as u64, // lossless: a `usize` is at most 64 bits
                 0,
             ));
         }

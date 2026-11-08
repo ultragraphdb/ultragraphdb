@@ -66,6 +66,10 @@ where
     /// object's object-predicates list read whole and recorded, and its reverse list read whole and recorded only when
     /// it names the predicate; an object the write created reads its own writes alone. A term the store does not hold
     /// holds nothing.
+    ///
+    /// # Errors
+    ///
+    /// The store's error; corruption of a list or a dictionary entry.
     pub fn subjects_into(
         &mut self,
         graph: GraphNameRef<'_>,

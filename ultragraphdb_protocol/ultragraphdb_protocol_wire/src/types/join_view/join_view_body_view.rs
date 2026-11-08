@@ -36,7 +36,7 @@ impl<'a> BodyView<'a> for JoinView<'a> {
             return Err(ProtocolError::field_value(
                 command,
                 "address",
-                address.len() as u64,
+                address.len() as u64, // lossless: a `usize` is at most 64 bits
             ));
         }
         let partitions = sections.get(1);
@@ -52,7 +52,7 @@ impl<'a> BodyView<'a> for JoinView<'a> {
             }
             previous = partition;
         }
-        let count = (partitions.len() / 4) as u64;
+        let count = (partitions.len() / 4) as u64; // lossless: a `usize` is at most 64 bits
         let expected = u64::from(kind == RoleKind::Storage);
         if (count == 0) != (expected == 0) {
             return Err(ProtocolError::count_mismatch(

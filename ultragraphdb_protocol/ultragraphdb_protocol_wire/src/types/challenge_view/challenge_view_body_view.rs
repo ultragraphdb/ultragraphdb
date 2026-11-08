@@ -43,7 +43,7 @@ impl<'a> BodyView<'a> for ChallengeView<'a> {
             (true, false) => Err(ProtocolError::count_mismatch(
                 command,
                 "salt",
-                salt.len() as u64,
+                salt.len() as u64, // lossless: a `usize` is at most 64 bits
                 0,
             )),
             (false, true) => Err(ProtocolError::count_mismatch(command, "salt", 0, 1)),

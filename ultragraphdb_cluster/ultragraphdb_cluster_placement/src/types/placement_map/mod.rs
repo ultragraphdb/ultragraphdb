@@ -65,8 +65,10 @@ impl PlacementMap {
         // `larger` partitions one more.
         let base = TenantRun::BUCKETS / partitions;
         let larger = TenantRun::BUCKETS % partitions;
+        // `partitions` is at most 1,024 here, so the cast is lossless and the product at most 262,144.
         let runs = 256 * partitions as usize;
         let mut layout = Layout::with_capacity(Epoch::ZERO, runs);
+        // Every tenant run, 0 to 255: the last is `u8::MAX`, which a half-open range of `u8` cannot name.
         for run in 0..=u8::MAX {
             let mut start = TenantRun::new(run).range().start();
             for index in 0..partitions {
@@ -101,7 +103,7 @@ impl PlacementMap {
         if from <= latest {
             return Err(ClusterError::change_epoch(from.get(), latest.get()));
         }
-        let layouts_max = Self::LAYOUTS_MAX as usize;
+        let layouts_max = Self::LAYOUTS_MAX as usize; // 256, lossless
         if self.later.len() + 1 >= layouts_max {
             return Err(ClusterError::full("placement layouts", layouts_max));
         }
@@ -126,6 +128,7 @@ impl PlacementMap {
     /// How many more layouts [`PlacementMap::change`] takes before the map holds [`PlacementMap::LAYOUTS_MAX`].
     #[must_use]
     pub fn layouts_free(&self) -> usize {
+        // `LAYOUTS_MAX` is 256, so its cast is lossless.
         (Self::LAYOUTS_MAX as usize).saturating_sub(1 + self.later.len())
     }
 

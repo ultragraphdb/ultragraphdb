@@ -52,6 +52,7 @@ fn test_a_digest_verifies_its_key() -> TestResult {
             .err()
             .context("a refusal")?;
         assert_eq!(refused.0, HttpServerErrorEnum::DigestMalformed, "{wrong}");
+        assert!(refused.to_string().contains(&DIGEST.len().to_string()));
     }
     Ok(())
 }

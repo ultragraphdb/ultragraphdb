@@ -923,3 +923,75 @@ fn test_operations_keep_the_index_removals_of_the_transaction_beneath() -> TestR
     );
     Ok(())
 }
+
+/// An operation linking to a node whose referrer set the store holds damaged is refused with the set's corruption, which
+/// the referrer candidates of the writes it leaves read.
+#[test]
+fn test_an_operation_linking_to_a_node_with_a_damaged_referrer_set_is_refused() -> TestResult {
+    use ultragraphdb_traits_store::{Entry, PersistMode, Store, WriteBatch};
+    let a = changesets()?;
+    unique(&a)?;
+    write(&a, &["<t> <kind> \"topic\""])?;
+    let t = uid(&a, "t")?;
+    let mut batch = WriteBatch::new();
+    batch.push(Entry::put(
+        crate::utils::partitions::referrers_key(t),
+        a.quads().lists().applied_ts(),
+        0,
+        vec![0xFF],
+    ));
+    a.quads().store().apply(batch, PersistMode::Buffer)?;
+    let damage = a
+        .quads()
+        .referrers(TENANT, t, a.quads().lists().applied_ts())
+        .err()
+        .context("the damaged set does not decode")?;
+    let txn = executed(&a, vec![insert("<m> <kind> \"memory\"")?])?;
+    let refused = operate(
+        &a,
+        &txn,
+        &[],
+        &[upsert(
+            "y",
+            &[],
+            vec![OperationLink::from_node(ex("about"), ex("t").into())],
+        )?],
+    )
+    .err()
+    .context("refused")?;
+    assert_eq!(refused, ChangesetError::from(damage));
+    a.release(&txn);
+    Ok(())
+}
+
+/// A node an unapplied proposal's operation created is found by its value through the overlay, though no layer the operation
+/// reads holds its dictionary entry: the operation answers it by its ID.
+#[test]
+fn test_a_node_an_unapplied_operation_created_is_found_without_its_entries() -> TestResult {
+    let a = changesets()?;
+    unique(&a)?;
+    let first = executed(&a, vec![insert("<m1> <kind> \"memory\"")?])?;
+    let (first, created) = operate(&a, &first, &[], &[upsert("y", &[], Vec::new())?])?;
+    let node = node_of(created.first())?.0;
+    let second = executed(&a, vec![insert("<m2> <kind> \"memory\"")?])?;
+    let mut overlay = a.quads().lists().batch();
+    overlay.stack(first.writes());
+    let mut results = Vec::new();
+    let operated = a.operate(
+        &second,
+        &[upsert("y", &[], Vec::new())?],
+        &overlay,
+        &[],
+        &mut results,
+    )?;
+    assert_eq!(
+        results,
+        vec![OperationOutcome::Node {
+            node,
+            created: false
+        }]
+    );
+    a.release(&operated);
+    a.release(&first);
+    Ok(())
+}

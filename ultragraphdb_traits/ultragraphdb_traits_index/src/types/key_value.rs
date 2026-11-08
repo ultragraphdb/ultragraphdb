@@ -27,6 +27,7 @@ impl KeyValue {
     }
 
     /// The ID of the key's entity.
+    #[must_use]
     pub fn entity(&self) -> SystemId {
         self.entity
     }

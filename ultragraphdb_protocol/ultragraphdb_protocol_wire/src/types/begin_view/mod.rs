@@ -40,16 +40,19 @@ impl<'a> BeginView<'a> {
     }
 
     /// The level of the transaction's reads.
+    #[must_use]
     pub fn level(&self) -> ReadLevel {
         self.level
     }
 
     /// The deadline in milliseconds; 0 for the Welcome's `transaction_ms`.
+    #[must_use]
     pub fn deadline_ms(&self) -> u32 {
         self.deadline_ms
     }
 
     /// The session token the client holds.
+    #[must_use]
     pub fn token(&self) -> Option<&SessionToken> {
         self.token.as_ref()
     }

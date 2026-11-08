@@ -57,6 +57,7 @@ impl DateTime {
 
     /// Go's `time.Date(year, month, day, hour, min, sec, nsec, loc)`: `civil` read in `zone`, normalising
     /// out-of-range fields as Go does.
+    #[must_use]
     pub fn new(civil: CivilTime, zone: Zone) -> Self {
         let CivilTime {
             year,
@@ -74,7 +75,8 @@ impl DateTime {
         let (min, sec) = norm(min, sec, 60);
         let (hour, min) = norm(hour, min, 60);
         let (day, hour) = norm(day, hour, 24);
-        // Go's int64(uint64): the day count read as two's complement.
+        // Go's int64(uint64): the day count read as two's complement. The month, normalised, is 1 to 12, so its
+        // cast is lossless.
         let mut unix = date_to_abs_days(year, month as u32, day)
             .cast_signed()
             .wrapping_mul(86400)

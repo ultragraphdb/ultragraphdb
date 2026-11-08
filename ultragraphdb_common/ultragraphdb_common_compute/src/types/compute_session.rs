@@ -35,6 +35,8 @@ impl ComputeSession {
     /// The session of a connection of `core`.
     #[must_use]
     pub fn new(core: Rc<ComputeCore>) -> Self {
+        // Each read pushes one batch at a time, the next only once the one before has left, and then its end: the
+        // connection's streams, at most its `max_streams`, bound the channel's length.
         let (pushes, pushed) = unbounded();
         Self {
             core,
@@ -54,6 +56,7 @@ impl ComputeSession {
 }
 
 impl Session for ComputeSession {
+    /// It holds no `.await`: the read's task is spawned before it returns, so a dropped future leaves nothing.
     async fn answer(&mut self, stream: u64, frame: ReceivedFrame) -> Answer {
         let read = frame
             .view()
@@ -67,6 +70,7 @@ impl Session for ComputeSession {
             Ok(read) => read,
             Err(refusal) => return Answer::Refuse(refusal),
         };
+        // One room a batch that left, and a read sends its next batch only once the room for it came: at most one waits.
         let (room, rooms) = unbounded();
         let sink = ResultSink::new(
             (self.core.cluster_id(), stream),
@@ -90,6 +94,7 @@ impl Session for ComputeSession {
         Answer::Open
     }
 
+    /// A future dropped at its wait leaves the channel as it was, and the next call takes what came meanwhile.
     async fn next_push(&mut self) -> (u64, Vec<u8>) {
         loop {
             match self.pushed.next().await {

@@ -26,6 +26,7 @@ pub struct OtlpHttpClient<D = TcpDial> {
 
 impl OtlpHttpClient {
     /// The client over TCP whose every step waits at most `timeout`, to `http://` endpoints only.
+    #[must_use]
     pub fn new(timeout: Duration) -> Self {
         Self::over(TcpDial, timeout)
     }
@@ -43,6 +44,7 @@ impl<D: Dial> OtlpHttpClient<D> {
     }
 
     /// The client sending to `https://` endpoints too, verified through `connector`.
+    #[must_use]
     pub fn with_tls(self, connector: TlsConnector) -> Self {
         Self {
             tls: Some(connector),

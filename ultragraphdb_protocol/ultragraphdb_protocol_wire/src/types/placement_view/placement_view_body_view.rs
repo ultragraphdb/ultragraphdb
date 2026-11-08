@@ -40,7 +40,7 @@ impl<'a> BodyView<'a> for PlacementView<'a> {
                 return Err(ProtocolError::count_mismatch(
                     command,
                     "placement",
-                    bytes as u64,
+                    bytes as u64, // lossless: a `usize` is at most 64 bits
                     0,
                 ));
             }
@@ -122,6 +122,7 @@ fn check_ranges(
             || range.partition() == 0
             || range.partition() == previous
         {
+            // Lossless: a `usize` is at most 64 bits.
             return Err(ProtocolError::field_value(command, "range", i as u64));
         }
         (end, previous) = (range.end(), range.partition());
@@ -131,7 +132,7 @@ fn check_ranges(
         return Err(ProtocolError::field_value(
             command,
             "range",
-            ranges.len() as u64,
+            ranges.len() as u64, // lossless: a `usize` is at most 64 bits
         ));
     }
     Ok(partitions)
@@ -147,7 +148,7 @@ fn check_runs(
     for (i, bytes) in runs.iter().enumerate() {
         let run = TenantRun::decode(command, at + TenantRun::SIZE * i, bytes)?;
         if previous.is_some_and(|before| run.tenant() <= before) {
-            return Err(ProtocolError::field_value(command, "run", i as u64));
+            return Err(ProtocolError::field_value(command, "run", i as u64)); // lossless: a `usize` is at most 64 bits
         }
         previous = Some(run.tenant());
     }
@@ -164,6 +165,7 @@ fn check_leaders(
     for (i, bytes) in leaders.iter().enumerate() {
         let leader = PreferredLeader::decode(*bytes);
         if leader.partition() <= previous || leader.replica() == 0 {
+            // Lossless: a `usize` is at most 64 bits.
             return Err(ProtocolError::field_value(command, "leader", i as u64));
         }
         previous = leader.partition();
@@ -175,6 +177,7 @@ fn check_leaders(
         return Err(ProtocolError::count_mismatch(
             command,
             "leaders",
+            // The casts are lossless: a `usize` is at most 64 bits.
             leaders.len() as u64,
             partitions.len() as u64,
         ));

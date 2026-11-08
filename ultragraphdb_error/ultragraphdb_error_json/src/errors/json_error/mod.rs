@@ -51,21 +51,25 @@ pub enum JsonErrorEnum {
 
 impl JsonError {
     /// The stream holds no further value: Go's `io.EOF`.
+    #[must_use]
     pub fn eof() -> Self {
         Self(JsonErrorEnum::Eof)
     }
 
     /// The stream ended inside a value: Go's `io.ErrUnexpectedEOF`.
+    #[must_use]
     pub fn unexpected_eof() -> Self {
         Self(JsonErrorEnum::UnexpectedEof)
     }
 
     /// The text is not JSON: Go's `SyntaxError` with its text `msg`, after `offset` bytes.
+    #[must_use]
     pub fn syntax(msg: String, offset: i64) -> Self {
         Self(JsonErrorEnum::Syntax { msg, offset })
     }
 
     /// A value of JSON kind `value` does not fit the Go type `go_type`: Go's `UnmarshalTypeError`.
+    #[must_use]
     pub fn unmarshal_type(
         value: String,
         go_type: String,
@@ -81,6 +85,7 @@ impl JsonError {
     }
 
     /// The reader failed with the text `msg`.
+    #[must_use]
     pub fn read(msg: String) -> Self {
         Self(JsonErrorEnum::Read(msg))
     }

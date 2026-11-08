@@ -140,6 +140,49 @@ fn test_a_workload_rule_broken_at_recovery_stops_the_run() -> TestResult {
     Ok(())
 }
 
+/// A store each recovery leaves down again stops the run at its first step, once the recoveries in a row run out, every
+/// one of them handed to the workload.
+#[test]
+fn test_a_store_no_recovery_brings_back_stops_the_run() -> TestResult {
+    let mut sim = Simulation::new(
+        Seed::new(4),
+        FaultConfig::none().with_crash_between_steps(1000),
+    );
+    let mut recoveries = 0usize;
+    let violation = sim
+        .run(1, 1, |ctx, event| {
+            if event == Event::Recovered {
+                recoveries += 1;
+                ctx.store().crash();
+            }
+            Ok(())
+        })
+        .err()
+        .context("an error")?;
+    assert_eq!(violation.step(), 0);
+    assert!(
+        violation.detail().starts_with(&recoveries.to_string()),
+        "{} after {recoveries} recoveries",
+        violation.detail()
+    );
+    assert!(matches!(violation.invariant(), Invariant::Workload(_)));
+    // One crash fewer, and the last recovery in a row brings the store back.
+    let mut fewer = Simulation::new(
+        Seed::new(4),
+        FaultConfig::none().with_crash_between_steps(1000),
+    );
+    let mut left = recoveries.saturating_sub(1);
+    let _outcome: RunOutcome = fewer.run(1, 1, |ctx, event| {
+        if event == Event::Recovered && left > 0 {
+            left -= 1;
+            ctx.store().crash();
+        }
+        Ok(())
+    })?;
+    assert_eq!(left, 0, "every crash but the last recovery's was taken");
+    Ok(())
+}
+
 #[test]
 fn test_a_crash_between_steps_is_followed_by_recovery() -> TestResult {
     let mut sim = Simulation::new(

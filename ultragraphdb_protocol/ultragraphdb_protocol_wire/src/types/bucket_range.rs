@@ -19,6 +19,7 @@ impl BucketRange {
     pub const SIZE: usize = 16;
 
     /// The buckets `start` to `end`, exclusive, owned by `partition`.
+    #[must_use]
     pub fn new(start: u32, end: u32, partition: u32) -> Self {
         Self {
             start,
@@ -28,21 +29,25 @@ impl BucketRange {
     }
 
     /// The range's first bucket.
+    #[must_use]
     pub fn start(&self) -> u32 {
         self.start
     }
 
     /// One past the range's last bucket.
+    #[must_use]
     pub fn end(&self) -> u32 {
         self.end
     }
 
     /// The partition owning the range.
+    #[must_use]
     pub fn partition(&self) -> u32 {
         self.partition
     }
 
     /// The range's 16 bytes.
+    #[must_use]
     pub fn encode(&self) -> [u8; BucketRange::SIZE] {
         let fields = self
             .start

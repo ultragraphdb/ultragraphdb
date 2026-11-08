@@ -43,8 +43,12 @@ where
     B: BlockSource,
 {
     /// The quads of `lists`' store, leasing sequences from `blocks` and drawing names from `random`, owning every
-    /// bucket. A new store records the mapping contract's version; a store recorded under another major version, or
-    /// holding data without a version, is refused naming both versions, and nothing is written.
+    /// bucket. A new store records the mapping contract's version.
+    ///
+    /// # Errors
+    ///
+    /// [`MappingError::contract_version`], naming both versions, for a store recorded under another major version or
+    /// holding data without a version, nothing written; a stored version that does not decode; the store's error.
     pub fn open(lists: Lists<S, C>, blocks: B, random: RandomSource) -> Result<Self, QuadError> {
         let store = lists.store();
         match store.get_versionless(CONTRACT_KEY)? {

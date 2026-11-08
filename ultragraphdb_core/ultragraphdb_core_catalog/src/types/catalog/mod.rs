@@ -85,6 +85,7 @@ impl Catalog {
     }
 
     /// The number of the catalog version the catalog holds, 0 for one no version installed.
+    #[must_use]
     pub fn version(&self) -> u64 {
         self.version
     }
@@ -96,11 +97,13 @@ impl Catalog {
     }
 
     /// The declaration of predicate `uid`, if the catalog holds one.
+    #[must_use]
     pub fn predicate(&self, uid: SystemId) -> Option<&PredicateDeclaration> {
         self.predicates.get(&uid)
     }
 
     /// The declaration predicate `uid`, named `iri`, behaves as: its own, or the default.
+    #[must_use]
     pub fn predicate_or_default(
         &self,
         uid: SystemId,
@@ -117,12 +120,16 @@ impl Catalog {
     }
 
     /// The declaration of the predicate named `iri` whose ID no dictionary here held when it was declared, if there is one.
+    #[must_use]
     pub fn unresolved(&self, iri: &str) -> Option<&PredicateDeclaration> {
         self.unresolved.get(iri)
     }
 
-    /// Holds `declaration` by its IRI, its ID another partition's to give. Refused, changing nothing, as
-    /// [`Catalog::check_predicate`] refuses.
+    /// Holds `declaration` by its IRI, its ID another partition's to give.
+    ///
+    /// # Errors
+    ///
+    /// The error [`Catalog::check_predicate`] gives `declaration`, the catalog unchanged.
     pub fn hold_unresolved(
         &mut self,
         declaration: PredicateDeclaration,
@@ -144,6 +151,7 @@ impl Catalog {
     }
 
     /// The declaration of entity type `uid`, if the catalog holds one.
+    #[must_use]
     pub fn entity_type(&self, uid: SystemId) -> Option<&TypeDeclaration> {
         self.types.get(&uid)
     }
@@ -154,6 +162,7 @@ impl Catalog {
     }
 
     /// The declaration of relation `uid`, if the catalog holds one.
+    #[must_use]
     pub fn relation(&self, uid: SystemId) -> Option<&RelationDeclaration> {
         self.relations.get(&uid)
     }
@@ -218,8 +227,12 @@ impl Catalog {
         self.relations.remove(&uid).is_some()
     }
 
-    /// Declares relation `uid`, replacing its declaration. Refused, changing nothing, with
-    /// [`CatalogError::too_large`] when its IRI or roles are longer than the catalog's encoding holds.
+    /// Declares relation `uid`, replacing its declaration.
+    ///
+    /// # Errors
+    ///
+    /// [`CatalogError::too_large`] when its IRI or roles are longer than the catalog's encoding holds, the catalog
+    /// unchanged.
     pub fn declare_relation(
         &mut self,
         uid: SystemId,

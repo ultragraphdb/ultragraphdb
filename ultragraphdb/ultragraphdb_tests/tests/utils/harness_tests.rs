@@ -17,13 +17,21 @@ use std::time::Duration;
 use compio::runtime::spawn;
 use service_utils::{ServiceStartConfig, WaitStrategy};
 use ultragraphdb_common_config_check::{check_central, check_config_service};
+use ultragraphdb_common_role::{
+    Answer, ROLE_ITERATIONS, RoleSecret, Server, Session, listen, serve_connection,
+};
 use ultragraphdb_common_service::{Bootstrap, RoleKind};
+use ultragraphdb_protocol_transport::{Endpoint, ReceivedFrame};
+use ultragraphdb_protocol_wire::{
+    BodyBuilder, Command, ErrorCode, ErrorReply, FLAG_LAST, Header, Members,
+};
 use ultragraphdb_tests::{
-    ADMIN_KEY, COMPUTE_BINARY, CONFIG_ADDRESS, CONFIG_BINARY, DOUBLE_ADDRESS, DOUBLE_REVISION,
-    FRONTEND_BINARY, PARENT_PID, READ_KEY, SECRET, START_SECONDS, TARGET, answering, bootstrap,
-    compute_on_one_host, config_folder, config_folder_at, config_process, exit_is, fresh_data,
-    frontend_holding, holding, key_file, process, render_settings, role, role_of_service, scratch,
-    served_by_double, start_double, storage_holding, until_answering, until_ports_free, with,
+    ADMIN_KEY, CLUSTER, COMPUTE_BINARY, CONFIG_ADDRESS, CONFIG_BINARY, DOUBLE_ADDRESS,
+    DOUBLE_REVISION, FRONTEND_BINARY, PARENT_PID, READ_KEY, SECRET, START_SECONDS, TARGET,
+    answering, bootstrap, compute_on_one_host, config_folder, config_folder_at, config_process,
+    exit_is, fresh_data, frontend_holding, holding, key_file, members_at, process, render_settings,
+    role, role_of_service, scratch, served_by_double, start_double, storage_holding,
+    until_answering, until_ports_free, with,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -452,6 +460,120 @@ fn test_until_ports_free_waits_for_a_held_address_to_be_released() -> TestResult
         })
         .await?;
         assert!(freed, "the wait ended while the address was still held");
+        Ok(())
+    })
+}
+
+/// A second start finds the double's own address taken, at the latest, and names the first declared address it finds taken:
+/// another run's process may hold one declared before it.
+#[test]
+fn test_the_double_starts_once_and_names_a_port_taken() -> TestResult {
+    the_double()?;
+    let refused = start_double().err().context("a second start")?;
+    assert!(refused.reason().contains(" is taken ("), "{refused:?}");
+    assert!(
+        refused
+            .reason()
+            .ends_with(": a process of an earlier run may still hold it"),
+        "{refused:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn test_the_double_answers_an_instance_it_does_not_serve_with_404() -> TestResult {
+    the_double()?;
+    let instance = served_by_double(FRONTEND_BINARY, "served");
+    let answer = asked_of_double(&[format!(
+        "GET /targets/{TARGET}/{}",
+        settings_head(&format!("{instance}-not-served"))
+    )])?;
+    assert!(answer.starts_with("HTTP/1.1 404 "), "{answer}");
+    Ok(())
+}
+
+#[test]
+fn test_the_double_lets_a_connection_closed_before_its_head_go() -> TestResult {
+    the_double()?;
+    let mut stream = TcpStream::connect(DOUBLE_ADDRESS)?;
+    stream.set_read_timeout(Some(Duration::from_secs(START_SECONDS)))?;
+    stream.shutdown(std::net::Shutdown::Write)?;
+    let mut answer = Vec::new();
+    let _read: usize = stream.read_to_end(&mut answer)?;
+    assert!(answer.is_empty(), "no head, no answer");
+    Ok(())
+}
+
+/// A wait past [`START_SECONDS`] with an address still held ends refused, naming the first address it finds taken: the
+/// test's own, unless another run's process holds one declared before it.
+#[test]
+fn test_until_ports_free_names_an_address_held_past_its_wait() -> TestResult {
+    let held = TcpListener::bind("127.0.0.1:0")?;
+    let address = held.local_addr()?.to_string();
+    let refused = until_ports_free(&[(address.as_str(), "a listener the test holds")])
+        .err()
+        .context("a wait that ends refused")?;
+    assert!(refused.reason().contains(" is taken ("), "{refused:?}");
+    assert!(
+        refused.reason().ends_with(&format!(
+            "{START_SECONDS} s after the scenario before ended its processes"
+        )),
+        "{refused:?}"
+    );
+    drop(held);
+    Ok(())
+}
+
+/// Answers every Members with the members it holds.
+#[derive(Debug, Clone)]
+struct Listing(Members);
+
+impl Session for Listing {
+    async fn answer(&mut self, stream: u64, frame: ReceivedFrame) -> Answer {
+        if frame.command() != Command::Members.number() {
+            return Answer::Refuse(ErrorReply::new(ErrorCode::Unavailable, "a Members alone"));
+        }
+        let header = Header::new(CLUSTER, Command::Members)
+            .with_stream(stream)
+            .with_flags(FLAG_LAST);
+        self.0.frame(header).map_or_else(
+            |rule| Answer::Refuse(ErrorReply::protocol(&rule)),
+            Answer::Reply,
+        )
+    }
+}
+
+#[test]
+fn test_members_at_lists_what_the_frontend_answers() -> TestResult {
+    let mut members = Members::new();
+    members.push_compute("tcp://127.0.0.1:7082");
+    members.push_storage(1, "tcp://127.0.0.1:7000");
+    let expected: Vec<_> = (0..members.len())
+        .map(|index| {
+            members
+                .get(index)
+                .map(|(kind, partition, address)| (kind, partition, address.to_string()))
+                .context("a member")
+        })
+        .collect::<TestResult<_>>()?;
+    let secret_file = scratch("members-at-secret");
+    std::fs::write(&secret_file, SECRET)?;
+    let credentials = RoleSecret::read(&secret_file.display().to_string())?.credentials()?;
+    let port = TcpListener::bind("127.0.0.1:0")?.local_addr()?.port();
+    let address = format!("tcp://127.0.0.1:{port}");
+    compio::runtime::Runtime::new()?.block_on(async {
+        let listener = listen(&address).await?;
+        let server =
+            Server::new(CLUSTER, "frontend", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
+        let session = Listing(members);
+        spawn(async move {
+            if let Ok(carrier) = listener.accept().await {
+                serve_connection(carrier, &server, credentials, session).await;
+            }
+        })
+        .detach();
+        let listed = off_runtime(move || members_at(&address)).await?;
+        assert_eq!(listed, expected);
         Ok(())
     })
 }

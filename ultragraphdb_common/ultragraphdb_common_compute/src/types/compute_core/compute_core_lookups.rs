@@ -33,6 +33,8 @@ struct LookupPartition {
 impl ComputeCore {
     /// The partitions holding `tenant`'s run, asked at `at`: each past a dictionary Scan at the epoch, so no list Scan waits on
     /// another's close, its version held by `pins`. `iri`'s ID per partition, `None` where that partition holds no statement of it.
+    /// A dropped future cancels each Scan it opened as its stream drops; the versions it added stay held by `pins`
+    /// until they drop.
     async fn lookup_partitions(
         self: &Rc<Self>,
         tenant: u64,
@@ -91,6 +93,7 @@ impl ComputeCore {
     }
 
     /// The lists of range `first` to `past` of `part`, handed to `take` each with its key: every frame's, in order.
+    /// A dropped future cancels its Scan as its stream drops.
     async fn lookup_lists(
         part: &LookupPartition,
         first: &[u8],
@@ -100,6 +103,8 @@ impl ComputeCore {
         let mut scan = Scan::new(ScanAt::ReadVersion, part.version, 0, 0, [0; 16], 0, 0);
         scan.push_range(ScanRange::new(part.link.partition(), first, past));
         let mut stream = ScanStream::open(&part.link, &scan)?;
+        // Each turn takes one frame of the Scan, awaited within the stream's stall bound; the frame the partition marks
+        // last ends it at the latest (Ultra rule 2).
         loop {
             let (facts, ()) = stream
                 .next(|view| {
@@ -116,6 +121,7 @@ impl ComputeCore {
 
     /// What the dictionary of `part` names `ids`, each once, one Scan of one-key ranges a batch. An ID it answers no text for
     /// refuses the lookup with code 17, naming its key.
+    /// A dropped future cancels its Scan as its stream drops.
     async fn lookup_names(
         part: &LookupPartition,
         tenant: u64,
@@ -131,6 +137,8 @@ impl ComputeCore {
             }
             let mut stream = ScanStream::open(&part.link, &scan)?;
             let mut texts: HashMap<Vec<u8>, String> = HashMap::with_capacity(keys.len());
+            // Each turn takes one frame of the Scan, awaited within the stream's stall bound; the frame the partition
+            // marks last ends it at the latest (Ultra rule 2).
             loop {
                 let (facts, ()) = stream
                     .next(|view| {
@@ -168,6 +176,8 @@ impl ComputeCore {
     /// The subjects the value index lists under `token` of `tokenizer` for `predicate` in the default graph of `tenant` at `at`,
     /// by their IRIs, merged over every partition of the tenant's run in key order (quad-reads, "A value-index lookup asks every
     /// partition"). The query core's own read; no client request names it.
+    ///
+    /// A dropped future cancels every Scan it holds as its stream drops, and its pins let go of the versions they held.
     ///
     /// # Errors
     ///
@@ -213,6 +223,8 @@ impl ComputeCore {
     /// The objects whose reverse count of `predicate` in the default graph of `tenant` at `at` is exactly `count`, summed over every
     /// partition of the tenant's run, since each lists an object under its own subjects' count alone (index-maintenance, "A reverse
     /// count sums the referrers' partitions"), by their IRIs, in key order. The query core's own read; no client request names it.
+    ///
+    /// A dropped future cancels every Scan it holds as its stream drops, and its pins let go of the versions they held.
     ///
     /// # Errors
     ///

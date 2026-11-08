@@ -143,6 +143,7 @@ impl PartitionWorkload {
     }
 
     /// The counts of the run.
+    #[must_use]
     pub fn counts(&self) -> PartitionCounts {
         self.counts
     }
@@ -362,7 +363,7 @@ impl PartitionWorkload {
             ));
         }
         self.counts.commits += 1;
-        self.counts.registrations += outcome.registrations() as u64;
+        self.counts.registrations += outcome.registrations() as u64; // a `usize` count, lossless
         self.model.record(pending.edge, version, pending.insert);
         Ok(())
     }
@@ -588,6 +589,7 @@ impl PartitionWorkload {
             )?;
             let version = txn.read_version();
             let (mut from, mut found, mut whole) = (Vec::new(), BTreeSet::new(), Vec::new());
+            // Each turn reads one page from where the last ended; the scan's end ends it (Ultra rule 2).
             loop {
                 let scan = KernelScan::new(Keyspace::Forward, TENANT, from, version, frame);
                 let mut rows = Vec::new();
@@ -946,6 +948,8 @@ fn read_paged<R: PageReader>(
 ) -> TestResult<Vec<KernelRow>> {
     let (mut rows, mut from, mut after, mut left) =
         (Vec::<KernelRow>::new(), Vec::new(), None, limit);
+    // Each turn reads one page from where the last ended; the scan's end, or a page that takes nothing, ends it (Ultra
+    // rule 2).
     loop {
         let scan = KernelScan::new(Keyspace::Forward, TENANT, from, version, left).resuming(after);
         let mut taken = 0;

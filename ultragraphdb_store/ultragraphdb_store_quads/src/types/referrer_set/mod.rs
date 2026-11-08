@@ -34,16 +34,19 @@ pub struct Registered {
 
 impl ReferrerSet {
     /// The empty set.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// The members, sorted by group.
+    #[must_use]
     pub fn members(&self) -> &[ReferrerMember] {
         &self.members
     }
 
     /// The member for `group`, if any.
+    #[must_use]
     pub fn member(&self, group: BucketGroup) -> Option<&ReferrerMember> {
         self.position(group)
             .ok()

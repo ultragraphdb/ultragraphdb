@@ -19,6 +19,7 @@ pub struct OwnedBuckets {
 
 impl OwnedBuckets {
     /// Every bucket.
+    #[must_use]
     pub fn all() -> Self {
         Self {
             ranges: vec![(0, Bucket::MAX.get() + 1)],
@@ -27,6 +28,7 @@ impl OwnedBuckets {
 
     /// The buckets of `ranges`, each its first and last bucket, or `None` unless every range's first bucket is at
     /// most its last and each range starts after the one before it ends.
+    #[must_use]
     pub fn new(ranges: &[(Bucket, Bucket)]) -> Option<Self> {
         let mut owned = Vec::with_capacity(ranges.len());
         let mut after = 0u32;
@@ -42,6 +44,7 @@ impl OwnedBuckets {
     }
 
     /// Whether `bucket` is owned.
+    #[must_use]
     pub fn owns(&self, bucket: Bucket) -> bool {
         self.ranges
             .iter()

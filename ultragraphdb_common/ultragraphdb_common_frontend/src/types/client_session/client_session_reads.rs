@@ -43,7 +43,7 @@ fn columns(pattern: &QuadPattern) -> u32 {
         .slots()
         .into_iter()
         .filter(|slot| matches!(slot, PatternSlot::Unbound))
-        .count() as u32;
+        .count() as u32; // a pattern's slots, at most four, lossless
     unbound + 1
 }
 
@@ -258,6 +258,7 @@ impl<A: Authorizer + Clone> ClientSession<A> {
             .with_stream(stream)
             .with_command_header(body.command_header());
         let frame = match header.encode_frame(&state.body) {
+            // Lossless: a `usize` is at most 64 bits.
             Ok(frame) if frame.len() as u64 <= u64::from(link.max_frame()) => frame,
             Ok(_) | Err(_) => {
                 let refusal = ErrorReply::new(

@@ -212,6 +212,7 @@ impl WriteSetRecord {
     }
 
     /// The record's kind.
+    #[must_use]
     pub fn kind(&self) -> RecordKind {
         self.kind
     }
@@ -222,6 +223,7 @@ impl WriteSetRecord {
     }
 
     /// The tenant's catalog version the entry was validated against; 0 for a registration.
+    #[must_use]
     pub fn catalog(&self) -> u64 {
         self.catalog
     }
@@ -232,6 +234,7 @@ impl WriteSetRecord {
     }
 
     /// The session committing through the transaction; zero for none.
+    #[must_use]
     pub fn session(&self) -> [u8; 16] {
         self.session
     }
@@ -247,26 +250,31 @@ impl WriteSetRecord {
     }
 
     /// The statements inserted: each a quad and its statement ID, empty for none.
+    #[must_use]
     pub fn inserted(&self) -> &[OwnedEntry] {
         &self.inserted
     }
 
     /// The statements removed: each a quad and its statement ID, empty for none.
+    #[must_use]
     pub fn removed(&self) -> &[OwnedEntry] {
         &self.removed
     }
 
     /// The statement records: each a graph and statement ID, and the record or its removal.
+    #[must_use]
     pub fn statement_records(&self) -> &[OwnedEntry] {
         &self.statement_records
     }
 
     /// The operations.
+    #[must_use]
     pub fn operations(&self) -> &[RecordOperation] {
         &self.operations
     }
 
     /// The registrations.
+    #[must_use]
     pub fn registrations(&self) -> &[RecordRegistration] {
         &self.registrations
     }
@@ -297,6 +305,7 @@ impl WriteSetRecord {
     }
 
     /// The results' term table: each node by its IRI or skolem IRI.
+    #[must_use]
     pub fn result_terms(&self) -> &TermTable {
         &self.result_terms
     }

@@ -96,6 +96,7 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
     }
 
     /// A Lease, kept for the turn's sync: of type prefix 0 refused now.
+    /// An asker gone has no one to tell, so each reply's failed send is dropped.
     fn asked_lease(
         &mut self,
         prefix: u16,
@@ -147,6 +148,7 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
     }
 
     /// A session's registration, kept for the turn's sync.
+    /// An asker gone has no one to tell, so each reply's failed send is dropped.
     fn asked_register(
         &mut self,
         session: u128,
@@ -250,6 +252,8 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
         .with_detail(ACTION_WRITE))
     }
 
+    /// The next close after `after` for a subscriber waiting on it, answered now or once the sequencer closes it. A
+    /// subscriber gone has no one to tell, so each reply's failed send is dropped.
     fn next_close(
         &mut self,
         after: u64,

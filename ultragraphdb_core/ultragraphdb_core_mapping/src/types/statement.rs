@@ -37,6 +37,7 @@ impl Statement {
     }
 
     /// The statement named by the reifier `reifier`.
+    #[must_use]
     pub fn with_reifier(mut self, reifier: NamedNode) -> Self {
         self.reifier = Some(reifier);
         self
@@ -69,6 +70,7 @@ impl Statement {
     }
 
     /// The reifier naming the statement, when it has a statement ID.
+    #[must_use]
     pub fn reifier(&self) -> Option<&NamedNode> {
         self.reifier.as_ref()
     }

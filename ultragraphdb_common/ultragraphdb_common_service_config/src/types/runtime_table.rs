@@ -20,6 +20,7 @@ impl RuntimeTable {
     }
 
     /// `pin_cores`: whether each runtime asks to bind to one CPU.
+    #[must_use]
     pub fn pin_cores(&self) -> Option<bool> {
         self.pin_cores
     }

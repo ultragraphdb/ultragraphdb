@@ -58,6 +58,7 @@ pub struct ComputeRead {
 impl ComputeRead {
     /// A read of `pattern`, naming `terms`, from `resume`, in a transaction of `tenant` at `level`, read-only or
     /// read-write; every other field 0 until set.
+    #[must_use]
     pub fn new(
         tenant: u64,
         read_only: bool,
@@ -87,18 +88,21 @@ impl ComputeRead {
     }
 
     /// The transaction's partition.
+    #[must_use]
     pub fn with_partition(mut self, partition: u32) -> Self {
         self.partition = partition;
         self
     }
 
     /// A read-write transaction's identity, as its Bind named it.
+    #[must_use]
     pub fn with_transaction(mut self, transaction: [u8; 16]) -> Self {
         self.transaction = transaction;
         self
     }
 
     /// The version the read reads at: the Bind's answer, or the snapshot's version bound.
+    #[must_use]
     pub fn with_read_version(mut self, read_version: u64) -> Self {
         self.read_version = read_version;
         self.named = false;
@@ -106,6 +110,7 @@ impl ComputeRead {
     }
 
     /// The version the client named, which the read reads at without waiting.
+    #[must_use]
     pub fn with_named_version(mut self, read_version: u64) -> Self {
         self.read_version = read_version;
         self.named = true;
@@ -113,24 +118,28 @@ impl ComputeRead {
     }
 
     /// The epoch the read waits for: the snapshot's, the token's, or the read's floor.
+    #[must_use]
     pub fn with_epoch(mut self, epoch: u64) -> Self {
         self.epoch = epoch;
         self
     }
 
     /// The client's principal.
+    #[must_use]
     pub fn with_principal(mut self, principal: u64) -> Self {
         self.principal = principal;
         self
     }
 
     /// The most rows returned; 0 for no limit.
+    #[must_use]
     pub fn with_limit(mut self, limit: u32) -> Self {
         self.limit = limit;
         self
     }
 
     /// The milliseconds left until the transaction's deadline.
+    #[must_use]
     pub fn with_deadline_ms(mut self, deadline_ms: u32) -> Self {
         self.deadline_ms = deadline_ms;
         self
@@ -145,21 +154,25 @@ impl ComputeRead {
     }
 
     /// The transaction's partition; 0 for none.
+    #[must_use]
     pub fn partition(&self) -> u32 {
         self.partition
     }
 
     /// Whether the transaction is read-only.
+    #[must_use]
     pub fn read_only(&self) -> bool {
         self.read_only
     }
 
     /// The transaction's level.
+    #[must_use]
     pub fn level(&self) -> ReadLevel {
         self.level
     }
 
     /// Whether `read_version` is a version the client named.
+    #[must_use]
     pub fn named(&self) -> bool {
         self.named
     }
@@ -170,56 +183,67 @@ impl ComputeRead {
     }
 
     /// The version the read reads at; 0 for none.
+    #[must_use]
     pub fn read_version(&self) -> u64 {
         self.read_version
     }
 
     /// The epoch the read waits for; 0 for none.
+    #[must_use]
     pub fn epoch(&self) -> u64 {
         self.epoch
     }
 
     /// The client's principal.
+    #[must_use]
     pub fn principal(&self) -> u64 {
         self.principal
     }
 
     /// A read-write transaction's identity; all zero for a read-only one.
+    #[must_use]
     pub fn transaction(&self) -> [u8; 16] {
         self.transaction
     }
 
     /// The most rows returned; 0 for no limit.
+    #[must_use]
     pub fn limit(&self) -> u32 {
         self.limit
     }
 
     /// The milliseconds left until the transaction's deadline.
+    #[must_use]
     pub fn deadline_ms(&self) -> u32 {
         self.deadline_ms
     }
 
     /// The largest Result frame the read takes.
+    #[must_use]
     pub fn max_frame(&self) -> u32 {
         self.max_frame
     }
 
     /// The read's stream's starting credit.
+    #[must_use]
     pub fn credit(&self) -> u32 {
         self.credit
     }
 
     /// The request's term table.
+    #[must_use]
     pub fn terms(&self) -> &TermTable {
         &self.terms
     }
 
     /// The quad pattern.
+    #[must_use]
     pub fn pattern(&self) -> &QuadPattern {
         &self.pattern
     }
 
     /// The client's resume key; empty to start.
+    #[must_use]
     pub fn resume(&self) -> &[u8] {
         &self.resume
     }

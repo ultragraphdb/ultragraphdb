@@ -20,11 +20,13 @@ pub struct Register {
 
 impl Register {
     /// A registration of `session`: all zero in a request.
+    #[must_use]
     pub fn new(session: [u8; 16]) -> Self {
         Self { session }
     }
 
     /// The session; all zero in a request.
+    #[must_use]
     pub fn session(&self) -> [u8; 16] {
         self.session
     }

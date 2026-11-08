@@ -227,3 +227,226 @@ fn test_a_reverse_read_follows_the_referrer_set_from_the_home() -> TestResult {
         Ok(())
     })
 }
+
+/// What each case of [`test_what_a_partition_holds_that_does_not_read_refuses_the_read`] breaks in a partition placing `<s> <p>`
+/// listing two objects, and the pattern it then reads.
+type Breaks = fn(
+    &crate::played_reads::played_partition::PlayedPartition,
+    u64,
+    &crate::played_reads::played_data::Placed,
+) -> TestResult<crate::played_reads::read_answer::Pattern>;
+
+/// The first cases of [`test_what_a_partition_holds_that_does_not_read_refuses_the_read`]: entries and lists that do not read.
+fn broken_entries() -> [(&'static str, Breaks); 4] {
+    use ultragraphdb_core_keys::{Graph, Keyspace, key_prefix};
+    use ultragraphdb_store_quads::term_key;
+
+    use crate::played_reads::played_data::{forward_key, ids_list, name_key};
+    use crate::played_reads::read_answer::Pattern;
+
+    const S: &str = "http://ex.org/s";
+    const P: &str = "http://ex.org/p";
+    [
+        ("a term's entry", |part, tenant, _| {
+            part.put(term_key(tenant, S), vec![1, 2, 3]);
+            Ok(Pattern::of(Some(S), Some(P), None))
+        }),
+        ("an ID's entry", |part, tenant, placed| {
+            let first = placed.objects.first().copied().context("an object")?;
+            part.put(name_key(tenant, first), vec![0xFF, 0xFE]);
+            Ok(Pattern::of(Some(S), Some(P), None))
+        }),
+        ("a list", |part, tenant, placed| {
+            part.put(
+                forward_key(tenant, placed.predicate, placed.subject),
+                vec![0xFF; 3],
+            );
+            Ok(Pattern::of(Some(S), Some(P), None))
+        }),
+        ("a key", |part, tenant, placed| {
+            let mut key = key_prefix(
+                Keyspace::Forward,
+                false,
+                tenant,
+                Some(Graph::Default),
+                Some(placed.predicate),
+            );
+            key.push(0);
+            part.put(key, ids_list(&placed.objects));
+            Ok(Pattern::of(None, Some(P), None))
+        }),
+    ]
+}
+
+/// The last cases of [`test_what_a_partition_holds_that_does_not_read_refuses_the_read`]: sets, IDs, encodings and keys that do not read.
+fn broken_keys() -> [(&'static str, Breaks); 4] {
+    use ultragraphdb_core_keys::{Keyspace, QuadKey, key_prefix};
+
+    use crate::played_reads::played_data::{first_bucket, forward_key, id_in, ids_list};
+    use crate::played_reads::read_answer::{Pattern, iri};
+
+    const S: &str = "http://ex.org/s";
+    const P: &str = "http://ex.org/p";
+    const O: &str = "http://ex.org/o1";
+    [
+        ("a referrer set", |part, tenant, placed| {
+            let first = placed.objects.first().copied().context("an object")?;
+            let referrers = QuadKey::Referrers {
+                tenant,
+                entity: first,
+            };
+            part.put(referrers.to_bytes(), vec![0xFF; 3]);
+            Ok(Pattern::of(None, Some(P), Some(iri(O))))
+        }),
+        ("a dangling ID", |part, tenant, placed| {
+            let mut objects = placed.objects.clone();
+            objects.push(id_in(first_bucket(tenant), 99)?);
+            part.put(
+                forward_key(tenant, placed.predicate, placed.subject),
+                ids_list(&objects),
+            );
+            Ok(Pattern::of(Some(S), Some(P), None))
+        }),
+        ("an object's encoding", |part, tenant, placed| {
+            let mut list = ultragraphdb_protocol_wire::ObjectRecordsBuilder::new();
+            list.push(&[0xEE], &[]);
+            part.put(
+                forward_key(tenant, placed.predicate, placed.subject),
+                list.value().to_vec(),
+            );
+            Ok(Pattern::of(Some(S), Some(P), None))
+        }),
+        ("a walked key", |part, tenant, _| {
+            let mut key = key_prefix(Keyspace::Forward, false, tenant, None, None);
+            key.push(0);
+            part.put(key, Vec::new());
+            let mut pattern = Pattern::of(None, Some(P), None);
+            pattern.graph = None;
+            Ok(pattern)
+        }),
+    ]
+}
+
+/// What a partition holds that does not read refuses the read with code 17, naming it: a term's entry holding no ID, an ID's entry
+/// holding no text, a list that holds no object records, a key in a list's range that is no key, a referrer set that does not
+/// decode, a list naming an ID the dictionary lacks, an object whose encoding does not read, and a key under a walked keyspace
+/// naming no graph.
+#[test]
+fn test_what_a_partition_holds_that_does_not_read_refuses_the_read() -> TestResult {
+    use ultragraphdb_common_compute::read_times_of;
+    use ultragraphdb_protocol_wire::ErrorCode;
+
+    use crate::played_reads::played_cluster::PlayedCluster as ReadsCluster;
+    use crate::played_reads::played_data::{first_bucket, place, tenant_over};
+    use crate::played_reads::read_answer::answer_on;
+
+    const S: &str = "http://ex.org/s";
+    const P: &str = "http://ex.org/p";
+    const OBJECTS: [&str; 2] = ["http://ex.org/o1", "http://ex.org/o2"];
+    crate::played_reads::played_cluster::run(async {
+        for (what, breaks) in broken_entries().into_iter().chain(broken_keys()) {
+            let cluster = ReadsCluster::start(1, read_times_of(None, None)).await?;
+            let tenant = tenant_over(1, 1)?;
+            let part = cluster.partition(1)?;
+            let placed = place(part, tenant, (first_bucket(tenant), 1), (S, P), &OBJECTS)?;
+            let pattern = breaks(part, tenant, &placed)?;
+            let read = pattern.read(tenant, true, ReadLevel::Latest)?;
+            let answer = answer_on(&mut cluster.client().await?, &read).await?;
+            let refused = answer.refusal().map_err(|_| {
+                ultragraphdb_tool_bdd::TestError::new(format!("{what}: no refusal: {answer:?}"))
+            })?;
+            assert_eq!(refused.code, ErrorCode::Unavailable, "{what}: {refused:?}");
+        }
+        Ok(())
+    })
+}
+
+/// The apart tenant's referrer set of `object` and its value, its one member the group of `subject`'s bucket.
+fn referred_by(
+    object: ultragraphdb_core_ids::SystemId,
+    subject: ultragraphdb_core_ids::SystemId,
+) -> TestResult<(Vec<u8>, Vec<u8>)> {
+    let mut set = ultragraphdb_store_quads::ReferrerSet::new();
+    set.set(
+        ultragraphdb_core_ids::BucketGroup::of(subject.bucket()),
+        std::num::NonZeroU64::MIN,
+        ultragraphdb_core_ids::Epoch::new(1)?,
+    );
+    let mut value = Vec::new();
+    set.encode(&mut value);
+    let key = ultragraphdb_core_keys::QuadKey::Referrers {
+        tenant: crate::apart::apart_reads::TENANT,
+        entity: object,
+    }
+    .to_bytes();
+    Ok((key, value))
+}
+
+/// A referrer set a partition answers over several frames, its key in one and the range's end in the next, is read to the last:
+/// the reverse read reaches the member it names.
+#[test]
+fn test_a_referrer_set_answered_over_frames_is_read_to_its_last() -> TestResult {
+    use std::time::Duration;
+
+    use ultragraphdb_common_role::OpenRequests;
+    use ultragraphdb_core_keys::{Graph, QuadKey};
+    use ultragraphdb_core_terms::EncodedTerm;
+    use ultragraphdb_protocol_wire::{MAX_FRAME_SIZE, PatternSlot, QuadPattern, TermTable};
+
+    use crate::apart::apart_cluster::{ApartCluster, times};
+    use crate::apart::apart_partition::VERSION;
+    use crate::apart::apart_reads::{TENANT, answer_on, id, list_of, name};
+
+    const S: &str = "http://ex.org/s";
+    const P: &str = "http://ex.org/p";
+    const O: &str = "http://ex.org/o";
+    crate::apart::apart_cluster::run(async {
+        let cluster = ApartCluster::start(1).await?;
+        let part = cluster.partition(1)?;
+        part.frame_per_key();
+        let (subject, predicate, object) = (id(1)?, id(2)?, id(3)?);
+        name(part, S, subject);
+        name(part, P, predicate);
+        name(part, O, object);
+        let reverse = QuadKey::Reverse {
+            tenant: TENANT,
+            graph: Graph::Default,
+            predicate,
+            object: EncodedTerm::id(object),
+        };
+        part.put(reverse.to_bytes(), list_of(&[subject]));
+        let epoch = VERSION >> 22;
+        let (key, value) = referred_by(object, subject)?;
+        part.put(key, value);
+        let mut terms = TermTable::new();
+        let (p, o) = (terms.iri(P), terms.iri(O));
+        let pattern = QuadPattern::new(
+            PatternSlot::DefaultGraph,
+            PatternSlot::Unbound,
+            PatternSlot::Bound(p),
+            PatternSlot::Bound(o),
+        );
+        let read = ultragraphdb_protocol_wire::ComputeRead::new(
+            TENANT,
+            true,
+            ReadLevel::Snapshot,
+            terms,
+            pattern,
+            Vec::new(),
+        )
+        .with_read_version(VERSION)
+        .with_epoch(epoch)
+        .with_principal(1)
+        .with_deadline_ms(10_000)
+        .with_client_limits(MAX_FRAME_SIZE as u32, 4);
+        let mut client = cluster
+            .compute(times(Duration::from_secs(1)), OpenRequests::default())
+            .await?;
+        let answer = answer_on(&mut client, &read).await?;
+        let rows = answer.whole()?;
+        let first = rows.first().and_then(|row| row.first()).cloned().flatten();
+        assert_eq!(first.as_deref(), Some(S));
+        assert_eq!(rows.len(), 1);
+        Ok(())
+    })
+}

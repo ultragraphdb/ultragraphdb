@@ -47,6 +47,10 @@ impl DataDictionary {
 
     /// Computes the shapes at `read_ts` and, unless a pass over a newer snapshot completed meanwhile, replaces the
     /// shapes held with them.
+    ///
+    /// # Errors
+    ///
+    /// As [`Shapes::compute`], the shapes held unchanged.
     pub fn run_pass<S, C, B>(
         &self,
         quads: &QuadStore<S, C, B>,

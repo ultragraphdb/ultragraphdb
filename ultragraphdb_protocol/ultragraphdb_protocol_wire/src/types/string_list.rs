@@ -58,6 +58,7 @@ impl<'a> StringList<'a> {
             .iter()
             .find(|end| !text.is_char_boundary(**end as usize))
         {
+            // Lossless: a `usize` is at least 32 bits.
             return Err(ProtocolError::not_utf8(command, sections.1, *end as usize));
         }
         Ok(Self { ends, text })

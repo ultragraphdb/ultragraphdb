@@ -6,7 +6,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// One connection of a [`crate::ConnectionBound`]'s count.
+/// One connection of a [`crate::ConnectionBound`]'s count, which says why its ordering suffices.
 #[derive(Debug)]
 pub struct HeldConnection {
     held: Arc<AtomicUsize>,

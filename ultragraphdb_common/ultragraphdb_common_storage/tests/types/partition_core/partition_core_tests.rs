@@ -179,7 +179,7 @@ fn test_a_partition_that_applied_nothing_raises_no_discard_version() -> TestResu
 }
 
 /// An IRI of `partition` among `partitions`, the first named `<at>-<n>` that is.
-fn owned_by(partition: u32, partitions: u32, at: &str) -> TestResult<String> {
+pub(crate) fn owned_by(partition: u32, partitions: u32, at: &str) -> TestResult<String> {
     let map = PlacementMap::even(partitions, NodeId::new(1))?;
     (0..100_000)
         .map(|n| format!("{at}-{n}"))
@@ -247,4 +247,37 @@ fn test_a_transaction_past_its_limit_is_told_so() -> TestResult {
             Ok(())
         },
     )
+}
+
+/// A partition whose open epoch is full asks the frontend to close it once a commit needs a version past it (commit-rounds,
+/// "A full epoch asks for a close and waits").
+#[test]
+fn test_a_full_epoch_asks_the_frontend_for_its_close() -> TestResult {
+    use crate::types::partition_core::core_rig::{RigSetup, TENANT as RIG_TENANT, with_core};
+    use crate::types::partition_core::core_writes::edges;
+    use futures::StreamExt;
+    use ultragraphdb_common_storage::FrontendAsk;
+    let setup = RigSetup {
+        full: true,
+        ..RigSetup::default()
+    };
+    with_core("core-full-epoch", setup, async |mut core| {
+        let mut client = core.dial().await?;
+        client
+            .send_only(&edges(RIG_TENANT, &[("a", "p", "b")]))
+            .await?;
+        let open = Epoch::ZERO.next()?;
+        let asked = compio::time::timeout(DUE, async {
+            while let Some(ask) = core.asks.next().await {
+                if let FrontendAsk::Close(epoch) = ask {
+                    return Some(epoch);
+                }
+            }
+            None
+        })
+        .await
+        .context("a close asked for within its time")?;
+        assert_eq!(asked, Some(open));
+        Ok(())
+    })
 }

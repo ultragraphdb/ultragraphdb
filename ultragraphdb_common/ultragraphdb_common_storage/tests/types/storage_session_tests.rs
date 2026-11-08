@@ -263,3 +263,52 @@ fn test_a_pushed_frame_leaves_on_its_stream() -> TestResult {
         Ok(())
     })
 }
+
+/// A request reaching no core, its inbox gone, is refused as unavailable: the partition stopped.
+#[test]
+fn test_a_request_to_a_core_gone_is_refused_as_stopped() -> TestResult {
+    Runtime::new()?.block_on(async {
+        let (core, inbox) = unbounded();
+        let mut session = StorageSession::new(CONNECTION, core, 100);
+        drop(inbox);
+        let request =
+            received(Closed::request(&[1]).frame(Header::new(CLUSTER, Command::Closed))?)?;
+        let Answer::Refuse(refused) = session.answer(1, request).await else {
+            return Err(TestError::new("a refusal"));
+        };
+        assert_eq!(
+            (refused.code(), refused.message()),
+            (ErrorCode::Unavailable, "the partition stopped")
+        );
+        Ok(())
+    })
+}
+
+/// A request its core drops unanswered, as a core stopping drops what it holds, is refused as unavailable: the partition
+/// stopped.
+#[test]
+fn test_a_request_its_core_drops_is_refused_as_stopped() -> TestResult {
+    Runtime::new()?.block_on(async {
+        let (core, mut inbox) = unbounded();
+        let mut session = StorageSession::new(CONNECTION, core, 100);
+        let request =
+            received(Closed::request(&[1]).frame(Header::new(CLUSTER, Command::Closed))?)?;
+        let dropping = async {
+            while let Some(message) = inbox.next().await {
+                if let CoreMessage::Request { done, .. } = message {
+                    drop(done);
+                    return;
+                }
+            }
+        };
+        let (answer, ()) = futures::future::join(session.answer(1, request), dropping).await;
+        let Answer::Refuse(refused) = answer else {
+            return Err(TestError::new("a refusal"));
+        };
+        assert_eq!(
+            (refused.code(), refused.message()),
+            (ErrorCode::Unavailable, "the partition stopped")
+        );
+        Ok(())
+    })
+}

@@ -32,6 +32,10 @@ type Related = BTreeMap<String, BTreeMap<String, BTreeSet<String>>>;
 impl Shapes {
     /// The shapes of `tenant` at `read_ts`: each subject's labels from its `rdf:type` statements, joined with its
     /// subject-predicate list, and for each IRI object the labels of the object in the same graph.
+    ///
+    /// # Errors
+    ///
+    /// The store's error; corruption of a list or a dictionary entry.
     pub fn compute<S, C, B>(
         quads: &QuadStore<S, C, B>,
         tenant: u64,

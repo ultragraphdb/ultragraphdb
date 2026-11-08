@@ -45,16 +45,19 @@ impl Join {
     }
 
     /// The role's kind: compute or storage.
+    #[must_use]
     pub fn kind(&self) -> RoleKind {
         self.kind
     }
 
     /// The role's role address.
+    #[must_use]
     pub fn address(&self) -> &str {
         &self.address
     }
 
     /// The partitions it hosts; none for compute.
+    #[must_use]
     pub fn partitions(&self) -> &[u32] {
         &self.partitions
     }

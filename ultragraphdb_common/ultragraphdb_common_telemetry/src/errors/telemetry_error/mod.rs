@@ -36,16 +36,19 @@ pub enum TelemetryErrorEnum {
 
 impl TelemetryError {
     /// [`TelemetryErrorEnum::Filter`] of `directive` for `reason`.
+    #[must_use]
     pub fn filter(directive: String, reason: String) -> Self {
         Self(TelemetryErrorEnum::Filter { directive, reason })
     }
 
     /// [`TelemetryErrorEnum::Exporter`] of `endpoint` for `reason`.
+    #[must_use]
     pub fn exporter(endpoint: String, reason: String) -> Self {
         Self(TelemetryErrorEnum::Exporter { endpoint, reason })
     }
 
     /// [`TelemetryErrorEnum::Installed`] for the installer's `reason`.
+    #[must_use]
     pub fn installed(reason: String) -> Self {
         Self(TelemetryErrorEnum::Installed(reason))
     }

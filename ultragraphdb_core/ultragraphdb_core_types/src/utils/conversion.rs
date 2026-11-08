@@ -262,6 +262,7 @@ fn convert_int(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val, Types
     match to_id {
         TypeId::INT => ok(Value::Int(vc)),
         TypeId::BINARY => ok(Value::Bytes(vc.to_le_bytes().to_vec())),
+        // Rounds to the nearest float, as Go's float64(int64) and float32(int64) do.
         TypeId::FLOAT => ok(Value::Float(vc as f64)),
         TypeId::BIGFLOAT => ok(Value::BigFloat(BigFloat::from_i64(vc, BIG_FLOAT_PRECISION))),
         TypeId::BOOL => ok(Value::Bool(vc != 0)),
@@ -308,7 +309,8 @@ fn convert_float(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val, Typ
         )?)),
         TypeId::BINARY => ok(Value::Bytes(vc.to_bits().to_le_bytes().to_vec())),
         TypeId::INT => {
-            // Dgraph's guard lets 2^63 through, which its platforms convert differently (ledger 10).
+            // Dgraph's guard lets 2^63 through, which its platforms convert differently (ledger 10). Within the
+            // guard the cast truncates toward zero, as Go's int64(float64) does; so does the datetime's below.
             if !in_int64(vc) {
                 return Err(float_out_of_range());
             }
@@ -322,6 +324,7 @@ fn convert_float(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val, Typ
             }
             ok(Value::DateTime(date_time_from_float_secs(vc as i64, vc)))
         }
+        // Rounds to the nearest f32, as Go's float32(float64) does.
         TypeId::VFLOAT => ok(Value::VFloat(vec![vc as f32])),
         _ => Err(cant_convert(from_id, to_id)),
     }
@@ -361,10 +364,12 @@ fn convert_date_time(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val,
         TypeId::BINARY => ok(Value::Bytes(t.marshal_binary()?)),
         TypeId::STRING | TypeId::DEFAULT => ok(Value::str(t.marshal_text()?)),
         TypeId::INT => ok(Value::Int(t.unix())),
+        // Each cast rounds to the nearest float, as Go's float64(int64) does; 1e9 is exact.
         TypeId::FLOAT => ok(Value::Float(
             t.unix_nano() as f64 / NANO_SECONDS_IN_SEC as f64,
         )),
         TypeId::BIGFLOAT => {
+            // As the float's, each cast rounds to the nearest float; 1e9 is exact.
             let x = big_float_from_f64(NANO_SECONDS_IN_SEC as f64, 53)?;
             let y = big_float_from_f64(t.unix_nano() as f64, 53)?;
             // x is 1e9, so the quotient is never NaN.
@@ -561,6 +566,7 @@ pub fn marshal_binary(v: &Val) -> Result<Vec<u8>, TypesError> {
 /// none, which [`Geometry::to_geojson`] refuses only for such a coordinate.
 fn first_non_finite(g: &Geometry) -> f64 {
     let mut stack = vec![g];
+    // Each geometry is pushed once, by its parent, so the loop turns once per geometry of the tree.
     while let Some(next) = stack.pop() {
         if let Some(f) = next.flat_coords().iter().find(|f| !f.is_finite()) {
             return *f;

@@ -15,21 +15,25 @@ pub struct ClosedPartition {
 
 impl ClosedPartition {
     /// `partition` at its latest closed `epoch`; 0 in a request and for none.
+    #[must_use]
     pub fn new(partition: u32, epoch: u64) -> Self {
         Self { partition, epoch }
     }
 
     /// The partition.
+    #[must_use]
     pub fn partition(&self) -> u32 {
         self.partition
     }
 
     /// Its latest closed epoch; 0 in a request and for none.
+    #[must_use]
     pub fn epoch(&self) -> u64 {
         self.epoch
     }
 
     /// The record's 16 bytes.
+    #[must_use]
     pub fn encode(&self) -> [u8; 16] {
         let mut out = [0u8; 16];
         out.iter_mut()

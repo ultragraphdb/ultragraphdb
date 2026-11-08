@@ -19,6 +19,7 @@ pub struct StoredReply {
 
 impl StoredReply {
     /// The reply of a commit at `version` answering `token`, with `results` naming their nodes in `terms`.
+    #[must_use]
     pub fn new(
         version: u64,
         token: SessionToken,
@@ -34,21 +35,25 @@ impl StoredReply {
     }
 
     /// The commit version.
+    #[must_use]
     pub fn version(&self) -> u64 {
         self.version
     }
 
     /// The session token.
+    #[must_use]
     pub fn token(&self) -> &SessionToken {
         &self.token
     }
 
     /// The commit-time operations' results, in the order the transaction asked them.
+    #[must_use]
     pub fn results(&self) -> &[OperationResult] {
         &self.results
     }
 
     /// The reply's term table: the nodes the results name, by their IRI or skolem IRI.
+    #[must_use]
     pub fn terms(&self) -> &TermTable {
         &self.terms
     }

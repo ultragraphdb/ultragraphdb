@@ -75,6 +75,10 @@ impl Shared {
 
     /// Writes the discard timestamp `ts` asks for, the one held if that is higher, under the writer lock and into the journal file,
     /// synced by nobody yet: its place in the journal keeps it behind every batch it may discard from. What it wrote.
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::poisoned`] for a poisoned store; the failed write's error, which poisons it.
     pub fn write_discard(&self, ts: u64) -> Result<u64, StoreError> {
         let _writer = lock(&self.writer);
         self.refuse_if_poisoned()?;
@@ -88,6 +92,10 @@ impl Shared {
     /// The journal file with the highest number, the active one when listed. fjall names them `{number}.jnl` in the store's
     /// directory (`fjall-3.1.12/src/journal/writer.rs:110`), one more reason fjall is pinned exactly; a store with no journal is one
     /// fjall left in a layout this does not know, and syncing nothing would lie.
+    ///
+    /// # Errors
+    ///
+    /// The directory's read error, which poisons the store; [`StoreError::write_failed`] when it holds no journal.
     pub fn newest_journal(&self) -> Result<PathBuf, StoreError> {
         let failed = |error| self.failed(fjall::Error::Io(error));
         let mut newest: Option<(u64, PathBuf)> = None;
@@ -113,6 +121,10 @@ impl Shared {
     /// journal lock for its whole fsync (`fjall-3.1.12/src/journal/mod.rs:122`), which every commit takes, so that way a commit waits
     /// for the sync and a partition's core with it. Fjall syncs a journal as it seals it, and only a sealed one is removed, so a
     /// journal found gone holds nothing unsynced, and every journal older than `journal` was synced the same way.
+    ///
+    /// # Errors
+    ///
+    /// The open's or the sync's error, other than the journal being gone, which poisons the store.
     pub fn sync_journal(&self, journal: &Path) -> Result<(), StoreError> {
         match OpenOptions::new().append(true).open(journal) {
             Ok(file) => file

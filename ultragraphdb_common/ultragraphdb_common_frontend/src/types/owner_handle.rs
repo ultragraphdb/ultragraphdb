@@ -20,6 +20,9 @@ use crate::types::tenant_facts::TenantFacts;
 ///
 /// The channel is unbounded because each connection waits for its answer before it asks again, so the connections' own
 /// bound bounds it.
+///
+/// Every call's future asks the owner and waits for its answer, as `OwnerHandle::ask` says: dropped, it leaves what it
+/// asked with the owner, which decides it, a durable change included, and its answer is lost.
 #[derive(Debug, Clone)]
 pub struct OwnerHandle {
     inbox: mpsc::UnboundedSender<Asked>,
@@ -31,6 +34,7 @@ impl OwnerHandle {
     }
 
     /// Asks the owner what `build` says and waits for its answer; `None` when the owner stopped.
+    /// A future dropped before its answer leaves the ask with the owner, which decides it and finds no one to tell.
     async fn ask<T>(&self, build: impl FnOnce(oneshot::Sender<T>) -> Asked) -> Option<T> {
         let (reply, answer) = oneshot::channel();
         self.inbox.unbounded_send(build(reply)).ok()?;
@@ -38,6 +42,7 @@ impl OwnerHandle {
     }
 
     /// As [`OwnerHandle::ask`], an owner that stopped refused as unavailable.
+    /// A dropped future leaves what [`OwnerHandle::ask`] says.
     async fn ask_or_refuse<T>(
         &self,
         build: impl FnOnce(oneshot::Sender<Result<T, ErrorReply>>) -> Asked,

@@ -27,21 +27,25 @@ impl<'a> ReferenceView<'a> {
     }
 
     /// Whether this is the home's reply.
+    #[must_use]
     pub fn is_reply(&self) -> bool {
         self.reply
     }
 
     /// The number of registrations, at least one.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.registrations.len() / REGISTRATION_SIZE
     }
 
     /// Whether the body holds no registration; a checked body holds at least one.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.registrations.is_empty()
     }
 
     /// Registration `index`, `None` past the last.
+    #[must_use]
     pub fn registration(&self, index: usize) -> Option<ReferenceRegistration> {
         let at = index.checked_mul(REGISTRATION_SIZE)?;
         ReferenceRegistration::decode(&bytes_at(self.registrations, at)?)
@@ -55,6 +59,7 @@ impl<'a> ReferenceView<'a> {
 
     /// The IRI registration `index` names the entity by, borrowed from the frame; `None` when its system ID names it
     /// or past the last.
+    #[must_use]
     pub fn iri(&self, index: usize) -> Option<&'a str> {
         match self.terms.get(self.registration(index)?.iri()?)? {
             RequestTermView::Iri(iri) => Some(iri),
@@ -66,6 +71,7 @@ impl<'a> ReferenceView<'a> {
     }
 
     /// The term table of the IRIs the registrations name.
+    #[must_use]
     pub fn terms(&self) -> TermTableView<'a> {
         self.terms
     }

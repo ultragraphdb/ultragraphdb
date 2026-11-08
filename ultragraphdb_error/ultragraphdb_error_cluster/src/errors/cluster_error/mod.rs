@@ -270,41 +270,49 @@ pub enum ClusterErrorEnum {
 
 impl ClusterError {
     /// A partition ID of 0.
+    #[must_use]
     pub fn zero_partition() -> Self {
         Self(ClusterErrorEnum::ZeroPartition)
     }
 
     /// An even map over `count` partitions, 0 or more than `max`.
+    #[must_use]
     pub fn partition_count(count: u32, max: u32) -> Self {
         Self(ClusterErrorEnum::PartitionCount { count, max })
     }
 
     /// The bucket range `start..end` is empty or reaches past the last bucket.
+    #[must_use]
     pub fn bucket_range(start: u32, end: u32) -> Self {
         Self(ClusterErrorEnum::BucketRange { start, end })
     }
 
     /// A change leaves `bucket` unassigned.
+    #[must_use]
     pub fn unassigned(bucket: u32) -> Self {
         Self(ClusterErrorEnum::Unassigned { bucket })
     }
 
     /// A change assigns `bucket` twice.
+    #[must_use]
     pub fn assigned_twice(bucket: u32) -> Self {
         Self(ClusterErrorEnum::AssignedTwice { bucket })
     }
 
     /// A change from `epoch` does not follow the latest, from `latest`.
+    #[must_use]
     pub fn change_epoch(epoch: u64, latest: u64) -> Self {
         Self(ClusterErrorEnum::ChangeEpoch { epoch, latest })
     }
 
     /// `partition` holds no bucket in the latest layout.
+    #[must_use]
     pub fn unknown_partition(partition: u32) -> Self {
         Self(ClusterErrorEnum::UnknownPartition { partition })
     }
 
     /// The setting `setting` is `value`, below `bound`, which is `minimum`.
+    #[must_use]
     pub fn setting_below(
         setting: &'static str,
         value: u64,
@@ -320,6 +328,7 @@ impl ClusterError {
     }
 
     /// The setting `setting` is `value`, above `maximum`.
+    #[must_use]
     pub fn setting_above(setting: &'static str, value: u64, maximum: u64) -> Self {
         Self(ClusterErrorEnum::SettingAbove {
             setting,
@@ -329,36 +338,43 @@ impl ClusterError {
     }
 
     /// No epoch follows `epoch`.
+    #[must_use]
     pub fn epoch_limit(epoch: u64) -> Self {
         Self(ClusterErrorEnum::EpochLimit { epoch })
     }
 
     /// `epoch` is ahead of `latest`.
+    #[must_use]
     pub fn epoch_ahead(epoch: u64, latest: u64) -> Self {
         Self(ClusterErrorEnum::EpochAhead { epoch, latest })
     }
 
     /// `time_us` lies before the first close, at `first_us`, or before any.
+    #[must_use]
     pub fn before_first_close(time_us: u64, first_us: Option<u64>) -> Self {
         Self(ClusterErrorEnum::BeforeFirstClose { time_us, first_us })
     }
 
     /// A multi-partition transaction names no partition.
+    #[must_use]
     pub fn no_partitions() -> Self {
         Self(ClusterErrorEnum::NoPartitions)
     }
 
     /// A multi-partition transaction names `partition` twice.
+    #[must_use]
     pub fn duplicate_partition(partition: u32) -> Self {
         Self(ClusterErrorEnum::DuplicatePartition { partition })
     }
 
     /// `partition` is not subscribed.
+    #[must_use]
     pub fn not_subscribed(partition: u32) -> Self {
         Self(ClusterErrorEnum::NotSubscribed { partition })
     }
 
     /// The closes after `after` are no longer held; the oldest is `oldest`.
+    #[must_use]
     pub fn catch_up_trimmed(after: u64, oldest: u64) -> Self {
         Self(ClusterErrorEnum::CatchUpTrimmed { after, oldest })
     }
@@ -383,31 +399,37 @@ impl ClusterError {
     }
 
     /// A block of `size` sequences, outside 1 to `max`.
+    #[must_use]
     pub fn block_size(size: u64, max: u64) -> Self {
         Self(ClusterErrorEnum::BlockSize { size, max })
     }
 
     /// The sequences of the type `prefix` are spent.
+    #[must_use]
     pub fn sequences_spent(prefix: u16) -> Self {
         Self(ClusterErrorEnum::SequencesSpent { prefix })
     }
 
     /// The metadata group holds no placement map.
+    #[must_use]
     pub fn no_placement() -> Self {
         Self(ClusterErrorEnum::NoPlacement)
     }
 
     /// A command's decision contradicts the state: `what` does not hold.
+    #[must_use]
     pub fn contradicts(what: &'static str) -> Self {
         Self(ClusterErrorEnum::Contradicts { what })
     }
 
     /// A principal's name of `length` bytes, outside 1 to 255.
+    #[must_use]
     pub fn principal_name(length: usize) -> Self {
         Self(ClusterErrorEnum::PrincipalName { length })
     }
 
     /// A principal named `name` exists.
+    #[must_use]
     pub fn principal_exists(name: &str) -> Self {
         Self(ClusterErrorEnum::PrincipalExists {
             name: name.to_string(),
@@ -415,6 +437,7 @@ impl ClusterError {
     }
 
     /// No principal is named `name`.
+    #[must_use]
     pub fn unknown_principal(name: &str) -> Self {
         Self(ClusterErrorEnum::UnknownPrincipal {
             name: name.to_string(),
@@ -422,6 +445,7 @@ impl ClusterError {
     }
 
     /// `name` is the last administrator.
+    #[must_use]
     pub fn last_administrator(name: &str) -> Self {
         Self(ClusterErrorEnum::LastAdministrator {
             name: name.to_string(),
@@ -429,21 +453,25 @@ impl ClusterError {
     }
 
     /// The bootstrap principal needs `what`.
+    #[must_use]
     pub fn bootstrap(what: &'static str) -> Self {
         Self(ClusterErrorEnum::Bootstrap { what })
     }
 
     /// The session `session` is registered already.
+    #[must_use]
     pub fn session_exists(session: u128) -> Self {
         Self(ClusterErrorEnum::SessionExists { session })
     }
 
     /// The session `session` is not in the registry.
+    #[must_use]
     pub fn session_evicted(session: u128) -> Self {
         Self(ClusterErrorEnum::SessionEvicted { session })
     }
 
     /// A snapshot at `snapshot` lies below the log's checkpoint `checkpoint`.
+    #[must_use]
     pub fn snapshot_behind(snapshot: u64, checkpoint: u64) -> Self {
         Self(ClusterErrorEnum::SnapshotBehind {
             snapshot,
@@ -452,31 +480,37 @@ impl ClusterError {
     }
 
     /// `what` holds `count`, more than `max`.
+    #[must_use]
     pub fn too_many(what: &'static str, count: usize, max: usize) -> Self {
         Self(ClusterErrorEnum::TooMany { what, count, max })
     }
 
     /// `what` is full at `capacity`.
+    #[must_use]
     pub fn full(what: &'static str, capacity: usize) -> Self {
         Self(ClusterErrorEnum::Full { what, capacity })
     }
 
     /// Bytes do not hold `what` at `offset`.
+    #[must_use]
     pub fn malformed(what: &'static str, offset: usize) -> Self {
         Self(ClusterErrorEnum::Malformed { what, offset })
     }
 
     /// The round at `position` breaks `what`.
+    #[must_use]
     pub fn replay_diverged(position: u64, what: &'static str) -> Self {
         Self(ClusterErrorEnum::ReplayDiverged { position, what })
     }
 
     /// The ordered log refused with `error`.
+    #[must_use]
     pub fn log(error: LogError) -> Self {
         Self(ClusterErrorEnum::Log(error))
     }
 
     /// The invariant violation `error`.
+    #[must_use]
     pub fn invariant(error: InvariantError) -> Self {
         Self(ClusterErrorEnum::Invariant(error))
     }

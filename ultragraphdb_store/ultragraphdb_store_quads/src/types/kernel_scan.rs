@@ -31,6 +31,7 @@ pub struct KernelScan {
 impl KernelScan {
     /// The scan of `keyspace` in `tenant` from `from` to the tenant's keyspace's end, as of `version`, at most
     /// `limit` lists.
+    #[must_use]
     pub fn new(
         keyspace: Keyspace,
         tenant: u64,
@@ -52,6 +53,7 @@ impl KernelScan {
     }
 
     /// The scan ending before `to`.
+    #[must_use]
     pub fn to(mut self, to: Vec<u8>) -> Self {
         self.to = Some(to);
         self
@@ -59,6 +61,7 @@ impl KernelScan {
 
     /// The scan resuming inside the list of its first key, after the posting `after` names, or at it when the identity is
     /// [`PostingIdentity::included`], when there is one.
+    #[must_use]
     pub fn resuming(mut self, after: Option<PostingIdentity>) -> Self {
         self.after = after;
         self
@@ -66,6 +69,7 @@ impl KernelScan {
 
     /// The scan reading its first key's list from `held`, the list as the page before read it ([`crate::Page::into_parts`]),
     /// when there is one, so a list crossing many pages is read from the store once.
+    #[must_use]
     pub fn holding(mut self, held: Option<Arc<List>>) -> Self {
         self.held = held;
         self
@@ -73,12 +77,14 @@ impl KernelScan {
 
     /// The scan handing back after `idle` keys that gave nothing ([`crate::PageEnd::Yielded`]), so a range of emptied lists
     /// takes many short pages.
+    #[must_use]
     pub fn yielding(mut self, idle: NonZeroUsize) -> Self {
         self.idle = Some(idle);
         self
     }
 
     /// The keyspace.
+    #[must_use]
     pub fn keyspace(&self) -> Keyspace {
         self.keyspace
     }
@@ -89,36 +95,43 @@ impl KernelScan {
     }
 
     /// The first key, inclusive.
+    #[must_use]
     pub fn from(&self) -> &[u8] {
         &self.from
     }
 
     /// The key the scan ends before, if any.
+    #[must_use]
     pub fn end(&self) -> Option<&[u8]> {
         self.to.as_deref()
     }
 
     /// The version the lists are read at.
+    #[must_use]
     pub fn version(&self) -> u64 {
         self.version
     }
 
     /// The most lists the scan returns.
+    #[must_use]
     pub fn limit(&self) -> NonZeroUsize {
         self.limit
     }
 
     /// The posting of the first key's list the scan resumes at.
+    #[must_use]
     pub fn after(&self) -> Option<&PostingIdentity> {
         self.after.as_ref()
     }
 
     /// The list of the first key, as the page before this one read it.
+    #[must_use]
     pub fn held(&self) -> Option<&Arc<List>> {
         self.held.as_ref()
     }
 
     /// How far the walk of a page of this scan goes on its own.
+    #[must_use]
     pub fn walk_bounds(&self) -> WalkBounds {
         WalkBounds::rows(Some(self.limit)).with_idle(self.idle)
     }

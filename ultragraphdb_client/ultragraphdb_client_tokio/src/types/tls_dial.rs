@@ -33,6 +33,8 @@ impl<C> TlsDial<C> {
 impl<C: Connect> Connect for TlsDial<C> {
     type Stream = TokioTlsStream<C::Stream>;
 
+    /// A connection of `inner`, its TLS handshake completed. A future dropped while it dials or runs the handshake
+    /// drops the stream it opened, which closes it, and leaves nothing.
     async fn connect(&mut self) -> io::Result<Self::Stream> {
         let stream = self.inner.connect().await?;
         TokioTlsStream::connect(&self.tls, stream, &self.host)

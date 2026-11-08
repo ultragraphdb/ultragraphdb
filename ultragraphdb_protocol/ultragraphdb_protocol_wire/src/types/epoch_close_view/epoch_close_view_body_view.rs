@@ -38,7 +38,7 @@ impl<'a> BodyView<'a> for EpochCloseView<'a> {
                 return Err(ProtocolError::field_value(
                     command,
                     "announcement",
-                    i as u64,
+                    i as u64, // lossless: a `usize` is at most 64 bits
                 ));
             }
             previous = key;
@@ -46,6 +46,7 @@ impl<'a> BodyView<'a> for EpochCloseView<'a> {
         let mut before = [0u8; 16];
         for (i, session) in evictions.iter().enumerate() {
             if *session <= before {
+                // Lossless: a `usize` is at most 64 bits.
                 return Err(ProtocolError::field_value(command, "eviction", i as u64));
             }
             before = *session;

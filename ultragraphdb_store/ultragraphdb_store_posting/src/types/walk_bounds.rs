@@ -15,22 +15,26 @@ pub struct WalkBounds {
 
 impl WalkBounds {
     /// A walk of at most `rows` rows, or the whole range with `None`, however many keys give nothing.
+    #[must_use]
     pub fn rows(rows: Option<NonZeroUsize>) -> Self {
         Self { rows, idle: None }
     }
 
     /// The walk handing back after `idle` keys that gave nothing, when given.
+    #[must_use]
     pub fn with_idle(mut self, idle: Option<NonZeroUsize>) -> Self {
         self.idle = idle;
         self
     }
 
     /// The most rows it gives.
+    #[must_use]
     pub fn most_rows(&self) -> Option<NonZeroUsize> {
         self.rows
     }
 
     /// The most keys giving nothing it reads.
+    #[must_use]
     pub fn most_idle(&self) -> Option<NonZeroUsize> {
         self.idle
     }

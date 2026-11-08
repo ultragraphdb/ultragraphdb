@@ -17,6 +17,7 @@ pub enum Language {
 
 impl Language {
     /// The byte.
+    #[must_use]
     pub fn number(self) -> u8 {
         match self {
             Language::Pattern => 0,
@@ -26,6 +27,7 @@ impl Language {
     }
 
     /// The language the byte `number` names; `None` past 2.
+    #[must_use]
     pub fn from_number(number: u8) -> Option<Self> {
         match number {
             0 => Some(Language::Pattern),

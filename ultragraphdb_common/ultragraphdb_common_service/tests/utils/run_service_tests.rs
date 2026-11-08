@@ -608,3 +608,113 @@ fn test_a_role_ends_with_the_parent_it_names() -> TestResult {
     assert_eq!(child_outcome("variable")?, "stopped");
     Ok(())
 }
+
+/// An admin listener the settings name without its key, with a key that is no digest, or over TLS files that do not load
+/// stops the start as a configuration error, before anything listens.
+#[test]
+fn test_an_admin_listener_s_refused_settings_stop_the_start() -> TestResult {
+    let root = std::env::var_os("TEST_TMPDIR").map_or_else(std::env::temp_dir, Into::into);
+    let key = std::path::Path::new(&root).join(format!("admin-refused-{}", std::process::id()));
+    std::fs::write(&key, "a read key of at least thirty two bytes")?;
+    let bootstrap = Bootstrap::read(
+        RoleKind::Storage,
+        [
+            ("ULTRAGRAPHDB_CONFIG_URL", "http://127.0.0.1:1".to_string()),
+            ("ULTRAGRAPHDB_CONFIG_TARGET", "ci".to_string()),
+            ("ULTRAGRAPHDB_CONFIG_INSTANCE", "storage_1".to_string()),
+            ("ULTRAGRAPHDB_CONFIG_KEY_FILE", key.display().to_string()),
+        ]
+        .map(|(name, value)| (name.to_string(), value)),
+    )?;
+    let absent = std::path::Path::new(&root).join("absent");
+    let runtime = Runtime::new()?;
+    for (admin, named) in [
+        ("plaintext = true\n".to_string(), "key_sha256"),
+        (
+            "plaintext = true\nkey_sha256 = \"no digest\"\n".to_string(),
+            "admin.key_sha256",
+        ),
+        (
+            format!(
+                "key_sha256 = \"{ADMIN_DIGEST}\"\ntls_cert_file = \"{0}/cert.pem\"\ntls_key_file = \"{0}/key.pem\"\n",
+                absent.display()
+            ),
+            "admin.tls_cert_file",
+        ),
+    ] {
+        let text = format!(
+            "[observability]\naddress = \"tcp://127.0.0.1:{}\"\n[admin]\naddress = \"tcp://127.0.0.1:{}\"\n{admin}",
+            free_port()?,
+            free_port()?
+        );
+        let start =
+            RoleStart::from_settings(text.as_bytes(), RoleIdentity::new("ci", "storage", 1))?
+                .with_bootstrap(bootstrap.clone());
+        let stop = AtomicBool::new(false);
+        let refused = runtime
+            .block_on(compio::time::timeout(
+                WAIT,
+                serve_service(
+                    RoleKind::Storage,
+                    &start,
+                    CpuBinding::NotAsked,
+                    &stop,
+                    role_ready(true, false),
+                ),
+            ))
+            .map_err(|_| TestError::new("a refusal within the wait"))?
+            .err()
+            .context("a refusal")?;
+        assert_eq!(refused.exit_code(), RoleError::EX_CONFIG, "{refused}");
+        assert!(refused.to_string().contains(named), "{refused}");
+    }
+    Ok(())
+}
+
+/// A start whose settings name no admin listener serves none: the role runs as it would without a bootstrap.
+#[test]
+fn test_a_start_naming_no_admin_listener_serves_none() -> TestResult {
+    let root = std::env::var_os("TEST_TMPDIR").map_or_else(std::env::temp_dir, Into::into);
+    let key = std::path::Path::new(&root).join(format!("no-admin-{}", std::process::id()));
+    std::fs::write(&key, "a read key of at least thirty two bytes")?;
+    let bootstrap = Bootstrap::read(
+        RoleKind::Storage,
+        [
+            ("ULTRAGRAPHDB_CONFIG_URL", "http://127.0.0.1:1".to_string()),
+            ("ULTRAGRAPHDB_CONFIG_TARGET", "ci".to_string()),
+            ("ULTRAGRAPHDB_CONFIG_INSTANCE", "storage_1".to_string()),
+            ("ULTRAGRAPHDB_CONFIG_KEY_FILE", key.display().to_string()),
+        ]
+        .map(|(name, value)| (name.to_string(), value)),
+    )?;
+    let start = start_on_free_port()?.with_bootstrap(bootstrap);
+    let stop = AtomicBool::new(false);
+    let refused = Runtime::new()?
+        .block_on(serve_service(
+            RoleKind::Storage,
+            &start,
+            CpuBinding::NotAsked,
+            &stop,
+            |_start, _readiness, _stopping| {
+                std::future::ready(Err(RoleError::configuration("no secret")))
+            },
+        ))
+        .err()
+        .context("the role's failure")?;
+    assert!(refused.to_string().contains("no secret"), "{refused}");
+    Ok(())
+}
+
+/// A process this one's environment names no parent for watches none: nothing sets the flag.
+#[test]
+fn test_no_parent_named_is_no_parent_watched() -> TestResult {
+    if std::env::var_os(PARENT_PID).is_some() {
+        // Run under a supervisor that names one: the child runs above cover that case.
+        return Ok(());
+    }
+    let stop = Arc::new(AtomicBool::new(false));
+    stop_with_parent(&stop)?;
+    std::thread::sleep(Duration::from_millis(50));
+    assert!(!stop.load(Ordering::Acquire));
+    Ok(())
+}

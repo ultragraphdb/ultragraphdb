@@ -65,6 +65,7 @@ impl Page {
     /// The row `at`, counted from the page's first.
     fn row_at(&self, at: usize) -> Option<RowView<'_>> {
         let row = self.rows.get(at)?;
+        // Each cast of a `u32` is lossless: a `usize` is at least 32 bits.
         let entry = self.entries.get(row.entry as usize)?;
         Some(RowView {
             key: &entry.key,

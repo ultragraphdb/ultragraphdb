@@ -249,7 +249,8 @@ decode what the entries hold and SHALL name every term by its text in what it re
 - **THEN** the first answers `<m>` and `<z>`, the second `<z>`, and neither reads the record of `<a>`
 
 #### Scenario: A malformed `after` is refused
-- **WHEN** a range's `after` is not one whole object encoding, and another range of the dictionary holds an `after`
+- **WHEN** a range's `after` is not one whole object encoding, one of tag `0x01` whose 16 bytes are no valid system ID among
+  them, and another range of the dictionary holds an `after`
 - **THEN** each is refused with Error 1, the message naming the range, and no frame precedes the refusal
 
 #### Scenario: A failed store under a range is no absence

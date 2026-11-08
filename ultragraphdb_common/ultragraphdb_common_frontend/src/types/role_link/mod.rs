@@ -34,6 +34,8 @@ struct Routes {
     next: u64,
     open: HashMap<u64, RouteSink>,
     closed: bool,
+    /// Each frame is counted in its client connection's bytes on their way, whose bound stops that connection's reads, so
+    /// the connections' bounds limit its length.
     outgoing: VecDeque<Outgoing>,
     writer: Option<Waker>,
 }
@@ -95,7 +97,7 @@ impl RoleLink {
                 next: 1,
                 ..Routes::default()
             })),
-            max_frame: Rc::new(Cell::new(MAX_FRAME_SIZE as u32)),
+            max_frame: Rc::new(Cell::new(MAX_FRAME_SIZE as u32)), // 2^20, lossless
         }
     }
 

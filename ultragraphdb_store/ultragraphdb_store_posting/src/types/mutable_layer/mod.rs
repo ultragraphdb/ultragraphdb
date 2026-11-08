@@ -214,6 +214,7 @@ impl MutableLayer {
 
     /// Whether the immutable layer still has to be searched for `uid` at `read_ts`, and the posting the visible
     /// layers hold for it: Dgraph's `findPosting`. A delete found, or a delete-all, ends the search with nothing.
+    #[must_use]
     pub fn find_posting(&self, read_ts: u64, uid: u128) -> (bool, Option<&Posting>) {
         self.find_posting_where(read_ts, uid, |_| true)
     }

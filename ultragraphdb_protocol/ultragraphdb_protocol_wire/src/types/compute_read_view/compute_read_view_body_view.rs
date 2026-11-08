@@ -70,6 +70,7 @@ fn transaction(command: u16, header: CommandHeader<'_>) -> Result<Transaction, P
 /// `max_frame` and `credit` of a ComputeRead's command header, checked in `PROTOCOL.md` §13.12's order.
 fn client_limits(command: u16, header: CommandHeader<'_>) -> Result<(u32, u32), ProtocolError> {
     let max_frame = header.u32_at(64);
+    // Lossless: a `usize` is at least 32 bits.
     if !(MAX_FRAME_FLOOR..=MAX_FRAME_SIZE).contains(&(max_frame as usize)) {
         return Err(ProtocolError::field_value(
             command,

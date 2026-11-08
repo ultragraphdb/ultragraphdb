@@ -55,6 +55,7 @@ pub struct Entries {
 
 impl Entries {
     /// A batch of range `range` alone read at `epoch`, ending as `end` says, of version 0 until set, with no entries yet.
+    #[must_use]
     pub fn new(range: u32, end: EntriesEnd, epoch: u64) -> Self {
         Self {
             range,
@@ -71,6 +72,7 @@ impl Entries {
     /// A batch of range `range` read at `epoch` whose last entry's value continues in the next frame, with no entries
     /// yet, of which it needs one: as every builder, it writes what it is given, and the view refuses a frame holding
     /// none. More of the range follows.
+    #[must_use]
     pub fn continuing(range: u32, epoch: u64) -> Self {
         Self {
             continues: true,
@@ -93,12 +95,14 @@ impl Entries {
     }
 
     /// The batch ending as `end` says.
+    #[must_use]
     pub fn with_end(mut self, end: EntriesEnd) -> Self {
         self.end = end;
         self
     }
 
     /// The batch with its last entry's value continuing in the next frame, which needs an entry. More of the range follows.
+    #[must_use]
     pub fn continued(mut self) -> Self {
         self.continues = true;
         self.end = EntriesEnd::More;
@@ -114,12 +118,14 @@ impl Entries {
     }
 
     /// The bytes [`crate::BodyBuilder::frame`] builds of this batch, header and chunk table included.
+    #[must_use]
     pub fn frame_size(&self) -> usize {
         frame_size_of(self.section_len)
     }
 
     /// The bytes [`crate::BodyBuilder::frame`] builds of this batch with one more entry, of a key of `key_len` bytes and
     /// a value of `value_len`.
+    #[must_use]
     pub fn frame_size_with(&self, key_len: usize, value_len: usize) -> usize {
         frame_size_of(
             self.section_len
@@ -128,36 +134,43 @@ impl Entries {
     }
 
     /// The range's index in its Scan.
+    #[must_use]
     pub fn range(&self) -> u32 {
         self.range
     }
 
     /// The batch's last range: its `range` when the batch answers one range.
+    #[must_use]
     pub fn through(&self) -> u32 {
         self.through
     }
 
     /// The version the Scan chose.
+    #[must_use]
     pub fn version(&self) -> u64 {
         self.version
     }
 
     /// How the range ended.
+    #[must_use]
     pub fn end(&self) -> EntriesEnd {
         self.end
     }
 
     /// Whether the batch's last entry's value continues in the next frame.
+    #[must_use]
     pub fn continues(&self) -> bool {
         self.continues
     }
 
     /// The epoch of the version the range was read at.
+    #[must_use]
     pub fn epoch(&self) -> u64 {
         self.epoch
     }
 
     /// The entries, each a key and its value, in key order.
+    #[must_use]
     pub fn entries(&self) -> &[(Vec<u8>, Vec<u8>)] {
         &self.entries
     }

@@ -16,7 +16,7 @@ pub(crate) struct TargetState {
 impl TargetState {
     /// The latest revision's number, 0 for none.
     pub(crate) fn latest(&self) -> u64 {
-        self.revisions.len() as u64
+        self.revisions.len() as u64 // lossless: a `usize` is at most 64 bits
     }
 
     /// Revision `number`.

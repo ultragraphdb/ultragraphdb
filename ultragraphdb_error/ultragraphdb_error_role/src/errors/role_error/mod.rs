@@ -81,6 +81,7 @@ impl RoleError {
     }
 
     /// The code the process exits with.
+    #[must_use]
     pub fn exit_code(&self) -> u8 {
         match self.0 {
             RoleErrorEnum::Configuration { .. } => Self::EX_CONFIG,

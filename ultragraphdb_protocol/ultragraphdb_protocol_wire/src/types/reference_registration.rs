@@ -34,6 +34,7 @@ impl ReferenceRegistration {
     /// A request's registration at the home `partition`, for the bucket group `group` (`None` for a predicate, a
     /// graph or the frontend), naming the entity by the term-table index `iri` or by `entity`, with the
     /// `generation` last seen, 0 for none.
+    #[must_use]
     pub fn request(
         partition: u32,
         group: Option<BucketGroup>,
@@ -54,6 +55,7 @@ impl ReferenceRegistration {
 
     /// The registration accepted: the entity's ID, the member's `generation` and the latest `close` delivered to the
     /// home.
+    #[must_use]
     pub fn accepted(self, entity: SystemId, generation: u64, close: u64) -> Self {
         Self {
             outcome: 0,
@@ -66,6 +68,7 @@ impl ReferenceRegistration {
 
     /// The registration refused with the error code `outcome`: 26 (WrongPartition), 7 (Refused) or 17 (Unavailable); its
     /// generation and close 0, its entity as sent.
+    #[must_use]
     pub fn refused(self, outcome: u16) -> Self {
         Self {
             outcome,
@@ -77,36 +80,43 @@ impl ReferenceRegistration {
     }
 
     /// The entity's home partition.
+    #[must_use]
     pub fn partition(&self) -> u32 {
         self.partition
     }
 
     /// The referring subject's bucket group; `None` for none.
+    #[must_use]
     pub fn group(&self) -> Option<BucketGroup> {
         self.group
     }
 
     /// The entity's IRI as a term-table index; `None` when `entity` names it.
+    #[must_use]
     pub fn iri(&self) -> Option<u32> {
         self.iri
     }
 
     /// 0 for an accepted registration and in a request; else the error code refusing it.
+    #[must_use]
     pub fn outcome(&self) -> u16 {
         self.outcome
     }
 
     /// In a request, the generation last seen; in an accepted reply, the member's generation.
+    #[must_use]
     pub fn generation(&self) -> u64 {
         self.generation
     }
 
     /// In an accepted reply, the latest close delivered to the home; else 0.
+    #[must_use]
     pub fn close(&self) -> u64 {
         self.close
     }
 
     /// The entity's ID: named in a request, or filled in an accepted reply; `None` when the IRI names it.
+    #[must_use]
     pub fn entity(&self) -> Option<SystemId> {
         self.entity
     }

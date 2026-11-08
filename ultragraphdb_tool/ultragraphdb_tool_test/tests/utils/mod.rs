@@ -4,4 +4,8 @@
  */
 
 #[cfg(test)]
+mod crash_harness_tests;
+#[cfg(test)]
+mod fjall_workload_tests;
+#[cfg(test)]
 mod test_store_tests;

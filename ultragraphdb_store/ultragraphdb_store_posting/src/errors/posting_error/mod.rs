@@ -81,26 +81,31 @@ pub enum PostingErrorEnum {
 
 impl PostingError {
     /// The store's `error`.
+    #[must_use]
     pub fn store(error: StoreError) -> Self {
         Self(PostingErrorEnum::Store(error))
     }
 
     /// A `key` of no list keyspace.
+    #[must_use]
     pub fn not_a_list(key: &[u8]) -> Self {
         Self(PostingErrorEnum::NotAList { key: key.to_vec() })
     }
 
     /// A split part's key read as a posting list.
+    #[must_use]
     pub fn invalid_key() -> Self {
         Self(PostingErrorEnum::InvalidKey)
     }
 
     /// A read below the timestamp a list can answer.
+    #[must_use]
     pub fn ts_too_old() -> Self {
         Self(PostingErrorEnum::TsTooOld)
     }
 
     /// A read at `read_ts` below `min_ts`, the complete version of the list at `key`.
+    #[must_use]
     pub fn read_below_min_ts(read_ts: u64, min_ts: u64, key: Vec<u8>) -> Self {
         Self(PostingErrorEnum::ReadBelowMinTs {
             read_ts,
@@ -110,6 +115,7 @@ impl PostingError {
     }
 
     /// A delete-all marker at `delete_below_ts` below `min_ts`, the list's complete version.
+    #[must_use]
     pub fn delete_below_min_ts(delete_below_ts: u64, min_ts: u64) -> Self {
         Self(PostingErrorEnum::DeleteBelowMinTs {
             delete_below_ts,
@@ -118,26 +124,31 @@ impl PostingError {
     }
 
     /// A schema or type entry at `key` read as a posting list.
+    #[must_use]
     pub fn schema_posting(key: Vec<u8>) -> Self {
         Self(PostingErrorEnum::SchemaPosting { key })
     }
 
     /// A version of the list at `key` whose meta byte `meta` is no posting kind.
+    #[must_use]
     pub fn unexpected_meta(meta: u8, key: Vec<u8>) -> Self {
         Self(PostingErrorEnum::UnexpectedMeta { meta, key })
     }
 
     /// A part at `key` a split list records and the store lacks.
+    #[must_use]
     pub fn missing_part(key: Vec<u8>) -> Self {
         Self(PostingErrorEnum::MissingPart { key })
     }
 
     /// A rollup cancelled because rollups are paused.
+    #[must_use]
     pub fn high_priority_op() -> Self {
         Self(PostingErrorEnum::HighPriorityOp)
     }
 
     /// A commit `version` at or below `after`, the version before it.
+    #[must_use]
     pub fn stale_version(version: u64, after: u64) -> Self {
         Self(PostingErrorEnum::StaleVersion { version, after })
     }

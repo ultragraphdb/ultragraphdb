@@ -60,21 +60,25 @@ impl RoleStart {
     }
 
     /// What a load fetches through.
+    #[must_use]
     pub fn bootstrap(&self) -> Option<&Bootstrap> {
         self.bootstrap.as_ref()
     }
 
     /// What it runs as.
+    #[must_use]
     pub fn identity(&self) -> &RoleIdentity {
         &self.identity
     }
 
     /// The role's settings.
+    #[must_use]
     pub fn config(&self) -> &ServiceConfig {
         &self.config
     }
 
     /// The address `/health` and `/ready` listen at.
+    #[must_use]
     pub fn observability(&self) -> SocketAddr {
         self.observability
     }

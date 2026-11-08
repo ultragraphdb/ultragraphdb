@@ -26,11 +26,16 @@ fn cluster(name: &str) -> TestResult<RoleCluster> {
     ))
 }
 
-/// The links hold no placement map until they are given one, and then hold that one.
+/// The links hold no placement map, and so no run or partition, until they are given one, and then hold that one.
 #[test]
 fn test_the_links_hold_the_map_they_were_given() -> TestResult {
     let links = RoleLinks::new(cluster("map")?, "frontend".to_string());
     assert_eq!(links.map(), None);
+    assert!(links.run_partitions(0).is_empty(), "no run without a map");
+    assert!(
+        links.every_partition().is_empty(),
+        "no partition without a map"
+    );
     let map = PlacementMap::even(2, NodeId::new(1))?;
     links.set_map(map.clone());
     assert_eq!(links.map(), Some(map));

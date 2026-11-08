@@ -137,3 +137,154 @@ fn test_a_partition_the_set_names_must_be_among_the_partitions() -> TestResult {
     assert!(subjects.is_empty());
     Ok(())
 }
+
+/// A reverse count lookup over no partition reads nothing and finds nothing.
+#[test]
+fn test_a_reverse_count_lookup_over_no_partition_finds_nothing() -> TestResult {
+    let (cluster, names) = hub(3)?;
+    let [_, _, _, knows] = &names;
+    let predicate = cluster.id_at(1, knows)?.context("knows's ID")?;
+    let mut found = Vec::new();
+    let none: Vec<_> = cluster.parts().iter().take(0).collect();
+    Fanout::over(none).reverse_counted(
+        TENANT,
+        Graph::Default,
+        predicate,
+        1,
+        cluster.closed(),
+        &mut found,
+    )?;
+    assert!(found.is_empty());
+    Ok(())
+}
+
+/// Whether `result` failed with the simulated store's error, as a quad read raises it.
+fn store_failed<T: std::fmt::Debug>(result: &Result<T, PartitionError>) -> bool {
+    matches!(result, Err(e) if matches!(&e.0, PartitionErrorEnum::Quad(_)))
+}
+
+/// A store failing under the home's read of the referrer set fails a reverse read and a reverse count with its error,
+/// with no rows.
+#[test]
+fn test_a_store_failing_under_the_referrer_set_fails_the_read() -> TestResult {
+    use ultragraphdb_store_sim::Fault;
+    let (cluster, names) = hub(3)?;
+    let query = query(&cluster, &names)?;
+    let home = cluster.part(2)?.applier().quads().store();
+    home.inject(Fault::FailNextRead);
+    let mut subjects = Vec::new();
+    let read = Fanout::new(cluster.parts()).subjects(&query, &mut subjects);
+    assert!(store_failed(&read), "{read:?}");
+    assert!(subjects.is_empty());
+    home.inject(Fault::FailNextRead);
+    let counted = Fanout::new(cluster.parts()).count(&query);
+    assert!(store_failed(&counted), "{counted:?}");
+    Ok(())
+}
+
+/// A store failing under a named partition's own reverse entries, restarted so its lists are read from the store, fails
+/// a reverse read and a reverse count with its error, with no rows.
+#[test]
+fn test_a_store_failing_under_a_named_partitions_entries_fails_the_read() -> TestResult {
+    use ultragraphdb_store_sim::Fault;
+    let (mut cluster, names) = hub(3)?;
+    let query = query(&cluster, &names)?;
+    cluster.restart(1)?;
+    let named = cluster.part(1)?.applier().quads().store();
+    named.inject(Fault::FailNextScanAfter(0));
+    let mut subjects = Vec::new();
+    let read = Fanout::new(cluster.parts()).subjects(&query, &mut subjects);
+    assert!(store_failed(&read), "{read:?}");
+    assert!(subjects.is_empty());
+    named.inject(Fault::FailNextScanAfter(0));
+    let counted = Fanout::new(cluster.parts()).count(&query);
+    assert!(store_failed(&counted), "{counted:?}");
+    Ok(())
+}
+
+/// `friend` declared with an exact count index on `cluster`, and its ID at partition 1.
+fn counted_friend(cluster: &mut Cluster) -> TestResult<SystemId> {
+    use crate::utils::cluster::ex;
+    use ultragraphdb_core_mapping::PredicateDeclaration;
+    cluster.declare(
+        "friend",
+        PredicateDeclaration::new(ex("friend")).with_count_index(true),
+    )?;
+    cluster.id_at(1, "friend")?.context("friend's ID")
+}
+
+/// A lookup by count finds only the objects whose summed count is the one asked: an object of another count is not
+/// found.
+#[test]
+fn test_a_lookup_by_count_leaves_out_an_object_of_another_count() -> TestResult {
+    let mut cluster = Cluster::even(1)?;
+    let friend = counted_friend(&mut cluster)?;
+    let (one, two) = (cluster.name_in(1, "o")?, cluster.name_in(1, "t")?);
+    let changes = vec![
+        insert(&cluster.name_in(1, "s")?, "friend", &one),
+        insert(&cluster.name_in(1, "u")?, "friend", &two),
+        insert(&cluster.name_in(1, "v")?, "friend", &two),
+    ];
+    let _version: u64 = cluster.write(1, changes)?.version()?;
+    let _closed = cluster.close()?;
+    let mut found = Vec::new();
+    Fanout::new(cluster.parts()).reverse_counted(
+        TENANT,
+        Graph::Default,
+        friend,
+        2,
+        cluster.closed(),
+        &mut found,
+    )?;
+    let two_id = cluster.id_at(1, &two)?.context("t's ID")?;
+    let found_ids: Vec<_> = found
+        .iter()
+        .filter_map(ultragraphdb_core_terms::EncodedTerm::as_id)
+        .collect();
+    assert_eq!(found_ids, vec![two_id]);
+    Ok(())
+}
+
+/// A count index holding more counts than one scan reads is read in pages, each resuming past the last: the object of
+/// the highest count, on the second page, is found.
+#[test]
+fn test_a_lookup_by_count_reads_the_index_page_after_page() -> TestResult {
+    let mut cluster = Cluster::even(1)?;
+    let friend = counted_friend(&mut cluster)?;
+    // One more count than a scan reads: objects of counts 1 to 257, every subject of a count also holding the lower.
+    let counts: u32 = 257;
+    let subjects: Vec<String> = (1..=counts).map(|i| format!("s{i}")).collect();
+    let objects: Vec<String> = (1..=counts).map(|i| format!("o{i}")).collect();
+    let mut changes = Vec::new();
+    for (count, object) in (1..=counts as usize).zip(&objects) {
+        for subject in subjects.iter().take(count) {
+            changes.push(insert(subject, "friend", object));
+        }
+    }
+    // Applied as set-up, in parts within a transaction's write set.
+    for part in changes.chunks(4_096) {
+        let _applied = cluster
+            .part(1)?
+            .applier()
+            .apply(&crate::utils::cluster::changeset(part.to_vec()))?;
+    }
+    let _closed = cluster.close()?;
+    let mut found = Vec::new();
+    Fanout::new(cluster.parts()).reverse_counted(
+        TENANT,
+        Graph::Default,
+        friend,
+        u64::from(counts),
+        cluster.closed(),
+        &mut found,
+    )?;
+    let last = cluster
+        .id_at(1, objects.last().context("an object")?)?
+        .context("the last object's ID")?;
+    let found_ids: Vec<_> = found
+        .iter()
+        .filter_map(ultragraphdb_core_terms::EncodedTerm::as_id)
+        .collect();
+    assert_eq!(found_ids, vec![last]);
+    Ok(())
+}

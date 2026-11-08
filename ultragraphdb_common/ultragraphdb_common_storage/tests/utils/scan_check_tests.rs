@@ -9,8 +9,9 @@
 use std::collections::BTreeSet;
 
 use ultragraphdb_common_role::RoleClient;
-use ultragraphdb_core_ids::{Epoch, Version};
+use ultragraphdb_core_ids::{Bucket, Epoch, Sequence, SystemId, TypePrefix, Version};
 use ultragraphdb_core_keys::{Keyspace, key_prefix};
+use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_protocol_transport::Address;
 use ultragraphdb_protocol_wire::{ErrorCode, Scan, ScanAt, ScanRange, TermTable};
 use ultragraphdb_store_quads::term_key;
@@ -371,6 +372,99 @@ fn test_a_scan_not_of_its_transaction_is_refused() -> TestResult {
             for (scan, what) in &cases {
                 protocol_naming(&refusal(&mut client, scan).await?, what);
             }
+            Ok(())
+        },
+    )
+}
+
+/// A range whose first key names no tenant, a split part, a byte no keyspace has, or an `after` a range of it cannot take, an
+/// ID's tag holding no valid system ID among them, is refused before any frame, naming what is wrong.
+#[test]
+fn test_a_range_naming_no_tenant_or_keyspace_or_a_wrong_after_is_refused() -> TestResult {
+    on_core(
+        "scan-malformed",
+        Setup::default(),
+        no_frontend()?,
+        async |core| {
+            let mut client = core.dial().await?;
+            let short = vec![Keyspace::Forward.byte(), 1, 2];
+            let split = key_prefix(Keyspace::Forward, true, TENANT, None, None);
+            let unknown = [vec![0xEE], TENANT.to_be_bytes().to_vec()].concat();
+            for (range, named) in [
+                (
+                    (PARTITION, short, Vec::new()),
+                    "too short to name a tenant".to_string(),
+                ),
+                (
+                    (PARTITION, split, Vec::new()),
+                    format!("no split part of the keyspace {:?}", Keyspace::Forward),
+                ),
+                (
+                    (PARTITION, unknown, Vec::new()),
+                    "reads no range of the keyspace 0xee".to_string(),
+                ),
+            ] {
+                let refused = refusal(&mut client, &latest(&[range])).await?;
+                protocol_naming(&refused, &named);
+            }
+            // An ID's tag and 16 bytes whose last reserved bit is set, which name no system ID.
+            let id = EncodedTerm::id(SystemId::new(
+                TypePrefix::RESOURCE,
+                Bucket::new(1)?,
+                Sequence::new(3)?,
+            ));
+            let no_id = [&id.as_bytes()[..SystemId::BYTES], &[1][..]].concat();
+            for (keyspace, after, named) in [
+                (
+                    Keyspace::Statements,
+                    &b"x"[..],
+                    "only a keyspace of lists has",
+                ),
+                (
+                    Keyspace::Forward,
+                    &[0xFF][..],
+                    "not one whole object encoding",
+                ),
+                (
+                    Keyspace::Forward,
+                    &no_id[..],
+                    "not one whole object encoding",
+                ),
+            ] {
+                let (_, first, past) = whole(keyspace);
+                let mut scan = latest(&[]);
+                scan.push_range(ScanRange::new(PARTITION, &first, &past).with_after(after));
+                let refused = refusal(&mut client, &scan).await?;
+                protocol_naming(&refused, named);
+            }
+            Ok(())
+        },
+    )
+}
+
+/// A Scan of a transaction reading another tenant's range is refused naming both tenants.
+#[test]
+fn test_a_scan_of_its_transaction_reads_its_tenant_alone() -> TestResult {
+    on_core(
+        "scan-bound-tenant",
+        Setup::default(),
+        no_frontend()?,
+        async |core| {
+            let mut client = core.dial().await?;
+            let (_, read_version) = bind(&mut client, 9).await?;
+            let other = TENANT + 1;
+            let iri = ex("a");
+            let elsewhere = of_transaction(
+                9,
+                read_version,
+                PRINCIPAL,
+                &[&iri],
+                &[alone(term_key(other, &iri))],
+            );
+            protocol_naming(
+                &refusal(&mut client, &elsewhere).await?,
+                &format!("range 0 reads tenant {other}, the transaction's being {TENANT}"),
+            );
             Ok(())
         },
     )

@@ -43,6 +43,7 @@ pub fn iri_bucket(tenant: u64, iri: &str) -> Option<Bucket> {
 
 /// The blank node the skolem IRI `skolem` names, as every read presents it: labelled `b`, then what follows the IRI's
 /// last `/`, its bucket, `-` and its random digits, so the label holds no part of the system ID but its bucket.
+#[must_use]
 pub fn skolem_blank_node(skolem: &str) -> BlankNode {
     let tail = skolem.rsplit('/').next().unwrap_or(skolem);
     BlankNode::new_unchecked(format!("b{tail}"))

@@ -11,6 +11,7 @@ use ultragraphdb_protocol_wire::ErrorReply;
 use crate::utils::refusals::unavailable;
 
 /// `work`'s outcome, or code 17 for a peer hung past `wait`, naming `what` compute waited for.
+/// A dropped future drops `work` with it.
 pub(crate) async fn bounded<T>(
     wait: Duration,
     what: impl FnOnce() -> String,

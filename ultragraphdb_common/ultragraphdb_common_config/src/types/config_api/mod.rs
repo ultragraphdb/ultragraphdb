@@ -20,6 +20,9 @@ enum Scope {
 }
 
 /// The config service's HTTP API. A clone shares the keys: the runtime is one thread, so `Rc` holds them.
+///
+/// Each request awaits nothing but the store's owner, asked through `ConfigHandle::ask`: a request whose future is
+/// dropped leaves what that leaves, a change already taken by the owner made whole and its answer lost.
 #[derive(Debug, Clone)]
 pub struct ConfigApi {
     store: ConfigHandle,
@@ -252,6 +255,7 @@ impl ConfigApi {
 }
 
 impl HttpService for ConfigApi {
+    /// A dropped future leaves what [`ConfigApi`] says.
     async fn call(&self, request: HttpRequest) -> HttpResponse {
         match (request.method(), request.path()) {
             ("GET", "/health" | "/ready") => HttpResponse::new(200).with_body("ok\n"),

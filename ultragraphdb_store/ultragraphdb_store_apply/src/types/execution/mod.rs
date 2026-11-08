@@ -84,6 +84,7 @@ where
     /// The subjects of the statements the execution's changesets named by their reifier (a delete of the statement, a
     /// property set or removed through it) and resolved, in the order resolved: the reifier names no subject before
     /// execution, so a partition checks its routing against these afterwards. A reifier naming no statement adds none.
+    #[must_use]
     pub fn reified_subjects(&self) -> &[SystemId] {
         self.write.reified_subjects()
     }

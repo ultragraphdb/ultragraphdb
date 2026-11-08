@@ -574,3 +574,63 @@ fn test_a_unique_value_written_twice_is_named_once() -> TestResult {
     assert_eq!(e.unique_writes(), expected.as_slice());
     Ok(())
 }
+
+#[test]
+fn test_a_node_s_id_is_the_store_s_or_a_new_one_kept_for_the_execution() -> TestResult {
+    let a = changesets()?;
+    write(&a, &["<b> <name> \"Bob\""])?;
+    let mut e = begin(&a)?;
+    let (b, n) = (ex("b"), ex("n"));
+    assert_eq!(e.node_id(b.as_ref().into())?, uid(&a, "b")?);
+    let first = e.node_id(n.as_ref().into())?;
+    assert_ne!(first, uid(&a, "b")?);
+    assert_eq!(e.node_id(n.as_ref().into())?, first);
+    Ok(())
+}
+
+/// A read names nothing where its graph or its predicate is unknown, or where its value is no literal an index holds;
+/// a value of several tokens finds the subjects every token's key holds.
+#[test]
+fn test_reads_of_what_the_store_does_not_hold_find_nothing() -> TestResult {
+    let a = changesets()?;
+    declare(&a, "title", "with a `term` index")?;
+    write(
+        &a,
+        &[
+            "<a> <title> \"red fox\"",
+            "<b> <title> \"red hen\"",
+            "<a> <knows> <b>",
+        ],
+    )?;
+    let mut e = begin(&a)?;
+    let nowhere = GraphName::NamedNode(ex("nowhere"));
+    let (knows, title, b) = (ex("knows"), ex("title"), term("<b>")?);
+    let mut out = vec![NamedOrBlankNode::from(ex("stale"))];
+    e.subjects_into(nowhere.as_ref(), knows.as_ref(), b.as_ref(), &mut out)?;
+    assert!(out.is_empty(), "an unknown graph");
+    assert!(
+        subjects(&mut e, "never", "<b>")?.is_empty(),
+        "an unknown predicate"
+    );
+    e.lookup_into(
+        nowhere.as_ref(),
+        title.as_ref(),
+        "term",
+        term("\"red\"")?.as_ref(),
+        &mut out,
+    )?;
+    assert!(out.is_empty(), "an unknown graph");
+    assert!(
+        lookup(&mut e, "title", "term", "<b>")?.is_empty(),
+        "no literal"
+    );
+    assert_eq!(
+        names(&lookup(&mut e, "title", "term", "\"red\"")?),
+        iris(&["a", "b"])
+    );
+    assert_eq!(
+        names(&lookup(&mut e, "title", "term", "\"red fox\"")?),
+        iris(&["a"])
+    );
+    Ok(())
+}

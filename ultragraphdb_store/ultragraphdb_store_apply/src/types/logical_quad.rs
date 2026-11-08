@@ -32,6 +32,7 @@ impl LogicalQuad {
     pub const DERIVATION: u32 = 1;
 
     /// The statement of `object` of `subject`'s `predicate` in `graph`, with `statement`, its ID, when it holds one.
+    #[must_use]
     pub fn new(
         graph: Graph,
         subject: SystemId,
@@ -49,6 +50,7 @@ impl LogicalQuad {
     }
 
     /// The statement's key in a record.
+    #[must_use]
     pub fn key(&self) -> Vec<u8> {
         let mut key = Vec::with_capacity(KEY_IDS + self.object.as_bytes().len());
         key.extend_from_slice(&self.graph.to_be_bytes());
@@ -111,26 +113,31 @@ impl LogicalQuad {
     }
 
     /// The graph.
+    #[must_use]
     pub fn graph(&self) -> Graph {
         self.graph
     }
 
     /// The subject.
+    #[must_use]
     pub fn subject(&self) -> SystemId {
         self.subject
     }
 
     /// The predicate.
+    #[must_use]
     pub fn predicate(&self) -> SystemId {
         self.predicate
     }
 
     /// The object's encoding.
+    #[must_use]
     pub fn object(&self) -> &EncodedTerm {
         &self.object
     }
 
     /// The statement's ID, `None` for a statement without one.
+    #[must_use]
     pub fn statement(&self) -> Option<SystemId> {
         self.statement
     }

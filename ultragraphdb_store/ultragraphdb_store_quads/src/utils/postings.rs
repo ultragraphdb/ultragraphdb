@@ -62,7 +62,8 @@ pub(crate) fn held_object(
 ///
 /// # Errors
 ///
-/// [`TermError`] for bytes that are not one whole object encoding.
+/// [`TermError`] for bytes that are not one whole object encoding, an ID's tag whose 16 bytes are no valid system ID
+/// among them.
 pub fn object_identity(
     keyspace: Keyspace,
     encoding: &[u8],
@@ -72,6 +73,12 @@ pub fn object_identity(
     let object = EncodedTerm::from_bytes(encoding)?;
     let identity = match object.as_id() {
         Some(id) => PostingIdentity::new(id.to_u128(), Vec::new()),
+        None if !object.is_literal() => {
+            return Err(TermError::malformed(
+                encoding.to_vec(),
+                "an ID that is no valid system ID",
+            ));
+        }
         None if keyspace.compares_values() => {
             PostingIdentity::new(u128::from(fingerprint(encoding)), encoding.to_vec())
         }

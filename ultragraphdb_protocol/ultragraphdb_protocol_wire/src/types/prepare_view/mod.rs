@@ -47,6 +47,7 @@ impl<'a> PrepareView<'a> {
     }
 
     /// What the statement is written in.
+    #[must_use]
     pub fn language(&self) -> Language {
         self.language
     }
@@ -57,11 +58,13 @@ impl<'a> PrepareView<'a> {
     }
 
     /// The quad pattern; `None` for a text.
+    #[must_use]
     pub fn pattern(&self) -> Option<&QuadPattern> {
         self.pattern.as_ref()
     }
 
     /// The query text, borrowed from the frame; empty for a pattern.
+    #[must_use]
     pub fn text(&self) -> &'a str {
         self.text
     }
@@ -78,6 +81,7 @@ impl<'a> PrepareView<'a> {
     }
 
     /// For a text, the parameter names, then in a reply the result column names; empty for a pattern.
+    #[must_use]
     pub fn names(&self) -> StringList<'a> {
         self.names
     }

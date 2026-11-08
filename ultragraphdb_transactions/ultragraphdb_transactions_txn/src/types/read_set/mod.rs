@@ -102,6 +102,7 @@ impl ReadSet {
 
     /// Appends `bytes` to the arena: their span. The limit keeps the arena within u32 offsets.
     fn add(&mut self, bytes: &[u8]) -> Span {
+        // The cast is lossless: a `usize` holds 32 bits on every target the repository builds for.
         debug_assert!(self.arena.len() + bytes.len() <= u32::MAX as usize);
         let at = self.arena.len() as u32;
         self.arena.extend_from_slice(bytes);
@@ -158,6 +159,7 @@ impl ReadSet {
     /// The conflict key of the term of `id`: [`ReadSet::TERM_TAG`] and the ID's 16 big-endian bytes. A term found
     /// absent is recorded by it, and a statement written names each of its terms by it in its record's conflict
     /// points, so the two meet exactly.
+    #[must_use]
     pub fn term_key(id: SystemId) -> [u8; TERM_KEY] {
         let mut key = [Self::TERM_TAG; TERM_KEY];
         if let Some((_, rest)) = key.split_first_mut() {

@@ -44,8 +44,9 @@ listed with its reason in the group's notes.
 ### Requirement: Conformance covers the rules no lint checks
 A lifted or created crate SHALL also meet, by review recorded in its group's notes, the Ultra rules no lint enforces: an
 acyclic call graph with bounded explicit stacks for recursive structures (rule 1), a named bound on every loop, queue,
-retry and wait (rule 2), data-plane memory allocated at startup (rule 3), at least two checks per function on average,
-paired and in both spaces (rule 5), and a justification for every `Arc`, interior mutability and `cfg` (rules 8, 9).
+retry and wait (rule 2), data-plane memory allocated at startup (rule 3), every invariant whose violation would corrupt
+what is stored or sent checked as a returned invariant error (rule 5), and a justification for every `Arc`, interior
+mutability and `cfg` (rules 8, 9).
 
 #### Scenario: An unbounded loop is found in review
 - **WHEN** the review of a lifted crate finds a `loop` with no counted bound that is not an event loop

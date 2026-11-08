@@ -41,26 +41,31 @@ impl PartitionOutcome {
     }
 
     /// What the commit step answered: the commit's session token and its operations' results.
+    #[must_use]
     pub fn reply(&self) -> Option<&Reply> {
         self.reply.as_ref()
     }
 
     /// The ticket [`crate::PartitionHost::submit`] gave the write.
+    #[must_use]
     pub fn ticket(&self) -> u64 {
         self.ticket
     }
 
     /// The commit version, or the refusal.
+    #[must_use]
     pub fn outcome(&self) -> &Result<u64, PartitionError> {
         &self.outcome
     }
 
     /// How many registrations the write waited for.
+    #[must_use]
     pub fn registrations(&self) -> usize {
         self.registrations
     }
 
     /// How long the write waited for its registrations' answers.
+    #[must_use]
     pub fn waited_us(&self) -> u64 {
         self.waited_us
     }

@@ -6,6 +6,7 @@
 //! What only the merged settings, or the set of them, can show: the checks of the config-service spec's table, each
 //! reached through `check_target`.
 
+use ultragraphdb_cluster_placement::PlacementMap;
 use ultragraphdb_common_config_check::{Defect, TargetFiles, check_target};
 
 const FRONTEND: &str = "[cluster]\nid = 7\nrole_secret_file = \"/run/secret\"\npartition_count = 2\n[observability]\naddress = \"tcp://127.0.0.1:18081\"\n[frontend]\nrole_address = \"tcp://10.0.0.1:7081\"\ndata_dir = \"/data\"\n[sequencer]\nepoch_ms_min = 2\nepoch_ms_max = 10\n";
@@ -315,4 +316,79 @@ fn test_the_placement_and_data_stay_fixed() {
         &checked(&with(valid(), "storage_1", &stored), Some(&active)),
         &["instance storage_1, setting storage.data_dir: it differs from the active revision"],
     );
+}
+
+/// Each of a frontend's metadata bounds is checked by `MetadataConfig`, which refuses 0 for every one.
+#[test]
+fn test_each_metadata_bound_is_checked() {
+    for setting in ["block_size_max", "snapshot_rounds", "catalog_check_ms"] {
+        let zero = format!("{FRONTEND}[metadata]\n{setting} = 0\n");
+        says(
+            &checked(&with(valid(), "frontend", &zero), None),
+            &[&format!(
+                "instance frontend, setting metadata.{setting}: it holds 0;"
+            )],
+        );
+    }
+}
+
+/// A frontend's partition count lies from 1 to the placement's most, and a storage instance's partitions within it.
+#[test]
+fn test_a_partition_count_bounds_the_partitions_held() {
+    let none = FRONTEND.replace("partition_count = 2", "partition_count = 0");
+    says(
+        &checked(&with(valid(), "frontend", &none), None),
+        &[
+            &format!(
+                "instance frontend, setting cluster.partition_count: it holds 0; it must lie from 1 to {}",
+                PlacementMap::PARTITIONS_MAX
+            ),
+            "instance storage_1, setting storage.partition_count: partition 1 lies outside the cluster's 0;",
+        ],
+    );
+}
+
+/// An observability address is an IP address and a port, which a listener binds without a lookup.
+#[test]
+fn test_an_observability_address_names_an_ip() {
+    let named = FRONTEND.replace("tcp://127.0.0.1:18081", "tcp://frontend:18081");
+    says(
+        &checked(&with(valid(), "frontend", &named), None),
+        &[
+            "instance frontend, setting observability.address: it holds tcp://frontend:18081; it must be tcp://<ip>:<port>",
+        ],
+    );
+}
+
+/// A storage instance naming no role address is refused for that alone, with no listener derived from it.
+#[test]
+fn test_a_storage_instance_without_a_role_address_derives_no_listener() {
+    let silent: String = STORAGE_1
+        .lines()
+        .filter(|line| !line.starts_with("role_address"))
+        .map(|line| format!("{line}\n"))
+        .collect();
+    let listing = checked(&with(valid(), "storage_1", &silent), None);
+    says(
+        &listing,
+        &["instance storage_1, setting storage.role_address: it is absent;"],
+    );
+    assert_eq!(listing.lines().count(), 1, "{listing}");
+}
+
+/// Against the active revision, an instance whose file is refused and an instance the revision lacks are compared with
+/// nothing.
+#[test]
+fn test_only_instances_the_active_revision_holds_are_compared() {
+    let without_compute = target_of(&[
+        ("frontend", FRONTEND),
+        ("storage", STORAGE),
+        ("storage_1", STORAGE_1),
+        ("storage_2", STORAGE_2),
+    ]);
+    assert_eq!(checked(&valid(), Some(&without_compute)), "");
+    let refused = format!("{STORAGE_2}bogus = 1\n");
+    let listing = checked(&with(valid(), "storage_2", &refused), Some(&valid()));
+    says(&listing, &["storage.bogus"]);
+    says_not(&listing, &["active revision"]);
 }

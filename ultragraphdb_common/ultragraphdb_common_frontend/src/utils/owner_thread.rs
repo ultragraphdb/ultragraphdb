@@ -44,6 +44,9 @@ impl OwnerThread {
 
     /// Waits for the owner to stop: at a failure, or once every handle is gone, this one with it.
     ///
+    /// A dropped future has let go of this handle already, and leaves the owner running until its other handles are
+    /// gone, its outcome unheard.
+    ///
     /// # Errors
     ///
     /// What the owner stopped with.
@@ -87,6 +90,7 @@ impl OwnerClock {
         reason = "the shell reads the clock and tells the owner's state machines, which read none"
     )]
     fn read(self) -> ClockReading {
+        // A `u128` of microseconds fits a `u64` for 584,000 years, past what the elapsed time or a wall clock reaches.
         let wall = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |since| since.as_micros() as u64);
@@ -96,6 +100,9 @@ impl OwnerClock {
 
 /// Starts the owner on a thread and runtime of its own, over logs under `data_dir`, and returns once it has recovered.
 /// `principals`, each a name and its verifier, are created when the group does not hold them.
+///
+/// A future dropped while it waits for recovery drops the one handle, so the owner's thread recovers, finds no handle
+/// left and stops.
 ///
 /// # Errors
 ///
@@ -107,6 +114,7 @@ pub async fn start_owner(
     start: OwnerStart,
     principals: Vec<(String, ScramVerifier)>,
 ) -> Result<OwnerThread, RoleError> {
+    // Bounded as `OwnerHandle` says: each connection waits for its answer before it asks again.
     let (inbox, received) = mpsc::unbounded();
     let (recovered, recovery) = oneshot::channel();
     let (stop, stopped) = oneshot::channel();
@@ -129,6 +137,7 @@ pub async fn start_owner(
                             owner.run(received, move || clock.read()).await
                         }
                         Err(error) => {
+                            // A role gone has no one to tell, and the thread's outcome carries the error too.
                             drop(recovered.send(Err(error.clone())));
                             Err(error)
                         }
@@ -151,6 +160,8 @@ pub async fn start_owner(
     })
 }
 
+/// A future dropped at a log's open or the recovery leaves the logs as they were; at a principal's or a tenant's
+/// creation, as [`Owner::create_principal_once`] says.
 async fn open(
     cluster: u64,
     data_dir: &std::path::Path,
@@ -158,6 +169,7 @@ async fn open(
     principals: Vec<(String, ScramVerifier)>,
     now: ClockReading,
 ) -> Result<Owner<Wal<CompioStorage>, Wal<CompioStorage>>, RoleError> {
+    // A closure takes no type parameter, so it takes each error as a trait object (Ultra rules 1 and 9).
     let failed = |what: &str, error: &dyn std::fmt::Display| {
         RoleError::io(format!("{what} under {}: {error}", data_dir.display()))
     };

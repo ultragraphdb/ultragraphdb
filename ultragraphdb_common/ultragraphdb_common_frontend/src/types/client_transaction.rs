@@ -46,6 +46,8 @@ pub(crate) struct ClientTransaction {
     pub awaiting_claim: bool,
     /// The partition a claim's answer named.
     pub claimed: Option<u32>,
+    /// The requests waiting behind the first answer, in order: each a stream of the connection or a frame counted in its
+    /// bytes on their way, so the connection's `max_streams` and that count's bound limit its length.
     pub queue: VecDeque<Queued>,
     /// The Write on the Bind stream not yet answered by Held, whole while it is the first request, whose refusal resends it.
     pub write_out: Option<CountedFrame>,

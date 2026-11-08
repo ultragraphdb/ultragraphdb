@@ -43,6 +43,7 @@ where
     let (mut rows, mut idle) = (0usize, 0usize);
     let idle_most = bounds.most_idle().map_or(usize::MAX, NonZeroUsize::get);
     let mut last = None;
+    // Ends: each turn takes the next key of `held` and `added`, both finite, or returns.
     loop {
         let Some(key) = next_key::<_, _, E>(&mut held, &mut added)? else {
             return Ok(WalkEnd::Exhausted);

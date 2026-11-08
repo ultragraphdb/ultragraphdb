@@ -47,7 +47,7 @@ pub(crate) fn trig_reduce(x: f64) -> (u64, f64) {
     // Extract the fraction and find its magnitude.
     let hi = (hi << 3) | (lo >> 61);
     let lz = hi.leading_zeros();
-    let e = (BIAS as u64).wrapping_sub(u64::from(lz) + 1);
+    let e = (BIAS as u64).wrapping_sub(u64::from(lz) + 1); // lossless: BIAS is 1023
     // Clear implicit mantissa bit and shift into place.
     // Go's uint subtraction wraps when hi is 0, and its shift by the result gives 0.
     let mut hi = shl(hi, lz + 1) | shr(lo, 64u32.wrapping_sub(lz + 1));

@@ -11,7 +11,8 @@ use crate::utils::le::bytes_at;
 
 /// The record at `at` of `value` and the offset after it; `None` when it runs past.
 fn record_at(value: &[u8], at: usize) -> Option<(ObjectRecord<'_>, usize)> {
-    let encoding_len = u32::from_le_bytes(bytes_at(value, at)?) as usize;
+    let encoding_len = u32::from_le_bytes(bytes_at(value, at)?) as usize; // lossless: a `usize` is at least 32 bits
+    // Lossless: a `usize` is at least 32 bits.
     let statements = u32::from_le_bytes(bytes_at(value, at.checked_add(4)?)?) as usize;
     let start = at.checked_add(8)?;
     let end = start.checked_add(encoding_len)?;
@@ -42,9 +43,12 @@ pub struct ObjectRecords<'a> {
 }
 
 impl<'a> ObjectRecords<'a> {
-    /// The records of `value`, checked once: each record's lengths and bytes inside the value, refused as
+    /// The records of `value`, checked once: each record's lengths and bytes inside the value.
+    ///
+    /// # Errors
+    ///
     /// [`ProtocolError::entry_out_of_bounds`], of an Entries body's section 0, naming the record and its offset in the
-    /// value.
+    /// value, for a record whose lengths or bytes reach past the value.
     pub fn read(value: &'a [u8]) -> Result<Self, ProtocolError> {
         let mut at = 0usize;
         let mut len = 0usize;
@@ -61,11 +65,13 @@ impl<'a> ObjectRecords<'a> {
     }
 
     /// The number of records.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.len
     }
 
     /// Whether the value holds no record.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }

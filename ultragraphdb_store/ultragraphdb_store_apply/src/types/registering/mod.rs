@@ -26,6 +26,7 @@ impl Registering {
     }
 
     /// The entity's ID.
+    #[must_use]
     pub fn entity(&self) -> SystemId {
         self.entity
     }
@@ -35,6 +36,7 @@ impl Registering {
     /// ([`ultragraphdb_store_quads::ReferrerSet::set`]), derived when the round applies, in its order, so two
     /// registrations of one entity in one round both land; and the dictionary entries of the entity's IRI the home
     /// created. Released, writing nothing, through [`crate::ChangesetApplier::release`].
+    #[must_use]
     pub fn finish(self, group: BucketGroup, generation: NonZeroU64) -> Executed {
         let entity = self.entity;
         let mut executed = self.finish_entity();
@@ -44,6 +46,7 @@ impl Registering {
 
     /// What a registration naming no bucket group's round applies: the dictionary entries of the entity's IRI the home
     /// created, its whole effect. Released, writing nothing, through [`crate::ChangesetApplier::release`].
+    #[must_use]
     pub fn finish_entity(self) -> Executed {
         let mut executed = self.executed;
         let versionless = executed
@@ -58,12 +61,14 @@ impl Registering {
 
     /// Whether the registration holds dictionary entries its round must make durable: an ID the home created, or one a
     /// concurrent registrant created and has not yet made durable.
+    #[must_use]
     pub fn holds_entries(&self) -> bool {
         self.executed.terms.written().next().is_some()
     }
 
     /// The [`Executed`] of a registration answered from the referrer set unchanged, a repeat, which writes nothing: its
     /// release through [`crate::ChangesetApplier::release`] lets go the entries it held.
+    #[must_use]
     pub fn into_executed(self) -> Executed {
         self.executed
     }

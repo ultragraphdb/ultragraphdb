@@ -85,6 +85,7 @@ impl Bootstrap {
                 "the variable {INSTANCE} holds {instance}, which is not an instance of this binary's role, {role}: it must be {role}, or {role} followed by _ and a label"
             )));
         }
+        // A closure takes no type parameter, so it takes each error as a trait object (Ultra rules 1 and 9).
         let refused = |name: &str, reason: &dyn std::fmt::Display| {
             RoleError::configuration(format!("the variable {name}: {reason}"))
         };

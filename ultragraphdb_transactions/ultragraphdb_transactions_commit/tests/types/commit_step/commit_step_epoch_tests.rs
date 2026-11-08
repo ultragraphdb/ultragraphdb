@@ -687,6 +687,46 @@ fn test_a_registration_in_a_full_epoch_waits_for_the_close() -> TestResult {
     Ok(())
 }
 
+/// A registration behind a commit taking the epoch's last version, in one round, finds no version left: the round ends
+/// with the commit, and the registration waits for the close and takes the next epoch's first version.
+#[test]
+fn test_a_registration_behind_the_epochs_last_commit_waits_for_the_close() -> TestResult {
+    let mut step = step(version(10, LAST - 4), 9)?;
+    let first = commit(&mut step, 1, writer(1)?, 0);
+    assert_eq!(
+        first.append().map(|(r, _)| r.first_version()),
+        Some(version(10, LAST - 2))
+    );
+    let _waiting = commit(&mut step, 2, writer(2)?, 0);
+    let _registering = run(
+        &mut step,
+        Input::Registration {
+            ticket: 5,
+            record: registration(7, 3, 1)?,
+            dictionary: Vec::new(),
+        },
+        0,
+    );
+    let out = run(&mut step, Input::Synced, 0);
+    assert_eq!(
+        out.append()
+            .map(|(r, _)| (r.first_version(), r.transactions())),
+        Some((version(10, LAST), 1))
+    );
+    assert_eq!(step.waiting(), 1, "the registration waits");
+    let _synced = run(&mut step, Input::Synced, 0);
+    let closed = deliver(&mut step, 10)?;
+    assert_eq!(
+        closed
+            .append()
+            .map(|(r, _)| (r.first_version(), r.transactions())),
+        Some((version(11, 0), 1))
+    );
+    let synced = run(&mut step, Input::Synced, 0);
+    assert_eq!(outcomes(&synced), vec![(5, Ok(version(11, 0)))]);
+    Ok(())
+}
+
 /// A failed sync stops the step: the round in flight and a registration waiting for the close are both answered
 /// unavailable under their tickets, and a close delivered afterwards opens nothing.
 #[test]

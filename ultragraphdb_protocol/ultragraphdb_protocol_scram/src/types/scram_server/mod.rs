@@ -57,7 +57,13 @@ impl ScramServer {
     }
 
     /// The SASLprep-prepared name `client_first` asks for, for a server that fetches the name's verifier before it runs
-    /// the exchange. Refused as [`ScramServer::first`] refuses the message's header and name.
+    /// the exchange.
+    ///
+    /// # Errors
+    ///
+    /// As [`ScramServer::first`] refuses the message's header and name: [`ScramError::malformed`] for a header or name
+    /// the message does not hold in its form, [`ScramError::channel_binding`] for a client asking for channel binding,
+    /// [`ScramError::prepare`] for a name SASLprep refuses.
     pub fn name_in(client_first: &[u8]) -> Result<String, ScramError> {
         let (_, bare) = header(client_first)?;
         let name = attribute(bare.split(',').next(), 'n').ok_or(ScramError::malformed("name"))?;

@@ -2722,3 +2722,66 @@ fn bool_bigfloat_and_refused_texts() -> TestResult<Vec<TextCase>> {
         ),
     ])
 }
+
+#[test]
+fn test_convert_null_geojson_to_geo_is_nil() -> TestResult {
+    let got = conv(TypeId::STRING, b"null".to_vec(), TypeId::GEO).context("null as geo")?;
+    assert_eq!(got, Val::nil(TypeId::GEO));
+    Ok(())
+}
+
+#[test]
+fn test_convert_geo_without_geojson_to_string_is_nil() -> TestResult {
+    let g = Geometry::point(Layout::XY, &[f64::NAN, 0.0])?;
+    assert_eq!(
+        g.to_geojson(),
+        None,
+        "a non-finite coordinate has no GeoJSON"
+    );
+    let got = conv(TypeId::GEO, g.marshal_wkb()?, TypeId::STRING).context("geo as a string")?;
+    assert_eq!(got, Val::nil(TypeId::STRING));
+    Ok(())
+}
+
+#[test]
+fn test_marshal_a_value_of_another_type_is_refused_naming_both() -> TestResult {
+    let int = Value::Int(1);
+    for (tid, want) in [
+        (TypeId::STRING, "string"),
+        (TypeId::PASSWORD, "string"),
+        (TypeId::VFLOAT, "[]float32"),
+    ] {
+        let err = marshal(&Val::new(tid, int.clone()), TypeId::BINARY)
+            .err()
+            .context("a mismatched value is refused")?
+            .to_string();
+        assert!(
+            err.ends_with(&format!("is {}, not {want}", int.go_type())),
+            "{tid:?}: {err}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn test_marshal_to_a_type_without_that_form_is_refused() -> TestResult {
+    for (from, to) in [
+        (Val::new(TypeId::STRING, s("a")), TypeId::INT),
+        (Val::new(TypeId::PASSWORD, s("a")), TypeId::INT),
+        (
+            Val::new(TypeId::VFLOAT, Value::VFloat(vec![1.0])),
+            TypeId::INT,
+        ),
+        (Val::new(TypeId::UID, Value::Uid(1)), TypeId::BINARY),
+    ] {
+        let err = marshal(&from, to)
+            .err()
+            .context("a marshal without that form is refused")?
+            .to_string();
+        assert_eq!(
+            err,
+            format!("Cannot convert {} to type {}", from.tid().name(), to.name()),
+        );
+    }
+    Ok(())
+}

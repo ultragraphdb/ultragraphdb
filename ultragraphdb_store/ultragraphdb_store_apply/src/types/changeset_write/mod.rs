@@ -128,6 +128,10 @@ where
 
     /// Applies every change of `changeset`, in order; the first refusal ends it. A tenant with no catalog is given
     /// its initial one, written with the changeset.
+    ///
+    /// # Errors
+    ///
+    /// The first change's refusal, the changes before it staying applied to the write; the store's error.
     pub fn apply<W: Changes>(&mut self, changes: &W) -> Result<(), ChangesetError> {
         self.initial()?;
         changes.changes().try_for_each(|change| self.change(change))

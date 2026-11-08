@@ -63,6 +63,7 @@ fn check_node(
 ) -> Result<(), ProtocolError> {
     match result.node() {
         Some(node) => {
+            // Lossless: a `usize` is at least 32 bits.
             if let Some(limit) = terms.filter(|limit| node as usize >= *limit) {
                 return Err(ProtocolError::index_out_of_range(
                     command,

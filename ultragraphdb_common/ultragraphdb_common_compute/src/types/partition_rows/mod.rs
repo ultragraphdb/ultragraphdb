@@ -53,6 +53,8 @@ pub(crate) struct PartitionRows {
     filter: RowFilter,
     graphs: Graphs,
     graph: Graph,
+    /// The ranges to come of the graph under way: its one range, or one per predicate its listing names, which the
+    /// tenant's catalog bounds; a stalled Scan puts its own back.
     pending: VecDeque<RangeSpec>,
     open: Option<OpenScan>,
     left: Option<RangeSpec>,
@@ -188,6 +190,7 @@ impl PartitionRows {
 
     /// Waits for the answer to `gate`: the IDs of its terms this partition holds. Past it the partition has closed the read's
     /// epoch.
+    /// A dropped future cancels the gate's Scan as its stream drops.
     pub(crate) async fn finish_gate(
         &mut self,
         gate: Gate,
@@ -198,6 +201,8 @@ impl PartitionRows {
             return Ok(ids);
         };
         let mut found: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
+        // Each turn takes one frame of the Scan, awaited within the stream's stall bound; the frame the partition marks
+        // last ends it at the latest (Ultra rule 2).
         loop {
             let (facts, ()) = stream
                 .next(|view| {
@@ -231,6 +236,7 @@ impl PartitionRows {
     }
 
     /// The values `keys`, one-key ranges, hold at the partition's version.
+    /// A dropped future cancels the Scan under way as its stream drops.
     pub(crate) async fn values(
         &mut self,
         keys: &[Vec<u8>],
@@ -243,6 +249,8 @@ impl PartitionRows {
                 scan.push_range(ScanRange::new(self.partition(), key, &past));
             }
             let mut stream = ScanStream::open(&self.link, &scan)?;
+            // Each turn takes one frame of the Scan, awaited within the stream's stall bound; the frame the partition
+            // marks last ends it at the latest (Ultra rule 2).
             loop {
                 let (facts, ()) = stream
                     .next(|view| {

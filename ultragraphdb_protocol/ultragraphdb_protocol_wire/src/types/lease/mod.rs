@@ -28,6 +28,7 @@ pub struct Lease {
 
 impl Lease {
     /// `partition`'s request for `size` sequences of the type `type_prefix`.
+    #[must_use]
     pub fn request(type_prefix: u16, partition: u32, size: u64) -> Self {
         Self {
             type_prefix,
@@ -39,6 +40,7 @@ impl Lease {
     }
 
     /// The reply: the block from `start`, ending at `start + size`, saturating.
+    #[must_use]
     pub fn with_block(mut self, start: u64) -> Self {
         self.start = start;
         self.end = start.saturating_add(self.size);
@@ -46,26 +48,31 @@ impl Lease {
     }
 
     /// The type prefix.
+    #[must_use]
     pub fn type_prefix(&self) -> u16 {
         self.type_prefix
     }
 
     /// The leasing partition.
+    #[must_use]
     pub fn partition(&self) -> u32 {
         self.partition
     }
 
     /// The sequences asked for.
+    #[must_use]
     pub fn size(&self) -> u64 {
         self.size
     }
 
     /// The block's first sequence; 0 in a request.
+    #[must_use]
     pub fn start(&self) -> u64 {
         self.start
     }
 
     /// One past the block's last sequence; 0 in a request.
+    #[must_use]
     pub fn end(&self) -> u64 {
         self.end
     }

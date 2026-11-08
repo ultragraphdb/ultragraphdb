@@ -21,11 +21,13 @@ pub struct ReportView<'a> {
 
 impl<'a> ReportView<'a> {
     /// The reporting partition.
+    #[must_use]
     pub fn partition(&self) -> u32 {
         self.partition
     }
 
     /// What the report says.
+    #[must_use]
     pub fn kind(&self) -> ReportKind {
         self.kind
     }
@@ -36,11 +38,13 @@ impl<'a> ReportView<'a> {
     }
 
     /// The catalog version reported on.
+    #[must_use]
     pub fn version(&self) -> u64 {
         self.version
     }
 
     /// The predicate's IRI, borrowed from the frame; `None` for a passed check.
+    #[must_use]
     pub fn predicate(&self) -> Option<&'a str> {
         match self.terms.get(0)? {
             RequestTermView::Iri(iri) => Some(iri),
@@ -53,6 +57,7 @@ impl<'a> ReportView<'a> {
 
     /// The subject or object at fault of a refusal, the predicate's IRI when the table names one term; `None` for the
     /// other kinds.
+    #[must_use]
     pub fn at_fault(&self) -> Option<RequestTermView<'a>> {
         match self.kind {
             ReportKind::Refused => self.terms.get(1).or_else(|| self.terms.get(0)),
@@ -61,6 +66,7 @@ impl<'a> ReportView<'a> {
     }
 
     /// The term table.
+    #[must_use]
     pub fn terms(&self) -> TermTableView<'a> {
         self.terms
     }

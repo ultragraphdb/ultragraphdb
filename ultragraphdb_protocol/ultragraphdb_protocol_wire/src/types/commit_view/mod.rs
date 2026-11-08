@@ -26,6 +26,7 @@ pub struct CommitView<'a> {
 
 impl<'a> CommitView<'a> {
     /// The client's session; all zero for none.
+    #[must_use]
     pub fn session(&self) -> [u8; 16] {
         self.session
     }
@@ -41,6 +42,7 @@ impl<'a> CommitView<'a> {
     }
 
     /// The commit's session token; `None` in a request.
+    #[must_use]
     pub fn token(&self) -> Option<&SessionToken> {
         self.token.as_ref()
     }
@@ -57,6 +59,7 @@ impl<'a> CommitView<'a> {
 
     /// The IRI or skolem IRI of the node result `index` names, borrowed from the frame; `None` for a result naming
     /// none or past the last.
+    #[must_use]
     pub fn node(&self, index: usize) -> Option<&'a str> {
         let node = self.result(index)?.node()?;
         if let RequestTermView::Iri(iri) = self.nodes.get(node)? {
@@ -66,6 +69,7 @@ impl<'a> CommitView<'a> {
     }
 
     /// The reply's term table of the results' nodes.
+    #[must_use]
     pub fn nodes(&self) -> TermTableView<'a> {
         self.nodes
     }

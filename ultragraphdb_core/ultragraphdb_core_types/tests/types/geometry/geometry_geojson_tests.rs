@@ -100,3 +100,40 @@ fn nested_collections_decode_without_recursion() -> TestResult {
     );
     Ok(())
 }
+
+#[test]
+fn a_geometry_without_coordinates_is_the_empty_geometry_of_its_type() -> TestResult {
+    for kind in [
+        GeometryKind::Point,
+        GeometryKind::LineString,
+        GeometryKind::Polygon,
+        GeometryKind::MultiPoint,
+        GeometryKind::MultiLineString,
+        GeometryKind::MultiPolygon,
+    ] {
+        let name = format!("{kind:?}");
+        let g = Geometry::from_geojson(format!(r#"{{"type":"{name}"}}"#))?
+            .context("a geometry without coordinates")?;
+        assert_eq!(g.kind(), kind, "{name}");
+        assert!(g.is_empty(), "{name}");
+    }
+    Ok(())
+}
+
+#[test]
+fn coordinates_that_are_no_array_are_refused_naming_the_go_type() -> TestResult {
+    for (name, go_type) in [
+        ("LineString", "[]geom.Coord"),
+        ("Polygon", "[][]geom.Coord"),
+        ("MultiPolygon", "[][][]geom.Coord"),
+    ] {
+        let Err(e) = Geometry::from_geojson(format!(r#"{{"type":"{name}","coordinates":1}}"#))
+        else {
+            return Err(TestError::new(format!(
+                "{name} with a number for coordinates"
+            )));
+        };
+        assert!(e.to_string().contains(go_type), "{name}: {e}");
+    }
+    Ok(())
+}

@@ -752,3 +752,243 @@ fn test_a_sequenced_build_the_store_failed_under_proposes_no_end() -> TestResult
     assert_eq!(a.take_build_end(), None);
     Ok(())
 }
+
+/// Writes `key` at the store's newest version holding `value`, as no write of the applier does: the damage of a store a test
+/// stands in for.
+fn raw(a: &crate::utils::changesets::TestChangesets, key: Vec<u8>, value: Vec<u8>) -> TestResult {
+    use ultragraphdb_traits_store::{Entry, PersistMode, WriteBatch};
+    let mut batch = WriteBatch::new();
+    batch.push(Entry::put(key, a.quads().lists().applied_ts(), 0, value));
+    a.quads().store().apply(batch, PersistMode::Buffer)?;
+    Ok(())
+}
+
+/// A count index built over a predicate holding literals counts them, its build taking no token of them.
+#[test]
+fn test_a_count_index_is_built_over_held_literals() -> TestResult {
+    let a = changesets()?;
+    write(
+        &a,
+        &["<a> <age> \"7\"", "<a> <age> \"8\"", "<b> <age> \"9\""],
+    )?;
+    declare(&a, "age", "with a count index")?;
+    assert!(a.rebuilding());
+    finish_builds(&a);
+    assert!(!a.rebuilding());
+    assert_eq!(
+        counted(&a, "age", CountDirection::Forward, 2)?,
+        vec![uid(&a, "a")?]
+    );
+    assert_eq!(
+        counted(&a, "age", CountDirection::Forward, 1)?,
+        vec![uid(&a, "b")?]
+    );
+    assert!(keys_of(&a, Keyspace::ValueIndex, "age")?.is_empty());
+    Ok(())
+}
+
+/// A key under a predicate's reverse lists that is no reverse key, which no write produces, is passed over by a count build.
+#[test]
+fn test_a_count_build_passes_over_a_reverse_key_that_does_not_parse() -> TestResult {
+    use ultragraphdb_core_keys::{DEFAULT_GRAPH, key_prefix};
+    let a = changesets()?;
+    write(&a, &["<a> <friend> <b>", "<c> <friend> <b>"])?;
+    let mut damaged = key_prefix(
+        Keyspace::Reverse,
+        false,
+        TENANT,
+        Some(DEFAULT_GRAPH),
+        Some(uid(&a, "friend")?),
+    );
+    damaged.push(0xFF);
+    raw(&a, damaged, vec![0])?;
+    declare(&a, "friend", "with an exact count index")?;
+    finish_builds(&a);
+    assert!(!a.rebuilding());
+    assert_eq!(
+        a.catalog(TENANT)?.predicate(uid(&a, "friend")?),
+        Some(&declaration("friend", "with an exact count index")?)
+    );
+    assert_eq!(
+        counted(&a, "friend", CountDirection::Reverse, 2)?,
+        vec![uid(&a, "b")?]
+    );
+    Ok(())
+}
+
+/// A key of the value-index keyspace whose graph field names no graph, which no write produces, is passed over when a swap
+/// finds the graphs holding a predicate's keys: the removed tokenizer's keys are deleted all the same.
+#[test]
+fn test_a_swap_passes_over_a_graph_field_naming_no_graph() -> TestResult {
+    use ultragraphdb_core_keys::key_prefix;
+    let a = changesets()?;
+    declare(&a, "name", "with `term`")?;
+    write(&a, &["<a> <name> \"big apple\""])?;
+    let mut damaged = key_prefix(Keyspace::ValueIndex, false, TENANT, None, None);
+    // A type prefix and a sequence of 1 with a reserved bit set: no system ID.
+    damaged.extend_from_slice(&[0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1]);
+    damaged.push(0);
+    raw(&a, damaged.clone(), vec![0])?;
+    declare(&a, "name", "with `exact`")?;
+    finish_builds(&a);
+    assert!(!a.rebuilding());
+    assert!(indexed(&a, "name", &term_token("big"))?.is_empty());
+    assert_eq!(
+        indexed(&a, "name", &exact_token("big apple"))?,
+        vec![uid(&a, "a")?]
+    );
+    assert!(stored_keys(&a).contains(&damaged), "the damaged key stays");
+    Ok(())
+}
+
+/// Declares `emb` again with an HNSW index of four levels, options other than the indexer's, which starts a build of the
+/// whole index.
+fn redeclare_with_levels(a: &crate::utils::changesets::TestChangesets) -> TestResult {
+    let with_levels = declaration("emb", "single-valued")?.with_vector_index(
+        ultragraphdb_core_mapping::VectorIndexSpec::new(
+            "hnsw",
+            vec![("maxLevels".to_string(), "4".to_string())],
+        )
+        .with_dimension(std::num::NonZeroU16::new(3).context("3 is no zero")?),
+    );
+    write_changes(
+        a,
+        vec![ultragraphdb_core_mapping::Change::Declare(
+            ultragraphdb_core_mapping::Declaration::Predicate(with_levels),
+        )],
+    )
+}
+
+/// A vector index rebuilt over one the indexer wrote deletes each of its keys the build does not write: the dead list of a
+/// node whose vector was deleted, which the build, over the live vectors alone, has no use for.
+#[test]
+fn test_a_vector_index_rebuilt_over_an_indexed_one_deletes_the_keys_it_does_not_write() -> TestResult
+{
+    use ultragraphdb_core_keys::DEFAULT_GRAPH;
+    use ultragraphdb_store_hnsw::VectorKeys;
+    let a = changesets()?;
+    declare(
+        &a,
+        "emb",
+        "single-valued with a vector index of dimension 3",
+    )?;
+    write(
+        &a,
+        &[
+            "<a> <emb> \"[1, 0, 0]\"^^ugdb:float32vector",
+            "<b> <emb> \"[0, 1, 0]\"^^ugdb:float32vector",
+            "<c> <emb> \"[0, 0, 1]\"^^ugdb:float32vector",
+        ],
+    )?;
+    let _first_pass = a.index_vectors(TENANT, crate::utils::changesets::ex("emb").as_ref())?;
+    write_changes(
+        &a,
+        vec![delete("<c> <emb> \"[0, 0, 1]\"^^ugdb:float32vector")?],
+    )?;
+    let _second_pass = a.index_vectors(TENANT, crate::utils::changesets::ex("emb").as_ref())?;
+    let dead = VectorKeys::new(
+        crate::utils::changesets::ex("emb").as_str(),
+        TENANT,
+        DEFAULT_GRAPH,
+        uid(&a, "emb")?,
+    )
+    .dead();
+    let indexed = a.quads().lists().applied_ts();
+    assert!(
+        !a.quads()
+            .lists()
+            .read(&dead, indexed)?
+            .is_empty(indexed, 0)?,
+        "the indexer listed the deleted node dead"
+    );
+    // Other options than the indexer's: a build of the whole index.
+    redeclare_with_levels(&a)?;
+    assert!(a.rebuilding());
+    finish_builds(&a);
+    assert!(!a.rebuilding());
+    let swapped = a.quads().lists().applied_ts();
+    assert!(
+        a.quads()
+            .lists()
+            .read(&dead, swapped)?
+            .is_empty(swapped, 0)?,
+        "the dead list is deleted"
+    );
+    let mut levels = ultragraphdb_traits_index::Options::new();
+    let _levels: &mut ultragraphdb_traits_index::Options = levels.set_opt(
+        "maxLevels".to_string(),
+        ultragraphdb_traits_index::OptionValue::Int(4),
+    );
+    for (subject, query) in [("a", [1.0, 0.0, 0.0]), ("b", [0.0, 1.0, 0.0])] {
+        assert_eq!(
+            nearest_with(&a, &levels, &query, 1)?,
+            vec![uid(&a, subject)?],
+            "{subject}"
+        );
+    }
+    Ok(())
+}
+
+/// A build failing on a literal whose dictionary entry the store lost, which is no failed write, is undone: the old
+/// declaration is back and no key of its index remains.
+#[test]
+fn test_a_build_failing_on_a_lost_dictionary_entry_is_undone() -> TestResult {
+    use ultragraphdb_traits_store::{PersistMode, WriteBatch};
+    const TEXT: &str = "a string long enough to be stored out of line in the dictionary";
+    let a = changesets()?;
+    declare(&a, "name", "a property")?;
+    write(&a, &[format!("<a> <name> \"{TEXT}\"")])?;
+    let lost: Vec<Vec<u8>> = a
+        .quads()
+        .store()
+        .contents()
+        .versionless()
+        .iter()
+        .filter(|(_, v)| v.as_slice() == TEXT.as_bytes())
+        .map(|(k, _)| k.clone())
+        .collect();
+    assert_eq!(lost.len(), 1, "the literal's one entry");
+    let mut batch = WriteBatch::new();
+    lost.into_iter().for_each(|k| batch.remove_versionless(k));
+    a.quads().store().apply(batch, PersistMode::Buffer)?;
+    declare(&a, "name", "a property with `term`")?;
+    assert!(a.rebuilding());
+    finish_builds(&a);
+    assert!(!a.rebuilding(), "undone");
+    assert_eq!(
+        a.catalog(TENANT)?.predicate(uid(&a, "name")?),
+        Some(&declaration("name", "a property")?)
+    );
+    assert!(keys_of(&a, Keyspace::ValueIndex, "name")?.is_empty());
+    Ok(())
+}
+
+/// A vector index built over a predicate one of whose subjects holds a literal that is no vector passes that subject over:
+/// the index holds the vectors alone.
+#[test]
+fn test_a_vector_build_passes_over_a_value_that_is_no_vector() -> TestResult {
+    let a = changesets()?;
+    declare(&a, "emb", "single-valued")?;
+    write(
+        &a,
+        &[
+            "<a> <emb> \"[1, 0, 0]\"^^ugdb:float32vector",
+            "<z> <emb> \"no vector\"",
+            "<b> <emb> \"[0, 1, 0]\"^^ugdb:float32vector",
+        ],
+    )?;
+    declare(
+        &a,
+        "emb",
+        "single-valued with a vector index of dimension 3",
+    )?;
+    assert!(a.rebuilding());
+    finish_builds(&a);
+    assert!(!a.rebuilding());
+    let mut found = nearest(&a, &[1.0, 1.0, 0.0], 3)?;
+    found.sort();
+    let mut vectors = vec![uid(&a, "a")?, uid(&a, "b")?];
+    vectors.sort();
+    assert_eq!(found, vectors);
+    Ok(())
+}
