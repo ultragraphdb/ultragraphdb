@@ -53,8 +53,8 @@ query outside it is refused with.
 
 A query runs against one **working graph** of one tenant: the graph named by `USE`, else the tenant's `@default`
 graph (`../schema/SCHEMA.md` section 6.11); a tenant without one and a query without `USE` is refused (`GQL0201`). The working
-graph is a domain graph exposed together with the shared graphs its schema imports, as `SCHEMA.md` section 11.3
-states, so a bridge is one edge like any other. A query names no other tenant, and a graph of another tenant does not
+graph is exposed together with the graphs its relations reach, as `SCHEMA.md` section 11.3 states, so a relation
+across graphs is one edge like any other. A query names no other tenant, and a graph of another tenant does not
 exist to it. The transaction fixes the tenant (section 10).
 
 The working graph is the GQL view `../schema/SCHEMA.md` section 11.3 derives from the schema, with no store state visible that
@@ -582,11 +582,11 @@ RETURN ELEMENT_ID(e) AS dependency
 ```
 
 `rank` and `inferred` may be omitted, since the schema defaults them. The membership's handle IRI comes back and
-names it from now on. A `SubOrganizationOf` is inserted the same way, its node in the tree's root partition; the
+names it from now on. A `SubOrganizationOf` is inserted the same way, an edge `parents` from the unit, anchored at it; the
 schema's `@acyclic`, `@no_overlap` and `UniquePreferred` checks run at commit.
 
 **Read.** A node by its key; a unit's open members with their roles; every unit below a unit, DeepBrain's
-`InUnit`, through the navigation edge `units` of `SubOrganizationOf`; a count per unit:
+`InUnit`, walking the edges `parents` of `SubOrganizationOf` against their direction; a count per unit:
 
 ```
 MATCH (p:Node {id: $id}) RETURN p.rank, p.asserted.start AS since
@@ -595,10 +595,10 @@ MATCH (u:Organization {id: $unit})<-[:MemberOf_collection]-(m:MemberOf)-[:Member
 WHERE m.valid.end IS NULL
 RETURN x.id AS member, m.rank AS rank
 
-MATCH (u:Organization {id: $unit})-[:units]->{1,32}(d:Organization)
+MATCH (u:Organization {id: $unit})<-[:parents]-{1,32}(d:Organization)
 RETURN DISTINCT d.id AS unit, d.label AS label
 
-MATCH (u:Organization {id: $unit})-[:units]->{0,32}(d)<-[:MemberOf_collection]-(m:MemberOf)
+MATCH (u:Organization {id: $unit})<-[:parents]-{0,32}(d)<-[:MemberOf_collection]-(m:MemberOf)
 WHERE m.valid.end IS NULL
 RETURN DISTINCT d.id AS unit, COUNT(DISTINCT m) AS open_memberships
 ```

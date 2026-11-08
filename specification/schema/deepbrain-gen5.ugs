@@ -6,11 +6,11 @@
 //   * Entities are keyed by `id`, a NodeRef; a relation instance is named by the handle its insert
 //     returns, so a relation insert pays no key claim and lives at its anchor by one rule.
 //   * A kind whose own invariant reads its object side anchors there: MemberOf at the collection,
-//     Holds at the post, SubOrganizationOf at the tree's root. The report prices what each gives up.
+//     Holds at the post. The report prices what each gives up.
 //   * `closed` is a materialized flag on the statement it describes; the stale queue reads through it.
 //   * Links (section 3) are edges, one quad each. A binary kind below Relation is an edge with a
-//     reifier through which other relations name it; a kind with three roles, a set-valued role or
-//     `@colocate(root)` is a node.
+//     reifier through which other relations name it; a kind with three roles or a set-valued role is a
+//     node.
 //   * Personal data and privacy protection are deferred until UltraGraphDB and DeepBrain stabilise;
 //     Person's three `personal_` attributes are where it will attach.
 
@@ -123,8 +123,8 @@ enum ContextEdgeKind   { datial, temporal, spatial, space_temporal }
 attribute NodeRef      = String @pattern("[A-Z][A-Z0-9_]*:\\S+")
 /// "scheme:value": orcid:, ror:, lei:, …
 attribute Identifier   = String @pattern("[a-z][a-z0-9]*:.+")
-/// The tag index: each tag a value entity that outlives its holders.
-attribute Tag          = String @independent
+/// A teloid's tag, found by value through its index.
+attribute Tag          = String @index(range)
 /// A contextoid's number: the top bit set.
 attribute ContextoidId = UInt64 @range(9223372036854775808, 18446744073709551615)
 /// A container's number: never 0.
@@ -249,7 +249,7 @@ entity Object : Endurant {
 /// position stated here, with its uncertainty, or an OccursAt to a named place.
 abstract entity Perdurant : Node {
   summary:           Text Optional @index(fulltext)
-  where:             Geo Optional @index(geo) @uncertainty(where_uncertainty)
+  where:             Geo Optional @index(geo)
   where_uncertainty: Measure<Length, m> Optional
   altitude:          Measure<Altitude> Optional @index(range)
 }
@@ -610,7 +610,7 @@ relation AnchoredTo @set @append_only {
 /// A place (a GeoSPARQL Feature): a country, a site, a rack, a CIDR range.
 entity Space : Node {
   locator:           String Optional @index(range)
-  where:             Geo Optional @index(geo) @uncertainty(where_uncertainty)
+  where:             Geo Optional @index(geo)
   where_uncertainty: Measure<Length, m> Optional
   floor:             Measure<Altitude, m> Optional @index(range)
   ceiling:           Measure<Altitude, m> Optional @index(range)
@@ -653,8 +653,8 @@ entity SpaceTime : Node {
 }
 
 // ============================================================================================
-// 11. Relations. A binary kind is an edge with a reifier; a kind with three roles, a set-valued
-//     role or @colocate(root) is a node. Every kind specialises Relation's subject and object once.
+// 11. Relations. A binary kind is an edge with a reifier; a kind with three roles or a set-valued
+//     role is a node. Every kind specialises Relation's subject and object once.
 // ============================================================================================
 
 // ---- Content: thing, information, carrier, and what happens.
@@ -858,9 +858,9 @@ relation Replaces : Relation @ends(old) @maps_to(dcterms:replaces) {
 }
 
 // ---- Agency: agent to agent, and agent to anything.
-/// The organisation tree: a bounded forest, one parent at a time, kept whole in its root's
-/// partition; a unit with children cannot be retracted (Hierarchy, LiveUnit).
-relation SubOrganizationOf : Relation @acyclic(open, max_depth: 32) @colocate(root)
+/// The organisation tree: a bounded forest, one parent at a time; a unit with children cannot be
+/// retracted (Hierarchy, LiveUnit).
+relation SubOrganizationOf : Relation @acyclic(open, max_depth: 32)
                                       @no_overlap(per: [unit])
                                       @on_retract(parent: restrict open)
                                       @maps_to(org:subOrganizationOf) {
@@ -916,10 +916,9 @@ relation CloseMatch : Relation @symmetric @maps_to(skos:closeMatch) { a: Concept
 // 12. Derived relations
 // ============================================================================================
 
-/// The units below an organisation in today's tree, and the units above it; the tree lives in its
-/// root's partition, so both are maintained there.
-derive Organization.all_units   = units(open)+   @materialized
-derive Organization.all_parents = parents(open)+ @materialized
+/// The units below an organisation in today's tree, and the units above it, walked when read.
+derive Organization.all_units   = units(open)+   @virtual
+derive Organization.all_parents = parents(open)+ @virtual
 /// The places inside a place, and what a concept is filed under.
 derive Space.all_within         = contains+      @virtual
 derive Concept.all_broader      = broader+       @virtual

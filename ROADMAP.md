@@ -15,8 +15,10 @@
 | 7.5. Fuzzy test and harden query core | `open` |
 | 8. Basic three-role clustering with VSR replication in a single container, the base of the DeepBrain MVP | `open` |
 | 9. Full SPARQL and GQL conformance | `open` |
-| 9.5. Bolt | `open` |
+| 9.5. Schema evolution with checked data migration | `open` |
 | 10. Full distributed clustering and tiles: sharding, replication at scale, storage/compute separation | `open` |
+| 10.5. Bolt | `open` |
+| 11. API node: generated Protobuf, JSON Schema and GraphQL schemas served by a stateless binary | `open` |
 
 UltraGraphDB is distributed from the start: three roles, frontend, compute and storage, from one binary, replicated
 with VSR (`openspec/notes/UltraGraphDB Distribution Architecture.md`, and for the protocol itself
@@ -28,10 +30,10 @@ SPARQL and GQL; UltraQL follows stage 10. What the next stages must specify is t
   128-bit system ID with its type prefix and bucket; the placement function; the commit step as one replica group's
   state machine, its rounds stamped with epochs; the metadata group's state machine with one replica, the catalog's
   home; the stage-5 crates sorted into the roles; the transport's in-process carrier.
-- **6 UGS.** The schema language (`openspec/notes/UltraGraphDB Schema and Query Language.md`), specified first as
-  openspec capabilities. Stage 6 builds the modelling core, local constraints and the RDF view; it parses and validates
-  the time, bitemporal, geometry, unit, fold, function and module constructs; what needs groups or change streams
-  waits for stage 8.
+- **6 UGS.** The schema language, specified in `specification/schema/SCHEMA.md` and prepared in
+  `openspec/notes/prepare-stage-6.md`. Stage 6 builds what `SCHEMA.md` section 14 assigns it: the modelling core, local
+  constraints, bitemporal statements, units, geometry, indexes and the RDF view, with the protocol's Install and
+  Describe and the client's; what crosses partitions waits for stage 8.
 - **7 Query core.** Only what SPARQL and GQL share: CRUD, pattern matching, filters, ordering, aggregates, bounded walks
   over one relation, and vector and text search. Where the two languages diverge, and full conformance testing, follow
   in stage 9. The design is `openspec/notes/UltraGraphDB Dual Query Engine Plan.md`, "The query core".
@@ -41,10 +43,21 @@ SPARQL and GQL; UltraQL follows stage 10. What the next stages must specify is t
   multi-group transactions, write classification from the schema. The DeepBrain MVP runs here, on the single container: the first
   stage whose topology it can run on, since no role runs alone.
 - **9 Full conformance.** Everything outside the core, the W3C suites, the openCypher TCK and the GQL feature register.
-- **9.5 Bolt.** The Bolt adapter and Neo4j's schema procedures; Neo4j drivers run the TCK through it.
+- **9.5 Schema evolution with checked data migration.** A destructive schema change becomes a migration into a new
+  version of the namespace: a mapping from the source schema to the target, checked when it compiles; a dry run on a
+  snapshot; the live slice migrated; the target checked by the tightening's validation scan; the namespace switched at
+  an epoch behind a write fence. Bitemporal history stays read-only in the source version. The semantics are CQL's
+  functorial data migration, taken from the papers. The stage follows conformance so that stage 8's cluster carries a
+  migration that changes placement (`@colocate`). Specified in `specification/schema/SCHEMA-EVOLUTION.md`.
 - **10 Full distribution and tiles.** Clustering at scale, Jepsen, tiles and storage/compute separation across nodes. Stage
   10 opens by measuring replication on physical Linux nodes, which sets the acknowledgement's default and decides CURP's
   fast path ("Experiments" in the distribution protocol note).
+- **10.5 Bolt.** The Bolt adapter and Neo4j's schema procedures; Neo4j drivers run the TCK through it.
+- **11 API node.** From a settled UGS schema, generators emit Protobuf, JSON Schema and GraphQL schemas, each with a
+  per-type report of what the target cannot express, as Hydra's adapters report it. A stateless binary loads a catalog
+  version and its generated schema, connects to UltraGraphDB, and serves gRPC, a REST API and GraphQL, resolving each
+  request to a prepared statement of the query core. Client SDKs come from each ecosystem's own generators: protoc,
+  OpenAPI 3.1 generators over the JSON Schema, GraphQL codegen. Backlog item 17.
 
 Fuzzing in stage 7 centres on the query core, where it pays most: the SPARQL and GQL parsers and the planner take text
 from any client, and a query language's grammar nests without limit. Each parser gets a structure-aware fuzzer that

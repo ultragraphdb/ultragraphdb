@@ -478,10 +478,10 @@ SELECT ?member ?rank WHERE {
   FILTER NOT EXISTS { ?m db:valid_end ?e } }
 
 SELECT DISTINCT ?unit ?label WHERE {
-  ?u db:id $unit ; db:units+ ?d . ?d db:id ?unit ; db:label ?label }
+  ?u db:id $unit ; ^db:parents+ ?d . ?d db:id ?unit ; db:label ?label }
 
 SELECT ?unit (COUNT(DISTINCT ?m) AS ?open_memberships) WHERE {
-  ?u db:id $unit ; db:units* ?d . ?d db:id ?unit . ?m db:MemberOf_collection ?d .
+  ?u db:id $unit ; ^db:parents* ?d . ?d db:id ?unit . ?m db:MemberOf_collection ?d .
   FILTER NOT EXISTS { ?m db:valid_end ?e } }
 GROUP BY ?unit
 ```

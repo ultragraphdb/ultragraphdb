@@ -65,8 +65,8 @@ later stage is marked **[stage N]** and refused before it with `UQL0901`, naming
 
 A request runs against one **working graph** of one tenant: the graph `use` names, else the tenant's `@default` graph
 (`../schema/SCHEMA.md` section 6.11); a tenant without one and a request without `use` is refused (`UQL0104`). `use
-{namespace}@{version}` names the read-only source a migration left (`SCHEMA-EVOLUTION.md` section 7). A domain graph is
-read together with the shared graphs its schema imports, as the GQL view exposes it (`SCHEMA.md` section 11.3). Every
+{namespace}@{version}` names the read-only source a migration left (`SCHEMA-EVOLUTION.md` section 7). A graph is read
+together with the graphs its relations reach, as the GQL view exposes it (`SCHEMA.md` section 11.3). Every
 name a request uses resolves against the catalog version in effect at its read point (`SCHEMA.md` section 13.1); a
 retired name of a renamed item resolves during the migration's deprecation window with a warning (`UQL0110`,
 `SCHEMA-EVOLUTION.md` section 9), and after the window is refused with the current name in the message (`UQL0101`).
@@ -718,7 +718,7 @@ Information(id = $id) {
 `asserted_by` is the navigation `AssertedBy` gives every statement, `?` in Gen5, so it reads as an `Option` of a tagged
 union over `Source` and the concrete agent types; `about` reaches a `Statement`, which declares no `id`, so `on Node`
 reads it where the topic is a node; `members` reads `MemberOf` instances, an n-ary relation; `all_units` is the
-materialized closure of `SubOrganizationOf`; `about` is binary, so `edge` reads the `IsAbout` instance itself.
+closure of `SubOrganizationOf`, expanded when read; `about` is binary, so `edge` reads the `IsAbout` instance itself.
 
 **What was believed.** A node as the graph held it at an instant, and its memberships, retracted ones included:
 

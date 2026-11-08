@@ -96,22 +96,22 @@ geometry rules were settled, builds them in stage 6.
 |---|---|
 | The whole grammar, every static rule of sections 5 to 7, prefixes, keys, IRIs, Describe | `@index(ann)`, `Vector<BF16>` storage and `quantization` (stage 8; gap G2) |
 | Required, optional, defaults, value checks, datatypes, enums, `@immutable`, type fixed for life, closed by default, `@open` | A key or `@unique` claim at another partition (stage 8) |
-| `@key` and `@unique` local to the transaction's partition | Every cross-partition relation rule, escrow for `@limit`, relocation, `@replicated` (stage 8) |
-| Relations: roles, set-valued and optional roles, unions, `@set`, `@multi`, `@symmetric`, inheritance and role specialisation, cardinality on the anchor role, `@on_delete` local, `@acyclic @colocate(root)` within a tree, `@no_overlap` and `@limit` per the anchor role, `@retracts` local | Functions and virtual derivations executed (stage 7, the query core) |
+| `@key` and `@unique` local to the transaction's partition | Every cross-partition relation rule (stage 8) |
+| Relations: roles, set-valued and optional roles, unions, `@set`, `@multi`, `@symmetric`, inheritance and role specialisation, cardinality on the anchor role, `@on_delete` local, `@acyclic` within a partition, `@no_overlap` and `@limit` per the anchor role, `@retracts` local | Functions and virtual derivations executed (stage 7, the query core) |
 | `@append_only`, `@bitemporal`, `asserted`, `retract`, `@on_retract` local, `@ends` | The GQL view and SHACL export (stage 7) |
 | Entity delete with its tombstone; namespace removal (G1) | Purge (stage 8); migrations (stage 9.5) |
 | Indexes `range`, `interval`, `geo`, `fulltext` | Write classification's segmented and coordinated paths across partitions (stage 8) |
 | `Measure`, `quantity`, `unit`, `Geo` operators | |
-| Materialized derivations and folds within the anchor partition | |
+| Materialized derivations within the anchor partition, computed ones among them | |
 | The RDF view, reads and writes through quads | |
 
-What Gen5 needs from this: 76 entity and 88 relation declarations in the schema and 8 and 1 in its module, `@index`
-88 times (65 `range`, 13 `fulltext`, 6 `interval`, 3 `geo`, 1 `ann`), `@maps_to` 56 times, `@append_only` 20,
-`@set` 20, `@check` 9, `@colocate` 6, `@symmetric` 5, `@multi` 5, `@unique` 5, `@range` 5, `@materialized` 3,
-`@virtual` 3, `@limit` 3, `@on_retract` 3, `@pattern` 3, `@no_overlap` 2, `@uncertainty` 2, and one each of
-`@bitemporal`, `@acyclic`, `@key`, `@independent`, `@retracts`, `@ends`, `@deprecated` and `@default`; nine imported
-vocabularies; one graph, `ontology`, the tenant's default; one module, `sr`, extending `deep_brain >= 5`. All of it
-lies in the left column but the one `@index(ann)`, which G2 places in the right.
+What Gen5 needs from this (`specification/schema/deepbrain-gen5.ugs`): 76 entity and 87 relation declarations in the
+schema and 8 and 1 in its module, `@index` 89 times (66 `range`, 13 `fulltext`, 6 `interval`, 3 `geo`, 1 `ann`),
+`@maps_to` 56 times, `@append_only` 20, `@set` 19, `@check` 9, `@symmetric` 5, `@unique` 5, `@range` 5, `@virtual` 5,
+`@multi` 4, `@colocate` 3, `@limit` 3, `@on_retract` 3, `@pattern` 3, `@no_overlap` 2, and one each of `@bitemporal`,
+`@acyclic`, `@key`, `@materialized`, `@iri`, `@immutable`, `@retracts`, `@ends`, `@deprecated` and `@default`; nine
+imported vocabularies; one graph, `ontology`, the tenant's default; one module, `sr`, extending `deep_brain >= 5`. All
+of it lies in the left column but the one `@index(ann)`, which G2 places in the right.
 
 ## 5. Further decisions
 
@@ -229,7 +229,7 @@ Phases 2 to 7 of `SCHEMA.md` section 10.1, each refusing with its range:
 - **Resolution** (`UGS0100`–`0199`): names, qualified names, imports with version bounds, modules and what they may
   declare, reserved names, single inheritance, abstract types.
 - **Typing** (`UGS0200`–`0299`): every type of section 5, defaults, enums and `@values`, records, lists and sets,
-  intervals and precision, vectors, `Geo`, quantities, units and measures, named attribute types and `@independent`,
+  intervals and precision, vectors, `Geo`, quantities, units and measures, named attribute types,
   catalog types as values; annotation arguments; expressions typed against their context.
 - **Identity** (`UGS0300`–`0399`): keys and their trees, `@iri` templates, vocabulary bases, key spaces.
 - **Relations and constraints** (`UGS0400`–`0699`): roles, union roles, specialisation with `as`, navigation names
@@ -281,9 +281,9 @@ reference types), as stage 5.5's groups were.
   from its key space and canonical key (`SCHEMA.md` section 7.2), a `@unique` claim from `Bucket::of_value`.
 - Instance IRIs minted as section 7.3 states: from the key, by template, or a handle for a keyless instance, held in
   the dictionary both ways and accepted as a name (`PROTOCOL.md` section 4.4); a subject IRI that is not the one the
-  key mints refused; a value entity's IRI from its value.
+  key mints refused.
 - `rdf:type` answered from the prefix for declared types, with no stored type quad.
-- Relation encodings of section 11.1: edge or node by the roles' shape, `@colocate(root)` and `@key`; a reifier
+- Relation encodings of section 11.1: edge or node by the roles' shape and `@key`; a reifier
   allocated when the instance has attributes, is `@multi`, or a role in the catalog may name it; `@symmetric` stored
   in ID order.
 - Participants in other partitions checked by Reference's get-only mode (status and type prefix) before the commit.
@@ -294,9 +294,10 @@ reference types), as stage 5.5's groups were.
   whole against the catalog version in effect at the commit; an incomplete instance refused (`UGS1034`).
 - **The stage 6 rows of section 8.2**, each refused with its number through code 7: types and closure, required and
   defaults, datatypes, enum members, units, vector dimensions, value checks, `@immutable`, keys and `@unique` local,
-  participants existing, live and of the role's type, roles present, cardinality on the anchor role, `@set` resolving
-  to the existing instance, `@acyclic` and `max_depth` within a colocated tree, `@limit` and `@no_overlap` per the
-  anchor role, `@append_only`, derived names refused, bridges and domain graphs, `UGS1036` and `UGS1037`.
+  their claims held through a retraction (section 7.2), participants existing, live and of the role's type, roles
+  present, cardinality on the anchor role, `@set` resolving to the existing instance, `@acyclic` and `max_depth` within
+  a partition, `@limit` and `@no_overlap` per the anchor role, `@append_only`, derived names refused, graphs,
+  `UGS1036` and `UGS1037`.
 - **Bitemporal state** (section 8.4): `asserted` as two epochs, an update as a revision of the same identity, `retract`
   closing `asserted`, `@on_retract` with `restrict open` retracting the closed instances, `@retracts`, `@ends`, the
   derived liveness of relations that are not `@bitemporal`, history kept for these types beyond the retention window.
@@ -308,12 +309,11 @@ reference types), as stage 5.5's groups were.
 
 ### Group 8. Indexes and derived state → `ultragraphdb_store_posting`, `ultragraphdb_store_apply`, `ultragraphdb_core_tok`, `ultragraphdb_traits_index`, needing 7
 
-- `range`, `interval` (the extents' bounds of `SCHEMA.md` section 12.2), `geo` and `fulltext` indexes written in the
+- `range`, `interval` (the outer extent's bounds, `SCHEMA.md` section 12.2), `geo` and `fulltext` indexes written in the
   instance's partition in its local commit; count indexes where a bound needs one.
 - `@index(ann)` recorded and unbuilt (G2).
-- `@materialized` derivations within the anchor partition: closures over `@acyclic @colocate(root)` relations and
-  folds over colocated relations maintained in the same local commit (section 6.8), Gen5's `all_units` and
-  `all_parents` among them; `@virtual` ones recorded for stage 7.
+- `@materialized` derivations within the anchor partition, maintained in the same local commit (section 6.8): computed
+  derivations, Gen5's `closed` among them; `@virtual` ones, Gen5's closures among them, recorded for stage 7.
 
 ### Group 9. The RDF view → `ultragraphdb_core_mapping`, `ultragraphdb_common_compute`, needing 6 to 8
 
@@ -346,6 +346,8 @@ The success of section 1, end to end through the three role binaries and the cli
 - Gen5's instance sets written as quads: the holding ones committed, each breaking one refused with its number, the
   committed ones read back through the RDF view equal to the corpus's expectation;
 - a retraction with `restrict open` and an append-only provenance link behaving as `SCHEMA.md` section 8.4 states;
+- a retracted node's `id` refused to a new node (`UGS1008`), and the retracted node still read by its IRI under `with
+  retracted`;
 - `sr` removed before `deep_brain`, and `deep_brain` refused while `sr` imports it;
 - two tenants with different schemas isolated from each other.
 

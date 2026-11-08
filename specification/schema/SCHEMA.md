@@ -40,7 +40,7 @@ deployment always knows which declared constraint it checks and which it carries
 | Term | Meaning |
 |---|---|
 | Tenant | The engine's unit of isolation: the u64 of `../binary_protocol/PROTOCOL.md` section 1, holding one catalog of numbered versions in the metadata group (section 11.13 there), one run of buckets, and the grants of its principals. Nothing reads, writes or names across tenants |
-| Namespace | A unit of organisation inside a tenant, as a schema is inside a PostgreSQL database: one `schema` source installed in the tenant, with its graphs. Its name is the schema's, and qualifies its types (`temporal.Day`). A tenant holds one or more namespaces; a query may span a tenant's namespaces through imports, bridges and shared graphs |
+| Namespace | A unit of organisation inside a tenant, as a schema is inside a PostgreSQL database: one `schema` source installed in the tenant, with its graphs. Its name is the schema's, and qualifies its types (`temporal.Day`). A tenant holds one or more namespaces; a query may span a tenant's namespaces through imports, whose relations connect them |
 | Schema | One `schema` source: a named, versioned set of declarations, which installed becomes a namespace of its tenant. A tenant's catalog version holds its namespaces and the modules extending them |
 | Catalog version | The compiled form of every schema and module installed in a tenant, numbered, committed through the metadata group and effective from an epoch |
 | Type | A `statement`, `entity` or `relation` declaration. A *type tree* is a type with every descendant; a *declaring type* of an attribute or key is the type whose declaration names it |
@@ -70,11 +70,11 @@ recorded in the catalog, and the compilation report names it as declared and une
   number of roles in one instance, and a relation instance can fill a role in another relation. Relation types form
   trees by single inheritance, with role specialization.
 - **Statements** are abstract types that root both entity types and relation types, so a role may accept either.
-- **Derived relations** are closures, compositions, folds and values computed from an instance's own fields, which
-  the engine maintains; clients read them and never write them.
+- **Derived relations** are paths, closures and values computed from an instance's own fields; clients read them and
+  never write them.
 - **Functions** are named, typed, pure queries stored with the schema.
-- **Graphs** are named instances of a schema: an RDF named graph and a GQL graph. Domain graphs are disjoint and connect
-  only through shared graphs.
+- **Graphs** are named instances of a schema: an RDF named graph and a GQL graph. Every entity belongs to one graph, and
+  a relation may connect instances of any graphs whose schemas it names.
 - **Identity everywhere.** Every instance has a 128-bit system ID that never leaves the database, and an IRI by which
   clients name it: minted from its key, or from a handle drawn at its creation when it has none (section 7).
 - **Closed by default.** A governed tenant (section 6.1) refuses data its catalog does not declare; `@open` on a
@@ -125,11 +125,11 @@ measure's accessor `.unit`, a record field `unit`, an attribute `version` and an
 
 Every other quoted word of the grammar is a contextual keyword, recognised in the position the grammar names and an
 identifier everywhere else: the operators `and`, `or`, `not`, `in`, `between`, `is`; the quantifiers `exists`, `some`,
-`no`, `all`; the folds and aggregates `count`, `sum`, `min`, `max`, `avg`, `last`, `first`; the modifiers `order`,
+`no`, `all`; the aggregates `count`, `sum`, `min`, `max`, `avg`, `last`, `first`; the modifiers `order`,
 `by`, `asc`, `desc`, `limit`; the temporal words `certainly`, `possibly`, `at`, `believed`, `during`, `valid`, `with`,
 `retracted`, `open`, `live`; the Allen operators `before`, `after`, `meets`, `met_by`, `overlaps`, `overlapped_by`,
 `starts`, `started_by`, `during`, `contains`, `finishes`, `finished_by`, `equals`, `intersects`, `disjoint`,
-`within`; and the annotation words `cascade`, `restrict`, `orphan`, `per`, `where`, `type`, `root`, `leaf`, `strict`,
+`within`; and the annotation words `cascade`, `restrict`, `orphan`, `per`, `where`, `type`, `strict`,
 `k`, `metric`, `quantization`, `ratio`, `interval`, `ordinal`, `nominal`, `use`. A declaration position, after `:` or
 `->`, inside an enum's braces, after `derive`, `fn`, `unit` or `quantity`, holds no operator, so a navigation named
 `in`, a role named `by` and an enum member `max` are unambiguous. In an expression, a word that is also an operator is
@@ -220,9 +220,7 @@ union       = ptype { "|" ptype } ;
 ptype       = qident | "schema" "." ( "EntityType" | "RelationType" ) "<" qident ">" ;
 card        = "?" | "*" | "+" | "{" int "," int "}" ;
 
-derive      = "derive" ident "." ident [ ":" type [ "Optional" ] ] "=" ( dpath [ "exists" ] | fold | expr ) { annot } ;
-fold        = ( "last" | "first" | "count" | "sum" | "min" | "max" )
-              "(" dpath [ "order" "by" dpath [ "asc" | "desc" ] ] ")" [ "." ident ] ;
+derive      = "derive" ident "." ident [ ":" type [ "Optional" ] ] "=" ( dpath [ "exists" ] | expr ) { annot } ;
 dpath       = dstep { "." dstep } ;
 dstep       = ident [ "(" dfilter { "," dfilter } ")" ] [ "+" | "{" int "," int "}" ] ;
 dfilter     = expr | "is" type_or_path | "with" "retracted" | "open" ;
@@ -253,8 +251,8 @@ literal     = int | rational | decimal | float | string | "true" | "false" | dat
             | duration | interval | iri | ident ;                      (* ident: an enum member *)
 ```
 
-A derive body that is wholly a `dpath`, with or without `exists`, or a `fold` is read as one; any other body is an
-`expr`, a computed derivation (section 6.8). The expression grammar, shared by `@check`, `@limit`'s condition, derive
+A derive body that is wholly a `dpath`, with or without `exists`, is read as one; any other body is an `expr`, a
+computed derivation (section 6.8). The expression grammar, shared by `@check`, `@limit`'s condition, derive
 filters, computed derivations and function bodies:
 
 ```
@@ -388,8 +386,9 @@ unit `[b₀, b₁)`:
 A bound stated at `T`'s precision has `a₀ = a` and `a₁` one unit of `T` later, so an exact interval's extents are equal.
 A lone temporal literal where an interval is expected is the interval of its unit, `a₀ .. a₁`, exact. Every interval
 operator comes in three forms: `a certainly R b` holds when `R` holds for every completion of the bounds within their
-units, `a possibly R b` when it holds for at least one, and `a R b` means `possibly`. `@index(interval)` stores both
-extents, so both forms are range scans.
+units, `a possibly R b` when it holds for at least one, and `a R b` means `possibly`. `@index(interval)` stores the
+outer extent: a `possibly` form is a range scan over it, and a `certainly` form scans the same candidates and keeps
+those the inner extent satisfies, since whatever certainly holds possibly holds.
 
 ### 5.6 Vectors
 
@@ -400,9 +399,8 @@ stores bfloat16 and `Vector<F32, n>` binary32. A vector takes no value index, no
 ### 5.7 Geometry
 
 `Geo` holds a GeoJSON `Point`, `LineString` or `Polygon` in WGS 84; another GeoJSON object is refused at write
-(`UGS1011`). `@index(geo)` builds an S2 cell covering through the store's geo tokenizer. `@uncertainty(attr)` on a `Geo`
-field names a `Measure<Length, m>` or `Measure<Length>` field of the same type (`UGS0219`) whose value widens a point to
-a cap of that radius, read by the `certainly` and `possibly` forms of `within`, `intersects` and `near`.
+(`UGS1011`). `@index(geo)` builds an S2 cell covering through the store's geo tokenizer. A position's uncertainty is an
+attribute of its own, a `Measure<Length>`, which a query adds to a search radius.
 
 ### 5.8 Quantities, units and measures
 
@@ -441,18 +439,13 @@ measure has `.value` and `.unit`, a unit `.quantities`, `.ucum`, `.symbol`, `.mu
 `.dimension`, `.scale` and `.canonical` (section 5.11). A number literal where a `Measure<K, u>` is expected is a value
 in `u`; where a `Measure<K>` or `Measure` is expected, in the kind's canonical unit.
 
-### 5.9 Named attribute types and `@independent`
+### 5.9 Named attribute types
 
 `attribute Name = type { annot }` declares a reusable value type with its annotations; a field declared with it takes
 the type and every field annotation of the declaration, and may add annotations that tighten (`UGS0214` otherwise).
 Every attribute value is reachable by value through the store's reverse lists, so "which instances hold this value" is a
-lookup for every attribute. `@independent` on a named attribute type makes its values **value entities**: a generated
-concrete entity type named as the attribute type, keyed by its one attribute `value` of the declared type, in the
-graph of the instance holding the value, so one value in two graphs is two value entities, as keys are per graph;
-writing a value gets or creates the value entity at its home and references it by an edge, and the value entity is
-never deleted by its holders' deletes. `@independent` on anything but a named
-attribute type is refused (`UGS0527`), and so is an `@index` on an attribute of an `@independent` type (`UGS0529`):
-its values are entities found by their key.
+lookup for every attribute, and `@index(range)` orders the values. A value that needs relations of its own, a tag in a
+hierarchy, is an entity: a `Concept` with a relation to what it tags.
 
 ### 5.10 Catalog types as values
 
@@ -503,8 +496,8 @@ reserve Measurement, Reading
 - `import string as ident`: an external vocabulary, usable in `@maps_to`; the prefix is unique in the source
   (`UGS0102`) and is never `schema` (`UGS0110`).
 - `import schema ident [>= int]`: another namespace of the same tenant, whose types this schema's roles may name
-  qualified (`temporal.Day`) and whose graphs declared `@shared` this schema's bridges may target; the version bound,
-  when given, is checked at install (`UGS0109`). A namespace of another tenant cannot be imported, named or read: a
+  qualified (`temporal.Day`), so its relations may connect instances of both namespaces; the version bound, when
+  given, is checked at install (`UGS0109`). A namespace of another tenant cannot be imported, named or read: a
   tenant is the isolation boundary, and a schema shared by several tenants is installed in each.
 - `reserve ident, …`: names no module may declare beneath this schema (`UGS0110`).
 - `module ident version int extends ident >= int`: a module extending the named schema or module at least at that
@@ -588,8 +581,8 @@ relation's roles and attributes (`UGS0417`), a participant, and either a navigat
 | `RelationType` | A relation instance; the named relation type is then node-encoded (section 11.1) |
 | `schema.EntityType<T>`, `schema.RelationType<T>` | A catalog type as participant (section 5.10); the role declares `-> _`, since no instance type could gain a navigation name (`UGS0413`) |
 
-A participant type is a declared entity, relation or statement type of this schema or an imported one (`UGS0402`); a
-role naming a type of another schema is a bridge (section 6.11).
+A participant type is a declared entity, relation or statement type of this schema or an imported one (`UGS0402`); its
+participants live in any graph of that type's schema (section 6.11).
 
 **Navigation names and cardinality.** `-> nav card` gives every participant type of the role the field `nav`, unique
 among that type's attributes, navigation names, derived names and method functions, inherited ones included
@@ -653,7 +646,6 @@ nested member is refused (`UGS0402`).
 | `@check(expr)` | An attribute, a record field, or a type (its instance); may repeat | A deterministic Boolean expression over the instance's own fields and its participants' immutable fields and types (`UGS0226`, `UGS0225`) | Holds at every commit of the instance (`UGS1010`) |
 | `@maps_to(curie \| iri)` | An attribute, type, role or navigation name | A CURIE of an imported prefix and a local part as SPARQL 1.1's `PN_LOCAL`, or an IRI literal (`UGS0803`) | Section 11.1 |
 | `@iri(string)` | An attribute | An absolute IRI | The attribute's own predicate IRI in place of `{base}{attribute}` (section 10.2) |
-| `@uncertainty(attr)` | A `Geo` attribute | A `Measure<Length>` attribute of the same type | Section 5.7 |
 
 An index kind that does not fit the field's type is refused: `range` needs an ordered scalar, `Date`, `Time`,
 `DateTime`, `LocalDateTime`, `Duration`, an enum or `Measure` (`UGS0526`); `fulltext` needs `Text` (`UGS0525`);
@@ -678,54 +670,47 @@ An index kind that does not fit the field's type is refused: `range` needs an or
 | `@retracts(role)` | `@bitemporal` relation | A role whose every participant type is `@bitemporal` (`UGS0512`) | Inserting an instance retracts its participant in that role in the same commit |
 | `@ends(role)` | Relation with a valid interval | A role whose every participant type has a valid interval (`UGS0512`) | Inserting an instance closes its participant's valid interval at the instance's own valid start, in the same commit; section 8.4 |
 | `@acyclic` | Binary relation, or an abstract relation whose subtypes are binary, whose two roles' participant types share a common supertype (`UGS0503`) | Optional `open` and `max_depth: n`, `1 ≤ n ≤ 4096` (`UGS0504`) | No cycle through the relation's two roles, across the type tree; `max_depth` bounds every path; `open` counts only live instances whose valid interval is open (needs `@valid`, `UGS0508`) |
-| `@colocate(role)` or `@colocate(root)` | Relation without `@key` (`UGS0702`) | A role of the relation, own or inherited (`UGS0701`); `root` needs `@acyclic` and one container per participant at a time: a first role whose navigation cardinality is `?` or `{0, 1}`, or a `@no_overlap(per: [first role])` (`UGS0702`) | Section 9.1 |
+| `@colocate(role)` | Relation without `@key` (`UGS0702`) | A role of the relation, own or inherited (`UGS0701`) | Section 9.1 |
 | `@limit(agg op n per (roles [, type]) [where cond])` | Relation | `agg` is `count()` or `sum(attr)` over a numeric attribute (`UGS0505`); `op` is `<=`, `>=` or `=`; `n` a literal; `per` names one or more roles, optionally the word `type`; `cond` a deterministic expression over the instance's own values, its participants' types and `open` (`UGS0507`); a top-level conjunct over the `per` participants' types selects the groups | Section 8.6 |
 | `@no_overlap(per: [roles])`, `@no_overlap(per: [roles], strict)` | Relation or entity with `@valid` or `@bitemporal` (`UGS0508`) | Roles of the relation | The valid intervals of live instances sharing those participants never certainly overlap, or with `strict` never possibly overlap (`UGS1024`) |
 | `@access` | Relation | none | An access-control relation: a query filtering through it runs at snapshot level, never monotonic-fast |
 | `@iri(template)` | Keyed entity or relation | A string template (section 7.3) | Overrides the instance IRI pattern |
 | `@maps_to(curie \| iri)` | Any type | As on a field | Section 11.1 |
 | `@materialized`, `@virtual` | `derive` | none | Section 6.8 |
-| `@shared`, `@replicated`, `@anchor(leaf: Type)`, `@default`, `@base(string)` | `graph` | | Section 6.11 |
+| `@default`, `@base(string)` | `graph` | | Section 6.11 |
 
 Where a rule above says a type is `@bitemporal`, a subtype of a `@bitemporal` type counts.
 
-### 6.8 Derived relations and folds
+### 6.8 Derived relations
 
 ```
 derive Asset.all_parts   = parts+
 derive Asset.near_parts  = parts{1,3}
 derive Company.suppliers = purchases.supplier
 derive Supply.certified  = certification exists
-derive Parameter.current: Float64 = last(changes order by day.date).value
 ```
 
 `derive Type.name = body`: `Type` is an entity, relation or statement type of this schema and `name` is unique on it as
 a navigation name is (`UGS0404`). The body is a path of navigation names, roles, derived names and method functions
 from `Type`, each step with optional filters, a transitive marker `+` (one or more steps, distinct endpoints) or a bound
-`{m, n}`, and `exists` turning the path into a Boolean; or a fold `last`, `first`, `count`, `sum`, `min`, `max` over
-such a path with an optional `order by` and an optional trailing field; or an expression over the instance's own
-fields, a computed derivation (below). The result type and cardinality follow from the
-last step: `+` and `{m, n}` yield a set of distinct endpoints; a fold yields the field's type, `Optional` for `last`,
-`first`, `min`, `max` over a possibly empty path; a declared `: type` must equal the inferred one (`UGS0207`). A
+`{m, n}`, and `exists` turning the path into a Boolean; or an expression over the instance's own fields, a computed
+derivation (below). The result type and cardinality follow from the last step: `+` and `{m, n}` yield a set of distinct
+endpoints; a declared `: type` must equal the inferred one (`UGS0207`). An aggregate over a path is a function's
+(section 6.9), computed when read. A
 derivation's filters use the expression grammar with the bitemporal items `with retracted` and `open`; `today()` and
 `now()` are refused (`UGS0225`).
 
 - **Read-only.** A client write naming a derived name is refused (`UGS1029`).
 - **`@materialized`** stores the result and maintains it in the same local commit as the write that changes it; it is
-  allowed only when every step of the derivation stays within the anchor partition of the deriving instance: closures
-  over a relation declared `@acyclic @colocate(root)` whose root type is `Type` or a supertype, folds and compositions
-  over relations colocated with `Type`'s role (`UGS0704` otherwise, naming the step that leaves the partition). It is the
-  default for closures over `@acyclic @colocate(root)` relations. **[stage 6]** for those; a materialized derivation
-  across partitions waits for the tile stage.
+  allowed only when every step of the derivation stays within the anchor partition of the deriving instance: a computed
+  derivation, and a path over relations colocated with `Type`'s role (`UGS0704` otherwise, naming the step that leaves
+  the partition). It is the default for computed derivations. **[stage 6]**
 - **`@virtual`**, the default otherwise, expands the derivation at query time. A derivation whose filter reads another
   instance's state, a ground's `live` or `rank`, is virtual; where the maintenance matters, declare it on the type that
   holds the state read.
 - A step's filters precede its bound, `parents(open){0,32}`; `{0, n}` includes the start instance itself, and `+` and
   `{m, n}` with `m ≥ 1` do not.
 - Closures over relations that may contain cycles use set semantics, so they terminate.
-- `last`, `count` and `sum` over `@append_only` data are maintained incrementally; `min` and `max`, and every fold over
-  mutable data, are recomputed from the remaining instances when one is updated or deleted. Reading a fold is
-  non-monotonic.
 - `@index(range)` may follow a materialized derivation of a scalar type.
 
 **Computed derivations.** `derive Asserted.closed: Bool = not live or valid.end is some or rank = deprecated` names a
@@ -760,7 +745,7 @@ standard views do not expose them.
 |---|---|---|
 | `@index(range)` | An ordered field | The datatype's sortable tokenizer: `int`, `float`, `bool`, `hour` for `DateTime`, `LocalDateTime` and `Time`, `day` for `Date`, `exact` for `String`, `Text`, enums, `Iri` and `Unit`, `float` for `Measure<K, u>`, and a `measure` tokenizer over the canonical value for `Measure<K>` and `Measure` (section 15); a range filter scans the tokens and compares the values |
 | `@index(fulltext)` | `Text` | The `fulltext` tokenizer, analyzer by language tag |
-| `@index(interval)` | `Interval` | Range indexes on both extents' bounds |
+| `@index(interval)` | `Interval` | Range indexes on the outer extent's two bounds (section 5.5) |
 | `@index(geo)` | `Geo` | The `geo` tokenizer |
 | `@index(ann, metric: m, quantization: q)` | `Vector` | The `hnsw` factory with `metric` `cosine`, `dotproduct` or `euclidean` for `cosine`, `dot`, `l2`; `quantization: int8` quantizes the index and rescores the top candidates in the stored precision **[stage 8]**. The factory's build parameters take the store's defaults; a schema naming a search-time parameter such as `ef_search` is refused (`UGS0524`), since it belongs to the query |
 | implicit | Every `@key` and `@unique` attribute | The predicate's `unique` flag; lookup by value through the reverse list |
@@ -771,35 +756,25 @@ section 11.13 for the vector index, which the indexer maintains in commit order 
 to a field holding data is built in the background from the data at the version's epoch, as `PROTOCOL.md` section 11.13
 states.
 
-### 6.11 Graphs, shared graphs and bridges
+### 6.11 Graphs
 
 ```
-graph ontology  : ontology @shared @replicated
-graph time      : temporal @shared @anchor(leaf: Day)
-graph space     : spatial  @shared @anchor(leaf: Cell)
-graph cfd       : cfd @default
+graph ontology : deep_brain @default
+graph archive  : deep_brain @base("https://example.org/archive/")
 ```
 
 `graph ident : schema { annot }` declares a named graph over a schema of this tenant (`UGS0710`). Its IRI is
 `{base}{ident}`, with `base` the schema's vocabulary base. The graph's **instance base**, under which its instances'
 IRIs are minted (section 7.3), is the schema's vocabulary base, or the IRI `@base(string)` names; two graphs of one
-schema take two instance bases (`UGS0309`). At most one graph in a
-tenant carries `@default` (`UGS0102`); a write naming the default graph lands in it, and a governed tenant
-without one refuses writes to the default graph (`UGS1031`).
+schema take two instance bases (`UGS0309`). At most one graph in a tenant carries `@default` (`UGS0102`); a write naming
+the default graph lands in it, and a governed tenant without one refuses writes to the default graph (`UGS1031`).
 
-| Rule | Meaning |
-|---|---|
-| Disjoint domain graphs | Every entity belongs to exactly one graph, the graph of the write that creates it, which must be a graph of its type's schema (`UGS1031`). A relation whose roles name types of two different schemas, neither declared in a `@shared` graph, is refused (`UGS0708`) |
-| Bridge relations | A relation in a domain schema may have roles whose participant types belong to an imported schema whose graph is `@shared`. Its instances are stored in the domain graph, anchored as any relation is |
-| `@shared` | Marks a graph that other schemas' bridges may target (`UGS0709` for a bridge to a graph without it) |
-| `@anchor(leaf: Type)` | Bridges into this graph may target only the named type, a concrete type of the graph's schema (`UGS0706`); a bridge role naming another type of that schema is refused (`UGS0707`) |
-| `@replicated` | The graph is copied to every partition, so reads of it are local; its writes are coordinated **[stage 8]**; allowed only with `@shared` (`UGS0705`) |
-| Partitioned shared graphs | A shared graph without `@replicated` is placed as any data is |
-
-Shared graphs for time and space are expected to be `@append_only`; the existence of an append-only node is a monotonic
-fact, so inserting a bridge to one is coordination-free even across partitions. Bridges reverse-navigated from the
-shared node (`Day.parameter_changes`) read through the shared node's referrer set, which `../binary_protocol/PROTOCOL.md` section 11.11
-specifies; a shared node's inbound entries live with the referencing domain's instances, never on the shared node.
+Every entity belongs to exactly one graph, the graph of the write that creates it, which must be a graph of its type's
+schema (`UGS1031`). A relation instance belongs to the graph of the write that creates it, a graph of the relation's
+schema, and each participant lives in a graph of its own type's schema, the relation's or one it imports (section 6.1),
+so one relation connects instances of several graphs and namespaces and is placed and checked as any relation is
+(section 9). A reverse navigation from a participant in another graph reads through the participant's referrer set
+(`../binary_protocol/PROTOCOL.md` section 11.11).
 
 ### 6.12 Modules
 
@@ -842,8 +817,7 @@ bucket and 24 reserved zero bits, compared as big-endian. No ID leaves the datab
 - **Buckets.** A keyed entity's bucket is `Bucket::derive(tenant, prefix of the key's key space, canonical key)`
   (section 7.2). A keyless entity takes the bucket its handle states (section 7.3). A keyed relation
   instance takes the bucket its key derives, as a keyed entity does, and so declares no `@colocate`. An unkeyed relation
-  instance takes the bucket of its anchor participant (section 9.1). A value entity (`@independent`) is keyed by its
-  value, so its bucket is derived.
+  instance takes the bucket of its anchor participant (section 9.1).
 - **Sequences** are leased per (type, partition) by the metadata group (`metadata-group` specification).
 
 ### 7.2 Keys and their canonical encoding
@@ -872,8 +846,13 @@ instance a migration keeps in its origin's bucket under another key space has it
 space, in the partition that key hashes to (`SCHEMA-EVOLUTION.md` section 4.1). A
 `@unique` value's claim is at `Bucket::of_value(tenant, predicate, value)`.
 
-A key is immutable (`UGS1007`) and required (`UGS1006`); a second live instance of the tree with the same key in one
-graph is refused (`UGS1008`).
+A key is immutable (`UGS1007`) and required (`UGS1006`); a second instance of the tree with the same key in one graph
+is refused (`UGS1008`) while the first is live, and for good once the first is of a `@bitemporal` or `@append_only`
+type. **Claims of history-keeping types are permanent:** a retraction releases neither the key's claim nor a `@unique`
+value's, so a retracted instance keeps its key, its values and its IRI, which `believed at` and `with retracted` reads
+still resolve, and no later instance is given them. What a retracted statement asserted is asserted again by an instance
+under another key, which may name the retracted one, as `Supersedes` does. A deleted instance of another type releases
+its claims (section 8.5).
 
 ### 7.3 Instance IRIs
 
@@ -883,7 +862,6 @@ graph is refused (`UGS1008`).
 | A relation instance with `@key` | `{base}{KeySpace}/{key}` likewise |
 | A keyed instance of a type with `@iri(template)` | The template, an absolute IRI with `{attr}` placeholders for every key attribute, each component percent-encoded as above, and literal text between them. Because a component holds only unreserved characters after encoding, a separator holding at least one other character never occurs inside a component, and the key reads back by splitting on the literal text. The compiler refuses a template that omits a key attribute, that names an attribute twice or one that is not a key attribute, that puts two placeholders with no literal text between them or with text of unreserved characters only, or that is not absolute (`UGS0304`); and two templates in a tenant one of which is a prefix of the other, as text with placeholders removed (`UGS0305`), so an IRI resolves to one type |
 | A keyless entity, and a relation instance without `@key` | `{base}{Type}/{handle}`: the instance base of its graph, its concrete type's name, `/`, and its **handle**: the bucket in 6 and 104 random bits in 26 lowercase hexadecimal digits, joined by `-`, drawn at creation as the `term-dictionary` specification draws a skolem IRI's, the bucket from those the creating partition owns in the tenant's run and the bits uniformly, drawn again on a collision. A type is keyed or keyless whole, so key IRIs and handle IRIs never share a type's space. The dictionary holds the IRI and the ID both ways, as it holds a reifier's skolem IRI; the RDF view presents it as an IRI |
-| A value entity | `{base}{AttributeType}/{value}` |
 
 An instance a migration creates as a secondary image of an origin (`SCHEMA-EVOLUTION.md` section 4.3) takes, when its
 type is keyless, a **derived handle** in place of a drawn one: the origin's bucket and the low 104 bits of XXH3-128,
@@ -950,8 +928,8 @@ What each counts: live instances, unless the row says otherwise. Where it is che
 | Type fixed for life | At every write of `rdf:type` or a type change | `UGS1004` |
 | Declared predicate, or `@open` | At every write | `UGS1001` |
 | Required attribute present; default applied | At creation and at a removal of a value | `UGS1005` |
-| Key present, immutable, unique across the tree per graph | At creation; at any write of a key attribute; uniqueness decided at the value's claim | `UGS1006`, `UGS1007`, `UGS1008` |
-| `@unique` | At a write of the attribute; decided at the value's claim | `UGS1009` |
+| Key present, immutable, unique across the tree per graph, retracted instances of history-keeping types included (section 7.2) | At creation; at any write of a key attribute; uniqueness decided at the value's claim | `UGS1006`, `UGS1007`, `UGS1008` |
+| `@unique`, retracted instances of history-keeping types included | At a write of the attribute; decided at the value's claim | `UGS1009` |
 | Datatype, enum member, range of the integer type, vector dimension, unit declared and of the kind, interval ordered | At every write of the value | `UGS1011`, `UGS1030`, `UGS1028`, `UGS1027`, `UGS1011` |
 | `@pattern`, `@range`, `@values`, `@check` | At every commit of an instance whose checked values changed | `UGS1010` |
 | `@immutable` | At a write replacing a present value | `UGS1012` |
@@ -967,8 +945,6 @@ What each counts: live instances, unless the row says otherwise. Where it is che
 | `@ends(role)` | At the insert | `UGS1035` |
 | `@on_delete(restrict)`, `@on_retract(restrict)`, `@on_retract(restrict open)` | At the participant's delete or retraction | `UGS1020` |
 | Derived name written by a client | At every write | `UGS1029` |
-| Bridge to a non-leaf type of an anchored shared graph | At creation of the bridge instance | `UGS1032` |
-| A relation between two domain graphs | At compile time; at a write naming a participant outside the schema's and shared graphs | `UGS0708`, `UGS1033` |
 | `Set` duplicates | At write: collapsed | none |
 
 The key, uniqueness, presence and single-value rows have PG-Keys' semantics (Angles et al., *PG-Keys*, SIGMOD 2021;
@@ -1022,8 +998,9 @@ abstract statement Asserted : Statement @bitemporal(valid: valid) {
 4. **Reads see live instances by default.** `believed at $t` reads the instances whose `asserted` contains the epoch of
    `$t`, retracted ones included; `with retracted` reads every instance; `open` keeps live instances whose valid
    interval has no end.
-5. **Constraints count live instances:** keys, `@unique`, `@set`, cardinality, `@limit`, `@no_overlap` and `@acyclic`.
-   `@no_overlap` on a bitemporal type compares the declared valid time.
+5. **Constraints count live instances:** `@set`, cardinality, `@limit`, `@no_overlap` and `@acyclic`. Keys and
+   `@unique` count retracted instances too, whose claims are permanent (section 7.2). `@no_overlap` on a bitemporal type
+   compares the declared valid time.
 6. **`@on_retract(role: restrict | restrict open | cascade)`** replaces `@on_delete`: `restrict` refuses a retraction
    while live instances name the participant in that role, `restrict open` while open ones do and, in the same commit,
    retracts the live ones that are no longer open, and `cascade` retracts them in the same commit. The default is
@@ -1060,7 +1037,8 @@ An entity delete removes the entity and applies each relation's `@on_delete` act
 | `restrict` | The delete is refused while live instances name the participant in that role (`UGS1020`) | Always, except on a `_` side |
 | `orphan` | The instance stays with the role empty | Only on an `Optional` role |
 
-A deleted entity's IRI may be created again; the new instance is a new ID. A delete writes a tombstone at the entity's
+A deleted entity's IRI may be created again, since a delete releases its key's and its values' claims; the new instance
+is a new ID. A delete writes a tombstone at the entity's
 home, so a later write naming the deleted entity is refused (`../binary_protocol/PROTOCOL.md`, `EntityDeleted`). A relation instance delete
 removes the instance and cascades to relations over it. Deleting a `@bitemporal` instance is a retraction (section 8.4).
 No delete reaches a participant of a `@bitemporal` relation, whose participant types are all `@bitemporal` or
@@ -1099,8 +1077,8 @@ refusal number and the instance. The refusals:
 | `UGS1005` | RequiredMissing | leaves a required attribute without a value |
 | `UGS1006` | KeyMissing | creates a keyed instance without its key |
 | `UGS1007` | KeyChanged | writes another value to a key attribute |
-| `UGS1008` | KeyDuplicate | creates an instance whose key another live instance of the tree holds in the graph |
-| `UGS1009` | UniqueDuplicate | writes a `@unique` value another live instance of the tree holds in the graph |
+| `UGS1008` | KeyDuplicate | creates an instance whose key another instance of the tree holds in the graph: a live one, or any of a `@bitemporal` or `@append_only` type (section 7.2) |
+| `UGS1009` | UniqueDuplicate | writes a `@unique` value another instance of the tree holds in the graph: a live one, or any of a `@bitemporal` or `@append_only` type |
 | `UGS1010` | ValueCheck | breaks `@pattern`, `@range`, `@values` or `@check`; the message names the annotation |
 | `UGS1011` | Datatype | writes a value outside the attribute's type: a datatype mismatch, an integer out of range, a non-finite float, a malformed geometry, an interval whose start is after its end |
 | `UGS1012` | Immutable | replaces an `@immutable` value |
@@ -1123,8 +1101,6 @@ refusal number and the instance. The refusals:
 | `UGS1029` | DerivedWrite | writes a derived name |
 | `UGS1030` | EnumMember | writes a member the enum does not declare |
 | `UGS1031` | Graph | writes to an undeclared graph, to the default graph of a tenant without one, or creates an entity in a graph that is not of its type's schema |
-| `UGS1032` | AnchorLeaf | bridges to a type that is not the shared graph's anchor leaf |
-| `UGS1033` | CrossDomain | names a participant in another domain graph |
 | `UGS1034` | IncompleteInstance | leaves an instance assembled from triples incomplete: a reifier without its triple, a role triple without its instance, a type without its required roles |
 | `UGS1035` | Succession | inserts an `@ends` instance without a valid start, or whose participant in that role is not live, has no valid interval, or has one that begins after the instance's valid start or ends before it |
 | `UGS1036` | AttributeCardinality | writes a second value to a single-valued attribute of one instance |
@@ -1154,18 +1130,14 @@ the tenant's run the command executes locally.
 |---|---|
 | A keyed entity, a keyed relation instance | Derived from its key (section 7.2); a keyed relation declares no `@colocate` (`UGS0702`), and each of its constraints that reads a participant reads another partition's state |
 | A keyless entity | The bucket its handle states: a bucket the creating partition owns, so an entity created with another is created beside it |
-| An unkeyed relation instance | Its **anchor participant's** bucket: the participant in the `@colocate(role)` role the type declares or inherits from the nearest supertype declaring one, or in the first declared role (own or inherited, in declaration order) without one. Under `@colocate(root)` the instance is node-encoded (section 11.1) and takes the bucket of the root of the tree it joins. The relation's first role is the contained side and its second the container; the tree is the set of instances the constraint reads, the live ones whose valid interval is open under `@acyclic(open)` and every live one otherwise; a tree's root is the participant that fills the second role in some instance of the tree and the first role in none; the first instance between two participants of no tree takes its second role's participant as root |
-| A value entity | Derived from its value |
+| An unkeyed relation instance | Its **anchor participant's** bucket: the participant in the `@colocate(role)` role the type declares or inherits from the nearest supertype declaring one, or in the first declared role (own or inherited, in declaration order) without one |
 
 An instance's attributes, its forward entries, its local reverse entries, its indexes and its statistics are written
 in its partition in one local commit (`../binary_protocol/PROTOCOL.md` section 11.11, P24). A navigation from a participant that is not
 the anchor is a reverse read: the participant's home reads its referrer set and fans out. The coordination report lists
 each such navigation as a scatter read (`UGS0905`). Before an instance's partition first commits a reference to a
 participant it does not own, it registers at the participant's home, which adds the partition's bucket group to the
-participant's referrer set, unless the role declares `-> _`. `@colocate(root)` keeps every instance of an `@acyclic`
-tree in its root's partition, while the tree's entities stay in their own buckets; an insert whose first-role
-participant is the root of another tree moves that tree's instances into the surviving root's bucket, a coordinated
-move. A `@key`'s claim lives in the entity's own bucket (section 7.2), so creation and the key check meet in one
+participant's referrer set, unless the role declares `-> _`. A `@key`'s claim lives in the entity's own bucket (section 7.2), so creation and the key check meet in one
 partition; a `@unique` index is partitioned by the value's hash (`Bucket::of_value`), so each value has one owning
 partition.
 
@@ -1174,8 +1146,8 @@ partition.
 | Path | Definition | Now | Stage 8 |
 |---|---|---|---|
 | Coordination-free | Everything the write reads to validate and writes lives in the transaction's partition, and its checks read only the instance itself, its participants' identity and type (answered by the registration pre-step), and the partition's own state | Local commit | Local commit; a DirectWrite of such changes may take the fast path (`UltraGraphDB Distribution Protocol.md`) |
-| Segmented | The write's check reads state one partition owns: a key's or `@unique` value's claim at the value's owner; a bound on a participant at its home; a tree's ranks at its root's partition. Local when that partition is the transaction's | Local when the owner is the transaction's partition; otherwise refused with `CrossPartition` | Sequenced through the sequencer, validated at the owner |
-| Coordinated | The write must atomically read or change state in several partitions: a `restrict` or `cascade` delete reaching other partitions, an `@acyclic` edge joining two trees, `@retracts` across partitions, a write to a `@replicated` graph, a subtree move between roots, a lower-bound or `@limit` check whose instances are spread | Refused with `CrossPartition` | Sequenced, Calvin-style |
+| Segmented | The write's check reads state one partition owns: a key's or `@unique` value's claim at the value's owner; a bound on a participant at its home. Local when that partition is the transaction's | Local when the owner is the transaction's partition; otherwise refused with `CrossPartition` | Sequenced through the sequencer, validated at the owner |
+| Coordinated | The write must atomically read or change state in several partitions: a `restrict` or `cascade` delete reaching other partitions, an `@acyclic` edge whose paths cross partitions, `@retracts` across partitions, a lower-bound or `@limit` check whose instances are spread | Local when everything the write reads and writes is in the transaction's partition; otherwise refused with `CrossPartition` | Sequenced, Calvin-style |
 
 ### 9.3 Classification per constraint
 
@@ -1188,11 +1160,9 @@ partition.
 | Cardinality on the anchor role's navigation | The participant's count through the role | The anchor's partition, which holds every instance of that participant | Segmented, local |
 | Cardinality on another role's navigation | The participant's instances, anchored elsewhere | Spread | Coordinated; `UGS0903` suggests `@colocate` |
 | `@set` | The combination's existing instance | The anchor's partition | Segmented, local |
-| `@acyclic` within a tree, `max_depth` | The tree's ranks and heights | The root's partition under `@colocate(root)` | Segmented, local |
-| `@acyclic` joining two trees | Both trees | Two partitions | Coordinated |
-| `@acyclic` without `@colocate(root)` | Every instance of the relation tree | Spread | Coordinated; `UGS0903` suggests `@colocate(root)` |
+| `@acyclic`, `max_depth` | The relation's paths through the inserted instance | The partitions holding the instances along them | Coordinated |
 | `@limit` per the anchor role | The aggregate | The anchor's partition | Segmented, local |
-| `@limit` per another role | The aggregate over spread instances | Spread; stage 8 holds escrow shares per partition | Coordinated; **[stage 8]** segmented through the escrow of section 9.7 |
+| `@limit` per another role | The aggregate over spread instances | Spread | Coordinated |
 | `@no_overlap(per: roles)` with the anchor role among them | The combination's intervals | The anchor's partition | Segmented, local |
 | `@no_overlap` without the anchor role | Spread | Spread | Coordinated |
 | `restrict` or `restrict open` on a role whose relations are all anchored on it | The instances naming the participant, and under `restrict open` the retraction of the live ones no longer open | The participant's home | Segmented, local |
@@ -1200,8 +1170,6 @@ partition.
 | `orphan` | The instance | Its partition | Coordination-free |
 | `@retracts(role)` | The participant's `asserted` | The participant's home | Segmented, local when colocated with the role; coordinated otherwise |
 | `@ends(role)` | The participant's valid interval | The participant's home | As `@retracts` |
-| `@replicated` graph write | Every copy | Every partition | Coordinated |
-| Bridge insert to an `@append_only` shared node | The node's existence | Its home, by registration | Coordination-free |
 | Index and materialized derivation maintenance | The instance's partition | Its partition | Coordination-free |
 
 ### 9.4 How the classification is built
@@ -1225,7 +1193,7 @@ partition.
 Every successful compilation emits a report, `UGS0901`, listing: each write operation with its path and the constraint
 deciding it; each scatter read (`UGS0905`); each placement conflict and its resolution (`UGS0904`); each `restrict` that
 coordination avoids with `@colocate` (`UGS0903`); each declared construct this deployment does not enforce
-(`UGS0902`); and, per write operation, the index entries it writes, value, interval at four per attribute, count,
+(`UGS0902`); and, per write operation, the index entries it writes, value, interval at two per attribute, count,
 fulltext and vector, with the ten operations writing most under `UGS0906`. A version installed over a previous one also
 lists which operations changed path. The report is returned
 with the install's reply and recorded in the catalog version.
@@ -1239,20 +1207,6 @@ single-valued, whether a check or a bound reads it, whether it is derived, and i
 the mutability class and `@access`. The query classifier combines these with the query: a query reading only
 `@append_only` and `@immutable` data may run monotonic-fast with every result true and lasting; one reading mutable data
 monotonic-fast is flagged; one filtering through an `@access` relation, an aggregate or a negation runs at a snapshot.
-
-### 9.7 Escrow shares for `@limit`
-
-A `<=` bound whose instances are spread over partitions is kept by a treaty at the grouped participant's home, which
-holds the bound's remaining headroom and the shares outstanding, each a durable record in the home's log. A partition
-that first writes an instance counting toward the bound claims a share through a sequenced claim, one epoch; it then
-admits writes locally while its share lasts, and a delete or retraction of an instance it holds frees budget into its
-share. A share's size is half the remaining headroom divided by the current holders, at least one count or the
-attribute's smallest increment; a holder that exhausts a share twice within the idle interval is given double, and a
-holder idle for that interval returns its share. The floor and the interval are operator settings. Only `<=` bounds
-over `count`, and over `sum` of an attribute bounded at or above zero, escrow: a `>=` bound is checked at the
-participant's commit, and an `=` bound is coordinated. A partition is a replica group, so a share survives its crash
-in its log; a declared loss (`UltraGraphDB Distribution Protocol.md`) reclaims every share of the lost group at the
-declared position, and since a share is reserved before it is used, the bound was never exceeded. **[stage 8]**
 
 ## 10. Compilation and the catalog
 
@@ -1290,16 +1244,16 @@ bytes; every field present; a decoder refuses any other byte sequence, so a vers
 |---|---|
 | Schema | Name, version, vocabulary base, `@open`, imports with versions, reserved names, doc |
 | Module | As a schema, with what it extends and the minimum version |
-| Type | Name, kind (statement, entity, relation), prefix, parent, abstract, open, key attributes, IRI template, graph, mutability class, encoding (edge or node, relations), set or multi, symmetric, anchor role or root, acyclic with its options, valid attribute, bitemporal, retracts role, ends role, access, per-role delete and retract actions, limits, no-overlap declarations, instance checks, `@maps_to`, doc |
+| Type | Name, kind (statement, entity, relation), prefix, parent, abstract, open, key attributes, IRI template, graph, mutability class, encoding (edge or node, relations), set or multi, symmetric, anchor role, acyclic with its options, valid attribute, bitemporal, retracts role, ends role, access, per-role delete and retract actions, limits, no-overlap declarations, instance checks, `@maps_to`, doc |
 | Prefix ranges | Per type, its prefix set as sorted ranges |
-| Attribute | Declaring type, name, predicate IRI, type, optional, default, immutable, checks, indexes, uncertainty, `@maps_to`, doc |
-| Predicate | IRI, kind (property or edge), cardinality (single or multi), datatype, unique, tokenizers, count index, vector index with its dimension and options, domains: what `../binary_protocol/PROTOCOL.md` section 4.6's kind-8 record carries. One per attribute name per base, per role of a node-encoded relation, per anchor navigation name of an edge-encoded relation, per interval bound, and per value-entity edge |
+| Attribute | Declaring type, name, predicate IRI, type, optional, default, immutable, checks, indexes, `@maps_to`, doc |
+| Predicate | IRI, kind (property or edge), cardinality (single or multi), datatype, unique, tokenizers, count index, vector index with its dimension and options, domains: what `../binary_protocol/PROTOCOL.md` section 4.6's kind-8 record carries. One per attribute name per base, per role of a node-encoded relation, per anchor navigation name of an edge-encoded relation and per interval bound |
 | Role | Relation, name, participant types, optional, set-valued, super role, navigation name and cardinality or none, predicate IRI, actions, doc |
 | Navigation | Type, name, relation, role, direction (anchor-forward or reverse), cardinality, what it yields |
 | Enum, record, named attribute type, quantity, unit | Their declarations, with a unit's conversion |
 | Derivation | Type, name, body, result type and cardinality, materialized, index |
 | Function | Type or free, name, parameters, result, body, monotonic |
-| Graph | Name, schema, IRI, base, shared, replicated, anchor leaf, default |
+| Graph | Name, schema, IRI, base, default |
 | Classification | Per operation its path and constraints; per predicate the request-typing facts (section 9.6) |
 | Report | The notes of section 9.5 |
 | Sources | The installed sources' text, by name, so Describe can return them |
@@ -1309,7 +1263,7 @@ bytes; every field present; a decoder refuses any other byte sequence, so a vers
 **Attribute identity.** An attribute name is one predicate per vocabulary base: `Organization.name` and `Person.name`
 share the predicate `{base}name`. Every type declaring the name must declare it with the same type and the same
 `@index`, `@immutable` and `@maps_to` (`UGS0215`), unless `@iri` on one gives it a predicate of its own, after which
-the agreement rule applies per predicate; requiredness, defaults, value checks and `@uncertainty` are per declaring
+the agreement rule applies per predicate; requiredness, defaults and value checks are per declaring
 type. An attribute carrying `@key` or `@unique` is declared by one type tree only (`UGS0216`), so the
 predicate's `unique` flag is exactly the tree's rule. A subtype's inherited attribute is the same predicate.
 
@@ -1393,7 +1347,6 @@ A schema with any error is refused. Warnings and notes accompany a successful in
 | `UGS0215` | error | One attribute name declared by two types with different types or index, immutability or mapping annotations, without `@iri` splitting them |
 | `UGS0216` | error | A `@key` or `@unique` attribute name declared by a second type tree |
 | `UGS0218` | error | A `Measure` naming a unit of another quantity kind |
-| `UGS0219` | error | `@uncertainty` naming an attribute that is not a length measure of the same type |
 | `UGS0221` | error | A duplicate enum member |
 | `UGS0222` | error | A duplicate record field |
 | `UGS0223` | error | `LocalDateTime` compared or combined with `DateTime` |
@@ -1445,19 +1398,12 @@ A schema with any error is refused. Warnings and notes accompany a successful in
 | `UGS0524` | error | `@index(ann)` on a field that is not a `Vector`, with an unknown metric or quantization, or with a search-time parameter |
 | `UGS0525` | error | `@index(fulltext)` on a field that is not `Text` |
 | `UGS0526` | error | `@index(range)` on an unordered type |
-| `UGS0527` | error | `@independent` on anything but a named attribute type |
 | `UGS0528` | error | A `@values` literal of the wrong type |
-| `UGS0529` | error | `@index` on an attribute of an `@independent` type |
 | `UGS0601` | error | An `@append_only` relation whose participants may be deleted with `cascade` |
 | `UGS0602` | error | A `@bitemporal` relation with a participant type that is neither `@bitemporal` nor `@append_only` |
 | `UGS0701` | error | `@colocate` naming a role the relation neither declares nor inherits |
-| `UGS0702` | error | `@colocate(root)` without `@acyclic`, or without one container at a time: neither `?` on the first role's navigation nor `@no_overlap` over the first role; `@colocate` on a relation with `@key` |
+| `UGS0702` | error | `@colocate` on a relation with `@key` |
 | `UGS0704` | error | `@materialized` on a derivation that leaves the partition |
-| `UGS0705` | error | `@replicated` without `@shared` |
-| `UGS0706` | error | `@anchor` naming a type outside the graph's schema |
-| `UGS0707` | error | A bridge role naming a non-leaf type of an anchored shared graph |
-| `UGS0708` | error | A relation between two domain schemas |
-| `UGS0709` | error | A bridge to a graph that is not `@shared` |
 | `UGS0710` | error | A graph over a schema the tenant does not hold |
 | `UGS0801` | error | Two terms minting one IRI |
 | `UGS0802` | error | Two names the GQL view cannot tell apart |
@@ -1488,12 +1434,12 @@ The compiler fixes each relation type's encoding, recorded in its Type entry:
 
 | Encoding | When | Instance form |
 |---|---|---|
-| Edge | The relation has exactly two roles, neither set-valued, and carries neither `@colocate(root)` nor `@key`, whose instances take a bucket that is no participant's | One triple `anchor {base}{nav} other`, `nav` the navigation name declared on the anchor role, with an RDF 1.2 reifier, a statement ID carrying the relation's prefix, allocated at insert when the instance carries attributes, the relation is `@multi`, or a role of any relation in the catalog names the type, a supertype of it or a statement type covering it: the instance then fills that role through its reifier, which the role triple holds as its object term; `@symmetric` relations store the triple once, from the lower ID |
-| Node | Every other relation: three or more roles, a set-valued role, `@colocate(root)` or `@key` | A node whose ID has the relation's prefix, named by its IRI (section 7.3), with one role triple `instance {base}{Relation}_{role} participant` per participant and its attributes as its own properties |
+| Edge | The relation has exactly two roles, neither set-valued, and carries no `@key`, whose instances take a bucket that is no participant's | One triple `anchor {base}{nav} other`, `nav` the navigation name declared on the anchor role, with an RDF 1.2 reifier, a statement ID carrying the relation's prefix, allocated at insert when the instance carries attributes, the relation is `@multi`, or a role of any relation in the catalog names the type, a supertype of it or a statement type covering it: the instance then fills that role through its reifier, which the role triple holds as its object term; `@symmetric` relations store the triple once, from the lower ID |
+| Node | Every other relation: three or more roles, a set-valued role or `@key` | A node whose ID has the relation's prefix, named by its IRI (section 7.3), with one role triple `instance {base}{Relation}_{role} participant` per participant and its attributes as its own properties |
 
-The encoding depends on the roles' count and shape, on `@colocate(root)` and on `@key` alone: a relation declared
+The encoding depends on the roles' count and shape and on `@key` alone: a relation declared
 `@multi`, with attributes or named by another relation's role stays edge-encoded, so adding an attribute or a role that
-names the type never re-encodes. Adding a third role, a set-valued role, `@colocate(root)` or `@key` to an edge-encoded
+names the type never re-encodes. Adding a third role, a set-valued role or `@key` to an edge-encoded
 relation re-encodes it, which is a destructive change (section 13). A `@symmetric` relation is stored in ID order under
 either encoding (section 6.4).
 
@@ -1523,10 +1469,10 @@ either encoding (section 6.4).
 | `derive` | A read-only property, materialized or virtual |
 | `fn` | Not in the view |
 | `graph` | A named graph |
-| Bridge | A triple in the domain graph whose object is an IRI of the shared graph |
+| Relation across graphs | A triple in the relation's graph whose object is an IRI of the participant's graph |
 | `@bitemporal` | `asserted_start`, `asserted_end` literals of `xsd:dateTimeStamp` on the instance or its reifier, and `live`, an `xsd:boolean` that is `asserted_end`'s absence (section 8.4), `true` on every instance a default read binds |
 | Catalog type as participant | The class IRI as an individual, as OWL 2 punning allows |
-| `Geo` | A `geo:geoJSONLiteral`; `@uncertainty` as `geo:hasMetricSpatialAccuracy` |
+| `Geo` | A `geo:geoJSONLiteral` |
 | `Measure` | The literal of section 5.8; a fixed-unit attribute's property carries `qudt:unit` |
 | `@maps_to(ext:term)` | `owl:equivalentClass` or `owl:equivalentProperty` to the external term, in the vocabulary document |
 | `///` documentation | `rdfs:comment` |
@@ -1549,7 +1495,7 @@ checks, `sh:class` and `sh:or` for roles and unions, and `sh:sparql` for keys an
 | Enum | `STRING` with a value check |
 | `@bitemporal` | `asserted` and the valid interval as `RECORD` properties |
 | Catalog type as value | A type-name `STRING` |
-| `graph` | A GQL graph of the generated graph type; a domain graph is exposed together with the shared graphs it references as one graph |
+| `graph` | A GQL graph of the generated graph type, exposed together with the graphs its relations reach as one graph |
 | Cardinality, keys, uniqueness | Enforced by the engine, with PG-Keys' semantics (section 8.2); ISO GQL's graph types declare none of them |
 | `derive` | A read-only edge type or property |
 
@@ -1587,8 +1533,8 @@ cardinality `Single`, `Set` attributes `Multi`; every literal takes the reverse 
 
 `{attr}_start` and `{attr}_end` hold the bounds at `T`'s datatype as the unit's first instant; `{attr}_start_precision`
 and `{attr}_end_precision` hold the precision as an `xsd:string` of `ugdb:precision` (`millennium` … `nanosecond`) when
-coarser than `T`'s; an open end stores no `{attr}_end` and an open start no `{attr}_start`. `@index(interval)` stores four range entries, the outer and inner
-extents' bounds, in the value-index keyspace under tokens derived as `range` indexes derive them.
+coarser than `T`'s; an open end stores no `{attr}_end` and an open start no `{attr}_start`. `@index(interval)` stores two range entries, the
+outer extent's bounds (section 5.5), in the value-index keyspace under tokens derived as `range` indexes derive them.
 
 ### 12.3 Relations
 
@@ -1611,8 +1557,8 @@ type prefix.
 converted to `xsd:dateTimeStamp` on read from the sequencer's close times; `live` is the absence of the end. A tombstone
 is a statement record at the entity's home. A materialized derivation stores its result as quads under the derived
 name's predicate, written in the same commit as the write that changes it, within the anchor partition. Count indexes
-serve cardinality checks; ranks and subtree heights of `@acyclic @colocate(root)` trees are kept per tree at the root's
-partition in the marks keyspace, maintained in the same commit.
+serve cardinality checks. `@acyclic` is checked by walking the relation's paths from the inserted instance, bounded by
+`max_depth`.
 
 ## 13. Schema evolution
 
@@ -1680,16 +1626,16 @@ and reports it as unenforced (`UGS0902`).
 | Lexical structure, grammar, every static rule of sections 5 to 7, prefixes, keys, IRIs, the RDF view, Describe | Stage 6 | |
 | Required, optional, defaults, value checks, datatype, enum, `@immutable`, type fixed, closed by default, `@open` | Stage 6 | |
 | `@key`, `@unique` local to the transaction's partition | Stage 6 | A claim at another partition: stage 8 |
-| Relations: roles, set-valued and optional roles, unions, `@set`, `@multi`, `@symmetric`, inheritance, cardinality on the anchor role, `@on_delete` local, `@acyclic @colocate(root)` within a tree, `@no_overlap` and `@limit` per the anchor role, `@retracts` local | Stage 6 | Every cross-partition case: stage 8 |
+| Relations: roles, set-valued and optional roles, unions, `@set`, `@multi`, `@symmetric`, inheritance, cardinality on the anchor role, `@on_delete` local, `@acyclic` within a partition, `@no_overlap` and `@limit` per the anchor role, `@retracts` local | Stage 6 | Every cross-partition case: stage 8 |
 | `@append_only`, `@bitemporal`, `asserted`, `retract`, `@on_retract` local | Stage 6 | |
 | Entity delete with its tombstone | Stage 6 | Shares at referrers: stage 8 |
 | Indexes `range`, `interval`, `geo`, `fulltext` | Stage 6 | |
 | `@index(ann)`, which `../binary_protocol/PROTOCOL.md` section 11.13 refuses to declare before stage 8; `Vector<BF16>` storage; `quantization: int8` | Stage 8 | |
 | `Measure`, `quantity`, `unit`, `Geo` operators | Stage 6 | |
-| Materialized derivations and folds within the anchor partition | Stage 6 | Materialization across partitions: the tile stage |
+| Materialized derivations within the anchor partition, computed derivations among them | Stage 6 | Materialization across partitions: the tile stage |
 | Functions and virtual derivations, executed | With the query core, stage 7 | |
 | The GQL view and SHACL export | Stage 7 | |
-| Write classification's coordinated and segmented paths across partitions, escrow for `@limit`, `@replicated` graphs, relocation, the fast path's use of the request-typing facts | Stage 8 | |
+| Write classification's coordinated and segmented paths across partitions, the fast path's use of the request-typing facts | Stage 8 | |
 | Purge | Stage 8 | |
 
 ## 15. What this specification asks of the others
@@ -1744,7 +1690,7 @@ prefix av = "https://example.org/aviation#"
 import "https://schema.org/" as sdo
 
 attribute Serial    = String @pattern("[A-Z0-9-]{6,20}")
-attribute Tag       = String @independent
+attribute Tag       = String @index(range)
 attribute Embedding = Vector<F32, 768> @index(ann, metric: cosine)
 
 enum Status { active, stored, retired }
@@ -1774,7 +1720,7 @@ relation Owns @colocate(asset) {
   since: Date
 }
 
-relation PartOf @acyclic @colocate(root) {
+relation PartOf @acyclic(max_depth: 16) {
   part:  Asset -> assembly?
   whole: Asset -> parts*
 } @on_delete(whole: restrict)
@@ -1819,27 +1765,23 @@ graph production : aviation @default
 
 | Type | Prefix | Prefix set |
 |---|---|---|
-| `Tag` (value entity) | 3 | 3 |
-| `Asset` | 4 | 4–8 |
-| `Aircraft`, `Engine`, `Avionics` | 5, 6, 7 | each its own |
-| `Organization` | 8 | 8–10 |
-| `Company`, `Authority` | 9, 10 | |
-| `Owns` | 11 | |
-| `PartOf` | 12 | |
-| `Agreement` | 13 | 13–15 |
-| `Supply`, `Lease` | 14, 15 | |
-| `Certifies` | 16 | |
-
-A value entity type declared by a named attribute type takes its prefix where its declaration stands.
+| `Asset` | 3 | 3–6 |
+| `Aircraft`, `Engine`, `Avionics` | 4, 5, 6 | each its own |
+| `Organization` | 7 | 7–9 |
+| `Company`, `Authority` | 8, 9 | |
+| `Owns` | 10 | |
+| `PartOf` | 11 | |
+| `Agreement` | 12 | 12–14 |
+| `Supply`, `Lease` | 13, 14 | |
+| `Certifies` | 15 | |
 
 **Encodings and anchors.** `Owns`: edge, anchor `asset`, triple `asset av:owner organization`, `av:assets` its inverse;
-`PartOf`: node, `@colocate(root)`, each instance in its tree's root's bucket with the role triples `av:PartOf_part` and
-`av:PartOf_whole`; `Agreement`, `Supply`, `Lease`: node (three roles), anchor `party` (`supplier`, `lessor`), roles
+`PartOf`: edge, anchor `part`, triple `part av:assembly whole`, `av:parts` its inverse; `Agreement`, `Supply`, `Lease`: node (three roles), anchor `party` (`supplier`, `lessor`), roles
 `av:Supply_supplier`, `av:Supply_buyer`, `av:Supply_item`, each `rdfs:subPropertyOf` the `Agreement` role it
 specializes; `Certifies`: edge, anchor `contract`, triple `supply av:certification authority`.
 
 **Predicates:** `av:serial` (unique within `Asset`'s tree, looked up by value through the reverse list), `av:commissioned`,
-`av:status`, `av:tags` (edges to `Tag` value entities, multi), `av:notes` (`fulltext`), `av:embedding` (`hnsw`, cosine,
+`av:status`, `av:tags` (one triple per member, `exact`), `av:notes` (`fulltext`), `av:embedding` (`hnsw`, cosine,
 dimension 768), `av:tail_number` (unique), `av:thrust_kn`, `av:firmware`, `av:name` (unique within `Organization`'s
 tree, `owl:equivalentProperty sdo:legalName`), `av:jurisdiction`, `av:since`, `av:signed`, `av:value`, `av:term_start`,
 `av:term_end` and their precisions, `av:valid_start`, `av:valid_end` and theirs, the navigation predicates `av:owner`
@@ -1855,15 +1797,14 @@ and `av:certification`, and the role predicates above.
 | Create `Engine`, `Company` | Key uniqueness | Segmented, local: the key's claim is in the entity's own bucket, which the creating partition owns |
 | Update `status`, `notes`, `commissioned` | None beyond the instance | Coordination-free |
 | Insert `Owns` | `owner?` on the asset | Segmented, local: anchored at the asset |
-| Insert `PartOf` within a tree | `@acyclic`, `assembly?` | Segmented, local: the root's partition |
-| Insert `PartOf` joining two trees | `@acyclic` across trees | Coordinated |
-| Insert `Supply` | `@limit` per buyer, anchored at the supplier | Coordinated; stage 8 segments it through the buyer's escrow share; note `UGS0904` |
+| Insert `PartOf` | `assembly?` on the part; `@acyclic` | Segmented, local for the bound: anchored at the part; the paths `@acyclic` walks are local when one partition holds them and coordinated otherwise |
+| Insert `Supply` | `@limit` per buyer, anchored at the supplier | Coordinated; note `UGS0904` |
 | Insert `Certifies` | `certification?` on the contract | Segmented, local: anchored at the contract |
-| Delete `Asset` | `restrict` on `PartOf.whole` and `Supply.item` | Segmented, local for `PartOf` in its tree; coordinated for `Supply` instances in other partitions; warning `UGS0903` suggests `@colocate(item)` |
-| Indexes, `all_parts` | Derived data within the tree's partition | Coordination-free |
+| Delete `Asset` | `restrict` on `PartOf.whole` and `Supply.item` | Coordinated for instances in other partitions; warning `UGS0903` suggests `@colocate(whole)` and `@colocate(item)` |
+| Indexes | Derived data within the instance's partition | Coordination-free |
 
-**Scatter reads** (`UGS0905`): `Organization.assets`, `Asset.parts` and `Asset.assembly` (one member partition, the
-tree's root's), `Company.purchases`, `Asset.contracts`, `Authority.certifications`, `Organization.agreements` from the
+**Scatter reads** (`UGS0905`): `Organization.assets`, `Asset.parts`, `Asset.all_parts`, a virtual closure over it,
+`Company.purchases`, `Asset.contracts`, `Authority.certifications`, `Organization.agreements` from the
 counterparty.
 
 ## 17. Decisions
@@ -1874,8 +1815,8 @@ counterparty.
 | Type prefixes | Allocated in declaration order from 3, never renumbered; a supertype is a set of ranges (D2) |
 | Attribute identity | One predicate per attribute name per vocabulary base, shared by every type declaring the name with agreeing declarations; `@key` and `@unique` attributes belong to one tree. Chosen so the vocabulary term is `av:serial`, as SPARQL clients write it, and an inherited attribute is one predicate; the note's "one predicate per declaring type" is kept as one catalog entry per declaring type |
 | Closed by default against the store's default entries | A governed tenant refuses undeclared data unless `@open` on the schema admits `Resource` subjects or `@open` on a type admits undeclared attributes; both record default entries as the store does today |
-| Indexes and materialized derivations | Written in the instance's partition in its local commit, as P24 holds for every derived entry; `@materialized` is bounded to derivations within the anchor partition until the tile stage. The note's change streams belong to that stage |
-| Relation encodings | Edge for binary, single-valued relations without `@colocate(root)` or `@key`, their instances filling roles through their reifier; node otherwise. Fixed by the roles' shape, the placement and the key, never by attributes or by being named, so neither re-encodes. A `@colocate(root)` or keyed instance takes a bucket that is no participant's, and an edge whose subject lives elsewhere would give one fact two owners. Edge encoding through the reifier: 2026-11-05, the Gen5 exercise's G3, two quads fewer per instance for most of its relation kinds |
+| Indexes and materialized derivations | Written in the instance's partition in its local commit, as P24 holds for every derived entry; `@materialized` is bounded to derivations within the anchor partition, computed derivations among them, until the tile stage. The note's change streams belong to that stage |
+| Relation encodings | Edge for binary, single-valued relations without `@key`, their instances filling roles through their reifier; node otherwise. Fixed by the roles' shape, the placement and the key, never by attributes or by being named, so neither re-encodes. A keyed instance takes a bucket that is no participant's, and an edge whose subject lives elsewhere would give one fact two owners. Edge encoding through the reifier: 2026-11-05, the Gen5 exercise's G3, two quads fewer per instance for most of its relation kinds |
 | A subrelation's anchor | A subrelation may declare its own `@colocate`; inherited constraints anchored elsewhere become non-anchor constraints for that kind, which the report states (the exercise's G1): DeepBrain's `Hierarchy` and `LiveUnit` need it |
 | A keyed relation's home | Its key's bucket, as an entity's, and no `@colocate`: one rule for where an instance lives, derivable from its IRI (the exercise's G2) |
 | Index writes in the report | Counted per write operation (the exercise's G4) |
@@ -1886,21 +1827,21 @@ counterparty.
 | `rdf:type` of declared types | Answered from the type prefix; no stored quad |
 | `Iri` and enum values | Literals (`xsd:anyURI`, `xsd:string`), so a value creates no entity, no referrer set and no registration; the note's "IRI term" and "one IRI per member" are kept as vocabulary, not as object terms |
 | `DateTime` and `LocalDateTime` | `xsd:dateTimeStamp` and `xsd:dateTime` without a timezone, which keeps the offset requirement in the datatype |
-| Interval precision | Stored as the unit's first instant plus a precision predicate per bound; both extents indexed |
-| Named attribute types | A reusable declaration; `@independent` makes values entities keyed by the value. Every attribute is already a lookup by value through the reverse lists |
+| Interval precision | Stored as the unit's first instant plus a precision predicate per bound. Decided 2026-11-08: the outer extent alone is indexed, and a `certainly` form filters its candidates, which halves the interval index |
+| Named attribute types | A reusable declaration whose values are literals. Decided 2026-11-08: every value is found through the reverse lists and ordered by `@index(range)`, so no value becomes an entity; a value with relations of its own is an entity, a `Concept` |
 | The `schema` prefix | Reserved for the catalog qualifier; the example imports schema.org as `sdo` |
 | Keyless names | A handle, the bucket and 104 random bits, minted into the type's IRI space, held in the dictionary both ways as a reifier's skolem IRI already is, and presented as an IRI. Chosen over D6's keyed encryption, which puts a key service on the read path of every keyless IRI and ties each such IRI to key retention, at the price of two dictionary entries the design already pays per reifier; revisited only if stage 7's dictionary-growth measurement shows those entries dominating |
 | Graphs and bases | One base per graph, defaulting to the schema's; two graphs of one schema take two bases, so IRIs stay unique in a tenant |
 | Cardinality markers | Always written; a relation cardinality is a check that refuses, never a replacing store cardinality |
 | Decimal bounds | `p ≤ 38`, `s ≤ 18`, `p − s ≤ 20`, from the store's i128 × 10¹⁸ encoding |
-| Escrow, replicated graphs, relocation, cross-partition paths | Specified here, enforced from stage 8 |
+| Cross-partition paths | Specified here, enforced from stage 8 |
 | Version 1 aggregates in `@limit` | `count` and `sum` |
 | `Measure` representation | `xsd:double` only; money is a `Decimal` attribute beside a currency enum, outside `quantity`, since currencies convert by rates that vary in time |
 | `@values` | A value check per declaring type, exported as `sh:in` per shape |
 | Purge | A command over a bounded, reviewed list of IRIs under the action `purge`, sequenced at an epoch and executed as a delete's shares with physical removal everywhere the instance is named; the audit record holds each IRI's hash, never the IRI |
 | HNSW parameters | Version 1 declares `metric` and `quantization`; build parameters take the store's defaults and are added as optional arguments when stage 8's measurements ask; a search-time parameter is refused in a schema |
-| Escrow | A Homeostasis treaty at the grouped participant's home: shares leased on demand through sequenced claims, sized by the remaining headroom, returned when idle, surviving crashes in the holder's log and reclaimed on a declared loss (section 9.7) |
-| Reserved words | The structural keywords only; every operator, fold, modifier and annotation word is contextual, so domain names such as `in`, `by`, `max`, `open` and `within` stay available (found by the Gen5 exercise, `UltraGraphDB Schema Feedback.md`). Decided 2026-11-08: `import`, `unit` and `version` are keywords only where a header or declaration begins, which lets section 5.11's `.unit` parse and Gen5 keep `version`, `unit` and `import` as names (`deepbrain-gen5.ugs`) |
+| Spread `@limit` bounds | Decided 2026-11-08: coordinated, as every spread constraint is; DeepBrain's only spread bound, one preferred instance, is a lease that coordination already gives |
+| Reserved words | The structural keywords only; every operator, aggregate, modifier and annotation word is contextual, so domain names such as `in`, `by`, `max`, `open` and `within` stay available (found by the Gen5 exercise, `UltraGraphDB Schema Feedback.md`). Decided 2026-11-08: `import`, `unit` and `version` are keywords only where a header or declaration begins, which lets section 5.11's `.unit` parse and Gen5 keep `version`, `unit` and `import` as names (`deepbrain-gen5.ugs`) |
 | Computed derivations | Decided 2026-11-08: a derivation may be an expression over the instance's own fields and built-in fields, maintained in the instance's own commit and indexable, which is how Gen5's `closed` flag lives with the statement it describes |
 | `@limit` conditions over participants' types | Decided 2026-11-08: a top-level conjunct reading only the grouped participants' types selects the groups a bound applies to, so a lower bound can hold for one type of participant, as Gen5's `GeneratedBy` and `ActedOnBehalfOf` require |
 | Catalog types as field types | Decided 2026-11-08: the grammar's `type` takes `schema.EntityType<T>` and `schema.RelationType<T>`, as section 5.10 lets a field hold one |
@@ -1911,7 +1852,11 @@ counterparty.
 | Symmetric relations | Stored in ID order under either encoding; the navigation reaches the instance from both participants |
 | Attribute predicates | `@iri` on an attribute splits a shared name into a predicate of its own |
 | Quantifiers | `all` beside `some` and `no`, over a path with a filter, in place of a lambda |
-| `@colocate(root)` under valid time | One container at a time, by `?` or by `@no_overlap` over the first role; the tree is the open tree under `@acyclic(open)` |
+| Trees | Decided 2026-11-08: `@acyclic` walks the relation's paths from an insert, coordinated where they cross partitions, and no placement keeps a tree in one partition. DeepBrain's organisation tree changes rarely and its reads walk it; access by organisation unit, which may read it on every request, is decided with relationship-based access control (`../../openspec/notes/SECURITY.md`) |
+| Graphs | Decided 2026-11-08: a graph is a named instance of a schema, and a relation reaches every graph of the schemas its roles name, one rule within and across namespaces |
+| Derivations | Decided 2026-11-08: paths, closures and computed values; an aggregate over a path is a function, computed when read |
+| A position's uncertainty | Decided 2026-11-08: an attribute of its own, which a query adds to its radius; whether a position certainly lies in a region is DeepCausality's reasoning, as counterfactuals are |
+| Claims of history-keeping types | Decided 2026-11-08: a retracted instance keeps its key's and its values' claims, so an IRI names one instance for all time and no identity is reissued, as deep_brain's `IdAllocator` requires (section 7.2) |
 | Conformance corpus | Built once the language is final for DeepBrain's current target; the proposal is section E of `openspec/notes/UltraGraphDB Schema Feedback.md` |
 | Multiple inheritance | None; union roles cover overlapping participant sets |
 | A standalone compiler binary | None; the server compiles, in CI through the development container |

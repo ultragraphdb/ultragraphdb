@@ -2,7 +2,7 @@
 
 This file describes how UltraGraphDB authenticates a connection, authorizes each request and protects traffic: the
 principals, the authentication mechanisms, role-based access control, the security catalog, auditing and encryption.
-`PROTOCOL.md` beside it specifies the bytes these use; "Protocol touchpoints" maps one to the other. The design, its
+`../../specification/binary_protocol/PROTOCOL.md` beside it specifies the bytes these use; "Protocol touchpoints" maps one to the other. The design, its
 reasoning and its check against Dgraph's ACL are in `openspec/notes/security.md`.
 
 ## Principles
@@ -44,7 +44,7 @@ A principal is an identity the server authenticates: a person, or a service.
 Principals are cluster-wide and live in the metadata group, which every frontend authenticates against. A tenant isolates;
 a namespace organises. A tenant is the engine's unit of isolation, one catalog of numbered versions, one run of buckets and the
 grants of its principals; a namespace is a unit of organisation inside it, one schema source installed in it with its graphs
-(`SCHEMA.md`, section 1), and has no field in any key, bucket, ID or frame. A principal may hold grants in several tenants, and
+(`../../specification/schema/SCHEMA.md`, section 1), and has no field in any key, bucket, ID or frame. A principal may hold grants in several tenants, and
 a connection's transactions may act in several, each bound at its Begin; every request acts in one. Nothing reads, writes or
 names across tenants; the cluster scope alone reaches over them, for backup and export. Tenants may share a bucket run, of which
 there are at most 256: isolation is by key and by grant, not by resource.
@@ -172,7 +172,7 @@ authenticates role connections alone; the client endpoint authenticates against 
 opens no client session. A role connection acts for no principal, and each role command acting for a client names the
 client's principal. Rotating the secret takes a rolling restart. Role connections speak clear text in stage 5.5, and
 TLS between roles, with certificates per role, arrives with stage 8. In the development container each role's Unix
-socket belongs to user 65532 with mode 0600. `PROTOCOL.md` §11.12 gives the exchange's bytes.
+socket belongs to user 65532 with mode 0600. `../../specification/binary_protocol/PROTOCOL.md` §11.12 gives the exchange's bytes.
 
 ## Authorization
 
@@ -193,7 +193,7 @@ A privilege is an action on a scope. The action's number is the `detail` of a re
 | `drop` | 4 | the Drop command |
 | `admin` | 5 | at a tenant: its roles, their grants to principals, and the group mappings onto its roles; at the cluster: also principals and trusted issuers |
 | `operate` | 6 | cluster operations: creating and removing tenants, backup, restore, export |
-| `purge` | 7 | the legal purge of `SCHEMA.md` section 8.8, at tenant scope: the one way history held for `@bitemporal` and `@append_only` types, a migration's retained source among it, leaves the store |
+| `purge` | 7 | the legal purge of `../../specification/schema/SCHEMA.md` section 8.8, at tenant scope: the one way history held for `@bitemporal` and `@append_only` types, a migration's retained source among it, leaves the store |
 
 | Scope | Covers |
 |---|---|
@@ -216,7 +216,7 @@ A privilege at a scope covers every scope inside it.
 
 Every request naming a tenant, Begin, Prepare, Describe, Install, Drop, DirectWrite and ConditionalWrite, passes one gate at the
 frontend before it reaches another role or any state; a request it passes naming a tenant the metadata group does not hold
-is refused there (`PROTOCOL.md` §11.10). When a transaction begins, the principal's privileges in its tenant resolve into an
+is refused there (`../../specification/binary_protocol/PROTOCOL.md` §11.10). When a transaction begins, the principal's privileges in its tenant resolve into an
 **access** value: the predicates and graphs it may read and write, with the roles its token's groups map to. A partition
 consults it at each read and write of its store, for the principal the Bind, the Scan or the one-frame write names; compute,
 which holds no store, passes the principal on in each Scan and consults nothing itself. A request's tenant authorizes nothing;
@@ -244,6 +244,43 @@ A unique predicate's commit-time operation, insert-if-absent or upsert-and-link,
 including by a statement the principal may not read; it needs `write` on the predicate, which an administrator grants
 knowing that.
 
+### Access by organisation unit
+
+Decided 2026-11-08: access by organisation unit is **relationship-based access control**, a layer of its own above the
+role-based model, designed as a change of its own.
+
+DeepBrain decides who may read or write a statement by where the principal and the statement stand in the organisation:
+a person is a member of a unit, a unit sits in a tree of units, and a statement belongs to the units it is filed under.
+Those facts are the tenant's data, the relations `MemberOf`, `SubOrganizationOf` and `Holds` of the DeepBrain schema
+(`../../specification/schema/deepbrain-gen5.ugs`), not the security catalog's. The role-based model above grants at
+cluster, tenant, namespace, graph and predicate scope, so no grant reaches one instance, and a rule such as "members of
+a unit and of every unit above it read the unit's statements" has no form in it. Zanzibar's relation tuples and
+userset rewrites are the reference design: a permission is a path through relations, checked against the data.
+
+What UltraGraphDB has for it now:
+
+- UGS's `@access` marks a relation that access checks read (`../../specification/schema/SCHEMA.md` section 6.7), so a
+  query filtering through it runs at a snapshot, never monotonic-fast.
+- The organisation tree is declared `@acyclic(open, max_depth: 32)`, so a walk up or down it is bounded.
+- The schema verification of 2026-11-08 removed `@colocate(root)`, the placement that kept a tree in its root's
+  partition. `SubOrganizationOf` instances live at their units, and a subtree is walked when read. If access checks
+  that walk the tree on every request prove too costly, a materialized closure or a tree placement comes back with this
+  design; adding either to the relation re-encodes it, a migration (stage 9.5).
+
+Until the layer is built, a tenant separates what different units may read by graph or namespace, where the role-based
+model reaches.
+
+Open questions the design answers:
+
+1. Does a check run in the store at each read and write, as the access value does today, so that a statement the
+   principal may not read is absent rather than refused?
+2. At which snapshot does a check read membership? A membership is committed data, so a check at the read's own
+   snapshot sees the data and the memberships of one epoch, which answers Zanzibar's new-enemy problem without a token;
+   must a revoked membership also abort transactions in flight, as a security epoch does?
+3. Whose memberships does a `believed at` or `as of` read apply: those at its read point, or those in effect now?
+4. Is a rule declared in UGS beside `@access`, or in the security catalog naming the relations it walks?
+5. Which stage builds it?
+
 ### The security catalog and revocation
 
 Principals, their credentials and external identities, roles, grants, trusted issuers and their group mappings form the
@@ -253,7 +290,7 @@ group's every command is.
 
 A security change is ordered by the metadata group's log, not by any partition's commit versions, and takes effect at
 an epoch, as a catalog version does: the group commits it as pending, and at its next close `c + 1` the sequencer
-assigns it the epoch `c + 2`, which that close announces to every partition (`PROTOCOL.md` §11.12). That epoch is the
+assigns it the epoch `c + 2`, which that close announces to every partition (`../../specification/binary_protocol/PROTOCOL.md` §11.12). That epoch is the
 change's **security epoch**. Every read-write transaction is checked at its commit against the security epoch in effect
 at its commit epoch, so a change aborts every transaction that began before it and commits at or after its epoch: from
 that epoch on, nothing commits under a revoked privilege. A change to a group mapping applies at the next Begin; a group
@@ -329,7 +366,7 @@ output before starting a service from the folder.
 
 ## Protocol touchpoints
 
-| Concern | `PROTOCOL.md` |
+| Concern | `../../specification/binary_protocol/PROTOCOL.md` |
 |---|---|
 | Whether a connection authenticates, and the mechanisms | §5.2, Welcome: `auth`, sections 1 and 2 |
 | The exchange and its messages per mechanism | §5.3, Authenticate |
