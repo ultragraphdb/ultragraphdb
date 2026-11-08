@@ -72,7 +72,10 @@ the view does not name:
 
 A label, edge type or property a query names must be declared on the working graph's schema (`GQL0202`, `GQL0203`,
 `GQL0204`): the graph is closed, as MGQL's closed graphs are, and the type system of section 5 refines every variable
-by the schema. Undeclared data under `@open` is reachable by its label `Resource` and property names as strings.
+by the schema. Undeclared data under `@open` is reachable by its label `Resource` and property names as strings. A
+label, edge type or property name a namespace's migration retired (`SCHEMA-EVOLUTION.md` section 4.2) resolves to the
+item that holds it now during the migration's deprecation window, with a warning naming the current name (`GQL0210`),
+and after the window is refused with the current name in the message (`GQL0202`, `GQL0203`, `GQL0204`).
 
 ## 3. Lexical structure
 
@@ -463,6 +466,7 @@ A refusal names a code, a location in the query text, a reason and, where one ex
 | `GQL0204` | A property no type the variable may hold declares; the message names the types that declare it |
 | `GQL0205` | A label expression no concrete type satisfies |
 | `GQL0206` | An unbound variable |
+| `GQL0210` | Warning: a retired name, resolved during its migration's deprecation window; the message names the current one |
 | `GQL0207` | A variable bound twice as different kinds, a node and an edge, other than an edge variable of a relation with a reifier at a node position (section 6.2) |
 | `GQL0301` | An operator, function or comparison applied to types it does not take; a parameter of another type than its use |
 | `GQL0401` | A quantified edge in a statement that does not project `DISTINCT` or aggregate `DISTINCT` |
@@ -659,8 +663,9 @@ role if any", and `UNION` across kinds.
   and answer named, typed columns (section 8.1); Result batches carry column names, the monotonic flag and null as
   `ABSENT`, lists and records as `rdf:JSON` literals (section 9.1); a SPARQL update answers its counts and a GQL
   statement without `RETURN` the empty table; code 29 carries a
-  refused query's diagnostic and code 7 a schema rule's refusal at commit (section 9.4).
-- **`SCHEMA.md`.** Section 11.3's GQL view gains the navigation edge of section 2, derived from a node-encoded
+  refused query's diagnostic and code 7 a schema rule's refusal at commit (section 9.4). Carried 2026-11-08: a
+  warning, `GQL0210` among them, travels with a reply (section 4.9 there).
+- **`SCHEMA.md`.** Carried: section 11.3's GQL view holds the navigation edge of section 2, derived from a node-encoded
   relation's role quads, read-only, and section 11.2's RDF view its counterpart, a derived property; section 8.4's
   revision rule is what `SET` on a bitemporal instance relies on. Carried 2026-11-05: the relation node of an
   edge-encoded relation with a reifier, section 2, in section 11.3, and the read-only `type` property; section 8.4's

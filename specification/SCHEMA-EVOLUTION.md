@@ -1,6 +1,6 @@
 # Schema evolution with data migration
 
-* Status: first draft, 2026-11-08, for stage 9.5 (`ROADMAP.md`; `openspec/notes/backlog.md`, item 16).
+* Status: first draft, 2026-11-08, for stage 9.5 (`ROADMAP.md`).
 
 This file specifies how a namespace moves from one schema version to another when the change reshapes data: a type
 renamed, split or merged, an attribute moved into a relation or back, a key changed. Such a change installs as a
@@ -16,19 +16,7 @@ those of functorial data migration, restricted to a fragment that never merges i
 
 ## Open questions
 
-- Is Π needed for any migration DeepBrain foresees, or does every reshaping fit one origin per image?
-- How long does the source stay readable as `{namespace}@{version}`, and what retires it: an explicit request, an age,
-  or the drop of its last reader's grant?
-- How does a query read across the cutover, the target's present and the source's history together, beyond UQL's
-  `believed at` reaching into the source?
-- How long is a rename's deprecation window, and is it the migration's to set or the tenant's?
-- Does a namespace that imports the migrating one migrate with it, or must its imports name the target's version
-  first?
-- May a run's catch-up recompute only what changed, through the referrer sets of the instances written in `(e0, e1]`,
-  or must it rescan every image whose assignments cross partitions? An extended term that reads a derivation or a fold
-  makes an image depend on every instance the read reaches.
-- Does a migration read several namespaces at once? Its source is then their coproduct, or the union of their graphs
-  where they reference each other (`SCHEMA-APG.md`, definition 16.5).
+None at present. The questions raised up to 2026-11-08 are decided in section 12.
 
 ## Contents
 
@@ -44,8 +32,7 @@ those of functorial data migration, restricted to a fragment that never merges i
 10. Refusals
 11. What this specification asks of the others
 12. Decisions
-13. Open questions
-14. Sources
+13. Sources
 
 ## 1. Conventions
 
@@ -111,12 +98,12 @@ resolved by merging.
 ### 3.1 Grammar
 
 ```
-migration      = { doc } "migration" ident "from" int "to" int "{" { step } "}" ;
+migration      = { doc } "migration" ident "from" int "to" int [ "deprecation" duration ] "{" { step } "}" ;
 step           = rename | map | drop ;
 rename         = "rename" kind qname "to" ident ;
 kind           = "type" | "attribute" | "role" | "nav" | "graph" ;
-map            = "map" qname [ "primary" ] "from" qname { "," qname } [ "where" expr ]
-                 [ "{" { assign } "}" ] ;
+map            = "map" qname [ "primary" ] "from" qname { "," qname } [ "unnest" ident "as" ident ]
+                 [ "where" expr ] [ "{" { assign } "}" ] ;
 assign         = ident "=" mexpr ;
 mexpr          = "self" | expr | ( "map" | "filter" ) "(" expr "," ident "=>" expr ")" ;
 drop           = "drop" kind qname ;
@@ -150,8 +137,32 @@ install (section 5).
 - **`drop kind q`** declares that the target carries nothing of `q`. A source item the target neither maps, renames
   nor drops is refused (`UGS2101`), so no data is lost by omission.
 
+- **`unnest f as m`** on a map from one source type makes every member `m` of the origin's `List` or `Set` attribute
+  `f` the origin of one image, with the origin itself: one image per pair of an origin and a member, or per position
+  of a list, so `Organization.identifiers` becomes one `Identifier` per identifier. The image's assignments read `self`
+  and `m`. It is part 2's reification applied to a collection of values (`SCHEMA-APG.md`, definition 12.7); an unnest
+  map takes one source type and is never `primary`, since an origin with several images cannot give its IRI to each
+  (`UGS2113`). The reverse, many instances folded into one value, is an extended term: `collect` or a fold.
+- **`deprecation d`** sets how long the migration's retired names keep resolving (section 9), from the cutover; without
+  it, the tenant's default applies.
+
 Several maps may target one type from different source types, as a union; one source type may feed several target
 types, as a split. Two maps into one target type from one source type are refused (`UGS2105`).
+
+**Joint migrations.** Migrations of several namespaces installed together run as one: one run, one fence over every
+namespace they name, one cutover epoch, one catalog version. A namespace whose schema imports a migrating one migrates
+with it when its data references instances whose images take new system IDs (section 4.5), or its schema names an item
+the migration drops or splits; an install that leaves such a namespace out is refused (`UGS2114`). An importing
+namespace that references only kept or renamed items needs no migration: its import bound is checked against the
+target's version (`UGS0109`), and a bound that excludes it needs a new version of the importer in the same install. A
+joint migration reads the union of its namespaces' graphs (`SCHEMA-APG.md`, proposition 15.1), and a migration merging
+namespaces with no references between them reads their coproduct (definition 16.5 there); a key collision between them
+is refused (`UGS2201`), never merged.
+
+**No Π.** A target instance built from a join of independent source instances, a many-to-many relation between them,
+is new knowledge rather than a reshaping, and has no single origin to take its bucket from (`SCHEMA.md` section 9.1).
+It is written after the cutover by an UQL pipeline (`QUERY-ULTRA-QL.md` section 13.2), under the commit's
+classification and constraints.
 
 ### 3.3 Example
 
@@ -252,7 +263,13 @@ An instance's IRI is fixed when it is minted and kept for life, through every mi
   rename or a split, mints that same IRI, so nothing is stored. A keyed image under another key space or another key,
   after a union or a key change, stores its birth IRI in the dictionary both ways, as a handle's is (`SCHEMA.md`
   section 7.3). A keyless image keeps its handle IRI, which the dictionary already holds as written.
-- A secondary image, and an instance written after the cutover, is minted by the target's rules.
+- A secondary image, an image of a map that is not primary or of an `unnest` map, is minted from its origin: a keyed
+  one from its key, a keyless one with a **derived handle**, the origin's bucket and the low 104 bits of XXH3-128,
+  seed 0, of the origin's IRI, the target type's name and, for an `unnest` image, the member's canonical encoding and
+  a list member's position (`SCHEMA.md` sections 7.2 and 7.3). One origin gives one IRI however often the migration is
+  evaluated, at the copy and over a past slice (section 7). A derived handle that collides with another fails the run
+  (`UGS2203`).
+- An instance written after the cutover is minted by the target's rules.
 - An origin with no primary image has no IRI in the target; its IRI names it in the source version alone.
 - A minted IRI that equals a birth IRI an image holds is refused (`UGS1037`); the two hash to one partition, so the
   check is local.
@@ -296,11 +313,14 @@ there states. The migration's own checks:
 | A renamed item's new name is free, and no retired name is reused | `UGS2109` |
 | A `where` and every assignment are pure and deterministic, as a derivation's (`SCHEMA.md` section 6.8) | `UGS2110` |
 | A `map` or `filter` body reads its member alone, and a `map` over a set gives a type a set admits (`SCHEMA-APG.md`, definition 12.4) | `UGS2112` |
+| An `unnest` map has one source type, names a `List` or `Set` attribute of it, and is not `primary` | `UGS2113` |
+| Every namespace a joint migration must carry is in the install | `UGS2114` |
 
 The install's reply carries the **migration report**: per target type, its sources, the IRIs kept, stored and minted,
 the claims to re-register, the instances that change partition (section 8), and the estimated size of the copy;
-whether the mapping is pure or extended, naming each extended term (`SCHEMA-APG.md`, definition 16.3); and the staged
-namespace's identifier, which the run is started with.
+whether the mapping is pure or extended, naming each extended term (`SCHEMA-APG.md`, definition 16.3); the namespaces
+a joint migration carries and the importers it leaves untouched; the source's retention class and the storage its
+live slice keeps in both versions (section 7); and the staged namespace's identifier, which the run is started with.
 
 ## 6. The run
 
@@ -313,12 +333,25 @@ any restart and resumes from its last state.
 | `copying` | The run starts at snapshot epoch `e0` | Each partition computes the images of the origins it owns, reading the source at `e0`, and writes them into the staged graphs; writes to the source continue |
 | `validating` | Every partition has copied | The target's rules are checked over the staged data as `SCHEMA.md` section 13.3's scan checks a tightening; a violation fails the run naming the instance (`UGS2202`), a key collision naming both origins (`UGS2201`) |
 | `checked` | Validation passes | A **dry run** stops here: the report is final, and the staged namespace is discarded on request |
-| `fenced` | The cutover begins at epoch `e1` | Writes to the source namespace are refused as `PROTOCOL.md` must state for a fenced namespace (section 11); reads continue |
-| `catching_up` | At `e1` | The images of every origin written in `(e0, e1]`, and of every image whose assignments read one, are recomputed, and the instances they touch validated again |
+| `converging` | The cutover is requested | Catch-up rounds run without a fence: each recomputes the images the source's writes since the previous round affect, from `e0` for the first, and validates them; rounds repeat until one affects fewer images than the run's threshold |
+| `fenced` | The last round ends, at epoch `e1` | Writes to the source namespace are refused as `PROTOCOL.md` must state for a fenced namespace (section 11); reads continue |
+| `catching_up` | At `e1` | The final round: the images the writes since the last unfenced round affect are recomputed, and the instances they touch validated again |
 | `cut_over` | Catch-up passes, at epoch `e2` | One catalog version passes the namespace's name to the target and makes the source read-only; the fence lifts; prepared statements of the namespace go stale (`PROTOCOL.md` section 11.7), and a read-write transaction that executed against the source aborts with Conflict kind Catalog |
 | `failed` | Any check fails, or the run is cancelled before `cut_over` | The staged namespace is discarded; the source is as it was, and the fence, if raised, lifts |
 
-The fence is held from `e1` to `e2`, for the catch-up alone, which the report estimates from the source's write rate.
+The fence is held from `e1` to `e2`, for the final round alone, which the report estimates from the source's write rate.
+A round recomputes the images a write affects:
+
+- the images of every origin written;
+- for a pure term, the images whose term reaches a written instance by forward reference, found by walking the
+  referrer sets back from the written instances to their origins, to the depth the term's paths reach, which the
+  compiler knows;
+- for a key lookup, the images whose lookup an insert or a delete under that key changes, found through the key's
+  uniqueness claims;
+- for an extended term reading a derivation, a fold, a function or an inverse navigation, every image of its map,
+  whenever a type the term reads was written; the report names such maps as the ones that lengthen a round.
+
+A joint migration's rounds span every namespace it carries.
 Copying is idempotent per origin: an image is keyed by its origin, so a partition that restarts recomputes what it had
 not committed.
 
@@ -328,11 +361,23 @@ A migration carries the live slice: every live origin, and of a `@bitemporal` or
 a bitemporal origin keeps the origin's `asserted` start, so "since when was this believed" survives the migration;
 the origin's earlier versions and retracted instances stay in the source.
 
-- A read at an epoch before `e2` compiles against the source version and reads the source, as every read compiles
-  against the version in effect at its epoch (`SCHEMA.md` section 13.1).
-- After `e2`, the source namespace stays installed read-only under the name `{namespace}@{version}`, `hr@1`, with its
-  graphs and data, readable by every reader of the namespace and refusing every write. UQL's `believed at` before the
-  cutover is answered there.
+- **`as of` a point before `e2`** reads the source in the source's schema, as every read compiles against the version
+  in effect at its epoch (`SCHEMA.md` section 13.1).
+- **`believed at t` before `e2`**, in a query over the target, reads the target's history in the target's schema:
+  the migration, stored with the target's catalog, is evaluated over the source's slice believed at `t`
+  (`SCHEMA-APG.md`, proposition 16.6), and nothing is copied. Each image carries the IRI the copy gave its origin
+  (section 4.3), so one query joins the present and the past by IRI. A lookup by IRI reaches the origin directly; a
+  lookup by a key the migration changed scans the source type at `t`.
+- **`use {namespace}@{version}`** reads the source directly, in its own schema: after `e2` the source stays installed
+  read-only under that name, `hr@1`, with its graphs and data, readable by every reader of the namespace and refusing
+  every write.
+- **Retention.** A source holding `@bitemporal` or `@append_only` data stays until a legal purge removes it, under
+  `SCHEMA.md` section 8.8's authorisation, since the history it holds is never discarded otherwise (section 8.4
+  there). A source holding only mutable data retires once the retention window has passed since the cutover, when no
+  read reaches it any more (`PROTOCOL.md` code 3), or earlier on an explicit request. Grants decide who reads a source,
+  not how long it stays.
+- **Chains.** Each migration's source keeps its own mapping, so history before several cutovers is read by evaluating
+  the mappings in sequence, which needs no composition law and so admits extended mappings.
 - A legal purge (`SCHEMA.md` section 8.8) applies to the source's data as to the target's.
 
 ## 8. Distribution and cost
@@ -358,13 +403,17 @@ A migration rewrites what the database owns and publishes what it cannot rewrite
 
 - **Catalog functions and derivations** are compiled against the target; one that names a dropped item is refused at
   install (`UGS2101`).
-- **Queries** naming a retired name of a renamed item compile against the target for the deprecation window the
-  migration sets, with a warning naming the current name. A name retired by a split, a union or a drop is refused
-  with the migration named, since it no longer denotes one item.
+- **Queries** naming a retired name of a renamed item compile against the target for the deprecation window, with a
+  warning naming the current name. The window runs from the cutover for the duration the migration's `deprecation`
+  sets, else the tenant's default, and a later catalog version may extend it. After it, the name is refused with the
+  current name in the message, at no cost, since the catalog keeps every retired name (section 4.2). The same window
+  holds in all three languages: UQL's names, GQL's labels and property names, and SPARQL's class and predicate IRIs,
+  whose local names are the retired names (`QUERY-GQL-CORE.md` and `QUERY-SPARQL-CORE.md`, section 2). A name
+  retired by a split, a union or a drop is refused with the migration named, since it no longer denotes one item.
 - **IRIs** clients hold keep naming their instances (section 4.3); no client rewrites a stored IRI.
 - **The rename map**, every rename, map and drop of the migration in a machine-readable form, is published with the
   report, for codemods over client code and for the generated API schemas of stage 11, which emit retired names as
-  deprecated aliases.
+  deprecated aliases for the same window.
 
 ## 10. Refusals
 
@@ -382,24 +431,33 @@ A migration rewrites what the database owns and publishes what it cannot rewrite
 | `UGS2110` | A `where` or an assignment that is not pure and deterministic |
 | `UGS2111` | A migration whose `from` version is not the namespace's installed version, or whose `to` is not the target's |
 | `UGS2112` | A `map` or `filter` body that reads more than its member, or a `map` over a set into a type a set does not admit |
+| `UGS2113` | An `unnest` map with several source types, over a field that is no `List` or `Set`, or marked `primary` |
+| `UGS2114` | A joint migration without a namespace whose references require it; the message names the namespace and the reference |
 | `UGS2201` | Two origins whose images collide on a target key; the message names both |
 | `UGS2202` | Migrated data that breaks a target rule; the message names the instance and the rule's own refusal |
+| `UGS2203` | A derived handle colliding with another instance's handle; the message names both origins |
 
 ## 11. What this specification asks of the others
 
 - **`SCHEMA-APG.md`.** Carried 2026-11-08: the selection and the key lookup, the two steps of section 2 beyond `Δ`,
-  and the fragment's semantics (section 16 there).
-- **`SCHEMA.md`.** Section 7.2's bucket and claim hash, and section 7.3's keyed IRI, read the declaring type's key space
-  (section 4.1 here); section 7.3's routing admits retired names in handle IRIs; section 4.3's birth IRI rule and
-  `UGS1037`; section 13.2 points a destructive change at a migration as its alternative to deprecate and drop; section
-  10.1's phase 8 reads a migration.
-- **`PROTOCOL.md`.** Install carries a migration source and answers the report with the staged namespace's
-  identifier; a request starts, stops after `checked`, cuts over, and cancels a run, and one reads its state; a write to
-  a fenced namespace is refused with a retryable code of its own; the source's read-only name in requests.
-- **`term-dictionary`.** IRI entries rewritten at a cutover, versioned so a read at an earlier epoch sees the earlier
-  entry; birth IRIs of images stored both ways; forward entries for moved images.
-- **`metadata-group`.** The run's record and its transitions; the retired names per namespace.
-- **The query cores.** Retired names compiling with a warning during the deprecation window (section 9).
+  the fragment's semantics (section 16 there), unnesting (definition 12.7 there) and history through a migration
+  (proposition 16.6 there).
+- **`SCHEMA.md`.** Carried 2026-11-08: section 7.2's bucket and claim hash, and section 7.3's keyed IRI, read the key
+  space (section 4.1 here); section 7.3's routing admits retired names; section 7.3's birth IRIs and `UGS1037`; section
+  10.2's retired-name and migration entries; section 13.2 offers a migration beside deprecate and drop; section 10.1's
+  phase 8 reads a migration; section 7.3's derived handles for secondary images.
+- **`PROTOCOL.md`.** Carried 2026-11-08: Install carries a migration source and answers the report with the staged
+  namespace's identifier (section 8.4 there); Migrate (25) starts a run, dry-runs it, cuts it over, cancels it and
+  reads its state (section 8.6); a write to a fenced namespace is refused with `Fenced`, code 31, retryable after the
+  cutover; the source's name `{namespace}@{version}` travels inside query texts, as every namespace name does; a
+  warning, such as a retired name's, travels with a reply (section 4.9).
+- **`term-dictionary`, `metadata-group`.** Carried 2026-11-08 to stage 9.5's change set, which applies them to the
+  capability specifications (`SCHEMA.md` section 15): IRI entries rewritten at a cutover and versioned so a read at an
+  earlier epoch sees the earlier entry, birth IRIs held both ways and forward entries for moved images; the run's
+  record and its transitions, and the retired names per namespace.
+- **The query cores and UQL.** Carried 2026-11-08: retired names resolving with a warning during the deprecation
+  window and refused naming the current name after it (section 9); `believed at` before a cutover read through the
+  migration (`QUERY-ULTRA-QL.md` section 11).
 
 ## 12. Decisions
 
@@ -408,14 +466,22 @@ A migration rewrites what the database owns and publishes what it cannot rewrite
 | Cutover | Decided 2026-11-08: a write fence on the namespace at cutover; no live migration |
 | History | Decided 2026-11-08: the live slice migrates; bitemporal history stays read-only in the source version |
 | Stage | Decided 2026-11-08: stage 9.5, after conformance, so stage 8's cluster carries a migration that changes placement |
-| IRIs | Drafted 2026-11-08: fixed at birth; a keyed IRI names its key space, which outlives renames, and a handle states its bucket, so every IRI routes without a lookup |
+| IRIs | Decided 2026-11-08: fixed at birth; a keyed IRI names its key space, which outlives renames, and a handle states its bucket, so every IRI routes without a lookup |
 | Fragment | Drafted: `Δ` along label and variant-of-label images (`SCHEMA-APG.md`, proposition 9.5), with extended mapping terms, `map` and `filter` over collections, and selections; every image with one origin; no joins, no merging (proposition 16.4 there) |
 | Where the mapping is written | Drafted: a `migration` source installed with the target's schema source |
 | `asserted` of an image | Drafted: the origin's start, so the time a statement was first believed survives |
+| Π | Decided 2026-11-08: not adopted; a many-to-many relation between independent instances is written after the cutover by a pipeline |
+| Unnesting | Decided 2026-11-08: `unnest`, one image per member of a collection of values, each with one origin (section 3.2) |
+| History across a cutover | Decided 2026-11-08: `as of` reads the source in its schema; `believed at` reads the target's history through the stored migration, joined to the present by IRI (section 7) |
+| Secondary images' IRIs | Decided 2026-11-08: derived from the origin, so every evaluation names an image alike (section 4.3) |
+| Source retention | Decided 2026-11-08: until legal purge for `@bitemporal` or `@append_only` data; for mutable data alone, the retention window after the cutover (section 7) |
+| Imports | Decided 2026-11-08: joint migrations, one fence and one cutover, required where references would break (section 3.2) |
+| Catch-up | Decided 2026-11-08: rounds without a fence until the affected images fall below a threshold, then one fenced round (section 6) |
+| Deprecation window | Decided 2026-11-08: set by the migration, defaulting to the tenant's setting, from the cutover, the same in UQL, GQL and SPARQL (section 9) |
 
 
 
-## 14. Sources
+## 13. Sources
 
 - D. I. Spivak, *Functorial Data Migration*, arXiv:1009.1166: schemas as categories, instances as functors, Δ, Σ and Π.
 - D. I. Spivak, R. Wisnesky, *Relational Foundations for Functorial Data Migration*, arXiv:1212.5303: theorems 3 and 4,

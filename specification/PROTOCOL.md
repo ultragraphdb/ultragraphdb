@@ -20,7 +20,7 @@ This file leads the code: group 8 of stage 5.5 brings the crates and the golden 
 5. Bodies of the connection: Hello, Welcome, Authenticate
 6. Bodies of sessions, transactions and drops: Register, Begin, Commit, Abort, Drop
 7. Bodies of data requests: Read, Write, Operation, Query
-8. Bodies of prepared statements and the dictionary: Prepare, Execute, Describe, Install
+8. Bodies of prepared statements and the dictionary: Prepare, Execute, Describe, Install, Purge, Migrate
 9. Bodies of results and control: Result, Credit, Cancel, Error
 10. The term encoding of results
 11. The connection: handshake, authentication, streams, credit, cancel, sessions, statements, limits, partitions, read
@@ -39,7 +39,7 @@ This file leads the code: group 8 of stage 5.5 brings the crates and the golden 
 | Epoch | u64 holding an epoch number of 42 bits, 1 to 2⁴² − 1, or 0 for none where a field allows it; a receiver refuses any other value as `FieldValue` naming the field |
 | Partition | u32, numbered from 1; 0 for none where a field allows it |
 | Tenant | u64, from 0: the engine's unit of isolation, one catalog of numbered versions in the metadata group, one run of buckets, the grants of its principals. The metadata group holds the tenants (section 11.13), and the frontend and Bind refuse a number it does not hold (sections 11.10, 13.10). Nothing reads, writes or names across tenants; the cluster scope alone reaches over them, for backup and export (`SECURITY.md`). Tenants may share a bucket run, of which there are at most 256: isolation is by key, whose bytes 1 to 8 hold the tenant, and by grant, not by resource |
-| Namespace | A unit of organisation inside a tenant: one schema source installed in it with its graphs, from stage 6 (`SCHEMA.md`, sections 1 and 15). It has no field in any key, bucket, ID or frame |
+| Namespace | A unit of organisation inside a tenant: one schema source installed in it with its graphs, from stage 6 (`SCHEMA.md`, sections 1 and 15). It has no field in any key, bucket, ID or frame but one: the identifier a migration's staged namespace takes (sections 8.4, 8.6). A query text names a namespace (section 8.6) |
 | Bucket | u32, 0 to 2²⁴ − 1: a system ID's bucket field, its top 8 bits the tenant's run |
 | Bucket group | u32, 0 to 2¹⁸ − 1: a bucket's top 18 bits, 64 contiguous buckets, 2¹⁰ groups per run |
 | Session | 16 bytes: a session's identity, 128 random bits the frontend draws, opaque; all zero names no session (section 11.5) |
@@ -194,7 +194,7 @@ A client refusing a frame from the server closes the connection.
 | 9 | Operation | client → server, and frontend → storage on a Bind stream | sections | to a client, nothing, and its result comes with the Commit reply; on a Bind stream, Held, or Error |
 | 10 | Prepare | both | sections | Prepare, or Error |
 | 11 | Execute | client → server | sections | Result frames, or Error |
-| 12 | Describe | both | sections | Describe, or Error |
+| 12 | Describe | both | sections | Describe frames, the last flagged `LAST`; or Error |
 | 13 | Result | server → client | sections | Credit when the client wants more |
 | 14 | Credit | the side that dialled → the side that accepted | empty | nothing |
 | 15 | Cancel | the side that dialled → the side that accepted | empty | nothing |
@@ -206,6 +206,8 @@ A client refusing a frame from the server closes the connection.
 | 21 | ConditionalWrite | client → server, and frontend → storage | sections | Commit, or Error |
 | 22 | Query | client → server | sections | Result frames, or Error |
 | 23 | Install | both | sections | Install, or Error |
+| 24 | Purge | both | sections | Purge, or Error |
+| 25 | Migrate | both | sections | Migrate, or Error |
 | 256–511 | reserved for the replica commands of stage 8 | | | |
 | 512 | Join | both; storage, compute → frontend | sections | Join, or Error |
 | 513 | Members | both; storage, compute → frontend | sections | Members |
@@ -213,7 +215,7 @@ A client refusing a frame from the server closes the connection.
 | 515 | EpochClose | frontend → storage | sections | nothing |
 | 516 | Lease | both; storage → frontend | empty | Lease, or Error |
 | 517 | Placement | both; storage, compute → frontend | sections | Placement |
-| 518 | Catalog | both; storage, compute → frontend | sections | Catalog, or Error |
+| 518 | Catalog | both; storage, compute → frontend | sections | Catalog frames, the last flagged `LAST`; or Error |
 | 519 | Challenge | both; a frontend → the metadata group's host, from stage 8 | sections | Challenge |
 | 520 | Verify | both; a frontend → the metadata group's host, from stage 8 | sections | Verify |
 | 521 | Bind | both; frontend → storage | empty | Bind, or Error; the stream stays open |
@@ -296,10 +298,10 @@ A sender interns: each distinct string appears once, at its first use, in the or
 
 ### 4.4 Request term table
 
-Every RDF term a request names (Read, Write, DirectWrite, ConditionalWrite, Operation, Prepare, Execute, Drop) is a u32 index into the request's
-term table, as are the value an OperationFailed Error reports (section 9.4), the nodes a Commit reply names (section
-6.3), the terms a resume key holds (section 11.8) and the terms role commands carry by their text (section 13): two
-sections, `records` and `text`.
+Every RDF term a request names (Read, Write, DirectWrite, ConditionalWrite, Operation, Prepare, Execute, Drop, Purge) is
+a u32 index into the request's term table, as are the value an OperationFailed Error reports (section 9.4), the nodes a
+Commit reply names (section 6.3), the terms a resume key holds (section 11.8) and the terms role commands carry by their
+text (section 13): two sections, `records` and `text`.
 
 `records` holds one 24-byte record per term, in table order:
 
@@ -361,7 +363,7 @@ one with Error 7 (Refused) on the request's stream, `detail` the term's index an
 
 | Term | Rule |
 |---|---|
-| IRI | an absolute IRI (RFC 3987). A skolem IRI begins with a tenant's skolem base, `https://w3id.org/ultragraphdb/ns/tenant/{n}/`, then `.well-known/genid/`; the frontend compares that text exactly, so the same path under another base is an ordinary IRI. One that names another tenant than the request's, whose tail is not `{bucket}-{random}` in the digits section 10.2 gives, or whose bucket lies outside the tenant's run, is an IRI nobody holds: the frontend refuses it in a change or an operation, and a read binding it matches nothing and binds nothing (section 11.12). In a change or an operation, any other skolem IRI is taken only when the dictionary of the partition owning the bucket its text states holds it as a blank node's skolem IRI or as a statement reifier's name, so a forged one is refused (section 13.15). In a pattern, an unheld skolem IRI matches nothing, as any IRI nobody holds |
+| IRI | an absolute IRI (RFC 3987). A skolem IRI begins with a tenant's skolem base, `https://w3id.org/ultragraphdb/ns/tenant/{n}/`, then `.well-known/genid/`; the frontend compares that text exactly, so the same path under another base is an ordinary IRI. One that names another tenant than the request's, whose tail is not `{bucket}-{random}` in the digits section 10.2 gives, or whose bucket lies outside the tenant's run, is an IRI nobody holds: the frontend refuses it in a change or an operation, and a read binding it matches nothing and binds nothing (section 11.12). In a change or an operation, any other skolem IRI is taken only when the dictionary of the partition owning the bucket its text states holds it as a blank node's skolem IRI or as a statement reifier's name, so a forged one is refused (section 13.15). In a pattern, an unheld skolem IRI matches nothing, as any IRI nobody holds. A handle IRI, `{base}{Type}/{handle}` (`SCHEMA.md` section 7.3), names an instance of a keyless type by its handle: `{Type}` a keyless entity or relation type of the tenant's catalog, or a retired name of one (`SCHEMA-EVOLUTION.md` section 4.2), and `{handle}` the bucket in 6 and 104 bits in 26 lowercase hexadecimal digits, joined by `-`. It is taken as a skolem IRI is: one whose bucket lies outside the tenant's run names nobody; in a change or an operation, it is taken only when the dictionary of the partition owning its bucket holds it as an instance's IRI, so a forged one is refused; in a pattern, an unheld one matches nothing. A client never mints a handle: the partition creating a keyless instance draws it. A derived handle, which a migration gives a secondary image (`SCHEMA.md` section 7.3), is a handle like any other |
 | Language tag | well-formed (BCP 47) |
 | Literal of a known datatype (section 10.4) | its lexical form valid for its datatype |
 | The predicate slot of a pattern or a change | an IRI |
@@ -460,7 +462,9 @@ table, so its limit for term args is 0.
 | Header, section table, padding, command header | every byte | |
 | Request term table | the text order, no `xsd:string`, no duplicate entry | the entries' order: Rust builders intern terms in order of first use, a triple's parts before it |
 | String list | the ends' order | each string once, in order of first use |
-| Write's names, Describe's strings | | interned: Write in record order, arg by arg; Describe's labels, then relationship types, then property keys, then the declarations' names in record order |
+| Write's names, Describe's strings | | interned: Write in record order, arg by arg; Describe's labels, then relationship types, then property keys, then the declarations' names in record order, then the entries' names and the retired names' current names in entry order |
+| Describe's entries (section 8.3) | their order, offsets and zero bytes | |
+| Warnings (section 4.9) | the count, the indices and zero bytes | messages interned in warning order |
 | Result batch | the cell count and indices, each term encoding whole | terms in order of first appearance, reading the rows in order and each row's columns in order; each distinct encoding once; strings interned in term order, text then annotation |
 | Commit results, Round decisions | the boolean and zero bytes, a result's node index | a Commit reply's term table interned in result order |
 | Session token | every byte | |
@@ -487,6 +491,33 @@ offset); either every field is 0, or `partition ≥ 1`, `position ≥ 1` and `ep
 `"token"`). A token has one encoding. The frontend refuses a Begin, DirectWrite or ConditionalWrite whose token's epoch is
 above the sequencer's open epoch with Error 1 (Protocol) on its stream, the message naming the epoch: no commit holds such a
 token.
+
+### 4.9 Warnings
+
+A reply carries the warnings its request's compilation reported without refusing it, such as a retired name resolved
+during its migration's deprecation window (`UQL0110`, `GQL0210`, `SPQ0210`; `SCHEMA-EVOLUTION.md` section 9), in three
+sections: the warnings, 24 bytes each, then their messages as a string list (section 4.3). The first Result batch of a
+Query or of an Execute of a text (section 9.1), a Prepare's reply (section 8.1) and an Install's reply (section 8.4)
+carry them; a reply with no warning, and every other frame holding the sections, holds them empty.
+
+| Warning offset | Width | Field | Type |
+|---|---|---|---|
+| 0 | 4 | `diagnostic` | u32: the diagnostic's number in bits 0–15 and its language in bits 16–23, as code 29's `detail` encodes a refused query's (section 9.4); bits 24–31 zero |
+| 4 | 4 | `source` | u32: the source the location lies in: in an Install's reply, the source's place among the request's sources, from 0; 0 for a query text |
+| 8 | 4 | `offset` | u32: the location's first byte within that source's text |
+| 12 | 4 | `length` | u32: the location's length in bytes |
+| 16 | 4 | `message` | u32: the message's index in the string list: the diagnostic's code, then its reason and, where one exists, its fix, for people, as code 29's message gives them; a retired name's names the current one |
+| 20 | 4 | zero | 0 |
+
+A reply carries at most 64 warnings, the first in source order, and a message is at most 512 bytes, so a first Result
+batch's warnings leave its rows room at the floor of `max_frame`.
+
+Order: the warnings a whole number of 24 bytes (`SectionLength`); the string list (section 4.3); at most 64 warnings
+(`CountMismatch` `"warnings"`); each warning in order: bytes 20–23 zero (`PaddingNotZero`, the body offset); bits 24–31
+of `diagnostic` zero and its language one section 9.4 lists (`FieldValue` `"diagnostic"`); `source` 0 outside an
+Install's reply (`FieldValue` `"source"`); `offset + length` within a u32 (`FieldValue` `"location"`); `message` below
+the string count (`IndexOutOfRange`, the warnings' section, the warning); each message at most 512 bytes (`FieldValue`
+`"message"`).
 
 ## 5. Bodies of the connection
 
@@ -521,7 +552,7 @@ The server's answer to Hello: the protocol chosen, its limits, and how the conne
 | 4 | 4 | `release` | u32 | the server's release |
 | 8 | 4 | `max_frame` | u32 | the largest frame the server takes, 524,288 to 1,048,576 (`FieldValue` `"max_frame"`) |
 | 12 | 4 | `max_streams` | u32 | the streams a connection holds in flight, at least 1 (`FieldValue` `"max_streams"`) |
-| 16 | 4 | `initial_credit` | u32 | the Result or Entries frames each stream answering a read may send before a Credit, at least 1 (`FieldValue` `"initial_credit"`) |
+| 16 | 4 | `initial_credit` | u32 | the Result, Entries, Describe or Catalog frames each stream answering a read, a Describe or a Catalog may send before a Credit, at least 1 (`FieldValue` `"initial_credit"`) |
 | 20 | 4 | `max_write_set` | u32 | the largest write set a transaction commits, in bytes: its write-set record rounded up to 8 bytes and the dictionary entries it adds to its round (section 11.9) |
 | 24 | 4 | `transaction_ms` | u32 | the longest a read-write transaction lives, in milliseconds (section 11.9) |
 
@@ -842,16 +873,16 @@ or 1 (`FieldValue` `"link direction"`), every other arg is below the term table'
 
 ### 7.4 Query (22)
 
-A query of the GQL core or the SPARQL core (`QUERY-GQL-CORE.md`, `QUERY-SPARQL-CORE.md`) in the transaction it names,
-on a stream of its own, as a Read is: its text, its parameters by name, at most `limit` rows (0 for no limit), and the
+A query of the GQL core or the SPARQL core (`QUERY-GQL-CORE.md`, `QUERY-SPARQL-CORE.md`) in the transaction it names, on
+a stream of its own, as a Read is: its text, its parameters by name, at most `limit` rows (0 for no limit), and the
 resume key a previous result of the same request ended with, empty to start (section 11.8). A statement with a writing
 clause needs a read-write transaction (`mode` 0), refused in a read-only one with code 29. The reply is a stream of
-Result frames (section 9.1), the first carrying the column names, the last flagged `LAST`; a SPARQL update's reply is one
-Result of one row with the columns `inserted` and `deleted`, `xsd:integer` terms, and a GQL statement without `RETURN`
-answers one Result of no columns and no rows, flagged `LAST` (`QUERY-GQL-CORE.md` section 7.1). The frontend compiles the text
-against the catalog version in effect for the transaction's tenant, refuses it with code 29 and the core's diagnostic
-(section 9.4), and otherwise plans and executes it as the quad-reads specification routes reads and section 11.12
-routes writes.
+Result frames (section 9.1), the first carrying the column names and the compilation's warnings (section 4.9), the last
+flagged `LAST`; a SPARQL update's reply is one Result of one row with the columns `inserted` and `deleted`,
+`xsd:integer` terms, and a GQL statement without `RETURN` answers one Result of no columns and no rows, flagged `LAST`
+(`QUERY-GQL-CORE.md` section 7.1). The frontend compiles the text against the catalog version in effect for the
+transaction's tenant, refuses it with code 29 and the core's diagnostic (section 9.4), and otherwise plans and executes
+it as the quad-reads specification routes reads and section 11.12 routes writes.
 
 | Command header | Width | Field | Type | Rule |
 |---|---|---|---|---|
@@ -883,8 +914,8 @@ refused with code 11 (Parameters), `detail` 0; one the text uses and the names d
 A statement prepared once per connection, which holds it (section 11.7): a quad pattern with parameter slots, or a
 query text of the GQL or SPARQL core with named parameters. The client sends the pattern or text and its parameters'
 types with `statement` and `schema` 0 and no result types; the server answers with the statement's id, its tenant's
-schema id as the connection's principal sees it (section 11.7), the result column types and, for a text, the names.
-The statement belongs to the tenant `tenant` names.
+schema id as the connection's principal sees it (section 11.7), the result column types and, for a text, the names
+and its compilation's warnings (section 4.9). The statement belongs to the tenant `tenant` names.
 
 | Command header | Width | Field | Type | Rule |
 |---|---|---|---|---|
@@ -902,6 +933,9 @@ The statement belongs to the tenant `tenant` names.
 | 4 | result column types, one byte per result column (section 9.1): for a pattern each unbound slot in slot order, then the reifier column; for a text each projection; empty in a request |
 | 5 | names: string list `ends`; for a text, in a request the parameter names in parameter order, in a reply the parameter names then the result column names; empty for a pattern |
 | 6 | names: string list `text` |
+| 7 | the warnings (section 4.9); empty in a request and for a pattern |
+| 8 | the warnings' messages: string list `ends` |
+| 9 | the warnings' messages: string list `text` |
 
 A column type names what a parameter or result column holds:
 
@@ -932,7 +966,8 @@ section 4's, each 1 or 2 for a pattern and 1 to 13 for a text (`FieldValue` `"co
 pattern's parameter slots, or the text's parameter names (`CountMismatch` `"parameter types"`); in a request, result
 types are empty, and in an answer they count the unbound slots and one more, or the text's projections
 (`CountMismatch` `"result types"`); in an answer for a text, the names count the parameters and the result columns
-(`CountMismatch` `"names"`).
+(`CountMismatch` `"names"`); sections 7 to 9 empty in a request and for a pattern (`CountMismatch` `"warnings"`); the
+warnings (section 4.9).
 
 ### 8.2 Execute (11)
 
@@ -957,20 +992,21 @@ Order: unused bytes 20–127 zero; sections; the term table (0, 1); the paramete
 (`SectionLength`); each below the term table's length (`IndexOutOfRange`, section 2).
 
 A statement prepared from a text takes its parameters by position in the order its Prepare named them, and answers
-Result frames as a Query does (section 7.4), the column names on the first batch; a statement with a writing clause
-executes in a read-write transaction only (code 29).
+Result frames as a Query does (section 7.4), the column names and the warnings its Prepare answered on the first batch;
+a statement with a writing clause executes in a read-write transaction only (code 29).
 
 ### 8.3 Describe (12)
 
 What a tenant's catalog declares and its metadata records, as far as the connection's principal may read it, every
-namespace installed in the tenant included. The client sends the tenant alone: `read_version` 0 and seven empty sections.
+namespace installed in the tenant included. The client sends the tenant alone: `read_version` 0 and nine empty sections.
 
 The frontend answers a Describe itself from the metadata group, asking no other role, and so names what is declared and
 recorded rather than what data holds: `read_version` the version bound of the latest epoch the sequencer closed, or of
 epoch 0 before the first close; section 2 the entity types declared in effect at that epoch; section 3 the predicates of
 kind edge or either that it declares or holds a default entry for; section 4 those of kind property or either; sections
-5 and 6 the catalog's declarations the principal may read. An answer that does not fit one frame within the client's
-`max_frame` is refused with code 6 (TooLarge), `detail` that `max_frame`.
+5 and 6 the catalog's declarations the principal may read; sections 7 and 8 the entries of the catalog version those
+declarations are drawn from that the principal may read, the installed sources and the retired names among them. An
+answer that does not fit one frame within the client's `max_frame` continues in further frames (*Continuation*, below).
 
 | Command header | Width | Field | Type |
 |---|---|---|---|
@@ -986,12 +1022,78 @@ kind edge or either that it declares or holds a default entry for; section 4 tho
 | 4 | property keys, u32 string indices |
 | 5 | declarations: change records of kinds 8, 9, 10, in that order, each kind's records in the order of their declared IRIs' UTF-8 bytes (section 4.6); an entity type's `extra` is its preorder number: its place, from 1, in a preorder walk of the type hierarchy, each type before its children, roots and siblings in the order of their IRIs' UTF-8 bytes |
 | 6 | the declarations' args, u32s |
+| 7 | entries, 16 bytes each, by kind, then by name as UTF-8 bytes, the order of a catalog version's entries (`SCHEMA.md` section 10.2) |
+| 8 | the entries' bytes, back to back in entry order |
 
-Order: unused bytes 16–127 zero; sections; the string list (0, 1); sections 2, 3, 4 in turn, each a whole number of
-u32s (`SectionLength`) and each index below the string count (`IndexOutOfRange`); the args (6) a whole number of u32s;
-the records (5).
+| Entry offset | Width | Field | Type |
+|---|---|---|---|
+| 0 | 1 | `kind` | u8: the entry's kind, below |
+| 1 | 3 | zero | 0 |
+| 4 | 4 | `name` | u32: the name the catalog orders the entry by, a string index; for the report, the empty string |
+| 8 | 4 | `offset` | u32: the entry's first byte in section 8, where the bytes of the entry before end |
+| 12 | 4 | `len` | u32: its bytes' length |
 
-The request's body, seven empty sections, is 56 bytes: the table, every `offset` 56 and every `len` 0.
+| Kind | Entry (`SCHEMA.md` section 10.2) | Carried to the principal |
+|---|---|---|
+| 1 | Schema | whole |
+| 2 | Module | whole |
+| 3 | Type | whole |
+| 4 | Prefix ranges | whole |
+| 5 | Attribute | where it holds `read` on every predicate the entry names |
+| 6 | Predicate | likewise |
+| 7 | Role | likewise |
+| 8 | Navigation | likewise |
+| 9 | Enum | whole |
+| 10 | Record | whole |
+| 11 | Named attribute type | whole |
+| 12 | Quantity | whole |
+| 13 | Unit | whole |
+| 14 | Derivation | where it holds `read` on every predicate the entry names |
+| 15 | Function | likewise |
+| 16 | Graph | whole |
+| 17 | Classification | where it holds `read` on every predicate the entry names |
+| 18 | Report | likewise |
+| 19 | Source: an installed source, by its name | where it holds `read` on every predicate the source declares |
+| 20 | Retired name: a name an item held in an earlier version (`SCHEMA-EVOLUTION.md` section 4.2), by that name | whole for a type or a graph; for an attribute, a role or a navigation name, where it holds `read` on the predicates of the item holding the name now |
+
+Kinds 1 to 18 hold the entry's bytes as the catalog version encodes them, in the canonical encoding of `SCHEMA.md`
+section 10.2, which the protocol carries opaque as Catalog carries a version's bytes (section 13.7). Kind 19 holds the
+source's text, UTF-8, the migration sources installed with a target among them. Kind 20 holds 24 bytes:
+
+| Retired name offset | Width | Field | Type |
+|---|---|---|---|
+| 0 | 1 | `item` | u8: 1 a type, 2 an attribute, 3 a role, 4 a navigation name, 5 a graph |
+| 1 | 1 | `fate` | u8: 1 renamed, the item holding `current` now; 2 retired by a split, a union or a drop, holding no item, which a query naming it is refused for with the migration named |
+| 2 | 2 | zero | 0 |
+| 4 | 4 | `current` | u32: for `fate` 1, the item's current name, a string index; `ABSENT` for 2 |
+| 8 | 8 | `version` | u64: the catalog version whose cutover retired the name, at least 1 |
+| 16 | 8 | `until` | u64: for `fate` 1, when the deprecation window ends, in microseconds of Unix time, after which a query naming it is refused with the current name; 0 for 2 |
+
+The whole and filtered kinds follow `SCHEMA.md` section 10.3's rule, extended to the entries it does not list: the
+schemas' vocabulary whole, what names a predicate filtered. The schema id hashes the entries as the principal sees them
+(section 11.7).
+
+Order: unused bytes 16–127 zero; sections; the string list (0, 1); sections 2, 3, 4 in turn, each a whole number of u32s
+(`SectionLength`) and each index below the string count (`IndexOutOfRange`); the args (6) a whole number of u32s; the
+records (5); section 7 a whole number of 16-byte entries (`SectionLength`); each entry in order: bytes 1–3 zero
+(`PaddingNotZero`, the body offset), `kind` 1 to 20 (`FieldValue` `"entry kind"`), `name` below the string count
+(`IndexOutOfRange`, section 7, the entry), `offset` where the bytes before end (`FieldValue` `"entry offset"`), the
+entry's bytes within section 8 (`IndexOutOfRange`, section 8, the entry), after the entry before by kind, then by its
+name's UTF-8 bytes (`FieldValue` `"entry order"`, the entry), a kind-19 entry's bytes UTF-8 (`NotUtf8`, section 8), a
+kind-20 entry's bytes 24 long, bytes 2–3 zero, `item` 1 to 5, `fate` 1 or 2, `current` below the string count for `fate`
+1 and `ABSENT` for 2, `version` at least 1 and `until` 0 for `fate` 2 (`FieldValue` `"retired name"`, the entry); the
+entries' bytes ending at section 8's end (`CountMismatch` `"entry bytes"`).
+
+The request's body, nine empty sections, is 72 bytes: the table, every `offset` 72 and every `len` 0.
+
+**Continuation.** An answer larger than one frame within the client's `max_frame` continues in further Describe frames
+on the stream, each with the first's command header, the last alone flagged `LAST`. The client reads them as one body,
+each of its nine sections the concatenation, in frame order, of that section's bytes in every frame, and checks the
+Order above once, on that body; a frame breaking the first's command header is refused as `FieldValue` (`"describe"`). A
+frame splits a section of records or u32s only between whole ones and a text only on a character boundary, so each
+frame's sections hold whole units (`SectionLength`) and UTF-8 (`NotUtf8`). Describe frames spend credit as Result frames
+do, the stream starting with the Welcome's `initial_credit` (section 11.3). A catalog version is at most
+`catalog_bytes_max` bytes (section 11.9), which bounds the answer.
 
 ### 8.4 Install (23)
 
@@ -1002,26 +1104,129 @@ gives a version. The client sends the sources with `epoch` and the reply's `vers
 answers with the new version's number, its effective epoch and the compilation report, or refuses with code 28 and
 the diagnostics. Installing takes `declare` on the tenant, which the gate of section 11.10 checks first (`SECURITY.md`). The reply answers once the epoch is
 assigned and, for a tightening change, once every partition holding the tenant's data has passed the validation scan
-at that epoch, as a type change's Commit does.
+at that epoch, as a type change's Commit does. The reply carries the compilation's warnings (section 4.9).
+
+**A migration.** A source whose text declares a `migration` (`SCHEMA-EVOLUTION.md` section 3) installs with its target's
+schema source in one Install, and the compiler checks it as section 5 there states. The version installed then holds the
+target as a staged namespace, which no request but its run's sees, and the reply names it by `staged`, an identifier the
+metadata group allocates, never reused in the tenant, and carries the migration report in section 3
+(`SCHEMA-EVOLUTION.md` sections 5 and 9, the rename map among it). Migrations installed together are one joint
+migration: one run and one `staged`. Migrate runs it (section 8.6). An Install holding a migration source is refused
+with code 7 before stage 9.5 (section 11.2).
 
 | Command header | Width | Field | Type | Rule |
 |---|---|---|---|---|
 | 0 | 8 | `tenant` | u64 | |
 | 8 | 8 | `version` | u64 | in a request, the catalog version the sources build on, 0 for a tenant with none; in a reply, the version installed, at least 1 (`FieldValue` `"version"`) |
 | 16 | 8 | `epoch` | epoch (section 1) | in a reply, the epoch the version takes effect at; 0 in a request |
+| 24 | 8 | `staged` | u64 | in a reply to sources holding a migration, the staged namespace's identifier, at least 1; else 0, and 0 in a request (`FieldValue` `"staged"`) |
 
 | Section | Contents |
 |---|---|
 | 0 | sources: string list `ends` |
 | 1 | sources: string list `text`: for each source its name, then its text, in that order |
 | 2 | the report, UTF-8, the coordination report of `SCHEMA.md` section 9.5; empty in a request |
+| 3 | the migration report, UTF-8 (`SCHEMA-EVOLUTION.md` section 5); empty in a request and without a migration |
+| 4 | the warnings (section 4.9); empty in a request |
+| 5 | the warnings' messages: string list `ends` |
+| 6 | the warnings' messages: string list `text` |
 
-Order: unused bytes 24–127 zero; `version`, in a reply at least 1 (`FieldValue` `"version"`); `epoch`, 0 in a request and an
-epoch in a reply (`FieldValue` `"epoch"`); sections; in a request, section 2 empty (`CountMismatch` `"report"`); the string
-list, an even count of strings, at least two (`CountMismatch` `"sources"`), each name at most 255 bytes (`FieldValue`
-`"source name"`); section 2 UTF-8 (`NotUtf8`, section 2). A version built on one no longer current is refused with code 2
-(Conflict), kind 5 (Catalog), as a declaration's is. The frontend refuses a compiled version whose bytes pass 523,000 (section
-11.13) with code 7, `detail` 523,000, the message naming its size, and nothing is installed.
+Order: unused bytes 32–127 zero; `version`, in a reply at least 1 (`FieldValue` `"version"`); `epoch`, 0 in a request
+and an epoch in a reply (`FieldValue` `"epoch"`); `staged`, 0 in a request (`FieldValue` `"staged"`); sections; in a
+request, sections 2 to 6 empty (`CountMismatch` `"report"`); the string list, an even count of strings, at least two
+(`CountMismatch` `"sources"`), each name at most 255 bytes (`FieldValue` `"source name"`); sections 2 and 3 UTF-8
+(`NotUtf8`, the section); section 3 empty when `staged` is 0 (`CountMismatch` `"migration report"`); the warnings
+(section 4.9). A version built on one no longer current is refused with code 2 (Conflict), kind 5 (Catalog), as a
+declaration's is. The frontend refuses a compiled version whose bytes pass `catalog_bytes_max` (sections 11.9, 11.13)
+with code 7, `detail` the bound, the message naming its size, and nothing is installed.
+
+### 8.5 Purge (24)
+
+The legal purge of `SCHEMA.md` section 8.8: the instances a list of IRIs names, removed with every version of their
+data, which no delete or retraction removes. The client sends the tenant and the IRIs with `epoch` and `removed` 0. The
+frontend sequences the purge at an epoch through the metadata group and executes it at each instance's home and at every
+member of its referrer set, as an entity delete's shares are, with removal in place of a tombstone's fence (section
+12.2, operation 9); with one partition holding the tenant's run, it executes there alone. It answers with the purge
+epoch and the instances removed once every partition the purge reaches has applied it. The metadata group records the
+purge epoch with the SHA-256 of each IRI purged, never the IRI. A Purge takes `purge` on the tenant, which the gate of
+section 11.10 checks first, refusing it with code 21 (`SECURITY.md`); it is an audit event. A Purge resent after a lost
+reply removes nothing more and is recorded at an epoch of its own. A Purge is refused with code 7 before stage 8
+(section 11.2).
+
+| Command header | Width | Field | Type | Rule |
+|---|---|---|---|---|
+| 0 | 8 | `tenant` | u64 | |
+| 8 | 8 | `epoch` | epoch (section 1) | in a reply, the purge epoch; 0 in a request |
+| 16 | 4 | `removed` | u32 | in a reply, the instances removed, an IRI naming none removing nothing; 0 in a request |
+
+| Section | Contents |
+|---|---|
+| 0 | the term table's records (section 4.4): the instances' IRIs, each of kind 1, at most 10,000 |
+| 1 | the term table's text |
+
+Order: unused bytes 20–127 zero; `epoch`, 0 in a request and an epoch in a reply (`FieldValue` `"epoch"`); `removed`, 0
+in a request (`FieldValue` `"removed"`); sections; the term table; 1 to 10,000 entries (`CountMismatch` `"purge"`), each
+of kind 1 (`FieldValue` `"purge term"`, the entry's kind); `removed` at most the entries' count (`FieldValue`
+`"removed"`).
+
+### 8.6 Migrate (25)
+
+A migration's run (`SCHEMA-EVOLUTION.md` section 6), named by the `staged` identifier its Install answered (section
+8.4). A run is a record of the metadata group that moves through its states by committed transitions in the background,
+surviving any restart. A Migrate asks for one action: the frontend answers once the metadata group has committed the
+transition it asks for, a state read at once, and the client follows the run by reading its state.
+
+| Command header | Width | Field | Type | Rule |
+|---|---|---|---|---|
+| 0 | 8 | `tenant` | u64 | |
+| 8 | 8 | `staged` | u64 | the staged namespace's identifier, at least 1 (`FieldValue` `"staged"`) |
+| 16 | 1 | `action` | u8 | 1 start, 2 dry run, 3 cut over, 4 cancel, 5 read the state; else `FieldValue` (`"action"`) |
+| 17 | 1 | `state` | u8 | in a reply, the run's state, below; 0 in a request (`FieldValue` `"state"`) |
+| 20 | 4 | `refusal` | u32 | in a reply of state 9 for a run a check failed, the UGS refusal number it failed with, 2201 to 2299 for `UGS2201` to `UGS2299`; 0 otherwise, a cancelled run's included (`FieldValue` `"refusal"`) |
+| 24 | 8 | `epoch` | epoch (section 1) | in a reply, the epoch the run entered its state at: `e0` for `copying`, `e1` for `fenced`, `e2` for `cut_over`; 0 in a request |
+
+| State | Name | Entered when (`SCHEMA-EVOLUTION.md` section 6) |
+|---|---|---|
+| 1 | `staged` | the Install succeeded |
+| 2 | `copying` | the run started |
+| 3 | `validating` | every partition has copied |
+| 4 | `checked` | validation passed; a dry run stops here |
+| 5 | `converging` | the cutover was requested |
+| 6 | `fenced` | the last unfenced round ended |
+| 7 | `catching_up` | the final round began |
+| 8 | `cut_over` | the catalog version passing the namespace to the target took effect |
+| 9 | `failed` | a check failed, or the run was cancelled before `cut_over`; the staged namespace is discarded |
+
+| Action | Taken in state | Asks for | Answered at |
+|---|---|---|---|
+| 1 start | `staged` | the run, at snapshot epoch `e0`, through `checked` | `copying` |
+| 2 dry run | `staged` | the run, stopping at `checked` for good | `copying` |
+| 3 cut over | `checked`, of a run action 1 started | the rounds, the fence and the cutover | `converging` |
+| 4 cancel | any before `cut_over` | the staged namespace discarded and the fence, if raised, lifted | `failed` |
+| 5 read the state | any | nothing | the current state |
+
+| Section | Contents |
+|---|---|
+| 0 | the message, UTF-8: in a reply of state 9 for a run a check failed, the refusal's message, naming the instance and the rule as `SCHEMA-EVOLUTION.md` section 10 states; empty otherwise |
+| 1 | the migration report, UTF-8, as the run has brought it: final from `checked`; empty in a request |
+
+Order: unused bytes 18–19 and 32–127 zero; `staged`; `action`; `state`, 0 in a request and 1 to 9 in a reply
+(`FieldValue` `"state"`); `refusal`, 0 unless `state` is 9 and then 0 or 2201 to 2299 (`FieldValue` `"refusal"`);
+`epoch` at most 2⁴² − 1 (`FieldValue` `"epoch"`); sections; in a request, both sections empty (`CountMismatch`
+`"migrate"`); sections 0 and 1 UTF-8 (`NotUtf8`, the section); section 0 empty when `refusal` is 0 (`CountMismatch`
+`"message"`).
+
+An action the run's state does not take is refused with code 7 (Refused), `detail` 0, the message naming the state and
+the action; a `staged` the tenant does not hold, or one whose run has ended, `cut_over` or `failed`, for any action but
+a state read, with code 7, `detail` the identifier. Every action takes `declare` on the tenant, which the gate of
+section 11.10 checks first (`SECURITY.md`). While a run is `fenced` or `catching_up`, a write reaching a graph of a
+namespace it carries is refused with code 31 (Fenced) and writes nothing; the client runs it again after a delay, and
+after the cutover it executes against the target, after a failure against the source as it was. At `cut_over` the
+catalog version passing the namespace to the target takes effect as any version does (section 11.13): prepared
+statements of the tenant go stale (code 9), and a read-write transaction that executed against the source aborts with
+code 2, kind 5 (Catalog). The source stays installed, read-only, as `{namespace}@{version}`, a name that travels, as
+every namespace's, inside query texts, in UQL's `use`, GQL's `USE` and SPARQL's graph IRIs, and takes no field (section
+1). A Migrate is refused with code 7 before stage 9.5 (section 11.2).
 
 ## 9. Bodies of results and control
 
@@ -1061,6 +1266,9 @@ answers one batch flagged `LAST`, `rows` 0 and `columns` the unbound slots and o
 | 6 | the resume key |
 | 7 | column names: string list `ends`; one name per column on a query's first batch, empty on every other batch and on a pattern's |
 | 8 | column names: string list `text` |
+| 9 | the warnings (section 4.9): on a Query's first batch, those its compilation reported; on an Execute's first batch, those its Prepare answered; empty on every other batch and on a pattern's |
+| 10 | the warnings' messages: string list `ends` |
+| 11 | the warnings' messages: string list `text` |
 
 A query's batch holds one row per record of its result, the columns its projections in order: a node, a relation node
 or an edge by its IRI, tagged as an IRI or a blank node as the dictionary holds it; a scalar in its term encoding; a
@@ -1076,7 +1284,7 @@ transaction's later reads start from (section 11.12); neither is a system ID.
 Order: unused bytes 21–127 zero; `columns`; `epoch`; `monotonic` 0 to 2 (`FieldValue` `"monotonic"`); sections; offsets
 (1) a whole number of u32s; texts (3) a whole number of 8-byte pairs (`SectionLength`); one pair per term
 (`CountMismatch` `"term texts"`); the string list (4, 5); the column names (7, 8), empty or one per column
-(`CountMismatch` `"column names"`);
+(`CountMismatch` `"column names"`); the warnings (9 to 11, section 4.9);
 cells (0) a whole number of u32s; `columns × rows` cells, the product computed in 64 bits (`CountMismatch` `"cells"`);
 each cell `ABSENT` or below the term count (`IndexOutOfRange`, section 0); with no terms, section 2 is empty
 (`CountMismatch` `"term encodings"`); each term in order: offset 0 for the first, its bytes from its offset to the next
@@ -1089,7 +1297,7 @@ in a frame not flagged `LAST` (`FieldValue` `"resume key"`).
 
 ### 9.2 Credit (14)
 
-More credit for the frame's stream: `frames` more Result or Entries frames may be sent.
+More credit for the frame's stream: `frames` more Result, Entries, Describe or Catalog frames may be sent.
 
 | Command header | Width | Field | Type | Rule |
 |---|---|---|---|---|
@@ -1127,8 +1335,8 @@ Order: unused bytes 2–7 and 16–127 zero; `code`; sections; the term table (1
 | 3 | TooOld | yes | 0 | The read version is below what validation still holds, or below what the partition retains (section 11.9) |
 | 4 | PastLimit | yes | the limit in milliseconds | The transaction lived past its limit, the Welcome's `transaction_ms`, or a one-frame write waited that long unsent at the frontend (section 11.12, *Frames on their way*); when a read was holding a write back then, the message names that read's stream and says it had no credit |
 | 5 | Busy | yes | 0 | The commit queue is full; or the partition's epoch is full and its close request has gone unanswered for `close_request_ms`, the sequencer counting as unreachable until the close arrives (section 11.12) |
-| 6 | TooLarge | no | the limit in bytes; for statement IDs, their bound | A write set exceeds the Welcome's `max_write_set`, as sent or as its commit-time operations leave it (section 11.9); a transaction's reads exceed what its read set holds; a write would pass `statements_per_object_max`; a Commit reply's frame would pass the floor of `max_frame` (section 11.9); one entry's first object record or value is too large for an otherwise empty frame (section 13.14); a row or resume key is too large for an otherwise empty Result frame, or an Execute's ComputeRead for a frame (section 13.12); or a Describe's answer does not fit a frame (section 8.3) |
-| 7 | Refused | no | 0; for a term's rule, the term's index; for a declaration, its record's index, or its index among the transaction's declarations for ones tightening and loosening at once; for a catalog version past its cap, the cap; for an unknown tenant, the tenant; for a Lease, the maximum; for a Catalog, the version; for a schema rule at commit, the UGS refusal number (`SCHEMA.md` section 8.7) | The catalog refused a write, a term broke the server's rules (section 4.4), or a declaration was refused: a vector index in this stage, a transaction mixing declarations with other changes, declarations tightening and loosening at once, a type change the data contradicts, or a catalog version past what one Catalog frame holds, a Commit's or an Install's (sections 8.4, 11.13); a request named a tenant the metadata group does not hold (section 11.10); or a role's request was refused: a Lease past `block_size_max`, a Catalog of a version never held; or a schema rule refused the transaction at commit, the message naming the instance and the rule; or the frontend does not serve the command in this stage (section 11.2) |
+| 6 | TooLarge | no | the limit in bytes; for statement IDs, their bound | A write set exceeds the Welcome's `max_write_set`, as sent or as its commit-time operations leave it (section 11.9); a transaction's reads exceed what its read set holds; a write would pass `statements_per_object_max`; a Commit reply's frame would pass the floor of `max_frame` (section 11.9); one entry's first object record or value is too large for an otherwise empty frame (section 13.14); a row or resume key is too large for an otherwise empty Result frame, or an Execute's ComputeRead for a frame (section 13.12) |
+| 7 | Refused | no | 0; for a term's rule, the term's index; for a declaration, its record's index, or its index among the transaction's declarations for ones tightening and loosening at once; for a catalog version past its cap, the cap; for an unknown tenant, the tenant; for a Lease, the maximum; for a Catalog, the version; for a schema rule at commit, the UGS refusal number (`SCHEMA.md` section 8.7); for a Migrate naming a run the tenant does not hold or that has ended, its `staged` | The catalog refused a write, a term broke the server's rules (section 4.4), or a declaration was refused: a vector index in this stage, a transaction mixing declarations with other changes, declarations tightening and loosening at once, a type change the data contradicts, or a catalog version past `catalog_bytes_max`, a Commit's or an Install's (sections 8.4, 11.13); a request named a tenant the metadata group does not hold (section 11.10); or a role's request was refused: a Lease past `block_size_max`, a Catalog of a version never held; or a schema rule refused the transaction at commit, the message naming the instance and the rule; or a Migrate's action does not fit its run (section 8.6); or the frontend does not serve the command in this stage (section 11.2) |
 | 8 | OperationFailed | no | 0 | A compare-and-set did not hold; sections 1 and 2 hold the value found |
 | 9 | StaleStatement | no | the statement | The statement's schema id no longer matches its tenant's |
 | 10 | UnknownStatement | no | the statement | The connection holds no statement of this id in the transaction's tenant: never prepared there, or evicted |
@@ -1150,16 +1358,20 @@ Order: unused bytes 2–7 and 16–127 zero; `code`; sections; the term table (1
 | 26 | WrongPartition | yes, after refreshing the placement map | the bucket in bits 0–23, bits 24–31 zero, the partition owning it in bits 32–63; all 0 for a registration refused at a home, whose owner the registrant does not know | A key outside the receiving partition's bucket ranges, from a sender whose placement map is stale; a later subject of a request whose first lies inside them is code 23 (section 11.12). Between roles; a client receives it when the owner refuses the frontend's one resend too, or from a registration refused at a home (section 13.15), and runs its transaction again after a delay (section 11.12) |
 | 27 | AheadOfWatermark | no | the watermark | A read version is above the visibility watermark of the partition answering, in an epoch that partition has not closed: refused at once when the client named it; the message names the version and the watermark (sections 6.2, 13.13) |
 | 28 | SchemaRefused | no | the count of diagnostics | An Install's sources were refused: the message holds the diagnostics of `SCHEMA.md` section 10.4, each with its code and location, and nothing was installed |
-| 29 | QueryRefused | no | the diagnostic's number, with the language in bits 16–23: 1 GQL, 2 SPARQL | A query or prepared text was refused: the message begins with the diagnostic's code (`QUERY-GQL-CORE.md` section 11, `QUERY-SPARQL-CORE.md` section 11) and its `line:column`, then the reason and the fix; a feature outside the core is named |
+| 29 | QueryRefused | no | the diagnostic's number, with the language in bits 16–23, as the table of languages below gives | A query or prepared text was refused: the message begins with the diagnostic's code (`QUERY-GQL-CORE.md` section 11, `QUERY-SPARQL-CORE.md` section 11) and its `line:column`, then the reason and the fix; a feature outside the core is named |
+| 30 | EntityDeleted | no | 0 | A write names an entity a delete has tombstoned at its home: a commit referencing the deleted entity's ID, or a registration naming it (sections 12.2, 13.15); the transaction aborts and writes nothing, and the message names the entity's IRI. Run again, a transaction resolves the IRI anew, and one creating the instance creates a new one with a new ID (`SCHEMA.md` section 8.5) |
+| 31 | Fenced | yes, after a delay | 0 | A write reaches a namespace a migration's run has fenced, in its states `fenced` and `catching_up` (section 8.6); it writes nothing, and the message names the namespace and the run's `staged`. After the cutover the write executes against the target |
 
 Retryable says the same work can succeed if run again, and the code says what runs again. Code 14 on a Commit, Drop or
-one-frame write, and code 5 on a Drop or one-frame write: the same request, same session and request number, on a new stream
-after a delay; code 14 on a Register: the Register, after a delay. Codes 2, 3, 4, 18, 26, and 5 on a Commit: the whole transaction on a new Begin, since its stream has ended or
-its read version is fixed. Code 24: the read, in the same transaction or a new one; past the deadline a read of an unclosed
-epoch is refused again at once, so a new wait takes a new Begin; a declaring Commit's, the whole transaction on a new Begin. Code 17 on a read: the read, in the same transaction or a new
-one, which another compute process or the restarted role may answer. A read that already gave rows runs again from its start or
-from a resume key, and its earlier rows are discarded. Code numbers are never reused. A receiver refuses an Error
-of code 26 with any of bits 24 to 31 of its `detail` set (`FieldValue` `"detail"`).
+one-frame write, and code 5 on a Drop or one-frame write: the same request, same session and request number, on a new
+stream after a delay; code 14 on a Register: the Register, after a delay. Codes 2, 3, 4, 18, 26, and 5 on a Commit: the
+whole transaction on a new Begin, since its stream has ended or its read version is fixed. Code 24: the read, in the
+same transaction or a new one; past the deadline a read of an unclosed epoch is refused again at once, so a new wait
+takes a new Begin; a declaring Commit's, the whole transaction on a new Begin. Code 17 on a read: the read, in the same
+transaction or a new one, which another compute process or the restarted role may answer. A read that already gave rows
+runs again from its start or from a resume key, and its earlier rows are discarded. Code 31 runs again as code 5 does,
+after a delay: the fence holds for its run's final round, which the migration report estimates. Code numbers are never
+reused. A receiver refuses an Error of code 26 with any of bits 24 to 31 of its `detail` set (`FieldValue` `"detail"`).
 
 | Action (`detail` of code 21) | Asked for |
 |---|---|
@@ -1169,6 +1381,7 @@ of code 26 with any of bits 24 to 31 of its `detail` set (`FieldValue` `"detail"
 | 4 | `drop` |
 | 5 | `admin` |
 | 6 | `operate` |
+| 7 | `purge` |
 
 | Conflict kind (`detail` of code 2) | Read |
 |---|---|
@@ -1179,13 +1392,23 @@ of code 26 with any of bits 24 to 31 of its `detail` set (`FieldValue` `"detail"
 | 5 | Catalog: the tenant's catalog: the transaction executed against another catalog version than the one in effect at its commit epoch, or its declarations were built on a version no longer current (section 11.13) |
 | 6 | Drop: a range a drop wrote |
 
+| Language (bits 16–23 of a diagnostic's number) | Diagnostics |
+|---|---|
+| 1 | GQL: `GQLnnnn` (`QUERY-GQL-CORE.md` section 11) |
+| 2 | SPARQL: `SPQnnnn` (`QUERY-SPARQL-CORE.md` section 11) |
+| 3 | UQL: `UQLnnnn` (`QUERY-ULTRA-QL.md` section 18) |
+| 4 | UGS: `UGSnnnn` (`SCHEMA.md` section 10.4, `SCHEMA-EVOLUTION.md` section 10) |
+
+A diagnostic's number, in bits 0–15, is its code's four digits: `GQL0210` is 210 in language 1. Code 29 and a warning
+(section 4.9) carry it so.
+
 ## 10. The term encoding of results
 
 A Result batch holds each term as a tag byte and its payload, in the store's own value encoding, with two differences.
 Where the store names an IRI, a blank node or a datatype by its system ID, a Result names it by the hash of its text,
 and the batch's string list holds the text (section 9.1), so no system ID reaches a client. And a Result tells a blank
 node from an IRI by its own tag, `0x02`. The tag fixes the encoding's length, or where to read it. A vector's encoding
-is `3 + 4 × dimension` bytes; every other encoding is at most 33.
+is `3 + 4 × dimension` bytes, a bfloat16 vector's `3 + 2 × dimension`; every other encoding is at most 33.
 
 ### 10.1 Tags and lengths
 
@@ -1222,26 +1445,33 @@ digest of the text's UTF-8 bytes: the result batch's string list supplies the te
 | `0x32` | literal of another datatype, lexical form ≤ 15 bytes | hash of the datatype's IRI, then inline lexical form | 18 + n |
 | `0x33` | literal of another datatype, longer | hash of the datatype's IRI, then hash of the lexical form | 33 |
 | `0x40` | `https://w3id.org/ultragraphdb/ns/float32vector` | dimension u16 **little-endian**, 1 to 65,535; then `dimension` f32s **little-endian** | 3 + 4 × dimension |
+| `0x41` | `https://w3id.org/ultragraphdb/ns/bfloat16vector` | dimension u16 **little-endian**, 1 to 65,535; then `dimension` bfloat16s **little-endian**, each the high 16 bits of an IEEE 754 binary32 | 3 + 2 × dimension |
+| `0x50` | `https://w3id.org/ultragraphdb/ns/measure` by value, unit code ≤ 15 bytes | 8 bytes, then the unit's code as inline text (section 10.5) | 10 + n |
+| `0x51` | `https://w3id.org/ultragraphdb/ns/precision` by value | 1 byte | 2 |
 
 The three tags of each language-tagged row are for the base direction: the first none, the second `ltr`, the third
 `rtl`. A language tag over 15 bytes hashes the lexical form too, whatever its length.
 
-An encoding is whole when its tag is listed, each inline length is at most 15 and its text UTF-8, a boolean's byte 0
-or 1, a date or time's timezone offset within 14 hours, a duration's months and seconds not of opposite signs, a known
-datatype's code in section 10.4, a vector's dimension at least 1, and the bytes hold exactly the length the table
-gives. A Result receiver checks this per term (section 9.1).
+An encoding is whole when its tag is listed, each inline length is at most 15 and its text UTF-8, a boolean's byte 0 or
+1, a date or time's timezone offset within 14 hours, a duration's months and seconds not of opposite signs, a known
+datatype's code in section 10.4, a vector's dimension at least 1, a measure's unit code at least 1 byte, a precision's
+byte 1 to 12, and the bytes hold exactly the length the table gives. A Result receiver checks this per term (section
+9.1).
 
 ### 10.2 How the server chooses the encoding
 
 | Term | Encoding |
 |---|---|
-| IRI | `0x01`, with the IRI's text as the term's `text` |
+| IRI | `0x01`, with the IRI's text as the term's `text`; a keyless instance's handle IRI, drawn or derived, among them (section 4.4) |
 | Blank node | `0x02`, with its skolem IRI (RDF 1.1 §3.5) as the term's `text`: the tenant's skolem base, `https://w3id.org/ultragraphdb/ns/tenant/{n}/`, then `.well-known/genid/{bucket}-{random}`, `{n}` the tenant in decimal, `{bucket}` the node's bucket in 6 lowercase hexadecimal digits and `{random}` 104 random bits in 26, both zero-padded. The partition minting the node draws both from its random source, the bucket among those it owns in the tenant's run, and draws again when the IRI names one its dictionary holds; the IRI holds no part of the node's system ID beyond its bucket. A request names the node again by that IRI, as an IRI (section 4.4) |
 | A statement's reifier, in the reifier column (section 9.1) | `0x02`, with the reifier's skolem IRI as the term's `text`, of the same form: `{bucket}` the statement's bucket, its subject's, and `{random}` 104 random bits the subject's partition draws, drawn again when the IRI names one its dictionary holds. The dictionary holds the IRI as the reifier's name, mapping it to the statement ID and back; the IRI holds no part of the statement ID beyond its bucket. A request names the statement again by that IRI, as an IRI (sections 4.4, 4.6) |
 | `xsd:string` literal | `0x20` up to 15 bytes, else `0x21` |
 | Language-tagged literal | by tag length, then lexical form length, as the table gives |
 | Literal of datatypes `0x10` to `0x1F` whose lexical form is the canonical form of its value (section 10.5) and whose value the payload holds exactly: an integer within i64, a decimal of at most 18 fraction digits within the i128 payload, a date, time or duration within its payload, and no timezone offset of −00:01, whose minutes would read as the payload's "no timezone" | the by-value tag |
 | `float32vector` literal in canonical form: `[`, the elements separated by `, `, `]`, each element the shortest decimal that reads back as the same finite f32, without exponent | `0x40` |
+| `bfloat16vector` literal in canonical form: as `float32vector`'s, each element the shortest decimal that reads back as the same finite bfloat16 | `0x41` |
+| `measure` literal in canonical form (section 10.5) whose unit code is at most 15 bytes | `0x50` |
+| `precision` literal in canonical form (section 10.5) | `0x51` |
 | Any other literal of a known datatype, a by-value datatype's non-canonical form or a value its payload does not hold included | `0x30` up to 15 bytes, else `0x31` |
 | A literal of any other datatype | `0x32` up to 15 bytes, else `0x33` |
 
@@ -1261,7 +1491,9 @@ Equal terms encode equally and unequal terms unequally.
 
 ### 10.4 Known datatypes
 
-A known datatype is named by a one-byte code in tags `0x30` and `0x31`; codes 1 to 16 are also the by-value datatypes.
+A known datatype is named by a one-byte code in tags `0x30` and `0x31`; codes 1 to 16 are also the by-value datatypes,
+and codes 32 and 34 to 36 hold their values by tags of their own, `0x40`, `0x41`, `0x50` and `0x51` (sections 10.1,
+10.5).
 `xsd:` is `http://www.w3.org/2001/XMLSchema#`, `geo:` is `http://www.opengis.net/ont/geosparql#`, `ugdb:` is
 `https://w3id.org/ultragraphdb/ns/`.
 
@@ -1278,6 +1510,10 @@ A known datatype is named by a one-byte code in tags `0x30` and `0x31`; codes 1 
 | 9 | `xsd:gYearMonth` | 20 | `xsd:byte` | 31 | `geo:wktLiteral` |
 | 10 | `xsd:gYear` | 21 | `xsd:nonNegativeInteger` | 32 | `ugdb:float32vector` |
 | 11 | `xsd:gMonthDay` | 22 | `xsd:positiveInteger` | 33 | `xsd:anyURI` |
+| 34 | `ugdb:bfloat16vector` | 35 | `ugdb:measure` | 36 | `ugdb:precision` |
+
+`ugdb:bfloat16vector` holds a `Vector<BF16, n>`, `ugdb:measure` a number with its unit and `ugdb:precision` a temporal
+bound's precision (`SCHEMA.md` sections 5.1, 5.5, 5.8 and 12.2).
 
 ### 10.5 By-value payloads
 
@@ -1295,6 +1531,8 @@ Each multi-byte number in a by-value payload is **big-endian**. A decimal number
 | `0x1D` | i64 months, then i128 seconds × 10¹⁸ | the duration's year-month part and day-time part, of one sign where both are nonzero: a duration is negative as a whole (its lexical form below), so parts of opposite signs are no whole encoding |
 | `0x1E` | i64 | months |
 | `0x1F` | i128 | seconds × 10¹⁸ |
+| `0x50` | f64, IEEE 754 binary64, then inline text | the measure's number in its own unit, then that unit's UCUM code, a declared unit's (`SCHEMA.md` section 5.8) |
+| `0x51` | u8 | the precision, coarsest first: 1 millennium, 2 century, 3 decade, 4 year, 5 month, 6 day, 7 hour, 8 minute, 9 second, 10 millisecond, 11 microsecond, 12 nanosecond (`SCHEMA.md` section 5.5); any other byte is no whole encoding |
 
 `T` is `timeOnTimeline` of XML Schema 1.1 Part 2 (§E.3.4), over the value's seven properties, with the timezone offset
 `tz` in minutes (0 when absent), `div` and `mod` rounding toward negative infinity, and `daysInMonth(y, m)` the
@@ -1341,6 +1579,8 @@ The forms are the protocol's own, independent of any library's formatting, and g
 | gMonthDay, gMonth, gDay | `--MM-DD[tz]`, `--MM[tz]`, `---DD[tz]` |
 | timezone `[tz]` | `Z` for offset 0, else `±hh:mm` |
 | duration and its two subtypes | `-` when negative, then `P`; from the months, `yY` and `mM`, each only when nonzero; from the seconds, `dD` when the days are nonzero, then `T` followed by `hH`, `mM` and `sS` for each nonzero part, `s` in decimal's form. A zero duration or dayTimeDuration is `PT0S`, a zero yearMonthDuration `P0M` |
+| measure | the number in double's form, one space (U+0020), then the unit's UCUM code: `1.5 m`, `-40 Cel` |
+| precision | the precision's name: `millennium`, `century`, `decade`, `year`, `month`, `day`, `hour`, `minute`, `second`, `millisecond`, `microsecond`, `nanosecond` |
 
 ## 11. The connection
 
@@ -1398,8 +1638,8 @@ ends the connection: an Error of code 22 (CredentialExpired) on stream 0, then t
   frame on a lower number that holds no open stream is late and it drops the frame, a Commit and a Drop included.
 - The server answers streams independently, in whatever order their results are ready.
 - A stream ends with its frame flagged `LAST`, when the client cancels it, or with an Error on it. Every reply that
-  ends its stream carries `LAST`: Register, Commit, Prepare, Describe, Install and Drop replies, a read's or query's
-  last Result, and every Error. Begin's reply does not: the transaction's stream stays open.
+  ends its stream carries `LAST`: Register, Commit, Prepare, Install, Drop, Purge and Migrate replies, a Describe's last
+  frame, a read's or query's last Result, and every Error. Begin's reply does not: the transaction's stream stays open.
 - Each side numbers the frames it sends on the connection, its `sequence`, from 1 and one more for each frame. A
   receiver refuses a frame whose sequence is not one above the previous frame's from the same side: a connection
   error (`SequenceOrder`), which a lost, repeated or reordered frame cannot pass. A frame of a stream that has ended is
@@ -1415,7 +1655,8 @@ ends the connection: an Error of code 22 (CredentialExpired) on stream 0, then t
 | Commit | the transaction's stream; a retry goes on a new stream of its own | Commit or Error; the stream ends |
 | DirectWrite, ConditionalWrite | a new stream; a retry goes on a new stream of its own | Commit or Error; the stream ends |
 | Abort | the transaction's stream | none; the stream ends |
-| Prepare, Describe, Install, Drop | a new stream | Prepare, Describe, Install or Drop, or Error; the stream ends |
+| Prepare, Install, Drop, Purge, Migrate | a new stream | Prepare, Install, Drop, Purge or Migrate, or Error; the stream ends |
+| Describe | a new stream | Describe frames, the last flagged `LAST`; or Error |
 | Credit | the read's stream | none |
 | Cancel | a read's stream, or the transaction's | none |
 
@@ -1427,7 +1668,9 @@ no Bind of kind 1 opened, and a Drop on one no Bind of kind 2 opened, is refused
 
 In this stage the frontend refuses an Install, a Query and a Prepare of `language` 1 or 2 with code 7 (Refused) on the request's
 stream, `detail` 0, the message naming the command and the stage that serves it: stage 6 for an Install, stage 7 for a Query and a
-text. A request naming a tenant passes the gate of section 11.10 first. A Query's refusal leaves its transaction open.
+text. It refuses the same way a Purge, naming stage 8 (`SCHEMA.md` section 14), and a Migrate and an Install holding a
+migration source, naming stage 9.5 (`SCHEMA-EVOLUTION.md`). A request naming a tenant passes the gate of section 11.10
+first. A Query's refusal leaves its transaction open.
 
 A transaction is its stream and its reads. Its stream takes one request at a time; its reads run beside it, each on a
 stream of its own, at the transaction's read level and snapshot (section 11.11). A Commit or an Abort ends the reads still
@@ -1458,21 +1701,22 @@ DirectWrite, it is two independent requests, and a commit between them is a lost
 
 ### 11.3 Credit
 
-Each read's stream starts with the Welcome's `initial_credit`. The server sends a Result frame on a stream only while
-the stream's credit is above 0, and each Result frame it sends spends 1. A Credit frame on the stream adds `frames`
-(saturating at 2³² − 1). Only Result and Entries frames spend credit; an Error and every other frame leave it. The server ignores
-Credit for a stream that is not open. A receiver of Result or Entries frames, always the side that dialled, refuses a frame past
-its stream's credit as a protocol violation, code 1 (Protocol) by the rule `PastCredit` naming the stream, and closes the
-connection, sending no Error, which only the side that accepted sends (sections 2.6, 3).
-The Rust client's credit is automatic: its shells grant credit as the read's
-batches are consumed, when the count reaches 0 and the caller waits for a batch, and offer no manual grant; its core
-grants at least one frame, so it sends no Credit of zero frames, which a receiver refuses (section 9.2). Its credit and its
-frame buffers agree: it sends a read only while its buffers hold, beside what its other reads may bring, every frame the
-read's credit and a refusal can bring, one buffer left to read into, and refuses one past them before it is sent, so a read
-not yet consumed never takes the buffer a reply needs; a client whose buffers are all held reads nothing until one is given
-back, which holds the server back and loses no connection. It sends a Register answered code 14 again itself, on a new stream
-after the retry delay and within the attempts of a commit's resend, and then returns that code 14 (sections 9.4, 11.5). On a role
-connection, credit holds the same way for Entries frames as for Result frames, each connection's streams on their own, and a
+Each read's stream, and each Describe's and Catalog's, starts with the Welcome's `initial_credit`. The server sends a
+Result frame on a stream only while the stream's credit is above 0, and each Result frame it sends spends 1. A Credit
+frame on the stream adds `frames` (saturating at 2³² − 1). Only Result and Entries frames, and the frames of a
+Describe's or a Catalog's answer (sections 8.3, 13.7), spend credit; an Error and every other frame leave it. The server
+ignores Credit for a stream that is not open. A receiver of frames that spend credit, always the side that dialled,
+refuses a frame past its stream's credit as a protocol violation, code 1 (Protocol) by the rule `PastCredit` naming the
+stream, and closes the connection, sending no Error, which only the side that accepted sends (sections 2.6, 3). The Rust
+client's credit is automatic: its shells grant credit as the read's batches are consumed, when the count reaches 0 and
+the caller waits for a batch, and offer no manual grant; its core grants at least one frame, so it sends no Credit of
+zero frames, which a receiver refuses (section 9.2). Its credit and its frame buffers agree: it sends a read only while
+its buffers hold, beside what its other reads may bring, every frame the read's credit and a refusal can bring, one
+buffer left to read into, and refuses one past them before it is sent, so a read not yet consumed never takes the buffer
+a reply needs; a client whose buffers are all held reads nothing until one is given back, which holds the server back
+and loses no connection. It sends a Register answered code 14 again itself, on a new stream after the retry delay and
+within the attempts of a commit's resend, and then returns that code 14 (sections 9.4, 11.5). On a role connection,
+credit holds the same way for Entries frames as for Result frames, each connection's streams on their own, and a
 ComputeRead's stream starts with its `credit` in place of the Welcome's (section 13.12).
 
 ### 11.4 Cancel and disconnection
@@ -1587,12 +1831,14 @@ claim their value at the partition owning its bucket; a claim another partition 
   its tenant's current one (code 9, StaleStatement), after which preparing it again succeeds; parameters that are not
   one per parameter slot (code 11); a literal bound at a slot of column type 1 (code 11). Each `detail` is the statement
   id.
-- The schema id is XXH3-64, seed 0, of the Describe body (the data before any chunk table) that holds the tenant's
-  declarations alone, as the connection's principal sees them: sections 2, 3 and 4 empty, the strings only the
-  declarations' names, interned in record order, arg by arg, and the declarations in Describe's order (section 8.3).
+- The schema id is XXH3-64, seed 0, of the Describe body (the data before any chunk table; an answer of several frames
+  read as one body) that holds the tenant's declarations and entries alone, as the connection's principal sees them:
+  sections 2, 3 and 4 empty, the strings only the declarations' names, interned in record order, arg by arg, then the
+  entries' names and the retired names' current names, in entry order, and the declarations and entries in Describe's
+  order (section 8.3).
   It covers the tenant's whole catalog, every namespace installed in it, so it changes with each catalog version of the
   tenant and with what the principal may read, and not with the data or a recorded default entry (section 11.13). For the golden `describe_reply.frame`, whose predicates `knows` and
-  `name` come in their IRIs' order, it is `0x2A503FF2D84C0C42`.
+  `name` come in their IRIs' order and which holds no entry, it is `0x5000B62149F4DB68`.
 
 ### 11.8 Resume keys
 
@@ -1679,7 +1925,7 @@ refusing nothing (section 11.12, *Frames on their way*).
 | `statements_per_object_max`, the statement IDs one object of a list holds | 16,000 |
 | What a transaction's read set holds | 1,048,576 bytes |
 | A Commit reply's frame | 524,288 bytes, the floor of `max_frame` |
-| A catalog version's bytes (section 11.13) | 523,000, what one Catalog frame holds at the floor of `max_frame` |
+| `catalog_bytes_max`, a catalog version's bytes (section 11.13), carried in as many Catalog frames as they take (section 13.7) | 16,777,216 |
 | `max_frame` and `max_streams` of a role endpoint's Welcome (section 11.12) | 1,048,576 bytes and 4,294,967,295 |
 | `epoch_ms_min`, the least between two closes | required, 1 to 1,000 ms |
 | `epoch_ms_max`, the most between two closes | required, `epoch_ms_min` to 10,000 ms |
@@ -1710,17 +1956,18 @@ opens it `read_retain_ms / 4` after the read began, so a short read opens none.
 
 Every request is authorized against the connection's principal (`SECURITY.md`). A statement the principal may not read
 is absent from a read: a pattern naming a predicate or graph it may not read matches nothing, and one leaving it
-unbound returns no row of it. A write, declaration, drop, administration or cluster operation the principal may not do
-is refused with code 21 (PermissionDenied), `detail` the action (section 9.4).
+unbound returns no row of it. A write, declaration, drop, purge, administration or cluster operation the principal may
+not do is refused with code 21 (PermissionDenied), `detail` the action (section 9.4).
 
-**The tenant gate.** A tenant binds per Begin, and a principal may hold grants in several. Every request naming a tenant,
-Begin, Prepare, Describe, Install, Drop, DirectWrite and ConditionalWrite, passes one check at the frontend before it reaches
-any other role or any state: whether the connection's principal may do the request's action in that tenant. A refusal is code
-21 on the request's stream, `detail` `read` for Begin, Prepare and Describe, `declare` for an Install, `write` for a one-frame
-write and `drop` for a Drop. The gate fails closed on an action or a scope it does not know. In this stage it allows every authenticated
-principal, and stage 7's grants fill it in (`SECURITY.md`, *Where it is built*). A request the gate passes naming a tenant
-the metadata group does not hold is then refused with code 7 (Refused), `detail` the tenant, the message naming it, so a
-principal holding no grant in a number learns nothing of whether it exists.
+**The tenant gate.** A tenant binds per Begin, and a principal may hold grants in several. Every request naming a
+tenant, Begin, Prepare, Describe, Install, Drop, DirectWrite, ConditionalWrite, Purge and Migrate, passes one check at
+the frontend before it reaches any other role or any state: whether the connection's principal may do the request's
+action in that tenant. A refusal is code 21 on the request's stream, `detail` `read` for Begin, Prepare and Describe,
+`declare` for an Install and a Migrate, `write` for a one-frame write, `drop` for a Drop and `purge` for a Purge. The
+gate fails closed on an action or a scope it does not know. In this stage it allows every authenticated principal, and
+stage 7's grants fill it in (`SECURITY.md`, *Where it is built*). A request the gate passes naming a tenant the metadata
+group does not hold is then refused with code 7 (Refused), `detail` the tenant, the message naming it, so a principal
+holding no grant in a number learns nothing of whether it exists.
 
 ### 11.11 Partitions, read levels and session tokens
 
@@ -1863,13 +2110,15 @@ another partition owns, it registers at `o`'s home with Reference (section 13.15
 no ID for `o`, else by its system ID, with `g` and the generation it last saw for `(o, g)`, 0 for none. The home gets or
 creates `o`'s ID, adds or renews `g` in `o`'s referrer set, makes both durable in a round of its log, and only then
 replies with the ID, the member's generation and the latest close delivered to it, `c`. The registering partition
-commits the referencing transaction only once close `c` has been delivered to it, so the write is stamped at `c + 1`
-or later and never below the member's epoch. A predicate or graph IRI another partition owns is got or created at its
-home the same way before its first use, naming no bucket group and joining no referrer set. Registrations are issued
-while the transaction executes, batched per home's role address within each write request, and idempotent: a repeat
-returns the same ID and changes nothing, and concurrent registrants receive one ID, none aborting for the race. A
-partition holding its mark of `(o, g)` sends none. The frontend registers a unique predicate's IRI the same way, naming
-no group, to learn the system ID a claimed value's bucket is computed from.
+commits the referencing transaction only once close `c` has been delivered to it, so the write is stamped at `c + 1` or
+later and never below the member's epoch. A predicate or graph IRI another partition owns is got or created at its home
+the same way before its first use, naming no bucket group and joining no referrer set. Registrations are issued while
+the transaction executes, batched per home's role address within each write request, and idempotent: a repeat returns
+the same ID and changes nothing, and concurrent registrants receive one ID, none aborting for the race. A partition
+holding its mark of `(o, g)` sends none. The frontend registers a unique predicate's IRI the same way, naming no group,
+to learn the system ID a claimed value's bucket is computed from. A participant another partition owns, which a relation
+instance names (`SCHEMA.md` section 12.3), registers in get-only mode (section 13.15): its home creates no ID and
+answers whether the participant is absent, live or deleted, and its type prefix.
 
 **Parked requests.** A role connection keeps moving while a request on it waits on a home. A partition parks a Write, Operation,
 DirectWrite or ConditionalWrite waiting on its registrations' answers, and a Write, Operation or Commit behind a read of its
@@ -1921,7 +2170,7 @@ row that fits:
 
 | The transaction's first request | The partition it binds to |
 |---|---|
-| reads or writes a subject it names by an IRI or a skolem IRI | the partition owning the subject's bucket: an IRI's computed from its text and the tenant, a blank node's or a reifier's the bucket its skolem IRI states |
+| reads or writes a subject it names by an IRI or a skolem IRI | the partition owning the subject's bucket: an IRI's computed from its text and the tenant, a blank node's or a reifier's the bucket its skolem IRI states, a keyless instance's the bucket its handle IRI states (section 4.4) |
 | claims a value by an insert-if-absent or upsert-and-link, and names no subject but new blank nodes | the partition owning the claimed value's bucket |
 | writes only new blank nodes as subjects | a partition the frontend chooses in turn, round-robin over the partitions holding the tenant's run, which draws the nodes' buckets from its own |
 | names no subject otherwise | the partition owning the tenant's whole run, when one does; when none does, the request aborts the transaction with code 23 |
@@ -2070,8 +2319,7 @@ effect at the round's epoch.
   refused with code 7 otherwise.
 - **Schemas.** UGS sources arrive by Install (section 8.4): the frontend compiles them as `SCHEMA.md` section 10.1
   states and commits the version as pending, which takes effect as the next item states; the compiled version's
-  declarations of kinds 8 to 10 are what Describe reports, and the rest of its entries are what `SCHEMA.md` section
-  15 still asks Describe to carry.
+  declarations of kinds 8 to 10 and its entries are what Describe reports (section 8.3).
 - **Vector indexes.** In this stage a declaration of a vector index, kind 8 with flag bit 5, is refused with code 7,
   `detail` the record's index, its message naming the predicate and stating that vector indexes arrive with stage 8;
   the catalog is unchanged. A vector literal is still stored as a value.
@@ -2079,9 +2327,9 @@ effect at the round's epoch.
   when the transaction began, and commits it in the metadata group as pending. A version built on one no longer current
   is refused with code 2 (Conflict), kind 5 (Catalog), the message naming both versions, and the client runs its
   transaction again against the current one; an offer resent after a lost reply is refused the same way, and Describe
-  shows whether the first took effect. A version whose bytes pass 523,000, what one Catalog frame holds at the floor of
-  `max_frame` (section 13.7), is refused at its Commit with code 7, `detail` 523,000, the message naming its size, and the
-  catalog is unchanged; an Install's is refused the same way (section 8.4).
+  shows whether the first took effect. A version whose bytes pass `catalog_bytes_max` (section 11.9) is refused at its
+  Commit with code 7, `detail` the bound, the message naming its size, and the catalog is unchanged; an Install's is
+  refused the same way (section 8.4).
 - **Its epoch.** At its next close `c + 1` the sequencer assigns every pending version the effective epoch `c + 2`,
   records the assignment in its durable close record and announces it with that close (section 11.12, *Epochs*); the
   metadata group learns the epoch from that close, and a version pending when the frontend crashes is assigned at the
@@ -2162,11 +2410,11 @@ derivation version.
 ### 12.1 Round (17)
 
 The log record of one partition's round: each entry's decision in round order, the write-set record of each committed
-one, and the dictionary entries the round creates. An entry is a transaction, a Drop, a registration the partition
-accepted as an entity's home, which its commit step admits as it admits a transaction, or an index build's start or
-completion. Committed entry k of the round (counting committed ones from 0) has commit version `first_version + 2k`. A
-round closes when a close is delivered to its partition, so its entries carry one epoch, `first_version >> 22`, and
-each tenant's records name the one catalog version in effect at it.
+one, and the dictionary entries the round creates. An entry is a transaction, a Drop, a Purge, a registration the
+partition accepted as an entity's home, which its commit step admits as it admits a transaction, or an index build's
+start or completion. Committed entry k of the round (counting committed ones from 0) has commit version `first_version +
+2k`. A round closes when a close is delivered to its partition, so its entries carry one epoch, `first_version >> 22`,
+and each tenant's records name the one catalog version in effect at it.
 
 | Command header | Width | Field | Type |
 |---|---|---|---|
@@ -2255,16 +2503,17 @@ entry whatever its object holds, and `statements_per_object_max` (section 11.9) 
 
 | Kind | Fixed part | Sections |
 |---|---|---|
-| 1, a transaction | every field | 0 to 2 and 5 to 11 as it wrote and answered; 3 empty; 4 the registrations it relied on as a referrer, each the entity's ID, the bucket group and the generation the home's reply named |
+| 1, a transaction | every field | 0 to 2 and 5 to 11 as it wrote and answered; 3 one operation 8 per entity it deleted at its home, else empty; 4 the registrations it relied on as a referrer, each the entity's ID, the bucket group and the generation the home's reply named |
 | 1, a Drop | every field, `read_version` 0 | 3 one drop, operations 1 to 4; 8 the dropped key ranges; every other empty |
+| 1, a Purge | `tenant`, `catalog` and `principal`; every other field 0 | 3 one operation 9 per instance the purge removes in the partition; every other empty |
 | 2 | `tenant`; every other field 0 | 4 one registration: the member it adds or renews, at the entry's commit version; or none, for an entity the home got or created for a registration naming no bucket group, whose dictionary entries the round's dictionary section carries; every other empty |
 | 3 | `tenant`, `catalog`; every other field 0 | 3 one operation, 6 or 7; every other empty |
 
 | Operation offset | Width | Field | Type |
 |---|---|---|---|
-| 0 | 2 | `operation` | u16: 1 drop a predicate, 2 drop a graph, 3 drop a tenant's data, 4 drop everything in a tenant, 6 a catalog version takes effect, 7 complete a build; 5 is unassigned |
+| 0 | 2 | `operation` | u16: 1 drop a predicate, 2 drop a graph, 3 drop a tenant's data, 4 drop everything in a tenant, 6 a catalog version takes effect, 7 complete a build, 8 delete an entity, 9 purge an instance; 5 is unassigned |
 | 2 | 6 | zero | 0 |
-| 8 | 16 | `argument` | bytes: for 1 and 2, the dropped predicate's or graph's system ID; for 6, the catalog version taking effect, a u64 in bytes 8–15, and bytes 16–23 zero; for 7, the catalog version that started the build, a u64 in bytes 8–15, byte 16 its outcome, 1 a swap and 2 an undo, and bytes 17–23 zero; for 3 and 4, zero |
+| 8 | 16 | `argument` | bytes: for 1 and 2, the dropped predicate's or graph's system ID; for 6, the catalog version taking effect, a u64 in bytes 8–15, and bytes 16–23 zero; for 7, the catalog version that started the build, a u64 in bytes 8–15, byte 16 its outcome, 1 a swap and 2 an undo, and bytes 17–23 zero; for 3 and 4, zero; for 8 and 9, the entity's system ID |
 
 | Registration offset | Width | Field | Type |
 |---|---|---|---|
@@ -2277,6 +2526,18 @@ entry whatever its object holds, and `statements_per_object_max` (section 11.9) 
   partition, which derives the key removals on apply and on replay. Its record holds the dropped key ranges in section
   8, so a transaction reading or writing into them below the drop's version conflicts; it is the last record of its
   round.
+- **An entity delete** (operation 8), which UGS brings with stage 6 (`SCHEMA.md` section 8.5), is part of its
+  transaction's record at the entity's home, P24's rule 8: sections 1 and 2 remove the entity's statements and
+  statement records, those of the relation instances its `@on_delete` actions reach in the partition among them, and
+  the operation writes the entity's tombstone, the statement record `SCHEMA.md` section 12.4 keeps at the home under
+  its ID. The tombstone fences the ID for good: a later commit referencing it aborts with code 30 (EntityDeleted), a
+  registration naming it is answered with outcome 30 or, in get-only mode, as deleted (section 13.15), and a write
+  creating its IRI again allocates a new ID. A delete whose entity's referrer set names a bucket group another partition
+  holds is cross-partition, code 23, until stage 8 sends each member a sequenced share that fences the ID there.
+- **A purge** (operation 9), a Purge's record (section 8.5), removes at the instance's home every version of its
+  attributes, its statement record, its index and derived entries, its dictionary entries and its referrer set, and at a
+  member of its referrer set every edge naming it, with their index entries and marks (`SCHEMA.md` section 8.8). It is
+  the last record of its round, as a drop's is.
 - **A catalog version takes effect**, operation 6, in a round of its own at the first version of its effective epoch:
   the partition declares the version's declarations, checked against its data, and removes the predicates, entity
   types and relations the version no longer names, and on replay does the same from the version the metadata group
@@ -2310,15 +2571,16 @@ A key-value section is entries back to back, each 8-aligned within the section:
 
 Order: the fixed part and table (section 4.1); `kind` 1 to 3 (`FieldValue` `"record kind"`); bytes 1–7 zero
 (`PaddingNotZero`); the fixed fields the kind leaves 0 (`FieldValue` `"record"`); sections 0, 1, 2 and 6 to 8 in turn,
-each entry inside its section (`EntryOutOfBounds`) with zero padding (`PaddingNotZero`); every value of sections 0 and
-1 present, empty or of 16 bytes (`FieldValue` `"statement id"`); every conflict point's value present and empty
+each entry inside its section (`EntryOutOfBounds`) with zero padding (`PaddingNotZero`); every value of sections 0 and 1
+present, empty or of 16 bytes (`FieldValue` `"statement id"`); every conflict point's value present and empty
 (`FieldValue` `"conflict point"`); every conflict statement's and conflict range's value present (`FieldValue`
 `"conflict statement"`, `"conflict range"`); section 3 a whole number of 24-byte operations (`SectionLength`), each
-`operation` 1 to 4, 6 or 7 (`FieldValue` `"operation"`), bytes 2–7 zero (`PaddingNotZero`), its `argument` as the table states
-(`FieldValue` `"argument"`); section 4 a whole number of 32-byte registrations (`SectionLength`), each `entity` a valid
-system ID, `group` below 2¹⁸, bytes 20–23 zero and `generation` at least 1 (`FieldValue` `"registration"`); section 9 a
-whole number of 16-byte results, each checked as section 6.3 checks a result, and the term table (10, 11) as section
-6.3 checks it; the sections each kind holds, as the table above states (`CountMismatch` `"record sections"`).
+`operation` 1 to 4 or 6 to 9 (`FieldValue` `"operation"`), bytes 2–7 zero (`PaddingNotZero`), its `argument` as the
+table states (`FieldValue` `"argument"`); section 4 a whole number of 32-byte registrations (`SectionLength`), each
+`entity` a valid system ID, `group` below 2¹⁸, bytes 20–23 zero and `generation` at least 1 (`FieldValue`
+`"registration"`); section 9 a whole number of 16-byte results, each checked as section 6.3 checks a result, and the
+term table (10, 11) as section 6.3 checks it; the sections each kind holds, as the table above states (`CountMismatch`
+`"record sections"`).
 
 The keys' and values' contents, the quads' and the statement records' encodings and the commit record are the store's:
 the server alone writes and reads them, and the derivation version and the store's mapping contract version them. This
@@ -2532,8 +2794,11 @@ partitions differ).
 
 A tenant's catalog version from the metadata group: its number, the epoch it applies from and its bytes, which the
 protocol carries opaque. The requester names the tenant and the version, 0 for the tenant's current one, with
-`epoch` and `position` 0 and section 0 empty. One frame carries a version's bytes, whose cap at 523,000 (section 11.13) fits
-that frame at the floor of `max_frame`. A storage process reads with it each version an EpochClose announces
+`epoch` and `position` 0 and section 0 empty. A version's bytes, at most `catalog_bytes_max` (section 11.9), that do not
+fit one frame within the requester's `max_frame` continue in further Catalog frames on the stream, each with the first's
+command header, the last alone flagged `LAST`; the requester reads section 0 as the concatenation of every frame's, in
+order, and refuses a frame breaking the first's command header as `FieldValue` (`"catalog"`). The frames spend credit as
+Result frames do (section 11.3). A storage process reads with it each version an EpochClose announces
 before it takes the close as delivered, and on recovery each version its partitions' untrimmed logs name, before they
 replay (section 11.12).
 
@@ -2917,6 +3182,7 @@ returns the same ID and changes nothing; concurrent registrants receive one ID.
 | Command header | Width | Field | Type | Rule |
 |---|---|---|---|---|
 | 0 | 1 | `reply` | u8 | boolean: 0 the request, 1 the home's reply (`FieldValue` `"reply"`). A reply's fields can be 0, a close of none among them, so the flag tells the two apart |
+| 1 | 1 | `mode` | u8 | 0 get or create; 1 get-only, for participant checks (below) (`FieldValue` `"mode"`) |
 | 8 | 8 | `tenant` | u64 | the tenant of the batch's entities, whose dictionary the home resolves each IRI in |
 
 | Section | Contents |
@@ -2930,8 +3196,9 @@ returns the same ID and changes nothing; concurrent registrants receive one ID.
 | 0 | 4 | `partition` | u32: the entity's home, the partition owning its bucket |
 | 4 | 4 | `group` | u32: the referring subject's bucket group (section 1); `ABSENT` for a predicate or graph, or for the frontend, which join no referrer set |
 | 8 | 4 | `iri` | u32: the entity's IRI, or a blank node's skolem IRI, as an index into the term table; `ABSENT` when `entity` names it |
-| 12 | 2 | `outcome` | u16: 0 in a request; in a reply 0 accepted, else the error code refusing this registration: 26 (WrongPartition) for a bucket the home does not own, 7 (Refused) for a skolem IRI the home's dictionary does not hold, 17 (Unavailable) for a store that failed at the home under the registration |
-| 14 | 2 | zero | 0 |
+| 12 | 2 | `outcome` | u16: 0 in a request; in a reply 0 accepted, else the error code refusing this registration: 26 (WrongPartition) for a bucket the home does not own, 7 (Refused) for a skolem or handle IRI the home's dictionary does not hold, 17 (Unavailable) for a store that failed at the home under the registration, 30 (EntityDeleted) with `mode` 0 for an entity named by its ID whose tombstone the home holds |
+| 14 | 1 | `status` | u8: 0 in a request and with `mode` 0; with `mode` 1, in an accepted reply, 1 absent, 2 live, 3 deleted |
+| 15 | 1 | zero | 0 |
 | 16 | 8 | `generation` | u64: in a request, the generation the registrant last saw for the entity and `group`, 0 for none; in an accepted reply, the member's generation; 0 when `group` is `ABSENT` |
 | 24 | 8 | `close` | epoch (section 1): 0 in a request; in an accepted reply, the latest close delivered to the home, `c`, below the epoch the home stamped the registration at |
 | 32 | 16 | `entity` | system ID (section 1): in a request, the entity's ID, all zero when `iri` names it; in an accepted reply, the entity's ID; in a refused reply, as sent |
@@ -2943,17 +3210,27 @@ has been delivered to it. A write's registration refused with outcome 7 ends its
 of section 4.4; a Scan's reads outcome 7 as no entry (section 13.13). Outcome 17 ends the registrant's transaction with
 code 17 in either case, so a failed store never reads as a skolem IRI nobody holds. Outcome 26 ends the registrant's transaction
 with code 26 in either case, `detail` 0, since the entity's owner is one the registrant's map does not know: the client runs the
-transaction again on a new Begin (section 9.4).
+transaction again on a new Begin (section 9.4). Outcome 30 ends the registrant's transaction with code 30.
 
-Order: unused bytes 1–7 and 16–127 zero; `reply`; sections; the term table, every entry of kind 1 (`FieldValue`
-`"reference term"`, the entry's kind); section 0 not empty and a whole number of 48-byte registrations
-(`SectionLength`, `CountMismatch` `"registrations"`); each registration in order: bytes 14–15 zero
+**Get-only.** With `mode` 1 the home gets each entity and never creates one, for a participant check (`SCHEMA.md`
+section 12.3), and answers its `status`: 1 absent, an IRI its dictionary does not hold or an ID it holds nothing of
+included; 2 live; 3 deleted, its tombstone held (section 12.2). For 2 and 3 `entity` holds the ID, whose bytes 0–1 are
+the entity's type prefix. A live entity's registration naming a bucket group adds or renews the member as with `mode` 0;
+any other changes nothing and is logged in no round, answered at once with `generation` and `close` 0 and, for 1,
+`entity` all zero. The registrant decides what a status means for its write: a participant absent or deleted refuses it
+with the schema's refusal (`SCHEMA.md` section 8.7, `UGS1017`, `UGS1019`). A get-only reply's `outcome` is 0, 17 or 26.
+
+Order: unused bytes 2–7 and 16–127 zero; `reply`; `mode` 0 or 1; sections; the term table, every entry of kind 1
+(`FieldValue` `"reference term"`, the entry's kind); section 0 not empty and a whole number of 48-byte registrations
+(`SectionLength`, `CountMismatch` `"registrations"`); each registration in order: byte 15 zero
 (`PaddingNotZero`, the body offset), then its fields, each refused as `FieldValue` `"registration"` naming the
 registration's index: `partition` at least 1, `group` below 2¹⁸ or `ABSENT`, `iri` `ABSENT` or below the term table's
 length, `entity` all zero or a valid system ID, `close` at most 2⁴² − 1, and `generation` 0 when `group` is `ABSENT`;
-in a request, `outcome` and `close` 0, and `entity` all zero exactly when `iri` is not `ABSENT`; in a reply, `outcome`
-0, 7, 17 or 26; an accepted registration's `entity` a valid system ID and, with a `group`, its `generation` at least 1; a
-refused one's `generation` and `close` 0 and `entity` all zero exactly when `iri` is not `ABSENT`. A registration
+in a request, `outcome`, `status` and `close` 0, and `entity` all zero exactly when `iri` is not `ABSENT`; in a reply,
+`outcome` 0, 7, 17, 26 or 30, and 0, 17 or 26 with `mode` 1; `status` 0 with `mode` 0 and in a refused reply, and 1 to
+3 in an accepted one with `mode` 1; an accepted registration's `entity` a valid system ID, all zero for `status` 1, and,
+with a `group` and a `status` of 0 or 2, its `generation` at least 1, `generation` and `close` 0 for a `status` of 1 or
+3; a refused one's `generation` and `close` 0 and `entity` all zero exactly when `iri` is not `ABSENT`. A registration
 naming a partition the role address does not serve is answered with outcome 26.
 
 ### 13.16 CloseRequest (527)

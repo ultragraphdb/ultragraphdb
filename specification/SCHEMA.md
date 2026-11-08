@@ -465,7 +465,7 @@ derived name or function (`UGS0404`):
 | `asserted` | A `@bitemporal` type | The transaction-time interval (section 8.4) |
 | `live` | A `@bitemporal` type | `asserted.end is none` |
 | `open` | A type with a valid interval | `live`, where the type is bitemporal, and the valid interval's end absent |
-| `edge` | Inside a navigation step's filter, in a derivation or a function | The relation instance the step traverses, with its attributes and built-in fields |
+| `edge` | Inside a navigation step's filter, in a derivation or a function; in a UQL shape inside a binary navigation's shape, as a field with a shape of its own (`QUERY-ULTRA-QL.md` section 7.1) | The relation instance the step traverses, with its attributes, built-in fields and navigations |
 
 A measure has `.value`, the number in its stored unit, and `.unit`; an interval `.start` and `.end`, each `Optional`
 where the bound may be open, and `.start_precision` and `.end_precision`; a `Unit` value `.quantities`, `.ucum`,
@@ -822,8 +822,8 @@ bucket and 24 reserved zero bits, compared as big-endian. No ID leaves the datab
   half-open ranges, one when the tree was declared together, more once later versions or modules added subtypes. A
   type test is a check against those ranges; a supertype scan is one range scan per range. Abstract types hold a prefix,
   with no instances.
-- **Buckets.** A keyed entity's bucket is `Bucket::derive(tenant, prefix of the declaring type of the key,
-  canonical key)` (section 7.2). A keyless entity takes the bucket its handle states (section 7.3). A keyed relation
+- **Buckets.** A keyed entity's bucket is `Bucket::derive(tenant, prefix of the key's key space, canonical key)`
+  (section 7.2). A keyless entity takes the bucket its handle states (section 7.3). A keyed relation
   instance takes the bucket its key derives, as a keyed entity does, and so declares no `@colocate`. An unkeyed relation
   instance takes the bucket of its anchor participant (section 9.1). A value entity (`@independent`) is keyed by its
   value, so its bucket is derived.
@@ -839,12 +839,20 @@ name; for `Unit` the unit's declared name. A `Resource`'s key is its IRI as one 
 `system-identity` specification already fixes, so governed and ungoverned data hash alike. The encoding is part of the
 identity contract: a change to it is a new major version of the mapping contract.
 
-The bucket's low 16 bits are the top 16 bits of XXH3-64, seed 0, of the declaring type's prefix as 2 big-endian bytes
-followed by the canonical encoding; its top 8 bits are the tenant's (`system-identity`). The declaring type's prefix,
-not the concrete type's, keeps every instance of a key's tree in the partition that checks the key's uniqueness.
+**Key spaces.** A key's **key space** is the prefix and the name of the type that first declared the key. A migration
+carries it through every rename and split of the declaring type, and gives a key that changes, or a type a union
+creates, a key space of its own (`SCHEMA-EVOLUTION.md` section 4.1). A type no migration has touched has its own prefix
+and name as its key space, so the rules below give every instance written before a migration the bucket, claim and
+IRI they always gave it.
 
-A `@key`'s uniqueness claim is kept in the entity's own bucket: the claim's hash input is the declaring type's prefix
-and the canonical key, the entity's own, so creating a keyed instance and checking its key meet in one partition. A
+The bucket's low 16 bits are the top 16 bits of XXH3-64, seed 0, of the key space's prefix as 2 big-endian bytes
+followed by the canonical encoding; its top 8 bits are the tenant's (`system-identity`). The key space's prefix, not
+the concrete type's, keeps every instance of a key's tree in the partition that checks the key's uniqueness.
+
+A `@key`'s uniqueness claim is kept in the entity's own bucket: the claim's hash input is the key space's prefix and
+the canonical key, the entity's own, so creating a keyed instance and checking its key meet in one partition. An
+instance a migration keeps in its origin's bucket under another key space has its claim registered under the new key
+space, in the partition that key hashes to (`SCHEMA-EVOLUTION.md` section 4.1). A
 `@unique` value's claim is at `Bucket::of_value(tenant, predicate, value)`.
 
 A key is immutable (`UGS1007`) and required (`UGS1006`); a second live instance of the tree with the same key in one
@@ -854,16 +862,29 @@ graph is refused (`UGS1008`).
 
 | Instance | IRI |
 |---|---|
-| A keyed entity | `{base}{DeclaringType}/{key}`: the instance base of the entity's graph, the name of the type declaring the key, `/`, and the key's components, each percent-encoded so that every byte outside RFC 3986's unreserved set (`ALPHA`, `DIGIT`, `-`, `.`, `_`, `~`) is encoded, joined by `/` for a composite key. The declaring type is named so a subtype's instances share their supertype's IRI space and the key reads back from the IRI |
-| A relation instance with `@key` | `{base}{DeclaringType}/{key}` likewise |
+| A keyed entity | `{base}{KeySpace}/{key}`: the instance base of the entity's graph, the name of the key's key space (section 7.2), which is the declaring type's name unless a migration renamed that type, `/`, and the key's components, each percent-encoded so that every byte outside RFC 3986's unreserved set (`ALPHA`, `DIGIT`, `-`, `.`, `_`, `~`) is encoded, joined by `/` for a composite key. The key space is named so a subtype's instances share their supertype's IRI space, a renamed type keeps its IRIs, and the key reads back from the IRI |
+| A relation instance with `@key` | `{base}{KeySpace}/{key}` likewise |
 | A keyed instance of a type with `@iri(template)` | The template, an absolute IRI with `{attr}` placeholders for every key attribute, each component percent-encoded as above, and literal text between them. Because a component holds only unreserved characters after encoding, a separator holding at least one other character never occurs inside a component, and the key reads back by splitting on the literal text. The compiler refuses a template that omits a key attribute, that names an attribute twice or one that is not a key attribute, that puts two placeholders with no literal text between them or with text of unreserved characters only, or that is not absolute (`UGS0304`); and two templates in a tenant one of which is a prefix of the other, as text with placeholders removed (`UGS0305`), so an IRI resolves to one type |
 | A keyless entity, and a relation instance without `@key` | `{base}{Type}/{handle}`: the instance base of its graph, its concrete type's name, `/`, and its **handle**: the bucket in 6 and 104 random bits in 26 lowercase hexadecimal digits, joined by `-`, drawn at creation as the `term-dictionary` specification draws a skolem IRI's, the bucket from those the creating partition owns in the tenant's run and the bits uniformly, drawn again on a collision. A type is keyed or keyless whole, so key IRIs and handle IRIs never share a type's space. The dictionary holds the IRI and the ID both ways, as it holds a reifier's skolem IRI; the RDF view presents it as an IRI |
 | A value entity | `{base}{AttributeType}/{value}` |
 
+An instance a migration creates as a secondary image of an origin (`SCHEMA-EVOLUTION.md` section 4.3) takes, when its
+type is keyless, a **derived handle** in place of a drawn one: the origin's bucket and the low 104 bits of XXH3-128,
+seed 0, of the origin's IRI, the target type's name and, for an image of an unnested member, the member's canonical
+encoding (section 7.2) and a list member's position. Evaluating the migration again, as a read of the target's
+history does, names the image alike.
+
+**Birth IRIs.** An instance's IRI is fixed when it is minted and kept for life, through every migration
+(`SCHEMA-EVOLUTION.md` section 4.3). A migration image under another key space or another key than its origin's keeps
+its origin's IRI as its **birth IRI**, held in the dictionary both ways as a handle is. A minted IRI equal to a birth
+IRI an instance holds is refused (`UGS1037`); both hash to one partition, so the check is local. An IRI's text records
+its minting; `rdf:type`, the labels and the key attributes state the instance's current type and key.
+
 An ungoverned blank node keeps the term dictionary's skolem IRI under `.well-known/genid`, presented as a blank node.
 
-Any node finds an instance's bucket from its IRI and the catalog: for a keyed instance the template names the declaring
-type, the key reads back and section 7.2 gives the hash; for a handle its first six digits are the bucket. System IDs
+Any node finds an instance's bucket from its IRI and the catalog: for a keyed instance the template names the key space,
+by its name or a name it held before a migration (section 10.2's retired names), the key reads back and section 7.2
+gives the hash; for a handle its first six digits are the bucket, and its type segment may be a retired name. System IDs
 never appear in IRIs; a handle shows a bucket and nothing else of the ID.
 
 ### 7.4 Vocabulary IRIs
@@ -1085,6 +1106,7 @@ refusal number and the instance. The refusals:
 | `UGS1034` | IncompleteInstance | leaves an instance assembled from triples incomplete: a reifier without its triple, a role triple without its instance, a type without its required roles |
 | `UGS1035` | Succession | inserts an `@ends` instance without a valid start, or whose participant in that role is not live, has no valid interval, or has one that begins after the instance's valid start or ends before it |
 | `UGS1036` | AttributeCardinality | writes a second value to a single-valued attribute of one instance |
+| `UGS1037` | RetiredIri | mints an IRI equal to the birth IRI an instance holds (section 7.3) |
 
 ### 8.8 Legal purge
 
@@ -1228,7 +1250,7 @@ Installation takes the `declare` privilege on the tenant (`SECURITY.md`).
 | 5 Relations and constraints | Roles, navigation names, satisfiability, mutability consistency | `UGS0400`–`UGS0699` |
 | 6 Placement and classification | Sections 9.1–9.4 | `UGS0700`–`UGS0799` |
 | 7 Views | Vocabulary IRIs, GQL names | `UGS0800`–`UGS0899` |
-| 8 Evolution | The difference from the previous version, section 13 | `UGS2001`–`UGS2099` |
+| 8 Evolution | The difference from the previous version, section 13, and a migration source installed with the version, as `SCHEMA-EVOLUTION.md` section 5 checks it | `UGS2001`–`UGS2099`, `UGS2101`–`UGS2199` |
 | 9 Allocation | Prefixes for new types, from the metadata group | `UGS2005` |
 | 10 Emission | The catalog version, the views, the report | |
 
@@ -1259,6 +1281,8 @@ bytes; every field present; a decoder refuses any other byte sequence, so a vers
 | Classification | Per operation its path and constraints; per predicate the request-typing facts (section 9.6) |
 | Report | The notes of section 9.5 |
 | Sources | The installed sources' text, by name, so Describe can return them |
+| Retired name | A name a type, attribute, role, navigation name or graph held in an earlier version, with the item holding it now or the version that dropped it; a key space's name; and the deprecation window a migration gave it (`SCHEMA-EVOLUTION.md` sections 4.2 and 9) |
+| Migration | Each migration a version was installed by: its source, the source and target versions, the cutover epoch and the run's state, read for the target's history before the cutover (`SCHEMA-EVOLUTION.md` section 7) |
 
 **Attribute identity.** An attribute name is one predicate per vocabulary base: `Organization.name` and `Person.name`
 share the predicate `{base}name`. Every type declaring the name must declare it with the same type and the same
@@ -1462,7 +1486,7 @@ either encoding (section 6.4).
 | `List<T>`, `record` | One `rdf:JSON` literal |
 | `Interval<T>` | `{attr}_start`, `{attr}_end` and the precisions as section 5.1 |
 | Edge-encoded `@set` relation without attributes | An `owl:ObjectProperty` `{base}{nav}` from the anchor, with `owl:inverseOf {base}{other nav}` where the other role has one; the inverse is answered from the reverse index |
-| Edge-encoded relation with attributes | The asserted triple and an RDF 1.2 reifier of it carrying the attributes |
+| Edge-encoded relation with attributes | The asserted triple and an RDF 1.2 reifier of it carrying the attributes, linked as `reifier rdf:reifies <<( s p o )>>`, the triple term RDF 1.2 writes, which is how a query reaches the reifier (`QUERY-SPARQL-CORE.md` section 6.4) |
 | Edge-encoded `@multi` relation | One asserted triple; one reifier per instance |
 | `@symmetric` relation | An `owl:SymmetricProperty` |
 | Node-encoded relation | A class `{base}{Relation}` with one property `{base}{Relation}_{role}` per role; the instance a node of that class |
@@ -1587,7 +1611,7 @@ definition; nothing is rolled back in place.
 | Add a required attribute without a default, a key to a keyless type, `@unique`, a cardinality bound, `@acyclic`, `max_depth`, `@limit`, `@no_overlap`, `@append_only`, `@immutable`, a value check, `restrict`; narrow a role's type; remove an enum member | Tightening | After a validation scan (section 13.3); refused if existing data violates it (`UGS2003`) |
 | Remove a constraint, widen a bound, make a required attribute optional, add a default, loosen `restrict` to `cascade`, add a union member | Loosening | Online |
 | Change `@colocate`, a graph's placement | Relocation | Background data movement; the old placement serves reads until the move completes; the report states how much data moves **[stage 8]** |
-| Remove a type, attribute, role, relation, graph or function; change an attribute's type, a key, a relation's `@set` or `@multi`, `@symmetric`, a relation's encoding, an `@iri` template, a vocabulary base | Destructive | Deprecate first (`@deprecated` on the item, additive); drop in a later version after a finalize step; the drop is refused while live instances or catalog references name the item (`UGS2002`, `UGS2009`) |
+| Remove a type, attribute, role, relation, graph or function; change an attribute's type, a key, a relation's `@set` or `@multi`, `@symmetric`, a relation's encoding, an `@iri` template, a vocabulary base | Destructive | Either a migration, which carries the data into a new version of the namespace (`SCHEMA-EVOLUTION.md`), or the deprecate-and-drop path: deprecate first (`@deprecated` on the item, additive); drop in a later version after a finalize step; the drop is refused while live instances or catalog references name the item (`UGS2002`, `UGS2009`) |
 
 A destructive change that drops a type retires its prefix: existing IDs of it may linger in logs and are never reissued.
 Dropping a predicate drops its data as `PROTOCOL.md` section 6.5 states.
@@ -1648,34 +1672,41 @@ and reports it as unenforced (`UGS0902`).
 ## 15. What this specification asks of the others
 
 - **`PROTOCOL.md`.** Carried as of 2026-11-05: Install (section 8.4 there) installs sources and answers the version,
-  its epoch and the report, or code 28 with the diagnostics; code 7 carries a schema refusal's number at commit. Still
-  asked: (1) Describe extended with record kinds for the catalog entries of section 10.2 and the sources, so the schema
-  id covers them; (2) `EntityDeleted` for a write naming a tombstoned entity; (3) Reference (526) in a get-only mode
-  that creates no ID and answers an entity's status (absent, live, deleted) and its type prefix, for participant
-  checks; (4) the datatypes `ugdb:bfloat16vector`, `ugdb:measure` and `ugdb:precision` in section 10.4's table; (5)
-  the Purge command of section 8.8; (6) an entity delete writing a tombstone, as P24 rule 8 states; (7) a handle IRI
-  accepted as a name when the dictionary holds it, as a skolem IRI is; (8) continuation frames for Catalog and Describe, so
-  a catalog version may pass the 523,000 bytes one Catalog frame holds at the floor of `max_frame` (section 11.13 there) and a
-  Describe answer may pass a client's `max_frame`.
-- **`SECURITY.md`.** Installing a schema takes `declare` on the tenant; a purge takes a new action `purge` (7) at
-  tenant scope, held by the built-in `owner` role, and is an audit event naming the principal and the purge epoch.
-  The scopes become cluster, tenant, namespace, graph and predicate, a namespace scope covering its graphs and
-  predicates, and "a tenant is a namespace" becomes "a tenant isolates; a namespace organises".
+  its epoch and the report, or code 28 with the diagnostics; code 7 carries a schema refusal's number at commit.
+  Carried as of 2026-11-08: Describe's record kinds for the catalog entries of section 10.2, the sources and the
+  retired names, covered by the schema id (sections 8.3 and 11.7 there); `EntityDeleted`, code 30; Reference (526) in
+  a get-only mode answering an entity's status and type prefix (section 13.15); the datatypes `ugdb:bfloat16vector`,
+  `ugdb:measure` and `ugdb:precision` (sections 10.1, 10.4, 10.5); Purge (24), section 8.8's legal purge (section
+  8.5); an entity delete's tombstone, write-set operation 8 (section 12.2); a handle IRI accepted as a name, a derived
+  handle among them (section 4.4); continuation frames for Catalog and Describe, a catalog version bounded by
+  `catalog_bytes_max` (sections 8.3, 11.9, 13.7); Install carrying a migration and Migrate (25) controlling its run
+  (sections 8.4 and 8.6); warnings with a reply (section 4.9).
+- **`SECURITY.md`.** Carried as of 2026-11-08: Install takes `declare` on the tenant; a purge takes the action
+  `purge` (7) at tenant scope, held by the built-in `owner` role, and is an audit event naming the principal and the
+  purge epoch; a migration's control takes `declare`; the scopes are cluster, tenant, namespace, graph and predicate,
+  and a tenant isolates where a namespace organises.
 - **Naming, across `PROTOCOL.md`, `SECURITY.md` and the stage 5.5 specifications.** Carried as of 2026-11-05: the u64
   is the tenant, the field, the bucket run, the catalog, the drops and the grants keeping their bytes and taking the
   name `tenant`, and `Bucket::derive` and `Bucket::of_value` take a tenant. The word namespace is free for the unit
   this file defines, so that a client reads PostgreSQL's distinction, database and schema, in the
   engine's own terms.
-- **`system-identity`.** The canonical key encoding of section 7.2 for composite and non-IRI keys, as a revision of
-  "Until UGS keys exist, an IRI is the key of the Resource type"; and a `@key`'s claim bucket hashed from the declaring
-  prefix and the canonical key, as the entity's is, with `Bucket::of_value` kept for `@unique` values.
-- **`catalog`, `schema-changes`, `schema-storage`.** The catalog version's encoding of section 10.2 in place of the
-  three-kind encoding; type prefixes allocated in declaration order in place of preorder numbers; the validation scan of
-  section 13.3 generalising the type change check.
-- **`mapping-contract`, `term-dictionary`.** Relation encodings of section 11.1, with a statement ID allocated also
-  for an instance that fills a role, and a reifier accepted as a role's object term; `rdf:type` answered from prefixes
-  for declared types; `Iri` and enum values as literals; a handle IRI minted into its type's space, held in the
-  dictionary both ways as a reifier's skolem IRI is, and presented as an IRI.
+- **The capability specifications.** Stage 6's change set, which builds UGS, carries the following deltas into them,
+  as an OpenSpec change applies its deltas when it archives; stage 9.5's change set carries the migration's:
+  - `system-identity`: the canonical key encoding of section 7.2 for composite and non-IRI keys, as a revision of
+    "Until UGS keys exist, an IRI is the key of the Resource type"; a `@key`'s claim bucket hashed from the key space's
+    prefix and the canonical key, as the entity's is, with `Bucket::of_value` kept for `@unique` values; at stage 9.5,
+    key spaces carried through migrations and derived handles for secondary images (section 7.3).
+  - `catalog`, `schema-changes`, `schema-storage`: the catalog version's encoding of section 10.2 in place of the
+    three-kind encoding, its retired-name and migration entries among it; type prefixes allocated in declaration order
+    in place of preorder numbers; the validation scan of section 13.3 generalising the type change check.
+  - `mapping-contract`, `term-dictionary`: relation encodings of section 11.1, with a statement ID allocated also for an
+    instance that fills a role, and a reifier accepted as a role's object term; `rdf:type` answered from prefixes for
+    declared types; `Iri` and enum values as literals; a handle IRI minted into its type's space, held in the
+    dictionary both ways as a reifier's skolem IRI is, and presented as an IRI; the contract itself stated as
+    `SCHEMA-APG.md`'s definitions 17.1 and 18.1; at stage 9.5, birth IRIs held both ways, dictionary entries
+    rewritten at a cutover and versioned so a read at an earlier epoch sees the earlier entry, and forward entries for
+    images a migration moves.
+  - `metadata-group`, at stage 9.5: a migration run's record and its transitions, and the retired names per namespace.
 - **The UQL specification.** The expression grammar of section 4 is its base; the bitemporal filter items, the interval
   operators and `schema.` introspection are named here and defined there.
 
@@ -1860,6 +1891,8 @@ counterparty.
 | Formal semantics | Decided 2026-11-08: an algebraic property graph is the foundation, the GQL view a closed graph type read with PG-Schema's STRICT, closed semantics, constraints with PG-Keys' semantics, and the RDF view RDF 1.2 with reifiers and SHACL (`SCHEMA-APG.md`, sections 10 and 21). Chosen over PG-Schema as the foundation, whose edges join two nodes and never an edge, whose types are structural rather than nominal, and which has no schema mappings |
 | `restrict open` | Decided 2026-11-08: refuses a retraction while open instances name the participant and retracts the live ones no longer open with it, since a statement about a participant the graph no longer believes in cannot stay believed; their history stays readable `believed at` an earlier instant |
 | Participants of `@bitemporal` relations | Decided 2026-11-08: `@bitemporal` or `@append_only` types alone (`UGS0602`), as `@retracts` already requires of its role (`UGS0512`): a deleted participant would leave every version of the relation naming an instance that is gone |
+| Key spaces and birth IRIs | Decided 2026-11-08: a key's bucket, claim and IRI read its key space, which outlives renames and splits, and an instance keeps the IRI it was minted with through every migration, so every IRI ever minted routes without a lookup (sections 7.2 and 7.3; `SCHEMA-EVOLUTION.md` section 4) |
+| Retired names | Decided 2026-11-08: the catalog keeps every name an item held, for routing and for the hint after a deprecation window, and never gives one to another item (section 10.2) |
 | GQL view's node types | Decided 2026-11-08: one node type per concrete type with its exact label set, supertypes as labels only, since a closed supertype admits no subtype's node |
 
 ## 18. Sources

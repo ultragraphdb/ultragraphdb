@@ -193,6 +193,7 @@ A privilege is an action on a scope. The action's number is the `detail` of a re
 | `drop` | 4 | the Drop command |
 | `admin` | 5 | at a tenant: its roles, their grants to principals, and the group mappings onto its roles; at the cluster: also principals and trusted issuers |
 | `operate` | 6 | cluster operations: creating and removing tenants, backup, restore, export |
+| `purge` | 7 | the legal purge of `SCHEMA.md` section 8.8, at tenant scope: the one way history held for `@bitemporal` and `@append_only` types, a migration's retained source among it, leaves the store |
 
 | Scope | Covers |
 |---|---|
@@ -230,6 +231,8 @@ the grants do.
 | DirectWrite, ConditionalWrite | `write` on each predicate and graph written; refused with code 21 |
 | Write's declarations | `declare` |
 | Install | `declare` on the tenant |
+| A migration's control: start, dry run, cutover, cancel, state | `declare` on the tenant |
+| Purge | `purge` on the tenant |
 | Commit | the transaction's writes, already checked; the security epoch (below) |
 | Drop | `drop` on the scope dropped |
 | Register | an authenticated principal; the session belongs to it |
@@ -274,7 +277,9 @@ its next Begin.
 Authentication events, authorization refusals and security changes are audit events: structured records with the
 principal, its issuer and subject when a token named it, the source address, the action or mechanism, and the outcome,
 never a credential. The server writes them to an audit log of their own, apart from its diagnostic log. Security
-changes are also in the metadata group's log, as its every command is.
+changes are also in the metadata group's log, as its every command is. A purge is an audit event naming the principal,
+the tenant, what it removed and the epoch it took effect at; so is a migration's cutover, naming the namespace and the
+versions.
 
 ## Encryption
 

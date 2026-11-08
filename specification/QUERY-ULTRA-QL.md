@@ -64,11 +64,12 @@ later stage is marked **[stage N]** and refused before it with `UQL0901`, naming
 ## 2. The graph a query reads
 
 A request runs against one **working graph** of one tenant: the graph `use` names, else the tenant's `@default` graph
-(`SCHEMA.md` section 6.11); a tenant without one and a request without `use` is refused (`UQL0104`). A domain graph is
+(`SCHEMA.md` section 6.11); a tenant without one and a request without `use` is refused (`UQL0104`). `use
+{namespace}@{version}` names the read-only source a migration left (`SCHEMA-EVOLUTION.md` section 7). A domain graph is
 read together with the shared graphs its schema imports, as the GQL view exposes it (`SCHEMA.md` section 11.3). Every
 name a request uses resolves against the catalog version in effect at its read point (`SCHEMA.md` section 13.1); a
 retired name of a renamed item resolves during the migration's deprecation window with a warning (`UQL0110`,
-`SCHEMA-EVOLUTION.md` section 9).
+`SCHEMA-EVOLUTION.md` section 9), and after the window is refused with the current name in the message (`UQL0101`).
 
 **The model.** At its read point the working graph is an algebraic property graph `G` on the schema's APG schema
 (`SCHEMA-APG.md`, section 6): each instance an element labelled by its concrete type, whose value is the record of its
@@ -402,9 +403,10 @@ Scheme(id = $scheme) {
 
 A read point is the protocol's read version and level (`PROTOCOL.md` section 6.2). `as of` before the retention window
 of a type that is neither `@bitemporal` nor `@append_only` is refused naming the window (`PROTOCOL.md` code 3); for
-those two classes every past point is answered (`SCHEMA.md` section 8.4). A read point before a namespace's migration
-cutover reads the source version (`SCHEMA-EVOLUTION.md` section 7). Every result carries the epoch it was read at and,
-for a monotonic-fast read of mutable data, the flag `SCHEMA.md` section 9.6 states.
+those two classes every past point is answered (`SCHEMA.md` section 8.4). `as of` a point before a namespace's migration
+cutover reads the source in the source's schema, as every read compiles against the version in effect at its epoch;
+`believed at` before the cutover reads the target's history through the migration (section 11.2). Every result carries
+the epoch it was read at and, for a monotonic-fast read of mutable data, the flag `SCHEMA.md` section 9.6 states.
 
 ### 11.2 Bitemporal and validity filters
 
@@ -418,6 +420,11 @@ for a monotonic-fast read of mutable data, the flag `SCHEMA.md` section 9.6 stat
 
 `as of` fixes the database's state; `believed at` reads the statements' transaction time within that state. A read of
 `believed at` a past instant is immutable, and so monotonic.
+
+Across a migration's cutover, `believed at t` before the cutover, in a query over the target, reads the target's
+history in the target's schema: the stored migration is evaluated over the source's slice believed at `t`, and every
+instance carries the IRI it carries in the present, so one query reads both (`SCHEMA-EVOLUTION.md` section 7;
+`SCHEMA-APG.md` proposition 16.6).
 
 ### 11.3 Temporal values and operators
 
@@ -629,7 +636,7 @@ help: narrow the type
 | `UQL0002` | A token the lexer does not know |
 | `UQL0003` | A malformed literal |
 | `UQL0004` | A token the grammar does not expect; the message names what was expected |
-| `UQL0101` | A name the catalog does not declare; the message lists the nearest declared ones |
+| `UQL0101` | A name the catalog does not declare; the message lists the nearest declared ones, or, for a retired name past its deprecation window, the current one |
 | `UQL0103` | A field declared only on a subtype, asked without `on`; the fix names the `on` block |
 | `UQL0104` | No working graph: no `use` and no `@default` graph, or an unknown graph |
 | `UQL0105` | A query-local function shadowing a schema name |
@@ -762,11 +769,12 @@ insert AssertedBy { statement: c, asserter: Source(id = "SRC:backfill") }
   `after` that carries no internal ID; a client-facing feed for `subscribe` and `resume`, with commit records filtered
   by type, of which the protocol today holds only the internal epoch feed between roles; `with record … request …` as a
   client session's deduplicated request; `explain` as a request that compiles and classifies without executing.
-- **`SCHEMA.md`.** Section 4's expression grammar names this file as its extension for queries, as it does; section
-  5.11's `edge` as a field with a shape inside a binary navigation's shape.
+  Carried 2026-11-08: a warning, `UQL0110` among them, travels with a reply, its language 3 (section 4.9 there).
+- **`SCHEMA.md`.** Carried 2026-11-08: section 4's expression grammar names this file as its extension for queries,
+  and section 5.11's `edge` is a field with a shape inside a binary navigation's shape.
 - **`SCHEMA-APG.md`.** Carried 2026-11-08: part 2's collections, which `List` result types and set-valued roles read
   (section 12 there), and part 3's views, which the differential correspondence of section 19 relies on (sections 17
-  and 18 there). Still asked: the Lean model's named layer, for section 19's fourth check.
+  and 18 there). Section 19's fourth check runs on the Lean model's named layer, which section 20 there specifies.
 - **`QUERY-GQL-CORE.md`, `QUERY-SPARQL-CORE.md`.** The differential correspondence of section 19, from UQL's side.
 
 ## 22. Decisions

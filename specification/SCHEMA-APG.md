@@ -1,6 +1,6 @@
 # Algebraic property graphs
 
-* Status: first draft, 2026-11-08. The formal semantics of UGS (`openspec/notes/backlog.md`, item 18), in three parts.
+* Status: first draft, 2026-11-08. The formal semantics of UGS, in three parts.
 
 This file defines the algebraic property graph (APG) model of Shinavier, Wisnesky and Meyers, the model the formal
 semantics of UGS is built on: a schema of labels whose types are records and variants over primitive types and labels,
@@ -576,6 +576,22 @@ member; and every element of `R` has at least one element of `R_r`, as a set-val
 The model fixes neither order of a value's two participants. The store fixes one, the order of the participants' IDs
 (`SCHEMA.md` section 6.4), which no view and no query observes.
 
+### 12.5 Unnesting collections of values
+
+**Definition 12.7 (unnest; decided 2026-11-08).** For a label `l` with a field `f` of type `set t` or `list t`, the
+unnest of `G` along `l.f` adds the derived label `l_f` to `G`'s schema,
+
+```
+σ(l_f) = rec { origin ↦ lbl l, member ↦ t }                       for set t
+σ(l_f) = rec { origin ↦ lbl l, position ↦ prim UInt32, member ↦ t }  for list t
+```
+
+with one element per member of `e.f` for every element `e` of `l`, per position for a list, its value naming `e` and
+the member. It is the reification of definition 12.5 applied to a collection of values: the element is named by its
+origin and member, or position, and holds no data beyond them. The unnest is a function of `G`, defined on every APG;
+`Δ` along an image `lbl l_f` (proposition 9.5) then gives one target element per member, each with one origin, which
+is how a migration turns a collection's members into instances (`SCHEMA-EVOLUTION.md` section 3.2).
+
 ## 13. The schema of a catalog
 
 A catalog version `K` of a tenant denotes an APG schema `S(K) = (L, σ)` with constraints `C(K)` (section 14). This
@@ -737,7 +753,10 @@ an edge-encoded relation whose type allocates one. `ι` is partial and injective
 - an element of an edge-encoded relation without a reifier has no IRI; its triple, the IRIs of its anchor and its other
   participant under the anchor's navigation name, names it, and is unique because such a relation is no `@multi`
   relation, which allocates a reifier, and so has at most one live element per pair (section 14.2);
-- an element of a role label has no IRI; the pair of its instance and its participant names it.
+- an element of a role label has no IRI; the pair of its instance and its participant names it;
+- an element a migration creates as a secondary image, of a map that is not primary or of an unnest, is keyed or takes
+  a **derived handle**, a function of its origin's IRI, its target type and, for an unnest, its member
+  (`SCHEMA-EVOLUTION.md` section 4.3), so every evaluation of the migration names it alike.
 
 A homomorphism `h : G → G'` **preserves names** when `ι'(h(e)) = ι(e)` wherever `ι` is defined. System IDs implement
 element identity in the store and are no part of the model.
@@ -805,8 +824,9 @@ APG theories, so proposition 9.3's composition law holds for pure mappings alone
 kind a migration's mapping is (`SCHEMA-EVOLUTION.md` section 5).
 
 **Proposition 16.4 (here).** `SCHEMA-EVOLUTION.md`'s non-merging fragment denotes, for a source APG `G` satisfying the
-source's constraints, the target APG `(Δ_Φ G)|p`: `Δ` along label and variant-of-label images, with extended mapping
-terms, followed by the selection of the maps' `where` predicates. It is defined exactly when the selection is, and
+source's constraints, the target APG `(Δ_Φ G⁺)|p`: `G⁺` is `G` with the unnests its `unnest` maps name (definition
+12.7), `Δ` runs along label and variant-of-label images, with extended mapping terms, and the selection of the maps'
+`where` predicates follows. It is defined exactly when the selection is, and
 each target element has one origin (proposition 9.5). *Proof.* Definitions 9.2, 16.1 and 16.3, with proposition 9.5
 for the images.
 
@@ -817,6 +837,18 @@ coproduct; namespaces whose graphs reference each other's, through imports and b
 proposition 15.1, an APG on one schema whose element sets are disjoint. The model holds no other colimit: a pushout or
 a coequalizer identifies elements, which UGS refuses at commit and `SCHEMA-EVOLUTION.md` refuses at a migration, so an
 integration that identifies entities does so through their keys, where a conflict is refused and named.
+
+**Proposition 16.6 (history through a migration; here).** For a migration of the fragment from a source to a target
+namespace, cut over at epoch `e₂`, and an instant `t` before `e₂`, let `B_t` be the source's slice believed at `t`. Then
+`(Δ_Φ B_t⁺)|p` is the target's slice believed at `t` wherever the selection is defined, an APG on the target's schema,
+and an element's name in it is its name in the target's stored present. *Proof.* `B_t` is an APG (proposition 15.2),
+and its key lookups find at most one element, since keys count live instances and the instances believed at `t` were
+the live ones then. Proposition 16.4 applies to it as to the copy's source. Names agree because a primary image takes
+its origin's IRI and a secondary image a name derived from its origin (section 15.1), whichever slice the origin is
+read from.
+
+A query over the target that reads `believed at t` before the cutover is evaluated this way, in the target's schema,
+and joins the past to the present by name (`SCHEMA-EVOLUTION.md` section 7; `QUERY-ULTRA-QL.md` section 11.2).
 
 ## 17. The RDF view
 
@@ -970,6 +1002,8 @@ values, or the core's results do not transfer.
 | Finite images | Decided 2026-11-08: every primitive type in a label's image has finitely many values (section 9) |
 | Extended mapping terms | Decided 2026-11-08: a mapping's terms may read its valid source, by key lookups, inverse navigations, derivations, folds and functions; such a mapping is no functor, and its report says so (definition 16.3) |
 | Colimits | Decided 2026-11-08: coproducts alone; no pushout or coequalizer, which would identify elements (definition 16.5) |
+| Unnesting | Decided 2026-11-08: a collection's members as elements of a derived label, one origin each, for migrations that turn members into instances (definition 12.7) |
+| History through a migration | Decided 2026-11-08: a target's history before its cutover is the migration evaluated over the source's believed slices, named as the present is (proposition 16.6) |
 | `restrict open` | Decided 2026-11-08: refuses a retraction while open instances name the participant, and retracts the live instances that are no longer open with it (`SCHEMA.md` section 8.4, rule 6) |
 | Participants of `@bitemporal` relations | Decided 2026-11-08: `@bitemporal` or `@append_only` types alone (`UGS0602`), so the live and believed slices are closed under references (proposition 15.2) |
 | Equality of mapping terms | Decided 2026-11-08: no decision procedure until a feature needs one, since UGS declares no path equations and type-checking a mapping needs no equality; normal forms decide the fragment without variants, and two mappings are compared by evaluation on the generated APGs of section 19 |

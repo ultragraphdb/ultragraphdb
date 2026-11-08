@@ -73,7 +73,10 @@ state visible that the view does not name:
 A predicate, class or graph a query names must be one the schema declares or the view derives (`SPQ0202`, `SPQ0203`); on
 a closed graph a predicate no type declares matches nothing, and the planner refuses it instead, since a misspelt IRI is
 otherwise an empty answer. Undeclared data under `@open` is reachable under its own predicates and the class
-`{base}Resource`.
+`{base}Resource`. A predicate or class IRI whose local name a namespace's migration retired (`SCHEMA-EVOLUTION.md`
+section 4.2) resolves to the item that holds the name now during the migration's deprecation window, with a warning
+naming the current IRI (`SPQ0210`), and after the window is refused with the current IRI in the message (`SPQ0202`,
+`SPQ0203`).
 
 ## 3. Lexical structure
 
@@ -383,6 +386,7 @@ A refusal names a code, a location, a reason and, where one exists, a fix.
 | `SPQ0202` | A predicate the catalog does not declare and the view does not derive; the message lists the nearest |
 | `SPQ0203` | A class the catalog does not declare |
 | `SPQ0206` | A projected variable no pattern binds |
+| `SPQ0210` | Warning: a predicate or class IRI under a retired name, resolved during its migration's deprecation window; the message names the current IRI |
 | `SPQ0301` | A predicate in a position its kind forbids, or a literal of a datatype incompatible with the attribute's |
 | `SPQ0401` | `NOT EXISTS` with more than one triple or an unbound subject |
 | `SPQ0402` | A triple term outside the object of `rdf:reifies` |
@@ -529,14 +533,16 @@ shapes `SCHEMA.md` section 11.2 publishes are what a SPARQL client reads for the
 
 - **`PROTOCOL.md`.** Carried as of 2026-11-05, as for GQL: Query with the language tag SPARQL (section 7.4 there),
   Prepare and Execute over a text (section 8.1), Result batches with named columns and unbound cells, an update's
-  counts, and codes 28 and 29 (section 9.4).
-- **`SCHEMA.md`.** Section 11.2's RDF view gains the navigation property of section 2 for node-encoded relations, a
-  derived `owl:propertyChainAxiom` over the two role properties, read-only; and states that `rdf:reifies` with a triple
-  term is how a reifier is reached. Section 8.4's revision rule is what an attribute change on a bitemporal instance
-  relies on. Carried 2026-11-05: `live` in section 11.2's view, `UGS1036` for a second value written to a single-valued
-  attribute, and section 8.4's rule 6 for an append-only link naming a retracted participant.
-- **`mapping-contract`.** The RDF view presents a reifier through `rdf:reifies` and a triple term, as RDF 1.2 writes
-  it, beside the annotation it already defines.
+  counts, and codes 28 and 29 (section 9.4). Carried 2026-11-08: a warning, `SPQ0210` among them, travels with a
+  reply (section 4.9 there).
+- **`SCHEMA.md`.** Carried: section 11.2's RDF view holds the navigation property of section 2 for node-encoded
+  relations, a derived `owl:propertyChainAxiom` over the two role properties, read-only, and states that `rdf:reifies`
+  with a triple term is how a reifier is reached. Section 8.4's revision rule is what an attribute change on a
+  bitemporal instance relies on. Carried 2026-11-05: `live` in section 11.2's view, `UGS1036` for a second value written
+  to a single-valued attribute, and section 8.4's rule 6 for an append-only link naming a retracted participant.
+- **`mapping-contract`.** Carried 2026-11-08: `SCHEMA-APG.md`'s definitions 17.1 and 18.1 state the contract, a
+  reifier presented through `rdf:reifies` and a triple term among it, and stage 6's change set carries it into the
+  capability specification (`SCHEMA.md` section 15).
 - **`quad-reads`.** A path step with a bound subject is a forward read; `^p` and a bound object a reverse read; a
   property function a value-index or vector-index lookup over the tenant's partitions.
 
