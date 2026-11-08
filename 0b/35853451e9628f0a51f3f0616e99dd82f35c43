@@ -1,0 +1,33 @@
+lean/schema/ApgModel/Core/Apg.lean
+  s_d18ff34562952d::t_845f6849c99304 1-89
+lean/schema/ApgModel/Typeside.lean
+  s_d18ff34562952d::t_5fa7ace5fc6150 13-15,33-34
+lean/schema/ApgModel/Core/Term.lean
+  s_d18ff34562952d::t_06205a1939323d 1-359
+  s_d18ff34562952d::t_9798a3087ca0f0 360-387
+lean/schema/ApgModel/Core/Hom.lean
+  s_d18ff34562952d::t_309b1e79883537 1-222
+lean/schema/ApgModel/Core/FinSet.lean
+  s_d18ff34562952d::t_ed9d49c7a5f56d 75-114
+  s_d18ff34562952d::t_71bd4987de1c7d 34-40
+lean/schema/ApgModel.lean
+  s_d18ff34562952d::t_139bd2688eb1a9 9-11,21-24
+openspec/notes/prepare-apg-lean.md
+  s_d18ff34562952d::t_edd18b0bc71bba 225,229,236,287-297
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0b35853451e9628f0a51f3f0616e99dd82f35c43",
+  "prompts": {},
+  "sessions": {
+    "s_d18ff34562952d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b263ae46-8b16-46b4-81c5-522c712b251f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
