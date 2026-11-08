@@ -5,7 +5,7 @@
 
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, BodyView, ErrorCode, ErrorReply, ErrorReplyView, RequestTermView,
+    BodyBuilder, BodyView, DETAIL_VALUE_CUT, ErrorCode, ErrorReply, ErrorReplyView, RequestTermView,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -94,7 +94,11 @@ fn test_the_value_is_a_term_table_of_at_most_one_entry() -> TestResult {
 fn test_every_code_reads_and_unused_bytes_are_zero() -> TestResult {
     let bytes = golden("error")?.bytes()?;
     for code in ErrorCode::ALL {
-        let changed = with_command_header(&bytes, |h| put(h, 0, code.number().into(), 2));
+        // Detail 0, which every code takes: the golden 3 sets a bit OperationFailed refuses.
+        let changed = with_command_header(&bytes, |h| {
+            put(h, 0, code.number().into(), 2);
+            put(h, 8, 0, 8);
+        });
         assert_eq!(
             ErrorReplyView::from_frame(&frame_of(&changed)?)?.code(),
             code
@@ -172,5 +176,47 @@ fn test_a_wrong_partition_detail_with_bits_24_to_31_set_is_refused() -> TestResu
         ErrorReplyView::from_frame(&frame_of(&conflict)?)?.detail(),
         u64::MAX
     );
+    Ok(())
+}
+
+#[test]
+fn test_an_operation_failed_detail_with_a_bit_but_bit_0_set_is_refused() -> TestResult {
+    // PROTOCOL.md section 9.4: OperationFailed's detail holds bit 0, VALUE_CUT, and every other bit zero; any other bit
+    // set is refused as `FieldValue` `"detail"`.
+    let bytes = golden("error_operation")?.bytes()?;
+    let failed = |detail: u64| {
+        with_command_header(&bytes, |h| {
+            put(h, 0, ErrorCode::OperationFailed.number().into(), 2);
+            put(h, 8, detail, 8);
+        })
+    };
+    for bit in 1..64 {
+        for detail in [1u64 << bit, (1 << bit) | DETAIL_VALUE_CUT] {
+            assert_eq!(
+                ErrorReplyView::from_frame(&frame_of(&failed(detail))?)
+                    .err()
+                    .context("a refusal")?
+                    .0,
+                ProtocolErrorEnum::FieldValue {
+                    command: 16,
+                    field: "detail",
+                    value: detail
+                }
+            );
+        }
+    }
+    // Bit 0 alone, and no bit, are taken.
+    for detail in [DETAIL_VALUE_CUT, 0] {
+        let view_bytes = failed(detail);
+        let view = ErrorReplyView::from_frame(&frame_of(&view_bytes)?)?;
+        assert_eq!(
+            (view.code(), view.detail(), view.value_cut()),
+            (
+                ErrorCode::OperationFailed,
+                detail,
+                detail == DETAIL_VALUE_CUT
+            )
+        );
+    }
     Ok(())
 }

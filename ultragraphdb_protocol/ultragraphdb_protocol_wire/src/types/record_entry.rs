@@ -10,6 +10,9 @@ pub struct RecordEntry<'a> {
     value: Option<&'a [u8]>,
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<RecordEntry<'static>>() <= 64);
+
 impl<'a> RecordEntry<'a> {
     /// The entry of `key` and `value`, `None` for a removal.
     pub fn new(key: &'a [u8], value: Option<&'a [u8]>) -> Self {

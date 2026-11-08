@@ -154,7 +154,7 @@ fn read_result_terms<'a>(
 }
 
 /// A received write-set record read in place; see [`WriteSetRecord`] for its layout.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WriteSetRecordView<'a> {
     bytes: &'a [u8],
     kind: RecordKind,

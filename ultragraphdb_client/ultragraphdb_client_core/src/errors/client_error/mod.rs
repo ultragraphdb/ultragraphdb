@@ -8,7 +8,9 @@ mod client_error_error;
 
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::TransportError;
-use ultragraphdb_protocol_wire::{ErrorCode, RefusedRequest, RequestTerm, RunsAgain};
+use ultragraphdb_protocol_wire::{
+    DETAIL_VALUE_CUT, ErrorCode, RefusedRequest, RequestTerm, RunsAgain,
+};
 
 /// Why a client operation failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,7 +35,8 @@ pub enum ClientErrorEnum {
         detail: u64,
         /// The server's message.
         message: String,
-        /// The request's term the refusal names, if it names one.
+        /// The request's term the refusal names, if it names one: for code 8 the value found, cut or left out when
+        /// [`ClientError::value_cut`] says so.
         value: Option<RequestTerm>,
     },
     /// The server closed the connection with an Error frame on stream 0.
@@ -315,6 +318,20 @@ impl ClientError {
     pub fn retryable(&self) -> bool {
         self.runs_again()
             .is_some_and(|runs| runs != RunsAgain::InDoubt)
+    }
+
+    /// Whether a refusal of code 8 (OperationFailed) holds its value found cut to fit the Error frame, or none where no cut
+    /// keeps it whole, which bit 0 of its `detail` says (`PROTOCOL.md` §9.4): the caller reads the value again for it whole.
+    #[must_use]
+    pub fn value_cut(&self) -> bool {
+        matches!(
+            &self.0,
+            ClientErrorEnum::Refused {
+                code: ErrorCode::OperationFailed,
+                detail,
+                ..
+            } if detail & DETAIL_VALUE_CUT != 0
+        )
     }
 
     /// Whether a prepared statement was refused as stale: its tenant's catalog changed, and preparing it again

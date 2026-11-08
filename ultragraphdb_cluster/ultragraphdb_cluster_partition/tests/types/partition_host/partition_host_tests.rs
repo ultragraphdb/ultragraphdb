@@ -5,11 +5,11 @@
 
 use oxrdf::GraphNameRef;
 use ultragraphdb_cluster_partition::{
-    BoundStep, PartitionError, PartitionErrorEnum, PartitionMessage,
+    BoundStep, MAILBOX_PER_TURN_MAX, PartitionError, PartitionErrorEnum, PartitionMessage,
 };
 use ultragraphdb_cluster_placement::{NodeId, PlacementMap};
 use ultragraphdb_cluster_sequencer::Close;
-use ultragraphdb_core_ids::Version;
+use ultragraphdb_core_ids::{Epoch, Version};
 use ultragraphdb_store_quads::tenant_base;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transactions_txn::{TxnError, TxnErrorEnum};
@@ -655,6 +655,53 @@ fn test_a_home_whose_pipeline_stopped_answers_no_registration() -> TestResult {
             2,
             "both writes wait"
         );
+        Ok(())
+    })
+}
+
+/// The closes after epoch 1, `count` of them in order, sent to the one host's mailbox; the last epoch sent.
+fn send_closes(hosts: &[Host<'_>], count: usize) -> TestResult<u64> {
+    let sender = hosts_sender(hosts, 1)?;
+    let last = 1 + u64::try_from(count)?;
+    for at in 2..last + 1 {
+        sender.send(PartitionMessage::Close(Close::new(
+            epoch(at)?,
+            0,
+            Vec::new(),
+            Vec::new(),
+        )?))?;
+    }
+    Ok(last)
+}
+
+/// The latest close delivered to the one host after it turns once.
+fn delivered_after_a_turn(hosts: &mut [Host<'_>]) -> TestResult<Epoch> {
+    let _ended = turn_all(hosts, 1, 0)?;
+    Ok(hosts.first().context("partition 1")?.delivered())
+}
+
+/// A turn takes a mailbox holding as many messages as its bound whole: every close is delivered.
+#[test]
+fn test_a_turn_takes_a_mailbox_at_its_bound_whole() -> TestResult {
+    on_hosts(1, |hosts| {
+        let last = send_closes(hosts, MAILBOX_PER_TURN_MAX)?;
+        assert_eq!(delivered_after_a_turn(hosts)?, epoch(last)?);
+        Ok(())
+    })
+}
+
+/// A turn takes its bound of a mailbox holding one message more, and the next turn takes the one left: the last close is
+/// delivered a turn later.
+#[test]
+fn test_the_message_past_the_mailbox_bound_waits_for_the_next_turn() -> TestResult {
+    on_hosts(1, |hosts| {
+        let last = send_closes(hosts, MAILBOX_PER_TURN_MAX + 1)?;
+        assert_eq!(
+            delivered_after_a_turn(hosts)?,
+            epoch(last - 1)?,
+            "the last close waits"
+        );
+        assert_eq!(delivered_after_a_turn(hosts)?, epoch(last)?);
         Ok(())
     })
 }

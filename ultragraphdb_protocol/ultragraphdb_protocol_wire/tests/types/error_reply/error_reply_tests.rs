@@ -7,7 +7,7 @@ use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_wire::{
     BodyBuilder, DETAIL_TRANSACTION_NOT_HELD, ErrorCode, ErrorReply, RequestTerm,
 };
-use ultragraphdb_tool_bdd::TestResult;
+use ultragraphdb_tool_bdd::{TestError, TestResult};
 
 use crate::utils::golden_bodies::golden;
 
@@ -79,6 +79,34 @@ fn test_a_detail_its_code_refuses_builds_no_frame() -> TestResult {
     let bytes = held.frame(header())?;
     let view = ErrorReplyView::from_frame(&FrameView::validate(&bytes, 1, MAX_FRAME_SIZE)?)?;
     assert_eq!(view.detail(), (7 << 32) | 0x00FF_FFFF);
+    Ok(())
+}
+
+#[test]
+fn test_an_operation_failed_detail_with_a_bit_but_bit_0_set_builds_no_frame() -> TestResult {
+    use ultragraphdb_error_protocol::ProtocolErrorEnum;
+    use ultragraphdb_protocol_wire::{
+        BodyView, Command, DETAIL_VALUE_CUT, ErrorReplyView, FrameView, Header, MAX_FRAME_SIZE,
+    };
+    // PROTOCOL.md section 9.4: OperationFailed's detail holds bit 0, VALUE_CUT, and every other bit zero.
+    let header = || Header::new(1, Command::Error);
+    let failed = |detail: u64| {
+        ErrorReply::new(ErrorCode::OperationFailed, "found another").with_detail(detail)
+    };
+    for detail in [1 << 1, (1 << 1) | DETAIL_VALUE_CUT, 1 << 63] {
+        assert_eq!(
+            failed(detail).frame(header()).err().map(|e| e.0),
+            Some(ProtocolErrorEnum::FieldValue {
+                command: Command::Error.number(),
+                field: "detail",
+                value: detail
+            })
+        );
+    }
+    // Bit 0 builds, and the view reads it back.
+    let bytes = failed(DETAIL_VALUE_CUT).frame(header())?;
+    let view = ErrorReplyView::from_frame(&FrameView::validate(&bytes, 1, MAX_FRAME_SIZE)?)?;
+    assert_eq!(view.detail(), DETAIL_VALUE_CUT);
     Ok(())
 }
 
@@ -173,5 +201,112 @@ fn test_a_cut_message_leaves_the_value_whole() -> TestResult {
     assert_eq!(read.value(), Some(&value));
     assert!(failed.message().starts_with(read.message()));
     assert!(read.message().len() < failed.message().len());
+    Ok(())
+}
+
+/// The view of `reply`'s frame read back, the frame within the floor of `max_frame`, with whether its view says the value
+/// was cut.
+fn read_within_the_floor(reply: &ErrorReply) -> TestResult<(ErrorReply, bool)> {
+    use ultragraphdb_protocol_wire::{
+        BodyView, Command, ErrorReplyView, FrameView, Header, MAX_FRAME_FLOOR,
+    };
+    let frame = reply.frame(Header::new(1, Command::Error))?;
+    let view = ErrorReplyView::from_frame(&FrameView::validate(&frame, 1, MAX_FRAME_FLOOR)?)?;
+    Ok((view.to_body()?, view.value_cut()))
+}
+
+/// A failed compare-and-set's literal past what the frame leaves it is cut at its last character boundary within it, and
+/// bit 0 of `detail` says so; one at the limit goes whole, the bit clear (`PROTOCOL.md` §9.4).
+#[test]
+fn test_a_value_found_past_the_floor_is_cut_and_flagged() -> TestResult {
+    use ultragraphdb_protocol_wire::{DETAIL_VALUE_CUT, MAX_FRAME_FLOOR};
+    let literal = |lexical: String| RequestTerm::Literal {
+        lexical,
+        datatype: None,
+    };
+    let failed = |value: RequestTerm| {
+        ErrorReply::new(
+            ErrorCode::OperationFailed,
+            "the compare-and-set did not hold",
+        )
+        .with_value(value)
+    };
+    let past = failed(literal("a".repeat(MAX_FRAME_FLOOR)));
+    assert!(past.value_cut(), "the reply says its frame cuts the value");
+    let (read, flagged) = read_within_the_floor(&past)?;
+    assert!(flagged, "the view reads the flag");
+    assert_eq!(read.detail(), DETAIL_VALUE_CUT);
+    let Some(RequestTerm::Literal { lexical, .. }) = read.value() else {
+        return Err(TestError::new(format!("a literal: {read:?}")));
+    };
+    assert!(lexical.len() < MAX_FRAME_FLOOR, "the value is cut");
+    assert!("a".repeat(MAX_FRAME_FLOOR).starts_with(lexical.as_str()));
+    // The value comes first: the message keeps only what the value leaves it.
+    assert!(read.message().is_empty());
+    let limit = lexical.len();
+    let at = failed(literal("a".repeat(limit)));
+    assert!(!at.value_cut());
+    let (whole, whole_flagged) = read_within_the_floor(&at)?;
+    assert!(!whole_flagged, "a value at the limit is not flagged");
+    assert_eq!(whole.detail(), 0);
+    assert_eq!(whole.value(), at.value());
+    let (over, over_flagged) = read_within_the_floor(&failed(literal("a".repeat(limit + 1))))?;
+    assert!(over_flagged);
+    assert_eq!(
+        over.value(),
+        at.value(),
+        "one byte past the limit is cut back to it"
+    );
+    // Read back and built again, a cut reply keeps its flag and its value.
+    assert_eq!(read_within_the_floor(&read)?, (read.clone(), true));
+    Ok(())
+}
+
+/// A language-tagged literal keeps its tag whole and its lexical form ends on a character boundary; an IRI, which no cut
+/// keeps naming the node, is left out, the table empty and the flag set, which tells it from no value held.
+#[test]
+fn test_a_cut_keeps_whole_texts_and_leaves_an_iri_out() -> TestResult {
+    use ultragraphdb_protocol_wire::{Direction, MAX_FRAME_FLOOR};
+    let failed = |value: RequestTerm| {
+        ErrorReply::new(
+            ErrorCode::OperationFailed,
+            "the compare-and-set did not hold",
+        )
+        .with_value(value)
+    };
+    let euros = "€".repeat(MAX_FRAME_FLOOR / 3);
+    let (read, flagged) = read_within_the_floor(&failed(RequestTerm::LanguageLiteral {
+        lexical: euros.clone(),
+        language: "de".into(),
+        direction: Some(Direction::Rtl),
+    }))?;
+    assert!(flagged);
+    let Some(RequestTerm::LanguageLiteral {
+        lexical,
+        language,
+        direction,
+    }) = read.value()
+    else {
+        return Err(TestError::new(format!(
+            "a language-tagged literal: {read:?}"
+        )));
+    };
+    assert!(euros.starts_with(lexical.as_str()) && lexical.len() < euros.len());
+    assert_eq!(
+        (language.as_str(), *direction),
+        ("de", Some(Direction::Rtl))
+    );
+    let iri = failed(RequestTerm::Iri(format!(
+        "http://ex.org/{}",
+        "i".repeat(MAX_FRAME_FLOOR)
+    )));
+    let (left_out, iri_flagged) = read_within_the_floor(&iri)?;
+    assert!(iri_flagged, "an IRI left out is flagged");
+    assert_eq!(left_out.value(), None);
+    // No value held: the table empty and the flag clear.
+    let (none, none_flagged) =
+        read_within_the_floor(&ErrorReply::new(ErrorCode::OperationFailed, "none"))?;
+    assert!(!none_flagged);
+    assert_eq!(none.value(), None);
     Ok(())
 }

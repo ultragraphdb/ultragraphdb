@@ -12,6 +12,7 @@ use crate::types::error_reply::ErrorReply;
 use crate::types::error_reply_view::ErrorReplyView;
 use crate::types::frame_view::FrameView;
 use crate::types::term_table_view::TermTableView;
+use crate::utils::constants::DETAIL_VALUE_CUT;
 use crate::utils::sections::Sections;
 use crate::utils::sections::expect_command;
 use crate::utils::sections::text;
@@ -34,6 +35,10 @@ impl<'a> BodyView<'a> for ErrorReplyView<'a> {
         let detail = header.u64_at(8);
         // WrongPartition's bucket takes bits 0 to 23 and its partition bits 32 to 63.
         if code == ErrorCode::WrongPartition && detail & 0xFF00_0000 != 0 {
+            return Err(ProtocolError::field_value(command, "detail", detail));
+        }
+        // OperationFailed's detail holds bit 0, DETAIL_VALUE_CUT, and no other.
+        if code == ErrorCode::OperationFailed && detail & !DETAIL_VALUE_CUT != 0 {
             return Err(ProtocolError::field_value(command, "detail", detail));
         }
         let sections = Sections::<3>::read(command, frame.body(), 0)?;

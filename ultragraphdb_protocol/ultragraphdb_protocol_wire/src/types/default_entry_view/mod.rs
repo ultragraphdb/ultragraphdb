@@ -17,6 +17,9 @@ pub struct DefaultEntryView<'a> {
     predicate: &'a str,
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<DefaultEntryView<'static>>() <= 64);
+
 impl<'a> DefaultEntryView<'a> {
     /// The tenant.
     pub fn tenant(&self) -> u64 {

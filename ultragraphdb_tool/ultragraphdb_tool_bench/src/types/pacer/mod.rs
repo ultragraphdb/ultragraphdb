@@ -23,12 +23,34 @@ impl Pacer {
 
     /// The commits that came due since the last call, by `clock`.
     pub fn take_due<C: Clock>(&mut self, clock: &C) -> u64 {
-        // Saturating: past u64::MAX commits, which no run reaches, the count stays there rather than wrapping.
-        let scaled = clock
-            .elapsed()
+        self.release(self.due_by(clock.elapsed()))
+    }
+
+    /// The commits that came due since the last call and before `end`, by `clock`: a caller looking only after `end`,
+    /// as a writer held by a slow sync does, still takes every commit due before it, and none due at it or after.
+    pub fn take_due_before<C: Clock>(&mut self, clock: &C, end: Duration) -> u64 {
+        self.release(self.due_by(clock.elapsed()).min(self.due_before(end)))
+    }
+
+    /// How many commits are due before `end`, those due at `end` left out: commit `n` is when `n / rate` is below it.
+    pub fn due_before(&self, end: Duration) -> u64 {
+        // Less one, so a commit due at `end` exactly is left out; saturating as in `due_by`.
+        let scaled = end
             .as_nanos()
-            .saturating_mul(u128::from(self.rate));
-        let due = u64::try_from(scaled / 1_000_000_000).unwrap_or(u64::MAX);
+            .saturating_mul(u128::from(self.rate))
+            .saturating_sub(1);
+        u64::try_from(scaled / 1_000_000_000).unwrap_or(u64::MAX)
+    }
+
+    /// How many commits are due by `elapsed`, its own included.
+    fn due_by(&self, elapsed: Duration) -> u64 {
+        // Saturating: past u64::MAX commits, which no run reaches, the count stays there rather than wrapping.
+        let scaled = elapsed.as_nanos().saturating_mul(u128::from(self.rate));
+        u64::try_from(scaled / 1_000_000_000).unwrap_or(u64::MAX)
+    }
+
+    /// Releases the commits up to `due`: those not released before.
+    fn release(&mut self, due: u64) -> u64 {
         let fresh = due.saturating_sub(self.released);
         self.released = self.released.max(due);
         debug_assert!(self.released >= due);

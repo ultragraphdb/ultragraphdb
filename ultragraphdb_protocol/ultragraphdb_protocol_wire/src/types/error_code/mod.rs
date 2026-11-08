@@ -17,7 +17,7 @@ use crate::types::runs_again::RunsAgain;
 /// | 5 | Busy | yes | — |
 /// | 6 | TooLarge | no | the limit, in bytes; for statement IDs, their bound |
 /// | 7 | Refused | no | —; for a term's rule, the term's index; for a declaration, its record's index; for a catalog version past its cap, the cap; for an unknown tenant, the tenant; for a Lease, the maximum; for a Catalog, the version; for a schema rule at commit, the UGS refusal number |
-/// | 8 | OperationFailed | no | — (the value found is the frame's term table) |
+/// | 8 | OperationFailed | no | bit 0, [`crate::DETAIL_VALUE_CUT`]: the value found, the frame's term table, cut or left out to fit |
 /// | 9 | StaleStatement | no | the statement |
 /// | 10 | UnknownStatement | no | the statement |
 /// | 11 | Parameters | no | the statement; 0 for a parameter type |

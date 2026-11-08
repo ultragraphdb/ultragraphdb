@@ -42,6 +42,9 @@ pub struct ObjectRecords<'a> {
     len: usize,
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<ObjectRecords<'static>>() <= 64);
+
 impl<'a> ObjectRecords<'a> {
     /// The records of `value`, checked once: each record's lengths and bytes inside the value.
     ///

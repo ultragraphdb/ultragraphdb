@@ -19,6 +19,9 @@ pub struct AuthenticateView<'a> {
     message: &'a [u8],
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<AuthenticateView<'static>>() <= 64);
+
 impl<'a> AuthenticateView<'a> {
     /// The message's place in its exchange, from 0: the client's even, the server's odd.
     pub fn step(&self) -> u32 {

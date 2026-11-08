@@ -35,8 +35,9 @@
 //! ```
 //!
 //! Each run prints one JSON line. The library holds what the runs are built of, so it is tested apart from the
-//! clock: the arguments, the commit shape, the rate pacer behind the [`Clock`] trait, the summaries, the readers of
-//! `/proc`, the store wrapper timing each write call, the wrappers counting list reads and the directory sizes.
+//! clock: the arguments, the commit shape, the rate pacer behind the [`Clock`] trait, the start that hands a run's
+//! threads its clock once each is set up, the summaries, the readers of `/proc`, the store wrapper timing each write
+//! call, the wrappers counting list reads and the directory sizes.
 
 mod errors;
 mod traits;
@@ -57,6 +58,8 @@ pub use crate::types::partition_shape::PartitionShape;
 pub use crate::types::pipeline_args::PipelineArgs;
 pub use crate::types::read_counts::ReadCounts;
 pub use crate::types::rollup_args::RollupArgs;
+pub use crate::types::run_start::RunStart;
+pub use crate::types::run_start_party::RunStartParty;
 pub use crate::types::size::Size;
 pub use crate::types::summary::Summary;
 pub use crate::types::timed_store::TimedStore;

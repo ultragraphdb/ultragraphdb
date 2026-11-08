@@ -22,6 +22,9 @@ pub struct BindView<'a> {
     transaction: [u8; 16],
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<BindView<'static>>() <= 64);
+
 impl BindView<'_> {
     /// The partition bound to.
     #[must_use]

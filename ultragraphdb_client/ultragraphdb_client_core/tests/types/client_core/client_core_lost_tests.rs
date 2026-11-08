@@ -17,8 +17,8 @@ use ultragraphdb_client_core::{
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::{Anonymous, BufferPool, Framer, TransportError};
 use ultragraphdb_protocol_wire::{
-    Begin, BodyBuilder, Command, ErrorCode, ErrorReply, FrameView, Header, MAX_FRAME_SIZE,
-    PatternSlot, QuadPattern, Read, ResultBatch, TermTable,
+    Begin, BodyBuilder, Command, DETAIL_VALUE_CUT, ErrorCode, ErrorReply, FrameView, Header,
+    MAX_FRAME_SIZE, PatternSlot, QuadPattern, Read, ResultBatch, TermTable,
 };
 
 use crate::types::client_core::client_core_conformance_tests::{
@@ -332,7 +332,7 @@ fn test_a_kept_read_ending_in_a_refusal_answers_it_after_the_loss() -> TestResul
     let stream = c.read(&tx)?;
     c.result(&stream, false)?;
     let refusal = ErrorReply::new(ErrorCode::OperationFailed, "the read failed")
-        .with_detail(4)
+        .with_detail(DETAIL_VALUE_CUT)
         .frame(
             Header::new(CLUSTER, Command::Error)
                 .with_stream(stream.stream())
@@ -343,10 +343,13 @@ fn test_a_kept_read_ending_in_a_refusal_answers_it_after_the_loss() -> TestResul
     assert_eq!(c.batch(&stream), Ok(BatchPoll::Batch(3)));
     assert_eq!(
         c.batch(&stream),
-        Err(
-            ClientError::refused(ErrorCode::OperationFailed, 4, "the read failed", None)
-                .of_request(ultragraphdb_protocol_wire::RefusedRequest::Read)
+        Err(ClientError::refused(
+            ErrorCode::OperationFailed,
+            DETAIL_VALUE_CUT,
+            "the read failed",
+            None
         )
+        .of_request(ultragraphdb_protocol_wire::RefusedRequest::Read))
     );
     assert_eq!(
         c.batch(&stream),

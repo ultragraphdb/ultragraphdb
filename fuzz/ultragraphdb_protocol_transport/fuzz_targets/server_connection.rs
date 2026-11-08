@@ -210,11 +210,21 @@ fn run<A: Authenticator>(
     assert!(connection.next_frame().is_none());
 }
 
+/// The connection's origin in time.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "an `Instant` is made only by reading the clock, so the target reads it once for its origin and injects \
+              every later time as an offset from it"
+)]
+fn start() -> Instant {
+    Instant::now()
+}
+
 fuzz_target!(|data: &[u8]| {
     let Some((mode, frames)) = data.split_first() else {
         return;
     };
-    let now = Instant::now();
+    let now = start();
     let welcome = Welcome::new(1, 0, "fuzz")
         .with_max_streams(8)
         .with_initial_credit(1);

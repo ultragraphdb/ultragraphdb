@@ -20,7 +20,7 @@ use std::time::Instant;
 use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use ultragraphdb_cluster_partition::{
-    BoundKey, Partition, PartitionHost, PartitionMessage, RemoteMessage,
+    BoundKey, MAILBOX_PER_TURN_MAX, Partition, PartitionHost, PartitionMessage, RemoteMessage,
 };
 use ultragraphdb_cluster_placement::PartitionId;
 use ultragraphdb_common_role::{Answer, ParkedBytes, RoleClient, RoleCluster};
@@ -81,6 +81,11 @@ const MESSAGES_PER_TURN_MAX: usize = TURN_BYTES / HEADER_SIZE;
 /// shortest epochs, each a send to its own mailbox and the commit step's close of an epoch, and a longer backlog shrinks by 64
 /// a turn less the closes arriving during it.
 pub const CLOSES_PER_TURN_MAX: usize = 64;
+
+// A turn of the core hands its host's mailbox at most one message per request it took, the one it waited for among them,
+// and one per close; a host's turn has room for all of them beside what the other partitions send, which share its one
+// mailbox in the order they came.
+const _: () = assert!(MESSAGES_PER_TURN_MAX + 1 + CLOSES_PER_TURN_MAX < MAILBOX_PER_TURN_MAX);
 
 /// What one turn takes of what other partitions of the process sent beyond it, the rest waiting for the next turn: as many as
 /// of its inbox, [`MESSAGES_PER_TURN_MAX`]. Each is a write's registrations for a home in another process, sent once a write

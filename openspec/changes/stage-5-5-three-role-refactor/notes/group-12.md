@@ -10,6 +10,10 @@ Wave 3b closed what owner decisions 34 to 36 settled. The accept loops pause aft
 
 Wave 4 fixed the four defects 12.3 and 12.4 held open, each test first: `ClientCore` kept a dropped request future's answer for good, and an open read's stream and buffers after its handle was dropped; `SessionEntry::encode` dropped a term table's entries that are no IRI and shifted the indexes after them; `Pipeline::sync`, dropped at the log's sync, left its round neither applied nor retried; and an Error naming a client's term could pass the client's `max_frame` of 524,288 (`run_read.rs:55` among its sites), so the client closed its connection, which `ErrorReply`'s body now prevents by cutting its message to that floor (`PROTOCOL.md` §9.4). It bounded `serve_listener` and `PartitionCore`'s two drains and carried out owner decisions 41 and 42. `make format` ordered one file's imports and `make fix` reported nothing; both now leave the tree unchanged and report nothing.
 
+Wave 4b carried out owner decisions 43 to 46. The eight `protocol_wire` views above 64 bytes derive `Clone` and no longer `Copy`, and the 20 `Copy` views above 16 bytes carry a `const` assert of at most 64. An OperationFailed Error cuts the value found to fit the floor of `max_frame` and sets bit 0 of its `detail`, `DETAIL_VALUE_CUT`, which the Rust client hands its caller as `ClientError::value_cut` (`PROTOCOL.md` §9.4). The fuzz targets read the clock once each, through a `fn start()` carrying the exception the owner allowed, and `PartitionHost::turn` takes at most `MAILBOX_PER_TURN_MAX`, 2,048, messages of its mailbox a turn. No defect in `src/` was found; one transport test that framed a value too large to frame now refuses an unframeable `detail`. `make format` and `make fix` changed nothing and reported nothing.
+
+Wave 4c (*Wave 4c* under 12.3) closed `test_a_run_offers_its_rate`'s intermittent failure, 3 of 8 runs at wave 4b's gate: `wal_bench`'s partition and pipeline runs started their clock before each log was open, and a writer held by a slow turn lost the commits due meanwhile; `RunStart` starts the clock once every log is open, and `Pacer::take_due_before` takes every commit due before the end. Both date from the files' first versions (83c84b68, e76c1a8c). Owner decision 47: a receiver refuses an OperationFailed whose `detail` sets any bit but bit 0, as code 26's spare bits are refused, and `ErrorReply`'s builder refuses to build one. Each fix was confirmed by a second agent.
+
 What stays open, each with its reason below. Under 12.3, the owner settled on 2026-11-08 what the review held for the owner (decisions 41 and 42): the rule *Off-by-one* now asks half-open ranges where a range indexes, slices or iterates, and takes `..=` for a `contains` check or a match pattern over an interval the specification states closed or one reaching its type's maximum; rule 9 lets a `Copy` type reach one cache line, 64 bytes; the public fields of `ReportAsked`, `Registered` and `ChangesetWorkload` become private; `Server`'s `fn(Welcome) -> Welcome` stays. Wave 4 (*Wave 4* under 12.3) closed:
 
 - the counted loops written `..=` on the change's `src/` lines, now half-open; the `contains` checks, match arms and ranges to a maximum stand. Closed.
@@ -22,7 +26,14 @@ What stays open, each with its reason below. Under 12.3, the owner settled on 20
 - `EncodedTerm::result_view`'s `# Errors` and `AGENTS.md`'s `ultragraphdb_core_terms` row. Closed.
 - the fuzz workspace's clippy: 10 of its 12 refusals. Closed.
 
-Open: the atomics' orderings; the planes of rule 3; the commit queue's production bound, storage's lease wants and the partition mesh, none of them capped, and `PartitionHost::turn`, which drains its partition's own mailbox until empty; eight `Copy` views of `protocol_wire` above 64 bytes with no reason (`PlacementView` 80, `ScanView` 120, `ErrorReplyView` 72, `InstallView` 72, `WelcomeView` 80, `HeaderView` 112, `FrameView` 160, `WriteSetRecordView` 328), each to carry its reason or drop `Copy` by the owner's choice; 245 counted `..=` loops on the change's lines outside `src/`, in 121 test, BDD-step and bench files, and `go_sort.rs:229`, a line the change did not touch; an OperationFailed's found value, which can pass 524,288 bytes and which the specification neither cuts nor refuses; the fuzz workspace's two `Instant::now()` (`client_core`'s `reply.rs:145`, `protocol_transport`'s `server_connection.rs:217`), which only an `#[expect]` removes and which wait on the owner's consent; `protocol_wire`'s `body` and `body_fields` fuzz targets, which assert that an Error rebuilt from its view is its frame, untrue for a message past 522,984 bytes and beyond libFuzzer's default inputs; the invariant branches of `CommitStep::synced` and `Replay::round`, unreachable through the public API, which mutation testing will report unless `.cargo/mutants.toml` records why; a `Transaction` dropped unended, which holds its stream until its connection ends; and an open read whose handle is dropped, cancelled at the next reservation rather than at the drop. Nothing stays open under 12.2.
+Wave 4b (*Wave 4b* under 12.3) closed:
+
+- the eight `Copy` views of `protocol_wire` above 64 bytes (`PlacementView` 80, `ScanView` 120, `ErrorReplyView` 72, `InstallView` 72, `WelcomeView` 80, `HeaderView` 112, `FrameView` 160, `WriteSetRecordView` 328): `Clone` and no longer `Copy`, by decision 43. Closed.
+- an OperationFailed's found value, which could pass 524,288 bytes: cut to fit and flagged by bit 0 of code 8's `detail`, by decision 45, `PROTOCOL.md` §9.4 stating the rule. Closed.
+- the fuzz workspace's two `Instant::now()` (`client_core`'s `reply.rs`, `protocol_transport`'s `server_connection.rs`): each read in a `fn start()` under the `#[expect]` the owner allowed, by decision 44; the fuzz workspace's clippy refuses nothing. Closed.
+- `PartitionHost::turn`, which drained its partition's own mailbox until empty: at most `MAILBOX_PER_TURN_MAX`, 2,048, a turn, by decision 46. Closed.
+
+Open: the atomics' orderings; the planes of rule 3; the commit queue's production bound, storage's lease wants and the partition mesh, none of them capped; 245 counted `..=` loops on the change's lines outside `src/`, in 121 test, BDD-step and bench files, and `go_sort.rs:229`, a line the change did not touch; `protocol_wire`'s `body` and `body_fields` fuzz targets, which assert that an Error rebuilt from its view is its frame, untrue for a message or a found value past what the frame holds and beyond libFuzzer's default inputs; the fuzz workspace's manifest, whose `compio` workspace dependency (`fuzz/Cargo.toml:58`) no member uses, which nightly cargo warns of; the invariant branches of `CommitStep::synced` and `Replay::round`, unreachable through the public API, which mutation testing will report unless `.cargo/mutants.toml` records why; a `Transaction` dropped unended, which holds its stream until its connection ends; an open read whose handle is dropped, cancelled at the next reservation rather than at the drop; `partitions_run.rs`'s order of the run's clock and its log's open, which no deterministic test pins, the rate test under load catching it alone, and the pipeline run's order likewise; commits owed past `PENDING` (256) at a run's end, dropped as at its deadline before; and §9.4's order of checks, which names no place for the `detail` rules. Nothing stays open under 12.2.
 
 ## 12.2 Fuzzing
 
@@ -1616,6 +1627,484 @@ reason removes either, and that exception waits on the owner's consent.
 
 Bazel, over the finished tree: `storage_tests:bdd` 98 scenarios, `protocol_wire` unit 716 and bdd, `common_storage`
 unit 188; all pass, the two mid-wave failures above among them. `make test` is the lead's gate after this wave.
+
+### Wave 4b: owner decisions 43 to 46
+
+Wave 4b carried out what the owner settled on 2026-11-08 of what wave 4 held open (decisions 43 to 46), each behaviour
+change tested first. Three agents worked side by side; their sections follow, then the closing run.
+
+- The eight `protocol_wire` views above 64 bytes derive `Clone` and no longer `Copy`, and the 20 `Copy` views above 16
+  bytes without one carry a `const` assert of at most 64 bytes (decision 43).
+- The fuzz workspace's two clock reads each sit in a `fn start() -> Instant` under the `#[expect]` the owner allowed
+  (decision 44).
+- An OperationFailed Error cuts the value found to fit the floor of `max_frame` and sets bit 0 of `detail`,
+  `DETAIL_VALUE_CUT`; `PROTOCOL.md` §9.4 states the rule, and the Rust client reads it as `ClientError::value_cut`
+  (decision 45).
+- `PartitionHost::turn` takes at most `MAILBOX_PER_TURN_MAX`, 2,048, messages of its mailbox a turn (decision 46).
+
+#### The wire's views above a cache line drop `Copy` (owner decision 43)
+
+The eight `ultragraphdb_protocol_wire` views above 64 bytes derive `Clone` and no longer `Copy`: `PlacementView` 80,
+`ScanView` 120, `ErrorReplyView` 72, `InstallView` 72, `WelcomeView` 80, `HeaderView` 112, `FrameView` 160 and
+`WriteSetRecordView` 328, measured with `size_of` on aarch64-apple-darwin. Rule 9 lets a `Copy` type reach one cache
+line; these pass it, so each is borrowed and a copy of one is a `clone` written out. Behaviour is unchanged.
+
+##### Callers
+
+Every accessor of the eight takes `&self`, and no function in the workspace or in `fuzz/` takes one of them by value:
+the receivers of a frame already hold `&FrameView`, `FrameView::header` already lends `&HeaderView`, and the one view
+held by value, `FrameView`'s `header`, is moved into it once by `validate_body`. No type holding one of the views was
+`Copy`, so none loses it. `cargo check --workspace --all-targets` with the derives changed failed at one line:
+
+- `transactions_log/src/utils/scan.rs:55`, `frame_at`, built `(view, view.verify(..)?)`, moving the `HeaderView` into
+  the tuple before `verify` borrowed it. It now verifies first and moves the view after, so no clone is needed.
+
+No `clone` of a view was added; the clones the search found (`header.clone()` in `fuzz/…/round.rs`, `welcome.clone()`
+in the client, `scan.clone()` in the played partitions) are of owned types, `Header`, `Welcome` and `Scan`.
+
+##### `Copy` views within a cache line
+
+Measured over every public borrowed `Copy` type of the crate, 20 views above 16 bytes carried no size assert. Each now
+carries `const _: () = assert!(size_of::<T<'static>>() <= 64);` beside it, with the comment "A copy moves at most one
+cache line (Ultra rule 9).", as wave 4 wrote them: `RequestTermView` 40, `StringList` 32, `ResultTermView` 48,
+`ObjectRecords` 24, `RecordEntry` 32, `TermTableView` 32, `MembersView` 48, `ChallengeView` 40, `AuthenticateView` 56,
+`EntriesView` 56, `ReportView` 56, `ChunkedBody` 32, `JoinView` 40, `RecallView` 32, `HelloView` 32, `ReferenceView` 64,
+`DefaultEntryView` 32, `KeyValues` 24, `BindView` 56, `LeaseView` 32. `ScanRange`, `ObjectRecord`, `KeyRange`,
+`EpochCloseView`, `VerifyView` and `CatalogView` carried theirs from wave 4. Written `<= 56`, `ReferenceView`'s assert
+fails the build (E0080), so the asserts are read.
+
+##### Run
+
+`cargo check --workspace --all-targets` and `cargo clippy --workspace --all-targets -- -D warnings` are clean but for
+`protocol_wire`'s `tests/types/error_reply/error_reply_tests.rs`, which another agent of the wave was writing at the time
+(five `shadow_unrelated` hits); the crate's library and `bdd` target and `transactions_log`'s every target pass clippy
+with `-D warnings`. The fuzz workspace, `cargo +nightly clippy --workspace --all-targets -- -D warnings` in `fuzz/`,
+compiles and lints clean apart from its manifest's warning below. `rustfmt --check` leaves the 29 files changed
+unchanged. Bazel: `protocol_wire` unit 718 and bdd 51 scenarios, `transactions_log` unit 190 and bdd 15 scenarios, all
+pass; `bazel build //...` succeeds. No role's behaviour changed, so the role binaries' `_tests:bdd` were not run.
+
+##### Open
+
+- `term_table_view`'s private `Key` enum, `Copy` and about 40 bytes (a `Text` variant of two bytes and two slices), is
+  no view and carries no assert; it stays within a cache line.
+- The fuzz workspace's manifest warns of an unused workspace dependency, `compio` (`fuzz/Cargo.toml:58`), which this
+  change did not touch.
+
+#### The value found, cut to fit the Error frame (owner decision 45)
+
+An OperationFailed Error (code 8) carries the value found in sections 1 and 2. Before this change, a value of more than
+the frame's room built an Error past 524,288 bytes, the smallest `max_frame` a client may announce, or past the largest
+frame, which `ServerConnection::refuse` could not build at all. The value is now cut to fit the frame, and a flag in the
+reply says it was cut. A client that needs the whole value reads it again.
+
+- **The flag is bit 0 of `detail`, value 1, `DETAIL_VALUE_CUT`.** Code 8's `detail` was 0 with no other use, and the
+  table says a code defines its own `detail`. The frame header's `flags` was rejected, for two reasons:
+  - Its bits 1 to 7 must be zero at step 6 of `PROTOCOL.md` §2.5, a rule every receiver applies to every frame.
+  - A nonzero bit there is a connection error, so using one would break every existing receiver.
+
+  The bit is set only for code 8: `ErrorReply::value_cut` and `ErrorReplyView::value_cut` read it for no other code.
+- **The value comes first.** It takes what the frame leaves the term table's text beside an empty message:
+  522,960 bytes. That is the 523,008 bytes of data a frame at the floor holds beside its chunk table of 128 leaves, less
+  the three-section table and the entry's 24-byte record. The message takes what the value leaves, cut as wave 4
+  already cut it. Section 0 is for people, and the value is the answer.
+- **How a value is cut depends on its kind.**
+  - A literal, of kind 3 or 4, keeps its datatype's IRI, or its language tag and direction, whole. Its lexical form is
+    cut at its last character boundary within the room those leave. The result is still a literal of the same
+    datatype or language, and the start of its lexical form. The table's receiver rules (§4.4, steps 0 to 12) hold
+    for it.
+  - An IRI or a blank node is left out, and the table is empty. A term names its node by its whole text (§4.4: two
+    entries are equal when their texts are), so a prefix names another node, or one nobody holds. A client could send
+    that prefix back as the expected value of its next compare-and-set. The prefix could also break §4.4's server
+    rule that an IRI is absolute.
+  - A literal whose datatype IRI or language tag alone passes the room is left out too.
+  - With the flag, an empty table still differs from no value held: the bit is clear only when nothing was held.
+- **The builder cuts, and `ErrorReply` keeps the whole value.** `ErrorReply` holds its value whole, as it holds its
+  message, and its frame carries the value cut.
+  - `command_header` sets the bit when `value_cut()` is true, either because the reply's own `detail` has it or because
+    the value passes the room.
+  - `body` interns the value as `carried` gives it.
+  - A relay reads the Error through `ErrorReplyView::to_body`. That keeps the `detail` with the bit set, and a value
+    already within the room is not cut again, so the frontend relays a partition's cut value unchanged.
+  - The producer, `error_reply` in `ultragraphdb_common_storage`, needs no change. Every code 8 leaves through
+    `ErrorReply`'s builder.
+- **The client tells the caller.** `ClientError::value_cut()` is true for a refusal of code 8 with the bit set. The
+  `Refused` variant's `value` note points to it.
+- **Specification.**
+  - `PROTOCOL.md` §9.4 states the rule after the message cut. It updates section 1's row and code 8's `detail` cell,
+    which now reads bit 0 `VALUE_CUT` and every other bit 0.
+  - The change's wire-protocol spec adds the requirement *An OperationFailed Error carries the value found within the
+    floor of `max_frame`*, with the scenario *A value found past the frame arrives cut and flagged*.
+  - The scenario's feature is `ultragraphdb_client_core`'s `features/wire-protocol/value_found.feature`. Its steps are
+    in `tests/bdd_steps/value_found_steps.rs`.
+  - `openspec validate stage-5-5-three-role-refactor` passes.
+
+**Tests.** Each new test failed before the cut, shown by a temporary edit that was then put back: `carried` returned
+every value whole, and `command_header` set no bit. The wire tests fail because the frame passes the floor; the client
+and storage tests fail on the flag and the cut. The tests are:
+
+- `ultragraphdb_protocol_wire`, `error_reply_tests`:
+  - `test_a_value_found_past_the_floor_is_cut_and_flagged` covers a literal past the floor, cut and flagged, with an
+    empty message. Its limit is derived from the cut. At the limit the literal goes whole with the bit clear; one byte
+    past it is cut back to it. A cut reply read and built again keeps its flag and its value. A temporary assert during
+    the run confirmed the stated room, 522,960, and was then removed.
+  - `test_a_cut_keeps_whole_texts_and_leaves_an_iri_out` covers three cases. A language-tagged literal of three-byte
+    characters keeps its tag and direction and is cut on a character boundary. An IRI past the room is left out with
+    the bit set. No value held leaves the bit clear.
+- `ultragraphdb_client_core`: `test_a_value_found_past_the_frame_arrives_cut_and_flagged` in
+  `client_core_requests_tests` sends a ConditionalWrite through `TestServer`. A literal past the frame arrives cut with
+  `value_cut()` true. A literal as long as that cut arrives whole with `value_cut()` false. The BDD scenario above checks
+  the same thing.
+- `ultragraphdb_common_storage`: `test_a_value_found_past_the_floor_is_sent_cut_and_flagged` in `error_reply_tests`
+  takes a partition's `CommitError::operation_failed` holding a literal of 524,288 bytes. Its frame validates at the
+  floor, `detail` is `DETAIL_VALUE_CUT`, and the lexical form is cut.
+- `ultragraphdb_protocol_transport`:
+  `test_a_refusal_too_large_to_frame_is_an_error_and_leaves_its_stream_open` depended on a value past the largest frame
+  that could not be framed. Every value now frames. The test is renamed
+  `test_a_refusal_that_does_not_frame_is_an_error_and_leaves_its_stream_open` and refuses with a `detail` its code does
+  not allow: WrongPartition with bit 24 set, refused as `FieldValue` `"detail"`. `ServerConnection::refuse`'s
+  `# Errors` note names that case in place of the found value.
+
+**Run.**
+
+- Bazel, all passing:
+  - `ultragraphdb_protocol_wire` unit, 718, and its `bdd`.
+  - `ultragraphdb_protocol_transport` unit, 180.
+  - `ultragraphdb_client_core` unit, 205, and `bdd`, 45 scenarios and 90 steps.
+  - `ultragraphdb_common_storage` unit, 189.
+  - `ultragraphdb_client_tokio` and `ultragraphdb_client_compio`, unit and `bdd`.
+  - `ultragraphdb_common_frontend`, unit and `bdd`.
+  - `ultragraphdb/ultragraphdb_storage_tests:bdd`.
+- `cargo clippy -p <crate> --all-targets -- -D warnings` is clean for wire, transport, client core and storage.
+- `cargo doc` builds the wire crate and the client core with no warnings.
+- `scripts/fuzz.sh`, 60 s each:
+  - `body`: 4,161,485 executions, coverage 7,413, no failure.
+  - `body_fields`: 498,060 executions, coverage 8,437, no failure.
+
+**Open.**
+
+- No receiver refuses bits 1 to 63 of code 8's `detail`, so these bits are zero only by the sender's convention.
+  Code 26's bits 24 to 31, by contrast, are refused by every receiver.
+  - Refusing them would tighten one encoding further.
+  - It would also change `client_core_lost_tests`'
+    `test_a_kept_read_ending_in_a_refusal_answers_it_after_the_loss`, which builds a code 8 with `detail` 4.
+  - The owner decides whether to refuse them.
+- The body_fields fuzz target compares a built reply with its view's `to_body`. That holds only while the message and
+  the value fit the frame, because `ErrorReply` keeps both whole. libFuzzer's inputs, at most 5,520 bytes, never reach
+  the room. A target building past the floor would need to compare against the cut reply.
+
+#### The fuzz workspace's clock reads and the host's mailbox (owner decisions 44 and 46)
+
+The two `Instant::now()` the fuzz workspace's clippy refused each read through a function carrying the exception the
+owner allowed, and `PartitionHost::turn` takes at most `MAILBOX_PER_TURN_MAX` of its mailbox, tested first.
+
+##### The fuzz targets' origin in time (decision 44)
+
+Each target reads the clock once, in `fn start() -> Instant` under `#[expect(clippy::disallowed_methods, reason = …)]`,
+as `protocol_transport/tests/utils/peer.rs` does; the fuzz body calls `start()`. The reasons state what each target does
+with the instant, read from its code:
+
+- `fuzz/ultragraphdb_client_core/fuzz_targets/reply.rs`: "an `Instant` is made only by reading the clock, so the target
+  reads it once for its origin and passes that one instant to every call of the client". The target names no later time:
+  `connect`, `receive`, `register`, `prepare`, `describe`, `begin`, `read`, `commit`, `drop_command` and `next_batch` all
+  take the same `now`.
+- `fuzz/ultragraphdb_protocol_transport/fuzz_targets/server_connection.rs`: "an `Instant` is made only by reading the
+  clock, so the target reads it once for its origin and injects every later time as an offset from it". `run` takes the
+  origin for every `receive` and `ServerConnection::new`, and its one later time, `now + 86,400 s` for
+  `handle_timeout`, is computed from it.
+
+`cargo clippy --manifest-path fuzz/Cargo.toml --all-targets -- -D warnings` is clean; `rustfmt --check` over both files.
+
+##### `PartitionHost::turn` takes a bounded share of its mailbox (decision 46)
+
+`InboxTurn` stays in `ultragraphdb_common_service`, and the host does not use it. `cluster_partition` is the partition's
+loop with no runtime of its own, run on the storage role's compio runtime and on a simulator's single thread alike;
+`common_service` is the role shell above it, and depending on it would bring `compio`, `signal-hook`, the HTTP client and
+server, TLS and telemetry into the partition crate. `InboxTurn` cannot move down into `cluster_partition` either:
+`common_frontend` takes it too, and the frontend holds no storage engine, which its dependency-graph check holds. No
+crate beneath both is a home for it. The bound is therefore the counted loop of Ultra rule 2's own example, in
+`turn`: `for _ in 0..MAILBOX_PER_TURN_MAX`, ending early through `let … else { break }` when the mailbox gives nothing.
+A turn's other work is unchanged: resends, the tick, one sync of every decided round, the hand-out.
+
+- `MAILBOX_PER_TURN_MAX`, 2,048 (`partition_host/mod.rs`, exported): twice the 1,024 requests one turn of the storage
+  role's core takes of its inbox after the one it waited for (`MESSAGES_PER_TURN_MAX`). That turn hands the host at most
+  one message per request it took, a Reference's registrations (`home_asked`), and one per close (`CLOSES_PER_TURN_MAX`,
+  64): 1,089. The mailbox is one queue in the order messages came, so the host's next turn takes all 1,089 when at most
+  959 of what the other partitions send, registrations and the answers to the host's own, came before them. At one
+  sync a turn, 2,188 a second on the Shard-per-Core note's disk, the bound admits 4.5 million messages a second, past what
+  a core handles; a turn that keeps up never reaches it.
+- `common_storage`'s `partition_core/mod.rs` states the relation at compile time beside `CLOSES_PER_TURN_MAX`:
+  `const _: () = assert!(MESSAGES_PER_TURN_MAX + 1 + CLOSES_PER_TURN_MAX < MAILBOX_PER_TURN_MAX);`.
+- What a turn leaves waits for the next: the storage role's core turns at least once a `TICK`, 1 ms. The core's last
+  turn at a stop takes at most the bound; a registration or answer left then is sent again by its asker, and a close
+  comes again after the restart, which subscribes from the last close the partition delivered (`storage/src/service.rs`,
+  `joined_subscription`).
+- `turn`'s and `PartitionHost`'s docs and the `cluster_partition` row of `AGENTS.md` name the bound.
+
+Tests, `partition_host_tests.rs`, one host, the closes after epoch 1 sent to its own mailbox, the expected epoch the last
+one sent: `MAILBOX_PER_TURN_MAX` closes are all delivered by one turn (at the bound); one more, and the first turn
+delivers all but the last, the next turn that one (past it). Observed failing: the past-bound test before the bound
+(epoch 2,050 delivered where 2,049 was expected), and again with the loop at `MAILBOX_PER_TURN_MAX + 1`; both tests with
+it at `MAILBOX_PER_TURN_MAX - 1`. Each temporary edit put back.
+
+##### Run
+
+Bazel: `cluster_partition` unit 99, bdd 34 scenarios, `workload_faults` 2, `workload_seeds` 1, `:doc` builds;
+`common_storage` unit 188; `storage_tests:bdd` 98 scenarios; all pass. `cargo clippy --all-targets -- -D warnings` is
+clean over `cluster_partition` and `common_storage`, and over the fuzz workspace; `rustfmt --check` over every file
+changed. No specification names the host's mailbox, so none changed.
+
+##### Open
+
+Nothing.
+
+#### Closing run
+
+Run once every agent of wave 4b had finished, `git diff` and the untracked files compared before and after each, `lean/`
+left out as another line of work's.
+
+`make format` changed no file, buildifier and rustfmt alike, and `make fix` changed no file and reported nothing; the
+second run of each did the same. `cargo clippy --workspace --all-targets -- -D warnings`,
+`cargo clippy --manifest-path fuzz/Cargo.toml --all-targets -- -D warnings` (cargo 1.99.1), `cargo fmt --all --check` and
+`cargo fmt --all --check --manifest-path fuzz/Cargo.toml` are clean, and the workspace prints no `unimplemented`
+warning. The fuzz workspace's clippy refuses none of the 12 lines wave 3b found. Under nightly cargo its manifest warns of
+one thing, `unused workspace dependency compio` (`fuzz/Cargo.toml:58`, pinned since stage 5 (B)), which no change of this
+wave touched. `openspec validate stage-5-5-three-role-refactor` passes.
+
+Bazel, over the finished tree: `protocol_wire` unit 718 and bdd 51 scenarios, `transactions_log` unit 190 and bdd 15,
+`protocol_transport` unit 180, `client_core` unit 205 and bdd 45, `common_storage` unit 189, `cluster_partition` unit 99,
+bdd 34, `workload_faults` and `workload_seeds`, `storage_tests:bdd` 98 scenarios; all pass. The mid-wave refusals the
+agents met, `shadow_unrelated` in `error_reply_tests.rs` and E0382 in `scan.rs`, were files in the writing and are gone
+from the finished tree. `make test` is the lead's gate after this wave.
+
+`MAILBOX_PER_TURN_MAX`'s doc and the `const` assert's comment in `partition_core/mod.rs` said the host's next turn takes
+all 1,089 messages one turn of the core hands it; both now say so only when at most 959 of what the other partitions send
+came first, the mailbox being one queue in arrival order. The bound and the assert stand.
+
+### Wave 4c: an intermittent benchmark test and owner decision 47
+
+Wave 4b's gate failed one unit test, `test_a_run_offers_its_rate`, 3 of 8 runs. Its cause lay in `ultragraphdb_tool_bench` since the files' first versions and is fixed; owner decision 47 refuses code 8's `detail` bits past bit 0. Each fix was checked by a second agent, which reproduced the failure with the old code restored, saw the new tests fail without the fix, and reran the evidence; both verdicts are CONFIRMED and appear below each section.
+
+#### `wal_bench`'s runs counted their log's open against their length
+
+`test_a_run_offers_its_rate` (`ultragraphdb_tool_bench`, tests/utils/partitions_run_tests.rs:157) failed 3 of 8 runs of
+`bazel test //ultragraphdb_tool/ultragraphdb_tool_bench:ultragraphdb_tool_bench_tests
+--test_filter=utils::partitions_run_tests::test_a_run_offers_its_rate --runs_per_test=8 --nocache_test_results`. The
+target's `rust_test` does not take `--test_filter`: every run ran all 88 tests ("0 filtered out"), so each run's
+partitions shared the disk with the suite's other runs and with 7 or 29 other processes. The failure is no race between
+the partitions and no message left unanswered: two steps of the run read the wall clock across disk waits a loaded
+machine stretches past the run's second.
+
+##### Defects found
+
+**The run's clock started before each partition opened its log.** `run_partitions` made its `WallClock` before spawning
+the partitions (partitions_run.rs:139 at HEAD), and each partition then ran `Wal::open` (two directory syncs, the
+superblock's write and sync) before its first look at the clock. Instrumented, the failing runs showed a partition
+reaching its loop at 1.04 s and 2.35 s, its window `clock.elapsed() < deadline` already closed: it offered nothing,
+took the stand-in's closes and reported `"commits":0,"delivered":224`, the brief's failure. `run_pipeline` had the same
+order (pipeline_run.rs:99 before `Wal::open` at 125): in the same 8 runs,
+`test_a_pipeline_run_commits_every_commit_offered_in_rounds_of_the_log` failed twice with `commits_offered` 0, one of
+the 3 failing runs failing on it alone. Both orders date from the files' first versions, `run_pipeline` from 83c84b68
+(2026-11-01) and `run_partitions` from e76c1a8c (2026-11-04), the rate test from f99a170e; no change this session touched
+either. The runs now start their clock once the log is open: `RunStart` (src/types/run_start/mod.rs) waits until every
+partition's `RunStartParty` (src/types/run_start_party/mod.rs) has said its log is open, or has gone, then starts the
+clock and hands it to each; `write_loop` takes it after building its host. `commit_loop` makes its clock after
+`Wal::open` and `Pipeline::new`.
+
+**A partition's writer held by a slow turn lost the commits that came due meanwhile.** With the first fix, 4 of 30 runs
+still failed, a partition offering 1, 14, 28 or 47 commits. Instrumented, one turn's sync took 2.13 s (0.13 s to 2.26 s)
+and another's 3.57 s (0.41 s to 3.98 s): the writer shares its task with the host, so it looked at the clock again only
+past the deadline, read `writing` false and never took the commits due before it. The pacer's open-loop contract is
+that every commit due in the run's length is offered, however late the source looks. `Pacer::take_due_before(clock,
+end)` takes the commits due since the last call and before `end`, and `Pacer::due_before(end)` counts them; a run to its
+length writes until its end and, past it, until one look has taken every commit due before it. A run to a count of
+commits has no end (`Duration::MAX`), so it behaves as before. `run_pipeline`'s source runs on a thread of its own, never
+held by a sync, and keeps `take_due`.
+
+##### Tests added
+
+- `types::run_start_tests::test_a_slow_partys_setup_does_not_count_against_the_run`: one party ready, a 20 ms setup,
+  the other ready; the run's clock reads at least 20 ms less than a clock made when the first was ready. With
+  `RunStart` starting its clock at construction, the order the runs had, it failed (`25.35ms 25.02ms`).
+- `types::run_start_tests::test_a_party_gone_does_not_hold_the_start`, `test_a_run_of_no_parties_starts_at_once`,
+  `types::run_start_party_tests::test_a_party_ready_twice_takes_the_clock`,
+  `test_a_party_learns_that_the_start_is_gone`.
+- `types::pacer_tests::test_a_late_look_takes_every_commit_due_before_the_end_and_none_after`: at 100 a second, 12 taken
+  at 0.12 s, the other 87 of the 99 due before 1 s taken at 3.5 s, none after. With `take_due_before` taking nothing at
+  or past `end`, the loop's old behaviour, it failed (`left: 0, right: 87`).
+- `types::pacer_tests::test_the_commits_due_before_an_end_are_counted_at_its_edges`: no length, rate 0, a commit due at
+  the end exactly, the saturating maximum, and the largest end taking what `take_due` takes.
+
+##### Evidence
+
+The brief's command with `--runs_per_test=30`, after both fixes: 30 of 30 runs pass, each 95 of 95 tests (the filter
+ignored), runs taking 50.6 s to 100.9 s. After the first fix alone, 26 of 30 (runs 12, 16, 24 and 25 failed on the
+rate test, the second defect). `//ultragraphdb_tool/ultragraphdb_tool_bench:all`, the four
+`//ultragraphdb_cluster/ultragraphdb_cluster_partition` targets (unit, `bdd`, `workload_faults`, `workload_seeds`) and
+`//ultragraphdb/ultragraphdb_storage_tests:bdd` pass; `cargo clippy -p ultragraphdb_tool_bench --all-targets -- -D
+warnings` is clean. No specification changed: the partitions spec's benchmark requirement (specs/partitions/spec.md:249)
+states what the run reports, which holds.
+
+##### Open
+
+`ultragraphdb_tool_bench_tests` ran all its tests under `--test_filter` (88, then 95, "0 filtered out"), so the
+filtered command measures the whole suite under load; why the filter does not reach libtest through the `rules_rs`
+`rust_test` is not looked into.
+
+##### Independent check
+
+**CONFIRMED.** The two defects account for the failure, the fix removes their cause, and 30 of 30 runs of the brief's
+command pass. Two gaps remain, listed below.
+
+- **The cause reproduces.** Two edits put the HEAD behaviour back in `partitions_run.rs`, and both were later restored.
+  The first takes `worker.start.clock()` before `Wal::open`. The second sets `writing` back to `clock.elapsed() <
+  worker.end`. With them in place, the brief's command at `--runs_per_test=8` failed 2 of 8 runs with the brief's
+  signature: `{"commits":0,"delivered":230,"partition":1,...}` and `{"commits":0,"delivered":219,"partition":2,...}`.
+  A partition that offers nothing while others deliver over 200 closes of 10 ms has missed its whole 1 s window. That is
+  the clock-before-open order. Logs: `verify/reverted_run1.log`, `verify/reverted_run7.log`.
+- **The fix is not a mask.** No timeout, retry or assertion changed, and the test keeps its `50..=130` bound. The
+  second fix makes the partition's writer keep the open-loop contract that `Pacer`'s own documentation states, and that
+  `run_pipeline`'s source thread already kept. A writer held past the end by a slow sync still offers the commits due
+  before the end, and none after. One effect matters for review: the second fix alone would also have passed the test
+  with the old clock order, because a partition that first looks after 1 s would take all 99 commits at once. Without
+  the first fix, the run would offer its load late in a burst rather than over the second. The first fix is what makes
+  the offered rate true.
+- **The new tests fail without the fix.** Two temporary edits, later restored: `RunStart` started its clock when it was
+  built, and `take_due_before` returned 0 once `elapsed >= end`. With them, the suite failed exactly
+  `test_a_slow_partys_setup_does_not_count_against_the_run` (`20.78575ms 20.785209ms`) and
+  `test_a_late_look_takes_every_commit_due_before_the_end_and_none_after` (`left: 0, right: 87`). The other 93 tests
+  passed (`verify/mutated.log`). After both edits were undone, all three files matched the backups by `cmp`.
+- **Brief's command, `--runs_per_test=30 --nocache_test_results`: 30 of 30 runs pass.** Each run passed 95 of 95 tests,
+  in 39.1 s to 86.5 s (`verify/fixed30.out`, `verify/fixed30_runs.txt`). The filter is ignored here too ("0 filtered
+  out"). `cargo clippy -p ultragraphdb_tool_bench --all-targets -- -D warnings` is clean.
+- **No new race found.**
+  - The start cannot deadlock. Each party sends at most once, because `ready` takes its sender. A party that fails
+    drops its sender, so `recv` ends once every party has either sent or gone.
+  - A dropped `RunStart`, for example when `spawn_workers` fails partway, lets parties that are waiting fail through
+    `clock()`. They do not hang.
+  - The blocking `recv` inside `write_loop` holds up no other task. The mailboxes are unbounded `std::sync::mpsc`
+    channels, so a peer that wakes first and sends registrations waits on nothing.
+  - Every party takes the same `WallClock` value, so all partitions share one origin.
+  - The `writing` condition past the end lasts at most one extra look, because `due_by(elapsed >= end) >=
+    due_before(end)`.
+  - A run to a count of commits sets `end = Duration::MAX` and keeps its old branch.
+
+**Gaps.**
+1. No deterministic test covers the wiring in `partitions_run.rs`. With the two edits above in place, the whole suite
+   passed unloaded (95 of 95, 7.2 s). The ordering and the `writing` condition are covered only by the timing-dependent
+   `test_a_run_offers_its_rate` under load. The pipeline's clock order has no test either, as the section states.
+2. Past the end, commits still owed beyond `PENDING` (256) in flight are dropped once `writing` turns false. That
+   happened at the deadline before too, and a run at rate 100 for 1 s cannot reach it. At a high benchmark rate,
+   though, "every commit due before the end is offered" holds only while what is owed fits under `PENDING`.
+
+#### An OperationFailed Error's `detail` holds bit 0 alone (owner decision 47)
+
+A receiver refuses an Error of code 8 (OperationFailed) whose `detail` sets any bit but bit 0, `DETAIL_VALUE_CUT`, with
+`FieldValue` `"detail"`, the refusal it already gives an Error of code 26 with any of bits 24 to 31 set. Wave 4b defined
+bit 0 and wrote every other bit of code 8's `detail` as 0, but no receiver checked it, so a frame setting another bit
+was read as a refusal whose meaning the protocol does not state. `ErrorReply`'s builder refuses the same `detail`, so no
+sender path builds one.
+
+- **The receiver.** `ErrorReplyView::from_frame` checks the rule beside code 26's
+  (`protocol_wire/src/types/error_reply_view/error_reply_view_body_view.rs:40-43`): `detail & !DETAIL_VALUE_CUT != 0`
+  for code 8 is `ProtocolError::field_value(16, "detail", detail)`.
+- **The sender.** `ErrorReply::frame` refuses the same `detail` beside code 26's check
+  (`protocol_wire/src/types/error_reply/error_reply_body_builder.rs:49-55`). `command_header` adds only bit 0, when the
+  frame cuts the value, so a reply given `detail` 0 or 1 builds and one given any other bit does not. `BodyBuilder`'s
+  documentation names both refusals as the ones `ErrorReply`'s builder holds (`src/traits/body_builder.rs:17-20`), and
+  `ErrorReply`'s field table says "every other bit 0" (`src/types/error_reply/mod.rs:24`).
+- **The senders in `src/`.** Every reply of code 8 is built with `detail` 0: `common_storage`'s `error_reply`
+  (`commit_code` and the changeset's refusal) and the client core's `TestServer::fail_next_condition`. The compute
+  role's relays (`scan_stream.rs:131`, `run_read.rs:229`) copy the `detail` of a view, which the rule has already held.
+  No sender changed.
+- **The specification.** `PROTOCOL.md` §9.4 states it twice: where bit 0 is defined (lines 1336-1338, "a receiver refuses
+  an Error of code 8 with any other bit set") and beside code 26's sentence (lines 1390-1391). The change's wire-protocol
+  requirement "An OperationFailed Error carries the value found within the floor of `max_frame`" gains the SHALL and the
+  scenario "An OperationFailed Error sets no bit of `detail` but bit 0" (`specs/wire-protocol/spec.md:650-652, 660-663`).
+  `openspec validate stage-5-5-three-role-refactor` passes.
+
+##### Tests added
+
+Each failed before the two checks were written and passes after.
+
+- `error_reply_view_tests.rs::test_an_operation_failed_detail_with_a_bit_but_bit_0_set_is_refused`: every bit 1 to 63,
+  alone and with bit 0, is refused with `FieldValue` `"detail"` and the value; `detail` 1 and 0 are read, `value_cut`
+  true for 1 alone.
+- `error_reply_tests.rs::test_an_operation_failed_detail_with_a_bit_but_bit_0_set_builds_no_frame`: bit 1, bits 1 and 0,
+  and bit 63 build no frame, refused as the view refuses them; `detail` 1 builds and reads back.
+- The scenario "An OperationFailed Error sets no bit of `detail` but bit 0" in `protocol_wire`'s
+  `features/wire-protocol/wire_protocol_bodies.feature`, its steps in `tests/frames_steps.rs`: the golden
+  `error_operation` frame with `detail` 1 is read and says its value is cut; with bit 1 or bit 63 it is refused, and
+  `ErrorReply` given either builds no frame. The view's rule is the wire crate's decision, so the scenario lives there
+  rather than beside the requirement's first scenario in the client core's `value_found.feature`.
+
+##### Tests changed
+
+Two tests built a code 8 whose `detail` the rule now refuses. Neither was about the `detail`:
+
+- `error_reply_view_tests.rs::test_every_code_reads_and_unused_bytes_are_zero` set every code over the golden `error`
+  frame, whose `detail` is 3. It now sets `detail` 0, which every code takes.
+- `client_core_lost_tests.rs::test_a_kept_read_ending_in_a_refusal_answers_it_after_the_loss` refused a read with code 8
+  and `detail` 4, and failed once the builder refused it ("detail of command 16 holds 4"). It now gives
+  `DETAIL_VALUE_CUT`, a nonzero `detail` code 8 defines, so the test still shows the `detail` carried to the caller.
+
+##### Run
+
+- Bazel: `protocol_wire` unit 720 (718 and the two above) and `bdd` 52 scenarios, `client_core` unit 205 and `bdd`,
+  `protocol_transport` unit 180, `common_storage` unit 189: all pass.
+- `cargo clippy -p ultragraphdb_protocol_wire --all-targets -- -D warnings` and the same for
+  `ultragraphdb_client_core`: clean.
+- `scripts/fuzz.sh ultragraphdb_protocol_wire body`, 60 s: 4,086,277 executions, coverage 7,413, no failure.
+  `scripts/fuzz.sh ultragraphdb_protocol_wire body_fields`, 60 s: 487,397 executions, coverage 8,507, no failure. In
+  `body_fields`, an `ErrorReply` whose `frame` refuses its `detail` is skipped (`.ok()?`), so the round trip asserts
+  only frames the builder built, which the view now reads under the same rule.
+
+##### Open
+
+- The builder and the view hold the two `detail` rules as two pairs of `if`s, as wave 4b left code 26's. One function
+  over `ErrorCode` would keep them from drifting; it is a refactor, not asked for here.
+
+##### Independent check
+
+**CONFIRMED.** Owner decision 47 is implemented as reported. I found no receiver that accepts a code 8 Error with a bit
+other than bit 0 set, and no sender that builds one.
+
+- **Placement and refusal.** In `ErrorReplyView::from_frame` the check comes right after code 26's check, after `code`
+  is read and before the sections, and returns the same `ProtocolError::field_value(16, "detail", detail)`
+  (`error_reply_view_body_view.rs:40-43`). `ErrorReply::frame` checks the `detail` it was given right after code 26's
+  check (`error_reply_body_builder.rs:49-55`), using the same constructor and field name. `command_header` ORs in bit 0
+  only when `value_cut()` is true, which holds only for code 8. A built frame therefore never carries more than the
+  given `detail` plus bit 0. `BodyBuilder::frame` has no other provided method, and nothing in `src/` pairs
+  `ErrorReply::command_header` with `encode_frame` directly.
+- **Every reader goes through the view.** These all call `ErrorReplyView::from_frame`: the client core's `refusal`
+  (stream refusals and read results) and its connection-closing Error (`client_core_receive.rs:48, 223`);
+  `protocol_transport`'s `client_handshake` and `client_authentication`; `common_role`'s `role_client`; compute's
+  `scan_stream.rs:128` and `run_read.rs:228`, whose relays copy a `detail` the view has already checked; the storage
+  service's `subscription_end`; the frontend's `error_of`. The frontend's read and Bind paths turn an Error that
+  `error_of` cannot read into code 17. Its one-frame path (`client_session_one_frame.rs:281`) relays an unreadable
+  Error to the client as raw bytes, and the client's view then refuses it. Code 26's rule takes the same path, so this
+  is not a bypass. `stream_state.rs:43` reads only the command number. `server_connection` treats an inbound Error as
+  `Unexpected`.
+- **Senders.** Every code 8 in `src/` carries `detail` 0: `common_storage`'s `commit_code` (`error_reply.rs:205`),
+  `CommitError::detail`, and the client test server's `fail_next_condition`. A changeset's `OperationFailed` maps to
+  code 7, not 8. Every Error golden frame (`generate_bodies.py:423-435`) keeps its `detail` within the rule:
+  `error_operation` is code 8 with `detail` 0.
+- **Tests fail without the check.** I made two temporary edits, each turning one check into `if false && …`, and put
+  both files back afterwards (`cmp` against the copies passes).
+  - View check disabled: `error_reply_view_tests::test_an_operation_failed_detail_with_a_bit_but_bit_0_set_is_refused`
+    failed (719 passed, 1 failed), and the bdd scenario's Then step failed (51 of 52 scenarios passed).
+  - Builder check disabled: `error_reply_tests::test_an_operation_failed_detail_with_a_bit_but_bit_0_set_builds_no_frame`
+    failed (719 passed, 1 failed), and the bdd scenario failed again. `client_core`'s unit and bdd targets still passed.
+    The changed `client_core_lost_tests` test is therefore not a test of the rule, and it is not presented as one.
+- **Specification.** `PROTOCOL.md` §9.4 states the rule where bit 0 is defined (1336-1338), in code 8's table row
+  ("every other bit 0", 1356) and in code 26's sentence (1390-1391), all with `FieldValue` `"detail"`. The change's
+  wire-protocol requirement and scenario (`spec.md:650-652, 660-663`) say the same. `openspec validate
+  stage-5-5-three-role-refactor`: valid.
+- **What I ran.** With the tree restored, Bazel: `//ultragraphdb_protocol/ultragraphdb_protocol_wire:all` (the unit
+  target with 720 tests, and bdd) passed. `FUZZ_SECONDS=60 scripts/fuzz.sh ultragraphdb_protocol_wire body`: 2,428,989
+  executions, coverage 7,414, no failure.
+- **Open, minor, not about this decision.** §9.4's "Order" line (`unused bytes …; code; sections; …`) does not list
+  `detail`, so when an Error breaks both a `detail` rule and a section rule, the spec does not say which refusal comes
+  first. The view checks `detail` first. Code 26's rule has had the same gap since wave 4b.
 
 ## 12.4 Coverage
 

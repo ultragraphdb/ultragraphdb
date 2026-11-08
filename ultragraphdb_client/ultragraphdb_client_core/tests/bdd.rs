@@ -37,6 +37,8 @@ mod register_steps;
 mod request_types_steps;
 #[path = "bdd_steps/session_steps.rs"]
 mod session_steps;
+#[path = "bdd_steps/value_found_steps.rs"]
+mod value_found_steps;
 
 use crate::utils::harness::{
     CLUSTER, Harness, RELEASE, begun, committed, config, prepared, registered, scram_welcome,

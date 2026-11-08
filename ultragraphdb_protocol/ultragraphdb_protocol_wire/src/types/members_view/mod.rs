@@ -16,6 +16,9 @@ pub struct MembersView<'a> {
     addresses: StringList<'a>,
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<MembersView<'static>>() <= 64);
+
 impl<'a> MembersView<'a> {
     /// The number of members.
     #[must_use]

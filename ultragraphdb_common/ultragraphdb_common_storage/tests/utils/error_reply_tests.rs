@@ -56,6 +56,32 @@ fn test_a_failed_compare_and_set_carries_the_value_found() {
     assert_eq!(found(None), None);
 }
 
+/// A partition's failed compare-and-set whose value found passes the Error frame's room reaches its peer within the floor of
+/// `max_frame`, the value's lexical form cut and the flag set (`PROTOCOL.md` §9.4).
+#[test]
+fn test_a_value_found_past_the_floor_is_sent_cut_and_flagged() -> ultragraphdb_tool_bdd::TestResult
+{
+    use ultragraphdb_protocol_wire::{
+        BodyBuilder, BodyView, Command, DETAIL_VALUE_CUT, ErrorReplyView, FrameView, Header,
+        MAX_FRAME_FLOOR, RequestTermView,
+    };
+    let lexical = "v".repeat(MAX_FRAME_FLOOR);
+    let refused = CommitError::operation_failed(Some(format!("\"{lexical}\"")));
+    let reply = error_reply(&refused.into());
+    assert!(reply.value_cut());
+    let frame = reply.frame(Header::new(1, Command::Error))?;
+    let view = ErrorReplyView::from_frame(&FrameView::validate(&frame, 1, MAX_FRAME_FLOOR)?)?;
+    assert_eq!(view.code(), ErrorCode::OperationFailed);
+    assert_eq!(view.detail(), DETAIL_VALUE_CUT);
+    assert!(view.value_cut());
+    assert!(matches!(
+        view.value(),
+        Some(RequestTermView::Literal { lexical: cut, datatype: None })
+            if cut.len() < lexical.len() && lexical.starts_with(cut)
+    ));
+    Ok(())
+}
+
 /// A read past the read set's room states the limit in bytes.
 #[test]
 fn test_a_read_set_too_large_states_its_limit() {

@@ -15,6 +15,9 @@ pub struct HelloView<'a> {
     client: &'a str,
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<HelloView<'static>>() <= 64);
+
 impl<'a> HelloView<'a> {
     /// The lowest protocol version the client speaks.
     pub fn protocol_min(&self) -> u16 {

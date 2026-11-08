@@ -16,6 +16,9 @@ pub struct RecallView<'a> {
     request: u64,
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<RecallView<'static>>() <= 64);
+
 impl RecallView<'_> {
     /// The partition asked.
     #[must_use]

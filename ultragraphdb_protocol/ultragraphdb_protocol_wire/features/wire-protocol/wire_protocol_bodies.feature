@@ -175,3 +175,7 @@ Feature: Wire protocol: bodies, statements, describe, result batches and the con
   Scenario: A Reference answers a home's failed store
     When a home's store fails under a registration
     Then the reply's `outcome` is 17, its `generation` and `close` 0, and a receiver accepts it
+
+  Scenario: An OperationFailed Error sets no bit of `detail` but bit 0
+    When an Error of code 8 arrives with `detail` 1, another with bit 1 set, and another with bit 63 set
+    Then the receiver accepts the first, its value cut, and refuses the others with `FieldValue` naming `detail`; a sender builds neither

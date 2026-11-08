@@ -184,6 +184,9 @@ pub struct TermTableView<'a> {
     text: &'a str,
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<TermTableView<'static>>() <= 64);
+
 impl<'a> TermTableView<'a> {
     /// The table of `records` and `text`, sections `sections.0` and `sections.1` of a body of `command` whose records
     /// start at body offset `base`, checked once, entry by entry in order: whole records

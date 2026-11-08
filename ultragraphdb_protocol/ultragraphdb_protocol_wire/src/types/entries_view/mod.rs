@@ -21,6 +21,9 @@ pub struct EntriesView<'a> {
     entries: KeyValues<'a>,
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<EntriesView<'static>>() <= 64);
+
 impl<'a> EntriesView<'a> {
     /// The range's index in its Scan.
     #[must_use]

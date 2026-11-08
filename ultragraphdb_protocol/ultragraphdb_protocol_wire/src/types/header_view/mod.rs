@@ -12,7 +12,7 @@ use crate::utils::le::bytes_at;
 
 /// A received header, its fields read in place from the first 256 bytes of a frame. Constructing it checks the
 /// length and nothing else; [`HeaderView::verify`] checks the rest, so a field read before that is unchecked.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HeaderView<'a> {
     tail: &'a [u8],
     reserved: &'a [u8],

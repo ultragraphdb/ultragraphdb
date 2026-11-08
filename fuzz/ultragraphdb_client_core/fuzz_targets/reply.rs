@@ -141,8 +141,18 @@ fn client(
     Some((core, streams))
 }
 
+/// The instant every call of the target is made at.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "an `Instant` is made only by reading the clock, so the target reads it once for its origin and passes \
+              that one instant to every call of the client"
+)]
+fn start() -> Instant {
+    Instant::now()
+}
+
 fuzz_target!(|data: &[u8]| {
-    let now = Instant::now();
+    let now = start();
     let pool = BufferPool::new(8, MAX_FRAME_SIZE);
     let mut server = Server {
         framer: Framer::new(CLUSTER, MAX_FRAME_SIZE),

@@ -117,6 +117,11 @@ pub const SOURCE_NAME_MAX: usize = 255;
 /// §9.4), which compute relays and the frontend holds until the Bind stream ends.
 pub const DETAIL_TRANSACTION_NOT_HELD: u64 = 1;
 
+/// Bit 0 of the `detail` of an Error 8 (OperationFailed): the value found, in its sections 1 and 2, is cut to fit the frame
+/// within the floor of `max_frame`, or left out when no cut keeps it whole (`PROTOCOL.md` §9.4); the client reads the
+/// value again for it whole.
+pub const DETAIL_VALUE_CUT: u64 = 1;
+
 /// A version's sequence bits: a version holds them even, an epoch's version bound all ones.
 pub(crate) const VERSION_SEQUENCE_MASK: u64 = (1 << 22) - 1;
 

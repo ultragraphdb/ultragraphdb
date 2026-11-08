@@ -18,7 +18,7 @@ pub use crate::types::bound_transaction::{BoundKey, BoundStep};
 pub use crate::types::fanout::Fanout;
 pub use crate::types::home::Home;
 pub use crate::types::partition::Partition;
-pub use crate::types::partition_host::PartitionHost;
+pub use crate::types::partition_host::{MAILBOX_PER_TURN_MAX, PartitionHost};
 pub use crate::types::partition_mailbox::PartitionMailbox;
 pub use crate::types::partition_message::{PartitionMessage, RemoteMessage};
 pub use crate::types::partition_outcome::PartitionOutcome;

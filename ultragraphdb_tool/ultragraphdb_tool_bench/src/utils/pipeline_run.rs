@@ -96,10 +96,8 @@ pub fn run_pipeline(args: &PipelineArgs) -> Result<String, BenchError> {
     let config = WalConfig::new(CLUSTER, args.power_loss_protection());
     let bounds = RoundBounds::new(config.round_bytes(), config.round_transactions());
     let runtime = compio::runtime::Runtime::new()?;
-    let clock = WallClock::new();
-    let (counts, rounds, elapsed) = runtime.block_on(commit_loop(
-        &a, &wal_dir, config, bounds, args, shape, clock,
-    ))?;
+    let (counts, rounds, elapsed) =
+        runtime.block_on(commit_loop(&a, &wal_dir, config, bounds, args, shape))?;
     a.quads().lists().sync()?;
     drop(a);
     let files = Files {
@@ -112,7 +110,8 @@ pub fn run_pipeline(args: &PipelineArgs) -> Result<String, BenchError> {
     Ok(report(args, &counts, rounds, elapsed, &files))
 }
 
-/// The source thread and the commit loop; returns the counts, the log's committed position and the run's length.
+/// Opens the log, then starts the run's clock, the source thread and the commit loop, so the open, however long the machine
+/// makes it take, shortens no run; returns the counts, the log's committed position and the run's length.
 async fn commit_loop(
     a: &BenchApplier,
     wal_dir: &Path,
@@ -120,13 +119,13 @@ async fn commit_loop(
     bounds: RoundBounds,
     args: &PipelineArgs,
     shape: CommitShape,
-    clock: WallClock,
 ) -> Result<(Counts, u64, Duration), BenchError> {
     let (wal, _) = Wal::open(CompioStorage, wal_dir, config)
         .await
         .map_err(|e| BenchError::commit(e.to_string()))?;
     let mut pipeline =
         Pipeline::new(a, wal, bounds).map_err(|e| BenchError::commit(e.to_string()))?;
+    let clock = WallClock::new();
     // Shared with the source thread, which reads it to hold the pending limit; this loop stores to it.
     let replied = Arc::new(AtomicU64::new(0));
     let rx = spawn_source(args.rate(), args.seconds(), shape, clock, replied.clone());

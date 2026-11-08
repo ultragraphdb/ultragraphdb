@@ -18,6 +18,9 @@ pub struct ChunkedBody<'a> {
     layout: ChunkLayout,
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<ChunkedBody<'static>>() <= 64);
+
 impl<'a> ChunkedBody<'a> {
     /// `body`, table included, checked against `checksum_body`: its length split into chunks and table, refused as
     /// [`ProtocolError::body_length`]; then the table against `checksum_body`, refused as

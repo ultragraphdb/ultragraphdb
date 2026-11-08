@@ -640,3 +640,24 @@ deadline plus `scan_stall_ms`.
 #### Scenario: A stream without credit runs no timeout
 - **WHEN** a read's stream has spent its credit, and its caller takes no batch for longer than the timeout
 - **THEN** the connection stays open
+
+### Requirement: An OperationFailed Error carries the value found within the floor of `max_frame`
+An Error of code 8 (OperationFailed) SHALL be built within 524,288 bytes, the floor of `max_frame`, its value found taking
+what that frame leaves beside an empty message and the message what the value leaves. A literal's lexical form past it
+SHALL be cut at its last character boundary within it, its datatype's IRI or language tag and direction whole; an IRI or a
+blank node past it, which a cut would make name another node, SHALL be left out, the term table empty. Either SHALL set bit
+0 of `detail`, and a value carried whole SHALL leave it clear, so an empty table with the bit clear still means no value
+held. Every other bit of code 8's `detail` SHALL be 0: a receiver SHALL refuse an Error of code 8 with any other bit set,
+with `FieldValue` naming `detail`, as one of code 26 with any of bits 24 to 31 set, and a sender SHALL build none. The Rust
+client SHALL say a refusal's value was cut, and the caller reads the value again for it whole.
+
+#### Scenario: A value found past the frame arrives cut and flagged
+- **WHEN** a ConditionalWrite's compare-and-set fails on a literal of 524,288 bytes, and another on a literal as long as
+  the first refusal carried
+- **THEN** the first refusal holds the literal's start, cut, and the client says it was cut; the second holds the
+  literal whole, and the client says nothing was cut
+
+#### Scenario: An OperationFailed Error sets no bit of `detail` but bit 0
+- **WHEN** an Error of code 8 arrives with `detail` 1, another with bit 1 set, and another with bit 63 set
+- **THEN** the receiver accepts the first, its value cut, and refuses the others with `FieldValue` naming `detail`; a
+  sender builds neither

@@ -11,7 +11,7 @@ use crate::types::tenant_run::TenantRun;
 use crate::utils::whole_records::{record_at, record_count};
 
 /// The body of a received Placement frame, read in place; see [`crate::Placement`] for its layout.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlacementView<'a> {
     position: u64,
     epoch: u64,

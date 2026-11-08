@@ -136,3 +136,40 @@ fn test_the_largest_clock_saturates_the_count() {
     assert_eq!(one.take_due(&FakeClock::at(Duration::MAX)), u64::MAX);
     assert_eq!(one.next_due(), Duration::from_nanos(u64::MAX));
 }
+
+/// A caller that looks only after the end, as a partition's writer held past its run's length by a slow sync does,
+/// still takes every commit due before the end, and none due at it or after: commit n is due before 1 s when n / 100 is
+/// below 1, so 99 of them.
+#[test]
+fn test_a_late_look_takes_every_commit_due_before_the_end_and_none_after() {
+    let end = Duration::from_secs(1);
+    let clock = FakeClock::at(Duration::from_millis(120));
+    let mut pacer = Pacer::new(100);
+    assert_eq!(pacer.due_before(end), 99);
+    // Before the end, what `take_due` takes: floor(0.12 * 100) = 12.
+    assert_eq!(pacer.take_due_before(&clock, end), 12);
+    clock.0.set(Duration::from_millis(3_500));
+    assert_eq!(pacer.take_due_before(&clock, end), 99 - 12);
+    assert_eq!(pacer.take_due_before(&clock, end), 0);
+    assert_eq!(pacer.released(), pacer.due_before(end));
+    // The commit due at the end is the next one, taken by a look without one.
+    assert_eq!(pacer.next_due(), end);
+}
+
+/// No commit is due before a run of no length, nor at a rate of zero; the largest end and rate saturate the count.
+#[test]
+fn test_the_commits_due_before_an_end_are_counted_at_its_edges() {
+    assert_eq!(Pacer::new(100).due_before(Duration::ZERO), 0);
+    assert_eq!(Pacer::new(0).due_before(Duration::from_secs(10)), 0);
+    // One a second: commit 1 is due at 1 s, so one nanosecond past it is the first end it is due before.
+    assert_eq!(Pacer::new(1).due_before(Duration::from_secs(1)), 0);
+    assert_eq!(
+        Pacer::new(1).due_before(Duration::from_nanos(1_000_000_001)),
+        1
+    );
+    assert_eq!(Pacer::new(u64::MAX).due_before(Duration::MAX), u64::MAX);
+    // With the largest end, a look takes what `take_due` would.
+    let mut pacer = Pacer::new(14_500);
+    let clock = FakeClock::at(Duration::from_millis(2));
+    assert_eq!(pacer.take_due_before(&clock, Duration::MAX), 29);
+}

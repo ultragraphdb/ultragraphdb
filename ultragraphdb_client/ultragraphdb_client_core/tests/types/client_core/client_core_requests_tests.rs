@@ -595,6 +595,48 @@ fn test_a_refused_one_frame_write_keeps_its_number_and_its_value() -> TestResult
     Ok(())
 }
 
+/// The value a refused compare-and-set's error holds, and whether the client says it was cut.
+fn found(error: &ClientError) -> TestResult<(Option<RequestTerm>, bool)> {
+    let ClientErrorEnum::Refused { value, .. } = &error.0 else {
+        return Err(ultragraphdb_tool_bdd::TestError::new(format!("{error:?}")));
+    };
+    Ok((value.clone(), error.value_cut()))
+}
+
+/// A value found past what the Error frame leaves it arrives cut, and the client says so; one at that limit arrives whole,
+/// and the client says nothing was cut (`PROTOCOL.md` §9.4).
+#[test]
+fn test_a_value_found_past_the_frame_arrives_cut_and_flagged() -> TestResult {
+    use ultragraphdb_protocol_wire::MAX_FRAME_FLOOR;
+    let literal = |lexical: String| RequestTerm::Literal {
+        lexical,
+        datatype: None,
+    };
+    let mut h = Harness::ready(server())?;
+    let s = session(&mut h)?;
+    let whole = "v".repeat(MAX_FRAME_FLOOR);
+    h.server.fail_next_condition(literal(whole.clone()));
+    let p = h.core.conditional_write(claim(), s, h.now)?;
+    let past = h.settle(p)?.err().context("refused")?;
+    assert_eq!(refused_code(&past), Some(ErrorCode::OperationFailed));
+    let (cut, flagged) = found(&past)?;
+    assert!(flagged, "the client says the value was cut");
+    let Some(RequestTerm::Literal { lexical, .. }) = cut else {
+        return Err(ultragraphdb_tool_bdd::TestError::new(format!("{past:?}")));
+    };
+    assert!(lexical.len() < whole.len() && whole.starts_with(lexical.as_str()));
+    let at = literal(lexical);
+    h.server.fail_next_condition(at.clone());
+    let p2 = h.core.conditional_write(claim(), s, h.now)?;
+    let limit = h.settle(p2)?.err().context("refused")?;
+    assert_eq!(
+        found(&limit)?,
+        (Some(at), false),
+        "a value at the limit arrives whole"
+    );
+    Ok(())
+}
+
 /// A statement holding a statement ID is named by its reifier's skolem IRI, one with none by its quad: a write sends what
 /// it names, no statement ID.
 #[test]

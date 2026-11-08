@@ -12,7 +12,7 @@ use crate::utils::constants::SCAN_RANGE_SIZE;
 use crate::utils::le::bytes_at;
 
 /// The body of a received Scan frame, read in place; see [`crate::Scan`] for its layout.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScanView<'a> {
     at: ScanAt,
     read_version: u64,

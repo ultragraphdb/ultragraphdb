@@ -11,7 +11,7 @@ use crate::types::header_view::HeaderView;
 use crate::utils::constants::HEADER_SIZE;
 
 /// A received frame that passed every rule before its body's structure, read in place from the receive buffer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FrameView<'a> {
     header: HeaderView<'a>,
     command: Command,

@@ -33,6 +33,9 @@ pub struct ResultTermView<'a> {
     annotation: Option<&'a str>,
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<ResultTermView<'static>>() <= 64);
+
 impl<'a> ResultTermView<'a> {
     pub(crate) fn new(
         encoding: &'a [u8],

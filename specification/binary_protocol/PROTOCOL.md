@@ -1322,7 +1322,7 @@ refused handshake or authentication, or an expired credential (sections 2.6, 11.
 | Section | Contents |
 |---|---|
 | 0 | the message, UTF-8, for people |
-| 1 | for `OperationFailed`, the value found: a request term table's records (section 4.4), one entry; empty otherwise |
+| 1 | for `OperationFailed`, the value found: a request term table's records (section 4.4), one entry, cut as below when bit 0 of `detail` is set; empty otherwise |
 | 2 | that term table's text |
 
 Order: unused bytes 2–7 and 16–127 zero; `code`; sections; the term table (1, 2), at most one entry
@@ -1331,6 +1331,18 @@ Order: unused bytes 2–7 and 16–127 zero; `code`; sections; the term table (1
 A sender builds every Error frame within 524,288 bytes, the floor of `max_frame`, which every receiver takes (section 11.9): a
 message longer than that frame leaves it beside the value is cut at its last character boundary within it. So a refusal naming
 a long term of its request, or relaying another role's, still reaches its receiver.
+
+The value found comes first: it takes what that frame leaves its term table's text beside an empty message, 522,960 bytes,
+and the message takes what the value leaves. A value past that room is cut, and bit 0 of `detail` (value 1, `VALUE_CUT`) says
+so; a value carried whole leaves the bit clear, as every other bit of code 8's `detail`, and a receiver refuses an Error of
+code 8 with any other bit set (`FieldValue` `"detail"`). A literal, of kind 3 or 4, keeps its
+datatype's IRI or its language tag and direction whole, and its lexical form is cut at its last character boundary within the
+room they leave: still a literal of the same datatype or language, its form's start. An IRI or a blank node is left out and
+the table is empty: a term names its node by its whole text (section 4.4), so a cut one would name another node, or one
+nobody holds, which a client could send back as the expected value of its next compare-and-set; a literal whose datatype's IRI
+or language tag alone passes the room is left out too. An empty table with the bit clear still means no value: the predicate
+held none. A client receiving the bit reads the value again for it whole. A receiver relaying the Error keeps its `detail`,
+and the value, already within the room, is not cut again.
 
 | Number | Code | Retryable | `detail` | Meaning |
 |---|---|---|---|---|
@@ -1341,7 +1353,7 @@ a long term of its request, or relaying another role's, still reaches its receiv
 | 5 | Busy | yes | 0 | The commit queue is full; or the partition's epoch is full and its close request has gone unanswered for `close_request_ms`, the sequencer counting as unreachable until the close arrives (section 11.12) |
 | 6 | TooLarge | no | the limit in bytes; for statement IDs, their bound | A write set exceeds the Welcome's `max_write_set`, as sent or as its commit-time operations leave it (section 11.9); a transaction's reads exceed what its read set holds; a write would pass `statements_per_object_max`; a Commit reply's frame would pass the floor of `max_frame` (section 11.9); one entry's first object record or value is too large for an otherwise empty frame (section 13.14); a row or resume key is too large for an otherwise empty Result frame, or an Execute's ComputeRead for a frame (section 13.12) |
 | 7 | Refused | no | 0; for a term's rule, the term's index; for a declaration, its record's index, or its index among the transaction's declarations for ones tightening and loosening at once; for a catalog version past its cap, the cap; for an unknown tenant, the tenant; for a Lease, the maximum; for a Catalog, the version; for a schema rule at commit, the UGS refusal number (`../schema/SCHEMA.md` section 8.7); for a Migrate naming a run the tenant does not hold or that has ended, its `staged` | The catalog refused a write, a term broke the server's rules (section 4.4), or a declaration was refused: a vector index in this stage, a transaction mixing declarations with other changes, declarations tightening and loosening at once, a type change the data contradicts, or a catalog version past `catalog_bytes_max`, a Commit's or an Install's (sections 8.4, 11.13); a request named a tenant the metadata group does not hold (section 11.10); or a role's request was refused: a Lease past `block_size_max`, a Catalog of a version never held; or a schema rule refused the transaction at commit, the message naming the instance and the rule; or a Migrate's action does not fit its run (section 8.6); or the frontend does not serve the command in this stage (section 11.2) |
-| 8 | OperationFailed | no | 0 | A compare-and-set did not hold; sections 1 and 2 hold the value found |
+| 8 | OperationFailed | no | bit 0 (`VALUE_CUT`, value 1): the value found is cut or left out to fit the frame; every other bit 0 | A compare-and-set did not hold; sections 1 and 2 hold the value found |
 | 9 | StaleStatement | no | the statement | The statement's schema id no longer matches its tenant's |
 | 10 | UnknownStatement | no | the statement | The connection holds no statement of this id in the transaction's tenant: never prepared there, or evicted |
 | 11 | Parameters | no | the statement; 0 for a parameter type | The parameters do not fit the statement |
@@ -1375,7 +1387,8 @@ takes a new Begin; a declaring Commit's, the whole transaction on a new Begin. C
 transaction or a new one, which another compute process or the restarted role may answer. A read that already gave rows
 runs again from its start or from a resume key, and its earlier rows are discarded. Code 31 runs again as code 5 does,
 after a delay: the fence holds for its run's final round, which the migration report estimates. Code numbers are never
-reused. A receiver refuses an Error of code 26 with any of bits 24 to 31 of its `detail` set (`FieldValue` `"detail"`).
+reused. A receiver refuses an Error of code 26 with any of bits 24 to 31 of its `detail` set, and one of code 8 with any
+bit but bit 0 set (`FieldValue` `"detail"`).
 
 | Action (`detail` of code 21) | Asked for |
 |---|---|

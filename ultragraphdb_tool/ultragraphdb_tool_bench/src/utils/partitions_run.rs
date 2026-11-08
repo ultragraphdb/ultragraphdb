@@ -5,7 +5,8 @@
 
 //! The measurement of N partitions in one process (partitions, "The benchmark measures N partitions in one process"):
 //! each on a pinned compio runtime with a store and a log of its own and a generator of its own, exchanging registrations
-//! as messages, while this thread stands in for the sequencer, closing an epoch every [`EPOCH`].
+//! as messages, while this thread stands in for the sequencer, closing an epoch every [`EPOCH`]. The run's clock starts
+//! once every partition has opened its log, so a slow open shortens no partition's run.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::PathBuf;
@@ -39,6 +40,8 @@ use crate::types::dir_sizes::DirSizes;
 use crate::types::pacer::Pacer;
 use crate::types::partition_args::PartitionArgs;
 use crate::types::partition_shape::PartitionShape;
+use crate::types::run_start::RunStart;
+use crate::types::run_start_party::RunStartParty;
 use crate::types::summary::Summary;
 use crate::types::timed_store::TimedStore;
 use crate::types::wall_clock::WallClock;
@@ -94,10 +97,12 @@ struct Worker {
     wal_dir: PathBuf,
     shape: PartitionShape,
     cpu: usize,
-    clock: WallClock,
+    /// The partition's side of the run's start, which hands it the run's clock once every log is open.
+    start: RunStartParty,
     shared: Arc<Shared>,
     rate: u64,
-    seconds: u64,
+    /// The run's length, before which the commits offered came due; none for a run to a count of commits.
+    end: Duration,
     commits: u64,
     verify: bool,
 }
@@ -136,9 +141,9 @@ pub fn run_partitions(args: &PartitionArgs) -> Result<String, BenchError> {
         writers: AtomicUsize::new(ids.len()),
         last_close: AtomicU64::new(0),
     });
-    let clock = WallClock::new();
-    let threads = spawn_workers(args, &parts, mailboxes, &placement, clock, &shared)?;
-    let (last_close, elapsed) = close_until_done(&closers, &shared, clock)?;
+    let (start, parties) = RunStart::new(ids.len());
+    let threads = spawn_workers(args, &parts, mailboxes, parties, &placement, &shared)?;
+    let (last_close, elapsed) = close_until_done(&closers, &shared, start.start())?;
     let stats = threads
         .into_iter()
         .map(|thread| {
@@ -184,13 +189,13 @@ fn spawn_workers(
     args: &PartitionArgs,
     parts: &[Arc<BenchPartition>],
     mailboxes: Vec<PartitionMailbox>,
+    parties: Vec<RunStartParty>,
     placement: &PlacementMap,
-    clock: WallClock,
     shared: &Arc<Shared>,
 ) -> Result<Vec<std::thread::JoinHandle<Result<Stats, BenchError>>>, BenchError> {
     let cpus = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
     let mut threads = Vec::with_capacity(parts.len());
-    for (at, (part, mailbox)) in parts.iter().zip(mailboxes).enumerate() {
+    for (at, ((part, mailbox), start)) in parts.iter().zip(mailboxes).zip(parties).enumerate() {
         let id = part.id();
         let shape = PartitionShape::new(
             args.seed(),
@@ -206,10 +211,14 @@ fn spawn_workers(
             wal_dir: wal_dir(args, id),
             shape,
             cpu: at % cpus,
-            clock,
+            start,
             shared: Arc::clone(shared),
             rate: args.rate(),
-            seconds: args.seconds(),
+            end: if args.commits() > 0 {
+                Duration::MAX
+            } else {
+                Duration::from_secs(args.seconds())
+            },
             commits: args.commits(),
             verify: args.verify(),
         };
@@ -263,9 +272,9 @@ fn serve(worker: Worker, mailbox: PartitionMailbox) -> Result<Stats, BenchError>
     result
 }
 
-/// Offers the partition's commits at its rate, up to its commits or the run's length, then serves the others until the
-/// last close is delivered. Its thread's `block_on` runs it to its end; a future dropped at an await would drop the
-/// partition's host and log with it, the log as its last sync left it.
+/// Opens the partition's log and, once every partition's is open, offers its commits at its rate, up to its commits or the
+/// run's length, then serves the others until the last close is delivered. Its thread's `block_on` runs it to its end; a
+/// future dropped at an await would drop the partition's host and log with it, the log as its last sync left it.
 async fn write_loop(mut worker: Worker, mailbox: PartitionMailbox) -> Result<Stats, BenchError> {
     let part = Arc::clone(&worker.part);
     let config = WalConfig::new(CLUSTER, false);
@@ -279,23 +288,26 @@ async fn write_loop(mut worker: Worker, mailbox: PartitionMailbox) -> Result<Sta
         .with_partition(part.id().get(), first, CloseRequest::default(), &[])
         .bound(part.id(), part.placement());
     let mut host = PartitionHost::new(&part, pipeline, mailbox);
+    // The run's clock, once every partition's log is open; a partition failing before here drops its side of the start,
+    // which then holds for it no longer. Blocks the thread, whose runtime has no other task: no message comes before.
+    let clock = worker.start.clock()?;
     let mut stats = Stats::default();
     let mut pacer = Pacer::new(worker.rate);
     let mut writes: BTreeMap<u64, Changeset> = BTreeMap::new();
     let (mut offered, mut owed, mut unended) = (0u64, 0u64, 0u64);
     let mut ended_writes = false;
-    let deadline = Duration::from_secs(worker.seconds);
-    // Ends when the last close has reached a partition that has ended its writes; the commit count or the deadline ends
+    // Ends when the last close has reached a partition that has ended its writes; the commit count or the run's end ends
     // those, and the stand-in closes until they have ended.
     loop {
-        let now = micros(&worker.clock);
+        let now = micros(&clock);
         let writing = if worker.commits > 0 {
             offered < worker.commits
         } else {
-            worker.clock.elapsed() < deadline
+            // Past the end too, until a look has taken every commit due before it, which a slow turn may have held off.
+            clock.elapsed() < worker.end || pacer.released() < pacer.due_before(worker.end)
         };
         if writing && !ended_writes {
-            owed += pacer.take_due(&worker.clock);
+            owed += pacer.take_due_before(&clock, worker.end);
             while owed > 0 && unended < PENDING && (worker.commits == 0 || offered < worker.commits)
             {
                 let commit = worker.shape.next_commit();

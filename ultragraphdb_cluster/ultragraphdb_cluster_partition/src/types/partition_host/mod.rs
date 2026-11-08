@@ -33,12 +33,22 @@ use crate::types::reference::Reference;
 /// made durable, and a registration is idempotent.
 pub(crate) const RESEND_US: u64 = 1_000_000;
 
+/// The messages one turn takes of the partition's mailbox, the rest waiting for the next turn (Ultra rule 2): 2,048, twice
+/// the 1,024 requests one turn of the storage role's core takes of its inbox after the one it waited for. That turn hands
+/// the host at most one message per request it took, a Reference's registrations, and one per epoch close, at most 64:
+/// 1,089. The mailbox is one queue in the order messages came, so the host's next turn takes all 1,089 when at most 959
+/// of what the other partitions send, registrations and the answers to the host's own, came before them; past that, the
+/// rest wait for the turn after.
+/// At one sync a turn, 2,188 a second on the disk the Shard-per-Core note measures, the bound admits 4.5 million messages a
+/// second, past what a core handles: it ends a turn whose senders outpace it, and a turn that keeps up never reaches it.
+pub const MAILBOX_PER_TURN_MAX: usize = 2_048;
+
 /// One partition's loop, on whichever runtime its caller runs it (the storage process's compio runtime per partition, a
 /// simulation's single thread): its pipeline, its home, the writes waiting for answers and its mailbox. A write
 /// ([`PartitionHost::submit`]) registers what it references at their homes, batched per home, and goes on waiting while
 /// the host serves everything else; its answers adopted, it is written and handed to the commit step, which holds it
-/// until the closes its answers named are delivered. A turn ([`PartitionHost::turn`]) takes what the mailbox holds,
-/// syncs what was decided, and hands out what that made durable.
+/// until the closes its answers named are delivered. A turn ([`PartitionHost::turn`]) takes what the mailbox holds, up to
+/// [`MAILBOX_PER_TURN_MAX`], syncs what was decided, and hands out what that made durable.
 ///
 /// The host keeps what a crash loses and nothing else: a restarted host begins with no waiting write, and an answer to a
 /// write it no longer holds is dropped.
@@ -226,8 +236,9 @@ where
         Ok(ticket)
     }
 
-    /// One turn at `now_us`: every message the mailbox holds, unanswered registrations sent again, every decided round
-    /// synced and applied, and what that made durable handed out.
+    /// One turn at `now_us`: the messages the mailbox holds, at most [`MAILBOX_PER_TURN_MAX`], the rest waiting for the
+    /// next turn, unanswered registrations sent again, every decided round synced and applied, and what that made durable
+    /// handed out.
     ///
     /// # Errors
     ///
@@ -237,9 +248,12 @@ where
     /// handed out, while the pipeline no longer counts it unsynced: a host whose turn is dropped is fit only to be
     /// dropped, as every caller's is, each turn running in the task that owns its host.
     pub async fn turn(&mut self, now_us: u64) -> Result<(), PartitionError> {
-        // Ends when the mailbox is empty: a message taken is gone, and what a turn sends goes to other partitions' or
-        // waits for the next turn.
-        while let Some(message) = self.mailbox.next() {
+        // Ends at the bound or when the mailbox is empty, whichever comes first: what a turn sends itself waits in the
+        // mailbox with what other partitions send.
+        for _ in 0..MAILBOX_PER_TURN_MAX {
+            let Some(message) = self.mailbox.next() else {
+                break;
+            };
             self.handle(message, now_us)?;
         }
         self.resend(now_us);

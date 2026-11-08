@@ -16,6 +16,9 @@ pub struct JoinView<'a> {
     partitions: &'a [u8],
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<JoinView<'static>>() <= 64);
+
 impl<'a> JoinView<'a> {
     /// The role's kind: compute or storage.
     #[must_use]

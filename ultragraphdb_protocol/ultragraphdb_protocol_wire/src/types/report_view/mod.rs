@@ -19,6 +19,9 @@ pub struct ReportView<'a> {
     terms: TermTableView<'a>,
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<ReportView<'static>>() <= 64);
+
 impl<'a> ReportView<'a> {
     /// The reporting partition.
     #[must_use]

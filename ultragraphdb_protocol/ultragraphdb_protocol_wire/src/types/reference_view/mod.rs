@@ -19,6 +19,9 @@ pub struct ReferenceView<'a> {
     terms: TermTableView<'a>,
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<ReferenceView<'static>>() <= 64);
+
 impl<'a> ReferenceView<'a> {
     /// Whether this is the home's reply.
     /// The tenant of the batch's entities.

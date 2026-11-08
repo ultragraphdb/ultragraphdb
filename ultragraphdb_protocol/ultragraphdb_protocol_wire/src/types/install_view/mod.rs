@@ -8,7 +8,7 @@ mod install_view_body_view;
 use crate::types::string_list::StringList;
 
 /// The body of a received Install frame, read in place; see [`crate::Install`] for its layout.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstallView<'a> {
     tenant: u64,
     version: u64,

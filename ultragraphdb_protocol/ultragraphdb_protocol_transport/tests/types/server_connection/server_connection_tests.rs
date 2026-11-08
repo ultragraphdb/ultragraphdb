@@ -15,8 +15,8 @@ use ultragraphdb_protocol_wire::{
     CommitOperation, ComputeRead, ConditionalWrite, Credit, Describe, DirectWrite, DropCommand,
     Entries, EntriesEnd, ErrorCode, ErrorReply, ErrorReplyView, Execute, FLAG_LAST, FrameView,
     Header, HeaderView, Held, Hello, Install, Language, MAX_FRAME_FLOOR, MAX_FRAME_SIZE, Operation,
-    PatternSlot, Prepare, QuadPattern, Query, Read, ReadLevel, Register, RequestTerm, ResultBatch,
-    Scan, ScanAt, ScanRange, TermTable, Welcome, WelcomeView, Write, WriteChange,
+    PatternSlot, Prepare, QuadPattern, Query, Read, ReadLevel, Register, ResultBatch, Scan, ScanAt,
+    ScanRange, TermTable, Welcome, WelcomeView, Write, WriteChange,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -1716,25 +1716,30 @@ fn test_a_renewal_too_large_to_frame_keeps_the_credential_held_and_closes() -> T
 }
 
 #[test]
-fn test_a_refusal_too_large_to_frame_is_an_error_and_leaves_its_stream_open() -> TestResult {
+fn test_a_refusal_that_does_not_frame_is_an_error_and_leaves_its_stream_open() -> TestResult {
     let now = start();
     let mut peer = Peer::default();
     let mut connection = serving(&mut peer, now)?;
     request(&mut connection, &mut peer, 1, &Begin::new(0, 0, false), now)?;
-    // A message is cut to fit its frame; a found value past the largest frame is not.
-    let value = RequestTerm::Literal {
-        lexical: "r".repeat(MAX_FRAME_SIZE),
-        datatype: None,
-    };
+    // A message and a found value are cut to fit the frame; a `detail` its code refuses frames nothing: WrongPartition's
+    // bits 24 to 31 (PROTOCOL.md section 9.4).
+    let detail = 1 << 24;
     let Err(error) = connection.refuse(
         1,
-        &ErrorReply::new(ErrorCode::OperationFailed, "r").with_value(value),
+        &ErrorReply::new(ErrorCode::WrongPartition, "moved").with_detail(detail),
     ) else {
-        return Err(TestError::new(
-            "a refusal past the largest frame was queued",
-        ));
+        return Err(TestError::new("a refusal that does not frame was queued"));
     };
-    assert!(not_built(&error, Command::Error), "{error:?}");
+    assert!(
+        matches!(
+            &error.0,
+            TransportErrorEnum::FrameNotBuilt {
+                command,
+                error: ProtocolError(ProtocolErrorEnum::FieldValue { field: "detail", value, .. }),
+            } if *command == Command::Error.number() && *value == detail
+        ),
+        "{error:?}"
+    );
     assert!(
         connection.outbound().is_open(1),
         "the stream stays as it was"

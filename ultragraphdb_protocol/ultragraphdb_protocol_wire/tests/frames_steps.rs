@@ -5,17 +5,17 @@
 
 //! The scenarios of the frames a role and a client hold to the protocol's settled text: a Result's sections and refusals,
 //! a Drop's kinds, a one-frame write's principal, Held, a ComputeRead's limits, a Scan's `after`, an Entries frame's run
-//! and version, a Reference's failed store.
+//! and version, a Reference's failed store, an OperationFailed Error's detail.
 
 use cucumber::{then, when};
 use ultragraphdb_core_ids::{BucketGroup, SystemId};
 use ultragraphdb_error_protocol::{ProtocolError, ProtocolErrorEnum};
 use ultragraphdb_protocol_wire::{
-    BeginView, BodyBuilder, BodyView, Command, ComputeReadView, DirectWriteView, DropCommandView,
-    Entries, EntriesEnd, EntriesSequence, EntriesView, ErrorCode, FLAG_LAST, FrameView, Header,
-    HeldView, MAX_FRAME_FLOOR, MAX_FRAME_SIZE, RecordOperation, Reference, ReferenceRegistration,
-    ReferenceView, ResultBatch, ResultView, ScanRange, ScanView, TermTable, WelcomeView,
-    WriteSetRecord, WriteSetRecordView,
+    BeginView, BodyBuilder, BodyView, Command, ComputeReadView, DETAIL_VALUE_CUT, DirectWriteView,
+    DropCommandView, Entries, EntriesEnd, EntriesSequence, EntriesView, ErrorCode, ErrorReply,
+    ErrorReplyView, FLAG_LAST, FrameView, Header, HeldView, MAX_FRAME_FLOOR, MAX_FRAME_SIZE,
+    RecordOperation, Reference, ReferenceRegistration, ReferenceView, ResultBatch, ResultView,
+    ScanRange, ScanView, TermTable, WelcomeView, WriteSetRecord, WriteSetRecordView,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -439,5 +439,40 @@ fn failed_store_accepted(w: &mut Steps) -> TestResult {
     let registration = view.registrations().next().context("a registration")?;
     assert_eq!(registration.outcome(), ErrorCode::Unavailable.number());
     assert_eq!((registration.generation(), registration.close()), (0, 0));
+    Ok(())
+}
+
+// An OperationFailed Error's detail.
+
+#[when(
+    "an Error of code 8 arrives with `detail` 1, another with bit 1 set, and another with bit 63 set"
+)]
+fn operation_failed_details(w: &mut Steps) -> TestResult {
+    let bytes = golden("error_operation")?.bytes()?;
+    w.frames = [DETAIL_VALUE_CUT, 1 << 1, 1 << 63]
+        .map(|detail| with_command_header(&bytes, |h| put(h, 8, detail, 8)))
+        .to_vec();
+    Ok(())
+}
+
+#[then(
+    "the receiver accepts the first, its value cut, and refuses the others with `FieldValue` naming `detail`; a sender builds neither"
+)]
+fn operation_failed_details_checked(w: &mut Steps) -> TestResult {
+    let [cut, others @ ..] = w.frames.as_slice() else {
+        return Err(TestError::new("the three frames"));
+    };
+    let view = ErrorReplyView::from_frame(&frame_of(cut)?)?;
+    assert_eq!(view.code(), ErrorCode::OperationFailed);
+    assert!(view.value_cut());
+    assert_eq!(others.len(), 2);
+    for (bytes, detail) in others.iter().zip([1u64 << 1, 1 << 63]) {
+        let refusal = ProtocolError::field_value(Command::Error.number(), "detail", detail);
+        assert_eq!(refused::<ErrorReplyView>(bytes)?, refusal);
+        let built = ErrorReply::new(ErrorCode::OperationFailed, "found another")
+            .with_detail(detail)
+            .frame(golden("error_operation")?.header());
+        assert_eq!(built.err(), Some(refusal));
+    }
     Ok(())
 }

@@ -35,6 +35,9 @@ pub struct KeyValues<'a> {
     len: usize,
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<KeyValues<'static>>() <= 64);
+
 impl<'a> KeyValues<'a> {
     /// The entries of `bytes`, section `section` of a body of `command` starting at `base` within it, checked once:
     /// each entry's lengths and bytes inside the section ([`ProtocolError::entry_out_of_bounds`]), its padding zero

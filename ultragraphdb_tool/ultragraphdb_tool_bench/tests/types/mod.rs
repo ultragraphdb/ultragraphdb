@@ -24,6 +24,10 @@ mod pipeline_args_tests;
 #[cfg(test)]
 mod read_counts_tests;
 #[cfg(test)]
+mod run_start_party_tests;
+#[cfg(test)]
+mod run_start_tests;
+#[cfg(test)]
 mod size_tests;
 #[cfg(test)]
 mod summary_tests;
