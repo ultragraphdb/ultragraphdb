@@ -1,0 +1,25 @@
+specification/schema/deepbrain-gen5.ugs
+  s_d18ff34562952d::t_6522d42819e619 1-976
+openspec/notes/prepare-stage-6.md
+  s_d18ff34562952d::t_1dfa33756e40f1 8,25-27,344-345
+specification/schema/SCHEMA-APG.md
+  s_d18ff34562952d::t_8fbafe277f28e0 691-692,724
+specification/schema/SCHEMA.md
+  s_d18ff34562952d::t_90b38775b70566 73-74,110-112,119-124,223,240-241,256-258,682,706-707,731-738,1078-1083,1403,1903-1907
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9104c2d11fa6f24de4d2431cee921b09a8f7b5fb",
+  "prompts": {},
+  "sessions": {
+    "s_d18ff34562952d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b263ae46-8b16-46b4-81c5-522c712b251f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
