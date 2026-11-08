@@ -30,10 +30,36 @@ def NTy.fieldAt {P L : Type} : (fs : List (Name × NTy P L)) → Fin fs.length �
   | _ :: fs, ⟨i + 1, h⟩ => fieldAt fs ⟨i, Nat.lt_of_succ_lt_succ h⟩
 
 /-- The position of the field named `n`, the first if two share it. -/
-def NTy.fieldIndex {P L : Type} (fs : List (Name × NTy P L)) (n : Name) : Option (Fin fs.length) :=
-  match fs.findIdx? (fun f => f.1 == n) with
-  | some i => if h : i < fs.length then some ⟨i, h⟩ else none
-  | none => none
+def NTy.fieldIndex {P L : Type} : (fs : List (Name × NTy P L)) → Name → Option (Fin fs.length)
+  | [], _ => none
+  | (m, _) :: fs, n => if m = n then some ⟨0, Nat.zero_lt_succ _⟩ else (fieldIndex fs n).map Fin.succ
+
+/-- The name of the field at position `i`. -/
+def NTy.nameAt {P L : Type} : (fs : List (Name × NTy P L)) → Fin fs.length → Name
+  | [], i => i.elim0
+  | (m, _) :: _, ⟨0, _⟩ => m
+  | _ :: fs, ⟨i + 1, h⟩ => nameAt fs ⟨i, Nat.lt_of_succ_lt_succ h⟩
+
+/-- In a field list whose names are distinct, the field named as the field at `i` is the field at `i`: a field given
+by its name is the field given by its position. -/
+theorem NTy.fieldIndex_nameAt {P L : Type} : (fs : List (Name × NTy P L)) → (NTy.names fs).Nodup →
+    (i : Fin fs.length) → NTy.fieldIndex fs (NTy.nameAt fs i) = some i
+  | [], _, i => i.elim0
+  | (m, _) :: _, _, ⟨0, _⟩ => by simp [fieldIndex, nameAt]
+  | (m, _) :: fs, hd, ⟨i + 1, h⟩ => by
+    have hd' : m ∉ NTy.names fs ∧ (NTy.names fs).Nodup := List.nodup_cons.mp hd
+    have hne : m ≠ NTy.nameAt fs ⟨i, Nat.lt_of_succ_lt_succ h⟩ := by
+      intro e
+      apply hd'.1
+      rw [e]
+      exact nameAt_mem fs ⟨i, Nat.lt_of_succ_lt_succ h⟩
+    simp only [fieldIndex, nameAt, if_neg hne, fieldIndex_nameAt fs hd'.2 ⟨i, Nat.lt_of_succ_lt_succ h⟩]
+    rfl
+where
+  nameAt_mem : (fs : List (Name × NTy P L)) → (i : Fin fs.length) → NTy.nameAt fs i ∈ NTy.names fs
+    | [], i => i.elim0
+    | (m, _) :: _, ⟨0, _⟩ => List.mem_cons_self _ _
+    | _ :: fs, ⟨i + 1, h⟩ => List.mem_cons_of_mem _ (nameAt_mem fs ⟨i, Nat.lt_of_succ_lt_succ h⟩)
 
 /-- A field's value as a value of its type. -/
 def NTy.V.VAt.out {E : L → Type} : (fs : List (Name × NTy T.P L)) → (i : Fin fs.length) →

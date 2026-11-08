@@ -200,7 +200,7 @@ names the sections of `SCHEMA-APG.md` it transcribes, and each theorem's the pro
 | `schema/ApgModel/Named/TermTranslate.lean` | Proposition 3.3 for terms: the translation and evaluation commuting with it | 3.3 |
 | `schema/ApgModel/Named/Apg.lean` | Value terms, `check`, finite single-set APGs, the embedding into the core | 5.4, 5.5, 6.2 |
 | `schema/ApgModel/Named/Collections.lean` | Role labels, symmetric relations, unnest | 12.3 to 12.5 |
-| `schema/ApgModel/Examples.lean` | Examples 6.7 and 9.6, evaluated | 6.7, 9.6 |
+| `schema/ApgModel/Examples.lean` | Example 6.7, checked by the kernel; example 9.6 with wave L3 | 6.7, 9.6 |
 | `schema/ApgModel/Catalog/Schema.lean` | `Catalog`, `conc`, `S(K)`, prefix ranges, proposition 13.1 | 13 |
 | `schema/ApgModel/Catalog/Constraints.lean` | Violation queries and their soundness, transition constraints | 14 |
 | `schema/ApgModel/History.lean` | Naming, graphs, states, slices, commits, proposition 15.2 | 15 |
@@ -223,7 +223,7 @@ main work.
 | Proposition 3.3, terms | `NTm.bin`, `NTm.eval_bin`, with `recAt`, `projAt`, `injAt`, `caseAt` and their evaluation lemmas | Induction on the term; a `case` as nested binary cases, later branches weakened past the variable each outer case binds | L |
 | Definitions 5.1, 5.2 | `V`, `V.map` | Recursion on `Ty` | S |
 | Proposition 5.3 | `V.map_id`, `V.map_comp` | Induction on `t`, functional extensionality | S |
-| Definitions 5.4, 5.5 | `ValTerm`, `check`, `refs` | Definitions; `check_sound`: `check v t = true` exactly when `v` denotes a member | M |
+| Definitions 5.4, 5.5 | `VTerm`, `denote`, `check`, `check_iff`, `denote_complete`, `VTerm.refs`, `denote_refs` | The check is a successful denotation; completeness by recursion through the field lists, for well-formed types | M |
 | Definitions 6.1, 6.2; proposition 6.3 | `Apg`, `SingleSet`, `toSingleSet`, `ofSingleSet`, the two round trips | Sigma types over labels | M |
 | Definitions 5.5, 6.5; proposition 6.6 | `V.Ref`, `Apg.Arc`, `SingleSet.Arc`, `SingleSet.arc_target_label` | `V E (lbl l) = E l`; a reference carries the label its position's type names, the path of field names coming with the named layer | S |
 | Definitions 7.1, 7.3; proposition 7.2 | `Hom`, `Hom.id`, `Hom.comp`, `id_comp`, `comp_id`, `comp_assoc`, `Iso` | Componentwise, from proposition 5.3 | S |
@@ -237,7 +237,7 @@ main work.
 | Definition 12.1; proposition 12.2 | `LabelFree`, `V_labelFree_const`, `V.map_labelFree_id` | Induction on `t` | S |
 | Corollary 12.3 | `corollary_12_3`, citing the results it carries | Holds by L2 | S |
 | Definition 12.4 | `Tm.map`, `Tm.filter`, `Tm.mapSet`, `Tm.filterSet`, `Tm.DerefFree`; `eval_map_id`, `eval_map_map` and their set forms | Through `Tm.subst`, with `eval_rename` and `eval_subst`; sets through `FinSet.map`'s laws | M |
-| Definitions 12.5, 12.6, 12.7 | `roleLabel`, `symmetric_nav_either`, `unnest`, `unnest_one_origin` | The last from proposition 9.5 | M |
+| Definitions 12.5, 12.6, 12.7 | `roleLabelType`, `symNav`, `symNav_symm`, `unnest`, `unnest_origin` | Case analysis on a binary element's two participants; recursion over the elements | M |
 | Section 13; proposition 13.1 | `Catalog`, `conc`, `schemaOf`, `prefixRanges`, `is_iff_conc`, `inRanges_iff_conc` | A tree of types; prefixes injective; ranges as the compression of the sorted prefix set | M |
 | Section 14.2 | `violations` per constraint, ten rows; `violations_nil_iff` per row | Each by list reasoning; `@limit`'s group selection as the conjuncts over participant types | M |
 | Section 14.3 | `Transition` predicates per row | Definitions, used by section 15 | S |
@@ -268,9 +268,9 @@ Each wave's modules depend only on earlier waves; a wave ends with `lake build` 
 | L0 | Spike and setup | | `lakefile.lean` holding `ApgModel` with `srcDir := "schema"` and MGQL (L11) in `lake-manifest.json`; the spike's findings below |
 | L1 | `Typeside`, `Core/Ty`, `Core/FinSet`, `Core/Value` | L0 | propositions 5.3 and 12.2 |
 | L2 | `Core/Apg`, `Core/Hom`, `Core/Term` | L1 | propositions 6.3, 6.6, 7.2, 8.1, 8.7; definition 12.4's laws |
-| L3 | `Core/Delta`, `Core/Model` | L2 | propositions 8.4, 9.3, 9.4, 9.5 |
+| L3 | `Core/Delta`, `Core/Model`, example 9.6 | L2 | propositions 8.4, 9.3, 9.4, 9.5; example 9.6 |
 | L4 | `Named/Ty`, `Named/Translate` | L1, beside L2 and L3 | proposition 3.3 |
-| L5 | `Named/Apg`, `Named/Collections`, `Examples` | L2, L4 | the executable layer; examples 6.7 and 9.6 |
+| L5 | `Named/Apg`, `Named/Collections`, `Examples` | L2, L4 | the executable layer; example 6.7 |
 | L6 | `Catalog/Schema`, `Catalog/Constraints` | L5 | proposition 13.1; section 14 |
 | L7 | `Views/Rdf`, `Oracle/*` | L6 | propositions 17.2, 17.3, corollary 17.4; `apg_oracle` exporting the corpus for stage 6's group 9 |
 | L8 | `History`, `Migration` | L6 | propositions 15.1, 15.2, 16.4, 16.6 |
@@ -307,6 +307,16 @@ The `lean_exe apg_oracle` enters `lakefile.lean` with its root, `Oracle/Main.lea
 - proposition 3.3 holds for every field list, so well-formedness (`NTy.WF`) is not among its premises; it is what makes
   one finite map of fields one value term in L5;
 - `absurd s` is the `case` of the empty variant, and the named Booleans translate exactly to the core's `Ty.bool`.
+
+**What L5 settled:**
+- a value term checks when it denotes a value (`check_iff`), so the check and the denotation the core reads are one
+  function; every value of a well-formed type has a term (`denote_complete`), well-formedness giving distinct field
+  names, so a field named in a term is the field at its position (`NTy.fieldIndex_nameAt`);
+- a record term lists its fields in the type's order, one term per value; a set term's duplicate members collapse, as
+  `SCHEMA.md` section 5.4 accepts a write holding a duplicate;
+- a finite APG numbers its elements by `Nat` and is valid when the numbers are distinct and every value checks;
+  `FinApg.toNApg` makes a valid one an APG on the named schema, and so on the core's through proposition 3.3;
+- example 9.6 is a migration along `Δ` and joins wave L3, which defines `Δ`.
 
 Stage 6 needs the oracle first, so the path L0, L1, L2, L4, L5, L6, L7 comes before L3, L8 and L9, which no stage 6
 group waits on. In `prepare-stage-6.md`'s terms: tasks A.1 and A.2 are waves L1 to L4, A.3 is L5 to L7, A.4 the
