@@ -282,13 +282,6 @@ def keyOf (n : Name) : List Name :=
 /-- The `asserted` field of a `@bitemporal` type (`SCHEMA-APG.md` section 13.2). -/
 def assertedType : NTy T.P Name := .record [("end", NTy.optional (.prim K.dateTime)), ("start", .prim K.dateTime)]
 
-/-- A field's place in the record of its type: an attribute or a single-valued role; a set-valued role is a role
-label's. -/
-def fieldType : Field T → Option (Name × NTy T.P Name)
-  | .attr n t opt _ => some (n, if opt then NTy.optional t else t)
-  | .role n ps opt _ _ => some (n, if opt then NTy.optional (K.participantType ps) else K.participantType ps)
-  | .setRole _ _ _ => none
-
 /-- The name of the role label of `R`'s set-valued role `r`. -/
 def roleLabelName (R r : Name) : Name := R ++ "_" ++ r
 
@@ -302,18 +295,35 @@ def roleLabelOf (n : Name) : Option (Name × Name × Name × List Name) :=
         | _ => none
     else none
 
-/-- `S(K)`: a concrete type's record of its fields, `asserted` with them on a `@bitemporal` type, in increasing name
-order, and a role label's record of its instance and participant (sections 12.3, 13.1 to 13.3). Any other name has the
-unit type and is no label. -/
+/-- A field of a concrete type's record: an attribute with its view, a single-valued role with the type declaring it, or
+`asserted`. -/
+inductive Slot (T : Typeside) where
+  | attr (optional : Bool) (t : NTy T.P Name) (view : AttrView)
+  | role (participants : List Name) (optional : Bool) (owner : Name)
+  | asserted
+
+/-- A concrete type's record fields, `asserted` with them on a `@bitemporal` type, in increasing name order. -/
+def slots (n : Name) : List (Name × Slot T) :=
+  sortBy (fun a b => decide (a.1 < b.1))
+    (((K.ownedFields n).filterMap fun x =>
+      match x with
+      | (_, .attr a t opt view) => some (a, .attr opt t view)
+      | (owner, .role r ps opt _ _) => some (r, .role ps opt owner)
+      | (_, .setRole _ _ _) => none) ++
+      if K.inherits CType.bitemporal n then [("asserted", .asserted)] else [])
+
+/-- A slot's type in `S(K)`. -/
+def slotType : Slot T → NTy T.P Name
+  | .attr opt t _ => if opt then NTy.optional t else t
+  | .role ps opt _ => if opt then NTy.optional (K.participantType ps) else K.participantType ps
+  | .asserted => K.assertedType
+
+/-- `S(K)`: a concrete type's record of its slots, and a role label's record of its instance and participant
+(sections 12.3, 13.1 to 13.3). Any other name has the unit type and is no label. -/
 def schema : NSchema T.P Name where
   σ n :=
     match K.find n with
-    | some c =>
-      if c.concrete then
-        .record (sortBy (fun a b => decide (a.1 < b.1))
-          ((K.allFields n).filterMap K.fieldType ++
-            if K.inherits CType.bitemporal n then [("asserted", K.assertedType)] else []))
-      else NTy.unit
+    | some c => if c.concrete then .record ((K.slots n).map fun x => (x.1, K.slotType x.2)) else NTy.unit
     | none =>
       match K.roleLabelOf n with
       | some (R, _, _, ps) => roleLabelType R (K.participantType ps)
@@ -353,11 +363,11 @@ def anchorRole (n : Name) : Option Name :=
   | some r => some (resolveRole fs r)
   | none => (K.rolesInOrder n).head?
 
-/-- A relation is edge-encoded when it has exactly two roles, neither set-valued, and no key. -/
+/-- A relation is edge-encoded when it has exactly two roles, both required and single-valued, and no key. -/
 def edgeEncoded (n : Name) : Bool :=
   let roles := (K.allFields n).filter Field.isRole
   ((K.find n).map fun c => c.kind == .relation).getD false && roles.length == 2 &&
-    roles.all (fun f => match f with | .role _ _ _ _ _ => true | _ => false) && (K.keyOf n).isEmpty
+    roles.all (fun f => match f with | .role _ _ false _ _ => true | _ => false) && (K.keyOf n).isEmpty
 
 /-- A role's navigation name. -/
 def navOf (n r : Name) : Option Name :=
@@ -370,10 +380,15 @@ def navOf (n r : Name) : Option Name :=
 def otherRole (n : Name) : Option Name :=
   ((K.allFields n).filter Field.isRole).findSome? fun f => if some f.name == K.anchorRole n then none else some f.name
 
+/-- The root of `n`'s tree. -/
+def root (n : Name) : Name := (K.chain n).getLastD n
+
 /-- An edge-encoded relation allocates a reifier when its instances carry attributes, `asserted` among them, it is
-`@multi`, or a role of any type names it, a supertype or a statement type covering it. -/
+`@multi`, its tree holds more than one concrete type, or a role of any type names it, a supertype or a statement type
+covering it. -/
 def allocatesReifier (n : Name) : Bool :=
   (K.allFields n).any (fun f => !f.isRole) || K.inherits CType.bitemporal n || K.inherits CType.multi n ||
+    decide (1 < (K.conc (K.root n)).length) ||
     K.types.any fun c => c.fields.any fun f => f.participants.any fun p => (K.chain n).contains p
 
 end Catalog

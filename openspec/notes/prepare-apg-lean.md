@@ -206,7 +206,8 @@ names the sections of `SCHEMA-APG.md` it transcribes, and each theorem's the pro
 | `schema/ApgModel/Catalog/Constraints.lean` | Violation queries and their soundness, transition constraints | 14 |
 | `schema/ApgModel/History.lean` | Naming, graphs, states, slices, commits, proposition 15.2 | 15 |
 | `schema/ApgModel/Migration.lean` | Selection, key lookup, extended terms, the fragment, coproducts, proposition 16.6 | 16 |
-| `schema/ApgModel/Views/Rdf.lean` | `R` from templates natural in their references, proposition 17.2 (L7a); its inverse, proposition 17.3, the SHACL lemmas (L7b) | 17 |
+| `schema/ApgModel/Views/Rdf.lean` | `R` from templates natural in their references, proposition 17.2 (L7a) | 17 |
+| `schema/ApgModel/Views/RdfInverse.lean` | `R⁻¹`, proposition 17.3, the SHACL lemmas (L7b) | 17 |
 | `schema/ApgModel/Views/Gql.lean` | `P` as MGQL's graph, `Γ`, propositions 18.2 to 18.4 | 18 |
 | `schema/ApgModel/Oracle/Typeside.lean` | The oracle's concrete typeside (decision L6), with wave L7a | 2 |
 | `schema/ApgModel/Oracle/Generate.lean`, `Oracle/NQuads.lean`, `Oracle/Main.lean` | The generator of valid APGs, the N-Quads exporter and parser, `apg_oracle` | 19 |
@@ -337,6 +338,21 @@ folder as its one argument, and L7c runs it into a scratch folder whose files Le
   section 9's finite-images rule excludes it (decided 2026-11-08);
 - example 9.6 is checked by the kernel, the identity term of `AssertedBy` type-checking against `Φ̂(σ'(AssertedBy))`
   as the specification states.
+
+**What L7b has settled:**
+- the view's predicates and class IRIs are structured values (`Pred`, `Term.cls`), as its literals are (decision L5);
+  the exporter writes them as IRIs, distinct by `UGS0801`, so proposition 17.3 is proved over structured quads;
+- the built-in fields are `ugdb:asserted_start`, `ugdb:asserted_end` and `ugdb:live` (`SCHEMA.md` section 7.4);
+- an interval's bounds are both optional, at least one present, each precision present exactly when its bound is and
+  shown where coarser than its type's own, so the inverse restores a missing one as the type's own (`SCHEMA.md`
+  sections 5.1 and 5.5, `SCHEMA-APG.md` section 13.2);
+- an edge-encoded relation has two required single-valued roles, and allocates a reifier when its tree holds more than
+  one concrete type, whose `rdf:type` tells them apart (`SCHEMA.md` section 11.1): without either, `R` loses a
+  participant or a type;
+- a concrete type's record is its `slots`, which `S(K)` and the inverse both read;
+- `rdfInv` reads an element named by an IRI from its type and field quads, one named by a triple from its navigation
+  quad, and one of a role label from its role quad, references through the naming's inverse; on example 6.7 it gives
+  back every element with its label and value, checked by the kernel.
 
 **What L7a settled:**
 - the catalog carries what the views read: keys, `@bitemporal`, `@multi`, `@symmetric`, `@colocate`, navigation

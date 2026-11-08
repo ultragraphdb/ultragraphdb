@@ -4,7 +4,7 @@
 -/
 import ApgModel.Named.Collections
 import ApgModel.Core.DeltaCompose
-import ApgModel.Views.Rdf
+import ApgModel.Views.RdfInverse
 
 /-!
 # The specification's examples
@@ -221,13 +221,12 @@ def catalogApg : FinApg catalog.schema where
 
 theorem catalogApg_valid : catalogApg.valid = true := by decide
 
-/-- The view's parameters for the example: base `ex:`, every precision shown. -/
+/-- The view's parameters for the example: every precision shown. -/
 def viewParams : Views.ViewParams typeside where
-  base := "ex:"
-  builtin := "ugdb:"
   precisionShown := fun _ _ _ => true
+  native := fun _ => none
 
-/-- Every element named but the reifier `m1`, which is named too, all in one graph. -/
+/-- Every element named, the reifier `m1` among them. -/
 def naming : Nat → Option String
   | 1 => some "ex:ada"
   | 2 => some "ex:acme"
@@ -238,10 +237,31 @@ def naming : Nat → Option String
 under `memberships` and its reifier's `rdf:reifies`. -/
 theorem catalogApg_rdf :
     (Views.rdf catalog viewParams naming (fun _ => "ex:g") catalogApg).map (fun q => (q.s, q.p)) = [
-      ("ex:ada", viewParams.rdfType), ("ex:ada", viewParams.rdfType), ("ex:ada", "ex:name"),
-      ("ex:acme", viewParams.rdfType), ("ex:acme", viewParams.rdfType), ("ex:acme", "ex:label"),
-      ("ex:m1", viewParams.rdfType), ("ex:m1", "ex:role"), ("ex:m1", "ex:confidence"),
-      ("ex:ada", "ex:memberships"), ("ex:m1", viewParams.rdfReifies)] := by decide
+      ("ex:ada", .rdfType), ("ex:ada", .rdfType), ("ex:ada", .attr "name"),
+      ("ex:acme", .rdfType), ("ex:acme", .rdfType), ("ex:acme", .attr "label"),
+      ("ex:m1", .rdfType), ("ex:m1", .attr "role"), ("ex:m1", .attr "confidence"),
+      ("ex:ada", .nav "memberships"), ("ex:m1", .reifies)] := by decide
+
+/-- The naming's inverse on the example's IRIs. -/
+def idOf : String → Nat
+  | "ex:ada" => 1
+  | "ex:acme" => 2
+  | "ex:m1" => 4
+  | _ => 0
+
+/-- The example's view read back: Ada and Acme from their type quads, two each, and the membership by its reifier. -/
+theorem catalogApg_rdfInv_idents :
+    (Views.rdfInv catalog viewParams (fun _ _ => false) idOf
+      (Views.rdf catalog viewParams naming (fun _ => "ex:g") catalogApg)).map (fun x => (x.1, x.2.1)) =
+    [(.iri "ex:ada", "Person"), (.iri "ex:ada", "Person"), (.iri "ex:acme", "Organization"),
+      (.iri "ex:acme", "Organization"), (.iri "ex:m1", "MemberOf")] := by decide
+
+/-- The membership read back is `m1`'s value: its roles from the reifier's triple term, its attributes from its
+literals. -/
+theorem catalogApg_rdfInv_m1 :
+    ((Views.rdfInv catalog viewParams (fun _ _ => false) idOf
+      (Views.rdf catalog viewParams naming (fun _ => "ex:g") catalogApg)).find? (·.2.1 == "MemberOf")).map (·.2.2) =
+    (catalogApg.entry 4).map (·.2) := by rfl
 
 /-- `conc(Agent)` holds the two concrete agents. -/
 theorem catalog_conc : catalog.conc "Agent" = ["Person", "Organization"] := by decide

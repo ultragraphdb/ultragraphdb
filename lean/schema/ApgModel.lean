@@ -24,6 +24,7 @@ import ApgModel.Catalog.Schema
 import ApgModel.Catalog.Constraints
 import ApgModel.Oracle.Typeside
 import ApgModel.Views.Rdf
+import ApgModel.Views.RdfInverse
 
 /-!
 # Algebraic property graphs
