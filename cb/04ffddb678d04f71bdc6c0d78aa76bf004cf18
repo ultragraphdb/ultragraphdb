@@ -1,0 +1,53 @@
+lean/schema/ApgModel/Oracle/Parse.lean
+  s_d18ff34562952d::t_474c3fb8c07a08 1-395
+  s_d18ff34562952d::t_cf5c56a12cffca 396-397
+lean/schema/ApgModel/Oracle/Lexical.lean
+  s_d18ff34562952d::t_a4f7ae3395026a 1-210
+  s_d18ff34562952d::t_1cfd91c7a27c3c 211
+lean/schema/ApgModel/Oracle/Aviation.lean
+  s_d18ff34562952d::t_08a552264a4f9e 1-198
+  s_d18ff34562952d::t_3d2fe19ca1174b 199-201
+lean/schema/ApgModel/Oracle/NQuads.lean
+  s_d18ff34562952d::t_7ea66fb5474ca4 1-147
+lean/schema/ApgModel/Oracle/Check.lean
+  s_d18ff34562952d::t_38dab1257b75c8 1-121
+  s_d18ff34562952d::t_b98050ee2d4fd9 122-125
+lean/lakefile.lean
+  s_d18ff34562952d::t_13f17a5c588143 40-45
+lean/schema/ApgModel.lean
+  s_d18ff34562952d::t_c14f01fc4d2cdc 26-30,44,60-62
+lean/schema/ApgModel/Oracle/Main.lean
+  s_d18ff34562952d::t_4245903c886d9b 1-60
+"openspec/notes/UltraGraphDB Shard-per-Core Write Path.md"
+  s_6c9dcf457e80d9::t_8a70aaf53c1ce7 7-8,1011-1034
+openspec/notes/prepare-apg-lean.md
+  s_d18ff34562952d::t_abaed4bb77f75a 215-218,347-365
+specification/schema/SCHEMA-APG.md
+  s_d18ff34562952d::t_4087d8346142a8 944-947
+specification/schema/SCHEMA.md
+  s_d18ff34562952d::t_743ecd399ec161 1493-1499
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cb04ffddb678d04f71bdc6c0d78aa76bf004cf18",
+  "prompts": {},
+  "sessions": {
+    "s_6c9dcf457e80d9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9e223492-f4c5-4f68-93b3-4ec87d773715",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    },
+    "s_d18ff34562952d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b263ae46-8b16-46b4-81c5-522c712b251f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
