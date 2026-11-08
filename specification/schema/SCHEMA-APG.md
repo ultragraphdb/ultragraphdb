@@ -544,7 +544,8 @@ a type a set admits. `filter` keeps the members for which `q` is `true`. The bod
 `map(map(s, y ⇒ u), y ⇒ u') = map(s, y ⇒ u'[u/y])`, equations the theory of section 8.3 gains. Proposition 12.2 and
 corollary 12.3 hold unchanged, since no reference enters a collection.
 
-UQL's result types are label-free types of this grammar, a list of records among them (`../query/QUERY-ULTRA-QL.md` section 5).
+UQL's result types are label-free types of this grammar, a list of records among them (`../query/QUERY-ULTRA-QL.md`
+section 5).
 
 ### 12.3 Collections of references
 
@@ -674,15 +675,16 @@ with `⟦any⟧` the variant over every label of `L` but the role labels and `Un
 IRIs, blank nodes and literals, as values. A subject of no declared type is an element of `Resource`; each undeclared
 triple, on a `Resource` or on an instance of a type declared `@open`, is an element of `Undeclared`. An undeclared
 triple's object is a value, never a reference: an ungoverned link names an IRI and makes no claim that an element
-carries it, as RDF's open world has it. A tenant without a schema has no APG; its data is the quads `../binary_protocol/PROTOCOL.md`
-section 11.13 governs.
+carries it, as RDF's open world has it. A tenant without a schema has no APG; its data is the quads
+`../binary_protocol/PROTOCOL.md` section 11.13 governs.
 
 ### 13.5 Derived names and functions
 
-A derivation `derive T.n = body` (`SCHEMA.md` section 6.8) is no field of `σ(T)`. It denotes a function
-`d_n(G, e)` of an APG `G` and an element `e` of a label in `conc(T)`, computed by its body: navigation steps forward
-and inverse, filters, a bound `+` or `{m, n}` read as reachability, and `exists`; or, for a computed derivation, an expression over `e`'s own value and the built-in fields of
-`SCHEMA.md` section 5.11, which reads no other element, so `d_n(G, e)` depends on `e` alone. `@materialized` stores a cache that must equal `d_n` at every state; `@virtual` computes it when
+A derivation `derive T.n = body` (`SCHEMA.md` section 6.8) is no field of `σ(T)`. It denotes a function `d_n(G, e)` of
+an APG `G` and an element `e` of a label in `conc(T)`, computed by its body: navigation steps forward and inverse,
+filters, a bound `+` or `{m, n}` read as reachability, and `exists`; or, for a computed derivation, an expression over
+`e`'s own value and the built-in fields of `SCHEMA.md` section 5.11, which reads no other element, so `d_n(G, e)`
+depends on `e` alone. `@materialized` stores a cache that must equal `d_n` at every state; `@virtual` computes it when
 read. A function (`SCHEMA.md` section 6.9) is a function of `G` and its parameters likewise. A transitive closure is no
 arrow of `C_S`, so derivations and functions are queries over the APG; an extended mapping term calls them as reads of
 its source (definition 16.3).
@@ -768,9 +770,10 @@ Element sets are disjoint, and the union is closed under references by construct
 ### 15.3 States and slices
 
 The database's history is a sequence of **states** `G_0, G_1, …`, one APG per commit, each with every element ever
-written and not purged; a commit is a transition of section 14.3, and a read point reads one state (`../query/QUERY-ULTRA-QL.md`
-section 11.1). An element of a `@bitemporal` label carries in a state its **versions**, one per revision, each with the
-transaction-time interval in which it was the element's value; its `asserted` field is the union of those intervals.
+written and not purged; a commit is a transition of section 14.3, and a read point reads one state
+(`../query/QUERY-ULTRA-QL.md` section 11.1). An element of a `@bitemporal` label carries in a state its **versions**,
+one per revision, each with the transaction-time interval in which it was the element's value; its `asserted` field is
+the union of those intervals.
 
 | Slice of a state | Elements | Each with |
 |---|---|---|
@@ -835,10 +838,10 @@ integration that identifies entities does so through their keys, where a conflic
 **Proposition 16.6 (history through a migration; here).** For a migration of the fragment from a source to a target
 namespace, cut over at epoch `e₂`, and an instant `t` before `e₂`, let `B_t` be the source's slice believed at `t`. Then
 `(Δ_Φ B_t⁺)|p` is the target's slice believed at `t` wherever the selection is defined, an APG on the target's schema,
-and an element's name in it is its name in the target's stored present. *Proof.* `B_t` is an APG (proposition 15.2),
-and its key lookups find at most one element, since a key names one element for all time (`SCHEMA.md` section 7.2). Proposition 16.4 applies to it as to the copy's source. Names agree because a primary image takes
-its origin's IRI and a secondary image a name derived from its origin (section 15.1), whichever slice the origin is
-read from.
+and an element's name in it is its name in the target's stored present. *Proof.* `B_t` is an APG (proposition 15.2), and
+its key lookups find at most one element, since a key names one element for all time (`SCHEMA.md` section 7.2).
+Proposition 16.4 applies to it as to the copy's source. Names agree because a primary image takes its origin's IRI and a
+secondary image a name derived from its origin (section 15.1), whichever slice the origin is read from.
 
 A query over the target that reads `believed at t` before the cutover is evaluated this way, in the target's schema,
 and joins the past to the present by name (`SCHEMA-EVOLUTION.md` section 7; `query/QUERY-ULTRA-QL.md` section 11.2).
@@ -894,7 +897,7 @@ definition 3.1 and MGQL's `PropertyGraph`, with:
 
 | Part of `P(G)` | From |
 |---|---|
-| A node | Each element of an entity label, a value-entity label or `Resource`; each element of a node-encoded relation label, as its relation node; each element of an edge-encoded relation label whose type allocates a reifier, as its relation node, beside its edge (`SCHEMA.md` section 11.3) |
+| A node | Each element of an entity label or `Resource`; each element of a node-encoded relation label, as its relation node; each element of an edge-encoded relation label whose type allocates a reifier, as its relation node, beside its edge (`SCHEMA.md` section 11.3) |
 | A stored edge | Each element of an edge-encoded relation label, from its anchor's node to its other participant's, undirected when the relation is `@symmetric`; each role field of a node-encoded relation's element and each element of a role label, from the relation node to the participant's node, with the role's name and, for a specialized role, the super role's |
 | A derived, read-only edge | The two role edges of a relation node of an edge-encoded relation; a binary node-encoded relation's navigation edge, from the participant gaining the name to the one it reaches |
 | Labels | For a node or edge from an element of label `l`, the exact set of `l`, its supertypes and the statement types covering it |
@@ -916,8 +919,8 @@ each admitted pair; derived edges are built from fields in the same way.
 `P(G')`. *Proof.* As proposition 17.2.
 
 **Proposition 18.4 (one graph, two views; here).** On valid APGs, `P(G) = P(R⁻¹(R(G)))`: the GQL view is determined by
-the RDF view. A GQL node corresponds to the IRI of its element, a stored edge to its reifier's IRI or its triple, and
-a property to the literal of the same field, the correspondence `../query/QUERY-SPARQL-CORE.md` section 12 states for the
+the RDF view. A GQL node corresponds to the IRI of its element, a stored edge to its reifier's IRI or its triple, and a
+property to the literal of the same field, the correspondence `../query/QUERY-SPARQL-CORE.md` section 12 states for the
 differential tests. *Proof.* Proposition 17.3.
 
 ## 19. The test oracle
@@ -938,8 +941,9 @@ A failure names the side that diverged: the engine's write path, one view, or a 
 
 ## 20. The Lean model
 
-Decided 2026-11-08: the Lean model of this file sits in `../../lean`, beside `PlacementModel` and `RoundModel`, under the
-repository's toolchain, Lean 4.14, without Mathlib, and takes a binary core with a named layer over it.
+Decided 2026-11-08: the Lean model of this file sits in `../../lean/schema`, a library of the package that holds
+`PlacementModel` and `RoundModel`, under the repository's toolchain, Lean 4.14, without Mathlib, and takes a binary core
+with a named layer over it.
 
 A spike of 2026-11-08 under Lean 4.14 measured the two forms of definition 3.2:
 
@@ -988,7 +992,7 @@ values, or the core's results do not transfer.
 | Constraint semantics | PG-Keys for keys, uniqueness, presence and single values; PG-Schema's proposed `COUNT` for participation bounds; UGS's own for the rest (section 10) |
 | RDF view | RDF 1.2 with reifiers and SHACL shapes, cross-checked against the common core of SHACL, ShEx and PG-Schema (section 10) |
 | Distributivity | `C_S` is distributive (section 8.2) |
-| Lean model | In `../../lean`, a binary core with a named layer, proposition 3.3 proved between them (section 20) |
+| Lean model | In `../../lean/schema`, a binary core with a named layer, proposition 3.3 proved between them (section 20) |
 | Collections | Decided 2026-11-08: collections of values as `list t` and `set t` over label-free types; set-valued roles reified as role labels; a symmetric relation read up to swap (section 12) |
 | `map` and `filter` | Decided 2026-11-08: over collections of values, with a body that reads the member alone (definition 12.4) |
 | Finite images | Decided 2026-11-08: every primitive type in a label's image has finitely many values (section 9) |

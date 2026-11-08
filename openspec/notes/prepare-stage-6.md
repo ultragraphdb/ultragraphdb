@@ -149,13 +149,14 @@ independent of the code, an Ultra Style lift in a commit of its own before an ex
 fuzz targets written for every decoder of client, peer or disk bytes, `scripts/mutants.sh` once per crate as the
 group's last step, `make test` as the gate, and a commit by the user after each group.
 
-### Group A. The APG model and the oracle → `lean/ApgModel`, before stage 6
+### Group A. The APG model and the oracle → `lean/schema/ApgModel`, before stage 6
 
 Written now, beside stage 5.5's last mutation passes: it needs `SCHEMA-APG.md` alone, shares no crate with stage 5.5,
 and checks the decisions of `SCHEMA-APG.md` section 21 before the change set is written to them. As
 stage 5.5's group 6b: built by `lake` outside Bazel on the toolchain of `lean/lean-toolchain`, its scenarios Lean
 theorems named after them, no Gherkin and no `bdd` target, done when `lake build ApgModel` is green with no `sorry`,
-the library added to `lean/lakefile.lean` beside `RoundModel` and `PlacementModel`.
+the library added to `lean/lakefile.lean` beside `RoundModel` and `PlacementModel`, its sources under `lean/schema/`;
+its plan is `prepare-apg-lean.md`.
 - **A.1** The binary core of `SCHEMA-APG.md` section 20: types, values, APGs, homomorphisms, mapping terms, `Δ`, with
   propositions 5.3, 6.3, 6.6, 7.2, 8.4, 8.7, 9.3, 9.4 and 9.5; `DecidableEq` for the nested types written by hand,
   since Lean 4.14 does not derive it.
