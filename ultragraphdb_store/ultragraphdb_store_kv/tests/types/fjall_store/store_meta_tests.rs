@@ -98,6 +98,42 @@ fn test_a_raised_discard_syncs_the_journal_of_the_highest_number() -> TestResult
     Ok(())
 }
 
+/// A journal gone by the time its sync opens it was sealed, so synced, and removed: the discard takes effect.
+#[test]
+fn test_a_discard_whose_journal_is_gone_before_its_sync_takes_effect() -> TestResult {
+    let dir = TestDir::new("discard-gone");
+    let s = FjallStore::open(dir.path(), Durability::Log).context("the store opens")?;
+    let newest = dir.path().join("99.jnl");
+    std::fs::write(&newest, b"")?;
+    let mut removed = None;
+    s.set_discard_ts_observed(1, |journal| {
+        removed = Some(std::fs::remove_file(journal).is_ok());
+    })?;
+    assert_eq!(
+        removed,
+        Some(true),
+        "the newest journal was the one removed"
+    );
+    assert_eq!(s.discard_ts(), 1);
+    Ok(())
+}
+
+/// A journal its sync cannot open for another reason than its absence fails the discard, which does not take effect, and
+/// poisons the store.
+#[test]
+fn test_a_discard_whose_journal_cannot_be_opened_fails_and_poisons_the_store() -> TestResult {
+    let dir = TestDir::new("discard-unopenable");
+    let s = FjallStore::open(dir.path(), Durability::Log).context("the store opens")?;
+    std::fs::create_dir(dir.path().join("99.jnl"))?;
+    assert!(s.set_discard_ts_observed(1, |_| {}).is_err());
+    assert_eq!(s.discard_ts(), 0, "not in effect");
+    assert!(
+        write(&s, vec![put(b"k", 1, b"v")]).is_err(),
+        "the store refuses writes until reopened"
+    );
+    Ok(())
+}
+
 #[test]
 fn test_the_settings_survive_a_reopen() -> TestResult {
     let dir = TestDir::new("meta");

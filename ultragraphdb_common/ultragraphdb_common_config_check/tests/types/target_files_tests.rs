@@ -43,3 +43,18 @@ fn test_a_malformed_bundle_is_refused() -> TestResult {
     }
     Ok(())
 }
+
+/// Two targets hold the same files only with the same keys and the same bytes; labels do not count.
+#[test]
+fn test_same_files_compares_keys_and_bytes() {
+    let of = |key: &str, label: &str, bytes: &[u8]| {
+        let mut target = TargetFiles::new("ci");
+        target.insert(key, label, bytes.to_vec());
+        target
+    };
+    let held = of("storage", "a.toml", b"x = 1\n");
+    assert!(held.same_files(&of("storage", "b.toml", b"x = 1\n")));
+    assert!(!held.same_files(&of("storage", "a.toml", b"x = 2\n")));
+    assert!(!held.same_files(&of("storage_1", "a.toml", b"x = 1\n")));
+    assert!(!held.same_files(&TargetFiles::new("ci")));
+}

@@ -9,7 +9,7 @@ use std::time::Duration;
 use compio::net::TcpListener;
 use compio::runtime::{Runtime, spawn};
 use ultragraphdb_common_service::{Bootstrap, RoleKind, fetch_settings};
-use ultragraphdb_tool_bdd::{Context, TestResult};
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transport_http_server::{
     HttpLimits, HttpRequest, HttpResponse, HttpService, serve_http,
 };
@@ -183,9 +183,77 @@ fn test_an_unreachable_service_ends_with_every_name() -> TestResult {
 fn test_a_stop_ends_the_wait() -> TestResult {
     Runtime::new()?.block_on(async {
         let read = bootstrap(free_port()?, "stopped")?;
-        let stopped =
-            fetch_settings(&read, Duration::from_secs(60), &AtomicBool::new(true)).await?;
+        let stop = AtomicBool::new(true);
+        let waiting = fetch_settings(&read, Duration::from_secs(60), &stop);
+        let stopped = compio::time::timeout(Duration::from_secs(5), waiting)
+            .await
+            .map_err(|_| TestError::new("a stop ending the wait within 5 s"))??;
         assert!(stopped.is_none());
+        Ok(())
+    })
+}
+
+/// A service coming up within the patience is asked again until it answers, and the start keeps what it fetched through.
+#[test]
+fn test_a_service_coming_up_within_the_patience_is_reached() -> TestResult {
+    Runtime::new()?.block_on(async {
+        let port = free_port()?;
+        spawn(async move {
+            compio::time::sleep(Duration::from_millis(300)).await;
+            let Ok(listener) = TcpListener::bind(format!("127.0.0.1:{port}")).await else {
+                return;
+            };
+            let service = Fixed {
+                status: 200,
+                revision: Some("7"),
+                body: SETTINGS,
+            };
+            while let Ok((stream, _)) = listener.accept().await {
+                serve_http(
+                    stream,
+                    &HttpLimits::new(0, Duration::from_secs(5)),
+                    &service,
+                )
+                .await;
+            }
+        })
+        .detach();
+        let read = bootstrap(port, "later")?;
+        let start = fetch_settings(&read, Duration::from_secs(5), &AtomicBool::new(false))
+            .await?
+            .context("a start")?;
+        assert_eq!(start.identity().revision(), 7);
+        let through = start
+            .bootstrap()
+            .context("the bootstrap it fetched through")?;
+        assert_eq!((through.target(), through.instance()), ("ci", "storage_1"));
+        Ok(())
+    })
+}
+
+/// What answers with no reply is refused at once as a configuration error: waiting does not mend it.
+#[test]
+fn test_what_answers_no_reply_ends_the_start_at_once() -> TestResult {
+    use compio::BufResult;
+    use compio::io::AsyncWriteExt;
+    Runtime::new()?.block_on(async {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let port = listener.local_addr()?.port();
+        spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let BufResult(_, _) = stream.write_all(b"not http\r\n\r\n".to_vec()).await;
+            }
+        })
+        .detach();
+        let read = bootstrap(port, "no-reply")?;
+        let stop = AtomicBool::new(false);
+        let asking = fetch_settings(&read, Duration::from_secs(60), &stop);
+        let refused = compio::time::timeout(Duration::from_secs(5), asking)
+            .await
+            .map_err(|_| TestError::new("a refusal within 5 s"))?
+            .err()
+            .context("a refusal")?;
+        assert_eq!(refused.exit_code(), 78, "{refused}");
         Ok(())
     })
 }

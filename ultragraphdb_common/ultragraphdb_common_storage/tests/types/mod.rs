@@ -10,6 +10,14 @@ mod entries_fill_tests;
 #[cfg(test)]
 mod held_catalogs_tests;
 #[cfg(test)]
+mod one_frame_view_tests;
+#[cfg(test)]
+mod open_scan;
+#[cfg(test)]
+pub(crate) mod partition_core;
+#[cfg(test)]
+mod refill_blocks_tests;
+#[cfg(test)]
 mod retention_tests;
 #[cfg(test)]
 mod scan_board_tests;

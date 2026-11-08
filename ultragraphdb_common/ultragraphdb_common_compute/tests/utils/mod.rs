@@ -4,3 +4,8 @@
  */
 
 mod keys_tests;
+mod literals_tests;
+pub mod played_answers;
+pub mod played_cluster;
+mod refusals_tests;
+mod run_read_tests;

@@ -252,3 +252,23 @@ fn test_a_scans_refusal_names_the_key_of_a_failed_store() {
     let other = TxnError::past_limit(10_000).into();
     assert_eq!(scan_refusal(&[0xAB], &other), error_reply(&other));
 }
+
+/// Cross-partition work states the transaction's partition in bits 0 to 31 and the other partition in bits 32 to 63
+/// (`PROTOCOL.md` §10, code 23), whichever layer refused it.
+#[test]
+fn test_a_cross_partition_refusal_states_both_partitions() {
+    let (partition, other) = (3_u32, 5_u32);
+    let detail = u64::from(partition) + u64::from(other) * (1 << 32);
+    let cases: [PartitionError; 3] = [
+        PartitionError::cross_partition(partition, other),
+        TxnError::cross_partition(partition, other).into(),
+        CommitError::cross_partition(partition, other).into(),
+    ];
+    for refusal in &cases {
+        assert_eq!(
+            said(refusal),
+            (ErrorCode::CrossPartition, detail),
+            "{refusal}"
+        );
+    }
+}

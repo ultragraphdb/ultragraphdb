@@ -17,3 +17,5 @@ mod role_identity_tests;
 mod role_kind_tests;
 #[cfg(test)]
 mod role_start_tests;
+#[cfg(test)]
+mod stopping_tests;

@@ -235,3 +235,43 @@ key_sha256 = "abc"
     ));
     Ok(())
 }
+
+/// The settings [`EVERY_SETTING`] leaves out, and its two booleans named the other way.
+const THE_REST: &str = r#"
+[admin]
+address = "tcp://a:7"
+tls_cert_file = "/admin-cert"
+tls_key_file = "/admin-key"
+plaintext = false
+key_sha256 = "ab"
+[cluster]
+id = 26
+join_deadline_ms = 27
+[endpoint]
+plaintext = true
+[metadata]
+catalog_check_ms = 28
+bootstrap_secret_file = "/bootstrap"
+[runtime]
+pin_cores = false
+[storage]
+held_bytes = 29
+"#;
+
+/// One to one for the rest: every key reaches the field of its name.
+#[test]
+fn test_the_remaining_settings_reach_their_fields() -> TestResult {
+    let c = ServiceConfig::parse(THE_REST.as_bytes())?;
+    assert_eq!(c.admin().address(), Some("tcp://a:7"));
+    assert_eq!(c.admin().tls_cert_file(), Some("/admin-cert"));
+    assert_eq!(c.admin().tls_key_file(), Some("/admin-key"));
+    assert_eq!(c.admin().key_sha256(), Some("ab"));
+    assert_eq!(c.cluster().id(), Some(26));
+    assert_eq!(c.cluster().join_deadline_ms(), Some(27));
+    assert_eq!(c.endpoint().plaintext(), Some(true));
+    assert_eq!(c.metadata().catalog_check_ms(), Some(28));
+    assert_eq!(c.metadata().bootstrap_secret_file(), Some("/bootstrap"));
+    assert_eq!(c.runtime().pin_cores(), Some(false));
+    assert_eq!(c.storage().held_bytes(), Some(29));
+    Ok(())
+}

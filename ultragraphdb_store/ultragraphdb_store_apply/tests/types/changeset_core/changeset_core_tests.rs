@@ -555,3 +555,31 @@ fn created_id(executed: &Executed, name: &str) -> TestResult<SystemId> {
         .map(|(_, id)| id)
         .context("the execution named the IRI first")
 }
+
+/// The end of a build proposes its round in the build's tenant, under that tenant's catalog: the version that started it.
+#[test]
+fn test_a_build_end_is_proposed_in_the_tenant_of_its_build() -> TestResult {
+    const BUILT: u64 = 7;
+    let a = changesets()?;
+    a.sequence_builds();
+    let data = Changeset::new(BUILT).with(insert("<a> <name> \"big apple\"")?);
+    let _written: Applied = a.apply(&data)?;
+    let contents = ultragraphdb_core_catalog::CatalogContents::new(
+        BUILT,
+        2,
+        vec![Declaration::Predicate(declaration(
+            "name",
+            "a property with `term`",
+        )?)],
+    );
+    let started = a.execute_catalog(&contents)?.into_executed();
+    let version = a.quads().lists().next_version();
+    let _applied: Vec<Applied> = a.apply_round(vec![(version, started)])?;
+    assert!(a.rebuilding(), "the build runs");
+    finish_builds(&a);
+    let end = a.take_build_end().context("the build ended")?;
+    let proposed = a.prepare_build_end(end)?;
+    assert_eq!(proposed.tenant(), BUILT);
+    assert_eq!(proposed.build_version(), Some(2));
+    Ok(())
+}

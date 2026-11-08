@@ -123,6 +123,28 @@ fn test_a_posting_matching_is_found_by_its_uid_and_its_pick_in_either_layer() ->
     Ok(())
 }
 
+/// The immutable layer's seek for uid 1 starts at the first key, key 0 among them: a posting below the uid is passed over, and
+/// the uid's own is found.
+#[test]
+fn test_a_posting_matching_uid_one_is_found_past_key_zero() -> TestResult {
+    let store = new_store();
+    let mut l = List::empty(key("match", 2));
+    let value_at = |uid: u128, value: &[u8]| {
+        Posting::default()
+            .with_uid(uid)
+            .with_value(value.to_vec())
+            .with_posting_type(PostingType::Value)
+            .with_op(SET)
+    };
+    add(&mut l, 1, &value_at(0, b"zero"));
+    add(&mut l, 1, &value_at(1, b"one"));
+    l.commit_mutation(2);
+    let (l, _) = roll_up(&store, &l, u64::MAX, 2000)?;
+    let one = l.find_posting_matching(2, 1, |p| p.value() == b"one")?;
+    assert_eq!(one.map(|p| p.uid()), Some(1));
+    Ok(())
+}
+
 #[test]
 fn test_a_length_counts_the_immutable_layer_unless_a_delete_all_hides_it() -> TestResult {
     let store = new_store();

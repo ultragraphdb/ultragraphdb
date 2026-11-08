@@ -173,3 +173,17 @@ fn test_turns_waiting_counts_the_queue() {
     let _taken = board.take_turn();
     assert_eq!(board.turns_waiting(), 0);
 }
+
+/// An open Scan makes the board not empty, a turn given is one waiting, and the Scan is changed in place through its key.
+#[test]
+fn test_an_open_scan_is_held_and_changed_in_place() -> TestResult {
+    let mut board = ScanBoard::default();
+    board.open(A, 1_u32);
+    assert!(!board.is_empty());
+    board.give_turn(A);
+    assert!(board.has_turns());
+    *board.get_mut(A).context("the open Scan")? += 1;
+    assert_eq!(board.get(A), Some(&2));
+    assert_eq!(board.get_mut(B), None, "not open");
+    Ok(())
+}

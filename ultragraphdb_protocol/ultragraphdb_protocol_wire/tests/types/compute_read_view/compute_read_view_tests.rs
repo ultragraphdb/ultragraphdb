@@ -229,3 +229,21 @@ fn test_the_client_limits_follow_the_transaction_and_come_before_the_sections() 
     assert_eq!(refused(&cut)?, field("credit", 0));
     Ok(())
 }
+
+/// A resume key's pattern hash is XXH3-64, seed 0, of the body's sections 0 to 2 (`PROTOCOL.md` §11.8): from section 0's
+/// offset to section 2's end, as the section table gives them, hashed with xxhash-rust.
+#[test]
+fn test_the_pattern_hash_is_xxh3_of_sections_0_to_2() -> TestResult {
+    use crate::utils::golden_bodies::{body_data, section};
+
+    for name in ["compute_read", "compute_read_rw"] {
+        let read = bytes(name)?;
+        let data = body_data(&read);
+        let (start, _) = section(data, 0, 0);
+        let (offset, len) = section(data, 0, 2);
+        let expected = xxhash_rust::xxh3::xxh3_64(&data[start..offset + len]);
+        let view = ComputeReadView::from_frame(&frame_of(&read)?)?;
+        assert_eq!(view.pattern_hash(), expected, "{name}");
+    }
+    Ok(())
+}

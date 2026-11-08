@@ -123,7 +123,7 @@ stage-5 test drive the server with. It speaks the same protocol as the server, t
 ## 9c. The protocol block → `ultragraphdb_protocol_wire`, `ultragraphdb_protocol_transport`, `ultragraphdb_client_core` and its shells, `ultragraphdb_transactions_commit`, `ultragraphdb_transactions_txn`, `ultragraphdb_store_apply`, `ultragraphdb_transactions_log`, `ultragraphdb_core_terms` (decided 2026-10-28, scoped 2026-10-30)
 
 The specification's open points resolved before the remaining groups (decided 2026-10-28): every point of
-`../../../../specification/PROTOCOL.md` §13, as its triage §13.8 records them (category A approved row by row, category B
+`../../../../specification/binary_protocol/PROTOCOL.md` §13, as its triage §13.8 records them (category A approved row by row, category B
 decided, 2026-10-30), and the security design, `openspec/notes/security.md`. Specification first: each change is written
 into `PROTOCOL.md` and then built (decided 2026-10-28). Groups 8, 10, 11, 12 and 13 wait until this group closes.
 

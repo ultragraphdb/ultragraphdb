@@ -161,3 +161,32 @@ fn test_args_are_counted_and_in_range() -> TestResult {
     );
     Ok(())
 }
+
+/// An upsert-and-link of two properties and three links reads back its counts and, from its args, each property's pair
+/// and each link: args 3 + 2k and 4 + 2k are property k, the links follow in threes (`PROTOCOL.md` §7.3).
+#[test]
+fn test_every_property_and_link_reads_from_its_args() -> TestResult {
+    use ultragraphdb_protocol_wire::{BodyBuilder, CommitOperation, Link, Operation, TermTable};
+
+    let mut t = TermTable::new();
+    let [id, x, p1, v1, p2, v2, l1, n1, l2, n2, l3, n3] = [
+        "id", "x", "p1", "v1", "p2", "v2", "l1", "n1", "l2", "n2", "l3", "n3",
+    ]
+    .map(|name| t.iri(&format!("http://ex.org/{name}")));
+    let operation = CommitOperation::UpsertAndLink {
+        graph: None,
+        predicate: id,
+        value: x,
+        properties: vec![(p1, v1), (p2, v2)],
+        links: vec![
+            Link::to_node(l1, n1),
+            Link::from_node(l2, n2),
+            Link::to_node(l3, n3),
+        ],
+    };
+    let bytes = Operation::new(t, operation.clone()).frame(golden("operation")?.header())?;
+    let view = OperationView::from_frame(&frame_of(&bytes)?)?;
+    assert_eq!((view.kind(), view.properties(), view.links()), (2, 2, 3));
+    assert_eq!(view.operation(), operation);
+    Ok(())
+}

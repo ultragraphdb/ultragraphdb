@@ -137,3 +137,79 @@ fn test_a_sequence_stamped_onto_a_built_frame_keeps_it_sound() -> TestResult {
     );
     Ok(())
 }
+
+/// `frame` and `golden` equal outside `at..at + len` and the checksum, the bytes a stamp writes.
+fn equal_outside(frame: &[u8], golden: &[u8], at: usize, len: usize) -> bool {
+    frame.len() == golden.len()
+        && frame
+            .iter()
+            .zip(golden)
+            .enumerate()
+            .all(|(i, (a, b))| i < 8 || (at..at + len).contains(&i) || a == b)
+}
+
+#[test]
+fn test_a_stream_stamped_onto_a_built_frame_keeps_it_sound() -> TestResult {
+    // The header's stream is the u64 at 56 (PROTOCOL.md §2.1).
+    let stream = 0x1122_3344_5566_7788u64;
+    for golden in GOLDEN {
+        let mut frame = golden.bytes()?;
+        Header::stamp_stream(&mut frame, stream)?;
+        let view = FrameView::validate(&frame, CLUSTER, MAX_FRAME_SIZE)
+            .context("the stamped frame validates")?;
+        assert_eq!(view.header().stream(), stream, "{}", golden.name);
+        assert_eq!(&frame[56..64], &stream.to_le_bytes(), "{}", golden.name);
+        assert!(
+            equal_outside(&frame, &golden.bytes()?, 56, 8),
+            "{}",
+            golden.name
+        );
+        Header::stamp_stream(&mut frame, golden.stream)?;
+        assert_eq!(frame, golden.bytes()?, "{}", golden.name);
+    }
+    assert_eq!(
+        Header::stamp_stream(&mut [0u8; 255], 1),
+        Err(ProtocolError(ProtocolErrorEnum::ShortHeader { len: 255 }))
+    );
+    Ok(())
+}
+
+#[test]
+fn test_command_bytes_are_stamped_at_their_offset_in_the_command_header() -> TestResult {
+    // The command header is bytes 128 to 256 (PROTOCOL.md §2.1); offset 8 of it is byte 136.
+    let bytes = [0xA1, 0xB2, 0xC3, 0xD4, 0xE5, 0xF6, 0x07, 0x18];
+    for golden in GOLDEN {
+        let mut frame = golden.bytes()?;
+        for offset in [0usize, 8, 40] {
+            Header::stamp_command_bytes(&mut frame, offset, &bytes)?;
+            let view = FrameView::validate(&frame, CLUSTER, MAX_FRAME_SIZE)
+                .context("the stamped frame validates")?;
+            assert_eq!(view.header().command_header()[offset..offset + 8], bytes);
+            assert_eq!(
+                &frame[128 + offset..136 + offset],
+                &bytes,
+                "{}",
+                golden.name
+            );
+            assert!(
+                equal_outside(&frame, &golden.bytes()?, 128 + offset, 8),
+                "{} at {offset}",
+                golden.name
+            );
+            frame = golden.bytes()?;
+        }
+        // Bytes past the header are not written: the 4 that fit land at 252 to 256, the body stays the frame's.
+        Header::stamp_command_bytes(&mut frame, 124, &bytes)?;
+        assert_eq!(&frame[252..256], &bytes[..4], "{}", golden.name);
+        assert!(
+            equal_outside(&frame, &golden.bytes()?, 252, 4),
+            "{}",
+            golden.name
+        );
+    }
+    assert_eq!(
+        Header::stamp_command_bytes(&mut [0u8; 255], 0, &[1]),
+        Err(ProtocolError(ProtocolErrorEnum::ShortHeader { len: 255 }))
+    );
+    Ok(())
+}

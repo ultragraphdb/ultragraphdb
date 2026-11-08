@@ -11,17 +11,20 @@ use ultragraphdb_cluster_metadata::MetadataConfig;
 use ultragraphdb_cluster_sequencer::SequencerConfig;
 use ultragraphdb_common_frontend::{
     AskedCredentials, AuthThrottle, ClientSession, EndpointCore, EndpointLimits,
-    EveryAuthenticated, OwnerHandle, OwnerStart, RoleDouble, RoleLinks, TenantGate, last_frame,
-    partition_answer, start_owner,
+    EveryAuthenticated, OwnerHandle, OwnerStart, RoleDouble, RoleLinks, TenantGate, batch_frame,
+    empty_batch, last_frame, partition_answer, start_owner,
 };
 use ultragraphdb_common_role::{
     Answer, OpenRequests, RoleClient, RoleCluster, RoleSecret, Server, listen, serve_connection,
 };
 use ultragraphdb_common_service_config::ServiceConfig;
+use ultragraphdb_core_ids::{Epoch, SessionToken};
 use ultragraphdb_protocol_scram::{Credentials, ScramVerifier};
 use ultragraphdb_protocol_transport::{Address, Endpoint, TransportErrorEnum};
 use ultragraphdb_protocol_wire::{
-    Begin, Command, Commit, ErrorCode, Join, Members, TermTable, Write, WriteChange,
+    Begin, BodyView, ColumnType, Command, Commit, DirectWrite, DropCommand, ErrorCode, Execute,
+    Join, Members, PatternSlot, Prepare, PrepareView, QuadPattern, Read, StatementCache, TermTable,
+    Write, WriteChange,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -247,6 +250,11 @@ async fn counted_endpoint(
     Ok(address)
 }
 
+/// A client endpoint over `owner` reaching the roles through `links`, at a free port: its address.
+async fn endpoint_over(owner: OwnerHandle, links: RoleLinks) -> TestResult<Address> {
+    counted_endpoint(owner, links, OpenRequests::default()).await
+}
+
 /// A Write of one insert.
 fn one_insert() -> Write {
     let mut terms = TermTable::new();
@@ -325,6 +333,262 @@ fn test_a_relayed_commit_stays_open_until_its_reply_leaves() -> TestResult {
             .map_err(|_| TestError::new("the Commit's reply did not come"))??;
         assert_eq!(reply.view()?.command(), Command::Commit);
         until("nothing open", || open.count() == 0).await?;
+        Ok(())
+    })
+}
+
+/// A read the endpoint relayed is one of its open requests until its `LAST` has left, so a frontend's stop waits for it
+/// (role-binaries, *Readiness, health and shutdown*), and nothing stays counted once it has.
+#[test]
+fn test_a_relayed_read_stays_open_until_its_last_leaves() -> TestResult {
+    let data = directory("read-open");
+    if data.exists() {
+        std::fs::remove_dir_all(&data)?;
+    }
+    Runtime::new()?.block_on(async {
+        let start = OwnerStart::new(MetadataConfig::new(), SequencerConfig::new(1, 50)?, 1);
+        let principals = vec![(
+            "alice".to_string(),
+            ScramVerifier::derive("pw", b"alice's salt", ITERATIONS)?,
+        )];
+        let owner = start_owner(ServiceConfig::default(), CLUSTER, data, start, principals).await?;
+        let file = directory("read-open-secret");
+        std::fs::write(&file, "a role secret")?;
+        let cluster = RoleCluster::new(
+            CLUSTER,
+            RoleSecret::read(&file.display().to_string())?,
+            Duration::from_secs(1),
+        );
+        let compute = RoleDouble::start(&cluster, Endpoint::Compute, |_| Answer::Open).await?;
+        let links = RoleLinks::new(cluster, "frontend".to_string());
+        links.set_map(owner.handle().map().await.context("a placement map")?);
+        links.joined(&Join::compute(compute.address()));
+        let open = OpenRequests::default();
+        let address = counted_endpoint(owner.handle().clone(), links, open.clone()).await?;
+        let mut alice = RoleClient::dial(&address, CLUSTER, "alice", "pw").await?;
+        drop(
+            compio::time::timeout(WAIT, alice.request(&Begin::new(0, 0, true)))
+                .await
+                .map_err(|_| TestError::new("the Begin was not answered"))??,
+        );
+        let transaction = alice.last_stream();
+        let mut terms = TermTable::new();
+        let pattern = QuadPattern::new(
+            PatternSlot::Unbound,
+            PatternSlot::Bound(terms.iri("http://ex.org/s")),
+            PatternSlot::Unbound,
+            PatternSlot::Unbound,
+        );
+        alice
+            .send_only(&Read::new(transaction, 0, terms, pattern, Vec::new()))
+            .await?;
+        until("the read at compute", || {
+            compute.count(Command::ComputeRead) == 1
+        })
+        .await?;
+        assert_eq!(open.count(), 1, "the relayed read is open");
+        let held = compute
+            .frames(Command::ComputeRead)
+            .first()
+            .cloned()
+            .context("the read held")?;
+        held.answer_with(batch_frame(
+            CLUSTER,
+            held.stream(),
+            &empty_batch(4, 1),
+            true,
+        )?);
+        let reply = compio::time::timeout(WAIT, alice.next_frame())
+            .await
+            .map_err(|_| TestError::new("the read's LAST did not come"))??;
+        assert_eq!(reply.view()?.command(), Command::Result);
+        until("nothing open", || open.count() == 0).await?;
+        Ok(())
+    })
+}
+
+/// A one-frame write and a Drop the endpoint relayed are each one of its open requests while their partition holds them.
+#[test]
+fn test_a_relayed_one_frame_write_and_drop_are_each_open() -> TestResult {
+    let data = directory("writes-open");
+    if data.exists() {
+        std::fs::remove_dir_all(&data)?;
+    }
+    Runtime::new()?.block_on(async {
+        let start = OwnerStart::new(MetadataConfig::new(), SequencerConfig::new(1, 50)?, 1);
+        let principals = vec![(
+            "alice".to_string(),
+            ScramVerifier::derive("pw", b"alice's salt", ITERATIONS)?,
+        )];
+        let owner = start_owner(ServiceConfig::default(), CLUSTER, data, start, principals).await?;
+        let file = directory("writes-open-secret");
+        std::fs::write(&file, "a role secret")?;
+        let cluster = RoleCluster::new(
+            CLUSTER,
+            RoleSecret::read(&file.display().to_string())?,
+            Duration::from_secs(1),
+        );
+        let partition = RoleDouble::start(&cluster, Endpoint::Partition, |frame| {
+            if matches!(frame.command(), Command::DirectWrite | Command::Drop) {
+                return Answer::Open;
+            }
+            partition_answer(frame, CLUSTER, 5 << 22)
+        })
+        .await?;
+        let links = RoleLinks::new(cluster, "frontend".to_string());
+        links.set_map(owner.handle().map().await.context("a placement map")?);
+        links.joined(&Join::storage(partition.address(), vec![1]));
+        let open = OpenRequests::default();
+        let address = counted_endpoint(owner.handle().clone(), links, open.clone()).await?;
+        let mut alice = RoleClient::dial(&address, CLUSTER, "alice", "pw").await?;
+        let mut terms = TermTable::new();
+        let change = WriteChange::Insert {
+            graph: None,
+            subject: terms.iri("http://ex.org/s"),
+            predicate: terms.iri("http://ex.org/p"),
+            object: terms.iri("http://ex.org/o"),
+        };
+        alice
+            .send_only(&DirectWrite::new(0, terms, vec![change]))
+            .await?;
+        until("the one-frame write at its partition", || {
+            partition.count(Command::DirectWrite) == 1
+        })
+        .await?;
+        assert_eq!(open.count(), 1, "the one-frame write is open");
+        alice.send_only(&DropCommand::tenant_data(0)).await?;
+        until("the Drop at its partition", || {
+            partition.count(Command::Drop) == 1
+        })
+        .await?;
+        assert_eq!(open.count(), 2, "the Drop is open beside it");
+        Ok(())
+    })
+}
+
+/// A Prepare of the pattern binding the predicate `predicate`, taking no parameter.
+fn prepared(predicate: &str) -> Prepare {
+    let mut terms = TermTable::new();
+    let pattern = QuadPattern::new(
+        PatternSlot::Unbound,
+        PatternSlot::Unbound,
+        PatternSlot::Bound(terms.iri(predicate)),
+        PatternSlot::Unbound,
+    );
+    Prepare::new(
+        0,
+        0,
+        0,
+        terms,
+        pattern,
+        Vec::<ColumnType>::new(),
+        Vec::new(),
+    )
+}
+
+/// A connection holds the protocol's default count of statements: the first of that many still executes, and one more prepared
+/// evicts it (`PROTOCOL.md` §11.9).
+#[test]
+fn test_a_connection_holds_the_default_count_of_statements() -> TestResult {
+    let data = directory("statements");
+    if data.exists() {
+        std::fs::remove_dir_all(&data)?;
+    }
+    Runtime::new()?.block_on(async {
+        let start = OwnerStart::new(MetadataConfig::new(), SequencerConfig::new(1, 50)?, 1);
+        let principals = vec![(
+            "alice".to_string(),
+            ScramVerifier::derive("pw", b"alice's salt", ITERATIONS)?,
+        )];
+        let owner = start_owner(ServiceConfig::default(), CLUSTER, data, start, principals).await?;
+        let file = directory("statements-secret");
+        std::fs::write(&file, "a role secret")?;
+        let cluster = RoleCluster::new(
+            CLUSTER,
+            RoleSecret::read(&file.display().to_string())?,
+            Duration::from_secs(1),
+        );
+        let compute = RoleDouble::start(&cluster, Endpoint::Compute, |_| Answer::Open).await?;
+        let links = RoleLinks::new(cluster, "frontend".to_string());
+        links.set_map(owner.handle().map().await.context("a placement map")?);
+        links.joined(&Join::compute(compute.address()));
+        let address = endpoint_over(owner.handle().clone(), links).await?;
+        let mut alice = RoleClient::dial(&address, CLUSTER, "alice", "pw").await?;
+        let mut statements = Vec::with_capacity(StatementCache::DEFAULT_CAPACITY);
+        for at in 0..StatementCache::DEFAULT_CAPACITY {
+            let reply = alice
+                .request(&prepared(&format!("http://ex.org/p{at}")))
+                .await?;
+            statements.push(PrepareView::from_frame(&reply.view()?)?.statement());
+        }
+        let first = *statements.first().context("a statement")?;
+        drop(
+            compio::time::timeout(WAIT, alice.request(&Begin::new(0, 0, true)))
+                .await
+                .map_err(|_| TestError::new("the Begin was not answered"))??,
+        );
+        let transaction = alice.last_stream();
+        let execute = Execute::new(
+            first,
+            transaction,
+            0,
+            TermTable::new(),
+            Vec::new(),
+            Vec::new(),
+        );
+        alice.send_only(&execute).await?;
+        until("the first statement's read at compute", || {
+            compute.count(Command::ComputeRead) == 1
+        })
+        .await?;
+        drop(alice.request(&prepared("http://ex.org/one-more")).await?);
+        let evicted = alice.request(&execute).await.err().context("a refusal")?;
+        assert!(
+            matches!(
+                &evicted.0,
+                TransportErrorEnum::Refused {
+                    code: ErrorCode::UnknownStatement,
+                    ..
+                }
+            ),
+            "the first statement evicted: {evicted}"
+        );
+        Ok(())
+    })
+}
+
+/// A token of an epoch the sequencer has opened is within its open epoch: a Begin carrying one is served (`PROTOCOL.md` §11.5).
+#[test]
+fn test_a_token_of_an_opened_epoch_is_served() -> TestResult {
+    let data = directory("token-open");
+    if data.exists() {
+        std::fs::remove_dir_all(&data)?;
+    }
+    Runtime::new()?.block_on(async {
+        let start = OwnerStart::new(MetadataConfig::new(), SequencerConfig::new(1, 50)?, 1);
+        let principals = vec![(
+            "alice".to_string(),
+            ScramVerifier::derive("pw", b"alice's salt", ITERATIONS)?,
+        )];
+        let owner = start_owner(ServiceConfig::default(), CLUSTER, data, start, principals).await?;
+        let handle = owner.handle().clone();
+        // Two closes past, the epoch the second opened is above both 0 and 1, and at most the open epoch however many closes
+        // follow.
+        let second = handle
+            .next_close(1)
+            .await
+            .map_err(|refusal| TestError::new(refusal.message().to_string()))?;
+        let opened = second.epoch().get() + 1;
+        let address = endpoint(handle).await?;
+        let mut alice = RoleClient::dial(&address, CLUSTER, "alice", "pw").await?;
+        let token = SessionToken::new(1, 1, Epoch::new(opened)?);
+        let begun = compio::time::timeout(
+            WAIT,
+            alice.request(&Begin::new(0, 0, false).with_token(token)),
+        )
+        .await
+        .map_err(|_| TestError::new("the Begin was not answered"))??;
+        assert_eq!(begun.view()?.command(), Command::Begin);
         Ok(())
     })
 }

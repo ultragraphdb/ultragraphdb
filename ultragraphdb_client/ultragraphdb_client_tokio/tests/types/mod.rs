@@ -11,3 +11,5 @@ mod tcp_connector_tests;
 mod tls_dial_tests;
 #[cfg(test)]
 mod tokio_sim_stream_tests;
+#[cfg(test)]
+mod tokio_tls_stream;

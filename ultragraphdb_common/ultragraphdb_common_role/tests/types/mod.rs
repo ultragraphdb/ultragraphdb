@@ -4,6 +4,8 @@
  */
 
 #[cfg(test)]
+mod connection_bound_tests;
+#[cfg(test)]
 mod open_requests_tests;
 #[cfg(test)]
 mod parked_bytes_tests;

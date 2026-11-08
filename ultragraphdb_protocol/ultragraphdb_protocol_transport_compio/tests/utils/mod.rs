@@ -6,6 +6,8 @@
 #[cfg(test)]
 pub mod bytes;
 #[cfg(test)]
+pub mod probe;
+#[cfg(test)]
 pub mod ready;
 #[cfg(test)]
 mod ready_tests;

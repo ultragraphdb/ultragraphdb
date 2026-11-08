@@ -2,7 +2,7 @@
 
 The specification's open points, and the decisions that resolved them, kept here as `PROTOCOL.md` §13 held them before
 task 9c.4 wrote every resolution into the specification. The point numbers are the ones every other document cites.
-The security design they led to is `openspec/notes/security.md`, and its architecture `../../../../../specification/SECURITY.md`.
+The security design they led to is `openspec/notes/security.md`, and its architecture `../../../../notes/SECURITY.md`.
 
 ## The open points of `PROTOCOL.md` §13, as triaged and decided
 

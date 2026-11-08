@@ -31,10 +31,19 @@ fn owner_of(
     Ok(map.partition_of(bucket, Epoch::ZERO).get())
 }
 
-/// Code 25, refusing a read at latest level reaching `partitions`.
-pub(crate) fn level_refused(partitions: &[u32]) -> ErrorReply {
-    let lowest = partitions.first().copied().unwrap_or_default();
-    let other = partitions.get(1).copied().unwrap_or_default();
+/// Code 25, refusing a read at latest level reaching `partitions`, of a transaction bound to `bound`, 0 for none: `detail` names the
+/// bound partition, or the lowest reached, then the lowest other.
+pub(crate) fn level_refused(bound: u32, partitions: &[u32]) -> ErrorReply {
+    let lowest = if bound == 0 {
+        partitions.first().copied().unwrap_or_default()
+    } else {
+        bound
+    };
+    let other = partitions
+        .iter()
+        .copied()
+        .find(|partition| *partition != lowest)
+        .unwrap_or_default();
     ErrorReply::new(
         ErrorCode::LevelRefused,
         format!(
@@ -82,7 +91,7 @@ fn check_level(read: &ReadRequest, reached: &[u32]) -> Result<(), ErrorReply> {
             named.push(read.partition);
             named.sort_unstable();
         }
-        return Err(level_refused(&named));
+        return Err(level_refused(read.partition, &named));
     }
     Ok(())
 }

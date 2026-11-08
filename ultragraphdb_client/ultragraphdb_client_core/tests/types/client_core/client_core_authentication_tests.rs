@@ -494,3 +494,119 @@ fn test_a_renewal_the_login_cannot_start_gives_the_connection_up() -> TestResult
     );
     Ok(())
 }
+
+/// While a renewal runs, the core waits for the server's answer to it: its next deadline is that wait's timeout, the
+/// renewal's start plus the configured timeout, not the renewal's own time, which has passed.
+#[test]
+fn test_a_renewal_under_way_is_due_at_its_timeout() -> TestResult {
+    let mut played = Played::authenticated(UNIX + 600_000_000)?;
+    let renew = played.core.next_deadline().context("the renewal")?;
+    played.core.handle_timeout(renew);
+    assert!(
+        played.core.transmit().is_some(),
+        "the renewal's first message"
+    );
+    assert_eq!(
+        played.core.next_deadline(),
+        Some(renew + config().timeout())
+    );
+    Ok(())
+}
+
+/// A login under the name `SIZED` whose first message is as many bytes long as it holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Sized(usize);
+
+impl ultragraphdb_protocol_transport::ClientMechanism for Sized {
+    type Error = &'static str;
+
+    fn name(&self) -> &str {
+        "SIZED"
+    }
+
+    fn start(&mut self) -> Result<Vec<u8>, &'static str> {
+        Ok(vec![b'x'; self.0])
+    }
+
+    fn answer(&mut self, _challenge: &[u8]) -> Result<Vec<u8>, &'static str> {
+        Ok(Vec::new())
+    }
+
+    fn finish(&mut self, _outcome: &[u8]) -> Result<(), &'static str> {
+        Ok(())
+    }
+}
+
+impl ultragraphdb_protocol_transport::Login for Sized {
+    type Mechanism = Sized;
+
+    fn mechanism(
+        &mut self,
+        _offered: &[String],
+    ) -> Result<Option<Sized>, ultragraphdb_protocol_transport::TransportError> {
+        Ok(Some(*self))
+    }
+}
+
+/// The core's answer to a Welcome, and the frame it queued after its Hello.
+type Welcomed = (
+    Result<(), ultragraphdb_client_core::ClientError>,
+    Option<Vec<u8>>,
+);
+
+/// The core of the [`Sized`] login of `message` bytes, welcomed by a server allowing frames up to `max_frame`: its
+/// answer to the Welcome, and the frame it queued after its Hello.
+fn sized_exchange(message: usize, max_frame: u32) -> TestResult<Welcomed> {
+    let mut core = ClientCore::new(config(), Sized(message));
+    core.connect(start(), UNIX)?;
+    let _hello = core.transmit().context("the Hello")?;
+    let welcome = crate::utils::harness::welcome()
+        .with_max_frame(max_frame)
+        .with_mechanisms(["SIZED"])
+        .frame(Header::new(CLUSTER, Command::Welcome).with_sequence(1))?;
+    let pool = BufferPool::new(2, 1 << 20);
+    let answer = core.receive(received(&pool, &welcome)?, start());
+    Ok((answer, core.transmit()))
+}
+
+/// An Authenticate exactly as large as the Welcome's `max_frame` is sent; one byte larger is refused before it is sent
+/// (`PROTOCOL.md` §2.5: a frame up to `max_frame` bytes).
+#[test]
+fn test_an_authenticate_of_the_welcomes_largest_frame_is_sent() -> TestResult {
+    const MAX: u32 = 524_288;
+    let limit = MAX as usize;
+    let size = |message: usize| -> TestResult<usize> {
+        Ok(
+            ultragraphdb_protocol_wire::Authenticate::new(0, "SIZED", vec![b'x'; message])
+                .frame(Header::new(CLUSTER, Command::Authenticate))?
+                .len(),
+        )
+    };
+    // A frame is its body and a chunk table growing with the body (`PROTOCOL.md` §2.3), so the message is sized again
+    // until the frame comes out at the limit.
+    let mut message = limit - size(0)?;
+    for _ in 0..8 {
+        let got = size(message)?;
+        if got == limit {
+            break;
+        }
+        message = (message + limit)
+            .checked_sub(got)
+            .context("a shorter message")?;
+    }
+    assert_eq!(
+        size(message)?,
+        limit,
+        "the message fills the frame to its limit"
+    );
+    let (answer, sent) = sized_exchange(message, MAX)?;
+    answer?;
+    assert_eq!(sent.context("the first Authenticate")?.len(), limit);
+    let (refused, none) = sized_exchange(message + 1, MAX)?;
+    assert!(
+        matches!(refused.err().context("a refusal")?.0, ClientErrorEnum::Request { error: ref e } if matches!(e.0, ultragraphdb_error_protocol::ProtocolErrorEnum::FrameTooLarge { limit: 524_288, .. })),
+        "one byte past the limit"
+    );
+    assert_eq!(none, None, "nothing is sent");
+    Ok(())
+}

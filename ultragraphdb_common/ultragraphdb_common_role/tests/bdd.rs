@@ -5,20 +5,26 @@
 
 //! The wire protocol's scenarios of a role connection's handshake.
 
-use std::cell::Cell;
-use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::mpsc;
+use std::time::Duration;
 
-use compio::runtime::{Runtime, spawn};
+use compio::runtime::{Runtime, spawn_blocking};
 use cucumber::{World, then, when};
 use ultragraphdb_common_role::{
-    Answer, ROLE_ITERATIONS, RoleClient, RoleSecret, Server, Session, listen, serve_connection,
+    Answer, ROLE_ITERATIONS, RoleClient, RoleCredentials, RoleSecret, Server, Session, listen,
+    serve_connection,
 };
-use ultragraphdb_protocol_transport::{Endpoint, ReceivedFrame};
+use ultragraphdb_protocol_transport::{Address, Endpoint, ReceivedFrame};
 use ultragraphdb_protocol_wire::{ErrorCode, ErrorReply, MAX_FRAME_SIZE, ROLE_MAX_STREAMS};
-use ultragraphdb_tool_bdd::{Context, TestResult};
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 const CLUSTER: u64 = 7;
 const PASSWORD: &str = "s3cret";
+
+/// How long a step waits on the server: far past what a handshake on this host takes.
+const WAIT: Duration = Duration::from_secs(5);
 
 /// What the connection's two sides announced.
 #[derive(Debug, Default, World)]
@@ -30,7 +36,7 @@ struct Steps {
 /// Holds what the peer's Hello stated, and serves nothing.
 #[derive(Debug)]
 struct Recording {
-    hello: Rc<Cell<u32>>,
+    hello: Arc<AtomicU32>,
 }
 
 impl Session for Recording {
@@ -39,8 +45,46 @@ impl Session for Recording {
     }
 
     fn welcomed(&mut self, max_frame: u32) {
-        self.hello.set(max_frame);
+        self.hello.store(max_frame, Ordering::Release);
     }
+}
+
+/// Serves one connection at `text` on a thread and a runtime of its own, so a server that never yields cannot hold this
+/// step's bounded wait: the address it holds.
+async fn serve_apart(
+    text: String,
+    held: RoleCredentials,
+    hello: Arc<AtomicU32>,
+) -> TestResult<Address> {
+    let (bound, address) = mpsc::channel();
+    spawn_blocking(move || {
+        let Ok(runtime) = Runtime::new() else {
+            return;
+        };
+        runtime.block_on(async move {
+            let Ok(server) = Server::new(CLUSTER, "test", Endpoint::Partition)
+                .map(|server| server.with_iterations(ROLE_ITERATIONS))
+            else {
+                return;
+            };
+            let Ok(listener) = listen(&text).await else {
+                return;
+            };
+            drop(bound.send(listener.local_address().ok()));
+            if let Ok(carrier) = listener.accept().await {
+                serve_connection(carrier, &server, held, Recording { hello }).await;
+            }
+        });
+    })
+    .detach();
+    // Polled, not waited on: the blocking task starts only as this runtime runs.
+    for _ in 0..1_000 {
+        if let Ok(sent) = address.try_recv() {
+            return sent.context("the server's address");
+        }
+        compio::time::sleep(Duration::from_millis(5)).await;
+    }
+    Err(TestError::new("the server listening within 5 s"))
 }
 
 #[when("a role connects to a role endpoint")]
@@ -52,24 +96,18 @@ fn a_role_connects(w: &mut Steps) -> TestResult {
         let port = std::net::TcpListener::bind("127.0.0.1:0")?
             .local_addr()?
             .port();
-        let listener = listen(&format!("tcp://127.0.0.1:{port}")).await?;
-        let address = listener.local_address()?;
-        let server =
-            Server::new(CLUSTER, "test", Endpoint::Partition)?.with_iterations(ROLE_ITERATIONS);
-        let hello = Rc::new(Cell::new(0));
-        let session = Recording {
-            hello: Rc::clone(&hello),
-        };
-        spawn(async move {
-            if let Ok(carrier) = listener.accept().await {
-                serve_connection(carrier, &server, held, session).await;
-            }
-        })
-        .detach();
-        let client = RoleClient::dial(&address, CLUSTER, "compute", PASSWORD).await?;
+        let hello = Arc::new(AtomicU32::new(0));
+        let address =
+            serve_apart(format!("tcp://127.0.0.1:{port}"), held, Arc::clone(&hello)).await?;
+        let client = compio::time::timeout(
+            WAIT,
+            RoleClient::dial(&address, CLUSTER, "compute", PASSWORD),
+        )
+        .await
+        .map_err(|_| TestError::new(format!("a handshake within {WAIT:?}")))??;
         let welcome = client.welcome();
         w.welcome = Some((welcome.max_frame(), welcome.max_streams()));
-        w.hello = hello.get();
+        w.hello = hello.load(Ordering::Acquire);
         TestResult::Ok(())
     })
 }

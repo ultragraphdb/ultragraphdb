@@ -13,6 +13,7 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 publish.workspace = true
+autotests = false
 
 [lints]
 workspace = true
@@ -44,3 +45,7 @@ ultragraphdb_transactions_log = { workspace = true }
 ultragraphdb_transactions_txn = { workspace = true }
 ultragraphdb_traits_blocks = { workspace = true }
 ultragraphdb_traits_store = { workspace = true }
+
+[[test]]
+name = "unit"
+path = "tests/mod.rs"

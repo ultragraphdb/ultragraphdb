@@ -61,3 +61,14 @@ fn test_what_is_no_reply_is_refused() {
         );
     }
 }
+
+/// A head of 8 KiB, half the 16 KiB a status line and its headers take, is read whole.
+#[test]
+fn test_a_long_head_within_its_bound_is_read() -> TestResult {
+    let header = "a".repeat(8 * 1024);
+    let reply = whole(
+        format!("HTTP/1.1 200 OK\r\nX-Long: {header}\r\nContent-Length: 0\r\n\r\n").as_bytes(),
+    )?;
+    assert_eq!(reply.header("x-long"), Some(header.as_str()));
+    Ok(())
+}

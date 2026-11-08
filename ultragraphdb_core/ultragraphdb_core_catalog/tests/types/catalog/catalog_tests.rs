@@ -303,3 +303,15 @@ fn test_a_declaration_held_by_name_governs_until_a_new_version_says_it_again() -
     );
     Ok(())
 }
+
+/// An emptied catalog declares nothing by ID and keeps its tenant and its version.
+#[test]
+fn test_an_emptied_catalog_keeps_its_tenant_and_its_version() -> TestResult {
+    let emptied = Catalog::new(3)
+        .with_version(7)
+        .with_initial(id(2)?)
+        .emptied();
+    assert_eq!((emptied.tenant(), emptied.version()), (3, 7));
+    assert_eq!(emptied.predicates().count(), 0);
+    Ok(())
+}

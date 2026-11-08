@@ -104,3 +104,36 @@ fn test_only_a_bearer_presents_a_key() -> TestResult {
     assert_eq!(basic.bearer(), None);
     Ok(())
 }
+
+/// A header's name is a token: never empty, never holding a space or a tab (RFC 9110 §5.1).
+#[test]
+fn test_a_header_name_is_a_token() {
+    for header in [&b": x"[..], b"Bad Name: x", b"Bad\tName: x"] {
+        let request = [b"GET / HTTP/1.1\r\n".as_slice(), header, b"\r\n\r\n"].concat();
+        assert_eq!(
+            parse_head(&request, &limits()),
+            ParsedHead::Refused(400),
+            "{}",
+            String::from_utf8_lossy(header)
+        );
+    }
+}
+
+/// A body of the most the limits take is whole, as is one of nothing; only one past it is refused.
+#[test]
+fn test_a_body_at_its_limit_is_taken() -> TestResult {
+    let most = limits().body();
+    let at = [
+        format!("POST / HTTP/1.1\r\nContent-Length: {most}\r\n\r\n").as_bytes(),
+        &vec![b'x'; most],
+    ]
+    .concat();
+    assert_eq!(complete(&at)?.body_len(), most);
+    assert_eq!(complete(b"POST / HTTP/1.1\r\n\r\n")?.body_len(), 0);
+    let past = format!("POST / HTTP/1.1\r\nContent-Length: {}\r\n\r\n", most + 1);
+    assert_eq!(
+        parse_head(past.as_bytes(), &limits()),
+        ParsedHead::Refused(413)
+    );
+    Ok(())
+}

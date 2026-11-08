@@ -25,11 +25,17 @@ pub const DROPPED_KEYS: usize = 60_000;
 /// The prefix the writer's drop mode drops.
 pub const DROP_PREFIX: &[u8] = b"\x00dropme";
 
-/// The writer binary: Bazel passes its runfiles path in `KV_CRASH_WRITER`, Cargo builds it beside the test.
+/// The writer binary: Bazel passes its runfiles path in `KV_CRASH_WRITER`, Cargo builds it beside the test, in the
+/// profile directory above the test's own `deps/`. `CARGO_BIN_EXE_kv_crash_writer` is set only for the tests of the
+/// package owning the binary, and this crate is not that package, so it would never be read here.
 fn writer() -> TestResult<PathBuf> {
     std::env::var_os("KV_CRASH_WRITER")
         .map(PathBuf::from)
-        .or_else(|| option_env!("CARGO_BIN_EXE_kv_crash_writer").map(PathBuf::from))
+        .or_else(|| {
+            let exe = std::env::current_exe().ok()?;
+            let profile = exe.parent()?.parent()?;
+            Some(profile.join("kv_crash_writer")).filter(|path| path.is_file())
+        })
         .context("the crash writer is a data dependency of this test")
 }
 
@@ -67,8 +73,14 @@ type Output = Lines<BufReader<ChildStdout>>;
 
 /// Runs the writer with `args` on `dir` and reads its stdout until it prints `line`. Returns the child, the rest of
 /// its stdout and the lines read, the last of which is `line`; a [`TestError`] when the writer does not start, its
-/// output is not text, or it stops before printing `line`.
-fn run_until(dir: &Path, args: &[&str], line: &str) -> TestResult<(Child, Output, Vec<String>)> {
+/// output is not text, or it stops before printing `line`: it exits, or it prints `waits`, the line after which it
+/// waits to be killed, saying nothing more. A writer stopped early is killed and reaped.
+fn run_until(
+    dir: &Path,
+    args: &[&str],
+    line: &str,
+    waits: Option<&str>,
+) -> TestResult<(Child, Output, Vec<String>)> {
     let mut child: Child = Command::new(writer()?)
         .arg(dir)
         .args(args)
@@ -79,17 +91,19 @@ fn run_until(dir: &Path, args: &[&str], line: &str) -> TestResult<(Child, Output
     let stdout = child.stdout.take().context("piped")?;
     let mut lines = BufReader::new(stdout).lines();
     let mut seen = Vec::new();
-    // Ends at `line` or at the end of the writer's output, when it exits; the test target's timeout bounds a writer
-    // that does neither.
+    // Ends at `line`, at the line after which the writer waits, or at the end of the writer's output, when it exits.
     for l in lines.by_ref() {
         let l = l.context("the writer's output is text")?;
-        let reached = l == line;
+        let reached = l == line || waits == Some(l.as_str());
         seen.push(l);
         if reached {
             break;
         }
     }
     if seen.last().map(String::as_str) != Some(line) {
+        // A writer waiting to be killed; one that exited is reaped all the same.
+        drop(child.kill());
+        drop(child.wait());
         return Err(TestError::new(format!(
             "the writer stopped early: {seen:?}"
         )));
@@ -104,7 +118,7 @@ fn run_until(dir: &Path, args: &[&str], line: &str) -> TestResult<(Child, Output
 ///
 /// A [`TestError`] when the writer does not run to `line`, or is not killed and reaped.
 pub fn kill_after(dir: &Path, mode: &str, line: &str, delay: Duration) -> TestResult<Vec<String>> {
-    let (mut child, lines, mut seen) = run_until(dir, &[mode], line)?;
+    let (mut child, lines, mut seen) = run_until(dir, &[mode], line, None)?;
     std::thread::sleep(delay);
     child.kill().context("the writer is killed")?;
     let _status: ExitStatus = child.wait().context("the writer is reaped")?;
@@ -120,7 +134,20 @@ pub fn kill_after(dir: &Path, mode: &str, line: &str, delay: Duration) -> TestRe
 ///
 /// A [`TestError`] when the writer does not run to `stage`, or is not killed and reaped.
 pub fn kill_at(dir: &Path, mode: &str, stage: &str) -> TestResult<Vec<String>> {
-    let (mut child, _, seen) = run_until(dir, &[mode, stage], &format!("stage {stage}"))?;
+    // The last stage of each mode that stops: the writer waits there whatever stage it was asked to stop at.
+    let last = match mode {
+        "drop" => DROP_STAGES.last(),
+        "temporary" => TEMPORARY_STAGES.last(),
+        "record" => RECORD_STAGES.last(),
+        _ => None,
+    };
+    let waits = last.map(|last| format!("stage {last}"));
+    let (mut child, _, seen) = run_until(
+        dir,
+        &[mode, stage],
+        &format!("stage {stage}"),
+        waits.as_deref(),
+    )?;
     child.kill().context("the writer is killed")?;
     let _status: ExitStatus = child.wait().context("the writer is reaped")?;
     Ok(seen)

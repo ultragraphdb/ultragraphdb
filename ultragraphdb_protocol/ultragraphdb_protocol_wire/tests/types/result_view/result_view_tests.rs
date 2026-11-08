@@ -656,3 +656,24 @@ fn test_a_batch_of_no_column_holds_no_row() -> TestResult {
     assert_eq!(view_any(&bytes)?, Ok(()));
     Ok(())
 }
+
+/// A query's batch holds 1 to 1,024 columns (`PROTOCOL.md` §9.1): 1,024 is read, 1,025 refused.
+#[test]
+fn test_a_batch_of_the_most_columns_is_read() -> TestResult {
+    let header = golden("result")?.header();
+    let bytes = ResultBatch::new(1_024).frame(header.clone())?;
+    let view = ResultView::from_frame(&frame_of(&bytes)?)?;
+    assert_eq!((view.columns(), view.rows()), (1_024, 0));
+    let past = ResultBatch::new(1_025).frame(header)?;
+    assert_eq!(
+        ResultView::from_frame(&frame_of(&past)?)
+            .map(|_| ())
+            .map_err(|e| e.0),
+        Err(ProtocolErrorEnum::FieldValue {
+            command: 13,
+            field: "columns",
+            value: 1_025
+        })
+    );
+    Ok(())
+}

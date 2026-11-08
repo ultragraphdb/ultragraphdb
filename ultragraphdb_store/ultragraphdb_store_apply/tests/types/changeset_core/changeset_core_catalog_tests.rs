@@ -472,3 +472,61 @@ fn test_a_version_removes_the_types_and_relations_it_no_longer_names() -> TestRe
     assert!(!holds_catalog_key(&a));
     Ok(())
 }
+
+/// The declarations of a version naming `<foreign>`, whose ID another partition gives, as a predicate, an entity type and a
+/// relation, beside an entity type and a relation this partition holds.
+fn naming_another_partitions(number: u64) -> TestResult<CatalogContents> {
+    use ultragraphdb_core_mapping::{RelationDeclaration, TypeDeclaration};
+    Ok(CatalogContents::new(
+        TENANT,
+        number,
+        vec![
+            Declaration::Predicate(declaration("foreign", "a property with `exact`")?),
+            Declaration::EntityType(TypeDeclaration::new(ex("foreign"), None, false)),
+            Declaration::Relation(RelationDeclaration::new(ex("foreign"), vec![ex("role")])),
+            Declaration::EntityType(TypeDeclaration::new(ex("Person"), None, false)),
+            Declaration::Relation(RelationDeclaration::new(ex("Marriage"), vec![ex("spouse")])),
+        ],
+    ))
+}
+
+/// A loaded version holds a predicate whose ID another partition gives by its name, and leaves out an entity type and a relation
+/// of such a name, which no write here names; it declares those whose IDs this partition holds.
+#[test]
+fn test_a_loaded_version_holds_another_partitions_predicate_by_name() -> TestResult {
+    let a = crate::utils::partitions::owning_all_but("foreign")?;
+    write(&a, &["<x> <knows> <Person>", "<x> <knows> <Marriage>"])?;
+    a.forget_catalogs();
+    a.load_catalog(&naming_another_partitions(2)?)?;
+    let catalog = a.catalog(TENANT)?;
+    assert_eq!(
+        catalog.unresolved(ex("foreign").as_str()),
+        Some(&declaration("foreign", "a property with `exact`")?)
+    );
+    let types: Vec<&str> = catalog
+        .entity_types()
+        .map(|(_, t)| t.iri().as_str())
+        .collect();
+    assert_eq!(types, vec![ex("Person").as_str()]);
+    let relations: Vec<&str> = catalog.relations().map(|(_, r)| r.iri().as_str()).collect();
+    assert_eq!(relations, vec![ex("Marriage").as_str()]);
+    Ok(())
+}
+
+/// A version taking effect holds a predicate whose ID another partition gives by its name, and the next version, which no longer
+/// names it, forgets it.
+#[test]
+fn test_a_version_taking_effect_holds_another_partitions_predicate_until_the_next() -> TestResult {
+    let a = crate::utils::partitions::owning_all_but("foreign")?;
+    write(&a, &["<x> <knows> <y>"])?;
+    let refusals = take_effect(&a, &version(2, &[("foreign", "a property with `exact`")])?)?;
+    assert!(refusals.is_empty(), "{refusals:?}");
+    assert_eq!(
+        a.catalog(TENANT)?.unresolved(ex("foreign").as_str()),
+        Some(&declaration("foreign", "a property with `exact`")?)
+    );
+    let next = take_effect(&a, &version(3, &[])?)?;
+    assert!(next.is_empty(), "{next:?}");
+    assert_eq!(a.catalog(TENANT)?.unresolved(ex("foreign").as_str()), None);
+    Ok(())
+}

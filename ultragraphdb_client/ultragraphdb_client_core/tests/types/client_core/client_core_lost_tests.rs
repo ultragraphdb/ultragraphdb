@@ -427,3 +427,19 @@ fn test_a_read_of_an_earlier_connection_cancelled_sends_nothing() -> TestResult 
     assert_eq!(c.batch(&renewed), Ok(BatchPoll::Batch(3)));
     Ok(())
 }
+
+/// The core's state in brief counts every read a lost connection left it remembering: one whose last frame had arrived,
+/// kept to be read to its end, and one cut short, kept to answer its loss.
+#[test]
+fn test_debug_counts_the_kept_and_the_cut_short_reads() -> TestResult {
+    let mut c = Conn::new()?;
+    let tx = c.begin(true)?;
+    let kept = c.read(&tx)?;
+    let cut = c.read(&tx)?;
+    c.result(&kept, true)?;
+    c.result(&cut, false)?;
+    c.core.disconnected(TransportError::closed(), start());
+    let state = format!("{:?}", c.core);
+    assert!(state.contains("remembered_reads: 2,"), "{state}");
+    Ok(())
+}

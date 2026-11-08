@@ -388,3 +388,45 @@ fn differences(
         })
         .collect()
 }
+
+/// Replay's execution carries the logical writes it derived its keys from, statements and statement records alike: its logical
+/// form is the record it replays.
+#[test]
+fn test_a_replayed_execution_s_logical_writes_are_those_it_derived_from() -> TestResult {
+    let (first, replica) = (changesets_over(sim_store())?, changesets_over(sim_store())?);
+    let executed = first
+        .execute(&changeset(vec![
+            insert("<a> <p> <b>")?,
+            insert_edge("<a> <knows> <c>", &[("since", "\"2020\"")])?,
+        ]))
+        .context("executed")?;
+    let logical = executed.logical();
+    assert!(!logical.inserted().is_empty() && !logical.records().is_empty());
+    let entries = dictionary(&executed);
+    let borrowed: Vec<&VersionlessEntry> = entries.iter().collect();
+    let replayed = replica
+        .prepare_logical(0, &logical, &borrowed)
+        .context("the replay")?;
+    assert_eq!(replayed.logical(), logical);
+    first.release(&executed);
+    replica.release(&replayed);
+    Ok(())
+}
+
+/// Replay of a record holding statements and no statement record gives a tenant without a catalog its initial one, as the
+/// first apply did: the replica declares what the first declares, `rdf:type` among it.
+#[test]
+fn test_replay_of_statements_alone_gives_the_tenant_its_initial_catalog() -> TestResult {
+    let (first, replica) = (changesets_over(sim_store())?, changesets_over(sim_store())?);
+    both(&first, &replica, vec![insert("<a> <p> <b>")?])?;
+    let declared = |store: &TestChangesets| -> TestResult<Vec<ultragraphdb_core_ids::SystemId>> {
+        Ok(store.catalog(0)?.predicates().map(|(id, _)| id).collect())
+    };
+    let rdf_type = first
+        .quads()
+        .id_of(0, oxrdf::vocab::rdf::TYPE.as_str())?
+        .context("rdf:type")?;
+    assert!(declared(&first)?.contains(&rdf_type), "the initial catalog");
+    assert_eq!(declared(&replica)?, declared(&first)?);
+    Ok(())
+}

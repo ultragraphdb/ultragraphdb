@@ -536,7 +536,7 @@ TigerBeetle's and Iggy's are (`message_header.zig:17-78`; Iggy `core/binary_prot
 - **Validation order:** length; header checksum; command known, reserved bytes zero, the cluster, the header's
   fields, `size` at least the header and within the maximum; then the body, read to `size`; the chunk table against
   `checksum_body`, then each chunk against its entry; the sequence; then the command's own rules
-  (`../../../../specification/PROTOCOL.md` §2.5 states the order step by step). Every failure is a `ProtocolError`, answered with an
+  (`../../../../specification/binary_protocol/PROTOCOL.md` §2.5 states the order step by step). Every failure is a `ProtocolError`, answered with an
   error frame where the connection can still carry one and then closed. TigerBeetle crashes the process on an unknown
   command with a valid checksum (`src/message_buffer.zig:144`); this protocol never does.
 - **Commands are never renumbered:** a retired command's number stays reserved, as TigerBeetle's `deprecated_N`.

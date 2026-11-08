@@ -136,7 +136,7 @@ delivered without its version read, since nothing offers one until the frontend'
 
 **The download.** `GET /v1/targets/{target}/download` answers with the active revision's files as received, which `POST .../revisions` takes back as they are, so an edit made through the API can be saved. It serves a retired target too, whose revisions stay stored.
 
-**The restore.** `ultragraphdb_config_cli restore` takes each target's latest revision, so a folder holds one version of every file, and says when that is not the active one. It writes through `write_central`, the inverse of `read_central`, in the validator's crate so the crate reading a folder also says what one looks like. Each target has a folder of its own, since flat names can collide: target `a_storage` with key `storage`, and target `a` with key `storage_storage`. Names come from a peer, so they are checked before a file is written. The token is an argument, whose exposure and handling `specification/SECURITY.md` states under "Securing the CLI".
+**The restore.** `ultragraphdb_config_cli restore` takes each target's latest revision, so a folder holds one version of every file, and says when that is not the active one. It writes through `write_central`, the inverse of `read_central`, in the validator's crate so the crate reading a folder also says what one looks like. Each target has a folder of its own, since flat names can collide: target `a_storage` with key `storage`, and target `a` with key `storage_storage`. Names come from a peer, so they are checked before a file is written. The token is an argument, whose exposure and handling `../../../notes/SECURITY.md` states under "Securing the CLI".
 
 **A service binary is `main` and `service`.** The role entries moved from the common crates into each binary's `service.rs`, as the config service's start did, and what they reach in `ultragraphdb_common_storage` and `_frontend` became public, with private fields and constructors. Compute's one unit test, that it names its absent address, became a process scenario. Each binary then took a test-only sister crate, `ultragraphdb_frontend_tests`, `_compute_tests` and `_storage_tests` beside `_config_tests`, holding its scenarios as processes with no container; `ultragraphdb_tests` keeps the harness they share and the whole-cluster scenarios. Compute gained scenarios for its readiness, its refusal of a command it does not host, and its refusal of another secret.
 
@@ -267,4 +267,76 @@ A partition not owning a new predicate's bucket holds no ID for it, so its versi
 Observed failing first, with the fix taken out by a temporary edit and put back: in `ultragraphdb_common_frontend` bdd the contradicted, borne-out, silent and restarted scenarios, then the built-on and both-ways ones; through the binaries the contradicted and silent ones (answered `Committed`) and both partitions' reports (none logged). "A commit-time operation against an earlier version aborts" passed before and after, so it guards and does not prove: a Transaction record's `operation_count` is 0 until its operations run.
 
 What is left. No partition sends kind 3: a failed build's Report and its restoring version are unbuilt, and the frontend treats kind 3 as a refusal only of a version still being checked. Stage 6's Install must take the same wait (§8.4), and refuses until then. A check runs on the partition's core, so a long one stalls that partition and past `catalog_check_ms` withdraws the change; a predicate too large to check within the bound needs the setting and the client's timeout raised together. While a version waits out a build its close has moved the commit step on, so the tenant's writes in that partition abort with code 2, kind 5 until the build ends. A partition that lands a report past the role deadline gives it up, which the frontend has by then taken as silence.
+
+**9.6 The mutation pass.** Tasks 9.6, 10.5 and 11.5 ran as one pass per crate over the diff from `f37ac3ca`, group 9's base, which holds groups 10 and 11's changes too. A line 9.5.3a's tenant rename alone changed counted as unchanged, through `MUTANTS_UNCHANGED_BY=08ff8f26`, and `scripts/mutants.sh` ran on two lanes at once. Each crate's counts below are its first run's and its last run's, caught/missed/unviable/timeout; the second run took the first's survivors, the third what the challenge of the classifications reopened. Killed means a new test fails with the mutant and passes without it; the equivalent mutants are in `.cargo/mutants.toml`, each with its argument; process-covered means a role binary's suite observes it, in a scenario Cargo cannot run under cargo-mutants. This paragraph holds the crates groups 9 and 9.5 changed; the config service's and the shared service crates are in group 11's notes under 11.5, and the client's and the transports' in group 10's under 10.5.
+
+- `ultragraphdb_protocol_wire`: 700/27/145/0, then 40/4/1/0. 23 killed, 4 equivalent.
+- `ultragraphdb_common_storage`: 128/248/119/12, then 247/0/0/2 and 1/0/0/1. 249 killed by the crate's new in-process tests, mirroring `src`; 11 equivalent.
+- `ultragraphdb_common_compute`: 33/426/107/3, then 386/13/34/38 and 6/1/0/0. 416 killed by the crate's new in-process tests, mirroring `src`; 10 equivalent. `link.rs` `Link::deliver`'s `==` to `!=` is process-covered: "An Entries frame past its credit closes compute's role connection" in `ultragraphdb_compute_tests` sends a Scan's stream an Entries frame past its credit and observes the read refused with code 17 and `PastCredit` logged, a frame no played partition can send. One defect, fixed: code 25's `detail` put the lowest partition in bits 0–31, where `PROTOCOL.md`'s error table, code 25 "as code 23's", puts the transaction's bound partition; `read_route.rs`'s `level_refused(bound, partitions)` now does, and `test_a_latest_read_bound_to_one_partition_reaching_another_is_refused` failed first. Open: `src/types/page.rs:27:9: replace Page::clear with ()`, which keeps a read's rows across its frames and differs only past `u32::MAX` bytes in one page or in the memory a read holds, neither reachable by a small test.
+- `ultragraphdb_common_frontend`: its first run was spent on a failed baseline, `test_a_subscription_past_the_closes_held_ends_with_an_error`, a wait that treated a refusal under load as failure, fixed in the test; then 600/178/180/83. The owner stopped the crate there, with no third run. 82 killed by tests written beside the second run, each proved on a copy of the tree with its one mutant applied and not checked by a run. 179 open for 12.1, listed in `group-9-frontend-mutants.md` with the five 12.1 reads first, among them `authentication_refused` and `audit_authentication`, whose failed authentications no test observes counted or audited. The caught count holds a caveat: under a load near 100 the crate's scenarios failed on their 40–150 ms margins, so a flake could count a mutant caught; the second run ran at a load near 11. The stall, transaction-limit and check timers in `endpoint_steps_requests.rs` now take a shared `TIMER_MS` of 1,000 ms, and 12.1 widens what margins remain before its run.
+- `ultragraphdb_store_apply`: 207/51/54/0, then 51/6/0/0. 45 killed, 6 equivalent, 5 of them in `.cargo/mutants.toml`. The sixth, `delete field removals from struct Executed expression in ChangesetCore<S, C, B>::prepare_logical`, is equivalent because `prepare_logical` runs `ChangesetWrite::derive` alone and `removals` grows only in `remove_indexes`, which `derive` does not reach; cargo-mutants 27.1.0 applies no `exclude_re` to a field deletion, so every run reports it missed.
+- `ultragraphdb_store_quads`: 152/11/50/4, then 12/2/0/1 and 1/0/0/0. 14 killed, 1 equivalent.
+- `ultragraphdb_store_posting`: 75/5/12/3, then 4/1/0/3. 7 killed, 1 equivalent.
+- `ultragraphdb_store_kv`: 20/5/2/1, then 4/1/0/1 and 1/0/0/0. 5 killed, 1 equivalent.
+- `ultragraphdb_transactions_txn`: 68/18/29/0, then 19/0/0/0. 18 killed.
+- `ultragraphdb_transactions_commit`: 69/3/14/0, then 2/1/0/0 and 3/0/0/0. 3 killed.
+- `ultragraphdb_transactions_log`: 1/0/3/0, one run.
+- `ultragraphdb_core_catalog`: 17/2/6/0, then 3/0/0/0. 2 killed.
+- `ultragraphdb_core_mapping`: 2/2/4/0, then 2/0/0/0. 2 killed.
+- `ultragraphdb_core_ids` and `ultragraphdb_core_keys`: 6/1/4/0 and 9/1/8/0, each then 0/1/0/0. 1 equivalent each.
+- `ultragraphdb_cluster_metadata`: 126/10/29/0, then 10/1/0/0. 9 killed, 1 equivalent.
+- `ultragraphdb_cluster_partition`: 80/36/32/0, then 36/0/0/0. 36 killed.
+- `ultragraphdb_cluster_placement`: 10/1/6/0, then 1/0/0/0. 1 killed.
+- `ultragraphdb_cluster_sequencer`: 3/0/3/0, one run.
+- `ultragraphdb_tool_test`: 56/24/56/0, then 1/23/0/0. 1 killed. Open, each weakening a workload's check so that it passes only a store breaking the rule, which no test provides without a planted defect, or changing which valid parameters it draws:
+  - `src/types/changeset_workload/mod.rs:401:9: replace ChangesetWorkload::delete_statement -> Result<Option<(Change, Change)>, ChangesetError> with Ok(None)`
+  - `src/types/changeset_workload/mod.rs:720:5: replace statistics_disagree -> Result<Option<String>, ChangesetError> with Ok(None)`
+  - `src/types/changeset_workload/mod.rs:762:5: replace injected -> bool with true`
+  - `src/types/changeset_workload/mod.rs:950:5: replace orphan_record -> Result<Option<String>, ChangesetError> with Ok(None)`
+  - `src/types/changeset_workload/mod.rs:976:5: replace reverse_statements_disagree -> Result<Option<String>, ChangesetError> with Ok(None)`
+  - `src/types/changeset_workload/mod.rs:1016:5: replace statement_reads_disagree -> Result<Option<String>, ChangesetError> with Ok(None)`
+  - `src/types/changeset_workload/mod.rs:1216:5: replace counts_disagree -> Result<Option<String>, ChangesetError> with Ok(None)`
+  - `src/types/partition_workload/mod.rs:392:21: replace += with *= in PartitionWorkload::recover`
+  - `src/types/partition_workload/mod.rs:573:42: replace - with + in PartitionWorkload::check_scans`
+  - `src/types/partition_workload/mod.rs:573:42: replace - with / in PartitionWorkload::check_scans`
+  - `src/types/partition_workload/mod.rs:573:30: replace + with * in PartitionWorkload::check_scans`
+  - `src/types/partition_workload/mod.rs:574:64: replace % with / in PartitionWorkload::check_scans`
+  - `src/types/partition_workload/mod.rs:574:64: replace % with + in PartitionWorkload::check_scans`
+  - `src/types/partition_workload/mod.rs:578:70: replace < with > in PartitionWorkload::check_scans`
+  - `src/types/partition_workload/mod.rs:578:70: replace < with == in PartitionWorkload::check_scans`
+  - `src/types/partition_workload/mod.rs:578:70: replace < with <= in PartitionWorkload::check_scans`
+  - `src/types/partition_workload/mod.rs:638:57: replace ^ with | in PartitionWorkload::check_pages`
+  - `src/types/partition_workload/mod.rs:638:45: replace ^ with & in PartitionWorkload::check_pages`
+  - `src/types/partition_workload/mod.rs:665:43: replace || with && in PartitionWorkload::check_pages`
+  - `src/types/partition_workload/mod.rs:665:39: replace > with < in PartitionWorkload::check_pages`
+  - `src/types/partition_workload/mod.rs:956:19: replace += with *= in read_paged`
+  - `src/types/partition_workload/mod.rs:968:36: replace - with + in read_paged`
+  - `src/types/partition_workload/mod.rs:1012:5: replace explained -> Result<(), String> with Ok(())`
+- `ultragraphdb_tests`: 54/12/112/0, then 2/10/0/0 and 10/0/0/0. 12 killed. The third run took the second's ten survivors in `src/utils/harness.rs`, `answer_double`, `until_ports_free` and `first_taken`, and `tests/utils/harness_tests.rs` caught all ten.
+- `ultragraphdb_frontend`: 0/11/3/0, one run. 10 process-covered by `ultragraphdb_frontend_tests`: "The frontend's /health answers once its listeners are bound", "The role secret opens no client session", "A frontend without its role address stops the start", "The frontend answers a partition's lease and its placement" and "A TLS client reaches the endpoint". Open: `src/service.rs:164:32: replace > with >= in owner_start`, a partition count of 0, which the config service refuses before serving it.
+- `ultragraphdb_compute`: 0/24/0/0, then 0/24/0/0 and 0/6/0/0. Its binary target was `test = false` through its three runs, so cargo-mutants built none of its mutants and reported each missed; the line is gone, so 12.1 builds them; 4 do not compile (`Duration % u32`, `Instant * Duration`, `Instant` and `Address` taking no `Default`). 16 process-covered by `ultragraphdb_compute_tests`: "Compute is ready once a partition has joined", "A lost dependency exits with its code", "A compute process without its address stops the start" and "Compute serves reads alone". Open, each a timing no scenario reaches or the runtimes per core, which no scenario counts:
+  - `src/service.rs:138:5: replace start_cores -> Result<(), RoleError> with Ok(())`
+  - `src/service.rs:216:37: replace / with * in hold`
+  - `src/service.rs:231:21: replace + with - in answers`
+  - `src/service.rs:240:18: replace >= with < in answers`
+- `ultragraphdb_storage`: 0/81/0/0 twice, then 0/29/0/0. Its binary target was `test = false` too, so no mutant was built, and that line is gone as well; 19 do not compile (types with no `Default` or constructor, `Instant * Duration`). 1 equivalent: `CACHE_BYTES`' `<<` to `>>`, an empty posting-list cache. 42 process-covered by `ultragraphdb_storage_tests` and `ultragraphdb_tests`: "Two storage processes share the partitions", "A Scan waits for the epoch it names", "Storage is not ready before recovery", "A reference crosses storage processes", "A subscription past the closes held exits with its code", "A missing required setting stops the start", "An invariant violation exits with its code", "A tightening passes every partition's check through the binaries", "Storage stopped before it joined is never ready", "A read with a future token waits", "Concurrent first writes of a predicate both commit" and "A partition leases its blocks ahead of need". Open, each needing a restart with catalog versions or a registration in flight, a second role connection closing, a frontend holding another map or a failed report, which no scenario plays:
+  - `src/service.rs:80:5: replace first_ticket -> u64 with 0`
+  - `src/service.rs:80:5: replace first_ticket -> u64 with 1`
+  - `src/service.rs:124:32: replace > with >= in storage_role`
+  - `src/service.rs:345:5: replace load_catalogs -> Result<(), RoleError> with Ok(())`
+  - `src/service.rs:366:5: replace versions_held -> Result<Vec<CatalogVersion>, RoleError> with Ok(vec![])`
+  - `src/service.rs:536:5: replace close_request -> Result<CloseRequest, RoleError> with Ok(Default::default())`
+  - `src/service.rs:539:71: replace / with % in close_request`
+  - `src/service.rs:591:32: replace += with *= in accept_connections`
+  - `src/service.rs:616:5: replace held_versions -> Result<HeldCatalogs, TransportError> with Ok(Default::default())`
+  - `src/service.rs:632:31: replace != with == in held_versions`
+  - `src/service.rs:641:21: replace += with -= in held_versions`
+  - `src/service.rs:641:21: replace += with *= in held_versions`
+  - `src/service.rs:689:9: replace && with || in placement_of`
+  - `src/service.rs:692:21: replace && with || in placement_of`
+  - `src/service.rs:693:21: replace && with || in placement_of`
+  - `src/service.rs:960:21: replace + with - in send_report`
+  - `src/service.rs:975:33: replace >= with < in send_report`
+  - `src/service.rs:975:27: replace match guard now() >= due with false in send_report`
+  - `src/service.rs:975:27: replace match guard now() >= due with true in send_report`
 

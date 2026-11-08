@@ -132,3 +132,21 @@ fn test_dialling_where_nothing_listens_fails_as_io() -> TestResult {
         Ok(())
     })
 }
+
+/// A TCP carrier knows its peer's address; a Unix-domain carrier names no peer address and has neither keepalive nor
+/// `TCP_NODELAY` to report.
+#[test]
+fn test_only_a_tcp_carrier_names_its_peer_and_holds_tcp_options() -> TestResult {
+    compio::runtime::Runtime::new()?.block_on(async {
+        let (_listener, accepted, dialled) = pair(&Address::any_port("127.0.0.1")?).await?;
+        let loopback = Some(std::net::IpAddr::from([127, 0, 0, 1]));
+        assert_eq!(accepted.peer_ip(), loopback, "accepted");
+        assert_eq!(dialled.peer_ip(), loopback, "dialled");
+        let dir = SocketDir::new()?;
+        let (_unix_listener, unix, _dialled) = pair(&dir.address("s.sock")?).await?;
+        assert_eq!(unix.peer_ip(), None);
+        assert!(!unix.is_kept_alive()?, "no keepalive");
+        assert!(!unix.is_no_delay()?, "no TCP_NODELAY");
+        Ok(())
+    })
+}

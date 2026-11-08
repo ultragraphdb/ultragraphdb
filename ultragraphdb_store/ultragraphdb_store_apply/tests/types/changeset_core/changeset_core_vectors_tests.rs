@@ -741,3 +741,29 @@ fn test_a_vector_set_again_leaves_the_other_dead_nodes_listed() -> TestResult {
     );
     Ok(())
 }
+
+/// The indexer of one predicate indexes while another predicate's vector index is being built: only the predicate the build
+/// makes an index of is left to it.
+#[test]
+fn test_the_indexer_indexes_one_predicate_while_another_is_built() -> TestResult {
+    let a = changesets()?;
+    declare(
+        &a,
+        "emb",
+        "single-valued with a vector index of dimension 2",
+    )?;
+    declare(&a, "other", "single-valued")?;
+    write(&a, &["<x> <other> \"[1, 0]\"^^ugdb:float32vector"])?;
+    declare(
+        &a,
+        "other",
+        "single-valued with a vector index of dimension 2",
+    )?;
+    assert!(a.rebuilding(), "the build of `other`'s index runs");
+    emb_with(&a, &[("a", "[1, 0]"), ("b", "[0, 1]")])?;
+    let watermark = a.quads().lists().applied_ts();
+    assert_eq!(index(&a, "emb")?, watermark);
+    assert_eq!(search(&a, &[1.0, 0.0], 1)?, vec![uid(&a, "a")?]);
+    assert_eq!(search(&a, &[0.0, 1.0], 1)?, vec![uid(&a, "b")?]);
+    Ok(())
+}

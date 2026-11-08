@@ -38,4 +38,3 @@ ultragraphdb_common_frontend = { workspace = true }
 [[bin]]
 name = "ultragraphdb_frontend"
 path = "src/main.rs"
-test = false

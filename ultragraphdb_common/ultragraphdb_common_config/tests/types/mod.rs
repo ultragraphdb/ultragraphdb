@@ -4,4 +4,8 @@
  */
 
 #[cfg(test)]
+mod config_api;
+#[cfg(test)]
 mod config_record_tests;
+#[cfg(test)]
+mod config_store;

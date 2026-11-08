@@ -172,3 +172,20 @@ fn test_a_channel_binding_flag_other_than_n_y_or_p_is_malformed() -> TestResult 
     );
     Ok(())
 }
+
+/// The name a client-first-message asks for, read before the exchange runs: RFC 7677's `user`, a name's `=2C` and `=3D`
+/// unescaped (RFC 5802 §5.1), and the message refused as `first` refuses it.
+#[test]
+fn test_the_name_a_client_first_message_asks_for_is_read_ahead() -> TestResult {
+    assert_eq!(ScramServer::name_in(CLIENT_FIRST)?, NAME);
+    assert_eq!(ScramServer::name_in(b"n,,n=a=2Cb=3Dc,r=nonce")?, "a,b=c");
+    assert_eq!(
+        ScramServer::name_in(b"p=tls-server-end-point,,n=user,r=nonce"),
+        Err(ScramError::channel_binding())
+    );
+    assert_eq!(
+        ScramServer::name_in(b"n,,r=nonce"),
+        Err(ScramError::malformed("name"))
+    );
+    Ok(())
+}

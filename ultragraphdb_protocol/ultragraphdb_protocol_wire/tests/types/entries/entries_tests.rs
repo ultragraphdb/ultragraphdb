@@ -228,3 +228,16 @@ fn test_a_batch_takes_its_end_once_filled() {
     continuing.push(LIST_A, b"value");
     assert_eq!(continued, continuing);
 }
+
+#[test]
+fn test_a_batch_names_version_0_until_given_its_scans() {
+    let entries = Entries::new(1, EntriesEnd::More, EPOCH);
+    assert_eq!(entries.version(), 0);
+    assert_eq!(entries.with_version(VERSION).version(), VERSION);
+    assert_eq!(
+        Entries::continuing(1, EPOCH)
+            .with_version(u64::MAX)
+            .version(),
+        u64::MAX
+    );
+}

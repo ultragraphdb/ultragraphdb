@@ -240,6 +240,8 @@ mod result_view;
 #[cfg(test)]
 mod resume_key;
 #[cfg(test)]
+mod resume_row;
+#[cfg(test)]
 mod role_kind;
 #[cfg(test)]
 pub mod round_body;

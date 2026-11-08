@@ -1,6 +1,6 @@
 # PROTOCOL.md and SECURITY.md review (task 0.3)
 
-On 2026-11-02 a sub-agent drafted task 0.3's update of `../../../../specification/PROTOCOL.md` and `SECURITY.md`. An
+On 2026-11-02 a sub-agent drafted task 0.3's update of `../../../../specification/binary_protocol/PROTOCOL.md` and `SECURITY.md`. An
 adversarial review (three reviewers by dimension, each finding checked by a skeptic) confirmed the defects below in
 that draft, which stays uncommitted in the working tree. The placement decision P24, taken afterwards, settles several
 of them and changes others; the fix pass of task 0.3 starts from the change's specs as they now stand, then works

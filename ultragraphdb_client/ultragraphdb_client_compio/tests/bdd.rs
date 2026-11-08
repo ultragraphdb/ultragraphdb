@@ -371,11 +371,30 @@ fn past_credit_refused(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
+/// The longest the scenarios may run: they take a few seconds, and a shell that hangs, spinning in a loop no timeout of its
+/// runtime can preempt or waiting on nothing, fails the suite at this bound rather than hanging it, below what a mutation
+/// run gives the whole suite.
+const BOUND: std::time::Duration = std::time::Duration::from_secs(30);
+
 fn main() -> TestResult {
+    // The watchdog sleeps on a blocking thread of a runtime of its own, apart from every scenario's: the runtime is driven
+    // until its thread took the task, and is kept, never dropped, so the scenarios ending first leave the thread behind.
+    let watchdog = Runtime::new().context("a runtime")?;
+    let sleeping = watchdog.spawn_blocking(|| {
+        std::thread::sleep(BOUND);
+        eprintln!("the scenarios did not end within {BOUND:?}");
+        std::process::exit(1);
+    });
+    let started = watchdog.block_on(compio::time::timeout(
+        std::time::Duration::from_millis(10),
+        sleeping,
+    ));
+    assert!(started.is_err(), "the watchdog sleeps");
     futures::executor::block_on(
         Steps::cucumber()
             .fail_on_skipped()
             .run_and_exit(ultragraphdb_tool_bdd::features_dir()?),
     );
+    std::mem::forget(watchdog);
     Ok(())
 }

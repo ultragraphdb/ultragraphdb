@@ -817,3 +817,171 @@ fn test_a_read_whose_frame_waits_behind_anothers_is_not_timed_out() -> TestResul
     })?;
     Ok(())
 }
+
+/// A stream over the simulated network that, once `doomed` is set, fails every read with a reset, and whose shutdown is
+/// never taken: a connection that broke under its reader, its sending side left hanging.
+#[derive(Debug)]
+struct Dooming {
+    inner: ultragraphdb_protocol_transport_compio::CompioSimStream,
+    doomed: Rc<std::cell::Cell<bool>>,
+}
+
+impl compio::io::AsyncRead for Dooming {
+    async fn read<B: compio::buf::IoBufMut>(&mut self, buf: B) -> compio::BufResult<usize, B> {
+        let compio::BufResult(read, buf) = self.inner.read(buf).await;
+        if self.doomed.get() {
+            return compio::BufResult(Err(io::ErrorKind::ConnectionReset.into()), buf);
+        }
+        compio::BufResult(read, buf)
+    }
+}
+
+impl compio::io::AsyncWrite for Dooming {
+    async fn write<T: compio::buf::IoBuf>(&mut self, buf: T) -> compio::BufResult<usize, T> {
+        self.inner.write(buf).await
+    }
+
+    async fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush().await
+    }
+
+    async fn shutdown(&mut self) -> io::Result<()> {
+        if self.doomed.get() {
+            std::future::pending::<()>().await;
+        }
+        self.inner.shutdown().await
+    }
+}
+
+impl compio::io::util::Splittable for Dooming {
+    type ReadHalf = Self;
+    type WriteHalf = Self;
+
+    fn split(self) -> (Self, Self) {
+        let (read, write) = self.inner.split();
+        let doomed = Rc::clone(&self.doomed);
+        (
+            Self {
+                inner: read,
+                doomed: Rc::clone(&doomed),
+            },
+            Self {
+                inner: write,
+                doomed,
+            },
+        )
+    }
+}
+
+/// Connections over the simulated network, the first doomed when `first` is set, every later one sound.
+struct DoomConnect {
+    sim: SimConnect,
+    first: Option<Rc<std::cell::Cell<bool>>>,
+}
+
+impl Connect for DoomConnect {
+    type Stream = Dooming;
+
+    async fn connect(&mut self) -> io::Result<Dooming> {
+        Ok(Dooming {
+            inner: self.sim.connect().await?,
+            doomed: self
+                .first
+                .take()
+                .unwrap_or_else(|| Rc::new(std::cell::Cell::new(false))),
+        })
+    }
+}
+
+/// Serves every connection `accepted` holds on a task of its own, so one its client left without a shutdown holds up no other.
+async fn serve_each(
+    server: Rc<std::cell::RefCell<ultragraphdb_client_core::TestServer>>,
+    accepted: Rc<
+        std::cell::RefCell<std::collections::VecDeque<ultragraphdb_protocol_transport::SimStream>>,
+    >,
+) {
+    let mut serving = Vec::new();
+    loop {
+        let next = accepted.borrow_mut().pop_front();
+        match next {
+            Some(stream) => {
+                let server = Rc::clone(&server);
+                serving.push(compio::runtime::spawn(async move {
+                    crate::utils::serve::serve(
+                        &server,
+                        ultragraphdb_protocol_transport_compio::CompioSimStream::new(stream),
+                    )
+                    .await;
+                }));
+            }
+            None => compio::time::sleep(Duration::from_millis(1)).await,
+        }
+    }
+}
+
+/// A connection whose read failed is gone, both its halves: the next request connects again at once, waiting on no
+/// shutdown of the broken one's sending side.
+#[test]
+fn test_a_connection_whose_read_failed_is_left_without_a_shutdown() -> TestResult {
+    let rt = compio::runtime::Runtime::new().context("a runtime")?;
+    let scripted = server();
+    let sim = SimConnect::new(SimNetwork::new(3, NetworkFaults::none()));
+    let accepted = Rc::clone(&sim.accepted);
+    let doomed = Rc::new(std::cell::Cell::new(false));
+    let connector = DoomConnect {
+        sim,
+        first: Some(Rc::clone(&doomed)),
+    };
+    let timeout = Duration::from_secs(1);
+    rt.block_on(async {
+        let _server = compio::runtime::spawn(serve_each(Rc::clone(&scripted), accepted));
+        let mut client = Client::new(connector, config().with_timeout(timeout), Anonymous, 8);
+        client.connect().await?;
+        doomed.set(true);
+        let lost = compio::time::timeout(timeout / 2, client.register())
+            .await
+            .map_err(|_| TestError::new("the Register's failed read did not end it"))?;
+        assert!(
+            matches!(
+                lost.err().context("a refusal")?.0,
+                ClientErrorEnum::ConnectionLost { .. }
+            ),
+            "the read's failure loses the connection"
+        );
+        let again = compio::time::timeout(timeout / 2, client.register())
+            .await
+            .map_err(|_| TestError::new("the next Register waited on the broken connection"))?;
+        assert!(again.is_ok(), "{again:?}");
+        Ok::<(), TestError>(())
+    })?;
+    Ok(())
+}
+
+/// A wait ends at the core's next deadline when that deadline is ahead: each Register answered code 14 goes out again its
+/// retry delay after the answer, not a read turn later. Thirty resends 2 ms apart take about 60 ms; held to the shell's
+/// 10 ms read turn (`READ_TURN`) each, they would take 300 ms at least, so the bound sits between, at two thirds of that.
+#[test]
+fn test_a_resend_due_within_a_read_turn_goes_out_at_its_deadline() -> TestResult {
+    let rt = compio::runtime::Runtime::new().context("a runtime")?;
+    let busy: u32 = 30;
+    let read_turn = Duration::from_millis(10);
+    let scripted = server();
+    scripted.borrow_mut().answer_busy_registers(busy);
+    let connector = SimConnect::new(SimNetwork::new(3, NetworkFaults::none()));
+    let accepted = Rc::clone(&connector.accepted);
+    rt.block_on(async {
+        let _server = compio::runtime::spawn(serve_sim(Rc::clone(&scripted), accepted));
+        let config = config()
+            .with_commit_attempts(busy + 1)
+            .with_retry_delay(Duration::from_millis(2));
+        let mut client = Client::new(connector, config, Anonymous, 8);
+        client.connect().await?;
+        let registered = compio::time::timeout(read_turn * busy * 2 / 3, client.register())
+            .await
+            .map_err(|_| TestError::new("the resends waited past their deadlines"))?;
+        let _session = registered?;
+        assert!(client.core().is_ready());
+        Ok::<(), TestError>(())
+    })?;
+    Ok(())
+}

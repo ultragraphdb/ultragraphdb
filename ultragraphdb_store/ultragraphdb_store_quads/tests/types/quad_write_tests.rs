@@ -146,6 +146,27 @@ fn test_colliding_fingerprints_keep_both_literals_and_deleting_one_keeps_the_oth
     Ok(())
 }
 
+/// Under colliding fingerprints a literal is held only by its own value posting: the list holding `"A"` holds `"A"` and not
+/// `"B"`, whose posting would share its uid.
+#[test]
+fn test_a_literal_is_held_by_its_own_value_under_a_colliding_fingerprint() -> TestResult {
+    fn constant(_: &[u8]) -> u64 {
+        42
+    }
+    let store: TestQuads = QuadStore::open(lists_over(sim()), blocks(), RandomSource::new(1))?
+        .with_fingerprint(constant);
+    write(
+        &store,
+        0,
+        &[quad("a", "name", Literal::new_simple_literal("A"))],
+    )?;
+    let (s, p) = (id(&store, 0, &ex("a"))?, id(&store, 0, &ex("name"))?);
+    let mut w = QuadWrite::new(&store, 0, store.lists().request(store.lists().applied_ts()));
+    assert_eq!(w.holds(D, s, p, &literal("A")?)?, Some(Vec::new()));
+    assert_eq!(w.holds(D, s, p, &literal("B")?)?, None);
+    Ok(())
+}
+
 /// A write with the subject's and predicate's UIDs and the object's encoding it resolved.
 type Resolved<'a> = (TestWrite<'a>, SystemId, SystemId, EncodedTerm);
 

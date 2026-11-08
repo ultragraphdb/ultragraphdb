@@ -224,3 +224,58 @@ fn test_a_frame_stays_within_what_the_size_with_a_row_says() -> TestResult {
     );
     Ok(())
 }
+
+/// The padding `body`'s nine sections take, read from its section table (`PROTOCOL.md` §4.1): the table is 9 × 8 bytes,
+/// and each section starts where the one before it ended, rounded up.
+fn section_padding(body: &[u8]) -> usize {
+    use crate::utils::golden_bodies::section;
+
+    (0..9)
+        .fold((72, 0), |(end, padding), index| {
+            let (offset, len) = section(body, 0, index);
+            (offset + len, padding + offset - end)
+        })
+        .1
+}
+
+/// Where no string is shared, the size a batch states with a row is the frame it builds but for the padding the frame
+/// did not need: the section table, a cell per column, per new term its offset, its encoding, its two string indices,
+/// its strings' two ends and texts, and up to 7 bytes of padding before each of the nine sections (`PROTOCOL.md` §4.1,
+/// §9.1).
+#[test]
+fn test_the_size_with_a_row_is_the_frame_with_its_padding_at_most() -> TestResult {
+    use ultragraphdb_protocol_wire::{Command, Header};
+
+    use crate::utils::golden_bodies::body_data;
+
+    let terms: [ResultTerm; 6] = std::array::from_fn(|at| {
+        ResultTerm::iri(format!("http://ex.org/t{at}")).with_annotation(format!("note {at}"))
+    });
+    let [t0, t1, t2, t3, t4, t5] = &terms;
+    // A row of new terms, a held term, one new term twice, no term, then held and new together.
+    let rows = [
+        [Some(t0), Some(t1)],
+        [Some(t0), None],
+        [Some(t2), Some(t2)],
+        [None, None],
+        [Some(t3), Some(t4)],
+        [Some(t5), Some(t0)],
+    ];
+    let mut batch = ResultBatch::new(2);
+    for (row, resume) in rows.iter().zip([0usize, 1, 3, 9, 5, 2]) {
+        let promised = batch.frame_size_with(row, resume);
+        batch.push_query_row(row)?;
+        let frame = batch
+            .clone()
+            .with_resume(vec![7; resume])
+            .frame(Header::new(1, Command::Result).with_stream(1))?;
+        let padding = section_padding(body_data(&frame));
+        assert_eq!(
+            promised,
+            frame.len() + 9 * 7 - padding,
+            "row {}",
+            batch.rows()
+        );
+    }
+    Ok(())
+}

@@ -4,6 +4,10 @@
  */
 
 #[cfg(test)]
+mod partition_host_bound_tests;
+#[cfg(test)]
+mod partition_host_read_tests;
+#[cfg(test)]
 mod partition_host_runtimes_tests;
 #[cfg(test)]
 mod partition_host_tests;

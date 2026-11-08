@@ -499,3 +499,14 @@ fn test_a_batchs_entry_lies_within_its_range() -> TestResult {
     assert_eq!(offered(&mut open, &one(b"\x11"), true)?, Ok(()));
     Ok(())
 }
+
+/// A new range's first frame holding no entry leaves the range with no last key: the range before's last key binds
+/// nothing after it.
+#[test]
+fn test_an_empty_first_batch_of_a_new_range_keeps_it_without_a_last_key() -> TestResult {
+    let mut answer = after(2, EntriesEnd::Ended)?;
+    answer.take(&Entries::new(1, EntriesEnd::More, 0))?;
+    let batch = holding(Entries::new(1, EntriesEnd::Ended, 0), &[BELOW]);
+    assert_eq!(answer.offer(&batch)?, Ok(()));
+    Ok(())
+}

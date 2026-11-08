@@ -229,3 +229,22 @@ fn test_holders_of_a_run_held_by_one_partition_name_it_alone() -> TestResult {
     );
     Ok(())
 }
+
+/// A range starting where a tenant's run ends holds none of it: a run's end is exclusive, so its holders are the partitions
+/// below that bound alone.
+#[test]
+fn test_holders_of_a_run_leave_out_a_range_starting_at_its_end() -> TestResult {
+    let tenant = Tenant::new(7);
+    let run = TenantRun::of(tenant).range();
+    assert!(run.end() < END, "a run with a neighbour above");
+    let mut map = PlacementMap::even(1, NodeId::new(1))?;
+    map.change(
+        at(1)?,
+        &[assign(0, run.end(), 1)?, assign(run.end(), END, 2)?],
+    )?;
+    assert_eq!(
+        map.holders_of_run(tenant, at(1)?),
+        vec![(pid(1)?, run.start())]
+    );
+    Ok(())
+}

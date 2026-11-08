@@ -35,6 +35,10 @@ struct Raw<'a> {
     placement_version: u64,
     /// The pending placement versions: each its number and ranges (first bucket, end, partition).
     placement_pending: Vec<Pending>,
+    /// Every retained version's check as written, settled (the byte 0) when `None`.
+    check: Option<Vec<u8>>,
+    /// The tenants.
+    tenants: Vec<u64>,
 }
 
 impl Raw<'_> {
@@ -91,7 +95,10 @@ impl Raw<'_> {
         }
         put_count(&mut out, 0);
         self.placement_tail(&mut out);
-        put_count(&mut out, 0);
+        put_count(&mut out, self.tenants.len());
+        for tenant in &self.tenants {
+            out.extend_from_slice(&tenant.to_be_bytes());
+        }
         out.push(0);
         out
     }
@@ -115,7 +122,7 @@ impl Raw<'_> {
                 }
                 put_count(out, data.len());
                 out.extend_from_slice(data);
-                out.push(0);
+                out.extend_from_slice(self.check.as_deref().unwrap_or(&[0]));
             }
         }
     }
@@ -165,6 +172,44 @@ fn test_tenants_rise() {
         ..Raw::default()
     };
     assert!(refuses(&twice, "a tenant after the one before it", 71));
+}
+
+#[test]
+fn test_the_tenant_list_rises() {
+    let tenants = |tenants| Raw {
+        tenants,
+        next: 1,
+        ..Raw::default()
+    };
+    assert_eq!(refused(&tenants(vec![1, 2])), None);
+    // The second tenant follows the header's 17 bytes, nine counts of 4, the placement flag, the next identity, the last
+    // placement version and the first tenant: at 17 + 36 + 1 + 8 + 8 + 8 = 78.
+    let what = "a tenant after the one before it";
+    assert!(refuses(&tenants(vec![2, 2]), what, 78));
+    assert!(refuses(&tenants(vec![2, 1]), what, 78));
+}
+
+#[test]
+fn test_a_checks_partitions_rise() {
+    let checked = |partitions: &[u32]| {
+        let mut check = vec![1, 0];
+        put_count(&mut check, partitions.len());
+        for partition in partitions {
+            check.extend_from_slice(&partition.to_be_bytes());
+        }
+        Raw {
+            catalogs: vec![(1, 1, 0, vec![(1, Some(2), &b""[..])])],
+            next: 1,
+            check: Some(check),
+            ..Raw::default()
+        }
+    };
+    assert_eq!(refused(&checked(&[1, 2])), None);
+    // The version's check starts at 70, past its empty bytes; the second partition past the check's kind, refusal flag,
+    // count and first partition, at 70 + 1 + 1 + 4 + 4 = 80.
+    let what = "a partition after the one before it";
+    assert!(refuses(&checked(&[2, 2]), what, 80));
+    assert!(refuses(&checked(&[2, 1]), what, 80));
 }
 
 #[test]

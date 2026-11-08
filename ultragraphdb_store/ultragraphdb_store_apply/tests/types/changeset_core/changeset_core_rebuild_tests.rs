@@ -14,8 +14,8 @@ use ultragraphdb_traits_store::Store;
 use ultragraphdb_store_apply::Applied;
 
 use crate::utils::changesets::{
-    TENANT, changesets, counted, declaration, declare, delete, exact_token, finish_builds, indexed,
-    insert, keys_of, stored_keys, term_token, uid, write, write_changes,
+    TENANT, changesets, counted, counts_of, declaration, declare, delete, exact_token,
+    finish_builds, indexed, insert, keys_of, stored_keys, term_token, uid, write, write_changes,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -706,5 +706,49 @@ fn test_a_swap_replaces_an_entry_point_whose_vector_the_build_saw_deleted() -> T
     let mut live = vec![uid(&a, "b")?, uid(&a, "c")?];
     live.sort();
     assert_eq!(all, live, "the deleted vector is not found");
+    Ok(())
+}
+
+/// A build undone removes the keys of every index its predicate's previous declaration does not name: the count index it was
+/// building, whose keys a write during the build maintained, leaves none (7.9).
+#[test]
+fn test_an_undone_count_build_leaves_no_count_key() -> TestResult {
+    let a = changesets()?;
+    write(&a, &["<a> <likes> <b>"])?;
+    declare(&a, "likes", "with a count index")?;
+    assert!(a.rebuilding());
+    write(&a, &["<c> <likes> <d>"])?;
+    let c = uid(&a, "c")?;
+    assert_eq!(
+        counts_of(&a, "likes", CountDirection::Forward, c)?,
+        vec![1],
+        "maintained during the build"
+    );
+    a.quads()
+        .store()
+        .inject(ultragraphdb_store_sim::Fault::FailNextScanAfter(0));
+    finish_builds(&a);
+    assert!(!a.rebuilding(), "undone");
+    assert_eq!(
+        counts_of(&a, "likes", CountDirection::Forward, c)?,
+        Vec::<u32>::new()
+    );
+    Ok(())
+}
+
+/// A sequenced build the store failed under proposes nothing, neither a swap nor an undo: the store refuses every write until it
+/// is reopened.
+#[test]
+fn test_a_sequenced_build_the_store_failed_under_proposes_no_end() -> TestResult {
+    let a = changesets()?;
+    a.sequence_builds();
+    write(&a, &["<a> <name> \"big apple\""])?;
+    declare(&a, "name", "with `term`")?;
+    assert!(a.rebuilding());
+    a.quads()
+        .store()
+        .inject(ultragraphdb_store_sim::Fault::FailNextBatch);
+    finish_builds(&a);
+    assert_eq!(a.take_build_end(), None);
     Ok(())
 }

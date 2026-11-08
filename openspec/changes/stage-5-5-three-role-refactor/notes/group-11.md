@@ -77,3 +77,32 @@ What is left: the images were built in fastbuild for both platforms and run on a
 
 **A storage start reads its catalog versions as it joins.** The read of the frontend's catalog versions at a start goes through `retry_until`, as the placement and the join do: a frontend not there yet or stopping under the start is asked again until the join deadline, and a stop ends the start cleanly. "A signal during the start stops what was started" failed on Linux on both drivers before it, storage exiting 69 when the supervisor stopped the frontend first. A tenant's versions end at the group's code 7 alone, so a connection lost part way fails the read, where it used to end it as though no version were left and replay against an incomplete set; no test plays a connection lost in the middle of that read, which 9.6's pass judges. The played frontends of the storage and compute suites answer a Catalog request with code 7, as a frontend holding no version does.
 
+## 11.5 The mutation pass
+
+**One pass for three tasks.** Tasks 9.6, 10.5 and 11.5 ran as one pass per crate over the diff from `f37ac3ca`, group 9's base, which holds groups 10 and 11's changes too. A line 9.5.3a's tenant rename alone changed counted as unchanged, through `MUTANTS_UNCHANGED_BY=08ff8f26`, and `scripts/mutants.sh` ran on two lanes at once. Each crate's counts below are its first run's and its last run's, caught/missed/unviable/timeout; the second run took the first's survivors, the third what the challenge of the classifications reopened. Killed means a new test fails with the mutant and passes without it; the equivalent mutants are in `.cargo/mutants.toml`, each with its argument; process-covered means a binary's suite observes it, in a scenario Cargo cannot run under cargo-mutants. This section holds the supervisor, the config service and the service crates groups 9.4b and 11 changed; the role binaries are in group 9's notes under 9.6.
+
+- `ultragraphdb_supervisor`: 0/66/0/0, then 0/57/9/0. Its binary target was `test = false` at the first run, so cargo-mutants built none of its mutants; with that removed the second run built them, and 9 do not compile. 52 process-covered by `ultragraphdb_supervisor_tests`: "The start order reaches readiness", "SIGTERM shuts down in order", "A failing role ends the container with its code", "A bootstrap password removed after the first start stays removed", "The first start draws the keys and a restart keeps them", "A role killed by a signal is reported as a shell would", "The supervisor refuses what it does not take", "A variable naming a setting stays out of a role's environment", "Two role secret files in one container are refused" and "A store holding no active target is refused with the way out". Open, each needing a role to fail while it is being stopped, or to be killed by the forwarded signal itself, which no scenario plays:
+  - `src/service.rs:293:42: replace != with == in supervise`
+  - `src/service.rs:482:25: replace != with == in Supervised<'_>::stop_all`
+  - `src/service.rs:482:30: replace && with || in Supervised<'_>::stop_all`
+  - `src/service.rs:545:5: replace stopped_code -> u8 with 0`
+  - `src/service.rs:545:24: replace == with != in stopped_code`
+- `ultragraphdb_config`: 0/14/2/0, one run. 13 process-covered by `ultragraphdb_config_tests`: "The health answers need no key", "Every absent file is named at once", "A central file begins a target once", "A rollback activates an older revision", "A revision edited from a stale one is refused" and "A broken declared file stops the start". Open: `src/service.rs:24:34: replace * with +`, `REQUEST_BYTES` at 1,536 bytes, since no scenario sends a body between that and 512 KiB.
+- `ultragraphdb_config_cli`: 0/13/3/0, then 0/13/0/0. 10 process-covered by `ultragraphdb_config_tests`: "A restore rebuilds a folder a service can begin from" and "The check finds what the service would refuse". Open, a restore over TLS and the service's reason in a refusal's message, which no scenario reads:
+  - `src/main.rs:36:9: delete match arm ["restore", url, token, folder, "--ca-file", file] in main`
+  - `src/restore.rs:66:5: replace said -> String with String::new()`
+  - `src/restore.rs:66:5: replace said -> String with "xyzzy".into()`
+- `ultragraphdb_common_service`: 91/19/24/6, then 17/8/0/0 and 5/3/0/0. 22 killed. Open, observable only where `/proc/thread-self/status` exists, which `test_a_runtime_pins_only_when_asked` reads on Linux:
+  - `src/utils/run_service.rs:301:28: replace == with != in core_runtime`
+  - `src/utils/run_service.rs:332:5: replace thread_allowed -> Option<BTreeSet<usize>> with Some(BTreeSet::new())`
+  - `src/utils/run_service.rs:332:5: replace thread_allowed -> Option<BTreeSet<usize>> with None`
+- `ultragraphdb_common_role`: 33/36/35/15, then 47/4/0/0; its second run was spent on a failed baseline, `tests/utils/joining_role_tests.rs` writing one secret file from two tests at once, fixed. 47 killed, 3 equivalent. Open: `src/utils/serve.rs:147:31: replace == with != in Server::machine`, which swaps a role connection's idle limit, none, and a client connection's, 600 s, and shows only on a connection idle for ten minutes.
+- `ultragraphdb_common_config_check`: 236/50/43/0, then 50/0/0/0. 50 killed.
+- `ultragraphdb_common_service_config`: 158/23/17/0, then 23/0/0/0. 23 killed.
+- `ultragraphdb_common_config`: 63/27/31/0, then 26/1/0/0. 26 killed, 1 equivalent.
+- `ultragraphdb_transport_http_server`: 115/10/7/6, then 12/1/0/3 and 3/0/0/0. 15 killed, 1 equivalent.
+- `ultragraphdb_transport_http_client`: 44/4/6/0, then 1/1/0/2 and 2/0/0/0. 3 killed, 1 equivalent.
+- `ultragraphdb_tool_toml`: 14/0/0/0, one run.
+- `ultragraphdb_error_role`: 3/0/4/0, one run.
+
+The open mutants of the supervisor, `ultragraphdb_config` and `ultragraphdb_config_cli` are accepted for 12.1 with the runs left to them unspent.

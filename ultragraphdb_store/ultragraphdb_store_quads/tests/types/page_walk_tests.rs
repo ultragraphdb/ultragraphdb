@@ -67,7 +67,13 @@ fn paged_scan(
     budget: usize,
 ) -> TestResult<(Vec<KernelRow>, Option<Vec<u8>>)> {
     let (mut rows, mut from, mut after, mut left) = (Vec::<KernelRow>::new(), from, None, limit);
-    loop {
+    // Every page but the last takes an object, so a scan takes at most one page an object and one more.
+    let pages_max = whole(store, version)?
+        .iter()
+        .map(|row| row.objects().len())
+        .sum::<usize>()
+        + 1;
+    for _ in 0..pages_max {
         let scan = forward(from.clone(), version, left)?.resuming(after.take());
         let mut taken = 0;
         let page = store.page(&scan, |key, object, statements| {
@@ -98,6 +104,9 @@ fn paged_scan(
             }
         }
     }
+    Err(TestError::new(format!(
+        "more than {pages_max} pages: a page took nothing new"
+    )))
 }
 
 /// `object` taken into `rows`, the last row's when it is of `key`.
@@ -141,9 +150,13 @@ fn test_pages_of_many_lists_at_small_budgets_concatenate_to_the_scan() -> TestRe
     assert_eq!(expected.len(), 64);
     for budget in [1, 2, 3, 5] {
         for limit in [1, 3, 7, usize::MAX] {
-            let (mut rows, mut resume) = (Vec::new(), Some(Vec::new()));
+            let (mut rows, mut resume, mut scans) = (Vec::new(), Some(Vec::new()), 0);
             // Ends: each scan gives at least one row of a range holding finitely many.
             while let Some(from) = resume {
+                scans += 1;
+                if scans > expected.len() {
+                    return Err(TestError::new("a scan gave no row"));
+                }
                 let (scan, next) = paged_scan(&store, from, at, limit, budget)?;
                 assert!(scan.len() <= limit);
                 rows.extend(scan);
@@ -161,9 +174,13 @@ fn test_the_limit_counts_a_key_paused_inside_once() -> TestResult {
     let expected = whole(&store, at)?;
     for limit in 1..=expected.len() {
         for budget in 1..=4 {
-            let (mut rows, mut resume) = (Vec::new(), Some(Vec::new()));
+            let (mut rows, mut resume, mut scans) = (Vec::new(), Some(Vec::new()), 0);
             // Ends: each scan gives at least one row of a range holding finitely many.
             while let Some(from) = resume {
+                scans += 1;
+                if scans > expected.len() {
+                    return Err(TestError::new("a scan gave no row"));
+                }
                 let (scan, next) = paged_scan(&store, from, at, limit, budget)?;
                 assert!(
                     scan.len() <= limit,
@@ -416,7 +433,16 @@ fn test_a_page_hands_back_after_its_keys_giving_nothing() -> TestResult {
     let expected = whole(&store, after)?;
     assert_eq!(expected.len() + 1, rows.len(), "the list holds nothing now");
     let (mut from, mut got, mut yielded) = (Vec::new(), Vec::new(), 0);
+    // Each page but the last gives a row or hands back after a key giving nothing.
+    let pages_max = rows.len() + 1;
+    let mut pages = 0;
     loop {
+        pages += 1;
+        if pages > pages_max {
+            return Err(TestError::new(format!(
+                "more than {pages_max} pages: a page moved on from nothing"
+            )));
+        }
         let scan = forward(from, after, usize::MAX)?.yielding(NonZeroUsize::MIN);
         let page = store.page(&scan, |key, term, ids| {
             take(&mut got, key, term, ids);
@@ -514,7 +540,8 @@ fn test_a_range_resumes_its_list_at_the_object_its_after_names() -> TestResult {
     Ok(())
 }
 
-/// A page pausing before it took anything of a key resumed at an object keeps that position, so the next page reads the object.
+/// A page pausing before it took anything of a key resumed at an object keeps that position, so the next page reads the object,
+/// and keeps no list: it paused inside none.
 #[test]
 fn test_a_pause_before_the_object_an_after_names_keeps_the_position() -> TestResult {
     let (store, at) = store()?;
@@ -536,9 +563,14 @@ fn test_a_pause_before_the_object_an_after_names_keeps_the_position() -> TestRes
     let identity = store.resume_at(Keyspace::Forward, object.as_bytes())?;
     let scan = forward(key.clone(), at, 8)?.resuming(Some(identity.clone()));
     let paused = store.page(&scan, |_, _, _| ControlFlow::Break(()))?;
-    let PageEnd::Paused { last, after, .. } = paused.into_end() else {
+    let (end, held) = paused.into_parts();
+    let PageEnd::Paused { last, after, .. } = end else {
         return Err(TestError::new("the sink stopped it"));
     };
     assert_eq!((last, after), (None, Some(identity)));
+    assert!(
+        held.is_none(),
+        "a page taking nothing of the list keeps none"
+    );
     Ok(())
 }

@@ -35,4 +35,3 @@ ultragraphdb_common_role = { workspace = true }
 [[bin]]
 name = "ultragraphdb_compute"
 path = "src/main.rs"
-test = false

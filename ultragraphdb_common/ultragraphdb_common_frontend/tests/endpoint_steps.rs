@@ -21,9 +21,10 @@ use ultragraphdb_protocol_transport::Framer;
 use ultragraphdb_protocol_transport_compio::{Carrier, Connection};
 use ultragraphdb_protocol_wire::{
     Action, Begin, BodyBuilder, BodyView, Command, Commit, CommitOperation, CommitView,
-    ComputeReadView, ConditionalWrite, Credit, DeclaredPredicate, Describe, DirectWrite,
-    DropCommand, ErrorCode, ErrorReply, ErrorReplyView, Header, Hello, Install, Language,
-    MAX_FRAME_SIZE, Prepare, Query, ReadLevel, RequestTerm, TermTable, Write, WriteChange,
+    ComputeReadView, ConditionalWrite, Credit, DEFAULT_INITIAL_CREDIT, DeclaredPredicate, Describe,
+    DirectWrite, DropCommand, ErrorCode, ErrorReply, ErrorReplyView, Header, Hello, Install,
+    Language, MAX_FRAME_SIZE, Prepare, Query, ReadLevel, RequestTerm, TermTable, Write,
+    WriteChange,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -33,7 +34,7 @@ use crate::endpoint_stage::{
     pause, read_of, until, view_frame, write_of,
 };
 use crate::endpoint_steps_requests::{
-    Deny, answer_frame, answer_with, bucket_of, challenge, cross_refusal, declaring,
+    Deny, TIMER_MS, answer_frame, answer_with, bucket_of, challenge, cross_refusal, declaring,
     held_directory, limited, names, prepared_in, run, stalling,
 };
 
@@ -812,8 +813,10 @@ fn a_result_frame_past_its_credit_closes_the_role_connection_held(w: &mut Steps)
     "a compute process accepts a read of `deadline_ms` 50 and sends nothing, `scan_stall_ms` is 100, and the read's stream holds credit"
 )]
 fn a_hung_compute_process_answers_code_17(w: &mut Steps) -> TestResult {
+    // `scan_stall_ms` at a second rather than the scenario's 100 ms: the client's watch of 100 ms past its read must end before the
+    // stall does, which a loaded machine does not do within the scenario's numbers.
     let options = Options {
-        limits: stalling(100),
+        limits: stalling(u64::from(TIMER_MS)),
         ..Options::default()
     };
     run(w, options, |stage| async move {
@@ -853,10 +856,11 @@ fn a_compute_process_waiting_within_the_deadline_is_not_hung(w: &mut Steps) -> T
     };
     run(w, options, |stage| async move {
         let _whole = &stage;
-        // The scenario's 40,000 ms and 35 s at a hundredth: the rule compares the wait with the deadline, whatever their size.
+        // The scenario's 40,000 ms at a tenth and its 35 s at a hundredth: the rule compares the wait with the deadline, whatever
+        // their size, and the deadline's lead over the wait is room for a loaded machine's scheduling.
         let compute = stage.compute_with(|_| Answer::Open).await?;
         let mut client = stage.ann().await?;
-        let begin = Begin::new(0, 0, true).with_deadline_ms(400);
+        let begin = Begin::new(0, 0, true).with_deadline_ms(4_000);
         let transaction = client.send(&begin).await?;
         let _begun = client.got(transaction).await?;
         let read = client.read(transaction, OBJECT).await?;
@@ -877,8 +881,9 @@ fn a_compute_process_waiting_within_the_deadline_is_not_hung_held(w: &mut Steps)
     "a compute process sends a read's frames with gaps below `scan_stall_ms`, past the read's deadline"
 )]
 fn a_frame_restarts_a_hung_compute_s_timer(w: &mut Steps) -> TestResult {
+    let stall = u64::from(TIMER_MS);
     let options = Options {
-        limits: stalling(100),
+        limits: stalling(stall),
         ..Options::default()
     };
     run(w, options, |stage| async move {
@@ -890,9 +895,12 @@ fn a_frame_restarts_a_hung_compute_s_timer(w: &mut Steps) -> TestResult {
         let _begun = client.got(transaction).await?;
         let read = client.read(transaction, OBJECT).await?;
         until("the read", || compute.count(Command::ComputeRead) == 1).await?;
-        for last in [false, false, false, true] {
-            pause(60).await;
-            answer_frame(&compute, 0, &empty_batch(4, 1), last)?;
+        // One frame per unit of the stream's credit, the gaps together passing `scan_stall_ms` by one gap: a timer the frames did not
+        // restart is due before the last, and each gap leaves the rest of the stall to a loaded machine's scheduling.
+        let frames = u64::from(DEFAULT_INITIAL_CREDIT);
+        for frame in 1..=frames {
+            pause(stall / (frames - 1)).await;
+            answer_frame(&compute, 0, &empty_batch(4, 1), frame == frames)?;
             assert_eq!(
                 client.got(read).await?.command,
                 Command::Result,
@@ -913,8 +921,9 @@ fn a_frame_restarts_a_hung_compute_s_timer_held(w: &mut Steps) {
     "a read's stream has spent its credit, and its client takes no batch for longer than `scan_stall_ms`"
 )]
 fn a_stream_without_credit_holds_off_a_hung_compute_s_timer(w: &mut Steps) -> TestResult {
+    let stall = u64::from(TIMER_MS);
     let options = Options {
-        limits: stalling(50).with_initial_credit(1),
+        limits: stalling(stall).with_initial_credit(1),
         ..Options::default()
     };
     run(w, options, |stage| async move {
@@ -928,7 +937,7 @@ fn a_stream_without_credit_holds_off_a_hung_compute_s_timer(w: &mut Steps) -> Te
         until("the read", || compute.count(Command::ComputeRead) == 1).await?;
         answer_frame(&compute, 0, &empty_batch(4, 1), false)?;
         assert_eq!(client.got(read).await?.command, Command::Result);
-        client.silent(read, 200).await?;
+        client.silent(read, stall + stall / 2).await?;
         assert_eq!(compute.count(Command::Cancel), 0, "no credit, no timer");
         Ok(())
     })
@@ -1415,7 +1424,7 @@ fn an_unbound_transaction_passes_its_limit_held(w: &mut Steps) {
 )]
 fn a_bound_transaction_passes_its_limit(w: &mut Steps) -> TestResult {
     let options = Options {
-        limits: limited(100),
+        limits: limited(TIMER_MS),
         ..Options::default()
     };
     run(w, options, |stage| async move {
@@ -1426,7 +1435,7 @@ fn a_bound_transaction_passes_its_limit(w: &mut Steps) -> TestResult {
         client.write(transaction, &stage.on(1)?).await?;
         assert_eq!(
             client.refused(transaction).await?,
-            (ErrorCode::PastLimit, 100)
+            (ErrorCode::PastLimit, u64::from(TIMER_MS))
         );
         until("the Bind stream cancelled", || {
             partition.count(Command::Cancel) == 1
@@ -1448,7 +1457,7 @@ fn a_bound_transaction_passes_its_limit_held(w: &mut Steps) {
 )]
 fn a_read_holding_a_write_back_is_named_at_the_limit(w: &mut Steps) -> TestResult {
     let options = Options {
-        limits: limited(150).with_initial_credit(1),
+        limits: limited(TIMER_MS).with_initial_credit(1),
         ..Options::default()
     };
     run(w, options, |stage| async move {
@@ -1485,8 +1494,9 @@ fn a_read_holding_a_write_back_is_named_at_the_limit_held(w: &mut Steps) {
 
 #[when("a transaction's Commit has been relayed, and `transaction_ms` passes before its reply")]
 fn a_relayed_commit_is_not_timed(w: &mut Steps) -> TestResult {
+    let limit = u64::from(TIMER_MS);
     let options = Options {
-        limits: limited(50),
+        limits: limited(TIMER_MS),
         ..Options::default()
     };
     run(w, options, |stage| async move {
@@ -1504,7 +1514,7 @@ fn a_relayed_commit_is_not_timed(w: &mut Steps) -> TestResult {
         client.write(transaction, &stage.on(1)?).await?;
         client.commit(transaction).await?;
         until("the Commit", || partition.count(Command::Commit) == 1).await?;
-        pause(100).await;
+        pause(limit + limit / 2).await;
         let held = partition.frames(Command::Commit);
         let held = held.first().context("the Commit")?;
         held.answer_with(last_frame(

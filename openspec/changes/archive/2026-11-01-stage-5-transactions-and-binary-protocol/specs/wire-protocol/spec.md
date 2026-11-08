@@ -218,7 +218,7 @@ within the authentication timeout, with code 20; each SHALL close the connection
 connection SHALL be able to authenticate again on stream 0 as the same principal while its other streams go on; a
 credential that expires first SHALL close the connection with code 22, aborting its open transactions and keeping its
 sessions. A server running without authentication SHALL say so in its Welcome, and its connections SHALL act for the
-anonymous principal without an exchange (`../../../../../../specification/SECURITY.md`).
+anonymous principal without an exchange (`../../../../../notes/SECURITY.md`).
 
 #### Scenario: A client authenticates with SCRAM-SHA-256
 - **WHEN** a server requiring authentication lists `SCRAM-SHA-256` and a client completes the exchange with the

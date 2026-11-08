@@ -104,3 +104,31 @@ fn test_a_connection_not_authenticated_in_time_is_closed() -> TestResult {
     assert_eq!(server.transmit(), None, "the Error is the last frame");
     Ok(())
 }
+
+/// The server's wall clock follows the time it is handed: a credential issued 7 s after the connection opened expires
+/// its life after that moment.
+#[test]
+fn test_the_servers_clock_follows_the_time_it_is_handed() -> TestResult {
+    use std::time::Duration;
+    use ultragraphdb_protocol_transport::NetworkFaults;
+
+    use crate::utils::harness::{Harness, config, login, scram_welcome};
+
+    let life = Duration::from_secs(120);
+    let mut h = Harness::with(
+        config(),
+        ultragraphdb_client_core::TestServer::new(CLUSTER, scram_welcome())
+            .with_credential_life(life),
+        NetworkFaults::none(),
+        1,
+        login()?,
+    );
+    h.connect()?;
+    h.now += Duration::from_secs(7);
+    h.until(|h| h.core.is_ready())?;
+    assert_eq!(
+        h.core.expires(),
+        Some(UNIX + u64::try_from((Duration::from_secs(7) + life).as_micros())?)
+    );
+    Ok(())
+}

@@ -33,8 +33,10 @@ pub const CLUSTER: u64 = 0x0123_4567_89AB_CDEF;
 pub const RELEASE: u32 = 0x0005_0000;
 /// The wall clock at the harness's start, microseconds of Unix time: 2027-01-15.
 pub const UNIX: u64 = 1_800_000_000_000_000;
-/// The most steps any conversation of these tests takes.
-const STEPS: usize = 20_000;
+/// The most steps any conversation of these tests takes, and the most frames one side hands over in one step: the
+/// longest conversation measured takes under thirty, so a defect that keeps a conversation moving fails within
+/// seconds rather than hanging the suite.
+const STEPS: usize = 200;
 
 /// The bytes arrived at one end, cut into whole frames.
 #[derive(Debug, Default)]
@@ -285,10 +287,19 @@ impl<L: Login> Harness<L> {
         }
     }
 
-    /// One round: the core's frames to the server, the server's to the core; whether anything moved.
+    /// One round: the core's frames to the server, the server's to the core; whether anything moved. A side handing
+    /// over more than [`STEPS`] frames in one round fails the test.
     pub fn step(&mut self) -> TestResult<bool> {
         let mut moved = false;
-        while let Some(frame) = self.core.transmit() {
+        for sent in 0..=STEPS {
+            let Some(frame) = self.core.transmit() else {
+                break;
+            };
+            if sent == STEPS {
+                return Err(TestError::new(format!(
+                    "the client sent {STEPS} frames in one round"
+                )));
+            }
             self.client.send(frame);
             moved = true;
         }
@@ -298,7 +309,15 @@ impl<L: Login> Harness<L> {
             self.server.receive(&frame, self.now);
             moved = true;
         }
-        while let Some(frame) = self.server.transmit() {
+        for sent in 0..=STEPS {
+            let Some(frame) = self.server.transmit() else {
+                break;
+            };
+            if sent == STEPS {
+                return Err(TestError::new(format!(
+                    "the server sent {STEPS} frames in one round"
+                )));
+            }
             if !self.blackhole {
                 self.server_end.send(frame);
             }
@@ -330,7 +349,8 @@ impl<L: Login> Harness<L> {
     }
 
     /// Rounds until `done` holds: when nothing moves, time moves to the earlier of the core's next deadline and the
-    /// server's, and a core that has lost its connection is connected again.
+    /// server's, and a core that has lost its connection is connected again. A core whose deadline is still due once
+    /// it handled the time fails the test, as a shell calling it at its deadline would never wait.
     pub fn until(&mut self, mut done: impl FnMut(&mut Self) -> bool) -> TestResult {
         let mut steps = 0;
         loop {
@@ -356,6 +376,12 @@ impl<L: Login> Harness<L> {
                 self.now = self.now.max(deadline);
                 self.server.handle_timeout(self.now);
                 self.core.handle_timeout(self.now);
+                if let Some(again) = self.core.next_deadline().filter(|at| *at <= self.now) {
+                    return Err(TestError::new(format!(
+                        "the core is due again at {again:?}, at or before the time it handled, {:?}",
+                        self.now
+                    )));
+                }
             }
         }
     }

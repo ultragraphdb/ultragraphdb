@@ -32,6 +32,10 @@
 # Equivalent mutants are excluded in //.cargo/mutants.toml, each with its reason. A survivor not
 # listed there is a real gap.
 #
+# MUTANTS_UNCHANGED_BY names a commit whose lines count as unchanged: a line `git blame` gives to that commit is a
+# context line of the diff, so no mutant lands on it, and a line changed again after it is mutated as any other.
+# Stage 5.5 sets it to the tenant rename (08ff8f26), whose lines changed a word and no behaviour.
+#
 # ---------------------------------------------------------------------------------------------
 # The budget
 # ---------------------------------------------------------------------------------------------
@@ -116,6 +120,60 @@ git diff "$BASE" -- "$DIR/src" > "$DIFF_FILE"
 while IFS= read -r untracked; do
     git diff --no-index /dev/null "$untracked" >> "$DIFF_FILE" || true
 done < <(git ls-files --others --exclude-standard -- "$DIR/src")
+UNCHANGED_BY="${MUTANTS_UNCHANGED_BY:-}"
+if [ -n "$UNCHANGED_BY" ] && [ -s "$DIFF_FILE" ]; then
+    UNCHANGED_SHA="$(git rev-parse --verify "$UNCHANGED_BY^{commit}")"
+    # Each changed file's lines the commit wrote, as "path:line", from the working tree's blame.
+    UNCHANGED_LINES="$(mktemp)"
+    while IFS= read -r changed; do
+        [ -f "$changed" ] || continue
+        git blame -l -s -- "$changed" 2>/dev/null |
+            awk -v sha="$UNCHANGED_SHA" -v path="$changed" '
+                substr($1, 1, length(sha)) == sha || substr($1, 2, length(sha)) == sha {
+                    line = $2; sub(/\).*/, "", line); print path ":" line
+                }' >> "$UNCHANGED_LINES"
+    done < <(sed -n 's|^+++ b/||p' "$DIFF_FILE")
+    # Every hunk is held until its end, its added lines the commit wrote turned into context lines, its header's
+    # old-side count raised by as many and every later hunk of the file moved down by them, so the new side the diff
+    # describes is unchanged.
+    FILTERED="$(mktemp)"
+    awk -v unchanged="$UNCHANGED_LINES" '
+        BEGIN { while ((getline entry < unchanged) > 0) keep[entry] = 1 }
+        function flush(   i) {
+            if (header == "") return
+            print "@@ -" (old_start + shift) "," (old_count + turned) " +" new_start "," new_count " @@" header_tail
+            for (i = 1; i <= held; i++) print body[i]
+            shift += turned
+            header = ""; held = 0; turned = 0
+        }
+        /^diff |^index |^--- |^new file|^deleted file|^similarity|^rename / { flush(); shift = 0; print; next }
+        /^\+\+\+ / { flush(); shift = 0; path = substr($0, 7); print; next }
+        /^@@ / {
+            flush()
+            header = $0
+            split($2, old, ","); split($3, new, ",")
+            old_start = substr(old[1], 2); old_count = (old[2] == "" ? 1 : old[2])
+            new_start = substr(new[1], 2); new_count = (new[2] == "" ? 1 : new[2])
+            header_tail = substr($0, index(substr($0, 3), "@@") + 4)
+            line = new_start; held = 0; turned = 0
+            next
+        }
+        header != "" && /^\+/ {
+            if ((path ":" line) in keep) { body[++held] = " " substr($0, 2); turned++ } else { body[++held] = $0 }
+            line++; next
+        }
+        header != "" && /^ / { body[++held] = $0; line++; next }
+        header != "" { body[++held] = $0; next }
+        { print }
+        END { flush() }
+    ' "$DIFF_FILE" > "$FILTERED"
+    mv "$FILTERED" "$DIFF_FILE"
+    rm -f "$UNCHANGED_LINES"
+    if ! grep -q '^+[^+]' "$DIFF_FILE"; then
+        echo "mutants.sh: every line of $DIR/src changed since $BASE is $UNCHANGED_BY's alone; nothing to mutate"
+        exit 0
+    fi
+fi
 if [ ! -s "$DIFF_FILE" ]; then
     echo "mutants.sh: $DIR/src is unchanged since $BASE; nothing to mutate"
     exit 0

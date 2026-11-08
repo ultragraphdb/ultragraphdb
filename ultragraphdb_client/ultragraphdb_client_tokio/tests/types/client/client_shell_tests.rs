@@ -805,6 +805,40 @@ fn test_a_frame_cut_by_a_deadline_reads_on_from_where_it_stood() -> TestResult {
     Ok(())
 }
 
+/// A connection given up while a frame is half read takes the frame's bytes with it: the next connection reads its own
+/// frames from their first byte.
+#[test]
+fn test_a_frame_half_read_when_its_connection_times_out_goes_with_it() -> TestResult {
+    let rt = runtime()?;
+    let scripted = server();
+    let sim = SimConnect::new(SimNetwork::new(3, NetworkFaults::none()));
+    let accepted = Rc::clone(&sim.accepted);
+    let cut = Rc::new(std::cell::Cell::new(None));
+    let connector = CutConnect {
+        sim,
+        cut: Rc::clone(&cut),
+    };
+    let timeout = Duration::from_millis(100);
+    LocalSet::new().block_on(&rt, async {
+        let _server = tokio::task::spawn_local(serve_sim(Rc::clone(&scripted), accepted));
+        let mut client = Client::new(connector, config().with_timeout(timeout), Anonymous, 8);
+        client.connect().await?;
+        // The Register's reply: a header's first bytes, then nothing until well past the timeout.
+        cut.set(Some((16, timeout * 10)));
+        let lost = tokio::time::timeout(timeout * 20, client.register())
+            .await
+            .map_err(|_| TestError::new("the Register was not bounded by the timeout"))?;
+        assert_eq!(lost.err(), Some(ClientError::timed_out()));
+        assert!(cut.get().is_none(), "the frame was cut");
+        let again = tokio::time::timeout(timeout * 20, client.register())
+            .await
+            .map_err(|_| TestError::new("the second Register was not bounded by the timeout"))?;
+        assert!(again.is_ok(), "{again:?}");
+        Ok::<(), TestError>(())
+    })?;
+    Ok(())
+}
+
 /// A stream over the simulated network whose writes, once `allowance` is set, take that many bytes more and then nothing
 /// until it is cleared: a send buffer that fills in the middle of a frame.
 #[derive(Debug)]
@@ -940,6 +974,64 @@ fn test_a_read_whose_frame_waits_behind_anothers_is_not_timed_out() -> TestResul
             "the second read, its frame read before the deadline was taken"
         );
         assert!(client.core().is_ready());
+        Ok::<(), TestError>(())
+    })?;
+    Ok(())
+}
+
+/// The Authenticate frames `server` took: the login's exchange and each renewal's.
+fn authenticates(server: &ultragraphdb_client_core::TestServer) -> usize {
+    use ultragraphdb_protocol_wire::{Command, HeaderView};
+    server
+        .received()
+        .iter()
+        .filter(|f| {
+            HeaderView::new(f)
+                .is_ok_and(|header| header.command() == Command::Authenticate.number())
+        })
+        .count()
+}
+
+/// A renewal that fell due while no call drove the connection goes out within the next call, even when the frame that
+/// call reads first, already waiting in the socket, is its whole answer: the deadline due is taken once that frame is,
+/// and the call writes what it queued before it returns, so a client that then goes idle has its credential renewed.
+#[test]
+fn test_a_renewal_due_goes_out_with_the_call_whose_frame_was_waiting() -> TestResult {
+    use ultragraphdb_client_core::{TEST_NAME, TEST_PASSWORD};
+    use ultragraphdb_protocol_scram::{MECHANISM, ScramLogin, system_nonce};
+    let rt = runtime()?;
+    // Renewed at half its life.
+    let life = Duration::from_millis(400);
+    let scripted = Rc::new(std::cell::RefCell::new(
+        ultragraphdb_client_core::TestServer::new(
+            crate::utils::serve::CLUSTER,
+            crate::utils::serve::welcome().with_mechanisms([MECHANISM]),
+        )
+        .with_credential_life(life)
+        .with_results(3),
+    ));
+    let connector = SimConnect::new(SimNetwork::new(3, NetworkFaults::none()));
+    let accepted = Rc::clone(&connector.accepted);
+    LocalSet::new().block_on(&rt, async {
+        let _server = tokio::task::spawn_local(serve_sim(Rc::clone(&scripted), accepted));
+        let login = ScramLogin::new(TEST_NAME, TEST_PASSWORD, system_nonce)?;
+        let mut client = Client::new(connector, config(), login, 8);
+        client.connect().await?;
+        let reader = client.begin(0, true).await?;
+        let stream = client.read(&reader, &read(&reader)).await?;
+        // The read's first frame arrives and the renewal falls due while nothing drives the connection.
+        tokio::time::sleep(life * 3 / 4).await;
+        let logged_in = authenticates(&scripted.borrow());
+        client
+            .next_batch(&stream, |_| ())
+            .await?
+            .context("the read's first batch")?;
+        // The server reads what the call wrote; the client is driven no further.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(
+            authenticates(&scripted.borrow()) > logged_in,
+            "the renewal's first message went out within the call"
+        );
         Ok::<(), TestError>(())
     })?;
     Ok(())

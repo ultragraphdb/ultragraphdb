@@ -32,15 +32,25 @@ futures = { workspace = true }
 tokio = { workspace = true, features = ["net", "io-util", "time", "rt"] }
 ultragraphdb_client_compio = { workspace = true }
 ultragraphdb_client_tokio = { workspace = true }
+ultragraphdb_common_config_check = { workspace = true }
+ultragraphdb_common_service = { workspace = true }
 ultragraphdb_core_ids = { workspace = true }
 ultragraphdb_core_terms = { workspace = true }
 ultragraphdb_error_protocol = { workspace = true }
 ultragraphdb_protocol_scram = { workspace = true }
 ultragraphdb_protocol_transport_compio = { workspace = true }
 ultragraphdb_store_quads = { workspace = true }
+ultragraphdb_transport_http_server = { workspace = true }
 ultragraphdb_transport_tls = { workspace = true, features = ["test-utils"] }
 
+[[test]]
+name = "unit"
+path = "tests/mod.rs"
+
+# The role binaries the scenarios start are copied in by Bazel alone, so a plain `cargo test` leaves this target out and
+# `cargo test --test bdd` names it.
 [[test]]
 name = "bdd"
 path = "tests/bdd.rs"
 harness = false
+test = false

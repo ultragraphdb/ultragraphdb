@@ -10,7 +10,7 @@ use std::time::Duration;
 use compio::runtime::{Runtime, spawn};
 use ultragraphdb_common_service::{BIND_RETRIES, listen};
 use ultragraphdb_error_role::RoleError;
-use ultragraphdb_tool_bdd::{Context, TestResult};
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 static PLACES: AtomicU32 = AtomicU32::new(0);
 
@@ -22,9 +22,15 @@ fn place() -> TestResult<PathBuf> {
     Ok(place)
 }
 
-/// What listening at `text` is refused with.
+/// How long a listen may take before the test fails: past the 5 s of retries a port in use is given.
+const LISTEN_WAIT: Duration = Duration::from_secs(8);
+
+/// What listening at `text` is refused with, within [`LISTEN_WAIT`].
 fn refused(text: &str) -> TestResult<RoleError> {
-    let refusal = Runtime::new()?.block_on(listen(text)).err();
+    let refusal = Runtime::new()?
+        .block_on(compio::time::timeout(LISTEN_WAIT, listen(text)))
+        .map_err(|_| TestError::new(format!("listening at {text} within {LISTEN_WAIT:?}")))?
+        .err();
     refusal.context("a refusal")
 }
 

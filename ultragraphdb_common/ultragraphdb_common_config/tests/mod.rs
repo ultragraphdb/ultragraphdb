@@ -6,4 +6,6 @@
 //! The config service's unit tests.
 
 #[cfg(test)]
+mod errors;
+#[cfg(test)]
 mod types;

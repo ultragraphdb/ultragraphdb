@@ -19,6 +19,21 @@ rust_library(
     deps = all_crate_deps(normal = True),
 )
 
+# The harness's own unit tests, mirroring `src/`: they start no binary and bind no address a scenario declares.
+rust_test(
+    name = "unit",
+    srcs = glob([
+        "tests/mod.rs",
+        "tests/utils/**/*.rs",
+    ]),
+    crate_root = "tests/mod.rs",
+    tags = ["unit-test"],
+    deps = [":ultragraphdb_tests"] + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)
+
 # Whole clusters as processes: each is copied into the sandbox, and the test starts it, its dependencies first. No
 # container is involved, so Bazel caches the result. The ports are declared and fixed, so `exclusive` keeps any other test
 # from running beside this one; it stays sandboxed. The golden bodies are the conversations the client's conformance suite

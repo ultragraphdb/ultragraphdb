@@ -6,18 +6,21 @@
 //! An execution held open across a transaction's requests: each changeset applied on top of the ones before, reads
 //! of its own writes over its snapshot, recorded in its read set.
 
-use std::num::NonZeroUsize;
+use std::num::{NonZeroU64, NonZeroUsize};
 use std::ops::ControlFlow;
 
 use oxrdf::{GraphName, NamedNode, Term};
+use ultragraphdb_core_ids::{BucketGroup, Sequence, SystemId, TypePrefix};
 use ultragraphdb_core_keys::{DEFAULT_GRAPH, Keyspace, QuadKey};
 use ultragraphdb_core_mapping::{Change, StatementRef};
 use ultragraphdb_store_apply::ChangesetErrorEnum;
-use ultragraphdb_store_quads::{KernelRow, KernelScan, Page, PageEnd, QuadErrorEnum};
+use ultragraphdb_store_quads::{KernelRow, KernelScan, Page, PageEnd, QuadErrorEnum, id_key};
+use ultragraphdb_traits_store::Store;
 
 use crate::utils::changesets::{
     TENANT, TestChangesets, changeset, changesets, delete, ex, insert, uid,
 };
+use crate::utils::partitions::bucket_of;
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 fn read(
@@ -716,5 +719,128 @@ fn test_a_page_of_the_statements_records_what_it_covered() -> TestResult {
     let (start, _) = limited(1)?.bounds();
     let past = [key.as_slice(), &[0]].concat();
     assert_eq!(stopped.scanned_ranges(), vec![(start, Some(past))]);
+    Ok(())
+}
+
+/// What an execution's reads come to, asked before it finishes, is what its read set then holds: each list read whole and each
+/// mark read, each statement tested, each range scanned and each term found absent, with the bytes of their keys.
+#[test]
+fn test_an_execution_s_read_counts_are_what_its_read_set_holds() -> TestResult {
+    let applier = changesets()?;
+    committed(&applier)?;
+    let at = applier.quads().lists().applied_ts();
+    let mut execution = applier.begin(TENANT, at).context("begun")?;
+    execution.apply(&changeset(vec![insert("<a> <knows> <b>")?]))?;
+    let _whole = read(&mut execution, "held", "knows")?;
+    let _none = read(&mut execution, "ghost", "knows")?;
+    let entity = SystemId::new(TypePrefix::RESOURCE, bucket_of("o")?, Sequence::new(5)?);
+    execution.mark(
+        entity,
+        BucketGroup::new(7)?,
+        NonZeroU64::new(4).context("a generation")?,
+    )?;
+    let _page = execution.page(&forward(at)?, |_, _, _| ControlFlow::Continue(()))?;
+    let counts = execution.read_counts();
+    let executed = execution.finish()?;
+    let reads = executed.reads();
+    for (held, what) in [
+        (reads.lists().len(), "a list and a mark"),
+        (reads.statements().len(), "a statement tested"),
+        (reads.ranges().len(), "a range"),
+        (reads.absent().len(), "a term absent"),
+    ] {
+        assert!(held > 0, "the read set holds {what}");
+    }
+    let key_bytes = reads.lists().iter().map(Vec::len).sum::<usize>()
+        + reads
+            .statements()
+            .iter()
+            .map(|(key, object)| key.len() + object.len())
+            .sum::<usize>()
+        + reads
+            .ranges()
+            .iter()
+            .map(|(start, end)| start.len() + end.as_ref().map_or(0, Vec::len))
+            .sum::<usize>();
+    assert_eq!(
+        counts,
+        ultragraphdb_store_apply::ReadCounts::new(
+            key_bytes,
+            reads.lists().len(),
+            reads.statements().len(),
+            reads.ranges().len(),
+            reads.absent().len(),
+        )
+    );
+    Ok(())
+}
+
+/// An execution holds no list until it reads one, and then each list it read whole: a read's subject's predicate list, consulted
+/// first, and its forward list, the two its read set holds.
+#[test]
+fn test_an_execution_holds_the_lists_it_read() -> TestResult {
+    let applier = changesets()?;
+    let at = commit(&applier, "<a> <knows> <b>")?;
+    let mut execution = applier.begin(TENANT, at).context("begun")?;
+    assert_eq!(execution.held_lists(), 0);
+    let _whole = read(&mut execution, "a", "knows")?;
+    let held = execution.held_lists();
+    let executed = execution.finish()?;
+    assert_eq!(executed.reads().lists().len(), 2, "{:?}", executed.reads());
+    assert_eq!(held, executed.reads().lists().len());
+    Ok(())
+}
+
+/// An execution knows an IRI once a read of it resolved it, and not before.
+#[test]
+fn test_an_execution_knows_the_iris_its_reads_resolved() -> TestResult {
+    let applier = changesets()?;
+    let at = commit(&applier, "<a> <knows> <b>")?;
+    let mut execution = applier.begin(TENANT, at).context("begun")?;
+    assert!(!execution.knows_iri(ex("a").as_str()));
+    let _whole = read(&mut execution, "a", "knows")?;
+    assert!(execution.knows_iri(ex("a").as_str()));
+    assert!(execution.knows_iri(ex("knows").as_str()));
+    assert!(!execution.knows_iri(ex("b").as_str()), "named by no read");
+    Ok(())
+}
+
+/// The dictionary as an execution sees it: what the store holds, what the execution created over it, and nothing for a key
+/// neither holds, into a vector cleared first.
+#[test]
+fn test_an_execution_reads_the_dictionary_with_its_own_terms_over_the_store() -> TestResult {
+    let applier = changesets()?;
+    let at = commit(&applier, "<a> <knows> <b>")?;
+    let mut execution = applier.begin(TENANT, at).context("begun")?;
+    execution.apply(&changeset(vec![insert("<new> <knows> <a>")?]))?;
+    let new = execution
+        .find_iri(ex("new").as_ref())?
+        .context("<new>'s ID")?;
+    let nobody = SystemId::new(
+        TypePrefix::RESOURCE,
+        bucket_of("nobody")?,
+        Sequence::new(9_999)?,
+    );
+    let keys = [
+        id_key(TENANT, uid(&applier, "a")?),
+        id_key(TENANT, new),
+        id_key(TENANT, nobody),
+    ];
+    assert_eq!(
+        applier.quads().store().get_versionless(&keys[1])?,
+        None,
+        "<new> is the execution's alone"
+    );
+    let borrowed: Vec<&[u8]> = keys.iter().map(Vec::as_slice).collect();
+    let mut out = vec![Some(b"stale".to_vec())];
+    execution.dictionary_into(&borrowed, &mut out)?;
+    assert_eq!(
+        out,
+        vec![
+            Some(ex("a").as_str().as_bytes().to_vec()),
+            Some(ex("new").as_str().as_bytes().to_vec()),
+            None,
+        ]
+    );
     Ok(())
 }

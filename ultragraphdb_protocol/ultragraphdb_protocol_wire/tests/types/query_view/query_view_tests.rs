@@ -146,3 +146,26 @@ fn test_the_text_fits_the_receivers_frame() -> TestResult {
     );
     Ok(())
 }
+
+/// A query names as many parameters as its names section holds, none to several, and reads each back.
+#[test]
+fn test_the_parameter_count_is_the_number_of_names() -> TestResult {
+    use ultragraphdb_protocol_wire::{BodyBuilder, Query, TermTable};
+
+    for count in [0usize, 3] {
+        let mut terms = TermTable::new();
+        let values: Vec<u32> = (0..count)
+            .map(|at| terms.iri(&format!("http://ex.org/{at}")))
+            .collect();
+        let query = values.iter().enumerate().fold(
+            Query::new(5, Language::Gql, "MATCH (n) RETURN n", terms),
+            |query, (at, value)| query.with_parameter(format!("p{at}"), *value),
+        );
+        let frame = query.frame(golden("query")?.header())?;
+        let view = QueryView::from_frame(&frame_of(&frame)?)?;
+        assert_eq!(view.parameter_count(), count);
+        assert_eq!(view.parameter(count), None);
+        assert_eq!(view.to_body()?, query);
+    }
+    Ok(())
+}

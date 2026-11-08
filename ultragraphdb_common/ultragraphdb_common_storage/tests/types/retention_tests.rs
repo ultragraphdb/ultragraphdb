@@ -71,5 +71,10 @@ fn test_an_epoch_noted_again_changes_nothing() -> TestResult {
     retention.closed(epoch, 0);
     retention.closed(epoch, RETAIN_US);
     assert_eq!(retention.due(RETAIN_US + 1), Some(Version::bound_of(epoch)));
+    assert_eq!(
+        retention.due(3 * RETAIN_US),
+        None,
+        "noted again, it is not new: no second ask"
+    );
     Ok(())
 }

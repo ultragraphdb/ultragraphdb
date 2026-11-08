@@ -32,18 +32,53 @@ fn object(sequence: u64) -> TestResult<(EncodedTerm, SystemId)> {
     Ok((EncodedTerm::id(id), id))
 }
 
+/// The object numbered `sequence` and the `statements` statement IDs it is held under.
+fn object_held(sequence: u64, statements: u64) -> TestResult<(EncodedTerm, Vec<SystemId>)> {
+    let (term, _) = object(sequence)?;
+    let held = (1..=statements)
+        .map(|at| {
+            Ok(SystemId::new(
+                TypePrefix::STATEMENT,
+                Bucket::new(1)?,
+                Sequence::new(at)?,
+            ))
+        })
+        .collect::<TestResult<_>>()?;
+    Ok((term, held))
+}
+
 fn built(entries: &Entries) -> TestResult<Vec<u8>> {
     Ok(entries.frame(Header::new(CLUSTER, Command::Entries).with_stream(1))?)
 }
 
 /// `count` objects under one key, as a frame with no limit holds them: its bytes.
 fn frame_of(count: u64) -> TestResult<usize> {
+    frame_held_under(count, 0)
+}
+
+/// `count` objects under one key, each held under `statements` statements, as a frame with no limit holds them: its bytes.
+fn frame_held_under(count: u64, statements: u64) -> TestResult<usize> {
     let mut fill = EntriesFill::new(0, at(), usize::MAX);
     for at in 1..=count {
-        let (term, _) = object(at)?;
-        assert!(fill.offer_object(KEY, &term, &[]).is_continue());
+        let (term, held) = object_held(at, statements)?;
+        assert!(fill.offer_object(KEY, &term, &held).is_continue());
     }
     Ok(built(&fill.finish(EntriesEnd::More))?.len())
+}
+
+/// A frame of at most `max_frame` bytes filled with objects held under `statements` statements each until it refuses one: how
+/// many it took. A record is at least a byte, so a frame taking more than `max_frame` of them took past its limit.
+fn filled(max_frame: usize, statements: u64) -> TestResult<(u64, usize)> {
+    let mut fill = EntriesFill::new(0, at(), max_frame);
+    for taken in 0..=u64::try_from(max_frame)? {
+        let (term, held) = object_held(taken + 1, statements)?;
+        if fill.offer_object(KEY, &term, &held).is_break() {
+            return Ok((taken, built(&fill.finish(EntriesEnd::More))?.len()));
+        }
+    }
+    Err(TestError::new(format!(
+        "{max_frame}: no object was refused"
+    )))
 }
 
 /// A frame takes what fits and refuses the next, by the exact bytes it builds, on either side of the chunk table's growth.
@@ -51,22 +86,32 @@ fn frame_of(count: u64) -> TestResult<usize> {
 fn test_a_frame_is_filled_to_its_limit_and_no_further() -> TestResult {
     let one = frame_of(1)?;
     for max_frame in [one, one + 24, one + 25, one + 4_096, one + 70_000, 1 << 19] {
-        let mut fill = EntriesFill::new(0, at(), max_frame);
-        let mut taken = 0;
-        loop {
-            let (term, _) = object(taken + 1)?;
-            if fill.offer_object(KEY, &term, &[]).is_break() {
-                break;
-            }
-            taken += 1;
-        }
-        let frame = built(&fill.finish(EntriesEnd::More))?;
-        assert!(frame.len() <= max_frame, "{max_frame}");
-        assert_eq!(frame.len(), frame_of(taken)?, "the size it was held to");
+        let (taken, frame) = filled(max_frame, 0)?;
+        assert!(frame <= max_frame, "{max_frame}");
+        assert_eq!(frame, frame_of(taken)?, "the size it was held to");
         assert!(
             frame_of(taken + 1)? > max_frame,
             "{max_frame}: room was left"
         );
+    }
+    Ok(())
+}
+
+/// Each statement ID an object is held under counts toward its record: a frame of such objects is filled to its limit and no
+/// further.
+#[test]
+fn test_an_objects_statement_ids_count_toward_its_frame() -> TestResult {
+    for statements in [1, 2, 5] {
+        let one = frame_held_under(1, statements)?;
+        for max_frame in [one, one + 100, one + 4_096] {
+            let (taken, frame) = filled(max_frame, statements)?;
+            assert!(frame <= max_frame, "{statements} under {max_frame}");
+            assert_eq!(frame, frame_held_under(taken, statements)?);
+            assert!(
+                frame_held_under(taken + 1, statements)? > max_frame,
+                "{statements} under {max_frame}: room was left"
+            );
+        }
     }
     Ok(())
 }

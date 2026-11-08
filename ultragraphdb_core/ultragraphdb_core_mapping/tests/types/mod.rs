@@ -6,6 +6,8 @@
 #[cfg(test)]
 mod canonical_dataset;
 #[cfg(test)]
+mod change_ref_tests;
+#[cfg(test)]
 mod changeset;
 #[cfg(test)]
 mod contract_version_tests;

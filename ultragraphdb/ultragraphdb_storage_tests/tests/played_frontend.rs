@@ -4,10 +4,12 @@
  */
 
 //! A frontend played by the test: a real storage process joins it as it would a real one, and it delivers a close out of its
-//! order, which no real frontend can be made to do.
+//! order, or holds a Join's reply, which no real frontend can be made to do. It records the leases and Joins it is asked.
 
+use std::collections::BTreeMap;
 use std::process::ExitStatus;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use compio::runtime::spawn;
@@ -23,7 +25,7 @@ use ultragraphdb_protocol_wire::{
     Header, Join, JoinView, Lease, LeaseView, Placement, PreferredLeader, TenantRun,
 };
 use ultragraphdb_tests::{CLUSTER, SECRET, START_SECONDS};
-use ultragraphdb_tool_bdd::TestResult;
+use ultragraphdb_tool_bdd::{TestError, TestResult};
 
 /// Where the played frontend listens: a port of its own, so no other scenario's frontend meets it.
 pub const PLAYED_FRONTEND_ADDRESS: &str = "127.0.0.1:17095";
@@ -40,12 +42,83 @@ static NEXT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 /// How often a wait for the process's exit looks.
 const POLL: Duration = Duration::from_millis(20);
 
+/// What a subscription is sent.
+#[derive(Debug, Clone, Copy)]
+pub enum Push {
+    /// A close out of its order.
+    OutOfOrder,
+    /// The refusal of a close no longer held, in place of a close.
+    Ending,
+    /// Nothing: the subscription stays open and quiet.
+    Nothing,
+}
+
+/// The blocks asked for, by type prefix and partition.
+pub type Leases = BTreeMap<(u16, u32), usize>;
+
+/// What the played frontend's connections were asked, and whether a Join's reply is held.
+#[derive(Debug, Default)]
+pub struct Played {
+    leases: Mutex<Leases>,
+    /// The blocks asked for as the first Join found them.
+    leases_at_join: Mutex<Option<Leases>>,
+    /// The partitions each Join named, in order.
+    joined: Mutex<Vec<u32>>,
+    subscribes: AtomicUsize,
+    holding: AtomicBool,
+}
+
+impl Played {
+    /// Holds each Join's reply until called again with false, or lets them go.
+    pub fn hold_joins(&self, holding: bool) {
+        self.holding.store(holding, Ordering::Release);
+    }
+
+    /// The partitions the Joins named, in order.
+    pub fn joined(&self) -> TestResult<Vec<u32>> {
+        Ok(self.joined.lock()?.clone())
+    }
+
+    /// The blocks asked for before the first Join, or nothing if none came.
+    pub fn leases_at_join(&self) -> TestResult<Option<Leases>> {
+        Ok(self.leases_at_join.lock()?.clone())
+    }
+
+    /// How many subscriptions were opened.
+    pub fn subscribes(&self) -> usize {
+        self.subscribes.load(Ordering::Acquire)
+    }
+
+    fn lease(&self, type_prefix: u16, partition: u32) {
+        if let Ok(mut leases) = self.leases.lock() {
+            let asked = leases.entry((type_prefix, partition)).or_default();
+            *asked = asked.saturating_add(1);
+        }
+    }
+
+    /// Records a Join naming `partitions`, then waits while Joins are held, at most as long as a start.
+    async fn join(&self, partitions: &[u32]) {
+        if let (Ok(leases), Ok(mut at_join)) = (self.leases.lock(), self.leases_at_join.lock()) {
+            let _first: &mut Leases = at_join.get_or_insert_with(|| leases.clone());
+        }
+        if let Ok(mut joined) = self.joined.lock() {
+            joined.extend_from_slice(partitions);
+        }
+        for _ in 0..START_SECONDS * 50 {
+            if !self.holding.load(Ordering::Acquire) {
+                return;
+            }
+            compio::time::sleep(POLL).await;
+        }
+    }
+}
+
 /// One connection at the played frontend.
 #[derive(Debug)]
 struct PlayedFrontend {
     subscribed: Option<u64>,
-    /// Whether a subscription is ended with the refusal of a close no longer held, in place of a close.
-    ending: bool,
+    push: Push,
+    played: Arc<Played>,
 }
 
 /// `body` as the reply on `stream`.
@@ -90,6 +163,7 @@ impl Session for PlayedFrontend {
                     let partitions = (0..join.partition_count())
                         .filter_map(|index| join.partition(index))
                         .collect::<Vec<u32>>();
+                    self.played.join(&partitions).await;
                     let held = Join::storage(join.address(), partitions);
                     built(&held, stream, command)
                 }
@@ -107,6 +181,7 @@ impl Session for PlayedFrontend {
         if command == Command::Lease {
             return match LeaseView::from_frame(&view) {
                 Ok(asked) => {
+                    self.played.lease(asked.type_prefix(), asked.partition());
                     let start = NEXT_SEQUENCE.fetch_add(asked.size(), Ordering::Relaxed);
                     let reply =
                         Lease::request(asked.type_prefix(), asked.partition(), asked.size())
@@ -117,6 +192,7 @@ impl Session for PlayedFrontend {
             };
         }
         if command == Command::Subscribe {
+            let _opened: usize = self.played.subscribes.fetch_add(1, Ordering::AcqRel);
             self.subscribed = Some(stream);
             return Answer::Open;
         }
@@ -137,15 +213,15 @@ impl Session for PlayedFrontend {
         let Some(stream) = self.subscribed.take() else {
             return std::future::pending().await;
         };
-        let close = if self.ending {
-            ErrorReply::new(ErrorCode::Protocol, TRIMMED).frame(
+        let close = match self.push {
+            Push::Ending => ErrorReply::new(ErrorCode::Protocol, TRIMMED).frame(
                 Header::new(CLUSTER, Command::Error)
                     .with_stream(stream)
                     .with_flags(FLAG_LAST),
-            )
-        } else {
-            EpochClose::new(OUT_OF_ORDER_EPOCH, 1)
-                .frame(Header::new(CLUSTER, Command::EpochClose).with_stream(stream))
+            ),
+            Push::OutOfOrder => EpochClose::new(OUT_OF_ORDER_EPOCH, 1)
+                .frame(Header::new(CLUSTER, Command::EpochClose).with_stream(stream)),
+            Push::Nothing => return std::future::pending().await,
         };
         match close {
             Ok(frame) => (stream, frame),
@@ -154,29 +230,46 @@ impl Session for PlayedFrontend {
     }
 }
 
-/// Plays a frontend on this runtime, its subscriptions delivering a close out of order, or with `ending` ended by a refusal.
-pub async fn play_frontend(ending: bool) -> TestResult {
+/// Plays a frontend on this runtime, its subscriptions sent `push`: what its connections are asked is recorded in the
+/// [`Played`] it returns.
+pub async fn play_frontend(push: Push) -> TestResult<Arc<Played>> {
     let file = std::env::temp_dir().join(format!("played-frontend-{}", std::process::id()));
     std::fs::write(&file, SECRET)?;
     let held: RoleCredentials = RoleSecret::read(&file.display().to_string())?.credentials()?;
     let listener = listen(&format!("tcp://{PLAYED_FRONTEND_ADDRESS}")).await?;
     let server =
         Server::new(CLUSTER, "frontend", Endpoint::Frontend)?.with_iterations(ROLE_ITERATIONS);
+    let played = Arc::new(Played::default());
+    let recorded = Arc::clone(&played);
     spawn(async move {
         while let Ok(carrier) = listener.accept().await {
             let (server, held) = (server.clone(), held.clone());
+            let session = PlayedFrontend {
+                subscribed: None,
+                push,
+                played: Arc::clone(&recorded),
+            };
             spawn(async move {
-                let session = PlayedFrontend {
-                    subscribed: None,
-                    ending,
-                };
                 serve_connection(carrier, &server, held, session).await;
             })
             .detach();
         }
     })
     .detach();
-    Ok(())
+    Ok(played)
+}
+
+/// Waits until `seen` holds, while this runtime goes on playing, at most as long as a start.
+pub async fn until_seen(mut seen: impl FnMut() -> TestResult<bool>, what: &str) -> TestResult {
+    for _ in 0..START_SECONDS * 50 {
+        if seen()? {
+            return Ok(());
+        }
+        compio::time::sleep(POLL).await;
+    }
+    Err(TestError::new(format!(
+        "{what} did not happen within {START_SECONDS} s"
+    )))
 }
 
 /// Waits for `pid` to exit, while this runtime goes on playing: how it did, or nothing if it runs on.

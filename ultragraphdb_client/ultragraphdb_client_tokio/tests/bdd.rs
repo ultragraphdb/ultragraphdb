@@ -382,11 +382,25 @@ fn past_credit_refused(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
+/// The longest the scenarios may run: they take about a second, and a shell that hangs, spinning in a loop no timeout of
+/// its runtime can preempt or waiting on nothing, fails the suite at this bound rather than hanging it. It stays below the
+/// 20 s a mutation run gives the whole suite at the least, so a hang counts as a failure there too.
+const BOUND: std::time::Duration = std::time::Duration::from_secs(15);
+
 fn main() -> TestResult {
+    // The watchdog sleeps on a blocking thread of a runtime of its own, apart from every scenario's, and is left behind when
+    // the scenarios end first.
+    let watchdog = runtime()?;
+    drop(watchdog.spawn_blocking(|| {
+        std::thread::sleep(BOUND);
+        eprintln!("the scenarios did not end within {BOUND:?}");
+        std::process::exit(1);
+    }));
     futures::executor::block_on(
         Steps::cucumber()
             .fail_on_skipped()
             .run_and_exit(ultragraphdb_tool_bdd::features_dir()?),
     );
+    watchdog.shutdown_background();
     Ok(())
 }

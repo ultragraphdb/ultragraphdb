@@ -17,7 +17,8 @@ use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transactions_txn::{Mode, TxnError, TxnLimits};
 
 use crate::utils::fixture::{
-    Applier, SECOND, TENANT, Txn, applier, begin, begin_with, changeset, ex, insert, store,
+    Applier, SECOND, TENANT, Txn, applier, begin, begin_with, changeset, ex, insert, prepared,
+    store,
 };
 
 /// The delete of `<subject> <predicate> <object>`.
@@ -318,5 +319,96 @@ fn test_a_page_past_the_transaction_s_limit_or_of_no_lists_ends_it() -> TestResu
         "{refused:?}"
     );
     assert!(marks.is_ended());
+    Ok(())
+}
+
+/// A transaction reading a statement its write tests, the term `<absent>` it creates and so finds absent, a name no other
+/// transaction holds pending, and two pages of one key each: the result of the last page, whose span is checked against the
+/// read set's bound, and the transaction.
+fn tested_absent_and_two_ranges<'a>(
+    applier: &'a Applier,
+    limits: TxnLimits,
+    absent: &str,
+) -> TestResult<(Result<(), TxnError>, Txn<'a>)> {
+    let mut txn = begin_with(applier, Mode::ReadWrite, limits)?;
+    txn.write(&changeset(vec![insert("a", "knows", "b")]), 0)?;
+    let _absent = txn.resolve_iri(ex(absent).as_ref(), 0)?;
+    let (a, c) = (knows_key(&mut txn, "a")?, knows_key(&mut txn, "c")?);
+    let _first = txn.page(&of_key(&txn, &a), 0, |_, _, _| ControlFlow::Continue(()))?;
+    let last = txn
+        .page(&of_key(&txn, &c), 0, |_, _, _| ControlFlow::Continue(()))
+        .map(|_page| ());
+    Ok((last, txn))
+}
+
+/// A page is refused exactly when the read set it leaves outgrows the bound: the size the read set the commit gathers counts,
+/// its keys' bytes and 8 bytes a key its tables name, fits at the bound and not one byte below it.
+#[test]
+fn test_a_page_fits_a_read_set_bound_of_its_size_and_not_one_byte_less() -> TestResult {
+    let applier = seeded()?;
+    let (fitted, txn) = tested_absent_and_two_ranges(&applier, TxnLimits::default(), "ghost1")?;
+    fitted?;
+    let read_set = prepared(txn.commit(1, 1, &[], 0))?;
+    let set = read_set.read_set();
+    assert!(set.statements().count() > 0 && set.absent().count() > 0);
+    assert_eq!(set.ranges().count(), 2);
+    let size = set.bytes();
+    let (at, _txn) = tested_absent_and_two_ranges(
+        &applier,
+        TxnLimits::default().with_max_read_set(size),
+        "ghost2",
+    )?;
+    at?;
+    let (below, ended) = tested_absent_and_two_ranges(
+        &applier,
+        TxnLimits::default().with_max_read_set(size - 1),
+        "ghost3",
+    )?;
+    assert_eq!(below, Err(TxnError::read_set_too_large(size, size - 1)));
+    assert!(ended.is_ended());
+    Ok(())
+}
+
+/// A transaction knows the IRIs its reads resolved, holds the lists it read whole, and reads the dictionary with what it created
+/// over the store; ended, it knows nothing and holds nothing.
+#[test]
+fn test_a_transaction_knows_holds_and_reads_the_dictionary_as_its_reads_left_them() -> TestResult {
+    let applier = seeded()?;
+    let mut txn = begin(&applier, Mode::ReadWrite)?;
+    assert!(!txn.knows_iri(ex("held").as_str()));
+    assert_eq!(txn.held_lists(), 0);
+    let _held = crate::utils::fixture::objects(&mut txn, "held", "knows", 0)?;
+    assert!(txn.knows_iri(ex("held").as_str()));
+    assert!(!txn.knows_iri(ex("c").as_str()), "named by no read");
+    assert_eq!(
+        txn.held_lists(),
+        2,
+        "the subject's predicate list, consulted first, and its forward list"
+    );
+    let created = txn
+        .resolve_iri(ex("created").as_ref(), 0)?
+        .context("created")?;
+    let held = txn.resolve_iri(ex("held").as_ref(), 0)?.context("held")?;
+    let keys = [
+        ultragraphdb_store_quads::id_key(TENANT, held),
+        ultragraphdb_store_quads::id_key(TENANT, created),
+    ];
+    let borrowed: Vec<&[u8]> = keys.iter().map(Vec::as_slice).collect();
+    let mut out = vec![None, None, None];
+    txn.dictionary_into(&borrowed, 0, &mut out)?;
+    assert_eq!(
+        out,
+        vec![
+            Some(ex("held").as_str().as_bytes().to_vec()),
+            Some(ex("created").as_str().as_bytes().to_vec()),
+        ]
+    );
+    let _past = txn
+        .dictionary_into(&borrowed, 3_600 * SECOND, &mut out)
+        .err()
+        .context("past its limit, which ends it")?;
+    assert!(txn.is_ended());
+    assert!(!txn.knows_iri(ex("held").as_str()), "ended");
+    assert_eq!(txn.held_lists(), 0, "ended");
     Ok(())
 }

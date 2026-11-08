@@ -20,7 +20,7 @@ use ultragraphdb_tool_bdd::{TestError, TestResult};
 
 use crate::Steps;
 use crate::endpoint_stage::{CLUSTER, Client, Options, Stage, fresh, pause, view_frame};
-use crate::endpoint_steps_requests::{declare, run};
+use crate::endpoint_steps_requests::{TIMER_MS, declare, run};
 
 const NICK: &str = "http://ex.org/nick";
 const AGE: &str = "http://ex.org/age";
@@ -234,7 +234,7 @@ fn borne_out_held(w: &mut Steps) {
     "a client commits a declaration of `nick` single-valued, and a partition holding the tenant reports nothing within `catalog_check_ms`"
 )]
 fn silent(w: &mut Steps) -> TestResult {
-    run(w, checking(2, 150), |stage| async move {
+    run(w, checking(2, u64::from(TIMER_MS)), |stage| async move {
         let mut client = stage.ann().await?;
         let commit = committing(&mut client, &single_nick()).await?;
         let version = assigned(&stage, 0).await?;

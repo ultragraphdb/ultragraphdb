@@ -212,6 +212,30 @@ fn test_a_released_write_leaves_no_dictionary_entry_and_burns_its_ids() -> TestR
     Ok(())
 }
 
+/// A write continuing another on a clone of its terms releases what it took beyond them alone: an ID only it created is burned,
+/// and the base's own stays pending for it.
+#[test]
+fn test_a_release_beyond_a_base_lets_go_of_what_the_continuation_took_alone() -> TestResult {
+    let store = quads()?;
+    let mut base = WriteTerms::new(0);
+    let kept = base.iri(&store, ex("kept").as_str())?;
+    let mut continued = base.clone();
+    let beyond = continued.iri(&store, ex("beyond").as_str())?;
+    store.release_beyond(&continued, &base);
+    let mut later = WriteTerms::new(0);
+    assert_ne!(
+        later.iri(&store, ex("beyond").as_str())?,
+        beyond,
+        "the continuation's own ID is burned"
+    );
+    assert_eq!(
+        later.iri(&store, ex("kept").as_str())?,
+        kept,
+        "the base still holds its own"
+    );
+    Ok(())
+}
+
 #[test]
 fn test_a_write_that_took_a_refused_creators_pending_id_carries_and_commits_its_entries()
 -> TestResult {

@@ -18,18 +18,21 @@ use compio::runtime::Runtime;
 use cucumber::{World, then, when};
 use futures::FutureExt;
 use played_frontend::{
-    OUT_OF_ORDER_EPOCH, PLAYED_FRONTEND_ADDRESS, TRIMMED, exit_of, play_frontend,
+    OUT_OF_ORDER_EPOCH, PLAYED_FRONTEND_ADDRESS, Played, Push, TRIMMED, exit_of, play_frontend,
+    until_seen,
 };
 use service_utils::{ServiceUtil, WaitStrategy};
 use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::ExitStatus;
+use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 use ultragraphdb_cluster_placement::{NodeId, PlacementMap};
 use ultragraphdb_common_role::RoleClient;
 use ultragraphdb_common_service::{Bootstrap, RoleKind as ServiceKind, fetch_settings};
-use ultragraphdb_core_ids::{BucketGroup, Epoch};
+use ultragraphdb_core_ids::{BucketGroup, Epoch, TypePrefix};
 use ultragraphdb_protocol_transport::{Address, ReceivedFrame};
 use ultragraphdb_protocol_wire::{
     Bind, BindKind, BodyView, Command, Commit, CommitView, ErrorReplyView, Reference,
@@ -71,6 +74,7 @@ struct Steps {
     log: String,
     parked: parked_steps::ParkedSteps,
     pid: u32,
+    played: Option<Arc<Played>>,
     roles: Option<ServiceUtil>,
     status: u16,
     version: u64,
@@ -649,14 +653,14 @@ fn logs_unpinned(w: &mut Steps) {
 
 #[when("a storage partition detects an invariant violation in a release build")]
 fn close_out_of_order(w: &mut Steps) -> TestResult {
-    on_played_frontend(w, false)
+    on_played_frontend(w, Push::OutOfOrder).map(drop)
 }
 
 #[when(
     "the frontend ends a storage process's subscription, the close it asks for being no longer held"
 )]
 fn subscription_ended(w: &mut Steps) -> TestResult {
-    on_played_frontend(w, true)
+    on_played_frontend(w, Push::Ending).map(drop)
 }
 
 #[then(
@@ -670,8 +674,8 @@ fn exits_on_the_end(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-/// A storage process over the played frontend, until it exits; `ending` as [`play_frontend`] takes it.
-fn on_played_frontend(w: &mut Steps, ending: bool) -> TestResult {
+/// A storage process over the played frontend, until it exits; `push` as [`play_frontend`] takes it.
+fn on_played_frontend(w: &mut Steps, push: Push) -> TestResult<Arc<Played>> {
     let log = scratch("storage-invariant.log");
     let settings = with(
         storage_holding()?,
@@ -679,8 +683,8 @@ fn on_played_frontend(w: &mut Steps, ending: bool) -> TestResult {
         &format!("tcp://{PLAYED_FRONTEND_ADDRESS}"),
     );
     let util = services()?;
-    Runtime::new()?.block_on(async {
-        play_frontend(ending).await?;
+    let played = Runtime::new()?.block_on(async {
+        let played = play_frontend(push).await?;
         let pid = util.start_service_from_config(role(
             STORAGE_BINARY,
             &settings,
@@ -688,9 +692,92 @@ fn on_played_frontend(w: &mut Steps, ending: bool) -> TestResult {
             WaitStrategy::NoWait,
         ))?;
         w.exited = exit_of(&util, pid).await;
-        Ok::<(), TestError>(())
+        Ok::<_, TestError>(played)
     })?;
     w.log = std::fs::read_to_string(&log)?;
+    Ok(played)
+}
+
+/// The blocks a partition holds of each type once it starts: the current block and the block ahead
+/// (notes/group-3-quads-apply.md, "Sequences").
+const BLOCKS_HELD: usize = 2;
+
+/// How long the test lets a stopping storage process go on before the frontend answers its Join: ten of the role's 20 ms
+/// looks at whether it stops.
+const STOP_SEEN: Duration = Duration::from_millis(200);
+
+#[when("a storage partition joins the frontend")]
+fn joins_played(w: &mut Steps) -> TestResult {
+    w.played = Some(on_played_frontend(w, Push::Ending)?);
+    Ok(())
+}
+
+#[then("it leased the current block and the block ahead of each type before it joined")]
+fn leased_ahead(w: &mut Steps) -> TestResult {
+    let played = w.played.as_ref().context("a played frontend")?;
+    let joined = played.joined()?;
+    assert!(!joined.is_empty(), "no Join:\n{}", w.log);
+    let held: BTreeMap<(u16, u32), usize> = joined
+        .iter()
+        .flat_map(|partition| {
+            [TypePrefix::RESOURCE, TypePrefix::STATEMENT]
+                .map(|prefix| ((prefix.get(), *partition), BLOCKS_HELD))
+        })
+        .collect();
+    assert_eq!(
+        played.leases_at_join()?.context("a Join")?,
+        held,
+        "{}",
+        w.log
+    );
+    Ok(())
+}
+
+#[when("storage receives SIGTERM while the frontend holds its Join's reply")]
+fn stopped_joining(w: &mut Steps) -> TestResult {
+    let log = scratch("storage-stopped-joining.log");
+    let settings = with(
+        storage_holding()?,
+        "cluster.frontend_address",
+        &format!("tcp://{PLAYED_FRONTEND_ADDRESS}"),
+    );
+    let util = services()?;
+    let played = Runtime::new()?.block_on(async {
+        let played = play_frontend(Push::Nothing).await?;
+        played.hold_joins(true);
+        let pid = util.start_service_from_config(role(
+            STORAGE_BINARY,
+            &settings,
+            &log,
+            WaitStrategy::NoWait,
+        ))?;
+        until_seen(|| Ok(!played.joined()?.is_empty()), "a Join").await?;
+        let signalled = std::process::Command::new("kill")
+            .args(["-TERM", &pid.to_string()])
+            .status()?;
+        assert!(signalled.success());
+        let stopping = || Ok(std::fs::read_to_string(&log)?.contains("stopping role=storage"));
+        until_seen(stopping, "the stop").await?;
+        compio::time::sleep(STOP_SEEN).await;
+        played.hold_joins(false);
+        w.exited = exit_of(&util, pid).await;
+        Ok::<_, TestError>(played)
+    })?;
+    w.log = std::fs::read_to_string(&log)?;
+    w.played = Some(played);
+    Ok(())
+}
+
+#[then("it completes its Join, exits with code 0, and never reports itself ready")]
+fn never_ready(w: &mut Steps) -> TestResult {
+    let played = w.played.as_ref().context("a played frontend")?;
+    exit_is(w.exited, &w.log, 0)?;
+    assert!(
+        played.subscribes() > 0,
+        "the Join never completed:\n{}",
+        w.log
+    );
+    assert!(!w.log.contains("ready partitions="), "{}", w.log);
     Ok(())
 }
 

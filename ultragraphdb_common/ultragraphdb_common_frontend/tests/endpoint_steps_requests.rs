@@ -52,6 +52,10 @@ const SCENARIO: Duration = Duration::from_secs(30);
 /// The dial bound of the scenario with a silent peer, its `transaction_ms`.
 const DIAL_MS: u32 = 400;
 
+/// A timer, in milliseconds, that a scenario's exchange must stay within or outlast: a second, so a machine under a load
+/// average of a hundred still runs the exchange well inside it.
+pub(crate) const TIMER_MS: u32 = 1_000;
+
 /// A `When`'s exchange, on a stage of `options` and a runtime of its own.
 pub(crate) fn run<F, Fut>(w: &mut Steps, options: Options, scenario: F) -> TestResult
 where
@@ -568,7 +572,7 @@ fn a_read_under_way_when_its_transaction_ended_takes_the_stream_s_error(
     w: &mut Steps,
 ) -> TestResult {
     let options = Options {
-        limits: limited(100),
+        limits: limited(TIMER_MS),
         ..Options::default()
     };
     run(w, options, |stage| async move {
@@ -587,7 +591,10 @@ fn a_read_under_way_when_its_transaction_ended_takes_the_stream_s_error(
         let read = client.read(transaction, &subject).await?;
         until("the read", || compute.count(Command::ComputeRead) == 1).await?;
         client.silent(read, 20).await?;
-        assert_eq!(client.refused(read).await?, (ErrorCode::PastLimit, 100));
+        assert_eq!(
+            client.refused(read).await?,
+            (ErrorCode::PastLimit, u64::from(TIMER_MS))
+        );
         Ok(())
     })
 }
@@ -849,6 +856,13 @@ fn a_session_belongs_to_its_principal(w: &mut Steps) -> TestResult {
             (ErrorCode::PermissionDenied, Action::Write.number())
         );
         assert_eq!(partition.count(Command::Commit), 0, "nothing is committed");
+        // A retried Commit, on a stream of its own, is checked alike before any partition is asked.
+        let retried = bob.send(&Commit::new(session, 1, 0)).await?;
+        assert_eq!(
+            bob.refused(retried).await?,
+            (ErrorCode::PermissionDenied, Action::Write.number())
+        );
+        assert_eq!(partition.count(Command::Recall), 0, "nothing is recalled");
         let served = ann.begin(0).await?;
         ann.write(served, &subject).await?;
         ann.on(served, &Commit::new(session, 1, 0)).await?;

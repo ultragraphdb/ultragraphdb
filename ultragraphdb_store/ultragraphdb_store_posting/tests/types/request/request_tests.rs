@@ -642,6 +642,10 @@ fn test_a_span_reads_the_requests_writes_over_the_store() -> TestResult {
         .get_from_delta(&fresh)
         .add_posting(set_uid(3), false);
     let held_before = request.held_count();
+    assert_eq!(
+        held_before, 3,
+        "the list read whole and the two written blind"
+    );
     let (reads_before, mut rows) = (request.read_keys().count(), Vec::new());
     let _exhausted = request.span(key("over", 0), None, WalkBounds::default(), |k, source| {
         let uids = source.with_list(k, ts, |list| uids_of(list, ts))??;
@@ -864,6 +868,43 @@ fn test_a_yielded_span_covers_the_empty_keys_it_read() -> TestResult {
         request.ranges().collect::<Vec<_>>(),
         vec![(first.as_slice(), Some(second.as_slice()))],
         "one range"
+    );
+    Ok(())
+}
+
+/// The bytes of a recorded range are its start's and its end's, a range to the last key its start's alone.
+#[test]
+fn test_a_range_counts_the_bytes_of_its_start_and_its_end() -> TestResult {
+    let lists = new_lists();
+    let mut request = lists.request(lists.applied_ts());
+    let (start, end) = (b"\x10abc".to_vec(), b"\x10abcdef".to_vec());
+    request.record_range(start.clone(), Some(end.clone()));
+    assert_eq!(request.range_bytes(), start.len() + end.len());
+    let last = b"\x20xy".to_vec();
+    request.record_range(last.clone(), None);
+    assert_eq!(request.range_bytes(), start.len() + end.len() + last.len());
+    Ok(())
+}
+
+/// A list the request holds, read whole, is read as held: a read through the request as a list source asks nothing of the
+/// store, which fails the next read it is asked for.
+#[test]
+fn test_a_held_list_is_read_as_held_without_the_store() -> TestResult {
+    let lists = new_lists();
+    let k = key("held", 1);
+    commit(&lists, &k, &[set_uid(2)])?;
+    let mut request = lists.request(lists.applied_ts());
+    let ts = request.read_ts();
+    request.get(&k)?.add_posting(set_uid(3), false);
+    lists.cache().remove(&k);
+    lists
+        .store()
+        .inject(ultragraphdb_store_sim::Fault::FailNextScanAfter(0));
+    let read = request.with_list(&k, ts, |list| uids_of(list, ts))??;
+    assert_eq!(read, vec![set_uid(2).uid(), set_uid(3).uid()]);
+    assert!(
+        lists.read(&k, ts).is_err(),
+        "a read of the store meets the fault the request's read left"
     );
     Ok(())
 }

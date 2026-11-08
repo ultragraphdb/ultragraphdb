@@ -32,6 +32,14 @@ Feature: The storage binary as a process
     When a storage process killed with rounds in its log restarts
     Then `/health` answers at once and `/ready` answers only after the replay
 
+  Scenario: Storage stopped before it joined is never ready
+    When storage receives SIGTERM while the frontend holds its Join's reply
+    Then it completes its Join, exits with code 0, and never reports itself ready
+
+  Scenario: A partition leases its blocks ahead of need
+    When a storage partition joins the frontend
+    Then it leased the current block and the block ahead of each type before it joined
+
   Scenario: An unknown setting stops the start
     When the storage binary receives settings whose `[storage]` table holds the key `partiton_count`
     Then it exits with code 78 and an error naming `partiton_count`

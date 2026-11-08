@@ -428,6 +428,34 @@ fn test_a_catalog_conflict_comes_after_the_reads_and_before_a_drop() -> TestResu
     Ok(())
 }
 
+/// A close announcing the catalog version already in effect, or version 0 for a tenant at none, takes nothing new into
+/// effect: the step it leaves is the one a close announcing nothing leaves, as its `Debug` shows it.
+#[test]
+fn test_a_close_announcing_the_versions_in_effect_leaves_the_step_as_a_close_announcing_none()
+-> TestResult {
+    let held = [
+        CatalogVersion::new(Tenant::new(1), 5),
+        CatalogVersion::new(Tenant::new(2), 3),
+    ];
+    let mut repeated = step(0, 9)?.with_catalog(&held);
+    let mut silent = step(0, 9)?.with_catalog(&held);
+    let _repeated = run(
+        &mut repeated,
+        Input::Close(close(
+            10,
+            vec![
+                CatalogVersion::new(Tenant::new(1), 5),
+                CatalogVersion::new(Tenant::new(3), 0),
+            ],
+            Vec::new(),
+        )?),
+        0,
+    );
+    let _silent = deliver(&mut silent, 10)?;
+    assert_eq!(format!("{repeated:?}"), format!("{silent:?}"));
+    Ok(())
+}
+
 #[test]
 fn test_a_registration_a_home_accepted_takes_a_version_of_its_own() -> TestResult {
     let mut step = step(0, 9)?.with_partition(2).with_tail(4);

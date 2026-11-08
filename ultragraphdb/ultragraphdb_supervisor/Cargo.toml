@@ -35,4 +35,3 @@ ultragraphdb_transport_http_client = { workspace = true }
 [[bin]]
 name = "ultragraphdb_supervisor"
 path = "src/main.rs"
-test = false

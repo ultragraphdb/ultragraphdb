@@ -1,0 +1,193 @@
+# Group 9: `ultragraphdb_common_frontend`'s open mutants
+
+`ultragraphdb_common_frontend`'s second run of task 9.6's mutation pass left 261 mutants missed or timed out. Tests written beside the run kill 82 of them, each proved on a copy of the tree with that one mutant applied. The 179 below are open for task 12.1, which runs the crate again; the owner stopped the crate after its second run, so no third run checked the 82. Each line gives the mutant as cargo-mutants names it and what the second run reported.
+
+A timeout is not always a hang. The BDD binary runs before the unit tests, and a mutant failing many scenarios waits out each scenario's 5 s or 30 s bound, so it can pass the 283 s limit before a unit test that would catch it within seconds has run.
+
+The five 12.1 reads first, each judged from the names alone:
+
+- `src/utils/term_rules.rs`: `check_iri`, `check_operation` and the `Slots` checks survive becoming `Ok(())`, and `parses` survives becoming `true` or `false`. Either nothing reaches the checks on a client's terms or nothing tests them.
+- `src/types/client_session/client_session_session.rs`: `authentication_refused` and `audit_authentication` survive being emptied, so no test observes a failed authentication counted toward the throttle or audited.
+- `src/utils/declarations.rs`, `narrows_and_widens`, lines 113–120: these survive a commit restating a declared edge and datatype as they stand, which suggests a restatement never reaches them.
+- `src/types/client_session/client_session_requests.rs:47`, `check_token`'s `>` to `>=`: no test sends a token at the open epoch itself.
+- `src/types/client_session/mod.rs:200`, `ending`'s `&` to `|`: `flags | FLAG_LAST` is never 0, so a partition's Commit reply lacking `LAST` with a read open behind it would end the stream early and drop the client's next frame as late. No double sends that reply.
+
+- `src/types/client_session/client_session_bind.rs:194:9: replace ClientSession<A>::send_bind with ()`, timeout
+- `src/types/client_session/client_session_bind.rs:203:21: replace += with *= in ClientSession<A>::send_bind`, missed
+- `src/types/client_session/client_session_bind.rs:238:12: delete ! in ClientSession<A>::bind_event`, timeout
+- `src/types/client_session/client_session_bind.rs:312:37: replace >> with << in ClientSession<A>::bind_refused`, missed
+- `src/types/client_session/client_session_bind.rs:377:9: replace ClientSession<A>::relay_commit with ()`, timeout
+- `src/types/client_session/client_session_bind.rs:394:9: replace ClientSession<A>::end_transaction with ()`, timeout
+- `src/types/client_session/client_session_bind.rs:48:39: replace | with ^ in cross_partition`, missed
+- `src/types/client_session/client_session_bind.rs:67:9: replace ClientSession<A>::pump with ()`, timeout
+- `src/types/client_session/client_session_bind.rs:93:9: replace ClientSession<A>::next_step -> Option<Step> with None`, timeout
+- `src/types/client_session/client_session_bind.rs:95:13: replace || with && in ClientSession<A>::next_step`, missed
+- `src/types/client_session/client_session_bind.rs:99:13: replace || with && in ClientSession<A>::next_step`, missed
+- `src/types/client_session/client_session_commit.rs:153:37: replace != with == in ClientSession<A>::abort`, missed
+- `src/types/client_session/client_session_commit.rs:195:38: replace -= with += in ClientSession<A>::retried_commit`, missed
+- `src/types/client_session/client_session_commit.rs:195:38: replace -= with /= in ClientSession<A>::retried_commit`, missed
+- `src/types/client_session/client_session_commit.rs:210:42: replace -= with += in ClientSession<A>::retried_commit`, missed
+- `src/types/client_session/client_session_commit.rs:210:42: replace -= with /= in ClientSession<A>::retried_commit`, missed
+- `src/types/client_session/client_session_commit.rs:328:25: replace || with && in ClientSession<A>::declaring_commit`, missed
+- `src/types/client_session/client_session_commit.rs:92:9: replace ClientSession<A>::refuse_reads_behind_commit with ()`, missed
+- `src/types/client_session/client_session_commit.rs:95:50: replace == with != in ClientSession<A>::refuse_reads_behind_commit`, missed
+- `src/types/client_session/client_session_one_frame.rs:132:28: replace != with == in ClientSession<A>::routed`, missed
+- `src/types/client_session/client_session_one_frame.rs:214:36: replace match guard u128::from_be_bytes(facts.session) != 0 with true in ClientSession<A>::place_one_frame`, missed
+- `src/types/client_session/client_session_one_frame.rs:251:21: replace += with *= in ClientSession<A>::send_one_frame`, missed
+- `src/types/client_session/client_session_one_frame.rs:281:31: replace == with != in ClientSession<A>::one_frame_event`, missed
+- `src/types/client_session/client_session_one_frame.rs:283:31: replace == with != in ClientSession<A>::one_frame_event`, missed
+- `src/types/client_session/client_session_one_frame.rs:284:33: replace >> with << in ClientSession<A>::one_frame_event`, missed
+- `src/types/client_session/client_session_one_frame.rs:284:39: replace != with == in ClientSession<A>::one_frame_event`, missed
+- `src/types/client_session/client_session_one_frame.rs:286:16: delete ! in ClientSession<A>::one_frame_event`, missed
+- `src/types/client_session/client_session_one_frame.rs:289:49: replace >> with << in ClientSession<A>::one_frame_event`, missed
+- `src/types/client_session/client_session_one_frame.rs:302:9: replace ClientSession<A>::resend_one_frame with ()`, missed
+- `src/types/client_session/client_session_one_frame.rs:311:9: replace ClientSession<A>::one_frame_past_limit with ()`, timeout
+- `src/types/client_session/client_session_one_frame.rs:477:9: replace ClientSession<A>::drop_answered with ()`, missed
+- `src/types/client_session/client_session_one_frame.rs:478:33: replace != with == in ClientSession<A>::drop_answered`, missed
+- `src/types/client_session/client_session_one_frame.rs:508:37: replace match guard in_turn with false in with_operations`, missed
+- `src/types/client_session/client_session_one_frame.rs:508:37: replace match guard in_turn with true in with_operations`, missed
+- `src/types/client_session/client_session_reads.rs:152:17: replace == with != in ClientSession<A>::not_open`, missed
+- `src/types/client_session/client_session_reads.rs:153:17: replace && with || in ClientSession<A>::not_open`, missed
+- `src/types/client_session/client_session_reads.rs:153:77: replace & with | in ClientSession<A>::not_open`, missed
+- `src/types/client_session/client_session_reads.rs:183:9: replace ClientSession<A>::send_next_read with ()`, timeout
+- `src/types/client_session/client_session_reads.rs:261:26: replace match guard frame.len() as u64 <= u64::from(link.max_frame()) with true in ClientSession<A>::dispatch_read`, missed
+- `src/types/client_session/client_session_reads.rs:272:37: replace + with * in ClientSession<A>::dispatch_read`, missed
+- `src/types/client_session/client_session_reads.rs:325:40: replace match guard command_of(&frame) == Some(Command::Result) with true in ClientSession<A>::read_event`, missed
+- `src/types/client_session/client_session_reads.rs:367:51: replace && with || in ClientSession<A>::relay_result`, missed
+- `src/types/client_session/client_session_reads.rs:399:23: replace && with || in ClientSession<A>::read_refused`, missed
+- `src/types/client_session/client_session_reads.rs:404:31: replace == with != in ClientSession<A>::read_refused`, missed
+- `src/types/client_session/client_session_reads.rs:424:50: replace && with || in ClientSession<A>::read_crossed`, missed
+- `src/types/client_session/client_session_reads.rs:42:5: replace columns -> u32 with 0`, missed
+- `src/types/client_session/client_session_reads.rs:42:5: replace columns -> u32 with 1`, missed
+- `src/types/client_session/client_session_reads.rs:47:13: replace + with * in columns`, missed
+- `src/types/client_session/client_session_reads.rs:47:13: replace + with - in columns`, missed
+- `src/types/client_session/client_session_reads.rs:539:9: replace ClientSession<A>::read_cancelled_answering with ()`, timeout
+- `src/types/client_session/client_session_reads.rs:552:25: replace == with != in ClientSession<A>::read_credited`, missed
+- `src/types/client_session/client_session_reads.rs:590:43: replace && with || in is_not_held`, missed
+- `src/types/client_session/client_session_requests.rs:175:42: replace && with || in ClientSession<A>::begin`, missed
+- `src/types/client_session/client_session_requests.rs:175:59: replace == with != in ClientSession<A>::begin`, missed
+- `src/types/client_session/client_session_requests.rs:175:82: replace && with || in ClientSession<A>::begin`, missed
+- `src/types/client_session/client_session_requests.rs:186:21: replace && with || in ClientSession<A>::begin`, missed
+- `src/types/client_session/client_session_requests.rs:186:30: replace > with < in ClientSession<A>::begin`, missed
+- `src/types/client_session/client_session_requests.rs:186:30: replace > with == in ClientSession<A>::begin`, missed
+- `src/types/client_session/client_session_requests.rs:186:30: replace > with >= in ClientSession<A>::begin`, missed
+- `src/types/client_session/client_session_requests.rs:284:31: replace > with >= in ClientSession<A>::describe`, missed
+- `src/types/client_session/client_session_requests.rs:304:5: replace bound_of -> Result<u64, ErrorReply> with Ok(0)`, missed
+- `src/types/client_session/client_session_requests.rs:311:5: replace fresh_identity -> Result<[u8; 16], ErrorReply> with Ok([1; 16])`, missed
+- `src/types/client_session/client_session_requests.rs:47:24: replace match guard epoch > open with true in check_token`, missed
+- `src/types/client_session/client_session_requests.rs:47:30: replace > with >= in check_token`, missed
+- `src/types/client_session/client_session_requests.rs:71:21: replace == with != in ClientSession<A>::request`, missed
+- `src/types/client_session/client_session_requests.rs:72:13: replace || with && in ClientSession<A>::request`, missed
+- `src/types/client_session/client_session_requests.rs:72:24: replace == with != in ClientSession<A>::request`, missed
+- `src/types/client_session/client_session_requests.rs:74:13: replace && with || in ClientSession<A>::request`, timeout
+- `src/types/client_session/client_session_session.rs:104:9: replace <impl Session for ClientSession<A>>::next_push -> (u64, Vec<u8>) with (0, vec![0])`, timeout
+- `src/types/client_session/client_session_session.rs:104:9: replace <impl Session for ClientSession<A>>::next_push -> (u64, Vec<u8>) with (0, vec![1])`, timeout
+- `src/types/client_session/client_session_session.rs:104:9: replace <impl Session for ClientSession<A>>::next_push -> (u64, Vec<u8>) with (0, vec![])`, timeout
+- `src/types/client_session/client_session_session.rs:104:9: replace <impl Session for ClientSession<A>>::next_push -> (u64, Vec<u8>) with (1, vec![0])`, timeout
+- `src/types/client_session/client_session_session.rs:104:9: replace <impl Session for ClientSession<A>>::next_push -> (u64, Vec<u8>) with (1, vec![1])`, timeout
+- `src/types/client_session/client_session_session.rs:104:9: replace <impl Session for ClientSession<A>>::next_push -> (u64, Vec<u8>) with (1, vec![])`, timeout
+- `src/types/client_session/client_session_session.rs:135:42: replace match guard one.session != 0 with false in <impl Session for ClientSession<A>>::cancelled`, missed
+- `src/types/client_session/client_session_session.rs:135:42: replace match guard one.session != 0 with true in <impl Session for ClientSession<A>>::cancelled`, missed
+- `src/types/client_session/client_session_session.rs:135:54: replace != with == in <impl Session for ClientSession<A>>::cancelled`, missed
+- `src/types/client_session/client_session_session.rs:144:25: replace match guard one.session != 0 with false in <impl Session for ClientSession<A>>::cancelled`, missed
+- `src/types/client_session/client_session_session.rs:144:25: replace match guard one.session != 0 with true in <impl Session for ClientSession<A>>::cancelled`, missed
+- `src/types/client_session/client_session_session.rs:144:37: replace != with == in <impl Session for ClientSession<A>>::cancelled`, missed
+- `src/types/client_session/client_session_session.rs:157:9: replace ClientSession<A>::event with ()`, timeout
+- `src/types/client_session/client_session_session.rs:167:9: replace ClientSession<A>::role_event with ()`, timeout
+- `src/types/client_session/client_session_session.rs:202:49: replace match guard transaction.session_held != 0 with true in <impl Drop for ClientSession<A>>::drop`, missed
+- `src/types/client_session/client_session_session.rs:212:41: replace != with == in <impl Drop for ClientSession<A>>::drop`, missed
+- `src/types/client_session/client_session_session.rs:223:41: replace match guard one.session != 0 with false in <impl Drop for ClientSession<A>>::drop`, missed
+- `src/types/client_session/client_session_session.rs:223:41: replace match guard one.session != 0 with true in <impl Drop for ClientSession<A>>::drop`, missed
+- `src/types/client_session/client_session_session.rs:223:53: replace != with == in <impl Drop for ClientSession<A>>::drop`, missed
+- `src/types/client_session/client_session_session.rs:232:25: replace match guard one.session != 0 with false in <impl Drop for ClientSession<A>>::drop`, missed
+- `src/types/client_session/client_session_session.rs:232:25: replace match guard one.session != 0 with true in <impl Drop for ClientSession<A>>::drop`, missed
+- `src/types/client_session/client_session_session.rs:232:37: replace != with == in <impl Drop for ClientSession<A>>::drop`, missed
+- `src/types/client_session/client_session_session.rs:237:30: replace && with || in <impl Drop for ClientSession<A>>::drop`, missed
+- `src/types/client_session/client_session_session.rs:237:50: replace != with == in <impl Drop for ClientSession<A>>::drop`, missed
+- `src/types/client_session/client_session_session.rs:246:33: replace != with == in <impl Drop for ClientSession<A>>::drop`, missed
+- `src/types/client_session/client_session_session.rs:259:9: replace ClientSession<A>::audit_authentication with ()`, missed
+- `src/types/client_session/client_session_session.rs:35:12: delete ! in <impl Session for ClientSession<A>>::authenticating`, missed
+- `src/types/client_session/client_session_session.rs:74:9: replace <impl Session for ClientSession<A>>::authentication_refused with ()`, missed
+- `src/types/client_session/client_session_timers.rs:32:52: replace && with || in ClientSession<A>::next_deadline`, timeout
+- `src/types/client_session/client_session_timers.rs:41:9: replace ClientSession<A>::timers with ()`, timeout
+- `src/types/client_session/client_session_timers.rs:47:60: replace <= with > in ClientSession<A>::timers`, timeout
+- `src/types/client_session/client_session_timers.rs:58:74: replace <= with > in ClientSession<A>::timers`, timeout
+- `src/types/client_session/client_session_timers.rs:71:68: replace <= with > in ClientSession<A>::timers`, timeout
+- `src/types/client_session/client_session_writes.rs:245:32: delete ! in ClientSession<A>::take_write`, missed
+- `src/types/client_session/client_session_writes.rs:315:45: replace > with >= in ClientSession<A>::hold`, missed
+- `src/types/client_session/client_session_writes.rs:340:9: replace ClientSession<A>::send_next_write with ()`, timeout
+- `src/types/client_session/client_session_writes.rs:351:19: replace > with < in ClientSession<A>::send_next_write`, missed
+- `src/types/client_session/client_session_writes.rs:351:19: replace > with == in ClientSession<A>::send_next_write`, missed
+- `src/types/client_session/client_session_writes.rs:351:19: replace > with >= in ClientSession<A>::send_next_write`, missed
+- `src/types/client_session/client_session_writes.rs:404:9: replace ClientSession<A>::claim_tenant -> u64 with 0`, missed
+- `src/types/client_session/client_session_writes.rs:404:9: replace ClientSession<A>::claim_tenant -> u64 with 1`, missed
+- `src/types/client_session/client_session_writes.rs:416:9: replace ClientSession<A>::claim_failed with ()`, missed
+- `src/types/client_session/client_session_writes.rs:431:40: replace match guard command_of(&frame) == Some(Command::Reference) with true in ClientSession<A>::claim_event`, missed
+- `src/types/client_session/mod.rs:200:77: replace & with | in ClientSession<A>::ending`, missed
+- `src/types/owner/owner_answer.rs:132:17: replace > with >= in Owner<M, S>::subscribe`, missed
+- `src/types/owner/owner_answer.rs:160:29: replace match guard matches!(refused.0, ClusterErrorEnum::Full { .. }) with true in Owner<M, S>::asked_register`, missed
+- `src/types/owner/owner_answer.rs:273:44: delete ! in Owner<M, S>::next_close`, missed
+- `src/types/owner/owner_catalog.rs:216:5: replace declares -> bool with true`, missed
+- `src/types/owner/owner_check.rs:143:63: replace && with || in Owner<M, S>::withdraw`, missed
+- `src/types/owner/owner_turn.rs:156:9: replace Owner<M, S>::answer_closes with ()`, timeout
+- `src/types/owner/owner_turn.rs:190:39: replace >= with < in Owner<M, S>::store_snapshots`, missed
+- `src/types/owner/owner_turn.rs:56:9: replace Owner<M, S>::turn -> Result<(), RoleError> with Ok(())`, timeout
+- `src/types/owner/owner_turn.rs:91:36: replace += with *= in Owner<M, S>::turn`, missed
+- `src/types/owner/owner_turn.rs:97:9: replace Owner<M, S>::answer_durable -> Result<(), RoleError> with Ok(())`, timeout
+- `src/types/role_link/role_link_tasks.rs:112:5: replace deliver -> Result<(), String> with Ok(())`, timeout
+- `src/types/role_link/role_link_tasks.rs:115:20: replace || with && in deliver`, missed
+- `src/types/role_link/role_link_tasks.rs:52:5: replace spawn_over with ()`, timeout
+- `src/types/role_link/role_link_tasks.rs:57:5: replace run with ()`, timeout
+- `src/types/role_link/role_link_tasks.rs:64:5: replace write with ()`, timeout
+- `src/types/role_link/role_link_tasks.rs:91:5: replace read with ()`, timeout
+- `src/types/role_session.rs:225:9: replace <impl Session for RoleSession>::next_push -> (u64, Vec<u8>) with (0, vec![0])`, timeout
+- `src/types/role_session.rs:225:9: replace <impl Session for RoleSession>::next_push -> (u64, Vec<u8>) with (0, vec![1])`, timeout
+- `src/types/role_session.rs:225:9: replace <impl Session for RoleSession>::next_push -> (u64, Vec<u8>) with (0, vec![])`, timeout
+- `src/types/role_session.rs:225:9: replace <impl Session for RoleSession>::next_push -> (u64, Vec<u8>) with (1, vec![0])`, timeout
+- `src/types/role_session.rs:225:9: replace <impl Session for RoleSession>::next_push -> (u64, Vec<u8>) with (1, vec![1])`, timeout
+- `src/types/role_session.rs:225:9: replace <impl Session for RoleSession>::next_push -> (u64, Vec<u8>) with (1, vec![])`, timeout
+- `src/types/tenant_facts.rs:36:9: replace TenantFacts::open_epoch -> u64 with 0`, missed
+- `src/types/tenant_facts.rs:36:9: replace TenantFacts::open_epoch -> u64 with 1`, missed
+- `src/utils/declarations.rs:113:43: replace != with == in narrows_and_widens`, missed
+- `src/utils/declarations.rs:116:30: replace && with || in narrows_and_widens`, missed
+- `src/utils/declarations.rs:117:34: replace && with || in narrows_and_widens`, missed
+- `src/utils/declarations.rs:118:24: delete ! in narrows_and_widens`, missed
+- `src/utils/declarations.rs:120:34: replace && with || in narrows_and_widens`, missed
+- `src/utils/declarations.rs:139:48: replace match guard old.predicate() == new.predicate() with true in tightens`, missed
+- `src/utils/declarations.rs:152:37: replace match guard tightening with true in tightens`, missed
+- `src/utils/declarations.rs:170:5: replace restored -> Vec<Declaration> with vec![]`, missed
+- `src/utils/declarations.rs:204:20: replace > with >= in version_bytes`, missed
+- `src/utils/declarations.rs:245:5: replace preorder -> BTreeMap<String, u32> with BTreeMap::from_iter([("xyzzy".into(), 0)])`, missed
+- `src/utils/declarations.rs:245:5: replace preorder -> BTreeMap<String, u32> with BTreeMap::from_iter([("xyzzy".into(), 1)])`, missed
+- `src/utils/declarations.rs:245:5: replace preorder -> BTreeMap<String, u32> with BTreeMap::from_iter([(String::new(), 0)])`, missed
+- `src/utils/declarations.rs:245:5: replace preorder -> BTreeMap<String, u32> with BTreeMap::from_iter([(String::new(), 1)])`, missed
+- `src/utils/declarations.rs:245:5: replace preorder -> BTreeMap<String, u32> with BTreeMap::new()`, missed
+- `src/utils/declarations.rs:261:14: replace += with *= in preorder`, missed
+- `src/utils/declarations.rs:261:14: replace += with -= in preorder`, missed
+- `src/utils/owner_thread.rs:42:9: replace OwnerThread::unknown_secret -> [u8; 32] with [0; 32]`, missed
+- `src/utils/owner_thread.rs:42:9: replace OwnerThread::unknown_secret -> [u8; 32] with [1; 32]`, missed
+- `src/utils/snapshot_file.rs:14:23: replace match guard error.kind() == std::io::ErrorKind::NotFound with true in load`, missed
+- `src/utils/term_rules.rs:215:9: replace Slots<'_, '_>::graph -> Result<(), ErrorReply> with Ok(())`, missed
+- `src/utils/term_rules.rs:219:9: replace Slots<'_, '_>::predicate -> Result<(), ErrorReply> with Ok(())`, missed
+- `src/utils/term_rules.rs:251:9: replace Slots<'_, '_>::statement -> Result<(), ErrorReply> with Ok(())`, missed
+- `src/utils/term_rules.rs:271:9: replace Slots<'_, '_>::properties -> Result<(), ErrorReply> with Ok(())`, missed
+- `src/utils/term_rules.rs:365:5: replace check_operation -> Result<(), ErrorReply> with Ok(())`, missed
+- `src/utils/term_rules.rs:55:5: replace check_iri -> Result<(), ErrorReply> with Ok(())`, missed
+- `src/utils/term_rules.rs:76:5: replace parses -> bool with false`, missed
+- `src/utils/term_rules.rs:76:5: replace parses -> bool with true`, missed
+- `src/utils_test/double_frame.rs:49:9: replace DoubleFrame::bytes -> &[u8] with Vec::leak(Vec::new())`, timeout
+- `src/utils_test/double_frame.rs:49:9: replace DoubleFrame::bytes -> &[u8] with Vec::leak(vec![0])`, timeout
+- `src/utils_test/double_frame.rs:49:9: replace DoubleFrame::bytes -> &[u8] with Vec::leak(vec![1])`, timeout
+- `src/utils_test/double_session.rs:48:9: replace <impl Session for DoubleSession<F>>::next_push -> (u64, Vec<u8>) with (0, vec![0])`, timeout
+- `src/utils_test/double_session.rs:48:9: replace <impl Session for DoubleSession<F>>::next_push -> (u64, Vec<u8>) with (0, vec![1])`, timeout
+- `src/utils_test/double_session.rs:48:9: replace <impl Session for DoubleSession<F>>::next_push -> (u64, Vec<u8>) with (0, vec![])`, timeout
+- `src/utils_test/double_session.rs:48:9: replace <impl Session for DoubleSession<F>>::next_push -> (u64, Vec<u8>) with (1, vec![0])`, timeout
+- `src/utils_test/double_session.rs:48:9: replace <impl Session for DoubleSession<F>>::next_push -> (u64, Vec<u8>) with (1, vec![1])`, timeout
+- `src/utils_test/double_session.rs:48:9: replace <impl Session for DoubleSession<F>>::next_push -> (u64, Vec<u8>) with (1, vec![])`, timeout
+- `src/utils_test/role_double.rs:108:9: replace RoleDouble::join -> Result<(), String> with Ok(())`, timeout
+- `src/utils_test/role_double.rs:129:9: replace RoleDouble::frames -> Vec<DoubleFrame> with vec![]`, timeout
+- `src/utils_test/role_double.rs:151:9: replace RoleDouble::count -> usize with 0`, timeout
+- `src/utils_test/role_double.rs:157:9: replace RoleDouble::connections_ended -> usize with 1`, missed
+- `src/utils_test/role_double.rs:183:9: replace RoleDouble::cluster -> u64 with 0`, missed
+- `src/utils_test/role_double.rs:183:9: replace RoleDouble::cluster -> u64 with 1`, missed
+- `src/utils_test/role_double.rs:226:16: replace == with != in partition_answer`, timeout

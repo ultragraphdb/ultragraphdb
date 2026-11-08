@@ -572,10 +572,14 @@ fn referrer_scan(from: Vec<u8>, version: u64, limit: usize) -> TestResult<Kernel
 fn test_a_values_page_streams_each_key_s_stored_value_at_its_version() -> TestResult {
     let (store, held, version) = referrer_store()?;
     let mut read = Vec::new();
-    let page = store.values_page(&referrer_scan(Vec::new(), version, usize::MAX)?, |k, v| {
-        read.push((k.to_vec(), v.to_vec()));
-        ControlFlow::Continue(())
-    })?;
+    // A limit above the keys held: the page ends by exhausting its range, and a page giving more stops.
+    let page = store.values_page(
+        &referrer_scan(Vec::new(), version, held.len() + 1)?,
+        |k, v| {
+            read.push((k.to_vec(), v.to_vec()));
+            ControlFlow::Continue(())
+        },
+    )?;
     assert_eq!(read, held);
     assert_eq!((page.end(), page.rows()), (&PageEnd::Exhausted, held.len()));
     // Below the version they were written at, the sets are absent.
@@ -647,7 +651,7 @@ fn test_a_values_page_stops_at_its_limit_and_pauses_between_keys() -> TestResult
     );
     // The next page from where it paused reads the rest.
     let mut rest = Vec::new();
-    let end = store.values_page(&referrer_scan(past, version, usize::MAX)?, |k, _| {
+    let end = store.values_page(&referrer_scan(past, version, held.len() + 1)?, |k, _| {
         rest.push(k.to_vec());
         ControlFlow::Continue(())
     })?;
@@ -690,13 +694,15 @@ fn statement_store() -> TestResult<(TestQuads, Held, u64)> {
     Ok((store, held, version))
 }
 
+/// The statements of `TENANT` at `version`, at a limit above any page these tests read: such a page ends by exhausting its range,
+/// and a page giving more than the store holds stops.
 fn statement_scan(version: u64) -> TestResult<KernelScan> {
     Ok(KernelScan::new(
         Keyspace::Statements,
         TENANT,
         Vec::new(),
         version,
-        NonZeroUsize::new(usize::MAX).context("a limit")?,
+        NonZeroUsize::new(8).context("a limit")?,
     ))
 }
 

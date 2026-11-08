@@ -590,3 +590,57 @@ fn test_a_timeout_or_an_expiry_past_an_instant_sets_no_deadline() -> TestResult 
     assert!(h.core.take_reply(p).is_none());
     Ok(())
 }
+
+/// A Write of one IRI `iri_bytes` long.
+fn write_of(iri_bytes: usize) -> Write {
+    let mut terms = TermTable::new();
+    let _iri: u32 = terms.iri(&"x".repeat(iri_bytes));
+    Write::new(terms, Vec::new())
+}
+
+/// A request exactly as large as the Welcome's `max_frame` is sent: only a larger one is refused (`PROTOCOL.md` §2.5: a
+/// frame up to `max_frame` bytes).
+#[test]
+fn test_a_request_of_the_welcomes_largest_frame_is_sent() -> TestResult {
+    const MAX: usize = 524_288;
+    let size = |iri_bytes: usize| -> TestResult<usize> {
+        Ok(write_of(iri_bytes)
+            .frame(Header::new(CLUSTER, Command::Write))?
+            .len())
+    };
+    // A frame is its body and a chunk table growing with the body (`PROTOCOL.md` §2.3), so the IRI is sized again until
+    // the frame comes out at the limit.
+    let mut iri_bytes = MAX - size(0)?;
+    let mut exact = None;
+    for _ in 0..8 {
+        let got = size(iri_bytes)?;
+        if got == MAX {
+            exact = Some(iri_bytes);
+            break;
+        }
+        iri_bytes = (iri_bytes + MAX)
+            .checked_sub(got)
+            .context("a smaller IRI")?;
+    }
+    let exact = exact.context("an IRI filling the frame to its limit")?;
+    let mut h = Harness::with(
+        config(),
+        TestServer::new(
+            CLUSTER,
+            Welcome::new(1, RELEASE, "s")
+                .with_max_frame(524_288)
+                .with_max_streams(8)
+                .with_initial_credit(4),
+        ),
+        NetworkFaults::none(),
+        1,
+        Anonymous,
+    );
+    h.connect()?;
+    h.until(|h| h.core.is_ready())?;
+    let p = h.core.begin(0, false, h.now)?;
+    let tx = begun(h.settle(p)?)?;
+    h.core.write(&tx, &write_of(exact))?;
+    assert_eq!(h.core.transmit().context("the Write")?.len(), MAX);
+    Ok(())
+}

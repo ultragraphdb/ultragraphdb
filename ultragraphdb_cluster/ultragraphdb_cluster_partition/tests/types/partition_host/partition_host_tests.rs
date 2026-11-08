@@ -568,3 +568,53 @@ fn test_a_read_waits_only_while_its_home_has_not_answered() -> TestResult {
         Ok(())
     })
 }
+
+/// A registration a Reference brought from another process is answered to the shell, under the asking's number and index,
+/// once durable (`PROTOCOL.md` §13.15).
+#[test]
+fn test_a_registration_from_another_process_is_answered_to_the_shell() -> TestResult {
+    use ultragraphdb_cluster_partition::{
+        PartitionHost, PartitionMailbox, Reference, RemoteMessage,
+    };
+    use ultragraphdb_transactions_commit::{CloseRequest, Pipeline, RoundBounds};
+    let b = Cluster::even(1)?.name_in(1, "b")?;
+    let placement = PlacementMap::even(1, NodeId::new(1))?;
+    let id = pid(1)?;
+    let part = crate::utils::cluster::node(id, &placement, epoch(1)?)?;
+    let pipeline = Pipeline::new(
+        part.applier(),
+        crate::utils::hosts::sim_log(id)?,
+        RoundBounds::new(u32::MAX, u32::MAX),
+    )?
+    .with_partition(id.get(), epoch(1)?, CloseRequest::default(), &[])
+    .bound(id, part.placement());
+    let (shell, remote) = std::sync::mpsc::channel();
+    let mailbox = PartitionMailbox::mesh(&[id])
+        .into_iter()
+        .next()
+        .context("a mailbox")?
+        .with_remote(shell);
+    let sender = mailbox.sender(id).context("a sender")?;
+    let mut host = PartitionHost::new(&part, pipeline, mailbox);
+    let reference = Reference::new(id, TENANT, ex(&b).as_str().to_string(), None, None, 0);
+    sender.send(PartitionMessage::Register {
+        from: None,
+        write: 42,
+        batch: vec![(0, reference)],
+    })?;
+    for _ in 0..3 {
+        crate::utils::cluster::block_on(host.turn(0))??;
+    }
+    let answered = remote.try_recv()?;
+    let RemoteMessage::Answered {
+        write,
+        index,
+        answer,
+    } = answered
+    else {
+        return Err(TestError::new(format!("not an answer: {answered:?}")));
+    };
+    assert_eq!((write, index), (42, 0));
+    assert!(answer.is_ok(), "{answer:?}");
+    Ok(())
+}

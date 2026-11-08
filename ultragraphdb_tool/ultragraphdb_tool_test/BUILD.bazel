@@ -5,6 +5,7 @@
 
 load("@crates//:defs.bzl", "aliases", "all_crate_deps", "lint_config")
 load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
 
 # The helpers the store crates' test targets share. Bazel compiles each test target from its own sources, so a helper
 # more than one target uses lives in a library they depend on.
@@ -17,4 +18,16 @@ rust_library(
     tags = ["ultragraphdb_tool_test"],
     visibility = ["//visibility:public"],
     deps = all_crate_deps(normal = True),
+)
+
+# The helpers' own unit tests, mirroring `src/`.
+rust_test(
+    name = "ultragraphdb_tool_test_tests",
+    srcs = glob(["tests/**/*.rs"]),
+    crate_root = "tests/mod.rs",
+    tags = ["unit-test"],
+    deps = [":ultragraphdb_tool_test"] + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
 )

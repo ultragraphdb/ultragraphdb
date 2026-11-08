@@ -875,3 +875,51 @@ fn test_an_operated_transaction_keeps_its_marks_and_its_edges_join_referrer_sets
     assert_eq!(groups, vec![crate::utils::partitions::group_of("s")?]);
     Ok(())
 }
+
+/// Operations on top of a transaction's writes leave the logical writes of both: the transaction's statements and the
+/// operation's, which its record logs.
+#[test]
+fn test_operations_leave_the_logical_writes_of_the_transaction_and_their_own() -> TestResult {
+    let a = changesets()?;
+    unique(&a)?;
+    let own = executed(&a, vec![insert("<a> <knows> <b>")?])?;
+    let (operated, _results) = operate(&a, &own, &[], &[insert_if_absent("v")])?;
+    let (mine, all) = (own.logical(), operated.logical());
+    assert!(!mine.inserted().is_empty());
+    for quad in mine.inserted() {
+        assert!(all.inserted().contains(quad), "{quad:?} in {all:?}");
+    }
+    assert!(
+        all.inserted().len() > mine.inserted().len(),
+        "the operation's statement: {all:?}"
+    );
+    a.release(&operated);
+    Ok(())
+}
+
+/// Operations on top of a transaction that removed an index keep its removal: once the round applies, the index holds no key.
+#[test]
+fn test_operations_keep_the_index_removals_of_the_transaction_beneath() -> TestResult {
+    use ultragraphdb_core_mapping::Declaration;
+    let a = changesets()?;
+    declare(&a, "name", "with `exact`")?;
+    write(&a, &["<a> <name> \"pear\""])?;
+    let pear = crate::utils::changesets::exact_token("pear");
+    assert_eq!(
+        crate::utils::changesets::indexed(&a, "name", &pear)?,
+        vec![uid(&a, "a")?]
+    );
+    let removing = executed(
+        &a,
+        vec![Change::Declare(Declaration::Predicate(
+            crate::utils::changesets::declaration("name", "")?,
+        ))],
+    )?;
+    let (operated, _results) = operate(&a, &removing, &[], &[])?;
+    apply(&a, vec![operated])?;
+    assert_eq!(
+        crate::utils::changesets::indexed(&a, "name", &pear)?,
+        Vec::<SystemId>::new()
+    );
+    Ok(())
+}

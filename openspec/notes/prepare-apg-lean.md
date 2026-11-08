@@ -207,7 +207,9 @@ names the sections of `SCHEMA-APG.md` it transcribes, and each theorem's the pro
 | `schema/ApgModel/History.lean` | Naming, graphs, states, slices, commits, proposition 15.2 | 15 |
 | `schema/ApgModel/Migration.lean` | Selection, key lookup, extended terms, the fragment, coproducts, proposition 16.6 | 16 |
 | `schema/ApgModel/Views/Rdf.lean` | `R` from templates natural in their references, proposition 17.2 (L7a) | 17 |
-| `schema/ApgModel/Views/RdfInverse.lean` | `R⁻¹`, proposition 17.3, the SHACL lemmas (L7b) | 17 |
+| `schema/ApgModel/Views/RdfInverse.lean` | `R⁻¹` (L7b) | 17 |
+| `schema/ApgModel/Views/RdfRoundTrip.lean` | Proposition 17.3 (L7b) | 17 |
+| `schema/ApgModel/Views/RdfShacl.lean` | Corollary 17.4 (L7b) | 17 |
 | `schema/ApgModel/Views/Gql.lean` | `P` as MGQL's graph, `Γ`, propositions 18.2 to 18.4 | 18 |
 | `schema/ApgModel/Oracle/Typeside.lean` | The oracle's concrete typeside (decision L6), with wave L7a | 2 |
 | `schema/ApgModel/Oracle/Generate.lean`, `Oracle/NQuads.lean`, `Oracle/Main.lean` | The generator of valid APGs, the N-Quads exporter and parser, `apg_oracle` | 19 |
@@ -254,8 +256,8 @@ main work.
 | Definition 16.5 | `coprod`, `coprod_inl_hom`, `coprod_inr_hom` | Definitions | S |
 | Proposition 16.6 | `history_through_migration` | Propositions 15.2 and 16.4 and the permanence of key claims | M |
 | Definition 17.1; proposition 17.2 | `templates`, `Tmpl.inst`, `rdf`, `templates_mapRefs`, `Tmpl.inst_mono`, `rdf_monotone` | Each quad from one element's template, natural in its references, named by a naming monotone in its definedness | M |
-| Proposition 17.3 | `rdfInv`, `rdf_round_trip` | Label from the most specific type quad, unique by single inheritance; fields by distinct predicates; edges by reifier or triple | L |
-| Corollary 17.4 | `shacl_min_count`, `shacl_max_count`, `shacl_datatype`, `shacl_in`, `shacl_class` | From typing and section 14.2 (L10) | M |
+| Proposition 17.3 | `rdfInv`, `RoundTrip`, `rdf_round_trip` | Attribution of each own predicate to its subject; label from the chain of type quads; each slot by inverting the check against its type; elements by IRI, triple or pair | L |
+| Corollary 17.4 | `shacl_min_count`, `shacl_max_count`, `shacl_datatype`, `shacl_in`, `shacl_class`, `shacl_class_edge` | From the shapes of an element's own quads that proposition 17.3's proof establishes (L10) | M |
 | Definition 18.1 | `gql : PropertyGraph`, `graphType : GraphSchemaFull` | Built as MGQL's types (L11) | M |
 | Proposition 18.2 | `gql_conforms : graphConformsSchema (gql G) (graphType S) = true` | Every node's and edge's label set and properties by construction; endpoints by field typing | L |
 | Proposition 18.3 | `gql_monotone` | As 17.2 | S |
@@ -339,7 +341,7 @@ folder as its one argument, and L7c runs it into a scratch folder whose files Le
 - example 9.6 is checked by the kernel, the identity term of `AssertedBy` type-checking against `Φ̂(σ'(AssertedBy))`
   as the specification states.
 
-**What L7b has settled:**
+**What L7b settled:**
 - the view's predicates and class IRIs are structured values (`Pred`, `Term.cls`), as its literals are (decision L5);
   the exporter writes them as IRIs, distinct by `UGS0801`, so proposition 17.3 is proved over structured quads;
 - the built-in fields are `ugdb:asserted_start`, `ugdb:asserted_end` and `ugdb:live` (`SCHEMA.md` section 7.4);
@@ -352,7 +354,17 @@ folder as its one argument, and L7c runs it into a scratch folder whose files Le
 - a concrete type's record is its `slots`, which `S(K)` and the inverse both read;
 - `rdfInv` reads an element named by an IRI from its type and field quads, one named by a triple from its navigation
   quad, and one of a role label from its role quad, references through the naming's inverse; on example 6.7 it gives
-  back every element with its label and value, checked by the kernel.
+  back every element with its label and value, checked by the kernel;
+- proposition 17.3 is `rdf_round_trip`, under conditions (`RoundTrip`) that each restate a rule of `SCHEMA.md`: field
+  names unique, an attribute's view fitting its type, edge-encoded relations' anchors and navigation names (`UGS0404`,
+  `UGS0408`, `UGS0418`), a valid `G` whose labels are `S(K)`'s, an injective naming defined on IRI-named elements and
+  participants, and `G` written as the store writes it (sorted sets without an empty one, bounded intervals with each
+  precision beside its bound, hidden precisions their type's own, `@symmetric` triples in IRI order); the string order's
+  antisymmetry, which the last needs, is proved from the order of characters;
+- corollary 17.4 is a lemma per shape condition, over the quads at an element's IRI under the same conditions:
+  `sh:minCount 1` of a required attribute, `sh:maxCount 1` of a single-valued one, `sh:datatype` and `sh:in` of a
+  primitive or enumerated attribute and of a set's members, and `sh:class` of a role triple's participant and of every
+  navigation triple's object.
 
 **What L7a settled:**
 - the catalog carries what the views read: keys, `@bitemporal`, `@multi`, `@symmetric`, `@colocate`, navigation

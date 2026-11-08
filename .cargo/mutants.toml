@@ -115,6 +115,24 @@ exclude_re = [
     # `down` did not move it, `up` runs as it does unmutated.
     "ultragraphdb_core_algo/src/types/uint64_heap/mod\\.rs:\\d+:11: replace > with < in Uint64Heap::down$",
 
+    # ---------------------------------------------------------------------------------------------
+    # ultragraphdb_core_ids
+    # ---------------------------------------------------------------------------------------------
+
+    # `(epoch.get() << SEQUENCE_BITS) | ((1 << SEQUENCE_BITS) - 1)` versus `^` in `Version::bound_of`: `SEQUENCE_BITS`
+    # is 22, the shifted epoch has no bit below 22 and the mask no bit from 22 up, so the operands share no set bit and
+    # `|` and `^` agree on every epoch.
+    "ultragraphdb_core_ids/src/types/version/mod\\.rs:\\d+:40: replace \\| with \\^ in Version::bound_of$",
+
+    # ---------------------------------------------------------------------------------------------
+    # ultragraphdb_core_keys
+    # ---------------------------------------------------------------------------------------------
+
+    # `keyspace.byte() | if split { SPLIT_FLAG } else { 0 }` versus `^` in `key_prefix`: every keyspace byte (0x01, and
+    # 0x10 to 0x1B) has bit 0x80 clear and the other operand is `SPLIT_FLAG` (0x80) or 0, so the operands share no set
+    # bit and `|` and `^` agree on every keyspace.
+    "ultragraphdb_core_keys/src/types/quad_key/mod\\.rs:\\d+:33: replace \\| with \\^ in key_prefix$",
+
     # ===========================================================================================
     # Protocol and the client shells
     # ===========================================================================================
@@ -142,12 +160,13 @@ exclude_re = [
     # * `Anonymous`'s `start` and `answer` return `Ok(Vec::new())`; `Ok(vec![])` is the same empty vector.
     #
     # ---------------------------------------------------------------------------------------------
-    # ultragraphdb_protocol_transport: ServerConnection::request, a Commit on an open stream
+    # ultragraphdb_protocol_transport: ServerConnection::request_of, a Commit on an open stream
     # ---------------------------------------------------------------------------------------------
     #
-    # The arm `Command::Commit if open` (line 375; the line anchor keeps the guard of the arm of new
-    # requests on an open stream, line 334, which the suite kills, in the run) closes the connection with `ErrorCode::Protocol` and the text of
-    # `TransportError::stream_open(stream)`. With its guard false the Commit falls to the next arm, which
+    # The arm `RequestKind::Commit if open` (column 36; the guard of the arm of new requests on an open
+    # stream, column 20, which the suite kills, stays in the run) closes the connection with
+    # `ErrorCode::Protocol` and the text of `TransportError::stream_open(stream)`. With its guard false
+    # the Commit falls to the next arm, which
     # opens the stream through `Outbound::open`; that refuses a stream already open with
     # `StreamOpen(stream)` before changing anything (the stream-zero check before it cannot fire: stream 0
     # is never open), and `open` sends any refusal but a stream limit or an unknown transaction to
@@ -167,10 +186,72 @@ exclude_re = [
     # ultragraphdb_protocol_transport: identical expressions
     "network_faults\\.rs:21:\\d+: replace NetworkFaults::none -> Self with Default::default\\(\\)",
     "anonymous_client_mechanism\\.rs:\\d+:\\d+: replace <impl ClientMechanism for Anonymous>::(start|answer) -> Result<Vec<u8>, Self::Error> with Ok\\(vec!\\[\\]\\)",
-    # ultragraphdb_protocol_transport: ServerConnection::request
-    "transport/src/types/server_connection/mod\\.rs:375:\\d+: replace match guard open with false in ServerConnection<A>::request",
+    # ultragraphdb_protocol_transport: ServerConnection::request_of
+    "ultragraphdb_protocol_transport/src/types/server_connection/mod\\.rs:\\d+:36: replace match guard open with false in ServerConnection<A>::request_of$",
     # ultragraphdb_client_tokio: identical expression
     "tokio_sim_stream_async_write\\.rs:\\d+:\\d+: replace <impl AsyncWrite for TokioSimStream>::poll_flush -> Poll<io::Result<\\(\\)>> with Poll::from\\(Ok\\(\\(\\)\\)\\)",
+
+    # The entries below name their file and column but not their line, and each matches exactly the mutants it argues
+    # for; each was confirmed with the comm check.
+    # ---------------------------------------------------------------------------------------------
+    # ultragraphdb_protocol_wire
+    # ---------------------------------------------------------------------------------------------
+
+    # `DirectWriteView::is_empty` versus `false`: no view a caller can hold is empty. `read` is its only constructor, and
+    # it refuses a body of no records as `CountMismatch` ("changes") while `check_records` refuses a partial record, so
+    # `len()` is at least 1 and `is_empty` false for every view. (`with true` is caught.)
+    "ultragraphdb_protocol_wire/src/types/direct_write_view/mod\\.rs:\\d+:9: replace DirectWriteView<'a>::is_empty -> bool with false$",
+
+    # `Held`'s `command_header` versus `[0; COMMAND_HEADER_SIZE]` and its `body` versus `vec![]`: Held writes no field
+    # and no section, so `command_header(&[])` is the all-zero 128 bytes (PROTOCOL.md §13.20) and
+    # `write_sections(&[], &[])` the empty body (§4.1, a body of no section is empty), the values the mutants return.
+    "ultragraphdb_protocol_wire/src/types/held/held_body_builder\\.rs:\\d+:9: replace <impl BodyBuilder for Held>::command_header -> \\[u8; COMMAND_HEADER_SIZE\\] with \\[0; COMMAND_HEADER_SIZE\\]$",
+    "ultragraphdb_protocol_wire/src/types/held/held_body_builder\\.rs:\\d+:9: replace <impl BodyBuilder for Held>::body -> Vec<u8> with vec!\\[\\]$",
+
+    # `HeldView::to_body` versus `Ok(Default::default())`: `Held` is a unit struct, and its derived `Default` is `Held`.
+    "ultragraphdb_protocol_wire/src/types/held_view/held_view_body_view\\.rs:\\d+:9: replace <impl BodyView<'a> for HeldView<'a>>::to_body -> Result<Held, ProtocolError> with Ok\\(Default::default\\(\\)\\)$",
+
+    # ---------------------------------------------------------------------------------------------
+    # ultragraphdb_client_core
+    # ---------------------------------------------------------------------------------------------
+
+    # `credit > 0` versus `>=` in `ClientCore::read_timeout`'s filter: `credit` is a u32, so the two differ only at
+    # credit 0, and the filter decides differently only for a stream at credit 0 with an empty inbox and no caller
+    # waiting, which never exists. Credit reaches 0 only in `receive`, which pushes the Result into the inbox in the same
+    # step; the inbox drains only through `next_batch`, which keeps `with_caller` for every batch but the last and, on the
+    # call that finds it empty and clears it, grants credit again at once; and the Welcome's `initial_credit` is at
+    # least 1 (`WelcomeView` refuses 0).
+    "ultragraphdb_client_core/src/types/client_core/mod\\.rs:\\d+:69: replace > with >= in ClientCore<L>::read_timeout$",
+
+    # `(epoch << 22) | 998` versus `^` in `TestServer::set_epoch` (test-utils): the shifted epoch has no bit below 22
+    # and 998 is below 2^22, so the operands share no set bit and `|` and `^` agree on every epoch.
+    "ultragraphdb_client_core/src/utils_test/test_server/mod\\.rs:\\d+:38: replace \\| with \\^ in TestServer::set_epoch$",
+
+    # The TestServer's (test-utils) replay checks against a session's last request in `commit`, `one_frame` and `drop`:
+    # `request == record.last && request > 0`, which returns the stored reply, with `>` versus `>=`, and the
+    # out-of-order check after it, `request < record.last`, with `<` versus `<=` (a request equal to `record.last` above
+    # 0 has already returned, or in `commit` with a transaction is refused by the check's second clause). Each check
+    # runs only through a session (session 0 returns earlier), so the mutants differ only at
+    # `request == record.last == 0` through a session. No such frame reaches them: the
+    # TestServer parses each frame first, with `CommitView::from_frame`, `DirectWriteView` or
+    # `ConditionalWriteView::from_client_frame`, and `DropCommandView::from_frame`, whose `session_request`
+    # (ultragraphdb_protocol_wire utils/fields.rs) refuses request 0 with a non-zero session (PROTOCOL.md §6.3, §6.5,
+    # §6.6), and calls none of the three on a refused parse.
+    "ultragraphdb_client_core/src/utils_test/test_server/test_server_commit\\.rs:\\d+:71: replace > with >= in TestServer::commit$",
+    "ultragraphdb_client_core/src/utils_test/test_server/test_server_commit\\.rs:\\d+:20: replace < with <= in TestServer::commit$",
+    "ultragraphdb_client_core/src/utils_test/test_server/test_server_commit\\.rs:\\d+:50: replace > with >= in TestServer::(one_frame|drop)$",
+    "ultragraphdb_client_core/src/utils_test/test_server/test_server_commit\\.rs:\\d+:24: replace < with <= in TestServer::(one_frame|drop)$",
+
+    # ---------------------------------------------------------------------------------------------
+    # ultragraphdb_client_compio
+    # ---------------------------------------------------------------------------------------------
+
+    # `deadline > at` versus `>=` in `Client::drive`, where `at` is `now()`: the two differ only when `now()` returns the
+    # deadline's very instant, to the nanosecond. The read then waits until that deadline, already reached, rather than
+    # `READ_TURN` past it, and
+    # `read_by` asks the read first, so a waiting frame is taken and the deadline handled next, as the original handles
+    # it a turn later: the same frames and the same deadlines are taken in the same order.
+    "ultragraphdb_client_compio/src/types/client/mod\\.rs:\\d+:37: replace > with >= in Client<C, L>::drive$",
 
     # ===========================================================================================
     # The write-ahead log
@@ -267,6 +348,56 @@ exclude_re = [
     "ultragraphdb_store_sim/src/types/store_workload/mod\\.rs:\\d+:64: replace << with >> in StoreWorkload::drop_entries",
 
     # ===========================================================================================
+    # The store
+    # ===========================================================================================
+    # Each entry names its file and column but not its line, and matches exactly the mutants it argues for; each was
+    # confirmed with the comm check.
+    # ---------------------------------------------------------------------------------------------
+    # ultragraphdb_store_apply
+    # ---------------------------------------------------------------------------------------------
+
+    # `key >= start && end.is_none_or(|end| key < end)` in `ChangesetWrite::own_records`, `&&` versus `||` and `<` versus
+    # `<=`: both only let entries outside `[start, end)` through the filter. `own_records` has one caller,
+    # `Execution::values_page`, which hands the map to `QuadStore::values_page_over`, and that reads it through
+    # `own.range(start..).take_while(key < end)`, bounding it to `[start, end)` itself, so such an entry is never read.
+    "ultragraphdb_store_apply/src/types/changeset_write/mod\\.rs:\\d+:54: replace && with \\|\\| in ChangesetWrite<'a, S, C, B>::own_records$",
+    "ultragraphdb_store_apply/src/types/changeset_write/mod\\.rs:\\d+:93: replace < with <= in ChangesetWrite<'a, S, C, B>::own_records$",
+
+    # `declaration_key` versus `vec![]`, `vec![0]` and `vec![1]`: its one caller, `ChangesetWrite::declare`, is reached
+    # for an entity type or a relation only (a predicate returns through `declare_predicate` first), and hands the key
+    # to `add_entry`, which sets `catalog_changed` whatever the key and removes the key from `defaults`. `add_default`
+    # writes that map's keys only as `catalog_key(tenant, PREDICATE, id)`, so no key of an entity type or a relation,
+    # nor `[]`, `[0]` or `[1]`, is ever in it, and the removal finds nothing under every key.
+    "ultragraphdb_store_apply/src/utils/catalog_keys\\.rs:\\d+:5: replace declaration_key -> Vec<u8> with vec!\\[(|0|1)\\]$",
+
+    # ---------------------------------------------------------------------------------------------
+    # ultragraphdb_store_quads
+    # ---------------------------------------------------------------------------------------------
+
+    # `DictionaryState::pending_id` versus `None`: its one caller, `free_skolem`, asks whether a freshly drawn skolem
+    # IRI is pending. Every pending skolem IRI was drawn from the same `DictionaryState`'s `RandomSource` (`resolve`
+    # refuses a skolem IRI neither pending nor held), a SplitMix64 stream whose state steps by an odd constant through
+    # a bijective mix, so its u64 outputs do not repeat within 2^64 draws and a new IRI's 64 random bits never equal a
+    # pending one's: the answer is always `None`.
+    "ultragraphdb_store_quads/src/types/dictionary/mod\\.rs:\\d+:9: replace DictionaryState<B>::pending_id -> Option<SystemId> with None$",
+
+    # ---------------------------------------------------------------------------------------------
+    # ultragraphdb_store_posting
+    # ---------------------------------------------------------------------------------------------
+
+    # `Lists`' `added_keys` versus `::std::iter::empty()`: the body is `std::iter::empty()`, the same expression.
+    "ultragraphdb_store_posting/src/types/lists/mod\\.rs:\\d+:9: replace <impl ListSource for Lists<S, C>>::added_keys -> impl Iterator<Item =&'a\\[u8\\]> with ::std::iter::empty\\(\\)$",
+
+    # ---------------------------------------------------------------------------------------------
+    # ultragraphdb_store_kv
+    # ---------------------------------------------------------------------------------------------
+
+    # `number > *held` versus `>=` in `Shared::newest_journal`: the two choose differently only between two journal
+    # names parsing to one number. fjall names each journal `{number}.jnl` once (fjall-3.1.12 src/journal/writer.rs,
+    # pinned exactly) and `read_dir` lists each name once, so no two files of the store's directory tie.
+    "ultragraphdb_store_kv/src/types/fjall_store/store_meta\\.rs:\\d+:66: replace > with >= in Shared::newest_journal$",
+
+    # ===========================================================================================
     # Transport
     # ===========================================================================================
     # ---------------------------------------------------------------------------------------------
@@ -287,6 +418,155 @@ exclude_re = [
     # guard, so `true` takes the same branch. Measured: cargo-mutants over the crate, 56 mutants after
     # test_peer_tests: 30 caught, 25 unviable, 1 timeout (an echo that never ends), and this one missed.
     "ultragraphdb_transport_tls/src/utils_test/test_peer/mod\\.rs:\\d+:\\d+: replace match guard e\\.kind\\(\\) == io::ErrorKind::WouldBlock with true in TestPeer<A>::answer",
+
+    # ---------------------------------------------------------------------------------------------
+    # ultragraphdb_transport_http_server
+    # ---------------------------------------------------------------------------------------------
+
+    # `READ_BYTES`, `16 * 1024`, with `*` replaced by `+`: it sizes each read buffer and nothing else. `read_request` is
+    # bounded by the bytes a request holds (each read takes at least one byte) and `drain` by `DRAIN_MAX` bytes and the
+    # time, so 1,040-byte reads change how many reads a request takes, never what is read, answered or drained
+    # (`test_a_drain_stops_at_its_bytes` holds for either size, stopping within one peer read of `DRAIN_MAX`).
+    "ultragraphdb_transport_http_server/src/utils/serve_http\\.rs:\\d+:30: replace \\* with \\+$",
+
+    # ---------------------------------------------------------------------------------------------
+    # ultragraphdb_transport_http_client
+    # ---------------------------------------------------------------------------------------------
+
+    # `READ_BYTES`, `16 * 1024`, with `*` replaced by `+`: it sizes each read buffer and nothing else. The reply loop
+    # reads until `parse_reply` finds the reply whole or malformed or the peer ends, bounded by `EXCHANGE_TIME`, so
+    # 1,040-byte reads change how many reads a reply takes, never the reply.
+    "ultragraphdb_transport_http_client/src/types/http_client\\.rs:\\d+:30: replace \\* with \\+$",
+
+    # ===========================================================================================
+    # The roles: their libraries, the metadata and the storage binary
+    # ===========================================================================================
+    # Each entry names its file and column but not its line, and matches exactly the mutants it argues for, except the
+    # one that says it is line-anchored; each was confirmed with the comm check.
+    # ---------------------------------------------------------------------------------------------
+    # ultragraphdb_common_compute
+    # ---------------------------------------------------------------------------------------------
+
+    # `PartitionRows::no_rows` versus `Ok(())`, which skips its `self.end()`: every path to `no_rows` returns before
+    # `plan` sets the part's access, so a part not ended holds none; its first fill finds none in `next_graph` and ends
+    # it with no Scan sent, and `may_hold_more` reads the same unset state (graphs done, nothing pending or open).
+    "ultragraphdb_common_compute/src/types/partition_rows/partition_rows_plan\\.rs:\\d+:9: replace PartitionRows::no_rows -> Result<\\(\\), ErrorReply> with Ok\\(\\(\\)\\)$",
+
+    # `Frontier::with_capacity` versus `Default::default()`: it only presizes the heap's Vec, and capacity is observable
+    # through none of `push`, `pop` or `streams` (which returns the slice of the length).
+    "ultragraphdb_common_compute/src/types/frontier\\.rs:\\d+:9: replace Frontier::with_capacity -> Self with Default::default\\(\\)$",
+
+    # `left < self.heap.len()` and `right < self.heap.len()` versus `<=` in `Frontier::pop`: each admits only the index
+    # equal to the length besides, where `heap.get` is `None` and `Frontier::less` returns false, so the condition stays
+    # false. (Run 2 reported both caught, by a `read_pins_tests` test refused "the frontend's placement map did not come
+    # within 300ms", a load-dependent wait unrelated to the frontier.)
+    "ultragraphdb_common_compute/src/types/frontier\\.rs:\\d+:(21|22): replace < with <= in Frontier::pop$",
+
+    # `frame_size_with(row, 0) > self.max_frame` versus `>=` in `ResultSink::push_row`: only an empty batch whose
+    # `frame_size_with(row)` is exactly `max_frame` differs. The mutant then builds the row alone and asks
+    # `fits_exactly`, and `frame_size_with` is an upper bound of the frame built ("At most the bytes",
+    # `ResultBatch::frame_size_with`), so that frame is at most `max_frame`, `fits_exactly` holds and the row is pushed
+    # as it is without the check.
+    "ultragraphdb_common_compute/src/types/result_sink\\.rs:\\d+:51: replace > with >= in ResultSink::push_row$",
+
+    # `self.batch.rows() > 0` versus `>=` in `ResultSink::finish`: the two differ only for an empty batch inside the
+    # branch, which `finish` never sees. `merge` calls `finish` with a non-empty resume key only right after `push_row`
+    # put the row it stopped at in the batch, and with an empty key the branch needs the batch itself past `max_frame`,
+    # which an empty batch never is.
+    "ultragraphdb_common_compute/src/types/result_sink\\.rs:\\d+:46: replace > with >= in ResultSink::finish$",
+
+    # `link.heard.get() < asked` versus `<=` in `Link::watch`: `heard` and `asked` are readings of one monotonic clock
+    # at two different events, a frame's arrival in the reader and the request's wait starting in the ScanStream, and
+    # the operators differ only when the two readings are equal, which no caller can arrange or observe.
+    "ultragraphdb_common_compute/src/types/link\\.rs:\\d+:54: replace < with <= in Link::watch$",
+
+    # `read_frames`' first `pool.available() == 0`, which yields one turn, versus `!=`, and `yield_once` versus `()`.
+    # Without the turn the reader finds the frame still held and takes a new pool at once (the second check): every
+    # frame reaches its holder in the same order, and the one difference is a new 1 MiB pool per frame still held
+    # instead of a turn's wait for the holder to return its buffer, an allocation no caller observes. Line-anchored:
+    # the second check has the same column and description, and its mutant is caught.
+    "ultragraphdb_common_compute/src/types/link\\.rs:217:29: replace == with != in read_frames$",
+    "ultragraphdb_common_compute/src/types/link\\.rs:\\d+:5: replace yield_once with \\(\\)$",
+
+    # `u64::from(partition) | (u64::from(other) << 32)` versus `^` in `partitions_detail`: the operands fill bits 0 to
+    # 31 and 32 to 63, so they share no set bit and `|` and `^` agree on every pair of u32.
+    "ultragraphdb_common_compute/src/utils/refusals\\.rs:\\d+:26: replace \\| with \\^ in partitions_detail$",
+
+    # ---------------------------------------------------------------------------------------------
+    # ultragraphdb_common_storage
+    # ---------------------------------------------------------------------------------------------
+
+    # `PartitionCore::scan_ready` versus `true` and `false`: it chooses only, in `run`, between yielding once and
+    # waiting up to `TICK` (1 ms) on the inbox; either way the loop then drains the inbox with `try_recv` and turns, so
+    # every message is taken in the same order and every frame and refusal is the same. Always true makes an idle core
+    # poll instead of sleep (all 37 in-process tests pass with it); always false delays a due frame by at most 1 ms per
+    # turn, and PROTOCOL.md §13.14 sets no latency a reply could show.
+    "ultragraphdb_common_storage/src/types/partition_core/partition_core_reads\\.rs:\\d+:9: replace PartitionCore<'a>::scan_ready -> bool with (true|false)$",
+
+    # The guard `self.host.partition().applier().rebuilding()` on `next_version`'s arm keeping a version whose install
+    # failed, versus `true` and `false`. The guard is false wherever the arm is reached: `next_version` returns at its
+    # start while a build runs, and a build begins only in `ChangesetCore::begin`, called when its version's round
+    # applies in `host.turn`, which cannot run inside this synchronous call. With `true`, the arm takes the one install
+    # error outside a build, the store's own, on which `Pipeline::install` has already stopped the pipeline (it stops
+    # unless rebuilding), so keeping the version for a retry or dropping it reports nothing and commits nothing more.
+    "ultragraphdb_common_storage/src/types/partition_core/partition_core_versions\\.rs:\\d+:27: replace match guard self\\.host\\.partition\\(\\)\\.applier\\(\\)\\.rebuilding\\(\\) with (true|false) in PartitionCore<'_>::next_version$",
+
+    # `u128::from(connection) << 64 | u128::from(stream)` versus `^` in `identity_of`: the shifted connection has its
+    # low 64 bits zero and the stream its high 64 bits zero, so `|` and `^` give the same 128 bits.
+    "ultragraphdb_common_storage/src/types/partition_core/partition_core_one_frame\\.rs:\\d+:35: replace \\| with \\^ in identity_of$",
+
+    # `yield_once` versus `()` in the partition core: in `run`'s loop it only orders this thread's tasks while a Scan has
+    # a turn (each built frame parks its Scan until its session reports it left, so the loop falls through to the
+    # `TICK` wait and yields anyway; only idle pages requeue without the session, a bounded latency); at the stop it
+    # lets told Errors reach connections before the runtime ends, which the spec leaves best-effort: a stop with a write
+    # parked answers code 17 or closes the connection (PROTOCOL.md §11.12; the storage_tests scenario "A stop with a
+    # write parked answers or closes" accepts either).
+    "ultragraphdb_common_storage/src/types/partition_core/mod\\.rs:\\d+:5: replace yield_once with \\(\\)$",
+
+    # `u64::from(a) | (u64::from(b) << 32)` versus `^` in `error_reply` (codes WrongPartition and CrossPartition),
+    # `txn_code` and `commit_code`: both operands are u32 widened, one in bits 0 to 31 and the other shifted to bits 32
+    # to 63, so they share no set bit and `|` and `^` give the same detail.
+    "ultragraphdb_common_storage/src/utils/error_reply\\.rs:\\d+:(32|35): replace \\| with \\^ in (error_reply|txn_code|commit_code)$",
+
+    # `member.partition() > 0` versus `>=` in `address_of`: a Members reply's members of partition 0 (compute
+    # processes) are then recorded under key 0 as well, which nothing looks up, since a partition ID is at least 1
+    # (`PartitionId::new` refuses 0); every storage member is recorded as before.
+    "ultragraphdb_common_storage/src/types/partition_core/partition_core_remote\\.rs:\\d+:35: replace > with >= in address_of$",
+
+    # ---------------------------------------------------------------------------------------------
+    # ultragraphdb_common_config
+    # ---------------------------------------------------------------------------------------------
+
+    # `ConfigStore`'s `READ_BYTES`, `1 << 20`, with `<<` replaced by `>>`: it only caps one read of the log, and
+    # `OrderedLog::read` returns at least one round whenever one is durable, so at `1 >> 20 = 0` bytes `recover` still
+    # reads every round, one per call instead of up to 1 MiB of them, and replays the same rounds into the same state.
+    "ultragraphdb_common_config/src/types/config_store/mod\\.rs:\\d+:27: replace << with >>$",
+
+    # ---------------------------------------------------------------------------------------------
+    # ultragraphdb_common_role
+    # ---------------------------------------------------------------------------------------------
+
+    # `left > 0` versus `==`, `<` and `>=` in `finish_open`: the guard decides only whether a stop logs the requests still
+    # open at its limit, and `finish_open` returns `left` either way, which is all a caller reads.
+    "ultragraphdb_common_role/src/utils/finish_open\\.rs:\\d+:13: replace > with (==|<|>=) in finish_open$",
+
+    # ---------------------------------------------------------------------------------------------
+    # ultragraphdb_cluster_metadata
+    # ---------------------------------------------------------------------------------------------
+
+    # `v.version() < *version` versus `<=` in `MetadataState::learn_close`'s in-order check: the filter then also admits
+    # the version equal to `*version`, the pending record just verified, and `(*tenant, *version)` is the very element of
+    # `versions` being iterated, so `versions.contains` holds for it and the conjunction is unchanged for every input.
+    "ultragraphdb_cluster_metadata/src/types/metadata_state/metadata_state_apply\\.rs:\\d+:45: replace < with <= in MetadataState::learn_close$",
+
+    # ---------------------------------------------------------------------------------------------
+    # ultragraphdb_storage
+    # ---------------------------------------------------------------------------------------------
+
+    # `CACHE_BYTES`, `64 << 20`, with `<<` replaced by `>>`: the posting lists' cache then holds 0 bytes. `Lists`' cache
+    # serves a read only from a current entry and every miss reads the store (ultragraphdb_store_posting lists/mod.rs,
+    # "The cache"), so a cache holding nothing gives every answer the same, only slower.
+    "ultragraphdb_storage/src/service\\.rs:\\d+:29: replace << with >>$",
 
     # ===========================================================================================
     # Tools

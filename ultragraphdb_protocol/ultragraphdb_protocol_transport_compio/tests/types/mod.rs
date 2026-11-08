@@ -13,3 +13,7 @@ mod compio_tls_stream;
 mod connection;
 #[cfg(test)]
 mod listener;
+#[cfg(test)]
+mod tls_read_half_tests;
+#[cfg(test)]
+mod tls_write_half_tests;

@@ -600,3 +600,36 @@ fn test_operations_register_what_they_name() -> TestResult {
     }
     Ok(())
 }
+
+/// A commit-time operation's subject routes as a write's first subject does: one another partition owns names that owner,
+/// and one this partition owns passes.
+#[test]
+fn test_an_operations_subject_routes_as_a_writes_first_subject() -> TestResult {
+    use crate::utils::cluster::{TENANT, ex};
+    use oxrdf::{GraphName, NamedOrBlankNode};
+    use ultragraphdb_cluster_partition::PartitionErrorEnum;
+    use ultragraphdb_store_apply::Operation;
+    let cluster = Cluster::even(2)?;
+    let (own, foreign) = (cluster.name_in(1, "a")?, cluster.name_in(2, "b")?);
+    let predicate = cluster.name_in(1, "p")?;
+    let counter = |subject: NamedOrBlankNode| Operation::CounterAdd {
+        graph: GraphName::DefaultGraph,
+        subject,
+        predicate: ex(&predicate),
+        delta: 1,
+    };
+    let part = cluster.part(1)?;
+    let refused = part
+        .check_operation_subject(TENANT, &counter(ex(&foreign).into()), cluster.closed())
+        .err()
+        .context("a refusal")?;
+    assert!(
+        matches!(
+            refused.0,
+            PartitionErrorEnum::WrongPartition { owner: 2, .. }
+        ),
+        "{refused:?}"
+    );
+    part.check_operation_subject(TENANT, &counter(ex(&own).into()), cluster.closed())?;
+    Ok(())
+}

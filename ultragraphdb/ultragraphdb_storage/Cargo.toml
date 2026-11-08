@@ -53,4 +53,3 @@ ultragraphdb_common_storage = { workspace = true }
 [[bin]]
 name = "ultragraphdb_storage"
 path = "src/main.rs"
-test = false

@@ -4,7 +4,7 @@
  */
 
 use ultragraphdb_core_ids::{Bucket, CanonicalKey, Tenant, TypePrefix};
-use ultragraphdb_store_quads::{iri_bucket, tenant_base};
+use ultragraphdb_store_quads::{iri_bucket, is_skolem, tenant_base};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
 const TENANT: u64 = 3;
@@ -34,6 +34,7 @@ fn test_a_skolem_iri_states_its_bucket() -> TestResult {
         tenant_base(TENANT),
         "1".repeat(26)
     );
+    assert!(is_skolem(TENANT, &skolem));
     let bucket = iri_bucket(TENANT, &skolem).context("a bucket")?;
     assert_eq!(bucket.get(), 0xAB_CDEF);
     assert_ne!(bucket, derived(&skolem)?);
@@ -50,6 +51,7 @@ fn test_what_only_looks_like_a_skolem_iri_derives_from_its_key() -> TestResult {
         format!("{}.well-known/genid/abcdef-short", tenant_base(TENANT)),
         format!("http://ex.org/{tail}"),
     ] {
+        assert!(!is_skolem(TENANT, &iri), "{iri}");
         assert_eq!(iri_bucket(TENANT, &iri), Some(derived(&iri)?), "{iri}");
     }
     Ok(())

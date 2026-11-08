@@ -7,3 +7,5 @@
 mod client_config_tests;
 #[cfg(test)]
 mod client_core;
+#[cfg(test)]
+mod result_stream_tests;

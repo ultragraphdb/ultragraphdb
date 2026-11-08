@@ -344,6 +344,17 @@ fn test_the_session_table_survives_a_restart_with_the_store() -> TestResult {
     assert_eq!(again.step().sessions().last(session), Some((1, committed)));
     let retried = again.retry(session, 1)?;
     assert_eq!(retried.version(), committed);
+    assert_eq!(
+        again
+            .check_one_frame(session, 1)?
+            .map(|stored| stored.version()),
+        Some(committed),
+        "a resend of the last request is answered with its stored reply"
+    );
+    assert!(
+        again.check_one_frame(session, 2)?.is_none(),
+        "the next request is to decide"
+    );
     assert_eq!(Some(retried.token()), first.token());
     assert_eq!(
         applier.quads().lists().applied_ts(),

@@ -75,3 +75,19 @@ fn test_a_buffer_lost_with_its_read_comes_back_whole() -> TestResult {
     assert!(again.take().capacity() >= capacity, "the pool's capacity");
     Ok(())
 }
+
+/// A buffer given back whole is lent again as it was: the pool allocates its buffers once, at start, so the vector a
+/// buffer held comes back with the next one taken, and giving a buffer back allocates nothing.
+#[test]
+fn test_a_buffer_given_back_whole_is_lent_again_without_a_new_allocation() -> TestResult {
+    let pool = BufferPool::new(1, 4_096);
+    let mut buffer = pool.acquire()?;
+    let bytes = buffer.take();
+    let lent = bytes.as_ptr();
+    buffer.restore(bytes);
+    drop(buffer);
+    let mut again = pool.acquire()?;
+    let relent = again.take();
+    assert_eq!(relent.as_ptr(), lent, "the vector the pool lent before");
+    Ok(())
+}

@@ -20,6 +20,8 @@ mod logical_quad_tests;
 #[cfg(test)]
 mod marked_reference_tests;
 #[cfg(test)]
+mod read_counts_tests;
+#[cfg(test)]
 mod reads_tests;
 #[cfg(test)]
 mod record_writes_tests;

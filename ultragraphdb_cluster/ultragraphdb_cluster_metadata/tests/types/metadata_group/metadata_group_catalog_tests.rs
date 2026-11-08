@@ -33,6 +33,15 @@ fn test_an_offer_numbers_the_version_after_its_predecessor() -> TestResult {
 }
 
 #[test]
+fn test_a_checked_offer_numbers_the_version_after_its_predecessor() -> TestResult {
+    let (_storage, mut group) = fresh()?;
+    assert_eq!(group.offer_checked(tenant(), 0, b"tight")?.0, 1);
+    assert_eq!(group.offer_checked(tenant(), 1, b"tighter")?.0, 2);
+    assert_eq!(group.offer_checked(Tenant::new(8), 0, b"other")?.0, 1);
+    Ok(())
+}
+
+#[test]
 fn test_a_default_entry_is_recorded_once() -> TestResult {
     let (_storage, mut group) = fresh()?;
     let first = DefaultEntry::new(tenant().get(), "score".to_string(), b"first".to_vec());

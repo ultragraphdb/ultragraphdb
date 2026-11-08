@@ -149,3 +149,32 @@ fn test_the_placement_map_once_initialised() -> TestResult {
     assert_eq!(map.preferred_leader(PartitionId::new(5)?), None);
     Ok(())
 }
+
+#[test]
+fn test_a_tenants_default_entries_are_its_own_by_predicate() -> TestResult {
+    let mut state = MetadataState::new();
+    for (tenant, predicate) in [(2, "b"), (1, "z"), (2, "a"), (3, "a")] {
+        state.apply(&MetadataCommand::RecordDefault {
+            tenant: Tenant::new(tenant),
+            predicate: predicate.to_string(),
+            entry: format!("{tenant}{predicate}").into_bytes(),
+        })?;
+    }
+    let entries = |tenant| -> Vec<(String, Vec<u8>)> {
+        state
+            .default_entries(Tenant::new(tenant))
+            .map(|(predicate, entry)| (predicate.to_string(), entry.to_vec()))
+            .collect()
+    };
+    // Tenant 2's two records, by predicate, and none of tenant 1's below them or tenant 3's above.
+    assert_eq!(
+        entries(2),
+        vec![
+            ("a".to_string(), b"2a".to_vec()),
+            ("b".to_string(), b"2b".to_vec())
+        ]
+    );
+    assert_eq!(entries(3), vec![("a".to_string(), b"3a".to_vec())]);
+    assert_eq!(entries(4), Vec::new());
+    Ok(())
+}

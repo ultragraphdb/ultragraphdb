@@ -670,3 +670,41 @@ fn test_resuming_a_session_keeps_its_token() -> TestResult {
     assert_eq!(h.core.session_token(resumed), Some(&held));
     Ok(())
 }
+
+/// A Begin's own token of the very epoch the session's token holds is the one it carries: the session's token takes its
+/// place only when of a higher epoch.
+#[test]
+fn test_an_own_token_of_the_sessions_epoch_is_carried() -> TestResult {
+    let mut h = Harness::ready(server())?;
+    let s = session(&mut h)?;
+    h.server.set_epoch(12);
+    let p = h.core.direct_write(insert(), s, h.now)?;
+    let held = committed(h.settle(p)?)?
+        .token()
+        .cloned()
+        .context("a token")?;
+    let own = SessionToken::new(held.partition() + 1, held.position() + 1, held.epoch());
+    let begin = Begin::new(0, 0, true).with_token(own.clone());
+    let p2 = h.core.begin_with(begin, s, h.now)?;
+    let _tx = begun(h.settle(p2)?)?;
+    let sent = h.server.received().last().context("a frame")?;
+    let view = FrameView::validate(sent, CLUSTER, MAX_FRAME_SIZE)?;
+    assert_eq!(BeginView::from_frame(&view)?.token(), Some(&own));
+    Ok(())
+}
+
+/// A Begin through a session this client does not hold is refused before it is sent.
+#[test]
+fn test_a_begin_through_a_session_not_held_is_refused() -> TestResult {
+    let mut other = Harness::ready(server())?;
+    let foreign = session(&mut other)?;
+    let mut h = Harness::ready(server())?;
+    assert_eq!(
+        h.core
+            .begin_with(Begin::new(0, 0, true), foreign, h.now)
+            .err(),
+        Some(ClientError::unknown_session(foreign.number()))
+    );
+    assert_eq!(h.core.transmit(), None, "nothing is sent");
+    Ok(())
+}

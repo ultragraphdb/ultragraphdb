@@ -231,3 +231,34 @@ fn test_a_reply_behind_a_failed_write_is_read() -> TestResult {
         Ok(())
     })
 }
+
+/// A peer that ends its side partway through a reply's body leaves the reply malformed at once: its end is no more bytes.
+/// The peer runs on a thread of its own and resets the connection half a second after its end, so a client that went on
+/// reading past the end, which a socket answers at once and forever, fails rather than holds the test.
+#[test]
+fn test_a_reply_ending_early_is_malformed() -> TestResult {
+    use std::io::Write;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let address = listener.local_addr()?;
+    Runtime::new()?.block_on(async {
+        compio::runtime::spawn_blocking(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                drop(stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc"));
+                drop(stream.shutdown(std::net::Shutdown::Write));
+                // Nothing of the request is read, so closing the socket resets the connection.
+                std::thread::sleep(Duration::from_millis(500));
+            }
+        })
+        .detach();
+        let refused = client(&format!("http://{address}"), None, KEY)?
+            .request("GET", "/", b"")
+            .await
+            .err()
+            .context("a refusal")?;
+        assert!(
+            matches!(&refused.0, HttpClientErrorEnum::Malformed { reason, .. } if reason == "the reply ended early"),
+            "{refused}"
+        );
+        Ok(())
+    })
+}

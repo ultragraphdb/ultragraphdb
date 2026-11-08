@@ -681,3 +681,48 @@ fn test_statement_reifier_draws_past_the_bound_are_refused() -> TestResult {
     );
     Ok(())
 }
+
+/// A write knows the IRIs it resolved and those it inherited of its own tenant, and no other: not another tenant's, and not one
+/// it never named; it inherits the strings of its own tenant alone too.
+#[test]
+fn test_a_write_knows_the_iris_it_resolved_or_inherited_of_its_tenant() -> TestResult {
+    let store = quads()?;
+    let r = |n| -> TestResult<SystemId> {
+        Ok(SystemId::new(
+            TypePrefix::RESOURCE,
+            Bucket::new(3)?,
+            ultragraphdb_core_ids::Sequence::new(n)?,
+        ))
+    };
+    let (own, other) = (
+        Hash128::of(b"a long string of the write's tenant"),
+        Hash128::of(b"a long string of another tenant"),
+    );
+    let entries = [
+        VersionlessEntry::put(
+            id_key(0, r(41)?),
+            ex("inherited").as_str().as_bytes().to_vec(),
+        ),
+        VersionlessEntry::put(
+            id_key(1, r(43)?),
+            ex("elsewhere").as_str().as_bytes().to_vec(),
+        ),
+        VersionlessEntry::put(literal_key(0, &own), b"own".to_vec()),
+        VersionlessEntry::put(literal_key(1, &other), b"other".to_vec()),
+    ];
+    let mut terms = WriteTerms::new(0);
+    assert!(!terms.knows(ex("a").as_str()), "nothing resolved yet");
+    terms.inherit(&entries.iter().collect::<Vec<_>>());
+    let _a: SystemId = iri(&mut terms, &store, "a")?;
+    assert!(terms.knows(ex("a").as_str()), "resolved");
+    assert!(terms.knows(ex("inherited").as_str()), "inherited");
+    assert!(!terms.knows(ex("elsewhere").as_str()), "another tenant's");
+    assert!(!terms.knows(ex("never").as_str()), "never named");
+    assert_eq!(terms.pending_string(&own), Some("own"));
+    assert_eq!(
+        terms.pending_string(&other),
+        None,
+        "another tenant's string"
+    );
+    Ok(())
+}

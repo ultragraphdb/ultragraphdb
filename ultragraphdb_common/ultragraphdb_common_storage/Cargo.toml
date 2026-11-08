@@ -51,7 +51,10 @@ ultragraphdb_transactions_log = { workspace = true }
 ultragraphdb_transactions_txn = { workspace = true }
 
 [dev-dependencies]
+ultragraphdb_cluster_sequencer = { workspace = true }
 ultragraphdb_tool_bdd = { workspace = true }
+ultragraphdb_tool_test = { workspace = true }
+ultragraphdb_traits_log = { workspace = true }
 
 [[test]]
 name = "unit"

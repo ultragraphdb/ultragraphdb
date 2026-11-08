@@ -1233,3 +1233,32 @@ fn test_a_failed_connect_with_no_commit_waiting_uses_no_attempt() -> TestResult 
     assert_eq!(h.core.next_request(s), Some(2));
     Ok(())
 }
+
+/// Requests made while a resolve waits for its answer each wait under a number of their own: each is answered with
+/// its own reply.
+#[test]
+fn test_requests_made_while_a_resolve_waits_are_answered_apart() -> TestResult {
+    let mut h = Harness::ready(server())?;
+    let s = session(&mut h)?;
+    let tx = begin(&mut h)?;
+    let p = h.core.commit(tx, s, h.now)?;
+    h.blackhole = true;
+    h.until(|h| h.server.applied() == 1)?;
+    h.core.close();
+    let lost = h.core.take_reply(p).context("an answer")?;
+    assert_eq!(
+        in_doubt(&lost.err().context("an error")?),
+        Some((s.number(), 1))
+    );
+    h.blackhole = false;
+    h.connect()?;
+    h.until(|h| h.core.is_ready())?;
+    let resolving = h.core.resolve(s, h.now)?;
+    let first = h.core.register(h.now)?;
+    let second = h.core.register(h.now)?;
+    assert_eq!(committed(h.settle(resolving)?)?.request(), 1);
+    let one = registered(h.settle(first)?)?;
+    let two = registered(h.settle(second)?)?;
+    assert_ne!(one.number(), two.number());
+    Ok(())
+}

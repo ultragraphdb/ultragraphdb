@@ -42,7 +42,7 @@ use crate::utils::harness::{
     CLUSTER, Harness, RELEASE, begun, committed, config, prepared, registered, scram_welcome,
     server,
 };
-use ultragraphdb_tool_bdd::{Context as _, TestResult};
+use ultragraphdb_tool_bdd::{Context as _, TestError, TestResult};
 
 #[derive(Default, World)]
 pub(crate) struct Steps {
@@ -106,19 +106,27 @@ fn batches(h: &mut Harness, stream: &ResultStream) -> usize {
     read
 }
 
-/// Every remaining batch of \`stream\` until its last, each read as it arrives.
+/// Every remaining batch of \`stream\` until its last, each read as it arrives; a read ending in an error fails.
 pub(crate) fn rest<L: Login>(h: &mut Harness<L>, stream: &ResultStream) -> TestResult<usize> {
     let mut read = 0;
+    let mut failed = None;
     h.until(|h| {
         loop {
             match h.core.next_batch(stream, h.now, |_| ()) {
                 Ok(BatchPoll::Batch(())) => read += 1,
                 Ok(BatchPoll::Done) => return true,
-                _ => return false,
+                Ok(BatchPoll::Wait) => return false,
+                Err(error) => {
+                    failed = Some(error);
+                    return true;
+                }
             }
         }
     })?;
-    Ok(read)
+    match failed {
+        Some(error) => Err(TestError::new(format!("the read ended in {error}"))),
+        None => Ok(read),
+    }
 }
 
 #[when("the connection drops after a commit is sent and the client reconnects and retries")]

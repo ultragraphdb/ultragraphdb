@@ -10,6 +10,8 @@ mod errors;
 #[cfg(test)]
 mod extensions;
 #[cfg(test)]
+mod traits;
+#[cfg(test)]
 mod types;
 #[cfg(test)]
 mod utils;

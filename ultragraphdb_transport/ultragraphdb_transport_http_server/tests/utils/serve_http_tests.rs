@@ -5,15 +5,20 @@
 
 use std::cell::Cell;
 use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use compio::BufResult;
+use compio::buf::{IoBuf, IoBufMut};
 use compio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use compio::net::{TcpListener, TcpStream};
 use compio::runtime::{Runtime, spawn};
-use ultragraphdb_tool_bdd::{TestError, TestResult};
+use ultragraphdb_protocol_transport::Address;
+use ultragraphdb_protocol_transport_compio::Listener;
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transport_http_server::{
-    HttpLimits, HttpRequest, HttpResponse, HttpService, serve_http,
+    HttpLimits, HttpRequest, HttpResponse, HttpService, serve_http, serve_listener,
 };
 
 /// The bytes one read of a reply asks for.
@@ -28,6 +33,17 @@ const PAUSE: Duration = Duration::from_millis(5);
 /// How many pauses a client writes through, waiting for a close: 5 s, far past any time the tests name.
 const CLOSE_TURNS: u32 = 1_000;
 
+/// How long a client waits on anything a server owes it at once: far past what a loopback takes, so a server that owes it
+/// and never sends fails the test rather than holding it.
+const WAIT: Duration = Duration::from_secs(5);
+
+/// `future`'s output, or a failure naming `what` when it takes past [`WAIT`].
+async fn within<T>(what: &str, future: impl Future<Output = T>) -> TestResult<T> {
+    compio::time::timeout(WAIT, future)
+        .await
+        .map_err(|_| TestError::new(format!("{what} within {WAIT:?}")))
+}
+
 #[derive(Clone, Copy)]
 struct Fine;
 
@@ -39,30 +55,48 @@ impl HttpService for Fine {
 
 /// Answers as `Fine` does, counting the calls.
 #[derive(Clone)]
-struct Counted(Rc<Cell<u32>>);
+struct Counted(Arc<AtomicU32>);
 
 impl HttpService for Counted {
     async fn call(&self, _request: HttpRequest) -> HttpResponse {
-        self.0.set(self.0.get() + 1);
+        let _before = self.0.fetch_add(1, Ordering::Relaxed);
         HttpResponse::new(200)
     }
 }
 
-/// A connection to a server of `limits`.
-async fn connected(limits: HttpLimits) -> TestResult<TcpStream> {
-    let listener = TcpListener::bind("127.0.0.1:0").await?;
-    let address = listener.local_addr()?;
-    spawn(async move {
-        if let Ok((stream, _)) = listener.accept().await {
-            serve_http(stream, &limits, &Fine).await;
-        }
+/// Serves the one connection `listener` takes by `service` within `limits`, on a thread and a runtime of its own, so a
+/// server that never yields cannot hold the test's own bounded waits.
+fn serve_apart<H: HttpService + Send + 'static>(
+    listener: std::net::TcpListener,
+    limits: HttpLimits,
+    service: H,
+) {
+    compio::runtime::spawn_blocking(move || {
+        let Ok(runtime) = Runtime::new() else {
+            return;
+        };
+        runtime.block_on(async move {
+            let Ok(listener) = TcpListener::from_std(listener) else {
+                return;
+            };
+            if let Ok((stream, _)) = listener.accept().await {
+                serve_http(stream, &limits, &service).await;
+            }
+        });
     })
     .detach();
+}
+
+/// A connection to a server of `limits`.
+async fn connected(limits: HttpLimits) -> TestResult<TcpStream> {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let address = listener.local_addr()?;
+    serve_apart(listener, limits, Fine);
     Ok(TcpStream::connect(address).await?)
 }
 
 async fn answer(stream: &mut TcpStream) -> TestResult<String> {
-    let BufResult(read, bytes) = stream.read_to_end(Vec::new()).await;
+    let BufResult(read, bytes) = within("the answer", stream.read_to_end(Vec::new())).await?;
     let _count: usize = read?;
     Ok(String::from_utf8(bytes)?)
 }
@@ -114,23 +148,18 @@ fn test_an_oversized_body_is_refused_unread() -> TestResult {
 }
 
 /// A connection to a server of `limits` that counts what `Counted` is asked: the connection and the count.
-async fn counted(limits: HttpLimits) -> TestResult<(TcpStream, Rc<Cell<u32>>)> {
-    let listener = TcpListener::bind("127.0.0.1:0").await?;
+async fn counted(limits: HttpLimits) -> TestResult<(TcpStream, Arc<AtomicU32>)> {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let address = listener.local_addr()?;
-    let calls = Rc::new(Cell::new(0));
-    let service = Counted(calls.clone());
-    spawn(async move {
-        if let Ok((stream, _)) = listener.accept().await {
-            serve_http(stream, &limits, &service).await;
-        }
-    })
-    .detach();
+    let calls = Arc::new(AtomicU32::new(0));
+    serve_apart(listener, limits, Counted(Arc::clone(&calls)));
     Ok((TcpStream::connect(address).await?, calls))
 }
 
 /// The first bytes of the reply to what `stream` has sent, whatever it sends next.
 async fn first_of_reply(stream: &mut TcpStream) -> TestResult<String> {
-    let BufResult(read, bytes) = stream.read(Vec::with_capacity(READ_BYTES)).await;
+    let BufResult(read, bytes) =
+        within("a reply", stream.read(Vec::with_capacity(READ_BYTES))).await?;
     let _count: usize = read?;
     Ok(String::from_utf8(bytes)?)
 }
@@ -139,7 +168,7 @@ async fn first_of_reply(stream: &mut TcpStream) -> TestResult<String> {
 async fn write_on(stream: &mut TcpStream, pieces: u32) -> TestResult {
     for piece in 0..pieces {
         compio::time::sleep(PAUSE).await;
-        let BufResult(written, _) = stream.write_all(vec![b'x'; PIECE]).await;
+        let BufResult(written, _) = within("a write", stream.write_all(vec![b'x'; PIECE])).await?;
         written
             .map_err(|error| TestError::new(format!("write {piece} after a refusal: {error}")))?;
     }
@@ -183,7 +212,7 @@ fn test_a_refusal_reaches_a_client_still_sending() -> TestResult {
             write_on(&mut stream, 4).await?;
             stream.shutdown().await?;
             let _end: String = answer(&mut stream).await?;
-            assert_eq!(calls.get(), 0, "{status}");
+            assert_eq!(calls.load(Ordering::Relaxed), 0, "{status}");
         }
         Ok(())
     })
@@ -245,7 +274,7 @@ fn test_a_client_sending_without_end_loses_its_connection_at_the_bytes() -> Test
         let mut sent = 0;
         // Past the most a drain reads, and whatever the two kernels' buffers hold beside it.
         while sent < 4 * HttpLimits::DRAIN_MAX {
-            let BufResult(taken, returned) = stream.write_all(buffer).await;
+            let BufResult(taken, returned) = within("a write", stream.write_all(buffer)).await?;
             buffer = returned;
             if taken.is_err() {
                 // The write that failed may have taken part of its buffer.
@@ -264,7 +293,7 @@ fn test_a_client_sending_without_end_loses_its_connection_at_the_bytes() -> Test
 /// Writes through [`CLOSE_TURNS`] pauses until a write fails, the server's close having reached this socket as a reset.
 async fn until_closed(stream: &mut TcpStream) -> TestResult {
     for _ in 0..CLOSE_TURNS {
-        let BufResult(written, _) = stream.write_all(vec![b'x'; 1024]).await;
+        let BufResult(written, _) = within("a write", stream.write_all(vec![b'x'; 1024])).await?;
         if written.is_err() {
             return Ok(());
         }
@@ -273,4 +302,220 @@ async fn until_closed(stream: &mut TcpStream) -> TestResult {
     Err(TestError::new(format!(
         "the server's close, through {CLOSE_TURNS} writes"
     )))
+}
+
+/// The most one read of a [`Peer`] gives: a divisor of [`HttpLimits::DRAIN_MAX`], below what a server's read asks for.
+const PEER_READ: usize = 4 * 1024;
+
+/// A mistaken upload a refused peer goes on sending: 4 MiB, eight times the 512 KiB the config service takes, inside
+/// the 16 MiB a drain reads.
+const UPLOAD: usize = 4 * 1024 * 1024;
+
+/// A peer in memory: `head`, then `body` bytes of `x` (without end when `None`), each read giving at most `step` bytes and
+/// never crossing from the head into the body; then its end. It counts the body bytes the server read, notes a read
+/// after its end, and keeps what the server wrote.
+struct Peer {
+    head: Vec<u8>,
+    head_read: usize,
+    body: Option<usize>,
+    step: usize,
+    body_read: usize,
+    ended: bool,
+    read_past_end: bool,
+    written: Vec<u8>,
+}
+
+impl Peer {
+    fn new(head: &[u8], body: Option<usize>, step: usize) -> Self {
+        Self {
+            head: head.to_vec(),
+            head_read: 0,
+            body,
+            step,
+            body_read: 0,
+            ended: false,
+            read_past_end: false,
+            written: Vec::new(),
+        }
+    }
+
+    /// The next read's bytes, or `None` at the end.
+    fn next_chunk(&mut self, room: usize) -> Option<Vec<u8>> {
+        let room = room.min(self.step);
+        if self.head_read < self.head.len() {
+            let end = self.head.len().min(self.head_read + room);
+            let chunk = self
+                .head
+                .get(self.head_read..end)
+                .unwrap_or_default()
+                .to_vec();
+            self.head_read = end;
+            return Some(chunk);
+        }
+        let left = self
+            .body
+            .map_or(room, |body| body.saturating_sub(self.body_read));
+        if left == 0 {
+            return None;
+        }
+        let taken = room.min(left);
+        self.body_read += taken;
+        Some(vec![b'x'; taken])
+    }
+}
+
+impl AsyncRead for Peer {
+    async fn read<B: IoBufMut>(&mut self, mut buf: B) -> BufResult<usize, B> {
+        let room = buf.buf_capacity().saturating_sub(buf.buf_len());
+        match self.next_chunk(room) {
+            Some(chunk) => {
+                let mut source: &[u8] = &chunk;
+                source.read(buf).await
+            }
+            None if self.ended => {
+                self.read_past_end = true;
+                BufResult(Err(std::io::Error::other("a read past the end")), buf)
+            }
+            None => {
+                self.ended = true;
+                BufResult(Ok(0), buf)
+            }
+        }
+    }
+}
+
+impl AsyncWrite for Peer {
+    async fn write<T: IoBuf>(&mut self, buf: T) -> BufResult<usize, T> {
+        self.written.extend_from_slice(buf.as_init());
+        let len = buf.as_init().len();
+        BufResult(Ok(len), buf)
+    }
+
+    async fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    async fn shutdown(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// `peer` served by `Fine` within `limits`, then what it was written.
+fn served(mut peer: Peer, limits: HttpLimits) -> TestResult<(Peer, String)> {
+    Runtime::new()?.block_on(async {
+        serve_http(&mut peer, &limits, &Fine).await;
+        let written = String::from_utf8(peer.written.clone())?;
+        Ok((peer, written))
+    })
+}
+
+/// A refused peer sending a mistaken upload reads its refusal, and the server reads the upload to its end before closing,
+/// and not past it.
+#[test]
+fn test_a_refused_upload_is_drained_to_its_end() -> TestResult {
+    let peer = Peer::new(
+        b"POST / HTTP/1.1\r\nContent-Length: 9\r\n\r\n",
+        Some(UPLOAD),
+        PEER_READ,
+    );
+    let (peer, written) = served(peer, HttpLimits::new(8, Duration::from_secs(60)))?;
+    assert!(written.starts_with("HTTP/1.1 413"), "{written}");
+    assert_eq!(peer.body_read, UPLOAD);
+    assert!(peer.ended && !peer.read_past_end);
+    Ok(())
+}
+
+/// A refused peer sending without end has the server stop reading once `DRAIN_MAX` bytes have passed: at the read that
+/// reaches it, and not one read later.
+#[test]
+fn test_a_drain_stops_at_its_bytes() -> TestResult {
+    let peer = Peer::new(
+        b"POST / HTTP/1.1\r\nContent-Length: 9\r\n\r\n",
+        None,
+        PEER_READ,
+    );
+    let (peer, written) = served(peer, HttpLimits::new(8, Duration::from_secs(60)))?;
+    assert!(written.starts_with("HTTP/1.1 413"), "{written}");
+    assert!(
+        (HttpLimits::DRAIN_MAX..HttpLimits::DRAIN_MAX + PEER_READ).contains(&peer.body_read),
+        "{} bytes read",
+        peer.body_read
+    );
+    Ok(())
+}
+
+/// A served request is answered and closed: what follows it is not read, and the body taken is the declared one alone.
+#[test]
+fn test_a_served_request_reads_nothing_past_its_body() -> TestResult {
+    let peer = Peer::new(
+        b"POST / HTTP/1.1\r\nContent-Length: 4\r\n\r\nbodyEXTRA",
+        Some(PEER_READ),
+        PEER_READ,
+    );
+    let mut peer = peer;
+    let taken = Rc::new(Cell::new(0));
+    let service = Taken(taken.clone());
+    Runtime::new()?.block_on(serve_http(&mut peer, &HttpLimits::new(8, WAIT), &service));
+    assert_eq!(taken.get(), "body".len());
+    assert_eq!(peer.body_read, 0);
+    assert!(String::from_utf8(peer.written)?.starts_with("HTTP/1.1 200"));
+    Ok(())
+}
+
+/// Answers 200, noting how long the body it took is.
+#[derive(Clone)]
+struct Taken(Rc<Cell<usize>>);
+
+impl HttpService for Taken {
+    async fn call(&self, request: HttpRequest) -> HttpResponse {
+        self.0.set(request.into_body().len());
+        HttpResponse::new(200)
+    }
+}
+
+/// A request arriving a byte at a time is served whole, its head near the most a head takes and its body at the most the
+/// limits take; and a server taking no body serves a request that has none.
+#[test]
+fn test_a_request_a_byte_at_a_time_is_served() -> TestResult {
+    let body = 1024;
+    let target = "a".repeat(HttpLimits::HEAD_MAX - 64);
+    let head = format!("POST /{target} HTTP/1.1\r\nContent-Length: {body}\r\n\r\n");
+    let (_, written) = served(
+        Peer::new(head.as_bytes(), Some(body), 1),
+        HttpLimits::new(body, WAIT),
+    )?;
+    assert!(written.starts_with("HTTP/1.1 200"), "{written}");
+    let (_, bare) = served(
+        Peer::new(b"GET /health HTTP/1.1\r\n\r\n", Some(0), PEER_READ),
+        HttpLimits::new(0, WAIT),
+    )?;
+    assert!(bare.starts_with("HTTP/1.1 200"), "{bare}");
+    Ok(())
+}
+
+/// A listener in clear text answers each connection it accepts, one after another.
+#[test]
+fn test_a_listener_answers_every_connection() -> TestResult {
+    Runtime::new()?.block_on(async {
+        let listener = Listener::bind(&Address::any_port("127.0.0.1")?).await?;
+        let address = listener.local_address()?;
+        let target = address.host_port().context("a TCP address")?.to_string();
+        spawn(serve_listener(
+            listener,
+            None,
+            HttpLimits::new(0, WAIT),
+            Fine,
+        ))
+        .detach();
+        for _ in 0..2 {
+            let mut stream = within("a connection", TcpStream::connect(&target)).await??;
+            let BufResult(written, _) = stream
+                .write_all(b"GET /health HTTP/1.1\r\n\r\n".to_vec())
+                .await;
+            written?;
+            let text = answer(&mut stream).await?;
+            assert!(text.starts_with("HTTP/1.1 200"), "{text}");
+        }
+        Ok(())
+    })
 }
