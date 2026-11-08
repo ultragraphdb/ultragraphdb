@@ -9,6 +9,9 @@ import ApgModel.Core.Value
 import ApgModel.Core.Apg
 import ApgModel.Core.Hom
 import ApgModel.Core.Term
+import ApgModel.Core.Model
+import ApgModel.Core.Delta
+import ApgModel.Core.DeltaCompose
 import ApgModel.Named.Ty
 import ApgModel.Named.Value
 import ApgModel.Named.Translate
@@ -17,6 +20,8 @@ import ApgModel.Named.TermTranslate
 import ApgModel.Named.Apg
 import ApgModel.Named.Collections
 import ApgModel.Examples
+import ApgModel.Catalog.Schema
+import ApgModel.Catalog.Constraints
 
 /-!
 # Algebraic property graphs
@@ -26,14 +31,18 @@ core over families of elements, in which the paper's results are proved by struc
 waves, a named layer over it, the catalog's schema, its constraints, history, migration operations, and the RDF and
 GQL views with the test oracle that runs them.
 
-This version holds waves L1, L2, L4 and L5. The core: the typeside (definition 2.1); types and schemas (definitions 3.2, 4.1,
+This version holds waves L1 to L6. The core: the typeside (definition 2.1); types and schemas (definitions 3.2, 4.1,
 12.1); finite sets; values and their functoriality (propositions 5.3, 12.2); APGs in both forms and referential
 integrity (propositions 6.3, 6.6); homomorphisms, isomorphisms and the coalgebra view (propositions 7.2, 8.1); and
-mapping terms with their evaluation, renaming, substitution and the laws of `map` (proposition 8.7, definition 12.4).
+mapping terms with their evaluation, renaming, substitution and the laws of `map` (proposition 8.7, definition 12.4);
+models of the APG theory in generator form (proposition 8.4); and schema mappings with `Δ`, its functoriality, the
+identity and composite mappings, finiteness and one origin (propositions 9.3, 9.4, 9.5).
 The named layer: named types with field names, their decidable equality and element kinds (definitions 3.1, 3.2,
 4.2); named values, APGs and mapping terms; and proposition 3.3 between the layers, for values naturally in the
 family and for terms with evaluation commuting with the translation. The executable layer: value terms checked by
 their denotation, complete for well-formed types, with their references (definitions 5.4, 5.5); finite APGs over
 numbered elements, their validity and their embedding into the core; role labels, symmetric navigation and unnesting
-(definitions 12.5 to 12.7); and example 6.7, checked by the kernel.
+(definitions 12.5 to 12.7); and examples 6.7 and 9.6, checked by the kernel. The catalog: its schema `S(K)` and the
+prefix-range type test (proposition 13.1); the state constraints as violation queries, each sound and complete, and
+the transition constraints as predicates on consecutive states (section 14).
 -/

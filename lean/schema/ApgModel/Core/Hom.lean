@@ -96,6 +96,27 @@ def trans (i : Iso G G') (j : Iso G' G'') : Iso G G'' where
   inv_hom l e := by simp only [Hom.comp, j.inv_hom, i.inv_hom]
   hom_inv l e := by simp only [Hom.comp, i.hom_inv, j.hom_inv]
 
+/-- A homomorphism whose components have inverse functions is an isomorphism: the inverse functions commute with the
+values too. -/
+def ofHom (f : Hom G G') (g : ∀ l, G'.E l → G.E l) (gf : ∀ l e, g l (f.h l e) = e) (fg : ∀ l e, f.h l (g l e) = e) :
+    Iso G G' where
+  hom := f
+  inv := {
+    h := g
+    comm := by
+      intro l e
+      have inj : ∀ x y : V T G.E (S.σ l), V.map f.h (S.σ l) x = V.map f.h (S.σ l) y → x = y := by
+        intro x y hxy
+        have back : ∀ z, V.map g (S.σ l) (V.map f.h (S.σ l) z) = z := fun z => by
+          rw [← V.map_comp]
+          exact (V.map_congr (fun l' e' => gf l' e') (S.σ l) z).trans (V.map_id (S.σ l) z)
+        rw [← back x, hxy, back y]
+      apply inj
+      rw [← f.comm, fg, ← V.map_comp]
+      exact ((V.map_congr (fun l' e' => fg l' e') (S.σ l) _).trans (V.map_id (S.σ l) _)).symm }
+  inv_hom := gf
+  hom_inv := fg
+
 end Iso
 
 /-! ## Proposition 6.3: the two forms of an APG -/

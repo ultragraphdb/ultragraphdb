@@ -171,37 +171,6 @@ theorem asBool_toBin {E : L → Type} (b : NTy.V T E NTy.bool) : asBool (toBin N
   | 1, _ => rfl
   | n + 2, h => exact absurd h (by simp [NTy.bool, NTy.enum])
 
-private theorem filter_map_comm {α β : Type} (f : α → β) (p : β → Bool) (l : List α) :
-    List.filter p (List.map f l) = List.map f (List.filter (fun x => p (f x)) l) := by
-  induction l with
-  | nil => rfl
-  | cons x l ih =>
-    simp only [List.map_cons, List.filter_cons]
-    split <;> simp [ih]
-
-/-- Two maps commute when their components do pointwise. -/
-private theorem map_comm {α β γ δ : Type} {f : α → β} {h : β → δ} {k : α → γ} {g : γ → δ}
-    (w : ∀ x, h (f x) = g (k x)) (l : List α) : List.map h (List.map f l) = List.map g (List.map k l) := by
-  rw [List.map_map, List.map_map]
-  exact List.map_congr_left (fun x _ => w x)
-
-/-- Mapping after filtering by `p` is filtering by `p'` after mapping, when `p` is `p'` through the map. -/
-private theorem map_filter_comm {α β : Type} (f : α → β) {p : α → Bool} {p' : β → Bool} (w : ∀ x, p x = p' (f x))
-    (l : List α) : List.map f (List.filter p l) = List.filter p' (List.map f l) := by
-  rw [filter_map_comm]
-  congr 1
-  exact congrArg (List.filter · l) (funext w)
-
-private theorem finset_map_comm {α β γ δ : Type} {f : α → β} {h : β → δ} {k : α → γ} {g : γ → δ}
-    (w : ∀ x, h (f x) = g (k x)) (s : FinSet α) : FinSet.map h (FinSet.map f s) = FinSet.map g (FinSet.map k s) := by
-  rw [FinSet.map_map, FinSet.map_map]
-  exact FinSet.map_congr w s
-
-private theorem finset_map_filter_comm {α β : Type} (f : α → β) {p : α → Bool} {p' : β → Bool}
-    (w : ∀ x, p x = p' (f x)) (s : FinSet α) : FinSet.map f (FinSet.filter p s) = FinSet.filter p' (FinSet.map f s) := by
-  rw [FinSet.map_filter]
-  exact congrArg (fun q => FinSet.map f (FinSet.filter q s)) (funext w)
-
 /-! ## Proposition 3.3, part 2 -/
 
 /-- Proposition 3.3, part 2: evaluation commutes with the translation of terms and the isomorphisms of part 1,
@@ -238,7 +207,7 @@ theorem NTm.eval_bin (G : NApg S) {Γ : List (NTy T.P L)} {t : NTy T.P L} (s : N
   | append xs ys ihx ihy =>
     exact (List.map_append _ _ _).trans (congr_two (· ++ ·) (ihx ρ) (ihy ρ))
   | @map Γ a b s u ihs ihu =>
-    exact (map_comm (h := toBin b) (f := fun y => u.eval G (NEnv.one y)) (k := toBin a)
+    exact (Core.list_map_comm (h := toBin b) (f := fun y => u.eval G (NEnv.one y)) (k := toBin a)
         (g := fun y => u.bin.eval G.toCore (Env.one y)) (fun y => ihu (NEnv.one y)) _).trans
       (congrArg (List.map fun y => u.bin.eval G.toCore (Env.one y)) (ihs ρ))
   | @filter Γ a s q ihs ihq =>
@@ -247,7 +216,7 @@ theorem NTm.eval_bin (G : NApg S) {Γ : List (NTy T.P L)} {t : NTy T.P L} (s : N
       intro y
       rw [← asBool_toBin]
       exact congrArg asBool (ihq (NEnv.one y))
-    exact (map_filter_comm (toBin a) w _).trans
+    exact (Core.list_map_filter_comm (toBin a) w _).trans
       (congrArg (List.filter fun y => asBool (q.bin.eval G.toCore (Env.one y))) (ihs ρ))
   | empty => rfl
   | insert x s ihx ihs =>
@@ -255,7 +224,7 @@ theorem NTm.eval_bin (G : NApg S) {Γ : List (NTy T.P L)} {t : NTy T.P L} (s : N
   | union s s' ih ih' =>
     exact (FinSet.map_union _ _ _).trans (congr_two FinSet.union (ih ρ) (ih' ρ))
   | @mapSet Γ a b s u ihs ihu =>
-    exact (finset_map_comm (h := toBin b) (f := fun y => u.eval G (NEnv.one y)) (k := toBin a)
+    exact (FinSet.map_comm (h := toBin b) (f := fun y => u.eval G (NEnv.one y)) (k := toBin a)
         (g := fun y => u.bin.eval G.toCore (Env.one y)) (fun y => ihu (NEnv.one y)) _).trans
       (congrArg (FinSet.map fun y => u.bin.eval G.toCore (Env.one y)) (ihs ρ))
   | @filterSet Γ a s q ihs ihq =>
@@ -264,7 +233,7 @@ theorem NTm.eval_bin (G : NApg S) {Γ : List (NTy T.P L)} {t : NTy T.P L} (s : N
       intro y
       rw [← asBool_toBin]
       exact congrArg asBool (ihq (NEnv.one y))
-    exact (finset_map_filter_comm (toBin a) w _).trans
+    exact (FinSet.map_filter_comm (toBin a) w _).trans
       (congrArg (FinSet.filter fun y => asBool (q.bin.eval G.toCore (Env.one y))) (ihs ρ))
 
 end ApgModel.Named

@@ -93,6 +93,12 @@ theorem V.map_comp {E E' E'' : L → Type} (h : ∀ l, E l → E' l) (h' : ∀ l
     rw [FinSet.map_map]
     exact FinSet.map_congr ih x
 
+/-- The action depends on the morphism's values alone. -/
+theorem V.map_congr {E E' : L → Type} {h h' : ∀ l, E l → E' l} (w : ∀ l e, h l e = h' l e) (t : Ty T.P L)
+    (x : V T E t) : V.map h t x = V.map h' t x := by
+  have : h = h' := funext fun l => funext (w l)
+  rw [this]
+
 /-! ## Proposition 12.2: label-free types do not depend on the elements -/
 
 /-- Proposition 12.2, values: over a label-free type, the values are the same whatever the family. -/

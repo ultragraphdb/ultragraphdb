@@ -137,6 +137,41 @@ theorem map_filter (f : α → β) (p : β → Bool) (s : FinSet α) :
       simp only [List.map_cons, List.filter_cons]
       split <;> simp [ih]
 
+/-- Two maps commute when their components do pointwise. -/
+theorem map_comm {δ : Type} {f : α → β} {h : β → δ} {k : α → γ} {g : γ → δ} (w : ∀ x, h (f x) = g (k x))
+    (s : FinSet α) : map h (map f s) = map g (map k s) := by
+  rw [map_map, map_map]
+  exact map_congr w s
+
+/-- Mapping after filtering by `p` is filtering by `p'` after mapping, when `p` is `p'` through the map. -/
+theorem map_filter_comm (f : α → β) {p : α → Bool} {p' : β → Bool} (w : ∀ x, p x = p' (f x)) (s : FinSet α) :
+    map f (filter p s) = filter p' (map f s) := by
+  rw [map_filter]
+  exact congrArg (fun q => map f (filter q s)) (funext w)
+
 end FinSet
+
+/-! ## The same laws for lists -/
+
+theorem list_filter_map {α β : Type} (f : α → β) (p : β → Bool) (l : List α) :
+    List.filter p (List.map f l) = List.map f (List.filter (fun x => p (f x)) l) := by
+  induction l with
+  | nil => rfl
+  | cons x l ih =>
+    simp only [List.map_cons, List.filter_cons]
+    split <;> simp [ih]
+
+/-- Two maps of lists commute when their components do pointwise. -/
+theorem list_map_comm {α β γ δ : Type} {f : α → β} {h : β → δ} {k : α → γ} {g : γ → δ}
+    (w : ∀ x, h (f x) = g (k x)) (l : List α) : List.map h (List.map f l) = List.map g (List.map k l) := by
+  rw [List.map_map, List.map_map]
+  exact List.map_congr_left (fun x _ => w x)
+
+/-- Mapping a list after filtering by `p` is filtering by `p'` after mapping, when `p` is `p'` through the map. -/
+theorem list_map_filter_comm {α β : Type} (f : α → β) {p : α → Bool} {p' : β → Bool} (w : ∀ x, p x = p' (f x))
+    (l : List α) : List.map f (List.filter p l) = List.filter p' (List.map f l) := by
+  rw [list_filter_map]
+  congr 1
+  exact congrArg (List.filter · l) (funext w)
 
 end ApgModel.Core

@@ -192,7 +192,8 @@ names the sections of `SCHEMA-APG.md` it transcribes, and each theorem's the pro
 | `schema/ApgModel/Core/Hom.lean` | Homomorphisms, isomorphisms, the category laws, the coalgebra view | 7, 8.1 |
 | `schema/ApgModel/Core/Term.lean` | Mapping terms, evaluation, `map` and `filter` | 8.3, 12.4 |
 | `schema/ApgModel/Core/Model.lean` | Proposition 8.4 in the generator form (L4) | 8.2 |
-| `schema/ApgModel/Core/Delta.lean` | Schema mappings, `Φ̂`, `ι`, `Δ`, propositions 9.3 to 9.5 | 9 |
+| `schema/ApgModel/Core/Delta.lean` | Schema mappings, `Φ̂`, `ι`, `Δ`, its functoriality, propositions 9.4 and 9.5 | 9 |
+| `schema/ApgModel/Core/DeltaCompose.lean` | The identity and composite mappings, terms along a mapping, `Δ` along both | 9.3 |
 | `schema/ApgModel/Named/Ty.lean` | Field names, named types with strictly increasing field names, decidable equality by hand, the element kinds | 3.1, 3.2, 4.2 |
 | `schema/ApgModel/Named/Value.lean` | Named values, records as functions from their fields and variants as a field with a value; named APGs | 5.1, 5.2, 6.1 |
 | `schema/ApgModel/Named/Translate.lean` | Proposition 3.3 for values, natural in the family; named APGs and their binary forms | 3.3 |
@@ -200,7 +201,7 @@ names the sections of `SCHEMA-APG.md` it transcribes, and each theorem's the pro
 | `schema/ApgModel/Named/TermTranslate.lean` | Proposition 3.3 for terms: the translation and evaluation commuting with it | 3.3 |
 | `schema/ApgModel/Named/Apg.lean` | Value terms, `check`, finite single-set APGs, the embedding into the core | 5.4, 5.5, 6.2 |
 | `schema/ApgModel/Named/Collections.lean` | Role labels, symmetric relations, unnest | 12.3 to 12.5 |
-| `schema/ApgModel/Examples.lean` | Example 6.7, checked by the kernel; example 9.6 with wave L3 | 6.7, 9.6 |
+| `schema/ApgModel/Examples.lean` | Example 6.7, checked by the kernel; example 9.6 with wave L3; example 6.7's catalog, its `S(K)` and constraints with wave L6 | 6.7, 9.6, 13, 14 |
 | `schema/ApgModel/Catalog/Schema.lean` | `Catalog`, `conc`, `S(K)`, prefix ranges, proposition 13.1 | 13 |
 | `schema/ApgModel/Catalog/Constraints.lean` | Violation queries and their soundness, transition constraints | 14 |
 | `schema/ApgModel/History.lean` | Naming, graphs, states, slices, commits, proposition 15.2 | 15 |
@@ -228,19 +229,19 @@ main work.
 | Definitions 5.5, 6.5; proposition 6.6 | `V.Ref`, `Apg.Arc`, `SingleSet.Arc`, `SingleSet.arc_target_label` | `V E (lbl l) = E l`; a reference carries the label its position's type names, the path of field names coming with the named layer | S |
 | Definitions 7.1, 7.3; proposition 7.2 | `Hom`, `Hom.id`, `Hom.comp`, `id_comp`, `comp_id`, `comp_assoc`, `Iso` | Componentwise, from proposition 5.3 | S |
 | Proposition 8.1 | `coalgebra_equiv`, `hom_iff_coalgebra_morphism` | Unfolding | S |
-| Definitions 8.2, 8.3; proposition 8.4 | `Model`, `toModel`, `ofModel`, the bijection and its naturality, in the generator form (L4) | Generator form: induction on terms for uniqueness | M |
+| Definitions 8.2, 8.3; proposition 8.4 | `Model`, `Model.ofApg`, `Model.toApg`, `Model.interp_eq_eval`, `Model.ofApg_toApg`, `Tm.eval_hom`, `Model.Hom.natural` | Generator form: uniqueness by induction on terms; homomorphisms commute with evaluation | M |
 | Definitions 8.5, 8.6; proposition 8.7 | `Tm S Γ t`, `Tm.eval`, `Tm.eval_terminates`, the cyclic example | Structural recursion; the theorem records that `eval` is a total function with no `partial`, and a two-element cycle evaluates by `rfl` | M |
-| Definitions 9.1, 9.2 | `Mapping`, `Ty.subst`, `iotaEquiv`, `delta` | `iotaEquiv` by induction on `t`, the identity at labels | M |
-| Proposition 9.3 | `delta_map_id`, `delta_map_comp`, `delta_compose : Δ (Φ' ∘ Φ) ≅ Δ Φ ∘ Δ Φ'` naturally | Functor laws by proposition 5.3; composition by term substitution along `Φ'` and `eval` of a substituted term | L |
-| Proposition 9.4 | `delta_finite` | Enumeration of `V E t` from finite `E` and finite primitives (L7) | M |
-| Proposition 9.5 | `delta_one_origin` | `V E (lbl l) = E l` and `V` of a variant is a sum | S |
+| Definitions 9.1, 9.2 | `Mapping`, `Ty.subst`, `iota`, `iotaInv`, `Mapping.delta`, `Mapping.deltaHom` | `ι` by recursion on `t`, the identity at labels; `iota_map` its naturality | M |
+| Proposition 9.3 | `deltaHom_id`, `deltaHom_comp`; `Mapping.id`, `delta_id`; `Tm.along`, `Tm.eval_along`; `Mapping.comp`, `delta_comp` | Functor laws by proposition 5.3; composition by translating terms along a mapping, with `iota_comp` across `Ty.subst_subst` by heterogeneous equality | L |
+| Proposition 9.4 | `V_enumerable`, `Mapping.delta_finite` | Enumeration of `V E t` for collection-free `t` with finite primitives (L7) | M |
+| Proposition 9.5 | `labelSum`, `labelSumBij`, `delta_label_image`, `delta_one_origin` | A variant of labels is in bijection with the labels' elements, each tagged by its position | S |
 | Definition 12.1; proposition 12.2 | `LabelFree`, `V_labelFree_const`, `V.map_labelFree_id` | Induction on `t` | S |
 | Corollary 12.3 | `corollary_12_3`, citing the results it carries | Holds by L2 | S |
 | Definition 12.4 | `Tm.map`, `Tm.filter`, `Tm.mapSet`, `Tm.filterSet`, `Tm.DerefFree`; `eval_map_id`, `eval_map_map` and their set forms | Through `Tm.subst`, with `eval_rename` and `eval_subst`; sets through `FinSet.map`'s laws | M |
 | Definitions 12.5, 12.6, 12.7 | `roleLabelType`, `symNav`, `symNav_symm`, `unnest`, `unnest_origin` | Case analysis on a binary element's two participants; recursion over the elements | M |
-| Section 13; proposition 13.1 | `Catalog`, `conc`, `schemaOf`, `prefixRanges`, `is_iff_conc`, `inRanges_iff_conc` | A tree of types; prefixes injective; ranges as the compression of the sorted prefix set | M |
-| Section 14.2 | `violations` per constraint, ten rows; `violations_nil_iff` per row | Each by list reasoning; `@limit`'s group selection as the conjuncts over participant types | M |
-| Section 14.3 | `Transition` predicates per row | Definitions, used by section 15 | S |
+| Section 13; proposition 13.1 | `Catalog`, `conc`, `schema`, `ranges`, `inRanges_compress`, `inRanges_iff_isSub`, `is_iff_inRanges` | A tree of types; prefixes injective; ranges as the compression of the sorted prefix set | M |
+| Section 14.2 | `keyViolations`, `uniqueViolations`, `nonEmptyViolations`, `setViolations`, `roleLabelViolations`, `participationViolations`, `checkViolations`, `acyclicViolations` with `maxDepthViolations`, `noOverlapViolations`, `limitViolations`; a `_nil_iff` per row | Three generic queries, `injViolations`, `violators` and `cycleViolations`, each proved once; cycles by the pigeonhole over walks; `@limit`'s group selection as the conjuncts over participant types | M |
+| Section 14.3 | `State` and its predicates `LabelFixed`, `FieldsFixed`, `AppendOnly`, `Bitemporal`, `OnDeleteHolds`, `OnRetractHolds`, `RetractsHolds`, `EndsHolds`, `LiveParticipants` | Definitions, used by section 15 | S |
 | Section 15.1 | `Naming`, `naming_injective`, `edge_named_by_triple` | The edge case from `@set` exclusivity | M |
 | Proposition 15.1 | `union_closed` | Disjoint element sets; closure by construction | S |
 | Section 15.3; proposition 15.2 | `State`, `Commit`, `step`, `liveSlice`, `believedSlice`, `live_closed`, `believed_closed` | Induction over reachable states, one lemma per operation (L9) | L |
@@ -318,9 +319,44 @@ The `lean_exe apg_oracle` enters `lakefile.lean` with its root, `Oracle/Main.lea
   `FinApg.toNApg` makes a valid one an APG on the named schema, and so on the core's through proposition 3.3;
 - example 9.6 is a migration along `Δ` and joins wave L3, which defines `Δ`.
 
+**What L3 settled:**
+- proposition 8.4 is proved in generator form: a model interprets every term with one equation per constructor, and
+  its interpretation is evaluation (`Model.interp_eq_eval`), so a model through its APG and back is itself; evaluation
+  commuting with homomorphisms (`Tm.eval_hom`) is what makes `Δ` a functor as well;
+- the composite mapping's term has the type `Ψ̂(Φ̂(σ(l)))`, which equals `(Ψ∘Φ)^(σ(l))` by `Ty.subst_subst`, a proved
+  equation: the composite casts its term once (`Tm.castTy`), and `iota_comp` and `iota_lbl` compare values across it
+  by heterogeneous equality, so no cast appears in a statement;
+- the identity and composite mappings give isomorphisms of APGs (`delta_id`, `delta_comp`) built with `Iso.ofHom`,
+  a homomorphism whose components have inverse functions;
+- proposition 9.4 is proved for images without a collection; a `list` in an image makes `Δ` infinite whatever the
+  primitive types, which the specification's finite-images rule does not exclude (a finding for `SCHEMA-APG.md`
+  section 9, under A.5);
+- example 9.6 is checked by the kernel, the identity term of `AssertedBy` type-checking against `Φ̂(σ'(AssertedBy))`
+  as the specification states.
+
+**What L6 settled:**
+- a catalog lists its types with kind, parent, abstractness, prefix and own fields, a field's type already a named
+  type; `S(K)` gives a concrete type the record of its fields, own and inherited, sorted by name, a specialised role
+  replacing its super role, and a role label `R_r` per set-valued role, as example 6.7's catalog shows by `decide`;
+- proposition 13.1 is the prefix-range check: the ranges are the compression of the sorted prefix set and hold
+  exactly its members (`inRanges_compress`), so a type test by ranges is membership in `conc(T)`, given unique
+  prefixes;
+- section 14.2's ten rows rest on three generic queries, each proved once: injectivity where defined (`@key`,
+  `@unique`, `@set`, role labels, `@no_overlap` through `pairViolations`), a test per candidate (non-empty set-valued
+  roles, participation, `@check`, `@limit`), and walks (`@acyclic`, `max_depth`); a walk of as many references as
+  there are vertices repeats one, so the bounded search finds every cycle (`pigeonhole`, `cycle_of_not_nodup`);
+- value terms compare by decidable equality, given the primitives'; a set compares as written, so the oracle writes a
+  set's members in one order without repetitions, and `@set` compares a set-valued role's participants as sets;
+- the aviation and Gen5-subset catalogs of decision L8 need the oracle's typeside, decision L6, and come with wave L7;
+- findings for A.5: section 14.2 names liveness for `@set` and `@acyclic` and includes retracted elements for `@key`
+  and `@unique`, and leaves open whether retracted elements count for participation, non-empty set-valued roles,
+  `@check` and `@limit`, which the model counts; it leaves open whether `max_depth` counts references or elements, the
+  model counting references; and it leaves open whether `@limit` selects a participant no element reaches, whose
+  group is empty, the model selecting it.
+
 Stage 6 needs the oracle first, so the path L0, L1, L2, L4, L5, L6, L7 comes before L3, L8 and L9, which no stage 6
 group waits on. In `prepare-stage-6.md`'s terms: tasks A.1 and A.2 are waves L1 to L4, A.3 is L5 to L7, A.4 the
-properties of L7 that group 9's test checks, A.5 the findings each wave reports, and A.6 replaces L6's hand-written
+properties of L7 that group 9's test checks, A.5 the findings each wave reports, and A.6 replaces L7's hand-written
 catalogs once stage 6's group 4 exports them.
 
 ## 8. Risks
