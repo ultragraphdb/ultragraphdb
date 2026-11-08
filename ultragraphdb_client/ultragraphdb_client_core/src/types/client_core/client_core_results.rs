@@ -189,6 +189,11 @@ impl<L: Login> ClientCore<L> {
         if generation != self.generation {
             return;
         }
+        self.cancel_open(id);
+    }
+
+    /// Cancels the read open on stream `id`, if any: its stream ends, and a Cancel goes out unless its end has arrived.
+    pub(super) fn cancel_open(&mut self, id: u64) {
         let Some(state) = self.streams.remove(&id) else {
             return;
         };

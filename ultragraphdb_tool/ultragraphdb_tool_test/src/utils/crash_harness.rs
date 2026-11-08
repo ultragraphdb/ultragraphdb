@@ -161,8 +161,10 @@ pub fn kill_at(dir: &Path, mode: &str, stage: &str) -> TestResult<Vec<String>> {
 /// store lacks.
 pub fn batch_counts(store: &FjallStore, batches: u64) -> TestResult<Vec<usize>> {
     let snapshot = store.snapshot(u64::MAX).context("readable")?;
-    (1..=batches)
-        .map(|i| {
+    // Batches count from 1: the batch at index `index` is batch `index + 1`.
+    (0..batches)
+        .map(|index| {
+            let i = index + 1;
             let mut prefix = b"\x00b".to_vec();
             prefix.extend_from_slice(&i.to_be_bytes());
             snapshot
@@ -183,8 +185,10 @@ pub fn batch_counts(store: &FjallStore, batches: u64) -> TestResult<Vec<usize>> 
 /// A [`TestError`] when the store does not dump its versionless keyspace.
 pub fn versionless_counts(store: &FjallStore, batches: u64) -> TestResult<Vec<usize>> {
     let held = store.dump_versionless().context("readable")?;
-    Ok((1..=batches)
-        .map(|i| {
+    // Batches count from 1: the batch at index `index` is batch `index + 1`.
+    Ok((0..batches)
+        .map(|index| {
+            let i = index + 1;
             let mut prefix = b"t".to_vec();
             prefix.extend_from_slice(&i.to_be_bytes());
             held.iter().filter(|(k, _)| k.starts_with(&prefix)).count()

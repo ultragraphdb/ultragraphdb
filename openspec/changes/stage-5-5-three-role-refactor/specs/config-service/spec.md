@@ -238,7 +238,7 @@ or too short SHALL stop the start with code 78. The API SHALL be:
 
 A revision's files SHALL travel as a sequence of a name, a space, the file's length in decimal, a line break, the file's bytes
 and a line break. A revision replaces the whole set, so a file left out is removed. A request SHALL take at most 5 s and hold at
-most 512 KiB, which a revision fits in one round of the log, and one past either bound SHALL be refused without keeping more of it. A client may still be sending when it is refused, and closing over unread bytes resets the connection, which destroys the refusal on its way. So after any refusal given before a request's body is whole, for its size, its head or its framing, or for its time, the service SHALL shut its sending side, then read and discard what still arrives until the client ends, or until 16 MiB or 5 s more have passed, and only then close. The
+most 512 KiB, which a revision fits in one round of the log, and one past either bound SHALL be refused without keeping more of it. A client may still be sending when it is refused, and closing over unread bytes resets the connection, which destroys the refusal on its way. So after any refusal given before a request's body is whole, for its size, its head or its framing, or for its time, the service SHALL shut its sending side, then read and discard what still arrives until the client ends, or until 16 MiB or 5 s more have passed, and only then close. It SHALL serve at most 64 connections at once, as a role's admin listener does, a further one waiting to be accepted until one of them ends. The
 service SHALL serve `/health` and `/ready` as the roles do, without a key. It SHALL serve no secret's value: settings name
 secret files, and each role reads its own.
 

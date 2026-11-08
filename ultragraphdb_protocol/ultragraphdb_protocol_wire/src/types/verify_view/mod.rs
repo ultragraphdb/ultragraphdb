@@ -16,6 +16,9 @@ pub struct VerifyView<'a> {
     signature: Option<&'a [u8; 32]>,
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<VerifyView<'static>>() <= 64);
+
 impl<'a> VerifyView<'a> {
     /// The principal's name.
     #[must_use]

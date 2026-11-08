@@ -4,8 +4,6 @@
  */
 
 #[cfg(test)]
-mod accept_pace_tests;
-#[cfg(test)]
 mod admin_service_tests;
 #[cfg(test)]
 mod bootstrap_tests;

@@ -34,6 +34,9 @@ pub struct Bind {
     transaction: [u8; 16],
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<Bind>() <= 64);
+
 impl Bind {
     /// The binding of `transaction`, of `kind`, in `tenant`, acting for `principal`, to `partition`, committing at
     /// `epoch` or later (0 for none).

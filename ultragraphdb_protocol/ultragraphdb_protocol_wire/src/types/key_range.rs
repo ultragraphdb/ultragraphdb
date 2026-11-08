@@ -12,6 +12,9 @@ pub(super) struct KeyRange<'k> {
     pub(crate) past: &'k [u8],
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<KeyRange<'static>>() <= 64);
+
 impl KeyRange<'_> {
     /// Whether the range is a one-key range of the dictionary: its past key its first key followed by a zero byte.
     pub(crate) fn is_dictionary_key(&self) -> bool {

@@ -5,7 +5,7 @@
 
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, Command, Credit, ErrorCode, ErrorReply, Execute, FrameView, Header, MAX_FRAME_SIZE,
+    BodyBuilder, Command, Credit, Execute, FrameView, Header, MAX_FRAME_SIZE,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -29,12 +29,11 @@ fn test_frame_takes_the_command_and_command_header_from_the_body() -> TestResult
 
 #[test]
 fn test_a_body_past_the_largest_frame_is_refused() -> TestResult {
-    // 1 MiB of message. Error's body (PROTOCOL.md sections 4.1, 9.4): a 24-byte table, the 1,048,576-byte message,
-    // two empty sections: 1,048,600 data bytes, 1 + ceil((1,048,600 - 3,840) / 4,096) = 257 chunks and a table of
-    // 2,056, behind the 256-byte header: 1,050,912 bytes (section 2.3).
-    let big = ErrorReply::new(ErrorCode::Refused, "x".repeat(1 << 20));
-    let refused = big
-        .frame(Header::new(CLUSTER, Command::Error))
+    // 1,048,600 data bytes, a 24-byte table and 1 MiB of a section: 1 + ceil((1,048,600 - 3,840) / 4,096) = 257 chunks and
+    // a table of 2,056, behind the 256-byte header: 1,050,912 bytes (section 2.3). An Error cuts its message to fit
+    // instead (section 9.4).
+    let refused = Header::new(CLUSTER, Command::Error)
+        .encode_frame(&vec![0; (1 << 20) + 24])
         .err()
         .context("a refusal")?;
     assert_eq!(

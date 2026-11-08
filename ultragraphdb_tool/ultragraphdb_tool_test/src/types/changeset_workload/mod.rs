@@ -157,20 +157,20 @@ pub struct ChangesetWorkload {
     /// A changeset the store and the model did not both apply, or both refuse.
     disagreement: Option<String>,
     /// How many changesets the store applied.
-    pub writes: usize,
+    writes: usize,
     /// How many rounds the replica replayed.
-    pub replayed: usize,
+    replayed: usize,
     /// How many changesets the store and the model both refused.
-    pub refusals: usize,
+    refusals: usize,
     /// How many steps were checked.
-    pub checked: usize,
+    checked: usize,
     /// How many steps' checks were skipped because an injected fault failed the applier's reopening before them.
-    pub skipped: usize,
+    skipped: usize,
     /// How many steps were left unchecked because they left the store needing recovery: the recovery's own check
     /// follows.
-    pub unrecovered: usize,
+    unrecovered: usize,
     /// How many checks compared the store with the model.
-    pub compared: usize,
+    compared: usize,
 }
 
 impl ChangesetWorkload {
@@ -228,6 +228,49 @@ impl ChangesetWorkload {
             replay: true,
             ..Self::default()
         }
+    }
+
+    /// How many changesets the store applied.
+    #[must_use]
+    pub fn writes(&self) -> usize {
+        self.writes
+    }
+
+    /// How many rounds the replica replayed.
+    #[must_use]
+    pub fn replayed(&self) -> usize {
+        self.replayed
+    }
+
+    /// How many changesets the store and the model both refused.
+    #[must_use]
+    pub fn refusals(&self) -> usize {
+        self.refusals
+    }
+
+    /// How many steps were checked.
+    #[must_use]
+    pub fn checked(&self) -> usize {
+        self.checked
+    }
+
+    /// How many steps' checks were skipped because an injected fault failed the applier's reopening before them.
+    #[must_use]
+    pub fn skipped(&self) -> usize {
+        self.skipped
+    }
+
+    /// How many steps were left unchecked because they left the store needing recovery: the recovery's own check
+    /// follows.
+    #[must_use]
+    pub fn unrecovered(&self) -> usize {
+        self.unrecovered
+    }
+
+    /// How many checks compared the store with the model.
+    #[must_use]
+    pub fn compared(&self) -> usize {
+        self.compared
     }
 
     fn applier(&mut self, ctx: &SimContext) -> Result<Arc<SimChangesets>, ChangesetError> {

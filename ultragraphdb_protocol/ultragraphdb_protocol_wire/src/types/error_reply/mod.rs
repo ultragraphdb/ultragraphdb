@@ -13,7 +13,9 @@ use crate::utils::constants::DETAIL_TRANSACTION_NOT_HELD;
 
 /// The Error frame: a request refused on the frame's stream, or, on stream 0, the connection's last frame after a
 /// connection error, a refused handshake or authentication, or an expired credential. Its code, a detail the code
-/// defines, a message, and for a failed compare-and-set the value found.
+/// defines, a message, and for a failed compare-and-set the value found. Its frame fits the floor of `max_frame`,
+/// [`crate::MAX_FRAME_FLOOR`], which every peer takes: a message past what that frame leaves it is cut at its last
+/// character boundary within it.
 ///
 /// | Command header | Field | Type |
 /// |---|---|---|
@@ -54,7 +56,7 @@ impl ErrorReply {
         self.detail
     }
 
-    /// The message.
+    /// The message, whole: its frame carries it cut to fit when it passes what the frame leaves it.
     pub fn message(&self) -> &str {
         &self.message
     }

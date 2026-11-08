@@ -135,8 +135,9 @@ impl PartitionWorkload {
     /// The first invariant broken, naming the seed and the step, or an error no fault explains.
     pub fn run(seed: u64, partitions: u32, faults: FaultConfig, steps: u64) -> TestResult<Self> {
         let mut workload = Self::new(seed, partitions, faults)?;
-        for step in 1..=steps {
-            workload.step = step;
+        // Step numbers count from 1: the step at index `index` is step `index + 1`.
+        for index in 0..steps {
+            workload.step = index + 1;
             workload.one_step()?;
         }
         Ok(workload)
@@ -150,7 +151,8 @@ impl PartitionWorkload {
 
     fn new(seed: u64, partitions: u32, faults: FaultConfig) -> TestResult<Self> {
         let placement = PlacementMap::even(partitions, NodeId::new(1))?;
-        let ids = (1..=partitions)
+        // Partitions 1 to the count, half-open: `even` refused a count above `PARTITIONS_MAX`, so the end cannot overflow.
+        let ids = (1..partitions + 1)
             .map(PartitionId::new)
             .collect::<Result<Vec<_>, _>>()?;
         let mesh = PartitionMailbox::mesh(&ids);

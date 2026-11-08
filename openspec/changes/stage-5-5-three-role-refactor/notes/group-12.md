@@ -1,6 +1,6 @@
 # Group 12: final verification and documentation
 
-Tasks 12.2, 12.3, 12.4 and 12.7 ran side by side over the tree at `39bf3977`, a line `git blame` gives to `08ff8f26` counting as unchanged. 12.1's mutants are in `notes/group-9.md`, `notes/group-9-frontend-mutants.md` and `notes/group-11.md`.
+Tasks 12.2, 12.3, 12.4 and 12.7 ran side by side over the tree at `39bf3977`, a line `git blame` gives to `08ff8f26` counting as unchanged. 12.1, the last mutation pass, closes by the owner's decision of 2026-11-08 without a run of its own: the pass of 9.6, 10.5 and 11.5 ran over the diff from `f37ac3ca`, and the 240 mutants it left open stay recorded where it left them, in `notes/group-9.md`, `notes/group-9-frontend-mutants.md` and `notes/group-11.md`, with `ultragraphdb_common_frontend`'s caught count under the caveat recorded there.
 
 Four defects in `src/` were found and fixed: `metadata_snapshot_codec.rs:256` overflowed on a placement version of 2^64 − 1, a panic first found on 2026-11-03 and never fixed; `SessionEntry::decode` accepted a node text twice and wrote it back with one node fewer; two warnings named a refusal's text `message`, the field tracing gives the event's own text, so a JSON log lost the refusal's reason; and `ultragraphdb_common_role`'s crate documentation linked `compute_role`, a private function of the compute binary. Three fuzz targets asserted rules their decoders no longer hold and now assert the specification's. `make format` reformatted 16 test files and `make fix` reported 16 warnings in this wave's tests; both now leave the tree unchanged and report nothing.
 
@@ -8,7 +8,21 @@ Wave 3b closed what owner decisions 34 to 36 settled. The accept loops pause aft
 
 12.4 closes by the owner's decision of 2026-11-08, coverage being high and a further pass of diminishing return. It leaves untested about 150 added lines in `common_frontend` (the client session, the role link and the role double) reachable in process, 14 in `common_compute`, and in `tool_test` 97 reports of a broken rule, which would need a damage hook in `src/`, and 35 fault and seed arms not traced. Every other added line is covered or listed as unreachable by construction, an OS failure, a cost past a test's or a binary's line run only as a process.
 
-What stays open, each with its reason below. Under 12.3: the owner's decisions on the 17 closed ranges (`..=`) of the first half and those of the second, `Copy` types above 16 bytes, public fields (`ReportAsked`, `Registered`, `ChangesetWorkload`'s counters), `Server`'s function pointer and the atomics' orderings; the planes of rule 3; `serve_listener`'s accept loop and its tasks; `PartitionCore`'s `closes` and `remote` drains; the commit queue's production bound, storage's lease wants and the partition mesh, none of them capped; and three defects found by reading and not fixed: `ClientCore`'s `pending` entries of dropped request futures, `SessionEntry::encode` dropping a term table's entries that are no IRI, and `Pipeline::sync`, which is not safe to drop. `run_read.rs:55`, a refusal whose frame may pass 1 MiB, is a possible defect. Nothing stays open under 12.2.
+Wave 4 fixed the four defects 12.3 and 12.4 held open, each test first: `ClientCore` kept a dropped request future's answer for good, and an open read's stream and buffers after its handle was dropped; `SessionEntry::encode` dropped a term table's entries that are no IRI and shifted the indexes after them; `Pipeline::sync`, dropped at the log's sync, left its round neither applied nor retried; and an Error naming a client's term could pass the client's `max_frame` of 524,288 (`run_read.rs:55` among its sites), so the client closed its connection, which `ErrorReply`'s body now prevents by cutting its message to that floor (`PROTOCOL.md` §9.4). It bounded `serve_listener` and `PartitionCore`'s two drains and carried out owner decisions 41 and 42. `make format` ordered one file's imports and `make fix` reported nothing; both now leave the tree unchanged and report nothing.
+
+What stays open, each with its reason below. Under 12.3, the owner settled on 2026-11-08 what the review held for the owner (decisions 41 and 42): the rule *Off-by-one* now asks half-open ranges where a range indexes, slices or iterates, and takes `..=` for a `contains` check or a match pattern over an interval the specification states closed or one reaching its type's maximum; rule 9 lets a `Copy` type reach one cache line, 64 bytes; the public fields of `ReportAsked`, `Registered` and `ChangesetWorkload` become private; `Server`'s `fn(Welcome) -> Welcome` stays. Wave 4 (*Wave 4* under 12.3) closed:
+
+- the counted loops written `..=` on the change's `src/` lines, now half-open; the `contains` checks, match arms and ranges to a maximum stand. Closed.
+- `ReferenceRegistration`, which measures 56 bytes, not the review's 70, and keeps `Copy`. Closed.
+- the public fields of `ReportAsked`, `Registered` and `ChangesetWorkload`, now private. Closed.
+- `serve_listener`'s accept loop and its tasks: a failed accept pauses through `AcceptPace`, and a listener serves at most 64 connections at once. Closed.
+- `PartitionCore`'s `closes` and `remote` drains: at most 64 closes and 1,024 remote messages a turn. Closed.
+- the three defects found by reading: `ClientCore`'s `pending` entries of dropped request futures, `SessionEntry::encode` dropping a term table's entries that are no IRI, and `Pipeline::sync`, which was not safe to drop. Fixed.
+- `run_read.rs:55`, a defect in another form than the 1 MiB the coverage pass gave: an Error could pass the client's `max_frame`. Fixed.
+- `EncodedTerm::result_view`'s `# Errors` and `AGENTS.md`'s `ultragraphdb_core_terms` row. Closed.
+- the fuzz workspace's clippy: 10 of its 12 refusals. Closed.
+
+Open: the atomics' orderings; the planes of rule 3; the commit queue's production bound, storage's lease wants and the partition mesh, none of them capped, and `PartitionHost::turn`, which drains its partition's own mailbox until empty; eight `Copy` views of `protocol_wire` above 64 bytes with no reason (`PlacementView` 80, `ScanView` 120, `ErrorReplyView` 72, `InstallView` 72, `WelcomeView` 80, `HeaderView` 112, `FrameView` 160, `WriteSetRecordView` 328), each to carry its reason or drop `Copy` by the owner's choice; 245 counted `..=` loops on the change's lines outside `src/`, in 121 test, BDD-step and bench files, and `go_sort.rs:229`, a line the change did not touch; an OperationFailed's found value, which can pass 524,288 bytes and which the specification neither cuts nor refuses; the fuzz workspace's two `Instant::now()` (`client_core`'s `reply.rs:145`, `protocol_transport`'s `server_connection.rs:217`), which only an `#[expect]` removes and which wait on the owner's consent; `protocol_wire`'s `body` and `body_fields` fuzz targets, which assert that an Error rebuilt from its view is its frame, untrue for a message past 522,984 bytes and beyond libFuzzer's default inputs; the invariant branches of `CommitStep::synced` and `Replay::round`, unreachable through the public API, which mutation testing will report unless `.cargo/mutants.toml` records why; a `Transaction` dropped unended, which holds its stream until its connection ends; and an open read whose handle is dropped, cancelled at the next reservation rather than at the drop. Nothing stays open under 12.2.
 
 ## 12.2 Fuzzing
 
@@ -1116,6 +1130,492 @@ No behaviour changed: every edit is an attribute or a comment. No `as` became a 
 7. **Storage's `"{cpu}"` message** stays formatted, its text read by the supervisor's and storage's scenarios.
 
 The accept loops the review listed as spinning now take `AcceptPace`, an edit of another agent in this wave.
+
+### Wave 4: the four defects, the two unbounded paths and owner decisions 41 and 42
+
+Wave 4 fixed the four defects 12.3 and 12.4 held open, each test first, bounded the two paths rule 2 left unbounded, and
+carried out what the owner settled on 2026-11-08 (decisions 41 and 42). Five agents worked side by side; their sections
+follow, then the closing run.
+
+- `ClientCore` lets a dropped request's answer go, and an open read whose handle is dropped is cancelled
+  (`ultragraphdb_client_core` and both shells).
+- `SessionEntry::encode` refuses a term table holding a term that is no IRI, and `Pipeline::sync` is safe to drop
+  (`ultragraphdb_transactions_commit`).
+- `run_read.rs:55`: an Error frame could pass a client's `max_frame` of 524,288. `ErrorReply`'s body cuts its message
+  to fit that floor, `PROTOCOL.md` §9.4 stating the rule.
+- `serve_listener` pauses failed accepts with `AcceptPace`, now in `ultragraphdb_protocol_transport_compio`, and serves
+  at most `HttpLimits::CONNECTIONS_MAX`, 64, connections at once; `PartitionCore` takes at most 64 closes and 1,024
+  remote messages a turn.
+- `ReportAsked`, `Registered` and `ChangesetWorkload` hold their fields private; the counted `..=` loops of the change's
+  `src/` are half-open; `ReferenceRegistration` measures 56 bytes and keeps `Copy`, and 21 `Copy` types carry a `const`
+  assert of at most 64 bytes.
+
+#### The client's dropped requests (12.3 item 14, first half)
+
+The defect wave 3b found by reading is fixed. Before the fix, `ClientCore` kept every request's answer in `pending` until
+`take_reply`. A shell's request future dropped after its request was sent took its `Copy` `Pending` with it, so the
+answer stayed in the map for good. A caller wrapping requests in its own timeouts grew the map by one entry per dropped
+future. The fix spans the core and both shells, at the level that owns the entry.
+
+- **The core lets a forgotten request go.** `ClientCore::forget(pending)` says that no caller waits for the request any
+  more:
+  - An answer that has already arrived is removed at once.
+  - An answer still to come is removed as it is settled. The core keeps the forgotten request's id in `forgotten`, a
+    `BTreeSet` bounded by `pending`. `release_forgotten` runs wherever an outcome is set: at the end of `answer`, `lose`,
+    `connect_failed` and `close`, and in `send_commit`'s refusal arm.
+  - No other request is handed the late answer: it reaches the forgotten entry by its stream's `pending` id, and ids are
+    never reused.
+  - Forgetting a request that was already taken changes nothing.
+
+  `ClientCore::pending_requests()` returns the map's size.
+- **What the answer made goes with it.** `discard` handles this:
+  - A Begin's `Begun` transaction is aborted through `abort`. Its stream state would otherwise hold one of the
+    Welcome's `max_streams` until the connection ended, and the server would keep the transaction open until its
+    deadline. A transaction whose stream has already ended has nothing to abort, and that refusal is dropped with its
+    reason stated.
+  - A Register's session is removed from `sessions`, because nobody holds its number.
+- **Commits, drops and one-frame writes go on to their answer.** They are retried exactly as before. The session's
+  counter then moves as the server decided, or the session is left in doubt for `resolve`. The entry is let go only
+  once that is settled.
+- **The shells tell the core when a request is dropped.** `Settling` (`src/types/client/settling.rs` in both shells)
+  holds the client and the `Pending` while `settle` drives the request. Its `Drop` calls `forget`, which covers three
+  cases: the caller's future dropped at any `.await`, a refused drive, and an answer already taken (where `forget`
+  changes nothing). The shells' type notes and the notes of `begin_with`, `direct_write` and `conditional_write` now
+  say that the core lets the answer go.
+
+**The other per-request state, checked for the same leak.**
+
+- `streams`: one-reply requests are covered by the fix. Their stream is removed when the answer arrives, and a `Begun`
+  stream is closed by the abort.
+- `sessions`: a forgotten Register's session is covered by the fix.
+- An open read whose `ResultStream` is dropped, including with the shell's `read` future at its `flush`: before the
+  fix, its stream, its credit and its frame buffers stayed until its transaction or connection ended. Every later read
+  was refused `buffer_limit` while they did not fit. Now `forget_dropped_reads`, which already let go of the lost and
+  kept reads of dropped handles, also cancels open reads whose handle is gone. It runs in `reserve_buffers` before any
+  read or grant takes buffers. Cancelling uses the same path as `cancel`, which is now `cancel_open`, so a Cancel goes
+  out unless the read's end has arrived. The `ResultStream` type note says so.
+- `lost_reads` and `kept_reads` were already let go once their handle is dropped.
+- `outbox` holds frames, not requests.
+
+**Tests.** Each test failed before its fix. This was shown by temporary edits, which were then put back: `forget` as a
+no-op, the shells' `Drop` as a no-op, and the cancellation skipped.
+
+- `ultragraphdb_client_core`, `client_core_tests.rs`:
+  - `test_a_forgotten_request_is_let_go_when_its_answer_arrives`: the map returns to its size, no session is kept, a
+    later Register is answered with its own session, and forgetting a taken request changes nothing.
+  - `test_a_forgotten_begin_is_aborted_when_its_answer_arrives`: the server holds no transaction and the core no
+    stream, and a later Begin is answered.
+  - `test_a_request_forgotten_once_answered_is_let_go_at_once`.
+  - `test_a_forgotten_commit_moves_its_sessions_counter`: the next commit through the session takes the next number and
+    is answered.
+
+  Before the fix, the first, second and fourth stopped with "nothing moves and nothing is due", and the third failed
+  its count.
+- `ultragraphdb_client_core`, `client_core_results_tests.rs`, `test_an_open_read_whose_handle_is_dropped_is_cancelled_for_the_next`:
+  the dropped read's Cancel goes out, and the next read, which 6 buffers could not hold beside it, is served whole.
+  Before the fix it was refused `buffer_limit`.
+- Each shell, `tests/types/client/settling_tests.rs`, `test_a_dropped_request_is_let_go_and_a_later_one_answered`: a
+  Begin future polled once and dropped. Afterwards the map returns to its size, the next Register is answered with
+  counter 1, and the server holds no transaction once a second Register is answered. Before the fix, the map held
+  1 entry over its size.
+
+**Gates.** Bazel passes for `//ultragraphdb_client/...`:
+- the unit targets of core (204 tests), tokio (56) and compio (35);
+- the three `bdd` targets;
+- the docs.
+
+`//ultragraphdb/ultragraphdb_frontend_tests:bdd` and `//ultragraphdb/ultragraphdb_tests:unit` also pass; they are the
+role tests that drive the shells. `cargo clippy -p <crate> --all-targets -- -D warnings` is clean for the core and both
+shells. No specification states the client's handling of dropped futures, so no spec changed.
+
+**Open.**
+
+- A `Transaction` is `Copy` and belongs to its caller, who must commit or abort it. One that is dropped unended keeps
+  its stream until its connection ends, bounded by `max_streams`. A dropped `begin` future is covered by the abort above.
+- An open read whose handle is dropped is cancelled at the next reservation, not at the drop. Until then it keeps its
+  read timeout running, and a silent server gives the connection up after it, as it would for a held read.
+
+#### The session entry's term table and the dropped sync (`transactions_commit`)
+
+Two defects of `ultragraphdb_transactions_commit`, each fixed test first.
+
+##### A stored reply's term table holds IRIs alone
+
+`WriteSetRecordView` already refuses a record whose results' term table holds an entry that is no IRI: `read_result_terms`
+(`protocol_wire/src/types/write_set_record_view/mod.rs:126`) checks each term record's kind after the table reads as a
+request's, and refuses any other kind with `ProtocolError::field_value` `"node term"` and the kind found, which
+`PROTOCOL.md` §12.2 states (line 668) and `test_the_results_term_table_holds_iris_alone` covers. Every record of a logged
+round reaches replay through that view (`round_view_body_view.rs:238`), so recovery refuses such a round as malformed,
+`RecoveryErrorEnum::Round`, and the commit step's `operate` refuses such a record left by commit-time operations as
+`CommitError::malformed`. Wave 3b's reading that the view does not check was wrong, and the view needed no change.
+
+What was left is `SessionEntry::encode`, which dropped a non-IRI entry and wrote the results with shifted indexes:
+
+- `SessionEntry::encode` returns `Result<Vec<u8>, InvariantError>`, refusing a table holding a blank node, a literal, a
+  language literal or a triple term with the invariant "a stored reply's term table holds IRIs alone". By then the record
+  view has refused such a table, so only a bug reaches it. `# Errors` says so. The error is built with
+  `InvariantError::violated` rather than `invariant()`, whose `debug_assert!` would panic the test that shows the
+  refusal, as `store_apply`'s `changeset_core` and `txn`'s `write_set_builder` build theirs.
+- `Sessions::drain_entries` returns `Result<(), InvariantError>`, carrying the refusal up.
+- `CommitStep::synced` drains the session entries before it hands the round over. A violation clears what was drained,
+  records the invariant and stops the step as a failed sync does: the round's transactions are answered unavailable and
+  released, nothing is handed to apply, and recovery replays the durable round after a restart.
+  `CommitStep::violated()` names the invariant; `is_stopped`'s doc counts it among the causes.
+- `Replay::round` refuses with `RecoveryErrorEnum::Invariant { position, cause }`, a new variant with its constructor,
+  display ("replaying the round at position N: invariant violated: …") and source.
+- The crate depends on `ultragraphdb_error_invariant`.
+
+Tests: `session_entry_tests.rs` `test_a_reply_whose_term_table_holds_a_term_that_is_no_iri_is_refused`. A blank node, a
+literal and a language literal each sit before the IRI the result names, and each is refused as an invariant violated.
+It failed before the fix, with `encode` given the `Result` signature and its old dropping body: the blank node was dropped
+and the result named index 1 of a one-node table. `recovery_error_tests.rs` gains the new variant's case. The
+`session_entry` fuzz target asserts that an accepted entry encodes to its own bytes, `Ok(data)`.
+
+##### `Pipeline::sync` is cancellation safe
+
+`Pipeline::sync` (`pipeline/mod.rs`) cleared `unsynced` before it awaited the log's sync. A future dropped at that
+await left a round appended, neither applied nor retried: the next call returned at once, and the round's replies were
+never handed out. The flag is now cleared once the sync is answered. A future dropped at the await leaves the round
+waiting for its sync, and the next call syncs it, applies it and hands out its replies. Past that await the call does
+not suspend. The function's doc carries the cancellation note, which it lacked.
+
+Test: `pipeline_tests.rs` `test_a_sync_dropped_at_the_logs_sync_leaves_the_round_to_the_next`, over `HeldSyncLog`, the
+write-ahead log whose first sync stays pending. The pipeline's sync future is polled once and dropped, the round still
+needs its sync and nothing is answered, and the next sync answers the commit at its version, moves the watermark,
+applies the write and commits position 1. It failed before the fix at "the round still waits for its sync".
+
+##### Specification
+
+Neither `PROTOCOL.md` nor the change's specs state a sync's cancellation or the session entry's encoding. §6.3 and
+§12.2 already require the IRIs the view enforces. Nothing changed there.
+
+##### Run
+
+Bazel: `transactions_commit` unit 268 (266 before, 2 added) and bdd 99 scenarios; `cluster_partition` unit, bdd,
+`workload_faults` and `workload_seeds`; `common_storage` unit; `tool_bench` bdd and both unit targets; `tool_test`
+unit. All pass. `storage_tests:bdd` ran 98 scenarios with 2 failing while other agents were editing the wire's
+entries and the storage core, both Scans refused with "entry order of command 525 holds N, which the command does not
+define"; the closing run over the finished tree passes all 98 (*Closing run* below). `cargo clippy -p
+ultragraphdb_transactions_commit --all-targets -- -D warnings` is clean, `cargo fmt --check` is clean, and the `:doc`
+target builds. Fuzzing for 60 s each found nothing: `session_entry`, 823,010 executions, coverage 397;
+`write_set_record`, 3,798,833 executions, coverage 1,306.
+
+##### Open
+
+- The violation branches in `CommitStep::synced` and `Replay::round` cannot be reached through the public API, because
+  the record view refuses the table first on both paths. No test reaches them, and mutation testing at 9.6 will report
+  them as survivors unless `.cargo/mutants.toml` records why.
+
+#### A refusal's frame within every receiver's `max_frame` (`run_read.rs:55`)
+
+`run_read.rs:55` was a real defect, in a different form than the coverage pass gave. Every refusal compute and the frontend build
+from text that is not theirs now reaches its receiver: `ErrorReply`'s body cuts its message, at its last character boundary, to fit
+an Error frame within 524,288 bytes, the floor of `max_frame`, which every receiver takes. `PROTOCOL.md` §9.4 states the rule.
+Each test failed before the fix, shown by a temporary edit that was then put back, and passes after it.
+
+**What bounds the message.** The message of `run_read.rs`'s `id_of` holds a resume key's IRI, the client's text: the key is
+compute's token under a non-cryptographic XXH3-64 checksum, so a client can write one. The IRI is bounded only by the client's Read
+frame, which is at most the Welcome's `max_frame` of 1,048,576 bytes. On the role link the Error never passed 1 MiB. Its data is at
+most the IRI plus 112 bytes: the 24-byte section table, the 81 bytes of fixed text including a 20-digit tenant, and padding. The
+ComputeRead carrying that IRI holds at least the IRI plus 128 bytes: the 32-byte section table, and the key's 24-byte fixed part,
+24-byte table, 24-byte padded row and 24-byte record. Every other site has the same bound: a message names terms of the one frame
+that carried them. The coverage pass's "past 1 MiB" was therefore not reachable. What was reachable is the client's limit.
+§11.1 allows no frame larger than the receiver's `max_frame`, and a client's Hello may announce as little as 524,288 (§5.1). The
+Error compute built ran up to the size of the Read, so a client announcing less refused the frame and closed its connection.
+Before the fix:
+
+- compute answered a read whose `max_frame` is 524,288 with an Error of 525,680 bytes;
+- the frontend answered a DirectWrite naming a 524,288-byte relative IRI with an Error of 525,624 bytes, which the client refused
+  as `FrameTooLarge`.
+
+Where an Error does not build, `run_read` logs and ends the stream with no frame, and the frontend's `push_last` logs and queues
+nothing. After the fix, an Error fails to build only for a found value past the largest frame or a `WrongPartition` detail with
+bits 24 to 31 set. A read's refusal carries neither: a relayed refusal's detail has passed `ErrorReplyView`'s check. So the
+`Err` arm at `run_read.rs:55` cannot be reached.
+
+**The sites checked.** Every one frames its refusal through `ErrorReply`'s body, so the one fix covers them all:
+
+- compute: `resume_refused`, which names the key's IRIs, its protocol rule or an object's encoding error; `term_refused` in
+  `read_request.rs`, `read_route.rs` and `partition_rows_plan.rs`; a partition's refusal relayed at `run_read.rs:229` and
+  `scan_stream.rs:131`; `unavailable` over a store's or decoder's error.
+- the frontend: `term_rules`, which names a client's IRI, lexical form, datatype, language tag or skolem IRI; refusals relayed
+  from compute and partitions through `error_of` and `push_error`; the owner's refusals.
+- the transport: `ServerConnection::refuse` and `close_with`.
+
+**The change.**
+
+- `ultragraphdb_protocol_wire`: `error_reply_body_builder.rs`'s `body` writes the message through `fitted`. That function cuts it
+  to what a frame at `MAX_FRAME_FLOOR` leaves beside a three-section table and the value's sections, using `floor_char_boundary`.
+  The data room is the floor less the header, less a chunk table of as many leaves as the whole body would take: 523,008 bytes.
+  `ErrorReply`'s documentation states the cut. `message()` returns the whole message.
+- `ultragraphdb_protocol_transport`: `ServerConnection::refuse`'s `# Errors` now gives a found value past the largest frame as
+  its example of an Error that cannot be framed.
+- `specification/binary_protocol/PROTOCOL.md` §9.4: a sender builds every Error frame within the floor of `max_frame`, a message
+  longer than that frame leaves it cut at its last character boundary. `openspec validate stage-5-5-three-role-refactor` passes.
+
+**Tests.**
+
+- wire, `error_reply_tests.rs`, two new tests:
+  - `test_a_message_past_the_floor_is_cut_to_fit_it`: a message past the floor is cut to a prefix that validates at
+    `MAX_FRAME_FLOOR`. A message of exactly that length goes whole, and one byte more is cut back to it. A message of
+    three-byte characters is cut on a boundary, within one character of the limit.
+  - `test_a_cut_message_leaves_the_value_whole`: an OperationFailed's value reads back whole beside a cut message.
+- compute, `run_read_tests.rs`: `test_a_resume_key_naming_an_unheld_term_past_the_frame_is_refused_within_it` forges a key from a
+  real one's pattern and scope, naming a subject longer than the floor. The read's `max_frame` is the floor. The read ends with
+  an Error 1 frame flagged `LAST`, within the floor, whose message ends in the IRI's start.
+- frontend, `client_session_tests.rs`: `test_a_refusal_naming_a_term_past_the_client_s_frame_fits_it`. A client announcing the
+  floor sends a DirectWrite whose subject is a relative IRI as long as the floor. It reads Error 7, its message the IRI's start
+  and cut.
+- Four tests used a long Error message only as a large frame, and now take another:
+  - `body_builder_tests.rs` encodes a 1,048,600-byte body through `Header::encode_frame`.
+  - `framer_tests.rs` and the transport_compio BDD step *a client sends a frame larger than the Welcome's `max_frame`* send a
+    Write holding a 600,000-byte IRI, as the framer test's comment already said.
+  - `server_connection_tests.rs`'s refusal that cannot be framed carries a found value past the largest frame.
+- `test_a_closing_error_too_large_to_frame_is_an_error_and_the_connection_closes` is now
+  `test_a_closing_error_past_the_floor_carries_its_rule_cut_and_the_connection_closes`: the closing Error on stream 0 validates
+  at the floor and carries the rule's text cut.
+
+**Run.** All gates are Bazel. These targets passed: wire `:ultragraphdb_protocol_wire_tests` (716) and `:bdd`; transport
+`:ultragraphdb_protocol_transport_tests` (180); transport_compio `:ultragraphdb_protocol_transport_compio_tests` and `:bdd`;
+`:ultragraphdb_common_compute_tests`; `:ultragraphdb_common_frontend_tests` and `:bdd`; `ultragraphdb_compute_tests:bdd`;
+`ultragraphdb_frontend_tests:bdd`; the three client crates' unit and `:bdd` targets; and `ultragraphdb_common_role`'s and
+`ultragraphdb_common_storage`'s unit targets. `cargo clippy -p <crate> --all-targets -- -D warnings` is clean for wire, transport,
+transport_compio, common_compute and common_frontend.
+
+**Open.**
+
+- An OperationFailed's found value is not bounded by the floor. Storage's `error_reply.rs` attaches a stored literal, and a
+  write set of up to 1,040,384 bytes can store one past 524,288. The frontend relays it whole, and a client announcing the floor
+  refuses that frame. Neither cutting a value nor refusing it is a rule the specification gives. That is for the lead.
+- `fuzz/ultragraphdb_protocol_wire`'s `body` and `body_fields` targets assert that an Error rebuilt from its view is the frame
+  read. That no longer holds for a message past 522,984 bytes. libFuzzer's default input of at most 4,096 bytes, with seeds of
+  golden frames, cannot reach that length, so the targets were not changed or run.
+
+#### The two unbounded paths and three leftovers
+
+The HTTP listener's accept loop and two of `PartitionCore`'s drains each take a bound, the listener's tested first, and
+the listener paces its failed accepts. `serve_http.rs:81`'s loop is half-open, `EncodedTerm::result_view` has its `# Errors`, and the
+fuzz workspace's clippy refuses two lines, both a clock read.
+
+##### `AcceptPace` moves beneath every accept loop
+
+`AcceptPace`, `ACCEPT_PAUSE_FIRST` and `ACCEPT_PAUSE_MAX` live in `ultragraphdb_protocol_transport_compio`
+(`src/types/accept_pace.rs`, `git mv` from `common_service`, its test with it to `tests/types/accept_pace_tests.rs`),
+beside `Listener`: the lowest crate every accept loop reaches, the HTTP server below `common_service` included.
+`ultragraphdb_protocol_transport` is sans-I/O and has no runtime to pause on. The crate gains `tracing`, already a
+workspace dependency, for the pace's warning. Every user imports it from there: `common_service`'s `/health` loop,
+`compute`, `frontend` and `storage`'s `service.rs`; `ultragraphdb_compute` gains the direct dependency on
+`ultragraphdb_protocol_transport_compio`. `common_service` no longer exports it, and its `lib.rs` doc links it in its
+new crate.
+
+##### `serve_listener`: paced and bounded
+
+- A failed accept pauses through `AcceptPace` (`"http"`), as every other accept loop does.
+- `HttpLimits::CONNECTIONS_MAX`, 64, is the most connections one listener serves at once; `HttpLimits::new` sets it and
+  `with_connections` takes another (`NonZeroUsize`, so no listener can serve none), read back by `connections`. The two
+  listeners are the control plane's: a role's admin endpoint takes an operator's load, and the config service each role's
+  settings fetch as it starts and an operator's uploads, so 64 serves a cluster's processes starting together, a further
+  fetch waiting its turn rather than failing. 64 of the config service's requests, each up to 512 KiB, hold some tens of
+  MiB; an admin endpoint's, 64 bytes each, about 1 MiB. Its doc says so.
+- Past the bound a connection waits, not refused: the loop takes a slot before it accepts, so the next connection stays
+  in the listener's backlog until one ends, within four times the limits' time (handshake, read, write, drain), the
+  service's call aside. Go's `netutil.LimitListener` bounds the same way. A refusal would need an accept, a response
+  and a drain per refused peer, which is the work the bound exists to cap.
+- `ConnectionSlots` (`src/types/connection_slots.rs`) counts the slots in `Cell`s behind an `Rc` shared with the
+  connections' tasks, all on the listener's one thread, the accept loop's waker held while it waits; `ConnectionSlot`
+  (`connection_slot.rs`) gives its slot back on drop, so a connection's task ending in any way, cancelled included,
+  frees it. Both are crate-private.
+- `serve_listener`'s doc states the pace, the bound and what a drop at the slot's wait, the accept or the pause leaves.
+- `config-service` spec: the requirement *The config service serves its API over authenticated HTTP* states the bound,
+  64 connections at once, as a role's admin listener does, a further one waiting to be accepted.
+  `openspec validate stage-5-5-three-role-refactor` passes.
+
+Tests, `transport_http_server` `tests/utils/serve_http_tests.rs`, with `with_connections(2)` as the fixture and the
+count read from `limits.connections()`: with all but one connection held silent, the last one's request is answered
+(at the bound); with every slot held, a further connection's request reaches no call in 200 ms, and once one held
+connection closes it is answered (past it). `tests/types/http_limits_tests.rs` (new): `new` takes `CONNECTIONS_MAX`,
+and `with_connections` changes that alone. Observed failing before the slots: the past-bound test, a call made with
+every slot held. With the bound lowered by one (`held + 1 < max`), the at-bound test failed on its 5 s wait.
+
+##### `PartitionCore`'s drains
+
+- `CLOSES_PER_TURN_MAX`, 64 (`partition_core/mod.rs`, exported): a close arrives at most once an epoch, never under
+  1 ms (`epoch_ms_min`, `PROTOCOL.md` §11.9), and a turn waits at most `TICK` and syncs once, about 0.46 ms at the
+  Shard-per-Core note's 2,188 syncs a second, so a turn finds one or two; the bound is for a core that stalled, taking
+  64 ms of the shortest epochs a turn and shrinking a longer backlog by 64 a turn less what arrives meanwhile.
+- `REMOTE_PER_TURN_MAX`, `MESSAGES_PER_TURN_MAX` (1,024): each remote message is a write's registrations for a home in
+  another process, or a home's answer to one, so it stands for a request as an inbox message does.
+- `turn` and `take_remote` each take an `InboxTurn` of their bound, with the comment the inbox drain has.
+
+Tests: `partition_core_tests.rs`, over a running core: 64 closes sent at once, and 65, each followed by a commit
+stamped in the epoch above the last close, so a close past a turn's bound is taken by the next turn and not lost (the
+commit is stamped at least two turns after the closes, its Bind answered in one and its commit taken in a later one).
+Observed failing with a drain that discarded what a turn left: the 65-close test. `partition_core_remote_tests.rs`:
+a turn of `REMOTE_PER_TURN_MAX` over a `std::sync::mpsc` channel takes a channel holding its bound whole and leaves
+none, and of one holding one more leaves that one for the next turn.
+
+##### Leftovers
+
+- `serve_http.rs:81`: `0..=head + body` is `0..parses`, `head + body + 1` by `saturating_add`, its comment saying why
+  the one more.
+- `EncodedTerm::result_view` (`core_terms/src/types/encoded_term/encoded_term_view.rs`) has `# Errors`:
+  `TermError::malformed` (tag `0x01`, an inline part not UTF-8), `truncated`, `unknown_datatype`, `unknown_tag`.
+- `AGENTS.md`: `ultragraphdb_core_terms` names `Datatype`'s `Known`, `Id` and `Hashed` and `EncodedTerm::view` and
+  `result_view`; `ultragraphdb_protocol_transport_compio` names `AcceptPace` and `tracing`, `ultragraphdb_common_service`
+  no longer does; `ultragraphdb_transport_http_server` names the bound and the pace; `ultragraphdb_common_storage` the
+  two turn bounds; `ultragraphdb_compute` its new dependency.
+- Fuzz clippy: `body_fields` takes a Scan's fields as `ScanFields` and its ranges as `RangeFields`, both
+  `Arbitrary` structs as `OperationFields` is, which ends `too_many_arguments` and both `type_complexity`, the fields
+  consumed in their old order; the six `.map(|v| { assert…; v })` are `.inspect`. `reply` counts the rows whose first
+  cell reads to a term with `filter_map(…).count()`, which reads every term as before.
+
+##### Run
+
+Bazel: `transport_http_server` unit 31, `transport_http_client` unit 21, `protocol_transport_compio` unit 57 and bdd
+18 scenarios, `common_service` unit 53, `common_storage` unit 188, `common_config` unit and bdd, `core_terms` unit 55
+and bdd; `config_tests:bdd` 44 scenarios, `supervisor_tests:bdd` 28, `storage_tests:bdd` 98, `compute_tests:bdd` 88,
+`frontend_tests:bdd` 20; all pass. The `:doc` targets of `transport_http_server`, `protocol_transport_compio`,
+`common_service`, `common_storage` and `core_terms` build. `cargo clippy --all-targets -- -D warnings` is clean over
+`protocol_transport_compio`, `transport_http_server`, `common_service`, `common_storage`, `core_terms`, `compute`,
+`frontend` and `storage`; `rustfmt --check` over every file changed.
+
+##### Open
+
+- `cargo clippy --manifest-path fuzz/Cargo.toml --all-targets -- -D warnings` refuses two lines:
+  `Instant::now()` in `client_core`'s `reply.rs:145` and `protocol_transport`'s `server_connection.rs:217`
+  (`disallowed_methods`). An `Instant` is made only by reading the clock, so a fix is the exception the crates' own
+  tests carry, `#[expect(clippy::disallowed_methods, reason = "an Instant is made only by reading the clock, so the
+  target's origin reads it once")]` on a `fn start() -> Instant`, as `protocol_transport/tests/utils/peer.rs` has. That
+  is an exception, which needs the owner's consent; no other change removes the call.
+- `take_remote`'s bound is reached by the suites alone: a turn's count of remote messages has no observable of its own,
+  and the test holds the bound with `InboxTurn` over the core's channel type.
+- `PartitionHost::turn` (`cluster_partition/src/types/partition_host/mod.rs:242`) drains the partition's own mailbox
+  until empty; the closes now reach it at most 64 a turn, the other partitions' messages at their own rate. Not in
+  the crates this section changed.
+
+#### The owner's 12.3 decisions on fields, ranges and `Copy` (owner decisions 41 and 42)
+
+Three of 12.3's items the owner settled on 2026-11-08: the public fields of `ReportAsked`, `Registered` and
+`ChangesetWorkload` become private; the counted loops written `..=` become half-open; a `Copy` type stays within one
+cache line, 64 bytes. None changes behaviour.
+
+##### Private fields
+
+- `ReportAsked` (`common_frontend/src/types/report_asked.rs`): `new(tenant: Tenant, version: u64, partition: u32,
+  refused)`, with `tenant`, `version`, `partition`, `refused` (the predicate and the term as `&str`) and `into_refused`,
+  which the owner takes the refusal by. The tenant is `ultragraphdb_core_ids`' `Tenant`, the type the owner keys its
+  checks by, so the tenant and the version cannot be swapped; no newtype was added. The partition stays a `u32` as the
+  frame names it, since the owner refuses partition 0 with a Protocol error in its reply (`owner_check.rs`), which a
+  `PartitionId` argument would move to the session. Users: `role_session.rs` builds it from the `ReportView`,
+  `owner_check.rs` reads it; the three owner tests build it with `new`. `tests/types/report_asked_tests.rs` is new: a
+  report reads back what it was built from, and a passed check refuses nothing.
+- `Registered` (`store_quads/src/types/referrer_set/mod.rs`): `new(generation: NonZeroU64, changed: bool)`, with
+  `generation` and `changed`; `register` builds it with `new`. Users: `cluster_partition`'s `home/mod.rs`,
+  `referrer_set_tests.rs`, and the fuzz target `fuzz/ultragraphdb_store_quads/fuzz_targets/referrer_set_decode.rs`, whose
+  change is four getter calls, not built here (cargo-fuzz, nightly). It stays in `referrer_set/mod.rs` beside
+  `ReferrerSet`, as decision 35 allows.
+- `ChangesetWorkload` (`tool_test/src/types/changeset_workload/mod.rs`): the seven counters private, each read by a getter of
+  its name (`writes`, `replayed`, `refusals`, `checked`, `skipped`, `unrecovered`, `compared`). The workload is built by
+  `run`, `run_replayed`, `replaying` and `Default` as before, so no constructor was added. Users: `tool_test`'s
+  `changeset_workload_tests.rs` and `store_apply`'s `workload_replay.rs`, `workload_differential.rs`, `workload_faults.rs`
+  and `workload_seeds.rs`.
+
+##### Half-open ranges
+
+The `..=` on the `src/` lines `git diff 1f4b67a3` adds, 43, were read one by one. Rewritten, as the rule now asks of a
+range that iterates:
+
+| Where | Was | Now |
+|---|---|---|
+| `common_config_check/src/utils/cross_checks.rs:553` | `1..=total.min(PARTITIONS_MAX)` | `1..total.min(PARTITIONS_MAX) + 1`; `PARTITIONS_MAX` is 2^10 |
+| `tool_bench/src/utils/partitions_run.rs:121` | `1..=args.partitions()` | `1..args.partitions() + 1`; `PlacementMap::even` on the line before refuses a count above `PARTITIONS_MAX` |
+| `tool_test/src/types/partition_workload/mod.rs:138` | `for step in 1..=steps` | `for index in 0..steps`, step `index + 1`: `steps` is a caller's `u64` with no bound |
+| `tool_test/src/types/partition_workload/mod.rs:153` | `1..=partitions` | `1..partitions + 1`, after `PlacementMap::even` as above |
+| `tool_test/src/utils/crash_harness.rs:164`, `:186` | `(1..=batches).map(\|i\| …)` | `(0..batches).map(\|index\| …)`, batch `index + 1`, for the reason `steps` takes it |
+| `common_service/src/utils/cpu_list.rs:22` | `cpus.extend(first..=last)` | `first..last + 1`; `last` is below `CPUS_MAX`, which the line before checks |
+| `core_types/src/utils/go_sort.rs:65` | `(0..=(hi - 1) / 2).rev()` | `(0..(hi - 1) / 2 + 1).rev()`, Go's loop down from `(hi - 1) / 2` through 0 |
+| `protocol_wire/src/types/entries_sequence.rs:198` | `(at..=end).find(…)` | `(at..end + 1).find(…)`; `run` holds `end` below the count of ranges |
+
+Each end that adds 1 says in a comment why it cannot overflow; where nothing bounds the count, the loop runs over indices
+and converts to the 1-based number, as *Off-by-one* writes a count. Kept, by the rule's own exceptions: the `contains` check
+at `cross_checks.rs:226` (`1..=PARTITIONS_MAX`, "it must lie from 1 to" the maximum); the closed intervals and match arms
+12.3's item 13 lists; `entries_sequence.rs:177`'s `run`, a `RangeInclusive` naming the Scan's ranges "from `range` through
+`through`" that nothing iterates since `outside_run` takes its ends; the ranges to a type's maximum (`placement_map`'s
+`0..=u8::MAX`, `held_catalogs.rs`, `scan_board/mod.rs`, `traits_catalog`'s `test_catalog_source.rs:88`).
+`partition_workload/edge_model.rs:23`'s `changes.range(..=version)` is a map's lookup of the change at or below a
+version, of any `u64`, which no half-open bound names at `u64::MAX`; it stays. `serve_http.rs:81` is under *The two unbounded paths and three leftovers* above.
+
+Shown by a temporary edit, put back: each of `cross_checks.rs:553`, `cpu_list.rs:22` and `entries_sequence.rs:198`
+written one short (`..end` for `..end + 1`) fails its crate's suite (`common_config_check:bdd`,
+`common_service` unit, `protocol_wire` unit and bdd), so the existing tests hold each end.
+
+##### `Copy` within a cache line
+
+Measured with `size_of` on aarch64-apple-darwin (a 64-bit target, as the repository builds for), the review's estimates
+summed field sizes without layout. `ReferenceRegistration` is 56 bytes, not 70: its `Option<SystemId>` takes 16 through
+the IDs' nonzero niches and the struct pads to 56. It keeps `Copy` and needs no reason.
+
+Each listed type at most 64 bytes now carries `const _: () = assert!(size_of::<T>() <= 64);` beside it, with the comment
+"A copy moves at most one cache line (Ultra rule 9).": `protocol_wire`'s `Bind` 56, `ReferenceRegistration` 56,
+`write_set_record_view`'s `Fixed`, `ResumeRow` 28, `Lease` 32, `Recall` 32, `RecordRegistration` 32, `term_table_view`'s
+`Entry`, `OperationFields`, `CatalogView` 48, `EpochCloseView` 64, `ScanRange` 56, `KeyRange`, `ObjectRecord` 32,
+`VerifyView` 64; `store_apply`'s `ReadCounts` 40 and `MarkedReference` 32; `store_quads`' `ReferrerMember` 24;
+`transactions_commit`'s `EpochStamp` 32; `transport_http_server`'s `HttpLimits` 32; `core_types`' `CivilTime` 56 (the
+four private types are not measured from outside; their asserts hold). Written `<= 48`, `ReferenceRegistration`'s assert
+fails the build (E0080), so each assert is read.
+
+Above 64 bytes, all of them `Copy`, borrowed views of a frame: of the review's list `PlacementView` 80 and `ScanView` 120,
+and, measured over every public `Copy` type of `protocol_wire`, `ErrorReplyView` 72, `InstallView` 72, `WelcomeView` 80,
+`HeaderView` 112, `FrameView` 160 and `WriteSetRecordView` 328. None carries a reason or an assert. Left for the owner,
+below.
+
+##### Run
+
+`cargo clippy --all-targets -- -D warnings` over the twelve crates touched (`common_frontend`, `store_quads`,
+`cluster_partition`, `tool_test`, `store_apply`, `common_config_check`, `tool_bench`, `common_service`, `core_types`,
+`protocol_wire`, `transactions_commit`, `transport_http_server`) is clean; `cargo check --workspace --all-targets` is
+clean. Bazel, every test target of those packages but the integration tests, 30 targets: all pass in the run made after the
+edits, among them `common_frontend` unit 84 (2 added) and bdd, `store_quads` unit 177, `store_apply` unit 333 and its four
+workload targets, `tool_test` unit 22, `cluster_partition` unit 97 and its two workload targets, `common_config_check`
+unit 41, `common_service` unit 53, `core_types` unit 345, `protocol_wire` unit 716, `tool_bench` unit 88. A later run of
+`protocol_wire`'s unit target, made while another agent was rewriting `error_reply_tests.rs`, failed two of its tests
+(`frame of 525600 bytes exceeds the 524288-byte limit`); the closing run passes all 716. No role's behaviour changed, so the role binaries'
+`_tests:bdd` were not run.
+
+##### Open
+
+- **`Copy` views above 64 bytes in `protocol_wire`:** `PlacementView` 80, `ScanView` 120, `ErrorReplyView` 72,
+  `InstallView` 72, `WelcomeView` 80, `HeaderView` 112, `FrameView` 160, `WriteSetRecordView` 328. Decision 42 named
+  `ReferenceRegistration` alone on the review's estimates; under the rule each of these carries its reason or drops
+  `Copy`, and dropping it from `FrameView` reaches every receiver of a frame. The owner's choice which. The other crates'
+  `Copy` types beyond the review's list were not measured.
+- **`..=` loops in tests.** On the lines the change adds outside `src/` (tests, BDD steps, benches), 245 `..=` that are no
+  `contains` check, match arm or comment, in 121 files, most of them counted loops such as `for partition in 1..=3`. The
+  review's scope was `src/`, and those files are other agents' in this wave; writing them half-open changes no behaviour.
+- **`go_sort.rs:229`'s `start..=a + (length / 4) * 2 + 1`**, a Go port's loop the change did not touch, stays for the
+  crate's next change.
+
+#### Closing run
+
+Run once every agent of wave 4 had finished, `git diff` and the untracked files compared before and after each, `lean/`
+left out as another line of work's.
+
+`make format` changed one file: rustfmt ordered the `use crate::` block of
+`ultragraphdb_client_compio/src/types/client/mod.rs`, where the client's `Settling` import was added. buildifier changed
+nothing. `make fix` changed no file and reported nothing. The second `make format` and `make fix` changed nothing and
+reported nothing. `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check` and
+`cargo fmt --all --check --manifest-path fuzz/Cargo.toml` are clean, and the workspace build prints no `unimplemented`
+warning. No `src/` holds a run-time `assert!`, `assert_eq!` or `assert_ne!` outside a `#[cfg(test)]` module
+(`tool_bench`'s `apply_run.rs` and `pipeline_run.rs`) and the test crate `ultragraphdb_tests` (`harness.rs:490`); every
+other `assert!` under `src/` is a `const` assert, the wave's 21 size asserts among them.
+
+`cargo clippy --manifest-path fuzz/Cargo.toml --all-targets -- -D warnings` refuses 2 of the 12 lines wave 3b found:
+`disallowed_methods` on `Instant::now()` at `client_core`'s `reply.rs:145` and `protocol_transport`'s
+`server_connection.rs:217`. An `Instant` is made only by reading the clock, so no change but an `#[expect]` with its
+reason removes either, and that exception waits on the owner's consent.
+
+Bazel, over the finished tree: `storage_tests:bdd` 98 scenarios, `protocol_wire` unit 716 and bdd, `common_storage`
+unit 188; all pass, the two mid-wave failures above among them. `make test` is the lead's gate after this wave.
 
 ## 12.4 Coverage
 

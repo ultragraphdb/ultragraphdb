@@ -61,8 +61,8 @@ fn sift_down<D: SortData>(data: &mut D, lo: usize, hi: usize, first: usize) {
 fn heap_sort<D: SortData>(data: &mut D, a: usize, b: usize) {
     let first = a;
     let hi = b - a;
-    // Go's int arithmetic on an index, which is at most isize::MAX.
-    for i in (0..=(hi.cast_signed() - 1) / 2).rev() {
+    // Go's int arithmetic on an index, which is at most isize::MAX; Go's loop runs down from `(hi - 1) / 2` through 0.
+    for i in (0..(hi.cast_signed() - 1) / 2 + 1).rev() {
         if i >= 0 {
             sift_down(data, i as usize, hi, first);
         }

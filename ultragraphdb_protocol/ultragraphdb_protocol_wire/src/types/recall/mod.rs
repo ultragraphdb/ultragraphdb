@@ -22,6 +22,9 @@ pub struct Recall {
     request: u64,
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<Recall>() <= 64);
+
 impl Recall {
     /// The recall of `session`'s reply to `request` from `partition`.
     #[must_use]

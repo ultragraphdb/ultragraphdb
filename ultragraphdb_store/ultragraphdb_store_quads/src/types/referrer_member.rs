@@ -17,6 +17,9 @@ pub struct ReferrerMember {
     generation: NonZeroU64,
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<ReferrerMember>() <= 64);
+
 impl ReferrerMember {
     /// The member for `group`, added at `epoch`, at `generation`.
     #[must_use]

@@ -4,6 +4,7 @@
  */
 
 mod client_requests;
+mod settling;
 
 use std::future::poll_fn;
 use std::pin::{Pin, pin};
@@ -19,6 +20,7 @@ use ultragraphdb_protocol_wire::MAX_FRAME_SIZE;
 
 use crate::traits::connect::Connect;
 use crate::traits::split_stream::SplitStream;
+use crate::types::client::settling::Settling;
 
 /// The receiving half of a connection of `C`.
 type Reader<C> = Connection<<<C as Connect>::Stream as SplitStream>::Read>;
@@ -93,8 +95,9 @@ fn unix_micros() -> u64 {
 /// the next call takes its frame, read before any deadline that passed meanwhile is taken. Each frame is written on a task of
 /// its own too, so a caller's future dropped mid-frame leaves the write going on, and the next frame follows it whole. Only a
 /// real timeout, a failure or a close gives the connection up: a busy commit's
-/// resend and a credential's renewal go out on the sending half while a read is out. The core's requests stay as they
-/// stand and answer on the next call, a commit's among them. The core opens a read only while the pool holds what its
+/// resend and a credential's renewal go out on the sending half while a read is out. A request sent goes on to its
+/// answer, which the core lets go as it arrives, a commit's moving its session's counter or leaving it in doubt, a
+/// Begin's transaction aborted. The core opens a read only while the pool holds what its
 /// credit can bring, and a full pool reads nothing until a frame gives its buffer back.
 #[derive(Debug)]
 pub struct Client<C: Connect, L: Login> {
@@ -386,14 +389,21 @@ impl<C: Connect, L: Login> Client<C, L> {
         self.drop_connection();
     }
 
-    /// The answer of `pending`, once it arrives.
+    /// The answer of `pending`, once it arrives. A future dropped before it, or a drive refused, tells the core that no
+    /// call waits for the answer ([`ClientCore::forget`]), which it lets go as it arrives.
     async fn settle(&mut self, pending: Pending) -> Result<Reply, ClientError> {
+        let settling = Settling {
+            client: self,
+            pending,
+        };
         let mut answer = None;
-        self.drive(|core| {
-            answer = core.take_reply(pending);
-            answer.is_some()
-        })
-        .await?;
+        settling
+            .client
+            .drive(|core| {
+                answer = core.take_reply(pending);
+                answer.is_some()
+            })
+            .await?;
         answer.unwrap_or_else(|| Err(ClientError::connection_lost(None)))
     }
 

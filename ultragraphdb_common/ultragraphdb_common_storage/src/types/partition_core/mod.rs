@@ -74,6 +74,20 @@ const TICK: std::time::Duration = std::time::Duration::from_millis(1);
 /// the 2,188 a second the Shard-per-Core note measures, so admits two million requests a second, past what a core serves.
 const MESSAGES_PER_TURN_MAX: usize = TURN_BYTES / HEADER_SIZE;
 
+/// The epoch closes one turn takes of those delivered to it, the rest waiting for the next turn: 64. A close arrives at most
+/// once an epoch, and an epoch lasts at least `epoch_ms_min`, never under 1 ms (`PROTOCOL.md` §11.9), while a turn waits at
+/// most [`TICK`] and syncs once, about 0.46 ms at the 2,188 syncs a second the Shard-per-Core note measures: a turn finds one
+/// or two. The bound is for a core that stalled, on a slow sync or a starved thread: a turn takes the closes of 64 ms of the
+/// shortest epochs, each a send to its own mailbox and the commit step's close of an epoch, and a longer backlog shrinks by 64
+/// a turn less the closes arriving during it.
+pub const CLOSES_PER_TURN_MAX: usize = 64;
+
+/// What one turn takes of what other partitions of the process sent beyond it, the rest waiting for the next turn: as many as
+/// of its inbox, [`MESSAGES_PER_TURN_MAX`]. Each is a write's registrations for a home in another process, sent once a write
+/// parks here and again a batch a second until its limit, or a home's answer to a registration this partition asked: each
+/// stands for a request a connection sent, as an inbox message does, and costs a spawned task or a parked write's resumption.
+pub const REMOTE_PER_TURN_MAX: usize = MESSAGES_PER_TURN_MAX;
+
 /// How long a partition keeps a Scan with no frame able to leave, by default (`PROTOCOL.md` §11.9), in milliseconds.
 pub const SCAN_STALL_MS_DEFAULT: u64 = 30_000;
 
@@ -440,7 +454,9 @@ impl<'a> PartitionCore<'a> {
     /// One turn of the host, and what that made durable handed on. A future dropped at the host's turn leaves the core fit
     /// only to be dropped, as [`PartitionCore::run`] says.
     async fn turn(&mut self) -> Result<(), RoleError> {
-        while let Ok(message) = self.closes.try_recv() {
+        // At most CLOSES_PER_TURN_MAX, the rest waiting for the next turn (Ultra rule 2).
+        let mut taking = InboxTurn::new(CLOSES_PER_TURN_MAX);
+        while let Some(message) = taking.receive(|| self.closes.try_recv()) {
             // A close the subscription brought, to the partition's own mailbox.
             drop(self.own.send(message));
         }

@@ -37,6 +37,9 @@ struct Fixed {
     principal: u64,
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<Fixed>() <= 64);
+
 /// The fixed part `fixed`, of 64 bytes, checked in order: the kind, its 7 zero bytes, the fields the kind leaves 0.
 fn read_fixed(command: u16, fixed: &[u8]) -> Result<Fixed, ProtocolError> {
     let code = fixed.first().copied().unwrap_or(0);

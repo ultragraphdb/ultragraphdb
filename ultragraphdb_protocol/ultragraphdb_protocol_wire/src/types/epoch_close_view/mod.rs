@@ -19,6 +19,9 @@ pub struct EpochCloseView<'a> {
     evictions: &'a [u8],
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<EpochCloseView<'static>>() <= 64);
+
 impl<'a> EpochCloseView<'a> {
     /// The epoch closed.
     #[must_use]

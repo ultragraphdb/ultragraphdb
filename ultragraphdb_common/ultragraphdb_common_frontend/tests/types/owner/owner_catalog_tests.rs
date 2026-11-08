@@ -8,6 +8,7 @@ use std::time::Duration;
 use compio::runtime::Runtime;
 use ultragraphdb_cluster_metadata::{MetadataCommand, MetadataConfig, MetadataState};
 use ultragraphdb_common_frontend::{DropStep, OwnerHandle, ReportAsked};
+use ultragraphdb_core_ids::Tenant;
 use ultragraphdb_protocol_wire::{
     Declared, DeclaredEntityType, DeclaredKind, DeclaredPredicate, DeclaredRelation, Describe,
     ErrorCode,
@@ -39,12 +40,7 @@ async fn pass(handle: &OwnerHandle, tenant: u64, after: u64) -> TestResult {
             && held.version() > after
             && held.epoch() != 0
         {
-            let report = ReportAsked {
-                tenant,
-                version: held.version(),
-                partition: 1,
-                refused: None,
-            };
+            let report = ReportAsked::new(Tenant::new(tenant), held.version(), 1, None);
             return heard(handle.report(report).await);
         }
         compio::time::sleep(Duration::from_millis(1)).await;

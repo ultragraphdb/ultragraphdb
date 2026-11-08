@@ -8,8 +8,9 @@
 //! as corrupted, naming its key.
 
 use ultragraphdb_core_ids::{Epoch, SessionToken};
+use ultragraphdb_error_invariant::{InvariantError, InvariantErrorEnum};
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
-use ultragraphdb_protocol_wire::{OperationResult, TermTable};
+use ultragraphdb_protocol_wire::{OperationResult, RequestTerm, TermTable};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_transactions_commit::{SessionEntry, StoredReply};
 
@@ -72,7 +73,7 @@ fn golden() -> Vec<u8> {
 #[test]
 fn test_an_entry_is_its_request_reply_token_results_and_nodes() -> TestResult {
     let entry = committed()?;
-    assert_eq!(entry.encode(), golden());
+    assert_eq!(entry.encode()?, golden());
     let key = SessionEntry::key(5);
     let decoded = SessionEntry::decode(&key, &golden()).context("the entry decodes")?;
     assert_eq!(decoded, entry);
@@ -94,7 +95,7 @@ fn test_an_entry_without_results_is_its_fixed_part_alone() -> TestResult {
         Vec::new(),
         TermTable::new(),
     );
-    let bytes = SessionEntry::new(1, reply.clone()).encode();
+    let bytes = SessionEntry::new(1, reply.clone()).encode()?;
     assert_eq!(bytes.len(), 48);
     let decoded = SessionEntry::decode(b"k", &bytes)?;
     assert_eq!(decoded.reply(), &reply);
@@ -114,7 +115,7 @@ fn test_the_fuzz_seeds_are_the_suites_entries() -> TestResult {
     );
     assert_eq!(
         read("stage55_no_results.bin")?,
-        SessionEntry::new(1, without_results).encode()
+        SessionEntry::new(1, without_results).encode()?
     );
     Ok(())
 }
@@ -127,7 +128,7 @@ fn test_the_session_entry_fuzz_regressions_have_one_encoding_or_are_refused() ->
     assert!(!cases.is_empty(), "the committed cases");
     for (name, bytes) in cases {
         match SessionEntry::decode(&SessionEntry::key(5), &bytes) {
-            Ok(entry) => assert_eq!(entry.encode(), bytes, "{name}"),
+            Ok(entry) => assert_eq!(entry.encode()?, bytes, "{name}"),
             Err(_) => {
                 let _reason: String = refusal(&bytes).context(&name)?;
             }
@@ -234,11 +235,50 @@ fn test_a_compare_and_set_and_counters_at_the_ends_of_i64_read_back() -> TestRes
         TermTable::new(),
     );
     let entry = SessionEntry::new(u64::MAX, reply);
-    let bytes = entry.encode();
+    let bytes = entry.encode()?;
     assert_eq!(bytes.len(), 48 + 3 * 16);
     let decoded = SessionEntry::decode(b"k", &bytes)?;
     assert_eq!(decoded, entry);
     assert_eq!(decoded.reply().results(), &results[..]);
     assert_eq!(decoded.request(), u64::MAX);
+    Ok(())
+}
+
+/// A stored reply's term table holds IRIs alone (`PROTOCOL.md` §6.3), which the record view checks of every logged
+/// record's: a table holding a blank node or a literal before the IRI its result names is refused as an invariant
+/// violated, not written with the result naming a shifted index.
+#[test]
+fn test_a_reply_whose_term_table_holds_a_term_that_is_no_iri_is_refused() -> TestResult {
+    let others = [
+        RequestTerm::BlankNode("b".to_string()),
+        RequestTerm::Literal {
+            lexical: "x".to_string(),
+            datatype: None,
+        },
+        RequestTerm::LanguageLiteral {
+            lexical: "x".to_string(),
+            language: "en".to_string(),
+            direction: None,
+        },
+    ];
+    for other in others {
+        let mut terms = TermTable::new();
+        let _other: u32 = terms.intern(other.clone())?;
+        let node = terms.iri("http://e/x");
+        let reply = StoredReply::new(
+            8,
+            SessionToken::new(0, 1, Epoch::ZERO),
+            vec![OperationResult::for_node(node, true)],
+            terms,
+        );
+        let refused = SessionEntry::new(1, reply).encode();
+        assert!(
+            matches!(
+                refused,
+                Err(InvariantError(InvariantErrorEnum::Violated { .. }))
+            ),
+            "{other:?}: {refused:?}"
+        );
+    }
     Ok(())
 }

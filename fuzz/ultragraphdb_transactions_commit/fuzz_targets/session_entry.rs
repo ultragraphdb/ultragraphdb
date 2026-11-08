@@ -13,9 +13,10 @@ use ultragraphdb_transactions_commit::SessionEntry;
 
 fuzz_target!(|data: &[u8]| {
     if let Ok(entry) = SessionEntry::decode(b"fuzz", data) {
+        // An accepted entry's terms are IRIs, so it encodes, and to the bytes it was read from.
         assert_eq!(
-            entry.encode().as_slice(),
-            data,
+            entry.encode().as_deref(),
+            Ok(data),
             "an accepted entry has one encoding"
         );
         // A stored reply is a commit's: a request above 0 and an even commit version above 0.

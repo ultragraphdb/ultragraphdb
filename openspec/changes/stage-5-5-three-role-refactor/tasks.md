@@ -164,7 +164,7 @@ Needs the endpoint of 9.5 only for its last task; 10.1 to 10.3 run against the c
 
 ## 12. Final verification and documentation
 
-- [ ] 12.1 The last mutation pass, needing every group's own: `scripts/mutants.sh` once per crate, `ultragraphdb_tool_bench` excepted as a benchmark tool, over every crate a later group edited after its own group's run and every file a group deferred, a line 9.5.3a's rename alone changed counting as unchanged; every survivor killed or recorded in `.cargo/mutants.toml` with its measurement
+- [x] 12.1 The last mutation pass, needing every group's own: `scripts/mutants.sh` once per crate, `ultragraphdb_tool_bench` excepted as a benchmark tool, over every crate a later group edited after its own group's run and every file a group deferred, a line 9.5.3a's rename alone changed counting as unchanged; every survivor killed or recorded in `.cargo/mutants.toml` with its measurement
 - [x] 12.2 `scripts/fuzz.sh` over every target the change added, its report recorded, every regression case replayed under Bazel
 - [x] 12.3 Ultra Style conformance: `make format` and `make fix` leave every touched and created crate unchanged and report nothing, no `unimplemented` warning left; the review of the unlinted rules, each crate's exceptions and their reasons listed in the change's notes
 - [x] 12.4 Coverage: `scripts/coverage.sh` over every crate the change adds files to; every added line covered, or listed with its reason in the change's notes

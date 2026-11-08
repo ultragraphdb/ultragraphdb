@@ -33,13 +33,8 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
         report: ReportAsked,
         reply: Sender<Result<(), ErrorReply>>,
     ) -> Result<(), RoleError> {
-        let ReportAsked {
-            tenant,
-            version,
-            partition,
-            refused,
-        } = report;
-        let partition = match PartitionId::new(partition) {
+        let (held, version) = (report.tenant(), report.version());
+        let partition = match PartitionId::new(report.partition()) {
             Ok(partition) => partition,
             Err(error) => {
                 let refusal = ErrorReply::new(ErrorCode::Protocol, error.to_string());
@@ -47,14 +42,14 @@ impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
                 return Ok(());
             }
         };
+        let refused = report.into_refused();
         tracing::info!(
-            tenant,
+            tenant = held.get(),
             version,
             partition = partition.get(),
             refused = refused.is_some(),
             "a partition reported on a catalog version"
         );
-        let held = Tenant::new(tenant);
         let is_refused = refused.is_some();
         if let Some(refused) = refused {
             let _first = self

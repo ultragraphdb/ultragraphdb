@@ -67,6 +67,30 @@ struct ChangeFields {
     object: u16,
 }
 
+/// A Scan range's fields, as [`scan`] reads them.
+#[derive(Debug, Arbitrary)]
+struct RangeFields {
+    partition: u32,
+    first: Vec<u8>,
+    past: Vec<u8>,
+    after: Vec<u8>,
+}
+
+/// A Scan's fields, as [`scan`] reads them.
+#[derive(Debug, Arbitrary)]
+struct ScanFields {
+    at: u8,
+    read_version: u64,
+    epoch: u64,
+    principal: u64,
+    /// `None` for a Scan naming no transaction.
+    transaction: Option<[u8; 16]>,
+    limit: u32,
+    deadline_ms: u32,
+    ranges: Vec<RangeFields>,
+    iris: Vec<String>,
+}
+
 #[derive(Debug, Arbitrary)]
 enum Body {
     Hello {
@@ -160,18 +184,7 @@ enum Body {
         changes: Vec<ChangeFields>,
         operations: Vec<OperationFields>,
     },
-    Scan {
-        at: u8,
-        read_version: u64,
-        epoch: u64,
-        principal: u64,
-        /// `None` for a Scan naming no transaction.
-        transaction: Option<[u8; 16]>,
-        limit: u32,
-        deadline_ms: u32,
-        ranges: Vec<(u32, Vec<u8>, Vec<u8>, Vec<u8>)>,
-        iris: Vec<String>,
-    },
+    Scan(ScanFields),
     Entries {
         range: u32,
         /// Past `range` for a run, which ends every range.
@@ -416,17 +429,19 @@ fn session_of(session: [u8; 16], request: u64) -> ([u8; 16], u64) {
 /// The Scan the fields make: the choice's version and epoch, a deadline of at least 1, each range's partition at least 1
 /// and its keys ordered, a transaction's `at` 1, epoch 0 and deadline 0, its ranges of one partition and its table of the
 /// IRIs, at most one per range. `None` with no range left.
-fn scan(
-    at: u8,
-    read_version: u64,
-    epoch: u64,
-    principal: u64,
-    transaction: [u8; 16],
-    limit: u32,
-    deadline_ms: u32,
-    ranges: &[(u32, Vec<u8>, Vec<u8>, Vec<u8>)],
-    iris: &[String],
-) -> Option<Scan> {
+fn scan(fields: &ScanFields) -> Option<Scan> {
+    let &ScanFields {
+        at,
+        read_version,
+        epoch,
+        principal,
+        transaction,
+        limit,
+        deadline_ms,
+        ref ranges,
+        ref iris,
+    } = fields;
+    let transaction = transaction.unwrap_or([0; 16]);
     let named = transaction != [0; 16];
     let at = if named {
         ScanAt::ReadVersion
@@ -447,9 +462,11 @@ fn scan(
     let deadline_ms = if epoch == 0 { 0 } else { deadline_ms };
     let kept: Vec<_> = ranges
         .iter()
-        .filter(|(_, first, past, _)| !first.is_empty() && (past.is_empty() || past > first))
+        .filter(|range| {
+            !range.first.is_empty() && (range.past.is_empty() || range.past > range.first)
+        })
         .collect();
-    let first_partition = kept.first()?.0.max(1);
+    let first_partition = kept.first()?.partition.max(1);
     let mut table = TermTable::new();
     if named {
         iris.iter().take(kept.len()).for_each(|iri| {
@@ -466,7 +483,13 @@ fn scan(
         deadline_ms,
     )
     .with_terms(table);
-    for (partition, first, past, after) in kept {
+    for RangeFields {
+        partition,
+        first,
+        past,
+        after,
+    } in kept
+    {
         let partition = if named {
             first_partition
         } else {
@@ -1046,28 +1069,8 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
                 }),
             )
         }
-        Body::Scan {
-            at,
-            read_version,
-            epoch,
-            principal,
-            transaction,
-            limit,
-            deadline_ms,
-            ranges,
-            iris,
-        } => {
-            let built = scan(
-                *at,
-                *read_version,
-                *epoch,
-                *principal,
-                transaction.unwrap_or([0; 16]),
-                *limit,
-                *deadline_ms,
-                ranges,
-                iris,
-            )?;
+        Body::Scan(fields) => {
+            let built = scan(fields)?;
             let frame = built.frame(header).ok()?;
             (
                 frame,
@@ -1211,9 +1214,8 @@ fuzz_target!(|input: Input| {
             .and_then(|v| v.to_body())
             .map(drop),
         Command::Commit => CommitView::from_frame(&frame)
-            .map(|v| {
+            .inspect(|v| {
                 assert_eq!(v.session() == [0; 16], v.request() == 0);
-                v
             })
             .and_then(|v| v.to_body())
             .map(drop),
@@ -1248,16 +1250,14 @@ fuzz_target!(|input: Input| {
             .and_then(|v| v.to_body())
             .map(drop),
         Command::Drop => DropCommandView::from_frame(&frame)
-            .map(|v| {
+            .inspect(|v| {
                 assert_eq!(v.session() == [0; 16], v.request() == 0);
-                v
             })
             .and_then(|v| v.to_body())
             .map(drop),
         Command::DirectWrite => DirectWriteView::from_frame(&frame)
-            .map(|v| {
+            .inspect(|v| {
                 assert_eq!(v.session() == [0; 16], v.request() == 0);
-                v
             })
             .and_then(|v| v.to_body())
             .map(|body| {
@@ -1266,9 +1266,8 @@ fuzz_target!(|input: Input| {
                 })
             }),
         Command::ConditionalWrite => ConditionalWriteView::from_frame(&frame)
-            .map(|v| {
+            .inspect(|v| {
                 assert_eq!(v.session() == [0; 16], v.request() == 0);
-                v
             })
             .and_then(|v| v.to_body())
             .map(|body| {
@@ -1277,7 +1276,7 @@ fuzz_target!(|input: Input| {
                 })
             }),
         Command::Scan => ScanView::from_frame(&frame)
-            .map(|v| {
+            .inspect(|v| {
                 if v.transaction() != [0; 16] {
                     assert_eq!(
                         (v.at(), v.epoch(), v.deadline_ms()),
@@ -1286,17 +1285,15 @@ fuzz_target!(|input: Input| {
                     assert!(v.terms().len() <= v.range_count());
                 }
                 assert!(v.epoch() != 0 || v.deadline_ms() == 0);
-                v
             })
             .and_then(|v| v.to_body())
             .map(|body| reads_back(body, &mutated, |f| ScanView::from_frame(f)?.to_body())),
         Command::Entries => EntriesView::from_frame(&frame)
-            .map(|v| {
+            .inspect(|v| {
                 if v.continues() {
                     assert_eq!(v.end(), EntriesEnd::More);
                     assert!(!v.entries().is_empty());
                 }
-                v
             })
             .and_then(|v| v.to_body())
             .map(|body| reads_back(body, &mutated, |f| EntriesView::from_frame(f)?.to_body())),

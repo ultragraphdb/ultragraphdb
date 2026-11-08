@@ -12,7 +12,10 @@ use ultragraphdb_common_compute::read_times_of;
 use ultragraphdb_core_ids::{Bucket, BucketGroup, Epoch, SystemId, Version};
 use ultragraphdb_core_keys::QuadKey;
 use ultragraphdb_core_terms::EncodedTerm;
-use ultragraphdb_protocol_wire::{ComputeRead, ReadLevel, ScanAt};
+use ultragraphdb_protocol_wire::{
+    BodyView, ComputeRead, ErrorCode, ErrorReplyView, FLAG_LAST, MAX_FRAME_FLOOR, ReadLevel,
+    ResumeKey, ResumeKeyView, ResumeRow, ScanAt, TermTable,
+};
 use ultragraphdb_store_quads::{ReferrerSet, term_key};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -23,7 +26,9 @@ use crate::played_reads::played_data::{
     reverse_key, subject_predicates_key, tenant_over,
 };
 use crate::played_reads::played_partition::PLAYED_EPOCH;
-use crate::played_reads::read_answer::{Pattern, ReadAnswer, answer_on, iri};
+use crate::played_reads::read_answer::{
+    DEADLINE_MS, Pattern, ReadAnswer, answer_on, iri, next_frame,
+};
 
 const SUBJECT: &str = "http://ex.org/s";
 const PREDICATE: &str = "http://ex.org/p";
@@ -501,6 +506,63 @@ fn test_a_resume_key_of_another_pattern_or_version_is_refused() -> TestResult {
             asked,
             "no partition asked"
         );
+        Ok(())
+    })
+}
+
+/// A resume key naming a term no home holds is refused with Error 1 naming the term, within the read's `max_frame` though the
+/// term is longer than that frame: the message is cut to fit, so the read ends with its refusal (`PROTOCOL.md` §9.4, §11.8).
+#[test]
+fn test_a_resume_key_naming_an_unheld_term_past_the_frame_is_refused_within_it() -> TestResult {
+    run(async {
+        let (cluster, tenant) = one_list().await?;
+        let pattern = Pattern::of(Some(SUBJECT), Some(PREDICATE), None);
+        let first = answer(&cluster, &snapshot(&pattern, tenant)?.with_limit(1)).await?;
+        let held = first.resume();
+        let key = ResumeKeyView::read(&held)?;
+        let unheld = format!("{SUBJECT}/{}", "u".repeat(MAX_FRAME_FLOOR));
+        let mut terms = TermTable::new();
+        let row = ResumeRow::new(
+            None,
+            terms.iri(&unheld),
+            terms.iri(PREDICATE),
+            terms.iri(OBJECTS[0]),
+            None,
+        );
+        let forged = ResumeKey::new(key.pattern(), key.scope(), terms, row).encode();
+        let (table, slots) = pattern.table()?;
+        let resumed = ComputeRead::new(tenant, true, ReadLevel::Snapshot, table, slots, forged)
+            .with_principal(1)
+            .with_deadline_ms(DEADLINE_MS)
+            .with_client_limits(MAX_FRAME_FLOOR as u32, 4) // 2^19, lossless
+            .with_read_version(Version::bound_of(Epoch::new(SNAPSHOT)?))
+            .with_epoch(SNAPSHOT);
+        let mut client = cluster.client().await?;
+        client.send_only(&resumed).await?;
+        let frame = next_frame(&mut client).await?;
+        assert!(
+            frame.bytes().len() <= MAX_FRAME_FLOOR,
+            "the refusal fits the read's max_frame: {} bytes",
+            frame.bytes().len()
+        );
+        assert_ne!(frame.flags() & FLAG_LAST, 0, "the refusal ends the read");
+        let view = frame.view()?;
+        let refused = ErrorReplyView::from_frame(&view)?.to_body()?;
+        assert_eq!(refused.code(), ErrorCode::Protocol);
+        let message = refused.message();
+        let at = message
+            .find(
+                unheld
+                    .get(..SUBJECT.len() + 2)
+                    .context("the term's start")?,
+            )
+            .context("the term named")?;
+        let named = message.get(at..).context("the term named")?;
+        assert!(
+            unheld.starts_with(named),
+            "the message ends in the term's start"
+        );
+        assert!(named.len() < unheld.len(), "the term is cut");
         Ok(())
     })
 }

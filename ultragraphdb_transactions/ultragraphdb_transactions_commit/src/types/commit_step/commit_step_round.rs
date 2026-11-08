@@ -246,7 +246,8 @@ impl<P: Proposal> CommitStep<P> {
 
     /// The round in flight is synced: it is handed over to apply with its replies, each commit through a session with
     /// its session token and one through no session with none, the session table takes its commits, and the next round
-    /// closes over the entries waiting.
+    /// closes over the entries waiting. A session entry that cannot be written, an invariant violated, hands nothing
+    /// over and stops the step, as a failed sync does, naming the invariant ([`CommitStep::violated`]).
     pub(crate) fn synced<O: Operator<P>>(
         &mut self,
         now_us: u64,
@@ -256,11 +257,6 @@ impl<P: Proposal> CommitStep<P> {
         let Some(record) = self.in_flight.take() else {
             return;
         };
-        out.applied = Some(record);
-        std::mem::swap(&mut out.apply, &mut self.admitted);
-        if let Some(last) = record.last_version() {
-            self.watermark = last;
-        }
         let position = self.in_flight_position;
         let token = |version: u64| {
             SessionToken::new(self.partition, position, Version::from_u64(version).epoch())
@@ -275,7 +271,17 @@ impl<P: Proposal> CommitStep<P> {
             self.sessions
                 .committed(update.session, update.request, reply);
         }
-        self.sessions.drain_entries(&mut out.system);
+        if let Err(violated) = self.sessions.drain_entries(&mut out.system) {
+            out.system.clear();
+            self.violated = Some(violated);
+            self.stop(out);
+            return;
+        }
+        out.applied = Some(record);
+        std::mem::swap(&mut out.apply, &mut self.admitted);
+        if let Some(last) = record.last_version() {
+            self.watermark = last;
+        }
         out.system.push(VersionlessEntry::put(
             Replay::APPLIED_POSITION_KEY.to_vec(),
             position.to_le_bytes().to_vec(),

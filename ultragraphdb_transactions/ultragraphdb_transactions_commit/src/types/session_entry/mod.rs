@@ -4,6 +4,7 @@
  */
 
 use ultragraphdb_core_ids::{Epoch, SessionToken};
+use ultragraphdb_error_invariant::InvariantError;
 use ultragraphdb_error_store::StoreError;
 use ultragraphdb_protocol_wire::{ABSENT, OperationResult, RequestTerm, TermTable};
 
@@ -71,9 +72,15 @@ impl SessionEntry {
     }
 
     /// The entry's bytes.
-    pub fn encode(&self) -> Vec<u8> {
+    ///
+    /// # Errors
+    ///
+    /// [`InvariantError::violated`] when the reply's term table holds a term that is no IRI: a Commit reply's terms are
+    /// IRIs (`PROTOCOL.md` §6.3), and the record view refuses any other in a record's results' term table, logged or
+    /// left by commit-time operations, so only a bug reaches it. Written, the results would name shifted indexes.
+    pub fn encode(&self) -> Result<Vec<u8>, InvariantError> {
         let reply = &self.reply;
-        let nodes: Vec<&str> = node_texts(reply.terms());
+        let nodes: Vec<&str> = node_texts(reply.terms())?;
         let mut bytes = Vec::with_capacity(
             FIXED
                 + RESULT * reply.results().len()
@@ -97,7 +104,7 @@ impl SessionEntry {
             bytes.extend_from_slice(node.as_bytes());
         }
         debug_assert!(bytes.len() >= FIXED);
-        bytes
+        Ok(bytes)
     }
 
     /// The entry `bytes` hold, stored at `key`.
@@ -153,17 +160,20 @@ impl SessionEntry {
     }
 }
 
-/// The texts of `terms`' entries, in table order: each an IRI, as a results' term table holds them.
-fn node_texts(terms: &TermTable) -> Vec<&str> {
+/// The texts of `terms`' entries, in table order, each an IRI, as a results' term table holds them; the invariant
+/// violated for an entry that is no IRI, whose dropping would shift the index of every entry after it.
+fn node_texts(terms: &TermTable) -> Result<Vec<&str>, InvariantError> {
     terms
         .terms()
         .iter()
-        .filter_map(|t| match t {
-            RequestTerm::Iri(text) => Some(text.as_str()),
+        .map(|t| match t {
+            RequestTerm::Iri(text) => Ok(text.as_str()),
             RequestTerm::BlankNode(_)
             | RequestTerm::Literal { .. }
             | RequestTerm::LanguageLiteral { .. }
-            | RequestTerm::Triple { .. } => None,
+            | RequestTerm::Triple { .. } => Err(InvariantError::violated(
+                "a stored reply's term table holds IRIs alone",
+            )),
         })
         .collect()
 }

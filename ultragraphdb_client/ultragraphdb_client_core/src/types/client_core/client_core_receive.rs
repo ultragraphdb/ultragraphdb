@@ -320,6 +320,7 @@ impl<L: Login> ClientCore<L> {
         } else if let Some(pending) = self.pending.get_mut(&id) {
             pending.outcome = Some(outcome);
         }
+        self.release_forgotten();
         Ok(())
     }
 

@@ -13,6 +13,8 @@ use compio::runtime::spawn;
 use ultragraphdb_common_role::{
     Answer, ROLE_ITERATIONS, RoleClient, Server, Session, listen, serve_connection,
 };
+use ultragraphdb_common_service::InboxTurn;
+use ultragraphdb_common_storage::REMOTE_PER_TURN_MAX;
 use ultragraphdb_core_ids::{BucketGroup, Sequence, SystemId, TypePrefix};
 use ultragraphdb_protocol_transport::{Address, Endpoint, ReceivedFrame};
 use ultragraphdb_protocol_wire::{
@@ -411,4 +413,36 @@ fn test_a_home_with_no_address_leaves_the_write_waiting() -> TestResult {
             Ok(())
         },
     )
+}
+
+/// What one turn takes of a remote channel holding `waiting` messages, and what the next turn takes of the rest.
+fn remote_turns(waiting: usize) -> TestResult<(usize, usize)> {
+    let (to_core, remote) = std::sync::mpsc::channel();
+    for message in 0..waiting {
+        to_core.send(message)?;
+    }
+    let turn = || {
+        let mut taking = InboxTurn::new(REMOTE_PER_TURN_MAX);
+        std::iter::from_fn(|| taking.receive(|| remote.try_recv()))
+            .take(waiting)
+            .count()
+    };
+    Ok((turn(), turn()))
+}
+
+/// A turn takes every remote message up to its bound, leaving none for the next.
+#[test]
+fn test_a_turn_takes_remote_messages_up_to_its_bound() -> TestResult {
+    assert_eq!(remote_turns(REMOTE_PER_TURN_MAX)?, (REMOTE_PER_TURN_MAX, 0));
+    Ok(())
+}
+
+/// A remote message past a turn's bound waits for the next turn.
+#[test]
+fn test_a_remote_message_past_a_turns_bound_waits_for_the_next() -> TestResult {
+    assert_eq!(
+        remote_turns(REMOTE_PER_TURN_MAX + 1)?,
+        (REMOTE_PER_TURN_MAX, 1)
+    );
+    Ok(())
 }

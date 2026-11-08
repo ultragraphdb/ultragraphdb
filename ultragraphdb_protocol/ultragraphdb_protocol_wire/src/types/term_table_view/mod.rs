@@ -35,6 +35,9 @@ struct Entry {
     at: usize,
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<Entry>() <= 64);
+
 impl Entry {
     /// The record's kind and direction, the kind known, the direction only on a language-tagged literal, and the
     /// reserved bytes zero; `base` is the records' body offset.

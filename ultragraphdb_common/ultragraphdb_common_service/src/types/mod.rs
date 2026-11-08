@@ -3,7 +3,6 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-pub mod accept_pace;
 pub mod admin_service;
 pub mod bootstrap;
 pub mod cpu_binding;

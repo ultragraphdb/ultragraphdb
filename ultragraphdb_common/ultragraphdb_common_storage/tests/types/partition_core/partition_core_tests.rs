@@ -14,7 +14,7 @@ use ultragraphdb_cluster_partition::PartitionMessage;
 use ultragraphdb_cluster_placement::{NodeId, PartitionId, PlacementMap};
 use ultragraphdb_cluster_sequencer::Close;
 use ultragraphdb_common_role::RoleClient;
-use ultragraphdb_common_storage::Peers;
+use ultragraphdb_common_storage::{CLOSES_PER_TURN_MAX, Peers};
 use ultragraphdb_core_ids::{Epoch, Version};
 use ultragraphdb_protocol_transport::Address;
 use ultragraphdb_protocol_wire::{ErrorCode, Scan, ScanAt, ScanRange};
@@ -108,6 +108,40 @@ fn test_a_commit_is_answered_in_the_epoch_after_the_last_close() -> TestResult {
             Ok(())
         },
     )
+}
+
+/// The epoch of a commit made once `count` closes, of epochs 1 on, reached the core at once: one above the last close it took.
+fn committed_after_closes(name: &str, count: usize) -> TestResult<Epoch> {
+    let mut epoch = None;
+    on_core(name, Setup::default(), unreachable()?, async |core| {
+        for closed in 1..u64::try_from(count)? + 1 {
+            close(&core, closed)?;
+        }
+        // The commit is stamped two turns or more after the closes were sent: its Bind is answered in one, and its commit taken
+        // in a later one.
+        let mut client = core.dial().await?;
+        let version = commit(&mut client, &edges_write(&[("a", "b")])).await?;
+        epoch = Some(Version::from_u64(version).epoch());
+        Ok(())
+    })?;
+    epoch.context("the commit's epoch")
+}
+
+/// A turn takes as many closes as its bound: a commit after them is stamped in the epoch above the last.
+#[test]
+fn test_a_turn_takes_closes_up_to_its_bound() -> TestResult {
+    let epoch = committed_after_closes("core-closes-bound", CLOSES_PER_TURN_MAX)?;
+    assert_eq!(epoch.get(), u64::try_from(CLOSES_PER_TURN_MAX)? + 1);
+    Ok(())
+}
+
+/// A close past a turn's bound waits for the next turn, and is taken there, not lost.
+#[test]
+fn test_a_close_past_a_turns_bound_is_taken_by_the_next() -> TestResult {
+    let past = CLOSES_PER_TURN_MAX + 1;
+    let epoch = committed_after_closes("core-closes-past", past)?;
+    assert_eq!(epoch.get(), u64::try_from(past)? + 1);
+    Ok(())
 }
 
 /// A Scan waiting for an epoch the partition does not close is refused once its deadline passes, on its stream: code 24, `detail`

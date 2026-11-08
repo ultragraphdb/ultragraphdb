@@ -17,6 +17,9 @@ pub struct EpochStamp {
     last: Option<Version>,
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<EpochStamp>() <= 64);
+
 impl EpochStamp {
     /// The stamp of a partition whose latest delivered close is `delivered`, before any entry of its open epoch.
     #[must_use]

@@ -118,7 +118,8 @@ pub fn run_partitions(args: &PartitionArgs) -> Result<String, BenchError> {
     std::fs::create_dir_all(args.dir())?;
     let placement = PlacementMap::even(args.partitions(), NodeId::new(1))
         .map_err(|e| BenchError::usage(e.to_string()))?;
-    let ids = (1..=args.partitions())
+    // Partitions 1 to the count, half-open: `even` refused a count above `PARTITIONS_MAX`, so the end cannot overflow.
+    let ids = (1..args.partitions() + 1)
         .map(PartitionId::new)
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| BenchError::usage(e.to_string()))?;

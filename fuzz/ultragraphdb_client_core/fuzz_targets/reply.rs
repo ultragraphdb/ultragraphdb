@@ -161,11 +161,7 @@ fuzz_target!(|data: &[u8]| {
     for stream in &streams {
         if let Ok(BatchPoll::Batch(rows)) = core.next_batch(stream, now, |view| {
             (0..view.rows())
-                .map(|row| {
-                    view.cell(0, row)
-                        .and_then(|cell| view.term(cell))
-                        .map(|t| t.encoding().len())
-                })
+                .filter_map(|row| view.cell(0, row).and_then(|cell| view.term(cell)))
                 .count()
         }) {
             assert!(rows <= 1 << 20);

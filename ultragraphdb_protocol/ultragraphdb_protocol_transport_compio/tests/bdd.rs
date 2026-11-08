@@ -706,8 +706,9 @@ fn protocol_on_zero(w: &mut Steps) -> TestResult {
 async fn past_max_frame(w: &mut Steps) -> TestResult {
     let small = authenticating(4).with_max_frame(524_288);
     let mut c = Conversation::new(NetworkFaults::none(), small, None).await?;
-    let big = ErrorReply::new(ErrorCode::Refused, "x".repeat(600_000));
-    c.send(1, &big).await?;
+    let mut terms = TermTable::new();
+    let _text = terms.iri(&"x".repeat(600_000));
+    c.send(1, &Write::new(terms, Vec::new())).await?;
     w.inbound.push(c.server_reads().await?);
     c.server_sends(usize::MAX).await?;
     w.errors = errors(&c.client_frames().await?)?;

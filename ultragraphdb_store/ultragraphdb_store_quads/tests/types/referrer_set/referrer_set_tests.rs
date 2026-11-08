@@ -51,13 +51,7 @@ fn test_a_first_registration_adds_a_member() -> TestResult {
     // partitions, "A first registration adds a member".
     let mut set = ReferrerSet::new();
     let registered = set.register(group(7)?, 0, epoch(12)?);
-    assert_eq!(
-        registered,
-        Registered {
-            generation: generation(1)?,
-            changed: true
-        }
-    );
+    assert_eq!(registered, Registered::new(generation(1)?, true));
     assert_eq!(set.members(), &[member(7, 12, 1)?]);
     assert_eq!(set.at(epoch(11)?).count(), 0, "added at 12, not seen at 11");
     assert_eq!(
@@ -72,13 +66,7 @@ fn test_a_repeated_registration_changes_nothing() -> TestResult {
     // partitions, "A repeated registration changes nothing".
     let mut set = holding_seven_at_three()?;
     let registered = set.register(group(7)?, 2, epoch(30)?);
-    assert_eq!(
-        registered,
-        Registered {
-            generation: generation(3)?,
-            changed: false
-        }
-    );
+    assert_eq!(registered, Registered::new(generation(3)?, false));
     assert_eq!(set.members(), &[member(7, 5, 3)?]);
     Ok(())
 }
@@ -88,13 +76,7 @@ fn test_a_renewal_raises_the_generation_and_keeps_the_epoch() -> TestResult {
     // partitions, "A renewal raises the generation".
     let mut set = holding_seven_at_three()?;
     let registered = set.register(group(7)?, 3, epoch(30)?);
-    assert_eq!(
-        registered,
-        Registered {
-            generation: generation(4)?,
-            changed: true
-        }
-    );
+    assert_eq!(registered, Registered::new(generation(4)?, true));
     assert_eq!(set.members(), &[member(7, 5, 4)?]);
     Ok(())
 }
@@ -103,8 +85,8 @@ fn test_a_renewal_raises_the_generation_and_keeps_the_epoch() -> TestResult {
 fn test_a_named_generation_above_the_current_one_takes_one_above_it() -> TestResult {
     let mut set = holding_seven_at_three()?;
     let registered = set.register(group(7)?, 9, epoch(30)?);
-    assert_eq!(registered.generation, generation(10)?);
-    assert!(registered.changed);
+    assert_eq!(registered.generation(), generation(10)?);
+    assert!(registered.changed());
     assert_eq!(set.members(), &[member(7, 5, 10)?]);
     Ok(())
 }
@@ -114,8 +96,8 @@ fn test_a_new_group_naming_a_generation_takes_one_above_it() -> TestResult {
     // A group not in the set, named generation 5: max(5, 0) + 1.
     let mut set = holding_seven_at_three()?;
     let registered = set.register(group(2)?, 5, epoch(30)?);
-    assert_eq!(registered.generation, generation(6)?);
-    assert!(registered.changed);
+    assert_eq!(registered.generation(), generation(6)?);
+    assert!(registered.changed());
     assert_eq!(set.members(), &[member(2, 30, 6)?, member(7, 5, 3)?]);
     Ok(())
 }
@@ -124,7 +106,7 @@ fn test_a_new_group_naming_a_generation_takes_one_above_it() -> TestResult {
 fn test_the_largest_named_generation_saturates() -> TestResult {
     let mut set = ReferrerSet::new();
     let registered = set.register(group(1)?, u64::MAX, epoch(1)?);
-    assert_eq!(registered.generation, generation(u64::MAX)?);
+    assert_eq!(registered.generation(), generation(u64::MAX)?);
     Ok(())
 }
 

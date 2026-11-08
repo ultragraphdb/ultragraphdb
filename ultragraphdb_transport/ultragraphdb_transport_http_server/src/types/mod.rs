@@ -4,6 +4,8 @@
  */
 
 pub(crate) mod bearer_key;
+pub(crate) mod connection_slot;
+pub(crate) mod connection_slots;
 pub(crate) mod http_limits;
 pub(crate) mod http_request;
 pub(crate) mod http_response;

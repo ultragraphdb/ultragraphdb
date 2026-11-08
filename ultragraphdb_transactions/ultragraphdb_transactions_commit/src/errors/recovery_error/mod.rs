@@ -6,6 +6,7 @@
 mod recovery_error_display;
 mod recovery_error_error;
 
+use ultragraphdb_error_invariant::InvariantError;
 use ultragraphdb_error_log::LogError;
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_error_store::StoreError;
@@ -36,6 +37,13 @@ pub enum RecoveryErrorEnum {
         position: u64,
         /// The store's refusal of the round's changeset.
         cause: ChangesetError,
+    },
+    /// Replaying the round at `position` violated an invariant: a bug, and nothing of the round is applied.
+    Invariant {
+        /// The log position of the round.
+        position: u64,
+        /// The invariant violated.
+        cause: InvariantError,
     },
     /// The store's session table could not be read.
     Sessions {
@@ -106,6 +114,12 @@ impl RecoveryError {
     #[must_use]
     pub fn apply(position: u64, cause: ChangesetError) -> Self {
         Self(RecoveryErrorEnum::Apply { position, cause })
+    }
+
+    /// The [`RecoveryErrorEnum::Invariant`] reason.
+    #[must_use]
+    pub fn invariant(position: u64, cause: InvariantError) -> Self {
+        Self(RecoveryErrorEnum::Invariant { position, cause })
     }
 
     /// The [`RecoveryErrorEnum::Sessions`] reason.

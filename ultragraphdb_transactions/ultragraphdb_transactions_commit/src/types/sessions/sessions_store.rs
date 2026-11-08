@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 
+use ultragraphdb_error_invariant::InvariantError;
 use ultragraphdb_error_store::StoreError;
 use ultragraphdb_traits_store::{Store, VersionlessEntry};
 
@@ -71,7 +72,12 @@ impl Sessions {
     /// Drains the changes since the last drain into `out` as entries of the keyspace without versions, for the batch
     /// of the round that made them: each session committed and still held, its entry, in order of identity; each
     /// session purged, the removal of its entry; and the index, when the sessions held changed.
-    pub fn drain_entries(&mut self, out: &mut Vec<VersionlessEntry>) {
+    ///
+    /// # Errors
+    ///
+    /// As [`SessionEntry::encode`] refuses a stored reply: an invariant violated, after which `out` holds part of the
+    /// round's entries and the caller stops writing.
+    pub fn drain_entries(&mut self, out: &mut Vec<VersionlessEntry>) -> Result<(), InvariantError> {
         self.changed.sort_unstable();
         self.changed.dedup();
         for session in self.changed.drain(..) {
@@ -79,7 +85,7 @@ impl Sessions {
                 let value = SessionEntry::new(entry.last_request, entry.reply.clone());
                 out.push(VersionlessEntry::put(
                     SessionEntry::key(session),
-                    value.encode(),
+                    value.encode()?,
                 ));
             }
         }
@@ -97,5 +103,6 @@ impl Sessions {
                 index,
             ));
         }
+        Ok(())
     }
 }

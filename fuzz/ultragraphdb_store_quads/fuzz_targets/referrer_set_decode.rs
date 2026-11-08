@@ -43,12 +43,12 @@ fn check(data: &[u8]) {
         let other = Epoch::new(member.epoch().get() ^ 1).unwrap_or(Epoch::ZERO);
         let mut repeated = set.clone();
         let repeat = repeated.register(group, generation.get() - 1, other);
-        assert_eq!((repeat.generation, repeat.changed), (generation, false));
+        assert_eq!((repeat.generation(), repeat.changed()), (generation, false));
         assert_eq!(repeated, set, "a repeat changes nothing");
         let mut renewed = set.clone();
         let renewal = renewed.register(group, generation.get(), other);
-        assert_eq!(renewal.generation, generation.saturating_add(1));
-        assert!(renewal.changed);
+        assert_eq!(renewal.generation(), generation.saturating_add(1));
+        assert!(renewal.changed());
         let kept = renewed.member(group).map(|m| m.epoch());
         assert_eq!(kept, Some(member.epoch()), "a renewal keeps the epoch");
         assert_eq!(renewed.members().len(), set.members().len());

@@ -11,6 +11,7 @@ use std::collections::{BTreeMap, VecDeque};
 
 use ultragraphdb_cluster_sequencer::CatalogVersion;
 use ultragraphdb_core_ids::{Epoch, Version};
+use ultragraphdb_error_invariant::InvariantError;
 use ultragraphdb_protocol_wire::{OperationResult, TermTable, WriteSetRecordView};
 
 use crate::errors::commit_error::CommitError;
@@ -120,6 +121,8 @@ pub struct CommitStep<P> {
     catalog: Vec<(u64, u64)>,
     /// The reason a close out of order stopped the step.
     fault: Option<CommitError>,
+    /// The invariant whose violation stopped the step.
+    violated: Option<InvariantError>,
     resolver: Resolver,
     waiting: VecDeque<Waiting<P>>,
     /// The proposals starting a build, set aside while one runs.
@@ -166,6 +169,7 @@ impl<P: Proposal> CommitStep<P> {
             held_us: None,
             catalog: Vec::new(),
             fault: None,
+            violated: None,
             resolver: Resolver::new(previous),
             waiting: VecDeque::new(),
             deferred: VecDeque::new(),
@@ -424,9 +428,15 @@ impl<P: Proposal> CommitStep<P> {
         &self.sessions
     }
 
-    /// Whether a failed sync, exhausted versions or a close out of order stopped the step.
+    /// Whether a failed sync, exhausted versions, a close out of order or an invariant violated stopped the step.
     pub fn is_stopped(&self) -> bool {
         self.stopped
+    }
+
+    /// The invariant whose violation stopped the step; `None` otherwise.
+    #[must_use]
+    pub fn violated(&self) -> Option<InvariantError> {
+        self.violated
     }
 
     /// The close out of order that stopped the step, as the reason it names; `None` otherwise.

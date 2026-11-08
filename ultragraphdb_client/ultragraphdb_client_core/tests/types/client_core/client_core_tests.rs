@@ -765,3 +765,107 @@ fn test_a_commit_not_yet_sent_when_its_connection_times_out_is_lost() -> TestRes
     assert_eq!(h.core.next_request(session), Some(1), "the number stays");
     Ok(())
 }
+
+/// The sessions the core holds, read from its `Debug`, which lists each with its counter.
+fn sessions_held<L: ultragraphdb_protocol_transport::Login>(core: &ClientCore<L>) -> usize {
+    format!("{core:?}").matches("next_request").count()
+}
+
+/// A request whose caller forgot it once it was sent is let go when its answer arrives: the core holds no more requests
+/// than before, the session the forgotten Register was given is not kept, and a later Register is answered with its own
+/// session. Forgetting a request already taken changes nothing.
+#[test]
+fn test_a_forgotten_request_is_let_go_when_its_answer_arrives() -> TestResult {
+    let first = {
+        let mut fresh = Harness::ready(server())?;
+        let p = fresh.core.register(fresh.now)?;
+        registered(fresh.settle(p)?)?
+    };
+    let mut h = Harness::ready(server())?;
+    let held = h.core.pending_requests();
+    let forgotten = h.core.register(h.now)?;
+    h.core.forget(forgotten);
+    assert_eq!(
+        h.core.pending_requests(),
+        held + 1,
+        "it waits for its answer"
+    );
+    h.until(|h| h.core.pending_requests() == held)?;
+    assert_eq!(h.core.take_reply(forgotten), None, "no answer is kept");
+    assert_eq!(
+        sessions_held(&h.core),
+        0,
+        "the forgotten session is not kept"
+    );
+    let p = h.core.register(h.now)?;
+    let session = registered(h.settle(p)?)?;
+    assert_ne!(session.number(), first.number(), "its own session");
+    assert_eq!(h.core.next_request(session), Some(1));
+    assert_eq!(sessions_held(&h.core), 1);
+    h.core.forget(p);
+    assert_eq!(h.core.pending_requests(), held);
+    Ok(())
+}
+
+/// A forgotten Begin's transaction is aborted when its answer arrives, its stream let go on both sides; a later Begin
+/// is answered with a transaction of its own.
+#[test]
+fn test_a_forgotten_begin_is_aborted_when_its_answer_arrives() -> TestResult {
+    let mut h = Harness::ready(server())?;
+    let held = h.core.pending_requests();
+    let forgotten = h.core.begin(0, false, h.now)?;
+    h.core.forget(forgotten);
+    h.until(|h| h.core.pending_requests() == held)?;
+    h.until(|h| h.server.open_transactions() == 0)?;
+    assert!(
+        format!("{:?}", h.core).contains("streams: 0"),
+        "{:?}",
+        h.core
+    );
+    let p = h.core.begin(0, false, h.now)?;
+    let tx = begun(h.settle(p)?)?;
+    assert!(!tx.read_only());
+    assert_eq!(h.server.open_transactions(), 1);
+    assert_eq!(h.core.pending_requests(), held);
+    Ok(())
+}
+
+/// A request forgotten once its answer arrived is let go at once, a Begin's transaction aborted.
+#[test]
+fn test_a_request_forgotten_once_answered_is_let_go_at_once() -> TestResult {
+    let mut h = Harness::ready(server())?;
+    let held = h.core.pending_requests();
+    let p = h.core.begin(0, false, h.now)?;
+    while h.step()? {}
+    assert_eq!(h.server.open_transactions(), 1);
+    h.core.forget(p);
+    assert_eq!(h.core.pending_requests(), held);
+    while h.step()? {}
+    assert_eq!(h.server.open_transactions(), 0, "aborted");
+    Ok(())
+}
+
+/// A forgotten commit goes on to its answer, which moves its session's counter: the session's next commit takes the
+/// next number and is answered.
+#[test]
+fn test_a_forgotten_commit_moves_its_sessions_counter() -> TestResult {
+    let mut h = Harness::ready(server())?;
+    let registering = h.core.register(h.now)?;
+    let session = registered(h.settle(registering)?)?;
+    let held = h.core.pending_requests();
+    let first = h.core.next_request(session).context("a session")?;
+    let beginning = h.core.begin(0, false, h.now)?;
+    let forgotten_tx = begun(h.settle(beginning)?)?;
+    let forgotten = h.core.commit(forgotten_tx, session, h.now)?;
+    h.core.forget(forgotten);
+    h.until(|h| h.core.pending_requests() == held)?;
+    assert_eq!(h.server.applied(), 1, "the forgotten commit applied");
+    assert_eq!(h.core.next_request(session), Some(first + 1));
+    let next_beginning = h.core.begin(0, false, h.now)?;
+    let next_tx = begun(h.settle(next_beginning)?)?;
+    let committing = h.core.commit(next_tx, session, h.now)?;
+    let answer = crate::utils::harness::committed(h.settle(committing)?)?;
+    assert_eq!(answer.request(), first + 1);
+    assert_eq!(h.core.pending_requests(), held);
+    Ok(())
+}

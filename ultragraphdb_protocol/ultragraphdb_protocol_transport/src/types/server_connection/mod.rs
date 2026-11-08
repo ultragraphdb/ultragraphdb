@@ -186,7 +186,7 @@ impl<A: Authenticator> ServerConnection<A> {
     ///
     /// # Errors
     ///
-    /// [`TransportError::frame_not_built`] naming the Error command when `error` cannot be framed, such as a message
+    /// [`TransportError::frame_not_built`] naming the Error command when `error` cannot be framed, such as a found value
     /// past the largest frame: nothing is queued and the stream stays as it was, for the session to refuse otherwise.
     pub fn refuse(&mut self, stream: u64, error: &ErrorReply) -> Result<(), TransportError> {
         let header = Header::new(self.cluster, Command::Error)

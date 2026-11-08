@@ -195,7 +195,8 @@ impl EntriesSequence {
     fn outside_run(&self, entries: KeyValues<'_>, run: RangeInclusive<usize>) -> Option<usize> {
         let (mut at, end) = (*run.start(), *run.end());
         entries.iter().position(|entry| {
-            let found = (at..=end).find(|&index| {
+            // Through `end`, half-open: `run` holds `end` below the count of ranges, so the end cannot overflow.
+            let found = (at..end + 1).find(|&index| {
                 self.key_range(index)
                     .is_some_and(|key_range| key_range.first == entry.key())
             });

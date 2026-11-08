@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+pub mod accept_pace;
 pub mod carrier;
 pub mod compio_sim_stream;
 pub mod compio_tls_stream;

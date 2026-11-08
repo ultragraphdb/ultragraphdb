@@ -13,6 +13,9 @@ pub struct ResumeRow {
     reifier: Option<u32>,
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<ResumeRow>() <= 64);
+
 impl ResumeRow {
     /// The row of `graph`, `None` for the default graph, `subject`, `predicate`, `object` and `reifier`, `None` for a statement
     /// without a statement ID.

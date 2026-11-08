@@ -12,6 +12,7 @@
 
 mod types;
 
+pub use crate::types::accept_pace::{ACCEPT_PAUSE_FIRST, ACCEPT_PAUSE_MAX, AcceptPace};
 pub use crate::types::carrier::Carrier;
 pub use crate::types::compio_sim_stream::CompioSimStream;
 pub use crate::types::compio_tls_stream::CompioTlsStream;

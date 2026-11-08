@@ -23,8 +23,8 @@ use ultragraphdb_protocol_scram::{Credentials, ScramVerifier};
 use ultragraphdb_protocol_transport::{Address, Endpoint, TransportErrorEnum};
 use ultragraphdb_protocol_wire::{
     Begin, BodyView, ColumnType, Command, Commit, DirectWrite, DropCommand, ErrorCode, Execute,
-    Join, Members, PatternSlot, Prepare, PrepareView, QuadPattern, Read, StatementCache, TermTable,
-    Write, WriteChange,
+    Join, MAX_FRAME_FLOOR, Members, PatternSlot, Prepare, PrepareView, QuadPattern, Read,
+    StatementCache, TermTable, Write, WriteChange,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -462,6 +462,49 @@ fn test_a_relayed_one_frame_write_and_drop_are_each_open() -> TestResult {
         })
         .await?;
         assert_eq!(open.count(), 2, "the Drop is open beside it");
+        Ok(())
+    })
+}
+
+/// A refusal naming a client's term longer than the client's `max_frame` reaches it within that frame, its message cut to fit,
+/// so the client reads the refusal rather than closing the connection on a frame past its limit (`PROTOCOL.md` §9.4, §11.1).
+#[test]
+fn test_a_refusal_naming_a_term_past_the_client_s_frame_fits_it() -> TestResult {
+    let data = directory("refusal-fits");
+    if data.exists() {
+        std::fs::remove_dir_all(&data)?;
+    }
+    Runtime::new()?.block_on(async {
+        let start = OwnerStart::new(MetadataConfig::new(), SequencerConfig::new(1, 50)?, 1);
+        let principals = vec![(
+            "alice".to_string(),
+            ScramVerifier::derive("pw", b"alice's salt", ITERATIONS)?,
+        )];
+        let owner = start_owner(ServiceConfig::default(), CLUSTER, data, start, principals).await?;
+        let address = endpoint(owner.handle().clone()).await?;
+        // 2^19, lossless.
+        let mut alice =
+            RoleClient::dial_taking(&address, CLUSTER, "alice", "pw", MAX_FRAME_FLOOR as u32)
+                .await?;
+        let relative = "u".repeat(MAX_FRAME_FLOOR);
+        let mut terms = TermTable::new();
+        let change = WriteChange::Insert {
+            graph: None,
+            subject: terms.iri(&relative),
+            predicate: terms.iri("http://ex.org/p"),
+            object: terms.iri("http://ex.org/o"),
+        };
+        let refused = alice
+            .request(&DirectWrite::new(0, terms, vec![change]))
+            .await
+            .err()
+            .context("a refusal")?;
+        let TransportErrorEnum::Refused { code, message } = &refused.0 else {
+            return Err(TestError::new(format!("no refusal read: {refused}")));
+        };
+        assert_eq!(*code, ErrorCode::Refused);
+        assert!(message.starts_with(relative.get(..64).context("the term's start")?));
+        assert!(message.len() < relative.len(), "the term is cut");
         Ok(())
     })
 }

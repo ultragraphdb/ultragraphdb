@@ -104,8 +104,8 @@ impl Home {
             }
         };
         let registered = set.register(group, reference.named(), open);
-        let generation = registered.generation;
-        if registered.changed {
+        let generation = registered.generation();
+        if registered.changed() {
             let record = WriteSetRecord::registration(
                 tenant,
                 RecordRegistration::new(entity, group, generation),

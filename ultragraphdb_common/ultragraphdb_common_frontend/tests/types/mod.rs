@@ -15,6 +15,8 @@ mod owner;
 #[cfg(test)]
 mod owner_tests;
 #[cfg(test)]
+mod report_asked_tests;
+#[cfg(test)]
 mod role_links_tests;
 #[cfg(test)]
 mod role_session_tests;

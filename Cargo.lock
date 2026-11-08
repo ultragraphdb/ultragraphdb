@@ -3146,6 +3146,7 @@ dependencies = [
  "ultragraphdb_common_service_config",
  "ultragraphdb_error_role",
  "ultragraphdb_protocol_transport",
+ "ultragraphdb_protocol_transport_compio",
  "ultragraphdb_protocol_wire",
 ]
 
@@ -3473,6 +3474,7 @@ dependencies = [
  "futures",
  "rustls",
  "socket2",
+ "tracing",
  "ultragraphdb_error_protocol",
  "ultragraphdb_protocol_scram",
  "ultragraphdb_protocol_transport",
@@ -3899,6 +3901,7 @@ dependencies = [
  "ultragraphdb_core_keys",
  "ultragraphdb_core_mapping",
  "ultragraphdb_core_terms",
+ "ultragraphdb_error_invariant",
  "ultragraphdb_error_log",
  "ultragraphdb_error_protocol",
  "ultragraphdb_error_store",

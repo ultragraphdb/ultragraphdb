@@ -8,7 +8,8 @@ use ultragraphdb_protocol_transport::{
     BufferPool, FrameStep, Framer, TransportError, TransportErrorEnum,
 };
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, Command, Credit, ErrorCode, ErrorReply, HEADER_SIZE, Header, Hello, MAX_FRAME_SIZE,
+    BodyBuilder, Command, Credit, ErrorCode, ErrorReply, HEADER_SIZE, Header, Hello,
+    MAX_FRAME_SIZE, TermTable, Write,
 };
 
 use ultragraphdb_tool_bdd::{Context, TestResult};
@@ -277,8 +278,10 @@ fn test_a_close_with_nothing_of_the_body_read_is_truncated_at_the_frames_size() 
 fn test_a_header_past_the_announced_maximum_is_refused_at_the_header() -> TestResult {
     let pool = BufferPool::new(3, MAX_FRAME_SIZE);
     // A Write of 600,000 bytes of text: past a framer that announced 524,288 bytes.
-    let big = ErrorReply::new(ErrorCode::Refused, "x".repeat(600_000))
-        .frame(Header::new(CLUSTER, Command::Error).with_stream(3))?;
+    let mut terms = TermTable::new();
+    let _text = terms.iri(&"x".repeat(600_000));
+    let big =
+        Write::new(terms, Vec::new()).frame(Header::new(CLUSTER, Command::Write).with_stream(3))?;
     let refused = feed(
         &mut Framer::new(CLUSTER, 524_288),
         &pool,

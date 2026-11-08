@@ -1219,3 +1219,42 @@ fn test_a_result_breaking_its_patterns_rules_gives_the_connection_up() -> TestRe
     assert!(!h.core.is_connected(), "the connection is given up");
     Ok(())
 }
+
+/// An open read whose handle is dropped, with a caller's future among others, is cancelled before the next read reserves
+/// its buffers: the server is sent its Cancel, and the next read, which the buffers could not hold beside it, is served.
+#[test]
+fn test_an_open_read_whose_handle_is_dropped_is_cancelled_for_the_next() -> TestResult {
+    let results = 6;
+    // As in the test above: 6 buffers hold one read beside the one to read into.
+    let mut h = Harness::with(
+        config().with_buffers(6),
+        server().with_results(results),
+        NetworkFaults::none(),
+        1,
+        Anonymous,
+    );
+    h.connect()?;
+    h.until(|h| h.core.is_ready())?;
+    let tx = begin(&mut h)?;
+    let dropped = h.core.read(&tx, &read(&tx), h.now)?;
+    let dropped_stream = dropped.stream();
+    while h.step()? {}
+    drop(dropped);
+    let next = h.core.read(&tx, &read(&tx), h.now)?;
+    assert_eq!(drain(&mut h, &next)?.len(), results as usize);
+    let cancelled: Vec<u64> = h
+        .server
+        .received()
+        .iter()
+        .filter_map(|f| FrameView::validate(f, CLUSTER, MAX_FRAME_SIZE).ok())
+        .filter(|v| v.command() == Command::Cancel)
+        .map(|v| v.header().stream())
+        .collect();
+    assert_eq!(cancelled, vec![dropped_stream]);
+    assert!(
+        format!("{:?}", h.core).contains("streams: 1"),
+        "the transaction's stream alone: {:?}",
+        h.core
+    );
+    Ok(())
+}

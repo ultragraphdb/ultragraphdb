@@ -15,12 +15,11 @@ use ultragraphdb_common_role::{
     COMPUTE_WELCOME_CREDIT, OpenRequests, ROLE_ITERATIONS, RoleClient, RoleCluster,
     RoleCredentials, Server, finish_open, frontend_address, retry_until, serve_connection,
 };
-use ultragraphdb_common_service::{
-    AcceptPace, Readiness, RoleKind, RoleStart, Stopping, core_runtime,
-};
+use ultragraphdb_common_service::{Readiness, RoleKind, RoleStart, Stopping, core_runtime};
 use ultragraphdb_common_service_config::ServiceConfig;
 use ultragraphdb_error_role::RoleError;
 use ultragraphdb_protocol_transport::{Address, Endpoint, TransportError};
+use ultragraphdb_protocol_transport_compio::AcceptPace;
 use ultragraphdb_protocol_wire::{BodyView, Join, Members, MembersView};
 
 /// How often the role looks at its peers and whether it was told to stop, and dials a peer it lost.

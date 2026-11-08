@@ -19,10 +19,10 @@ use compio::runtime::{Runtime, spawn};
 use ultragraphdb_common_service_config::{EndpointSecurity, ServiceConfig, ServiceConfigError};
 use ultragraphdb_common_telemetry::{LogFormat, TelemetryConfig, init};
 use ultragraphdb_error_role::RoleError;
+use ultragraphdb_protocol_transport_compio::AcceptPace;
 use ultragraphdb_transport_http_server::{BearerKey, HttpLimits, serve_http, serve_listener};
 use ultragraphdb_transport_tls::{CertificateChainFile, PrivateKeyFile, TlsAcceptor};
 
-use crate::types::accept_pace::AcceptPace;
 use crate::types::admin_service::AdminService;
 use crate::types::bootstrap::{Bootstrap, PARENT_PID, REVISION, parsed};
 use crate::types::cpu_binding::CpuBinding;

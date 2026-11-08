@@ -26,10 +26,31 @@ pub struct ReferrerSet {
 /// What a registration did to a referrer set: the member's generation it answers, and whether the set changed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Registered {
+    generation: NonZeroU64,
+    changed: bool,
+}
+
+impl Registered {
+    /// A registration answering the member's `generation`, which added or renewed the member when `changed`.
+    #[must_use]
+    pub fn new(generation: NonZeroU64, changed: bool) -> Self {
+        Self {
+            generation,
+            changed,
+        }
+    }
+
     /// The member's generation after the registration.
-    pub generation: NonZeroU64,
+    #[must_use]
+    pub fn generation(&self) -> NonZeroU64 {
+        self.generation
+    }
+
     /// Whether the registration added or renewed the member.
-    pub changed: bool,
+    #[must_use]
+    pub fn changed(&self) -> bool {
+        self.changed
+    }
 }
 
 impl ReferrerSet {
@@ -74,19 +95,13 @@ impl ReferrerSet {
         if let Some(current) = current
             && named < current.get()
         {
-            return Registered {
-                generation: current,
-                changed: false,
-            };
+            return Registered::new(current, false);
         }
         // No member is removed in this stage, so the highest generation the group ever held is its current one, and
         // the larger of it and `named` is `named`.
         let generation = NonZeroU64::MIN.saturating_add(named);
         self.put(at, group, generation, epoch);
-        Registered {
-            generation,
-            changed: true,
-        }
+        Registered::new(generation, true)
     }
 
     /// Sets `group`'s member to `generation`, as a home's logged registration names it: its epoch kept when the group

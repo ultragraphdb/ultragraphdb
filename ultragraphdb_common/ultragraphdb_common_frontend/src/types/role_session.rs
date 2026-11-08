@@ -9,6 +9,7 @@ use compio::runtime::spawn;
 use ultragraphdb_cluster_sequencer::Close;
 use ultragraphdb_common_role::{Answer, RoleClient, RoleCluster, Session};
 use ultragraphdb_common_service::{Readiness, RoleKind as ServiceRole};
+use ultragraphdb_core_ids::Tenant;
 use ultragraphdb_protocol_transport::{Address, ReceivedFrame};
 use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, CatalogAnnouncement, CatalogView, CloseRequestView, Command,
@@ -169,12 +170,12 @@ impl RoleSession {
         let body = asked
             .to_body()
             .map_err(|rule| ErrorReply::protocol(&rule))?;
-        let report = ReportAsked {
-            tenant: asked.tenant(),
-            version: asked.version(),
-            partition: asked.partition(),
-            refused: refusal_of(&asked),
-        };
+        let report = ReportAsked::new(
+            Tenant::new(asked.tenant()),
+            asked.version(),
+            asked.partition(),
+            refusal_of(&asked),
+        );
         self.shared.owner.report(report).await?;
         built(&body, self.header(stream, Command::Report))
     }

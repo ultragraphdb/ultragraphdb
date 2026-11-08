@@ -14,6 +14,9 @@ pub struct ObjectRecord<'a> {
     statement_ids: &'a [u8],
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<ObjectRecord<'static>>() <= 64);
+
 impl<'a> ObjectRecord<'a> {
     /// The record of `encoding` and `statement_ids`, a whole number of IDs.
     pub(crate) fn new(encoding: &'a [u8], statement_ids: &'a [u8]) -> Self {

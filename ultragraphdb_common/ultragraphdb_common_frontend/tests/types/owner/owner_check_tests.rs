@@ -9,6 +9,7 @@ use compio::runtime::{Runtime, spawn};
 use futures::FutureExt;
 use ultragraphdb_cluster_metadata::{MetadataConfig, MetadataState};
 use ultragraphdb_common_frontend::{OwnerHandle, ReportAsked};
+use ultragraphdb_core_ids::Tenant;
 use ultragraphdb_protocol_wire::{Declared, DeclaredPredicate, ErrorCode};
 use ultragraphdb_store_sim::LogCapture;
 use ultragraphdb_tool_bdd::{TestError, TestResult};
@@ -49,12 +50,12 @@ async fn assigned(handle: &OwnerHandle, after: u64) -> TestResult<u64> {
 
 /// Partition 1's report that its data refuses `version` of tenant 0, `p` not holding of the term at fault.
 fn refusing(version: u64) -> ReportAsked {
-    ReportAsked {
-        tenant: 0,
+    ReportAsked::new(
+        Tenant::new(0),
         version,
-        partition: 1,
-        refused: Some((P.to_string(), AT_FAULT.to_string())),
-    }
+        1,
+        Some((P.to_string(), AT_FAULT.to_string())),
+    )
 }
 
 /// `p` and `q` declared on tenant 0 and in effect: the version holding them.

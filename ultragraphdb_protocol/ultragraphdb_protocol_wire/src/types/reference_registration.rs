@@ -30,6 +30,9 @@ pub struct ReferenceRegistration {
     entity: Option<SystemId>,
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<ReferenceRegistration>() <= 64);
+
 impl ReferenceRegistration {
     /// A request's registration at the home `partition`, for the bucket group `group` (`None` for a predicate, a
     /// graph or the frontend), naming the entity by the term-table index `iri` or by `entity`, with the

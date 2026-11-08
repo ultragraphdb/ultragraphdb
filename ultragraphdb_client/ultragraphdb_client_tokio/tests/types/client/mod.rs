@@ -11,3 +11,5 @@ mod client_requests_tests;
 mod client_shell_tests;
 #[cfg(test)]
 mod client_tests;
+#[cfg(test)]
+mod settling_tests;

@@ -8,6 +8,7 @@
 //! a failed sync or a refused apply stopping every later write.
 
 use crate::utils::fixture::Refused;
+use futures::FutureExt;
 use futures::executor::block_on;
 use oxrdf::{Literal, Term};
 use ultragraphdb_error_log::LogErrorEnum;
@@ -91,6 +92,104 @@ fn test_a_commit_is_acknowledged_once_synced_and_applied_and_visible_after() -> 
     assert_eq!(rounds.len(), 1);
     assert_eq!(rounds[0].first_version(), version);
     assert_eq!(rounds[0].transactions(), 1);
+    Ok(())
+}
+
+/// The write-ahead log, its first `held` syncs pending until their futures are dropped: syncs a caller gave up on.
+struct HeldSyncLog {
+    log: Log,
+    held: u32,
+}
+
+impl OrderedLog for HeldSyncLog {
+    fn append(
+        &mut self,
+        round: ultragraphdb_traits_log::RoundRef<'_>,
+    ) -> Result<ultragraphdb_traits_log::DurabilityTicket, ultragraphdb_error_log::LogError> {
+        self.log.append(round)
+    }
+
+    fn poll_ticket(
+        &self,
+        ticket: ultragraphdb_traits_log::DurabilityTicket,
+    ) -> std::task::Poll<Result<(), ultragraphdb_error_log::LogError>> {
+        self.log.poll_ticket(ticket)
+    }
+
+    async fn sync(&mut self) -> Result<Position, ultragraphdb_error_log::LogError> {
+        if self.held > 0 {
+            self.held = self.held.saturating_sub(1);
+            std::future::pending::<()>().await;
+        }
+        self.log.sync().await
+    }
+
+    fn committed(&self) -> Position {
+        self.log.committed()
+    }
+
+    fn tail(&self) -> (Position, u64) {
+        self.log.tail()
+    }
+
+    fn read(
+        &mut self,
+        from: Position,
+        max_bytes: u32,
+    ) -> impl Future<
+        Output = Result<Vec<ultragraphdb_traits_log::Round>, ultragraphdb_error_log::LogError>,
+    > {
+        self.log.read(from, max_bytes)
+    }
+
+    fn trim_through(
+        &mut self,
+        position: Position,
+    ) -> impl Future<Output = Result<(), ultragraphdb_error_log::LogError>> {
+        self.log.trim_through(position)
+    }
+
+    fn checkpoint(&self) -> Position {
+        self.log.checkpoint()
+    }
+
+    fn seal(&mut self) -> Result<Position, ultragraphdb_error_log::LogError> {
+        self.log.seal()
+    }
+
+    fn next_event(&mut self) -> Option<ultragraphdb_traits_log::LogEvent> {
+        self.log.next_event()
+    }
+}
+
+/// A sync future dropped at the log's sync leaves its round appended and unsynced: the next sync makes it durable,
+/// applies it and hands out its reply.
+#[test]
+fn test_a_sync_dropped_at_the_logs_sync_leaves_the_round_to_the_next() -> TestResult {
+    let applier = applier()?;
+    let _base = setup(&applier, vec![insert("a", "knows", "b")])?;
+    let (_storage, log) = wal()?;
+    let log = HeldSyncLog { log, held: 1 };
+    let mut pipe = Pipeline::new(&applier, log, unbounded()).context("it opens")?;
+    let mut txn = begin(&applier)?;
+    write(&mut txn, vec![insert("c", "knows", "b")])?;
+    pipe.commit(7, prepare(txn)?, 0).context("appended")?;
+    assert!(
+        pipe.sync(0).now_or_never().is_none(),
+        "the sync is pending, and its future dropped"
+    );
+    assert!(pipe.needs_sync(), "the round still waits for its sync");
+    assert!(pipe.replies_mut().is_empty());
+    block_on(pipe.sync(0)).context("synced")?;
+    assert!(!pipe.needs_sync());
+    let version = version(1, 0);
+    assert_eq!(
+        crate::utils::fixture::plain(&std::mem::take(pipe.replies_mut())),
+        vec![Reply::new(7, Ok(version))]
+    );
+    assert_eq!(pipe.watermark(), version);
+    assert_eq!(held(&applier, "c", "knows")?.len(), 1);
+    assert_eq!(pipe.log().committed(), Position::new(1));
     Ok(())
 }
 

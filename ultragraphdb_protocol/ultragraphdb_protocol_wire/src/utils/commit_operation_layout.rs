@@ -27,6 +27,9 @@ pub(crate) struct OperationFields {
     pub(crate) links: u32,
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<OperationFields>() <= 64);
+
 impl OperationFields {
     /// The fields of `operation`.
     pub(crate) fn of(operation: &CommitOperation) -> Self {

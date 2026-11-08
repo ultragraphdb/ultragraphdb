@@ -5,12 +5,12 @@
 
 //! What every role binary does around its role: reading its settings, a runtime per core, `/health` and `/ready`, and
 //! stopping on a signal. A binary holds only `main`, which names its role and calls [`run_service`]. Every accept loop paces
-//! its failed accepts through [`AcceptPace`], and every core's turn takes a bounded share of its inbox through [`InboxTurn`].
+//! its failed accepts through [`AcceptPace`](ultragraphdb_protocol_transport_compio::AcceptPace), and every core's turn
+//! takes a bounded share of its inbox through [`InboxTurn`].
 
 mod types;
 mod utils;
 
-pub use crate::types::accept_pace::{ACCEPT_PAUSE_FIRST, ACCEPT_PAUSE_MAX, AcceptPace};
 pub use crate::types::admin_service::AdminService;
 pub use crate::types::bootstrap::{Bootstrap, PARENT_PID};
 pub use crate::types::cpu_binding::CpuBinding;

@@ -501,7 +501,7 @@ fn test_a_retry_is_answered_with_its_results_and_the_tables_entry_holds_them() -
         &[
             VersionlessEntry::put(
                 SessionEntry::key(session),
-                SessionEntry::new(1, stored).encode()
+                SessionEntry::new(1, stored).encode()?
             ),
             index,
             applied_position,

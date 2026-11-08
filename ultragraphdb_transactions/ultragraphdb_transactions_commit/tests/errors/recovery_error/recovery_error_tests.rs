@@ -7,6 +7,7 @@ use crate::utils::fixture::Refused;
 use std::error::Error;
 use ultragraphdb_tool_bdd::TestResult;
 
+use ultragraphdb_error_invariant::InvariantError;
 use ultragraphdb_error_log::LogError;
 use ultragraphdb_error_store::StoreError;
 use ultragraphdb_protocol_wire::WriteSetRecordView;
@@ -21,6 +22,7 @@ fn test_each_reason_with_a_cause_carries_and_displays_it() -> TestResult {
     let round = WriteSetRecordView::new(&[1, 2, 3]).refused("three bytes are no body")?;
     let apply = ChangesetError::rebuilding("p");
     let sessions = StoreError::corrupted(b"k".to_vec(), "bad".to_string());
+    let invariant = InvariantError::violated("a stored reply's term table holds IRIs alone");
     let cases = [
         (
             RecoveryError::log(log.clone()),
@@ -45,6 +47,15 @@ fn test_each_reason_with_a_cause_carries_and_displays_it() -> TestResult {
             },
             format!("the store refused the round at position 9: {apply}"),
             apply.to_string(),
+        ),
+        (
+            RecoveryError::invariant(4, invariant),
+            RecoveryErrorEnum::Invariant {
+                position: 4,
+                cause: invariant,
+            },
+            format!("replaying the round at position 4: {invariant}"),
+            invariant.to_string(),
         ),
         (
             RecoveryError::sessions(sessions.clone()),

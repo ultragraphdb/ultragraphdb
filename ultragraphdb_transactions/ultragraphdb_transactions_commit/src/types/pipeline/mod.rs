@@ -278,6 +278,10 @@ where
     /// Syncs the round appended and not yet synced, if any, at `now_us`: once durable, it is applied and its replies
     /// handed out, and the next round closes over the requests waiting.
     ///
+    /// A future dropped at the log's sync leaves the round appended and still waiting for its sync, durable or not as
+    /// the log left it: the next call syncs it, applies it and hands out its replies. Past that await the call runs to
+    /// its end without suspending.
+    ///
     /// # Errors
     ///
     /// [`PipelineError::log`] when the sync fails or the next round is refused, and [`PipelineError::apply`] when the
@@ -286,8 +290,10 @@ where
         if !self.unsynced {
             return Ok(());
         }
+        let synced = self.log.sync().await;
+        // Cleared once the sync is answered, not before: a future dropped at the await leaves the round to the next.
         self.unsynced = false;
-        match self.log.sync().await {
+        match synced {
             Ok(_) => {
                 self.run(Input::Synced, now_us)?;
                 self.poll_builds(now_us)

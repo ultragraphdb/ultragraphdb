@@ -1820,6 +1820,7 @@ version = "0.1.0"
 dependencies = [
  "compio",
  "socket2",
+ "tracing",
  "ultragraphdb_protocol_transport",
  "ultragraphdb_protocol_wire",
  "ultragraphdb_transport_tls",
@@ -2011,6 +2012,7 @@ dependencies = [
  "ultragraphdb_core_ids",
  "ultragraphdb_core_keys",
  "ultragraphdb_core_terms",
+ "ultragraphdb_error_invariant",
  "ultragraphdb_error_log",
  "ultragraphdb_error_protocol",
  "ultragraphdb_error_store",

@@ -18,10 +18,10 @@ fn test_seeds_without_faults_agree_with_the_model() -> TestResult {
             .map_err(|v| v.to_string())
             .context("the workload breaks no invariant")?;
         // Without faults no check is skipped for an injected failure: every step is checked.
-        assert_eq!(w.checked, 300, "seed {seed}: every step checked");
-        writes += w.writes;
-        refusals += w.refusals;
-        compared += w.compared;
+        assert_eq!(w.checked(), 300, "seed {seed}: every step checked");
+        writes += w.writes();
+        refusals += w.refusals();
+        compared += w.compared();
     }
     assert!(writes > 1000, "only {writes} writes");
     assert!(refusals > 20, "only {refusals} refusals");

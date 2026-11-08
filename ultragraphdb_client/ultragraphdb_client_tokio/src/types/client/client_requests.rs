@@ -74,7 +74,7 @@ impl<C: Connect, L: Login> Client<C, L> {
     /// the session's token, or `begin`'s own when that is of a higher epoch.
     ///
     /// A future dropped while the connection opens leaves no request; one dropped later leaves the request with the
-    /// core, as [`Client`] says: sent, it goes on to its answer, which the core holds and no later call takes.
+    /// core, as [`Client`] says: sent, it goes on to its answer, which the core lets go as it arrives.
     ///
     /// # Errors
     ///
@@ -146,7 +146,7 @@ impl<C: Connect, L: Login> Client<C, L> {
     /// read-write transaction: sent as a read and then this, a commit between them is a lost update the server cannot see.
     ///
     /// A future dropped while the connection opens leaves no request; one dropped later leaves the request with the
-    /// core, as [`Client`] says: sent, it goes on to its answer, which the core holds and no later call takes.
+    /// core, as [`Client`] says: sent, it goes on to its answer, which the core lets go as it arrives.
     ///
     /// # Errors
     ///
@@ -169,7 +169,7 @@ impl<C: Connect, L: Login> Client<C, L> {
     /// failed condition is an answer, refused with code 8 and the value found, and is not retried.
     ///
     /// A future dropped while the connection opens leaves no request; one dropped later leaves the request with the
-    /// core, as [`Client`] says: sent, it goes on to its answer, which the core holds and no later call takes.
+    /// core, as [`Client`] says: sent, it goes on to its answer, which the core lets go as it arrives.
     ///
     /// # Errors
     ///

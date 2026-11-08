@@ -7,7 +7,7 @@ use std::cell::Cell;
 use std::time::Duration;
 
 use compio::runtime::Runtime;
-use ultragraphdb_common_service::{ACCEPT_PAUSE_FIRST, ACCEPT_PAUSE_MAX, AcceptPace};
+use ultragraphdb_protocol_transport_compio::{ACCEPT_PAUSE_FIRST, ACCEPT_PAUSE_MAX, AcceptPace};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
 /// The pauses of a run of failures, up to and one past the first that reaches the maximum.

@@ -15,6 +15,9 @@ pub struct CatalogView<'a> {
     bytes: &'a [u8],
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<CatalogView<'static>>() <= 64);
+
 impl<'a> CatalogView<'a> {
     /// The tenant.
     pub fn tenant(&self) -> u64 {

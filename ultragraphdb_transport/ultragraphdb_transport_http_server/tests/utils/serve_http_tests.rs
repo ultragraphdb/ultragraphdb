@@ -594,3 +594,85 @@ fn test_a_tls_listener_answers_past_failed_handshakes() -> TestResult {
         Ok(())
     })
 }
+
+/// How long a listener's held connections may stay silent: past any test, so each holds its place until the test lets go.
+const HOLD: Duration = Duration::from_secs(60);
+
+/// How long a connection past the most is watched for a call that must not come: a loopback request is served in far less.
+const UNSERVED: Duration = Duration::from_millis(200);
+
+/// A listener of `limits` serving by `Counted` beside the test: where it listens, and its count of calls.
+async fn counting_listener(limits: HttpLimits) -> TestResult<(String, Arc<AtomicU32>)> {
+    let listener = Listener::bind(&Address::any_port("127.0.0.1")?).await?;
+    let target = listener
+        .local_address()?
+        .host_port()
+        .context("a TCP address")?
+        .to_string();
+    let calls = Arc::new(AtomicU32::new(0));
+    spawn(serve_listener(
+        listener,
+        None,
+        limits,
+        Counted(Arc::clone(&calls)),
+    ))
+    .detach();
+    Ok((target, calls))
+}
+
+/// `count` connections to `target` that send nothing, each holding its place at the listener.
+async fn held(target: &str, count: usize) -> TestResult<Vec<TcpStream>> {
+    let mut streams = Vec::with_capacity(count);
+    for _ in 0..count {
+        streams.push(within("a connection", TcpStream::connect(target)).await??);
+    }
+    Ok(streams)
+}
+
+/// A connection to `target` that has sent its request.
+async fn asking(target: &str) -> TestResult<TcpStream> {
+    let mut stream = within("a connection", TcpStream::connect(target)).await??;
+    let BufResult(written, _) = stream
+        .write_all(b"GET /health HTTP/1.1\r\n\r\n".to_vec())
+        .await;
+    written?;
+    Ok(stream)
+}
+
+/// The limits of a listener of two connections at once, the fewest that tell the last place from the first.
+fn two_at_once() -> TestResult<HttpLimits> {
+    Ok(HttpLimits::new(0, HOLD).with_connections(std::num::NonZeroUsize::new(2).context("two")?))
+}
+
+/// A listener serves its most connections at once: with all but one held silent, the last one's request is answered.
+#[test]
+fn test_a_listener_serves_up_to_its_most_connections() -> TestResult {
+    Runtime::new()?.block_on(async {
+        let limits = two_at_once()?;
+        let (target, calls) = counting_listener(limits).await?;
+        let _held = held(&target, limits.connections().get() - 1).await?;
+        let mut last = asking(&target).await?;
+        let text = answer(&mut last).await?;
+        assert!(text.starts_with("HTTP/1.1 200"), "{text}");
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+        Ok(())
+    })
+}
+
+/// A connection past a listener's most waits, unserved, until one of the connections it holds ends, and is then answered.
+#[test]
+fn test_a_connection_past_the_most_waits_for_one_to_end() -> TestResult {
+    Runtime::new()?.block_on(async {
+        let limits = two_at_once()?;
+        let (target, calls) = counting_listener(limits).await?;
+        let mut holding = held(&target, limits.connections().get()).await?;
+        let mut past = asking(&target).await?;
+        compio::time::sleep(UNSERVED).await;
+        assert_eq!(calls.load(Ordering::Relaxed), 0, "a call past the most");
+        drop(holding.pop().context("a held connection")?);
+        let text = answer(&mut past).await?;
+        assert!(text.starts_with("HTTP/1.1 200"), "{text}");
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+        Ok(())
+    })
+}

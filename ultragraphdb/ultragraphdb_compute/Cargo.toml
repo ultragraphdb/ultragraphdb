@@ -23,6 +23,7 @@ compio = { workspace = true }
 tracing = { workspace = true }
 ultragraphdb_error_role = { workspace = true }
 ultragraphdb_protocol_transport = { workspace = true }
+ultragraphdb_protocol_transport_compio = { workspace = true }
 ultragraphdb_protocol_wire = { workspace = true }
 mimalloc = { workspace = true }
 ultragraphdb_common_compute = { workspace = true }

@@ -12,6 +12,7 @@ use ultragraphdb_cluster_partition::{
 };
 use ultragraphdb_cluster_placement::PartitionId;
 use ultragraphdb_common_role::{Answer, RoleClient};
+use ultragraphdb_common_service::InboxTurn;
 use ultragraphdb_core_ids::Epoch;
 use ultragraphdb_protocol_transport::{Address, TransportError};
 use ultragraphdb_protocol_wire::{
@@ -21,7 +22,7 @@ use ultragraphdb_protocol_wire::{
 
 use crate::types::core_message::Pushes;
 use crate::types::partition_core::partition_core_frames::last;
-use crate::types::partition_core::{HomeAsking, PartitionCore, Peers};
+use crate::types::partition_core::{HomeAsking, PartitionCore, Peers, REMOTE_PER_TURN_MAX};
 use crate::utils::error_reply::registration_outcome;
 
 /// Outcomes a home's reply names (`PROTOCOL.md` §13.15).
@@ -32,7 +33,9 @@ impl PartitionCore<'_> {
     /// What the partition sent beyond its process: registrations go out on their own tasks, a home's answers to the
     /// Reference that asked.
     pub(super) fn take_remote(&mut self) {
-        while let Ok(message) = self.remote.try_recv() {
+        // At most REMOTE_PER_TURN_MAX, the rest waiting for the next turn (Ultra rule 2).
+        let mut taking = InboxTurn::new(REMOTE_PER_TURN_MAX);
+        while let Some(message) = taking.receive(|| self.remote.try_recv()) {
             match message {
                 RemoteMessage::Register { home, write, batch } => {
                     spawn(register(self.peers.clone(), home, write, batch)).detach();

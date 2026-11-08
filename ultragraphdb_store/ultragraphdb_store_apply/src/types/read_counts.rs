@@ -14,6 +14,9 @@ pub struct ReadCounts {
     absent: usize,
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<ReadCounts>() <= 64);
+
 impl ReadCounts {
     /// The counts of `key_bytes` bytes of keys, `lists` lists read whole, `statements` tested, `ranges` scanned and `absent`
     /// terms.

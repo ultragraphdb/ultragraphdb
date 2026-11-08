@@ -31,6 +31,12 @@ impl EncodedTerm {
     /// store's but for one difference: a datatype no code names, tags `0x32` and `0x33`, by the hash of its IRI
     /// ([`Datatype::Hashed`]), whose text the Result's annotation holds. Refused as [`EncodedTerm::view`] refuses, and
     /// for tag `0x01`, an IRI or a blank node, which a Result names by its hash and no view reads.
+    ///
+    /// # Errors
+    ///
+    /// [`TermError::malformed`] for tag `0x01` and for an inline part that is not UTF-8; [`TermError::truncated`] when
+    /// the bytes end before a part its tag names; [`TermError::unknown_datatype`] for a known datatype's code no
+    /// datatype has; [`TermError::unknown_tag`] for a tag no encoding has.
     pub fn result_view(&self) -> Result<TermView<'_>, TermError> {
         let bytes = self.as_bytes();
         if bytes.first() == Some(&tag::ID) {

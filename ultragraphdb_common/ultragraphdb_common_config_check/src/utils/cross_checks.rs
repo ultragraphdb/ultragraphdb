@@ -550,7 +550,8 @@ fn partitions(checking: &mut Checking<'_>, held: &[Instance]) {
         }
     }
     let name = checking.target.name().to_string();
-    for partition in 1..=total.min(PlacementMap::PARTITIONS_MAX) {
+    // Partitions 1 to the count, half-open: `PARTITIONS_MAX` is 2^10, so the end cannot overflow.
+    for partition in 1..total.min(PlacementMap::PARTITIONS_MAX) + 1 {
         if !holders.contains_key(&partition) {
             checking.defects.push(
                 Defect::new(

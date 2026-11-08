@@ -20,6 +20,9 @@ impl fmt::Display for RecoveryError {
                     "the store refused the round at position {position}: {cause}"
                 )
             }
+            RecoveryErrorEnum::Invariant { position, cause } => {
+                write!(f, "replaying the round at position {position}: {cause}")
+            }
             RecoveryErrorEnum::Sessions { cause } => {
                 write!(f, "the store's session table could not be read: {cause}")
             }

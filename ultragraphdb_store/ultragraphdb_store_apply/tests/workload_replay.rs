@@ -14,7 +14,7 @@ fn test_a_seed_replays_its_run() -> TestResult {
     let run = || -> TestResult<(String, usize, usize, usize)> {
         let (outcome, w) = ChangesetWorkload::run(Seed::new(7), ChangesetWorkload::faults(), 200)
             .context("run")?;
-        Ok((format!("{outcome:?}"), w.writes, w.checked, w.skipped))
+        Ok((format!("{outcome:?}"), w.writes(), w.checked(), w.skipped()))
     };
     assert_eq!(run()?, run()?);
     Ok(())

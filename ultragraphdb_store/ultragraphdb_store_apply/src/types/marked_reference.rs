@@ -17,6 +17,9 @@ pub struct MarkedReference {
     generation: NonZeroU64,
 }
 
+// A copy moves at most one cache line (Ultra rule 9).
+const _: () = assert!(size_of::<MarkedReference>() <= 64);
+
 impl MarkedReference {
     /// The reference to `entity` from `group` at `generation`.
     #[must_use]

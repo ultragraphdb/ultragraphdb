@@ -202,14 +202,17 @@ fn test_a_commit_clears_its_sessions_request_in_flight() -> TestResult {
 }
 
 /// The entries `table` asks the store to write, drained.
-fn drained(table: &mut Sessions) -> Vec<VersionlessEntry> {
+fn drained(table: &mut Sessions) -> TestResult<Vec<VersionlessEntry>> {
     let mut entries = Vec::new();
-    table.drain_entries(&mut entries);
-    entries
+    table.drain_entries(&mut entries)?;
+    Ok(entries)
 }
 
-fn put(session: u128, entry: &SessionEntry) -> VersionlessEntry {
-    VersionlessEntry::put(SessionEntry::key(session), entry.encode())
+fn put(session: u128, entry: &SessionEntry) -> TestResult<VersionlessEntry> {
+    Ok(VersionlessEntry::put(
+        SessionEntry::key(session),
+        entry.encode()?,
+    ))
 }
 
 /// The index of `sessions`: each identity's 16 big-endian bytes, ascending.
@@ -223,27 +226,27 @@ fn index(sessions: &[u128]) -> VersionlessEntry {
 #[test]
 fn test_the_table_hands_out_each_change_once_as_store_entries() -> TestResult {
     let mut table = Sessions::new(4);
-    assert!(drained(&mut table).is_empty(), "nothing changed");
+    assert!(drained(&mut table)?.is_empty(), "nothing changed");
     table.committed(12, 1, reply(40, 1)?);
     table.committed(WIDE, 2, reply(42, 1)?);
     assert_eq!(
-        drained(&mut table),
+        drained(&mut table)?,
         vec![
-            put(12, &SessionEntry::new(1, reply(40, 1)?)),
-            put(WIDE, &SessionEntry::new(2, reply(42, 1)?)),
+            put(12, &SessionEntry::new(1, reply(40, 1)?))?,
+            put(WIDE, &SessionEntry::new(2, reply(42, 1)?))?,
             index(&[12, WIDE]),
         ],
         "each session's entry in order, then the index"
     );
     table.committed(12, 5, reply(44, 2)?);
     assert_eq!(
-        drained(&mut table),
-        vec![put(12, &SessionEntry::new(5, reply(44, 2)?))],
+        drained(&mut table)?,
+        vec![put(12, &SessionEntry::new(5, reply(44, 2)?))?],
         "a later commit of a session held leaves the index alone"
     );
     table.purge(&[12]);
     assert_eq!(
-        drained(&mut table),
+        drained(&mut table)?,
         vec![
             VersionlessEntry::removal(SessionEntry::key(12)),
             index(&[WIDE]),
@@ -253,13 +256,13 @@ fn test_the_table_hands_out_each_change_once_as_store_entries() -> TestResult {
     table.committed(16, 1, reply(46, 3)?);
     table.purge(&[16]);
     assert_eq!(
-        drained(&mut table),
+        drained(&mut table)?,
         vec![
             VersionlessEntry::removal(SessionEntry::key(16)),
             index(&[WIDE]),
         ]
     );
-    assert!(drained(&mut table).is_empty());
+    assert!(drained(&mut table)?.is_empty());
     Ok(())
 }
 
@@ -291,12 +294,12 @@ fn test_a_table_loads_as_its_entries_left_it() -> TestResult {
     let named = reply_naming(48, "http://ex.org/x")?;
     table.committed(10, 3, named.clone());
     table.committed(WIDE, 1, reply(50, 2)?);
-    write(&store, &drained(&mut table))?;
+    write(&store, &drained(&mut table)?)?;
     let mut loaded = Sessions::load(&store).context("the table loads")?;
     assert_eq!(loaded.len(), 2);
     assert_eq!(loaded.check_one_frame(10, 3), Ok(Some(&named)));
     assert_eq!(loaded.last(WIDE), Some((1, 50)));
-    assert!(drained(&mut loaded).is_empty(), "loading changes nothing");
+    assert!(drained(&mut loaded)?.is_empty(), "loading changes nothing");
     // Bounded below what it holds: none is evicted, and no new session is taken.
     let bounded = loaded.bounded(1);
     assert_eq!(bounded.len(), 2);
@@ -348,7 +351,7 @@ fn test_a_malformed_table_is_refused_as_corrupted() -> TestResult {
         &repeated,
         &[
             index(&[10, 10]),
-            put(10, &SessionEntry::new(1, reply(40, 1)?)),
+            put(10, &SessionEntry::new(1, reply(40, 1)?))?,
         ],
     )?;
     assert!(refusal(&repeated)?.1.contains("ascending"));

@@ -4,6 +4,8 @@
  */
 
 #[cfg(test)]
+mod accept_pace_tests;
+#[cfg(test)]
 mod carrier;
 #[cfg(test)]
 mod compio_sim_stream;

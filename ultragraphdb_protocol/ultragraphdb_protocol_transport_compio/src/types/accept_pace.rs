@@ -16,8 +16,9 @@ pub const ACCEPT_PAUSE_FIRST: Duration = Duration::from_millis(5);
 pub const ACCEPT_PAUSE_MAX: Duration = Duration::from_secs(1);
 
 /// How an accept loop paces itself through failed accepts: each pauses before the next try, the pause doubling from
-/// [`ACCEPT_PAUSE_FIRST`] up to [`ACCEPT_PAUSE_MAX`], and an accepted connection ends the run of failures. Every role's accept
-/// loop takes one, so a listener that keeps failing tries once a second and warns once (Ultra rule 2).
+/// [`ACCEPT_PAUSE_FIRST`] up to [`ACCEPT_PAUSE_MAX`], and an accepted connection ends the run of failures. Every accept loop
+/// takes one, a role's, `/health`'s and an HTTP listener's, so a listener that keeps failing tries once a second and warns
+/// once (Ultra rule 2). It sits beside [`crate::Listener`], the lowest crate every accept loop reaches.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct AcceptPace {
     failures: u32,

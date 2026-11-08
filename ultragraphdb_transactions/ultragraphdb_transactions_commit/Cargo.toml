@@ -27,6 +27,7 @@ ultragraphdb_cluster_sequencer = { workspace = true }
 ultragraphdb_core_ids = { workspace = true }
 ultragraphdb_core_keys = { workspace = true }
 ultragraphdb_traits_log = { workspace = true }
+ultragraphdb_error_invariant = { workspace = true }
 ultragraphdb_error_log = { workspace = true }
 ultragraphdb_error_protocol = { workspace = true }
 ultragraphdb_error_store = { workspace = true }

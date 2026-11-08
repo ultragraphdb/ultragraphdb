@@ -186,7 +186,8 @@ No `unsafe` (`unsafe_code = "forbid"`). Data is owned by one place and lent by r
 by value, as the sans-I/O cores do. Shared ownership (`Arc`), interior mutability (`Cell`, `RefCell`, `Mutex`,
 atomics) and trait objects each carry a comment justifying them, and nest at most one level: an `Arc<Mutex<T>>` is the
 deepest shared indirection, never `Arc<Mutex<Vec<Box<dyn T>>>>`. A value over 16 bytes that is not meant to be copied
-is passed by reference; a `Copy` type stays at 16 bytes or under.
+is passed by reference; a `Copy` type stays within one cache line, 64 bytes, so a copy moves at most one line, and
+one above it carries its reason or drops `Copy`.
 
 *Why:* Holzmann's rule 9 restricts pointers because they hide data flow from readers and analysers; in Rust the
 borrow checker removes the dangling pointer but not the hidden flow, which shared ownership and interior mutability
@@ -364,7 +365,10 @@ Rust's types prove what C and Zig must assert. Use them first; an invariant the 
 
 - **Index, count, size.** An index is 0-based, a count 1-based (`count = index + 1`), a size a count times its unit
   (`size = count * unit`). Each conversion is written out where it happens, and the types or names say which is which.
-- **Ranges are half-open,** `start..end`, with `end` exclusive, everywhere in the codebase.
+- **Ranges are half-open where they index, slice or iterate:** `start..end`, with `end` exclusive, which also loops
+  faster than a `RangeInclusive`, whose iterator carries a flag of its own. A closed range `start..=end` is a `contains`
+  check or a match pattern over an interval the specification states closed, or one reaching its type's maximum,
+  which no half-open range of that type can name.
 - **Division states its rounding:** `div_ceil` for a count of blocks, `checked_div` where the divisor comes from
   outside, `is_multiple_of` asserted where the division must be exact.
 

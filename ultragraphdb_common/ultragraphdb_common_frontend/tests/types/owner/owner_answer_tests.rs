@@ -6,7 +6,7 @@
 use compio::runtime::Runtime;
 use ultragraphdb_cluster_metadata::MetadataConfig;
 use ultragraphdb_common_frontend::ReportAsked;
-use ultragraphdb_core_ids::Epoch;
+use ultragraphdb_core_ids::{Epoch, Tenant};
 use ultragraphdb_protocol_wire::ErrorCode;
 use ultragraphdb_tool_bdd::TestResult;
 use ultragraphdb_transactions_log::SimStorage;
@@ -47,12 +47,7 @@ fn test_an_ask_naming_no_value_of_its_kind_is_refused() -> TestResult {
             "{}",
             cursor.message()
         );
-        let report = ReportAsked {
-            tenant: 0,
-            version: 1,
-            partition: 0,
-            refused: None,
-        };
+        let report = ReportAsked::new(Tenant::new(0), 1, 0, None);
         assert_eq!(
             refused(handle.report(report).await)?.code(),
             ErrorCode::Protocol

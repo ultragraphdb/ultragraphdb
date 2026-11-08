@@ -19,9 +19,9 @@ fn test_a_store_keeping_every_rule_breaks_none() -> TestResult {
         .map_err(|v| v.to_string())
         .context("the workload breaks no rule")?;
     // Without faults every step is checked, and compared with the model, which no recovery has ended.
-    assert_eq!(w.checked, usize::try_from(STEPS)?);
-    assert_eq!(w.compared, w.checked);
-    assert!(w.writes > 0, "{} writes", w.writes);
+    assert_eq!(w.checked(), usize::try_from(STEPS)?);
+    assert_eq!(w.compared(), w.checked());
+    assert!(w.writes() > 0, "{} writes", w.writes());
     Ok(())
 }
 
@@ -30,8 +30,8 @@ fn test_a_replayed_run_replays_every_write() -> TestResult {
     let (_, w) = ChangesetWorkload::run_replayed(Seed::new(2), STEPS)
         .map_err(|v| v.to_string())
         .context("replay agrees with the first apply")?;
-    assert_eq!(w.replayed, w.writes);
-    assert_eq!(w.checked, usize::try_from(STEPS)?);
-    assert!(w.writes > 0, "{} writes", w.writes);
+    assert_eq!(w.replayed(), w.writes());
+    assert_eq!(w.checked(), usize::try_from(STEPS)?);
+    assert!(w.writes() > 0, "{} writes", w.writes());
     Ok(())
 }

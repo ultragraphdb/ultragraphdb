@@ -8,8 +8,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 /// The result of a Read or an Execute, arriving as Result frames on its transaction's stream, the last flagged; read
 /// batch by batch through [`crate::ClientCore::next_batch`]. The handle holds what the core need not: that its read was read
-/// to its end, and, by being held, that what a lost connection kept for the read may still be asked for. Its clones are one
-/// handle.
+/// to its end, and, by being held, that its open read is still wanted and what a lost connection kept for the read may
+/// still be asked for; an open read whose handle is dropped is cancelled before the next read takes its buffers. Its
+/// clones are one handle.
 #[derive(Debug, Clone)]
 pub struct ResultStream {
     stream: u64,

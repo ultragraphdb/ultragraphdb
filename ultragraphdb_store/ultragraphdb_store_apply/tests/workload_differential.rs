@@ -18,15 +18,21 @@ fn test_replay_derives_every_key_the_workloads_first_apply_wrote() -> TestResult
         let (_, w) = ChangesetWorkload::run_replayed(Seed::new(seed), 200)
             .map_err(|v| v.to_string())
             .context("replay agrees with the first apply")?;
-        assert_eq!(w.replayed, w.writes, "seed {seed}: every write replayed");
+        assert_eq!(
+            w.replayed(),
+            w.writes(),
+            "seed {seed}: every write replayed"
+        );
         // Without faults no check is skipped for an injected failure: every step is compared.
-        assert_eq!(w.checked, 200, "seed {seed}: every step compared");
+        assert_eq!(w.checked(), 200, "seed {seed}: every step compared");
         println!(
             "seed {seed}: {} rounds replayed, {} refused, {} steps compared",
-            w.replayed, w.refusals, w.checked
+            w.replayed(),
+            w.refusals(),
+            w.checked()
         );
-        replayed += w.replayed;
-        checked += w.checked;
+        replayed += w.replayed();
+        checked += w.checked();
     }
     println!("{replayed} rounds replayed, {checked} steps compared");
     assert!(replayed > 100, "only {replayed} rounds replayed");

@@ -8,7 +8,7 @@ mod client_core_receive;
 mod client_core_requests;
 mod client_core_results;
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
@@ -44,7 +44,8 @@ const READ_TIMEOUT_MIN: Duration = Duration::from_secs(30);
 /// [`ClientCore::disconnected`], sleeps no longer than [`ClientCore::next_deadline`] and then calls
 /// [`ClientCore::handle_timeout`], and connects again whenever [`ClientCore::needs_connection`] says a commit waits
 /// to be retried. Requests start with a call naming the time; a request with one reply answers through
-/// [`ClientCore::take_reply`], a result stream through [`ClientCore::next_batch`].
+/// [`ClientCore::take_reply`], or is let go by [`ClientCore::forget`] once its caller no longer waits for it, a result
+/// stream through [`ClientCore::next_batch`].
 ///
 /// Frames are numbered as they leave, from 1 on each connection, and the server's are taken only in their order.
 /// Streams are numbered from 1 on each connection and never reused on it. A transaction is its stream and its reads:
@@ -88,6 +89,9 @@ pub struct ClientCore<L: Login> {
     /// counts against [`ClientConfig::buffers`] in `reserve_buffers`, which bounds the frames kept.
     kept_reads: BTreeMap<(u64, u64), (Arc<AtomicBool>, VecDeque<ReceivedFrame>)>,
     pending: BTreeMap<u64, PendingState>,
+    /// The requests whose caller forgot them ([`ClientCore::forget`]) before their answer: each is let go once its
+    /// answer is settled. Bounded by `pending`, whose entries they are.
+    forgotten: BTreeSet<u64>,
     next_pending: u64,
     sessions: BTreeMap<u128, SessionState>,
     outbox: VecDeque<Vec<u8>>,
@@ -116,6 +120,7 @@ impl<L: Login> ClientCore<L> {
             lost_reads: BTreeMap::new(),
             kept_reads: BTreeMap::new(),
             pending: BTreeMap::new(),
+            forgotten: BTreeSet::new(),
             next_pending: 1,
             sessions: BTreeMap::new(),
             outbox: VecDeque::new(),
@@ -251,6 +256,7 @@ impl<L: Login> ClientCore<L> {
                 pending.mark_in_doubt(request, state, Some(cause.clone()));
             }
         }
+        self.release_forgotten();
     }
 
     /// Whether the core waits for the server, a read apart: a handshake, an Authenticate exchange or a request's reply.
@@ -384,10 +390,20 @@ impl<L: Login> ClientCore<L> {
         Ok(())
     }
 
-    /// What a lost connection kept of each read whose handle is gone, which nothing can ask for now.
+    /// What a lost connection kept of each read whose handle is gone, which nothing can ask for now; an open read whose
+    /// handle is gone, a caller's future dropped with it among others, is cancelled, so its buffers take the next read.
     fn forget_dropped_reads(&mut self) {
         self.lost_reads.retain(|_, (handle, _)| handle_held(handle));
         self.kept_reads.retain(|_, (handle, _)| handle_held(handle));
+        let dropped: Vec<u64> = self
+            .streams
+            .iter()
+            .filter(|(_, state)| state.handle.as_ref().is_some_and(|h| !handle_held(h)))
+            .map(|(id, _)| *id)
+            .collect();
+        for id in dropped {
+            self.cancel_open(id);
+        }
     }
 
     /// The reads of the transaction of `stream` end with it.
@@ -425,6 +441,7 @@ impl<L: Login> ClientCore<L> {
                 pending.mark_in_doubt(request, state, None);
             }
         }
+        self.release_forgotten();
     }
 
     /// The answer of `pending`, once arrived, given once.
@@ -438,6 +455,70 @@ impl<L: Login> ClientCore<L> {
             self.pending.remove(&pending.id())?.outcome
         } else {
             None
+        }
+    }
+
+    /// The caller no longer waits for `pending`: a shell's request future dropped once its request was sent, by its
+    /// caller's own timeout among others. An answer already arrived is let go now, one still to come once it is
+    /// settled, and no other request is handed it, since a request's id is never reused. What the answer made that
+    /// nothing else reaches goes with it: a Begin's transaction is aborted, a Register's session forgotten. A commit,
+    /// a drop or a one-frame write goes on to its answer, retried as before, so its session's counter moves as the
+    /// server decided, and one left in doubt stays its session's to resolve. A request already taken is no longer
+    /// held, and nothing changes.
+    pub fn forget(&mut self, pending: Pending) {
+        let id = pending.id();
+        let Some(state) = self.pending.get(&id) else {
+            return;
+        };
+        if state.outcome.is_some() {
+            if let Some(answered) = self.pending.remove(&id) {
+                self.discard(&answered);
+            }
+        } else {
+            let _new = self.forgotten.insert(id);
+        }
+    }
+
+    /// How many requests the core holds: those waiting for their answer, and those whose answer waits for
+    /// [`ClientCore::take_reply`].
+    #[must_use]
+    pub fn pending_requests(&self) -> usize {
+        self.pending.len()
+    }
+
+    /// The forgotten requests whose answer is settled, let go.
+    fn release_forgotten(&mut self) {
+        let settled: Vec<u64> = self
+            .forgotten
+            .iter()
+            .copied()
+            .filter(|id| self.pending.get(id).is_none_or(|p| p.outcome.is_some()))
+            .collect();
+        for id in settled {
+            let _released = self.forgotten.remove(&id);
+            if let Some(state) = self.pending.remove(&id) {
+                self.discard(&state);
+            }
+        }
+    }
+
+    /// What the answer of a forgotten request made that nothing else reaches, let go: a Begin's transaction aborted on
+    /// its stream, a Register's session forgotten.
+    fn discard(&mut self, state: &PendingState) {
+        match &state.outcome {
+            Some(Ok(Reply::Begun(transaction))) => {
+                // A transaction whose stream ended, with its connection or by a refusal, has nothing left to abort, so
+                // the refusal is dropped.
+                drop(self.abort(*transaction));
+            }
+            Some(Ok(Reply::Registered(session))) => {
+                let _forgotten: Option<SessionState> = self.sessions.remove(&session.number());
+            }
+            Some(Ok(
+                Reply::Committed(_) | Reply::Dropped(_) | Reply::Prepared(_) | Reply::Described(_),
+            ))
+            | Some(Err(_))
+            | None => {}
         }
     }
 
@@ -563,6 +644,7 @@ impl<L: Login> ClientCore<L> {
                 }
             }
         }
+        self.release_forgotten();
     }
 
     /// The header of a request of `B` on `stream`, and its frame, refused when larger than the Welcome allows.
@@ -673,12 +755,13 @@ impl<L: Login> ClientCore<L> {
                 // A retry or a resolve: the commit was sent before and may have been applied, so it is in doubt, the
                 // caller resolves it, and the session's next commit does not reuse its request number. A Register was
                 // refused, so what stopped its resend is its answer.
-                let Some(request) = request else {
+                if let Some(request) = request {
+                    let state = self.sessions.get_mut(&request.0);
+                    pending.mark_in_doubt(request, state, Some(cause));
+                } else {
                     pending.outcome = Some(Err(cause));
-                    return;
-                };
-                let state = self.sessions.get_mut(&request.0);
-                pending.mark_in_doubt(request, state, Some(cause));
+                }
+                self.release_forgotten();
             }
         }
     }

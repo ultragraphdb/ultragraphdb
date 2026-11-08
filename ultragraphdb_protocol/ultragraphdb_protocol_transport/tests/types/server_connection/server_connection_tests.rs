@@ -15,8 +15,8 @@ use ultragraphdb_protocol_wire::{
     CommitOperation, ComputeRead, ConditionalWrite, Credit, Describe, DirectWrite, DropCommand,
     Entries, EntriesEnd, ErrorCode, ErrorReply, ErrorReplyView, Execute, FLAG_LAST, FrameView,
     Header, HeaderView, Held, Hello, Install, Language, MAX_FRAME_FLOOR, MAX_FRAME_SIZE, Operation,
-    PatternSlot, Prepare, QuadPattern, Query, Read, ReadLevel, Register, ResultBatch, Scan, ScanAt,
-    ScanRange, TermTable, Welcome, WelcomeView, Write, WriteChange,
+    PatternSlot, Prepare, QuadPattern, Query, Read, ReadLevel, Register, RequestTerm, ResultBatch,
+    Scan, ScanAt, ScanRange, TermTable, Welcome, WelcomeView, Write, WriteChange,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -1721,9 +1721,14 @@ fn test_a_refusal_too_large_to_frame_is_an_error_and_leaves_its_stream_open() ->
     let mut peer = Peer::default();
     let mut connection = serving(&mut peer, now)?;
     request(&mut connection, &mut peer, 1, &Begin::new(0, 0, false), now)?;
+    // A message is cut to fit its frame; a found value past the largest frame is not.
+    let value = RequestTerm::Literal {
+        lexical: "r".repeat(MAX_FRAME_SIZE),
+        datatype: None,
+    };
     let Err(error) = connection.refuse(
         1,
-        &ErrorReply::new(ErrorCode::Refused, "r".repeat(MAX_FRAME_SIZE)),
+        &ErrorReply::new(ErrorCode::OperationFailed, "r").with_value(value),
     ) else {
         return Err(TestError::new(
             "a refusal past the largest frame was queued",
@@ -1743,20 +1748,26 @@ fn test_a_refusal_too_large_to_frame_is_an_error_and_leaves_its_stream_open() ->
 }
 
 #[test]
-fn test_a_closing_error_too_large_to_frame_is_an_error_and_the_connection_closes() -> TestResult {
+fn test_a_closing_error_past_the_floor_carries_its_rule_cut_and_the_connection_closes() -> TestResult
+{
     let now = start();
     let mut connection = connection(&[TEST], now);
-    // A rule whose text is past the largest frame: the closing Error that would carry it cannot be built.
+    // A rule whose text is past the largest frame: the closing Error carries it cut to fit the floor of `max_frame`.
     let field: &'static str = "f".repeat(MAX_FRAME_SIZE).leak();
-    let Err(error) = connection.refuse_connection(&ProtocolError::field_value(1, field, 0)) else {
-        return Err(TestError::new(
-            "a closing Error past the largest frame was queued",
-        ));
-    };
-    assert!(not_built(&error, Command::Error), "{error:?}");
+    let rule = ProtocolError::field_value(1, field, 0);
+    assert_eq!(
+        connection.refuse_connection(&rule)?,
+        Inbound::Closing {
+            code: Some(ErrorCode::Protocol)
+        }
+    );
     assert!(connection.is_closing());
-    assert_eq!(connection.next_frame(), None);
-    assert_eq!(connection.handle_timeout(now + IDLE_LIMIT)?, None);
+    let (stream, frame) = connection.next_frame().context("the closing Error")?;
+    assert_eq!(stream, 0);
+    let view = FrameView::validate(&frame, CLUSTER, MAX_FRAME_FLOOR)?;
+    let message = ErrorReplyView::from_frame(&view)?.message();
+    assert!(rule.to_string().starts_with(message));
+    assert!(message.len() < rule.to_string().len());
     Ok(())
 }
 

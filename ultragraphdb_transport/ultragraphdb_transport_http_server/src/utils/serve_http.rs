@@ -6,10 +6,11 @@
 use compio::BufResult;
 use compio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use compio::runtime::spawn;
-use ultragraphdb_protocol_transport_compio::{CompioTlsStream, Listener};
+use ultragraphdb_protocol_transport_compio::{AcceptPace, CompioTlsStream, Listener};
 use ultragraphdb_transport_tls::TlsAcceptor;
 
 use crate::traits::http_service::HttpService;
+use crate::types::connection_slots::ConnectionSlots;
 use crate::types::http_limits::HttpLimits;
 use crate::types::http_request::HttpRequest;
 use crate::types::http_response::HttpResponse;
@@ -77,8 +78,13 @@ async fn read_request<S: AsyncRead>(
     limits: &HttpLimits,
 ) -> Result<HttpRequest, u16> {
     let mut received = Vec::with_capacity(READ_BYTES);
-    // Each read takes at least a byte, and the limits bound the bytes a request holds, so this ends.
-    for _ in 0..=limits.head() + limits.body() {
+    // Each read takes at least a byte, and the limits bound the bytes a request holds, so this ends: a parse for each
+    // byte up to the limits, and one for the read past them, which `parse_head` refuses.
+    let parses = limits
+        .head()
+        .saturating_add(limits.body())
+        .saturating_add(1);
+    for _ in 0..parses {
         match parse_head(&received, limits) {
             ParsedHead::Complete(head) => return Ok(HttpRequest::new(head, received)),
             ParsedHead::Refused(status) => return Err(status),
@@ -113,10 +119,13 @@ async fn write_response<S: AsyncWrite>(
 }
 
 /// Answers every connection of `listener`, each on its own task, through `tls` when it is given, and in clear text
-/// when the settings asked for that. A failed accept or handshake costs that connection alone.
+/// when the settings asked for that. A failed accept or handshake costs that connection alone, and failed accepts in a
+/// row pause as [`AcceptPace`] says. At most `limits`' connections are served at once; the next waits in the listener's
+/// backlog until one ends.
 ///
-/// The accept loop is an event loop: it ends only when its caller drops this future, which stops accepting; the
-/// connections already accepted go on, each on its detached task, within `limits`' time.
+/// The accept loop is an event loop: it ends only when its caller drops this future, at its wait for a slot, its accept
+/// or its pause, which stops accepting; the connections already accepted go on, each on its detached task within
+/// `limits`' time, and give their slots back as they end.
 pub async fn serve_listener<H>(
     listener: Listener,
     tls: Option<TlsAcceptor>,
@@ -125,16 +134,15 @@ pub async fn serve_listener<H>(
 ) where
     H: HttpService + Clone + 'static,
 {
+    let slots = ConnectionSlots::new(limits.connections());
+    let mut pace = AcceptPace::default();
     loop {
-        let carrier = match listener.accept().await {
-            Ok(carrier) => carrier,
-            Err(error) => {
-                tracing::warn!(%error, "an HTTP connection was not accepted");
-                continue;
-            }
-        };
+        let slot = slots.take().await;
+        let carrier = pace.accept("http", || listener.accept()).await;
         let (tls, service) = (tls.clone(), service.clone());
         spawn(async move {
+            // Held until the task ends, however it ends, which gives the slot back.
+            let _slot = slot;
             let Some(acceptor) = tls else {
                 serve_http(carrier, &limits, &service).await;
                 return;

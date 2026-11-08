@@ -229,7 +229,9 @@ impl Replay {
                 sessions.committed(session, record.request(), reply);
             }
         }
-        sessions.drain_entries(&mut system);
+        sessions
+            .drain_entries(&mut system)
+            .map_err(|cause| RecoveryError::invariant(position, cause))?;
         system.push(VersionlessEntry::put(
             Self::APPLIED_POSITION_KEY.to_vec(),
             position.to_le_bytes().to_vec(),

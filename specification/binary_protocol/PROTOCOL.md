@@ -1328,6 +1328,10 @@ refused handshake or authentication, or an expired credential (sections 2.6, 11.
 Order: unused bytes 2–7 and 16–127 zero; `code`; sections; the term table (1, 2), at most one entry
 (`CountMismatch` `"value"`); section 0 UTF-8. An empty term table means no value: the predicate held none.
 
+A sender builds every Error frame within 524,288 bytes, the floor of `max_frame`, which every receiver takes (section 11.9): a
+message longer than that frame leaves it beside the value is cut at its last character boundary within it. So a refusal naming
+a long term of its request, or relaying another role's, still reaches its receiver.
+
 | Number | Code | Retryable | `detail` | Meaning |
 |---|---|---|---|---|
 | 1 | Protocol | no | 0; 1 when a Scan named a transaction the partition does not hold | A frame broke a validation rule: a connection error, after which the server closes the connection, or a stream error, which ends the request's stream (section 2.6). The message is the rule's text |
