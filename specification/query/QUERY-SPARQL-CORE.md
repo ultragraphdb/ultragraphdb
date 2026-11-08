@@ -40,9 +40,9 @@ the oracle (section 12).
 |---|---|
 | Query, Update | SPARQL 1.1 Query Language and SPARQL 1.1 Update, cited as `Query §n` and `Update §n` |
 | RDF 1.2 | RDF 1.2 Concepts and Abstract Data Model (W3C Candidate Recommendation, 7 April 2026): terms, quads, reifiers and triple terms, which the mapping contract keeps. The triple term's written form `<<( s p o )>>` is the one taken from the SPARQL 1.2 Query Working Draft of 25 October 2026, frozen at that draft; nothing else of SPARQL 1.2 is in the core (section 15) |
-| Tenant, namespace, graph | As `SCHEMA.md` section 1: a tenant isolates; a namespace is an installed schema with its graphs; a graph is an RDF named graph |
+| Tenant, namespace, graph | As `../schema/SCHEMA.md` section 1: a tenant isolates; a namespace is an installed schema with its graphs; a graph is an RDF named graph |
 | Solution, solution sequence | A solution mapping from variables to terms and a sequence of them with multiplicity, `Query §18.1`; the core evaluates every operator as a bag |
-| Live | An instance that is not deleted and, on a `@bitemporal` type, not retracted (`SCHEMA.md` section 8.4) |
+| Live | An instance that is not deleted and, on a `@bitemporal` type, not retracted (`../schema/SCHEMA.md` section 8.4) |
 | Core | The forms this file admits; a query is in the core when every construct it uses is, otherwise it is refused whole (section 11) |
 | SHALL, refused | A rule the implementation holds; a refusal is a diagnostic of section 11 and no part of the request runs |
 
@@ -53,27 +53,27 @@ feature.
 ## 2. The dataset a query sees
 
 A query runs against the **RDF dataset** of one tenant, fixed by the transaction (section 10): its default graph is
-the tenant's `@default` graph (`SCHEMA.md` section 6.11), and its named graphs are every declared graph of the
+the tenant's `@default` graph (`../schema/SCHEMA.md` section 6.11), and its named graphs are every declared graph of the
 tenant's namespaces the principal may read, each under the IRI `SCHEMA.md` section 6.11 gives it. `FROM` and `FROM
 NAMED` are refused (section 11): the dataset is the tenant's. A graph of another tenant does not exist to the query.
 
-The dataset is the RDF view `SCHEMA.md` section 11.2 derives from the schema and the mapping contract, with no store
+The dataset is the RDF view `../schema/SCHEMA.md` section 11.2 derives from the schema and the mapping contract, with no store
 state visible that the view does not name:
 
 | In the view | From the schema |
 |---|---|
 | `?s rdf:type ?C` | An instance's concrete type and every supertype, statement types included, answered from the type prefix; one triple per type, in the instance's graph |
-| `?s {base}attr ?v` | An attribute's value as a literal of `SCHEMA.md` section 5.1's datatype; one triple per member of a `Set`; an `Interval` as `{attr}_start`, `{attr}_end` and the precision literals; a bitemporal instance's `asserted_start` and `asserted_end` as `xsd:dateTimeStamp`, and `live` as `xsd:boolean` |
+| `?s {base}attr ?v` | An attribute's value as a literal of `../schema/SCHEMA.md` section 5.1's datatype; one triple per member of a `Set`; an `Interval` as `{attr}_start`, `{attr}_end` and the precision literals; a bitemporal instance's `asserted_start` and `asserted_end` as `xsd:dateTimeStamp`, and `live` as `xsd:boolean` |
 | `?a {base}nav ?b` | An edge-encoded relation instance: the asserted triple from the anchor under the anchor's navigation name; the inverse navigation name's triple is answered as `owl:inverseOf` promises, from the reverse index |
 | `?r rdf:reifies <<( ?a {base}nav ?b )>>` and `?r {base}attr ?v` | The instance's reifier, named by its reifier IRI, and the attributes it carries; the one SPARQL 1.2 construct of the core (section 6.4) |
 | `?r rdf:type {base}Rel`, `?r {base}Rel_role ?p` | A node-encoded relation instance, a node with its role triples, named by its handle IRI; a specialized role answers its own and the super role's triple |
 | **Navigation property** `?a {base}nav ?b` of a node-encoded relation | A derived triple, one per instance, from the participant that gains the navigation name to the participant the name reaches: `?u db:parents ?p` stands for `?r db:SubOrganizationOf_unit ?u . ?r db:SubOrganizationOf_parent ?p`. Read-only; published as `owl:propertyChainAxiom`; it exists so that a property path walks a relation node in one step, as it walks an edge |
-| A keyless entity, a relation node, a reifier | An IRI (`SCHEMA.md` section 7.3); a blank node in the view is an ungoverned one under the skolem base, as the mapping contract presents it |
+| A keyless entity, a relation node, a reifier | An IRI (`../schema/SCHEMA.md` section 7.3); a blank node in the view is an ungoverned one under the skolem base, as the mapping contract presents it |
 
 A predicate, class or graph a query names must be one the schema declares or the view derives (`SPQ0202`, `SPQ0203`); on
 a closed graph a predicate no type declares matches nothing, and the planner refuses it instead, since a misspelt IRI is
 otherwise an empty answer. Undeclared data under `@open` is reachable under its own predicates and the class
-`{base}Resource`. A predicate or class IRI whose local name a namespace's migration retired (`SCHEMA-EVOLUTION.md`
+`{base}Resource`. A predicate or class IRI whose local name a namespace's migration retired (`../schema/SCHEMA-EVOLUTION.md`
 section 4.2) resolves to the item that holds the name now during the migration's deprecation window, with a warning
 naming the current IRI (`SPQ0210`), and after the window is refused with the current IRI in the message (`SPQ0202`,
 `SPQ0203`).
@@ -81,11 +81,11 @@ naming the current IRI (`SPQ0210`), and after the window is refused with the cur
 ## 3. Lexical structure
 
 `Query §19.8` as narrowed here. Source is UTF-8, bounded by the protocol's query section, `max_frame` less 512 bytes,
-which `PROTOCOL.md` section 7.4 refuses before the core sees it; nesting is bounded at 64 (`SPQ0001`).
+which `../binary_protocol/PROTOCOL.md` section 7.4 refuses before the core sees it; nesting is bounded at 64 (`SPQ0001`).
 
 | Token | Form |
 |---|---|
-| IRI | `<…>` absolute, or a prefixed name `prefix:local` with `PREFIX` declared, the tenant's vocabulary prefixes (`SCHEMA.md` section 6.1) implied, and `rdf:`, `rdfs:`, `xsd:`, `geo:` and `ugdb:` implied under their standard namespaces, `ugdb:` section 9's; a relative IRI is refused (`SPQ0003`) since no base is set |
+| IRI | `<…>` absolute, or a prefixed name `prefix:local` with `PREFIX` declared, the tenant's vocabulary prefixes (`../schema/SCHEMA.md` section 6.1) implied, and `rdf:`, `rdfs:`, `xsd:`, `geo:` and `ugdb:` implied under their standard namespaces, `ugdb:` section 9's; a relative IRI is refused (`SPQ0003`) since no base is set |
 | Variable | `?name` or `$name` |
 | Parameter | A variable the prepared statement names as a parameter (section 10); it is bound before evaluation and never projected unbound |
 | Literal | `"…"` or `'…'` with SPARQL's escapes, `"…"@lang`, `"…"^^<datatype>`; integers, decimals, doubles, `true`, `false` as `Query §19.8`; a literal that is not valid for its datatype is refused (`SPQ0003`) where the datatype is one of section 5.1's |
@@ -200,13 +200,13 @@ A group of triple patterns over one graph is a basic graph pattern, evaluated as
 mappings such that substituting the variables yields triples of the graph, blank nodes in the pattern as variables
 that are not projected. Within one `WHERE`, the elements are joined in order (`Query §18.2.2`'s `Join`), `FILTER`s
 apply to the group they stand in, and a `GRAPH <g>` block evaluates its group over the named graph `g`. The default
-graph is `SCHEMA.md`'s `@default` graph, so a pattern outside every `GRAPH` block reads it.
+graph is `../schema/SCHEMA.md`'s `@default` graph, so a pattern outside every `GRAPH` block reads it.
 
 This is simple entailment over the view: an `rdf:type` pattern matches the instance's concrete type and every
 supertype, since the view holds a triple for each; a navigation property's triple matches each relation instance
 once; no other inference is made.
 
-The view holds **live** instances alone (section 1; `SCHEMA.md` section 8.4, rule 4): no triple of the view
+The view holds **live** instances alone (section 1; `../schema/SCHEMA.md` section 8.4, rule 4): no triple of the view
 names a deleted or retracted instance, as subject or object, so a retracted membership never matches
 `?m a db:MemberOf`, a provenance link of a retracted statement is not answered, and `live` is `true` wherever a
 query binds it, until UQL's `with retracted` reads. A read-only transaction at a named read version sees
@@ -245,7 +245,7 @@ enclosing group; its modifiers apply inside. One level of nesting is admitted (`
 
 A query is **monotonic** when it holds no `NOT EXISTS`, no `!`, no `BOUND`, no aggregate and no `ORDER BY` with
 `LIMIT`, and no extension function of section 9; such a query may run at the monotonic-fast level the transaction's
-Begin names (`PROTOCOL.md` section 11.11), the reply flagging it as `SCHEMA.md` section 9.6 states when it read
+Begin names (`../binary_protocol/PROTOCOL.md` section 11.11), the reply flagging it as `SCHEMA.md` section 9.6 states when it read
 mutable data. Every other query runs at a snapshot, and the reply says so.
 
 ## 7. Solution modifiers and aggregates
@@ -275,7 +275,7 @@ transaction, and a limited result continues through the protocol's resume key (s
 ## 8. Updates
 
 An update changes the dataset in the transaction of the request; nothing is visible outside it before the commit,
-and every instance the transaction creates or changes is validated whole at commit against the schema (`SCHEMA.md`
+and every instance the transaction creates or changes is validated whole at commit against the schema (`../schema/SCHEMA.md`
 section 8), triples assembled into instances as section 8.1 there states. A refusal aborts the transaction and reaches
 the client as section 11 states.
 
@@ -305,7 +305,7 @@ Ground triples that must exist:
 
 - The `rdf:type` triple of an instance's concrete type deletes the instance: an edge or relation node with the
   relations over it; an entity with live relations naming it under its `@on_delete` actions, `cascade` by default and
-  `restrict` refusing (`UGS1020`). On a `@bitemporal` type the delete is a retraction (`SCHEMA.md` section 8.4),
+  `restrict` refusing (`UGS1020`). On a `@bitemporal` type the delete is a retraction (`../schema/SCHEMA.md` section 8.4),
   `@on_retract` applying.
 - An attribute triple clears an optional attribute or one member of a `Set`; a required attribute is refused
   (`UGS1005`); on a `@bitemporal` type the change is a revision.
@@ -353,21 +353,21 @@ by a preceding pattern is the agentic projection's, at a later stage.
   aborts. Section 14 asks the protocol to carry the text.
 - **Parameters.** A prepared request names the variables it takes as parameters; execution binds each to a term
   before evaluation, as a `VALUES` row with one solution would, and a parameter unbound at execution is refused
-  (`PROTOCOL.md` code 11). A parameter in a template or a pattern takes any term; in an `rdf:type` or predicate
+  (`../binary_protocol/PROTOCOL.md` code 11). A parameter in a template or a pattern takes any term; in an `rdf:type` or predicate
   position only an IRI.
 - **Read-only and read-write.** A query runs in a read-only transaction at its level, or in a read-write one at the
   partition's latest state; an update needs a read-write transaction (`SPQ0801`). An `INSERT DATA` whose triples the
   catalog classifies coordination-free is what a DirectWrite carries; the frontend decides from the catalog.
 - **Results.** A query's result is a stream of columnar batches, one column per projected variable, terms in the
-  encoding of `PROTOCOL.md` section 10, `ABSENT` for unbound, IRIs by text, reifiers and handles by their IRIs; an
+  encoding of `../binary_protocol/PROTOCOL.md` section 10, `ABSENT` for unbound, IRIs by text, reifiers and handles by their IRIs; an
   update's result is the count of triples it inserted and deleted. The reply carries the epoch read at, the monotonic
   flag and, for a limited query, the resume key.
 - **Prepared statements.** A request is prepared once per connection with its parameters' types; preparing resolves
   every IRI against the tenant's current catalog version and records the schema id, so a schema change stales it as
-  `PROTOCOL.md` section 11.7 has it.
+  `../binary_protocol/PROTOCOL.md` section 11.7 has it.
 - **Partitions.** A read-only query reads across partitions at its snapshot, the planner routing each pattern as the
   quad-reads specification states; an update's reads and writes stay in its transaction's partition in this stage, a
-  request reaching another refused as `PROTOCOL.md` section 11.11 has it, until stage 8 sequences it.
+  request reaching another refused as `../binary_protocol/PROTOCOL.md` section 11.11 has it, until stage 8 sequences it.
 
 ## 11. Diagnostics and the feature register
 
@@ -399,10 +399,10 @@ A refusal names a code, a location, a reason and, where one exists, a fix.
 | `SPQ0701` | A property function pattern that is not the first of its group |
 | `SPQ0702` | A property function over an attribute without the index it needs, or an argument of the wrong type |
 | `SPQ0801` | An update in a read-only transaction |
-| `SPQ1001` | A result or write set past the transaction's bounds (`PROTOCOL.md` code 6) |
+| `SPQ1001` | A result or write set past the transaction's bounds (`../binary_protocol/PROTOCOL.md` code 6) |
 
 A schema refusal at commit reaches the client with its `UGS1xxx` number and the instance; a conflict or timeout as
-`PROTOCOL.md` section 9.4 states.
+`../binary_protocol/PROTOCOL.md` section 9.4 states.
 
 ### 11.2 The feature register
 
@@ -431,11 +431,11 @@ A schema refusal at commit reaches the client with its `UGS1xxx` number and the 
    **spareval** is the reference evaluator for core queries over the same data where the W3C suite has no case: the
    harness runs a query through Oxigraph's `spareval` on the view's quads and through the core, and compares the bags.
    3. **Differential, against GQL.** Every scenario of section 13 and every MGQL query of `QUERY-GQL-CORE.md` section 12
-   is written in both cores over one dataset, and the answers are compared row by row under this correspondence: a GQL
-   node is the IRI SPARQL binds; a GQL edge is the reifier IRI; a GQL property is the literal; GQL `NULL` is unbound; a
-   GQL quantified edge `+`, `*` or `?` with `DISTINCT` is the path operator of the same name, and a bounded GQL `{m,n}`,
-   which SPARQL 1.1 has no path for, runs in a differential scenario over data whose longest chain is within the bound,
-   where `{1,n}` is `+` and `{0,n}` is `*`; a GQL `COUNT(DISTINCT x)` is `COUNT(DISTINCT ?x)`; a GQL `IS NULL` is
+      is written in both cores over one dataset, and the answers are compared row by row under this correspondence: a GQL
+      node is the IRI SPARQL binds; a GQL edge is the reifier IRI; a GQL property is the literal; GQL `NULL` is unbound; a
+      GQL quantified edge `+`, `*` or `?` with `DISTINCT` is the path operator of the same name, and a bounded GQL `{m,n}`,
+      which SPARQL 1.1 has no path for, runs in a differential scenario over data whose longest chain is within the bound,
+      where `{1,n}` is `+` and `{0,n}` is `*`; a GQL `COUNT(DISTINCT x)` is `COUNT(DISTINCT ?x)`; a GQL `IS NULL` is
    `FILTER NOT EXISTS`; three-valued `UNKNOWN` and SPARQL's error both fail the filter.
 
 ## 13. DeepBrain in the core
@@ -487,7 +487,7 @@ GROUP BY ?unit
 ```
 
 What the graph held at an epoch, DeepBrain's `believed at`, is a read-only transaction at a named read version
-(`PROTOCOL.md` section 6.2) over the same queries, within the versions the partitions retain and refused as
+(`../binary_protocol/PROTOCOL.md` section 6.2) over the same queries, within the versions the partitions retain and refused as
 `PROTOCOL.md` section 9.4 states past them, until UQL names it in the query.
 
 **Update.** A re-ranking, a revision on the bitemporal membership; a label change on an organisation:
@@ -510,7 +510,7 @@ DELETE { ?p a db:Person } WHERE { ?p db:id "AGENT:ada" }
 The first closes the membership's `asserted`; the second retracts Ada and, by `@on_retract`'s default `cascade`, every
 bitemporal relation naming her. Her provenance links are not written: `AssertedBy` is `@append_only` and not
 bitemporal, so each instance is live while its participants are and leaves the view with her, answered again at an
-earlier read version (`SCHEMA.md` section 8.4, rule 6). `MemberOf`'s `restrict open` refuses an organisation's
+earlier read version (`../schema/SCHEMA.md` section 8.4, rule 6). `MemberOf`'s `restrict open` refuses an organisation's
 retraction while open memberships name it (`UGS1020`).
 
 **Retrieve.** The nearest concepts to an embedding with their schemes; the claims a text query matches:
@@ -525,22 +525,22 @@ SELECT ?id ?statement ?score WHERE {
 ```
 
 **Schema.** Installing and reading the schema are the UGS install and Describe; the vocabulary document and SHACL
-shapes `SCHEMA.md` section 11.2 publishes are what a SPARQL client reads for the terms. What the core leaves to UQL:
+shapes `../schema/SCHEMA.md` section 11.2 publishes are what a SPARQL client reads for the terms. What the core leaves to UQL:
 `believed at` and `with retracted` in the query, typed trees, the `edge` accessor; to the full-conformance stage:
 `OPTIONAL` for "a membership and its role if any", `UNION` across kinds, and `BIND`.
 
 ## 14. What this specification asks of the others
 
-- **`PROTOCOL.md`.** Carried as of 2026-11-05, as for GQL: Query with the language tag SPARQL (section 7.4 there),
+- **`../binary_protocol/PROTOCOL.md`.** Carried as of 2026-11-05, as for GQL: Query with the language tag SPARQL (section 7.4 there),
   Prepare and Execute over a text (section 8.1), Result batches with named columns and unbound cells, an update's
   counts, and codes 28 and 29 (section 9.4). Carried 2026-11-08: a warning, `SPQ0210` among them, travels with a
   reply (section 4.9 there).
-- **`SCHEMA.md`.** Carried: section 11.2's RDF view holds the navigation property of section 2 for node-encoded
+- **`../schema/SCHEMA.md`.** Carried: section 11.2's RDF view holds the navigation property of section 2 for node-encoded
   relations, a derived `owl:propertyChainAxiom` over the two role properties, read-only, and states that `rdf:reifies`
   with a triple term is how a reifier is reached. Section 8.4's revision rule is what an attribute change on a
   bitemporal instance relies on. Carried 2026-11-05: `live` in section 11.2's view, `UGS1036` for a second value written
   to a single-valued attribute, and section 8.4's rule 6 for an append-only link naming a retracted participant.
-- **`mapping-contract`.** Carried 2026-11-08: `SCHEMA-APG.md`'s definitions 17.1 and 18.1 state the contract, a
+- **`mapping-contract`.** Carried 2026-11-08: `../schema/SCHEMA-APG.md`'s definitions 17.1 and 18.1 state the contract, a
   reifier presented through `rdf:reifies` and a triple term among it, and stage 6's change set carries it into the
   capability specification (`SCHEMA.md` section 15).
 - **`quad-reads`.** A path step with a bound subject is a forward read; `^p` and a bound object a reverse read; a
@@ -561,5 +561,5 @@ shapes `SCHEMA.md` section 11.2 publishes are what a SPARQL client reads for the
 | Insert-where-absent | `INSERT … WHERE { FILTER NOT EXISTS { … } }`, one request, the absence validated at commit |
 | Parameters | Named variables bound before evaluation, as a one-row `VALUES`; `VALUES` itself waits |
 | Cross-datatype order | Numeric, string, boolean, dateTime, date, time, duration, then by lexical form; errors last |
-| Updates on bitemporal types | A revision for an attribute change, a retraction for the type triple's deletion, as `SCHEMA.md` section 8.4 |
+| Updates on bitemporal types | A revision for an attribute change, a retraction for the type triple's deletion, as `../schema/SCHEMA.md` section 8.4 |
 | Oracles | The W3C suite inside the core as result tests and outside it as refusal tests; spareval where the suite has no case; GQL differentially |

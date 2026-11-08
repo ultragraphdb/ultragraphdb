@@ -2,7 +2,7 @@
 
 * Status: findings of a non-binding exercise, 2026-11-05.
 * Method: `scrith/openspec/notes/schema/gen5/schema_graph_gen5.md`, DeepBrain's Gen5 draft written in the UGS of the
-  design note, was rewritten against `specification/SCHEMA.md` as it stands. The result is
+  design note, was rewritten against `../../specification/schema/SCHEMA.md` as it stands. The result is
   `scrith/openspec/notes/schema/gen5/DeepBrainSchema.ugs` (the core, 77 entity types, 69 relation kinds, 18 links,
   31 enums, 11 quantity kinds, 22 units, 5 derivations, 10 functions) and `ServiceRadarExtension.ugs` (the module).
   Every place the draft could not be written as it stood carries a marker `[E<n>]` in the files; the numbers below are

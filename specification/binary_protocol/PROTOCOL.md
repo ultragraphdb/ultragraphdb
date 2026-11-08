@@ -3,13 +3,13 @@
 This file specifies the bytes of UltraGraphDB's binary protocol, version 1: the frame, every command's body, the term
 encodings, the error codes and the connection's rules, for a client's connection to the frontend and for the role
 connections between the frontend, compute and storage. A client in any language implements the protocol from this file
-and the golden frames in `../ultragraphdb_protocol/ultragraphdb_protocol_wire/testdata/golden`. The Rust crates `ultragraphdb_protocol_wire`
+and the golden frames in `../../ultragraphdb_protocol/ultragraphdb_protocol_wire/testdata/golden`. The Rust crates `ultragraphdb_protocol_wire`
 (the bytes) and `ultragraphdb_protocol_transport` (the connection's state machines) implement it for client, server and
 roles. `SECURITY.md` beside this file describes the security architecture the protocol carries: authentication,
 authorization and encryption.
 
 This file leads the code: group 8 of stage 5.5 brings the crates and the golden frames to it
-(`../openspec/changes/stage-5-5-three-role-refactor/tasks.md`).
+(`../../openspec/changes/stage-5-5-three-role-refactor/tasks.md`).
 
 ## Contents
 
@@ -38,8 +38,8 @@ This file leads the code: group 8 of stage 5.5 brings the crates and the golden 
 | Version | u64: `epoch << 22 \| sequence`, the sequence even, 0 to 2²² − 2. The version bound of epoch `e`, `e << 22 \| 0x3FFFFF`, is above every version stamped at or below `e`. A field holding a version or a version bound has its low 22 bits even or all ones, refused otherwise as `FieldValue` naming the field |
 | Epoch | u64 holding an epoch number of 42 bits, 1 to 2⁴² − 1, or 0 for none where a field allows it; a receiver refuses any other value as `FieldValue` naming the field |
 | Partition | u32, numbered from 1; 0 for none where a field allows it |
-| Tenant | u64, from 0: the engine's unit of isolation, one catalog of numbered versions in the metadata group, one run of buckets, the grants of its principals. The metadata group holds the tenants (section 11.13), and the frontend and Bind refuse a number it does not hold (sections 11.10, 13.10). Nothing reads, writes or names across tenants; the cluster scope alone reaches over them, for backup and export (`SECURITY.md`). Tenants may share a bucket run, of which there are at most 256: isolation is by key, whose bytes 1 to 8 hold the tenant, and by grant, not by resource |
-| Namespace | A unit of organisation inside a tenant: one schema source installed in it with its graphs, from stage 6 (`SCHEMA.md`, sections 1 and 15). It has no field in any key, bucket, ID or frame but one: the identifier a migration's staged namespace takes (sections 8.4, 8.6). A query text names a namespace (section 8.6) |
+| Tenant | u64, from 0: the engine's unit of isolation, one catalog of numbered versions in the metadata group, one run of buckets, the grants of its principals. The metadata group holds the tenants (section 11.13), and the frontend and Bind refuse a number it does not hold (sections 11.10, 13.10). Nothing reads, writes or names across tenants; the cluster scope alone reaches over them, for backup and export (`../../openspec/notes/SECURITY.md`). Tenants may share a bucket run, of which there are at most 256: isolation is by key, whose bytes 1 to 8 hold the tenant, and by grant, not by resource |
+| Namespace | A unit of organisation inside a tenant: one schema source installed in it with its graphs, from stage 6 (`../schema/SCHEMA.md`, sections 1 and 15). It has no field in any key, bucket, ID or frame but one: the identifier a migration's staged namespace takes (sections 8.4, 8.6). A query text names a namespace (section 8.6) |
 | Bucket | u32, 0 to 2²⁴ − 1: a system ID's bucket field, its top 8 bits the tenant's run |
 | Bucket group | u32, 0 to 2¹⁸ − 1: a bucket's top 18 bits, 64 contiguous buckets, 2¹⁰ groups per run |
 | Session | 16 bytes: a session's identity, 128 random bits the frontend draws, opaque; all zero names no session (section 11.5) |
@@ -363,7 +363,7 @@ one with Error 7 (Refused) on the request's stream, `detail` the term's index an
 
 | Term | Rule |
 |---|---|
-| IRI | an absolute IRI (RFC 3987). A skolem IRI begins with a tenant's skolem base, `https://w3id.org/ultragraphdb/ns/tenant/{n}/`, then `.well-known/genid/`; the frontend compares that text exactly, so the same path under another base is an ordinary IRI. One that names another tenant than the request's, whose tail is not `{bucket}-{random}` in the digits section 10.2 gives, or whose bucket lies outside the tenant's run, is an IRI nobody holds: the frontend refuses it in a change or an operation, and a read binding it matches nothing and binds nothing (section 11.12). In a change or an operation, any other skolem IRI is taken only when the dictionary of the partition owning the bucket its text states holds it as a blank node's skolem IRI or as a statement reifier's name, so a forged one is refused (section 13.15). In a pattern, an unheld skolem IRI matches nothing, as any IRI nobody holds. A handle IRI, `{base}{Type}/{handle}` (`SCHEMA.md` section 7.3), names an instance of a keyless type by its handle: `{Type}` a keyless entity or relation type of the tenant's catalog, or a retired name of one (`SCHEMA-EVOLUTION.md` section 4.2), and `{handle}` the bucket in 6 and 104 bits in 26 lowercase hexadecimal digits, joined by `-`. It is taken as a skolem IRI is: one whose bucket lies outside the tenant's run names nobody; in a change or an operation, it is taken only when the dictionary of the partition owning its bucket holds it as an instance's IRI, so a forged one is refused; in a pattern, an unheld one matches nothing. A client never mints a handle: the partition creating a keyless instance draws it. A derived handle, which a migration gives a secondary image (`SCHEMA.md` section 7.3), is a handle like any other |
+| IRI | an absolute IRI (RFC 3987). A skolem IRI begins with a tenant's skolem base, `https://w3id.org/ultragraphdb/ns/tenant/{n}/`, then `.well-known/genid/`; the frontend compares that text exactly, so the same path under another base is an ordinary IRI. One that names another tenant than the request's, whose tail is not `{bucket}-{random}` in the digits section 10.2 gives, or whose bucket lies outside the tenant's run, is an IRI nobody holds: the frontend refuses it in a change or an operation, and a read binding it matches nothing and binds nothing (section 11.12). In a change or an operation, any other skolem IRI is taken only when the dictionary of the partition owning the bucket its text states holds it as a blank node's skolem IRI or as a statement reifier's name, so a forged one is refused (section 13.15). In a pattern, an unheld skolem IRI matches nothing, as any IRI nobody holds. A handle IRI, `{base}{Type}/{handle}` (`../schema/SCHEMA.md` section 7.3), names an instance of a keyless type by its handle: `{Type}` a keyless entity or relation type of the tenant's catalog, or a retired name of one (`schema/SCHEMA-EVOLUTION.md` section 4.2), and `{handle}` the bucket in 6 and 104 bits in 26 lowercase hexadecimal digits, joined by `-`. It is taken as a skolem IRI is: one whose bucket lies outside the tenant's run names nobody; in a change or an operation, it is taken only when the dictionary of the partition owning its bucket holds it as an instance's IRI, so a forged one is refused; in a pattern, an unheld one matches nothing. A client never mints a handle: the partition creating a keyless instance draws it. A derived handle, which a migration gives a secondary image (`schema/SCHEMA.md` section 7.3), is a handle like any other |
 | Language tag | well-formed (BCP 47) |
 | Literal of a known datatype (section 10.4) | its lexical form valid for its datatype |
 | The predicate slot of a pattern or a change | an IRI |
@@ -495,7 +495,7 @@ token.
 ### 4.9 Warnings
 
 A reply carries the warnings its request's compilation reported without refusing it, such as a retired name resolved
-during its migration's deprecation window (`UQL0110`, `GQL0210`, `SPQ0210`; `SCHEMA-EVOLUTION.md` section 9), in three
+during its migration's deprecation window (`UQL0110`, `GQL0210`, `SPQ0210`; `../schema/SCHEMA-EVOLUTION.md` section 9), in three
 sections: the warnings, 24 bytes each, then their messages as a string list (section 4.3). The first Result batch of a
 Query or of an Execute of a text (section 9.1), a Prepare's reply (section 8.1) and an Install's reply (section 8.4)
 carry them; a reply with no warning, and every other frame holding the sections, holds them empty.
@@ -591,7 +591,7 @@ rule.
 | `SCRAM-SHA-256` (RFC 5802, RFC 7677) | step 0 the client-first-message, 1 the server-first-message, 2 the client-final-message, 3 the server-final-message, final |
 | `OAUTHBEARER` (RFC 7628) | step 0 the client's initial response, holding the token; 1 the server's final message on success; on a refusal, 1 the server's error JSON, naming the issuer's discovery document and the scope to ask for, 2 the client's single byte `0x01`, then the server's Error 19 |
 
-`OAUTHBEARER` is offered only on a connection encrypted with TLS, from stage 8 (`SECURITY.md`, *Where it is built*).
+`OAUTHBEARER` is offered only on a connection encrypted with TLS, from stage 8 (`../../openspec/notes/SECURITY.md`, *Where it is built*).
 In stage 5.5 the client endpoint and every role endpoint offer `SCRAM-SHA-256` alone, in clear text and inside TLS
 alike.
 
@@ -709,7 +709,7 @@ declaration by a catalog version (section 11.13). A graph drop removes every key
 tenant's data drop removes the tenant's data and keeps its catalog. A drop of everything in a tenant removes its data,
 and the frontend sets its catalog to the initial catalog by a catalog version, which removes every namespace installed in
 it. A drop's keys all hold its tenant, so another tenant sharing the bucket run keeps its own. No drop removes a
-dictionary entry or spans tenants. The privilege each takes is in `SECURITY.md`.
+dictionary entry or spans tenants. The privilege each takes is in `../../openspec/notes/SECURITY.md`.
 
 ### 6.6 DirectWrite (20)
 
@@ -873,14 +873,14 @@ or 1 (`FieldValue` `"link direction"`), every other arg is below the term table'
 
 ### 7.4 Query (22)
 
-A query of the GQL core or the SPARQL core (`QUERY-GQL-CORE.md`, `QUERY-SPARQL-CORE.md`) in the transaction it names, on
+A query of the GQL core or the SPARQL core (`../query/QUERY-GQL-CORE.md`, `query/QUERY-SPARQL-CORE.md`) in the transaction it names, on
 a stream of its own, as a Read is: its text, its parameters by name, at most `limit` rows (0 for no limit), and the
 resume key a previous result of the same request ended with, empty to start (section 11.8). A statement with a writing
 clause needs a read-write transaction (`mode` 0), refused in a read-only one with code 29. The reply is a stream of
 Result frames (section 9.1), the first carrying the column names and the compilation's warnings (section 4.9), the last
 flagged `LAST`; a SPARQL update's reply is one Result of one row with the columns `inserted` and `deleted`,
 `xsd:integer` terms, and a GQL statement without `RETURN` answers one Result of no columns and no rows, flagged `LAST`
-(`QUERY-GQL-CORE.md` section 7.1). The frontend compiles the text against the catalog version in effect for the
+(`query/QUERY-GQL-CORE.md` section 7.1). The frontend compiles the text against the catalog version in effect for the
 transaction's tenant, refuses it with code 29 and the core's diagnostic (section 9.4), and otherwise plans and executes
 it as the quad-reads specification routes reads and section 11.12 routes writes.
 
@@ -1022,7 +1022,7 @@ answer that does not fit one frame within the client's `max_frame` continues in 
 | 4 | property keys, u32 string indices |
 | 5 | declarations: change records of kinds 8, 9, 10, in that order, each kind's records in the order of their declared IRIs' UTF-8 bytes (section 4.6); an entity type's `extra` is its preorder number: its place, from 1, in a preorder walk of the type hierarchy, each type before its children, roots and siblings in the order of their IRIs' UTF-8 bytes |
 | 6 | the declarations' args, u32s |
-| 7 | entries, 16 bytes each, by kind, then by name as UTF-8 bytes, the order of a catalog version's entries (`SCHEMA.md` section 10.2) |
+| 7 | entries, 16 bytes each, by kind, then by name as UTF-8 bytes, the order of a catalog version's entries (`../schema/SCHEMA.md` section 10.2) |
 | 8 | the entries' bytes, back to back in entry order |
 
 | Entry offset | Width | Field | Type |
@@ -1033,7 +1033,7 @@ answer that does not fit one frame within the client's `max_frame` continues in 
 | 8 | 4 | `offset` | u32: the entry's first byte in section 8, where the bytes of the entry before end |
 | 12 | 4 | `len` | u32: its bytes' length |
 
-| Kind | Entry (`SCHEMA.md` section 10.2) | Carried to the principal |
+| Kind | Entry (`../schema/SCHEMA.md` section 10.2) | Carried to the principal |
 |---|---|---|
 | 1 | Schema | whole |
 | 2 | Module | whole |
@@ -1054,9 +1054,9 @@ answer that does not fit one frame within the client's `max_frame` continues in 
 | 17 | Classification | where it holds `read` on every predicate the entry names |
 | 18 | Report | likewise |
 | 19 | Source: an installed source, by its name | where it holds `read` on every predicate the source declares |
-| 20 | Retired name: a name an item held in an earlier version (`SCHEMA-EVOLUTION.md` section 4.2), by that name | whole for a type or a graph; for an attribute, a role or a navigation name, where it holds `read` on the predicates of the item holding the name now |
+| 20 | Retired name: a name an item held in an earlier version (`../schema/SCHEMA-EVOLUTION.md` section 4.2), by that name | whole for a type or a graph; for an attribute, a role or a navigation name, where it holds `read` on the predicates of the item holding the name now |
 
-Kinds 1 to 18 hold the entry's bytes as the catalog version encodes them, in the canonical encoding of `SCHEMA.md`
+Kinds 1 to 18 hold the entry's bytes as the catalog version encodes them, in the canonical encoding of `../schema/SCHEMA.md`
 section 10.2, which the protocol carries opaque as Catalog carries a version's bytes (section 13.7). Kind 19 holds the
 source's text, UTF-8, the migration sources installed with a target among them. Kind 20 holds 24 bytes:
 
@@ -1069,7 +1069,7 @@ source's text, UTF-8, the migration sources installed with a target among them. 
 | 8 | 8 | `version` | u64: the catalog version whose cutover retired the name, at least 1 |
 | 16 | 8 | `until` | u64: for `fate` 1, when the deprecation window ends, in microseconds of Unix time, after which a query naming it is refused with the current name; 0 for 2 |
 
-The whole and filtered kinds follow `SCHEMA.md` section 10.3's rule, extended to the entries it does not list: the
+The whole and filtered kinds follow `../schema/SCHEMA.md` section 10.3's rule, extended to the entries it does not list: the
 schemas' vocabulary whole, what names a predicate filtered. The schema id hashes the entries as the principal sees them
 (section 11.7).
 
@@ -1097,7 +1097,7 @@ do, the stream starting with the Welcome's `initial_credit` (section 11.3). A ca
 
 ### 8.4 Install (23)
 
-The sources of a tenant's schema, installed as `SCHEMA.md` section 10.1 states: whole schemas and modules, each
+The sources of a tenant's schema, installed as `../schema/SCHEMA.md` section 10.1 states: whole schemas and modules, each
 replacing the source of its name, compiled with every source the tenant already holds into a new catalog version
 built on `version`, committed as pending through the metadata group and taking effect at the epoch section 11.13
 gives a version. The client sends the sources with `epoch` and the reply's `version` zero and no report; the server
@@ -1106,11 +1106,11 @@ the diagnostics. Installing takes `declare` on the tenant, which the gate of sec
 assigned and, for a tightening change, once every partition holding the tenant's data has passed the validation scan
 at that epoch, as a type change's Commit does. The reply carries the compilation's warnings (section 4.9).
 
-**A migration.** A source whose text declares a `migration` (`SCHEMA-EVOLUTION.md` section 3) installs with its target's
+**A migration.** A source whose text declares a `migration` (`../schema/SCHEMA-EVOLUTION.md` section 3) installs with its target's
 schema source in one Install, and the compiler checks it as section 5 there states. The version installed then holds the
 target as a staged namespace, which no request but its run's sees, and the reply names it by `staged`, an identifier the
 metadata group allocates, never reused in the tenant, and carries the migration report in section 3
-(`SCHEMA-EVOLUTION.md` sections 5 and 9, the rename map among it). Migrations installed together are one joint
+(`schema/SCHEMA-EVOLUTION.md` sections 5 and 9, the rename map among it). Migrations installed together are one joint
 migration: one run and one `staged`. Migrate runs it (section 8.6). An Install holding a migration source is refused
 with code 7 before stage 9.5 (section 11.2).
 
@@ -1125,8 +1125,8 @@ with code 7 before stage 9.5 (section 11.2).
 |---|---|
 | 0 | sources: string list `ends` |
 | 1 | sources: string list `text`: for each source its name, then its text, in that order |
-| 2 | the report, UTF-8, the coordination report of `SCHEMA.md` section 9.5; empty in a request |
-| 3 | the migration report, UTF-8 (`SCHEMA-EVOLUTION.md` section 5); empty in a request and without a migration |
+| 2 | the report, UTF-8, the coordination report of `../schema/SCHEMA.md` section 9.5; empty in a request |
+| 3 | the migration report, UTF-8 (`../schema/SCHEMA-EVOLUTION.md` section 5); empty in a request and without a migration |
 | 4 | the warnings (section 4.9); empty in a request |
 | 5 | the warnings' messages: string list `ends` |
 | 6 | the warnings' messages: string list `text` |
@@ -1142,7 +1142,7 @@ with code 7, `detail` the bound, the message naming its size, and nothing is ins
 
 ### 8.5 Purge (24)
 
-The legal purge of `SCHEMA.md` section 8.8: the instances a list of IRIs names, removed with every version of their
+The legal purge of `../schema/SCHEMA.md` section 8.8: the instances a list of IRIs names, removed with every version of their
 data, which no delete or retraction removes. The client sends the tenant and the IRIs with `epoch` and `removed` 0. The
 frontend sequences the purge at an epoch through the metadata group and executes it at each instance's home and at every
 member of its referrer set, as an entity delete's shares are, with removal in place of a tombstone's fence (section
@@ -1171,7 +1171,7 @@ of kind 1 (`FieldValue` `"purge term"`, the entry's kind); `removed` at most the
 
 ### 8.6 Migrate (25)
 
-A migration's run (`SCHEMA-EVOLUTION.md` section 6), named by the `staged` identifier its Install answered (section
+A migration's run (`../schema/SCHEMA-EVOLUTION.md` section 6), named by the `staged` identifier its Install answered (section
 8.4). A run is a record of the metadata group that moves through its states by committed transitions in the background,
 surviving any restart. A Migrate asks for one action: the frontend answers once the metadata group has committed the
 transition it asks for, a state read at once, and the client follows the run by reading its state.
@@ -1185,7 +1185,7 @@ transition it asks for, a state read at once, and the client follows the run by 
 | 20 | 4 | `refusal` | u32 | in a reply of state 9 for a run a check failed, the UGS refusal number it failed with, 2201 to 2299 for `UGS2201` to `UGS2299`; 0 otherwise, a cancelled run's included (`FieldValue` `"refusal"`) |
 | 24 | 8 | `epoch` | epoch (section 1) | in a reply, the epoch the run entered its state at: `e0` for `copying`, `e1` for `fenced`, `e2` for `cut_over`; 0 in a request |
 
-| State | Name | Entered when (`SCHEMA-EVOLUTION.md` section 6) |
+| State | Name | Entered when (`../schema/SCHEMA-EVOLUTION.md` section 6) |
 |---|---|---|
 | 1 | `staged` | the Install succeeded |
 | 2 | `copying` | the run started |
@@ -1207,7 +1207,7 @@ transition it asks for, a state read at once, and the client follows the run by 
 
 | Section | Contents |
 |---|---|
-| 0 | the message, UTF-8: in a reply of state 9 for a run a check failed, the refusal's message, naming the instance and the rule as `SCHEMA-EVOLUTION.md` section 10 states; empty otherwise |
+| 0 | the message, UTF-8: in a reply of state 9 for a run a check failed, the refusal's message, naming the instance and the rule as `../schema/SCHEMA-EVOLUTION.md` section 10 states; empty otherwise |
 | 1 | the migration report, UTF-8, as the run has brought it: final from `checked`; empty in a request |
 
 Order: unused bytes 18–19 and 32–127 zero; `staged`; `action`; `state`, 0 in a request and 1 to 9 in a reply
@@ -1219,7 +1219,7 @@ Order: unused bytes 18–19 and 32–127 zero; `staged`; `action`; `state`, 0 in
 An action the run's state does not take is refused with code 7 (Refused), `detail` 0, the message naming the state and
 the action; a `staged` the tenant does not hold, or one whose run has ended, `cut_over` or `failed`, for any action but
 a state read, with code 7, `detail` the identifier. Every action takes `declare` on the tenant, which the gate of
-section 11.10 checks first (`SECURITY.md`). While a run is `fenced` or `catching_up`, a write reaching a graph of a
+section 11.10 checks first (`../../openspec/notes/SECURITY.md`). While a run is `fenced` or `catching_up`, a write reaching a graph of a
 namespace it carries is refused with code 31 (Fenced) and writes nothing; the client runs it again after a delay, and
 after the cutover it executes against the target, after a failure against the source as it was. At `cut_over` the
 catalog version passing the namespace to the target takes effect as any version does (section 11.13): prepared
@@ -1336,7 +1336,7 @@ Order: unused bytes 2–7 and 16–127 zero; `code`; sections; the term table (1
 | 4 | PastLimit | yes | the limit in milliseconds | The transaction lived past its limit, the Welcome's `transaction_ms`, or a one-frame write waited that long unsent at the frontend (section 11.12, *Frames on their way*); when a read was holding a write back then, the message names that read's stream and says it had no credit |
 | 5 | Busy | yes | 0 | The commit queue is full; or the partition's epoch is full and its close request has gone unanswered for `close_request_ms`, the sequencer counting as unreachable until the close arrives (section 11.12) |
 | 6 | TooLarge | no | the limit in bytes; for statement IDs, their bound | A write set exceeds the Welcome's `max_write_set`, as sent or as its commit-time operations leave it (section 11.9); a transaction's reads exceed what its read set holds; a write would pass `statements_per_object_max`; a Commit reply's frame would pass the floor of `max_frame` (section 11.9); one entry's first object record or value is too large for an otherwise empty frame (section 13.14); a row or resume key is too large for an otherwise empty Result frame, or an Execute's ComputeRead for a frame (section 13.12) |
-| 7 | Refused | no | 0; for a term's rule, the term's index; for a declaration, its record's index, or its index among the transaction's declarations for ones tightening and loosening at once; for a catalog version past its cap, the cap; for an unknown tenant, the tenant; for a Lease, the maximum; for a Catalog, the version; for a schema rule at commit, the UGS refusal number (`SCHEMA.md` section 8.7); for a Migrate naming a run the tenant does not hold or that has ended, its `staged` | The catalog refused a write, a term broke the server's rules (section 4.4), or a declaration was refused: a vector index in this stage, a transaction mixing declarations with other changes, declarations tightening and loosening at once, a type change the data contradicts, or a catalog version past `catalog_bytes_max`, a Commit's or an Install's (sections 8.4, 11.13); a request named a tenant the metadata group does not hold (section 11.10); or a role's request was refused: a Lease past `block_size_max`, a Catalog of a version never held; or a schema rule refused the transaction at commit, the message naming the instance and the rule; or a Migrate's action does not fit its run (section 8.6); or the frontend does not serve the command in this stage (section 11.2) |
+| 7 | Refused | no | 0; for a term's rule, the term's index; for a declaration, its record's index, or its index among the transaction's declarations for ones tightening and loosening at once; for a catalog version past its cap, the cap; for an unknown tenant, the tenant; for a Lease, the maximum; for a Catalog, the version; for a schema rule at commit, the UGS refusal number (`../schema/SCHEMA.md` section 8.7); for a Migrate naming a run the tenant does not hold or that has ended, its `staged` | The catalog refused a write, a term broke the server's rules (section 4.4), or a declaration was refused: a vector index in this stage, a transaction mixing declarations with other changes, declarations tightening and loosening at once, a type change the data contradicts, or a catalog version past `catalog_bytes_max`, a Commit's or an Install's (sections 8.4, 11.13); a request named a tenant the metadata group does not hold (section 11.10); or a role's request was refused: a Lease past `block_size_max`, a Catalog of a version never held; or a schema rule refused the transaction at commit, the message naming the instance and the rule; or a Migrate's action does not fit its run (section 8.6); or the frontend does not serve the command in this stage (section 11.2) |
 | 8 | OperationFailed | no | 0 | A compare-and-set did not hold; sections 1 and 2 hold the value found |
 | 9 | StaleStatement | no | the statement | The statement's schema id no longer matches its tenant's |
 | 10 | UnknownStatement | no | the statement | The connection holds no statement of this id in the transaction's tenant: never prepared there, or evicted |
@@ -1357,9 +1357,9 @@ Order: unused bytes 2–7 and 16–127 zero; `code`; sections; the term table (1
 | 25 | LevelRefused | no | as code 23's | A read-only transaction at level 1 (latest) whose read reaches another partition than the one its first read bound it to, or more than one; the message names the level and the partitions (section 11.11) |
 | 26 | WrongPartition | yes, after refreshing the placement map | the bucket in bits 0–23, bits 24–31 zero, the partition owning it in bits 32–63; all 0 for a registration refused at a home, whose owner the registrant does not know | A key outside the receiving partition's bucket ranges, from a sender whose placement map is stale; a later subject of a request whose first lies inside them is code 23 (section 11.12). Between roles; a client receives it when the owner refuses the frontend's one resend too, or from a registration refused at a home (section 13.15), and runs its transaction again after a delay (section 11.12) |
 | 27 | AheadOfWatermark | no | the watermark | A read version is above the visibility watermark of the partition answering, in an epoch that partition has not closed: refused at once when the client named it; the message names the version and the watermark (sections 6.2, 13.13) |
-| 28 | SchemaRefused | no | the count of diagnostics | An Install's sources were refused: the message holds the diagnostics of `SCHEMA.md` section 10.4, each with its code and location, and nothing was installed |
-| 29 | QueryRefused | no | the diagnostic's number, with the language in bits 16–23, as the table of languages below gives | A query or prepared text was refused: the message begins with the diagnostic's code (`QUERY-GQL-CORE.md` section 11, `QUERY-SPARQL-CORE.md` section 11) and its `line:column`, then the reason and the fix; a feature outside the core is named |
-| 30 | EntityDeleted | no | 0 | A write names an entity a delete has tombstoned at its home: a commit referencing the deleted entity's ID, or a registration naming it (sections 12.2, 13.15); the transaction aborts and writes nothing, and the message names the entity's IRI. Run again, a transaction resolves the IRI anew, and one creating the instance creates a new one with a new ID (`SCHEMA.md` section 8.5) |
+| 28 | SchemaRefused | no | the count of diagnostics | An Install's sources were refused: the message holds the diagnostics of `../schema/SCHEMA.md` section 10.4, each with its code and location, and nothing was installed |
+| 29 | QueryRefused | no | the diagnostic's number, with the language in bits 16–23, as the table of languages below gives | A query or prepared text was refused: the message begins with the diagnostic's code (`../query/QUERY-GQL-CORE.md` section 11, `query/QUERY-SPARQL-CORE.md` section 11) and its `line:column`, then the reason and the fix; a feature outside the core is named |
+| 30 | EntityDeleted | no | 0 | A write names an entity a delete has tombstoned at its home: a commit referencing the deleted entity's ID, or a registration naming it (sections 12.2, 13.15); the transaction aborts and writes nothing, and the message names the entity's IRI. Run again, a transaction resolves the IRI anew, and one creating the instance creates a new one with a new ID (`../schema/SCHEMA.md` section 8.5) |
 | 31 | Fenced | yes, after a delay | 0 | A write reaches a namespace a migration's run has fenced, in its states `fenced` and `catching_up` (section 8.6); it writes nothing, and the message names the namespace and the run's `staged`. After the cutover the write executes against the target |
 
 Retryable says the same work can succeed if run again, and the code says what runs again. Code 14 on a Commit, Drop or
@@ -1394,10 +1394,10 @@ reused. A receiver refuses an Error of code 26 with any of bits 24 to 31 of its 
 
 | Language (bits 16–23 of a diagnostic's number) | Diagnostics |
 |---|---|
-| 1 | GQL: `GQLnnnn` (`QUERY-GQL-CORE.md` section 11) |
-| 2 | SPARQL: `SPQnnnn` (`QUERY-SPARQL-CORE.md` section 11) |
-| 3 | UQL: `UQLnnnn` (`QUERY-ULTRA-QL.md` section 18) |
-| 4 | UGS: `UGSnnnn` (`SCHEMA.md` section 10.4, `SCHEMA-EVOLUTION.md` section 10) |
+| 1 | GQL: `GQLnnnn` (`../query/QUERY-GQL-CORE.md` section 11) |
+| 2 | SPARQL: `SPQnnnn` (`../query/QUERY-SPARQL-CORE.md` section 11) |
+| 3 | UQL: `UQLnnnn` (`../query/QUERY-ULTRA-QL.md` section 18) |
+| 4 | UGS: `UGSnnnn` (`../schema/SCHEMA.md` section 10.4, `schema/SCHEMA-EVOLUTION.md` section 10) |
 
 A diagnostic's number, in bits 0–15, is its code's four digits: `GQL0210` is 210 in language 1. Code 29 and a warning
 (section 4.9) carry it so.
@@ -1513,7 +1513,7 @@ and codes 32 and 34 to 36 hold their values by tags of their own, `0x40`, `0x41`
 | 34 | `ugdb:bfloat16vector` | 35 | `ugdb:measure` | 36 | `ugdb:precision` |
 
 `ugdb:bfloat16vector` holds a `Vector<BF16, n>`, `ugdb:measure` a number with its unit and `ugdb:precision` a temporal
-bound's precision (`SCHEMA.md` sections 5.1, 5.5, 5.8 and 12.2).
+bound's precision (`../schema/SCHEMA.md` sections 5.1, 5.5, 5.8 and 12.2).
 
 ### 10.5 By-value payloads
 
@@ -1531,8 +1531,8 @@ Each multi-byte number in a by-value payload is **big-endian**. A decimal number
 | `0x1D` | i64 months, then i128 seconds × 10¹⁸ | the duration's year-month part and day-time part, of one sign where both are nonzero: a duration is negative as a whole (its lexical form below), so parts of opposite signs are no whole encoding |
 | `0x1E` | i64 | months |
 | `0x1F` | i128 | seconds × 10¹⁸ |
-| `0x50` | f64, IEEE 754 binary64, then inline text | the measure's number in its own unit, then that unit's UCUM code, a declared unit's (`SCHEMA.md` section 5.8) |
-| `0x51` | u8 | the precision, coarsest first: 1 millennium, 2 century, 3 decade, 4 year, 5 month, 6 day, 7 hour, 8 minute, 9 second, 10 millisecond, 11 microsecond, 12 nanosecond (`SCHEMA.md` section 5.5); any other byte is no whole encoding |
+| `0x50` | f64, IEEE 754 binary64, then inline text | the measure's number in its own unit, then that unit's UCUM code, a declared unit's (`../schema/SCHEMA.md` section 5.8) |
+| `0x51` | u8 | the precision, coarsest first: 1 millennium, 2 century, 3 decade, 4 year, 5 month, 6 day, 7 hour, 8 minute, 9 second, 10 millisecond, 11 microsecond, 12 nanosecond (`../schema/SCHEMA.md` section 5.5); any other byte is no whole encoding |
 
 `T` is `timeOnTimeline` of XML Schema 1.1 Part 2 (§E.3.4), over the value's seven properties, with the timezone offset
 `tz` in minutes (0 when absent), `div` and `mod` rounding toward negative infinity, and `daysInMonth(y, m)` the
@@ -1588,7 +1588,7 @@ The forms are the protocol's own, independent of any library's formatting, and g
 
 1. The client opens a TCP connection to the frontend's client endpoint. An endpoint whose `[endpoint]` table names a
    certificate and its key (`tls_cert_file`, `tls_key_file`) speaks TLS 1.3 from the connection's first byte, and only
-   TLS 1.3, with no clear-text upgrade; one that sets `plaintext = true` speaks clear text (`SECURITY.md`,
+   TLS 1.3, with no clear-text upgrade; one that sets `plaintext = true` speaks clear text (`../../openspec/notes/SECURITY.md`,
    *Encryption*). A client configured with a trust source runs the TLS handshake first and verifies the server's
    certificate for the host it dials before it sends a byte of the protocol; a clear-text Hello reaching a TLS endpoint
    fails as a TLS handshake failure, and no frame is read. The client then sends Hello on stream 0: header `sequence`
@@ -1614,7 +1614,7 @@ The forms are the protocol's own, independent of any library's formatting, and g
    refused with an Error of code 20 (Unauthenticated) on the request's stream, which ends it, and the connection stays
    open for authentication. An exchange not complete within the authentication timeout (section 11.9) is answered with
    an Error of code 20 on stream 0, and the server closes the connection. With `auth` 0, which a test server alone
-   answers, nothing is exchanged, and the connection acts for the anonymous principal (`SECURITY.md`).
+   answers, nothing is exchanged, and the connection acts for the anonymous principal (`../../openspec/notes/SECURITY.md`).
 
 Every later frame carries in its header the cluster, the sender's `release`, `protocol` equal to the Welcome's
 `protocol`, its stream and its sequence. No side sends a frame larger than the other's `max_frame`: the client's from
@@ -1668,8 +1668,8 @@ no Bind of kind 1 opened, and a Drop on one no Bind of kind 2 opened, is refused
 
 In this stage the frontend refuses an Install, a Query and a Prepare of `language` 1 or 2 with code 7 (Refused) on the request's
 stream, `detail` 0, the message naming the command and the stage that serves it: stage 6 for an Install, stage 7 for a Query and a
-text. It refuses the same way a Purge, naming stage 8 (`SCHEMA.md` section 14), and a Migrate and an Install holding a
-migration source, naming stage 9.5 (`SCHEMA-EVOLUTION.md`). A request naming a tenant passes the gate of section 11.10
+text. It refuses the same way a Purge, naming stage 8 (`../schema/SCHEMA.md` section 14), and a Migrate and an Install holding a
+migration source, naming stage 9.5 (`schema/SCHEMA-EVOLUTION.md`). A request naming a tenant passes the gate of section 11.10
 first. A Query's refusal leaves its transaction open.
 
 A transaction is its stream and its reads. Its stream takes one request at a time; its reads run beside it, each on a
@@ -1693,7 +1693,7 @@ A request declares its type by the command that carries it, so the server choose
 | DirectWrite | DirectWrite (section 6.6) | One frame and its reply: no Begin, no Bind stream, no open transaction, and nothing read reaches the client |
 | ConditionalWrite | ConditionalWrite (section 6.7) | As DirectWrite, its conditions decided in commit order, and the outcome reported in the reply |
 | Read-write | Begin `mode` 0, then any of Read, Execute, Write, Operation, Query, and Commit or Abort | An open transaction, validated at commit, and aborted to the client on a conflict |
-| Query | Begin `mode` 1 then Query of a statement without a writing clause; Begin `mode` 0 then any Query | As Read-only or Read-write by the transaction; a statement with a writing clause and no reading clause, whose writes the catalog's request-typing facts classify coordination-free (`SCHEMA.md` section 9.6), is executed as a DirectWrite's changes are, in one turn at the watermark |
+| Query | Begin `mode` 1 then Query of a statement without a writing clause; Begin `mode` 0 then any Query | As Read-only or Read-write by the transaction; a statement with a writing clause and no reading clause, whose writes the catalog's request-typing facts classify coordination-free (`../schema/SCHEMA.md` section 9.6), is executed as a DirectWrite's changes are, in one turn at the watermark |
 
 A write computed from an earlier read of the client's belongs in a read-write transaction, or in a commit-time operation that
 decides it in commit order, which ConditionalWrite carries in one frame (section 11.6). Sent as a read-only request and then a
@@ -1954,7 +1954,7 @@ opens it `read_retain_ms / 4` after the read began, so a short read opens none.
 
 ### 11.10 Authorization
 
-Every request is authorized against the connection's principal (`SECURITY.md`). A statement the principal may not read
+Every request is authorized against the connection's principal (`../../openspec/notes/SECURITY.md`). A statement the principal may not read
 is absent from a read: a pattern naming a predicate or graph it may not read matches nothing, and one leaving it
 unbound returns no row of it. A write, declaration, drop, purge, administration or cluster operation the principal may
 not do is refused with code 21 (PermissionDenied), `detail` the action (section 9.4).
@@ -1965,7 +1965,7 @@ the frontend before it reaches any other role or any state: whether the connecti
 action in that tenant. A refusal is code 21 on the request's stream, `detail` `read` for Begin, Prepare and Describe,
 `declare` for an Install and a Migrate, `write` for a one-frame write, `drop` for a Drop and `purge` for a Purge. The
 gate fails closed on an action or a scope it does not know. In this stage it allows every authenticated principal, and
-stage 7's grants fill it in (`SECURITY.md`, *Where it is built*). A request the gate passes naming a tenant the metadata
+stage 7's grants fill it in (`../../openspec/notes/SECURITY.md`, *Where it is built*). A request the gate passes naming a tenant the metadata
 group does not hold is then refused with code 7 (Refused), `detail` the tenant, the message naming it, so a principal
 holding no grant in a number learns nothing of whether it exists.
 
@@ -2028,7 +2028,7 @@ mode 0600. The frames are the same on both carriers. Each role listens for role 
 from the frontend's client endpoint: a connection's kind is the endpoint it arrives at, and the client endpoint refuses
 every role command (section 3). On every connection, requests travel from the side that dialled to the side that
 accepted, which answers on the request's stream (section 2.5, step 3). Role connections speak clear text in this
-stage; TLS between roles arrives with stage 8 (`SECURITY.md`). Partitions of one storage process exchange what a role
+stage; TLS between roles arrives with stage 8 (`../../openspec/notes/SECURITY.md`). Partitions of one storage process exchange what a role
 command carries as a message within the process, with the same contents.
 
 **Handshake and the role secret.** A role connection opens as a client's does (section 11.1): Hello, then Welcome with
@@ -2117,7 +2117,7 @@ the transaction executes, batched per home's role address within each write requ
 the same ID and changes nothing, and concurrent registrants receive one ID, none aborting for the race. A partition
 holding its mark of `(o, g)` sends none. The frontend registers a unique predicate's IRI the same way, naming no group,
 to learn the system ID a claimed value's bucket is computed from. A participant another partition owns, which a relation
-instance names (`SCHEMA.md` section 12.3), registers in get-only mode (section 13.15): its home creates no ID and
+instance names (`../schema/SCHEMA.md` section 12.3), registers in get-only mode (section 13.15): its home creates no ID and
 answers whether the participant is absent, live or deleted, and its type prefix.
 
 **Parked requests.** A role connection keeps moving while a request on it waits on a home. A partition parks a Write, Operation,
@@ -2306,7 +2306,7 @@ connection, which ends what it carried so, and dials again for the next read.
 
 A tenant is created explicitly and recorded in the metadata group, whose tenants Placement's runs list (section 13.6): the
 cluster's first start creates tenant 0, and a further tenant is created, or a tenant removed, by the cluster operation of
-`SECURITY.md`'s `operate` action, whose command arrives with stage 7's administration commands. A cluster wipe removes each
+`../../openspec/notes/SECURITY.md`'s `operate` action, whose command arrives with stage 7's administration commands. A cluster wipe removes each
 tenant. A tenant's catalog lives in the metadata group as numbered versions, which the protocol carries as opaque bytes
 (section 13.7); no partition holds catalog keys. A partition validates and applies each round against the version in
 effect at the round's epoch.
@@ -2317,7 +2317,7 @@ effect at the round's epoch.
   `detail` the record's index, 0 for an Operation or a read, ending the transaction. The frontend executes the
   transaction itself and binds it to no partition. Its Commit names no session, `session` all zero and `request` 0,
   refused with code 7 otherwise.
-- **Schemas.** UGS sources arrive by Install (section 8.4): the frontend compiles them as `SCHEMA.md` section 10.1
+- **Schemas.** UGS sources arrive by Install (section 8.4): the frontend compiles them as `../schema/SCHEMA.md` section 10.1
   states and commits the version as pending, which takes effect as the next item states; the compiled version's
   declarations of kinds 8 to 10 and its entries are what Describe reports (section 8.3).
 - **Vector indexes.** In this stage a declaration of a vector index, kind 8 with flag bit 5, is refused with code 7,
@@ -2476,7 +2476,7 @@ sections 9 to 11, so the log holds exactly what was applied and what was answere
 | 24 | 8 | `read_version` | u64: kind 1, the version the transaction read at, its partition's visibility watermark when it bound; 0 otherwise |
 | 32 | 16 | `session` | session (section 1): kind 1, the session committing through it, all zero for none; zero otherwise |
 | 48 | 8 | `request` | u64: kind 1, the session's request number, 0 for none; 0 otherwise |
-| 56 | 8 | `principal` | u64: kind 1, the principal the transaction acted for (`SECURITY.md`); 0 otherwise |
+| 56 | 8 | `principal` | u64: kind 1, the principal the transaction acted for (`../../openspec/notes/SECURITY.md`); 0 otherwise |
 
 | Section | Contents |
 |---|---|
@@ -2526,17 +2526,17 @@ entry whatever its object holds, and `statements_per_object_max` (section 11.9) 
   partition, which derives the key removals on apply and on replay. Its record holds the dropped key ranges in section
   8, so a transaction reading or writing into them below the drop's version conflicts; it is the last record of its
   round.
-- **An entity delete** (operation 8), which UGS brings with stage 6 (`SCHEMA.md` section 8.5), is part of its
+- **An entity delete** (operation 8), which UGS brings with stage 6 (`../schema/SCHEMA.md` section 8.5), is part of its
   transaction's record at the entity's home, P24's rule 8: sections 1 and 2 remove the entity's statements and
   statement records, those of the relation instances its `@on_delete` actions reach in the partition among them, and
-  the operation writes the entity's tombstone, the statement record `SCHEMA.md` section 12.4 keeps at the home under
+  the operation writes the entity's tombstone, the statement record `schema/SCHEMA.md` section 12.4 keeps at the home under
   its ID. The tombstone fences the ID for good: a later commit referencing it aborts with code 30 (EntityDeleted), a
   registration naming it is answered with outcome 30 or, in get-only mode, as deleted (section 13.15), and a write
   creating its IRI again allocates a new ID. A delete whose entity's referrer set names a bucket group another partition
   holds is cross-partition, code 23, until stage 8 sends each member a sequenced share that fences the ID there.
 - **A purge** (operation 9), a Purge's record (section 8.5), removes at the instance's home every version of its
   attributes, its statement record, its index and derived entries, its dictionary entries and its referrer set, and at a
-  member of its referrer set every edge naming it, with their index entries and marks (`SCHEMA.md` section 8.8). It is
+  member of its referrer set every edge naming it, with their index entries and marks (`../schema/SCHEMA.md` section 8.8). It is
   the last record of its round, as a drop's is.
 - **A catalog version takes effect**, operation 6, in a round of its own at the first version of its effective epoch:
   the partition declares the version's declarations, checked against its data, and removes the predicates, entity
@@ -2825,7 +2825,7 @@ least 1 (`FieldValue` `"version"`) and `epoch` at most 2⁴² − 1 (`FieldValue
 The first half of verifying a principal's SCRAM-SHA-256 proof: a frontend authenticating a client asks the metadata
 group's host for the principal's salt and iteration count, which its server-first-message carries. A name no principal
 holds is answered with a salt and a count derived from a secret the metadata group draws at the cluster's first start and
-holds durably, so one name takes one salt, as a held one is (`SECURITY.md`, *Failures*).
+holds durably, so one name takes one salt, as a held one is (`../../openspec/notes/SECURITY.md`, *Failures*).
 No endpoint serves it in this stage: the one frontend is both the endpoint and the metadata group's host, and asks
 itself without a frame; stage 8's frontends send the command over a role connection.
 
@@ -3212,13 +3212,13 @@ code 17 in either case, so a failed store never reads as a skolem IRI nobody hol
 with code 26 in either case, `detail` 0, since the entity's owner is one the registrant's map does not know: the client runs the
 transaction again on a new Begin (section 9.4). Outcome 30 ends the registrant's transaction with code 30.
 
-**Get-only.** With `mode` 1 the home gets each entity and never creates one, for a participant check (`SCHEMA.md`
+**Get-only.** With `mode` 1 the home gets each entity and never creates one, for a participant check (`../schema/SCHEMA.md`
 section 12.3), and answers its `status`: 1 absent, an IRI its dictionary does not hold or an ID it holds nothing of
 included; 2 live; 3 deleted, its tombstone held (section 12.2). For 2 and 3 `entity` holds the ID, whose bytes 0–1 are
 the entity's type prefix. A live entity's registration naming a bucket group adds or renews the member as with `mode` 0;
 any other changes nothing and is logged in no round, answered at once with `generation` and `close` 0 and, for 1,
 `entity` all zero. The registrant decides what a status means for its write: a participant absent or deleted refuses it
-with the schema's refusal (`SCHEMA.md` section 8.7, `UGS1017`, `UGS1019`). A get-only reply's `outcome` is 0, 17 or 26.
+with the schema's refusal (`schema/SCHEMA.md` section 8.7, `UGS1017`, `UGS1019`). A get-only reply's `outcome` is 0, 17 or 26.
 
 Order: unused bytes 2–7 and 16–127 zero; `reply`; `mode` 0 or 1; sections; the term table, every entry of kind 1
 (`FieldValue` `"reference term"`, the entry's kind); section 0 not empty and a whole number of 48-byte registrations

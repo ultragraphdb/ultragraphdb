@@ -38,49 +38,49 @@ file), a mechanised, executable semantics of GQL whose evaluator this core's res
 |---|---|
 | ISO | ISO/IEC 39075:2024, first edition; a section cited as `ISO §n` |
 | MGQL | The mechanised semantics of the read fragment: its calculus (paper figure 2), evaluator (`Semantics.lean`) and 350 executable assertions, the oracle of section 12 |
-| Tenant, namespace, graph | As `SCHEMA.md` section 1: a tenant isolates; a namespace is an installed schema with its graphs; a graph is what a query is evaluated against |
+| Tenant, namespace, graph | As `../schema/SCHEMA.md` section 1: a tenant isolates; a namespace is an installed schema with its graphs; a graph is what a query is evaluated against |
 | Binding table | A bag of records, each a finite map from variable names to values, as ISO §4.15 and MGQL definition 5.1 |
-| Live | An instance that is not deleted and, on a `@bitemporal` type, not retracted (`SCHEMA.md` section 8.4) |
+| Live | An instance that is not deleted and, on a `@bitemporal` type, not retracted (`../schema/SCHEMA.md` section 8.4) |
 | Core | The statements, clauses, patterns and functions this file admits. A query is in the core when every construct it uses is; otherwise it is refused (section 11), never evaluated in part |
 | SHALL, refused | A rule the implementation holds; a refusal is a diagnostic of section 11 and no part of the statement runs |
 
 Keywords are written in upper case here and are case-insensitive in a query. A grammar in this file is EBNF as
-`SCHEMA.md` section 4 uses it. Where ISO leaves a choice to the implementation, this file states the choice and marks
+`../schema/SCHEMA.md` section 4 uses it. Where ISO leaves a choice to the implementation, this file states the choice and marks
 it **[choice]**; where this file narrows ISO, it marks the narrowing **[core]** and section 11 names the feature a
 query outside it is refused with.
 
 ## 2. The graph a query sees
 
 A query runs against one **working graph** of one tenant: the graph named by `USE`, else the tenant's `@default`
-graph (`SCHEMA.md` section 6.11); a tenant without one and a query without `USE` is refused (`GQL0201`). The working
+graph (`../schema/SCHEMA.md` section 6.11); a tenant without one and a query without `USE` is refused (`GQL0201`). The working
 graph is a domain graph exposed together with the shared graphs its schema imports, as `SCHEMA.md` section 11.3
 states, so a bridge is one edge like any other. A query names no other tenant, and a graph of another tenant does not
 exist to it. The transaction fixes the tenant (section 10).
 
-The working graph is the GQL view `SCHEMA.md` section 11.3 derives from the schema, with no store state visible that
+The working graph is the GQL view `../schema/SCHEMA.md` section 11.3 derives from the schema, with no store state visible that
 the view does not name:
 
 | In the view | From the schema |
 |---|---|
 | Node, with labels | An entity, or a node-encoded relation instance; its labels are its concrete type and every supertype, statement types included; the labels answer the type set and the read-only property `type` the concrete type's name as a `STRING`, on every node and edge, answered from the prefix |
 | Edge, with a type | An edge-encoded relation instance: its type is the navigation name declared on the relation's anchor role, from the anchor to the other participant. A `@symmetric` relation's edge is undirected; every other edge is directed |
-| **Relation node** of an edge-encoded relation | For an edge-encoded relation whose instances carry a reifier (`SCHEMA.md` section 11.1: attributes, `@multi`, or a role of any relation naming the type), the same instance also as a node, with the relation's labels and the same properties as the edge, and two derived, read-only role edges `{Relation}_{role}` from it to the participants, as a node-encoded relation has. It exists so that a relation can name the instance, as `AssertedBy` names every relation of Gen5, since an edge cannot be an endpoint. The edge and the node are one element: one `ELEMENT_ID`, one instance under `SET` and `DELETE` (section 8), and a variable bound to the edge stands at a node position (section 6.2). A relation without a reifier has no node presentation |
+| **Relation node** of an edge-encoded relation | For an edge-encoded relation whose instances carry a reifier (`../schema/SCHEMA.md` section 11.1: attributes, `@multi`, or a role of any relation naming the type), the same instance also as a node, with the relation's labels and the same properties as the edge, and two derived, read-only role edges `{Relation}_{role}` from it to the participants, as a node-encoded relation has. It exists so that a relation can name the instance, as `AssertedBy` names every relation of Gen5, since an edge cannot be an endpoint. The edge and the node are one element: one `ELEMENT_ID`, one instance under `SET` and `DELETE` (section 8), and a variable bound to the edge stands at a node position (section 6.2). A relation without a reifier has no node presentation |
 | Edge, with a role type | A role edge of a node-encoded relation instance, or a derived one of a relation node above: from the relation node to the participant, typed `{Relation}_{role}`, and for a specialized role also the super role's type |
 | **Navigation edge** | For a node-encoded relation, a derived, directed edge typed by a navigation name of the relation, from the participant that gains the name to the participant of the other role the name reaches; `(u)-[:parents]->(p)` stands for `(u)<-[:SubOrganizationOf_unit]-(:SubOrganizationOf)-[:SubOrganizationOf_parent]->(p)`. It is read-only, has no properties and no element id, and exists so that a walk through a relation node is one hop, as it is through an edge-encoded relation |
 | Property | An attribute, under its name; an absent optional attribute is `NULL`; an interval attribute is a record with the fields `start`, `end`, `start_precision`, `end_precision`; every instance has the read-only property `type` (above), a bitemporal one also `asserted`, a record as an interval's, and `live` |
-| Element id | The instance's IRI (`SCHEMA.md` section 7.3), returned by `ELEMENT_ID` as a string; an edge's is its reifier IRI, the string its relation node answers too, since the two are one element **[choice]**; a navigation edge and a derived role edge have none, and `ELEMENT_ID` of an edge of a relation without a reifier is refused (`GQL0301`) **[core]**, such an instance having no identity but its ends |
+| Element id | The instance's IRI (`../schema/SCHEMA.md` section 7.3), returned by `ELEMENT_ID` as a string; an edge's is its reifier IRI, the string its relation node answers too, since the two are one element **[choice]**; a navigation edge and a derived role edge have none, and `ELEMENT_ID` of an edge of a relation without a reifier is refused (`GQL0301`) **[core]**, such an instance having no identity but its ends |
 
 A label, edge type or property a query names must be declared on the working graph's schema (`GQL0202`, `GQL0203`,
 `GQL0204`): the graph is closed, as MGQL's closed graphs are, and the type system of section 5 refines every variable
 by the schema. Undeclared data under `@open` is reachable by its label `Resource` and property names as strings. A
-label, edge type or property name a namespace's migration retired (`SCHEMA-EVOLUTION.md` section 4.2) resolves to the
+label, edge type or property name a namespace's migration retired (`../schema/SCHEMA-EVOLUTION.md` section 4.2) resolves to the
 item that holds it now during the migration's deprecation window, with a warning naming the current name (`GQL0210`),
 and after the window is refused with the current name in the message (`GQL0202`, `GQL0203`, `GQL0204`).
 
 ## 3. Lexical structure
 
 ISO §21 as narrowed here. Source is UTF-8, bounded by the protocol's query section, `max_frame` less 512 bytes, which
-`PROTOCOL.md` section 7.4 refuses before the core sees it; nesting of parentheses, brackets and braces is bounded at
+`../binary_protocol/PROTOCOL.md` section 7.4 refuses before the core sees it; nesting of parentheses, brackets and braces is bounded at
 64 (`GQL0001`).
 
 | Token | Form |
@@ -174,7 +174,7 @@ one linear query; a session's statements are each a request.
 
 ### 5.1 Types
 
-The value types are the GQL types `SCHEMA.md` section 5.1 maps the schema's types to, and nothing else reaches a
+The value types are the GQL types `../schema/SCHEMA.md` section 5.1 maps the schema's types to, and nothing else reaches a
 query:
 
 | GQL type | From UGS | Comparison and order |
@@ -229,7 +229,7 @@ joined on their shared variables (MGQL's `bindingTableJoin`); a variable bound i
 a constant the pattern must agree with. A `WHERE` on the `MATCH` filters the table. The match mode and path mode
 cannot be written (section 11).
 
-A pattern binds **live** instances alone (section 1; `SCHEMA.md` section 8.4, rule 4): a deleted or retracted
+A pattern binds **live** instances alone (section 1; `../schema/SCHEMA.md` section 8.4, rule 4): a deleted or retracted
 instance, and every edge, role edge and navigation edge of one, is not in the working graph, so a retracted
 membership never satisfies `(m:MemberOf)` and `live` is `TRUE` on every instance a query binds, until UQL's `with
 retracted` reads. A read-only transaction at a named read version binds the instances live at that version.
@@ -347,14 +347,14 @@ names a variable of the first).
 
 A statement is **monotonic** when it holds no `NOT`, no `IS NULL`, no aggregate, no `ORDER BY` with `LIMIT`, no
 negated label and no procedure of section 9; such a statement may run at the monotonic-fast level the transaction's
-Begin names (`PROTOCOL.md` section 11.11), and the reply flags it as `SCHEMA.md` section 9.6 states when it read
+Begin names (`../binary_protocol/PROTOCOL.md` section 11.11), and the reply flags it as `SCHEMA.md` section 9.6 states when it read
 mutable data. Every other statement runs at a snapshot whatever the Begin named, and the reply says so.
 
 ## 8. Writes
 
 A writing clause changes the working graph in the transaction of the request; nothing is visible outside the
 transaction before its commit, and every instance the transaction creates or changes is validated whole at the
-commit, against the schema (`SCHEMA.md` section 8): a refusal there aborts the transaction and reaches the client as
+commit, against the schema (`../schema/SCHEMA.md` section 8): a refusal there aborts the transaction and reaches the client as
 section 11.3 states.
 
 ### 8.1 `INSERT`
@@ -369,7 +369,7 @@ section 11.3 states.
   anchor navigation name is `T`, in the anchor's direction (`GQL0602` for a navigation edge of section 2, a role edge of
   a relation node of an edge-encoded relation, or the wrong direction; a role edge of a node-encoded relation is
   inserted with its node, below); its property map's attributes are the instance's. A `@symmetric` relation is inserted
-  with a directed insert edge in either direction and stored from the lower ID (`SCHEMA.md` section 6.4), and matched by
+  with a directed insert edge in either direction and stored from the lower ID (`../schema/SCHEMA.md` section 6.4), and matched by
   `~[:T]~`. A relation whose instances carry a reifier is inserted as its edge alone, never as a relation node with role
   edges (`GQL0602`); the edge variable then stands at a node position for the relations naming the instance, in the same
   statement, `INSERT (a)-[e:is_about]->(b), (e)-[:asserted_by]->(src)`.
@@ -377,14 +377,14 @@ section 11.3 states.
   role edge per role, `-[:MemberOf_member]->(p)`, in the same statement or transaction; the instance is validated
   whole at commit (`UGS1015` for a missing required role).
 - A node without labels, or with `Resource`, is admitted only under `@open` (`UGS1002`).
-- `INSERT` of a `@set` relation whose combination exists resolves to the existing instance, as `SCHEMA.md` section
+- `INSERT` of a `@set` relation whose combination exists resolves to the existing instance, as `../schema/SCHEMA.md` section
   6.4 states; its property map updates it.
 
 ### 8.2 `SET` and `REMOVE`
 
 `SET n.p = e` writes the attribute `p` of the instance `n` is bound to; `REMOVE n.p` clears an optional one. On a
 `@bitemporal` type each is a **revision**: a new version of the instance, the old one readable at its epochs
-(`SCHEMA.md` section 8.4). A key or `@immutable` attribute, a required attribute under `REMOVE`, an `@append_only`
+(`../schema/SCHEMA.md` section 8.4). A key or `@immutable` attribute, a required attribute under `REMOVE`, an `@append_only`
 instance and a derived name are refused (`UGS1007`, `UGS1012`, `UGS1005`, `UGS1013`, `UGS1029`). `SET` on an edge
 variable writes the relation instance's attribute, as `SET` on its relation node does; on a navigation edge or a
 derived role edge it is refused (`GQL0603`).
@@ -394,7 +394,7 @@ derived role edge it is refused (`GQL0603`).
 `DELETE n` deletes the instance `n` is bound to: an edge, through either of its presentations, or a relation node is
 deleted with the relations over it; an entity with live relations naming it is refused (`GQL0604`) unless `DETACH
 DELETE`, which applies each relation's `@on_delete` action, `cascade` by default and `restrict` refusing (`UGS1020`), as
-`SCHEMA.md` section 8.5 states. `NODETACH DELETE` is `DELETE`. On a `@bitemporal` type a delete is a **retraction**
+`../schema/SCHEMA.md` section 8.5 states. `NODETACH DELETE` is `DELETE`. On a `@bitemporal` type a delete is a **retraction**
 (`SCHEMA.md` section 8.4): the instance stays readable through `believed at` reads, and `DETACH` applies `@on_retract`.
 A navigation edge or a derived role edge cannot be deleted (`GQL0603`); the relation node can.
 
@@ -420,7 +420,7 @@ projection's filtered search, is the full-conformance stage's; in the core the p
 
 ## 10. Transactions, consistency and the protocol
 
-- **A request is a statement in a transaction.** The client begins a transaction (`PROTOCOL.md` section 6.2) naming
+- **A request is a statement in a transaction.** The client begins a transaction (`../binary_protocol/PROTOCOL.md` section 6.2) naming
   the tenant and, for a read-only transaction, its level; sends each linear query as one request on a stream of its
   own, with its parameters; and commits or aborts. A request's text and parameters travel as section 14 asks the
   protocol to carry them.
@@ -428,18 +428,18 @@ projection's filtered search, is the full-conformance stage's; in the core the p
   in a read-write one at the transaction's partition's latest state; a query with a writing clause requires a
   read-write transaction (`GQL0801`), and its reads are recorded and validated at commit as every read-write
   transaction's are. A query with a writing clause and no reading clause, whose writes the catalog classifies
-  coordination-free, is what a DirectWrite carries (`PROTOCOL.md` section 6.6); the frontend decides from the
+  coordination-free, is what a DirectWrite carries (`../binary_protocol/PROTOCOL.md` section 6.6); the frontend decides from the
   catalog's request-typing facts (`SCHEMA.md` section 9.6), not the client.
 - **Prepared statements.** A query is prepared once per connection with the types of its parameters, and executed
   with values by position; preparing resolves every name against the tenant's current catalog version and records the
-  schema id, so a schema change stales the statement as `PROTOCOL.md` section 11.7 has it. A parameter's type is one of
+  schema id, so a schema change stales the statement as `../binary_protocol/PROTOCOL.md` section 11.7 has it. A parameter's type is one of
   section 5.1's; a node parameter is an IRI string.
 - **Results.** A statement's result is a stream of columnar batches: one column per projection, named and typed, a
   cell per record, nodes and relation nodes by their IRI, edges by their reifier IRI, scalars in the term encoding
-  of `PROTOCOL.md` section 10, `ABSENT` for null, records and lists as section 14 asks. A limited result carries a
+  of `../binary_protocol/PROTOCOL.md` section 10, `ABSENT` for null, records and lists as section 14 asks. A limited result carries a
   resume key; the reply carries the epoch read at and the monotonic flag.
 - **Partitions.** A read-only query reads across partitions at its snapshot; a read-write query's reads and writes
-  stay in its transaction's partition in this stage and a request reaching another is refused as `PROTOCOL.md`
+  stay in its transaction's partition in this stage and a request reaching another is refused as `../binary_protocol/PROTOCOL.md`
   section 11.11 has it, until stage 8 sequences it. The planner routes a pattern as the quad-reads specification
   states: a bound node asks its home, an unbound subject fans out. A node atom whose property map holds its type's
   key, a variable bound by an earlier statement, and a variable a `WHERE` conjunct of its `MATCH` fixes by
@@ -451,7 +451,7 @@ projection's filtered search, is the full-conformance stage's; in the core the p
 ### 11.1 Diagnostics
 
 A refusal names a code, a location in the query text, a reason and, where one exists, a fix, in the style of
-`SCHEMA.md` section 10.4. The codes:
+`../schema/SCHEMA.md` section 10.4. The codes:
 
 | Code | Condition |
 |---|---|
@@ -484,9 +484,9 @@ A refusal names a code, a location in the query text, a reason and, where one ex
 | `GQL0801` | A writing clause in a read-only transaction |
 | `GQL1001` | Integer overflow at run time |
 | `GQL1002` | Division by zero |
-| `GQL1003` | A result past the transaction's bounds, or a write past the write set's (`PROTOCOL.md` code 6) |
+| `GQL1003` | A result past the transaction's bounds, or a write past the write set's (`../binary_protocol/PROTOCOL.md` code 6) |
 
-A schema refusal at commit reaches the client with its `UGS1xxx` number and the instance, as `SCHEMA.md` section
+A schema refusal at commit reaches the client with its `UGS1xxx` number and the instance, as `../schema/SCHEMA.md` section
 8.7 states; a conflict or timeout as `PROTOCOL.md` section 9.4 states.
 
 ### 11.2 The feature register
@@ -637,7 +637,7 @@ MATCH (p:Person {id: 'AGENT:ada'}) DETACH DELETE p
 The first closes the membership's `asserted`; the second retracts Ada and, by `@on_retract`'s default `cascade`,
 every bitemporal relation naming her. Her provenance links are not written: `AssertedBy` is `@append_only` and not
 bitemporal, so each instance is live while its participants are and leaves the live view with her, readable under
-`with retracted` (`SCHEMA.md` section 8.4, rule 6). `MemberOf`'s `restrict open` on the collection side refuses a
+`with retracted` (`../schema/SCHEMA.md` section 8.4, rule 6). `MemberOf`'s `restrict open` on the collection side refuses a
 retraction of an organisation with open memberships (`UGS1020`).
 
 **Retrieve.** The nearest concepts to an embedding, and the claims a text query matches:
@@ -650,7 +650,7 @@ CALL text.search('Claim', 'statement', $q, 8) YIELD node, score
 RETURN node.id, node.statement, score
 ```
 
-**Schema.** Installing, extending and reading the schema are the UGS install and Describe of `SCHEMA.md` sections
+**Schema.** Installing, extending and reading the schema are the UGS install and Describe of `../schema/SCHEMA.md` sections
 10.1 and 10.3, not GQL statements; a client that wants a schema's labels and properties reads Describe. What the core
 leaves to UQL: `believed at` and `with retracted` reads over the transaction-time history, the typed tree results,
 and the `edge` accessor; what it leaves to the full-conformance stage: `OPTIONAL MATCH` for "a membership and its
@@ -658,14 +658,14 @@ role if any", and `UNION` across kinds.
 
 ## 14. What this specification asks of the others
 
-- **`PROTOCOL.md`.** Carried as of 2026-11-05: Query (section 7.4 there) carries the language, the text and named
+- **`../binary_protocol/PROTOCOL.md`.** Carried as of 2026-11-05: Query (section 7.4 there) carries the language, the text and named
   parameters on a stream of its own and answers Result frames; Prepare and Execute take a text with typed parameters
   and answer named, typed columns (section 8.1); Result batches carry column names, the monotonic flag and null as
   `ABSENT`, lists and records as `rdf:JSON` literals (section 9.1); a SPARQL update answers its counts and a GQL
   statement without `RETURN` the empty table; code 29 carries a
   refused query's diagnostic and code 7 a schema rule's refusal at commit (section 9.4). Carried 2026-11-08: a
   warning, `GQL0210` among them, travels with a reply (section 4.9 there).
-- **`SCHEMA.md`.** Carried: section 11.3's GQL view holds the navigation edge of section 2, derived from a node-encoded
+- **`../schema/SCHEMA.md`.** Carried: section 11.3's GQL view holds the navigation edge of section 2, derived from a node-encoded
   relation's role quads, read-only, and section 11.2's RDF view its counterpart, a derived property; section 8.4's
   revision rule is what `SET` on a bitemporal instance relies on. Carried 2026-11-05: the relation node of an
   edge-encoded relation with a reifier, section 2, in section 11.3, and the read-only `type` property; section 8.4's
@@ -686,7 +686,7 @@ role if any", and `UNION` across kinds.
 | Incomparable values | `UNKNOWN`, never an error, as MGQL answers; integer overflow and division by zero are errors |
 | Null ordering | Last ascending, first descending by default; `NULLS FIRST` and `NULLS LAST` override |
 | Grouping | `GROUP BY` explicit, or implicit over the non-aggregated projections |
-| Updates on bitemporal types | A revision, `SCHEMA.md` section 8.4; a delete a retraction |
+| Updates on bitemporal types | A revision, `../schema/SCHEMA.md` section 8.4; a delete a retraction |
 | Retrieval | Procedures `vector.search` and `text.search`, root of a statement; scoped search waits for the agentic projection |
 | `MERGE`, `WITH` | Not in the core: `MATCH` then `INSERT` in one transaction; `NEXT` |
 | The reference | ISO 39075:2024 by its text; MGQL as the executable oracle of the read fragment, including its type checker's schemas as the expected column types |

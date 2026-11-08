@@ -1,6 +1,6 @@
 # The Ultra Query Language (UQL)
 
-* Status: first draft, 2026-11-08. UltraQL follows stage 10 (`ROADMAP.md`).
+* Status: first draft, 2026-11-08. UltraQL follows stage 10 (`../../ROADMAP.md`).
 
 This file specifies UQL, UltraGraphDB's own query language: the queries, patterns, mutations, transactions and
 subscriptions it accepts, their meaning over the graph a UGS schema declares, the typed results they return, how they
@@ -14,7 +14,7 @@ relations over relations are read through their navigation names, and result typ
 standard languages stay first-class (`QUERY-GQL-CORE.md`, `QUERY-SPARQL-CORE.md`); all three compile to one kernel and
 follow one write classification and one set of read levels.
 
-`SCHEMA.md` gives the schema, its expression grammar, which UQL extends, and its views; `SCHEMA-APG.md` the formal model
+`../schema/SCHEMA.md` gives the schema, its expression grammar, which UQL extends, and its views; `SCHEMA-APG.md` the formal model
 a query is evaluated over and its result types are drawn from; `SCHEMA-EVOLUTION.md` how names survive a migration;
 `PROTOCOL.md` the frames a request travels in. The design is `openspec/notes/UltraGraphDB Schema and Query Language.md`,
 part 2; where this file departs from it, section 22 says so.
@@ -50,9 +50,9 @@ part 2; where this file departs from it, section 22 says so.
 
 | Term | Meaning |
 |---|---|
-| Tenant, namespace, graph, catalog version, epoch | As `SCHEMA.md` section 1 |
-| Element, label, value | As `SCHEMA-APG.md`: an instance, its concrete type, and the record of its attributes and roles |
-| Live | An instance that is not deleted and, on a `@bitemporal` type, not retracted; a relation that is not `@bitemporal` is live while every participant of it is (`SCHEMA.md` section 8.4) |
+| Tenant, namespace, graph, catalog version, epoch | As `../schema/SCHEMA.md` section 1 |
+| Element, label, value | As `../schema/SCHEMA-APG.md`: an instance, its concrete type, and the record of its attributes and roles |
+| Live | An instance that is not deleted and, on a `@bitemporal` type, not retracted; a relation that is not `@bitemporal` is live while every participant of it is (`../schema/SCHEMA.md` section 8.4) |
 | Shape | A block `{ … }` of fields, the unit a query's result is built from |
 | Result type | The type a query's result has, known before it runs (section 5) |
 | Read point | The state a request reads: a closed epoch, a named epoch or instant, or the monotonic-fast level (section 11.1) |
@@ -64,7 +64,7 @@ later stage is marked **[stage N]** and refused before it with `UQL0901`, naming
 ## 2. The graph a query reads
 
 A request runs against one **working graph** of one tenant: the graph `use` names, else the tenant's `@default` graph
-(`SCHEMA.md` section 6.11); a tenant without one and a request without `use` is refused (`UQL0104`). `use
+(`../schema/SCHEMA.md` section 6.11); a tenant without one and a request without `use` is refused (`UQL0104`). `use
 {namespace}@{version}` names the read-only source a migration left (`SCHEMA-EVOLUTION.md` section 7). A domain graph is
 read together with the shared graphs its schema imports, as the GQL view exposes it (`SCHEMA.md` section 11.3). Every
 name a request uses resolves against the catalog version in effect at its read point (`SCHEMA.md` section 13.1); a
@@ -72,23 +72,23 @@ retired name of a renamed item resolves during the migration's deprecation windo
 `SCHEMA-EVOLUTION.md` section 9), and after the window is refused with the current name in the message (`UQL0101`).
 
 **The model.** At its read point the working graph is an algebraic property graph `G` on the schema's APG schema
-(`SCHEMA-APG.md`, section 6): each instance an element labelled by its concrete type, whose value is the record of its
+(`../schema/SCHEMA-APG.md`, section 6): each instance an element labelled by its concrete type, whose value is the record of its
 attributes and roles. A query denotes a function from `G` to a value of its result type:
 
 - A root selector `T(…)` denotes the elements whose label is a concrete type at or below `T` and that satisfy its
-  filters: a supertype is the variant of its concrete subtypes (`SCHEMA-APG.md`, section 13.1).
+  filters: a supertype is the variant of its concrete subtypes (`../schema/SCHEMA-APG.md`, section 13.1).
 - A shape denotes a function from an element to a record whose fields are the shape's fields (section 5).
-- Result types are **label-free** (`SCHEMA-APG.md`, definition 3.2): an element enters a result only through the
+- Result types are **label-free** (`../schema/SCHEMA-APG.md`, definition 3.2): an element enters a result only through the
   fields its shape projects, among them `iri`, never as a reference or an internal ID. A result is therefore a closed
   value, meaningful without the graph it was read from.
 
-Reads see the **live slice** by default (`SCHEMA.md` section 8.4, rule 4); the filter items of section 11.2 widen it.
+Reads see the **live slice** by default (`../schema/SCHEMA.md` section 8.4, rule 4); the filter items of section 11.2 widen it.
 Two reads of one request at one read point see one state, and a query evaluated twice at one read point returns equal
 results, up to the order of a list without `order by`.
 
 ## 3. Lexical structure
 
-UQL's tokens are UGS's (`SCHEMA.md` section 3): identifiers, literals of every UGS type, including unquoted dates,
+UQL's tokens are UGS's (`../schema/SCHEMA.md` section 3): identifiers, literals of every UGS type, including unquoted dates,
 date-times, durations such as `P30D`, numbers with `_` between digits, and interval literals, and the comments `//`
 and `/* … */`. UQL adds:
 
@@ -101,12 +101,12 @@ and `/* … */`. UQL adds:
 
 UGS's reserved words are reserved in UQL. UQL's keywords are contextual, as UGS's annotation words are: a keyword in
 the position the grammar names, an identifier anywhere else. A request is bounded by the protocol's query section,
-`max_frame` less 512 bytes, which `PROTOCOL.md` section 7.4 refuses before the language sees it; nesting of shapes,
+`max_frame` less 512 bytes, which `../binary_protocol/PROTOCOL.md` section 7.4 refuses before the language sees it; nesting of shapes,
 parentheses and brackets is bounded at 64 (`UQL0001`).
 
 ## 4. Grammar
 
-EBNF as `SCHEMA.md` section 4 writes it. `expr` is `SCHEMA.md` section 4's expression grammar, which UQL extends with
+EBNF as `../schema/SCHEMA.md` section 4 writes it. `expr` is `SCHEMA.md` section 4's expression grammar, which UQL extends with
 parameters as values, the interval constructor of section 3, the functions of sections 11.3 and 14, and the text
 predicates `starts_with(e, s)` and `matches(e, r)` **[choice]**; `function` is its function declaration.
 
@@ -178,12 +178,12 @@ A computed field takes a name (`spend: sum(purchases.value)`); a computed field 
 
 ### 5.1 Result types
 
-Every query has a result type, derived from the schema before it runs. Result types are types of `SCHEMA-APG.md`'s
+Every query has a result type, derived from the schema before it runs. Result types are types of `../schema/SCHEMA-APG.md`'s
 named form without labels, with lists:
 
-| What the query asks | Result type | `SCHEMA-APG.md` type |
+| What the query asks | Result type | `../schema/SCHEMA-APG.md` type |
 |---|---|---|
-| A required attribute | Its UGS type `T` (`SCHEMA.md` section 5.1) | A primitive, or a record for intervals, measures and records |
+| A required attribute | Its UGS type `T` (`../schema/SCHEMA.md` section 5.1) | A primitive, or a record for intervals, measures and records |
 | An optional attribute | `Option<T>` | `optional t` |
 | A shape | A record of its fields, named by their aliases or names | `rec φ` |
 | A navigation with cardinality exactly one | The participant's record | `rec φ` |
@@ -216,7 +216,7 @@ admit it as the fix (`UQL0103`); an operator applied to types it does not take (
 type of the field it is compared with or assigned to, `0.98` a `Float64` for a `Float64` attribute, where its value is
 representable in that type, and is refused otherwise (`UQL0201`). A parameter takes the type
 of every place it is used; places that disagree, or a parameter whose type no place fixes, are refused (`UQL0202`).
-Comparisons across numeric widths, units and temporal kinds follow `SCHEMA.md` sections 5.1, 5.5 and 5.8; a
+Comparisons across numeric widths, units and temporal kinds follow `../schema/SCHEMA.md` sections 5.1, 5.5 and 5.8; a
 `LocalDateTime` is never compared with a `DateTime` (`UGS0223`).
 
 ## 6. Queries: selectors, filters and shapes
@@ -225,20 +225,20 @@ Comparisons across numeric widths, units and temporal kinds follow `SCHEMA.md` s
 
 | Selector | Selects |
 |---|---|
-| `T` | Every live instance of `T` and its subtypes; on a supertype, one range scan per range of its prefix set (`SCHEMA.md` section 7.1) |
+| `T` | Every live instance of `T` and its subtypes; on a supertype, one range scan per range of its prefix set (`../schema/SCHEMA.md` section 7.1) |
 | `T(filters)` | Those satisfying every filter item |
 | `R(role: selector, …)` | Instances of the relation type `R` whose roles are bound as named: `Supply(buyer: Company(name = $c))` selects what `purchases` reads from that company |
 | `f(args)` | The result of a schema function or query-local function (section 14) |
 | `schema.types`, … | The catalog graph (section 14.2) |
 
 A filter whose items fix a key, a `@unique` attribute or `iri` by equality is a point lookup; the planner routes it to
-the instance's home without a scan (`SCHEMA.md` section 7.3), which keeps a read-write request in its transaction's
+the instance's home without a scan (`../schema/SCHEMA.md` section 7.3), which keeps a read-write request in its transaction's
 partition.
 
 ### 6.2 Filters
 
 Filters stand in parentheses on a root selector or on any navigation step; commas mean `and`. An item is an expression
-of `SCHEMA.md`'s grammar, evaluated against the element, a role binding, `is T`, which narrows the element to `T` for
+of `../schema/SCHEMA.md`'s grammar, evaluated against the element, a role binding, `is T`, which narrows the element to `T` for
 the items after it, or a bitemporal or validity item (section 11.2). Inside a filter a name resolves against the
 element first and the enclosing instance second (`SCHEMA.md` section 4).
 
@@ -261,7 +261,7 @@ cost is bounded by its input.
 | Field | Example | Result |
 |---|---|---|
 | Attribute | `serial` | The value; `Option` if optional |
-| Built-in field | `type`, `iri`, `asserted`, `live`, `open` | `SCHEMA.md` section 5.11; `type` the concrete type's name, `iri` the instance's IRI |
+| Built-in field | `type`, `iri`, `asserted`, `live`, `open` | `../schema/SCHEMA.md` section 5.11; `type` the concrete type's name, `iri` the instance's IRI |
 | Navigation | `owner { name }` | A record, `Option` or list by cardinality (section 7) |
 | Function call | `spend(2026-01-01)`, `engines { serial }` | As declared |
 | Alias | `registration: tail_number` | The field under the alias |
@@ -282,18 +282,18 @@ either keyword, a navigation that matches nothing returns an empty list or `None
 
 ### 7.1 Navigation names
 
-A navigation name is a field of the participant type that gains it (`SCHEMA.md` section 6.4), read in either direction
+A navigation name is a field of the participant type that gains it (`../schema/SCHEMA.md` section 6.4), read in either direction
 of its relation; the compiler knows the role each name belongs to.
 
 - **A binary relation's navigation** yields the participant at the other end. Inside its shape, `edge` is the relation
   instance traversed: `edge.since` reads one attribute, and `edge { since  asserted_by { … } }` reads the instance as a
   record with its own attributes and navigations, which is how a relation over a binary relation is read.
 - **An n-ary relation's navigation** yields the relation instances; their other roles are fields of the instance.
-- The encoding of a relation, edge or node (`SCHEMA.md` section 11.1), never changes what its navigation yields.
+- The encoding of a relation, edge or node (`../schema/SCHEMA.md` section 11.1), never changes what its navigation yields.
 - A set-valued role yields a list of its participants.
 - A navigation through a relation supertype reaches every subtype; `on` adds a subtype's fields, and a specialized
   role answers to its own name and to the super role's.
-- A derived name (`SCHEMA.md` section 6.8) is read as a navigation or attribute of its declared type.
+- A derived name (`../schema/SCHEMA.md` section 6.8) is read as a navigation or attribute of its declared type.
 
 ### 7.2 Bounded and transitive steps
 
@@ -359,7 +359,7 @@ overflow at run time (`UQL1001`); `min` and `max` refuse a type without an order
 in turn, `asc` by default, `None` last ascending and first descending **[choice]**, as the GQL core orders nulls. A
 cursor is the opaque value the previous page returned: it fixes the read point and the position, so pages are stable
 while new data arrives, and it carries no internal ID (section 21). A cursor past the retention of its read point is
-refused as `PROTOCOL.md` code 3 states.
+refused as `../binary_protocol/PROTOCOL.md` code 3 states.
 
 ## 10. Retrieval
 
@@ -386,7 +386,7 @@ Scheme(id = $scheme) {
   exactly **[choice]**, which a scoped navigation with few candidates makes cheap.
 - The attribute must carry the index its operator needs (`UQL0701`); the query value must have the attribute's
   dimension or type (`UQL0702`); `weights` has one weight per ranking (`UQL0703`).
-- Retrieval is non-monotonic and runs at a snapshot. `@index(ann)` executes from **[stage 8]** (`SCHEMA.md` section 14);
+- Retrieval is non-monotonic and runs at a snapshot. `@index(ann)` executes from **[stage 8]** (`../schema/SCHEMA.md` section 14);
   scoped retrieval with access-control relations, context shaping and agent write-back are the agentic projection's
   (`openspec/notes/UltraGraphDB Agentic Context Projection.md`).
 
@@ -397,11 +397,11 @@ Scheme(id = $scheme) {
 | Clause | Reads |
 |---|---|
 | None | A snapshot at the latest closed epoch; with a session token, at least the epoch of the session's last write |
-| `at monotonic` | The monotonic-fast level (`PROTOCOL.md` section 11.11); refused for a query that is not monotonic (`UQL0410`) |
+| `at monotonic` | The monotonic-fast level (`../binary_protocol/PROTOCOL.md` section 11.11); refused for a query that is not monotonic (`UQL0410`) |
 | `as of epoch e` | A snapshot at epoch `e` |
 | `as of time t` | A snapshot at the last epoch closed before `t` |
 
-A read point is the protocol's read version and level (`PROTOCOL.md` section 6.2). `as of` before the retention window
+A read point is the protocol's read version and level (`../binary_protocol/PROTOCOL.md` section 6.2). `as of` before the retention window
 of a type that is neither `@bitemporal` nor `@append_only` is refused naming the window (`PROTOCOL.md` code 3); for
 those two classes every past point is answered (`SCHEMA.md` section 8.4). `as of` a point before a namespace's migration
 cutover reads the source in the source's schema, as every read compiles against the version in effect at its epoch;
@@ -410,7 +410,7 @@ the epoch it was read at and, for a monotonic-fast read of mutable data, the fla
 
 ### 11.2 Bitemporal and validity filters
 
-`SCHEMA.md` section 8.4's filter items, on a root selector or a navigation of a `@bitemporal` type:
+`../schema/SCHEMA.md` section 8.4's filter items, on a root selector or a navigation of a `@bitemporal` type:
 
 - `believed at t` reads the version current at `t`, retracted instances included;
 - `with retracted` reads every instance and version;
@@ -423,7 +423,7 @@ the epoch it was read at and, for a monotonic-fast read of mutable data, the fla
 
 Across a migration's cutover, `believed at t` before the cutover, in a query over the target, reads the target's
 history in the target's schema: the stored migration is evaluated over the source's slice believed at `t`, and every
-instance carries the IRI it carries in the present, so one query reads both (`SCHEMA-EVOLUTION.md` section 7;
+instance carries the IRI it carries in the present, so one query reads both (`../schema/SCHEMA-EVOLUTION.md` section 7;
 `SCHEMA-APG.md` proposition 16.6).
 
 ### 11.3 Temporal values and operators
@@ -433,7 +433,7 @@ instance carries the IRI it carries in the present, so one query reads both (`SC
 - **Arithmetic.** `date + P1M`, `t₂ - t₁` (a `Duration`), `period.start + P7D`.
 - **Points and intervals.** `t in i` holds when `i.start <= t < i.end`.
 - **Interval relations.** Allen's thirteen relations and the shorthands `intersects`, `disjoint` and `within`, with the
-  `certainly` and `possibly` forms over bounds of coarser precision, exactly as `SCHEMA.md` sections 4 and 5.5 define
+  `certainly` and `possibly` forms over bounds of coarser precision, exactly as `../schema/SCHEMA.md` sections 4 and 5.5 define
   them; the plain form means `possibly`.
 - **Functions.** `intersection(a, b)`, an optional interval; `span(a, b)`; `date(t)`; `start_of_day(d, zone)`;
   `distinct(a, b)`, which compares two optional values treating absence as a value; `today()` and `now()`, the date and
@@ -456,19 +456,19 @@ retract Holds(holder: Person(id = $p), post: Post(id = $post))
 
 | Statement | Writes |
 |---|---|
-| `insert T { … }` | One instance of the concrete type `T` (`UQL0501` for an abstract one); required fields and roles must be given or defaulted, which the commit checks (`UGS1005`, `UGS1015`); a keyless type's handle IRI is minted (`SCHEMA.md` section 7.3) |
+| `insert T { … }` | One instance of the concrete type `T` (`UQL0501` for an abstract one); required fields and roles must be given or defaulted, which the commit checks (`UGS1005`, `UGS1015`); a keyless type's handle IRI is minted (`../schema/SCHEMA.md` section 7.3) |
 | `upsert T(key) { … }` | The instance the key names, inserted if absent and updated if present; the filter must fix `T`'s whole key by equality (`UQL0506`) |
-| `update S { … }` | Every instance `S` selects; on a `@bitemporal` type each update is a **revision**, a new version of the same instance (`SCHEMA.md` section 8.4); an `@append_only` type is refused (`UQL0503`) |
+| `update S { … }` | Every instance `S` selects; on a `@bitemporal` type each update is a **revision**, a new version of the same instance (`../schema/SCHEMA.md` section 8.4); an `@append_only` type is refused (`UQL0503`) |
 | `delete S` | Every instance `S` selects, under `@on_delete`; on a `@bitemporal` type `delete` is refused with `retract` as the fix (`UQL0504`) **[choice]** |
 | `retract S` | Closes `asserted` of every instance `S` selects, under `@on_retract`; on a type that is not `@bitemporal` refused (`UQL0505`) |
 
 Writes to a derived name are refused at compile time (`UQL0502`); every other rule is the commit's, refused with its
-`UGS1xxx` number (`SCHEMA.md` section 8.7).
+`UGS1xxx` number (`../schema/SCHEMA.md` section 8.7).
 
 ### 12.2 Relations and nested inserts
 
 A role is assigned a participant by a selector that resolves to **at most one** instance: one whose filter fixes a key,
-a `@unique` attribute or `iri` by equality, which PG-Keys' exclusivity makes single (`SCHEMA.md` section 8.2). A
+a `@unique` attribute or `iri` by equality, which PG-Keys' exclusivity makes single (`../schema/SCHEMA.md` section 8.2). A
 selector that may resolve to several is refused (`UQL0507`); one that resolves to none fails the commit (`UGS1017`).
 
 ```
@@ -496,9 +496,9 @@ delete Owns(asset: Asset(serial = $s))
 - **Every request is atomic.** `transaction { s₁; s₂; … }` groups several writes into one atomic unit sent whole, which
   the engine can sequence without waiting on the client. `let r = insert …` binds an inserted instance for the
   statements after it, as a keyless instance has no key to select it by.
-- **Interactive transactions** are the protocol's: a client begins a transaction (`PROTOCOL.md` section 6.2), sends
+- **Interactive transactions** are the protocol's: a client begins a transaction (`../binary_protocol/PROTOCOL.md` section 6.2), sends
   several UQL requests, and commits. Reads see the transaction's snapshot; writes are validated at commit.
-- **One path per transaction.** The classifier takes the most demanding path among its statements (`SCHEMA.md`
+- **One path per transaction.** The classifier takes the most demanding path among its statements (`../schema/SCHEMA.md`
   section 9.2). Until **[stage 8]**, a read-write transaction stays in its partition, and a request reaching another is
   refused as `PROTOCOL.md` section 11.11 states.
 - **Dependent reads** **[stage 8]**: a transaction whose writes depend on its reads across groups is run first as a
@@ -517,7 +517,7 @@ returning { contract { iri  value } }
 - The read stage runs at one snapshot; each result binds the variable, and the write runs once per binding. The whole
   pipeline commits or nothing does.
 - The commit path is decided from the write stage's types before the read runs, as any write's is.
-- A pipeline whose writes exceed the transaction's write set (`PROTOCOL.md` section 11.9) is refused before commit
+- A pipeline whose writes exceed the transaction's write set (`../binary_protocol/PROTOCOL.md` section 11.9) is refused before commit
   (`UQL0602`); large backfills run as batches with `limit` and `after`.
 - A write stage feeding another stage, and a read stage that observes the pipeline's own writes, are outside the
   language (`UQL0601`).
@@ -526,7 +526,7 @@ returning { contract { iri  value } }
 
 ### 14.1 Functions
 
-Schema functions (`SCHEMA.md` section 6.9) are called as navigation names or root selectors. A `with` preamble declares
+Schema functions (`../schema/SCHEMA.md` section 6.9) are called as navigation names or root selectors. A `with` preamble declares
 functions for one request, under the schema's rules: pure, deterministic, typed, non-recursive across the request's
 functions, inlined into the plan, and refusing `today()` and `now()` as a schema function does (`UGS0225`). A
 query-local function never shadows a schema name (`UQL0105`).
@@ -539,7 +539,7 @@ Company { name  spend(2026-01-01)  big_sales order by value desc limit 3 { value
 
 ### 14.2 Introspection
 
-The catalog is the read-only `schema.` graph of `SCHEMA.md` section 10.3, queried like any other: `schema.types`,
+The catalog is the read-only `schema.` graph of `../schema/SCHEMA.md` section 10.3, queried like any other: `schema.types`,
 `schema.attributes`, `schema.relations`, `schema.roles`, `schema.navigations`, `schema.enums`, `schema.functions`,
 `schema.derivations`, `schema.graphs`, `schema.quantities`, `schema.units` and `schema.report`, each with `doc`, the
 `///` text. It shows what the principal may read and never a prefix, bucket or ID.
@@ -555,7 +555,7 @@ schema.types(name starts_with "A") {
 ## 15. Classification and `explain`
 
 Every name is resolved before a request runs, so monotonicity is decided from the query's syntax and combined with the
-schema's mutability facts (`SCHEMA.md` section 9.6):
+schema's mutability facts (`../schema/SCHEMA.md` section 9.6):
 
 | Construct | Monotonic |
 |---|---|
@@ -579,7 +579,7 @@ so its mutability is the most mutable subtype's.
 
 `explain` returns, without running the request, a record of its read level, the partitions or groups it reaches,
 whether it is monotonic and what mutability it reads, and for every write its commit path: coordination-free,
-segmented with the constraint that segments it, or coordinated (`SCHEMA.md` section 9.2).
+segmented with the constraint that segments it, or coordinated (`../schema/SCHEMA.md` section 9.2).
 
 ## 16. Subscriptions
 
@@ -600,22 +600,22 @@ resume after $cursor
 
 ## 17. The protocol
 
-- **Requests.** A UQL request is a Query (`PROTOCOL.md` section 7.4) or a Prepare and Execute (section 8.1) with
+- **Requests.** A UQL request is a Query (`../binary_protocol/PROTOCOL.md` section 7.4) or a Prepare and Execute (section 8.1) with
   `language` 3, its text and its parameters by name; a prepared request's reply names each parameter's inferred type
   and the result type.
-- **Results.** A root query's result is a stream of Result batches (`PROTOCOL.md` section 9.1), one row per root
+- **Results.** A root query's result is a stream of Result batches (`../binary_protocol/PROTOCOL.md` section 9.1), one row per root
   element and one column per root field. Until the protocol carries nested columns, a field holding a record, a list
   or a tagged union travels as an `rdf:JSON` literal whose leaves are typed terms **[choice]**; nested columns, records
   as struct columns, lists as list columns and unions as union columns, compatible with Arrow's layout, are asked of
   the protocol (section 21). A `query { … }` request returns one stream per member, in order.
 - **Refusals.** A request outside the language is refused with code 29 and the diagnostic's number, the language in the
-  detail's bits 16 to 23 (`PROTOCOL.md` section 9.4); a schema rule at commit with code 7 and its `UGS1xxx` number.
+  detail's bits 16 to 23 (`../binary_protocol/PROTOCOL.md` section 9.4); a schema rule at commit with code 7 and its `UGS1xxx` number.
 - **Typed clients.** A client library checks requests against the schema at build time and generates their result
   types, a tagged union as an enum; the Rust client's form is a macro over the schema source.
 
 ## 18. Diagnostics
 
-A refusal names a code, a location, a reason and, where one exists, a fix, in the compiler style of `SCHEMA.md` section
+A refusal names a code, a location, a reason and, where one exists, a fix, in the compiler style of `../schema/SCHEMA.md` section
 10.4:
 
 ```
@@ -668,7 +668,7 @@ help: narrow the type
 | `UQL0901` | A construct before the stage that executes it; the message names the stage |
 | `UQL1001` | Integer overflow at run time |
 | `UQL1002` | Division by zero at run time |
-| `UQL1003` | A result past the transaction's bounds (`PROTOCOL.md` code 6) |
+| `UQL1003` | A result past the transaction's bounds (`../binary_protocol/PROTOCOL.md` code 6) |
 
 ## 19. Conformance
 
@@ -683,7 +683,7 @@ help: narrow the type
 3. **Classification.** Every corpus query's monotonicity and read level are compared with section 15's tables, and
    every monotonic query is checked to return a subset of its answer after further inserts.
 4. **The formal model.** The result-type rules of section 5 and the shape semantics of section 2 are stated over
-   `SCHEMA-APG.md`'s Lean model, once its named layer exists, so the compiler's inference is checked against them.
+   `../schema/SCHEMA-APG.md`'s Lean model, once its named layer exists, so the compiler's inference is checked against them.
 
 ## 20. DeepBrain in UQL
 
@@ -753,7 +753,7 @@ retract Person(id = "AGENT:ada")
 
 `inferred` and `rank` take the schema's defaults. Retracting Ada closes her `asserted`, cascades to the bitemporal
 relations naming her, and leaves her append-only provenance links as written, out of the live slice with her
-(`SCHEMA.md` section 8.4, rule 6).
+(`../schema/SCHEMA.md` section 8.4, rule 6).
 
 **Backfill.** Provenance for every claim that has none, as a pipeline:
 
@@ -764,15 +764,15 @@ insert AssertedBy { statement: c, asserter: Source(id = "SRC:backfill") }
 
 ## 21. What this specification asks of the others
 
-- **`PROTOCOL.md`.** `language` 3 for UQL in Query and Prepare; the inferred parameter and result types in Prepare's
+- **`../binary_protocol/PROTOCOL.md`.** `language` 3 for UQL in Query and Prepare; the inferred parameter and result types in Prepare's
   reply; nested result columns, records, lists and tagged unions, compatible with Arrow's layout; an opaque cursor for
   `after` that carries no internal ID; a client-facing feed for `subscribe` and `resume`, with commit records filtered
   by type, of which the protocol today holds only the internal epoch feed between roles; `with record … request …` as a
   client session's deduplicated request; `explain` as a request that compiles and classifies without executing.
   Carried 2026-11-08: a warning, `UQL0110` among them, travels with a reply, its language 3 (section 4.9 there).
-- **`SCHEMA.md`.** Carried 2026-11-08: section 4's expression grammar names this file as its extension for queries,
+- **`../schema/SCHEMA.md`.** Carried 2026-11-08: section 4's expression grammar names this file as its extension for queries,
   and section 5.11's `edge` is a field with a shape inside a binary navigation's shape.
-- **`SCHEMA-APG.md`.** Carried 2026-11-08: part 2's collections, which `List` result types and set-valued roles read
+- **`../schema/SCHEMA-APG.md`.** Carried 2026-11-08: part 2's collections, which `List` result types and set-valued roles read
   (section 12 there), and part 3's views, which the differential correspondence of section 19 relies on (sections 17
   and 18 there). Section 19's fourth check runs on the Lean model's named layer, which section 20 there specifies.
 - **`QUERY-GQL-CORE.md`, `QUERY-SPARQL-CORE.md`.** The differential correspondence of section 19, from UQL's side.
@@ -783,9 +783,9 @@ insert AssertedBy { statement: c, asserter: Source(id = "SRC:backfill") }
 |---|---|
 | Formal ground | A query denotes a function from the working graph's algebraic property graph to a label-free value of its result type (section 2); results carry IRIs, never internal IDs |
 | Logic | Two-valued, as the design has it; `not p` corresponds to GQL's `p IS NOT TRUE` (section 5.2) |
-| `update` on a `@bitemporal` type | A revision, as `SCHEMA.md` section 8.4 decided on 2026-11-05; the design's refusal of `update` is superseded |
+| `update` on a `@bitemporal` type | A revision, as `../schema/SCHEMA.md` section 8.4 decided on 2026-11-05; the design's refusal of `update` is superseded |
 | `delete` on a `@bitemporal` type | Refused with `retract` as the fix **[choice]**: UQL has `retract`, so one operation has one spelling. The GQL core reads `DELETE` as a retraction because GQL has no `retract` |
-| Keyless instances | Named by their handle IRIs (`SCHEMA.md` section 7.3), which the design had postponed; `let` binds one inside a transaction |
+| Keyless instances | Named by their handle IRIs (`../schema/SCHEMA.md` section 7.3), which the design had postponed; `let` binds one inside a transaction |
 | Provenance and relations over binary relations | Written through navigation names in nested inserts, read through `edge` with a shape (sections 7.1 and 12.2) |
 | Existence by `contains` | Written `some nav(…)`, since `contains` is Allen's relation in UGS's grammar; the design's `parts contains Engine(…)` is not adopted |
 | Text predicates | `starts_with` and `matches` in the first version **[choice]**; the rest of the string, numeric and vector library in the next, as the design decides for its library |
@@ -809,14 +809,14 @@ insert AssertedBy { statement: c, asserter: Source(id = "SRC:backfill") }
 ## 24. Sources
 
 - `openspec/notes/UltraGraphDB Schema and Query Language.md`, part 2: the design this file specifies.
-- `specification/SCHEMA.md`: the expression grammar (section 4), types (section 5), built-in fields (section 5.11),
+- `../schema/SCHEMA.md`: the expression grammar (section 4), types (section 5), built-in fields (section 5.11),
   constraints (section 8), bitemporal statements (section 8.4), classification (section 9), introspection (section
   10.3), views (section 11).
-- `specification/SCHEMA-APG.md`: the model a query is evaluated over, its types and values.
-- `specification/SCHEMA-EVOLUTION.md`: retired names and read points across a cutover.
-- `specification/QUERY-GQL-CORE.md`, `specification/QUERY-SPARQL-CORE.md`: the standard languages' cores, the
+- `../schema/SCHEMA-APG.md`: the model a query is evaluated over, its types and values.
+- `../schema/SCHEMA-EVOLUTION.md`: retired names and read points across a cutover.
+- `QUERY-GQL-CORE.md`, `QUERY-SPARQL-CORE.md`: the standard languages' cores, the
   quantified-edge evaluation UQL's bounded steps share, and the differential oracles.
-- `specification/PROTOCOL.md`: Query, Prepare and Execute, Result, read versions and levels, refusals.
+- `../binary_protocol/PROTOCOL.md`: Query, Prepare and Execute, Result, read versions and levels, refusals.
 - `openspec/notes/UltraGraphDB Agentic Context Projection.md`: scoped retrieval and context shaping.
 - J. F. Allen, *Maintaining Knowledge about Temporal Intervals*, Communications of the ACM 26(11), 1983.
 - G. V. Cormack, C. L. A. Clarke, S. Büttcher, *Reciprocal Rank Fusion Outperforms Condorcet and Individual Rank

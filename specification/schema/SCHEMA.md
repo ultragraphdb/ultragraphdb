@@ -6,7 +6,7 @@ prefixes and buckets of every system ID, the RDF vocabulary and SHACL shapes SPA
 placement of every instance, and the commit path of every write. This file specifies the language and what a conforming
 implementation does with it: its lexical structure and grammar, the static rules a schema must satisfy with the
 diagnostic each refusal carries, how each construct becomes identity, catalog entries, stored quads and standard views,
-how each constraint is enforced at commit, how writes are classified, and how a schema evolves. `PROTOCOL.md` beside it
+how each constraint is enforced at commit, how writes are classified, and how a schema evolves. `../binary_protocol/PROTOCOL.md` beside it
 specifies the bytes a schema and its refusals travel in; `SECURITY.md` the privilege a declaration takes. The design and
 its reasoning are in `openspec/notes/UltraGraphDB Schema and Query Language.md`; where this file and the note differ,
 this file is the specification and section 17 records why.
@@ -39,7 +39,7 @@ deployment always knows which declared constraint it checks and which it carries
 
 | Term | Meaning |
 |---|---|
-| Tenant | The engine's unit of isolation: the u64 of `PROTOCOL.md` section 1, holding one catalog of numbered versions in the metadata group (section 11.13 there), one run of buckets, and the grants of its principals. Nothing reads, writes or names across tenants |
+| Tenant | The engine's unit of isolation: the u64 of `../binary_protocol/PROTOCOL.md` section 1, holding one catalog of numbered versions in the metadata group (section 11.13 there), one run of buckets, and the grants of its principals. Nothing reads, writes or names across tenants |
 | Namespace | A unit of organisation inside a tenant, as a schema is inside a PostgreSQL database: one `schema` source installed in the tenant, with its graphs. Its name is the schema's, and qualifies its types (`temporal.Day`). A tenant holds one or more namespaces; a query may span a tenant's namespaces through imports, bridges and shared graphs |
 | Schema | One `schema` source: a named, versioned set of declarations, which installed becomes a namespace of its tenant. A tenant's catalog version holds its namespaces and the modules extending them |
 | Catalog version | The compiled form of every schema and module installed in a tenant, numbered, committed through the metadata group and effective from an epoch |
@@ -48,8 +48,8 @@ deployment always knows which declared constraint it checks and which it carries
 | Attribute | A typed value on an entity or relation instance, stored under a predicate |
 | Role, participant | A relation connects participants through named roles. The *anchor role* is the role whose participant's bucket the instance takes (section 9.1) |
 | Navigation name | The field a participant type gains from a role, with a cardinality bounding how many instances that participant takes part in through the role |
-| Partition, home, bucket | As `PROTOCOL.md` section 11.11: a partition owns bucket ranges; an entity's home is the partition owning its bucket |
-| Epoch | As `PROTOCOL.md` section 1. A catalog version takes effect at an epoch |
+| Partition, home, bucket | As `../binary_protocol/PROTOCOL.md` section 11.11: a partition owns bucket ranges; an entity's home is the partition owning its bucket |
+| Epoch | As `../binary_protocol/PROTOCOL.md` section 1. A catalog version takes effect at an epoch |
 | Live instance | An instance that is not deleted, and whose `asserted` interval has no end when its type is `@bitemporal` |
 | SHALL, refused | A rule the implementation holds. A schema breaking a static rule is refused whole with a diagnostic of section 10.4; a write breaking a commit rule is refused with a refusal of section 8.7, writing nothing of its transaction |
 
@@ -292,7 +292,7 @@ accepts exactly what is written here, and an expression beyond it is refused (`U
 
 ### 5.1 Scalar and structured types
 
-Each type names the datatype its values are stored and exported under (`PROTOCOL.md` section 10.4 gives the known
+Each type names the datatype its values are stored and exported under (`../binary_protocol/PROTOCOL.md` section 10.4 gives the known
 datatypes' codes) and its GQL type.
 
 | UGS type | Values | Stored and RDF datatype | GQL type |
@@ -465,7 +465,7 @@ derived name or function (`UGS0404`):
 | `asserted` | A `@bitemporal` type | The transaction-time interval (section 8.4) |
 | `live` | A `@bitemporal` type | `asserted.end is none` |
 | `open` | A type with a valid interval | `live`, where the type is bitemporal, and the valid interval's end absent |
-| `edge` | Inside a navigation step's filter, in a derivation or a function; in a UQL shape inside a binary navigation's shape, as a field with a shape of its own (`QUERY-ULTRA-QL.md` section 7.1) | The relation instance the step traverses, with its attributes, built-in fields and navigations |
+| `edge` | Inside a navigation step's filter, in a derivation or a function; in a UQL shape inside a binary navigation's shape, as a field with a shape of its own (`../query/QUERY-ULTRA-QL.md` section 7.1) | The relation instance the step traverses, with its attributes, built-in fields and navigations |
 
 A measure has `.value`, the number in its stored unit, and `.unit`; an interval `.start` and `.end`, each `Optional`
 where the bound may be open, and `.start_precision` and `.end_precision`; a `Unit` value `.quantities`, `.ucum`,
@@ -487,7 +487,7 @@ reserve Measurement, Reading
 - `schema ident version int`: the schema's name, which is its namespace's, unique in the tenant (`UGS0102`), and its
   version, a positive integer that rises with each installed revision (`UGS2001`). `@open` on the header admits, in the schema's graphs,
   subjects of no declared type: such a subject is an instance of the built-in `Resource` type, keyed by its IRI, with
-  any predicate, each recorded as a default entry (`PROTOCOL.md` section 11.13). A `///` run before the header
+  any predicate, each recorded as a default entry (`../binary_protocol/PROTOCOL.md` section 11.13). A `///` run before the header
   documents the schema.
 - `prefix ident = string`: the namespace's vocabulary base, an absolute IRI ending in `#` or `/` (`UGS0009`), and the
   prefix SPARQL clients are given for it; exactly one per schema (`UGS0102`). Every term of the schema is minted under
@@ -505,7 +505,7 @@ reserve Measurement, Reading
 A **governed tenant** is one whose catalog version holds at least one schema. In it, every write names a declared
 graph (`UGS1031`), every subject is an instance of a declared concrete type or, under a `@open` schema, a `Resource`,
 and every predicate is declared or admitted by `@open` (`UGS1001`). A tenant with no schema keeps the ungoverned
-behaviour `PROTOCOL.md` section 11.13 states.
+behaviour `../binary_protocol/PROTOCOL.md` section 11.13 states.
 
 ### 6.2 Statements
 
@@ -749,7 +749,7 @@ standard views do not expose them.
 | implicit | Every `@key` and `@unique` attribute | The predicate's `unique` flag; lookup by value through the reverse list |
 | implicit | Every navigation name with a bounded cardinality, `?`, `+`, `{m, n}` | A count index on the role's predicate |
 
-Indexes are derived data written in the instance's partition in the same local commit as the write (`PROTOCOL.md`
+Indexes are derived data written in the instance's partition in the same local commit as the write (`../binary_protocol/PROTOCOL.md`
 section 11.13 for the vector index, which the indexer maintains in commit order outside the transaction). An index added
 to a field holding data is built in the background from the data at the version's epoch, as `PROTOCOL.md` section 11.13
 states.
@@ -781,7 +781,7 @@ without one refuses writes to the default graph (`UGS1031`).
 
 Shared graphs for time and space are expected to be `@append_only`; the existence of an append-only node is a monotonic
 fact, so inserting a bridge to one is coordination-free even across partitions. Bridges reverse-navigated from the
-shared node (`Day.parameter_changes`) read through the shared node's referrer set, which `PROTOCOL.md` section 11.11
+shared node (`Day.parameter_changes`) read through the shared node's referrer set, which `../binary_protocol/PROTOCOL.md` section 11.11
 specifies; a shared node's inbound entries live with the referencing domain's instances, never on the shared node.
 
 ### 6.12 Modules
@@ -807,7 +807,7 @@ catalog version.
 
 ### 7.1 System IDs and type prefixes
 
-Every instance has a 128-bit system ID as `PROTOCOL.md` section 1 and the `system-identity` specification lay it out:
+Every instance has a 128-bit system ID as `../binary_protocol/PROTOCOL.md` section 1 and the `system-identity` specification lay it out:
 from the most significant bit, a 16-bit type prefix, a 64-bit sequence unique per type and never reused, a 24-bit
 bucket and 24 reserved zero bits, compared as big-endian. No ID leaves the database.
 
@@ -834,7 +834,7 @@ bucket and 24 reserved zero bits, compared as big-endian. No ID leaves the datab
 The canonical encoding of a key is, over the key's attributes in the order `@key` lists them, the concatenation of each
 component's **4-byte big-endian length** and its bytes, where the bytes are the component's canonical lexical form in
 UTF-8: for `String`, `Text` and `Iri` the text itself; for `Bool`, the integer types, `Decimal`, `Date` and `DateTime`
-the canonical form `PROTOCOL.md` section 10.5 gives, a `DateTime` normalised to UTC first; for an enum the member's
+the canonical form `../binary_protocol/PROTOCOL.md` section 10.5 gives, a `DateTime` normalised to UTC first; for an enum the member's
 name; for `Unit` the unit's declared name. A `Resource`'s key is its IRI as one component, which is the encoding the
 `system-identity` specification already fixes, so governed and ungoverned data hash alike. The encoding is part of the
 identity contract: a change to it is a new major version of the mapping contract.
@@ -911,7 +911,7 @@ Every write, in UQL, GQL or SPARQL, reaches the partition as changes to quads. T
 transaction into instances before it validates them: the changes sharing a subject form the writes to that instance,
 a subject being an entity's IRI, a node-encoded relation instance's handle IRI, or an edge-encoded instance's triple with
 its reifier. Each instance a transaction creates or changes is validated whole, against the catalog version in effect at
-the commit's epoch (`PROTOCOL.md` section 11.13), when the transaction commits; a violation refuses the whole
+the commit's epoch (`../binary_protocol/PROTOCOL.md` section 11.13), when the transaction commits; a violation refuses the whole
 transaction with the refusal naming the instance and the rule, and nothing of it is held. A `@set` relation's insert of
 an existing combination is resolved to the existing instance before validation.
 
@@ -1030,7 +1030,7 @@ abstract statement Asserted : Statement @bitemporal(valid: valid) {
 
 **History retention.** Instances of `@bitemporal` and `@append_only` types are never physically discarded except by a
 legal purge, so `believed at`, `as of epoch` and `as of time` are answered for them at any past point. Other types keep
-their versions for the configured retention window, and a read beyond it is refused naming the window (`PROTOCOL.md`
+their versions for the configured retention window, and a read beyond it is refused naming the window (`../binary_protocol/PROTOCOL.md`
 code 3).
 
 ### 8.5 Delete semantics
@@ -1044,7 +1044,7 @@ An entity delete removes the entity and applies each relation's `@on_delete` act
 | `orphan` | The instance stays with the role empty | Only on an `Optional` role |
 
 A deleted entity's IRI may be created again; the new instance is a new ID. A delete writes a tombstone at the entity's
-home, so a later write naming the deleted entity is refused (`PROTOCOL.md`, `EntityDeleted`). A relation instance delete
+home, so a later write naming the deleted entity is refused (`../binary_protocol/PROTOCOL.md`, `EntityDeleted`). A relation instance delete
 removes the instance and cascades to relations over it. Deleting a `@bitemporal` instance is a retraction (section 8.4).
 No delete reaches a participant of a `@bitemporal` relation, whose participant types are all `@bitemporal` or
 `@append_only` (`UGS0602`). The compiler warns when `restrict` forces coordination that `@colocate` on the same role
@@ -1065,7 +1065,7 @@ for unfiltered bounds on one role.
 
 ### 8.7 Refusals
 
-A refusal travels as `PROTOCOL.md`'s Error with code 7 (Refused); section 15 asks the protocol to carry the UGS
+A refusal travels as `../binary_protocol/PROTOCOL.md`'s Error with code 7 (Refused); section 15 asks the protocol to carry the UGS
 refusal number and the instance. The refusals:
 
 | Number | Name | The write |
@@ -1113,7 +1113,7 @@ refusal number and the instance. The refusals:
 A purge physically removes named instances of `@append_only` or `@bitemporal` types, which no delete or retraction
 removes, for a legal reason. It is the `Purge` command (section 15): a list of at most 10,000 instance IRIs, which the
 operator computes by a query at an epoch and reviews before sending, under the action `purge` at tenant scope
-(`SECURITY.md`). The command is coordinated: it is sequenced at an epoch and executed as an entity delete's shares are
+(`../../openspec/notes/SECURITY.md`). The command is coordinated: it is sequenced at an epoch and executed as an entity delete's shares are
 (section 8.5, P24 rule 8), with removal in place of a tombstone's fence. At the instance's home it removes every version
 of its attributes, its statement record, its index and derived entries, its dictionary entries and its referrer set; at
 every member of its referrer set it removes every edge naming the instance, as a fact about the purged subject, with
@@ -1136,7 +1136,7 @@ the tenant's run the command executes locally.
 | A value entity | Derived from its value |
 
 An instance's attributes, its forward entries, its local reverse entries, its indexes and its statistics are written
-in its partition in one local commit (`PROTOCOL.md` section 11.11, P24). A navigation from a participant that is not
+in its partition in one local commit (`../binary_protocol/PROTOCOL.md` section 11.11, P24). A navigation from a participant that is not
 the anchor is a reverse read: the participant's home reads its referrer set and fans out. The coordination report lists
 each such navigation as a scatter read (`UGS0905`). Before an instance's partition first commits a reference to a
 participant it does not own, it registers at the participant's home, which adds the partition's bucket group to the
@@ -1211,7 +1211,7 @@ with the install's reply and recorded in the catalog version.
 ### 9.6 What the schema gives request typing and query classification
 
 The compiled catalog carries, per predicate, the facts the frontend decides a request's path from before it reads a term
-(`PROTOCOL.md` section 11.2a; `UltraGraphDB Distribution Protocol.md`, "What qualifies"): whether a write of it is
+(`../binary_protocol/PROTOCOL.md` section 11.2a; `UltraGraphDB Distribution Protocol.md`, "What qualifies"): whether a write of it is
 blind (coordination-free, no check that reads beyond the instance), whether it needs a unique claim, whether it is
 single-valued, whether a check or a bound reads it, whether it is derived, and its mutability class. Per type it carries
 the mutability class and `@access`. The query classifier combines these with the query: a query reading only
@@ -1239,7 +1239,7 @@ declared position, and since a share is reserved before it is used, the bound wa
 An install names a tenant, the catalog version it builds on, and the sources it adds or replaces: whole schemas and
 modules, each source replacing the one of the same name. The compiler runs the phases below on the full set of sources
 the new version holds; a failure in any phase refuses the install whole with its diagnostics and changes nothing.
-Installation takes the `declare` privilege on the tenant (`SECURITY.md`).
+Installation takes the `declare` privilege on the tenant (`../../openspec/notes/SECURITY.md`).
 
 | Phase | Does | Refuses with |
 |---|---|---|
@@ -1254,7 +1254,7 @@ Installation takes the `declare` privilege on the tenant (`SECURITY.md`).
 | 9 Allocation | Prefixes for new types, from the metadata group | `UGS2005` |
 | 10 Emission | The catalog version, the views, the report | |
 
-The version is committed as pending through the metadata group and takes effect at the epoch `PROTOCOL.md` section
+The version is committed as pending through the metadata group and takes effect at the epoch `../binary_protocol/PROTOCOL.md` section
 11.13 states; a tightening change is checked by the validation scan at that epoch (section 13.3), and the reply waits
 for it. The reply carries the version number, its effective epoch and the report, or the diagnostics.
 
@@ -1271,7 +1271,7 @@ bytes; every field present; a decoder refuses any other byte sequence, so a vers
 | Type | Name, kind (statement, entity, relation), prefix, parent, abstract, open, key attributes, IRI template, graph, mutability class, encoding (edge or node, relations), set or multi, symmetric, anchor role or root, acyclic with its options, valid attribute, bitemporal, retracts role, ends role, access, per-role delete and retract actions, limits, no-overlap declarations, instance checks, `@maps_to`, doc |
 | Prefix ranges | Per type, its prefix set as sorted ranges |
 | Attribute | Declaring type, name, predicate IRI, type, optional, default, immutable, checks, indexes, uncertainty, `@maps_to`, doc |
-| Predicate | IRI, kind (property or edge), cardinality (single or multi), datatype, unique, tokenizers, count index, vector index with its dimension and options, domains: what `PROTOCOL.md` section 4.6's kind-8 record carries. One per attribute name per base, per role of a node-encoded relation, per anchor navigation name of an edge-encoded relation, per interval bound, and per value-entity edge |
+| Predicate | IRI, kind (property or edge), cardinality (single or multi), datatype, unique, tokenizers, count index, vector index with its dimension and options, domains: what `../binary_protocol/PROTOCOL.md` section 4.6's kind-8 record carries. One per attribute name per base, per role of a node-encoded relation, per anchor navigation name of an edge-encoded relation, per interval bound, and per value-entity edge |
 | Role | Relation, name, participant types, optional, set-valued, super role, navigation name and cardinality or none, predicate IRI, actions, doc |
 | Navigation | Type, name, relation, role, direction (anchor-forward or reverse), cardinality, what it yields |
 | Enum, record, named attribute type, quantity, unit | Their declarations, with a unit's conversion |
@@ -1291,13 +1291,13 @@ the agreement rule applies per predicate; requiredness, defaults, value checks a
 type. An attribute carrying `@key` or `@unique` is declared by one type tree only (`UGS0216`), so the
 predicate's `unique` flag is exactly the tree's rule. A subtype's inherited attribute is the same predicate.
 
-The catalog's existing kinds 8, 9 and 10 (`PROTOCOL.md` section 4.6) are derived from the Predicate, Type and Role
+The catalog's existing kinds 8, 9 and 10 (`../binary_protocol/PROTOCOL.md` section 4.6) are derived from the Predicate, Type and Role
 entries: an entity type's kind-9 record carries its parent and abstract flag; a relation's kind-10 record carries its
 role predicates. Section 15 asks the protocol for the record kinds that carry the rest.
 
 ### 10.3 Schema id, Describe and introspection
 
-The schema id is `PROTOCOL.md` section 11.7's hash of the Describe body, which section 15 asks to carry every entry
+The schema id is `../binary_protocol/PROTOCOL.md` section 11.7's hash of the Describe body, which section 15 asks to carry every entry
 the principal may read: Type, Prefix-range, Enum, Record, Graph and Schema entries whole, and Attribute, Predicate,
 Role, Navigation, Derivation and Function entries only where the principal holds `read` on every predicate they name
 (`SECURITY.md`, Describe). Introspection exposes the catalog as the read-only `schema.` graph: `schema.types`,
@@ -1486,7 +1486,7 @@ either encoding (section 6.4).
 | `List<T>`, `record` | One `rdf:JSON` literal |
 | `Interval<T>` | `{attr}_start`, `{attr}_end` and the precisions as section 5.1 |
 | Edge-encoded `@set` relation without attributes | An `owl:ObjectProperty` `{base}{nav}` from the anchor, with `owl:inverseOf {base}{other nav}` where the other role has one; the inverse is answered from the reverse index |
-| Edge-encoded relation with attributes | The asserted triple and an RDF 1.2 reifier of it carrying the attributes, linked as `reifier rdf:reifies <<( s p o )>>`, the triple term RDF 1.2 writes, which is how a query reaches the reifier (`QUERY-SPARQL-CORE.md` section 6.4) |
+| Edge-encoded relation with attributes | The asserted triple and an RDF 1.2 reifier of it carrying the attributes, linked as `reifier rdf:reifies <<( s p o )>>`, the triple term RDF 1.2 writes, which is how a query reaches the reifier (`../query/QUERY-SPARQL-CORE.md` section 6.4) |
 | Edge-encoded `@multi` relation | One asserted triple; one reifier per instance |
 | `@symmetric` relation | An `owl:SymmetricProperty` |
 | Node-encoded relation | A class `{base}{Relation}` with one property `{base}{Relation}_{role}` per role; the instance a node of that class |
@@ -1579,7 +1579,7 @@ partition's marks keyspace, a combination key per live instance: XXH3-64 of the 
 IDs in role order, mapped to the instance's ID, which an insert reads to find the existing instance; an edge-encoded
 `@set` relation's combination is its triple; a `@symmetric` relation's participants enter the key in ID order. A
 participant in another partition is registered at
-its home before the commit (`PROTOCOL.md` section 11.12), in get-only mode (section 15), which answers its status and
+its home before the commit (`../binary_protocol/PROTOCOL.md` section 11.12), in get-only mode (section 15), which answers its status and
 type prefix.
 
 ### 12.4 Bitemporal and derived state
@@ -1596,7 +1596,7 @@ partition in the marks keyspace, maintained in the same commit.
 ### 13.1 Versions
 
 Every change to a tenant's catalog is a new catalog version built on the current one, committed as pending and
-effective at an epoch (`PROTOCOL.md` section 11.13). A version built on one no longer current is refused (`UGS2001`).
+effective at an epoch (`../binary_protocol/PROTOCOL.md` section 11.13). A version built on one no longer current is refused (`UGS2001`).
 Queries and transactions compile against the version in effect at their snapshot or commit epoch, so no transaction
 sees two versions; a read-write transaction that executed against another version than the one in effect at its commit
 aborts (`PROTOCOL.md`, Conflict kind Catalog). Versions roll forward only: a later version restores an earlier
@@ -1614,12 +1614,12 @@ definition; nothing is rolled back in place.
 | Remove a type, attribute, role, relation, graph or function; change an attribute's type, a key, a relation's `@set` or `@multi`, `@symmetric`, a relation's encoding, an `@iri` template, a vocabulary base | Destructive | Either a migration, which carries the data into a new version of the namespace (`SCHEMA-EVOLUTION.md`), or the deprecate-and-drop path: deprecate first (`@deprecated` on the item, additive); drop in a later version after a finalize step; the drop is refused while live instances or catalog references name the item (`UGS2002`, `UGS2009`) |
 
 A destructive change that drops a type retires its prefix: existing IDs of it may linger in logs and are never reissued.
-Dropping a predicate drops its data as `PROTOCOL.md` section 6.5 states.
+Dropping a predicate drops its data as `../binary_protocol/PROTOCOL.md` section 6.5 states.
 
 ### 13.3 The validation scan
 
 A tightening change takes effect at its epoch like any version, and each partition holding the tenant then scans
-its data at the epoch's first version for a contradiction, as `PROTOCOL.md` section 11.13 has every partition check a
+its data at the epoch's first version for a contradiction, as `../binary_protocol/PROTOCOL.md` section 11.13 has every partition check a
 type change. The scan reports its progress and blocks no write; writes at and after the epoch are validated by the new
 version while it runs. A contradiction found in any partition refuses the install's reply with the instance at fault
 (`UGS2003`), and the metadata group commits a version restoring the previous definition, so the refused change alters
@@ -1661,7 +1661,7 @@ and reports it as unenforced (`UGS0902`).
 | `@append_only`, `@bitemporal`, `asserted`, `retract`, `@on_retract` local | Stage 6 | |
 | Entity delete with its tombstone | Stage 6 | Shares at referrers: stage 8 |
 | Indexes `range`, `interval`, `geo`, `fulltext` | Stage 6 | |
-| `@index(ann)`, which `PROTOCOL.md` section 11.13 refuses to declare before stage 8; `Vector<BF16>` storage; `quantization: int8` | Stage 8 | |
+| `@index(ann)`, which `../binary_protocol/PROTOCOL.md` section 11.13 refuses to declare before stage 8; `Vector<BF16>` storage; `quantization: int8` | Stage 8 | |
 | `Measure`, `quantity`, `unit`, `Geo` operators | Stage 6 | |
 | Materialized derivations and folds within the anchor partition | Stage 6 | Materialization across partitions: the tile stage |
 | Functions and virtual derivations, executed | With the query core, stage 7 | |
@@ -1671,7 +1671,7 @@ and reports it as unenforced (`UGS0902`).
 
 ## 15. What this specification asks of the others
 
-- **`PROTOCOL.md`.** Carried as of 2026-11-05: Install (section 8.4 there) installs sources and answers the version,
+- **`../binary_protocol/PROTOCOL.md`.** Carried as of 2026-11-05: Install (section 8.4 there) installs sources and answers the version,
   its epoch and the report, or code 28 with the diagnostics; code 7 carries a schema refusal's number at commit.
   Carried as of 2026-11-08: Describe's record kinds for the catalog entries of section 10.2, the sources and the
   retired names, covered by the schema id (sections 8.3 and 11.7 there); `EntityDeleted`, code 30; Reference (526) in
@@ -1681,11 +1681,11 @@ and reports it as unenforced (`UGS0902`).
   handle among them (section 4.4); continuation frames for Catalog and Describe, a catalog version bounded by
   `catalog_bytes_max` (sections 8.3, 11.9, 13.7); Install carrying a migration and Migrate (25) controlling its run
   (sections 8.4 and 8.6); warnings with a reply (section 4.9).
-- **`SECURITY.md`.** Carried as of 2026-11-08: Install takes `declare` on the tenant; a purge takes the action
+- **`../../openspec/notes/SECURITY.md`.** Carried as of 2026-11-08: Install takes `declare` on the tenant; a purge takes the action
   `purge` (7) at tenant scope, held by the built-in `owner` role, and is an audit event naming the principal and the
   purge epoch; a migration's control takes `declare`; the scopes are cluster, tenant, namespace, graph and predicate,
   and a tenant isolates where a namespace organises.
-- **Naming, across `PROTOCOL.md`, `SECURITY.md` and the stage 5.5 specifications.** Carried as of 2026-11-05: the u64
+- **Naming, across `../binary_protocol/PROTOCOL.md`, `SECURITY.md` and the stage 5.5 specifications.** Carried as of 2026-11-05: the u64
   is the tenant, the field, the bucket run, the catalog, the drops and the grants keeping their bytes and taking the
   name `tenant`, and `Bucket::derive` and `Bucket::of_value` take a tenant. The word namespace is free for the unit
   this file defines, so that a client reads PostgreSQL's distinction, database and schema, in the
@@ -1858,7 +1858,7 @@ counterparty.
 | Index writes in the report | Counted per write operation (the exercise's G4) |
 | Relation node of an edge-encoded relation | Decided 2026-11-05: an edge-encoded relation whose instances carry a reifier is presented in the GQL view also as a relation node with derived role edges, one element with the edge and one `ELEMENT_ID`, so a relation can name it, as `AssertedBy` names every relation of Gen5; the counterpart of the RDF view's reifier term beside its triple. Chosen over a node-only presentation, which leaves the store unchanged and turns every hop of Gen5 into three atoms or a propertyless navigation edge, losing the envelope on the hop |
 | Retraction and non-bitemporal relations | Decided 2026-11-05: a retraction cascades to `@bitemporal` relations alone; a relation without an `asserted`, an `@append_only` link above all, is live while every participant of it is live, derived and never written, so provenance of a retracted statement stays as written and returns under `with retracted`. Chosen over writing the link, which `UGS1013` forbids, and over leaving it in the live view, which would show an edge to a node the view does not show |
-| Navigation edges | A node-encoded relation's navigation names are derived one-hop edges in both views, read-only, so a quantified edge or a property path walks a relation node as it walks an edge; what makes DeepBrain's tree walks expressible in the query cores (`QUERY-GQL-CORE.md`, `QUERY-SPARQL-CORE.md`, 2026-11-05) |
+| Navigation edges | A node-encoded relation's navigation names are derived one-hop edges in both views, read-only, so a quantified edge or a property path walks a relation node as it walks an edge; what makes DeepBrain's tree walks expressible in the query cores (`../query/QUERY-GQL-CORE.md`, `query/QUERY-SPARQL-CORE.md`, 2026-11-05) |
 | Tenant and namespace | Decided 2026-11-05: a tenant isolates, with nothing read, written or named across tenants; a namespace organises inside a tenant, one `schema` with its graphs, as a PostgreSQL schema inside a database. The engine's u64 is the tenant; the UGS declaration of a vocabulary base is `prefix`, since `namespace` now names the unit |
 | `rdf:type` of declared types | Answered from the type prefix; no stored quad |
 | `Iri` and enum values | Literals (`xsd:anyURI`, `xsd:string`), so a value creates no entity, no referrer set and no registration; the note's "IRI term" and "one IRI per member" are kept as vocabulary, not as object terms |
@@ -1903,9 +1903,9 @@ counterparty.
 - `openspec/notes/UltraGraphDB Distribution Protocol.md`, the fast path's qualification from the classification
 - `openspec/notes/UltraGraphDB Shard-per-Core Write Path.md`, P1, P3, P7, P13–P16 and P24
 - `openspec/notes/UltraGraphDB Dual Query Engine Plan.md`, the quad layout, datatypes by value, the data dictionary
-- `openspec/notes/review-stages-5.5-and-6.md`, D1–D6 and the findings on the note
-- `specification/PROTOCOL.md`, sections 1, 4.6, 6.5, 8.3, 10.4, 10.5, 11.2a, 11.7, 11.11–11.13, 13.7
-- `openspec/changes/stage-5-5-three-role-refactor/specs/`: `system-identity`, `metadata-group`, `catalog`,
+- `../../openspec/notes/review-stages-5.5-and-6.md`, D1–D6 and the findings on the note
+- `../binary_protocol/PROTOCOL.md`, sections 1, 4.6, 6.5, 8.3, 10.4, 10.5, 11.2a, 11.7, 11.11–11.13, 13.7
+- `../../openspec/changes/stage-5-5-three-role-refactor/specs`: `system-identity`, `metadata-group`, `catalog`,
   `term-dictionary`; `openspec/specs/`: `mapping-contract`, `schema-changes`, `schema-storage`, `vector-index`,
   `tokenizers`
 - RDF 1.2 Concepts, SPARQL 1.1, SHACL, OWL 2, GeoSPARQL 1.1, QUDT, ISO/IEC 39075 GQL, XML Schema 1.1 Part 2, UCUM,
@@ -1913,7 +1913,7 @@ counterparty.
 - Bailis et al., *Coordination Avoidance in Database Systems* (VLDB 2015); Whittaker and Hellerstein, *Interactive
   Checks for Coordination Avoidance* (VLDB 2019); Lesani et al., *Hamsaz* (POPL 2019); Roy et al., *The Homeostasis
   Protocol* (SIGMOD 2015); Power et al., *Keep CALM and CRDT On* (VLDB 2023)
-- `specification/SCHEMA-APG.md`, the formal model the standard views present
+- `SCHEMA-APG.md`, the formal model the standard views present
 - Shinavier, Wisnesky and Meyers, *Algebraic Property Graphs*, arXiv:1909.04881; Angles et al., *PG-Schema: Schemas for
   Property Graphs* (SIGMOD 2023) and *PG-Keys: Keys for Property Graphs* (SIGMOD 2021); Ahmetaj et al., *Common
   Foundations for SHACL, ShEx, and PG-Schema*, arXiv:2502.01295; Thimmaiah, Lin and Gligoric, *MGQL: An Executable,

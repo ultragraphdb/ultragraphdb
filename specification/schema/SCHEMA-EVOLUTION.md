@@ -1,6 +1,6 @@
 # Schema evolution with data migration
 
-* Status: first draft, 2026-11-08, for stage 9.5 (`ROADMAP.md`).
+* Status: first draft, 2026-11-08, for stage 9.5 (`../../ROADMAP.md`).
 
 This file specifies how a namespace moves from one schema version to another when the change reshapes data: a type
 renamed, split or merged, an attribute moved into a relation or back, a key changed. Such a change installs as a
@@ -11,7 +11,7 @@ not carry.
 
 `SCHEMA.md` gives the schema language, the catalog and the in-place changes of its section 13, which this file extends
 and does not replace; `PROTOCOL.md` the Install request and the epochs a cutover takes effect at;
-`QUERY-GQL-CORE.md` and `QUERY-SPARQL-CORE.md` the queries a migration's expressions are drawn from. The semantics are
+`query/QUERY-GQL-CORE.md` and `query/QUERY-SPARQL-CORE.md` the queries a migration's expressions are drawn from. The semantics are
 those of functorial data migration, restricted to a fragment that never merges instances (section 2).
 
 ## Open questions
@@ -161,7 +161,7 @@ is refused (`UGS2201`), never merged.
 
 **No Π.** A target instance built from a join of independent source instances, a many-to-many relation between them,
 is new knowledge rather than a reshaping, and has no single origin to take its bucket from (`SCHEMA.md` section 9.1).
-It is written after the cutover by an UQL pipeline (`QUERY-ULTRA-QL.md` section 13.2), under the commit's
+It is written after the cutover by an UQL pipeline (`query/QUERY-ULTRA-QL.md` section 13.2), under the commit's
 classification and constraints.
 
 ### 3.3 Example
@@ -295,7 +295,7 @@ at an earlier epoch sees the earlier entries.
 
 ## 5. Checks at install
 
-A migration installs with the target's schema source in one Install request (`PROTOCOL.md` section 8.4). The compiler
+A migration installs with the target's schema source in one Install request (`../binary_protocol/PROTOCOL.md` section 8.4). The compiler
 runs `SCHEMA.md` section 10.1's phases on the target, with phase 8 reading the migration: a destructive change the
 migration covers is admitted without the deprecate-and-drop path, and one it does not cover is refused as section 13
 there states. The migration's own checks:
@@ -334,9 +334,9 @@ any restart and resumes from its last state.
 | `validating` | Every partition has copied | The target's rules are checked over the staged data as `SCHEMA.md` section 13.3's scan checks a tightening; a violation fails the run naming the instance (`UGS2202`), a key collision naming both origins (`UGS2201`) |
 | `checked` | Validation passes | A **dry run** stops here: the report is final, and the staged namespace is discarded on request |
 | `converging` | The cutover is requested | Catch-up rounds run without a fence: each recomputes the images the source's writes since the previous round affect, from `e0` for the first, and validates them; rounds repeat until one affects fewer images than the run's threshold |
-| `fenced` | The last round ends, at epoch `e1` | Writes to the source namespace are refused as `PROTOCOL.md` must state for a fenced namespace (section 11); reads continue |
+| `fenced` | The last round ends, at epoch `e1` | Writes to the source namespace are refused as `../binary_protocol/PROTOCOL.md` must state for a fenced namespace (section 11); reads continue |
 | `catching_up` | At `e1` | The final round: the images the writes since the last unfenced round affect are recomputed, and the instances they touch validated again |
-| `cut_over` | Catch-up passes, at epoch `e2` | One catalog version passes the namespace's name to the target and makes the source read-only; the fence lifts; prepared statements of the namespace go stale (`PROTOCOL.md` section 11.7), and a read-write transaction that executed against the source aborts with Conflict kind Catalog |
+| `cut_over` | Catch-up passes, at epoch `e2` | One catalog version passes the namespace's name to the target and makes the source read-only; the fence lifts; prepared statements of the namespace go stale (`../binary_protocol/PROTOCOL.md` section 11.7), and a read-write transaction that executed against the source aborts with Conflict kind Catalog |
 | `failed` | Any check fails, or the run is cancelled before `cut_over` | The staged namespace is discarded; the source is as it was, and the fence, if raised, lifts |
 
 The fence is held from `e1` to `e2`, for the final round alone, which the report estimates from the source's write rate.
@@ -408,7 +408,7 @@ A migration rewrites what the database owns and publishes what it cannot rewrite
   sets, else the tenant's default, and a later catalog version may extend it. After it, the name is refused with the
   current name in the message, at no cost, since the catalog keeps every retired name (section 4.2). The same window
   holds in all three languages: UQL's names, GQL's labels and property names, and SPARQL's class and predicate IRIs,
-  whose local names are the retired names (`QUERY-GQL-CORE.md` and `QUERY-SPARQL-CORE.md`, section 2). A name
+  whose local names are the retired names (`../query/QUERY-GQL-CORE.md` and `query/QUERY-SPARQL-CORE.md`, section 2). A name
   retired by a split, a union or a drop is refused with the migration named, since it no longer denotes one item.
 - **IRIs** clients hold keep naming their instances (section 4.3); no client rewrites a stored IRI.
 - **The rename map**, every rename, map and drop of the migration in a machine-readable form, is published with the
@@ -446,7 +446,7 @@ A migration rewrites what the database owns and publishes what it cannot rewrite
   space (section 4.1 here); section 7.3's routing admits retired names; section 7.3's birth IRIs and `UGS1037`; section
   10.2's retired-name and migration entries; section 13.2 offers a migration beside deprecate and drop; section 10.1's
   phase 8 reads a migration; section 7.3's derived handles for secondary images.
-- **`PROTOCOL.md`.** Carried 2026-11-08: Install carries a migration source and answers the report with the staged
+- **`../binary_protocol/PROTOCOL.md`.** Carried 2026-11-08: Install carries a migration source and answers the report with the staged
   namespace's identifier (section 8.4 there); Migrate (25) starts a run, dry-runs it, cuts it over, cancels it and
   reads its state (section 8.6); a write to a fenced namespace is refused with `Fenced`, code 31, retryable after the
   cutover; the source's name `{namespace}@{version}` travels inside query texts, as every namespace name does; a
@@ -457,7 +457,7 @@ A migration rewrites what the database owns and publishes what it cannot rewrite
   record and its transitions, and the retired names per namespace.
 - **The query cores and UQL.** Carried 2026-11-08: retired names resolving with a warning during the deprecation
   window and refused naming the current name after it (section 9); `believed at` before a cutover read through the
-  migration (`QUERY-ULTRA-QL.md` section 11).
+  migration (`../query/QUERY-ULTRA-QL.md` section 11).
 
 ## 12. Decisions
 
@@ -488,7 +488,7 @@ A migration rewrites what the database owns and publishes what it cannot rewrite
   Σ along a discrete op-fibration and Π compiled to selection, projection, union and key generation.
 - P. Schultz, R. Wisnesky, *Algebraic Data Integration*, arXiv:1503.03571: algebraic schemas, uber-flower queries, the
   verification conditions that keep a query's output inside its target's equations.
-- `specification/SCHEMA-APG.md`: the algebraic property graph model, schema mappings and `Δ`, proposition 9.5.
+- `SCHEMA-APG.md`: the algebraic property graph model, schema mappings and `Δ`, proposition 9.5.
 - R. Angles et al., *PG-Keys: Keys for Property Graphs*, SIGMOD 2021: the exclusive key a key lookup relies on.
 - J. Shinavier, R. Wisnesky, *Algebraic Property Graphs*, arXiv:1909.04881: elements with identity whose values name
   other elements, the model closest to UGS's.

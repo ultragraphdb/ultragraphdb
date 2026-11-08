@@ -545,7 +545,7 @@ a type a set admits. `filter` keeps the members for which `q` is `true`. The bod
 `map(map(s, y ⇒ u), y ⇒ u') = map(s, y ⇒ u'[u/y])`, equations the theory of section 8.3 gains. Proposition 12.2 and
 corollary 12.3 hold unchanged, since no reference enters a collection.
 
-UQL's result types are label-free types of this grammar, a list of records among them (`QUERY-ULTRA-QL.md` section 5).
+UQL's result types are label-free types of this grammar, a list of records among them (`../query/QUERY-ULTRA-QL.md` section 5).
 
 ### 12.3 Collections of references
 
@@ -680,7 +680,7 @@ with `⟦any⟧` the variant over every label of `L` but the role labels and `Un
 IRIs, blank nodes and literals, as values. A subject of no declared type is an element of `Resource`; each undeclared
 triple, on a `Resource` or on an instance of a type declared `@open`, is an element of `Undeclared`. An undeclared
 triple's object is a value, never a reference: an ungoverned link names an IRI and makes no claim that an element
-carries it, as RDF's open world has it. A tenant without a schema has no APG; its data is the quads `PROTOCOL.md`
+carries it, as RDF's open world has it. A tenant without a schema has no APG; its data is the quads `../binary_protocol/PROTOCOL.md`
 section 11.13 governs.
 
 ### 13.5 Derived names and functions
@@ -768,13 +768,13 @@ graphs are disjoint, and an element of a domain graph references only elements o
 graphs its schema imports (`UGS1033`); a shared graph's elements reference only elements of shared graphs.
 
 **Proposition 15.1 (here).** The union of a domain graph's APG and the APGs of the shared graphs its schema imports,
-transitively, is an APG on `S(K)`: the working graph a query reads (`QUERY-ULTRA-QL.md` section 2). *Proof.* Element
+transitively, is an APG on `S(K)`: the working graph a query reads (`../query/QUERY-ULTRA-QL.md` section 2). *Proof.* Element
 sets are disjoint, and every reference of an element in the union lands in the union, by the rule above.
 
 ### 15.3 States and slices
 
 The database's history is a sequence of **states** `G_0, G_1, …`, one APG per commit, each with every element ever
-written and not purged; a commit is a transition of section 14.3, and a read point reads one state (`QUERY-ULTRA-QL.md`
+written and not purged; a commit is a transition of section 14.3, and a read point reads one state (`../query/QUERY-ULTRA-QL.md`
 section 11.1). An element of a `@bitemporal` label carries in a state its **versions**, one per revision, each with the
 transaction-time interval in which it was the element's value; its `asserted` field is the union of those intervals.
 
@@ -848,7 +848,7 @@ its origin's IRI and a secondary image a name derived from its origin (section 1
 read from.
 
 A query over the target that reads `believed at t` before the cutover is evaluated this way, in the target's schema,
-and joins the past to the present by name (`SCHEMA-EVOLUTION.md` section 7; `QUERY-ULTRA-QL.md` section 11.2).
+and joins the past to the present by name (`SCHEMA-EVOLUTION.md` section 7; `query/QUERY-ULTRA-QL.md` section 11.2).
 
 ## 17. The RDF view
 
@@ -925,7 +925,7 @@ each admitted pair; derived edges are built from fields in the same way.
 
 **Proposition 18.4 (one graph, two views; here).** On valid APGs, `P(G) = P(R⁻¹(R(G)))`: the GQL view is determined by
 the RDF view. A GQL node corresponds to the IRI of its element, a stored edge to its reifier's IRI or its triple, and
-a property to the literal of the same field, the correspondence `QUERY-SPARQL-CORE.md` section 12 states for the
+a property to the literal of the same field, the correspondence `../query/QUERY-SPARQL-CORE.md` section 12 states for the
 differential tests. *Proof.* Proposition 17.3.
 
 ## 19. The test oracle
@@ -946,7 +946,7 @@ A failure names the side that diverged: the engine's write path, one view, or a 
 
 ## 20. The Lean model
 
-Decided 2026-11-08: the Lean model of this file sits in `lean/`, beside `PlacementModel` and `RoundModel`, under the
+Decided 2026-11-08: the Lean model of this file sits in `../../lean`, beside `PlacementModel` and `RoundModel`, under the
 repository's toolchain, Lean 4.14, without Mathlib, and takes a binary core with a named layer over it.
 
 A spike of 2026-11-08 under Lean 4.14 measured the two forms of definition 3.2:
@@ -996,7 +996,7 @@ values, or the core's results do not transfer.
 | Constraint semantics | PG-Keys for keys, uniqueness, presence and single values; PG-Schema's proposed `COUNT` for participation bounds; UGS's own for the rest (section 10) |
 | RDF view | RDF 1.2 with reifiers and SHACL shapes, cross-checked against the common core of SHACL, ShEx and PG-Schema (section 10) |
 | Distributivity | `C_S` is distributive (section 8.2) |
-| Lean model | In `lean/`, a binary core with a named layer, proposition 3.3 proved between them (section 20) |
+| Lean model | In `../../lean`, a binary core with a named layer, proposition 3.3 proved between them (section 20) |
 | Collections | Drafted 2026-11-08, for review: collections of values as `list t` and `set t` over label-free types; set-valued roles reified as role labels; a symmetric relation read up to swap (section 12) |
 | `map` and `filter` | Decided 2026-11-08: over collections of values, with a body that reads the member alone (definition 12.4) |
 | Finite images | Decided 2026-11-08: every primitive type in a label's image has finitely many values (section 9) |
