@@ -245,6 +245,65 @@ Stage 5.5 declares four request types, read-only, DirectWrite, ConditionalWrite 
 transaction's. Should the query languages send such a statement as one request, and may the partition then retry its conflicts as it
 does a DirectWrite's? A read-only request still takes Begin and Read: does it need a one-frame form too?
 
+### 16. Schema evolution with checked data migration (stage 9.5)
+
+A destructive change (`SCHEMA.md` section 13.2) is deprecated and then dropped, and its data goes with it. Stage 9.5
+replaces the drop with a migration into a new version of the namespace: a schema mapping from the source version to
+the target, checked when it compiles; a dry run on a snapshot; the live slice migrated; the target checked by section
+13.3's validation scan; the namespace switched at an epoch.
+
+- Source: CQL's functorial data migration, from the papers alone, since the CQL code's licence admits only
+  non-commercial and evaluative use. Spivak, "Functorial Data Migration" (arXiv 1009.1166); Spivak and Wisnesky,
+  "Relational Foundations for Functorial Data Migration" (arXiv 1212.5303), whose theorems 3 and 4 compile Delta, Pi,
+  and Sigma along a discrete op-fibration to select, project, union and key generation; Schultz and Wisnesky,
+  "Algebraic Data Integration" (arXiv 1503.03571); "Fast Left Kan Extensions Using the Chase" (arXiv 2205.02425).
+- Decided 2026-11-08: the namespace takes a write fence at cutover, and nothing migrates live. The live slice
+  migrates; bitemporal history stays read-only in the source version. The stage follows conformance, so that stage 8's
+  cluster carries a migration that changes placement (`@colocate`); Bolt moves to 10.5.
+- Open:
+  - Must every IRI survive a migration, may a migration publish an IRI mapping that clients follow, or do old IRIs
+    resolve as aliases of the new instances?
+  - Which mappings are admitted: Delta, and Sigma that merges no instance, as along a discrete op-fibration? Is Pi
+    needed at all?
+  - Where is the mapping written: in UGS, as a declaration of the target version naming its source version?
+  - How does a migrated instance reach its read-only history in the source version?
+  - Does Sigma's decomposition over referentially closed groups of data let each partition migrate its own buckets
+    under UGS's placement rules?
+  - How long does the source version stay readable, and what retires it?
+
+### 17. The API node (stage 11)
+
+From a settled UGS schema, generators emit Protobuf, JSON Schema and GraphQL schemas; a stateless binary loads a
+catalog version and the generated schema, connects to UltraGraphDB and serves gRPC, a REST API and GraphQL. Hydra
+(Apache 2.0) is the precedent for the generators: its adapters rewrite each type a target lacks and flag the loss.
+
+- Decided 2026-11-08: stage 11, after Bolt. Client SDKs come from each ecosystem's own generators over the emitted
+  schemas, not from UltraGraphDB.
+- Open:
+  - Which target comes first: GraphQL for the web UI, JSON Schema for REST through OpenAPI 3.1, or Protobuf for gRPC?
+  - How does each target carry inheritance, n-ary relations, relations over relations, union roles, intervals,
+    measures and the bitemporal fields, and what does the per-type report of losses state?
+  - How does a request become prepared statements of the query core, and how does each refusal, a `UGS1xxx` number or
+    a query diagnostic, become an HTTP status, a gRPC status and a GraphQL error?
+  - How does the node follow a catalog change: reloading on a stale statement (`PROTOCOL.md` section 11.7), with the
+    generated schema naming the catalog version it was generated from?
+  - Do the generators port Hydra's adapter rules alone, or use Hydra's code?
+
+### 18. A formal semantics for UGS (stage not set)
+
+UGS as an algebraic property graph schema (Shinavier and Wisnesky, arXiv 1909.04881), with the RDF view and the GQL
+view as functors of one instance. The mapping contract, risk 2 of the dual query engine plan, then becomes a definition
+with a test oracle: the RDF view round-trips through the instance, as the Grothendieck construction of "Functorial Data
+Migration" does.
+
+- Open:
+  - Are the two views projections translated per query, materialised views, or one store presented through two
+    mechanisms? The analysis of 2026-11-08 found that materialised views give one fact two owners, against P24, and
+    that a projection costs a translation per query only when data, not the query, is translated.
+  - Algebraic property graph types are built from sums and products and have no set: do UGS's set attributes and
+    set-valued roles enter the model as a set constructor, or by reification as instances?
+  - Is the semantics a section of `SCHEMA.md`, a Lean model beside MGQL, or both, and which stage writes it?
+
 ## Source material: requirements
 
 The change's `server-node` spec, whole:

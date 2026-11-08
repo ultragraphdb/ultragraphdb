@@ -82,6 +82,12 @@ recorded in the catalog, and the compilation report names it as declared and une
 - **Invariants are declared, never inferred.** Every constraint is explicit, and the compiler classifies each write
   from the declarations alone.
 
+**Formal semantics.** A catalog's schemas denote an algebraic property graph schema, and a graph's data an algebraic
+property graph on it (`SCHEMA-APG.md`): each instance is an element labelled by its concrete type, whose value is a
+record of its attributes and roles, so a relation instance has identity and may be referenced by another relation's
+role. The standard views of section 11 present that one graph, and the key, presence and single-value rules of
+section 8.2 have PG-Keys' semantics.
+
 ## 3. Lexical structure
 
 ### 3.1 Source
@@ -927,6 +933,13 @@ What each counts: live instances, unless the row says otherwise. Where it is che
 | A relation between two domain graphs | At compile time; at a write naming a participant outside the schema's and shared graphs | `UGS0708`, `UGS1033` |
 | `Set` duplicates | At write: collapsed | none |
 
+The key, uniqueness, presence and single-value rows have PG-Keys' semantics (Angles et al., *PG-Keys*, SIGMOD 2021;
+`SCHEMA-APG.md` section 10). A `@key` is an `IDENTIFIER` key, exclusive, mandatory and singleton, whose scope is the
+key's type tree in one graph; `@unique` is an `EXCLUSIVE` key; a required attribute or role is `MANDATORY`, and a
+single-valued one `SINGLETON`. Each holds when its violation query returns nothing. Participation cardinality takes the
+bounded `COUNT` form PG-Schema proposes. `@acyclic`, `max_depth`, `@limit`, `@no_overlap` and the bitemporal rules are
+UGS's own.
+
 ### 8.3 Mutability classes
 
 | Class | Content | Removal | Monotonic reads |
@@ -1408,6 +1421,13 @@ A schema with any error is refused. Warnings and notes accompany a successful in
 
 ## 11. Standard views: RDF, SHACL and GQL
 
+The views present one algebraic property graph (`SCHEMA-APG.md`, section 10). The RDF view is RDF 1.2 with reifiers,
+published with SHACL shapes that are cross-checked against the common core of SHACL, ShEx and PG-Schema (Ahmetaj et al.,
+2025). The GQL view is a graph of a generated, closed graph type, conforming under ISO GQL's closed graph types and
+PG-Schema's STRICT, closed semantics, as MGQL checks conformance for the GQL core. Part 3 of `SCHEMA-APG.md` defines
+each view as a functor of the algebraic property graph and proves the GQL view's conformance; this section states the
+views it will define.
+
 ### 11.1 Relation encodings
 
 The compiler fixes each relation type's encoding, recorded in its Type entry:
@@ -1476,10 +1496,16 @@ checks, `sh:class` and `sh:or` for roles and unions, and `sh:sparql` for keys an
 | `@bitemporal` | `asserted` and the valid interval as `RECORD` properties |
 | Catalog type as value | A type-name `STRING` |
 | `graph` | A GQL graph of the generated graph type; a domain graph is exposed together with the shared graphs it references as one graph |
-| Cardinality, keys, uniqueness | Enforced by the engine |
+| Cardinality, keys, uniqueness | Enforced by the engine, with PG-Keys' semantics (section 8.2); ISO GQL's graph types declare none of them |
 | `derive` | A read-only edge type or property |
 
-The GQL graph type names every label and property; names that would collide are refused at compile time (`UGS0802`).
+The generated graph type is closed. It holds one node type per concrete entity type and per relation-node type, with
+the exact label set of the type, its supertypes and the statement types covering it, and its declared properties; and
+one edge type per edge-encoded relation, role edge and navigation edge, whose endpoints list the node types of every
+concrete type its role admits. A supertype is a label, never a node type of its own: under closed types a node
+conforms only when its label set equals the type's (PG-Schema, section 4.2), so a closed supertype would admit no
+subtype's node. Every element of the view conforms to the node or edge type of its concrete type. The graph type names
+every label and property; names that would collide are refused at compile time (`UGS0802`).
 
 ### 11.4 Writes through SPARQL and GQL
 
@@ -1824,6 +1850,8 @@ counterparty.
 | Conformance corpus | Built once the language is final for DeepBrain's current target; the proposal is section E of `openspec/notes/UltraGraphDB Schema Feedback.md` |
 | Multiple inheritance | None; union roles cover overlapping participant sets |
 | A standalone compiler binary | None; the server compiles, in CI through the development container |
+| Formal semantics | Decided 2026-11-08: an algebraic property graph is the foundation, the GQL view a closed graph type read with PG-Schema's STRICT, closed semantics, constraints with PG-Keys' semantics, and the RDF view RDF 1.2 with reifiers and SHACL (`SCHEMA-APG.md`, sections 10 and 13). Chosen over PG-Schema as the foundation, whose edges join two nodes and never an edge, whose types are structural rather than nominal, and which has no schema mappings |
+| GQL view's node types | Decided 2026-11-08: one node type per concrete type with its exact label set, supertypes as labels only, since a closed supertype admits no subtype's node |
 
 ## 18. Sources
 
@@ -1843,3 +1871,8 @@ counterparty.
 - Bailis et al., *Coordination Avoidance in Database Systems* (VLDB 2015); Whittaker and Hellerstein, *Interactive
   Checks for Coordination Avoidance* (VLDB 2019); Lesani et al., *Hamsaz* (POPL 2019); Roy et al., *The Homeostasis
   Protocol* (SIGMOD 2015); Power et al., *Keep CALM and CRDT On* (VLDB 2023)
+- `specification/SCHEMA-APG.md`, the formal model the standard views present
+- Shinavier, Wisnesky and Meyers, *Algebraic Property Graphs*, arXiv:1909.04881; Angles et al., *PG-Schema: Schemas for
+  Property Graphs* (SIGMOD 2023) and *PG-Keys: Keys for Property Graphs* (SIGMOD 2021); Ahmetaj et al., *Common
+  Foundations for SHACL, ShEx, and PG-Schema*, arXiv:2502.01295; Thimmaiah, Lin and Gligoric, *MGQL: An Executable,
+  Small-Step Semantics of GQL* (OOPSLA 2026)
