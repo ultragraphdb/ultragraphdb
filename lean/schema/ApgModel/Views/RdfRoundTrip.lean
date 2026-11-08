@@ -432,16 +432,23 @@ theorem ownObjs_rdfType (ι : Nat → Option String) {c : CType T} {e : Nat} {l 
   generalize K.chain l = cs
   induction cs <;> simp_all [List.filterMap_cons]
 
+/-- The classes read at an element's IRI are its chain: its type and every supertype and statement type above it. -/
+theorem classesOf_rdf {ι : Nat → Option String} (graph : Nat → String) {G : FinApg K.schema}
+    (hnd : (G.elems.map Prod.fst).Nodup)
+    (hinj : ∀ x ∈ G.elems, ∀ y ∈ G.elems, ∀ s, ι x.1 = some s → ι y.1 = some s → x.1 = y.1)
+    {x : Nat × Name × VTerm T} (hx : x ∈ G.elems) {s : String} (hs : ι x.1 = some s) {c : CType T}
+    (hc : K.find x.2.1 = some c) : classesOf (rdf K vp ι graph G) s = K.chain x.2.1 := by
+  unfold classesOf
+  rw [objectsOf_rdf K vp graph hnd hinj hx hs (p := .rdfType) rfl, ownObjs_rdfType K vp ι hc, List.filterMap_map]
+  simp [Function.comp_def]
+
 /-- The classes read at an element's IRI are its chain, so its label is read back. -/
 theorem labelOf_rdf {ι : Nat → Option String} (graph : Nat → String) {G : FinApg K.schema}
     (hnd : (G.elems.map Prod.fst).Nodup)
     (hinj : ∀ x ∈ G.elems, ∀ y ∈ G.elems, ∀ s, ι x.1 = some s → ι y.1 = some s → x.1 = y.1)
     {x : Nat × Name × VTerm T} (hx : x ∈ G.elems) {s : String} (hs : ι x.1 = some s) {c : CType T}
     (hc : K.find x.2.1 = some c) : labelOf K (rdf K vp ι graph G) s = some x.2.1 := by
-  have hcls : classesOf (rdf K vp ι graph G) s = K.chain x.2.1 := by
-    unfold classesOf
-    rw [objectsOf_rdf K vp graph hnd hinj hx hs (p := .rdfType) rfl, ownObjs_rdfType K vp ι hc, List.filterMap_map]
-    simp [Function.comp_def]
+  have hcls := classesOf_rdf K vp graph hnd hinj hx hs hc
   obtain ⟨rest, hrest⟩ := chain_head K x.2.1
   unfold labelOf
   simp only [hcls]
