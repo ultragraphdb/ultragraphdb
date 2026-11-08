@@ -34,7 +34,7 @@ RDF 1.2 reifiers and SHACL shapes.
 13. The schema of a catalog (part 3)
 14. Constraints
 15. Identity, graphs and time
-16. Selections and key lookups
+16. Selections, key lookups, extended terms and coproducts
 17. The RDF view
 18. The GQL view
 19. The test oracle
@@ -298,8 +298,8 @@ distributivity requires.
 - The mapping terms of section 8.3 need it: a `case` whose branches read the argument `x` is an arrow
   `τ × (A + B) → C`, which factors through `τ × A + τ × B` only when the first canonical map is invertible.
 - More schema mappings exist (section 9).
-- The paper notes that distributivity complicates term rewriting (paper §5.2); section 22 asks which procedure decides
-  equality.
+- The paper notes that distributivity complicates term rewriting (paper §5.2); section 21 records how equality of
+  mapping terms is checked until a feature needs it decided.
 
 ### 8.3 Mapping terms
 
@@ -367,6 +367,12 @@ keeping the matching ones is a selection, which `Δ` alone does not perform (aft
 finitely many values, `Δ_Φ(G')` is finite. *Proof.* `V_{E'}(t)` is finite for such a `t` over finite `E'`, by
 induction on `t`. A primitive type with infinitely many values in `τ_l` may make `E(l)` infinite; it need not, as when
 it sits in a record beside a label with no elements.
+
+**Finite images (decided 2026-11-08).** A mapping's label images are finite types: every primitive type in `τ_l` has
+finitely many values, as `Bool` and every enumeration have, and a mapping with another image is refused, since `Δ`
+along it may be infinite. The test is on the type alone. The images of `SCHEMA-EVOLUTION.md`'s fragment, labels and
+variants of labels, pass it; a finite primitive still serves, as an image `lbl A × enum x y` splits each element into
+two tagged copies.
 
 **Proposition 9.5 (one origin; here).** If every `τ_l` is a label `lbl l'` or a variant of labels
 `var { n₁ ↦ lbl l'₁, …, nₖ ↦ lbl l'ₖ }`, then each element of `Δ_Φ(G')(l)` is one element `e'` of `G'`, its
@@ -469,7 +475,7 @@ Every construct of `SCHEMA.md` has its place in the model, defined in the sectio
 | Bitemporal versions, `asserted`, `live` | States indexed by commit, and their slices | 15.3 |
 | A node's labels in the GQL view | The exact label set of the concrete type and its supertypes | 10, 18 |
 
-## 12. Collections (part 2)
+## 12. Collections
 
 ### 12.1 The decision
 
@@ -522,14 +528,28 @@ functions:
 | `list t` | `nil`, `cons`, `append`, `length`, `at`, giving `optional t` |
 | `set t` | `empty`, `insert`, `union`, `member`, giving `enum false true`, and `size` |
 
-A mapping term reads and builds collections through these functions. It does not map a term over a collection's
-members, which is a higher-order operation the typeside does not hold (section 22).
+A mapping term reads and builds collections through these functions, and transforms their members through the two
+forms of definition 12.4.
+
+**Definition 12.4 (map and filter; decided 2026-11-08).** For `s : list t` or `s : set t`, the mapping-term forms
+
+```
+map(s, y ⇒ u)        u : t', the image of the member y
+filter(s, y ⇒ q)     q : enum false true, whether the member y is kept
+```
+
+take a body that reads the member `y` alone: no other variable, and no `deref`. `map` applies `u` to every member, in
+order for a list; over a set it gives the set of the images, so members with equal images become one, and `t'` must be
+a type a set admits. `filter` keeps the members for which `q` is `true`. The body is then a closed arrow `t → t'` of
+`C_S` between label-free types, so `map` is the action of `list` and `set` on that arrow: `map(s, y ⇒ y) = s` and
+`map(map(s, y ⇒ u), y ⇒ u') = map(s, y ⇒ u'[u/y])`, equations the theory of section 8.3 gains. Proposition 12.2 and
+corollary 12.3 hold unchanged, since no reference enters a collection.
 
 UQL's result types are label-free types of this grammar, a list of records among them (`QUERY-ULTRA-QL.md` section 5).
 
 ### 12.3 Collections of references
 
-**Definition 12.4 (role label).** For a relation label `R` with a set-valued role `r` whose participants have the type
+**Definition 12.5 (role label).** For a relation label `R` with a set-valued role `r` whose participants have the type
 `U`, the schema has the **role label** `R_r`, and `σ(R)` has no field `r`:
 
 ```
@@ -546,7 +566,7 @@ member; and every element of `R` has at least one element of `R_r`, as a set-val
 
 ### 12.4 Symmetric relations
 
-**Definition 12.5.** A `@symmetric` relation's label has the type of a binary relation, a record whose two role fields
+**Definition 12.6.** A `@symmetric` relation's label has the type of a binary relation, a record whose two role fields
 `a` and `b` have one participant type, and its elements are read **up to the swap** of `a` and `b`:
 
 - its navigation name, which both roles share, reaches the participant in the other field from either one;
@@ -556,7 +576,7 @@ member; and every element of `R` has at least one element of `R_r`, as a set-val
 The model fixes neither order of a value's two participants. The store fixes one, the order of the participants' IDs
 (`SCHEMA.md` section 6.4), which no view and no query observes.
 
-## 13. The schema of a catalog (part 3)
+## 13. The schema of a catalog
 
 A catalog version `K` of a tenant denotes an APG schema `S(K) = (L, σ)` with constraints `C(K)` (section 14). This
 section defines `S(K)`.
@@ -654,8 +674,8 @@ A derivation `derive T.n = body` (`SCHEMA.md` section 6.8) is no field of `σ(T)
 and inverse, filters, a bound `+` or `{m, n}` read as reachability, `exists`, and a fold over the elements a path
 reaches in its order. `@materialized` stores a cache that must equal `d_n` at every state; `@virtual` computes it when
 read. A function (`SCHEMA.md` section 6.9) is a function of `G` and its parameters likewise. A transitive closure is no
-arrow of `C_S`, so derivations and functions are queries over the APG, and a schema mapping's terms do not call them
-(section 22).
+arrow of `C_S`, so derivations and functions are queries over the APG; an extended mapping term calls them as reads of
+its source (definition 16.3).
 
 ## 14. Constraints
 
@@ -701,7 +721,8 @@ For a commit from `G` to `G'`, and an element `e` of `G`:
 | `@append_only` | `e` is in `G'` with an equal value (`UGS1013`); only a legal purge removes it |
 | `@bitemporal` | A change of `e`'s value is a revision: `e` stays, with a new version (section 15.3); `e` leaves the live slice only by retraction, and the store only by purge |
 | `@on_delete` | When `e` is deleted, every element whose field references `e` through a role with `cascade` is deleted, with `restrict` refuses the commit (`UGS1020`), and with `orphan` has that optional field set absent; `G'` is referentially closed (proposition 6.6) |
-| `@on_retract` | When `e` is retracted, every `@bitemporal` element referencing it through a role with `cascade` is retracted, with `restrict` refuses while it is live, and with `restrict open` refuses while it is open (`SCHEMA.md` section 8.4, rule 6) |
+| `@on_retract` | When `e` is retracted, every `@bitemporal` element referencing it through a role with `cascade` is retracted, with `restrict` refuses while it is live, and with `restrict open` refuses while it is open and is retracted with `e` while it is live and no longer open (`SCHEMA.md` section 8.4, rule 6) |
+| Participants of `@bitemporal` relations | No deletion reaches one: every participant type of a `@bitemporal` relation is `@bitemporal` or `@append_only`, a schema rule (`UGS0602`) |
 | `@retracts(r)`, `@ends(r)` | An element inserted into `G'` retracts, or closes the valid interval of, its participant in `r` in the same commit |
 | Live participants | An element inserted into `G'` references no element that is retracted or deleted (`UGS1019`) |
 
@@ -744,28 +765,22 @@ transaction-time interval in which it was the element's value; its `asserted` fi
 | **Believed at** `t` | Every `@bitemporal` element whose `asserted` contains `t`'s epoch, and every element that is not `@bitemporal` and present, while every participant of it is in the slice | The version current at `t` |
 | **With retracted** | Every element present | Its newest version |
 
-A slice is read as an APG only when it is referentially closed, so its **closure** is read: the slice with every element
-its elements reference, transitively, each referenced element that is not in the slice taken with its newest version
-and read with `live` false.
+**Proposition 15.2 (here).** The live slice of every state and the believed slice at every instant are referentially
+closed, so each is an APG. *Proof.* By induction over commits. An insert references only live elements (`UGS1019`). A
+retraction is refused while a `@bitemporal` element references the retracted one through `restrict`, refused while an
+open one does through `restrict open`, which retracts the live ones that are no longer open in the same commit, and
+retracts them through `cascade`; an element of a relation that is not `@bitemporal` leaves the slice with its
+participant by definition. No participant of a `@bitemporal` relation is deleted, since its type is `@bitemporal` or
+`@append_only` (`UGS0602`), and a deletion of any other element applies `@on_delete`, which keeps the state closed
+(section 14.3). A revision keeps the element's identity, so a reference to it stays valid. The believed slice follows
+the same steps read at `t`.
 
-**Proposition 15.2 (here).** When no role of the schema carries `@on_retract(… restrict open)`, and every participant
-type of a `@bitemporal` relation is `@bitemporal` or `@append_only`, the live slice of every state and the believed
-slice at every instant are referentially closed, and equal their closures. *Proof.* By induction over commits. An insert
-references only live elements (`UGS1019`). A retraction cascades to the `@bitemporal` elements referencing the retracted
-one or is refused while they are live, and an element of a relation that is not `@bitemporal` leaves the slice with its
-participant by definition. A revision keeps the element's identity, so a reference to it stays valid. The believed slice
-follows the same steps read at `t`.
+Two rules of `SCHEMA.md` carry the proof: `restrict open` retracts the live instances that are no longer open with
+their participant, so Gen5's closed memberships and closed units leave the live slice with the organisation they name
+and stay readable believed at any earlier instant; and `UGS0602` keeps every participant of a `@bitemporal` relation
+from deletion.
 
-Under `restrict open`, a retraction proceeds while elements that are live but no longer open reference the retracted
-participant, and nothing in `SCHEMA.md` section 8.4 retracts them: Gen5's `MemberOf` and `SubOrganizationOf` keep
-their closed memberships and closed units this way. The live slice then references a retracted element, and its
-closure reads that element with `live` false. Likewise, `SCHEMA.md` section 8.5 applies `@on_delete` to the relations
-naming a deleted entity, and a `@bitemporal` relation takes `@on_retract` instead (`UGS0514`), so what a deletion of a
-participant that is neither `@bitemporal` nor `@append_only` does to a `@bitemporal` relation naming it is unstated.
-Gen5's relations name statements alone, which are `@bitemporal`, so the second case does not arise there; the first
-does, for `MemberOf` and `SubOrganizationOf`. Section 22 asks `SCHEMA.md` to state both rules.
-
-## 16. Selections and key lookups
+## 16. Selections, key lookups, extended terms and coproducts
 
 Two operations stand beside `Δ` where a migration (`SCHEMA-EVOLUTION.md` section 2) or a query needs them.
 
@@ -781,11 +796,27 @@ the element of `E_g(T)` whose key is `v`, as `optional ⟦T⟧`, absent when non
 satisfying the key's exclusivity (section 14.2), which makes the element unique. A lookup reads every element of the
 tree, so it is no arrow of `C_S`; a mapping term extended with lookups is evaluated on valid APGs only.
 
-**Proposition 16.3 (here).** `SCHEMA-EVOLUTION.md`'s non-merging fragment denotes, for a source APG `G` satisfying the
-source's constraints, the target APG `(Δ_Φ G)|p`: `Δ` along label and variant-of-label images, with mapping terms that
-may look up keys, followed by the selection of the maps' `where` predicates. It is defined exactly when the selection
-is, and each target element has one origin (proposition 9.5). *Proof.* Definitions 9.2, 16.1 and 16.2, with
-proposition 9.5 for the images.
+**Definition 16.3 (extended mapping terms; decided 2026-11-08).** An **extended mapping term** is a mapping term of
+definition 8.5 that may also read its source APG: key lookups (definition 16.2), inverse navigations, derivations,
+folds and functions (section 13.5), each evaluated on the valid source APG at one snapshot. A mapping whose terms are
+all pure is a **pure mapping**, the functor of definition 9.1; one with an extended term is an **extended mapping**.
+`Δ` along an extended mapping is definition 9.2 with extended terms, defined on valid APGs. It is no functor of the
+APG theories, so proposition 9.3's composition law holds for pure mappings alone, and a migration report states which
+kind a migration's mapping is (`SCHEMA-EVOLUTION.md` section 5).
+
+**Proposition 16.4 (here).** `SCHEMA-EVOLUTION.md`'s non-merging fragment denotes, for a source APG `G` satisfying the
+source's constraints, the target APG `(Δ_Φ G)|p`: `Δ` along label and variant-of-label images, with extended mapping
+terms, followed by the selection of the maps' `where` predicates. It is defined exactly when the selection is, and
+each target element has one origin (proposition 9.5). *Proof.* Definitions 9.2, 16.1 and 16.3, with proposition 9.5
+for the images.
+
+**Definition 16.5 (coproducts; decided 2026-11-08).** The coproduct of schemas `S` and `S'` with disjoint labels is
+`S + S' = (L ⊔ L', σ ⊔ σ')`, and the coproduct of an APG `G` on `S` and an APG `G'` on `S'` is the APG on `S + S'`
+holding the elements of both. A migration reading two namespaces with no references between them reads their
+coproduct; namespaces whose graphs reference each other's, through imports and bridges, are read as the union of
+proposition 15.1, an APG on one schema whose element sets are disjoint. The model holds no other colimit: a pushout or
+a coequalizer identifies elements, which UGS refuses at commit and `SCHEMA-EVOLUTION.md` refuses at a migration, so an
+integration that identifies entities does so through their keys, where a conflict is refused and named.
 
 ## 17. The RDF view
 
@@ -935,6 +966,13 @@ values, or the core's results do not transfer.
 | Distributivity | `C_S` is distributive (section 8.2) |
 | Lean model | In `lean/`, a binary core with a named layer, proposition 3.3 proved between them (section 20) |
 | Collections | Drafted 2026-11-08, for review: collections of values as `list t` and `set t` over label-free types; set-valued roles reified as role labels; a symmetric relation read up to swap (section 12) |
+| `map` and `filter` | Decided 2026-11-08: over collections of values, with a body that reads the member alone (definition 12.4) |
+| Finite images | Decided 2026-11-08: every primitive type in a label's image has finitely many values (section 9) |
+| Extended mapping terms | Decided 2026-11-08: a mapping's terms may read its valid source, by key lookups, inverse navigations, derivations, folds and functions; such a mapping is no functor, and its report says so (definition 16.3) |
+| Colimits | Decided 2026-11-08: coproducts alone; no pushout or coequalizer, which would identify elements (definition 16.5) |
+| `restrict open` | Decided 2026-11-08: refuses a retraction while open instances name the participant, and retracts the live instances that are no longer open with it (`SCHEMA.md` section 8.4, rule 6) |
+| Participants of `@bitemporal` relations | Decided 2026-11-08: `@bitemporal` or `@append_only` types alone (`UGS0602`), so the live and believed slices are closed under references (proposition 15.2) |
+| Equality of mapping terms | Decided 2026-11-08: no decision procedure until a feature needs one, since UGS declares no path equations and type-checking a mapping needs no equality; normal forms decide the fragment without variants, and two mappings are compared by evaluation on the generated APGs of section 19 |
 | A catalog's schema | Drafted 2026-11-08: one label per concrete type, `@independent` attribute type and role label; a supertype as the variant of its concrete subtypes; navigation names as inverse references, never fields (section 13) |
 | Constraints | Drafted 2026-11-08: state constraints on one APG and transition constraints on a commit, each held when its violation query returns nothing (section 14) |
 | History | Drafted 2026-11-08: a state per commit, read through its live, believed or full slice, closed under references (section 15.3) |
@@ -942,21 +980,8 @@ values, or the core's results do not transfer.
 
 ## 22. Open questions
 
-- With `C_S` distributive and without function types, which procedure decides equality of mapping terms, as checking
-  a migration against a declared equation needs? Scherer's procedure decides the lambda calculus with sums and the
-  empty type, function types included: does the distributive theory without them embed conservatively in it, so that
-  the procedure decides it, or does UltraGraphDB need a normaliser of its own, and at what cost for a catalog's size?
-- Are a label's images restricted to types whose primitive types have finitely many values (proposition 9.4)?
-- Do colimits of APGs, which CQL's `apg` package builds, belong to the model, to integrate two schemas? A migration's
-  `where` is the selection of section 16 and needs none.
-- Which rule does `SCHEMA.md` section 8.4 state for the live instances that are no longer open when `restrict open`
-  admits their participant's retraction: do they stay live, as section 15.3's closure reads them, or are they retracted
-  with it? And what does deleting a participant that is neither `@bitemporal` nor `@append_only` do to a `@bitemporal`
-  relation naming it?
-- Does a mapping term map a term over a collection's members, which needs a higher-order typeside function or a
-  comprehension, so that a migration can rewrite a list's or set's members?
-- May a schema mapping's terms call derivations and functions, which are queries rather than arrows of `C_S`, as
-  section 16 lets them look up keys?
+None at present. The questions of 2026-11-08 are decided in section 21; a feature that needs equality of mapping terms
+decided reopens the choice of procedure recorded there.
 
 ## 23. Sources
 

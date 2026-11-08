@@ -25,7 +25,10 @@ those of functorial data migration, restricted to a fragment that never merges i
 - Does a namespace that imports the migrating one migrate with it, or must its imports name the target's version
   first?
 - May a run's catch-up recompute only what changed, through the referrer sets of the instances written in `(e0, e1]`,
-  or must it rescan every image whose assignments cross partitions?
+  or must it rescan every image whose assignments cross partitions? An extended term that reads a derivation or a fold
+  makes an image depend on every instance the read reaches.
+- Does a migration read several namespaces at once? Its source is then their coproduct, or the union of their graphs
+  where they reference each other (`SCHEMA-APG.md`, definition 16.5).
 
 ## Contents
 
@@ -82,11 +85,14 @@ UltraGraphDB admits the **non-merging fragment**:
 - **No two origins share an image.** Distinct source elements give distinct target elements: a union of source types
   into a target type, never an identification of their instances. In the relational reading this is Σ along a
   discrete op-fibration; in the algebraic property graph it is `Δ` along a variant of labels.
-- **An image is a function of its origin and the source snapshot.** Its attributes and roles are mapping terms over
-  the origin (`SCHEMA-APG.md`, definition 8.5), read at one snapshot epoch.
+- **An image is a function of its origin and the source snapshot.** Its attributes and roles are extended mapping
+  terms over the origin (`SCHEMA-APG.md`, definition 16.3), read at one snapshot epoch: the pure terms of definition
+  8.5 there, `map` and `filter` over collections (definition 12.4 there), and reads of the source, key lookups,
+  inverse navigations, derivations, folds and functions. Proposition 9.3's composition law holds for a migration whose
+  terms are all pure, which the migration report states (section 5).
 - **Two steps beyond `Δ`.** A map's `where` is a selection, defined when what it keeps references nothing it drops
   (`SCHEMA-APG.md`, definition 16.1); a role assigned by key lookup searches a label's elements by key and reaches at
-  most one, because a key is exclusive under PG-Keys' semantics (definition 16.2). Proposition 16.3 there states the
+  most one, because a key is exclusive under PG-Keys' semantics (definition 16.2). Proposition 16.4 there states the
   fragment's semantics.
 
 Within the fragment a migration is a union of selections, renamings and per-instance computations. Spivak and Wisnesky
@@ -112,7 +118,7 @@ kind           = "type" | "attribute" | "role" | "nav" | "graph" ;
 map            = "map" qname [ "primary" ] "from" qname { "," qname } [ "where" expr ]
                  [ "{" { assign } "}" ] ;
 assign         = ident "=" mexpr ;
-mexpr          = "self" | expr ;
+mexpr          = "self" | expr | ( "map" | "filter" ) "(" expr "," ident "=>" expr ")" ;
 drop           = "drop" kind qname ;
 qname          = ident [ "." ident ] ;
 ```
@@ -289,10 +295,12 @@ there states. The migration's own checks:
 | A role's assignment reaches a type the role's type has a map from | `UGS2107` |
 | A renamed item's new name is free, and no retired name is reused | `UGS2109` |
 | A `where` and every assignment are pure and deterministic, as a derivation's (`SCHEMA.md` section 6.8) | `UGS2110` |
+| A `map` or `filter` body reads its member alone, and a `map` over a set gives a type a set admits (`SCHEMA-APG.md`, definition 12.4) | `UGS2112` |
 
 The install's reply carries the **migration report**: per target type, its sources, the IRIs kept, stored and minted,
-the claims to re-register, the instances that change partition (section 8), and the estimated size of the copy; and
-the staged namespace's identifier, which the run is started with.
+the claims to re-register, the instances that change partition (section 8), and the estimated size of the copy;
+whether the mapping is pure or extended, naming each extended term (`SCHEMA-APG.md`, definition 16.3); and the staged
+namespace's identifier, which the run is started with.
 
 ## 6. The run
 
@@ -373,6 +381,7 @@ A migration rewrites what the database owns and publishes what it cannot rewrite
 | `UGS2109` | A rename to a name in use, or a reuse of a retired name |
 | `UGS2110` | A `where` or an assignment that is not pure and deterministic |
 | `UGS2111` | A migration whose `from` version is not the namespace's installed version, or whose `to` is not the target's |
+| `UGS2112` | A `map` or `filter` body that reads more than its member, or a `map` over a set into a type a set does not admit |
 | `UGS2201` | Two origins whose images collide on a target key; the message names both |
 | `UGS2202` | Migrated data that breaks a target rule; the message names the instance and the rule's own refusal |
 
@@ -400,7 +409,7 @@ A migration rewrites what the database owns and publishes what it cannot rewrite
 | History | Decided 2026-11-08: the live slice migrates; bitemporal history stays read-only in the source version |
 | Stage | Decided 2026-11-08: stage 9.5, after conformance, so stage 8's cluster carries a migration that changes placement |
 | IRIs | Drafted 2026-11-08: fixed at birth; a keyed IRI names its key space, which outlives renames, and a handle states its bucket, so every IRI routes without a lookup |
-| Fragment | Drafted: `Δ` along label and variant-of-label images (`SCHEMA-APG.md`, proposition 9.5), with selections and key lookups; every image with one origin; no joins, no merging |
+| Fragment | Drafted: `Δ` along label and variant-of-label images (`SCHEMA-APG.md`, proposition 9.5), with extended mapping terms, `map` and `filter` over collections, and selections; every image with one origin; no joins, no merging (proposition 16.4 there) |
 | Where the mapping is written | Drafted: a `migration` source installed with the target's schema source |
 | `asserted` of an image | Drafted: the origin's start, so the time a statement was first believed survives |
 
