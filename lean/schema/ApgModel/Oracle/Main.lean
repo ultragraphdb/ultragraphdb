@@ -8,9 +8,9 @@ import ApgModel.Oracle.Check
 # `apg_oracle`
 
 `lake exe apg_oracle <dir>` writes, for each schema of the corpus, its instance sets' `R(G)` as N-Quads, one file per
-set at `<dir>/<schema>/<n>.nq`, and `<dir>/MANIFEST` naming the Lean commit that wrote them (`SCHEMA-APG.md` section
-19, `openspec/notes/prepare-apg-lean.md` section 1). A file is at once the set's write, `INSERT DATA` of its quads with
-the engine minting every blank node's IRI, and the view the engine must return. Every set passes `Corpus.failures`
+set at `<dir>/<schema>/<n>.nq`, and `<dir>/MANIFEST` naming the Lean commit that wrote them (`SCHEMA-APG.md` section 19,
+`openspec/notes/archive/prepare-apg-lean.md` section 1). A file is at once the set's write, `INSERT DATA` of its quads
+with the engine minting every blank node's IRI, and the view the engine must return. Every set passes `Corpus.failures`
 before its file is written; a failure writes nothing and exits 1.
 -/
 

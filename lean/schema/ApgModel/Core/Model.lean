@@ -8,8 +8,8 @@ import ApgModel.Core.Term
 # Models of the APG theory
 
 `SCHEMA-APG.md` definitions 8.2 and 8.3 and proposition 8.4, in the generator form decision L4 of
-`openspec/notes/prepare-apg-lean.md` takes: the theory `C_S` is not built as a category object; its arrows are the
-mapping terms of definition 8.5, and a model is an interpretation of every term that preserves what the theory's
+`openspec/notes/archive/prepare-apg-lean.md` takes: the theory `C_S` is not built as a category object; its arrows are
+the mapping terms of definition 8.5, and a model is an interpretation of every term that preserves what the theory's
 structure fixes.
 
 A `Model` interprets each label as a set and the generator `δ_l` as a function into its type's values, and every

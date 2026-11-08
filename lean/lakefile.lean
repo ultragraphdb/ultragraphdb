@@ -32,7 +32,7 @@ lean_lib PlacementModel where
 
 -- The algebraic property graphs of `specification/schema/SCHEMA-APG.md`: a binary core proving the paper's results, a
 -- named layer over it, the catalog's schema, constraints, history, migration operations and the two views. Its sources
--- sit under `schema/`; `openspec/notes/prepare-apg-lean.md` plans it.
+-- sit under `schema/`; `openspec/notes/archive/prepare-apg-lean.md` plans it.
 @[default_target]
 lean_lib ApgModel where
   srcDir := "schema"

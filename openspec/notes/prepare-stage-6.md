@@ -156,7 +156,7 @@ and checks the decisions of `SCHEMA-APG.md` section 21 before the change set is 
 stage 5.5's group 6b: built by `lake` outside Bazel on the toolchain of `lean/lean-toolchain`, its scenarios Lean
 theorems named after them, no Gherkin and no `bdd` target, done when `lake build ApgModel` is green with no `sorry`,
 the library added to `lean/lakefile.lean` beside `RoundModel` and `PlacementModel`, its sources under `lean/schema/`;
-its plan is `prepare-apg-lean.md`.
+its plan is `archive/prepare-apg-lean.md`.
 - **A.1** The binary core of `SCHEMA-APG.md` section 20: types, values, APGs, homomorphisms, mapping terms, `Δ`, with
   propositions 5.3, 6.3, 6.6, 7.2, 8.4, 8.7, 9.3, 9.4 and 9.5; `DecidableEq` for the nested types written by hand,
   since Lean 4.14 does not derive it.

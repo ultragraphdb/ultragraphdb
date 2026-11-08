@@ -10,12 +10,12 @@ import ApgModel.Named.Collections
 `SCHEMA-APG.md` section 13 and proposition 13.1: a catalog version `K` denotes an APG schema `S(K)`.
 
 A catalog (`Catalog`) lists its declared types in declaration order: each a name, a kind, a parent, whether it is
-abstract, its type prefix (`SCHEMA.md` section 7.1), its key, whether it is `@bitemporal`, `@multi` or `@symmetric`,
-its `@colocate` role, and its own fields: attributes with the view the RDF view writes them in, single-valued roles with
-their navigation names, and set-valued roles, a role naming the participant types it admits. The model takes field
-types already translated to named types (`SCHEMA-APG.md` section 13.2); the compiler's translation of UGS types is the
-compiler's, checked against this model when the compiler exports its catalogs (`openspec/notes/prepare-apg-lean.md`,
-task A.6).
+abstract, its type prefix (`SCHEMA.md` section 7.1), its key, whether it is `@bitemporal`, `@multi` or `@symmetric`, its
+`@colocate` role, and its own fields: attributes with the view the RDF view writes them in, single-valued roles with
+their navigation names, and set-valued roles, a role naming the participant types it admits. The model takes field types
+already translated to named types (`SCHEMA-APG.md` section 13.2); the compiler's translation of UGS types is the
+compiler's, checked against this model when the compiler exports its catalogs
+(`openspec/notes/archive/prepare-apg-lean.md`, task A.6).
 
 - `conc(T)` is the concrete types at or below `T` (section 13.1); a role's participant type `⟦U⟧` is the one label
   when the union admits one concrete type and the variant over them otherwise (`Catalog.participantType`).

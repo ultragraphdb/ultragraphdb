@@ -9,7 +9,7 @@ import ApgModel.Views.RdfRoundTrip
 # Graphs, states and slices
 
 `SCHEMA-APG.md` section 15: proposition 15.1, the union of graphs, and proposition 15.2, the closure of the live and
-believed slices of every state the history reaches (decision L9 of `openspec/notes/prepare-apg-lean.md`).
+believed slices of every state the history reaches (decision L9 of `openspec/notes/archive/prepare-apg-lean.md`).
 
 **States.** A state holds every element ever written and not purged, each with its label, its versions, newest first,
 each the value it held over a transaction-time interval of epochs, and its `asserted` interval (`SCHEMA.md` section

@@ -41,10 +41,10 @@ import ApgModel.Theorems
 /-!
 # Algebraic property graphs
 
-The Lean model of `specification/schema/SCHEMA-APG.md`, planned in `openspec/notes/prepare-apg-lean.md`: a binary
-core over families of elements, in which the paper's results are proved by structural induction, and, in later
-waves, a named layer over it, the catalog's schema, its constraints, history, migration operations, and the RDF and
-GQL views with the test oracle that runs them.
+The Lean model of `specification/schema/SCHEMA-APG.md`, planned in `openspec/notes/archive/prepare-apg-lean.md`: a
+binary core over families of elements, in which the paper's results are proved by structural induction, and, in later
+waves, a named layer over it, the catalog's schema, its constraints, history, migration operations, and the RDF and GQL
+views with the test oracle that runs them.
 
 This version holds waves L1 to L10; `ApgModel.Theorems` tables every statement with its Lean names and the comparison
 with the paper's Coq development. The core: the typeside (definition 2.1); types and schemas (definitions 3.2, 4.1,

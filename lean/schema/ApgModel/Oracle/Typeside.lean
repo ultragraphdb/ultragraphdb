@@ -7,9 +7,9 @@ import ApgModel.Typeside
 /-!
 # The oracle's typeside
 
-Decision L6 of `openspec/notes/prepare-apg-lean.md`: the primitive types Gen5 and `SCHEMA.md` section 16's aviation
-example write, with `SCHEMA.md` section 5.1's values, each with decidable equality and a decidable linear order, which a
-set's canonical order needs.
+Decision L6 of `openspec/notes/archive/prepare-apg-lean.md`: the primitive types Gen5 and `SCHEMA.md` section 16's
+aviation example write, with `SCHEMA.md` section 5.1's values, each with decidable equality and a decidable linear
+order, which a set's canonical order needs.
 
 - The integers carry their width, and a value is an `Int` that `Prim.admits` checks against the width's range;
   `Decimal(p, s)` is an `Int` scaled by `10^s`.

@@ -16,10 +16,10 @@ import ApgModel.Oracle.Check
 # The theorems of `SCHEMA-APG.md`
 
 Every definition, proposition, corollary and example of `specification/schema/SCHEMA-APG.md` sections 2 to 19 and its
-Lean counterpart (`openspec/notes/prepare-apg-lean.md`, sections 1 and 6). The compiler checks each name below at the
-end of this file. Every theorem rests on Lean's `propext`, `Quot.sound` and `Classical.choice` alone, and every
-executable definition, the oracle's included, on `propext` and `Quot.sound` at most; no `sorry`, `admit` or `axiom`
-is declared.
+Lean counterpart (`openspec/notes/archive/prepare-apg-lean.md`, sections 1 and 6). The compiler checks each name below
+at the end of this file. Every theorem rests on Lean's `propext`, `Quot.sound` and `Classical.choice` alone, and every
+executable definition, the oracle's included, on `propext` and `Quot.sound` at most; no `sorry`, `admit` or `axiom` is
+declared.
 
 | Statement | Lean |
 |---|---|

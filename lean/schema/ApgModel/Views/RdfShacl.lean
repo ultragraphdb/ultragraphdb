@@ -7,8 +7,9 @@ import ApgModel.Views.RdfRoundTrip
 /-!
 # Corollary 17.4: the SHACL shapes hold on the RDF view
 
-`SCHEMA-APG.md` corollary 17.4 and decision L10 of `openspec/notes/prepare-apg-lean.md`: one lemma per shape condition
-`SCHEMA.md` section 11.2 publishes, stated over the quads of `R(G)` at an element's IRI; no SHACL engine is modelled.
+`SCHEMA-APG.md` corollary 17.4 and decision L10 of `openspec/notes/archive/prepare-apg-lean.md`: one lemma per shape
+condition `SCHEMA.md` section 11.2 publishes, stated over the quads of `R(G)` at an element's IRI; no SHACL engine is
+modelled.
 
 - `sh:minCount 1`: a required attribute has a quad (`shacl_min_count`);
 - `sh:maxCount 1`: a single-valued attribute has at most one (`shacl_max_count`);
