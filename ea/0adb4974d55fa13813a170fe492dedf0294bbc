@@ -1,0 +1,25 @@
+specification/QUERY-ULTRA-QL.md
+  s_d18ff34562952d::t_2a73806a16266f 78,767-769
+specification/SCHEMA-APG.md
+  s_d18ff34562952d::t_567212f852140d 3,11-14,32-44,301,443,445-588,590-884,920-922,927,936-941,943,950-961
+specification/SCHEMA-EVOLUTION.md
+  s_d18ff34562952d::t_b69164b4f4cca8 87-90,381-382
+specification/SCHEMA.md
+  s_d18ff34562952d::t_c48fd37783c2d8 1428-1430,1854
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ea0adb4974d55fa13813a170fe492dedf0294bbc",
+  "prompts": {},
+  "sessions": {
+    "s_d18ff34562952d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b263ae46-8b16-46b4-81c5-522c712b251f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
