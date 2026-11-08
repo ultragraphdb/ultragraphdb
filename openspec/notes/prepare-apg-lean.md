@@ -212,7 +212,10 @@ names the sections of `SCHEMA-APG.md` it transcribes, and each theorem's the pro
 | `schema/ApgModel/Views/RdfShacl.lean` | Corollary 17.4 (L7b) | 17 |
 | `schema/ApgModel/Views/Gql.lean` | `P` as MGQL's graph, `Γ`, propositions 18.2 to 18.4 | 18 |
 | `schema/ApgModel/Oracle/Typeside.lean` | The oracle's concrete typeside (decision L6), with wave L7a | 2 |
-| `schema/ApgModel/Oracle/Generate.lean`, `Oracle/NQuads.lean`, `Oracle/Main.lean` | The generator of valid APGs, the N-Quads exporter and parser, `apg_oracle` | 19 |
+| `schema/ApgModel/Oracle/Lexical.lean` | `PROTOCOL.md` section 10.5's canonical lexical forms, the calendar, the `rdf:JSON` value form (L7c) | 19 |
+| `schema/ApgModel/Oracle/NQuads.lean`, `Oracle/Parse.lean` | The naming of an export, `R(G)` written as N-Quads, and read back through the catalog (L7c) | 19 |
+| `schema/ApgModel/Oracle/Aviation.lean` | `SCHEMA.md` section 16's aviation catalog and its instance sets (L7c) | 16, 19 |
+| `schema/ApgModel/Oracle/Check.lean`, `Oracle/Main.lean` | The checks of every set, run by the build, and `apg_oracle <dir>` (L7c) | 19 |
 | `schema/ApgModel/Theorems.lean` | The index of every result, with the Rust check each feeds | all |
 
 ## 6. Every statement and its proof
@@ -340,6 +343,25 @@ folder as its one argument, and L7c runs it into a scratch folder whose files Le
   section 9's finite-images rule excludes it (decided 2026-11-08);
 - example 9.6 is checked by the kernel, the identity term of `AssertedBy` type-checking against `Φ̂(σ'(AssertedBy))`
   as the specification states.
+
+**What L7c has settled:**
+- an export names a keyed element by the IRI its key mints (`SCHEMA.md` sections 7.2 and 7.3) and an element whose IRI
+  the engine draws, a handle or a reifier, by a blank node, as `INSERT DATA` writes it; the engine's view is compared
+  with `R(G)` up to a bijection between those blank nodes and the IRIs it minted (`SCHEMA-APG.md` section 19, decided
+  2026-11-08), so one file is at once a set's write and its expected view;
+- an `rdf:JSON` literal holds RFC 8785's canonical JSON: a record an object of its present fields, a list an array, an
+  enum member a string, a `Bool` `true` or `false`, every other scalar a string of its lexical form (`SCHEMA.md`
+  section 11.2, decided 2026-11-08);
+- the exporter writes `PROTOCOL.md` section 10.5's lexical forms, a `Float64` as its exact decimal, which is the
+  shortest for the small mantissas and exponents the generator writes; the parser reads each form back, a literal
+  through its attribute's type in the catalog and the subject's label from its type quads;
+- each corpus schema is a catalog, a generator of instance sets honouring its constraints by construction, and its
+  constraint queries; the build checks sets 0 to 3 of each: valid, every constraint holding, `R⁻¹(R(G))` holding
+  exactly `G`'s elements, and the N-Quads reading back as `R(G)` quad for quad;
+- the aviation schema is in the corpus, `embedding` left out until stage 8 stores vectors;
+- `lake exe apg_oracle <dir>` writes `<dir>/<schema>/<n>.nq` and a `MANIFEST` with the Lean commit, `-dirty` for an
+  uncommitted tree. On macOS 27 the dynamic loader refuses the binary Lean 4.14's linker produces, so there it runs as
+  `lake env lean --run schema/ApgModel/Oracle/Main.lean <dir>`, which is the same `main`.
 
 **What L7b settled:**
 - the view's predicates and class IRIs are structured values (`Pred`, `Term.cls`), as its literals are (decision L5);

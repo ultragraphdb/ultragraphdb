@@ -4,7 +4,8 @@ Preparation for stage 5.5's specifications: what bounds a replica group's write 
 and the runtime model the measurements point to. A storage node gives its cores to partitions, each a shared-nothing
 replica group with its own log, commit step and buckets; every partition core hosts three replicas, leading one, after
 ScyllaDB's shard-per-core model and TigerBeetle's one core per replica. The model is sized for nodes of 12 to 128
-cores. Backlog item 11 tracks what remains to specify; the distribution architecture
+cores. Stage 5.5 built what P20 and P24 give it, listed with its crates and files in *What stage 5.5 built* at the
+end; backlog item 11 tracks what stage 8 builds. The distribution architecture
 (`UltraGraphDB Distribution Architecture.md`) is the frame it refines, and the distribution protocol
 (`UltraGraphDB Distribution Protocol.md`) is the replication protocol these replicas run.
 
@@ -1007,3 +1008,27 @@ facts it points at, only the guarantee that it grows before they are written.
   or one of several parallel edges, through that IRI, as RDF 1.2 reification does. A Commit result names the node an
   operation found or created by its IRI or skolem IRI; a transaction names on Begin the level, session token and
   deadline its reads share; a resume key carries its last row's terms as text, the pattern's hash and a checksum.
+
+## What stage 5.5 built
+
+Stage 5.5's change (`openspec/changes/stage-5-5-three-role-refactor`) built every decision P20 and P24 assign it, each
+group on one replica; P20's list of what stage 8 builds is backlog item 11. Each row names the decision, what runs and
+where.
+
+| Decision | Built | Where |
+|---|---|---|
+| D1, P1, P7, P15, P16, P24 rule 1 | The 128-bit system ID, type prefix, sequence, bucket and 24 reserved bits from the most significant bit; the bucket's top 8 bits hashed from the tenant, its low 16 from the declaring type's prefix and the canonical key; sequences leased in blocks per (type, partition) and never reused | `ultragraphdb_core_ids` (`src/types/system_id/mod.rs`, `src/types/bucket/mod.rs`, `src/types/tenant.rs`); blocks through `ultragraphdb_traits_blocks`' `BlockSource`, leased by the metadata group |
+| P2, D4 | Buckets assigned to partitions as ranges, tenant runs, bucket groups resolved at an epoch, preferred leaders, each layout from the epoch it applies at | `ultragraphdb_cluster_placement` (`src/types/placement_map/mod.rs`) |
+| D4 | The metadata group with one replica: tenants, catalog versions, sequence blocks, the placement map, principals and the registry of sessions, a state machine over the ordered log | `ultragraphdb_cluster_metadata` (`src/types/metadata_group/mod.rs`), run by the frontend's owner in `ultragraphdb_common_frontend` |
+| P21, P24 rule 11 | The sequencer with one replica: epochs closed at its wall-clock time or early on request, each close recording the catalog versions taking effect at `c + 2` and the placement version, `as of`, the ordered log of multi-partition transactions | `ultragraphdb_cluster_sequencer` (`src/types/sequencer/mod.rs`); the metadata group learns each close in `src/types/metadata_group/metadata_group_catalog.rs` |
+| P13, P24 rule 4 | A version of a 42-bit epoch and a 22-bit sequence; a partition stamps exactly one above the latest close delivered to it, asks for a close when its epoch is full and refuses its commits as busy after `close_request_ms` | `ultragraphdb_core_ids` (`src/types/version/mod.rs`); `ultragraphdb_transactions_commit` (`src/types/epoch_stamp/mod.rs`, `src/types/close_request.rs`) |
+| P19, P24 rule 2 | Keys over 128-bit IDs, a reverse key ending with its object, the marks and referrers keyspaces; a partition's forward, reverse, index and statistics entries written in one local commit | `ultragraphdb_core_keys` (`src/types/keyspace.rs`, `QuadKey`); `ultragraphdb_store_apply`, `ultragraphdb_store_quads` |
+| P9, P18 and P24's amendment | The logical log record: resolved quads with their system IDs, the round's dictionary entries, registrations, operations, session-table entries, one epoch, catalog and derivation version per round; the log the only synced stream, fjall's journal persisted manually and never synced | `ultragraphdb_protocol_wire` (`src/types/write_set_record/mod.rs`); `ultragraphdb_transactions_log`'s `Wal`; `ultragraphdb_store_kv` (`src/types/fjall_store/mod.rs`) |
+| P10's interface | The ordered-log interface with durability tickets, one log per partition behind it | `ultragraphdb_traits_log` (`src/traits/ordered_log.rs`, `src/types/durability_ticket.rs`) |
+| P24 rules 3 and 5 | Registration as get-or-create at the entity's home, durable before its reply; the referrer's marks; referrer sets whose members carry their epoch and generation | `ultragraphdb_cluster_partition` (`src/types/home/mod.rs`, `src/types/reference.rs`); `ultragraphdb_store_quads` (`src/types/referrer_set/mod.rs`) |
+| P24 rule 6 | Reverse reads and summed reverse counts through referrer sets at a closed epoch, fanned out to the member partitions; compute's routing, fan-out and merge in key order | `ultragraphdb_cluster_partition` (`src/types/fanout/mod.rs`, `src/types/reverse_query.rs`); `ultragraphdb_common_compute` |
+| P24 rules 7 and 8 | A read-write transaction bound to the partition owning its first subject; cross-partition work, a delete by pattern reaching another partition's state included, refused with `CrossPartition` | `ultragraphdb_transactions_txn` (`Transaction::bind`, `src/types/transaction/mod.rs`); `ultragraphdb_cluster_partition`'s `PartitionError` |
+| P24, rules 4, 5, 6, 9 and 11 | The placement model in Lean, built with no `sorry`; its invariants checked after every step of partitions on the simulator under every fault class | `lean/PlacementModel`; `ultragraphdb_tool_test` (`src/types/partition_workload/mod.rs`) |
+| P20, P5 step 1 | The partition runtime, partition-generic: one partition by default (`partition_count` in the `dev` profile), N in one process in `wal_bench --partitions`, each on a pinned compio runtime with its own store, log and seeded generator and a share of edges to other partitions' entities | `ultragraphdb_cluster_partition` (`PartitionHost`), hosted by `ultragraphdb_common_storage`; `ultragraphdb_tool_bench` (`src/utils/partitions_run.rs`) |
+| P22 | The frontend, compute and storage binaries and the supervisor, joined over Unix-domain sockets in the development image; each role's image on the Wolfi glibc base and the seccomp profile allowing io_uring | `ultragraphdb/ultragraphdb_frontend`, `ultragraphdb_compute`, `ultragraphdb_storage`, `ultragraphdb_supervisor`; `glibc_multiarch_img` in each role's `BUILD.bazel`; `bazel/oci_images/seccomp/ultragraphdb.json` |
+| P23 | The packed list and the posting list with 128-bit IDs under their own version bytes, their golden values generated from their specifications | `ultragraphdb_core_codec` (`testdata/golden/formats.py`) |

@@ -1490,6 +1490,13 @@ A `@symmetric` relation is stored in ID order under either encoding (section 6.4
 | `@maps_to(ext:term)` | `owl:equivalentClass` or `owl:equivalentProperty` to the external term, in the vocabulary document; on a quantity kind or a unit, an individual, `skos:exactMatch` |
 | `///` documentation | `rdfs:comment` |
 
+An `rdf:JSON` literal holds its value as JSON in the canonical form of RFC 8785, the form RDF 1.2 names: a record as an
+object of its present fields, an absent optional field left out, an interval as the record of its bounds and
+precisions and a measure as the record of its value and unit (`SCHEMA-APG.md` section 13.2); a `List` as an array; an
+enum member as a string of its name; a `Bool` as `true` or `false`; and every other scalar as a string of its canonical
+lexical form (`../binary_protocol/PROTOCOL.md` section 10.5), so no integer, decimal or float loses
+precision.
+
 The view is published as a vocabulary document per schema and as SHACL shapes: one `sh:NodeShape` per concrete type
 with `sh:targetClass`, a `sh:property` per attribute with `sh:datatype` or `sh:class`, `sh:minCount 1` when required,
 `sh:maxCount 1` when single-valued, `sh:in`, `sh:pattern`, `sh:minInclusive` and `sh:maxInclusive` from the value

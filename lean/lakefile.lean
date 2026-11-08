@@ -37,3 +37,9 @@ lean_lib PlacementModel where
 lean_lib ApgModel where
   srcDir := "schema"
   roots := #[`ApgModel]
+
+-- The test oracle of `SCHEMA-APG.md` section 19: `lake exe apg_oracle <dir>` checks each corpus schema's instance sets
+-- and writes their `R(G)` as N-Quads into `<dir>`, with the Lean commit that wrote them.
+lean_exe apg_oracle where
+  srcDir := "schema"
+  root := `ApgModel.Oracle.Main
