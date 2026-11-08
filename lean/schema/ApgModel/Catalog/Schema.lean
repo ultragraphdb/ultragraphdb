@@ -10,15 +10,21 @@ import ApgModel.Named.Collections
 `SCHEMA-APG.md` section 13 and proposition 13.1: a catalog version `K` denotes an APG schema `S(K)`.
 
 A catalog (`Catalog`) lists its declared types in declaration order: each a name, a kind, a parent, whether it is
-abstract, its type prefix (`SCHEMA.md` section 7.1), and its own fields, attributes, single-valued roles and
-set-valued roles, a role naming the participant types it admits. The model takes field types already translated to
-named types (`SCHEMA-APG.md` section 13.2); the compiler's translation of UGS types is the compiler's, checked against
-this model when the compiler exports its catalogs (`openspec/notes/prepare-apg-lean.md`, task A.6).
+abstract, its type prefix (`SCHEMA.md` section 7.1), its key, whether it is `@bitemporal`, `@multi` or `@symmetric`,
+its `@colocate` role, and its own fields: attributes with the view the RDF view writes them in, single-valued roles with
+their navigation names, and set-valued roles, a role naming the participant types it admits. The model takes field
+types already translated to named types (`SCHEMA-APG.md` section 13.2); the compiler's translation of UGS types is the
+compiler's, checked against this model when the compiler exports its catalogs (`openspec/notes/prepare-apg-lean.md`,
+task A.6).
 
 - `conc(T)` is the concrete types at or below `T` (section 13.1); a role's participant type `⟦U⟧` is the one label
   when the union admits one concrete type and the variant over them otherwise (`Catalog.participantType`).
 - `S(K)` (`Catalog.schema`) has a label per concrete type, the record of its fields, own and inherited, a specialised
-  role replacing its super role; and a role label `R_r` per set-valued role (section 12.3).
+  role replacing its super role, `asserted` on a `@bitemporal` type; and a role label `R_r` per set-valued role
+  (section 12.3).
+- A relation's encoding is `SCHEMA.md` section 11.1's: edge-encoded with exactly two roles, neither set-valued, and no
+  key (`Catalog.edgeEncoded`), anchored at its `@colocate` role or its first role (`Catalog.anchorRole`), allocating a
+  reifier when it carries attributes, is `@multi`, or a role names it (`Catalog.allocatesReifier`).
 - A type's prefix set is its own prefix and its descendants', kept as sorted half-open ranges (`Catalog.ranges`); a type
   test is a check against those ranges (`inRanges`). Proposition 13.1: an element's label, its concrete type, is in
   `conc(T)` exactly when its prefix is in `T`'s ranges (`Catalog.is_iff_inRanges`).
@@ -101,24 +107,43 @@ inductive TypeKind where
   | relation
   deriving DecidableEq, Repr
 
+/-- How the RDF view writes an attribute (`SCHEMA.md` section 11.2): its literals, an interval's bounds and
+precisions, a measure with its unit on the value, or a catalog type's class IRI. -/
+inductive AttrView where
+  | plain
+  | interval
+  | measure
+  | typeValue
+  deriving DecidableEq, Repr
+
 /-- A field a type declares, its type already a named type. -/
 inductive Field (T : Typeside) where
-  /-- An attribute of a label-free type, optional or required. -/
-  | attr (name : Name) (t : NTy T.P Name) (optional : Bool)
-  /-- A single-valued role admitting the participant types listed, optional or required, specialising a super role
-  when named. -/
-  | role (name : Name) (participants : List Name) (optional : Bool) (specializes : Option Name)
+  /-- An attribute of a label-free type, optional or required, with its view. -/
+  | attr (name : Name) (t : NTy T.P Name) (optional : Bool) (view : AttrView)
+  /-- A single-valued role admitting the participant types listed, optional or required, with its navigation name,
+  specialising a super role when named. -/
+  | role (name : Name) (participants : List Name) (optional : Bool) (nav : Option Name) (specializes : Option Name)
   /-- A set-valued role, reified as a role label. -/
   | setRole (name : Name) (participants : List Name) (specializes : Option Name)
 
 /-- A field's name. -/
 def Field.name {T : Typeside} : Field T → Name
-  | .attr n _ _ | .role n _ _ _ | .setRole n _ _ => n
+  | .attr n _ _ _ | .role n _ _ _ _ | .setRole n _ _ => n
 
 /-- The super role a field specialises. -/
 def Field.specializes {T : Typeside} : Field T → Option Name
-  | .attr _ _ _ => none
-  | .role _ _ _ s | .setRole _ _ s => s
+  | .attr _ _ _ _ => none
+  | .role _ _ _ _ s | .setRole _ _ s => s
+
+/-- Whether a field is a role. -/
+def Field.isRole {T : Typeside} : Field T → Bool
+  | .attr _ _ _ _ => false
+  | .role _ _ _ _ _ | .setRole _ _ _ => true
+
+/-- The participant types a role admits. -/
+def Field.participants {T : Typeside} : Field T → List Name
+  | .attr _ _ _ _ => []
+  | .role _ ps _ _ _ | .setRole _ ps _ => ps
 
 /-- A declared type. -/
 structure CType (T : Typeside) where
@@ -134,6 +159,16 @@ structure CType (T : Typeside) where
   pfx : Nat
   /-- Its own fields. -/
   fields : List (Field T)
+  /-- Its key attributes, empty when it declares no `@key`. -/
+  key : List Name := []
+  /-- Whether it is `@bitemporal`. -/
+  bitemporal : Bool := false
+  /-- Whether it is a `@multi` relation. -/
+  multi : Bool := false
+  /-- Whether it is a `@symmetric` relation. -/
+  symmetric : Bool := false
+  /-- The role its `@colocate` names. -/
+  colocate : Option Name := none
 
 /-- A type with direct instances: a concrete entity or relation type; a statement type is always abstract. -/
 def CType.concrete {T : Typeside} (c : CType T) : Bool := !c.abstract && c.kind != .statement
@@ -142,6 +177,8 @@ def CType.concrete {T : Typeside} (c : CType T) : Bool := !c.abstract && c.kind 
 structure Catalog (T : Typeside) where
   /-- The declared types. -/
   types : List (CType T)
+  /-- The typeside's `DateTime`, the type of `asserted`'s bounds. -/
+  dateTime : T.P
 
 namespace Catalog
 
@@ -223,44 +260,63 @@ def participantType (ps : List Name) : NTy T.P Name :=
   | [c] => .lbl c
   | cs => .variant (sortBy (fun a b => decide (a.1 < b.1)) (cs.map fun c => (c, .lbl c)))
 
-/-- A type's fields with its ancestors', nearest first, each super role a field specialises left out. -/
-def allFields (n : Name) : List (Field T) :=
+/-- A type's fields with its ancestors', nearest first, each with the type declaring it, each super role a field
+specialises left out. -/
+def ownedFields (n : Name) : List (Name × Field T) :=
   (K.chain n).foldl (fun acc m =>
     let own := ((K.find m).map CType.fields).getD []
-    let replaced := acc.filterMap Field.specializes
-    acc ++ own.filter fun f => !replaced.contains f.name) []
+    let replaced := acc.filterMap fun f => f.2.specializes
+    acc ++ (own.filter fun f => !replaced.contains f.name).map fun f => (m, f)) []
+
+/-- A type's fields with its ancestors', nearest first, each super role a field specialises left out. -/
+def allFields (n : Name) : List (Field T) := (K.ownedFields n).map Prod.snd
+
+/-- Whether a property holds of `n` or an ancestor: `@bitemporal`, `@multi` and `@symmetric` are fixed at the root of
+a tree. -/
+def inherits (p : CType T → Bool) (n : Name) : Bool := (K.chain n).any fun m => ((K.find m).map p).getD false
+
+/-- The key `n` declares or inherits. -/
+def keyOf (n : Name) : List Name :=
+  ((K.chain n).findSome? fun m => (K.find m).bind fun c => if c.key.isEmpty then none else some c.key).getD []
+
+/-- The `asserted` field of a `@bitemporal` type (`SCHEMA-APG.md` section 13.2). -/
+def assertedType : NTy T.P Name := .record [("end", NTy.optional (.prim K.dateTime)), ("start", .prim K.dateTime)]
 
 /-- A field's place in the record of its type: an attribute or a single-valued role; a set-valued role is a role
 label's. -/
 def fieldType : Field T → Option (Name × NTy T.P Name)
-  | .attr n t opt => some (n, if opt then NTy.optional t else t)
-  | .role n ps opt _ => some (n, if opt then NTy.optional (K.participantType ps) else K.participantType ps)
+  | .attr n t opt _ => some (n, if opt then NTy.optional t else t)
+  | .role n ps opt _ _ => some (n, if opt then NTy.optional (K.participantType ps) else K.participantType ps)
   | .setRole _ _ _ => none
 
 /-- The name of the role label of `R`'s set-valued role `r`. -/
 def roleLabelName (R r : Name) : Name := R ++ "_" ++ r
 
-/-- The relation and participants of the role label named `n`. -/
-def roleLabelOf (n : Name) : Option (Name × List Name) :=
+/-- The role label named `n`: its concrete relation, the type declaring the role, the role and its participants. -/
+def roleLabelOf (n : Name) : Option (Name × Name × Name × List Name) :=
   K.types.findSome? fun c =>
     if c.concrete then
-      (K.allFields c.name).findSome? fun f =>
+      (K.ownedFields c.name).findSome? fun f =>
         match f with
-        | .setRole r ps _ => if roleLabelName c.name r = n then some (c.name, ps) else none
+        | (owner, .setRole r ps _) => if roleLabelName c.name r = n then some (c.name, owner, r, ps) else none
         | _ => none
     else none
 
-/-- `S(K)`: a concrete type's record of its fields, in increasing name order, and a role label's record of its
-instance and participant (sections 12.3, 13.1 to 13.3). Any other name has the unit type and is no label. -/
+/-- `S(K)`: a concrete type's record of its fields, `asserted` with them on a `@bitemporal` type, in increasing name
+order, and a role label's record of its instance and participant (sections 12.3, 13.1 to 13.3). Any other name has the
+unit type and is no label. -/
 def schema : NSchema T.P Name where
   σ n :=
     match K.find n with
     | some c =>
-      if c.concrete then .record (sortBy (fun a b => decide (a.1 < b.1)) ((K.allFields n).filterMap K.fieldType))
+      if c.concrete then
+        .record (sortBy (fun a b => decide (a.1 < b.1))
+          ((K.allFields n).filterMap K.fieldType ++
+            if K.inherits CType.bitemporal n then [("asserted", K.assertedType)] else []))
       else NTy.unit
     | none =>
       match K.roleLabelOf n with
-      | some (R, ps) => roleLabelType R (K.participantType ps)
+      | some (R, _, _, ps) => roleLabelType R (K.participantType ps)
       | none => NTy.unit
 
 /-- The labels of `S(K)`: every concrete type, then every role label. -/
@@ -271,6 +327,54 @@ def labels : List Name :=
         match f with
         | .setRole r _ _ => some (roleLabelName c.name r)
         | _ => none) ++ acc) []
+
+/-! ## Relation encodings, `SCHEMA.md` section 11.1 -/
+
+/-- The role named `r` at its most specific: the role of `fs` specialising it, followed down, else `r`. -/
+def resolveRole (fs : List (Field T)) (r : Name) : Name := go fs.length r
+where
+  /-- Within `fuel` steps. -/
+  go : Nat → Name → Name
+    | 0, r => r
+    | k + 1, r => match fs.find? fun f => f.specializes == some r with
+      | some f => go k f.name
+      | none => r
+
+/-- The roles of `n` in declaration order, root first, each super role at its most specific. -/
+def rolesInOrder (n : Name) : List Name :=
+  let fs := (K.chain n).reverse.flatMap fun m => ((K.find m).map CType.fields).getD []
+  (fs.filter fun f => f.isRole && f.specializes.isNone).map fun f => resolveRole fs f.name
+
+/-- The anchor role: the `@colocate` role `n` declares or inherits from the nearest supertype declaring one, else the
+first role in declaration order (`SCHEMA.md` section 9.1). -/
+def anchorRole (n : Name) : Option Name :=
+  let fs := (K.chain n).reverse.flatMap fun m => ((K.find m).map CType.fields).getD []
+  match (K.chain n).findSome? fun m => (K.find m).bind CType.colocate with
+  | some r => some (resolveRole fs r)
+  | none => (K.rolesInOrder n).head?
+
+/-- A relation is edge-encoded when it has exactly two roles, neither set-valued, and no key. -/
+def edgeEncoded (n : Name) : Bool :=
+  let roles := (K.allFields n).filter Field.isRole
+  ((K.find n).map fun c => c.kind == .relation).getD false && roles.length == 2 &&
+    roles.all (fun f => match f with | .role _ _ _ _ _ => true | _ => false) && (K.keyOf n).isEmpty
+
+/-- A role's navigation name. -/
+def navOf (n r : Name) : Option Name :=
+  (K.allFields n).findSome? fun f =>
+    match f with
+    | .role m _ _ nav _ => if m == r then nav else none
+    | _ => none
+
+/-- An edge-encoded relation's other role, beside its anchor. -/
+def otherRole (n : Name) : Option Name :=
+  ((K.allFields n).filter Field.isRole).findSome? fun f => if some f.name == K.anchorRole n then none else some f.name
+
+/-- An edge-encoded relation allocates a reifier when its instances carry attributes, `asserted` among them, it is
+`@multi`, or a role of any type names it, a supertype or a statement type covering it. -/
+def allocatesReifier (n : Name) : Bool :=
+  (K.allFields n).any (fun f => !f.isRole) || K.inherits CType.bitemporal n || K.inherits CType.multi n ||
+    K.types.any fun c => c.fields.any fun f => f.participants.any fun p => (K.chain n).contains p
 
 end Catalog
 

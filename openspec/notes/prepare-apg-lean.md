@@ -15,9 +15,9 @@ layout, the proof of each statement, and the order in which they are written.
    and of every executable definition, nothing beyond `propext` and `Quot.sound`: the oracle computes.
 3. Every definition, proposition and corollary of `SCHEMA-APG.md` sections 2 to 18 has its Lean counterpart, named in
    the index of section 6 and in a theorem table in `lean/schema/ApgModel/Theorems.lean`, as `PlacementModel`'s has.
-4. `lake exe apg_oracle` writes, for each schema of the corpus, generated valid APGs and their `R(G)` as N-Quads under
-   the acceptance crate's `testdata/apg/`, with the Lean commit that wrote them; each export parses back to `R(G)` in
-   Lean.
+4. `lake exe apg_oracle <dir>` writes into the folder it is given, for each schema of the corpus, generated valid APGs
+   and their `R(G)` as N-Quads, with the Lean commit that wrote them; each export parses back to `R(G)` in Lean. Stage
+   6's group 9 gives it the `testdata/apg/` folder of the test it writes.
 5. Examples 6.7 and 9.6 of `SCHEMA-APG.md` evaluate in Lean to the values the specification states.
 6. Each statement is compared with the paper's Coq development, `../../fork/APG`, where it has a counterpart
    (section 3), and the comparison is recorded in the module's documentation.
@@ -206,9 +206,10 @@ names the sections of `SCHEMA-APG.md` it transcribes, and each theorem's the pro
 | `schema/ApgModel/Catalog/Constraints.lean` | Violation queries and their soundness, transition constraints | 14 |
 | `schema/ApgModel/History.lean` | Naming, graphs, states, slices, commits, proposition 15.2 | 15 |
 | `schema/ApgModel/Migration.lean` | Selection, key lookup, extended terms, the fragment, coproducts, proposition 16.6 | 16 |
-| `schema/ApgModel/Views/Rdf.lean` | `R`, its inverse, propositions 17.2 and 17.3, the SHACL lemmas | 17 |
+| `schema/ApgModel/Views/Rdf.lean` | `R` from templates natural in their references, proposition 17.2 (L7a); its inverse, proposition 17.3, the SHACL lemmas (L7b) | 17 |
 | `schema/ApgModel/Views/Gql.lean` | `P` as MGQL's graph, `Γ`, propositions 18.2 to 18.4 | 18 |
-| `schema/ApgModel/Oracle/Typeside.lean`, `Oracle/Generate.lean`, `Oracle/NQuads.lean`, `Oracle/Main.lean` | The oracle's concrete typeside (L6), the generator of valid APGs, the N-Quads exporter and parser, `apg_oracle` | 2, 19 |
+| `schema/ApgModel/Oracle/Typeside.lean` | The oracle's concrete typeside (decision L6), with wave L7a | 2 |
+| `schema/ApgModel/Oracle/Generate.lean`, `Oracle/NQuads.lean`, `Oracle/Main.lean` | The generator of valid APGs, the N-Quads exporter and parser, `apg_oracle` | 19 |
 | `schema/ApgModel/Theorems.lean` | The index of every result, with the Rust check each feeds | all |
 
 ## 6. Every statement and its proof
@@ -233,7 +234,7 @@ main work.
 | Definitions 8.5, 8.6; proposition 8.7 | `Tm S Γ t`, `Tm.eval`, `Tm.eval_terminates`, the cyclic example | Structural recursion; the theorem records that `eval` is a total function with no `partial`, and a two-element cycle evaluates by `rfl` | M |
 | Definitions 9.1, 9.2 | `Mapping`, `Ty.subst`, `iota`, `iotaInv`, `Mapping.delta`, `Mapping.deltaHom` | `ι` by recursion on `t`, the identity at labels; `iota_map` its naturality | M |
 | Proposition 9.3 | `deltaHom_id`, `deltaHom_comp`; `Mapping.id`, `delta_id`; `Tm.along`, `Tm.eval_along`; `Mapping.comp`, `delta_comp` | Functor laws by proposition 5.3; composition by translating terms along a mapping, with `iota_comp` across `Ty.subst_subst` by heterogeneous equality | L |
-| Proposition 9.4 | `V_enumerable`, `Mapping.delta_finite` | Enumeration of `V E t` for collection-free `t` with finite primitives (L7) | M |
+| Proposition 9.4 | `V_enumerable`, `Mapping.delta_finite` | Enumeration of `V E t` for list-free `t` with finite primitives (L7), a set by its sublists | M |
 | Proposition 9.5 | `labelSum`, `labelSumBij`, `delta_label_image`, `delta_one_origin` | A variant of labels is in bijection with the labels' elements, each tagged by its position | S |
 | Definition 12.1; proposition 12.2 | `LabelFree`, `V_labelFree_const`, `V.map_labelFree_id` | Induction on `t` | S |
 | Corollary 12.3 | `corollary_12_3`, citing the results it carries | Holds by L2 | S |
@@ -251,7 +252,7 @@ main work.
 | Proposition 16.4 | `fragment_denotes`, `fragment_one_origin` | Definitions 16.1, 16.3, unnest, proposition 9.5 | M |
 | Definition 16.5 | `coprod`, `coprod_inl_hom`, `coprod_inr_hom` | Definitions | S |
 | Proposition 16.6 | `history_through_migration` | Propositions 15.2 and 16.4 and the permanence of key claims | M |
-| Definition 17.1; proposition 17.2 | `rdf`, `rdf_monotone` | Each quad from one element and the names it references | M |
+| Definition 17.1; proposition 17.2 | `templates`, `Tmpl.inst`, `rdf`, `templates_mapRefs`, `Tmpl.inst_mono`, `rdf_monotone` | Each quad from one element's template, natural in its references, named by a naming monotone in its definedness | M |
 | Proposition 17.3 | `rdfInv`, `rdf_round_trip` | Label from the most specific type quad, unique by single inheritance; fields by distinct predicates; edges by reifier or triple | L |
 | Corollary 17.4 | `shacl_min_count`, `shacl_max_count`, `shacl_datatype`, `shacl_in`, `shacl_class` | From typing and section 14.2 (L10) | M |
 | Definition 18.1 | `gql : PropertyGraph`, `graphType : GraphSchemaFull` | Built as MGQL's types (L11) | M |
@@ -273,9 +274,11 @@ Each wave's modules depend only on earlier waves; a wave ends with `lake build` 
 | L4 | `Named/Ty`, `Named/Translate` | L1, beside L2 and L3 | proposition 3.3 |
 | L5 | `Named/Apg`, `Named/Collections`, `Examples` | L2, L4 | the executable layer; example 6.7 |
 | L6 | `Catalog/Schema`, `Catalog/Constraints` | L5 | proposition 13.1; section 14 |
-| L7 | `Views/Rdf`, `Oracle/*` | L6 | propositions 17.2, 17.3, corollary 17.4; `apg_oracle` exporting the corpus for stage 6's group 9 |
+| L7a | The catalog's view data, `Oracle/Typeside`, `Views/Rdf` | L6 | each relation's encoding (`SCHEMA.md` section 11.1), statement types, interval, measure and catalog-type attributes, `asserted`; the oracle's typeside (decision L6); definition 17.1 and proposition 17.2 |
+| L7b | `Views/Rdf` | L7a | `R⁻¹` and proposition 17.3; corollary 17.4 (decision L10) |
+| L7c | `Oracle/Generate`, `Oracle/NQuads`, `Oracle/Main`, the corpus catalogs | L7b | the generator; the N-Quads exporter and parser, parse after export checked by `#eval`; the aviation and Gen5-subset catalogs (decision L8); `apg_oracle` exporting the corpus for stage 6's group 9 |
 | L8 | `History`, `Migration` | L6 | propositions 15.1, 15.2, 16.4, 16.6 |
-| L9 | `Views/Gql` | L7 | propositions 18.2 to 18.4, for stage 7 |
+| L9 | `Views/Gql` | L7b | propositions 18.2 to 18.4, for stage 7 |
 | L10 | `Theorems`, the axiom audit, the Coq comparison recorded | all | section 1's criteria |
 
 **What L0 settled**, under Lean 4.14 without Batteries or Mathlib:
@@ -286,7 +289,8 @@ Each wave's modules depend only on earlier waves; a wave ends with `lake build` 
 - a finite set as a quotient of lists by their members (`Core.FinSet`) carries `map` and its laws with no axiom beyond
   `propext` and `Quot.sound`.
 
-The `lean_exe apg_oracle` enters `lakefile.lean` with its root, `Oracle/Main.lean`, in wave L7.
+The `lean_exe apg_oracle` enters `lakefile.lean` with its root, `Oracle/Main.lean`, in wave L7c; it takes the output
+folder as its one argument, and L7c runs it into a scratch folder whose files Lean parses back.
 
 **What L2 settled:**
 - a typeside function takes its arguments by position, `(i : Fin (dom f).length) → PV ((dom f).get i)`, so a term
@@ -334,6 +338,20 @@ The `lean_exe apg_oracle` enters `lakefile.lean` with its root, `Oracle/Main.lea
 - example 9.6 is checked by the kernel, the identity term of `AssertedBy` type-checking against `Φ̂(σ'(AssertedBy))`
   as the specification states.
 
+**What L7a settled:**
+- the catalog carries what the views read: keys, `@bitemporal`, `@multi`, `@symmetric`, `@colocate`, navigation
+  names and each attribute's view; `S(K)` gives a `@bitemporal` type its `asserted` field, and a relation its encoding,
+  anchor and reifier allocation as `SCHEMA.md` section 11.1 states (`edgeEncoded`, `anchorRole`, `allocatesReifier`);
+- an edge-encoded relation's anchor role declares a navigation name, its triple's predicate (`UGS0418`, decided
+  2026-11-08);
+- `R(G)` is every element's templates named: a template's subject and objects may be elements, named by `ι` when the
+  view is taken, so an element without a name, an edge without a reifier or a role label's, contributes only the
+  quads naming its participants; proposition 17.2 needs no injectivity, and holds for every homomorphism preserving
+  names and graphs;
+- the oracle's typeside holds the primitives Gen5 and the aviation example write, unsigned widths among them, each
+  with decidable equality, a range check (`Prim.admits`) and a linear order (`Prim.cmp`);
+- example 6.7 on the catalog's schema is valid and its `R(G)` checked by the kernel, quad by quad.
+
 **What L6 settled:**
 - a catalog lists its types with kind, parent, abstractness, prefix and own fields, a field's type already a named
   type; `S(K)` gives a concrete type the record of its fields, own and inherited, sorted by name, a specialised role
@@ -347,7 +365,7 @@ The `lean_exe apg_oracle` enters `lakefile.lean` with its root, `Oracle/Main.lea
   there are vertices repeats one, so the bounded search finds every cycle (`pigeonhole`, `cycle_of_not_nodup`);
 - value terms compare by decidable equality, given the primitives'; a set compares as written, so the oracle writes a
   set's members in one order without repetitions, and `@set` compares a set-valued role's participants as sets;
-- the aviation and Gen5-subset catalogs of decision L8 need the oracle's typeside, decision L6, and come with wave L7;
+- the aviation and Gen5-subset catalogs of decision L8 need the oracle's typeside, decision L6, and come with wave L7c;
 - liveness follows `SCHEMA.md` section 8.4, rule 5: `@set`, participation, `@limit`, `@no_overlap` and `@acyclic`
   read the live elements, `@key`, `@unique`, `@check` and non-empty set-valued roles every element a state holds; a
   participation or `@limit` lower bound asks only live participants (decided 2026-11-08);
@@ -358,7 +376,7 @@ The `lean_exe apg_oracle` enters `lakefile.lean` with its root, `Oracle/Main.lea
 
 Stage 6 needs the oracle first, so the path L0, L1, L2, L4, L5, L6, L7 comes before L3, L8 and L9, which no stage 6
 group waits on. In `prepare-stage-6.md`'s terms: tasks A.1 and A.2 are waves L1 to L4, A.3 is L5 to L7, A.4 the
-properties of L7 that group 9's test checks, A.5 the findings each wave reports, and A.6 replaces L7's hand-written
+properties of L7 that group 9's test checks, A.5 the findings each wave reports, and A.6 replaces L7c's hand-written
 catalogs once stage 6's group 4 exports them.
 
 ## 8. Risks

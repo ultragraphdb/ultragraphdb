@@ -166,9 +166,9 @@ its plan is `prepare-apg-lean.md`.
   - the APG schemas of `SCHEMA.md` section 16's aviation example and of a Gen5 subset covering each relation shape,
     written by hand as Lean definitions from `SCHEMA-APG.md` part 3's catalog translation;
   - a generator of valid APGs on a schema, which stage 7's GQL half (`P`, definition 18.1) reuses;
-  - a `lake exe apg_oracle` writing, per schema, its generated instance sets and their `R(G)` as N-Quads, committed
-    under `testdata/apg/` of group 9's test crate with the Lean commit that wrote them. Bazel's tests read the files
-    and never run `lake`, so the targets stay hermetic.
+  - a `lake exe apg_oracle <dir>` writing, per schema, its generated instance sets and their `R(G)` as N-Quads into
+    the folder it is given; group 9 runs it into the `testdata/apg/` folder of its test and commits the files with the
+    Lean commit that wrote them. Bazel's tests read the files and never run `lake`, so the targets stay hermetic.
 - **A.4** Each proposition the engine must keep restated as a property group 9's test checks on every committed
   instance set, proposition 17.3's round trip first, listed in the group's notes, as stage 5.5's 6b.4 did.
 - **A.5** A finding against `SCHEMA-APG.md` fixed in the specification first, its section 21's decisions among it,

@@ -4,7 +4,7 @@
 -/
 import ApgModel.Named.Collections
 import ApgModel.Core.DeltaCompose
-import ApgModel.Catalog.Constraints
+import ApgModel.Views.Rdf
 
 /-!
 # The specification's examples
@@ -189,14 +189,59 @@ theorem a1_names_m1 : (migrated.υ .assertedBy a1).2.1 = Sum.inl m1 := rfl
 prefixes 1 to 4. -/
 def catalog : Catalog.Catalog typeside where
   types := [
-    ⟨"Agent", .entity, none, true, 1, []⟩,
-    ⟨"Person", .entity, some "Agent", false, 2, [.attr "name" (.prim .string) false]⟩,
-    ⟨"Organization", .entity, some "Agent", false, 3, [.attr "label" (.prim .string) false]⟩,
-    ⟨"MemberOf", .relation, none, false, 4, [
-      .role "member" ["Person"] false none,
-      .role "collection" ["Organization"] false none,
-      .attr "role" (NTy.enum ["contractor", "employee"]) false,
-      .attr "confidence" (.prim .float64) true]⟩]
+    { name := "Agent", kind := .entity, parent := none, abstract := true, pfx := 1, fields := [] },
+    { name := "Person", kind := .entity, parent := some "Agent", abstract := false, pfx := 2,
+      fields := [.attr "name" (.prim .string) false .plain] },
+    { name := "Organization", kind := .entity, parent := some "Agent", abstract := false, pfx := 3,
+      fields := [.attr "label" (.prim .string) false .plain] },
+    { name := "MemberOf", kind := .relation, parent := none, abstract := false, pfx := 4,
+      fields := [
+        .role "member" ["Person"] false (some "memberships") none,
+        .role "collection" ["Organization"] false (some "members") none,
+        .attr "role" (NTy.enum ["contractor", "employee"]) false .plain,
+        .attr "confidence" (.prim .float64) true .plain] }]
+  -- No type is `@bitemporal`, so `asserted`'s `DateTime` is never used.
+  dateTime := .string
+
+/-- `MemberOf` is edge-encoded, anchored at `member` under the navigation name `memberships`, and allocates a reifier
+for its attributes (`SCHEMA.md` section 11.1). -/
+theorem catalog_encoding : catalog.edgeEncoded "MemberOf" = true ∧ catalog.anchorRole "MemberOf" = some "member" ∧
+    catalog.navOf "MemberOf" "member" = some "memberships" ∧ catalog.allocatesReifier "MemberOf" = true := by decide
+
+/-- Example 6.7's people, organisation and membership on the catalog's schema `S(K)`. -/
+def catalogApg : FinApg catalog.schema where
+  elems := [
+    (1, "Person", .record [("name", .prim (T := typeside) .string "Ada")]),
+    (2, "Organization", .record [("label", .prim (T := typeside) .string "Acme")]),
+    (4, "MemberOf", .record [
+      ("collection", .elem 2),
+      ("confidence", .inj "some" (.prim (T := typeside) .float64 (show Float from 0.98))),
+      ("member", .elem 1),
+      ("role", .inj "employee" (.record []))])]
+
+theorem catalogApg_valid : catalogApg.valid = true := by decide
+
+/-- The view's parameters for the example: base `ex:`, every precision shown. -/
+def viewParams : Views.ViewParams typeside where
+  base := "ex:"
+  builtin := "ugdb:"
+  precisionShown := fun _ _ _ => true
+
+/-- Every element named but the reifier `m1`, which is named too, all in one graph. -/
+def naming : Nat → Option String
+  | 1 => some "ex:ada"
+  | 2 => some "ex:acme"
+  | 4 => some "ex:m1"
+  | _ => none
+
+/-- Definition 17.1 on the example: each element's types, its attributes, the membership's triple from its anchor
+under `memberships` and its reifier's `rdf:reifies`. -/
+theorem catalogApg_rdf :
+    (Views.rdf catalog viewParams naming (fun _ => "ex:g") catalogApg).map (fun q => (q.s, q.p)) = [
+      ("ex:ada", viewParams.rdfType), ("ex:ada", viewParams.rdfType), ("ex:ada", "ex:name"),
+      ("ex:acme", viewParams.rdfType), ("ex:acme", viewParams.rdfType), ("ex:acme", "ex:label"),
+      ("ex:m1", viewParams.rdfType), ("ex:m1", "ex:role"), ("ex:m1", "ex:confidence"),
+      ("ex:ada", "ex:memberships"), ("ex:m1", viewParams.rdfReifies)] := by decide
 
 /-- `conc(Agent)` holds the two concrete agents. -/
 theorem catalog_conc : catalog.conc "Agent" = ["Person", "Organization"] := by decide
