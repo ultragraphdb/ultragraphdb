@@ -744,8 +744,8 @@ For a commit from `G` to `G'`, and an element `e` of `G`:
 | `@bitemporal` | A change of `e`'s value is a revision: `e` stays, with a new version (section 15.3); `e` leaves the live slice only by retraction, and the store only by purge |
 | `@on_delete` | When `e` is deleted, every element whose field references `e` through a role with `cascade` is deleted, with `restrict` refuses the commit (`UGS1020`), and with `orphan` has that optional field set absent; `G'` is referentially closed (proposition 6.6) |
 | `@on_retract` | When `e` is retracted, every `@bitemporal` element referencing it through a role with `cascade` is retracted, with `restrict` refuses while it is live, and with `restrict open` refuses while it is open and is retracted with `e` while it is live and no longer open (`SCHEMA.md` section 8.4, rule 6) |
-| Participants of `@bitemporal` relations | No deletion reaches one: every participant type of a `@bitemporal` relation is `@bitemporal` or `@append_only`, a schema rule (`UGS0602`) |
-| `@retracts(r)`, `@ends(r)` | An element inserted into `G'` retracts, or closes the valid interval of, its participant in `r` in the same commit |
+| Participants of `@bitemporal` relations | No deletion reaches one and none leaves a slice its relation stays in: every participant type of a `@bitemporal` relation is `@bitemporal` or an `@append_only` entity type, a schema rule (`UGS0602`) |
+| `@retracts(r)`, `@ends(r)` | An element inserted into `G'` retracts, or closes the valid interval of, its participant in `r` in the same commit; a `@retracts` role is a reference into history, outside `@on_retract` |
 | Live participants | An element inserted into `G'` references no element that is retracted or deleted (`UGS1019`) |
 
 ## 15. Identity, graphs and time
@@ -787,19 +787,22 @@ the union of those intervals.
 
 | Slice of a state | Elements | Each with |
 |---|---|---|
-| **Live**, the default read | Every element present and not retracted; an element of a relation that is not `@bitemporal` only while every participant of it is live (`SCHEMA.md` section 8.4, rule 6) | Its newest version |
-| **Believed at** `t` | Every `@bitemporal` element whose `asserted` contains `t`'s epoch, and every element that is not `@bitemporal` and present, while every participant of it is in the slice | The version current at `t` |
+| **Live**, the default read | Every element present and not retracted; an element of a relation that is not `@bitemporal` only while every participant of it is live (`SCHEMA.md` section 8.4, rule 6); a read adds every element a `@retracts` role of them reaches, as the with-retracted slice holds it (proposition 15.2) | Its newest version |
+| **Believed at** `t` | Every `@bitemporal` element whose `asserted` contains `t`'s epoch, and every element that is not `@bitemporal` and present, while every participant of it is in the slice; a read adds every element a `@retracts` role of them reaches, as the with-retracted slice holds it (proposition 15.2) | The version current at `t` |
 | **With retracted** | Every element present | Its newest version |
 
-**Proposition 15.2 (here).** The live slice of every state and the believed slice at every instant are referentially
-closed, so each is an APG. *Proof.* By induction over commits. An insert references only live elements (`UGS1019`). A
-retraction is refused while a `@bitemporal` element references the retracted one through `restrict`, refused while an
-open one does through `restrict open`, which retracts the live ones that are no longer open in the same commit, and
-retracts them through `cascade`; an element of a relation that is not `@bitemporal` leaves the slice with its
-participant by definition. No participant of a `@bitemporal` relation is deleted, since its type is `@bitemporal` or
-`@append_only` (`UGS0602`), and a deletion of any other element applies `@on_delete`, which keeps the state closed
-(section 14.3). A revision keeps the element's identity, so a reference to it stays valid. The believed slice follows
-the same steps read at `t`.
+**Proposition 15.2 (here).** The live slice of every state and the believed slice at every instant are closed under
+references through every role but a `@retracts` one; with the elements a `@retracts` role reaches, as the with-retracted
+slice holds them, each is referentially closed, so a read's slice is an APG. *Proof.* By induction over commits. An
+insert references only live elements (`UGS1019`). A retraction is refused while a `@bitemporal` element references the
+retracted one through `restrict`, refused while an open one does through `restrict open`, which retracts the live ones
+that are no longer open in the same commit, and retracts them through `cascade`; an element of a relation that is not
+`@bitemporal` leaves the slice with its participant by definition. No participant of a `@bitemporal` relation is deleted
+or leaves a slice the relation stays in, since its type is `@bitemporal` or an `@append_only` entity type (`UGS0602`),
+and a deletion of any other element applies `@on_delete`, which keeps the state closed (section 14.3). A revision keeps
+the element's identity, so a reference to it stays valid. A `@retracts` role is a reference into history: the insert
+retracts its participant, no action follows the role, and the instance stays live naming it; the read's slice adds what
+the role reaches, which the with-retracted slice holds closed. The believed slice follows the same steps read at `t`.
 
 Two rules of `SCHEMA.md` carry the proof: `restrict open` retracts the live instances that are no longer open with
 their participant, so Gen5's closed memberships and closed units leave the live slice with the organisation they name
@@ -846,7 +849,8 @@ a coequalizer identifies elements, which UGS refuses at commit and `SCHEMA-EVOLU
 integration that identifies entities does so through their keys, where a conflict is refused and named.
 
 **Proposition 16.6 (history through a migration; here).** For a migration of the fragment from a source to a target
-namespace, cut over at epoch `e₂`, and an instant `t` before `e₂`, let `B_t` be the source's slice believed at `t`. Then
+namespace, cut over at epoch `e₂`, and an instant `t` before `e₂`, let `B_t` be the source's slice believed at `t` as a
+read holds it. Then
 `(Δ_Φ B_t⁺)|p` is the target's slice believed at `t` wherever the selection is defined, an APG on the target's schema,
 and an element's name in it is its name in the target's stored present. *Proof.* `B_t` is an APG (proposition 15.2), and
 its key lookups find at most one element, since a key names one element for all time (`SCHEMA.md` section 7.2).
@@ -1013,7 +1017,8 @@ values, or the core's results do not transfer.
 | Unnesting | Decided 2026-11-08: a collection's members as elements of a derived label, one origin each, for migrations that turn members into instances (definition 12.7) |
 | History through a migration | Decided 2026-11-08: a target's history before its cutover is the migration evaluated over the source's believed slices, named as the present is (proposition 16.6) |
 | `restrict open` | Decided 2026-11-08: refuses a retraction while open instances name the participant, and retracts the live instances that are no longer open with it (`SCHEMA.md` section 8.4, rule 6) |
-| Participants of `@bitemporal` relations | Decided 2026-11-08: `@bitemporal` or `@append_only` types alone (`UGS0602`), so the live and believed slices are closed under references (proposition 15.2) |
+| Participants of `@bitemporal` relations | Decided 2026-11-08: `@bitemporal` types or `@append_only` entity types alone (`UGS0602`), so the live and believed slices are closed under references (proposition 15.2) |
+| `@retracts` roles | Decided 2026-11-08: a reference into history, outside `@on_retract`; the slices are closed under every other role, and a read's slice adds what a `@retracts` role reaches, as the with-retracted slice holds it (proposition 15.2) |
 | Equality of mapping terms | Decided 2026-11-08: no decision procedure until a feature needs one, since UGS declares no path equations and type-checking a mapping needs no equality; normal forms decide the fragment without variants, and two mappings are compared by evaluation on the generated APGs of section 19 |
 | A catalog's schema | Decided 2026-11-08: one label per concrete type and role label; a supertype as the variant of its concrete subtypes; navigation names as inverse references, never fields (section 13) |
 | Constraints | Decided 2026-11-08: state constraints on one APG and transition constraints on a commit, each held when its violation query returns nothing (section 14) |

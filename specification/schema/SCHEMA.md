@@ -1016,11 +1016,16 @@ abstract statement Asserted : Statement @bitemporal(valid: valid) {
    read with the retracted participant and returns under `with retracted` beside it, and `UGS1019` keeps a new one from
    naming the participant afterwards. An `@append_only` relation is therefore never written by a cascade, which is what
    `UGS0601` admits a `@bitemporal` participant for. Every participant type of a `@bitemporal` relation is itself
-   `@bitemporal` or `@append_only` (`UGS0602`): a participant is retracted, never deleted, so no version of the relation
-   names an instance that is gone, and the live slice and every `believed at` slice are closed under references
-   (`SCHEMA-APG.md`, proposition 15.2). A catalog type as a participant is a value and takes no part in the rule.
+   `@bitemporal` or an `@append_only` entity type (`UGS0602`): a participant is retracted, never deleted, and none is
+   a relation that is not `@bitemporal`, whose instance would leave the live slice with its own participant while the
+   relation naming it stays, so no version of the relation names an instance that is gone or out of its slice, and the
+   live slice and every `believed at` slice are closed under references through every role but a `@retracts` one
+   (rule 7; `SCHEMA-APG.md`, proposition 15.2). A catalog type as a participant is a value and takes no part in the rule.
 7. **`@retracts(role)`** on a relation type: inserting an instance retracts its participant in that role in the same
-   commit, so a correction is one statement; the participant must be live (`UGS1019`).
+   commit, so a correction is one statement; the participant must be live (`UGS1019`). The role is a reference into
+   history, outside `@on_retract`: the instance stays live naming the participant it retracted, and a read following
+   the role reaches that participant as `with retracted` reads it, so a read's slice holds it beside the live instances
+   (`SCHEMA-APG.md`, proposition 15.2).
 8. **`@ends(role)`** on a relation type with a valid interval: inserting an instance closes the valid interval of its
    participant in that role at the instance's own valid start, with that bound's precision, in the same commit, so a
    succession is one statement and the old statement stays believed. The instance must state a valid start, and the
@@ -1039,7 +1044,7 @@ An entity delete removes the entity and applies each relation's `@on_delete` act
 | Action | Effect | Allowed when |
 |---|---|---|
 | `cascade`, the default | The instance is deleted, and so are instances of relations over it, recursively, in one commit | Always |
-| `restrict` | The delete is refused while live instances name the participant in that role (`UGS1020`) | Always, except on a `_` side |
+| `restrict` | The delete is refused while instances name the participant in that role, live or not, since one that is not live still reads under `with retracted` (`UGS1020`) | Always, except on a `_` side |
 | `orphan` | The instance stays with the role empty | Only on an `Optional` role |
 
 A deleted entity's IRI may be created again, since a delete releases its key's and its values' claims; the new instance
@@ -1047,7 +1052,7 @@ is a new ID. A delete writes a tombstone at the entity's
 home, so a later write naming the deleted entity is refused (`../binary_protocol/PROTOCOL.md`, `EntityDeleted`). A relation instance delete
 removes the instance and cascades to relations over it. Deleting a `@bitemporal` instance is a retraction (section 8.4).
 No delete reaches a participant of a `@bitemporal` relation, whose participant types are all `@bitemporal` or
-`@append_only` (`UGS0602`). The compiler warns when `restrict` forces coordination that `@colocate` on the same role
+`@append_only` entity types (`UGS0602`). The compiler warns when `restrict` forces coordination that `@colocate` on the same role
 would avoid (`UGS0903`).
 
 ### 8.6 Filtered and per-type bounds
@@ -1410,7 +1415,7 @@ A schema with any error is refused. Warnings and notes accompany a successful in
 | `UGS0528` | error | A `@values` literal of the wrong type |
 | `UGS0529` | error | A `@limit` lower bound, `>=` or `=` with a bound of at least one, whose `per` names more than one role or `type` |
 | `UGS0601` | error | An `@append_only` relation whose participants may be deleted with `cascade` |
-| `UGS0602` | error | A `@bitemporal` relation with a participant type that is neither `@bitemporal` nor `@append_only` |
+| `UGS0602` | error | A `@bitemporal` relation with a participant type that is neither `@bitemporal` nor an `@append_only` entity type |
 | `UGS0701` | error | `@colocate` naming a role the relation neither declares nor inherits |
 | `UGS0702` | error | `@colocate` on a relation with `@key` |
 | `UGS0704` | error | `@materialized` on a derivation that leaves the partition |
@@ -1883,7 +1888,8 @@ counterparty.
 | A standalone compiler binary | None; the server compiles, in CI through the development container |
 | Formal semantics | Decided 2026-11-08: an algebraic property graph is the foundation, the GQL view a closed graph type read with PG-Schema's STRICT, closed semantics, constraints with PG-Keys' semantics, and the RDF view RDF 1.2 with reifiers and SHACL (`SCHEMA-APG.md`, sections 10 and 21). Chosen over PG-Schema as the foundation, whose edges join two nodes and never an edge, whose types are structural rather than nominal, and which has no schema mappings |
 | `restrict open` | Decided 2026-11-08: refuses a retraction while open instances name the participant and retracts the live ones no longer open with it, since a statement about a participant the graph no longer believes in cannot stay believed; their history stays readable `believed at` an earlier instant |
-| Participants of `@bitemporal` relations | Decided 2026-11-08: `@bitemporal` or `@append_only` types alone (`UGS0602`), as `@retracts` already requires of its role (`UGS0512`): a deleted participant would leave every version of the relation naming an instance that is gone |
+| `@retracts` roles | Decided 2026-11-08: a reference into history, outside `@on_retract`, so a correction stays live naming the statement it retracted, as Gen5's `Supersedes` needs; a read following the role reaches the participant as `with retracted` reads it, and the slices are closed under every other role (section 8.4, rule 7; `SCHEMA-APG.md`, proposition 15.2) |
+| Participants of `@bitemporal` relations | Decided 2026-11-08: `@bitemporal` types or `@append_only` entity types alone (`UGS0602`), as `@retracts` already requires of its role (`UGS0512`): a deleted participant would leave every version of the relation naming an instance that is gone, and a relation that is not `@bitemporal` leaves the live slice with its own participant |
 | Key spaces and birth IRIs | Decided 2026-11-08: a key's bucket, claim and IRI read its key space, which outlives renames and splits, and an instance keeps the IRI it was minted with through every migration, so every IRI ever minted routes without a lookup (sections 7.2 and 7.3; `SCHEMA-EVOLUTION.md` section 4) |
 | Retired names | Decided 2026-11-08: the catalog keeps every name an item held, for routing and for the hint after a deprecation window, and never gives one to another item (section 10.2) |
 | GQL view's node types | Decided 2026-11-08: one node type per concrete type with its exact label set, supertypes as labels only, since a closed supertype admits no subtype's node |

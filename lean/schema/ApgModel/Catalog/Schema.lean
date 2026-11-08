@@ -145,6 +145,20 @@ def Field.participants {T : Typeside} : Field T → List Name
   | .attr _ _ _ _ => []
   | .role _ ps _ _ _ | .setRole _ ps _ => ps
 
+/-- A role's `@on_delete` action (`SCHEMA.md` section 8.5). -/
+inductive DeleteAction where
+  | cascade
+  | restrict
+  | orphan
+  deriving DecidableEq, Repr
+
+/-- A role's `@on_retract` action (`SCHEMA.md` section 8.4). -/
+inductive RetractAction where
+  | cascade
+  | restrict
+  | restrictOpen
+  deriving DecidableEq, Repr
+
 /-- A declared type. -/
 structure CType (T : Typeside) where
   /-- Its name. -/
@@ -169,6 +183,12 @@ structure CType (T : Typeside) where
   symmetric : Bool := false
   /-- The role its `@colocate` names. -/
   colocate : Option Name := none
+  /-- Whether it is `@append_only`. -/
+  appendOnly : Bool := false
+  /-- Its roles' `@on_delete` actions, `cascade` where none is declared. -/
+  onDelete : List (Name × DeleteAction) := []
+  /-- Its roles' `@on_retract` actions, `cascade` where none is declared. -/
+  onRetract : List (Name × RetractAction) := []
 
 /-- A type with direct instances: a concrete entity or relation type; a statement type is always abstract. -/
 def CType.concrete {T : Typeside} (c : CType T) : Bool := !c.abstract && c.kind != .statement

@@ -647,10 +647,7 @@ only by retraction. -/
 def Bitemporal (ls : List L) : Prop := ∀ e l, s.G.lam e = some l → l ∈ ls → s'.Has e
 
 /-- A role's action when its participant is deleted. -/
-inductive OnDelete where
-  | cascade
-  | restrict
-  | orphan
+abbrev OnDelete := DeleteAction
 
 /-- The `none` of an optional field. -/
 def absent : VTerm T := .inj "none" (.record [])
@@ -667,10 +664,7 @@ def OnDeleteHolds [DecidableEq T.P] (R : L) (r : Name) (a : OnDelete) : Prop :=
       | .orphan => ∃ v', s'.value x = some v' ∧ v'.field? r = some absent
 
 /-- A role's action when its participant is retracted. -/
-inductive OnRetract where
-  | cascade
-  | restrict
-  | restrictOpen
+abbrev OnRetract := RetractAction
 
 /-- `@on_retract` of the role `r` of the `@bitemporal` relation `R`: when `e` is retracted, each live element of `R`
 referencing it through `r` is retracted under `cascade`; under `restrict` none is live; under `restrict open` none is

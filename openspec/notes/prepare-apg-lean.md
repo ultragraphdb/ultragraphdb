@@ -249,15 +249,15 @@ main work.
 | Section 13; proposition 13.1 | `Catalog`, `conc`, `schema`, `ranges`, `inRanges_compress`, `inRanges_iff_isSub`, `is_iff_inRanges` | A tree of types; prefixes injective; ranges as the compression of the sorted prefix set | M |
 | Section 14.2 | `keyViolations`, `uniqueViolations`, `nonEmptyViolations`, `setViolations`, `roleLabelViolations`, `participationViolations`, `checkViolations`, `acyclicViolations` with `maxDepthViolations`, `noOverlapViolations`, `limitViolations` with `limitGroupViolations`; a `_nil_iff` per row | Three generic queries, `injViolations`, `violators` and `cycleViolations`, each proved once; cycles by the pigeonhole over walks; `@limit`'s group selection as the conjuncts over participant types | M |
 | Section 14.3 | `State` and its predicates `LabelFixed`, `FieldsFixed`, `AppendOnly`, `Bitemporal`, `OnDeleteHolds`, `OnRetractHolds`, `RetractsHolds`, `EndsHolds`, `LiveParticipants` | Definitions, used by section 15 | S |
-| Section 15.1 | `Naming`, `naming_injective`, `edge_named_by_triple` | The edge case from `@set` exclusivity | M |
+| Section 15.1 | `ident`, `Exclusive`, `naming_injective` | An IRI by the naming's injectivity; a triple's relation from its navigation name and its anchor's label, then `@set` per pair; a pair by its role label's exclusivity | M |
 | Proposition 15.1 | `union_closed` | Disjoint element sets; closure by construction | S |
-| Section 15.3; proposition 15.2 | `State`, `Commit`, `step`, `liveSlice`, `believedSlice`, `live_closed`, `believed_closed` | Induction over reachable states, one lemma per operation (L9) | L |
-| Definition 16.1 | `select`, `select_apg`, `select_inclusion_injective`, `select_inclusion_preserves_names` | Definitional once closure holds | S |
-| Definition 16.2 | `lookup`, `lookup_unique` | From key exclusivity | S |
-| Definition 16.3 | `ExtTm`, `evalExt` | Mapping terms with lookups, inverse navigations, derivations and functions over a valid source | M |
-| Proposition 16.4 | `fragment_denotes`, `fragment_one_origin` | Definitions 16.1, 16.3, unnest, proposition 9.5 | M |
-| Definition 16.5 | `coprod`, `coprod_inl_hom`, `coprod_inr_hom` | Definitions | S |
-| Proposition 16.6 | `history_through_migration` | Propositions 15.2 and 16.4 and the permanence of key claims | M |
+| Section 15.3; proposition 15.2 | `HState`, `Kinds`, `Live`, `Bel`, `LiveRead`, `BelRead`, `Inv`, `Step`, `Reachable`, `inv_step`, `inv_reachable`, `live_closed`, `believed_closed`, `liveRead_closed`, `belRead_closed`, `prop_15_2` | An invariant every step keeps, one lemma per step; closure of each slice from the invariant (L9) | L |
+| Definition 16.1 | `Closed`, `V.restrict`, `restrict_spec`, `select`, `select_incl`, `select_incl_injective`, `select_incl_preserves_names`, `select_undefined` | A kept value restricted to the kept elements, a set through its lists | S |
+| Definition 16.2 | `lookup`, `lookup_unique`, `lookup_none`, `keyViolations_sub` | From key exclusivity | S |
+| Definition 16.3 | `ExtMapping`, `ExtMapping.delta`, `toExt`, `toExt_delta` | A term reading its admitted source, a pure mapping's among them | M |
+| Proposition 16.4 | `fragment`, `fragment_label_origin`, `fragment_one_origin`, `fragment_undefined` | Definitions 16.1, 16.3, proposition 9.5 | M |
+| Definition 16.5 | `coprodSchema`, `coprod`, `inlMapping`, `inrMapping`, `coprod_inl`, `coprod_inr` | `Δ` along each injection back to its summand by `iota_iotaInv` | S |
+| Proposition 16.6 | `history_through_migration`, `map_injective`, `ref_map` | Propositions 15.2 and 16.4 and the permanence of key claims (`keyViolations_sub`) | M |
 | Definition 17.1; proposition 17.2 | `templates`, `Tmpl.inst`, `rdf`, `templates_mapRefs`, `Tmpl.inst_mono`, `rdf_monotone` | Each quad from one element's template, natural in its references, named by a naming monotone in its definedness | M |
 | Proposition 17.3 | `rdfInv`, `RoundTrip`, `rdf_round_trip` | Attribution of each own predicate to its subject; label from the chain of type quads; each slot by inverting the check against its type; elements by IRI, triple or pair | L |
 | Corollary 17.4 | `shacl_min_count`, `shacl_max_count`, `shacl_datatype`, `shacl_in`, `shacl_class`, `shacl_class_edge` | From the shapes of an element's own quads that proposition 17.3's proof establishes (L10) | M |
@@ -343,6 +343,36 @@ folder as its one argument, and L7c runs it into a scratch folder whose files Le
   section 9's finite-images rule excludes it (decided 2026-11-08);
 - example 9.6 is checked by the kernel, the identity term of `AssertedBy` type-checking against `Φ̂(σ'(AssertedBy))`
   as the specification states.
+
+**What L8 settled:**
+- a state holds every element with its versions, newest first, and its `asserted` interval; a commit is one step at
+  the next epoch, an insert, a revision, a retraction of a set or a deletion of a set, the set holding every element an
+  action takes with it (`Step`); decision L9's list of operations is a sequence of steps, and what the steps read of
+  the catalog, `@bitemporal`, `@append_only`, entity types and each role's actions, is `Kinds`;
+- proposition 15.2 rests on an invariant every step keeps (`Inv`, `inv_step`): every version of a `@bitemporal`
+  element names, over its interval, `@bitemporal` elements asserted throughout it or `@append_only` entities, which no
+  step retracts or deletes (`UGS0602` tightened, decided 2026-11-08); `restrict` and `cascade` act through the step's
+  set, `restrict` counting every instance (`SCHEMA.md` section 8.5, decided 2026-11-08), and an `orphan` role is
+  emptied; `@ends` closes a valid interval, a revision;
+- a `@retracts` role is a reference into history, outside `@on_retract` (decided 2026-11-08): the slices are closed
+  under every other role (`liveRefs`), an insert through one is an insert followed by its participant's retraction,
+  and a read's slice adds what the role reaches as the `with retracted` slice holds it (`LiveRead`, `BelRead`), which
+  is closed under every reference and so the APG proposition 16.6 reads;
+- the naming is injective under proposition 17.3's conditions and section 14.2's exclusivity, read as the violation
+  queries of `@set` on each relation named by its triple and of each role label over every element of the graph
+  (`Exclusive`); a triple's relation follows from its navigation name and its anchor's label (`UGS0418`), so
+  `edge_named_by_triple` is `naming_injective`'s triple case;
+- section 16 sits on the core: a selection restricts each kept value to the kept elements (`V.restrict`), a set
+  through the lists it is the quotient of, with no `Classical.choice`; key lookup sits on the finite APGs, where keys
+  are declared, and a key's exclusivity holds in every sub-APG, the permanence proposition 16.6 reads;
+- an extended term is a function of the admitted source (`ExtMapping`), the plan's `ExtTm` and `evalExt`: a key
+  lookup, an inverse navigation, a derivation, a fold or a function is one, and `Δ` along it acts on APGs alone;
+- the fragment takes the source with its unnests, `G⁺`, as its argument: unnest is definition 12.7 on the finite APGs
+  (`unnest_origin`);
+- a coproduct's injections are mappings, and `Δ` along each is an isomorphism back to its summand (`coprod_inl`,
+  `coprod_inr`), the plan's `coprod_inl_hom` and `coprod_inr_hom`, since a homomorphism joins APGs on one schema;
+- proposition 16.6 is stated for a slice included into the stored present by an injective homomorphism preserving
+  names: the fragment's elements map injectively into the present's `Δ`, and each origin's name carries over.
 
 **What L7c settled:**
 - an export names a keyed element by the IRI its key mints (`SCHEMA.md` sections 7.2 and 7.3) and an element whose IRI

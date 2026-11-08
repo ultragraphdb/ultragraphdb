@@ -33,6 +33,8 @@ import ApgModel.Views.Rdf
 import ApgModel.Views.RdfInverse
 import ApgModel.Views.RdfRoundTrip
 import ApgModel.Views.RdfShacl
+import ApgModel.History
+import ApgModel.Migration
 
 /-!
 # Algebraic property graphs
@@ -42,7 +44,7 @@ core over families of elements, in which the paper's results are proved by struc
 waves, a named layer over it, the catalog's schema, its constraints, history, migration operations, and the RDF and
 GQL views with the test oracle that runs them.
 
-This version holds waves L1 to L7. The core: the typeside (definition 2.1); types and schemas (definitions 3.2, 4.1,
+This version holds waves L1 to L8. The core: the typeside (definition 2.1); types and schemas (definitions 3.2, 4.1,
 12.1); finite sets; values and their functoriality (propositions 5.3, 12.2); APGs in both forms and referential
 integrity (propositions 6.3, 6.6); homomorphisms, isomorphisms and the coalgebra view (propositions 7.2, 8.1); and
 mapping terms with their evaluation, renaming, substitution and the laws of `map` (proposition 8.7, definition 12.4);
@@ -60,5 +62,10 @@ templates natural in their references, monotone under homomorphisms preserving n
 17.2); its inverse `R⁻¹`, giving back every element of a valid APG written as the store writes it under its IRI, triple
 or pair (proposition 17.3); the SHACL shapes holding on it (corollary 17.4). The oracle: its typeside, the lexical
 forms and N-Quads of `R(G)` with their parser, the aviation schema's and a Gen5 subset's instance sets, and the
-checks every set passes before `apg_oracle` writes it.
+checks every set passes before `apg_oracle` writes it. History: the naming, injective where defined (section 15.1);
+the union of graphs (proposition 15.1); states, their slices and commits, each commit keeping an invariant under which
+the live slice, every believed slice and the state are closed under references (proposition 15.2). Migration:
+selection with its inclusion (definition 16.1), key lookup (definition 16.2), extended mappings (definition 16.3), the
+fragment and its origins (proposition 16.4), coproducts (definition 16.5) and history through a migration
+(proposition 16.6).
 -/
