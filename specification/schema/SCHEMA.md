@@ -70,8 +70,8 @@ recorded in the catalog, and the compilation report names it as declared and une
   number of roles in one instance, and a relation instance can fill a role in another relation. Relation types form
   trees by single inheritance, with role specialization.
 - **Statements** are abstract types that root both entity types and relation types, so a role may accept either.
-- **Derived relations** are closures, compositions and folds the engine maintains; clients read them and never write
-  them.
+- **Derived relations** are closures, compositions, folds and values computed from an instance's own fields, which
+  the engine maintains; clients read them and never write them.
 - **Functions** are named, typed, pure queries stored with the schema.
 - **Graphs** are named instances of a schema: an RDF named graph and a GQL graph. Domain graphs are disjoint and connect
   only through shared graphs.
@@ -107,16 +107,21 @@ but a documentable item is a warning (`UGS0804`) and is dropped.
 
 An identifier is an ASCII letter or `_`, then ASCII letters, digits and `_`, at most 128 bytes. Identifiers are case
 sensitive. The convention, checked by the linter as a warning (`UGS0805`) and never by the grammar: types, relations,
-statements, enums, records, named attribute types, quantities and units in `UpperCamelCase`; attributes, roles,
-navigation names, functions, schemas, modules, graphs and vocabulary prefixes in `lower_snake_case`. A qualified
+statements, enums, records, named attribute types and quantities in `UpperCamelCase`; attributes, roles, navigation
+names, functions, schemas, modules, graphs and vocabulary prefixes in `lower_snake_case`; units as their symbol is
+written, UCUM's case kept (`m`, `ft_i`, `K`, `dBm`), which the linter leaves unchecked. A qualified
 identifier `a.b` names a declaration of an imported schema (`temporal.Day`) or a member of the catalog qualifier
 `schema` (`schema.EntityType<T>`).
 
 ### 3.4 Reserved words
 
 The following are reserved and never identifiers (`UGS0007`): `abstract`, `as`, `attribute`, `derive`, `entity`,
-`enum`, `extends`, `false`, `fn`, `graph`, `import`, `module`, `Optional`, `prefix`, `quantity`, `record`,
-`relation`, `reserve`, `schema`, `statement`, `true`, `unit`, `version`.
+`enum`, `extends`, `false`, `fn`, `graph`, `module`, `Optional`, `prefix`, `quantity`, `record`, `relation`,
+`reserve`, `schema`, `statement`, `true`.
+
+`import`, `unit` and `version` are keywords where a header or a declaration begins, and `version` after a schema's or
+module's name; everywhere else they are identifiers, since an identifier never begins a header or a declaration. A
+measure's accessor `.unit`, a record field `unit`, an attribute `version` and an enum member `import` are names.
 
 Every other quoted word of the grammar is a contextual keyword, recognised in the position the grammar names and an
 identifier everywhere else: the operators `and`, `or`, `not`, `in`, `between`, `is`; the quantifiers `exists`, `some`,
@@ -215,7 +220,7 @@ union       = ptype { "|" ptype } ;
 ptype       = qident | "schema" "." ( "EntityType" | "RelationType" ) "<" qident ">" ;
 card        = "?" | "*" | "+" | "{" int "," int "}" ;
 
-derive      = "derive" ident "." ident [ ":" type [ "Optional" ] ] "=" ( dpath [ "exists" ] | fold ) { annot } ;
+derive      = "derive" ident "." ident [ ":" type [ "Optional" ] ] "=" ( dpath [ "exists" ] | fold | expr ) { annot } ;
 fold        = ( "last" | "first" | "count" | "sum" | "min" | "max" )
               "(" dpath [ "order" "by" dpath [ "asc" | "desc" ] ] ")" [ "." ident ] ;
 dpath       = dstep { "." dstep } ;
@@ -232,7 +237,8 @@ unit        = "unit" ident "{" qfield { "," qfield } "}" { annot } ;
 qfield      = ident ":" ( literal | ident | "[" ident { "," ident } "]" ) ;
 graph       = "graph" ident ":" qident { annot } ;
 
-type        = qident [ "<" targ { "," targ } ">" ] [ "(" int { "," int } ")" ] ;
+type        = qident [ "<" targ { "," targ } ">" ] [ "(" int { "," int } ")" ]
+            | "schema" "." ( "EntityType" | "RelationType" ) "<" qident ">" ;
 targ        = type | int | ident ;
 qident      = ident { "." ident } ;
 annot       = "@" ident [ "(" [ arg { "," arg } ] ")" ] ;
@@ -247,7 +253,9 @@ literal     = int | rational | decimal | float | string | "true" | "false" | dat
             | duration | interval | iri | ident ;                      (* ident: an enum member *)
 ```
 
-The expression grammar, shared by `@check`, `@limit`'s condition, derive filters and function bodies:
+A derive body that is wholly a `dpath`, with or without `exists`, or a `fold` is read as one; any other body is an
+`expr`, a computed derivation (section 6.8). The expression grammar, shared by `@check`, `@limit`'s condition, derive
+filters, computed derivations and function bodies:
 
 ```
 expr        = or_expr ;
@@ -671,7 +679,7 @@ An index kind that does not fit the field's type is refused: `range` needs an or
 | `@ends(role)` | Relation with a valid interval | A role whose every participant type has a valid interval (`UGS0512`) | Inserting an instance closes its participant's valid interval at the instance's own valid start, in the same commit; section 8.4 |
 | `@acyclic` | Binary relation, or an abstract relation whose subtypes are binary, whose two roles' participant types share a common supertype (`UGS0503`) | Optional `open` and `max_depth: n`, `1 ≤ n ≤ 4096` (`UGS0504`) | No cycle through the relation's two roles, across the type tree; `max_depth` bounds every path; `open` counts only live instances whose valid interval is open (needs `@valid`, `UGS0508`) |
 | `@colocate(role)` or `@colocate(root)` | Relation without `@key` (`UGS0702`) | A role of the relation, own or inherited (`UGS0701`); `root` needs `@acyclic` and one container per participant at a time: a first role whose navigation cardinality is `?` or `{0, 1}`, or a `@no_overlap(per: [first role])` (`UGS0702`) | Section 9.1 |
-| `@limit(agg op n per (roles [, type]) [where cond])` | Relation | `agg` is `count()` or `sum(attr)` over a numeric attribute (`UGS0505`); `op` is `<=`, `>=` or `=`; `n` a literal; `per` names one or more roles, optionally the word `type`; `cond` a deterministic expression over the instance's own values, its participants' types and `open` (`UGS0507`) | Section 8.6 |
+| `@limit(agg op n per (roles [, type]) [where cond])` | Relation | `agg` is `count()` or `sum(attr)` over a numeric attribute (`UGS0505`); `op` is `<=`, `>=` or `=`; `n` a literal; `per` names one or more roles, optionally the word `type`; `cond` a deterministic expression over the instance's own values, its participants' types and `open` (`UGS0507`); a top-level conjunct over the `per` participants' types selects the groups | Section 8.6 |
 | `@no_overlap(per: [roles])`, `@no_overlap(per: [roles], strict)` | Relation or entity with `@valid` or `@bitemporal` (`UGS0508`) | Roles of the relation | The valid intervals of live instances sharing those participants never certainly overlap, or with `strict` never possibly overlap (`UGS1024`) |
 | `@access` | Relation | none | An access-control relation: a query filtering through it runs at snapshot level, never monotonic-fast |
 | `@iri(template)` | Keyed entity or relation | A string template (section 7.3) | Overrides the instance IRI pattern |
@@ -695,7 +703,8 @@ derive Parameter.current: Float64 = last(changes order by day.date).value
 a navigation name is (`UGS0404`). The body is a path of navigation names, roles, derived names and method functions
 from `Type`, each step with optional filters, a transitive marker `+` (one or more steps, distinct endpoints) or a bound
 `{m, n}`, and `exists` turning the path into a Boolean; or a fold `last`, `first`, `count`, `sum`, `min`, `max` over
-such a path with an optional `order by` and an optional trailing field. The result type and cardinality follow from the
+such a path with an optional `order by` and an optional trailing field; or an expression over the instance's own
+fields, a computed derivation (below). The result type and cardinality follow from the
 last step: `+` and `{m, n}` yield a set of distinct endpoints; a fold yields the field's type, `Optional` for `last`,
 `first`, `min`, `max` over a possibly empty path; a declared `: type` must equal the inferred one (`UGS0207`). A
 derivation's filters use the expression grammar with the bitemporal items `with retracted` and `open`; `today()` and
@@ -718,6 +727,14 @@ derivation's filters use the expression grammar with the bitemporal items `with 
   mutable data, are recomputed from the remaining instances when one is updated or deleted. Reading a fold is
   non-monotonic.
 - `@index(range)` may follow a materialized derivation of a scalar type.
+
+**Computed derivations.** `derive Asserted.closed: Bool = not live or valid.end is some or rank = deprecated` names a
+value computed from the instance alone: its body is an expression over the instance's own attributes and the built-in
+fields of section 5.11, with no navigation, role, derived name of another instance or function reading one
+(`UGS0227`), and `today()` and `now()` refused (`UGS0225`). Its type is declared and equals the expression's
+(`UGS0207`). It is materialized by default and maintained in every commit that writes the instance, its retraction
+included, so it lives in the instance's partition by construction; `@index(range)` may follow it, and a derivation or
+a filter elsewhere reads it as a field. **[stage 6]**
 
 ### 6.9 Functions
 
@@ -1058,7 +1075,12 @@ would avoid (`UGS0903`).
 
 `aggregate` is `count()` or `sum(attr)`; `op` is `<=`, `>=` or `=`; `n` a literal. The bound holds, per combination of
 the participants in the `per` roles, and per concrete relation subtype when `type` is listed, over the live instances
-satisfying `condition`, which reads the instance's own values, its participants' types and `open`. A lower bound is
+satisfying `condition`, which reads the instance's own values, its participants' types and `open`. A conjunct of
+`condition`, a term joined to the rest by `and` at its top level, that reads only the types of the participants in the
+`per` roles **selects the groups**: the bound applies to the combinations whose participants satisfy it, and the other
+conjuncts filter the instances counted. `count() >= 1 per delegate where delegate is Software and open` asks every
+Software delegate for an open instance and asks nothing of a Person. An upper bound reads the same either way, since a
+group the selection leaves out counts no instance. A lower bound is
 checked at commit: creating the grouped participant and its first instances happens in one transaction, and a
 retraction, delete or valid-window close that would break it is refused (`UGS1023`). Cardinality markers are shorthand
 for unfiltered bounds on one role.
@@ -1378,6 +1400,7 @@ A schema with any error is refused. Warnings and notes accompany a successful in
 | `UGS0224` | error | `Date` compared or combined with `DateTime` without a conversion |
 | `UGS0225` | error | `today()`, `now()` or another non-deterministic function in `@check`, `@limit`, a derivation or a function |
 | `UGS0226` | error | `@check` reading another instance, or a mutable field of a participant |
+| `UGS0227` | error | A computed derivation reading a navigation, a role, another instance or a function that does |
 | `UGS0301` | error | A key attribute that is `Optional` |
 | `UGS0302` | error | A key on a subtype of a keyed type |
 | `UGS0304` | error | An `@iri` template from which the key cannot be read back |
@@ -1877,7 +1900,11 @@ counterparty.
 | Purge | A command over a bounded, reviewed list of IRIs under the action `purge`, sequenced at an epoch and executed as a delete's shares with physical removal everywhere the instance is named; the audit record holds each IRI's hash, never the IRI |
 | HNSW parameters | Version 1 declares `metric` and `quantization`; build parameters take the store's defaults and are added as optional arguments when stage 8's measurements ask; a search-time parameter is refused in a schema |
 | Escrow | A Homeostasis treaty at the grouped participant's home: shares leased on demand through sequenced claims, sized by the remaining headroom, returned when idle, surviving crashes in the holder's log and reclaimed on a declared loss (section 9.7) |
-| Reserved words | The structural keywords only; every operator, fold, modifier and annotation word is contextual, so domain names such as `in`, `by`, `max`, `open` and `within` stay available (found by the Gen5 exercise, `UltraGraphDB Schema Feedback.md`) |
+| Reserved words | The structural keywords only; every operator, fold, modifier and annotation word is contextual, so domain names such as `in`, `by`, `max`, `open` and `within` stay available (found by the Gen5 exercise, `UltraGraphDB Schema Feedback.md`). Decided 2026-11-08: `import`, `unit` and `version` are keywords only where a header or declaration begins, which lets section 5.11's `.unit` parse and Gen5 keep `version`, `unit` and `import` as names (`deepbrain-gen5.ugs`) |
+| Computed derivations | Decided 2026-11-08: a derivation may be an expression over the instance's own fields and built-in fields, maintained in the instance's own commit and indexable, which is how Gen5's `closed` flag lives with the statement it describes |
+| `@limit` conditions over participants' types | Decided 2026-11-08: a top-level conjunct reading only the grouped participants' types selects the groups a bound applies to, so a lower bound can hold for one type of participant, as Gen5's `GeneratedBy` and `ActedOnBehalfOf` require |
+| Catalog types as field types | Decided 2026-11-08: the grammar's `type` takes `schema.EntityType<T>` and `schema.RelationType<T>`, as section 5.10 lets a field hold one |
+| Unit names | Decided 2026-11-08: a unit is written as its symbol, UCUM's case kept, outside the `UpperCamelCase` convention |
 | Name spaces | Quantity kinds and units have their own, resolved by position, so a kind may be named as a scalar type is |
 | Key claims | A `@key`'s claim is in the entity's own bucket, hashed as the entity is, so creation and the check meet in one partition; `@unique` claims stay at the value's hash |
 | `@ends(role)` | Beside `@retracts`: a succession closes the old statement's valid interval and leaves it believed |

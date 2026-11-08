@@ -5,7 +5,7 @@
 
 This note lays out stage 6 in the order it must be built, with enough detail that its change set (proposal, design,
 capability specifications, tasks) can be written from it and its groups started without rediscovering what stage 5.5
-left. Stage 6 builds UGS, the one data definition language of UltraGraphDB (`specification/SCHEMA.md`), from its
+left. Stage 6 builds UGS, the one data definition language of UltraGraphDB (`specification/schema/SCHEMA.md`), from its
 source text to the catalog, the store and the write path, together with the protocol and client parts a schema needs.
 
 ## 1. Success
@@ -22,8 +22,9 @@ Stage 6 is done when:
      drop, a version not built on the current one refused (`UGS2001`);
    - **delete:** a schema's namespace is removed from its tenant as gap G1 (section 2) settles.
 2. **The provisional DeepBrain schema loads and is applied.** Gen5's `DeepBrainSchema.ugs` with its module
-   `ServiceRadarExtension.ugs` installs into a tenant with no error, the report listing only the notes of constructs
-   that execute in a later stage (`UGS0902`), and a corpus of DeepBrain instances written as quads is accepted where
+   `ServiceRadarExtension.ugs` installs into a tenant with no error, its report holding exactly the warnings and
+   notes the corpus expects (`UGS0902` for constructs that execute in a later stage, `UGS0903` to `UGS0906` for
+   placement and scatter reads), and a corpus of DeepBrain instances written as quads is accepted where
    it holds every stage 6 rule and refused, with the rule's `UGS1xxx` number, where it breaks one. The instances read
    back through the RDF view.
 3. `make test` is green, every group's mutation pass is done, and the fuzz runs of group 12 are recorded.
@@ -340,8 +341,8 @@ reference types), as stage 5.5's groups were.
 The success of section 1, end to end through the three role binaries and the client, over TLS and clear text:
 - create, read, update and delete the aviation schema, each evolution pair of the corpus taking its expected path, the
   delete removing the namespace after its graphs are dropped and refused before;
-- Gen5 and its module installed into a fresh tenant: no error, exactly the expected `UGS0902` notes, the `ann` index's
-  among them, Describe's sources equal to the files, the schema id stable across a restart of every role;
+- Gen5 and its module installed into a fresh tenant: no error, exactly the report the corpus expects, the `ann` index's
+  `UGS0902` among it, Describe's sources equal to the files, the schema id stable across a restart of every role;
 - Gen5's instance sets written as quads: the holding ones committed, each breaking one refused with its number, the
   committed ones read back through the RDF view equal to the corpus's expectation;
 - a retraction with `restrict open` and an append-only provenance link behaving as `SCHEMA.md` section 8.4 states;

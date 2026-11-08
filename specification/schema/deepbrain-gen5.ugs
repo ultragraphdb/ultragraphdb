@@ -1,0 +1,976 @@
+// DeepBrain Gen5 in UGS, on specification/schema/SCHEMA.md as of 2026-11-08: the specification's check that it
+// expresses a full schema, and the text of scrith's openspec/notes/schema/gen5/DeepBrainSchema.ugs, the schema's
+// source of truth, which schema_graph_gen5.md beside it explains.
+//
+// What is native here, and why (UltraGraphDB Schema Feedback.md, sections F to H):
+//   * Entities are keyed by `id`, a NodeRef; a relation instance is named by the handle its insert
+//     returns, so a relation insert pays no key claim and lives at its anchor by one rule.
+//   * A kind whose own invariant reads its object side anchors there: MemberOf at the collection,
+//     Holds at the post, SubOrganizationOf at the tree's root. The report prices what each gives up.
+//   * `closed` is a materialized flag on the statement it describes; the stale queue reads through it.
+//   * Links (section 3) are edges, one quad each. A binary kind below Relation is an edge with a
+//     reifier through which other relations name it; a kind with three roles, a set-valued role or
+//     `@colocate(root)` is a node.
+//   * Personal data and privacy protection are deferred until UltraGraphDB and DeepBrain stabilise;
+//     Person's three `personal_` attributes are where it will attach.
+
+/// DeepBrain's core: every node and relation of six domains over three layers, as statements with an
+/// envelope, bitemporal, never deleted.
+schema deep_brain version 5
+
+prefix db = "https://example.org/deep_brain#"
+import "http://www.w3.org/ns/prov#"           as prov
+import "http://www.w3.org/2004/02/skos/core#" as skos
+import "http://www.w3.org/ns/org#"            as org
+import "http://www.w3.org/ns/sosa/"           as sosa
+import "http://qudt.org/vocab/quantitykind/"  as qk
+import "http://qudt.org/vocab/unit/"          as qu
+import "https://schema.org/"                  as sdo
+import "https://w3id.org/cco/"                as cco
+import "http://purl.org/dc/terms/"            as dcterms
+
+// ============================================================================================
+// 1. Vocabulary
+// ============================================================================================
+
+// ---- Quantity kinds and units: QUDT's triad over ISO 80000 and UCUM. A unit converts to its kind's
+//      canonical unit as canonical = value × multiplier + offset; the canonical unit is the identity.
+quantity Length                   { dimension: "L",     scale: ratio,    canonical: m }         @maps_to(qk:Length)
+quantity Altitude                 { dimension: "L",     scale: ratio,    canonical: m }         @maps_to(qk:Altitude)
+quantity Speed                    { dimension: "L T-1", scale: ratio,    canonical: m_per_s }   @maps_to(qk:Speed)
+quantity PlaneAngle               { dimension: "1",     scale: ratio,    canonical: deg }       @maps_to(qk:PlaneAngle)
+quantity Time                     { dimension: "T",     scale: ratio,    canonical: s }         @maps_to(qk:Time)
+quantity Duration                 { dimension: "T",     scale: ratio,    canonical: s }         @maps_to(qk:Duration)
+quantity ThermodynamicTemperature { dimension: "Θ",     scale: interval, canonical: K }         @maps_to(qk:ThermodynamicTemperature)
+quantity Dimensionless            { dimension: "1",     scale: ratio,    canonical: one }       @maps_to(qk:DimensionlessRatio)
+quantity DataRate                 { dimension: "T-1",   scale: ratio,    canonical: bit_per_s } @maps_to(qk:DataRate)
+quantity PowerRatio               { dimension: "1",     scale: interval, canonical: dBm }       @maps_to(qk:PowerRatio)
+/// An ordinal grade on a scale the source defines; its values are text.
+quantity Score                    { dimension: "1",     scale: ordinal }
+
+unit m          { quantities: [Length, Altitude], ucum: "m",           symbol: "m" }                                @maps_to(qu:M)
+unit ft_i       { quantities: [Length, Altitude], ucum: "[ft_i]",      symbol: "ft",     multiplier: 0.3048 }       @maps_to(qu:FT)
+/// Deprecated by NIST from 2023; kept because survey elevations were recorded in it.
+unit ft_us      { quantities: [Length, Altitude], ucum: "[ft_us]",     symbol: "ft",     multiplier: 1200 / 3937 }  @maps_to(qu:FT_US) @deprecated(use: ft_i)
+unit m_per_s    { quantities: [Speed],            ucum: "m/s",         symbol: "m/s" }                              @maps_to(qu:M-PER-SEC)
+unit kn         { quantities: [Speed],            ucum: "[kn_i]",      symbol: "kn",     multiplier: 1852 / 3600 }  @maps_to(qu:KN)
+unit ft_per_min { quantities: [Speed],            ucum: "[ft_i]/min",  symbol: "ft/min", multiplier: 127 / 25000 }  @maps_to(qu:FT-PER-MIN)
+unit deg        { quantities: [PlaneAngle],       ucum: "deg",         symbol: "°" }                                @maps_to(qu:DEG)
+unit s          { quantities: [Time, Duration],   ucum: "s",           symbol: "s" }                                @maps_to(qu:SEC)
+unit ms         { quantities: [Time, Duration],   ucum: "ms",          symbol: "ms",     multiplier: 0.001 }        @maps_to(qu:MilliSEC)
+unit us         { quantities: [Time, Duration],   ucum: "us",          symbol: "µs",     multiplier: 0.000001 }     @maps_to(qu:MicroSEC)
+unit ns         { quantities: [Time, Duration],   ucum: "ns",          symbol: "ns",     multiplier: 0.000000001 }  @maps_to(qu:NanoSEC)
+unit min        { quantities: [Time, Duration],   ucum: "min",         symbol: "min",    multiplier: 60 }           @maps_to(qu:MIN)
+unit h          { quantities: [Time, Duration],   ucum: "h",           symbol: "h",      multiplier: 3600 }         @maps_to(qu:HR)
+unit d          { quantities: [Time, Duration],   ucum: "d",           symbol: "d",      multiplier: 86400 }        @maps_to(qu:DAY)
+unit wk         { quantities: [Time, Duration],   ucum: "wk",          symbol: "wk",     multiplier: 604800 }       @maps_to(qu:WK)
+unit K          { quantities: [ThermodynamicTemperature], ucum: "K",   symbol: "K" }                                @maps_to(qu:K)
+unit Cel        { quantities: [ThermodynamicTemperature], ucum: "Cel", symbol: "°C",     offset: 273.15 }           @maps_to(qu:DEG_C)
+unit degF       { quantities: [ThermodynamicTemperature], ucum: "[degF]", symbol: "°F",
+                  multiplier: 5 / 9, offset: 45967 / 180 }                                                          @maps_to(qu:DEG_F)
+unit one        { quantities: [Dimensionless],    ucum: "1",           symbol: "" }                                 @maps_to(qu:UNITLESS)
+unit percent    { quantities: [Dimensionless],    ucum: "%",           symbol: "%",      multiplier: 0.01 }         @maps_to(qu:PERCENT)
+unit bit_per_s  { quantities: [DataRate],         ucum: "bit/s",       symbol: "bit/s" }                            @maps_to(qu:BitPER-SEC)
+unit dBm        { quantities: [PowerRatio],       ucum: "dB[mW]",      symbol: "dBm" }                              @maps_to(qu:DeciB_M)
+
+// ---- The epistemic vocabulary.
+enum Method            { manual, import, rule, nlp, llm, adlr, replay, observation, conversion }
+enum Rank              { preferred, normal, deprecated }
+enum ConfidenceScale   { probability, percent, log_odds, admiralty, ipcc }
+enum UncertaintyKind   { standard, expanded, variance, coefficient_of_variation }
+enum SourceType        { system, document, feed, collector, testimony }
+enum EvidenceType      { experimental, theoretical, empirical, consensus, observed, legislative }
+enum TerminationReason { unknown, resource_limit, conflicting_constraints, insufficient_data,
+                         unverified, vendor_ip, superseded_mandate, stale_verification }
+enum GapStatus         { unsolved, partial_workaround, investigating, resolved }
+enum InvalidationScope { method, assumption, hypothesis, conclusion, boundary_condition, identity, mandate }
+enum Revisability      { open, contested, settled }
+enum VerificationResult { pass, fail, stale }
+
+// ---- Content, teleology and agency.
+enum DocType           { legislation, regulation, standard, policy, contract, procedure, report }
+enum PurposeState      { draft, validated, active, superseded, retired }
+/// LegalRuleML's statement kinds.
+enum StatementKind     { constitutive, prescriptive, penalty, reparation, factual }
+enum Strength          { strict, defeasible, defeater }
+enum RuleKind          { causal, dispatch, composite }
+enum ExpressionLang    { cfl, srql, jdm, uql, text }
+enum Join              { max, min, noisy_or, custom }
+enum Modality          { obligatory, impermissible, permitted, right, optional }
+enum PredicateKind     { deterministic, uncertain }
+enum VerdictStatus     { fired, enqueued, alerted, suppressed, would_fire }
+enum Raci              { responsible, accountable, consulted, informed }
+enum CreditRole        { conceptualization, data_curation, formal_analysis, funding_acquisition,
+                         investigation, methodology, project_administration, resources, software,
+                         supervision, validation, visualization, writing_original_draft,
+                         writing_review_editing }
+/// LegalRuleML's binding roles.
+enum BindingRole       { bearer, auxiliary_party }
+
+// ---- The engine's vocabulary: DeepCausality's kinds by name.
+/// OWL-Time's two temporal entities.
+enum TemporalEntity    { instant, interval }
+enum TimeKind          { newtonian, minkowski, discrete, entropic }
+enum TimeScale         { no_scale, nanoseconds, microseconds, millisecond, second, minute, hour,
+                         day, week, month, quarter, year, steps, symbolic }
+enum SpaceKind         { geo, ecef, euclidean, ned }
+enum SpaceTimeKind     { galilean, newtonian, minkowski, tangent }
+enum DatumKind         { ellipsoidal, orthometric, barometric, terrain, engineering }
+enum ContextEdgeKind   { datial, temporal, spatial, space_temporal }
+
+// ---- Named attribute types.
+/// deep_brain's identity: `PREFIX:value`.
+attribute NodeRef      = String @pattern("[A-Z][A-Z0-9_]*:\\S+")
+/// "scheme:value": orcid:, ror:, lei:, …
+attribute Identifier   = String @pattern("[a-z][a-z0-9]*:.+")
+/// The tag index: each tag a value entity that outlives its holders.
+attribute Tag          = String @independent
+/// A contextoid's number: the top bit set.
+attribute ContextoidId = UInt64 @range(9223372036854775808, 18446744073709551615)
+/// A container's number: never 0.
+attribute ContainerId  = UInt64 @range(1, 18446744073709551615)
+attribute Embedding    = Vector<BF16, 768> @index(ann, metric: cosine, quantization: int8)
+
+/// GUM (JCGM 100): the dispersion of a value, stated as the standard states it.
+record Uncertainty {
+  value:                Float64
+  kind:                 UncertaintyKind
+  unit:                 Unit
+  coverage_factor:      Float64 Optional
+  coverage_probability: Float64 Optional @range(0, 1)
+}
+record KeyValue { key: String  value: String }
+
+// ============================================================================================
+// 2. Statements and the envelope
+// ============================================================================================
+
+/// Everything the graph states: every node and every relation. `valid` is when what it states held
+/// in the world, each bound to its precision; the engine adds `asserted`, when the graph began and
+/// stopped asserting it. Entities are named by `id` (Node); relation instances by their handle.
+abstract statement Statement @bitemporal(valid: valid) {
+  valid:       Interval<DateTime> Optional @index(interval)
+  uncertainty: Uncertainty Optional
+}
+
+/// A value written at observation rate: SOSA's result of one collection Activity. Its `valid` is the
+/// phenomenon instant. Never updated and never retracted, and named by its handle.
+entity Reading : Statement @append_only @check(value is some or text is some) {
+  valid: Interval<DateTime> @index(interval)
+  value: Measure Optional @index(range)
+  text:  String Optional @index(range)
+}
+
+/// A statement with its full epistemology: how it is known, how surely, how it ranks.
+abstract statement Asserted : Statement {
+  method:           Method Optional @index(range)
+  confidence:       Float64 Optional @range(0, 1) @index(range)
+  confidence_scale: ConfidenceScale Optional
+  inferred:         Bool = false
+  rank:             Rank = normal @index(range)
+}
+
+/// Every node of every domain and layer, named by `id`.
+abstract entity Node : Asserted @key(id) {
+  id:            NodeRef
+  label:         Text Optional @index(range) @index(fulltext)
+  description:   Text Optional
+  external_iri:  Iri Optional @index(range)
+  contextoid_id: ContextoidId Optional @unique
+}
+
+/// Every relation between statements. Its envelope is its own, and it can be the participant of
+/// another relation. UniquePreferred: one preferred instance per subject and relation kind.
+abstract relation Relation : Asserted @multi {
+  subject: Statement -> out*
+  object:  Statement -> in*
+} @limit(count() <= 1 per (subject, type) where rank = preferred)
+
+/// A known absence: the subject has no relation of this kind, distinct from a Gap, a known unknown.
+/// `@set` counts live instances, so a subject holds one live absence per relation type.
+relation Absence : Asserted @set {
+  subject: Statement                     -> absences*
+  kind:    schema.RelationType<Relation> -> _
+}
+
+// ============================================================================================
+// 3. Provenance links: binary, envelope-free, one quad each
+// ============================================================================================
+
+/// prov:wasAttributedTo: who answers for a statement, an agent or the channel it arrived through.
+/// (`assertions`, since `asserted` is the engine's transaction-time field.)
+relation AssertedBy @set @append_only @maps_to(prov:wasAttributedTo) {
+  statement: Statement      -> asserted_by?
+  asserter:  Agent | Source -> assertions*
+}
+
+/// prov:wasGeneratedBy: the act that produced a statement. Every Reading has one.
+relation GeneratedBy @set @append_only @maps_to(prov:wasGeneratedBy) {
+  statement: Statement -> generated_by?
+  activity:  Activity  -> generated*
+} @limit(count() >= 1 per statement where statement is Reading)
+
+/// prov:wasDerivedFrom as a pointer: what a statement rests on. A grounding with its own window,
+/// method or rank is a WasDerivedFrom relation instead.
+relation GroundedIn @set @append_only @maps_to(prov:wasDerivedFrom) {
+  statement: Statement -> grounded_in*
+  ground:    Statement -> grounds*
+}
+
+/// The counterfactual a statement belongs to.
+relation InScenario @set @append_only {
+  statement: Statement -> scenario?
+  scenario:  Scenario  -> statements*
+}
+
+/// Who set a statement's rank. Re-ranking replaces the link.
+relation RankedBy @set {
+  statement: Asserted -> ranked_by?
+  agent:     Agent    -> rankings*
+}
+
+// ============================================================================================
+// 4. Content: what is
+// ============================================================================================
+
+/// An endurant: something that persists and keeps its identity while it changes.
+abstract entity Endurant : Node { }
+
+/// A thing. Its semantic kind is a subtype an extension declares: `entity Router : Device`.
+entity Object : Endurant {
+  summary:    Text Optional @index(fulltext)
+  uri:        Iri Optional @index(range)
+  source_key: String Optional @index(range)
+  level:      UInt8 Optional @index(range)
+  embedding:  Embedding Optional
+}
+
+/// A perdurant: something that happens or holds for a while. Its when is `valid`; its where is a
+/// position stated here, with its uncertainty, or an OccursAt to a named place.
+abstract entity Perdurant : Node {
+  summary:           Text Optional @index(fulltext)
+  where:             Geo Optional @index(geo) @uncertainty(where_uncertainty)
+  where_uncertainty: Measure<Length, m> Optional
+  altitude:          Measure<Altitude> Optional @index(range)
+}
+
+/// Something that happens, in which endurants participate.
+entity Event : Perdurant {
+  uri:        Iri Optional @index(range)
+  source_key: String Optional @index(range)
+}
+
+/// A contingent state of affairs that holds for an interval: a phase, a configuration, a state a
+/// scenario proposes.
+entity Situation : Perdurant { }
+
+/// A change of organisations (W3C ORG's ChangeEvent).
+abstract entity OrganisationChange : Event { }
+entity Merger      : OrganisationChange { }
+entity Acquisition : OrganisationChange { }
+entity SpinOff     : OrganisationChange { }
+entity Rename      : OrganisationChange { }
+entity Dissolution : OrganisationChange { }
+
+/// Information: what is said (Content) and what carries it (Document).
+abstract entity Information : Node {
+  uri:        Iri Optional @index(range)
+  source_key: String Optional @index(range)
+  embedding:  Embedding Optional
+}
+
+/// What is said: descriptive (Claim, Quantity) or directive (Purpose).
+abstract entity Content : Information { }
+
+/// A statement about something, with a truth value the epistemology qualifies.
+entity Claim : Content {
+  statement: Text @index(fulltext)
+}
+
+/// A measured or stated value, as reported, with its provenance. Nominal and ordinal values are text.
+/// (`quantity_kind`, since an attribute name is one predicate per base and `kind` means four things.)
+entity Quantity : Content
+  @check(value is some or text is some)
+  @check(value is none or quantity_kind in value.unit.quantities) {
+  value:         Measure Optional @index(range)
+  text:          String Optional @index(range)
+  quantity_kind: QuantityKind
+}
+
+/// An information bearing entity: a legal text, a policy, a standard, a report.
+entity Document : Information {
+  summary:  Text Optional @index(fulltext)
+  doc_type: DocType Optional @index(range)
+  citation: String Optional @index(range)
+}
+
+/// A counterfactual: a proposed world whose statements are InScenario it.
+entity Scenario : Node {
+  summary: Text Optional @index(fulltext)
+}
+
+// ============================================================================================
+// 5. Agency: who acts, answers and is bound
+// ============================================================================================
+
+/// A person, an organisation, an office or software that acts.
+abstract entity Agent : Endurant { }
+
+/// A person. Its personal data lives on this node alone, in the three `personal_` attributes, so that
+/// the protection deferred until UltraGraphDB and DeepBrain have stabilised has one place to attach;
+/// `label` and `description` stay empty on a Person.
+entity Person : Agent @check(label is none and description is none) {
+  personal_name:        Text Optional @index(range) @index(fulltext)
+  personal_identifiers: Set<Identifier> Optional @index(range)
+  personal_description: Text Optional
+}
+
+/// An organisation: a company, a foundation, a university, a regulator, a department, a team.
+entity Organization : Agent {
+  identifiers: Set<Identifier> Optional @index(range)
+}
+entity Company        : Organization { }
+entity Foundation     : Organization { }
+entity University     : Organization { }
+entity GovernmentBody : Organization { }
+entity Consortium     : Organization { }
+entity Department     : Organization { }
+entity Team           : Organization { }
+
+/// An office in one organisation that outlives its holders (org:Post).
+entity Post : Agent { }
+
+/// Software that acts on behalf of a person or an organisation. It always answers to someone.
+entity Software : Agent {
+  identifiers: Set<Identifier> Optional @index(range)
+}
+entity Engine         : Software { }
+entity LanguageModel  : Software { }
+entity ServiceAccount : Software { }
+
+/// The organisation a post belongs to, for the post's whole existence.
+relation PostIn @set @append_only @colocate(post) @maps_to(org:postIn) {
+  post:         Post         -> organisation{1,1}
+  organisation: Organization -> posts*
+}
+
+// ============================================================================================
+// 6. Concepts and kinds: what is meant
+// ============================================================================================
+
+/// A meaning: SKOS's labels and definition on every concept, scheme and kind.
+abstract entity Meaning : Node {
+  alt_labels: Set<Text> Optional @index(fulltext)
+  definition: Text Optional @index(fulltext)
+  scope_note: Text Optional
+  notation:   String Optional @index(range)
+  embedding:  Embedding Optional
+}
+
+/// A unit of meaning with no instances: a topic, a method, a field, a technique.
+entity Concept : Meaning { }
+
+/// A vocabulary that organises concepts.
+entity Scheme : Meaning { }
+
+/// A kind held as data: an anti-rigid kind, attached for a window, or a rigid kind proposed and not
+/// yet declared. A curated rigid kind is a type.
+abstract entity Kind : Meaning { }
+/// Relational and anti-rigid: Sensor, Crown Jewel, Controller, Employee, Chair.
+entity RoleKind  : Kind { }
+/// Intrinsic and anti-rigid: Available, Degraded, Quarantined, Resolved, Accepted.
+entity PhaseKind : Kind { }
+
+/// A rigid kind proposed for curation. `type_name` is the name it would take once declared, `supertype`
+/// the declared type it would specialise; a proposal under another supertype is another proposal.
+entity ProposedKind : Kind {
+  type_name: String @pattern("[A-Z][A-Za-z0-9]*") @index(range)
+  supertype: schema.EntityType<Node> @immutable
+}
+/// A proposal's claim about one thing: it would be an instance of the proposed kind, so the thing is
+/// an instance of the type the proposal sits under.
+relation ClassifiedAs : Relation @check(instance is kind.supertype) {
+  instance: Node         as subject -> proposed_kinds*
+  kind:     ProposedKind as object  -> proposed_instances*
+}
+
+/// What a vertical or pressure measure is referenced to (ISO 19111).
+entity Datum : Meaning {
+  datum_kind: DatumKind
+}
+
+relation InScheme @set @append_only @maps_to(skos:inScheme) {
+  concept: Concept -> scheme?
+  scheme:  Scheme  -> concepts*
+}
+
+/// The datum an altitude is stated against.
+relation AltitudeDatum @set @append_only {
+  measured: Perdurant | Quantity | GeoGeometry | Space -> datum?
+  datum:    Datum                                      -> measured_against*
+}
+
+// ============================================================================================
+// 7. Context: under what conditions
+// ============================================================================================
+
+/// A condition a statement holds under.
+abstract entity Condition : Node {
+  statement: Text Optional @index(fulltext)
+}
+entity Domain     : Condition { }
+entity Regime     : Condition { }
+entity Assumption : Condition { dissoluble: Bool }
+
+/// A record in a store the graph names, which the engine reads as data.
+entity Data : Node {
+  record_key: String @index(range)
+}
+relation RecordSource @set @append_only {
+  data:   Data   -> record_source{1,1}
+  source: Source -> records*
+}
+
+/// A context the engine hydrates: a container of contextoids. `id` is its key; the engine's number
+/// is a secondary identity, claimed at its hash's partition.
+entity Context : Node {
+  context_id: ContainerId @unique
+}
+relation ExtraOf @set @append_only {
+  extra:  Context -> parent_context?
+  parent: Context -> extra_contexts*
+}
+
+// ============================================================================================
+// 8. Teleology: to what end
+// ============================================================================================
+
+/// Every unit of purpose, at every level: directive information content.
+abstract entity Purpose : Content { }
+
+/// A purpose stated as a norm, from a mission down to the operational rule.
+abstract entity Directive : Purpose {
+  statement:      Text Optional @index(fulltext)
+  state:          PurposeState @index(range)
+  version:        UInt32 @index(range)
+  citation:       String Optional @index(range)
+  statement_kind: StatementKind Optional @index(range)
+  strength:       Strength Optional @index(range)
+  efficacious:    Interval<DateTime> Optional @index(interval)
+  applicable:     Interval<DateTime> Optional @index(interval)
+}
+entity Intent        : Directive { }
+entity Mandate       : Directive { }
+entity Requirement   : Directive { }
+entity Specification : Directive { }
+
+/// An operational rule with graph-native structure.
+entity Rule : Directive {
+  rule_kind:       RuleKind @index(range)
+  expression:      Text
+  expression_lang: ExpressionLang
+  emits:           String Optional @index(range)
+  join:            Join Optional
+  causaloid_id:    String Optional @unique
+}
+
+/// A DDIC norm; fields mirror deep_causality_ethos::Teloid name for name. `action_identifier` takes a
+/// predicate of its own, since an Action's is unique and a teloid's names one.
+entity Teloid : Directive {
+  teloid_id:         UInt64 @unique
+  action_identifier: String @index(range) @iri("https://example.org/deep_brain#teloid_action_identifier")
+  modality:          Modality @index(range)
+  cost:              Int64 Optional
+  timestamp:         Int64 @index(range)
+  specificity:       Int32 @index(range)
+  priority:          Int32 @index(range)
+  tags:              Set<Tag> Optional
+  meta:              List<KeyValue> Optional
+  predicate_kind:    PredicateKind
+  predicate_id:      String @index(range)
+  expression:        Text Optional
+  expression_lang:   ExpressionLang Optional
+  u_threshold:       Float64 Optional
+  u_confidence:      Float64 Optional @range(0, 1)
+  u_epsilon:         Float64 Optional
+  u_max_samples:     UInt32 Optional
+}
+
+/// An action type a causal state machine may propose and a teloid may gate.
+entity Action : Purpose {
+  action_identifier: String @unique
+  params:            Set<String> Optional
+}
+
+/// An audit trace of one decision, with the norm versions, data vintage and evidence it used.
+entity Verdict : Purpose @append_only {
+  outcome:      String @index(range)
+  cost:         Int64 Optional
+  status:       VerdictStatus @index(range)
+  conclusion:   Text Optional @index(fulltext)
+  data_vintage: DateTime Optional @index(range)
+  trace_uri:    Iri Optional
+}
+relation SupportedBy @set @append_only {
+  verdict:  Verdict   -> supporting*
+  evidence: Statement -> supports*
+}
+relation VerdictAssumes @set @append_only {
+  verdict:    Verdict    -> assumptions*
+  assumption: Assumption -> verdicts*
+}
+
+// ============================================================================================
+// 9. Epistemology: how it is known
+// ============================================================================================
+
+/// The channel knowledge arrived through (PROV's primary source).
+entity Source : Node {
+  source_type:   SourceType @index(range)
+  evidence_type: EvidenceType Optional @index(range)
+}
+
+/// An act of knowing with a duration or several inputs (prov:Activity). Its `valid` is when it ran.
+entity Activity : Event {
+  evidence_type: EvidenceType Optional @index(range)
+}
+/// SOSA's Observation; at observation rate a collection whose results are Readings.
+entity Observation : Activity {
+  phenomenon:  Interval<DateTime> Optional @index(interval)
+  result_time: DateTime Optional @index(range)
+  property:    QuantityKind Optional
+}
+entity Derivation     : Activity { }
+entity Verification   : Activity { }
+entity Import         : Activity { }
+entity Replay         : Activity { }
+/// A non-affine conversion, by the engine's function.
+entity Conversion     : Activity { }
+/// A split or merge of units, recorded once; every relation it moves is GroundedIn it.
+entity Reorganisation : Activity { }
+
+/// A characterised absence of knowledge: a first-class positive fact about what is unknown.
+/// (`gap_status`, since `status` is a verdict's, of another enum.)
+entity Gap : Node {
+  termination_reason: TerminationReason Optional @index(range)
+  gap_status:         GapStatus @index(range)
+}
+
+/// A qualified negative fact; WasInvalidatedBy points here. (`reasoning`, since every statement gains
+/// the navigation `grounds` from GroundedIn.)
+entity Invalidation : Node {
+  scope:         InvalidationScope @index(range)
+  reasoning:     Text @index(fulltext)
+  evidence_type: EvidenceType Optional @index(range)
+  revisability:  Revisability @index(range)
+}
+
+// ---- SOSA's roles and PROV's use, as links on the act.
+relation MadeBySensor @set @append_only @maps_to(sosa:madeBySensor) {
+  observation: Observation -> sensor?
+  sensor:      Object      -> observations*
+}
+relation HasFeatureOfInterest @set @append_only @maps_to(sosa:hasFeatureOfInterest) {
+  observation: Observation -> feature?
+  feature:     Object      -> observed_in*
+}
+relation HasResult @set @append_only @maps_to(sosa:hasResult) {
+  observation: Observation                -> results*
+  result:      Reading | Quantity | Claim -> result_of?
+}
+relation UsedProcedure @set @append_only @maps_to(sosa:usedProcedure) {
+  activity:  Activity             -> procedure?
+  procedure: Rule | Specification -> applied_in*
+}
+relation Used @set @append_only @maps_to(prov:used) {
+  activity: Activity  -> used*
+  input:    Statement -> used_by*
+}
+
+// ============================================================================================
+// 10. Time and space: when and where
+// ============================================================================================
+
+/// An instant or interval on any scale: a fiscal quarter, a public holiday, a change freeze, an
+/// engine's tick, entropic time. Its `span` is the wall-clock extent it names; its `valid` is when
+/// that naming held. (`TimeNode`, since `Time` is the scalar type's name.)
+entity TimeNode : Node {
+  temporal:  TemporalEntity
+  time_kind: TimeKind Optional
+  scale:     TimeScale Optional
+  span:      Interval<DateTime> Optional @index(interval)
+  tick:      Int64 Optional @index(range)
+  t:         Measure<Time> Optional @index(range)
+}
+relation AnchoredTo @set @append_only {
+  time:  TimeNode -> epoch?
+  epoch: TimeNode -> anchored*
+}
+
+/// A place (a GeoSPARQL Feature): a country, a site, a rack, a CIDR range.
+entity Space : Node {
+  locator:           String Optional @index(range)
+  where:             Geo Optional @index(geo) @uncertainty(where_uncertainty)
+  where_uncertainty: Measure<Length, m> Optional
+  floor:             Measure<Altitude, m> Optional @index(range)
+  ceiling:           Measure<Altitude, m> Optional @index(range)
+}
+
+/// A shape in one frame, at one resolution.
+abstract entity Geometry : Node {
+  frame:      SpaceKind
+  crs:        String Optional
+  resolution: String Optional @index(range)
+}
+entity GeoGeometry : Geometry {
+  shape:    Geo @index(geo)
+  altitude: Measure<Altitude> Optional @index(range)
+}
+entity CartesianGeometry : Geometry {
+  x: Measure<Length, m>
+  y: Measure<Length, m>
+  z: Measure<Length, m>
+}
+entity NedGeometry : Geometry {
+  north: Measure<Length, m>
+  east:  Measure<Length, m>
+  down:  Measure<Length, m>
+}
+
+/// A place and a time in one node: a moving thing's sample. A trajectory is a Precedes chain.
+entity SpaceTime : Node {
+  spacetime_kind: SpaceTimeKind
+  t:              Measure<Time> Optional @index(range)
+  scale:          TimeScale Optional
+  dt:             Measure<Duration> Optional
+  velocity_frame: SpaceKind Optional
+  velocity_x:     Measure<Speed, m_per_s> Optional
+  velocity_y:     Measure<Speed, m_per_s> Optional
+  velocity_z:     Measure<Speed, m_per_s> Optional
+  speed:          Measure<Speed, m_per_s> Optional @index(range)
+  heading:        Measure<PlaneAngle, deg> Optional @index(range)
+  vertical_rate:  Measure<Speed, m_per_s> Optional @index(range)
+}
+
+// ============================================================================================
+// 11. Relations. A binary kind is an edge with a reifier; a kind with three roles, a set-valued
+//     role or @colocate(root) is a node. Every kind specialises Relation's subject and object once.
+// ============================================================================================
+
+// ---- Content: thing, information, carrier, and what happens.
+relation IsAbout : Relation @maps_to(cco:is_about) {
+  information: Information as subject -> about*
+  topic:       Statement   as object  -> described_by*
+}
+relation Realizes : Relation {
+  carrier: Document as subject -> realizes*
+  content: Content  as object  -> realized_by*
+}
+relation ParticipatesIn : Relation {
+  participant: Endurant as subject -> participations*
+  event:       Event    as object  -> participants*
+  role:        RoleKind Optional   -> participation_roles*
+}
+relation PlaysRole : Relation {
+  player: Endurant as subject -> plays*
+  role:   RoleKind as object  -> players*
+}
+relation InPhase : Relation {
+  bearer: Object | Gap as subject -> phases*
+  phase:  PhaseKind    as object  -> in_phase*
+}
+/// Part and whole, after Winston, Chaffin and Herrmann; walked one kind at a time.
+relation ConstitutedBy : Relation { whole:  Object as subject -> constituents*  part:  Object as object -> constitutes* }
+relation ComponentOf   : Relation { part:   Object as subject -> component_of*  whole: Object as object -> components* }
+relation PortionOf     : Relation { part:   Object as subject -> portion_of*    whole: Object as object -> portions* }
+relation MadeOf        : Relation { thing:  Object as subject -> made_of*       stuff: Object as object -> material_of* }
+relation StepOf        : Relation { step:   Event  as subject -> step_of*       whole: Event  as object -> steps* }
+/// LiveUnit: a collection with open memberships cannot be retracted. Anchored at the collection, so
+/// that check is local; the report lists UniquePreferred for memberships as read across partitions.
+relation MemberOf : Relation @colocate(collection) @on_retract(collection: restrict open) {
+  member:     Endurant | Gap                as subject -> memberships*
+  collection: Object | Event | Organization as object  -> members*
+  role:       RoleKind Optional                        -> member_roles*
+}
+relation ConnectsTo : Relation @symmetric { a: Statement as subject -> connects*  b: Statement as object -> connects* }
+relation DependsOn  : Relation { dependent: Statement as subject -> depends_on*  dependency: Statement as object -> dependents* }
+relation Hosts      : Relation { host: Statement as subject -> hosts*  hosted: Statement as object -> hosted_by* }
+
+// ---- Space and time.
+/// A thing somewhere for a while; a move closes one.
+relation LocatedIn : Relation {
+  located: Endurant as subject -> locations*
+  place:   Space    as object  -> occupants*
+}
+/// A happening at a named place.
+relation OccursAt : Relation {
+  happening: Perdurant as subject -> places*
+  place:     Space     as object  -> happenings*
+}
+/// The rack in the room, the site in the region.
+relation Within : Relation {
+  inner: Space as subject -> within*
+  outer: Space as object  -> contains*
+}
+/// A redrawn boundary is a new geometry, a new window.
+relation HasGeometry : Relation {
+  feature:  Space | SpaceTime as subject -> geometries*
+  geometry: Geometry          as object  -> features*
+}
+/// Where the order is known and the times are not; both ends of one kind.
+relation Precedes : Relation @check(earlier.type = later.type) {
+  earlier: Event | TimeNode | SpaceTime as subject -> precedes*
+  later:   Event | TimeNode | SpaceTime as object  -> preceded_by*
+}
+
+// ---- Context: the conditions.
+relation ValidIn : Relation {
+  statement: Statement                 as subject -> valid_in*
+  condition: Regime | Event | TimeNode as object  -> holding*
+}
+relation BelongsTo    : Relation { statement: Statement as subject -> domains*        domain: Domain as object -> belonging* }
+relation AssumesC     : Relation { statement: Statement as subject -> assumes*        assumption: Assumption as object -> assumed_by* }
+relation Dissolves    : Relation { statement: Statement as subject -> dissolves*      assumption: Assumption as object -> dissolved_by* }
+relation CrossDomain  : Relation { statement: Statement as subject -> cross_domains*  domain: Domain as object -> crossed_by* }
+relation ParentDomain : Relation { child: Domain as subject -> parent_domains*        parent: Domain as object -> child_domains* }
+relation Cites        : Relation { source: Source as subject -> cites*               cited: Statement as object -> cited_by* }
+
+/// A specialisation among kinds, specifications and datums, both of one kind; never among types,
+/// which inherit.
+relation Specializes : Relation @check(narrower.type = broader.type) {
+  narrower: RoleKind | PhaseKind | Specification | Datum as subject -> broader_kinds*
+  broader:  RoleKind | PhaseKind | Specification | Datum as object  -> narrower_kinds*
+}
+
+/// The types a role or phase applies to. (`entity_type`, since `type` is every instance's own.)
+relation Classifies : Asserted @multi {
+  kind:        Kind                    -> applies_to*
+  entity_type: schema.EntityType<Node> -> _
+}
+
+/// A contextoid in a context the engine hydrates; retracting the context retracts its links.
+relation InContext : Relation @on_retract(context: cascade) {
+  context: Context as subject -> includes*
+  member:  Node    as object  -> in_contexts*
+}
+/// An edge of the engine's context graph, held by every context that links both ends.
+relation ContextEdge : Relation {
+  from:      Node as subject -> context_edges_out*
+  to:        Node as object  -> context_edges_in*
+  edge_kind: ContextEdgeKind
+}
+
+// ---- Teleology: purpose to purpose.
+/// The lower purpose derives from the higher.
+relation DerivesFrom : Relation {
+  lower:  Purpose as subject -> derives_from*
+  higher: Purpose as object  -> derived*
+}
+/// Mutually exclusive interpretations of one source; one carries rank preferred. Every member
+/// derivation derives from the shared source.
+relation Alternatives : Asserted @multi @check(all members(higher = source)) {
+  source:  Purpose       -> interpretations*
+  members: [DerivesFrom] -> alternative_set?
+}
+relation Reads       : Relation { reader: Rule | Teloid as subject -> reads*      read: Statement as object -> read_by* }
+relation Feeds       : Relation { from: Rule as subject -> feeds*                 to: Rule as object -> fed_by* }
+relation Composes    : Relation { composite: Rule as subject -> composes*         part: Rule as object -> composed_into* }
+relation Dispatches  : Relation { dispatcher: Rule as subject -> dispatches*      target: Rule as object -> dispatched_by* }
+relation TriggeredBy : Relation { rule: Rule | Teloid as subject -> triggers*     regime: Regime as object -> triggered* }
+relation Inherits    : Relation { parent: Teloid as subject -> heirs*             child: Teloid as object -> inherits* }
+relation Defeats     : Relation { defeater: Teloid as subject -> defeats*         defeated: Teloid as object -> defeated_by* }
+relation Gates       : Relation { teloid: Teloid as subject -> gates*             action: Action as object -> gated_by* }
+/// The ordered justification.
+relation Justifies : Relation @append_only {
+  by:       Rule | Teloid as subject -> justifies*
+  verdict:  Verdict       as object  -> justification*
+  position: UInt32
+}
+relation Governs : Relation {
+  governor: Rule | Teloid | Mandate as subject -> governs*
+  governed: Statement               as object  -> governed_by*
+}
+relation Satisfies : Relation {
+  situation:   Situation                   as subject -> satisfies*
+  description: Specification | Requirement as object  -> satisfied_by*
+}
+/// A directive prescribes a kind of process.
+relation Prescribes : Asserted @multi {
+  rule: Rule                     -> prescribes*
+  kind: schema.EntityType<Event> -> _
+}
+/// The party a norm obliges or entitles.
+relation Binds : Relation {
+  purpose: Purpose          as subject -> binds*
+  party:   Agent | RoleKind as object  -> bound_by*
+  role:    BindingRole Optional
+}
+
+// ---- Epistemology: knowing to anything.
+/// A grounding with an epistemology of its own; the plain pointer is GroundedIn.
+relation WasDerivedFrom : Relation @maps_to(prov:wasDerivedFrom) {
+  derived: Statement as subject -> derived_from*
+  source:  Statement as object  -> derivations*
+}
+relation WasAssociatedWith : Relation @maps_to(prov:wasAssociatedWith) {
+  activity: Activity as subject -> associated_agents*
+  agent:    Agent    as object  -> activities*
+}
+/// Delegation. OpenDelegation: a Software agent keeps at least one open delegation to a person or an
+/// organisation, so every chain of delegation ends at someone accountable.
+relation ActedOnBehalfOf : Relation @maps_to(prov:actedOnBehalfOf) {
+  delegate:  Agent as subject -> principals*
+  principal: Agent as object  -> delegates*
+} @limit(count() >= 1 per delegate
+         where delegate is Software and (principal is Person or principal is Organization) and open)
+relation WasInvalidatedBy : Relation @maps_to(prov:wasInvalidatedBy) {
+  statement:    Statement    as subject -> invalidated_by*
+  invalidation: Invalidation as object  -> invalidates*
+}
+/// Which source wins for what. (`authority_rank`, since `rank` is the envelope's.)
+relation AuthorityOver : Relation {
+  source:         Source as subject -> authority_over*
+  domain:         Domain as object  -> authorities*
+  authority_rank: UInt32
+}
+/// The verifier is its AssertedBy.
+relation VerifiedAgainst : Relation {
+  checked:   Statement as subject -> verifications*
+  reference: Statement as object  -> verified*
+  result:    VerificationResult @index(range)
+}
+/// A chain ends here, unresolved.
+relation Terminates : Relation {
+  gap:   Gap       as subject -> terminates*
+  chain: Statement as object  -> terminated_by*
+}
+/// A correction: the new statement replaces the old, which the graph stops asserting in the same
+/// commit. For what was wrong.
+relation Supersedes : Relation @retracts(old) {
+  new: Statement as subject -> supersedes*
+  old: Statement as object  -> superseded_by?
+}
+/// A succession: the new statement holds from where the old one stops, whose valid period ends at the
+/// start of this relation's own, in the same commit. For what was right until it changed.
+relation Replaces : Relation @ends(old) @maps_to(dcterms:replaces) {
+  new: Statement as subject -> replaces*
+  old: Statement as object  -> replaced_by?
+}
+
+// ---- Agency: agent to agent, and agent to anything.
+/// The organisation tree: a bounded forest, one parent at a time, kept whole in its root's
+/// partition; a unit with children cannot be retracted (Hierarchy, LiveUnit).
+relation SubOrganizationOf : Relation @acyclic(open, max_depth: 32) @colocate(root)
+                                      @no_overlap(per: [unit])
+                                      @on_retract(parent: restrict open)
+                                      @maps_to(org:subOrganizationOf) {
+  unit:   Organization as subject -> parents*
+  parent: Organization as object  -> units*
+}
+/// One holder at a time, checked at the post.
+relation Holds : Relation @colocate(post) @no_overlap(per: [post]) @maps_to(org:holds) {
+  holder: Person as subject -> holds*
+  post:   Post   as object  -> holders*
+}
+relation ReportsTo : Relation @maps_to(org:reportsTo) {
+  report:  Person | Post as subject -> reports_to*
+  manager: Person | Post as object  -> reports*
+}
+/// RACI; Software only as Responsible.
+relation ResponsibleFor : Relation @check(not (party is Software) or raci = responsible) {
+  party:   Agent     as subject -> responsibilities*
+  concern: Statement as object  -> responsible*
+  raci:    Raci @index(range)
+}
+/// Its context by a ValidIn from the relation.
+relation WorksOn : Relation {
+  agent:   Agent   as subject -> works_on*
+  concept: Concept as object  -> worked_on_by*
+  role:    RoleKind Optional  -> work_roles*
+}
+/// (`proficiency`, since `level` is an object's, indexed.)
+relation KnowsAbout : Relation @maps_to(sdo:knowsAbout) {
+  agent:       Agent   as subject -> knows_about*
+  concept:     Concept as object  -> known_by*
+  proficiency: UInt8 Optional
+}
+/// CRediT.
+relation ContributedTo : Relation {
+  agent:  Agent as subject -> contributions*
+  work:   Document | Claim | Purpose | Concept | Scheme | Relation as object -> contributors*
+  credit: CreditRole Optional
+}
+/// A collaboration nothing else evidences.
+relation ColleagueOf : Relation @symmetric {
+  a: Person as subject -> colleagues*
+  b: Person as object  -> colleagues*
+}
+
+// ---- Concepts: concept to concept.
+relation Broader    : Relation @maps_to(skos:broader)               { narrower: Concept as subject -> broader*        broader: Concept as object -> narrower* }
+relation Related    : Relation @symmetric @maps_to(skos:related)    { a: Concept as subject -> related*                b: Concept as object -> related* }
+relation ExactMatch : Relation @symmetric @maps_to(skos:exactMatch) { a: Concept as subject -> exact_matches*          b: Concept as object -> exact_matches* }
+relation CloseMatch : Relation @symmetric @maps_to(skos:closeMatch) { a: Concept as subject -> close_matches*          b: Concept as object -> close_matches* }
+
+// ============================================================================================
+// 12. Derived relations
+// ============================================================================================
+
+/// The units below an organisation in today's tree, and the units above it; the tree lives in its
+/// root's partition, so both are maintained there.
+derive Organization.all_units   = units(open)+   @materialized
+derive Organization.all_parents = parents(open)+ @materialized
+/// The places inside a place, and what a concept is filed under.
+derive Space.all_within         = contains+      @virtual
+derive Concept.all_broader      = broader+       @virtual
+/// A statement that no longer grounds anything soundly: retracted, its valid period ended, or
+/// deprecated. Maintained where the statement lives, and indexed, so a dependent finds it by a read.
+derive Asserted.closed: Bool = not live or valid.end is some or rank = deprecated
+                         @materialized @index(range)
+/// An inferred statement whose grounding closed: the maintenance queue, a read through `closed`.
+derive Asserted.stale = grounded_in(with retracted, is Asserted, closed) exists @virtual
+
+// ============================================================================================
+// 13. Functions: the question catalogue
+// ============================================================================================
+
+/// ById, ValidAsOf, BelievedAsOf, for entities; a relation instance is read by its handle IRI. (`node`,
+/// since a parameter is resolved before a field of its name.)
+fn by_id(node: NodeRef) -> Node? = Node(id = node)
+fn valid_as_of(node: NodeRef, instant: DateTime) -> Node? = Node(id = node, valid contains instant)
+fn believed_as_of(node: NodeRef, instant: DateTime) -> Node? = Node(id = node, believed at instant)
+
+/// Lineage: the chain a statement rests on, and the chain resting on it.
+fn Statement.rests_on() -> Statement* = grounded_in{1,32}
+fn Statement.rests_under() -> Statement* = grounds{1,32}
+
+/// InvalidationImpact: every statement whose grounding passes through this one, retracted ones too.
+fn Statement.impact() -> Statement* = grounds(with retracted){1,32}
+
+/// Disagreements: the claims about a subject, live.
+fn Statement.claims() -> Claim* = described_by(is Claim)
+
+/// Authority: the sources that prevail in a domain, highest rank first.
+fn Domain.prevailing() -> Source* = authorities order by edge.authority_rank desc
+
+/// InUnit, KindInUnit, UnitsOf: the open memberships of a unit and of every unit below it; the units
+/// a member is in, with their ancestors, for the two types MemberOf's member role admits.
+/// (`unit_ancestry`, since `units` is a navigation.)
+fn Organization.everyone() -> MemberOf* = units(open){0,32}.members(open)
+fn Endurant.unit_ancestry() -> Organization* = memberships(open).collection(is Organization).parents(open){0,32}
+fn Gap.unit_ancestry() -> Organization* = memberships(open).collection(is Organization).parents(open){0,32}
+
+/// The maintenance queue.
+fn stale_inferred() -> Asserted* = Asserted(inferred, stale)
+
+/// Contextoids, Slice: the engine's numbers.
+fn contextoids(ids: List<UInt64>) -> Node* = Node(contextoid_id in ids)
+fn slice(n: UInt64) -> Context? = Context(context_id = n)
+
+// ============================================================================================
+// 14. Graph
+// ============================================================================================
+
+/// The tenant's default graph. `deep_brain` is one namespace of its tenant, beside any other the tenant
+/// holds; a tenant isolates, a namespace organises.
+graph ontology : deep_brain @default

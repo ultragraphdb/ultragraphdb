@@ -688,7 +688,8 @@ section 11.13 governs.
 A derivation `derive T.n = body` (`SCHEMA.md` section 6.8) is no field of `σ(T)`. It denotes a function
 `d_n(G, e)` of an APG `G` and an element `e` of a label in `conc(T)`, computed by its body: navigation steps forward
 and inverse, filters, a bound `+` or `{m, n}` read as reachability, `exists`, and a fold over the elements a path
-reaches in its order. `@materialized` stores a cache that must equal `d_n` at every state; `@virtual` computes it when
+reaches in its order; or, for a computed derivation, an expression over `e`'s own value and the built-in fields of
+`SCHEMA.md` section 5.11, which reads no other element, so `d_n(G, e)` depends on `e` alone. `@materialized` stores a cache that must equal `d_n` at every state; `@virtual` computes it when
 read. A function (`SCHEMA.md` section 6.9) is a function of `G` and its parameters likewise. A transitive closure is no
 arrow of `C_S`, so derivations and functions are queries over the APG; an extended mapping term calls them as reads of
 its source (definition 16.3).
@@ -720,7 +721,7 @@ In the table, `E_g(T)` is `⋃ { E_g(C) | C ∈ conc(T) }` within one graph `g`,
 | `@check`, `@range`, `@pattern`, `@values` | A predicate on each element's value | `MANDATORY` with a condition |
 | `@acyclic`, `max_depth` | The references from the contained role to the container role, over the live elements and, under `@acyclic(open)`, the open ones, form no cycle, and no chain longer than `max_depth` | UGS's own |
 | `@no_overlap(per: P)` | Elements agreeing on the roles `P` have pairwise disjoint valid intervals | UGS's own |
-| `@limit(agg per G where c) op v` | The aggregate over each group's elements satisfying `c` compares to `v` by `op` | UGS's own |
+| `@limit(agg per G where c) op v` | The aggregate over each selected group's elements satisfying `c` compares to `v` by `op`; a group is selected when its participants satisfy the conjuncts of `c` that read only their types, and the elements counted satisfy the rest | UGS's own |
 | Bridges, domain graphs | A reference from a domain graph's element lands in that graph or in a shared graph its schema imports (section 15.2) | UGS's own |
 
 Datatypes, enum members, units of a measure's kind and vector dimensions hold by typing, since each value lies in
