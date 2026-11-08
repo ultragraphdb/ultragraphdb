@@ -363,14 +363,15 @@ dropping labels, duplicating labels, and permuting and computing fields (paper �
 given equality functions; under definition 9.2 an image that is a record of labels yields every combination, and
 keeping the matching ones is a selection, which `Δ` alone does not perform (after proposition 9.5).
 
-**Proposition 9.4 (finiteness; here).** If `G'` is finite and every primitive type occurring in every `τ_l` has
-finitely many values, `Δ_Φ(G')` is finite. *Proof.* `V_{E'}(t)` is finite for such a `t` over finite `E'`, by
-induction on `t`. A primitive type with infinitely many values in `τ_l` may make `E(l)` infinite; it need not, as when
-it sits in a record beside a label with no elements.
+**Proposition 9.4 (finiteness; here).** If `G'` is finite and every `τ_l` holds no `list` and only primitive types
+with finitely many values, `Δ_Φ(G')` is finite. *Proof.* `V_{E'}(t)` is finite for such a `t` over finite `E'`, by
+induction on `t`: a `set t` over a finite `V_{E'}(t)` has as many values as `V_{E'}(t)` has subsets. A `list t` over a
+type with a value has infinitely many values, one per length. A primitive type with infinitely many values in `τ_l`
+may make `E(l)` infinite; it need not, as when it sits in a record beside a label with no elements.
 
-**Finite images (decided 2026-11-08).** A mapping's label images are finite types: every primitive type in `τ_l` has
-finitely many values, as `Bool` and every enumeration have, and a mapping with another image is refused, since `Δ`
-along it may be infinite. The test is on the type alone. The images of `SCHEMA-EVOLUTION.md`'s fragment, labels and
+**Finite images (decided 2026-11-08).** A mapping's label images are finite types: no `list` occurs in `τ_l`, and
+every primitive type in it has finitely many values, as `Bool` and every enumeration have; a mapping with another
+image is refused, since `Δ` along it may be infinite. The test is on the type alone. The images of `SCHEMA-EVOLUTION.md`'s fragment, labels and
 variants of labels, pass it; a finite primitive still serves, as an image `lbl A × enum x y` splits each element into
 two tagged copies.
 
@@ -626,7 +627,8 @@ An attribute's UGS type `T` translates to `⟦T⟧`; an optional attribute to `o
 | `Bool`, the integer and float types, `Decimal(p, s)`, `String`, `Text`, `Bytes`, `Date`, `Time`, `DateTime`, `LocalDateTime`, `Duration`, `Iri`, `Vector<…>`, `Geo`, `Unit`, `QuantityKind`, `Measure<K, u>` | A primitive type of the typeside, with `SCHEMA.md` section 5.1's values; a fixed-unit measure is its number in the unit |
 | `enum E { m₁, … }` | `enum m₁ …` |
 | `record N { f: T, … }` | `rec { f ↦ ⟦T⟧, … }`, an optional field `optional ⟦T⟧` |
-| `Interval<T>` | `rec { start ↦ ⟦T⟧, end ↦ optional ⟦T⟧, start_precision ↦ prim Precision, end_precision ↦ optional (prim Precision) }` |
+| `Interval<T>`, `T` temporal | `rec { end ↦ optional ⟦T⟧, end_precision ↦ optional (prim Precision), start ↦ optional ⟦T⟧, start_precision ↦ optional (prim Precision) }`, a precision present exactly when its bound is, and at least one bound present (`SCHEMA.md` section 5.5) |
+| `Interval<T>`, `T` an integer or decimal type | `rec { end ↦ optional ⟦T⟧, start ↦ optional ⟦T⟧ }`, its bounds exact, at least one present |
 | `Measure<K>`, `Measure` | `rec { value ↦ prim Float64, unit ↦ prim Unit }` |
 | `List<T>`, `Set<T>` | `list ⟦T⟧`, `set ⟦T⟧` (section 12.2) |
 | `schema.EntityType<T>`, `schema.RelationType<T>` as a value | `enum` of the names of `conc(T)`: a catalog type is a value here, never a reference |
@@ -712,12 +714,20 @@ In the table, `E_g(T)` is `⋃ { E_g(C) | C ∈ conc(T) }` within one graph `g`,
 | Set-valued role, non-empty | Every `e ∈ E(R)` is named by at least one element of `R_r` | `MANDATORY` |
 | `@set` | `e ↦ (e.r₁, …)` over the single-valued roles, with each set-valued role's participants, is injective on the live elements of `E(R)`; for a `@symmetric` relation the pair is unordered | `EXCLUSIVE` |
 | Role label | `e ↦ (e.instance, e.participant)` is injective on `E(R_r)` | `EXCLUSIVE` |
-| Participation `?`, `+`, `{m, n}` | For every participant `p` of the role's types, the number of elements reaching `p` through the role lies in the bounds | PG-Schema's `COUNT m..n` |
+| Participation `?`, `+`, `{m, n}` | For every live participant `p` of the role's types, the number of live elements reaching `p` through the role lies in the bounds | PG-Schema's `COUNT m..n` |
 | `@check`, `@range`, `@pattern`, `@values` | A predicate on each element's value | `MANDATORY` with a condition |
 | `@acyclic`, `max_depth` | The references from the contained role to the container role, over the live elements and, under `@acyclic(open)`, the open ones, form no cycle, and no chain longer than `max_depth` | UGS's own |
 | `@no_overlap(per: P)` | Elements agreeing on the roles `P` have pairwise disjoint valid intervals | UGS's own |
-| `@limit(agg per G where c) op v` | The aggregate over each selected group's elements satisfying `c` compares to `v` by `op`; a group is selected when its participants satisfy the conjuncts of `c` that read only their types, and the elements counted satisfy the rest | UGS's own |
+| `@limit(agg per G where c) op v` | The aggregate over each selected group's live elements satisfying `c` compares to `v` by `op`; a group is selected when its participants satisfy the conjuncts of `c` that read only their types, and the elements counted satisfy the rest | UGS's own |
 | Graphs | A reference from an element lands in a graph of the referenced type's schema, the element's own or one it imports (section 15.2) | UGS's own |
+
+A chain's length is its number of references, so `max_depth n` admits chains of at most `n` references, as `SCHEMA.md`
+section 12 walks them. A `@check`, `@range`, `@pattern` or `@values` predicate and a set-valued role's non-emptiness
+hold of every element a state holds, the retracted ones included; participation and `@limit` count the live elements
+(`SCHEMA.md` section 8.4, rule 5). A lower bound of `@limit` has one `per` role, and selects every participant of that
+role's types live and satisfying the selecting conjuncts, one no instance reaches included, whose group is empty; an upper
+bound's groups are the combinations of participants, and under `type` the concrete types, its elements reach, since an
+empty group satisfies it (`SCHEMA.md` section 8.6).
 
 Datatypes, enum members, units of a measure's kind and vector dimensions hold by typing, since each value lies in
 `V_E` of its field's type: `PV` of a primitive type holds exactly the values `SCHEMA.md` section 5.1 admits.
@@ -858,10 +868,10 @@ and `lit(v)` the literal of `v` under `SCHEMA.md` section 5.1's datatype.
 | A primitive field `a` with value `v` | `ι(e) {base}a lit(v)`; none when an optional field is absent |
 | A `set` field | One quad per member |
 | A `list` or `rec` field | One quad whose object is an `rdf:JSON` literal |
-| An interval field | `{a}_start`, `{a}_end` and the precision literals |
+| An interval field | `{a}_start` and `{a}_end` for its present bounds, and a bound's precision where coarser than `T`'s (`SCHEMA.md` section 5.1) |
 | A measure with its unit on the value | One `ugdb:measure` literal |
 | A catalog type as a value | The class IRI, as OWL 2 punning allows |
-| `asserted` | `asserted_start`, `asserted_end` and `live` |
+| `asserted` | `ugdb:asserted_start`, `ugdb:asserted_end` and `ugdb:live` |
 | An element of a node-encoded relation `R` | `ι(e) {base}R_r ι(p)` for each role field `r` holding `p` |
 | An element of an edge-encoded relation `R` | `ι(anchor) {base}nav ι(other)`, `nav` the anchor role's navigation name; with a reifier, also `ι(e) rdf:reifies <<( ι(anchor) {base}nav ι(other) )>>` and `e`'s attribute quads on `ι(e)`; for a `@symmetric` relation, the quad in both directions, as the view answers both |
 | An element of a role label `R_r` | `ι(instance) {base}R_r ι(participant)` |
@@ -881,7 +891,7 @@ preserves.
 `R⁻¹` on `R`'s image gives `R⁻¹(R(G)) = G`, each element identified by its IRI, its triple or its pair (section 15.1).
 *Proof.* The element named by an IRI is recovered with its label from its type quads, as the most specific of them,
 unique because an element's types form one chain of supertypes. Its fields are recovered from the quads under its IRI: a
-label's fields have distinct names, so distinct predicates; an optional field's absence is a missing quad; a set's
+label's fields have distinct names, so distinct predicates; an optional field's absence is a missing quad, and a present bound's missing precision is its type's own; a set's
 members are its quads, without duplicates; a list or record is one literal. An element of an edge-encoded relation is
 recovered from its reifier where it has one, else from its triple, unique by section 15.1, and a `@symmetric` relation's
 two quads give one element. A role label's elements are its role quads; a role quad belongs to a set-valued role, so to
@@ -995,7 +1005,7 @@ values, or the core's results do not transfer.
 | Lean model | In `../../lean/schema`, a binary core with a named layer, proposition 3.3 proved between them (section 20) |
 | Collections | Decided 2026-11-08: collections of values as `list t` and `set t` over label-free types; set-valued roles reified as role labels; a symmetric relation read up to swap (section 12) |
 | `map` and `filter` | Decided 2026-11-08: over collections of values, with a body that reads the member alone (definition 12.4) |
-| Finite images | Decided 2026-11-08: every primitive type in a label's image has finitely many values (section 9) |
+| Finite images | Decided 2026-11-08: a label's image holds no `list`, and every primitive type in it has finitely many values (section 9) |
 | Extended mapping terms | Decided 2026-11-08: a mapping's terms may read its valid source, by key lookups, inverse navigations, derivations, folds and functions; such a mapping is no functor, and its report says so (definition 16.3) |
 | Colimits | Decided 2026-11-08: coproducts alone; no pushout or coequalizer, which would identify elements (definition 16.5) |
 | Unnesting | Decided 2026-11-08: a collection's members as elements of a derived label, one origin each, for migrations that turn members into instances (definition 12.7) |

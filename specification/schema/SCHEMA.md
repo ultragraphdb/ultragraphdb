@@ -371,8 +371,9 @@ the calendar part first, then the exact part. `today()` and `now()` are refused 
 (`UGS0225`): they read the epoch's clock and are not deterministic across epochs.
 
 An `Interval<T>` is closed-open, `[start, end)`; `start ≤ end` or the write is refused (`UGS1011`). Either bound may
-be open: an open end means until further notice, an open start since before anything recorded, and an open bound is
-unbounded in both extents below. Each bound of a temporal interval carries a **precision**: millennium, century, decade,
+be open, not both, or the write is refused (`UGS1011`): an open end means until further notice, an open start since
+before anything recorded, and an open bound is unbounded in both extents below. An interval without bounds is written
+as an absent `Optional` interval. Each bound of a temporal interval carries a **precision**: millennium, century, decade,
 year, month, day, hour, minute, second, millisecond, microsecond or nanosecond, no finer than `T`'s; an integer or
 decimal interval's bounds are exact. A bound stated at precision `p` stands for the unit it names: `2026-09` is the month
 from 2026-09-01 to 2026-10-01. The two extents of an interval `a .. b` with `a` denoting the unit `[a₀, a₁)` and `b` the
@@ -674,7 +675,7 @@ it fits `T`.
 | `@ends(role)` | Relation with a valid interval | A role whose every participant type has a valid interval (`UGS0512`) | Inserting an instance closes its participant's valid interval at the instance's own valid start, in the same commit; section 8.4 |
 | `@acyclic` | Binary relation, or an abstract relation whose subtypes are binary, whose two roles' participant types share a common supertype (`UGS0503`) | Optional `open` and `max_depth: n`, `1 ≤ n ≤ 4096` (`UGS0504`) | No cycle through the relation's two roles, across the type tree; `max_depth` bounds every path; `open` counts only live instances whose valid interval is open (needs `@valid`, `UGS0508`) |
 | `@colocate(role)` | Relation without `@key` (`UGS0702`) | A role of the relation, own or inherited (`UGS0701`) | Section 9.1 |
-| `@limit(agg op n per (roles [, type]) [where cond])` | Relation | `agg` is `count()` or `sum(attr)` over a numeric attribute (`UGS0505`); `op` is `<=`, `>=` or `=`; `n` a literal; `per` names one or more roles, optionally the word `type`; `cond` a deterministic expression over the instance's own values, its participants' types and `open` (`UGS0507`); a top-level conjunct over the `per` participants' types selects the groups | Section 8.6 |
+| `@limit(agg op n per (roles [, type]) [where cond])` | Relation | `agg` is `count()` or `sum(attr)` over a numeric attribute (`UGS0505`); `op` is `<=`, `>=` or `=`; `n` a literal; `per` names one or more roles, optionally the word `type`, and one role alone under a lower bound (`UGS0529`); `cond` a deterministic expression over the instance's own values, its participants' types and `open` (`UGS0507`); a top-level conjunct over the `per` participants' types selects the groups | Section 8.6 |
 | `@no_overlap(per: [roles])`, `@no_overlap(per: [roles], strict)` | Relation or entity with `@valid` or `@bitemporal` (`UGS0508`) | Roles of the relation | The valid intervals of live instances sharing those participants never certainly overlap, or with `strict` never possibly overlap (`UGS1024`) |
 | `@access` | Relation | none | An access-control relation: a query filtering through it runs at snapshot level, never monotonic-fast |
 | `@iri(template)` | Keyed entity or relation | A string template (section 7.3) | Overrides the instance IRI pattern |
@@ -897,6 +898,7 @@ never appear in IRIs; a handle shows a bucket and nothing else of the ID.
 | A derived name | `{base}{name}` |
 | A graph | `{base}{graph}`, or its `@base` |
 | An interval bound | `{base}{attribute}_start`, `{base}{attribute}_end`, `{base}{attribute}_start_precision`, `{base}{attribute}_end_precision` |
+| A built-in field of section 5.11 in the view | `ugdb:asserted_start`, `ugdb:asserted_end`, `ugdb:live`, one predicate each for every schema |
 
 Two terms minting one IRI are refused (`UGS0801`), as are two terms differing only in a way the GQL view cannot tell
 apart (`UGS0802`: a label and a relation node type of one name).
@@ -933,7 +935,7 @@ What each counts: live instances, unless the row says otherwise. Where it is che
 | Required attribute present; default applied | At creation and at a removal of a value | `UGS1005` |
 | Key present, immutable, unique across the tree per graph, retracted instances of history-keeping types included (section 7.2) | At creation; at any write of a key attribute; uniqueness decided at the value's claim | `UGS1006`, `UGS1007`, `UGS1008` |
 | `@unique`, retracted instances of history-keeping types included | At a write of the attribute; decided at the value's claim | `UGS1009` |
-| Datatype, enum member, range of the integer type, vector dimension, unit declared and of the kind, interval ordered | At every write of the value | `UGS1011`, `UGS1030`, `UGS1028`, `UGS1027`, `UGS1011` |
+| Datatype, enum member, range of the integer type, vector dimension, unit declared and of the kind, interval ordered and bounded | At every write of the value | `UGS1011`, `UGS1030`, `UGS1028`, `UGS1027`, `UGS1011` |
 | `@pattern`, `@range`, `@values`, `@check` | At every commit of an instance whose checked values changed | `UGS1010` |
 | `@immutable` | At a write replacing a present value | `UGS1012` |
 | Participant exists, is live, is of the role's type | At creation of the instance and at a change of its participants, which only an `Optional` or set-valued role admits | `UGS1017`, `UGS1019`, `UGS1018` |
@@ -1061,7 +1063,9 @@ satisfying `condition`, which reads the instance's own values, its participants'
 `per` roles **selects the groups**: the bound applies to the combinations whose participants satisfy it, and the other
 conjuncts filter the instances counted. `count() >= 1 per delegate where delegate is Software and open` asks every
 Software delegate for an open instance and asks nothing of a Person. An upper bound reads the same either way, since a
-group the selection leaves out counts no instance. A lower bound is
+group the selection leaves out counts no instance. A lower bound, `>=` or `=` with `n ≥ 1`, names one `per` role and
+no `type` (`UGS0529`): its groups are the participants of that role's types the selection admits, one no instance
+reaches included, whose count is zero. A lower bound is
 checked at commit: creating the grouped participant and its first instances happens in one transaction, and a
 retraction, delete or valid-window close that would break it is refused (`UGS1023`). Cardinality markers are shorthand
 for unfiltered bounds on one role.
@@ -1083,7 +1087,7 @@ refusal number and the instance. The refusals:
 | `UGS1008` | KeyDuplicate | creates an instance whose key another instance of the tree holds in the graph: a live one, or any of a `@bitemporal` or `@append_only` type (section 7.2) |
 | `UGS1009` | UniqueDuplicate | writes a `@unique` value another instance of the tree holds in the graph: a live one, or any of a `@bitemporal` or `@append_only` type |
 | `UGS1010` | ValueCheck | breaks `@pattern`, `@range`, `@values` or `@check`; the message names the annotation |
-| `UGS1011` | Datatype | writes a value outside the attribute's type: a datatype mismatch, an integer out of range, a non-finite float, a malformed geometry, an interval whose start is after its end |
+| `UGS1011` | Datatype | writes a value outside the attribute's type: a datatype mismatch, an integer out of range, a non-finite float, a malformed geometry, an interval whose start is after its end or with both bounds open |
 | `UGS1012` | Immutable | replaces an `@immutable` value |
 | `UGS1013` | AppendOnly | updates or deletes an `@append_only` instance |
 | `UGS1014` | Cardinality | takes a participant past a navigation name's bound, or below its lower bound |
@@ -1380,6 +1384,7 @@ A schema with any error is refused. Warnings and notes accompany a successful in
 | `UGS0412` | error | `schema.EntityType<T>` or `schema.RelationType<T>` with `T` of the wrong kind |
 | `UGS0413` | error | A navigation name on a role naming a catalog type |
 | `UGS0417` | error | A role named as another role or attribute of the relation, or as a built-in field of section 5.11 |
+| `UGS0418` | error | An edge-encoded relation whose anchor role declares `-> _` |
 | `UGS0501` | error | `orphan` on a required role |
 | `UGS0502` | error | A cardinality `{m, n}` with `m > n` or `n = 0` |
 | `UGS0503` | error | `@acyclic` on a relation that is not binary, or whose roles' types share no supertype |
@@ -1403,6 +1408,7 @@ A schema with any error is refused. Warnings and notes accompany a successful in
 | `UGS0525` | error | `@index(fulltext)` on a field that is not `Text` |
 | `UGS0526` | error | `@index(range)` on an unordered type |
 | `UGS0528` | error | A `@values` literal of the wrong type |
+| `UGS0529` | error | A `@limit` lower bound, `>=` or `=` with a bound of at least one, whose `per` names more than one role or `type` |
 | `UGS0601` | error | An `@append_only` relation whose participants may be deleted with `cascade` |
 | `UGS0602` | error | A `@bitemporal` relation with a participant type that is neither `@bitemporal` nor `@append_only` |
 | `UGS0701` | error | `@colocate` naming a role the relation neither declares nor inherits |
@@ -1438,14 +1444,17 @@ The compiler fixes each relation type's encoding, recorded in its Type entry:
 
 | Encoding | When | Instance form |
 |---|---|---|
-| Edge | The relation has exactly two roles, neither set-valued, and carries no `@key`, whose instances take a bucket that is no participant's | One triple `anchor {base}{nav} other`, `nav` the navigation name declared on the anchor role, with an RDF 1.2 reifier, a statement ID carrying the relation's prefix, allocated at insert when the instance carries attributes, the relation is `@multi`, or a role of any relation in the catalog names the type, a supertype of it or a statement type covering it: the instance then fills that role through its reifier, which the role triple holds as its object term; `@symmetric` relations store the triple once, from the lower ID |
-| Node | Every other relation: three or more roles, a set-valued role or `@key` | A node whose ID has the relation's prefix, named by its IRI (section 7.3), with one role triple `instance {base}{Relation}_{role} participant` per participant and its attributes as its own properties |
+| Edge | The relation has exactly two roles, both required and single-valued, and carries no `@key`, whose instances take a bucket that is no participant's | One triple `anchor {base}{nav} other`, `nav` the navigation name declared on the anchor role, with an RDF 1.2 reifier, a statement ID carrying the relation's prefix, allocated at insert when the instance carries attributes, the relation is `@multi`, its tree holds more than one concrete type, whose reifier's `rdf:type` tells them apart, or a role of any relation in the catalog names the type, a supertype of it or a statement type covering it: the instance then fills that role through its reifier, which the role triple holds as its object term; `@symmetric` relations store the triple once, from the lower ID |
+| Node | Every other relation: three or more roles, an `Optional` or set-valued role, or `@key` | A node whose ID has the relation's prefix, named by its IRI (section 7.3), with one role triple `instance {base}{Relation}_{role} participant` per participant and its attributes as its own properties |
 
-The encoding depends on the roles' count and shape and on `@key` alone: a relation declared
-`@multi`, with attributes or named by another relation's role stays edge-encoded, so adding an attribute or a role that
-names the type never re-encodes. Adding a third role, a set-valued role or `@key` to an edge-encoded
-relation re-encodes it, which is a destructive change (section 13). A `@symmetric` relation is stored in ID order under
-either encoding (section 6.4).
+An edge-encoded relation's anchor role declares a navigation name, its triple's predicate (`UGS0418`); `@colocate`
+moves the anchor to a role that declares one.
+
+The encoding depends on the roles' count, shape and optionality and on `@key` alone: a relation declared
+`@multi`, with attributes, with subtypes or named by another relation's role stays edge-encoded, so adding an attribute,
+a subtype or a role that names the type never re-encodes. Adding a third role, a set-valued role or `@key` to an
+edge-encoded relation, or making one of its roles `Optional`, re-encodes it, which is a destructive change (section 13).
+A `@symmetric` relation is stored in ID order under either encoding (section 6.4).
 
 ### 11.2 The RDF view
 
@@ -1474,7 +1483,7 @@ either encoding (section 6.4).
 | `fn` | Not in the view |
 | `graph` | A named graph |
 | Relation across graphs | A triple in the relation's graph whose object is an IRI of the participant's graph |
-| `@bitemporal` | `asserted_start`, `asserted_end` literals of `xsd:dateTimeStamp` on the instance or its reifier, and `live`, an `xsd:boolean` that is `asserted_end`'s absence (section 8.4), `true` on every instance a default read binds |
+| `@bitemporal` | `ugdb:asserted_start`, `ugdb:asserted_end` literals of `xsd:dateTimeStamp` on the instance or its reifier, and `ugdb:live`, an `xsd:boolean` that is `asserted_end`'s absence (section 8.4), `true` on every instance a default read binds |
 | Catalog type as participant | The class IRI as an individual, as OWL 2 punning allows |
 | `Geo` | A `geo:geoJSONLiteral` |
 | `Measure` | The literal of section 5.8; a fixed-unit attribute's property carries `qudt:unit` |

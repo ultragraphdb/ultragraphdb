@@ -25,6 +25,7 @@ import ApgModel.Catalog.Constraints
 import ApgModel.Oracle.Typeside
 import ApgModel.Views.Rdf
 import ApgModel.Views.RdfInverse
+import ApgModel.Views.RdfRoundTrip
 
 /-!
 # Algebraic property graphs
@@ -34,7 +35,7 @@ core over families of elements, in which the paper's results are proved by struc
 waves, a named layer over it, the catalog's schema, its constraints, history, migration operations, and the RDF and
 GQL views with the test oracle that runs them.
 
-This version holds waves L1 to L7a. The core: the typeside (definition 2.1); types and schemas (definitions 3.2, 4.1,
+This version holds waves L1 to L7a and proposition 17.3 of L7b. The core: the typeside (definition 2.1); types and schemas (definitions 3.2, 4.1,
 12.1); finite sets; values and their functoriality (propositions 5.3, 12.2); APGs in both forms and referential
 integrity (propositions 6.3, 6.6); homomorphisms, isomorphisms and the coalgebra view (propositions 7.2, 8.1); and
 mapping terms with their evaluation, renaming, substitution and the laws of `map` (proposition 8.7, definition 12.4);
@@ -49,5 +50,6 @@ numbered elements, their validity and their embedding into the core; role labels
 prefix-range type test (proposition 13.1); the state constraints as violation queries, each sound and complete, and
 the transition constraints as predicates on consecutive states (section 14). The views: the RDF view `R(G)` from
 templates natural in their references, monotone under homomorphisms preserving names (definition 17.1, proposition
-17.2); and the oracle's typeside.
+17.2); its inverse `R⁻¹`, giving back every element of a valid APG written as the store writes it under its IRI, triple
+or pair (proposition 17.3); and the oracle's typeside.
 -/

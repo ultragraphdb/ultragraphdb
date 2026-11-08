@@ -194,35 +194,50 @@ def decodeElem (Q : List (Quad T)) (s l : Name) : VTerm T :=
 def iriElem (Q : List (Quad T)) (q : Quad T) : Option (Ident × Name × VTerm T) :=
   if q.p == .rdfType then (labelOf K Q q.s).map fun l => (.iri q.s, l, decodeElem K vp ord idOf Q q.s l) else none
 
-/-- The element named by a navigation triple, of the edge-encoded relation without a reifier whose anchor role declares
-the navigation name and admits the subject's and object's types; a `@symmetric` relation's triple read in IRI order. -/
+/-- The anchor role of `l` admits a participant of label `lp`. -/
+def admitsAnchor (l lp : Name) : Bool :=
+  (K.allFields l).any fun f => some f.name == K.anchorRole l && f.participants.any fun p => (K.chain lp).contains p
+
+/-- The other role of `l` admits a participant of label `lp`. -/
+def admitsOther (l lp : Name) : Bool :=
+  (K.allFields l).any fun f => some f.name == K.otherRole l && f.participants.any fun p => (K.chain lp).contains p
+
+/-- The relation a navigation triple `s {n} o` names an element of: concrete, edge-encoded without a reifier, its
+anchor role declaring `n` and admitting the subject's label `ls`, its other role the object's `lo`; a `@symmetric`
+relation's triple read in IRI order. -/
+def tripleMatch (n : Name) (s o ls lo : String) (c : CType T) : Bool :=
+  c.concrete && tripleNamed K c.name && ((K.anchorRole c.name).bind (K.navOf c.name) == some n) &&
+    admitsAnchor K c.name ls && admitsOther K c.name lo &&
+    (!K.inherits CType.symmetric c.name || decide (s ≤ o))
+
+/-- A slot of an element named by a triple: a role's participant, the subject at the anchor, the object at the other
+role. -/
+def tripleSlot (Q : List (Quad T)) (a b s o : Name) (x : Name × Catalog.Slot T) : VTerm T :=
+  match x.2 with
+  | .role ps _ _ => participantValue K idOf Q ps (if x.1 == a then s else if x.1 == b then o else "")
+  | _ => .record []
+
+/-- The element named by a navigation triple, of the edge-encoded relation without a reifier `tripleMatch` finds. -/
 def tripleElem (Q : List (Quad T)) (q : Quad T) : Option (Ident × Name × VTerm T) :=
   match q.p, q.o with
   | .nav n, .iri o =>
     (labelOf K Q q.s).bind fun ls => (labelOf K Q o).bind fun lo =>
-      (K.types.find? fun c => c.concrete && tripleNamed K c.name &&
-        ((K.anchorRole c.name).bind (K.navOf c.name) == some n) &&
-        (K.allFields c.name).any (fun f => some f.name == K.anchorRole c.name &&
-          f.participants.any fun p => (K.chain ls).contains p) &&
-        (K.allFields c.name).any (fun f => some f.name == K.otherRole c.name &&
-          f.participants.any fun p => (K.chain lo).contains p) &&
-        (!K.inherits CType.symmetric c.name || decide (q.s ≤ o))).bind fun c =>
+      (K.types.find? (tripleMatch K n q.s o ls lo)).bind fun c =>
       (K.anchorRole c.name).bind fun a => (K.otherRole c.name).map fun b =>
-        (.triple q.s n o, c.name, .record ((K.slots c.name).map fun x =>
-          (x.1, match x.2 with
-            | .role ps _ _ => participantValue K idOf Q ps (if x.1 == a then q.s else if x.1 == b then o else "")
-            | _ => .record [])))
+        (.triple q.s n o, c.name, .record ((K.slots c.name).map fun x => (x.1, tripleSlot K idOf Q a b q.s o x)))
   | _, _ => none
+
+/-- The participants of the set-valued role `r`, if the field is that role. -/
+def setRoleOf (r : Name) : Field T → Option (List Name)
+  | .setRole m ps _ => if m == r then some ps else none
+  | _ => none
 
 /-- The element of a role label named by a role triple of a set-valued role. -/
 def pairElem (Q : List (Quad T)) (q : Quad T) : Option (Ident × Name × VTerm T) :=
   match q.p, q.o with
   | .role owner r, .iri p =>
     (K.find owner).bind fun c =>
-      (c.fields.findSome? fun f =>
-        match f with
-        | .setRole m ps _ => if m == r then some ps else none
-        | _ => none).bind fun ps =>
+      (c.fields.findSome? (setRoleOf r)).bind fun ps =>
       (labelOf K Q q.s).map fun R =>
         (.pair (Catalog.roleLabelName R r) q.s p, Catalog.roleLabelName R r,
           .record [("instance", .elem (idOf q.s)), ("participant", participantValue K idOf Q ps p)])
