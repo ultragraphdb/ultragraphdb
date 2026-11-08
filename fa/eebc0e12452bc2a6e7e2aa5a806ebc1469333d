@@ -1,0 +1,32 @@
+lean/schema/ApgModel/Views/Rdf.lean
+  s_d18ff34562952d::t_8b67b07aee2a44 1-443
+  s_d18ff34562952d::t_a7256478e8d412 444-568
+lean/schema/ApgModel/Oracle/Typeside.lean
+  s_d18ff34562952d::t_e7e2c856baf2ad 1-151
+lean/schema/ApgModel.lean
+  s_d18ff34562952d::t_91a826e605b900 25-26,36,49-51
+lean/schema/ApgModel/Catalog/Schema.lean
+  s_d18ff34562952d::t_5d5ccbc485ab1c 13-18,23-27,110-118,121-125,131,135-146,162-171,180-181,263-265,268-283,288-289,295-296,299,301,305-307,312-315,319,331-378
+lean/schema/ApgModel/Examples.lean
+  s_d18ff34562952d::t_68fdc9e8dbdf72 7,192-244
+openspec/notes/prepare-apg-lean.md
+  s_d18ff34562952d::t_caa913d6fae868 18-20,209,211-212,237,255,277-279,281,292-293,341-354,368,379
+openspec/notes/prepare-stage-6.md
+  s_d18ff34562952d::t_978e41f93aaae3 169-171
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "faeebc0e12452bc2a6e7e2aa5a806ebc1469333d",
+  "prompts": {},
+  "sessions": {
+    "s_d18ff34562952d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b263ae46-8b16-46b4-81c5-522c712b251f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
