@@ -194,7 +194,10 @@ names the sections of `SCHEMA-APG.md` it transcribes, and each theorem's the pro
 | `schema/ApgModel/Core/Model.lean` | Proposition 8.4 in the generator form (L4) | 8.2 |
 | `schema/ApgModel/Core/Delta.lean` | Schema mappings, `Φ̂`, `ι`, `Δ`, propositions 9.3 to 9.5 | 9 |
 | `schema/ApgModel/Named/Ty.lean` | Field names, named types with strictly increasing field names, decidable equality by hand, the element kinds | 3.1, 3.2, 4.2 |
-| `schema/ApgModel/Named/Translate.lean` | Proposition 3.3, values and terms | 3.3 |
+| `schema/ApgModel/Named/Value.lean` | Named values, records as functions from their fields and variants as a field with a value; named APGs | 5.1, 5.2, 6.1 |
+| `schema/ApgModel/Named/Translate.lean` | Proposition 3.3 for values, natural in the family; named APGs and their binary forms | 3.3 |
+| `schema/ApgModel/Named/Term.lean` | Named mapping terms: records, fields, injections and cases by field; their evaluation | 8.5, 8.6 |
+| `schema/ApgModel/Named/TermTranslate.lean` | Proposition 3.3 for terms: the translation and evaluation commuting with it | 3.3 |
 | `schema/ApgModel/Named/Apg.lean` | Value terms, `check`, finite single-set APGs, the embedding into the core | 5.4, 5.5, 6.2 |
 | `schema/ApgModel/Named/Collections.lean` | Role labels, symmetric relations, unnest | 12.3 to 12.5 |
 | `schema/ApgModel/Examples.lean` | Examples 6.7 and 9.6, evaluated | 6.7, 9.6 |
@@ -216,8 +219,8 @@ main work.
 |---|---|---|---|
 | Definitions 2.1, 3.2, 4.1 | `Typeside`, `Core.Ty`, `Core.Schema`, with definition 12.1's admitted collections as `Ty.Admitted` | Definitions | S |
 | Definitions 3.1, 4.2 | `Named.Name`, the element kinds as predicates on named types | Definitions | S |
-| Proposition 3.3, values | `Named.toBinary`, `valueEquiv : V E t ≃ V E ⌜t⌝`, natural in `E` | Induction on the named type with the associativity and unit equivalences of `×` and `+`; nested induction over sorted field lists | L |
-| Proposition 3.3, terms | `termTranslate`, `eval_translate` | Induction on the term, part 1 at each constructor | L |
+| Proposition 3.3, values | `toBin`, `ofBin`, `ofBin_toBin`, `toBin_ofBin`, `toBin_map`; `NApg.toCore`, `NApg.ofCore`, `NApg.comm_iff` | Recursion through the field lists, each record or variant field by field: the associativity and unit isomorphisms of `×` and `+` | L |
+| Proposition 3.3, terms | `NTm.bin`, `NTm.eval_bin`, with `recAt`, `projAt`, `injAt`, `caseAt` and their evaluation lemmas | Induction on the term; a `case` as nested binary cases, later branches weakened past the variable each outer case binds | L |
 | Definitions 5.1, 5.2 | `V`, `V.map` | Recursion on `Ty` | S |
 | Proposition 5.3 | `V.map_id`, `V.map_comp` | Induction on `t`, functional extensionality | S |
 | Definitions 5.4, 5.5 | `ValTerm`, `check`, `refs` | Definitions; `check_sound`: `check v t = true` exactly when `v` denotes a member | M |
@@ -295,6 +298,16 @@ The `lean_exe apg_oracle` enters `lakefile.lean` with its root, `Oracle/Main.lea
 - proposition 6.3's second direction is a bijection of elements keeping labels and values (`toSingleSet_ofSingleSet_*`),
   the first an isomorphism of APGs (`ofSingleSet_toSingleSet`).
 
+**What L4 settled:**
+- a named record's value is a function from its fields and a variant's a field with a value, definition 5.1's
+  product and sum over the fields; a field is its position, which a well-formed type's increasing names make the
+  same as its name (`NTy.fieldIndex`);
+- `NTy.V.VAt.out` and `into` pass between a field's value and a value of the field's type by the same recursion as
+  the type, so no cast enters a definition or a statement;
+- proposition 3.3 holds for every field list, so well-formedness (`NTy.WF`) is not among its premises; it is what makes
+  one finite map of fields one value term in L5;
+- `absurd s` is the `case` of the empty variant, and the named Booleans translate exactly to the core's `Ty.bool`.
+
 Stage 6 needs the oracle first, so the path L0, L1, L2, L4, L5, L6, L7 comes before L3, L8 and L9, which no stage 6
 group waits on. In `prepare-stage-6.md`'s terms: tasks A.1 and A.2 are waves L1 to L4, A.3 is L5 to L7, A.4 the
 properties of L7 that group 9's test checks, A.5 the findings each wave reports, and A.6 replaces L6's hand-written
@@ -302,9 +315,6 @@ catalogs once stage 6's group 4 exports them.
 
 ## 8. Risks
 
-- **Proposition 3.3 is the one substantial proof.** The named type nests through `List (Name × Ty)`; Lean 4.14 recurses
-  structurally through the nesting, as wave L0's spike showed, and derives no `DecidableEq` for it, which L4 writes by
-  hand. The translation's naturality in `E`, for terms as well as values, is where the effort lies.
 - **Equalities of types.** `V E (subst τ t)` and `V (delta E) t` are equal types; a proof using the equality casts
   values. `iotaEquiv` is defined by recursion as an equivalence instead, so no cast enters a statement.
 - **Proposition 15.2's model.** The history model restates part of `SCHEMA.md` section 8.4 operationally; a mismatch

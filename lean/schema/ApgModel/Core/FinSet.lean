@@ -112,6 +112,31 @@ def filter (p : α → Bool) : FinSet α → FinSet α :=
     simp only [List.mem_filter]
     exact and_congr (h y) Iff.rfl)
 
+theorem map_empty (f : α → β) : map f (empty : FinSet α) = empty := rfl
+
+theorem map_insert (f : α → β) (x : α) (s : FinSet α) : map f (insert x s) = insert (f x) (map f s) := by
+  induction s using Quot.ind with
+  | mk l => rfl
+
+theorem map_union (f : α → β) (s t : FinSet α) : map f (union s t) = union (map f s) (map f t) := by
+  induction s using Quot.ind with
+  | mk l =>
+    induction t using Quot.ind with
+    | mk l' => exact congrArg ofList (List.map_append f l l')
+
+/-- Filtering the images by `p` is filtering by `p ∘ f` and taking the images. -/
+theorem map_filter (f : α → β) (p : β → Bool) (s : FinSet α) :
+    filter p (map f s) = map f (filter (fun x => p (f x)) s) := by
+  induction s using Quot.ind with
+  | mk l =>
+    show ofList (List.filter p (List.map f l)) = ofList (List.map f (List.filter (fun x => p (f x)) l))
+    congr 1
+    induction l with
+    | nil => rfl
+    | cons x l ih =>
+      simp only [List.map_cons, List.filter_cons]
+      split <;> simp [ih]
+
 end FinSet
 
 end ApgModel.Core

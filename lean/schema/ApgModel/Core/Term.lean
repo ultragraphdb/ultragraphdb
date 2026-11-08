@@ -259,7 +259,8 @@ def Tm.subst1 {a b c : Ty T.P L} (u' : Tm S [b] c) (u : Tm S [a] b) : Tm S [a] c
 
 /-! ## Evaluation commutes with renaming and substitution -/
 
-private theorem congr_two {α β γ : Type} (f : α → β → γ) {a a' : α} {b b' : β} (ha : a = a') (hb : b = b') :
+/-- Congruence in both arguments of a two-argument function. -/
+theorem congr_two {α β γ : Type} (f : α → β → γ) {a a' : α} {b b' : β} (ha : a = a') (hb : b = b') :
     f a b = f a' b' := by
   subst ha hb
   rfl
