@@ -222,18 +222,18 @@ main work.
 | Proposition 5.3 | `V.map_id`, `V.map_comp` | Induction on `t`, functional extensionality | S |
 | Definitions 5.4, 5.5 | `ValTerm`, `check`, `refs` | Definitions; `check_sound`: `check v t = true` exactly when `v` denotes a member | M |
 | Definitions 6.1, 6.2; proposition 6.3 | `Apg`, `SingleSet`, `toSingleSet`, `ofSingleSet`, the two round trips | Sigma types over labels | M |
-| Definition 6.5; proposition 6.6 | `ElementGraph`, `arc_target_label` | `V E (lbl l) = E l` | S |
+| Definitions 5.5, 6.5; proposition 6.6 | `V.Ref`, `Apg.Arc`, `SingleSet.Arc`, `SingleSet.arc_target_label` | `V E (lbl l) = E l`; a reference carries the label its position's type names, the path of field names coming with the named layer | S |
 | Definitions 7.1, 7.3; proposition 7.2 | `Hom`, `Hom.id`, `Hom.comp`, `id_comp`, `comp_id`, `comp_assoc`, `Iso` | Componentwise, from proposition 5.3 | S |
 | Proposition 8.1 | `coalgebra_equiv`, `hom_iff_coalgebra_morphism` | Unfolding | S |
 | Definitions 8.2, 8.3; proposition 8.4 | `Model`, `toModel`, `ofModel`, the bijection and its naturality, in the generator form (L4) | Generator form: induction on terms for uniqueness | M |
-| Definitions 8.5, 8.6; proposition 8.7 | `Tm Γ t`, `eval`, `eval_total` | Structural recursion; the theorem records that `eval` is a total function with no `partial` | M |
+| Definitions 8.5, 8.6; proposition 8.7 | `Tm S Γ t`, `Tm.eval`, `Tm.eval_terminates`, the cyclic example | Structural recursion; the theorem records that `eval` is a total function with no `partial`, and a two-element cycle evaluates by `rfl` | M |
 | Definitions 9.1, 9.2 | `Mapping`, `Ty.subst`, `iotaEquiv`, `delta` | `iotaEquiv` by induction on `t`, the identity at labels | M |
 | Proposition 9.3 | `delta_map_id`, `delta_map_comp`, `delta_compose : Δ (Φ' ∘ Φ) ≅ Δ Φ ∘ Δ Φ'` naturally | Functor laws by proposition 5.3; composition by term substitution along `Φ'` and `eval` of a substituted term | L |
 | Proposition 9.4 | `delta_finite` | Enumeration of `V E t` from finite `E` and finite primitives (L7) | M |
 | Proposition 9.5 | `delta_one_origin` | `V E (lbl l) = E l` and `V` of a variant is a sum | S |
 | Definition 12.1; proposition 12.2 | `LabelFree`, `V_labelFree_const`, `V.map_labelFree_id` | Induction on `t` | S |
 | Corollary 12.3 | `corollary_12_3`, citing the results it carries | Holds by L2 | S |
-| Definition 12.4 | `Tm.map`, `Tm.filter`, `eval_map_id`, `eval_map_map` | Lists directly; sets through the normalisation to a sorted list without duplicates | M |
+| Definition 12.4 | `Tm.map`, `Tm.filter`, `Tm.mapSet`, `Tm.filterSet`, `Tm.DerefFree`; `eval_map_id`, `eval_map_map` and their set forms | Through `Tm.subst`, with `eval_rename` and `eval_subst`; sets through `FinSet.map`'s laws | M |
 | Definitions 12.5, 12.6, 12.7 | `roleLabel`, `symmetric_nav_either`, `unnest`, `unnest_one_origin` | The last from proposition 9.5 | M |
 | Section 13; proposition 13.1 | `Catalog`, `conc`, `schemaOf`, `prefixRanges`, `is_iff_conc`, `inRanges_iff_conc` | A tree of types; prefixes injective; ranges as the compression of the sorted prefix set | M |
 | Section 14.2 | `violations` per constraint, ten rows; `violations_nil_iff` per row | Each by list reasoning; `@limit`'s group selection as the conjuncts over participant types | M |
@@ -283,6 +283,17 @@ Each wave's modules depend only on earlier waves; a wave ends with `lake build` 
   `propext` and `Quot.sound`.
 
 The `lean_exe apg_oracle` enters `lakefile.lean` with its root, `Oracle/Main.lean`, in wave L7.
+
+**What L2 settled:**
+- a typeside function takes its arguments by position, `(i : Fin (dom f).length) → PV ((dom f).get i)`, so a term
+  applying it holds one argument term per position and the terms need no second, mutual inductive type;
+- the terms hold corollary 12.3's operations built from collections alone, `nil`, `cons`, `append`, `empty`, `insert`
+  and `union`; `length`, `at`, `size` and `member` need counts and decidable equality of members, which the oracle's
+  concrete typeside supplies;
+- renaming and substitution of terms (`Tm.rename`, `Tm.subst`), with evaluation commuting with both, carry
+  definition 12.4's laws and are what `Δ`'s composition in L3 substitutes with;
+- proposition 6.3's second direction is a bijection of elements keeping labels and values (`toSingleSet_ofSingleSet_*`),
+  the first an isomorphism of APGs (`ofSingleSet_toSingleSet`).
 
 Stage 6 needs the oracle first, so the path L0, L1, L2, L4, L5, L6, L7 comes before L3, L8 and L9, which no stage 6
 group waits on. In `prepare-stage-6.md`'s terms: tasks A.1 and A.2 are waves L1 to L4, A.3 is L5 to L7, A.4 the

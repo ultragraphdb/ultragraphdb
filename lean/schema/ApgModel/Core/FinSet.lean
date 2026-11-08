@@ -31,6 +31,13 @@ def ofList (l : List α) : FinSet α := Quot.mk _ l
 def Mem (x : α) (s : FinSet α) : Prop :=
   Quot.liftOn s (fun l => x ∈ l) (fun _ _ h => propext (h x))
 
+/-- Some member of the finite set satisfies `p`. -/
+def Any (p : α → Prop) (s : FinSet α) : Prop :=
+  Quot.liftOn s (fun l => ∃ x, x ∈ l ∧ p x) (fun _ _ h => propext ⟨
+    fun ⟨x, hx, hp⟩ => ⟨x, (h x).mp hx, hp⟩, fun ⟨x, hx, hp⟩ => ⟨x, (h x).mpr hx, hp⟩⟩)
+
+@[simp] theorem any_ofList (p : α → Prop) (l : List α) : Any p (ofList l) ↔ ∃ x, x ∈ l ∧ p x := Iff.rfl
+
 /-- Two finite sets with the same members are equal: equality of sets is extensional. -/
 theorem ext {s t : FinSet α} (h : ∀ x, Mem x s ↔ Mem x t) : s = t := by
   induction s using Quot.ind with
@@ -64,6 +71,46 @@ theorem map_id' (s : FinSet α) : map (fun x => x) s = s := by
 theorem map_map (f : α → β) (g : β → γ) (s : FinSet α) : map g (map f s) = map (fun x => g (f x)) s := by
   induction s using Quot.ind with
   | mk l => exact congrArg ofList (List.map_map ..)
+
+/-! ## The collection operations of corollary 12.3 -/
+
+/-- The empty set. -/
+def empty : FinSet α := ofList []
+
+/-- The set with one more member. -/
+def insert (x : α) : FinSet α → FinSet α :=
+  Quot.lift (fun l => ofList (x :: l)) (by
+    intro l l' h
+    apply Quot.sound
+    intro y
+    simp only [List.mem_cons]
+    exact or_congr Iff.rfl (h y))
+
+/-- The union of two sets. -/
+def union (s t : FinSet α) : FinSet α :=
+  Quot.liftOn s (fun l => Quot.liftOn t (fun l' => ofList (l ++ l')) (by
+      intro l' l'' h
+      apply Quot.sound
+      intro y
+      simp only [List.mem_append]
+      exact or_congr Iff.rfl (h y)))
+    (by
+      intro l₁ l₂ h
+      induction t using Quot.ind with
+      | mk l' =>
+        apply Quot.sound
+        intro y
+        simp only [List.mem_append]
+        exact or_congr (h y) Iff.rfl)
+
+/-- The members satisfying `p`. -/
+def filter (p : α → Bool) : FinSet α → FinSet α :=
+  Quot.lift (fun l => ofList (l.filter p)) (by
+    intro l l' h
+    apply Quot.sound
+    intro y
+    simp only [List.mem_filter]
+    exact and_congr (h y) Iff.rfl)
 
 end FinSet
 

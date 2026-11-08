@@ -10,14 +10,12 @@
 function symbols over them with their total interpretations. Every definition of the model is relative to one
 typeside, so the core's results hold for every choice of primitives; the oracle's concrete typeside, with UGS's
 primitives and their lexical forms, is the executable layer's.
+
+A function symbol's arguments are given by position, one value for each index of its argument list, so a mapping
+term applying it holds one argument term per position (`ApgModel.Core.Tm.app`).
 -/
 
 namespace ApgModel
-
-/-- The arguments a function symbol takes: one value of each primitive type in `ps`, in order. -/
-def Args {P : Type} (PV : P → Type) : List P → Type
-  | [] => Unit
-  | p :: ps => PV p × Args PV ps
 
 /-- A typeside, `SCHEMA-APG.md` definition 2.1: primitive types `P`, the values `PV p` of each, function symbols `F`
 with an arity `dom f → cod f` over `P`, and the total interpretation of each. -/
@@ -32,7 +30,7 @@ structure Typeside where
   dom : F → List P
   /-- A function symbol's result type. -/
   cod : F → P
-  /-- A function symbol's interpretation, a total function. -/
-  interp : (f : F) → Args PV (dom f) → PV (cod f)
+  /-- A function symbol's interpretation, a total function of one value per argument position. -/
+  interp : (f : F) → ((i : Fin (dom f).length) → PV ((dom f).get i)) → PV (cod f)
 
 end ApgModel
