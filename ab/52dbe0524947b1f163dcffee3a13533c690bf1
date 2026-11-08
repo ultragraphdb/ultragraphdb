@@ -1,0 +1,36 @@
+openspec/notes/SECURITY.md
+  s_d18ff34562952d::t_4d098eab58ca08 247-283
+  s_d18ff34562952d::t_2b7530e7d43e68 5,47,175,196,219,293,369
+ROADMAP.md
+  s_d18ff34562952d::t_ae4a1e4d04b7f6 18,20-21,33-36,46-51,55-60
+openspec/notes/prepare-stage-6.md
+  s_d18ff34562952d::t_c444da1883f057 99-100,105,108-114,232,284,286,297-300,312,315-316,349-350
+specification/query/QUERY-GQL-CORE.md
+  s_d18ff34562952d::t_073faf06bc22ed 56-57,585,589,598,601
+specification/query/QUERY-SPARQL-CORE.md
+  s_d18ff34562952d::t_7812c53a6b7358 481,484
+specification/query/QUERY-ULTRA-QL.md
+  s_d18ff34562952d::t_29e52423334c9b 68-69,721
+specification/schema/SCHEMA-APG.md
+  s_d18ff34562952d::t_0a2acad5fcdf89 469,473,601-603,664,666,684,707-708,718,744,760-762,764-766,830,839,1002
+specification/schema/SCHEMA.md
+  s_d18ff34562952d::t_c3e7b7840b0a74 43,73-74,76-77,128,132,223,254-255,389-391,402-403,442,447-448,499-500,584-585,673,680,684,696-699,705-707,748,759,762-763,769-770,772-777,820,849-855,931-932,1001-1003,1040-1041,1080-1081,1133,1140,1149-1150,1163,1165,1196,1247,1249-1250,1256,1266,1405,1437-1438,1440,1442,1472,1475,1498,1536-1537,1560-1561,1629,1635,1638,1693,1723,1768-1776,1779,1784,1800-1801,1803-1804,1806-1807,1818-1819,1830-1831,1837,1843-1844,1855-1859
+specification/schema/deepbrain-gen5.ugs
+  s_d18ff34562952d::t_1a11b799cfebf5 9,12-13,126-127,252,613,656-657,861-863,919-921
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ab52dbe0524947b1f163dcffee3a13533c690bf1",
+  "prompts": {},
+  "sessions": {
+    "s_d18ff34562952d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b263ae46-8b16-46b4-81c5-522c712b251f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
