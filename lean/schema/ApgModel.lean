@@ -27,6 +27,7 @@ import ApgModel.Oracle.Lexical
 import ApgModel.Oracle.NQuads
 import ApgModel.Oracle.Parse
 import ApgModel.Oracle.Aviation
+import ApgModel.Oracle.Gen5
 import ApgModel.Oracle.Check
 import ApgModel.Views.Rdf
 import ApgModel.Views.RdfInverse
@@ -41,7 +42,7 @@ core over families of elements, in which the paper's results are proved by struc
 waves, a named layer over it, the catalog's schema, its constraints, history, migration operations, and the RDF and
 GQL views with the test oracle that runs them.
 
-This version holds waves L1 to L7b and the first part of L7c. The core: the typeside (definition 2.1); types and schemas (definitions 3.2, 4.1,
+This version holds waves L1 to L7. The core: the typeside (definition 2.1); types and schemas (definitions 3.2, 4.1,
 12.1); finite sets; values and their functoriality (propositions 5.3, 12.2); APGs in both forms and referential
 integrity (propositions 6.3, 6.6); homomorphisms, isomorphisms and the coalgebra view (propositions 7.2, 8.1); and
 mapping terms with their evaluation, renaming, substitution and the laws of `map` (proposition 8.7, definition 12.4);
@@ -58,6 +59,6 @@ the transition constraints as predicates on consecutive states (section 14). The
 templates natural in their references, monotone under homomorphisms preserving names (definition 17.1, proposition
 17.2); its inverse `R⁻¹`, giving back every element of a valid APG written as the store writes it under its IRI, triple
 or pair (proposition 17.3); the SHACL shapes holding on it (corollary 17.4). The oracle: its typeside, the lexical
-forms and N-Quads of `R(G)` with their parser, the aviation schema's instance sets, and the checks every set passes
-before `apg_oracle` writes it.
+forms and N-Quads of `R(G)` with their parser, the aviation schema's and a Gen5 subset's instance sets, and the
+checks every set passes before `apg_oracle` writes it.
 -/

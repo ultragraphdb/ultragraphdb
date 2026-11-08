@@ -2,7 +2,7 @@
  SPDX-License-Identifier: Apache-2.0
  Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 -/
-import ApgModel.Oracle.Aviation
+import ApgModel.Oracle.Gen5
 import ApgModel.Views.RdfInverse
 
 /-!
@@ -30,6 +30,15 @@ def termEq : Term typeside → Term typeside → Bool
 /-- Equality of quads. -/
 def quadEq (q r : Quad typeside) : Bool := q.s == r.s && decide (q.p = r.p) && termEq q.o r.o && q.g == r.g
 
+/-- Every primitive value a term holds lies in its type's values (`Prim.admits`): an integer in its width's range, a
+float in canonical form. -/
+partial def admitted : VTerm typeside → Bool
+  | .prim p a => Prim.admits p a
+  | .elem _ => true
+  | .record fs => fs.all fun f => admitted f.2
+  | .inj _ v => admitted v
+  | .list vs | .set vs => vs.all admitted
+
 /-- A schema of the corpus: its catalog, bases, view, set order and instance sets, and the constraint queries its sets
 must pass, each named. -/
 structure Corpus where
@@ -56,6 +65,7 @@ def Corpus.failures (C : Corpus) (n : Nat) : List String :=
   let Q := rdf C.catalog C.view ι (fun _ => C.bases.graph) G
   let inv := rdfInv C.catalog C.view C.ord idOf Q
   (if G.valid then [] else ["invalid"]) ++
+  (if G.elems.all fun x => admitted x.2.2 then [] else ["a primitive value outside its type"]) ++
   ((C.constraints G).filterMap fun (k, vs) => if vs.isEmpty then none else some (k ++ " " ++ toString vs)) ++
   (if G.elems.all fun x =>
       match ident C.catalog ι x with
@@ -117,9 +127,52 @@ def aviation : Corpus where
   instances := Aviation.instances
   constraints := aviationConstraints
 
+/-! ## The Gen5 corpus -/
+
+/-- An element is live while its `asserted` has no end; an element without `asserted` always is. -/
+def liveIn {S : NSchema typeside.P Name} (G : FinApg S) (e : Nat) : Bool :=
+  match (G.entry e).bind fun x => x.2.field? "asserted" with
+  | some a => decide (a.field? "end" = some absent)
+  | none => true
+
+/-- The Gen5 subset's constraints: `Node`'s key, `teloid_id`'s `@unique`, the role label's exclusivity and `members`'
+non-emptiness, `AssertedBy`'s `@set`, the cardinalities `asserted_by?` and `alternative_set?`, and `Relation`'s
+`@limit(count() <= 1 per (subject, type) where rank = preferred)`, its subject the role each relation specializes it
+to. -/
+def gen5Constraints (G : FinApg Gen5.catalog.schema) : List (String × List Nat) :=
+  let live := liveIn G
+  let all : Nat → Bool := fun _ => true
+  let preferred (v : VTerm typeside) : Bool := decide (v.field? "rank" = some (.inj "preferred" (.record [])))
+  [("key Node", keyViolations G (Gen5.catalog.conc "Node") ["id"]),
+   ("unique teloid_id", uniqueViolations G ["Teloid"] "teloid_id" false),
+   ("role label Alternatives_members", roleLabelViolations G "Alternatives_members"),
+   ("non-empty members", nonEmptyViolations G "Alternatives" "Alternatives_members"),
+   ("set AssertedBy", setViolations G all "AssertedBy" ["statement", "asserter"] false []),
+   ("asserted_by?", participationViolations G live ["AssertedBy"] "statement" (Gen5.catalog.conc "Statement") 0
+      (some 1)),
+   ("alternative_set?", participationViolations G live ["Alternatives_members"] "participant" ["DerivesFrom"] 0
+      (some 1))] ++
+  ([("MemberOf", "member"), ("ConnectsTo", "a"), ("DerivesFrom", "lower"), ("ClassifiedAs", "instance")].map
+    fun (R, subject) => ("limit preferred " ++ R,
+      limitGroupViolations G live [R] [subject] true (fun _ => true) preferred List.length (fun k => decide (k ≤ 1))))
+
+/-- The Gen5 subset. -/
+def gen5 : Corpus where
+  name := "gen5"
+  catalog := Gen5.catalog
+  bases := Gen5.bases
+  view := Aviation.viewParams
+  ord := Aviation.ord
+  instances := Gen5.instances
+  constraints := gen5Constraints
+
+/-- The corpus schemas. -/
+def corpora : List Corpus := [aviation, gen5]
+
 #eval show IO Unit from do
-  for n in [0, 1, 2, 3] do
-    let fs := aviation.failures n
-    unless fs.isEmpty do throw (IO.userError s!"aviation set {n}: {fs}")
+  for C in corpora do
+    for n in [0, 1, 2, 3] do
+      let fs := C.failures n
+      unless fs.isEmpty do throw (IO.userError s!"{C.name} set {n}: {fs}")
 
 end ApgModel.Oracle

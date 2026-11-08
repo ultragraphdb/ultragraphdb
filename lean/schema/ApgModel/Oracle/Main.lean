@@ -16,9 +16,6 @@ before its file is written; a failure writes nothing and exits 1.
 
 namespace ApgModel.Oracle
 
-/-- The corpus schemas. -/
-def corpora : List Corpus := [aviation]
-
 /-- The instance sets written per schema. -/
 def setsPerSchema : Nat := 4
 
