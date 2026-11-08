@@ -1,0 +1,37 @@
+lean/schema/ApgModel/Core/FinSet.lean
+  s_d18ff34562952d::t_3f8a2777a3ef2a 115-139
+lean/schema/ApgModel/Named/Translate.lean
+  s_d18ff34562952d::t_6bdac215e222bc 1-210
+lean/schema/ApgModel/Named/Value.lean
+  s_d18ff34562952d::t_8e9c9b81c61a1c 1-61
+lean/schema/ApgModel/Named/Ty.lean
+  s_d18ff34562952d::t_68865846006277 1-200
+  s_d18ff34562952d::t_8d4c21dc98e5d1 201-214
+lean/schema/ApgModel/Named/TermTranslate.lean
+  s_d18ff34562952d::t_b23d405bef26a1 1-251
+  s_d18ff34562952d::t_10059cadd1ec19 252-270
+lean/schema/ApgModel/Named/Term.lean
+  s_d18ff34562952d::t_e06463d9f6cacb 1-150
+lean/schema/ApgModel.lean
+  s_d18ff34562952d::t_d933abd82cae1c 12-16,26,30-32
+lean/schema/ApgModel/Core/Term.lean
+  s_d18ff34562952d::t_1217bbd6e3ec8c 262-263
+openspec/notes/prepare-apg-lean.md
+  s_d18ff34562952d::t_efdefc6aec9c39 197-200,222-223,301-310
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "bdc2bd32e4474c57fd5a3328a2c249dd8ac37a2c",
+  "prompts": {},
+  "sessions": {
+    "s_d18ff34562952d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b263ae46-8b16-46b4-81c5-522c712b251f",
+        "model": "unknown"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
