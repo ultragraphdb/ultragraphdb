@@ -912,8 +912,8 @@ definition 3.1 and MGQL's `PropertyGraph`, with:
 | Part of `P(G)` | From |
 |---|---|
 | A node | Each element of an entity label or `Resource`; each element of a node-encoded relation label, as its relation node; each element of an edge-encoded relation label whose type allocates a reifier, as its relation node, beside its edge (`SCHEMA.md` section 11.3) |
-| A stored edge | Each element of an edge-encoded relation label, from its anchor's node to its other participant's, undirected when the relation is `@symmetric`; each role field of a node-encoded relation's element and each element of a role label, from the relation node to the participant's node, with the role's name and, for a specialized role, the super role's |
-| A derived, read-only edge | The two role edges of a relation node of an edge-encoded relation; a binary node-encoded relation's navigation edge, from the participant gaining the name to the one it reaches |
+| A stored edge | Each element of an edge-encoded relation label, from its anchor's node to its other participant's, undirected when the relation is `@symmetric`; each role field of a node-encoded relation's element and each element of a role label, from the relation node to the participant's node, labelled `{Relation}_{role}`, the relation the type declaring the role, and for a specialized role the super role's too |
+| A derived, read-only edge | The two role edges of a relation node of an edge-encoded relation, labelled as a node-encoded relation's role edges are; a binary node-encoded relation's navigation edge, from the participant gaining the name to the one it reaches |
 | Labels | For a node or edge from an element of label `l`, the exact set of `l`, its supertypes and the statement types covering it |
 | Properties | Each primitive field; a `list` or `set` field as `LIST`, a record, interval or measure as `RECORD`; `type`, the label's name; `asserted` and `live` on a `@bitemporal` element; an absent optional field absent |
 | Element id | `ι` of the element; none for a derived edge, a role edge, or an edge without a reifier |
@@ -923,11 +923,13 @@ label and its supertypes and the property types of its primitive fields; an edge
 role edge and per navigation edge, its endpoints a triple for each pair of concrete labels its roles admit.
 
 **Proposition 18.2 (conformance; here).** For every valid APG `G` on `S(K)`, `P(G)` conforms to `Γ(S(K))` under
-PG-Schema's strict, closed semantics (PG-Schema, definition 4.2), and so to the closed graph schema MGQL's
-`graphConformsSchema` checks. *Proof.* A node or edge from an element of label `l` carries exactly the label set of
-`l`'s node or edge type, and the properties of `σ(l)`'s primitive fields, of the types `Γ` lists. An edge's endpoints
-are elements whose labels its role's type admits, by the typing of the field it comes from, and `Γ` lists a triple for
-each admitted pair; derived edges are built from fields in the same way.
+PG-Schema's strict, closed semantics (PG-Schema, definition 4.2). MGQL's property graphs carry `INT`, `STRING` and
+`BOOLEAN` properties, every one required; the projection of `P(G)` onto them, its labels, its endpoints and its required
+properties of those types, conforms to `Γ(S(K))` projected likewise under MGQL's `graphConformsSchema`, given distinct
+property names (`UGS0802`). *Proof.* A node or edge from an element of label `l` carries exactly the label set of `l`'s
+node or edge type, and the properties of `σ(l)`'s primitive fields, of the types `Γ` lists. An edge's endpoints are
+elements whose labels its role's type admits, by the typing of the field it comes from, and `Γ` lists a triple for each
+admitted pair; derived edges are built from fields in the same way.
 
 **Proposition 18.3 (monotone; here).** For an injective homomorphism that preserves names, `P(G)` is a subgraph of
 `P(G')`. *Proof.* As proposition 17.2.
@@ -1018,6 +1020,8 @@ values, or the core's results do not transfer.
 | History through a migration | Decided 2026-11-08: a target's history before its cutover is the migration evaluated over the source's believed slices, named as the present is (proposition 16.6) |
 | `restrict open` | Decided 2026-11-08: refuses a retraction while open instances name the participant, and retracts the live instances that are no longer open with it (`SCHEMA.md` section 8.4, rule 6) |
 | Participants of `@bitemporal` relations | Decided 2026-11-08: `@bitemporal` types or `@append_only` entity types alone (`UGS0602`), so the live and believed slices are closed under references (proposition 15.2) |
+| Role edge labels | Decided 2026-11-08: every role edge, stored or derived, is labelled `{Relation}_{role}`, the relation the type declaring the role, as the RDF view's role predicate, and for a specialized role the super role's too (definition 18.1) |
+| GQL conformance and MGQL | Decided 2026-11-08: proposition 18.2 holds under PG-Schema's strict, closed semantics, with optional properties and every property type of the typeside; MGQL checks the view's projection onto its sorts, its required `INT`, `STRING` and `BOOLEAN` properties (proposition 18.2) |
 | `@retracts` roles | Decided 2026-11-08: a reference into history, outside `@on_retract`; the slices are closed under every other role, and a read's slice adds what a `@retracts` role reaches, as the with-retracted slice holds it (proposition 15.2) |
 | Equality of mapping terms | Decided 2026-11-08: no decision procedure until a feature needs one, since UGS declares no path equations and type-checking a mapping needs no equality; normal forms decide the fragment without variants, and two mappings are compared by evaluation on the generated APGs of section 19 |
 | A catalog's schema | Decided 2026-11-08: one label per concrete type and role label; a supertype as the variant of its concrete subtypes; navigation names as inverse references, never fields (section 13) |

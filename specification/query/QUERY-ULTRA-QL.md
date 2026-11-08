@@ -418,6 +418,9 @@ the epoch it was read at and, for a monotonic-fast read of mutable data, the fla
 - `valid at t` keeps instances whose valid interval contains `t`, and `valid during i` those whose valid interval
   intersects `i`, on a type with `@valid` or `@bitemporal(valid: …)`.
 
+A navigation through a `@retracts` role reaches the participant its instance retracted, as `with retracted` reads it:
+a correction names what it corrected (`../schema/SCHEMA.md` section 8.4, rule 7).
+
 `as of` fixes the database's state; `believed at` reads the statements' transaction time within that state. A read of
 `believed at` a past instant is immutable, and so monotonic.
 

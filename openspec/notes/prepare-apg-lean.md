@@ -1,6 +1,6 @@
 # Preparing the APG proofs in Lean
 
-* Status: plan, its decisions taken 2026-11-08 (section 4); wave L0 begins the work.
+* Status: waves L0 to L10 done, section 1's criteria met (2026-11-08); its decisions taken 2026-11-08 (section 4).
 * Specifies: group A of `prepare-stage-6.md`, extended from its tasks A.1 to A.6 to every formal statement of
   `specification/schema/SCHEMA-APG.md`.
 
@@ -221,51 +221,53 @@ names the sections of `SCHEMA-APG.md` it transcribes, and each theorem's the pro
 ## 6. Every statement and its proof
 
 Sizes are the expected effort: S a short induction or a definition's unfolding, M a page of lemmas, L the module's
-main work.
+main work. Names are relative to `ApgModel`, and `ApgModel/Theorems.lean` holds the same table, every name checked by
+the compiler.
 
 | Statement | Lean | Proof | Size |
 |---|---|---|---|
-| Definitions 2.1, 3.2, 4.1 | `Typeside`, `Core.Ty`, `Core.Schema`, with definition 12.1's admitted collections as `Ty.Admitted` | Definitions | S |
-| Definitions 3.1, 4.2 | `Named.Name`, the element kinds as predicates on named types | Definitions | S |
-| Proposition 3.3, values | `toBin`, `ofBin`, `ofBin_toBin`, `toBin_ofBin`, `toBin_map`; `NApg.toCore`, `NApg.ofCore`, `NApg.comm_iff` | Recursion through the field lists, each record or variant field by field: the associativity and unit isomorphisms of `×` and `+` | L |
-| Proposition 3.3, terms | `NTm.bin`, `NTm.eval_bin`, with `recAt`, `projAt`, `injAt`, `caseAt` and their evaluation lemmas | Induction on the term; a `case` as nested binary cases, later branches weakened past the variable each outer case binds | L |
-| Definitions 5.1, 5.2 | `V`, `V.map` | Recursion on `Ty` | S |
-| Proposition 5.3 | `V.map_id`, `V.map_comp` | Induction on `t`, functional extensionality | S |
-| Definitions 5.4, 5.5 | `VTerm`, `denote`, `check`, `check_iff`, `denote_complete`, `VTerm.refs`, `denote_refs` | The check is a successful denotation; completeness by recursion through the field lists, for well-formed types | M |
-| Definitions 6.1, 6.2; proposition 6.3 | `Apg`, `SingleSet`, `toSingleSet`, `ofSingleSet`, the two round trips | Sigma types over labels | M |
-| Definitions 5.5, 6.5; proposition 6.6 | `V.Ref`, `Apg.Arc`, `SingleSet.Arc`, `SingleSet.arc_target_label` | `V E (lbl l) = E l`; a reference carries the label its position's type names, the path of field names coming with the named layer | S |
-| Definitions 7.1, 7.3; proposition 7.2 | `Hom`, `Hom.id`, `Hom.comp`, `id_comp`, `comp_id`, `comp_assoc`, `Iso` | Componentwise, from proposition 5.3 | S |
-| Proposition 8.1 | `coalgebra_equiv`, `hom_iff_coalgebra_morphism` | Unfolding | S |
-| Definitions 8.2, 8.3; proposition 8.4 | `Model`, `Model.ofApg`, `Model.toApg`, `Model.interp_eq_eval`, `Model.ofApg_toApg`, `Tm.eval_hom`, `Model.Hom.natural` | Generator form: uniqueness by induction on terms; homomorphisms commute with evaluation | M |
-| Definitions 8.5, 8.6; proposition 8.7 | `Tm S Γ t`, `Tm.eval`, `Tm.eval_terminates`, the cyclic example | Structural recursion; the theorem records that `eval` is a total function with no `partial`, and a two-element cycle evaluates by `rfl` | M |
-| Definitions 9.1, 9.2 | `Mapping`, `Ty.subst`, `iota`, `iotaInv`, `Mapping.delta`, `Mapping.deltaHom` | `ι` by recursion on `t`, the identity at labels; `iota_map` its naturality | M |
-| Proposition 9.3 | `deltaHom_id`, `deltaHom_comp`; `Mapping.id`, `delta_id`; `Tm.along`, `Tm.eval_along`; `Mapping.comp`, `delta_comp` | Functor laws by proposition 5.3; composition by translating terms along a mapping, with `iota_comp` across `Ty.subst_subst` by heterogeneous equality | L |
-| Proposition 9.4 | `V_enumerable`, `Mapping.delta_finite` | Enumeration of `V E t` for list-free `t` with finite primitives (L7), a set by its sublists | M |
-| Proposition 9.5 | `labelSum`, `labelSumBij`, `delta_label_image`, `delta_one_origin` | A variant of labels is in bijection with the labels' elements, each tagged by its position | S |
-| Definition 12.1; proposition 12.2 | `LabelFree`, `V_labelFree_const`, `V.map_labelFree_id` | Induction on `t` | S |
-| Corollary 12.3 | `corollary_12_3`, citing the results it carries | Holds by L2 | S |
-| Definition 12.4 | `Tm.map`, `Tm.filter`, `Tm.mapSet`, `Tm.filterSet`, `Tm.DerefFree`; `eval_map_id`, `eval_map_map` and their set forms | Through `Tm.subst`, with `eval_rename` and `eval_subst`; sets through `FinSet.map`'s laws | M |
-| Definitions 12.5, 12.6, 12.7 | `roleLabelType`, `symNav`, `symNav_symm`, `unnest`, `unnest_origin` | Case analysis on a binary element's two participants; recursion over the elements | M |
-| Section 13; proposition 13.1 | `Catalog`, `conc`, `schema`, `ranges`, `inRanges_compress`, `inRanges_iff_isSub`, `is_iff_inRanges` | A tree of types; prefixes injective; ranges as the compression of the sorted prefix set | M |
-| Section 14.2 | `keyViolations`, `uniqueViolations`, `nonEmptyViolations`, `setViolations`, `roleLabelViolations`, `participationViolations`, `checkViolations`, `acyclicViolations` with `maxDepthViolations`, `noOverlapViolations`, `limitViolations` with `limitGroupViolations`; a `_nil_iff` per row | Three generic queries, `injViolations`, `violators` and `cycleViolations`, each proved once; cycles by the pigeonhole over walks; `@limit`'s group selection as the conjuncts over participant types | M |
-| Section 14.3 | `State` and its predicates `LabelFixed`, `FieldsFixed`, `AppendOnly`, `Bitemporal`, `OnDeleteHolds`, `OnRetractHolds`, `RetractsHolds`, `EndsHolds`, `LiveParticipants` | Definitions, used by section 15 | S |
-| Section 15.1 | `ident`, `Exclusive`, `naming_injective` | An IRI by the naming's injectivity; a triple's relation from its navigation name and its anchor's label, then `@set` per pair; a pair by its role label's exclusivity | M |
-| Proposition 15.1 | `union_closed` | Disjoint element sets; closure by construction | S |
-| Section 15.3; proposition 15.2 | `HState`, `Kinds`, `Live`, `Bel`, `LiveRead`, `BelRead`, `Inv`, `Step`, `Reachable`, `inv_step`, `inv_reachable`, `live_closed`, `believed_closed`, `liveRead_closed`, `belRead_closed`, `prop_15_2` | An invariant every step keeps, one lemma per step; closure of each slice from the invariant (L9) | L |
-| Definition 16.1 | `Closed`, `V.restrict`, `restrict_spec`, `select`, `select_incl`, `select_incl_injective`, `select_incl_preserves_names`, `select_undefined` | A kept value restricted to the kept elements, a set through its lists | S |
-| Definition 16.2 | `lookup`, `lookup_unique`, `lookup_none`, `keyViolations_sub` | From key exclusivity | S |
-| Definition 16.3 | `ExtMapping`, `ExtMapping.delta`, `toExt`, `toExt_delta` | A term reading its admitted source, a pure mapping's among them | M |
-| Proposition 16.4 | `fragment`, `fragment_label_origin`, `fragment_one_origin`, `fragment_undefined` | Definitions 16.1, 16.3, proposition 9.5 | M |
-| Definition 16.5 | `coprodSchema`, `coprod`, `inlMapping`, `inrMapping`, `coprod_inl`, `coprod_inr` | `Δ` along each injection back to its summand by `iota_iotaInv` | S |
-| Proposition 16.6 | `history_through_migration`, `map_injective`, `ref_map` | Propositions 15.2 and 16.4 and the permanence of key claims (`keyViolations_sub`) | M |
-| Definition 17.1; proposition 17.2 | `templates`, `Tmpl.inst`, `rdf`, `templates_mapRefs`, `Tmpl.inst_mono`, `rdf_monotone` | Each quad from one element's template, natural in its references, named by a naming monotone in its definedness | M |
-| Proposition 17.3 | `rdfInv`, `RoundTrip`, `rdf_round_trip` | Attribution of each own predicate to its subject; label from the chain of type quads; each slot by inverting the check against its type; elements by IRI, triple or pair | L |
-| Corollary 17.4 | `shacl_min_count`, `shacl_max_count`, `shacl_datatype`, `shacl_in`, `shacl_class`, `shacl_class_edge` | From the shapes of an element's own quads that proposition 17.3's proof establishes (L10) | M |
-| Definition 18.1 | `gql`, `gqlOf`, `gNodeTmpl`, `gEdgeTmpls`, `gType`; `mgqlGraph`, `mgqlType` | Templates as the RDF view's; MGQL's types as the projection (L11) | M |
-| Proposition 18.2 | `gql_conforms`, `mgql_conforms : graphConformsSchema (mgqlGraph (gql G)) (mgqlType K) = true` | Every node's and edge's label set and properties by construction; endpoints by field typing (`EdgeShape`) | L |
-| Proposition 18.3 | `gql_monotone` | As 17.2 | S |
-| Proposition 18.4 | `gql_of_rdf` | From proposition 17.3 | S |
-| Section 19 | `generate`, `exportNQuads`, `parseNQuads`, `parse_export` checked by `#eval` | Executable; not proofs | M |
+| Definitions 2.1, 3.2, 4.1 | `Typeside`, `Core.Ty`, `Core.Schema`, `Core.Ty.Admitted` | Definitions | S |
+| Definitions 3.1, 4.2 | `Named.Name`, `Named.NTy`, `Named.NTy.WF`, `Named.NSchema.IsVertex`, `Named.NSchema.IsEdge`, `Named.NSchema.IsVertexProperty`, `Named.NSchema.IsEdgeProperty`, `Named.NSchema.IsMetaEdge`, `Named.NSchema.IsHyperedge` | Definitions | S |
+| Proposition 3.3, values | `Named.toBin`, `Named.ofBin`, `Named.ofBin_toBin`, `Named.toBin_ofBin`, `Named.toBin_map`, `Named.NApg.toCore`, `Named.NApg.ofCore`, `Named.NApg.ofCore_toCore`, `Named.NApg.toCore_ofCore`, `Named.NApg.comm_iff` | Recursion through the field lists, each record or variant field by field: the associativity and unit isomorphisms of `×` and `+` | L |
+| Proposition 3.3, terms | `Named.NTm.bin`, `Named.NTm.eval_bin`, `Named.recAt`, `Named.projAt`, `Named.injAt`, `Named.caseAt`, `Named.recAt_eval`, `Named.projAt_eval`, `Named.injAt_eval`, `Named.caseAt_eval` | Induction on the term; a `case` as nested binary cases, later branches weakened past the variable each outer case binds | L |
+| Definitions 5.1, 5.2; proposition 5.3 | `Core.V`, `Core.V.map`, `Core.V.map_id`, `Core.V.map_comp` | Recursion on `Ty` | S |
+| Definitions 5.4, 5.5 | `Named.VTerm`, `Named.denote`, `Named.check`, `Named.check_iff`, `Named.denote_complete`, `Named.VTerm.refs`, `Named.denote_refs` | The check is a successful denotation; completeness by recursion through the field lists, for well-formed types | M |
+| Definitions 6.1, 6.2, 6.4; proposition 6.3 | `Core.Apg`, `Core.SingleSet`, `Core.toSingleSet`, `Core.ofSingleSet`, `Core.ofSingleSet_toSingleSet`, `Core.toSingleSet_ofSingleSet_elements`, `Core.toSingleSet_ofSingleSet_lam`, `Core.toSingleSet_ofSingleSet_value`, `Named.FinApg`, `Named.FinApg.valid`, `Named.FinApg.toNApg`, `Core.Enumerable` | Sigma types over labels | M |
+| Definition 6.5; proposition 6.6 | `Core.V.Ref`, `Core.Apg.Arc`, `Core.SingleSet.Arc`, `Core.SingleSet.arc_target_label`, `Core.Apg.arc_target` | `V E (lbl l) = E l`; a reference carries the label its position's type names, the path of field names coming with the named layer | S |
+| Example 6.7 | `Examples.apg`, `Examples.apg_valid`, `Examples.a1_references_m1`, `Examples.misfiled_invalid`, `Examples.duplicated_invalid` | The kernel by `decide` | S |
+| Definitions 7.1, 7.3; proposition 7.2 | `Core.Hom`, `Core.Hom.id`, `Core.Hom.comp`, `Core.Hom.id_comp`, `Core.Hom.comp_id`, `Core.Hom.comp_assoc`, `Core.Iso` | Componentwise, from proposition 5.3 | S |
+| Proposition 8.1 | `Core.Coalg`, `Core.Coalg.Hom`, `Core.Apg.toCoalg`, `Core.Coalg.toApg`, `Core.Coalg.toApg_toCoalg`, `Core.Apg.toCoalg_toApg`, `Core.Hom.toCoalg`, `Core.Coalg.Hom.toApg`, `Core.Hom.toCoalg_toApg`, `Core.Coalg.Hom.toApg_toCoalg` | Unfolding | S |
+| Definitions 8.2, 8.3; proposition 8.4 | `Core.Model`, `Core.Model.ofApg`, `Core.Model.toApg`, `Core.Model.interp_eq_eval`, `Core.Model.toApg_ofApg`, `Core.Model.ofApg_toApg`, `Core.Tm.eval_hom`, `Core.Model.Hom.natural` | Generator form: uniqueness by induction on terms; homomorphisms commute with evaluation | M |
+| Definitions 8.5, 8.6; proposition 8.7 | `Core.Tm`, `Core.Tm.eval`, `Core.Tm.eval_terminates`, `Core.cyclicApg` | Structural recursion; the theorem records that `eval` is a total function with no `partial`, and a two-element cycle evaluates by `rfl` | M |
+| Definitions 9.1, 9.2 | `Core.Mapping`, `Core.Ty.subst`, `Core.iota`, `Core.iotaInv`, `Core.Mapping.delta`, `Core.Mapping.deltaHom` | `ι` by recursion on `t`, the identity at labels; `iota_map` its naturality | M |
+| Proposition 9.3 | `Core.Mapping.deltaHom_id`, `Core.Mapping.deltaHom_comp`, `Core.Mapping.id`, `Core.Mapping.delta_id`, `Core.Tm.along`, `Core.Tm.eval_along`, `Core.Mapping.comp`, `Core.Mapping.delta_comp` | Functor laws by proposition 5.3; composition by translating terms along a mapping, with `iota_comp` across `Ty.subst_subst` by heterogeneous equality | L |
+| Proposition 9.4 | `Core.V_enumerable`, `Core.Mapping.delta_finite` | Enumeration of `V E t` for list-free `t` with finite primitives (L7), a set by its sublists | M |
+| Proposition 9.5 | `Core.labelSum`, `Core.labelSumBij`, `Core.Mapping.delta_label_image`, `Core.Mapping.delta_one_origin` | A variant of labels is in bijection with the labels' elements, each tagged by its position | S |
+| Example 9.6 | `Examples.migration`, `Examples.migrated`, `Examples.migrated_memberships`, `Examples.m1_collection`, `Examples.m1_member`, `Examples.m1_role`, `Examples.a1_names_m1` | The kernel by `decide` and `rfl` | S |
+| Definition 12.1; proposition 12.2 | `Core.Ty.LabelFree`, `Core.V_labelFree`, `Core.V_labelFree_empty`, `Core.V.map_labelFree`, `Core.V.map_labelFree_self` | Induction on `t` | S |
+| Corollary 12.3 | `corollary_12_3` | Holds by L2 | S |
+| Definition 12.4 | `Core.Tm.map`, `Core.Tm.filter`, `Core.Tm.mapSet`, `Core.Tm.filterSet`, `Core.Tm.DerefFree`, `Core.Tm.eval_map_id`, `Core.Tm.eval_map_map`, `Core.Tm.eval_mapSet_id`, `Core.Tm.eval_mapSet_mapSet` | Through `Tm.subst`, with `eval_rename` and `eval_subst`; sets through `FinSet.map`'s laws | M |
+| Definitions 12.5, 12.6, 12.7 | `Named.roleLabelType`, `Named.symNav`, `Named.symNav_symm`, `Named.unnest`, `Named.unnest_origin` | Case analysis on a binary element's two participants; recursion over the elements | M |
+| Section 13; proposition 13.1 | `Catalog.Catalog`, `Catalog.Catalog.conc`, `Catalog.Catalog.schema`, `Catalog.Catalog.ranges`, `Catalog.inRanges_compress`, `Catalog.Catalog.inRanges_iff_isSub`, `Catalog.Catalog.is_iff_inRanges` | A tree of types; prefixes injective; ranges as the compression of the sorted prefix set | M |
+| Section 14.2 | `Catalog.injViolations`, `Catalog.violators`, `Catalog.cycleViolations`, `Catalog.keyViolations`, `Catalog.keyViolations_nil_iff`, `Catalog.uniqueViolations`, `Catalog.uniqueViolations_nil_iff`, `Catalog.nonEmptyViolations`, `Catalog.nonEmptyViolations_nil_iff`, `Catalog.setViolations`, `Catalog.setViolations_nil_iff`, `Catalog.roleLabelViolations`, `Catalog.roleLabelViolations_nil_iff`, `Catalog.participationViolations`, `Catalog.participationViolations_nil_iff`, `Catalog.checkViolations`, `Catalog.checkViolations_nil_iff`, `Catalog.acyclicViolations`, `Catalog.acyclicViolations_nil_iff`, `Catalog.maxDepthViolations`, `Catalog.maxDepthViolations_nil_iff`, `Catalog.noOverlapViolations`, `Catalog.noOverlapViolations_nil_iff`, `Catalog.limitViolations`, `Catalog.limitViolations_nil_iff`, `Catalog.limitGroupViolations`, `Catalog.limitGroupViolations_nil_iff` | Three generic queries, `injViolations`, `violators` and `cycleViolations`, each proved once; cycles by the pigeonhole over walks; `@limit`'s group selection as the conjuncts over participant types | M |
+| Section 14.3 | `Catalog.State`, `Catalog.State.LabelFixed`, `Catalog.State.FieldsFixed`, `Catalog.State.AppendOnly`, `Catalog.State.Bitemporal`, `Catalog.State.OnDeleteHolds`, `Catalog.State.OnRetractHolds`, `Catalog.State.RetractsHolds`, `Catalog.State.EndsHolds`, `Catalog.State.LiveParticipants` | Definitions, used by section 15 | S |
+| Section 15.1 | `Views.ident`, `History.Exclusive`, `History.naming_injective` | An IRI by the naming's injectivity; a triple's relation from its navigation name and its anchor's label, then `@set` per pair; a pair by its role label's exclusivity | M |
+| Proposition 15.1 | `History.union`, `History.union_closed` | Disjoint element sets; closure by construction | S |
+| Section 15.3; proposition 15.2 | `History.HState`, `History.Kinds`, `History.Live`, `History.Bel`, `History.LiveRead`, `History.BelRead`, `History.Inv`, `History.Step`, `History.Reachable`, `History.inv_step`, `History.inv_reachable`, `History.live_closed`, `History.believed_closed`, `History.liveRead_closed`, `History.belRead_closed`, `History.prop_15_2` | An invariant every step keeps, one lemma per step; closure of each slice from the invariant (L9) | L |
+| Definition 16.1 | `Migration.Closed`, `Migration.V.restrict`, `Migration.restrict_spec`, `Migration.select`, `Migration.select_incl`, `Migration.select_incl_injective`, `Migration.select_incl_preserves_names`, `Migration.select_undefined` | A kept value restricted to the kept elements, a set through its lists | S |
+| Definition 16.2 | `Migration.lookup`, `Migration.lookup_unique`, `Migration.lookup_none`, `Migration.keyViolations_sub` | From key exclusivity | S |
+| Definition 16.3 | `Migration.ExtMapping`, `Migration.ExtMapping.delta`, `Migration.toExt`, `Migration.toExt_delta` | A term reading its admitted source, a pure mapping's among them | M |
+| Proposition 16.4 | `Migration.fragment`, `Migration.fragment_label_origin`, `Migration.fragment_one_origin`, `Migration.fragment_undefined` | Definitions 16.1, 16.3, proposition 9.5 | M |
+| Definition 16.5 | `Migration.coprodSchema`, `Migration.coprod`, `Migration.inlMapping`, `Migration.inrMapping`, `Migration.coprod_inl`, `Migration.coprod_inr` | `Δ` along each injection back to its summand by `iota_iotaInv` | S |
+| Proposition 16.6 | `Migration.history_through_migration`, `Migration.map_injective`, `Migration.ref_map` | Propositions 15.2 and 16.4 and the permanence of key claims (`keyViolations_sub`) | M |
+| Definition 17.1; proposition 17.2 | `Views.templates`, `Views.Tmpl.inst`, `Views.rdf`, `Views.templates_mapRefs`, `Views.Tmpl.inst_mono`, `Views.rdf_monotone` | Each quad from one element's template, natural in its references, named by a naming monotone in its definedness | M |
+| Proposition 17.3 | `Views.rdfInv`, `Views.RoundTrip`, `Views.rdf_round_trip` | Attribution of each own predicate to its subject; label from the chain of type quads; each slot by inverting the check against its type; elements by IRI, triple or pair | L |
+| Corollary 17.4 | `Views.shacl_min_count`, `Views.shacl_max_count`, `Views.shacl_datatype`, `Views.shacl_in`, `Views.shacl_class`, `Views.shacl_class_edge` | From the shapes of an element's own quads that proposition 17.3's proof establishes (L10) | M |
+| Definition 18.1 | `Views.gql`, `Views.gqlOf`, `Views.gNodeTmpl`, `Views.gEdgeTmpls`, `Views.gType`, `Views.mgqlGraph`, `Views.mgqlType` | Templates as the RDF view's; MGQL's types as the projection (L11) | M |
+| Proposition 18.2 | `Views.NodeConforms`, `Views.EdgeConforms`, `Views.gql_conforms`, `Views.mgql_conforms` | Every node's and edge's label set and properties by construction; endpoints by field typing (`EdgeShape`) | L |
+| Proposition 18.3 | `Views.gql_monotone` | As 17.2 | S |
+| Proposition 18.4 | `Views.gql_of_rdf` | From proposition 17.3 | S |
+| Section 19 | `Oracle.Aviation.instances`, `Oracle.Gen5.instances`, `Oracle.exportView`, `Oracle.readNQuads`, `Oracle.Corpus.failures`, `Oracle.corpora` | Executable; not proofs | M |
 
 ## 7. Order
 
@@ -343,6 +345,16 @@ folder as its one argument, and L7c runs it into a scratch folder whose files Le
   section 9's finite-images rule excludes it (decided 2026-11-08);
 - example 9.6 is checked by the kernel, the identity term of `AssertedBy` type-checking against `Φ̂(σ'(AssertedBy))`
   as the specification states.
+
+**What L10 settled:**
+- `ApgModel/Theorems.lean` tables every definition, proposition, corollary and example of sections 2 to 19 against its
+  Lean names, each checked by the compiler, and records the comparison with `APG.v` and `caml.v`;
+- corollary 12.3 is `corollary_12_3`: values over types with collections stay functorial, and a label-free type's
+  values are the same over every family; the propositions it names are proved over the types with collections;
+- the audit covers every declaration of `ApgModel`, 1,974 theorems and 1,493 definitions: none rests on an axiom
+  beyond `propext`, `Quot.sound` and `Classical.choice`, no definition on `Classical.choice`, and none is declared;
+- `APG.v`'s initial APG and coproduct of two APGs on one schema (`apgInstInitial`, `apgHasCoProducts`) have no
+  statement in `SCHEMA-APG.md`, whose coproduct, definition 16.5, is of schemas.
 
 **What L9 settled:**
 - MGQL's property graphs carry `int`, `string` and `bool` properties, every one required, so `P(G)` itself, with optional

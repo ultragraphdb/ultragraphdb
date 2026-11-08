@@ -11,21 +11,26 @@ the architecture notes speak to it, and the stage-5 material it starts from. Tha
 moved verbatim from the change: the single-server draft as it stood, kept as a record of what was considered, not as a
 decision.
 
+Stage 5.5's change (`openspec/changes/stage-5-5-three-role-refactor`) specified and built items 2 (the client
+endpoint), 3 (authentication and principals, the principals in the metadata group), 4 (reads), 9 (the Rust client
+against the cluster) and 10 (identity and the metadata group), and the parts of items 1 and 11 its design gave it; the
+Shard-per-Core note's *What stage 5.5 built* names each with its crates and files. Items 1 and 11 hold what remains of
+theirs.
+
 ## Items
 
 ### 1. The roles and their process
 
-The three roles (frontend, compute, storage), each its own binary and OCI image under `ultragraphdb/`, built in
-stage 5.5 (Shard-per-Core note, P22); each role's threads and runtimes; the profiles (`dev`, `dev-ha`, `dev-net`, one
-role per process) and their configuration; the data layout per role and replica; start, readiness, the shutdown order;
-health and metrics; bounds; exit codes; the acceptance batteries against the built binary.
+The three roles, frontend, compute and storage, run as binaries with their images under `ultragraphdb/`, beside the
+supervisor and the config service, with the `dev` and `dev-net` profiles, start, readiness, the shutdown order,
+health, bounds, `sysexits` exit codes and acceptance batteries against the built binaries (stage 5.5; Shard-per-Core
+note, P22). What remains to specify: the `dev-ha` profile, whose groups of three replicas come with stage 8, the data
+layout per replica, metrics, and the operator requirements below.
 
 - Architecture: *Cluster architecture*, *Replication and runtime model*, *Node runtime and hardening*; the
   single-container note throughout.
 - Source material: the server-node requirements; *Threads and queues*, *Bounds*, *Configuration*, *The data directory
   and the cluster*, *Start and shutdown*, *Health*, *Tests*; tasks 10.5, 10.6, 10.7, 12.2 and 12.7.
-- Open: where the Welcome's `max_write_set` and `TxnLimits` take their bound from the log's round size once a role
-  builds the Welcome (`RoundBounds::max_write_set`, stage 5's commit step).
 - Decided 2026-11-01: the three roles are what "3 node clustering" means; the deployment targets are Kubernetes and
   Docker, bare metal later; CI builds, signs and publishes the OCI images with Bazel's `rules_img`, the server's glibc base built
   from Wolfi packages by `rules_apko` (D7).
@@ -48,27 +53,7 @@ health and metrics; bounds; exit codes; the acceptance batteries against the bui
   - the settings an operator tunes (epoch length bounds, round sizes, the MVCC retention window, escrow share sizes)
     listed apart from developer settings.
 
-### 10. Identity and the metadata group (stage 5.5)
-
-The system ID, type prefixes and the state machine that hands both out, decided on 2026-11-01
-(`openspec/notes/review-stages-5.5-and-6.md`, D1, D2, D4), to be written as a decision record and specified in stage
-5.5's change before anything builds on them.
-
-- The system ID is 128 bits: from the most significant bit, a 16-bit type prefix, a 64-bit sequence unique per type
-  and leased per (type, partition), a 24-bit bucket (8 bits from the tenant, 16 from the declaring type and key),
-  and 24 reserved bits (D1 as revised 2026-11-01; Shard-per-Core note, P7, P15, P16; field order by P24 rule 1,
-  2026-11-02). A bucket is a virtual partition the placement map assigns to
-  a replica group, so rebalancing never changes an ID.
-- Type prefixes are allocated in declaration order and never renumbered; a supertype covers its descendants' prefix
-  ranges.
-- The metadata group's state machine is built in stage 5.5 with one replica, holding catalog versions, ID ranges and
-  the placement map, catalog contents opaque to it; UGS builds on it in stage 6, and stage 8 replicates it.
-- What changes: the key encoding, the posting and packed-UID formats (new version bytes), the set operations, the term
-  dictionary's allocation (sequence blocks per (type, partition)), the wire protocol's internal term encodings, HNSW's node IDs;
-  the `uid-lists` and `key-encoding` specs stop matching Dgraph byte for byte, so their Go golden vectors are retired
-  or regenerated; the `catalog`, `schema-storage` and `schema-changes` specs move to the metadata group.
-
-### 11. Write-path throughput: one partition per core (stage 5.5)
+### 11. Write-path throughput: one partition per core (stage 8)
 
 A storage node gives its cores to partitions, each a shared-nothing replica group with its own log, commit step and
 buckets, after ScyllaDB's shard-per-core model and TigerBeetle's one core per replica (decided 2026-11-01). The
@@ -85,69 +70,19 @@ in stage 5.5, P22 gives each role its own binary and image, and P23 retires the 
   commit size.
 - On nodes of 48 cores and more, the disk's bandwidth and flush rate bind before the cores, then the network.
 - The server ships against glibc with mimalloc on a Wolfi glibc base that `rules_apko` builds from
-  `bazel/oci_images/glibc_base` (D7); its images need a seccomp profile allowing io_uring.
+  `bazel/oci_images/glibc_base` (D7); its images run under the seccomp profile in `bazel/oci_images/seccomp/`,
+  which allows io_uring.
 
-To specify, in order:
+Stage 5.5 built identity and placement (P1, P2, P7, P15, P16), the logical record with the log as the only synced
+stream (P9 as P18 revises it), the partition runtime with registration and referrer sets (P24) and `wal_bench`'s N
+partitions in one process (P5's first step). To specify for stage 8, in order:
 
-1. Identity: the 24-bit bucket and per-type sequences (P7), the bucket derived from a hash of the key (P1), buckets
-   assigned to partitions as ranges (P2), the placement map and preferred leaders in the metadata group (item 10, D4).
-2. The log: resolved quads as the record, fjall without its journal (P9), per-partition streams over a shared segment
-   per device with one flusher (P10).
-3. The writes that stay single-partition and those sequenced across partitions, the bulk loader, and cross-partition
-   work delivered as one batch per partition per epoch through a node's epoch agent (P3, P12).
-4. The node's runtime: partition cores and the reserve (P4), three replicas per core with leadership spread (P8),
+1. The log: per-partition streams over a shared segment per device with one flusher (P10).
+2. The writes sequenced across partitions, the bulk loader, and cross-partition work delivered as one batch per
+   partition per epoch through a node's epoch agent (P3, P12, P14).
+3. The node's runtime: partition cores and the reserve (P4), three replicas per core with leadership spread (P8),
    every replica applying on its core (P6), one LSM instance per core within a node budget (P11).
-5. `wal_bench` measuring partition cores in one process, then followers, then cross-partition commits (P5).
-
-### 2. The client endpoint
-
-The binary-protocol endpoint the frontend serves: a connection's requests turned into the operations of the groups they
-reach; request terms converted; result batches built; the error table; statement caches per connection.
-
-- Architecture: the frontend holds the binary-protocol endpoint, query planning, write classification and scheduling
-  (*Cluster architecture*); *Transport: one protocol, three carriers* (single-container note).
-- Source material: `ultragraphdb_server_session`'s rows and *Crates*; *Reads*' result batches; *The error table*;
-  tasks 10.1, 10.2 and 10.8; the nine `wire-protocol` scenarios that need a server answering requests. Their
-  requirements stay in stage 5's specs with their other scenarios, so the text of "Frames are validated before use and
-  never panic", "Frames are at most 1 MiB", "Data requests, prepared statements and describe", "Result batches are
-  columnar and dictionary-encoded", "Requests name terms by their text" and "Connections authenticate" is to be checked
-  against the endpoint when it is specified.
-
-### 9. The Rust client against the cluster
-
-What the client library offers once it speaks to frontends: session tokens and read-your-writes across groups, the
-query consistency levels, and its own flow control.
-
-- Architecture: commits return a session token (group, operation number, epoch); the per-request consistency flag
-  (*Snapshot timestamps: sequencer epochs*, *Query consistency levels*).
-- Source material: `ultragraphdb_client_core` and its shells as stage 5 built them; `notes/group-9b.md`, 9b.4's open
-  questions.
-- Open:
-  - Do the shells expose `grant`, so a caller controls a read's credit beyond `next_batch`'s automatic grants, and does
-    it take `NonZeroU32`, since a Credit of zero frames is refused on the wire (PROTOCOL.md §9.2)? Or does the core's
-    `grant` go, if no caller needs manual flow control?
-  - What does `close()` answer for a commit in flight: `ConnectionLost` when its frame was never sent on any connection,
-    and `InDoubt` whenever it was sent, at any attempt count? Does `RetriesExhausted` fold into `InDoubt`?
-
-### 3. Authentication and principals
-
-The authenticator over the principals' credentials, throttling, the audit events and their log; the first principal of
-a cluster and how it is created; where principal entries live and how they are replicated.
-
-- Architecture: *Security by tier*; the metadata group's responsibilities (*Metadata group*).
-- Source material: the requirement "The server authenticates its connections"; *Throttling and the audit*; *The data
-  directory and the cluster*'s bootstrap administrator; *Creating a principal*; tasks 10.0 (operation 8), 10.2 and
-  10.4; *The server*'s open questions on the bootstrap principal and throttling.
-- Open: is `Input::CreatePrincipal` through a storage group's commit step still the path, or do principals belong to
-  the metadata group?
-
-### 4. Reads
-
-Matching quad patterns in a transaction: access paths, resume keys, an unbound graph, statement IDs, the empty result.
-
-- Architecture: compute executes queries; storage runs narrow kernels near the data (*Cluster architecture*); stage 6's
-  query core.
-- Source material: the requirement "Reads match quad patterns in their transaction"; *Reads*; tasks 10.3 and 12.3.
+4. `wal_bench` measuring followers, then cross-partition commits (P5's second and third steps).
 
 ### 5. Transactions across replica groups
 
