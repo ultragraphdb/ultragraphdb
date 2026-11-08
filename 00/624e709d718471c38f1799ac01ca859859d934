@@ -1,0 +1,25 @@
+openspec/notes/backlog.md
+  s_d18ff34562952d::t_7fa52e8cd813e3 248-306
+specification/SCHEMA-APG.md
+  s_d18ff34562952d::t_4a0117663b5ef9 1-538
+specification/SCHEMA-EVOLUTION.md
+  s_d18ff34562952d::t_0d0aa7853a2b50 1-421
+specification/SCHEMA.md
+  s_d18ff34562952d::t_00ab8565c1234d 85-90,936-942,1424-1430,1499,1502-1508,1853-1854,1874-1878
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "00624e709d718471c38f1799ac01ca859859d934",
+  "prompts": {},
+  "sessions": {
+    "s_d18ff34562952d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b263ae46-8b16-46b4-81c5-522c712b251f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
