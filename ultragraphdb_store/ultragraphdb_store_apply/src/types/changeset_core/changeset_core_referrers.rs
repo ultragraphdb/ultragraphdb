@@ -31,8 +31,10 @@ where
 {
     /// Adds to each execution of `round` the referrer sets its round writes, at its commit version: a registration's
     /// member set as [`ReferrerSet::set`] sets it, and each of the home's own groups the set still lacks added at
-    /// generation 1, add-if-absent, so concurrent commits never conflict on a set. Each set is read once, at the
-    /// watermark under the apply lock the caller holds, and changed in round order on top.
+    /// generation 1, add-if-absent, so concurrent commits never conflict on a set. Each set is taken once, as the store
+    /// holds it at the watermark under the apply lock the caller holds, from memory when the rounds before left it there
+    /// and from the store otherwise, and changed in round order on top. Every set the round took, as the round leaves
+    /// it, for the caller to hold once the round's batch is written.
     ///
     /// # Errors
     ///
@@ -40,7 +42,7 @@ where
     pub(crate) fn derive_referrers(
         &self,
         round: &mut [(u64, Executed)],
-    ) -> Result<(), ChangesetError> {
+    ) -> Result<BTreeMap<(u64, SystemId), ReferrerSet>, ChangesetError> {
         let read_ts = self.quads.lists().applied_ts();
         let mut sets: BTreeMap<(u64, SystemId), ReferrerSet> = BTreeMap::new();
         let mut changed: Vec<SystemId> = Vec::new();
@@ -77,10 +79,11 @@ where
                 executed.writes.add_entry(Entry::put(key, 0, 0, value));
             }
         }
-        Ok(())
+        Ok(sets)
     }
 
-    /// The referrer set of `entity` in `tenant` as the round has left it so far: read at `read_ts` the first time.
+    /// The referrer set of `entity` in `tenant` as the round has left it so far: the first time, the set held in memory,
+    /// else read at `read_ts`.
     fn held_set<'s>(
         &self,
         sets: &'s mut BTreeMap<(u64, SystemId), ReferrerSet>,
@@ -90,9 +93,10 @@ where
     ) -> Result<&'s mut ReferrerSet, ChangesetError> {
         Ok(match sets.entry((tenant, entity)) {
             MapEntry::Occupied(held) => held.into_mut(),
-            MapEntry::Vacant(vacant) => {
-                vacant.insert(self.quads.referrers(tenant, entity, read_ts)?)
-            }
+            MapEntry::Vacant(vacant) => match self.quads.held_referrers(tenant, entity) {
+                Some(held) => vacant.insert(held),
+                None => vacant.insert(self.quads.referrers(tenant, entity, read_ts)?),
+            },
         })
     }
 }

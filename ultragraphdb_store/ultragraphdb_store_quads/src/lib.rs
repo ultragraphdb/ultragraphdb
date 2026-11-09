@@ -32,6 +32,7 @@ pub use crate::types::page_walk::PageWalk;
 pub use crate::types::property_shape::PropertyShape;
 pub use crate::types::quad_store::{PENDING_MAX, QuadStore, SKOLEM_DRAWS_MAX};
 pub use crate::types::quad_write::{QuadWrite, STATEMENTS_PER_OBJECT_MAX};
+pub use crate::types::referrer_cache::{REFERRER_CACHE_BYTES, ReferrerCache};
 pub use crate::types::referrer_member::ReferrerMember;
 pub use crate::types::referrer_set::{ReferrerSet, Registered};
 pub use crate::types::sequences::Sequences;

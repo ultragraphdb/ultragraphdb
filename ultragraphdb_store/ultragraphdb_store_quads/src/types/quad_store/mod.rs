@@ -6,6 +6,8 @@
 mod quad_store_partition;
 mod quad_store_read;
 
+use std::sync::Mutex;
+
 use ultragraphdb_core_mapping::{CONTRACT_VERSION, ContractVersion, MappingError, RandomSource};
 use ultragraphdb_store_posting::{Batch, CachedList, Lists};
 use ultragraphdb_traits_blocks::BlockSource;
@@ -15,6 +17,7 @@ use xxhash_rust::xxh3::xxh3_64;
 use crate::errors::quad_error::QuadError;
 use crate::types::dictionary::Dictionary;
 use crate::types::owned_buckets::OwnedBuckets;
+use crate::types::referrer_cache::{REFERRER_CACHE_BYTES, ReferrerCache};
 use crate::types::write_terms::WriteTerms;
 use crate::utils::dictionary_keys::CONTRACT_KEY;
 
@@ -27,13 +30,15 @@ pub const SKOLEM_DRAWS_MAX: usize = 4;
 
 /// The quads of a store: its posting lists, the term dictionary in its keyspace without versions with the IDs created
 /// and not yet committed, the block source its sequences are leased from, the random source its names are drawn from,
-/// and the fingerprint its literal postings are ordered by. A write is a [`crate::QuadWrite`] over a request of the
-/// lists; its commit writes the dictionary entries of the terms it names that the store does not hold yet.
+/// the fingerprint its literal postings are ordered by, and the referrer sets its rounds left ([`ReferrerCache`]). A
+/// write is a [`crate::QuadWrite`] over a request of the lists; its commit writes the dictionary entries of the terms it
+/// names that the store does not hold yet.
 #[derive(Debug)]
 pub struct QuadStore<S, C, B> {
     lists: Lists<S, C>,
     dictionary: Dictionary<B>,
     fingerprint: fn(&[u8]) -> u64,
+    referrers: Mutex<ReferrerCache>,
 }
 
 impl<S, C, B> QuadStore<S, C, B>
@@ -71,6 +76,7 @@ where
             lists,
             dictionary: Dictionary::new(blocks, random, PENDING_MAX),
             fingerprint: xxh3_64,
+            referrers: Mutex::new(ReferrerCache::new(REFERRER_CACHE_BYTES)),
         })
     }
 
@@ -88,6 +94,12 @@ where
     /// The store holding at most `max` IDs created and not yet committed.
     pub fn with_pending_max(mut self, max: usize) -> Self {
         self.dictionary = self.dictionary.with_pending_max(max);
+        self
+    }
+
+    /// The store holding at most `bytes` of referrer sets in memory.
+    pub fn with_referrer_budget(mut self, bytes: usize) -> Self {
+        self.referrers = Mutex::new(ReferrerCache::new(bytes));
         self
     }
 

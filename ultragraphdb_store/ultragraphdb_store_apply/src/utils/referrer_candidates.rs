@@ -17,10 +17,11 @@ use crate::errors::changeset_error::ChangesetError;
 
 /// The home's own groups `writes` references entities from, as its round adds them (partitions, "The home adds its own
 /// group without a registration"): for each edge a forward delta of `tenant` sets, its subject's bucket group with
-/// its object, an IRI or blank node of a bucket `quads` owns, unless the object's referrer set at `read_ts` names the
-/// group already. Referrer sets only grow, so a group named at the read is named at the commit; one the read lacked is
-/// checked again when the round applies. An object `terms` created has no referrer set to read. In `(entity, group)`
-/// order, each once; derived from the writes alone, so a replay derives the same.
+/// its object, an IRI or blank node of a bucket `quads` owns, unless the object's referrer set names the group already:
+/// the set the rounds left in memory, or else the set at `read_ts`. Referrer sets only grow, so a group named at the
+/// read, or by a later round, is named at the commit; one the read lacked is checked again when the round applies. An
+/// object `terms` created has no referrer set to read. In `(entity, group)` order, each once; derived from the writes
+/// alone, so a replay derives the same.
 ///
 /// # Errors
 ///
@@ -59,10 +60,13 @@ where
                 continue;
             }
             let named = !terms.is_fresh(object)
-                && quads
-                    .referrers(tenant, object, read_ts)?
-                    .member(group)
-                    .is_some();
+                && match quads.held_names(tenant, object, group) {
+                    Some(named) => named,
+                    None => quads
+                        .referrers(tenant, object, read_ts)?
+                        .member(group)
+                        .is_some(),
+                };
             if !named {
                 candidates.push((object, group));
             }

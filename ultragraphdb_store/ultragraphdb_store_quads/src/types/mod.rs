@@ -16,6 +16,7 @@ pub mod page_walk;
 pub mod property_shape;
 pub mod quad_store;
 pub mod quad_write;
+pub mod referrer_cache;
 pub mod referrer_member;
 pub mod referrer_set;
 pub mod sequences;

@@ -25,6 +25,7 @@ use crate::types::page_end::PageEnd;
 use crate::types::page_walk::PageWalk;
 use crate::types::quad_store::QuadStore;
 use crate::types::referrer_set::ReferrerSet;
+use crate::utils::lock::lock;
 use crate::utils::postings::{list_holds, object_identity};
 
 /// The reads a partition answers beside its quad reads (partitions, quad-reads): referrer sets and marks, its own
@@ -52,6 +53,29 @@ where
             Some(item) => ReferrerSet::decode(&key, item.value()),
             None => Ok(ReferrerSet::new()),
         }
+    }
+
+    /// Whether the referrer set of `entity` in `tenant` the rounds left names `group`; `None` when it is not held in
+    /// memory. A held set is the stored one at the applied watermark, so it names every group a read at an earlier
+    /// version names: sets only grow in this stage.
+    pub fn held_names(&self, tenant: u64, entity: SystemId, group: BucketGroup) -> Option<bool> {
+        lock(&self.referrers).names(tenant, entity, group)
+    }
+
+    /// The referrer set of `entity` in `tenant` the rounds left, if it is held in memory.
+    pub fn held_referrers(&self, tenant: u64, entity: SystemId) -> Option<ReferrerSet> {
+        lock(&self.referrers).get(tenant, entity)
+    }
+
+    /// Holds `set` as the referrer set of `entity` in `tenant`. Only a round's apply holds a set, once its batch is
+    /// written, so a held set is the stored one.
+    pub fn hold_referrers(&self, tenant: u64, entity: SystemId, set: ReferrerSet) {
+        lock(&self.referrers).put(tenant, entity, set);
+    }
+
+    /// Forgets every referrer set of `tenant` held in memory, as a drop of its data removes them from the store.
+    pub fn forget_referrers(&self, tenant: u64) {
+        lock(&self.referrers).forget(tenant);
     }
 
     /// The generation of the mark of `(entity, group)` in `tenant` as of `version`, the partition's record of its

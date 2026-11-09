@@ -140,12 +140,12 @@ ceiling (design D13). The rule is evidence (owner, 2026-11-09): an improvement w
 outside the runs' spread, is kept and finished in turn, its tests, spec deltas and documentation with it; one that does not is
 taken out again, and its figures are recorded with the reason.
 
-- [ ] 7.1 The baseline split: `perf` with symbols (`wal_bench_profile`, `ultragraphdb_storage_profile`) of the commit thread, in
+- [x] 7.1 The baseline split: `perf` with symbols (`wal_bench_profile`, `ultragraphdb_storage_profile`) of the commit thread, in
   process at 1 and 12 partitions and through the binaries at 16 connections, its time divided among execution, validation of the
   read sets (what strict serializability costs), the commit step's decision, the log's write and sync, apply and allocation, at 1,
   10 and 50 relations per commit; the core's per-relation time through the binaries (X1: about 63 µs) set against the in-process
   20–25 µs, the difference explained
-- [ ] 7.2 Referrer reads off the write path: `referrer_candidates` (`ultragraphdb_store_apply`) no longer reads a hub's referrer set
+- [x] 7.2 Referrer reads off the write path: `referrer_candidates` (`ultragraphdb_store_apply`) no longer reads a hub's referrer set
   from the store on each commit, by caching it within the partition or by skipping the read for a bucket group the round already
   names, whichever keeps "A commit under a registration reply reads its mark" and the referrer sets' completeness (`partitions`);
   tests first; measured in process at 1 and 12 partitions over 3 s and 30 s runs (the decay from 35,984 to 14,202 relations a

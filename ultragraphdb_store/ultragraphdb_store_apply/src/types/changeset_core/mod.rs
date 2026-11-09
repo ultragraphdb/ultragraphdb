@@ -267,7 +267,7 @@ where
             self.quads.lists().commit_round_with(&[], system, through)?;
             return Ok((Vec::new(), None));
         };
-        self.derive_referrers(&mut round)?;
+        let referrers = self.derive_referrers(&mut round)?;
         let record = self.record_round(first, &mut round)?;
         if let Some(r) = &running {
             for (_, executed) in &mut round {
@@ -297,6 +297,10 @@ where
             self.quads
                 .lists()
                 .commit_round_with(&writes, system, through)?;
+        }
+        // The batch is written: the sets it holds are the stored ones, and a drop below forgets its tenant's.
+        for ((tenant, entity), set) in referrers {
+            self.quads.hold_referrers(tenant, entity, set);
         }
         let (removals, started, applied) = self.settle_round(round)?;
         self.drop_removed(&removals)?;

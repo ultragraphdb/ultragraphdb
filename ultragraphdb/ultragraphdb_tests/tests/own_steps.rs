@@ -691,9 +691,11 @@ fn hung_compute(w: &mut Steps) -> TestResult {
     cluster(w)?.signal("compute", Signal::Stop)?;
     let (refused, waited) = run(async {
         let begin = Begin::new(TENANT, 0, true).with_deadline_ms(50);
+        // The deadline counts from the frontend's Begin, so the clock starts before the Begin is sent: started later, it
+        // misses the Begin's way back and reads a prompt timer as early.
+        let started = clock();
         let reader = held.begin_with(begin, None).await?;
         let pattern = Pattern::of(Some(&a), Some(&p));
-        let started = clock();
         let stream = held
             .read(&reader, &pattern.read(&reader, 0, Vec::new())?)
             .await?;

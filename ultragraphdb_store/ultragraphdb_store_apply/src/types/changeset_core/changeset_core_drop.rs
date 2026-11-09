@@ -316,6 +316,7 @@ where
     fn drop_data_of(&self, tenant: u64, at: Option<u64>) -> Result<u64, ChangesetError> {
         let cancelled = self.cancel(|r| r.tenant == tenant);
         let ts = self.drop_prefixes(&tenant_prefixes(tenant), Vec::new(), at)?;
+        self.quads.forget_referrers(tenant);
         if let Some(r) = cancelled {
             self.set_catalog(tenant, |catalog| {
                 catalog.declare_predicate(r.predicate, r.new)?;
@@ -339,6 +340,7 @@ where
         let _cancelled: Option<Rebuild> = self.cancel(|r| r.tenant == tenant);
         let initial = self.initial_catalog(tenant)?;
         let ts = self.drop_prefixes(&tenant_prefixes(tenant), Vec::new(), at)?;
+        self.quads.forget_referrers(tenant);
         let _dropped: Option<Arc<Catalog>> = lock(&self.catalogs).insert(tenant, Arc::new(initial));
         Ok(ts)
     }

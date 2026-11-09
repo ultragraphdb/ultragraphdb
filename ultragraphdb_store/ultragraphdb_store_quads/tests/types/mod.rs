@@ -26,6 +26,8 @@ mod quad_store_tests;
 #[cfg(test)]
 mod quad_write_tests;
 #[cfg(test)]
+mod referrer_cache_tests;
+#[cfg(test)]
 mod referrer_member_tests;
 #[cfg(test)]
 mod referrer_set;

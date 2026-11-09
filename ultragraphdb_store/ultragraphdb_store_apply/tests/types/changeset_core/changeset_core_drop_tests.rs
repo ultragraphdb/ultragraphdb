@@ -726,6 +726,30 @@ fn test_dropping_a_tenant_or_its_data_drops_its_marks_and_referrer_sets() -> Tes
 }
 
 #[test]
+fn test_dropping_a_tenant_or_its_data_forgets_its_referrer_sets_held_in_memory() -> TestResult {
+    let data = registered()?;
+    let data_hub = uid(&data, "hub")?;
+    assert!(data.quads().held_referrers(TENANT, data_hub).is_some());
+    let _data_dropped_at: u64 = data.drop_data(TENANT)?;
+    assert!(data.quads().held_referrers(TENANT, data_hub).is_none());
+    let tenant = registered()?;
+    let tenant_hub = uid(&tenant, "hub")?;
+    let _tenant_dropped_at: u64 = tenant.drop_tenant(TENANT)?;
+    assert!(tenant.quads().held_referrers(TENANT, tenant_hub).is_none());
+    Ok(())
+}
+
+#[test]
+fn test_an_edge_after_a_data_drop_writes_its_objects_referrer_set_again() -> TestResult {
+    let a = registered()?;
+    let _dropped_at: u64 = a.drop_data(TENANT)?;
+    assert!(held_in(&a, Keyspace::Referrers).is_empty());
+    write(&a, &["<s> <knows> <hub>"])?;
+    assert_eq!(held_in(&a, Keyspace::Referrers).len(), 1);
+    Ok(())
+}
+
+#[test]
 fn test_dropping_a_graph_keeps_the_marks_and_referrer_sets_which_name_none() -> TestResult {
     let a = registered()?;
     let _dropped_at: u64 = a.drop_graph(TENANT, GraphNameRef::DefaultGraph)?;

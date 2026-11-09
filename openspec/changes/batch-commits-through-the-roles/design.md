@@ -263,6 +263,11 @@ spread keeps and finishes it, in turn; anything else takes it out again, with it
 graph storage engine: KV stores suit a graph's adjacency poorly, and building on one served the architecture until now
 (owner, 2026-11-09).
 
+The referrer reads (7.2) are taken off the store by a cache in each partition's `QuadStore` (owner, 2026-11-09): the referrer sets
+the rounds left, as the store holds them, within 16 MiB a partition, a share of the node's budget for the store (Shard-per-Core,
+P11). Only a round's apply puts a set, once its batch is written, and a drop of a tenant or its data forgets the tenant's, so a held
+set is the stored one; an execution's candidates and an apply's sets start from it.
+
 ### D14. The frontend serves clients on every core (owner's decision, 2026-11-09)
 
 Group 6 found the frontend's one endpoint runtime the cluster's ceiling: 98.8% of a core relaying every client's frames, about

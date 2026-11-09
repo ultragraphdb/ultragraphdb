@@ -183,6 +183,12 @@ impl Executed {
         &self.writes
     }
 
+    /// The home's own groups its edges reference its entities from that their referrer sets did not name when it ran, in
+    /// `(entity, group)` order: what its round adds to them.
+    pub fn referrers(&self) -> &[(SystemId, BucketGroup)] {
+        &self.referrers
+    }
+
     /// The terms it resolved: the IRIs it created or took from a concurrent creator, with their IDs, and those it found.
     pub fn terms(&self) -> &WriteTerms {
         &self.terms
