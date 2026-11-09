@@ -1,0 +1,93 @@
+openspec/changes/stage-6-ugs-data-definition/proposal.md
+  s_5324d89b15f048::t_108cb0e77d8c92 1-122,125-126
+  s_5324d89b15f048::t_b272caceb8afab 123-124
+  s_5324d89b15f048::t_5d4359ed0166fa 127-132
+openspec/changes/stage-6-ugs-data-definition/specs/ugs-identity/spec.md
+  s_5324d89b15f048::t_083b2debdadbdb 1-160
+  s_5324d89b15f048::t_45cc38e0910543 161-165
+openspec/changes/stage-6-ugs-data-definition/specs/ugs-enforcement/spec.md
+  s_5324d89b15f048::t_1bdf32c8f6b2d8 1-446
+  s_5324d89b15f048::t_02f1ce8c558381 447-465
+openspec/changes/stage-6-ugs-data-definition/tasks.md
+  s_5324d89b15f048::t_f4dd775cd29618 1-21,33-36,38-40,42-47,49-54,57-62,64-69,71,73,75-81,83-90,94-110,113-114,116-118,122-126,129-133,139-148
+  s_5324d89b15f048::t_d6d3fc612e66f6 22-32,37,41,48,55-56,63,70,72,74,82,91-93,111-112,115,119-121,127-128,134-138
+openspec/changes/stage-6-ugs-data-definition/specs/ugs-catalog/spec.md
+  s_5324d89b15f048::t_ed34465623c1d3 1-178
+  s_5324d89b15f048::t_233994816b5417 179-208
+openspec/changes/stage-6-ugs-data-definition/specs/uql-crud/spec.md
+  s_5324d89b15f048::t_c89db5d7402e93 1-216
+  s_5324d89b15f048::t_7a510451d85b25 217-226
+openspec/changes/stage-6-ugs-data-definition/notes/specification-gaps.md
+  s_5324d89b15f048::t_77ee619f0b76fe 1-185
+  s_5324d89b15f048::t_7e1d99b6a8ae73 186-213
+openspec/changes/stage-6-ugs-data-definition/design.md
+  s_5324d89b15f048::t_492a010ca21404 6-7,13,15-17,19,38-39,45,58-75,81,110-111,124,129-140,144,147-148,152-153,156-161,167,172-174,177-181,187,189-191,199,226-234,241,247-248,254-256,266-269
+  s_5324d89b15f048::t_3808a528c371b5 1-5,8-12,14,18,20-37,40-44,46-57,76-80,82-90,92-109,112-123,125-128,141-143,145-146,149-151,154-155,162-166,168-171,175-176,182-186,188,192-198,200-224,236-240,242-246,249-253,257-265
+  s_5324d89b15f048::t_e5df2a047124ad 91,225,235
+openspec/changes/stage-6-ugs-data-definition/specs/ugs-semantics/spec.md
+  s_5324d89b15f048::t_45cd929d5c3d15 1-236
+openspec/changes/stage-6-ugs-data-definition/specs/ugs-syntax/spec.md
+  s_5324d89b15f048::t_36d64cad5cf239 1-190
+openspec/changes/stage-6-ugs-data-definition/specs/ugs-views/spec.md
+  s_5324d89b15f048::t_dd7cb33ab1d42d 1-123
+  s_5324d89b15f048::t_a23f654cf4a265 124-128
+specification/schema/SCHEMA.md
+  s_5324d89b15f048::t_09cad3ba38826a 1945
+  s_5324d89b15f048::t_0c2d42a5ef1f18 1113
+  s_5324d89b15f048::t_8f60aaf0bac5cc 1125
+  s_5324d89b15f048::t_2473027aa6db6a 1011-1014
+  s_5324d89b15f048::t_0e606cd3212c9b 956
+  s_5324d89b15f048::t_8f320e4d0d7073 466,509-512,873-880,921-922,932,945,966,1068-1069,1129,1136,1240-1245,1253-1260,1460,1482,1569-1572,1609,1623-1628,1646,1697,1700,1704,1718-1725,1743,1946-1952
+openspec/notes/backlog.md
+  s_5324d89b15f048::t_ec1539b40665cf 133-154
+ROADMAP.md
+  s_5324d89b15f048::t_fba723a822690c 62-64
+lean/schema/ApgModel/Catalog/Constraints.lean
+  s_5324d89b15f048::t_eda765caa7ce37 637-639
+openspec/changes/stage-6-ugs-data-definition/.openspec.yaml
+  s_5324d89b15f048::t_61f018b6e7a314 1-2
+openspec/changes/stage-6-ugs-data-definition/specs/catalog/spec.md
+  s_5324d89b15f048::t_e0d4f26ee5151c 1-46
+openspec/changes/stage-6-ugs-data-definition/specs/client-endpoint/spec.md
+  s_5324d89b15f048::t_18856308204224 1-94
+openspec/changes/stage-6-ugs-data-definition/specs/mapping-contract/spec.md
+  s_5324d89b15f048::t_af7878bdd1fbc2 1-27
+openspec/changes/stage-6-ugs-data-definition/specs/metadata-group/spec.md
+  s_5324d89b15f048::t_a96a220782f35d 1-86
+openspec/changes/stage-6-ugs-data-definition/specs/scalar-types/spec.md
+  s_5324d89b15f048::t_9f6cfefe1483ff 1-22
+openspec/changes/stage-6-ugs-data-definition/specs/schema-changes/spec.md
+  s_5324d89b15f048::t_a82cb7a875d91e 1-71
+openspec/changes/stage-6-ugs-data-definition/specs/schema-storage/spec.md
+  s_5324d89b15f048::t_a06277e5407fff 1-39
+openspec/changes/stage-6-ugs-data-definition/specs/system-identity/spec.md
+  s_5324d89b15f048::t_c36eba84579da6 1-39
+openspec/changes/stage-6-ugs-data-definition/specs/term-dictionary/spec.md
+  s_5324d89b15f048::t_fb34fe8c4b3470 1-69
+openspec/changes/stage-6-ugs-data-definition/specs/tokenizers/spec.md
+  s_5324d89b15f048::t_34ee3bb9d48213 1-16
+openspec/changes/stage-6-ugs-data-definition/specs/wire-protocol/spec.md
+  s_5324d89b15f048::t_9123787bb71376 1-117
+specification/binary_protocol/PROTOCOL.md
+  s_5324d89b15f048::t_d5d1449c6fb7be 366,415,449,663-664,714-719,755-758,780-782,853,870-871,883-898,906-907,914,921,946,956,960,1054,1140-1154,1187-1191,1302,1427,1429,1439-1440,1739-1744,1886,1889-1891,2197,2253,2400-2401,2404-2413,2476-2477,2483-2484,2619-2620,2627-2630,3296,3313-3314,3317,3328-3330
+specification/query/QUERY-ULTRA-QL.md
+  s_5324d89b15f048::t_0edae5c1ec4d75 3-4,178-216,304,648-649,685,817-818,843-844
+specification/schema/SCHEMA-APG.md
+  s_5324d89b15f048::t_459bb92b6d8ea3 743,762
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "baa9317cb39384fdfeeae3b00c32a2749bb0da68",
+  "prompts": {},
+  "sessions": {
+    "s_5324d89b15f048": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2aa695ce-da84-4dca-beca-de0ac5ea4532",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
