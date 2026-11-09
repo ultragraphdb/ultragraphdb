@@ -4,35 +4,29 @@
  */
 
 use futures::channel::mpsc::UnboundedSender;
-use futures::channel::oneshot;
-use ultragraphdb_common_role::{Answer, ParkedBytes};
+use ultragraphdb_common_role::Push;
 use ultragraphdb_core_catalog::CatalogContents;
-use ultragraphdb_protocol_transport::ReceivedFrame;
 
-/// Where a connection's unasked frames go: each frame and its stream.
-pub type Pushes = UnboundedSender<(u64, Vec<u8>)>;
+use crate::types::parked_frame::ParkedFrame;
+
+/// Where every answer of a connection's requests goes, in the order the core gives them: each frame, or a stream's end with no
+/// frame, and its stream. Its length is bounded by the connection: one push for each request it holds handed on, as
+/// `storage.held_bytes` bounds them, and one for each stream it holds open.
+pub type Pushes = UnboundedSender<(u64, Push)>;
 
 /// What a connection hands its core's task.
 #[derive(Debug)]
 pub enum CoreMessage {
-    /// A connection opened, ahead of its first request: what it counts its parked frames in (`PROTOCOL.md` §11.12).
-    Opened {
-        /// The connection.
-        connection: u64,
-        /// Where its parked frames are counted.
-        parked: ParkedBytes,
-    },
-    /// A request of `connection` on `stream`, its frame whole, answered on `done`.
+    /// A request of `connection` on `stream`, its frame copied out of the connection's receive buffer and counted among what the
+    /// connection holds until the core drops it (`PROTOCOL.md` §11.12, *Parked requests*), answered through `pushes`.
     Request {
         /// The connection.
         connection: u64,
         /// The request's stream.
         stream: u64,
-        /// The request's frame.
-        frame: ReceivedFrame,
-        /// Where its answer goes.
-        done: oneshot::Sender<Answer>,
-        /// Where the frames answering it later go.
+        /// The request's frame, its order on the connection checked.
+        frame: ParkedFrame,
+        /// Where its answer goes, and every frame answering it later.
         pushes: Pushes,
         /// The largest frame the connection's peer takes.
         max_frame: u32,

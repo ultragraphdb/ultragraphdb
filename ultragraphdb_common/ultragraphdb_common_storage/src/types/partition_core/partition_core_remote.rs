@@ -11,7 +11,7 @@ use ultragraphdb_cluster_partition::{
     RemoteMessage,
 };
 use ultragraphdb_cluster_placement::PartitionId;
-use ultragraphdb_common_role::{Answer, RoleClient};
+use ultragraphdb_common_role::{Answer, Push, RoleClient};
 use ultragraphdb_common_service::InboxTurn;
 use ultragraphdb_core_ids::Epoch;
 use ultragraphdb_protocol_transport::{Address, TransportError};
@@ -24,12 +24,13 @@ use crate::types::core_message::Pushes;
 use crate::types::partition_core::partition_core_frames::last;
 use crate::types::partition_core::{HomeAsking, PartitionCore, Peers, REMOTE_PER_TURN_MAX};
 use crate::utils::error_reply::registration_outcome;
+use ultragraphdb_transactions_log::DurableStorage;
 
 /// Outcomes a home's reply names (`PROTOCOL.md` §13.15).
 const OUTCOME_REFUSED: u16 = 7;
 const OUTCOME_WRONG_PARTITION: u16 = 26;
 
-impl PartitionCore<'_> {
+impl<S: DurableStorage> PartitionCore<'_, S> {
     /// What the partition sent beyond its process: registrations go out on their own tasks, a home's answers to the
     /// Reference that asked.
     pub(super) fn take_remote(&mut self) {
@@ -153,7 +154,10 @@ impl PartitionCore<'_> {
             .frame(last(self.cluster, done.stream, Command::Reference))
         {
             // A connection gone asks again; a registration is idempotent.
-            Ok(frame) => drop(done.pushes.unbounded_send((done.stream, frame))),
+            Ok(frame) => drop(
+                done.pushes
+                    .unbounded_send((done.stream, Push::Frame(frame))),
+            ),
             Err(error) => tracing::error!(%error, "a Reference's reply could not be framed"),
         }
     }

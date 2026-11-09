@@ -8,12 +8,10 @@
 
 use std::time::Duration;
 
-use futures::StreamExt;
-use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
-use futures::channel::oneshot;
-use ultragraphdb_common_role::{Answer, ParkedBytes, RoleClient};
+use futures::channel::mpsc::UnboundedSender;
+use ultragraphdb_common_role::{Answer, RoleClient};
 use ultragraphdb_common_storage::CoreMessage;
-use ultragraphdb_protocol_transport::{BufferPool, FrameStep, Framer, ReceivedFrame};
+use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, Command, CommitView, Credit, DirectWrite, EntriesSequence, ErrorCode,
     ErrorReplyView, FLAG_LAST, FrameView, Header, MAX_FRAME_SIZE, OperationResult, Scan, ScanAt,
@@ -22,6 +20,7 @@ use ultragraphdb_protocol_wire::{
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::types::partition_core::core_rig::{CLUSTER, DUE, PARTITION, PRINCIPAL};
+use crate::types::partition_core::played_answers::{Played, Sent};
 
 /// The next frame `client` reads, within [`DUE`].
 pub(crate) async fn next_frame(client: &mut RoleClient) -> TestResult<ReceivedFrame> {
@@ -180,94 +179,60 @@ pub(crate) fn limited(
 pub(crate) struct Direct {
     connection: u64,
     inbox: UnboundedSender<CoreMessage>,
-    framer: Framer,
-    pool: BufferPool,
     sequence: u128,
-    pushes: UnboundedSender<(u64, Vec<u8>)>,
-    pushed: UnboundedReceiver<(u64, Vec<u8>)>,
-    max_frame: u32,
+    played: Played,
 }
 
 impl Direct {
-    /// Connection `connection` to the core whose inbox is `inbox`, announced as a session announces itself, its peer taking frames
-    /// of at most `max_frame` bytes: a test of a frame's bounds takes small ones, so that little data takes many frames.
+    /// Connection `connection` to the core whose inbox is `inbox`, its peer taking frames of at most `max_frame` bytes: a test of
+    /// a frame's bounds takes small ones, so that little data takes many frames.
     pub(crate) fn open(
         inbox: &UnboundedSender<CoreMessage>,
         connection: u64,
         max_frame: u32,
     ) -> TestResult<Self> {
-        inbox.unbounded_send(CoreMessage::Opened {
-            connection,
-            parked: ParkedBytes::new(1 << 20),
-        })?;
-        let (pushes, pushed) = unbounded();
         Ok(Self {
             connection,
             inbox: inbox.clone(),
-            framer: Framer::from_client(CLUSTER, MAX_FRAME_SIZE),
-            pool: BufferPool::new(4, MAX_FRAME_SIZE),
             sequence: 0,
-            pushes,
-            pushed,
-            max_frame,
+            played: Played::new(1 << 20, max_frame),
         })
     }
 
-    /// Hands `body` to the core on `stream` and waits for its answer, within [`DUE`].
+    /// Hands `body` to the core on `stream` and reads the answer it gave on taking it, within [`DUE`].
     pub(crate) async fn request<B: BodyBuilder>(
         &mut self,
         stream: u64,
         body: &B,
     ) -> TestResult<Answer> {
-        let answer = self.send(stream, body)?;
-        Ok(compio::time::timeout(DUE, answer)
-            .await
-            .context("an answer within its time")??)
+        let sent = self.send(stream, body)?;
+        self.played.answer(sent).await
     }
 
-    /// Hands `body` to the core on `stream` and goes on at once: where its answer comes.
-    pub(crate) fn send<B: BodyBuilder>(
-        &mut self,
-        stream: u64,
-        body: &B,
-    ) -> TestResult<oneshot::Receiver<Answer>> {
+    /// Hands `body` to the core on `stream` and goes on at once: where its answer will be found.
+    pub(crate) fn send<B: BodyBuilder>(&mut self, stream: u64, body: &B) -> TestResult<Sent> {
         self.sequence += 1;
         let header = Header::new(CLUSTER, B::COMMAND)
             .with_sequence(self.sequence)
             .with_stream(stream);
-        let mut buffer = self.pool.acquire()?;
-        buffer.restore(body.frame(header)?);
-        while let FrameStep::Read(_) = self.framer.advance(&buffer)? {}
-        let frame = self.framer.finish(buffer);
-        let (done, answer) = oneshot::channel();
-        self.inbox.unbounded_send(CoreMessage::Request {
-            connection: self.connection,
-            stream,
-            frame,
-            done,
-            pushes: self.pushes.clone(),
-            max_frame: self.max_frame,
-        })?;
-        Ok(answer)
+        let frame = body.frame(header)?;
+        self.played
+            .hand(&self.inbox, self.connection, stream, &frame)
+    }
+
+    /// The answer the core gave `sent` on taking it.
+    pub(crate) async fn answered(&self, sent: Sent) -> TestResult<Answer> {
+        self.played.answer(sent).await
     }
 
     /// The next frame the core pushes, and its stream, within [`DUE`].
     pub(crate) async fn pushed(&mut self) -> TestResult<(u64, Vec<u8>)> {
-        compio::time::timeout(DUE, self.pushed.next())
-            .await
-            .context("a pushed frame within its time")?
-            .context("the core holds the connection's pushes")
+        self.played.frame("a pushed frame").await
     }
 
     /// Fails should the core push anything within `quiet`.
     pub(crate) async fn nothing_for(&mut self, quiet: Duration) -> TestResult {
-        match compio::time::timeout(quiet, self.pushed.next()).await {
-            Err(_) => Ok(()),
-            Ok(pushed) => Err(TestError::new(format!(
-                "a frame was pushed within {quiet:?}: {:?}",
-                pushed.map(|(stream, frame)| (stream, frame.len()))
-            ))),
-        }
+        self.played.nothing_for(quiet).await
     }
 
     /// The frame last pushed on `stream` left, and the stream holds credit for its next.

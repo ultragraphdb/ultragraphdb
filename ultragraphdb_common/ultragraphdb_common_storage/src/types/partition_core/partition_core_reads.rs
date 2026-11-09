@@ -6,7 +6,7 @@
 use std::num::NonZeroUsize;
 
 use ultragraphdb_cluster_partition::{BoundKey, BoundStep};
-use ultragraphdb_common_role::Answer;
+use ultragraphdb_common_role::{Answer, Push};
 use ultragraphdb_core_keys::Keyspace;
 use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, Closed, ClosedPartition, ClosedView, Command, Entries, EntriesEnd,
@@ -28,6 +28,7 @@ use crate::utils::commit_body::commit_body;
 use crate::utils::error_reply::{error_reply, scan_refusal};
 use crate::utils::scan_check::{check_bound, scan_reads, scan_terms};
 use crate::utils::scan_version::{scan_named, scan_version};
+use ultragraphdb_transactions_log::DurableStorage;
 
 /// Why a frame of a Scan was not sent.
 enum FrameRefusal {
@@ -44,7 +45,7 @@ fn as_unheld(identity: [u8; 16]) -> ErrorReply {
     ))
 }
 
-impl<'a> PartitionCore<'a> {
+impl<'a, S: DurableStorage> PartitionCore<'a, S> {
     /// A Scan: everything in it checked at arrival, before any frame, and the core answers it from then on, each frame once the
     /// one before has left.
     pub(super) fn scan(
@@ -367,7 +368,7 @@ impl<'a> PartitionCore<'a> {
                     Ok(frame) => {
                         budget.spend_frame(frame.len());
                         // A connection gone says so by its Closed.
-                        drop(scan.pushes.unbounded_send((key.1, frame)));
+                        drop(scan.pushes.unbounded_send((key.1, Push::Frame(frame))));
                     }
                     Err(rule) => {
                         self.push_error(key.1, &ErrorReply::protocol(&rule), &scan.pushes);

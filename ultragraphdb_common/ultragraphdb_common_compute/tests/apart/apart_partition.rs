@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
-use ultragraphdb_common_role::{Answer, Session};
+use ultragraphdb_common_role::{Answer, Push, Session};
 use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, Closed, ClosedPartition, ClosedView, Command, Entries, EntriesEnd,
@@ -400,9 +400,9 @@ impl Session for PartitionConnection {
         }
     }
 
-    async fn next_push(&mut self) -> (u64, Vec<u8>) {
+    async fn next_push(&mut self) -> (u64, Push) {
         match self.pushed.next().await {
-            Some(pushed) => pushed,
+            Some((stream, frame)) => (stream, Push::Frame(frame)),
             // The session holds a sender, so its channel never ends while it waits here.
             None => std::future::pending().await,
         }

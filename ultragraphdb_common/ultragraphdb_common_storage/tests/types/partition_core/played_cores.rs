@@ -21,7 +21,7 @@ use ultragraphdb_cluster_partition::{
     Partition, PartitionError, PartitionHost, PartitionMailbox, PartitionMessage, RemoteMessage,
 };
 use ultragraphdb_cluster_placement::{NodeId, PartitionId, PlacementMap};
-use ultragraphdb_common_role::{Answer, ParkedBytes, RoleCluster, RoleSecret};
+use ultragraphdb_common_role::{Answer, RoleCluster, RoleSecret};
 use ultragraphdb_common_service::Stopping;
 use ultragraphdb_common_storage::{
     CoreChannels, CoreMessage, CoreParts, FrontendAsk, LogIo, PartitionCore, Peers, RefillBlocks,
@@ -29,7 +29,7 @@ use ultragraphdb_common_storage::{
 };
 use ultragraphdb_core_ids::{Epoch, TypePrefix};
 use ultragraphdb_core_mapping::RandomSource;
-use ultragraphdb_protocol_transport::{Address, BufferPool, Framer};
+use ultragraphdb_protocol_transport::Address;
 use ultragraphdb_protocol_wire::{
     Bind, BindKind, BodyBuilder, BodyView, Command, ErrorReply, ErrorReplyView, FrameView, Header,
     MAX_FRAME_SIZE,
@@ -43,6 +43,8 @@ use ultragraphdb_tool_test::TestDir;
 use ultragraphdb_traits_blocks::SequenceBlock;
 use ultragraphdb_transactions_commit::{CloseRequest, Pipeline, RoundBounds};
 use ultragraphdb_transactions_log::{CompioStorage, Wal, WalConfig};
+
+use crate::types::partition_core::played_answers::{Played, Sent};
 
 /// The cluster every frame names.
 pub(crate) const CLUSTER: u64 = 7;
@@ -75,9 +77,7 @@ pub(crate) struct Driver {
 #[derive(Debug)]
 pub(crate) struct Connection {
     id: u64,
-    parked: ParkedBytes,
-    pushes: UnboundedSender<(u64, Vec<u8>)>,
-    pushed: UnboundedReceiver<(u64, Vec<u8>)>,
+    played: Played,
 }
 
 impl Connection {
@@ -86,73 +86,57 @@ impl Connection {
         self.id
     }
 
-    /// What it holds parked now.
+    /// What it holds now: its requests not yet taken by the core and those parked.
     pub(crate) fn parked(&self) -> usize {
-        self.parked.count()
+        self.played.held()
     }
 
     /// The next frame the core pushed to it, and its stream, or a failure naming `what` it waited for.
     pub(crate) async fn pushed(&mut self, what: &str) -> TestResult<(u64, Vec<u8>)> {
-        compio::time::timeout(DUE, self.pushed.next())
-            .await
-            .map_err(|_| TestError::new(format!("no frame within {DUE:?}: {what}")))?
-            .context(what)
+        self.played.frame(what).await
     }
 
     /// Whether a frame waits to leave now.
     pub(crate) fn holds_push(&mut self) -> bool {
-        self.pushed.try_recv().is_ok()
+        self.played.holds_push()
+    }
+
+    /// The answer the core gave `sent` on taking it.
+    pub(crate) async fn answered(&self, sent: Sent) -> TestResult<Answer> {
+        self.played.answer(sent).await
     }
 }
 
 impl Driver {
     /// Opens connection `id`, which stops reading at `bound` bytes parked.
     pub(crate) fn connect(&self, id: u64, bound: usize) -> TestResult<Connection> {
-        let (pushes, pushed) = unbounded();
-        let parked = ParkedBytes::new(bound);
-        self.core.unbounded_send(CoreMessage::Opened {
-            connection: id,
-            parked: parked.clone(),
-        })?;
         Ok(Connection {
             id,
-            parked,
-            pushes,
-            pushed,
+            played: Played::new(bound, u32::try_from(MAX_FRAME_SIZE)?),
         })
     }
 
-    /// Hands the core `body` as a request of `connection` on `stream`, as a session does: where its answer comes.
+    /// Hands the core `body` as a request of `connection` on `stream`, as a session does: where its answer will be found.
     pub(crate) fn send<B: BodyBuilder>(
         &self,
         connection: &Connection,
         stream: u64,
         body: &B,
-    ) -> TestResult<oneshot::Receiver<Answer>> {
+    ) -> TestResult<Sent> {
         let frame = framed(body, stream)?;
-        self.send_frame(connection, stream, frame)
+        self.send_frame(connection, stream, &frame)
     }
 
-    /// Hands the core `frame` as a request of `connection` on `stream`: where its answer comes.
+    /// Hands the core `frame` as a request of `connection` on `stream`: where its answer will be found.
     pub(crate) fn send_frame(
         &self,
         connection: &Connection,
         stream: u64,
-        frame: Vec<u8>,
-    ) -> TestResult<oneshot::Receiver<Answer>> {
-        let pool = BufferPool::new(1, MAX_FRAME_SIZE);
-        let mut buffer = pool.acquire()?;
-        buffer.restore(frame);
-        let (done, answer) = oneshot::channel();
-        self.core.unbounded_send(CoreMessage::Request {
-            connection: connection.id,
-            stream,
-            frame: Framer::from_client(CLUSTER, MAX_FRAME_SIZE).finish(buffer),
-            done,
-            pushes: connection.pushes.clone(),
-            max_frame: u32::try_from(MAX_FRAME_SIZE)?,
-        })?;
-        Ok(answer)
+        frame: &[u8],
+    ) -> TestResult<Sent> {
+        connection
+            .played
+            .hand(&self.core, connection.id, stream, frame)
     }
 
     /// The answer to `body` sent as a request of `connection` on `stream`.
@@ -162,7 +146,9 @@ impl Driver {
         stream: u64,
         body: &B,
     ) -> TestResult<Answer> {
-        answered(self.send(connection, stream, body)?).await
+        connection
+            .answered(self.send(connection, stream, body)?)
+            .await
     }
 
     /// Hands the core `message` as a connection does.
@@ -203,14 +189,6 @@ impl Driver {
             })
             .context("an IRI of the partition")
     }
-}
-
-/// The answer that comes on `answer`, or a failure past [`DUE`].
-pub(crate) async fn answered(answer: oneshot::Receiver<Answer>) -> TestResult<Answer> {
-    compio::time::timeout(DUE, answer)
-        .await
-        .map_err(|_| TestError::new(format!("no answer within {DUE:?}")))?
-        .map_err(|_| TestError::new("the core dropped the request"))
 }
 
 /// A Bind of `kind` of the tenant on partition 1, its transaction named `identity`.

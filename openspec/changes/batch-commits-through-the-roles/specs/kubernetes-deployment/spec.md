@@ -61,7 +61,9 @@ starts again over the same volume.
 - **THEN** every commit acknowledged before the deletion reads back once the pod is ready
 
 ### Requirement: The deployment runs on a local Apple container cluster
-The repository SHALL hold a script that, on a Mac with Apple silicon and Apple's `container` with its `cluster` command, creates a
+`deploy/kubernetes/` SHALL hold the manifests alone. The repository SHALL hold `scripts/cluster_local.sh`, run through `make
+cluster-local` (create and deploy), `make cluster-local-down`, `make cluster-local-bench` and `make cluster-local-status`, that, on a Mac
+with Apple silicon and Apple's `container` with its `cluster` command, creates a
 local cluster whose nodes share the local image store (`container cluster create --shared-image-store`), loads into that store the
 role images Bazel builds for `linux/arm64` and the bench's image, applies the manifests, waits until every role is ready, and
 deletes the cluster on request. It SHALL drive the cluster from inside its control-plane node, needing no `kubectl` on the host
@@ -70,7 +72,7 @@ roles from a registry and push none to one. It SHALL refuse to run, naming what 
 runs SHALL stay outside `make test`.
 
 #### Scenario: Up and down
-- **WHEN** the script is run to create the cluster and then to delete it
+- **WHEN** `make cluster-local` and then `make cluster-local-down` run
 - **THEN** every role answers `/ready` after the first run, and after the second no cluster of that name is listed
 
 #### Scenario: A missing tool is named

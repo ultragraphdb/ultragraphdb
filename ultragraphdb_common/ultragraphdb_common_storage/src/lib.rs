@@ -22,12 +22,14 @@ pub use crate::types::entries_fill::EntriesFill;
 pub use crate::types::held_catalogs::HeldCatalogs;
 pub use crate::types::log_io::LogIo;
 pub use crate::types::log_io_totals::LogIoTotals;
+pub use crate::types::parked_frame::ParkedFrame;
 pub use crate::types::partition_core::{
     CLOSES_PER_TURN_MAX, CoreChannels, CoreParts, FrontendAsk, PartitionCore, Peers,
     REMOTE_PER_TURN_MAX, SCAN_STALL_MS_DEFAULT, StorageHost, StoragePartition,
 };
 pub use crate::types::refill_blocks::RefillBlocks;
 pub use crate::types::retention::Retention;
+pub use crate::types::role_connection_phases::RoleConnectionPhases;
 pub use crate::types::scan_board::ScanBoard;
 pub use crate::types::scan_key::ScanKey;
 pub use crate::types::storage_session::StorageSession;

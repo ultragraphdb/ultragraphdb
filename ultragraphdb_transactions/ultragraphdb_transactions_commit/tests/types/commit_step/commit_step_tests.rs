@@ -694,3 +694,60 @@ fn test_the_close_of_the_last_epoch_refuses_what_waits_and_stops_the_step() -> T
     assert!(step.is_stopped());
     Ok(())
 }
+
+/// Commits handed over together, under [`Input::Hold`], close no round as they arrive, though none is in flight, and share the
+/// round [`Input::Release`] closes.
+#[test]
+fn test_commits_handed_over_together_share_one_round() -> TestResult {
+    let mut step = Step::new(unbounded(), 0);
+    let mut out = Out::new();
+    let keys: [&[u8]; 3] = [b"a", b"b", b"c"];
+    step.step(Input::Hold, 0, &mut out);
+    for (ticket, key) in (1..).zip(keys) {
+        commit(&mut step, &mut out, ticket, blind(key)?, 0);
+        assert!(out.append().is_none(), "no round closes while held");
+    }
+    assert_eq!(step.in_flight(), None);
+    step.step(Input::Release, 0, &mut out);
+    assert!(out.append().is_some(), "the release closes a round");
+    assert_eq!(step.in_flight_admitted().len(), keys.len());
+    Ok(())
+}
+
+/// A release with nothing waiting closes no round, and a lone commit after it closes one at once again.
+#[test]
+fn test_a_release_with_nothing_waiting_closes_no_round() -> TestResult {
+    let mut step = Step::new(unbounded(), 0);
+    let mut out = Out::new();
+    step.step(Input::Hold, 0, &mut out);
+    step.step(Input::Release, 0, &mut out);
+    assert!(out.append().is_none());
+    assert_eq!(step.in_flight(), None);
+    commit(&mut step, &mut out, 1, blind(b"k")?, 0);
+    assert!(
+        out.append().is_some(),
+        "a lone commit closes a round at once"
+    );
+    Ok(())
+}
+
+/// A release while a round syncs closes nothing: what waits closes into the next round once that sync completes.
+#[test]
+fn test_a_release_while_a_round_syncs_waits_for_its_sync() -> TestResult {
+    let mut step = Step::new(unbounded(), 0);
+    let mut out = Out::new();
+    commit(&mut step, &mut out, 1, blind(b"a")?, 0);
+    assert!(out.append().is_some(), "the first round in flight");
+    step.step(Input::Hold, 0, &mut out);
+    commit(&mut step, &mut out, 2, blind(b"b")?, 0);
+    commit(&mut step, &mut out, 3, blind(b"c")?, 0);
+    step.step(Input::Release, 0, &mut out);
+    assert!(out.append().is_none(), "a round is in flight");
+    sync(&mut step, &mut out, 0);
+    assert!(
+        out.append().is_some(),
+        "the next round closes as the sync completes"
+    );
+    assert_eq!(step.in_flight_admitted().len(), 2);
+    Ok(())
+}

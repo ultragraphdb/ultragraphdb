@@ -10,13 +10,14 @@
 | 5. Transactions, WAL and the zero-copy binary protocol | ✅ |
 | 5.5. Refactor to prepare for the three-role cluster (frontend, compute, storage) | ✅ |
 | 6. UGS: the full data definition and its implementation | `open` |
-| 6.5. Harden transactions  with chaos testing against multiple UGS schemata | `open` |
+| 6.5. Add tile based scalable distributed graph storeage engine  | `open` |
+| 6.7 Harden transactions  with chaos testing against multiple UGS schemata | `open` |
 | 7. Query core: SPARQL and GQL where they overlap | `open` |
 | 7.5. Fuzzy test and harden query core | `open` |
 | 8. Basic three-role clustering with VSR replication in a single container, the base of the DeepBrain MVP | `open` |
 | 9. Full SPARQL and GQL conformance | `open` |
 | 9.5. Schema evolution with checked data migration | `open` |
-| 10. Full distributed clustering and tiles: sharding, replication at scale, storage/compute separation | `open` |
+| 10. Full distributed clustering: sharding and replication at scale!| `open` |
 | 10.5. Bolt | `open` |
 | 11. API node: generated Protobuf, JSON Schema and GraphQL schemas served by a stateless binary | `open` |
 

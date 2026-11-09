@@ -23,6 +23,18 @@ pub enum Answer {
     Refuse(ErrorReply),
 }
 
+/// What a [`Session`] sends on a stream unasked, through [`Session::next_push`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Push {
+    /// A frame, flagged as its stream needs: one flagged last ends the stream once it has left.
+    Frame(Vec<u8>),
+    /// The stream's end with no frame, as [`Answer::Done`] ends it: a frame of it still queued, waiting for credit, is dropped.
+    End,
+    /// A refusal of a request on the stream, sent as [`Answer::Refuse`] is: an Error flagged last on the stream, which ends it, or
+    /// on the connection's own queue for a stream it does not hold open.
+    Refuse(ErrorReply),
+}
+
 /// What one connection serves beyond its rules: the connection's machine hands it each request its endpoint takes.
 /// Static dispatch: a role names its own session.
 pub trait Session {
@@ -51,9 +63,10 @@ pub trait Session {
         None
     }
 
-    /// The next frame this session sends unasked, and its stream. Dropped whenever a request arrives first, so it loses
-    /// nothing when dropped; pending for a session with nothing to send.
-    fn next_push(&mut self) -> impl Future<Output = (u64, Vec<u8>)> {
+    /// The next push this session sends unasked, a frame or a stream's end, and its stream, in the order the session gives
+    /// them. Dropped whenever a request arrives first, so it loses nothing when dropped; pending for a session with nothing to
+    /// send.
+    fn next_push(&mut self) -> impl Future<Output = (u64, Push)> {
         std::future::pending()
     }
 

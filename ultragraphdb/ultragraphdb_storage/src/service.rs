@@ -26,8 +26,8 @@ use ultragraphdb_common_service::{Readiness, RoleKind, RoleStart, Stopping, core
 use ultragraphdb_common_service_config::{ServiceConfig, StorageTable, partition_address};
 use ultragraphdb_common_storage::{
     CoreChannels, CoreEnds, CoreMessage, CoreParts, FrontendAsk, HeldCatalogs, LogIo,
-    PartitionCore, Peers, RefillBlocks, Retention, SCAN_STALL_MS_DEFAULT, StorageHost,
-    StoragePartition, StorageSession, TimedStorage,
+    PartitionCore, Peers, RefillBlocks, Retention, RoleConnectionPhases, SCAN_STALL_MS_DEFAULT,
+    StorageHost, StoragePartition, StorageSession, TimedStorage,
 };
 use ultragraphdb_core_catalog::CatalogContents;
 use ultragraphdb_core_ids::{Epoch, Tenant, TypePrefix, Version};
@@ -472,7 +472,14 @@ async fn serve_partition(
     // Each connection's requests within its credit and its `held_bytes` of frames parked, its few messages of opening,
     // ending and cancelling, and the catalog versions a close announces.
     let (to_core, inbox) = unbounded();
-    accept_connections(listen(&address).await?, start, to_core.clone())?;
+    // What the connections' sessions time their requests into, which the core logs beside its commits' phases.
+    let role_phases = RoleConnectionPhases::new(now());
+    accept_connections(
+        listen(&address).await?,
+        start,
+        to_core.clone(),
+        role_phases.clone(),
+    )?;
     // Each ask comes from an epoch or a catalog event, not from a request: a close request per epoch the commit step
     // holds on, a default entry per declaration taking effect, a report per catalog version.
     let (asks_tx, asks) = unbounded();
@@ -529,7 +536,8 @@ async fn serve_partition(
     );
     let core = PartitionCore::new(
         core_parts(start, serving.host, channels, peers, serving.tenants)
-            .with_log_io(serving.log_io),
+            .with_log_io(serving.log_io)
+            .with_role_phases(role_phases),
     );
     until_lost(core.run(stopping), lost).await
 }
@@ -626,6 +634,7 @@ fn accept_connections(
     listener: Listener,
     start: &CoreStart,
     core: UnboundedSender<CoreMessage>,
+    phases: RoleConnectionPhases,
 ) -> Result<(), RoleError> {
     let credentials: RoleCredentials = start.cluster.secret().credentials()?;
     let held = start.config.storage().held_bytes();
@@ -641,7 +650,8 @@ fn accept_connections(
         loop {
             let carrier = pace.accept("role", || listener.accept()).await;
             connection += 1;
-            let session = StorageSession::new(connection, core.clone(), held_bytes);
+            let session = StorageSession::new(connection, core.clone(), held_bytes)
+                .with_phases(phases.clone());
             let (server, credentials) = (server.clone(), credentials.clone());
             spawn(async move {
                 serve_connection(carrier, &server, credentials, session).await;

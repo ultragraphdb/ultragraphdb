@@ -59,6 +59,9 @@ pub struct TapLog {
     pin_streams: Mutex<HashSet<(usize, u64)>>,
     overgrant_lists: AtomicUsize,
     ended: Mutex<HashSet<usize>>,
+    /// The Scan released by the frame behind it, `(connection, stream)`, which that frame waits behind until its partition replies.
+    awaited: Mutex<Option<(usize, u64)>>,
+    replied: AtomicBool,
 }
 
 impl TapLog {
@@ -98,6 +101,10 @@ impl TapLog {
     /// Grants the partition `frames` frames compute never granted on the stream of each Scan of a list, past the Scans now seen.
     pub fn overgrant_lists(&self, frames: usize) {
         self.overgrant_lists.store(frames, Ordering::Release);
+    }
+
+    fn awaited_held(&self) -> std::sync::MutexGuard<'_, Option<(usize, u64)>> {
+        self.awaited.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     fn scans_held(&self) -> std::sync::MutexGuard<'_, Vec<ScanSeen>> {
@@ -144,8 +151,9 @@ impl TapLog {
         self.cancels.load(Ordering::Acquire)
     }
 
-    /// Holds back each Scan past the first `scans` until compute has sent its next frame on the connection, which then goes on
-    /// right behind the Scan: compute's Cancel of a Scan it holds reaches the partition after that Scan, whatever the two take.
+    /// Holds back each Scan past the first `scans` until compute has sent its next frame on the connection; the Scan then goes on,
+    /// and that frame once the partition has replied on the Scan's stream: compute's Cancel of a Scan it holds reaches the partition
+    /// after that Scan has run, however the partition takes them.
     pub fn pause_until_next_frame(&self, scans: usize) {
         self.until_next_frame.store(true, Ordering::Release);
         self.pause_after(scans);
@@ -196,6 +204,7 @@ fn saw_request(
 ) -> Option<Vec<u8>> {
     let view = FrameView::validate_client(frame, CLUSTER, MAX_FRAME_SIZE).ok()?;
     let stream = view.header().stream();
+    wait_for_reply(log, connection);
     if view.command() == Command::Cancel && !log.pin_streams_held().contains(&(connection, stream))
     {
         let _before = log.cancels.fetch_add(1, Ordering::AcqRel);
@@ -243,11 +252,29 @@ fn saw_request(
             if !log.until_next_frame.load(Ordering::Acquire) {
                 std::thread::sleep(Duration::from_millis(1));
             } else if frame_behind(compute) {
+                log.replied.store(false, Ordering::Release);
+                *log.awaited_held() = Some((connection, stream));
                 break;
             }
         }
     }
     grant
+}
+
+/// Holds a frame of `connection` behind the Scan the tap released for it until the partition has replied on that Scan's stream, no
+/// longer than a role would wait on one.
+fn wait_for_reply(log: &TapLog, connection: usize) {
+    let waits = log.awaited_held().is_some_and(|(of, _)| of == connection);
+    if !waits {
+        return;
+    }
+    for _ in 0..PAUSE_MAX_MS {
+        if log.replied.load(Ordering::Acquire) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    *log.awaited_held() = None;
 }
 
 /// The Credit compute never sent, for a Scan of a list while a scenario asks for one.
@@ -272,6 +299,9 @@ fn saw_reply(log: &TapLog, partition: u32, connection: usize, frame: &[u8]) {
         return;
     };
     let stream = view.header().stream();
+    if *log.awaited_held() == Some((connection, stream)) {
+        log.replied.store(true, Ordering::Release);
+    }
     if view.command() == Command::Entries
         && !log.pin_streams_held().contains(&(connection, stream))
         && let Ok(entries) = EntriesView::from_frame(&view)

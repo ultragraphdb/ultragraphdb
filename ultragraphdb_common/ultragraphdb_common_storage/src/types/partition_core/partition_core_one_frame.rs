@@ -25,6 +25,7 @@ use crate::types::partition_core::{
 use crate::utils::commit_body::commit_body;
 use crate::utils::error_reply::error_reply;
 use crate::utils::operation_of::operation_of;
+use ultragraphdb_transactions_log::DurableStorage;
 
 /// How many times a one-frame write runs again on a conflict over what it tested, before code 2 reaches its client (`PROTOCOL.md`
 /// §6.6): each run reads a newer watermark, so only as many as this many commits landing in its way refuse it.
@@ -48,7 +49,7 @@ fn identity_of((connection, stream): BoundKey) -> [u8; 16] {
     (u128::from(connection) << 64 | u128::from(stream)).to_be_bytes()
 }
 
-impl PartitionCore<'_> {
+impl<S: DurableStorage> PartitionCore<'_, S> {
     /// A DirectWrite or ConditionalWrite: a resend answered from the session table, else executed from its frame in one turn, its
     /// references' wait apart (`PROTOCOL.md` §6.6).
     pub(super) fn one_frame(&mut self, key: BoundKey, view: &FrameView<'_>) -> RequestStep {

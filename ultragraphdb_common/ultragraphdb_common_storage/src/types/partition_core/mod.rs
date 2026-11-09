@@ -23,7 +23,7 @@ use ultragraphdb_cluster_partition::{
     BoundKey, MAILBOX_PER_TURN_MAX, Partition, PartitionHost, PartitionMessage, RemoteMessage,
 };
 use ultragraphdb_cluster_placement::PartitionId;
-use ultragraphdb_common_role::{Answer, ParkedBytes, RoleClient, RoleCluster};
+use ultragraphdb_common_role::{Answer, Push, RoleClient, RoleCluster};
 use ultragraphdb_common_service::InboxTurn;
 use ultragraphdb_core_catalog::CatalogContents;
 use ultragraphdb_core_ids::Epoch;
@@ -38,7 +38,7 @@ use ultragraphdb_store_kv::{FjallStore, MokaListCache, ThreadExecutor};
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_traits_catalog::DefaultEntry;
 use ultragraphdb_traits_store::Store;
-use ultragraphdb_transactions_log::{CompioStorage, Wal};
+use ultragraphdb_transactions_log::{CompioStorage, DurableStorage, Wal};
 
 use crate::types::commit_mark::CommitMark;
 use crate::types::commit_phase::CommitPhase;
@@ -49,6 +49,7 @@ use crate::types::open_scan::OpenScan;
 use crate::types::parked_frame::ParkedFrame;
 use crate::types::refill_blocks::RefillBlocks;
 use crate::types::retention::Retention;
+use crate::types::role_connection_phases::RoleConnectionPhases;
 use crate::types::scan_board::ScanBoard;
 use crate::types::timed_storage::TimedStorage;
 use crate::types::turn_budget::TURN_BYTES;
@@ -60,10 +61,10 @@ use crate::utils::micros_since::micros_since;
 pub type StoragePartition =
     Partition<FjallStore, MokaListCache<CachedList>, ThreadExecutor, RefillBlocks>;
 
-/// Its host, over the write-ahead log, its I/O timed.
-pub type StorageHost<'a> = PartitionHost<
+/// Its host, over the write-ahead log on `S`, compio's storage in the role, its I/O timed.
+pub type StorageHost<'a, S = CompioStorage> = PartitionHost<
     'a,
-    Wal<TimedStorage<CompioStorage>>,
+    Wal<TimedStorage<S>>,
     FjallStore,
     MokaListCache<CachedList>,
     ThreadExecutor,
@@ -248,8 +249,8 @@ impl Peers {
 
 /// One partition's core: the one task that owns its host. Connections hand it requests by message and it answers them,
 /// so nothing it holds is shared.
-pub struct PartitionCore<'a> {
-    host: StorageHost<'a>,
+pub struct PartitionCore<'a, S: DurableStorage = CompioStorage> {
+    host: StorageHost<'a, S>,
     id: PartitionId,
     cluster: u64,
     clock: Instant,
@@ -264,8 +265,6 @@ pub struct PartitionCore<'a> {
     drop_streams: BTreeMap<BoundKey, (u64, u64)>,
     /// The tenants the placement map lists a run for, the only ones a Bind may name.
     tenants: BTreeSet<u64>,
-    /// Where each open connection counts what it holds parked, read only as a frame parks.
-    connections: BTreeMap<u64, ParkedBytes>,
     parked: BTreeMap<BoundKey, Parked>,
     home_askings: BTreeMap<u64, HomeAsking>,
     next_asking: u64,
@@ -283,6 +282,7 @@ pub struct PartitionCore<'a> {
     discards: Sender<u64>,
     /// What its log spends in its I/O, which its log's storage counts.
     log_io: LogIo,
+    role_phases: Option<RoleConnectionPhases>,
     /// How long the core has waited on its inbox since it began, in microseconds.
     waited_us: u64,
     /// Where the core stood when it took the request it runs.
@@ -336,8 +336,8 @@ impl CoreChannels {
 }
 
 /// What a core is made of.
-pub struct CoreParts<'a> {
-    host: StorageHost<'a>,
+pub struct CoreParts<'a, S: DurableStorage = CompioStorage> {
+    host: StorageHost<'a, S>,
     id: PartitionId,
     cluster: u64,
     clock: Instant,
@@ -347,14 +347,15 @@ pub struct CoreParts<'a> {
     retention: Retention,
     tenants: BTreeSet<u64>,
     log_io: LogIo,
+    role_phases: Option<RoleConnectionPhases>,
 }
 
-impl<'a> CoreParts<'a> {
+impl<'a, S: DurableStorage> CoreParts<'a, S> {
     /// The core of partition `id`, hosted over `host`, every frame naming `cluster`, its time counted from `clock`, retaining what
     /// `retention` says.
     #[must_use]
     pub fn new(
-        host: StorageHost<'a>,
+        host: StorageHost<'a, S>,
         id: PartitionId,
         cluster: u64,
         clock: Instant,
@@ -373,6 +374,7 @@ impl<'a> CoreParts<'a> {
             retention,
             tenants: BTreeSet::new(),
             log_io: LogIo::default(),
+            role_phases: None,
         }
     }
 
@@ -381,6 +383,13 @@ impl<'a> CoreParts<'a> {
     #[must_use]
     pub fn with_log_io(mut self, io: LogIo) -> Self {
         self.log_io = io;
+        self
+    }
+
+    /// The core logging `phases`, which its connections' sessions time their requests into ([`crate::StorageSession::with_phases`]).
+    #[must_use]
+    pub fn with_role_phases(mut self, phases: RoleConnectionPhases) -> Self {
+        self.role_phases = Some(phases);
         self
     }
 
@@ -399,10 +408,10 @@ impl<'a> CoreParts<'a> {
     }
 }
 
-impl<'a> PartitionCore<'a> {
+impl<'a, S: DurableStorage> PartitionCore<'a, S> {
     /// The core of `parts`.
     #[must_use]
-    pub fn new(parts: CoreParts<'a>) -> Self {
+    pub fn new(parts: CoreParts<'a, S>) -> Self {
         Self {
             host: parts.host,
             id: parts.id,
@@ -417,7 +426,6 @@ impl<'a> PartitionCore<'a> {
             bound_tenant: BTreeMap::new(),
             drop_streams: BTreeMap::new(),
             tenants: parts.tenants,
-            connections: BTreeMap::new(),
             parked: BTreeMap::new(),
             home_askings: BTreeMap::new(),
             next_asking: 1,
@@ -429,6 +437,7 @@ impl<'a> PartitionCore<'a> {
             retention: parts.retention,
             discards: parts.channels.discards,
             log_io: parts.log_io,
+            role_phases: parts.role_phases,
             waited_us: 0,
             taking: CommitMark::default(),
             phases: CommitPhases::new(),
@@ -447,10 +456,10 @@ impl<'a> PartitionCore<'a> {
 
     /// Serves until `stopping` says otherwise, then ends what is open and syncs what its log holds through its store.
     ///
-    /// A dropped future drops the core without its stop: a request waiting for its first answer is refused by its session
-    /// as the partition stopped, a stream already open hears nothing more until its connection closes, a round under sync
-    /// is neither applied nor handed out, as [`PartitionHost::turn`] says, and the store is not synced, so the next start
-    /// recovers from the log.
+    /// Its stop refuses each request waiting in its inbox and each parked one as the partition stopped. A dropped future drops
+    /// the core without its stop: a request waiting for the core, and a stream already open, hear nothing more until their
+    /// connection closes, a round under sync is neither applied nor handed out, as [`PartitionHost::turn`] says, and the store
+    /// is not synced, so the next start recovers from the log.
     ///
     /// # Errors
     ///
@@ -474,6 +483,11 @@ impl<'a> PartitionCore<'a> {
             self.waited_us = self
                 .waited_us
                 .saturating_add(self.now_us().saturating_sub(waiting));
+            // What this turn takes is handed over together: its commits share a round, the first closing none alone.
+            let holding = self.now_us();
+            self.host.hold_rounds(holding).map_err(|error| {
+                RoleError::io(format!("the partition {}: {error}", self.id.get()))
+            })?;
             if let Some(first) = first {
                 self.take(first);
             }
@@ -482,8 +496,13 @@ impl<'a> PartitionCore<'a> {
             while let Some(next) = taking.receive(|| self.inbox.try_recv()) {
                 self.take(next);
             }
+            let taken = self.now_us();
+            self.host.release_rounds(taken).map_err(|error| {
+                RoleError::io(format!("the partition {}: {error}", self.id.get()))
+            })?;
             self.turn().await?;
         }
+        self.refuse_waiting();
         self.tell_parked_stopping();
         let keys: Vec<BoundKey> = self.bound_tenant.keys().copied().collect();
         for key in keys {
@@ -533,6 +552,9 @@ impl<'a> PartitionCore<'a> {
         self.serve_scans();
         self.raise_discard(now);
         self.report_phases();
+        if let Some(phases) = &self.role_phases {
+            phases.report(self.id.get());
+        }
         Ok(())
     }
 
@@ -608,6 +630,19 @@ impl<'a> PartitionCore<'a> {
         self.tell_ended(key, &error_reply(&error.into()));
     }
 
+    /// Refuses each request still waiting in the inbox as the partition stopped, at most a turn's worth; the rest learn of the stop
+    /// from their connection's close (`PROTOCOL.md` §11.12, *Parked requests*).
+    fn refuse_waiting(&mut self) {
+        let reply = ErrorReply::new(ErrorCode::Unavailable, "the partition stopped");
+        // At most MESSAGES_PER_TURN_MAX, as a turn takes (Ultra rule 2).
+        let mut taking = InboxTurn::new(MESSAGES_PER_TURN_MAX);
+        while let Some(message) = taking.receive(|| self.inbox.try_recv()) {
+            if let CoreMessage::Request { stream, pushes, .. } = message {
+                self.push_error(stream, &reply, &pushes);
+            }
+        }
+    }
+
     /// Answers each parked request that the partition stops: nothing parked has reached the commit step (`PROTOCOL.md` §11.12).
     fn tell_parked_stopping(&mut self) {
         let reply = ErrorReply::new(ErrorCode::Unavailable, "the partition stopped");
@@ -629,15 +664,10 @@ impl<'a> PartitionCore<'a> {
         }
     }
 
-    /// Pushes `error` on `stream`, which it ends.
+    /// Pushes `error` on `stream` as a refusal, which ends it.
     fn push_error(&self, stream: u64, error: &ErrorReply, pushes: &Pushes) {
-        let header = Header::new(self.cluster, Command::Error)
-            .with_stream(stream)
-            .with_flags(FLAG_LAST);
-        if let Ok(frame) = error.frame(header) {
-            // A connection gone has no one to tell.
-            drop(pushes.unbounded_send((stream, frame)));
-        }
+        // A connection gone has no one to tell.
+        drop(pushes.unbounded_send((stream, Push::Refuse(error.clone()))));
     }
 
     /// Each commit's reply, durable now, to who asked. A one-frame write's conflict over what it tested runs it again instead.
@@ -689,7 +719,11 @@ impl<'a> PartitionCore<'a> {
             };
             match frame {
                 // A connection gone has no one to tell; what committed stays committed.
-                Ok(frame) => drop(committing.pushes.unbounded_send((stream, frame))),
+                Ok(frame) => drop(
+                    committing
+                        .pushes
+                        .unbounded_send((stream, Push::Frame(frame))),
+                ),
                 Err(error) => tracing::error!(%error, "a commit's reply could not be framed"),
             }
         }

@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
-use ultragraphdb_common_role::{Answer, ParkedBytes, Session};
+use ultragraphdb_common_role::{Answer, ParkedBytes, Push, Session};
 use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{Command, ErrorCode, ErrorReply};
 
@@ -46,9 +46,9 @@ impl<F: Fn(&DoubleFrame) -> Answer> Session for DoubleSession<F> {
     }
 
     /// A future dropped at its wait leaves the channel as it was, and the next call takes what came meanwhile.
-    async fn next_push(&mut self) -> (u64, Vec<u8>) {
+    async fn next_push(&mut self) -> (u64, Push) {
         match self.pushed.next().await {
-            Some(pushed) => pushed,
+            Some((stream, frame)) => (stream, Push::Frame(frame)),
             // This session holds a sender, so its channel never ends while it waits here.
             None => std::future::pending().await,
         }

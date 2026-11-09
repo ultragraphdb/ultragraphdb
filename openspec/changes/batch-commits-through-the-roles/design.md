@@ -36,7 +36,8 @@ No manifest exists yet.
 - No change to any frame, command or error on the wire, nor to the commit step, the log or recovery.
 - The roles deployed on Kubernetes from manifests in the repository, run on a local `container` cluster from the images Bazel
   builds, with the bench running inside the cluster.
-- The batching measured through the binaries against 12.5b's figures, on the cluster and like for like on the OrbStack VM.
+- The batching measured through the binaries against the baseline the Shard-per-Core note records, on a `container` Linux
+  machine and on the cluster.
 
 **Non-Goals:**
 - Taking the inbox while a sync is in flight (overlapping the sync with the next round's decisions): batching does not need
@@ -69,10 +70,13 @@ Alternatives:
 
 Today an answer travels by the `oneshot` and a later frame by the push channel, two channels whose order is patched by
 `StorageSession::ending`, which turns a refusal crossing a pushed `LAST` frame into `Open`. With every answer pushed, the core's
-order is the order on the wire. `Session::next_push` yields `(stream, Push)` where `Push` is a frame or `End`, a stream ending
-with no frame (an Abort's `Answer::Done` today), and `serve` ends the stream on `End` as it does on `Answer::Done`. A refusal is
-built into its Error frame by the core, as `push_error` already does for a parked request. The `done` channel and `ending` go.
-`serve` already drops a push for a stream no longer open.
+order is the order on the wire. `Session::next_push` yields `(stream, Push)` where `Push` is a frame, `End`, a stream ending
+with no frame (an Abort's `Answer::Done` today), or `Refuse`, a refusal. `serve` sends a frame on an open stream and drops one for a
+stream no longer open; ends the stream on `End` as it does on `Answer::Done`; and sends a refusal through the machine's `refuse`, as
+it does `Answer::Refuse`, so a refusal reaches the peer on the connection's own queue for a stream the connection never opened, a
+Write on a stream no Bind opened among them. A pushed Error frame would be dropped there, which group 3 found as a hang of
+`ultragraphdb_storage_tests`. A refusal crossing the peer's Cancel reaches it as a late frame, which the frontend drops. The `done`
+channel and `ending` go.
 
 Alternative: keep each request's `oneshot` in a queue in the session and turn its answer into a push. Two sources of order
 again; rejected.
@@ -140,7 +144,8 @@ the cluster's networking from the host is not documented. Its JSON line is the J
 
 ### D8. The script drives the cluster from inside its node, outside Bazel tests and `make test`
 
-`deploy/kubernetes/local.sh up|down|bench|status` runs `kubectl` inside the control-plane node through `container exec -i`,
+`scripts/cluster_local.sh up|down|bench|status`, behind `make cluster-local`, `make cluster-local-down`, `make cluster-local-bench`
+and `make cluster-local-status`, runs `kubectl` inside the control-plane node through `container exec -i`,
 against `/etc/kubernetes/admin.conf`, manifests on standard input. It so needs no `kubectl` on the host and no network path from
 the host to the cluster, which this Mac lacks until macOS's Local Network permission is granted to `container-runtime-linux`
 (apple/container #1702, #2067; `notes/group-0.md`, 4). It creates the cluster with `KUBECONFIG` naming a file of its own, since
@@ -152,10 +157,29 @@ arguments, stated in what it reports (the default node is 4 CPUs and 32 GB here)
 ### D9. How the batching is measured
 
 12.5b's matrix through the binaries, one partition and four, DirectWrites at 1, 16 and 64 connections and transactions at 16,
-three interleaved 20 s runs, medians and ranges: once on the OrbStack VM as 12.5b ran it, like for like with its figures, and
-once on the `container` cluster through the Job. Syncs per commit come from the partition's `commit phases` log (commits over
-log syncs). Acceptance: fewer syncs than commits at 16 connections and above, and commits per second at 16 connections on one
-partition above 12.5b's range (287 to 1,123); the figures, not a target, decide what follows.
+three interleaved 20 s runs, medians and ranges, on a `container` Linux machine and once on the `container` cluster through the
+Job. The baseline is what `openspec/notes/UltraGraphDB Shard-per-Core Write Path.md` records (owner, 2026-11-09): *Stage 5.5 on
+the VM disk (2026-11-08)*, its *Through the three binaries with the real client* and *A commit's phases through the binaries
+(experiment X1)*, the same matrix and workload. Those ran on the OrbStack VM's disk; the runs here state their machine, its disk
+and its sync time beside every table, so a difference of machine is read apart from the change. Syncs per commit come from the
+partition's `commit phases` log (commits over log syncs). Acceptance: fewer syncs than commits at 16 connections and above, and
+commits per second at 16 connections on one partition above the note's range (287 to 1,123); the figures, not a target, decide
+what follows.
+
+The implied overhead of the roles is read against what the commit path reaches with no roles in its way: the note's in-process
+`wal_bench` with N partitions in one process (*One partition against stage 5*, the side-by-side table), at 12 partitions 125,391
+relations a second at one relation per commit (124,057 to 129,360) and 185,630 at ten (179,162 to 203,082). The matrix therefore
+adds 12 partitions in one storage process at 1 and 10 relations per commit, at 64 and 256 connections, and the 1- and 4-partition
+points at 64 connections; each is reported as relations per second through the binaries and as the share of the in-process figure
+at the same partitions and relations per commit, with the in-process range beside it. The `container` machine takes 12 CPUs, as the
+OrbStack VM of the baseline had, so a partition per core is what both measured.
+
+A share far below the in-process figure is a software defect to find and fix, not the environment's cost (owner, 2026-11-09): the
+wire protocol is zero-copy from the network frame to the log's write, each role runs one compio runtime per core with no shared
+state on the path, and the roles here talk over loopback and Unix sockets in one machine of unified memory. The phase logs say where
+a commit's time goes, from the client's call through the frontend's checks, the relay, the queue before the core, the core's stay
+and the log's sync; a phase that grows with load, or time no phase accounts for, is chased to its cause, profiled with the storage
+role's symbol build where the phases stop short, and either fixed in this change or brought to the owner with its figures.
 
 ### D10. The reply path is measured on its own
 
@@ -173,9 +197,45 @@ next is read. Whether that keeps up is measured, not assumed:
 - The reply path keeps up when the residual at the largest rounds measured stays within the residual's range at one commit per
   round, 12.5b's case, measured in the same series with one connection. A residual growing with the round's size is replies waiting
   at the frontend's reader, and goes to the owner with its figures before any change to the frontend.
-- A burst test pins the same thing without load: a partition answering 1,000 queued one-frame writes in one round over one role
-  connection to a frontend endpoint, in process, the time from the first reply leaving to the last answer reaching its client
-  connection reported against the partition's own time to write them.
+- A burst test pins the reader alone: a partition answering 1,000 one-frame writes in one round over one role connection, read back
+  one frame at a time through `RoleClient`, the frontend's role link's reader, in process; the time from the sync's release to the
+  first answer and from the first to the last. The frontend's relay to its clients is the phases' part, under load in group 6.
+
+### D11. The scenarios hold a real sync
+
+Group 1 wrote the scenarios against a tap that holds the core's inbox, standing in for a turn waiting on its log's sync, because
+`StorageHost` fixes the log's storage to `TimedStorage<CompioStorage>` and a test cannot hold a sync of it. `PartitionCore`,
+`CoreParts` and `StorageHost` take the log's storage as a type parameter, `S: DurableStorage`, which the storage role names as
+`CompioStorage`, monomorphised with no cost at run time. A test then opens the log over a storage wrapping the real one, whose file
+syncs it can hold, and the scenarios run with a sync truly in flight: the core's turn waits in `PartitionHost::turn` while the
+connections hand on what arrives, and the round after it is formed from them. The tap stays to count what reaches the inbox. The
+measurements of group 6 run the role binaries unchanged.
+
+### D12. A turn's intake closes one round (owner's decision, 2026-11-09)
+
+The core takes its inbox only between turns, after a sync, so the commits that arrived during the sync reach the commit step one by
+one at a moment with no round in flight. `CommitStep::arrive` closes a round at once for a commit arriving so, as `commit-rounds`
+states for a lone commit on an idle partition, so the first commit of every backlog synced alone and the rest shared the next round:
+two syncs per backlog, measured in group 3 with a real sync held (three rounds where two were due). The commit step gains
+`Input::Hold` and `Input::Release`: while held, a commit arriving with no round in flight waits; the release closes one round over
+what waits, when none is in flight. `Pipeline::hold_rounds` and `release_rounds`, and `PartitionHost`'s, pass them on, and
+`PartitionCore::run` holds around each turn's intake from its inbox. A lone commit on an idle partition still closes its round in
+the turn that takes it. Alternatives: the core taking its inbox while the sync is in flight (the non-goal above), or two syncs per
+backlog left as they were; the owner chose this one.
+
+### D13. Performance keeping the guarantees, then the storage engine
+
+With commits batching through the roles, the measurements put the cost of a commit in the storage engine's work per relation and
+in allocation, not in strict serializability: stage 5's commit thread spent 20–25 µs a relation, about seven LSM memtable
+operations, and 12.5's profile 47% of it reading referrer sets from the store; 12.5b counted 176–258 allocations per relation; the
+resolver's validation appears in no profile's top entries. Group 7 removes what the KV store does not force, each step keeping
+strict serializability and the sync of every round before its acknowledgement, and measured alone and together against group 6:
+the referrer reads on the write path, allocation per relation, the index entries the layout can merge, and the owner's epoch-close
+sync on the commit path. 7.1 first divides the commit thread's time, validation's share among it, so each step's expected gain is
+known before it is built. Each step is kept only on evidence (owner, 2026-11-09): higher transaction throughput outside the runs'
+spread keeps and finishes it, in turn; anything else takes it out again, with its figures recorded. What remains after the four is the KV store's floor, the measured case for roadmap stage 6.5, a tile-based
+graph storage engine: KV stores suit a graph's adjacency poorly, and building on one served the architecture until now
+(owner, 2026-11-09).
 
 ## Risks / Trade-offs
 
@@ -189,7 +249,8 @@ next is read. Whether that keeps up is measured, not assumed:
   commit waits one sync as before; the round bounds cap the apply.
 - [`container cluster` is experimental and its flags may change] → the script names the `container` version it ran with, and the
   measurements state it; nothing in `make test` depends on it.
-- [The node VMs' disk and CPU differ from the OrbStack VM's] → D9 measures on both, and compares like with like.
+- [The baseline ran on the OrbStack VM's disk; these runs on `container`'s] → every table states its machine and the log's sync
+  time on it, so a change in the disk is read apart from the change in batching.
 
 ## Migration Plan
 

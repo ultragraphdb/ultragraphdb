@@ -16,7 +16,8 @@ use compio::runtime::spawn;
 use service_utils::ServiceUtil;
 use ultragraphdb_cluster_placement::{NodeId, PlacementMap};
 use ultragraphdb_common_role::{
-    Answer, ROLE_ITERATIONS, RoleCredentials, RoleSecret, Server, Session, listen, serve_connection,
+    Answer, Push as RolePush, ROLE_ITERATIONS, RoleCredentials, RoleSecret, Server, Session,
+    listen, serve_connection,
 };
 use ultragraphdb_core_ids::{Epoch, Tenant};
 use ultragraphdb_protocol_transport::{Endpoint, ReceivedFrame};
@@ -209,7 +210,7 @@ impl Session for PlayedFrontend {
         ))
     }
 
-    async fn next_push(&mut self) -> (u64, Vec<u8>) {
+    async fn next_push(&mut self) -> (u64, RolePush) {
         let Some(stream) = self.subscribed.take() else {
             return std::future::pending().await;
         };
@@ -224,7 +225,7 @@ impl Session for PlayedFrontend {
             Push::Nothing => return std::future::pending().await,
         };
         match close {
-            Ok(frame) => (stream, frame),
+            Ok(frame) => (stream, RolePush::Frame(frame)),
             Err(_) => std::future::pending().await,
         }
     }

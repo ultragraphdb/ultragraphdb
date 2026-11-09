@@ -16,8 +16,8 @@ use tracing::field::{Field, Visit};
 use tracing::span::{Attributes, Id, Record};
 use tracing::{Event, Level, Metadata, Subscriber};
 use ultragraphdb_common_role::{
-    Answer, ConnectionBound, ParkedBytes, ROLE_ITERATIONS, RoleClient, RoleCredentials, RoleSecret,
-    Server, Session, listen, serve_connection,
+    Answer, ConnectionBound, ParkedBytes, Push, ROLE_ITERATIONS, RoleClient, RoleCredentials,
+    RoleSecret, Server, Session, listen, serve_connection,
 };
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_error_role::RoleError;
@@ -26,8 +26,8 @@ use ultragraphdb_protocol_transport::{
 };
 use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, Cancel, CloseRequest, Closed, Command, Credit, DEFAULT_INITIAL_CREDIT,
-    Entries, EntriesEnd, EntriesView, ErrorCode, ErrorReply, FLAG_LAST, Header, Held, Join,
-    MAX_FRAME_FLOOR, MAX_FRAME_SIZE, Members, Scan, ScanAt, ScanRange,
+    Entries, EntriesEnd, EntriesView, ErrorCode, ErrorReply, ErrorReplyView, FLAG_LAST, Header,
+    Held, Join, MAX_FRAME_FLOOR, MAX_FRAME_SIZE, Members, Scan, ScanAt, ScanRange,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
@@ -125,7 +125,7 @@ impl Session for OneAtATime {
         Answer::Open
     }
 
-    async fn next_push(&mut self) -> (u64, Vec<u8>) {
+    async fn next_push(&mut self) -> (u64, Push) {
         let Some(stream) = self.due.take() else {
             return std::future::pending().await;
         };
@@ -141,7 +141,7 @@ impl Session for OneAtATime {
             .with_stream(stream)
             .with_flags(flags);
         let frame = Entries::new(range, end, 0).frame(header);
-        (stream, frame.unwrap_or_default())
+        (stream, Push::Frame(frame.unwrap_or_default()))
     }
 
     fn welcomed(&mut self, max_frame: u32) {
@@ -247,14 +247,14 @@ impl Session for Parking {
         Some(self.parked.clone())
     }
 
-    async fn next_push(&mut self) -> (u64, Vec<u8>) {
+    async fn next_push(&mut self) -> (u64, Push) {
         loop {
             if self.push.replace(false)
                 && let Some(stream) = self.first
                 && let Ok(frame) =
                     Held.frame(Header::new(CLUSTER, Command::Held).with_stream(stream))
             {
-                return (stream, frame);
+                return (stream, Push::Frame(frame));
             }
             compio::time::sleep(Duration::from_millis(1)).await;
         }
@@ -759,8 +759,8 @@ fn test_an_unknown_name_is_refused_under_the_groups_secret() -> TestResult {
     })
 }
 
-/// A frame the test hands a session to push, and its stream.
-type Pushed = Rc<RefCell<Option<(u64, Vec<u8>)>>>;
+/// What the test hands a session to push, a frame or a stream's end, and its stream.
+type Pushed = Rc<RefCell<Option<(u64, Push)>>>;
 
 /// Leaves every hook but its answers and pushes at the default: replies to its first Scan with one Entries frame of more
 /// to come, ends every later Scan with nothing, refuses a Closed as unavailable, and pushes what the test puts in `push`.
@@ -788,13 +788,21 @@ impl Session for Defaulted {
             )
     }
 
-    async fn next_push(&mut self) -> (u64, Vec<u8>) {
+    async fn next_push(&mut self) -> (u64, Push) {
         loop {
             if let Some(pushed) = self.push.borrow_mut().take() {
                 return pushed;
             }
             compio::time::sleep(Duration::from_millis(1)).await;
         }
+    }
+}
+
+/// Hands `push` on `stream` to the session's next push, and waits until the session has taken it.
+async fn pushed(to: &Pushed, stream: u64, push: Push) {
+    *to.borrow_mut() = Some((stream, push));
+    while to.borrow().is_some() {
+        compio::time::sleep(Duration::from_millis(1)).await;
     }
 }
 
@@ -847,13 +855,96 @@ fn test_a_session_at_its_defaults_ends_cancelled_and_done_streams() -> TestResul
         probed(&mut client).await?;
         let header = Header::new(CLUSTER, Command::Entries).with_stream(stream);
         let late = Entries::new(1, EntriesEnd::Ended, 0).frame(header.with_flags(FLAG_LAST))?;
-        *push.borrow_mut() = Some((stream, late));
-        while push.borrow().is_some() {
-            compio::time::sleep(Duration::from_millis(1)).await;
-        }
+        pushed(&push, stream, Push::Frame(late)).await;
         client.send_only(&scan).await?;
         // Each answer read next is the probe's own: nothing came on the cancelled stream, nor on the one done.
         probed(&mut client).await?;
         probed(&mut client).await
+    })
+}
+
+/// A session's pushes leave in the order it gives them: a frame on an open stream leaves, the stream's end with no frame ends
+/// it, and a frame pushed to it after its end goes nowhere.
+#[test]
+fn test_a_pushed_end_ends_its_stream_with_no_frame() -> TestResult {
+    bounded(async {
+        let listener = listen(&free_tcp()?).await?;
+        let address = listener.local_address()?;
+        let server = Server::new(CLUSTER, "test", Endpoint::Partition)?
+            .with_iterations(ROLE_ITERATIONS)
+            .with_welcome(|welcome| welcome.with_initial_credit(1));
+        let held = credentials()?;
+        let push: Pushed = Rc::new(RefCell::new(None));
+        let session = Defaulted {
+            scans: 0,
+            push: Rc::clone(&push),
+        };
+        spawn(async move {
+            if let Ok(carrier) = listener.accept().await {
+                serve_connection(carrier, &server, held, session).await;
+            }
+        })
+        .detach();
+        let mut client = RoleClient::dial(&address, CLUSTER, "compute", PASSWORD).await?;
+        let mut scan = Scan::new(ScanAt::Latest, 0, 0, 1, [0; 16], 0, 0);
+        scan.push_range(ScanRange::new(1, b"a", b""));
+        client.send_only(&scan).await?;
+        let stream = client.last_stream();
+        assert_eq!(next_entries(&mut client).await?, (0, false));
+        client.send_on(stream, &Credit::new(1)).await?;
+        let header = Header::new(CLUSTER, Command::Entries).with_stream(stream);
+        let next = Entries::new(1, EntriesEnd::More, 0).frame(header.clone())?;
+        pushed(&push, stream, Push::Frame(next)).await;
+        assert_eq!(
+            next_entries(&mut client).await?,
+            (1, false),
+            "the frame pushed first"
+        );
+        // Credit for one more frame, taken before the end: a frame surviving the end would leave on it.
+        client.send_on(stream, &Credit::new(1)).await?;
+        probed(&mut client).await?;
+        pushed(&push, stream, Push::End).await;
+        let late = Entries::new(2, EntriesEnd::Ended, 0).frame(header.with_flags(FLAG_LAST))?;
+        pushed(&push, stream, Push::Frame(late)).await;
+        // The answer read next is the probe's own: nothing came on the stream once it ended.
+        probed(&mut client).await
+    })
+}
+
+/// A refusal a session pushes for a stream the connection does not hold open reaches the peer as an Error on that stream, sent on the
+/// connection's own queue, as a refusal the session answers does.
+#[test]
+fn test_a_pushed_refusal_reaches_a_stream_never_opened() -> TestResult {
+    bounded(async {
+        let listener = listen(&free_tcp()?).await?;
+        let address = listener.local_address()?;
+        let server =
+            Server::new(CLUSTER, "test", Endpoint::Partition)?.with_iterations(ROLE_ITERATIONS);
+        let held = credentials()?;
+        let push: Pushed = Rc::new(RefCell::new(None));
+        let session = Defaulted {
+            scans: 0,
+            push: Rc::clone(&push),
+        };
+        spawn(async move {
+            if let Ok(carrier) = listener.accept().await {
+                serve_connection(carrier, &server, held, session).await;
+            }
+        })
+        .detach();
+        let mut client = RoleClient::dial(&address, CLUSTER, "compute", PASSWORD).await?;
+        let never = 99;
+        let refusal = ErrorReply::new(ErrorCode::Refused, "a stream no Bind opened");
+        pushed(&push, never, Push::Refuse(refusal.clone())).await;
+        let frame = compio::time::timeout(TEST_TIME, client.next_frame())
+            .await
+            .context("the refusal within its time")??;
+        let view = frame.view()?;
+        let error = ErrorReplyView::from_frame(&view)?;
+        assert_eq!(
+            (view.header().stream(), error.code(), error.message()),
+            (never, refusal.code(), refusal.message())
+        );
+        Ok(())
     })
 }

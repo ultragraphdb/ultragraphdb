@@ -230,6 +230,26 @@ where
         self.run(Input::Close(close), now_us)
     }
 
+    /// Holds rounds while the caller hands over several requests together, at `now_us`: until [`Pipeline::release_rounds`],
+    /// a request arriving with no round in flight waits rather than closing one, so what the caller hands over shares a round.
+    ///
+    /// # Errors
+    ///
+    /// None in practice: holding closes no round, so nothing is appended or applied; the pipeline's errors stepping.
+    pub fn hold_rounds(&mut self, now_us: u64) -> Result<(), PipelineError> {
+        self.run(Input::Hold, now_us)
+    }
+
+    /// The requests handed over together have arrived, at `now_us`: the next round closes over what waits, when none is in
+    /// flight, and is appended.
+    ///
+    /// # Errors
+    ///
+    /// [`PipelineError::log`] when the log refuses the round, which stops the pipeline.
+    pub fn release_rounds(&mut self, now_us: u64) -> Result<(), PipelineError> {
+        self.run(Input::Release, now_us)
+    }
+
     /// Steps the commit step's clock to `now_us`: a close request unanswered for `close_request_ms` refuses the held
     /// commits busy.
     pub fn tick(&mut self, now_us: u64) {

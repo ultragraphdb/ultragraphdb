@@ -260,7 +260,7 @@ fn span_after_cancel(w: &mut Steps) -> TestResult {
         assert_eq!(log.scans().len(), 2, "the list's Scan held");
         // The Cancel a Commit sends; compute's own Cancel of its Scan lets the Scan held go on, then follows it on the same connection.
         client.send_on(stream, &Cancel).await?;
-        // The partition reads its connection's frames in order, so the Scan has run once compute's Cancel has gone on after it.
+        // The tap lets compute's Cancel go on once the partition has replied to the Scan held, so the Scan has run before it.
         until("a Cancel seen", || log.cancels() >= 1).await?;
         log.go_on();
         assert_eq!(log.cancels(), 1, "compute's Cancel of its Scan");

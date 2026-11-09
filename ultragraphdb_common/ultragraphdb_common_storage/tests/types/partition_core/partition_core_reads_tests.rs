@@ -603,7 +603,7 @@ fn test_scans_of_a_transaction_wait_on_its_home_together() -> TestResult {
             answers.push(driver.send(&connection, stream, &scan.with_terms(terms))?);
         }
         for answer in answers {
-            let answer = played_cores::answered(answer).await?;
+            let answer = connection.answered(answer).await?;
             assert!(matches!(answer, Answer::Open), "{answer:?}");
         }
         let mut connection = connection;
@@ -910,10 +910,8 @@ fn test_scans_past_one_turns_budget_are_answered_at_the_next() -> TestResult {
             .iter_mut()
             .map(|direct| direct.send(1, &plain(ScanAt::Latest, 0, 0, &[forward()])))
             .collect::<TestResult<Vec<_>>>()?;
-        for answer in answers {
-            let answer = compio::time::timeout(crate::types::partition_core::core_rig::DUE, answer)
-                .await
-                .context("an answer")??;
+        for (direct, sent) in directs.iter().zip(answers) {
+            let answer = direct.answered(sent).await?;
             assert!(matches!(answer, Answer::Open), "{answer:?}");
         }
         for direct in &mut directs {
@@ -1019,7 +1017,7 @@ fn test_a_scan_waiting_behind_another_asks_its_own_terms_in_turn() -> TestResult
             answers.push(driver.send(&connection, stream, &scan)?);
         }
         for answer in answers {
-            let answer = played_cores::answered(answer).await?;
+            let answer = connection.answered(answer).await?;
             assert!(matches!(answer, Answer::Open), "{answer:?}");
         }
         driver.release_homes();

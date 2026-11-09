@@ -5,7 +5,9 @@ The commit step SHALL close a round when the previous round's log sync completes
 progress, with no timer, holding the commit requests waiting then, bounded by the maximum frame and a transaction
 count; requests past the bounds wait for the next round. A round SHALL be validated, logged,
 synced, applied and acknowledged as a unit, in round order. The commits a partition's role connections deliver while a sync
-is in progress SHALL be among those waiting when it completes, however many arrive on one connection.
+is in progress SHALL be among those waiting when it completes, however many arrive on one connection. A caller handing over
+several requests together, as a partition's core hands over what one turn takes from its inbox, SHALL have them share a round:
+while it hands them over, a request arriving with no round in flight waits, and the round closes once they have all arrived.
 
 #### Scenario: A lone commit waits about one sync
 - **WHEN** one transaction commits on an idle node
@@ -20,6 +22,10 @@ is in progress SHALL be among those waiting when it completes, however many arri
   connection
 - **THEN** the ten are decided in the next round, written with one log append and one sync, and each is acknowledged once that
   round is applied
+
+#### Scenario: Commits a turn takes together share one round
+- **WHEN** a partition's core takes ten commits in one turn with no round in flight
+- **THEN** they are decided in one round, written with one log append and one sync
 
 #### Scenario: Through the binaries a sync carries the commits of many connections
 - **WHEN** sixteen client connections each commit DirectWrites one after another through the frontend to one partition

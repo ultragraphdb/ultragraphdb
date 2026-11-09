@@ -129,6 +129,8 @@ pub struct CommitStep<P> {
     deferred: VecDeque<Waiting<P>>,
     /// Whether a build runs: its start admitted, its end not yet.
     building: bool,
+    /// Whether the caller holds rounds while it hands over several requests ([`Input::Hold`]).
+    holding: bool,
     in_flight: Option<RoundRecord>,
     /// The log position of the round in flight, which its commits' session tokens name.
     in_flight_position: u64,
@@ -174,6 +176,7 @@ impl<P: Proposal> CommitStep<P> {
             waiting: VecDeque::new(),
             deferred: VecDeque::new(),
             building: false,
+            holding: false,
             in_flight: None,
             in_flight_position: 0,
             admitted: Vec::new(),
@@ -312,6 +315,8 @@ impl<P: Proposal> CommitStep<P> {
                 );
             }
             Input::Close(close) => self.deliver(&close, now_us, out, operator),
+            Input::Hold => self.holding = true,
+            Input::Release => self.release(now_us, out, operator),
             Input::Tick => self.expire(now_us, out),
             Input::Synced => self.synced(now_us, out, operator),
             Input::SyncFailed => self.stop(out),

@@ -31,6 +31,9 @@ deployment without a remote cluster.
   store, which the cluster's nodes share, and a client bench runs as a Job inside the cluster.
 - The batching is measured through the binaries on that cluster, against 12.5b's figures, with the syncs per commit
   counted from the partition's phase log.
+- Four improvements keeping strict serializability and the sync of every round, each measured alone and together: referrer reads
+  off the write path, allocation per round, fewer index entries per relation within the KV layout, and the owner's epoch-close sync
+  off the commit path; what remains is recorded as the case for roadmap stage 6.5's storage engine.
 
 ## Capabilities
 
@@ -53,7 +56,8 @@ deployment without a remote cluster.
   ends the stream on it, as it does for `Answer::Done`.
 - `specification/binary_protocol/PROTOCOL.md` §11.12.
 - New `deploy/kubernetes/` (manifests), Bazel targets exporting each role's image as an OCI tarball for
-  `container image load`, and a script that creates the cluster, loads the images, deploys and tears down.
+  `container image load`, and `scripts/cluster_local.sh` behind `make cluster-local` and its siblings, which creates the cluster,
+  loads the images, deploys and tears down; `deploy/kubernetes/` holds the manifests alone.
 - `ultragraphdb_tool_bench`: `client_bench` runs in a Job, so its image is built as the roles' are.
 - Tests: the storage BDD suite gains the batching scenarios; the Kubernetes runs are by hand on a Mac with Apple silicon
   and `container`, outside `make test`, since they need the host's `container` and `kubectl`.

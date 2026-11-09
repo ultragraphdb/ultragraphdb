@@ -41,6 +41,7 @@ use ultragraphdb_traits_blocks::SequenceBlock;
 use ultragraphdb_transactions_commit::{CloseRequest, Pipeline, RoundBounds};
 use ultragraphdb_transactions_log::{CompioStorage, Wal, WalConfig};
 
+use crate::types::partition_core::gated_storage::{GatedStorage, SyncGate};
 use crate::types::partition_core::inbox_tap::{Tap, tap};
 use crate::types::partition_core::yielding_session::Yielding;
 
@@ -99,6 +100,10 @@ pub(crate) struct Rig {
     pub(crate) tap: Tap,
     /// What the core's log has written and synced.
     pub(crate) log_io: LogIo,
+    /// The gate the log's file syncs wait at while a test holds it.
+    pub(crate) sync_gate: SyncGate,
+    /// What stops the core, which the test's end sets.
+    pub(crate) stopping: Stopping,
 }
 
 impl Rig {
@@ -150,15 +155,11 @@ pub(crate) fn with_core_then(
         let blocks = RefillBlocks::new(leased()?, wanted);
         let partition = open_partition(dir.path(), id, &placement, blocks)?;
         if setup.full {
-            let applier = partition.applier();
-            let nothing = applier
-                .begin(setup.tenant, applier.quads().lists().applied_ts())?
-                .finish()?;
-            let last = Version::commit(Epoch::ZERO.next()?, Version::COMMIT_SEQUENCE_MAX)?;
-            let _applied = applier.apply_round(vec![(last.to_u64(), nothing)])?;
+            fill_open_epoch(&partition, setup.tenant)?;
         }
         let log_io = LogIo::default();
-        let log = open_log(dir.path(), log_io.clone()).await?;
+        let sync_gate = SyncGate::default();
+        let log = open_log(dir.path(), log_io.clone(), sync_gate.clone()).await?;
         let pipeline = Pipeline::new(partition.applier(), log, RoundBounds::new(1 << 20, 1 << 10))?
             .with_partition(PARTITION, Epoch::ZERO, CloseRequest::default(), &[])
             .bound(id, partition.placement());
@@ -199,6 +200,8 @@ pub(crate) fn with_core_then(
             inbox: inbox_tx,
             tap,
             log_io,
+            sync_gate,
+            stopping: stopping.clone(),
         };
         let tested = async {
             let outcome = test(rig).await;
@@ -213,14 +216,27 @@ pub(crate) fn with_core_then(
     })
 }
 
-/// The partition's write-ahead log in `dir`, its I/O counted into `log_io` on the runtime's clock, as the role times it.
+/// Has `partition`'s store apply the last sequence of its open epoch, epoch 1, for `tenant`: its open epoch full.
+fn fill_open_epoch(partition: &StoragePartition, tenant: u64) -> TestResult {
+    let applier = partition.applier();
+    let nothing = applier
+        .begin(tenant, applier.quads().lists().applied_ts())?
+        .finish()?;
+    let last = Version::commit(Epoch::ZERO.next()?, Version::COMMIT_SEQUENCE_MAX)?;
+    let _applied = applier.apply_round(vec![(last.to_u64(), nothing)])?;
+    Ok(())
+}
+
+/// The partition's write-ahead log in `dir`, its I/O counted into `log_io` on the runtime's clock, as the role times it, its file
+/// syncs waiting at `gate` while a test holds it.
 async fn open_log(
     dir: &std::path::Path,
     log_io: LogIo,
-) -> TestResult<Wal<TimedStorage<CompioStorage>>> {
+    gate: SyncGate,
+) -> TestResult<Wal<TimedStorage<GatedStorage<CompioStorage>>>> {
     let config = WalConfig::new(CLUSTER, false);
     let origin = compio::time::interval(Duration::from_secs(1)).tick().await;
-    let storage = TimedStorage::new(CompioStorage, log_io, origin);
+    let storage = TimedStorage::new(GatedStorage::new(CompioStorage, gate), log_io, origin);
     let (log, _) = Wal::open(storage, dir.join("wal"), config).await?;
     Ok(log)
 }

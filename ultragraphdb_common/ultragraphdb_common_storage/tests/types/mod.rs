@@ -30,6 +30,8 @@ mod refill_blocks_tests;
 #[cfg(test)]
 mod retention_tests;
 #[cfg(test)]
+mod role_connection_phases_tests;
+#[cfg(test)]
 mod scan_board_tests;
 #[cfg(test)]
 mod storage_session_tests;

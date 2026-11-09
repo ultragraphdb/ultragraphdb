@@ -6,7 +6,7 @@
 use std::time::Duration;
 
 use futures::StreamExt;
-use ultragraphdb_common_role::{Answer, ParkedBytes, Session};
+use ultragraphdb_common_role::{Answer, ParkedBytes, Push, Session};
 use ultragraphdb_protocol_scram::{MECHANISM, ScramServer, ScramVerifier};
 use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{ErrorCode, ErrorReply};
@@ -103,11 +103,11 @@ impl<A: Authorizer + Clone> Session for ClientSession<A> {
 
     /// Takes what reaches the session from outside, one event at a time, and its timers; a wait dropped for a request that arrived
     /// first loses nothing, since an event is taken whole.
-    async fn next_push(&mut self) -> (u64, Vec<u8>) {
+    async fn next_push(&mut self) -> (u64, Push) {
         loop {
             self.recount();
             if let Some(pushed) = self.out.pop_front() {
-                return pushed;
+                return (pushed.0, Push::Frame(pushed.1));
             }
             let wait = self
                 .next_deadline()

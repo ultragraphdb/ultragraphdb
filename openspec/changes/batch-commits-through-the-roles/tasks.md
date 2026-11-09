@@ -26,27 +26,35 @@
 
 ## 2. One ordered push channel → `ultragraphdb_common_role`
 
-- [ ] 2.1 `Push`, a frame or `End`; `Session::next_push` yields `(u64, Push)`; `serve_connection` ends a stream on `End` as on
+- [x] 2.1 `Push`, a frame or `End`; `Session::next_push` yields `(u64, Push)`; `serve_connection` ends a stream on `End` as on
   `Answer::Done`, and drops a push for a stream no longer open as today; every implementor of `Session` updated
-- [ ] 2.2 Tests: `End` ends the stream with no frame, a push after `End` on that stream is dropped, and the order of pushes is the
+- [x] 2.2 Tests: `End` ends the stream with no frame, a push after `End` on that stream is dropped, and the order of pushes is the
   order on the wire
 
 ## 3. The session reads on → `ultragraphdb_common_storage`
 
-- [ ] 3.1 `StorageSession::answer` copies the frame into a `ParkedFrame` counted against the connection's `ParkedBytes`, sends the
+- [x] 3.1 `StorageSession::answer` copies the frame into a `ParkedFrame` counted against the connection's `ParkedBytes`, sends the
   copy to the core and returns `Answer::Open`; the `done` channel and `ending` removed; the session's documentation states the
   bound of what it sends the core and the push channel's length
-- [ ] 3.2 `PartitionCore` answers every request through its push channel in its order: replies, refusals as Error frames, and
+- [x] 3.2 `PartitionCore` answers every request through its push channel in its order: replies, refusals as Error frames, and
   `End` for a stream ending with no frame; a parked request moves its copy into its `Parked` entry rather than copying again; the
   copy's bytes are released when the core drops it
-- [ ] 3.3 The partition's `role connection phases` (design D10): from `StorageSession` reading a request to its reply's push being
+- [x] 3.3 The partition's `role connection phases` (design D10): from `StorageSession` reading a request to its reply's push being
   taken by the connection, in a window logged once a second at most beside `commit phases`, with the commits per sync of the same
   window; tests of the window as `OneFramePhases` has them
-- [ ] 3.4 The burst test (design D10): in process, a partition core answering 1,000 queued one-frame writes in one round over one
-  role connection to a frontend endpoint, the time from the first reply leaving to the last answer reaching its client connection,
-  against the partition's time to write them; recorded, with no bound asserted until the owner sets one
-- [ ] 3.5 The scenarios of groups 1 and 2 pass; `ultragraphdb_storage_tests`, `ultragraphdb_tests` and the frontend's suites pass
-  unchanged, natively and in the Linux suites under the shipped seccomp profile
+- [x] 3.4 The burst test (design D10): in process, 1,000 one-frame writes sent on one role connection while the log's sync is
+  held, answered in one round, read back one frame at a time through `RoleClient`, the frontend's role link's reader; the time from
+  the sync's release to the first answer and from the first to the last, recorded, with no bound asserted until the owner sets one
+- [x] 3.5 The scenarios hold a real sync (design D11): `PartitionCore`, `CoreParts` and `StorageHost` generic over the log's
+  `DurableStorage`, the storage role naming `CompioStorage`; in the tests a storage wrapping the real one whose file syncs the test
+  can hold; the scenarios of 1.2 and 1.3 hold the log's sync in place of the tap's hold, the tap still counting what reaches the
+  inbox, and the commit-rounds scenario asserts one append and one sync for the commits sent while a real sync was in flight
+- [x] 3.6 One round per intake (design D12, the owner's decision): `Input::Hold` and `Input::Release` in the commit step, passed on by
+  `Pipeline` and `PartitionHost`, the core holding around each turn's intake; commit step tests of the hold, a release with nothing
+  waiting and a release while a round syncs; the one-round scenario fails without the hold (three rounds) and passes with it (two)
+- [x] 3.7 The scenarios of groups 1 and 2 pass; `ultragraphdb_storage_tests`, `ultragraphdb_tests` and the frontend's suites pass
+  unchanged, natively and in the Linux suites under `container run` as user 65532 (`container` has no seccomp option; the shipped
+  profile is exercised by the Kubernetes deployment, task 5.4)
 
 ## 4. The bench and its image → `ultragraphdb_tool_bench`
 
@@ -63,7 +71,9 @@
   volume each, compute as a Deployment, headless Services publishing not-ready addresses, the client Service, the profile's
   ConfigMap, the Secrets' names (no values), the bootstrap variables, the probes, the security context, `imagePullPolicy: Never`,
   and the seccomp profile as 0.2 decided; the bench Job
-- [ ] 5.3 `deploy/kubernetes/local.sh up|down|bench|status`: checks for `container` and names it when missing; builds the images'
+- [ ] 5.3 `scripts/cluster_local.sh up|down|bench|status` behind the make targets `cluster-local`, `cluster-local-down`,
+  `cluster-local-bench` and `cluster-local-status`, listed in `make help`; `deploy/kubernetes/` holds no script: checks for `container`
+  and names it when missing; builds the images'
   `oci_tarball`s with `-c opt`, loads them and tags each arm64 manifest by its digest; creates the cluster with
   `--shared-image-store`, its node CPUs and memory as arguments and `KUBECONFIG` naming a file of its own; applies kind's
   `default-storage.yaml` and installs the seccomp profile on every node; draws the keys and secrets from `/dev/urandom` into
@@ -78,26 +88,70 @@
 
 ## 6. Measurements
 
-- [ ] 6.1 Design D9 on the OrbStack VM, like for like with 12.5b: the role binaries built with `-c opt`, one partition and four,
-  DirectWrites at 1, 16 and 64 connections and transactions at 16, three interleaved 20 s runs, medians and ranges, the loads
-  stated; syncs per commit and the phases from the `commit phases` and `one-frame write phases` logs; against 12.5b's tables
+- [ ] 6.1 Design D9 on a `container` Linux machine against the baseline the Shard-per-Core note records (*Stage 5.5 on the VM
+  disk*, *Through the three binaries with the real client*, *A commit's phases through the binaries (experiment X1)*): the role
+  binaries built with `-c opt`, one partition and four, DirectWrites at 1, 16 and 64 connections and transactions at 16, three
+  interleaved 20 s runs, medians and ranges, the loads, the machine and the log's sync time stated; syncs per commit and the phases
+  from the `commit phases` and `one-frame write phases` logs, beside the note's tables; plus 12 partitions in one storage process at
+  1 and 10 relations per commit and 64 and 256 connections, on a machine of 12 CPUs, each point reported as the share of the note's
+  in-process rate at the same partitions and relations per commit (at 12: 124,057–129,360 and 179,162–203,082 relations a second),
+  the roles' implied overhead
 - [ ] 6.2 The same matrix on the `container` cluster through the bench Job, one storage instance, the driver and node sizes stated
 - [ ] 6.3 The reply path (design D10), in the series of 6.1 and 6.2: per run the residual, the frontend's relay-to-answer less the
   partition's read-to-reply, its median and 99th percentile against commits per sync, beside the one-connection runs' residual at
   one commit per round; the burst test's figures; whether the reply path keeps up, and, if not, the figures to the owner
-- [ ] 6.4 The results in `notes/group-6.md`, the Shard-per-Core note beside X1's figures, and backlog item 18's *Batching* bullet
+- [ ] 6.4 Any share of the in-process rate far below it chased to its cause (design D9): the phase that grows or the time no phase
+  accounts for, profiled with the symbol builds where the phases stop short, and fixed here or brought to the owner with its figures
+- [ ] 6.5 The results in `notes/group-6.md`, the Shard-per-Core note beside X1's figures, and backlog item 18's *Batching* bullet
   closed with what this change built and measured
 
-## 7. Verification
+## 7. Performance keeping the guarantees
 
-- [ ] 7.1 Ultra Style on every changed crate; `make format` and `make fix` leave the tree unchanged; `cargo clippy --workspace
+Each improvement keeps strict serializability and the sync of every round before its acknowledgement; each is measured alone and
+together against group 6's figures, on the same machine and matrix, as relations per second and as the share of the in-process
+ceiling (design D13). The rule is evidence (owner, 2026-11-09): an improvement whose figures show higher transaction throughput,
+outside the runs' spread, is kept and finished in turn, its tests, spec deltas and documentation with it; one that does not is
+taken out again, and its figures are recorded with the reason.
+
+- [ ] 7.1 The baseline split: `perf` with symbols (`wal_bench_profile`, `ultragraphdb_storage_profile`) of the commit thread, in
+  process at 1 and 12 partitions and through the binaries at 16 connections, its time divided among execution, validation of the
+  read sets (what strict serializability costs), the commit step's decision, the log's write and sync, apply and allocation, at 1,
+  10 and 50 relations per commit; the core's per-relation time through the binaries (X1: about 63 µs) set against the in-process
+  20–25 µs, the difference explained
+- [ ] 7.2 Referrer reads off the write path: `referrer_candidates` (`ultragraphdb_store_apply`) no longer reads a hub's referrer set
+  from the store on each commit, by caching it within the partition or by skipping the read for a bucket group the round already
+  names, whichever keeps "A commit under a registration reply reads its mark" and the referrer sets' completeness (`partitions`);
+  tests first; measured in process at 1 and 12 partitions over 3 s and 30 s runs (the decay from 35,984 to 14,202 relations a
+  second gone) and through the binaries
+- [ ] 7.3 Allocation per round, not per relation: the terms, changesets and records between a DirectWrite's frame and its round
+  built in buffers the pipeline lends and takes back, as its read sets are; `alloc_bench`'s allocations per term and per relation
+  before and after (12.5b: 52–86 a term, 176–258 a relation), and the throughput
+- [ ] 7.4 Index entries per relation within the KV layout: the keys a relation writes counted by keyspace and each keyspace's share
+  of the commit thread's time; entries the layout can merge or drop without changing what any read returns or what recovery
+  rebuilds are merged or dropped, tests first; what only a new storage format can remove is recorded as input to roadmap stage 6.5
+  (the tile-based storage engine)
+- [ ] 7.5 The owner's epoch-close sync off the commit path (backlog item 18, *The owner's sync*): the owner answers asks that read
+  nothing unsynced ahead of its sync, or the endpoint holds a tenant's facts between closes, whichever keeps the gate's and the
+  owner check's guarantees (`client-endpoint`, `metadata-group`); spec deltas for the behaviour that changes, tests first; the
+  frontend's checks and a one-relation commit measured at the `dev` epochs against X1 (1.44 ms and 3.93 ms)
+- [ ] 7.6 The four together, group 6's matrix again: each improvement's gain alone and together, the share of the in-process ceiling
+  at 1, 4 and 12 partitions, validation's share of the commit thread, and the per-relation floor the KV store leaves, in
+  `notes/group-7.md` and the Shard-per-Core note
+- [ ] 7.7 What remains for roadmap stage 6.5: the storage engine's floor per relation and per commit after the four, by keyspace and
+  operation, recorded in the backlog as the measured case for the tile-based storage engine
+
+## 8. Verification
+
+- [ ] 8.1 Ultra Style on every changed crate; `make format` and `make fix` leave the tree unchanged; `cargo clippy --workspace
   --all-targets -- -D warnings` clean
-- [ ] 7.2 Mutation testing of `ultragraphdb_common_role` and `ultragraphdb_common_storage` over this change's diff, as the group's
+- [ ] 8.2 Mutation testing of every crate this change touches (`ultragraphdb_common_role`, `ultragraphdb_common_storage`,
+  `ultragraphdb_transactions_commit` and those group 7 changes) over its diff, as the group's
   last step; survivors killed or recorded with their reason
-- [ ] 7.3 `make test` green and the five Linux suites under the shipped seccomp profile; the final counts recorded
-- [ ] 7.4 Cleanup once the measurements are recorded, each listed in `notes/group-7.md` before it is removed: every `container`
+- [ ] 8.3 `make test` green with OrbStack started, so the supervisor's Docker image tests run, and the five Linux suites under
+  `container run` as user 65532; the final counts recorded
+- [ ] 8.4 Cleanup once the measurements are recorded, each listed in `notes/group-8.md` before it is removed: every `container`
   cluster this change created (`container cluster delete`), the images it loaded into `container`'s store (`ultragraphdb/*`, the
   bench's, the untagged platform images, `busybox`, and `kindest/node` unless the owner keeps it), `container` volumes and the
-  probe's leftovers from group 0, the scripts' kubeconfig and state files, and the data and binary directories the measurements left
-  on the OrbStack VM (`/var/tmp/<run>`); `container image list`, `container cluster list` and `container volume list` show none of
+  probe's leftovers from group 0, the script's kubeconfig and state files, and the data volumes and binary directories the
+  measurements left on the `container` machine; `container image list`, `container cluster list` and `container volume list` show none of
   them afterwards

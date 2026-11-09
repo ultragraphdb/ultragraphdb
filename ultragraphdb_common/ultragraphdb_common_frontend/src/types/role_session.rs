@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use compio::runtime::spawn;
 use ultragraphdb_cluster_sequencer::Close;
-use ultragraphdb_common_role::{Answer, RoleClient, RoleCluster, Session};
+use ultragraphdb_common_role::{Answer, Push, RoleClient, RoleCluster, Session};
 use ultragraphdb_common_service::{Readiness, RoleKind as ServiceRole};
 use ultragraphdb_core_ids::Tenant;
 use ultragraphdb_protocol_transport::{Address, ReceivedFrame};
@@ -226,7 +226,7 @@ impl Session for RoleSession {
 
     /// The next close of this connection's subscription. Its cursor moves only once a close came back, and a wait dropped
     /// for a request that arrived first asks again, so a close is neither lost nor sent twice.
-    async fn next_push(&mut self) -> (u64, Vec<u8>) {
+    async fn next_push(&mut self) -> (u64, Push) {
         loop {
             let Some((stream, after)) = self.subscription else {
                 return std::future::pending().await;
@@ -242,7 +242,7 @@ impl Session for RoleSession {
                         .with_stream(stream)
                         .with_flags(FLAG_LAST);
                     match refusal.frame(header) {
-                        Ok(frame) => return (stream, frame),
+                        Ok(frame) => return (stream, Push::Frame(frame)),
                         Err(error) => {
                             tracing::error!(%error, "a subscription's end could not be framed");
                             continue;
@@ -254,7 +254,7 @@ impl Session for RoleSession {
             match close_frame(cluster, stream, &close) {
                 Ok(frame) => {
                     self.subscription = Some((stream, close.epoch().get()));
-                    return (stream, frame);
+                    return (stream, Push::Frame(frame));
                 }
                 Err(error) => {
                     tracing::error!(%error, "a close could not be framed");

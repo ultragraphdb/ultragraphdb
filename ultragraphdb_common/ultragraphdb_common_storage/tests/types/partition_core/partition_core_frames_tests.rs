@@ -16,8 +16,8 @@ use ultragraphdb_store_quads::term_key;
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::types::partition_core::played_cores::{
-    CLUSTER, Driver, PRINCIPAL, TENANT, answered, bind, command_of, error_in, refusal_of, reply_of,
-    served, served_at,
+    CLUSTER, Driver, PRINCIPAL, TENANT, bind, command_of, error_in, refusal_of, reply_of, served,
+    served_at,
 };
 
 /// The IRI the tenant's first write names, from its home (`PROTOCOL.md` §11.12).
@@ -181,9 +181,13 @@ fn test_what_follows_a_parked_write_keeps_its_order() -> TestResult {
         )?;
         let write = driver.send(&connection, 3, &edge(&driver, 2, "parked")?)?;
         let commit = driver.send(&connection, 3, &Commit::new([6; 16], 1, 0))?;
-        assert_eq!(answered(write).await?, Answer::Open, "the Write parks");
         assert_eq!(
-            answered(commit).await?,
+            connection.answered(write).await?,
+            Answer::Open,
+            "the Write parks"
+        );
+        assert_eq!(
+            connection.answered(commit).await?,
             Answer::Open,
             "the Commit waits behind it"
         );
@@ -388,8 +392,11 @@ fn test_a_request_failing_its_checksum_is_refused_now_or_in_its_turn() -> TestRe
     served(2, async |mut driver| {
         let mut connection = driver.connect(1, 1 << 20)?;
         let commit = corrupted(framed(&Commit::new([1; 16], 1, 0), 3)?)?;
-        let refused =
-            refusal_of(answered(driver.send_frame(&connection, 3, commit.clone())?).await?)?;
+        let refused = refusal_of(
+            connection
+                .answered(driver.send_frame(&connection, 3, &commit)?)
+                .await?,
+        )?;
         assert_eq!(refused.code(), ErrorCode::Protocol, "{}", refused.message());
         let _bound = reply_of(
             driver
@@ -397,9 +404,17 @@ fn test_a_request_failing_its_checksum_is_refused_now_or_in_its_turn() -> TestRe
                 .await?,
         )?;
         let write = driver.send(&connection, 3, &edge(&driver, 2, "parked")?)?;
-        assert_eq!(answered(write).await?, Answer::Open, "the Write parks");
-        let behind = driver.send_frame(&connection, 3, commit)?;
-        assert_eq!(answered(behind).await?, Answer::Open, "it waits behind");
+        assert_eq!(
+            connection.answered(write).await?,
+            Answer::Open,
+            "the Write parks"
+        );
+        let behind = driver.send_frame(&connection, 3, &commit)?;
+        assert_eq!(
+            connection.answered(behind).await?,
+            Answer::Open,
+            "it waits behind"
+        );
         driver.release_homes();
         let (_, held) = connection.pushed("the Write's Held").await?;
         assert_eq!(command_of(&held)?, Command::Held, "{:?}", error_in(&held)?);

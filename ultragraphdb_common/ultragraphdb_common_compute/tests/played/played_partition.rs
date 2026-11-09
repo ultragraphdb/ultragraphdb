@@ -15,7 +15,7 @@ use compio::runtime::spawn;
 use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use ultragraphdb_common_role::{
-    Answer, ROLE_ITERATIONS, RoleCluster, Server, Session, serve_connection,
+    Answer, Push, ROLE_ITERATIONS, RoleCluster, Server, Session, serve_connection,
 };
 use ultragraphdb_core_ids::{Epoch, Version};
 use ultragraphdb_core_keys::Keyspace;
@@ -422,9 +422,9 @@ impl Session for PartitionSession {
         Answer::Open
     }
 
-    async fn next_push(&mut self) -> (u64, Vec<u8>) {
+    async fn next_push(&mut self) -> (u64, Push) {
         match self.pushed.next().await {
-            Some(pushed) => pushed,
+            Some((stream, frame)) => (stream, Push::Frame(frame)),
             // The session holds a sender, so its channel never ends while it waits here.
             None => std::future::pending().await,
         }

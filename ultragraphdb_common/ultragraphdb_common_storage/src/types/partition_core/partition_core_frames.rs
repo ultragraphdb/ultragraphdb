@@ -5,14 +5,13 @@
 
 use std::collections::VecDeque;
 
-use futures::channel::oneshot;
 use ultragraphdb_cluster_partition::{BoundKey, BoundStep, PartitionError};
-use ultragraphdb_common_role::{Answer, ParkedBytes};
+use ultragraphdb_common_role::{Answer, Push};
 use ultragraphdb_core_ids::Epoch;
-use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{
     BindKind, BindView, BodyBuilder, BodyView, Command, CommitView, ErrorCode, ErrorReply,
-    FLAG_LAST, FrameView, Header, Held, MAX_FRAME_SIZE, OperationView, ReferenceView, WriteView,
+    FLAG_LAST, FrameView, Header, HeaderView, Held, MAX_FRAME_SIZE, OperationView, ReferenceView,
+    WriteView,
 };
 use ultragraphdb_transactions_txn::{FrameChanges, FrameTerms};
 
@@ -22,6 +21,7 @@ use crate::types::partition_core::partition_core_one_frame::ONE_FRAME_ATTEMPTS;
 use crate::types::partition_core::{Committing, Parked, ParkedWork, PartitionCore, RequestStep};
 use crate::utils::error_reply::error_reply;
 use crate::utils::operation_of::operation_of;
+use ultragraphdb_transactions_log::DurableStorage;
 
 /// The write `frame` carries, its terms lent by the frame: what `run` makes of its changes.
 fn with_changes<T>(
@@ -36,7 +36,7 @@ fn with_changes<T>(
     run(&changes).map_err(|refusal| error_reply(&refusal))
 }
 
-impl PartitionCore<'_> {
+impl<S: DurableStorage> PartitionCore<'_, S> {
     /// Takes what a connection handed over.
     pub(super) fn take(&mut self, message: CoreMessage) {
         match message {
@@ -44,13 +44,9 @@ impl PartitionCore<'_> {
                 connection,
                 stream,
                 frame,
-                done,
                 pushes,
                 max_frame,
-            } => self.request((connection, stream), &frame, done, pushes, max_frame),
-            CoreMessage::Opened { connection, parked } => {
-                let _none = self.connections.insert(connection, parked);
-            }
+            } => self.request((connection, stream), frame, pushes, max_frame),
             CoreMessage::Cancelled { connection, stream } => {
                 let key = (connection, stream);
                 self.host.abort_bound(key);
@@ -67,72 +63,60 @@ impl PartitionCore<'_> {
                 self.bound_tenant.retain(|(of, _), _| *of != connection);
                 self.drop_streams.retain(|(of, _), _| *of != connection);
                 self.parked.retain(|(of, _), _| *of != connection);
-                let _closed = self.connections.remove(&connection);
                 self.close_scans(connection);
             }
         }
     }
 
-    /// A request of `key`, as it arrives: behind its stream's parked request it waits its turn, copied, and an Abort ends what it would
-    /// wait behind (`PROTOCOL.md` §11.12). Any other runs now, and parks, copied, should it wait on a home, so the connection reads on.
-    fn request(
-        &mut self,
-        key: BoundKey,
-        frame: &ReceivedFrame,
-        done: oneshot::Sender<Answer>,
-        pushes: Pushes,
-        max_frame: u32,
-    ) {
+    /// A request of `key`, as the core takes it: behind its stream's parked request it waits its turn, and an Abort ends what it
+    /// would wait behind (`PROTOCOL.md` §11.12). Any other runs now, and parks, holding its copy, should it wait on a home. Its
+    /// answer, if it has one now, is pushed.
+    fn request(&mut self, key: BoundKey, frame: ParkedFrame, pushes: Pushes, max_frame: u32) {
         self.taking = self.mark();
-        if frame.command() != Command::Abort.number() && self.parked.contains_key(&key) {
-            let behind = self.copied(key.0, frame.bytes());
-            if let Some(parked) = self.parked.get_mut(&key) {
-                parked.behind.push_back(behind);
-            }
-            // An asker gone has no one to tell.
-            drop(done.send(Answer::Open));
+        let is_abort = HeaderView::new(frame.bytes())
+            .is_ok_and(|header| header.command() == Command::Abort.number());
+        if !is_abort && let Some(parked) = self.parked.get_mut(&key) {
+            parked.behind.push_back(frame);
             return;
         }
-        let step = match frame.view() {
+        let step = match FrameView::validate(frame.bytes(), self.cluster, MAX_FRAME_SIZE) {
             Ok(view) => self.step(key, &view, &pushes, max_frame),
             Err(rule) => RequestStep::Answered(Answer::Refuse(ErrorReply::protocol(&rule))),
         };
-        let answer = match step {
-            RequestStep::Answered(answer) => answer,
+        match step {
+            RequestStep::Answered(answer) => self.push_answer(key.1, answer, &pushes),
             RequestStep::Parks { tenant, work } => {
                 let parked = Parked {
-                    frame: self.copied(key.0, frame.bytes()),
+                    frame,
                     tenant,
                     work,
                     pushes,
                     max_frame,
-                    // Each request behind is a copy counted in its connection's parked bytes, whose bound stops the
-                    // connection's reads, so that bound limits its length.
+                    // Each request behind is a copy counted in its connection's held bytes, whose bound stops the connection's
+                    // reads, so that bound limits its length.
                     behind: VecDeque::new(),
                     taken: self.taking,
                 };
                 let _none = self.parked.insert(key, parked);
-                Answer::Open
             }
             RequestStep::InCommit(ticket) => {
-                let held = frame.bytes().to_vec();
                 let taken = self.taking;
+                let held = frame.into_bytes();
                 self.committing_one_frame(key, (held, taken), ONE_FRAME_ATTEMPTS, ticket, pushes);
-                Answer::Open
             }
-        };
-        // An asker gone has no one to tell.
-        drop(done.send(answer));
+        }
     }
 
-    /// A copy of `bytes`, counted against `connection`, which every session announces ahead of its first request.
-    fn copied(&self, connection: u64, bytes: &[u8]) -> ParkedFrame {
-        let parked = self
-            .connections
-            .get(&connection)
-            .cloned()
-            .unwrap_or_else(|| ParkedBytes::new(usize::MAX));
-        ParkedFrame::copy(bytes, parked)
+    /// Pushes `answer` on `stream`: a reply, a refusal as an Error ending the stream, or the stream's end with no frame; an open
+    /// stream's answer comes later.
+    pub(super) fn push_answer(&self, stream: u64, answer: Answer, pushes: &Pushes) {
+        match answer {
+            // A connection gone has no one to tell.
+            Answer::Reply(reply) => drop(pushes.unbounded_send((stream, Push::Frame(reply)))),
+            Answer::Done => drop(pushes.unbounded_send((stream, Push::End))),
+            Answer::Refuse(refusal) => self.push_error(stream, &refusal, pushes),
+            Answer::Open => {}
+        }
     }
 
     /// What a request of `key` comes to in its turn: one of a Write, an Operation or a Commit behind a read's wait on its home waits for
@@ -281,14 +265,13 @@ impl PartitionCore<'_> {
                     return;
                 }
                 RequestStep::Answered(Answer::Reply(reply)) => {
-                    // A connection gone has no one to tell.
-                    drop(parked.pushes.unbounded_send((key.1, reply)));
+                    self.push_answer(key.1, Answer::Reply(reply), &parked.pushes);
                 }
-                RequestStep::Answered(Answer::Refuse(refusal)) => {
-                    self.push_error(key.1, &refusal, &parked.pushes);
+                RequestStep::Answered(answer @ (Answer::Refuse(_) | Answer::Done)) => {
+                    self.push_answer(key.1, answer, &parked.pushes);
                     return;
                 }
-                RequestStep::Answered(Answer::Open | Answer::Done) => return,
+                RequestStep::Answered(Answer::Open) => return,
             }
             let Some(next) = parked.behind.pop_front() else {
                 return;

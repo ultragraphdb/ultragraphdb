@@ -9,19 +9,19 @@ use compio::runtime::{Runtime, spawn};
 use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedReceiver, unbounded};
 use ultragraphdb_common_role::{
-    Answer, ROLE_ITERATIONS, RoleClient, RoleSecret, Server, Session, listen, serve_connection,
+    Answer, Push, ROLE_ITERATIONS, RoleClient, RoleSecret, Server, Session, listen,
+    serve_connection,
 };
-use ultragraphdb_common_storage::{CoreMessage, StorageSession};
+use ultragraphdb_common_storage::{CoreMessage, ParkedFrame, RoleConnectionPhases, StorageSession};
 use ultragraphdb_protocol_transport::{BufferPool, Endpoint, Framer, ReceivedFrame};
 use ultragraphdb_protocol_wire::{
-    Abort, Bind, BindKind, BindView, BodyBuilder, BodyView, Cancel, Closed, Command, Commit,
-    DirectWrite, ErrorCode, ErrorReply, ErrorReplyView, FLAG_LAST, Header, MAX_FRAME_FLOOR,
-    MAX_FRAME_SIZE, ScanAt,
+    Abort, BodyBuilder, BodyView, Cancel, Closed, Command, Commit, DirectWrite, ErrorCode,
+    ErrorReply, ErrorReplyView, FLAG_LAST, Header, MAX_FRAME_FLOOR, MAX_FRAME_SIZE, ScanAt,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::types::partition_core::core_harness::{self as harness, edges_write};
-use crate::types::partition_core::core_rig::{self as rig, RigSetup, with_core};
+use crate::types::partition_core::core_rig::{self as rig, Rig, RigSetup, with_core};
 use crate::types::partition_core::core_writes::{alone, committed, edges, plain, scanned};
 use crate::types::partition_core::inbox_tap::Tap;
 use crate::types::partition_core::yielding_session::Yielding;
@@ -31,25 +31,21 @@ const PASSWORD: &str = "s3cret";
 const DUE: Duration = Duration::from_secs(5);
 
 /// Plays a core: each request's stream is ended by a pushed Error of `Refused`, and the request itself, which crossed that Error,
-/// is refused with `Protocol`, as a real core refuses a request on a stream whose transaction has ended.
+/// is then refused with `Protocol`, as a real core refuses a request on a stream whose transaction has ended, both pushed in order.
 async fn core_ending_each_stream(mut inbox: UnboundedReceiver<CoreMessage>) {
     while let Some(message) = inbox.next().await {
-        if let CoreMessage::Request {
-            stream,
-            done,
-            pushes,
-            ..
-        } = message
-        {
-            let ended = ErrorReply::new(ErrorCode::Refused, "why the transaction ended");
-            let header = Header::new(CLUSTER, Command::Error)
-                .with_stream(stream)
-                .with_flags(FLAG_LAST);
-            if let Ok(frame) = ended.frame(header) {
-                drop(pushes.unbounded_send((stream, frame)));
+        if let CoreMessage::Request { stream, pushes, .. } = message {
+            for refusal in [
+                ErrorReply::new(ErrorCode::Refused, "why the transaction ended"),
+                ErrorReply::new(ErrorCode::Protocol, "a stream no Bind opened"),
+            ] {
+                let header = Header::new(CLUSTER, Command::Error)
+                    .with_stream(stream)
+                    .with_flags(FLAG_LAST);
+                if let Ok(frame) = refusal.frame(header) {
+                    drop(pushes.unbounded_send((stream, Push::Frame(frame))));
+                }
             }
-            let crossed = ErrorReply::new(ErrorCode::Protocol, "a stream no Bind opened");
-            drop(done.send(Answer::Refuse(crossed)));
         }
     }
 }
@@ -98,7 +94,7 @@ fn test_a_refusal_crossing_its_streams_end_gives_way_to_it() -> TestResult {
 /// The connection every session below serves.
 const CONNECTION: u64 = 4;
 
-/// `bytes` as the connection's machine hands a request to its session.
+/// `bytes` as the connection's machine hands a request to its session, its first frame.
 fn received(bytes: Vec<u8>) -> TestResult<ReceivedFrame> {
     let pool = BufferPool::new(1, MAX_FRAME_SIZE);
     let mut buffer = pool.acquire()?;
@@ -106,61 +102,80 @@ fn received(bytes: Vec<u8>) -> TestResult<ReceivedFrame> {
     Ok(Framer::from_client(CLUSTER, MAX_FRAME_SIZE).finish(buffer))
 }
 
-/// An Error frame on `stream`, ending it when `last`.
-fn error_frame(stream: u64, last: bool) -> TestResult<Vec<u8>> {
-    let flags = if last { FLAG_LAST } else { 0 };
-    let header = Header::new(CLUSTER, Command::Error)
-        .with_stream(stream)
-        .with_flags(flags);
-    Ok(ErrorReply::new(ErrorCode::Refused, "pushed").frame(header)?)
+/// A Closed request on `stream`, the connection's first frame.
+fn closed_request(stream: u64) -> TestResult<ReceivedFrame> {
+    received(
+        Closed::request(&[1]).frame(
+            Header::new(CLUSTER, Command::Closed)
+                .with_stream(stream)
+                .with_sequence(1),
+        )?,
+    )
 }
 
-/// What `session` answers to a request on `stream`, the core pushing each of `pushed` and then answering `answer`: the session's
-/// answer and the largest frame the request carried to the core.
+/// What `session` answers to a request on `stream`, and what it handed the core: the request's frame and the largest frame its
+/// peer takes.
 async fn answered(
     session: &mut StorageSession,
     inbox: &mut UnboundedReceiver<CoreMessage>,
     stream: u64,
-    pushed: Vec<(u64, Vec<u8>)>,
-    answer: Answer,
-) -> TestResult<(Answer, u32)> {
-    let request = received(Closed::request(&[1]).frame(Header::new(CLUSTER, Command::Closed))?)?;
-    let core = async {
-        let Some(CoreMessage::Request {
-            connection,
-            stream: on,
-            done,
-            pushes,
-            max_frame,
-            ..
-        }) = inbox.next().await
-        else {
-            return Err(TestError::new("a request"));
-        };
-        assert_eq!((connection, on), (CONNECTION, stream));
-        for push in pushed {
-            pushes.unbounded_send(push)?;
-        }
-        done.send(answer)
-            .map_err(|_| TestError::new("the session waits"))?;
-        Ok(max_frame)
+) -> TestResult<(Answer, ParkedFrame, u32)> {
+    let answer = session.answer(stream, closed_request(stream)?).await;
+    let Ok(CoreMessage::Request {
+        connection,
+        stream: on,
+        frame,
+        max_frame,
+        ..
+    }) = inbox.try_recv()
+    else {
+        return Err(TestError::new("a request handed on"));
     };
-    let (answered, max_frame) = futures::future::join(session.answer(stream, request), core).await;
-    Ok((answered, max_frame?))
+    assert_eq!((connection, on), (CONNECTION, stream));
+    Ok((answer, frame, max_frame))
 }
 
-/// A session announces its connection with what it counts parked, which is what [`Session::parked`] reads.
+/// A session answers a request as open at once, and counts what it hands its core in what the connection holds until the core
+/// drops it; that count is what [`Session::parked`] reads.
 #[test]
-fn test_a_session_announces_what_it_counts_parked() -> TestResult {
-    let (core, mut inbox) = unbounded();
-    let session = StorageSession::new(CONNECTION, core, 100);
-    let Ok(CoreMessage::Opened { connection, parked }) = inbox.try_recv() else {
-        return Err(TestError::new("the connection's opening"));
-    };
-    assert_eq!(connection, CONNECTION);
-    parked.hold(10);
-    assert_eq!(session.parked().context("what it parks")?.count(), 10);
-    Ok(())
+fn test_a_session_counts_what_it_hands_its_core() -> TestResult {
+    Runtime::new()?.block_on(async {
+        let (core, mut inbox) = unbounded();
+        let mut session = StorageSession::new(CONNECTION, core, 100);
+        let held = session.parked().context("what it holds")?;
+        let (answer, frame, _) = answered(&mut session, &mut inbox, 3).await?;
+        assert_eq!(answer, Answer::Open, "its answer is pushed");
+        assert_eq!(
+            held.count(),
+            frame.bytes().len(),
+            "counted while the core holds it"
+        );
+        drop(frame);
+        assert_eq!(held.count(), 0, "released as the core drops it");
+        Ok(())
+    })
+}
+
+/// A request out of order on its connection is refused by the session, which hands the core nothing.
+#[test]
+fn test_a_request_out_of_order_is_refused_at_once() -> TestResult {
+    Runtime::new()?.block_on(async {
+        let (core, mut inbox) = unbounded();
+        let mut session = StorageSession::new(CONNECTION, core, 100);
+        let late = received(
+            Closed::request(&[1]).frame(
+                Header::new(CLUSTER, Command::Closed)
+                    .with_stream(3)
+                    .with_sequence(5),
+            )?,
+        )?;
+        let Answer::Refuse(refused) = session.answer(3, late).await else {
+            return Err(TestError::new("a refusal"));
+        };
+        assert_eq!(refused.code(), ErrorCode::Protocol, "{}", refused.message());
+        assert!(inbox.try_recv().is_err(), "nothing handed on");
+        Ok(())
+    })
 }
 
 /// Each event of the connection reaches the core naming the connection and the stream, and the session's end closes it.
@@ -168,7 +183,6 @@ fn test_a_session_announces_what_it_counts_parked() -> TestResult {
 fn test_a_sessions_events_reach_its_core() -> TestResult {
     let (core, mut inbox) = unbounded();
     let mut session = StorageSession::new(CONNECTION, core, 100);
-    let _opened = inbox.try_recv();
     session.ready(5);
     session.left(6);
     session.cancelled(7);
@@ -180,9 +194,9 @@ fn test_a_sessions_events_reach_its_core() -> TestResult {
             CoreMessage::Left { connection, stream } => ("left", connection, stream),
             CoreMessage::Cancelled { connection, stream } => ("cancelled", connection, stream),
             CoreMessage::Closed { connection } => ("closed", connection, 0),
-            other @ (CoreMessage::Opened { .. }
-            | CoreMessage::Request { .. }
-            | CoreMessage::Catalog(_)) => return Err(TestError::new(format!("no {other:?}"))),
+            other @ (CoreMessage::Request { .. } | CoreMessage::Catalog(_)) => {
+                return Err(TestError::new(format!("no {other:?}")));
+            }
         });
     }
     assert_eq!(
@@ -203,39 +217,36 @@ fn test_a_request_carries_the_largest_frame_its_peer_takes() -> TestResult {
     Runtime::new()?.block_on(async {
         let (core, mut inbox) = unbounded();
         let mut session = StorageSession::new(CONNECTION, core, 100);
-        let _opened = inbox.next().await;
-        let (_, floor) = answered(&mut session, &mut inbox, 3, Vec::new(), Answer::Open).await?;
+        let (_, _, floor) = answered(&mut session, &mut inbox, 3).await?;
         assert_eq!(usize::try_from(floor)?, MAX_FRAME_FLOOR);
         let stated = u32::try_from(MAX_FRAME_FLOOR)? + 4_096;
         session.welcomed(stated);
-        let (_, after) = answered(&mut session, &mut inbox, 5, Vec::new(), Answer::Open).await?;
+        let (_, _, after) = answered(&mut session, &mut inbox, 5).await?;
         assert_eq!(after, stated);
         Ok(())
     })
 }
 
-/// A refusal stands unless a frame ending its own stream waits to leave: a frame on the stream that does not end it, or one ending
-/// another stream, leaves it as it is. Every frame looked at still leaves, in the order pushed.
+/// What the core pushes leaves through the session on its stream, whole and in the order pushed, a stream's end with no frame
+/// among them.
 #[test]
-fn test_a_refusal_gives_way_only_to_its_own_streams_end() -> TestResult {
+fn test_what_the_core_pushes_leaves_in_its_order() -> TestResult {
     Runtime::new()?.block_on(async {
         let (core, mut inbox) = unbounded();
         let mut session = StorageSession::new(CONNECTION, core, 100);
-        let _opened = inbox.next().await;
-        let refused = ErrorReply::new(ErrorCode::Protocol, "a stream no Bind opened");
-        let refuse = || Answer::Refuse(refused.clone());
-        let (alone, _) = answered(&mut session, &mut inbox, 3, Vec::new(), refuse()).await?;
-        assert_eq!(alone, refuse(), "nothing pushed");
-        let open = (3, error_frame(3, false)?);
-        let other = (9, error_frame(9, true)?);
-        let pushed = vec![open.clone(), other.clone()];
-        let (crossed, _) = answered(&mut session, &mut inbox, 3, pushed, refuse()).await?;
-        assert_eq!(crossed, refuse(), "neither ends stream 3");
-        let ended = (3, error_frame(3, true)?);
-        let (gave_way, _) =
-            answered(&mut session, &mut inbox, 3, vec![ended.clone()], refuse()).await?;
-        assert_eq!(gave_way, Answer::Open, "stream 3's end waits to leave");
-        for expected in [open, other, ended] {
+        let _answered = session.answer(7, closed_request(7)?).await;
+        let Ok(CoreMessage::Request { pushes, .. }) = inbox.try_recv() else {
+            return Err(TestError::new("a request handed on"));
+        };
+        let pushed = [
+            (7, Push::Frame(error_frame(7, false)?)),
+            (9, Push::End),
+            (7, Push::Frame(error_frame(7, true)?)),
+        ];
+        for push in pushed.clone() {
+            pushes.unbounded_send(push)?;
+        }
+        for expected in pushed {
             let next = compio::time::timeout(DUE, session.next_push()).await?;
             assert_eq!(next, expected);
         }
@@ -243,28 +254,35 @@ fn test_a_refusal_gives_way_only_to_its_own_streams_end() -> TestResult {
     })
 }
 
-/// A frame the core pushes leaves through the session on its stream, whole.
+/// A session timing its requests counts each request once, at its stream's first answer: a later frame of that stream, a stream
+/// cancelled and a stream ended count nothing more.
 #[test]
-fn test_a_pushed_frame_leaves_on_its_stream() -> TestResult {
+fn test_a_session_times_each_request_to_its_first_answer() -> TestResult {
     Runtime::new()?.block_on(async {
         let (core, mut inbox) = unbounded();
-        let mut session = StorageSession::new(CONNECTION, core, 100);
-        let _opened = inbox.next().await;
-        let (pushes_to, pushed) = (7, error_frame(7, true)?);
-        let request =
-            received(Closed::request(&[1]).frame(Header::new(CLUSTER, Command::Closed))?)?;
-        let played = async {
-            if let Some(CoreMessage::Request { pushes, done, .. }) = inbox.next().await {
-                pushes.unbounded_send((pushes_to, pushed.clone()))?;
-                done.send(Answer::Open)
-                    .map_err(|_| TestError::new("the session waits"))?;
-            }
-            TestResult::Ok(())
+        let origin = compio::time::interval(Duration::from_secs(1)).tick().await;
+        let phases = RoleConnectionPhases::new(origin);
+        let mut session =
+            StorageSession::new(CONNECTION, core, 1 << 20).with_phases(phases.clone());
+        for stream in [3, 5, 7] {
+            let _answered = session.answer(stream, closed_request(stream)?).await;
+        }
+        let Ok(CoreMessage::Request { pushes, .. }) = inbox.try_recv() else {
+            return Err(TestError::new("a request handed on"));
         };
-        let (_, served) = futures::future::join(session.answer(7, request), played).await;
-        served?;
-        let next = compio::time::timeout(DUE, session.next_push()).await?;
-        assert_eq!(next, (pushes_to, pushed));
+        session.cancelled(5);
+        for push in [
+            (3, Push::Frame(error_frame(3, false)?)),
+            (3, Push::Frame(error_frame(3, true)?)),
+            (5, Push::Frame(error_frame(5, true)?)),
+            (7, Push::End),
+            (7, Push::Frame(error_frame(7, true)?)),
+        ] {
+            pushes.unbounded_send(push)?;
+            let _taken = compio::time::timeout(DUE, session.next_push()).await?;
+        }
+        // Stream 3's first answer and stream 7's end; stream 5 was cancelled before its answer.
+        assert_eq!(phases.count(), 2);
         Ok(())
     })
 }
@@ -276,9 +294,7 @@ fn test_a_request_to_a_core_gone_is_refused_as_stopped() -> TestResult {
         let (core, inbox) = unbounded();
         let mut session = StorageSession::new(CONNECTION, core, 100);
         drop(inbox);
-        let request =
-            received(Closed::request(&[1]).frame(Header::new(CLUSTER, Command::Closed))?)?;
-        let Answer::Refuse(refused) = session.answer(1, request).await else {
+        let Answer::Refuse(refused) = session.answer(1, closed_request(1)?).await else {
             return Err(TestError::new("a refusal"));
         };
         assert_eq!(
@@ -289,33 +305,13 @@ fn test_a_request_to_a_core_gone_is_refused_as_stopped() -> TestResult {
     })
 }
 
-/// A request its core drops unanswered, as a core stopping drops what it holds, is refused as unavailable: the partition
-/// stopped.
-#[test]
-fn test_a_request_its_core_drops_is_refused_as_stopped() -> TestResult {
-    Runtime::new()?.block_on(async {
-        let (core, mut inbox) = unbounded();
-        let mut session = StorageSession::new(CONNECTION, core, 100);
-        let request =
-            received(Closed::request(&[1]).frame(Header::new(CLUSTER, Command::Closed))?)?;
-        let dropping = async {
-            while let Some(message) = inbox.next().await {
-                if let CoreMessage::Request { done, .. } = message {
-                    drop(done);
-                    return;
-                }
-            }
-        };
-        let (answer, ()) = futures::future::join(session.answer(1, request), dropping).await;
-        let Answer::Refuse(refused) = answer else {
-            return Err(TestError::new("a refusal"));
-        };
-        assert_eq!(
-            (refused.code(), refused.message()),
-            (ErrorCode::Unavailable, "the partition stopped")
-        );
-        Ok(())
-    })
+/// An Error frame on `stream`, ending it when `last`.
+fn error_frame(stream: u64, last: bool) -> TestResult<Vec<u8>> {
+    let flags = if last { FLAG_LAST } else { 0 };
+    let header = Header::new(CLUSTER, Command::Error)
+        .with_stream(stream)
+        .with_flags(flags);
+    Ok(ErrorReply::new(ErrorCode::Refused, "pushed").frame(header)?)
 }
 
 /// How many one-frame writes a scenario of a connection read on while its core takes nothing sends.
@@ -356,26 +352,54 @@ fn requests_after(tap: &Tap, more: usize) -> TestResult<u64> {
     Ok(tap.requests() + u64::try_from(more)?)
 }
 
-/// While the core takes nothing, as while its turn waits on a log sync, a role connection is read on: every request reaches the
-/// core's inbox, and each is answered once the core has run it.
+/// A commit on a connection of its own whose round's sync the test holds: the core's turn waits on that sync, as it waits on any,
+/// and takes nothing meanwhile. The connection, to read that commit's answer once the sync is let go.
+async fn syncing(core: &Rig) -> TestResult<RoleClient> {
+    let mut holder = core.dial().await?;
+    core.sync_gate.hold();
+    holder
+        .send_only(&edges(rig::TENANT, &[("held", "q", "o")]))
+        .await?;
+    core.sync_gate.until_waiting().await?;
+    Ok(holder)
+}
+
+/// The commit `syncing` sent, answered once its sync was let go.
+async fn held_commit(holder: &mut RoleClient) -> TestResult {
+    let answer = committed(holder).await?;
+    let _committed =
+        answer.map_err(|refusal| TestError::new(format!("the held commit, not {refusal:?}")))?;
+    Ok(())
+}
+
+/// Reads `count` commits on `client`, failing on any refusal.
+async fn all_committed(client: &mut RoleClient, count: usize) -> TestResult<Vec<u64>> {
+    let mut versions = Vec::with_capacity(count);
+    for _ in 0..count {
+        let answer = committed(client).await?;
+        let commit =
+            answer.map_err(|refusal| TestError::new(format!("a commit, not {refusal:?}")))?;
+        versions.push(commit.version);
+    }
+    Ok(versions)
+}
+
+/// While the core's turn waits on a log sync, a role connection is read on: every request reaches the core's inbox, and each is
+/// answered once the core has run it.
 #[test]
 fn test_a_connection_is_read_on_while_its_core_syncs() -> TestResult {
     with_core("session-read-on", RigSetup::default(), async |core| {
         let mut client = core.dial().await?;
         let writes = direct_writes(WRITES);
+        let mut holder = syncing(&core).await?;
         let expected = requests_after(&core.tap, writes.len())?;
-        core.tap.hold();
         for write in &writes {
             client.send_only(write).await?;
         }
         core.tap.until_requests(expected).await?;
-        core.tap.release()?;
-        for _ in &writes {
-            let answer = committed(&mut client).await?;
-            let _committed =
-                answer.map_err(|refusal| TestError::new(format!("a commit, not {refusal:?}")))?;
-        }
-        Ok(())
+        core.sync_gate.release();
+        let _versions = all_committed(&mut client, writes.len()).await?;
+        held_commit(&mut holder).await
     })
 }
 
@@ -396,9 +420,9 @@ fn test_requests_waiting_for_the_core_count_against_the_bound() -> TestResult {
         let writes = (0..fitting + 2)
             .map(|n| direct_write_of(n, FRAME_BYTES).map(|(write, _)| write))
             .collect::<TestResult<Vec<_>>>()?;
+        let mut holder = syncing(&core).await?;
         let read = requests_after(&core.tap, fitting)?;
         let all = requests_after(&core.tap, writes.len())?;
-        core.tap.hold();
         for write in &writes {
             client.send_only(write).await?;
         }
@@ -410,86 +434,71 @@ fn test_requests_waiting_for_the_core_count_against_the_bound() -> TestResult {
             read,
             "the connection stops at its bound"
         );
-        core.tap.release()?;
-        for _ in &writes {
-            let answer = committed(&mut client).await?;
-            let _committed =
-                answer.map_err(|refusal| TestError::new(format!("a commit, not {refusal:?}")))?;
-        }
+        core.sync_gate.release();
+        let _versions = all_committed(&mut client, writes.len()).await?;
         assert_eq!(core.tap.requests(), all);
-        Ok(())
+        held_commit(&mut holder).await
     })
 }
 
-/// An Abort the core takes after a wait ends its stream with no frame, and a request behind it on the connection is answered.
+/// An Abort the core takes after a sync ends its stream with no frame, and a request behind it on the connection is answered.
 #[test]
 fn test_an_aborts_stream_ends_with_no_frame() -> TestResult {
     with_core("session-abort", RigSetup::default(), async |core| {
         let mut client = core.dial().await?;
-        let bind = Bind::new(
-            rig::PARTITION,
-            BindKind::Transaction,
-            rig::TENANT,
-            0,
-            rig::PRINCIPAL,
-            [0x5a; 16],
-        );
-        let reply = compio::time::timeout(rig::DUE, client.request(&bind))
-            .await
-            .context("the Bind's reply")??;
-        let _bound = BindView::from_frame(&reply.view()?)?;
-        drop(reply);
-        let bound = client.last_stream();
+        let (bound, _) = harness::bind(&mut client, 0x5a).await?;
+        let mut holder = syncing(&core).await?;
         let expected = requests_after(&core.tap, 2)?;
-        core.tap.hold();
         client.send_on(bound, &Abort).await?;
         client.send_only(&direct_writes(1).remove(0)).await?;
         let behind = client.last_stream();
         core.tap.until_requests(expected).await?;
-        core.tap.release()?;
-        let answer = compio::time::timeout(rig::DUE, client.next_frame())
-            .await
-            .context("the write's answer")??;
+        core.sync_gate.release();
         assert_eq!(
-            (answer.stream(), answer.command()),
+            next_on(&mut client).await?,
             (behind, Command::Commit.number())
         );
-        drop(answer);
-        // Long enough for a frame the Abort's stream would end with to arrive on loopback.
-        let after = compio::time::timeout(Duration::from_millis(200), client.next_frame()).await;
-        assert!(after.is_err(), "no frame follows on any stream");
+        held_commit(&mut holder).await?;
+        assert!(
+            !any_frame(&mut client).await,
+            "no frame on the Abort's stream"
+        );
         Ok(())
     })
 }
 
-/// Commits a frontend sends over one role connection while the core takes nothing, as while its turn waits on a log sync, share
-/// the next round: one log append and one sync for them all, each acknowledged once that round is applied (commit-rounds,
-/// "Commits are grouped into rounds").
+/// Commits a frontend sends over one role connection while a log sync is in flight share the next round: one log append and one
+/// sync for them all, each acknowledged once that round is applied (commit-rounds, "Commits are grouped into rounds"). A commit
+/// first warms the log, whose first round also syncs its segment.
 #[test]
 fn test_commits_a_frontend_sends_during_a_sync_share_the_next_round() -> TestResult {
     with_core("session-one-round", RigSetup::default(), async |core| {
         let mut client = core.dial().await?;
-        let writes = direct_writes(WRITES);
-        let expected = requests_after(&core.tap, writes.len())?;
+        client.send_only(&direct_writes(1).remove(0)).await?;
+        let _warmed = committed(&mut client).await?;
+        let writes = (1..=WRITES)
+            .map(|n| {
+                let subject = format!("s{n}");
+                edges(rig::TENANT, &[(subject.as_str(), "q", "o")])
+            })
+            .collect::<Vec<_>>();
         let before = core.log_io.totals();
-        core.tap.hold();
+        let mut holder = syncing(&core).await?;
+        let expected = requests_after(&core.tap, writes.len())?;
         for write in &writes {
             client.send_only(write).await?;
         }
         core.tap.until_requests(expected).await?;
-        core.tap.release()?;
-        let mut versions = Vec::with_capacity(writes.len());
-        for _ in &writes {
-            let answer = committed(&mut client).await?;
-            let commit =
-                answer.map_err(|refusal| TestError::new(format!("a commit, not {refusal:?}")))?;
-            versions.push(commit.version);
-        }
+        core.sync_gate.release();
+        let mut versions = all_committed(&mut client, writes.len()).await?;
+        held_commit(&mut holder).await?;
         let spent = core.log_io.totals().since(&before);
+        // The held commit's round, then one round for every commit sent during its sync.
+        let rounds = 2;
         assert_eq!(
             (spent.writes(), spent.syncs()),
-            (1, 1),
-            "one append and one sync for the round"
+            (rounds, rounds),
+            "one append and one sync for each round"
         );
         versions.sort_unstable();
         versions.dedup();
@@ -497,6 +506,31 @@ fn test_commits_a_frontend_sends_during_a_sync_share_the_next_round() -> TestRes
             versions.len(),
             writes.len(),
             "each commit has a version of its own"
+        );
+        Ok(())
+    })
+}
+
+/// A request that reaches the core's inbox while its turn waits on a log sync, the core then stopping, is refused as the
+/// partition stopped: the stop answers what waits for the core.
+#[test]
+fn test_a_stop_refuses_the_requests_waiting_for_the_core() -> TestResult {
+    with_core("session-stop", RigSetup::default(), async |core| {
+        let mut client = core.dial().await?;
+        let mut holder = syncing(&core).await?;
+        let expected = requests_after(&core.tap, 1)?;
+        client.send_only(&direct_writes(1).remove(0)).await?;
+        core.tap.until_requests(expected).await?;
+        core.stopping.set();
+        core.sync_gate.release();
+        held_commit(&mut holder).await?;
+        let refused = committed(&mut client).await?;
+        let Err((code, message)) = refused else {
+            return Err(TestError::new("a refusal, not a commit"));
+        };
+        assert_eq!(
+            (code, message.as_str()),
+            (ErrorCode::Unavailable, "the partition stopped")
         );
         Ok(())
     })
@@ -517,26 +551,26 @@ async fn any_frame(client: &mut RoleClient) -> bool {
         .is_ok()
 }
 
-/// A transaction's Writes and its Commit, all waiting for the core, are answered in the order they were sent.
+/// A transaction's Writes and its Commit, all sent while a log sync is in flight, are answered in the order they were sent.
 #[test]
 fn test_a_streams_requests_waiting_for_the_core_are_answered_in_order() -> TestResult {
     with_core("session-stream-order", RigSetup::default(), async |core| {
         let mut client = core.dial().await?;
         let (stream, _) = harness::bind(&mut client, 0x61).await?;
         let replies = [Command::Held, Command::Held, Command::Commit];
+        let mut holder = syncing(&core).await?;
         let expected = requests_after(&core.tap, replies.len())?;
-        core.tap.hold();
         client.send_on(stream, &edges_write(&[("a", "b")])).await?;
         client.send_on(stream, &edges_write(&[("c", "d")])).await?;
         client.send_on(stream, &Commit::new([0; 16], 0, 0)).await?;
         core.tap.until_requests(expected).await?;
-        core.tap.release()?;
+        core.sync_gate.release();
         let mut answered = Vec::with_capacity(replies.len());
         for _ in &replies {
             answered.push(next_on(&mut client).await?);
         }
         assert_eq!(answered, replies.map(|reply| (stream, reply.number())));
-        Ok(())
+        held_commit(&mut holder).await
     })
 }
 
@@ -547,18 +581,19 @@ fn test_a_cancel_crossing_a_request_waiting_for_the_core_ends_its_stream() -> Te
     with_core("session-cancel", RigSetup::default(), async |core| {
         let mut client = core.dial().await?;
         let (stream, _) = harness::bind(&mut client, 0x62).await?;
+        let mut holder = syncing(&core).await?;
         let expected = requests_after(&core.tap, 2)?;
-        core.tap.hold();
         client.send_on(stream, &edges_write(&[("a", "b")])).await?;
         client.send_on(stream, &Cancel).await?;
         client.send_only(&direct_writes(1).remove(0)).await?;
         let behind = client.last_stream();
         core.tap.until_requests(expected).await?;
-        core.tap.release()?;
+        core.sync_gate.release();
         assert_eq!(
             next_on(&mut client).await?,
             (behind, Command::Commit.number())
         );
+        held_commit(&mut holder).await?;
         assert!(
             !any_frame(&mut client).await,
             "no Held on the cancelled stream"
@@ -574,16 +609,17 @@ fn test_a_connection_closing_with_a_write_waiting_for_the_core_aborts_its_transa
     with_core("session-close", RigSetup::default(), async |core| {
         let mut client = core.dial().await?;
         let (stream, _) = harness::bind(&mut client, 0x63).await?;
+        let mut holder = syncing(&core).await?;
         let expected = requests_after(&core.tap, 1)?;
         let closes = core.tap.closed() + 1;
-        core.tap.hold();
         client
             .send_on(stream, &edges_write(&[("gone", "o")]))
             .await?;
         core.tap.until_requests(expected).await?;
         drop(client);
         core.tap.until_closed(closes).await?;
-        core.tap.release()?;
+        core.sync_gate.release();
+        held_commit(&mut holder).await?;
         let mut reader = core.dial().await?;
         // A subject the dictionary does not name has no forward list either.
         let Ok(key) = harness::forward_key(&mut reader, "gone").await else {
@@ -595,6 +631,56 @@ fn test_a_connection_closing_with_a_write_waiting_for_the_core_aborts_its_transa
         assert!(
             run.iter().all(|batch| batch.entries.is_empty()),
             "the aborted Write left no edge"
+        );
+        Ok(())
+    })
+}
+
+/// How many one-frame writes the burst test answers in one round.
+const BURST: usize = 1_000;
+
+/// A burst of answers on one role connection (design D10): `BURST` DirectWrites sent while a log sync is held, answered in one
+/// round once it is let go, and read back one frame at a time as the frontend's role link reads them. The figures, from the sync's
+/// release to the first answer read and from the first to the last, are printed for the change's notes; no bound is asserted.
+#[test]
+fn test_a_burst_of_answers_leaves_one_role_connection() -> TestResult {
+    with_core("session-burst", RigSetup::default(), async |core| {
+        let origin = compio::time::interval(Duration::from_secs(1)).tick().await;
+        let clock = RoleConnectionPhases::new(origin);
+        let mut client = core.dial().await?;
+        client.send_only(&direct_writes(1).remove(0)).await?;
+        let _warmed = committed(&mut client).await?;
+        let writes = (1..=BURST)
+            .map(|n| {
+                let subject = format!("burst-{n}");
+                edges(rig::TENANT, &[(subject.as_str(), "q", "o")])
+            })
+            .collect::<Vec<_>>();
+        let mut holder = syncing(&core).await?;
+        let expected = requests_after(&core.tap, writes.len())?;
+        for write in &writes {
+            client.send_only(write).await?;
+        }
+        core.tap.until_requests(expected).await?;
+        let before = core.log_io.totals();
+        let released = clock.now_us();
+        core.sync_gate.release();
+        let answer = committed(&mut client).await?;
+        let first = clock.now_us();
+        let _first =
+            answer.map_err(|refusal| TestError::new(format!("a commit, not {refusal:?}")))?;
+        let _rest = all_committed(&mut client, writes.len() - 1).await?;
+        let last = clock.now_us();
+        held_commit(&mut holder).await?;
+        let spent = core.log_io.totals().since(&before);
+        let drain_us = last.saturating_sub(first).max(1);
+        println!(
+            "burst: {} answers, {} log syncs; release to first answer {} us, first to last {} us, {} answers a second read",
+            writes.len(),
+            spent.syncs(),
+            first.saturating_sub(released),
+            drain_us,
+            u64::try_from(writes.len())? * 1_000_000 / drain_us
         );
         Ok(())
     })

@@ -24,7 +24,7 @@ use ultragraphdb_protocol_wire::{
     ROLE_MAX_STREAMS, Welcome,
 };
 
-use crate::traits::session::{Answer, Session};
+use crate::traits::session::{Answer, Push, Session};
 use crate::types::connection_bound::ConnectionBound;
 use crate::types::open_requests::OpenRequests;
 use crate::types::parked_bytes::ParkedBytes;
@@ -284,12 +284,20 @@ where
         };
         match event {
             Event::Frame(frame) => return Ok(Some(frame)),
-            Event::Push((stream, frame)) => {
+            Event::Push((stream, Push::Frame(frame))) => {
                 // A reply to a stream the peer cancelled meanwhile has no one to go to.
                 if machine.outbound().is_open(stream) {
                     machine.outbound().push(stream, frame)?;
                     flush(writer, machine, session).await?;
                 }
+            }
+            Event::Push((stream, Push::Refuse(refusal))) => {
+                machine.refuse(stream, &refusal)?;
+                flush(writer, machine, session).await?;
+            }
+            Event::Push((stream, Push::End)) => {
+                // As `Answer::Done` ends it; a stream the peer cancelled meanwhile has ended already.
+                let _ended = machine.outbound().cancel(stream);
             }
             Event::Deadline => {
                 let _closing = machine.handle_timeout(now())?;
@@ -304,7 +312,7 @@ where
 /// What woke a connection.
 enum Event {
     Frame(Result<ReceivedFrame, TransportError>),
-    Push((u64, Vec<u8>)),
+    Push((u64, Push)),
     Deadline,
 }
 

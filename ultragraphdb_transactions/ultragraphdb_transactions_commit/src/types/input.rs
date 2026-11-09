@@ -11,7 +11,7 @@ use crate::types::commit_request::CommitRequest;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Input<P> {
     /// A commit request: it waits for the next round, which closes at once when no round is syncing and the partition
-    /// may stamp it.
+    /// may stamp it, unless the caller holds rounds while it hands over several ([`Input::Hold`]).
     Commit(CommitRequest<P>),
     /// A registration the partition accepted as an entity's home, under its ticket, its write-set record of kind 2
     /// built by the home: it waits for the next round as a commit does, is admitted without validation and takes a
@@ -30,6 +30,11 @@ pub enum Input<P> {
     /// take effect there, the sessions it evicts are purged from the session table, and the commits held for it are
     /// stamped in a round of the new epoch.
     Close(Close),
+    /// The caller hands over several requests together, as a partition's core does with what one turn takes: until
+    /// [`Input::Release`], a request arriving with no round in flight waits rather than closing one, so they share a round.
+    Hold,
+    /// The requests handed over together have arrived: the next round closes over what waits, when none is in flight.
+    Release,
     /// The commit step's clock moved on, with nothing else to step on: a close request unanswered for
     /// `close_request_ms` refuses the commits held as busy.
     Tick,

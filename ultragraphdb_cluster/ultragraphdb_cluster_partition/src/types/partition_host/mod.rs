@@ -236,6 +236,26 @@ where
         Ok(ticket)
     }
 
+    /// Holds rounds while the caller hands its partition several requests together, as a core does with what one turn takes from
+    /// its inbox: they share a round rather than the first closing one alone ([`Pipeline::hold_rounds`]).
+    ///
+    /// # Errors
+    ///
+    /// The pipeline's, which stop it.
+    pub fn hold_rounds(&mut self, now_us: u64) -> Result<(), PartitionError> {
+        Ok(self.pipeline.hold_rounds(now_us)?)
+    }
+
+    /// The requests handed over together have arrived: the next round closes over them, when none is in flight
+    /// ([`Pipeline::release_rounds`]).
+    ///
+    /// # Errors
+    ///
+    /// The pipeline's, which stop it.
+    pub fn release_rounds(&mut self, now_us: u64) -> Result<(), PartitionError> {
+        Ok(self.pipeline.release_rounds(now_us)?)
+    }
+
     /// One turn at `now_us`: the messages the mailbox holds, at most [`MAILBOX_PER_TURN_MAX`], the rest waiting for the
     /// next turn, unanswered registrations sent again, every decided round synced and applied, and what that made durable
     /// handed out.

@@ -18,8 +18,8 @@ use ultragraphdb_protocol_wire::{
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::types::partition_core::played_cores::{
-    CLUSTER, Connection, Driver, PRINCIPAL, TENANT, answered, bind, error_in, refusal_of, reply_of,
-    served, served_at,
+    CLUSTER, Connection, Driver, PRINCIPAL, TENANT, bind, error_in, refusal_of, reply_of, served,
+    served_at,
 };
 
 /// How many DirectWrites a test sends at most while a catalog version reaches the partition.
@@ -94,8 +94,8 @@ fn test_concurrent_identical_inserts_both_commit() -> TestResult {
         let mut connection = driver.connect(1, 1 << 20)?;
         let first = driver.send(&connection, 3, &direct(&driver, 1, ([0; 16], 0))?)?;
         let second = driver.send(&connection, 5, &direct(&driver, 1, ([0; 16], 0))?)?;
-        assert_eq!(answered(first).await?, Answer::Open);
-        assert_eq!(answered(second).await?, Answer::Open);
+        assert_eq!(connection.answered(first).await?, Answer::Open);
+        assert_eq!(connection.answered(second).await?, Answer::Open);
         let mut streams = Vec::new();
         for what in ["a first Commit", "a second Commit"] {
             let reply = committed(&mut connection, what).await?;
@@ -132,8 +132,8 @@ fn test_a_failed_condition_is_an_answer() -> TestResult {
         let setting = DirectWrite::new(TENANT, set_terms, vec![set]).with_principal(PRINCIPAL);
         let first = driver.send(&connection, 3, &condition)?;
         let second = driver.send(&connection, 5, &setting)?;
-        assert_eq!(answered(first).await?, Answer::Open);
-        assert_eq!(answered(second).await?, Answer::Open);
+        assert_eq!(connection.answered(first).await?, Answer::Open);
+        assert_eq!(connection.answered(second).await?, Answer::Open);
         let mut outcomes = Vec::new();
         for what in ["an outcome", "another outcome"] {
             let (stream, frame) = connection.pushed(what).await?;

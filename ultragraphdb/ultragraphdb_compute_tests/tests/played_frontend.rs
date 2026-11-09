@@ -14,7 +14,8 @@ use std::time::{Duration, Instant};
 use compio::runtime::{Runtime, spawn};
 use ultragraphdb_cluster_placement::{NodeId, PlacementMap};
 use ultragraphdb_common_role::{
-    Answer, ROLE_ITERATIONS, RoleCredentials, RoleSecret, Server, Session, listen, serve_connection,
+    Answer, Push, ROLE_ITERATIONS, RoleCredentials, RoleSecret, Server, Session, listen,
+    serve_connection,
 };
 use ultragraphdb_core_ids::Epoch;
 use ultragraphdb_protocol_transport::{Endpoint, ReceivedFrame};
@@ -210,7 +211,7 @@ impl Session for PlayedConnection {
         ))
     }
 
-    async fn next_push(&mut self) -> (u64, Vec<u8>) {
+    async fn next_push(&mut self) -> (u64, Push) {
         let Some(stream) = self.subscribed else {
             return std::future::pending().await;
         };
@@ -221,7 +222,7 @@ impl Session for PlayedConnection {
                     .frame(Header::new(CLUSTER, Command::EpochClose).with_stream(stream));
                 if let Ok(frame) = close {
                     self.delivered = epoch;
-                    return (stream, frame);
+                    return (stream, Push::Frame(frame));
                 }
             }
             compio::time::sleep(LOOK).await;

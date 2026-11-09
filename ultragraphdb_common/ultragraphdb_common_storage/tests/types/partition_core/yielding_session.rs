@@ -7,7 +7,7 @@
 //! session on the runtime the test itself runs on, so a session whose pushes are always ready would otherwise starve the test's
 //! side of the connection and its timers, and the test would hang where it should fail within its time.
 
-use ultragraphdb_common_role::{Answer, ParkedBytes, Session};
+use ultragraphdb_common_role::{Answer, ParkedBytes, Push, Session};
 use ultragraphdb_common_storage::StorageSession;
 use ultragraphdb_protocol_transport::ReceivedFrame;
 
@@ -49,7 +49,7 @@ impl Session for Yielding {
         self.0.parked()
     }
 
-    async fn next_push(&mut self) -> (u64, Vec<u8>) {
+    async fn next_push(&mut self) -> (u64, Push) {
         yield_once().await;
         self.0.next_push().await
     }

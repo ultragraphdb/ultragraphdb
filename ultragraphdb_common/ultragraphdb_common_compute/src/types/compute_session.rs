@@ -9,7 +9,7 @@ use std::rc::Rc;
 use compio::runtime::spawn;
 use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
-use ultragraphdb_common_role::{Answer, OpenRequests, Session};
+use ultragraphdb_common_role::{Answer, OpenRequests, Push, Session};
 use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{BodyView, ComputeReadView, ErrorReply};
 
@@ -95,10 +95,10 @@ impl Session for ComputeSession {
     }
 
     /// A future dropped at its wait leaves the channel as it was, and the next call takes what came meanwhile.
-    async fn next_push(&mut self) -> (u64, Vec<u8>) {
+    async fn next_push(&mut self) -> (u64, Push) {
         loop {
             match self.pushed.next().await {
-                Some(Pushed::Frame(stream, frame)) => return (stream, frame),
+                Some(Pushed::Frame(stream, frame)) => return (stream, Push::Frame(frame)),
                 Some(Pushed::Ended(stream)) => drop(self.reads.remove(&stream)),
                 // This session holds a sender, so its channel never ends while it waits here.
                 None => std::future::pending::<()>().await,

@@ -14,7 +14,8 @@ use std::time::Duration;
 
 use compio::runtime::{Runtime, spawn};
 use ultragraphdb_common_role::{
-    Answer, ROLE_ITERATIONS, RoleCredentials, RoleSecret, Server, Session, listen, serve_connection,
+    Answer, Push, ROLE_ITERATIONS, RoleCredentials, RoleSecret, Server, Session, listen,
+    serve_connection,
 };
 use ultragraphdb_protocol_transport::{Endpoint, ReceivedFrame};
 use ultragraphdb_protocol_wire::{
@@ -366,11 +367,11 @@ impl Session for PartitionConnection {
         }
     }
 
-    async fn next_push(&mut self) -> (u64, Vec<u8>) {
+    async fn next_push(&mut self) -> (u64, Push) {
         loop {
             let next = self.pushes.borrow_mut().pop_front();
             if let Some(pushed) = next {
-                return pushed;
+                return (pushed.0, Push::Frame(pushed.1));
             }
             compio::time::sleep(Duration::from_millis(1)).await;
         }

@@ -141,10 +141,23 @@ impl<P: Proposal> CommitStep<P> {
             }
             entry @ (Waiting::Commit(_) | Waiting::Registration { .. }) => {
                 self.waiting.push_back(entry);
-                if self.in_flight.is_none() {
+                if self.in_flight.is_none() && !self.holding {
                     self.close(now_us, out, operator);
                 }
             }
+        }
+    }
+
+    /// The requests handed over together have arrived: the next round closes over what waits, when none is in flight.
+    pub(crate) fn release<O: Operator<P>>(
+        &mut self,
+        now_us: u64,
+        out: &mut StepOutput<P>,
+        operator: &mut O,
+    ) {
+        self.holding = false;
+        if self.in_flight.is_none() && !self.waiting.is_empty() && !self.stopped {
+            self.close(now_us, out, operator);
         }
     }
 

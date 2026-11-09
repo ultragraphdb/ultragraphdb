@@ -20,7 +20,7 @@ use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use ultragraphdb_cluster_placement::{NodeId, PlacementMap, TenantRun};
 use ultragraphdb_common_compute::{ComputeCore, ComputeSession, ReadTimes};
 use ultragraphdb_common_role::{
-    Answer, COMPUTE_WELCOME_CREDIT, OpenRequests, PARTITION_INITIAL_CREDIT, ROLE_ITERATIONS,
+    Answer, COMPUTE_WELCOME_CREDIT, OpenRequests, PARTITION_INITIAL_CREDIT, Push, ROLE_ITERATIONS,
     RoleClient, RoleCluster, RoleCredentials, RoleSecret, Server, Session, serve_connection,
 };
 use ultragraphdb_core_ids::{Bucket, Epoch, Sequence, SystemId, Tenant, TypePrefix, Version};
@@ -450,9 +450,9 @@ impl Session for PartitionConnection {
         }
     }
 
-    async fn next_push(&mut self) -> (u64, Vec<u8>) {
+    async fn next_push(&mut self) -> (u64, Push) {
         match self.pushed.next().await {
-            Some(pushed) => pushed,
+            Some((stream, frame)) => (stream, Push::Frame(frame)),
             // The connection holds a sender, so its channel never ends while it waits here.
             None => std::future::pending().await,
         }

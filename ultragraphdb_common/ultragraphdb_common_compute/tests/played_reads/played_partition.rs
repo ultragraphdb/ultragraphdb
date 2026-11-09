@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::rc::Rc;
 use std::time::Duration;
 
-use ultragraphdb_common_role::{Answer, Session};
+use ultragraphdb_common_role::{Answer, Push, Session};
 use ultragraphdb_core_keys::{Keyspace, QuadKey};
 use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{
@@ -420,7 +420,7 @@ impl Session for PartitionConnection {
         }
     }
 
-    async fn next_push(&mut self) -> (u64, Vec<u8>) {
+    async fn next_push(&mut self) -> (u64, Push) {
         loop {
             let free = self
                 .pushes
@@ -434,7 +434,7 @@ impl Session for PartitionConnection {
                 if queued.is_empty() {
                     drop(self.pushes.remove(&stream));
                 }
-                return (stream, frame);
+                return (stream, Push::Frame(frame));
             }
             compio::time::sleep(LOOK).await;
         }
