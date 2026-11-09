@@ -5,7 +5,6 @@ The config service holding every role's settings: each target's files as a chain
 ordered log, declared by one central file, validated whole by the same check in the service and the administrator's CLI
 before any is stored or served, served over authenticated HTTP, and fetched by a role at start from five bootstrap
 variables, so one validated source configures every role and a restart is how a role loads another revision.
-
 ## Requirements
 ### Requirement: One config service holds every role's settings
 `ultragraphdb_config` SHALL hold the settings of every role of every deployment target, and every role SHALL read its
@@ -116,8 +115,9 @@ refuse to start with code 78 when the central file is missing or unreadable, dec
 declares a file that is not there, or fails a check of the requirement above. On a directory holding no revision of a target, the service
 SHALL store the target's files as revision 1 and activate it. On a target holding a revision it SHALL leave the stored revisions as they
 are, logging the target's name and active revision when the declared files differ from them, since from then on the API is the one
-authority, and an edit made through it is saved by downloading it. The profiles `dev`, every role on one host over Unix sockets, and `dev-net`, the same over TCP, SHALL ship as central files
-with their settings.
+authority, and an edit made through it is saved by downloading it. The profiles `dev`, every role on one host over Unix sockets,
+`dev-net`, the same over TCP, SHALL ship as central files with their settings, and the profile `kube`, each role a pod of the Helm
+chart `deploy/helm/ultragraphdb` at its headless Service's name, SHALL be that chart's, checked as they are.
 
 #### Scenario: No central file stops the start
 - **WHEN** the service starts with `targets_file` naming a file that does not exist

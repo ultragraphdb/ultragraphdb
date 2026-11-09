@@ -228,6 +228,31 @@ fn test_the_next_round_is_decided_and_appended_while_one_syncs() -> TestResult {
     Ok(())
 }
 
+/// Commits handed over between `hold_rounds` and `release_rounds` close no round as they arrive, though none is in
+/// flight, and share the one round the release closes: one sync acknowledges both.
+#[test]
+fn test_commits_handed_over_together_share_the_round_the_release_closes() -> TestResult {
+    let applier = applier()?;
+    let _base = setup(&applier, vec![insert("a", "knows", "b")])?;
+    let (_storage, mut pipe) = pipeline(&applier)?;
+    let empty = pipe.log().tail().0;
+    pipe.hold_rounds(0).context("held")?;
+    let subjects = ["p", "q"];
+    for (ticket, subject) in (1..).zip(subjects) {
+        commit_insert(&mut pipe, &applier, ticket, subject)?;
+    }
+    assert_eq!(pipe.log().tail().0, empty, "no round closes while held");
+    pipe.release_rounds(0).context("released")?;
+    assert_eq!(pipe.log().tail().0, Position::new(1), "one round appended");
+    block_on(pipe.sync(0)).context("synced")?;
+    assert_eq!(drained(&mut pipe).len(), subjects.len());
+    let mut log = pipe.into_log();
+    let rounds = block_on(log.read(Position::new(1), u32::MAX)).context("read")?;
+    assert_eq!(rounds.len(), 1);
+    assert_eq!(usize::try_from(rounds[0].transactions())?, subjects.len());
+    Ok(())
+}
+
 #[test]
 fn test_a_failed_sync_acknowledges_nothing_and_stops_every_later_write() -> TestResult {
     let applier = applier()?;

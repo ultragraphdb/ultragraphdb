@@ -18,7 +18,8 @@ use ultragraphdb_core_keys::{Graph, Keyspace, QuadKey, key_prefix};
 use ultragraphdb_core_terms::{EncodedTerm, TermError};
 use ultragraphdb_store_posting::{DEL, PostingIdentity};
 use ultragraphdb_store_quads::{
-    KernelRow, KernelScan, PageEnd, QuadErrorEnum, QuadWrite, ReferrerMember, StatementRecord,
+    KernelRow, KernelScan, PageEnd, QuadErrorEnum, QuadWrite, ReferrerMember, ReferrerSet,
+    StatementRecord,
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_traits_store::{Entry, PersistMode, Store, WriteBatch};
@@ -863,5 +864,25 @@ fn test_a_values_page_reads_stored_values_alone_and_a_page_reads_lists_alone() -
         .err()
         .context("the referrers' keyspace")?;
     assert!(format!("{refused:?}").contains("lists"), "{refused:?}");
+    Ok(())
+}
+
+/// A referrer set held in memory: none before it is held, then answered by group and whole, and gone once its tenant is
+/// forgotten.
+#[test]
+fn test_a_held_referrer_set_is_answered_until_its_tenant_is_forgotten() -> TestResult {
+    let store = quads()?;
+    let entity = SystemId::new(TypePrefix::RESOURCE, Bucket::new(1)?, Sequence::new(1)?);
+    let (named, other) = (BucketGroup::new(3)?, BucketGroup::new(9)?);
+    assert_eq!(store.held_names(TENANT, entity, named), None);
+    assert_eq!(store.held_referrers(TENANT, entity), None);
+    let mut set = ReferrerSet::new();
+    set.set(named, NonZeroU64::MIN, Epoch::new(1)?);
+    store.hold_referrers(TENANT, entity, set.clone());
+    assert_eq!(store.held_names(TENANT, entity, named), Some(true));
+    assert_eq!(store.held_names(TENANT, entity, other), Some(false));
+    assert_eq!(store.held_referrers(TENANT, entity), Some(set));
+    store.forget_referrers(TENANT);
+    assert_eq!(store.held_names(TENANT, entity, named), None);
     Ok(())
 }

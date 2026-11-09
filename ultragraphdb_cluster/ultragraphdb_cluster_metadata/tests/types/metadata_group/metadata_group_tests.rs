@@ -231,6 +231,11 @@ fn test_reads_during_a_sync_answer_from_the_durable_state_until_it_is_applied() 
     assert_eq!(group.reads().state().current_version(tenant()), 0);
     group.synced(durable)?;
     assert_eq!(group.state().current_version(tenant()), 1);
+    assert_eq!(
+        group.reads().state().current_version(tenant()),
+        1,
+        "applied, the reads see it"
+    );
     assert_eq!(group.applied(), position);
     Ok(())
 }
@@ -244,6 +249,7 @@ fn test_reads_during_a_sync_hold_the_sessions_every_appended_command_leaves() ->
     assert!(group.register_session(1, "ann", |_| false)?.0.is_empty());
     let (syncing, reads) = group.syncing();
     assert!(reads.holds_session(1));
+    assert!(!reads.holds_session(2), "no command registered it");
     assert!(reads.state().session_principal(1).is_err());
     let durable = block_on(syncing)??;
     group.synced(durable)?;

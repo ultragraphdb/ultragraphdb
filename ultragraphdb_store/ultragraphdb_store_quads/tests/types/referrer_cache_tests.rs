@@ -65,6 +65,10 @@ fn test_a_put_replaces_the_set_held_before() -> TestResult {
     cache.put(7, o, set_of(&[3, 9])?);
     assert_eq!(cache.names(7, o, BucketGroup::new(9)?), Some(true));
     assert_eq!(cache.len(), 1);
+    assert!(
+        !cache.is_empty(),
+        "the young generation holds it, the old none"
+    );
     Ok(())
 }
 

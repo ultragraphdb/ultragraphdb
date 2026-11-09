@@ -5,7 +5,6 @@ The role binaries: the frontend, compute and storage as three binaries and image
 configured addresses, and the supervisor of the development image, each with one runtime per core, health, readiness
 and shutdown, settings validated at start, io_uring with a polling fallback, exit codes naming the cause and a role
 secret authenticating role connections, so each role starts, runs and stops alike on a cluster and in one container.
-
 ## Requirements
 ### Requirement: Each role is its own binary and image
 The roles SHALL be three binaries under `ultragraphdb/`: `ultragraphdb_frontend` (the client endpoint,
@@ -93,7 +92,11 @@ Each role SHALL run one compio runtime per core it uses, a storage partition on 
 another; what crosses between them SHALL go by message. `[runtime] pin_cores` SHALL ask each runtime to bind to one CPU,
 chosen from those the process is permitted, as a container's cpuset restricts them. Pinning SHALL be a performance choice
 and never a condition of correctness: where the platform cannot bind a thread, as macOS cannot, offering only a
-cache-locality hint, the role SHALL run unpinned and say so.
+cache-locality hint, the role SHALL run unpinned and say so. The frontend SHALL accept and serve clients on each of its runtimes,
+one per CPU it may use, on one client address bound once: its role address, its connections back and its readiness on the first,
+each role that joins made known to every one, each dialling its own connections to the other roles, and its counts of failed
+authentications held by its owner for all of them (client-endpoint, "Connections authenticate against the metadata group's
+principals").
 At start each role SHALL log, per runtime, the CPU it asked for and what it has, read back from the operating system where
 it can be.
 
@@ -104,6 +107,10 @@ it can be.
 #### Scenario: A platform refusing to pin still serves
 - **WHEN** a role starts with `pin_cores = true` where binding is unavailable
 - **THEN** it logs that it runs unpinned, and serves requests
+
+#### Scenario: The frontend serves clients on every core
+- **WHEN** 32 clients each commit a write over a connection of their own to a frontend of two partitions
+- **THEN** every write is committed, the frontend logs a runtime per CPU, and more than one of its cores relays the writes
 
 ### Requirement: Readiness, health and shutdown
 Each role SHALL serve `/health`, answering once it holds its settings (config-service) and has bound every listener it serves from its

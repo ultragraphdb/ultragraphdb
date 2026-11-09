@@ -17,7 +17,8 @@ use crate::utils::micros_since::micros_since;
 /// shares the window.
 ///
 /// The sessions of one partition's role address and its core run on one thread, so `Rc` lets them all hold the window and
-/// `RefCell` lets each add to it; a borrow lasts one record or one report, never across an await.
+/// `RefCell` lets each add to it; a borrow lasts one record or one report, never across an await. Data plane: recording
+/// allocates nothing.
 #[derive(Debug, Clone)]
 pub struct RoleConnectionPhases {
     window: Rc<RefCell<PhaseWindow<1>>>,

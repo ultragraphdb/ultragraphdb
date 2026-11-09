@@ -175,14 +175,14 @@ taken out again, and its figures are recorded with the reason.
 
 ## 8. Verification
 
-- [ ] 8.1 Ultra Style on every changed crate; `make format` and `make fix` leave the tree unchanged; `cargo clippy --workspace
+- [x] 8.1 Ultra Style on every changed crate; `make format` and `make fix` leave the tree unchanged; `cargo clippy --workspace
   --all-targets -- -D warnings` clean
-- [ ] 8.2 Mutation testing of every crate this change touches (`ultragraphdb_common_role`, `ultragraphdb_common_storage`,
+- [x] 8.2 Mutation testing of every crate this change touches (`ultragraphdb_common_role`, `ultragraphdb_common_storage`,
   `ultragraphdb_transactions_commit` and those group 7 changes) over its diff, as the group's
   last step; survivors killed or recorded with their reason
-- [ ] 8.3 `make test` green with OrbStack started, so the supervisor's Docker image tests run, and the five Linux suites under
+- [x] 8.3 `make test` green with OrbStack started, so the supervisor's Docker image tests run, and the five Linux suites under
   `container run` as user 65532; the final counts recorded
-- [ ] 8.4 Cleanup once the measurements are recorded, each listed in `notes/group-8.md` before it is removed: every `container`
+- [x] 8.4 Cleanup once the measurements are recorded, each listed in `notes/group-8.md` before it is removed: every `container`
   cluster this change created (`container cluster delete`), the images it loaded into `container`'s store (`ultragraphdb/*`, the
   bench's, the untagged platform images, `busybox`, and `kindest/node` unless the owner keeps it), `container` volumes and the
   probe's leftovers from group 0, the script's kubeconfig and state files, and the data volumes and binary directories the

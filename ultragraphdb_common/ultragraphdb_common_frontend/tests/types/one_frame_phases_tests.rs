@@ -42,3 +42,22 @@ fn test_a_writes_phases_are_taken_once_due() -> TestResult {
         Ok(())
     })
 }
+
+/// A window given its endpoint core's number is still the one window its clones share.
+#[test]
+fn test_a_window_given_its_core_is_the_one_its_clones_share() -> TestResult {
+    Runtime::new()?.block_on(async {
+        let origin = compio::time::interval(Duration::from_secs(1)).tick().await;
+        let phases = OneFramePhases::new(origin);
+        let core = phases.clone().with_core(1);
+        let began = origin + Duration::from_millis(5);
+        let relayed = began + Duration::from_micros(300);
+        let answered = relayed + Duration::from_micros(2_000);
+        core.record(began, relayed, answered);
+        let window = phases
+            .take_due(answered + Duration::from_micros(PHASES_QUIET_US))
+            .context("due a quiet second on, through the clone it was given to")?;
+        assert_eq!(window.count(), 1, "the write the core recorded");
+        Ok(())
+    })
+}

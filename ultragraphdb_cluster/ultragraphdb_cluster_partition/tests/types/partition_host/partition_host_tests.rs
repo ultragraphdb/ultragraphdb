@@ -305,6 +305,38 @@ fn test_a_turn_syncs_what_was_decided_and_an_outcome_counts_its_registrations() 
     })
 }
 
+/// Writes handed over between `hold_rounds` and `release_rounds` close no round as they arrive, though none is in flight, and
+/// the release closes one over them.
+#[test]
+fn test_writes_handed_over_together_wait_for_the_release() -> TestResult {
+    on_hosts(2, |hosts| {
+        // A first write gets what the tenant's catalog names, so the next ones are decided at once.
+        let _first = hosts
+            .first_mut()
+            .context("partition 1")?
+            .submit(changeset(Vec::new()), 0)?;
+        let _settled = turn_all(hosts, 3, 0)?;
+        let local = hosts.first_mut().context("partition 1")?;
+        local.hold_rounds(0)?;
+        let tickets = [
+            local.submit(changeset(Vec::new()), 0)?,
+            local.submit(changeset(Vec::new()), 0)?,
+        ];
+        assert!(!local.needs_sync(), "no round closes while held");
+        local.release_rounds(0)?;
+        assert!(local.needs_sync(), "the release closes a round");
+        let ended = turn_all(hosts, 1, 0)?;
+        for ticket in tickets {
+            let outcome = ended
+                .iter()
+                .find(|o| o.ticket() == ticket)
+                .context("its outcome")?;
+            assert!(outcome.outcome().is_ok(), "{outcome:?}");
+        }
+        Ok(())
+    })
+}
+
 /// A Bind's identity names one transaction while the partition holds it: a repeat is refused, and a commit or an abort frees it.
 #[test]
 fn test_a_bound_transactions_identity_is_held_until_it_ends() -> TestResult {

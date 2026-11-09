@@ -20,7 +20,8 @@ const ENTRY_BYTES: usize = 64;
 /// bytes (partitions, "An entity's referrer set names where its inbound edges may be"). Only a round's apply puts a set,
 /// once its batch is written, so a held set is the stored one; a drop of a tenant's data forgets the tenant. Two
 /// generations, each at most half the budget: once the young one is full it becomes the old one, and a set found in the
-/// old one moves back to the young.
+/// old one moves back to the young. Data plane: held sets take memory as they are put, at most the budget fixed when the
+/// store opens.
 #[derive(Debug, Default)]
 pub struct ReferrerCache {
     budget: usize,

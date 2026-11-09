@@ -9,7 +9,8 @@
 | 4. Data model and quad storage | ✅ |
 | 5. Transactions, WAL and the zero-copy binary protocol | ✅ |
 | 5.5. Refactor to prepare for the three-role cluster (frontend, compute, storage) | ✅ |
-| 6. UGS: the full data definition and its implementation | `open` |
+| 5.7 Benchmark three-role cluster architecture| ✅  |
+| 6. UGS: the full data definition and its implementation | `in progress` |
 | 6.5. Add tile based scalable distributed graph storeage engine  | `open` |
 | 6.7 Harden transactions  with chaos testing against multiple UGS schemata | `open` |
 | 7. Query core: SPARQL and GQL where they overlap | `open` |

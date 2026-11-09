@@ -7,7 +7,8 @@ use crate::types::metadata_state::MetadataState;
 
 /// What a [`MetadataGroup`](crate::MetadataGroup) answers reads from, apart from its log, so they are answered while the
 /// log syncs ([`MetadataGroup::syncing`](crate::MetadataGroup::syncing)): the state of every durable command, and the
-/// head state of every command appended, which only says whether the registry still holds a session.
+/// head state of every command appended, which only says whether the registry still holds a session. Control plane:
+/// reading allocates nothing.
 #[derive(Debug, Clone, Copy)]
 pub struct MetadataReads<'a> {
     state: &'a MetadataState,

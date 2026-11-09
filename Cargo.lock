@@ -3947,6 +3947,7 @@ dependencies = [
  "ultragraphdb_protocol_wire",
  "ultragraphdb_tool_bdd",
  "ultragraphdb_traits_log",
+ "ultragraphdb_transactions_log",
  "xxhash-rust",
 ]
 

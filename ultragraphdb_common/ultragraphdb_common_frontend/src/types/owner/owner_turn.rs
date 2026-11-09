@@ -22,8 +22,8 @@ use crate::utils::snapshot_file;
 
 impl<M: OrderedLog, S: OrderedLog> Owner<M, S> {
     /// Runs the owner until every [`crate::OwnerHandle`] is gone: each turn takes what has been asked, at most
-    /// `ASKS_PER_TURN_MAX` past the ask it waited for, then answers what its sync made durable and closes an epoch that is
-    /// due, by `clock`.
+    /// `ASKS_PER_TURN_MAX` past the ask it waited for or past those the last turn's syncs kept, at most `ASKS_PER_TURN_MAX`
+    /// a sync, then answers what its sync made durable and closes an epoch that is due, by `clock`.
     ///
     /// A dropped future drops the owner: every ask waiting on it is answered as the owner stopped, what its logs hold
     /// unsynced is durable or lost as the process's end leaves it, and the next start recovers from what is durable.

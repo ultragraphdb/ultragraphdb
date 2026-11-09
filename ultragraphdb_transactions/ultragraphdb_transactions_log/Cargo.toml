@@ -35,6 +35,8 @@ tracing = { workspace = true }
 rustix = { workspace = true }
 
 [dev-dependencies]
+# The crate's own test utilities, so its suite tests them under Cargo as under Bazel.
+ultragraphdb_transactions_log = { path = ".", features = ["test-utils"] }
 ultragraphdb_tool_bdd = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }

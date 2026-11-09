@@ -38,6 +38,8 @@ pub struct QuadStore<S, C, B> {
     lists: Lists<S, C>,
     dictionary: Dictionary<B>,
     fingerprint: fn(&[u8]) -> u64,
+    // Locked: executions running beside each other read held sets through `&self` while a round's apply puts them; the
+    // lock spans one lookup, put or forget, never a store read.
     referrers: Mutex<ReferrerCache>,
 }
 

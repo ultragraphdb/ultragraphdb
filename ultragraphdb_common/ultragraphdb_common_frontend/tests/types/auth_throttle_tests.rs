@@ -7,6 +7,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::time::{Duration, Instant};
 
 use ultragraphdb_common_frontend::{AuthThrottle, LoginLimits};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 const PEER: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
 const OTHER: IpAddr = IpAddr::V4(Ipv4Addr::BROADCAST);
@@ -16,6 +17,8 @@ const THROTTLED: u32 = 3;
 const BAN: Duration = Duration::from_secs(60);
 /// The sources the throttle holds at most.
 const SOURCES: u128 = 65_536;
+/// The longest ban the throttle holds, as it documents it: a century.
+const CENTURY: Duration = Duration::from_secs(100 * 365 * 24 * 60 * 60);
 
 #[expect(
     clippy::disallowed_methods,
@@ -27,6 +30,16 @@ fn start() -> Instant {
 
 fn throttle() -> AuthThrottle {
     AuthThrottle::new(LoginLimits::new(BEFORE_THROTTLE, THROTTLED, BAN))
+}
+
+/// A throttle banning a source at its second failure, so a full table fills with bans cheaply.
+fn quick() -> AuthThrottle {
+    AuthThrottle::new(LoginLimits::new(1, 1, BAN))
+}
+
+/// The source `n`: the IPv6 /64 `n`.
+fn source(n: u128) -> IpAddr {
+    IpAddr::V6(Ipv6Addr::from(n << 64))
 }
 
 /// The address `n` of the IPv6 /64 `prefix`.
@@ -124,6 +137,104 @@ fn test_a_full_table_keeps_its_bans() {
         let _banned = logins.failed(IpAddr::V6(Ipv6Addr::from(n << 64)), now);
     }
     assert!(!logins.admits(PEER, now), "still banned");
+}
+
+/// A ban set longer than a century lasts a century: the source is banned until a century on, and admitted from then.
+#[test]
+fn test_a_ban_lasts_at_most_a_century() -> TestResult {
+    let mut logins = AuthThrottle::new(LoginLimits::new(BEFORE_THROTTLE, THROTTLED, Duration::MAX));
+    let now = start();
+    let banned = (0..BEFORE_THROTTLE + THROTTLED)
+        .map(|_| logins.failed(PEER, now))
+        .collect::<Vec<_>>();
+    assert_eq!(banned.last(), Some(&true), "banned by the last failure");
+    let ends = now.checked_add(CENTURY).context("a century on")?;
+    let before = ends
+        .checked_sub(Duration::from_millis(1))
+        .context("just before a century on")?;
+    assert!(!logins.admits(PEER, before), "banned until a century on");
+    assert!(logins.admits(PEER, ends), "admitted a century on");
+    Ok(())
+}
+
+/// A ban of no time bans nothing: the failure reaching the limit reports no ban, and the source is admitted at once.
+#[test]
+fn test_a_ban_of_no_time_bans_nothing() {
+    let mut logins =
+        AuthThrottle::new(LoginLimits::new(BEFORE_THROTTLE, THROTTLED, Duration::ZERO));
+    let now = start();
+    let banned = (0..BEFORE_THROTTLE + THROTTLED)
+        .map(|_| logins.failed(PEER, now))
+        .collect::<Vec<_>>();
+    assert!(!banned.contains(&true), "never reported banned");
+    assert!(logins.admits(PEER, now));
+}
+
+/// While the table has room, a source failing for the first time forgets no other source's failures.
+#[test]
+fn test_a_new_source_forgets_no_other_while_the_table_has_room() {
+    let mut logins = throttle();
+    let now = start();
+    for _ in 0..=BEFORE_THROTTLE {
+        let _banned = logins.failed(PEER, now);
+    }
+    let waits = logins.delay(PEER);
+    assert_eq!(
+        waits,
+        AuthThrottle::delay_after(1),
+        "one failure past the threshold"
+    );
+    assert!(!logins.failed(OTHER, now));
+    assert_eq!(logins.delay(PEER), waits, "its failures still counted");
+}
+
+/// A table full of sources counting failures forgets them to count a new source: the new one counted from its first failure,
+/// the others from none again.
+#[test]
+fn test_a_full_table_forgets_counting_sources_for_a_new_one() {
+    let mut logins = quick();
+    let now = start();
+    assert!(!logins.failed(PEER, now));
+    for n in 1..SOURCES {
+        let _banned = logins.failed(source(n), now);
+    }
+    assert!(!logins.failed(OTHER, now), "counted in the room made");
+    assert!(logins.failed(OTHER, now), "banned at its second failure");
+    assert!(!logins.failed(PEER, now), "forgotten to make room");
+}
+
+/// A table full of bans makes room from a ban only once it has ended: a new source goes uncounted while every ban runs, and is
+/// counted from the moment one ends.
+#[test]
+fn test_a_full_table_makes_room_from_a_ban_once_it_ends() -> TestResult {
+    let mut logins = quick();
+    let first = start();
+    let later = first
+        .checked_add(Duration::from_millis(1))
+        .context("a moment on")?;
+    assert!(!logins.failed(PEER, first));
+    assert!(logins.failed(PEER, first), "the first ban");
+    // Every first failure before any second: a mutant making room on each new source then finds no ban to keep, and the fill
+    // stays linear.
+    for n in 1..SOURCES {
+        let _banned = logins.failed(source(n), later);
+    }
+    assert!(
+        (1..SOURCES).all(|n| logins.failed(source(n), later)),
+        "every other source banned after the first"
+    );
+    let ends = first.checked_add(BAN).context("the first ban's end")?;
+    let before = ends
+        .checked_sub(Duration::from_millis(1))
+        .context("just before the first ban's end")?;
+    assert!(!logins.failed(OTHER, before), "uncounted");
+    assert!(!logins.failed(OTHER, before), "still uncounted");
+    assert!(
+        !logins.failed(OTHER, ends),
+        "counted once the first ban ends"
+    );
+    assert!(logins.failed(OTHER, ends), "banned at its second failure");
+    Ok(())
 }
 
 /// The limits the settings default to: 50 failures, 20 throttled, a ban of 24 hours.

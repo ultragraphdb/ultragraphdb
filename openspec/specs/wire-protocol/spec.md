@@ -605,10 +605,13 @@ the entry before; in a batch of one range, a key below the range's first key, or
 - **THEN** the reply's `outcome` is 17, its `generation` and `close` 0, and a receiver accepts it
 
 ### Requirement: A parked request holds no role connection
-A partition SHALL copy a request waiting on a home out of its connection's receive buffer, go on reading that connection, and send
-the request's answer on its stream once it has one, as `PROTOCOL.md` section 11.12's *Parked requests* states. A stream's requests
-SHALL take effect and be answered in the order they were sent. A connection's parked bytes SHALL be bounded by `storage.held_bytes`,
-at which the partition stops reading that connection until they fall below it, refusing nothing.
+A partition SHALL copy every request out of its connection's receive buffer as it arrives, hand the copy to its core, and go on
+reading that connection without waiting for the core to take the request, as `PROTOCOL.md` section 11.12's *Parked requests*
+states; it SHALL send each request's answer on its stream once it has one, whether the request runs at the core's next turn or
+waits on a home. A stream's requests SHALL take effect and be answered in the order they were sent, and the answers on one
+connection SHALL leave in the order the core gives them. A connection's held bytes, its requests copied and not yet taken by the
+core together with those parked, SHALL be bounded by `storage.held_bytes`, at which the partition stops reading that connection
+until they fall below it, refusing nothing.
 
 #### Scenario: A write parked on a home's Reference holds no role connection
 - **WHEN** a Write on a Bind stream waits on a home's answer, and a second request arrives on its connection
@@ -653,6 +656,20 @@ at which the partition stops reading that connection until they fall below it, r
 #### Scenario: A stop with a write parked answers or closes
 - **WHEN** a storage process stops while a Write on a Bind stream waits on a home's answer
 - **THEN** the stream is answered with code 17 or the connection closes
+
+#### Scenario: A connection is read on while its core syncs
+- **WHEN** a partition's log sync is in progress and its frontend sends ten DirectWrites on ten streams of one role connection
+- **THEN** the partition reads all ten frames before the sync completes, and each is answered on its stream once its round is
+  durable
+
+#### Scenario: Requests waiting for the core count against the bound
+- **WHEN** `storage.held_bytes` is 4,096, the core is in a sync, and the frontend sends DirectWrites of 1,500 bytes on one role
+  connection
+- **THEN** the partition reads three of them and stops reading that connection until the core has taken them, refusing nothing
+
+#### Scenario: An Abort's stream ends with no frame
+- **WHEN** a transaction's Abort arrives on its Bind stream while the core is in a sync
+- **THEN** the stream ends with no frame once the core takes the Abort, and a later request on the connection is answered
 
 ### Requirement: A transaction names its reads' level, session token and deadline
 Begin SHALL name the level of the transaction's reads (latest, snapshot or monotonic-fast), the session token its client
